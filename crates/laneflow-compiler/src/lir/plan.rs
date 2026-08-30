@@ -2,36 +2,42 @@
 
 use laneflow_static_contract::{
     AuthoringLaneOrdinal, LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
-    MovementOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal, SignalGroupOrdinal,
-    SignalPhaseOrdinal, WaitingZoneOrdinal,
+    MovementOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal, ParticipantStreamOrdinal,
+    SignalGroupOrdinal, SignalPhaseOrdinal, WaitingZoneOrdinal,
 };
 
 use crate::arena::ArenaKey;
 use crate::diagnostic::DiagnosticCollector;
 use crate::mir::{
-    MirLaneEdgeConnection, MirLaneEdgeKey, MirSignalControllerGroup, MirSignalPhaseState, MirUnit,
+    MirConflictPassage, MirLaneEdgeConnection, MirLaneEdgeKey, MirSignalControllerGroup,
+    MirSignalPhaseState, MirUnit,
 };
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation};
 
 use super::{
     LIR_ACCESS_RULE_LOGICAL_BYTES, LIR_BAND_LOGICAL_BYTES, LIR_CANONICAL_FRAME_LOGICAL_BYTES,
-    LIR_CANONICAL_POINT_LOGICAL_BYTES, LIR_CORRIDOR_ELEMENT_LOGICAL_BYTES,
-    LIR_CORRIDOR_LOGICAL_BYTES, LIR_FACILITY_BAND_GEOMETRY_LOGICAL_BYTES,
-    LIR_GEOMETRY_PROFILE_LOGICAL_BYTES, LIR_GROUP_LOGICAL_BYTES, LIR_IDENTITY_FIELD_LOGICAL_BYTES,
+    LIR_CANONICAL_POINT_LOGICAL_BYTES, LIR_CONFLICT_PASSAGE_LOGICAL_BYTES,
+    LIR_CONFLICT_ZONE_LOGICAL_BYTES, LIR_CONFLICT_ZONE_REGION_LOGICAL_BYTES,
+    LIR_CORRIDOR_ELEMENT_LOGICAL_BYTES, LIR_CORRIDOR_LOGICAL_BYTES,
+    LIR_FACILITY_BAND_GEOMETRY_LOGICAL_BYTES, LIR_GEOMETRY_PROFILE_LOGICAL_BYTES,
+    LIR_GROUP_LOGICAL_BYTES, LIR_IDENTITY_FIELD_LOGICAL_BYTES,
     LIR_JUNCTION_INTERNAL_EDGE_LOGICAL_BYTES, LIR_JUNCTION_LOGICAL_BYTES,
     LIR_LANE_EDGE_LOGICAL_BYTES, LIR_LANE_LOGICAL_BYTES, LIR_MANEUVER_GATE_LOGICAL_BYTES,
-    LIR_MANEUVER_PATH_LOGICAL_BYTES, LIR_MOVEMENT_LOGICAL_BYTES, LIR_PARKING_AREA_LOGICAL_BYTES,
-    LIR_PARKING_SPACE_LOGICAL_BYTES, LIR_PARTICIPANT_CLASS_LOGICAL_BYTES,
-    LIR_SECTION_LOGICAL_BYTES, LIR_SEMANTIC_DIGEST_BYTES, LIR_SIGNAL_CONTROLLER_LOGICAL_BYTES,
-    LIR_SIGNAL_GROUP_LOGICAL_BYTES, LIR_SIGNAL_PHASE_LOGICAL_BYTES,
-    LIR_SIGNAL_PHASE_STATE_LOGICAL_BYTES, LIR_SPATIAL_GEOMETRY_LOGICAL_BYTES,
-    LIR_SPATIAL_SEGMENT_LOGICAL_BYTES, LIR_STOP_LINE_LOGICAL_BYTES, LIR_SUCCESSOR_LOGICAL_BYTES,
-    LIR_TYPED_ORDINAL_LOGICAL_BYTES, LIR_VEHICLE_PROFILE_LOGICAL_BYTES,
-    LIR_WAITING_ZONE_LOGICAL_BYTES, LirAccessRule, LirAuthoringLane, LirCanonicalFrame,
-    LirCanonicalPoint3F32, LirCorridorElement, LirFacilityBand, LirFacilityBandGeometry,
-    LirIdentityField, LirJunction, LirJunctionInternalEdge, LirLaneEdge, LirLaneEdgeGeometry,
-    LirLaneGroup, LirManeuverGate, LirManeuverPath, LirMovement, LirParkingArea, LirParkingSpace,
-    LirParticipantClass, LirRoadCorridor, LirRoadSection, LirSignalController, LirSignalGroup,
+    LIR_MANEUVER_PATH_LOGICAL_BYTES, LIR_MOVEMENT_LOGICAL_BYTES,
+    LIR_PARKING_FACILITY_LOGICAL_BYTES, LIR_PARKING_SPACE_LOGICAL_BYTES,
+    LIR_PARTICIPANT_CLASS_LOGICAL_BYTES, LIR_PARTICIPANT_STREAM_LOGICAL_BYTES,
+    LIR_POINT2_LOGICAL_BYTES, LIR_SECTION_LOGICAL_BYTES, LIR_SEMANTIC_DIGEST_BYTES,
+    LIR_SIGNAL_CONTROLLER_LOGICAL_BYTES, LIR_SIGNAL_GROUP_LOGICAL_BYTES,
+    LIR_SIGNAL_PHASE_LOGICAL_BYTES, LIR_SIGNAL_PHASE_STATE_LOGICAL_BYTES,
+    LIR_SPATIAL_GEOMETRY_LOGICAL_BYTES, LIR_SPATIAL_SEGMENT_LOGICAL_BYTES,
+    LIR_STOP_LINE_LOGICAL_BYTES, LIR_SUCCESSOR_LOGICAL_BYTES, LIR_TYPED_ORDINAL_LOGICAL_BYTES,
+    LIR_VEHICLE_PROFILE_LOGICAL_BYTES, LIR_WAITING_ZONE_LOGICAL_BYTES, LirAccessRule,
+    LirAuthoringLane, LirCanonicalFrame, LirCanonicalPoint2F32, LirCanonicalPoint3F32,
+    LirConflictPassage, LirConflictZone, LirConflictZoneRegion, LirCorridorElement,
+    LirFacilityBand, LirFacilityBandGeometry, LirIdentityField, LirJunction,
+    LirJunctionInternalEdge, LirLaneEdge, LirLaneEdgeGeometry, LirLaneGroup, LirManeuverGate,
+    LirManeuverPath, LirMovement, LirParkingFacility, LirParkingSpace, LirParticipantClass,
+    LirParticipantStream, LirRoadCorridor, LirRoadSection, LirSignalController, LirSignalGroup,
     LirSignalPhase, LirSignalPhaseState, LirSpatialSegment, LirStopLine, LirVehicleProfile,
     LirWaitingZone, identity_field_byte_count, requested_bytes,
 };
@@ -50,6 +56,7 @@ pub(crate) struct LirFreezePlan {
     pub(crate) junction: LirJunctionCounts,
     pub(crate) control: LirControlCounts,
     pub(crate) signal: LirSignalCounts,
+    pub(crate) conflict: LirConflictCounts,
     pub(crate) parking: LirParkingCounts,
     pub(crate) spatial: LirSpatialCounts,
     pub(crate) access: LirAccessCounts,
@@ -104,13 +111,24 @@ pub(crate) struct LirParkingCounts {
     pub(crate) areas: u64,
     pub(crate) spaces: u64,
     pub(crate) memberships: u64,
+    pub(crate) virtual_entries: u64,
+    pub(crate) virtual_exits: u64,
+}
+
+pub(crate) struct LirConflictCounts {
+    pub(crate) zones: u64,
+    pub(crate) streams: u64,
+    pub(crate) passages: u64,
+    pub(crate) zone_streams: u64,
 }
 
 pub(crate) struct LirSpatialCounts {
     pub(crate) canonical_frames: u64,
     pub(crate) lane_edge_geometries: u64,
     pub(crate) facility_band_geometries: u64,
+    pub(crate) conflict_zone_regions: u64,
     pub(crate) canonical_points: u64,
+    pub(crate) conflict_region_points: u64,
     pub(crate) spatial_segments: u64,
 }
 
@@ -171,15 +189,25 @@ impl LirFreezePlan {
             controlled_gates: mir_len(mir.signal_group_maneuver_gates.len()),
         };
         let parking = LirParkingCounts {
-            areas: mir_len(mir.parking_areas.len()),
+            areas: mir_len(mir.parking_facilities.len()),
             spaces: mir_len(mir.parking_spaces.len()),
-            memberships: mir_len(mir.parking_area_spaces.len()),
+            memberships: mir_len(mir.parking_facility_spaces.len()),
+            virtual_entries: mir_len(mir.parking_facility_virtual_entries.len()),
+            virtual_exits: mir_len(mir.parking_facility_virtual_exits.len()),
+        };
+        let conflict = LirConflictCounts {
+            zones: mir_len(mir.conflict_zones.len()),
+            streams: mir_len(mir.participant_streams.len()),
+            passages: mir_len(mir.conflict_passages.len()),
+            zone_streams: mir_len(mir.conflict_zone_streams.len()),
         };
         let spatial = LirSpatialCounts {
             canonical_frames: mir_len(mir.canonical_frames.len()),
             lane_edge_geometries: mir_len(mir.lane_edge_geometries.len()),
             facility_band_geometries: mir_len(mir.facility_band_geometries.len()),
+            conflict_zone_regions: mir_len(mir.conflict_zone_regions.len()),
             canonical_points: mir_len(mir.canonical_points.len()),
+            conflict_region_points: mir_len(mir.conflict_region_points.len()),
             spatial_segments: mir_len(mir.spatial_segments.len()),
         };
         let access = LirAccessCounts {
@@ -223,6 +251,9 @@ impl LirFreezePlan {
             signal.phases,
             signal.phase_states,
             signal.controlled_gates,
+            conflict.zones,
+            conflict.streams,
+            conflict.passages,
             parking.areas,
             parking.spaces,
             parking.memberships,
@@ -231,7 +262,9 @@ impl LirFreezePlan {
             spatial.canonical_frames,
             spatial.lane_edge_geometries,
             spatial.facility_band_geometries,
+            spatial.conflict_zone_regions,
             spatial.canonical_points,
+            spatial.conflict_region_points,
             spatial.spatial_segments,
             access.access_rules,
             access.rule_class_references,
@@ -260,6 +293,8 @@ impl LirFreezePlan {
             .saturating_add(signal.groups.saturating_mul(2))
             .saturating_add(signal.controllers.saturating_mul(2))
             .saturating_add(signal.phases.saturating_mul(3))
+            .saturating_add(conflict.zones.saturating_mul(3))
+            .saturating_add(conflict.streams.saturating_mul(3))
             .saturating_add(parking.areas.saturating_mul(2))
             .saturating_add(parking.spaces.saturating_mul(2))
             .saturating_add(access.participant_classes.saturating_mul(2))
@@ -322,6 +357,8 @@ impl LirFreezePlan {
                     .saturating_add(signal.groups)
                     .saturating_add(signal.controllers)
                     .saturating_add(signal.phases)
+                    .saturating_add(conflict.zones)
+                    .saturating_add(conflict.streams)
                     .saturating_add(parking.areas)
                     .saturating_add(parking.spaces)
                     .saturating_add(access.participant_classes)
@@ -339,12 +376,23 @@ impl LirFreezePlan {
             .saturating_add(requested_bytes::<ArenaKey<MirSignalPhaseState>>(
                 signal.phase_states,
             ))
+            .saturating_add(requested_bytes::<ArenaKey<MirConflictPassage>>(
+                conflict.passages,
+            ))
             .saturating_add(requested_bytes::<ArenaKey<MirLaneEdgeConnection>>(
                 successor_count,
             ))
             .saturating_add(requested_bytes::<Option<usize>>(lane_edge_count))
             .saturating_add(requested_bytes::<Option<usize>>(
                 cross_section.facility_bands,
+            ))
+            // ParticipantClass 的 HIR DFS 区间不能跨 MIR→LIR 身份重排复用；最终 ordinal
+            // 上重建 first-child/next-sibling 与显式 DFS 栈，避免递归和每节点 Vec。
+            .saturating_add(requested_bytes::<u32>(
+                access.participant_classes.saturating_mul(2),
+            ))
+            .saturating_add(requested_bytes::<(u32, bool)>(
+                access.participant_classes.saturating_mul(2),
             ));
         // OutputBytes 使用设计冻结的目标布局中立字段宽度，不能把 Rust struct padding 或
         // 当前平台对齐冒充规范输出量；受控存续内存则按真实堆容量请求单独计算。
@@ -481,7 +529,26 @@ impl LirFreezePlan {
                     .controlled_gates
                     .saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES),
             )
-            .saturating_add(parking.areas.saturating_mul(LIR_PARKING_AREA_LOGICAL_BYTES))
+            .saturating_add(
+                conflict
+                    .zones
+                    .saturating_mul(LIR_CONFLICT_ZONE_LOGICAL_BYTES),
+            )
+            .saturating_add(
+                conflict
+                    .streams
+                    .saturating_mul(LIR_PARTICIPANT_STREAM_LOGICAL_BYTES),
+            )
+            .saturating_add(
+                conflict
+                    .passages
+                    .saturating_mul(LIR_CONFLICT_PASSAGE_LOGICAL_BYTES),
+            )
+            .saturating_add(
+                parking
+                    .areas
+                    .saturating_mul(LIR_PARKING_FACILITY_LOGICAL_BYTES),
+            )
             .saturating_add(
                 parking
                     .spaces
@@ -491,6 +558,12 @@ impl LirFreezePlan {
                 parking
                     .memberships
                     .saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES),
+            )
+            .saturating_add(
+                parking
+                    .virtual_entries
+                    .saturating_add(parking.virtual_exits)
+                    .saturating_mul(8),
             )
             .saturating_add(
                 access
@@ -519,8 +592,18 @@ impl LirFreezePlan {
             )
             .saturating_add(
                 spatial
+                    .conflict_zone_regions
+                    .saturating_mul(LIR_CONFLICT_ZONE_REGION_LOGICAL_BYTES),
+            )
+            .saturating_add(
+                spatial
                     .canonical_points
                     .saturating_mul(LIR_CANONICAL_POINT_LOGICAL_BYTES),
+            )
+            .saturating_add(
+                spatial
+                    .conflict_region_points
+                    .saturating_mul(LIR_POINT2_LOGICAL_BYTES),
             )
             .saturating_add(
                 spatial
@@ -618,9 +701,20 @@ impl LirFreezePlan {
             .saturating_add(requested_bytes::<ManeuverGateOrdinal>(
                 signal.controlled_gates,
             ))
-            .saturating_add(requested_bytes::<LirParkingArea>(parking.areas))
+            .saturating_add(requested_bytes::<LirConflictZone>(conflict.zones))
+            .saturating_add(requested_bytes::<LirParticipantStream>(conflict.streams))
+            .saturating_add(requested_bytes::<LirConflictPassage>(conflict.passages))
+            .saturating_add(requested_bytes::<ParticipantStreamOrdinal>(
+                conflict.zone_streams,
+            ))
+            .saturating_add(requested_bytes::<LirParkingFacility>(parking.areas))
             .saturating_add(requested_bytes::<LirParkingSpace>(parking.spaces))
             .saturating_add(requested_bytes::<ParkingSpaceOrdinal>(parking.memberships))
+            .saturating_add(requested_bytes::<super::parking::LirParkingLaneAnchor>(
+                parking
+                    .virtual_entries
+                    .saturating_add(parking.virtual_exits),
+            ))
             .saturating_add(requested_bytes::<LirParticipantClass>(
                 access.participant_classes,
             ))
@@ -636,8 +730,14 @@ impl LirFreezePlan {
             .saturating_add(requested_bytes::<LirFacilityBandGeometry>(
                 spatial.facility_band_geometries,
             ))
+            .saturating_add(requested_bytes::<LirConflictZoneRegion>(
+                spatial.conflict_zone_regions,
+            ))
             .saturating_add(requested_bytes::<LirCanonicalPoint3F32>(
                 spatial.canonical_points,
+            ))
+            .saturating_add(requested_bytes::<LirCanonicalPoint2F32>(
+                spatial.conflict_region_points,
             ))
             .saturating_add(requested_bytes::<LirSpatialSegment>(
                 spatial.spatial_segments,
@@ -661,6 +761,7 @@ impl LirFreezePlan {
             junction,
             control,
             signal,
+            conflict,
             parking,
             spatial,
             access,

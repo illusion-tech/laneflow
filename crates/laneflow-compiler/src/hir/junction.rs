@@ -145,6 +145,9 @@ impl Hash for ManeuverPathSequence<'_> {
 }
 
 #[allow(clippy::too_many_lines)]
+// Every parameter is one explicit HIR stage dependency; an aggregate context would broaden
+// access and make the stage boundary less reviewable.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_junction_hir(
     unit: &CompilationUnit,
     counts: &JunctionCounts,

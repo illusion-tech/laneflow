@@ -528,7 +528,9 @@ fn apply_record(
         } => {
             candidate.tick_index = *tick_index;
             candidate.time_ms = *time_ms;
-            for chunk in entries.chunks_exact(VEHICLE_DELTA_BYTES) {
+            let (chunks, remainder) = entries.as_chunks::<VEHICLE_DELTA_BYTES>();
+            debug_assert!(remainder.is_empty());
+            for chunk in chunks {
                 let delta = VehicleDelta::decode(chunk);
                 let slot_index =
                     usize::try_from(delta.slot).map_err(|_| CutoverError::ReplayInconsistent)?;
@@ -1603,7 +1605,6 @@ mod tests {
         assert!(other.migration_journal_stats().is_none());
         assert!(cut.migration_journal_stats().is_some());
         // 正确世界仍可结算。
-        let mut tx = tx;
         tx.pump(&mut cut).expect("pump on origin world");
         let _ = tx.commit(&mut cut).expect("commit");
     }

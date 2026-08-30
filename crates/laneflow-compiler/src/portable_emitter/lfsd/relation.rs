@@ -67,6 +67,8 @@ pub(super) fn artifact_relation_tuples(
     mismatch: PortableEmissionError,
 ) -> Result<Vec<RelationTuple>, PortableEmissionError> {
     let mut relations = Vec::new();
+    let mut conflict_zone_memberships = Vec::<(u32, u32)>::new();
+    let mut participant_stream_memberships = Vec::<(u32, u32)>::new();
     for ((owner_kind, owner_stable_id), owner) in &index.entities {
         match owner_kind {
             EntityKind::RoadCorridor => {
@@ -214,8 +216,8 @@ pub(super) fn artifact_relation_tuples(
                 }
             }
             EntityKind::ParkingSpace => {
-                if let Some(parking_area) = owner.row.field_by_tag(3) {
-                    let ordinal = match parking_area.value()? {
+                if let Some(parking_facility) = owner.row.field_by_tag(3) {
+                    let ordinal = match parking_facility.value()? {
                         RegistryCheckedFieldValue::U32(value) => value,
                         _ => return Err(mismatch),
                     };
@@ -226,7 +228,7 @@ pub(super) fn artifact_relation_tuples(
                         *owner_stable_id,
                         21,
                         0,
-                        EntityKind::ParkingArea,
+                        EntityKind::ParkingFacility,
                         ordinal,
                         mismatch,
                     )?;
@@ -317,13 +319,100 @@ pub(super) fn artifact_relation_tuples(
                 checked_u32_with(owner.row, 3, mismatch)?,
                 mismatch,
             )?,
-            EntityKind::StaticRoute
-            | EntityKind::WaitingZone
+            EntityKind::ParkingFacility => {
+                for (field_tag, role) in [(5, 13), (6, 14)] {
+                    let anchors = checked_record_vector_with(owner.row, field_tag, mismatch)?;
+                    for (local_index, anchor) in anchors.rows().enumerate() {
+                        push_artifact_relation(
+                            &mut relations,
+                            index,
+                            *owner_kind,
+                            *owner_stable_id,
+                            role,
+                            u32::try_from(local_index)
+                                .map_err(|_| PortableEmissionError::ArithmeticOverflow)?,
+                            EntityKind::LaneEdge,
+                            checked_u32_with(anchor, 1, mismatch)?,
+                            mismatch,
+                        )?;
+                    }
+                }
+            }
+            EntityKind::ParticipantStream => {
+                let stream_ordinal = checked_u32_with(owner.row, 1, mismatch)?;
+                let junction_ordinal = checked_u32_with(owner.row, 3, mismatch)?;
+                participant_stream_memberships.push((junction_ordinal, stream_ordinal));
+                push_artifact_relation(
+                    &mut relations,
+                    index,
+                    *owner_kind,
+                    *owner_stable_id,
+                    30,
+                    0,
+                    EntityKind::ManeuverPath,
+                    checked_u32_with(owner.row, 4, mismatch)?,
+                    mismatch,
+                )?;
+                let passages = checked_record_vector_with(owner.row, 5, mismatch)?;
+                for (local_index, passage) in passages.rows().enumerate() {
+                    push_artifact_relation(
+                        &mut relations,
+                        index,
+                        *owner_kind,
+                        *owner_stable_id,
+                        31,
+                        u32::try_from(local_index)
+                            .map_err(|_| PortableEmissionError::ArithmeticOverflow)?,
+                        EntityKind::ConflictZone,
+                        checked_u32_with(passage, 1, mismatch)?,
+                        mismatch,
+                    )?;
+                }
+            }
+            EntityKind::ConflictZone => conflict_zone_memberships.push((
+                checked_u32_with(owner.row, 3, mismatch)?,
+                checked_u32_with(owner.row, 1, mismatch)?,
+            )),
+            EntityKind::WaitingZone
             | EntityKind::SignalGroup
             | EntityKind::SignalPhase
-            | EntityKind::ParkingArea
             | EntityKind::FacilityBand
             | EntityKind::CanonicalFrame => {}
+        }
+    }
+
+    for (role, subject_kind, mut memberships) in [
+        (15, EntityKind::ConflictZone, conflict_zone_memberships),
+        (
+            16,
+            EntityKind::ParticipantStream,
+            participant_stream_memberships,
+        ),
+    ] {
+        memberships.sort_unstable();
+        let mut previous_junction = None;
+        let mut local_index = 0_u32;
+        for (junction_ordinal, subject_ordinal) in memberships {
+            if previous_junction != Some(junction_ordinal) {
+                previous_junction = Some(junction_ordinal);
+                local_index = 0;
+            }
+            let owner_stable_id =
+                index.stable_id(EntityKind::Junction, junction_ordinal, mismatch)?;
+            push_artifact_relation(
+                &mut relations,
+                index,
+                EntityKind::Junction,
+                owner_stable_id,
+                role,
+                local_index,
+                subject_kind,
+                subject_ordinal,
+                mismatch,
+            )?;
+            local_index = local_index
+                .checked_add(1)
+                .ok_or(PortableEmissionError::ArithmeticOverflow)?;
         }
     }
 
@@ -365,9 +454,9 @@ enum RelationPairing {
 
 fn relation_pairing(role: u8) -> Option<RelationPairing> {
     match role {
-        1 | 6 | 7 | 9 | 12 | 17 | 26 => Some(RelationPairing::Set),
-        20..=25 | 27 => Some(RelationPairing::Scalar),
-        2..=5 | 8 | 10 | 11 | 18 => Some(RelationPairing::DomainOccurrence),
+        1 | 6 | 7 | 9 | 12 | 15 | 16 | 17 | 26 => Some(RelationPairing::Set),
+        20..=25 | 27 | 30 => Some(RelationPairing::Scalar),
+        2..=5 | 8 | 10 | 11 | 13 | 14 | 18 | 31 => Some(RelationPairing::DomainOccurrence),
         _ => None,
     }
 }
@@ -757,19 +846,19 @@ mod tests {
 
     #[test]
     fn every_lfsd_relation_role_uses_the_frozen_pairing_family() {
-        for role in [1, 6, 7, 9, 12, 17, 26] {
+        for role in [1, 6, 7, 9, 12, 15, 16, 17, 26] {
             assert_eq!(relation_pairing(role), Some(RelationPairing::Set));
         }
-        for role in [20, 21, 22, 23, 24, 25, 27] {
+        for role in [20, 21, 22, 23, 24, 25, 27, 30] {
             assert_eq!(relation_pairing(role), Some(RelationPairing::Scalar));
         }
-        for role in [2, 3, 4, 5, 8, 10, 11, 18] {
+        for role in [2, 3, 4, 5, 8, 10, 11, 13, 14, 18, 31] {
             assert_eq!(
                 relation_pairing(role),
                 Some(RelationPairing::DomainOccurrence)
             );
         }
-        for role in [0, 13, 14, 15, 16, 19, 28, 29, 30, u8::MAX] {
+        for role in [0, 19, 28, 29, 32, u8::MAX] {
             assert_eq!(relation_pairing(role), None);
         }
     }

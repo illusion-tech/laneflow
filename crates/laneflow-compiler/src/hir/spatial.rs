@@ -10,13 +10,15 @@ use laneflow_static_contract::{
 
 use crate::arena::{ArenaKeyOverflow, TableRange, TypedArena};
 use crate::declaration::{
-    CanonicalPoint3F32Input, LaneEdgeDeclaration, LaneEdgeGeometryAuthority, TypedAstDeclaration,
+    CanonicalPoint3F32Input, ConflictZoneRegionDeclaration, LaneEdgeDeclaration,
+    LaneEdgeGeometryAuthority, OwnedEntityReference, TypedAstDeclaration, TypedAstEntityAddress,
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::geometry_profile::GeometryCompilationProfiles;
 use crate::identity::{IdentityFieldInput, IdentityRegistry};
 use crate::spatial_freeze::{
-    check_spatial_direction, freeze_canonical_polyline, freeze_spatial_polyline,
+    check_spatial_direction, freeze_canonical_polyline, freeze_conflict_zone_region,
+    freeze_spatial_polyline,
 };
 use crate::{
     CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation,
@@ -24,10 +26,11 @@ use crate::{
 };
 
 use super::{
-    HirCanonicalFrameKey, HirCanonicalFrameTag, HirFacilityBand, HirFacilityBandKey,
-    HirJunctionInternalEdge, HirLaneEdge, HirLaneEdgeKey, HirLaneEdgeReference, HirLaneEdgeTag,
-    HirManeuverPath, HirManeuverPathEdge, HirModuleKey, SpatialCounts, SymbolTable, arena_overflow,
-    count_to_usize, declaration_header, derive_identity, lane_edge_declaration, resolve_reference,
+    HirCanonicalFrameKey, HirCanonicalFrameTag, HirConflictZone, HirConflictZoneKey,
+    HirFacilityBand, HirFacilityBandKey, HirJunctionInternalEdge, HirLaneEdge, HirLaneEdgeKey,
+    HirLaneEdgeReference, HirLaneEdgeTag, HirManeuverPath, HirManeuverPathEdge, HirModuleKey,
+    SpatialCounts, SymbolTable, arena_overflow, count_to_usize, declaration_header,
+    derive_identity, lane_edge_declaration, resolve_reference,
 };
 
 /// 已冻结稳定身份的规范坐标框架。
@@ -67,6 +70,21 @@ pub(crate) struct HirFacilityBandGeometry {
     pub(crate) source_span: SourceLocation,
 }
 
+/// 一个 ConflictZone 在规范 frame 中的 owner-local 2.5D 区域。
+#[derive(Debug, PartialEq)]
+pub(crate) struct HirConflictZoneRegion {
+    pub(crate) source_module: HirModuleKey,
+    pub(crate) conflict_zone: super::HirConflictZoneKey,
+    pub(crate) canonical_frame: HirCanonicalFrameKey,
+    pub(crate) min_y: f32,
+    pub(crate) max_y: f32,
+    pub(crate) ring_xz: TableRange<HirCanonicalPoint2F32>,
+    pub(crate) conflict_zone_source_location: crate::module::ResolvedSourceLocation,
+    pub(crate) canonical_frame_source_location: crate::module::ResolvedSourceLocation,
+    pub(crate) source_location: crate::module::ResolvedSourceLocation,
+    pub(crate) source_span: SourceLocation,
+}
+
 /// 共享规范点表中一段连续点范围到 authoring source segment 的阶段私有来源映射。
 #[derive(Debug, PartialEq)]
 pub(crate) struct HirGeometrySourceRange {
@@ -84,6 +102,12 @@ pub(crate) struct HirCanonicalPoint3F32 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct HirCanonicalPoint2F32 {
+    pub(crate) x: f32,
+    pub(crate) z: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HirSpatialSegment {
     pub(crate) length_meters: f32,
     pub(crate) cumulative_end_meters: f32,
@@ -97,8 +121,10 @@ pub(crate) struct SpatialHir {
     pub(crate) canonical_frames: Box<[HirCanonicalFrame]>,
     pub(crate) lane_edge_geometries: Box<[HirLaneEdgeGeometry]>,
     pub(crate) facility_band_geometries: Box<[HirFacilityBandGeometry]>,
+    pub(crate) conflict_zone_regions: Box<[HirConflictZoneRegion]>,
     pub(crate) geometry_source_ranges: Box<[HirGeometrySourceRange]>,
     pub(crate) canonical_points: Box<[HirCanonicalPoint3F32]>,
+    pub(crate) conflict_region_points: Box<[HirCanonicalPoint2F32]>,
     pub(crate) spatial_segments: Box<[HirSpatialSegment]>,
 }
 
@@ -124,6 +150,13 @@ pub(crate) struct SpatialHirContext<'a> {
     pub(crate) maneuver_paths: &'a [HirManeuverPath],
     pub(crate) maneuver_path_edges: &'a [HirManeuverPathEdge],
     pub(crate) junction_internal_edges: &'a [HirJunctionInternalEdge],
+}
+
+pub(crate) struct PendingConflictZoneRegion<'a> {
+    module_order: u32,
+    source: &'a ConflictZoneRegionDeclaration,
+    conflict_zone: HirConflictZoneKey,
+    canonical_frame: HirCanonicalFrameKey,
 }
 
 pub(crate) fn build_spatial_hir(
@@ -704,7 +737,7 @@ pub(crate) fn build_spatial_hir(
                 order_cursor = order_cursor.saturating_add(1);
                 continue;
             };
-            if committed_mm < MIN_LANE_EDGE_LENGTH_MM || committed_mm > MAX_LANE_EDGE_LENGTH_MM {
+            if !(MIN_LANE_EDGE_LENGTH_MM..=MAX_LANE_EDGE_LENGTH_MM).contains(&committed_mm) {
                 let mut diagnostic = Diagnostic::invalid_lane_edge_length(
                     &lane_edges.get(edge).stable_key,
                     f64::from(frozen.arc_length_meters),
@@ -891,7 +924,223 @@ pub(crate) fn build_spatial_hir(
         geometry_source_ranges: geometry_source_ranges.into_boxed_slice(),
         canonical_points: points.into_boxed_slice(),
         spatial_segments: segments.into_boxed_slice(),
+        ..SpatialHir::default()
     })
+}
+
+/// 在 Traffic conflict HIR 和最终 edge length 均闭合后，把 owner-local region 接到
+/// Spatial HIR。该后置步骤只增加可选空间记录，不参与或改写 passage 行为。
+pub(crate) fn attach_conflict_zone_regions(
+    unit: &CompilationUnit,
+    counts: &SpatialCounts,
+    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    conflict_zones: &[HirConflictZone],
+    spatial: &mut SpatialHir,
+) -> Result<(), DiagnosticBundle> {
+    if counts.conflict_zone_regions == 0 {
+        return Ok(());
+    }
+    debug_assert!(spatial.conflict_zone_regions.is_empty());
+    debug_assert!(spatial.conflict_region_points.is_empty());
+
+    let mut frame_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
+        module
+            .declarations
+            .iter()
+            .filter(|value| matches!(value, TypedAstDeclaration::CanonicalFrame(_)))
+            .count()
+    }));
+    for (index, frame) in spatial.canonical_frames.iter().enumerate() {
+        frame_symbols.insert(
+            frame.module,
+            TypedAstEntityAddress::module_scoped(Arc::clone(&frame.stable_key)),
+            HirCanonicalFrameKey::from_raw(u32::try_from(index).map_err(|_| {
+                arena_overflow(
+                    ArenaKeyOverflow,
+                    &unit.limits,
+                    Some(frame.source_span.clone()),
+                )
+            })?),
+        );
+    }
+    let mut zone_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
+        module
+            .declarations
+            .iter()
+            .filter(|value| matches!(value, TypedAstDeclaration::ConflictZone(_)))
+            .count()
+    }));
+    for (index, zone) in conflict_zones.iter().enumerate() {
+        zone_symbols.insert(
+            zone.module,
+            zone.source_address.clone(),
+            HirConflictZoneKey::from_raw(u32::try_from(index).map_err(|_| {
+                arena_overflow(
+                    ArenaKeyOverflow,
+                    &unit.limits,
+                    Some(zone.source_span.clone()),
+                )
+            })?),
+        );
+    }
+
+    let mut diagnostics =
+        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    let mut pending =
+        Vec::with_capacity(count_to_usize(counts.conflict_zone_regions, &unit.limits)?);
+    let mut owners = vec![None::<SourceLocation>; conflict_zones.len()];
+    for (module_index, source_module) in unit.modules.iter().enumerate() {
+        let module_order = u32::try_from(module_index).unwrap_or(u32::MAX);
+        for source in source_module.conflict_zone_regions.iter() {
+            let conflict_zone = resolve_region_reference(
+                module_lookup,
+                &zone_symbols,
+                &source.conflict_zone,
+                EntityKind::ConflictZone,
+                source.conflict_zone.declaration_key(),
+                &source.span,
+                module_order,
+                &mut diagnostics,
+            );
+            let canonical_frame = resolve_region_reference(
+                module_lookup,
+                &frame_symbols,
+                &source.canonical_frame,
+                EntityKind::ConflictZone,
+                source.conflict_zone.declaration_key(),
+                &source.span,
+                module_order,
+                &mut diagnostics,
+            );
+            let (Some(conflict_zone), Some(canonical_frame)) = (conflict_zone, canonical_frame)
+            else {
+                continue;
+            };
+            if let Some(first_span) = &owners[conflict_zone.index()] {
+                let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                    Some(&spatial.canonical_frames[canonical_frame.index()].stable_key),
+                    &conflict_zones[conflict_zone.index()].stable_key,
+                    None,
+                    SpatialGeometryViolation::DuplicateConflictZoneRegion,
+                    source.span.clone(),
+                    Some(first_span.clone()),
+                );
+                diagnostic.set_canonical_module_order(module_order);
+                diagnostics.push(diagnostic);
+                continue;
+            }
+            owners[conflict_zone.index()] = Some(source.span.clone());
+            pending.push(PendingConflictZoneRegion {
+                module_order,
+                source,
+                conflict_zone,
+                canonical_frame,
+            });
+        }
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+    pending.sort_unstable_by(|left, right| {
+        conflict_zones[left.conflict_zone.index()]
+            .stable_id
+            .cmp(&conflict_zones[right.conflict_zone.index()].stable_id)
+            .then_with(|| {
+                spatial.canonical_frames[left.canonical_frame.index()]
+                    .stable_id
+                    .cmp(&spatial.canonical_frames[right.canonical_frame.index()].stable_id)
+            })
+    });
+
+    let mut regions = Vec::with_capacity(pending.len());
+    let mut points =
+        Vec::with_capacity(count_to_usize(counts.conflict_region_points, &unit.limits)?);
+    for item in pending {
+        let zone = &conflict_zones[item.conflict_zone.index()];
+        let frame = &spatial.canonical_frames[item.canonical_frame.index()];
+        let frozen = match freeze_conflict_zone_region(
+            item.source.min_y,
+            item.source.max_y,
+            &item.source.ring_xz,
+            &mut points,
+        ) {
+            Ok(value) => value,
+            Err(violation) => {
+                let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                    Some(&frame.stable_key),
+                    &zone.stable_key,
+                    None,
+                    violation,
+                    item.source.span.clone(),
+                    None,
+                );
+                diagnostic.set_canonical_module_order(item.module_order);
+                diagnostics.push(diagnostic);
+                continue;
+            }
+        };
+        regions.push(HirConflictZoneRegion {
+            source_module: HirModuleKey::from_raw(item.module_order),
+            conflict_zone: item.conflict_zone,
+            canonical_frame: item.canonical_frame,
+            min_y: frozen.min_y,
+            max_y: frozen.max_y,
+            ring_xz: TableRange::try_from_usize(frozen.point_start, frozen.point_count).map_err(
+                |overflow| arena_overflow(overflow, &unit.limits, Some(item.source.span.clone())),
+            )?,
+            conflict_zone_source_location: unit.resolve_source_location_for_module(
+                item.module_order,
+                &item.source.conflict_zone.span,
+            )?,
+            canonical_frame_source_location: unit.resolve_source_location_for_module(
+                item.module_order,
+                &item.source.canonical_frame.span,
+            )?,
+            source_location: unit
+                .resolve_source_location_for_module(item.module_order, &item.source.span)?,
+            source_span: item.source.span.clone(),
+        });
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+    debug_assert_eq!(regions.len(), counts.conflict_zone_regions as usize);
+    debug_assert_eq!(points.len(), counts.conflict_region_points as usize);
+    spatial.conflict_zone_regions = regions.into_boxed_slice();
+    spatial.conflict_region_points = points.into_boxed_slice();
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_region_reference<M, K: Copy>(
+    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    symbols: &SymbolTable<K>,
+    reference: &OwnedEntityReference<M>,
+    source_kind: EntityKind,
+    source_stable_key: &str,
+    source_span: &SourceLocation,
+    module_order: u32,
+    diagnostics: &mut DiagnosticCollector,
+) -> Option<K>
+where
+    M: laneflow_static_contract::EntityKindMarker,
+{
+    let target_module = module_lookup[reference.module_namespace.as_ref()];
+    let Some(target) = symbols.get(target_module, &reference.target_address) else {
+        let mut diagnostic = Diagnostic::unknown_owner_qualified_reference_target(
+            source_kind,
+            source_stable_key,
+            &reference.module_namespace,
+            reference.target_address.owner_local_keys(),
+            reference.declaration_key(),
+            reference.span.clone(),
+            source_span.clone(),
+        );
+        diagnostic.set_canonical_module_order(module_order);
+        diagnostics.push(diagnostic);
+        return None;
+    };
+    Some(target)
 }
 
 #[allow(clippy::too_many_arguments)]

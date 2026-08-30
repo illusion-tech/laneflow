@@ -126,8 +126,14 @@ fn full_spatial_build_closes_identity_lane_csr_and_lane_pose() {
     assert_eq!(weights[last.index()], 1);
 
     let maneuvers = revision.traffic().maneuvers();
-    assert_eq!(maneuvers.maneuver_path_count(), 1);
-    let path_ordinal = ManeuverPathOrdinal::from_raw(0);
+    let path_ordinal = (0..maneuvers.maneuver_path_count())
+        .map(ManeuverPathOrdinal::from_raw)
+        .find(|ordinal| {
+            maneuvers
+                .maneuver_path(*ordinal)
+                .is_some_and(|path| path.edges() == [first, middle, last])
+        })
+        .expect("fixture three-edge maneuver path");
     let path = maneuvers
         .maneuver_path(path_ordinal)
         .expect("fixture maneuver path");
@@ -568,13 +574,13 @@ fn full_spatial_access_cells_do_not_scan_and_stay_in_rule_bounds() {
 }
 
 #[test]
-fn full_spatial_entity_tables_skip_kind_21() {
+fn full_spatial_entity_tables_accept_every_registered_kind() {
     let input =
         check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).expect("checked input");
     let view = input.value_checked_view();
     let entities = view.registry_view().section(2).expect("entities");
     for table in entities.tables() {
-        assert_ne!(table.kind(), EntityKind::StaticRoute.code());
+        assert!(EntityKind::from_code(table.kind()).is_some());
     }
     let _ = build(FULL_SPATIAL, SpatialBuildOption::Omit);
 }

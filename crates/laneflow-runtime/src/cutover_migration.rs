@@ -637,14 +637,14 @@ mod tests {
     fn signal_aspect_staging_reservation_failure_fails_closed() {
         // full-spatial 带信号组（group_count > 0）：重绑表已在外层构建，
         // 迁移内的首次切换暂存预留即候选信号灯色切片。
-        let mut world = installed_world(FULL_SPATIAL_LFCA, "fixture://signal-stage");
+        let world = installed_world(FULL_SPATIAL_LFCA, "fixture://signal-stage");
         let target = revision(FULL_SPATIAL_LFCA);
         let target_origin = *target.canonical_origin();
         let rebinding =
             CrossRevisionRebinding::build(world.revision.identity(), target.identity()).unwrap();
         let result = with_staging_allocation_failure_after(0, || {
             migrate_structural_clone(
-                &mut world,
+                &world,
                 Arc::clone(&target),
                 source_for(target_origin, "fixture://signal-stage-target"),
                 &rebinding,
@@ -928,7 +928,7 @@ mod tests {
                 .unwrap();
         let target_origin = *target_revision.canonical_origin();
         let candidate = migrate_structural_clone(
-            &mut world,
+            &world,
             Arc::clone(&target_revision),
             source_for(target_origin, "fixture://headroom-target"),
             &rebinding,
@@ -960,7 +960,7 @@ mod tests {
                 .unwrap();
         let target_origin = *target_revision.canonical_origin();
         let mut candidate = migrate_structural_clone(
-            &mut world,
+            &world,
             Arc::clone(&target_revision),
             source_for(target_origin, "fixture://completed-end-target"),
             &rebinding,
@@ -1182,7 +1182,7 @@ mod tests {
             CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity())
                 .unwrap();
         assert_eq!(
-            expect_migration_error(&mut world, target_revision, &rebinding),
+            expect_migration_error(&world, target_revision, &rebinding),
             CutoverError::ProfileDerivationMismatch {
                 vehicle: vehicle.index()
             }
@@ -1218,7 +1218,7 @@ mod tests {
             CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity())
                 .unwrap();
         assert_eq!(
-            expect_migration_error(&mut world, target_revision, &rebinding),
+            expect_migration_error(&world, target_revision, &rebinding),
             CutoverError::ProfileDerivationMismatch {
                 vehicle: vehicle.index()
             }

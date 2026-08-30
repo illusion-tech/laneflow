@@ -1,7 +1,7 @@
 //! 一次成功编译原子拥有的输出与资源观测值。
 
 use crate::source_map::ValidatedSourceMapInput;
-use crate::{Diagnostic, ValidatedCanonicalLir};
+use crate::{CompileLimits, Diagnostic, ValidatedCanonicalLir};
 
 /// 一次成功编译原子拥有的已验证结果。
 ///
@@ -13,6 +13,7 @@ pub struct CompilationOutput {
     source_map_input: ValidatedSourceMapInput,
     diagnostics: Box<[Diagnostic]>,
     metrics: CompilationMetrics,
+    limits: CompileLimits,
 }
 
 /// 一次成功生产编译的只读资源与确定性观测值。
@@ -80,13 +81,27 @@ impl CompilationOutput {
         source_map_input: ValidatedSourceMapInput,
         diagnostics: Box<[Diagnostic]>,
         metrics: CompilationMetrics,
+        limits: CompileLimits,
     ) -> Self {
         Self {
             lir,
             source_map_input,
             diagnostics,
             metrics,
+            limits,
         }
+    }
+
+    pub(crate) const fn compile_limits(&self) -> &CompileLimits {
+        &self.limits
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_portable_limits(&mut self, object_bytes: u64, bundle_bytes: u64) {
+        self.limits = self
+            .limits
+            .clone()
+            .with_test_portable_limits(object_bytes, bundle_bytes);
     }
 
     /// 借用所有静态语义后端的唯一输入。

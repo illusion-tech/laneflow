@@ -1,12 +1,19 @@
-use std::sync::Arc;
+use std::{
+    fs,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 use laneflow_compiler::{
     CanonicalFrameInput, CompilationUnitBuilder, CompileLimits, Compiler, LaneEdgeInput,
     LaneEdgeReference, PortableDiffBase, PortableEmissionProvenance, SourceModuleHeader,
-    SourceModuleHeaderInput, SyntheticModuleBuilder, emit_portable_candidate,
+    SourceModuleHeaderInput, SyntheticModuleBuilder, check_portable_candidate,
+    emit_portable_candidate_to_staging,
 };
-use laneflow_format::{FormatLimits, check_post_emission_bundle};
-use laneflow_static_contract::{EntityKind, LaneEdgeOrdinal};
+use laneflow_format::{FormatLimits, preflight_object_values};
+use laneflow_static_contract::{EntityKind, LaneEdgeOrdinal, PortableObjectKind};
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
     build_shared_network_revision,
@@ -14,10 +21,12 @@ use laneflow_static_network::{
 
 const BUILD_LIMITS: SharedNetworkBuildLimits =
     SharedNetworkBuildLimits::new(64 * 1024 * 1024, 16 * 1024 * 1024);
+static NEXT_STAGING_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
 fn build_compiler_output(
     configure: impl FnOnce(&mut SyntheticModuleBuilder),
     spatial: SpatialBuildOption,
+    artifact_base: bool,
 ) -> Arc<SharedNetworkRevision> {
     let limits = CompileLimits::p100_initial_v1();
     let header = SourceModuleHeader::new(
@@ -43,26 +52,69 @@ fn build_compiler_output(
         .expect("compiled output");
     let provenance = PortableEmissionProvenance::try_new("laneflow-static-network-test-v1")
         .expect("portable provenance");
-    let candidate = emit_portable_candidate(
+    let staging_directory = std::env::temp_dir().join(format!(
+        "laneflow-compiler-shared-network-{}-{}",
+        std::process::id(),
+        NEXT_STAGING_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir(&staging_directory).expect("staging directory");
+    let genesis = emit_portable_candidate_to_staging(
         &output,
         &provenance,
         FormatLimits::HARD,
         PortableDiffBase::Genesis,
+        &staging_directory,
     )
     .expect("portable candidate");
-    let checked = check_post_emission_bundle(
-        candidate.canonical_artifact().bytes(),
-        candidate.source_map().bytes(),
-        candidate.semantic_diff().bytes(),
-        candidate.expected_semantic_diff_base(),
-        FormatLimits::HARD,
-    )
-    .expect("post-emission checked bundle");
-    build_shared_network_revision(
+    let candidate = if artifact_base {
+        let base = preflight_object_values(
+            genesis.canonical_artifact().bytes(),
+            PortableObjectKind::CanonicalArtifact,
+            FormatLimits::HARD,
+        )
+        .expect("artifact base");
+        let artifact = emit_portable_candidate_to_staging(
+            &output,
+            &provenance,
+            FormatLimits::HARD,
+            PortableDiffBase::Artifact(base),
+            &staging_directory,
+        )
+        .expect("artifact-base portable candidate");
+        drop(genesis);
+        artifact
+    } else {
+        genesis
+    };
+    assert!(candidate.canonical_artifact().is_file_backed());
+    assert!(candidate.source_map().is_file_backed());
+    assert!(candidate.semantic_diff().is_file_backed());
+    let live_entries = fs::read_dir(&staging_directory).unwrap().count();
+    #[cfg(windows)]
+    assert_eq!(live_entries, 3);
+    #[cfg(not(windows))]
+    assert_eq!(live_entries, 0);
+    let repeated = check_portable_candidate(candidate.clone(), FormatLimits::HARD)
+        .expect("repeated post-emission checked bundle");
+    let checked = check_portable_candidate(candidate, FormatLimits::HARD)
+        .expect("post-emission checked bundle");
+    assert_eq!(
+        checked.canonical_artifact_view().bytes().as_ptr(),
+        repeated.canonical_artifact_view().bytes().as_ptr()
+    );
+    assert_eq!(
+        checked.canonical_artifact_digest(),
+        repeated.canonical_artifact_digest()
+    );
+    assert_eq!(checked.network_revision(), repeated.network_revision());
+    drop(repeated);
+    let revision = build_shared_network_revision(
         checked.canonical_network_input(),
         SharedNetworkBuildOptions::new(spatial, BUILD_LIMITS),
     )
-    .expect("shared network revision")
+    .expect("shared network revision");
+    fs::remove_dir(staging_directory).expect("remove empty staging directory");
+    revision
 }
 
 #[test]
@@ -77,6 +129,7 @@ fn compiler_frame_only_candidate_reaches_spatial_without_lane_pose() {
                 .expect("canonical frame");
         },
         SpatialBuildOption::RetainAvailable,
+        false,
     );
 
     assert_eq!(
@@ -118,6 +171,7 @@ fn compiler_fan_in_candidate_builds_exact_reverse_csr() {
                 .expect("merge lane");
         },
         SpatialBuildOption::Omit,
+        false,
     );
     let ordinal_for_length = |length| {
         let index = revision
@@ -152,4 +206,25 @@ fn compiler_fan_in_candidate_builds_exact_reverse_csr() {
         revision.planning_hints().edge_boundary_weights()[merge.index()],
         2
     );
+}
+
+#[test]
+fn compiler_artifact_base_file_backing_reaches_shared_root() {
+    let revision = build_compiler_output(
+        |module| {
+            module
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "only",
+                    length_meters: 15.0,
+                    speed_limit_meters_per_second: 8.0,
+                    successors: &[],
+                })
+                .expect("lane edge");
+        },
+        SpatialBuildOption::Omit,
+        true,
+    );
+
+    assert_eq!(revision.traffic().lane_edge_count(), 1);
+    assert_eq!(revision.traffic().lane_lengths_millimetres(), &[15_000]);
 }

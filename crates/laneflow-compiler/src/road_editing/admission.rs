@@ -12,8 +12,8 @@ use super::compile_geometry::{
 use super::geometry::NumericFreezeError;
 use super::location::RoadEditingLocationFactory;
 use super::lowering::{
-    lower_aggregate_declarations, lower_independent_declarations, lower_owner_scoped_declarations,
-    lower_road_alignments, lower_topology_authoring_declarations,
+    lower_aggregate_declarations, lower_conflict_zone_regions, lower_independent_declarations,
+    lower_owner_scoped_declarations, lower_road_alignments, lower_topology_authoring_declarations,
 };
 use super::preflight::RoadEditingPreflightCounts;
 use super::reader::{VerifiedRoadEditingSource, verify_source};
@@ -34,7 +34,7 @@ use crate::{
     RoadEditingSourceViolation, RoadEditingTableKind,
 };
 
-const ROAD_EDITING_FRONTEND_VERSION: u32 = 2;
+const ROAD_EDITING_FRONTEND_VERSION: u32 = 3;
 const ROAD_EDITING_GEOMETRY_SEMANTICS_VERSION: u8 = 1;
 const ROAD_EDITING_FRONTEND_OPTIONS_DOMAIN: &[u8] = b"laneflow.road-editing.frontend-options.v1\0";
 // 每个 verifier table 对应的 retained Typed AST 请求上界。它覆盖外层 enum、嵌套 record、
@@ -127,13 +127,16 @@ fn lowering_sort_scratch_bytes(root: wire::RoadEditingSource<'_>) -> u64 {
     charge_root!(root.waiting_zones(), wire::WaitingZone<'_>);
     charge_root!(root.stop_lines(), wire::StopLine<'_>);
     charge_root!(root.signal_groups(), wire::SignalGroup<'_>);
-    charge_root!(root.parking_areas(), wire::ParkingArea<'_>);
+    charge_root!(root.parking_facilities(), wire::ParkingFacility<'_>);
     charge_root!(root.parking_spaces(), wire::ParkingSpace<'_>);
     charge_root!(root.lane_groups(), wire::LaneGroup<'_>);
     charge_root!(root.facility_bands(), wire::FacilityBand<'_>);
     charge_root!(root.participant_classes(), wire::ParticipantClass<'_>);
     charge_root!(root.vehicle_profiles(), wire::VehicleProfile<'_>);
     charge_root!(root.canonical_frames(), wire::CanonicalFrame<'_>);
+    charge_root!(root.conflict_zones(), wire::ConflictZone<'_>);
+    charge_root!(root.participant_streams(), wire::ParticipantStream<'_>);
+    charge_root!(root.conflict_zone_regions(), wire::ConflictZoneRegion<'_>);
 
     // authoring lanes 保持规范排序以供随后每个 section 做 binary search，因此两个
     // root sort view 在 section lowering 全程共存。
@@ -318,6 +321,10 @@ fn precheck_accumulated_counts(
             CompileLimitDimension::WaitingZoneCount,
             counts.waiting_zone_count(),
         ),
+        (
+            CompileLimitDimension::GeometryPointCount,
+            counts.conflict_region_point_count(),
+        ),
     ] {
         let observed = builder.already_admitted(dimension).saturating_add(delta);
         let limit = limits.value(dimension);
@@ -432,6 +439,8 @@ fn lower_verified_source(
     let shared_namespace: Arc<str> = Arc::from(root.module_header().authoring_namespace_id());
 
     let alignments = lower_road_alignments(root, &locations, &shared_namespace).into_boxed_slice();
+    let conflict_zone_regions =
+        lower_conflict_zone_regions(root, &locations, &shared_namespace).into_boxed_slice();
     debug_assert_eq!(
         alignment_input_scratch_bytes_from_lowered(&alignments),
         admission_sizing.alignment_input_scratch_bytes,
@@ -442,7 +451,13 @@ fn lower_verified_source(
         .saturating_sub(root.authoring_lanes().len())
         .saturating_sub(root.signal_phases().len());
     let mut declarations = Vec::<TypedAstDeclaration>::with_capacity(top_level_declaration_count);
-    lower_independent_declarations(root, &locations, &shared_namespace, &mut declarations);
+    lower_independent_declarations(
+        root,
+        &locations,
+        &shared_namespace,
+        limits,
+        &mut declarations,
+    );
     lower_owner_scoped_declarations(root, &locations, &shared_namespace, &mut declarations);
     lower_topology_authoring_declarations(root, &locations, &shared_namespace, &mut declarations)?;
     lower_aggregate_declarations(root, &locations, &shared_namespace, &mut declarations);
@@ -457,7 +472,8 @@ fn lower_verified_source(
         profiles.direction,
         GeometryCompilationBudget {
             station_row_byte_limit: geometry_scratch_allowance.stage_limit,
-            point_limit: remaining_geometry_points,
+            point_limit: remaining_geometry_points
+                .saturating_sub(counts.conflict_region_point_count()),
             scratch_limit: geometry_scratch_allowance.stage_limit,
             live_headroom: geometry_scratch_allowance.live_headroom,
         },
@@ -472,7 +488,9 @@ fn lower_verified_source(
         )
     })?;
     debug_assert!(geometry_usage.peak_scratch_bytes <= geometry_scratch_allowance.stage_limit);
-    let geometry_point_count = geometry_usage.output_point_count;
+    let geometry_point_count = geometry_usage
+        .output_point_count
+        .saturating_add(counts.conflict_region_point_count());
     let geometry_source_range_count = geometry_usage.output_source_range_count;
     let geometry_output_bytes = size_bytes::<CanonicalPoint3F32Input>(geometry_point_count)
         .saturating_add(size_bytes::<CompiledGeometrySourceRange>(
@@ -599,6 +617,7 @@ fn lower_verified_source(
         imports: imports.into_boxed_slice(),
         geometry_profiles: Some(profiles),
         road_alignments: Box::default(),
+        conflict_zone_regions,
         declarations: declarations.into_boxed_slice(),
     };
     Ok(AdmittedOfficialModule::new(
@@ -606,6 +625,7 @@ fn lower_verified_source(
         ModuleResourceCounts {
             source_bytes: u64::from(source_record_byte_len),
             declaration_count: counts.declaration_count(),
+            stable_entity_count: counts.declaration_count(),
             typed_ast_record_count: verified.typed_ast_record_count(),
             reference_count: counts.reference_count(),
             relation_occurrence_count: counts.relation_occurrence_count(),

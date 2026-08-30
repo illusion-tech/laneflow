@@ -404,14 +404,14 @@ mod tests {
         output
     }
 
-    /// Registry revision 2 全部种类槽位的规范字节与 BLAKE3-128 已知向量。
+    /// Registry revision 3 全部可构造种类的规范字节与 BLAKE3-128 已知向量。
     ///
     /// 字段生成规则和文件列语义记录在向量文件头；该文件是独立预言机可复用的期望
     /// 事实，不能在测试运行时从生产编码器重写。
     const KNOWN_VECTORS: &str = include_str!("../tests/identity-v1-known-vectors.txt");
 
     #[test]
-    fn all_registry_revision_two_kinds_match_frozen_independent_vectors() {
+    fn all_registry_revision_three_kinds_match_frozen_independent_vectors() {
         let vectors = KNOWN_VECTORS
             .lines()
             .filter(|line| !line.is_empty() && !line.starts_with('#'))
@@ -536,13 +536,13 @@ mod tests {
 
         let unknown = [
             IdentityFieldInput::new(FieldTag::AuthoringNamespaceId, b"city/vector"),
-            IdentityFieldInput::from_raw(23, b"edge-a"),
+            IdentityFieldInput::from_raw(35, b"edge-a"),
         ];
         assert_eq!(
             encode_canonical_identity(EntityKind::LaneEdge, &unknown, STRING_LIMIT).unwrap_err(),
             CanonicalIdentityViolation::UnknownFieldTag {
                 position: 1,
-                tag: 23,
+                tag: 35,
             }
         );
 
@@ -632,16 +632,22 @@ mod tests {
     }
 
     #[test]
-    fn encoder_rejects_unconstructible_kind() {
+    fn new_registry_kinds_require_their_complete_identity_fields() {
         assert_eq!(
-            encode_canonical_identity(EntityKind::StaticRoute, &[], STRING_LIMIT).unwrap_err(),
-            CanonicalIdentityViolation::UnconstructibleKind { kind: 21 }
+            encode_canonical_identity(EntityKind::ConflictZone, &[], STRING_LIMIT).unwrap_err(),
+            CanonicalIdentityViolation::FieldCountMismatch {
+                expected: 3,
+                actual: 0
+            }
         );
         let limits = CompileLimits::p100_initial_v1();
         assert_eq!(
-            derive_canonical_stable_id_v1(EntityKind::StaticRoute, "city/x", "k", &limits)
+            derive_canonical_stable_id_v1(EntityKind::ParticipantStream, "city/x", "k", &limits)
                 .unwrap_err(),
-            CanonicalIdentityViolation::UnconstructibleKind { kind: 21 }
+            CanonicalIdentityViolation::FieldCountMismatch {
+                expected: 3,
+                actual: 2
+            }
         );
     }
 

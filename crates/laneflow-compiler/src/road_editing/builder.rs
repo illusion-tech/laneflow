@@ -242,6 +242,7 @@ pub struct RoadEditingSourceModule {
     geometry_direction_profile: GeometryDirectionProfile,
     road_alignments: Box<[RoadAlignmentInput]>,
     declarations: Box<[RoadEditingDeclaration]>,
+    conflict_zone_regions: Box<[ConflictZoneRegionInput]>,
     wire_upper_bound: u64,
 }
 
@@ -251,6 +252,7 @@ pub(super) struct RoadEditingSourceModuleParts {
     pub(super) geometry_direction_profile: GeometryDirectionProfile,
     pub(super) road_alignments: Box<[RoadAlignmentInput]>,
     pub(super) declarations: Box<[RoadEditingDeclaration]>,
+    pub(super) conflict_zone_regions: Box<[ConflictZoneRegionInput]>,
     pub(super) wire_upper_bound: u64,
 }
 
@@ -280,6 +282,11 @@ impl RoadEditingSourceModule {
         &self.declarations
     }
 
+    #[must_use]
+    pub fn conflict_zone_regions(&self) -> &[ConflictZoneRegionInput] {
+        &self.conflict_zone_regions
+    }
+
     pub(super) fn into_parts(self) -> RoadEditingSourceModuleParts {
         RoadEditingSourceModuleParts {
             header: self.header,
@@ -287,6 +294,7 @@ impl RoadEditingSourceModule {
             geometry_direction_profile: self.geometry_direction_profile,
             road_alignments: self.road_alignments,
             declarations: self.declarations,
+            conflict_zone_regions: self.conflict_zone_regions,
             wire_upper_bound: self.wire_upper_bound,
         }
     }
@@ -300,8 +308,10 @@ pub struct RoadEditingSourceModuleBuilder<'limits> {
     limits: &'limits CompileLimits,
     road_alignments: Vec<RoadAlignmentInput>,
     declarations: Vec<RoadEditingDeclaration>,
+    conflict_zone_regions: Vec<ConflictZoneRegionInput>,
     alignment_keys: BTreeSet<Box<str>>,
     declaration_addresses: BTreeSet<DeclarationAddress>,
+    conflict_region_zones: BTreeSet<DeclarationAddress>,
     import_namespaces: BTreeSet<Box<str>>,
     usage: ModuleUsage,
 }
@@ -319,8 +329,8 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
             wire_upper_bound: 32,
             ..ModuleUsage::default()
         };
-        usage.charge_table(27, 102);
-        for _ in 0..23 {
+        usage.charge_table(29, 110);
+        for _ in 0..25 {
             usage.charge_vector(0, 4);
         }
         usage.charge_table(6, 81);
@@ -353,8 +363,10 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
             limits,
             road_alignments: Vec::new(),
             declarations: Vec::new(),
+            conflict_zone_regions: Vec::new(),
             alignment_keys: BTreeSet::new(),
             declaration_addresses: BTreeSet::new(),
+            conflict_region_zones: BTreeSet::new(),
             import_namespaces,
             usage,
         })
@@ -421,6 +433,43 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
         Ok(self)
     }
 
+    pub fn add_conflict_zone_region(
+        &mut self,
+        value: ConflictZoneRegionInput,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let zone_address = DeclarationAddress::from_reference(value.conflict_zone());
+        if self.conflict_region_zones.contains(&zone_address) {
+            return Err(input_error(
+                "roadEditingSource.conflictZoneRegions",
+                RoadEditingInputViolation::DuplicateValue,
+            ));
+        }
+        let mut usage = self.usage;
+        usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
+        usage.relation_occurrence_count = usage.relation_occurrence_count.saturating_add(1);
+        usage.charge_root_vector_element();
+        usage.charge_table(6, 40);
+        usage.charge_vector(value.ring_xz().len(), 16);
+        usage.charge_reference(
+            value.conflict_zone(),
+            self.header.authoring_namespace_id(),
+            &self.import_namespaces,
+            self.limits,
+        )?;
+        usage.charge_reference(
+            value.canonical_frame(),
+            self.header.authoring_namespace_id(),
+            &self.import_namespaces,
+            self.limits,
+        )?;
+        usage.charge_canvas(value.canvas_selection(), self.limits)?;
+        usage.validate(self.limits)?;
+        self.conflict_region_zones.insert(zone_address);
+        self.conflict_zone_regions.push(value);
+        self.usage = usage;
+        Ok(self)
+    }
+
     pub fn finish(mut self) -> Result<RoadEditingSourceModule, DiagnosticBundle> {
         validate_owner_tree(&self.declarations, &self.declaration_addresses)?;
         self.road_alignments.sort_unstable_by(|left, right| {
@@ -428,12 +477,17 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
         });
         self.declarations
             .sort_unstable_by(RoadEditingDeclaration::canonical_address_cmp);
+        self.conflict_zone_regions.sort_unstable_by(|left, right| {
+            left.conflict_zone()
+                .canonical_target_cmp(right.conflict_zone(), self.header.authoring_namespace_id())
+        });
         Ok(RoadEditingSourceModule {
             header: self.header,
             geometry_accuracy_profile: self.geometry_accuracy_profile,
             geometry_direction_profile: self.geometry_direction_profile,
             road_alignments: self.road_alignments.into_boxed_slice(),
             declarations: self.declarations.into_boxed_slice(),
+            conflict_zone_regions: self.conflict_zone_regions.into_boxed_slice(),
             wire_upper_bound: self.usage.wire_upper_bound,
         })
     }
@@ -465,6 +519,12 @@ fn ensure_local_owner(value: &RoadEditingDeclaration) -> Result<(), DiagnosticBu
         }
         RoadEditingDeclaration::FacilityBand(value) => {
             value.road_corridor().module_namespace().is_some()
+        }
+        RoadEditingDeclaration::ConflictZone(value) => {
+            value.junction().module_namespace().is_some()
+        }
+        RoadEditingDeclaration::ParticipantStream(value) => {
+            value.junction().module_namespace().is_some()
         }
         _ => false,
     };
@@ -764,8 +824,22 @@ fn charge_declaration(
             }
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
-        RoadEditingDeclaration::ParkingArea(value) => {
-            usage.charge_table(2, 8);
+        RoadEditingDeclaration::ParkingFacility(value) => {
+            usage.charge_table(5, 20);
+            usage.charge_vector(value.virtual_entries().len(), 4);
+            usage.charge_vector(value.virtual_exits().len(), 4);
+            charge_relation(usage, value.virtual_entries().len());
+            charge_relation(usage, value.virtual_exits().len());
+            for anchor in value.virtual_entries().iter().chain(value.virtual_exits()) {
+                usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
+                usage.charge_table(2, 12);
+                usage.charge_reference(
+                    anchor.lane_edge(),
+                    current_namespace,
+                    import_namespaces,
+                    limits,
+                )?;
+            }
             usage.charge_canvas(value.canvas_selection(), limits)?
         }
         RoadEditingDeclaration::ParkingSpace(value) => {
@@ -773,7 +847,7 @@ fn charge_declaration(
             usage.charge_table(2, 12);
             usage.charge_table(2, 12);
             usage.charge_table(4, 32);
-            if let Some(reference) = value.parking_area() {
+            if let Some(reference) = value.parking_facility() {
                 usage.charge_reference(reference, current_namespace, import_namespaces, limits)?;
             }
             usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(3);
@@ -882,6 +956,56 @@ fn charge_declaration(
             usage.charge_table(2, 8);
             usage.charge_canvas(value.canvas_selection(), limits)?
         }
+        RoadEditingDeclaration::ConflictZone(value) => {
+            usage.charge_table(3, 12);
+            usage.charge_reference(
+                value.junction(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
+            usage.charge_canvas(value.canvas_selection(), limits)?;
+        }
+        RoadEditingDeclaration::ParticipantStream(value) => {
+            usage.charge_table(5, 20);
+            usage.charge_vector(value.passages().len(), 4);
+            usage.charge_reference(
+                value.junction(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
+            usage.charge_reference(
+                value.maneuver_path(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
+            charge_relation(usage, value.passages().len());
+            for passage in value.passages() {
+                usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(3);
+                usage.charge_table(3, 12);
+                usage.charge_table(5, 17);
+                usage.charge_table(5, 17);
+                usage.charge_reference(
+                    passage.conflict_zone(),
+                    current_namespace,
+                    import_namespaces,
+                    limits,
+                )?;
+                for anchor in [passage.entry(), passage.exit()] {
+                    if let PathAnchorInput::Gate(gate) = anchor {
+                        usage.charge_reference(
+                            gate,
+                            current_namespace,
+                            import_namespaces,
+                            limits,
+                        )?;
+                    }
+                }
+            }
+            usage.charge_canvas(value.canvas_selection(), limits)?;
+        }
     }
     Ok(())
 }
@@ -914,6 +1038,12 @@ fn parent_address(value: &RoadEditingDeclaration) -> Option<DeclarationAddress> 
         }
         RoadEditingDeclaration::FacilityBand(value) => {
             Some(DeclarationAddress::from_reference(value.road_corridor()))
+        }
+        RoadEditingDeclaration::ConflictZone(value) => {
+            Some(DeclarationAddress::from_reference(value.junction()))
+        }
+        RoadEditingDeclaration::ParticipantStream(value) => {
+            Some(DeclarationAddress::from_reference(value.junction()))
         }
         _ => None,
     }
@@ -1112,6 +1242,30 @@ mod tests {
 
         let module = builder.finish().expect("finished module");
         assert_eq!(module.declarations().len(), 2);
+    }
+
+    #[test]
+    fn conflict_zone_local_key_is_unique_only_within_its_junction_owner() {
+        let limits = CompileLimits::p100_initial_v1();
+        let mut builder = builder(&limits);
+        let zone = |junction: &str| {
+            RoadEditingDeclaration::ConflictZone(
+                ConflictZoneInput::try_new(
+                    "zone-a",
+                    JunctionReference::local(junction).expect("junction reference"),
+                )
+                .expect("conflict zone"),
+            )
+        };
+
+        builder
+            .add_declaration(zone("junction-a"))
+            .expect("first owner-scoped zone");
+        assert!(builder.add_declaration(zone("junction-a")).is_err());
+        builder
+            .add_declaration(zone("junction-b"))
+            .expect("same local key under another junction");
+        assert_eq!(builder.declarations.len(), 2);
     }
 
     #[test]

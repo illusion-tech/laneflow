@@ -9,7 +9,7 @@ use crate::{
     RoadEditingRootVectorKind, RoadEditingSourceViolation, RoadEditingTableKind, SourceLocation,
 };
 
-const FORMAT_VERSION: u32 = 2;
+const FORMAT_VERSION: u32 = 3;
 const MIN_SIZE_PREFIXED_LFRE_BYTES: usize = 12;
 const MAX_SCHEMA_TABLE_DEPTH: usize = 5;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
@@ -382,9 +382,9 @@ fn root_vector_site(field_name: &str) -> Option<(RoadEditingRootVectorKind, Road
             RoadEditingRootVectorKind::SignalPhase,
             RoadEditingTableKind::SignalPhase,
         ),
-        "parking_areas" => (
-            RoadEditingRootVectorKind::ParkingArea,
-            RoadEditingTableKind::ParkingArea,
+        "parking_facilities" => (
+            RoadEditingRootVectorKind::ParkingFacility,
+            RoadEditingTableKind::ParkingFacility,
         ),
         "parking_spaces" => (
             RoadEditingRootVectorKind::ParkingSpace,
@@ -511,7 +511,12 @@ fn table_count(root: wire::RoadEditingSource<'_>) -> u64 {
     for value in root.signal_phases() {
         count = count.saturating_add(1 + len_u64(value.states()));
     }
-    count = count.saturating_add(len_u64(root.parking_areas()));
+    for value in root.parking_facilities() {
+        count = count
+            .saturating_add(1)
+            .saturating_add(len_u64(value.virtual_entries()))
+            .saturating_add(len_u64(value.virtual_exits()));
+    }
     count = count.saturating_add(len_u64(root.parking_spaces()).saturating_mul(4));
     count = count.saturating_add(len_u64(root.lane_groups()));
     count = count.saturating_add(len_u64(root.facility_bands()));
@@ -520,7 +525,14 @@ fn table_count(root: wire::RoadEditingSource<'_>) -> u64 {
         count = count.saturating_add(1 + u64::from(value.regulation().is_some()));
     }
     count = count.saturating_add(len_u64(root.vehicle_profiles()).saturating_mul(2));
-    count.saturating_add(len_u64(root.canonical_frames()))
+    count = count.saturating_add(len_u64(root.canonical_frames()));
+    count = count.saturating_add(len_u64(root.conflict_zones()));
+    for value in root.participant_streams() {
+        count = count
+            .saturating_add(1)
+            .saturating_add(len_u64(value.passages()).saturating_mul(3));
+    }
+    count.saturating_add(len_u64(root.conflict_zone_regions()))
 }
 
 fn curve_program_table_count(program: wire::CurveProgram<'_>) -> u64 {
@@ -1052,7 +1064,7 @@ mod tests {
             first_diagnostic(&error).payload(),
             DiagnosticPayload::InvalidRoadEditingSource {
                 violation: RoadEditingSourceViolation::UnsupportedFormatVersion {
-                    expected: 2,
+                    expected: 3,
                     actual: 1
                 },
                 ..

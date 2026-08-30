@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
+use laneflow_compiler::road_editing as lfre;
 use laneflow_compiler::{
     AccessRuleInput, AccessRuleTargetInput, CompilationUnitBuilder, CompileLimits, Compiler,
-    IidmVehicleProfileInput, JunctionInput, JunctionReference, LaneEdgeInput, LaneEdgeReference,
-    ManeuverGateInput, ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
+    DiagnosticCode, GeometryAccuracyProfile, GeometryDirectionProfile, IidmVehicleProfileInput,
+    JunctionInput, JunctionReference, LaneEdgeInput, LaneEdgeReference, ManeuverGateInput,
+    ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
     ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput,
     ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance, SignalControlInput,
     SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
@@ -17,11 +19,12 @@ use laneflow_runtime::{
     TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig,
 };
 use laneflow_static_contract::{
-    AccessEffect, EntityKind, LaneEdgeId, ParkingSpaceOrdinal, SignalAspect, VehicleProfileOrdinal,
+    AccessEffect, ConflictZoneOrdinal, EntityKind, LaneEdgeId, ParkingSpaceOrdinal,
+    ParticipantStreamOrdinal, SignalAspect, VehicleProfileOrdinal,
 };
 use laneflow_static_network::{
-    SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
-    build_shared_network_revision,
+    ConflictPathAnchor, SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision,
+    SpatialBuildOption, build_shared_network_revision,
 };
 
 fn install_fixture(
@@ -81,7 +84,16 @@ fn compile_revision(
         .expect("compilation module");
     let output = Compiler::new()
         .compile(unit.build().expect("compilation unit"))
-        .expect("compiled output");
+        .unwrap_or_else(|bundle| {
+            panic!(
+                "compiled output diagnostics: {:?}",
+                bundle
+                    .diagnostics()
+                    .iter()
+                    .map(|diagnostic| (diagnostic.code(), diagnostic.payload()))
+                    .collect::<Vec<_>>()
+            )
+        });
     let provenance = PortableEmissionProvenance::try_new("laneflow-runtime-coverage-v1")
         .expect("portable provenance");
     let candidate = emit_portable_candidate(
@@ -109,6 +121,345 @@ fn compile_revision(
     .expect("shared network revision")
 }
 
+fn compile_road_editing_revision(
+    module: lfre::RoadEditingSourceModule,
+) -> Arc<SharedNetworkRevision> {
+    let limits = CompileLimits::p100_initial_v2();
+    let source = lfre::RoadEditingSourceWriter::new(&limits)
+        .write(module)
+        .expect("Road Editing source");
+    let input =
+        lfre::RoadEditingModuleInput::try_new("runtime-conflict.lfre", source.as_bytes(), None)
+            .expect("Road Editing module input");
+    let mut unit = CompilationUnitBuilder::new(limits);
+    unit.add_road_editing_module(input)
+        .expect("Road Editing admission");
+    let output = Compiler::new()
+        .compile(unit.build().expect("compilation unit"))
+        .unwrap_or_else(|bundle| {
+            panic!(
+                "compiled Road Editing output diagnostics: {:?}",
+                bundle
+                    .diagnostics()
+                    .iter()
+                    .map(|diagnostic| (diagnostic.code(), diagnostic.payload()))
+                    .collect::<Vec<_>>()
+            )
+        });
+    let provenance = PortableEmissionProvenance::try_new("laneflow-runtime-conflict-v1")
+        .expect("portable provenance");
+    let candidate = emit_portable_candidate(
+        &output,
+        &provenance,
+        FormatLimits::HARD,
+        PortableDiffBase::Genesis,
+    )
+    .expect("portable candidate");
+    let checked = check_post_emission_bundle(
+        candidate.canonical_artifact().bytes(),
+        candidate.source_map().bytes(),
+        candidate.semantic_diff().bytes(),
+        candidate.expected_semantic_diff_base(),
+        FormatLimits::HARD,
+    )
+    .expect("post-emission checked bundle");
+    build_shared_network_revision(
+        checked.canonical_network_input(),
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::RetainAvailable,
+            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+        ),
+    )
+    .expect("shared network revision")
+}
+
+fn road_editing_line(start: (f64, f64), end: (f64, f64)) -> lfre::RoadEditingCurveProgram {
+    lfre::RoadEditingCurveProgram::try_new(
+        lfre::RoadEditingPoint3::try_new(start.0, 0.0, start.1).expect("curve start"),
+        vec![lfre::RoadEditingCurveSegment::line(
+            lfre::RoadEditingPoint3::try_new(end.0, 0.0, end.1).expect("curve end"),
+        )],
+    )
+    .expect("line curve")
+}
+
+fn add_road_editing_approach(
+    module: &mut lfre::RoadEditingSourceModuleBuilder<'_>,
+    edge_key: &str,
+    start: (f64, f64),
+    end: (f64, f64),
+) {
+    let alignment_key = format!("{edge_key}-alignment");
+    let corridor_key = format!("{edge_key}-corridor");
+    let corridor = lfre::RoadCorridorReference::local(&corridor_key).expect("corridor reference");
+    let section = lfre::RoadSectionReference::owner_scoped(vec![corridor_key.clone()], "section")
+        .expect("section reference");
+    let lane = lfre::AuthoringLaneReference::owner_scoped(
+        vec![corridor_key.clone(), "section".into()],
+        "lane",
+    )
+    .expect("authoring lane reference");
+    let edge = lfre::LaneEdgeReference::local(edge_key).expect("approach edge reference");
+
+    module
+        .add_alignment(
+            lfre::RoadAlignmentInput::try_new(
+                &alignment_key,
+                lfre::CanonicalFrameReference::local("frame-main").expect("frame reference"),
+                road_editing_line(start, end),
+            )
+            .expect("road alignment"),
+        )
+        .expect("add road alignment")
+        .add_declaration(lfre::RoadEditingDeclaration::RoadCorridor(
+            lfre::RoadCorridorInput::try_new(
+                &corridor_key,
+                lfre::RoadAlignmentReference::try_new(&alignment_key).expect("alignment reference"),
+                0.0,
+                lfre::RoadEditingStationEnd::AlignmentEnd,
+                section.clone(),
+                lane.clone(),
+                vec![lfre::RoadEditingCorridorElement::RoadSection(
+                    section.clone(),
+                )],
+            )
+            .expect("road corridor"),
+        ))
+        .expect("add road corridor")
+        .add_declaration(lfre::RoadEditingDeclaration::RoadSection(
+            lfre::RoadSectionInput::try_new("section", "motorLane", vec![lane], corridor)
+                .expect("road section"),
+        ))
+        .expect("add road section")
+        .add_declaration(lfre::RoadEditingDeclaration::AuthoringLane(
+            lfre::AuthoringLaneInput::try_new(
+                "lane",
+                edge.clone(),
+                lfre::RoadEditingLaneDirection::Forward,
+                lfre::LinearWidthProfile::try_new(3.5, 3.5).expect("lane width"),
+                None,
+                section,
+            )
+            .expect("authoring lane"),
+        ))
+        .expect("add authoring lane")
+        .add_declaration(lfre::RoadEditingDeclaration::LaneEdge(
+            lfre::LaneEdgeInput::try_new(edge_key, 13.0, Vec::new(), None)
+                .expect("approach lane edge"),
+        ))
+        .expect("add approach lane edge");
+}
+
+fn conflict_road_editing_module() -> lfre::RoadEditingSourceModule {
+    conflict_road_editing_module_with_stream_count(2)
+}
+
+fn conflict_road_editing_module_with_stream_count(
+    stream_count: usize,
+) -> lfre::RoadEditingSourceModule {
+    assert!(stream_count <= 2);
+    let limits = CompileLimits::p100_initial_v2();
+    let header = lfre::RoadEditingModuleHeader::try_new(
+        "city/runtime-conflict",
+        "runtime-conflict.lfre",
+        Vec::new(),
+        lfre::RoadEditingProvenance::direct("runtime conflict fixture").expect("provenance"),
+    )
+    .expect("Road Editing header");
+    let mut module = lfre::RoadEditingSourceModuleBuilder::new(
+        header,
+        GeometryAccuracyProfile::Balanced5Cm,
+        GeometryDirectionProfile::Balanced2Deg,
+        &limits,
+    )
+    .expect("Road Editing builder");
+
+    let junction = lfre::JunctionReference::local("crossing").expect("junction reference");
+    let zone =
+        lfre::ConflictZoneReference::owner_scoped(vec!["crossing".to_owned()], "center-zone")
+            .expect("zone reference");
+    let frame = lfre::CanonicalFrameReference::local("frame-main").expect("frame reference");
+
+    module
+        .add_declaration(lfre::RoadEditingDeclaration::CanonicalFrame(
+            lfre::CanonicalFrameInput::try_new("frame-main").expect("canonical frame"),
+        ))
+        .expect("add canonical frame");
+    for (edge, start, end) in [
+        ("east-entry", (-13.0, 0.0), (0.0, 0.0)),
+        ("west-exit", (13.0, 0.0), (26.0, 0.0)),
+        ("north-entry", (0.0, -13.0), (0.0, 0.0)),
+        ("south-exit", (0.0, 13.0), (0.0, 26.0)),
+    ] {
+        add_road_editing_approach(&mut module, edge, start, end);
+    }
+    for (edge, start, end) in [
+        ("east-internal", (0.0, 0.0), (13.0, 0.0)),
+        ("north-internal", (0.0, 0.0), (0.0, 13.0)),
+    ] {
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::LaneEdge(
+                lfre::LaneEdgeInput::try_new(
+                    edge,
+                    13.0,
+                    Vec::new(),
+                    Some(road_editing_line(start, end)),
+                )
+                .expect("lane edge"),
+            ))
+            .expect("add lane edge");
+    }
+    module
+        .add_declaration(lfre::RoadEditingDeclaration::Junction(
+            lfre::JunctionInput::try_new(
+                "crossing",
+                ["east-entry", "west-exit", "north-entry", "south-exit"]
+                    .into_iter()
+                    .map(|key| lfre::LaneEdgeReference::local(key).expect("approach edge"))
+                    .collect(),
+                ["east-internal", "north-internal"]
+                    .into_iter()
+                    .map(|key| lfre::LaneEdgeReference::local(key).expect("internal edge"))
+                    .collect(),
+            )
+            .expect("junction"),
+        ))
+        .expect("add junction")
+        .add_declaration(lfre::RoadEditingDeclaration::ConflictZone(
+            lfre::ConflictZoneInput::try_new("center-zone", junction.clone())
+                .expect("conflict zone"),
+        ))
+        .expect("add conflict zone");
+
+    for (
+        stream_index,
+        (
+            movement_key,
+            path_key,
+            gate_key,
+            stop_line_key,
+            entry_edge,
+            internal_edge,
+            exit_edge,
+            stream_key,
+            entry_progress,
+            exit_progress,
+        ),
+    ) in [
+        (
+            "east-west",
+            "east-west-path",
+            "east-west-gate",
+            "east-stop",
+            "east-entry",
+            "east-internal",
+            "west-exit",
+            "east-west-stream",
+            2.000_4,
+            6.000_6,
+        ),
+        (
+            "north-south",
+            "north-south-path",
+            "north-south-gate",
+            "north-stop",
+            "north-entry",
+            "north-internal",
+            "south-exit",
+            "north-south-stream",
+            1.500_4,
+            5.500_6,
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let movement = lfre::MovementReference::owner_scoped(vec!["crossing".into()], movement_key)
+            .expect("movement reference");
+        let path = lfre::ManeuverPathReference::owner_scoped(
+            vec!["crossing".into(), movement_key.into()],
+            path_key,
+        )
+        .expect("path reference");
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::Movement(
+                lfre::MovementInput::try_new(movement_key, junction.clone(), entry_edge, exit_edge)
+                    .expect("movement"),
+            ))
+            .expect("add movement")
+            .add_declaration(lfre::RoadEditingDeclaration::ManeuverPath(
+                lfre::ManeuverPathInput::try_new(
+                    path_key,
+                    movement,
+                    lfre::LaneEdgeReference::local(entry_edge).expect("entry edge"),
+                    vec![lfre::LaneEdgeReference::local(internal_edge).expect("internal edge")],
+                    lfre::LaneEdgeReference::local(exit_edge).expect("exit edge"),
+                )
+                .expect("maneuver path"),
+            ))
+            .expect("add maneuver path")
+            .add_declaration(lfre::RoadEditingDeclaration::StopLine(
+                lfre::StopLineInput::try_new(
+                    stop_line_key,
+                    lfre::LaneEdgeReference::local(entry_edge).expect("stop edge"),
+                )
+                .expect("stop line"),
+            ))
+            .expect("add stop line")
+            .add_declaration(lfre::RoadEditingDeclaration::ManeuverGate(
+                lfre::ManeuverGateInput::try_new(
+                    gate_key,
+                    path.clone(),
+                    0,
+                    lfre::StopLineReference::local(stop_line_key).expect("stop line reference"),
+                    lfre::RoadEditingSignalControl::None,
+                )
+                .expect("maneuver gate"),
+            ))
+            .expect("add maneuver gate");
+        if stream_index < stream_count {
+            module
+                .add_declaration(lfre::RoadEditingDeclaration::ParticipantStream(
+                    lfre::ParticipantStreamInput::try_new(
+                        stream_key,
+                        junction.clone(),
+                        path,
+                        vec![lfre::ConflictPassageInput::new(
+                            zone.clone(),
+                            lfre::PathAnchorInput::interior(1, entry_progress)
+                                .expect("entry anchor"),
+                            lfre::PathAnchorInput::interior(1, exit_progress).expect("exit anchor"),
+                        )],
+                    )
+                    .expect("participant stream"),
+                ))
+                .expect("add participant stream");
+        }
+    }
+
+    module
+        .add_conflict_zone_region(
+            lfre::ConflictZoneRegionInput::try_new(
+                zone,
+                frame,
+                -1.000_000_000_1,
+                1.000_000_000_1,
+                [
+                    (-1.000_000_000_1, -1.000_000_000_1),
+                    (1.000_000_000_1, -1.000_000_000_1),
+                    (1.000_000_000_1, 1.000_000_000_1),
+                    (-1.000_000_000_1, 1.000_000_000_1),
+                ]
+                .into_iter()
+                .map(|(x, z)| lfre::RoadEditingPoint2::try_new(x, z).expect("region point"))
+                .collect(),
+            )
+            .expect("conflict zone region"),
+        )
+        .expect("add conflict zone region");
+    module.finish().expect("Road Editing module")
+}
+
 fn register_named(world: &mut TrafficWorld, keys: &[&str]) -> RouteHandle {
     const NS: &str = "city/runtime-coverage";
     let limits = CompileLimits::p100_initial_v1();
@@ -121,7 +472,7 @@ fn register_named(world: &mut TrafficWorld, keys: &[&str]) -> RouteHandle {
                 .revision()
                 .identity()
                 .ordinal(LaneEdgeId::from_untyped(stable))
-                .expect(*key)
+                .expect(key)
         })
         .collect();
     world
@@ -142,6 +493,134 @@ fn add_standard_profiles(module: &mut SyntheticModuleBuilder) {
             iidm: iidm(),
         })
         .expect("profile");
+}
+
+#[test]
+fn road_editing_conflict_fixture_closes_integer_passages_and_f32_region() {
+    let revision = compile_road_editing_revision(conflict_road_editing_module());
+    assert_eq!(
+        revision
+            .traffic()
+            .entity_counts()
+            .count(EntityKind::ConflictZone),
+        1
+    );
+    assert_eq!(
+        revision
+            .traffic()
+            .entity_counts()
+            .count(EntityKind::ParticipantStream),
+        2
+    );
+
+    let zone = revision
+        .conflict()
+        .conflict_zone(ConflictZoneOrdinal::from_raw(0))
+        .expect("conflict zone");
+    assert_eq!(
+        zone.participant_streams(),
+        &[
+            ParticipantStreamOrdinal::from_raw(0),
+            ParticipantStreamOrdinal::from_raw(1),
+        ]
+    );
+    let conflict = revision.conflict();
+    let junction = zone.junction();
+    assert_eq!(
+        conflict.junction_conflict_zones(junction),
+        Some(&[ConflictZoneOrdinal::from_raw(0)][..])
+    );
+    assert_eq!(
+        conflict.junction_participant_streams(junction),
+        Some(
+            &[
+                ParticipantStreamOrdinal::from_raw(0),
+                ParticipantStreamOrdinal::from_raw(1),
+            ][..]
+        )
+    );
+
+    let expected_progress = [[2_000, 6_001], [1_500, 5_501]];
+    for (stream_raw, expected) in expected_progress.into_iter().enumerate() {
+        let stream = revision
+            .conflict()
+            .participant_stream(ParticipantStreamOrdinal::from_raw(
+                u32::try_from(stream_raw).expect("stream ordinal"),
+            ))
+            .expect("participant stream");
+        assert_eq!(
+            conflict.maneuver_path_participant_streams(stream.maneuver_path()),
+            Some(
+                &[ParticipantStreamOrdinal::from_raw(
+                    u32::try_from(stream_raw).expect("stream ordinal"),
+                )][..]
+            )
+        );
+        let [passage] = stream.passages() else {
+            panic!("fixture stream has exactly one passage");
+        };
+        assert_eq!(
+            passage.entry(),
+            ConflictPathAnchor::Interior {
+                path_edge_index: 1,
+                progress_millimetres: expected[0],
+            }
+        );
+        assert_eq!(
+            passage.exit(),
+            ConflictPathAnchor::Interior {
+                path_edge_index: 1,
+                progress_millimetres: expected[1],
+            }
+        );
+        let path = revision
+            .traffic()
+            .maneuvers()
+            .maneuver_path(stream.maneuver_path())
+            .expect("maneuver path");
+        assert_eq!(path.maneuver_gates(), &[passage.admission_gate()]);
+    }
+
+    let region = revision
+        .spatial()
+        .expect("retained spatial component")
+        .conflict_zone_region(ConflictZoneOrdinal::from_raw(0))
+        .expect("conflict zone region");
+    assert_eq!(region.height_range(), (-1.0, 1.0));
+    assert_eq!(
+        region.ring_xz(),
+        &[
+            laneflow_static_network::CanonicalPointXZ { x: -1.0, z: -1.0 },
+            laneflow_static_network::CanonicalPointXZ { x: 1.0, z: -1.0 },
+            laneflow_static_network::CanonicalPointXZ { x: 1.0, z: 1.0 },
+            laneflow_static_network::CanonicalPointXZ { x: -1.0, z: 1.0 },
+        ]
+    );
+}
+
+#[test]
+fn road_editing_conflict_zone_requires_two_distinct_streams() {
+    let limits = CompileLimits::p100_initial_v2();
+    let source = lfre::RoadEditingSourceWriter::new(&limits)
+        .write(conflict_road_editing_module_with_stream_count(1))
+        .expect("Road Editing source");
+    let input =
+        lfre::RoadEditingModuleInput::try_new("runtime-conflict.lfre", source.as_bytes(), None)
+            .expect("Road Editing module input");
+    let mut unit = CompilationUnitBuilder::new(limits);
+    unit.add_road_editing_module(input)
+        .expect("Road Editing admission");
+
+    let error = match Compiler::new().compile(unit.build().expect("compilation unit")) {
+        Ok(_) => panic!("one stream cannot close a ConflictZone"),
+        Err(error) => error,
+    };
+    assert!(
+        error
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.code() == DiagnosticCode::InvalidRoadEditingSource)
+    );
 }
 
 #[test]
@@ -205,7 +684,7 @@ fn occupy_other_parking_space_fails_when_already_parked() {
             .expect("edge")
             .add_parking_space(ParkingSpaceInput {
                 parking_space_key: "space-a",
-                parking_area: None,
+                parking_facility: None,
                 entry: ParkingLaneAnchorInput {
                     lane_edge: LaneEdgeReference::local("edge"),
                     progress_meters: 4.0,
@@ -224,7 +703,7 @@ fn occupy_other_parking_space_fails_when_already_parked() {
             .expect("space-a")
             .add_parking_space(ParkingSpaceInput {
                 parking_space_key: "space-b",
-                parking_area: None,
+                parking_facility: None,
                 entry: ParkingLaneAnchorInput {
                     lane_edge: LaneEdgeReference::local("edge"),
                     progress_meters: 12.0,

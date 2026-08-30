@@ -3,13 +3,13 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
+use laneflow_road_editing_wire::{generated::lane_flow::road_editing::v1 as wire, runtime};
 use laneflow_static_contract::{
-    AccessEffect, AuthoringLaneKind, CanonicalFrameKind, EntityKind, EntityKindMarker,
-    FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind, ManeuverGateKind,
-    ManeuverPathKind, MovementKind, ParkingAreaKind, ParticipantClassKind, RoadSectionKind,
-    SignalAspect, SignalGroupKind, StopLineKind, heading_f32_from_si, millimetres_from_si,
-    millimetres_i32_from_si,
+    AccessEffect, AuthoringLaneKind, CanonicalFrameKind, ConflictZoneKind, EntityKind,
+    EntityKindMarker, FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind,
+    ManeuverGateKind, ManeuverPathKind, MovementKind, ParkingFacilityKind, ParticipantClassKind,
+    RoadSectionKind, SignalAspect, SignalGroupKind, StopLineKind, heading_f32_from_si,
+    millimetres_from_si, millimetres_i32_from_si,
 };
 
 use super::location::RoadEditingLocationFactory;
@@ -18,20 +18,23 @@ use crate::declaration::{
     AccessRuleDeclaration, AdmittedIidmProfile, AdmittedParkingGeometry,
     AuthoringCurveProgramDeclaration, AuthoringCurveSegmentDeclaration,
     AuthoringCurveSegmentGeometry, AuthoringLaneDeclaration, AuthoringLaneDirection,
-    AuthoringLaneGeometry, AuthoringPoint3F64, AuthoringStationEnd, AuthoringWidthProfile,
-    CanonicalFrameDeclaration, DeclarationHeader, FacilityBandDeclaration, JunctionDeclaration,
-    LaneEdgeDeclaration, LaneEdgeGeometryAuthority, LaneGroupDeclaration, ManeuverGateDeclaration,
-    ManeuverPathDeclaration, MovementDeclaration, OwnedAccessRegulation, OwnedAccessRuleTarget,
-    OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl,
-    ParkingAreaDeclaration, ParkingLaneAnchorDeclaration, ParkingSpaceDeclaration,
-    ParticipantClassDeclaration, RoadAlignmentDeclaration, RoadCorridorAuthoringGeometry,
-    RoadCorridorDeclaration, RoadSectionDeclaration, SignalControllerDeclaration,
-    SignalGroupDeclaration, SignalGroupStateDeclaration, SignalPhaseDeclaration, SpeedLimit,
-    StopLineDeclaration, TypedAstDeclaration, TypedAstEntityAddress, VehicleProfileDeclaration,
-    WaitingZoneDeclaration,
+    AuthoringLaneGeometry, AuthoringPoint2F64, AuthoringPoint3F64, AuthoringStationEnd,
+    AuthoringWidthProfile, CanonicalFrameDeclaration, ConflictPassageDeclaration,
+    ConflictZoneDeclaration, ConflictZoneRegionDeclaration, DeclarationHeader,
+    FacilityBandDeclaration, JunctionDeclaration, LaneEdgeDeclaration, LaneEdgeGeometryAuthority,
+    LaneGroupDeclaration, ManeuverGateDeclaration, ManeuverPathDeclaration, MovementDeclaration,
+    OwnedAccessRegulation, OwnedAccessRuleTarget, OwnedCorridorElementReference,
+    OwnedEntityReference, OwnedSignalControl, ParkingFacilityDeclaration,
+    ParkingLaneAnchorDeclaration, ParkingSpaceDeclaration, ParticipantClassDeclaration,
+    ParticipantStreamDeclaration, PathAnchorDeclaration, RoadAlignmentDeclaration,
+    RoadCorridorAuthoringGeometry, RoadCorridorDeclaration, RoadSectionDeclaration,
+    SignalControllerDeclaration, SignalGroupDeclaration, SignalGroupStateDeclaration,
+    SignalPhaseDeclaration, SpeedLimit, StopLineDeclaration, TypedAstDeclaration,
+    TypedAstEntityAddress, VehicleProfileDeclaration, WaitingZoneDeclaration,
 };
+use crate::identity::derive_canonical_stable_id_v1;
 use crate::{
-    RoadEditingPropertyStep, RoadEditingRelationKind, RoadEditingRelationOccurrence,
+    CompileLimits, RoadEditingPropertyStep, RoadEditingRelationKind, RoadEditingRelationOccurrence,
     RoadEditingTableKind, SourceLocation,
 };
 
@@ -94,6 +97,81 @@ pub(super) fn lower_road_alignments(
                     },
                 ),
                 span: locations.road_alignment(key, value.canvas_selection()),
+            }
+        })
+        .collect()
+}
+
+/// 降阶不分配 StableId 的冲突区空间记录；最终规范顺序在 HIR 解析 zone/frame 后冻结。
+pub(super) fn lower_conflict_zone_regions(
+    root: wire::RoadEditingSource<'_>,
+    locations: &RoadEditingLocationFactory,
+    shared_namespace: &Arc<str>,
+) -> Vec<ConflictZoneRegionDeclaration> {
+    let namespace = shared_namespace.as_ref();
+    let mut values: Vec<_> = root.conflict_zone_regions().iter().collect();
+    values.sort_unstable_by(|left, right| {
+        BorrowedReference::parse(left.conflict_zone(), 2, namespace)
+            .cmp(BorrowedReference::parse(
+                right.conflict_zone(),
+                2,
+                namespace,
+            ))
+            .then_with(|| {
+                BorrowedReference::parse(left.canonical_frame(), 1, namespace).cmp(
+                    BorrowedReference::parse(right.canonical_frame(), 1, namespace),
+                )
+            })
+    });
+    values
+        .into_iter()
+        .enumerate()
+        .map(|(index, value)| {
+            let occurrence = RoadEditingRelationOccurrence::CanonicalSetOrdinal(
+                u32::try_from(index).expect("compile limits bound region ordinals"),
+            );
+            let location = |field_id| {
+                locations.module_owner_local(
+                    RoadEditingRelationKind::ConflictZoneRegion,
+                    occurrence,
+                    &[
+                        RoadEditingPropertyStep::TableField {
+                            table: RoadEditingTableKind::RoadEditingSource,
+                            field_id: 28,
+                        },
+                        RoadEditingPropertyStep::TableField {
+                            table: RoadEditingTableKind::ConflictZoneRegion,
+                            field_id,
+                        },
+                    ],
+                )
+            };
+            ConflictZoneRegionDeclaration {
+                conflict_zone: lower_reference::<ConflictZoneKind>(
+                    value.conflict_zone(),
+                    2,
+                    shared_namespace,
+                    location(0),
+                ),
+                canonical_frame: lower_reference::<CanonicalFrameKind>(
+                    value.canonical_frame(),
+                    1,
+                    shared_namespace,
+                    location(1),
+                ),
+                min_y: canonicalize_zero(value.min_y()),
+                max_y: canonicalize_zero(value.max_y()),
+                ring_xz: value
+                    .ring_xz()
+                    .iter()
+                    .map(|point| AuthoringPoint2F64 {
+                        x: canonicalize_zero(point.x()),
+                        z: canonicalize_zero(point.z()),
+                    })
+                    .collect(),
+                // ConflictZoneRegion 不是稳定实体；它在 LFSM 中的 owner-local 语义就是
+                // ringXZ。保留到字段 4 的精确路径，不能用整个表位置冒充 ring 来源。
+                span: location(4),
             }
         })
         .collect()
@@ -248,8 +326,10 @@ pub(super) fn lower_independent_declarations(
     root: wire::RoadEditingSource<'_>,
     locations: &RoadEditingLocationFactory,
     shared_namespace: &Arc<str>,
+    limits: &CompileLimits,
     declarations: &mut Vec<TypedAstDeclaration>,
 ) {
+    let namespace = shared_namespace.as_ref();
     let mut signal_groups: Vec<_> = root.signal_groups().iter().collect();
     signal_groups.sort_unstable_by(|left, right| {
         left.signal_group_key()
@@ -267,20 +347,289 @@ pub(super) fn lower_independent_declarations(
         })
     }));
 
-    let mut parking_areas: Vec<_> = root.parking_areas().iter().collect();
-    parking_areas.sort_unstable_by(|left, right| {
-        left.parking_area_key()
+    let mut parking_facilities: Vec<_> = root.parking_facilities().iter().collect();
+    parking_facilities.sort_unstable_by(|left, right| {
+        left.parking_facility_key()
             .as_bytes()
-            .cmp(right.parking_area_key().as_bytes())
+            .cmp(right.parking_facility_key().as_bytes())
     });
-    declarations.extend(parking_areas.into_iter().map(|value| {
-        TypedAstDeclaration::ParkingArea(ParkingAreaDeclaration {
+    declarations.extend(parking_facilities.into_iter().map(|value| {
+        let key = value.parking_facility_key();
+        let lower_anchors = |anchors: runtime::Vector<
+            '_,
+            runtime::ForwardsUOffset<wire::ParkingLaneAnchor<'_>>,
+        >,
+                             relation,
+                             field_id| {
+            let mut anchors = anchors
+                .iter()
+                .map(|anchor| {
+                    let reference =
+                        BorrowedReference::parse(anchor.lane_edge(), 1, shared_namespace);
+                    let stable_id = derive_canonical_stable_id_v1(
+                        EntityKind::LaneEdge,
+                        reference.module_namespace,
+                        reference.components[0],
+                        limits,
+                    )
+                    .expect("semantic preflight admitted the LaneEdge identity token");
+                    (
+                        stable_id,
+                        admit_parking_progress(anchor.progress_meters()),
+                        anchor,
+                    )
+                })
+                .collect::<Vec<_>>();
+            anchors.sort_unstable_by_key(|(stable_id, progress_mm, _)| (*stable_id, *progress_mm));
+            anchors
+                .into_iter()
+                .enumerate()
+                .map(
+                    |(index, (_, progress_mm, anchor))| ParkingLaneAnchorDeclaration {
+                        lane_edge: lower_reference::<LaneEdgeKind>(
+                            anchor.lane_edge(),
+                            1,
+                            shared_namespace,
+                            locations.owner_local(
+                                EntityKind::ParkingFacility,
+                                &[],
+                                key,
+                                relation,
+                                RoadEditingRelationOccurrence::CanonicalSetOrdinal(
+                                    u32::try_from(index)
+                                        .expect("compile limits bound parking anchor ordinals"),
+                                ),
+                                &[
+                                    RoadEditingPropertyStep::TableField {
+                                        table: RoadEditingTableKind::ParkingFacility,
+                                        field_id,
+                                    },
+                                    RoadEditingPropertyStep::TableField {
+                                        table: RoadEditingTableKind::ParkingLaneAnchor,
+                                        field_id: 0,
+                                    },
+                                ],
+                                value.canvas_selection(),
+                            ),
+                        ),
+                        progress_mm,
+                    },
+                )
+                .collect::<Box<[_]>>()
+        };
+        let virtual_entries = lower_anchors(
+            value.virtual_entries(),
+            RoadEditingRelationKind::ParkingFacilityVirtualEntry,
+            3,
+        );
+        let virtual_exits = lower_anchors(
+            value.virtual_exits(),
+            RoadEditingRelationKind::ParkingFacilityVirtualExit,
+            4,
+        );
+        TypedAstDeclaration::ParkingFacility(ParkingFacilityDeclaration {
             header: module_scoped_header(
                 locations,
-                EntityKind::ParkingArea,
-                value.parking_area_key(),
+                EntityKind::ParkingFacility,
+                key,
                 value.canvas_selection(),
             ),
+            virtual_capacity: value.virtual_capacity(),
+            virtual_entries,
+            virtual_exits,
+        })
+    }));
+
+    let mut conflict_zones: Vec<_> = root.conflict_zones().iter().collect();
+    conflict_zones.sort_unstable_by(|left, right| {
+        compare_owner_scoped_values(
+            left.junction(),
+            left.conflict_zone_key(),
+            right.junction(),
+            right.conflict_zone_key(),
+            1,
+            namespace,
+        )
+    });
+    declarations.extend(conflict_zones.into_iter().map(|value| {
+        let key = value.conflict_zone_key();
+        TypedAstDeclaration::ConflictZone(ConflictZoneDeclaration {
+            header: owner_scoped_header(
+                locations,
+                EntityKind::ConflictZone,
+                value.junction(),
+                1,
+                key,
+                value.canvas_selection(),
+                namespace,
+            ),
+            junction: lower_reference::<JunctionKind>(
+                value.junction(),
+                1,
+                shared_namespace,
+                owner_property_location(
+                    locations,
+                    EntityKind::ConflictZone,
+                    value.junction(),
+                    1,
+                    key,
+                    RoadEditingTableKind::ConflictZone,
+                    1,
+                    value.canvas_selection(),
+                    namespace,
+                ),
+            ),
+        })
+    }));
+
+    let mut participant_streams: Vec<_> = root.participant_streams().iter().collect();
+    participant_streams.sort_unstable_by(|left, right| {
+        compare_owner_scoped_values(
+            left.junction(),
+            left.participant_stream_key(),
+            right.junction(),
+            right.participant_stream_key(),
+            1,
+            namespace,
+        )
+    });
+    declarations.extend(participant_streams.into_iter().map(|value| {
+        let key = value.participant_stream_key();
+        let owner = BorrowedReference::parse(value.junction(), 1, namespace);
+        let passages = value
+            .passages()
+            .iter()
+            .enumerate()
+            .map(|(index, passage)| {
+                let occurrence = RoadEditingRelationOccurrence::OrderedProductOrdinal(
+                    u32::try_from(index).expect("compile limits bound passage ordinals"),
+                );
+                let location = |steps: &[RoadEditingPropertyStep]| {
+                    locations.owner_local(
+                        EntityKind::ParticipantStream,
+                        owner.owner_local_keys_with_local(),
+                        key,
+                        RoadEditingRelationKind::ParticipantStreamPassage,
+                        occurrence,
+                        steps,
+                        value.canvas_selection(),
+                    )
+                };
+                let lower_anchor = |anchor: wire::PathAnchor<'_>, passage_field_id| {
+                    let anchor_steps = [
+                        RoadEditingPropertyStep::TableField {
+                            table: RoadEditingTableKind::ParticipantStream,
+                            field_id: 3,
+                        },
+                        RoadEditingPropertyStep::TableField {
+                            table: RoadEditingTableKind::ConflictPassage,
+                            field_id: passage_field_id,
+                        },
+                    ];
+                    let span = location(&anchor_steps);
+                    match anchor.kind() {
+                        wire::PathAnchorKind::Gate => {
+                            let gate_steps = [
+                                anchor_steps[0],
+                                anchor_steps[1],
+                                RoadEditingPropertyStep::TableField {
+                                    table: RoadEditingTableKind::PathAnchor,
+                                    field_id: 1,
+                                },
+                            ];
+                            PathAnchorDeclaration::Gate {
+                                gate: lower_reference::<ManeuverGateKind>(
+                                    anchor.gate().expect("preflight validated Gate payload"),
+                                    4,
+                                    shared_namespace,
+                                    location(&gate_steps),
+                                ),
+                                span,
+                            }
+                        }
+                        wire::PathAnchorKind::EdgeBoundary => PathAnchorDeclaration::EdgeBoundary {
+                            boundary_index: anchor.boundary_index(),
+                            span,
+                        },
+                        wire::PathAnchorKind::Interior => PathAnchorDeclaration::Interior {
+                            path_edge_index: anchor.path_edge_index(),
+                            progress_mm: millimetres_from_si(canonicalize_zero(
+                                anchor.progress_meters(),
+                            ))
+                            .expect("preflight validated interior progress"),
+                            span,
+                        },
+                        _ => unreachable!("preflight validated PathAnchor kind"),
+                    }
+                };
+                ConflictPassageDeclaration {
+                    conflict_zone: lower_reference::<ConflictZoneKind>(
+                        passage.conflict_zone(),
+                        2,
+                        shared_namespace,
+                        location(&[
+                            RoadEditingPropertyStep::TableField {
+                                table: RoadEditingTableKind::ParticipantStream,
+                                field_id: 3,
+                            },
+                            RoadEditingPropertyStep::TableField {
+                                table: RoadEditingTableKind::ConflictPassage,
+                                field_id: 0,
+                            },
+                        ]),
+                    ),
+                    entry: lower_anchor(passage.entry(), 1),
+                    exit: lower_anchor(passage.exit(), 2),
+                    span: location(&[RoadEditingPropertyStep::TableField {
+                        table: RoadEditingTableKind::ParticipantStream,
+                        field_id: 3,
+                    }]),
+                }
+            })
+            .collect();
+        TypedAstDeclaration::ParticipantStream(ParticipantStreamDeclaration {
+            header: owner_scoped_header(
+                locations,
+                EntityKind::ParticipantStream,
+                value.junction(),
+                1,
+                key,
+                value.canvas_selection(),
+                namespace,
+            ),
+            junction: lower_reference::<JunctionKind>(
+                value.junction(),
+                1,
+                shared_namespace,
+                owner_property_location(
+                    locations,
+                    EntityKind::ParticipantStream,
+                    value.junction(),
+                    1,
+                    key,
+                    RoadEditingTableKind::ParticipantStream,
+                    1,
+                    value.canvas_selection(),
+                    namespace,
+                ),
+            ),
+            maneuver_path: lower_reference::<ManeuverPathKind>(
+                value.maneuver_path(),
+                3,
+                shared_namespace,
+                owner_property_location(
+                    locations,
+                    EntityKind::ParticipantStream,
+                    value.junction(),
+                    1,
+                    key,
+                    RoadEditingTableKind::ParticipantStream,
+                    2,
+                    value.canvas_selection(),
+                    namespace,
+                ),
+            ),
+            passages,
         })
     }));
 
@@ -1421,8 +1770,8 @@ pub(super) fn lower_aggregate_declarations(
                 key,
                 value.canvas_selection(),
             ),
-            parking_area: value.parking_area().map(|area| {
-                lower_reference::<ParkingAreaKind>(
+            parking_facility: value.parking_facility().map(|area| {
+                lower_reference::<ParkingFacilityKind>(
                     area,
                     1,
                     shared_namespace,
@@ -1795,10 +2144,10 @@ mod tests {
         AccessRegulationInput, CanonicalFrameInput,
         IidmVehicleProfileInput as RoadEditingIidmInput, JunctionInput, JunctionReference,
         LaneEdgeInput, LaneEdgeReference, ManeuverPathInput, MovementInput, MovementReference,
-        ParkingAreaInput, ParticipantClassInput, ParticipantClassReference, RoadEditingDeclaration,
-        RoadEditingModuleHeader, RoadEditingModuleInput, RoadEditingProvenance,
-        RoadEditingSourceModuleBuilder, RoadEditingSourceWriter, StopLineInput,
-        VehicleProfileInput,
+        ParkingFacilityInput, ParticipantClassInput, ParticipantClassReference,
+        RoadEditingDeclaration, RoadEditingModuleHeader, RoadEditingModuleInput,
+        RoadEditingProvenance, RoadEditingSourceModuleBuilder, RoadEditingSourceWriter,
+        StopLineInput, VehicleProfileInput,
     };
     use crate::{CompileLimits, GeometryAccuracyProfile, GeometryDirectionProfile, SourceSpan};
 
@@ -1907,11 +2256,15 @@ mod tests {
             RoadEditingDeclaration::CanonicalFrame(
                 CanonicalFrameInput::try_new("frame-z").unwrap(),
             ),
-            RoadEditingDeclaration::ParkingArea(ParkingAreaInput::try_new("parking-z").unwrap()),
+            RoadEditingDeclaration::ParkingFacility(
+                ParkingFacilityInput::try_new("parking-z").unwrap(),
+            ),
             RoadEditingDeclaration::CanonicalFrame(
                 CanonicalFrameInput::try_new("frame-a").unwrap(),
             ),
-            RoadEditingDeclaration::ParkingArea(ParkingAreaInput::try_new("parking-a").unwrap()),
+            RoadEditingDeclaration::ParkingFacility(
+                ParkingFacilityInput::try_new("parking-a").unwrap(),
+            ),
         ] {
             builder.add_declaration(declaration).unwrap();
         }
@@ -1927,18 +2280,19 @@ mod tests {
             verified.root(),
             &locations,
             &shared_namespace,
+            &limits,
             &mut declarations,
         );
 
         assert_eq!(declarations.len(), 4);
         assert!(matches!(
             &declarations[0],
-            TypedAstDeclaration::ParkingArea(value)
+            TypedAstDeclaration::ParkingFacility(value)
                 if value.header.stable_key.as_ref() == "parking-a"
         ));
         assert!(matches!(
             &declarations[1],
-            TypedAstDeclaration::ParkingArea(value)
+            TypedAstDeclaration::ParkingFacility(value)
                 if value.header.stable_key.as_ref() == "parking-z"
         ));
         assert!(matches!(
@@ -2008,6 +2362,7 @@ mod tests {
             verified.root(),
             &locations,
             &shared_namespace,
+            &limits,
             &mut declarations,
         );
 
@@ -2040,6 +2395,7 @@ mod tests {
             verified.root(),
             &locations,
             &shared_namespace,
+            &limits,
             &mut independent,
         );
         let mut declarations = Vec::new();

@@ -11,8 +11,8 @@ use crate::{
     GeometryAccuracyProfile, GeometryDirectionProfile, IidmVehicleProfileInput, JunctionInput,
     JunctionReference, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference, LaneGroupInput,
     LaneGroupReference, ManeuverGateInput, ManeuverGateReference, ManeuverPathInput,
-    ManeuverPathReference, MovementInput, MovementReference, ParkingAreaInput,
-    ParkingAreaReference, ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput,
+    ManeuverPathReference, MovementInput, MovementReference, ParkingFacilityInput,
+    ParkingFacilityReference, ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput,
     ParticipantClassInput, ParticipantClassReference, RoadCorridorInput, RoadSectionInput,
     RoadSectionReference, SignalControlInput, SignalControllerInput, SignalGroupInput,
     SignalGroupReference, SignalGroupStateInput, SignalPhaseInput, SourceModuleHeader,
@@ -1398,8 +1398,11 @@ fn full_domain_unit() -> CompilationUnit {
             ],
         })
         .unwrap()
-        .add_parking_area(ParkingAreaInput {
-            parking_area_key: "area-main",
+        .add_parking_facility(ParkingFacilityInput {
+            parking_facility_key: "area-main",
+            virtual_capacity: 0,
+            virtual_entries: &[],
+            virtual_exits: &[],
         })
         .unwrap();
     let parking_geometry = ParkingSpaceGeometryInput {
@@ -1411,7 +1414,7 @@ fn full_domain_unit() -> CompilationUnit {
     builder
         .add_parking_space(ParkingSpaceInput {
             parking_space_key: "space-owned",
-            parking_area: Some(ParkingAreaReference::local("area-main")),
+            parking_facility: Some(ParkingFacilityReference::local("area-main")),
             entry: ParkingLaneAnchorInput {
                 lane_edge: LaneEdgeReference::local("parking-entry"),
                 progress_meters: 4.0,
@@ -1425,7 +1428,7 @@ fn full_domain_unit() -> CompilationUnit {
         .unwrap()
         .add_parking_space(ParkingSpaceInput {
             parking_space_key: "space-independent",
-            parking_area: None,
+            parking_facility: None,
             entry: ParkingLaneAnchorInput {
                 lane_edge: LaneEdgeReference::local("parking-entry"),
                 progress_meters: 4.0,
@@ -2044,13 +2047,16 @@ fn parking_unit_with_declared_length_and_polyline(
             successors: &[],
         })
         .unwrap()
-        .add_parking_area(ParkingAreaInput {
-            parking_area_key: "lot",
+        .add_parking_facility(ParkingFacilityInput {
+            parking_facility_key: "lot",
+            virtual_capacity: 0,
+            virtual_entries: &[],
+            virtual_exits: &[],
         })
         .unwrap()
         .add_parking_space(ParkingSpaceInput {
             parking_space_key: "space",
-            parking_area: Some(ParkingAreaReference::local("lot")),
+            parking_facility: Some(ParkingFacilityReference::local("lot")),
             entry: ParkingLaneAnchorInput {
                 lane_edge: LaneEdgeReference::local("bay"),
                 progress_meters,

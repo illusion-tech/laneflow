@@ -99,10 +99,10 @@ impl TrafficWorld {
         }
         for (slot, next) in updates.drain(..) {
             let previous = self.vehicles[slot].state.replace(next);
-            if let Some(journal) = self.migration_journal.as_mut() {
-                if !previous.as_ref().is_some_and(|old| *old == next) {
-                    journal.tick_entry(&VehicleDelta::from_state(&next));
-                }
+            if let Some(journal) = self.migration_journal.as_mut()
+                && !previous.as_ref().is_some_and(|old| *old == next)
+            {
+                journal.tick_entry(&VehicleDelta::from_state(&next));
             }
         }
         if let Some(journal) = self.migration_journal.as_mut() {
@@ -317,9 +317,7 @@ impl TrafficWorld {
         let mut from_cursor_start = BoundedDistance::Finite(0);
         let mut accumulated = false;
         while hop < compiled.next_controlled.len() {
-            let Some(next) = compiled.next_controlled[hop] else {
-                return None;
-            };
+            let next = compiled.next_controlled[hop]?;
             from_cursor_start = if accumulated {
                 from_cursor_start.add_bounded(next.distance_from_hop_start)
             } else {
@@ -858,10 +856,9 @@ mod preview {
             if let Some(succ) = traffic
                 .successors(edge)
                 .and_then(|items| items.first().copied())
+                && traffic.relations().stop_line_for_edge(succ).is_none()
             {
-                if traffic.relations().stop_line_for_edge(succ).is_none() {
-                    edges.push(succ);
-                }
+                edges.push(succ);
             }
             break;
         }

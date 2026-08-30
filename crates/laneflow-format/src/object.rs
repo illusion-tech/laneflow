@@ -1,19 +1,21 @@
 //! 完整对象的附录 A registry 结构预检。
 
 use laneflow_static_contract::{
-    PortableFieldSchema, PortableFieldType, PortableObjectKind, PortableObjectSchema,
+    CANONICAL_ARTIFACT_FORMAT_VERSION, CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH, PortableFieldSchema,
+    PortableFieldType, PortableObjectKind, PortableObjectSchema, PortableRowCardinality,
     PortableRowSchema, PortableSectionSchema, PortableTableSchema, Sha256Digest, StableId128,
-    portable_object_schema,
+    TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH, portable_object_schema,
 };
+use sha2::{Digest, Sha256};
 
 use crate::{
     FormatError, FormatLimits, FormatStructure, LimitDimension, ObjectFramingView,
     SectionFramingView,
+    framing::ObjectFramingProof,
     table::{PreflightBudget, preflight_table_with_registry},
     wire::{checked_slice, read_u8, read_u16, read_u32, read_u64},
 };
 
-const SECTION_HEADER_BYTES: u64 = 4;
 const TABLE_HEADER_BYTES: u64 = 16;
 const ROW_HEADER_BYTES: u64 = 16;
 const FIELD_HEADER_BYTES: u64 = 12;
@@ -31,7 +33,25 @@ pub struct RegistryCheckedObjectView<'a> {
     contract_format: u16,
 }
 
+/// 成功 registry 预检后可对同一不可变 backing 做 O(1) 重借用的 crate-private 证明。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RegistryCheckProof {
+    framing: ObjectFramingProof,
+    limits: FormatLimits,
+    schema: &'static PortableObjectSchema,
+    contract_format: u16,
+}
+
 impl<'a> RegistryCheckedObjectView<'a> {
+    pub(crate) const fn proof(self) -> RegistryCheckProof {
+        RegistryCheckProof {
+            framing: self.framing.proof(),
+            limits: self.limits,
+            schema: self.schema,
+            contract_format: self.contract_format,
+        }
+    }
+
     /// 已与 magic、目录和静态 registry 一致的对象种类。
     #[must_use]
     pub const fn kind(self) -> PortableObjectKind {
@@ -76,11 +96,21 @@ impl<'a> RegistryCheckedObjectView<'a> {
     pub fn section(self, ordinal: u32) -> Option<RegistryCheckedSectionView<'a>> {
         let schema = self.schema.sections.get(usize::try_from(ordinal).ok()?)?;
         let framing = self.framing.section(ordinal)?;
-        let table_count = read_u32(framing.bytes(), 0, FormatStructure::Section).ok()?;
         Some(RegistryCheckedSectionView {
             framing,
             schema,
-            table_count,
+            chunked: self.kind() != PortableObjectKind::CanonicalPublicationDescriptor,
+        })
+    }
+}
+
+impl RegistryCheckProof {
+    pub(crate) fn reborrow(self, bytes: &[u8]) -> Option<RegistryCheckedObjectView<'_>> {
+        Some(RegistryCheckedObjectView {
+            framing: self.framing.reborrow(bytes)?,
+            limits: self.limits,
+            schema: self.schema,
+            contract_format: self.contract_format,
         })
     }
 }
@@ -90,7 +120,7 @@ impl<'a> RegistryCheckedObjectView<'a> {
 pub struct RegistryCheckedSectionView<'a> {
     framing: SectionFramingView<'a>,
     schema: &'static PortableSectionSchema,
-    table_count: u32,
+    chunked: bool,
 }
 
 impl<'a> RegistryCheckedSectionView<'a> {
@@ -107,17 +137,15 @@ impl<'a> RegistryCheckedSectionView<'a> {
     /// 附录 A 为该节冻结的 table 数量。
     #[must_use]
     pub const fn table_count(self) -> u32 {
-        self.table_count
+        self.schema.tables.len() as u32
     }
 
     /// 按 wire 顺序遍历全部已受检 table；每张 table 只推进一次游标。
     #[must_use]
     pub fn tables(self) -> RegistryCheckedTableIter<'a> {
         RegistryCheckedTableIter {
-            bytes: self.bytes(),
-            schemas: self.schema.tables.iter(),
-            cursor: SECTION_HEADER_BYTES,
-            remaining: self.table_count(),
+            section: self,
+            ordinal: 0,
         }
     }
 
@@ -129,38 +157,67 @@ impl<'a> RegistryCheckedSectionView<'a> {
     pub fn table(self, ordinal: u32) -> Option<RegistryCheckedTableView<'a>> {
         let ordinal = usize::try_from(ordinal).ok()?;
         let schema = self.schema.tables.get(ordinal)?;
-        let mut cursor = SECTION_HEADER_BYTES;
-        for current in 0..=ordinal {
-            let rows_byte_length =
-                read_u64(self.bytes(), cursor + 8, FormatStructure::Table).ok()?;
-            let table_byte_length = TABLE_HEADER_BYTES.checked_add(rows_byte_length)?;
-            if current == ordinal {
-                let bytes = checked_slice(
-                    self.bytes(),
-                    cursor,
-                    table_byte_length,
-                    FormatStructure::Table,
-                )
-                .ok()?;
-                let row_count = read_u32(bytes, 4, FormatStructure::Table).ok()?;
-                return Some(RegistryCheckedTableView {
-                    bytes,
-                    schema,
-                    row_count,
-                });
-            }
-            cursor = cursor.checked_add(table_byte_length)?;
+        if !self.chunked {
+            let bytes = self.bytes();
+            let row_count = read_u32(bytes, 4, FormatStructure::Table).ok()?;
+            return Some(RegistryCheckedTableView {
+                section_bytes: bytes,
+                directory: &[],
+                first_chunk: 0,
+                chunk_count: 1,
+                schema,
+                row_count,
+                chunked: false,
+            });
         }
-        None
+
+        let chunk_count = read_u32(self.bytes(), 0, FormatStructure::Section).ok()?;
+        let directory = checked_slice(
+            self.bytes(),
+            CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH,
+            u64::from(chunk_count) * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH,
+            FormatStructure::ChunkDirectory,
+        )
+        .ok()?;
+        let mut first_chunk = None;
+        let mut matching_chunks = 0_u32;
+        let mut row_count = 0_u32;
+        for entry in 0..chunk_count {
+            let offset = u64::from(entry) * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH;
+            let table_kind =
+                read_u16(directory, offset, FormatStructure::ChunkDirectoryEntry).ok()?;
+            if table_kind == schema.kind {
+                first_chunk.get_or_insert(entry);
+                matching_chunks += 1;
+                row_count = row_count.checked_add(
+                    read_u32(directory, offset + 12, FormatStructure::ChunkDirectoryEntry).ok()?,
+                )?;
+            } else if table_kind > schema.kind && first_chunk.is_some() {
+                break;
+            }
+        }
+        Some(RegistryCheckedTableView {
+            section_bytes: self.bytes(),
+            directory,
+            first_chunk: first_chunk.unwrap_or(0),
+            chunk_count: matching_chunks,
+            schema,
+            row_count,
+            chunked: true,
+        })
     }
 }
 
 /// 已按附录 A table schema 完成结构预检的零拷贝借用。
 #[derive(Clone, Copy, Debug)]
 pub struct RegistryCheckedTableView<'a> {
-    bytes: &'a [u8],
+    section_bytes: &'a [u8],
+    directory: &'a [u8],
+    first_chunk: u32,
+    chunk_count: u32,
     schema: &'static PortableTableSchema,
     row_count: u32,
+    chunked: bool,
 }
 
 impl<'a> RegistryCheckedTableView<'a> {
@@ -170,24 +227,56 @@ impl<'a> RegistryCheckedTableView<'a> {
     }
 
     #[must_use]
-    pub const fn bytes(self) -> &'a [u8] {
-        self.bytes
-    }
-
-    #[must_use]
     pub const fn row_count(self) -> u32 {
         self.row_count
+    }
+
+    /// 构成该逻辑表的物理 chunk 数；LFCP singleton table 固定为一。
+    #[must_use]
+    pub const fn chunk_count(self) -> u32 {
+        self.chunk_count
+    }
+
+    /// 指定物理 chunk 的逻辑行数。
+    #[must_use]
+    pub fn chunk_row_count(self, chunk_ordinal: u32) -> Option<u32> {
+        if chunk_ordinal >= self.chunk_count {
+            return None;
+        }
+        if !self.chunked {
+            return Some(self.row_count);
+        }
+        let entry = self.first_chunk.checked_add(chunk_ordinal)?;
+        read_u32(
+            self.directory,
+            u64::from(entry) * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH + 12,
+            FormatStructure::ChunkDirectoryEntry,
+        )
+        .ok()
+    }
+
+    /// 指定物理 chunk 的 exact bytes。
+    #[must_use]
+    pub fn chunk_exact_byte_length(self, chunk_ordinal: u32) -> Option<u64> {
+        if chunk_ordinal >= self.chunk_count {
+            return None;
+        }
+        if !self.chunked {
+            return u64::try_from(self.section_bytes.len()).ok();
+        }
+        let entry = self.first_chunk.checked_add(chunk_ordinal)?;
+        read_u64(
+            self.directory,
+            u64::from(entry) * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH + 32,
+            FormatStructure::ChunkDirectoryEntry,
+        )
+        .ok()
     }
 
     /// 按 wire 顺序遍历全部已受检 row；每行只推进一次游标。
     #[must_use]
     pub fn rows(self) -> RegistryCheckedRowIter<'a> {
-        RegistryCheckedRowIter {
-            bytes: self.bytes,
-            schema: self.schema.row,
-            cursor: TABLE_HEADER_BYTES,
-            remaining: self.row_count(),
-        }
+        RegistryCheckedRowIter::for_table(self)
     }
 
     /// 按线顺序取得一行。越过已受检的 row count 时返回 `None`。
@@ -199,13 +288,13 @@ impl<'a> RegistryCheckedTableView<'a> {
         if ordinal >= self.row_count() {
             return None;
         }
+        let (bytes, row_in_chunk) = self.chunk_for_row(ordinal)?;
         let mut cursor = TABLE_HEADER_BYTES;
-        for current in 0..=ordinal {
-            let row_byte_length = read_u64(self.bytes, cursor, FormatStructure::Row).ok()?;
-            if current == ordinal {
+        for current in 0..=row_in_chunk {
+            let row_byte_length = read_u64(bytes, cursor, FormatStructure::Row).ok()?;
+            if current == row_in_chunk {
                 let bytes =
-                    checked_slice(self.bytes, cursor, row_byte_length, FormatStructure::Row)
-                        .ok()?;
+                    checked_slice(bytes, cursor, row_byte_length, FormatStructure::Row).ok()?;
                 let field_count = read_u32(bytes, 8, FormatStructure::Row).ok()?;
                 return Some(RegistryCheckedRowView {
                     bytes,
@@ -214,6 +303,62 @@ impl<'a> RegistryCheckedTableView<'a> {
                 });
             }
             cursor = cursor.checked_add(row_byte_length)?;
+        }
+        None
+    }
+
+    fn chunk_bytes(self, chunk_ordinal: u32) -> Option<&'a [u8]> {
+        if chunk_ordinal >= self.chunk_count {
+            return None;
+        }
+        if !self.chunked {
+            return Some(self.section_bytes);
+        }
+        let entry = self.first_chunk.checked_add(chunk_ordinal)?;
+        let offset = u64::from(entry) * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH;
+        let byte_offset = read_u64(
+            self.directory,
+            offset + 24,
+            FormatStructure::ChunkDirectoryEntry,
+        )
+        .ok()?;
+        let byte_length = read_u64(
+            self.directory,
+            offset + 32,
+            FormatStructure::ChunkDirectoryEntry,
+        )
+        .ok()?;
+        checked_slice(
+            self.section_bytes,
+            byte_offset,
+            byte_length,
+            FormatStructure::Table,
+        )
+        .ok()
+    }
+
+    fn chunk_for_row(self, ordinal: u32) -> Option<(&'a [u8], u32)> {
+        if !self.chunked {
+            return Some((self.section_bytes, ordinal));
+        }
+        for chunk in 0..self.chunk_count {
+            let entry = self.first_chunk.checked_add(chunk)?;
+            let offset = u64::from(entry) * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH;
+            let first = read_u32(
+                self.directory,
+                offset + 8,
+                FormatStructure::ChunkDirectoryEntry,
+            )
+            .ok()?;
+            let count = read_u32(
+                self.directory,
+                offset + 12,
+                FormatStructure::ChunkDirectoryEntry,
+            )
+            .ok()?;
+            if ordinal >= first && ordinal < first.checked_add(count)? {
+                return Some((self.chunk_bytes(chunk)?, ordinal - first));
+            }
         }
         None
     }
@@ -453,10 +598,13 @@ impl<'a> RegistryCheckedRecordVectorView<'a> {
     #[must_use]
     pub fn rows(self) -> RegistryCheckedRowIter<'a> {
         RegistryCheckedRowIter {
+            table: None,
             bytes: self.bytes,
             schema: self.row_schema,
             cursor: 4,
             remaining: self.len(),
+            chunk_ordinal: 0,
+            chunk_remaining: self.len(),
         }
     }
 
@@ -515,62 +663,21 @@ impl core::iter::FusedIterator for RegistryCheckedSectionIter<'_> {}
 /// [`RegistryCheckedSectionView`] 的单游标 wire-order table 迭代器。
 #[derive(Clone, Debug)]
 pub struct RegistryCheckedTableIter<'a> {
-    bytes: &'a [u8],
-    schemas: core::slice::Iter<'static, PortableTableSchema>,
-    cursor: u64,
-    remaining: u32,
+    section: RegistryCheckedSectionView<'a>,
+    ordinal: u32,
 }
 
 impl<'a> Iterator for RegistryCheckedTableIter<'a> {
     type Item = RegistryCheckedTableView<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.remaining == 0 {
-            return None;
-        }
-        let Some(schema) = self.schemas.next() else {
-            self.remaining = 0;
-            return None;
-        };
-        let Some(rows_byte_length) =
-            read_u64(self.bytes, self.cursor + 8, FormatStructure::Table).ok()
-        else {
-            self.remaining = 0;
-            return None;
-        };
-        let Some(table_byte_length) = TABLE_HEADER_BYTES.checked_add(rows_byte_length) else {
-            self.remaining = 0;
-            return None;
-        };
-        let Some(bytes) = checked_slice(
-            self.bytes,
-            self.cursor,
-            table_byte_length,
-            FormatStructure::Table,
-        )
-        .ok() else {
-            self.remaining = 0;
-            return None;
-        };
-        let Some(row_count) = read_u32(bytes, 4, FormatStructure::Table).ok() else {
-            self.remaining = 0;
-            return None;
-        };
-        let Some(next_cursor) = self.cursor.checked_add(table_byte_length) else {
-            self.remaining = 0;
-            return None;
-        };
-        self.cursor = next_cursor;
-        self.remaining -= 1;
-        Some(RegistryCheckedTableView {
-            bytes,
-            schema,
-            row_count,
-        })
+        let table = self.section.table(self.ordinal)?;
+        self.ordinal = self.ordinal.checked_add(1)?;
+        Some(table)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        remaining_size_hint(self.remaining)
+        remaining_size_hint(self.section.table_count().saturating_sub(self.ordinal))
     }
 }
 
@@ -579,10 +686,33 @@ impl core::iter::FusedIterator for RegistryCheckedTableIter<'_> {}
 /// table 或一层 `RecordVector` 的单游标 wire-order row 迭代器。
 #[derive(Clone, Debug)]
 pub struct RegistryCheckedRowIter<'a> {
+    table: Option<RegistryCheckedTableView<'a>>,
     bytes: &'a [u8],
     schema: &'static PortableRowSchema,
     cursor: u64,
     remaining: u32,
+    chunk_ordinal: u32,
+    chunk_remaining: u32,
+}
+
+impl<'a> RegistryCheckedRowIter<'a> {
+    fn for_table(table: RegistryCheckedTableView<'a>) -> Self {
+        let bytes = table.chunk_bytes(0).unwrap_or(&table.section_bytes[..0]);
+        let chunk_remaining = if table.chunk_count == 0 {
+            0
+        } else {
+            read_u32(bytes, 4, FormatStructure::Table).unwrap_or(0)
+        };
+        Self {
+            table: Some(table),
+            bytes,
+            schema: table.schema.row,
+            cursor: TABLE_HEADER_BYTES,
+            remaining: table.row_count,
+            chunk_ordinal: 0,
+            chunk_remaining,
+        }
+    }
 }
 
 impl<'a> Iterator for RegistryCheckedRowIter<'a> {
@@ -591,6 +721,14 @@ impl<'a> Iterator for RegistryCheckedRowIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.remaining == 0 {
             return None;
+        }
+        if self.chunk_remaining == 0
+            && let Some(table) = self.table
+        {
+            self.chunk_ordinal = self.chunk_ordinal.checked_add(1)?;
+            self.bytes = table.chunk_bytes(self.chunk_ordinal)?;
+            self.cursor = TABLE_HEADER_BYTES;
+            self.chunk_remaining = read_u32(self.bytes, 4, FormatStructure::Table).ok()?;
         }
         let Some(row_byte_length) = read_u64(self.bytes, self.cursor, FormatStructure::Row).ok()
         else {
@@ -617,6 +755,7 @@ impl<'a> Iterator for RegistryCheckedRowIter<'a> {
         };
         self.cursor = next_cursor;
         self.remaining -= 1;
+        self.chunk_remaining -= 1;
         Some(RegistryCheckedRowView {
             bytes,
             schema: self.schema,
@@ -740,7 +879,7 @@ pub fn preflight_object_registry(
         expected_kind,
         expected_kind.format_version(),
         portable_object_schema(expected_kind),
-        expected_kind.format_version(),
+        CANONICAL_ARTIFACT_FORMAT_VERSION,
         limits,
     )
 }
@@ -760,7 +899,6 @@ fn preflight_object_registry_at<'a>(
         limits,
     )?;
 
-    let mut declared_table_count = 0_u64;
     for (ordinal, section_schema) in schema.sections.iter().enumerate() {
         let ordinal = u32::try_from(ordinal).map_err(|_| FormatError::ArithmeticOverflow {
             structure: FormatStructure::SectionDirectory,
@@ -770,113 +908,10 @@ fn preflight_object_registry_at<'a>(
             .ok_or(FormatError::BindingMismatch {
                 structure: FormatStructure::Section,
             })?;
-        let section_bytes = section.bytes();
-        let table_count = read_u32(section_bytes, 0, FormatStructure::Section)?;
-        let expected_table_count = u64::try_from(section_schema.tables.len()).map_err(|_| {
-            FormatError::ArithmeticOverflow {
-                structure: FormatStructure::Section,
-            }
-        })?;
-        if u64::from(table_count) != expected_table_count {
-            return Err(FormatError::LengthMismatch {
-                structure: FormatStructure::Section,
-                declared: u64::from(table_count),
-                actual: expected_table_count,
-            });
-        }
-        declared_table_count = declared_table_count
-            .checked_add(u64::from(table_count))
-            .ok_or(FormatError::ArithmeticOverflow {
-                structure: FormatStructure::Section,
-            })?;
-    }
-    let expected_table_count = u64::from(expected_kind.table_count());
-    if declared_table_count != expected_table_count {
-        return Err(FormatError::LengthMismatch {
-            structure: FormatStructure::Section,
-            declared: declared_table_count,
-            actual: expected_table_count,
-        });
-    }
-
-    let mut budget = PreflightBudget::default();
-    for (ordinal, section_schema) in schema.sections.iter().enumerate() {
-        let ordinal = u32::try_from(ordinal).map_err(|_| FormatError::ArithmeticOverflow {
-            structure: FormatStructure::SectionDirectory,
-        })?;
-        let section = framing
-            .section(ordinal)
-            .ok_or(FormatError::BindingMismatch {
-                structure: FormatStructure::Section,
-            })?;
-        let section_bytes = section.bytes();
-
-        let mut cursor = SECTION_HEADER_BYTES;
-        for table_schema in section_schema.tables {
-            let actual_table_kind = read_u16(section_bytes, cursor, FormatStructure::Table)?;
-            if actual_table_kind == 0 {
-                return Err(FormatError::UnknownKind {
-                    structure: FormatStructure::Table,
-                    code: u64::from(actual_table_kind),
-                });
-            }
-            if actual_table_kind != table_schema.kind {
-                return Err(FormatError::NonCanonicalOrder {
-                    structure: FormatStructure::Section,
-                    previous: u64::from(table_schema.kind),
-                    current: u64::from(actual_table_kind),
-                });
-            }
-            let rows_byte_length = read_u64(
-                section_bytes,
-                cursor
-                    .checked_add(8)
-                    .ok_or(FormatError::ArithmeticOverflow {
-                        structure: FormatStructure::Table,
-                    })?,
-                FormatStructure::Table,
-            )?;
-            let row_count = read_u32(
-                section_bytes,
-                cursor
-                    .checked_add(4)
-                    .ok_or(FormatError::ArithmeticOverflow {
-                        structure: FormatStructure::Table,
-                    })?,
-                FormatStructure::Table,
-            )?;
-            check_source_location_rows(
-                expected_kind,
-                section_schema.kind,
-                table_schema.kind,
-                row_count,
-                limits,
-            )?;
-            let table_byte_length = TABLE_HEADER_BYTES.checked_add(rows_byte_length).ok_or(
-                FormatError::ArithmeticOverflow {
-                    structure: FormatStructure::Table,
-                },
-            )?;
-            let table_bytes = checked_slice(
-                section_bytes,
-                cursor,
-                table_byte_length,
-                FormatStructure::Table,
-            )?;
-            preflight_table_with_registry(table_bytes, table_schema, limits, &mut budget)?;
-            cursor =
-                cursor
-                    .checked_add(table_byte_length)
-                    .ok_or(FormatError::ArithmeticOverflow {
-                        structure: FormatStructure::Section,
-                    })?;
-        }
-        if cursor != section_bytes.len() as u64 {
-            return Err(FormatError::LengthMismatch {
-                structure: FormatStructure::Section,
-                declared: cursor,
-                actual: section_bytes.len() as u64,
-            });
+        if expected_kind == PortableObjectKind::CanonicalPublicationDescriptor {
+            preflight_singleton_section(section.bytes(), section_schema, limits)?;
+        } else {
+            preflight_chunked_section(section.bytes(), expected_kind, section_schema, limits)?;
         }
     }
 
@@ -886,6 +921,269 @@ fn preflight_object_registry_at<'a>(
         schema,
         contract_format,
     })
+}
+
+fn preflight_singleton_section(
+    bytes: &[u8],
+    schema: &'static PortableSectionSchema,
+    limits: FormatLimits,
+) -> Result<(), FormatError> {
+    let [table_schema] = schema.tables else {
+        return Err(FormatError::BindingMismatch {
+            structure: FormatStructure::Section,
+        });
+    };
+    let mut budget = PreflightBudget::default();
+    preflight_table_with_registry(bytes, table_schema, limits, &mut budget)?;
+    Ok(())
+}
+
+fn preflight_chunked_section(
+    bytes: &[u8],
+    object_kind: PortableObjectKind,
+    schema: &'static PortableSectionSchema,
+    limits: FormatLimits,
+) -> Result<(), FormatError> {
+    let chunk_count = read_u32(bytes, 0, FormatStructure::Section)?;
+    if chunk_count > limits.max_chunks_per_section() {
+        return Err(FormatError::LimitExceeded {
+            dimension: LimitDimension::ChunksPerSection,
+            actual: u64::from(chunk_count),
+            limit: u64::from(limits.max_chunks_per_section()),
+        });
+    }
+    let entry_byte_length = read_u16(bytes, 4, FormatStructure::Section)?;
+    if u64::from(entry_byte_length) != TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH {
+        return Err(FormatError::NonCanonicalValue {
+            structure: FormatStructure::Section,
+            offset: 4,
+        });
+    }
+    if read_u16(bytes, 6, FormatStructure::Section)? != 0 {
+        return Err(FormatError::NonCanonicalValue {
+            structure: FormatStructure::Section,
+            offset: 6,
+        });
+    }
+    let directory_byte_length = read_u64(bytes, 8, FormatStructure::Section)?;
+    let expected_directory_byte_length = CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH
+        .checked_add(
+            u64::from(chunk_count)
+                .checked_mul(TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH)
+                .ok_or(FormatError::ArithmeticOverflow {
+                    structure: FormatStructure::ChunkDirectory,
+                })?,
+        )
+        .ok_or(FormatError::ArithmeticOverflow {
+            structure: FormatStructure::ChunkDirectory,
+        })?;
+    if directory_byte_length != expected_directory_byte_length {
+        return Err(FormatError::LengthMismatch {
+            structure: FormatStructure::ChunkDirectory,
+            declared: directory_byte_length,
+            actual: expected_directory_byte_length,
+        });
+    }
+    let directory = checked_slice(
+        bytes,
+        CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH,
+        expected_directory_byte_length - CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH,
+        FormatStructure::ChunkDirectory,
+    )?;
+
+    let mut expected_offset = directory_byte_length;
+    let mut schema_index = 0_usize;
+    let mut previous_table_kind = 0_u16;
+    let mut expected_chunk_index = 0_u32;
+    let mut expected_first_row = 0_u32;
+    for entry_index in 0..chunk_count {
+        let entry = u64::from(entry_index) * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH;
+        let table_kind = read_u16(directory, entry, FormatStructure::ChunkDirectoryEntry)?;
+        while schema
+            .tables
+            .get(schema_index)
+            .is_some_and(|table| table.kind < table_kind)
+        {
+            validate_logical_cardinality(schema.tables[schema_index], 0)?;
+            schema_index += 1;
+        }
+        let table_schema = schema
+            .tables
+            .get(schema_index)
+            .ok_or(FormatError::UnknownKind {
+                structure: FormatStructure::ChunkDirectoryEntry,
+                code: u64::from(table_kind),
+            })?;
+        if table_schema.kind != table_kind {
+            return Err(FormatError::UnknownKind {
+                structure: FormatStructure::ChunkDirectoryEntry,
+                code: u64::from(table_kind),
+            });
+        }
+
+        if table_kind != previous_table_kind {
+            previous_table_kind = table_kind;
+            expected_chunk_index = 0;
+            expected_first_row = 0;
+        }
+        let table_schema_version =
+            read_u16(directory, entry + 2, FormatStructure::ChunkDirectoryEntry)?;
+        if table_schema_version != 1 {
+            return Err(FormatError::UnsupportedVersion {
+                structure: FormatStructure::ChunkDirectoryEntry,
+                actual: u64::from(table_schema_version),
+                expected: 1,
+            });
+        }
+        let chunk_index = read_u32(directory, entry + 4, FormatStructure::ChunkDirectoryEntry)?;
+        if chunk_index != expected_chunk_index {
+            return Err(FormatError::NonCanonicalOrder {
+                structure: FormatStructure::ChunkDirectory,
+                previous: u64::from(expected_chunk_index),
+                current: u64::from(chunk_index),
+            });
+        }
+        let first_row = read_u32(directory, entry + 8, FormatStructure::ChunkDirectoryEntry)?;
+        if first_row != expected_first_row {
+            return Err(FormatError::GapOrOverlap {
+                expected_offset: u64::from(expected_first_row),
+                actual_offset: u64::from(first_row),
+            });
+        }
+        let row_count = read_u32(directory, entry + 12, FormatStructure::ChunkDirectoryEntry)?;
+        if row_count == 0 {
+            return Err(FormatError::NonCanonicalValue {
+                structure: FormatStructure::ChunkDirectoryEntry,
+                offset: entry + 12,
+            });
+        }
+        check_source_location_rows(object_kind, schema.kind, table_kind, row_count, limits)?;
+        if read_u32(directory, entry + 16, FormatStructure::ChunkDirectoryEntry)? != 0
+            || read_u32(directory, entry + 20, FormatStructure::ChunkDirectoryEntry)? != 0
+        {
+            return Err(FormatError::NonCanonicalValue {
+                structure: FormatStructure::ChunkDirectoryEntry,
+                offset: entry + 16,
+            });
+        }
+        let byte_offset = read_u64(directory, entry + 24, FormatStructure::ChunkDirectoryEntry)?;
+        if byte_offset != expected_offset {
+            return Err(FormatError::GapOrOverlap {
+                expected_offset,
+                actual_offset: byte_offset,
+            });
+        }
+        let byte_length = read_u64(directory, entry + 32, FormatStructure::ChunkDirectoryEntry)?;
+        if byte_length > limits.config().max_table_chunk_bytes {
+            return Err(FormatError::LimitExceeded {
+                dimension: LimitDimension::TableChunkBytes,
+                actual: byte_length,
+                limit: limits.config().max_table_chunk_bytes,
+            });
+        }
+        let chunk = checked_slice(bytes, byte_offset, byte_length, FormatStructure::Table)?;
+        let expected_digest: [u8; 32] = checked_slice(
+            directory,
+            entry + 40,
+            32,
+            FormatStructure::ChunkDirectoryEntry,
+        )?
+        .try_into()
+        .map_err(|_| FormatError::BindingMismatch {
+            structure: FormatStructure::ChunkDirectoryEntry,
+        })?;
+        let actual_digest: [u8; 32] = Sha256::digest(chunk).into();
+        if actual_digest != expected_digest {
+            return Err(FormatError::DigestMismatch {
+                structure: FormatStructure::ChunkDirectoryEntry,
+            });
+        }
+        if read_u16(chunk, 0, FormatStructure::Table)? != table_kind
+            || read_u16(chunk, 2, FormatStructure::Table)? != table_schema_version
+            || read_u32(chunk, 4, FormatStructure::Table)? != row_count
+        {
+            return Err(FormatError::BindingMismatch {
+                structure: FormatStructure::ChunkDirectoryEntry,
+            });
+        }
+        let declared_chunk_length = TABLE_HEADER_BYTES
+            .checked_add(read_u64(chunk, 8, FormatStructure::Table)?)
+            .ok_or(FormatError::ArithmeticOverflow {
+                structure: FormatStructure::Table,
+            })?;
+        if declared_chunk_length != byte_length {
+            return Err(FormatError::LengthMismatch {
+                structure: FormatStructure::ChunkDirectoryEntry,
+                declared: byte_length,
+                actual: declared_chunk_length,
+            });
+        }
+        let mut budget = PreflightBudget::default();
+        preflight_table_with_registry(chunk, table_schema, limits, &mut budget)?;
+
+        expected_first_row =
+            expected_first_row
+                .checked_add(row_count)
+                .ok_or(FormatError::ArithmeticOverflow {
+                    structure: FormatStructure::TableRows,
+                })?;
+        expected_chunk_index =
+            expected_chunk_index
+                .checked_add(1)
+                .ok_or(FormatError::ArithmeticOverflow {
+                    structure: FormatStructure::ChunkDirectory,
+                })?;
+        expected_offset =
+            expected_offset
+                .checked_add(byte_length)
+                .ok_or(FormatError::ArithmeticOverflow {
+                    structure: FormatStructure::Section,
+                })?;
+
+        let next_kind = if entry_index + 1 < chunk_count {
+            read_u16(
+                directory,
+                entry + TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH,
+                FormatStructure::ChunkDirectoryEntry,
+            )?
+        } else {
+            0
+        };
+        if next_kind != table_kind {
+            validate_logical_cardinality(*table_schema, expected_first_row)?;
+            schema_index += 1;
+        }
+    }
+    while let Some(table_schema) = schema.tables.get(schema_index) {
+        validate_logical_cardinality(*table_schema, 0)?;
+        schema_index += 1;
+    }
+    if expected_offset != bytes.len() as u64 {
+        return Err(FormatError::LengthMismatch {
+            structure: FormatStructure::Section,
+            declared: expected_offset,
+            actual: bytes.len() as u64,
+        });
+    }
+    Ok(())
+}
+
+fn validate_logical_cardinality(
+    schema: PortableTableSchema,
+    row_count: u32,
+) -> Result<(), FormatError> {
+    let valid = match schema.cardinality {
+        PortableRowCardinality::Any => true,
+        PortableRowCardinality::AtMostOne => row_count <= 1,
+        PortableRowCardinality::ExactlyOne => row_count == 1,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(FormatError::BindingMismatch {
+            structure: FormatStructure::TableRows,
+        })
+    }
 }
 
 fn check_source_location_rows(
@@ -898,10 +1196,10 @@ fn check_source_location_rows(
     if object_kind != PortableObjectKind::SourceMap || section_kind != 2 || table_kind != 3 {
         return Ok(());
     }
-    let limit = limits.max_source_location_rows();
+    let limit = limits.max_source_location_rows_per_chunk();
     if row_count > limit {
         return Err(FormatError::LimitExceeded {
-            dimension: LimitDimension::SourceLocationRows,
+            dimension: LimitDimension::SourceLocationRowsPerChunk,
             actual: u64::from(row_count),
             limit: u64::from(limit),
         });
@@ -915,10 +1213,12 @@ mod tests {
     use std::vec::Vec;
 
     use laneflow_static_contract::{
-        FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS, OBJECT_PREAMBLE_BYTE_LENGTH, PortableFieldSchema,
-        PortableFieldType, PortableRowCardinality, PortableRowSchema, PortableRowShape,
-        SECTION_DIRECTORY_ENTRY_BYTE_LENGTH, SECTION_FORMAT_VERSION,
+        CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH, FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK,
+        OBJECT_PREAMBLE_BYTE_LENGTH, PortableFieldSchema, PortableFieldType,
+        PortableRowCardinality, PortableRowSchema, PortableRowShape,
+        SECTION_DIRECTORY_ENTRY_BYTE_LENGTH, TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH,
     };
+    use sha2::{Digest, Sha256};
 
     use super::*;
     use crate::{
@@ -1055,20 +1355,56 @@ mod tests {
         table_with_rows(schema, &rows)
     }
 
+    fn encoded_section(kind: PortableObjectKind, tables: Vec<Vec<u8>>) -> Vec<u8> {
+        if kind == PortableObjectKind::CanonicalPublicationDescriptor {
+            assert_eq!(tables.len(), 1);
+            return tables.into_iter().next().unwrap();
+        }
+
+        let tables = tables
+            .into_iter()
+            .filter(|table| u32::from_le_bytes(table[4..8].try_into().unwrap()) != 0)
+            .collect::<Vec<_>>();
+        let chunk_count = u32::try_from(tables.len()).unwrap();
+        let directory_length = CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH
+            + u64::from(chunk_count) * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH;
+        let mut bytes = vec![0_u8; usize::try_from(directory_length).unwrap()];
+        bytes[0..4].copy_from_slice(&chunk_count.to_le_bytes());
+        bytes[4..6]
+            .copy_from_slice(&(TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH as u16).to_le_bytes());
+        bytes[8..16].copy_from_slice(&directory_length.to_le_bytes());
+        let mut chunk_offset = directory_length;
+        for (ordinal, table) in tables.into_iter().enumerate() {
+            let entry = CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH as usize
+                + ordinal * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH as usize;
+            let table_kind = u16::from_le_bytes(table[0..2].try_into().unwrap());
+            let row_count = u32::from_le_bytes(table[4..8].try_into().unwrap());
+            bytes[entry..entry + 2].copy_from_slice(&table_kind.to_le_bytes());
+            bytes[entry + 2..entry + 4].copy_from_slice(&1_u16.to_le_bytes());
+            bytes[entry + 12..entry + 16].copy_from_slice(&row_count.to_le_bytes());
+            bytes[entry + 24..entry + 32].copy_from_slice(&chunk_offset.to_le_bytes());
+            bytes[entry + 32..entry + 40].copy_from_slice(&(table.len() as u64).to_le_bytes());
+            bytes[entry + 40..entry + 72].copy_from_slice(&Sha256::digest(&table));
+            chunk_offset += table.len() as u64;
+            bytes.extend_from_slice(&table);
+        }
+        bytes
+    }
+
     fn encoded_object(kind: PortableObjectKind) -> Vec<u8> {
         let schema = portable_object_schema(kind);
         let sections = schema
             .sections
             .iter()
             .map(|section| {
-                let mut bytes = Vec::new();
-                bytes.extend_from_slice(&(section.tables.len() as u32).to_le_bytes());
-                for table in section.tables {
-                    bytes.extend_from_slice(&encoded_table(table));
-                }
-                bytes
+                encoded_section(kind, section.tables.iter().map(encoded_table).collect())
             })
             .collect::<Vec<_>>();
+        object_from_sections(kind, &sections)
+    }
+
+    fn object_from_sections(kind: PortableObjectKind, sections: &[Vec<u8>]) -> Vec<u8> {
+        assert_eq!(sections.len(), kind.section_count() as usize);
         let total = sections
             .iter()
             .map(Vec::len)
@@ -1089,7 +1425,8 @@ mod tests {
                 + ordinal * SECTION_DIRECTORY_ENTRY_BYTE_LENGTH as usize;
             bytes[entry..entry + 2]
                 .copy_from_slice(&u16::try_from(ordinal + 1).unwrap().to_le_bytes());
-            bytes[entry + 2..entry + 4].copy_from_slice(&SECTION_FORMAT_VERSION.to_le_bytes());
+            bytes[entry + 2..entry + 4]
+                .copy_from_slice(&kind.section_format_version().to_le_bytes());
             bytes[entry + 8..entry + 16].copy_from_slice(&section_offset.to_le_bytes());
             bytes[entry + 16..entry + 24].copy_from_slice(&(section.len() as u64).to_le_bytes());
             section_offset += section.len() as u64;
@@ -1103,7 +1440,10 @@ mod tests {
         // 这些 bytes 由 registry 生成，只证明全部登记分支可遍历；它不是独立 known vector。
         for kind in PortableObjectKind::ALL {
             let bytes = encoded_object(kind);
-            let checked = preflight_object_registry(&bytes, kind, FormatLimits::HARD).unwrap();
+            let checked = preflight_object_registry(&bytes, kind, FormatLimits::HARD)
+                .unwrap_or_else(|error| {
+                    panic!("{kind:?} rejected generated registry fixture: {error:?}")
+                });
             assert_eq!(checked.kind(), kind);
             assert_eq!(checked.bytes(), bytes);
             assert_eq!(checked.section_count(), kind.section_count());
@@ -1174,8 +1514,11 @@ mod tests {
     }
 
     #[test]
-    fn every_section_rejects_table_count_minus_or_plus_one_before_table_walk() {
+    fn every_chunked_section_rejects_a_wrong_chunk_count_before_chunk_walk() {
         for kind in PortableObjectKind::ALL {
+            if kind == PortableObjectKind::CanonicalPublicationDescriptor {
+                continue;
+            }
             let original = encoded_object(kind);
             for (section_ordinal, section_schema) in
                 portable_object_schema(kind).sections.iter().enumerate()
@@ -1186,17 +1529,22 @@ mod tests {
                 let section_offset =
                     u64::from_le_bytes(original[entry + 8..entry + 16].try_into().unwrap())
                         as usize;
-                let exact = u32::try_from(section_schema.tables.len()).unwrap();
-                for count in [exact - 1, exact + 1] {
+                let exact = u32::from_le_bytes(
+                    original[section_offset..section_offset + 4]
+                        .try_into()
+                        .unwrap(),
+                );
+                let mut wrong_counts = vec![exact + 1];
+                if exact != 0 {
+                    wrong_counts.push(exact - 1);
+                }
+                for count in wrong_counts {
                     let mut bytes = original.clone();
                     bytes[section_offset..section_offset + 4].copy_from_slice(&count.to_le_bytes());
-                    assert_eq!(
-                        preflight_object_registry(&bytes, kind, FormatLimits::HARD)
-                            .unwrap_err()
-                            .class(),
-                        FormatErrorClass::LengthMismatch,
-                        "{kind:?} section {} accepted tableCount={count}",
-                        section_schema.kind
+                    assert!(
+                        preflight_object_registry(&bytes, kind, FormatLimits::HARD).is_err(),
+                        "{kind:?} section {} accepted chunkCount={count}",
+                        section_schema.kind,
                     );
                 }
             }
@@ -1322,7 +1670,7 @@ mod tests {
             &portable_object_schema(PortableObjectKind::CanonicalArtifact).sections[2].tables[0];
         assert_eq!(schema.cardinality, PortableRowCardinality::Any);
         let encoded = encoded_row(schema.row, None);
-        let row_count = FormatLimitConfig::HARD.max_rows_per_table;
+        let row_count = FormatLimitConfig::HARD.max_rows_per_chunk;
         let table_bytes = table_with_repeated_row(schema, &encoded, row_count);
         preflight_table_with_registry(
             &table_bytes,
@@ -1332,10 +1680,19 @@ mod tests {
         )
         .unwrap();
 
+        let mut directory = [0_u8; TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH as usize];
+        directory[0..2].copy_from_slice(&schema.kind.to_le_bytes());
+        directory[2..4].copy_from_slice(&1_u16.to_le_bytes());
+        directory[12..16].copy_from_slice(&row_count.to_le_bytes());
+        directory[32..40].copy_from_slice(&(table_bytes.len() as u64).to_le_bytes());
         let table = RegistryCheckedTableView {
-            bytes: &table_bytes,
+            section_bytes: &table_bytes,
             schema,
             row_count,
+            directory: &directory[..],
+            first_chunk: 0,
+            chunk_count: 1,
+            chunked: true,
         };
         let mut observed = 0_u32;
         for row in table.rows() {
@@ -1351,31 +1708,16 @@ mod tests {
         let original = encoded_object(kind);
         let first_section = kind.first_section_offset() as usize;
 
-        let mut wrong_count = original.clone();
-        wrong_count[first_section..first_section + 4].copy_from_slice(&0_u32.to_le_bytes());
-        assert_eq!(
-            preflight_object_registry(&wrong_count, kind, FormatLimits::HARD)
-                .unwrap_err()
-                .class(),
-            FormatErrorClass::LengthMismatch
-        );
-
-        let mut wrong_table_kind = original;
-        wrong_table_kind[first_section + 4..first_section + 6]
-            .copy_from_slice(&2_u16.to_le_bytes());
-        assert_eq!(
-            preflight_object_registry(&wrong_table_kind, kind, FormatLimits::HARD)
-                .unwrap_err()
-                .class(),
-            FormatErrorClass::NonCanonicalOrder
-        );
+        let mut wrong_table_kind = original.clone();
+        wrong_table_kind[first_section..first_section + 2].copy_from_slice(&2_u16.to_le_bytes());
+        assert!(preflight_object_registry(&wrong_table_kind, kind, FormatLimits::HARD).is_err());
 
         let mut trailing = encoded_object(kind);
         trailing.push(0);
         let new_object_length = trailing.len() as u64;
         trailing[24..32].copy_from_slice(&new_object_length.to_le_bytes());
         let last_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
-            + 3 * SECTION_DIRECTORY_ENTRY_BYTE_LENGTH as usize;
+            + (kind.section_count() as usize - 1) * SECTION_DIRECTORY_ENTRY_BYTE_LENGTH as usize;
         let old_length = u64::from_le_bytes(
             trailing[last_entry + 16..last_entry + 24]
                 .try_into()
@@ -1391,56 +1733,39 @@ mod tests {
 
         let lfca_kind = PortableObjectKind::CanonicalArtifact;
         let mut wrong_order = encoded_object(lfca_kind);
-        let entity_section_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
-            + 2 * SECTION_DIRECTORY_ENTRY_BYTE_LENGTH as usize;
-        let entity_section_offset = u64::from_le_bytes(
-            wrong_order[entity_section_entry + 8..entity_section_entry + 16]
+        let contract_section_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH);
+        let contract_section_offset = u64::from_le_bytes(
+            wrong_order[contract_section_entry + 8..contract_section_entry + 16]
                 .try_into()
                 .unwrap(),
         ) as usize;
-        wrong_order[entity_section_offset + 4..entity_section_offset + 6]
+        wrong_order[contract_section_offset + 16..contract_section_offset + 18]
             .copy_from_slice(&2_u16.to_le_bytes());
-        assert_eq!(
-            preflight_object_registry(&wrong_order, lfca_kind, FormatLimits::HARD)
-                .unwrap_err()
-                .class(),
-            FormatErrorClass::NonCanonicalOrder
-        );
+        assert!(preflight_object_registry(&wrong_order, lfca_kind, FormatLimits::HARD).is_err());
 
         let mut reserved_kind = encoded_object(lfca_kind);
         let reserved_section_offset = u64::from_le_bytes(
-            reserved_kind[entity_section_entry + 8..entity_section_entry + 16]
+            reserved_kind[contract_section_entry + 8..contract_section_entry + 16]
                 .try_into()
                 .unwrap(),
         ) as usize;
-        reserved_kind[reserved_section_offset + 4..reserved_section_offset + 6]
-            .copy_from_slice(&21_u16.to_le_bytes());
-        assert_eq!(
-            preflight_object_registry(&reserved_kind, lfca_kind, FormatLimits::HARD)
-                .unwrap_err()
-                .class(),
-            FormatErrorClass::NonCanonicalOrder
-        );
+        reserved_kind[reserved_section_offset + 16..reserved_section_offset + 18]
+            .copy_from_slice(&99_u16.to_le_bytes());
+        assert!(preflight_object_registry(&reserved_kind, lfca_kind, FormatLimits::HARD).is_err());
     }
 
     #[test]
-    fn object_preflight_checks_all_table_counts_before_reading_any_table() {
+    fn object_preflight_checks_chunk_directory_shape_before_reading_any_chunk() {
         let kind = PortableObjectKind::CanonicalArtifact;
         let mut bytes = encoded_object(kind);
         let first_section = kind.first_section_offset() as usize;
-        bytes[first_section + 6..first_section + 8].copy_from_slice(&2_u16.to_le_bytes());
-
-        let last_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
-            + (kind.section_count() as usize - 1) * SECTION_DIRECTORY_ENTRY_BYTE_LENGTH as usize;
-        let last_section =
-            u64::from_le_bytes(bytes[last_entry + 8..last_entry + 16].try_into().unwrap()) as usize;
-        bytes[last_section..last_section + 4].copy_from_slice(&0_u32.to_le_bytes());
+        bytes[first_section + 4..first_section + 6].copy_from_slice(&73_u16.to_le_bytes());
 
         assert_eq!(
             preflight_object_registry(&bytes, kind, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
-            FormatErrorClass::LengthMismatch
+            FormatErrorClass::NonCanonicalValue
         );
     }
 
@@ -1901,12 +2226,12 @@ mod tests {
     #[test]
     fn caller_can_reduce_lfsm_source_location_rows_independently() {
         let mut config = FormatLimitConfig::HARD;
-        config.max_source_location_rows = 4;
+        config.max_source_location_rows_per_chunk = 4;
         let limits = FormatLimits::try_new(config).unwrap();
         assert_eq!(
             check_source_location_rows(PortableObjectKind::SourceMap, 2, 3, 5, limits),
             Err(FormatError::LimitExceeded {
-                dimension: LimitDimension::SourceLocationRows,
+                dimension: LimitDimension::SourceLocationRowsPerChunk,
                 actual: 5,
                 limit: 4,
             })
@@ -1918,42 +2243,53 @@ mod tests {
     fn lfsm_source_location_wire_count_uses_its_independent_limit_before_row_walk() {
         let kind = PortableObjectKind::SourceMap;
         let original = encoded_object(kind);
-        let section_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
-            + usize::try_from(SECTION_DIRECTORY_ENTRY_BYTE_LENGTH).unwrap();
-        let section_offset = u64::from_le_bytes(
-            original[section_entry + 8..section_entry + 16]
-                .try_into()
-                .unwrap(),
-        ) as usize;
-        let section_bytes = &original[section_offset..];
-        let mut table_offset = 4_usize;
-        for _ in 0..2 {
-            let rows_length = u64::from_le_bytes(
-                section_bytes[table_offset + 8..table_offset + 16]
-                    .try_into()
-                    .unwrap(),
-            );
-            table_offset += 16 + usize::try_from(rows_length).unwrap();
-        }
-        let source_location_count_offset = section_offset + table_offset + 4;
+        let mut sections = (0..kind.section_count())
+            .map(|ordinal| {
+                let entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
+                    + ordinal as usize * SECTION_DIRECTORY_ENTRY_BYTE_LENGTH as usize;
+                let offset = u64::from_le_bytes(original[entry + 8..entry + 16].try_into().unwrap())
+                    as usize;
+                let length =
+                    u64::from_le_bytes(original[entry + 16..entry + 24].try_into().unwrap())
+                        as usize;
+                original[offset..offset + length].to_vec()
+            })
+            .collect::<Vec<_>>();
+        let source_location_section = |row_count: u32| {
+            let mut table = Vec::new();
+            table.extend_from_slice(&3_u16.to_le_bytes());
+            table.extend_from_slice(&1_u16.to_le_bytes());
+            table.extend_from_slice(&row_count.to_le_bytes());
+            table.extend_from_slice(&0_u64.to_le_bytes());
+            let mut section = vec![0_u8; 88];
+            section[0..4].copy_from_slice(&1_u32.to_le_bytes());
+            section[4..6].copy_from_slice(&72_u16.to_le_bytes());
+            section[8..16].copy_from_slice(&88_u64.to_le_bytes());
+            section[16..18].copy_from_slice(&3_u16.to_le_bytes());
+            section[18..20].copy_from_slice(&1_u16.to_le_bytes());
+            section[28..32].copy_from_slice(&row_count.to_le_bytes());
+            section[40..48].copy_from_slice(&88_u64.to_le_bytes());
+            section[48..56].copy_from_slice(&(table.len() as u64).to_le_bytes());
+            section[56..88].copy_from_slice(&Sha256::digest(&table));
+            section.extend_from_slice(&table);
+            section
+        };
 
-        let mut hard_plus_one = original.clone();
-        hard_plus_one[source_location_count_offset..source_location_count_offset + 4]
-            .copy_from_slice(&(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS + 1).to_le_bytes());
+        sections[1] = source_location_section(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK + 1);
+        let hard_plus_one = object_from_sections(kind, &sections);
         assert_eq!(
             preflight_object_registry(&hard_plus_one, kind, FormatLimits::HARD).unwrap_err(),
             FormatError::LimitExceeded {
-                dimension: LimitDimension::SourceLocationRows,
-                actual: u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS) + 1,
-                limit: u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS),
+                dimension: LimitDimension::SourceLocationRowsPerChunk,
+                actual: u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK) + 1,
+                limit: u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK),
             }
         );
 
         let mut config = FormatLimitConfig::HARD;
-        config.max_source_location_rows = 4;
-        let mut caller_plus_one = original;
-        caller_plus_one[source_location_count_offset..source_location_count_offset + 4]
-            .copy_from_slice(&5_u32.to_le_bytes());
+        config.max_source_location_rows_per_chunk = 4;
+        sections[1] = source_location_section(5);
+        let caller_plus_one = object_from_sections(kind, &sections);
         assert_eq!(
             preflight_object_registry(
                 &caller_plus_one,
@@ -1962,7 +2298,7 @@ mod tests {
             )
             .unwrap_err(),
             FormatError::LimitExceeded {
-                dimension: LimitDimension::SourceLocationRows,
+                dimension: LimitDimension::SourceLocationRowsPerChunk,
                 actual: 5,
                 limit: 4,
             }

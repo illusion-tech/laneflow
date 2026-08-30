@@ -1526,7 +1526,7 @@ mod tests {
                 config,
                 generous_limits(),
             ),
-            Err(SnapshotRestoreError::IncompleteLiveOrder { .. })
+            Err(SnapshotRestoreError::IncompleteLiveOrder)
         ));
     }
 

@@ -133,7 +133,7 @@ fn build_lfcp(candidate: &PortablePublicationCandidate) -> PortableObjectCandida
         Some("controlled-build".into()),
         Some("2026-08-18T00:00:00Z".into()),
     );
-    crate::portable_publication::build_lfcp(checked, &provenance, FormatLimits::HARD).unwrap()
+    crate::portable_publication::build_lfcp(&checked, &provenance, FormatLimits::HARD).unwrap()
 }
 
 fn assert_same_candidate(

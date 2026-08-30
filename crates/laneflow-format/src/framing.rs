@@ -2,7 +2,6 @@
 
 use laneflow_static_contract::{
     OBJECT_PREAMBLE_BYTE_LENGTH, PortableObjectKind, SECTION_DIRECTORY_ENTRY_BYTE_LENGTH,
-    SECTION_FORMAT_VERSION,
 };
 
 use crate::{
@@ -20,7 +19,21 @@ pub struct ObjectFramingView<'a> {
     kind: PortableObjectKind,
 }
 
+/// 成功 framing 预检后可对同一不可变 backing 做 O(1) 重借用的 crate-private 证明。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ObjectFramingProof {
+    kind: PortableObjectKind,
+    exact_len: usize,
+}
+
 impl<'a> ObjectFramingView<'a> {
+    pub(crate) const fn proof(self) -> ObjectFramingProof {
+        ObjectFramingProof {
+            kind: self.kind,
+            exact_len: self.bytes.len(),
+        }
+    }
+
     /// 已与前导 magic 和 exact section shape 核对的对象种类。
     #[must_use]
     pub const fn kind(self) -> PortableObjectKind {
@@ -73,6 +86,15 @@ impl<'a> ObjectFramingView<'a> {
         )
         .ok()?;
         Some(SectionFramingView { kind, bytes })
+    }
+}
+
+impl ObjectFramingProof {
+    pub(crate) fn reborrow(self, bytes: &[u8]) -> Option<ObjectFramingView<'_>> {
+        (bytes.len() == self.exact_len).then_some(ObjectFramingView {
+            bytes,
+            kind: self.kind,
+        })
     }
 }
 
@@ -229,11 +251,12 @@ pub(crate) fn preflight_object_framing_at(
             entry_offset + 2,
             FormatStructure::SectionDirectoryEntry,
         )?;
-        if section_version != SECTION_FORMAT_VERSION {
+        let expected_section_version = expected_kind.section_format_version();
+        if section_version != expected_section_version {
             return Err(FormatError::UnsupportedVersion {
                 structure: FormatStructure::SectionDirectoryEntry,
                 actual: u64::from(section_version),
-                expected: u64::from(SECTION_FORMAT_VERSION),
+                expected: u64::from(expected_section_version),
             });
         }
         let section_flags = read_u32(
@@ -263,13 +286,6 @@ pub(crate) fn preflight_object_framing_at(
             entry_offset + 16,
             FormatStructure::SectionDirectoryEntry,
         )?;
-        if byte_length > config.max_section_or_table_bytes {
-            return Err(FormatError::LimitExceeded {
-                dimension: LimitDimension::SectionOrTableBytes,
-                actual: byte_length,
-                limit: config.max_section_or_table_bytes,
-            });
-        }
         checked_slice(bytes, byte_offset, byte_length, FormatStructure::Section)?;
         expected_offset =
             byte_offset
@@ -322,7 +338,8 @@ mod tests {
                 + ordinal * usize::try_from(SECTION_DIRECTORY_ENTRY_BYTE_LENGTH).unwrap();
             bytes[entry..entry + 2]
                 .copy_from_slice(&u16::try_from(ordinal + 1).unwrap().to_le_bytes());
-            bytes[entry + 2..entry + 4].copy_from_slice(&SECTION_FORMAT_VERSION.to_le_bytes());
+            bytes[entry + 2..entry + 4]
+                .copy_from_slice(&kind.section_format_version().to_le_bytes());
             bytes[entry + 8..entry + 16].copy_from_slice(&section_offset.to_le_bytes());
             bytes[entry + 16..entry + 24].copy_from_slice(&byte_length.to_le_bytes());
             section_offset += byte_length;

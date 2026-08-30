@@ -27,7 +27,7 @@ pub use junction::{
     CanonicalMovementView,
 };
 pub use parking::{
-    CanonicalParkingAreaView, CanonicalParkingLaneAnchor, CanonicalParkingSpaceGeometry,
+    CanonicalParkingFacilityView, CanonicalParkingLaneAnchor, CanonicalParkingSpaceGeometry,
     CanonicalParkingSpaceView,
 };
 pub use route::{CanonicalManeuverGateView, CanonicalStopLineView, CanonicalWaitingZoneView};

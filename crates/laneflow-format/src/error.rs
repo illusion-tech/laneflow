@@ -4,8 +4,9 @@
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum LimitDimension {
     ObjectBytes,
-    SectionOrTableBytes,
-    RowsPerTable,
+    ChunksPerSection,
+    TableChunkBytes,
+    RowsPerChunk,
     FieldsPerRow,
     IdentityAsciiBytes,
     Utf8FieldBytes,
@@ -13,8 +14,8 @@ pub enum LimitDimension {
     VectorItems,
     TotalVectorBytes,
     RecordVectorDepth,
-    SourceLocationRows,
-    CandidateStagingBytes,
+    SourceLocationRowsPerChunk,
+    StagedChunkBytes,
 }
 
 /// 用于定位错误的线格式结构。
@@ -24,6 +25,8 @@ pub enum FormatStructure {
     SectionDirectory,
     SectionDirectoryEntry,
     Section,
+    ChunkDirectory,
+    ChunkDirectoryEntry,
     Table,
     TableRows,
     Row,
@@ -47,6 +50,7 @@ pub enum FormatErrorClass {
     UnknownKind,
     NonCanonicalOrder,
     NonCanonicalValue,
+    DigestMismatch,
     BindingMismatch,
 }
 
@@ -99,6 +103,9 @@ pub enum FormatError {
         structure: FormatStructure,
         offset: u64,
     },
+    DigestMismatch {
+        structure: FormatStructure,
+    },
     BindingMismatch {
         structure: FormatStructure,
     },
@@ -119,6 +126,7 @@ impl FormatError {
             Self::UnknownKind { .. } => FormatErrorClass::UnknownKind,
             Self::NonCanonicalOrder { .. } => FormatErrorClass::NonCanonicalOrder,
             Self::NonCanonicalValue { .. } => FormatErrorClass::NonCanonicalValue,
+            Self::DigestMismatch { .. } => FormatErrorClass::DigestMismatch,
             Self::BindingMismatch { .. } => FormatErrorClass::BindingMismatch,
         }
     }

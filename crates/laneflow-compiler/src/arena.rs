@@ -139,6 +139,11 @@ impl<K, T> TypedArena<K, T> {
         self.values.len()
     }
 
+    /// 按致密键顺序借用全部值；不暴露底层 `Vec` 的增长或可变能力。
+    pub(crate) fn as_slice(&self) -> &[T] {
+        &self.values
+    }
+
     /// 按插入顺序遍历全部值，并重建与当前 arena 对应的致密键。
     pub(crate) fn iter(&self) -> impl ExactSizeIterator<Item = (ArenaKey<K>, &T)> {
         self.values.iter().enumerate().map(|(index, value)| {

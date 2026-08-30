@@ -105,11 +105,11 @@ fn preflight_table_structure_with_registry(
 ) -> Result<TableStructureSummary, FormatError> {
     let config = limits.config();
     let table_length = bytes.len() as u64;
-    if table_length > config.max_section_or_table_bytes {
+    if table_length > config.max_table_chunk_bytes {
         return Err(FormatError::LimitExceeded {
-            dimension: LimitDimension::SectionOrTableBytes,
+            dimension: LimitDimension::TableChunkBytes,
             actual: table_length,
-            limit: config.max_section_or_table_bytes,
+            limit: config.max_table_chunk_bytes,
         });
     }
 
@@ -135,9 +135,9 @@ fn preflight_table_structure_with_registry(
     }
     let row_count = read_u32(bytes, 4, FormatStructure::Table)?;
     check_limit(
-        LimitDimension::RowsPerTable,
+        LimitDimension::RowsPerChunk,
         u64::from(row_count),
-        u64::from(config.max_rows_per_table),
+        u64::from(config.max_rows_per_chunk),
     )?;
     if let Some(schema) = schema {
         let cardinality_matches = match schema.cardinality {
@@ -787,7 +787,7 @@ mod tests {
     use std::vec::Vec;
 
     use laneflow_static_contract::{
-        FORMAT_HARD_MAX_FIELDS_PER_ROW, FORMAT_HARD_MAX_ROWS_PER_TABLE,
+        FORMAT_HARD_MAX_FIELDS_PER_ROW, FORMAT_HARD_MAX_ROWS_PER_CHUNK,
         FORMAT_HARD_MAX_VECTOR_ITEMS,
     };
 
@@ -988,13 +988,13 @@ mod tests {
     #[test]
     fn hard_count_limits_reject_plus_one_before_row_or_field_slices() {
         let mut excessive_rows = table(1, &[]);
-        excessive_rows[4..8].copy_from_slice(&(FORMAT_HARD_MAX_ROWS_PER_TABLE + 1).to_le_bytes());
+        excessive_rows[4..8].copy_from_slice(&(FORMAT_HARD_MAX_ROWS_PER_CHUNK + 1).to_le_bytes());
         assert_eq!(
             preflight_table(&excessive_rows, 1, FormatLimits::HARD),
             Err(FormatError::LimitExceeded {
-                dimension: LimitDimension::RowsPerTable,
-                actual: u64::from(FORMAT_HARD_MAX_ROWS_PER_TABLE) + 1,
-                limit: u64::from(FORMAT_HARD_MAX_ROWS_PER_TABLE),
+                dimension: LimitDimension::RowsPerChunk,
+                actual: u64::from(FORMAT_HARD_MAX_ROWS_PER_CHUNK) + 1,
+                limit: u64::from(FORMAT_HARD_MAX_ROWS_PER_CHUNK),
             })
         );
 
@@ -1104,13 +1104,13 @@ mod tests {
     fn caller_can_reject_table_before_structural_walk() {
         let bytes = valid_table();
         let mut config = FormatLimitConfig::HARD;
-        config.max_section_or_table_bytes = bytes.len() as u64 - 1;
+        config.max_table_chunk_bytes = bytes.len() as u64 - 1;
         let limits = FormatLimits::try_new(config).unwrap();
 
         assert_eq!(
             preflight_table(&bytes, 9, limits),
             Err(FormatError::LimitExceeded {
-                dimension: LimitDimension::SectionOrTableBytes,
+                dimension: LimitDimension::TableChunkBytes,
                 actual: bytes.len() as u64,
                 limit: bytes.len() as u64 - 1,
             })

@@ -22,7 +22,7 @@ use laneflow_scenario::signalized_corridor::{
 use laneflow_static_contract::{
     AccessRuleKind, AuthoringLaneKind, CanonicalFrameKind, EntityKind, EntityKindMarker,
     FacilityBandKind, JunctionKind, LaneEdgeKind, LaneEdgeOrdinal, LaneGroupKind, ManeuverGateKind,
-    ManeuverPathKind, MovementKind, Ordinal, OrdinalKind, ParkingAreaKind, ParkingSpaceKind,
+    ManeuverPathKind, MovementKind, Ordinal, OrdinalKind, ParkingFacilityKind, ParkingSpaceKind,
     ParticipantClassKind, RoadCorridorKind, RoadSectionKind, Sha256Digest, SignalControllerKind,
     SignalGroupKind, SignalPhaseKind, StopLineKind, VehicleProfileKind, VehicleProfileOrdinal,
     WaitingZoneKind,
@@ -80,14 +80,14 @@ const CORRIDOR_KERNEL_STEPS: u32 = 1_024;
 const CORRIDOR_DELTA_MS: u64 = 4;
 const WARMUP: usize = 1;
 const SAMPLES: usize = 7;
-const CORRIDOR_LFCA_LEN: usize = 418_428;
+const CORRIDOR_LFCA_LEN: usize = 420_332;
 const CORRIDOR_SHA256: [u8; 32] = [
-    0xeb, 0x09, 0x2b, 0x66, 0x41, 0xad, 0x92, 0x03, 0xb6, 0x65, 0xee, 0x95, 0x7c, 0xaa, 0x15, 0x27,
-    0x46, 0xee, 0x0c, 0xf1, 0x96, 0x38, 0x52, 0x9b, 0x75, 0x34, 0xde, 0x3a, 0x90, 0xed, 0x5c, 0x4b,
+    0x1a, 0x75, 0x6c, 0x6a, 0x7b, 0x82, 0xfc, 0xb4, 0x7b, 0xf1, 0x10, 0x76, 0x25, 0x68, 0x2f, 0x30,
+    0x01, 0xb0, 0x8b, 0xb2, 0x03, 0xc1, 0x62, 0xc8, 0xbf, 0x3a, 0x93, 0xd3, 0xcf, 0xa8, 0xfc, 0xed,
 ];
 const CORRIDOR_NETWORK_REVISION: [u8; 32] = [
-    0xa3, 0x5c, 0xc3, 0x43, 0xfb, 0x3a, 0x88, 0x96, 0xf0, 0x18, 0x0c, 0xd6, 0xc4, 0x28, 0x38, 0x18,
-    0x31, 0x7b, 0x9f, 0x09, 0x3c, 0xa3, 0x9a, 0x11, 0x99, 0xfc, 0xa7, 0xea, 0x30, 0xc0, 0x67, 0x24,
+    0xa0, 0xc4, 0x81, 0x2d, 0xd2, 0xbb, 0x74, 0xf6, 0xa1, 0xf4, 0x72, 0x89, 0xbd, 0xe5, 0x11, 0xd0,
+    0xaa, 0x4c, 0xbe, 0xdf, 0x5f, 0xfd, 0x8c, 0x31, 0x54, 0x17, 0xca, 0x7e, 0x6a, 0xea, 0xdb, 0x87,
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -163,9 +163,9 @@ fn emit_and_build(
     let lfsm = candidate.source_map().bytes().to_vec();
     let lfsd = candidate.semantic_diff().bytes().to_vec();
     let checked = check_post_emission_bundle(
-        &lfca,
-        &lfsm,
-        &lfsd,
+        lfca.as_slice(),
+        lfsm.as_slice(),
+        lfsd.as_slice(),
         candidate.expected_semantic_diff_base(),
         FormatLimits::HARD,
     )
@@ -219,7 +219,7 @@ fn identity_lookups(identity: &SharedIdentityIndex) -> u32 {
         + lookup_kind::<SignalGroupKind>(identity)
         + lookup_kind::<SignalControllerKind>(identity)
         + lookup_kind::<SignalPhaseKind>(identity)
-        + lookup_kind::<ParkingAreaKind>(identity)
+        + lookup_kind::<ParkingFacilityKind>(identity)
         + lookup_kind::<ParkingSpaceKind>(identity)
         + lookup_kind::<LaneGroupKind>(identity)
         + lookup_kind::<FacilityBandKind>(identity)
@@ -252,7 +252,7 @@ fn identity_round_trips(identity: &SharedIdentityIndex) -> u32 {
     assert_kind_round_trip::<SignalGroupKind>(identity);
     assert_kind_round_trip::<SignalControllerKind>(identity);
     assert_kind_round_trip::<SignalPhaseKind>(identity);
-    assert_kind_round_trip::<ParkingAreaKind>(identity);
+    assert_kind_round_trip::<ParkingFacilityKind>(identity);
     assert_kind_round_trip::<ParkingSpaceKind>(identity);
     assert_kind_round_trip::<LaneGroupKind>(identity);
     assert_kind_round_trip::<FacilityBandKind>(identity);

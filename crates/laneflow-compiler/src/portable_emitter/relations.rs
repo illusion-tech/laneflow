@@ -21,14 +21,15 @@ pub(super) fn entity_stable_id(
         EntityKind::SignalGroup => stable_id_bytes(lir.signal_groups[index].stable_id),
         EntityKind::SignalController => stable_id_bytes(lir.signal_controllers[index].stable_id),
         EntityKind::SignalPhase => stable_id_bytes(lir.signal_phases[index].stable_id),
-        EntityKind::ParkingArea => stable_id_bytes(lir.parking_areas[index].stable_id),
+        EntityKind::ParkingFacility => stable_id_bytes(lir.parking_facilities[index].stable_id),
         EntityKind::ParkingSpace => stable_id_bytes(lir.parking_spaces[index].stable_id),
         EntityKind::LaneGroup => stable_id_bytes(lir.lane_groups[index].stable_id),
         EntityKind::FacilityBand => stable_id_bytes(lir.facility_bands[index].stable_id),
         EntityKind::ParticipantClass => stable_id_bytes(lir.participant_classes[index].stable_id),
         EntityKind::AccessRule => stable_id_bytes(lir.access_rules[index].stable_id),
         EntityKind::VehicleProfile => stable_id_bytes(lir.vehicle_profiles[index].stable_id),
-        EntityKind::StaticRoute => unreachable!("kind 21 is not constructible"),
+        EntityKind::ConflictZone => stable_id_bytes(lir.conflict_zones[index].stable_id),
+        EntityKind::ParticipantStream => stable_id_bytes(lir.participant_streams[index].stable_id),
         EntityKind::CanonicalFrame => stable_id_bytes(lir.canonical_frames[index].stable_id),
     }
 }
@@ -222,6 +223,86 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
         12,
         EntityKind::ManeuverGate
     );
+    for facility in &lir.parking_facilities {
+        for (role, anchors) in [
+            (
+                13,
+                &lir.parking_facility_virtual_entries[facility.virtual_entries.as_usize_range()],
+            ),
+            (
+                14,
+                &lir.parking_facility_virtual_exits[facility.virtual_exits.as_usize_range()],
+            ),
+        ] {
+            for (local_index, anchor) in anchors.iter().enumerate() {
+                push_relation_tuple(
+                    &mut relations,
+                    lir,
+                    EntityKind::ParkingFacility,
+                    facility.ordinal.raw(),
+                    role,
+                    u32::try_from(local_index).expect("compile limits cap relation counts at u32"),
+                    EntityKind::LaneEdge,
+                    anchor.lane_edge.raw(),
+                );
+            }
+        }
+    }
+    let mut next_zone_index = vec![0_u32; lir.junctions.len()];
+    for zone in &lir.conflict_zones {
+        let local_index = next_zone_index[zone.junction.index()];
+        next_zone_index[zone.junction.index()] += 1;
+        push_relation_tuple(
+            &mut relations,
+            lir,
+            EntityKind::Junction,
+            zone.junction.raw(),
+            15,
+            local_index,
+            EntityKind::ConflictZone,
+            zone.ordinal.raw(),
+        );
+    }
+    let mut next_stream_index = vec![0_u32; lir.junctions.len()];
+    for stream in &lir.participant_streams {
+        let local_index = next_stream_index[stream.junction.index()];
+        next_stream_index[stream.junction.index()] += 1;
+        push_relation_tuple(
+            &mut relations,
+            lir,
+            EntityKind::Junction,
+            stream.junction.raw(),
+            16,
+            local_index,
+            EntityKind::ParticipantStream,
+            stream.ordinal.raw(),
+        );
+        push_relation_tuple(
+            &mut relations,
+            lir,
+            EntityKind::ParticipantStream,
+            stream.ordinal.raw(),
+            30,
+            0,
+            EntityKind::ManeuverPath,
+            stream.maneuver_path.raw(),
+        );
+        for (local_index, passage) in lir.conflict_passages[stream.passages.as_usize_range()]
+            .iter()
+            .enumerate()
+        {
+            push_relation_tuple(
+                &mut relations,
+                lir,
+                EntityKind::ParticipantStream,
+                stream.ordinal.raw(),
+                31,
+                u32::try_from(local_index).expect("compile limits cap relation counts at u32"),
+                EntityKind::ConflictZone,
+                passage.conflict_zone.raw(),
+            );
+        }
+    }
     append_vector_relations!(
         &lir.signal_controllers,
         signal_groups,
@@ -253,7 +334,7 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
         }
     }
     for space in &lir.parking_spaces {
-        if let Some(area) = space.parking_area {
+        if let Some(area) = space.parking_facility {
             push_relation_tuple(
                 &mut relations,
                 lir,
@@ -261,7 +342,7 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
                 space.ordinal.raw(),
                 21,
                 0,
-                EntityKind::ParkingArea,
+                EntityKind::ParkingFacility,
                 area.raw(),
             );
         }

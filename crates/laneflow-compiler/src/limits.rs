@@ -8,11 +8,14 @@
 const P100_INITIAL_V1_PROFILE_ID: &str = "LF-COMP-P100-INITIAL-v1";
 /// 首个显式限定多文档逻辑模块的生产配置档标识符。
 const P100_INITIAL_V2_PROFILE_ID: &str = "LF-COMP-P100-INITIAL-v2";
+/// 单个百万级现实混合静态路网的生产资源配置档标识符。
+const SINGLE_NETWORK_1M_V2_PROFILE_ID: &str = "LF-COMP-SINGLE-NETWORK-1M-v2";
 
 #[derive(Clone, Copy)]
 enum CompileLimitsProfile {
     P100InitialV1,
     P100InitialV2,
+    SingleNetwork1mV2,
 }
 
 /// 编译资源上限诊断使用的有类型维度。
@@ -34,6 +37,8 @@ pub enum CompileLimitDimension {
     SourceBytesTotal,
     /// 全部领域声明数。
     DeclarationCount,
+    /// 完整逻辑路网中的稳定静态实体数。
+    StableEntityCount,
     /// Typed AST 的逻辑记录数。
     TypedAstRecordCount,
     /// HIR 的逻辑记录数。
@@ -68,6 +73,10 @@ pub enum CompileLimitDimension {
     StageScratchBytes,
     /// 编译输出受控字节数。
     OutputBytes,
+    /// 单个 file-backed 可移植对象的 exact bytes。
+    PortableObjectBytes,
+    /// 同一候选中 LFCA、LFSM 与 LFSD 的 exact bytes 总和。
+    PortableBundleBytes,
     /// 编译器拥有且在某一阶段同时存续的峰值字节预算。
     CompilerControlledLiveBytes,
     /// 可复用编译器实例在一次编译后允许保留的容量字节数。
@@ -85,6 +94,7 @@ impl CompileLimitDimension {
             Self::SourceBytesPerModule => "max_source_bytes_per_module",
             Self::SourceBytesTotal => "max_source_bytes_total",
             Self::DeclarationCount => "max_declaration_count",
+            Self::StableEntityCount => "max_stable_entity_count",
             Self::TypedAstRecordCount => "max_typed_ast_record_count",
             Self::HirRecordCount => "max_hir_record_count",
             Self::MirRecordCount => "max_mir_record_count",
@@ -102,6 +112,8 @@ impl CompileLimitDimension {
             Self::DiagnosticCount => "max_diagnostic_count",
             Self::StageScratchBytes => "max_stage_scratch_bytes",
             Self::OutputBytes => "max_output_bytes",
+            Self::PortableObjectBytes => "max_portable_object_bytes",
+            Self::PortableBundleBytes => "max_portable_bundle_bytes",
             Self::CompilerControlledLiveBytes => "max_compiler_controlled_live_bytes",
             Self::RetainedCapacityBytes => "max_retained_capacity_bytes",
         }
@@ -118,9 +130,10 @@ pub struct CompileLimits {
     max_module_count: u32,
     max_source_document_count: Option<u32>,
     max_import_edge_count: u32,
-    max_source_bytes_per_module: u32,
-    max_source_bytes_total: u32,
+    max_source_bytes_per_module: u64,
+    max_source_bytes_total: u64,
     max_declaration_count: u32,
+    max_stable_entity_count: Option<u32>,
     max_typed_ast_record_count: u32,
     max_hir_record_count: u32,
     max_mir_record_count: u32,
@@ -133,16 +146,26 @@ pub struct CompileLimits {
     max_geometry_point_count: u32,
     max_symbol_count: u32,
     max_string_item_count: u32,
-    max_single_string_bytes: u32,
-    max_total_string_bytes: u32,
+    max_single_string_bytes: u64,
+    max_total_string_bytes: u64,
     max_diagnostic_count: u32,
-    max_stage_scratch_bytes: u32,
-    max_output_bytes: u32,
-    max_compiler_controlled_live_bytes: u32,
-    max_retained_capacity_bytes: u32,
+    max_stage_scratch_bytes: u64,
+    max_output_bytes: u64,
+    max_portable_object_bytes: Option<u64>,
+    max_portable_bundle_bytes: Option<u64>,
+    max_compiler_controlled_live_bytes: u64,
+    max_retained_capacity_bytes: u64,
 }
 
 impl CompileLimits {
+    pub(crate) const fn max_portable_object_bytes(&self) -> Option<u64> {
+        self.max_portable_object_bytes
+    }
+
+    pub(crate) const fn max_portable_bundle_bytes(&self) -> Option<u64> {
+        self.max_portable_bundle_bytes
+    }
+
     /// 选择 #292 G1 冻结的首个生产资源配置档。
     ///
     /// 返回值是完整快照；后续校准若改变任一精确上限或维度集合，必须使用新的配置档
@@ -157,6 +180,8 @@ impl CompileLimits {
             max_source_bytes_per_module: 542_741,
             max_source_bytes_total: 542_741,
             max_declaration_count: 11_265,
+            // 旧配置档未单独命名该维度；其声明上限已经是更严格的等价边界。
+            max_stable_entity_count: Some(11_265),
             max_typed_ast_record_count: 58_387,
             max_hir_record_count: 58_387,
             max_mir_record_count: 38_112,
@@ -174,6 +199,8 @@ impl CompileLimits {
             max_diagnostic_count: 16,
             max_stage_scratch_bytes: 304_896,
             max_output_bytes: 2_782_758,
+            max_portable_object_bytes: None,
+            max_portable_bundle_bytes: None,
             max_compiler_controlled_live_bytes: 43_269_120,
             max_retained_capacity_bytes: 36_925_688,
         }
@@ -191,10 +218,49 @@ impl CompileLimits {
         limits
     }
 
+    /// 选择单个百万级现实混合静态路网的具名生产配置档。
+    ///
+    /// 该配置档约束一个逻辑路网修订的完整编译、file-backed emission 与共享静态构建
+    /// 输入；它不是对任意理论实体组合的性能承诺，也不要求按所有上限预分配内存。
+    #[must_use]
+    pub const fn single_network_1m_v2() -> Self {
+        Self {
+            profile: CompileLimitsProfile::SingleNetwork1mV2,
+            max_module_count: 65_536,
+            max_source_document_count: Some(196_608),
+            max_import_edge_count: 262_144,
+            max_source_bytes_per_module: 536_870_912,
+            max_source_bytes_total: 536_870_912,
+            max_declaration_count: 1_500_000,
+            max_stable_entity_count: Some(1_000_000),
+            max_typed_ast_record_count: 8_000_000,
+            max_hir_record_count: 8_000_000,
+            max_mir_record_count: 8_000_000,
+            max_lir_record_count: 8_000_000,
+            max_reference_count: 16_000_000,
+            max_relation_occurrence_count: 16_000_000,
+            max_identity_field_occurrence_count: 8_000_000,
+            max_maneuver_gate_count: 1_000_000,
+            max_waiting_zone_count: 1_000_000,
+            max_geometry_point_count: 16_000_000,
+            max_symbol_count: 2_000_000,
+            max_string_item_count: 8_000_000,
+            max_single_string_bytes: 4_096,
+            max_total_string_bytes: 536_870_912,
+            max_diagnostic_count: 16,
+            max_stage_scratch_bytes: 2_147_483_648,
+            max_output_bytes: 1_073_741_824,
+            max_portable_object_bytes: Some(4_294_967_296),
+            max_portable_bundle_bytes: Some(8_589_934_592),
+            max_compiler_controlled_live_bytes: 6_442_450_944,
+            max_retained_capacity_bytes: 536_870_912,
+        }
+    }
+
     /// 单个受检编制字符串 / Identity ASCII 字段的字节上限。
     #[must_use]
     pub const fn max_single_string_bytes(&self) -> u64 {
-        self.max_single_string_bytes as u64
+        self.max_single_string_bytes
     }
 
     /// 返回调用方显式选择的稳定配置档标识符。
@@ -203,6 +269,7 @@ impl CompileLimits {
         match self.profile {
             CompileLimitsProfile::P100InitialV1 => P100_INITIAL_V1_PROFILE_ID,
             CompileLimitsProfile::P100InitialV2 => P100_INITIAL_V2_PROFILE_ID,
+            CompileLimitsProfile::SingleNetwork1mV2 => SINGLE_NETWORK_1M_V2_PROFILE_ID,
         }
     }
 
@@ -225,9 +292,15 @@ impl CompileLimits {
                 }
             },
             CompileLimitDimension::ImportEdgeCount => self.max_import_edge_count as u64,
-            CompileLimitDimension::SourceBytesPerModule => self.max_source_bytes_per_module as u64,
-            CompileLimitDimension::SourceBytesTotal => self.max_source_bytes_total as u64,
+            CompileLimitDimension::SourceBytesPerModule => self.max_source_bytes_per_module,
+            CompileLimitDimension::SourceBytesTotal => self.max_source_bytes_total,
             CompileLimitDimension::DeclarationCount => self.max_declaration_count as u64,
+            CompileLimitDimension::StableEntityCount => match self.max_stable_entity_count {
+                Some(limit) => limit as u64,
+                None => {
+                    panic!("selected compile-limits profile has no stable-entity-count dimension")
+                }
+            },
             CompileLimitDimension::TypedAstRecordCount => self.max_typed_ast_record_count as u64,
             CompileLimitDimension::HirRecordCount => self.max_hir_record_count as u64,
             CompileLimitDimension::MirRecordCount => self.max_mir_record_count as u64,
@@ -244,15 +317,27 @@ impl CompileLimits {
             CompileLimitDimension::GeometryPointCount => self.max_geometry_point_count as u64,
             CompileLimitDimension::SymbolCount => self.max_symbol_count as u64,
             CompileLimitDimension::StringItemCount => self.max_string_item_count as u64,
-            CompileLimitDimension::SingleStringBytes => self.max_single_string_bytes as u64,
-            CompileLimitDimension::TotalStringBytes => self.max_total_string_bytes as u64,
+            CompileLimitDimension::SingleStringBytes => self.max_single_string_bytes,
+            CompileLimitDimension::TotalStringBytes => self.max_total_string_bytes,
             CompileLimitDimension::DiagnosticCount => self.max_diagnostic_count as u64,
-            CompileLimitDimension::StageScratchBytes => self.max_stage_scratch_bytes as u64,
-            CompileLimitDimension::OutputBytes => self.max_output_bytes as u64,
+            CompileLimitDimension::StageScratchBytes => self.max_stage_scratch_bytes,
+            CompileLimitDimension::OutputBytes => self.max_output_bytes,
+            CompileLimitDimension::PortableObjectBytes => match self.max_portable_object_bytes {
+                Some(limit) => limit,
+                None => {
+                    panic!("selected compile-limits profile has no portable-object-bytes dimension")
+                }
+            },
+            CompileLimitDimension::PortableBundleBytes => match self.max_portable_bundle_bytes {
+                Some(limit) => limit,
+                None => {
+                    panic!("selected compile-limits profile has no portable-bundle-bytes dimension")
+                }
+            },
             CompileLimitDimension::CompilerControlledLiveBytes => {
-                self.max_compiler_controlled_live_bytes as u64
+                self.max_compiler_controlled_live_bytes
             }
-            CompileLimitDimension::RetainedCapacityBytes => self.max_retained_capacity_bytes as u64,
+            CompileLimitDimension::RetainedCapacityBytes => self.max_retained_capacity_bytes,
         }
     }
 
@@ -262,14 +347,25 @@ impl CompileLimits {
         total_string_bytes: u32,
         compiler_controlled_live_bytes: u32,
     ) -> Self {
-        self.max_total_string_bytes = total_string_bytes;
-        self.max_compiler_controlled_live_bytes = compiler_controlled_live_bytes;
+        self.max_total_string_bytes = total_string_bytes.into();
+        self.max_compiler_controlled_live_bytes = compiler_controlled_live_bytes.into();
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_test_portable_limits(
+        mut self,
+        object_bytes: u64,
+        bundle_bytes: u64,
+    ) -> Self {
+        self.max_portable_object_bytes = Some(object_bytes);
+        self.max_portable_bundle_bytes = Some(bundle_bytes);
         self
     }
 
     #[cfg(test)]
     pub(crate) fn with_test_single_string_limit(mut self, single_string_bytes: u32) -> Self {
-        self.max_single_string_bytes = single_string_bytes;
+        self.max_single_string_bytes = single_string_bytes.into();
         self
     }
 
@@ -283,8 +379,8 @@ impl CompileLimits {
     ) -> Self {
         self.max_hir_record_count = hir_record_count;
         self.max_mir_record_count = mir_record_count;
-        self.max_stage_scratch_bytes = stage_scratch_bytes;
-        self.max_compiler_controlled_live_bytes = compiler_controlled_live_bytes;
+        self.max_stage_scratch_bytes = stage_scratch_bytes.into();
+        self.max_compiler_controlled_live_bytes = compiler_controlled_live_bytes.into();
         self
     }
 
@@ -297,16 +393,16 @@ impl CompileLimits {
         compiler_controlled_live_bytes: u32,
     ) -> Self {
         self.max_lir_record_count = lir_record_count;
-        self.max_stage_scratch_bytes = stage_scratch_bytes;
-        self.max_output_bytes = output_bytes;
-        self.max_compiler_controlled_live_bytes = compiler_controlled_live_bytes;
+        self.max_stage_scratch_bytes = stage_scratch_bytes.into();
+        self.max_output_bytes = output_bytes.into();
+        self.max_compiler_controlled_live_bytes = compiler_controlled_live_bytes.into();
         self
     }
 
     #[cfg(test)]
     pub(crate) fn with_test_source_byte_limits(mut self, per_module: u32, total: u32) -> Self {
-        self.max_source_bytes_per_module = per_module;
-        self.max_source_bytes_total = total;
+        self.max_source_bytes_per_module = per_module.into();
+        self.max_source_bytes_total = total.into();
         self
     }
 
@@ -322,8 +418,9 @@ impl CompileLimits {
                 self.max_source_document_count = Some(limit)
             }
             CompileLimitDimension::ImportEdgeCount => self.max_import_edge_count = limit,
-            CompileLimitDimension::SourceBytesTotal => self.max_source_bytes_total = limit,
+            CompileLimitDimension::SourceBytesTotal => self.max_source_bytes_total = limit.into(),
             CompileLimitDimension::DeclarationCount => self.max_declaration_count = limit,
+            CompileLimitDimension::StableEntityCount => self.max_stable_entity_count = Some(limit),
             CompileLimitDimension::TypedAstRecordCount => self.max_typed_ast_record_count = limit,
             CompileLimitDimension::ReferenceCount => self.max_reference_count = limit,
             CompileLimitDimension::RelationOccurrenceCount => {
@@ -334,13 +431,13 @@ impl CompileLimits {
             }
             CompileLimitDimension::SymbolCount => self.max_symbol_count = limit,
             CompileLimitDimension::StringItemCount => self.max_string_item_count = limit,
-            CompileLimitDimension::TotalStringBytes => self.max_total_string_bytes = limit,
+            CompileLimitDimension::TotalStringBytes => self.max_total_string_bytes = limit.into(),
             CompileLimitDimension::ManeuverGateCount => self.max_maneuver_gate_count = limit,
             CompileLimitDimension::WaitingZoneCount => self.max_waiting_zone_count = limit,
             CompileLimitDimension::GeometryPointCount => self.max_geometry_point_count = limit,
-            CompileLimitDimension::StageScratchBytes => self.max_stage_scratch_bytes = limit,
+            CompileLimitDimension::StageScratchBytes => self.max_stage_scratch_bytes = limit.into(),
             CompileLimitDimension::CompilerControlledLiveBytes => {
-                self.max_compiler_controlled_live_bytes = limit
+                self.max_compiler_controlled_live_bytes = limit.into()
             }
             _ => panic!("dimension is not enforced by common official-module admission"),
         }
@@ -398,6 +495,7 @@ mod tests {
             CompileLimitDimension::SourceBytesPerModule,
             CompileLimitDimension::SourceBytesTotal,
             CompileLimitDimension::DeclarationCount,
+            CompileLimitDimension::StableEntityCount,
             CompileLimitDimension::TypedAstRecordCount,
             CompileLimitDimension::HirRecordCount,
             CompileLimitDimension::MirRecordCount,
@@ -423,6 +521,76 @@ mod tests {
     }
 
     #[test]
+    fn single_network_1m_v2_matches_accepted_exact_limits() {
+        let limits = CompileLimits::single_network_1m_v2();
+
+        assert_eq!(limits.profile_id(), "LF-COMP-SINGLE-NETWORK-1M-v2");
+        let expected = [
+            (CompileLimitDimension::ModuleCount, 65_536),
+            (CompileLimitDimension::SourceDocumentCount, 196_608),
+            (CompileLimitDimension::ImportEdgeCount, 262_144),
+            (CompileLimitDimension::SourceBytesPerModule, 536_870_912),
+            (CompileLimitDimension::SourceBytesTotal, 536_870_912),
+            (CompileLimitDimension::DeclarationCount, 1_500_000),
+            (CompileLimitDimension::StableEntityCount, 1_000_000),
+            (CompileLimitDimension::TypedAstRecordCount, 8_000_000),
+            (CompileLimitDimension::HirRecordCount, 8_000_000),
+            (CompileLimitDimension::MirRecordCount, 8_000_000),
+            (CompileLimitDimension::LirRecordCount, 8_000_000),
+            (CompileLimitDimension::ReferenceCount, 16_000_000),
+            (CompileLimitDimension::RelationOccurrenceCount, 16_000_000),
+            (
+                CompileLimitDimension::IdentityFieldOccurrenceCount,
+                8_000_000,
+            ),
+            (CompileLimitDimension::ManeuverGateCount, 1_000_000),
+            (CompileLimitDimension::WaitingZoneCount, 1_000_000),
+            (CompileLimitDimension::GeometryPointCount, 16_000_000),
+            (CompileLimitDimension::SymbolCount, 2_000_000),
+            (CompileLimitDimension::StringItemCount, 8_000_000),
+            (CompileLimitDimension::SingleStringBytes, 4_096),
+            (CompileLimitDimension::TotalStringBytes, 536_870_912),
+            (CompileLimitDimension::DiagnosticCount, 16),
+            (CompileLimitDimension::StageScratchBytes, 2_147_483_648),
+            (CompileLimitDimension::OutputBytes, 1_073_741_824),
+            (CompileLimitDimension::PortableObjectBytes, 4_294_967_296),
+            (CompileLimitDimension::PortableBundleBytes, 8_589_934_592),
+            (
+                CompileLimitDimension::CompilerControlledLiveBytes,
+                6_442_450_944,
+            ),
+            (CompileLimitDimension::RetainedCapacityBytes, 536_870_912),
+        ];
+
+        for (dimension, expected_value) in expected {
+            assert_eq!(
+                limits.value(dimension),
+                expected_value,
+                "{}",
+                dimension.as_str()
+            );
+        }
+    }
+
+    #[test]
+    fn byte_limits_preserve_values_above_u32() {
+        let limits = CompileLimits::single_network_1m_v2();
+
+        assert_eq!(
+            limits.value(CompileLimitDimension::PortableObjectBytes),
+            u64::from(u32::MAX) + 1
+        );
+        assert_eq!(
+            limits.value(CompileLimitDimension::PortableBundleBytes),
+            2 * (u64::from(u32::MAX) + 1)
+        );
+        assert_eq!(
+            limits.value(CompileLimitDimension::CompilerControlledLiveBytes),
+            6_442_450_944
+        );
+    }
+
+    #[test]
     fn typed_dimensions_map_to_every_private_limit_field() {
         let limits = CompileLimits::p100_initial_v1();
         let expected = [
@@ -431,6 +599,7 @@ mod tests {
             (CompileLimitDimension::SourceBytesPerModule, 542_741),
             (CompileLimitDimension::SourceBytesTotal, 542_741),
             (CompileLimitDimension::DeclarationCount, 11_265),
+            (CompileLimitDimension::StableEntityCount, 11_265),
             (CompileLimitDimension::TypedAstRecordCount, 58_387),
             (CompileLimitDimension::HirRecordCount, 58_387),
             (CompileLimitDimension::MirRecordCount, 38_112),

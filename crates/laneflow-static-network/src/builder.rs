@@ -5,20 +5,22 @@ use std::sync::{
 };
 
 use laneflow_format::{
-    CheckedCanonicalNetworkInput, RegistryCheckedFieldValue, RegistryCheckedOrdinalVectorView,
-    RegistryCheckedRecordVectorView, RegistryCheckedRowView, ValueCheckedObjectView,
+    BoundedReReadableObjectSource, CheckedCanonicalNetworkInput, RegistryCheckedFieldValue,
+    RegistryCheckedOrdinalVectorView, RegistryCheckedRecordVectorView, RegistryCheckedRowView,
+    ValueCheckedObjectView,
 };
 use laneflow_static_contract::{
     CANONICAL_ARTIFACT_FORMAT_VERSION, CONSTRAINT_CONTRACT_VERSION, CanonicalFrameOrdinal,
     EntityKind, FacilityBandOrdinal, IDENTITY_ENCODING_VERSION, IDENTITY_REGISTRY_REVISION,
-    LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal, MovementOrdinal,
-    NETWORK_REVISION_DERIVATION_VERSION, SPATIAL_JOIN_POSITION_TOLERANCE_METERS,
-    STATIC_EXECUTION_CONTRACT_VERSION, StableId128, WaitingZoneOrdinal,
+    JunctionOrdinal, LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal, MovementOrdinal,
+    NETWORK_REVISION_DERIVATION_VERSION, ParticipantStreamOrdinal,
+    SPATIAL_JOIN_POSITION_TOLERANCE_METERS, STATIC_EXECUTION_CONTRACT_VERSION, StableId128,
+    WaitingZoneOrdinal,
 };
 
 use crate::{
-    BuildError, BuildStructure, CanonicalNetworkOrigin, CanonicalPoint, EntityCounts,
-    LanePoseNetwork, ManeuverTransitionCandidate, PartitionPlanningHints, RangeU32,
+    BuildError, BuildStructure, CanonicalNetworkOrigin, CanonicalPoint, CanonicalPointXZ,
+    EntityCounts, LanePoseNetwork, ManeuverTransitionCandidate, PartitionPlanningHints, RangeU32,
     SegmentGeometry, SharedIdentityIndex, SharedManeuverNetwork, SharedNetworkRevision,
     SharedSpatialNetwork, SharedTrafficNetwork, StaticContractVersions,
     identity::{
@@ -26,7 +28,7 @@ use crate::{
         reverse_entry_bytes, seal_forward_identity,
     },
     numeric::hypot_rte_f32,
-    spatial::FacilityGeometryEntry,
+    spatial::{ConflictZoneRegionEntry, FacilityGeometryEntry},
 };
 
 const ENTITY_KIND_COUNT: usize = EntityKind::ALL.len();
@@ -125,6 +127,10 @@ struct BuildCounts {
     lane_segment_count: u32,
     facility_geometry_count: u32,
     facility_point_count: u32,
+    conflict_region_count: u32,
+    conflict_region_point_count: u32,
+    conflict_region_max_point_count: u32,
+    conflict_passage_count: u32,
     relation_payloads: crate::relations::RelationPayloads,
 }
 
@@ -203,10 +209,13 @@ impl TopologyPlan {
 }
 
 /// 从受检 LFCA 构建完全拥有、不可变的共享静态路网根。
-pub fn build_shared_network_revision(
-    input: CheckedCanonicalNetworkInput<'_>,
+pub fn build_shared_network_revision<S>(
+    input: CheckedCanonicalNetworkInput<S>,
     options: SharedNetworkBuildOptions<'_>,
-) -> Result<Arc<SharedNetworkRevision>, BuildError> {
+) -> Result<Arc<SharedNetworkRevision>, BuildError>
+where
+    S: BoundedReReadableObjectSource,
+{
     check_cancelled(options)?;
     let mut counts = count_and_preflight(input.value_checked_view(), options)?;
     check_scratch_budget(counts, options)?;
@@ -245,6 +254,13 @@ pub fn build_shared_network_revision(
         seal_forward_identity(forward_identity),
         reverse_identity.into_boxed_slice(),
     );
+    let conflict = crate::conflict::build_conflict(
+        input.value_checked_view(),
+        &traffic,
+        &identity,
+        counts.conflict_passage_count,
+        |ordinal| poll_cancelled(options, ordinal),
+    )?;
     let planning_hints =
         PartitionPlanningHints::from_traffic(&traffic, |ordinal| poll_cancelled(options, ordinal))?;
     let spatial = build_spatial(input.value_checked_view(), &counts, &traffic, options)?;
@@ -261,6 +277,7 @@ pub fn build_shared_network_revision(
         traffic,
         identity,
         planning_hints,
+        conflict,
         spatial,
     };
     let retained = revision.retained_logical_bytes();
@@ -319,6 +336,18 @@ fn count_and_preflight(
         )?;
     }
     let entity_counts = EntityCounts::new(entity_counts);
+
+    let participant_stream_table = entity_section.table(22).ok_or(BuildError::InputInvariant {
+        structure: BuildStructure::Conflict,
+    })?;
+    let mut conflict_passage_count = 0_u32;
+    for row in participant_stream_table.rows() {
+        conflict_passage_count = checked_add_count(
+            conflict_passage_count,
+            checked_record_vector(row, 5, BuildStructure::Conflict)?.len(),
+            BuildStructure::Conflict,
+        )?;
+    }
 
     let identity_count = registry
         .section(1)
@@ -434,10 +463,29 @@ fn count_and_preflight(
         )?;
     }
 
+    let conflict_region_table = spatial_section.table(3).ok_or(BuildError::InputInvariant {
+        structure: BuildStructure::ConflictZoneRegion,
+    })?;
+    let conflict_region_count = conflict_region_table.row_count();
+    let mut conflict_region_point_count = 0_u32;
+    let mut conflict_region_max_point_count = 0_u32;
+    for (index, row) in conflict_region_table.rows().enumerate() {
+        poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
+        let ring_point_count =
+            checked_record_vector(row, 5, BuildStructure::ConflictZoneRegion)?.len();
+        conflict_region_point_count = checked_add_count(
+            conflict_region_point_count,
+            ring_point_count,
+            BuildStructure::ConflictZoneRegion,
+        )?;
+        conflict_region_max_point_count = conflict_region_max_point_count.max(ring_point_count);
+    }
+
     let has_spatial_payload = direction_profile != 0
         || entity_counts.count(EntityKind::CanonicalFrame) != 0
         || lane_geometry_count != 0
-        || facility_geometry_count != 0;
+        || facility_geometry_count != 0
+        || conflict_region_count != 0;
     if spatial_present != has_spatial_payload {
         return Err(BuildError::SpatialPresenceMismatch);
     }
@@ -470,6 +518,10 @@ fn count_and_preflight(
         lane_segment_count,
         facility_geometry_count,
         facility_point_count,
+        conflict_region_count,
+        conflict_region_point_count,
+        conflict_region_max_point_count,
+        conflict_passage_count,
         relation_payloads: crate::relations_build::count_relation_payloads(
             view,
             &entity_counts,
@@ -555,6 +607,30 @@ fn check_retained_budget(
             structure: BuildStructure::RetainedOutput,
         })?;
 
+    let conflict_zone_count = counts.entity_counts.count(EntityKind::ConflictZone);
+    let participant_stream_count = counts.entity_counts.count(EntityKind::ParticipantStream);
+    retained = add_retained::<JunctionOrdinal>(retained, conflict_zone_count)?;
+    retained =
+        add_retained::<RangeU32>(retained, counts.entity_counts.count(EntityKind::Junction))?;
+    retained = add_retained::<laneflow_static_contract::ConflictZoneOrdinal>(
+        retained,
+        conflict_zone_count,
+    )?;
+    retained = add_retained::<RangeU32>(retained, conflict_zone_count)?;
+    retained = add_retained::<ParticipantStreamOrdinal>(retained, counts.conflict_passage_count)?;
+    retained = add_retained::<JunctionOrdinal>(retained, participant_stream_count)?;
+    retained =
+        add_retained::<RangeU32>(retained, counts.entity_counts.count(EntityKind::Junction))?;
+    retained = add_retained::<ParticipantStreamOrdinal>(retained, participant_stream_count)?;
+    retained = add_retained::<ManeuverPathOrdinal>(retained, participant_stream_count)?;
+    retained = add_retained::<RangeU32>(
+        retained,
+        counts.entity_counts.count(EntityKind::ManeuverPath),
+    )?;
+    retained = add_retained::<ParticipantStreamOrdinal>(retained, participant_stream_count)?;
+    retained = add_retained::<RangeU32>(retained, participant_stream_count)?;
+    retained = add_retained::<crate::ConflictPassage>(retained, counts.conflict_passage_count)?;
+
     if options.spatial == SpatialBuildOption::RetainAvailable && counts.spatial_present {
         if counts.lane_geometry_count != 0 {
             retained = add_retained::<CanonicalFrameOrdinal>(retained, lane_count)?;
@@ -572,6 +648,8 @@ fn check_retained_budget(
         }
         retained = add_retained::<FacilityGeometryEntry>(retained, counts.facility_geometry_count)?;
         retained = add_retained::<CanonicalPoint>(retained, counts.facility_point_count)?;
+        retained = add_retained::<ConflictZoneRegionEntry>(retained, counts.conflict_region_count)?;
+        retained = add_retained::<CanonicalPointXZ>(retained, counts.conflict_region_point_count)?;
     }
 
     if retained > options.limits.max_retained_bytes {
@@ -726,6 +804,39 @@ fn check_scratch_budget(
         counts.relation_payloads,
     )?);
     let scratch = scratch.max(counts.relation_payloads.pass_a_scratch);
+    let conflict_owner_count = counts
+        .entity_counts
+        .count(EntityKind::ConflictZone)
+        .max(counts.entity_counts.count(EntityKind::Junction))
+        .max(counts.entity_counts.count(EntityKind::ManeuverPath));
+    let conflict_scratch =
+        structure_bytes::<u32>(conflict_owner_count, BuildStructure::BuilderScratch)?
+            .checked_mul(2)
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: BuildStructure::BuilderScratch,
+            })?;
+    let scratch = scratch.max(conflict_scratch);
+    // 区域验证同时保留一份 ring，并在精确面积符号求和中保留至多两份、每份
+    // `2 * point_count` 的 f64 expansion。这里按单个最大 ring 计峰值，而不是把所有
+    // region 的点数误当成同时存续。
+    let conflict_expansion_count = counts
+        .conflict_region_max_point_count
+        .checked_mul(4)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let conflict_region_scratch = structure_bytes::<CanonicalPointXZ>(
+        counts.conflict_region_max_point_count,
+        BuildStructure::BuilderScratch,
+    )?
+    .checked_add(structure_bytes::<f64>(
+        conflict_expansion_count,
+        BuildStructure::BuilderScratch,
+    )?)
+    .ok_or(BuildError::ArithmeticOverflow {
+        structure: BuildStructure::BuilderScratch,
+    })?;
+    let scratch = scratch.max(conflict_region_scratch);
     if scratch > options.limits.max_scratch_bytes {
         return Err(BuildError::BudgetExceeded {
             structure: BuildStructure::BuilderScratch,
@@ -2785,6 +2896,89 @@ fn build_spatial(
         }
     }
 
+    let mut conflict_region_entries = allocate_if_retained(
+        retain,
+        counts.conflict_region_count,
+        BuildStructure::ConflictZoneRegion,
+    )?;
+    let mut conflict_region_points = allocate_if_retained(
+        retain,
+        counts.conflict_region_point_count,
+        BuildStructure::ConflictZoneRegion,
+    )?;
+    let conflict_region_table = spatial_section.table(3).ok_or(BuildError::InputInvariant {
+        structure: BuildStructure::ConflictZoneRegion,
+    })?;
+    let conflict_zone_count = counts.entity_counts.count(EntityKind::ConflictZone);
+    let mut previous_zone = None;
+    for (row_index, row) in conflict_region_table.rows().enumerate() {
+        poll_cancelled(options, u32::try_from(row_index).unwrap_or(u32::MAX))?;
+        let zone = checked_u32(row, 1, BuildStructure::ConflictZoneRegion)?;
+        if zone >= conflict_zone_count {
+            return Err(BuildError::ReferenceOutOfBounds {
+                structure: BuildStructure::ConflictZoneRegion,
+                ordinal: zone,
+                limit: conflict_zone_count,
+            });
+        }
+        if previous_zone.is_some_and(|previous| zone <= previous) {
+            return Err(BuildError::NonCanonicalOrder {
+                structure: BuildStructure::ConflictZoneRegion,
+                previous: previous_zone.unwrap_or(zone),
+                actual: zone,
+            });
+        }
+        previous_zone = Some(zone);
+        let frame = checked_u32(row, 2, BuildStructure::ConflictZoneRegion)?;
+        if frame >= frame_count {
+            return Err(BuildError::ReferenceOutOfBounds {
+                structure: BuildStructure::ConflictZoneRegion,
+                ordinal: frame,
+                limit: frame_count,
+            });
+        }
+        let min_y = checked_f32(row, 3, BuildStructure::ConflictZoneRegion)?;
+        let max_y = checked_f32(row, 4, BuildStructure::ConflictZoneRegion)?;
+        if !canonical_spatial_component(min_y)
+            || !canonical_spatial_component(max_y)
+            || min_y >= max_y
+        {
+            return Err(BuildError::InputInvariant {
+                structure: BuildStructure::ConflictZoneRegion,
+            });
+        }
+        let records = checked_record_vector(row, 5, BuildStructure::ConflictZoneRegion)?;
+        let mut ring = allocate_vec(records.len(), BuildStructure::BuilderScratch)?;
+        for point in records.rows() {
+            let point = CanonicalPointXZ {
+                x: checked_f32(point, 1, BuildStructure::ConflictZoneRegion)?,
+                z: checked_f32(point, 2, BuildStructure::ConflictZoneRegion)?,
+            };
+            if !canonical_spatial_component(point.x) || !canonical_spatial_component(point.z) {
+                return Err(BuildError::InputInvariant {
+                    structure: BuildStructure::ConflictZoneRegion,
+                });
+            }
+            ring.push(point);
+        }
+        validate_canonical_conflict_ring(&ring)?;
+        if retain {
+            let start = u32::try_from(conflict_region_points.len()).map_err(|_| {
+                BuildError::ArithmeticOverflow {
+                    structure: BuildStructure::ConflictZoneRegion,
+                }
+            })?;
+            conflict_region_points.extend_from_slice(&ring);
+            conflict_region_entries.push(ConflictZoneRegionEntry {
+                conflict_zone: laneflow_static_contract::ConflictZoneOrdinal::from_raw(zone),
+                canonical_frame: CanonicalFrameOrdinal::from_raw(frame),
+                min_y,
+                max_y,
+                ring_range: RangeU32::new(start, records.len()),
+            });
+        }
+    }
+
     if !retain || !counts.spatial_present {
         return Ok(None);
     }
@@ -2805,6 +2999,8 @@ fn build_spatial(
         lane_pose,
         facility_entries.into_boxed_slice(),
         facility_points.into_boxed_slice(),
+        conflict_region_entries.into_boxed_slice(),
+        conflict_region_points.into_boxed_slice(),
     )))
 }
 
@@ -2819,6 +3015,202 @@ fn fill_points(
         output.push(checked_canonical_point(row, structure)?);
     }
     Ok(())
+}
+
+fn canonical_spatial_component(value: f32) -> bool {
+    value.is_finite()
+        && (laneflow_static_contract::CANONICAL_POINT_COMPONENT_MIN_METERS
+            ..=laneflow_static_contract::CANONICAL_POINT_COMPONENT_MAX_METERS)
+            .contains(&value)
+        && (value != 0.0 || value.to_bits() == 0)
+}
+
+fn validate_canonical_conflict_ring(points: &[CanonicalPointXZ]) -> Result<(), BuildError> {
+    let structure = BuildStructure::ConflictZoneRegion;
+    if points.len() < 3 {
+        return Err(BuildError::InputInvariant { structure });
+    }
+    for (index, point) in points.iter().enumerate() {
+        for other in &points[..index] {
+            if point.x.to_bits() == other.x.to_bits() && point.z.to_bits() == other.z.to_bits() {
+                return Err(BuildError::InputInvariant { structure });
+            }
+        }
+    }
+    let first = points[0];
+    if points[1..].iter().any(|point| {
+        point
+            .x
+            .total_cmp(&first.x)
+            .then_with(|| point.z.total_cmp(&first.z))
+            == core::cmp::Ordering::Less
+    }) || polygon_area_sign(points)? != core::cmp::Ordering::Greater
+    {
+        return Err(BuildError::InputInvariant { structure });
+    }
+    let count = points.len();
+    for vertex in 0..count {
+        let previous = points[(vertex + count - 1) % count];
+        let current = points[vertex];
+        let next = points[(vertex + 1) % count];
+        if orientation_xz(previous, current, next) == core::cmp::Ordering::Equal
+            && !strictly_between_xz(current, previous, next)
+        {
+            return Err(BuildError::InputInvariant { structure });
+        }
+    }
+    for first_edge in 0..count {
+        for second_edge in (first_edge + 1)..count {
+            if second_edge == first_edge + 1 || (first_edge == 0 && second_edge == count - 1) {
+                continue;
+            }
+            if segments_intersect_xz(
+                points[first_edge],
+                points[(first_edge + 1) % count],
+                points[second_edge],
+                points[(second_edge + 1) % count],
+            ) {
+                return Err(BuildError::InputInvariant { structure });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn polygon_area_sign(points: &[CanonicalPointXZ]) -> Result<core::cmp::Ordering, BuildError> {
+    let term_count = u32::try_from(points.len())
+        .map_err(|_| BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?
+        .checked_mul(2)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let mut expansion = allocate_vec(term_count, BuildStructure::BuilderScratch)?;
+    let mut scratch = allocate_vec(term_count, BuildStructure::BuilderScratch)?;
+    for index in 0..points.len() {
+        let left = points[index];
+        let right = points[(index + 1) % points.len()];
+        add_expansion_term(
+            &mut expansion,
+            &mut scratch,
+            f64::from(left.x) * f64::from(right.z),
+        );
+        add_expansion_term(
+            &mut expansion,
+            &mut scratch,
+            -(f64::from(left.z) * f64::from(right.x)),
+        );
+    }
+    Ok(expansion_sign(&expansion))
+}
+
+fn orientation_xz(
+    first: CanonicalPointXZ,
+    second: CanonicalPointXZ,
+    third: CanonicalPointXZ,
+) -> core::cmp::Ordering {
+    let mut expansion = Vec::new();
+    let mut scratch = Vec::new();
+    for term in [
+        f64::from(first.x) * f64::from(second.z),
+        f64::from(second.x) * f64::from(third.z),
+        f64::from(third.x) * f64::from(first.z),
+        -(f64::from(first.z) * f64::from(second.x)),
+        -(f64::from(second.z) * f64::from(third.x)),
+        -(f64::from(third.z) * f64::from(first.x)),
+    ] {
+        add_expansion_term(&mut expansion, &mut scratch, term);
+    }
+    expansion_sign(&expansion)
+}
+
+fn add_expansion_term(expansion: &mut Vec<f64>, scratch: &mut Vec<f64>, term: f64) {
+    if term == 0.0 {
+        return;
+    }
+    scratch.clear();
+    let mut accumulator = term;
+    for &component in expansion.iter() {
+        let (sum, error) = two_sum(accumulator, component);
+        if error != 0.0 {
+            scratch.push(error);
+        }
+        accumulator = sum;
+    }
+    if accumulator != 0.0 || scratch.is_empty() {
+        scratch.push(accumulator);
+    }
+    core::mem::swap(expansion, scratch);
+}
+
+fn two_sum(left: f64, right: f64) -> (f64, f64) {
+    let sum = left + right;
+    let right_virtual = sum - left;
+    let left_virtual = sum - right_virtual;
+    (sum, (left - left_virtual) + (right - right_virtual))
+}
+
+fn expansion_sign(expansion: &[f64]) -> core::cmp::Ordering {
+    expansion
+        .iter()
+        .rev()
+        .copied()
+        .find(|value| *value != 0.0)
+        .map_or(core::cmp::Ordering::Equal, |value| {
+            if value.is_sign_negative() {
+                core::cmp::Ordering::Less
+            } else {
+                core::cmp::Ordering::Greater
+            }
+        })
+}
+
+fn strictly_between_xz(
+    point: CanonicalPointXZ,
+    first: CanonicalPointXZ,
+    second: CanonicalPointXZ,
+) -> bool {
+    if first.x != second.x {
+        first.x.min(second.x) < point.x && point.x < first.x.max(second.x)
+    } else {
+        first.z.min(second.z) < point.z && point.z < first.z.max(second.z)
+    }
+}
+
+fn segments_intersect_xz(
+    first_start: CanonicalPointXZ,
+    first_end: CanonicalPointXZ,
+    second_start: CanonicalPointXZ,
+    second_end: CanonicalPointXZ,
+) -> bool {
+    let first_second_start = orientation_xz(first_start, first_end, second_start);
+    let first_second_end = orientation_xz(first_start, first_end, second_end);
+    let second_first_start = orientation_xz(second_start, second_end, first_start);
+    let second_first_end = orientation_xz(second_start, second_end, first_end);
+    if first_second_start == core::cmp::Ordering::Equal
+        && point_on_segment_xz(second_start, first_start, first_end)
+        || first_second_end == core::cmp::Ordering::Equal
+            && point_on_segment_xz(second_end, first_start, first_end)
+        || second_first_start == core::cmp::Ordering::Equal
+            && point_on_segment_xz(first_start, second_start, second_end)
+        || second_first_end == core::cmp::Ordering::Equal
+            && point_on_segment_xz(first_end, second_start, second_end)
+    {
+        return true;
+    }
+    first_second_start != first_second_end && second_first_start != second_first_end
+}
+
+fn point_on_segment_xz(
+    point: CanonicalPointXZ,
+    start: CanonicalPointXZ,
+    end: CanonicalPointXZ,
+) -> bool {
+    start.x.min(end.x) <= point.x
+        && point.x <= start.x.max(end.x)
+        && start.z.min(end.z) <= point.z
+        && point.z <= start.z.max(end.z)
 }
 
 fn checked_canonical_point(
@@ -3121,7 +3513,7 @@ pub(crate) fn checked_f32(
     }
 }
 
-fn checked_stable_id(
+pub(crate) fn checked_stable_id(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
     structure: BuildStructure,
@@ -3922,6 +4314,10 @@ mod tests {
             lane_segment_count: 0,
             facility_geometry_count: 0,
             facility_point_count: 0,
+            conflict_region_count: 0,
+            conflict_region_point_count: 0,
+            conflict_region_max_point_count: 0,
+            conflict_passage_count: 0,
             relation_payloads: crate::relations::RelationPayloads::default(),
         };
         let options = SharedNetworkBuildOptions::new(
@@ -3962,6 +4358,10 @@ mod tests {
             lane_segment_count: 0,
             facility_geometry_count: 0,
             facility_point_count: 0,
+            conflict_region_count: 0,
+            conflict_region_point_count: 0,
+            conflict_region_max_point_count: 0,
+            conflict_passage_count: 0,
             relation_payloads: crate::relations::RelationPayloads::default(),
         };
         let options = SharedNetworkBuildOptions::new(

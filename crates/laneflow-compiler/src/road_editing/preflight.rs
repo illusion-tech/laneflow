@@ -37,6 +37,7 @@ pub(crate) struct RoadEditingPreflightCounts {
     maneuver_gate_count: u64,
     waiting_zone_count: u64,
     authoring_point_count: u64,
+    conflict_region_point_count: u64,
     symbol_count: u64,
     string_item_count: u64,
     total_string_bytes: u64,
@@ -73,6 +74,10 @@ impl RoadEditingPreflightCounts {
 
     pub(crate) const fn waiting_zone_count(self) -> u64 {
         self.waiting_zone_count
+    }
+
+    pub(crate) const fn conflict_region_point_count(self) -> u64 {
+        self.conflict_region_point_count
     }
 
     pub(crate) const fn symbol_count(self) -> u64 {
@@ -385,6 +390,7 @@ pub(crate) fn preflight_source(
     )?;
     validate_access_and_profiles(&mut usage, root, namespace, imports, limits, expected_key)?;
     validate_routes_and_frames(&mut usage, root, namespace, imports, limits, expected_key)?;
+    validate_conflicts_and_regions(&mut usage, root, namespace, imports, limits, expected_key)?;
 
     let usage = usage.validate(limits)?;
     validate_owner_closure(root, expected_key)?;
@@ -1906,19 +1912,58 @@ fn validate_parking(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
-        root.parking_areas().iter(),
-        |value| value.parking_area_key(),
-        "parkingAreas.parkingAreaKey",
+        root.parking_facilities().iter(),
+        |value| value.parking_facility_key(),
+        "parkingFacilities.parkingAreaKey",
         expected_key,
     )?;
-    for value in root.parking_areas() {
-        usage.charge_declaration(EntityKind::ParkingArea);
+    for value in root.parking_facilities() {
+        usage.charge_declaration(EntityKind::ParkingFacility);
         usage.charge_token(
-            value.parking_area_key(),
+            value.parking_facility_key(),
             "parkingArea.parkingAreaKey",
             limits,
             expected_key,
         )?;
+        let virtual_entries = value.virtual_entries();
+        let virtual_exits = value.virtual_exits();
+        if (value.virtual_capacity() == 0
+            && (!virtual_entries.is_empty() || !virtual_exits.is_empty()))
+            || (value.virtual_capacity() != 0
+                && (virtual_entries.is_empty() || virtual_exits.is_empty()))
+        {
+            return Err(invalid_combination(
+                "parkingFacility.virtualCapacity",
+                expected_key,
+            ));
+        }
+        usage.typed_ast_record_count = usage
+            .typed_ast_record_count
+            .saturating_add(u64::try_from(virtual_entries.len()).unwrap_or(u64::MAX))
+            .saturating_add(u64::try_from(virtual_exits.len()).unwrap_or(u64::MAX));
+        usage.charge_relation(virtual_entries.len().saturating_add(virtual_exits.len()));
+        for anchor in virtual_entries {
+            validate_parking_anchor(
+                usage,
+                anchor,
+                "parkingFacility.virtualEntries",
+                namespace,
+                imports,
+                limits,
+                expected_key,
+            )?;
+        }
+        for anchor in virtual_exits {
+            validate_parking_anchor(
+                usage,
+                anchor,
+                "parkingFacility.virtualExits",
+                namespace,
+                imports,
+                limits,
+                expected_key,
+            )?;
+        }
         usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
     }
 
@@ -1937,7 +1982,7 @@ fn validate_parking(
             limits,
             expected_key,
         )?;
-        if let Some(area) = value.parking_area() {
+        if let Some(area) = value.parking_facility() {
             usage.charge_reference(
                 area,
                 1,
@@ -2348,6 +2393,245 @@ fn validate_routes_and_frames(
             expected_key,
         )?;
         usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
+    }
+    Ok(())
+}
+
+fn validate_conflicts_and_regions(
+    usage: &mut RoadEditingPreflightCounts,
+    root: wire::RoadEditingSource<'_>,
+    namespace: &str,
+    imports: StringVector<'_>,
+    limits: &CompileLimits,
+    expected_key: &str,
+) -> Result<(), DiagnosticBundle> {
+    ensure_unique_by(
+        root.conflict_zones().iter(),
+        |value| (value.junction(), value.conflict_zone_key()),
+        "conflictZones.junction+conflictZoneKey",
+        expected_key,
+    )?;
+    for value in root.conflict_zones() {
+        usage.charge_declaration(EntityKind::ConflictZone);
+        usage.charge_token(
+            value.conflict_zone_key(),
+            "conflictZone.conflictZoneKey",
+            limits,
+            expected_key,
+        )?;
+        usage.charge_reference(
+            value.junction(),
+            1,
+            false,
+            "conflictZone.junction",
+            namespace,
+            imports,
+            limits,
+            expected_key,
+        )?;
+        usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
+    }
+
+    ensure_unique_by(
+        root.participant_streams().iter(),
+        |value| (value.junction(), value.participant_stream_key()),
+        "participantStreams.junction+participantStreamKey",
+        expected_key,
+    )?;
+    for value in root.participant_streams() {
+        usage.charge_declaration(EntityKind::ParticipantStream);
+        usage.charge_token(
+            value.participant_stream_key(),
+            "participantStream.participantStreamKey",
+            limits,
+            expected_key,
+        )?;
+        usage.charge_reference(
+            value.junction(),
+            1,
+            false,
+            "participantStream.junction",
+            namespace,
+            imports,
+            limits,
+            expected_key,
+        )?;
+        usage.charge_reference(
+            value.maneuver_path(),
+            3,
+            true,
+            "participantStream.maneuverPath",
+            namespace,
+            imports,
+            limits,
+            expected_key,
+        )?;
+        let passages = value.passages();
+        if passages.is_empty() {
+            return Err(semantic_error(
+                "participantStream.passages",
+                RoadEditingInputViolation::EmptyCollection,
+                expected_key,
+            ));
+        }
+        usage.require_relation_capacity(passages.len(), limits)?;
+        usage.charge_relation(passages.len());
+        usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(
+            u64::try_from(passages.len())
+                .unwrap_or(u64::MAX)
+                .saturating_mul(3),
+        );
+        for (index, passage) in passages.iter().enumerate() {
+            usage.charge_reference(
+                passage.conflict_zone(),
+                2,
+                true,
+                "participantStream.passages.conflictZone",
+                namespace,
+                imports,
+                limits,
+                expected_key,
+            )?;
+            for previous in passages.iter().take(index) {
+                if references_equal(previous.conflict_zone(), passage.conflict_zone(), namespace) {
+                    return Err(semantic_error(
+                        "participantStream.passages.conflictZone",
+                        RoadEditingInputViolation::DuplicateValue,
+                        expected_key,
+                    ));
+                }
+            }
+            validate_path_anchor(
+                usage,
+                passage.entry(),
+                "participantStream.passages.entry",
+                namespace,
+                imports,
+                limits,
+                expected_key,
+            )?;
+            validate_path_anchor(
+                usage,
+                passage.exit(),
+                "participantStream.passages.exit",
+                namespace,
+                imports,
+                limits,
+                expected_key,
+            )?;
+        }
+        usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
+    }
+
+    let regions = root.conflict_zone_regions();
+    usage.require_relation_capacity(regions.len(), limits)?;
+    usage.charge_relation(regions.len());
+    for (index, value) in regions.iter().enumerate() {
+        usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
+        for previous in regions.iter().take(index) {
+            if references_equal(previous.conflict_zone(), value.conflict_zone(), namespace) {
+                return Err(semantic_error(
+                    "conflictZoneRegions.conflictZone",
+                    RoadEditingInputViolation::DuplicateValue,
+                    expected_key,
+                ));
+            }
+        }
+        usage.charge_reference(
+            value.conflict_zone(),
+            2,
+            true,
+            "conflictZoneRegion.conflictZone",
+            namespace,
+            imports,
+            limits,
+            expected_key,
+        )?;
+        usage.charge_reference(
+            value.canonical_frame(),
+            1,
+            true,
+            "conflictZoneRegion.canonicalFrame",
+            namespace,
+            imports,
+            limits,
+            expected_key,
+        )?;
+        let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
+        let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
+        for (field, component) in [
+            ("conflictZoneRegion.minY", value.min_y()),
+            ("conflictZoneRegion.maxY", value.max_y()),
+        ] {
+            if let Some(violation) = inclusive_range_violation(component, minimum, maximum) {
+                return Err(semantic_error(field, violation, expected_key));
+            }
+        }
+        if value.min_y() >= value.max_y() || value.ring_xz().len() < 3 {
+            return Err(invalid_combination("conflictZoneRegion", expected_key));
+        }
+        for point in value.ring_xz() {
+            for component in [point.x(), point.z()] {
+                if let Some(violation) = inclusive_range_violation(component, minimum, maximum) {
+                    return Err(semantic_error(
+                        "conflictZoneRegion.ringXZ",
+                        violation,
+                        expected_key,
+                    ));
+                }
+            }
+        }
+        usage.conflict_region_point_count = usage
+            .conflict_region_point_count
+            .saturating_add(u64::try_from(value.ring_xz().len()).unwrap_or(u64::MAX));
+        usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_path_anchor(
+    usage: &mut RoadEditingPreflightCounts,
+    value: wire::PathAnchor<'_>,
+    field: &'static str,
+    namespace: &str,
+    imports: StringVector<'_>,
+    limits: &CompileLimits,
+    expected_key: &str,
+) -> Result<(), DiagnosticBundle> {
+    let canonical_zero = |value: f64| value.to_bits() == 0.0_f64.to_bits();
+    match value.kind() {
+        wire::PathAnchorKind::Gate
+            if value.gate().is_some()
+                && value.boundary_index() == 0
+                && value.path_edge_index() == 0
+                && canonical_zero(value.progress_meters()) =>
+        {
+            usage.charge_reference(
+                value.gate().expect("guarded Gate reference"),
+                4,
+                true,
+                field,
+                namespace,
+                imports,
+                limits,
+                expected_key,
+            )?;
+        }
+        wire::PathAnchorKind::EdgeBoundary
+            if value.gate().is_none()
+                && value.path_edge_index() == 0
+                && canonical_zero(value.progress_meters()) => {}
+        wire::PathAnchorKind::Interior if value.gate().is_none() && value.boundary_index() == 0 => {
+            if let Some(violation) = millimetre_range_violation(
+                value.progress_meters(),
+                1,
+                MAX_LANE_EDGE_LENGTH_MM.saturating_sub(1),
+            ) {
+                return Err(semantic_error(field, violation, expected_key));
+            }
+        }
+        _ => return Err(invalid_combination(field, expected_key)),
     }
     Ok(())
 }

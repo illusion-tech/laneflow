@@ -1,6 +1,6 @@
 //! 可移植规范制品的 section/table/field 静态登记。
 //!
-//! 本模块逐项转录当前 LFCA（`formatVersion = 3`）、LFSM/LFSD（封套版本 2）与 LFCP 的线格式形状。它是可供 emitter 与
+//! 本模块逐项转录当前 LFCA（`formatVersion = 4`）、LFSM/LFSD（封套版本 3）与 LFCP 的线格式形状。它是可供 emitter 与
 //! 结构预检共享的只读数据，不包含序列化器、文件系统发布、
 //! 跨表语义验证或摘要信任判断。
 
@@ -196,6 +196,15 @@ const POINT_ROW: PortableRowSchema = PortableRowSchema {
     shape: PortableRowShape::Uniform,
 };
 
+const POINT_XZ_ROW_FIELDS: &[PortableFieldSchema] = &[
+    field(1, "x", PortableFieldType::F32, R),
+    field(2, "z", PortableFieldType::F32, R),
+];
+const POINT_XZ_ROW: PortableRowSchema = PortableRowSchema {
+    fields: POINT_XZ_ROW_FIELDS,
+    shape: PortableRowShape::Uniform,
+};
+
 const SEGMENT_ROW_FIELDS: &[PortableFieldSchema] = &[
     field(1, "lengthMeters", PortableFieldType::F32, R),
     field(2, "cumulativeEndMeters", PortableFieldType::F32, R),
@@ -251,7 +260,7 @@ const CANONICAL_IDENTITY_ROW: PortableRowSchema = PortableRowSchema {
 const LFCA_SECTION_2_TABLES: &[PortableTableSchema] =
     &[table(1, "CanonicalIdentity", &CANONICAL_IDENTITY_ROW, ANY)];
 
-// LFCA section 0x0003: 21 constructible entity tables (kind 21 omitted).
+// LFCA section 0x0003: 23 constructible entity tables.
 
 const ROAD_CORRIDOR_FIELDS: &[PortableFieldSchema] = &[
     field(1, "typedOrdinal", PortableFieldType::U32, R),
@@ -415,20 +424,32 @@ const SIGNAL_PHASE_ROW: PortableRowSchema = PortableRowSchema {
     shape: PortableRowShape::Uniform,
 };
 
-const PARKING_AREA_FIELDS: &[PortableFieldSchema] = &[
+const PARKING_LANE_ANCHOR_FIELDS: &[PortableFieldSchema] = &[
+    field(1, "laneEdge", PortableFieldType::U32, R),
+    field(2, "progressMillimetres", PortableFieldType::U32, R),
+];
+const PARKING_LANE_ANCHOR_ROW: PortableRowSchema = PortableRowSchema {
+    fields: PARKING_LANE_ANCHOR_FIELDS,
+    shape: PortableRowShape::Uniform,
+};
+
+const PARKING_FACILITY_FIELDS: &[PortableFieldSchema] = &[
     field(1, "typedOrdinal", PortableFieldType::U32, R),
     field(2, "stableId", PortableFieldType::StableId128, R),
     field(3, "parkingSpaces", PortableFieldType::OrdinalVectorU32, R),
+    field(4, "virtualCapacity", PortableFieldType::U32, R),
+    record_field(5, "virtualEntries", R, &PARKING_LANE_ANCHOR_ROW),
+    record_field(6, "virtualExits", R, &PARKING_LANE_ANCHOR_ROW),
 ];
-const PARKING_AREA_ROW: PortableRowSchema = PortableRowSchema {
-    fields: PARKING_AREA_FIELDS,
+const PARKING_FACILITY_ROW: PortableRowSchema = PortableRowSchema {
+    fields: PARKING_FACILITY_FIELDS,
     shape: PortableRowShape::Uniform,
 };
 
 const PARKING_SPACE_FIELDS: &[PortableFieldSchema] = &[
     field(1, "typedOrdinal", PortableFieldType::U32, R),
     field(2, "stableId", PortableFieldType::StableId128, R),
-    field(3, "parkingArea", PortableFieldType::U32, O),
+    field(3, "parkingFacility", PortableFieldType::U32, O),
     field(4, "entryLaneEdge", PortableFieldType::U32, R),
     field(5, "entryProgressMillimetres", PortableFieldType::U32, R),
     field(6, "exitLaneEdge", PortableFieldType::U32, R),
@@ -535,12 +556,48 @@ const VEHICLE_PROFILE_ROW: PortableRowSchema = PortableRowSchema {
     shape: PortableRowShape::Uniform,
 };
 
+const CONFLICT_ZONE_FIELDS: &[PortableFieldSchema] = &[
+    field(1, "typedOrdinal", PortableFieldType::U32, R),
+    field(2, "stableId", PortableFieldType::StableId128, R),
+    field(3, "junction", PortableFieldType::U32, R),
+];
+const CONFLICT_ZONE_ROW: PortableRowSchema = PortableRowSchema {
+    fields: CONFLICT_ZONE_FIELDS,
+    shape: PortableRowShape::Uniform,
+};
+
 const CANONICAL_FRAME_FIELDS: &[PortableFieldSchema] = &[
     field(1, "typedOrdinal", PortableFieldType::U32, R),
     field(2, "stableId", PortableFieldType::StableId128, R),
 ];
 const CANONICAL_FRAME_ROW: PortableRowSchema = PortableRowSchema {
     fields: CANONICAL_FRAME_FIELDS,
+    shape: PortableRowShape::Uniform,
+};
+
+const CONFLICT_PASSAGE_FIELDS: &[PortableFieldSchema] = &[
+    field(1, "conflictZone", PortableFieldType::U32, R),
+    field(2, "entryKind", PortableFieldType::U8, R),
+    field(3, "entryReference", PortableFieldType::U32, R),
+    field(4, "entryProgressMillimetres", PortableFieldType::U32, O),
+    field(5, "exitKind", PortableFieldType::U8, R),
+    field(6, "exitReference", PortableFieldType::U32, R),
+    field(7, "exitProgressMillimetres", PortableFieldType::U32, O),
+];
+const CONFLICT_PASSAGE_ROW: PortableRowSchema = PortableRowSchema {
+    fields: CONFLICT_PASSAGE_FIELDS,
+    shape: PortableRowShape::Uniform,
+};
+
+const PARTICIPANT_STREAM_FIELDS: &[PortableFieldSchema] = &[
+    field(1, "typedOrdinal", PortableFieldType::U32, R),
+    field(2, "stableId", PortableFieldType::StableId128, R),
+    field(3, "junction", PortableFieldType::U32, R),
+    field(4, "maneuverPath", PortableFieldType::U32, R),
+    record_field(5, "passages", R, &CONFLICT_PASSAGE_ROW),
+];
+const PARTICIPANT_STREAM_ROW: PortableRowSchema = PortableRowSchema {
+    fields: PARTICIPANT_STREAM_FIELDS,
     shape: PortableRowShape::Uniform,
 };
 
@@ -558,14 +615,16 @@ const LFCA_SECTION_3_TABLES: &[PortableTableSchema] = &[
     table(11, "SignalGroup", &SIGNAL_GROUP_ROW, ANY),
     table(12, "SignalController", &SIGNAL_CONTROLLER_ROW, ANY),
     table(13, "SignalPhase", &SIGNAL_PHASE_ROW, ANY),
-    table(14, "ParkingArea", &PARKING_AREA_ROW, ANY),
+    table(14, "ParkingFacility", &PARKING_FACILITY_ROW, ANY),
     table(15, "ParkingSpace", &PARKING_SPACE_ROW, ANY),
     table(16, "LaneGroup", &LANE_GROUP_ROW, ANY),
     table(17, "FacilityBand", &FACILITY_BAND_ROW, ANY),
     table(18, "ParticipantClass", &PARTICIPANT_CLASS_ROW, ANY),
     table(19, "AccessRule", &ACCESS_RULE_ROW, ANY),
     table(20, "VehicleProfile", &VEHICLE_PROFILE_ROW, ANY),
+    table(21, "ConflictZone", &CONFLICT_ZONE_ROW, ANY),
     table(22, "CanonicalFrame", &CANONICAL_FRAME_ROW, ANY),
+    table(23, "ParticipantStream", &PARTICIPANT_STREAM_ROW, ANY),
 ];
 
 // LFCA section 0x0004: canonical relation tables.
@@ -617,10 +676,22 @@ const FACILITY_BAND_GEOMETRY_ROW: PortableRowSchema = PortableRowSchema {
     fields: FACILITY_BAND_GEOMETRY_FIELDS,
     shape: PortableRowShape::Uniform,
 };
+const CONFLICT_ZONE_REGION_FIELDS: &[PortableFieldSchema] = &[
+    field(1, "conflictZone", PortableFieldType::U32, R),
+    field(2, "canonicalFrame", PortableFieldType::U32, R),
+    field(3, "minY", PortableFieldType::F32, R),
+    field(4, "maxY", PortableFieldType::F32, R),
+    record_field(5, "ringXZ", R, &POINT_XZ_ROW),
+];
+const CONFLICT_ZONE_REGION_ROW: PortableRowSchema = PortableRowSchema {
+    fields: CONFLICT_ZONE_REGION_FIELDS,
+    shape: PortableRowShape::Uniform,
+};
 const LFCA_SECTION_5_TABLES: &[PortableTableSchema] = &[
     table(1, "SpatialPresence", &SPATIAL_PRESENCE_ROW, ONE),
     table(2, "LaneEdgeGeometry", &LANE_EDGE_GEOMETRY_ROW, ANY),
     table(3, "FacilityBandGeometry", &FACILITY_BAND_GEOMETRY_ROW, ANY),
+    table(4, "ConflictZoneRegion", &CONFLICT_ZONE_REGION_ROW, ANY),
 ];
 
 const EXECUTION_CONTRACT_FIELDS: &[PortableFieldSchema] = &[
@@ -1526,7 +1597,7 @@ mod tests {
     fn appendix_registry_matches_reviewed_literal_fingerprint() {
         // 这只是对已依据附录 A 人工复核过的 Rust 登记做防漂移固定，不是独立格式 oracle。
         // 更新该值必须先逐项审阅附录；不得从测试失败输出自动追认新的 production registry。
-        assert_eq!(appendix_registry_fingerprint(), 0x97b8_66bc_ea48_8436);
+        assert_eq!(appendix_registry_fingerprint(), 0x66b2_fadf_2210_bc48);
     }
 
     #[test]

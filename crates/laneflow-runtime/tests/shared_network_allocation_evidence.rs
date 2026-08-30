@@ -13,7 +13,7 @@ use std::time::Instant;
 
 use laneflow_corridor_generator::{CorridorConfig, generate};
 use laneflow_format::{FormatLimits, check_canonical_network_input};
-use laneflow_runtime::{TrafficWorld, WorldConfig};
+use laneflow_runtime::WorldConfig;
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
     build_shared_network_revision,

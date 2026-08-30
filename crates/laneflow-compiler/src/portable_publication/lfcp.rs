@@ -1,7 +1,7 @@
 use laneflow_format::{
-    FieldWriteInput, FieldWriteValue, FormatLimits, ObjectWriteInput, PostEmissionCheckedBundle,
-    RowWriteInput, SectionWriteInput, TableWriteInput, encode_prepared_object,
-    preflight_object_values, prepare_object,
+    BoundedReReadableObjectSource, FieldWriteInput, FieldWriteValue, FormatLimits,
+    ObjectWriteInput, PostEmissionCheckedBundle, RowWriteInput, SectionWriteInput, TableWriteInput,
+    encode_prepared_object, preflight_object_values, prepare_object,
 };
 use laneflow_static_contract::{
     CANONICAL_ARTIFACT_FORMAT_VERSION, NETWORK_REVISION_DERIVATION_VERSION, PortableObjectKind,
@@ -12,11 +12,16 @@ use crate::portable_emitter::{PortableObjectCandidate, close_object, object_key}
 
 use super::{PortablePublicationError, PortablePublicationProvenance};
 
-pub(crate) fn build_lfcp(
-    checked: PostEmissionCheckedBundle<'_>,
+pub(crate) fn build_lfcp<L, M, D>(
+    checked: &PostEmissionCheckedBundle<L, M, D>,
     provenance: &PortablePublicationProvenance,
     limits: FormatLimits,
-) -> Result<PortableObjectCandidate, PortablePublicationError> {
+) -> Result<PortableObjectCandidate, PortablePublicationError>
+where
+    L: BoundedReReadableObjectSource,
+    M: BoundedReReadableObjectSource,
+    D: BoundedReReadableObjectSource,
+{
     let artifact_fields = [
         field(1, FieldWriteValue::U16(CANONICAL_ARTIFACT_FORMAT_VERSION)),
         field(2, FieldWriteValue::U16(NETWORK_REVISION_DERIVATION_VERSION)),

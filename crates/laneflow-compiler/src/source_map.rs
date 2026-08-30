@@ -11,11 +11,12 @@ pub(crate) use freeze::freeze_source_map;
 
 use laneflow_static_contract::{
     AccessRuleId, AccessRuleOrdinal, AuthoringLaneId, AuthoringLaneOrdinal, CanonicalFrameId,
-    CanonicalFrameOrdinal, EntityKind, FacilityBandId, FacilityBandOrdinal, JunctionId,
-    JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal, ManeuverGateId,
-    ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal, MovementId, MovementOrdinal,
-    ParkingAreaId, ParkingAreaOrdinal, ParkingSpaceId, ParkingSpaceOrdinal, ParticipantClassId,
-    ParticipantClassOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId,
+    CanonicalFrameOrdinal, ConflictZoneId, ConflictZoneOrdinal, EntityKind, FacilityBandId,
+    FacilityBandOrdinal, JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId,
+    LaneGroupOrdinal, ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal,
+    MovementId, MovementOrdinal, ParkingFacilityId, ParkingFacilityOrdinal, ParkingSpaceId,
+    ParkingSpaceOrdinal, ParticipantClassId, ParticipantClassOrdinal, ParticipantStreamId,
+    ParticipantStreamOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId,
     RoadSectionOrdinal, SignalControllerId, SignalControllerOrdinal, SignalGroupId,
     SignalGroupOrdinal, SignalPhaseId, SignalPhaseOrdinal, StopLineId, StopLineOrdinal,
     VehicleProfileId, VehicleProfileOrdinal, WaitingZoneId, WaitingZoneOrdinal,
@@ -117,6 +118,14 @@ pub enum SourceRelationRole {
     ManeuverPathWaitingZone = 11,
     /// 停止线被一项机动门引用的反向关系。
     StopLineManeuverGate = 12,
+    /// 停车设施的一项虚拟入口锚点。
+    ParkingFacilityVirtualEntry = 13,
+    /// 停车设施的一项虚拟出口锚点。
+    ParkingFacilityVirtualExit = 14,
+    /// 路口拥有的一项冲突区。
+    JunctionConflictZone = 15,
+    /// 路口拥有的一项参与者流。
+    JunctionParticipantStream = 16,
     /// 信号控制器唯一拥有的一项信号组。
     SignalControllerGroup = 17,
     /// 信号控制器固定时制程序中的一个有序相位。
@@ -126,7 +135,7 @@ pub enum SourceRelationRole {
     /// 机动门到固定时制信号组的控制绑定。
     ManeuverGateSignalGroup = 20,
     /// 停车位到可选停车区域的组织归属。
-    ParkingSpaceArea = 21,
+    ParkingSpaceFacility = 21,
     /// 停车位入口到车道图边严格内部位置的锚定。
     ParkingSpaceEntry = 22,
     /// 停车位出口到车道图边严格内部位置的锚定。
@@ -143,6 +152,12 @@ pub enum SourceRelationRole {
     CanonicalFrameLaneEdgeGeometry = 28,
     /// 规范坐标框架拥有的一条 non-traversable 设施带中心线。
     CanonicalFrameFacilityBandGeometry = 29,
+    /// 参与者流绑定的唯一机动路径。
+    ParticipantStreamManeuverPath = 30,
+    /// 参与者流中的一项冲突通行段。
+    ParticipantStreamConflictPassage = 31,
+    /// 规范坐标框架拥有的一项冲突区区域。
+    CanonicalFrameConflictZoneRegion = 32,
 }
 
 #[derive(Clone)]
@@ -255,6 +270,22 @@ struct ParkingRelationSourceRecord {
     primary: SourceLocationRecord,
 }
 
+struct ParkingFacilityRelationSourceRecord {
+    owner_ordinal: ParkingFacilityOrdinal,
+    owner_stable_id: ParkingFacilityId,
+    role: SourceRelationRole,
+    local_index: u32,
+    primary: SourceLocationRecord,
+}
+
+struct ConflictRelationSourceRecord {
+    owner_ordinal: ParticipantStreamOrdinal,
+    owner_stable_id: ParticipantStreamId,
+    role: SourceRelationRole,
+    local_index: u32,
+    primary: SourceLocationRecord,
+}
+
 struct SpatialRelationSourceRecord {
     owner_ordinal: CanonicalFrameOrdinal,
     owner_stable_id: CanonicalFrameId,
@@ -320,9 +351,15 @@ pub struct ValidatedSourceMapInput {
         Box<[StableEntitySourceRecord<SignalControllerOrdinal, SignalControllerId>]>,
     signal_phase_sources: Box<[StableEntitySourceRecord<SignalPhaseOrdinal, SignalPhaseId>]>,
     signal_relation_sources: Box<[SignalRelationSourceRecord]>,
-    parking_area_sources: Box<[StableEntitySourceRecord<ParkingAreaOrdinal, ParkingAreaId>]>,
+    conflict_zone_sources: Box<[StableEntitySourceRecord<ConflictZoneOrdinal, ConflictZoneId>]>,
+    participant_stream_sources:
+        Box<[StableEntitySourceRecord<ParticipantStreamOrdinal, ParticipantStreamId>]>,
+    conflict_relation_sources: Box<[ConflictRelationSourceRecord]>,
+    parking_facility_sources:
+        Box<[StableEntitySourceRecord<ParkingFacilityOrdinal, ParkingFacilityId>]>,
     parking_space_sources: Box<[StableEntitySourceRecord<ParkingSpaceOrdinal, ParkingSpaceId>]>,
     parking_relation_sources: Box<[ParkingRelationSourceRecord]>,
+    parking_facility_relation_sources: Box<[ParkingFacilityRelationSourceRecord]>,
     participant_class_sources:
         Box<[StableEntitySourceRecord<ParticipantClassOrdinal, ParticipantClassId>]>,
     vehicle_profile_sources:
@@ -566,11 +603,49 @@ impl ValidatedSourceMapInput {
             })
     }
 
-    /// 按 `ParkingAreaOrdinal` 递增顺序遍历停车区域来源记录。
-    pub fn parking_area_sources(&self) -> impl ExactSizeIterator<Item = ParkingAreaSourceView<'_>> {
-        self.parking_area_sources
+    /// 按 `ConflictZoneOrdinal` 递增顺序遍历冲突区来源记录。
+    pub fn conflict_zone_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = ConflictZoneSourceView<'_>> {
+        self.conflict_zone_sources
             .iter()
-            .map(|record| ParkingAreaSourceView {
+            .map(|record| ConflictZoneSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
+    /// 按 `ParticipantStreamOrdinal` 递增顺序遍历参与者流来源记录。
+    pub fn participant_stream_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = ParticipantStreamSourceView<'_>> {
+        self.participant_stream_sources
+            .iter()
+            .map(|record| ParticipantStreamSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
+    /// 遍历参与者流到路径和 owner-local passage 的来源记录。
+    pub fn conflict_relation_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = ConflictRelationSourceView<'_>> {
+        self.conflict_relation_sources
+            .iter()
+            .map(|record| ConflictRelationSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
+    /// 按 `ParkingFacilityOrdinal` 递增顺序遍历停车区域来源记录。
+    pub fn parking_facility_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = ParkingFacilitySourceView<'_>> {
+        self.parking_facility_sources
+            .iter()
+            .map(|record| ParkingFacilitySourceView {
                 source_map: self,
                 record,
             })
@@ -598,6 +673,18 @@ impl ValidatedSourceMapInput {
                 source_map: self,
                 record,
             })
+    }
+
+    /// 遍历停车设施虚拟入口与出口锚点的规范来源记录。
+    pub fn parking_facility_relation_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = ParkingFacilityRelationSourceView<'_>> {
+        self.parking_facility_relation_sources.iter().map(|record| {
+            ParkingFacilityRelationSourceView {
+                source_map: self,
+                record,
+            }
+        })
     }
 
     /// 按 `ParticipantClassOrdinal` 递增顺序遍历参与者类别来源记录。
@@ -905,7 +992,17 @@ stable_source_view!(
     SignalControllerId
 );
 stable_source_view!(SignalPhaseSourceView, SignalPhaseOrdinal, SignalPhaseId);
-stable_source_view!(ParkingAreaSourceView, ParkingAreaOrdinal, ParkingAreaId);
+stable_source_view!(ConflictZoneSourceView, ConflictZoneOrdinal, ConflictZoneId);
+stable_source_view!(
+    ParticipantStreamSourceView,
+    ParticipantStreamOrdinal,
+    ParticipantStreamId
+);
+stable_source_view!(
+    ParkingFacilitySourceView,
+    ParkingFacilityOrdinal,
+    ParkingFacilityId
+);
 stable_source_view!(ParkingSpaceSourceView, ParkingSpaceOrdinal, ParkingSpaceId);
 stable_source_view!(
     ParticipantClassSourceView,
@@ -1196,6 +1293,81 @@ impl ParkingRelationSourceView<'_> {
     }
 
     /// 当前显式停车关系没有额外贡献来源。
+    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+        core::iter::empty()
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct ParkingFacilityRelationSourceView<'a> {
+    source_map: &'a ValidatedSourceMapInput,
+    record: &'a ParkingFacilityRelationSourceRecord,
+}
+
+impl ParkingFacilityRelationSourceView<'_> {
+    #[must_use]
+    pub const fn owner_ordinal(&self) -> ParkingFacilityOrdinal {
+        self.record.owner_ordinal
+    }
+
+    #[must_use]
+    pub const fn owner_stable_id(&self) -> ParkingFacilityId {
+        self.record.owner_stable_id
+    }
+
+    #[must_use]
+    pub const fn role(&self) -> SourceRelationRole {
+        self.record.role
+    }
+
+    #[must_use]
+    pub const fn local_index(&self) -> u32 {
+        self.record.local_index
+    }
+
+    #[must_use]
+    pub fn primary_source(&self) -> SourceLocationView<'_> {
+        self.source_map.location(&self.record.primary)
+    }
+
+    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+        core::iter::empty()
+    }
+}
+
+/// 一条参与者流 owner-local 关系来源记录。
+#[derive(Clone, Copy)]
+pub struct ConflictRelationSourceView<'a> {
+    source_map: &'a ValidatedSourceMapInput,
+    record: &'a ConflictRelationSourceRecord,
+}
+
+impl ConflictRelationSourceView<'_> {
+    #[must_use]
+    pub const fn owner_ordinal(&self) -> ParticipantStreamOrdinal {
+        self.record.owner_ordinal
+    }
+
+    #[must_use]
+    pub const fn owner_stable_id(&self) -> ParticipantStreamId {
+        self.record.owner_stable_id
+    }
+
+    #[must_use]
+    pub const fn role(&self) -> SourceRelationRole {
+        self.record.role
+    }
+
+    #[must_use]
+    pub const fn local_index(&self) -> u32 {
+        self.record.local_index
+    }
+
+    #[must_use]
+    pub fn primary_source(&self) -> SourceLocationView<'_> {
+        self.source_map.location(&self.record.primary)
+    }
+
     pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
         core::iter::empty()
     }

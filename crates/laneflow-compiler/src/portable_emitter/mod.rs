@@ -1,8 +1,8 @@
 //! `CompilationOutput` 到 LFCA/LFSM/LFSD 的原子可移植候选发射。
 //!
 //! 本模块拥有编译器私有 LIR/source-map 语义投影、摘要和跨对象绑定。线格式的结构、
-//! 编码和值域预检仍只由 `laneflow-format` 提供；文件系统安装由独立 `portable_store`
-//! 模块负责；后发射检查、LFCP 与 manifest 提交不属于 emitter。
+//! 编码和值域预检仍只由 `laneflow-format` 提供；后发射检查与 LFCP 构造不属于 emitter，
+//! exact bytes 的持久化、认证与发布由宿主负责。
 
 mod api;
 mod lfca;
@@ -16,7 +16,7 @@ pub use api::{
     PortableDiffBase, PortableEmissionError, PortableEmissionProvenance, PortableObjectCandidate,
     PortablePublicationCandidate,
 };
-pub(crate) use api::{close_object, object_key, sha256};
+pub(crate) use api::{close_object, close_staged_object, object_key, sha256};
 use lfca::build_lfca;
 use lfsd::{build_lfsd, verify_target_relation_projection};
 use lfsm::build_lfsm;
@@ -24,26 +24,27 @@ use model::*;
 use wire::*;
 
 use laneflow_format::{
-    ExpectedSemanticDiffBase, FieldWriteInput, FieldWriteValue, FormatError, FormatLimits,
-    ObjectWriteInput, RegistryCheckedFieldValue, RegistryCheckedObjectView,
-    RegistryCheckedOrdinalVectorView, RegistryCheckedRecordVectorView, RegistryCheckedRowView,
-    RowWriteInput, SectionWriteInput, TableWriteInput, ValueCheckedObjectView,
+    ClosedStagedObjectSource, ExpectedSemanticDiffBase, FieldWriteInput, FieldWriteValue,
+    FormatError, FormatLimits, ImmutableObjectSource, ObjectSourceError, ObjectWriteInput,
+    RegistryCheckedFieldValue, RegistryCheckedObjectView, RegistryCheckedOrdinalVectorView,
+    RegistryCheckedRecordVectorView, RegistryCheckedRowView, RowWriteInput, SectionWriteInput,
+    StagedObjectError, StagedObjectWriter, TableWriteInput, ValueCheckedObjectView,
     encode_prepared_object, preflight_object_values, prepare_object,
 };
 use laneflow_static_contract::{
     CANONICAL_ARTIFACT_FORMAT_VERSION, CONSTRAINT_CONTRACT_VERSION, EntityKind, EntityKindMarker,
     ExactByteLength, IDENTITY_ENCODING_VERSION, IDENTITY_REGISTRY_REVISION,
     NETWORK_REVISION_DERIVATION_VERSION, NETWORK_REVISION_DOMAIN_PREFIX, NetworkRevisionId,
-    Ordinal, OrdinalKind, PortableObjectKind, SECTION_FORMAT_VERSION,
-    STATIC_EXECUTION_CONTRACT_VERSION, Sha256Digest, StableId,
+    Ordinal, OrdinalKind, PortableObjectKind, STATIC_EXECUTION_CONTRACT_VERSION, Sha256Digest,
+    StableId,
 };
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::Path};
 
-use crate::CompilationOutput;
+use crate::{CompilationOutput, CompileLimitDimension};
 
 const SOURCE_COLLECTION_DIGEST_VERSION_V1: u16 = 1;
-const EMITTER_VERSION_V1: u16 = 1;
+const EMITTER_VERSION_LFCA4: u16 = 2;
 const SOURCE_COLLECTION_DOMAIN_V1: &[u8] = b"laneflow.source-collection.v1\0";
 const PORTABLE_COMPILE_OPTIONS_DIGEST_V1: [u8; 32] = [
     0x32, 0x26, 0x82, 0xf4, 0x55, 0xd0, 0x6b, 0x36, 0xe9, 0xe3, 0x71, 0x9f, 0x34, 0x1d, 0xb3, 0x8f,
@@ -68,11 +69,15 @@ fn source_relation_role_code(value: crate::SourceRelationRole) -> u8 {
         crate::SourceRelationRole::ManeuverPathGate => 10,
         crate::SourceRelationRole::ManeuverPathWaitingZone => 11,
         crate::SourceRelationRole::StopLineManeuverGate => 12,
+        crate::SourceRelationRole::ParkingFacilityVirtualEntry => 13,
+        crate::SourceRelationRole::ParkingFacilityVirtualExit => 14,
+        crate::SourceRelationRole::JunctionConflictZone => 15,
+        crate::SourceRelationRole::JunctionParticipantStream => 16,
         crate::SourceRelationRole::SignalControllerGroup => 17,
         crate::SourceRelationRole::SignalControllerPhase => 18,
         crate::SourceRelationRole::SignalPhaseState => 19,
         crate::SourceRelationRole::ManeuverGateSignalGroup => 20,
-        crate::SourceRelationRole::ParkingSpaceArea => 21,
+        crate::SourceRelationRole::ParkingSpaceFacility => 21,
         crate::SourceRelationRole::ParkingSpaceEntry => 22,
         crate::SourceRelationRole::ParkingSpaceExit => 23,
         crate::SourceRelationRole::ParticipantClassExtends => 24,
@@ -81,6 +86,9 @@ fn source_relation_role_code(value: crate::SourceRelationRole) -> u8 {
         crate::SourceRelationRole::VehicleProfileParticipantClass => 27,
         crate::SourceRelationRole::CanonicalFrameLaneEdgeGeometry => 28,
         crate::SourceRelationRole::CanonicalFrameFacilityBandGeometry => 29,
+        crate::SourceRelationRole::ParticipantStreamManeuverPath => 30,
+        crate::SourceRelationRole::ParticipantStreamConflictPassage => 31,
+        crate::SourceRelationRole::CanonicalFrameConflictZoneRegion => 32,
     }
 }
 
@@ -108,6 +116,48 @@ pub fn emit_portable_candidate(
     limits: FormatLimits,
     base: PortableDiffBase<'_>,
 ) -> Result<PortablePublicationCandidate, PortableEmissionError> {
+    emit_portable_candidate_with(output, provenance, limits, base, |object, object_limit| {
+        Ok(close_object(encode_owned_object(
+            object,
+            limits,
+            object_limit,
+        )?))
+    })
+}
+
+/// 把三份百万级候选直接发射到调用方选择的临时目录，并在返回前关闭 LaneFlow 的全部
+/// 写能力。返回候选、checker 与共享静态构建复用同一 file backing。
+pub fn emit_portable_candidate_to_staging(
+    output: &CompilationOutput,
+    provenance: &PortableEmissionProvenance,
+    limits: FormatLimits,
+    base: PortableDiffBase<'_>,
+    staging_directory: &Path,
+) -> Result<PortablePublicationCandidate, PortableEmissionError> {
+    emit_portable_candidate_with(output, provenance, limits, base, |object, object_limit| {
+        close_staged_object(stage_owned_object(
+            object,
+            limits,
+            object_limit,
+            staging_directory,
+        )?)
+    })
+}
+
+fn emit_portable_candidate_with(
+    output: &CompilationOutput,
+    provenance: &PortableEmissionProvenance,
+    limits: FormatLimits,
+    base: PortableDiffBase<'_>,
+    mut emit_object: impl FnMut(
+        &OwnedObject,
+        Option<u64>,
+    ) -> Result<PortableObjectCandidate, PortableEmissionError>,
+) -> Result<PortablePublicationCandidate, PortableEmissionError> {
+    let compile_limits = output.compile_limits();
+    let object_limit = compile_limits.max_portable_object_bytes();
+    let bundle_limit = compile_limits.max_portable_bundle_bytes();
+    let mut bundle_bytes = 0_u64;
     let source_collection_digest = source_collection_digest(output)?;
     let mut lfca = build_lfca(
         output,
@@ -115,11 +165,16 @@ pub fn emit_portable_candidate(
         source_collection_digest,
         NetworkRevisionId::from_digest(Sha256Digest::ZERO),
     )?;
-    let preliminary_lfca = encode_owned_object(&lfca, limits, 0)?;
-    let network_revision = network_revision(&preliminary_lfca, limits)?;
+    let preliminary_lfca = emit_object(&lfca, object_limit)?;
+    let network_revision = network_revision(preliminary_lfca.bytes(), limits)?;
     drop(preliminary_lfca);
     set_lfca_network_revision(&mut lfca, network_revision)?;
-    let canonical_artifact = close_object(encode_owned_object(&lfca, limits, 0)?);
+    let canonical_artifact = emit_object(&lfca, object_limit)?;
+    add_to_portable_bundle(
+        &mut bundle_bytes,
+        canonical_artifact.byte_length(),
+        bundle_limit,
+    )?;
     let canonical_view = preflight_object_values(
         canonical_artifact.bytes(),
         PortableObjectKind::CanonicalArtifact,
@@ -127,6 +182,7 @@ pub fn emit_portable_candidate(
     )?
     .registry_view();
     verify_target_relation_projection(output, canonical_view)?;
+    drop(lfca);
 
     let lfsm = build_lfsm(
         output,
@@ -135,40 +191,21 @@ pub fn emit_portable_candidate(
         network_revision,
         &canonical_artifact,
     )?;
-    let source_map = close_object(encode_owned_object(
-        &lfsm,
-        limits,
-        canonical_artifact.byte_length().get(),
-    )?);
+    let source_map = emit_object(&lfsm, object_limit)?;
+    add_to_portable_bundle(&mut bundle_bytes, source_map.byte_length(), bundle_limit)?;
     preflight_object_values(source_map.bytes(), PortableObjectKind::SourceMap, limits)?;
+    drop(lfsm);
 
     let (lfsd, expected_semantic_diff_base) =
         build_lfsd(output, base, network_revision, &canonical_artifact, limits)?;
-    let staged_before_diff = canonical_artifact
-        .byte_length()
-        .get()
-        .checked_add(source_map.byte_length().get())
-        .ok_or(PortableEmissionError::ArithmeticOverflow)?;
-    let semantic_diff = close_object(encode_owned_object(&lfsd, limits, staged_before_diff)?);
+    let semantic_diff = emit_object(&lfsd, object_limit)?;
+    add_to_portable_bundle(&mut bundle_bytes, semantic_diff.byte_length(), bundle_limit)?;
     preflight_object_values(
         semantic_diff.bytes(),
         PortableObjectKind::SemanticDiff,
         limits,
     )?;
-
-    let total = canonical_artifact
-        .byte_length()
-        .get()
-        .checked_add(source_map.byte_length().get())
-        .and_then(|value| value.checked_add(semantic_diff.byte_length().get()))
-        .ok_or(PortableEmissionError::ArithmeticOverflow)?;
-    let staging_limit = limits.max_candidate_staging_bytes();
-    if total > staging_limit {
-        return Err(PortableEmissionError::CandidateStagingLimitExceeded {
-            actual: total,
-            limit: staging_limit,
-        });
-    }
+    drop(lfsd);
 
     Ok(PortablePublicationCandidate {
         canonical_artifact,
@@ -180,6 +217,27 @@ pub fn emit_portable_candidate(
         source_collection_digest,
         expected_semantic_diff_base,
     })
+}
+
+fn add_to_portable_bundle(
+    total: &mut u64,
+    byte_length: ExactByteLength,
+    limit: Option<u64>,
+) -> Result<(), PortableEmissionError> {
+    let actual = total
+        .checked_add(byte_length.get())
+        .ok_or(PortableEmissionError::ArithmeticOverflow)?;
+    if let Some(limit) = limit
+        && actual > limit
+    {
+        return Err(PortableEmissionError::CompileLimitExceeded {
+            dimension: CompileLimitDimension::PortableBundleBytes,
+            actual,
+            limit,
+        });
+    }
+    *total = actual;
+    Ok(())
 }
 
 fn source_collection_digest(output: &CompilationOutput) -> Result<[u8; 32], PortableEmissionError> {
@@ -222,7 +280,11 @@ fn network_revision_from_checked(
         let section_kind =
             u16::try_from(ordinal + 1).map_err(|_| PortableEmissionError::ArithmeticOverflow)?;
         hasher.update(section_kind.to_le_bytes());
-        hasher.update(SECTION_FORMAT_VERSION.to_le_bytes());
+        hasher.update(
+            PortableObjectKind::CanonicalArtifact
+                .section_format_version()
+                .to_le_bytes(),
+        );
         hasher.update(
             u64::try_from(section.bytes().len())
                 .expect("supported targets have at most 64-bit usize")

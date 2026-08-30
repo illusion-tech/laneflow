@@ -182,8 +182,8 @@ pub(super) fn encoded_declaration_len(declaration: &TypedAstDeclaration) -> Opti
         TypedAstDeclaration::SignalController(declaration) => {
             Some(signal_controller_declaration_len(declaration))
         }
-        TypedAstDeclaration::ParkingArea(declaration) => {
-            Some(declaration_header_len(&declaration.header.stable_key))
+        TypedAstDeclaration::ParkingFacility(declaration) => {
+            Some(parking_facility_declaration_len(declaration))
         }
         TypedAstDeclaration::ParkingSpace(declaration) => {
             Some(parking_space_declaration_len(declaration))
@@ -207,6 +207,9 @@ pub(super) fn encoded_declaration_len(declaration: &TypedAstDeclaration) -> Opti
             &declaration.participant_classes,
             declaration.regulation.as_ref(),
         )),
+        TypedAstDeclaration::ConflictZone(_) | TypedAstDeclaration::ParticipantStream(_) => {
+            unreachable!("Synthetic frontend v4 does not construct conflict declarations")
+        }
     }
 }
 
@@ -439,7 +442,7 @@ pub(super) fn signal_controller_declaration_len(declaration: &SignalControllerDe
 #[inline]
 pub(super) fn parking_space_input_len(input: &ParkingSpaceInput<'_>, local_namespace: &str) -> u64 {
     let mut length = declaration_header_len(input.parking_space_key).saturating_add(1 + 4 * 6);
-    if let Some(area) = input.parking_area {
+    if let Some(area) = input.parking_facility {
         length = length.saturating_add(encoded_reference_len(
             area.module_namespace().unwrap_or(local_namespace),
             area.declaration_key(),
@@ -454,10 +457,53 @@ pub(super) fn parking_space_input_len(input: &ParkingSpaceInput<'_>, local_names
     length
 }
 
+#[inline]
+pub(super) fn parking_facility_input_len(
+    input: &crate::declaration::ParkingFacilityInput<'_>,
+    local_namespace: &str,
+) -> u64 {
+    let mut length = declaration_header_len(input.parking_facility_key).saturating_add(12);
+    for anchor in input
+        .virtual_entries
+        .iter()
+        .chain(input.virtual_exits.iter())
+    {
+        length = length
+            .saturating_add(encoded_reference_len(
+                anchor
+                    .lane_edge
+                    .module_namespace()
+                    .unwrap_or(local_namespace),
+                anchor.lane_edge.declaration_key(),
+            ))
+            .saturating_add(4);
+    }
+    length
+}
+
+pub(super) fn parking_facility_declaration_len(
+    declaration: &crate::declaration::ParkingFacilityDeclaration,
+) -> u64 {
+    let mut length = declaration_header_len(&declaration.header.stable_key).saturating_add(12);
+    for anchor in declaration
+        .virtual_entries
+        .iter()
+        .chain(declaration.virtual_exits.iter())
+    {
+        length = length
+            .saturating_add(encoded_reference_len(
+                &anchor.lane_edge.module_namespace,
+                anchor.lane_edge.declaration_key(),
+            ))
+            .saturating_add(4);
+    }
+    length
+}
+
 pub(super) fn parking_space_declaration_len(declaration: &ParkingSpaceDeclaration) -> u64 {
     let mut length =
         declaration_header_len(&declaration.header.stable_key).saturating_add(1 + 4 * 6);
-    if let Some(area) = &declaration.parking_area {
+    if let Some(area) = &declaration.parking_facility {
         length = length.saturating_add(encoded_reference_len(
             &area.module_namespace,
             area.declaration_key(),
@@ -874,13 +920,25 @@ pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclar
                 }
             }
         }
-        TypedAstDeclaration::ParkingArea(declaration) => {
+        TypedAstDeclaration::ParkingFacility(declaration) => {
             put_declaration_header(output, &declaration.header);
+            output.extend_from_slice(&declaration.virtual_capacity.to_le_bytes());
+            for anchors in [&declaration.virtual_entries, &declaration.virtual_exits] {
+                output.extend_from_slice(
+                    &u32::try_from(anchors.len())
+                        .unwrap_or(u32::MAX)
+                        .to_le_bytes(),
+                );
+                for anchor in anchors.iter() {
+                    put_owned_reference(output, &anchor.lane_edge);
+                    output.extend_from_slice(&anchor.progress_mm.to_le_bytes());
+                }
+            }
         }
         TypedAstDeclaration::ParkingSpace(declaration) => {
             put_declaration_header(output, &declaration.header);
-            output.push(u8::from(declaration.parking_area.is_some()));
-            if let Some(area) = &declaration.parking_area {
+            output.push(u8::from(declaration.parking_facility.is_some()));
+            if let Some(area) = &declaration.parking_facility {
                 put_owned_reference(output, area);
             }
             for anchor in [&declaration.entry, &declaration.exit] {
@@ -956,6 +1014,9 @@ pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclar
                 put_optional_bytes(output, Some(&regulation.version));
                 put_optional_bytes(output, regulation.source.as_deref());
             }
+        }
+        TypedAstDeclaration::ConflictZone(_) | TypedAstDeclaration::ParticipantStream(_) => {
+            unreachable!("Synthetic frontend v4 does not construct conflict declarations")
         }
     }
 }

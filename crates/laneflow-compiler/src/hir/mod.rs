@@ -17,6 +17,7 @@ mod base;
 mod plan;
 
 mod access;
+mod conflict;
 mod control;
 mod cross_section;
 mod junction;
@@ -38,13 +39,17 @@ use base::{
 };
 pub(crate) use base::{HirImport, HirLaneEdge, HirLaneEdgeReference, HirModule};
 use plan::{
-    AccessCounts, ControlCounts, CrossSectionCounts, HirBuildPlan, JunctionCounts, ParkingCounts,
-    SignalCounts, SpatialCounts,
+    AccessCounts, ConflictCounts, ControlCounts, CrossSectionCounts, HirBuildPlan, JunctionCounts,
+    ParkingCounts, SignalCounts, SpatialCounts,
 };
 
 pub(crate) use access::{
     HirAccessRule, HirAccessRuleParticipantClass, HirAccessTarget, HirParticipantClass,
     HirVehicleProfile,
+};
+pub(crate) use conflict::{
+    HirConflictPassage, HirConflictZone, HirConflictZoneStream, HirParticipantStream,
+    HirPathAnchor, HirPathAnchorReference,
 };
 pub(crate) use control::{
     HirManeuverGate, HirManeuverPathGate, HirManeuverPathWaitingZone, HirStopLine,
@@ -58,17 +63,20 @@ pub(crate) use junction::{
     HirJunction, HirJunctionInternalEdge, HirJunctionMovement, HirManeuverPath,
     HirManeuverPathEdge, HirMovement, HirMovementManeuverPath,
 };
-pub(crate) use parking::{HirParkingArea, HirParkingAreaSpace, HirParkingSpace};
+pub(crate) use parking::{
+    HirParkingFacility, HirParkingFacilitySpace, HirParkingLaneAnchor, HirParkingSpace,
+};
 pub(crate) use signal::{
     HirSignalControl, HirSignalController, HirSignalControllerGroup, HirSignalGroup,
     HirSignalGroupManeuverGate, HirSignalPhase, HirSignalPhaseState,
 };
 pub(crate) use spatial::{
-    HirCanonicalFrame, HirCanonicalPoint3F32, HirFacilityBandGeometry, HirGeometrySourceRange,
-    HirLaneEdgeGeometry, HirSpatialSegment,
+    HirCanonicalFrame, HirCanonicalPoint2F32, HirCanonicalPoint3F32, HirConflictZoneRegion,
+    HirFacilityBandGeometry, HirGeometrySourceRange, HirLaneEdgeGeometry, HirSpatialSegment,
 };
 
 use access::{AccessCandidate, AccessHir, build_access_hir};
+use conflict::{ConflictHir, build_conflict_hir};
 use control::{ControlHir, build_control_hir};
 use cross_section::{CanonicalAuthoringLaneSource, CrossSectionHir, build_cross_section_hir};
 use junction::{HirDeclaredJunctionEdge, JunctionHir, ManeuverPathSequence, build_junction_hir};
@@ -77,8 +85,8 @@ use signal::{SignalHir, build_signal_hir};
 #[cfg(test)]
 use spatial::canonical_point_distance;
 use spatial::{
-    PendingSpatialGeometry, SpatialFrameAssignment, SpatialHir, SpatialHirContext,
-    build_spatial_hir,
+    PendingConflictZoneRegion, PendingSpatialGeometry, SpatialFrameAssignment, SpatialHir,
+    SpatialHirContext, attach_conflict_zone_regions, build_spatial_hir,
 };
 
 #[cfg(test)]
@@ -114,12 +122,14 @@ pub(crate) enum HirWaitingZoneTag {}
 pub(crate) enum HirSignalGroupTag {}
 pub(crate) enum HirSignalControllerTag {}
 pub(crate) enum HirSignalPhaseTag {}
-pub(crate) enum HirParkingAreaTag {}
+pub(crate) enum HirParkingFacilityTag {}
 pub(crate) enum HirParkingSpaceTag {}
 pub(crate) enum HirParticipantClassTag {}
 pub(crate) enum HirVehicleProfileTag {}
 pub(crate) enum HirCanonicalFrameTag {}
 pub(crate) enum HirAccessRuleTag {}
+pub(crate) enum HirConflictZoneTag {}
+pub(crate) enum HirParticipantStreamTag {}
 
 /// 仅在当前 `HirUnit` 模块表内有效的致密键。
 pub(crate) type HirModuleKey = ArenaKey<HirModuleTag>;
@@ -138,12 +148,14 @@ pub(crate) type HirManeuverGateKey = ArenaKey<HirManeuverGateTag>;
 pub(crate) type HirWaitingZoneKey = ArenaKey<HirWaitingZoneTag>;
 pub(crate) type HirSignalGroupKey = ArenaKey<HirSignalGroupTag>;
 pub(crate) type HirSignalControllerKey = ArenaKey<HirSignalControllerTag>;
-pub(crate) type HirParkingAreaKey = ArenaKey<HirParkingAreaTag>;
+pub(crate) type HirParkingFacilityKey = ArenaKey<HirParkingFacilityTag>;
 pub(crate) type HirParkingSpaceKey = ArenaKey<HirParkingSpaceTag>;
 pub(crate) type HirParticipantClassKey = ArenaKey<HirParticipantClassTag>;
 pub(crate) type HirVehicleProfileKey = ArenaKey<HirVehicleProfileTag>;
 pub(crate) type HirCanonicalFrameKey = ArenaKey<HirCanonicalFrameTag>;
 pub(crate) type HirAccessRuleKey = ArenaKey<HirAccessRuleTag>;
+pub(crate) type HirConflictZoneKey = ArenaKey<HirConflictZoneTag>;
+pub(crate) type HirParticipantStreamKey = ArenaKey<HirParticipantStreamTag>;
 
 /// HIR 阶段成功后一次性冻结的连续只读表集合。
 ///
@@ -186,16 +198,24 @@ pub(crate) struct HirUnit {
     pub(crate) signal_phases: Box<[HirSignalPhase]>,
     pub(crate) signal_phase_states: Box<[HirSignalPhaseState]>,
     pub(crate) signal_group_maneuver_gates: Box<[HirSignalGroupManeuverGate]>,
-    pub(crate) parking_areas: Box<[HirParkingArea]>,
+    pub(crate) conflict_zones: Box<[HirConflictZone]>,
+    pub(crate) participant_streams: Box<[HirParticipantStream]>,
+    pub(crate) conflict_passages: Box<[HirConflictPassage]>,
+    pub(crate) conflict_zone_streams: Box<[HirConflictZoneStream]>,
+    pub(crate) parking_facilities: Box<[HirParkingFacility]>,
     pub(crate) parking_spaces: Box<[HirParkingSpace]>,
-    pub(crate) parking_area_spaces: Box<[HirParkingAreaSpace]>,
+    pub(crate) parking_facility_spaces: Box<[HirParkingFacilitySpace]>,
+    pub(crate) parking_facility_virtual_entries: Box<[HirParkingLaneAnchor]>,
+    pub(crate) parking_facility_virtual_exits: Box<[HirParkingLaneAnchor]>,
     pub(crate) participant_classes: Box<[HirParticipantClass]>,
     pub(crate) vehicle_profiles: Box<[HirVehicleProfile]>,
     pub(crate) canonical_frames: Box<[HirCanonicalFrame]>,
     pub(crate) lane_edge_geometries: Box<[HirLaneEdgeGeometry]>,
     pub(crate) facility_band_geometries: Box<[HirFacilityBandGeometry]>,
+    pub(crate) conflict_zone_regions: Box<[HirConflictZoneRegion]>,
     pub(crate) geometry_source_ranges: Box<[HirGeometrySourceRange]>,
     pub(crate) canonical_points: Box<[HirCanonicalPoint3F32]>,
+    pub(crate) conflict_region_points: Box<[HirCanonicalPoint2F32]>,
     pub(crate) spatial_segments: Box<[HirSpatialSegment]>,
     pub(crate) access_rules: Box<[HirAccessRule]>,
     pub(crate) access_rule_participant_classes: Box<[HirAccessRuleParticipantClass]>,
@@ -222,6 +242,7 @@ struct HirParts {
     junction: JunctionHir,
     control: ControlHir,
     signal: SignalHir,
+    conflict: ConflictHir,
     parking: ParkingHir,
     spatial: SpatialHir,
     access: AccessHir,
@@ -264,14 +285,22 @@ impl HirParts {
             signal_phases: self.signal.signal_phases,
             signal_phase_states: self.signal.signal_phase_states,
             signal_group_maneuver_gates: self.signal.signal_group_maneuver_gates,
-            parking_areas: self.parking.parking_areas,
+            conflict_zones: self.conflict.conflict_zones,
+            participant_streams: self.conflict.participant_streams,
+            conflict_passages: self.conflict.conflict_passages,
+            conflict_zone_streams: self.conflict.conflict_zone_streams,
+            parking_facilities: self.parking.parking_facilities,
             parking_spaces: self.parking.parking_spaces,
-            parking_area_spaces: self.parking.parking_area_spaces,
+            parking_facility_spaces: self.parking.parking_facility_spaces,
+            parking_facility_virtual_entries: self.parking.parking_facility_virtual_entries,
+            parking_facility_virtual_exits: self.parking.parking_facility_virtual_exits,
             canonical_frames: self.spatial.canonical_frames,
             lane_edge_geometries: self.spatial.lane_edge_geometries,
             facility_band_geometries: self.spatial.facility_band_geometries,
+            conflict_zone_regions: self.spatial.conflict_zone_regions,
             geometry_source_ranges: self.spatial.geometry_source_ranges,
             canonical_points: self.spatial.canonical_points,
+            conflict_region_points: self.spatial.conflict_region_points,
             spatial_segments: self.spatial.spatial_segments,
             participant_classes: self.access.participant_classes,
             vehicle_profiles: self.access.vehicle_profiles,
@@ -350,7 +379,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         plan.spatial.lane_edge_geometries > 0,
         &mut identities,
     )?;
-    let spatial = build_spatial_hir(
+    let mut spatial = build_spatial_hir(
         unit,
         &plan.spatial,
         &base.module_lookup,
@@ -369,6 +398,27 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         &parking,
         &base.lane_edges,
         unit.limits.value(CompileLimitDimension::DiagnosticCount),
+    )?;
+    let conflict = build_conflict_hir(
+        unit,
+        &plan.conflict,
+        &base.module_lookup,
+        &junction.junctions,
+        &junction.movements,
+        &junction.maneuver_paths,
+        &junction.maneuver_path_edges,
+        base.lane_edges.as_slice(),
+        &control.maneuver_gates,
+        &control.maneuver_path_gates,
+        &control.waiting_zones,
+        &mut identities,
+    )?;
+    attach_conflict_zone_regions(
+        unit,
+        &plan.spatial,
+        &base.module_lookup,
+        &conflict.conflict_zones,
+        &mut spatial,
     )?;
     let access = build_access_hir(
         unit,
@@ -389,6 +439,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         junction,
         control,
         signal,
+        conflict,
         parking,
         spatial,
         access,
@@ -420,6 +471,12 @@ fn validate_source_document_ownership(unit: &CompilationUnit) -> Result<(), Diag
                     .map(|_| ())
             })?;
         }
+        for region in &module.conflict_zone_regions {
+            region.try_visit_source_locations(|span| {
+                unit.resolve_source_document_for_module(module_ordinal, span)
+                    .map(|_| ())
+            })?;
+        }
     }
     Ok(())
 }
@@ -446,11 +503,13 @@ fn declaration_header(declaration: &TypedAstDeclaration) -> &crate::declaration:
         TypedAstDeclaration::WaitingZone(declaration) => &declaration.header,
         TypedAstDeclaration::SignalGroup(declaration) => &declaration.header,
         TypedAstDeclaration::SignalController(declaration) => &declaration.header,
-        TypedAstDeclaration::ParkingArea(declaration) => &declaration.header,
+        TypedAstDeclaration::ParkingFacility(declaration) => &declaration.header,
         TypedAstDeclaration::ParkingSpace(declaration) => &declaration.header,
         TypedAstDeclaration::ParticipantClass(declaration) => &declaration.header,
         TypedAstDeclaration::VehicleProfile(declaration) => &declaration.header,
         TypedAstDeclaration::CanonicalFrame(declaration) => &declaration.header,
+        TypedAstDeclaration::ConflictZone(declaration) => &declaration.header,
+        TypedAstDeclaration::ParticipantStream(declaration) => &declaration.header,
         TypedAstDeclaration::AccessRule(declaration) => &declaration.header,
     }
 }

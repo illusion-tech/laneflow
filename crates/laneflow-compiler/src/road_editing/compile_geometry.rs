@@ -1381,7 +1381,7 @@ fn compile_explicit_curve_exact(
 
 fn closed_traffic_lane_edge_length(length: EdgeLength) -> Result<EdgeLength, NumericFreezeError> {
     let millimetres = length.millimetres();
-    if millimetres < MIN_LANE_EDGE_LENGTH_MM || millimetres > MAX_LANE_EDGE_LENGTH_MM {
+    if !(MIN_LANE_EDGE_LENGTH_MM..=MAX_LANE_EDGE_LENGTH_MM).contains(&millimetres) {
         return Err(NumericFreezeError::LaneEdgeLengthOutOfRange);
     }
     Ok(length)

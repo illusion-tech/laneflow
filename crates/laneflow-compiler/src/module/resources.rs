@@ -6,6 +6,7 @@ use crate::CompileLimitDimension;
 pub(crate) struct ModuleResourceCounts {
     pub(crate) source_bytes: u64,
     pub(crate) declaration_count: u64,
+    pub(crate) stable_entity_count: u64,
     pub(crate) typed_ast_record_count: u64,
     pub(crate) reference_count: u64,
     pub(crate) relation_occurrence_count: u64,
@@ -34,6 +35,7 @@ pub(super) struct AdmissionTotals {
     pub(super) source_bytes_total: u64,
     pub(super) import_edge_count: u64,
     pub(super) declaration_count: u64,
+    pub(super) stable_entity_count: u64,
     pub(super) typed_ast_record_count: u64,
     pub(super) reference_count: u64,
     pub(super) relation_occurrence_count: u64,
@@ -69,6 +71,9 @@ impl AdmissionTotals {
             declaration_count: self
                 .declaration_count
                 .saturating_add(counts.declaration_count),
+            stable_entity_count: self
+                .stable_entity_count
+                .saturating_add(counts.stable_entity_count),
             typed_ast_record_count: self
                 .typed_ast_record_count
                 .saturating_add(counts.typed_ast_record_count),
@@ -111,7 +116,7 @@ impl AdmissionTotals {
     pub(super) fn limit_observations(
         self,
         controlled_live_bytes: u64,
-    ) -> [(CompileLimitDimension, u64); 15] {
+    ) -> [(CompileLimitDimension, u64); 16] {
         [
             (CompileLimitDimension::ModuleCount, self.module_count),
             (
@@ -125,6 +130,10 @@ impl AdmissionTotals {
             (
                 CompileLimitDimension::DeclarationCount,
                 self.declaration_count,
+            ),
+            (
+                CompileLimitDimension::StableEntityCount,
+                self.stable_entity_count,
             ),
             (
                 CompileLimitDimension::TypedAstRecordCount,

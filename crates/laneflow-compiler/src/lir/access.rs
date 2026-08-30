@@ -109,6 +109,7 @@ pub(super) fn freeze_classes(
             subtree_exit: participant_class.subtree_exit,
         });
     }
+    close_class_intervals_in_lir_order(&mut participant_classes);
 
     let mut vehicle_profiles = Vec::with_capacity(env.capacity(counts.vehicle_profiles)?);
     for mir_key in env
@@ -154,6 +155,55 @@ pub(super) fn freeze_classes(
         participant_classes,
         vehicle_profiles,
     })
+}
+
+/// `ParticipantClass` 的 HIR 闭包基于来源遍历顺序；LIR ordinal 则按稳定身份排序。
+/// 父引用完成 ordinal 重映射后必须在最终顺序上重建 DFS 区间，否则合法的多根分类森林
+/// 会携带与 LFCA 行顺序不一致的 `depth/subtree` 派生值。
+fn close_class_intervals_in_lir_order(classes: &mut [LirParticipantClass]) {
+    const NONE: u32 = u32::MAX;
+
+    let mut first_child = vec![NONE; classes.len()];
+    let mut next_sibling = vec![NONE; classes.len()];
+    let mut first_root = NONE;
+    for (index, class) in classes.iter().enumerate() {
+        let raw = u32::try_from(index).expect("participant class LIR ordinal is u32-bounded");
+        if let Some(parent) = class.parent {
+            next_sibling[index] = first_child[parent.index()];
+            first_child[parent.index()] = raw;
+        } else {
+            next_sibling[index] = first_root;
+            first_root = raw;
+        }
+    }
+
+    let mut stack = Vec::with_capacity(classes.len().saturating_mul(2));
+    let mut root = first_root;
+    while root != NONE {
+        stack.push((root, false));
+        root = next_sibling[usize::try_from(root).expect("u32 fits usize")];
+    }
+    let mut euler = 0_u32;
+    while let Some((raw, exiting)) = stack.pop() {
+        let index = usize::try_from(raw).expect("u32 fits usize");
+        if exiting {
+            classes[index].subtree_exit = euler;
+            continue;
+        }
+        classes[index].depth = classes[index]
+            .parent
+            .map_or(0, |parent| classes[parent.index()].depth.saturating_add(1));
+        classes[index].subtree_enter = euler;
+        euler = euler
+            .checked_add(1)
+            .expect("participant class count is u32-bounded");
+        stack.push((raw, true));
+        let mut child = first_child[index];
+        while child != NONE {
+            stack.push((child, false));
+            child = next_sibling[usize::try_from(child).expect("u32 fits usize")];
+        }
+    }
 }
 
 pub(super) fn freeze_rules(

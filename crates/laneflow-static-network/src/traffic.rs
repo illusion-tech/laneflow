@@ -48,7 +48,7 @@ impl RangeU32 {
     }
 }
 
-/// 22 个种类槽的致密表基数。代码 21 为空位，可构造 21 种。
+/// 23 个可构造实体种类的致密表基数。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EntityCounts {
     counts: [u32; ENTITY_KIND_COUNT],

@@ -11,7 +11,7 @@ DSL）已接入车道图边、完整横断面所有者树，以及由 `Junction`
 `ManeuverPath` 构成的路口拓扑闭包；`StopLine`、`ManeuverGate` 与 `WaitingZone`
 也已形成独立的静态控制边界闭包；不可变固定时制 `SignalController` 程序、
 `SignalPhase` 完整状态和 `ManeuverGate` 到 `SignalGroup` 的控制绑定会在运行时之前
-闭合并冻结，但不替代运行时的最终通行权裁决；`ParkingArea`、`ParkingSpace`、入口 /
+闭合并冻结，但不替代运行时的最终通行权裁决；`ParkingFacility`、`ParkingSpace`、入口 /
 出口车道锚点和不可变矩形几何同样在编译期闭合，区域归属只作组织关系，不进入
 `ParkingSpace` 身份；`ParticipantClass` 单继承闭包与静态 `AccessRule` 也已接入，
 支持 LaneEdge、LaneGroup、RoadSection 和 ManeuverPath 两个独立求值平面，并保留
@@ -25,10 +25,11 @@ DSL）已接入车道图边、完整横断面所有者树，以及由 `Junction`
 覆盖、长度绑定和连接端点连续性，并在 Canonical LIR 中按 `LaneEdgeOrdinal` 对齐冻结
 规范 `f32` 点、累计弧长、切向与上方向采样表；完全不声明中心线时仍形成合法无图形
 配置（headless）LIR。
-有序边序列只经运行时 `register_route` 进入每世界表。种类 21 / 字段标签 30 为身份登记空位。构建器原子拒绝非法数值 / token、非法或未
+有序边序列只经运行时 `register_route` 进入每世界表。`ConflictZone`、
+`CanonicalFrame`、`ParticipantStream` 分别占用身份种类 21、22、23。构建器原子拒绝非法数值 / token、非法或未
 导入引用、重复声明和重复无序关系，并保留横断面、车道、覆盖链与完整机动路径的领域顺序。
 包内标识 v1 编码器严格校验登记字段，
-流式形成规范字节并派生 BLAKE3-128 `StableId128`；修订 2 的 22 个种类槽（可构造 21 种）由
+流式形成规范字节并派生 BLAKE3-128 `StableId128`；修订 3 的 23 个可构造种类由
 `tests/identity-v1-known-vectors.txt` 冻结已知向量，并由独立字节组装预言机校验。
 纵向管线使用有类型 `u32` 区块键完成跨模块符号解析、车道覆盖与机动路径连通性、
 横断面唯一所有者，以及路口内部边排他角色校验，并按父项先于子项派生横断面和路口
@@ -64,7 +65,7 @@ regularity visit cache、待提交几何包装与单 corridor 临时集合使用
 可移植候选发射由 `emit_portable_candidate` 提供。它只能原子借用同一个
 `CompilationOutput` 中已配对的 LIR/source-map input，并接收规范化
 `PortableEmissionProvenance`、显式 `PortableDiffBase::{Genesis, Artifact}` 和格式上限。
-成功结果 `PortablePublicationCandidate` 同时拥有 LFCA、LFSM、LFSD 的 exact bytes、
+成功结果 `PortablePublicationCandidate` 同时拥有 LFCA、LFSM、LFSD 的不可变可重读来源、
 `Sha256Digest`、`ExactByteLength`、`sha256/<lowercase-hex>` object key 与
 `NetworkRevisionId`。这些计算绑定在公开 API 中保持 `laneflow-static-contract` 的强类型，
 只在线格式边界转换为原始字节/整数。Artifact base
@@ -77,32 +78,19 @@ nested/top fields、rows、tables、sections 降低到少量连续 arena，并�
 `PreparedObject` 只执行一次完整计量/预检。ordinal 随机访问只保留给 singleton 或真正的
 定位读取，不得用于全表顺序扫描。
 
-该返回值仍是未受信内存候选：checked base 只证明格式结构和直接值域，不证明完整 artifact
+该返回值仍是未受信候选：checked base 只证明格式结构和直接值域，不证明完整 artifact
 语义；候选也不授予发布、迁移或运行时加载权限。`read_portable_object_known_length` 和
 `read_portable_object_to_end` 只在任何 hash/view 前关闭已知长度 O(1) 与未知流 `max+1`
-transport 边界，读取成功仍须进入 format preflight。`LocalPortableObjectInstaller` 把上层能力关闭的
-exact bytes 写入调用方预配置发布根内的唯一 staging 目录，flush/sync/close 后流式复核
-exact bytes，再以同文件系统 hard-link no-replace 原子安装到内部重算的
-`sha256/<64 lowercase hex>` 路径；LaneFlow 只创建并持久化配置根下的固定直接子目录，不递归
-创建或接管其祖先目录。新装与已存在的相同 winner 都必须在对象目录耐久屏障后才能返回；
-平台不能证明 atomic no-replace 与目录元数据持久化时明确返回
-`AtomicInstallUnsupported`。当前 Unix 原生后端提供该能力；Windows 仍支持 exact-byte
-发射与读取，但原生 durable publication 后端在取得可审计保证前失败关闭。安装结果和
-后发射检查能力继续使用 `Sha256Digest`、`ExactByteLength`、`NetworkRevisionId`，只有
-LFCP wire writer 解包这些值。
-该安装器假定调用方独占管理并信任预配置发布根；协议内 writer 不覆盖、截断或原地修改
-最终摘要路径。直接拥有文件系统写权限的进程与 ACL、账户隔离、只读挂载、WORM 策略属于
-部署边界，消费者仍须按认证 binding 重新计算摘要并在不匹配时失败关闭。该类型不是通用
-对象存储：不公开任意 bytes 写入，不提供枚举、删除、GC、远程 backend、压缩、加密、配额
-或通用存储生命周期。
-`commit_portable_publication` 在任何安装前调用 `laneflow-format` 的无分配后发射检查：
+transport 边界，读取成功仍须进入 format preflight。百万级生产路径由字段私有 staged writer
+写入 file-backed backing；`finish` 后能力内部可继续持有字段私有 `File`，但没有 LaneFlow
+safe API 可达的写能力。checker 与共享静态
+构建直接复用同一 backing，不保留完整对象级 `Box<[u8]>`，也不发生完整对象级复制。
+`laneflow-format` 的无分配后发射检查
 从 LFCA/LFSM/LFSD 最终字节重算 digest、length 与路网修订，并闭合 LFSM 和 LFSD 的必要
-跨对象 binding。成功后发布路径只消费字段私有的借用型能力，依次安装
-LFCA/LFSM/LFSD，构造并安装不含 receipt/LFSD binding 的 LFCP v2，最后恰好调用一次外部
-`PortableManifestCommitter`。committed capability 只返回 LFCP 实际认证的
-descriptor/artifact/source-map 绑定；LFSD 仍是未引用诊断对象。检查不重跑完整 compiler
-语义，也不验证 LFSD change set 完备性；任意已安装对象在 manifest adapter 返回成功前仍
-只是未引用对象。
+跨对象 binding。成功后可从受检 capability 构造不含 receipt/LFSD binding 的 LFCP v2，或
+直接构建 `SharedNetworkRevision`。检查不重跑完整 compiler 语义，也不验证 LFSD change set
+完备性。内容仓库、atomic file install、并发 winner、目录耐久和 manifest 提交由宿主、CI 或
+打包工具负责；LaneFlow 加载宿主交付对象时仍重新验证 digest、length、revision 与 binding。
 
 跨平台确定性由 `.github/workflows/portable-exact-bytes.yml` 直接导出 production emitter 的
 LFCA/LFSM/LFSD bytes：Windows/Ubuntu 各两个 fresh process、每个进程内重复发射，最后在单一

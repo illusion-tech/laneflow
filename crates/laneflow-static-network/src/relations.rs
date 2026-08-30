@@ -1,7 +1,7 @@
 use laneflow_static_contract::{
     AccessEffect, AccessRuleOrdinal, AuthoringLaneOrdinal, EntityKind, FacilityBandOrdinal,
     JunctionOrdinal, LaneEdgeOrdinal, LaneGroupOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
-    MovementOrdinal, ParkingAreaOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal,
+    MovementOrdinal, ParkingFacilityOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal,
     RoadCorridorOrdinal, RoadSectionOrdinal, SignalAspect, SignalControllerOrdinal,
     SignalGroupOrdinal, SignalPhaseOrdinal, StopLineOrdinal, VehicleProfileOrdinal,
     WaitingZoneOrdinal,
@@ -83,7 +83,7 @@ pub enum BoundedDistance {
 
 impl BoundedDistance {
     #[must_use]
-    pub fn add(self, value: u32) -> Self {
+    pub fn add_u32(self, value: u32) -> Self {
         match self {
             Self::Finite(current) => current
                 .checked_add(value)
@@ -294,7 +294,7 @@ impl<'a> SignalGroupView<'a> {
 /// 停车位入口/出口锚点与几何。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ParkingSpaceView {
-    area: Option<ParkingAreaOrdinal>,
+    area: Option<ParkingFacilityOrdinal>,
     entry_edge: LaneEdgeOrdinal,
     entry_progress_mm: u32,
     exit_edge: LaneEdgeOrdinal,
@@ -307,7 +307,7 @@ pub struct ParkingSpaceView {
 
 impl ParkingSpaceView {
     #[must_use]
-    pub const fn area(self) -> Option<ParkingAreaOrdinal> {
+    pub const fn area(self) -> Option<ParkingFacilityOrdinal> {
         self.area
     }
 
@@ -324,6 +324,62 @@ impl ParkingSpaceView {
     #[must_use]
     pub const fn geometry(self) -> (i32, f32, u32, u32) {
         (self.lateral_mm, self.heading, self.length_mm, self.width_mm)
+    }
+}
+
+/// 停车设施虚拟容量使用的 LaneEdge 内部锚点。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ParkingLaneAnchor {
+    pub(crate) lane_edge: LaneEdgeOrdinal,
+    pub(crate) progress_mm: u32,
+}
+
+impl ParkingLaneAnchor {
+    #[must_use]
+    pub const fn lane_edge(self) -> LaneEdgeOrdinal {
+        self.lane_edge
+    }
+
+    #[must_use]
+    pub const fn progress_mm(self) -> u32 {
+        self.progress_mm
+    }
+}
+
+/// 停车设施的显式泊位与虚拟容量闭包。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ParkingFacilityView<'a> {
+    spaces: &'a [ParkingSpaceOrdinal],
+    virtual_capacity: u32,
+    virtual_entries: &'a [ParkingLaneAnchor],
+    virtual_exits: &'a [ParkingLaneAnchor],
+}
+
+impl<'a> ParkingFacilityView<'a> {
+    #[must_use]
+    pub const fn spaces(self) -> &'a [ParkingSpaceOrdinal] {
+        self.spaces
+    }
+
+    #[must_use]
+    pub const fn virtual_capacity(self) -> u32 {
+        self.virtual_capacity
+    }
+
+    #[must_use]
+    pub fn total_capacity(self) -> u64 {
+        u64::try_from(self.spaces.len()).expect("validated LFCA count fits u64")
+            + u64::from(self.virtual_capacity)
+    }
+
+    #[must_use]
+    pub const fn virtual_entries(self) -> &'a [ParkingLaneAnchor] {
+        self.virtual_entries
+    }
+
+    #[must_use]
+    pub const fn virtual_exits(self) -> &'a [ParkingLaneAnchor] {
+        self.virtual_exits
     }
 }
 
@@ -535,7 +591,12 @@ pub struct SharedRelationClosure {
     phase_state_aspects: Box<[SignalAspect]>,
     parking_space_ranges: Box<[RangeU32]>,
     parking_spaces: Box<[ParkingSpaceOrdinal]>,
-    space_area: OptionalColumn<ParkingAreaOrdinal>,
+    parking_virtual_capacity: Box<[u32]>,
+    parking_virtual_entry_ranges: Box<[RangeU32]>,
+    parking_virtual_entries: Box<[ParkingLaneAnchor]>,
+    parking_virtual_exit_ranges: Box<[RangeU32]>,
+    parking_virtual_exits: Box<[ParkingLaneAnchor]>,
+    space_area: OptionalColumn<ParkingFacilityOrdinal>,
     space_entry_edge: Box<[LaneEdgeOrdinal]>,
     space_entry_progress: Box<[u32]>,
     space_exit_edge: Box<[LaneEdgeOrdinal]>,
@@ -799,12 +860,34 @@ impl SharedRelationClosure {
     }
 
     #[must_use]
-    pub fn parking_area_spaces(&self, area: ParkingAreaOrdinal) -> Option<&[ParkingSpaceOrdinal]> {
-        Some(
-            self.parking_space_ranges
-                .get(area.index())?
+    pub fn parking_facility(
+        &self,
+        facility: ParkingFacilityOrdinal,
+    ) -> Option<ParkingFacilityView<'_>> {
+        Some(ParkingFacilityView {
+            spaces: self
+                .parking_space_ranges
+                .get(facility.index())?
                 .slice(&self.parking_spaces),
-        )
+            virtual_capacity: *self.parking_virtual_capacity.get(facility.index())?,
+            virtual_entries: self
+                .parking_virtual_entry_ranges
+                .get(facility.index())?
+                .slice(&self.parking_virtual_entries),
+            virtual_exits: self
+                .parking_virtual_exit_ranges
+                .get(facility.index())?
+                .slice(&self.parking_virtual_exits),
+        })
+    }
+
+    #[must_use]
+    pub fn parking_facility_spaces(
+        &self,
+        facility: ParkingFacilityOrdinal,
+    ) -> Option<&[ParkingSpaceOrdinal]> {
+        self.parking_facility(facility)
+            .map(ParkingFacilityView::spaces)
     }
 
     #[must_use]
@@ -992,6 +1075,11 @@ impl SharedRelationClosure {
             + logical_bytes::<SignalAspect>(self.phase_state_aspects.len())
             + logical_bytes::<RangeU32>(self.parking_space_ranges.len())
             + logical_bytes::<ParkingSpaceOrdinal>(self.parking_spaces.len())
+            + logical_bytes::<u32>(self.parking_virtual_capacity.len())
+            + logical_bytes::<RangeU32>(self.parking_virtual_entry_ranges.len())
+            + logical_bytes::<ParkingLaneAnchor>(self.parking_virtual_entries.len())
+            + logical_bytes::<RangeU32>(self.parking_virtual_exit_ranges.len())
+            + logical_bytes::<ParkingLaneAnchor>(self.parking_virtual_exits.len())
             + self.space_area.retained_bytes()
             + logical_bytes::<LaneEdgeOrdinal>(self.space_entry_edge.len())
             + logical_bytes::<u32>(self.space_entry_progress.len())
@@ -1061,6 +1149,8 @@ pub(crate) struct RelationPayloads {
     pub controller_phases: u32,
     pub phase_states: u32,
     pub parking_spaces: u32,
+    pub parking_virtual_entries: u32,
+    pub parking_virtual_exits: u32,
     pub lane_group_members: u32,
     pub rule_classes: u32,
     pub intern_keys: u32,
@@ -1089,7 +1179,7 @@ pub(crate) fn relation_retained_floor(
     let group = counts.count(EntityKind::SignalGroup);
     let controller = counts.count(EntityKind::SignalController);
     let phase = counts.count(EntityKind::SignalPhase);
-    let area = counts.count(EntityKind::ParkingArea);
+    let area = counts.count(EntityKind::ParkingFacility);
     let space = counts.count(EntityKind::ParkingSpace);
     let lane_group = counts.count(EntityKind::LaneGroup);
     let band = counts.count(EntityKind::FacilityBand);
@@ -1131,7 +1221,10 @@ pub(crate) fn relation_retained_floor(
     total = floor_add::<u64>(total, phase)?;
     total = floor_add::<RangeU32>(total, phase)?;
     total = floor_add::<RangeU32>(total, area)?;
-    total = floor_add::<Option<ParkingAreaOrdinal>>(total, space)?;
+    total = floor_add::<u32>(total, area)?;
+    total = floor_add::<RangeU32>(total, area)?;
+    total = floor_add::<RangeU32>(total, area)?;
+    total = floor_add::<Option<ParkingFacilityOrdinal>>(total, space)?;
     total = floor_add::<LaneEdgeOrdinal>(total, space)?;
     total = floor_add::<u32>(total, space)?;
     total = floor_add::<LaneEdgeOrdinal>(total, space)?;
@@ -1174,6 +1267,8 @@ pub(crate) fn relation_retained_floor(
     total = floor_add::<SignalGroupOrdinal>(total, payloads.phase_states)?;
     total = floor_add::<SignalAspect>(total, payloads.phase_states)?;
     total = floor_add::<ParkingSpaceOrdinal>(total, payloads.parking_spaces)?;
+    total = floor_add::<ParkingLaneAnchor>(total, payloads.parking_virtual_entries)?;
+    total = floor_add::<ParkingLaneAnchor>(total, payloads.parking_virtual_exits)?;
     total = floor_add::<AuthoringLaneOrdinal>(total, payloads.lane_group_members)?;
     total = floor_add::<ParticipantClassOrdinal>(total, payloads.rule_classes)?;
     total = floor_add::<Box<str>>(total, payloads.intern_keys)?;
@@ -1274,7 +1369,12 @@ mod builder_support {
         phase_state_aspects: Box<[SignalAspect]>,
         parking_space_ranges: Box<[RangeU32]>,
         parking_spaces: Box<[ParkingSpaceOrdinal]>,
-        space_area: OptionalColumn<ParkingAreaOrdinal>,
+        parking_virtual_capacity: Box<[u32]>,
+        parking_virtual_entry_ranges: Box<[RangeU32]>,
+        parking_virtual_entries: Box<[ParkingLaneAnchor]>,
+        parking_virtual_exit_ranges: Box<[RangeU32]>,
+        parking_virtual_exits: Box<[ParkingLaneAnchor]>,
+        space_area: OptionalColumn<ParkingFacilityOrdinal>,
         space_entry_edge: Box<[LaneEdgeOrdinal]>,
         space_entry_progress: Box<[u32]>,
         space_exit_edge: Box<[LaneEdgeOrdinal]>,
@@ -1360,6 +1460,11 @@ mod builder_support {
             phase_state_aspects,
             parking_space_ranges,
             parking_spaces,
+            parking_virtual_capacity,
+            parking_virtual_entry_ranges,
+            parking_virtual_entries,
+            parking_virtual_exit_ranges,
+            parking_virtual_exits,
             space_area,
             space_entry_edge,
             space_entry_progress,
@@ -1403,6 +1508,7 @@ mod builder_support {
     pub(crate) fn empty_for_tests(lane_count: u32) -> SharedRelationClosure {
         let lane = usize::try_from(lane_count).expect("u32 fits");
         assemble(
+            // corridor / section / authoring
             Box::new([]),
             Box::new([]),
             Box::new([]),
@@ -1418,6 +1524,7 @@ mod builder_support {
             empty_optional(lane_count).expect("lane optional"),
             empty_optional(lane_count).expect("lane optional"),
             empty_optional(lane_count).expect("lane optional"),
+            // junction / movement / gates
             Box::new([]),
             Box::new([]),
             Box::new([]),
@@ -1430,6 +1537,7 @@ mod builder_support {
             Box::new([]),
             Box::new([]),
             empty_optional(0).expect("empty"),
+            // waiting / signals / parking facility payloads
             Box::new([]),
             Box::new([]),
             Box::new([]),
@@ -1443,15 +1551,6 @@ mod builder_support {
             Box::new([]),
             Box::new([]),
             Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            empty_optional(0).expect("empty"),
             Box::new([]),
             Box::new([]),
             Box::new([]),
@@ -1466,6 +1565,22 @@ mod builder_support {
             Box::new([]),
             Box::new([]),
             empty_optional(0).expect("empty"),
+            // parking spaces / lane groups / facility bands
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            empty_optional(0).expect("empty"),
+            // participant classes / rules / profiles
             Box::new([]),
             Box::new([]),
             Box::new([]),

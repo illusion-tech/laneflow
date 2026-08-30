@@ -13,17 +13,18 @@ fn entity_modify_tags(entity_kind: EntityKind) -> &'static [u16] {
         | EntityKind::SignalGroup
         | EntityKind::SignalController
         | EntityKind::SignalPhase
-        | EntityKind::ParkingArea
         | EntityKind::LaneGroup
         | EntityKind::AccessRule
-        | EntityKind::StaticRoute
+        | EntityKind::ConflictZone
         | EntityKind::CanonicalFrame => &[],
+        EntityKind::ParkingFacility => &[5, 6],
         EntityKind::LaneEdge => &[3, 4],
         EntityKind::ManeuverGate => &[4],
         EntityKind::StopLine => &[3],
         EntityKind::ParkingSpace => &[5, 7, 8, 9, 10, 11],
         EntityKind::FacilityBand | EntityKind::ParticipantClass => &[4],
         EntityKind::VehicleProfile => &[4, 5, 6, 7, 8, 9, 10],
+        EntityKind::ParticipantStream => &[5],
     }
 }
 
@@ -43,14 +44,15 @@ fn static_rule_modify_tags(entity_kind: EntityKind) -> &'static [u16] {
         | EntityKind::ManeuverPath
         | EntityKind::StopLine
         | EntityKind::SignalGroup
-        | EntityKind::ParkingArea
         | EntityKind::ParkingSpace
         | EntityKind::LaneGroup
         | EntityKind::FacilityBand
         | EntityKind::ParticipantClass
         | EntityKind::VehicleProfile
-        | EntityKind::StaticRoute
-        | EntityKind::CanonicalFrame => &[],
+        | EntityKind::ConflictZone
+        | EntityKind::CanonicalFrame
+        | EntityKind::ParticipantStream => &[],
+        EntityKind::ParkingFacility => &[4],
     }
 }
 
@@ -64,6 +66,39 @@ fn stable_ref_value(
     value.extend_from_slice(&entity_kind.code().to_le_bytes());
     value.extend_from_slice(&index.stable_id(entity_kind, typed_ordinal, mismatch)?);
     Ok(value.into_boxed_slice())
+}
+
+fn append_path_anchor_stable_value(
+    value: &mut Vec<u8>,
+    index: &ArtifactIndex<'_>,
+    passage: RegistryCheckedRowView<'_>,
+    kind_tag: u16,
+    reference_tag: u16,
+    progress_tag: u16,
+    mismatch: PortableEmissionError,
+) -> Result<(), PortableEmissionError> {
+    let kind = checked_u8_with(passage, kind_tag, mismatch)?;
+    value.push(kind);
+    match kind {
+        0 => value.extend_from_slice(&stable_ref_value(
+            index,
+            EntityKind::ManeuverGate,
+            checked_u32_with(passage, reference_tag, mismatch)?,
+            mismatch,
+        )?),
+        1 => value
+            .extend_from_slice(&checked_u32_with(passage, reference_tag, mismatch)?.to_le_bytes()),
+        2 => {
+            value.extend_from_slice(
+                &checked_u32_with(passage, reference_tag, mismatch)?.to_le_bytes(),
+            );
+            value.extend_from_slice(
+                &checked_u32_with(passage, progress_tag, mismatch)?.to_le_bytes(),
+            );
+        }
+        _ => return Err(mismatch),
+    }
+    Ok(())
 }
 
 fn semantic_field_value(
@@ -107,6 +142,42 @@ fn semantic_field_value(
                 mismatch,
             )?);
             value.push(checked_u8_with(state, 2, mismatch)?);
+        }
+        return Ok(Some(value.into_boxed_slice()));
+    }
+    if entity_kind == EntityKind::ParkingFacility && matches!(tag, 5 | 6) {
+        let anchors = checked_record_vector_with(entity, tag, mismatch)?;
+        let capacity = usize::try_from(anchors.len())
+            .map_err(|_| PortableEmissionError::ArithmeticOverflow)?
+            .checked_mul(22)
+            .and_then(|value| value.checked_add(4))
+            .ok_or(PortableEmissionError::ArithmeticOverflow)?;
+        let mut value = Vec::with_capacity(capacity);
+        value.extend_from_slice(&anchors.len().to_le_bytes());
+        for anchor in anchors.rows() {
+            value.extend_from_slice(&stable_ref_value(
+                index,
+                EntityKind::LaneEdge,
+                checked_u32_with(anchor, 1, mismatch)?,
+                mismatch,
+            )?);
+            value.extend_from_slice(&checked_u32_with(anchor, 2, mismatch)?.to_le_bytes());
+        }
+        return Ok(Some(value.into_boxed_slice()));
+    }
+    if (entity_kind, tag) == (EntityKind::ParticipantStream, 5) {
+        let passages = checked_record_vector_with(entity, tag, mismatch)?;
+        let mut value = Vec::new();
+        value.extend_from_slice(&passages.len().to_le_bytes());
+        for passage in passages.rows() {
+            value.extend_from_slice(&stable_ref_value(
+                index,
+                EntityKind::ConflictZone,
+                checked_u32_with(passage, 1, mismatch)?,
+                mismatch,
+            )?);
+            append_path_anchor_stable_value(&mut value, index, passage, 2, 3, 4, mismatch)?;
+            append_path_anchor_stable_value(&mut value, index, passage, 5, 6, 7, mismatch)?;
         }
         return Ok(Some(value.into_boxed_slice()));
     }
@@ -344,7 +415,7 @@ mod tests {
             (EntityKind::SignalGroup, &[][..], &[][..]),
             (EntityKind::SignalController, &[][..], &[3, 4][..]),
             (EntityKind::SignalPhase, &[][..], &[4, 5][..]),
-            (EntityKind::ParkingArea, &[][..], &[][..]),
+            (EntityKind::ParkingFacility, &[5, 6][..], &[4][..]),
             (EntityKind::ParkingSpace, &[5, 7, 8, 9, 10, 11][..], &[][..]),
             (EntityKind::LaneGroup, &[][..], &[][..]),
             (EntityKind::FacilityBand, &[4][..], &[][..]),
@@ -355,8 +426,9 @@ mod tests {
                 &[4, 5, 6, 7, 8, 9, 10][..],
                 &[][..],
             ),
-            (EntityKind::StaticRoute, &[][..], &[][..]),
+            (EntityKind::ConflictZone, &[][..], &[][..]),
             (EntityKind::CanonicalFrame, &[][..], &[][..]),
+            (EntityKind::ParticipantStream, &[5][..], &[][..]),
         ];
         assert_eq!(expected.len(), EntityKind::ALL.len());
         for (actual, (kind, entity_tags, static_rule_tags)) in

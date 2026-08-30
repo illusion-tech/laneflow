@@ -2915,7 +2915,9 @@ name = "laneflow-format"
 version = "0.0.0"
 dependencies = [
  "laneflow-static-contract",
+ "memmap2",
  "sha2",
+ "tempfile",
 ]
 
 [[package]]
@@ -4320,6 +4322,19 @@ dependencies = [
  "grid",
  "serde",
  "slotmap",
+]
+
+[[package]]
+name = "tempfile"
+version = "3.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
+dependencies = [
+ "fastrand",
+ "getrandom",
+ "once_cell",
+ "rustix 1.1.4",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

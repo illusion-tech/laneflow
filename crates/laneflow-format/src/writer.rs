@@ -4,16 +4,16 @@
 //! 摘要和文件系统发布事务不属于本模块。
 
 use laneflow_static_contract::{
-    OBJECT_PREAMBLE_BYTE_LENGTH, PortableFieldPresence, PortableFieldSchema, PortableFieldType,
-    PortableObjectKind, PortableObjectSchema, PortableRowCardinality, PortableRowSchema,
-    PortableRowShape, PortableSectionSchema, PortableTableSchema,
-    SECTION_DIRECTORY_ENTRY_BYTE_LENGTH, SECTION_FORMAT_VERSION, portable_field_mask,
-    portable_object_schema,
+    CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH, OBJECT_PREAMBLE_BYTE_LENGTH, PortableFieldPresence,
+    PortableFieldSchema, PortableFieldType, PortableObjectKind, PortableObjectSchema,
+    PortableRowCardinality, PortableRowSchema, PortableRowShape, PortableSectionSchema,
+    PortableTableSchema, SECTION_DIRECTORY_ENTRY_BYTE_LENGTH,
+    TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH, portable_field_mask, portable_object_schema,
 };
+use sha2::{Digest, Sha256};
 
 use crate::{FormatError, FormatLimits, FormatStructure, LimitDimension};
 
-const SECTION_HEADER_BYTES: u64 = 4;
 const TABLE_HEADER_BYTES: u64 = 16;
 const ROW_HEADER_BYTES: u64 = 16;
 const FIELD_HEADER_BYTES: u64 = 12;
@@ -62,6 +62,7 @@ pub struct PreparedObject<'a> {
     input: ObjectWriteInput<'a>,
     byte_length: u64,
     format_version: u16,
+    limits: FormatLimits,
 }
 
 impl PreparedObject<'_> {
@@ -118,6 +119,12 @@ struct WriteBudget {
     total_vector_bytes: u64,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct MeasuredTable {
+    chunk_count: u32,
+    chunks_byte_length: u64,
+}
+
 /// 校验完整输入并返回唯一的 exact object byte length。
 ///
 /// 本函数不分配、不写入，也不执行编译器语义或跨对象绑定验证。
@@ -139,7 +146,6 @@ fn measure_object_with_schema(
         schema.sections.len(),
     )?;
 
-    let mut budget = WriteBudget::default();
     let mut object_length = input.kind.first_section_offset();
     for (ordinal, (section, section_schema)) in
         input.sections.iter().zip(schema.sections).enumerate()
@@ -150,13 +156,7 @@ fn measure_object_with_schema(
             section_schema.kind,
             ordinal,
         )?;
-        let section_length =
-            measure_section(input.kind, *section, section_schema, limits, &mut budget)?;
-        check_limit(
-            LimitDimension::SectionOrTableBytes,
-            section_length,
-            limits.config().max_section_or_table_bytes,
-        )?;
+        let section_length = measure_section(input.kind, *section, section_schema, limits)?;
         object_length = checked_add(
             object_length,
             section_length,
@@ -195,6 +195,7 @@ fn prepare_object_with_schema<'a>(
         input,
         byte_length,
         format_version,
+        limits,
     })
 }
 
@@ -214,13 +215,18 @@ pub fn encode_prepared_object(
         });
     }
 
-    let mut cursor = WriteCursor::new(output);
-    write_object(
+    let mut cursor = WriteCursor::new(SliceSink::new(output));
+    let result = write_object(
         &mut cursor,
         prepared.input,
         prepared.byte_len(),
         prepared.format_version,
+        prepared.limits,
     );
+    match result {
+        Ok(()) => {}
+        Err(error) => match error {},
+    }
     debug_assert_eq!(cursor.position(), output_length);
     Ok(())
 }
@@ -243,14 +249,35 @@ fn measure_section(
     section: SectionWriteInput<'_>,
     schema: &'static PortableSectionSchema,
     limits: FormatLimits,
-    budget: &mut WriteBudget,
 ) -> Result<u64, FormatError> {
     check_exact_count(
         FormatStructure::Section,
         section.tables.len(),
         schema.tables.len(),
     )?;
-    let mut section_length = SECTION_HEADER_BYTES;
+    if object_kind == PortableObjectKind::CanonicalPublicationDescriptor {
+        let [table] = section.tables else {
+            return Err(FormatError::BindingMismatch {
+                structure: FormatStructure::Section,
+            });
+        };
+        let [table_schema] = schema.tables else {
+            return Err(FormatError::BindingMismatch {
+                structure: FormatStructure::Section,
+            });
+        };
+        check_ordered_kind(FormatStructure::Section, table.kind, table_schema.kind, 0)?;
+        let measured = measure_table(object_kind, section.kind, *table, table_schema, limits)?;
+        if measured.chunk_count != 1 {
+            return Err(FormatError::BindingMismatch {
+                structure: FormatStructure::TableRows,
+            });
+        }
+        return Ok(measured.chunks_byte_length);
+    }
+
+    let mut section_length = CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH;
+    let mut chunk_count = 0_u32;
     for (ordinal, (table, table_schema)) in section.tables.iter().zip(schema.tables).enumerate() {
         check_ordered_kind(
             FormatStructure::Section,
@@ -258,44 +285,43 @@ fn measure_section(
             table_schema.kind,
             ordinal,
         )?;
-        let is_source_location =
-            object_kind == PortableObjectKind::SourceMap && section.kind == 2 && table.kind == 3;
-        let table_length = measure_table(*table, table_schema, is_source_location, limits, budget)?;
-        check_limit(
-            LimitDimension::SectionOrTableBytes,
-            table_length,
-            limits.config().max_section_or_table_bytes,
+        let measured = measure_table(object_kind, section.kind, *table, table_schema, limits)?;
+        chunk_count = chunk_count.checked_add(measured.chunk_count).ok_or(
+            FormatError::ArithmeticOverflow {
+                structure: FormatStructure::ChunkDirectory,
+            },
         )?;
-        section_length = checked_add(section_length, table_length, FormatStructure::Section)?;
-        check_limit(
-            LimitDimension::SectionOrTableBytes,
+        section_length = checked_add(
             section_length,
-            limits.config().max_section_or_table_bytes,
+            measured.chunks_byte_length,
+            FormatStructure::Section,
         )?;
     }
+    check_limit(
+        LimitDimension::ChunksPerSection,
+        u64::from(chunk_count),
+        u64::from(limits.max_chunks_per_section()),
+    )?;
+    section_length = checked_add(
+        section_length,
+        u64::from(chunk_count)
+            .checked_mul(TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH)
+            .ok_or(FormatError::ArithmeticOverflow {
+                structure: FormatStructure::ChunkDirectory,
+            })?,
+        FormatStructure::Section,
+    )?;
     Ok(section_length)
 }
 
 fn measure_table(
+    object_kind: PortableObjectKind,
+    section_kind: u16,
     table: TableWriteInput<'_>,
     schema: &'static PortableTableSchema,
-    is_source_location: bool,
     limits: FormatLimits,
-    budget: &mut WriteBudget,
-) -> Result<u64, FormatError> {
+) -> Result<MeasuredTable, FormatError> {
     let row_count = count_u32(table.rows.len(), FormatStructure::TableRows)?;
-    check_limit(
-        LimitDimension::RowsPerTable,
-        u64::from(row_count),
-        u64::from(limits.config().max_rows_per_table),
-    )?;
-    if is_source_location {
-        check_limit(
-            LimitDimension::SourceLocationRows,
-            u64::from(row_count),
-            u64::from(limits.max_source_location_rows()),
-        )?;
-    }
     let cardinality_matches = match schema.cardinality {
         PortableRowCardinality::Any => true,
         PortableRowCardinality::AtMostOne => row_count <= 1,
@@ -307,20 +333,76 @@ fn measure_table(
         });
     }
 
-    let mut table_length = TABLE_HEADER_BYTES;
-    for row in table.rows {
-        table_length = checked_add(
-            table_length,
-            measure_row(*row, schema.row, 0, limits, budget)?,
-            FormatStructure::Table,
-        )?;
-        check_limit(
-            LimitDimension::SectionOrTableBytes,
-            table_length,
-            limits.config().max_section_or_table_bytes,
-        )?;
+    if row_count == 0 {
+        return Ok(MeasuredTable {
+            chunk_count: 0,
+            chunks_byte_length: 0,
+        });
     }
-    Ok(table_length)
+
+    let config = limits.config();
+    let row_limit = table_row_limit(object_kind, section_kind, table.kind, limits);
+    let mut chunk_count = 1_u32;
+    let mut chunks_byte_length = 0_u64;
+    let mut chunk_byte_length = TABLE_HEADER_BYTES;
+    let mut chunk_row_count = 0_u32;
+    let mut chunk_budget = WriteBudget::default();
+    for row in table.rows {
+        let mut row_budget = WriteBudget::default();
+        let row_length = measure_row(*row, schema.row, 0, limits, &mut row_budget)?;
+        let single_row_chunk_length =
+            checked_add(TABLE_HEADER_BYTES, row_length, FormatStructure::Table)?;
+        check_limit(
+            LimitDimension::TableChunkBytes,
+            single_row_chunk_length,
+            config.max_table_chunk_bytes,
+        )?;
+
+        let next_bytes = checked_add(chunk_byte_length, row_length, FormatStructure::Table)?;
+        let next_utf8 = checked_add(
+            chunk_budget.total_utf8_bytes,
+            row_budget.total_utf8_bytes,
+            FormatStructure::FieldValue,
+        )?;
+        let next_vector = checked_add(
+            chunk_budget.total_vector_bytes,
+            row_budget.total_vector_bytes,
+            FormatStructure::FieldValue,
+        )?;
+        let must_split = chunk_row_count == row_limit
+            || next_bytes > config.max_table_chunk_bytes
+            || next_utf8 > config.max_total_utf8_bytes
+            || next_vector > config.max_total_vector_bytes;
+        if must_split {
+            chunks_byte_length = checked_add(
+                chunks_byte_length,
+                chunk_byte_length,
+                FormatStructure::Section,
+            )?;
+            chunk_count = chunk_count
+                .checked_add(1)
+                .ok_or(FormatError::ArithmeticOverflow {
+                    structure: FormatStructure::ChunkDirectory,
+                })?;
+            chunk_byte_length = single_row_chunk_length;
+            chunk_row_count = 1;
+            chunk_budget = row_budget;
+        } else {
+            chunk_byte_length = next_bytes;
+            chunk_row_count += 1;
+            chunk_budget.total_utf8_bytes = next_utf8;
+            chunk_budget.total_vector_bytes = next_vector;
+        }
+    }
+    chunks_byte_length = checked_add(
+        chunks_byte_length,
+        chunk_byte_length,
+        FormatStructure::Section,
+    )?;
+    Ok(MeasuredTable {
+        chunk_count,
+        chunks_byte_length,
+    })
 }
 
 fn measure_row(
@@ -596,8 +678,8 @@ fn check_ordered_kind(
     expected: u16,
     ordinal: usize,
 ) -> Result<(), FormatError> {
-    // Table kinds may contain reserved holes (kind 22 with 21 tables). Match the
-    // registry kind, not 1..=table_count.
+    // Table kind codes are registry facts and may gain reserved holes in a later
+    // registry revision. Match the registered code, not 1..=table_count.
     if actual == 0 {
         return Err(FormatError::UnknownKind {
             structure,
@@ -638,153 +720,434 @@ fn check_limit(dimension: LimitDimension, actual: u64, limit: u64) -> Result<(),
     Ok(())
 }
 
-fn write_object(
-    cursor: &mut WriteCursor<'_>,
+fn encoded_row_measure(row: RowWriteInput<'_>) -> (u64, WriteBudget) {
+    let mut length = ROW_HEADER_BYTES;
+    let mut budget = WriteBudget::default();
+    for field in row.fields {
+        let (value_length, value_budget) = encoded_value_measure(field.value);
+        length += FIELD_HEADER_BYTES + value_length;
+        budget.total_utf8_bytes += value_budget.total_utf8_bytes;
+        budget.total_vector_bytes += value_budget.total_vector_bytes;
+    }
+    (length, budget)
+}
+
+fn encoded_value_measure(value: FieldWriteValue<'_>) -> (u64, WriteBudget) {
+    let mut budget = WriteBudget::default();
+    let length = match value {
+        FieldWriteValue::U8(_) => 1,
+        FieldWriteValue::U16(_) => 2,
+        FieldWriteValue::U32(_) | FieldWriteValue::F32(_) | FieldWriteValue::I32(_) => 4,
+        FieldWriteValue::U64(_) | FieldWriteValue::F64(_) => 8,
+        FieldWriteValue::StableId128(_) => 16,
+        FieldWriteValue::Sha256(_) => 32,
+        FieldWriteValue::Utf8(value) => {
+            budget.total_utf8_bytes = value.len() as u64;
+            value.len() as u64
+        }
+        FieldWriteValue::Bytes(value) => value.len() as u64,
+        FieldWriteValue::OrdinalVectorU32(items) => {
+            let length = 4 + items.len() as u64 * 4;
+            budget.total_vector_bytes = length;
+            length
+        }
+        FieldWriteValue::RecordVector(rows) => {
+            let mut length = 4_u64;
+            for row in rows {
+                let (row_length, row_budget) = encoded_row_measure(*row);
+                length += row_length;
+                budget.total_utf8_bytes += row_budget.total_utf8_bytes;
+                budget.total_vector_bytes += row_budget.total_vector_bytes;
+            }
+            budget.total_vector_bytes += length;
+            length
+        }
+    };
+    (length, budget)
+}
+
+fn table_row_limit(
+    object_kind: PortableObjectKind,
+    section_kind: u16,
+    table_kind: u16,
+    limits: FormatLimits,
+) -> u32 {
+    let general = limits.config().max_rows_per_chunk;
+    if object_kind == PortableObjectKind::SourceMap && section_kind == 2 && table_kind == 3 {
+        general.min(limits.max_source_location_rows_per_chunk())
+    } else {
+        general
+    }
+}
+
+fn next_chunk_end(
+    object_kind: PortableObjectKind,
+    section_kind: u16,
+    table: TableWriteInput<'_>,
+    first_row: usize,
+    limits: FormatLimits,
+) -> usize {
+    let config = limits.config();
+    let row_limit = table_row_limit(object_kind, section_kind, table.kind, limits);
+    let mut end = first_row;
+    let mut byte_length = TABLE_HEADER_BYTES;
+    let mut budget = WriteBudget::default();
+    while end < table.rows.len() {
+        let (row_length, row_budget) = encoded_row_measure(table.rows[end]);
+        let next_byte_length = byte_length + row_length;
+        let next_utf8 = budget.total_utf8_bytes + row_budget.total_utf8_bytes;
+        let next_vector = budget.total_vector_bytes + row_budget.total_vector_bytes;
+        let row_count = (end - first_row) as u32;
+        if row_count != 0
+            && (row_count == row_limit
+                || next_byte_length > config.max_table_chunk_bytes
+                || next_utf8 > config.max_total_utf8_bytes
+                || next_vector > config.max_total_vector_bytes)
+        {
+            break;
+        }
+        byte_length = next_byte_length;
+        budget.total_utf8_bytes = next_utf8;
+        budget.total_vector_bytes = next_vector;
+        end += 1;
+    }
+    end
+}
+
+fn chunk_count(
+    object_kind: PortableObjectKind,
+    section_kind: u16,
+    table: TableWriteInput<'_>,
+    limits: FormatLimits,
+) -> u32 {
+    let mut count = 0_u32;
+    let mut first_row = 0_usize;
+    while first_row < table.rows.len() {
+        first_row = next_chunk_end(object_kind, section_kind, table, first_row, limits);
+        count += 1;
+    }
+    count
+}
+
+fn write_object<S: ObjectWriteSink>(
+    cursor: &mut WriteCursor<S>,
     input: ObjectWriteInput<'_>,
     object_length: u64,
     format_version: u16,
-) {
-    cursor.put(&input.kind.magic());
-    cursor.u16(format_version);
-    cursor.u16(OBJECT_PREAMBLE_BYTE_LENGTH);
-    cursor.u32(0);
-    cursor.u32(input.kind.section_count());
-    cursor.u64(u64::from(OBJECT_PREAMBLE_BYTE_LENGTH));
-    cursor.u64(object_length);
+    limits: FormatLimits,
+) -> Result<(), S::Error> {
+    cursor.put(&input.kind.magic())?;
+    cursor.u16(format_version)?;
+    cursor.u16(OBJECT_PREAMBLE_BYTE_LENGTH)?;
+    cursor.u32(0)?;
+    cursor.u32(input.kind.section_count())?;
+    cursor.u64(u64::from(OBJECT_PREAMBLE_BYTE_LENGTH))?;
+    cursor.u64(object_length)?;
 
     for section in input.sections {
-        cursor.u16(section.kind);
-        cursor.u16(SECTION_FORMAT_VERSION);
-        cursor.u32(0);
-        cursor.u64(0);
-        cursor.u64(0);
+        cursor.u16(section.kind)?;
+        cursor.u16(input.kind.section_format_version())?;
+        cursor.u32(0)?;
+        cursor.u64(0)?;
+        cursor.u64(0)?;
     }
 
     for (ordinal, section) in input.sections.iter().enumerate() {
         let section_offset = cursor.position();
-        write_section(cursor, *section);
+        write_section(cursor, input.kind, *section, limits)?;
         let section_length = cursor.position() - section_offset;
-        let directory_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
-            + ordinal
-                * usize::try_from(SECTION_DIRECTORY_ENTRY_BYTE_LENGTH)
-                    .expect("the frozen directory entry width fits usize");
-        cursor.patch_u64(directory_entry + 8, section_offset);
-        cursor.patch_u64(directory_entry + 16, section_length);
+        let directory_entry = u64::from(OBJECT_PREAMBLE_BYTE_LENGTH)
+            + u64::try_from(ordinal).expect("prepared section ordinal fits u64")
+                * SECTION_DIRECTORY_ENTRY_BYTE_LENGTH;
+        cursor.patch_u64(directory_entry + 8, section_offset)?;
+        cursor.patch_u64(directory_entry + 16, section_length)?;
     }
+    Ok(())
 }
 
-fn write_section(cursor: &mut WriteCursor<'_>, section: SectionWriteInput<'_>) {
-    cursor.u32(section.tables.len() as u32);
+fn write_section<S: ObjectWriteSink>(
+    cursor: &mut WriteCursor<S>,
+    object_kind: PortableObjectKind,
+    section: SectionWriteInput<'_>,
+    limits: FormatLimits,
+) -> Result<(), S::Error> {
+    if object_kind == PortableObjectKind::CanonicalPublicationDescriptor {
+        return write_table(cursor, section.tables[0]);
+    }
+
+    let chunk_count = section.tables.iter().fold(0_u32, |count, table| {
+        count
+            .checked_add(chunk_count(object_kind, section.kind, *table, limits))
+            .expect("prepared object chunk count cannot overflow")
+    });
+    cursor.u32(chunk_count)?;
+    cursor.u16(TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH as u16)?;
+    cursor.u16(0)?;
+    let directory_byte_length = CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH
+        + u64::from(chunk_count) * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH;
+    cursor.u64(directory_byte_length)?;
+    let directory_start = cursor.position();
+    cursor.reserve_bytes(
+        usize::try_from(u64::from(chunk_count) * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH)
+            .expect("prepared object directory fits the output address space"),
+    )?;
+
+    let section_start = directory_start - CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH;
+    let mut directory_ordinal = 0_u32;
     for table in section.tables {
-        write_table(cursor, *table);
+        let mut first_row = 0_usize;
+        let mut chunk_index = 0_u32;
+        while first_row < table.rows.len() {
+            let end_row = next_chunk_end(object_kind, section.kind, *table, first_row, limits);
+            let chunk_offset = cursor.position();
+            cursor.begin_digest();
+            write_table_rows(cursor, table.kind, &table.rows[first_row..end_row])?;
+            let chunk_byte_length = cursor.position() - chunk_offset;
+            let digest = cursor.end_digest();
+            let entry = directory_start
+                + u64::from(directory_ordinal) * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH;
+            cursor.patch_u16(entry, table.kind)?;
+            cursor.patch_u16(entry + 2, TABLE_SCHEMA_VERSION)?;
+            cursor.patch_u32(entry + 4, chunk_index)?;
+            cursor.patch_u32(
+                entry + 8,
+                u32::try_from(first_row).expect("prepared logical row ordinal fits u32"),
+            )?;
+            cursor.patch_u32(
+                entry + 12,
+                u32::try_from(end_row - first_row).expect("prepared chunk row count fits u32"),
+            )?;
+            cursor.patch_u32(entry + 16, 0)?;
+            cursor.patch_u32(entry + 20, 0)?;
+            cursor.patch_u64(entry + 24, chunk_offset - section_start)?;
+            cursor.patch_u64(entry + 32, chunk_byte_length)?;
+            cursor.patch_bytes(entry + 40, &digest)?;
+            directory_ordinal += 1;
+            chunk_index += 1;
+            first_row = end_row;
+        }
     }
+    Ok(())
 }
 
-fn write_table(cursor: &mut WriteCursor<'_>, table: TableWriteInput<'_>) {
-    cursor.u16(table.kind);
-    cursor.u16(TABLE_SCHEMA_VERSION);
-    cursor.u32(table.rows.len() as u32);
-    let rows_length_offset = cursor.reserve_u64();
-    let rows_offset = cursor.position();
-    for row in table.rows {
-        write_row(cursor, *row);
-    }
-    cursor.patch_u64(rows_length_offset, cursor.position() - rows_offset);
+fn write_table<S: ObjectWriteSink>(
+    cursor: &mut WriteCursor<S>,
+    table: TableWriteInput<'_>,
+) -> Result<(), S::Error> {
+    write_table_rows(cursor, table.kind, table.rows)
 }
 
-fn write_row(cursor: &mut WriteCursor<'_>, row: RowWriteInput<'_>) {
-    let row_offset = cursor.position();
-    let row_length_offset = cursor.reserve_u64();
-    cursor.u32(row.fields.len() as u32);
-    cursor.u32(0);
+fn write_table_rows<S: ObjectWriteSink>(
+    cursor: &mut WriteCursor<S>,
+    kind: u16,
+    rows: &[RowWriteInput<'_>],
+) -> Result<(), S::Error> {
+    cursor.u16(kind)?;
+    cursor.u16(TABLE_SCHEMA_VERSION)?;
+    cursor.u32(rows.len() as u32)?;
+    let rows_byte_length = rows.iter().map(|row| encoded_row_measure(*row).0).sum();
+    cursor.u64(rows_byte_length)?;
+    for row in rows {
+        write_row(cursor, *row)?;
+    }
+    Ok(())
+}
+
+fn write_row<S: ObjectWriteSink>(
+    cursor: &mut WriteCursor<S>,
+    row: RowWriteInput<'_>,
+) -> Result<(), S::Error> {
+    cursor.u64(encoded_row_measure(row).0)?;
+    cursor.u32(row.fields.len() as u32)?;
+    cursor.u32(0)?;
     for field in row.fields {
-        cursor.u16(field.tag);
-        cursor.u8(field.value.field_type() as u8);
-        cursor.u8(0);
-        let value_length_offset = cursor.reserve_u64();
-        let value_offset = cursor.position();
-        write_value(cursor, field.value);
-        cursor.patch_u64(value_length_offset, cursor.position() - value_offset);
+        cursor.u16(field.tag)?;
+        cursor.u8(field.value.field_type() as u8)?;
+        cursor.u8(0)?;
+        cursor.u64(encoded_value_measure(field.value).0)?;
+        write_value(cursor, field.value)?;
     }
-    cursor.patch_u64(row_length_offset, cursor.position() - row_offset);
+    Ok(())
 }
 
-fn write_value(cursor: &mut WriteCursor<'_>, value: FieldWriteValue<'_>) {
+fn write_value<S: ObjectWriteSink>(
+    cursor: &mut WriteCursor<S>,
+    value: FieldWriteValue<'_>,
+) -> Result<(), S::Error> {
     match value {
-        FieldWriteValue::U8(value) => cursor.u8(value),
-        FieldWriteValue::U16(value) => cursor.u16(value),
-        FieldWriteValue::U32(value) => cursor.u32(value),
-        FieldWriteValue::U64(value) => cursor.u64(value),
-        FieldWriteValue::F32(value) => cursor.u32(value.to_bits()),
-        FieldWriteValue::F64(value) => cursor.u64(value.to_bits()),
-        FieldWriteValue::StableId128(value) => cursor.put(&value),
-        FieldWriteValue::Sha256(value) => cursor.put(&value),
-        FieldWriteValue::Utf8(value) => cursor.put(value.as_bytes()),
-        FieldWriteValue::Bytes(value) => cursor.put(value),
+        FieldWriteValue::U8(value) => cursor.u8(value)?,
+        FieldWriteValue::U16(value) => cursor.u16(value)?,
+        FieldWriteValue::U32(value) => cursor.u32(value)?,
+        FieldWriteValue::U64(value) => cursor.u64(value)?,
+        FieldWriteValue::F32(value) => cursor.u32(value.to_bits())?,
+        FieldWriteValue::F64(value) => cursor.u64(value.to_bits())?,
+        FieldWriteValue::StableId128(value) => cursor.put(&value)?,
+        FieldWriteValue::Sha256(value) => cursor.put(&value)?,
+        FieldWriteValue::Utf8(value) => cursor.put(value.as_bytes())?,
+        FieldWriteValue::Bytes(value) => cursor.put(value)?,
         FieldWriteValue::OrdinalVectorU32(items) => {
-            cursor.u32(items.len() as u32);
+            cursor.u32(items.len() as u32)?;
             for item in items {
-                cursor.u32(*item);
+                cursor.u32(*item)?;
             }
         }
         FieldWriteValue::RecordVector(rows) => {
-            cursor.u32(rows.len() as u32);
+            cursor.u32(rows.len() as u32)?;
             for row in rows {
-                write_row(cursor, *row);
+                write_row(cursor, *row)?;
             }
         }
-        FieldWriteValue::I32(value) => cursor.put(&value.to_le_bytes()),
+        FieldWriteValue::I32(value) => cursor.put(&value.to_le_bytes())?,
+    }
+    Ok(())
+}
+
+pub(crate) trait ObjectWriteSink {
+    type Error;
+
+    fn position(&self) -> u64;
+    fn write_exact(&mut self, bytes: &[u8]) -> Result<(), Self::Error>;
+    fn patch_exact_at(&mut self, offset: u64, bytes: &[u8]) -> Result<(), Self::Error>;
+
+    #[cfg(feature = "std")]
+    fn finish(&mut self) -> Result<(), Self::Error> {
+        Ok(())
     }
 }
 
-struct WriteCursor<'a> {
+struct SliceSink<'a> {
     output: &'a mut [u8],
     position: usize,
 }
 
-impl<'a> WriteCursor<'a> {
+impl<'a> SliceSink<'a> {
     const fn new(output: &'a mut [u8]) -> Self {
         Self {
             output,
             position: 0,
         }
     }
+}
+
+impl ObjectWriteSink for SliceSink<'_> {
+    type Error = core::convert::Infallible;
 
     fn position(&self) -> u64 {
         self.position as u64
     }
 
-    fn put(&mut self, bytes: &[u8]) {
+    fn write_exact(&mut self, bytes: &[u8]) -> Result<(), Self::Error> {
         let end = self.position + bytes.len();
         self.output[self.position..end].copy_from_slice(bytes);
         self.position = end;
+        Ok(())
     }
 
-    fn u8(&mut self, value: u8) {
-        self.put(&[value]);
+    fn patch_exact_at(&mut self, offset: u64, bytes: &[u8]) -> Result<(), Self::Error> {
+        let offset = usize::try_from(offset).expect("prepared output offset fits usize");
+        self.output[offset..offset + bytes.len()].copy_from_slice(bytes);
+        Ok(())
+    }
+}
+
+pub(crate) struct WriteCursor<S> {
+    sink: S,
+    digest: Option<Sha256>,
+}
+
+impl<S: ObjectWriteSink> WriteCursor<S> {
+    pub(crate) const fn new(sink: S) -> Self {
+        Self { sink, digest: None }
     }
 
-    fn u16(&mut self, value: u16) {
-        self.put(&value.to_le_bytes());
+    pub(crate) fn position(&self) -> u64 {
+        self.sink.position()
     }
 
-    fn u32(&mut self, value: u32) {
-        self.put(&value.to_le_bytes());
+    fn put(&mut self, bytes: &[u8]) -> Result<(), S::Error> {
+        if let Some(digest) = &mut self.digest {
+            digest.update(bytes);
+        }
+        self.sink.write_exact(bytes)
     }
 
-    fn u64(&mut self, value: u64) {
-        self.put(&value.to_le_bytes());
+    fn u8(&mut self, value: u8) -> Result<(), S::Error> {
+        self.put(&[value])
     }
 
-    fn reserve_u64(&mut self) -> usize {
-        let offset = self.position;
-        self.u64(0);
-        offset
+    fn u16(&mut self, value: u16) -> Result<(), S::Error> {
+        self.put(&value.to_le_bytes())
     }
 
-    fn patch_u64(&mut self, offset: usize, value: u64) {
-        self.output[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
+    fn u32(&mut self, value: u32) -> Result<(), S::Error> {
+        self.put(&value.to_le_bytes())
     }
+
+    fn u64(&mut self, value: u64) -> Result<(), S::Error> {
+        self.put(&value.to_le_bytes())
+    }
+
+    fn reserve_bytes(&mut self, mut byte_length: usize) -> Result<(), S::Error> {
+        const ZEROES: [u8; 256] = [0; 256];
+        while byte_length != 0 {
+            let step = byte_length.min(ZEROES.len());
+            self.put(&ZEROES[..step])?;
+            byte_length -= step;
+        }
+        Ok(())
+    }
+
+    fn patch_u16(&mut self, offset: u64, value: u16) -> Result<(), S::Error> {
+        self.sink.patch_exact_at(offset, &value.to_le_bytes())
+    }
+
+    fn patch_u32(&mut self, offset: u64, value: u32) -> Result<(), S::Error> {
+        self.sink.patch_exact_at(offset, &value.to_le_bytes())
+    }
+
+    fn patch_bytes(&mut self, offset: u64, value: &[u8]) -> Result<(), S::Error> {
+        self.sink.patch_exact_at(offset, value)
+    }
+
+    fn patch_u64(&mut self, offset: u64, value: u64) -> Result<(), S::Error> {
+        self.sink.patch_exact_at(offset, &value.to_le_bytes())
+    }
+
+    fn begin_digest(&mut self) {
+        debug_assert!(self.digest.is_none());
+        self.digest = Some(Sha256::new());
+    }
+
+    fn end_digest(&mut self) -> [u8; 32] {
+        self.digest
+            .take()
+            .expect("prepared chunk digest has a matching begin")
+            .finalize()
+            .into()
+    }
+
+    #[cfg(feature = "std")]
+    fn finish(&mut self) -> Result<(), S::Error> {
+        self.sink.finish()
+    }
+}
+
+#[cfg(feature = "std")]
+pub(crate) fn encode_prepared_object_to_sink<S: ObjectWriteSink>(
+    prepared: PreparedObject<'_>,
+    sink: S,
+) -> Result<(), S::Error> {
+    let mut cursor = WriteCursor::new(sink);
+    write_object(
+        &mut cursor,
+        prepared.input,
+        prepared.byte_len(),
+        prepared.format_version,
+        prepared.limits,
+    )?;
+    debug_assert_eq!(cursor.position(), prepared.byte_len());
+    cursor.finish()?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -792,14 +1155,12 @@ mod tests {
     use std::{boxed::Box, vec, vec::Vec};
 
     use laneflow_static_contract::{
-        FORMAT_HARD_MAX_OBJECT_BYTES, PortableFieldPresence, PortableRowCardinality,
-        PortableRowShape, portable_object_schema,
+        PortableFieldPresence, PortableRowCardinality, PortableRowShape, portable_object_schema,
     };
 
     use super::*;
     use crate::{
         FormatErrorClass, FormatLimitConfig, RegistryCheckedFieldValue, preflight_object_registry,
-        preflight_object_values,
     };
 
     fn leak<T>(values: Vec<T>) -> &'static [T] {
@@ -930,51 +1291,6 @@ mod tests {
         }
     }
 
-    fn lfsd_with_entity_add_payload(payload: &'static [u8]) -> ObjectWriteInput<'static> {
-        let input = fixture_object(PortableObjectKind::SemanticDiff, false);
-        let mut sections = input.sections.to_vec();
-
-        let mut binding_tables = sections[0].tables.to_vec();
-        let mut binding_rows = binding_tables[0].rows.to_vec();
-        let mut binding_fields = binding_rows[0].fields.to_vec();
-        for field in &mut binding_fields {
-            field.value = match field.tag {
-                6 => FieldWriteValue::U16(1),
-                7 => FieldWriteValue::Sha256([1; 32]),
-                8 => FieldWriteValue::Sha256([2; 32]),
-                9 => FieldWriteValue::U64(1),
-                _ => field.value,
-            };
-        }
-        binding_rows[0].fields = leak(binding_fields);
-        binding_tables[0].rows = leak(binding_rows);
-        sections[0].tables = leak(binding_tables);
-
-        let schema = portable_object_schema(PortableObjectKind::SemanticDiff);
-        let mut entity_row = default_row(schema.sections[1].tables[0].row, false);
-        let mut entity_fields = entity_row.fields.to_vec();
-        for field in &mut entity_fields {
-            field.value = match field.tag {
-                2 => FieldWriteValue::U16(1),
-                10 => FieldWriteValue::Bytes(payload),
-                _ => field.value,
-            };
-        }
-        entity_row.fields = leak(entity_fields);
-        let mut entity_tables = sections[1].tables.to_vec();
-        entity_tables[0].rows = leak(vec![entity_row]);
-        sections[1].tables = leak(entity_tables);
-
-        let mut spatial_tables = sections[5].tables.to_vec();
-        spatial_tables[0].rows = leak(vec![default_row(schema.sections[5].tables[0].row, false)]);
-        sections[5].tables = leak(spatial_tables);
-
-        ObjectWriteInput {
-            kind: input.kind,
-            sections: leak(sections),
-        }
-    }
-
     fn replace_first_value(
         input: ObjectWriteInput<'static>,
         value: FieldWriteValue<'static>,
@@ -1051,8 +1367,8 @@ mod tests {
         .unwrap();
         assert_eq!(length, expected.len() as u64);
         let mut output = vec![0; expected.len()];
-        let mut cursor = WriteCursor::new(&mut output);
-        write_value(&mut cursor, value);
+        let mut cursor = WriteCursor::new(SliceSink::new(&mut output));
+        write_value(&mut cursor, value).unwrap();
         assert_eq!(cursor.position(), length);
         assert_eq!(output, expected);
     }
@@ -1105,11 +1421,46 @@ mod tests {
         assert_eq!(short, before);
     }
 
+    #[cfg(feature = "std")]
+    #[test]
+    fn staged_writer_matches_slice_bytes_and_cleans_up_after_drop() {
+        use std::{
+            fs,
+            sync::atomic::{AtomicU64, Ordering},
+        };
+
+        static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+        let input = fixture_object(PortableObjectKind::CanonicalArtifact, true);
+        let prepared = prepare_object(input, FormatLimits::HARD).unwrap();
+        let mut expected = vec![0; usize::try_from(prepared.byte_len()).unwrap()];
+        encode_prepared_object(prepared, &mut expected).unwrap();
+
+        let directory = std::env::temp_dir().join(std::format!(
+            "laneflow-format-staged-{}-{}",
+            std::process::id(),
+            NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).unwrap();
+        let source = crate::StagedObjectWriter::create_in(&directory, prepared)
+            .unwrap()
+            .finish()
+            .unwrap();
+
+        assert_eq!(source.exact_byte_length().get(), prepared.byte_len());
+        assert_eq!(source.as_bytes().unwrap(), expected);
+        assert_eq!(source.as_bytes().unwrap(), expected);
+        drop(source);
+
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
+        fs::remove_dir(directory).unwrap();
+    }
+
     #[test]
     fn lfcp_minimal_structural_input_has_frozen_exact_header_and_first_section_bytes() {
         let input = fixture_object(PortableObjectKind::CanonicalPublicationDescriptor, false);
         let length = measure_object(input, FormatLimits::HARD).unwrap();
-        assert_eq!(length, 545);
+        assert_eq!(length, 533);
         let mut output = vec![0; usize::try_from(length).unwrap()];
         encode_object(input, FormatLimits::HARD, &mut output).unwrap();
 
@@ -1120,9 +1471,9 @@ mod tests {
         expected_header.extend_from_slice(&0_u32.to_le_bytes());
         expected_header.extend_from_slice(&3_u32.to_le_bytes());
         expected_header.extend_from_slice(&32_u64.to_le_bytes());
-        expected_header.extend_from_slice(&545_u64.to_le_bytes());
+        expected_header.extend_from_slice(&533_u64.to_le_bytes());
         for (kind, offset, section_length) in
-            [(1_u16, 104_u64, 172_u64), (2, 276, 184), (3, 460, 85)]
+            [(1_u16, 104_u64, 168_u64), (2, 272, 180), (3, 452, 81)]
         {
             expected_header.extend_from_slice(&kind.to_le_bytes());
             expected_header.extend_from_slice(&1_u16.to_le_bytes());
@@ -1133,7 +1484,6 @@ mod tests {
         assert_eq!(&output[..104], expected_header);
 
         let mut expected_section = Vec::new();
-        expected_section.extend_from_slice(&1_u32.to_le_bytes());
         expected_section.extend_from_slice(&1_u16.to_le_bytes());
         expected_section.extend_from_slice(&1_u16.to_le_bytes());
         expected_section.extend_from_slice(&1_u32.to_le_bytes());
@@ -1154,31 +1504,36 @@ mod tests {
             expected_section.extend_from_slice(&(value.len() as u64).to_le_bytes());
             expected_section.extend_from_slice(value);
         }
-        assert_eq!(&output[104..276], expected_section);
+        assert_eq!(&output[104..272], expected_section);
     }
 
     #[test]
-    fn value_checked_lfsd_reaches_the_exact_object_byte_limit() {
-        let with_empty_payload = lfsd_with_entity_add_payload(&[]);
-        let base_length = measure_object(with_empty_payload, FormatLimits::HARD).unwrap();
-        let payload_length = FORMAT_HARD_MAX_OBJECT_BYTES - base_length;
-        let payload = leak(vec![0; usize::try_from(payload_length).unwrap()]);
-        let exact = lfsd_with_entity_add_payload(payload);
-        assert_eq!(
-            measure_object(exact, FormatLimits::HARD).unwrap(),
-            FORMAT_HARD_MAX_OBJECT_BYTES
-        );
-        let mut bytes = vec![0; usize::try_from(FORMAT_HARD_MAX_OBJECT_BYTES).unwrap()];
-        encode_object(exact, FormatLimits::HARD, &mut bytes).unwrap();
-        let framing = crate::preflight_object_framing(
+    fn caller_object_budget_is_independent_of_the_chunk_ceiling() {
+        let input = fixture_object(PortableObjectKind::CanonicalPublicationDescriptor, false);
+        let exact_length = measure_object(input, FormatLimits::HARD).unwrap();
+
+        let mut exact = FormatLimitConfig::HARD;
+        exact.max_object_bytes = exact_length;
+        let exact_limits = FormatLimits::try_new(exact).unwrap();
+        let mut bytes = vec![0; usize::try_from(exact_length).unwrap()];
+        encode_object(input, exact_limits, &mut bytes).unwrap();
+        preflight_object_registry(
             &bytes,
-            PortableObjectKind::SemanticDiff,
-            FormatLimits::HARD,
+            PortableObjectKind::CanonicalPublicationDescriptor,
+            exact_limits,
         )
         .unwrap();
-        assert_eq!(framing.section(1).unwrap().bytes().len(), 16_776_626);
-        preflight_object_values(&bytes, PortableObjectKind::SemanticDiff, FormatLimits::HARD)
-            .unwrap();
+
+        let mut short = exact;
+        short.max_object_bytes -= 1;
+        assert!(matches!(
+            measure_object(input, FormatLimits::try_new(short).unwrap()),
+            Err(FormatError::LimitExceeded {
+                dimension: LimitDimension::ObjectBytes,
+                actual,
+                limit,
+            }) if actual == exact_length && limit == exact_length - 1
+        ));
     }
 
     #[test]
@@ -1263,12 +1618,8 @@ mod tests {
         assert_limit_failure_is_atomic(lfcp, config, LimitDimension::ObjectBytes);
 
         let mut config = FormatLimitConfig::HARD;
-        config.max_section_or_table_bytes = 100;
-        assert_limit_failure_is_atomic(lfcp, config, LimitDimension::SectionOrTableBytes);
-
-        let mut config = FormatLimitConfig::HARD;
-        config.max_rows_per_table = 0;
-        assert_limit_failure_is_atomic(lfcp, config, LimitDimension::RowsPerTable);
+        config.max_table_chunk_bytes = 100;
+        assert_limit_failure_is_atomic(lfcp, config, LimitDimension::TableChunkBytes);
 
         let mut config = FormatLimitConfig::HARD;
         config.max_fields_per_row = 0;
@@ -1295,6 +1646,181 @@ mod tests {
         let mut config = FormatLimitConfig::HARD;
         config.max_record_vector_depth = 0;
         assert_limit_failure_is_atomic(lfca_with_record, config, LimitDimension::RecordVectorDepth);
+    }
+
+    #[test]
+    fn row_limits_split_one_logical_table_without_changing_logical_ordinals() {
+        let kind = PortableObjectKind::CanonicalArtifact;
+        let input = fixture_object(kind, false);
+        let schema = portable_object_schema(kind);
+        let mut sections = input.sections.to_vec();
+        let mut tables = sections[2].tables.to_vec();
+        let row = default_row(schema.sections[2].tables[0].row, false);
+        tables[0].rows = leak(vec![row; 5]);
+        sections[2].tables = leak(tables);
+        let input = ObjectWriteInput {
+            kind,
+            sections: leak(sections),
+        };
+        let mut config = FormatLimitConfig::HARD;
+        config.max_rows_per_chunk = 2;
+        let limits = FormatLimits::try_new(config).unwrap();
+        let length = measure_object(input, limits).unwrap();
+        let mut bytes = vec![0; usize::try_from(length).unwrap()];
+        encode_object(input, limits, &mut bytes).unwrap();
+
+        let checked = preflight_object_registry(&bytes, kind, limits).unwrap();
+        let section = checked.section(2).unwrap();
+        let table = section.table(0).unwrap();
+        assert_eq!(table.row_count(), 5);
+        assert_eq!(table.rows().count(), 5);
+        for ordinal in 0..5 {
+            assert!(table.row(ordinal).is_some());
+        }
+        assert!(table.row(5).is_none());
+
+        let section_bytes = section.bytes();
+        assert_eq!(
+            u32::from_le_bytes(section_bytes[0..4].try_into().unwrap()),
+            3
+        );
+        for (chunk, (first, count)) in [(0_u32, 2_u32), (2, 2), (4, 1)].into_iter().enumerate() {
+            let entry = 16 + chunk * 72;
+            assert_eq!(
+                u32::from_le_bytes(section_bytes[entry + 4..entry + 8].try_into().unwrap()),
+                chunk as u32
+            );
+            assert_eq!(
+                u32::from_le_bytes(section_bytes[entry + 8..entry + 12].try_into().unwrap()),
+                first
+            );
+            assert_eq!(
+                u32::from_le_bytes(section_bytes[entry + 12..entry + 16].try_into().unwrap()),
+                count
+            );
+        }
+    }
+
+    #[test]
+    fn source_location_uses_its_stricter_per_chunk_row_budget() {
+        let kind = PortableObjectKind::SourceMap;
+        let input = fixture_object(kind, false);
+        let schema = portable_object_schema(kind);
+        let mut sections = input.sections.to_vec();
+        let mut tables = sections[1].tables.to_vec();
+        let row = default_row(schema.sections[1].tables[2].row, false);
+        tables[2].rows = leak(vec![row; 5]);
+        sections[1].tables = leak(tables);
+        let input = ObjectWriteInput {
+            kind,
+            sections: leak(sections),
+        };
+        let mut config = FormatLimitConfig::HARD;
+        config.max_rows_per_chunk = 10;
+        config.max_source_location_rows_per_chunk = 2;
+        let limits = FormatLimits::try_new(config).unwrap();
+        let length = measure_object(input, limits).unwrap();
+        let mut bytes = vec![0; usize::try_from(length).unwrap()];
+        encode_object(input, limits, &mut bytes).unwrap();
+
+        let checked = preflight_object_registry(&bytes, kind, limits).unwrap();
+        let section = checked.section(1).unwrap();
+        assert_eq!(
+            u32::from_le_bytes(section.bytes()[0..4].try_into().unwrap()),
+            3
+        );
+        assert_eq!(section.table(2).unwrap().row_count(), 5);
+    }
+
+    #[test]
+    fn chunk_directory_order_ranges_digests_and_budget_fail_closed() {
+        let kind = PortableObjectKind::CanonicalArtifact;
+        let input = fixture_object(kind, false);
+        let schema = portable_object_schema(kind);
+        let mut sections = input.sections.to_vec();
+        let mut tables = sections[2].tables.to_vec();
+        let row = default_row(schema.sections[2].tables[0].row, false);
+        tables[0].rows = leak(vec![row; 5]);
+        sections[2].tables = leak(tables);
+        let input = ObjectWriteInput {
+            kind,
+            sections: leak(sections),
+        };
+        let mut config = FormatLimitConfig::HARD;
+        config.max_rows_per_chunk = 2;
+        let limits = FormatLimits::try_new(config).unwrap();
+        let length = measure_object(input, limits).unwrap();
+        let mut original = vec![0; usize::try_from(length).unwrap()];
+        encode_object(input, limits, &mut original).unwrap();
+        let section_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
+            + 2 * SECTION_DIRECTORY_ENTRY_BYTE_LENGTH as usize;
+        let section_start = u64::from_le_bytes(
+            original[section_entry + 8..section_entry + 16]
+                .try_into()
+                .unwrap(),
+        ) as usize;
+        let first = section_start + 16;
+        let second = first + 72;
+
+        let mut duplicate_index = original.clone();
+        duplicate_index[second + 4..second + 8].copy_from_slice(&0_u32.to_le_bytes());
+        assert_eq!(
+            preflight_object_registry(&duplicate_index, kind, limits)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::NonCanonicalOrder
+        );
+
+        let mut row_gap = original.clone();
+        row_gap[second + 8..second + 12].copy_from_slice(&3_u32.to_le_bytes());
+        assert_eq!(
+            preflight_object_registry(&row_gap, kind, limits)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::GapOrOverlap
+        );
+
+        let mut range_overlap = original.clone();
+        let first_offset =
+            u64::from_le_bytes(range_overlap[first + 24..first + 32].try_into().unwrap());
+        range_overlap[second + 24..second + 32].copy_from_slice(&first_offset.to_le_bytes());
+        assert_eq!(
+            preflight_object_registry(&range_overlap, kind, limits)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::GapOrOverlap
+        );
+
+        let mut digest = original.clone();
+        digest[first + 40] ^= 1;
+        assert_eq!(
+            preflight_object_registry(&digest, kind, limits)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::DigestMismatch
+        );
+
+        let mut payload = original;
+        let payload_offset =
+            u64::from_le_bytes(payload[first + 24..first + 32].try_into().unwrap()) as usize;
+        payload[section_start + payload_offset] ^= 1;
+        assert_eq!(
+            preflight_object_registry(&payload, kind, limits)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::DigestMismatch
+        );
+
+        let mut too_few_chunks = config;
+        too_few_chunks.max_chunks_per_section = 2;
+        assert!(matches!(
+            measure_object(input, FormatLimits::try_new(too_few_chunks).unwrap()),
+            Err(FormatError::LimitExceeded {
+                dimension: LimitDimension::ChunksPerSection,
+                actual: 3,
+                limit: 2,
+            })
+        ));
     }
 
     #[test]

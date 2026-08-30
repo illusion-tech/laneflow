@@ -9,20 +9,21 @@ use laneflow_static_contract::{
     MAX_MIN_GAP_MM, MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_TIME_HEADWAY_SECONDS,
     MAX_VEHICLE_LENGTH_MM, MIN_ACCEL_METERS_PER_SECOND_SQUARED, MIN_PARKING_LATERAL_OFFSET_ABS_MM,
     MIN_SPEED_MM_S, MIN_VEHICLE_LENGTH_MM, ManeuverGateOrdinal, ManeuverPathOrdinal,
-    MovementOrdinal, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, ParkingAreaOrdinal, ParkingSpaceOrdinal,
-    ParticipantClassOrdinal, RoadCorridorOrdinal, RoadSectionOrdinal, SignalAspect,
-    SignalControllerOrdinal, SignalGroupOrdinal, SignalPhaseOrdinal, StopLineOrdinal,
-    WaitingZoneOrdinal,
+    MovementOrdinal, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, ParkingFacilityOrdinal,
+    ParkingSpaceOrdinal, ParticipantClassOrdinal, RoadCorridorOrdinal, RoadSectionOrdinal,
+    SignalAspect, SignalControllerOrdinal, SignalGroupOrdinal, SignalPhaseOrdinal, StableId128,
+    StopLineOrdinal, WaitingZoneOrdinal,
 };
 
 use crate::builder::{
     SharedNetworkBuildOptions, allocate_vec, checked_f32, checked_field, checked_i32,
-    checked_ordinal_vector, checked_record_vector, checked_u8, checked_u32, heading_f32_stored,
-    poll_cancelled, u32_in_closed_range,
+    checked_ordinal_vector, checked_record_vector, checked_stable_id, checked_u8, checked_u32,
+    heading_f32_stored, poll_cancelled, u32_in_closed_range,
 };
 use crate::relations::{
     ACCESS_UNCONSTRAINED_ROW, AccessCell, AccessTarget, CorridorElement, FacilityKind,
-    RelationPayloads, SharedRelationClosure, assemble, empty_optional, get_optional, set_optional,
+    ParkingLaneAnchor, RelationPayloads, SharedRelationClosure, assemble, empty_optional,
+    get_optional, set_optional,
 };
 use crate::{BuildError, BuildStructure, EntityCounts, RangeU32, SharedManeuverNetwork};
 
@@ -195,7 +196,7 @@ pub(crate) fn build_relations(
         &parking.parking_spaces,
         &parking.space_area,
         ParkingSpaceOrdinal::raw,
-        ParkingAreaOrdinal::from_raw,
+        ParkingFacilityOrdinal::from_raw,
         entity_counts.count(EntityKind::ParkingSpace),
         options,
     )?;
@@ -270,6 +271,11 @@ pub(crate) fn build_relations(
         signals.phase_state_aspects,
         parking.parking_space_ranges,
         parking.parking_spaces,
+        parking.virtual_capacity,
+        parking.virtual_entry_ranges,
+        parking.virtual_entries,
+        parking.virtual_exit_ranges,
+        parking.virtual_exits,
         parking.space_area,
         parking.space_entry_edge,
         parking.space_entry_progress,
@@ -459,7 +465,9 @@ pub(crate) fn count_relation_payloads(
     let controller_groups = sum_ordinal_field(view, EntityKind::SignalController, 5, options)?;
     let controller_phases = sum_ordinal_field(view, EntityKind::SignalController, 6, options)?;
     let phase_states = sum_record_field(view, EntityKind::SignalPhase, 5, options)?;
-    let parking_spaces = sum_ordinal_field(view, EntityKind::ParkingArea, 3, options)?;
+    let parking_spaces = sum_ordinal_field(view, EntityKind::ParkingFacility, 3, options)?;
+    let parking_virtual_entries = sum_record_field(view, EntityKind::ParkingFacility, 5, options)?;
+    let parking_virtual_exits = sum_record_field(view, EntityKind::ParkingFacility, 6, options)?;
     let lane_group_members = sum_ordinal_field(view, EntityKind::LaneGroup, 4, options)?;
     let rule_classes = sum_ordinal_field(view, EntityKind::AccessRule, 6, options)?;
     let pass_a_scratch = relation_pass_a_scratch(entity_counts, intern_keys, intern_utf8)?;
@@ -475,6 +483,8 @@ pub(crate) fn count_relation_payloads(
         controller_phases,
         phase_states,
         parking_spaces,
+        parking_virtual_entries,
+        parking_virtual_exits,
         lane_group_members,
         rule_classes,
         intern_keys,
@@ -550,7 +560,8 @@ fn relation_pass_a_scratch(
         .ok_or(BuildError::ArithmeticOverflow {
             structure: BuildStructure::BuilderScratch,
         })?;
-    Ok(intern.max(access))
+    let parking = pass_a_count_bytes::<StableId128>(lane)?;
+    Ok(intern.max(access).max(parking))
 }
 
 fn interned_facility_token(token: &str, lane_bearing: bool) -> Option<&str> {
@@ -2377,7 +2388,12 @@ fn build_signals(
 struct Parking {
     parking_space_ranges: Box<[RangeU32]>,
     parking_spaces: Box<[ParkingSpaceOrdinal]>,
-    space_area: crate::relations::OptionalColumn<ParkingAreaOrdinal>,
+    virtual_capacity: Box<[u32]>,
+    virtual_entry_ranges: Box<[RangeU32]>,
+    virtual_entries: Box<[ParkingLaneAnchor]>,
+    virtual_exit_ranges: Box<[RangeU32]>,
+    virtual_exits: Box<[ParkingLaneAnchor]>,
+    space_area: crate::relations::OptionalColumn<ParkingFacilityOrdinal>,
     space_entry_edge: Box<[LaneEdgeOrdinal]>,
     space_entry_progress: Box<[u32]>,
     space_exit_edge: Box<[LaneEdgeOrdinal]>,
@@ -2396,25 +2412,60 @@ fn build_parking(
     unique: &mut UniqueCheck,
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<Parking, BuildError> {
-    let area_count = entity_counts.count(EntityKind::ParkingArea);
+    let area_count = entity_counts.count(EntityKind::ParkingFacility);
     let space_count = entity_counts.count(EntityKind::ParkingSpace);
-    let area_table = entity_table(view, EntityKind::ParkingArea)?;
+    let area_table = entity_table(view, EntityKind::ParkingFacility)?;
+    let lane_ids = lane_edge_stable_ids(view, lane_count)?;
     let mut ranges = allocate_vec(area_count, STRUCTURE)?;
     let mut spaces = Vec::new();
+    let mut virtual_capacity = allocate_vec(area_count, STRUCTURE)?;
+    let mut virtual_entry_ranges = allocate_vec(area_count, STRUCTURE)?;
+    let mut virtual_entries = Vec::new();
+    let mut virtual_exit_ranges = allocate_vec(area_count, STRUCTURE)?;
+    let mut virtual_exits = Vec::new();
     for (index, row) in area_table.rows().enumerate() {
         let expected = u32::try_from(index).map_err(|_| BuildError::ArithmeticOverflow {
             structure: STRUCTURE,
         })?;
         poll_cancelled(options, expected)?;
         expect_row_ordinal(row, expected)?;
-        ranges.push(push_members(
+        let space_range = push_members(
             checked_ordinal_vector(row, 3, STRUCTURE)?,
             &mut spaces,
             space_count,
             MemberOrder::CanonicalSet,
             options,
             unique,
-        )?);
+        )?;
+        let capacity = checked_u32(row, 4, STRUCTURE)?;
+        let entry_range = push_parking_lane_anchors(
+            checked_record_vector(row, 5, STRUCTURE)?,
+            &lane_ids,
+            lane_lengths,
+            &mut virtual_entries,
+        )?;
+        let exit_range = push_parking_lane_anchors(
+            checked_record_vector(row, 6, STRUCTURE)?,
+            &lane_ids,
+            lane_lengths,
+            &mut virtual_exits,
+        )?;
+        if space_range.is_empty() && capacity == 0 {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+        if (capacity == 0 && (!entry_range.is_empty() || !exit_range.is_empty()))
+            || (capacity > 0 && (entry_range.is_empty() || exit_range.is_empty()))
+        {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+        ranges.push(space_range);
+        virtual_capacity.push(capacity);
+        virtual_entry_ranges.push(entry_range);
+        virtual_exit_ranges.push(exit_range);
     }
     let space_table = entity_table(view, EntityKind::ParkingSpace)?;
     let mut area = empty_optional(space_count)?;
@@ -2443,7 +2494,7 @@ fn build_parking(
             set_optional(
                 &mut area,
                 expected,
-                ParkingAreaOrdinal::from_raw(area_ordinal),
+                ParkingFacilityOrdinal::from_raw(area_ordinal),
             )?;
         }
         let entry = checked_u32(row, 4, STRUCTURE)?;
@@ -2465,8 +2516,8 @@ fn build_parking(
         exit_progress.push(exit_at);
         let lateral_mm = checked_i32(row, 8, STRUCTURE)?;
         let lateral_abs = lateral_mm.unsigned_abs();
-        if lateral_abs < MIN_PARKING_LATERAL_OFFSET_ABS_MM
-            || lateral_abs > MAX_PARKING_LATERAL_OFFSET_ABS_MM
+        if !(MIN_PARKING_LATERAL_OFFSET_ABS_MM..=MAX_PARKING_LATERAL_OFFSET_ABS_MM)
+            .contains(&lateral_abs)
         {
             return Err(BuildError::InputInvariant {
                 structure: STRUCTURE,
@@ -2497,6 +2548,11 @@ fn build_parking(
             .map(ParkingSpaceOrdinal::from_raw)
             .collect::<Vec<_>>()
             .into_boxed_slice(),
+        virtual_capacity: virtual_capacity.into_boxed_slice(),
+        virtual_entry_ranges: virtual_entry_ranges.into_boxed_slice(),
+        virtual_entries: virtual_entries.into_boxed_slice(),
+        virtual_exit_ranges: virtual_exit_ranges.into_boxed_slice(),
+        virtual_exits: virtual_exits.into_boxed_slice(),
         space_area: area,
         space_entry_edge: entry_edge.into_boxed_slice(),
         space_entry_progress: entry_progress.into_boxed_slice(),
@@ -2507,6 +2563,72 @@ fn build_parking(
         space_length: length.into_boxed_slice(),
         space_width: width.into_boxed_slice(),
     })
+}
+
+fn lane_edge_stable_ids(
+    view: ValueCheckedObjectView<'_>,
+    lane_count: u32,
+) -> Result<Box<[StableId128]>, BuildError> {
+    let table = entity_table(view, EntityKind::LaneEdge)?;
+    let mut stable_ids = allocate_vec(lane_count, STRUCTURE)?;
+    for (index, row) in table.rows().enumerate() {
+        let expected = u32::try_from(index).map_err(|_| BuildError::ArithmeticOverflow {
+            structure: STRUCTURE,
+        })?;
+        expect_row_ordinal(row, expected)?;
+        stable_ids.push(checked_stable_id(row, 2, STRUCTURE)?);
+    }
+    if stable_ids.len() != usize::try_from(lane_count).expect("u32 fits usize") {
+        return Err(BuildError::InputInvariant {
+            structure: STRUCTURE,
+        });
+    }
+    Ok(stable_ids.into_boxed_slice())
+}
+
+fn push_parking_lane_anchors(
+    records: laneflow_format::RegistryCheckedRecordVectorView<'_>,
+    lane_ids: &[StableId128],
+    lane_lengths: &[u32],
+    output: &mut Vec<ParkingLaneAnchor>,
+) -> Result<RangeU32, BuildError> {
+    let start = u32::try_from(output.len()).map_err(|_| BuildError::ArithmeticOverflow {
+        structure: STRUCTURE,
+    })?;
+    let mut previous = None;
+    for row in records.rows() {
+        let lane = checked_u32(row, 1, STRUCTURE)?;
+        let lane_index = usize::try_from(lane).expect("u32 fits usize");
+        let stable_id = *lane_ids
+            .get(lane_index)
+            .ok_or(BuildError::ReferenceOutOfBounds {
+                structure: STRUCTURE,
+                ordinal: lane,
+                limit: u32::try_from(lane_ids.len()).unwrap_or(u32::MAX),
+            })?;
+        let progress_mm = checked_u32(row, 2, STRUCTURE)?;
+        close_parking_progress(lane, progress_mm, lane_lengths)?;
+        let key = (stable_id, progress_mm);
+        if previous.is_some_and(|previous| previous >= key) {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+        previous = Some(key);
+        output.push(ParkingLaneAnchor {
+            lane_edge: LaneEdgeOrdinal::from_raw(lane),
+            progress_mm,
+        });
+    }
+    let len = u32::try_from(output.len())
+        .map_err(|_| BuildError::ArithmeticOverflow {
+            structure: STRUCTURE,
+        })?
+        .checked_sub(start)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: STRUCTURE,
+        })?;
+    Ok(RangeU32::new(start, len))
 }
 
 struct Classes {

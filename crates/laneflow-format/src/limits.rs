@@ -1,12 +1,12 @@
 //! 调用方可收紧的格式资源限制。
 
 use laneflow_static_contract::{
-    FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES, FORMAT_HARD_MAX_FIELDS_PER_ROW,
-    FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES, FORMAT_HARD_MAX_OBJECT_BYTES,
-    FORMAT_HARD_MAX_RECORD_VECTOR_DEPTH, FORMAT_HARD_MAX_ROWS_PER_TABLE,
-    FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES, FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS,
-    FORMAT_HARD_MAX_TOTAL_UTF8_BYTES, FORMAT_HARD_MAX_TOTAL_VECTOR_BYTES,
-    FORMAT_HARD_MAX_UTF8_FIELD_BYTES, FORMAT_HARD_MAX_VECTOR_ITEMS,
+    FORMAT_HARD_MAX_FIELDS_PER_ROW, FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+    FORMAT_HARD_MAX_RECORD_VECTOR_DEPTH, FORMAT_HARD_MAX_ROWS_PER_CHUNK,
+    FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK, FORMAT_HARD_MAX_STAGED_CHUNK_BYTES,
+    FORMAT_HARD_MAX_TABLE_CHUNK_BYTES, FORMAT_HARD_MAX_TOTAL_UTF8_BYTES,
+    FORMAT_HARD_MAX_TOTAL_VECTOR_BYTES, FORMAT_HARD_MAX_UTF8_FIELD_BYTES,
+    FORMAT_HARD_MAX_VECTOR_ITEMS,
 };
 
 use crate::{FormatError, LimitDimension};
@@ -15,8 +15,9 @@ use crate::{FormatError, LimitDimension};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FormatLimitConfig {
     pub max_object_bytes: u64,
-    pub max_section_or_table_bytes: u64,
-    pub max_rows_per_table: u32,
+    pub max_chunks_per_section: u32,
+    pub max_table_chunk_bytes: u64,
+    pub max_rows_per_chunk: u32,
     pub max_fields_per_row: u32,
     pub max_identity_ascii_bytes: u64,
     pub max_utf8_field_bytes: u64,
@@ -24,16 +25,20 @@ pub struct FormatLimitConfig {
     pub max_vector_items: u32,
     pub max_total_vector_bytes: u64,
     pub max_record_vector_depth: u8,
-    pub max_source_location_rows: u32,
-    pub max_candidate_staging_bytes: u64,
+    pub max_source_location_rows_per_chunk: u32,
+    pub max_staged_chunk_bytes: u64,
 }
 
 impl FormatLimitConfig {
-    /// 格式天花板；调用方可以复制后只减小所需维度。
+    /// 百万单路网默认接收预算与线格式原语天花板。
+    ///
+    /// `max_object_bytes` 与 `max_chunks_per_section` 是调用方预算，不是 wire hard limit；
+    /// 其余字段不得高于格式原语天花板。
     pub const HARD: Self = Self {
-        max_object_bytes: FORMAT_HARD_MAX_OBJECT_BYTES,
-        max_section_or_table_bytes: FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES,
-        max_rows_per_table: FORMAT_HARD_MAX_ROWS_PER_TABLE,
+        max_object_bytes: 4_294_967_296,
+        max_chunks_per_section: 65_536,
+        max_table_chunk_bytes: FORMAT_HARD_MAX_TABLE_CHUNK_BYTES,
+        max_rows_per_chunk: FORMAT_HARD_MAX_ROWS_PER_CHUNK,
         max_fields_per_row: FORMAT_HARD_MAX_FIELDS_PER_ROW,
         max_identity_ascii_bytes: FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
         max_utf8_field_bytes: FORMAT_HARD_MAX_UTF8_FIELD_BYTES,
@@ -41,8 +46,8 @@ impl FormatLimitConfig {
         max_vector_items: FORMAT_HARD_MAX_VECTOR_ITEMS,
         max_total_vector_bytes: FORMAT_HARD_MAX_TOTAL_VECTOR_BYTES,
         max_record_vector_depth: FORMAT_HARD_MAX_RECORD_VECTOR_DEPTH,
-        max_source_location_rows: FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS,
-        max_candidate_staging_bytes: FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES,
+        max_source_location_rows_per_chunk: FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK,
+        max_staged_chunk_bytes: FORMAT_HARD_MAX_STAGED_CHUNK_BYTES,
     };
 }
 
@@ -60,22 +65,45 @@ impl FormatLimits {
     /// 直接使用全部格式安全天花板。
     pub const HARD: Self = Self(FormatLimitConfig::HARD);
 
-    /// 校验调用方配置；任一维度高于格式天花板都失败，而不是静默 clamp。
+    /// 校验调用方配置；原语维度高于格式天花板时失败，而不是静默 clamp。
     pub fn try_new(config: FormatLimitConfig) -> Result<Self, FormatError> {
+        if config.max_object_bytes == 0 {
+            return Err(FormatError::InvalidLimitConfiguration {
+                dimension: LimitDimension::ObjectBytes,
+                requested: 0,
+                hard_limit: u64::MAX,
+            });
+        }
+        if config.max_chunks_per_section == 0 {
+            return Err(FormatError::InvalidLimitConfiguration {
+                dimension: LimitDimension::ChunksPerSection,
+                requested: 0,
+                hard_limit: u64::from(u32::MAX),
+            });
+        }
+        if config.max_rows_per_chunk == 0 {
+            return Err(FormatError::InvalidLimitConfiguration {
+                dimension: LimitDimension::RowsPerChunk,
+                requested: 0,
+                hard_limit: u64::from(FORMAT_HARD_MAX_ROWS_PER_CHUNK),
+            });
+        }
+        if config.max_source_location_rows_per_chunk == 0 {
+            return Err(FormatError::InvalidLimitConfiguration {
+                dimension: LimitDimension::SourceLocationRowsPerChunk,
+                requested: 0,
+                hard_limit: u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK),
+            });
+        }
         check_limit(
-            LimitDimension::ObjectBytes,
-            config.max_object_bytes,
-            FORMAT_HARD_MAX_OBJECT_BYTES,
+            LimitDimension::TableChunkBytes,
+            config.max_table_chunk_bytes,
+            FORMAT_HARD_MAX_TABLE_CHUNK_BYTES,
         )?;
         check_limit(
-            LimitDimension::SectionOrTableBytes,
-            config.max_section_or_table_bytes,
-            FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES,
-        )?;
-        check_limit(
-            LimitDimension::RowsPerTable,
-            u64::from(config.max_rows_per_table),
-            u64::from(FORMAT_HARD_MAX_ROWS_PER_TABLE),
+            LimitDimension::RowsPerChunk,
+            u64::from(config.max_rows_per_chunk),
+            u64::from(FORMAT_HARD_MAX_ROWS_PER_CHUNK),
         )?;
         check_limit(
             LimitDimension::FieldsPerRow,
@@ -113,19 +141,19 @@ impl FormatLimits {
             u64::from(FORMAT_HARD_MAX_RECORD_VECTOR_DEPTH),
         )?;
         check_limit(
-            LimitDimension::SourceLocationRows,
-            u64::from(config.max_source_location_rows),
-            u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS),
+            LimitDimension::SourceLocationRowsPerChunk,
+            u64::from(config.max_source_location_rows_per_chunk),
+            u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK),
         )?;
         check_limit(
-            LimitDimension::CandidateStagingBytes,
-            config.max_candidate_staging_bytes,
-            FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES,
+            LimitDimension::StagedChunkBytes,
+            config.max_staged_chunk_bytes,
+            FORMAT_HARD_MAX_STAGED_CHUNK_BYTES,
         )?;
         Ok(Self(config))
     }
 
-    /// 返回调用方已经证明不高于 v1 天花板的单对象读取上限。
+    /// 返回调用方选择的单对象读取预算。
     #[must_use]
     pub const fn max_object_bytes(self) -> u64 {
         self.0.max_object_bytes
@@ -137,16 +165,22 @@ impl FormatLimits {
         self.0.max_identity_ascii_bytes
     }
 
-    /// 返回单 LFSM 来源位置记录的有效上限。
+    /// 返回每个 section 允许的最大物理 chunk 数。
     #[must_use]
-    pub const fn max_source_location_rows(self) -> u32 {
-        self.0.max_source_location_rows
+    pub const fn max_chunks_per_section(self) -> u32 {
+        self.0.max_chunks_per_section
     }
 
-    /// 返回一次候选暂存 exact bytes 的有效上限。
+    /// 返回单 LFSM SourceLocation chunk 的有效行数上限。
     #[must_use]
-    pub const fn max_candidate_staging_bytes(self) -> u64 {
-        self.0.max_candidate_staging_bytes
+    pub const fn max_source_location_rows_per_chunk(self) -> u32 {
+        self.0.max_source_location_rows_per_chunk
+    }
+
+    /// 返回三个对象同时暂存当前 chunk 的有效内存上限。
+    #[must_use]
+    pub const fn max_staged_chunk_bytes(self) -> u64 {
+        self.0.max_staged_chunk_bytes
     }
 
     pub(crate) const fn config(self) -> FormatLimitConfig {
@@ -172,21 +206,21 @@ fn check_limit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::FormatErrorClass;
 
     #[test]
-    fn caller_can_only_reduce_hard_limits() {
+    fn caller_can_choose_a_nonzero_object_budget() {
         let mut config = FormatLimitConfig::HARD;
         config.max_object_bytes -= 1;
         assert_eq!(FormatLimits::try_new(config).unwrap().config(), config);
 
-        config.max_object_bytes = FORMAT_HARD_MAX_OBJECT_BYTES + 1;
+        config.max_object_bytes = u64::MAX;
+        assert_eq!(FormatLimits::try_new(config).unwrap().config(), config);
+
+        config.max_object_bytes = 0;
         assert_eq!(
-            FormatLimits::try_new(config),
-            Err(FormatError::InvalidLimitConfiguration {
-                dimension: LimitDimension::ObjectBytes,
-                requested: FORMAT_HARD_MAX_OBJECT_BYTES + 1,
-                hard_limit: FORMAT_HARD_MAX_OBJECT_BYTES,
-            })
+            FormatLimits::try_new(config).unwrap_err().class(),
+            FormatErrorClass::InvalidLimitConfiguration
         );
     }
 
@@ -194,14 +228,14 @@ mod tests {
     fn every_configurable_dimension_rejects_hard_limit_plus_one() {
         let cases = [
             (
-                LimitDimension::SectionOrTableBytes,
-                FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES + 1,
-                FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES,
+                LimitDimension::TableChunkBytes,
+                FORMAT_HARD_MAX_TABLE_CHUNK_BYTES + 1,
+                FORMAT_HARD_MAX_TABLE_CHUNK_BYTES,
             ),
             (
-                LimitDimension::RowsPerTable,
-                u64::from(FORMAT_HARD_MAX_ROWS_PER_TABLE) + 1,
-                u64::from(FORMAT_HARD_MAX_ROWS_PER_TABLE),
+                LimitDimension::RowsPerChunk,
+                u64::from(FORMAT_HARD_MAX_ROWS_PER_CHUNK) + 1,
+                u64::from(FORMAT_HARD_MAX_ROWS_PER_CHUNK),
             ),
             (
                 LimitDimension::FieldsPerRow,
@@ -239,25 +273,25 @@ mod tests {
                 u64::from(FORMAT_HARD_MAX_RECORD_VECTOR_DEPTH),
             ),
             (
-                LimitDimension::SourceLocationRows,
-                u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS) + 1,
-                u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS),
+                LimitDimension::SourceLocationRowsPerChunk,
+                u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK) + 1,
+                u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK),
             ),
             (
-                LimitDimension::CandidateStagingBytes,
-                FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES + 1,
-                FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES,
+                LimitDimension::StagedChunkBytes,
+                FORMAT_HARD_MAX_STAGED_CHUNK_BYTES + 1,
+                FORMAT_HARD_MAX_STAGED_CHUNK_BYTES,
             ),
         ];
 
         for (dimension, requested, hard_limit) in cases {
             let mut config = FormatLimitConfig::HARD;
             match dimension {
-                LimitDimension::SectionOrTableBytes => {
-                    config.max_section_or_table_bytes = requested;
+                LimitDimension::TableChunkBytes => {
+                    config.max_table_chunk_bytes = requested;
                 }
-                LimitDimension::RowsPerTable => {
-                    config.max_rows_per_table = u32::try_from(requested).unwrap();
+                LimitDimension::RowsPerChunk => {
+                    config.max_rows_per_chunk = u32::try_from(requested).unwrap();
                 }
                 LimitDimension::FieldsPerRow => {
                     config.max_fields_per_row = u32::try_from(requested).unwrap();
@@ -274,13 +308,13 @@ mod tests {
                 LimitDimension::RecordVectorDepth => {
                     config.max_record_vector_depth = u8::try_from(requested).unwrap();
                 }
-                LimitDimension::SourceLocationRows => {
-                    config.max_source_location_rows = u32::try_from(requested).unwrap();
+                LimitDimension::SourceLocationRowsPerChunk => {
+                    config.max_source_location_rows_per_chunk = u32::try_from(requested).unwrap();
                 }
-                LimitDimension::CandidateStagingBytes => {
-                    config.max_candidate_staging_bytes = requested;
+                LimitDimension::StagedChunkBytes => {
+                    config.max_staged_chunk_bytes = requested;
                 }
-                LimitDimension::ObjectBytes => unreachable!(),
+                LimitDimension::ObjectBytes | LimitDimension::ChunksPerSection => unreachable!(),
             }
 
             assert_eq!(
@@ -291,6 +325,31 @@ mod tests {
                     hard_limit,
                 })
             );
+        }
+    }
+
+    #[test]
+    fn row_chunking_limits_must_be_nonzero() {
+        for dimension in [
+            LimitDimension::RowsPerChunk,
+            LimitDimension::SourceLocationRowsPerChunk,
+        ] {
+            let mut config = FormatLimitConfig::HARD;
+            match dimension {
+                LimitDimension::RowsPerChunk => config.max_rows_per_chunk = 0,
+                LimitDimension::SourceLocationRowsPerChunk => {
+                    config.max_source_location_rows_per_chunk = 0;
+                }
+                _ => unreachable!(),
+            }
+            assert!(matches!(
+                FormatLimits::try_new(config),
+                Err(FormatError::InvalidLimitConfiguration {
+                    dimension: actual,
+                    requested: 0,
+                    ..
+                }) if actual == dimension
+            ));
         }
     }
 }

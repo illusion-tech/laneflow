@@ -8,11 +8,12 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use laneflow_static_contract::{
-    AccessEffect, AuthoringLaneKind, CanonicalFrameKind, EntityKind, EntityKindMarker,
-    FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind, MAX_LANE_EDGE_LENGTH_MM,
-    MAX_SPEED_MM_S, MIN_LANE_EDGE_LENGTH_MM, MIN_SPEED_MM_S, ManeuverGateKind, ManeuverPathKind,
-    MovementKind, ParkingAreaKind, ParticipantClassKind, RoadSectionKind, SignalAspect,
-    SignalGroupKind, StopLineKind, VehicleProfileKind, millimetres_from_si,
+    AccessEffect, AuthoringLaneKind, CanonicalFrameKind, ConflictZoneKind, EntityKind,
+    EntityKindMarker, FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind,
+    MAX_LANE_EDGE_LENGTH_MM, MAX_SPEED_MM_S, MIN_LANE_EDGE_LENGTH_MM, MIN_SPEED_MM_S,
+    ManeuverGateKind, ManeuverPathKind, MovementKind, ParkingFacilityKind, ParticipantClassKind,
+    RoadSectionKind, SignalAspect, SignalGroupKind, StopLineKind, VehicleProfileKind,
+    millimetres_from_si,
 };
 
 use crate::SourceLocation;
@@ -99,7 +100,7 @@ pub type ManeuverGateReference<'a> = EntityReference<'a, ManeuverGateKind>;
 /// 指向信号组声明的有类型未解析引用。
 pub type SignalGroupReference<'a> = EntityReference<'a, SignalGroupKind>;
 /// 指向停车区域声明的有类型未解析引用。
-pub type ParkingAreaReference<'a> = EntityReference<'a, ParkingAreaKind>;
+pub type ParkingFacilityReference<'a> = EntityReference<'a, ParkingFacilityKind>;
 /// 指向参与者类别声明的有类型未解析引用。
 pub type ParticipantClassReference<'a> = EntityReference<'a, ParticipantClassKind>;
 /// 指向车辆配置声明的有类型未解析引用。
@@ -384,23 +385,29 @@ pub struct ParkingSpaceGeometryInput {
     pub width_meters: f64,
 }
 
-/// 合成领域专用语言的停车区域声明输入。
+/// 合成领域专用语言的停车设施声明输入。
 #[derive(Clone, Copy, Debug)]
-pub struct ParkingAreaInput<'a> {
-    /// 来源模块内显式持久化且唯一的停车区域稳定键。
-    pub parking_area_key: &'a str,
+pub struct ParkingFacilityInput<'a> {
+    /// 来源模块内显式持久化且唯一的停车设施稳定键。
+    pub parking_facility_key: &'a str,
+    /// 不展开为显式泊位的虚拟容量。
+    pub virtual_capacity: u32,
+    /// 虚拟容量的非空入口集合；容量为零时必须为空。
+    pub virtual_entries: &'a [ParkingLaneAnchorInput<'a>],
+    /// 虚拟容量的非空出口集合；容量为零时必须为空。
+    pub virtual_exits: &'a [ParkingLaneAnchorInput<'a>],
 }
 
 /// 合成领域专用语言的停车位声明输入。
 ///
-/// `parking_area` 只建立可选组织关系，不参与停车位 Identity v1；改变区域归属不能
+/// `parking_facility` 只建立可选组织关系，不参与停车位 Identity v1；改变区域归属不能
 /// 造成停车位身份漂移。入口和出口锚点均必须解析到既有车道图边。
 #[derive(Clone, Copy, Debug)]
 pub struct ParkingSpaceInput<'a> {
     /// 来源模块内显式持久化且唯一的停车位稳定键。
     pub parking_space_key: &'a str,
     /// 可选停车区域；`None` 表示合法的独立停车位。
-    pub parking_area: Option<ParkingAreaReference<'a>>,
+    pub parking_facility: Option<ParkingFacilityReference<'a>>,
     /// 停车提交前交通参与单元必须到达的入口锚点。
     pub entry: ParkingLaneAnchorInput<'a>,
     /// 离开停车位后重新进入车道图的出口锚点。
@@ -1100,8 +1107,11 @@ pub(crate) struct SignalControllerDeclaration {
 }
 
 /// 已通过字段级检查、等待反向成员闭包的停车区域 Typed AST 记录。
-pub(crate) struct ParkingAreaDeclaration {
+pub(crate) struct ParkingFacilityDeclaration {
     pub(crate) header: DeclarationHeader,
+    pub(crate) virtual_capacity: u32,
+    pub(crate) virtual_entries: Box<[ParkingLaneAnchorDeclaration]>,
+    pub(crate) virtual_exits: Box<[ParkingLaneAnchorDeclaration]>,
 }
 
 /// Typed AST 中拥有的停车锚点；进度已在准入量化为毫米。
@@ -1122,7 +1132,7 @@ pub(crate) struct AdmittedParkingGeometry {
 /// 已通过字段级检查、等待解析区域、锚点和几何的停车位 Typed AST 记录。
 pub(crate) struct ParkingSpaceDeclaration {
     pub(crate) header: DeclarationHeader,
-    pub(crate) parking_area: Option<OwnedEntityReference<ParkingAreaKind>>,
+    pub(crate) parking_facility: Option<OwnedEntityReference<ParkingFacilityKind>>,
     pub(crate) entry: ParkingLaneAnchorDeclaration,
     pub(crate) exit: ParkingLaneAnchorDeclaration,
     pub(crate) geometry: AdmittedParkingGeometry,
@@ -1200,6 +1210,87 @@ pub(crate) struct WaitingZoneDeclaration {
     pub(crate) max_occupancy: u32,
 }
 
+/// 已通过字段级检查、等待路口归属闭包的冲突区 Typed AST 记录。
+pub(crate) struct ConflictZoneDeclaration {
+    pub(crate) header: DeclarationHeader,
+    pub(crate) junction: OwnedEntityReference<JunctionKind>,
+}
+
+/// 参与者流路径上的受检闭合位置。
+#[derive(Clone)]
+pub(crate) enum PathAnchorDeclaration {
+    Gate {
+        gate: OwnedEntityReference<ManeuverGateKind>,
+        span: SourceLocation,
+    },
+    EdgeBoundary {
+        boundary_index: u32,
+        span: SourceLocation,
+    },
+    Interior {
+        path_edge_index: u32,
+        progress_mm: u32,
+        span: SourceLocation,
+    },
+}
+
+impl PathAnchorDeclaration {
+    pub(crate) const fn span(&self) -> &SourceLocation {
+        match self {
+            Self::Gate { span, .. }
+            | Self::EdgeBoundary { span, .. }
+            | Self::Interior { span, .. } => span,
+        }
+    }
+}
+
+/// 一个参与者流穿越一个冲突区的 owner-local Typed AST 记录。
+pub(crate) struct ConflictPassageDeclaration {
+    pub(crate) conflict_zone: OwnedEntityReference<ConflictZoneKind>,
+    pub(crate) entry: PathAnchorDeclaration,
+    pub(crate) exit: PathAnchorDeclaration,
+    pub(crate) span: SourceLocation,
+}
+
+/// 已通过字段级检查、等待路径位置与冲突闭包的参与者流 Typed AST 记录。
+pub(crate) struct ParticipantStreamDeclaration {
+    pub(crate) header: DeclarationHeader,
+    pub(crate) junction: OwnedEntityReference<JunctionKind>,
+    pub(crate) maneuver_path: OwnedEntityReference<ManeuverPathKind>,
+    pub(crate) passages: Box<[ConflictPassageDeclaration]>,
+}
+
+/// 规范坐标框架中的一个编制 XZ 点。
+///
+/// Road Editing wire 在准入后仍保留 binary64 编制值；唯一的受检 `f64 -> f32`
+/// 量化由 Spatial HIR 的共享 freeze 边界完成。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct AuthoringPoint2F64 {
+    pub(crate) x: f64,
+    pub(crate) z: f64,
+}
+
+/// 不分配 StableId、由冲突区拥有的可选 2.5D 空间区域。
+pub(crate) struct ConflictZoneRegionDeclaration {
+    pub(crate) conflict_zone: OwnedEntityReference<ConflictZoneKind>,
+    pub(crate) canonical_frame: OwnedEntityReference<CanonicalFrameKind>,
+    pub(crate) min_y: f64,
+    pub(crate) max_y: f64,
+    pub(crate) ring_xz: Box<[AuthoringPoint2F64]>,
+    pub(crate) span: SourceLocation,
+}
+
+impl ConflictZoneRegionDeclaration {
+    pub(crate) fn try_visit_source_locations<E>(
+        &self,
+        mut visit: impl FnMut(&SourceLocation) -> Result<(), E>,
+    ) -> Result<(), E> {
+        visit(&self.span)?;
+        try_visit_reference(&self.conflict_zone, &mut visit)?;
+        try_visit_reference(&self.canonical_frame, &mut visit)
+    }
+}
+
 /// 官方合成前端当前支持的封闭声明集合。
 pub(crate) enum TypedAstDeclaration {
     LaneEdge(LaneEdgeDeclaration),
@@ -1215,11 +1306,13 @@ pub(crate) enum TypedAstDeclaration {
     WaitingZone(WaitingZoneDeclaration),
     SignalGroup(SignalGroupDeclaration),
     SignalController(SignalControllerDeclaration),
-    ParkingArea(ParkingAreaDeclaration),
+    ParkingFacility(ParkingFacilityDeclaration),
     ParkingSpace(ParkingSpaceDeclaration),
     ParticipantClass(ParticipantClassDeclaration),
     VehicleProfile(VehicleProfileDeclaration),
     CanonicalFrame(CanonicalFrameDeclaration),
+    ConflictZone(ConflictZoneDeclaration),
+    ParticipantStream(ParticipantStreamDeclaration),
     AccessRule(AccessRuleDeclaration),
 }
 
@@ -1323,7 +1416,7 @@ impl TypedAstDeclaration {
                 }
             }
             Self::SignalGroup(SignalGroupDeclaration { header })
-            | Self::ParkingArea(ParkingAreaDeclaration { header }) => {
+            | Self::ParkingFacility(ParkingFacilityDeclaration { header, .. }) => {
                 try_visit_declaration_header(header, &mut visit)?;
             }
             Self::Junction(JunctionDeclaration {
@@ -1418,14 +1511,14 @@ impl TypedAstDeclaration {
             }
             Self::ParkingSpace(ParkingSpaceDeclaration {
                 header,
-                parking_area,
+                parking_facility,
                 entry,
                 exit,
                 geometry: _,
             }) => {
                 try_visit_declaration_header(header, &mut visit)?;
-                if let Some(parking_area) = parking_area {
-                    try_visit_reference(parking_area, &mut visit)?;
+                if let Some(parking_facility) = parking_facility {
+                    try_visit_reference(parking_facility, &mut visit)?;
                 }
                 for anchor in [entry, exit] {
                     let ParkingLaneAnchorDeclaration {
@@ -1460,6 +1553,30 @@ impl TypedAstDeclaration {
                         centerline_points: _,
                     } = geometry;
                     try_visit_reference(lane_edge, &mut visit)?;
+                }
+            }
+            Self::ConflictZone(ConflictZoneDeclaration { header, junction }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                try_visit_reference(junction, &mut visit)?;
+            }
+            Self::ParticipantStream(ParticipantStreamDeclaration {
+                header,
+                junction,
+                maneuver_path,
+                passages,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                try_visit_reference(junction, &mut visit)?;
+                try_visit_reference(maneuver_path, &mut visit)?;
+                for passage in passages {
+                    visit(&passage.span)?;
+                    try_visit_reference(&passage.conflict_zone, &mut visit)?;
+                    for anchor in [&passage.entry, &passage.exit] {
+                        visit(anchor.span())?;
+                        if let PathAnchorDeclaration::Gate { gate, .. } = anchor {
+                            try_visit_reference(gate, &mut visit)?;
+                        }
+                    }
                 }
             }
             Self::AccessRule(AccessRuleDeclaration {

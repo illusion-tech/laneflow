@@ -174,7 +174,7 @@ fn assert_two_lane_poses(world: &TrafficWorld) {
 fn median(values: &mut [u128]) -> u128 {
     values.sort_unstable();
     let len = values.len();
-    if len % 2 == 0 {
+    if len.is_multiple_of(2) {
         (values[len / 2 - 1] + values[len / 2]) / 2
     } else {
         values[len / 2]

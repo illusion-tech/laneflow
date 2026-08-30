@@ -43,7 +43,7 @@ impl PortableEmissionProvenance {
 /// 一份候选对象的不可覆盖计算绑定。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PortableObjectCandidate {
-    bytes: Box<[u8]>,
+    source: ImmutableObjectSource,
     digest: Sha256Digest,
     object_key: Box<str>,
 }
@@ -52,7 +52,9 @@ impl PortableObjectCandidate {
     /// 返回完整 exact bytes。
     #[must_use]
     pub fn bytes(&self) -> &[u8] {
-        &self.bytes
+        self.source
+            .as_bytes()
+            .expect("closed candidate source was readable before construction")
     }
 
     /// 返回从 exact bytes 重算的 SHA-256。
@@ -64,15 +66,23 @@ impl PortableObjectCandidate {
     /// 返回与摘要共同绑定 exact bytes 的强类型长度。
     #[must_use]
     pub fn byte_length(&self) -> ExactByteLength {
-        ExactByteLength::new(
-            u64::try_from(self.bytes.len()).expect("supported targets have at most 64-bit usize"),
-        )
+        self.source.exact_byte_length()
     }
 
     /// 返回唯一 `sha256/<64 lowercase hex>` object key。
     #[must_use]
     pub fn object_key(&self) -> &str {
         &self.object_key
+    }
+
+    /// 百万级生产候选是否由 closed file backing 承载。
+    #[must_use]
+    pub const fn is_file_backed(&self) -> bool {
+        self.source.is_file_backed()
+    }
+
+    pub(crate) fn into_source(self) -> ImmutableObjectSource {
+        self.source
     }
 }
 
@@ -147,6 +157,22 @@ impl PortablePublicationCandidate {
     pub const fn expected_semantic_diff_base(&self) -> ExpectedSemanticDiffBase {
         self.expected_semantic_diff_base
     }
+
+    pub(crate) fn into_check_inputs(
+        self,
+    ) -> (
+        ImmutableObjectSource,
+        ImmutableObjectSource,
+        ImmutableObjectSource,
+        ExpectedSemanticDiffBase,
+    ) {
+        (
+            self.canonical_artifact.into_source(),
+            self.source_map.into_source(),
+            self.semantic_diff.into_source(),
+            self.expected_semantic_diff_base,
+        )
+    }
 }
 
 /// 可移植候选发射失败。
@@ -155,17 +181,40 @@ pub enum PortableEmissionError {
     InvalidCompilerBuildId,
     Format(FormatError),
     ArithmeticOverflow,
-    CandidateStagingLimitExceeded { actual: u64, limit: u64 },
     InvalidDiffBaseKind,
     DiffBaseSemanticMismatch,
     UnsupportedSemanticContractTransition,
     CrossRevisionStableIdCollision,
     InternalBindingMismatch,
+    StagedObjectIo,
+    StagedBackingChanged,
+    ObjectSource(ObjectSourceError),
+    CompileLimitExceeded {
+        dimension: CompileLimitDimension,
+        actual: u64,
+        limit: u64,
+    },
 }
 
 impl From<FormatError> for PortableEmissionError {
     fn from(value: FormatError) -> Self {
         Self::Format(value)
+    }
+}
+
+impl From<StagedObjectError> for PortableEmissionError {
+    fn from(value: StagedObjectError) -> Self {
+        match value {
+            StagedObjectError::Io(_) => Self::StagedObjectIo,
+            StagedObjectError::ArithmeticOverflow => Self::ArithmeticOverflow,
+            StagedObjectError::BackingChanged => Self::StagedBackingChanged,
+        }
+    }
+}
+
+impl From<ObjectSourceError> for PortableEmissionError {
+    fn from(value: ObjectSourceError) -> Self {
+        Self::ObjectSource(value)
     }
 }
 
@@ -183,10 +232,21 @@ pub(crate) fn object_key(digest: Sha256Digest) -> Box<str> {
 pub(crate) fn close_object(bytes: Box<[u8]>) -> PortableObjectCandidate {
     let digest = sha256(&bytes);
     PortableObjectCandidate {
-        bytes,
+        source: ImmutableObjectSource::from_boxed_bytes(bytes),
         digest,
         object_key: object_key(digest),
     }
+}
+
+pub(crate) fn close_staged_object(
+    source: ClosedStagedObjectSource,
+) -> Result<PortableObjectCandidate, PortableEmissionError> {
+    let digest = sha256(source.as_bytes()?);
+    Ok(PortableObjectCandidate {
+        source: ImmutableObjectSource::from_staged(source),
+        digest,
+        object_key: object_key(digest),
+    })
 }
 
 #[cfg(test)]

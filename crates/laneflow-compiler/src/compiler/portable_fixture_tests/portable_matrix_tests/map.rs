@@ -51,7 +51,7 @@ fn map_candidate_closes_modules_documents_locations_and_source_bijections() {
         let row = module_table.row(u32::try_from(ordinal).unwrap()).unwrap();
         assert_eq!(field_u32(row, 1), u32::try_from(ordinal).unwrap());
         assert_eq!(field_utf8(row, 2), descriptor.authoring_namespace_id());
-        assert_eq!(field_u16(row, 3), 1);
+        assert_eq!(field_u16(row, 3), descriptor.source_language() as u16);
         assert_eq!(
             field_sha256(row, 4),
             *descriptor.source_document_set_digest()
@@ -131,22 +131,28 @@ fn map_candidate_closes_modules_documents_locations_and_source_bijections() {
         .map(|ordinal| {
             let row = location_table.row(ordinal).unwrap();
             assert_eq!(field_u32(row, 1), ordinal);
+            let source_module_ordinal = field_u32(row, 3);
+            let source_language = module_views[usize::try_from(source_module_ordinal).unwrap()]
+                .descriptor()
+                .source_language();
             assert_eq!(
                 field_u8(row, 2),
-                0,
-                "the fixed full fixture is SyntheticDsl"
+                u8::from(matches!(
+                    source_language,
+                    crate::SourceLanguage::RoadEditingSource
+                )),
+                "location kind follows its source module language"
             );
-            (
-                field_u32(row, 3),
-                field_u32(row, 4),
-                field_u32(row, 5),
-                field_u32(row, 6),
-                field_u32(row, 7),
-                field_u32(row, 8),
-            )
+            row.fields()
+                .filter(|field| field.tag() != 1)
+                .map(|field| (field.tag(), field.value_bytes().to_vec()))
+                .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
-    assert!(location_keys.windows(2).all(|pair| pair[0] < pair[1]));
+    assert_eq!(
+        location_keys.iter().collect::<BTreeSet<_>>().len(),
+        location_keys.len()
+    );
 
     let identity_table = artifact.section(1).unwrap().table(0).unwrap();
     let identity_keys = (0..identity_table.row_count())
@@ -238,22 +244,30 @@ fn map_candidate_closes_modules_documents_locations_and_source_bijections() {
         (0..location_table.row_count()).collect::<BTreeSet<_>>()
     );
 
-    assert_eq!(spatial_range_table.row_count(), 0);
-    for role in [28, 29] {
-        for ordinal in 0..owner_table.row_count() {
-            let row = owner_table.row(ordinal).unwrap();
-            if field_u8(row, 3) == role {
-                assert!(field_ordinals(row, 6).is_empty());
-            }
+    assert!(
+        (0..spatial_range_table.row_count())
+            .any(|ordinal| { field_u8(spatial_range_table.row(ordinal).unwrap(), 3) == 32 })
+    );
+    assert!(
+        (0..owner_table.row_count())
+            .any(|ordinal| field_u8(owner_table.row(ordinal).unwrap(), 3) == 32)
+    );
+    assert!((0..owner_table.row_count()).any(|ordinal| {
+        let row = owner_table.row(ordinal).unwrap();
+        field_u8(row, 3) == 28 && !field_ordinals(row, 6).is_empty()
+    }));
+    for ordinal in 0..owner_table.row_count() {
+        let row = owner_table.row(ordinal).unwrap();
+        if field_u8(row, 3) == 29 {
+            assert!(field_ordinals(row, 6).is_empty());
         }
     }
     let spatial = artifact.section(4).unwrap();
-    for ordinal in 0..spatial.table(1).unwrap().row_count() {
-        assert_eq!(
-            field_u8(spatial.table(1).unwrap().row(ordinal).unwrap(), 6),
-            0
-        );
-    }
+    let lane_geometry = spatial.table(1).unwrap();
+    let direction_profile_flags = (0..lane_geometry.row_count())
+        .map(|ordinal| field_u8(lane_geometry.row(ordinal).unwrap(), 6))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(direction_profile_flags, BTreeSet::from([0, 1]));
     for ordinal in 0..spatial.table(2).unwrap().row_count() {
         assert_eq!(
             field_u8(spatial.table(2).unwrap().row(ordinal).unwrap(), 4),
@@ -274,7 +288,9 @@ fn map_direct_versions_languages_document_lengths_locations_and_derived_values_f
             row,
             tag,
         );
+        let changed_at = range.start;
         bytes[range].copy_from_slice(&value.to_le_bytes());
+        refresh_chunk_digest_containing(&mut bytes, PortableObjectKind::SourceMap, changed_at);
         bytes
     };
     let mutate_u32 = |section, table, row, tag, value: u32| {
@@ -287,11 +303,13 @@ fn map_direct_versions_languages_document_lengths_locations_and_derived_values_f
             row,
             tag,
         );
+        let changed_at = range.start;
         bytes[range].copy_from_slice(&value.to_le_bytes());
+        refresh_chunk_digest_containing(&mut bytes, PortableObjectKind::SourceMap, changed_at);
         bytes
     };
     for bytes in [
-        mutate_u16(0, 0, 0, 1, 3),
+        mutate_u16(0, 0, 0, 1, 4),
         mutate_u16(0, 0, 0, 3, 1),
         mutate_u16(0, 0, 0, 7, 2),
     ] {
@@ -304,7 +322,7 @@ fn map_direct_versions_languages_document_lengths_locations_and_derived_values_f
     }
     assert_eq!(
         preflight_object_values(
-            &mutate_u16(1, 0, 0, 3, 2),
+            &mutate_u16(1, 0, 0, 3, 3),
             PortableObjectKind::SourceMap,
             FormatLimits::HARD,
         )

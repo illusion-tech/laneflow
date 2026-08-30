@@ -1,23 +1,16 @@
-//! compiler 后发射检查、LFCP v2 构造与认证 manifest 单提交点。
+//! compiler 后发射检查与 LFCP v2 exact descriptor 构造。
 //!
-//! 三份 emitter 最终字节必须先由 `laneflow-format` 重算 digest、length、network revision
-//! 并闭合 LFCA/LFSM/LFSD 的必要 binding。发布路径随后只消费该借用型能力，按顺序安装
-//! content-addressed no-replace objects、构造/安装 LFCP v2，并恰好一次调用外部认证
-//! manifest adapter。任何成功对象在提交点前都只是未引用对象。
+//! LaneFlow 只从同一次 emitter 候选建立受检 bundle，并从该能力构造 LFCP v2 binding。
+//! 是否以及如何持久化、认证或发布 exact bytes 由宿主、CI 或打包工具负责。
 
 mod lfcp;
 
-use std::io;
-
 use laneflow_format::{
-    FormatError, FormatLimits, PostEmissionCheckError, check_post_emission_bundle,
+    FormatError, FormatLimits, ImmutableObjectSource, PostEmissionCheckError,
+    PostEmissionCheckedBundle, check_post_emission_bundle,
 };
-use laneflow_static_contract::{ExactByteLength, Sha256Digest};
 
-use crate::{
-    LocalPortableObjectInstaller, PortableInstallError, PortableObjectCandidate,
-    PortableObjectInstallation, PortablePublicationCandidate, portable_emitter::object_key,
-};
+use crate::{PortableObjectCandidate, PortablePublicationCandidate};
 
 pub(crate) use self::lfcp::build_lfcp;
 
@@ -86,66 +79,12 @@ impl PortablePublicationProvenance {
     }
 }
 
-/// 外部认证 manifest/pointer adapter 的失败分类。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PortableManifestCommitError {
-    AtomicCommitUnsupported,
-    Rejected,
-    Io(io::ErrorKind),
-}
-
-/// 交给外部认证 manifest adapter 的唯一提交候选。
-#[derive(Clone, Copy, Debug)]
-pub struct PortableManifestCommitCandidate<'a> {
-    descriptor: &'a PortableObjectCandidate,
-    descriptor_installation: &'a PortableObjectInstallation,
-    canonical_artifact_installation: &'a PortableObjectInstallation,
-    source_map_installation: &'a PortableObjectInstallation,
-}
-
-impl<'a> PortableManifestCommitCandidate<'a> {
-    #[must_use]
-    pub const fn descriptor(self) -> &'a PortableObjectCandidate {
-        self.descriptor
-    }
-
-    #[must_use]
-    pub const fn descriptor_installation(self) -> &'a PortableObjectInstallation {
-        self.descriptor_installation
-    }
-
-    #[must_use]
-    pub const fn canonical_artifact_installation(self) -> &'a PortableObjectInstallation {
-        self.canonical_artifact_installation
-    }
-
-    #[must_use]
-    pub const fn source_map_installation(self) -> &'a PortableObjectInstallation {
-        self.source_map_installation
-    }
-}
-
-/// 认证 manifest/pointer 的外部单提交点。
-///
-/// 实现必须把 candidate 的 LFCP exact digest/key 与自身外部信任根原子绑定；返回 `Ok(())`
-/// 是本事务唯一的 committed 边界。adapter 的真实性、签名格式和 durable pointer 不由
-/// compiler 自证。
-pub trait PortableManifestCommitter {
-    fn commit_authenticated_manifest(
-        &mut self,
-        candidate: PortableManifestCommitCandidate<'_>,
-    ) -> Result<(), PortableManifestCommitError>;
-}
-
-/// LFCP v2 发布事务失败。
+/// checked candidate / LFCP v2 构造失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PortablePublicationError {
     PostEmission(PostEmissionCheckError),
-    InstallationBindingMismatch,
     ArithmeticOverflow,
     Format(FormatError),
-    Install(PortableInstallError),
-    Manifest(PortableManifestCommitError),
 }
 
 impl From<PostEmissionCheckError> for PortablePublicationError {
@@ -160,171 +99,37 @@ impl From<FormatError> for PortablePublicationError {
     }
 }
 
-impl From<PortableInstallError> for PortablePublicationError {
-    fn from(value: PortableInstallError) -> Self {
-        Self::Install(value)
-    }
-}
-
-impl From<PortableManifestCommitError> for PortablePublicationError {
-    fn from(value: PortableManifestCommitError) -> Self {
-        Self::Manifest(value)
-    }
-}
-
-/// manifest adapter 已报告单提交成功后的受认证对象绑定。
+/// 从同一次 compiler 候选建立来源拥有型后发射能力。
 ///
-/// 该类型不内置签名或 trust anchor；调用方必须从实际 adapter 保存的外部认证状态判断真实性。
-/// 诊断性 LFSD 虽在提交前安装，但不进入 LFCP 或此 capability。
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ManifestCommittedPortablePublication {
-    descriptor: PortableObjectCandidate,
-    descriptor_installation: PortableObjectInstallation,
-    canonical_artifact_installation: PortableObjectInstallation,
-    source_map_installation: PortableObjectInstallation,
-}
-
-impl ManifestCommittedPortablePublication {
-    #[must_use]
-    pub const fn descriptor(&self) -> &PortableObjectCandidate {
-        &self.descriptor
-    }
-
-    #[must_use]
-    pub const fn descriptor_installation(&self) -> &PortableObjectInstallation {
-        &self.descriptor_installation
-    }
-
-    #[must_use]
-    pub const fn canonical_artifact_installation(&self) -> &PortableObjectInstallation {
-        &self.canonical_artifact_installation
-    }
-
-    #[must_use]
-    pub const fn source_map_installation(&self) -> &PortableObjectInstallation {
-        &self.source_map_installation
-    }
-}
-
-/// 检查并安装 LFCA/LFSM/LFSD，随后构造/安装 LFCP v2，并恰好调用一次 manifest 提交。
-///
-/// # Errors
-///
-/// 后发射闭合检查、任一对象安装、LFCP 编码/预检或 manifest 提交失败时，返回错误且不返回
-/// 部分成功状态。检查失败保证没有安装或 manifest 副作用；检查后的已安装对象在后续失败时
-/// 可以作为未引用对象保留。
-pub fn commit_portable_publication<M: PortableManifestCommitter + ?Sized>(
-    installer: &LocalPortableObjectInstaller,
-    candidate: &PortablePublicationCandidate,
-    provenance: &PortablePublicationProvenance,
+/// 调用方不能重新配对 LFCA/LFSM/LFSD 或覆盖 expected diff base binding。
+pub fn check_portable_candidate(
+    candidate: PortablePublicationCandidate,
     limits: FormatLimits,
-    manifest: &mut M,
-) -> Result<ManifestCommittedPortablePublication, PortablePublicationError> {
-    commit_with_installer(installer, candidate, provenance, limits, manifest)
-}
-
-trait PublicationObjectInstaller {
-    fn install_exact_bytes(
-        &self,
-        bytes: &[u8],
-    ) -> Result<PortableObjectInstallation, PortableInstallError>;
-}
-
-impl PublicationObjectInstaller for LocalPortableObjectInstaller {
-    fn install_exact_bytes(
-        &self,
-        bytes: &[u8],
-    ) -> Result<PortableObjectInstallation, PortableInstallError> {
-        LocalPortableObjectInstaller::install_exact_bytes(self, bytes)
-    }
-}
-
-fn commit_with_installer<
-    I: PublicationObjectInstaller + ?Sized,
-    M: PortableManifestCommitter + ?Sized,
->(
-    installer: &I,
-    candidate: &PortablePublicationCandidate,
-    provenance: &PortablePublicationProvenance,
-    limits: FormatLimits,
-    manifest: &mut M,
-) -> Result<ManifestCommittedPortablePublication, PortablePublicationError> {
-    let checked = check_post_emission_bundle(
-        candidate.canonical_artifact().bytes(),
-        candidate.source_map().bytes(),
-        candidate.semantic_diff().bytes(),
-        candidate.expected_semantic_diff_base(),
+) -> Result<
+    PostEmissionCheckedBundle<ImmutableObjectSource, ImmutableObjectSource, ImmutableObjectSource>,
+    PortablePublicationError,
+> {
+    let (canonical_artifact, source_map, semantic_diff, expected_base) =
+        candidate.into_check_inputs();
+    Ok(check_post_emission_bundle(
+        canonical_artifact,
+        source_map,
+        semantic_diff,
+        expected_base,
         limits,
-    )?;
-
-    let canonical_artifact_installation =
-        installer.install_exact_bytes(checked.canonical_artifact_view().bytes())?;
-    verify_checked_installation(
-        &canonical_artifact_installation,
-        checked.canonical_artifact_digest(),
-        checked.canonical_artifact_byte_length(),
-    )?;
-
-    let source_map_installation =
-        installer.install_exact_bytes(checked.source_map_view().bytes())?;
-    verify_checked_installation(
-        &source_map_installation,
-        checked.source_map_digest(),
-        checked.source_map_byte_length(),
-    )?;
-
-    let semantic_diff_installation =
-        installer.install_exact_bytes(checked.semantic_diff_view().bytes())?;
-    verify_checked_installation(
-        &semantic_diff_installation,
-        checked.semantic_diff_digest(),
-        checked.semantic_diff_byte_length(),
-    )?;
-
-    let descriptor = build_lfcp(checked, provenance, limits)?;
-    let descriptor_installation = installer.install_exact_bytes(descriptor.bytes())?;
-    verify_candidate_installation(&descriptor_installation, &descriptor)?;
-
-    manifest.commit_authenticated_manifest(PortableManifestCommitCandidate {
-        descriptor: &descriptor,
-        descriptor_installation: &descriptor_installation,
-        canonical_artifact_installation: &canonical_artifact_installation,
-        source_map_installation: &source_map_installation,
-    })?;
-
-    Ok(ManifestCommittedPortablePublication {
-        descriptor,
-        descriptor_installation,
-        canonical_artifact_installation,
-        source_map_installation,
-    })
+    )?)
 }
 
-fn verify_checked_installation(
-    installation: &PortableObjectInstallation,
-    digest: Sha256Digest,
-    byte_length: ExactByteLength,
-) -> Result<(), PortablePublicationError> {
-    if installation.digest() != digest
-        || installation.byte_length() != byte_length
-        || installation.object_key() != object_key(digest).as_ref()
-    {
-        return Err(PortablePublicationError::InstallationBindingMismatch);
-    }
-    Ok(())
-}
-
-fn verify_candidate_installation(
-    installation: &PortableObjectInstallation,
-    object: &PortableObjectCandidate,
-) -> Result<(), PortablePublicationError> {
-    if installation.digest() != object.digest()
-        || installation.byte_length() != object.byte_length()
-        || installation.object_key() != object.object_key()
-    {
-        return Err(PortablePublicationError::InstallationBindingMismatch);
-    }
-    Ok(())
+/// 检查候选并从受检 binding 构造 LFCP v2 exact bytes。
+///
+/// 成功不表示 descriptor 或其对象已经持久化、认证、发布或激活。
+pub fn build_portable_publication_descriptor(
+    candidate: PortablePublicationCandidate,
+    provenance: &PortablePublicationProvenance,
+    limits: FormatLimits,
+) -> Result<PortableObjectCandidate, PortablePublicationError> {
+    let checked = check_portable_candidate(candidate, limits)?;
+    build_lfcp(&checked, provenance, limits)
 }
 
 #[cfg(test)]

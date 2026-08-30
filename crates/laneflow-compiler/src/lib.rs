@@ -17,7 +17,6 @@ mod mir;
 mod module;
 mod portable_emitter;
 mod portable_publication;
-mod portable_store;
 mod portable_transport;
 pub mod road_editing;
 mod source;
@@ -31,7 +30,7 @@ pub use compiler::{
     CanonicalFacilityBandView, CanonicalFrameView, CanonicalIdentityFieldView,
     CanonicalJunctionInternalEdgeView, CanonicalJunctionView, CanonicalLaneEdgeGeometryView,
     CanonicalLaneEdgeView, CanonicalLaneGroupView, CanonicalManeuverGateView,
-    CanonicalManeuverPathView, CanonicalMovementView, CanonicalParkingAreaView,
+    CanonicalManeuverPathView, CanonicalMovementView, CanonicalParkingFacilityView,
     CanonicalParkingLaneAnchor, CanonicalParkingSpaceGeometry, CanonicalParkingSpaceView,
     CanonicalParticipantClassView, CanonicalPoint3F32, CanonicalRoadCorridorView,
     CanonicalRoadSectionView, CanonicalSignalControl, CanonicalSignalControllerView,
@@ -47,7 +46,7 @@ pub use declaration::{
     IidmVehicleProfileInput, JunctionInput, JunctionReference, LaneEdgeGeometryInput,
     LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference, ManeuverGateInput,
     ManeuverGateReference, ManeuverPathInput, ManeuverPathReference, MovementInput,
-    MovementReference, ParkingAreaInput, ParkingAreaReference, ParkingLaneAnchorInput,
+    MovementReference, ParkingFacilityInput, ParkingFacilityReference, ParkingLaneAnchorInput,
     ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference,
     RoadCorridorInput, RoadSectionInput, RoadSectionReference, ScalarViolation, SignalControlInput,
     SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
@@ -55,11 +54,12 @@ pub use declaration::{
     VehicleProfileReference, WaitingZoneInput,
 };
 pub use diagnostic::{
-    AccessCapability, AccessPlane, AccessRegulationField, Diagnostic, DiagnosticBundle,
-    DiagnosticCode, DiagnosticPayload, DiagnosticSeverity, JunctionEdgeSetViolation,
-    ParkingAnchorRole, ParkingGeometryField, ParkingGeometryViolation, RoadEditingInputViolation,
-    RoadEditingNumericViolation, RoadEditingSourceViolation, SourceHeaderField, SourcePosition,
-    SourceSpan, SourceTextViolation, SpatialAxis, SpatialGeometryViolation, WaitingZoneGateRole,
+    AccessCapability, AccessPlane, AccessRegulationField, ConflictZoneRegionViolation, Diagnostic,
+    DiagnosticBundle, DiagnosticCode, DiagnosticPayload, DiagnosticSeverity,
+    JunctionEdgeSetViolation, ParkingAnchorRole, ParkingGeometryField, ParkingGeometryViolation,
+    RoadEditingInputViolation, RoadEditingNumericViolation, RoadEditingSourceViolation,
+    SourceHeaderField, SourcePosition, SourceSpan, SourceTextViolation, SpatialAxis,
+    SpatialGeometryViolation, WaitingZoneGateRole,
 };
 pub use geometry_profile::{GeometryAccuracyProfile, GeometryDirectionProfile};
 pub use identity::{CanonicalIdentityViolation, derive_canonical_stable_id_v1};
@@ -72,16 +72,11 @@ pub use module::{
 };
 pub use portable_emitter::{
     PortableDiffBase, PortableEmissionError, PortableEmissionProvenance, PortableObjectCandidate,
-    PortablePublicationCandidate, emit_portable_candidate,
+    PortablePublicationCandidate, emit_portable_candidate, emit_portable_candidate_to_staging,
 };
 pub use portable_publication::{
-    ManifestCommittedPortablePublication, PortableManifestCommitCandidate,
-    PortableManifestCommitError, PortableManifestCommitter, PortablePublicationError,
-    PortablePublicationProvenance, PortablePublisherKind, commit_portable_publication,
-};
-pub use portable_store::{
-    LocalPortableObjectInstaller, PortableInstallDisposition, PortableInstallError,
-    PortableInstallOperation, PortableObjectInstallation,
+    PortablePublicationError, PortablePublicationProvenance, PortablePublisherKind,
+    build_portable_publication_descriptor, check_portable_candidate,
 };
 pub use portable_transport::{
     PortableReadError, read_portable_object_known_length, read_portable_object_to_end,
@@ -101,10 +96,11 @@ pub use source_map::{
     CanonicalFrameSourceView, CrossSectionRelationOwner, CrossSectionRelationSourceView,
     FacilityBandSourceView, JunctionRelationOwner, JunctionRelationSourceView, JunctionSourceView,
     LaneEdgeSourceView, LaneEdgeSuccessorSourceView, LaneGroupSourceView, ManeuverGateSourceView,
-    ManeuverPathSourceView, MovementSourceView, ParkingAreaSourceView, ParkingRelationSourceView,
-    ParkingSpaceSourceView, ParticipantClassSourceView, RoadCorridorSourceView,
-    RoadSectionSourceView, SignalControllerSourceView, SignalGroupSourceView,
-    SignalPhaseSourceView, SignalRelationOwner, SignalRelationSourceView, SourceDocumentView,
-    SourceLocationView, SourceModuleSourceView, SourceRelationRole, SpatialRelationSourceView,
-    StopLineSourceView, ValidatedSourceMapInput, VehicleProfileSourceView, WaitingZoneSourceView,
+    ManeuverPathSourceView, MovementSourceView, ParkingFacilityRelationSourceView,
+    ParkingFacilitySourceView, ParkingRelationSourceView, ParkingSpaceSourceView,
+    ParticipantClassSourceView, RoadCorridorSourceView, RoadSectionSourceView,
+    SignalControllerSourceView, SignalGroupSourceView, SignalPhaseSourceView, SignalRelationOwner,
+    SignalRelationSourceView, SourceDocumentView, SourceLocationView, SourceModuleSourceView,
+    SourceRelationRole, SpatialRelationSourceView, StopLineSourceView, ValidatedSourceMapInput,
+    VehicleProfileSourceView, WaitingZoneSourceView,
 };

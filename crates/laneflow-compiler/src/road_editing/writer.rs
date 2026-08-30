@@ -10,7 +10,7 @@ use crate::{
     GeometryDirectionProfile, RoadEditingInputViolation,
 };
 
-const FORMAT_VERSION: u32 = 2;
+const FORMAT_VERSION: u32 = 3;
 
 /// 直接拥有 FlatBuffers storage 与有效尾部起点的 size-prefixed 来源缓冲区。
 pub struct OwnedRoadEditingSourceBuffer {
@@ -54,6 +54,7 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
             geometry_direction_profile: direction,
             road_alignments: alignments,
             declarations,
+            conflict_zone_regions: regions,
             wire_upper_bound,
         } = module.into_parts();
         if wire_upper_bound > capacity_limit {
@@ -94,7 +95,7 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
         let mut signal_groups = Vec::new();
         let mut signal_controllers = Vec::new();
         let mut signal_phases = Vec::new();
-        let mut parking_areas = Vec::new();
+        let mut parking_facilities = Vec::new();
         let mut parking_spaces = Vec::new();
         let mut lane_groups = Vec::new();
         let mut facility_bands = Vec::new();
@@ -102,6 +103,8 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
         let mut access_rules = Vec::new();
         let mut vehicle_profiles = Vec::new();
         let mut canonical_frames = Vec::new();
+        let mut conflict_zones = Vec::new();
+        let mut participant_streams = Vec::new();
 
         for declaration in &declarations {
             match declaration {
@@ -148,8 +151,8 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
                 RoadEditingDeclaration::SignalPhase(value) => {
                     signal_phases.push(encode_signal_phase(&mut fbb, value, current_namespace));
                 }
-                RoadEditingDeclaration::ParkingArea(value) => {
-                    parking_areas.push(encode_parking_area(&mut fbb, value));
+                RoadEditingDeclaration::ParkingFacility(value) => {
+                    parking_facilities.push(encode_parking_facility(&mut fbb, value));
                 }
                 RoadEditingDeclaration::ParkingSpace(value) => {
                     parking_spaces.push(encode_parking_space(&mut fbb, value));
@@ -172,6 +175,12 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
                 RoadEditingDeclaration::CanonicalFrame(value) => {
                     canonical_frames.push(encode_canonical_frame(&mut fbb, value));
                 }
+                RoadEditingDeclaration::ConflictZone(value) => {
+                    conflict_zones.push(encode_conflict_zone(&mut fbb, value));
+                }
+                RoadEditingDeclaration::ParticipantStream(value) => {
+                    participant_streams.push(encode_participant_stream(&mut fbb, value));
+                }
             }
         }
 
@@ -189,7 +198,7 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
         let signal_groups = fbb.create_vector(&signal_groups);
         let signal_controllers = fbb.create_vector(&signal_controllers);
         let signal_phases = fbb.create_vector(&signal_phases);
-        let parking_areas = fbb.create_vector(&parking_areas);
+        let parking_facilities = fbb.create_vector(&parking_facilities);
         let parking_spaces = fbb.create_vector(&parking_spaces);
         let lane_groups = fbb.create_vector(&lane_groups);
         let facility_bands = fbb.create_vector(&facility_bands);
@@ -197,6 +206,13 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
         let access_rules = fbb.create_vector(&access_rules);
         let vehicle_profiles = fbb.create_vector(&vehicle_profiles);
         let canonical_frames = fbb.create_vector(&canonical_frames);
+        let conflict_zones = fbb.create_vector(&conflict_zones);
+        let participant_streams = fbb.create_vector(&participant_streams);
+        let conflict_zone_regions = regions
+            .iter()
+            .map(|value| encode_conflict_zone_region(&mut fbb, value))
+            .collect::<Vec<_>>();
+        let conflict_zone_regions = fbb.create_vector(&conflict_zone_regions);
 
         let root = wire::RoadEditingSource::create(
             &mut fbb,
@@ -219,7 +235,7 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
                 signal_groups: Some(signal_groups),
                 signal_controllers: Some(signal_controllers),
                 signal_phases: Some(signal_phases),
-                parking_areas: Some(parking_areas),
+                parking_facilities: Some(parking_facilities),
                 parking_spaces: Some(parking_spaces),
                 lane_groups: Some(lane_groups),
                 facility_bands: Some(facility_bands),
@@ -227,6 +243,9 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
                 access_rules: Some(access_rules),
                 vehicle_profiles: Some(vehicle_profiles),
                 canonical_frames: Some(canonical_frames),
+                conflict_zones: Some(conflict_zones),
+                participant_streams: Some(participant_streams),
+                conflict_zone_regions: Some(conflict_zone_regions),
             },
         );
         wire::finish_size_prefixed_road_editing_source_buffer(&mut fbb, root);
@@ -808,17 +827,32 @@ fn encode_signal_phase<'fbb>(
     )
 }
 
-fn encode_parking_area<'fbb>(
+fn encode_parking_facility<'fbb>(
     fbb: &mut runtime::FlatBufferBuilder<'fbb>,
-    value: &ParkingAreaInput,
-) -> runtime::WIPOffset<wire::ParkingArea<'fbb>> {
-    let key = fbb.create_string(value.parking_area_key());
+    value: &ParkingFacilityInput,
+) -> runtime::WIPOffset<wire::ParkingFacility<'fbb>> {
+    let key = fbb.create_string(value.parking_facility_key());
     let canvas = create_canvas(fbb, value.canvas_selection());
-    wire::ParkingArea::create(
+    let virtual_entries = value
+        .virtual_entries()
+        .iter()
+        .map(|anchor| encode_parking_anchor(fbb, anchor))
+        .collect::<Vec<_>>();
+    let virtual_entries = fbb.create_vector(&virtual_entries);
+    let virtual_exits = value
+        .virtual_exits()
+        .iter()
+        .map(|anchor| encode_parking_anchor(fbb, anchor))
+        .collect::<Vec<_>>();
+    let virtual_exits = fbb.create_vector(&virtual_exits);
+    wire::ParkingFacility::create(
         fbb,
-        &wire::ParkingAreaArgs {
-            parking_area_key: Some(key),
+        &wire::ParkingFacilityArgs {
+            parking_facility_key: Some(key),
             canvas_selection: canvas,
+            virtual_capacity: value.virtual_capacity(),
+            virtual_entries: Some(virtual_entries),
+            virtual_exits: Some(virtual_exits),
         },
     )
 }
@@ -843,7 +877,7 @@ fn encode_parking_space<'fbb>(
 ) -> runtime::WIPOffset<wire::ParkingSpace<'fbb>> {
     let key = fbb.create_string(value.parking_space_key());
     let area = value
-        .parking_area()
+        .parking_facility()
         .map(|reference| create_reference(fbb, reference));
     let entry = encode_parking_anchor(fbb, value.entry());
     let exit = encode_parking_anchor(fbb, value.exit());
@@ -862,7 +896,7 @@ fn encode_parking_space<'fbb>(
         fbb,
         &wire::ParkingSpaceArgs {
             parking_space_key: Some(key),
-            parking_area: area,
+            parking_facility: area,
             entry: Some(entry),
             exit: Some(exit),
             geometry: Some(geometry),
@@ -1038,6 +1072,113 @@ fn encode_canonical_frame<'fbb>(
         fbb,
         &wire::CanonicalFrameArgs {
             canonical_frame_key: Some(key),
+            canvas_selection: canvas,
+        },
+    )
+}
+
+fn encode_conflict_zone<'fbb>(
+    fbb: &mut runtime::FlatBufferBuilder<'fbb>,
+    value: &ConflictZoneInput,
+) -> runtime::WIPOffset<wire::ConflictZone<'fbb>> {
+    let key = fbb.create_string(value.conflict_zone_key());
+    let junction = create_reference(fbb, value.junction());
+    let canvas = create_canvas(fbb, value.canvas_selection());
+    wire::ConflictZone::create(
+        fbb,
+        &wire::ConflictZoneArgs {
+            conflict_zone_key: Some(key),
+            junction: Some(junction),
+            canvas_selection: canvas,
+        },
+    )
+}
+
+fn encode_path_anchor<'fbb>(
+    fbb: &mut runtime::FlatBufferBuilder<'fbb>,
+    value: &PathAnchorInput,
+) -> runtime::WIPOffset<wire::PathAnchor<'fbb>> {
+    let mut args = wire::PathAnchorArgs::default();
+    match value {
+        PathAnchorInput::Gate(gate) => {
+            args.kind = wire::PathAnchorKind::Gate;
+            args.gate = Some(create_reference(fbb, gate));
+        }
+        PathAnchorInput::EdgeBoundary { boundary_index } => {
+            args.kind = wire::PathAnchorKind::EdgeBoundary;
+            args.boundary_index = *boundary_index;
+        }
+        PathAnchorInput::Interior {
+            path_edge_index,
+            progress_meters,
+        } => {
+            args.kind = wire::PathAnchorKind::Interior;
+            args.path_edge_index = *path_edge_index;
+            args.progress_meters = *progress_meters;
+        }
+    }
+    wire::PathAnchor::create(fbb, &args)
+}
+
+fn encode_participant_stream<'fbb>(
+    fbb: &mut runtime::FlatBufferBuilder<'fbb>,
+    value: &ParticipantStreamInput,
+) -> runtime::WIPOffset<wire::ParticipantStream<'fbb>> {
+    let key = fbb.create_string(value.participant_stream_key());
+    let junction = create_reference(fbb, value.junction());
+    let maneuver_path = create_reference(fbb, value.maneuver_path());
+    let passages = value
+        .passages()
+        .iter()
+        .map(|passage| {
+            let conflict_zone = create_reference(fbb, passage.conflict_zone());
+            let entry = encode_path_anchor(fbb, passage.entry());
+            let exit = encode_path_anchor(fbb, passage.exit());
+            wire::ConflictPassage::create(
+                fbb,
+                &wire::ConflictPassageArgs {
+                    conflict_zone: Some(conflict_zone),
+                    entry: Some(entry),
+                    exit: Some(exit),
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    let passages = fbb.create_vector(&passages);
+    let canvas = create_canvas(fbb, value.canvas_selection());
+    wire::ParticipantStream::create(
+        fbb,
+        &wire::ParticipantStreamArgs {
+            participant_stream_key: Some(key),
+            junction: Some(junction),
+            maneuver_path: Some(maneuver_path),
+            passages: Some(passages),
+            canvas_selection: canvas,
+        },
+    )
+}
+
+fn encode_conflict_zone_region<'fbb>(
+    fbb: &mut runtime::FlatBufferBuilder<'fbb>,
+    value: &ConflictZoneRegionInput,
+) -> runtime::WIPOffset<wire::ConflictZoneRegion<'fbb>> {
+    let conflict_zone = create_reference(fbb, value.conflict_zone());
+    let canonical_frame = create_reference(fbb, value.canonical_frame());
+    let ring = value
+        .ring_xz()
+        .iter()
+        .map(|point| wire::Vec2F64::new(point.x(), point.z()))
+        .collect::<Vec<_>>();
+    let ring = fbb.create_vector(&ring);
+    let canvas = create_canvas(fbb, value.canvas_selection());
+    wire::ConflictZoneRegion::create(
+        fbb,
+        &wire::ConflictZoneRegionArgs {
+            conflict_zone: Some(conflict_zone),
+            canonical_frame: Some(canonical_frame),
+            min_y: value.min_y(),
+            max_y: value.max_y(),
+            ring_xz: Some(ring),
             canvas_selection: canvas,
         },
     )
@@ -1307,8 +1448,8 @@ pub(super) mod tests {
             RoadEditingDeclaration::WaitingZone(
                 WaitingZoneInput::try_new("waiting", path, gate.clone(), gate, 1).expect("waiting"),
             ),
-            RoadEditingDeclaration::ParkingArea(
-                ParkingAreaInput::try_new("parking-area").expect("parking area"),
+            RoadEditingDeclaration::ParkingFacility(
+                ParkingFacilityInput::try_new("parking-facility").expect("parking area"),
             ),
             RoadEditingDeclaration::ParkingSpace(
                 ParkingSpaceInput::try_new(
@@ -1318,8 +1459,8 @@ pub(super) mod tests {
                     ParkingSpaceGeometry::try_new(2.0, 0.0, 5.0, 2.5).expect("parking geometry"),
                 )
                 .expect("parking space")
-                .with_parking_area(
-                    ParkingAreaReference::local("parking-area").expect("parking area ref"),
+                .with_parking_facility(
+                    ParkingFacilityReference::local("parking-facility").expect("parking area ref"),
                 ),
             ),
             RoadEditingDeclaration::LaneGroup(
@@ -1452,7 +1593,7 @@ pub(super) mod tests {
         assert_eq!(root.signal_groups().len(), 1);
         assert_eq!(root.signal_controllers().len(), 1);
         assert_eq!(root.signal_phases().len(), 1);
-        assert_eq!(root.parking_areas().len(), 1);
+        assert_eq!(root.parking_facilities().len(), 1);
         assert_eq!(root.parking_spaces().len(), 1);
         assert_eq!(root.lane_groups().len(), 1);
         assert_eq!(root.facility_bands().len(), 1);

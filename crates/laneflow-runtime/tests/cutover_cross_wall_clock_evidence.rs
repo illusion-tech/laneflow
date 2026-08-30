@@ -114,7 +114,7 @@ fn world_with_fleet() -> TrafficWorld {
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
-                1_000 + 6_500 * u32::from(index),
+                1_000 + 6_500 * index,
                 0,
             ))
             .expect("vehicle");

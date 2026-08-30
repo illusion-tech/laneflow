@@ -520,7 +520,11 @@ impl MigrationDeltaJournal {
 
 /// 4 字节步长的小端 `u32` 流迭代（边序数 / tick 条目计数等原始段）。
 pub(crate) fn raw_u32_stream(bytes: &[u8]) -> impl Iterator<Item = u32> + '_ {
-    bytes.chunks_exact(4).map(read_u32_chunk)
+    bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|chunk| read_u32_chunk(chunk))
 }
 
 fn read_u32_chunk(chunk: &[u8]) -> u32 {
@@ -757,10 +761,9 @@ mod tests {
             if let Some(succ) = traffic
                 .successors(edge)
                 .and_then(|items| items.first().copied())
+                && traffic.relations().stop_line_for_edge(succ).is_none()
             {
-                if traffic.relations().stop_line_for_edge(succ).is_none() {
-                    edges.push(succ);
-                }
+                edges.push(succ);
             }
             break;
         }

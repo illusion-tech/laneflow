@@ -472,7 +472,7 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
     use std::sync::Arc;
 
     use laneflow_format::{FormatLimits, check_canonical_network_input};
-    use laneflow_runtime::{TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig};
+    use laneflow_runtime::{TickInput, VehicleSpawnInput, WorldConfig};
     use laneflow_scenario::signalized_corridor::{PASSENGER_CAR_PROFILE_KEY, bind};
     use laneflow_static_network::{
         SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
