@@ -137,6 +137,8 @@ pub(crate) fn freeze_source_map(
         mir.maneuver_path_gates.len(),
         mir.maneuver_path_waiting_zones.len(),
         mir.stop_line_maneuver_gates.len(),
+        mir.conflict_zones.len(),
+        mir.participant_streams.len(),
     ]
     .into_iter()
     .fold(0_u64, |total, count| {
@@ -161,19 +163,33 @@ pub(crate) fn freeze_source_map(
     .fold(0_u64, |total, count| {
         total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
     });
-    let parking_entity_count = u64::try_from(mir.parking_areas.len())
+    let conflict_entity_count = u64::try_from(mir.conflict_zones.len())
+        .unwrap_or(u64::MAX)
+        .saturating_add(u64::try_from(mir.participant_streams.len()).unwrap_or(u64::MAX));
+    let conflict_relation_count = u64::try_from(mir.participant_streams.len())
+        .unwrap_or(u64::MAX)
+        .saturating_add(u64::try_from(mir.conflict_passages.len()).unwrap_or(u64::MAX));
+    let parking_entity_count = u64::try_from(mir.parking_facilities.len())
         .unwrap_or(u64::MAX)
         .saturating_add(u64::try_from(mir.parking_spaces.len()).unwrap_or(u64::MAX));
     let parking_relation_count = u64::try_from(mir.parking_spaces.len())
         .unwrap_or(u64::MAX)
         .saturating_mul(2)
-        .saturating_add(u64::try_from(mir.parking_area_spaces.len()).unwrap_or(u64::MAX));
+        .saturating_add(u64::try_from(mir.parking_facility_spaces.len()).unwrap_or(u64::MAX));
+    let parking_facility_relation_count = u64::try_from(
+        mir.parking_facility_virtual_entries
+            .len()
+            .saturating_add(mir.parking_facility_virtual_exits.len()),
+    )
+    .unwrap_or(u64::MAX);
     let spatial_entity_count = u64::try_from(mir.canonical_frames.len()).unwrap_or(u64::MAX);
     let spatial_relation_count = u64::try_from(mir.lane_edge_geometries.len())
         .unwrap_or(u64::MAX)
-        .saturating_add(u64::try_from(mir.facility_band_geometries.len()).unwrap_or(u64::MAX));
-    let spatial_contributing_source_count =
-        u64::try_from(mir.geometry_source_ranges.len()).unwrap_or(u64::MAX);
+        .saturating_add(u64::try_from(mir.facility_band_geometries.len()).unwrap_or(u64::MAX))
+        .saturating_add(u64::try_from(mir.conflict_zone_regions.len()).unwrap_or(u64::MAX));
+    let spatial_contributing_source_count = u64::try_from(mir.geometry_source_ranges.len())
+        .unwrap_or(u64::MAX)
+        .saturating_add(u64::try_from(mir.conflict_zone_regions.len()).unwrap_or(u64::MAX));
     let access_entity_count = u64::try_from(mir.participant_classes.len())
         .unwrap_or(u64::MAX)
         .saturating_add(u64::try_from(mir.vehicle_profiles.len()).unwrap_or(u64::MAX))
@@ -232,10 +248,20 @@ pub(crate) fn freeze_source_map(
             signal_relation_count.saturating_mul(OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES),
         )
         .saturating_add(
+            conflict_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_FIXED_LOGICAL_BYTES),
+        )
+        .saturating_add(
+            conflict_relation_count.saturating_mul(OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES),
+        )
+        .saturating_add(
             parking_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_FIXED_LOGICAL_BYTES),
         )
         .saturating_add(
             parking_relation_count.saturating_mul(OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES),
+        )
+        .saturating_add(
+            parking_facility_relation_count
+                .saturating_mul(OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES),
         )
         .saturating_add(
             spatial_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_FIXED_LOGICAL_BYTES),
@@ -337,9 +363,22 @@ pub(crate) fn freeze_source_map(
             signal_relation_count,
         ))
         .saturating_add(requested_bytes::<
-            StableEntitySourceRecord<ParkingAreaOrdinal, ParkingAreaId>,
+            StableEntitySourceRecord<ConflictZoneOrdinal, ConflictZoneId>,
         >(
-            mir.parking_areas.len().try_into().unwrap_or(u64::MAX)
+            mir.conflict_zones.len().try_into().unwrap_or(u64::MAX)
+        ))
+        .saturating_add(requested_bytes::<
+            StableEntitySourceRecord<ParticipantStreamOrdinal, ParticipantStreamId>,
+        >(
+            mir.participant_streams.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<ConflictRelationSourceRecord>(
+            conflict_relation_count,
+        ))
+        .saturating_add(requested_bytes::<
+            StableEntitySourceRecord<ParkingFacilityOrdinal, ParkingFacilityId>,
+        >(
+            mir.parking_facilities.len().try_into().unwrap_or(u64::MAX),
         ))
         .saturating_add(requested_bytes::<
             StableEntitySourceRecord<ParkingSpaceOrdinal, ParkingSpaceId>,
@@ -348,6 +387,9 @@ pub(crate) fn freeze_source_map(
         ))
         .saturating_add(requested_bytes::<ParkingRelationSourceRecord>(
             parking_relation_count,
+        ))
+        .saturating_add(requested_bytes::<ParkingFacilityRelationSourceRecord>(
+            parking_facility_relation_count,
         ))
         .saturating_add(requested_bytes::<
             StableEntitySourceRecord<CanonicalFrameOrdinal, CanonicalFrameId>,
@@ -381,6 +423,9 @@ pub(crate) fn freeze_source_map(
     // 同时存续；其余 scratch 与该阶段不重叠，取峰值即可。
     let spatial_order_scratch_bytes =
         requested_bytes::<Option<usize>>(mir.lane_edges.len().try_into().unwrap_or(u64::MAX))
+            .saturating_add(requested_bytes::<Option<usize>>(
+                mir.conflict_zones.len().try_into().unwrap_or(u64::MAX),
+            ))
             .saturating_add(requested_bytes::<u32>(
                 mir.canonical_frames.len().try_into().unwrap_or(u64::MAX),
             ));
@@ -510,10 +555,20 @@ pub(crate) fn freeze_source_map(
         usize::try_from(signal_relation_count)
             .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
     );
-    let mut parking_area_sources = Vec::with_capacity(mir.parking_areas.len());
+    let mut conflict_zone_sources = Vec::with_capacity(mir.conflict_zones.len());
+    let mut participant_stream_sources = Vec::with_capacity(mir.participant_streams.len());
+    let mut conflict_relation_sources = Vec::with_capacity(
+        usize::try_from(conflict_relation_count)
+            .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
+    );
+    let mut parking_facility_sources = Vec::with_capacity(mir.parking_facilities.len());
     let mut parking_space_sources = Vec::with_capacity(mir.parking_spaces.len());
     let mut parking_relation_sources = Vec::with_capacity(
         usize::try_from(parking_relation_count)
+            .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
+    );
+    let mut parking_facility_relation_sources = Vec::with_capacity(
+        usize::try_from(parking_facility_relation_count)
             .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
     );
     let mut participant_class_sources = Vec::with_capacity(mir.participant_classes.len());
@@ -1005,18 +1060,142 @@ pub(crate) fn freeze_source_map(
         }
     }
 
+    let mut next_conflict_zone_index_by_junction = vec![0_u32; mir.junctions.len()];
     for mir_key in frozen_lir
-        .parking_areas
+        .conflict_zones
         .stage_keys_in_lir_order()
         .iter()
         .copied()
     {
-        let area = &mir.parking_areas[mir_key.index()];
-        parking_area_sources.push(StableEntitySourceRecord {
-            ordinal: frozen_lir.parking_areas.ordinal(mir_key),
+        let zone = &mir.conflict_zones[mir_key.index()];
+        let ordinal = frozen_lir.conflict_zones.ordinal(mir_key);
+        conflict_zone_sources.push(StableEntitySourceRecord {
+            ordinal,
+            stable_id: zone.stable_id,
+            primary: location.resolve(zone.module, &zone.source_span)?,
+        });
+        let local_index = next_conflict_zone_index_by_junction[zone.junction.index()];
+        next_conflict_zone_index_by_junction[zone.junction.index()] = local_index
+            .checked_add(1)
+            .expect("LIR relation count precheck proved local index fits u32");
+        let junction = &mir.junctions[zone.junction.index()];
+        junction_relation_sources.push(JunctionRelationSourceRecord {
+            owner: JunctionRelationOwnerRecord::Junction(
+                frozen_lir.junctions.ordinal(zone.junction),
+                junction.stable_id,
+            ),
+            role: SourceRelationRole::JunctionConflictZone,
+            local_index,
+            primary: location.record(
+                zone.junction_source_location
+                    .as_ref()
+                    .expect("resolved conflict zone retains its junction reference source")
+                    .clone(),
+            ),
+        });
+    }
+
+    let mut next_participant_stream_index_by_junction = vec![0_u32; mir.junctions.len()];
+    for mir_key in frozen_lir
+        .participant_streams
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
+        let stream = &mir.participant_streams[mir_key.index()];
+        let ordinal = frozen_lir.participant_streams.ordinal(mir_key);
+        participant_stream_sources.push(StableEntitySourceRecord {
+            ordinal,
+            stable_id: stream.stable_id,
+            primary: location.resolve(stream.module, &stream.source_span)?,
+        });
+        let local_index = next_participant_stream_index_by_junction[stream.junction.index()];
+        next_participant_stream_index_by_junction[stream.junction.index()] = local_index
+            .checked_add(1)
+            .expect("LIR relation count precheck proved local index fits u32");
+        let junction = &mir.junctions[stream.junction.index()];
+        junction_relation_sources.push(JunctionRelationSourceRecord {
+            owner: JunctionRelationOwnerRecord::Junction(
+                frozen_lir.junctions.ordinal(stream.junction),
+                junction.stable_id,
+            ),
+            role: SourceRelationRole::JunctionParticipantStream,
+            local_index,
+            primary: location.record(
+                stream
+                    .junction_source_location
+                    .as_ref()
+                    .expect("resolved participant stream retains its junction reference source")
+                    .clone(),
+            ),
+        });
+        conflict_relation_sources.push(ConflictRelationSourceRecord {
+            owner_ordinal: ordinal,
+            owner_stable_id: stream.stable_id,
+            role: SourceRelationRole::ParticipantStreamManeuverPath,
+            local_index: 0,
+            primary: location.record(
+                stream
+                    .maneuver_path_source_location
+                    .as_ref()
+                    .expect("resolved participant stream retains its maneuver-path source")
+                    .clone(),
+            ),
+        });
+        let lir_stream = &frozen_lir.lir.participant_streams[ordinal.index()];
+        let mir_rows = &frozen_lir.conflict_passages.mir_rows_in_lir_order()
+            [lir_stream.passages.as_usize_range()];
+        let lir_passages = &frozen_lir.lir.conflict_passages[lir_stream.passages.as_usize_range()];
+        debug_assert_eq!(mir_rows.len(), lir_passages.len());
+        for (local_index, (mir_row, lir_passage)) in mir_rows.iter().zip(lir_passages).enumerate() {
+            let passage = &mir.conflict_passages[mir_row.index()];
+            debug_assert_eq!(
+                frozen_lir.conflict_zones.ordinal(passage.conflict_zone),
+                lir_passage.conflict_zone
+            );
+            conflict_relation_sources.push(ConflictRelationSourceRecord {
+                owner_ordinal: ordinal,
+                owner_stable_id: stream.stable_id,
+                role: SourceRelationRole::ParticipantStreamConflictPassage,
+                local_index: u32::try_from(local_index)
+                    .expect("LIR relation range precheck proved local index fits u32"),
+                primary: location.record(passage.source_location.clone()),
+            });
+        }
+    }
+
+    for mir_key in frozen_lir
+        .parking_facilities
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
+        let area = &mir.parking_facilities[mir_key.index()];
+        parking_facility_sources.push(StableEntitySourceRecord {
+            ordinal: frozen_lir.parking_facilities.ordinal(mir_key),
             stable_id: area.stable_id,
             primary: location.resolve(area.module, &area.source_span)?,
         });
+        for (role, anchors) in [
+            (
+                SourceRelationRole::ParkingFacilityVirtualEntry,
+                &mir.parking_facility_virtual_entries[area.virtual_entries.as_usize_range()],
+            ),
+            (
+                SourceRelationRole::ParkingFacilityVirtualExit,
+                &mir.parking_facility_virtual_exits[area.virtual_exits.as_usize_range()],
+            ),
+        ] {
+            for (local_index, anchor) in anchors.iter().enumerate() {
+                parking_facility_relation_sources.push(ParkingFacilityRelationSourceRecord {
+                    owner_ordinal: frozen_lir.parking_facilities.ordinal(mir_key),
+                    owner_stable_id: area.stable_id,
+                    role,
+                    local_index: u32::try_from(local_index).unwrap_or(u32::MAX),
+                    primary: location.record(anchor.source_location.clone()),
+                });
+            }
+        }
     }
     for mir_key in frozen_lir
         .parking_spaces
@@ -1032,17 +1211,17 @@ pub(crate) fn freeze_source_map(
             stable_id: space.stable_id,
             primary,
         });
-        if space.parking_area.is_some() {
+        if space.parking_facility.is_some() {
             parking_relation_sources.push(ParkingRelationSourceRecord {
                 owner_ordinal: ordinal,
                 owner_stable_id: space.stable_id,
-                role: SourceRelationRole::ParkingSpaceArea,
+                role: SourceRelationRole::ParkingSpaceFacility,
                 local_index: 0,
                 primary: location.record(
                     space
-                        .parking_area_source_location
+                        .parking_facility_source_location
                         .as_ref()
-                        .expect("resolved parking-area member retains its reference source")
+                        .expect("resolved parking-facility member retains its reference source")
                         .clone(),
                 ),
             });
@@ -1232,6 +1411,40 @@ pub(crate) fn freeze_source_map(
             });
         }
     }
+    let mut mir_zone_to_region = vec![None; mir.conflict_zones.len()];
+    for (region_index, region) in mir.conflict_zone_regions.iter().enumerate() {
+        debug_assert!(mir_zone_to_region[region.conflict_zone.index()].is_none());
+        mir_zone_to_region[region.conflict_zone.index()] = Some(region_index);
+    }
+    let mut next_conflict_region_index_by_frame = vec![0_u32; mir.canonical_frames.len()];
+    for lir_region in &frozen_lir.lir.conflict_zone_regions {
+        let mir_zone = frozen_lir
+            .conflict_zones
+            .stage_key_at_lir_index(lir_region.conflict_zone.index());
+        let region_index = mir_zone_to_region[mir_zone.index()]
+            .expect("LIR conflict region must map back to its unique MIR zone region");
+        let region = &mir.conflict_zone_regions[region_index];
+        let frame = &mir.canonical_frames[region.canonical_frame.index()];
+        let owner_ordinal = frozen_lir.canonical_frames.ordinal(region.canonical_frame);
+        let local_index = next_conflict_region_index_by_frame[region.canonical_frame.index()];
+        next_conflict_region_index_by_frame[region.canonical_frame.index()] = local_index
+            .checked_add(1)
+            .expect("MIR range precheck proved local index fits u32");
+        spatial_relation_sources.push(SpatialRelationSourceRecord {
+            owner_ordinal,
+            owner_stable_id: frame.stable_id,
+            role: SourceRelationRole::CanonicalFrameConflictZoneRegion,
+            local_index,
+            primary: location.record(region.canonical_frame_source_location.clone()),
+            source_ranges: vec![SpatialGeometrySourceRangeRecord {
+                point_start: 0,
+                point_end_exclusive: region.ring_xz.len(),
+                source_segment_ordinal: 0,
+                source: location.record(region.source_location.clone()),
+            }]
+            .into_boxed_slice(),
+        });
+    }
     for (frame_index, frame) in mir.canonical_frames.iter().enumerate() {
         debug_assert_eq!(
             next_local_index_by_frame[frame_index],
@@ -1311,6 +1524,10 @@ pub(crate) fn freeze_source_map(
         usize::try_from(signal_relation_count).unwrap_or(usize::MAX)
     );
     debug_assert_eq!(
+        conflict_relation_sources.len(),
+        usize::try_from(conflict_relation_count).unwrap_or(usize::MAX)
+    );
+    debug_assert_eq!(
         parking_relation_sources.len(),
         usize::try_from(parking_relation_count).unwrap_or(usize::MAX)
     );
@@ -1362,9 +1579,13 @@ pub(crate) fn freeze_source_map(
         signal_controller_sources: signal_controller_sources.into_boxed_slice(),
         signal_phase_sources: signal_phase_sources.into_boxed_slice(),
         signal_relation_sources: signal_relation_sources.into_boxed_slice(),
-        parking_area_sources: parking_area_sources.into_boxed_slice(),
+        conflict_zone_sources: conflict_zone_sources.into_boxed_slice(),
+        participant_stream_sources: participant_stream_sources.into_boxed_slice(),
+        conflict_relation_sources: conflict_relation_sources.into_boxed_slice(),
+        parking_facility_sources: parking_facility_sources.into_boxed_slice(),
         parking_space_sources: parking_space_sources.into_boxed_slice(),
         parking_relation_sources: parking_relation_sources.into_boxed_slice(),
+        parking_facility_relation_sources: parking_facility_relation_sources.into_boxed_slice(),
         participant_class_sources: participant_class_sources.into_boxed_slice(),
         vehicle_profile_sources: vehicle_profile_sources.into_boxed_slice(),
         canonical_frame_sources: canonical_frame_sources.into_boxed_slice(),

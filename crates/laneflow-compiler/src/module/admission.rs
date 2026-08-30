@@ -4,7 +4,9 @@ use std::sync::Arc;
 #[cfg(test)]
 use crate::SourceSpan;
 use crate::arena::ArenaKey;
-use crate::declaration::{RoadAlignmentDeclaration, TypedAstDeclaration};
+use crate::declaration::{
+    ConflictZoneRegionDeclaration, RoadAlignmentDeclaration, TypedAstDeclaration,
+};
 use crate::diagnostic::DiagnosticCollector;
 use crate::geometry_profile::GeometryCompilationProfiles;
 use crate::{
@@ -39,6 +41,7 @@ pub(crate) struct TypedAstModule {
     /// 校验所有此类模块使用同一对位置/方向档。
     pub(crate) geometry_profiles: Option<GeometryCompilationProfiles>,
     pub(crate) road_alignments: Box<[RoadAlignmentDeclaration]>,
+    pub(crate) conflict_zone_regions: Box<[ConflictZoneRegionDeclaration]>,
     pub(crate) declarations: Box<[TypedAstDeclaration]>,
 }
 
@@ -377,7 +380,7 @@ impl TestOfficialModule {
                     counts[7] = counts[7].saturating_add(1);
                 }
                 TypedAstDeclaration::ParkingSpace(space) => {
-                    if let Some(reference) = &mut space.parking_area {
+                    if let Some(reference) = &mut space.parking_facility {
                         reference.span = span(92);
                         counts[8] = counts[8].saturating_add(1);
                     }
@@ -400,6 +403,7 @@ impl TestOfficialModule {
         let counts = &mut self.admitted.resource_counts;
         match dimension {
             CompileLimitDimension::DeclarationCount => counts.declaration_count = observed,
+            CompileLimitDimension::StableEntityCount => counts.stable_entity_count = observed,
             CompileLimitDimension::TypedAstRecordCount => counts.typed_ast_record_count = observed,
             CompileLimitDimension::ReferenceCount => counts.reference_count = observed,
             CompileLimitDimension::RelationOccurrenceCount => {
@@ -802,6 +806,7 @@ impl CompilationUnitBuilder {
             CompileLimitDimension::ImportEdgeCount => self.totals.import_edge_count,
             CompileLimitDimension::SourceBytesTotal => self.totals.source_bytes_total,
             CompileLimitDimension::DeclarationCount => self.totals.declaration_count,
+            CompileLimitDimension::StableEntityCount => self.totals.stable_entity_count,
             CompileLimitDimension::TypedAstRecordCount => self.totals.typed_ast_record_count,
             CompileLimitDimension::ReferenceCount => self.totals.reference_count,
             CompileLimitDimension::RelationOccurrenceCount => self.totals.relation_occurrence_count,
@@ -825,6 +830,8 @@ impl CompilationUnitBuilder {
             | CompileLimitDimension::LirRecordCount
             | CompileLimitDimension::StageScratchBytes
             | CompileLimitDimension::OutputBytes
+            | CompileLimitDimension::PortableObjectBytes
+            | CompileLimitDimension::PortableBundleBytes
             | CompileLimitDimension::RetainedCapacityBytes => 0,
         }
     }
@@ -1121,6 +1128,7 @@ impl CompilationUnitBuilder {
             source_document_count: self.totals.source_document_count,
             import_edge_count: self.totals.import_edge_count,
             declaration_count: self.totals.declaration_count,
+            stable_entity_count: self.totals.stable_entity_count,
             reference_count: self.totals.reference_count,
             relation_occurrence_count: self.totals.relation_occurrence_count,
             identity_field_occurrence_count: self.totals.identity_field_occurrence_count,
@@ -1147,6 +1155,7 @@ pub struct CompilationUnit {
     pub(crate) source_document_count: u64,
     pub(crate) import_edge_count: u64,
     pub(crate) declaration_count: u64,
+    pub(crate) stable_entity_count: u64,
     pub(crate) reference_count: u64,
     pub(crate) relation_occurrence_count: u64,
     pub(crate) identity_field_occurrence_count: u64,

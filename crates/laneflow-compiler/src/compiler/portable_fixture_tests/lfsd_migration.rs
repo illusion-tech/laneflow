@@ -31,13 +31,16 @@ fn migration_module(target: bool) -> SyntheticModule {
             .unwrap();
     }
     builder
-        .add_parking_area(ParkingAreaInput {
-            parking_area_key: "area-main",
+        .add_parking_facility(ParkingFacilityInput {
+            parking_facility_key: "area-main",
+            virtual_capacity: 0,
+            virtual_entries: &[],
+            virtual_exits: &[],
         })
         .unwrap()
         .add_parking_space(ParkingSpaceInput {
             parking_space_key: "space-main",
-            parking_area: Some(ParkingAreaReference::local("area-main")),
+            parking_facility: Some(ParkingFacilityReference::local("area-main")),
             entry: ParkingLaneAnchorInput {
                 lane_edge: LaneEdgeReference::local("entry"),
                 progress_meters: 4.0,
@@ -58,7 +61,7 @@ fn migration_module(target: bool) -> SyntheticModule {
         builder
             .add_parking_space(ParkingSpaceInput {
                 parking_space_key: "space-doomed",
-                parking_area: Some(ParkingAreaReference::local("area-main")),
+                parking_facility: Some(ParkingFacilityReference::local("area-main")),
                 entry: ParkingLaneAnchorInput {
                     lane_edge: LaneEdgeReference::local("entry"),
                     progress_meters: 8.0,
@@ -163,13 +166,16 @@ fn oracle_module(target: bool) -> SyntheticModule {
             successors: &[],
         })
         .unwrap()
-        .add_parking_area(ParkingAreaInput {
-            parking_area_key: "area-main",
+        .add_parking_facility(ParkingFacilityInput {
+            parking_facility_key: "area-main",
+            virtual_capacity: 0,
+            virtual_entries: &[],
+            virtual_exits: &[],
         })
         .unwrap()
         .add_parking_space(ParkingSpaceInput {
             parking_space_key: "space-main",
-            parking_area: Some(ParkingAreaReference::local("area-main")),
+            parking_facility: Some(ParkingFacilityReference::local("area-main")),
             entry: ParkingLaneAnchorInput {
                 lane_edge: LaneEdgeReference::local("entry"),
                 progress_meters: 4.0,
@@ -361,7 +367,7 @@ fn portable_migration_pair_matches_frozen_exact_bytes() {
     assert_eq!(target.semantic_diff().bytes(), MIGRATION_LFSD);
     assert_eq!(
         target.semantic_diff().object_key(),
-        "sha256/df69088cb81d78646a59611ebfa6926fdf0f1ff1093bc2d268edcd62ebcb7cc7"
+        "sha256/2c7eb0febf649773ce867f84b47684435918108ad667424cd1d26fcc86d54e97"
     );
     assert_ne!(base.network_revision(), target.network_revision());
 
@@ -371,7 +377,7 @@ fn portable_migration_pair_matches_frozen_exact_bytes() {
     assert_eq!(otarget.semantic_diff().bytes(), ORACLE_LFSD);
     assert_eq!(
         otarget.semantic_diff().object_key(),
-        "sha256/a239a8a1a2adc32124f9385faa3911ee915788c44bfc1db29c5ca87214c8c3e1"
+        "sha256/5e40d2de4bda10ab36acf1498f4a734c70f192b9faaad4daeaaf57426637d4b2"
     );
     assert_ne!(obase.network_revision(), otarget.network_revision());
 
@@ -383,7 +389,7 @@ fn portable_migration_pair_matches_frozen_exact_bytes() {
     assert_eq!(ptarget.semantic_diff().bytes(), PROFILE_LFSD);
     assert_eq!(
         ptarget.semantic_diff().object_key(),
-        "sha256/2cdb4c6b16c4f56092dda0b23f987791a8d2bd3c8ee87f58547478a2424bf470"
+        "sha256/ab070a572a2ebbaa06ed8f5f87c341d0839e872c23b055debd5d1f2d1ade291b"
     );
     assert_ne!(pbase.network_revision(), ptarget.network_revision());
 }

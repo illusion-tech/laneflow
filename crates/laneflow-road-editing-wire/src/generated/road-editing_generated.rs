@@ -914,6 +914,98 @@ impl<'a> ::flatbuffers::Verifiable for AccessEffect {
 
 impl ::flatbuffers::SimpleToVerifyInSlice for AccessEffect {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_PATH_ANCHOR_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_PATH_ANCHOR_KIND: u8 = 3;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_PATH_ANCHOR_KIND: [PathAnchorKind; 4] = [
+  PathAnchorKind::Unspecified,
+  PathAnchorKind::Gate,
+  PathAnchorKind::EdgeBoundary,
+  PathAnchorKind::Interior,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct PathAnchorKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl PathAnchorKind {
+  pub const Unspecified: Self = Self(0);
+  pub const Gate: Self = Self(1);
+  pub const EdgeBoundary: Self = Self(2);
+  pub const Interior: Self = Self(3);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 3;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Unspecified,
+    Self::Gate,
+    Self::EdgeBoundary,
+    Self::Interior,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Unspecified => Some("Unspecified"),
+      Self::Gate => Some("Gate"),
+      Self::EdgeBoundary => Some("EdgeBoundary"),
+      Self::Interior => Some("Interior"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for PathAnchorKind {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for PathAnchorKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for PathAnchorKind {
+    type Output = PathAnchorKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for PathAnchorKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for PathAnchorKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for PathAnchorKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_CURVE_SEGMENT_GEOMETRY: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MAX_CURVE_SEGMENT_GEOMETRY: u8 = 2;
@@ -1334,6 +1426,134 @@ impl<'a> Vec3F64 {
       ::core::ptr::copy_nonoverlapping(
         &x_le as *const _ as *const u8,
         self.0[16..].as_mut_ptr(),
+        ::core::mem::size_of::<<f64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+}
+
+/// 编制坐标中的 f64 二维点；用于 canonical frame 的 X/Z 平面。
+// struct Vec2F64, aligned to 8
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq)]
+pub struct Vec2F64(pub [u8; 16]);
+impl Default for Vec2F64 { 
+  fn default() -> Self { 
+    Self([0; 16])
+  }
+}
+impl ::core::fmt::Debug for Vec2F64 {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    f.debug_struct("Vec2F64")
+      .field("x", &self.x())
+      .field("z", &self.z())
+      .finish()
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for Vec2F64 {}
+impl<'a> ::flatbuffers::Follow<'a> for Vec2F64 {
+  type Inner = &'a Vec2F64;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { <&'a Vec2F64>::follow(buf, loc) }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for &'a Vec2F64 {
+  type Inner = &'a Vec2F64;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { ::flatbuffers::follow_cast_ref::<Vec2F64>(buf, loc) }
+  }
+}
+impl<'b> ::flatbuffers::Push for Vec2F64 {
+    type Output = Vec2F64;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        let src = unsafe { ::core::slice::from_raw_parts(self as *const Vec2F64 as *const u8, <Self as ::flatbuffers::Push>::size()) };
+        dst.copy_from_slice(src);
+    }
+    #[inline]
+    fn alignment() -> ::flatbuffers::PushAlignment {
+        ::flatbuffers::PushAlignment::new(8)
+    }
+}
+
+impl<'a> ::flatbuffers::Verifiable for Vec2F64 {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.in_buffer::<Self>(pos)
+  }
+}
+
+impl<'a> Vec2F64 {
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(
+    x: f64,
+    z: f64,
+  ) -> Self {
+    let mut s = Self([0; 16]);
+    s.set_x(x);
+    s.set_z(z);
+    s
+  }
+
+  pub fn x(&self) -> f64 {
+    let mut mem = ::core::mem::MaybeUninit::<<f64 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[0..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<f64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_x(&mut self, x: f64) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[0..].as_mut_ptr(),
+        ::core::mem::size_of::<<f64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn z(&self) -> f64 {
+    let mut mem = ::core::mem::MaybeUninit::<<f64 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[8..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<f64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_z(&mut self, x: f64) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[8..].as_mut_ptr(),
         ::core::mem::size_of::<<f64 as ::flatbuffers::EndianScalar>::Scalar>(),
       );
     }
@@ -4963,117 +5183,170 @@ impl ::core::fmt::Debug for SignalPhase<'_> {
       ds.finish()
   }
 }
-pub enum ParkingAreaOffset {}
+pub enum ParkingFacilityOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-pub struct ParkingArea<'a> {
+pub struct ParkingFacility<'a> {
   pub _tab: ::flatbuffers::Table<'a>,
 }
 
-impl<'a> ::flatbuffers::Follow<'a> for ParkingArea<'a> {
-  type Inner = ParkingArea<'a>;
+impl<'a> ::flatbuffers::Follow<'a> for ParkingFacility<'a> {
+  type Inner = ParkingFacility<'a>;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
     Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
   }
 }
 
-impl<'a> ParkingArea<'a> {
-  pub const VT_PARKING_AREA_KEY: ::flatbuffers::VOffsetT = 4;
+impl<'a> ParkingFacility<'a> {
+  pub const VT_PARKING_FACILITY_KEY: ::flatbuffers::VOffsetT = 4;
   pub const VT_CANVAS_SELECTION: ::flatbuffers::VOffsetT = 6;
+  pub const VT_VIRTUAL_CAPACITY: ::flatbuffers::VOffsetT = 8;
+  pub const VT_VIRTUAL_ENTRIES: ::flatbuffers::VOffsetT = 10;
+  pub const VT_VIRTUAL_EXITS: ::flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
-    ParkingArea { _tab: table }
+    ParkingFacility { _tab: table }
   }
   #[allow(unused_mut)]
   pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
     _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args ParkingAreaArgs<'args>
-  ) -> ::flatbuffers::WIPOffset<ParkingArea<'bldr>> {
-    let mut builder = ParkingAreaBuilder::new(_fbb);
+    args: &'args ParkingFacilityArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<ParkingFacility<'bldr>> {
+    let mut builder = ParkingFacilityBuilder::new(_fbb);
+    if let Some(x) = args.virtual_exits { builder.add_virtual_exits(x); }
+    if let Some(x) = args.virtual_entries { builder.add_virtual_entries(x); }
+    builder.add_virtual_capacity(args.virtual_capacity);
     if let Some(x) = args.canvas_selection { builder.add_canvas_selection(x); }
-    if let Some(x) = args.parking_area_key { builder.add_parking_area_key(x); }
+    if let Some(x) = args.parking_facility_key { builder.add_parking_facility_key(x); }
     builder.finish()
   }
 
 
   #[inline]
-  pub fn parking_area_key(&self) -> &'a str {
+  pub fn parking_facility_key(&self) -> &'a str {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ParkingArea::VT_PARKING_AREA_KEY, None).unwrap()}
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ParkingFacility::VT_PARKING_FACILITY_KEY, None).unwrap()}
   }
   #[inline]
   pub fn canvas_selection(&self) -> Option<&'a str> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ParkingArea::VT_CANVAS_SELECTION, None)}
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ParkingFacility::VT_CANVAS_SELECTION, None)}
+  }
+  #[inline]
+  pub fn virtual_capacity(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ParkingFacility::VT_VIRTUAL_CAPACITY, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn virtual_entries(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParkingLaneAnchor<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParkingLaneAnchor>>>>(ParkingFacility::VT_VIRTUAL_ENTRIES, None).unwrap()}
+  }
+  #[inline]
+  pub fn virtual_exits(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParkingLaneAnchor<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParkingLaneAnchor>>>>(ParkingFacility::VT_VIRTUAL_EXITS, None).unwrap()}
   }
 }
 
-impl ::flatbuffers::Verifiable for ParkingArea<'_> {
+impl ::flatbuffers::Verifiable for ParkingFacility<'_> {
   #[inline]
   fn run_verifier(
     v: &mut ::flatbuffers::Verifier, pos: usize
   ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
     v.visit_table(pos)?
-     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("parking_area_key", Self::VT_PARKING_AREA_KEY, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("parking_facility_key", Self::VT_PARKING_FACILITY_KEY, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("canvas_selection", Self::VT_CANVAS_SELECTION, false)?
+     .visit_field::<u32>("virtual_capacity", Self::VT_VIRTUAL_CAPACITY, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ParkingLaneAnchor>>>>("virtual_entries", Self::VT_VIRTUAL_ENTRIES, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ParkingLaneAnchor>>>>("virtual_exits", Self::VT_VIRTUAL_EXITS, true)?
      .finish();
     Ok(())
   }
 }
-pub struct ParkingAreaArgs<'a> {
-    pub parking_area_key: Option<::flatbuffers::WIPOffset<&'a str>>,
+pub struct ParkingFacilityArgs<'a> {
+    pub parking_facility_key: Option<::flatbuffers::WIPOffset<&'a str>>,
     pub canvas_selection: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub virtual_capacity: u32,
+    pub virtual_entries: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParkingLaneAnchor<'a>>>>>,
+    pub virtual_exits: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParkingLaneAnchor<'a>>>>>,
 }
-impl<'a> Default for ParkingAreaArgs<'a> {
+impl<'a> Default for ParkingFacilityArgs<'a> {
   #[inline]
   fn default() -> Self {
-    ParkingAreaArgs {
-      parking_area_key: None, // required field
+    ParkingFacilityArgs {
+      parking_facility_key: None, // required field
       canvas_selection: None,
+      virtual_capacity: 0,
+      virtual_entries: None, // required field
+      virtual_exits: None, // required field
     }
   }
 }
 
-pub struct ParkingAreaBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+pub struct ParkingFacilityBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
   fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
   start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ParkingAreaBuilder<'a, 'b, A> {
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ParkingFacilityBuilder<'a, 'b, A> {
   #[inline]
-  pub fn add_parking_area_key(&mut self, parking_area_key: ::flatbuffers::WIPOffset<&'b  str>) {
-    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ParkingArea::VT_PARKING_AREA_KEY, parking_area_key);
+  pub fn add_parking_facility_key(&mut self, parking_facility_key: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ParkingFacility::VT_PARKING_FACILITY_KEY, parking_facility_key);
   }
   #[inline]
   pub fn add_canvas_selection(&mut self, canvas_selection: ::flatbuffers::WIPOffset<&'b  str>) {
-    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ParkingArea::VT_CANVAS_SELECTION, canvas_selection);
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ParkingFacility::VT_CANVAS_SELECTION, canvas_selection);
   }
   #[inline]
-  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ParkingAreaBuilder<'a, 'b, A> {
+  pub fn add_virtual_capacity(&mut self, virtual_capacity: u32) {
+    self.fbb_.push_slot::<u32>(ParkingFacility::VT_VIRTUAL_CAPACITY, virtual_capacity, 0);
+  }
+  #[inline]
+  pub fn add_virtual_entries(&mut self, virtual_entries: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<ParkingLaneAnchor<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ParkingFacility::VT_VIRTUAL_ENTRIES, virtual_entries);
+  }
+  #[inline]
+  pub fn add_virtual_exits(&mut self, virtual_exits: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<ParkingLaneAnchor<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ParkingFacility::VT_VIRTUAL_EXITS, virtual_exits);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ParkingFacilityBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
-    ParkingAreaBuilder {
+    ParkingFacilityBuilder {
       fbb_: _fbb,
       start_: start,
     }
   }
   #[inline]
-  pub fn finish(self) -> ::flatbuffers::WIPOffset<ParkingArea<'a>> {
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<ParkingFacility<'a>> {
     let o = self.fbb_.end_table(self.start_);
-    self.fbb_.required(o, ParkingArea::VT_PARKING_AREA_KEY,"parking_area_key");
+    self.fbb_.required(o, ParkingFacility::VT_PARKING_FACILITY_KEY,"parking_facility_key");
+    self.fbb_.required(o, ParkingFacility::VT_VIRTUAL_ENTRIES,"virtual_entries");
+    self.fbb_.required(o, ParkingFacility::VT_VIRTUAL_EXITS,"virtual_exits");
     ::flatbuffers::WIPOffset::new(o.value())
   }
 }
 
-impl ::core::fmt::Debug for ParkingArea<'_> {
+impl ::core::fmt::Debug for ParkingFacility<'_> {
   fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-    let mut ds = f.debug_struct("ParkingArea");
-      ds.field("parking_area_key", &self.parking_area_key());
+    let mut ds = f.debug_struct("ParkingFacility");
+      ds.field("parking_facility_key", &self.parking_facility_key());
       ds.field("canvas_selection", &self.canvas_selection());
+      ds.field("virtual_capacity", &self.virtual_capacity());
+      ds.field("virtual_entries", &self.virtual_entries());
+      ds.field("virtual_exits", &self.virtual_exits());
       ds.finish()
   }
 }
@@ -5355,7 +5628,7 @@ impl<'a> ::flatbuffers::Follow<'a> for ParkingSpace<'a> {
 
 impl<'a> ParkingSpace<'a> {
   pub const VT_PARKING_SPACE_KEY: ::flatbuffers::VOffsetT = 4;
-  pub const VT_PARKING_AREA: ::flatbuffers::VOffsetT = 6;
+  pub const VT_PARKING_FACILITY: ::flatbuffers::VOffsetT = 6;
   pub const VT_ENTRY: ::flatbuffers::VOffsetT = 8;
   pub const VT_EXIT: ::flatbuffers::VOffsetT = 10;
   pub const VT_GEOMETRY: ::flatbuffers::VOffsetT = 12;
@@ -5375,7 +5648,7 @@ impl<'a> ParkingSpace<'a> {
     if let Some(x) = args.geometry { builder.add_geometry(x); }
     if let Some(x) = args.exit { builder.add_exit(x); }
     if let Some(x) = args.entry { builder.add_entry(x); }
-    if let Some(x) = args.parking_area { builder.add_parking_area(x); }
+    if let Some(x) = args.parking_facility { builder.add_parking_facility(x); }
     if let Some(x) = args.parking_space_key { builder.add_parking_space_key(x); }
     builder.finish()
   }
@@ -5389,11 +5662,11 @@ impl<'a> ParkingSpace<'a> {
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ParkingSpace::VT_PARKING_SPACE_KEY, None).unwrap()}
   }
   #[inline]
-  pub fn parking_area(&self) -> Option<&'a str> {
+  pub fn parking_facility(&self) -> Option<&'a str> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ParkingSpace::VT_PARKING_AREA, None)}
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ParkingSpace::VT_PARKING_FACILITY, None)}
   }
   #[inline]
   pub fn entry(&self) -> ParkingLaneAnchor<'a> {
@@ -5432,7 +5705,7 @@ impl ::flatbuffers::Verifiable for ParkingSpace<'_> {
   ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
     v.visit_table(pos)?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("parking_space_key", Self::VT_PARKING_SPACE_KEY, true)?
-     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("parking_area", Self::VT_PARKING_AREA, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("parking_facility", Self::VT_PARKING_FACILITY, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<ParkingLaneAnchor>>("entry", Self::VT_ENTRY, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<ParkingLaneAnchor>>("exit", Self::VT_EXIT, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<ParkingSpaceGeometry>>("geometry", Self::VT_GEOMETRY, true)?
@@ -5443,7 +5716,7 @@ impl ::flatbuffers::Verifiable for ParkingSpace<'_> {
 }
 pub struct ParkingSpaceArgs<'a> {
     pub parking_space_key: Option<::flatbuffers::WIPOffset<&'a str>>,
-    pub parking_area: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub parking_facility: Option<::flatbuffers::WIPOffset<&'a str>>,
     pub entry: Option<::flatbuffers::WIPOffset<ParkingLaneAnchor<'a>>>,
     pub exit: Option<::flatbuffers::WIPOffset<ParkingLaneAnchor<'a>>>,
     pub geometry: Option<::flatbuffers::WIPOffset<ParkingSpaceGeometry<'a>>>,
@@ -5454,7 +5727,7 @@ impl<'a> Default for ParkingSpaceArgs<'a> {
   fn default() -> Self {
     ParkingSpaceArgs {
       parking_space_key: None, // required field
-      parking_area: None,
+      parking_facility: None,
       entry: None, // required field
       exit: None, // required field
       geometry: None, // required field
@@ -5473,8 +5746,8 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ParkingSpaceBuilder<'a, 'b, A
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ParkingSpace::VT_PARKING_SPACE_KEY, parking_space_key);
   }
   #[inline]
-  pub fn add_parking_area(&mut self, parking_area: ::flatbuffers::WIPOffset<&'b  str>) {
-    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ParkingSpace::VT_PARKING_AREA, parking_area);
+  pub fn add_parking_facility(&mut self, parking_facility: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ParkingSpace::VT_PARKING_FACILITY, parking_facility);
   }
   #[inline]
   pub fn add_entry(&mut self, entry: ::flatbuffers::WIPOffset<ParkingLaneAnchor<'b >>) {
@@ -5515,7 +5788,7 @@ impl ::core::fmt::Debug for ParkingSpace<'_> {
   fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
     let mut ds = f.debug_struct("ParkingSpace");
       ds.field("parking_space_key", &self.parking_space_key());
-      ds.field("parking_area", &self.parking_area());
+      ds.field("parking_facility", &self.parking_facility());
       ds.field("entry", &self.entry());
       ds.field("exit", &self.exit());
       ds.field("geometry", &self.geometry());
@@ -6766,11 +7039,792 @@ impl ::core::fmt::Debug for CanonicalFrame<'_> {
       ds.finish()
   }
 }
+pub enum ConflictZoneOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ConflictZone<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for ConflictZone<'a> {
+  type Inner = ConflictZone<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ConflictZone<'a> {
+  pub const VT_CONFLICT_ZONE_KEY: ::flatbuffers::VOffsetT = 4;
+  pub const VT_JUNCTION: ::flatbuffers::VOffsetT = 6;
+  pub const VT_CANVAS_SELECTION: ::flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    ConflictZone { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ConflictZoneArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<ConflictZone<'bldr>> {
+    let mut builder = ConflictZoneBuilder::new(_fbb);
+    if let Some(x) = args.canvas_selection { builder.add_canvas_selection(x); }
+    if let Some(x) = args.junction { builder.add_junction(x); }
+    if let Some(x) = args.conflict_zone_key { builder.add_conflict_zone_key(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn conflict_zone_key(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ConflictZone::VT_CONFLICT_ZONE_KEY, None).unwrap()}
+  }
+  #[inline]
+  pub fn junction(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ConflictZone::VT_JUNCTION, None).unwrap()}
+  }
+  #[inline]
+  pub fn canvas_selection(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ConflictZone::VT_CANVAS_SELECTION, None)}
+  }
+}
+
+impl ::flatbuffers::Verifiable for ConflictZone<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("conflict_zone_key", Self::VT_CONFLICT_ZONE_KEY, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("junction", Self::VT_JUNCTION, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("canvas_selection", Self::VT_CANVAS_SELECTION, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ConflictZoneArgs<'a> {
+    pub conflict_zone_key: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub junction: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub canvas_selection: Option<::flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for ConflictZoneArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ConflictZoneArgs {
+      conflict_zone_key: None, // required field
+      junction: None, // required field
+      canvas_selection: None,
+    }
+  }
+}
+
+pub struct ConflictZoneBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ConflictZoneBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_conflict_zone_key(&mut self, conflict_zone_key: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ConflictZone::VT_CONFLICT_ZONE_KEY, conflict_zone_key);
+  }
+  #[inline]
+  pub fn add_junction(&mut self, junction: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ConflictZone::VT_JUNCTION, junction);
+  }
+  #[inline]
+  pub fn add_canvas_selection(&mut self, canvas_selection: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ConflictZone::VT_CANVAS_SELECTION, canvas_selection);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ConflictZoneBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ConflictZoneBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<ConflictZone<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, ConflictZone::VT_CONFLICT_ZONE_KEY,"conflict_zone_key");
+    self.fbb_.required(o, ConflictZone::VT_JUNCTION,"junction");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for ConflictZone<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("ConflictZone");
+      ds.field("conflict_zone_key", &self.conflict_zone_key());
+      ds.field("junction", &self.junction());
+      ds.field("canvas_selection", &self.canvas_selection());
+      ds.finish()
+  }
+}
+pub enum PathAnchorOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct PathAnchor<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for PathAnchor<'a> {
+  type Inner = PathAnchor<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> PathAnchor<'a> {
+  pub const VT_KIND: ::flatbuffers::VOffsetT = 4;
+  pub const VT_GATE: ::flatbuffers::VOffsetT = 6;
+  pub const VT_BOUNDARY_INDEX: ::flatbuffers::VOffsetT = 8;
+  pub const VT_PATH_EDGE_INDEX: ::flatbuffers::VOffsetT = 10;
+  pub const VT_PROGRESS_METERS: ::flatbuffers::VOffsetT = 12;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    PathAnchor { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args PathAnchorArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<PathAnchor<'bldr>> {
+    let mut builder = PathAnchorBuilder::new(_fbb);
+    builder.add_progress_meters(args.progress_meters);
+    builder.add_path_edge_index(args.path_edge_index);
+    builder.add_boundary_index(args.boundary_index);
+    if let Some(x) = args.gate { builder.add_gate(x); }
+    builder.add_kind(args.kind);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn kind(&self) -> PathAnchorKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<PathAnchorKind>(PathAnchor::VT_KIND, Some(PathAnchorKind::Unspecified)).unwrap()}
+  }
+  #[inline]
+  pub fn gate(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(PathAnchor::VT_GATE, None)}
+  }
+  #[inline]
+  pub fn boundary_index(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(PathAnchor::VT_BOUNDARY_INDEX, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn path_edge_index(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(PathAnchor::VT_PATH_EDGE_INDEX, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn progress_meters(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(PathAnchor::VT_PROGRESS_METERS, Some(0.0)).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for PathAnchor<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<PathAnchorKind>("kind", Self::VT_KIND, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("gate", Self::VT_GATE, false)?
+     .visit_field::<u32>("boundary_index", Self::VT_BOUNDARY_INDEX, false)?
+     .visit_field::<u32>("path_edge_index", Self::VT_PATH_EDGE_INDEX, false)?
+     .visit_field::<f64>("progress_meters", Self::VT_PROGRESS_METERS, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct PathAnchorArgs<'a> {
+    pub kind: PathAnchorKind,
+    pub gate: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub boundary_index: u32,
+    pub path_edge_index: u32,
+    pub progress_meters: f64,
+}
+impl<'a> Default for PathAnchorArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    PathAnchorArgs {
+      kind: PathAnchorKind::Unspecified,
+      gate: None,
+      boundary_index: 0,
+      path_edge_index: 0,
+      progress_meters: 0.0,
+    }
+  }
+}
+
+pub struct PathAnchorBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> PathAnchorBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_kind(&mut self, kind: PathAnchorKind) {
+    self.fbb_.push_slot::<PathAnchorKind>(PathAnchor::VT_KIND, kind, PathAnchorKind::Unspecified);
+  }
+  #[inline]
+  pub fn add_gate(&mut self, gate: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PathAnchor::VT_GATE, gate);
+  }
+  #[inline]
+  pub fn add_boundary_index(&mut self, boundary_index: u32) {
+    self.fbb_.push_slot::<u32>(PathAnchor::VT_BOUNDARY_INDEX, boundary_index, 0);
+  }
+  #[inline]
+  pub fn add_path_edge_index(&mut self, path_edge_index: u32) {
+    self.fbb_.push_slot::<u32>(PathAnchor::VT_PATH_EDGE_INDEX, path_edge_index, 0);
+  }
+  #[inline]
+  pub fn add_progress_meters(&mut self, progress_meters: f64) {
+    self.fbb_.push_slot::<f64>(PathAnchor::VT_PROGRESS_METERS, progress_meters, 0.0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> PathAnchorBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    PathAnchorBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<PathAnchor<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for PathAnchor<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("PathAnchor");
+      ds.field("kind", &self.kind());
+      ds.field("gate", &self.gate());
+      ds.field("boundary_index", &self.boundary_index());
+      ds.field("path_edge_index", &self.path_edge_index());
+      ds.field("progress_meters", &self.progress_meters());
+      ds.finish()
+  }
+}
+pub enum ConflictPassageOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ConflictPassage<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for ConflictPassage<'a> {
+  type Inner = ConflictPassage<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ConflictPassage<'a> {
+  pub const VT_CONFLICT_ZONE: ::flatbuffers::VOffsetT = 4;
+  pub const VT_ENTRY: ::flatbuffers::VOffsetT = 6;
+  pub const VT_EXIT: ::flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    ConflictPassage { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ConflictPassageArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<ConflictPassage<'bldr>> {
+    let mut builder = ConflictPassageBuilder::new(_fbb);
+    if let Some(x) = args.exit { builder.add_exit(x); }
+    if let Some(x) = args.entry { builder.add_entry(x); }
+    if let Some(x) = args.conflict_zone { builder.add_conflict_zone(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn conflict_zone(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ConflictPassage::VT_CONFLICT_ZONE, None).unwrap()}
+  }
+  #[inline]
+  pub fn entry(&self) -> PathAnchor<'a> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<PathAnchor>>(ConflictPassage::VT_ENTRY, None).unwrap()}
+  }
+  #[inline]
+  pub fn exit(&self) -> PathAnchor<'a> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<PathAnchor>>(ConflictPassage::VT_EXIT, None).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for ConflictPassage<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("conflict_zone", Self::VT_CONFLICT_ZONE, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<PathAnchor>>("entry", Self::VT_ENTRY, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<PathAnchor>>("exit", Self::VT_EXIT, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ConflictPassageArgs<'a> {
+    pub conflict_zone: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub entry: Option<::flatbuffers::WIPOffset<PathAnchor<'a>>>,
+    pub exit: Option<::flatbuffers::WIPOffset<PathAnchor<'a>>>,
+}
+impl<'a> Default for ConflictPassageArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ConflictPassageArgs {
+      conflict_zone: None, // required field
+      entry: None, // required field
+      exit: None, // required field
+    }
+  }
+}
+
+pub struct ConflictPassageBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ConflictPassageBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_conflict_zone(&mut self, conflict_zone: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ConflictPassage::VT_CONFLICT_ZONE, conflict_zone);
+  }
+  #[inline]
+  pub fn add_entry(&mut self, entry: ::flatbuffers::WIPOffset<PathAnchor<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<PathAnchor>>(ConflictPassage::VT_ENTRY, entry);
+  }
+  #[inline]
+  pub fn add_exit(&mut self, exit: ::flatbuffers::WIPOffset<PathAnchor<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<PathAnchor>>(ConflictPassage::VT_EXIT, exit);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ConflictPassageBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ConflictPassageBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<ConflictPassage<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, ConflictPassage::VT_CONFLICT_ZONE,"conflict_zone");
+    self.fbb_.required(o, ConflictPassage::VT_ENTRY,"entry");
+    self.fbb_.required(o, ConflictPassage::VT_EXIT,"exit");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for ConflictPassage<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("ConflictPassage");
+      ds.field("conflict_zone", &self.conflict_zone());
+      ds.field("entry", &self.entry());
+      ds.field("exit", &self.exit());
+      ds.finish()
+  }
+}
+pub enum ParticipantStreamOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ParticipantStream<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for ParticipantStream<'a> {
+  type Inner = ParticipantStream<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ParticipantStream<'a> {
+  pub const VT_PARTICIPANT_STREAM_KEY: ::flatbuffers::VOffsetT = 4;
+  pub const VT_JUNCTION: ::flatbuffers::VOffsetT = 6;
+  pub const VT_MANEUVER_PATH: ::flatbuffers::VOffsetT = 8;
+  pub const VT_PASSAGES: ::flatbuffers::VOffsetT = 10;
+  pub const VT_CANVAS_SELECTION: ::flatbuffers::VOffsetT = 12;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    ParticipantStream { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ParticipantStreamArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<ParticipantStream<'bldr>> {
+    let mut builder = ParticipantStreamBuilder::new(_fbb);
+    if let Some(x) = args.canvas_selection { builder.add_canvas_selection(x); }
+    if let Some(x) = args.passages { builder.add_passages(x); }
+    if let Some(x) = args.maneuver_path { builder.add_maneuver_path(x); }
+    if let Some(x) = args.junction { builder.add_junction(x); }
+    if let Some(x) = args.participant_stream_key { builder.add_participant_stream_key(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn participant_stream_key(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ParticipantStream::VT_PARTICIPANT_STREAM_KEY, None).unwrap()}
+  }
+  #[inline]
+  pub fn junction(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ParticipantStream::VT_JUNCTION, None).unwrap()}
+  }
+  #[inline]
+  pub fn maneuver_path(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ParticipantStream::VT_MANEUVER_PATH, None).unwrap()}
+  }
+  #[inline]
+  pub fn passages(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictPassage<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictPassage>>>>(ParticipantStream::VT_PASSAGES, None).unwrap()}
+  }
+  #[inline]
+  pub fn canvas_selection(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ParticipantStream::VT_CANVAS_SELECTION, None)}
+  }
+}
+
+impl ::flatbuffers::Verifiable for ParticipantStream<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("participant_stream_key", Self::VT_PARTICIPANT_STREAM_KEY, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("junction", Self::VT_JUNCTION, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("maneuver_path", Self::VT_MANEUVER_PATH, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ConflictPassage>>>>("passages", Self::VT_PASSAGES, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("canvas_selection", Self::VT_CANVAS_SELECTION, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ParticipantStreamArgs<'a> {
+    pub participant_stream_key: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub junction: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub maneuver_path: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub passages: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictPassage<'a>>>>>,
+    pub canvas_selection: Option<::flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for ParticipantStreamArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ParticipantStreamArgs {
+      participant_stream_key: None, // required field
+      junction: None, // required field
+      maneuver_path: None, // required field
+      passages: None, // required field
+      canvas_selection: None,
+    }
+  }
+}
+
+pub struct ParticipantStreamBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ParticipantStreamBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_participant_stream_key(&mut self, participant_stream_key: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ParticipantStream::VT_PARTICIPANT_STREAM_KEY, participant_stream_key);
+  }
+  #[inline]
+  pub fn add_junction(&mut self, junction: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ParticipantStream::VT_JUNCTION, junction);
+  }
+  #[inline]
+  pub fn add_maneuver_path(&mut self, maneuver_path: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ParticipantStream::VT_MANEUVER_PATH, maneuver_path);
+  }
+  #[inline]
+  pub fn add_passages(&mut self, passages: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<ConflictPassage<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ParticipantStream::VT_PASSAGES, passages);
+  }
+  #[inline]
+  pub fn add_canvas_selection(&mut self, canvas_selection: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ParticipantStream::VT_CANVAS_SELECTION, canvas_selection);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ParticipantStreamBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ParticipantStreamBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<ParticipantStream<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, ParticipantStream::VT_PARTICIPANT_STREAM_KEY,"participant_stream_key");
+    self.fbb_.required(o, ParticipantStream::VT_JUNCTION,"junction");
+    self.fbb_.required(o, ParticipantStream::VT_MANEUVER_PATH,"maneuver_path");
+    self.fbb_.required(o, ParticipantStream::VT_PASSAGES,"passages");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for ParticipantStream<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("ParticipantStream");
+      ds.field("participant_stream_key", &self.participant_stream_key());
+      ds.field("junction", &self.junction());
+      ds.field("maneuver_path", &self.maneuver_path());
+      ds.field("passages", &self.passages());
+      ds.field("canvas_selection", &self.canvas_selection());
+      ds.finish()
+  }
+}
+pub enum ConflictZoneRegionOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ConflictZoneRegion<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for ConflictZoneRegion<'a> {
+  type Inner = ConflictZoneRegion<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ConflictZoneRegion<'a> {
+  pub const VT_CONFLICT_ZONE: ::flatbuffers::VOffsetT = 4;
+  pub const VT_CANONICAL_FRAME: ::flatbuffers::VOffsetT = 6;
+  pub const VT_MIN_Y: ::flatbuffers::VOffsetT = 8;
+  pub const VT_MAX_Y: ::flatbuffers::VOffsetT = 10;
+  pub const VT_RING_XZ: ::flatbuffers::VOffsetT = 12;
+  pub const VT_CANVAS_SELECTION: ::flatbuffers::VOffsetT = 14;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    ConflictZoneRegion { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ConflictZoneRegionArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<ConflictZoneRegion<'bldr>> {
+    let mut builder = ConflictZoneRegionBuilder::new(_fbb);
+    builder.add_max_y(args.max_y);
+    builder.add_min_y(args.min_y);
+    if let Some(x) = args.canvas_selection { builder.add_canvas_selection(x); }
+    if let Some(x) = args.ring_xz { builder.add_ring_xz(x); }
+    if let Some(x) = args.canonical_frame { builder.add_canonical_frame(x); }
+    if let Some(x) = args.conflict_zone { builder.add_conflict_zone(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn conflict_zone(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ConflictZoneRegion::VT_CONFLICT_ZONE, None).unwrap()}
+  }
+  #[inline]
+  pub fn canonical_frame(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ConflictZoneRegion::VT_CANONICAL_FRAME, None).unwrap()}
+  }
+  #[inline]
+  pub fn min_y(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(ConflictZoneRegion::VT_MIN_Y, Some(0.0)).unwrap()}
+  }
+  #[inline]
+  pub fn max_y(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(ConflictZoneRegion::VT_MAX_Y, Some(0.0)).unwrap()}
+  }
+  #[inline]
+  pub fn ring_xz(&self) -> ::flatbuffers::Vector<'a, Vec2F64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, Vec2F64>>>(ConflictZoneRegion::VT_RING_XZ, None).unwrap()}
+  }
+  #[inline]
+  pub fn canvas_selection(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(ConflictZoneRegion::VT_CANVAS_SELECTION, None)}
+  }
+}
+
+impl ::flatbuffers::Verifiable for ConflictZoneRegion<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("conflict_zone", Self::VT_CONFLICT_ZONE, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("canonical_frame", Self::VT_CANONICAL_FRAME, true)?
+     .visit_field::<f64>("min_y", Self::VT_MIN_Y, false)?
+     .visit_field::<f64>("max_y", Self::VT_MAX_Y, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, Vec2F64>>>("ring_xz", Self::VT_RING_XZ, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("canvas_selection", Self::VT_CANVAS_SELECTION, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ConflictZoneRegionArgs<'a> {
+    pub conflict_zone: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub canonical_frame: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub min_y: f64,
+    pub max_y: f64,
+    pub ring_xz: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, Vec2F64>>>,
+    pub canvas_selection: Option<::flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for ConflictZoneRegionArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ConflictZoneRegionArgs {
+      conflict_zone: None, // required field
+      canonical_frame: None, // required field
+      min_y: 0.0,
+      max_y: 0.0,
+      ring_xz: None, // required field
+      canvas_selection: None,
+    }
+  }
+}
+
+pub struct ConflictZoneRegionBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ConflictZoneRegionBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_conflict_zone(&mut self, conflict_zone: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ConflictZoneRegion::VT_CONFLICT_ZONE, conflict_zone);
+  }
+  #[inline]
+  pub fn add_canonical_frame(&mut self, canonical_frame: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ConflictZoneRegion::VT_CANONICAL_FRAME, canonical_frame);
+  }
+  #[inline]
+  pub fn add_min_y(&mut self, min_y: f64) {
+    self.fbb_.push_slot::<f64>(ConflictZoneRegion::VT_MIN_Y, min_y, 0.0);
+  }
+  #[inline]
+  pub fn add_max_y(&mut self, max_y: f64) {
+    self.fbb_.push_slot::<f64>(ConflictZoneRegion::VT_MAX_Y, max_y, 0.0);
+  }
+  #[inline]
+  pub fn add_ring_xz(&mut self, ring_xz: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , Vec2F64>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ConflictZoneRegion::VT_RING_XZ, ring_xz);
+  }
+  #[inline]
+  pub fn add_canvas_selection(&mut self, canvas_selection: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ConflictZoneRegion::VT_CANVAS_SELECTION, canvas_selection);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ConflictZoneRegionBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ConflictZoneRegionBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<ConflictZoneRegion<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, ConflictZoneRegion::VT_CONFLICT_ZONE,"conflict_zone");
+    self.fbb_.required(o, ConflictZoneRegion::VT_CANONICAL_FRAME,"canonical_frame");
+    self.fbb_.required(o, ConflictZoneRegion::VT_RING_XZ,"ring_xz");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for ConflictZoneRegion<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("ConflictZoneRegion");
+      ds.field("conflict_zone", &self.conflict_zone());
+      ds.field("canonical_frame", &self.canonical_frame());
+      ds.field("min_y", &self.min_y());
+      ds.field("max_y", &self.max_y());
+      ds.field("ring_xz", &self.ring_xz());
+      ds.field("canvas_selection", &self.canvas_selection());
+      ds.finish()
+  }
+}
 pub enum RoadEditingSourceOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-/// v2 root。road_alignments 是编辑状态记录；其余 21 个向量与可构造 Identity 种类对应。
-/// field id 连续；`canonical_frames` 为 id 25。
+/// v3 root。road_alignments 是编辑状态记录；其余 23 个向量与可构造 Identity 种类对应。
+/// field id 连续；`conflict_zone_regions` 是 owner-local 空间记录，不分配 StableId。
 pub struct RoadEditingSource<'a> {
   pub _tab: ::flatbuffers::Table<'a>,
 }
@@ -6802,7 +7856,7 @@ impl<'a> RoadEditingSource<'a> {
   pub const VT_SIGNAL_GROUPS: ::flatbuffers::VOffsetT = 34;
   pub const VT_SIGNAL_CONTROLLERS: ::flatbuffers::VOffsetT = 36;
   pub const VT_SIGNAL_PHASES: ::flatbuffers::VOffsetT = 38;
-  pub const VT_PARKING_AREAS: ::flatbuffers::VOffsetT = 40;
+  pub const VT_PARKING_FACILITIES: ::flatbuffers::VOffsetT = 40;
   pub const VT_PARKING_SPACES: ::flatbuffers::VOffsetT = 42;
   pub const VT_LANE_GROUPS: ::flatbuffers::VOffsetT = 44;
   pub const VT_FACILITY_BANDS: ::flatbuffers::VOffsetT = 46;
@@ -6810,6 +7864,9 @@ impl<'a> RoadEditingSource<'a> {
   pub const VT_ACCESS_RULES: ::flatbuffers::VOffsetT = 50;
   pub const VT_VEHICLE_PROFILES: ::flatbuffers::VOffsetT = 52;
   pub const VT_CANONICAL_FRAMES: ::flatbuffers::VOffsetT = 54;
+  pub const VT_CONFLICT_ZONES: ::flatbuffers::VOffsetT = 56;
+  pub const VT_PARTICIPANT_STREAMS: ::flatbuffers::VOffsetT = 58;
+  pub const VT_CONFLICT_ZONE_REGIONS: ::flatbuffers::VOffsetT = 60;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -6821,6 +7878,9 @@ impl<'a> RoadEditingSource<'a> {
     args: &'args RoadEditingSourceArgs<'args>
   ) -> ::flatbuffers::WIPOffset<RoadEditingSource<'bldr>> {
     let mut builder = RoadEditingSourceBuilder::new(_fbb);
+    if let Some(x) = args.conflict_zone_regions { builder.add_conflict_zone_regions(x); }
+    if let Some(x) = args.participant_streams { builder.add_participant_streams(x); }
+    if let Some(x) = args.conflict_zones { builder.add_conflict_zones(x); }
     if let Some(x) = args.canonical_frames { builder.add_canonical_frames(x); }
     if let Some(x) = args.vehicle_profiles { builder.add_vehicle_profiles(x); }
     if let Some(x) = args.access_rules { builder.add_access_rules(x); }
@@ -6828,7 +7888,7 @@ impl<'a> RoadEditingSource<'a> {
     if let Some(x) = args.facility_bands { builder.add_facility_bands(x); }
     if let Some(x) = args.lane_groups { builder.add_lane_groups(x); }
     if let Some(x) = args.parking_spaces { builder.add_parking_spaces(x); }
-    if let Some(x) = args.parking_areas { builder.add_parking_areas(x); }
+    if let Some(x) = args.parking_facilities { builder.add_parking_facilities(x); }
     if let Some(x) = args.signal_phases { builder.add_signal_phases(x); }
     if let Some(x) = args.signal_controllers { builder.add_signal_controllers(x); }
     if let Some(x) = args.signal_groups { builder.add_signal_groups(x); }
@@ -6978,11 +8038,11 @@ impl<'a> RoadEditingSource<'a> {
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<SignalPhase>>>>(RoadEditingSource::VT_SIGNAL_PHASES, None).unwrap()}
   }
   #[inline]
-  pub fn parking_areas(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParkingArea<'a>>> {
+  pub fn parking_facilities(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParkingFacility<'a>>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParkingArea>>>>(RoadEditingSource::VT_PARKING_AREAS, None).unwrap()}
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParkingFacility>>>>(RoadEditingSource::VT_PARKING_FACILITIES, None).unwrap()}
   }
   #[inline]
   pub fn parking_spaces(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParkingSpace<'a>>> {
@@ -7033,6 +8093,27 @@ impl<'a> RoadEditingSource<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<CanonicalFrame>>>>(RoadEditingSource::VT_CANONICAL_FRAMES, None).unwrap()}
   }
+  #[inline]
+  pub fn conflict_zones(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictZone<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictZone>>>>(RoadEditingSource::VT_CONFLICT_ZONES, None).unwrap()}
+  }
+  #[inline]
+  pub fn participant_streams(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParticipantStream<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParticipantStream>>>>(RoadEditingSource::VT_PARTICIPANT_STREAMS, None).unwrap()}
+  }
+  #[inline]
+  pub fn conflict_zone_regions(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictZoneRegion<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictZoneRegion>>>>(RoadEditingSource::VT_CONFLICT_ZONE_REGIONS, None).unwrap()}
+  }
 }
 
 impl ::flatbuffers::Verifiable for RoadEditingSource<'_> {
@@ -7059,7 +8140,7 @@ impl ::flatbuffers::Verifiable for RoadEditingSource<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<SignalGroup>>>>("signal_groups", Self::VT_SIGNAL_GROUPS, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<SignalController>>>>("signal_controllers", Self::VT_SIGNAL_CONTROLLERS, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<SignalPhase>>>>("signal_phases", Self::VT_SIGNAL_PHASES, true)?
-     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ParkingArea>>>>("parking_areas", Self::VT_PARKING_AREAS, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ParkingFacility>>>>("parking_facilities", Self::VT_PARKING_FACILITIES, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ParkingSpace>>>>("parking_spaces", Self::VT_PARKING_SPACES, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<LaneGroup>>>>("lane_groups", Self::VT_LANE_GROUPS, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<FacilityBand>>>>("facility_bands", Self::VT_FACILITY_BANDS, true)?
@@ -7067,6 +8148,9 @@ impl ::flatbuffers::Verifiable for RoadEditingSource<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<AccessRule>>>>("access_rules", Self::VT_ACCESS_RULES, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<VehicleProfile>>>>("vehicle_profiles", Self::VT_VEHICLE_PROFILES, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<CanonicalFrame>>>>("canonical_frames", Self::VT_CANONICAL_FRAMES, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ConflictZone>>>>("conflict_zones", Self::VT_CONFLICT_ZONES, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ParticipantStream>>>>("participant_streams", Self::VT_PARTICIPANT_STREAMS, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ConflictZoneRegion>>>>("conflict_zone_regions", Self::VT_CONFLICT_ZONE_REGIONS, true)?
      .finish();
     Ok(())
   }
@@ -7090,7 +8174,7 @@ pub struct RoadEditingSourceArgs<'a> {
     pub signal_groups: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<SignalGroup<'a>>>>>,
     pub signal_controllers: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<SignalController<'a>>>>>,
     pub signal_phases: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<SignalPhase<'a>>>>>,
-    pub parking_areas: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParkingArea<'a>>>>>,
+    pub parking_facilities: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParkingFacility<'a>>>>>,
     pub parking_spaces: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParkingSpace<'a>>>>>,
     pub lane_groups: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<LaneGroup<'a>>>>>,
     pub facility_bands: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<FacilityBand<'a>>>>>,
@@ -7098,6 +8182,9 @@ pub struct RoadEditingSourceArgs<'a> {
     pub access_rules: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<AccessRule<'a>>>>>,
     pub vehicle_profiles: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<VehicleProfile<'a>>>>>,
     pub canonical_frames: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<CanonicalFrame<'a>>>>>,
+    pub conflict_zones: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictZone<'a>>>>>,
+    pub participant_streams: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParticipantStream<'a>>>>>,
+    pub conflict_zone_regions: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictZoneRegion<'a>>>>>,
 }
 impl<'a> Default for RoadEditingSourceArgs<'a> {
   #[inline]
@@ -7121,7 +8208,7 @@ impl<'a> Default for RoadEditingSourceArgs<'a> {
       signal_groups: None, // required field
       signal_controllers: None, // required field
       signal_phases: None, // required field
-      parking_areas: None, // required field
+      parking_facilities: None, // required field
       parking_spaces: None, // required field
       lane_groups: None, // required field
       facility_bands: None, // required field
@@ -7129,6 +8216,9 @@ impl<'a> Default for RoadEditingSourceArgs<'a> {
       access_rules: None, // required field
       vehicle_profiles: None, // required field
       canonical_frames: None, // required field
+      conflict_zones: None, // required field
+      participant_streams: None, // required field
+      conflict_zone_regions: None, // required field
     }
   }
 }
@@ -7211,8 +8301,8 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RoadEditingSourceBuilder<'a, 
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RoadEditingSource::VT_SIGNAL_PHASES, signal_phases);
   }
   #[inline]
-  pub fn add_parking_areas(&mut self, parking_areas: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<ParkingArea<'b >>>>) {
-    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RoadEditingSource::VT_PARKING_AREAS, parking_areas);
+  pub fn add_parking_facilities(&mut self, parking_facilities: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<ParkingFacility<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RoadEditingSource::VT_PARKING_FACILITIES, parking_facilities);
   }
   #[inline]
   pub fn add_parking_spaces(&mut self, parking_spaces: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<ParkingSpace<'b >>>>) {
@@ -7243,6 +8333,18 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RoadEditingSourceBuilder<'a, 
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RoadEditingSource::VT_CANONICAL_FRAMES, canonical_frames);
   }
   #[inline]
+  pub fn add_conflict_zones(&mut self, conflict_zones: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<ConflictZone<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RoadEditingSource::VT_CONFLICT_ZONES, conflict_zones);
+  }
+  #[inline]
+  pub fn add_participant_streams(&mut self, participant_streams: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<ParticipantStream<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RoadEditingSource::VT_PARTICIPANT_STREAMS, participant_streams);
+  }
+  #[inline]
+  pub fn add_conflict_zone_regions(&mut self, conflict_zone_regions: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<ConflictZoneRegion<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RoadEditingSource::VT_CONFLICT_ZONE_REGIONS, conflict_zone_regions);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> RoadEditingSourceBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     RoadEditingSourceBuilder {
@@ -7268,7 +8370,7 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RoadEditingSourceBuilder<'a, 
     self.fbb_.required(o, RoadEditingSource::VT_SIGNAL_GROUPS,"signal_groups");
     self.fbb_.required(o, RoadEditingSource::VT_SIGNAL_CONTROLLERS,"signal_controllers");
     self.fbb_.required(o, RoadEditingSource::VT_SIGNAL_PHASES,"signal_phases");
-    self.fbb_.required(o, RoadEditingSource::VT_PARKING_AREAS,"parking_areas");
+    self.fbb_.required(o, RoadEditingSource::VT_PARKING_FACILITIES,"parking_facilities");
     self.fbb_.required(o, RoadEditingSource::VT_PARKING_SPACES,"parking_spaces");
     self.fbb_.required(o, RoadEditingSource::VT_LANE_GROUPS,"lane_groups");
     self.fbb_.required(o, RoadEditingSource::VT_FACILITY_BANDS,"facility_bands");
@@ -7276,6 +8378,9 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RoadEditingSourceBuilder<'a, 
     self.fbb_.required(o, RoadEditingSource::VT_ACCESS_RULES,"access_rules");
     self.fbb_.required(o, RoadEditingSource::VT_VEHICLE_PROFILES,"vehicle_profiles");
     self.fbb_.required(o, RoadEditingSource::VT_CANONICAL_FRAMES,"canonical_frames");
+    self.fbb_.required(o, RoadEditingSource::VT_CONFLICT_ZONES,"conflict_zones");
+    self.fbb_.required(o, RoadEditingSource::VT_PARTICIPANT_STREAMS,"participant_streams");
+    self.fbb_.required(o, RoadEditingSource::VT_CONFLICT_ZONE_REGIONS,"conflict_zone_regions");
     ::flatbuffers::WIPOffset::new(o.value())
   }
 }
@@ -7301,7 +8406,7 @@ impl ::core::fmt::Debug for RoadEditingSource<'_> {
       ds.field("signal_groups", &self.signal_groups());
       ds.field("signal_controllers", &self.signal_controllers());
       ds.field("signal_phases", &self.signal_phases());
-      ds.field("parking_areas", &self.parking_areas());
+      ds.field("parking_facilities", &self.parking_facilities());
       ds.field("parking_spaces", &self.parking_spaces());
       ds.field("lane_groups", &self.lane_groups());
       ds.field("facility_bands", &self.facility_bands());
@@ -7309,6 +8414,9 @@ impl ::core::fmt::Debug for RoadEditingSource<'_> {
       ds.field("access_rules", &self.access_rules());
       ds.field("vehicle_profiles", &self.vehicle_profiles());
       ds.field("canonical_frames", &self.canonical_frames());
+      ds.field("conflict_zones", &self.conflict_zones());
+      ds.field("participant_streams", &self.participant_streams());
+      ds.field("conflict_zone_regions", &self.conflict_zone_regions());
       ds.finish()
   }
 }

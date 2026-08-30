@@ -12,23 +12,25 @@
 use core::cmp::Ordering;
 
 use laneflow_static_contract::{
-    AccessEffect, AccessRuleOrdinal, AuthoringLaneOrdinal, CanonicalFrameOrdinal, EntityKind,
-    FacilityBandOrdinal, FieldTag, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupOrdinal,
-    ManeuverGateOrdinal, ManeuverPathOrdinal, MovementOrdinal, ParkingAreaOrdinal,
-    ParkingSpaceOrdinal, ParticipantClassOrdinal, RoadCorridorOrdinal, RoadSectionOrdinal,
-    SignalAspect, SignalControllerOrdinal, SignalGroupOrdinal, SignalPhaseOrdinal, StopLineOrdinal,
-    VehicleProfileOrdinal, WaitingZoneOrdinal,
+    AccessEffect, AccessRuleOrdinal, AuthoringLaneOrdinal, CanonicalFrameOrdinal,
+    ConflictZoneOrdinal, EntityKind, FacilityBandOrdinal, FieldTag, JunctionOrdinal, LaneEdgeId,
+    LaneEdgeOrdinal, LaneGroupOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal, MovementOrdinal,
+    ParkingFacilityOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal, ParticipantStreamOrdinal,
+    RoadCorridorOrdinal, RoadSectionOrdinal, SignalAspect, SignalControllerOrdinal,
+    SignalGroupOrdinal, SignalPhaseOrdinal, StopLineOrdinal, VehicleProfileOrdinal,
+    WaitingZoneOrdinal,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange};
 use crate::geometry_profile::GeometryCompilationProfiles;
 use crate::mir::{
-    MirAccessRuleKey, MirAuthoringLaneKey, MirCanonicalFrameKey, MirFacilityBandKey,
-    MirJunctionKey, MirLaneEdgeConnection, MirLaneEdgeKey, MirLaneGroupKey, MirManeuverGateKey,
-    MirManeuverPathKey, MirMovementKey, MirParkingAreaKey, MirParkingSpaceKey,
-    MirParticipantClassKey, MirRoadCorridorKey, MirRoadSectionKey, MirSignalControllerGroup,
-    MirSignalControllerKey, MirSignalGroupKey, MirSignalPhaseKey, MirSignalPhaseState,
-    MirStopLineKey, MirUnit, MirVehicleProfileKey, MirWaitingZoneKey,
+    MirAccessRuleKey, MirAuthoringLaneKey, MirCanonicalFrameKey, MirConflictPassage,
+    MirConflictZoneKey, MirFacilityBandKey, MirJunctionKey, MirLaneEdgeConnection, MirLaneEdgeKey,
+    MirLaneGroupKey, MirManeuverGateKey, MirManeuverPathKey, MirMovementKey, MirParkingFacilityKey,
+    MirParkingSpaceKey, MirParticipantClassKey, MirParticipantStreamKey, MirRoadCorridorKey,
+    MirRoadSectionKey, MirSignalControllerGroup, MirSignalControllerKey, MirSignalGroupKey,
+    MirSignalPhaseKey, MirSignalPhaseState, MirStopLineKey, MirUnit, MirVehicleProfileKey,
+    MirWaitingZoneKey,
 };
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation};
 
@@ -56,14 +58,20 @@ const LIR_SIGNAL_GROUP_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8;
 const LIR_SIGNAL_CONTROLLER_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8 + 8 + 8 + 8;
 const LIR_SIGNAL_PHASE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 + 8;
 const LIR_SIGNAL_PHASE_STATE_LOGICAL_BYTES: u64 = 4 + 1;
-const LIR_PARKING_AREA_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8;
+const LIR_CONFLICT_ZONE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4;
+const LIR_PARTICIPANT_STREAM_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 8;
+// zone + 两个最大形状 anchor（kind + reference + optional progress）+ 派生 Gate。
+const LIR_CONFLICT_PASSAGE_LOGICAL_BYTES: u64 = 4 + (1 + 4 + 1 + 4) * 2 + 4;
+const LIR_PARKING_FACILITY_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8 + 4 + 8 + 8;
 const LIR_PARKING_SPACE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 1 + 4 + (4 + 4) * 2 + 4 * 4;
 const LIR_PARTICIPANT_CLASS_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 1 + 4 + 4 + 4 + 4;
 const LIR_VEHICLE_PROFILE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 * 7;
 const LIR_CANONICAL_FRAME_LOGICAL_BYTES: u64 = 4 + 16 + 8;
 const LIR_SPATIAL_GEOMETRY_LOGICAL_BYTES: u64 = 4 + 8 + 8 + 4;
 const LIR_FACILITY_BAND_GEOMETRY_LOGICAL_BYTES: u64 = 4 + 4 + 8;
+const LIR_CONFLICT_ZONE_REGION_LOGICAL_BYTES: u64 = 4 + 4 + 4 + 4 + 8;
 const LIR_CANONICAL_POINT_LOGICAL_BYTES: u64 = 4 * 3;
+const LIR_POINT2_LOGICAL_BYTES: u64 = 4 * 2;
 const LIR_SPATIAL_SEGMENT_LOGICAL_BYTES: u64 = 4 * 8;
 // target 按 tag+ordinal 计；可选 regulation 按 presence、两个必需字符串区间和一个
 // 可选来源区间的最大形状计。实际 UTF-8 内容在下方按字节数另行累加。
@@ -97,6 +105,7 @@ pub(crate) struct LirLaneEdge {
 }
 
 mod access;
+mod conflict;
 mod control;
 mod cross_section;
 mod junction;
@@ -111,6 +120,11 @@ mod tests;
 
 use access::{AccessClassParts, AccessRuleParts};
 pub(crate) use access::{LirAccessRule, LirAccessTarget, LirParticipantClass, LirVehicleProfile};
+use conflict::ConflictParts;
+pub(crate) use conflict::{
+    LirConflictPassage, LirConflictZone, LirParticipantStream, LirPathAnchor,
+    LirPathAnchorReference,
+};
 use control::ControlParts;
 pub(crate) use control::{LirManeuverGate, LirStopLine, LirWaitingZone};
 use cross_section::CrossSectionParts;
@@ -122,10 +136,10 @@ use junction::JunctionParts;
 pub(crate) use junction::{LirJunction, LirJunctionInternalEdge, LirManeuverPath, LirMovement};
 pub(crate) use orders::{CanonicalOrders, LirEntityOrder, OwnerLocalPermutation};
 use parking::ParkingParts;
-pub(crate) use parking::{LirParkingArea, LirParkingSpace};
+pub(crate) use parking::{LirParkingFacility, LirParkingSpace};
 pub(crate) use plan::{
-    LirAccessCounts, LirControlCounts, LirCrossSectionCounts, LirFreezePlan, LirJunctionCounts,
-    LirParkingCounts, LirSignalCounts, LirSpatialCounts,
+    LirAccessCounts, LirConflictCounts, LirControlCounts, LirCrossSectionCounts, LirFreezePlan,
+    LirJunctionCounts, LirParkingCounts, LirSignalCounts, LirSpatialCounts,
 };
 use signal::SignalParts;
 pub(crate) use signal::{
@@ -133,8 +147,8 @@ pub(crate) use signal::{
 };
 use spatial::SpatialParts;
 pub(crate) use spatial::{
-    LirCanonicalFrame, LirCanonicalPoint3F32, LirFacilityBandGeometry, LirLaneEdgeGeometry,
-    LirSpatialSegment,
+    LirCanonicalFrame, LirCanonicalPoint2F32, LirCanonicalPoint3F32, LirConflictZoneRegion,
+    LirFacilityBandGeometry, LirLaneEdgeGeometry, LirSpatialSegment,
 };
 
 /// 当前纵向切片冻结出的连续、目标布局中立 LIR 表。
@@ -183,15 +197,22 @@ pub(crate) struct LirUnit {
     pub(crate) signal_phases: Box<[LirSignalPhase]>,
     pub(crate) signal_phase_states: Box<[LirSignalPhaseState]>,
     pub(crate) signal_group_maneuver_gates: Box<[ManeuverGateOrdinal]>,
-    pub(crate) parking_areas: Box<[LirParkingArea]>,
+    pub(crate) conflict_zones: Box<[LirConflictZone]>,
+    pub(crate) participant_streams: Box<[LirParticipantStream]>,
+    pub(crate) conflict_passages: Box<[LirConflictPassage]>,
+    pub(crate) parking_facilities: Box<[LirParkingFacility]>,
     pub(crate) parking_spaces: Box<[LirParkingSpace]>,
-    pub(crate) parking_area_spaces: Box<[ParkingSpaceOrdinal]>,
+    pub(crate) parking_facility_spaces: Box<[ParkingSpaceOrdinal]>,
+    pub(crate) parking_facility_virtual_entries: Box<[parking::LirParkingLaneAnchor]>,
+    pub(crate) parking_facility_virtual_exits: Box<[parking::LirParkingLaneAnchor]>,
     pub(crate) participant_classes: Box<[LirParticipantClass]>,
     pub(crate) vehicle_profiles: Box<[LirVehicleProfile]>,
     pub(crate) canonical_frames: Box<[LirCanonicalFrame]>,
     pub(crate) lane_edge_geometries: Box<[LirLaneEdgeGeometry]>,
     pub(crate) facility_band_geometries: Box<[LirFacilityBandGeometry]>,
+    pub(crate) conflict_zone_regions: Box<[LirConflictZoneRegion]>,
     pub(crate) canonical_points: Box<[LirCanonicalPoint3F32]>,
+    pub(crate) conflict_region_points: Box<[LirCanonicalPoint2F32]>,
     pub(crate) spatial_segments: Box<[LirSpatialSegment]>,
     pub(crate) access_rules: Box<[LirAccessRule]>,
     pub(crate) access_rule_participant_classes: Box<[ParticipantClassOrdinal]>,
@@ -228,7 +249,11 @@ pub(crate) struct LirFreezeOutput {
     pub(crate) signal_phases: LirEntityOrder<MirSignalPhaseKey, SignalPhaseOrdinal>,
     pub(crate) signal_controller_groups: OwnerLocalPermutation<MirSignalControllerGroup>,
     pub(crate) signal_phase_states: OwnerLocalPermutation<MirSignalPhaseState>,
-    pub(crate) parking_areas: LirEntityOrder<MirParkingAreaKey, ParkingAreaOrdinal>,
+    pub(crate) conflict_zones: LirEntityOrder<MirConflictZoneKey, ConflictZoneOrdinal>,
+    pub(crate) participant_streams:
+        LirEntityOrder<MirParticipantStreamKey, ParticipantStreamOrdinal>,
+    pub(crate) conflict_passages: OwnerLocalPermutation<MirConflictPassage>,
+    pub(crate) parking_facilities: LirEntityOrder<MirParkingFacilityKey, ParkingFacilityOrdinal>,
     pub(crate) parking_spaces: LirEntityOrder<MirParkingSpaceKey, ParkingSpaceOrdinal>,
     pub(crate) participant_classes: LirEntityOrder<MirParticipantClassKey, ParticipantClassOrdinal>,
     pub(crate) vehicle_profiles: LirEntityOrder<MirVehicleProfileKey, VehicleProfileOrdinal>,
@@ -264,7 +289,10 @@ impl LirFreezeOutput {
             .saturating_add(self.signal_phases.mapping_bytes())
             .saturating_add(self.signal_controller_groups.mapping_bytes())
             .saturating_add(self.signal_phase_states.mapping_bytes())
-            .saturating_add(self.parking_areas.mapping_bytes())
+            .saturating_add(self.conflict_zones.mapping_bytes())
+            .saturating_add(self.participant_streams.mapping_bytes())
+            .saturating_add(self.conflict_passages.mapping_bytes())
+            .saturating_add(self.parking_facilities.mapping_bytes())
             .saturating_add(self.parking_spaces.mapping_bytes())
             .saturating_add(self.participant_classes.mapping_bytes())
             .saturating_add(self.vehicle_profiles.mapping_bytes())
@@ -406,6 +434,7 @@ pub(crate) fn freeze_lir(
     let junction = junction::freeze(&mut env, &plan.junction)?;
     let control = control::freeze(&mut env, &plan.control)?;
     let signal = signal::freeze(&mut env, &plan.signal)?;
+    let conflict = conflict::freeze(&mut env, &plan.conflict)?;
     let parking = parking::freeze(&mut env, &plan.parking)?;
     let access_classes = access::freeze_classes(&mut env, &plan.access)?;
     let spatial = spatial::freeze(&mut env, &plan.spatial)?;
@@ -450,10 +479,18 @@ pub(crate) fn freeze_lir(
         signal_controller_group_mir_rows,
         signal_phase_state_mir_rows,
     } = signal;
+    let ConflictParts {
+        conflict_zones,
+        participant_streams,
+        conflict_passages,
+        conflict_passage_mir_rows,
+    } = conflict;
     let ParkingParts {
-        parking_areas,
-        parking_area_spaces,
+        parking_facilities,
+        parking_facility_spaces,
         parking_spaces,
+        parking_facility_virtual_entries,
+        parking_facility_virtual_exits,
     } = parking;
     let AccessClassParts {
         participant_classes,
@@ -463,7 +500,9 @@ pub(crate) fn freeze_lir(
         canonical_frames,
         lane_edge_geometries,
         facility_band_geometries,
+        conflict_zone_regions,
         canonical_points,
+        conflict_region_points,
         spatial_segments,
     } = spatial;
     let AccessRuleParts {
@@ -509,15 +548,22 @@ pub(crate) fn freeze_lir(
         &signal_phases,
         &signal_phase_states,
         &signal_group_maneuver_gates,
-        &parking_areas,
+        &conflict_zones,
+        &participant_streams,
+        &conflict_passages,
+        &parking_facilities,
         &parking_spaces,
-        &parking_area_spaces,
+        &parking_facility_spaces,
+        &parking_facility_virtual_entries,
+        &parking_facility_virtual_exits,
         &participant_classes,
         &vehicle_profiles,
         &canonical_frames,
         &lane_edge_geometries,
         &facility_band_geometries,
+        &conflict_zone_regions,
         &canonical_points,
+        &conflict_region_points,
         &spatial_segments,
         &access_rules,
         &access_rule_participant_classes,
@@ -558,15 +604,22 @@ pub(crate) fn freeze_lir(
             signal_phases: signal_phases.into_boxed_slice(),
             signal_phase_states: signal_phase_states.into_boxed_slice(),
             signal_group_maneuver_gates: signal_group_maneuver_gates.into_boxed_slice(),
-            parking_areas: parking_areas.into_boxed_slice(),
+            conflict_zones: conflict_zones.into_boxed_slice(),
+            participant_streams: participant_streams.into_boxed_slice(),
+            conflict_passages: conflict_passages.into_boxed_slice(),
+            parking_facilities: parking_facilities.into_boxed_slice(),
             parking_spaces: parking_spaces.into_boxed_slice(),
-            parking_area_spaces: parking_area_spaces.into_boxed_slice(),
+            parking_facility_spaces: parking_facility_spaces.into_boxed_slice(),
+            parking_facility_virtual_entries: parking_facility_virtual_entries.into_boxed_slice(),
+            parking_facility_virtual_exits: parking_facility_virtual_exits.into_boxed_slice(),
             participant_classes: participant_classes.into_boxed_slice(),
             vehicle_profiles: vehicle_profiles.into_boxed_slice(),
             canonical_frames: canonical_frames.into_boxed_slice(),
             lane_edge_geometries: lane_edge_geometries.into_boxed_slice(),
             facility_band_geometries: facility_band_geometries.into_boxed_slice(),
+            conflict_zone_regions: conflict_zone_regions.into_boxed_slice(),
             canonical_points: canonical_points.into_boxed_slice(),
+            conflict_region_points: conflict_region_points.into_boxed_slice(),
             spatial_segments: spatial_segments.into_boxed_slice(),
             access_rules: access_rules.into_boxed_slice(),
             access_rule_participant_classes: access_rule_participant_classes.into_boxed_slice(),
@@ -599,7 +652,10 @@ pub(crate) fn freeze_lir(
             signal_controller_group_mir_rows,
         ),
         signal_phase_states: OwnerLocalPermutation::from_rows(signal_phase_state_mir_rows),
-        parking_areas: orders.parking_areas,
+        conflict_zones: orders.conflict_zones,
+        participant_streams: orders.participant_streams,
+        conflict_passages: OwnerLocalPermutation::from_rows(conflict_passage_mir_rows),
+        parking_facilities: orders.parking_facilities,
         parking_spaces: orders.parking_spaces,
         participant_classes: orders.participant_classes,
         vehicle_profiles: orders.vehicle_profiles,
@@ -834,7 +890,13 @@ fn identity_field_byte_count(mir: &MirUnit) -> u64 {
     for phase in &mir.signal_phases {
         add(&mut total, phase.module.index(), &phase.stable_key, true);
     }
-    for area in &mir.parking_areas {
+    for zone in &mir.conflict_zones {
+        add(&mut total, zone.module.index(), &zone.stable_key, true);
+    }
+    for stream in &mir.participant_streams {
+        add(&mut total, stream.module.index(), &stream.stable_key, true);
+    }
+    for area in &mir.parking_facilities {
         add(&mut total, area.module.index(), &area.stable_key, false);
     }
     for space in &mir.parking_spaces {
@@ -923,15 +985,22 @@ fn semantic_digest(
     signal_phases: &[LirSignalPhase],
     signal_phase_states: &[LirSignalPhaseState],
     signal_group_maneuver_gates: &[ManeuverGateOrdinal],
-    parking_areas: &[LirParkingArea],
+    conflict_zones: &[LirConflictZone],
+    participant_streams: &[LirParticipantStream],
+    conflict_passages: &[LirConflictPassage],
+    parking_facilities: &[LirParkingFacility],
     parking_spaces: &[LirParkingSpace],
-    parking_area_spaces: &[ParkingSpaceOrdinal],
+    parking_facility_spaces: &[ParkingSpaceOrdinal],
+    parking_facility_virtual_entries: &[parking::LirParkingLaneAnchor],
+    parking_facility_virtual_exits: &[parking::LirParkingLaneAnchor],
     participant_classes: &[LirParticipantClass],
     vehicle_profiles: &[LirVehicleProfile],
     canonical_frames: &[LirCanonicalFrame],
     lane_edge_geometries: &[LirLaneEdgeGeometry],
     facility_band_geometries: &[LirFacilityBandGeometry],
+    conflict_zone_regions: &[LirConflictZoneRegion],
     canonical_points: &[LirCanonicalPoint3F32],
+    conflict_region_points: &[LirCanonicalPoint2F32],
     spatial_segments: &[LirSpatialSegment],
     access_rules: &[LirAccessRule],
     access_rule_participant_classes: &[ParticipantClassOrdinal],
@@ -1269,12 +1338,52 @@ fn semantic_digest(
             hasher.update(&[signal_aspect_digest_code(state.aspect)]);
         }
     }
-    hash_u32(&mut hasher, EntityKind::ParkingArea.code().into());
+    hash_u32(&mut hasher, EntityKind::ConflictZone.code().into());
     hash_u32(
         &mut hasher,
-        parking_areas.len().try_into().unwrap_or(u32::MAX),
+        conflict_zones.len().try_into().unwrap_or(u32::MAX),
     );
-    for area in parking_areas {
+    for zone in conflict_zones {
+        hash_u32(&mut hasher, zone.ordinal.raw());
+        hasher.update(zone.stable_id.as_untyped().as_bytes());
+        hash_identity(
+            &mut hasher,
+            zone.identity_fields,
+            identity_fields,
+            identity_field_bytes,
+        );
+        hash_u32(&mut hasher, zone.junction.raw());
+    }
+    hash_u32(&mut hasher, EntityKind::ParticipantStream.code().into());
+    hash_u32(
+        &mut hasher,
+        participant_streams.len().try_into().unwrap_or(u32::MAX),
+    );
+    for stream in participant_streams {
+        hash_u32(&mut hasher, stream.ordinal.raw());
+        hasher.update(stream.stable_id.as_untyped().as_bytes());
+        hash_identity(
+            &mut hasher,
+            stream.identity_fields,
+            identity_fields,
+            identity_field_bytes,
+        );
+        hash_u32(&mut hasher, stream.junction.raw());
+        hash_u32(&mut hasher, stream.maneuver_path.raw());
+        hash_u32(&mut hasher, stream.passages.len());
+        for passage in &conflict_passages[stream.passages.as_usize_range()] {
+            hash_u32(&mut hasher, passage.conflict_zone.raw());
+            hash_path_anchor(&mut hasher, passage.entry);
+            hash_path_anchor(&mut hasher, passage.exit);
+            hash_u32(&mut hasher, passage.admission_gate.raw());
+        }
+    }
+    hash_u32(&mut hasher, EntityKind::ParkingFacility.code().into());
+    hash_u32(
+        &mut hasher,
+        parking_facilities.len().try_into().unwrap_or(u32::MAX),
+    );
+    for area in parking_facilities {
         hash_u32(&mut hasher, area.ordinal.raw());
         hasher.update(area.stable_id.as_untyped().as_bytes());
         hash_identity(
@@ -1284,8 +1393,19 @@ fn semantic_digest(
             identity_field_bytes,
         );
         hash_u32(&mut hasher, area.parking_spaces.len());
-        for space in &parking_area_spaces[area.parking_spaces.as_usize_range()] {
+        for space in &parking_facility_spaces[area.parking_spaces.as_usize_range()] {
             hash_u32(&mut hasher, space.raw());
+        }
+        hash_u32(&mut hasher, area.virtual_capacity);
+        for anchors in [
+            &parking_facility_virtual_entries[area.virtual_entries.as_usize_range()],
+            &parking_facility_virtual_exits[area.virtual_exits.as_usize_range()],
+        ] {
+            hash_u32(&mut hasher, anchors.len().try_into().unwrap_or(u32::MAX));
+            for anchor in anchors {
+                hash_u32(&mut hasher, anchor.lane_edge.raw());
+                hash_u32(&mut hasher, anchor.progress_mm);
+            }
         }
     }
     hash_u32(&mut hasher, EntityKind::ParkingSpace.code().into());
@@ -1302,7 +1422,10 @@ fn semantic_digest(
             identity_fields,
             identity_field_bytes,
         );
-        hash_optional_ordinal(&mut hasher, space.parking_area.map(ParkingAreaOrdinal::raw));
+        hash_optional_ordinal(
+            &mut hasher,
+            space.parking_facility.map(ParkingFacilityOrdinal::raw),
+        );
         for anchor in [space.entry, space.exit] {
             hash_u32(&mut hasher, anchor.lane_edge.raw());
             hash_u32(&mut hasher, anchor.progress_mm);
@@ -1423,6 +1546,21 @@ fn semantic_digest(
             }
         }
     }
+    hash_u32(
+        &mut hasher,
+        conflict_zone_regions.len().try_into().unwrap_or(u32::MAX),
+    );
+    for region in conflict_zone_regions {
+        hash_u32(&mut hasher, region.conflict_zone.raw());
+        hash_u32(&mut hasher, region.canonical_frame.raw());
+        hasher.update(&region.min_y.to_bits().to_le_bytes());
+        hasher.update(&region.max_y.to_bits().to_le_bytes());
+        hash_u32(&mut hasher, region.ring_xz.len());
+        for point in &conflict_region_points[region.ring_xz.as_usize_range()] {
+            hasher.update(&point.x.to_bits().to_le_bytes());
+            hasher.update(&point.z.to_bits().to_le_bytes());
+        }
+    }
     hash_u32(&mut hasher, EntityKind::AccessRule.code().into());
     hash_u32(
         &mut hasher,
@@ -1514,6 +1652,24 @@ fn hash_optional_ordinal(hasher: &mut blake3::Hasher, value: Option<u32>) {
             hasher.update(&[0]);
         }
     }
+}
+
+fn hash_path_anchor(hasher: &mut blake3::Hasher, anchor: LirPathAnchor) {
+    match anchor.reference {
+        LirPathAnchorReference::Gate(gate) => {
+            hasher.update(&[0]);
+            hash_u32(hasher, gate.raw());
+        }
+        LirPathAnchorReference::EdgeBoundary(boundary_index) => {
+            hasher.update(&[1]);
+            hash_u32(hasher, boundary_index);
+        }
+        LirPathAnchorReference::Interior { path_edge_index } => {
+            hasher.update(&[2]);
+            hash_u32(hasher, path_edge_index);
+        }
+    }
+    hash_optional_ordinal(hasher, anchor.progress_mm);
 }
 
 fn hash_identity(

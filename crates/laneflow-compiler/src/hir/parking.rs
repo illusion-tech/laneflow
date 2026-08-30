@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use laneflow_static_contract::{
-    EntityKind, FieldTag, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, ParkingAreaId, ParkingSpaceId,
+    EntityKind, FieldTag, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, ParkingFacilityId, ParkingSpaceId,
 };
 
 use crate::arena::{ArenaKeyOverflow, TableRange, TypedArena};
@@ -19,24 +19,27 @@ use crate::{
 
 use super::{
     CanonicalDeclarationSource, HirLaneEdge, HirLaneEdgeKey, HirLaneEdgeTag, HirModuleKey,
-    HirParkingAreaKey, HirParkingAreaTag, HirParkingSpaceKey, HirParkingSpaceTag, ParkingCounts,
-    SymbolTable, arena_overflow, count_to_usize, declaration_header, derive_identity,
-    resolve_reference,
+    HirParkingFacilityKey, HirParkingFacilityTag, HirParkingSpaceKey, HirParkingSpaceTag,
+    ParkingCounts, SymbolTable, arena_overflow, count_to_usize, declaration_header,
+    derive_identity, resolve_reference,
 };
 
 /// 停车区域的一个规范停车位成员。
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct HirParkingAreaSpace {
+pub(crate) struct HirParkingFacilitySpace {
     pub(crate) parking_space: HirParkingSpaceKey,
 }
 
-/// 已证明至少拥有一个停车位成员的停车区域。
+/// 已证明总容量非零的停车设施。
 #[derive(Debug, PartialEq)]
-pub(crate) struct HirParkingArea {
+pub(crate) struct HirParkingFacility {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
-    pub(crate) stable_id: ParkingAreaId,
-    pub(crate) parking_spaces: TableRange<HirParkingAreaSpace>,
+    pub(crate) stable_id: ParkingFacilityId,
+    pub(crate) parking_spaces: TableRange<HirParkingFacilitySpace>,
+    pub(crate) virtual_capacity: u32,
+    pub(crate) virtual_entries: TableRange<HirParkingLaneAnchor>,
+    pub(crate) virtual_exits: TableRange<HirParkingLaneAnchor>,
     pub(crate) source_span: SourceLocation,
 }
 
@@ -63,8 +66,8 @@ pub(crate) struct HirParkingSpace {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: ParkingSpaceId,
-    pub(crate) parking_area: Option<HirParkingAreaKey>,
-    pub(crate) parking_area_source_location: Option<ResolvedSourceLocation>,
+    pub(crate) parking_facility: Option<HirParkingFacilityKey>,
+    pub(crate) parking_facility_source_location: Option<ResolvedSourceLocation>,
     pub(crate) entry: HirParkingLaneAnchor,
     pub(crate) exit: HirParkingLaneAnchor,
     pub(crate) geometry: HirParkingSpaceGeometry,
@@ -73,9 +76,11 @@ pub(crate) struct HirParkingSpace {
 
 #[derive(Default)]
 pub(crate) struct ParkingHir {
-    pub(crate) parking_areas: Box<[HirParkingArea]>,
+    pub(crate) parking_facilities: Box<[HirParkingFacility]>,
     pub(crate) parking_spaces: Box<[HirParkingSpace]>,
-    pub(crate) parking_area_spaces: Box<[HirParkingAreaSpace]>,
+    pub(crate) parking_facility_spaces: Box<[HirParkingFacilitySpace]>,
+    pub(crate) parking_facility_virtual_entries: Box<[HirParkingLaneAnchor]>,
+    pub(crate) parking_facility_virtual_exits: Box<[HirParkingLaneAnchor]>,
 }
 
 #[allow(clippy::too_many_lines)]
@@ -92,10 +97,9 @@ pub(crate) fn build_parking_hir(
         return Ok(ParkingHir::default());
     }
 
-    let mut areas = TypedArena::<HirParkingAreaTag, HirParkingArea>::with_capacity(count_to_usize(
-        counts.areas,
-        &unit.limits,
-    )?);
+    let mut areas = TypedArena::<HirParkingFacilityTag, HirParkingFacility>::with_capacity(
+        count_to_usize(counts.areas, &unit.limits)?,
+    );
     let mut spaces = TypedArena::<HirParkingSpaceTag, HirParkingSpace>::with_capacity(
         count_to_usize(counts.spaces, &unit.limits)?,
     );
@@ -103,14 +107,14 @@ pub(crate) fn build_parking_hir(
         module
             .declarations
             .iter()
-            .filter(|declaration| matches!(declaration, TypedAstDeclaration::ParkingArea(_)))
+            .filter(|declaration| matches!(declaration, TypedAstDeclaration::ParkingFacility(_)))
             .count()
     }));
     let mut area_sources = Vec::with_capacity(count_to_usize(counts.areas, &unit.limits)?);
     let mut space_sources =
         Vec::<(u32, u32)>::with_capacity(count_to_usize(counts.spaces, &unit.limits)?);
 
-    // ParkingArea 必须先完整登记，ParkingSpace 的可选归属因而允许前向和跨模块引用。
+    // ParkingFacility 必须先完整登记，ParkingSpace 的可选归属因而允许前向和跨模块引用。
     // 两类实体仍分别按模块和稳定键规范排序，来源声明顺序不会进入身份或布局语义。
     for (module_index, source_module) in unit.modules.iter().enumerate() {
         let module_key = HirModuleKey::from_raw(
@@ -123,14 +127,14 @@ pub(crate) fn build_parking_hir(
             .iter()
             .enumerate()
             .filter_map(|(index, declaration)| {
-                matches!(declaration, TypedAstDeclaration::ParkingArea(_)).then_some(index)
+                matches!(declaration, TypedAstDeclaration::ParkingFacility(_)).then_some(index)
             })
             .collect();
         area_indices.sort_unstable_by_key(|index| {
             &declaration_header(&source_module.declarations[*index]).source_address
         });
         for declaration_index in area_indices {
-            let TypedAstDeclaration::ParkingArea(source) =
+            let TypedAstDeclaration::ParkingFacility(source) =
                 &source_module.declarations[declaration_index]
             else {
                 unreachable!("parking area source filter admitted unrelated declaration")
@@ -144,25 +148,28 @@ pub(crate) fn build_parking_hir(
                         .as_bytes(),
                 ),
                 IdentityFieldInput::new(
-                    FieldTag::ParkingAreaKey,
+                    FieldTag::ParkingFacilityKey,
                     source.header.stable_key.as_bytes(),
                 ),
             ];
-            let stable_id = ParkingAreaId::from_untyped(derive_identity(
+            let stable_id = ParkingFacilityId::from_untyped(derive_identity(
                 unit,
                 identities,
                 module_index,
-                EntityKind::ParkingArea,
+                EntityKind::ParkingFacility,
                 &source.header.stable_key,
                 &source.header.span,
                 &fields,
             )?);
             let key = areas
-                .push(HirParkingArea {
+                .push(HirParkingFacility {
                     module: module_key,
                     stable_key: Arc::clone(&source.header.stable_key),
                     stable_id,
                     parking_spaces: TableRange::empty(),
+                    virtual_capacity: source.virtual_capacity,
+                    virtual_entries: TableRange::empty(),
+                    virtual_exits: TableRange::empty(),
                     source_span: source.header.span.clone(),
                 })
                 .map_err(|overflow| {
@@ -199,8 +206,65 @@ pub(crate) fn build_parking_hir(
 
     let mut diagnostics =
         DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
-    let mut area_has_member = vec![false; areas.len()];
-    let mut memberships = Vec::<(HirParkingAreaKey, HirParkingSpaceKey)>::with_capacity(
+    let mut virtual_entries =
+        Vec::with_capacity(count_to_usize(counts.virtual_entries, &unit.limits)?);
+    let mut virtual_exits = Vec::with_capacity(count_to_usize(counts.virtual_exits, &unit.limits)?);
+    for location in &area_sources {
+        let source_module = &unit.modules[location.source_module_index as usize];
+        let TypedAstDeclaration::ParkingFacility(source) =
+            &source_module.declarations[location.declaration_index as usize]
+        else {
+            unreachable!("canonical ParkingFacility source changed kind")
+        };
+        for (anchors, destination, is_entry) in [
+            (&source.virtual_entries, &mut virtual_entries, true),
+            (&source.virtual_exits, &mut virtual_exits, false),
+        ] {
+            let start = destination.len();
+            for anchor in anchors.iter() {
+                let Some(lane_edge) = resolve_reference(
+                    module_lookup,
+                    lane_edge_symbols,
+                    &anchor.lane_edge,
+                    EntityKind::ParkingFacility,
+                    &source.header,
+                    location.source_module_index,
+                    &mut diagnostics,
+                ) else {
+                    continue;
+                };
+                destination.push(HirParkingLaneAnchor {
+                    lane_edge,
+                    progress_mm: anchor.progress_mm,
+                    source_location: unit.resolve_source_location_for_module(
+                        location.source_module_index,
+                        &anchor.lane_edge.span,
+                    )?,
+                });
+            }
+            destination[start..].sort_unstable_by_key(|anchor| {
+                (
+                    lane_edges.get(anchor.lane_edge).stable_id,
+                    anchor.progress_mm,
+                )
+            });
+            let count = destination.len().saturating_sub(start);
+            let range = TableRange::try_from_usize(start, count).map_err(|overflow| {
+                arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
+            })?;
+            let facility = areas.get_mut(location.hir_key);
+            if is_entry {
+                facility.virtual_entries = range;
+            } else {
+                facility.virtual_exits = range;
+            }
+        }
+    }
+    let mut area_has_member = areas
+        .iter()
+        .map(|(_, facility)| facility.virtual_capacity != 0)
+        .collect::<Vec<_>>();
+    let mut memberships = Vec::<(HirParkingFacilityKey, HirParkingSpaceKey)>::with_capacity(
         count_to_usize(counts.memberships, &unit.limits)?,
     );
 
@@ -236,7 +300,7 @@ pub(crate) fn build_parking_hir(
             &fields,
         )?);
 
-        let parking_area = source.parking_area.as_ref().and_then(|reference| {
+        let parking_facility = source.parking_facility.as_ref().and_then(|reference| {
             let area = resolve_reference(
                 module_lookup,
                 &area_symbols,
@@ -276,7 +340,7 @@ pub(crate) fn build_parking_hir(
         let (Some(entry_edge), Some(exit_edge)) = (entry_edge, exit_edge) else {
             continue;
         };
-        let parking_area_source_location = match (&source.parking_area, parking_area) {
+        let parking_facility_source_location = match (&source.parking_facility, parking_facility) {
             (Some(reference), Some(_)) => {
                 Some(unit.resolve_source_location_for_module(module_order, &reference.span)?)
             }
@@ -287,8 +351,8 @@ pub(crate) fn build_parking_hir(
                 module: module_key,
                 stable_key: Arc::clone(&source.header.stable_key),
                 stable_id,
-                parking_area,
-                parking_area_source_location,
+                parking_facility,
+                parking_facility_source_location,
                 entry: HirParkingLaneAnchor {
                     lane_edge: entry_edge,
                     progress_mm: source.entry.progress_mm,
@@ -316,7 +380,7 @@ pub(crate) fn build_parking_hir(
             .map_err(|overflow| {
                 arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
             })?;
-        if let Some(area) = parking_area {
+        if let Some(area) = parking_facility {
             memberships.push((area, space_key));
         }
     }
@@ -325,7 +389,7 @@ pub(crate) fn build_parking_hir(
         if !area_has_member[location.hir_key.index()] {
             let area = areas.get(location.hir_key);
             let mut diagnostic =
-                Diagnostic::orphan_parking_area(&area.stable_key, area.source_span.clone());
+                Diagnostic::orphan_parking_facility(&area.stable_key, area.source_span.clone());
             diagnostic.set_canonical_module_order(location.source_module_index);
             diagnostics.push(diagnostic);
         }
@@ -333,6 +397,9 @@ pub(crate) fn build_parking_hir(
     if !defer_emitted_length_close {
         diagnose_parking_anchors_against_emitted_length(
             spaces.iter().map(|(_, space)| space),
+            areas.iter().map(|(_, facility)| facility),
+            &virtual_entries,
+            &virtual_exits,
             lane_edges,
             &mut diagnostics,
         );
@@ -348,7 +415,7 @@ pub(crate) fn build_parking_hir(
     });
     let area_spaces = memberships
         .iter()
-        .map(|(_, parking_space)| HirParkingAreaSpace {
+        .map(|(_, parking_space)| HirParkingFacilitySpace {
             parking_space: *parking_space,
         })
         .collect::<Vec<_>>();
@@ -363,7 +430,7 @@ pub(crate) fn build_parking_hir(
         area_ranges[area.index()] = (start, cursor.saturating_sub(start));
     }
     for (area_index, (start, count)) in area_ranges.iter().copied().enumerate() {
-        let area_key = HirParkingAreaKey::from_raw(
+        let area_key = HirParkingFacilityKey::from_raw(
             u32::try_from(area_index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
         );
@@ -373,9 +440,11 @@ pub(crate) fn build_parking_hir(
     }
 
     Ok(ParkingHir {
-        parking_areas: areas.into_boxed_slice(),
+        parking_facilities: areas.into_boxed_slice(),
         parking_spaces: spaces.into_boxed_slice(),
-        parking_area_spaces: area_spaces.into_boxed_slice(),
+        parking_facility_spaces: area_spaces.into_boxed_slice(),
+        parking_facility_virtual_entries: virtual_entries.into_boxed_slice(),
+        parking_facility_virtual_exits: virtual_exits.into_boxed_slice(),
     })
 }
 
@@ -385,12 +454,18 @@ pub(super) fn close_parking_anchors_to_emitted_length_mm(
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     diagnostic_limit: u64,
 ) -> Result<(), DiagnosticBundle> {
-    if parking.parking_spaces.is_empty() {
+    if parking.parking_spaces.is_empty()
+        && parking.parking_facility_virtual_entries.is_empty()
+        && parking.parking_facility_virtual_exits.is_empty()
+    {
         return Ok(());
     }
     let mut diagnostics = DiagnosticCollector::new(diagnostic_limit);
     diagnose_parking_anchors_against_emitted_length(
         parking.parking_spaces.iter(),
+        parking.parking_facilities.iter(),
+        &parking.parking_facility_virtual_entries,
+        &parking.parking_facility_virtual_exits,
         lane_edges,
         &mut diagnostics,
     );
@@ -403,6 +478,9 @@ pub(super) fn close_parking_anchors_to_emitted_length_mm(
 
 fn diagnose_parking_anchors_against_emitted_length<'a>(
     parking_spaces: impl IntoIterator<Item = &'a HirParkingSpace>,
+    parking_facilities: impl IntoIterator<Item = &'a HirParkingFacility>,
+    virtual_entries: &[HirParkingLaneAnchor],
+    virtual_exits: &[HirParkingLaneAnchor],
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     diagnostics: &mut DiagnosticCollector,
 ) {
@@ -429,6 +507,40 @@ fn diagnose_parking_anchors_against_emitted_length<'a>(
                 );
                 diagnostic.set_canonical_module_order(space.module.raw());
                 diagnostics.push(diagnostic);
+            }
+        }
+    }
+    for facility in parking_facilities {
+        for (role, anchors) in [
+            (
+                ParkingAnchorRole::VirtualEntry,
+                &virtual_entries[facility.virtual_entries.as_usize_range()],
+            ),
+            (
+                ParkingAnchorRole::VirtualExit,
+                &virtual_exits[facility.virtual_exits.as_usize_range()],
+            ),
+        ] {
+            for anchor in anchors {
+                let edge = lane_edges.get(anchor.lane_edge);
+                let min_progress_mm = PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM;
+                let max_progress_mm = edge
+                    .length_mm
+                    .saturating_sub(PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM);
+                if !(min_progress_mm..=max_progress_mm).contains(&anchor.progress_mm) {
+                    let mut diagnostic = Diagnostic::invalid_parking_anchor_progress(
+                        &facility.stable_key,
+                        role,
+                        &edge.stable_key,
+                        f64::from(anchor.progress_mm) / 1_000.0,
+                        f64::from(edge.length_mm) / 1_000.0,
+                        min_progress_mm,
+                        max_progress_mm,
+                        facility.source_span.clone(),
+                    );
+                    diagnostic.set_canonical_module_order(facility.module.raw());
+                    diagnostics.push(diagnostic);
+                }
             }
         }
     }

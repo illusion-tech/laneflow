@@ -11,16 +11,20 @@
 use std::sync::Arc;
 
 use laneflow_static_contract::{
-    AccessEffect, AccessRuleId, AuthoringLaneId, CanonicalFrameId, FacilityBandId, JunctionId,
-    LaneEdgeId, LaneGroupId, ManeuverGateId, ManeuverPathId, MovementId, ParkingAreaId,
-    ParkingSpaceId, ParticipantClassId, RoadCorridorId, RoadSectionId, SignalAspect,
-    SignalControllerId, SignalGroupId, SignalPhaseId, StopLineId, VehicleProfileId, WaitingZoneId,
+    AccessEffect, AccessRuleId, AuthoringLaneId, CanonicalFrameId, ConflictZoneId, FacilityBandId,
+    JunctionId, LaneEdgeId, LaneGroupId, ManeuverGateId, ManeuverPathId, MovementId,
+    ParkingFacilityId, ParkingSpaceId, ParticipantClassId, ParticipantStreamId, RoadCorridorId,
+    RoadSectionId, SignalAspect, SignalControllerId, SignalGroupId, SignalPhaseId, StopLineId,
+    VehicleProfileId, WaitingZoneId,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
 use crate::diagnostic::DiagnosticCollector;
 use crate::geometry_profile::GeometryCompilationProfiles;
-use crate::hir::{HirAccessTarget, HirCorridorElement, HirLaneEdgeKey, HirSignalControl, HirUnit};
+use crate::hir::{
+    HirAccessTarget, HirCorridorElement, HirLaneEdgeKey, HirPathAnchorReference, HirSignalControl,
+    HirUnit,
+};
 use crate::module::ResolvedSourceLocation;
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation};
 
@@ -42,12 +46,14 @@ pub(crate) enum MirWaitingZoneTag {}
 pub(crate) enum MirSignalGroupTag {}
 pub(crate) enum MirSignalControllerTag {}
 pub(crate) enum MirSignalPhaseTag {}
-pub(crate) enum MirParkingAreaTag {}
+pub(crate) enum MirParkingFacilityTag {}
 pub(crate) enum MirParkingSpaceTag {}
 pub(crate) enum MirParticipantClassTag {}
 pub(crate) enum MirVehicleProfileTag {}
 pub(crate) enum MirCanonicalFrameTag {}
 pub(crate) enum MirAccessRuleTag {}
+pub(crate) enum MirConflictZoneTag {}
+pub(crate) enum MirParticipantStreamTag {}
 
 /// 仅在当前 `MirUnit` 模块表内有效的致密键。
 pub(crate) type MirModuleKey = ArenaKey<MirModuleTag>;
@@ -67,12 +73,14 @@ pub(crate) type MirWaitingZoneKey = ArenaKey<MirWaitingZoneTag>;
 pub(crate) type MirSignalGroupKey = ArenaKey<MirSignalGroupTag>;
 pub(crate) type MirSignalControllerKey = ArenaKey<MirSignalControllerTag>;
 pub(crate) type MirSignalPhaseKey = ArenaKey<MirSignalPhaseTag>;
-pub(crate) type MirParkingAreaKey = ArenaKey<MirParkingAreaTag>;
+pub(crate) type MirParkingFacilityKey = ArenaKey<MirParkingFacilityTag>;
 pub(crate) type MirParkingSpaceKey = ArenaKey<MirParkingSpaceTag>;
 pub(crate) type MirParticipantClassKey = ArenaKey<MirParticipantClassTag>;
 pub(crate) type MirVehicleProfileKey = ArenaKey<MirVehicleProfileTag>;
 pub(crate) type MirCanonicalFrameKey = ArenaKey<MirCanonicalFrameTag>;
 pub(crate) type MirAccessRuleKey = ArenaKey<MirAccessRuleTag>;
+pub(crate) type MirConflictZoneKey = ArenaKey<MirConflictZoneTag>;
+pub(crate) type MirParticipantStreamKey = ArenaKey<MirParticipantStreamTag>;
 
 /// MIR 中保留的模块身份与来源上下文。
 pub(crate) struct MirModule {
@@ -310,15 +318,65 @@ pub(crate) struct MirSignalPhaseState {
     pub(crate) source_location: ResolvedSourceLocation,
 }
 
-pub(crate) struct MirParkingAreaSpace {
+pub(crate) struct MirConflictZoneStream {
+    pub(crate) participant_stream: MirParticipantStreamKey,
+}
+
+pub(crate) struct MirConflictZone {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: ConflictZoneId,
+    pub(crate) junction: MirJunctionKey,
+    pub(crate) junction_source_location: Option<ResolvedSourceLocation>,
+    pub(crate) participant_streams: TableRange<MirConflictZoneStream>,
+    pub(crate) source_span: SourceLocation,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum MirPathAnchorReference {
+    Gate(MirManeuverGateKey),
+    EdgeBoundary(u32),
+    Interior { path_edge_index: u32 },
+}
+
+#[derive(Clone)]
+pub(crate) struct MirPathAnchor {
+    pub(crate) reference: MirPathAnchorReference,
+    pub(crate) progress_mm: Option<u32>,
+}
+
+pub(crate) struct MirConflictPassage {
+    pub(crate) conflict_zone: MirConflictZoneKey,
+    pub(crate) entry: MirPathAnchor,
+    pub(crate) exit: MirPathAnchor,
+    pub(crate) admission_gate: MirManeuverGateKey,
+    pub(crate) source_location: ResolvedSourceLocation,
+}
+
+pub(crate) struct MirParticipantStream {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: ParticipantStreamId,
+    pub(crate) junction: MirJunctionKey,
+    pub(crate) junction_source_location: Option<ResolvedSourceLocation>,
+    pub(crate) maneuver_path: MirManeuverPathKey,
+    pub(crate) maneuver_path_source_location: Option<ResolvedSourceLocation>,
+    pub(crate) passages: TableRange<MirConflictPassage>,
+    pub(crate) source_span: SourceLocation,
+}
+
+pub(crate) struct MirParkingFacilitySpace {
     pub(crate) parking_space: MirParkingSpaceKey,
 }
 
-pub(crate) struct MirParkingArea {
+pub(crate) struct MirParkingFacility {
     pub(crate) module: MirModuleKey,
     pub(crate) stable_key: Arc<str>,
-    pub(crate) stable_id: ParkingAreaId,
-    pub(crate) parking_spaces: TableRange<MirParkingAreaSpace>,
+    pub(crate) stable_id: ParkingFacilityId,
+    pub(crate) parking_spaces: TableRange<MirParkingFacilitySpace>,
+    pub(crate) virtual_capacity: u32,
+    pub(crate) virtual_entries: TableRange<MirParkingLaneAnchor>,
+    pub(crate) virtual_exits: TableRange<MirParkingLaneAnchor>,
     pub(crate) source_span: SourceLocation,
 }
 
@@ -341,8 +399,8 @@ pub(crate) struct MirParkingSpace {
     pub(crate) module: MirModuleKey,
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: ParkingSpaceId,
-    pub(crate) parking_area: Option<MirParkingAreaKey>,
-    pub(crate) parking_area_source_location: Option<ResolvedSourceLocation>,
+    pub(crate) parking_facility: Option<MirParkingFacilityKey>,
+    pub(crate) parking_facility_source_location: Option<ResolvedSourceLocation>,
     pub(crate) entry: MirParkingLaneAnchor,
     pub(crate) exit: MirParkingLaneAnchor,
     pub(crate) geometry: MirParkingSpaceGeometry,
@@ -416,10 +474,26 @@ pub(crate) struct MirFacilityBandGeometry {
     pub(crate) source_span: SourceLocation,
 }
 
+pub(crate) struct MirConflictZoneRegion {
+    pub(crate) conflict_zone: MirConflictZoneKey,
+    pub(crate) canonical_frame: MirCanonicalFrameKey,
+    pub(crate) min_y: f32,
+    pub(crate) max_y: f32,
+    pub(crate) ring_xz: TableRange<MirCanonicalPoint2F32>,
+    pub(crate) canonical_frame_source_location: ResolvedSourceLocation,
+    pub(crate) source_location: ResolvedSourceLocation,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct MirCanonicalPoint3F32 {
     pub(crate) x: f32,
     pub(crate) y: f32,
+    pub(crate) z: f32,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct MirCanonicalPoint2F32 {
+    pub(crate) x: f32,
     pub(crate) z: f32,
 }
 
@@ -520,16 +594,24 @@ pub(crate) struct MirUnit {
     pub(crate) signal_phases: Box<[MirSignalPhase]>,
     pub(crate) signal_phase_states: Box<[MirSignalPhaseState]>,
     pub(crate) signal_group_maneuver_gates: Box<[MirSignalGroupManeuverGate]>,
-    pub(crate) parking_areas: Box<[MirParkingArea]>,
+    pub(crate) conflict_zones: Box<[MirConflictZone]>,
+    pub(crate) participant_streams: Box<[MirParticipantStream]>,
+    pub(crate) conflict_passages: Box<[MirConflictPassage]>,
+    pub(crate) conflict_zone_streams: Box<[MirConflictZoneStream]>,
+    pub(crate) parking_facilities: Box<[MirParkingFacility]>,
     pub(crate) parking_spaces: Box<[MirParkingSpace]>,
-    pub(crate) parking_area_spaces: Box<[MirParkingAreaSpace]>,
+    pub(crate) parking_facility_spaces: Box<[MirParkingFacilitySpace]>,
+    pub(crate) parking_facility_virtual_entries: Box<[MirParkingLaneAnchor]>,
+    pub(crate) parking_facility_virtual_exits: Box<[MirParkingLaneAnchor]>,
     pub(crate) participant_classes: Box<[MirParticipantClass]>,
     pub(crate) vehicle_profiles: Box<[MirVehicleProfile]>,
     pub(crate) canonical_frames: Box<[MirCanonicalFrame]>,
     pub(crate) lane_edge_geometries: Box<[MirLaneEdgeGeometry]>,
     pub(crate) geometry_source_ranges: Box<[MirGeometrySourceRange]>,
     pub(crate) facility_band_geometries: Box<[MirFacilityBandGeometry]>,
+    pub(crate) conflict_zone_regions: Box<[MirConflictZoneRegion]>,
     pub(crate) canonical_points: Box<[MirCanonicalPoint3F32]>,
+    pub(crate) conflict_region_points: Box<[MirCanonicalPoint2F32]>,
     pub(crate) spatial_segments: Box<[MirSpatialSegment]>,
     pub(crate) access_rules: Box<[MirAccessRule]>,
     pub(crate) access_rule_participant_classes: Box<[MirAccessRuleParticipantClass]>,
@@ -606,10 +688,20 @@ pub(crate) fn lower_to_mir(
     .fold(0_u64, |total, count| {
         total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
     });
+    let conflict_record_count = [
+        hir.conflict_zones.len(),
+        hir.participant_streams.len(),
+        hir.conflict_passages.len(),
+        hir.conflict_zone_streams.len(),
+    ]
+    .into_iter()
+    .fold(0_u64, |total, count| {
+        total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
+    });
     let parking_record_count = [
-        hir.parking_areas.len(),
+        hir.parking_facilities.len(),
         hir.parking_spaces.len(),
-        hir.parking_area_spaces.len(),
+        hir.parking_facility_spaces.len(),
     ]
     .into_iter()
     .fold(0_u64, |total, count| {
@@ -631,12 +723,15 @@ pub(crate) fn lower_to_mir(
         .saturating_add(junction_record_count)
         .saturating_add(control_record_count)
         .saturating_add(signal_record_count)
+        .saturating_add(conflict_record_count)
         .saturating_add(parking_record_count)
         .saturating_add(u64::try_from(hir.canonical_frames.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(hir.lane_edge_geometries.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(hir.geometry_source_ranges.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(hir.facility_band_geometries.len()).unwrap_or(u64::MAX))
+        .saturating_add(u64::try_from(hir.conflict_zone_regions.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(hir.canonical_points.len()).unwrap_or(u64::MAX))
+        .saturating_add(u64::try_from(hir.conflict_region_points.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(hir.spatial_segments.len()).unwrap_or(u64::MAX))
         .saturating_add(access_record_count);
     let stage_scratch_bytes = requested_bytes::<MirModuleKey>(module_count)
@@ -661,9 +756,14 @@ pub(crate) fn lower_to_mir(
                 .saturating_add(u64::try_from(hir.signal_controllers.len()).unwrap_or(u64::MAX)),
         ))
         .saturating_add(requested_bytes::<u32>(
-            u64::try_from(hir.parking_areas.len())
+            u64::try_from(hir.parking_facilities.len())
                 .unwrap_or(u64::MAX)
                 .saturating_add(u64::try_from(hir.parking_spaces.len()).unwrap_or(u64::MAX)),
+        ))
+        .saturating_add(requested_bytes::<u32>(
+            u64::try_from(hir.conflict_zones.len())
+                .unwrap_or(u64::MAX)
+                .saturating_add(u64::try_from(hir.participant_streams.len()).unwrap_or(u64::MAX)),
         ))
         .saturating_add(requested_bytes::<u32>(
             u64::try_from(hir.participant_classes.len())
@@ -779,14 +879,39 @@ pub(crate) fn lower_to_mir(
                 .try_into()
                 .unwrap_or(u64::MAX),
         ))
-        .saturating_add(requested_bytes::<MirParkingArea>(
-            hir.parking_areas.len().try_into().unwrap_or(u64::MAX),
+        .saturating_add(requested_bytes::<MirConflictZone>(
+            hir.conflict_zones.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirParticipantStream>(
+            hir.participant_streams.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirConflictPassage>(
+            hir.conflict_passages.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirConflictZoneStream>(
+            hir.conflict_zone_streams
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirParkingFacility>(
+            hir.parking_facilities.len().try_into().unwrap_or(u64::MAX),
         ))
         .saturating_add(requested_bytes::<MirParkingSpace>(
             hir.parking_spaces.len().try_into().unwrap_or(u64::MAX),
         ))
-        .saturating_add(requested_bytes::<MirParkingAreaSpace>(
-            hir.parking_area_spaces.len().try_into().unwrap_or(u64::MAX),
+        .saturating_add(requested_bytes::<MirParkingFacilitySpace>(
+            hir.parking_facility_spaces
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirParkingLaneAnchor>(
+            hir.parking_facility_virtual_entries
+                .len()
+                .saturating_add(hir.parking_facility_virtual_exits.len())
+                .try_into()
+                .unwrap_or(u64::MAX),
         ))
         .saturating_add(requested_bytes::<MirCanonicalFrame>(
             hir.canonical_frames.len().try_into().unwrap_or(u64::MAX),
@@ -809,8 +934,20 @@ pub(crate) fn lower_to_mir(
                 .try_into()
                 .unwrap_or(u64::MAX),
         ))
+        .saturating_add(requested_bytes::<MirConflictZoneRegion>(
+            hir.conflict_zone_regions
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        ))
         .saturating_add(requested_bytes::<MirCanonicalPoint3F32>(
             hir.canonical_points.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirCanonicalPoint2F32>(
+            hir.conflict_region_points
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
         ))
         .saturating_add(requested_bytes::<MirSpatialSegment>(
             hir.spatial_segments.len().try_into().unwrap_or(u64::MAX),
@@ -1288,17 +1425,97 @@ pub(crate) fn lower_to_mir(
         })
         .collect::<Vec<_>>();
 
-    let parking_area_mapping = dense_mapping::<MirParkingAreaTag>(hir.parking_areas.len())?;
+    let conflict_zone_mapping = dense_mapping::<MirConflictZoneTag>(hir.conflict_zones.len())?;
+    let participant_stream_mapping =
+        dense_mapping::<MirParticipantStreamTag>(hir.participant_streams.len())?;
+    let conflict_zones = hir
+        .conflict_zones
+        .iter()
+        .map(|zone| {
+            Ok(MirConflictZone {
+                module: hir_module_to_mir[zone.module.index()],
+                stable_key: Arc::clone(&zone.stable_key),
+                stable_id: zone.stable_id,
+                junction: junction_mapping[zone.junction.index()],
+                junction_source_location: zone.junction_source_location.clone(),
+                participant_streams: remap_range(
+                    zone.participant_streams,
+                    &unit.limits,
+                    &zone.source_span,
+                )?,
+                source_span: zone.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let remap_conflict_anchor = |anchor: &crate::hir::HirPathAnchor| MirPathAnchor {
+        reference: match anchor.reference {
+            HirPathAnchorReference::Gate(gate) => {
+                MirPathAnchorReference::Gate(maneuver_gate_mapping[gate.index()])
+            }
+            HirPathAnchorReference::EdgeBoundary(boundary_index) => {
+                MirPathAnchorReference::EdgeBoundary(boundary_index)
+            }
+            HirPathAnchorReference::Interior { path_edge_index } => {
+                MirPathAnchorReference::Interior { path_edge_index }
+            }
+        },
+        progress_mm: anchor.progress_mm,
+    };
+    let conflict_passages = hir
+        .conflict_passages
+        .iter()
+        .map(|passage| MirConflictPassage {
+            conflict_zone: conflict_zone_mapping[passage.conflict_zone.index()],
+            entry: remap_conflict_anchor(&passage.entry),
+            exit: remap_conflict_anchor(&passage.exit),
+            admission_gate: maneuver_gate_mapping[passage.admission_gate.index()],
+            source_location: passage.source_location.clone(),
+        })
+        .collect::<Vec<_>>();
+    let participant_streams = hir
+        .participant_streams
+        .iter()
+        .map(|stream| {
+            Ok(MirParticipantStream {
+                module: hir_module_to_mir[stream.module.index()],
+                stable_key: Arc::clone(&stream.stable_key),
+                stable_id: stream.stable_id,
+                junction: junction_mapping[stream.junction.index()],
+                junction_source_location: stream.junction_source_location.clone(),
+                maneuver_path: maneuver_path_mapping[stream.maneuver_path.index()],
+                maneuver_path_source_location: stream.maneuver_path_source_location.clone(),
+                passages: remap_range(stream.passages, &unit.limits, &stream.source_span)?,
+                source_span: stream.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let conflict_zone_streams = hir
+        .conflict_zone_streams
+        .iter()
+        .map(|member| MirConflictZoneStream {
+            participant_stream: participant_stream_mapping[member.participant_stream.index()],
+        })
+        .collect::<Vec<_>>();
+
+    let parking_facility_mapping =
+        dense_mapping::<MirParkingFacilityTag>(hir.parking_facilities.len())?;
     let parking_space_mapping = dense_mapping::<MirParkingSpaceTag>(hir.parking_spaces.len())?;
-    let parking_areas = hir
-        .parking_areas
+    let parking_facilities = hir
+        .parking_facilities
         .iter()
         .map(|area| {
-            Ok(MirParkingArea {
+            Ok(MirParkingFacility {
                 module: hir_module_to_mir[area.module.index()],
                 stable_key: Arc::clone(&area.stable_key),
                 stable_id: area.stable_id,
                 parking_spaces: remap_range(area.parking_spaces, &unit.limits, &area.source_span)?,
+                virtual_capacity: area.virtual_capacity,
+                virtual_entries: remap_range(
+                    area.virtual_entries,
+                    &unit.limits,
+                    &area.source_span,
+                )?,
+                virtual_exits: remap_range(area.virtual_exits, &unit.limits, &area.source_span)?,
                 source_span: area.source_span.clone(),
             })
         })
@@ -1310,10 +1527,10 @@ pub(crate) fn lower_to_mir(
             module: hir_module_to_mir[space.module.index()],
             stable_key: Arc::clone(&space.stable_key),
             stable_id: space.stable_id,
-            parking_area: space
-                .parking_area
-                .map(|area| parking_area_mapping[area.index()]),
-            parking_area_source_location: space.parking_area_source_location.clone(),
+            parking_facility: space
+                .parking_facility
+                .map(|area| parking_facility_mapping[area.index()]),
+            parking_facility_source_location: space.parking_facility_source_location.clone(),
             entry: MirParkingLaneAnchor {
                 lane_edge: hir_to_mir[space.entry.lane_edge.index()],
                 progress_mm: space.entry.progress_mm,
@@ -1333,12 +1550,27 @@ pub(crate) fn lower_to_mir(
             source_span: space.source_span.clone(),
         })
         .collect::<Vec<_>>();
-    let parking_area_spaces = hir
-        .parking_area_spaces
+    let parking_facility_spaces = hir
+        .parking_facility_spaces
         .iter()
-        .map(|member| MirParkingAreaSpace {
+        .map(|member| MirParkingFacilitySpace {
             parking_space: parking_space_mapping[member.parking_space.index()],
         })
+        .collect::<Vec<_>>();
+    let remap_parking_anchor = |anchor: &crate::hir::HirParkingLaneAnchor| MirParkingLaneAnchor {
+        lane_edge: mir_key_for_hir(anchor.lane_edge, &hir_to_mir),
+        progress_mm: anchor.progress_mm,
+        source_location: anchor.source_location.clone(),
+    };
+    let parking_facility_virtual_entries = hir
+        .parking_facility_virtual_entries
+        .iter()
+        .map(remap_parking_anchor)
+        .collect::<Vec<_>>();
+    let parking_facility_virtual_exits = hir
+        .parking_facility_virtual_exits
+        .iter()
+        .map(remap_parking_anchor)
         .collect::<Vec<_>>();
 
     let canonical_frame_mapping =
@@ -1428,6 +1660,29 @@ pub(crate) fn lower_to_mir(
             cumulative_end_meters: segment.cumulative_end_meters,
             tangent: segment.tangent,
             up: segment.up,
+        })
+        .collect::<Vec<_>>();
+    let conflict_zone_regions = hir
+        .conflict_zone_regions
+        .iter()
+        .map(|region| {
+            Ok(MirConflictZoneRegion {
+                conflict_zone: conflict_zone_mapping[region.conflict_zone.index()],
+                canonical_frame: canonical_frame_mapping[region.canonical_frame.index()],
+                min_y: region.min_y,
+                max_y: region.max_y,
+                ring_xz: remap_range(region.ring_xz, &unit.limits, &region.source_span)?,
+                canonical_frame_source_location: region.canonical_frame_source_location.clone(),
+                source_location: region.source_location.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let conflict_region_points = hir
+        .conflict_region_points
+        .iter()
+        .map(|point| MirCanonicalPoint2F32 {
+            x: point.x,
+            z: point.z,
         })
         .collect::<Vec<_>>();
 
@@ -1564,14 +1819,22 @@ pub(crate) fn lower_to_mir(
         signal_phases: signal_phases.into_boxed_slice(),
         signal_phase_states: signal_phase_states.into_boxed_slice(),
         signal_group_maneuver_gates: signal_group_maneuver_gates.into_boxed_slice(),
-        parking_areas: parking_areas.into_boxed_slice(),
+        conflict_zones: conflict_zones.into_boxed_slice(),
+        participant_streams: participant_streams.into_boxed_slice(),
+        conflict_passages: conflict_passages.into_boxed_slice(),
+        conflict_zone_streams: conflict_zone_streams.into_boxed_slice(),
+        parking_facilities: parking_facilities.into_boxed_slice(),
         parking_spaces: parking_spaces.into_boxed_slice(),
-        parking_area_spaces: parking_area_spaces.into_boxed_slice(),
+        parking_facility_spaces: parking_facility_spaces.into_boxed_slice(),
+        parking_facility_virtual_entries: parking_facility_virtual_entries.into_boxed_slice(),
+        parking_facility_virtual_exits: parking_facility_virtual_exits.into_boxed_slice(),
         canonical_frames: canonical_frames.into_boxed_slice(),
         lane_edge_geometries: lane_edge_geometries.into_boxed_slice(),
         geometry_source_ranges: geometry_source_ranges.into_boxed_slice(),
         facility_band_geometries: facility_band_geometries.into_boxed_slice(),
+        conflict_zone_regions: conflict_zone_regions.into_boxed_slice(),
         canonical_points: canonical_points.into_boxed_slice(),
+        conflict_region_points: conflict_region_points.into_boxed_slice(),
         spatial_segments: spatial_segments.into_boxed_slice(),
         participant_classes: participant_classes.into_boxed_slice(),
         vehicle_profiles: vehicle_profiles.into_boxed_slice(),

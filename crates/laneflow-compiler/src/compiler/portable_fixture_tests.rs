@@ -3,20 +3,21 @@ use super::*;
 use crate::declaration::{
     CompiledFacilityBandGeometry, EdgeLength, OwnedEntityReference, TypedAstDeclaration,
 };
+use crate::road_editing as editing;
 use crate::{
     AccessRegulationInput, AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput,
     CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnit, CompilationUnitBuilder,
     CompileLimits, CorridorElementReference, FacilityBandInput, FacilityBandReference,
-    IidmVehicleProfileInput, JunctionInput, JunctionReference, LaneEdgeGeometryInput,
-    LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference, ManeuverGateInput,
-    ManeuverGateReference, ManeuverPathInput, ManeuverPathReference, MovementInput,
-    MovementReference, ParkingAreaInput, ParkingAreaReference, ParkingLaneAnchorInput,
-    ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference,
-    RoadCorridorInput, RoadSectionInput, RoadSectionReference, SignalControlInput,
-    SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
-    SignalPhaseInput, SourceModuleHeader, SourceModuleHeaderInput, StopLineInput,
-    StopLineReference, SyntheticModule, SyntheticModuleBuilder, VehicleProfileInput,
-    WaitingZoneInput,
+    GeometryAccuracyProfile, GeometryDirectionProfile, IidmVehicleProfileInput, JunctionInput,
+    JunctionReference, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference, LaneGroupInput,
+    LaneGroupReference, ManeuverGateInput, ManeuverGateReference, ManeuverPathInput,
+    ManeuverPathReference, MovementInput, MovementReference, ParkingFacilityInput,
+    ParkingFacilityReference, ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput,
+    ParticipantClassInput, ParticipantClassReference, RoadCorridorInput, RoadSectionInput,
+    RoadSectionReference, SignalControlInput, SignalControllerInput, SignalGroupInput,
+    SignalGroupReference, SignalGroupStateInput, SignalPhaseInput, SourceModuleHeader,
+    SourceModuleHeaderInput, StopLineInput, StopLineReference, SyntheticModule,
+    SyntheticModuleBuilder, VehicleProfileInput, WaitingZoneInput,
 };
 use laneflow_static_contract::CanonicalFrameKind;
 use std::sync::Arc;
@@ -279,13 +280,16 @@ fn portable_fixture_full_spatial_module() -> SyntheticModule {
             max_occupancy: 3,
         })
         .unwrap()
-        .add_parking_area(ParkingAreaInput {
-            parking_area_key: "area-main",
+        .add_parking_facility(ParkingFacilityInput {
+            parking_facility_key: "area-main",
+            virtual_capacity: 0,
+            virtual_entries: &[],
+            virtual_exits: &[],
         })
         .unwrap()
         .add_parking_space(ParkingSpaceInput {
             parking_space_key: "space-main",
-            parking_area: Some(ParkingAreaReference::local("area-main")),
+            parking_facility: Some(ParkingFacilityReference::local("area-main")),
             entry: ParkingLaneAnchorInput {
                 lane_edge: LaneEdgeReference::local("entry"),
                 progress_meters: 4.0,
@@ -339,8 +343,261 @@ fn portable_fixture_full_spatial_module() -> SyntheticModule {
     builder.finish().unwrap()
 }
 
+fn portable_fixture_full_spatial_conflict_source(
+    limits: &CompileLimits,
+) -> editing::OwnedRoadEditingSourceBuffer {
+    const DOCUMENT_KEY: &str = "portable-full-spatial-conflict.document";
+    const JUNCTION: &str = "conflict-junction";
+    const ZONE: &str = "conflict-zone";
+    const FRAME: &str = "conflict-frame";
+    const ENTRY_A: &str = "conflict-entry-a";
+    const INTERNAL_A: &str = "conflict-internal-a";
+    const EXIT_A: &str = "conflict-exit-a";
+    const ENTRY_B: &str = "conflict-entry-b";
+    const INTERNAL_B: &str = "conflict-internal-b";
+    const EXIT_B: &str = "conflict-exit-b";
+
+    let header = editing::RoadEditingModuleHeader::try_new(
+        "city/portable-full-spatial-conflict",
+        DOCUMENT_KEY,
+        Vec::new(),
+        editing::RoadEditingProvenance::direct("LFCA full-spatial conflict fixture").unwrap(),
+    )
+    .unwrap();
+    let mut builder = editing::RoadEditingSourceModuleBuilder::new(
+        header,
+        GeometryAccuracyProfile::Balanced5Cm,
+        GeometryDirectionProfile::Balanced2Deg,
+        limits,
+    )
+    .unwrap();
+    let edge = |key: &str| editing::LaneEdgeReference::local(key).unwrap();
+    let curve = |start_x: f64, end_x: f64| {
+        editing::RoadEditingCurveProgram::try_new(
+            editing::RoadEditingPoint3::try_new(start_x, 0.0, 0.0).unwrap(),
+            vec![editing::RoadEditingCurveSegment::line(
+                editing::RoadEditingPoint3::try_new(end_x, 0.0, 0.0).unwrap(),
+            )],
+        )
+        .unwrap()
+    };
+    let junction = editing::JunctionReference::local(JUNCTION).unwrap();
+    let zone =
+        editing::ConflictZoneReference::owner_scoped(vec![JUNCTION.to_owned()], ZONE).unwrap();
+
+    builder
+        .add_declaration(editing::RoadEditingDeclaration::CanonicalFrame(
+            editing::CanonicalFrameInput::try_new(FRAME).unwrap(),
+        ))
+        .unwrap();
+    for (suffix, edge_key, start_x, end_x) in [
+        ("entry-a", ENTRY_A, 0.0, 10.0),
+        ("exit-a", EXIT_A, 18.0, 30.0),
+        ("entry-b", ENTRY_B, 0.0, 10.0),
+        ("exit-b", EXIT_B, 18.0, 30.0),
+    ] {
+        let alignment_key = format!("conflict-alignment-{suffix}");
+        let corridor_key = format!("conflict-corridor-{suffix}");
+        let section_key = format!("conflict-section-{suffix}");
+        let lane_key = format!("conflict-lane-{suffix}");
+        let corridor = editing::RoadCorridorReference::local(&corridor_key).unwrap();
+        let section =
+            editing::RoadSectionReference::owner_scoped(vec![corridor_key.clone()], &section_key)
+                .unwrap();
+        let lane = editing::AuthoringLaneReference::owner_scoped(
+            vec![corridor_key.clone(), section_key.clone()],
+            &lane_key,
+        )
+        .unwrap();
+        builder
+            .add_alignment(
+                editing::RoadAlignmentInput::try_new(
+                    &alignment_key,
+                    editing::CanonicalFrameReference::local(FRAME).unwrap(),
+                    curve(start_x, end_x),
+                )
+                .unwrap(),
+            )
+            .unwrap()
+            .add_declaration(editing::RoadEditingDeclaration::RoadCorridor(
+                editing::RoadCorridorInput::try_new(
+                    &corridor_key,
+                    editing::RoadAlignmentReference::try_new(&alignment_key).unwrap(),
+                    0.0,
+                    editing::RoadEditingStationEnd::AlignmentEnd,
+                    section.clone(),
+                    lane.clone(),
+                    vec![editing::RoadEditingCorridorElement::RoadSection(
+                        section.clone(),
+                    )],
+                )
+                .unwrap(),
+            ))
+            .unwrap()
+            .add_declaration(editing::RoadEditingDeclaration::RoadSection(
+                editing::RoadSectionInput::try_new(
+                    &section_key,
+                    "motorLane",
+                    vec![lane.clone()],
+                    corridor,
+                )
+                .unwrap(),
+            ))
+            .unwrap()
+            .add_declaration(editing::RoadEditingDeclaration::AuthoringLane(
+                editing::AuthoringLaneInput::try_new(
+                    &lane_key,
+                    edge(edge_key),
+                    editing::RoadEditingLaneDirection::Forward,
+                    editing::LinearWidthProfile::try_new(3.5, 3.5).unwrap(),
+                    None,
+                    section,
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+    }
+    for (edge_key, explicit_geometry) in [
+        (ENTRY_A, None),
+        (INTERNAL_A, Some(curve(10.0, 18.0))),
+        (EXIT_A, None),
+        (ENTRY_B, None),
+        (INTERNAL_B, Some(curve(10.0, 18.0))),
+        (EXIT_B, None),
+    ] {
+        builder
+            .add_declaration(editing::RoadEditingDeclaration::LaneEdge(
+                editing::LaneEdgeInput::try_new(edge_key, 10.0, Vec::new(), explicit_geometry)
+                    .unwrap(),
+            ))
+            .unwrap();
+    }
+    builder
+        .add_declaration(editing::RoadEditingDeclaration::Junction(
+            editing::JunctionInput::try_new(
+                JUNCTION,
+                vec![edge(ENTRY_A), edge(EXIT_A), edge(ENTRY_B), edge(EXIT_B)],
+                vec![edge(INTERNAL_A), edge(INTERNAL_B)],
+            )
+            .unwrap(),
+        ))
+        .unwrap()
+        .add_declaration(editing::RoadEditingDeclaration::ConflictZone(
+            editing::ConflictZoneInput::try_new(ZONE, junction.clone()).unwrap(),
+        ))
+        .unwrap();
+    for (suffix, entry, internal, exit) in [
+        ("a", ENTRY_A, INTERNAL_A, EXIT_A),
+        ("b", ENTRY_B, INTERNAL_B, EXIT_B),
+    ] {
+        let movement_key = format!("conflict-movement-{suffix}");
+        let stream_key = format!("conflict-stream-{suffix}");
+        let stop_key = format!("conflict-stop-{suffix}");
+        let movement =
+            editing::MovementReference::owner_scoped(vec![JUNCTION.to_owned()], &movement_key)
+                .unwrap();
+        let path = editing::ManeuverPathReference::owner_scoped(
+            vec![JUNCTION.to_owned(), movement_key.clone()],
+            "path",
+        )
+        .unwrap();
+        let admission_gate = editing::ManeuverGateReference::owner_scoped(
+            vec![JUNCTION.to_owned(), movement_key.clone(), "path".to_owned()],
+            "admission",
+        )
+        .unwrap();
+        builder
+            .add_declaration(editing::RoadEditingDeclaration::Movement(
+                editing::MovementInput::try_new(
+                    &movement_key,
+                    junction.clone(),
+                    format!("approach-{suffix}-entry"),
+                    format!("approach-{suffix}-exit"),
+                )
+                .unwrap(),
+            ))
+            .unwrap()
+            .add_declaration(editing::RoadEditingDeclaration::ManeuverPath(
+                editing::ManeuverPathInput::try_new(
+                    "path",
+                    movement,
+                    edge(entry),
+                    vec![edge(internal)],
+                    edge(exit),
+                )
+                .unwrap(),
+            ))
+            .unwrap()
+            .add_declaration(editing::RoadEditingDeclaration::StopLine(
+                editing::StopLineInput::try_new(&stop_key, edge(entry)).unwrap(),
+            ))
+            .unwrap()
+            .add_declaration(editing::RoadEditingDeclaration::ManeuverGate(
+                editing::ManeuverGateInput::try_new(
+                    "admission",
+                    path.clone(),
+                    0,
+                    editing::StopLineReference::local(&stop_key).unwrap(),
+                    editing::RoadEditingSignalControl::None,
+                )
+                .unwrap(),
+            ))
+            .unwrap()
+            .add_declaration(editing::RoadEditingDeclaration::ParticipantStream(
+                editing::ParticipantStreamInput::try_new(
+                    stream_key,
+                    junction.clone(),
+                    path,
+                    vec![editing::ConflictPassageInput::new(
+                        zone.clone(),
+                        editing::PathAnchorInput::gate(admission_gate),
+                        editing::PathAnchorInput::edge_boundary(2),
+                    )],
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+    }
+    builder
+        .add_conflict_zone_region(
+            editing::ConflictZoneRegionInput::try_new(
+                zone,
+                editing::CanonicalFrameReference::local(FRAME).unwrap(),
+                -1.0,
+                1.0,
+                vec![
+                    editing::RoadEditingPoint2::try_new(9.0, -2.0).unwrap(),
+                    editing::RoadEditingPoint2::try_new(19.0, -2.0).unwrap(),
+                    editing::RoadEditingPoint2::try_new(19.0, 2.0).unwrap(),
+                    editing::RoadEditingPoint2::try_new(9.0, 2.0).unwrap(),
+                ],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    editing::RoadEditingSourceWriter::new(limits)
+        .write(builder.finish().unwrap())
+        .unwrap()
+}
+
 fn full_spatial_portable_fixture_unit() -> CompilationUnit {
-    let mut fixture = unit([portable_fixture_full_spatial_module()]);
+    let limits = CompileLimits::p100_initial_v1();
+    let conflict_source = portable_fixture_full_spatial_conflict_source(&limits);
+    let mut builder = CompilationUnitBuilder::new(limits);
+    builder
+        .add_synthetic_module(portable_fixture_full_spatial_module())
+        .unwrap()
+        .add_road_editing_module(
+            editing::RoadEditingModuleInput::try_new(
+                "portable-full-spatial-conflict.document",
+                conflict_source.as_bytes(),
+                None,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let mut fixture = builder.build().unwrap();
     let module = fixture
         .modules
         .iter_mut()
@@ -426,8 +683,8 @@ const FULL_SPATIAL_EXPECTED_LFSM: &[u8] =
 const FULL_SPATIAL_EXPECTED_LFSD: &[u8] =
     include_bytes!("../../tests/fixtures/portable/lfca-full-spatial/expected.lfsd");
 const FULL_SPATIAL_NETWORK_REVISION: [u8; 32] = [
-    0x47, 0x3f, 0xd3, 0xa1, 0xda, 0xce, 0x4e, 0x4b, 0xcc, 0x5b, 0x8f, 0xf1, 0xee, 0x89, 0x18, 0xea,
-    0x11, 0x31, 0xb7, 0x8a, 0xe2, 0x2c, 0xfe, 0x17, 0x00, 0x4e, 0x5b, 0xc7, 0x4d, 0x9b, 0x5b, 0x3a,
+    0xd0, 0xb0, 0x28, 0x43, 0x84, 0xa7, 0x20, 0xbf, 0x96, 0x88, 0xe7, 0xec, 0x96, 0xbe, 0xc9, 0x45,
+    0xc2, 0x48, 0x5f, 0x6f, 0x5b, 0x40, 0x71, 0x42, 0xf4, 0x42, 0x46, 0x90, 0x4e, 0x14, 0x24, 0x74,
 ];
 
 #[test]
@@ -477,15 +734,15 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         candidate.canonical_artifact().object_key(),
-        "sha256/7f2746caf919e8e52b67c1465fc428be13cfbe63c3691de8bae2da12c768162d"
+        "sha256/48301c00c5e42b2e4c93b22296b7ec9c1f7b493bab75db8186baf07ba041f45f"
     );
     assert_eq!(
         candidate.source_map().object_key(),
-        "sha256/2ce7184b5702306d71d50639d5bf622423da0613f15a71dfc2f104776d678711"
+        "sha256/5d30779eff4fb3ad5e0ac36571952da3fad06ea124fa321556421368d894ebbe"
     );
     assert_eq!(
         candidate.semantic_diff().object_key(),
-        "sha256/c70c1a6d83241b75b79129ab155ed2b54178f7935d9c64ba88fc2b518c88dad2"
+        "sha256/fd88caf513ff5b7bef50ac9a2e8e1b40ac662eb8f793024170b27ed8ff931a7c"
     );
     assert_eq!(
         candidate.network_revision(),
@@ -500,14 +757,17 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     .unwrap()
     .registry_view();
     let entity_tables = artifact.section(2).unwrap();
-    assert_eq!(entity_tables.table_count(), 21);
-    assert!((0..21).all(|ordinal| entity_tables.table(ordinal).unwrap().row_count() > 0));
+    assert_eq!(entity_tables.table_count(), 23);
+    assert!((0..23).all(|ordinal| entity_tables.table(ordinal).unwrap().row_count() > 0));
+    assert_eq!(entity_tables.table(20).unwrap().row_count(), 1);
+    assert_eq!(entity_tables.table(22).unwrap().row_count(), 2);
     let relation_tables = artifact.section(3).unwrap();
     assert_eq!(relation_tables.table_count(), 1);
     assert!(relation_tables.table(0).unwrap().row_count() > 0);
     let spatial_tables = artifact.section(4).unwrap();
     assert!(spatial_tables.table(1).unwrap().row_count() > 0);
     assert!(spatial_tables.table(2).unwrap().row_count() > 0);
+    assert_eq!(spatial_tables.table(3).unwrap().row_count(), 1);
 }
 
 // 后续向量放在子模块中，使本文件的语义输入构造保持原位稳定。
@@ -529,4 +789,66 @@ fn network_revision(bytes: [u8; 32]) -> laneflow_static_contract::NetworkRevisio
 
 fn exact_byte_length(value: u64) -> laneflow_static_contract::ExactByteLength {
     laneflow_static_contract::ExactByteLength::new(value)
+}
+
+pub(crate) fn refresh_portable_chunk_digest_containing(
+    bytes: &mut [u8],
+    kind: laneflow_static_contract::PortableObjectKind,
+    absolute_offset: usize,
+) {
+    use laneflow_static_contract::{
+        CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH, OBJECT_PREAMBLE_BYTE_LENGTH,
+        SECTION_DIRECTORY_ENTRY_BYTE_LENGTH, TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH,
+    };
+    use sha2::Digest as _;
+
+    for section_ordinal in 0..kind.section_count() {
+        let section_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
+            + usize::try_from(section_ordinal).unwrap()
+                * usize::try_from(SECTION_DIRECTORY_ENTRY_BYTE_LENGTH).unwrap();
+        let section_start = usize::try_from(u64::from_le_bytes(
+            bytes[section_entry + 8..section_entry + 16]
+                .try_into()
+                .unwrap(),
+        ))
+        .unwrap();
+        let section_length = usize::try_from(u64::from_le_bytes(
+            bytes[section_entry + 16..section_entry + 24]
+                .try_into()
+                .unwrap(),
+        ))
+        .unwrap();
+        if absolute_offset < section_start || absolute_offset >= section_start + section_length {
+            continue;
+        }
+
+        let chunk_count =
+            u32::from_le_bytes(bytes[section_start..section_start + 4].try_into().unwrap());
+        for chunk_ordinal in 0..chunk_count {
+            let chunk_entry = section_start
+                + usize::try_from(CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH).unwrap()
+                + usize::try_from(chunk_ordinal).unwrap()
+                    * usize::try_from(TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH).unwrap();
+            let chunk_offset = usize::try_from(u64::from_le_bytes(
+                bytes[chunk_entry + 24..chunk_entry + 32]
+                    .try_into()
+                    .unwrap(),
+            ))
+            .unwrap();
+            let chunk_length = usize::try_from(u64::from_le_bytes(
+                bytes[chunk_entry + 32..chunk_entry + 40]
+                    .try_into()
+                    .unwrap(),
+            ))
+            .unwrap();
+            let chunk_start = section_start + chunk_offset;
+            let chunk_end = chunk_start + chunk_length;
+            if (chunk_start..chunk_end).contains(&absolute_offset) {
+                let digest = sha2::Sha256::digest(&bytes[chunk_start..chunk_end]);
+                bytes[chunk_entry + 40..chunk_entry + 72].copy_from_slice(&digest);
+                return;
+            }
+        }
+    }
+    panic!("offset {absolute_offset} is not inside a physical table chunk");
 }

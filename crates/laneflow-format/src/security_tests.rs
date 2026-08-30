@@ -6,17 +6,17 @@
 use std::{vec, vec::Vec};
 
 use laneflow_static_contract::{
-    FORMAT_HARD_MAX_FIELDS_PER_ROW, FORMAT_HARD_MAX_OBJECT_BYTES, FORMAT_HARD_MAX_ROWS_PER_TABLE,
-    FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES, FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS,
+    FORMAT_HARD_MAX_FIELDS_PER_ROW, FORMAT_HARD_MAX_ROWS_PER_CHUNK,
+    FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK, FORMAT_HARD_MAX_TABLE_CHUNK_BYTES,
     FORMAT_HARD_MAX_TOTAL_UTF8_BYTES, FORMAT_HARD_MAX_TOTAL_VECTOR_BYTES,
     FORMAT_HARD_MAX_UTF8_FIELD_BYTES, FORMAT_HARD_MAX_VECTOR_ITEMS, OBJECT_PREAMBLE_BYTE_LENGTH,
     PortableFieldType, PortableObjectKind, SECTION_DIRECTORY_ENTRY_BYTE_LENGTH,
-    SECTION_FORMAT_VERSION, portable_object_schema,
+    portable_object_schema,
 };
 
 use crate::{
-    FormatError, FormatErrorClass, FormatLimits, FormatStructure, LimitDimension,
-    preflight_object_framing, preflight_table_structure,
+    FormatError, FormatErrorClass, FormatLimitConfig, FormatLimits, FormatStructure,
+    LimitDimension, preflight_object_framing, preflight_table_structure,
     table::{PreflightBudget, preflight_table_with_registry},
     wire::checked_slice,
 };
@@ -80,7 +80,7 @@ fn object_with_section_lengths(kind: PortableObjectKind, section_lengths: &[u64]
         let entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
             + ordinal * usize::try_from(SECTION_DIRECTORY_ENTRY_BYTE_LENGTH).unwrap();
         bytes[entry..entry + 2].copy_from_slice(&u16::try_from(ordinal + 1).unwrap().to_le_bytes());
-        bytes[entry + 2..entry + 4].copy_from_slice(&SECTION_FORMAT_VERSION.to_le_bytes());
+        bytes[entry + 2..entry + 4].copy_from_slice(&kind.section_format_version().to_le_bytes());
         bytes[entry + 8..entry + 16].copy_from_slice(&section_offset.to_le_bytes());
         bytes[entry + 16..entry + 24].copy_from_slice(&byte_length.to_le_bytes());
         section_offset = section_offset.checked_add(byte_length).unwrap();
@@ -278,10 +278,13 @@ fn every_table_byte_boundary_truncates_with_a_stable_length_class() {
 #[test]
 fn object_and_table_byte_boundaries_have_explicit_reachability() {
     let kind = PortableObjectKind::CanonicalPublicationDescriptor;
-    let first_section_length = FORMAT_HARD_MAX_OBJECT_BYTES - kind.first_section_offset();
+    let mut config = FormatLimitConfig::HARD;
+    config.max_object_bytes = 1_048_576;
+    let limits = FormatLimits::try_new(config).unwrap();
+    let first_section_length = config.max_object_bytes - kind.first_section_offset();
     let mut object = object_with_section_lengths(kind, &[first_section_length, 0, 0]);
-    assert_eq!(object.len() as u64, FORMAT_HARD_MAX_OBJECT_BYTES);
-    preflight_object_framing(&object, kind, FormatLimits::HARD).unwrap();
+    assert_eq!(object.len() as u64, config.max_object_bytes);
+    preflight_object_framing(&object, kind, limits).unwrap();
     object.push(0);
     let over_object_length = object.len() as u64;
     object[24..32].copy_from_slice(&over_object_length.to_le_bytes());
@@ -289,16 +292,16 @@ fn object_and_table_byte_boundaries_have_explicit_reachability() {
     object[first_entry + 16..first_entry + 24]
         .copy_from_slice(&(first_section_length + 1).to_le_bytes());
     assert_eq!(
-        preflight_object_framing(&object, kind, FormatLimits::HARD).unwrap_err(),
+        preflight_object_framing(&object, kind, limits).unwrap_err(),
         FormatError::LimitExceeded {
             dimension: LimitDimension::ObjectBytes,
-            actual: FORMAT_HARD_MAX_OBJECT_BYTES + 1,
-            limit: FORMAT_HARD_MAX_OBJECT_BYTES,
+            actual: config.max_object_bytes + 1,
+            limit: config.max_object_bytes,
         }
     );
     drop(object);
 
-    let payload_length = usize::try_from(FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES).unwrap()
+    let payload_length = usize::try_from(FORMAT_HARD_MAX_TABLE_CHUNK_BYTES).unwrap()
         - TABLE_HEADER_BYTES
         - ROW_HEADER_BYTES
         - FIELD_HEADER_BYTES;
@@ -310,18 +313,15 @@ fn object_and_table_byte_boundaries_have_explicit_reachability() {
             &vec![0; payload_length],
         )])],
     );
-    assert_eq!(
-        table_bytes.len() as u64,
-        FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES
-    );
+    assert_eq!(table_bytes.len() as u64, FORMAT_HARD_MAX_TABLE_CHUNK_BYTES);
     preflight_table_structure(&table_bytes, 1, FormatLimits::HARD).unwrap();
     table_bytes.push(0);
     assert_eq!(
         preflight_table_structure(&table_bytes, 1, FormatLimits::HARD),
         Err(FormatError::LimitExceeded {
-            dimension: LimitDimension::SectionOrTableBytes,
-            actual: FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES + 1,
-            limit: FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES,
+            dimension: LimitDimension::TableChunkBytes,
+            actual: FORMAT_HARD_MAX_TABLE_CHUNK_BYTES + 1,
+            limit: FORMAT_HARD_MAX_TABLE_CHUNK_BYTES,
         })
     );
 }
@@ -329,16 +329,16 @@ fn object_and_table_byte_boundaries_have_explicit_reachability() {
 #[test]
 fn row_and_field_count_boundaries_accept_limit_and_reject_next_value() {
     let empty = row(&[]);
-    let rows = vec![empty; FORMAT_HARD_MAX_ROWS_PER_TABLE as usize];
+    let rows = vec![empty; FORMAT_HARD_MAX_ROWS_PER_CHUNK as usize];
     let mut rows_table = table(1, &rows);
     preflight_table_structure(&rows_table, 1, FormatLimits::HARD).unwrap();
-    rows_table[4..8].copy_from_slice(&(FORMAT_HARD_MAX_ROWS_PER_TABLE + 1).to_le_bytes());
+    rows_table[4..8].copy_from_slice(&(FORMAT_HARD_MAX_ROWS_PER_CHUNK + 1).to_le_bytes());
     assert_eq!(
         preflight_table_structure(&rows_table, 1, FormatLimits::HARD),
         Err(FormatError::LimitExceeded {
-            dimension: LimitDimension::RowsPerTable,
-            actual: u64::from(FORMAT_HARD_MAX_ROWS_PER_TABLE) + 1,
-            limit: u64::from(FORMAT_HARD_MAX_ROWS_PER_TABLE),
+            dimension: LimitDimension::RowsPerChunk,
+            actual: u64::from(FORMAT_HARD_MAX_ROWS_PER_CHUNK) + 1,
+            limit: u64::from(FORMAT_HARD_MAX_ROWS_PER_CHUNK),
         })
     );
 
@@ -465,8 +465,8 @@ fn vector_item_and_total_boundaries_accept_exact_and_reject_next_constructible()
 #[test]
 fn lfsm_source_location_rows_reach_the_frozen_boundary() {
     assert_eq!(
-        FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS,
-        FORMAT_HARD_MAX_ROWS_PER_TABLE
+        FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK,
+        FORMAT_HARD_MAX_ROWS_PER_CHUNK
     );
     let schema = &portable_object_schema(PortableObjectKind::SourceMap).sections[1].tables[2];
     let fields = schema.row.fields[..8]
@@ -481,7 +481,7 @@ fn lfsm_source_location_rows_reach_the_frozen_boundary() {
         })
         .collect::<Vec<_>>();
     let text_location = row(&fields);
-    let rows = vec![text_location; FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS as usize];
+    let rows = vec![text_location; FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK as usize];
     let mut bytes = table(schema.kind, &rows);
     preflight_table_with_registry(
         &bytes,
@@ -491,7 +491,8 @@ fn lfsm_source_location_rows_reach_the_frozen_boundary() {
     )
     .unwrap();
 
-    bytes[4..8].copy_from_slice(&(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS + 1).to_le_bytes());
+    bytes[4..8]
+        .copy_from_slice(&(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK + 1).to_le_bytes());
     assert_eq!(
         preflight_table_with_registry(
             &bytes,
@@ -500,9 +501,9 @@ fn lfsm_source_location_rows_reach_the_frozen_boundary() {
             &mut PreflightBudget::default(),
         ),
         Err(FormatError::LimitExceeded {
-            dimension: LimitDimension::RowsPerTable,
-            actual: u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS) + 1,
-            limit: u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS),
+            dimension: LimitDimension::RowsPerChunk,
+            actual: u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK) + 1,
+            limit: u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK),
         })
     );
 }

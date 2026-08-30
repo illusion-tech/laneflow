@@ -207,13 +207,16 @@ fn signal_module_with_document(namespace: &str, document: &str) -> SyntheticModu
             successors: &[],
         })
         .unwrap()
-        .add_parking_area(ParkingAreaInput {
-            parking_area_key: "parking-main",
+        .add_parking_facility(ParkingFacilityInput {
+            parking_facility_key: "parking-main",
+            virtual_capacity: 0,
+            virtual_entries: &[],
+            virtual_exits: &[],
         })
         .unwrap()
         .add_parking_space(ParkingSpaceInput {
             parking_space_key: "space-main",
-            parking_area: Some(ParkingAreaReference::local("parking-main")),
+            parking_facility: Some(ParkingFacilityReference::local("parking-main")),
             entry: ParkingLaneAnchorInput {
                 lane_edge: LaneEdgeReference::local("parking-entry"),
                 progress_meters: 4.0,
@@ -255,7 +258,7 @@ fn document_digest_and_length_are_bound_to_the_module() {
         module.descriptor().source_language(),
         SourceLanguage::SyntheticDsl
     );
-    assert_eq!(module.descriptor().frontend_version(), 3);
+    assert_eq!(module.descriptor().frontend_version(), 4);
     let document = module.source_documents().next().unwrap();
     assert_eq!(
         u64::from(document.source_record_byte_len()),
@@ -294,17 +297,17 @@ fn empty_module_source_record_has_a_position_independent_known_vector() {
     assert_eq!(
         *document.source_document_digest(),
         [
-            0x72, 0x05, 0xa6, 0xd0, 0x2a, 0x83, 0xdf, 0x63, 0xbe, 0xe6, 0x95, 0x11, 0x26, 0x4e,
-            0xd7, 0xb3, 0xac, 0xdf, 0xaf, 0xa9, 0x02, 0xf4, 0xa6, 0x2a, 0x7f, 0xb2, 0x2a, 0x86,
-            0x3b, 0xde, 0xe6, 0x2c,
+            0x85, 0xf9, 0xfc, 0x00, 0x93, 0x4c, 0xa4, 0x1c, 0x15, 0xfe, 0xbe, 0x2e, 0x91, 0x57,
+            0xc3, 0x34, 0x47, 0x26, 0x88, 0x66, 0x4c, 0x0f, 0xca, 0xef, 0x18, 0x78, 0xb4, 0x53,
+            0x08, 0xbb, 0x0a, 0x5f,
         ]
     );
     assert_eq!(
         *module.descriptor().source_document_set_digest(),
         [
-            0xbf, 0x52, 0xdc, 0x7f, 0xeb, 0x8d, 0x20, 0x7a, 0x29, 0xfb, 0x65, 0xa5, 0x32, 0x77,
-            0x0c, 0xc4, 0x49, 0x06, 0x7f, 0xa4, 0xaf, 0x87, 0x9f, 0xd4, 0xa1, 0xed, 0x41, 0x93,
-            0x43, 0xe0, 0x70, 0xc3,
+            0x50, 0x31, 0xe9, 0xf6, 0x70, 0x5d, 0xa9, 0x1e, 0x0a, 0x36, 0xd7, 0x46, 0xfe, 0x2b,
+            0x2c, 0x9b, 0x29, 0xb8, 0x0c, 0x62, 0x27, 0x92, 0x68, 0x71, 0x00, 0x74, 0x38, 0xd7,
+            0x86, 0x1f, 0x4c, 0x89,
         ]
     );
 }
@@ -690,9 +693,9 @@ fn lane_edge_source_record_has_a_known_vector() {
     assert_eq!(
         *document.source_document_digest(),
         [
-            0x85, 0xd5, 0xd8, 0x6a, 0xa8, 0xb5, 0xb9, 0x0e, 0x2c, 0xf8, 0xec, 0xdd, 0x79, 0xfa,
-            0xee, 0xce, 0xd2, 0x10, 0x9d, 0x39, 0x9e, 0x6f, 0xd1, 0x05, 0x75, 0x0f, 0x5e, 0xad,
-            0xd7, 0x99, 0x7b, 0x04,
+            0x0f, 0x4f, 0x64, 0x79, 0x76, 0x71, 0x95, 0x61, 0x2b, 0x20, 0x7a, 0x46, 0x07, 0xd7,
+            0xca, 0x55, 0x2b, 0xc7, 0xf1, 0x5e, 0x3f, 0x4d, 0xa6, 0xdb, 0xbb, 0x1b, 0x62, 0x6d,
+            0x3a, 0x0b, 0x36, 0x43,
         ]
     );
 }
@@ -1035,6 +1038,7 @@ fn common_admission_enforces_every_owned_cumulative_resource_dimension_atomicall
         CompileLimitDimension::ImportEdgeCount,
         CompileLimitDimension::SourceBytesTotal,
         CompileLimitDimension::DeclarationCount,
+        CompileLimitDimension::StableEntityCount,
         CompileLimitDimension::TypedAstRecordCount,
         CompileLimitDimension::ReferenceCount,
         CompileLimitDimension::RelationOccurrenceCount,
@@ -1061,6 +1065,7 @@ fn common_admission_enforces_every_owned_cumulative_resource_dimension_atomicall
                 expect_diagnostics(builder.add_synthetic_module(module_builder.finish().unwrap()))
             }
             CompileLimitDimension::DeclarationCount
+            | CompileLimitDimension::StableEntityCount
             | CompileLimitDimension::TypedAstRecordCount
             | CompileLimitDimension::ReferenceCount
             | CompileLimitDimension::RelationOccurrenceCount
@@ -1776,7 +1781,7 @@ fn every_authored_owner_relation_keeps_its_multi_document_location() {
         (SourceRelationRole::SignalControllerGroup, 2),
         (SourceRelationRole::SignalPhaseState, 2),
         (SourceRelationRole::ManeuverGateSignalGroup, 2),
-        (SourceRelationRole::ParkingSpaceArea, 1),
+        (SourceRelationRole::ParkingSpaceFacility, 1),
         (SourceRelationRole::ParkingSpaceEntry, 1),
         (SourceRelationRole::ParkingSpaceExit, 1),
     ] {

@@ -260,9 +260,29 @@ mod tests {
             for bytes in [&mut base_bytes, &mut target_bytes] {
                 bytes[direction_profile.clone()].copy_from_slice(&[1]);
                 bytes[accuracy_profile.clone()].copy_from_slice(&[1]);
+                crate::compiler::portable_fixture_tests::refresh_portable_chunk_digest_containing(
+                    bytes,
+                    PortableObjectKind::CanonicalArtifact,
+                    direction_profile.start,
+                );
+                crate::compiler::portable_fixture_tests::refresh_portable_chunk_digest_containing(
+                    bytes,
+                    PortableObjectKind::CanonicalArtifact,
+                    accuracy_profile.start,
+                );
             }
             base_bytes[applies.clone()].copy_from_slice(&[0]);
-            target_bytes[applies].copy_from_slice(&[1]);
+            target_bytes[applies.clone()].copy_from_slice(&[1]);
+            crate::compiler::portable_fixture_tests::refresh_portable_chunk_digest_containing(
+                &mut base_bytes,
+                PortableObjectKind::CanonicalArtifact,
+                applies.start,
+            );
+            crate::compiler::portable_fixture_tests::refresh_portable_chunk_digest_containing(
+                &mut target_bytes,
+                PortableObjectKind::CanonicalArtifact,
+                applies.start,
+            );
 
             let base_view = preflight_object_values(
                 &base_bytes,

@@ -25,21 +25,23 @@ use super::{
     AccessCandidate, CanonicalAuthoringLaneSource, CanonicalDeclarationSource,
     CanonicalLaneEdgeSource, HirAccessRule, HirAccessRuleKey, HirAccessRuleParticipantClass,
     HirAuthoringLane, HirAuthoringLaneEdge, HirAuthoringLaneKey, HirCanonicalFrame,
-    HirCanonicalFrameKey, HirCanonicalPoint3F32, HirCorridorElement, HirDeclaredJunctionEdge,
-    HirFacilityBand, HirFacilityBandGeometry, HirFacilityBandKey, HirGeometrySourceRange,
-    HirImport, HirJunction, HirJunctionInternalEdge, HirJunctionKey, HirJunctionMovement,
-    HirLaneEdge, HirLaneEdgeGeometry, HirLaneEdgeKey, HirLaneEdgeReference, HirLaneGroup,
-    HirLaneGroupKey, HirLaneGroupMember, HirManeuverGate, HirManeuverGateKey, HirManeuverPath,
-    HirManeuverPathEdge, HirManeuverPathGate, HirManeuverPathKey, HirManeuverPathWaitingZone,
-    HirModule, HirModuleKey, HirMovement, HirMovementKey, HirMovementManeuverPath, HirParkingArea,
-    HirParkingAreaKey, HirParkingAreaSpace, HirParkingSpace, HirParkingSpaceKey,
-    HirParticipantClass, HirParticipantClassKey, HirRoadCorridor, HirRoadCorridorKey,
-    HirRoadSection, HirRoadSectionKey, HirSignalController, HirSignalControllerGroup,
-    HirSignalControllerKey, HirSignalGroup, HirSignalGroupKey, HirSignalGroupManeuverGate,
-    HirSignalPhase, HirSignalPhaseState, HirSpatialSegment, HirStopLine, HirStopLineKey,
-    HirStopLineManeuverGate, HirVehicleProfile, HirVehicleProfileKey, HirWaitingZone,
-    HirWaitingZoneKey, ManeuverPathSequence, PendingSpatialGeometry, SpatialFrameAssignment,
-    declaration_header, lane_edge_declaration,
+    HirCanonicalFrameKey, HirCanonicalPoint2F32, HirCanonicalPoint3F32, HirConflictPassage,
+    HirConflictZone, HirConflictZoneKey, HirConflictZoneRegion, HirConflictZoneStream,
+    HirCorridorElement, HirDeclaredJunctionEdge, HirFacilityBand, HirFacilityBandGeometry,
+    HirFacilityBandKey, HirGeometrySourceRange, HirImport, HirJunction, HirJunctionInternalEdge,
+    HirJunctionKey, HirJunctionMovement, HirLaneEdge, HirLaneEdgeGeometry, HirLaneEdgeKey,
+    HirLaneEdgeReference, HirLaneGroup, HirLaneGroupKey, HirLaneGroupMember, HirManeuverGate,
+    HirManeuverGateKey, HirManeuverPath, HirManeuverPathEdge, HirManeuverPathGate,
+    HirManeuverPathKey, HirManeuverPathWaitingZone, HirModule, HirModuleKey, HirMovement,
+    HirMovementKey, HirMovementManeuverPath, HirParkingFacility, HirParkingFacilityKey,
+    HirParkingFacilitySpace, HirParkingLaneAnchor, HirParkingSpace, HirParkingSpaceKey,
+    HirParticipantClass, HirParticipantClassKey, HirParticipantStream, HirParticipantStreamKey,
+    HirRoadCorridor, HirRoadCorridorKey, HirRoadSection, HirRoadSectionKey, HirSignalController,
+    HirSignalControllerGroup, HirSignalControllerKey, HirSignalGroup, HirSignalGroupKey,
+    HirSignalGroupManeuverGate, HirSignalPhase, HirSignalPhaseState, HirSpatialSegment,
+    HirStopLine, HirStopLineKey, HirStopLineManeuverGate, HirVehicleProfile, HirVehicleProfileKey,
+    HirWaitingZone, HirWaitingZoneKey, ManeuverPathSequence, PendingConflictZoneRegion,
+    PendingSpatialGeometry, SpatialFrameAssignment, declaration_header, lane_edge_declaration,
 };
 
 /// 公共基础构造或单个领域的三类内存预算分量。
@@ -69,6 +71,7 @@ pub(super) struct HirBuildPlan {
     pub(super) junction: JunctionCounts,
     pub(super) control: ControlCounts,
     pub(super) signal: SignalCounts,
+    pub(super) conflict: ConflictCounts,
     pub(super) parking: ParkingCounts,
     pub(super) spatial: SpatialCounts,
     pub(super) access: AccessCounts,
@@ -88,6 +91,7 @@ impl HirBuildPlan {
             junction: junction_counts(unit),
             control: control_counts(unit),
             signal: signal_counts(unit),
+            conflict: conflict_counts(unit),
             parking: parking_counts(unit),
             spatial: spatial_counts(unit),
             access: access_counts(unit),
@@ -111,11 +115,17 @@ impl HirBuildPlan {
             .saturating_add(plan.spatial.facility_band_geometries)
             .saturating_add(plan.spatial.geometry_source_ranges)
             .saturating_add(plan.spatial.canonical_points)
+            .saturating_add(plan.spatial.conflict_zone_regions)
+            .saturating_add(plan.spatial.conflict_region_points)
             .saturating_add(plan.spatial.spatial_segments)
             // 信号组到机动门的反向使用关系由 HIR 派生，Typed AST 只计正向绑定。
             .saturating_add(plan.signal.controlled_gates)
             // 区域归属在 Typed AST 中按停车位正向引用计数；区域成员表是 HIR 派生反向关系。
             .saturating_add(plan.parking.memberships);
+        plan.memory.hir_record_count = plan
+            .memory
+            .hir_record_count
+            .saturating_add(plan.conflict.zone_streams);
         let base = base_budget(
             unit,
             module_count,
@@ -137,6 +147,7 @@ impl HirBuildPlan {
             &plan.junction,
         );
         let signal = signal_budget(unit, module_count, &plan.signal);
+        let conflict = conflict_budget(unit, module_count, &plan.conflict);
         let parking = parking_budget(unit, module_count, &plan.parking);
         let spatial = spatial_budget(
             unit,
@@ -152,6 +163,7 @@ impl HirBuildPlan {
             .max(junction.scratch_bytes)
             .max(control.scratch_bytes)
             .max(signal.scratch_bytes)
+            .max(conflict.scratch_bytes)
             .max(parking.scratch_bytes)
             .max(spatial.scratch_bytes)
             .max(access.scratch_bytes);
@@ -161,6 +173,7 @@ impl HirBuildPlan {
             .saturating_add(junction.persistent_bytes)
             .saturating_add(control.persistent_bytes)
             .saturating_add(signal.persistent_bytes)
+            .saturating_add(conflict.persistent_bytes)
             .saturating_add(parking.persistent_bytes)
             .saturating_add(spatial.persistent_bytes)
             .saturating_add(access.persistent_bytes);
@@ -170,6 +183,7 @@ impl HirBuildPlan {
             .saturating_add(junction.lookup_bytes)
             .saturating_add(control.lookup_bytes)
             .saturating_add(signal.lookup_bytes)
+            .saturating_add(conflict.lookup_bytes)
             .saturating_add(parking.lookup_bytes)
             .saturating_add(spatial.lookup_bytes)
             .saturating_add(access.lookup_bytes);
@@ -200,7 +214,9 @@ impl HirBuildPlan {
         for (dimension, observed) in [
             (
                 CompileLimitDimension::GeometryPointCount,
-                self.spatial.canonical_points,
+                self.spatial
+                    .canonical_points
+                    .saturating_add(self.spatial.conflict_region_points),
             ),
             (
                 CompileLimitDimension::HirRecordCount,
@@ -583,7 +599,7 @@ fn parking_budget(
     let scratch_bytes = if counts.entity_count() == 0 {
         0
     } else {
-        requested_bytes::<CanonicalDeclarationSource<HirParkingAreaKey>>(counts.areas)
+        requested_bytes::<CanonicalDeclarationSource<HirParkingFacilityKey>>(counts.areas)
             // 来源暂存按 12 字节 CanonicalDeclarationSource<HirParkingSpaceKey> 估算；
             // 实际为 8 字节 Vec<(u32, u32)>、键按下标重建，方向为估算偏保守。#374 已
             // 记录该偏差，原样保留。
@@ -591,22 +607,99 @@ fn parking_budget(
                 CanonicalDeclarationSource<HirParkingSpaceKey>,
             >(counts.spaces))
             .saturating_add(requested_bytes::<bool>(counts.areas))
-            .saturating_add(requested_bytes::<(HirParkingAreaKey, HirParkingSpaceKey)>(
-                counts.memberships,
-            ))
+            .saturating_add(
+                requested_bytes::<(HirParkingFacilityKey, HirParkingSpaceKey)>(counts.memberships),
+            )
             .saturating_add(requested_bytes::<usize>(unit.declaration_count))
     };
     DomainBudget {
-        persistent_bytes: requested_bytes::<HirParkingArea>(counts.areas)
+        persistent_bytes: requested_bytes::<HirParkingFacility>(counts.areas)
             .saturating_add(requested_bytes::<HirParkingSpace>(counts.spaces))
-            .saturating_add(requested_bytes::<HirParkingAreaSpace>(counts.memberships)),
-        lookup_bytes: requested_bytes::<HashMap<TypedAstEntityAddress, HirParkingAreaKey>>(
+            .saturating_add(requested_bytes::<HirParkingFacilitySpace>(
+                counts.memberships,
+            ))
+            .saturating_add(requested_bytes::<HirParkingLaneAnchor>(
+                counts.virtual_entries.saturating_add(counts.virtual_exits),
+            )),
+        lookup_bytes: requested_bytes::<HashMap<TypedAstEntityAddress, HirParkingFacilityKey>>(
             lookup_module_count,
         )
         .saturating_add(requested_hash_table_bytes::<
             TypedAstEntityAddress,
-            HirParkingAreaKey,
+            HirParkingFacilityKey,
         >(counts.areas)),
+        scratch_bytes,
+    }
+}
+
+fn conflict_budget(
+    unit: &CompilationUnit,
+    module_count: u64,
+    counts: &ConflictCounts,
+) -> DomainBudget {
+    let lookup_module_count = if counts.entity_count() == 0 {
+        0
+    } else {
+        module_count
+    };
+    let scratch_bytes = if counts.entity_count() == 0 {
+        0
+    } else {
+        requested_bytes::<(u32, u32, HirConflictZoneKey)>(counts.zones)
+            .saturating_add(requested_bytes::<(u32, u32, HirParticipantStreamKey)>(
+                counts.streams,
+            ))
+            .saturating_add(requested_bytes::<HirParticipantStreamKey>(counts.passages))
+            .saturating_add(requested_bytes::<(
+                HirConflictZoneKey,
+                super::HirManeuverPathKey,
+                (u32, u32),
+                (u32, u32),
+                laneflow_static_contract::ParticipantStreamId,
+                HirParticipantStreamKey,
+            )>(counts.passages))
+            .saturating_add(requested_bytes::<(
+                HirConflictZoneKey,
+                HirParticipantStreamKey,
+            )>(counts.passages))
+            .saturating_add(requested_bytes::<HirConflictZoneKey>(counts.passages))
+            .saturating_add(requested_bytes::<usize>(unit.declaration_count))
+            .saturating_add(requested_bytes::<
+                HashMap<TypedAstEntityAddress, HirJunctionKey>,
+            >(lookup_module_count))
+            .saturating_add(requested_bytes::<
+                HashMap<TypedAstEntityAddress, super::HirManeuverPathKey>,
+            >(lookup_module_count))
+            .saturating_add(requested_bytes::<
+                HashMap<TypedAstEntityAddress, HirManeuverGateKey>,
+            >(lookup_module_count))
+            .saturating_add(requested_hash_table_bytes::<
+                TypedAstEntityAddress,
+                HirJunctionKey,
+            >(unit.declaration_count))
+            .saturating_add(requested_hash_table_bytes::<
+                TypedAstEntityAddress,
+                super::HirManeuverPathKey,
+            >(unit.declaration_count))
+            .saturating_add(requested_hash_table_bytes::<
+                TypedAstEntityAddress,
+                HirManeuverGateKey,
+            >(unit.declaration_count))
+    };
+    DomainBudget {
+        persistent_bytes: requested_bytes::<HirConflictZone>(counts.zones)
+            .saturating_add(requested_bytes::<HirParticipantStream>(counts.streams))
+            .saturating_add(requested_bytes::<HirConflictPassage>(counts.passages))
+            .saturating_add(requested_bytes::<HirConflictZoneStream>(
+                counts.zone_streams,
+            )),
+        lookup_bytes: requested_bytes::<HashMap<TypedAstEntityAddress, HirConflictZoneKey>>(
+            lookup_module_count,
+        )
+        .saturating_add(requested_hash_table_bytes::<
+            TypedAstEntityAddress,
+            HirConflictZoneKey,
+        >(counts.zones)),
         scratch_bytes,
     }
 }
@@ -621,6 +714,7 @@ fn spatial_budget(
     let scratch_bytes = if counts.canonical_frames == 0
         && counts.lane_edge_geometries == 0
         && counts.facility_band_geometries == 0
+        && counts.conflict_zone_regions == 0
     {
         0
     } else {
@@ -660,6 +754,18 @@ fn spatial_budget(
                 TypedAstEntityAddress,
                 HirFacilityBandKey,
             >(cross_section_counts.facility_bands))
+            .saturating_add(requested_bytes::<PendingConflictZoneRegion<'static>>(
+                counts.conflict_zone_regions,
+            ))
+            .saturating_add(requested_bytes::<Option<SourceLocation>>(
+                counts.conflict_zone_regions,
+            ))
+            .saturating_add(requested_bytes::<HirCanonicalPoint2F32>(
+                counts.conflict_region_points,
+            ))
+            .saturating_add(requested_bytes::<(usize, HirCanonicalPoint2F32)>(
+                counts.conflict_region_points,
+            ))
     };
     DomainBudget {
         persistent_bytes: requested_bytes::<HirCanonicalFrame>(counts.canonical_frames)
@@ -677,6 +783,12 @@ fn spatial_budget(
             ))
             .saturating_add(requested_bytes::<HirSpatialSegment>(
                 counts.spatial_segments,
+            ))
+            .saturating_add(requested_bytes::<HirConflictZoneRegion>(
+                counts.conflict_zone_regions,
+            ))
+            .saturating_add(requested_bytes::<HirCanonicalPoint2F32>(
+                counts.conflict_region_points,
             )),
         // spatial 不在 lookup 模块清单。
         lookup_bytes: 0,
@@ -814,6 +926,22 @@ pub(super) struct ParkingCounts {
     pub(super) areas: u64,
     pub(super) spaces: u64,
     pub(super) memberships: u64,
+    pub(super) virtual_entries: u64,
+    pub(super) virtual_exits: u64,
+}
+
+#[derive(Default)]
+pub(super) struct ConflictCounts {
+    pub(super) zones: u64,
+    pub(super) streams: u64,
+    pub(super) passages: u64,
+    pub(super) zone_streams: u64,
+}
+
+impl ConflictCounts {
+    pub(super) fn entity_count(&self) -> u64 {
+        self.zones.saturating_add(self.streams)
+    }
 }
 
 impl ParkingCounts {
@@ -830,6 +958,8 @@ pub(super) struct SpatialCounts {
     pub(super) geometry_source_ranges: u64,
     pub(super) canonical_points: u64,
     pub(super) spatial_segments: u64,
+    pub(super) conflict_zone_regions: u64,
+    pub(super) conflict_region_points: u64,
 }
 
 #[derive(Default)]
@@ -911,11 +1041,13 @@ pub(super) fn cross_section_counts(unit: &CompilationUnit) -> CrossSectionCounts
             | TypedAstDeclaration::WaitingZone(_)
             | TypedAstDeclaration::SignalGroup(_)
             | TypedAstDeclaration::SignalController(_)
-            | TypedAstDeclaration::ParkingArea(_)
+            | TypedAstDeclaration::ParkingFacility(_)
             | TypedAstDeclaration::ParkingSpace(_)
             | TypedAstDeclaration::ParticipantClass(_)
             | TypedAstDeclaration::VehicleProfile(_)
             | TypedAstDeclaration::CanonicalFrame(_)
+            | TypedAstDeclaration::ConflictZone(_)
+            | TypedAstDeclaration::ParticipantStream(_)
             | TypedAstDeclaration::AccessRule(_) => {}
         }
     }
@@ -1025,14 +1157,43 @@ pub(super) fn parking_counts(unit: &CompilationUnit) -> ParkingCounts {
         .flat_map(|module| module.declarations.iter())
     {
         match declaration {
-            TypedAstDeclaration::ParkingArea(_) => {
+            TypedAstDeclaration::ParkingFacility(facility) => {
                 counts.areas = counts.areas.saturating_add(1);
+                counts.virtual_entries = counts.virtual_entries.saturating_add(
+                    u64::try_from(facility.virtual_entries.len()).unwrap_or(u64::MAX),
+                );
+                counts.virtual_exits = counts.virtual_exits.saturating_add(
+                    u64::try_from(facility.virtual_exits.len()).unwrap_or(u64::MAX),
+                );
             }
             TypedAstDeclaration::ParkingSpace(space) => {
                 counts.spaces = counts.spaces.saturating_add(1);
-                if space.parking_area.is_some() {
+                if space.parking_facility.is_some() {
                     counts.memberships = counts.memberships.saturating_add(1);
                 }
+            }
+            _ => {}
+        }
+    }
+    counts
+}
+
+pub(super) fn conflict_counts(unit: &CompilationUnit) -> ConflictCounts {
+    let mut counts = ConflictCounts::default();
+    for declaration in unit
+        .modules
+        .iter()
+        .flat_map(|module| module.declarations.iter())
+    {
+        match declaration {
+            TypedAstDeclaration::ConflictZone(_) => {
+                counts.zones = counts.zones.saturating_add(1);
+            }
+            TypedAstDeclaration::ParticipantStream(stream) => {
+                counts.streams = counts.streams.saturating_add(1);
+                let passages = u64::try_from(stream.passages.len()).unwrap_or(u64::MAX);
+                counts.passages = counts.passages.saturating_add(passages);
+                counts.zone_streams = counts.zone_streams.saturating_add(passages);
             }
             _ => {}
         }
@@ -1117,6 +1278,21 @@ pub(super) fn spatial_counts(unit: &CompilationUnit) -> SpatialCounts {
             _ => {}
         }
     }
+    for module in &unit.modules {
+        counts.conflict_zone_regions = counts
+            .conflict_zone_regions
+            .saturating_add(u64::try_from(module.conflict_zone_regions.len()).unwrap_or(u64::MAX));
+        counts.conflict_region_points =
+            counts
+                .conflict_region_points
+                .saturating_add(module.conflict_zone_regions.iter().fold(
+                    0_u64,
+                    |total, region| {
+                        total
+                            .saturating_add(u64::try_from(region.ring_xz.len()).unwrap_or(u64::MAX))
+                    },
+                ));
+    }
     counts
 }
 
@@ -1163,12 +1339,16 @@ fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
                 }
                 TypedAstDeclaration::SignalGroup(_)
                 | TypedAstDeclaration::SignalController(_)
-                | TypedAstDeclaration::ParkingArea(_)
+                | TypedAstDeclaration::ParkingFacility(_)
                 | TypedAstDeclaration::ParkingSpace(_)
                 | TypedAstDeclaration::ParticipantClass(_)
                 | TypedAstDeclaration::VehicleProfile(_)
                 | TypedAstDeclaration::CanonicalFrame(_)
                 | TypedAstDeclaration::AccessRule(_) => 22_u64
+                    .saturating_add(namespace_bytes)
+                    .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
+                TypedAstDeclaration::ConflictZone(_)
+                | TypedAstDeclaration::ParticipantStream(_) => 44_u64
                     .saturating_add(namespace_bytes)
                     .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
             };

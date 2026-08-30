@@ -8,7 +8,7 @@
 use laneflow_static_contract::{
     AccessRuleOrdinal, AuthoringLaneOrdinal, CanonicalFrameOrdinal, FacilityBandOrdinal,
     JunctionOrdinal, LaneEdgeOrdinal, LaneGroupOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
-    MovementOrdinal, ParkingAreaOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal,
+    MovementOrdinal, ParkingFacilityOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal,
     RoadCorridorOrdinal, RoadSectionOrdinal, SignalControllerOrdinal, SignalGroupOrdinal,
     SignalPhaseOrdinal, StopLineOrdinal, VehicleProfileOrdinal, WaitingZoneOrdinal,
 };
@@ -34,7 +34,7 @@ pub use views::{
     CanonicalFacilityBandView, CanonicalFrameView, CanonicalIdentityFieldView,
     CanonicalJunctionInternalEdgeView, CanonicalJunctionView, CanonicalLaneEdgeGeometryView,
     CanonicalLaneEdgeView, CanonicalLaneGroupView, CanonicalManeuverGateView,
-    CanonicalManeuverPathView, CanonicalMovementView, CanonicalParkingAreaView,
+    CanonicalManeuverPathView, CanonicalMovementView, CanonicalParkingFacilityView,
     CanonicalParkingLaneAnchor, CanonicalParkingSpaceGeometry, CanonicalParkingSpaceView,
     CanonicalParticipantClassView, CanonicalPoint3F32, CanonicalRoadCorridorView,
     CanonicalRoadSectionView, CanonicalSignalControl, CanonicalSignalControllerView,
@@ -346,23 +346,25 @@ impl ValidatedCanonicalLir {
     }
 
     /// 按完整 Identity v1 前像规范顺序遍历全部停车区域。
-    pub fn parking_areas(&self) -> impl ExactSizeIterator<Item = CanonicalParkingAreaView<'_>> {
+    pub fn parking_facilities(
+        &self,
+    ) -> impl ExactSizeIterator<Item = CanonicalParkingFacilityView<'_>> {
         self.inner
-            .parking_areas
+            .parking_facilities
             .iter()
-            .map(|record| CanonicalParkingAreaView::from_lir(&self.inner, record))
+            .map(|record| CanonicalParkingFacilityView::from_lir(&self.inner, record))
     }
 
     /// 通过当前 LIR 实例的有类型序号读取停车区域。
     #[must_use]
-    pub fn parking_area(
+    pub fn parking_facility(
         &self,
-        ordinal: ParkingAreaOrdinal,
-    ) -> Option<CanonicalParkingAreaView<'_>> {
+        ordinal: ParkingFacilityOrdinal,
+    ) -> Option<CanonicalParkingFacilityView<'_>> {
         self.inner
-            .parking_areas
+            .parking_facilities
             .get(ordinal.index())
-            .map(|record| CanonicalParkingAreaView::from_lir(&self.inner, record))
+            .map(|record| CanonicalParkingFacilityView::from_lir(&self.inner, record))
     }
 
     /// 按完整 Identity v1 前像规范顺序遍历全部停车位。
@@ -528,6 +530,7 @@ impl Compiler {
         &mut self,
         unit: CompilationUnit,
     ) -> Result<CompilationOutput, DiagnosticBundle> {
+        let selected_limits = unit.limits.clone();
         let hir = build_hir(&unit)?;
         let hir_peak_controlled_live_bytes = hir.peak_controlled_live_bytes;
         let mir = lower_to_mir(&unit, &hir)?;
@@ -557,6 +560,7 @@ impl Compiler {
             source_map_input,
             Box::default(),
             metrics,
+            selected_limits,
         ))
     }
 }

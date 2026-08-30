@@ -1,25 +1,25 @@
 //! 可移植规范制品的共享线格式登记值。
 //!
-//! 本模块只保存已经由 #298 G1 冻结的版本、magic、封闭字段类型、安全天花板和无分配
+//! 本模块只保存当前 G1 冻结的版本、magic、封闭字段类型、安全天花板和无分配
 //! 值类型。字节读写、结构预检、编译器语义投影与后发射闭合检查分别属于它们自己的
 //! crate；不得把本模块扩张成第二套 emitter 或语义验证算法。
 
 use core::fmt;
 
 /// 当前 LFCA 对象格式版本。读器只承认该值。
-pub const CANONICAL_ARTIFACT_FORMAT_VERSION: u16 = 3;
+pub const CANONICAL_ARTIFACT_FORMAT_VERSION: u16 = 4;
 
 /// 当前约束契约版本。
 pub const CONSTRAINT_CONTRACT_VERSION: u16 = 2;
 
 /// 当前静态执行契约版本。
-pub const STATIC_EXECUTION_CONTRACT_VERSION: u16 = 3;
+pub const STATIC_EXECUTION_CONTRACT_VERSION: u16 = 4;
 
 /// 当前 LFSM 对象格式版本。
-pub const SOURCE_MAP_FORMAT_VERSION: u16 = 2;
+pub const SOURCE_MAP_FORMAT_VERSION: u16 = 3;
 
 /// 当前 LFSD 对象格式版本。
-pub const SEMANTIC_DIFF_FORMAT_VERSION: u16 = 2;
+pub const SEMANTIC_DIFF_FORMAT_VERSION: u16 = 3;
 
 /// LFCP 的对象格式版本；生产代码只接受无 receipt 的 v2。
 pub const CANONICAL_PUBLICATION_DESCRIPTOR_VERSION: u16 = 2;
@@ -36,17 +36,23 @@ pub const OBJECT_PREAMBLE_BYTE_LENGTH: u16 = 32;
 /// 节目录项的固定字节长度。
 pub const SECTION_DIRECTORY_ENTRY_BYTE_LENGTH: u64 = 24;
 
-/// 所有节的格式版本。
-pub const SECTION_FORMAT_VERSION: u16 = 1;
+/// LFCA/LFSM/LFSD 的分块节格式版本。
+pub const CHUNKED_SECTION_FORMAT_VERSION: u16 = 2;
 
-/// 单对象 exact bytes 的格式安全天花板。
-pub const FORMAT_HARD_MAX_OBJECT_BYTES: u64 = 16_777_216;
+/// LFCP singleton 节格式版本。
+pub const SINGLETON_SECTION_FORMAT_VERSION: u16 = 1;
 
-/// 单节或单表 exact bytes 的格式安全天花板。
-pub const FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES: u64 = 16_777_216;
+/// `ChunkedSectionPreambleV1` 的固定字节长度。
+pub const CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH: u64 = 16;
 
-/// 单 TableV1 的 RowV1 数量安全天花板。
-pub const FORMAT_HARD_MAX_ROWS_PER_TABLE: u32 = 65_536;
+/// `TableChunkDirectoryEntryV1` 的固定字节长度。
+pub const TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH: u64 = 72;
+
+/// 单 `TableV1` chunk exact bytes 的格式安全天花板。
+pub const FORMAT_HARD_MAX_TABLE_CHUNK_BYTES: u64 = 16_777_216;
+
+/// 单 `TableV1` chunk 的 RowV1 数量安全天花板。
+pub const FORMAT_HARD_MAX_ROWS_PER_CHUNK: u32 = 65_536;
 
 /// 单 RowV1 的 FieldV1 数量安全天花板。
 pub const FORMAT_HARD_MAX_FIELDS_PER_ROW: u32 = 17;
@@ -57,23 +63,23 @@ pub const FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES: u64 = 53;
 /// 单 UTF-8 FieldV1 value 的最大字节数。
 pub const FORMAT_HARD_MAX_UTF8_FIELD_BYTES: u64 = 1_048_576;
 
-/// 单对象全部 UTF-8 value 的累计字节安全天花板。
+/// 单 chunk 全部 UTF-8 value 的累计字节安全天花板。
 pub const FORMAT_HARD_MAX_TOTAL_UTF8_BYTES: u64 = 8_388_608;
 
 /// 单向量的最大 item 数。
 pub const FORMAT_HARD_MAX_VECTOR_ITEMS: u32 = 65_536;
 
-/// 单对象全部 vector value 的累计字节安全天花板。
+/// 单 chunk 全部 vector value 的累计字节安全天花板。
 pub const FORMAT_HARD_MAX_TOTAL_VECTOR_BYTES: u64 = 8_388_608;
 
 /// `RecordVector` 允许的一层内嵌深度。
 pub const FORMAT_HARD_MAX_RECORD_VECTOR_DEPTH: u8 = 1;
 
-/// 单 LFSM 的来源位置记录数安全天花板。
-pub const FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS: u32 = 65_536;
+/// 单 LFSM SourceLocation chunk 的行数安全天花板。
+pub const FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK: u32 = 65_536;
 
-/// 单次 LFCA + LFSM + LFSD 候选暂存 exact bytes 总预算（48 MiB）。
-pub const FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES: u64 = 50_331_648;
+/// 同时暂存 LFCA/LFSM/LFSD 当前 chunk 的内存安全天花板（48 MiB）。
+pub const FORMAT_HARD_MAX_STAGED_CHUNK_BYTES: u64 = 50_331_648;
 
 /// 可移植规范制品对象种类。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -134,10 +140,21 @@ impl PortableObjectKind {
     #[must_use]
     pub const fn table_count(self) -> u32 {
         match self {
-            Self::CanonicalArtifact => 30,
+            Self::CanonicalArtifact => 33,
             Self::SourceMap => 8,
             Self::SemanticDiff => 6,
             Self::CanonicalPublicationDescriptor => 3,
+        }
+    }
+
+    /// 当前对象每个 section 使用的线格式版本。
+    #[must_use]
+    pub const fn section_format_version(self) -> u16 {
+        match self {
+            Self::CanonicalPublicationDescriptor => SINGLETON_SECTION_FORMAT_VERSION,
+            Self::CanonicalArtifact | Self::SourceMap | Self::SemanticDiff => {
+                CHUNKED_SECTION_FORMAT_VERSION
+            }
         }
     }
 
@@ -333,13 +350,13 @@ mod tests {
 
     #[test]
     fn lfca_contract_versions_match_current() {
-        assert_eq!(CANONICAL_ARTIFACT_FORMAT_VERSION, 3);
+        assert_eq!(CANONICAL_ARTIFACT_FORMAT_VERSION, 4);
         assert_eq!(CONSTRAINT_CONTRACT_VERSION, 2);
-        assert_eq!(STATIC_EXECUTION_CONTRACT_VERSION, 3);
-        assert_eq!(SOURCE_MAP_FORMAT_VERSION, 2);
-        assert_eq!(SEMANTIC_DIFF_FORMAT_VERSION, 2);
+        assert_eq!(STATIC_EXECUTION_CONTRACT_VERSION, 4);
+        assert_eq!(SOURCE_MAP_FORMAT_VERSION, 3);
+        assert_eq!(SEMANTIC_DIFF_FORMAT_VERSION, 3);
         assert_eq!(NETWORK_REVISION_DERIVATION_VERSION, 1);
-        assert_eq!(PortableObjectKind::CanonicalArtifact.format_version(), 3);
+        assert_eq!(PortableObjectKind::CanonicalArtifact.format_version(), 4);
     }
 
     #[test]
@@ -349,7 +366,7 @@ mod tests {
                 PortableObjectKind::CanonicalArtifact,
                 *b"LFCA",
                 8,
-                30,
+                33,
                 0x00e0,
             ),
             (PortableObjectKind::SourceMap, *b"LFSM", 5, 8, 0x0098),
@@ -373,8 +390,9 @@ mod tests {
             assert_eq!(
                 kind.format_version(),
                 match kind {
-                    PortableObjectKind::CanonicalArtifact => 3,
-                    _ => 2,
+                    PortableObjectKind::CanonicalArtifact => 4,
+                    PortableObjectKind::SourceMap | PortableObjectKind::SemanticDiff => 3,
+                    PortableObjectKind::CanonicalPublicationDescriptor => 2,
                 }
             );
             assert_eq!(kind.section_count(), sections);
@@ -421,9 +439,8 @@ mod tests {
 
     #[test]
     fn hard_limits_match_g1_contract() {
-        assert_eq!(FORMAT_HARD_MAX_OBJECT_BYTES, 16_777_216);
-        assert_eq!(FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES, 16_777_216);
-        assert_eq!(FORMAT_HARD_MAX_ROWS_PER_TABLE, 65_536);
+        assert_eq!(FORMAT_HARD_MAX_TABLE_CHUNK_BYTES, 16_777_216);
+        assert_eq!(FORMAT_HARD_MAX_ROWS_PER_CHUNK, 65_536);
         assert_eq!(FORMAT_HARD_MAX_FIELDS_PER_ROW, 17);
         assert_eq!(FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES, 53);
         assert_eq!(FORMAT_HARD_MAX_UTF8_FIELD_BYTES, 1_048_576);
@@ -431,7 +448,7 @@ mod tests {
         assert_eq!(FORMAT_HARD_MAX_VECTOR_ITEMS, 65_536);
         assert_eq!(FORMAT_HARD_MAX_TOTAL_VECTOR_BYTES, 8_388_608);
         assert_eq!(FORMAT_HARD_MAX_RECORD_VECTOR_DEPTH, 1);
-        assert_eq!(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS, 65_536);
-        assert_eq!(FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES, 50_331_648);
+        assert_eq!(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK, 65_536);
+        assert_eq!(FORMAT_HARD_MAX_STAGED_CHUNK_BYTES, 50_331_648);
     }
 }

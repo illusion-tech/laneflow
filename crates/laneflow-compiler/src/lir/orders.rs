@@ -3,20 +3,22 @@
 use core::cmp::Ordering;
 
 use laneflow_static_contract::{
-    AccessRuleOrdinal, AuthoringLaneOrdinal, CanonicalFrameOrdinal, FacilityBandOrdinal,
-    JunctionOrdinal, LaneEdgeOrdinal, LaneGroupOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
-    MovementOrdinal, ParkingAreaOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal,
-    RoadCorridorOrdinal, RoadSectionOrdinal, SignalControllerOrdinal, SignalGroupOrdinal,
-    SignalPhaseOrdinal, StopLineOrdinal, VehicleProfileOrdinal, WaitingZoneOrdinal,
+    AccessRuleOrdinal, AuthoringLaneOrdinal, CanonicalFrameOrdinal, ConflictZoneOrdinal,
+    FacilityBandOrdinal, JunctionOrdinal, LaneEdgeOrdinal, LaneGroupOrdinal, ManeuverGateOrdinal,
+    ManeuverPathOrdinal, MovementOrdinal, ParkingFacilityOrdinal, ParkingSpaceOrdinal,
+    ParticipantClassOrdinal, ParticipantStreamOrdinal, RoadCorridorOrdinal, RoadSectionOrdinal,
+    SignalControllerOrdinal, SignalGroupOrdinal, SignalPhaseOrdinal, StopLineOrdinal,
+    VehicleProfileOrdinal, WaitingZoneOrdinal,
 };
 
 use crate::arena::ArenaKey;
 use crate::mir::{
-    MirAccessRuleKey, MirAuthoringLaneKey, MirCanonicalFrameKey, MirFacilityBandKey,
-    MirJunctionKey, MirLaneEdgeKey, MirLaneGroupKey, MirManeuverGateKey, MirManeuverPathKey,
-    MirMovementKey, MirParkingAreaKey, MirParkingSpaceKey, MirParticipantClassKey,
-    MirRoadCorridorKey, MirRoadSectionKey, MirSignalControllerKey, MirSignalGroupKey,
-    MirSignalPhaseKey, MirStopLineKey, MirUnit, MirVehicleProfileKey, MirWaitingZoneKey,
+    MirAccessRuleKey, MirAuthoringLaneKey, MirCanonicalFrameKey, MirConflictZoneKey,
+    MirFacilityBandKey, MirJunctionKey, MirLaneEdgeKey, MirLaneGroupKey, MirManeuverGateKey,
+    MirManeuverPathKey, MirMovementKey, MirParkingFacilityKey, MirParkingSpaceKey,
+    MirParticipantClassKey, MirParticipantStreamKey, MirRoadCorridorKey, MirRoadSectionKey,
+    MirSignalControllerKey, MirSignalGroupKey, MirSignalPhaseKey, MirStopLineKey, MirUnit,
+    MirVehicleProfileKey, MirWaitingZoneKey,
 };
 use crate::{DiagnosticBundle, SourceLocation};
 
@@ -129,7 +131,10 @@ pub(crate) struct CanonicalOrders {
     pub(crate) signal_groups: LirEntityOrder<MirSignalGroupKey, SignalGroupOrdinal>,
     pub(crate) signal_controllers: LirEntityOrder<MirSignalControllerKey, SignalControllerOrdinal>,
     pub(crate) signal_phases: LirEntityOrder<MirSignalPhaseKey, SignalPhaseOrdinal>,
-    pub(crate) parking_areas: LirEntityOrder<MirParkingAreaKey, ParkingAreaOrdinal>,
+    pub(crate) conflict_zones: LirEntityOrder<MirConflictZoneKey, ConflictZoneOrdinal>,
+    pub(crate) participant_streams:
+        LirEntityOrder<MirParticipantStreamKey, ParticipantStreamOrdinal>,
+    pub(crate) parking_facilities: LirEntityOrder<MirParkingFacilityKey, ParkingFacilityOrdinal>,
     pub(crate) parking_spaces: LirEntityOrder<MirParkingSpaceKey, ParkingSpaceOrdinal>,
     pub(crate) participant_classes: LirEntityOrder<MirParticipantClassKey, ParticipantClassOrdinal>,
     pub(crate) vehicle_profiles: LirEntityOrder<MirVehicleProfileKey, VehicleProfileOrdinal>,
@@ -673,12 +678,81 @@ impl CanonicalOrders {
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_parking_area_order: Vec<MirParkingAreaKey> = dense_mir_keys(
+        let mut canonical_mir_conflict_zone_order: Vec<MirConflictZoneKey> = dense_mir_keys(
+            LirFreezePlan::capacity(plan.conflict.zones, limits, primary_span.clone())?,
+        );
+        canonical_mir_conflict_zone_order.sort_unstable_by(|left, right| {
+            let left = &mir.conflict_zones[left.index()];
+            let right = &mir.conflict_zones[right.index()];
+            compare_identity_parts(
+                &mir.modules[left.module.index()].authoring_namespace_id,
+                &left.stable_key,
+                Some(
+                    mir.junctions[left.junction.index()]
+                        .stable_id
+                        .as_untyped()
+                        .as_bytes(),
+                ),
+                &mir.modules[right.module.index()].authoring_namespace_id,
+                &right.stable_key,
+                Some(
+                    mir.junctions[right.junction.index()]
+                        .stable_id
+                        .as_untyped()
+                        .as_bytes(),
+                ),
+            )
+        });
+        let mir_conflict_zone_to_lir = ordinal_mapping(
+            LirFreezePlan::capacity(plan.conflict.zones, limits, primary_span.clone())?,
+            &canonical_mir_conflict_zone_order,
+            ConflictZoneOrdinal::try_from_usize,
+            limits,
+            primary_span.clone(),
+        )?;
+
+        let mut canonical_mir_participant_stream_order: Vec<MirParticipantStreamKey> =
+            dense_mir_keys(LirFreezePlan::capacity(
+                plan.conflict.streams,
+                limits,
+                primary_span.clone(),
+            )?);
+        canonical_mir_participant_stream_order.sort_unstable_by(|left, right| {
+            let left = &mir.participant_streams[left.index()];
+            let right = &mir.participant_streams[right.index()];
+            compare_identity_parts(
+                &mir.modules[left.module.index()].authoring_namespace_id,
+                &left.stable_key,
+                Some(
+                    mir.junctions[left.junction.index()]
+                        .stable_id
+                        .as_untyped()
+                        .as_bytes(),
+                ),
+                &mir.modules[right.module.index()].authoring_namespace_id,
+                &right.stable_key,
+                Some(
+                    mir.junctions[right.junction.index()]
+                        .stable_id
+                        .as_untyped()
+                        .as_bytes(),
+                ),
+            )
+        });
+        let mir_participant_stream_to_lir = ordinal_mapping(
+            LirFreezePlan::capacity(plan.conflict.streams, limits, primary_span.clone())?,
+            &canonical_mir_participant_stream_order,
+            ParticipantStreamOrdinal::try_from_usize,
+            limits,
+            primary_span.clone(),
+        )?;
+
+        let mut canonical_mir_parking_facility_order: Vec<MirParkingFacilityKey> = dense_mir_keys(
             LirFreezePlan::capacity(plan.parking.areas, limits, primary_span.clone())?,
         );
-        canonical_mir_parking_area_order.sort_unstable_by(|left, right| {
-            let left = &mir.parking_areas[left.index()];
-            let right = &mir.parking_areas[right.index()];
+        canonical_mir_parking_facility_order.sort_unstable_by(|left, right| {
+            let left = &mir.parking_facilities[left.index()];
+            let right = &mir.parking_facilities[right.index()];
             compare_identity_parts(
                 &mir.modules[left.module.index()].authoring_namespace_id,
                 &left.stable_key,
@@ -688,10 +762,10 @@ impl CanonicalOrders {
                 None,
             )
         });
-        let mir_parking_area_to_lir = ordinal_mapping(
+        let mir_parking_facility_to_lir = ordinal_mapping(
             LirFreezePlan::capacity(plan.parking.areas, limits, primary_span.clone())?,
-            &canonical_mir_parking_area_order,
-            ParkingAreaOrdinal::try_from_usize,
+            &canonical_mir_parking_facility_order,
+            ParkingFacilityOrdinal::try_from_usize,
             limits,
             primary_span.clone(),
         )?;
@@ -867,9 +941,17 @@ impl CanonicalOrders {
                 canonical_mir_signal_phase_order,
                 mir_signal_phase_to_lir,
             ),
-            parking_areas: LirEntityOrder::from_parts(
-                canonical_mir_parking_area_order,
-                mir_parking_area_to_lir,
+            conflict_zones: LirEntityOrder::from_parts(
+                canonical_mir_conflict_zone_order,
+                mir_conflict_zone_to_lir,
+            ),
+            participant_streams: LirEntityOrder::from_parts(
+                canonical_mir_participant_stream_order,
+                mir_participant_stream_to_lir,
+            ),
+            parking_facilities: LirEntityOrder::from_parts(
+                canonical_mir_parking_facility_order,
+                mir_parking_facility_to_lir,
             ),
             parking_spaces: LirEntityOrder::from_parts(
                 canonical_mir_parking_space_order,

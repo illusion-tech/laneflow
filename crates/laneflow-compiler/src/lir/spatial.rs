@@ -1,6 +1,8 @@
 //! 空间几何领域 Canonical LIR 记录。
 
-use laneflow_static_contract::{CanonicalFrameId, CanonicalFrameOrdinal, FacilityBandOrdinal};
+use laneflow_static_contract::{
+    CanonicalFrameId, CanonicalFrameOrdinal, ConflictZoneOrdinal, FacilityBandOrdinal,
+};
 
 use crate::arena::TableRange;
 
@@ -27,6 +29,21 @@ pub(crate) struct LirFacilityBandGeometry {
     pub(crate) points: TableRange<LirCanonicalPoint3F32>,
 }
 
+/// 按 ConflictZone 规范身份排序的稀疏 2.5D 区域表。
+pub(crate) struct LirConflictZoneRegion {
+    pub(crate) conflict_zone: ConflictZoneOrdinal,
+    pub(crate) canonical_frame: CanonicalFrameOrdinal,
+    pub(crate) min_y: f32,
+    pub(crate) max_y: f32,
+    pub(crate) ring_xz: TableRange<LirCanonicalPoint2F32>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct LirCanonicalPoint2F32 {
+    pub(crate) x: f32,
+    pub(crate) z: f32,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct LirCanonicalPoint3F32 {
     pub(crate) x: f32,
@@ -50,7 +67,9 @@ pub(super) struct SpatialParts {
     pub canonical_frames: Vec<LirCanonicalFrame>,
     pub lane_edge_geometries: Vec<LirLaneEdgeGeometry>,
     pub facility_band_geometries: Vec<LirFacilityBandGeometry>,
+    pub conflict_zone_regions: Vec<LirConflictZoneRegion>,
     pub canonical_points: Vec<LirCanonicalPoint3F32>,
+    pub conflict_region_points: Vec<LirCanonicalPoint2F32>,
     pub spatial_segments: Vec<LirSpatialSegment>,
 }
 
@@ -191,11 +210,54 @@ pub(super) fn freeze(
         });
     }
 
+    let mut mir_zone_to_region = vec![None; env.mir.conflict_zones.len()];
+    for (index, region) in env.mir.conflict_zone_regions.iter().enumerate() {
+        debug_assert!(mir_zone_to_region[region.conflict_zone.index()].is_none());
+        mir_zone_to_region[region.conflict_zone.index()] = Some(index);
+    }
+    let mut conflict_zone_regions = Vec::with_capacity(env.capacity(counts.conflict_zone_regions)?);
+    let mut conflict_region_points =
+        Vec::with_capacity(env.capacity(counts.conflict_region_points)?);
+    for mir_zone in env
+        .orders
+        .conflict_zones
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
+        let Some(region_index) = mir_zone_to_region[mir_zone.index()] else {
+            continue;
+        };
+        let region = &env.mir.conflict_zone_regions[region_index];
+        let point_start = conflict_region_points.len();
+        conflict_region_points.extend(
+            env.mir.conflict_region_points[region.ring_xz.as_usize_range()]
+                .iter()
+                .map(|point| LirCanonicalPoint2F32 {
+                    x: point.x,
+                    z: point.z,
+                }),
+        );
+        conflict_zone_regions.push(LirConflictZoneRegion {
+            conflict_zone: env.orders.conflict_zones.ordinal(mir_zone),
+            canonical_frame: env.orders.canonical_frames.ordinal(region.canonical_frame),
+            min_y: region.min_y,
+            max_y: region.max_y,
+            ring_xz: TableRange::try_from_usize(
+                point_start,
+                conflict_region_points.len().saturating_sub(point_start),
+            )
+            .map_err(|overflow| table_overflow(overflow, env.limits, env.primary_span.clone()))?,
+        });
+    }
+
     Ok(SpatialParts {
         canonical_frames,
         lane_edge_geometries,
         facility_band_geometries,
+        conflict_zone_regions,
         canonical_points,
+        conflict_region_points,
         spatial_segments,
     })
 }

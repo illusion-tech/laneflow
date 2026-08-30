@@ -177,7 +177,7 @@ pub enum RoadEditingRootVectorKind {
     SignalGroup,
     SignalController,
     SignalPhase,
-    ParkingArea,
+    ParkingFacility,
     ParkingSpace,
     LaneGroup,
     FacilityBand,
@@ -185,6 +185,9 @@ pub enum RoadEditingRootVectorKind {
     AccessRule,
     VehicleProfile,
     CanonicalFrame,
+    ConflictZone,
+    ParticipantStream,
+    ConflictZoneRegion,
 }
 
 /// 道路编辑来源地址中的有类型声明种类；道路走向不是 Identity v1 实体。
@@ -221,7 +224,7 @@ pub enum RoadEditingTableKind {
     SignalController,
     SignalPhaseState,
     SignalPhase,
-    ParkingArea,
+    ParkingFacility,
     ParkingLaneAnchor,
     ParkingSpaceGeometry,
     ParkingSpace,
@@ -232,7 +235,12 @@ pub enum RoadEditingTableKind {
     AccessRule,
     IidmVehicleProfile,
     VehicleProfile,
+    ConflictZoneRegion,
     CanonicalFrame,
+    ConflictZone,
+    PathAnchor,
+    ConflictPassage,
+    ParticipantStream,
 }
 
 /// 道路编辑 schema 中可出现在来源路径的 inline struct 种类。
@@ -243,6 +251,7 @@ pub enum RoadEditingStructKind {
     OptionalU64,
     Vec3F64,
     LinearWidthProfile,
+    Vec2F64,
 }
 
 /// 道路编辑 schema 中可出现在来源路径的 union 种类。
@@ -268,6 +277,10 @@ pub enum RoadEditingRelationKind {
     SignalControllerPhase,
     SignalPhaseState,
     AccessRuleParticipantClass,
+    ParkingFacilityVirtualEntry,
+    ParkingFacilityVirtualExit,
+    ParticipantStreamPassage,
+    ConflictZoneRegion,
 }
 
 /// 有序产品关系或规范集合关系中的稳定 occurrence。

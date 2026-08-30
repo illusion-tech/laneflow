@@ -285,7 +285,7 @@ pub(crate) fn compile_route(
     let mut suffix = BoundedDistance::Finite(0);
     for index in (0..edges.len()).rev() {
         let edge = edges[index];
-        suffix = suffix.add(*lengths.get(edge.index()).unwrap_or(&0));
+        suffix = suffix.add_u32(*lengths.get(edge.index()).unwrap_or(&0));
         remaining_to_end[index] = suffix;
     }
     let mut route_lengths = try_route_vec(edges.len())?;
@@ -317,10 +317,10 @@ pub(crate) fn compile_route(
             next = Some(NextControlled {
                 hop: u32::try_from(hop).expect("hop index fits u32"),
                 gate,
-                distance_from_hop_start: BoundedDistance::Finite(0).add(length),
+                distance_from_hop_start: BoundedDistance::Finite(0).add_u32(length),
             });
         } else if let Some(controlled) = next.as_mut() {
-            controlled.distance_from_hop_start = controlled.distance_from_hop_start.add(length);
+            controlled.distance_from_hop_start = controlled.distance_from_hop_start.add_u32(length);
         }
         next_controlled[hop] = next;
     }
@@ -357,9 +357,11 @@ pub(crate) fn compile_route(
 }
 
 /// 分段 `u32` 前缀。下一条边长会让当前段溢出时封段、开新段。不上 `u64`（ADR 0028）。
+type SegmentedRouteCoordinates = (Vec<u32>, Vec<u32>, Vec<u32>);
+
 fn segmented_route_coordinates(
     edge_lengths: &[u32],
-) -> Result<(Vec<u32>, Vec<u32>, Vec<u32>), RouteError> {
+) -> Result<SegmentedRouteCoordinates, RouteError> {
     let mut segments = try_route_vec(edge_lengths.len())?;
     let mut offsets = try_route_vec(edge_lengths.len())?;
     let mut totals = try_route_vec(edge_lengths.len())?;
@@ -820,9 +822,9 @@ pub(crate) fn distance_to_occurrence_start(
     let from_total = *totals.get(from_seg)?;
     let mut distance = BoundedDistance::Finite(from_total.checked_sub(from_off)?);
     for total in totals.get(from_seg + 1..to_seg)? {
-        distance = distance.add(*total);
+        distance = distance.add_u32(*total);
     }
-    Some(distance.add(to_off))
+    Some(distance.add_u32(to_off))
 }
 
 #[cfg(test)]
@@ -1014,7 +1016,7 @@ mod compile_route_tests {
         let lengths = traffic.lane_lengths_millimetres();
         let mut expected = BoundedDistance::Finite(0);
         for index in (0..path.edges().len()).rev() {
-            expected = expected.add(*lengths.get(path.edges()[index].index()).unwrap());
+            expected = expected.add_u32(*lengths.get(path.edges()[index].index()).unwrap());
             assert_eq!(compiled.remaining_to_end[index], expected);
         }
         assert_eq!(
@@ -1069,7 +1071,7 @@ mod compile_route_tests {
             Some(BoundedDistance::Finite(900))
         );
         let remaining = [
-            BoundedDistance::Finite(1_000).add(u32::MAX),
+            BoundedDistance::Finite(1_000).add_u32(u32::MAX),
             BoundedDistance::Finite(u32::MAX),
         ];
         assert_eq!(remaining[0], BoundedDistance::BeyondFinite);

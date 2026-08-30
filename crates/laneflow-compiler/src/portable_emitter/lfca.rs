@@ -17,7 +17,8 @@ pub(super) fn build_lfca(
         lir.geometry_profiles.is_some()
             || !lir.canonical_frames.is_empty()
             || !lir.lane_edge_geometries.is_empty()
-            || !lir.facility_band_geometries.is_empty(),
+            || !lir.facility_band_geometries.is_empty()
+            || !lir.conflict_zone_regions.is_empty(),
     );
 
     Ok(OwnedObject {
@@ -52,6 +53,7 @@ pub(super) fn build_lfca(
                     ),
                     table(2, lane_edge_geometry_rows(output, direction_profile)),
                     table(3, facility_band_geometry_rows(output, direction_profile)),
+                    table(4, conflict_zone_region_rows(lir)),
                 ],
             ),
             section(
@@ -73,7 +75,7 @@ pub(super) fn build_lfca(
                         field(2, OwnedValue::U16(SOURCE_COLLECTION_DIGEST_VERSION_V1)),
                         field(3, OwnedValue::Sha256(source_collection_digest)),
                         field(4, OwnedValue::Sha256(PORTABLE_COMPILE_OPTIONS_DIGEST_V1)),
-                        field(5, OwnedValue::U16(EMITTER_VERSION_V1)),
+                        field(5, OwnedValue::U16(EMITTER_VERSION_LFCA4)),
                         field(6, OwnedValue::U8(accuracy_profile)),
                     ])],
                 )],
@@ -150,14 +152,16 @@ fn canonical_identity_rows(lir: &crate::lir::LirUnit) -> Vec<OwnedRow> {
     append!(EntityKind::SignalGroup, lir.signal_groups);
     append!(EntityKind::SignalController, lir.signal_controllers);
     append!(EntityKind::SignalPhase, lir.signal_phases);
-    append!(EntityKind::ParkingArea, lir.parking_areas);
+    append!(EntityKind::ParkingFacility, lir.parking_facilities);
     append!(EntityKind::ParkingSpace, lir.parking_spaces);
     append!(EntityKind::LaneGroup, lir.lane_groups);
     append!(EntityKind::FacilityBand, lir.facility_bands);
     append!(EntityKind::ParticipantClass, lir.participant_classes);
     append!(EntityKind::AccessRule, lir.access_rules);
     append!(EntityKind::VehicleProfile, lir.vehicle_profiles);
+    append!(EntityKind::ConflictZone, lir.conflict_zones);
     append!(EntityKind::CanonicalFrame, lir.canonical_frames);
+    append!(EntityKind::ParticipantStream, lir.participant_streams);
     rows
 }
 
@@ -447,7 +451,27 @@ fn canonical_entity_tables(
             field(5, OwnedValue::RecordVector(states)),
         ])
     });
-    let parking_areas = lir.parking_areas.iter().map(|record| {
+    let parking_facilities = lir.parking_facilities.iter().map(|record| {
+        let virtual_entries = lir.parking_facility_virtual_entries
+            [record.virtual_entries.as_usize_range()]
+        .iter()
+        .map(|anchor| {
+            row([
+                field(1, OwnedValue::U32(anchor.lane_edge.raw())),
+                field(2, OwnedValue::U32(anchor.progress_mm)),
+            ])
+        })
+        .collect();
+        let virtual_exits = lir.parking_facility_virtual_exits
+            [record.virtual_exits.as_usize_range()]
+        .iter()
+        .map(|anchor| {
+            row([
+                field(1, OwnedValue::U32(anchor.lane_edge.raw())),
+                field(2, OwnedValue::U32(anchor.progress_mm)),
+            ])
+        })
+        .collect();
         row([
             field(1, OwnedValue::U32(record.ordinal.raw())),
             field(
@@ -457,9 +481,12 @@ fn canonical_entity_tables(
             field(
                 3,
                 OwnedValue::OrdinalVectorU32(ordinals(
-                    &lir.parking_area_spaces[record.parking_spaces.as_usize_range()],
+                    &lir.parking_facility_spaces[record.parking_spaces.as_usize_range()],
                 )),
             ),
+            field(4, OwnedValue::U32(record.virtual_capacity)),
+            field(5, OwnedValue::RecordVector(virtual_entries)),
+            field(6, OwnedValue::RecordVector(virtual_exits)),
         ])
     });
     let parking_spaces = lir
@@ -562,6 +589,16 @@ fn canonical_entity_tables(
         .iter()
         .map(vehicle_profile_row)
         .collect::<Result<Vec<_>, PortableEmissionError>>()?;
+    let conflict_zones = lir.conflict_zones.iter().map(|record| {
+        row([
+            field(1, OwnedValue::U32(record.ordinal.raw())),
+            field(
+                2,
+                OwnedValue::StableId128(stable_id_bytes(record.stable_id)),
+            ),
+            field(3, OwnedValue::U32(record.junction.raw())),
+        ])
+    });
     let canonical_frames = lir.canonical_frames.iter().map(|record| {
         row([
             field(1, OwnedValue::U32(record.ordinal.raw())),
@@ -569,6 +606,22 @@ fn canonical_entity_tables(
                 2,
                 OwnedValue::StableId128(stable_id_bytes(record.stable_id)),
             ),
+        ])
+    });
+    let participant_streams = lir.participant_streams.iter().map(|record| {
+        let passages = lir.conflict_passages[record.passages.as_usize_range()]
+            .iter()
+            .map(conflict_passage_row)
+            .collect();
+        row([
+            field(1, OwnedValue::U32(record.ordinal.raw())),
+            field(
+                2,
+                OwnedValue::StableId128(stable_id_bytes(record.stable_id)),
+            ),
+            field(3, OwnedValue::U32(record.junction.raw())),
+            field(4, OwnedValue::U32(record.maneuver_path.raw())),
+            field(5, OwnedValue::RecordVector(passages)),
         ])
     });
 
@@ -586,15 +639,46 @@ fn canonical_entity_tables(
         table(11, signal_groups),
         table(12, signal_controllers),
         table(13, signal_phases),
-        table(14, parking_areas),
+        table(14, parking_facilities),
         table(15, parking_spaces),
         table(16, lane_groups),
         table(17, facility_bands),
         table(18, participant_classes),
         table(19, access_rules),
         table(20, vehicle_profiles),
+        table(21, conflict_zones),
         table(22, canonical_frames),
+        table(23, participant_streams),
     ])
+}
+
+fn conflict_passage_row(passage: &crate::lir::LirConflictPassage) -> OwnedRow {
+    let (entry_kind, entry_reference) = conflict_anchor_reference(passage.entry.reference);
+    let (exit_kind, exit_reference) = conflict_anchor_reference(passage.exit.reference);
+    let mut fields = vec![
+        field(1, OwnedValue::U32(passage.conflict_zone.raw())),
+        field(2, OwnedValue::U8(entry_kind)),
+        field(3, OwnedValue::U32(entry_reference)),
+    ];
+    if let Some(progress_mm) = passage.entry.progress_mm {
+        fields.push(field(4, OwnedValue::U32(progress_mm)));
+    }
+    fields.extend([
+        field(5, OwnedValue::U8(exit_kind)),
+        field(6, OwnedValue::U32(exit_reference)),
+    ]);
+    if let Some(progress_mm) = passage.exit.progress_mm {
+        fields.push(field(7, OwnedValue::U32(progress_mm)));
+    }
+    row(fields)
+}
+
+fn conflict_anchor_reference(reference: crate::lir::LirPathAnchorReference) -> (u8, u32) {
+    match reference {
+        crate::lir::LirPathAnchorReference::Gate(gate) => (0, gate.raw()),
+        crate::lir::LirPathAnchorReference::EdgeBoundary(boundary_index) => (1, boundary_index),
+        crate::lir::LirPathAnchorReference::Interior { path_edge_index } => (2, path_edge_index),
+    }
 }
 
 /// 交通边长在 HIR 空间冻结时已提交为写出毫米。
@@ -637,7 +721,7 @@ fn parking_space_row(
             OwnedValue::StableId128(stable_id_bytes(record.stable_id)),
         ),
     ];
-    if let Some(area) = record.parking_area {
+    if let Some(area) = record.parking_facility {
         fields.push(field(3, OwnedValue::U32(area.raw())));
     }
     fields.extend([
@@ -827,6 +911,30 @@ fn facility_band_geometry_rows(output: &CompilationOutput, direction_profile: u8
                     )),
                 ),
                 field(4, OwnedValue::U8(u8::from(applies))),
+            ])
+        })
+        .collect()
+}
+
+fn conflict_zone_region_rows(lir: &crate::lir::LirUnit) -> Vec<OwnedRow> {
+    lir.conflict_zone_regions
+        .iter()
+        .map(|region| {
+            let ring = lir.conflict_region_points[region.ring_xz.as_usize_range()]
+                .iter()
+                .map(|point| {
+                    row([
+                        field(1, OwnedValue::F32(point.x)),
+                        field(2, OwnedValue::F32(point.z)),
+                    ])
+                })
+                .collect();
+            row([
+                field(1, OwnedValue::U32(region.conflict_zone.raw())),
+                field(2, OwnedValue::U32(region.canonical_frame.raw())),
+                field(3, OwnedValue::F32(region.min_y)),
+                field(4, OwnedValue::F32(region.max_y)),
+                field(5, OwnedValue::RecordVector(ring)),
             ])
         })
         .collect()

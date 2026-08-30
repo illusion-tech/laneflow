@@ -482,12 +482,12 @@ fn route_edges_in(routes: &[RouteSlot], route: RouteHandle) -> Option<&[LaneEdge
     Some(slot.compiled.as_ref()?.edges.as_slice())
 }
 
-fn visit_occupancy_records_with<'a>(
+fn visit_occupancy_records_with(
     live_order: &[VehicleHandle],
     vehicles: &[VehicleSlot],
     revision: &SharedNetworkRevision,
     routes: &[RouteSlot],
-    staged_by_slot: &[Option<&'a CompiledRoute>],
+    staged_by_slot: &[Option<&CompiledRoute>],
     mut visit: impl FnMut(OccupancyRecord),
 ) -> Result<(), StepError> {
     let lengths = revision.traffic().lane_lengths_millimetres();

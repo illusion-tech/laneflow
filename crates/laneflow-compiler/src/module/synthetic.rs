@@ -22,7 +22,7 @@ use crate::declaration::{
     LaneGroupInput, ManeuverGateDeclaration, ManeuverGateInput, ManeuverPathDeclaration,
     ManeuverPathInput, MovementDeclaration, MovementInput, OwnedAccessRegulation,
     OwnedAccessRuleTarget, OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl,
-    ParkingAreaDeclaration, ParkingAreaInput, ParkingLaneAnchorDeclaration,
+    ParkingFacilityDeclaration, ParkingFacilityInput, ParkingLaneAnchorDeclaration,
     ParkingSpaceDeclaration, ParkingSpaceInput, ParticipantClassDeclaration, ParticipantClassInput,
     RoadCorridorDeclaration, RoadCorridorInput, RoadSectionDeclaration, RoadSectionInput,
     ScalarViolation, SignalControlInput, SignalControllerDeclaration, SignalControllerInput,
@@ -50,15 +50,15 @@ use super::synthetic_record::{
     declaration_header_len, encode_source_record, encoded_reference_len, encoded_source_record_len,
     facility_band_declaration_len, lane_edge_declaration_base_len, lane_group_declaration_len,
     maneuver_gate_declaration_len, maneuver_path_declaration_len, movement_declaration_len,
-    parking_space_input_len, participant_class_declaration_len, road_corridor_declaration_len,
-    road_section_declaration_len, signal_controller_input_len, stop_line_declaration_len,
-    vehicle_profile_declaration_len, waiting_zone_declaration_len,
+    parking_facility_input_len, parking_space_input_len, participant_class_declaration_len,
+    road_corridor_declaration_len, road_section_declaration_len, signal_controller_input_len,
+    stop_line_declaration_len, vehicle_profile_declaration_len, waiting_zone_declaration_len,
 };
 
 /// 当前合成领域专用语言 `LFSOURCE` 来源记录编码版本。
 ///
-/// `3`：准入后交通一维以整数毫米 / 受检 `f32` SI 写入来源记录，不再写编制 `f64`（#500）。
-pub const SYNTHETIC_FRONTEND_VERSION: u32 = 3;
+/// `4`：绑定 Identity revision 3 与 LFCA 4 的连续登记，不再产生旧格式来源映射。
+pub const SYNTHETIC_FRONTEND_VERSION: u32 = 4;
 
 pub struct SyntheticModuleBuilder {
     header: SourceModuleHeader,
@@ -1382,55 +1382,153 @@ impl SyntheticModuleBuilder {
         Ok(self)
     }
 
-    /// 声明一个可选组织停车位的不可变停车区域。
+    /// 声明一个组织显式泊位并可提供虚拟容量的不可变停车设施。
     ///
     /// # Errors
     ///
-    /// 稳定键非法、声明重复或资源上限超限时失败。区域至少拥有一个停车位的闭包在
-    /// HIR 阶段验证。
+    /// 稳定键非法、虚拟池形状非法、引用非法、声明重复或资源上限超限时失败。总容量
+    /// 与边长闭包在 HIR 阶段验证。
     #[track_caller]
-    pub fn add_parking_area(
+    pub fn add_parking_facility(
         &mut self,
-        input: ParkingAreaInput<'_>,
+        input: ParkingFacilityInput<'_>,
     ) -> Result<&mut Self, DiagnosticBundle> {
         let span = SourceSpan::at_caller(
             Arc::clone(&self.header.source_document_key),
             std::panic::Location::caller(),
         );
-        self.validate_declaration_key(EntityKind::ParkingArea, input.parking_area_key, &span)?;
+        self.validate_declaration_key(
+            EntityKind::ParkingFacility,
+            input.parking_facility_key,
+            &span,
+        )?;
+        let entry_count = u64::try_from(input.virtual_entries.len()).unwrap_or(u64::MAX);
+        let exit_count = u64::try_from(input.virtual_exits.len()).unwrap_or(u64::MAX);
+        if (input.virtual_capacity == 0 && (entry_count != 0 || exit_count != 0))
+            || (input.virtual_capacity != 0 && (entry_count == 0 || exit_count == 0))
+        {
+            return Err(DiagnosticBundle::single(
+                Diagnostic::invalid_parking_facility_virtual_pool(
+                    input.parking_facility_key,
+                    input.virtual_capacity,
+                    entry_count,
+                    exit_count,
+                    span.clone(),
+                ),
+            ));
+        }
+        let mut admitted_entries = Vec::with_capacity(input.virtual_entries.len());
+        let mut admitted_exits = Vec::with_capacity(input.virtual_exits.len());
+        for (anchors, admitted, role) in [
+            (
+                input.virtual_entries,
+                &mut admitted_entries,
+                ParkingAnchorRole::VirtualEntry,
+            ),
+            (
+                input.virtual_exits,
+                &mut admitted_exits,
+                ParkingAnchorRole::VirtualExit,
+            ),
+        ] {
+            for anchor in anchors {
+                self.validate_reference(EntityKind::LaneEdge, anchor.lane_edge, &span)?;
+                let progress_mm = admit_parking_progress(anchor.progress_meters).map_err(|_| {
+                    DiagnosticBundle::single(Diagnostic::invalid_parking_anchor_progress(
+                        input.parking_facility_key,
+                        role,
+                        anchor.lane_edge.declaration_key(),
+                        anchor.progress_meters,
+                        0.0,
+                        1,
+                        0,
+                        span.clone(),
+                    ))
+                })?;
+                admitted.push((anchor.lane_edge, progress_mm));
+            }
+        }
         let namespace_bytes =
             u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
-        let key_bytes = u64::try_from(input.parking_area_key.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.parking_facility_key.len()).unwrap_or(u64::MAX);
+        let reference_count = entry_count.saturating_add(exit_count);
+        let mut logical_string_bytes = namespace_bytes.saturating_add(key_bytes);
+        let mut controlled_string_bytes = key_bytes;
+        for anchor in input
+            .virtual_entries
+            .iter()
+            .chain(input.virtual_exits.iter())
+        {
+            logical_string_bytes =
+                logical_string_bytes.saturating_add(reference_spelling_parts_bytes(
+                    anchor
+                        .lane_edge
+                        .module_namespace()
+                        .unwrap_or(&self.header.authoring_namespace_id),
+                    anchor.lane_edge.declaration_key(),
+                ));
+            controlled_string_bytes = controlled_string_bytes.saturating_add(
+                u64::try_from(anchor.lane_edge.declaration_key().len()).unwrap_or(u64::MAX),
+            );
+        }
         let state = self.check_declaration_resources(
             DeclarationResourceDelta {
                 declarations: 1,
-                typed_ast_records: 3,
+                typed_ast_records: 3_u64.saturating_add(reference_count.saturating_mul(2)),
+                references: reference_count,
+                relations: reference_count,
                 identity_fields: 2,
                 symbols: 1,
-                string_items: 2,
-                string_bytes: namespace_bytes.saturating_add(key_bytes),
-                controlled_string_bytes: key_bytes,
-                controlled_structural_bytes: size_bytes::<ParkingAreaDeclaration>(1),
-                source_bytes: declaration_header_len(input.parking_area_key),
+                string_items: 2_u64.saturating_add(reference_count),
+                string_bytes: logical_string_bytes,
+                controlled_string_bytes,
+                controlled_structural_bytes: size_bytes::<ParkingFacilityDeclaration>(1)
+                    .saturating_add(size_bytes::<ParkingLaneAnchorDeclaration>(reference_count)),
+                source_bytes: parking_facility_input_len(
+                    &input,
+                    &self.header.authoring_namespace_id,
+                ),
                 ..DeclarationResourceDelta::default()
             },
-            input.parking_area_key,
+            input.parking_facility_key,
             &span,
         )?;
 
-        let stable_key: Arc<str> = input.parking_area_key.into();
+        let stable_key: Arc<str> = input.parking_facility_key.into();
         self.declaration_index
-            .entry(EntityKind::ParkingArea)
+            .entry(EntityKind::ParkingFacility)
             .or_default()
             .insert(Arc::clone(&stable_key), span.clone().into());
-        self.declarations
-            .push(TypedAstDeclaration::ParkingArea(ParkingAreaDeclaration {
+        let virtual_entries = admitted_entries
+            .into_iter()
+            .map(|(lane_edge, progress_mm)| {
+                Ok(ParkingLaneAnchorDeclaration {
+                    lane_edge: self.own_reference(EntityKind::LaneEdge, lane_edge, &span)?,
+                    progress_mm,
+                })
+            })
+            .collect::<Result<Box<[_]>, DiagnosticBundle>>()?;
+        let virtual_exits = admitted_exits
+            .into_iter()
+            .map(|(lane_edge, progress_mm)| {
+                Ok(ParkingLaneAnchorDeclaration {
+                    lane_edge: self.own_reference(EntityKind::LaneEdge, lane_edge, &span)?,
+                    progress_mm,
+                })
+            })
+            .collect::<Result<Box<[_]>, DiagnosticBundle>>()?;
+        self.declarations.push(TypedAstDeclaration::ParkingFacility(
+            ParkingFacilityDeclaration {
                 header: DeclarationHeader::module_scoped(
-                    EntityKind::ParkingArea,
+                    EntityKind::ParkingFacility,
                     stable_key,
                     span.clone().into(),
                 ),
-            }));
+                virtual_capacity: input.virtual_capacity,
+                virtual_entries,
+                virtual_exits,
+            },
+        ));
         self.commit_declaration_resources(state);
         Ok(self)
     }
@@ -1451,8 +1549,8 @@ impl SyntheticModuleBuilder {
             std::panic::Location::caller(),
         );
         self.validate_declaration_key(EntityKind::ParkingSpace, input.parking_space_key, &span)?;
-        if let Some(area) = input.parking_area {
-            self.validate_reference(EntityKind::ParkingArea, area, &span)?;
+        if let Some(area) = input.parking_facility {
+            self.validate_reference(EntityKind::ParkingFacility, area, &span)?;
         }
         self.validate_reference(EntityKind::LaneEdge, input.entry.lane_edge, &span)?;
         self.validate_reference(EntityKind::LaneEdge, input.exit.lane_edge, &span)?;
@@ -1462,13 +1560,13 @@ impl SyntheticModuleBuilder {
             self.limits.value(CompileLimitDimension::DiagnosticCount),
         )?;
 
-        let reference_count = 2_u64.saturating_add(u64::from(input.parking_area.is_some()));
+        let reference_count = 2_u64.saturating_add(u64::from(input.parking_facility.is_some()));
         let namespace_bytes =
             u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
         let key_bytes = u64::try_from(input.parking_space_key.len()).unwrap_or(u64::MAX);
         let mut logical_string_bytes = namespace_bytes.saturating_add(key_bytes);
         let mut controlled_string_bytes = key_bytes;
-        if let Some(area) = input.parking_area {
+        if let Some(area) = input.parking_facility {
             logical_string_bytes =
                 logical_string_bytes.saturating_add(reference_spelling_parts_bytes(
                     area.module_namespace()
@@ -1508,8 +1606,8 @@ impl SyntheticModuleBuilder {
             &span,
         )?;
 
-        let parking_area = match input.parking_area {
-            Some(area) => Some(self.own_reference(EntityKind::ParkingArea, area, &span)?),
+        let parking_facility = match input.parking_facility {
+            Some(area) => Some(self.own_reference(EntityKind::ParkingFacility, area, &span)?),
             None => None,
         };
         let entry = ParkingLaneAnchorDeclaration {
@@ -1532,7 +1630,7 @@ impl SyntheticModuleBuilder {
                     stable_key,
                     span.clone().into(),
                 ),
-                parking_area,
+                parking_facility,
                 entry,
                 exit,
                 geometry,
@@ -2859,11 +2957,13 @@ impl SyntheticModuleBuilder {
                     imports: self.imports.into_boxed_slice(),
                     geometry_profiles: None,
                     road_alignments: Box::default(),
+                    conflict_zone_regions: Box::default(),
                     declarations: self.declarations.into_boxed_slice(),
                 },
                 ModuleResourceCounts {
                     source_bytes: u64::from(source_record_byte_len),
                     declaration_count: self.declaration_count,
+                    stable_entity_count: self.declaration_count,
                     typed_ast_record_count: self.typed_ast_record_count,
                     reference_count: self.reference_count,
                     relation_occurrence_count: self.relation_occurrence_count,
@@ -3198,7 +3298,7 @@ fn parking_extent_mm(value: f64) -> Result<u32, ParkingGeometryViolation> {
     let Some(actual_mm) = millimetres_from_si(value) else {
         return Err(ParkingGeometryViolation::QuantizeFailed);
     };
-    if actual_mm < MIN_VEHICLE_LENGTH_MM || actual_mm > MAX_VEHICLE_LENGTH_MM {
+    if !(MIN_VEHICLE_LENGTH_MM..=MAX_VEHICLE_LENGTH_MM).contains(&actual_mm) {
         return Err(ParkingGeometryViolation::OutsideClosedMillimetreRange {
             min_mm: MIN_VEHICLE_LENGTH_MM,
             max_mm: MAX_VEHICLE_LENGTH_MM,
@@ -3216,8 +3316,8 @@ fn parking_lateral_mm(value: f64) -> Result<i32, ParkingGeometryViolation> {
         return Err(ParkingGeometryViolation::QuantizeFailed);
     };
     let actual_abs_mm = actual_mm.unsigned_abs();
-    if actual_abs_mm < MIN_PARKING_LATERAL_OFFSET_ABS_MM
-        || actual_abs_mm > MAX_PARKING_LATERAL_OFFSET_ABS_MM
+    if !(MIN_PARKING_LATERAL_OFFSET_ABS_MM..=MAX_PARKING_LATERAL_OFFSET_ABS_MM)
+        .contains(&actual_abs_mm)
     {
         return Err(
             ParkingGeometryViolation::AbsoluteOutsideClosedMillimetreRange {

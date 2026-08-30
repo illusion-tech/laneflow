@@ -16,16 +16,16 @@ use laneflow_static_contract::{
     MAX_TIME_HEADWAY_SECONDS, MAX_VEHICLE_LENGTH_MM, MIN_ACCEL_METERS_PER_SECOND_SQUARED,
     MIN_LANE_EDGE_LENGTH_MM, MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S,
     MIN_VEHICLE_LENGTH_MM, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, PortableObjectKind,
-    PortableTableSchema, STATIC_EXECUTION_CONTRACT_VERSION,
+    PortableTableSchema, SOURCE_MAP_FORMAT_VERSION, STATIC_EXECUTION_CONTRACT_VERSION,
 };
 
 use crate::{
     FormatError, FormatLimits, FormatStructure, LimitDimension, RegistryCheckedObjectView,
+    RegistryCheckedTableView,
+    object::RegistryCheckProof,
     wire::{checked_slice, read_u8, read_u16, read_u32, read_u64},
 };
 
-const SECTION_HEADER_BYTES: u64 = 4;
-const TABLE_HEADER_BYTES: u64 = 16;
 const ROW_HEADER_BYTES: u64 = 16;
 const FIELD_HEADER_BYTES: u64 = 12;
 const MAX_FIELDS_PER_ROW: usize = FORMAT_HARD_MAX_FIELDS_PER_ROW as usize;
@@ -48,7 +48,19 @@ pub struct ValueCheckedObjectView<'a> {
     registry: RegistryCheckedObjectView<'a>,
 }
 
+/// 成功值域预检后可对同一不可变 backing 做 O(1) 重借用的 crate-private 证明。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ValueCheckProof {
+    registry: RegistryCheckProof,
+}
+
 impl<'a> ValueCheckedObjectView<'a> {
+    pub(crate) const fn proof(self) -> ValueCheckProof {
+        ValueCheckProof {
+            registry: self.registry.proof(),
+        }
+    }
+
     /// 已与 magic、registry 和字段值域一致的对象种类。
     #[must_use]
     pub const fn kind(self) -> PortableObjectKind {
@@ -65,6 +77,14 @@ impl<'a> ValueCheckedObjectView<'a> {
     #[must_use]
     pub const fn registry_view(self) -> RegistryCheckedObjectView<'a> {
         self.registry
+    }
+}
+
+impl ValueCheckProof {
+    pub(crate) fn reborrow(self, bytes: &[u8]) -> Option<ValueCheckedObjectView<'_>> {
+        Some(ValueCheckedObjectView {
+            registry: self.registry.reborrow(bytes)?,
+        })
     }
 }
 
@@ -163,6 +183,7 @@ struct DirectBindings {
     lfca_has_canonical_frame: bool,
     lfca_has_lane_edge_geometry: bool,
     lfca_has_facility_band_geometry: bool,
+    lfca_has_conflict_zone_region: bool,
     lfsd_base_kind: Option<SemanticDiffBaseKind>,
     lfcp_artifact_digest: Option<[u8; 32]>,
     lfcp_source_map_digest: Option<[u8; 32]>,
@@ -177,6 +198,7 @@ impl Default for DirectBindings {
             lfca_has_canonical_frame: false,
             lfca_has_lane_edge_geometry: false,
             lfca_has_facility_band_geometry: false,
+            lfca_has_conflict_zone_region: false,
             lfsd_base_kind: None,
             lfcp_artifact_digest: None,
             lfcp_source_map_digest: None,
@@ -202,31 +224,24 @@ fn validate_object_values(
         let section = view.section(ordinal).ok_or(FormatError::BindingMismatch {
             structure: FormatStructure::Section,
         })?;
-        let bytes = section.bytes();
-        let mut cursor = SECTION_HEADER_BYTES;
-        for table_schema in section_schema.tables {
-            let rows_byte_length = read_u64(bytes, cursor + 8, FormatStructure::Table)?;
-            let table_byte_length = TABLE_HEADER_BYTES.checked_add(rows_byte_length).ok_or(
-                FormatError::ArithmeticOverflow {
+        for (table_index, table_schema) in section_schema.tables.iter().enumerate() {
+            let table = section
+                .table(
+                    u32::try_from(table_index).map_err(|_| FormatError::ArithmeticOverflow {
+                        structure: FormatStructure::Section,
+                    })?,
+                )
+                .ok_or(FormatError::BindingMismatch {
                     structure: FormatStructure::Table,
-                },
-            )?;
-            let table_bytes =
-                checked_slice(bytes, cursor, table_byte_length, FormatStructure::Table)?;
+                })?;
             validate_table_values(
                 view.kind(),
                 section_schema.kind,
                 table_schema,
-                table_bytes,
+                table,
                 limits,
                 &mut bindings,
             )?;
-            cursor =
-                cursor
-                    .checked_add(table_byte_length)
-                    .ok_or(FormatError::ArithmeticOverflow {
-                        structure: FormatStructure::Section,
-                    })?;
         }
     }
     validate_object_bindings(view.kind(), &bindings)
@@ -236,11 +251,11 @@ fn validate_table_values(
     object_kind: PortableObjectKind,
     section_kind: u16,
     table_schema: &PortableTableSchema,
-    bytes: &[u8],
+    table: RegistryCheckedTableView<'_>,
     limits: FormatLimits,
     bindings: &mut DirectBindings,
 ) -> Result<(), FormatError> {
-    let row_count = read_u32(bytes, 4, FormatStructure::Table)?;
+    let row_count = table.row_count();
     record_table_bindings(
         object_kind,
         section_kind,
@@ -248,9 +263,9 @@ fn validate_table_values(
         row_count,
         bindings,
     )?;
-    let mut cursor = TABLE_HEADER_BYTES;
-    for _ in 0..row_count {
-        let (row, end) = parse_row(bytes, cursor)?;
+    for checked_row in table.rows() {
+        let row_bytes = checked_row.bytes();
+        let (row, end) = parse_row(row_bytes, 0)?;
         match object_kind {
             PortableObjectKind::CanonicalArtifact => {
                 validate_lfca_row(
@@ -267,7 +282,6 @@ fn validate_table_values(
                     table_schema.kind,
                     row,
                     limits.max_identity_ascii_bytes(),
-                    bindings.contract_format,
                 )?;
             }
             PortableObjectKind::SemanticDiff => {
@@ -277,7 +291,13 @@ fn validate_table_values(
                 validate_lfcp_row(section_kind, row, bindings)?;
             }
         }
-        cursor = end;
+        if end != row_bytes.len() as u64 {
+            return Err(FormatError::LengthMismatch {
+                structure: FormatStructure::Row,
+                declared: end,
+                actual: row_bytes.len() as u64,
+            });
+        }
     }
     Ok(())
 }
@@ -298,6 +318,9 @@ fn record_table_bindings(
         }
         (PortableObjectKind::CanonicalArtifact, 5, 3) => {
             bindings.lfca_has_facility_band_geometry = row_count != 0;
+        }
+        (PortableObjectKind::CanonicalArtifact, 5, 4) => {
+            bindings.lfca_has_conflict_zone_region = row_count != 0;
         }
         (PortableObjectKind::SemanticDiff, 5, 1)
             if bindings.lfsd_base_kind == Some(SemanticDiffBaseKind::Genesis) && row_count != 0 =>
@@ -331,7 +354,8 @@ fn validate_object_bindings(
     let derived_spatial_present = direction_profile != 0
         || bindings.lfca_has_canonical_frame
         || bindings.lfca_has_lane_edge_geometry
-        || bindings.lfca_has_facility_band_geometry;
+        || bindings.lfca_has_facility_band_geometry
+        || bindings.lfca_has_conflict_zone_region;
     if (spatial_present != 0) != derived_spatial_present {
         return Err(table_binding_mismatch());
     }
@@ -488,6 +512,7 @@ fn validate_lfca_row(
                 require_u8_range(nested.required(2)?, 0, 2).map(|_| ())
             })?;
         }
+        (3, 14) => validate_parking_facility(row)?,
         (3, 15) => validate_parking_space(row)?,
         (3, 17) => validate_kind_id(row.required(4)?, false)?,
         (3, 19) => {
@@ -508,6 +533,7 @@ fn validate_lfca_row(
             }
         }
         (3, 20) => validate_vehicle_profile(row)?,
+        (3, 23) => validate_participant_stream(row)?,
         (4, 5) => {
             let kind = row.required(1)?;
             if !matches!(kind.u16()?, 4 | 7 | 8 | 9) {
@@ -532,6 +558,7 @@ fn validate_lfca_row(
             validate_geometry_rows(row.required(3)?, None)?;
             validate_direction_profile_applies(row.required(4)?, bindings)?;
         }
+        (5, 4) => validate_conflict_zone_region(row)?,
         (6, 1) => {
             require_exact_u16(row.required(1)?, STATIC_EXECUTION_CONTRACT_VERSION)?;
             require_exact_u16(row.required(2)?, CONSTRAINT_CONTRACT_VERSION)?;
@@ -539,7 +566,7 @@ fn validate_lfca_row(
         (7, 1) => {
             validate_compiler_build_id(row.required(1)?)?;
             require_exact_u16(row.required(2)?, 1)?;
-            require_exact_u16(row.required(5)?, 1)?;
+            require_exact_u16(row.required(5)?, 2)?;
             let accuracy_profile = require_u8_range(row.required(6)?, 0, 3)?;
             let direction_profile = bindings
                 .lfca_direction_profile
@@ -589,8 +616,8 @@ fn validate_lfca_entity_vector_cardinalities(
         13 => {
             require_vector_count(row.required(5)?, FormatStructure::RecordVector, 1)?;
         }
-        14 => {
-            require_vector_count(row.required(3)?, FormatStructure::OrdinalVector, 1)?;
+        23 => {
+            require_vector_count(row.required(5)?, FormatStructure::RecordVector, 1)?;
         }
         19 => {
             require_vector_count(row.required(6)?, FormatStructure::OrdinalVector, 1)?;
@@ -720,6 +747,58 @@ fn validate_parking_space(row: RowRef<'_>) -> Result<(), FormatError> {
     Ok(())
 }
 
+fn validate_parking_facility(row: RowRef<'_>) -> Result<(), FormatError> {
+    let parking_spaces = vector_count(row.required(3)?, FormatStructure::OrdinalVector)?;
+    let virtual_capacity = row.required(4)?.u32()?;
+    if u64::from(parking_spaces) + u64::from(virtual_capacity) == 0 {
+        return Err(row_binding_mismatch());
+    }
+
+    let validate_anchor = |anchor: RowRef<'_>| {
+        require_u32_inclusive(
+            anchor.required(2)?,
+            PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM,
+            MAX_LANE_EDGE_LENGTH_MM - PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM,
+        )?;
+        Ok(())
+    };
+    let entry_count = visit_record_rows(row.required(5)?, validate_anchor)?;
+    let exit_count = visit_record_rows(row.required(6)?, validate_anchor)?;
+    if (virtual_capacity == 0 && (entry_count != 0 || exit_count != 0))
+        || (virtual_capacity != 0 && (entry_count == 0 || exit_count == 0))
+    {
+        return Err(row_binding_mismatch());
+    }
+    Ok(())
+}
+
+fn validate_participant_stream(row: RowRef<'_>) -> Result<(), FormatError> {
+    let count = visit_record_rows(row.required(5)?, |passage| {
+        validate_path_anchor(passage, 2, 3, 4)?;
+        validate_path_anchor(passage, 5, 6, 7)
+    })?;
+    if count == 0 {
+        return Err(row_binding_mismatch());
+    }
+    Ok(())
+}
+
+fn validate_path_anchor(
+    row: RowRef<'_>,
+    kind_tag: u16,
+    reference_tag: u16,
+    progress_tag: u16,
+) -> Result<(), FormatError> {
+    let kind = require_u8_range(row.required(kind_tag)?, 0, 2)?;
+    row.required(reference_tag)?.u32()?;
+    if kind == 2 {
+        require_u32_inclusive(row.required(progress_tag)?, 1, MAX_LANE_EDGE_LENGTH_MM - 1)?;
+    } else if row.has(progress_tag) {
+        return Err(row_binding_mismatch());
+    }
+    Ok(())
+}
+
 fn validate_vehicle_profile(row: RowRef<'_>) -> Result<(), FormatError> {
     require_u32_inclusive(
         row.required(4)?,
@@ -778,6 +857,35 @@ fn validate_geometry_rows(
     Ok(())
 }
 
+fn validate_conflict_zone_region(row: RowRef<'_>) -> Result<(), FormatError> {
+    let min_y = require_canonical_spatial_coordinate(row.required(3)?)?;
+    let max_y = require_canonical_spatial_coordinate(row.required(4)?)?;
+    if min_y >= max_y {
+        return Err(row_binding_mismatch());
+    }
+    let count = visit_record_rows(row.required(5)?, |point| {
+        require_canonical_spatial_coordinate(point.required(1)?)?;
+        require_canonical_spatial_coordinate(point.required(2)?)?;
+        Ok(())
+    })?;
+    if count < 3 {
+        return Err(row_binding_mismatch());
+    }
+    Ok(())
+}
+
+fn require_canonical_spatial_coordinate(field: FieldRef<'_>) -> Result<f32, FormatError> {
+    let value = field.f32()?;
+    if value.is_finite()
+        && value.to_bits() != 0x8000_0000
+        && (-16_384.0..=16_384.0).contains(&value)
+    {
+        Ok(value)
+    } else {
+        Err(noncanonical(field))
+    }
+}
+
 fn validate_direction_profile_applies(
     field: FieldRef<'_>,
     bindings: &DirectBindings,
@@ -797,7 +905,6 @@ fn validate_lfsm_row(
     table: u16,
     row: RowRef<'_>,
     max_identity_ascii_bytes: u64,
-    contract_format: u16,
 ) -> Result<(), FormatError> {
     match (section, table) {
         (1, 1) => {
@@ -811,13 +918,12 @@ fn validate_lfsm_row(
             validate_identity_ascii_token(row.required(2)?, max_identity_ascii_bytes)?;
             let language_field = row.required(3)?;
             let language = language_field.u16()?;
-            if !matches!(language, 1 | 3) {
+            if !matches!(language, 1 | 2) {
                 return Err(unknown(language_field, u64::from(language)));
             }
             require_exact_u32(row.required(5)?, 1)?;
             let frontend = row.required(6)?;
-            // SyntheticDsl `LFSOURCE` 现行编码为 3；RoadEditingSource `frontendVersion` 为 2。
-            let expected_frontend = if language == 1 { 3 } else { 2 };
+            let expected_frontend = if language == 1 { 4 } else { 3 };
             require_exact_u32(frontend, expected_frontend)?;
             visit_record_rows(row.required(12)?, |import| {
                 validate_identity_ascii_token(import.required(1)?, max_identity_ascii_bytes)
@@ -838,7 +944,7 @@ fn validate_lfsm_row(
         (4, 2) => {
             require_exact_u16(row.required(1)?, EntityKind::CanonicalFrame.code())?;
             let role = row.required(3)?;
-            if !matches!(role.u8()?, 28 | 29) {
+            if !matches!(role.u8()?, 28 | 29 | 32) {
                 return Err(unknown(role, u64::from(role.u8()?)));
             }
             if row.required(5)?.u32()? >= row.required(6)?.u32()? {
@@ -857,7 +963,7 @@ fn validate_lfsm_row(
                 return Err(row_binding_mismatch());
             }
             require_exact_u16(row.required(5)?, 1)?;
-            require_exact_u16(row.required(6)?, contract_format)?;
+            require_exact_u16(row.required(6)?, CONSTRAINT_CONTRACT_VERSION)?;
         }
         _ => {}
     }
@@ -887,6 +993,8 @@ fn owner_kind_for_source_role(role: u8) -> Option<EntityKind> {
         7 => Some(EntityKind::Movement),
         8 | 10 | 11 => Some(EntityKind::ManeuverPath),
         12 => Some(EntityKind::StopLine),
+        13 | 14 => Some(EntityKind::ParkingFacility),
+        15 | 16 => Some(EntityKind::Junction),
         17 | 18 => Some(EntityKind::SignalController),
         19 => Some(EntityKind::SignalPhase),
         20 => Some(EntityKind::ManeuverGate),
@@ -895,6 +1003,8 @@ fn owner_kind_for_source_role(role: u8) -> Option<EntityKind> {
         25 | 26 => Some(EntityKind::AccessRule),
         27 => Some(EntityKind::VehicleProfile),
         28 | 29 => Some(EntityKind::CanonicalFrame),
+        30 | 31 => Some(EntityKind::ParticipantStream),
+        32 => Some(EntityKind::CanonicalFrame),
         _ => None,
     }
 }
@@ -975,14 +1085,14 @@ fn validate_owner_local_location(
     let owner_kind_field = row.required(16)?;
     let owner_kind = require_u8_range(owner_kind_field, 0, 1)?;
     let relation_field = row.required(17)?;
-    let relation = require_u8_range(relation_field, 0, 11)?;
+    let relation = require_u8_range(relation_field, 0, 15)?;
     let occurrence = require_u8_range(row.required(18)?, 0, 1)?;
     let (expected_owner, expected_occurrence, root) = road_relation_shape(relation);
 
     match owner_kind {
         0 => {
             forbid_fields(row, 10..=15)?;
-            if relation != 0 || expected_owner.is_some() {
+            if !matches!(relation, 0 | 15) || expected_owner.is_some() {
                 return Err(row_binding_mismatch());
             }
         }
@@ -1026,6 +1136,9 @@ fn road_relation_shape(relation: u8) -> (Option<EntityKind>, u8, u16) {
         9 => (Some(EntityKind::SignalController), 0, 20),
         10 => (Some(EntityKind::SignalPhase), 1, 22),
         11 => (Some(EntityKind::AccessRule), 1, 31),
+        12 | 13 => (Some(EntityKind::ParkingFacility), 1, 23),
+        14 => (Some(EntityKind::ParticipantStream), 0, 39),
+        15 => (None, 1, 0),
         _ => (None, 0, 0),
     }
 }
@@ -1034,6 +1147,8 @@ fn validate_address_depth(row: RowRef<'_>, entity: EntityKind) -> Result<(), For
     let depth = match entity {
         EntityKind::RoadSection
         | EntityKind::Movement
+        | EntityKind::ConflictZone
+        | EntityKind::ParticipantStream
         | EntityKind::FacilityBand
         | EntityKind::SignalPhase => 1,
         EntityKind::AuthoringLane | EntityKind::ManeuverPath | EntityKind::LaneGroup => 2,
@@ -1063,7 +1178,7 @@ fn road_table_for_entity(entity: EntityKind) -> u16 {
         EntityKind::SignalGroup => 19,
         EntityKind::SignalController => 20,
         EntityKind::SignalPhase => 22,
-        EntityKind::ParkingArea => 23,
+        EntityKind::ParkingFacility => 23,
         EntityKind::ParkingSpace => 26,
         EntityKind::LaneGroup => 27,
         EntityKind::FacilityBand => 28,
@@ -1071,7 +1186,8 @@ fn road_table_for_entity(entity: EntityKind) -> u16 {
         EntityKind::AccessRule => 31,
         EntityKind::VehicleProfile => 33,
         EntityKind::CanonicalFrame => 35,
-        EntityKind::StaticRoute => 0,
+        EntityKind::ConflictZone => 36,
+        EntityKind::ParticipantStream => 39,
     }
 }
 
@@ -1199,6 +1315,7 @@ fn struct_edge_target(step: PropertyStep) -> Option<u16> {
         (2, 4) => Some(1),
         (6, 0) | (3, 0) | (4, 0..=2) => Some(2),
         (11, 3) | (28, 2) => Some(3),
+        (34, 4) => Some(4),
         _ => None,
     }
 }
@@ -1209,23 +1326,24 @@ fn table_edge_target(step: PropertyStep) -> Option<u16> {
         (7, 2) | (12, 3) => Some(6),
         (9, 7) => Some(8),
         (22, 2) => Some(21),
+        (23, 3 | 4) => Some(24),
         (26, 2 | 3) => Some(24),
         (26, 4) => Some(25),
         (31, 5) => Some(30),
         (33, 2) => Some(32),
+        (39, 3) => Some(38),
+        (38, 1 | 2) => Some(37),
+        (0, 28) => Some(34),
         _ => None,
     }
 }
 
 fn table_field_max(container: u16) -> Option<u16> {
-    const MAX: [u16; 36] = [
-        25, 3, 5, 0, 2, 2, 1, 3, 1, 8, 4, 6, 4, 3, 4, 5, 6, 5, 2, 1, 4, 1, 4, 1, 1, 3, 5, 2, 4, 2,
-        2, 7, 6, 3, 2, 1,
+    const MAX: [u16; 40] = [
+        28, 3, 5, 0, 2, 2, 1, 3, 1, 8, 4, 6, 4, 3, 4, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4, 2,
+        2, 7, 6, 3, 5, 1, 2, 4, 2, 4,
     ];
-    match container {
-        34 => None,
-        _ => MAX.get(usize::from(container)).copied(),
-    }
+    MAX.get(usize::from(container)).copied()
 }
 
 fn table_field_member_allowed(container: u16, member: u16) -> bool {
@@ -1233,7 +1351,7 @@ fn table_field_member_allowed(container: u16, member: u16) -> bool {
 }
 
 fn struct_member_max(container: u16) -> Option<u16> {
-    [0, 0, 2, 1].get(usize::from(container)).copied()
+    [0, 0, 2, 1, 1].get(usize::from(container)).copied()
 }
 
 fn validate_lfsd_row(
@@ -1305,13 +1423,18 @@ fn validate_change_row(
     if base_kind == SemanticDiffBaseKind::Genesis && (section == 5 || change != 0) {
         return Err(row_binding_mismatch());
     }
-    if section == 4 && !matches!(entity, EntityKind::LaneEdge | EntityKind::FacilityBand) {
+    if section == 4
+        && !matches!(
+            entity,
+            EntityKind::LaneEdge | EntityKind::FacilityBand | EntityKind::ConflictZone
+        )
+    {
         return Err(row_binding_mismatch());
     }
     if section == 3 {
         let role = row.required(5)?;
         let role_value = role.u8()?;
-        if !matches!(role_value, 1..=12 | 17 | 18 | 20..=27) {
+        if !matches!(role_value, 1..=18 | 20..=27 | 30 | 31) {
             return Err(unknown(role, u64::from(role_value)));
         }
         if owner_kind_for_source_role(role_value) != Some(entity) {
@@ -1359,7 +1482,9 @@ fn diff_field_tag_allowed(section: u16, entity: EntityKind, tag: u16) -> bool {
             EntityKind::ManeuverGate => tag == 4,
             EntityKind::StopLine => tag == 3,
             EntityKind::ParkingSpace => matches!(tag, 5 | 7..=11),
+            EntityKind::ParkingFacility => matches!(tag, 5 | 6),
             EntityKind::ParticipantClass => tag == 4,
+            EntityKind::ParticipantStream => tag == 5,
             EntityKind::VehicleProfile => (4..=10).contains(&tag),
             _ => false,
         },
@@ -1368,6 +1493,7 @@ fn diff_field_tag_allowed(section: u16, entity: EntityKind, tag: u16) -> bool {
             EntityKind::WaitingZone => (4..=6).contains(&tag),
             EntityKind::SignalController => matches!(tag, 3 | 4),
             EntityKind::SignalPhase => matches!(tag, 4 | 5),
+            EntityKind::ParkingFacility => tag == 4,
             EntityKind::AccessRule => matches!(tag, 5 | 7 | 8),
             _ => false,
         },
@@ -1388,7 +1514,7 @@ fn validate_lfcp_row(
             bindings.lfcp_artifact_digest = Some(copy_digest(row.required(4)?)?);
         }
         2 => {
-            require_exact_u16(row.required(1)?, bindings.contract_format)?;
+            require_exact_u16(row.required(1)?, SOURCE_MAP_FORMAT_VERSION)?;
             require_u64_greater(row.required(3)?, 0)?;
             validate_compiler_build_id(row.required(4)?)?;
             require_exact_u16(row.required(5)?, 1)?;
@@ -1694,10 +1820,12 @@ mod tests {
     use std::vec::Vec;
 
     use laneflow_static_contract::{
-        OBJECT_PREAMBLE_BYTE_LENGTH, PortableFieldPresence, PortableFieldSchema, PortableFieldType,
-        PortableRowCardinality, PortableRowSchema, SECTION_DIRECTORY_ENTRY_BYTE_LENGTH,
-        SECTION_FORMAT_VERSION, portable_object_schema,
+        CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH, OBJECT_PREAMBLE_BYTE_LENGTH, PortableFieldPresence,
+        PortableFieldSchema, PortableFieldType, PortableRowCardinality, PortableRowSchema,
+        SECTION_DIRECTORY_ENTRY_BYTE_LENGTH, TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH,
+        portable_object_schema,
     };
+    use sha2::{Digest, Sha256};
 
     use crate::preflight_object_registry;
 
@@ -1781,7 +1909,7 @@ mod tests {
                         CANONICAL_ARTIFACT_FORMAT_VERSION
                     }
                     (PortableObjectKind::CanonicalPublicationDescriptor, 2, 1, 1) => {
-                        kind.format_version()
+                        SOURCE_MAP_FORMAT_VERSION
                     }
                     (PortableObjectKind::CanonicalArtifact, 1, 1, 5)
                     | (PortableObjectKind::CanonicalArtifact, 6, 1, 2) => {
@@ -1791,8 +1919,9 @@ mod tests {
                         STATIC_EXECUTION_CONTRACT_VERSION
                     }
                     (PortableObjectKind::CanonicalArtifact, 1, 1, 3) => IDENTITY_REGISTRY_REVISION,
+                    (PortableObjectKind::CanonicalArtifact, 7, 1, 5) => 2,
                     (PortableObjectKind::CanonicalArtifact, 1, 1, 2 | 4)
-                    | (PortableObjectKind::CanonicalArtifact, 7, 1, 2 | 5)
+                    | (PortableObjectKind::CanonicalArtifact, 7, 1, 2)
                     | (PortableObjectKind::SourceMap, 1, 1, 1 | 7)
                     | (PortableObjectKind::SemanticDiff, 1, 1, 6)
                     | (PortableObjectKind::CanonicalPublicationDescriptor, 1, 1, 2)
@@ -1872,14 +2001,49 @@ mod tests {
         row_bytes(&fields)
     }
 
+    fn encoded_section(kind: PortableObjectKind, tables: Vec<Vec<u8>>) -> Vec<u8> {
+        if kind == PortableObjectKind::CanonicalPublicationDescriptor {
+            assert_eq!(tables.len(), 1);
+            return tables.into_iter().next().unwrap();
+        }
+
+        let tables = tables
+            .into_iter()
+            .filter(|table| u32::from_le_bytes(table[4..8].try_into().unwrap()) != 0)
+            .collect::<Vec<_>>();
+        let chunk_count = u32::try_from(tables.len()).unwrap();
+        let directory_length = CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH
+            + u64::from(chunk_count) * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH;
+        let mut bytes = vec![0_u8; usize::try_from(directory_length).unwrap()];
+        bytes[0..4].copy_from_slice(&chunk_count.to_le_bytes());
+        bytes[4..6]
+            .copy_from_slice(&(TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH as u16).to_le_bytes());
+        bytes[8..16].copy_from_slice(&directory_length.to_le_bytes());
+        let mut chunk_offset = directory_length;
+        for (ordinal, table) in tables.into_iter().enumerate() {
+            let entry = CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH as usize
+                + ordinal * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH as usize;
+            let table_kind = u16::from_le_bytes(table[0..2].try_into().unwrap());
+            let row_count = u32::from_le_bytes(table[4..8].try_into().unwrap());
+            bytes[entry..entry + 2].copy_from_slice(&table_kind.to_le_bytes());
+            bytes[entry + 2..entry + 4].copy_from_slice(&1_u16.to_le_bytes());
+            bytes[entry + 12..entry + 16].copy_from_slice(&row_count.to_le_bytes());
+            bytes[entry + 24..entry + 32].copy_from_slice(&chunk_offset.to_le_bytes());
+            bytes[entry + 32..entry + 40].copy_from_slice(&(table.len() as u64).to_le_bytes());
+            bytes[entry + 40..entry + 72].copy_from_slice(&Sha256::digest(&table));
+            chunk_offset += table.len() as u64;
+            bytes.extend_from_slice(&table);
+        }
+        bytes
+    }
+
     fn encoded_value_object(kind: PortableObjectKind) -> Vec<u8> {
         let schema = portable_object_schema(kind);
         let sections = schema
             .sections
             .iter()
             .map(|section| {
-                let mut bytes = Vec::new();
-                bytes.extend_from_slice(&(section.tables.len() as u32).to_le_bytes());
+                let mut tables = Vec::new();
                 for table in section.tables {
                     let rows = if table.cardinality == PortableRowCardinality::ExactlyOne {
                         vec![schema_row_bytes(kind, section.kind, table.kind, table.row)]
@@ -1892,6 +2056,7 @@ mod tests {
                         Vec::new()
                     };
                     let rows_length = rows.iter().map(Vec::len).sum::<usize>();
+                    let mut bytes = Vec::new();
                     bytes.extend_from_slice(&table.kind.to_le_bytes());
                     bytes.extend_from_slice(&1_u16.to_le_bytes());
                     bytes.extend_from_slice(&(rows.len() as u32).to_le_bytes());
@@ -1899,8 +2064,9 @@ mod tests {
                     for row in rows {
                         bytes.extend_from_slice(&row);
                     }
+                    tables.push(bytes);
                 }
-                bytes
+                encoded_section(kind, tables)
             })
             .collect::<Vec<_>>();
         let total = sections
@@ -1923,7 +2089,8 @@ mod tests {
                 + ordinal * SECTION_DIRECTORY_ENTRY_BYTE_LENGTH as usize;
             bytes[entry..entry + 2]
                 .copy_from_slice(&u16::try_from(ordinal + 1).unwrap().to_le_bytes());
-            bytes[entry + 2..entry + 4].copy_from_slice(&SECTION_FORMAT_VERSION.to_le_bytes());
+            bytes[entry + 2..entry + 4]
+                .copy_from_slice(&kind.section_format_version().to_le_bytes());
             bytes[entry + 8..entry + 16].copy_from_slice(&section_offset.to_le_bytes());
             bytes[entry + 16..entry + 24].copy_from_slice(&(section.len() as u64).to_le_bytes());
             section_offset += section.len() as u64;
@@ -1945,7 +2112,10 @@ mod tests {
     fn every_object_kind_reaches_the_value_checked_capability() {
         for kind in PortableObjectKind::ALL {
             let bytes = encoded_value_object(kind);
-            let checked = preflight_object_values(&bytes, kind, FormatLimits::HARD).unwrap();
+            let checked =
+                preflight_object_values(&bytes, kind, FormatLimits::HARD).unwrap_or_else(|error| {
+                    panic!("{kind:?} rejected generated value fixture: {error:?}")
+                });
             assert_eq!(checked.kind(), kind);
             assert_eq!(checked.bytes(), bytes);
             assert_eq!(checked.registry_view().bytes(), bytes);
@@ -1973,7 +2143,7 @@ mod tests {
             .unwrap();
 
         let unknown_tag = row_bytes(&[
-            field_bytes(1, PortableFieldType::U16, &23_u16.to_le_bytes()),
+            field_bytes(1, PortableFieldType::U16, &35_u16.to_le_bytes()),
             field_bytes(2, PortableFieldType::Bytes, b"edge-a"),
         ]);
         assert_eq!(
@@ -1986,13 +2156,13 @@ mod tests {
             FormatErrorClass::UnknownKind
         );
 
-        let reserved_tag = row_bytes(&[
-            field_bytes(1, PortableFieldType::U16, &30_u16.to_le_bytes()),
+        let zero_tag = row_bytes(&[
+            field_bytes(1, PortableFieldType::U16, &0_u16.to_le_bytes()),
             field_bytes(2, PortableFieldType::Bytes, b"edge-a"),
         ]);
         assert_eq!(
             validate_identity_field(
-                parse_test_row(&reserved_tag),
+                parse_test_row(&zero_tag),
                 FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
             )
             .unwrap_err()
@@ -2122,7 +2292,7 @@ mod tests {
             field_bytes(3, PortableFieldType::Utf8, b"document-key"),
             field_bytes(5, PortableFieldType::U32, &1_u32.to_le_bytes()),
         ]);
-        validate_lfsm_row(2, 2, parse_test_row(&source_document), 1, 1).unwrap();
+        validate_lfsm_row(2, 2, parse_test_row(&source_document), 1).unwrap();
 
         let identity = row_bytes(&[
             field_bytes(1, PortableFieldType::U16, &5_u16.to_le_bytes()),
@@ -2199,19 +2369,116 @@ mod tests {
         )
         .unwrap();
 
-        let forbidden_kind = row_bytes(&[field_bytes(
+        let unknown_kind = row_bytes(&[field_bytes(
             1,
             PortableFieldType::U16,
-            &21_u16.to_le_bytes(),
+            &24_u16.to_le_bytes(),
         )]);
         assert_eq!(
-            require_entity_kind(parse_test_row(&forbidden_kind).required(1).unwrap())
+            require_entity_kind(parse_test_row(&unknown_kind).required(1).unwrap())
                 .unwrap_err()
                 .class(),
             FormatErrorClass::UnknownKind
         );
-        assert_eq!(laneflow_static_contract::EntityKind::from_code(21), None);
-        assert_eq!(laneflow_static_contract::FieldTag::from_code(30), None);
+        assert_eq!(laneflow_static_contract::EntityKind::from_code(24), None);
+        assert_eq!(laneflow_static_contract::FieldTag::from_code(35), None);
+    }
+
+    #[test]
+    fn parking_facility_capacity_and_virtual_anchor_shape_fail_closed() {
+        let anchor = |progress: u32| {
+            row_bytes(&[
+                field_bytes(1, PortableFieldType::U32, &0_u32.to_le_bytes()),
+                field_bytes(2, PortableFieldType::U32, &progress.to_le_bytes()),
+            ])
+        };
+        let facility = |spaces: &[u32], capacity: u32, entries: &[Vec<u8>], exits: &[Vec<u8>]| {
+            row_bytes(&[
+                field_bytes(
+                    3,
+                    PortableFieldType::OrdinalVectorU32,
+                    &ordinal_value(spaces),
+                ),
+                field_bytes(4, PortableFieldType::U32, &capacity.to_le_bytes()),
+                field_bytes(5, PortableFieldType::RecordVector, &record_value(entries)),
+                field_bytes(6, PortableFieldType::RecordVector, &record_value(exits)),
+            ])
+        };
+
+        for valid in [
+            facility(&[0], 0, &[], &[]),
+            facility(&[], 1, &[anchor(1)], &[anchor(2)]),
+            facility(&[0], 1, &[anchor(1)], &[anchor(2)]),
+        ] {
+            validate_parking_facility(parse_test_row(&valid)).unwrap();
+        }
+        for invalid in [
+            facility(&[], 0, &[], &[]),
+            facility(&[0], 0, &[anchor(1)], &[]),
+            facility(&[], 1, &[], &[anchor(2)]),
+            facility(&[], 1, &[anchor(0)], &[anchor(2)]),
+        ] {
+            assert_eq!(
+                validate_parking_facility(parse_test_row(&invalid))
+                    .unwrap_err()
+                    .class(),
+                if invalid == facility(&[], 1, &[anchor(0)], &[anchor(2)]) {
+                    FormatErrorClass::NonCanonicalValue
+                } else {
+                    FormatErrorClass::BindingMismatch
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn participant_stream_anchor_variants_fail_closed() {
+        let passage = |entry_kind: u8,
+                       entry_progress: Option<u32>,
+                       exit_kind: u8,
+                       exit_progress: Option<u32>| {
+            let mut fields = vec![
+                field_bytes(1, PortableFieldType::U32, &0_u32.to_le_bytes()),
+                field_bytes(2, PortableFieldType::U8, &[entry_kind]),
+                field_bytes(3, PortableFieldType::U32, &0_u32.to_le_bytes()),
+                field_bytes(5, PortableFieldType::U8, &[exit_kind]),
+                field_bytes(6, PortableFieldType::U32, &1_u32.to_le_bytes()),
+            ];
+            if let Some(progress) = entry_progress {
+                fields.push(field_bytes(
+                    4,
+                    PortableFieldType::U32,
+                    &progress.to_le_bytes(),
+                ));
+            }
+            if let Some(progress) = exit_progress {
+                fields.push(field_bytes(
+                    7,
+                    PortableFieldType::U32,
+                    &progress.to_le_bytes(),
+                ));
+            }
+            fields.sort_by_key(|field| u16::from_le_bytes(field[0..2].try_into().unwrap()));
+            row_bytes(&fields)
+        };
+        let stream = |passages: &[Vec<u8>]| {
+            row_bytes(&[field_bytes(
+                5,
+                PortableFieldType::RecordVector,
+                &record_value(passages),
+            )])
+        };
+
+        validate_participant_stream(parse_test_row(&stream(&[passage(0, None, 2, Some(1))])))
+            .unwrap();
+        for invalid in [
+            stream(&[]),
+            stream(&[passage(0, Some(1), 1, None)]),
+            stream(&[passage(2, None, 1, None)]),
+            stream(&[passage(2, Some(0), 1, None)]),
+        ] {
+            assert!(validate_participant_stream(parse_test_row(&invalid)).is_err());
+        }
     }
 
     #[test]
@@ -2266,7 +2533,7 @@ mod tests {
                 PortableFieldType::Sha256,
                 &PORTABLE_COMPILE_OPTIONS_DIGEST_V1,
             ),
-            field_bytes(5, PortableFieldType::U16, &1_u16.to_le_bytes()),
+            field_bytes(5, PortableFieldType::U16, &2_u16.to_le_bytes()),
             field_bytes(6, PortableFieldType::U8, &[0]),
         ]);
         assert_eq!(
@@ -2395,6 +2662,67 @@ mod tests {
     }
 
     #[test]
+    fn conflict_zone_region_direct_value_shape_fail_closed() {
+        let point = |x: f32, z: f32| {
+            row_bytes(&[
+                field_bytes(1, PortableFieldType::F32, &x.to_bits().to_le_bytes()),
+                field_bytes(2, PortableFieldType::F32, &z.to_bits().to_le_bytes()),
+            ])
+        };
+        let region = |min_y: f32, max_y: f32, points: &[Vec<u8>]| {
+            row_bytes(&[
+                field_bytes(3, PortableFieldType::F32, &min_y.to_bits().to_le_bytes()),
+                field_bytes(4, PortableFieldType::F32, &max_y.to_bits().to_le_bytes()),
+                field_bytes(5, PortableFieldType::RecordVector, &record_value(points)),
+            ])
+        };
+        validate_conflict_zone_region(parse_test_row(&region(
+            0.0,
+            1.0,
+            &[point(0.0, 0.0), point(1.0, 0.0), point(0.0, 1.0)],
+        )))
+        .unwrap();
+        for invalid in [
+            region(
+                1.0,
+                1.0,
+                &[point(0.0, 0.0), point(1.0, 0.0), point(0.0, 1.0)],
+            ),
+            region(0.0, 1.0, &[point(0.0, 0.0), point(1.0, 0.0)]),
+            region(
+                0.0,
+                1.0,
+                &[point(-0.0, 0.0), point(1.0, 0.0), point(0.0, 1.0)],
+            ),
+            region(
+                0.0,
+                1.0,
+                &[point(16_385.0, 0.0), point(1.0, 0.0), point(0.0, 1.0)],
+            ),
+        ] {
+            assert!(validate_conflict_zone_region(parse_test_row(&invalid)).is_err());
+        }
+
+        let mut bindings = DirectBindings {
+            lfca_spatial_present: Some(1),
+            lfca_direction_profile: Some(0),
+            ..DirectBindings::default()
+        };
+        assert!(
+            validate_object_bindings(PortableObjectKind::CanonicalArtifact, &bindings).is_err()
+        );
+        record_table_bindings(
+            PortableObjectKind::CanonicalArtifact,
+            5,
+            4,
+            1,
+            &mut bindings,
+        )
+        .unwrap();
+        validate_object_bindings(PortableObjectKind::CanonicalArtifact, &bindings).unwrap();
+    }
+
+    #[test]
     fn source_location_closes_subject_address_depth_and_property_path() {
         let valid_property = property_value(&[(0, 12, 2)]);
         let valid = row_bytes(&[
@@ -2417,7 +2745,6 @@ mod tests {
             3,
             parse_test_row(&valid),
             FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
-            1,
         )
         .unwrap();
 
@@ -2442,7 +2769,6 @@ mod tests {
                 3,
                 parse_test_row(&wrong_depth),
                 FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
-                1,
             )
             .unwrap_err()
             .class(),
@@ -2473,7 +2799,6 @@ mod tests {
                 3,
                 parse_test_row(&wrong_property_row),
                 FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
-                1,
             )
             .unwrap_err()
             .class(),
@@ -2513,7 +2838,6 @@ mod tests {
                 3,
                 parse_test_row(&bytes),
                 FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
-                1,
             )
             .unwrap();
         }
@@ -2544,7 +2868,6 @@ mod tests {
                 3,
                 parse_test_row(&invalid),
                 FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
-                1,
             )
             .unwrap_err()
             .class(),
@@ -2585,7 +2908,6 @@ mod tests {
             3,
             parse_test_row(&exact),
             FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
-            1,
         )
         .unwrap();
 
@@ -2599,7 +2921,6 @@ mod tests {
                 3,
                 parse_test_row(&unreachable_seventeen),
                 FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
-                1,
             )
             .unwrap_err()
             .class(),
@@ -2616,11 +2937,11 @@ mod tests {
 
     #[test]
     fn every_registered_property_path_shape_accepts_and_invalid_compositions_fail_closed() {
-        const TABLE_FIELD_MAX: [u16; 36] = [
-            25, 3, 5, 0, 2, 2, 1, 3, 1, 8, 4, 6, 4, 3, 4, 5, 6, 5, 2, 1, 4, 1, 4, 1, 1, 3, 5, 2, 4,
-            2, 2, 7, 6, 3, 2, 1,
+        const TABLE_FIELD_MAX: [u16; 40] = [
+            28, 3, 5, 0, 2, 2, 1, 3, 1, 8, 4, 6, 4, 3, 4, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4,
+            2, 2, 7, 6, 3, 5, 1, 2, 4, 2, 4,
         ];
-        const STRUCT_MEMBER_MAX: [u16; 4] = [0, 0, 2, 1];
+        const STRUCT_MEMBER_MAX: [u16; 5] = [0, 0, 2, 1, 1];
         const STRUCT_EDGES: &[(u16, u16, u16)] = &[
             (2, 2, 0),
             (2, 3, 0),
@@ -2632,6 +2953,7 @@ mod tests {
             (6, 0, 2),
             (11, 3, 3),
             (28, 2, 3),
+            (34, 4, 4),
         ];
         const TABLE_EDGES: &[(u16, u16, u16)] = &[
             (1, 3, 2),
@@ -2639,25 +2961,23 @@ mod tests {
             (9, 7, 8),
             (12, 3, 6),
             (22, 2, 21),
+            (23, 3, 24),
+            (23, 4, 24),
             (26, 2, 24),
             (26, 3, 24),
             (26, 4, 25),
             (31, 5, 30),
             (33, 2, 32),
+            (39, 3, 38),
+            (38, 1, 37),
+            (38, 2, 37),
+            (0, 28, 34),
         ];
 
         for (table, max_field) in TABLE_FIELD_MAX.into_iter().enumerate() {
             let table = u16::try_from(table).unwrap();
             for field in 0..=max_field {
                 let result = validate_property_path(property_field(&[(0, table, field)]), table);
-                if table == 34 {
-                    assert_eq!(
-                        result.unwrap_err().class(),
-                        FormatErrorClass::UnknownKind,
-                        "reserved hole ({table}, {field}) must fail closed"
-                    );
-                    continue;
-                }
                 result.unwrap();
             }
             assert_eq!(
@@ -2766,6 +3086,10 @@ mod tests {
             (10, EntityKind::ManeuverPath),
             (11, EntityKind::ManeuverPath),
             (12, EntityKind::StopLine),
+            (13, EntityKind::ParkingFacility),
+            (14, EntityKind::ParkingFacility),
+            (15, EntityKind::Junction),
+            (16, EntityKind::Junction),
             (17, EntityKind::SignalController),
             (18, EntityKind::SignalController),
             (19, EntityKind::SignalPhase),
@@ -2779,14 +3103,13 @@ mod tests {
             (27, EntityKind::VehicleProfile),
             (28, EntityKind::CanonicalFrame),
             (29, EntityKind::CanonicalFrame),
+            (30, EntityKind::ParticipantStream),
+            (31, EntityKind::ParticipantStream),
+            (32, EntityKind::CanonicalFrame),
         ];
         assert_eq!(owner_kind_for_source_role(0), None);
-        assert_eq!(owner_kind_for_source_role(13), None);
-        assert_eq!(owner_kind_for_source_role(14), None);
-        assert_eq!(owner_kind_for_source_role(15), None);
-        assert_eq!(owner_kind_for_source_role(16), None);
-        assert_eq!(owner_kind_for_source_role(30), None);
-        for role in [13_u8, 14, 15, 16] {
+        assert_eq!(owner_kind_for_source_role(33), None);
+        for role in [0_u8, 33] {
             let reserved = row_bytes(&[
                 field_bytes(
                     1,

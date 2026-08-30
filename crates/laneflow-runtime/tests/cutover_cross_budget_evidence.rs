@@ -150,7 +150,7 @@ fn world_with_fleet() -> TrafficWorld {
         .register_route(RouteRegisterInput::new(vec![entry, exit]))
         .expect("route");
     for index in 0..VEHICLES {
-        let progress = 1_000 + 6_500 * u32::from(index);
+        let progress = 1_000 + 6_500 * index;
         world
             .spawn_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
@@ -188,7 +188,7 @@ fn cross_revision_cutover_budget_evidence() {
         unarmed.step(TickInput::new(DELTA_MS)).expect("warmup step");
     }
     let unarmed_ledger = {
-        let region = Region::new(&GLOBAL);
+        let region = Region::new(GLOBAL);
         for _ in 0..STEADY_TICKS {
             unarmed.step(TickInput::new(DELTA_MS)).expect("step");
         }
@@ -206,7 +206,7 @@ fn cross_revision_cutover_budget_evidence() {
     let mut transaction = prepare_transaction(&mut armed);
     let armed_ledger = {
         // 新建测量区段：arena 预留与候选克隆留在区段外。
-        let region = Region::new(&GLOBAL);
+        let region = Region::new(GLOBAL);
         for _ in 0..STEADY_TICKS {
             armed.step(TickInput::new(DELTA_MS)).expect("armed step");
         }
@@ -239,7 +239,7 @@ fn cross_revision_cutover_budget_evidence() {
     let mut probe = world_with_fleet();
     probe.step(TickInput::new(DELTA_MS)).expect("probe step");
     let prepare_ledger = {
-        let region = Region::new(&GLOBAL);
+        let region = Region::new(GLOBAL);
         let probe_transaction = prepare_transaction(&mut probe);
         std::mem::forget(probe_transaction);
         Ledger::from_change(region.change())
@@ -257,7 +257,7 @@ fn cross_revision_cutover_budget_evidence() {
 
     // —— 静默提交（排空 + 重建 + 重验证 + 摘要 + 原地晋升）账本 ——
     let commit_ledger = {
-        let region = Region::new(&GLOBAL);
+        let region = Region::new(GLOBAL);
         transaction.pump(&mut armed).expect("pump");
         let _ = transaction.commit(&mut armed).expect("commit");
         Ledger::from_change(region.change())

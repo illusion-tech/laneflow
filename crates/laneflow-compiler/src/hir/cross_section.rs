@@ -385,11 +385,13 @@ pub(crate) fn build_cross_section_hir(
                 | TypedAstDeclaration::WaitingZone(_)
                 | TypedAstDeclaration::SignalGroup(_)
                 | TypedAstDeclaration::SignalController(_)
-                | TypedAstDeclaration::ParkingArea(_)
+                | TypedAstDeclaration::ParkingFacility(_)
                 | TypedAstDeclaration::ParkingSpace(_)
                 | TypedAstDeclaration::ParticipantClass(_)
                 | TypedAstDeclaration::VehicleProfile(_)
                 | TypedAstDeclaration::CanonicalFrame(_)
+                | TypedAstDeclaration::ConflictZone(_)
+                | TypedAstDeclaration::ParticipantStream(_)
                 | TypedAstDeclaration::AccessRule(_) => {
                     unreachable!("cross-section source filter admitted junction declaration")
                 }

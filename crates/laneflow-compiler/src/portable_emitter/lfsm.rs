@@ -15,13 +15,17 @@ fn road_editing_relation_code(value: crate::RoadEditingRelationKind) -> u8 {
         crate::RoadEditingRelationKind::SignalControllerPhase => 9,
         crate::RoadEditingRelationKind::SignalPhaseState => 10,
         crate::RoadEditingRelationKind::AccessRuleParticipantClass => 11,
+        crate::RoadEditingRelationKind::ParkingFacilityVirtualEntry => 12,
+        crate::RoadEditingRelationKind::ParkingFacilityVirtualExit => 13,
+        crate::RoadEditingRelationKind::ParticipantStreamPassage => 14,
+        crate::RoadEditingRelationKind::ConflictZoneRegion => 15,
     }
 }
 
 fn source_language_code(value: crate::SourceLanguage) -> u16 {
     match value {
         crate::SourceLanguage::SyntheticDsl => 1,
-        crate::SourceLanguage::RoadEditingSource => 3,
+        crate::SourceLanguage::RoadEditingSource => 2,
     }
 }
 
@@ -50,7 +54,7 @@ fn road_editing_table_code(value: crate::RoadEditingTableKind) -> u16 {
         crate::RoadEditingTableKind::SignalController => 20,
         crate::RoadEditingTableKind::SignalPhaseState => 21,
         crate::RoadEditingTableKind::SignalPhase => 22,
-        crate::RoadEditingTableKind::ParkingArea => 23,
+        crate::RoadEditingTableKind::ParkingFacility => 23,
         crate::RoadEditingTableKind::ParkingLaneAnchor => 24,
         crate::RoadEditingTableKind::ParkingSpaceGeometry => 25,
         crate::RoadEditingTableKind::ParkingSpace => 26,
@@ -61,7 +65,12 @@ fn road_editing_table_code(value: crate::RoadEditingTableKind) -> u16 {
         crate::RoadEditingTableKind::AccessRule => 31,
         crate::RoadEditingTableKind::IidmVehicleProfile => 32,
         crate::RoadEditingTableKind::VehicleProfile => 33,
+        crate::RoadEditingTableKind::ConflictZoneRegion => 34,
         crate::RoadEditingTableKind::CanonicalFrame => 35,
+        crate::RoadEditingTableKind::ConflictZone => 36,
+        crate::RoadEditingTableKind::PathAnchor => 37,
+        crate::RoadEditingTableKind::ConflictPassage => 38,
+        crate::RoadEditingTableKind::ParticipantStream => 39,
     }
 }
 
@@ -71,6 +80,7 @@ fn road_editing_struct_code(value: crate::RoadEditingStructKind) -> u16 {
         crate::RoadEditingStructKind::OptionalU64 => 1,
         crate::RoadEditingStructKind::Vec3F64 => 2,
         crate::RoadEditingStructKind::LinearWidthProfile => 3,
+        crate::RoadEditingStructKind::Vec2F64 => 4,
     }
 }
 
@@ -360,14 +370,16 @@ fn expected_stable_source_keys(lir: &crate::lir::LirUnit) -> Vec<(EntityKind, [u
     append!(EntityKind::SignalGroup, lir.signal_groups);
     append!(EntityKind::SignalController, lir.signal_controllers);
     append!(EntityKind::SignalPhase, lir.signal_phases);
-    append!(EntityKind::ParkingArea, lir.parking_areas);
+    append!(EntityKind::ParkingFacility, lir.parking_facilities);
     append!(EntityKind::ParkingSpace, lir.parking_spaces);
     append!(EntityKind::LaneGroup, lir.lane_groups);
     append!(EntityKind::FacilityBand, lir.facility_bands);
     append!(EntityKind::ParticipantClass, lir.participant_classes);
     append!(EntityKind::AccessRule, lir.access_rules);
     append!(EntityKind::VehicleProfile, lir.vehicle_profiles);
+    append!(EntityKind::ConflictZone, lir.conflict_zones);
     append!(EntityKind::CanonicalFrame, lir.canonical_frames);
+    append!(EntityKind::ParticipantStream, lir.participant_streams);
     keys.sort_unstable();
     keys
 }
@@ -420,6 +432,18 @@ fn expected_owner_local_source_keys(
             EntityKind::CanonicalFrame,
             stable_id_bytes(lir.canonical_frames[frame.index()].stable_id),
             29,
+            local_index,
+        ));
+    }
+    let mut next_conflict_region_index = vec![0_u32; lir.canonical_frames.len()];
+    for region in &lir.conflict_zone_regions {
+        let frame = region.canonical_frame;
+        let local_index = next_conflict_region_index[frame.index()];
+        next_conflict_region_index[frame.index()] += 1;
+        keys.push((
+            EntityKind::CanonicalFrame,
+            stable_id_bytes(lir.canonical_frames[frame.index()].stable_id),
+            32,
             local_index,
         ));
     }
@@ -513,7 +537,15 @@ pub(super) fn build_lfsm(
         source_map.signal_controller_sources()
     );
     append_stable_sources!(EntityKind::SignalPhase, source_map.signal_phase_sources());
-    append_stable_sources!(EntityKind::ParkingArea, source_map.parking_area_sources());
+    append_stable_sources!(EntityKind::ConflictZone, source_map.conflict_zone_sources());
+    append_stable_sources!(
+        EntityKind::ParticipantStream,
+        source_map.participant_stream_sources()
+    );
+    append_stable_sources!(
+        EntityKind::ParkingFacility,
+        source_map.parking_facility_sources()
+    );
     append_stable_sources!(EntityKind::ParkingSpace, source_map.parking_space_sources());
     append_stable_sources!(EntityKind::LaneGroup, source_map.lane_group_sources());
     append_stable_sources!(EntityKind::FacilityBand, source_map.facility_band_sources());
@@ -642,6 +674,20 @@ pub(super) fn build_lfsm(
     }
     for source in source_map.parking_relation_sources() {
         push_owner_local!(EntityKind::ParkingSpace, source.owner_stable_id(), source);
+    }
+    for source in source_map.parking_facility_relation_sources() {
+        push_owner_local!(
+            EntityKind::ParkingFacility,
+            source.owner_stable_id(),
+            source
+        );
+    }
+    for source in source_map.conflict_relation_sources() {
+        push_owner_local!(
+            EntityKind::ParticipantStream,
+            source.owner_stable_id(),
+            source
+        );
     }
     for source in source_map.access_relation_sources() {
         match source.owner() {

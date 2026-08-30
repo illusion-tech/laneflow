@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 mod builder;
+mod conflict;
 mod error;
 mod identity;
 mod numeric;
@@ -19,6 +20,10 @@ pub use builder::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
     build_shared_network_revision,
 };
+pub use conflict::{
+    ConflictPassage, ConflictPathAnchor, ConflictZoneView, ParticipantStreamView,
+    SharedConflictNetwork,
+};
 pub use error::{BuildError, BuildErrorClass, BuildStructure};
 pub use identity::SharedIdentityIndex;
 pub use origin::{
@@ -26,13 +31,13 @@ pub use origin::{
 };
 pub use relations::{
     AccessCell, AccessRuleView, AccessTarget, BoundedDistance, CorridorElement, FacilityKind,
-    ManeuverGateView, ParkingSpaceView, ParticipantClassView, SharedRelationClosure,
-    SignalControllerView, SignalGroupView, SignalPhaseView, StopLineView, VehicleProfileView,
-    WaitingZoneView,
+    ManeuverGateView, ParkingFacilityView, ParkingLaneAnchor, ParkingSpaceView,
+    ParticipantClassView, SharedRelationClosure, SignalControllerView, SignalGroupView,
+    SignalPhaseView, StopLineView, VehicleProfileView, WaitingZoneView,
 };
 pub use spatial::{
-    CanonicalPoint, FacilityGeometryView, LaneGeometryView, LanePoseNetwork, SegmentGeometry,
-    SharedSpatialNetwork,
+    CanonicalPoint, CanonicalPointXZ, ConflictZoneRegionView, FacilityGeometryView,
+    LaneGeometryView, LanePoseNetwork, SegmentGeometry, SharedSpatialNetwork,
 };
 pub use traffic::{
     EntityCounts, ManeuverPathView, ManeuverTransitionCandidate, PartitionPlanningHints, RangeU32,
@@ -47,6 +52,7 @@ pub struct SharedNetworkRevision {
     traffic: SharedTrafficNetwork,
     identity: SharedIdentityIndex,
     planning_hints: PartitionPlanningHints,
+    conflict: SharedConflictNetwork,
     spatial: Option<SharedSpatialNetwork>,
 }
 
@@ -77,6 +83,11 @@ impl SharedNetworkRevision {
     }
 
     #[must_use]
+    pub const fn conflict(&self) -> &SharedConflictNetwork {
+        &self.conflict
+    }
+
+    #[must_use]
     pub const fn spatial(&self) -> Option<&SharedSpatialNetwork> {
         self.spatial.as_ref()
     }
@@ -87,6 +98,7 @@ impl SharedNetworkRevision {
             + self.traffic.retained_logical_bytes()
             + self.identity.retained_logical_bytes()
             + self.planning_hints.retained_logical_bytes()
+            + self.conflict.retained_logical_bytes()
             + self
                 .spatial
                 .as_ref()

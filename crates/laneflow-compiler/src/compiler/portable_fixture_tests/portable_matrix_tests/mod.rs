@@ -7,9 +7,11 @@ use laneflow_format::{
     ValueCheckedObjectView, preflight_object_values,
 };
 use laneflow_static_contract::{
-    EntityKind, OBJECT_PREAMBLE_BYTE_LENGTH, PortableObjectKind,
-    SECTION_DIRECTORY_ENTRY_BYTE_LENGTH,
+    CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH, EntityKind, OBJECT_PREAMBLE_BYTE_LENGTH,
+    PortableObjectKind, SECTION_DIRECTORY_ENTRY_BYTE_LENGTH,
+    TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH,
 };
+use sha2::{Digest, Sha256};
 
 fn value_checked(bytes: &[u8], kind: PortableObjectKind) -> ValueCheckedObjectView<'_> {
     preflight_object_values(bytes, kind, FormatLimits::HARD).unwrap()
@@ -59,7 +61,67 @@ fn copy_field_value(
     let to = field_value_range(bytes, kind, to.0, to.1, to.2, to.3);
     assert_eq!(from.len(), to.len());
     let value = bytes[from].to_vec();
+    let changed_at = to.start;
     bytes[to].copy_from_slice(&value);
+    refresh_chunk_digest_containing(bytes, kind, changed_at);
+}
+
+fn refresh_chunk_digest_containing(
+    bytes: &mut [u8],
+    kind: PortableObjectKind,
+    absolute_offset: usize,
+) {
+    let (entry, payload) = chunk_containing(bytes, kind, absolute_offset);
+    let digest = Sha256::digest(&bytes[payload]);
+    bytes[entry + 40..entry + 72].copy_from_slice(&digest);
+}
+
+fn chunk_containing(
+    bytes: &[u8],
+    kind: PortableObjectKind,
+    absolute_offset: usize,
+) -> (usize, Range<usize>) {
+    for section_ordinal in 0..kind.section_count() {
+        let directory_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
+            + usize::try_from(section_ordinal).unwrap()
+                * usize::try_from(SECTION_DIRECTORY_ENTRY_BYTE_LENGTH).unwrap();
+        let section_start = usize::try_from(u64::from_le_bytes(
+            bytes[directory_entry + 8..directory_entry + 16]
+                .try_into()
+                .unwrap(),
+        ))
+        .unwrap();
+        let section_length = usize::try_from(u64::from_le_bytes(
+            bytes[directory_entry + 16..directory_entry + 24]
+                .try_into()
+                .unwrap(),
+        ))
+        .unwrap();
+        if absolute_offset < section_start || absolute_offset >= section_start + section_length {
+            continue;
+        }
+        let chunk_count =
+            u32::from_le_bytes(bytes[section_start..section_start + 4].try_into().unwrap());
+        for chunk in 0..chunk_count {
+            let entry = section_start
+                + usize::try_from(CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH).unwrap()
+                + usize::try_from(chunk).unwrap()
+                    * usize::try_from(TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH).unwrap();
+            let chunk_offset = usize::try_from(u64::from_le_bytes(
+                bytes[entry + 24..entry + 32].try_into().unwrap(),
+            ))
+            .unwrap();
+            let chunk_length = usize::try_from(u64::from_le_bytes(
+                bytes[entry + 32..entry + 40].try_into().unwrap(),
+            ))
+            .unwrap();
+            let payload = section_start + chunk_offset..section_start + chunk_offset + chunk_length;
+            if payload.contains(&absolute_offset) {
+                return (entry, payload);
+            }
+        }
+    }
+    panic!("offset {absolute_offset} is not inside a physical table chunk");
 }
 
 fn remove_field(
@@ -78,12 +140,14 @@ fn remove_field(
     let value = row.field_by_tag(tag).unwrap().value_bytes();
     let object_start = bytes.as_ptr() as usize;
     let section_start = section.bytes().as_ptr() as usize - object_start;
-    let table_start = table.bytes().as_ptr() as usize - object_start;
     let row_start = row.bytes().as_ptr() as usize - object_start;
     let value_start = value.as_ptr() as usize - object_start;
     let field_start = value_start - FIELD_HEADER_BYTES;
     let field_end = value_start + value.len();
     let removed = u64::try_from(field_end - field_start).unwrap();
+    let (chunk_entry, chunk_payload) = chunk_containing(bytes, kind, row_start);
+    let table_start = chunk_payload.start;
+    let chunk_length = u64::try_from(chunk_payload.len()).unwrap();
 
     let row_length = u64::from_le_bytes(bytes[row_start..row_start + 8].try_into().unwrap());
     bytes[row_start..row_start + 8].copy_from_slice(&(row_length - removed).to_le_bytes());
@@ -93,6 +157,22 @@ fn remove_field(
         u64::from_le_bytes(bytes[table_start + 8..table_start + 16].try_into().unwrap());
     bytes[table_start + 8..table_start + 16]
         .copy_from_slice(&(rows_length - removed).to_le_bytes());
+
+    bytes[chunk_entry + 32..chunk_entry + 40]
+        .copy_from_slice(&(chunk_length - removed).to_le_bytes());
+    let section_relative_chunk_start = table_start - section_start;
+    let chunk_count =
+        u32::from_le_bytes(bytes[section_start..section_start + 4].try_into().unwrap());
+    for chunk in 0..chunk_count {
+        let entry = section_start
+            + usize::try_from(CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH).unwrap()
+            + usize::try_from(chunk).unwrap()
+                * usize::try_from(TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH).unwrap();
+        let offset = u64::from_le_bytes(bytes[entry + 24..entry + 32].try_into().unwrap());
+        if offset > u64::try_from(section_relative_chunk_start).unwrap() {
+            bytes[entry + 24..entry + 32].copy_from_slice(&(offset - removed).to_le_bytes());
+        }
+    }
 
     let directory_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
         + usize::try_from(section_ordinal).unwrap()
@@ -123,6 +203,7 @@ fn remove_field(
     let object_length = u64::from_le_bytes(bytes[24..32].try_into().unwrap());
     bytes[24..32].copy_from_slice(&(object_length - removed).to_le_bytes());
     bytes.drain(field_start..field_end);
+    refresh_chunk_digest_containing(bytes, kind, row_start);
 }
 
 fn field_u8(row: RegistryCheckedRowView<'_>, tag: u16) -> u8 {

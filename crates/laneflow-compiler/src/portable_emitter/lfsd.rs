@@ -233,7 +233,13 @@ mod tests {
             (value_range(0), value_range(1))
         };
         let value = duplicate_stable_id[first_stable_id].to_vec();
+        let changed_at = second_stable_id.start;
         duplicate_stable_id[second_stable_id].copy_from_slice(&value);
+        crate::compiler::portable_fixture_tests::refresh_portable_chunk_digest_containing(
+            &mut duplicate_stable_id,
+            PortableObjectKind::CanonicalArtifact,
+            changed_at,
+        );
         let base = preflight_object_values(
             &duplicate_stable_id,
             PortableObjectKind::CanonicalArtifact,

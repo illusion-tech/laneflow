@@ -1,7 +1,7 @@
 #![no_std]
 #![doc = include_str!("../README.md")]
 
-#[cfg(test)]
+#[cfg(any(feature = "std", test))]
 extern crate std;
 
 mod canonical_network;
@@ -9,9 +9,12 @@ mod error;
 mod framing;
 mod limits;
 mod object;
+mod object_source;
 mod post_emission;
 #[cfg(test)]
 mod security_tests;
+#[cfg(feature = "std")]
+mod staged_object;
 mod table;
 mod value;
 mod wire;
@@ -30,9 +33,14 @@ pub use object::{
     RegistryCheckedSectionView, RegistryCheckedTableIter, RegistryCheckedTableView,
     preflight_object_registry,
 };
+pub use object_source::{BoundedReReadableObjectSource, ObjectSourceError};
 pub use post_emission::{
     ExpectedSemanticDiffBase, PostEmissionCheckError, PostEmissionCheckedBundle,
     check_post_emission_bundle,
+};
+#[cfg(feature = "std")]
+pub use staged_object::{
+    ClosedStagedObjectSource, ImmutableObjectSource, StagedObjectError, StagedObjectWriter,
 };
 pub use table::{TableStructureSummary, preflight_table_structure};
 pub use value::{ValueCheckedObjectView, preflight_object_values};

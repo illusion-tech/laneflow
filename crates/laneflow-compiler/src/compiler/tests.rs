@@ -9,14 +9,14 @@ use crate::{
     DiagnosticPayload, FacilityBandInput, FacilityBandReference, IidmVehicleProfileInput,
     JunctionInput, JunctionReference, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference,
     LaneGroupInput, LaneGroupReference, ManeuverGateInput, ManeuverGateReference,
-    ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference, ParkingAreaInput,
-    ParkingAreaReference, ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput,
-    ParticipantClassInput, ParticipantClassReference, RoadCorridorInput, RoadSectionInput,
-    RoadSectionReference, SignalControlInput, SignalControllerInput, SignalGroupInput,
-    SignalGroupReference, SignalGroupStateInput, SignalPhaseInput, SourceModuleDescriptor,
-    SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole, SourceSpan, StopLineInput,
-    StopLineReference, SyntheticModule, SyntheticModuleBuilder, VehicleProfileInput,
-    WaitingZoneInput,
+    ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
+    ParkingFacilityInput, ParkingFacilityReference, ParkingLaneAnchorInput,
+    ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference,
+    RoadCorridorInput, RoadSectionInput, RoadSectionReference, SignalControlInput,
+    SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
+    SignalPhaseInput, SourceModuleDescriptor, SourceModuleHeader, SourceModuleHeaderInput,
+    SourceRelationRole, SourceSpan, StopLineInput, StopLineReference, SyntheticModule,
+    SyntheticModuleBuilder, VehicleProfileInput, WaitingZoneInput,
 };
 use laneflow_static_contract::{CanonicalFrameKind, HEADING_MINUS_PI_F32_BITS};
 use std::sync::Arc;
@@ -968,7 +968,7 @@ fn add_parking_space(builder: &mut SyntheticModuleBuilder, key: &str, area: Opti
     builder
         .add_parking_space(ParkingSpaceInput {
             parking_space_key: key,
-            parking_area: area.map(ParkingAreaReference::local),
+            parking_facility: area.map(ParkingFacilityReference::local),
             entry: ParkingLaneAnchorInput {
                 lane_edge: LaneEdgeReference::local("parking-entry"),
                 progress_meters: 4.0,
@@ -993,16 +993,22 @@ fn parking_module(document: &str, area_key: &str, permuted: bool) -> SyntheticMo
         add_parking_space(&mut builder, "space-independent", None);
         add_parking_space(&mut builder, "space-owned", Some(area_key));
         builder
-            .add_parking_area(ParkingAreaInput {
-                parking_area_key: area_key,
+            .add_parking_facility(ParkingFacilityInput {
+                parking_facility_key: area_key,
+                virtual_capacity: 0,
+                virtual_entries: &[],
+                virtual_exits: &[],
             })
             .unwrap();
         add_parking_edges(&mut builder);
     } else {
         add_parking_edges(&mut builder);
         builder
-            .add_parking_area(ParkingAreaInput {
-                parking_area_key: area_key,
+            .add_parking_facility(ParkingFacilityInput {
+                parking_facility_key: area_key,
+                virtual_capacity: 0,
+                virtual_entries: &[],
+                virtual_exits: &[],
             })
             .unwrap();
         add_parking_space(&mut builder, "space-owned", Some(area_key));
@@ -1177,6 +1183,59 @@ fn compiler_atomically_returns_lir_source_map_and_success_diagnostics() {
 }
 
 #[test]
+fn portable_object_and_bundle_limits_accept_exact_and_reject_plus_one() {
+    let input = unit([module(
+        "city/portable-limit",
+        "portable-limit.document",
+        &[],
+        &[("edge-a", 10.0, &[])],
+    )]);
+    let mut output = Compiler::new().compile(input).unwrap();
+    let provenance =
+        crate::PortableEmissionProvenance::try_new("laneflow-portable-limit-test").unwrap();
+    let emit = |output: &CompilationOutput| {
+        crate::emit_portable_candidate(
+            output,
+            &provenance,
+            laneflow_format::FormatLimits::HARD,
+            crate::PortableDiffBase::Genesis,
+        )
+    };
+
+    let baseline = emit(&output).unwrap();
+    let lengths = [
+        baseline.canonical_artifact().byte_length().get(),
+        baseline.source_map().byte_length().get(),
+        baseline.semantic_diff().byte_length().get(),
+    ];
+    let largest = lengths.into_iter().max().unwrap();
+    let total = lengths.into_iter().sum();
+
+    output.set_test_portable_limits(largest, total);
+    emit(&output).expect("exact object and bundle limits");
+
+    output.set_test_portable_limits(largest - 1, total);
+    assert!(matches!(
+        emit(&output),
+        Err(crate::PortableEmissionError::CompileLimitExceeded {
+            dimension: crate::CompileLimitDimension::PortableObjectBytes,
+            actual,
+            limit,
+        }) if actual == largest && limit == largest - 1
+    ));
+
+    output.set_test_portable_limits(largest, total - 1);
+    assert_eq!(
+        emit(&output),
+        Err(crate::PortableEmissionError::CompileLimitExceeded {
+            dimension: crate::CompileLimitDimension::PortableBundleBytes,
+            actual: total,
+            limit: total - 1,
+        })
+    );
+}
+
+#[test]
 fn portable_artifact_diff_classifies_retained_fields_and_relations() {
     let base_output = Compiler::new()
         .compile(unit([
@@ -1279,6 +1338,11 @@ fn portable_artifact_diff_rejects_cross_revision_stable_id_collisions() {
         .position(|window| window == b"edge-a")
         .unwrap();
     colliding_base[key_offset + b"edge-".len()] = b'z';
+    super::portable_fixture_tests::refresh_portable_chunk_digest_containing(
+        &mut colliding_base,
+        laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
+        key_offset,
+    );
     let base = laneflow_format::preflight_object_values(
         &colliding_base,
         laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
@@ -3139,7 +3203,7 @@ fn parking_static_contract_freezes_area_standalone_space_and_source_roles() {
             false,
         )]))
         .unwrap();
-    let area = output.lir().parking_areas().next().unwrap();
+    let area = output.lir().parking_facilities().next().unwrap();
     let spaces = output.lir().parking_spaces().collect::<Vec<_>>();
     assert_eq!(spaces.len(), 2);
     let owned = spaces
@@ -3158,8 +3222,8 @@ fn parking_static_contract_freezes_area_standalone_space_and_source_roles() {
         .unwrap();
 
     assert_eq!(area.parking_spaces(), [owned.ordinal()]);
-    assert_eq!(owned.parking_area(), Some(area.ordinal()));
-    assert_eq!(independent.parking_area(), None);
+    assert_eq!(owned.parking_facility(), Some(area.ordinal()));
+    assert_eq!(independent.parking_facility(), None);
     assert_eq!(owned.entry().progress_mm(), 4_000);
     assert_eq!(owned.exit().progress_mm(), 6_000);
     assert_ne!(owned.entry().lane_edge(), owned.exit().lane_edge());
@@ -3168,7 +3232,10 @@ fn parking_static_contract_freezes_area_standalone_space_and_source_roles() {
     assert_eq!(owned.geometry().length_mm(), 5_500);
     assert_eq!(owned.geometry().width_mm(), 2_600);
 
-    assert_eq!(output.source_map_input().parking_area_sources().len(), 1);
+    assert_eq!(
+        output.source_map_input().parking_facility_sources().len(),
+        1
+    );
     assert_eq!(output.source_map_input().parking_space_sources().len(), 2);
     let roles = output
         .source_map_input()
@@ -3178,7 +3245,7 @@ fn parking_static_contract_freezes_area_standalone_space_and_source_roles() {
     assert_eq!(
         roles,
         [
-            SourceRelationRole::ParkingSpaceArea,
+            SourceRelationRole::ParkingSpaceFacility,
             SourceRelationRole::ParkingSpaceEntry,
             SourceRelationRole::ParkingSpaceExit,
             SourceRelationRole::ParkingSpaceEntry,
@@ -3223,8 +3290,13 @@ fn parking_identity_and_digest_obey_set_and_organizational_semantics() {
     };
     assert_eq!(owned_id(&first), owned_id(&reassigned));
     assert_ne!(
-        first.lir().parking_areas().next().unwrap().stable_id(),
-        reassigned.lir().parking_areas().next().unwrap().stable_id()
+        first.lir().parking_facilities().next().unwrap().stable_id(),
+        reassigned
+            .lir()
+            .parking_facilities()
+            .next()
+            .unwrap()
+            .stable_id()
     );
 }
 
@@ -3232,25 +3304,31 @@ fn parking_identity_and_digest_obey_set_and_organizational_semantics() {
 fn parking_validation_rejects_orphan_anchor_and_geometry_failures() {
     let mut orphan = parking_builder("parking-orphan.document");
     orphan
-        .add_parking_area(ParkingAreaInput {
-            parking_area_key: "area-orphan",
+        .add_parking_facility(ParkingFacilityInput {
+            parking_facility_key: "area-orphan",
+            virtual_capacity: 0,
+            virtual_entries: &[],
+            virtual_exits: &[],
         })
         .unwrap();
     assert_eq!(
         compile_diagnostic_codes(orphan),
-        [DiagnosticCode::OrphanParkingArea]
+        [DiagnosticCode::OrphanParkingFacility]
     );
 
     let mut invalid_geometry = parking_builder("parking-invalid-geometry.document");
     add_parking_edges(&mut invalid_geometry);
     invalid_geometry
-        .add_parking_area(ParkingAreaInput {
-            parking_area_key: "area-main",
+        .add_parking_facility(ParkingFacilityInput {
+            parking_facility_key: "area-main",
+            virtual_capacity: 0,
+            virtual_entries: &[],
+            virtual_exits: &[],
         })
         .unwrap();
     let geometry_codes = match invalid_geometry.add_parking_space(ParkingSpaceInput {
         parking_space_key: "space-invalid",
-        parking_area: Some(ParkingAreaReference::local("area-main")),
+        parking_facility: Some(ParkingFacilityReference::local("area-main")),
         entry: ParkingLaneAnchorInput {
             lane_edge: LaneEdgeReference::local("parking-entry"),
             progress_meters: 4.0,
@@ -3284,13 +3362,16 @@ fn parking_validation_rejects_orphan_anchor_and_geometry_failures() {
     let mut invalid_anchors = parking_builder("parking-invalid-anchors.document");
     add_parking_edges(&mut invalid_anchors);
     invalid_anchors
-        .add_parking_area(ParkingAreaInput {
-            parking_area_key: "area-main",
+        .add_parking_facility(ParkingFacilityInput {
+            parking_facility_key: "area-main",
+            virtual_capacity: 0,
+            virtual_entries: &[],
+            virtual_exits: &[],
         })
         .unwrap()
         .add_parking_space(ParkingSpaceInput {
             parking_space_key: "space-invalid",
-            parking_area: Some(ParkingAreaReference::local("area-main")),
+            parking_facility: Some(ParkingFacilityReference::local("area-main")),
             entry: ParkingLaneAnchorInput {
                 lane_edge: LaneEdgeReference::local("parking-entry"),
                 progress_meters: 0.0,
@@ -3315,7 +3396,7 @@ fn parking_validation_rejects_orphan_anchor_and_geometry_failures() {
             .count(),
         2
     );
-    assert!(!codes.contains(&DiagnosticCode::OrphanParkingArea));
+    assert!(!codes.contains(&DiagnosticCode::OrphanParkingFacility));
 }
 
 #[test]
@@ -3323,13 +3404,16 @@ fn parking_heading_plus_pi_is_admitted_as_minus_pi() {
     let mut builder = parking_builder("parking-heading.document");
     add_parking_edges(&mut builder);
     builder
-        .add_parking_area(ParkingAreaInput {
-            parking_area_key: "area-main",
+        .add_parking_facility(ParkingFacilityInput {
+            parking_facility_key: "area-main",
+            virtual_capacity: 0,
+            virtual_entries: &[],
+            virtual_exits: &[],
         })
         .unwrap()
         .add_parking_space(ParkingSpaceInput {
             parking_space_key: "space-heading",
-            parking_area: Some(ParkingAreaReference::local("area-main")),
+            parking_facility: Some(ParkingFacilityReference::local("area-main")),
             entry: ParkingLaneAnchorInput {
                 lane_edge: LaneEdgeReference::local("parking-entry"),
                 progress_meters: 4.0,

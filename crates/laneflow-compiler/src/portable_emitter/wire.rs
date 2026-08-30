@@ -164,8 +164,35 @@ impl ArenaCapacities {
 pub(super) fn encode_owned_object(
     object: &OwnedObject,
     limits: FormatLimits,
-    already_staged_bytes: u64,
+    object_limit: Option<u64>,
 ) -> Result<Box<[u8]>, PortableEmissionError> {
+    with_prepared_owned_object(object, limits, object_limit, |prepared| {
+        let length = prepared.byte_len();
+        let output_length =
+            usize::try_from(length).map_err(|_| PortableEmissionError::ArithmeticOverflow)?;
+        let mut bytes = vec![0_u8; output_length];
+        encode_prepared_object(prepared, &mut bytes)?;
+        Ok(bytes.into_boxed_slice())
+    })
+}
+
+pub(super) fn stage_owned_object(
+    object: &OwnedObject,
+    limits: FormatLimits,
+    object_limit: Option<u64>,
+    directory: &Path,
+) -> Result<ClosedStagedObjectSource, PortableEmissionError> {
+    with_prepared_owned_object(object, limits, object_limit, |prepared| {
+        Ok(StagedObjectWriter::create_in(directory, prepared)?.finish()?)
+    })
+}
+
+fn with_prepared_owned_object<T>(
+    object: &OwnedObject,
+    limits: FormatLimits,
+    object_limit: Option<u64>,
+    finish: impl FnOnce(laneflow_format::PreparedObject<'_>) -> Result<T, PortableEmissionError>,
+) -> Result<T, PortableEmissionError> {
     let capacities = ArenaCapacities::for_object(object)?;
     let mut nested_fields = Vec::<FieldWriteInput<'_>>::with_capacity(capacities.nested_fields);
     let mut nested_field_spans = Vec::<ArenaSpan>::with_capacity(capacities.nested_rows);
@@ -280,28 +307,21 @@ pub(super) fn encode_owned_object(
         sections: &sections,
     };
     let prepared = prepare_object(input, limits)?;
-    let length = prepared.byte_len();
-    let candidate_length = already_staged_bytes
-        .checked_add(length)
-        .ok_or(PortableEmissionError::ArithmeticOverflow)?;
-    let staging_limit = limits.max_candidate_staging_bytes();
-    if candidate_length > staging_limit {
-        return Err(PortableEmissionError::CandidateStagingLimitExceeded {
-            actual: candidate_length,
-            limit: staging_limit,
+    if let Some(limit) = object_limit
+        && prepared.byte_len() > limit
+    {
+        return Err(PortableEmissionError::CompileLimitExceeded {
+            dimension: CompileLimitDimension::PortableObjectBytes,
+            actual: prepared.byte_len(),
+            limit,
         });
     }
-    let output_length =
-        usize::try_from(length).map_err(|_| PortableEmissionError::ArithmeticOverflow)?;
-    let mut bytes = vec![0_u8; output_length];
-    encode_prepared_object(prepared, &mut bytes)?;
-    Ok(bytes.into_boxed_slice())
+    finish(prepared)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use laneflow_static_contract::FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES;
 
     fn minimal_lfcp_shape() -> OwnedObject {
         OwnedObject {
@@ -352,52 +372,15 @@ mod tests {
     }
 
     #[test]
-    fn candidate_staging_accepts_exact_boundary_and_rejects_limit_plus_one() {
+    fn complete_object_is_not_misclassified_as_staged_chunk_scratch() {
         let object = minimal_lfcp_shape();
-        let length = encode_owned_object(&object, FormatLimits::HARD, 0)
-            .unwrap()
-            .len() as u64;
-        encode_owned_object(
-            &object,
-            FormatLimits::HARD,
-            FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES - length,
-        )
-        .unwrap();
-        assert_eq!(
-            encode_owned_object(
-                &object,
-                FormatLimits::HARD,
-                FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES - length + 1,
-            ),
-            Err(PortableEmissionError::CandidateStagingLimitExceeded {
-                actual: FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES + 1,
-                limit: FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES,
-            })
-        );
-    }
-
-    #[test]
-    fn candidate_staging_accumulation_reports_arithmetic_overflow() {
-        assert_eq!(
-            encode_owned_object(&minimal_lfcp_shape(), FormatLimits::HARD, u64::MAX),
-            Err(PortableEmissionError::ArithmeticOverflow)
-        );
-    }
-
-    #[test]
-    fn caller_can_reduce_candidate_staging_budget() {
-        let object = minimal_lfcp_shape();
-        let length = encode_owned_object(&object, FormatLimits::HARD, 0)
+        let length = encode_owned_object(&object, FormatLimits::HARD, None)
             .unwrap()
             .len() as u64;
         let mut config = laneflow_format::FormatLimitConfig::HARD;
-        config.max_candidate_staging_bytes = length - 1;
-        assert_eq!(
-            encode_owned_object(&object, FormatLimits::try_new(config).unwrap(), 0),
-            Err(PortableEmissionError::CandidateStagingLimitExceeded {
-                actual: length,
-                limit: length - 1,
-            })
-        );
+        config.max_staged_chunk_bytes = length - 1;
+        let encoded =
+            encode_owned_object(&object, FormatLimits::try_new(config).unwrap(), None).unwrap();
+        assert_eq!(encoded.len() as u64, length);
     }
 }

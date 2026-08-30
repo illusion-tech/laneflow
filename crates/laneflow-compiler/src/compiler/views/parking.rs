@@ -1,16 +1,16 @@
-//! 停车区域、停车位、锚点与矩形几何视图。
+//! 停车设施、停车位、锚点与矩形几何视图。
 
 use super::{CanonicalIdentityFieldView, impl_stable_entity_view};
-use crate::lir::{LirParkingArea, LirParkingSpace, LirUnit};
+use crate::lir::{LirParkingFacility, LirParkingSpace, LirUnit};
 use laneflow_static_contract::{
-    LaneEdgeOrdinal, ParkingAreaId, ParkingAreaOrdinal, ParkingSpaceId, ParkingSpaceOrdinal,
+    LaneEdgeOrdinal, ParkingFacilityId, ParkingFacilityOrdinal, ParkingSpaceId, ParkingSpaceOrdinal,
 };
 
 impl_stable_entity_view!(
-    CanonicalParkingAreaView,
-    LirParkingArea,
-    ParkingAreaOrdinal,
-    ParkingAreaId
+    CanonicalParkingFacilityView,
+    LirParkingFacility,
+    ParkingFacilityOrdinal,
+    ParkingFacilityId
 );
 impl_stable_entity_view!(
     CanonicalParkingSpaceView,
@@ -19,19 +19,51 @@ impl_stable_entity_view!(
     ParkingSpaceId
 );
 
-impl CanonicalParkingAreaView<'_> {
-    /// 返回按规范停车位序号冻结的非空成员集合。
+impl CanonicalParkingFacilityView<'_> {
+    /// 返回按规范停车位序号冻结的显式成员集合；虚拟专用设施可为空。
     #[must_use]
     pub fn parking_spaces(&self) -> &[ParkingSpaceOrdinal] {
-        &self.lir.parking_area_spaces[self.record.parking_spaces.as_usize_range()]
+        &self.lir.parking_facility_spaces[self.record.parking_spaces.as_usize_range()]
+    }
+
+    #[must_use]
+    pub const fn virtual_capacity(&self) -> u32 {
+        self.record.virtual_capacity
+    }
+
+    #[must_use]
+    pub fn total_capacity(&self) -> u64 {
+        u64::try_from(self.parking_spaces().len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(u64::from(self.record.virtual_capacity))
+    }
+
+    pub fn virtual_entries(
+        &self,
+    ) -> impl ExactSizeIterator<Item = CanonicalParkingLaneAnchor> + '_ {
+        self.lir.parking_facility_virtual_entries[self.record.virtual_entries.as_usize_range()]
+            .iter()
+            .map(|anchor| CanonicalParkingLaneAnchor {
+                lane_edge: anchor.lane_edge,
+                progress_mm: anchor.progress_mm,
+            })
+    }
+
+    pub fn virtual_exits(&self) -> impl ExactSizeIterator<Item = CanonicalParkingLaneAnchor> + '_ {
+        self.lir.parking_facility_virtual_exits[self.record.virtual_exits.as_usize_range()]
+            .iter()
+            .map(|anchor| CanonicalParkingLaneAnchor {
+                lane_edge: anchor.lane_edge,
+                progress_mm: anchor.progress_mm,
+            })
     }
 }
 
 impl CanonicalParkingSpaceView<'_> {
     /// 返回可选停车区域组织归属；`None` 表示合法的独立停车位。
     #[must_use]
-    pub const fn parking_area(&self) -> Option<ParkingAreaOrdinal> {
-        self.record.parking_area
+    pub const fn parking_facility(&self) -> Option<ParkingFacilityOrdinal> {
+        self.record.parking_facility
     }
 
     /// 返回驶入并提交停车动作前必须到达的车道图锚点。

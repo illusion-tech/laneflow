@@ -228,8 +228,10 @@ pub enum DiagnosticCode {
     InvalidParkingAnchorProgress,
     /// 停车位矩形几何字段违反有限性、范围或最小尺寸约束。
     InvalidParkingSpaceGeometry,
-    /// 停车区域没有任何停车位成员。
-    OrphanParkingArea,
+    /// 停车设施的虚拟容量与入口/出口集合不匹配。
+    InvalidParkingFacilityVirtualPool,
+    /// 停车设施既没有显式泊位成员，也没有虚拟容量。
+    OrphanParkingFacility,
     /// 参与者类别的单继承链形成循环。
     ParticipantClassInheritanceCycle,
     /// 车辆配置的 IIDM 数值违反 current Core 约束。
@@ -340,7 +342,8 @@ impl DiagnosticCode {
             Self::InvalidSignalControllerOffset => "LF-COMP-SIGNAL-CONTROLLER-OFFSET",
             Self::InvalidParkingAnchorProgress => "LF-COMP-PARKING-ANCHOR-PROGRESS",
             Self::InvalidParkingSpaceGeometry => "LF-COMP-PARKING-SPACE-GEOMETRY",
-            Self::OrphanParkingArea => "LF-COMP-ORPHAN-PARKING-AREA",
+            Self::InvalidParkingFacilityVirtualPool => "LF-COMP-PARKING-FACILITY-VIRTUAL-POOL",
+            Self::OrphanParkingFacility => "LF-COMP-ORPHAN-PARKING-FACILITY",
             Self::ParticipantClassInheritanceCycle => "LF-COMP-PARTICIPANT-CLASS-CYCLE",
             Self::InvalidVehicleProfileValue => "LF-COMP-VEHICLE-PROFILE-VALUE",
             Self::InvalidVehicleProfileDecelerationOrder => {
@@ -442,7 +445,7 @@ pub enum RoadEditingSourceViolation {
     VerifierApparentSizeExceeded,
     /// wire table 数超过调用点剩余 Typed AST record 预算。
     VerifierTableBudgetExceeded,
-    /// reader 只接受 exact `format_version = 2`。
+    /// reader 只接受 exact `format_version = 3`。
     UnsupportedFormatVersion { expected: u32, actual: u32 },
     /// verified wire 内的 source-document key 与 wire 外 expected key 不同。
     SourceDocumentKeyMismatch,
@@ -524,6 +527,10 @@ pub enum ParkingAnchorRole {
     Entry,
     /// 离开停车位后重新接入车道图的出口锚点。
     Exit,
+    /// 虚拟容量准入池使用的入口锚点。
+    VirtualEntry,
+    /// 虚拟容量准入池使用的出口锚点。
+    VirtualExit,
 }
 
 impl ParkingAnchorRole {
@@ -531,6 +538,8 @@ impl ParkingAnchorRole {
         match self {
             Self::Entry => "entry",
             Self::Exit => "exit",
+            Self::VirtualEntry => "virtual entry",
+            Self::VirtualExit => "virtual exit",
         }
     }
 }
@@ -614,10 +623,41 @@ impl SpatialAxis {
     }
 }
 
+/// `ConflictZoneRegion` 从编制 binary64 输入冻结为规范 binary32 ring 时的失败原因。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum ConflictZoneRegionViolation {
+    NonFiniteAuthoringCoordinate {
+        point_index: u32,
+        axis: SpatialAxis,
+        value_bits: u64,
+    },
+    AuthoringCoordinateOutOfRange {
+        point_index: u32,
+        axis: SpatialAxis,
+        value_bits: u64,
+    },
+    QuantizedHeightOrder {
+        min_y_bits: u32,
+        max_y_bits: u32,
+    },
+    DuplicateQuantizedPoint {
+        first_index: u32,
+        duplicate_index: u32,
+    },
+    NonPositiveArea,
+    SelfIntersection {
+        first_edge: u32,
+        second_edge: u32,
+    },
+}
+
 /// 规范空间几何的结构化失败原因。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum SpatialGeometryViolation {
+    InvalidConflictZoneRegion(ConflictZoneRegionViolation),
+    DuplicateConflictZoneRegion,
     InsufficientPoints {
         minimum: u32,
         actual: u32,
@@ -1140,9 +1180,16 @@ pub enum DiagnosticPayload {
         value_bits: u64,
         violation: ParkingGeometryViolation,
     },
-    /// 没有任何成员的停车区域。
-    OrphanParkingArea {
-        parking_area_key: Box<str>,
+    /// 虚拟容量与入口/出口集合的存在性不一致。
+    InvalidParkingFacilityVirtualPool {
+        parking_facility_key: Box<str>,
+        virtual_capacity: u32,
+        virtual_entry_count: u64,
+        virtual_exit_count: u64,
+    },
+    /// 总容量为零的停车设施。
+    OrphanParkingFacility {
+        parking_facility_key: Box<str>,
     },
     ParticipantClassInheritanceCycle {
         participant_class_key: Box<str>,
@@ -2624,6 +2671,9 @@ impl Diagnostic {
         )
     }
 
+    // The diagnostic preserves both source values and the closed millimetre interval; grouping
+    // them into an ad-hoc context would hide the payload contract from call sites.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn invalid_parking_anchor_progress(
         parking_space_key: &str,
         role: ParkingAnchorRole,
@@ -2672,18 +2722,39 @@ impl Diagnostic {
         )
     }
 
-    pub(crate) fn orphan_parking_area(
-        parking_area_key: &str,
+    pub(crate) fn orphan_parking_facility(
+        parking_facility_key: &str,
         primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
-            DiagnosticCode::OrphanParkingArea,
-            DiagnosticPayload::OrphanParkingArea {
-                parking_area_key: parking_area_key.into(),
+            DiagnosticCode::OrphanParkingFacility,
+            DiagnosticPayload::OrphanParkingFacility {
+                parking_facility_key: parking_facility_key.into(),
             },
             Some(primary_span),
             Box::default(),
-            Some(parking_area_key.into()),
+            Some(parking_facility_key.into()),
+        )
+    }
+
+    pub(crate) fn invalid_parking_facility_virtual_pool(
+        parking_facility_key: &str,
+        virtual_capacity: u32,
+        virtual_entry_count: u64,
+        virtual_exit_count: u64,
+        primary_span: impl Into<SourceLocation>,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidParkingFacilityVirtualPool,
+            DiagnosticPayload::InvalidParkingFacilityVirtualPool {
+                parking_facility_key: parking_facility_key.into(),
+                virtual_capacity,
+                virtual_entry_count,
+                virtual_exit_count,
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(parking_facility_key.into()),
         )
     }
 
@@ -3560,8 +3631,19 @@ impl fmt::Display for Diagnostic {
                 f64::from_bits(*value_bits),
                 ParkingGeometryViolationDisplay(*violation),
             ),
-            DiagnosticPayload::OrphanParkingArea { parking_area_key } => {
-                write!(formatter, "停车区域 {parking_area_key} 没有任何停车位成员")
+            DiagnosticPayload::InvalidParkingFacilityVirtualPool {
+                parking_facility_key,
+                virtual_capacity,
+                virtual_entry_count,
+                virtual_exit_count,
+            } => write!(
+                formatter,
+                "停车设施 {parking_facility_key} 的虚拟池非法：virtualCapacity={virtual_capacity}，入口 {virtual_entry_count} 个，出口 {virtual_exit_count} 个；容量为零时两组必须为空，容量非零时两组都必须非空"
+            ),
+            DiagnosticPayload::OrphanParkingFacility {
+                parking_facility_key,
+            } => {
+                write!(formatter, "停车设施 {parking_facility_key} 的总容量为零")
             }
             DiagnosticPayload::ParticipantClassInheritanceCycle {
                 participant_class_key,
@@ -3857,6 +3939,57 @@ struct SpatialGeometryViolationDisplay(SpatialGeometryViolation);
 impl fmt::Display for SpatialGeometryViolationDisplay {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
+            SpatialGeometryViolation::InvalidConflictZoneRegion(violation) => match violation {
+                ConflictZoneRegionViolation::NonFiniteAuthoringCoordinate {
+                    point_index,
+                    axis,
+                    value_bits,
+                } => write!(
+                    formatter,
+                    "冲突区 region 第 {point_index} 点的编制 {}={} 不是有限数",
+                    axis.as_str(),
+                    f64::from_bits(value_bits)
+                ),
+                ConflictZoneRegionViolation::AuthoringCoordinateOutOfRange {
+                    point_index,
+                    axis,
+                    value_bits,
+                } => write!(
+                    formatter,
+                    "冲突区 region 第 {point_index} 点的编制 {}={} 超出 canonical Spatial 范围",
+                    axis.as_str(),
+                    f64::from_bits(value_bits)
+                ),
+                ConflictZoneRegionViolation::QuantizedHeightOrder {
+                    min_y_bits,
+                    max_y_bits,
+                } => write!(
+                    formatter,
+                    "冲突区 region 量化后的 minY={} 必须严格小于 maxY={}",
+                    f32::from_bits(min_y_bits),
+                    f32::from_bits(max_y_bits)
+                ),
+                ConflictZoneRegionViolation::DuplicateQuantizedPoint {
+                    first_index,
+                    duplicate_index,
+                } => write!(
+                    formatter,
+                    "冲突区 region 第 {duplicate_index} 点与第 {first_index} 点量化后重复"
+                ),
+                ConflictZoneRegionViolation::NonPositiveArea => {
+                    formatter.write_str("冲突区 region 量化后面积为零")
+                }
+                ConflictZoneRegionViolation::SelfIntersection {
+                    first_edge,
+                    second_edge,
+                } => write!(
+                    formatter,
+                    "冲突区 region 的第 {first_edge} 边与第 {second_edge} 边发生非法相交或接触"
+                ),
+            },
+            SpatialGeometryViolation::DuplicateConflictZoneRegion => {
+                formatter.write_str("同一 ConflictZone 被重复绑定空间 region")
+            }
             SpatialGeometryViolation::InsufficientPoints { minimum, actual } => {
                 write!(formatter, "中心线至少需要 {minimum} 个点，实际为 {actual}")
             }

@@ -102,7 +102,7 @@ impl RoadEditingLocationFactory {
         collect_root!(root.signal_groups(), signal_group_key);
         collect_root!(root.signal_controllers(), signal_controller_key);
         collect_root!(root.signal_phases(), signal_phase_key);
-        collect_root!(root.parking_areas(), parking_area_key);
+        collect_root!(root.parking_facilities(), parking_facility_key);
         collect_root!(root.parking_spaces(), parking_space_key);
         collect_root!(root.lane_groups(), lane_group_key);
         collect_root!(root.facility_bands(), facility_band_key);
@@ -110,6 +110,11 @@ impl RoadEditingLocationFactory {
         collect_root!(root.access_rules(), access_rule_key);
         collect_root!(root.vehicle_profiles(), vehicle_profile_key);
         collect_root!(root.canonical_frames(), canonical_frame_key);
+        collect_root!(root.conflict_zones(), conflict_zone_key);
+        collect_root!(root.participant_streams(), participant_stream_key);
+        for region in root.conflict_zone_regions() {
+            collect_canvas(&mut canvas_selections, region.canvas_selection());
+        }
 
         strings.sort_unstable_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
         strings.dedup_by(|left, right| left.as_bytes() == right.as_bytes());
@@ -386,7 +391,7 @@ fn location_string_occurrence_count(root: wire::RoadEditingSource<'_>) -> usize 
         .saturating_add(root.signal_groups().len())
         .saturating_add(root.signal_controllers().len())
         .saturating_add(root.signal_phases().len())
-        .saturating_add(root.parking_areas().len())
+        .saturating_add(root.parking_facilities().len())
         .saturating_add(root.parking_spaces().len())
         .saturating_add(root.lane_groups().len())
         .saturating_add(root.facility_bands().len())
@@ -394,6 +399,8 @@ fn location_string_occurrence_count(root: wire::RoadEditingSource<'_>) -> usize 
         .saturating_add(root.access_rules().len())
         .saturating_add(root.vehicle_profiles().len())
         .saturating_add(root.canonical_frames().len())
+        .saturating_add(root.conflict_zones().len())
+        .saturating_add(root.participant_streams().len())
 }
 
 fn canvas_occurrence_count(root: wire::RoadEditingSource<'_>) -> usize {
@@ -422,7 +429,7 @@ fn canvas_occurrence_count(root: wire::RoadEditingSource<'_>) -> usize {
     charge_root!(root.signal_groups());
     charge_root!(root.signal_controllers());
     charge_root!(root.signal_phases());
-    charge_root!(root.parking_areas());
+    charge_root!(root.parking_facilities());
     charge_root!(root.parking_spaces());
     charge_root!(root.lane_groups());
     charge_root!(root.facility_bands());
@@ -430,6 +437,9 @@ fn canvas_occurrence_count(root: wire::RoadEditingSource<'_>) -> usize {
     charge_root!(root.access_rules());
     charge_root!(root.vehicle_profiles());
     charge_root!(root.canonical_frames());
+    charge_root!(root.conflict_zones());
+    charge_root!(root.participant_streams());
+    charge_root!(root.conflict_zone_regions());
     for alignment in root.road_alignments() {
         count = count.saturating_add(
             alignment
@@ -456,7 +466,7 @@ fn canvas_occurrence_count(root: wire::RoadEditingSource<'_>) -> usize {
 
 fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
     let tables = [
-        (RoadEditingTableKind::RoadEditingSource, 25_u16),
+        (RoadEditingTableKind::RoadEditingSource, 28_u16),
         (RoadEditingTableKind::ModuleHeader, 3),
         (RoadEditingTableKind::Provenance, 5),
         (RoadEditingTableKind::LineSegment, 0),
@@ -479,7 +489,7 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
         (RoadEditingTableKind::SignalController, 4),
         (RoadEditingTableKind::SignalPhaseState, 1),
         (RoadEditingTableKind::SignalPhase, 4),
-        (RoadEditingTableKind::ParkingArea, 1),
+        (RoadEditingTableKind::ParkingFacility, 4),
         (RoadEditingTableKind::ParkingLaneAnchor, 1),
         (RoadEditingTableKind::ParkingSpaceGeometry, 3),
         (RoadEditingTableKind::ParkingSpace, 5),
@@ -490,7 +500,12 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
         (RoadEditingTableKind::AccessRule, 7),
         (RoadEditingTableKind::IidmVehicleProfile, 6),
         (RoadEditingTableKind::VehicleProfile, 3),
+        (RoadEditingTableKind::ConflictZoneRegion, 5),
         (RoadEditingTableKind::CanonicalFrame, 1),
+        (RoadEditingTableKind::ConflictZone, 2),
+        (RoadEditingTableKind::PathAnchor, 4),
+        (RoadEditingTableKind::ConflictPassage, 2),
+        (RoadEditingTableKind::ParticipantStream, 4),
     ];
     let mut paths = Vec::with_capacity(512);
     for (table, last_field_id) in tables {
@@ -615,6 +630,18 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
             RoadEditingTableKind::IidmVehicleProfile,
             6,
         ),
+        (
+            RoadEditingTableKind::ParticipantStream,
+            3,
+            RoadEditingTableKind::ConflictPassage,
+            2,
+        ),
+        (
+            RoadEditingTableKind::RoadEditingSource,
+            28,
+            RoadEditingTableKind::ConflictZoneRegion,
+            5,
+        ),
     ] {
         for inner_field_id in 0..=inner_last_field_id {
             paths.push(RoadEditingPropertyPath::new(Box::new([
@@ -711,6 +738,12 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
             RoadEditingTableKind::ParkingLaneAnchor,
             0,
         ),
+        (
+            RoadEditingTableKind::ParticipantStream,
+            3,
+            RoadEditingTableKind::ConflictPassage,
+            0,
+        ),
     ] {
         paths.push(RoadEditingPropertyPath::new(Box::new([
             RoadEditingPropertyStep::TableField {
@@ -720,6 +753,40 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
             RoadEditingPropertyStep::TableField {
                 table: inner_table,
                 field_id: inner_field_id,
+            },
+        ])));
+    }
+    for passage_field_id in [1_u16, 2_u16] {
+        for anchor_field_id in 0..=4_u16 {
+            paths.push(RoadEditingPropertyPath::new(Box::new([
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::ParticipantStream,
+                    field_id: 3,
+                },
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::ConflictPassage,
+                    field_id: passage_field_id,
+                },
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::PathAnchor,
+                    field_id: anchor_field_id,
+                },
+            ])));
+        }
+    }
+    for member_id in 0..2_u8 {
+        paths.push(RoadEditingPropertyPath::new(Box::new([
+            RoadEditingPropertyStep::TableField {
+                table: RoadEditingTableKind::RoadEditingSource,
+                field_id: 28,
+            },
+            RoadEditingPropertyStep::TableField {
+                table: RoadEditingTableKind::ConflictZoneRegion,
+                field_id: 4,
+            },
+            RoadEditingPropertyStep::StructMember {
+                structure: RoadEditingStructKind::Vec2F64,
+                member_id,
             },
         ])));
     }
@@ -854,19 +921,21 @@ mod tests {
     }
 
     #[test]
-    fn closed_paths_include_root_canonical_frames_at_member_25() {
+    fn closed_paths_include_all_v3_root_members_through_member_28() {
         let paths = closed_property_paths();
-        let frames =
-            RoadEditingPropertyPath::new(Box::new([RoadEditingPropertyStep::TableField {
-                table: RoadEditingTableKind::RoadEditingSource,
-                field_id: 25,
-            }]));
+        for field_id in 25..=28 {
+            let path =
+                RoadEditingPropertyPath::new(Box::new([RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::RoadEditingSource,
+                    field_id,
+                }]));
+            assert!(paths.contains(&path));
+        }
         let missing =
             RoadEditingPropertyPath::new(Box::new([RoadEditingPropertyStep::TableField {
                 table: RoadEditingTableKind::RoadEditingSource,
-                field_id: 26,
+                field_id: 29,
             }]));
-        assert!(paths.contains(&frames));
         assert!(!paths.contains(&missing));
     }
 

@@ -84,7 +84,7 @@ fn art_candidate_closes_identity_tables_and_all_computed_bindings() {
         field_sha256(source_binding, 2),
         candidate.network_revision().into_digest().into_bytes()
     );
-    assert_eq!(field_u16(source_binding, 3), 3);
+    assert_eq!(field_u16(source_binding, 3), 4);
     assert_eq!(
         field_sha256(source_binding, 4),
         candidate.canonical_artifact().digest().into_bytes()
@@ -137,8 +137,14 @@ fn art_direct_version_options_profile_and_build_mutations_fail_closed() {
     for tag in 1..=6 {
         let mut bytes = FULL_SPATIAL_EXPECTED_LFCA.to_vec();
         let range = field_value_range(&bytes, PortableObjectKind::CanonicalArtifact, 0, 0, 0, tag);
-        let replacement = 4_u16;
+        let replacement = u16::from_le_bytes(bytes[range.clone()].try_into().unwrap()) + 1;
+        let changed_at = range.start;
         bytes[range].copy_from_slice(&replacement.to_le_bytes());
+        refresh_chunk_digest_containing(
+            &mut bytes,
+            PortableObjectKind::CanonicalArtifact,
+            changed_at,
+        );
         assert_eq!(
             preflight_object_values(
                 &bytes,
@@ -153,7 +159,14 @@ fn art_direct_version_options_profile_and_build_mutations_fail_closed() {
     for tag in 1..=2 {
         let mut bytes = FULL_SPATIAL_EXPECTED_LFCA.to_vec();
         let range = field_value_range(&bytes, PortableObjectKind::CanonicalArtifact, 5, 0, 0, tag);
-        bytes[range].copy_from_slice(&4_u16.to_le_bytes());
+        let replacement = u16::from_le_bytes(bytes[range.clone()].try_into().unwrap()) + 1;
+        let changed_at = range.start;
+        bytes[range].copy_from_slice(&replacement.to_le_bytes());
+        refresh_chunk_digest_containing(
+            &mut bytes,
+            PortableObjectKind::CanonicalArtifact,
+            changed_at,
+        );
         assert_eq!(
             preflight_object_values(
                 &bytes,
@@ -176,6 +189,11 @@ fn art_direct_version_options_profile_and_build_mutations_fail_closed() {
         4,
     );
     wrong_options[options.start] ^= 1;
+    refresh_chunk_digest_containing(
+        &mut wrong_options,
+        PortableObjectKind::CanonicalArtifact,
+        options.start,
+    );
     assert_eq!(
         preflight_object_values(
             &wrong_options,
@@ -197,6 +215,11 @@ fn art_direct_version_options_profile_and_build_mutations_fail_closed() {
         1,
     );
     wrong_build[build.start + 1] = b'/';
+    refresh_chunk_digest_containing(
+        &mut wrong_build,
+        PortableObjectKind::CanonicalArtifact,
+        build.start + 1,
+    );
     assert_eq!(
         preflight_object_values(
             &wrong_build,
@@ -218,7 +241,12 @@ fn art_direct_version_options_profile_and_build_mutations_fail_closed() {
             0,
             tag,
         );
-        mismatched_profile[range.start] = 1;
+        mismatched_profile[range.start] = 0;
+        refresh_chunk_digest_containing(
+            &mut mismatched_profile,
+            PortableObjectKind::CanonicalArtifact,
+            range.start,
+        );
         assert_eq!(
             preflight_object_values(
                 &mismatched_profile,
@@ -312,7 +340,13 @@ fn art_diff_base_rejects_duplicate_identity_ordinals_entity_mismatch_and_unknown
         0,
         2,
     );
+    let changed_at = entity_stable_id.start;
     mismatched_entity[entity_stable_id].copy_from_slice(&[0xa5; 16]);
+    refresh_chunk_digest_containing(
+        &mut mismatched_entity,
+        PortableObjectKind::CanonicalArtifact,
+        changed_at,
+    );
     assert_eq!(
         emit_with_base(&mismatched_entity),
         Err(crate::PortableEmissionError::DiffBaseSemanticMismatch)
@@ -327,7 +361,13 @@ fn art_diff_base_rejects_duplicate_identity_ordinals_entity_mismatch_and_unknown
         0,
         3,
     );
+    let changed_at = reference_section.start;
     unknown_reference[reference_section].copy_from_slice(&u32::MAX.to_le_bytes());
+    refresh_chunk_digest_containing(
+        &mut unknown_reference,
+        PortableObjectKind::CanonicalArtifact,
+        changed_at,
+    );
     assert_eq!(
         emit_with_base(&unknown_reference),
         Err(crate::PortableEmissionError::DiffBaseSemanticMismatch)

@@ -150,27 +150,27 @@ fn portable_change_set_diff_matches_frozen_exact_bytes() {
     assert_eq!(target.semantic_diff().bytes(), EXPECTED_LFSD);
     assert_eq!(
         target.semantic_diff().byte_length(),
-        exact_byte_length(2_455)
+        exact_byte_length(2_959)
     );
     assert_eq!(
         target.semantic_diff().object_key(),
-        "sha256/c905b8397cffd9e2334b856ef18a846f483f8a2279572dd775be89bf461ca319"
+        "sha256/74cadaa7d3b62caa337dfd17cfee1d94e19eabe7e9d0c371582e7a1a9e7b7019"
     );
     assert_eq!(
         base.canonical_artifact().object_key(),
-        "sha256/347be7e665fa66183a4682eaf42780de8b897d141d95d8d316c58911e7d17eaa"
+        "sha256/cb89512bcd5b9f7c475441aa7cf6f7046476ca05f17dd1ad6bd623ff3b008ef2"
     );
     assert_eq!(
         base.canonical_artifact().byte_length(),
-        exact_byte_length(3_124)
+        exact_byte_length(3_532)
     );
     assert_eq!(
         target.canonical_artifact().object_key(),
-        "sha256/aff992cba3a614f3e466f8f0607ada6b6ac95fb7eefc9246dfbc18f69f974a76"
+        "sha256/7d95a3faaaf648db814e5d15c0413aff49b65b28b5679a2c386b95a9a1d296fb"
     );
     assert_eq!(
         target.canonical_artifact().byte_length(),
-        exact_byte_length(4_154)
+        exact_byte_length(4_738)
     );
 
     let diff = laneflow_format::preflight_object_values(
@@ -196,7 +196,7 @@ fn portable_change_set_diff_matches_frozen_exact_bytes() {
     );
     assert!(matches!(
         binding.field_by_tag(5).unwrap().value().unwrap(),
-        laneflow_format::RegistryCheckedFieldValue::U64(3_124)
+        laneflow_format::RegistryCheckedFieldValue::U64(3_532)
     ));
     assert_eq!(
         binding.field_by_tag(7).unwrap().value_bytes(),
@@ -208,7 +208,7 @@ fn portable_change_set_diff_matches_frozen_exact_bytes() {
     );
     assert!(matches!(
         binding.field_by_tag(9).unwrap().value().unwrap(),
-        laneflow_format::RegistryCheckedFieldValue::U64(4_154)
+        laneflow_format::RegistryCheckedFieldValue::U64(4_738)
     ));
 
     let entity_changes = diff.section(1).unwrap().table(0).unwrap();

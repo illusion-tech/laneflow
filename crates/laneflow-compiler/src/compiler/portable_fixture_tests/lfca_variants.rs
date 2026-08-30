@@ -7,8 +7,8 @@ const MIN_HEADLESS_BUILD_ID: &str = "laneflow-fixture-298-min-headless-v1";
 const VARIANT_BUILD_ID: &str = "laneflow-fixture-298-variants-v1";
 const VARIANT_ALTERNATE_BUILD_ID: &str = "laneflow-fixture-298-variants-v2";
 const MIN_HEADLESS_REVISION: [u8; 32] = [
-    0x89, 0x60, 0xe5, 0xea, 0xfc, 0xdc, 0x9a, 0xc9, 0xcc, 0xc9, 0x14, 0x72, 0xe6, 0x47, 0xd1, 0xd9,
-    0x9b, 0xef, 0x72, 0xf8, 0xd3, 0x96, 0x6d, 0x27, 0x10, 0xb6, 0xa6, 0xdc, 0xdb, 0x8d, 0x5f, 0x4e,
+    0x84, 0x3b, 0x03, 0xfb, 0x3d, 0x07, 0x16, 0xac, 0x00, 0x9c, 0x1f, 0xe3, 0xa8, 0x51, 0xaa, 0x9e,
+    0x98, 0x53, 0xb5, 0x8f, 0x2e, 0xc1, 0xe4, 0x34, 0x3c, 0x68, 0x36, 0xaf, 0xc4, 0xaa, 0x16, 0x0f,
 ];
 
 const MIN_HEADLESS_EXPECTED: &[u8] =
@@ -26,27 +26,27 @@ const SIGNED_ZERO_EXPECTED: &[u8] =
 const CLAIM_MISMATCH_EXPECTED: &[u8] =
     include_bytes!("../../../tests/fixtures/portable/lfca-variants/claim-mismatch.lfca");
 
-const MIN_HEADLESS_LENGTH: u64 = 1_175;
+const MIN_HEADLESS_LENGTH: u64 = 1_231;
 const MIN_HEADLESS_KEY: &str =
-    "sha256/6ba6c488d93c3398bbe65261f01db52f3441813436966262c33edf6e82b15f3f";
-const PROVENANCE_BASE_LENGTH: u64 = 1_171;
+    "sha256/b2a8b2b6ff7a57089562eb758b7ad663b46781b6f51ea5d634823af160bec0b8";
+const PROVENANCE_BASE_LENGTH: u64 = 1_227;
 const PROVENANCE_BASE_KEY: &str =
-    "sha256/cfddeccc1c1d809f5c60f7867e000c6b871eb449f3a5c259ba403f4d728558ba";
-const PROVENANCE_SOURCE_LENGTH: u64 = 1_171;
+    "sha256/a1e9e50b0d912c9fe352d990c5f9d202d16a1602c7f89f84ce1def7a503c5db2";
+const PROVENANCE_SOURCE_LENGTH: u64 = 1_227;
 const PROVENANCE_SOURCE_KEY: &str =
-    "sha256/f419e9510d0deabdec0f863c38cf5397d423bd4d8321dbac0269f60549670119";
-const PROVENANCE_BUILD_LENGTH: u64 = 1_171;
+    "sha256/db0eb9a405c31d99b9bdab6a21636a29fe65dae00345b608d5ec942319bbf539";
+const PROVENANCE_BUILD_LENGTH: u64 = 1_227;
 const PROVENANCE_BUILD_KEY: &str =
-    "sha256/46e2b95ec8f24b800357b338351e62a13b39b61db5f0d4905bd7f2ed203c83d1";
-const REORDER_EQUIVALENT_LENGTH: u64 = 3_057;
+    "sha256/c847f74695229ebbd9793463f578ee756ee4d939945725eb742875f6609f115c";
+const REORDER_EQUIVALENT_LENGTH: u64 = 3_289;
 const REORDER_EQUIVALENT_KEY: &str =
-    "sha256/42fc47cdc7bd77e6cc829fb42386c3d23a58ca640955a1a595f19631d155a5fc";
-const SIGNED_ZERO_LENGTH: u64 = 2_151;
+    "sha256/47d2e78fc0f92886601d18dcb4e163ca04ec09e2310bee285e8eb3404c75641b";
+const SIGNED_ZERO_LENGTH: u64 = 2_559;
 const SIGNED_ZERO_KEY: &str =
-    "sha256/571fe4edd6a1ec3e702e23a35afe156d06b4ddb0f0aec5aaa4ffc92248eba029";
-const CLAIM_MISMATCH_LENGTH: u64 = 1_175;
+    "sha256/7762057b6522a2f8d441f40fd5e520e0de25e777fa8c2e28275865c87a7e229c";
+const CLAIM_MISMATCH_LENGTH: u64 = 1_231;
 const CLAIM_MISMATCH_KEY: &str =
-    "sha256/e98d32fc552fdb8c8f5ad9ba75bd4c7502c9801dae39ee4c03f6719de7f057b4";
+    "sha256/67f8ba1761f9a995f9477366ac7d7e42156f9884a3a6b67bc6c568e5fafacd9f";
 
 fn emit(output: &CompilationOutput, build_id: &str) -> crate::PortablePublicationCandidate {
     let provenance = crate::PortableEmissionProvenance::try_new(build_id).unwrap();
@@ -202,6 +202,11 @@ fn claim_mismatch_bytes(bytes: &[u8]) -> Box<[u8]> {
     let offset = field_offset(bytes, claim_bytes(bytes));
     let mut mismatch = bytes.to_vec();
     mismatch[offset] ^= 0x01;
+    refresh_portable_chunk_digest_containing(
+        &mut mismatch,
+        laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
+        offset,
+    );
     mismatch.into_boxed_slice()
 }
 
@@ -269,14 +274,14 @@ fn portable_min_headless_matches_g1_anchor_and_frozen_exact_bytes() {
     let first_section_offset =
         field_offset(MIN_HEADLESS_EXPECTED, view.section(0).unwrap().bytes());
     assert_eq!(first_section_offset, 0x00e0);
-    let expected_lengths = [120, 20, 340, 20, 94, 64];
+    let expected_lengths = [204, 16, 16, 16, 146, 148];
     let expected_digests = [
-        "7c85ff5c1e7b073c4446ddccedc62374b95f4fa854068c6eaaa9a628b34dab47",
-        "3a85cd4b4d295cdd6cfe6ea3cb119b7c59f1addcc36faf58c33809f958191c7e",
-        "49c04a89e680826aa85f1eb937e6221265799d57109864cf133c0284e96317bb",
-        "3a85cd4b4d295cdd6cfe6ea3cb119b7c59f1addcc36faf58c33809f958191c7e",
-        "1ac4a913965b92e3dec446f935384fc18f6947038140c2feb3b474cc854dc5ed",
-        "dcd2ff297a948d5736d068e856fb9edcafbe9d721e79ef00428bedfc0ff23757",
+        "334dd52c8b9a8352b19d5903b22caed35adce9be6ceb07957c4037f4ca89d00a",
+        "dfa9925a2db09a0a641cc3908a1b4c47b32dcf958247f428e5306b871a524276",
+        "dfa9925a2db09a0a641cc3908a1b4c47b32dcf958247f428e5306b871a524276",
+        "dfa9925a2db09a0a641cc3908a1b4c47b32dcf958247f428e5306b871a524276",
+        "9177e786da481ef65111262d38e857431dd9db7cf6bdae03a778698d9e9f5d95",
+        "c4c12ea0db48dea6cf67a97b06565f9861f93b20667cf6f0ad336aeca85e280e",
     ];
     for (ordinal, (length, expected_digest)) in expected_lengths
         .into_iter()
@@ -287,9 +292,9 @@ fn portable_min_headless_matches_g1_anchor_and_frozen_exact_bytes() {
         assert_eq!(section.bytes().len(), length);
         assert_eq!(digest_hex(section.bytes()), expected_digest);
     }
-    assert_eq!(view.section(2).unwrap().table_count(), 21);
+    assert_eq!(view.section(2).unwrap().table_count(), 23);
     assert_eq!(view.section(3).unwrap().table_count(), 1);
-    assert_eq!(view.section(4).unwrap().table_count(), 3);
+    assert_eq!(view.section(4).unwrap().table_count(), 4);
 }
 
 #[test]
@@ -439,6 +444,11 @@ fn portable_signed_zero_input_matches_positive_zero_and_wire_negative_zero_fails
     );
     let mut negative_zero_wire = SIGNED_ZERO_EXPECTED.to_vec();
     negative_zero_wire[offset..offset + 4].copy_from_slice(&(-0.0_f32).to_le_bytes());
+    refresh_portable_chunk_digest_containing(
+        &mut negative_zero_wire,
+        laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
+        offset,
+    );
     assert_eq!(
         laneflow_format::preflight_object_values(
             &negative_zero_wire,
@@ -498,10 +508,11 @@ fn dump_portable_variants_when_requested() {
     };
     let min = min_headless_portable_fixture_candidate();
     let mut report = write_lfca("min-headless.lfca", min.canonical_artifact().bytes());
-    report.push_str(&format!(
-        "min-headless revision={}\n",
-        digest_hex(min.network_revision().into_digest().as_bytes())
-    ));
+    report.push_str("min-headless revision=");
+    for byte in min.network_revision().into_digest().into_bytes() {
+        write!(&mut report, "{byte:02x}").unwrap();
+    }
+    report.push('\n');
     let view = artifact_view(min.canonical_artifact().bytes());
     for ordinal in 0..6 {
         let section = view.section(ordinal).unwrap();

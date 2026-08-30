@@ -170,6 +170,11 @@ fn prove_field_change(
         }
         let mut bytes = base_bytes.to_vec();
         bytes[range.clone()].copy_from_slice(&replacement);
+        refresh_chunk_digest_containing(
+            &mut bytes,
+            PortableObjectKind::CanonicalArtifact,
+            range.start,
+        );
         let Ok(base) = preflight_object_values(
             &bytes,
             PortableObjectKind::CanonicalArtifact,
@@ -350,6 +355,11 @@ fn diff_signal_control_kind_and_scalar_relation_change_remain_separate() {
         7,
     );
     base_bytes[control_kind.start] = 0;
+    refresh_chunk_digest_containing(
+        &mut base_bytes,
+        PortableObjectKind::CanonicalArtifact,
+        control_kind.start,
+    );
     let base = value_checked(&base_bytes, PortableObjectKind::CanonicalArtifact);
     let candidate = crate::emit_portable_candidate(
         &output,
@@ -508,9 +518,12 @@ fn diff_gate_transition_field_modify_and_role_move_are_both_reported() {
         .unwrap()
         .table(entity_table_ordinal(EntityKind::ManeuverGate))
         .unwrap();
-    assert_eq!(gate_table.row_count(), 2);
-    let original_first_transition = field_u32(gate_table.row(0).unwrap(), 4);
-    let original_second_transition = field_u32(gate_table.row(1).unwrap(), 4);
+    let gate_ordinals = field_ordinals(path_table.row(path_row).unwrap(), 5);
+    assert_eq!(gate_ordinals.len(), 2);
+    let first_gate = gate_ordinals[0];
+    let second_gate = gate_ordinals[1];
+    let original_first_transition = field_u32(gate_table.row(first_gate).unwrap(), 4);
+    let original_second_transition = field_u32(gate_table.row(second_gate).unwrap(), 4);
     assert_ne!(original_first_transition, original_second_transition);
 
     let mut base_bytes = FULL_SPATIAL_EXPECTED_LFCA.to_vec();
@@ -526,12 +539,17 @@ fn diff_gate_transition_field_modify_and_role_move_are_both_reported() {
     let second = base_bytes[gate_vector.start + 8..gate_vector.start + 12].to_vec();
     base_bytes[gate_vector.start + 4..gate_vector.start + 8].copy_from_slice(&second);
     base_bytes[gate_vector.start + 8..gate_vector.start + 12].copy_from_slice(&first);
+    refresh_chunk_digest_containing(
+        &mut base_bytes,
+        PortableObjectKind::CanonicalArtifact,
+        gate_vector.start,
+    );
     let first_transition = field_value_range(
         &base_bytes,
         PortableObjectKind::CanonicalArtifact,
         2,
         entity_table_ordinal(EntityKind::ManeuverGate),
-        0,
+        first_gate,
         4,
     );
     let second_transition = field_value_range(
@@ -539,11 +557,23 @@ fn diff_gate_transition_field_modify_and_role_move_are_both_reported() {
         PortableObjectKind::CanonicalArtifact,
         2,
         entity_table_ordinal(EntityKind::ManeuverGate),
-        1,
+        second_gate,
         4,
     );
+    let first_transition_start = first_transition.start;
+    let second_transition_start = second_transition.start;
     base_bytes[first_transition].copy_from_slice(&original_second_transition.to_le_bytes());
     base_bytes[second_transition].copy_from_slice(&original_first_transition.to_le_bytes());
+    refresh_chunk_digest_containing(
+        &mut base_bytes,
+        PortableObjectKind::CanonicalArtifact,
+        first_transition_start,
+    );
+    refresh_chunk_digest_containing(
+        &mut base_bytes,
+        PortableObjectKind::CanonicalArtifact,
+        second_transition_start,
+    );
     let base = value_checked(&base_bytes, PortableObjectKind::CanonicalArtifact);
     let candidate = crate::emit_portable_candidate(
         &output,

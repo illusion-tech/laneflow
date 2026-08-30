@@ -3,12 +3,13 @@ use std::marker::PhantomData;
 
 use laneflow_static_contract::{
     AccessEffect, AccessRuleKind, AuthoringLaneKind, CANONICAL_POINT_COMPONENT_MAX_METERS,
-    CANONICAL_POINT_COMPONENT_MIN_METERS, CanonicalFrameKind, EntityKind, EntityKindMarker,
-    FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind, MAX_LANE_EDGE_LENGTH_MM,
-    MAX_MIN_GAP_MM, MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_SPEED_MM_S, MAX_VEHICLE_LENGTH_MM,
-    MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S, MIN_VEHICLE_LENGTH_MM, ManeuverGateKind,
-    ManeuverPathKind, MovementKind, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, ParkingAreaKind,
-    ParkingSpaceKind, ParticipantClassKind, RoadCorridorKind, RoadSectionKind, SignalAspect,
+    CANONICAL_POINT_COMPONENT_MIN_METERS, CanonicalFrameKind, ConflictZoneKind, EntityKind,
+    EntityKindMarker, FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind,
+    MAX_LANE_EDGE_LENGTH_MM, MAX_MIN_GAP_MM, MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_SPEED_MM_S,
+    MAX_VEHICLE_LENGTH_MM, MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S,
+    MIN_VEHICLE_LENGTH_MM, ManeuverGateKind, ManeuverPathKind, MovementKind,
+    PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, ParkingFacilityKind, ParkingSpaceKind,
+    ParticipantClassKind, ParticipantStreamKind, RoadCorridorKind, RoadSectionKind, SignalAspect,
     SignalControllerKind, SignalGroupKind, SignalPhaseKind, StopLineKind, VehicleProfileKind,
     WaitingZoneKind,
 };
@@ -168,6 +169,8 @@ const fn owner_depth(kind: EntityKind) -> u8 {
     match kind {
         EntityKind::RoadSection
         | EntityKind::Movement
+        | EntityKind::ConflictZone
+        | EntityKind::ParticipantStream
         | EntityKind::FacilityBand
         | EntityKind::SignalPhase => 1,
         EntityKind::AuthoringLane | EntityKind::ManeuverPath | EntityKind::LaneGroup => 2,
@@ -178,12 +181,11 @@ const fn owner_depth(kind: EntityKind) -> u8 {
         | EntityKind::StopLine
         | EntityKind::SignalGroup
         | EntityKind::SignalController
-        | EntityKind::ParkingArea
+        | EntityKind::ParkingFacility
         | EntityKind::ParkingSpace
         | EntityKind::ParticipantClass
         | EntityKind::AccessRule
         | EntityKind::VehicleProfile
-        | EntityKind::StaticRoute
         | EntityKind::CanonicalFrame => 0,
     }
 }
@@ -201,7 +203,7 @@ pub type StopLineReference = RoadEditingReference<StopLineKind>;
 pub type SignalGroupReference = RoadEditingReference<SignalGroupKind>;
 pub type SignalControllerReference = RoadEditingReference<SignalControllerKind>;
 pub type SignalPhaseReference = RoadEditingReference<SignalPhaseKind>;
-pub type ParkingAreaReference = RoadEditingReference<ParkingAreaKind>;
+pub type ParkingFacilityReference = RoadEditingReference<ParkingFacilityKind>;
 pub type ParkingSpaceReference = RoadEditingReference<ParkingSpaceKind>;
 pub type LaneGroupReference = RoadEditingReference<LaneGroupKind>;
 pub type FacilityBandReference = RoadEditingReference<FacilityBandKind>;
@@ -209,6 +211,8 @@ pub type ParticipantClassReference = RoadEditingReference<ParticipantClassKind>;
 pub type AccessRuleReference = RoadEditingReference<AccessRuleKind>;
 pub type VehicleProfileReference = RoadEditingReference<VehicleProfileKind>;
 pub type CanonicalFrameReference = RoadEditingReference<CanonicalFrameKind>;
+pub type ConflictZoneReference = RoadEditingReference<ConflictZoneKind>;
+pub type ParticipantStreamReference = RoadEditingReference<ParticipantStreamKind>;
 
 /// 当前模块内、不进入 Identity v1 的道路走向键引用。
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -397,6 +401,34 @@ impl RoadEditingPoint3 {
     #[must_use]
     pub const fn y(self) -> f64 {
         self.y
+    }
+
+    #[must_use]
+    pub const fn z(self) -> f64 {
+        self.z
+    }
+}
+
+/// 规范坐标框架 XZ 平面中的有限 `f64` 点。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RoadEditingPoint2 {
+    x: f64,
+    z: f64,
+}
+
+impl RoadEditingPoint2 {
+    pub fn try_new(x: f64, z: f64) -> Result<Self, DiagnosticBundle> {
+        let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
+        let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
+        Ok(Self {
+            x: validate_inclusive_range(x, minimum, maximum, "point.x")?,
+            z: validate_inclusive_range(z, minimum, maximum, "point.z")?,
+        })
+    }
+
+    #[must_use]
+    pub const fn x(self) -> f64 {
+        self.x
     }
 
     #[must_use]
@@ -1459,29 +1491,64 @@ impl SignalPhaseInput {
 }
 impl_canvas!(SignalPhaseInput);
 
-/// 可选组织停车位的停车区域声明。
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ParkingAreaInput {
-    parking_area_key: Box<str>,
+/// 同时组织显式停车位与可选虚拟容量的停车设施声明。
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParkingFacilityInput {
+    parking_facility_key: Box<str>,
+    virtual_capacity: u32,
+    virtual_entries: Vec<ParkingLaneAnchor>,
+    virtual_exits: Vec<ParkingLaneAnchor>,
     canvas_selection: Option<Box<str>>,
 }
 
-impl ParkingAreaInput {
-    pub fn try_new(parking_area_key: impl Into<String>) -> Result<Self, DiagnosticBundle> {
-        let parking_area_key = parking_area_key.into();
-        validate_token(&parking_area_key, "parkingArea.parkingAreaKey")?;
+impl ParkingFacilityInput {
+    pub fn try_new(parking_facility_key: impl Into<String>) -> Result<Self, DiagnosticBundle> {
+        let parking_facility_key = parking_facility_key.into();
+        validate_token(&parking_facility_key, "parkingFacility.parkingFacilityKey")?;
         Ok(Self {
-            parking_area_key: parking_area_key.into_boxed_str(),
+            parking_facility_key: parking_facility_key.into_boxed_str(),
+            virtual_capacity: 0,
+            virtual_entries: Vec::new(),
+            virtual_exits: Vec::new(),
             canvas_selection: None,
         })
     }
 
+    /// 配置不展开成停车位或内部路网的虚拟容量及其可达锚点。
     #[must_use]
-    pub fn parking_area_key(&self) -> &str {
-        &self.parking_area_key
+    pub fn with_virtual_capacity(
+        mut self,
+        virtual_capacity: u32,
+        virtual_entries: Vec<ParkingLaneAnchor>,
+        virtual_exits: Vec<ParkingLaneAnchor>,
+    ) -> Self {
+        self.virtual_capacity = virtual_capacity;
+        self.virtual_entries = virtual_entries;
+        self.virtual_exits = virtual_exits;
+        self
+    }
+
+    #[must_use]
+    pub fn parking_facility_key(&self) -> &str {
+        &self.parking_facility_key
+    }
+
+    #[must_use]
+    pub const fn virtual_capacity(&self) -> u32 {
+        self.virtual_capacity
+    }
+
+    #[must_use]
+    pub fn virtual_entries(&self) -> &[ParkingLaneAnchor] {
+        &self.virtual_entries
+    }
+
+    #[must_use]
+    pub fn virtual_exits(&self) -> &[ParkingLaneAnchor] {
+        &self.virtual_exits
     }
 }
-impl_canvas!(ParkingAreaInput);
+impl_canvas!(ParkingFacilityInput);
 
 /// 停车位在车道图边上的入口或出口锚点。
 #[derive(Clone, Debug, PartialEq)]
@@ -1589,7 +1656,7 @@ impl ParkingSpaceGeometry {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ParkingSpaceInput {
     parking_space_key: Box<str>,
-    parking_area: Option<ParkingAreaReference>,
+    parking_facility: Option<ParkingFacilityReference>,
     entry: ParkingLaneAnchor,
     exit: ParkingLaneAnchor,
     geometry: ParkingSpaceGeometry,
@@ -1607,7 +1674,7 @@ impl ParkingSpaceInput {
         validate_token(&parking_space_key, "parkingSpace.parkingSpaceKey")?;
         Ok(Self {
             parking_space_key: parking_space_key.into_boxed_str(),
-            parking_area: None,
+            parking_facility: None,
             entry,
             exit,
             geometry,
@@ -1616,8 +1683,8 @@ impl ParkingSpaceInput {
     }
 
     #[must_use]
-    pub fn with_parking_area(mut self, parking_area: ParkingAreaReference) -> Self {
-        self.parking_area = Some(parking_area);
+    pub fn with_parking_facility(mut self, parking_facility: ParkingFacilityReference) -> Self {
+        self.parking_facility = Some(parking_facility);
         self
     }
 
@@ -1627,8 +1694,8 @@ impl ParkingSpaceInput {
     }
 
     #[must_use]
-    pub const fn parking_area(&self) -> Option<&ParkingAreaReference> {
-        self.parking_area.as_ref()
+    pub const fn parking_facility(&self) -> Option<&ParkingFacilityReference> {
+        self.parking_facility.as_ref()
     }
 
     #[must_use]
@@ -2063,6 +2130,236 @@ impl VehicleProfileInput {
 }
 impl_canvas!(VehicleProfileInput);
 
+/// 与路口绑定的稳定冲突区声明。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConflictZoneInput {
+    conflict_zone_key: Box<str>,
+    junction: JunctionReference,
+    canvas_selection: Option<Box<str>>,
+}
+
+impl ConflictZoneInput {
+    pub fn try_new(
+        conflict_zone_key: impl Into<String>,
+        junction: JunctionReference,
+    ) -> Result<Self, DiagnosticBundle> {
+        let conflict_zone_key = conflict_zone_key.into();
+        validate_token(&conflict_zone_key, "conflictZone.conflictZoneKey")?;
+        Ok(Self {
+            conflict_zone_key: conflict_zone_key.into_boxed_str(),
+            junction,
+            canvas_selection: None,
+        })
+    }
+
+    #[must_use]
+    pub fn conflict_zone_key(&self) -> &str {
+        &self.conflict_zone_key
+    }
+
+    #[must_use]
+    pub const fn junction(&self) -> &JunctionReference {
+        &self.junction
+    }
+}
+impl_canvas!(ConflictZoneInput);
+
+/// `ParticipantStream` 路径上的闭合位置 variant。
+#[derive(Clone, Debug, PartialEq)]
+pub enum PathAnchorInput {
+    Gate(ManeuverGateReference),
+    EdgeBoundary {
+        boundary_index: u32,
+    },
+    Interior {
+        path_edge_index: u32,
+        progress_meters: f64,
+    },
+}
+
+impl PathAnchorInput {
+    #[must_use]
+    pub fn gate(gate: ManeuverGateReference) -> Self {
+        Self::Gate(gate)
+    }
+
+    #[must_use]
+    pub const fn edge_boundary(boundary_index: u32) -> Self {
+        Self::EdgeBoundary { boundary_index }
+    }
+
+    pub fn interior(path_edge_index: u32, progress_meters: f64) -> Result<Self, DiagnosticBundle> {
+        let progress_meters = require_closed_mm(
+            progress_meters,
+            1,
+            MAX_LANE_EDGE_LENGTH_MM.saturating_sub(1),
+            "pathAnchor.progressMeters",
+        )?;
+        Ok(Self::Interior {
+            path_edge_index,
+            progress_meters,
+        })
+    }
+}
+
+/// 一个参与者流穿越一个冲突区的 owner-local 行。
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConflictPassageInput {
+    conflict_zone: ConflictZoneReference,
+    entry: PathAnchorInput,
+    exit: PathAnchorInput,
+}
+
+impl ConflictPassageInput {
+    #[must_use]
+    pub const fn new(
+        conflict_zone: ConflictZoneReference,
+        entry: PathAnchorInput,
+        exit: PathAnchorInput,
+    ) -> Self {
+        Self {
+            conflict_zone,
+            entry,
+            exit,
+        }
+    }
+
+    #[must_use]
+    pub const fn conflict_zone(&self) -> &ConflictZoneReference {
+        &self.conflict_zone
+    }
+
+    #[must_use]
+    pub const fn entry(&self) -> &PathAnchorInput {
+        &self.entry
+    }
+
+    #[must_use]
+    pub const fn exit(&self) -> &PathAnchorInput {
+        &self.exit
+    }
+}
+
+/// 与路口和唯一机动路径绑定的稳定参与者流声明。
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParticipantStreamInput {
+    participant_stream_key: Box<str>,
+    junction: JunctionReference,
+    maneuver_path: ManeuverPathReference,
+    passages: Box<[ConflictPassageInput]>,
+    canvas_selection: Option<Box<str>>,
+}
+
+impl ParticipantStreamInput {
+    pub fn try_new(
+        participant_stream_key: impl Into<String>,
+        junction: JunctionReference,
+        maneuver_path: ManeuverPathReference,
+        passages: Vec<ConflictPassageInput>,
+    ) -> Result<Self, DiagnosticBundle> {
+        let participant_stream_key = participant_stream_key.into();
+        validate_token(
+            &participant_stream_key,
+            "participantStream.participantStreamKey",
+        )?;
+        require_non_empty(&passages, "participantStream.passages")?;
+        Ok(Self {
+            participant_stream_key: participant_stream_key.into_boxed_str(),
+            junction,
+            maneuver_path,
+            passages: passages.into_boxed_slice(),
+            canvas_selection: None,
+        })
+    }
+
+    #[must_use]
+    pub fn participant_stream_key(&self) -> &str {
+        &self.participant_stream_key
+    }
+
+    #[must_use]
+    pub const fn junction(&self) -> &JunctionReference {
+        &self.junction
+    }
+
+    #[must_use]
+    pub const fn maneuver_path(&self) -> &ManeuverPathReference {
+        &self.maneuver_path
+    }
+
+    #[must_use]
+    pub const fn passages(&self) -> &[ConflictPassageInput] {
+        &self.passages
+    }
+}
+impl_canvas!(ParticipantStreamInput);
+
+/// 一个 ConflictZone 在规范坐标框架中的可选 owner-local 空间区域。
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConflictZoneRegionInput {
+    conflict_zone: ConflictZoneReference,
+    canonical_frame: CanonicalFrameReference,
+    min_y: f64,
+    max_y: f64,
+    ring_xz: Box<[RoadEditingPoint2]>,
+    canvas_selection: Option<Box<str>>,
+}
+
+impl ConflictZoneRegionInput {
+    pub fn try_new(
+        conflict_zone: ConflictZoneReference,
+        canonical_frame: CanonicalFrameReference,
+        min_y: f64,
+        max_y: f64,
+        ring_xz: Vec<RoadEditingPoint2>,
+    ) -> Result<Self, DiagnosticBundle> {
+        let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
+        let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
+        let min_y = validate_inclusive_range(min_y, minimum, maximum, "conflictZoneRegion.minY")?;
+        let max_y = validate_inclusive_range(max_y, minimum, maximum, "conflictZoneRegion.maxY")?;
+        if min_y >= max_y || ring_xz.len() < 3 {
+            return Err(input_error(
+                "conflictZoneRegion",
+                RoadEditingInputViolation::InvalidCombination,
+            ));
+        }
+        Ok(Self {
+            conflict_zone,
+            canonical_frame,
+            min_y,
+            max_y,
+            ring_xz: ring_xz.into_boxed_slice(),
+            canvas_selection: None,
+        })
+    }
+
+    #[must_use]
+    pub const fn conflict_zone(&self) -> &ConflictZoneReference {
+        &self.conflict_zone
+    }
+
+    #[must_use]
+    pub const fn canonical_frame(&self) -> &CanonicalFrameReference {
+        &self.canonical_frame
+    }
+
+    #[must_use]
+    pub const fn min_y(&self) -> f64 {
+        self.min_y
+    }
+
+    #[must_use]
+    pub const fn max_y(&self) -> f64 {
+        self.max_y
+    }
+
+    #[must_use]
+    pub const fn ring_xz(&self) -> &[RoadEditingPoint2] {
+        &self.ring_xz
+    }
+}
+impl_canvas!(ConflictZoneRegionInput);
+
 /// 固定单位、手性与范围的规范坐标框架声明。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CanonicalFrameInput {
@@ -2087,7 +2384,7 @@ impl CanonicalFrameInput {
 }
 impl_canvas!(CanonicalFrameInput);
 
-/// Road Editing Source 的 21 个可构造声明种类。
+/// Road Editing Source 的 23 个可构造声明种类。
 #[derive(Clone, Debug, PartialEq)]
 pub enum RoadEditingDeclaration {
     RoadCorridor(RoadCorridorInput),
@@ -2103,7 +2400,7 @@ pub enum RoadEditingDeclaration {
     SignalGroup(SignalGroupInput),
     SignalController(SignalControllerInput),
     SignalPhase(SignalPhaseInput),
-    ParkingArea(ParkingAreaInput),
+    ParkingFacility(ParkingFacilityInput),
     ParkingSpace(ParkingSpaceInput),
     LaneGroup(LaneGroupInput),
     FacilityBand(FacilityBandInput),
@@ -2111,6 +2408,8 @@ pub enum RoadEditingDeclaration {
     AccessRule(AccessRuleInput),
     VehicleProfile(VehicleProfileInput),
     CanonicalFrame(CanonicalFrameInput),
+    ConflictZone(ConflictZoneInput),
+    ParticipantStream(ParticipantStreamInput),
 }
 
 impl RoadEditingDeclaration {
@@ -2131,7 +2430,7 @@ impl RoadEditingDeclaration {
             Self::SignalGroup(_) => EntityKind::SignalGroup,
             Self::SignalController(_) => EntityKind::SignalController,
             Self::SignalPhase(_) => EntityKind::SignalPhase,
-            Self::ParkingArea(_) => EntityKind::ParkingArea,
+            Self::ParkingFacility(_) => EntityKind::ParkingFacility,
             Self::ParkingSpace(_) => EntityKind::ParkingSpace,
             Self::LaneGroup(_) => EntityKind::LaneGroup,
             Self::FacilityBand(_) => EntityKind::FacilityBand,
@@ -2139,6 +2438,8 @@ impl RoadEditingDeclaration {
             Self::AccessRule(_) => EntityKind::AccessRule,
             Self::VehicleProfile(_) => EntityKind::VehicleProfile,
             Self::CanonicalFrame(_) => EntityKind::CanonicalFrame,
+            Self::ConflictZone(_) => EntityKind::ConflictZone,
+            Self::ParticipantStream(_) => EntityKind::ParticipantStream,
         }
     }
 
@@ -2159,7 +2460,7 @@ impl RoadEditingDeclaration {
             Self::SignalGroup(value) => value.signal_group_key(),
             Self::SignalController(value) => value.signal_controller_key(),
             Self::SignalPhase(value) => value.signal_phase_key(),
-            Self::ParkingArea(value) => value.parking_area_key(),
+            Self::ParkingFacility(value) => value.parking_facility_key(),
             Self::ParkingSpace(value) => value.parking_space_key(),
             Self::LaneGroup(value) => value.lane_group_key(),
             Self::FacilityBand(value) => value.facility_band_key(),
@@ -2167,6 +2468,8 @@ impl RoadEditingDeclaration {
             Self::AccessRule(value) => value.access_rule_key(),
             Self::VehicleProfile(value) => value.vehicle_profile_key(),
             Self::CanonicalFrame(value) => value.canonical_frame_key(),
+            Self::ConflictZone(value) => value.conflict_zone_key(),
+            Self::ParticipantStream(value) => value.participant_stream_key(),
         }
     }
 
@@ -2181,13 +2484,15 @@ impl RoadEditingDeclaration {
             Self::SignalPhase(value) => value.signal_controller().components().collect(),
             Self::LaneGroup(value) => value.road_section().components().collect(),
             Self::FacilityBand(value) => value.road_corridor().components().collect(),
+            Self::ConflictZone(value) => value.junction().components().collect(),
+            Self::ParticipantStream(value) => value.junction().components().collect(),
             Self::RoadCorridor(_)
             | Self::LaneEdge(_)
             | Self::Junction(_)
             | Self::StopLine(_)
             | Self::SignalGroup(_)
             | Self::SignalController(_)
-            | Self::ParkingArea(_)
+            | Self::ParkingFacility(_)
             | Self::ParkingSpace(_)
             | Self::ParticipantClass(_)
             | Self::AccessRule(_)
@@ -2225,6 +2530,8 @@ impl RoadEditingDeclaration {
             Self::SignalPhase(value) => value.signal_controller().components().nth(index),
             Self::LaneGroup(value) => value.road_section().components().nth(index),
             Self::FacilityBand(value) => value.road_corridor().components().nth(index),
+            Self::ConflictZone(value) => value.junction().components().nth(index),
+            Self::ParticipantStream(value) => value.junction().components().nth(index),
             _ => None,
         }
     }
@@ -2283,6 +2590,13 @@ mod tests {
     fn owner_scoped_reference_requires_exact_identity_depth() {
         assert!(RoadSectionReference::local("section-a").is_err());
         assert!(RoadSectionReference::owner_scoped(vec!["corridor-a".into()], "section-a").is_ok());
+        assert!(ConflictZoneReference::local("zone-a").is_err());
+        assert!(ConflictZoneReference::owner_scoped(vec!["junction-a".into()], "zone-a").is_ok());
+        assert!(ParticipantStreamReference::local("stream-a").is_err());
+        assert!(
+            ParticipantStreamReference::owner_scoped(vec!["junction-a".into()], "stream-a",)
+                .is_ok()
+        );
         assert!(
             AuthoringLaneReference::owner_scoped(
                 vec!["corridor-a".into(), "section-a".into()],

@@ -203,8 +203,10 @@ impl HirBase {
                 .filter(|declaration| matches!(declaration, TypedAstDeclaration::LaneEdge(_)))
                 .count()
         }));
-        let mut identities =
-            IdentityRegistry::with_capacity(count_to_usize(unit.declaration_count, &unit.limits)?);
+        let mut identities = IdentityRegistry::with_capacity(count_to_usize(
+            unit.stable_entity_count,
+            &unit.limits,
+        )?);
         let mut canonical_sources = Vec::with_capacity(lane_edge_capacity);
         for (module_index, source_module) in unit.modules.iter().enumerate() {
             let module_key = HirModuleKey::from_raw(u32::try_from(module_index).map_err(|_| {

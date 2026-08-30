@@ -1,6 +1,8 @@
 use core::mem::size_of;
 
-use laneflow_static_contract::{CanonicalFrameOrdinal, FacilityBandOrdinal, LaneEdgeOrdinal};
+use laneflow_static_contract::{
+    CanonicalFrameOrdinal, ConflictZoneOrdinal, FacilityBandOrdinal, LaneEdgeOrdinal,
+};
 
 use crate::RangeU32;
 
@@ -9,6 +11,12 @@ use crate::RangeU32;
 pub struct CanonicalPoint {
     pub x: f32,
     pub y: f32,
+    pub z: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CanonicalPointXZ {
+    pub x: f32,
     pub z: f32,
 }
 
@@ -122,6 +130,40 @@ pub struct FacilityGeometryView<'a> {
     points: &'a [CanonicalPoint],
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct ConflictZoneRegionEntry {
+    pub(crate) conflict_zone: ConflictZoneOrdinal,
+    pub(crate) canonical_frame: CanonicalFrameOrdinal,
+    pub(crate) min_y: f32,
+    pub(crate) max_y: f32,
+    pub(crate) ring_range: RangeU32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ConflictZoneRegionView<'a> {
+    canonical_frame: CanonicalFrameOrdinal,
+    min_y: f32,
+    max_y: f32,
+    ring_xz: &'a [CanonicalPointXZ],
+}
+
+impl<'a> ConflictZoneRegionView<'a> {
+    #[must_use]
+    pub const fn canonical_frame(self) -> CanonicalFrameOrdinal {
+        self.canonical_frame
+    }
+
+    #[must_use]
+    pub const fn height_range(self) -> (f32, f32) {
+        (self.min_y, self.max_y)
+    }
+
+    #[must_use]
+    pub const fn ring_xz(self) -> &'a [CanonicalPointXZ] {
+        self.ring_xz
+    }
+}
+
 impl<'a> FacilityGeometryView<'a> {
     #[must_use]
     pub const fn canonical_frame(self) -> CanonicalFrameOrdinal {
@@ -140,6 +182,8 @@ pub struct SharedSpatialNetwork {
     lane_pose: Option<LanePoseNetwork>,
     facility_entries: Box<[FacilityGeometryEntry]>,
     facility_points: Box<[CanonicalPoint]>,
+    conflict_region_entries: Box<[ConflictZoneRegionEntry]>,
+    conflict_region_points: Box<[CanonicalPointXZ]>,
 }
 
 impl SharedSpatialNetwork {
@@ -148,12 +192,16 @@ impl SharedSpatialNetwork {
         lane_pose: Option<LanePoseNetwork>,
         facility_entries: Box<[FacilityGeometryEntry]>,
         facility_points: Box<[CanonicalPoint]>,
+        conflict_region_entries: Box<[ConflictZoneRegionEntry]>,
+        conflict_region_points: Box<[CanonicalPointXZ]>,
     ) -> Self {
         Self {
             direction_profile,
             lane_pose,
             facility_entries,
             facility_points,
+            conflict_region_entries,
+            conflict_region_points,
         }
     }
 
@@ -190,12 +238,32 @@ impl SharedSpatialNetwork {
     }
 
     #[must_use]
+    pub fn conflict_zone_region(
+        &self,
+        conflict_zone: ConflictZoneOrdinal,
+    ) -> Option<ConflictZoneRegionView<'_>> {
+        let index = self
+            .conflict_region_entries
+            .binary_search_by_key(&conflict_zone.raw(), |entry| entry.conflict_zone.raw())
+            .ok()?;
+        let entry = self.conflict_region_entries[index];
+        Some(ConflictZoneRegionView {
+            canonical_frame: entry.canonical_frame,
+            min_y: entry.min_y,
+            max_y: entry.max_y,
+            ring_xz: entry.ring_range.slice(&self.conflict_region_points),
+        })
+    }
+
+    #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         self.lane_pose
             .as_ref()
             .map_or(0, LanePoseNetwork::retained_logical_bytes)
             + logical_bytes::<FacilityGeometryEntry>(self.facility_entries.len())
             + logical_bytes::<CanonicalPoint>(self.facility_points.len())
+            + logical_bytes::<ConflictZoneRegionEntry>(self.conflict_region_entries.len())
+            + logical_bytes::<CanonicalPointXZ>(self.conflict_region_points.len())
     }
 }
 

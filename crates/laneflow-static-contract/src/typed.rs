@@ -159,7 +159,9 @@ impl<K: EntityKindMarker> FromStr for StableId<K> {
         }
 
         let mut bytes = [0_u8; 16];
-        for (index, pair) in hexadecimal.as_bytes().chunks_exact(2).enumerate() {
+        let (pairs, remainder) = hexadecimal.as_bytes().as_chunks::<2>();
+        debug_assert!(remainder.is_empty());
+        for (index, pair) in pairs.iter().enumerate() {
             let high = decode_hex_digit(pair[0], index * 2)?;
             let low = decode_hex_digit(pair[1], index * 2 + 1)?;
             bytes[index] = (high << 4) | low;
@@ -360,10 +362,10 @@ define_entity_markers!(
         SignalPhaseOrdinal
     ),
     (
-        ParkingAreaKind,
-        ParkingArea,
-        ParkingAreaId,
-        ParkingAreaOrdinal
+        ParkingFacilityKind,
+        ParkingFacility,
+        ParkingFacilityId,
+        ParkingFacilityOrdinal
     ),
     (
         ParkingSpaceKind,
@@ -392,10 +394,22 @@ define_entity_markers!(
         VehicleProfileOrdinal
     ),
     (
+        ConflictZoneKind,
+        ConflictZone,
+        ConflictZoneId,
+        ConflictZoneOrdinal
+    ),
+    (
         CanonicalFrameKind,
         CanonicalFrame,
         CanonicalFrameId,
         CanonicalFrameOrdinal
+    ),
+    (
+        ParticipantStreamKind,
+        ParticipantStream,
+        ParticipantStreamId,
+        ParticipantStreamOrdinal
     ),
 );
 
