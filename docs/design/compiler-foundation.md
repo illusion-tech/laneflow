@@ -1,8 +1,9 @@
 # 编译器基础设施与合成领域专用语言前端
 
 **文档状态**: #292 已接受并完成 G4；#315 共同受检模块接入契约已实现；
-#297 current JSON 编译器导入设计已取消；#299 后继边界见 Accepted ADR 0024<br>
-**最后更新**: 2026-08-28<br>
+#297 current JSON 编译器导入设计已取消；#299 后继边界见 Accepted ADR 0024；
+#549 的 Synthetic frontend 4 clean-break 处于 Review<br>
+**最后更新**: 2026-08-30<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
 Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层
@@ -881,6 +882,15 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
 该摘要只服务来源沿袭和重放，不参与实体稳定标识。测试可以使用显式 `test_only`
 来源模块头；该能力不得进入发布接口。
 
+#549 接受后的唯一目标是 Synthetic `frontendVersion = 4`。版本提升不是为了改变上述
+整数/浮点语义，而是把 `ParkingArea` 记录原子替换为 `ParkingFacility`，并把
+`virtualCapacity`、有序 virtual entry/exit、`ConflictZone`、`ParticipantStream`、
+owner-local conflict passages 与可选 `ConflictZoneRegion` 纳入同一确定性来源记录。
+新增记录按稳定实体 identity bytes 与 owner-local 规范序排序；几何、hash iteration、
+调用顺序和 worker 数不得影响 exact `LFSOURCE` bytes。实现必须与 Road Editing frontend 3、
+Identity registry revision 3、LFCA 4、LFSM 3、LFSD 3 一次切换并更新全部 known vectors；
+现行 frontend 3 在该实现合入前仍是生产事实，不保留 3/4 双编码器或迁移 façade。
+
 领域专用语言构建器的声明方法使用 `#[track_caller]` 或等价宏捕获 Rust 文件、行和
 列作为来源位置。#292 已接受的每个来源模块另有调用方提供、与机器路径无关的稳定
 `sourceDocumentKey`；该键在整个编译单元内必须唯一，并受 `CompileLimits` 的
@@ -914,6 +924,12 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
 与字段标签 30 为保留空位，不得声明）。支持“声明该实体”不表示对应目标交通运行时
 执行域或动态能力已经实现。
 
+#549 的 revision 3 target 在这个首批矩阵上只扩展公共静态输入：停车行改为
+`ParkingFacility`，路口行增加 `ConflictZone`、`ParticipantStream` 与 owner-local
+passage，空间行增加可选 `ConflictZoneRegion`。它不把 Waiting runtime、
+`ConflictArbiter`、停车生命周期或新的执行域行为塞进编译器前端；这些仍由各自领域
+Delivery Issue 拥有。
+
 ### 6.3 迁移场景
 
 G1 曾冻结两个 current JSON 固定样例的等价迁移。这些 JSON 文件已随 #301 删除。
@@ -937,6 +953,11 @@ G1 曾冻结两个 current JSON 固定样例的等价迁移。这些 JSON 文件
 - `identityRegistryRevision = 2`（种类 21 / 标签 30 保留空位，ADR 0029）；
 - 实体种类代码 / 英文短名、字段标签代码 / 编码和必需标签序列；
 - `LFID` 魔数、文本形态规则和 `BLAKE3` 域分隔字节。
+
+以上是现行实现事实。#549 target 将 registry 原子提升到 revision 3，保留
+`identityEncodingVersion = 1` 与既有 kind 的 canonical bytes/StableId，原位重命名
+kind 14 / tag 22 为 `ParkingFacility` / `parkingFacilityKey`，追加 kind 23/24 与 tag 35/36，
+并保持 kind 21、tag 23/30 禁止编码。它不得在 LFCA 3 路径中提前部分启用。
 
 `laneflow-compiler` 独立实现：
 
@@ -963,7 +984,8 @@ G1 曾冻结两个 current JSON 固定样例的等价迁移。这些 JSON 文件
 
 ### 7.3 验收
 
-- 修订 2 的每个可构造实体种类至少有一个纳入版本控制的已知向量；种类 21 不得编码；
+- 现行修订 2、#549 实现后的修订 3 中，每个可构造实体种类至少有一个纳入版本控制的
+  已知向量；种类 21 与修订对应的保留标签不得编码；
 - 缺失、重复、未知、乱序标签和错误字段长度的负向向量；
 - 同级重排、无关插入、仅几何编辑的变形测试（Metamorphic Test）；
 - `LaneEdge` 覆盖 / 内部角色变化时身份不变，显式替换 / 拆分时使用新键；

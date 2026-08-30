@@ -26,6 +26,12 @@ Traffic/Spatial/每世界可变状态分层、稳定身份索引和失败关闭�
 > `formatVersion = 3` 的受检 LFCA；路网不含 `StaticRoute`。公开 API 不带世代后缀；
 > 读器拒绝 `formatVersion != 3`。
 
+> **#549 proposed amendment（Review；2026-08-30）**：生产目标原子切换到 LFCA 4；
+> 65,536 行与 16 MiB 改为单个规范 table chunk 上限，一个
+> `SharedNetworkRevision` 至少支持一百万个现实混合稳定静态实体。chunk 只属于可移植
+> LFCA/LFSM/LFSD 容器，不恢复本文已否决的 target-specific 静态镜像、mmap ABI、
+> 多修订拼城或 Runtime 分区身份。
+
 ## 背景
 
 ADR 0020 把可移植规范制品和 target/profile-specific 静态镜像设计为同一 Canonical LIR
@@ -33,7 +39,7 @@ ADR 0020 把可移植规范制品和 target/profile-specific 静态镜像设计�
 mmap/借用视图和跨 target 重建，消除生产启动时的重复构建。
 
 #298/#299 随后交付了 LFCA/LFSM/LFSD v1、LFCP v2、共享后发射检查和最小发布闭合。
-当前 LFCA v1 单对象硬上限是 `16,777,216` bytes；现有最高级 P100 生产工作负载的 LFCA
+本 ADR 决策时 LFCA v1 单对象硬上限是 `16,777,216` bytes；当时最高级 P100 生产工作负载的 LFCA
 为 `2,286,569` bytes（约 `2.29 MB` / `2.18 MiB`），完整 compiler + emitter 中位数约为 `39 ms`，三对象独立 SHA-256
 约为 `2.4..2.7 ms`。这些证据没有证明最低产品硬件上的最终城市加载成本已经通过，
 但也不支持在 Traffic Runtime 访问模式尚未实现前先冻结第二套持久化 ABI、目标平台
@@ -59,7 +65,8 @@ target/profile selector、镜像摘要/长度、`StaticImageDescriptor` 或
 同时不交付：
 
 - mmap 或跨进程页共享；
-- flat chunk / Merkle 完整性方案；
+- target-specific static image 的 flat chunk / Merkle 完整性方案；#549 的 portable
+  table chunk 与逐 chunk SHA-256 不构成第二套 Runtime 镜像；
 - Spatial/冷页按需验证；
 - Windows/Linux/ARM/Web 等镜像变体矩阵；
 - 静态镜像内容寻址安装或磁盘缓存；

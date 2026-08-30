@@ -1,7 +1,7 @@
 # 退役预编译静态路线
 
-**文档状态**: Accepted（#498 G1）<br>
-**最后更新**: 2026-08-26<br>
+**文档状态**: Accepted（#498 G1）；#549 格式/registry 修订处于 Review<br>
+**最后更新**: 2026-08-30<br>
 **适用范围**: 从路网产品删除 `StaticRoute` 后的制品表、身份空位、运行时编译、
 场景 catalog 0.3 与每世界路线表形状<br>
 **关联文档**: [`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)、
@@ -13,6 +13,8 @@
 [`example-scenarios.md`](example-scenarios.md)
 
 本文是 ADR 0029 的实现级合同。为什么删除见 ADR。G2 决定 Rust 拼写。
+其中 revision 2 是当前实现事实；#549 target 提升到 revision 3，但继续保留 kind 21、
+tag 30 与 relation role 13–16，且不恢复制品路线。新增 kind 23/24 不复用路线空位。
 
 ## 1. 单一路线入口
 

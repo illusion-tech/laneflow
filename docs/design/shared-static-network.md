@@ -1,7 +1,8 @@
 # 共享静态路网
 
-**文档状态**: Accepted（#300 G1 Pass）<br>
-**最后更新**: 2026-08-26（#498：制品 `formatVersion = 3`；#500：IR 边长提交为写出值；#496：热列为整数毫米 / `mm/s`）<br>
+**文档状态**: Accepted（#300 G1 Pass）；#549 的 LFCA 4 分块 admission 与百万级容量
+修订处于 Review<br>
+**最后更新**: 2026-08-30（当前实现 `formatVersion = 3`；#549 target = 4）<br>
 **适用范围**: `laneflow-static-network`、受检 LFCA admission、共享静态路网构建、
 Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验收<br>
 **关联文档**: `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
@@ -25,6 +26,10 @@ Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验
 把生产热列定为 `u32` mm 与 mm/s。ADR 0029 起制品为 **LFCA `formatVersion = 3`**。
 有折线时边长从弧长 round 并写回 IR；headless 用准入毫米。LFCA 与 LIR 是同一整数；
 不从 Spatial 反推。
+
+#549 target 不改变上述 Runtime 数值 authority 或一个根对应一个逻辑路网修订的模型；它
+把生产 admission 原子切换到 LFCA 4，并让物理 chunk 对 builder 透明。typed ordinal、
+StableId、CSR 与 `SharedNetworkRevision` 仍覆盖完整逻辑表，不出现 `(chunk,row)` 公共身份。
 
 ## 2. 职责与依赖
 
@@ -94,13 +99,14 @@ impl<'a> PostEmissionCheckedBundle<'a> {
 
 #### LFCA admission（#496 / ADR 0028）
 
-生产制品只承认 `formatVersion = 3`。受检输入字段私有，digest / 长度 /
-`NetworkRevisionId` 闭合；object kind 精确为 LFCA，走当前 registry 与直接值域检查。
-后发射对 LFCA/LFSM/LFSD 走各自预检（LFSM `sourceMapFormatVersion = 2`，LFSD
-`semanticDiffFormatVersion = 2`）；LFSM `canonicalArtifactFormatVersion` 必须等于
-所绑 LFCA 的 `formatVersion` / `canonicalFormatVersion`（故为 `3`）。
-读器拒绝 `formatVersion != 3`。`FormatLimits` 数值上限不因本切片单开新档。公开
-API 不带世代后缀，不得把米列读成毫米。
+当前生产制品只承认 LFCA `formatVersion = 3` 与 LFSM/LFSD `2/2`。#549 target 原子
+切换到 `4/3/3`：受检输入字段私有，digest / exact length / `NetworkRevisionId` 闭合；
+object kind 精确为 LFCA，chunk directory、chunk digest、连续逻辑范围与当前 registry
+全部预检。LFSM `canonicalArtifactFormatVersion` 必须等于所绑 LFCA 的
+`formatVersion` / `canonicalFormatVersion`。reader 只接受实现所冻结的一组 exact versions，
+不保留 3/4 双读。`FormatLimits` 改为 wire hard limit 之外的调用方对象、chunk、输出、
+scratch 与 peak budget；正式产品 profile 必须覆盖 #549 一百万现实混合静态实体门禁。
+公开 API 不带世代后缀，不得把米列读成毫米。
 
 `ValueCheckedObjectView` 本身不证明跨表引用、row ordering 或真实性，因此不能直接作为
 共享静态路网成功结果。`laneflow-static-network` 必须继续完成 §7 的构建闭合；发布内容
@@ -292,7 +298,8 @@ parking 等 Runtime 关系由 #440 逐项盘点并闭合。路线出现项只在
 - canonical row key/ordinal 严格排序且无重复；
 - typed ordinal/count/range 全部适配 `u32` 并用 checked arithmetic；
 - entity、owner/member、topology 和 static-rule 引用落在正确 typed domain；
-- `CanonicalIdentity` 与 21 种可构造稳定实体/可寻址派生实体形成完整双射（种类 21 保留空位）；
+- `CanonicalIdentity` 与当前 21 种、#549 target 23 种可构造稳定实体形成完整双射
+  （种类 21 保留空位）；
 - forward/reverse indexes round-trip；
 - 机动路径/门/等待区 range 无 gap、overlap 或跨 owner 错配；
 - execution contract versions 与派生 constraint graph 一致；
@@ -387,6 +394,7 @@ CommittedRoadNetwork {
 ### 10.1 不变量
 
 - O(input rows + relation items + output items) 工作；
+- 按逻辑表和 chunk 规范序扫描；chunk 只控制输入窗口，不建立完整 LFCA owned object graph；
 - 不形成完整 LFCA/LIR owned object graph；
 - 每个最终 column/flat payload 最多一次 reserve，不发生几何级扩容；
 - builder scratch 由调用方限额约束；
@@ -405,7 +413,8 @@ requested capacity、累计分配、returned retained bytes 和进程 RSS，不�
 或 #301 production traversal kernel 就绪前用临时布局冒充最终证据。
 
 最小 headless、facility-only、profile/frame-only、full lane Spatial 和当前最大合法产品场景
-分别记录：
+分别记录；#549 实现还必须按 `10000` / `100000` / `1000000` 个现实混合稳定静态实体
+三档执行，同一百万档不能拆成多个 `SharedNetworkRevision`：
 
 - LFCA/LFSM/LFSD exact bytes；
 - Traffic/Identity/Hints/Spatial logical 与 retained bytes；
@@ -423,21 +432,21 @@ requested capacity、累计分配、returned retained bytes 和进程 RSS，不�
 
 ## 11. 测试矩阵
 
-| 类别         | 必需覆盖                                                                                                                                     |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| 输入能力     | 非 LFCA、版本/contract/revision/digest/length 错配；单对象与 bundle 两种构造内容等价；字段私有能力不可伪造                                   |
-| headless     | Traffic/Identity/Hints 存在，Spatial 为 `None`，geometry retained 为零                                                                       |
-| Spatial 变体 | facility-only、profile/frame-only 成功且 `lane_pose=None`；非空 lane geometry 才完整覆盖并可批量采样；长度差处于容差内、恰等于容差和超出容差 |
-| 引用合法性   | typed domain 越界、错误 owner、range overflow/gap/overlap、重复 row/key                                                                      |
-| Identity     | 21 种可构造稳定实体与派生实体的声明 StableId 双射、正反 round-trip、同名不同 owner；种类 21 保留空位；派生 known vectors 由 compiler 覆盖    |
-| 确定性       | 同一 LFCA + hints derivation version fresh build 内容相等；不比较 Rust padding/地址/字节                                                     |
-| 资源         | caller limit、失败无 retained、三对象真实 lifetime、editable base + target bundle + 双 root 峰值                                             |
-| 共享         | 2/8/32 worlds 不复制 component payload；per-world mutable arrays 仍独立                                                                      |
-| 修订绑定     | accessor 只返回根生命周期借用；无 owned/Clone component；Runtime/Spatial facade 保留同一根                                                   |
-| 保存来源     | editable RoadEditingState 与 published LFCA reference 均只绑定活动根；缺失/错配来源失败关闭                                                  |
-| 差异基线     | published→editable 同修订 rebase；exact base LFCA 与 root origin 一致；提交成功/失败时 base 原子更替/保留                                    |
-| 并发         | `Send + Sync`、多 reader、tick/snapshot 内单 revision；无内部 mutation                                                                       |
-| 性能         | SoA/CSR baseline 与 #301 production access kernel；AoS/AoSoA 变更需比较证据                                                                  |
+| 类别         | 必需覆盖                                                                                                                                                |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 输入能力     | 非 LFCA、版本/contract/revision/digest/length 错配；单对象与 bundle 两种构造内容等价；字段私有能力不可伪造                                              |
+| headless     | Traffic/Identity/Hints 存在，Spatial 为 `None`，geometry retained 为零                                                                                  |
+| Spatial 变体 | facility-only、profile/frame-only 成功且 `lane_pose=None`；非空 lane geometry 才完整覆盖并可批量采样；长度差处于容差内、恰等于容差和超出容差            |
+| 引用合法性   | typed domain 越界、错误 owner、range overflow/gap/overlap、重复 row/key                                                                                 |
+| Identity     | 当前 21 种、#549 target 23 种可构造稳定实体的声明 StableId 双射、正反 round-trip、同名不同 owner；种类 21 保留空位；派生 known vectors 由 compiler 覆盖 |
+| 确定性       | 同一 LFCA + hints derivation version fresh build 内容相等；不比较 Rust padding/地址/字节                                                                |
+| 资源         | caller limit、失败无 retained、三对象真实 lifetime、editable base + target bundle + 双 root 峰值                                                        |
+| 共享         | 2/8/32 worlds 不复制 component payload；per-world mutable arrays 仍独立                                                                                 |
+| 修订绑定     | accessor 只返回根生命周期借用；无 owned/Clone component；Runtime/Spatial facade 保留同一根                                                              |
+| 保存来源     | editable RoadEditingState 与 published LFCA reference 均只绑定活动根；缺失/错配来源失败关闭                                                             |
+| 差异基线     | published→editable 同修订 rebase；exact base LFCA 与 root origin 一致；提交成功/失败时 base 原子更替/保留                                               |
+| 并发         | `Send + Sync`、多 reader、tick/snapshot 内单 revision；无内部 mutation                                                                                  |
+| 性能         | SoA/CSR baseline 与 #301 production access kernel；AoS/AoSoA 变更需比较证据                                                                             |
 
 任意原始字节、截断、错位、oversized 和 FieldV1 结构 fuzz 继续由 `laneflow-format` 覆盖；
 #300 只补充能够通过格式直接值域但不能构成功能正确 Runtime 结构的 cross-table mutation，
@@ -509,9 +518,11 @@ Spatial 基线或性能证据职责。
 「Runtime 当前不消费」在本切片中的含义是：不是当前 Core 静态注册表已经消费、因而
 v0.10 切换也不需要的冷数据。它不是「#301 第一个 kernel 暂时用不到就可以丢」。
 
-### 13.2 29 个 compiled relation role
+### 13.2 现行 29 个与 #549 target 36 个 compiled relation role
 
-角色代码与 `SourceRelationRole` / LFCA A.5 一致。`#439 已覆盖` 不得在本切片重做；
+角色代码与 `SourceRelationRole` / LFCA A.5 一致。1–29 是 #440 的现行闭合；#549
+登记 30–36，但它们的领域静态投影分别由 #540 / #283 Delivery 闭合。
+`#439 已覆盖` 不得在本切片重做；
 `本切片必需` 必须投影为密集 typed handle 与 SoA/CSR/flat range，并在 seal 前闭合；
 `当前不消费` 不得因 registry 存在而复制冷副本，再次需要时必须返回 G1。
 
@@ -537,7 +548,7 @@ v0.10 切换也不需要的冷数据。它不是「#301 第一个 kernel 暂时�
 | 18   | `SignalControllerPhase`              | 本切片必需             | 有序相位                                                                                     |
 | 19   | `SignalPhaseState`                   | 本切片必需             | LFCA 编码在 `SignalPhase` 实体 `RecordVector`，不是 A.5 元组；仍须投影为 group+aspect 连续表 |
 | 20   | `ManeuverGateSignalGroup`            | 本切片必需             | 门到信号组的 indication 绑定；不引入法规/冲突权威                                            |
-| 21   | `ParkingSpaceArea`                   | 本切片必需             | 可选停车区归属                                                                               |
+| 21   | `ParkingSpaceFacility`               | 本切片必需             | 可选停车设施归属；#549 只改名，不改数值                                                      |
 | 22   | `ParkingSpaceEntry`                  | 本切片必需             | 入口边；progress 见实体字段                                                                  |
 | 23   | `ParkingSpaceExit`                   | 本切片必需             | 出口边；progress 见实体字段                                                                  |
 | 24   | `ParticipantClassExtends`            | 本切片必需             | 单继承父类                                                                                   |
@@ -546,35 +557,48 @@ v0.10 切换也不需要的冷数据。它不是「#301 第一个 kernel 暂时�
 | 27   | `VehicleProfileParticipantClass`     | 本切片必需             | 车型唯一类别                                                                                 |
 | 28   | `CanonicalFrameLaneEdgeGeometry`     | #439 已覆盖            | Spatial 基线，不进 Traffic                                                                   |
 | 29   | `CanonicalFrameFacilityBandGeometry` | #439 已覆盖            | Spatial 基线，不进 Traffic                                                                   |
+| 30   | `ParkingFacilityVirtualEntry`        | #549 / #540 target     | virtual pool 的有序入口 anchor                                                               |
+| 31   | `ParkingFacilityVirtualExit`         | #549 / #540 target     | virtual pool 的有序出口 anchor                                                               |
+| 32   | `JunctionConflictZone`               | #549 / #283 target     | Junction 到 zone 的规范集合                                                                  |
+| 33   | `JunctionParticipantStream`          | #549 / #283 target     | Junction 到 stream 的规范集合                                                                |
+| 34   | `ParticipantStreamManeuverPath`      | #549 / #283 target     | stream 的唯一 ManeuverPath                                                                   |
+| 35   | `ParticipantStreamConflictPassage`   | #549 / #283 target     | 有序 passage 与 entry/exit payload                                                           |
+| 36   | `CanonicalFrameConflictZoneRegion`   | #549 / #283 target     | 可选 2.5D region，只进 Spatial                                                               |
 
 ### 13.3 实体字段
 
-Identity 正反表覆盖可构造种类（修订 2：21 种 + 种类 21 空位）。本表只冻结 Traffic retained 标量/向量；
+Identity 正反表覆盖可构造种类（现行修订 2：21 种；#549 target 修订 3：23 种；种类 21
+始终为空位）。本表只冻结 Traffic retained 标量/向量；
 未列出的 UTF-8、身份前像、来源位置一律不投影。
 
-| 实体               | 本切片进入 Traffic 的字段                                                                        | 明确不进入                                                              |
-| ------------------ | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| `RoadCorridor`     | `reference_section`；元素 range（角色 2）                                                        | 无额外显示名                                                            |
-| `RoadSection`      | `road_corridor`；车道 range（角色 3）；有类型 `FacilityKind`（seed 代码或冷 intern id）          | 原文 `kind_id` UTF-8 热列                                               |
-| `AuthoringLane`    | `road_section`；`edge_chain`；可选 `lane_group`                                                  | 无                                                                      |
-| `LaneEdge`         | #439 已有长度/限速/CSR；本切片补**可选**编制属主、内部边属主与停止线反向                         | 强制全覆盖属主；一边多条停止线                                          |
-| `Junction`         | `movements` range                                                                                | 任何 approach 实体或 UTF-8 key                                          |
-| `Movement`         | `junction`；`maneuver_paths` range                                                               | `directed_entry_approach_key`、`directed_exit_approach_key`             |
-| `ManeuverPath`     | #439 已有 movement/edges/gates/waiting                                                           | 无                                                                      |
-| `ManeuverGate`     | `maneuver_path`、`transition_index`、`stop_line`、signal-control 标签与可选 `SignalGroup`        | 法规或冲突字段                                                          |
-| `WaitingZone`      | `maneuver_path`、`entry_gate`、`release_gate`、`max_occupancy`                                   | 占用账本、队列、#282 runtime 状态                                       |
-| `StopLine`         | `lane_edge`；机动门 range                                                                        | 无                                                                      |
-| `SignalGroup`      | `controller`；机动门反向 range                                                                   | 无                                                                      |
-| `SignalController` | `offset_ms`、`cycle_duration_ms`；group/phase ranges                                             | 感应/自适应程序                                                         |
-| `SignalPhase`      | `controller`、`duration_ms`；`(SignalGroup, aspect)` 状态表；seal 派生的累计互斥 `end_offset_ms` | 未冻结的 aspect 扩展；每 tick 对 duration 前缀求和                      |
-| `ParkingArea`      | 车位反向 range                                                                                   | 无                                                                      |
-| `ParkingSpace`     | 可选 area；入口/出口边与 progress；lateral、heading、length、width                               | 编辑器预览几何                                                          |
-| `LaneGroup`        | `road_section`；成员 range                                                                       | 动态 lane-use overlay                                                   |
-| `FacilityBand`     | `road_corridor` 属主句柄；有类型 `FacilityKind`（seed 代码或冷 intern id）                       | 原文 `kind_id` UTF-8 热列；几何留在 Spatial；不得成为 AccessRule target |
-| `ParticipantClass` | 可选 parent；`depth`、`subtree_enter`、`subtree_exit`                                            | 显示名                                                                  |
-| `AccessRule`       | 目标 kind+ordinal、`effect`、参与者类别 range、`priority`；seal 后的共享稀疏准入平面             | `regulation` 全部 UTF-8；查询时扫描规则表                               |
-| `VehicleProfile`   | `participant_class` 与全部跟驰数值列                                                             | 显示名                                                                  |
-| `CanonicalFrame`   | 仅维持 Identity/基数；几何在 Spatial                                                             | Traffic 不复制 frame 点列                                               |
+| 实体                | 本切片进入 Traffic 的字段                                                                        | 明确不进入                                                              |
+| ------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `RoadCorridor`      | `reference_section`；元素 range（角色 2）                                                        | 无额外显示名                                                            |
+| `RoadSection`       | `road_corridor`；车道 range（角色 3）；有类型 `FacilityKind`（seed 代码或冷 intern id）          | 原文 `kind_id` UTF-8 热列                                               |
+| `AuthoringLane`     | `road_section`；`edge_chain`；可选 `lane_group`                                                  | 无                                                                      |
+| `LaneEdge`          | #439 已有长度/限速/CSR；本切片补**可选**编制属主、内部边属主与停止线反向                         | 强制全覆盖属主；一边多条停止线                                          |
+| `Junction`          | `movements` range                                                                                | 任何 approach 实体或 UTF-8 key                                          |
+| `Movement`          | `junction`；`maneuver_paths` range                                                               | `directed_entry_approach_key`、`directed_exit_approach_key`             |
+| `ManeuverPath`      | #439 已有 movement/edges/gates/waiting                                                           | 无                                                                      |
+| `ManeuverGate`      | `maneuver_path`、`transition_index`、`stop_line`、signal-control 标签与可选 `SignalGroup`        | 法规或冲突字段                                                          |
+| `WaitingZone`       | `maneuver_path`、`entry_gate`、`release_gate`、`max_occupancy`                                   | 占用账本、队列、#282 runtime 状态                                       |
+| `StopLine`          | `lane_edge`；机动门 range                                                                        | 无                                                                      |
+| `SignalGroup`       | `controller`；机动门反向 range                                                                   | 无                                                                      |
+| `SignalController`  | `offset_ms`、`cycle_duration_ms`；group/phase ranges                                             | 感应/自适应程序                                                         |
+| `SignalPhase`       | `controller`、`duration_ms`；`(SignalGroup, aspect)` 状态表；seal 派生的累计互斥 `end_offset_ms` | 未冻结的 aspect 扩展；每 tick 对 duration 前缀求和                      |
+| `ParkingFacility`   | 车位反向 range、virtual capacity、有序 virtual entry/exit anchors                                | 把 virtual capacity 展开为伪泊位或内部路网                              |
+| `ParkingSpace`      | 可选 facility；入口/出口边与 progress；lateral、heading、length、width                           | 编辑器预览几何                                                          |
+| `LaneGroup`         | `road_section`；成员 range                                                                       | 动态 lane-use overlay                                                   |
+| `FacilityBand`      | `road_corridor` 属主句柄；有类型 `FacilityKind`（seed 代码或冷 intern id）                       | 原文 `kind_id` UTF-8 热列；几何留在 Spatial；不得成为 AccessRule target |
+| `ParticipantClass`  | 可选 parent；`depth`、`subtree_enter`、`subtree_exit`                                            | 显示名                                                                  |
+| `AccessRule`        | 目标 kind+ordinal、`effect`、参与者类别 range、`priority`；seal 后的共享稀疏准入平面             | `regulation` 全部 UTF-8；查询时扫描规则表                               |
+| `VehicleProfile`    | `participant_class` 与全部跟驰数值列                                                             | 显示名                                                                  |
+| `CanonicalFrame`    | 仅维持 Identity/基数；几何在 Spatial                                                             | Traffic 不复制 frame 点列                                               |
+| `ConflictZone`      | Junction 属主、反向 stream CSR                                                                   | 几何生成的行为成员、运行时 claim/grant                                  |
+| `ParticipantStream` | Junction、ManeuverPath、有序 passages、派生 admission Gate 与 Gate coverage                      | 从 Spatial overlap 重新推断 passage                                     |
+
+`ConflictZoneRegion` 只进入可选 `SharedSpatialNetwork`：按 zone ordinal 形成唯一可选 region，
+保存 canonical frame、规范 ring 与高度范围；缺失 region 不影响 headless 冲突静态语义。
 
 ### 13.4 反向索引与闭合
 
@@ -591,7 +615,9 @@ Identity 正反表覆盖可构造种类（修订 2：21 种 + 种类 21 空位�
   不得靠扫描全部 StopLine 实现该查询。
 - `StopLine ↔ ManeuverGate`；
 - `ManeuverGate ↔ SignalGroup`（门侧绑定仍可选）；
-- `ParkingSpace ↔ ParkingArea`（area 仍可选）；
+- `ParkingSpace ↔ ParkingFacility`（facility 仍可选）；
+- `Junction ↔ ConflictZone`、`Junction ↔ ParticipantStream`、
+  `ManeuverPath ↔ ParticipantStream` 与 `ConflictZone ↔ ParticipantStream passage`；
 - 路线出现项反向 **不再建立**（ADR 0029）；机动路径/门/等待区仍按自身 owner range 闭合。
 
 一对多关系使用 `RangeU32 + flat payload`。可选一对一反向使用并行 presence/bitset 或

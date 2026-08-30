@@ -1,7 +1,7 @@
 # 编译器后发射检查与最小发布闭合
 
-> **状态**：Accepted（#299 G2 实现；2026-08-18）<br>
-> **日期**：2026-08-18<br>
+> **状态**：Accepted（#299 G2 实现；2026-08-18）；#549 分块对象检查修订处于 Review<br>
+> **日期**：2026-08-30<br>
 > **权威决策**：ADR 0024<br>
 > **实现状态**：G2 生产实现与本地验证已完成；G3/G4 证据和治理闭合仍按 Issue Gate Ledger 推进
 
@@ -104,12 +104,18 @@ pub fn check_post_emission_bundle<'a>(
 - 通过只读 accessor 暴露上述值；
 - 不实现序列化、签名、trust 或 publication 状态转换。
 
+上述 slice API 是当前实现。#549 target 还必须提供等价的有界、可重读对象来源入口，使
+writer/installer 可以逐 chunk 关闭对象并由 checker 顺序扫描，而不要求 LFCA、LFSM、
+LFSD 三份百万级完整对象同时驻留。完整 slice 只作为该入口的内存适配器；两种入口必须
+产生相同 digest、exact length、`NetworkRevisionId`、binding 与 first error。能力只保存
+后续安装/构建所需的受检来源句柄或借用，不复制三份对象，也不暴露未验证 chunk。
+
 轻量 capability 可以实现 `Clone`/`Copy`；不可伪造来自字段私有性和构造入口，而不是
 一次性消费技巧。
 
-#496 / ADR 0028：后发射预检只接纳对象版本 `2`。LFSM
-`sourceMapFormatVersion = 2`，`canonicalArtifactFormatVersion` 必须与所绑 LFCA 一致。
-LFSD `semanticDiffFormatVersion = 2`；Genesis target 合同行须与 LFCA 一致。
+#496 / ADR 0028 的当前实现只接纳 LFCA/LFSM/LFSD 对象版本 `3/2/2`。#549 target 原子
+切换到 `4/3/3`；`canonicalArtifactFormatVersion` 必须与所绑 LFCA 一致，Genesis target
+合同行须与 LFCA 一致。两套版本不在同一生产 reader 中并存。
 `NetworkRevisionId` 仍按 `portable-canonical-artifact.md` §4.2 的 v1 算法重算
 （派生版本保持 `1`）。公开入口不带世代后缀。详见 ADR 0028。
 
@@ -117,8 +123,10 @@ LFSD `semanticDiffFormatVersion = 2`；Genesis target 合同行须与 LFCA 一�
 
 检查顺序固定以下安全约束，但不把内部扫描遍数冻结为协议：
 
-1. 用三个 slice 的已知长度逐一检查 `ObjectBytes`；
-2. checked-add 三个长度并检查 `CandidateStagingBytes`；
+1. 用三个对象来源的已知 exact length 逐一检查调用方 `maxObjectBytes`；
+2. 当前 slice 入口 checked-add 三个长度并检查 `CandidateStagingBytes`；#549 来源入口只
+   计量实际同时 retained/staged bytes，不得仅因三个对象 exact length 之和超过旧 48 MiB
+   常量而拒绝合法的百万级修订；
 3. 分别运行 `preflight_object_values`；
 4. 计算三对象 SHA-256 和精确长度；
 5. 从 LFCA 六个语义节重算 `NetworkRevisionId`；

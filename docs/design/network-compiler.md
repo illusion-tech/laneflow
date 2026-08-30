@@ -10,7 +10,8 @@
 > `compiler-post-emission-check-and-minimal-publication-closure.md` 与
 > `shared-static-network.md`。
 
-**文档状态**: Accepted（#291 target design + ADR 0025 / #300 G1 修订）；
+**文档状态**: Accepted（#291 target design + ADR 0025 / #300 G1 修订）；#549 对 LFCA 4、
+Identity registry revision 3 与百万级单路网容量的统一修订处于 Review<br>
 #315 共同受检模块接入契约已实现；#297 current JSON 编译器导入设计已取消<br>
 **最后更新**: 2026-08-27<br>
 **适用范围**: 权威来源模块图（Authoritative Source Module Graph）、编译器中间表示
@@ -531,8 +532,8 @@ add/remove。
 ### 7.3 标识 v1 登记表（Identity v1 Registry）
 
 `identityEncodingVersion = 1` 冻结公共字节 envelope；
-`identityRegistryRevision = 2` 冻结本表的 kind、slug 和 required tag sequence
-（种类 21 与标签 30 为保留空位，不发射、不解码；ADR 0029）。
+`identityRegistryRevision = 3` 冻结本表的 kind、slug 和 required tag sequence
+（种类 21 与标签 23/30 为保留空位，不发射、不解码；ADR 0029、#549）。
 required tags 必须按数值严格递增编码：
 
 本表是 #291 G1 已接受的 v1 设计，但尚无已发布的 known vector、规范制品或生产
@@ -542,30 +543,32 @@ reader；因此本次统一 `LaneEdge` 身份、移除 `ParkingSpace` 对可选�
 只能提升 registry revision，修改既有 kind 的字段、标签含义或编码必须提升
 encoding version。
 
-| 代码（Code） | `entityKind`       | 类别（Category）                              | 英文短名（Slug）    | 必需标签（Required Tags） |
-| -----------: | ------------------ | --------------------------------------------- | ------------------- | ------------------------- |
-|            1 | `RoadCorridor`     | 声明（Declaration）                           | `corridor`          | `1,2`                     |
-|            2 | `RoadSection`      | 声明（Declaration）                           | `section`           | `1,3,33`                  |
-|            3 | `AuthoringLane`    | 声明（Declaration）                           | `lane`              | `1,4,32`                  |
-|            4 | `LaneEdge`         | 可寻址拓扑实体（Addressable Topology Entity） | `lane-edge`         | `1,5`                     |
-|            5 | `Junction`         | 声明（Declaration）                           | `junction`          | `1,6`                     |
-|            6 | `Movement`         | 声明（Declaration）                           | `movement`          | `1,8,9,10,34`             |
-|            7 | `ManeuverPath`     | 声明（Declaration）                           | `path`              | `1,7,11,12,13`            |
-|            8 | `ManeuverGate`     | 声明（Declaration）                           | `gate`              | `1,14,15`                 |
-|            9 | `WaitingZone`      | 声明（Declaration）                           | `waiting-zone`      | `1,14,16`                 |
-|           10 | `StopLine`         | 声明（Declaration）                           | `stop-line`         | `1,17`                    |
-|           11 | `SignalGroup`      | 声明（Declaration）                           | `signal-group`      | `1,18`                    |
-|           12 | `SignalController` | 声明（Declaration）                           | `signal-controller` | `1,19`                    |
-|           13 | `SignalPhase`      | 声明（Declaration）                           | `signal-phase`      | `1,20,21`                 |
-|           14 | `ParkingArea`      | 声明（Declaration）                           | `parking-area`      | `1,22`                    |
-|           15 | `ParkingSpace`     | 声明（Declaration）                           | `parking-space`     | `1,24`                    |
-|           16 | `LaneGroup`        | 声明（Declaration）                           | `lane-group`        | `1,25,32`                 |
-|           17 | `FacilityBand`     | 声明（Declaration）                           | `facility-band`     | `1,26,33`                 |
-|           18 | `ParticipantClass` | 声明（Declaration）                           | `participant-class` | `1,27`                    |
-|           19 | `AccessRule`       | 声明（Declaration）                           | `access-rule`       | `1,28`                    |
-|           20 | `VehicleProfile`   | 声明（Declaration）                           | `vehicle-profile`   | `1,29`                    |
-|           21 | *(保留空位)*       | 不发射、不解码                                | —                   | —                         |
-|           22 | `CanonicalFrame`   | 声明（Declaration）                           | `canonical-frame`   | `1,31`                    |
+| 代码（Code） | `entityKind`        | 类别（Category）                              | 英文短名（Slug）     | 必需标签（Required Tags） |
+| -----------: | ------------------- | --------------------------------------------- | -------------------- | ------------------------- |
+|            1 | `RoadCorridor`      | 声明（Declaration）                           | `corridor`           | `1,2`                     |
+|            2 | `RoadSection`       | 声明（Declaration）                           | `section`            | `1,3,33`                  |
+|            3 | `AuthoringLane`     | 声明（Declaration）                           | `lane`               | `1,4,32`                  |
+|            4 | `LaneEdge`          | 可寻址拓扑实体（Addressable Topology Entity） | `lane-edge`          | `1,5`                     |
+|            5 | `Junction`          | 声明（Declaration）                           | `junction`           | `1,6`                     |
+|            6 | `Movement`          | 声明（Declaration）                           | `movement`           | `1,8,9,10,34`             |
+|            7 | `ManeuverPath`      | 声明（Declaration）                           | `path`               | `1,7,11,12,13`            |
+|            8 | `ManeuverGate`      | 声明（Declaration）                           | `gate`               | `1,14,15`                 |
+|            9 | `WaitingZone`       | 声明（Declaration）                           | `waiting-zone`       | `1,14,16`                 |
+|           10 | `StopLine`          | 声明（Declaration）                           | `stop-line`          | `1,17`                    |
+|           11 | `SignalGroup`       | 声明（Declaration）                           | `signal-group`       | `1,18`                    |
+|           12 | `SignalController`  | 声明（Declaration）                           | `signal-controller`  | `1,19`                    |
+|           13 | `SignalPhase`       | 声明（Declaration）                           | `signal-phase`       | `1,20,21`                 |
+|           14 | `ParkingFacility`   | 声明（Declaration）                           | `parking-facility`   | `1,22`                    |
+|           15 | `ParkingSpace`      | 声明（Declaration）                           | `parking-space`      | `1,24`                    |
+|           16 | `LaneGroup`         | 声明（Declaration）                           | `lane-group`         | `1,25,32`                 |
+|           17 | `FacilityBand`      | 声明（Declaration）                           | `facility-band`      | `1,26,33`                 |
+|           18 | `ParticipantClass`  | 声明（Declaration）                           | `participant-class`  | `1,27`                    |
+|           19 | `AccessRule`        | 声明（Declaration）                           | `access-rule`        | `1,28`                    |
+|           20 | `VehicleProfile`    | 声明（Declaration）                           | `vehicle-profile`    | `1,29`                    |
+|           21 | *(保留空位)*        | 不发射、不解码                                | —                    | —                         |
+|           22 | `CanonicalFrame`    | 声明（Declaration）                           | `canonical-frame`    | `1,31`                    |
+|           23 | `ConflictZone`      | 声明（Declaration）                           | `conflict-zone`      | `1,34,35`                 |
+|           24 | `ParticipantStream` | 声明（Declaration）                           | `participant-stream` | `1,34,36`                 |
 
 本表冻结的是 identity v1 已进入当前车辆 projection 的实体集合，不是目标 Traffic
 Runtime 永久封闭的参与单元种类表。`VehicleProfile` 只服务当前道路机动车执行域；
@@ -586,11 +589,16 @@ Runtime 永久封闭的参与单元种类表。`VehicleProfile` 只服务当前�
 - `ManeuverPath`、Signal phase、LaneGroup 和 FacilityBand 继续使用各自登记的
   parent StableId。
 
-`ParkingSpace.areaId` 是可选组织关系，不是停车位身份所有者：字段显式存在时，
-canonical LIR 保存有类型的 `ParkingSpace -> ParkingArea` 关系；字段缺省时不生成
+`ParkingSpace.facilityId` 是可选组织关系，不是停车位身份所有者：字段显式存在时，
+canonical LIR 保存有类型的 `ParkingSpace -> ParkingFacility` 关系；字段缺省时不生成
 该关系。两种情况下 `ParkingSpace` 都只以 authoring namespace 与 tag 24
-`parkingSpaceKey` 派生 StableId128，区域归属变化不得造成停车位身份漂移，也不得由
-编译器臆造缺失的停车区域。
+`parkingSpaceKey` 派生 StableId128，设施归属变化不得造成停车位身份漂移，也不得由
+编译器臆造缺失的停车设施。
+
+`ConflictZone` 与 `ParticipantStream` 都以所属 `Junction` 的 StableId 作为父锚点，
+分别配合 tag 35 `conflictZoneKey` 与 tag 36 `participantStreamKey`。stream 对
+`ManeuverPath` 的引用不进入身份前像；路径几何或拓扑调整不得无故改写同一编制 stream
+的身份，重新归属 Junction 则必须改变身份。
 
 Movement 的 left/straight/right/u-turn 分类是可重算元数据，不参与标识。
 路线只经 runtime `register_route` 使用 generation-aware handle，不获得持久
@@ -633,10 +641,13 @@ validated canonical LIR 必须保存有类型（Typed）的
 - 缺失边键只能产生待确认建议，未持久化确认前不得发布匿名、按几何或按序号派生的
   边身份。
 
-`ConflictZone`、`ParticipantStream`、`JunctionGroup` 等未来 domain 只有在各自 G1
-冻结后才 append 新 kind code。新增 kind 提升 `identityRegistryRevision`，但不改变
-既有 kind 的 bytes/ID；修改既有 kind 的 required field、tag 含义或编码必须提升
-`identityEncodingVersion`。
+#549 统一登记 `ParkingFacility`、`ConflictZone` 与 `ParticipantStream`，并将
+`identityRegistryRevision` 提升到 3；生产实现必须与 LFCA 4、LFSM 3、LFSD 3 的
+clean break 原子交付，不得在现行 LFCA 3 reader 中提前接受 revision 3。`JunctionGroup`
+等其它未来 domain 只有在各自 G1 冻结后才能 append 新 kind code。新增 kind 提升
+registry revision，但不改变既有 kind 的 bytes/ID；修改既有 kind 的 required field、
+tag 含义或编码必须提升 `identityEncodingVersion`。LFCA 的物理分块只改变承载方式；
+typed ordinal 与 StableId 仍在完整逻辑表范围内定义，不得改成 `(chunk,row)` 身份。
 
 ### 7.4 字段标签登记表（Field Tag Registry）
 
@@ -663,7 +674,8 @@ validated canonical LIR 必须保存有类型（Typed）的
 |          19 | `signalControllerKey`      | ASCII 字节（Bytes）        |
 |          20 | `signalControllerStableId` | 16 个原始字节（Raw Bytes） |
 |          21 | `phaseKey`                 | ASCII 字节（Bytes）        |
-|          22 | `parkingAreaKey`           | ASCII 字节（Bytes）        |
+|          22 | `parkingFacilityKey`       | ASCII 字节（Bytes）        |
+|          23 | *(保留空位)*               | 不得发射、不得解码         |
 |          24 | `parkingSpaceKey`          | ASCII 字节（Bytes）        |
 |          25 | `laneGroupKey`             | ASCII 字节（Bytes）        |
 |          26 | `facilityBandKey`          | ASCII 字节（Bytes）        |
@@ -675,6 +687,8 @@ validated canonical LIR 必须保存有类型（Typed）的
 |          32 | `roadSectionStableId`      | 16 个原始字节（Raw Bytes） |
 |          33 | `roadCorridorStableId`     | 16 个原始字节（Raw Bytes） |
 |          34 | `junctionStableId`         | 16 个原始字节（Raw Bytes） |
+|          35 | `conflictZoneKey`          | ASCII 字节（Bytes）        |
+|          36 | `participantStreamKey`     | ASCII 字节（Bytes）        |
 
 Boundary/Approach/curve segment 若成为独立 LIR table、可被引用或需要独立 semantic
 diff，必须通过后续 registry revision 获得 kind；否则只能作为所属 declaration 的
