@@ -282,7 +282,7 @@ LFSD Genesis 的 target `ContractVersions` / `ExecutionContract` 必须与所绑
 `LaneEdgeGeometry` / `segments` 仍为 `f32` 米，不进本表。
 
 检入走廊必须按 v2 重生。`NetworkRevisionId` **随语义载荷字节变化**；哈希算法仍是
-`portable-canonical-artifact.md` §4.2 的 v1：
+[`portable-canonical-artifact.md` §3.8](../design/portable-canonical-artifact.md#38-路网修订标识) 的 v1：
 `SHA-256("laneflow.network-revision.v1\0" || canonicalNetworkSemanticPayloadV1)`
 （组帧仍为语义节 `0x0001..0x0006`）。**禁止**空升 `networkRevisionDerivationVersion`
 却不定义新算法。毫米字段改变载荷字节，同一套 v1 算法已得到不同 ID。

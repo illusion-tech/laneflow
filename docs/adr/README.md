@@ -62,14 +62,15 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
   已选择按模块 size-prefixed FlatBuffers 作为 production source 编码，并冻结 A → C 演进、
   未发布兼容边界和后继差异职责（Accepted；#296 FlatBuffers G1；§2.1 的 22 向量来源
   形状已被 Accepted ADR 0029 部分取代）
-- `0024`: compiler 对最终 LFCA/LFSM/LFSD exact bytes 执行共享、无分配的后发射检查，
-  以借用型能力守卫最小发布闭合；不交付独立 validator/receipt，LFCP v2 一次性移除
-  receipt 且不兼容读取 v1（Accepted；#299 G1 Pass）
+- `0024`: compiler 对最终 LFCA/LFSM/LFSD 不可变、可重读对象来源执行共享、无分配的
+  后发射检查，以受检能力守卫最小发布闭合；不交付独立 validator/receipt，LFCP v2
+  一次性移除 receipt 且不兼容读取 v1（Review；既有后发射决定已实现，LFCA 4
+  staged-source 容量修订待接受）
 - `0025`: 从受检 LFCA 构建性能优先、不可变、进程内共享的
   `SharedNetworkRevision`；Traffic/Identity/Spatial 物理拆分并绑定同一修订，不交付
   静态镜像文件/ABI、descriptor/完整性清单、mmap 或磁盘缓存，保存只接受已进入
   Runtime 的 committed 道路状态或已认证 LFCA asset reference；可编辑 session 在共享根外
-  保留 exact LFCA diff base，但不把它写入存档（Accepted；#300 G1 Pass）
+  保留 exact LFCA diff base，但不把它写入存档（Review；LFCA 4 百万级分块输入修订待接受）
 - `0026`: 推倒 G3/G4 自然语言门禁，改为原生 PullRequestReview Check、Merge Queue
   盖章与收窄的 commit 校验；退役 Schema Publication / ADR 0011 公共发布义务；
   External Review、六项 required checks 与相关启用顺序已被 0027 取代，其它决策继续
@@ -81,11 +82,11 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
   `4..=1000` ms，已提交速度 `u32` mm/s；有折线边长由规范折线弧长派生并写回 IR；
   准入后 Typed AST / HIR / MIR / LIR 交通一维与制品同一套整数毫米（#500）；
   已部分取代 ADR 0014 的 current-`f64` 生产实施与残差 `f32` 目标合同
-  （Accepted；#496 / #500）
+  （Review；整数毫米决定保持，LFCA 4 合同轴修订待接受）
 - `0029`: 路网产品删除预编译 `StaticRoute`；`TrafficWorld` 路线入口只留
   `register_route`；Identity 种类 21 / 字段标签 30 / 关系角色 13–16 保留空位；
-  对象 `formatVersion = 3`；走廊示例边序列改由 catalog 0.3 拥有
-  （Accepted；#498 G1）
+  对象 `formatVersion = 4`；走廊示例边序列改由 catalog 0.3 拥有
+  （Review；路线退役决定保持，统一 LFCA 4 登记修订待接受）
 
 ## 命名规则
 
