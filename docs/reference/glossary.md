@@ -502,7 +502,7 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 | 参与者类别     | `ParticipantClass`                                         | 数据声明、可继承的准入分类；不定义交通执行域，也不证明对应运行时行为已经实现。                                  |
 | 准入规则       | `AccessRule`                                               | 对参与者与目标施加允许、拒绝或约束效果的静态规则。                                                              |
 | 车辆配置       | `VehicleProfile`                                           | 冻结车辆运动与安全参数的静态配置。                                                                              |
-| 静态路线       | `StaticRoute`                                              | Identity 种类代码 21 与字段标签 30 的保留空位，禁止出现；路线只经 `register_route` 进入每世界表。               |
+| 静态路线       | `StaticRoute`                                              | 不属于现行 Identity 或制品登记；路线只经 `register_route` 进入每世界表。                                        |
 | 规范坐标框架   | `CanonicalFrame`                                           | 空间几何和位姿共享的稳定局部坐标框架。                                                                          |
 | 冲突区         | `ConflictZone`                                             | 多个参与者流可能发生空间冲突、需要运行时裁决的区域。                                                            |
 | 参与者流       | `ParticipantStream`                                        | 进入冲突裁决的有向参与者流。                                                                                    |

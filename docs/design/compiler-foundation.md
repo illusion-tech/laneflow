@@ -389,9 +389,8 @@ pub struct CompilationUnit {
 #315 G2 已把此前承载共同有类型抽象语法树声明的私有 `SyntheticDeclaration` 改名为
 `TypedAstDeclaration`。HIR 只遍历
 `TypedAstModule` 与 `TypedAstDeclaration`，不能按 `SourceLanguage`、前端种类或公开
-模块封装在记录级分支。#315 不提前增加 `SourceLanguage` 变体；#296 FlatBuffers G1 登记未发布
-`RoadEditingSource = 3`，旧未发布 `GeometryDocument = 2` 不形成兼容或数值别名；不增加
-current JSON 来源语言。
+模块封装在记录级分支。`SourceLanguage` 连续登记为 `1=SyntheticDsl`、
+`2=RoadEditingSource`；不增加 current JSON 来源语言。
 
 `CompilationUnitBuilder` 的公开入口保持具体且封闭：
 
@@ -869,8 +868,8 @@ owner-local conflict passages 与可选 `ConflictZoneRegion` 纳入同一确定�
 | 车辆配置       | 当前态既有车辆跟驰模型的 `VehicleProfile` 静态参数                                                                                                | 把车辆配置提升为所有交通执行域的公共基类                                       |
 | 空间           | 显式规范坐标框架（`CanonicalFrame`）、已量化规范 `f32` 折线、可选 `ConflictZoneRegion`、长度 / 连续性校验                                         | 曲线、高程求值、曲线细分（tessellation）和几何文档前端                         |
 
-领域专用语言必须能表达标识登记表修订 3 的全部 **可构造** 实体种类（种类 21、
-字段标签 23 与 30 为保留空位，不得声明）。支持“声明该实体”不表示对应交通运行时
+领域专用语言必须能表达标识登记表修订 3 的全部 **可构造** 实体种类（kind `1..=23`、
+field tag `1..=34` 连续登记）。支持“声明该实体”不表示对应交通运行时
 执行域或动态能力已经实现。
 
 ### 6.3 迁移场景
@@ -893,13 +892,14 @@ G1 曾冻结两个 current JSON 固定样例的等价迁移。这些 JSON 文件
 
 - `StableId128([u8; 16])` 与有类型包装；
 - `identityEncodingVersion = 1`；
-- `identityRegistryRevision = 3`（种类 21、标签 23 / 30 保留空位，ADR 0029）；
+- `identityRegistryRevision = 3`（kind `1..=23`、tag `1..=34` 连续登记，ADR 0029）；
 - 实体种类代码 / 英文短名、字段标签代码 / 编码和必需标签序列；
 - `LFID` 魔数、文本形态规则和 `BLAKE3` 域分隔字节。
 
 登记表保留 `identityEncodingVersion = 1` 与既有 kind 的 canonical bytes/StableId；
-kind 14 / tag 22 使用 `ParkingFacility` / `parkingFacilityKey`，kind 23/24 与 tag 35/36
-分别用于 `ConflictZone` / `ParticipantStream`，kind 21、tag 23/30 禁止编码。
+kind 14 / tag 22 使用 `ParkingFacility` / `parkingFacilityKey`，kind 21/23 与 tag 23/30
+分别用于 `ConflictZone` / `ParticipantStream`，kind 22 / tag 31 的
+`CanonicalFrame` / `canonicalFrameKey` 不变。
 
 `laneflow-compiler` 独立实现：
 
@@ -926,8 +926,7 @@ kind 14 / tag 22 使用 `ParkingFacility` / `parkingFacilityKey`，kind 23/24 �
 
 ### 7.3 验收
 
-- 修订 3 的每个可构造实体种类至少有一个纳入版本控制的已知向量；种类 21 与保留标签
-  不得编码；
+- 修订 3 的每个可构造实体种类至少有一个纳入版本控制的已知向量；
 - 缺失、重复、未知、乱序标签和错误字段长度的负向向量；
 - 同级重排、无关插入、仅几何编辑的变形测试（Metamorphic Test）；
 - `LaneEdge` 覆盖 / 内部角色变化时身份不变，显式替换 / 拆分时使用新键；

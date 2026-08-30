@@ -96,9 +96,10 @@ Rust 方法名、错误变体拼写和夹具字节。合入本文不授权改生
 
 运行时不按边序列内容做内部去重。调用方若要复用同一序列，自己保留句柄。
 
-### 3. 版本闸口与身份空位
+### 3. 版本闸口与连续登记
 
-破坏制品形状，升拒绝闸口；不重编号其余种类。
+破坏制品形状时提升 exact 拒绝闸口。新增语义占用退役或未分配槽位，不改变任何既有
+合法 kind/tag/role 的含义或 StableId。
 
 | 闸口                               | 权威值 |
 | ---------------------------------- | -----: |
@@ -110,15 +111,22 @@ Rust 方法名、错误变体拼写和夹具字节。合入本文不授权改生
 | `constraintContractVersion`        |      2 |
 | `staticExecutionContractVersion`   |      4 |
 
-读器拒绝 `formatVersion != 4`。含 `StaticRoute` 表或种类代码 21 的对象失败关闭。
-不恢复制品旧读器，不为旧字节提供迁移器。
+读器拒绝 `formatVersion != 4`。format 4 的 `tableKind=0x0015` 只允许现行
+`ConflictZone` 行形状；旧 `StaticRoute` 行不能通过字段、身份与关系闭合。不恢复制品旧
+读器，不为旧字节提供迁移器。
 
-Identity 种类代码 21（历史 `StaticRoute`）与字段标签 30（历史 `RouteKey`）改为
-**保留空位**：不发射、不解码为合法种类/字段，不得分配给 `CanonicalFrame` 或其他
-实体。`CanonicalFrame`、`ConflictZone`、`ParticipantStream` 种类代码分别为 22、23、24，
-字段标签 `CanonicalFrameKey` 保持 31。identity backing 长度为 24，代码 21 占空槽；
-可构造 23 项。关系角色 13–16（历史
-静态路线边/三类出现项）同样保留空位，不压缩后续角色代码。
+Identity revision 3 连续登记 23 个种类和 34 个字段标签：`ConflictZone` 复用 kind 21 与
+tag 23，`CanonicalFrame` 保持 kind 22 / tag 31，`ParticipantStream` 使用 kind 23 与
+tag 30。两种新增实体分别要求 `[1,23,34]` / `[1,30,34]`；既有实体 canonical bytes 与
+StableId 不变。`StaticRoute` / `routeKey` 不因编号复用而成为现行语义或兼容别名。
+
+`sourceRelationRole` 同样连续：新增停车设施 virtual entry/exit 使用 13/14，
+`JunctionConflictZone` / `JunctionParticipantStream` 使用 15/16，
+`ParticipantStreamManeuverPath` / `ParticipantStreamConflictPassage` /
+`CanonicalFrameConflictZoneRegion` 使用 30..32；既有 1..12、17..29 不变。LFSM 3 的
+`roadEditingRelationKind` 连续为 0..15，新增四项使用 12..15；property-path
+`containerCode=34` 分配给 `ConflictZoneRegion`；`sourceLanguage` 连续为
+`1=SyntheticDsl, 2=RoadEditingSource`。
 
 LFSM `sourceMapFormatVersion` 与 LFSD `semanticDiffFormatVersion` 均为 3；对象不得再出现
 静态路线行。旧对象因 `formatVersion` 被拒，不单独兼容。
@@ -208,7 +216,7 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 - 不恢复 JSON 运行时入口或 `CoreWorld`。
 - 不把编制曲线、规范折线或车辆配置改出当前权威。
 - 不为过境/BRT 保留空的 `StaticRoute` 表。
-- 不重编号 `CanonicalFrame` 或压缩身份/关系代码。
+- 不改变 `CanonicalFrame` 或任何既有合法身份/关系代码。
 - 不为「理论最长边序列 × 10 km」把路线前缀或 `BoundedDistance` Finite 侧加宽到
   `u64`。
 - 不把 world / install 身份编码进 `RouteHandle`。
@@ -218,7 +226,8 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 
 ## 后果
 
-- LFCA 必选实体表从 22 张变为 21 张（缺 `0x0015`，保留 `0x0016` CanonicalFrame）。
+- LFCA 4 的 23 张实体逻辑表按 `0x0001..=0x0017` 连续登记；`0x0015` 为
+  `ConflictZone`、`0x0016` 为 `CanonicalFrame`、`0x0017` 为 `ParticipantStream`。
 - 道路编辑来源 `format_version = 3`：没有 `StaticRoute` table 与根上的
   `static_routes`；声明向量与 Identity 可构造种类一一对应（23 个）。
   `canonical_frames`、`conflict_zones` 与 `participant_streams` 分别为根表 field id
@@ -229,8 +238,8 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 - 生产 `CompileLimits` 与现行 P100 精确表不再包含 `RouteOccurrenceCount`。
 - 共享 Traffic 不再投影静态路线边序列、出现项、反向索引或 seal 派生的路线距离/
   下一受控转换表。机动路径、门、等待区、停止线仍在共享根，供注册期匹配。
-- 公开 API 删除 `StaticRouteOrdinal` 消费面（Runtime/Adapter/scenario bind）。
-  身份 crate 可保留「代码 21 非法」的失败路径，不保留可构造的 `StaticRoute` 种类。
+- 公开 API 删除 `StaticRouteOrdinal` 消费面（Runtime/Adapter/scenario bind）。身份 crate
+  不保留可构造的 `StaticRoute` 种类；kind 21 只构造 `ConflictZone`。
 
 ## 已考虑的方案
 

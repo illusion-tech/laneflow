@@ -249,7 +249,8 @@ schema 遵守以下闭合规则：
 `SignalPhase`、`ParkingFacility`、`ParkingSpace`、`LaneGroup`、`FacilityBand`、
 `ParticipantClass`、`AccessRule`、`VehicleProfile`、`CanonicalFrame`、`ConflictZone` 和
 `ParticipantStream`。
-种类代码 21 保留空位。
+Identity kind `1..=23` 连续登记，其中 21/22/23 分别为
+`ConflictZone` / `CanonicalFrame` / `ParticipantStream`。
 来源格式可以用较高层 road/cross-section intent 生成其中部分声明，但任何最终稳定实体
 都必须具有 Identity v1 要求的显式、持久 ASCII authoring key；数组位置、table offset
 和几何都不能替代稳定身份。
@@ -334,7 +335,8 @@ entry/exit `PathAnchor`；admission Gate 从同一 ManeuverPath 的 Gate 序列�
 几何只能辅助验证与表现，不能生成或改写行为 passage。
 
 声明、owner-local 地址与 property path 必须逐项投影到
-[`portable-canonical-artifact.md`](portable-canonical-artifact.md) 的 LFSM 3 role 30–36
+[`portable-canonical-artifact.md`](portable-canonical-artifact.md) 的 LFSM 3 role
+13–16 / 30–32
 登记。生成的 Rust/C++/C# binding 与 known vectors 必须由同一 exact schema 和固定命令
 clean-regenerate。
 
@@ -479,9 +481,8 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
 唯一组合是 `format_version = 3`、Road Editing `frontendVersion = 3`、LFCA 4、LFSM 3 与
 LFSD 3。
 
-- 来源描述符固定使用 `SourceLanguage::RoadEditingSource = 3`、
-  `SourceLanguage::as_str() = "road-editing-source"` 和 `frontendVersion = 3`；旧未发布
-  `GeometryDocument` 不得复活；
+- 来源描述符固定使用 `SourceLanguage::RoadEditingSource = 2`、
+  `SourceLanguage::as_str() = "road-editing-source"` 和 `frontendVersion = 3`；
 - `format_version = 3` 是本 exact schema 的精确版本，不是“最低兼容版本”。
   其它版本在语义读取前失败关闭，不提供迁移。
   B1 尚未进入 publication。任何可能让旧 bytes 被不同解释的 wire 或语义变化都必须

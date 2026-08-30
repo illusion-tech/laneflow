@@ -521,7 +521,7 @@ add/remove。
 
 `identityEncodingVersion = 1` 冻结公共字节 envelope；
 `identityRegistryRevision = 3` 冻结本表的 kind、slug 和 required tag sequence
-（种类 21 与标签 23/30 为保留空位，不发射、不解码；ADR 0029）。
+（kind `1..=23`、tag `1..=34` 连续登记；ADR 0029）。
 required tags 必须按数值严格递增编码：
 
 本表冻结 identity v1 的规范登记。新增 kind
@@ -550,10 +550,9 @@ encoding version。
 |           18 | `ParticipantClass`  | 声明（Declaration）                           | `participant-class`  | `1,27`                    |
 |           19 | `AccessRule`        | 声明（Declaration）                           | `access-rule`        | `1,28`                    |
 |           20 | `VehicleProfile`    | 声明（Declaration）                           | `vehicle-profile`    | `1,29`                    |
-|           21 | *(保留空位)*        | 不发射、不解码                                | —                    | —                         |
+|           21 | `ConflictZone`      | 声明（Declaration）                           | `conflict-zone`      | `1,23,34`                 |
 |           22 | `CanonicalFrame`    | 声明（Declaration）                           | `canonical-frame`    | `1,31`                    |
-|           23 | `ConflictZone`      | 声明（Declaration）                           | `conflict-zone`      | `1,34,35`                 |
-|           24 | `ParticipantStream` | 声明（Declaration）                           | `participant-stream` | `1,34,36`                 |
+|           23 | `ParticipantStream` | 声明（Declaration）                           | `participant-stream` | `1,30,34`                 |
 
 本表冻结的是 identity v1 可构造静态实体集合，不是 Traffic
 Runtime 永久封闭的参与单元种类表。`VehicleProfile` 只服务当前道路机动车执行域；
@@ -581,7 +580,7 @@ canonical LIR 保存有类型的 `ParkingSpace -> ParkingFacility` 关系；字�
 编译器臆造缺失的停车设施。
 
 `ConflictZone` 与 `ParticipantStream` 都以所属 `Junction` 的 StableId 作为父锚点，
-分别配合 tag 35 `conflictZoneKey` 与 tag 36 `participantStreamKey`。stream 对
+分别配合 tag 23 `conflictZoneKey` 与 tag 30 `participantStreamKey`。stream 对
 `ManeuverPath` 的引用不进入身份前像；路径几何或拓扑调整不得无故改写同一编制 stream
 的身份，重新归属 Junction 则必须改变身份。
 
@@ -659,20 +658,18 @@ typed ordinal 与 StableId 仍在完整逻辑表范围内定义，不得改成 `
 |          20 | `signalControllerStableId` | 16 个原始字节（Raw Bytes） |
 |          21 | `phaseKey`                 | ASCII 字节（Bytes）        |
 |          22 | `parkingFacilityKey`       | ASCII 字节（Bytes）        |
-|          23 | *(保留空位)*               | 不得发射、不得解码         |
+|          23 | `conflictZoneKey`          | ASCII 字节（Bytes）        |
 |          24 | `parkingSpaceKey`          | ASCII 字节（Bytes）        |
 |          25 | `laneGroupKey`             | ASCII 字节（Bytes）        |
 |          26 | `facilityBandKey`          | ASCII 字节（Bytes）        |
 |          27 | `participantClassKey`      | ASCII 字节（Bytes）        |
 |          28 | `accessRuleKey`            | ASCII 字节（Bytes）        |
 |          29 | `vehicleProfileKey`        | ASCII 字节（Bytes）        |
-|          30 | *(保留空位)*               | 不得发射、不得解码         |
+|          30 | `participantStreamKey`     | ASCII 字节（Bytes）        |
 |          31 | `canonicalFrameKey`        | ASCII 字节（Bytes）        |
 |          32 | `roadSectionStableId`      | 16 个原始字节（Raw Bytes） |
 |          33 | `roadCorridorStableId`     | 16 个原始字节（Raw Bytes） |
 |          34 | `junctionStableId`         | 16 个原始字节（Raw Bytes） |
-|          35 | `conflictZoneKey`          | ASCII 字节（Bytes）        |
-|          36 | `participantStreamKey`     | ASCII 字节（Bytes）        |
 
 Boundary/Approach/curve segment 若成为独立 LIR table、可被引用或需要独立 semantic
 diff，必须通过后续 registry revision 获得 kind；否则只能作为所属 declaration 的

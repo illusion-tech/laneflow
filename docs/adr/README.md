@@ -84,8 +84,8 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
   已部分取代 ADR 0014 的 current-`f64` 生产实施与残差 `f32` 目标合同
   （Review；整数毫米决定保持，LFCA 4 合同轴修订待接受）
 - `0029`: 路网产品删除预编译 `StaticRoute`；`TrafficWorld` 路线入口只留
-  `register_route`；Identity 种类 21 / 字段标签 30 / 关系角色 13–16 保留空位；
-  对象 `formatVersion = 4`；走廊示例边序列改由 catalog 0.3 拥有
+  `register_route`；Identity kind `1..=23`、field tag `1..=34` 与 relation role
+  `1..=32` 连续登记；对象 `formatVersion = 4`；走廊示例边序列改由 catalog 0.3 拥有
   （Review；路线退役决定保持，统一 LFCA 4 登记修订待接受）
 
 ## 命名规则

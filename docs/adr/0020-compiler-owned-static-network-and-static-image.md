@@ -190,8 +190,10 @@ publishable programmatic generator 必须保留 build ID、参数、seed、names
 Parking、cross-section/access/profile、canonical frame、`ConflictZone` 与
 `ParticipantStream` declaration，并统一使用 `ParkingFacility` 名称；既有 identity
 canonical bytes 不变。
-种类 21 保留空位，不覆盖 `StaticRoute`（ADR 0029）。新增 kind 只 append registry
-revision；修改既有 kind 的字段集合、tag 含义或编码必须提升 encoding version。完整
+kind `1..=23` 与 field tag `1..=34` 连续登记；新增的 `ConflictZone` / `ParticipantStream`
+使用已退役且从未对外发布的编号槽位，不改变任何既有合法 kind/tag 或 StableId
+（ADR 0029）。新增 kind 只 append registry revision；修改既有 kind 的字段集合、tag 含义
+或编码必须提升 encoding version。完整
 kind/tag/required-sequence
 表以 `network-compiler.md` 为规范。所有**定义子实体身份**的父子关系必须以父实体
 StableId 作为父锚点，不能只复制父实体在其来源模块内稳定的裸局部 key；这样跨模块
