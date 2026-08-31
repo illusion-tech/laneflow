@@ -1,15 +1,16 @@
 use laneflow_static_contract::{
-    AccessEffect, LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
-    ParticipantClassOrdinal, WaitingZoneOrdinal,
+    AccessEffect, ConflictZoneOrdinal, LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
+    ParticipantClassOrdinal, ParticipantStreamOrdinal, WaitingZoneOrdinal,
 };
 use laneflow_static_network::{
-    AccessCell, BoundedDistance, SharedManeuverNetwork, SharedTrafficNetwork,
+    AccessCell, BoundedDistance, ConflictPathAnchor, SharedManeuverNetwork, SharedNetworkRevision,
+    SharedTrafficNetwork,
 };
 
 #[cfg(test)]
 use std::cell::Cell;
 
-use crate::{RouteError, VehicleState};
+use crate::{ConflictRuntimeUnavailable, RouteError, RouteHandle, VehicleState};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ManeuverOccurrence {
@@ -43,6 +44,32 @@ pub(crate) struct WaitingOccurrence {
     pub release_hop: u32,
 }
 
+/// 路线 occurrence 坐标；同一 `LaneEdgeOrdinal` 在循环路线中的不同下标不会折叠。
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct RoutePosition {
+    pub route_edge_index: u32,
+    pub progress_mm: u32,
+}
+
+/// `ParticipantStream` owner-local passage 在一条 compiled route 中的一次出现。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ConflictPassageOccurrence {
+    pub stream: ParticipantStreamOrdinal,
+    pub passage_local_index: u32,
+    pub zone: ConflictZoneOrdinal,
+    pub maneuver_index: u32,
+    pub admission_hop: u32,
+    pub entry: RoutePosition,
+    pub clearance: RoutePosition,
+}
+
+/// `conflicts` 中属于一个 admission hop 的连续半开区间。
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ConflictGateRange {
+    pub start: u32,
+    pub len: u32,
+}
+
 /// 本世界 compiled 路线：分段 `u32` 前缀、后缀 `BoundedDistance`、hop 门、
 /// 受控 hop 链和限速下降转换。
 /// 不上 `u64`，不把 world 身份写进 `RouteHandle`，不存「当前红灯」（ADR 0028 / 0029）。
@@ -58,6 +85,34 @@ pub(crate) struct CompiledRoute {
     pub next_controlled: Vec<Option<NextControlled>>,
     pub speed_limit_drop: Vec<SpeedLimitDrop>,
     pub waiting: Vec<WaitingOccurrence>,
+    pub conflicts: Vec<ConflictPassageOccurrence>,
+    pub conflict_gate_ranges: Vec<ConflictGateRange>,
+    pub final_conflict_clearance: Option<(RoutePosition, u32)>,
+}
+
+#[cfg(test)]
+impl CompiledRoute {
+    fn retained_logical_bytes(&self) -> u64 {
+        logical_vec_bytes::<LaneEdgeOrdinal>(self.edges.len())
+            + logical_vec_bytes::<ManeuverOccurrence>(self.maneuvers.len())
+            + logical_vec_bytes::<Option<ManeuverGateOrdinal>>(self.hop_gate.len())
+            + logical_vec_bytes::<BoundedDistance>(self.remaining_to_end.len())
+            + logical_vec_bytes::<u32>(self.occurrence_segments.len())
+            + logical_vec_bytes::<u32>(self.occurrence_offsets.len())
+            + logical_vec_bytes::<u32>(self.segment_totals.len())
+            + logical_vec_bytes::<Option<NextControlled>>(self.next_controlled.len())
+            + logical_vec_bytes::<SpeedLimitDrop>(self.speed_limit_drop.len())
+            + logical_vec_bytes::<WaitingOccurrence>(self.waiting.len())
+            + logical_vec_bytes::<ConflictPassageOccurrence>(self.conflicts.len())
+            + logical_vec_bytes::<ConflictGateRange>(self.conflict_gate_ranges.len())
+    }
+}
+
+#[cfg(test)]
+fn logical_vec_bytes<T>(len: usize) -> u64 {
+    u64::try_from(len)
+        .unwrap_or(u64::MAX)
+        .saturating_mul(u64::try_from(std::mem::size_of::<T>()).expect("type size fits u64"))
 }
 
 #[derive(Clone, Debug)]
@@ -208,9 +263,12 @@ fn record_occurrence(
 /// 注册期唯一出现项编译器。物化分段 `u32` 索引、受控 hop 链与限速下降转换；
 /// 不上 `u64`，不冻当前红灯。
 pub(crate) fn compile_route(
-    traffic: &SharedTrafficNetwork,
+    revision: &SharedNetworkRevision,
     edges: &[LaneEdgeOrdinal],
+    live_conflict_occurrence_count: u64,
+    route_conflict_occurrence_capacity: u64,
 ) -> Result<CompiledRoute, RouteError> {
+    let traffic = revision.traffic();
     if edges.is_empty() {
         return Err(RouteError::EmptySequence);
     }
@@ -303,6 +361,20 @@ pub(crate) fn compile_route(
         hop_gate[hop] = hop_gate_at(network, &maneuvers, hop, edges[hop], edges[hop + 1]);
     }
 
+    let conflict_occurrence_count = count_conflict_occurrences(revision, &maneuvers)?;
+    checked_conflict_occurrence_total(
+        live_conflict_occurrence_count,
+        conflict_occurrence_count,
+        route_conflict_occurrence_capacity,
+    )?;
+    let (conflicts, conflict_gate_ranges, final_conflict_clearance) = compile_conflicts(
+        revision,
+        edges,
+        &maneuvers,
+        &hop_gate,
+        conflict_occurrence_count,
+    )?;
+
     let mut next_controlled = try_route_vec_filled(hop_count, None)?;
     let mut next: Option<NextControlled> = None;
     for hop in (0..hop_count).rev() {
@@ -353,6 +425,9 @@ pub(crate) fn compile_route(
         next_controlled,
         speed_limit_drop,
         waiting,
+        conflicts,
+        conflict_gate_ranges,
+        final_conflict_clearance,
     })
 }
 
@@ -444,6 +519,280 @@ fn compile_waiting(
         }
     }
     Ok(waiting)
+}
+
+fn count_conflict_occurrences(
+    revision: &SharedNetworkRevision,
+    maneuvers: &[ManeuverOccurrence],
+) -> Result<u64, RouteError> {
+    let conflict = revision.conflict();
+    let mut count = 0_u64;
+    for occurrence in maneuvers {
+        let streams = conflict
+            .maneuver_path_participant_streams(occurrence.path)
+            .ok_or(RouteError::ManeuverMismatch)?;
+        for stream in streams {
+            let view = conflict
+                .participant_stream(*stream)
+                .filter(|view| view.maneuver_path() == occurrence.path)
+                .ok_or(RouteError::ManeuverMismatch)?;
+            count = count
+                .checked_add(
+                    u64::try_from(view.passages().len())
+                        .map_err(|_| RouteError::AllocationFailed)?,
+                )
+                .ok_or(RouteError::AllocationFailed)?;
+        }
+    }
+    Ok(count)
+}
+
+fn checked_conflict_occurrence_total(
+    current: u64,
+    added: u64,
+    capacity: u64,
+) -> Result<u64, RouteError> {
+    let total =
+        current
+            .checked_add(added)
+            .ok_or(RouteError::ConflictOccurrenceCapacityExceeded {
+                current,
+                added,
+                capacity,
+            })?;
+    if total > capacity {
+        return Err(RouteError::ConflictOccurrenceCapacityExceeded {
+            current,
+            added,
+            capacity,
+        });
+    }
+    Ok(total)
+}
+
+fn map_conflict_anchor(
+    revision: &SharedNetworkRevision,
+    route_edge_count: usize,
+    occurrence: ManeuverOccurrence,
+    anchor: ConflictPathAnchor,
+) -> Result<RoutePosition, RouteError> {
+    let traffic = revision.traffic();
+    let path = traffic
+        .maneuvers()
+        .maneuver_path(occurrence.path)
+        .ok_or(RouteError::ManeuverMismatch)?;
+    let path_edge_count = path.edges().len();
+    let expected_exit = usize::try_from(occurrence.entry_route_edge_index)
+        .expect("route edge index fits usize")
+        .checked_add(path_edge_count)
+        .and_then(|value| value.checked_sub(1))
+        .ok_or(RouteError::ManeuverMismatch)?;
+    if u32::try_from(expected_exit).ok() != Some(occurrence.exit_route_edge_index) {
+        return Err(RouteError::ManeuverMismatch);
+    }
+
+    let position = match anchor {
+        ConflictPathAnchor::Gate(gate) => {
+            let gate = traffic
+                .relations()
+                .maneuver_gate(gate)
+                .filter(|gate| gate.path() == occurrence.path)
+                .ok_or(RouteError::ManeuverMismatch)?;
+            let route_edge_index = occurrence
+                .entry_route_edge_index
+                .checked_add(gate.transition_index())
+                .and_then(|value| value.checked_add(1))
+                .ok_or(RouteError::ManeuverMismatch)?;
+            RoutePosition {
+                route_edge_index,
+                progress_mm: 0,
+            }
+        }
+        ConflictPathAnchor::EdgeBoundary(boundary) => {
+            let boundary = usize::try_from(boundary).expect("path boundary fits usize");
+            if boundary > path_edge_count {
+                return Err(RouteError::ManeuverMismatch);
+            }
+            if boundary < path_edge_count {
+                RoutePosition {
+                    route_edge_index: occurrence
+                        .entry_route_edge_index
+                        .checked_add(u32::try_from(boundary).expect("path boundary fits u32"))
+                        .ok_or(RouteError::ManeuverMismatch)?,
+                    progress_mm: 0,
+                }
+            } else if expected_exit + 1 < route_edge_count {
+                RoutePosition {
+                    route_edge_index: occurrence
+                        .exit_route_edge_index
+                        .checked_add(1)
+                        .ok_or(RouteError::ManeuverMismatch)?,
+                    progress_mm: 0,
+                }
+            } else {
+                let last = *path.edges().last().ok_or(RouteError::ManeuverMismatch)?;
+                let progress_mm = *traffic
+                    .lane_lengths_millimetres()
+                    .get(last.index())
+                    .ok_or(RouteError::ManeuverMismatch)?;
+                RoutePosition {
+                    route_edge_index: occurrence.exit_route_edge_index,
+                    progress_mm,
+                }
+            }
+        }
+        ConflictPathAnchor::Interior {
+            path_edge_index,
+            progress_millimetres,
+        } => {
+            let path_edge = *path
+                .edges()
+                .get(usize::try_from(path_edge_index).expect("path edge index fits usize"))
+                .ok_or(RouteError::ManeuverMismatch)?;
+            let length = *traffic
+                .lane_lengths_millimetres()
+                .get(path_edge.index())
+                .ok_or(RouteError::ManeuverMismatch)?;
+            if progress_millimetres == 0 || progress_millimetres >= length {
+                return Err(RouteError::ManeuverMismatch);
+            }
+            RoutePosition {
+                route_edge_index: occurrence
+                    .entry_route_edge_index
+                    .checked_add(path_edge_index)
+                    .ok_or(RouteError::ManeuverMismatch)?,
+                progress_mm: progress_millimetres,
+            }
+        }
+    };
+    if usize::try_from(position.route_edge_index).expect("route position fits usize")
+        >= route_edge_count
+    {
+        return Err(RouteError::ManeuverMismatch);
+    }
+    Ok(position)
+}
+
+type CompiledConflicts = (
+    Vec<ConflictPassageOccurrence>,
+    Vec<ConflictGateRange>,
+    Option<(RoutePosition, u32)>,
+);
+
+fn try_conflict_occurrence_vec(
+    capacity: usize,
+) -> Result<Vec<ConflictPassageOccurrence>, RouteError> {
+    try_route_vec(capacity)
+}
+
+fn compile_conflicts(
+    revision: &SharedNetworkRevision,
+    route_edges: &[LaneEdgeOrdinal],
+    maneuvers: &[ManeuverOccurrence],
+    hop_gate: &[Option<ManeuverGateOrdinal>],
+    expected_count: u64,
+) -> Result<CompiledConflicts, RouteError> {
+    let capacity = usize::try_from(expected_count).map_err(|_| RouteError::AllocationFailed)?;
+    let mut conflicts = try_conflict_occurrence_vec(capacity)?;
+    let traffic = revision.traffic();
+    let conflict = revision.conflict();
+    for (maneuver_index, occurrence) in maneuvers.iter().copied().enumerate() {
+        let streams = conflict
+            .maneuver_path_participant_streams(occurrence.path)
+            .ok_or(RouteError::ManeuverMismatch)?;
+        for stream in streams {
+            let stream_view = conflict
+                .participant_stream(*stream)
+                .filter(|view| view.maneuver_path() == occurrence.path)
+                .ok_or(RouteError::ManeuverMismatch)?;
+            for (passage_local_index, passage) in stream_view.passages().iter().copied().enumerate()
+            {
+                let admission_gate = traffic
+                    .relations()
+                    .maneuver_gate(passage.admission_gate())
+                    .filter(|gate| gate.path() == occurrence.path)
+                    .ok_or(RouteError::ManeuverMismatch)?;
+                let admission_hop = occurrence
+                    .entry_route_edge_index
+                    .checked_add(admission_gate.transition_index())
+                    .ok_or(RouteError::ManeuverMismatch)?;
+                if hop_gate
+                    .get(usize::try_from(admission_hop).expect("admission hop fits usize"))
+                    .copied()
+                    .flatten()
+                    != Some(passage.admission_gate())
+                {
+                    return Err(RouteError::ManeuverMismatch);
+                }
+                let entry =
+                    map_conflict_anchor(revision, route_edges.len(), occurrence, passage.entry())?;
+                let clearance =
+                    map_conflict_anchor(revision, route_edges.len(), occurrence, passage.exit())?;
+                if entry >= clearance {
+                    return Err(RouteError::ManeuverMismatch);
+                }
+                conflicts.push(ConflictPassageOccurrence {
+                    stream: *stream,
+                    passage_local_index: u32::try_from(passage_local_index)
+                        .map_err(|_| RouteError::AllocationFailed)?,
+                    zone: passage.conflict_zone(),
+                    maneuver_index: u32::try_from(maneuver_index)
+                        .map_err(|_| RouteError::AllocationFailed)?,
+                    admission_hop,
+                    entry,
+                    clearance,
+                });
+            }
+        }
+    }
+    if conflicts.len() != capacity {
+        return Err(RouteError::ManeuverMismatch);
+    }
+
+    finalize_conflicts(conflicts, hop_gate.len())
+}
+
+fn finalize_conflicts(
+    mut conflicts: Vec<ConflictPassageOccurrence>,
+    hop_count: usize,
+) -> Result<CompiledConflicts, RouteError> {
+    conflicts.sort_unstable_by_key(|occurrence| {
+        (
+            occurrence.admission_hop,
+            occurrence.entry,
+            occurrence.clearance,
+            occurrence.stream.raw(),
+            occurrence.passage_local_index,
+        )
+    });
+
+    let mut conflict_gate_ranges = try_route_vec_filled(hop_count, ConflictGateRange::default())?;
+    let mut cursor = 0_usize;
+    for (hop, range) in conflict_gate_ranges.iter_mut().enumerate() {
+        let start = cursor;
+        while conflicts.get(cursor).is_some_and(|occurrence| {
+            usize::try_from(occurrence.admission_hop).expect("admission hop fits usize") == hop
+        }) {
+            cursor += 1;
+        }
+        range.start = u32::try_from(start).map_err(|_| RouteError::AllocationFailed)?;
+        range.len = u32::try_from(cursor - start).map_err(|_| RouteError::AllocationFailed)?;
+    }
+    if cursor != conflicts.len() {
+        return Err(RouteError::ManeuverMismatch);
+    }
+
+    let final_conflict_clearance = conflicts
+        .iter()
+        .enumerate()
+        .max_by_key(|(index, occurrence)| (occurrence.clearance, *index))
+        .map(|(index, occurrence)| {
+            (
+                occurrence.clearance,
+                u32::try_from(index).expect("format-bounded conflict occurrence index fits u32"),
+            )
+        });
+    Ok((conflicts, conflict_gate_ranges, final_conflict_clearance))
 }
 
 /// 在机动路径入口跳上，用剩余边序列唯一匹配完整 `path.edges()` 前缀。
@@ -570,6 +919,120 @@ pub(crate) fn route_access_denied(
         }
     }
     false
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RouteCursorPosition {
+    route_edge_index: u32,
+    progress_mm: u32,
+    carry_um: u16,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RouteRearPosition {
+    BeforeRouteStart,
+    Position(RouteCursorPosition),
+}
+
+/// 3A 检查内部错误；调用方把非规范 cursor 映射到各自既有 invariant 错误面。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ConflictCapabilityError {
+    InvalidCursor,
+    RuntimeUnavailable(ConflictRuntimeUnavailable),
+}
+
+fn route_rear_position(
+    lengths: &[u32],
+    edges: &[LaneEdgeOrdinal],
+    mut route_edge_index: usize,
+    mut progress_mm: u32,
+    carry_um: u16,
+    length_mm: u32,
+) -> Option<RouteRearPosition> {
+    if carry_um >= 1_000 {
+        return None;
+    }
+    let edge = *edges.get(route_edge_index)?;
+    let edge_length = *lengths.get(edge.index())?;
+    if progress_mm > edge_length || (progress_mm == edge_length && carry_um != 0) {
+        return None;
+    }
+    if progress_mm == edge_length && carry_um == 0 && route_edge_index + 1 < edges.len() {
+        route_edge_index += 1;
+        progress_mm = 0;
+    }
+
+    let mut remaining_um = u64::from(length_mm) * 1_000;
+    let mut offset_um = u64::from(progress_mm) * 1_000 + u64::from(carry_um);
+    while remaining_um > offset_um {
+        remaining_um -= offset_um;
+        if route_edge_index == 0 {
+            return Some(RouteRearPosition::BeforeRouteStart);
+        }
+        route_edge_index -= 1;
+        let previous = *edges.get(route_edge_index)?;
+        offset_um = u64::from(*lengths.get(previous.index())?) * 1_000;
+    }
+    let rear_um = offset_um - remaining_um;
+    let rear = RouteCursorPosition {
+        route_edge_index: u32::try_from(route_edge_index).ok()?,
+        progress_mm: u32::try_from(rear_um / 1_000).ok()?,
+        carry_um: u16::try_from(rear_um % 1_000).ok()?,
+    };
+    Some(RouteRearPosition::Position(rear))
+}
+
+/// #284 前的能力保护。只看 compiled route 的最后 clearance，不在 tick 扫描冲突表。
+pub(crate) fn check_conflict_capability(
+    route: RouteHandle,
+    compiled: &CompiledRoute,
+    lengths: &[u32],
+    route_edge_index: usize,
+    progress_mm: u32,
+    carry_um: u16,
+    vehicle_length_mm: u32,
+) -> Result<(), ConflictCapabilityError> {
+    let Some((final_clearance, conflict_index)) = compiled.final_conflict_clearance else {
+        return Ok(());
+    };
+    let rear = route_rear_position(
+        lengths,
+        compiled.edges.as_slice(),
+        route_edge_index,
+        progress_mm,
+        carry_um,
+        vehicle_length_mm,
+    )
+    .ok_or(ConflictCapabilityError::InvalidCursor)?;
+    let cleared = match rear {
+        RouteRearPosition::BeforeRouteStart => false,
+        RouteRearPosition::Position(position) => {
+            (
+                position.route_edge_index,
+                position.progress_mm,
+                position.carry_um,
+            ) >= (
+                final_clearance.route_edge_index,
+                final_clearance.progress_mm,
+                0,
+            )
+        }
+    };
+    if cleared {
+        return Ok(());
+    }
+    let occurrence = compiled
+        .conflicts
+        .get(usize::try_from(conflict_index).expect("conflict index fits usize"))
+        .expect("final conflict index references compiled occurrence");
+    Err(ConflictCapabilityError::RuntimeUnavailable(
+        ConflictRuntimeUnavailable::new(
+            route,
+            occurrence.stream,
+            occurrence.passage_local_index,
+            occurrence.zone,
+        ),
+    ))
 }
 
 pub(crate) fn bumpers_overlap(a_front: u32, a_length: u32, b_front: u32, b_length: u32) -> bool {
@@ -1088,7 +1551,8 @@ mod compile_route_tests {
             .maneuvers()
             .maneuver_path(ManeuverPathOrdinal::from_raw(0))
             .expect("fixture path");
-        let compiled = compile_route(traffic, path.edges()).expect("compile");
+        let compiled =
+            compile_route(revision.as_ref(), path.edges(), 0, u64::MAX).expect("compile");
         assert_eq!(compiled.maneuvers.len(), 1);
         assert_eq!(compiled.maneuvers[0].path, ManeuverPathOrdinal::from_raw(0));
         assert_eq!(compiled.maneuvers[0].entry_route_edge_index, 0);
@@ -1132,6 +1596,303 @@ mod compile_route_tests {
                 assert_eq!(suffix, Some(next.distance_from_hop_start));
             }
         }
+    }
+
+    #[test]
+    fn every_conflict_anchor_has_one_exact_route_position() {
+        let revision = revision();
+        let path = revision
+            .traffic()
+            .maneuvers()
+            .maneuver_path(ManeuverPathOrdinal::from_raw(0))
+            .expect("fixture path");
+        assert_eq!(path.edges().len(), 3, "fixture shape");
+        let occurrence = ManeuverOccurrence {
+            path: ManeuverPathOrdinal::from_raw(0),
+            entry_route_edge_index: 2,
+            exit_route_edge_index: 4,
+        };
+        let gate = path.maneuver_gates()[0];
+        assert_eq!(
+            map_conflict_anchor(
+                revision.as_ref(),
+                6,
+                occurrence,
+                ConflictPathAnchor::Gate(gate)
+            ),
+            Ok(RoutePosition {
+                route_edge_index: 3,
+                progress_mm: 0,
+            })
+        );
+        assert_eq!(
+            map_conflict_anchor(
+                revision.as_ref(),
+                6,
+                occurrence,
+                ConflictPathAnchor::EdgeBoundary(0),
+            ),
+            Ok(RoutePosition {
+                route_edge_index: 2,
+                progress_mm: 0,
+            })
+        );
+        assert_eq!(
+            map_conflict_anchor(
+                revision.as_ref(),
+                6,
+                occurrence,
+                ConflictPathAnchor::EdgeBoundary(1),
+            ),
+            Ok(RoutePosition {
+                route_edge_index: 3,
+                progress_mm: 0,
+            })
+        );
+        assert_eq!(
+            map_conflict_anchor(
+                revision.as_ref(),
+                6,
+                occurrence,
+                ConflictPathAnchor::EdgeBoundary(3),
+            ),
+            Ok(RoutePosition {
+                route_edge_index: 5,
+                progress_mm: 0,
+            })
+        );
+        let terminal_length = revision.traffic().lane_lengths_millimetres()
+            [path.edges().last().expect("last edge").index()];
+        assert_eq!(
+            map_conflict_anchor(
+                revision.as_ref(),
+                5,
+                occurrence,
+                ConflictPathAnchor::EdgeBoundary(3),
+            ),
+            Ok(RoutePosition {
+                route_edge_index: 4,
+                progress_mm: terminal_length,
+            })
+        );
+        assert_eq!(
+            map_conflict_anchor(
+                revision.as_ref(),
+                6,
+                occurrence,
+                ConflictPathAnchor::Interior {
+                    path_edge_index: 1,
+                    progress_millimetres: 1,
+                },
+            ),
+            Ok(RoutePosition {
+                route_edge_index: 3,
+                progress_mm: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn conflict_multiplicity_sorts_ranges_and_uses_max_clearance() {
+        let occurrence = |stream: u32,
+                          passage_local_index: u32,
+                          maneuver_index: u32,
+                          admission_hop: u32,
+                          route_edge_index: u32,
+                          entry_mm: u32,
+                          clearance_mm: u32| ConflictPassageOccurrence {
+            stream: ParticipantStreamOrdinal::from_raw(stream),
+            passage_local_index,
+            zone: ConflictZoneOrdinal::from_raw(passage_local_index),
+            maneuver_index,
+            admission_hop,
+            entry: RoutePosition {
+                route_edge_index,
+                progress_mm: entry_mm,
+            },
+            clearance: RoutePosition {
+                route_edge_index,
+                progress_mm: clearance_mm,
+            },
+        };
+        let conflicts = vec![
+            occurrence(1, 1, 1, 3, 4, 6_500, 10_000),
+            occurrence(0, 0, 0, 0, 1, 2_000, 6_000),
+            occurrence(1, 0, 1, 3, 4, 3_000, 7_000),
+            occurrence(0, 1, 1, 3, 4, 5_000, 11_000),
+            occurrence(1, 0, 0, 0, 1, 3_000, 7_000),
+            occurrence(0, 1, 0, 0, 1, 5_000, 11_000),
+            occurrence(0, 0, 1, 3, 4, 2_000, 6_000),
+            occurrence(1, 1, 0, 0, 1, 6_500, 10_000),
+        ];
+
+        let (conflicts, ranges, final_clearance) =
+            finalize_conflicts(conflicts, 6).expect("finalize repeated conflicts");
+        assert_eq!(
+            ranges,
+            [
+                ConflictGateRange { start: 0, len: 4 },
+                ConflictGateRange { start: 4, len: 0 },
+                ConflictGateRange { start: 4, len: 0 },
+                ConflictGateRange { start: 4, len: 4 },
+                ConflictGateRange { start: 8, len: 0 },
+                ConflictGateRange { start: 8, len: 0 },
+            ]
+        );
+        assert_eq!(
+            conflicts
+                .iter()
+                .map(|value| (
+                    value.maneuver_index,
+                    value.stream.raw(),
+                    value.passage_local_index,
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (0, 0, 0),
+                (0, 1, 0),
+                (0, 0, 1),
+                (0, 1, 1),
+                (1, 0, 0),
+                (1, 1, 0),
+                (1, 0, 1),
+                (1, 1, 1),
+            ]
+        );
+        assert_eq!(
+            final_clearance,
+            Some((
+                RoutePosition {
+                    route_edge_index: 4,
+                    progress_mm: 11_000,
+                },
+                6,
+            )),
+            "final clearance is the maximum exit, not the last sorted entry",
+        );
+    }
+
+    #[test]
+    fn conflict_vector_and_gate_range_allocation_failpoints_are_closed() {
+        assert_eq!(
+            with_route_allocation_failure_after(0, || try_conflict_occurrence_vec(1)),
+            Err(RouteError::AllocationFailed),
+        );
+        assert_eq!(
+            with_route_allocation_failure_after(0, || finalize_conflicts(Vec::new(), 1)),
+            Err(RouteError::AllocationFailed),
+        );
+    }
+
+    #[test]
+    fn three_a_rear_boundary_is_exact_to_one_micrometre() {
+        let revision = revision();
+        let path = revision
+            .traffic()
+            .maneuvers()
+            .maneuver_path(ManeuverPathOrdinal::from_raw(0))
+            .expect("fixture path");
+        let final_clearance = RoutePosition {
+            route_edge_index: 2,
+            progress_mm: 0,
+        };
+        let compiled = CompiledRoute {
+            edges: path.edges().to_vec(),
+            maneuvers: Vec::new(),
+            hop_gate: Vec::new(),
+            remaining_to_end: Vec::new(),
+            occurrence_segments: Vec::new(),
+            occurrence_offsets: Vec::new(),
+            segment_totals: Vec::new(),
+            next_controlled: Vec::new(),
+            speed_limit_drop: Vec::new(),
+            waiting: Vec::new(),
+            conflicts: vec![ConflictPassageOccurrence {
+                stream: ParticipantStreamOrdinal::from_raw(7),
+                passage_local_index: 3,
+                zone: ConflictZoneOrdinal::from_raw(5),
+                maneuver_index: 0,
+                admission_hop: 0,
+                entry: RoutePosition {
+                    route_edge_index: 1,
+                    progress_mm: 1,
+                },
+                clearance: final_clearance,
+            }],
+            conflict_gate_ranges: vec![ConflictGateRange { start: 0, len: 1 }],
+            final_conflict_clearance: Some((final_clearance, 0)),
+        };
+        assert_eq!(
+            compiled.retained_logical_bytes(),
+            logical_vec_bytes::<LaneEdgeOrdinal>(3)
+                + logical_vec_bytes::<ConflictPassageOccurrence>(1)
+                + logical_vec_bytes::<ConflictGateRange>(1)
+        );
+        let route = RouteHandle::new(9, 4);
+        let lengths = revision.traffic().lane_lengths_millimetres();
+
+        let before =
+            check_conflict_capability(route, &compiled, lengths, 2, 4_499, 999, 4_500).unwrap_err();
+        let ConflictCapabilityError::RuntimeUnavailable(unavailable) = before else {
+            panic!("one micrometre before clearance must be a 3A rejection");
+        };
+        assert_eq!(unavailable.route(), route);
+        assert_eq!(
+            check_conflict_capability(route, &compiled, lengths, 2, 4_500, 0, 4_500),
+            Ok(())
+        );
+        assert_eq!(
+            check_conflict_capability(route, &compiled, lengths, 2, 4_500, 1, 4_500),
+            Ok(())
+        );
+        assert_eq!(
+            check_conflict_capability(route, &compiled, lengths, 2, 4_500, 0, 4_499),
+            Ok(()),
+            "a shorter vehicle clears the same passage earlier",
+        );
+        assert!(matches!(
+            check_conflict_capability(route, &compiled, lengths, 2, 4_500, 0, 4_501),
+            Err(ConflictCapabilityError::RuntimeUnavailable(_))
+        ));
+
+        let previous_length = lengths[path.edges()[1].index()];
+        assert_eq!(
+            check_conflict_capability(route, &compiled, lengths, 1, previous_length, 0, 0),
+            check_conflict_capability(route, &compiled, lengths, 2, 0, 0, 0),
+            "previous edge end and next edge zero are one canonical position",
+        );
+        assert_eq!(
+            check_conflict_capability(route, &compiled, lengths, 1, previous_length, 1, 0),
+            Err(ConflictCapabilityError::InvalidCursor),
+        );
+    }
+
+    #[test]
+    fn conflict_capacity_checked_add_overflow_is_closed() {
+        assert_eq!(
+            checked_conflict_occurrence_total(u64::MAX, 1, u64::MAX).unwrap_err(),
+            RouteError::ConflictOccurrenceCapacityExceeded {
+                current: u64::MAX,
+                added: 1,
+                capacity: u64::MAX,
+            },
+        );
+    }
+
+    #[test]
+    fn conflict_occurrence_10k_100k_retained_logical_bytes_are_linear() {
+        let per_occurrence = logical_vec_bytes::<ConflictPassageOccurrence>(1);
+        assert_eq!(
+            per_occurrence,
+            u64::try_from(std::mem::size_of::<ConflictPassageOccurrence>())
+                .expect("type size fits u64"),
+        );
+        let product = per_occurrence.checked_mul(10_000).expect("10k ledger");
+        let scaling = per_occurrence.checked_mul(100_000).expect("100k ledger");
+        assert_eq!(scaling, product * 10);
+        println!(
+            "conflict-route-scale-evidence retained_logical_bytes_per_occurrence={per_occurrence} occurrences=10000/100000 retained_logical_bytes={product}/{scaling}"
+        );
     }
 
     #[test]
@@ -1181,7 +1942,7 @@ mod compile_route_tests {
             "fixture path must have an internal hop"
         );
         assert_eq!(
-            compile_route(traffic, &path.edges()[1..]).unwrap_err(),
+            compile_route(revision.as_ref(), &path.edges()[1..], 0, u64::MAX).unwrap_err(),
             RouteError::ManeuverMismatch
         );
     }
@@ -1200,7 +1961,7 @@ mod compile_route_tests {
             "fixture path entry must carry a StopLine"
         );
         assert_eq!(
-            compile_route(traffic, &[entry]).unwrap_err(),
+            compile_route(revision.as_ref(), &[entry], 0, u64::MAX).unwrap_err(),
             RouteError::ManeuverMismatch
         );
     }
@@ -1221,7 +1982,8 @@ mod compile_route_tests {
                 pair[1]
             );
         }
-        compile_route(traffic, path.edges()).expect("full path still compiles");
+        compile_route(revision.as_ref(), path.edges(), 0, u64::MAX)
+            .expect("full path still compiles");
     }
 
     #[test]
@@ -1261,7 +2023,7 @@ mod compile_route_tests {
             "fixture internal edge must belong to a junction"
         );
         assert_eq!(
-            compile_route(traffic, &[internal]).unwrap_err(),
+            compile_route(revision.as_ref(), &[internal], 0, u64::MAX).unwrap_err(),
             RouteError::ManeuverMismatch
         );
     }
@@ -1283,7 +2045,7 @@ mod compile_route_tests {
             "truncated path must end on a junction-owned edge"
         );
         assert_eq!(
-            compile_route(traffic, prefix).unwrap_err(),
+            compile_route(revision.as_ref(), prefix, 0, u64::MAX).unwrap_err(),
             RouteError::ManeuverMismatch
         );
     }

@@ -136,8 +136,11 @@ fn sample_worlds(revision: &Arc<SharedNetworkRevision>, count: usize) -> AllocSa
     let mut worlds = Vec::with_capacity(count);
     for _ in 0..count {
         worlds.push(
-            install_fixture(Arc::clone(revision), WorldConfig::new(8, 8, 1_024, 1, 16))
-                .expect("install"),
+            install_fixture(
+                Arc::clone(revision),
+                WorldConfig::new(8, 8, 1_024, 1_024, 1, 16),
+            )
+            .expect("install"),
         );
     }
     black_box(&worlds);

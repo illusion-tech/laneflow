@@ -726,7 +726,14 @@ mod tests {
         let origin = *revision.canonical_origin();
         TrafficWorld::install(
             revision,
-            WorldConfig::new(16, route_capacity, occurrence_capacity, 1, 100),
+            WorldConfig::new(
+                16,
+                route_capacity,
+                occurrence_capacity,
+                occurrence_capacity,
+                1,
+                100,
+            ),
             source_for(origin, "fixture://routing"),
             world_id,
         )

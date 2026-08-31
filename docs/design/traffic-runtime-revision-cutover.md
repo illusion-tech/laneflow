@@ -79,7 +79,9 @@ revision 不构成迁移权限；#299 历史 receipt 与静态镜像 descriptor 
    在静默点由自身摘要机制独立计算的确定性状态摘要，不取自候选路径（§5）。
 2. **重绑即重验证**：每个动态实体重绑后必须在 target 修订上重新满足其全部
    注册/准入不变量（等价于重执行 `register_route` / `spawn` 检查）。引用不存在，
-   或实体仍在但原样重绑会违反 target 不变量，都视为不可映射。
+   或实体仍在但原样重绑会违反 target 不变量，都视为不可映射。路线在 target 根上
+   重编译并累计 exact edge/conflict occurrence；每个 `Active` 车辆还须以保存的
+   `progress_mm/carry_um` 和目标 profile 车长通过冲突仲裁能力缺席期的 3A 车尾清除谓词。
 3. **不可映射即整体失败**：任一实体不可映射，整个事务失败关闭，旧修订、旧
    动态状态、旧 source、旧 diff base 原样生效，零事件。「删路前清场/劝阻」的
    游戏体验由宿主在发起前用 LFSD 预检与生命周期命令编排；声明式逐类丢弃或
@@ -111,6 +113,14 @@ revision 不构成迁移权限；#299 历史 receipt 与静态镜像 descriptor 
 - staging 只接受 `Active + None/Reserved`、`Parked + Occupied`、`Completed + None`；
   所有 parking counts/ranges 从 aggregate 重建并闭合。任一错误发生在 commit 前，旧根、
   旧 binding、双游标和 Adapter 表现均不变。
+
+### 3.2 路线冲突出现项
+
+冲突出现项不是迁移载荷。same/cross-revision 都从目标共享根和路线稳定边序列进入唯一
+路线编译器，重建 `ConflictPassageOccurrence`、Gate ranges 与最终 clearance。候选按
+全部存活路线累计 `route_conflict_occurrence_capacity`；目标新增、删除或改变 passage
+时以重建后的 exact 总数为准，不沿用旧计数。任一容量、分配或 Active 3A 失败都在
+晋升前丢弃整个候选；迁移增量日志的路线注册、删除与槽位复用必须同步更新候选计数。
 
 ## 4. 状态机
 
@@ -156,8 +166,9 @@ Prepare → Delta Catch-up → Quiescent Commit → Retire
 
 准备期对外只导出活动旧聚合的观测，候选世界不可见。在旧世界成功执行的 Routing
 候选注册已经成为普通路线生命周期变更，必须进入迁移增量日志并在 target 根上按
-§3 重绑/重验证，并消费 #303 已接受的统一 `route_edge_occurrence_capacity`；target
-路线总 occurrence 超限时整个切换失败关闭。候选聚合重复持有的路线热表属于 #302
+§3 重绑/重验证，并分别消费 `route_edge_occurrence_capacity` 与
+`route_conflict_occurrence_capacity`；target 任一 exact 路线出现项总数超限时整个切换
+失败关闭。候选聚合重复持有的路线热表属于 #302
 峰值 retained memory，不把同一逻辑路线重复计入活动聚合的语义容量。成功提交与聚合
 换绑同界递增世界世代，使旧观测导出/admission session、未注册候选和旧修订成本绑定
 全部 stale；调用方在新修订先取 full，已经注册的路线句柄仍按逻辑恒等保持。切换放弃
@@ -407,8 +418,10 @@ G2 回写（切片 A 落定，#511）：
 弱引用断言（后者含丢弃世界后的端到端形态）；静默期捕获/摘要预留失败注入
 （预期与候选两侧共四个消费点，失败关闭零事件、清点后重开事务恰一次提交；
 capture 失败的世界无感知与可重试——save 侧同承载）。#303 接缝还必须覆盖世界世代/观测 stream/
-`observationStateSequence` 与 root 同界原子变化、target 路线 occurrence 容量
-max/max+1 与超限零提交，以及 abort 三者完全不变。
+`observationStateSequence` 与 root 同界原子变化、target 路线 edge/conflict occurrence
+容量 max/max+1 与超限零提交，以及 abort 三者完全不变。冲突接缝还必须覆盖 target
+计数增减、same-revision 安全态恒等、cross-revision 新增或延长 clearance 的 Active 3A
+拒绝，以及窗口内路线注册/删除/槽位复用后候选计数与晋升世界一致。
 当前 parking 接缝证据覆盖：状态矩阵与 Reserved route ownership；virtual selected
 entry exact 重绑；capacity increase/safe decrease/unsafe decrease；target missing/wrong-kind；
 同 `progress_mm` 非零 carry 的越界反例；parking reserve/park/leave 与 parked

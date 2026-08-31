@@ -1,11 +1,13 @@
+use std::hint::black_box;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use laneflow_compiler::road_editing as lfre;
 use laneflow_compiler::{
-    AccessRuleInput, AccessRuleTargetInput, CompilationUnitBuilder, CompileLimits, Compiler,
-    DiagnosticCode, GeometryAccuracyProfile, GeometryDirectionProfile, IidmVehicleProfileInput,
-    JunctionInput, JunctionReference, LaneEdgeInput, LaneEdgeReference, ManeuverGateInput,
-    ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
+    AccessRuleInput, AccessRuleTargetInput, CompilationOutput, CompilationUnitBuilder,
+    CompileLimits, Compiler, DiagnosticCode, GeometryAccuracyProfile, GeometryDirectionProfile,
+    IidmVehicleProfileInput, JunctionInput, JunctionReference, LaneEdgeInput, LaneEdgeReference,
+    ManeuverGateInput, ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
     ParkingFacilityInput, ParkingFacilityReference, ParkingLaneAnchorInput,
     ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference,
     PortableDiffBase, PortableEmissionProvenance, SignalControlInput, SignalControllerInput,
@@ -14,42 +16,79 @@ use laneflow_compiler::{
     SyntheticModuleBuilder, VehicleProfileInput, derive_canonical_stable_id_v1,
     emit_portable_candidate,
 };
-use laneflow_format::{FormatLimits, check_post_emission_bundle};
+use laneflow_format::{FormatLimits, check_post_emission_bundle, preflight_object_values};
 use laneflow_runtime::{
-    InstallError, LeaveParkingTarget, ParkedVehicleSpawnInput, ParkingBinding, ParkingError,
-    ParkingTarget, PoseSource, RebindParkingTarget, ReserveParkingTarget, RouteHandle,
-    RouteRegisterInput, SnapshotRestoreLimits, SpawnError, TickInput, TrafficWorld,
+    AdmittedRouteRegisterInput, CandidateRouteInput, CommittedNetworkSource, CostModelKey,
+    CutoverError, CutoverPreflightLimits, CutoverTransactionLimits, DynamicCostSnapshotBinding,
+    InstallError, LeaveParkingTarget, LfcaOriginBinding, MigrationPolicyKind,
+    NetworkRevisionCutoverDescriptor, ObservationExportMode, ObservationSelection,
+    ParkedVehicleSpawnInput, ParkingBinding, ParkingError, ParkingTarget, PoseSource,
+    PublishedLfcaReference, RebindParkingTarget, ReplaceError, ReserveParkingTarget, RouteError,
+    RouteHandle, RouteRegisterInput, SemanticDiffOriginBinding, SnapshotLimitDimension,
+    SnapshotRestoreError, SnapshotRestoreLimits, SpawnError, TickInput, TrafficWorld,
     VehicleSpawnInput, VehicleStatus, VirtualEntryAnchorSelector, VirtualExitAnchorSelector,
-    WorldConfig, deterministic_state_digest, encode_lfrs, restore_lfrs,
+    WorldConfig, bind_observation_set, deterministic_state_digest, encode_lfrs, restore_lfrs,
 };
 use laneflow_static_contract::{
     AccessEffect, ConflictZoneOrdinal, EntityKind, LaneEdgeId, ParkingFacilityOrdinal,
-    ParkingSpaceOrdinal, ParticipantStreamOrdinal, SignalAspect, VehicleProfileOrdinal,
+    ParkingSpaceOrdinal, ParticipantStreamOrdinal, PortableObjectKind,
+    SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest, SignalAspect, VehicleProfileOrdinal,
 };
 use laneflow_static_network::{
     ConflictPathAnchor, SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision,
     SpatialBuildOption, build_shared_network_revision,
 };
 
+use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v3 as snapshot_wire;
+
 fn install_fixture(
     revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
     config: laneflow_runtime::WorldConfig,
 ) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
-    let origin = *revision.canonical_origin();
     laneflow_runtime::TrafficWorld::install(
-        revision,
+        Arc::clone(&revision),
         config,
-        laneflow_runtime::CommittedNetworkSource::Published {
-            reference: laneflow_runtime::PublishedLfcaReference::new(
-                "fixture://in-process",
-                origin.canonical_artifact_digest(),
-                origin.canonical_artifact_byte_length(),
-                origin.network_revision(),
-            )
-            .expect("non-empty fixture key"),
-        },
+        published_source(&revision, "fixture://in-process"),
         0,
     )
+}
+
+fn published_source(revision: &SharedNetworkRevision, key: &str) -> CommittedNetworkSource {
+    let origin = *revision.canonical_origin();
+    CommittedNetworkSource::Published {
+        reference: PublishedLfcaReference::new(
+            key,
+            origin.canonical_artifact_digest(),
+            origin.canonical_artifact_byte_length(),
+            origin.network_revision(),
+        )
+        .expect("non-empty fixture key"),
+    }
+}
+
+fn wire_table_field_offset(
+    table: laneflow_runtime_snapshot_wire::runtime::Table<'_>,
+    field: laneflow_runtime_snapshot_wire::runtime::VOffsetT,
+) -> usize {
+    let relative = usize::from(table.vtable().get(field));
+    assert_ne!(relative, 0, "fixture field must be present");
+    table.loc() + relative
+}
+
+fn wire_clear_table_field(
+    bytes: &mut [u8],
+    table: usize,
+    field: laneflow_runtime_snapshot_wire::runtime::VOffsetT,
+) {
+    let backwards = i32::from_le_bytes(
+        bytes[table..table + 4]
+            .try_into()
+            .expect("table vtable offset"),
+    );
+    assert!(backwards > 0);
+    let vtable = table - usize::try_from(backwards).expect("positive vtable offset");
+    let entry = vtable + usize::from(field);
+    bytes[entry..entry + 2].copy_from_slice(&0_u16.to_le_bytes());
 }
 
 fn iidm() -> IidmVehicleProfileInput {
@@ -125,9 +164,7 @@ fn compile_revision(
     .expect("shared network revision")
 }
 
-fn compile_road_editing_revision(
-    module: lfre::RoadEditingSourceModule,
-) -> Arc<SharedNetworkRevision> {
+fn compile_road_editing_output(module: lfre::RoadEditingSourceModule) -> CompilationOutput {
     let limits = CompileLimits::p100_initial_v2();
     let source = lfre::RoadEditingSourceWriter::new(&limits)
         .write(module)
@@ -138,7 +175,7 @@ fn compile_road_editing_revision(
     let mut unit = CompilationUnitBuilder::new(limits);
     unit.add_road_editing_module(input)
         .expect("Road Editing admission");
-    let output = Compiler::new()
+    Compiler::new()
         .compile(unit.build().expect("compilation unit"))
         .unwrap_or_else(|bundle| {
             panic!(
@@ -149,7 +186,13 @@ fn compile_road_editing_revision(
                     .map(|diagnostic| (diagnostic.code(), diagnostic.payload()))
                     .collect::<Vec<_>>()
             )
-        });
+        })
+}
+
+fn compile_road_editing_revision(
+    module: lfre::RoadEditingSourceModule,
+) -> Arc<SharedNetworkRevision> {
+    let output = compile_road_editing_output(module);
     let provenance = PortableEmissionProvenance::try_new("laneflow-runtime-conflict-v1")
         .expect("portable provenance");
     let candidate = emit_portable_candidate(
@@ -177,6 +220,81 @@ fn compile_road_editing_revision(
     .expect("shared network revision")
 }
 
+fn compile_conflict_cutover_pair(
+    base_module: lfre::RoadEditingSourceModule,
+    target_module: lfre::RoadEditingSourceModule,
+) -> (
+    Arc<SharedNetworkRevision>,
+    Arc<SharedNetworkRevision>,
+    Vec<u8>,
+    SemanticDiffOriginBinding,
+) {
+    let base_output = compile_road_editing_output(base_module);
+    let target_output = compile_road_editing_output(target_module);
+    let provenance = PortableEmissionProvenance::try_new("laneflow-runtime-conflict-cutover-v1")
+        .expect("portable provenance");
+    let base_candidate = emit_portable_candidate(
+        &base_output,
+        &provenance,
+        FormatLimits::HARD,
+        PortableDiffBase::Genesis,
+    )
+    .expect("base portable candidate");
+    let base_values = preflight_object_values(
+        base_candidate.canonical_artifact().bytes(),
+        PortableObjectKind::CanonicalArtifact,
+        FormatLimits::HARD,
+    )
+    .expect("value-checked base artifact");
+    let target_candidate = emit_portable_candidate(
+        &target_output,
+        &provenance,
+        FormatLimits::HARD,
+        PortableDiffBase::Artifact(base_values),
+    )
+    .expect("target portable candidate");
+    let base_checked = check_post_emission_bundle(
+        base_candidate.canonical_artifact().bytes(),
+        base_candidate.source_map().bytes(),
+        base_candidate.semantic_diff().bytes(),
+        base_candidate.expected_semantic_diff_base(),
+        FormatLimits::HARD,
+    )
+    .expect("checked base bundle");
+    let target_checked = check_post_emission_bundle(
+        target_candidate.canonical_artifact().bytes(),
+        target_candidate.source_map().bytes(),
+        target_candidate.semantic_diff().bytes(),
+        target_candidate.expected_semantic_diff_base(),
+        FormatLimits::HARD,
+    )
+    .expect("checked target bundle");
+    let options = || {
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::RetainAvailable,
+            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+        )
+    };
+    let base_revision =
+        build_shared_network_revision(base_checked.canonical_network_input(), options())
+            .expect("base shared network revision");
+    let target_revision =
+        build_shared_network_revision(target_checked.canonical_network_input(), options())
+            .expect("target shared network revision");
+    let semantic_diff = target_candidate.semantic_diff().bytes().to_vec();
+    let semantic_diff_binding = SemanticDiffOriginBinding::new(
+        SEMANTIC_DIFF_FORMAT_VERSION,
+        target_candidate.semantic_diff().digest(),
+        target_candidate.semantic_diff().byte_length(),
+    );
+    (
+        base_revision,
+        target_revision,
+        semantic_diff,
+        semantic_diff_binding,
+    )
+}
+
 fn road_editing_line(start: (f64, f64), end: (f64, f64)) -> lfre::RoadEditingCurveProgram {
     lfre::RoadEditingCurveProgram::try_new(
         lfre::RoadEditingPoint3::try_new(start.0, 0.0, start.1).expect("curve start"),
@@ -187,11 +305,43 @@ fn road_editing_line(start: (f64, f64), end: (f64, f64)) -> lfre::RoadEditingCur
     .expect("line curve")
 }
 
+fn road_editing_loop() -> lfre::RoadEditingCurveProgram {
+    let point = |x, z| lfre::RoadEditingPoint3::try_new(x, 0.0, z).expect("loop point");
+    const K: f64 = 7.179_701_749;
+    lfre::RoadEditingCurveProgram::try_new(
+        point(13.0, 0.0),
+        vec![
+            lfre::RoadEditingCurveSegment::cubic_bezier(
+                point(13.0 + K, 0.0),
+                point(26.0, 13.0 - K),
+                point(26.0, 13.0),
+            ),
+            lfre::RoadEditingCurveSegment::cubic_bezier(
+                point(26.0, 13.0 + K),
+                point(13.0 + K, 26.0),
+                point(13.0, 26.0),
+            ),
+            lfre::RoadEditingCurveSegment::line(point(-13.0, 26.0)),
+            lfre::RoadEditingCurveSegment::cubic_bezier(
+                point(-13.0 - K, 26.0),
+                point(-26.0, 13.0 + K),
+                point(-26.0, 13.0),
+            ),
+            lfre::RoadEditingCurveSegment::cubic_bezier(
+                point(-26.0, 13.0 - K),
+                point(-13.0 - K, 0.0),
+                point(-13.0, 0.0),
+            ),
+        ],
+    )
+    .expect("loop curve")
+}
+
 fn add_road_editing_approach(
     module: &mut lfre::RoadEditingSourceModuleBuilder<'_>,
     edge_key: &str,
-    start: (f64, f64),
-    end: (f64, f64),
+    geometry: lfre::RoadEditingCurveProgram,
+    successors: Vec<lfre::LaneEdgeReference>,
 ) {
     let alignment_key = format!("{edge_key}-alignment");
     let corridor_key = format!("{edge_key}-corridor");
@@ -210,7 +360,7 @@ fn add_road_editing_approach(
             lfre::RoadAlignmentInput::try_new(
                 &alignment_key,
                 lfre::CanonicalFrameReference::local("frame-main").expect("frame reference"),
-                road_editing_line(start, end),
+                geometry,
             )
             .expect("road alignment"),
         )
@@ -248,20 +398,55 @@ fn add_road_editing_approach(
         ))
         .expect("add authoring lane")
         .add_declaration(lfre::RoadEditingDeclaration::LaneEdge(
-            lfre::LaneEdgeInput::try_new(edge_key, 13.0, Vec::new(), None)
+            lfre::LaneEdgeInput::try_new(edge_key, 13.0, successors, None)
                 .expect("approach lane edge"),
         ))
         .expect("add approach lane edge");
 }
 
 fn conflict_road_editing_module() -> lfre::RoadEditingSourceModule {
-    conflict_road_editing_module_with_stream_count(2)
+    conflict_road_editing_module_with_options(2, false, true)
+}
+
+fn terminal_conflict_road_editing_module() -> lfre::RoadEditingSourceModule {
+    conflict_road_editing_module_with_options(2, true, true)
+}
+
+fn non_conflict_road_editing_module() -> lfre::RoadEditingSourceModule {
+    conflict_road_editing_module_with_options(0, false, false)
+}
+
+fn conflict_multiplicity_road_editing_module() -> lfre::RoadEditingSourceModule {
+    conflict_road_editing_module_with_shape(2, false, true, true)
 }
 
 fn conflict_road_editing_module_with_stream_count(
     stream_count: usize,
 ) -> lfre::RoadEditingSourceModule {
+    conflict_road_editing_module_with_options(stream_count, false, true)
+}
+
+fn conflict_road_editing_module_with_options(
+    stream_count: usize,
+    terminal_clearance: bool,
+    include_conflict: bool,
+) -> lfre::RoadEditingSourceModule {
+    conflict_road_editing_module_with_shape(
+        stream_count,
+        terminal_clearance,
+        include_conflict,
+        false,
+    )
+}
+
+fn conflict_road_editing_module_with_shape(
+    stream_count: usize,
+    terminal_clearance: bool,
+    include_conflict: bool,
+    multiplicity: bool,
+) -> lfre::RoadEditingSourceModule {
     assert!(stream_count <= 2);
+    assert!(!multiplicity || (include_conflict && stream_count == 2));
     let limits = CompileLimits::p100_initial_v2();
     let header = lfre::RoadEditingModuleHeader::try_new(
         "city/runtime-conflict",
@@ -282,6 +467,9 @@ fn conflict_road_editing_module_with_stream_count(
     let zone =
         lfre::ConflictZoneReference::owner_scoped(vec!["crossing".to_owned()], "center-zone")
             .expect("zone reference");
+    let secondary_zone =
+        lfre::ConflictZoneReference::owner_scoped(vec!["crossing".to_owned()], "secondary-zone")
+            .expect("secondary zone reference");
     let frame = lfre::CanonicalFrameReference::local("frame-main").expect("frame reference");
 
     module
@@ -295,7 +483,17 @@ fn conflict_road_editing_module_with_stream_count(
         ("north-entry", (0.0, -13.0), (0.0, 0.0)),
         ("south-exit", (0.0, 13.0), (0.0, 26.0)),
     ] {
-        add_road_editing_approach(&mut module, edge, start, end);
+        let geometry = if multiplicity && edge == "west-exit" {
+            road_editing_loop()
+        } else {
+            road_editing_line(start, end)
+        };
+        let successors = if multiplicity && edge == "west-exit" {
+            vec![lfre::LaneEdgeReference::local("east-entry").expect("loop successor")]
+        } else {
+            Vec::new()
+        };
+        add_road_editing_approach(&mut module, edge, geometry, successors);
     }
     for (edge, start, end) in [
         ("east-internal", (0.0, 0.0), (13.0, 0.0)),
@@ -328,12 +526,23 @@ fn conflict_road_editing_module_with_stream_count(
             )
             .expect("junction"),
         ))
-        .expect("add junction")
-        .add_declaration(lfre::RoadEditingDeclaration::ConflictZone(
-            lfre::ConflictZoneInput::try_new("center-zone", junction.clone())
-                .expect("conflict zone"),
-        ))
-        .expect("add conflict zone");
+        .expect("add junction");
+    if include_conflict {
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::ConflictZone(
+                lfre::ConflictZoneInput::try_new("center-zone", junction.clone())
+                    .expect("conflict zone"),
+            ))
+            .expect("add conflict zone");
+        if multiplicity {
+            module
+                .add_declaration(lfre::RoadEditingDeclaration::ConflictZone(
+                    lfre::ConflictZoneInput::try_new("secondary-zone", junction.clone())
+                        .expect("secondary conflict zone"),
+                ))
+                .expect("add secondary conflict zone");
+        }
+    }
 
     for (
         stream_index,
@@ -385,6 +594,22 @@ fn conflict_road_editing_module_with_stream_count(
             path_key,
         )
         .expect("path reference");
+        let admission_gate = lfre::ManeuverGateReference::owner_scoped(
+            vec!["crossing".into(), movement_key.into(), path_key.into()],
+            gate_key,
+        )
+        .expect("admission gate reference");
+        let (entry_anchor, exit_anchor) = if terminal_clearance {
+            (
+                lfre::PathAnchorInput::gate(admission_gate),
+                lfre::PathAnchorInput::edge_boundary(3),
+            )
+        } else {
+            (
+                lfre::PathAnchorInput::interior(1, entry_progress).expect("entry anchor"),
+                lfre::PathAnchorInput::interior(1, exit_progress).expect("exit anchor"),
+            )
+        };
         module
             .add_declaration(lfre::RoadEditingDeclaration::Movement(
                 lfre::MovementInput::try_new(movement_key, junction.clone(), entry_edge, exit_edge)
@@ -421,7 +646,7 @@ fn conflict_road_editing_module_with_stream_count(
                 .expect("maneuver gate"),
             ))
             .expect("add maneuver gate");
-        if stream_index < stream_count {
+        if include_conflict && !multiplicity && stream_index < stream_count {
             module
                 .add_declaration(lfre::RoadEditingDeclaration::ParticipantStream(
                     lfre::ParticipantStreamInput::try_new(
@@ -430,9 +655,8 @@ fn conflict_road_editing_module_with_stream_count(
                         path,
                         vec![lfre::ConflictPassageInput::new(
                             zone.clone(),
-                            lfre::PathAnchorInput::interior(1, entry_progress)
-                                .expect("entry anchor"),
-                            lfre::PathAnchorInput::interior(1, exit_progress).expect("exit anchor"),
+                            entry_anchor,
+                            exit_anchor,
                         )],
                     )
                     .expect("participant stream"),
@@ -441,26 +665,107 @@ fn conflict_road_editing_module_with_stream_count(
         }
     }
 
-    module
-        .add_conflict_zone_region(
-            lfre::ConflictZoneRegionInput::try_new(
-                zone,
-                frame,
-                -1.000_000_000_1,
-                1.000_000_000_1,
-                [
-                    (-1.000_000_000_1, -1.000_000_000_1),
-                    (1.000_000_000_1, -1.000_000_000_1),
-                    (1.000_000_000_1, 1.000_000_000_1),
-                    (-1.000_000_000_1, 1.000_000_000_1),
-                ]
-                .into_iter()
-                .map(|(x, z)| lfre::RoadEditingPoint2::try_new(x, z).expect("region point"))
-                .collect(),
-            )
-            .expect("conflict zone region"),
+    if multiplicity {
+        let path = lfre::ManeuverPathReference::owner_scoped(
+            vec!["crossing".into(), "east-west".into()],
+            "east-west-path",
         )
-        .expect("add conflict zone region");
+        .expect("multiplicity path reference");
+        for (stream_key, intervals) in [
+            ("east-west-stream-a", [(2.0, 6.0), (5.0, 11.0)]),
+            ("east-west-stream-b", [(3.0, 7.0), (6.5, 10.0)]),
+        ] {
+            let passages = [zone.clone(), secondary_zone.clone()]
+                .into_iter()
+                .zip(intervals)
+                .map(|(passage_zone, (entry, exit))| {
+                    lfre::ConflictPassageInput::new(
+                        passage_zone,
+                        lfre::PathAnchorInput::interior(1, entry).expect("multiplicity entry"),
+                        lfre::PathAnchorInput::interior(1, exit).expect("multiplicity exit"),
+                    )
+                })
+                .collect();
+            module
+                .add_declaration(lfre::RoadEditingDeclaration::ParticipantStream(
+                    lfre::ParticipantStreamInput::try_new(
+                        stream_key,
+                        junction.clone(),
+                        path.clone(),
+                        passages,
+                    )
+                    .expect("multiplicity participant stream"),
+                ))
+                .expect("add multiplicity participant stream");
+        }
+    }
+
+    if include_conflict {
+        module
+            .add_conflict_zone_region(
+                lfre::ConflictZoneRegionInput::try_new(
+                    zone,
+                    frame,
+                    -1.000_000_000_1,
+                    1.000_000_000_1,
+                    [
+                        (-1.000_000_000_1, -1.000_000_000_1),
+                        (1.000_000_000_1, -1.000_000_000_1),
+                        (1.000_000_000_1, 1.000_000_000_1),
+                        (-1.000_000_000_1, 1.000_000_000_1),
+                    ]
+                    .into_iter()
+                    .map(|(x, z)| lfre::RoadEditingPoint2::try_new(x, z).expect("region point"))
+                    .collect(),
+                )
+                .expect("conflict zone region"),
+            )
+            .expect("add conflict zone region");
+    }
+    module
+        .add_declaration(lfre::RoadEditingDeclaration::ParkingFacility(
+            lfre::ParkingFacilityInput::try_new("parking").expect("parking facility"),
+        ))
+        .expect("add parking facility")
+        .add_declaration(lfre::RoadEditingDeclaration::ParkingSpace(
+            lfre::ParkingSpaceInput::try_new(
+                "space",
+                lfre::ParkingLaneAnchor::try_new(
+                    lfre::LaneEdgeReference::local("west-exit").expect("parking entry edge"),
+                    12.0,
+                )
+                .expect("parking entry"),
+                lfre::ParkingLaneAnchor::try_new(
+                    lfre::LaneEdgeReference::local("east-internal").expect("parking exit edge"),
+                    10.5,
+                )
+                .expect("parking exit"),
+                lfre::ParkingSpaceGeometry::try_new(1.5, 0.0, 5.0, 2.5).expect("parking geometry"),
+            )
+            .expect("parking space")
+            .with_parking_facility(
+                lfre::ParkingFacilityReference::local("parking")
+                    .expect("parking facility reference"),
+            ),
+        ))
+        .expect("add parking space");
+    let participant =
+        lfre::ParticipantClassReference::local("road-user").expect("participant class reference");
+    module
+        .add_declaration(lfre::RoadEditingDeclaration::ParticipantClass(
+            lfre::ParticipantClassInput::try_new("road-user").expect("participant class"),
+        ))
+        .expect("add participant class")
+        .add_declaration(lfre::RoadEditingDeclaration::VehicleProfile(
+            lfre::VehicleProfileInput::try_new(
+                "car",
+                participant,
+                lfre::IidmVehicleProfileInput::try_new(4.5, 13.0, 2.0, 1.5, 1.5, 2.0, 4.0)
+                    .expect("iidm profile"),
+            )
+            .expect("vehicle profile"),
+        ))
+        .expect("add vehicle profile");
     module.finish().expect("Road Editing module")
 }
 
@@ -567,7 +872,7 @@ fn parked_virtual_world() -> (
 ) {
     let revision = compile_virtual_parking_revision(1);
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install");
     let route = register_named(&mut world, &["edge"]);
     let facility = ParkingFacilityOrdinal::from_raw(0);
     let parked = world
@@ -776,6 +1081,1017 @@ fn road_editing_conflict_fixture_closes_integer_passages_and_f32_region() {
 }
 
 #[test]
+fn conflict_routes_charge_independent_capacity_and_gate_active_spawn() {
+    let revision = compile_road_editing_revision(conflict_road_editing_module());
+    let stream = revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("east-west stream");
+    let route_edges = revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(stream.maneuver_path())
+        .expect("east-west path")
+        .edges()
+        .to_vec();
+
+    let mut zero_capacity =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 0, 1, 100))
+            .expect("install zero-conflict-capacity world");
+    let cursor_before = zero_capacity.command_cursor();
+    assert_eq!(
+        zero_capacity
+            .register_route(RouteRegisterInput::new(route_edges.clone()))
+            .unwrap_err(),
+        RouteError::ConflictOccurrenceCapacityExceeded {
+            current: 0,
+            added: 1,
+            capacity: 0,
+        }
+    );
+    assert_eq!(zero_capacity.command_cursor(), cursor_before);
+    assert_eq!(zero_capacity.live_routes().count(), 0);
+
+    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 1, 1, 100))
+        .expect("install exact-conflict-capacity world");
+    let route = world
+        .register_route(RouteRegisterInput::new(route_edges.clone()))
+        .expect("one conflict occurrence fits exactly");
+    let cursor_after_first = world.command_cursor();
+    assert_eq!(
+        world
+            .register_route(RouteRegisterInput::new(route_edges.clone()))
+            .unwrap_err(),
+        RouteError::ConflictOccurrenceCapacityExceeded {
+            current: 1,
+            added: 1,
+            capacity: 1,
+        }
+    );
+    assert_eq!(world.command_cursor(), cursor_after_first);
+    assert_eq!(world.live_routes().count(), 1);
+
+    let spawn_cursor = world.command_cursor();
+    let error = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            0,
+            0,
+        ))
+        .unwrap_err();
+    let SpawnError::ConflictRuntimeUnavailable(unavailable) = error else {
+        panic!("route start must be rejected by 3A: {error:?}");
+    };
+    assert_eq!(unavailable.route(), route);
+    assert_eq!(unavailable.stream(), ParticipantStreamOrdinal::from_raw(0));
+    assert_eq!(unavailable.passage_local_index(), 0);
+    assert_eq!(unavailable.zone(), ConflictZoneOrdinal::from_raw(0));
+    assert_eq!(world.command_cursor(), spawn_cursor);
+    assert!(world.live_vehicles().is_empty());
+
+    let vehicle = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            1,
+            10_501,
+            0,
+        ))
+        .expect("rear exactly at 6,001 mm clearance is allowed");
+    world
+        .despawn_vehicle(vehicle)
+        .expect("despawn active vehicle");
+    world
+        .remove_route(route)
+        .expect("remove route releases charge");
+    world
+        .register_route(RouteRegisterInput::new(route_edges))
+        .expect("released conflict capacity is reusable");
+}
+
+#[test]
+fn conflict_multiplicity_preserves_owner_local_and_repeated_occurrences() {
+    let revision = compile_road_editing_revision(conflict_multiplicity_road_editing_module());
+    let conflict = revision.conflict();
+    let first_stream = conflict
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("first stream");
+    let path = first_stream.maneuver_path();
+    let streams = conflict
+        .maneuver_path_participant_streams(path)
+        .expect("path streams");
+    assert_eq!(streams.len(), 2, "one path retains both streams");
+    assert!(streams.iter().all(|stream| {
+        conflict
+            .participant_stream(*stream)
+            .is_some_and(|view| view.maneuver_path() == path && view.passages().len() == 2)
+    }));
+
+    let final_stream = streams
+        .iter()
+        .copied()
+        .find(|stream| {
+            conflict
+                .participant_stream(*stream)
+                .and_then(|view| view.passages().get(1))
+                .is_some_and(|passage| {
+                    passage.exit()
+                        == ConflictPathAnchor::Interior {
+                            path_edge_index: 1,
+                            progress_millimetres: 11_000,
+                        }
+                })
+        })
+        .expect("earlier-entry passage owns the maximum clearance");
+    let route_edges = revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(path)
+        .expect("shared maneuver path")
+        .edges()
+        .to_vec();
+
+    let mut too_small =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(2, 2, 12, 3, 1, 100))
+            .expect("install multiplicity capacity fixture");
+    assert_eq!(
+        too_small
+            .register_route(RouteRegisterInput::new(route_edges.clone()))
+            .unwrap_err(),
+        RouteError::ConflictOccurrenceCapacityExceeded {
+            current: 0,
+            added: 4,
+            capacity: 3,
+        },
+    );
+
+    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(2, 2, 12, 4, 1, 100))
+        .expect("install exact multiplicity fixture");
+    let route = world
+        .register_route(RouteRegisterInput::new(route_edges.clone()))
+        .expect("four distinct passage occurrences");
+    let error = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            2,
+            2_000,
+            0,
+        ))
+        .unwrap_err();
+    let SpawnError::ConflictRuntimeUnavailable(unavailable) = error else {
+        panic!("rear clears the last entry but not the maximum clearance: {error:?}");
+    };
+    assert_eq!(unavailable.stream(), final_stream);
+    assert_eq!(unavailable.passage_local_index(), 1);
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            2,
+            2_500,
+            0,
+        ))
+        .expect("rear exactly at maximum clearance");
+
+    let mut repeated_edges = route_edges.clone();
+    repeated_edges.extend_from_slice(&route_edges);
+    let mut repeated_too_small =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(0, 1, 6, 7, 1, 100))
+            .expect("install repeated capacity fixture");
+    assert_eq!(
+        repeated_too_small
+            .register_route(RouteRegisterInput::new(repeated_edges.clone()))
+            .unwrap_err(),
+        RouteError::ConflictOccurrenceCapacityExceeded {
+            current: 0,
+            added: 8,
+            capacity: 7,
+        },
+    );
+    let mut repeated = install_fixture(revision, WorldConfig::new(0, 1, 6, 8, 1, 100))
+        .expect("install exact repeated fixture");
+    repeated
+        .register_route(RouteRegisterInput::new(repeated_edges))
+        .expect("two maneuver occurrences retain eight passage occurrences");
+}
+
+#[test]
+fn direct_candidate_and_admitted_routes_share_conflict_capacity() {
+    let revision = compile_road_editing_revision(conflict_road_editing_module());
+    let stream = revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("east-west stream");
+    let route_edges = revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(stream.maneuver_path())
+        .expect("east-west path")
+        .edges()
+        .to_vec();
+    let stable_edges = route_edges
+        .iter()
+        .map(|edge| {
+            revision
+                .identity()
+                .stable_id(*edge)
+                .expect("edge stable id")
+                .into_untyped()
+        })
+        .collect::<Vec<_>>();
+    let origin = *revision.canonical_origin();
+    let mut world = install_fixture(revision, WorldConfig::new(0, 2, 6, 1, 1, 100))
+        .expect("install three-entry fixture");
+
+    let direct = world
+        .register_route(RouteRegisterInput::new(route_edges.clone()))
+        .expect("direct route");
+    world.remove_route(direct).expect("remove direct route");
+
+    let mut observation = world
+        .open_observation_export(ObservationSelection::AllLaneEdges)
+        .expect("open observation");
+    let batch = world
+        .export_observation(&mut observation, ObservationExportMode::Full)
+        .expect("full observation");
+    let observation_set = bind_observation_set(&[&batch]).expect("bind observation");
+    let model = CostModelKey::new(Sha256Digest::from_bytes([7; 32]), 1);
+    let cost = DynamicCostSnapshotBinding::new(
+        observation_set,
+        model,
+        world.tick_index(),
+        0,
+        0,
+        Sha256Digest::from_bytes([9; 32]),
+    )
+    .expect("cost binding");
+    let admission = world.open_routing_admission(model);
+    let candidate = world
+        .register_candidate_route(
+            &admission,
+            CandidateRouteInput::new(cost, stable_edges.clone()),
+        )
+        .expect("candidate route");
+    assert_eq!(
+        world
+            .register_route(RouteRegisterInput::new(route_edges.clone()))
+            .unwrap_err(),
+        RouteError::ConflictOccurrenceCapacityExceeded {
+            current: 1,
+            added: 1,
+            capacity: 1,
+        },
+    );
+    world
+        .remove_route(candidate)
+        .expect("remove candidate route");
+
+    let admitted = world
+        .register_admitted_route(AdmittedRouteRegisterInput::new(
+            origin.network_revision(),
+            origin
+                .static_contract_versions()
+                .network_revision_derivation_version(),
+            stable_edges,
+        ))
+        .expect("admitted replay route");
+    assert_eq!(
+        world
+            .register_route(RouteRegisterInput::new(route_edges))
+            .unwrap_err(),
+        RouteError::ConflictOccurrenceCapacityExceeded {
+            current: 1,
+            added: 1,
+            capacity: 1,
+        },
+    );
+    world.remove_route(admitted).expect("remove admitted route");
+}
+
+fn sample_conflict_route_registration(
+    revision: Arc<SharedNetworkRevision>,
+    route_edges: &[laneflow_static_contract::LaneEdgeOrdinal],
+    route_count: u32,
+) -> Duration {
+    let edge_occurrences = u64::from(route_count)
+        .checked_mul(u64::try_from(route_edges.len()).expect("edge count fits u64"))
+        .expect("scale fixture edge count");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::new(
+            1,
+            route_count,
+            edge_occurrences,
+            u64::from(route_count),
+            1,
+            100,
+        ),
+    )
+    .expect("install scale world");
+    let started = Instant::now();
+    for _ in 0..route_count {
+        world
+            .register_route(RouteRegisterInput::new(route_edges.to_vec()))
+            .expect("register one-conflict route");
+    }
+    let elapsed = started.elapsed();
+    assert_eq!(
+        u32::try_from(world.live_routes().count()).expect("live route count fits u32"),
+        route_count,
+    );
+    black_box(world);
+    elapsed
+}
+
+#[test]
+#[ignore = "manual release wall-clock evidence; CI 不把共享 runner 当产品基线"]
+fn conflict_route_registration_10k_100k_wall_clock_evidence() {
+    let revision = compile_road_editing_revision(conflict_road_editing_module());
+    let stream = revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("east-west stream");
+    let route_edges = revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(stream.maneuver_path())
+        .expect("east-west path")
+        .edges()
+        .to_vec();
+    black_box(sample_conflict_route_registration(
+        Arc::clone(&revision),
+        &route_edges,
+        100,
+    ));
+    let product = sample_conflict_route_registration(Arc::clone(&revision), &route_edges, 10_000);
+    let scaling = sample_conflict_route_registration(revision, &route_edges, 100_000);
+    let generous_near_linear_budget = product.as_nanos().saturating_mul(20).max(50_000_000);
+    assert!(
+        scaling.as_nanos() <= generous_near_linear_budget,
+        "10x occurrence load should stay within a realistic 20x wall-clock envelope: product={product:?} scaling={scaling:?}",
+    );
+    println!(
+        "conflict-route-scale-evidence profile=release occurrences=10000/100000 product_us={} scaling_us={} ratio={:.3}",
+        product.as_micros(),
+        scaling.as_micros(),
+        scaling.as_secs_f64() / product.as_secs_f64(),
+    );
+}
+
+#[test]
+fn conflict_cutover_recompiles_same_and_rejects_target_extension_atomically() {
+    let (base_revision, target_revision, semantic_diff, semantic_diff_binding) =
+        compile_conflict_cutover_pair(
+            conflict_road_editing_module(),
+            terminal_conflict_road_editing_module(),
+        );
+    let stream = base_revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("east-west stream");
+    let route_edges = base_revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(stream.maneuver_path())
+        .expect("east-west path")
+        .edges()
+        .to_vec();
+    let config = WorldConfig::new(4, 4, 64, 1, 1, 100);
+    let mut world = install_fixture(Arc::clone(&base_revision), config).expect("install base");
+    let route = world
+        .register_route(RouteRegisterInput::new(route_edges.clone()))
+        .expect("register base conflict route");
+    let vehicle = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            1,
+            10_501,
+            0,
+        ))
+        .expect("base clearance is exactly satisfied");
+
+    // 同修订换根仍重编译路线和保护 Active；可由公开 API 产生的安全态应保持恒等。
+    let base_origin = *base_revision.canonical_origin();
+    let same_descriptor = NetworkRevisionCutoverDescriptor::new(
+        LfcaOriginBinding::from_canonical_origin(base_origin),
+        LfcaOriginBinding::from_canonical_origin(base_origin),
+        None,
+        MigrationPolicyKind::SameRevisionRestore,
+        world.world_binding(),
+    );
+    let before_same = world.vehicle(vehicle);
+    let _commit = world
+        .cutover_same_revision(
+            Arc::clone(&base_revision),
+            published_source(&base_revision, "fixture://conflict-same-target"),
+            &same_descriptor,
+            &CutoverPreflightLimits::new(1_048_576),
+        )
+        .expect("same-revision conflict cutover");
+    assert_eq!(world.vehicle(vehicle), before_same);
+    assert_eq!(
+        world
+            .register_route(RouteRegisterInput::new(route_edges))
+            .unwrap_err(),
+        RouteError::ConflictOccurrenceCapacityExceeded {
+            current: 1,
+            added: 1,
+            capacity: 1,
+        }
+    );
+
+    // 跨修订把同一 passage clearance 延长到路线终点；旧 Active 立即变为不安全。
+    // Prepare 必须整体失败并解除日志武装，不能替换 world 或推进任何游标。
+    let target_origin = *target_revision.canonical_origin();
+    let cross_descriptor = NetworkRevisionCutoverDescriptor::new(
+        LfcaOriginBinding::from_canonical_origin(*world.revision().canonical_origin()),
+        LfcaOriginBinding::from_canonical_origin(target_origin),
+        Some(semantic_diff_binding),
+        MigrationPolicyKind::CrossRevisionDirect,
+        world.world_binding(),
+    );
+    let before_generation = world.world_generation();
+    let before_binding = world.world_binding();
+    let before_source_revision = world.committed_source().network_revision();
+    let before_vehicle = world.vehicle(vehicle);
+    let error = match world.prepare_cross_revision_cutover(
+        Arc::clone(&target_revision),
+        published_source(&target_revision, "fixture://conflict-cross-target"),
+        &cross_descriptor,
+        &semantic_diff,
+        &CutoverPreflightLimits::new(1_048_576),
+        &CutoverTransactionLimits::default(),
+    ) {
+        Ok(_) => panic!("extended conflict clearance must reject cutover"),
+        Err(error) => error,
+    };
+    let CutoverError::ConflictRuntimeUnavailable(unavailable) = error else {
+        panic!("unexpected cutover error: {error:?}");
+    };
+    assert_eq!(unavailable.route(), route);
+    assert_eq!(unavailable.stream(), ParticipantStreamOrdinal::from_raw(0));
+    assert_eq!(unavailable.passage_local_index(), 0);
+    assert_eq!(unavailable.zone(), ConflictZoneOrdinal::from_raw(0));
+    assert_eq!(world.world_generation(), before_generation);
+    assert_eq!(world.world_binding(), before_binding);
+    assert_eq!(
+        world.committed_source().network_revision(),
+        before_source_revision
+    );
+    assert_eq!(world.vehicle(vehicle), before_vehicle);
+
+    // 再次 Prepare 仍得到领域失败而非 InFlightTransaction，证明失败路径已解除日志武装。
+    let retry_source = published_source(&target_revision, "fixture://conflict-cross-retry");
+    let retry = match world.prepare_cross_revision_cutover(
+        target_revision,
+        retry_source,
+        &cross_descriptor,
+        &semantic_diff,
+        &CutoverPreflightLimits::new(1_048_576),
+        &CutoverTransactionLimits::default(),
+    ) {
+        Ok(_) => panic!("extended conflict clearance retry must reject cutover"),
+        Err(error) => error,
+    };
+    assert!(matches!(retry, CutoverError::ConflictRuntimeUnavailable(_)));
+}
+
+#[test]
+fn cutover_rebuilds_exact_conflict_count_for_decrease_and_increase() {
+    let (conflict_revision, plain_revision, remove_diff, remove_binding) =
+        compile_conflict_cutover_pair(
+            conflict_road_editing_module(),
+            non_conflict_road_editing_module(),
+        );
+    let stream = conflict_revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("east-west stream");
+    let route_edges = conflict_revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(stream.maneuver_path())
+        .expect("east-west path")
+        .edges()
+        .to_vec();
+    let mut world = install_fixture(
+        Arc::clone(&conflict_revision),
+        WorldConfig::new(4, 4, 64, 1, 1, 100),
+    )
+    .expect("install conflict base");
+    let route = world
+        .register_route(RouteRegisterInput::new(route_edges.clone()))
+        .expect("register conflict route");
+    let vehicle = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            1,
+            10_501,
+            0,
+        ))
+        .expect("safe conflict vehicle");
+
+    let remove_descriptor = NetworkRevisionCutoverDescriptor::new(
+        LfcaOriginBinding::from_canonical_origin(*conflict_revision.canonical_origin()),
+        LfcaOriginBinding::from_canonical_origin(*plain_revision.canonical_origin()),
+        Some(remove_binding),
+        MigrationPolicyKind::CrossRevisionDirect,
+        world.world_binding(),
+    );
+    let transaction = world
+        .prepare_cross_revision_cutover(
+            Arc::clone(&plain_revision),
+            published_source(&plain_revision, "fixture://conflict-count-decrease"),
+            &remove_descriptor,
+            &remove_diff,
+            &CutoverPreflightLimits::new(1_048_576),
+            &CutoverTransactionLimits::default(),
+        )
+        .expect("prepare conflict-count decrease");
+    let _commit = transaction
+        .commit(&mut world)
+        .expect("commit conflict-count decrease");
+    assert_eq!(
+        world.vehicle(vehicle).expect("retained vehicle").route(),
+        route
+    );
+    assert!(
+        world
+            .revision()
+            .conflict()
+            .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+            .is_none()
+    );
+
+    // 归零后的计数允许再注册一条无冲突路线；随后 target 为两条路线各重建一项。
+    world
+        .register_route(RouteRegisterInput::new(route_edges))
+        .expect("zero conflict count permits a second route");
+    assert_eq!(world.live_routes().count(), 2);
+
+    let (plain_base, conflict_target, add_diff, add_binding) = compile_conflict_cutover_pair(
+        non_conflict_road_editing_module(),
+        conflict_road_editing_module(),
+    );
+    assert_eq!(
+        plain_base.canonical_origin(),
+        world.revision().canonical_origin(),
+        "reverse pair must bind the exact current plain LFCA",
+    );
+    let add_descriptor = NetworkRevisionCutoverDescriptor::new(
+        LfcaOriginBinding::from_canonical_origin(*plain_base.canonical_origin()),
+        LfcaOriginBinding::from_canonical_origin(*conflict_target.canonical_origin()),
+        Some(add_binding),
+        MigrationPolicyKind::CrossRevisionDirect,
+        world.world_binding(),
+    );
+    let before_binding = world.world_binding();
+    let before_source = world.committed_source().network_revision();
+    let before_vehicle = world.vehicle(vehicle);
+    let error = match world.prepare_cross_revision_cutover(
+        Arc::clone(&conflict_target),
+        published_source(&conflict_target, "fixture://conflict-count-increase"),
+        &add_descriptor,
+        &add_diff,
+        &CutoverPreflightLimits::new(1_048_576),
+        &CutoverTransactionLimits::default(),
+    ) {
+        Ok(_) => panic!("two rebuilt conflicts must exceed capacity one"),
+        Err(error) => error,
+    };
+    assert_eq!(
+        error,
+        CutoverError::ConflictOccurrenceCapacityExceeded {
+            total: 2,
+            capacity: 1,
+        }
+    );
+    assert_eq!(world.world_binding(), before_binding);
+    assert_eq!(world.committed_source().network_revision(), before_source);
+    assert_eq!(world.vehicle(vehicle), before_vehicle);
+    assert_eq!(world.live_routes().count(), 2);
+}
+
+#[test]
+fn cutover_journal_replays_exact_conflict_count_through_slot_reuse() {
+    let (base_revision, target_revision, semantic_diff, semantic_diff_binding) =
+        compile_conflict_cutover_pair(
+            conflict_road_editing_module(),
+            terminal_conflict_road_editing_module(),
+        );
+    let stream = base_revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("east-west stream");
+    let route_edges = base_revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(stream.maneuver_path())
+        .expect("east-west path")
+        .edges()
+        .to_vec();
+    let mut world = install_fixture(
+        Arc::clone(&base_revision),
+        WorldConfig::new(4, 4, 64, 2, 1, 100),
+    )
+    .expect("install base");
+    let initial = world
+        .register_route(RouteRegisterInput::new(route_edges.clone()))
+        .expect("register initial route");
+    let descriptor = NetworkRevisionCutoverDescriptor::new(
+        LfcaOriginBinding::from_canonical_origin(*base_revision.canonical_origin()),
+        LfcaOriginBinding::from_canonical_origin(*target_revision.canonical_origin()),
+        Some(semantic_diff_binding),
+        MigrationPolicyKind::CrossRevisionDirect,
+        world.world_binding(),
+    );
+    let mut transaction = world
+        .prepare_cross_revision_cutover(
+            Arc::clone(&target_revision),
+            published_source(&target_revision, "fixture://conflict-journal-target"),
+            &descriptor,
+            &semantic_diff,
+            &CutoverPreflightLimits::new(1_048_576),
+            &CutoverTransactionLimits::default(),
+        )
+        .expect("prepare conflict cutover");
+
+    let window_route = world
+        .register_route(RouteRegisterInput::new(route_edges.clone()))
+        .expect("window registration");
+    assert!(
+        transaction
+            .pump(&mut world)
+            .expect("pump register")
+            .caught_up
+    );
+    world.remove_route(initial).expect("window remove");
+    assert!(transaction.pump(&mut world).expect("pump remove").caught_up);
+    let replacement = world
+        .register_route(RouteRegisterInput::new(route_edges.clone()))
+        .expect("reuse released slot and conflict charge");
+    assert_ne!(
+        replacement, initial,
+        "slot generation must advance on reuse"
+    );
+    assert!(transaction.pump(&mut world).expect("pump reuse").caught_up);
+    let _commit = transaction
+        .commit(&mut world)
+        .expect("commit replayed conflict counts");
+    assert_eq!(world.live_routes().count(), 2);
+    assert_eq!(
+        world
+            .register_route(RouteRegisterInput::new(route_edges.clone()))
+            .unwrap_err(),
+        RouteError::ConflictOccurrenceCapacityExceeded {
+            current: 2,
+            added: 1,
+            capacity: 2,
+        }
+    );
+    world
+        .remove_route(window_route)
+        .expect("committed window route releases exact charge");
+    world
+        .register_route(RouteRegisterInput::new(route_edges))
+        .expect("released journaled charge is reusable after promotion");
+}
+
+#[test]
+fn conflict_snapshot_restore_uses_saved_carry_and_exact_rebuilt_count() {
+    let revision = compile_road_editing_revision(conflict_road_editing_module());
+    let stream = revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("east-west stream");
+    let route_edges = revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(stream.maneuver_path())
+        .expect("east-west path")
+        .edges()
+        .to_vec();
+    let config = WorldConfig::new(4, 4, 64, 1, 1, 100);
+    let mut world = install_fixture(Arc::clone(&revision), config).expect("install");
+    let route = world
+        .register_route(RouteRegisterInput::new(route_edges))
+        .expect("register conflict route");
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            1,
+            10_501,
+            1,
+        ))
+        .expect("safe active vehicle");
+    world
+        .step(TickInput::new(100))
+        .expect("materialize non-zero carry in captured state");
+    let snapshot = world.capture_snapshot().expect("capture");
+    assert_ne!(snapshot.vehicles()[0].carry_um(), 0);
+    let source = world.committed_source().clone();
+    let mut bytes = encode_lfrs(&snapshot);
+    let (progress_offset, carry_offset, conflict_capacity_offset) = {
+        let root = snapshot_wire::size_prefixed_root_as_runtime_snapshot(&bytes)
+            .expect("verified snapshot");
+        let vehicle = root.vehicles().get(0);
+        (
+            wire_table_field_offset(vehicle._tab, snapshot_wire::SnapshotVehicle::VT_PROGRESS_MM),
+            wire_table_field_offset(vehicle._tab, snapshot_wire::SnapshotVehicle::VT_CARRY_UM),
+            wire_table_field_offset(
+                root.world_config()._tab,
+                snapshot_wire::WorldConfigBinding::VT_ROUTE_CONFLICT_OCCURRENCE_CAPACITY,
+            ),
+        )
+    };
+
+    // 车长 4,500 mm，passage clearance 位于 internal edge 6,001 mm：
+    // front=10,500 mm + 999 um 时，车尾只差 1 um，restore 必须在发布前拒绝。
+    bytes[progress_offset..progress_offset + 4].copy_from_slice(&10_500_u32.to_le_bytes());
+    bytes[carry_offset..carry_offset + 2].copy_from_slice(&999_u16.to_le_bytes());
+    assert!(matches!(
+        restore_lfrs(
+            &bytes,
+            Arc::clone(&revision),
+            source.clone(),
+            config,
+            SnapshotRestoreLimits::new(1_048_576, 1_024),
+        ),
+        Err(SnapshotRestoreError::Vehicle {
+            error: SpawnError::ConflictRuntimeUnavailable(_),
+            ..
+        })
+    ));
+
+    // 相等边界允许；这同时证明 carry 在 Active 提交前参与校验，而不是事后覆写。
+    bytes[progress_offset..progress_offset + 4].copy_from_slice(&10_501_u32.to_le_bytes());
+    bytes[carry_offset..carry_offset + 2].copy_from_slice(&0_u16.to_le_bytes());
+    restore_lfrs(
+        &bytes,
+        Arc::clone(&revision),
+        source.clone(),
+        config,
+        SnapshotRestoreLimits::new(1_048_576, 1_024),
+    )
+    .expect("rear exactly at clearance restores");
+
+    let smaller_target = WorldConfig::new(4, 4, 64, 0, 1, 100);
+    assert_eq!(
+        restore_lfrs(
+            &bytes,
+            Arc::clone(&revision),
+            source.clone(),
+            smaller_target,
+            SnapshotRestoreLimits::new(1_048_576, 1_024),
+        )
+        .unwrap_err(),
+        SnapshotRestoreError::TargetCapacitySmaller {
+            dimension: SnapshotLimitDimension::RouteConflictOccurrences,
+            snapshot: 1,
+            target: 0,
+        }
+    );
+
+    // 伪造保存容量 0；目标仍可容纳。restore 必须先完整重编译所有路线，再以 actual=1
+    // 报告快照自身损坏，不能在第一条路线处只给部分计数或普通 RouteError。
+    bytes[conflict_capacity_offset..conflict_capacity_offset + 8]
+        .copy_from_slice(&0_u64.to_le_bytes());
+    assert_eq!(
+        restore_lfrs(
+            &bytes,
+            revision,
+            source,
+            config,
+            SnapshotRestoreLimits::new(1_048_576, 1_024),
+        )
+        .unwrap_err(),
+        SnapshotRestoreError::LimitExceeded {
+            dimension: SnapshotLimitDimension::RouteConflictOccurrences,
+            limit: 0,
+            actual: 1,
+        }
+    );
+}
+
+#[test]
+fn completed_restore_never_passes_through_transient_active_three_a() {
+    let revision = compile_road_editing_revision(terminal_conflict_road_editing_module());
+    let stream = revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("east-west stream");
+    let route_edges = revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(stream.maneuver_path())
+        .expect("east-west path")
+        .edges()
+        .to_vec();
+    let config = WorldConfig::new(4, 4, 64, 1, 1, 100);
+    let mut world = install_fixture(Arc::clone(&revision), config).expect("install");
+    let route = world
+        .register_route(RouteRegisterInput::new(route_edges.clone()))
+        .expect("register terminal-conflict route");
+    let terminal_index = u32::try_from(route_edges.len() - 1).expect("route index");
+    let terminal_length = revision.traffic().lane_lengths_millimetres()
+        [route_edges.last().expect("terminal edge").index()];
+    world
+        .spawn_parked_vehicle(
+            ParkedVehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                terminal_index,
+                terminal_length,
+            ),
+            ParkingTarget::ExplicitSpace(ParkingSpaceOrdinal::from_raw(0)),
+        )
+        .expect("parked state is allowed before #284");
+    let snapshot = world.capture_snapshot().expect("capture");
+    let snapshot_vehicle_id = snapshot.vehicles()[0].snapshot_vehicle_id();
+    let mut bytes = encode_lfrs(&snapshot);
+    let (vehicle_table, status_offset) = {
+        let root = snapshot_wire::size_prefixed_root_as_runtime_snapshot(&bytes)
+            .expect("verified snapshot");
+        let vehicle = root.vehicles().get(0);
+        (
+            vehicle._tab.loc(),
+            wire_table_field_offset(vehicle._tab, snapshot_wire::SnapshotVehicle::VT_STATUS),
+        )
+    };
+    bytes[status_offset] = snapshot_wire::VehicleStatusKind::Completed.0;
+    wire_clear_table_field(
+        &mut bytes,
+        vehicle_table,
+        snapshot_wire::SnapshotVehicle::VT_PARKING,
+    );
+
+    let restored = restore_lfrs(
+        &bytes,
+        revision,
+        world.committed_source().clone(),
+        config,
+        SnapshotRestoreLimits::new(1_048_576, 1_024),
+    )
+    .expect("Completed is restored directly without transient Active");
+    let vehicle = restored
+        .vehicle_handle(snapshot_vehicle_id)
+        .expect("restored vehicle mapping");
+    let state = restored.world().vehicle(vehicle).expect("restored state");
+    assert_eq!(state.status(), VehicleStatus::Completed);
+    assert_eq!(state.route_edge_index(), terminal_index);
+    assert_eq!(state.progress_mm(), terminal_length);
+}
+
+#[test]
+fn conflict_three_a_covers_replace_leave_and_rebind_atomically() {
+    let revision = compile_road_editing_revision(conflict_road_editing_module());
+    let stream = revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("east-west stream");
+    let route_edges = revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(stream.maneuver_path())
+        .expect("east-west path")
+        .edges()
+        .to_vec();
+    let mut leave_world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 1, 1, 100))
+            .expect("install leave world");
+    let leave_route = leave_world
+        .register_route(RouteRegisterInput::new(route_edges))
+        .expect("register leave route");
+    let parked = leave_world
+        .spawn_parked_vehicle(
+            ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), leave_route, 0, 0),
+            ParkingTarget::ExplicitSpace(ParkingSpaceOrdinal::from_raw(0)),
+        )
+        .expect("parked spawn remains allowed")
+        .vehicle;
+    let parked_state = leave_world.vehicle(parked);
+    let parked_binding = leave_world.parking_binding(parked);
+    let leave_cursor = leave_world.command_cursor();
+    assert!(matches!(
+        leave_world.leave_parking(
+            parked,
+            LeaveParkingTarget::ExplicitSpace {
+                space: ParkingSpaceOrdinal::from_raw(0),
+                route: leave_route,
+                exit_route_occurrence: 1,
+            },
+        ),
+        Err(ParkingError::ConflictRuntimeUnavailable(_))
+    ));
+    assert_eq!(leave_world.vehicle(parked), parked_state);
+    assert_eq!(leave_world.parking_binding(parked), parked_binding);
+    assert_eq!(leave_world.command_cursor(), leave_cursor);
+
+    let terminal_revision = compile_road_editing_revision(terminal_conflict_road_editing_module());
+    let terminal_stream = terminal_revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("terminal stream");
+    let terminal_route_edges = terminal_revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(terminal_stream.maneuver_path())
+        .expect("terminal path")
+        .edges()
+        .to_vec();
+    let exit_edge = *terminal_route_edges.last().expect("exit edge");
+    let exit_length = terminal_revision.traffic().lane_lengths_millimetres()[exit_edge.index()];
+    let mut world = install_fixture(terminal_revision, WorldConfig::new(4, 4, 64, 1, 1, 100))
+        .expect("install terminal world");
+    let old_route = world
+        .register_route(RouteRegisterInput::new(vec![exit_edge]))
+        .expect("register non-conflict suffix");
+    let new_route = world
+        .register_route(RouteRegisterInput::new(terminal_route_edges))
+        .expect("register terminal-conflict route");
+    let active = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            old_route,
+            0,
+            12_000,
+            0,
+        ))
+        .expect("spawn on non-conflict suffix");
+    world
+        .reserve_parking(
+            active,
+            ReserveParkingTarget::ExplicitSpace {
+                space: ParkingSpaceOrdinal::from_raw(0),
+                entry_route_occurrence: 0,
+            },
+        )
+        .expect("reserve at exact entry");
+    let active_state = world.vehicle(active);
+    let active_binding = world.parking_binding(active);
+    let rebind_cursor = world.command_cursor();
+    assert!(matches!(
+        world.rebind_parking_route(
+            active,
+            RebindParkingTarget::ExplicitSpace {
+                space: ParkingSpaceOrdinal::from_raw(0),
+                new_route,
+                new_current_route_occurrence: 2,
+                new_entry_route_occurrence: 2,
+            },
+        ),
+        Err(ParkingError::ConflictRuntimeUnavailable(_))
+    ));
+    assert_eq!(world.vehicle(active), active_state);
+    assert_eq!(world.parking_binding(active), active_binding);
+    assert_eq!(world.command_cursor(), rebind_cursor);
+
+    world.despawn_vehicle(active).expect("release reservation");
+    let completed = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            old_route,
+            0,
+            exit_length,
+            0,
+        ))
+        .expect("spawn at suffix terminal");
+    world.step(TickInput::new(100)).expect("complete vehicle");
+    assert_eq!(
+        world.vehicle(completed).expect("completed state").status(),
+        VehicleStatus::Completed
+    );
+    let replace_cursor = world.command_cursor();
+    assert!(matches!(
+        world.replace_completed_vehicle(
+            completed,
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                new_route,
+                2,
+                exit_length,
+                0,
+            ),
+        ),
+        Err(ReplaceError::ConflictRuntimeUnavailable(_))
+    ));
+    assert_eq!(
+        world
+            .vehicle(completed)
+            .expect("old handle remains")
+            .status(),
+        VehicleStatus::Completed
+    );
+    assert_eq!(world.command_cursor(), replace_cursor);
+}
+
+#[test]
 fn road_editing_conflict_zone_requires_two_distinct_streams() {
     let limits = CompileLimits::p100_initial_v2();
     let source = lfre::RoadEditingSourceWriter::new(&limits)
@@ -830,7 +2146,7 @@ fn spawn_access_denied_on_registered_route_leaves_no_vehicle() {
             .expect("deny rule");
     });
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install");
     let route = register_named(&mut world, &["stem", "tail"]);
     assert_eq!(
         world
@@ -899,7 +2215,7 @@ fn park_other_target_fails_when_already_parked() {
             .expect("space-b");
     });
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install");
     let route = register_named(&mut world, &["edge"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -938,7 +2254,7 @@ fn park_other_target_fails_when_already_parked() {
 fn virtual_parking_capacity_mixed_pools_leave_and_despawn_are_exact() {
     let revision = compile_virtual_parking_revision(2);
     let mut world =
-        install_fixture(revision, WorldConfig::new(16, 8, 1_024, 1, 100)).expect("install");
+        install_fixture(revision, WorldConfig::new(16, 8, 1_024, 1_024, 1, 100)).expect("install");
     let route = register_named(&mut world, &["edge"]);
     let profile = VehicleProfileOrdinal::from_raw(0);
     let facility = ParkingFacilityOrdinal::from_raw(0);
@@ -1164,7 +2480,7 @@ fn virtual_parking_capacity_mixed_pools_leave_and_despawn_are_exact() {
 
     let mut completed_world = install_fixture(
         compile_virtual_parking_revision(1),
-        WorldConfig::new(4, 4, 1_024, 1, 100),
+        WorldConfig::new(4, 4, 1_024, 1_024, 1, 100),
     )
     .expect("install completed fixture");
     let completed_route = register_named(&mut completed_world, &["edge"]);
@@ -1200,7 +2516,7 @@ fn virtual_parking_capacity_mixed_pools_leave_and_despawn_are_exact() {
 fn virtual_arrival_is_observed_once_then_park_is_pose_less_and_narrowly_idempotent() {
     let revision = compile_virtual_parking_revision(1);
     let mut world =
-        install_fixture(revision, WorldConfig::new(4, 4, 1_024, 1, 100)).expect("install");
+        install_fixture(revision, WorldConfig::new(4, 4, 1_024, 1_024, 1, 100)).expect("install");
     let route = register_named(&mut world, &["edge"]);
     let facility = ParkingFacilityOrdinal::from_raw(0);
     let target = ParkingTarget::VirtualPool(facility);
@@ -1291,10 +2607,13 @@ fn virtual_arrival_is_observed_once_then_park_is_pose_less_and_narrowly_idempote
 }
 
 #[test]
-fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v2() {
+fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v3() {
     let revision = compile_virtual_parking_revision(2);
-    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(8, 4, 1_024, 1, 100))
-        .expect("install");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+    )
+    .expect("install");
     let route = register_named(&mut world, &["edge"]);
     let profile = VehicleProfileOrdinal::from_raw(0);
     let facility = ParkingFacilityOrdinal::from_raw(0);
@@ -1319,9 +2638,9 @@ fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v2() {
         .expect("spawn occupied virtual")
         .vehicle;
 
-    assert_eq!(laneflow_runtime::SNAPSHOT_FORMAT_VERSION, 2);
-    assert_eq!(laneflow_runtime::RUNTIME_STATE_VERSION, 2);
-    assert_eq!(laneflow_runtime::RUNTIME_STATE_DIGEST_VERSION, 4);
+    assert_eq!(laneflow_runtime::SNAPSHOT_FORMAT_VERSION, 3);
+    assert_eq!(laneflow_runtime::RUNTIME_STATE_VERSION, 3);
+    assert_eq!(laneflow_runtime::RUNTIME_STATE_DIGEST_VERSION, 5);
     let snapshot = world.capture_snapshot().expect("capture");
     let digest = deterministic_state_digest(&snapshot).expect("snapshot digest");
     let reserved_id = snapshot
@@ -1569,9 +2888,11 @@ fn leave_overlap_detects_cross_predecessor_and_repeated_occurrence_geometry() {
     let profile = VehicleProfileOrdinal::from_raw(0);
     let facility = ParkingFacilityOrdinal::from_raw(0);
 
-    let mut cross_world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(8, 4, 1_024, 1, 100))
-            .expect("install cross-edge world");
+    let mut cross_world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+    )
+    .expect("install cross-edge world");
     let cross_route = register_named(&mut cross_world, &["loop", "middle", "loop"]);
     let cross_parked = cross_world
         .spawn_parked_vehicle(
@@ -1600,8 +2921,9 @@ fn leave_overlap_detects_cross_predecessor_and_repeated_occurrence_geometry() {
         }
     );
 
-    let mut repeated_world = install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 100))
-        .expect("install repeated-edge world");
+    let mut repeated_world =
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
+            .expect("install repeated-edge world");
     let repeated_route = register_named(&mut repeated_world, &["loop", "middle", "loop"]);
     let repeated_parked = repeated_world
         .spawn_parked_vehicle(
@@ -1635,7 +2957,7 @@ fn leave_overlap_detects_cross_predecessor_and_repeated_occurrence_geometry() {
 fn rebind_compares_the_complete_cross_edge_body_footprint() {
     let revision = compile_rebind_revision();
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 8, 1_024, 1, 100)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 8, 1_024, 1_024, 1, 100)).expect("install");
     let old_route = register_named(&mut world, &["left", "current", "tail"]);
     let new_route = register_named(&mut world, &["right", "current", "tail"]);
     let profile = VehicleProfileOrdinal::from_raw(0);
@@ -1787,7 +3109,7 @@ fn follower_on_diverge_respects_leader_overhang_on_shared_stem() {
     let left = branches[0];
     let right = branches[1];
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install");
     let leader_route = world
         .register_route(RouteRegisterInput::new(vec![stem, left]))
         .expect("left route");
@@ -1843,7 +3165,7 @@ fn large_delta_travel_does_not_exceed_speed_limit_envelope() {
             .expect("edge");
     });
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 1_000)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 1_000)).expect("install");
     let route = register_named(&mut world, &["edge"]);
     world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -1888,7 +3210,7 @@ fn speed_down_transition_caps_next_tick_travel() {
             .expect("slow");
     });
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 1_000)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 1_000)).expect("install");
     let route = register_named(&mut world, &["fast", "slow"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -1959,7 +3281,7 @@ fn equal_limit_edge_boundary_does_not_stop_the_vehicle() {
             .expect("b");
     });
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install");
     let route = register_named(&mut world, &["a", "b"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -2008,7 +3330,7 @@ fn infeasible_stop_before_lower_limit_still_enters() {
             .expect("slower");
     });
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 1_000)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 1_000)).expect("install");
     let route = register_named(&mut world, &["fast", "slower"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -2058,7 +3380,7 @@ fn already_below_downstream_limit_does_not_stop_at_boundary() {
             .expect("mid");
     });
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 1_000)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 1_000)).expect("install");
     let route = register_named(&mut world, &["posted-fast", "mid"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -2171,7 +3493,7 @@ fn install_rejects_phase_shorter_than_tick() {
         add_signalized_corridor(module, 8);
     });
     assert_eq!(
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 16))
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 16))
             .map(|_| ())
             .unwrap_err(),
         InstallError::PhaseShorterThanTick
@@ -2199,7 +3521,7 @@ fn hop_preserves_active_state_and_does_not_force_zero_carry() {
             .expect("second");
     });
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 4)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 4)).expect("install");
     let route = register_named(&mut world, &["first", "second"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(

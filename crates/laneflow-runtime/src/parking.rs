@@ -6,7 +6,9 @@ use laneflow_static_contract::{
 
 use crate::migration_journal::{ParkingBindingDelta, VehicleDelta};
 use crate::occupancy::{LeaderQueryHorizon, OccupancyIndex};
-use crate::tables::{VehicleSlot, occupancy_footprints_equal, occupancy_front_gap};
+use crate::tables::{
+    ConflictCapabilityError, VehicleSlot, occupancy_footprints_equal, occupancy_front_gap,
+};
 use crate::{ParkingError, RouteHandle, TrafficWorld, VehicleHandle, VehicleState, VehicleStatus};
 
 /// 停车资源的精确目标。显式泊位与设施虚拟池是两个互不借用容量的 pool。
@@ -1403,6 +1405,21 @@ impl TrafficWorld {
                 _ => ParkingError::InvariantViolation,
             })?;
         self.validate_leave_followers(candidate, &occupancy)?;
+        match self.check_active_conflict_capability(
+            route,
+            occurrence,
+            exit_progress_mm,
+            0,
+            state.length_mm,
+        ) {
+            Ok(()) => {}
+            Err(ConflictCapabilityError::InvalidCursor) => {
+                return Err(ParkingError::InvariantViolation);
+            }
+            Err(ConflictCapabilityError::RuntimeUnavailable(error)) => {
+                return Err(ParkingError::ConflictRuntimeUnavailable(error));
+            }
+        }
         let new_route_ref = (route != state.route)
             .then(|| self.route_ref_increment(route))
             .transpose()?;
@@ -1502,6 +1519,21 @@ impl TrafficWorld {
             ..state
         };
         self.validate_forward_reachable(candidate, anchor.route_occurrence, anchor.progress_mm)?;
+        match self.check_active_conflict_capability(
+            new_route,
+            new_current_index,
+            state.progress_mm,
+            state.carry_um,
+            state.length_mm,
+        ) {
+            Ok(()) => {}
+            Err(ConflictCapabilityError::InvalidCursor) => {
+                return Err(ParkingError::InvariantViolation);
+            }
+            Err(ConflictCapabilityError::RuntimeUnavailable(error)) => {
+                return Err(ParkingError::ConflictRuntimeUnavailable(error));
+            }
+        }
         let reservation = ParkingReservation::new(
             anchor.target,
             new_route,

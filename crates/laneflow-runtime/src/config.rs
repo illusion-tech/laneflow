@@ -4,6 +4,7 @@ pub struct WorldConfig {
     vehicle_capacity: u32,
     route_capacity: u32,
     route_edge_occurrence_capacity: u64,
+    route_conflict_occurrence_capacity: u64,
     worker_count: u32,
     fixed_delta_time_ms: u64,
 }
@@ -15,6 +16,7 @@ impl WorldConfig {
         vehicle_capacity: u32,
         route_capacity: u32,
         route_edge_occurrence_capacity: u64,
+        route_conflict_occurrence_capacity: u64,
         worker_count: u32,
         fixed_delta_time_ms: u64,
     ) -> Self {
@@ -22,6 +24,7 @@ impl WorldConfig {
             vehicle_capacity,
             route_capacity,
             route_edge_occurrence_capacity,
+            route_conflict_occurrence_capacity,
             worker_count,
             fixed_delta_time_ms,
         }
@@ -41,6 +44,12 @@ impl WorldConfig {
     #[must_use]
     pub const fn route_edge_occurrence_capacity(self) -> u64 {
         self.route_edge_occurrence_capacity
+    }
+
+    /// 全部存活路线 `conflicts.len()` 的总和；重复 passage occurrence 逐项计数。
+    #[must_use]
+    pub const fn route_conflict_occurrence_capacity(self) -> u64 {
+        self.route_conflict_occurrence_capacity
     }
 
     #[must_use]

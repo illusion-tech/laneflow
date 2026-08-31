@@ -1,7 +1,7 @@
 # 运行时快照
 
-**文档状态**: Accepted（#302 G1；Runtime Snapshot v2 停车扩展 #540 G1）<br>
-**最后更新**: 2026-08-31（#541 Runtime Snapshot v2 clean break）<br>
+**文档状态**: Accepted（#302 G1；停车 #540；路线冲突出现项 #283）<br>
+**最后更新**: 2026-09-01<br>
 **适用范围**: 版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)（§12；static image / receipt 条款已被 ADR 0025 §8 取代，origin 以 LFCA 为准）、
@@ -21,10 +21,11 @@
 本文的 #303 观测/Routing 恢复与回放接缝已由 #303 G1 接受，与 #302 合同共同构成
 当前唯一实现权威。
 
-> **实现状态**：当前唯一生产合同与实现均为 Runtime Snapshot v2；停车使用 tagged
+> **实现状态**：当前唯一生产合同与实现均为 Runtime Snapshot v3；停车使用 tagged
 > `ExplicitSpace | VirtualPool` binding，并保存 Reserved/Occupied 状态、所有 Reserved
-> binding 的精确 entry route occurrence 和 virtual reservation 的 semantic entry anchor。
-> v1 schema、reader 与 writer 已同切片移除，不提供双读或自动迁移。
+> binding 的精确 entry route occurrence 和 virtual reservation 的 semantic entry anchor；
+> `WorldConfig` 保存独立的路线边出现项与路线冲突出现项容量。v1/v2 schema、reader 与
+> writer 不属于当前生产入口，不提供双读或自动迁移。
 
 ## 1. 问题与设计立场
 
@@ -60,9 +61,10 @@ revision）不混用单一数字；未知版本值失败关闭。
 字段**（worker 数等）不参与——执行计划按当前硬件重建、精确结果与 worker 数
 无关（ADR 0021）。
 
-**#303 G1 已接受合同**：`route_edge_occurrence_capacity` 是行为语义容量，按全部
-存活动态路线边序列的 occurrence 总数核对；重复边重复计数。恢复配置必须至少容纳
-快照路线表的总 occurrence，检查点后精确回放还要求与原配置一致。
+`route_edge_occurrence_capacity` 与 `route_conflict_occurrence_capacity` 都是行为语义
+容量：前者统计全部存活动态路线边序列 occurrence，后者统计路线重编译所得全部
+`ConflictPassageOccurrence`；两者都保留重复出现。恢复配置必须分别容纳快照路线表
+重建出的 exact 总数，检查点后精确回放还要求与原配置一致。
 
 世界世代是活动进程内失效状态，不是被恢复的逻辑内容：`WorldGeneration` 不进入
 快照；同进程原位恢复必须从活动 world checked 取得下一世代，重新安装的世界从
@@ -77,7 +79,7 @@ capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime �
 
 | 状态        | 快照表示                                                                                                                                                                                                                                                                                                                                 |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 路线表      | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）                                                                                                                                                                                                                                                          |
+| 路线表      | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）；机动、等待区与冲突 passage 出现项均由目标共享根重新编译，不入快照                                                                                                                                                                                       |
 | 车辆        | ADR 0029 §6 形状 + 每车唯一 `snapshot_vehicle_id`：所属 `snapshot_route_id`、`route_edge_index`、`progress_mm` / `carry_um` / `speed_mm_s` / `status`；profile / class 等静态绑定用 `StableId128`                                                                                                                                        |
 | 停车状态    | 保存 `Reserved | Occupied` + tagged target；显式 target 保存 `ParkingSpace StableId128`，虚拟 target 保存 `ParkingFacility StableId128`；Reserved 保存 entry route occurrence，所属 route 即同一车辆的 `snapshot_route_id`，Reserved virtual 另存 `(entry LaneEdge StableId128, progress_mm)`；counts/capacity 不作为第二 authority 入档 |
 | live 顺序   | 车辆 `snapshot_vehicle_id` 的规范排序序列                                                                                                                                                                                                                                                                                                |
@@ -107,7 +109,7 @@ Reserved entry 还必须从保存的 vehicle cursor 前向可达。对同一 rou
 未注册候选全部 stale，不因同修订恢复而复活；新 stream 从初始
 `observationStateSequence` 开始（Routing 合同 §5）。路线表恢复还必须经唯一
 `register_admitted_route` 规范化入口核对修订、稳定标识、
-`route_edge_occurrence_capacity` 与共同路线编译器；超限零部分恢复。
+两个路线 occurrence 容量与共同路线编译器；超限零部分恢复。
 
 输入命令游标只统计成功应用的生命周期命令；direct / candidate / admitted 三类路线
 注册在共同提交点恰好计数一次，保存不计数。游标以 checked arithmetic 推进；耗尽时
@@ -115,12 +117,12 @@ Reserved entry 还必须从保存的 vehicle cursor 前向可达。对同一 rou
 
 ## 4. 容器
 
-封闭契约：size-prefixed FlatBuffers、file identifier `LFRS`、`formatVersion = 2`；
-schema 位于 `schemas/runtime-snapshot/v2`；生成物隔离于私有 wire package（沿
+封闭契约：size-prefixed FlatBuffers、file identifier `LFRS`、`formatVersion = 3`；
+schema 位于 `schemas/runtime-snapshot/v3`；生成物隔离于私有 wire package（沿
 `laneflow-road-editing-wire` 先例）。读取 verifier-first：语义 lowering 前完成
-长度、基数与版本预检。确认 `formatVersion = 2` / `runtime_state_version = 2` 后，
-reader 还逐 table 拒绝超过 v2 schema 对该 table 登记字段数的 vtable 槽；该上界只在
-上述两个 version-2 gate 成功后选择，不能沿用 v1 字段数。FlatBuffers verifier
+长度、基数与版本预检。确认 `formatVersion = 3` / `runtime_state_version = 3` 后，
+reader 还逐 table 拒绝超过 v3 schema 对该 table 登记字段数的 vtable 槽；该上界只在
+上述两个 version-3 gate 成功后选择。FlatBuffers verifier
 本身允许旧 reader 忽略未知字段，不能替代禁绑字段的封闭性检查。发布链的自定义
 规范制品仍只有 LFCA / LFSM / LFSD / LFCP；
 快照不是发布对象，不要求跨实现字节规范序，只要求逻辑确定性（§6）。
@@ -128,8 +130,8 @@ G2 writer 入口为 `encode_lfrs(&CapturedSnapshot)`：它只读边界捕获，�
 world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空表也编码为
 存在的空 vector。
 
-当前实现已原子切换到 `schemas/runtime-snapshot/v2`，旧 v1 reader/writer
-已移除；不提供双读或自动迁移。恢复先解析全部 target/anchor StableId，再验证
+当前实现只读取 `schemas/runtime-snapshot/v3`；旧 reader/writer 不保留。恢复先解析
+全部 target/anchor StableId，再验证
 显式排他性和每设施 `reserved + occupied <= virtual_capacity`，成功后才发布 world。
 
 ## 5. 保存与恢复
@@ -158,6 +160,10 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   边长、超速、profile 与 class 不一致、活跃车辆物理重叠），以及时钟不变量
   破坏（`time_ms` 必须等于 `tick × fixed_delta_time_ms`，checked arithmetic
   验证——不可达时钟对会派生出错误的信号与回放分歧）。任一违反零部分恢复。
+- 路线只从稳定边序列重编译一次；staging world 先累计 exact edge/conflict 两类出现项
+  总数并核对快照与目标容量，再以保存的 `carry_um` 直接提交最终车辆状态。每个
+  `Active` 都必须满足冲突仲裁能力缺席期的 3A 车尾清除谓词；`Parked/Completed`
+  不经过瞬时 `Active`。任一失败不发布 world。
 - 恢复成功后世界处于快照 `tick` 边界的一致状态；`install` 核对与
   `register_admitted_route` 规范化路线重建沿现行消费契约执行。
 - G2 fresh restore 入口 `restore_lfrs` 的顺序不可绕过：调用方 wire / asset-key
@@ -188,10 +194,10 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   Routing，不重放 stale admission。
   跨修订不匹配必须经 #302 受信任迁移策略显式迁移命令稳定引用，否则拒绝。
 - **确定性状态摘要（术语表）**：当前唯一算法为 SHA-256，域分隔字节是
-  `laneflow:runtime-state-digest:v1\0`，随后写 `u16` 摘要版本 `4` 与 `u16`
-  `runtime_state_version` `2`；整数均小端。顶层依次写：`world_id`、语义
-  `NetworkRevisionId`、六轴静态契约版本、行为语义配置（vehicle/route/occurrence
-  容量与 fixed dt；不写 worker）、tick/时间/双游标，再写路线实例分组多重集和 live
+  `laneflow:runtime-state-digest:v1\0`，随后写 `u16` 摘要版本 `5` 与 `u16`
+  `runtime_state_version` `3`；整数均小端。顶层依次写：`world_id`、语义
+  `NetworkRevisionId`、六轴静态契约版本、行为语义配置（vehicle/route、edge/conflict
+  两类 occurrence 容量与 fixed dt；不写 worker）、tick/时间/双游标，再写路线实例分组多重集和 live
   更新序列。每条记录写 `u64 byteLength + bytes`，每个集合先写 `u64` 数量。路线实例
   分组 = 路线记录 + `u64` 绑定车辆数 + 按记录字节升序的绑定车辆记录多重集；路线记录 =
   `u64 edgeCount` + 有序边 `StableId128`。车辆记录依次写 route index / progress / carry /
@@ -269,7 +275,7 @@ published 认证分别度量）、恢复峰值内存、保存期间对稳态 tic
 
 ### 历史切片 B 初值（v1 published fresh restore）
 
-以下是切换前 v1 的同机描述性基线，不得作为 v2 exact bytes 或性能结论复用：
+以下是切换前 v1 的同机描述性基线，不得作为当前 v3 exact bytes 或性能结论复用：
 `LF-P100-REF-01`（2026-08-28，rustc 1.98.0，release）。固定
 workload `signalized-corridor-v1` = `v0.2-signalized-corridor.lfca`（exact
 420,332 bytes，28 条 catalog 路线、2 车辆、`4 ms` 固定步进），安装后运行 64 tick；
@@ -296,11 +302,11 @@ cargo +1.98.0 test --release --locked -p laneflow-runtime --test snapshot_wall_c
 | 恢复峰值内存         | DHAT 增量堆实际高水位 `19,240` bytes / 272 blocks；调用返回时 `17,920` bytes / 266 blocks。输入 LFRS 与既有共享根/source 在 profiler 前准备，不重复计入增量                                                                                     |
 | 保存期稳态 tick 干扰 | 保存前后各 32 tick 的分配账本均 0 次 / 0 bytes；后台连续执行 4,096 次 encode 时，128 tick 墙钟中位 `0.001 ms`，与无竞争基线 `0.001 ms` 相同（比值 `1,000,000 ppm`）；同 tick 序列最终确定性状态摘要相等。CPU 干扰数值仅描述本机，不作跨机硬断言 |
 
-## 9. Runtime Snapshot v2 的 G2 边界与必测义务
+## 9. Runtime Snapshot v3 的 G2 边界与必测义务
 
-v2 的 schema 与版本轴到字段映射已在
-`schemas/runtime-snapshot/v2/README.md` clean-generate 并逐项绑定本文 §3–§6；摘要输入的
-精确规范化序列化见 §6。历史 v1 的 G2 证据不能自动替 v2 通过；不受停车扩展改变的
+v3 的 schema 与版本轴到字段映射已在
+`schemas/runtime-snapshot/v3/README.md` clean-generate 并逐项绑定本文 §3–§6；摘要输入的
+精确规范化序列化见 §6。历史版本的 G2 证据不能自动替 v3 通过；不受当前字段集改变的
 义务继续作为回归 oracle。
 
 必测义务：save → load exact oracle（逻辑状态含双游标与 `time_ms` 全等，句柄
@@ -309,27 +315,30 @@ v2 的 schema 与版本轴到字段映射已在
 分歧按失同步信号处理）；worker 数差异不影响 exact 语义；容器拒绝面（未知版本 / 长度 / 基数 / 禁绑
 字段）；完整性拒绝面（标识 / 引用 / 排列 / 停车绑定 / 值不变量 / 时钟不变量）；两类来源
 恢复端到端与 published 同修订重发布恢复；边界捕获拒绝跨提交状态混合；候选
-准备期保存只捕获旧聚合。#303 G1 已接受合同追加：路线 occurrence 容量 max/max+1 的
-恢复原子性；检查点后成功候选注册按规范化命令重放且不调用 Routing/旧 cost binding。
-#541 追加：parking 状态矩阵、Reserved route ownership、entry occurrence/edge 闭合与
+准备期保存只捕获旧聚合。路线 edge/conflict occurrence 容量 max/max+1 均须恢复原子；
+检查点后成功候选注册按规范化命令重放且不调用 Routing/旧 cost binding。parking
+状态矩阵、Reserved route ownership、entry occurrence/edge 闭合与
 前向可达单项反例（含同 `progress_mm` 非零 carry）；跨修订 virtual semantic entry exact
-重绑，以及 explicit entry 前移允许/移到 cursor 后方失败；任一失败零部分恢复。
-#532 追加：捕获与摘要的预留失败注入——失败关闭（世界无感知）、清点后重试得到
+重绑，以及 explicit entry 前移允许/移到 cursor 后方失败；任一失败零部分恢复。冲突
+出现项不得入档；恢复须证明 exact 重建计数、3A 的一微米边界、保存 carry 生效以及
+Completed 不经过瞬时 Active。捕获与摘要的预留失败注入须证明失败关闭（世界无感知）、清点后重试得到
 同一快照/摘要；save 路径的失败关闭由捕获侧承载（编码边界见 §5）。
 
-### 当前 production v2 证据与遗留边界
+### 当前 production v3 证据与遗留边界
 
-下表说明当前 v2 exact head 已有的功能证据；tagged target、Reserved route occurrence、
-virtual semantic entry、资源守恒、未知 parking 枚举和 digest 往返均纳入 v2 测试。
+下表说明当前 v3 exact head 的功能证据；tagged target、Reserved route occurrence、
+virtual semantic entry、两类路线 occurrence 容量、资源守恒、未知 parking 枚举和
+digest 往返均纳入 v3 测试。
 
 | 义务                        | 当前事实                                                                                                                                                                                                                                           |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | save → load exact oracle    | 已覆盖：完整逻辑状态、双游标、`time_ms` 与局部 ID → 新句柄映射；句柄值不作 oracle                                                                                                                                                                  |
 | 检查点回放 / 首个失同步区间 | 已覆盖：宿主耐久 ID 重绑、检查点后新实体 ID、已准入路线稳定边序列重放；逐点 `(command_cursor, tick, digest)` 相等，偏移 spawn 命令定位首个分歧区间                                                                                                 |
-| 配置判据                    | 已覆盖：fixed dt 不等拒绝，三类语义容量缩小拒绝/放大允许，保存 worker 与目标 worker 差异不影响恢复；容量不同不冒充 exact replay                                                                                                                    |
+| 配置判据                    | 已覆盖：fixed dt 不等拒绝，vehicle/route/edge occurrence/conflict occurrence 四类语义容量缩小拒绝/放大允许，保存 worker 与目标 worker 差异不影响恢复；容量不同不冒充 exact replay                                                                  |
 | 容器与完整性拒绝面          | 已覆盖：framing / identifier / verifier / wire 与 asset-key 上限、format/runtime/静态版本、未知 vtable 槽/枚举、必需字段、标识/引用/live 排列/停车/数值/时钟/Active 重叠；错误只返回失败，不暴露 staging                                           |
 | Published 来源              | 已覆盖：端到端 fresh restore；同语义修订、不同 asset key / exact-byte digest / length 的已认证重发布来源允许恢复                                                                                                                                   |
 | Editable 来源               | **尚未覆盖，不视为已满足**：当前没有 committed `RoadEditingState` 生产来源变体；类型落地后必须补重编译 + `EditableDiffBase` 对应关系 + 端到端恢复                                                                                                  |
-| 边界捕获 / 候选准备期保存   | v2 保持结构闭合：`capture_snapshot(&self)` 与所有提交入口 `&mut self` 不能在 safe Rust 中交错。切换候选在同步 `&mut self` 调用内局部持有、无可并发观测的半提交 world，调用前捕获旧聚合、成功返回后捕获新聚合；未来异步候选形态必须补可交错定向测试 |
-| occurrence max / max+1      | 已覆盖：总 occurrence 正好等于保存/目标上限恢复成功；max+1 在 world staging 前以 `RouteEdgeOccurrences` 上限错误失败                                                                                                                               |
+| 边界捕获 / 候选准备期保存   | v3 保持结构闭合：`capture_snapshot(&self)` 与所有提交入口 `&mut self` 不能在 safe Rust 中交错。切换候选在同步 `&mut self` 调用内局部持有、无可并发观测的半提交 world，调用前捕获旧聚合、成功返回后捕获新聚合；未来异步候选形态必须补可交错定向测试 |
+| occurrence max / max+1      | 已覆盖：edge 与 conflict 两类总 occurrence 正好等于保存/目标上限时恢复成功；max+1 分别以 `RouteEdgeOccurrences` / `RouteConflictOccurrences` 上限错误失败；实际 conflict 总数由完整 staging 路线表重建后核对                                       |
+| 冲突能力保护                | 已覆盖：保存的微米 carry 参与车尾位置；clearance 前一微米拒绝、相等允许；Completed 直接恢复最终态，不经过瞬时 Active；失败零发布                                                                                                                   |
 | 快照五维预算                | Published 初值已登记于 §8；editable load 初值随 Editable 来源生产化补齐                                                                                                                                                                            |

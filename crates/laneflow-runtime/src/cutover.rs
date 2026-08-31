@@ -16,9 +16,13 @@ use laneflow_static_network::{CanonicalNetworkOrigin, SharedNetworkRevision};
 use thiserror::Error;
 
 use crate::source::CommittedNetworkSource;
-use crate::tables::CompiledRoute;
-use crate::tables::compile_route;
-use crate::{ObservationStateSequence, RouteError, StepError, TrafficWorld, WorldGeneration};
+use crate::tables::{
+    CompiledRoute, ConflictCapabilityError, check_conflict_capability, compile_route,
+};
+use crate::{
+    ConflictRuntimeUnavailable, ObservationStateSequence, RouteError, StepError, TrafficWorld,
+    WorldGeneration,
+};
 
 /// 描述符封闭契约版本（#302 切换合同 §2）。
 pub const CUTOVER_DESCRIPTOR_FORMAT_VERSION: u16 = 1;
@@ -609,6 +613,17 @@ pub enum CutoverError {
         /// 世界配置的 occurrence 容量。
         capacity: u64,
     },
+    /// target 路线重编译得到的冲突 passage 出现项总数超出世界容量。
+    #[error("迁移后路线冲突出现项总数 {total} 超出容量 {capacity}")]
+    ConflictOccurrenceCapacityExceeded {
+        /// target compiled routes 的冲突出现项总数。
+        total: u64,
+        /// 世界配置的冲突出现项容量。
+        capacity: u64,
+    },
+    /// #284 能力不存在，target 上某辆 Active 车辆尚未用车尾清除最后 passage。
+    #[error("冲突运行时能力尚不可用: {0:?}")]
+    ConflictRuntimeUnavailable(ConflictRuntimeUnavailable),
     /// 已存在在途切换事务（切换合同 §4 在途唯一；#513 切片 C）。
     #[error("存在在途切换事务")]
     InFlightTransaction,
@@ -822,28 +837,84 @@ impl TrafficWorld {
             .checked_next()
             .ok_or(CutoverError::WorldGenerationExhausted)?;
         // Prepare（staging，失败不触及旧世界）：逐路线对 target 根重编译。
-        let target_traffic = target_revision.traffic();
         let mut staged: Vec<(usize, CompiledRoute)> = Vec::new();
         staged
             .try_reserve(self.routes.len())
             .map_err(|_| CutoverError::StagingAllocFailed)?;
+        let mut staged_conflict_occurrence_count = 0_u64;
         for (index, slot) in self.routes.iter().enumerate() {
             if let Some(compiled) = slot.compiled.as_ref() {
-                staged.push((
-                    index,
-                    compile_route(target_traffic, compiled.edges.as_slice()).map_err(|error| {
-                        if error == RouteError::AllocationFailed {
-                            CutoverError::StagingAllocFailed
-                        } else {
-                            CutoverError::RouteRevalidationFailed
-                        }
-                    })?,
-                ));
+                let staged_route = compile_route(
+                    target_revision.as_ref(),
+                    compiled.edges.as_slice(),
+                    staged_conflict_occurrence_count,
+                    self.config.route_conflict_occurrence_capacity(),
+                )
+                .map_err(|error| match error {
+                    RouteError::AllocationFailed => CutoverError::StagingAllocFailed,
+                    RouteError::ConflictOccurrenceCapacityExceeded {
+                        current,
+                        added,
+                        capacity,
+                    } => CutoverError::ConflictOccurrenceCapacityExceeded {
+                        total: current.saturating_add(added),
+                        capacity,
+                    },
+                    _ => CutoverError::RouteRevalidationFailed,
+                })?;
+                staged_conflict_occurrence_count = staged_conflict_occurrence_count
+                    .checked_add(
+                        u64::try_from(staged_route.conflicts.len())
+                            .expect("conflict occurrence count fits u64"),
+                    )
+                    .expect("route conflict capacity preflight guarantees room");
+                staged.push((index, staged_route));
             }
         }
         // Prepare（续）：针对 target 根与 staged 路线在暂存区完成可失败的
         // 占用索引重建；commit 段只剩不可失败换绑（#302 切换合同 §4）。
         let staged_occupancy = self.build_occupancy_index_for(&target_revision, &staged)?;
+        let target_lengths = target_revision.traffic().lane_lengths_millimetres();
+        for handle in self.active_order.iter().copied() {
+            let state =
+                self.vehicle_state(handle)
+                    .ok_or(CutoverError::VehicleRevalidationFailed {
+                        vehicle: handle.index(),
+                    })?;
+            let route_index = usize::try_from(state.route.index()).map_err(|_| {
+                CutoverError::VehicleRevalidationFailed {
+                    vehicle: handle.index(),
+                }
+            })?;
+            let staged_index = staged
+                .binary_search_by_key(&route_index, |(index, _)| *index)
+                .map_err(|_| CutoverError::VehicleRevalidationFailed {
+                    vehicle: handle.index(),
+                })?;
+            match check_conflict_capability(
+                state.route,
+                &staged[staged_index].1,
+                target_lengths,
+                usize::try_from(state.route_edge_index).map_err(|_| {
+                    CutoverError::VehicleRevalidationFailed {
+                        vehicle: handle.index(),
+                    }
+                })?,
+                state.progress_mm,
+                state.carry_um,
+                state.length_mm,
+            ) {
+                Ok(()) => {}
+                Err(ConflictCapabilityError::InvalidCursor) => {
+                    return Err(CutoverError::VehicleRevalidationFailed {
+                        vehicle: handle.index(),
+                    });
+                }
+                Err(ConflictCapabilityError::RuntimeUnavailable(error)) => {
+                    return Err(CutoverError::ConflictRuntimeUnavailable(error));
+                }
+            }
+        }
         // 事件批次与游标推进量在换绑前构建并预检：耗尽先于任何突变失败关闭。
         let events = CutoverEventBatch::revision_cutover_committed(
             next_world_generation,
@@ -861,6 +932,7 @@ impl TrafficWorld {
             }
         }
         self.source = target_source;
+        self.live_route_conflict_occurrence_count = staged_conflict_occurrence_count;
         self.refresh_signals();
         self.occupancy = staged_occupancy;
         self.world_generation = next_world_generation;
@@ -1214,7 +1286,7 @@ pub(crate) mod tests {
             let origin = *revision.canonical_origin();
             let mut world = TrafficWorld::install(
                 Arc::clone(&revision),
-                WorldConfig::new(8, 4, 1_024, 1, 100),
+                WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
                 source_for(origin, "fixture://base"),
                 1,
             )

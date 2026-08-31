@@ -206,6 +206,7 @@ pub(crate) fn migrate_structural_clone(
     routes
         .try_reserve_exact(world.routes.len())
         .map_err(|_| CutoverError::StagingAllocFailed)?;
+    let mut conflict_occurrence_total = 0_u64;
     for slot in &world.routes {
         let Some(compiled) = slot.compiled.as_ref() else {
             routes.push(RouteSlot {
@@ -227,13 +228,30 @@ pub(crate) fn migrate_structural_clone(
             };
             target_edges.push(target_edge);
         }
-        let migrated = compile_route(target_traffic, target_edges.as_slice()).map_err(|error| {
-            if error == crate::RouteError::AllocationFailed {
-                CutoverError::StagingAllocFailed
-            } else {
-                CutoverError::RouteRevalidationFailed
-            }
+        let migrated = compile_route(
+            target_revision.as_ref(),
+            target_edges.as_slice(),
+            conflict_occurrence_total,
+            world.config.route_conflict_occurrence_capacity(),
+        )
+        .map_err(|error| match error {
+            crate::RouteError::AllocationFailed => CutoverError::StagingAllocFailed,
+            crate::RouteError::ConflictOccurrenceCapacityExceeded {
+                current,
+                added,
+                capacity,
+            } => CutoverError::ConflictOccurrenceCapacityExceeded {
+                total: current.saturating_add(added),
+                capacity,
+            },
+            _ => CutoverError::RouteRevalidationFailed,
         })?;
+        conflict_occurrence_total = conflict_occurrence_total
+            .checked_add(
+                u64::try_from(migrated.conflicts.len())
+                    .expect("conflict occurrence count fits u64"),
+            )
+            .expect("route conflict capacity preflight guarantees room");
         routes.push(RouteSlot {
             generation: slot.generation,
             compiled: Some(migrated),
@@ -531,6 +549,7 @@ pub(crate) fn migrate_structural_clone(
         free_routes,
         live_route_count: world.live_route_count,
         live_route_edge_occurrence_count: occurrence_total,
+        live_route_conflict_occurrence_count: conflict_occurrence_total,
         vehicles,
         free_vehicles,
         live_order,
@@ -681,6 +700,23 @@ pub(crate) fn revalidate_vehicle_on(
                 return Err(CutoverError::VehicleRevalidationFailed {
                     vehicle: handle.index(),
                 });
+            }
+        }
+        match candidate.check_active_conflict_capability(
+            state.route,
+            cursor,
+            state.progress_mm,
+            state.carry_um,
+            state.length_mm,
+        ) {
+            Ok(()) => {}
+            Err(crate::tables::ConflictCapabilityError::InvalidCursor) => {
+                return Err(CutoverError::VehicleRevalidationFailed {
+                    vehicle: handle.index(),
+                });
+            }
+            Err(crate::tables::ConflictCapabilityError::RuntimeUnavailable(error)) => {
+                return Err(CutoverError::ConflictRuntimeUnavailable(error));
             }
         }
     }
@@ -1001,7 +1037,7 @@ pub(crate) mod tests {
         let origin = *revision.canonical_origin();
         TrafficWorld::install(
             revision,
-            WorldConfig::new(8, 4, 1_024, 1, 100),
+            WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
             source_for(origin, key),
             0,
         )
@@ -1142,7 +1178,7 @@ pub(crate) mod tests {
         let origin = *revision.canonical_origin();
         let mut world = TrafficWorld::install(
             revision,
-            WorldConfig::new(8, 4, 1_024, 1, 100),
+            WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
             source_for(origin, "fixture://parking-cutover-base"),
             0,
         )

@@ -1,9 +1,9 @@
-//! `LFRS` v2 的 verifier-first 读取、语义 lowering 与原子新世界恢复。
+//! `LFRS` v3 的 verifier-first 读取、语义 lowering 与原子新世界恢复。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v2 as wire;
+use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v3 as wire;
 use laneflow_runtime_snapshot_wire::runtime::VerifierOptions;
 use laneflow_static_contract::{
     LaneEdgeId, ParkingFacilityId, ParkingSpaceId, ParticipantClassId, StableId128,
@@ -24,14 +24,14 @@ const MIN_SIZE_PREFIXED_LFRS_BYTES: usize = 12;
 const MAX_SCHEMA_TABLE_DEPTH: usize = 4;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
 const MICROMETRES_PER_MILLIMETRE: u16 = 1_000;
-const ROOT_V2_FIELDS: usize = vtable_field_count(wire::RuntimeSnapshot::VT_LIVE_ORDER);
-const WORLD_CONFIG_V2_FIELDS: usize =
+const ROOT_V3_FIELDS: usize = vtable_field_count(wire::RuntimeSnapshot::VT_LIVE_ORDER);
+const WORLD_CONFIG_V3_FIELDS: usize =
     vtable_field_count(wire::WorldConfigBinding::VT_FIXED_DELTA_TIME_MS);
-const PUBLISHED_SOURCE_V2_FIELDS: usize =
+const PUBLISHED_SOURCE_V3_FIELDS: usize =
     vtable_field_count(wire::PublishedSourceBinding::VT_NETWORK_REVISION);
-const ROUTE_V2_FIELDS: usize = vtable_field_count(wire::SnapshotRoute::VT_EDGES);
-const VEHICLE_V2_FIELDS: usize = vtable_field_count(wire::SnapshotVehicle::VT_PARKING);
-const PARKING_BINDING_V2_FIELDS: usize =
+const ROUTE_V3_FIELDS: usize = vtable_field_count(wire::SnapshotRoute::VT_EDGES);
+const VEHICLE_V3_FIELDS: usize = vtable_field_count(wire::SnapshotVehicle::VT_PARKING);
+const PARKING_BINDING_V3_FIELDS: usize =
     vtable_field_count(wire::ParkingBinding::VT_VIRTUAL_ENTRY_PROGRESS_MM);
 
 const fn vtable_field_count(
@@ -53,6 +53,8 @@ pub enum SnapshotLimitDimension {
     Vehicles,
     /// 全部路线边 occurrence 总数。
     RouteEdgeOccurrences,
+    /// 全部路线冲突 passage occurrence 总数。
+    RouteConflictOccurrences,
     /// FlatBuffers verifier 表预算或 apparent-size 预算。
     VerifierBudget,
 }
@@ -129,8 +131,8 @@ pub enum SnapshotRestoreError {
         /// 实际版本。
         actual: u16,
     },
-    /// v2 table 出现 schema 未登记的字段槽；这类字段可能携带禁绑状态。
-    #[error("LFRS v2 table {table} 含未知字段槽: supported={supported}, actual={actual}")]
+    /// v3 table 出现 schema 未登记的字段槽；这类字段可能携带禁绑状态。
+    #[error("LFRS v3 table {table} 含未知字段槽: supported={supported}, actual={actual}")]
     UnknownTableFields {
         /// table 名。
         table: &'static str,
@@ -419,7 +421,17 @@ pub fn restore_lfrs(
     let root = verify_lfrs(bytes, target_config, limits)?;
     validate_bindings(root, revision.as_ref(), &source, target_config, limits)?;
 
-    let mut world = TrafficWorld::install(revision, target_config, source, root.world_id())
+    // 路线重编译必须得到完整实际冲突出现项总数，才能同时校验
+    // 快照与目标容量。这个 staging world 不对外发布，也不按该上限预分配内存。
+    let staging_config = WorldConfig::new(
+        target_config.vehicle_capacity(),
+        target_config.route_capacity(),
+        target_config.route_edge_occurrence_capacity(),
+        u64::MAX,
+        target_config.worker_count(),
+        target_config.fixed_delta_time_ms(),
+    );
+    let mut world = TrafficWorld::install(revision, staging_config, source, root.world_id())
         .map_err(SnapshotRestoreError::Install)?;
     let root_revision = root
         .network_revision()
@@ -456,11 +468,19 @@ pub fn restore_lfrs(
             })?;
         route_map.insert(snapshot_route_id, handle);
     }
+    let snapshot_config = root.world_config();
+    validate_state_count(
+        SnapshotLimitDimension::RouteConflictOccurrences,
+        world.live_route_conflict_occurrence_count,
+        snapshot_config.route_conflict_occurrence_capacity(),
+        target_config.route_conflict_occurrence_capacity(),
+    )?;
+    world.config = target_config;
 
     let vehicle_rows = root.vehicles();
     let mut vehicle_map = BTreeMap::new();
-    // 非 Active 先恢复并立即转入 Parked / Completed；这样 transient spawn 不会把
-    // 合法的非占用重叠误判为 Active 重叠。Active 最后恢复。
+    // 非 Active 先恢复，Active 最后恢复；每辆车都以最终状态一次提交，
+    // 因此 Completed 不会被临时当成 Active，Active 的 carry 也参与提交前 3A 校验。
     for active_pass in [false, true] {
         for vehicle in vehicle_rows {
             let status = decode_vehicle_status(vehicle.snapshot_vehicle_id(), vehicle.status())?;
@@ -590,7 +610,7 @@ fn validate_bindings(
             actual: root.runtime_state_version(),
         });
     }
-    validate_closed_v2_tables(root)?;
+    validate_closed_v3_tables(root)?;
     let network_revision = root
         .network_revision()
         .ok_or(SnapshotRestoreError::MissingField {
@@ -687,6 +707,11 @@ fn validate_bindings(
         snapshot_config.route_edge_occurrence_capacity(),
         target_config.route_edge_occurrence_capacity(),
     )?;
+    validate_capacity_not_smaller(
+        SnapshotLimitDimension::RouteConflictOccurrences,
+        snapshot_config.route_conflict_occurrence_capacity(),
+        target_config.route_conflict_occurrence_capacity(),
+    )?;
     let expected_time = root
         .tick()
         .checked_mul(snapshot_config.fixed_delta_time_ms())
@@ -733,27 +758,27 @@ fn validate_bindings(
     Ok(())
 }
 
-fn validate_closed_v2_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), SnapshotRestoreError> {
-    validate_table_field_count("RuntimeSnapshot", root._tab, ROOT_V2_FIELDS)?;
+fn validate_closed_v3_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), SnapshotRestoreError> {
+    validate_table_field_count("RuntimeSnapshot", root._tab, ROOT_V3_FIELDS)?;
     validate_table_field_count(
         "WorldConfigBinding",
         root.world_config()._tab,
-        WORLD_CONFIG_V2_FIELDS,
+        WORLD_CONFIG_V3_FIELDS,
     )?;
     if let Some(published) = root.source_published() {
         validate_table_field_count(
             "PublishedSourceBinding",
             published._tab,
-            PUBLISHED_SOURCE_V2_FIELDS,
+            PUBLISHED_SOURCE_V3_FIELDS,
         )?;
     }
     for route in root.routes() {
-        validate_table_field_count("SnapshotRoute", route._tab, ROUTE_V2_FIELDS)?;
+        validate_table_field_count("SnapshotRoute", route._tab, ROUTE_V3_FIELDS)?;
     }
     for vehicle in root.vehicles() {
-        validate_table_field_count("SnapshotVehicle", vehicle._tab, VEHICLE_V2_FIELDS)?;
+        validate_table_field_count("SnapshotVehicle", vehicle._tab, VEHICLE_V3_FIELDS)?;
         if let Some(parking) = vehicle.parking() {
-            validate_table_field_count("ParkingBinding", parking._tab, PARKING_BINDING_V2_FIELDS)?;
+            validate_table_field_count("ParkingBinding", parking._tab, PARKING_BINDING_V3_FIELDS)?;
         }
     }
     Ok(())
@@ -1023,13 +1048,17 @@ fn restore_vehicle(
             .vehicle
     } else {
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                profile,
-                route,
-                vehicle.route_edge_index(),
-                vehicle.progress_mm(),
-                vehicle.speed_mm_s(),
-            ))
+            .restore_unparked_vehicle(
+                VehicleSpawnInput::new(
+                    profile,
+                    route,
+                    vehicle.route_edge_index(),
+                    vehicle.progress_mm(),
+                    vehicle.speed_mm_s(),
+                ),
+                vehicle.carry_um(),
+                status,
+            )
             .map_err(|error| SnapshotRestoreError::Vehicle {
                 snapshot_vehicle_id,
                 error,
@@ -1037,11 +1066,6 @@ fn restore_vehicle(
     };
     match status {
         VehicleStatus::Active => {
-            world.vehicles[usize::try_from(handle.index()).expect("vehicle index")]
-                .state
-                .as_mut()
-                .expect("spawned vehicle")
-                .carry_um = vehicle.carry_um();
             if let Some(DecodedParkingBinding::Reserved(target)) = parking {
                 world.reserve_parking(handle, target).map_err(|error| {
                     SnapshotRestoreError::Parking {
@@ -1052,13 +1076,7 @@ fn restore_vehicle(
             }
         }
         VehicleStatus::Parked => {}
-        VehicleStatus::Completed => {
-            world.vehicles[usize::try_from(handle.index()).expect("vehicle index")]
-                .state
-                .as_mut()
-                .expect("spawned vehicle")
-                .status = VehicleStatus::Completed;
-        }
+        VehicleStatus::Completed => {}
     }
     vehicle_map.insert(snapshot_vehicle_id, handle);
     Ok(())
@@ -1395,6 +1413,7 @@ mod tests {
             config.vehicle_capacity() - 1,
             config.route_capacity(),
             config.route_edge_occurrence_capacity(),
+            config.route_conflict_occurrence_capacity(),
             config.worker_count(),
             config.fixed_delta_time_ms(),
         );
@@ -1458,6 +1477,7 @@ mod tests {
             config.vehicle_capacity(),
             config.route_capacity(),
             config.route_edge_occurrence_capacity(),
+            config.route_conflict_occurrence_capacity(),
             config.worker_count(),
             config.fixed_delta_time_ms() + 1,
         );
@@ -1480,6 +1500,7 @@ mod tests {
             config.vehicle_capacity(),
             config.route_capacity() - 1,
             config.route_edge_occurrence_capacity(),
+            config.route_conflict_occurrence_capacity(),
             config.worker_count(),
             config.fixed_delta_time_ms(),
         );
@@ -1503,6 +1524,7 @@ mod tests {
             config.vehicle_capacity(),
             config.route_capacity(),
             config.route_edge_occurrence_capacity() - 1,
+            config.route_conflict_occurrence_capacity(),
             config.worker_count(),
             config.fixed_delta_time_ms(),
         );
@@ -1526,6 +1548,7 @@ mod tests {
             config.vehicle_capacity() + 1,
             config.route_capacity() + 1,
             config.route_edge_occurrence_capacity() + 1,
+            config.route_conflict_occurrence_capacity() + 1,
             config.worker_count(),
             config.fixed_delta_time_ms(),
         );
@@ -1545,6 +1568,7 @@ mod tests {
             config.vehicle_capacity(),
             config.route_capacity(),
             config.route_edge_occurrence_capacity(),
+            config.route_conflict_occurrence_capacity(),
             99,
             config.fixed_delta_time_ms(),
         );
@@ -1598,6 +1622,7 @@ mod tests {
             at_max.config.vehicle_capacity(),
             at_max.config.route_capacity(),
             occurrence_count,
+            at_max.config.route_conflict_occurrence_capacity(),
             at_max.config.worker_count(),
             at_max.config.fixed_delta_time_ms(),
         );
@@ -2039,13 +2064,27 @@ mod tests {
         let config = world.config();
         let valid = encode_lfrs(&world.capture_snapshot().expect("capture"));
 
-        let mut unknown_format = valid.clone();
+        let mut prior_format = valid.clone();
         let format_offset = {
-            let root = wire::size_prefixed_root_as_runtime_snapshot(&unknown_format)
-                .expect("verified LFRS");
+            let root =
+                wire::size_prefixed_root_as_runtime_snapshot(&prior_format).expect("verified LFRS");
             table_field_offset(root._tab, wire::RuntimeSnapshot::VT_FORMAT_VERSION)
         };
-        unknown_format[format_offset..format_offset + 4].copy_from_slice(&3_u32.to_le_bytes());
+        prior_format[format_offset..format_offset + 4].copy_from_slice(&2_u32.to_le_bytes());
+        assert_eq!(
+            restore_lfrs(
+                &prior_format,
+                Arc::clone(&revision),
+                source.clone(),
+                config,
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::UnsupportedFormatVersion { actual: 2 }
+        );
+
+        let mut unknown_format = valid.clone();
+        unknown_format[format_offset..format_offset + 4].copy_from_slice(&4_u32.to_le_bytes());
         assert_eq!(
             restore_lfrs(
                 &unknown_format,
@@ -2055,16 +2094,30 @@ mod tests {
                 generous_limits(),
             )
             .unwrap_err(),
-            SnapshotRestoreError::UnsupportedFormatVersion { actual: 3 }
+            SnapshotRestoreError::UnsupportedFormatVersion { actual: 4 }
         );
 
-        let mut unknown_runtime = valid.clone();
+        let mut prior_runtime = valid.clone();
         let runtime_offset = {
-            let root = wire::size_prefixed_root_as_runtime_snapshot(&unknown_runtime)
+            let root = wire::size_prefixed_root_as_runtime_snapshot(&prior_runtime)
                 .expect("verified LFRS");
             table_field_offset(root._tab, wire::RuntimeSnapshot::VT_RUNTIME_STATE_VERSION)
         };
-        unknown_runtime[runtime_offset..runtime_offset + 2].copy_from_slice(&3_u16.to_le_bytes());
+        prior_runtime[runtime_offset..runtime_offset + 2].copy_from_slice(&2_u16.to_le_bytes());
+        assert_eq!(
+            restore_lfrs(
+                &prior_runtime,
+                Arc::clone(&revision),
+                source.clone(),
+                config,
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::UnsupportedRuntimeStateVersion { actual: 2 }
+        );
+
+        let mut unknown_runtime = valid.clone();
+        unknown_runtime[runtime_offset..runtime_offset + 2].copy_from_slice(&4_u16.to_le_bytes());
         assert_eq!(
             restore_lfrs(
                 &unknown_runtime,
@@ -2074,7 +2127,7 @@ mod tests {
                 generous_limits(),
             )
             .unwrap_err(),
-            SnapshotRestoreError::UnsupportedRuntimeStateVersion { actual: 3 }
+            SnapshotRestoreError::UnsupportedRuntimeStateVersion { actual: 4 }
         );
 
         let mut unknown_fields = valid.clone();
@@ -2090,8 +2143,8 @@ mod tests {
             .unwrap_err(),
             SnapshotRestoreError::UnknownTableFields {
                 table: "RuntimeSnapshot",
-                supported: ROOT_V2_FIELDS,
-                actual: ROOT_V2_FIELDS + 4,
+                supported: ROOT_V3_FIELDS,
+                actual: ROOT_V3_FIELDS + 4,
             }
         );
 

@@ -49,7 +49,7 @@ fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
 }
 
 fn config(delta_ms: u64, workers: u32) -> WorldConfig {
-    WorldConfig::new(8, 4, 1_024, workers, delta_ms)
+    WorldConfig::new(8, 4, 1_024, 1_024, workers, delta_ms)
 }
 
 #[test]

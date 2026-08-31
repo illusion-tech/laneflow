@@ -64,8 +64,11 @@ fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
 #[test]
 fn s1_two_vehicles_step_and_extract_pose_batch() {
     let revision = revision();
-    let world = install_fixture(Arc::clone(&revision), WorldConfig::new(8, 4, 1_024, 1, 100))
-        .expect("install");
+    let world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+    )
+    .expect("install");
     assert!(Arc::ptr_eq(&world.revision(), &revision));
 
     let mut world = world;

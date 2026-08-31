@@ -116,7 +116,7 @@ pub fn build_fixture() -> RoutingEvidenceFixture {
     };
     let mut world = TrafficWorld::install(
         revision,
-        WorldConfig::new(0, 1, EDGE_COUNT as u64, 1, DELTA_MS),
+        WorldConfig::new(0, 1, EDGE_COUNT as u64, EDGE_COUNT as u64, 1, DELTA_MS),
         source,
         WORLD_ID,
     )

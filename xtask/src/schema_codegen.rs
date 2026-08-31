@@ -56,7 +56,7 @@ pub(crate) const ROAD_EDITING: WireFamily = WireFamily {
 pub(crate) const RUNTIME_SNAPSHOT: WireFamily = WireFamily {
     label: "运行时快照",
     command: "check-runtime-snapshot-codegen",
-    schema_path: "schemas/runtime-snapshot/v2/runtime-snapshot.fbs",
+    schema_path: "schemas/runtime-snapshot/v3/runtime-snapshot.fbs",
     checked_rust_path: "crates/laneflow-runtime-snapshot-wire/src/generated/runtime-snapshot_generated.rs",
     wire_manifest_path: "crates/laneflow-runtime-snapshot-wire/Cargo.toml",
     wire_package_root: "crates/laneflow-runtime-snapshot-wire",

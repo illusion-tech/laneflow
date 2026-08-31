@@ -849,7 +849,7 @@ mod tests {
         let origin = *revision.canonical_origin();
         let mut world = TrafficWorld::install(
             Arc::clone(&revision),
-            WorldConfig::new(16, 8, 1_024, 1, 100),
+            WorldConfig::new(16, 8, 1_024, 1_024, 1, 100),
             source_for(origin, "fixture://observation"),
             41,
         )

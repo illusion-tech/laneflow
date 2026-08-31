@@ -209,7 +209,7 @@ fn drive_to_completed(world: &mut TrafficWorld) -> (laneflow_runtime::VehicleHan
 #[test]
 fn replace_reuses_bound_entity_and_keeps_transform_on_blocked() {
     let mut world =
-        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
+        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install");
     let (old, route) = drive_to_completed(&mut world);
     let spatial = SpatialSession::bind(world.revision())
         .expect("bind")
@@ -299,7 +299,7 @@ fn replace_reuses_bound_entity_and_keeps_transform_on_blocked() {
 #[test]
 fn unbound_replace_stays_unbound() {
     let mut world =
-        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
+        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install");
     let (old, route) = drive_to_completed(&mut world);
     let session = LaneFlowSession::new(
         world,
@@ -332,7 +332,7 @@ fn unbound_replace_stays_unbound() {
 fn virtual_parking_echoes_typed_selectors_and_keeps_mapping_without_pose() {
     let mut world = install_fixture(
         virtual_parking_revision(),
-        WorldConfig::new(8, 4, 1_024, 1, 100),
+        WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
     )
     .expect("install virtual parking fixture");
     let route = world
@@ -453,7 +453,7 @@ fn virtual_parking_echoes_typed_selectors_and_keeps_mapping_without_pose() {
 #[test]
 fn typed_completed_despawn_removes_mapping_but_leaves_host_entity_to_caller() {
     let mut world =
-        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
+        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install");
     let (completed, _route) = drive_to_completed(&mut world);
     let session = LaneFlowSession::new(
         world,
@@ -484,7 +484,7 @@ fn typed_completed_despawn_removes_mapping_but_leaves_host_entity_to_caller() {
 #[test]
 fn identical_bind_is_duplicate_error() {
     let mut world =
-        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
+        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install");
     let (vehicle, _route) = drive_to_completed(&mut world);
     let session = LaneFlowSession::new(
         world,
@@ -514,7 +514,7 @@ fn identical_bind_is_duplicate_error() {
 #[test]
 fn typed_despawn_rejects_stale_entity_without_runtime_or_mapping_changes() {
     let mut world =
-        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
+        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install");
     let route = register_preview_route(&mut world);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -575,7 +575,7 @@ fn typed_despawn_rejects_stale_entity_without_runtime_or_mapping_changes() {
 #[test]
 fn parking_failures_keep_entity_mapping_and_only_typed_despawn_removes_it() {
     let mut world =
-        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
+        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install");
     let route = register_preview_route(&mut world);
     let profile = VehicleProfileOrdinal::from_raw(0);
     let active = world

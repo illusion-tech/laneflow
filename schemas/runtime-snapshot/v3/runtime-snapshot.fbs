@@ -1,8 +1,7 @@
-// LaneFlow 运行时快照容器 v2。
-// v2 是 #541 后唯一 production shape：tagged parking binding 覆盖显式/虚拟
-// Reserved 与 Occupied；virtual owner-local selector 不持久化。
+// LaneFlow 运行时快照容器 v3。
+// v3 在完整行为配置中加入路线冲突出现项容量；派生冲突热表不持久化。
 
-namespace LaneFlow.RuntimeSnapshot.V2;
+namespace LaneFlow.RuntimeSnapshot.V3;
 
 struct Digest256 { bytes:[ubyte:32]; }
 struct StableId128 { bytes:[ubyte:16]; }
@@ -25,6 +24,7 @@ table WorldConfigBinding {
   vehicle_capacity:uint;
   route_capacity:uint;
   route_edge_occurrence_capacity:ulong;
+  route_conflict_occurrence_capacity:ulong;
   worker_count:uint;
   fixed_delta_time_ms:ulong;
 }
