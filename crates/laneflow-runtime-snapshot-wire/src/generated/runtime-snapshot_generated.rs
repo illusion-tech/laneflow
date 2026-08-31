@@ -10,7 +10,7 @@ pub mod lane_flow {
 pub mod runtime_snapshot {
 
 #[allow(unused_imports, dead_code)]
-pub mod v1 {
+pub mod v2 {
 
 
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
@@ -24,8 +24,6 @@ pub const ENUM_VALUES_SOURCE_KIND: [SourceKind; 2] = [
   SourceKind::Published,
 ];
 
-/// 已提交路网来源的封闭种类。v1 只有 `Published`；editable 载荷进入生产
-/// 依赖面时新增成员并升 `format_version`。
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
 pub struct SourceKind(pub u8);
@@ -112,7 +110,6 @@ pub const ENUM_VALUES_VEHICLE_STATUS_KIND: [VehicleStatusKind; 4] = [
   VehicleStatusKind::Completed,
 ];
 
-/// 已提交车辆生命周期状态（与 Runtime `VehicleStatus` 一一对应）。
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
 pub struct VehicleStatusKind(pub u8);
@@ -192,7 +189,182 @@ impl<'a> ::flatbuffers::Verifiable for VehicleStatusKind {
 }
 
 impl ::flatbuffers::SimpleToVerifyInSlice for VehicleStatusKind {}
-/// 32-byte SHA-256 摘要。
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_PARKING_BINDING_STATE_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_PARKING_BINDING_STATE_KIND: u8 = 2;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_PARKING_BINDING_STATE_KIND: [ParkingBindingStateKind; 3] = [
+  ParkingBindingStateKind::Unspecified,
+  ParkingBindingStateKind::Reserved,
+  ParkingBindingStateKind::Occupied,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct ParkingBindingStateKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl ParkingBindingStateKind {
+  pub const Unspecified: Self = Self(0);
+  pub const Reserved: Self = Self(1);
+  pub const Occupied: Self = Self(2);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Unspecified,
+    Self::Reserved,
+    Self::Occupied,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Unspecified => Some("Unspecified"),
+      Self::Reserved => Some("Reserved"),
+      Self::Occupied => Some("Occupied"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for ParkingBindingStateKind {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for ParkingBindingStateKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for ParkingBindingStateKind {
+    type Output = ParkingBindingStateKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for ParkingBindingStateKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for ParkingBindingStateKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for ParkingBindingStateKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_PARKING_TARGET_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_PARKING_TARGET_KIND: u8 = 2;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_PARKING_TARGET_KIND: [ParkingTargetKind; 3] = [
+  ParkingTargetKind::Unspecified,
+  ParkingTargetKind::ExplicitSpace,
+  ParkingTargetKind::VirtualPool,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct ParkingTargetKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl ParkingTargetKind {
+  pub const Unspecified: Self = Self(0);
+  pub const ExplicitSpace: Self = Self(1);
+  pub const VirtualPool: Self = Self(2);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Unspecified,
+    Self::ExplicitSpace,
+    Self::VirtualPool,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Unspecified => Some("Unspecified"),
+      Self::ExplicitSpace => Some("ExplicitSpace"),
+      Self::VirtualPool => Some("VirtualPool"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for ParkingTargetKind {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for ParkingTargetKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for ParkingTargetKind {
+    type Output = ParkingTargetKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for ParkingTargetKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for ParkingTargetKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for ParkingTargetKind {}
 // struct Digest256, aligned to 1
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq)]
@@ -274,7 +446,6 @@ impl<'a> Digest256 {
 
 }
 
-/// 16-byte 稳定标识（边 / profile / class / 停车位等静态实体）。
 // struct StableId128, aligned to 1
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq)]
@@ -356,7 +527,6 @@ impl<'a> StableId128 {
 
 }
 
-/// 被绑定共享根的静态契约版本集（六轴，各为封闭 u16 版本）。
 // struct StaticContractVersionSet, aligned to 2
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq)]
@@ -615,11 +785,6 @@ impl<'a> StaticContractVersionSet {
 pub enum WorldConfigBindingOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-/// `WorldConfig` 的完整绑定。恢复核对按合同 §2 两分：
-/// `fixed_delta_time_ms` 必须精确相等；`vehicle_capacity` / `route_capacity` /
-/// `route_edge_occurrence_capacity` 为语义容量，只许放大（occurrence 容量按
-/// 全部存活动态路线边序列的总 occurrence 计，重复边重复计数，#303 G1 已接受
-/// 合同；运行时面已随 #521 落地）；`worker_count` 属可重建执行计划字段，不参与核对。
 pub struct WorldConfigBinding<'a> {
   pub _tab: ::flatbuffers::Table<'a>,
 }
@@ -784,7 +949,6 @@ impl ::core::fmt::Debug for WorldConfigBinding<'_> {
 pub enum PublishedSourceBindingOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-/// `PublishedLfcaReference` 的 wire 形状（`SourceKind.Published` 专属）。
 pub struct PublishedSourceBinding<'a> {
   pub _tab: ::flatbuffers::Table<'a>,
 }
@@ -933,8 +1097,6 @@ impl ::core::fmt::Debug for PublishedSourceBinding<'_> {
 pub enum SnapshotRouteOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-/// 快照路线表条目：快照局部路线 ID + 有序边稳定标识序列（允许重复边）。
-/// 槽位 / generation / `LaneEdgeOrdinal` / 出现项不持久（ADR 0029 §6）。
 pub struct SnapshotRoute<'a> {
   pub _tab: ::flatbuffers::Table<'a>,
 }
@@ -1046,11 +1208,190 @@ impl ::core::fmt::Debug for SnapshotRoute<'_> {
       ds.finish()
   }
 }
+pub enum ParkingBindingOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ParkingBinding<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for ParkingBinding<'a> {
+  type Inner = ParkingBinding<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ParkingBinding<'a> {
+  pub const VT_STATE: ::flatbuffers::VOffsetT = 4;
+  pub const VT_TARGET_KIND: ::flatbuffers::VOffsetT = 6;
+  pub const VT_TARGET: ::flatbuffers::VOffsetT = 8;
+  pub const VT_ENTRY_ROUTE_OCCURRENCE: ::flatbuffers::VOffsetT = 10;
+  pub const VT_VIRTUAL_ENTRY_EDGE: ::flatbuffers::VOffsetT = 12;
+  pub const VT_VIRTUAL_ENTRY_PROGRESS_MM: ::flatbuffers::VOffsetT = 14;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    ParkingBinding { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ParkingBindingArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<ParkingBinding<'bldr>> {
+    let mut builder = ParkingBindingBuilder::new(_fbb);
+    builder.add_virtual_entry_progress_mm(args.virtual_entry_progress_mm);
+    if let Some(x) = args.virtual_entry_edge { builder.add_virtual_entry_edge(x); }
+    builder.add_entry_route_occurrence(args.entry_route_occurrence);
+    if let Some(x) = args.target { builder.add_target(x); }
+    builder.add_target_kind(args.target_kind);
+    builder.add_state(args.state);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn state(&self) -> ParkingBindingStateKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<ParkingBindingStateKind>(ParkingBinding::VT_STATE, Some(ParkingBindingStateKind::Unspecified)).unwrap()}
+  }
+  #[inline]
+  pub fn target_kind(&self) -> ParkingTargetKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<ParkingTargetKind>(ParkingBinding::VT_TARGET_KIND, Some(ParkingTargetKind::Unspecified)).unwrap()}
+  }
+  #[inline]
+  pub fn target(&self) -> Option<&'a StableId128> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<StableId128>(ParkingBinding::VT_TARGET, None)}
+  }
+  #[inline]
+  pub fn entry_route_occurrence(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ParkingBinding::VT_ENTRY_ROUTE_OCCURRENCE, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn virtual_entry_edge(&self) -> Option<&'a StableId128> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<StableId128>(ParkingBinding::VT_VIRTUAL_ENTRY_EDGE, None)}
+  }
+  #[inline]
+  pub fn virtual_entry_progress_mm(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ParkingBinding::VT_VIRTUAL_ENTRY_PROGRESS_MM, Some(0)).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for ParkingBinding<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<ParkingBindingStateKind>("state", Self::VT_STATE, false)?
+     .visit_field::<ParkingTargetKind>("target_kind", Self::VT_TARGET_KIND, false)?
+     .visit_field::<StableId128>("target", Self::VT_TARGET, false)?
+     .visit_field::<u32>("entry_route_occurrence", Self::VT_ENTRY_ROUTE_OCCURRENCE, false)?
+     .visit_field::<StableId128>("virtual_entry_edge", Self::VT_VIRTUAL_ENTRY_EDGE, false)?
+     .visit_field::<u32>("virtual_entry_progress_mm", Self::VT_VIRTUAL_ENTRY_PROGRESS_MM, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ParkingBindingArgs<'a> {
+    pub state: ParkingBindingStateKind,
+    pub target_kind: ParkingTargetKind,
+    pub target: Option<&'a StableId128>,
+    pub entry_route_occurrence: u32,
+    pub virtual_entry_edge: Option<&'a StableId128>,
+    pub virtual_entry_progress_mm: u32,
+}
+impl<'a> Default for ParkingBindingArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ParkingBindingArgs {
+      state: ParkingBindingStateKind::Unspecified,
+      target_kind: ParkingTargetKind::Unspecified,
+      target: None,
+      entry_route_occurrence: 0,
+      virtual_entry_edge: None,
+      virtual_entry_progress_mm: 0,
+    }
+  }
+}
+
+pub struct ParkingBindingBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ParkingBindingBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_state(&mut self, state: ParkingBindingStateKind) {
+    self.fbb_.push_slot::<ParkingBindingStateKind>(ParkingBinding::VT_STATE, state, ParkingBindingStateKind::Unspecified);
+  }
+  #[inline]
+  pub fn add_target_kind(&mut self, target_kind: ParkingTargetKind) {
+    self.fbb_.push_slot::<ParkingTargetKind>(ParkingBinding::VT_TARGET_KIND, target_kind, ParkingTargetKind::Unspecified);
+  }
+  #[inline]
+  pub fn add_target(&mut self, target: &StableId128) {
+    self.fbb_.push_slot_always::<&StableId128>(ParkingBinding::VT_TARGET, target);
+  }
+  #[inline]
+  pub fn add_entry_route_occurrence(&mut self, entry_route_occurrence: u32) {
+    self.fbb_.push_slot::<u32>(ParkingBinding::VT_ENTRY_ROUTE_OCCURRENCE, entry_route_occurrence, 0);
+  }
+  #[inline]
+  pub fn add_virtual_entry_edge(&mut self, virtual_entry_edge: &StableId128) {
+    self.fbb_.push_slot_always::<&StableId128>(ParkingBinding::VT_VIRTUAL_ENTRY_EDGE, virtual_entry_edge);
+  }
+  #[inline]
+  pub fn add_virtual_entry_progress_mm(&mut self, virtual_entry_progress_mm: u32) {
+    self.fbb_.push_slot::<u32>(ParkingBinding::VT_VIRTUAL_ENTRY_PROGRESS_MM, virtual_entry_progress_mm, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ParkingBindingBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ParkingBindingBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<ParkingBinding<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for ParkingBinding<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("ParkingBinding");
+      ds.field("state", &self.state());
+      ds.field("target_kind", &self.target_kind());
+      ds.field("target", &self.target());
+      ds.field("entry_route_occurrence", &self.entry_route_occurrence());
+      ds.field("virtual_entry_edge", &self.virtual_entry_edge());
+      ds.field("virtual_entry_progress_mm", &self.virtual_entry_progress_mm());
+      ds.finish()
+  }
+}
 pub enum SnapshotVehicleOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-/// 快照车辆：快照局部车辆 ID + 局部路线引用 + 路线序列下标与一维运动状态。
-/// `parking_space` 缺席表示未绑定；profile 派生车长不入档。
 pub struct SnapshotVehicle<'a> {
   pub _tab: ::flatbuffers::Table<'a>,
 }
@@ -1073,7 +1414,7 @@ impl<'a> SnapshotVehicle<'a> {
   pub const VT_STATUS: ::flatbuffers::VOffsetT = 16;
   pub const VT_PROFILE: ::flatbuffers::VOffsetT = 18;
   pub const VT_CLASS: ::flatbuffers::VOffsetT = 20;
-  pub const VT_PARKING_SPACE: ::flatbuffers::VOffsetT = 22;
+  pub const VT_PARKING: ::flatbuffers::VOffsetT = 22;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -1087,7 +1428,7 @@ impl<'a> SnapshotVehicle<'a> {
     let mut builder = SnapshotVehicleBuilder::new(_fbb);
     builder.add_snapshot_route_id(args.snapshot_route_id);
     builder.add_snapshot_vehicle_id(args.snapshot_vehicle_id);
-    if let Some(x) = args.parking_space { builder.add_parking_space(x); }
+    if let Some(x) = args.parking { builder.add_parking(x); }
     if let Some(x) = args.class { builder.add_class(x); }
     if let Some(x) = args.profile { builder.add_profile(x); }
     builder.add_speed_mm_s(args.speed_mm_s);
@@ -1163,11 +1504,11 @@ impl<'a> SnapshotVehicle<'a> {
     unsafe { self._tab.get::<StableId128>(SnapshotVehicle::VT_CLASS, None)}
   }
   #[inline]
-  pub fn parking_space(&self) -> Option<&'a StableId128> {
+  pub fn parking(&self) -> Option<ParkingBinding<'a>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<StableId128>(SnapshotVehicle::VT_PARKING_SPACE, None)}
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<ParkingBinding>>(SnapshotVehicle::VT_PARKING, None)}
   }
 }
 
@@ -1186,7 +1527,7 @@ impl ::flatbuffers::Verifiable for SnapshotVehicle<'_> {
      .visit_field::<VehicleStatusKind>("status", Self::VT_STATUS, false)?
      .visit_field::<StableId128>("profile", Self::VT_PROFILE, false)?
      .visit_field::<StableId128>("class", Self::VT_CLASS, false)?
-     .visit_field::<StableId128>("parking_space", Self::VT_PARKING_SPACE, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<ParkingBinding>>("parking", Self::VT_PARKING, false)?
      .finish();
     Ok(())
   }
@@ -1201,7 +1542,7 @@ pub struct SnapshotVehicleArgs<'a> {
     pub status: VehicleStatusKind,
     pub profile: Option<&'a StableId128>,
     pub class: Option<&'a StableId128>,
-    pub parking_space: Option<&'a StableId128>,
+    pub parking: Option<::flatbuffers::WIPOffset<ParkingBinding<'a>>>,
 }
 impl<'a> Default for SnapshotVehicleArgs<'a> {
   #[inline]
@@ -1216,7 +1557,7 @@ impl<'a> Default for SnapshotVehicleArgs<'a> {
       status: VehicleStatusKind::Unspecified,
       profile: None,
       class: None,
-      parking_space: None,
+      parking: None,
     }
   }
 }
@@ -1263,8 +1604,8 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> SnapshotVehicleBuilder<'a, 'b
     self.fbb_.push_slot_always::<&StableId128>(SnapshotVehicle::VT_CLASS, class);
   }
   #[inline]
-  pub fn add_parking_space(&mut self, parking_space: &StableId128) {
-    self.fbb_.push_slot_always::<&StableId128>(SnapshotVehicle::VT_PARKING_SPACE, parking_space);
+  pub fn add_parking(&mut self, parking: ::flatbuffers::WIPOffset<ParkingBinding<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<ParkingBinding>>(SnapshotVehicle::VT_PARKING, parking);
   }
   #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> SnapshotVehicleBuilder<'a, 'b, A> {
@@ -1293,14 +1634,13 @@ impl ::core::fmt::Debug for SnapshotVehicle<'_> {
       ds.field("status", &self.status());
       ds.field("profile", &self.profile());
       ds.field("class", &self.class());
-      ds.field("parking_space", &self.parking_space());
+      ds.field("parking", &self.parking());
       ds.finish()
   }
 }
 pub enum RuntimeSnapshotOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-/// Runtime Snapshot 根表：绑定集 + 全部每世界可变状态（合同 §2/§3）。
 pub struct RuntimeSnapshot<'a> {
   pub _tab: ::flatbuffers::Table<'a>,
 }
@@ -1755,7 +2095,7 @@ pub fn finish_runtime_snapshot_buffer<'a, 'b, A: ::flatbuffers::Allocator + 'a>(
 pub fn finish_size_prefixed_runtime_snapshot_buffer<'a, 'b, A: ::flatbuffers::Allocator + 'a>(fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>, root: ::flatbuffers::WIPOffset<RuntimeSnapshot<'a>>) {
   fbb.finish_size_prefixed(root, Some(RUNTIME_SNAPSHOT_IDENTIFIER));
 }
-}  // pub mod V1
+}  // pub mod V2
 }  // pub mod RuntimeSnapshot
 }  // pub mod LaneFlow
 

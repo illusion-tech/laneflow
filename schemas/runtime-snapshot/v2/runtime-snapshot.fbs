@@ -1,0 +1,90 @@
+// LaneFlow 运行时快照容器 v2。
+// v2 是 #541 后唯一 production shape：tagged parking binding 覆盖显式/虚拟
+// Reserved 与 Occupied；virtual owner-local selector 不持久化。
+
+namespace LaneFlow.RuntimeSnapshot.V2;
+
+struct Digest256 { bytes:[ubyte:32]; }
+struct StableId128 { bytes:[ubyte:16]; }
+
+struct StaticContractVersionSet {
+  canonical_format_version:ushort;
+  identity_encoding_version:ushort;
+  identity_registry_revision:ushort;
+  network_revision_derivation_version:ushort;
+  constraint_contract_version:ushort;
+  static_execution_contract_version:ushort;
+}
+
+enum SourceKind:ubyte { Unspecified = 0, Published = 1 }
+enum VehicleStatusKind:ubyte { Unspecified = 0, Active = 1, Parked = 2, Completed = 3 }
+enum ParkingBindingStateKind:ubyte { Unspecified = 0, Reserved = 1, Occupied = 2 }
+enum ParkingTargetKind:ubyte { Unspecified = 0, ExplicitSpace = 1, VirtualPool = 2 }
+
+table WorldConfigBinding {
+  vehicle_capacity:uint;
+  route_capacity:uint;
+  route_edge_occurrence_capacity:ulong;
+  worker_count:uint;
+  fixed_delta_time_ms:ulong;
+}
+
+table PublishedSourceBinding {
+  asset_key:string (required);
+  artifact_digest:Digest256;
+  artifact_byte_length:ulong;
+  network_revision:Digest256;
+}
+
+table SnapshotRoute {
+  snapshot_route_id:ulong;
+  edges:[StableId128] (required);
+}
+
+// target is ParkingSpace StableId for ExplicitSpace and ParkingFacility StableId for
+// VirtualPool. Reserved VirtualPool additionally requires the exact semantic entry pair.
+table ParkingBinding {
+  state:ParkingBindingStateKind;
+  target_kind:ParkingTargetKind;
+  target:StableId128;
+  entry_route_occurrence:uint;
+  virtual_entry_edge:StableId128;
+  virtual_entry_progress_mm:uint;
+}
+
+table SnapshotVehicle {
+  snapshot_vehicle_id:ulong;
+  snapshot_route_id:ulong;
+  route_edge_index:uint;
+  progress_mm:uint;
+  carry_um:ushort;
+  speed_mm_s:uint;
+  status:VehicleStatusKind;
+  profile:StableId128;
+  class:StableId128;
+  parking:ParkingBinding;
+}
+
+table RuntimeSnapshot {
+  format_version:uint;
+  runtime_state_version:ushort;
+  world_id:ulong;
+  tick:ulong;
+  time_ms:ulong;
+  command_cursor:ulong;
+  event_cursor:ulong;
+  world_config:WorldConfigBinding (required);
+  network_revision:Digest256;
+  lfca_artifact_digest:Digest256;
+  lfca_artifact_byte_length:ulong;
+  static_contract_versions:StaticContractVersionSet;
+  source_kind:SourceKind;
+  source_published:PublishedSourceBinding;
+  routes:[SnapshotRoute] (required);
+  vehicles:[SnapshotVehicle] (required);
+  live_order:[ulong] (required);
+}
+
+root_type RuntimeSnapshot;
+file_identifier "LFRS";
+file_extension "lfrs";

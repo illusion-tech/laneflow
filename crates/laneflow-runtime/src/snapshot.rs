@@ -7,18 +7,20 @@
 //! `WorldConfig`（含 `route_edge_occurrence_capacity`）、绑定集与逻辑状态
 //! 映射到 size-prefixed `LFRS`；不回读活动 world，也不推进游标。
 
-use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v1 as wire;
+use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v2 as wire;
 use laneflow_runtime_snapshot_wire::runtime;
 use laneflow_static_contract::StableId128 as ContractStableId128;
 use laneflow_static_network::CanonicalNetworkOrigin;
 use thiserror::Error;
 
-use crate::{CommittedNetworkSource, TrafficWorld, VehicleStatus, WorldConfig};
+use crate::{
+    CommittedNetworkSource, ParkingBinding, ParkingTarget, TrafficWorld, VehicleStatus, WorldConfig,
+};
 
 /// LFRS 容器格式版本（快照合同 §4）。
-pub const SNAPSHOT_FORMAT_VERSION: u32 = 1;
+pub const SNAPSHOT_FORMAT_VERSION: u32 = 2;
 /// Runtime 逻辑状态形状轴（快照合同 §2 版本轴分离）。
-pub const RUNTIME_STATE_VERSION: u16 = 1;
+pub const RUNTIME_STATE_VERSION: u16 = 2;
 
 /// 快照局部标识的起点（1..=N 分配，0 保留为非法）。
 const FIRST_SNAPSHOT_ID: u64 = 1;
@@ -173,8 +175,35 @@ pub struct CapturedVehicle {
     pub(crate) profile: ContractStableId128,
     /// 参与者类别稳定标识。
     pub(crate) class: ContractStableId128,
-    /// 停车位稳定标识；`None` 表示未绑定。
-    pub(crate) parking_space: Option<ContractStableId128>,
+    /// tagged parking binding；`None` 表示未绑定。
+    pub(crate) parking: Option<CapturedParkingBinding>,
+}
+
+/// 快照中的 tagged parking target stable identity。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CapturedParkingTarget {
+    ExplicitSpace(ContractStableId128),
+    VirtualPool(ContractStableId128),
+}
+
+/// virtual Reserved selector 的跨修订 semantic 形态。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CapturedVirtualParkingEntry {
+    pub(crate) lane_edge: ContractStableId128,
+    pub(crate) progress_mm: u32,
+}
+
+/// 快照中的完整 parking binding。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CapturedParkingBinding {
+    Reserved {
+        target: CapturedParkingTarget,
+        entry_route_occurrence: u32,
+        virtual_entry: Option<CapturedVirtualParkingEntry>,
+    },
+    Occupied {
+        target: CapturedParkingTarget,
+    },
 }
 
 impl CapturedRoute {
@@ -246,14 +275,14 @@ impl CapturedVehicle {
         self.class
     }
 
-    /// 已占用停车位的稳定标识；未停车时为 `None`。
+    /// tagged parking binding；未绑定时为 `None`。
     #[must_use]
-    pub const fn parking_space(&self) -> Option<ContractStableId128> {
-        self.parking_space
+    pub const fn parking_binding(&self) -> Option<CapturedParkingBinding> {
+        self.parking
     }
 }
 
-/// 把不可变快照点编码为 size-prefixed `LFRS` v1。
+/// 把不可变快照点编码为 size-prefixed `LFRS` v2。
 ///
 /// 捕获与编码分离：调用方可先在固定步进安全边界调用
 /// [`TrafficWorld::capture_snapshot`]，再把本函数放到后台线程。编码只映射已捕获
@@ -300,9 +329,62 @@ pub fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
         .map(|vehicle| {
             let profile = wire::StableId128::new(vehicle.profile.as_bytes());
             let class = wire::StableId128::new(vehicle.class.as_bytes());
-            let parking_space = vehicle
-                .parking_space
-                .map(|stable_id| wire::StableId128::new(stable_id.as_bytes()));
+            let parking = vehicle.parking.map(|binding| {
+                let (state, target, target_kind, entry_occurrence, virtual_entry) = match binding {
+                    CapturedParkingBinding::Reserved {
+                        target,
+                        entry_route_occurrence,
+                        virtual_entry,
+                    } => (
+                        wire::ParkingBindingStateKind::Reserved,
+                        target,
+                        match target {
+                            CapturedParkingTarget::ExplicitSpace(_) => {
+                                wire::ParkingTargetKind::ExplicitSpace
+                            }
+                            CapturedParkingTarget::VirtualPool(_) => {
+                                wire::ParkingTargetKind::VirtualPool
+                            }
+                        },
+                        entry_route_occurrence,
+                        virtual_entry,
+                    ),
+                    CapturedParkingBinding::Occupied { target } => (
+                        wire::ParkingBindingStateKind::Occupied,
+                        target,
+                        match target {
+                            CapturedParkingTarget::ExplicitSpace(_) => {
+                                wire::ParkingTargetKind::ExplicitSpace
+                            }
+                            CapturedParkingTarget::VirtualPool(_) => {
+                                wire::ParkingTargetKind::VirtualPool
+                            }
+                        },
+                        0,
+                        None,
+                    ),
+                };
+                let target = match target {
+                    CapturedParkingTarget::ExplicitSpace(stable)
+                    | CapturedParkingTarget::VirtualPool(stable) => {
+                        wire::StableId128::new(stable.as_bytes())
+                    }
+                };
+                let virtual_entry_edge =
+                    virtual_entry.map(|entry| wire::StableId128::new(entry.lane_edge.as_bytes()));
+                wire::ParkingBinding::create(
+                    &mut fbb,
+                    &wire::ParkingBindingArgs {
+                        state,
+                        target_kind,
+                        target: Some(&target),
+                        entry_route_occurrence: entry_occurrence,
+                        virtual_entry_edge: virtual_entry_edge.as_ref(),
+                        virtual_entry_progress_mm: virtual_entry
+                            .map_or(0, |entry| entry.progress_mm),
+                    },
+                )
+            });
             wire::SnapshotVehicle::create(
                 &mut fbb,
                 &wire::SnapshotVehicleArgs {
@@ -315,7 +397,7 @@ pub fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
                     status: encode_vehicle_status(vehicle.status),
                     profile: Some(&profile),
                     class: Some(&class),
-                    parking_space: parking_space.as_ref(),
+                    parking,
                 },
             )
         })
@@ -513,7 +595,7 @@ impl TrafficWorld {
                 .expect("live vehicle route resolves to snapshot route id")
         };
 
-        // 车辆：live 槽位序枚举，profile/class/停车位解析为稳定标识。
+        // 车辆：live 槽位序枚举，profile/class/parking target 解析为稳定标识。
         let mut vehicles = Vec::new();
         let mut vehicle_ids: Vec<(u32, u32, u64)> = Vec::new();
         capture_try_reserve_exact(&mut vehicles, self.live_order.len())?;
@@ -528,6 +610,59 @@ impl TrafficWorld {
                 u32::try_from(slot_index).expect("vehicle index fits u32"),
                 snapshot_vehicle_id,
             ));
+            let parking = self.parking.binding(state.handle).map(|binding| {
+                let captured_target = |target: ParkingTarget| match target {
+                    ParkingTarget::ExplicitSpace(space) => CapturedParkingTarget::ExplicitSpace(
+                        *identity
+                            .stable_id(space)
+                            .expect("parking space ordinal resolves to stable id")
+                            .as_untyped(),
+                    ),
+                    ParkingTarget::VirtualPool(facility) => CapturedParkingTarget::VirtualPool(
+                        *identity
+                            .stable_id(facility)
+                            .expect("parking facility ordinal resolves to stable id")
+                            .as_untyped(),
+                    ),
+                };
+                match binding {
+                    ParkingBinding::Reserved(reservation) => {
+                        let virtual_entry = match reservation.target() {
+                            ParkingTarget::ExplicitSpace(_) => None,
+                            ParkingTarget::VirtualPool(facility) => {
+                                let selector = reservation
+                                    .virtual_entry_selector()
+                                    .expect("virtual reservation has selector");
+                                let facility_view = self
+                                    .revision
+                                    .traffic()
+                                    .relations()
+                                    .parking_facility(facility)
+                                    .expect("bound parking facility exists");
+                                let anchor = facility_view
+                                    .virtual_entries()
+                                    .get(selector.index())
+                                    .expect("bound virtual selector exists");
+                                Some(CapturedVirtualParkingEntry {
+                                    lane_edge: *identity
+                                        .stable_id(anchor.lane_edge())
+                                        .expect("parking anchor edge resolves to stable id")
+                                        .as_untyped(),
+                                    progress_mm: anchor.progress_mm(),
+                                })
+                            }
+                        };
+                        CapturedParkingBinding::Reserved {
+                            target: captured_target(reservation.target()),
+                            entry_route_occurrence: reservation.entry_route_occurrence(),
+                            virtual_entry,
+                        }
+                    }
+                    ParkingBinding::Occupied(target) => CapturedParkingBinding::Occupied {
+                        target: captured_target(target),
+                    },
+                }
+            });
             vehicles.push(CapturedVehicle {
                 snapshot_vehicle_id,
                 snapshot_route_id: route_id_for(state.route.generation(), state.route.index()),
@@ -544,12 +679,7 @@ impl TrafficWorld {
                     .stable_id(state.class)
                     .expect("live class ordinal resolves to stable id")
                     .as_untyped(),
-                parking_space: state.parking.map(|ordinal| {
-                    *identity
-                        .stable_id(ordinal)
-                        .expect("parking ordinal resolves to stable id")
-                        .as_untyped()
-                }),
+                parking,
             });
         }
         let mut vehicle_id_by_handle: std::collections::HashMap<(u32, u32), u64> =
@@ -591,7 +721,7 @@ impl TrafficWorld {
 mod tests {
     use super::*;
     use crate::cutover::tests::transaction_tests::world_with_vehicle;
-    use crate::{RouteRegisterInput, TickInput, VehicleSpawnInput};
+    use crate::{ParkedVehicleSpawnInput, ParkingTarget, RouteRegisterInput, TickInput};
 
     #[test]
     fn capture_binds_cursors_config_and_origin() {
@@ -611,10 +741,20 @@ mod tests {
     fn capture_resolves_routes_vehicles_and_live_order() {
         let (mut world, route, vehicle) = world_with_vehicle(true);
         world.step(TickInput::new(100)).expect("step");
-        // 先停第一辆（Parked 不占车道），再在相同位置生成第二辆。
+        // parked spawn 不占车道，因此可与现有 Active 的 route cursor 相同。
         let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
-        world.occupy_parking(vehicle, space).expect("parking");
-        let (_, vehicle_2) = spawn_on(&mut world, route);
+        let vehicle_2 = world
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(
+                    laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    1_000,
+                ),
+                ParkingTarget::ExplicitSpace(space),
+            )
+            .expect("spawn parked")
+            .vehicle;
 
         let snapshot = world.capture_snapshot().expect("capture");
         // 路线：单条，局部 ID 1，边序解析为稳定标识。
@@ -630,7 +770,7 @@ mod tests {
             .collect();
         assert_eq!(snapshot.routes()[0].edges, expected_edges);
 
-        // 车辆：两辆，局部 ID 按槽位序 1、2；停车绑定在先停的第一辆上。
+        // 车辆：两辆，局部 ID 按槽位序 1、2；停车绑定在 parked spawn 上。
         assert_eq!(snapshot.vehicles().len(), 2);
         let [first, second] = snapshot.vehicles() else {
             unreachable!("两辆车");
@@ -639,19 +779,23 @@ mod tests {
         assert_eq!(second.snapshot_vehicle_id, 2);
         assert_eq!(first.snapshot_route_id, 1);
         assert_eq!(second.snapshot_route_id, 1);
-        assert!(first.parking_space.is_some());
-        assert!(second.parking_space.is_none());
-        assert_eq!(first.status, VehicleStatus::Parked);
-        assert_eq!(second.status, VehicleStatus::Active);
+        assert!(first.parking.is_none());
+        assert!(second.parking.is_some());
+        assert_eq!(first.status, VehicleStatus::Active);
+        assert_eq!(second.status, VehicleStatus::Parked);
         assert_eq!(
-            first.parking_space,
-            state_parking(&world, vehicle)
-                .map(|ordinal| { *identity.stable_id(ordinal).expect("space").as_untyped() })
+            second.parking,
+            Some(CapturedParkingBinding::Occupied {
+                target: CapturedParkingTarget::ExplicitSpace(
+                    *identity.stable_id(space).expect("space").as_untyped(),
+                ),
+            })
         );
-        let state = world.vehicle(vehicle_2).expect("vehicle");
-        assert_eq!(second.route_edge_index, state.route_edge_index());
-        assert_eq!(second.progress_mm, state.progress_mm());
-        assert_eq!(second.speed_mm_s, state.speed_mm_s());
+        let state = world.vehicle(vehicle).expect("vehicle");
+        assert_eq!(first.route_edge_index, state.route_edge_index());
+        assert_eq!(first.progress_mm, state.progress_mm());
+        assert_eq!(first.speed_mm_s, state.speed_mm_s());
+        assert_eq!(world.vehicle(vehicle_2).expect("parked").speed_mm_s(), 0);
 
         // live 顺序 = 实际更新顺序（先 1 后 2），不是槽位自然序的重复声明。
         assert_eq!(snapshot.live_order(), &[1, 2]);
@@ -700,8 +844,17 @@ mod tests {
         let (mut world, route, vehicle) = world_with_vehicle(true);
         world.step(TickInput::new(100)).expect("step");
         let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
-        world.occupy_parking(vehicle, space).expect("parking");
-        let (_, active_vehicle) = spawn_on(&mut world, route);
+        world
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(
+                    laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    1_000,
+                ),
+                ParkingTarget::ExplicitSpace(space),
+            )
+            .expect("spawn parked");
         let snapshot = world.capture_snapshot().expect("capture");
 
         let bytes = encode_lfrs(&snapshot);
@@ -828,21 +981,38 @@ mod tests {
                 vehicle.class().expect("class stable id").0,
                 *captured.class.as_bytes()
             );
-            assert_eq!(
-                vehicle.parking_space().map(|stable_id| stable_id.0),
-                captured
-                    .parking_space
-                    .map(|stable_id| *stable_id.as_bytes())
-            );
+            match captured.parking {
+                None => assert!(vehicle.parking().is_none()),
+                Some(CapturedParkingBinding::Occupied { target }) => {
+                    let parking = vehicle.parking().expect("occupied parking binding");
+                    assert_eq!(parking.state(), wire::ParkingBindingStateKind::Occupied);
+                    let (expected_kind, expected_target) = match target {
+                        CapturedParkingTarget::ExplicitSpace(stable) => {
+                            (wire::ParkingTargetKind::ExplicitSpace, stable)
+                        }
+                        CapturedParkingTarget::VirtualPool(stable) => {
+                            (wire::ParkingTargetKind::VirtualPool, stable)
+                        }
+                    };
+                    assert_eq!(parking.target_kind(), expected_kind);
+                    assert_eq!(
+                        parking.target().expect("parking target").0,
+                        *expected_target.as_bytes()
+                    );
+                }
+                Some(CapturedParkingBinding::Reserved { .. }) => {
+                    panic!("fixture vehicle is occupied, not reserved")
+                }
+            }
         }
-        assert_eq!(vehicles.get(0).status(), wire::VehicleStatusKind::Parked);
-        assert_eq!(vehicles.get(1).status(), wire::VehicleStatusKind::Active);
+        assert_eq!(vehicles.get(0).status(), wire::VehicleStatusKind::Active);
+        assert_eq!(vehicles.get(1).status(), wire::VehicleStatusKind::Parked);
         assert_eq!(
             snapshot.live_order(),
             root.live_order().iter().collect::<Vec<_>>().as_slice()
         );
         assert_eq!(
-            world.vehicle(active_vehicle).expect("active").status(),
+            world.vehicle(vehicle).expect("active").status(),
             VehicleStatus::Active
         );
     }
@@ -866,29 +1036,6 @@ mod tests {
         assert!(root.routes().is_empty());
         assert!(root.vehicles().is_empty());
         assert!(root.live_order().is_empty());
-    }
-
-    fn spawn_on(
-        world: &mut TrafficWorld,
-        route: crate::RouteHandle,
-    ) -> (crate::RouteHandle, crate::VehicleHandle) {
-        let handle = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
-            .expect("spawn");
-        (route, handle)
-    }
-
-    fn state_parking(
-        world: &TrafficWorld,
-        vehicle: crate::VehicleHandle,
-    ) -> Option<laneflow_static_contract::ParkingSpaceOrdinal> {
-        world.vehicle(vehicle).expect("vehicle").parking
     }
 
     #[test]

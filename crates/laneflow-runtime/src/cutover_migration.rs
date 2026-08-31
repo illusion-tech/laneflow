@@ -9,13 +9,17 @@
 use std::sync::Arc;
 
 use laneflow_static_contract::{
-    EntityKind, EntityKindMarker, LaneEdgeOrdinal, Ordinal, OrdinalKind, ParkingSpaceOrdinal,
-    ParticipantClassOrdinal, SignalAspect, VehicleProfileOrdinal,
+    EntityKind, EntityKindMarker, LaneEdgeOrdinal, Ordinal, OrdinalKind, ParkingFacilityOrdinal,
+    ParkingSpaceOrdinal, ParticipantClassOrdinal, SignalAspect, VehicleProfileOrdinal,
 };
 use laneflow_static_network::{SharedIdentityIndex, SharedNetworkRevision};
 
+use crate::parking::ParkingRuntimeState;
 use crate::tables::{RouteSlot, VehicleSlot, bodies_overlap, compile_route, route_access_denied};
-use crate::{CommittedNetworkSource, CutoverError, TrafficWorld, VehicleHandle, VehicleStatus};
+use crate::{
+    CommittedNetworkSource, CutoverError, ParkingBinding, ParkingReservation, ParkingSpaceState,
+    ParkingTarget, TrafficWorld, VehicleHandle, VehicleStatus, VirtualEntryAnchorSelector,
+};
 
 #[cfg(test)]
 thread_local! {
@@ -78,6 +82,7 @@ fn try_reserve_staging_exact<T>(values: &mut Vec<T>, capacity: usize) -> Result<
 /// 无对应稳定引用时为 `None`——使用处即「引用不存在」失败关闭点。
 pub(crate) struct CrossRevisionRebinding {
     lane_edges: Vec<Option<LaneEdgeOrdinal>>,
+    parking_facilities: Vec<Option<ParkingFacilityOrdinal>>,
     parking_spaces: Vec<Option<ParkingSpaceOrdinal>>,
     vehicle_profiles: Vec<Option<VehicleProfileOrdinal>>,
     participant_classes: Vec<Option<ParticipantClassOrdinal>>,
@@ -112,6 +117,7 @@ impl CrossRevisionRebinding {
     ) -> Result<Self, CutoverError> {
         Ok(Self {
             lane_edges: map_kind(base, target, EntityKind::LaneEdge)?,
+            parking_facilities: map_kind(base, target, EntityKind::ParkingFacility)?,
             parking_spaces: map_kind(base, target, EntityKind::ParkingSpace)?,
             vehicle_profiles: map_kind(base, target, EntityKind::VehicleProfile)?,
             participant_classes: map_kind(base, target, EntityKind::ParticipantClass)?,
@@ -121,6 +127,7 @@ impl CrossRevisionRebinding {
     /// 释放四张重绑表（失败结算时归还内存；结算后事务不可再消费）。
     pub(crate) fn release(&mut self) {
         self.lane_edges = Vec::new();
+        self.parking_facilities = Vec::new();
         self.parking_spaces = Vec::new();
         self.vehicle_profiles = Vec::new();
         self.participant_classes = Vec::new();
@@ -136,6 +143,15 @@ impl CrossRevisionRebinding {
     #[must_use]
     pub(crate) fn parking_space(&self, base: ParkingSpaceOrdinal) -> Option<ParkingSpaceOrdinal> {
         self.parking_spaces.get(base.index()).copied().flatten()
+    }
+
+    /// 停车设施序数重绑；`None` = 引用不存在。
+    #[must_use]
+    pub(crate) fn parking_facility(
+        &self,
+        base: ParkingFacilityOrdinal,
+    ) -> Option<ParkingFacilityOrdinal> {
+        self.parking_facilities.get(base.index()).copied().flatten()
     }
 
     /// 车辆 profile 序数重绑；`None` = 引用不存在。
@@ -225,7 +241,7 @@ pub(crate) fn migrate_structural_clone(
         });
     }
 
-    // 车辆：profile / 类别 / 停车位重绑，整值状态原样保留。
+    // 车辆：profile / 类别重绑，整值运动状态原样保留。停车由下方唯一 aggregate 重建。
     let mut vehicles = Vec::new();
     vehicles
         .try_reserve_exact(world.vehicles.len())
@@ -249,43 +265,203 @@ pub(crate) fn migrate_structural_clone(
                 base_class: state.class.raw(),
             },
         )?;
-        migrated.parking = match state.parking {
-            None => None,
-            Some(space) => Some(rebinding.parking_space(space).ok_or(
-                CutoverError::UnmappableParkingSpace {
-                    base_space: space.raw(),
-                },
-            )?),
-        };
         vehicles.push(VehicleSlot {
             generation: slot.generation,
             state: Some(migrated),
         });
     }
 
-    // 停车占用表：按 target 车位集合重建并逐占用者重绑键。
+    // 停车 aggregate：显式资源按 stable space 重绑；virtual target 按 stable facility
+    // 重绑，Reserved selected entry 再用 exact (stable LaneEdge, progress_mm) 解析。
     let target_space_count = usize::try_from(
         target_traffic
             .entity_counts()
             .count(EntityKind::ParkingSpace),
     )
     .expect("target parking space count fits usize");
-    let mut parking_occupants = Vec::new();
-    parking_occupants
-        .try_reserve_exact(target_space_count)
-        .map_err(|_| CutoverError::StagingAllocFailed)?;
-    parking_occupants.resize(target_space_count, None);
-    for (base_index, occupant) in world.parking_occupants.iter().enumerate() {
-        if let Some(vehicle) = occupant {
-            let base_space = ParkingSpaceOrdinal::from_raw(
-                u32::try_from(base_index).expect("parking index fits u32"),
-            );
-            let target_space = rebinding.parking_space(base_space).ok_or(
-                CutoverError::UnmappableParkingSpace {
-                    base_space: base_space.raw(),
-                },
-            )?;
-            parking_occupants[target_space.index()] = Some(*vehicle);
+    let target_facility_count = usize::try_from(
+        target_traffic
+            .entity_counts()
+            .count(EntityKind::ParkingFacility),
+    )
+    .expect("target parking facility count fits usize");
+    let mut parking = ParkingRuntimeState::try_new(target_space_count, target_facility_count)
+        .map_err(|()| CutoverError::StagingAllocFailed)?;
+    for vehicle in world.live_order.iter().copied() {
+        let Some(binding) = world.parking.binding(vehicle) else {
+            continue;
+        };
+        parking
+            .try_reserve_binding()
+            .map_err(|()| CutoverError::StagingAllocFailed)?;
+        let migrated = match binding {
+            ParkingBinding::Reserved(reservation) => {
+                let (target, selector) = match reservation.target() {
+                    ParkingTarget::ExplicitSpace(base_space) => {
+                        let target_space = rebinding.parking_space(base_space).ok_or(
+                            CutoverError::UnmappableParkingSpace {
+                                base_space: base_space.raw(),
+                            },
+                        )?;
+                        (ParkingTarget::ExplicitSpace(target_space), None)
+                    }
+                    ParkingTarget::VirtualPool(base_facility) => {
+                        let target_facility = rebinding.parking_facility(base_facility).ok_or(
+                            CutoverError::UnmappableParkingFacility {
+                                base_facility: base_facility.raw(),
+                            },
+                        )?;
+                        let base_selector = reservation.virtual_entry_selector().ok_or(
+                            CutoverError::ParkingRevalidationFailed {
+                                vehicle: vehicle.index(),
+                            },
+                        )?;
+                        let base_view = world
+                            .revision
+                            .traffic()
+                            .relations()
+                            .parking_facility(base_facility)
+                            .ok_or(CutoverError::ParkingRevalidationFailed {
+                                vehicle: vehicle.index(),
+                            })?;
+                        let base_anchor = base_view
+                            .virtual_entries()
+                            .get(base_selector.index())
+                            .ok_or(CutoverError::ParkingRevalidationFailed {
+                                vehicle: vehicle.index(),
+                            })?;
+                        let target_edge = rebinding.lane_edge(base_anchor.lane_edge()).ok_or(
+                            CutoverError::UnmappableLaneEdge {
+                                base_edge: base_anchor.lane_edge().raw(),
+                            },
+                        )?;
+                        let target_view = target_traffic
+                            .relations()
+                            .parking_facility(target_facility)
+                            .ok_or(CutoverError::ParkingRevalidationFailed {
+                                vehicle: vehicle.index(),
+                            })?;
+                        let selector_index = target_view
+                            .virtual_entries()
+                            .iter()
+                            .position(|anchor| {
+                                anchor.lane_edge() == target_edge
+                                    && anchor.progress_mm() == base_anchor.progress_mm()
+                            })
+                            .ok_or(CutoverError::ParkingRevalidationFailed {
+                                vehicle: vehicle.index(),
+                            })?;
+                        (
+                            ParkingTarget::VirtualPool(target_facility),
+                            Some(VirtualEntryAnchorSelector::from_raw(
+                                u32::try_from(selector_index)
+                                    .expect("virtual entry selector fits u32"),
+                            )),
+                        )
+                    }
+                };
+                ParkingBinding::Reserved(ParkingReservation::new(
+                    target,
+                    reservation.route(),
+                    reservation.entry_route_occurrence(),
+                    selector,
+                ))
+            }
+            ParkingBinding::Occupied(base_target) => {
+                let target = match base_target {
+                    ParkingTarget::ExplicitSpace(base_space) => {
+                        ParkingTarget::ExplicitSpace(rebinding.parking_space(base_space).ok_or(
+                            CutoverError::UnmappableParkingSpace {
+                                base_space: base_space.raw(),
+                            },
+                        )?)
+                    }
+                    ParkingTarget::VirtualPool(base_facility) => ParkingTarget::VirtualPool(
+                        rebinding.parking_facility(base_facility).ok_or(
+                            CutoverError::UnmappableParkingFacility {
+                                base_facility: base_facility.raw(),
+                            },
+                        )?,
+                    ),
+                };
+                ParkingBinding::Occupied(target)
+            }
+        };
+        match migrated {
+            ParkingBinding::Reserved(reservation) => {
+                match reservation.target() {
+                    ParkingTarget::ExplicitSpace(space) => {
+                        if parking.explicit_state(space) != Some(ParkingSpaceState::Vacant) {
+                            return Err(CutoverError::ParkingRevalidationFailed {
+                                vehicle: vehicle.index(),
+                            });
+                        }
+                    }
+                    ParkingTarget::VirtualPool(facility) => {
+                        let state = parking.virtual_state(facility).ok_or(
+                            CutoverError::ParkingRevalidationFailed {
+                                vehicle: vehicle.index(),
+                            },
+                        )?;
+                        let capacity = target_traffic
+                            .relations()
+                            .parking_facility(facility)
+                            .ok_or(CutoverError::ParkingRevalidationFailed {
+                                vehicle: vehicle.index(),
+                            })?
+                            .virtual_capacity();
+                        let used = state
+                            .reserved_count
+                            .checked_add(state.occupied_count)
+                            .ok_or(CutoverError::ParkingRevalidationFailed {
+                                vehicle: vehicle.index(),
+                            })?;
+                        if used >= capacity {
+                            return Err(CutoverError::ParkingRevalidationFailed {
+                                vehicle: vehicle.index(),
+                            });
+                        }
+                    }
+                }
+                parking.insert_reserved(vehicle, reservation);
+            }
+            ParkingBinding::Occupied(target) => {
+                match target {
+                    ParkingTarget::ExplicitSpace(space) => {
+                        if parking.explicit_state(space) != Some(ParkingSpaceState::Vacant) {
+                            return Err(CutoverError::ParkingRevalidationFailed {
+                                vehicle: vehicle.index(),
+                            });
+                        }
+                    }
+                    ParkingTarget::VirtualPool(facility) => {
+                        let state = parking.virtual_state(facility).ok_or(
+                            CutoverError::ParkingRevalidationFailed {
+                                vehicle: vehicle.index(),
+                            },
+                        )?;
+                        let capacity = target_traffic
+                            .relations()
+                            .parking_facility(facility)
+                            .ok_or(CutoverError::ParkingRevalidationFailed {
+                                vehicle: vehicle.index(),
+                            })?
+                            .virtual_capacity();
+                        let used = state
+                            .reserved_count
+                            .checked_add(state.occupied_count)
+                            .ok_or(CutoverError::ParkingRevalidationFailed {
+                                vehicle: vehicle.index(),
+                            })?;
+                        if used >= capacity {
+                            return Err(CutoverError::ParkingRevalidationFailed {
+                                vehicle: vehicle.index(),
+                            });
+                        }
+                    }
+                }
+                parking.insert_occupied(vehicle, target);
+            }
         }
     }
 
@@ -299,6 +475,7 @@ pub(crate) fn migrate_structural_clone(
     let mut free_routes = try_clone(world.free_routes.as_slice())?;
     let mut free_vehicles = try_clone(world.free_vehicles.as_slice())?;
     let mut live_order = try_clone(world.live_order.as_slice())?;
+    let mut active_order = try_clone(world.active_order.as_slice())?;
     // install 同构容量余量：晋升后的世界在配置容量内的生命周期命令不触发
     // 无检分配；窗口重放的 push 同界（上游注册已受容量约束）。
     let route_capacity = usize::try_from(world.config.route_capacity()).unwrap_or(0);
@@ -317,6 +494,9 @@ pub(crate) fn migrate_structural_clone(
         .map_err(|_| CutoverError::StagingAllocFailed)?;
     live_order
         .try_reserve_exact(vehicle_capacity.saturating_sub(live_order.len()))
+        .map_err(|_| CutoverError::StagingAllocFailed)?;
+    active_order
+        .try_reserve_exact(vehicle_capacity.saturating_sub(active_order.len()))
         .map_err(|_| CutoverError::StagingAllocFailed)?;
     let mut next_states = Vec::new();
     next_states
@@ -354,7 +534,8 @@ pub(crate) fn migrate_structural_clone(
         vehicles,
         free_vehicles,
         live_order,
-        parking_occupants: parking_occupants.into_boxed_slice(),
+        active_order,
+        parking,
         next_states,
         occupancy: crate::occupancy::OccupancyIndex::with_capacity(0, 0),
         migration_journal: None,
@@ -396,6 +577,11 @@ pub(crate) fn revalidate_vehicle_on(
         .ok_or(CutoverError::VehicleRevalidationFailed {
             vehicle: handle.index(),
         })?;
+    if !candidate.parking_state_valid(handle) {
+        return Err(CutoverError::ParkingRevalidationFailed {
+            vehicle: handle.index(),
+        });
+    }
     // 派生不变量（重执行 spawn 检查的派生面）：target profile 派生的
     // class/length 必须与车辆存量一致，否则不可映射——直移保留存量会
     // 与 save/restore 的派生态分歧（class 侧恢复被拒、length 侧静默漂移）。
@@ -540,8 +726,17 @@ pub(crate) fn assert_committed_logical_state_equal(left: &TrafficWorld, right: &
 }
 
 #[cfg(test)]
-mod tests {
-    use laneflow_format::{FormatLimits, check_canonical_network_input};
+pub(crate) mod tests {
+    use laneflow_compiler::{
+        CompilationUnitBuilder, CompileLimits, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
+        LaneEdgeReference, ParkingFacilityInput, ParkingLaneAnchorInput, ParkingSpaceGeometryInput,
+        ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference, PortableDiffBase,
+        PortableEmissionProvenance, SourceModuleHeader, SourceModuleHeaderInput,
+        SyntheticModuleBuilder, VehicleProfileInput, emit_portable_candidate,
+    };
+    use laneflow_format::{
+        FormatLimits, check_canonical_network_input, check_post_emission_bundle,
+    };
     use laneflow_static_contract::{
         ExactByteLength, SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest, StableId128,
         VehicleProfileOrdinal,
@@ -555,9 +750,9 @@ mod tests {
     use super::*;
     use crate::{
         CUTOVER_DESCRIPTOR_FORMAT_VERSION, LfcaOriginBinding, MigrationPolicyKind,
-        NetworkRevisionCutoverDescriptor, PoseSource, RouteRegisterInput,
-        SemanticDiffOriginBinding, TickInput, VehicleSpawnInput, WorldBinding, WorldConfig,
-        WorldGeneration,
+        NetworkRevisionCutoverDescriptor, ParkedVehicleSpawnInput, ParkingTarget, PoseSource,
+        ReserveParkingTarget, RouteRegisterInput, SemanticDiffOriginBinding, TickInput,
+        VehicleSpawnInput, VirtualEntryAnchorSelector, WorldBinding, WorldConfig, WorldGeneration,
     };
 
     const BASE: &[u8] =
@@ -592,6 +787,148 @@ mod tests {
             ),
         )
         .expect("shared network revision")
+    }
+
+    #[derive(Clone, Copy)]
+    pub(crate) enum ParkingRevisionShape {
+        Facility {
+            capacity: u32,
+            entry_progress_m: f64,
+        },
+        Missing,
+        WrongKind,
+    }
+
+    pub(crate) fn compiled_parking_revision(
+        shape: ParkingRevisionShape,
+    ) -> Arc<SharedNetworkRevision> {
+        let limits = CompileLimits::p100_initial_v1();
+        let digest_byte = match shape {
+            ParkingRevisionShape::Facility { capacity, .. } => {
+                u8::try_from(capacity.min(250)).expect("clamped")
+            }
+            ParkingRevisionShape::Missing => 251,
+            ParkingRevisionShape::WrongKind => 252,
+        };
+        let header = SourceModuleHeader::new(
+            SourceModuleHeaderInput {
+                authoring_namespace_id: "city/parking-cutover",
+                source_document_key: "parking-cutover.document",
+                generator_build_id: "git:0123456789abcdef",
+                parameters_and_inputs_digest: [digest_byte; 32],
+                frontend_options_digest: [0x54; 32],
+                random_seed: Some(541),
+                provenance: "repository:laneflow",
+            },
+            &limits,
+        )
+        .expect("parking source header");
+        let mut module = SyntheticModuleBuilder::new(header, &limits).expect("parking module");
+        module
+            .add_participant_class(ParticipantClassInput {
+                participant_class_key: "road-user",
+                extends: None,
+            })
+            .expect("class")
+            .add_vehicle_profile(VehicleProfileInput {
+                vehicle_profile_key: "car",
+                participant_class: ParticipantClassReference::local("road-user"),
+                iidm: IidmVehicleProfileInput {
+                    length_meters: 4.5,
+                    desired_speed_meters_per_second: 13.75,
+                    min_gap_meters: 2.0,
+                    time_headway_seconds: 1.4,
+                    max_acceleration_meters_per_second_squared: 1.8,
+                    comfortable_deceleration_meters_per_second_squared: 2.0,
+                    emergency_deceleration_meters_per_second_squared: 4.5,
+                },
+            })
+            .expect("profile")
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge",
+                length_meters: 100.0,
+                speed_limit_meters_per_second: 15.0,
+                successors: &[],
+            })
+            .expect("edge");
+        match shape {
+            ParkingRevisionShape::Facility {
+                capacity,
+                entry_progress_m,
+            } => {
+                let entries = [ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("edge"),
+                    progress_meters: entry_progress_m,
+                }];
+                let exits = [ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("edge"),
+                    progress_meters: 80.0,
+                }];
+                module
+                    .add_parking_facility(ParkingFacilityInput {
+                        parking_facility_key: "facility",
+                        virtual_capacity: capacity,
+                        virtual_entries: &entries,
+                        virtual_exits: &exits,
+                    })
+                    .expect("facility");
+            }
+            ParkingRevisionShape::Missing => {}
+            ParkingRevisionShape::WrongKind => {
+                module
+                    .add_parking_space(ParkingSpaceInput {
+                        parking_space_key: "facility",
+                        parking_facility: None,
+                        entry: ParkingLaneAnchorInput {
+                            lane_edge: LaneEdgeReference::local("edge"),
+                            progress_meters: 20.0,
+                        },
+                        exit: ParkingLaneAnchorInput {
+                            lane_edge: LaneEdgeReference::local("edge"),
+                            progress_meters: 80.0,
+                        },
+                        geometry: ParkingSpaceGeometryInput {
+                            lateral_offset_meters: -3.0,
+                            heading_offset_radians: 0.0,
+                            length_meters: 5.5,
+                            width_meters: 2.6,
+                        },
+                    })
+                    .expect("wrong-kind space");
+            }
+        }
+
+        let mut unit = CompilationUnitBuilder::new(limits);
+        unit.add_synthetic_module(module.finish().expect("finished parking module"))
+            .expect("parking compilation module");
+        let output = Compiler::new()
+            .compile(unit.build().expect("parking compilation unit"))
+            .expect("compiled parking revision");
+        let provenance =
+            PortableEmissionProvenance::try_new("parking-cutover-v1").expect("parking provenance");
+        let candidate = emit_portable_candidate(
+            &output,
+            &provenance,
+            FormatLimits::HARD,
+            PortableDiffBase::Genesis,
+        )
+        .expect("parking candidate");
+        let checked = check_post_emission_bundle(
+            candidate.canonical_artifact().bytes(),
+            candidate.source_map().bytes(),
+            candidate.semantic_diff().bytes(),
+            candidate.expected_semantic_diff_base(),
+            FormatLimits::HARD,
+        )
+        .expect("checked parking bundle");
+        build_shared_network_revision(
+            checked.canonical_network_input(),
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::Omit,
+                SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+            ),
+        )
+        .expect("parking shared revision")
     }
 
     fn source_for(origin: CanonicalNetworkOrigin, key: &str) -> CommittedNetworkSource {
@@ -797,6 +1134,148 @@ mod tests {
         }
     }
 
+    pub(crate) fn virtual_parking_cutover_world() -> (TrafficWorld, VehicleHandle, VehicleHandle) {
+        let revision = compiled_parking_revision(ParkingRevisionShape::Facility {
+            capacity: 3,
+            entry_progress_m: 20.0,
+        });
+        let origin = *revision.canonical_origin();
+        let mut world = TrafficWorld::install(
+            revision,
+            WorldConfig::new(8, 4, 1_024, 1, 100),
+            source_for(origin, "fixture://parking-cutover-base"),
+            0,
+        )
+        .expect("parking cutover install");
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![LaneEdgeOrdinal::from_raw(0)]))
+            .expect("parking route");
+        let reserved = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                0,
+                0,
+            ))
+            .expect("reserved vehicle");
+        world
+            .reserve_parking(
+                reserved,
+                ReserveParkingTarget::VirtualPool {
+                    facility: laneflow_static_contract::ParkingFacilityOrdinal::from_raw(0),
+                    entry_anchor: VirtualEntryAnchorSelector::from_raw(0),
+                    entry_route_occurrence: 0,
+                },
+            )
+            .expect("virtual reservation");
+        let occupied = world
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0),
+                ParkingTarget::VirtualPool(
+                    laneflow_static_contract::ParkingFacilityOrdinal::from_raw(0),
+                ),
+            )
+            .expect("virtual occupancy")
+            .vehicle;
+        (world, reserved, occupied)
+    }
+
+    #[test]
+    fn virtual_parking_cutover_closes_capacity_identity_and_anchor_changes() {
+        let (world, reserved, occupied) = virtual_parking_cutover_world();
+        let facility = laneflow_static_contract::ParkingFacilityOrdinal::from_raw(0);
+        let before = world.capture_snapshot().expect("base snapshot");
+
+        for capacity in [4, 2] {
+            let target = compiled_parking_revision(ParkingRevisionShape::Facility {
+                capacity,
+                entry_progress_m: 20.0,
+            });
+            let rebinding =
+                CrossRevisionRebinding::build(world.revision.identity(), target.identity())
+                    .expect("parking rebinding");
+            let target_origin = *target.canonical_origin();
+            let candidate = migrate_structural_clone(
+                &world,
+                target,
+                source_for(target_origin, "fixture://parking-cutover-safe"),
+                &rebinding,
+            )
+            .expect("capacity increase/exact decrease remains safe");
+            let counts = candidate
+                .parking_facility_counts(facility)
+                .expect("candidate counts")
+                .virtual_pool;
+            assert_eq!(
+                (counts.capacity, counts.reserved, counts.occupied),
+                (u64::from(capacity), 1, 1)
+            );
+            assert!(matches!(
+                candidate.parking_binding(reserved),
+                Some(ParkingBinding::Reserved(reservation))
+                    if reservation.virtual_entry_selector()
+                        == Some(VirtualEntryAnchorSelector::from_raw(0))
+            ));
+            assert_eq!(
+                candidate.parking_binding(occupied),
+                Some(ParkingBinding::Occupied(ParkingTarget::VirtualPool(
+                    facility
+                )))
+            );
+            assert_eq!(candidate.active_order, [reserved]);
+        }
+
+        let unsafe_capacity = compiled_parking_revision(ParkingRevisionShape::Facility {
+            capacity: 1,
+            entry_progress_m: 20.0,
+        });
+        let unsafe_rebinding =
+            CrossRevisionRebinding::build(world.revision.identity(), unsafe_capacity.identity())
+                .expect("unsafe capacity rebinding");
+        assert!(matches!(
+            expect_migration_error(&world, unsafe_capacity, &unsafe_rebinding),
+            CutoverError::ParkingRevalidationFailed { .. }
+        ));
+        assert_eq!(
+            world.capture_snapshot().expect("after unsafe decrease"),
+            before
+        );
+
+        let moved_anchor = compiled_parking_revision(ParkingRevisionShape::Facility {
+            capacity: 3,
+            entry_progress_m: 21.0,
+        });
+        let moved_rebinding =
+            CrossRevisionRebinding::build(world.revision.identity(), moved_anchor.identity())
+                .expect("moved anchor rebinding");
+        assert_eq!(
+            expect_migration_error(&world, moved_anchor, &moved_rebinding),
+            CutoverError::ParkingRevalidationFailed {
+                vehicle: reserved.index()
+            }
+        );
+        assert_eq!(
+            world.capture_snapshot().expect("after moved anchor"),
+            before
+        );
+
+        for shape in [
+            ParkingRevisionShape::Missing,
+            ParkingRevisionShape::WrongKind,
+        ] {
+            let target = compiled_parking_revision(shape);
+            let rebinding =
+                CrossRevisionRebinding::build(world.revision.identity(), target.identity())
+                    .expect("missing target rebinding");
+            assert_eq!(
+                expect_migration_error(&world, target, &rebinding),
+                CutoverError::UnmappableParkingFacility { base_facility: 0 }
+            );
+            assert_eq!(world.capture_snapshot().expect("zero publish"), before);
+        }
+    }
+
     #[test]
     fn verify_semantic_diff_accepts_authentic_pairs() {
         let base = revision(BASE);
@@ -942,6 +1421,7 @@ mod tests {
         assert!(candidate.vehicles.capacity() >= vehicle_capacity);
         assert!(candidate.free_vehicles.capacity() >= vehicle_capacity);
         assert!(candidate.live_order.capacity() >= vehicle_capacity);
+        assert!(candidate.active_order.capacity() >= vehicle_capacity);
     }
 
     #[test]
@@ -1000,19 +1480,26 @@ mod tests {
         // Completed 必须恰在末端：base entry 100 m，target 缩至 60 m——
         // 停在目标末端（60_000 mm）对两侧判据同时成立。
         let completed = spawn_on(&mut world, route, 60_000, 5_000);
-        let parked = spawn_on(&mut world, route, 2_000, 5_000);
         let target_revision = revision(TARGET);
         let rebinding =
             CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity())
                 .unwrap();
         let (space_main, _) = parking_spaces(&world, &rebinding);
-        world.occupy_parking(parked, space_main).expect("parking");
+        let parked = world
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 2_000),
+                ParkingTarget::ExplicitSpace(space_main),
+            )
+            .expect("parking")
+            .vehicle;
         let completed_index = usize::try_from(completed.index()).expect("index");
         world.vehicles[completed_index]
             .state
             .as_mut()
             .expect("completed")
             .status = VehicleStatus::Completed;
+        world.rebuild_active_order();
+        assert!(!world.active_order.contains(&completed));
         for _ in 0..2 {
             world.step(TickInput::new(100)).expect("step");
         }
@@ -1087,14 +1574,16 @@ mod tests {
         let route = world
             .register_route(RouteRegisterInput::new(vec![entry, exit]))
             .expect("route");
-        let vehicle = spawn_on(&mut world, route, 1_000, 5_000);
         let target_revision = revision(TARGET);
         let rebinding =
             CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity())
                 .unwrap();
         let (_, space_doomed) = parking_spaces(&world, &rebinding);
         world
-            .occupy_parking(vehicle, space_doomed)
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 1_000),
+                ParkingTarget::ExplicitSpace(space_doomed),
+            )
             .expect("park on doomed space");
         assert_eq!(
             expect_migration_error(&world, target_revision, &rebinding),

@@ -8,10 +8,10 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
-    AdmittedRouteRegisterInput, CommittedNetworkSource, PublishedLfcaReference, RestoredSnapshot,
-    RouteError, RouteHandle, RouteRegisterInput, SnapshotRestoreLimits, TickInput, TrafficWorld,
-    VehicleHandle, VehicleSpawnInput, WorldConfig, deterministic_state_digest, encode_lfrs,
-    restore_lfrs,
+    AdmittedRouteRegisterInput, CommittedNetworkSource, ParkingTarget, PublishedLfcaReference,
+    ReserveParkingTarget, RestoredSnapshot, RouteError, RouteHandle, RouteRegisterInput,
+    SnapshotRestoreLimits, TickInput, TrafficWorld, VehicleHandle, VehicleSpawnInput, WorldConfig,
+    deterministic_state_digest, encode_lfrs, restore_lfrs,
 };
 use laneflow_static_contract::{
     LaneEdgeOrdinal, ParkingSpaceId, ParkingSpaceOrdinal, Sha256Digest, VehicleProfileId,
@@ -118,8 +118,39 @@ fn replay_suffix(
         .identity()
         .ordinal(parking_id)
         .expect("durable parking ID resolves in the bound revision");
+    let target = ParkingTarget::ExplicitSpace(parking);
+    let entry_edge = world
+        .traffic()
+        .relations()
+        .parking_space(parking)
+        .expect("parking view")
+        .entry()
+        .0;
+    let entry_route_occurrence = world
+        .route_edges(world.vehicle(checkpoint_vehicle).expect("vehicle").route())
+        .expect("checkpoint route")
+        .iter()
+        .position(|edge| *edge == entry_edge)
+        .and_then(|index| u32::try_from(index).ok())
+        .expect("parking entry occurs on checkpoint route");
     world
-        .occupy_parking(checkpoint_vehicle, parking)
+        .reserve_parking(
+            checkpoint_vehicle,
+            ReserveParkingTarget::ExplicitSpace {
+                space: parking,
+                entry_route_occurrence,
+            },
+        )
+        .expect("reserve checkpoint parking");
+    for _ in 0..1_000 {
+        if world.parking_arrived(checkpoint_vehicle, target) {
+            break;
+        }
+        world.step(TickInput::new(100)).expect("drive to parking");
+    }
+    assert!(world.parking_arrived(checkpoint_vehicle, target));
+    world
+        .park_vehicle(checkpoint_vehicle, target)
         .expect("park checkpoint vehicle");
     let mut points = vec![capture_point(world)];
 
@@ -396,8 +427,8 @@ fn checkpoint_replay_is_pointwise_equal_and_locates_first_desync_interval() {
     assert_eq!(
         first_divergence_interval(checkpoint_point, &expected, &divergent_points),
         Some((
-            (checkpoint_point.command_cursor + 2, checkpoint_point.tick),
-            (checkpoint_point.command_cursor + 3, checkpoint_point.tick)
+            (checkpoint_point.command_cursor + 3, expected[1].tick),
+            (checkpoint_point.command_cursor + 4, expected[2].tick)
         ))
     );
 }

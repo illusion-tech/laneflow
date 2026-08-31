@@ -7,7 +7,8 @@ mod session;
 
 pub use error::LaneFlowAdapterError;
 pub use lifecycle::{
-    LaneFlowVehicleReplaceOutcome, LaneFlowVehicleReplaceRecord, replace_completed_vehicle,
+    LaneFlowVehicleDespawnRecord, LaneFlowVehicleReplaceOutcome, LaneFlowVehicleReplaceRecord,
+    despawn_vehicle, replace_completed_vehicle,
 };
 pub use plugin::{LaneFlowFixed, LaneFlowFixedSet, LaneFlowOuterFrame, LaneFlowPlugin};
 pub use session::{

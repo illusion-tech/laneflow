@@ -10,6 +10,8 @@ LaneFlow 引擎无关的标准空间类型与共享根位姿采样 crate。
   component 时返回 `Ok(None)`；有 Spatial 但无 `lane_pose` 时返回
   `Err(SpatialBindError::MissingLanePose)`；
 - pose 批次使用不透明 `PoseRecordId`、`PoseSource` 与 `PoseInput`，不导入 Runtime handle；
+- `PoseSource::Parking` 只接受显式 `ParkingSpaceOrdinal`；virtual Parked 没有 pose input，
+  无 pose 也不表示 vehicle 已移除；
 - `extract_pose_batch(token, inputs, &mut output)` 回显 `FramePlacementToken`，
   全部记录成功后才写入 `output`，失败保持旧批次。
 

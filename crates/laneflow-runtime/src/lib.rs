@@ -10,6 +10,7 @@ mod input;
 mod migration_journal;
 mod observation;
 mod occupancy;
+mod parking;
 mod pose;
 mod routing;
 mod snapshot;
@@ -35,12 +36,20 @@ pub use cutover_transaction::{
 pub use error::{InstallError, ParkingError, ReplaceError, RouteError, SpawnError, StepError};
 pub use handle::{RouteHandle, VehicleHandle};
 pub use input::{RouteRegisterInput, VehicleSpawnInput};
-pub use laneflow_static_contract::ParkingSpaceOrdinal;
+pub use laneflow_static_contract::{ParkingFacilityOrdinal, ParkingSpaceOrdinal};
 pub use migration_journal::{DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES, MigrationJournalStats};
 pub use observation::{
     CommittedTrafficObservationBatch, CommittedTrafficObservationRow, OBSERVATION_BINDING_VERSION,
     ObservationBatchBase, ObservationError, ObservationExportMode, ObservationExportSession,
     ObservationSelection, ObservationStateSequence, ObservationStreamBinding,
+};
+pub use parking::{
+    LeaveParkingTarget, ParkedVehicleSpawnInput, ParkedVehicleSpawnRecord,
+    ParkingArrivalObservation, ParkingBinding, ParkingCancelRecord, ParkingCommandOutcome,
+    ParkingFacilityCounts, ParkingLeaveRecord, ParkingParkRecord, ParkingPoolCounts,
+    ParkingRebindRecord, ParkingReservation, ParkingReserveRecord, ParkingSpaceState,
+    ParkingTarget, RebindParkingTarget, ReserveParkingTarget, VehicleDespawnRecord,
+    VirtualEntryAnchorSelector, VirtualExitAnchorSelector,
 };
 pub use pose::{CommittedPoseSourceBatch, CommittedSignalGroupBatch, PoseSource};
 pub use routing::{
@@ -50,8 +59,9 @@ pub use routing::{
     RoutingAdmissionSession, bind_observation_set,
 };
 pub use snapshot::{
-    CapturedRoute, CapturedSnapshot, CapturedVehicle, RUNTIME_STATE_VERSION,
-    SNAPSHOT_FORMAT_VERSION, SnapshotCaptureError, encode_lfrs,
+    CapturedParkingBinding, CapturedParkingTarget, CapturedRoute, CapturedSnapshot,
+    CapturedVehicle, CapturedVirtualParkingEntry, RUNTIME_STATE_VERSION, SNAPSHOT_FORMAT_VERSION,
+    SnapshotCaptureError, encode_lfrs,
 };
 pub use snapshot_digest::{
     RUNTIME_STATE_DIGEST_DOMAIN, RUNTIME_STATE_DIGEST_VERSION, SnapshotDigestError,

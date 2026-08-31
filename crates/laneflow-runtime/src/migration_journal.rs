@@ -16,11 +16,13 @@
 use laneflow_static_contract::LaneEdgeOrdinal;
 use thiserror::Error;
 
-use crate::{RouteHandle, VehicleHandle, VehicleState, VehicleStatus};
+use crate::{
+    ParkingBinding, ParkingTarget, RouteHandle, VehicleHandle, VehicleState, VehicleStatus,
+};
 
 /// 迁移增量日志字节上界的文档化默认值（切换合同 §5：默认值由容量合同登记）。
 ///
-/// v1 取 8 MiB：按每 tick 每活跃车辆 48 字节条目估算，千车量级世界约可覆盖
+/// v2 取 8 MiB：按每 tick 每活跃车辆 43 字节条目估算，千车量级世界约可覆盖
 /// 一百余 tick 的在线追赶窗口；更大的世界按比例缩小可追窗口，超界由事务
 /// 失败关闭放弃、宿主显式改用维护暂停模式重试。初值随切片 C 证据登记
 /// （合同 §9「迁移增量日志」行）。
@@ -66,7 +68,9 @@ const TAG_ROUTE_REGISTERED: u8 = 2;
 const TAG_ROUTE_REMOVED: u8 = 3;
 const TAG_VEHICLE_SPAWNED: u8 = 4;
 const TAG_VEHICLE_REPLACED: u8 = 5;
-const TAG_PARKING_OCCUPIED: u8 = 6;
+const TAG_VEHICLE_PARKING_UPDATED: u8 = 6;
+const TAG_VEHICLE_PARKING_SPAWNED: u8 = 7;
+const TAG_VEHICLE_DESPAWNED: u8 = 8;
 
 // 状态封闭 u8 编码（与快照摘要 §6 的车辆记录一致）。
 const STATUS_ACTIVE: u8 = 1;
@@ -76,7 +80,7 @@ const STATUS_COMPLETED: u8 = 3;
 // TICK 记录头：tag + tick_index + time_ms + entry_count。
 const TICK_HEADER_BYTES: usize = 1 + 8 + 8 + 4;
 
-/// 单条车辆增量：tick 条目与生成/替换记录共用，固定 48 字节小端布局。
+/// 单条车辆增量：tick 条目与生成/替换记录共用，固定 43 字节小端布局。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct VehicleDelta {
     /// 车辆槽位下标（句柄 index）。
@@ -103,8 +107,6 @@ pub(crate) struct VehicleDelta {
     pub(crate) length_mm: u32,
     /// 生命周期状态。
     pub(crate) status: VehicleStatus,
-    /// 停车位序数原始值（base 侧；`None` = 未占车位）。
-    pub(crate) parking: Option<u32>,
 }
 
 impl VehicleDelta {
@@ -123,7 +125,6 @@ impl VehicleDelta {
             speed_mm_s: state.speed_mm_s(),
             length_mm: state.length_mm(),
             status: state.status(),
-            parking: state.parking().map(|space| space.raw()),
         }
     }
 
@@ -140,8 +141,6 @@ impl VehicleDelta {
         put_u32(out, self.speed_mm_s);
         put_u32(out, self.length_mm);
         put_u8(out, status_to_raw(self.status));
-        put_u8(out, u8::from(self.parking.is_some()));
-        put_u32(out, self.parking.unwrap_or(0));
     }
 
     pub(crate) fn decode(bytes: &[u8]) -> Self {
@@ -149,7 +148,6 @@ impl VehicleDelta {
             bytes.len() >= VEHICLE_DELTA_BYTES,
             "vehicle delta needs full width"
         );
-        let parking_present = bytes[43] == 1;
         Self {
             slot: read_u32(bytes, 0),
             generation: read_u32(bytes, 4),
@@ -163,13 +161,123 @@ impl VehicleDelta {
             speed_mm_s: read_u32(bytes, 34),
             length_mm: read_u32(bytes, 38),
             status: status_from_raw(bytes[42]),
-            parking: parking_present.then(|| read_u32(bytes, 44)),
         }
     }
 }
 
 /// 车辆增量固定字节宽度。
-pub(crate) const VEHICLE_DELTA_BYTES: usize = 48;
+pub(crate) const VEHICLE_DELTA_BYTES: usize = 43;
+
+const PARKING_BINDING_DELTA_BYTES: usize = 20;
+
+/// parking binding 的固定宽度进程内增量。virtual Reserved 的 selector 以 base
+/// 修订 exact semantic anchor 保存，消费方在 target facility 内重新解析 selector。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ParkingBindingDelta {
+    pub(crate) binding: Option<ParkingBinding>,
+    pub(crate) semantic_entry_edge: Option<LaneEdgeOrdinal>,
+    pub(crate) semantic_entry_progress_mm: u32,
+}
+
+impl ParkingBindingDelta {
+    pub(crate) const fn new(
+        binding: Option<ParkingBinding>,
+        semantic_entry: Option<(LaneEdgeOrdinal, u32)>,
+    ) -> Self {
+        Self {
+            binding,
+            semantic_entry_edge: match semantic_entry {
+                Some((edge, _)) => Some(edge),
+                None => None,
+            },
+            semantic_entry_progress_mm: match semantic_entry {
+                Some((_, progress_mm)) => progress_mm,
+                None => 0,
+            },
+        }
+    }
+
+    fn encode(self, out: &mut Vec<u8>) {
+        let (state, target_kind, target_raw, entry_occurrence) = match self.binding {
+            None => (0, 0, 0, 0),
+            Some(ParkingBinding::Reserved(reservation)) => {
+                let (kind, raw) = target_raw(reservation.target());
+                (1, kind, raw, reservation.entry_route_occurrence())
+            }
+            Some(ParkingBinding::Occupied(target)) => {
+                let (kind, raw) = target_raw(target);
+                (2, kind, raw, 0)
+            }
+        };
+        put_u8(out, u8::from(self.binding.is_some()));
+        put_u8(out, state);
+        put_u8(out, target_kind);
+        put_u32(out, target_raw);
+        put_u32(out, entry_occurrence);
+        put_u8(out, u8::from(self.semantic_entry_edge.is_some()));
+        put_u32(
+            out,
+            self.semantic_entry_edge.map_or(0, LaneEdgeOrdinal::raw),
+        );
+        put_u32(out, self.semantic_entry_progress_mm);
+    }
+
+    fn decode(bytes: &[u8], route: RouteHandle) -> Self {
+        assert!(bytes.len() >= PARKING_BINDING_DELTA_BYTES);
+        let present = bytes[0] == 1;
+        let state = bytes[1];
+        let target_kind = bytes[2];
+        let target_raw = read_u32(bytes, 3);
+        let entry_occurrence = read_u32(bytes, 7);
+        let semantic_present = bytes[11] == 1;
+        let semantic_edge = read_u32(bytes, 12);
+        let semantic_progress = read_u32(bytes, 16);
+        let target = match target_kind {
+            1 => ParkingTarget::ExplicitSpace(
+                laneflow_static_contract::ParkingSpaceOrdinal::from_raw(target_raw),
+            ),
+            2 => ParkingTarget::VirtualPool(
+                laneflow_static_contract::ParkingFacilityOrdinal::from_raw(target_raw),
+            ),
+            _ if !present => ParkingTarget::ExplicitSpace(
+                laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0),
+            ),
+            other => panic!("unknown parking target kind {other}"),
+        };
+        let binding = if !present {
+            None
+        } else {
+            Some(match state {
+                1 => ParkingBinding::Reserved(crate::ParkingReservation::new(
+                    target,
+                    route,
+                    entry_occurrence,
+                    match target {
+                        ParkingTarget::ExplicitSpace(_) => None,
+                        ParkingTarget::VirtualPool(_) => {
+                            // selector 本身不跨修订；消费方必须用 semantic entry 覆盖。
+                            Some(crate::VirtualEntryAnchorSelector::from_raw(0))
+                        }
+                    },
+                )),
+                2 => ParkingBinding::Occupied(target),
+                other => panic!("unknown parking binding state {other}"),
+            })
+        };
+        Self {
+            binding,
+            semantic_entry_edge: semantic_present.then(|| LaneEdgeOrdinal::from_raw(semantic_edge)),
+            semantic_entry_progress_mm: semantic_progress,
+        }
+    }
+}
+
+fn target_raw(target: ParkingTarget) -> (u8, u32) {
+    match target {
+        ParkingTarget::ExplicitSpace(space) => (1, space.raw()),
+        ParkingTarget::VirtualPool(facility) => (2, facility.raw()),
+    }
+}
 
 fn status_to_raw(status: VehicleStatus) -> u8 {
     match status {
@@ -199,7 +307,7 @@ pub(crate) enum JournalRecord<'a> {
         tick_index: u64,
         /// 已提交世界时间（毫秒）。
         time_ms: u64,
-        /// 48 字节步长的 [`VehicleDelta`] 流。
+        /// 43 字节步长的 [`VehicleDelta`] 流。
         entries: &'a [u8],
     },
     /// 路线注册（base 侧边序数；消费方经 LFSD 重绑到 target 再编译验证）。
@@ -244,16 +352,26 @@ pub(crate) enum JournalRecord<'a> {
         /// 新车辆增量。
         vehicle: VehicleDelta,
     },
-    /// 停车占用（只记有状态变化的成功占用；幂等重占不产生动态增量，不记）。
-    ParkingOccupied {
-        /// 提交时的命令游标。
+    /// 既有车辆的停车生命周期原子更新（reserve/cancel/park/leave/rebind）。
+    VehicleParkingUpdated {
         command_cursor: u64,
-        /// 车辆槽位下标。
+        vehicle: VehicleDelta,
+        parking: ParkingBindingDelta,
+    },
+    /// parked spawn：新 identity、完整状态与 Occupied binding 同一条记录。
+    VehicleParkingSpawned {
+        command_cursor: u64,
+        vehicle: VehicleDelta,
+        parking: ParkingBindingDelta,
+    },
+    /// 真正移除 live vehicle。
+    VehicleDespawned {
+        command_cursor: u64,
         slot: u32,
-        /// 车辆槽位 generation。
         generation: u32,
-        /// 车位序数原始值（base 侧）。
-        space: u32,
+        order_index: u32,
+        recyclable: bool,
+        generation_after: u32,
     },
 }
 
@@ -499,21 +617,59 @@ impl MigrationDeltaJournal {
         self.record_count += 1;
     }
 
-    /// 停车占用记录。
-    pub(crate) fn record_parking_occupied(
+    /// 既有车辆停车生命周期更新记录。
+    pub(crate) fn record_vehicle_parking_updated(
+        &mut self,
+        command_cursor: u64,
+        vehicle: VehicleDelta,
+        parking: ParkingBindingDelta,
+    ) {
+        if !self.ensure(1 + 8 + VEHICLE_DELTA_BYTES + PARKING_BINDING_DELTA_BYTES) {
+            return;
+        }
+        put_u8(&mut self.bytes, TAG_VEHICLE_PARKING_UPDATED);
+        put_u64(&mut self.bytes, command_cursor);
+        vehicle.encode(&mut self.bytes);
+        parking.encode(&mut self.bytes);
+        self.record_count += 1;
+    }
+
+    /// parked spawn 的完整原子记录。
+    pub(crate) fn record_vehicle_parking_spawned(
+        &mut self,
+        command_cursor: u64,
+        vehicle: VehicleDelta,
+        parking: ParkingBindingDelta,
+    ) {
+        if !self.ensure(1 + 8 + VEHICLE_DELTA_BYTES + PARKING_BINDING_DELTA_BYTES) {
+            return;
+        }
+        put_u8(&mut self.bytes, TAG_VEHICLE_PARKING_SPAWNED);
+        put_u64(&mut self.bytes, command_cursor);
+        vehicle.encode(&mut self.bytes);
+        parking.encode(&mut self.bytes);
+        self.record_count += 1;
+    }
+
+    /// despawn 的 identity/live-order 槽位变更记录。
+    pub(crate) fn record_vehicle_despawned(
         &mut self,
         command_cursor: u64,
         vehicle: VehicleHandle,
-        space: u32,
+        order_index: u32,
+        recyclable: bool,
+        generation_after: u32,
     ) {
-        if !self.ensure(1 + 8 + 4 + 4 + 4) {
+        if !self.ensure(1 + 8 + 4 + 4 + 4 + 1 + 4) {
             return;
         }
-        put_u8(&mut self.bytes, TAG_PARKING_OCCUPIED);
+        put_u8(&mut self.bytes, TAG_VEHICLE_DESPAWNED);
         put_u64(&mut self.bytes, command_cursor);
         put_u32(&mut self.bytes, vehicle.index());
         put_u32(&mut self.bytes, vehicle.generation());
-        put_u32(&mut self.bytes, space);
+        put_u32(&mut self.bytes, order_index);
+        put_u8(&mut self.bytes, u8::from(recyclable));
+        put_u32(&mut self.bytes, generation_after);
         self.record_count += 1;
     }
 }
@@ -637,20 +793,51 @@ impl<'a> Iterator for RecordIter<'a> {
                     vehicle,
                 }
             }
-            TAG_PARKING_OCCUPIED => {
+            TAG_VEHICLE_PARKING_UPDATED | TAG_VEHICLE_PARKING_SPAWNED => {
+                let command_cursor = read_u64(rest, at);
+                at += 8;
+                let vehicle = VehicleDelta::decode(rest.get(at..).expect("vehicle delta present"));
+                at += VEHICLE_DELTA_BYTES;
+                let route = RouteHandle::new(vehicle.route_index, vehicle.route_generation);
+                let parking = ParkingBindingDelta::decode(
+                    rest.get(at..).expect("parking delta present"),
+                    route,
+                );
+                at += PARKING_BINDING_DELTA_BYTES;
+                if tag == TAG_VEHICLE_PARKING_UPDATED {
+                    JournalRecord::VehicleParkingUpdated {
+                        command_cursor,
+                        vehicle,
+                        parking,
+                    }
+                } else {
+                    JournalRecord::VehicleParkingSpawned {
+                        command_cursor,
+                        vehicle,
+                        parking,
+                    }
+                }
+            }
+            TAG_VEHICLE_DESPAWNED => {
                 let command_cursor = read_u64(rest, at);
                 at += 8;
                 let slot = read_u32(rest, at);
                 at += 4;
                 let generation = read_u32(rest, at);
                 at += 4;
-                let space = read_u32(rest, at);
+                let order_index = read_u32(rest, at);
                 at += 4;
-                JournalRecord::ParkingOccupied {
+                let recyclable = rest[at] == 1;
+                at += 1;
+                let generation_after = read_u32(rest, at);
+                at += 4;
+                JournalRecord::VehicleDespawned {
                     command_cursor,
                     slot,
                     generation,
-                    space,
+                    order_index,
+                    recyclable,
+                    generation_after,
                 }
             }
             other => panic!("unknown migration journal tag {other}"),
@@ -794,7 +981,6 @@ mod tests {
             speed_mm_s: 8_900,
             length_mm: 4_500,
             status: VehicleStatus::Active,
-            parking: None,
         }
     }
 
@@ -842,10 +1028,27 @@ mod tests {
         journal.record_route_removed(7, 2, true, 5);
         journal.record_vehicle_spawned(8, sample_delta(6, 0));
         journal.record_vehicle_replaced(9, VehicleHandle::new(6, 0), 2, sample_delta(6, 1));
-        journal.record_parking_occupied(10, VehicleHandle::new(6, 1), 3);
+        journal.record_vehicle_parking_updated(
+            10,
+            sample_delta(6, 1),
+            ParkingBindingDelta::new(None, None),
+        );
+        let mut parked = sample_delta(7, 0);
+        parked.status = VehicleStatus::Parked;
+        journal.record_vehicle_parking_spawned(
+            11,
+            parked,
+            ParkingBindingDelta::new(
+                Some(ParkingBinding::Occupied(ParkingTarget::ExplicitSpace(
+                    ParkingSpaceOrdinal::from_raw(3),
+                ))),
+                None,
+            ),
+        );
+        journal.record_vehicle_despawned(12, VehicleHandle::new(7, 0), 3, true, 1);
 
         let records: Vec<_> = journal.records_from(0).collect();
-        assert_eq!(records.len(), 7);
+        assert_eq!(records.len(), 9);
         let JournalRecord::Tick {
             tick_index,
             time_ms,
@@ -891,18 +1094,39 @@ mod tests {
             JournalRecord::VehicleReplaced { command_cursor: 9, old_slot: 6, old_generation: 0, order_index: 2, ref vehicle }
                 if vehicle.generation == 1
         ));
-        assert_eq!(
+        assert!(matches!(
             records[6],
-            JournalRecord::ParkingOccupied {
+            JournalRecord::VehicleParkingUpdated {
                 command_cursor: 10,
-                slot: 6,
-                generation: 1,
-                space: 3,
+                ref vehicle,
+                parking: ParkingBindingDelta { binding: None, .. },
+            } if vehicle.slot == 6 && vehicle.generation == 1
+        ));
+        assert!(matches!(
+            records[7],
+            JournalRecord::VehicleParkingSpawned {
+                command_cursor: 11,
+                ref vehicle,
+                parking: ParkingBindingDelta {
+                    binding: Some(ParkingBinding::Occupied(ParkingTarget::ExplicitSpace(space))),
+                    ..
+                },
+            } if vehicle.slot == 7 && space.raw() == 3
+        ));
+        assert_eq!(
+            records[8],
+            JournalRecord::VehicleDespawned {
+                command_cursor: 12,
+                slot: 7,
+                generation: 0,
+                order_index: 3,
+                recyclable: true,
+                generation_after: 1,
             }
         );
         assert_eq!(journal.first_tick(), Some(7));
         assert_eq!(journal.last_tick(), Some(8));
-        assert_eq!(journal.record_count(), 7);
+        assert_eq!(journal.record_count(), 9);
         assert_eq!(journal.baseline_command_cursor(), 5);
         assert!(!journal.overflowed());
     }
@@ -920,7 +1144,11 @@ mod tests {
         // 粘性：后续记录全部丢弃，统计不再推进。
         journal.begin_tick(2, 200);
         journal.finish_tick();
-        journal.record_parking_occupied(1, VehicleHandle::new(0, 0), 0);
+        journal.record_vehicle_parking_updated(
+            1,
+            sample_delta(0, 0),
+            ParkingBindingDelta::new(None, None),
+        );
         assert_eq!(journal.record_count(), 1);
         assert_eq!(journal.last_tick(), Some(1));
     }
@@ -952,17 +1180,17 @@ mod tests {
 
         world.step(TickInput::new(100)).expect("step");
         let second = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
-            .expect("follower vehicle");
-        world
-            .occupy_parking(second, ParkingSpaceOrdinal::from_raw(0))
-            .expect("parking");
+            .spawn_parked_vehicle(
+                crate::ParkedVehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    1_000,
+                ),
+                ParkingTarget::ExplicitSpace(ParkingSpaceOrdinal::from_raw(0)),
+            )
+            .expect("parked vehicle")
+            .vehicle;
         // 停车后 second 不步进：本拍 TICK 只含 first 的条目。
         world.step(TickInput::new(100)).expect("step");
         let parked_tick_entries = {
@@ -979,7 +1207,10 @@ mod tests {
         world.remove_route(temp_route).expect("remove");
         // 幂等重占不产生记录（无动态变化）。
         world
-            .occupy_parking(second, ParkingSpaceOrdinal::from_raw(0))
+            .park_vehicle(
+                second,
+                ParkingTarget::ExplicitSpace(ParkingSpaceOrdinal::from_raw(0)),
+            )
             .expect("idempotent re-occupy");
         // 强制完成 first 后原子替换。
         let index = usize::try_from(first.index()).expect("index");
@@ -992,8 +1223,8 @@ mod tests {
             .expect("replace");
 
         let records = decoded(&world);
-        // 期望序：TICK, SPAWNED, PARKING, TICK, ROUTE_REGISTERED, ROUTE_REMOVED, VEHICLE_REPLACED。
-        assert_eq!(records.len(), 7);
+        // 期望序：TICK, PARKING_SPAWNED, TICK, ROUTE_REGISTERED, ROUTE_REMOVED, VEHICLE_REPLACED。
+        assert_eq!(records.len(), 6);
         assert!(matches!(
             records[0],
             JournalRecord::Tick {
@@ -1004,16 +1235,17 @@ mod tests {
         ));
         assert!(matches!(
             records[1],
-            JournalRecord::VehicleSpawned { command_cursor: 3, ref vehicle }
-                if vehicle.slot == second.index() && vehicle.parking.is_none()
+            JournalRecord::VehicleParkingSpawned {
+                command_cursor: 3,
+                ref vehicle,
+                parking: ParkingBindingDelta {
+                    binding: Some(ParkingBinding::Occupied(ParkingTarget::ExplicitSpace(space))),
+                    ..
+                },
+            } if vehicle.slot == second.index() && space.raw() == 0
         ));
         assert!(matches!(
             records[2],
-            JournalRecord::ParkingOccupied { command_cursor: 4, slot, generation, space: 0 }
-                if slot == second.index() && generation == second.generation()
-        ));
-        assert!(matches!(
-            records[3],
             JournalRecord::Tick {
                 tick_index: 2,
                 time_ms: 200,
@@ -1025,19 +1257,19 @@ mod tests {
             "parked vehicle excluded from tick entries"
         );
         assert!(matches!(
-            records[4],
+            records[3],
             JournalRecord::RouteRegistered {
-                command_cursor: 5,
+                command_cursor: 4,
                 ..
             }
         ));
         assert!(matches!(
-            records[5],
-            JournalRecord::RouteRemoved { command_cursor: 6, slot, .. } if slot == temp_route.index()
+            records[4],
+            JournalRecord::RouteRemoved { command_cursor: 5, slot, .. } if slot == temp_route.index()
         ));
         assert!(matches!(
-            records[6],
-            JournalRecord::VehicleReplaced { command_cursor: 8, old_slot, order_index: 0, .. }
+            records[5],
+            JournalRecord::VehicleReplaced { command_cursor: 7, old_slot, order_index: 0, .. }
                 if old_slot == first.index()
         ));
         let journal = world.migration_journal().expect("armed");
@@ -1051,18 +1283,17 @@ mod tests {
     fn zero_change_step_still_emits_empty_tick() {
         let mut world = world();
         let route = preview_route(&mut world);
-        let vehicle = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
-            .expect("vehicle");
         world
-            .occupy_parking(vehicle, ParkingSpaceOrdinal::from_raw(0))
-            .expect("parking");
+            .spawn_parked_vehicle(
+                crate::ParkedVehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    1_000,
+                ),
+                ParkingTarget::ExplicitSpace(ParkingSpaceOrdinal::from_raw(0)),
+            )
+            .expect("parked vehicle");
         world.arm_migration_journal(4_096).expect("arm");
         world.step(TickInput::new(100)).expect("step");
         let records = decoded(&world);

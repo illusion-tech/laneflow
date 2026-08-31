@@ -1,7 +1,7 @@
 # 架构
 
 **文档状态**: Accepted（current + #291 target design + ADR 0025 / #300 G1 修订；#301 后 Runtime 为当前可运行世界；ADR 0028 / #496 已落地整数毫米一维几何）<br>
-**最后更新**: 2026-08-30（#540 停车设施合同）<br>
+**最后更新**: 2026-08-31（#541 停车生命周期 clean break）<br>
 **适用范围**: LaneFlow 当前分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Runtime/Adapter 边界，以及 #291/ADR 0020/0021 和 Accepted ADR 0025 的城市模拟游戏交通基础与目标静态编译架构
 
 ## 1. 架构目标
@@ -242,8 +242,9 @@ live identity，但不产生 committed pose。真正移除仍由原子 `despawn_
 在同一提交释放停车 binding/route 引用；无 pose 不等于移除。完整合同见
 `design/parking-system.md`。
 
-**实现状态**：#541 尚未完成；当前代码仍使用 `ParkingArea` 和具体泊位占用。该事实只
-说明实现差距，不构成第二套目标架构。
+**实现状态**：当前代码已移除 `ParkingArea` / `occupy_parking`，由私有稀疏 aggregate
+统一管理显式/虚拟 reservation 与 occupancy；Snapshot v2、cutover/replay、Spatial/Bevy
+消费同一 authority。
 
 #229 已按 #228/ADR 0017 把 Traffic 原子切换为 v0.8：clean break 增加
 Junction、Movement、ManeuverPath，并以一等 ManeuverGate 取代 pair-based Gate。
@@ -352,12 +353,12 @@ grant 不覆盖 leader、safe-speed、RouteEnd、minimum-gap 或 no-overlap。�
 
 Parking runtime 由私有 binding aggregate 持有唯一 authority；`VehicleStatus::Parked` 与
 exact Occupied binding 一致，Parked vehicle 保留 live identity 但不进入 travel-lane
-occupancy。#108/#109 production 仍是显式泊位历史实现；#540 Accepted target 以
+occupancy。#108/#109 是显式泊位历史实现；当前以
 `ParkingFacility` 同时承载显式泊位与稀疏 virtual capacity，Reserved entry 必须由 caller
 精确选择并保持前向可达，不保留 route-completion 自动释放。ParkingStop、SignalStop、
 RouteEnd 与 leader/no-overlap 仍进入同一 fixed-tick constraint/traversal pipeline；Adapter
 只消费 immutable registry、snapshot、typed records/observations 和 position authority。
-#541 负责一次 clean break 实现。详细设计见 ADR 0010 与 `design/parking-system.md`。
+该 clean break 由 #541 实现。详细设计见 ADR 0010 与 `design/parking-system.md`。
 
 ## 6. Engine Adapter Layer
 

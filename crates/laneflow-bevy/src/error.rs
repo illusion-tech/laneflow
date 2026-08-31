@@ -4,7 +4,7 @@ use std::fmt;
 use std::time::Duration;
 
 use bevy_ecs::entity::Entity;
-use laneflow_runtime::{ReplaceError, StepError, VehicleHandle};
+use laneflow_runtime::{ParkingError, ReplaceError, StepError, VehicleHandle};
 
 /// LaneFlow Bevy Adapter 的结构化失败。
 #[derive(Clone, Debug, PartialEq)]
@@ -62,6 +62,11 @@ pub enum LaneFlowAdapterError {
         /// Runtime 错误。
         source: ReplaceError,
     },
+    /// Runtime 真正移除车辆失败；mapping 保持不变。
+    VehicleDespawn {
+        vehicle: VehicleHandle,
+        source: ParkingError,
+    },
 }
 
 impl fmt::Display for LaneFlowAdapterError {
@@ -110,6 +115,9 @@ impl fmt::Display for LaneFlowAdapterError {
             Self::VehicleReplace { old, source } => {
                 write!(formatter, "车辆 {old:?} 原子替换失败：{source}")
             }
+            Self::VehicleDespawn { vehicle, source } => {
+                write!(formatter, "车辆 {vehicle:?} despawn 失败：{source}")
+            }
         }
     }
 }
@@ -127,6 +135,7 @@ impl std::error::Error for LaneFlowAdapterError {
             | Self::DuplicateEntityBinding { .. }
             | Self::StaleLifecycleEntity { .. } => None,
             Self::VehicleReplace { source, .. } => Some(source),
+            Self::VehicleDespawn { source, .. } => Some(source),
         }
     }
 }

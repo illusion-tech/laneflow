@@ -5,9 +5,15 @@ use crate::migration_journal::VehicleDelta;
 use crate::occupancy::LeaderQueryHorizon;
 #[cfg(test)]
 use crate::tables::occupancy_front_gap;
-use crate::tables::{CompiledRoute, distance_to_occurrence_start, remaining_to_route_end};
+use crate::tables::{
+    CompiledRoute, distance_to_occurrence_progress, distance_to_occurrence_start,
+    remaining_to_route_end,
+};
 use crate::units::{ceil_mm, round_mm, round_um};
-use crate::{StepError, StepOutcome, TickInput, TrafficWorld, VehicleState, VehicleStatus};
+use crate::{
+    ParkingArrivalObservation, ParkingBinding, ParkingReservation, StepError, StepOutcome,
+    TickInput, TrafficWorld, VehicleState, VehicleStatus,
+};
 
 /// 整数毫米合同下覆盖 `s0` 边界舍入的专用容差。跟车前视公式里的
 /// `minimum_gap_tolerance`。
@@ -77,17 +83,42 @@ impl TrafficWorld {
         let delta_s = expected as f32 / 1_000.0;
         self.rebuild_occupancy_index()?;
         self.next_states.clear();
-        self.next_states.reserve(self.live_order.len());
-        for handle in self.live_order.iter().copied() {
+        self.next_states.reserve(self.active_order.len());
+        let mut parking_arrivals = Vec::new();
+        for handle in self.active_order.iter().copied() {
             let Some(state) = self.vehicle_state(handle).copied() else {
                 continue;
             };
-            if state.status != VehicleStatus::Active {
-                continue;
+            debug_assert_eq!(state.status, VehicleStatus::Active);
+            if !self.parking_state_valid(handle) {
+                return Err(StepError::ParkingInvariantViolation);
             }
+            let reservation = match self.parking.binding(handle) {
+                Some(ParkingBinding::Reserved(reservation)) => Some(reservation),
+                Some(ParkingBinding::Occupied(_)) => {
+                    return Err(StepError::ParkingInvariantViolation);
+                }
+                None => None,
+            };
+            let arrived_before =
+                reservation.is_some_and(|reservation| self.parking_arrived_for(state, reservation));
             let next = self
                 .advance_active_vehicle(state, delta_s)
                 .ok_or(StepError::NonFiniteMotion)?;
+            if let Some(reservation) = reservation {
+                if next.status != VehicleStatus::Active {
+                    return Err(StepError::ParkingInvariantViolation);
+                }
+                if !arrived_before && self.parking_arrived_for(next, reservation) {
+                    parking_arrivals
+                        .try_reserve(1)
+                        .map_err(|_| StepError::ParkingObservationAllocFailed)?;
+                    parking_arrivals.push(ParkingArrivalObservation {
+                        vehicle: handle,
+                        target: reservation.target(),
+                    });
+                }
+            }
             let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
             self.next_states.push((slot, next));
         }
@@ -109,11 +140,22 @@ impl TrafficWorld {
             journal.finish_tick();
         }
         self.next_states = updates;
+        let vehicles = &self.vehicles;
+        self.active_order.retain(|handle| {
+            let index = usize::try_from(handle.index()).expect("vehicle index fits usize");
+            vehicles.get(index).is_some_and(|slot| {
+                slot.generation == handle.generation()
+                    && slot
+                        .state
+                        .as_ref()
+                        .is_some_and(|state| state.status == VehicleStatus::Active)
+            })
+        });
         self.tick_index = tick_index;
         self.time_ms = time_ms;
         self.observation_state_sequence = observation_state_sequence;
         self.refresh_signals();
-        Ok(StepOutcome::new(tick_index, time_ms))
+        Ok(StepOutcome::new(tick_index, time_ms, parking_arrivals))
     }
 
     pub(crate) fn advance_active_vehicle(
@@ -149,13 +191,18 @@ impl TrafficWorld {
         let route_end =
             remaining_to_route_end(*compiled.remaining_to_end.get(cursor)?, state.progress_mm);
         let signal_stop = self.signal_stop_distance(compiled, &state, cursor);
+        let parking = self.parking_stop_distance(compiled, &state, cursor)?;
+        let parking_stop = parking.map(|(_, distance)| distance);
+        let selected_stop = select_movement_stop(signal_stop, parking_stop, route_end);
+        let movement_stop = (!matches!(selected_stop.attribution, StopAttribution::RouteEnd))
+            .then_some(selected_stop.distance);
         let (mut travel_m, next_speed_m) = si_comfort_travel(
             state.speed_mm_s,
             desired_mm_s,
             leader_gap,
             profile,
             route_end,
-            signal_stop,
+            movement_stop,
             compiled,
             lengths,
             speed_limits,
@@ -173,7 +220,7 @@ impl TrafficWorld {
         let hard_room = hard_room_mm(
             leader_gap,
             profile.min_gap_mm(),
-            signal_stop,
+            movement_stop,
             route_end,
             lengths.get(edge.index()).copied()?,
             state.progress_mm,
@@ -182,7 +229,9 @@ impl TrafficWorld {
         if hard_room == 0 {
             state.speed_mm_s = 0;
             state.carry_um = 0;
-            if matches!(route_end, BoundedDistance::Finite(0)) {
+            let arrived = parking
+                .is_some_and(|(reservation, _)| self.parking_arrived_for(state, reservation));
+            if matches!(route_end, BoundedDistance::Finite(0)) && !arrived {
                 state.status = VehicleStatus::Completed;
             }
             return Some(state);
@@ -210,7 +259,9 @@ impl TrafficWorld {
         if exhausted || matches!(remaining, BoundedDistance::Finite(0)) {
             state.speed_mm_s = 0;
             state.carry_um = 0;
-            if matches!(remaining, BoundedDistance::Finite(0)) {
+            let arrived = parking
+                .is_some_and(|(reservation, _)| self.parking_arrived_for(state, reservation));
+            if matches!(remaining, BoundedDistance::Finite(0)) && !arrived {
                 state.status = VehicleStatus::Completed;
             }
             return Some(state);
@@ -218,6 +269,35 @@ impl TrafficWorld {
         let speed_mm_s = round_mm(f64::from(next_speed_m))?.min(committed_limit);
         state.speed_mm_s = speed_mm_s;
         Some(state)
+    }
+
+    fn parking_stop_distance(
+        &self,
+        compiled: &CompiledRoute,
+        state: &VehicleState,
+        cursor: usize,
+    ) -> Option<Option<(ParkingReservation, BoundedDistance)>> {
+        let Some(ParkingBinding::Reserved(reservation)) = self.parking.binding(state.handle) else {
+            return Some(None);
+        };
+        if reservation.route() != state.route {
+            return None;
+        }
+        let (edge, progress_mm) = self.reservation_anchor(reservation)?;
+        let entry_index = usize::try_from(reservation.entry_route_occurrence()).ok()?;
+        if compiled.edges.get(entry_index).copied()? != edge {
+            return None;
+        }
+        let distance = distance_to_occurrence_progress(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            cursor,
+            state.progress_mm,
+            entry_index,
+            progress_mm,
+        )?;
+        Some(Some((reservation, distance)))
     }
 
     /// 测试专用：读本拍占用索引上的前保险杠间隙。不是生产热路径。
@@ -384,6 +464,62 @@ fn finite_meters(distance: BoundedDistance) -> Option<f32> {
     match distance {
         BoundedDistance::Finite(mm) => Some(si_meters(mm)),
         BoundedDistance::BeyondFinite => None,
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StopAttribution {
+    SignalStop,
+    ParkingStop,
+    RouteEnd,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SelectedStop {
+    distance: BoundedDistance,
+    attribution: StopAttribution,
+}
+
+/// 数值更近者优先；完全同值时调用顺序编码
+/// `SignalStop -> ParkingStop -> RouteEnd` 的归因权威。
+fn select_movement_stop(
+    signal: Option<BoundedDistance>,
+    parking: Option<BoundedDistance>,
+    route_end: BoundedDistance,
+) -> SelectedStop {
+    let mut selected = SelectedStop {
+        distance: route_end,
+        attribution: StopAttribution::RouteEnd,
+    };
+    if let Some(distance) = parking {
+        let candidate = SelectedStop {
+            distance,
+            attribution: StopAttribution::ParkingStop,
+        };
+        if stop_is_nearer_or_equal(candidate.distance, selected.distance) {
+            selected = candidate;
+        }
+    }
+    if let Some(distance) = signal {
+        let candidate = SelectedStop {
+            distance,
+            attribution: StopAttribution::SignalStop,
+        };
+        if stop_is_nearer_or_equal(candidate.distance, selected.distance) {
+            selected = candidate;
+        }
+    }
+    selected
+}
+
+fn stop_is_nearer_or_equal(candidate: BoundedDistance, current: BoundedDistance) -> bool {
+    match (candidate, current) {
+        (BoundedDistance::Finite(candidate), BoundedDistance::Finite(current)) => {
+            candidate <= current
+        }
+        (BoundedDistance::Finite(_), BoundedDistance::BeyondFinite)
+        | (BoundedDistance::BeyondFinite, BoundedDistance::BeyondFinite) => true,
+        (BoundedDistance::BeyondFinite, BoundedDistance::Finite(_)) => false,
     }
 }
 
@@ -1046,7 +1182,6 @@ mod preview {
             speed_mm_s: 0,
             length_mm: 4_500,
             status: VehicleStatus::Active,
-            parking: None,
         }
     }
 
@@ -1130,6 +1265,54 @@ mod preview {
         assert!(next.carry_um > state.carry_um);
         assert!(next.speed_mm_s > 0);
         assert_eq!(next.status, VehicleStatus::Active);
+    }
+
+    #[test]
+    fn movement_stop_retains_exact_tie_attribution() {
+        let at = BoundedDistance::Finite(4_000);
+        assert_eq!(
+            select_movement_stop(Some(at), Some(at), BoundedDistance::Finite(5_000)),
+            SelectedStop {
+                distance: at,
+                attribution: StopAttribution::SignalStop,
+            }
+        );
+        assert_eq!(
+            select_movement_stop(None, Some(at), at),
+            SelectedStop {
+                distance: at,
+                attribution: StopAttribution::ParkingStop,
+            }
+        );
+        assert_eq!(
+            select_movement_stop(Some(at), Some(at), at),
+            SelectedStop {
+                distance: at,
+                attribution: StopAttribution::SignalStop,
+            }
+        );
+        assert_eq!(
+            select_movement_stop(
+                Some(BoundedDistance::Finite(6_000)),
+                Some(BoundedDistance::Finite(3_000)),
+                BoundedDistance::Finite(4_000),
+            ),
+            SelectedStop {
+                distance: BoundedDistance::Finite(3_000),
+                attribution: StopAttribution::ParkingStop,
+            }
+        );
+        assert_eq!(
+            select_movement_stop(
+                Some(BoundedDistance::Finite(6_000)),
+                Some(BoundedDistance::Finite(5_000)),
+                BoundedDistance::Finite(4_000),
+            ),
+            SelectedStop {
+                distance: BoundedDistance::Finite(4_000),
+                attribution: StopAttribution::RouteEnd,
+            }
+        );
     }
 
     #[test]

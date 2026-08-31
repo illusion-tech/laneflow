@@ -4,10 +4,13 @@ use laneflow_static_contract::Sha256Digest;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::{CapturedRoute, CapturedSnapshot, CapturedVehicle, VehicleStatus};
+use crate::{
+    CapturedParkingBinding, CapturedParkingTarget, CapturedRoute, CapturedSnapshot,
+    CapturedVehicle, VehicleStatus,
+};
 
 /// 确定性状态摘要规范化版本。
-pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 3;
+pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 4;
 /// SHA-256 域分隔前缀；尾随 NUL 属于前缀字节。
 pub const RUNTIME_STATE_DIGEST_DOMAIN: &[u8] = b"laneflow:runtime-state-digest:v1\0";
 
@@ -208,18 +211,14 @@ fn canonical_route_record(route: &CapturedRoute) -> Result<Vec<u8>, SnapshotDige
 fn canonical_vehicle_record(vehicle: &CapturedVehicle) -> Result<Vec<u8>, SnapshotDigestError> {
     // 路线内容由所属实例分组承载，车辆记录不内嵌（内容相同的路线实例
     // 以其车辆绑定区分，见分组构造）。
-    let record_len = 4
-        + 4
-        + 2
-        + 4
-        + 1
-        + 16
-        + 16
-        + if vehicle.parking_space.is_some() {
-            1 + 16
-        } else {
-            1
-        };
+    let parking_len = match vehicle.parking {
+        None => 1,
+        Some(CapturedParkingBinding::Occupied { .. }) => 1 + 1 + 1 + 16 + 1,
+        Some(CapturedParkingBinding::Reserved { virtual_entry, .. }) => {
+            1 + 1 + 1 + 16 + 4 + 1 + if virtual_entry.is_some() { 16 + 4 } else { 0 }
+        }
+    };
+    let record_len = 4 + 4 + 2 + 4 + 1 + 16 + 16 + parking_len;
     let mut record = Vec::new();
     digest_try_reserve_exact(&mut record, record_len)?;
     push_u32(&mut record, vehicle.route_edge_index);
@@ -233,11 +232,41 @@ fn canonical_vehicle_record(vehicle: &CapturedVehicle) -> Result<Vec<u8>, Snapsh
     });
     record.extend_from_slice(vehicle.profile.as_bytes());
     record.extend_from_slice(vehicle.class.as_bytes());
-    if let Some(parking_space) = vehicle.parking_space {
-        record.push(1);
-        record.extend_from_slice(parking_space.as_bytes());
-    } else {
-        record.push(0);
+    match vehicle.parking {
+        None => record.push(0),
+        Some(binding) => {
+            record.push(1);
+            let (state, target, occurrence, virtual_entry) = match binding {
+                CapturedParkingBinding::Reserved {
+                    target,
+                    entry_route_occurrence,
+                    virtual_entry,
+                } => (1, target, Some(entry_route_occurrence), virtual_entry),
+                CapturedParkingBinding::Occupied { target } => (2, target, None, None),
+            };
+            record.push(state);
+            match target {
+                CapturedParkingTarget::ExplicitSpace(stable) => {
+                    record.push(1);
+                    record.extend_from_slice(stable.as_bytes());
+                }
+                CapturedParkingTarget::VirtualPool(stable) => {
+                    record.push(2);
+                    record.extend_from_slice(stable.as_bytes());
+                }
+            }
+            if let Some(occurrence) = occurrence {
+                push_u32(&mut record, occurrence);
+            }
+            match virtual_entry {
+                None => record.push(0),
+                Some(entry) => {
+                    record.push(1);
+                    record.extend_from_slice(entry.lane_edge.as_bytes());
+                    push_u32(&mut record, entry.progress_mm);
+                }
+            }
+        }
     }
     Ok(record)
 }
@@ -283,7 +312,8 @@ mod tests {
     use crate::CapturedRoute;
     use crate::cutover::tests::transaction_tests::world_with_vehicle;
     use crate::{
-        SnapshotRestoreLimits, TickInput, VehicleSpawnInput, WorldConfig, encode_lfrs, restore_lfrs,
+        ParkedVehicleSpawnInput, ParkingTarget, SnapshotRestoreLimits, TickInput, WorldConfig,
+        encode_lfrs, restore_lfrs,
     };
 
     #[test]
@@ -292,21 +322,20 @@ mod tests {
         world.step(TickInput::new(100)).expect("step");
         // 捕获槽位序为 Active / Parked；restore 为避免 transient 非占用重叠会先
         // staging Parked，再 staging Active，因此新进程槽位与局部 ID 会反转。
-        let parked = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                10_000,
-                0,
-            ))
-            .expect("second");
-        world
-            .occupy_parking(
-                parked,
-                laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0),
+        let _parked = world
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(
+                    laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    10_000,
+                ),
+                ParkingTarget::ExplicitSpace(
+                    laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0),
+                ),
             )
-            .expect("parking");
+            .expect("parked second")
+            .vehicle;
         let before = world.capture_snapshot().expect("capture");
         let before_digest = deterministic_state_digest(&before).expect("digest");
         let restored = restore_lfrs(
@@ -439,9 +468,9 @@ mod tests {
         assert_eq!(
             expected,
             Sha256Digest::from_bytes([
-                0x23, 0x17, 0x68, 0x5b, 0x70, 0x6f, 0xf4, 0x85, 0xda, 0x3f, 0x0a, 0x40, 0xf2, 0x33,
-                0xaf, 0xf4, 0x1a, 0x73, 0xda, 0xae, 0x40, 0xcd, 0x54, 0x11, 0x08, 0x5d, 0x44, 0xc6,
-                0x5e, 0x67, 0x1b, 0x55,
+                0x32, 0xb0, 0x44, 0xca, 0xda, 0xb8, 0xd0, 0x0d, 0x80, 0x20, 0xf3, 0x4c, 0x74, 0x28,
+                0x7d, 0xa3, 0xb8, 0x83, 0x3b, 0xcf, 0x2e, 0x08, 0x58, 0xbc, 0x96, 0x88, 0xed, 0xc5,
+                0xa6, 0xd6, 0x75, 0x46,
             ])
         );
         let mut equivalent = original.clone();
@@ -474,22 +503,20 @@ mod tests {
 
     #[test]
     fn semantic_capacity_and_live_order_change_the_digest() {
-        let (mut world, route, first) = world_with_vehicle(true);
+        let (mut world, route, _) = world_with_vehicle(true);
         world
-            .occupy_parking(
-                first,
-                laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0),
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(
+                    laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    10_000,
+                ),
+                ParkingTarget::ExplicitSpace(
+                    laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0),
+                ),
             )
-            .expect("park first");
-        world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
-            .expect("second");
+            .expect("parked second");
         let original = world.capture_snapshot().expect("capture");
         let expected = deterministic_state_digest(&original).expect("digest");
 

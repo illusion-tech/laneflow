@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（#301 后 current 为 `TrafficWorld` + `SpatialSession`）
 
-**最后更新**: 2026-08-30（#540 virtual parking 合同）
+**最后更新**: 2026-08-31（#541 typed parking lifecycle）
 
 **适用范围**: 交通运行时（Traffic Runtime）、Spatial 与引擎适配器（Engine Adapter）之间的只读位姿与生命周期契约；具体 Bevy 0.19 specialization 见 `bevy-reference-adapter.md`
 
@@ -32,9 +32,10 @@
 
 `laneflow-core` / `CoreWorld` / JSON 运行时入口已由 #301 拆除。current 可运行世界是 `laneflow-runtime::TrafficWorld`。历史 Core snapshot / `SpatialRegistry` 形状不再是生产契约。
 
-> **实现状态**：#540 合同规定显式 parked vehicle 继续使用 ParkingSpace pose；virtual
+> **实现状态**：当前 Runtime/Spatial/Bevy 路径中，显式 parked vehicle 继续使用
+> ParkingSpace pose；virtual
 > parked vehicle 仍是 live Runtime identity，但不进入 committed pose source 集合。
-> #541 尚未完成，当前 Runtime 仍只支持具体停车位占用。
+> Bevy Session 已提供完整 typed parking lifecycle，只有 typed despawn-and-unbind 清除映射。
 
 ## 2. 权威职责
 
@@ -79,7 +80,9 @@ current 路径：
 Bevy Reference Adapter 把上述 world 与可选 Spatial 收进唯一活动的 `LaneFlowSession`。
 `LaneFlowSession::new` 在提供 Spatial 时强制 `Arc::ptr_eq`，失败为 `RevisionMismatch`。
 生命周期命令经 `LaneFlowSession::world_mut()` 调用 `TrafficWorld` 的
-`register_route` / `spawn_vehicle` / `remove_route` / `occupy_parking`。原子替换只走 typed
+`register_route` / `spawn_vehicle` / `remove_route`，并通过 Session typed wrapper 调用
+`reserve_parking` / `cancel_parking` / `park_vehicle` / `leave_parking` /
+`rebind_parking_route` / `spawn_parked_vehicle`。原子替换只走 typed
 `laneflow_bevy::replace_completed_vehicle`；真正移除已绑定车辆只走 typed
 `despawn_vehicle`/despawn-and-unbind 入口。两者都不得经 raw `world_mut()` 绕过宿主映射
 事务，以免 Runtime 成功后留下 stale 映射。只读观察走 `world()`。
@@ -197,12 +200,12 @@ replace_completed_vehicle(
 
 TrafficWorld::despawn_vehicle(
     vehicle: VehicleHandle,
-) -> Result<VehicleDespawnRecord, DespawnError>
+) -> Result<VehicleDespawnRecord, ParkingError>
 
 despawn_vehicle(
     world: &mut bevy_ecs::world::World,
     vehicle: VehicleHandle,
-) -> Result<LaneFlowVehicleDespawnOutcome, LaneFlowAdapterError>
+) -> Result<LaneFlowVehicleDespawnRecord, LaneFlowAdapterError>
 ```
 
 - 预检失败则已提交世界不变；成功则一次提交旧结束与新开始。
@@ -216,7 +219,7 @@ despawn_vehicle(
   一次清除映射和销毁/回收宿主对象；预检或 Runtime 失败时两侧均不变。
 - virtual Parked 无 pose 不是 despawn；只有 typed removal outcome 可以触发上述映射清理。
 
-#541 的 parking typed mapping 必须保留完整 caller-selected payload：reserve 回显 bound
+当前 parking typed mapping 保留完整 caller-selected payload：reserve 回显 bound
 route/entry occurrence/virtual entry selector，leave 回显恢复 route/exit occurrence/virtual
 exit selector，rebind 回显 old/new route 与 current/entry occurrence/selector。Adapter 不从
 facility、LaneEdge 或无 pose 状态反推被省略的 route/anchor，也不把不同 payload 的调用

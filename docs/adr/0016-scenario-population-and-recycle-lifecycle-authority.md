@@ -2,7 +2,7 @@
 
 **状态**: Accepted<br>
 **日期**: 2026-07-22<br>
-**最后更新**: 2026-08-30（#540 原子移除与停车生命周期修订）<br>
+**最后更新**: 2026-08-31（#541 原子移除与停车生命周期实现同步）<br>
 **适用范围**: Signalized Corridor 的 caller-owned population policy、TrafficWorld 原子替换/移除命令、seeded 回流、Bevy proxy 复用与启动配置边界
 
 ## 背景
@@ -61,12 +61,11 @@ replace_completed_vehicle(old: VehicleHandle, input: VehicleSpawnInput)
 
 到达路线终点时写成 `Completed`，**保留槽位与句柄**；不进 pose 批次、不再步进、不占车道占用，但占车辆容量。#301 的立刻退役不是现行回流路径。Runtime 没有 Core 那套 external ID 字符串，因此不把 `Preserve | ReplaceWith` 搬进 `TrafficWorld`。
 
-#540 修订后，Runtime 同时保留真正移除车辆的独立原子命令（Rust 最终拼写由 #541
-落定）：
+#541 已交付 Runtime 真正移除车辆的独立原子命令：
 
 ```text
 despawn_vehicle(vehicle: VehicleHandle)
-  -> Result<VehicleDespawnRecord { vehicle, parking_release? }, DespawnError>
+  -> Result<VehicleDespawnRecord { vehicle, status, parking_binding }, ParkingError>
 ```
 
 该命令接受所有 live `VehicleStatus`（`Active | Parked | Completed`）。它按停车状态矩阵
@@ -100,8 +99,8 @@ Engine Adapter 暴露 typed lifecycle 入口。调用前先验证：
 Completed vehicle 不产生 pose record；pending 期间 proxy 保留最后一次合法 Transform。成功 replace 后，下一次 presentation batch 使用 new handle 的入口 pose 更新同一 Entity。Adapter 不 despawn/respawn proxy 或 model。
 
 对真正移除，Session 提供 typed despawn-and-unbind 组合事务：预检 handle ↔ Entity/池槽
-映射和清理路径，提交 Runtime `despawn_vehicle` 后，以不可失败路径恰好一次移除映射并
-销毁或回收宿主对象。未绑定车辆只提交 Runtime removal。virtual Parked 车辆可能已经无
+映射和清理路径，提交 Runtime `despawn_vehicle` 后，以不可失败路径恰好一次移除映射，
+并把可选 Entity 返回给 caller 决定销毁或回收。未绑定车辆只提交 Runtime removal。virtual Parked 车辆可能已经无
 pose、隐藏或在表现池中，但仍必须以 typed removal 清除映射；“本帧没有 pose”绝不是
 despawn 信号。禁止对已绑定 handle 经 `world_mut()` 调 raw despawn 后再补删映射。
 

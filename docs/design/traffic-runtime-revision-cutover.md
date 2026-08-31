@@ -1,7 +1,7 @@
 # 修订切换事务
 
 **文档状态**: Accepted（#302 G1）<br>
-**最后更新**: 2026-08-30（#540 parking migration 合同）<br>
+**最后更新**: 2026-08-31（#541 tagged parking migration）<br>
 **适用范围**: 在线路网修订切换的设计原则、切换描述符、迁移策略、失败关闭语义与 G1 预算<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)、
@@ -21,9 +21,10 @@
 本文 §4.1 及 §7 的观测/Routing 接缝已由 #303 G1 接受，与 #302 合同共同构成当前
 唯一实现权威。
 
-> **实现状态**：#540 合同把停车迁移定义为 tagged
+> **实现状态**：当前切换实现已把停车迁移纳入 tagged
 > `ExplicitSpace | VirtualPool` binding，并严格服从本文整事务、失败关闭和 zero-publish
-> 原则；#541 尚未实现。规则见下节与 `parking-system.md` §7。
+> 原则。capacity 增减、stable identity、virtual semantic entry、状态矩阵与增量追赶均在
+> 候选内重建/复验，失败只丢弃候选。规则见下节与 `parking-system.md` §7。
 
 ## 1. 问题与设计立场
 
@@ -408,6 +409,8 @@ G2 回写（切片 A 落定，#511）：
 capture 失败的世界无感知与可重试——save 侧同承载）。#303 接缝还必须覆盖世界世代/观测 stream/
 `observationStateSequence` 与 root 同界原子变化、target 路线 occurrence 容量
 max/max+1 与超限零提交，以及 abort 三者完全不变。
-#541 parking 接缝追加：状态矩阵与 Reserved route ownership；virtual selected entry exact
-重绑；explicit entry 前移且仍前向可达的放行、移到 cursor 后方的拒绝；同
-`progress_mm` 非零 carry 的越界反例；capacity/binding 重建与任一失败的零发布。
+当前 parking 接缝证据覆盖：状态矩阵与 Reserved route ownership；virtual selected
+entry exact 重绑；capacity increase/safe decrease/unsafe decrease；target missing/wrong-kind；
+同 `progress_mm` 非零 carry 的越界反例；parking reserve/park/leave 与 parked
+spawn/despawn 的增量追赶；任一失败保全旧 world/snapshot 且零发布。explicit entry 前移且
+仍前向可达的放行、移到 cursor 后方的拒绝继续属于完整回归矩阵。

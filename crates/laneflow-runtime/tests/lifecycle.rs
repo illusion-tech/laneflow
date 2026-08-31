@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
-    ParkingError, PoseSource, ReplaceError, RouteError, RouteHandle, RouteRegisterInput,
-    SpawnError, TickInput, TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig,
+    ParkedVehicleSpawnInput, ParkingBinding, ParkingError, ParkingTarget, PoseSource, ReplaceError,
+    ReserveParkingTarget, RouteError, RouteHandle, RouteRegisterInput, SpawnError, TickInput,
+    TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig,
 };
 use laneflow_static_contract::{
     EntityKind, LaneEdgeOrdinal, ParkingSpaceOrdinal, VehicleProfileOrdinal,
@@ -203,7 +204,7 @@ fn spawn_respects_speed_limit_equality_and_overlap() {
 }
 
 #[test]
-fn occupy_parking_enforces_one_to_one_and_same_space_idempotent() {
+fn explicit_parking_lifecycle_enforces_exclusivity_and_narrow_idempotency() {
     let mut world = world();
     let spaces = world
         .traffic()
@@ -212,11 +213,64 @@ fn occupy_parking_enforces_one_to_one_and_same_space_idempotent() {
     assert!(spaces >= 1);
     let space = ParkingSpaceOrdinal::from_raw(0);
     let route = fixture_route(&mut world);
-    let vehicle = spawn_on_route(&mut world, route, 0, 0);
+    let (entry_edge, entry_progress_mm) = world
+        .traffic()
+        .relations()
+        .parking_space(space)
+        .expect("space")
+        .entry();
+    let entry_occurrence = world
+        .route_edges(route)
+        .expect("route")
+        .iter()
+        .position(|edge| *edge == entry_edge)
+        .and_then(|index| u32::try_from(index).ok())
+        .expect("parking entry on route");
+    let vehicle = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            entry_occurrence,
+            entry_progress_mm,
+            0,
+        ))
+        .expect("spawn at parking entry");
+    let reserve = ReserveParkingTarget::ExplicitSpace {
+        space,
+        entry_route_occurrence: entry_occurrence,
+    };
+    let target = ParkingTarget::ExplicitSpace(space);
 
-    world.occupy_parking(vehicle, space).expect("occupy");
-    world.occupy_parking(vehicle, space).expect("idempotent");
+    assert!(
+        !world
+            .reserve_parking(vehicle, reserve)
+            .expect("reserve")
+            .is_no_change()
+    );
+    assert!(
+        world
+            .reserve_parking(vehicle, reserve)
+            .expect("idempotent reserve")
+            .is_no_change()
+    );
+    assert!(world.parking_arrived(vehicle, target));
+    assert!(
+        !world
+            .park_vehicle(vehicle, target)
+            .expect("park")
+            .is_no_change()
+    );
+    assert!(
+        world
+            .park_vehicle(vehicle, target)
+            .expect("idempotent park")
+            .is_no_change()
+    );
     assert_eq!(world.committed_parking_occupant(space), Some(vehicle));
+    assert_eq!(
+        world.parking_binding(vehicle),
+        Some(ParkingBinding::Occupied(target))
+    );
     assert!(matches!(
         world.committed_pose_sources().as_slice()[0].1,
         PoseSource::Parking { space: occupied } if occupied == space
@@ -225,38 +279,25 @@ fn occupy_parking_enforces_one_to_one_and_same_space_idempotent() {
     if spaces >= 2 {
         let other = ParkingSpaceOrdinal::from_raw(1);
         assert_eq!(
-            world.occupy_parking(vehicle, other).unwrap_err(),
-            ParkingError::VehicleBoundToOtherSpace
+            world
+                .park_vehicle(vehicle, ParkingTarget::ExplicitSpace(other))
+                .unwrap_err(),
+            ParkingError::NotReserved
         );
     }
 
-    let other_vehicle = {
-        let profile = world
-            .traffic()
-            .relations()
-            .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
-            .expect("profile");
-        let edge = world.route_edges(route).expect("edges")[0];
-        let length = profile.length_mm();
-        world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                length + 500,
-                0,
-            ))
-            .unwrap_or_else(|_| {
-                panic!(
-                    "second spawn at progress {} on edge length {}",
-                    length + 500,
-                    world.traffic().lane_lengths_millimetres()[edge.index()]
-                );
-            })
-    };
+    let other_vehicle = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            entry_occurrence,
+            entry_progress_mm,
+            0,
+        ))
+        .expect("parked vehicle left no lane occupancy");
     assert_eq!(
-        world.occupy_parking(other_vehicle, space).unwrap_err(),
-        ParkingError::SpaceOccupiedByOther
+        world.reserve_parking(other_vehicle, reserve).unwrap_err(),
+        ParkingError::TargetBoundByOther
     );
 }
 
@@ -294,17 +335,12 @@ fn parking_keeps_route_so_remove_fails() {
         .register_route(RouteRegisterInput::new(vec![first, middle, last]))
         .expect("route");
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            0,
-            0,
-        ))
-        .expect("spawn");
-    world
-        .occupy_parking(vehicle, ParkingSpaceOrdinal::from_raw(0))
-        .expect("park");
+        .spawn_parked_vehicle(
+            ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0),
+            ParkingTarget::ExplicitSpace(ParkingSpaceOrdinal::from_raw(0)),
+        )
+        .expect("spawn parked")
+        .vehicle;
     assert_eq!(
         world.remove_route(route).unwrap_err(),
         RouteError::InUse { vehicle, route }
@@ -590,17 +626,12 @@ fn parked_and_stale_replace_leave_world_unchanged() {
     let mut world = world();
     let route = fixture_route(&mut world);
     let parked = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            0,
-            0,
-        ))
-        .expect("spawn");
-    world
-        .occupy_parking(parked, ParkingSpaceOrdinal::from_raw(0))
-        .expect("park");
+        .spawn_parked_vehicle(
+            ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0),
+            ParkingTarget::ExplicitSpace(ParkingSpaceOrdinal::from_raw(0)),
+        )
+        .expect("spawn parked")
+        .vehicle;
     assert_eq!(
         world
             .replace_completed_vehicle(
