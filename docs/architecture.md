@@ -243,7 +243,7 @@ live identity，但不产生 committed pose。真正移除仍由原子 `despawn_
 `design/parking-system.md`。
 
 **实现状态**：当前代码已移除 `ParkingArea` / `occupy_parking`，由私有稀疏 aggregate
-统一管理显式/虚拟 reservation 与 occupancy；Snapshot v2、cutover/replay、Spatial/Bevy
+统一管理显式/虚拟 reservation 与 occupancy；Snapshot v3、cutover/replay、Spatial/Bevy
 消费同一 authority。
 
 #229 已按 #228/ADR 0017 把 Traffic 原子切换为 v0.8：clean break 增加

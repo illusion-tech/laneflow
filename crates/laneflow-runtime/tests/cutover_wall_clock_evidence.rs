@@ -89,7 +89,7 @@ fn limits() -> CutoverPreflightLimits {
 fn install_corridor_world(revision: &Arc<SharedNetworkRevision>) -> TrafficWorld {
     let mut world = TrafficWorld::install(
         Arc::clone(revision),
-        WorldConfig::new(8, 32, 1_024, 1, DELTA_MS),
+        WorldConfig::new(8, 32, 1_024, 1_024, 1, DELTA_MS),
         source_for("fixture://corridor-base"),
         1,
     )

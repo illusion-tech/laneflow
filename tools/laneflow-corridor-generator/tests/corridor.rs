@@ -502,8 +502,11 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
         .get(PASSENGER_CAR_PROFILE_KEY)
         .expect("passenger-car profile");
 
-    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(8, 32, 1_024, 1, 16))
-        .expect("install");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::new(8, 32, 1_024, 1_024, 1, 16),
+    )
+    .expect("install");
     assert_eq!(world.revision().network_revision(), bound.network_revision);
     let routes = bound
         .install_routes(&mut world)

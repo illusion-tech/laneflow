@@ -4,7 +4,8 @@ use std::sync::Arc;
 use std::cell::Cell;
 
 use laneflow_static_contract::{
-    EntityKind, ParkingSpaceOrdinal, SignalAspect, SignalControllerOrdinal, SignalGroupOrdinal,
+    EntityKind, ParkingSpaceOrdinal, ParticipantClassOrdinal, SignalAspect,
+    SignalControllerOrdinal, SignalGroupOrdinal,
 };
 use laneflow_static_network::SharedNetworkRevision;
 
@@ -12,8 +13,8 @@ use crate::migration_journal::{MigrationDeltaJournal, MigrationJournalError, Veh
 use crate::occupancy::OccupancyIndex;
 use crate::parking::ParkingRuntimeState;
 use crate::tables::{
-    CompiledRoute, RouteSlot, VehicleSlot, bodies_overlap, compile_route, occupancy_front_gap,
-    route_access_denied,
+    CompiledRoute, ConflictCapabilityError, RouteSlot, VehicleSlot, bodies_overlap,
+    check_conflict_capability, compile_route, occupancy_front_gap, route_access_denied,
 };
 use crate::{
     CommittedNetworkSource, CommittedPoseSourceBatch, CommittedSignalGroupBatch, CutoverError,
@@ -95,6 +96,7 @@ pub struct TrafficWorld {
     pub(crate) free_routes: Vec<usize>,
     pub(crate) live_route_count: u32,
     pub(crate) live_route_edge_occurrence_count: u64,
+    pub(crate) live_route_conflict_occurrence_count: u64,
     pub(crate) vehicles: Vec<VehicleSlot>,
     pub(crate) free_vehicles: Vec<usize>,
     pub(crate) live_order: Vec<VehicleHandle>,
@@ -184,6 +186,7 @@ impl TrafficWorld {
             free_routes: Vec::with_capacity(route_capacity),
             live_route_count: 0,
             live_route_edge_occurrence_count: 0,
+            live_route_conflict_occurrence_count: 0,
             vehicles: Vec::with_capacity(vehicle_capacity),
             free_vehicles: Vec::with_capacity(vehicle_capacity),
             live_order: Vec::with_capacity(vehicle_capacity),
@@ -339,7 +342,18 @@ impl TrafficWorld {
             .command_cursor
             .checked_add(1)
             .expect("route preflight guarantees command cursor room");
-        let compiled = compile_route(self.revision.traffic(), edges)?;
+        let compiled = compile_route(
+            self.revision.as_ref(),
+            edges,
+            self.live_route_conflict_occurrence_count,
+            self.config.route_conflict_occurrence_capacity(),
+        )?;
+        let added_conflict_occurrences =
+            u64::try_from(compiled.conflicts.len()).expect("conflict occurrence count fits u64");
+        let next_conflict_occurrence_count = self
+            .live_route_conflict_occurrence_count
+            .checked_add(added_conflict_occurrences)
+            .expect("route conflict capacity preflight guarantees room");
         let slot_index = self.free_routes.pop().unwrap_or(self.routes.len());
         let generation = self
             .routes
@@ -364,6 +378,7 @@ impl TrafficWorld {
             .checked_add(1)
             .expect("route count preflight guarantees room");
         self.live_route_edge_occurrence_count = next_occurrence_count;
+        self.live_route_conflict_occurrence_count = next_conflict_occurrence_count;
         self.command_cursor = next_command_cursor;
         if let Some(journal) = self.migration_journal.as_mut() {
             journal.record_route_registered(next_command_cursor, handle, edges);
@@ -427,6 +442,14 @@ impl TrafficWorld {
                 .len(),
         )
         .expect("route edge count fits u64");
+        let removed_conflict_occurrences = u64::try_from(
+            slot.compiled
+                .as_ref()
+                .expect("live route has compiled state")
+                .conflicts
+                .len(),
+        )
+        .expect("route conflict occurrence count fits u64");
         let next_route_count = self
             .live_route_count
             .checked_sub(1)
@@ -435,6 +458,10 @@ impl TrafficWorld {
             .live_route_edge_occurrence_count
             .checked_sub(removed_occurrences)
             .expect("route occurrence count covers every compiled route");
+        let next_conflict_occurrence_count = self
+            .live_route_conflict_occurrence_count
+            .checked_sub(removed_conflict_occurrences)
+            .expect("route conflict occurrence count covers every compiled route");
         let next_command_cursor = self
             .command_cursor
             .checked_add(1)
@@ -448,6 +475,7 @@ impl TrafficWorld {
         slot.compiled = None;
         self.live_route_count = next_route_count;
         self.live_route_edge_occurrence_count = next_occurrence_count;
+        self.live_route_conflict_occurrence_count = next_conflict_occurrence_count;
         let mut recyclable = false;
         if let Some(next_generation) = slot.generation.checked_add(1) {
             slot.generation = next_generation;
@@ -468,6 +496,49 @@ impl TrafficWorld {
 
     /// 生成一辆车。失败不留半辆车。
     pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, SpawnError> {
+        let (class, length_mm) = self.validate_unparked_vehicle(input, 0, VehicleStatus::Active)?;
+        let next_observation_state_sequence = self
+            .observation_state_sequence
+            .checked_next()
+            .ok_or(SpawnError::ObservationStateSequenceExhausted)?;
+        let next_command_cursor = self
+            .command_cursor
+            .checked_add(1)
+            .ok_or(SpawnError::CommandCursorExhausted)?;
+
+        let (handle, state) =
+            self.commit_unparked_vehicle(input, 0, VehicleStatus::Active, class, length_mm);
+        self.observation_state_sequence = next_observation_state_sequence;
+        self.command_cursor = next_command_cursor;
+        if let Some(journal) = self.migration_journal.as_mut() {
+            journal.record_vehicle_spawned(next_command_cursor, VehicleDelta::from_state(&state));
+        }
+        Ok(handle)
+    }
+
+    /// 快照恢复专用：以最终 `Active` / `Completed` 状态一次提交，
+    /// 不经过临时 `Active` 状态，也不生成已被快照游标覆盖的恢复命令。
+    pub(crate) fn restore_unparked_vehicle(
+        &mut self,
+        input: VehicleSpawnInput,
+        carry_um: u16,
+        status: VehicleStatus,
+    ) -> Result<VehicleHandle, SpawnError> {
+        debug_assert!(matches!(
+            status,
+            VehicleStatus::Active | VehicleStatus::Completed
+        ));
+        let (class, length_mm) = self.validate_unparked_vehicle(input, carry_um, status)?;
+        let (handle, _) = self.commit_unparked_vehicle(input, carry_um, status, class, length_mm);
+        Ok(handle)
+    }
+
+    fn validate_unparked_vehicle(
+        &self,
+        input: VehicleSpawnInput,
+        carry_um: u16,
+        status: VehicleStatus,
+    ) -> Result<(ParticipantClassOrdinal, u32), SpawnError> {
         let live = u32::try_from(self.live_order.len()).expect("live vehicle count fits u32");
         if live >= self.config.vehicle_capacity() {
             return Err(SpawnError::CapacityExceeded);
@@ -499,26 +570,45 @@ impl TrafficWorld {
         if self.route_suffix_denied(input.route(), profile.class(), cursor) {
             return Err(SpawnError::AccessDenied);
         }
-        if self
-            .overlap_blocker(
+        if status == VehicleStatus::Active {
+            if self
+                .overlap_blocker(
+                    input.route(),
+                    cursor,
+                    input.progress_mm(),
+                    profile.length_mm(),
+                )
+                .is_some()
+            {
+                return Err(SpawnError::Overlap);
+            }
+            match self.check_active_conflict_capability(
                 input.route(),
                 cursor,
                 input.progress_mm(),
+                carry_um,
                 profile.length_mm(),
-            )
-            .is_some()
-        {
-            return Err(SpawnError::Overlap);
+            ) {
+                Ok(()) => {}
+                Err(ConflictCapabilityError::InvalidCursor) => {
+                    return Err(SpawnError::InvalidProgress);
+                }
+                Err(ConflictCapabilityError::RuntimeUnavailable(error)) => {
+                    return Err(SpawnError::ConflictRuntimeUnavailable(error));
+                }
+            }
         }
-        let next_observation_state_sequence = self
-            .observation_state_sequence
-            .checked_next()
-            .ok_or(SpawnError::ObservationStateSequenceExhausted)?;
-        let next_command_cursor = self
-            .command_cursor
-            .checked_add(1)
-            .ok_or(SpawnError::CommandCursorExhausted)?;
+        Ok((profile.class(), profile.length_mm()))
+    }
 
+    fn commit_unparked_vehicle(
+        &mut self,
+        input: VehicleSpawnInput,
+        carry_um: u16,
+        status: VehicleStatus,
+        class: ParticipantClassOrdinal,
+        length_mm: u32,
+    ) -> (VehicleHandle, VehicleState) {
         let slot_index = self.free_vehicles.pop().unwrap_or(self.vehicles.len());
         let generation = self
             .vehicles
@@ -531,14 +621,14 @@ impl TrafficWorld {
         let state = VehicleState {
             handle,
             profile: input.profile(),
-            class: profile.class(),
+            class,
             route: input.route(),
             route_edge_index: input.route_edge_index(),
             progress_mm: input.progress_mm(),
-            carry_um: 0,
+            carry_um,
             speed_mm_s: input.initial_speed_mm_s(),
-            length_mm: profile.length_mm(),
-            status: VehicleStatus::Active,
+            length_mm,
+            status,
         };
         let slot = VehicleSlot {
             generation,
@@ -552,13 +642,10 @@ impl TrafficWorld {
         let route_index = usize::try_from(input.route().index()).expect("route index fits usize");
         self.routes[route_index].live_vehicles += 1;
         self.live_order.push(handle);
-        self.active_order.push(handle);
-        self.observation_state_sequence = next_observation_state_sequence;
-        self.command_cursor = next_command_cursor;
-        if let Some(journal) = self.migration_journal.as_mut() {
-            journal.record_vehicle_spawned(next_command_cursor, VehicleDelta::from_state(&state));
+        if status == VehicleStatus::Active {
+            self.active_order.push(handle);
         }
-        Ok(handle)
+        (handle, state)
     }
 
     /// 把 live 的 Completed 车辆原子替换为新的 Active 车辆。
@@ -629,6 +716,21 @@ impl TrafficWorld {
                 blocker_ahead,
                 bumper_gap,
             }));
+        }
+        match self.check_active_conflict_capability(
+            input.route(),
+            cursor,
+            input.progress_mm(),
+            0,
+            profile.length_mm(),
+        ) {
+            Ok(()) => {}
+            Err(ConflictCapabilityError::InvalidCursor) => {
+                return Err(ReplaceError::InvalidProgress);
+            }
+            Err(ConflictCapabilityError::RuntimeUnavailable(error)) => {
+                return Err(ReplaceError::ConflictRuntimeUnavailable(error));
+            }
         }
         let next_observation_state_sequence = self
             .observation_state_sequence
@@ -885,6 +987,28 @@ impl TrafficWorld {
         slot.compiled.as_ref()
     }
 
+    pub(crate) fn check_active_conflict_capability(
+        &self,
+        route: RouteHandle,
+        cursor: usize,
+        progress_mm: u32,
+        carry_um: u16,
+        vehicle_length_mm: u32,
+    ) -> Result<(), ConflictCapabilityError> {
+        let compiled = self
+            .compiled_route(route)
+            .ok_or(ConflictCapabilityError::InvalidCursor)?;
+        check_conflict_capability(
+            route,
+            compiled,
+            self.revision.traffic().lane_lengths_millimetres(),
+            cursor,
+            progress_mm,
+            carry_um,
+            vehicle_length_mm,
+        )
+    }
+
     pub(crate) fn route_suffix_denied(
         &self,
         route: RouteHandle,
@@ -1136,7 +1260,7 @@ mod overflow_tests {
         let origin = *revision.canonical_origin();
         TrafficWorld::install(
             revision,
-            WorldConfig::new(8, 4, 1_024, 1, 100),
+            WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
             CommittedNetworkSource::Published {
                 reference: crate::PublishedLfcaReference::new(
                     "fixture://overflow-tests",
@@ -1273,7 +1397,7 @@ mod source_tests {
         let reference = reference_for(origin.network_revision());
         let world = TrafficWorld::install(
             revision.clone(),
-            WorldConfig::new(8, 4, 1_024, 1, 100),
+            WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
             CommittedNetworkSource::Published { reference },
             0,
         )
@@ -1297,7 +1421,7 @@ mod source_tests {
         let mismatched = NetworkRevisionId::from_digest(Sha256Digest::from_bytes([1; 32]));
         let error = match TrafficWorld::install(
             revision.clone(),
-            WorldConfig::new(8, 4, 1_024, 1, 100),
+            WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
             CommittedNetworkSource::Published {
                 reference: reference_for(mismatched),
             },

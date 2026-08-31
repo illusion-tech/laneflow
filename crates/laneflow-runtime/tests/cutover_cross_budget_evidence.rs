@@ -140,7 +140,7 @@ fn world_with_fleet() -> TrafficWorld {
     let revision = build(ORACLE_BASE);
     let mut world = TrafficWorld::install(
         revision,
-        WorldConfig::new(VEHICLES, 4, 1_024, 1, DELTA_MS),
+        WorldConfig::new(VEHICLES, 4, 1_024, 1_024, 1, DELTA_MS),
         source_for("fixture://cross-base", ORACLE_BASE),
         1,
     )

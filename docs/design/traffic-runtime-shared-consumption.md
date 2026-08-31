@@ -396,7 +396,7 @@ CI 必须同时：
 - 信号停车与许可通行（车辆用 snapshot(T)；成功 step 后 `committed_signal_groups`
   为 T + D。相位边界落在 `[T, T + D)` 时该拍不得提前用 T + D 灯色）；
 - 停车权威（显式/虚拟资源守恒、完整 lifecycle、arrival/leave/rebind 边界、typed
-  despawn、Snapshot v2/cutover/replay 与失败原子性；定向矩阵见 `parking-system.md` §10）；
+  despawn、Snapshot v3/cutover/replay 与失败原子性；定向矩阵见 `parking-system.md` §10）；
 - 确定性固定步进（`step`：`fixed_delta_time_ms ∈ [4, 1000]`、delta 不匹配则拒绝、
   `tick_index`/`time_ms` 溢出则拒绝且世界不变、同输入序列同结果）；
 - 信号 program 每个 phase `durationMs >= dt && durationMs % dt == 0`，否则

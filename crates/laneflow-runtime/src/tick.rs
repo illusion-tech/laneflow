@@ -1018,7 +1018,8 @@ mod preview {
             ),
         )
         .unwrap();
-        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 100)).unwrap();
+        let mut world =
+            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).unwrap();
         let route = preview_route(&mut world);
         let profile = world
             .traffic()
@@ -1064,7 +1065,7 @@ mod preview {
             ),
         )
         .unwrap();
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 100)).unwrap()
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).unwrap()
     }
 
     #[test]

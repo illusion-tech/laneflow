@@ -10,7 +10,7 @@ pub mod lane_flow {
 pub mod runtime_snapshot {
 
 #[allow(unused_imports, dead_code)]
-pub mod v2 {
+pub mod v3 {
 
 
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
@@ -801,8 +801,9 @@ impl<'a> WorldConfigBinding<'a> {
   pub const VT_VEHICLE_CAPACITY: ::flatbuffers::VOffsetT = 4;
   pub const VT_ROUTE_CAPACITY: ::flatbuffers::VOffsetT = 6;
   pub const VT_ROUTE_EDGE_OCCURRENCE_CAPACITY: ::flatbuffers::VOffsetT = 8;
-  pub const VT_WORKER_COUNT: ::flatbuffers::VOffsetT = 10;
-  pub const VT_FIXED_DELTA_TIME_MS: ::flatbuffers::VOffsetT = 12;
+  pub const VT_ROUTE_CONFLICT_OCCURRENCE_CAPACITY: ::flatbuffers::VOffsetT = 10;
+  pub const VT_WORKER_COUNT: ::flatbuffers::VOffsetT = 12;
+  pub const VT_FIXED_DELTA_TIME_MS: ::flatbuffers::VOffsetT = 14;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -815,6 +816,7 @@ impl<'a> WorldConfigBinding<'a> {
   ) -> ::flatbuffers::WIPOffset<WorldConfigBinding<'bldr>> {
     let mut builder = WorldConfigBindingBuilder::new(_fbb);
     builder.add_fixed_delta_time_ms(args.fixed_delta_time_ms);
+    builder.add_route_conflict_occurrence_capacity(args.route_conflict_occurrence_capacity);
     builder.add_route_edge_occurrence_capacity(args.route_edge_occurrence_capacity);
     builder.add_worker_count(args.worker_count);
     builder.add_route_capacity(args.route_capacity);
@@ -845,6 +847,13 @@ impl<'a> WorldConfigBinding<'a> {
     unsafe { self._tab.get::<u64>(WorldConfigBinding::VT_ROUTE_EDGE_OCCURRENCE_CAPACITY, Some(0)).unwrap()}
   }
   #[inline]
+  pub fn route_conflict_occurrence_capacity(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(WorldConfigBinding::VT_ROUTE_CONFLICT_OCCURRENCE_CAPACITY, Some(0)).unwrap()}
+  }
+  #[inline]
   pub fn worker_count(&self) -> u32 {
     // Safety:
     // Created from valid Table for this object
@@ -869,6 +878,7 @@ impl ::flatbuffers::Verifiable for WorldConfigBinding<'_> {
      .visit_field::<u32>("vehicle_capacity", Self::VT_VEHICLE_CAPACITY, false)?
      .visit_field::<u32>("route_capacity", Self::VT_ROUTE_CAPACITY, false)?
      .visit_field::<u64>("route_edge_occurrence_capacity", Self::VT_ROUTE_EDGE_OCCURRENCE_CAPACITY, false)?
+     .visit_field::<u64>("route_conflict_occurrence_capacity", Self::VT_ROUTE_CONFLICT_OCCURRENCE_CAPACITY, false)?
      .visit_field::<u32>("worker_count", Self::VT_WORKER_COUNT, false)?
      .visit_field::<u64>("fixed_delta_time_ms", Self::VT_FIXED_DELTA_TIME_MS, false)?
      .finish();
@@ -879,6 +889,7 @@ pub struct WorldConfigBindingArgs {
     pub vehicle_capacity: u32,
     pub route_capacity: u32,
     pub route_edge_occurrence_capacity: u64,
+    pub route_conflict_occurrence_capacity: u64,
     pub worker_count: u32,
     pub fixed_delta_time_ms: u64,
 }
@@ -889,6 +900,7 @@ impl<'a> Default for WorldConfigBindingArgs {
       vehicle_capacity: 0,
       route_capacity: 0,
       route_edge_occurrence_capacity: 0,
+      route_conflict_occurrence_capacity: 0,
       worker_count: 0,
       fixed_delta_time_ms: 0,
     }
@@ -911,6 +923,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> WorldConfigBindingBuilder<'a,
   #[inline]
   pub fn add_route_edge_occurrence_capacity(&mut self, route_edge_occurrence_capacity: u64) {
     self.fbb_.push_slot::<u64>(WorldConfigBinding::VT_ROUTE_EDGE_OCCURRENCE_CAPACITY, route_edge_occurrence_capacity, 0);
+  }
+  #[inline]
+  pub fn add_route_conflict_occurrence_capacity(&mut self, route_conflict_occurrence_capacity: u64) {
+    self.fbb_.push_slot::<u64>(WorldConfigBinding::VT_ROUTE_CONFLICT_OCCURRENCE_CAPACITY, route_conflict_occurrence_capacity, 0);
   }
   #[inline]
   pub fn add_worker_count(&mut self, worker_count: u32) {
@@ -941,6 +957,7 @@ impl ::core::fmt::Debug for WorldConfigBinding<'_> {
       ds.field("vehicle_capacity", &self.vehicle_capacity());
       ds.field("route_capacity", &self.route_capacity());
       ds.field("route_edge_occurrence_capacity", &self.route_edge_occurrence_capacity());
+      ds.field("route_conflict_occurrence_capacity", &self.route_conflict_occurrence_capacity());
       ds.field("worker_count", &self.worker_count());
       ds.field("fixed_delta_time_ms", &self.fixed_delta_time_ms());
       ds.finish()
@@ -2095,7 +2112,7 @@ pub fn finish_runtime_snapshot_buffer<'a, 'b, A: ::flatbuffers::Allocator + 'a>(
 pub fn finish_size_prefixed_runtime_snapshot_buffer<'a, 'b, A: ::flatbuffers::Allocator + 'a>(fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>, root: ::flatbuffers::WIPOffset<RuntimeSnapshot<'a>>) {
   fbb.finish_size_prefixed(root, Some(RUNTIME_SNAPSHOT_IDENTIFIER));
 }
-}  // pub mod V2
+}  // pub mod V3
 }  // pub mod RuntimeSnapshot
 }  // pub mod LaneFlow
 

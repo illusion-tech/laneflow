@@ -10,7 +10,7 @@ use crate::{
 };
 
 /// 确定性状态摘要规范化版本。
-pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 4;
+pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 5;
 /// SHA-256 域分隔前缀；尾随 NUL 属于前缀字节。
 pub const RUNTIME_STATE_DIGEST_DOMAIN: &[u8] = b"laneflow:runtime-state-digest:v1\0";
 
@@ -38,7 +38,8 @@ const fn canonical_prefix_len() -> usize {
         + 2 * 6 // 六轴静态契约版本
         + 4
         + 4
-        + 8 // 三个容量字段
+        + 8
+        + 8 // 四个容量字段
         + 8 // fixed dt
         + 8 * 4 // tick / 时间 / 双游标
 }
@@ -161,6 +162,10 @@ pub fn deterministic_state_digest(
     push_u64(
         &mut canonical,
         snapshot.config.route_edge_occurrence_capacity(),
+    );
+    push_u64(
+        &mut canonical,
+        snapshot.config.route_conflict_occurrence_capacity(),
     );
     push_u64(&mut canonical, snapshot.config.fixed_delta_time_ms());
     push_u64(&mut canonical, snapshot.tick);
@@ -468,9 +473,9 @@ mod tests {
         assert_eq!(
             expected,
             Sha256Digest::from_bytes([
-                0x32, 0xb0, 0x44, 0xca, 0xda, 0xb8, 0xd0, 0x0d, 0x80, 0x20, 0xf3, 0x4c, 0x74, 0x28,
-                0x7d, 0xa3, 0xb8, 0x83, 0x3b, 0xcf, 0x2e, 0x08, 0x58, 0xbc, 0x96, 0x88, 0xed, 0xc5,
-                0xa6, 0xd6, 0x75, 0x46,
+                0x9d, 0x73, 0x3e, 0x03, 0x12, 0x6b, 0x52, 0x72, 0xdc, 0x49, 0x53, 0x7c, 0x47, 0xba,
+                0xe0, 0x54, 0xf8, 0xc4, 0xf1, 0x67, 0x4b, 0x90, 0x58, 0xd3, 0x19, 0xaf, 0xa5, 0xa2,
+                0xaf, 0xc3, 0xca, 0x23,
             ])
         );
         let mut equivalent = original.clone();
@@ -482,6 +487,7 @@ mod tests {
             equivalent.config.vehicle_capacity(),
             equivalent.config.route_capacity(),
             equivalent.config.route_edge_occurrence_capacity(),
+            equivalent.config.route_conflict_occurrence_capacity(),
             99,
             equivalent.config.fixed_delta_time_ms(),
         );
@@ -525,6 +531,7 @@ mod tests {
             larger_capacity.config.vehicle_capacity() + 1,
             larger_capacity.config.route_capacity(),
             larger_capacity.config.route_edge_occurrence_capacity(),
+            larger_capacity.config.route_conflict_occurrence_capacity(),
             larger_capacity.config.worker_count(),
             larger_capacity.config.fixed_delta_time_ms(),
         );

@@ -222,7 +222,7 @@ retained 与单 binding 每世界分配形状不变；它没有构造 #304 exact
 ## 7. 阶段和完成边界
 
 1. #540 G1 Accepted：停车设施和虚拟停驻合同可作为实现输入。
-2. #541：production compiler/Runtime/Adapter 能跑停车切片，Snapshot v2 与 cutover/replay
+2. #541：production compiler/Runtime/Adapter 能跑停车切片，Snapshot v3 与 cutover/replay
    保持同一停车 authority。
 3. #543 完成：10k/100k exact topology 容量判断可复核。
 4. #304 G1 Accepted：其余首批场景、三层制品和 Product Gate 一并冻结。

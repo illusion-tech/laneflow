@@ -62,7 +62,7 @@ fn world() -> TrafficWorld {
     let origin = *revision.canonical_origin();
     TrafficWorld::install(
         revision,
-        WorldConfig::new(8, 4, 1_024, 1, 100),
+        WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
         CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://snapshot-replay",
@@ -268,7 +268,7 @@ fn replay_divergence_under_capacity_mismatch_is_a_desync_signal() {
         &bytes,
         original.revision(),
         original.committed_source().clone(),
-        WorldConfig::new(8, 8, 1_024, 1, 100),
+        WorldConfig::new(8, 8, 1_024, 1_024, 1, 100),
         SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
     )
     .expect("restore with enlarged route capacity");

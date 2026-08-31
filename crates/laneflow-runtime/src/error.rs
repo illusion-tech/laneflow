@@ -1,8 +1,57 @@
 use thiserror::Error;
 
-use laneflow_static_contract::NetworkRevisionId;
+use laneflow_static_contract::{ConflictZoneOrdinal, NetworkRevisionId, ParticipantStreamOrdinal};
 
 use crate::{RouteHandle, VehicleHandle, VehicleReplaceBlock};
+
+/// #284 冲突仲裁能力尚未安装时，候选 Active 车辆仍未用车尾清除的最后 passage。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConflictRuntimeUnavailable {
+    route: RouteHandle,
+    stream: ParticipantStreamOrdinal,
+    passage_local_index: u32,
+    zone: ConflictZoneOrdinal,
+}
+
+impl ConflictRuntimeUnavailable {
+    pub(crate) const fn new(
+        route: RouteHandle,
+        stream: ParticipantStreamOrdinal,
+        passage_local_index: u32,
+        zone: ConflictZoneOrdinal,
+    ) -> Self {
+        Self {
+            route,
+            stream,
+            passage_local_index,
+            zone,
+        }
+    }
+
+    /// 被检查的已注册或 staged 路线句柄。
+    #[must_use]
+    pub const fn route(self) -> RouteHandle {
+        self.route
+    }
+
+    /// passage 所属参与者流。
+    #[must_use]
+    pub const fn stream(self) -> ParticipantStreamOrdinal {
+        self.stream
+    }
+
+    /// passage 在其参与者流规范 slice 中的 owner-local 下标。
+    #[must_use]
+    pub const fn passage_local_index(self) -> u32 {
+        self.passage_local_index
+    }
+
+    /// passage 指向的冲突区。
+    #[must_use]
+    pub const fn zone(self) -> ConflictZoneOrdinal {
+        self.zone
+    }
+}
 
 /// `TrafficWorld::install` 失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
@@ -94,6 +143,16 @@ pub enum RouteError {
     /// 全部存活路线的边出现项总数会超过 world 容量。
     #[error("路线边出现项总数达到容量")]
     EdgeOccurrenceCapacityExceeded,
+    /// 全部存活路线的冲突 passage 出现项总数会超过 world 容量。
+    #[error("路线冲突出现项总数达到容量: current={current}, added={added}, capacity={capacity}")]
+    ConflictOccurrenceCapacityExceeded {
+        /// 提交候选路线前的存活冲突出现项数。
+        current: u64,
+        /// 候选路线将增加的冲突出现项数。
+        added: u64,
+        /// world 配置的冲突出现项容量。
+        capacity: u64,
+    },
     /// 路线编译所需缓冲无法预留。
     #[error("路线编译缓冲分配失败")]
     AllocationFailed,
@@ -146,6 +205,9 @@ pub enum SpawnError {
     /// 与已提交车辆车身重叠。
     #[error("spawn 与已提交车辆重叠")]
     Overlap,
+    /// #284 能力不存在，候选 Active 车辆尚未用车尾清除最后冲突通行段。
+    #[error("冲突运行时能力尚不可用: {0:?}")]
+    ConflictRuntimeUnavailable(ConflictRuntimeUnavailable),
     /// 本次成功生成本应推进观测状态序号，但序号已耗尽。
     #[error("观测状态序号已耗尽")]
     ObservationStateSequenceExhausted,
@@ -190,6 +252,9 @@ pub enum ReplaceError {
     /// 入口占用/重叠；可原样重放同一 `VehicleSpawnInput`。
     #[error("入口占用阻塞")]
     Blocked(VehicleReplaceBlock),
+    /// #284 能力不存在，新 Active 车辆尚未用车尾清除最后冲突通行段。
+    #[error("冲突运行时能力尚不可用: {0:?}")]
+    ConflictRuntimeUnavailable(ConflictRuntimeUnavailable),
     /// 本次成功替换本应推进观测状态序号，但序号已耗尽。
     #[error("观测状态序号已耗尽")]
     ObservationStateSequenceExhausted,
@@ -249,6 +314,8 @@ pub enum ParkingError {
     LeavePhysicalOverlap { blocker: VehicleHandle },
     #[error("leave 会让移动 direct follower 无法安全制动")]
     LeaveUnsafeFollower { follower: VehicleHandle },
+    #[error("冲突运行时能力尚不可用: {0:?}")]
+    ConflictRuntimeUnavailable(ConflictRuntimeUnavailable),
     #[error("车辆数量达到容量")]
     VehicleCapacityExceeded,
     #[error("停车稀疏状态分配失败")]

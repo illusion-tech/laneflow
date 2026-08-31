@@ -186,8 +186,7 @@ edge/hop 数增长，继续由 `route_edge_occurrence_capacity` 约束。未来�
 本容量代表的内存。
 
 该容量是行为语义配置：它会改变后续路线注册命令的成败，因此必须进入快照配置与
-确定性摘要。当前 main 的 LFRS / runtime state / digest 版本分别为 `2 / 2 / 4`；
-#283 implementation 原子 clean-break 到：
+确定性摘要。现行唯一生产版本轴为：
 
 ```text
 LFRS formatVersion               = 3
@@ -195,9 +194,9 @@ runtime_state_version            = 3
 RUNTIME_STATE_DIGEST_VERSION     = 5
 ```
 
-v3 `WorldConfigBinding` 增加 `route_conflict_occurrence_capacity: ulong`。v2 reader、writer
-和 schema 同切片移除，不双读、不自动迁移。其它尚未合入、也需要修改 Runtime
-Snapshot 的设计必须以 #283 合入后的 current 版本继续编号，不能并行占用同一版本值。
+v3 `WorldConfigBinding` 包含 `route_conflict_occurrence_capacity: ulong`。旧 reader、writer
+和 schema 不属于当前生产入口，不双读、不自动迁移。其它需要修改 Runtime Snapshot
+的设计必须从 current 版本继续编号，不能并行占用同一版本值。
 恢复容量错误新增 `RouteConflictOccurrences` dimension，与现行 routes、vehicles 和
 route-edge-occurrences 一样分别报告 snapshot 配置、target 配置与实际重建计数。
 
@@ -299,6 +298,17 @@ G2 必须覆盖：
 一百万静态实体、LFCA file-backed 路径和共享根内存已由静态制品合同验证；#283 不
 重复构造第二套百万静态基准。它只证明新增 Runtime 元数据与实际出现项数量近线性，
 不宣称 #285 fixed-tick 产品性能已完成。
+
+当前资源账本中 `ConflictPassageOccurrence` 为 `36 B/项`，因此 10,000 / 100,000 项
+分别保留 `360,000 B` / `3,600,000 B`。release 证据命令输出两档注册时间与比例；
+这是新增的 conflict-count 线性 payload，不是还包含 edge/hop 元数据的完整
+`CompiledRoute` retained 总量。绝对墙钟不作为共享 CI runner 的硬门槛，近线性形状、
+exact 计数与逻辑字节账本是可复现约束。具体运行结果属于 PR / Issue 验证证据，不写入
+长期设计。复现命令：
+
+```text
+cargo +1.98.0 test --release --locked -p laneflow-runtime --test compiled_networks conflict_route_registration_10k_100k_wall_clock_evidence -- --exact --ignored --nocapture
+```
 
 ## 10. 非目标与返回 G1 条件
 

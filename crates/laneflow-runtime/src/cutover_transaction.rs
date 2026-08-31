@@ -430,6 +430,7 @@ impl CutoverTransaction {
         std::mem::swap(&mut world.occupancy, &mut candidate.occupancy);
         world.live_route_count = candidate.live_route_count;
         world.live_route_edge_occurrence_count = candidate.live_route_edge_occurrence_count;
+        world.live_route_conflict_occurrence_count = candidate.live_route_conflict_occurrence_count;
         world.tick_index = candidate.tick_index;
         world.time_ms = candidate.time_ms;
         world.command_cursor = final_command_cursor;
@@ -771,6 +772,13 @@ fn apply_record(
                     capacity: candidate.config.route_edge_occurrence_capacity(),
                 });
             }
+            let next_conflict_occurrence = candidate
+                .live_route_conflict_occurrence_count
+                .checked_add(
+                    u64::try_from(compiled.conflicts.len())
+                        .expect("conflict occurrence count fits u64"),
+                )
+                .expect("conflict occurrence preflight guarantees room");
             let staged = crate::tables::RouteSlot {
                 generation: *generation,
                 compiled: Some(compiled),
@@ -800,6 +808,7 @@ fn apply_record(
             }
             candidate.live_route_count = next_count;
             candidate.live_route_edge_occurrence_count = next_occurrence;
+            candidate.live_route_conflict_occurrence_count = next_conflict_occurrence;
         }
         JournalRecord::RouteRemoved {
             slot,
@@ -817,6 +826,8 @@ fn apply_record(
                 return Err(CutoverError::ReplayInconsistent);
             };
             let removed = u64::try_from(compiled.edges.len()).expect("edge count fits u64");
+            let removed_conflicts =
+                u64::try_from(compiled.conflicts.len()).expect("conflict count fits u64");
             existing.compiled = None;
             candidate.live_route_count = candidate
                 .live_route_count
@@ -825,6 +836,10 @@ fn apply_record(
             candidate.live_route_edge_occurrence_count = candidate
                 .live_route_edge_occurrence_count
                 .checked_sub(removed)
+                .ok_or(CutoverError::ReplayInconsistent)?;
+            candidate.live_route_conflict_occurrence_count = candidate
+                .live_route_conflict_occurrence_count
+                .checked_sub(removed_conflicts)
                 .ok_or(CutoverError::ReplayInconsistent)?;
             if *recyclable {
                 existing.generation = *generation_after;
@@ -1098,12 +1113,23 @@ fn compile_candidate_route(
     candidate: &TrafficWorld,
     edges: &[LaneEdgeOrdinal],
 ) -> Result<crate::tables::CompiledRoute, CutoverError> {
-    crate::tables::compile_route(candidate.revision.traffic(), edges).map_err(|error| {
-        if error == crate::RouteError::AllocationFailed {
-            CutoverError::StagingAllocFailed
-        } else {
-            CutoverError::RouteRevalidationFailed
-        }
+    crate::tables::compile_route(
+        candidate.revision.as_ref(),
+        edges,
+        candidate.live_route_conflict_occurrence_count,
+        candidate.config.route_conflict_occurrence_capacity(),
+    )
+    .map_err(|error| match error {
+        crate::RouteError::AllocationFailed => CutoverError::StagingAllocFailed,
+        crate::RouteError::ConflictOccurrenceCapacityExceeded {
+            current,
+            added,
+            capacity,
+        } => CutoverError::ConflictOccurrenceCapacityExceeded {
+            total: current.saturating_add(added),
+            capacity,
+        },
+        _ => CutoverError::RouteRevalidationFailed,
     })
 }
 
@@ -1199,7 +1225,7 @@ mod tests {
         let origin = *revision.canonical_origin();
         TrafficWorld::install(
             revision,
-            WorldConfig::new(8, 4, 1_024, 1, 100),
+            WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
             source_for(origin, key),
             0,
         )
@@ -1986,7 +2012,7 @@ mod tests {
             let origin = *revision.canonical_origin();
             TrafficWorld::install(
                 revision,
-                WorldConfig::new(8, 4, 1_024, 1, 100),
+                WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
                 source_for(origin, "fixture://other-world"),
                 9,
             )
@@ -2137,7 +2163,7 @@ mod tests {
             let origin = *revision.canonical_origin();
             TrafficWorld::install(
                 revision,
-                WorldConfig::new(8, 4, 1_024, 1, 100),
+                WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
                 source_for(origin, "fixture://other-world"),
                 9,
             )
@@ -2298,7 +2324,7 @@ mod tests {
             let origin = *revision.canonical_origin();
             TrafficWorld::install(
                 revision,
-                WorldConfig::new(8, 4, 2, 1, 100),
+                WorldConfig::new(8, 4, 2, 2, 1, 100),
                 source_for(origin, "fixture://capacity-cut"),
                 0,
             )
@@ -2332,7 +2358,7 @@ mod tests {
             let origin = *revision.canonical_origin();
             TrafficWorld::install(
                 revision,
-                WorldConfig::new(8, 4, 3, 1, 100),
+                WorldConfig::new(8, 4, 3, 3, 1, 100),
                 source_for(origin, "fixture://capacity-tight"),
                 0,
             )
@@ -2617,7 +2643,7 @@ mod tests {
         let origin = *revision.canonical_origin();
         TrafficWorld::install(
             revision,
-            WorldConfig::new(8, 4, 1_024, 1, dt),
+            WorldConfig::new(8, 4, 1_024, 1_024, 1, dt),
             source_for(origin, key),
             0,
         )

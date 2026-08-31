@@ -4,10 +4,10 @@
 //! 已提交事实、把进程句柄解析为快照局部标识与稳定标识。派生状态
 //! （信号灯色、占用索引、profile 派生车长）与禁绑字段（句柄 / 槽位 /
 //! generation / 密集序号）不入快照。编码阶段只读不可变捕获，把完整
-//! `WorldConfig`（含 `route_edge_occurrence_capacity`）、绑定集与逻辑状态
+//! `WorldConfig`（含 edge/conflict 两项路线 occurrence 容量）、绑定集与逻辑状态
 //! 映射到 size-prefixed `LFRS`；不回读活动 world，也不推进游标。
 
-use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v2 as wire;
+use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v3 as wire;
 use laneflow_runtime_snapshot_wire::runtime;
 use laneflow_static_contract::StableId128 as ContractStableId128;
 use laneflow_static_network::CanonicalNetworkOrigin;
@@ -18,9 +18,9 @@ use crate::{
 };
 
 /// LFRS 容器格式版本（快照合同 §4）。
-pub const SNAPSHOT_FORMAT_VERSION: u32 = 2;
+pub const SNAPSHOT_FORMAT_VERSION: u32 = 3;
 /// Runtime 逻辑状态形状轴（快照合同 §2 版本轴分离）。
-pub const RUNTIME_STATE_VERSION: u16 = 2;
+pub const RUNTIME_STATE_VERSION: u16 = 3;
 
 /// 快照局部标识的起点（1..=N 分配，0 保留为非法）。
 const FIRST_SNAPSHOT_ID: u64 = 1;
@@ -282,7 +282,7 @@ impl CapturedVehicle {
     }
 }
 
-/// 把不可变快照点编码为 size-prefixed `LFRS` v2。
+/// 把不可变快照点编码为 size-prefixed `LFRS` v3。
 ///
 /// 捕获与编码分离：调用方可先在固定步进安全边界调用
 /// [`TrafficWorld::capture_snapshot`]，再把本函数放到后台线程。编码只映射已捕获
@@ -297,6 +297,9 @@ pub fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
             vehicle_capacity: snapshot.config.vehicle_capacity(),
             route_capacity: snapshot.config.route_capacity(),
             route_edge_occurrence_capacity: snapshot.config.route_edge_occurrence_capacity(),
+            route_conflict_occurrence_capacity: snapshot
+                .config
+                .route_conflict_occurrence_capacity(),
             worker_count: snapshot.config.worker_count(),
             fixed_delta_time_ms: snapshot.config.fixed_delta_time_ms(),
         },
@@ -887,6 +890,10 @@ mod tests {
             config.route_edge_occurrence_capacity(),
             snapshot.config().route_edge_occurrence_capacity()
         );
+        assert_eq!(
+            config.route_conflict_occurrence_capacity(),
+            snapshot.config().route_conflict_occurrence_capacity()
+        );
         assert_eq!(config.worker_count(), snapshot.config().worker_count());
         assert_eq!(
             config.fixed_delta_time_ms(),
@@ -1023,7 +1030,7 @@ mod tests {
         let origin = *root_revision.canonical_origin();
         let world = TrafficWorld::install(
             root_revision,
-            WorldConfig::new(8, 4, 1_024, 1, 100),
+            WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
             crate::cutover::tests::transaction_tests::source_for(
                 origin,
                 "fixture://empty-snapshot",

@@ -33,7 +33,10 @@ pub use cutover_transaction::{
     CutoverCommit, CutoverTransaction, CutoverTransactionLimits, DEFAULT_MAX_CATCH_UP_LAG_TICKS,
     DEFAULT_MAX_RECORDS_PER_PUMP, PumpOutcome,
 };
-pub use error::{InstallError, ParkingError, ReplaceError, RouteError, SpawnError, StepError};
+pub use error::{
+    ConflictRuntimeUnavailable, InstallError, ParkingError, ReplaceError, RouteError, SpawnError,
+    StepError,
+};
 pub use handle::{RouteHandle, VehicleHandle};
 pub use input::{RouteRegisterInput, VehicleSpawnInput};
 pub use laneflow_static_contract::{ParkingFacilityOrdinal, ParkingSpaceOrdinal};
