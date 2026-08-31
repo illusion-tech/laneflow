@@ -1,11 +1,11 @@
 # WaitingZone、ConflictZone 与通行权分层
 
 **文档状态**: Accepted（#235 G1）<br>
-**最后更新**: 2026-07-29<br>
-**适用范围**: #235 的多阶段 ManeuverGate、WaitingZone、ConflictZone、versioned jurisdiction/right-of-way policy、车辆级 grant/reservation、确定性与 Core constraint 集成<br>
-**实现状态**: #281 已交付 multi-Gate、WaitingZone static registry/Data 0.10、
-Route occurrence compilation 与绑定期 capability guards；#282–#285 的
-Waiting runtime、Conflict/Spatial、policy/arbiter 与组合验证尚未生产化
+**最后更新**: 2026-08-31<br>
+**适用范围**: #235 的多阶段 ManeuverGate、WaitingZone、ConflictZone、versioned jurisdiction/right-of-way policy、车辆级 grant/reservation、确定性与 Traffic Runtime constraint 集成<br>
+**实现状态**: #281 已交付 multi-Gate、WaitingZone 静态关系与路线等待出现项；冲突
+source/LFCA/共享根/可选区域已经交付；#283 的路线冲突出现项与仲裁前能力保护处于
+G1 Review；#282、#284、#285 的动态运行时与组合验证尚未生产化
 
 **关联文档**:
 
@@ -21,6 +21,7 @@ Waiting runtime、Conflict/Spatial、policy/arbiter 与组合验证尚未生产�
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
 - `../adr/0018-multimodal-cross-section-and-access-overlay.md`
 - `../adr/0019-waiting-zone-conflict-right-of-way-authority.md`
+- `traffic-runtime-conflict-occurrence.md`
 - `road-junction-model.md`
 - `signal-system.md`
 - `vehicle-following.md`
@@ -48,51 +49,22 @@ Waiting runtime、Conflict/Spatial、policy/arbiter 与组合验证尚未生产�
 - signal、regulatory、conflict、leader/safe-speed/no-overlap 的约束组合顺序；
 - validation first-error、event total order、失败原子性、replay determinism 与
   一万/十万性能门槛；
-- Core/Data/Spatial/Adapter/API/schema/fixtures 影响矩阵与后续实施切片。
+- compiler/LFCA/共享根/Traffic Runtime/Spatial/Adapter 影响矩阵与后续实施切片。
 
 ### 1.2 当前 production 基线
 
-本文建立在以下已验证事实上：
+当前唯一运行世界是 `TrafficWorld`，静态输入是从受检 LFCA 建立的同一
+`SharedNetworkRevision`：
 
-- current Traffic loader 只接受 exact `formatVersion: "0.10"`；v0.10 schema
-  已按固定 provenance 公开发布并通过 live availability 与 byte-equality 验证；
-  v0.9 已公开发布并按 immutable publication contract 固定；
-- current `VehicleProfile` 必填 `participantClassId`，Core 已拥有
-  `ParticipantClassRegistry`、`CrossSectionRegistry` 与 `AccessRegistry`；
-  AccessRule 在 normalization 期消解为 `(edge, class)` / `(path, class)` 的
-  `AccessCell` 稀疏 resolved 表；
-- vehicle initial/spawn/replace 与 runtime route assignment 已对当前 route cursor
-  可达后缀执行 `(ParticipantClass, Route)` 静态准入校验，任一 resolved deny 都会
-  原子拒绝绑定；
-- current `ManeuverGate` 已包含
-  `(externalId, maneuverPathId, transitionIndex, stopLineId, signalControl)`；
-- current normalization 接受同一 path 上多个不同 `transitionIndex` Gate，并按
-  transition 顺序提供 path range；每个 path-transition 仍至多一个 Gate；
-- current `WaitingRegistry` 已验证同 path、Gate order、positive capacity、
-  interior non-overlap，并允许相邻 WaitingZone 共享 boundary；
-- `register_route` 时已编译 `ManeuverOccurrence`、`GateOccurrence`、
-  `WaitingZoneOccurrence`、next Gate/exit boundary 与 empty-storage route-distance
-  operands，steady tick 不匹配 path，也不缓存未经证明的累计 `f64`；
-- #281 G3 retained-memory 测量对一万/十万 repeated maneuver occurrences 分别
-  编译三万/三十万 Gate occurrences 与两万/二十万 Waiting occurrences；三类 route
-  metadata retained bytes 为 `4,849,664` / `55,574,528`，比例 `11.4595x`，
-  通过 `<= 12x` 线性门槛；WaitingRegistry retained bytes 在两档均为 `516`；
-- profile-route-cursor 绑定先执行现有 Access validation，再对 release Gate 尚未越过
-  的 pending Waiting 复用 overflow-safe segmented `RouteDistanceIndex` 执行
-  empty-storage feasibility；finite distance 不足返回 `InsufficientStorage`，
-  无法证明 finite 则返回 `StorageDistanceUnprovable`。随后由 ManeuverOccurrence
-  统一拒绝 first canonical Gate 与 exit 之间的 stateful bootstrap（包括无
-  WaitingZone 的纯 multi-Gate path），最后才执行 pending Waiting runtime
-  capability guard；`register_route` 保持 profile-agnostic；
-- current signal tick 先计算 next-time indication candidate，但当前 interval 的
-  vehicle/compliance 仍读取 tick-start committed snapshot(T)，随后再构建
-  occupancy/leader 与 longitudinal motion；
-- current `SignalStop`、ParkingStop、RouteEnd、speed limit 与 leader/no-overlap
-  已进入同一纵向约束/硬投影管线；
-- current permission-aware traversal 在跨 edge 前再次拒绝 denied Gate；
-- current event 顺序先按 vehicle update order 产生 projection/edge/completion
-  events，再追加 Controller phase 与 SignalGroup aspect events，最后原子提交
-  vehicle/signal/tick/time。
+- multi-Gate、WaitingZone、ConflictZone、ParticipantStream、owner-local
+  ConflictPassage 与可选 `ConflictZoneRegion` 已经进入 official source、LFCA 和共享根；
+- `register_route` 已编译 `ManeuverOccurrence`、`hop_gate` 与 `WaitingOccurrence`，所有
+  direct/candidate/admitted/restore/cutover 路线都进入同一编译器；
+- 车辆、边长、进度、微米余数与速度使用现行整数一维权威；静态 Spatial 几何仍按
+  canonical bounded `f32`，不能反推冲突行为；
+- Access、信号、RouteEnd、停车约束、leader/minimum-gap/no-overlap 已在当前 Runtime
+  路径中生效；
+- Waiting membership/admission 与 Conflict grant/reservation/arbiter 尚未安装。
 
 本文只能扩展这些契约，不能静默改变其既有顺序。
 
@@ -369,105 +341,43 @@ route completion 不得发生在 WaitingZone interior。运行时 route replace 
 
 ## 5. ConflictZone 与 ParticipantStream
 
-### 5.1 一等 identity
+### 5.1 静态 authority
 
-```text
-ConflictZone
-  externalId
-  junctionId
+冲突静态 exact shape、identity、排序、LFCA 行与共享根关系分别由
+[`portable-canonical-artifact.md`](portable-canonical-artifact.md) 和
+[`shared-static-network.md`](shared-static-network.md) 拥有。本文只保留下列行为边界：
 
-ParticipantStream
-  externalId
-  junctionId
-  maneuverPathId
-  passages[]               // 非空
+- `ConflictZone` 与 `ParticipantStream` 是稳定实体；
+- `ConflictPassage` 是 ParticipantStream owner-local relation，不具有全局 ordinal 或
+  独立稳定身份；
+- zone 的 participant set 只从 passage 派生，LFCA 不保存第二份反向事实；
+- admission Gate 从规范 entry anchor 唯一派生；
+- Traffic 显式 relation 是行为 authority，Spatial/Adapter/几何相交不是。
 
-ConflictPassage
-  conflictZoneId
-  entryAnchor
-  exitAnchor
-```
+### 5.2 PathAnchor 与路线出现项
 
-`junctionId` 在 ConflictZone/ParticipantStream 上显式存在，因为它们属于独立
-ConflictRegistry；normalization 必须校验 stream 的 ManeuverPath 派生 Junction 与
-声明 Junction 一致。这里的重复引用是跨 registry 完整性锚点，不承担第二套
-ManeuverPath owner。
+PathAnchor 是 `Gate | EdgeBoundary | Interior(progressMm)` 闭合联合；source/LFCA
+规范端点由制品文档拥有。它映射到具体路线 occurrence 时，Gate、起点、内部 boundary、
+终点和 Interior 的唯一整数坐标，以及车尾 inclusive clearance，统一见
+[`traffic-runtime-conflict-occurrence.md`](traffic-runtime-conflict-occurrence.md)。
 
-ConflictZone 的 participant set 只从
-`ParticipantStream.passages[].conflictZoneId` 派生；normalization 按 stream
-declaration order 收集唯一成员并编译 dense `zoneStreamHandles`。每个 zone 至少
-必须派生出两个 stream；单 stream region 不是 conflict，可由 Spatial/authoring
-自行表达。wire 不保存反向 participant list，避免同一关系出现两个事实源。
-
-### 5.2 PathAnchor
-
-road-vehicle stream 的 boundary 使用：
-
-```text
-PathAnchor
-  pathEdgeIndex
-  progressMeters
-```
-
-- `pathEdgeIndex` 索引 ManeuverPath 的规范 edge sequence；
-- `progressMeters` 使用 Core canonical longitudinal distance，必须 finite、
-  non-negative 且不超过对应 EdgeLength；
-- 为保证单一编码，非最后 edge 的 `progress == edgeLength` 必须编码为下一 edge 的
-  `(index + 1, 0)`；non-canonical 输入直接拒绝，不做静默修正；
-- entry 必须严格早于 exit；
-- passage 必须位于 path occurrence 内，不能跨出 ManeuverPath；
-- 同一 stream 的 passages 按 entry anchor、exit anchor、
-  `conflictZoneCanonicalRank` 排序；rank 在 normalization 编译，不能用 raw
-  `ConflictZoneHandle` 破坏 input-permutation 语义。
-
-Core 行为以 PathAnchor 为准；Spatial 绑定用于验证该 anchor 与 3D region 的合理
-一致性，但不能改写 progress。
-
-PathAnchor crossing、distance-to-anchor 归零、ConflictZone enter/clear 与对应事件
-统一使用 Core 私有 `CONFLICT_ANCHOR_CROSSING_TOLERANCE_METERS`。它是独立的
-longitudinal conflict-boundary owner，不能与 edge boundary/remainder、普通
-longitudinal constraint 或 physical gap tolerance 互相别名。authoring 的 canonical
-endpoint 判定保持精确结构规则，不使用该 runtime tolerance 静默改写输入。
-
-#235 尚未生产化。后续实现必须使用整数毫米比较，不得再引入米制哨兵。进入/离开判定
-的示意为：
-
-```text
-frontReached(anchor) =
-  cursor is after anchor in canonical Route order
-  OR (
-    cursor and anchor are on the same canonical route segment
-    AND cursorProgress + tolerance >= anchorProgress
-  )
-
-frontCrossedThisStep(anchor) =
-  NOT frontReached(preStepCursor, anchor)
-  AND frontReached(postStepCursor, anchor)
-
-tailCleared(exitAnchor) =
-  postStepFrontRouteDistance + tolerance
-    >= routeDistance(exitAnchor) + vehicle.length
-```
-
-所有加法/route-distance conversion 必须 checked finite；无法证明是 invariant error，
-不是把 non-finite 当作 reached。entry event 只在 `frontCrossedThisStep(entry)` 发出；
-clear/release 只在 `tailCleared(exit)` 从 false 变 true 时发出，确保 tolerance 内
-one-shot。ETA 的 `d <= tolerance -> 0` 与 downstream proof 的
-`storageUpperBound + tolerance >= clearanceFrontTarget` 使用同一个 owner 和上述
-inclusive boundary；PathAnchor wire canonicalization 仍精确，不接受近似 endpoint。
+#284 的 front crossing、tail clear、distance-to-anchor、one-shot event 与 downstream
+proof 必须复用同一 route-local 整数比较，不能恢复 `f64` 米制 tolerance，也不能从
+Spatial geometry 反推 crossing。所有无法有限证明的距离保持 fail closed。
 
 ### 5.3 Gate coverage 推导
 
-每个 ConflictPassage 的 admission Gate 是其 entry anchor 之前最近的 Gate：
+每个 ConflictPassage 的 admission Gate 是其 entry anchor 之前最近的 Gate；共享根已
+唯一派生该 Gate，路线编译再把它映射为 exact admission hop：
 
 ```text
 gate.transition boundary <= passage.entryAnchor
 AND 在二者之间不存在另一个 Gate
 ```
 
-如果 entry anchor 之前没有 Gate，normalization 失败；conflict traversal 不能在无
-明确 admission boundary 的情况下进入 runtime。一个 Gate coverage 内的 passages
-按 entry anchor 排序并整体请求 grant。
+如果 entry anchor 之前没有 Gate，静态构建失败；conflict traversal 不能在无明确
+admission boundary 的情况下进入 Runtime。一个 Gate coverage 内的 passages 按规范
+路线出现项顺序整体请求 grant。
 
 若 passage 横跨下一 Gate boundary，normalization 失败。车辆不能在尚未清除同一个
 ConflictZone 时遇到新的独立 Gate，因为这会把一份 reservation 拆成相互矛盾的两次
@@ -479,38 +389,17 @@ ConflictZone 时遇到新的独立 Gate，因为这会把一份 reservation 拆�
 - 同一 stream 可以依次通过多个 zone，也允许两个 zone 的 longitudinal interval
   重叠；grant coverage 取并集并原子预留；
 - WaitingZone interior 与任何 ConflictPassage interior 不得重叠；
-- 同一 `(ConflictZone, ParticipantStream)` 只能有一个 passage；
-- 同一 ConflictZone 内引用同一 ManeuverPath 的多个 stream 只有在 path interval
-  不同且 identity 意图明确时才允许，否则视为 duplicate behavior。
+- 同一 `(ConflictZone, ParticipantStream)` 只有一个 owner-local passage；
+- 静态重复、Junction coherence、Waiting interior overlap 与规范顺序在 LFCA/共享根
+  边界失败关闭，Runtime 不重复解释来源声明顺序。
 
 ### 5.5 Spatial authority
 
-Spatial 可新增：
-
-```text
-SpatialConflictZoneRegion
-  trafficConflictZoneId
-  frameId
-  canonical 3D region
-
-SpatialWaitingZoneRegion
-  trafficWaitingZoneId
-  frameId
-  canonical 3D region / markings
-```
-
-规则：
-
-- geometry 使用 ADR 0013/0015 的 frame、有限数值与 canonical 3D authority；
-- Traffic package 可无 Spatial pairing 并保持 headless Core 行为；
-- Traffic entity 不保存 Spatial region ID；Spatial region 只能单向引用 known
-  Traffic WaitingZone/ConflictZone，同一 Traffic entity 同类型最多一个 region；
-- paired artifact 的 region 引用必须类型匹配、ID 唯一、frame 一致；缺少可选
-  region 合法，不把 optional geometry 误写成完整覆盖要求；
-- authoring 工具可以从中心线/region 相交提出 ConflictZone 候选，但输出必须成为
-  显式 Traffic entity 后才能生效；
-- 2D projection、mesh bounds、physics collider、render LOD 都不是行为输入；
-- 高架、下穿等 3D 分离不得因为俯视相交而自动冲突。
+`ConflictZoneRegion` 是同一 LFCA / `SharedNetworkRevision` 中的可选 2.5D
+canonical region，exact shape 见 [`spatial-geometry.md`](spatial-geometry.md)。缺失区域
+不影响 headless Traffic；存在区域只增加验证、调试和表现。authoring 工具可以提出
+候选，但只有显式 Traffic relation 生效；2D 投影、mesh、collider 与 render LOD 都
+不能创建、删除或合并 conflict 行为。
 
 ## 6. Jurisdiction 与 right-of-way policy
 

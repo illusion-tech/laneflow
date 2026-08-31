@@ -1,8 +1,8 @@
 # ADR 0019：WaitingZone、ConflictZone 与车辆级通行权 authority
 
 **状态**: Accepted（#235 G1）<br>
-**日期**: 2026-07-27<br>
-**适用范围**: LaneFlow 的多阶段 ManeuverGate、WaitingZone、ConflictZone、jurisdiction/right-of-way policy、车辆级 conflict grant 与 Core safety 集成<br>
+**日期**: 2026-08-31<br>
+**适用范围**: LaneFlow 的多阶段 ManeuverGate、WaitingZone、ConflictZone、jurisdiction/right-of-way policy、车辆级 conflict grant 与 Traffic Runtime safety 集成<br>
 **关联文档**:
 
 - 上游决策:
@@ -19,6 +19,7 @@
   - `0018-multimodal-cross-section-and-access-overlay.md`
 - 详细设计:
   - `../design/waiting-zone-conflict-right-of-way.md`
+  - `../design/traffic-runtime-conflict-occurrence.md`
   - `../design/road-junction-model.md`
   - `../design/signal-system.md`
   - `../design/vehicle-following.md`
@@ -31,6 +32,8 @@
   - #234
   - #235
   - #264
+  - #283
+  - #284
 
 ## 背景
 
@@ -89,35 +92,37 @@ handle 顺序。未 crossing 的 staged claim 不消费 sequence，counter overf
 冻结，实际纵向位置继续由 Route progress、车辆长度、minimum gap 和 no-overlap
 决定，不在 data 中预存等距 parking-like slot。
 
-WaitingZone 的行为 identity/范围归 Traffic + Core；可选 3D region/marking/pose
-归 Spatial。缺少 Spatial geometry 不改变 Core 行为，Adapter 不从画面反推 zone。
+WaitingZone 的静态 identity/范围归 Traffic，共享静态根之外的动态状态归 Traffic
+Runtime；可选 3D region/marking/pose 归 Spatial。缺少 Spatial geometry 不改变
+Traffic 行为，Adapter 不从画面反推 zone。
 
 ### 3. ConflictZone 与 ParticipantStream 构成独立 conflict domain
 
-新增静态 immutable `ConflictRegistry`，包含一等 `ConflictZone` 与
+共享静态根的 immutable `SharedConflictNetwork` 包含一等 `ConflictZone` 与
 `ParticipantStream`：
 
 - `ConflictZone` 归属于一个 Junction；参与 stream 集合只从
-  `ParticipantStream` 的 conflict passage 引用派生，不在 zone 上保存反向列表；
+  `ParticipantStream` 的 conflict passage 引用派生，不进入 LFCA zone row；共享根
+  可以保存派生反向 CSR；
 - v1 road-vehicle `ParticipantStream` 引用一个 ManeuverPath 与按该 path 规范进度
   定义的 entry/exit anchors；admission ManeuverGate 从 passage entry 之前最近的
   Gate 唯一派生，不在 wire 重复保存；
-- 同一 stream 可依次穿过多个 ConflictZone；Route 注册时编译为
-  `ConflictPassageOccurrence`；
-- Spatial 可用单向 `trafficConflictZoneId` / `trafficWaitingZoneId` 引用绑定可选
-  geometry；Traffic entity 不保存 Spatial artifact 内部 ID；
+- 同一 stream 可依次穿过多个 ConflictZone；Route 注册时按
+  [`traffic-runtime-conflict-occurrence.md`](../design/traffic-runtime-conflict-occurrence.md)
+  编译 owner-local `ConflictPassageOccurrence`；
+- 可选 `ConflictZoneRegion` 与 Traffic entity 同在 LFCA 和同一
+  `SharedNetworkRevision`；区域只服务验证、调试和表现；
 - pedestrian/cyclist crossing 的非 ManeuverPath traversal 由 #236 或后续独立
   G1 扩展，不在本 ADR 伪装成 LaneEdge/ManeuverPath。
 
-PathAnchor crossing、distance-to-anchor 归零、zone enter/clear 与 boundary event
-统一由新的 Core 私有
-`CONFLICT_ANCHOR_CROSSING_TOLERANCE_METERS` 拥有。它不与 edge-boundary、
-longitudinal-constraint 或 physical-gap tolerance 互相别名；authoring canonical
-endpoint 仍使用精确结构规则。#235 尚未生产化；后续实现使用整数毫米比较，
-不得再引入米制哨兵。front enter、tail clear、distance-to-anchor 归零、one-shot
-event 与 downstream proof 使用详细设计中同一组 inclusive predicate。
+PathAnchor 的 source/LFCA endpoint 使用精确结构规则；路线位置按
+[`traffic-runtime-conflict-occurrence.md`](../design/traffic-runtime-conflict-occurrence.md)
+映射为整数毫米和现行微米余数。#284 的 front enter、tail clear、
+distance-to-anchor、one-shot event 与 downstream proof 必须使用同一组整数 inclusive
+predicate；不得恢复米制 tolerance 哨兵，也不得与普通 edge boundary 或 physical gap
+混为一个 owner。
 
-Traffic/Core 中显式声明的 zone-stream 关系是行为 authority。Spatial 拥有 canonical
+Traffic 中显式声明的 zone-stream 关系是行为 authority。Spatial 拥有 canonical
 3D geometry、pose 与 authoring validation；二维投影相交、mesh overlap 或
 Adapter collider 只能提出 authoring 候选，不能自动创建或删除 conflict 语义。
 
@@ -276,6 +281,11 @@ Route，车辆只可在 first stateful Gate 未跨越侧或 occurrence exit 之�
 materialize；cursor 位于 crossed side 到 exit 的 interior 时 capability-unavailable
 并原子拒绝。未来 interior bootstrap 必须独立 G1，一次验证 maneuver state、
 Waiting membership/sequence、reservation/downstream claim 与 occupancy。
+
+在 #284 正式冲突能力交付前，#283 的临时保护更严格：只有实际车型车尾已经清除该
+路线全部 conflict passage 的车辆才能提交为 `Active`。这是一条能力可用性边界，不是
+未来 arbiter 的通行判定；完整入口与精确谓词见
+[`traffic-runtime-conflict-occurrence.md`](../design/traffic-runtime-conflict-occurrence.md)。
 
 ### 7. jurisdiction/right-of-way policy 复用统一 provenance
 

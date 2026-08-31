@@ -18,6 +18,8 @@
 - `traffic-observation-and-routing-integration.md`：已提交交通观测 full/delta/partition、
   宿主自有 Routing 成本绑定、候选路线注册与 #302 失效接缝（#303 G1 已接受；G2
   起实现）。
+- `traffic-runtime-conflict-occurrence.md`：#283 的路线冲突出现项、route-local
+  坐标、独立容量与 #284 前的全车身能力保护（G1 Review）。
 - `shared-static-network.md`：从受检 LFCA 构建 `SharedNetworkRevision`。
 - `adapter-api.md`：Runtime / Spatial 与引擎适配器的只读快照、位姿和权威边界。
 - `portable-canonical-artifact.md`：统一 LFCA 4 / LFSM 3 / LFSD 3 /
@@ -42,8 +44,8 @@
 - `parking-system.md`：#540 G1 Accepted；`ParkingFacility`、显式泊位/虚拟容量、
   anchor selector、reserve/park/leave、原子 despawn、无 pose 停驻与迁移合同（#541 起实现）。
 - `road-junction-model.md`：Junction / Movement / ManeuverPath / ManeuverGate。
-- `waiting-zone-conflict-right-of-way.md`：待行区、冲突与通行权（Accepted 设计；
-  运行时生产化按独立 Issue）。
+- `waiting-zone-conflict-right-of-way.md`：待行区、冲突与通行权的联合行为设计；冲突
+  静态 exact shape 见 LFCA/共享根文档，路线出现项与临时能力保护见 #283 当前设计。
 - `cross-section-access.md`：横断面与准入 overlay。
 - `numeric-representation.md`：数值分层；已提交一维几何为整数毫米，编制 `f64` 与 Spatial `f32` 仍在量化之前。
 - `traffic-runtime-integer-geometry.md`：#496 整数毫米 / 微米余数 / `mm/s` 实现合同（Accepted）；#500 编译器 IR 交通一维同一套整数毫米。
