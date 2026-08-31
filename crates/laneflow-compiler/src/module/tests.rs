@@ -2,12 +2,21 @@ use std::sync::Arc;
 
 use crate::declaration::TypedAstDeclaration;
 use crate::*;
-use laneflow_static_contract::FieldTag;
+use laneflow_static_contract::{EntityKind, FieldTag};
 
 use super::*;
 use crate::{DiagnosticCode, DiagnosticPayload, LaneEdgeReference, SourceModuleHeaderInput};
 
 fn header(namespace: &str, document: &str) -> SourceModuleHeader {
+    let limits = CompileLimits::p100_initial_v1();
+    header_with_limits(namespace, document, &limits)
+}
+
+fn header_with_limits(
+    namespace: &str,
+    document: &str,
+    limits: &CompileLimits,
+) -> SourceModuleHeader {
     SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: namespace,
@@ -18,7 +27,7 @@ fn header(namespace: &str, document: &str) -> SourceModuleHeader {
             random_seed: Some(42),
             provenance: "repository:laneflow",
         },
-        &CompileLimits::p100_initial_v1(),
+        limits,
     )
     .unwrap()
 }
@@ -349,6 +358,52 @@ fn lane_edge_accepts_terminal_and_self_loop_topology() {
     };
     assert_eq!(loop_edge.successors.len(), 1);
     assert_eq!(loop_edge.successors[0].declaration_key().as_ref(), "loop");
+}
+
+#[test]
+fn million_profile_rejects_identity_key_above_53_before_admission() {
+    let limits = CompileLimits::single_network_1m_v2();
+    let at_bound = "a".repeat(53);
+    let over_bound = "a".repeat(54);
+    let mut builder = SyntheticModuleBuilder::new(
+        header_with_limits("city/a", "source.test", &limits),
+        &limits,
+    )
+    .unwrap();
+    builder
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: &at_bound,
+            length_meters: 10.0,
+            speed_limit_meters_per_second: 13.0,
+            successors: &[],
+        })
+        .unwrap();
+
+    let failure = expect_diagnostics(builder.add_lane_edge(LaneEdgeInput {
+        lane_edge_key: &over_bound,
+        length_meters: 10.0,
+        speed_limit_meters_per_second: 13.0,
+        successors: &[],
+    }));
+    assert!(matches!(
+        failure.diagnostics()[0].payload(),
+        DiagnosticPayload::InvalidDeclarationKey {
+            entity_kind: EntityKind::LaneEdge,
+            violation: SourceTextViolation::TooLong {
+                limit: 53,
+                observed: 54,
+            },
+        }
+    ));
+    assert_eq!(
+        builder
+            .finish()
+            .unwrap()
+            .admitted
+            .resource_counts
+            .declaration_count,
+        1
+    );
 }
 
 #[test]

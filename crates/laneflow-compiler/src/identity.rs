@@ -11,11 +11,11 @@
 use std::collections::HashMap;
 
 use laneflow_static_contract::{
-    EntityKind, FieldEncoding, FieldTag, IDENTITY_ENCODING_VERSION, IDENTITY_MAGIC,
-    STABLE_ID_DOMAIN_PREFIX, StableId128,
+    EntityKind, FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES, FieldEncoding, FieldTag,
+    IDENTITY_ENCODING_VERSION, IDENTITY_MAGIC, STABLE_ID_DOMAIN_PREFIX, StableId128,
 };
 
-use crate::limits::{CompileLimitDimension, CompileLimits};
+use crate::limits::CompileLimits;
 
 #[cfg(test)]
 use crate::SourceSpan;
@@ -133,12 +133,7 @@ pub fn derive_canonical_stable_id_v1(
         IdentityFieldInput::new(tags[0], authoring_namespace_id.as_bytes()),
         IdentityFieldInput::new(tags[1], local_key.as_bytes()),
     ];
-    Ok(encode_canonical_identity(
-        kind,
-        &fields,
-        limits.value(CompileLimitDimension::SingleStringBytes),
-    )?
-    .stable_id())
+    Ok(encode_canonical_identity(kind, &fields, limits.identity_ascii_bytes_limit())?.stable_id())
 }
 
 /// 编码并派生一个完整 Identity v1 身份。
@@ -163,6 +158,8 @@ pub(crate) fn encode_canonical_identity(
         });
     }
 
+    let max_identity_ascii_bytes =
+        max_single_string_bytes.min(FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES);
     let mut encoded_length = 10_u64;
     for (position, (field, expected)) in fields.iter().zip(required_tags).enumerate() {
         let position = u16::try_from(position).expect("Identity v1 field position must fit u16");
@@ -201,7 +198,7 @@ pub(crate) fn encode_canonical_identity(
                         // 执行，防止身份编码器与前端对 token 合法集合产生分歧。
                         let text = std::str::from_utf8(field.bytes)
                             .expect("ASCII bytes must always be valid UTF-8");
-                        external_token_violation(text, max_single_string_bytes)
+                        external_token_violation(text, max_identity_ascii_bytes)
                     });
                 if let Some(violation) = violation {
                     return Err(CanonicalIdentityViolation::InvalidAsciiField {
@@ -476,6 +473,43 @@ mod tests {
             derive_canonical_stable_id_v1(EntityKind::Movement, "city/vector", "m", &limits)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn larger_profile_string_limit_cannot_widen_identity_ascii_fields() {
+        let at_bound = "a".repeat(53);
+        let over_bound = "a".repeat(54);
+        let limits = CompileLimits::single_network_1m_v2();
+
+        assert!(
+            derive_canonical_stable_id_v1(EntityKind::LaneEdge, &at_bound, &at_bound, &limits,)
+                .is_ok()
+        );
+        assert_eq!(
+            derive_canonical_stable_id_v1(EntityKind::LaneEdge, &at_bound, &over_bound, &limits,)
+                .unwrap_err(),
+            CanonicalIdentityViolation::InvalidAsciiField {
+                tag: FieldTag::LaneEdgeKey.code(),
+                violation: SourceTextViolation::TooLong {
+                    limit: 53,
+                    observed: 54,
+                },
+            }
+        );
+        assert!(matches!(
+            encode_canonical_identity(
+                EntityKind::LaneEdge,
+                &lane_edge_fields(at_bound.as_bytes(), over_bound.as_bytes()),
+                4_096,
+            ),
+            Err(CanonicalIdentityViolation::InvalidAsciiField {
+                violation: SourceTextViolation::TooLong {
+                    limit: 53,
+                    observed: 54,
+                },
+                ..
+            })
+        ));
     }
 
     #[test]

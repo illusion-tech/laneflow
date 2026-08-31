@@ -245,7 +245,7 @@ impl HirBase {
                 let identity = encode_canonical_identity(
                     EntityKind::LaneEdge,
                     &fields,
-                    unit.limits.value(CompileLimitDimension::SingleStringBytes),
+                    unit.limits.identity_ascii_bytes_limit(),
                 )
                 .map_err(|violation| {
                     let mut diagnostic = Diagnostic::invalid_canonical_identity(
@@ -398,7 +398,7 @@ pub(super) fn derive_identity(
     let identity = encode_canonical_identity(
         entity_kind,
         fields,
-        unit.limits.value(CompileLimitDimension::SingleStringBytes),
+        unit.limits.identity_ascii_bytes_limit(),
     )
     .map_err(|violation| {
         let mut diagnostic = Diagnostic::invalid_canonical_identity(

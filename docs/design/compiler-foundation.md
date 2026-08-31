@@ -727,36 +727,36 @@ verifier、主要规模上限、失败原子性或 canonical LIR 语义。
 现实混合 fixture 必须在下列每个独立维度内完成 official source → compiler → emission，
 任一维度超限即配置档未取得一百万资格，不能改用调用方自定义上限绕过。
 
-| 私有配置字段                          |   精确上限 | 计数对象 / 单位                                         |
-| ------------------------------------- | ---------: | ------------------------------------------------------- |
-| `max_module_count`                    |      65536 | 来源模块                                                |
-| `max_import_edge_count`               |     262144 | 模块导入边                                              |
-| `max_source_document_count`           |     196608 | 来源文档描述符                                          |
-| `max_source_bytes_per_module`         |  536870912 | 单个来源模块字节                                        |
-| `max_source_bytes_total`              |  536870912 | 编译单元来源字节                                        |
-| `max_declaration_count`               |    1500000 | 来源声明                                                |
-| `max_stable_entity_count`             |    1000000 | `CanonicalIdentity` 完整逻辑行                          |
-| `max_typed_ast_record_count`          |    8000000 | 有类型抽象语法树逻辑记录                                |
-| `max_hir_record_count`                |    8000000 | HIR 逻辑记录                                            |
-| `max_mir_record_count`                |    8000000 | MIR 逻辑记录                                            |
-| `max_lir_record_count`                |    8000000 | LIR 逻辑记录                                            |
-| `max_reference_count`                 |   16000000 | 有类型引用                                              |
-| `max_relation_occurrence_count`       |   16000000 | 关系出现项                                              |
-| `max_identity_field_occurrence_count` |    8000000 | 标识字段出现项                                          |
-| `max_maneuver_gate_count`             |    1000000 | 机动门                                                  |
-| `max_waiting_zone_count`              |    1000000 | 等待区                                                  |
-| `max_geometry_point_count`            |   16000000 | 规范几何点                                              |
-| `max_symbol_count`                    |    2000000 | 符号                                                    |
-| `max_string_item_count`               |    8000000 | 驻留字符串项                                            |
-| `max_single_string_bytes`             |       4096 | 单个驻留语义字符串 / key token component 字节           |
-| `max_total_string_bytes`              |  536870912 | 驻留字符串总字节                                        |
-| `max_diagnostic_count`                |         16 | 规范排序后保留的诊断                                    |
-| `max_stage_scratch_bytes`             | 2147483648 | 单次编译遍暂存请求字节                                  |
-| `max_output_bytes`                    | 1073741824 | 正在构造的 LIR / 伴随输出逻辑字节                       |
-| `max_portable_object_bytes`           | 4294967296 | 单个 file-backed LFCA/LFSM/LFSD exact bytes             |
-| `max_portable_bundle_bytes`           | 8589934592 | 三个 closed staged object 的 exact bytes 总和           |
-| `max_compiler_controlled_live_bytes`  | 6442450944 | 编译器控制总存续请求字节；不含 file-backed staged bytes |
-| `max_retained_capacity_bytes`         |  536870912 | 一次编译返回后编译器允许保留的无语义容量字节            |
+| 私有配置字段                          |   精确上限 | 计数对象 / 单位                                               |
+| ------------------------------------- | ---------: | ------------------------------------------------------------- |
+| `max_module_count`                    |      65536 | 来源模块                                                      |
+| `max_import_edge_count`               |     262144 | 模块导入边                                                    |
+| `max_source_document_count`           |     196608 | 来源文档描述符                                                |
+| `max_source_bytes_per_module`         |  536870912 | 单个来源模块字节                                              |
+| `max_source_bytes_total`              |  536870912 | 编译单元来源字节                                              |
+| `max_declaration_count`               |    1500000 | 来源声明                                                      |
+| `max_stable_entity_count`             |    1000000 | `CanonicalIdentity` 完整逻辑行                                |
+| `max_typed_ast_record_count`          |    8000000 | 有类型抽象语法树逻辑记录                                      |
+| `max_hir_record_count`                |    8000000 | HIR 逻辑记录                                                  |
+| `max_mir_record_count`                |    8000000 | MIR 逻辑记录                                                  |
+| `max_lir_record_count`                |    8000000 | LIR 逻辑记录                                                  |
+| `max_reference_count`                 |   16000000 | 有类型引用                                                    |
+| `max_relation_occurrence_count`       |   16000000 | 关系出现项                                                    |
+| `max_identity_field_occurrence_count` |    8000000 | 标识字段出现项                                                |
+| `max_maneuver_gate_count`             |    1000000 | 机动门                                                        |
+| `max_waiting_zone_count`              |    1000000 | 等待区                                                        |
+| `max_geometry_point_count`            |   16000000 | 规范几何点                                                    |
+| `max_symbol_count`                    |    2000000 | 符号                                                          |
+| `max_string_item_count`               |    8000000 | 驻留字符串项                                                  |
+| `max_single_string_bytes`             |       4096 | 单个通用驻留语义字符串字节；Identity ASCII 另受 53 字节硬上限 |
+| `max_total_string_bytes`              |  536870912 | 驻留字符串总字节                                              |
+| `max_diagnostic_count`                |         16 | 规范排序后保留的诊断                                          |
+| `max_stage_scratch_bytes`             | 2147483648 | 单次编译遍暂存请求字节                                        |
+| `max_output_bytes`                    | 1073741824 | 正在构造的 LIR / 伴随输出逻辑字节                             |
+| `max_portable_object_bytes`           | 4294967296 | 单个 file-backed LFCA/LFSM/LFSD exact bytes                   |
+| `max_portable_bundle_bytes`           | 8589934592 | 三个 closed staged object 的 exact bytes 总和                 |
+| `max_compiler_controlled_live_bytes`  | 6442450944 | 编译器控制总存续请求字节；不含 file-backed staged bytes       |
+| `max_retained_capacity_bytes`         |  536870912 | 一次编译返回后编译器允许保留的无语义容量字节                  |
 
 `max_stage_scratch_bytes` 是失败关闭天花板，不是启动预留；实现仍按实际记录数申请。现实混合
 百万档的规范排序与闭包暂存需求接近 1 GiB，因此配置档保留 2 GiB 上限，避免把一次正常的
@@ -776,11 +776,13 @@ bytes，不进入 `CompilerControlledLiveBytes`；emitter 必须写入 sealed cl
 `max_retained_capacity_bytes` 的暂存容量。六 GiB 总存续上限是 16 GiB 主机的失败关闭 ceiling，
 不是目标常驻量或性能 SLA；官方一百万 fixture 仍须报告实际 retained/scratch/peak memory。
 
-`max_single_string_bytes` 约束进入 Typed AST/HIR/诊断/source-map interner 的单个语义
-字符串或 key component，不约束已经由 source-specific parser 就地拆分且不作为第二份
-字符串驻留的完整 framing/reference spelling。#296 owner-qualified FlatBuffers reference
-先受来源 v1 派生的 270-byte wire 上限，再就地解析为最多一个 namespace 与四个
-53-byte key components；每个 component 分别消费 `StringItemCount`，实际 bytes 消费
+`max_single_string_bytes` 约束进入 Typed AST/HIR/诊断/source-map interner 的单个通用语义
+字符串，不约束已经由 source-specific parser 就地拆分且不作为第二份字符串驻留的完整
+framing/reference spelling。Identity v1 `Ascii` 字段及其来源侧 namespace/key component
+同时受 `FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES = 53` 约束；实现取配置档上限与该格式硬上限
+中的较小值，不新增配置档维度或世代。#296 owner-qualified FlatBuffers reference 先受来源 v1
+派生的 270-byte wire 上限，再就地解析为最多一个 namespace 与四个 53-byte key
+components；每个 component 分别消费 `StringItemCount`，实际 bytes 消费
 `TotalStringBytes`，完整 wire spelling 只由 `SourceBytes*` 与 reference occurrence 计量。
 
 单模块来源上限与总来源上限同值，是从已资格验证的总来源上限作出的失败关闭收窄；

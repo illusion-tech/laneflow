@@ -11,6 +11,7 @@ fn artifact_geometry_values(
     for (table_ordinal, subject_kind, projected_tags) in [
         (1, EntityKind::LaneEdge, &[3_u16, 4, 5, 6][..]),
         (2, EntityKind::FacilityBand, &[3_u16, 4][..]),
+        (3, EntityKind::ConflictZone, &[3_u16, 4, 5][..]),
     ] {
         let table = spatial.table(table_ordinal).ok_or(mismatch)?;
         for geometry in table.rows() {
@@ -166,6 +167,7 @@ pub(super) fn genesis_geometry_changes(
     for (table_index, (subject_kind, projected_tags)) in [
         (EntityKind::LaneEdge, &[3_u16, 4, 5, 6][..]),
         (EntityKind::FacilityBand, &[3_u16, 4][..]),
+        (EntityKind::ConflictZone, &[3_u16, 4, 5][..]),
     ]
     .into_iter()
     .enumerate()
@@ -321,5 +323,54 @@ mod tests {
                     .is_empty()
             );
         }
+    }
+
+    #[test]
+    fn conflict_zone_region_field_change_is_a_geometry_modify() {
+        let base_bytes = FULL_SPATIAL_LFCA.to_vec();
+        let mut target_bytes = FULL_SPATIAL_LFCA.to_vec();
+        let min_y = field_value_range(&target_bytes, 4, 3, 0, 3);
+        target_bytes[min_y.start] ^= 1;
+        crate::compiler::portable_fixture_tests::refresh_portable_chunk_digest_containing(
+            &mut target_bytes,
+            PortableObjectKind::CanonicalArtifact,
+            min_y.start,
+        );
+
+        let base_view = preflight_object_values(
+            &base_bytes,
+            PortableObjectKind::CanonicalArtifact,
+            FormatLimits::HARD,
+        )
+        .unwrap()
+        .registry_view();
+        let target_view = preflight_object_values(
+            &target_bytes,
+            PortableObjectKind::CanonicalArtifact,
+            FormatLimits::HARD,
+        )
+        .unwrap()
+        .registry_view();
+        let base = ArtifactIndex::build(base_view, PortableEmissionError::DiffBaseSemanticMismatch)
+            .unwrap();
+        let target =
+            ArtifactIndex::build(target_view, PortableEmissionError::InternalBindingMismatch)
+                .unwrap();
+
+        let changes = artifact_geometry_changes(&base, &target).unwrap();
+        assert_eq!(changes.len(), 1);
+        let change = &changes[0];
+        assert_eq!(owned_value(change, 1), &OwnedValue::U8(2));
+        assert_eq!(
+            owned_value(change, 2),
+            &OwnedValue::U16(EntityKind::ConflictZone.code())
+        );
+        assert!(matches!(owned_value(change, 9), OwnedValue::Bytes(_)));
+        assert!(matches!(owned_value(change, 10), OwnedValue::Bytes(_)));
+        assert!(
+            artifact_spatial_configuration_changes(&base, &target)
+                .unwrap()
+                .is_empty()
+        );
     }
 }
