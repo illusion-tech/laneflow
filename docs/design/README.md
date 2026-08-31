@@ -19,7 +19,7 @@
   宿主自有 Routing 成本绑定、候选路线注册与 #302 失效接缝（#303 G1 已接受；G2
   起实现）。
 - `traffic-runtime-conflict-occurrence.md`：#283 的路线冲突出现项、route-local
-  坐标、独立容量与 #284 前的全车身能力保护（G1 Review）。
+  坐标、独立容量与 #284 前的全车身能力保护（#283 G1 已接受）。
 - `shared-static-network.md`：从受检 LFCA 构建 `SharedNetworkRevision`。
 - `adapter-api.md`：Runtime / Spatial 与引擎适配器的只读快照、位姿和权威边界。
 - `portable-canonical-artifact.md`：统一 LFCA 4 / LFSM 3 / LFSD 3 /

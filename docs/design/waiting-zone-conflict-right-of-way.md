@@ -1,11 +1,11 @@
 # WaitingZone、ConflictZone 与通行权分层
 
 **文档状态**: Accepted（#235 G1）<br>
-**最后更新**: 2026-08-31<br>
+**最后更新**: 2026-09-01<br>
 **适用范围**: #235 的多阶段 ManeuverGate、WaitingZone、ConflictZone、versioned jurisdiction/right-of-way policy、车辆级 grant/reservation、确定性与 Traffic Runtime constraint 集成<br>
 **实现状态**: #281 已交付 multi-Gate、WaitingZone 静态关系与路线等待出现项；冲突
 source/LFCA/共享根/可选区域已经交付；#283 的路线冲突出现项与仲裁前能力保护处于
-G1 Review；#282、#284、#285 的动态运行时与组合验证尚未生产化
+G1 已接受、实现尚未交付；#282、#284、#285 的动态运行时与组合验证尚未生产化
 
 **关联文档**:
 
