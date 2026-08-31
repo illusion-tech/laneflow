@@ -515,6 +515,7 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 | 冲突区         | `ConflictZone`                                             | 多个参与者流可能发生空间冲突、需要运行时裁决的区域。                                                            |
 | 参与者流       | `ParticipantStream`                                        | 进入冲突裁决的有向参与者流。                                                                                    |
 | 冲突通行段     | `ConflictPassage`                                          | 某参与者流穿过一个冲突区的所有者局部 entry/exit 路径区间；不具有独立稳定身份。                                  |
+| 路线冲突出现项 | `ConflictPassageOccurrence`                                | 某条每世界路线中的一次冲突通行段出现；以参与者流 ordinal 与所有者局部 passage 下标回指共享静态事实。            |
 | 路径锚点       | `PathAnchor`                                               | 以机动门、路径边界或边内整数毫米位置精确标识机动路径位置的闭合联合。                                            |
 | 冲突区空间区域 | `ConflictZoneRegion`                                       | 与冲突区配对的可选 2.5D 简单 XZ 多边形及高度范围；只服务验证、调试和表现，不拥有冲突行为。                      |
 | 路口组         | `JunctionGroup`                                            | 组织多个路口的更高层静态组合；尚未进入标识 v1（Identity v1）。                                                  |

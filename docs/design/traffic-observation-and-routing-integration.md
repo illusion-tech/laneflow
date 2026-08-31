@@ -315,6 +315,11 @@ occurrence 超过恢复配置则整次恢复失败关闭。
 重复边；G2 必须在同一共享路径实现 max/max+1、checked 溢出与分配失败零部分提交，
 并以具名 Routing 工作负载登记配置值和 retained memory 证据。
 
+`route_edge_occurrence_capacity` 的语义保持为边 occurrence，不能拿它隐式支付一条
+边可能展开出的多个冲突通行段。#283 的
+[`traffic-runtime-conflict-occurrence.md`](traffic-runtime-conflict-occurrence.md) 另设
+`route_conflict_occurrence_capacity`；两个计数由同一注册提交点原子维护。
+
 **G2 首切片实现决定**：`WorldConfig::new` 在 `route_capacity` 之后要求调用方显式提供
 `u64 route_edge_occurrence_capacity`，不设产品默认值；活动总量计数器同为 `u64`。
 空序列、路线槽容量、边 occurrence 容量依次预检；后两者分别返回
