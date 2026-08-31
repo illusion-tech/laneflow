@@ -19,7 +19,7 @@ use crate::{
     SourceModuleHeaderInput, StopLineInput, StopLineReference, SyntheticModule,
     SyntheticModuleBuilder, VehicleProfileInput, WaitingZoneInput,
 };
-use laneflow_static_contract::CanonicalFrameKind;
+use laneflow_static_contract::{CanonicalFrameKind, EntityKind};
 use std::sync::Arc;
 
 fn unit(modules: impl IntoIterator<Item = SyntheticModule>) -> CompilationUnit {
@@ -742,7 +742,7 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         candidate.semantic_diff().object_key(),
-        "sha256/fd88caf513ff5b7bef50ac9a2e8e1b40ac662eb8f793024170b27ed8ff931a7c"
+        "sha256/7d6dddc347926e7b1badbdbc80f148584ff4c5ad33d296ca808f490ba2e3d321"
     );
     assert_eq!(
         candidate.network_revision(),
@@ -768,6 +768,28 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     assert!(spatial_tables.table(1).unwrap().row_count() > 0);
     assert!(spatial_tables.table(2).unwrap().row_count() > 0);
     assert_eq!(spatial_tables.table(3).unwrap().row_count(), 1);
+
+    let semantic_diff = laneflow_format::preflight_object_values(
+        FULL_SPATIAL_EXPECTED_LFSD,
+        laneflow_static_contract::PortableObjectKind::SemanticDiff,
+        laneflow_format::FormatLimits::HARD,
+    )
+    .unwrap()
+    .registry_view();
+    let geometry_changes = semantic_diff.section(3).unwrap().table(0).unwrap();
+    assert!((0..geometry_changes.row_count()).any(|ordinal| {
+        matches!(
+            geometry_changes
+                .row(ordinal)
+                .unwrap()
+                .field_by_tag(2)
+                .unwrap()
+                .value()
+                .unwrap(),
+            laneflow_format::RegistryCheckedFieldValue::U16(kind)
+                if kind == EntityKind::ConflictZone.code()
+        )
+    }));
 }
 
 // 后续向量放在子模块中，使本文件的语义输入构造保持原位稳定。

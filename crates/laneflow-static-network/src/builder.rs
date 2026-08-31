@@ -4492,4 +4492,56 @@ mod tests {
             }) if required == expected
         ));
     }
+
+    #[test]
+    fn conflict_owner_scratch_budget_matches_two_live_u32_arrays() {
+        let zone_count = 1_024;
+        let mut entity_counts = [0; ENTITY_KIND_COUNT];
+        entity_counts[kind_index(EntityKind::ConflictZone)] = zone_count;
+        let counts = BuildCounts {
+            contracts: StaticContractVersions::new(0, 0, 0, 0, 0, 0),
+            entity_counts: EntityCounts::new(entity_counts),
+            entity_count_total: zone_count,
+            identity_count: 0,
+            topology_pair_capacity: 0,
+            maneuver_path_edge_count: 0,
+            maneuver_path_gate_count: 0,
+            maneuver_path_waiting_zone_count: 0,
+            maneuver_transition_count: 0,
+            spatial_present: false,
+            direction_profile: 0,
+            lane_geometry_count: 0,
+            lane_point_count: 0,
+            lane_segment_count: 0,
+            facility_geometry_count: 0,
+            facility_point_count: 0,
+            conflict_region_count: 0,
+            conflict_region_point_count: 0,
+            conflict_region_max_point_count: 0,
+            conflict_passage_count: 0,
+            relation_payloads: crate::relations::RelationPayloads::default(),
+        };
+        let expected = structure_bytes::<u32>(zone_count, BuildStructure::BuilderScratch)
+            .expect("conflict owner bytes")
+            .checked_mul(2)
+            .expect("conflict scratch peak");
+        let accepted = SharedNetworkBuildOptions::new(
+            SpatialBuildOption::RetainAvailable,
+            SharedNetworkBuildLimits::new(u64::MAX, expected),
+        );
+        let rejected = SharedNetworkBuildOptions::new(
+            SpatialBuildOption::RetainAvailable,
+            SharedNetworkBuildLimits::new(u64::MAX, expected - 1),
+        );
+
+        assert_eq!(check_scratch_budget(counts, accepted), Ok(()));
+        assert!(matches!(
+            check_scratch_budget(counts, rejected),
+            Err(BuildError::BudgetExceeded {
+                structure: BuildStructure::BuilderScratch,
+                required,
+                limit,
+            }) if required == expected && limit == expected - 1
+        ));
+    }
 }

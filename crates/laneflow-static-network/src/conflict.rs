@@ -374,6 +374,7 @@ pub(crate) fn build_conflict(
             .checked_add(*count)
             .ok_or(BuildError::ArithmeticOverflow { structure })?;
     }
+    drop(stream_ref_counts);
     let mut zone_streams = allocate_vec(total, structure)?;
     zone_streams.resize(total as usize, ParticipantStreamOrdinal::from_raw(0));
     let mut cursors: Vec<u32> = zone_stream_ranges
@@ -390,6 +391,7 @@ pub(crate) fn build_conflict(
             *cursor += 1;
         }
     }
+    drop(cursors);
 
     let (junction_zone_ranges, junction_zones) = build_owner_members(
         &zone_junctions,

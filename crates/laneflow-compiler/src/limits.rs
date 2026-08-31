@@ -4,6 +4,8 @@
 //! 的复制、表构造和暂存区分配都能在分配前失败关闭。字段保持私有，防止调用方拼出
 //! 未经校准的“无限制”配置，也避免把阶段内部计数布局冻结成公共兼容接口。
 
+use laneflow_static_contract::FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES;
+
 /// 首个生产编译资源上限配置档的稳定标识符。
 const P100_INITIAL_V1_PROFILE_ID: &str = "LF-COMP-P100-INITIAL-v1";
 /// 首个显式限定多文档逻辑模块的生产配置档标识符。
@@ -257,10 +259,19 @@ impl CompileLimits {
         }
     }
 
-    /// 单个受检编制字符串 / Identity ASCII 字段的字节上限。
+    /// 单个受检编制字符串的配置档字节上限。
     #[must_use]
     pub const fn max_single_string_bytes(&self) -> u64 {
         self.max_single_string_bytes
+    }
+
+    /// Identity v1 ASCII 字段同时受配置档和可移植格式硬上限约束。
+    pub(crate) const fn identity_ascii_bytes_limit(&self) -> u64 {
+        if self.max_single_string_bytes < FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES {
+            self.max_single_string_bytes
+        } else {
+            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES
+        }
     }
 
     /// 返回调用方显式选择的稳定配置档标识符。
@@ -570,6 +581,24 @@ mod tests {
                 dimension.as_str()
             );
         }
+    }
+
+    #[test]
+    fn identity_ascii_limit_never_exceeds_the_portable_format_hard_limit() {
+        assert_eq!(
+            CompileLimits::p100_initial_v1().identity_ascii_bytes_limit(),
+            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES
+        );
+        assert_eq!(
+            CompileLimits::single_network_1m_v2().identity_ascii_bytes_limit(),
+            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES
+        );
+        assert_eq!(
+            CompileLimits::single_network_1m_v2()
+                .with_test_single_string_limit(17)
+                .identity_ascii_bytes_limit(),
+            17
+        );
     }
 
     #[test]

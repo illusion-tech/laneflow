@@ -81,7 +81,7 @@ impl SourceModuleHeader {
         validate_external_token(
             input.authoring_namespace_id,
             SourceHeaderField::AuthoringNamespaceId,
-            single_string_limit,
+            limits.identity_ascii_bytes_limit(),
             &mut diagnostics,
         );
         validate_external_token(
@@ -412,6 +412,40 @@ mod tests {
                 },
             }
         ));
+    }
+
+    #[test]
+    fn million_profile_keeps_identity_namespace_at_53_without_narrowing_metadata() {
+        let at_bound = "a".repeat(53);
+        let over_bound = "a".repeat(54);
+        let limits = CompileLimits::single_network_1m_v2();
+        let mut input = valid_input();
+        input.authoring_namespace_id = &at_bound;
+        input.provenance = &over_bound;
+        assert!(SourceModuleHeader::new(input, &limits).is_ok());
+
+        input.authoring_namespace_id = &over_bound;
+        let bundle = match SourceModuleHeader::new(input, &limits) {
+            Ok(_) => panic!("over-limit identity namespace must fail"),
+            Err(bundle) => bundle,
+        };
+        assert!(bundle.diagnostics().iter().any(|diagnostic| matches!(
+            diagnostic.payload(),
+            DiagnosticPayload::InvalidSourceHeaderField {
+                field: SourceHeaderField::AuthoringNamespaceId,
+                violation: SourceTextViolation::TooLong {
+                    limit: 53,
+                    observed: 54,
+                },
+            }
+        )));
+        assert!(!bundle.diagnostics().iter().any(|diagnostic| matches!(
+            diagnostic.payload(),
+            DiagnosticPayload::InvalidSourceHeaderField {
+                field: SourceHeaderField::Provenance,
+                ..
+            }
+        )));
     }
 
     #[test]

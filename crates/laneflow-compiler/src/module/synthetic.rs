@@ -202,10 +202,9 @@ impl SyntheticModuleBuilder {
         stable_key: &str,
         span: &SourceSpan,
     ) -> Result<(), DiagnosticBundle> {
-        if let Some(violation) = external_token_violation(
-            stable_key,
-            self.limits.value(CompileLimitDimension::SingleStringBytes),
-        ) {
+        if let Some(violation) =
+            external_token_violation(stable_key, self.limits.identity_ascii_bytes_limit())
+        {
             return Err(DiagnosticBundle::single(
                 Diagnostic::invalid_declaration_key(entity_kind, violation, span.clone()),
             ));
@@ -267,10 +266,9 @@ impl SyntheticModuleBuilder {
         value: &str,
         span: &SourceSpan,
     ) -> Result<(), DiagnosticBundle> {
-        if let Some(violation) = external_token_violation(
-            value,
-            self.limits.value(CompileLimitDimension::SingleStringBytes),
-        ) {
+        if let Some(violation) =
+            external_token_violation(value, self.limits.identity_ascii_bytes_limit())
+        {
             return Err(DiagnosticBundle::single(
                 Diagnostic::invalid_identity_ascii_field(
                     entity_kind,
@@ -291,10 +289,8 @@ impl SyntheticModuleBuilder {
         span: &SourceSpan,
     ) -> Result<(), DiagnosticBundle> {
         if let Some(namespace) = reference.module_namespace()
-            && let Some(violation) = external_token_violation(
-                namespace,
-                self.limits.value(CompileLimitDimension::SingleStringBytes),
-            )
+            && let Some(violation) =
+                external_token_violation(namespace, self.limits.identity_ascii_bytes_limit())
         {
             return Err(DiagnosticBundle::single(
                 Diagnostic::invalid_reference_namespace(violation, span.clone()),
@@ -303,7 +299,7 @@ impl SyntheticModuleBuilder {
         self.reference_namespace(reference.module_namespace(), span)?;
         if let Some(violation) = external_token_violation(
             reference.declaration_key(),
-            self.limits.value(CompileLimitDimension::SingleStringBytes),
+            self.limits.identity_ascii_bytes_limit(),
         ) {
             return Err(DiagnosticBundle::single(Diagnostic::invalid_reference_key(
                 target_kind,
@@ -460,8 +456,8 @@ impl SyntheticModuleBuilder {
             Arc::clone(&self.header.source_document_key),
             std::panic::Location::caller(),
         );
-        let single_string_limit = self.limits.value(CompileLimitDimension::SingleStringBytes);
-        if let Some(violation) = external_token_violation(namespace, single_string_limit) {
+        let identity_ascii_limit = self.limits.identity_ascii_bytes_limit();
+        if let Some(violation) = external_token_violation(namespace, identity_ascii_limit) {
             return Err(DiagnosticBundle::single(
                 Diagnostic::invalid_import_namespace(violation, span),
             ));
@@ -616,8 +612,8 @@ impl SyntheticModuleBuilder {
         input: LaneEdgeInput<'_>,
         span: SourceSpan,
     ) -> Result<&mut Self, DiagnosticBundle> {
-        let single_string_limit = self.limits.value(CompileLimitDimension::SingleStringBytes);
-        if let Some(violation) = external_token_violation(input.lane_edge_key, single_string_limit)
+        let identity_ascii_limit = self.limits.identity_ascii_bytes_limit();
+        if let Some(violation) = external_token_violation(input.lane_edge_key, identity_ascii_limit)
         {
             return Err(DiagnosticBundle::single(
                 Diagnostic::invalid_declaration_key(EntityKind::LaneEdge, violation, span),
@@ -706,7 +702,7 @@ impl SyntheticModuleBuilder {
         let mut declaration_source_bytes = lane_edge_declaration_base_len(input.lane_edge_key);
         for successor in input.successors {
             if let Some(namespace) = successor.module_namespace()
-                && let Some(violation) = external_token_violation(namespace, single_string_limit)
+                && let Some(violation) = external_token_violation(namespace, identity_ascii_limit)
             {
                 return Err(DiagnosticBundle::single(
                     Diagnostic::invalid_reference_namespace(violation, span.clone()),
@@ -714,7 +710,7 @@ impl SyntheticModuleBuilder {
             }
             let namespace = self.reference_namespace(successor.module_namespace(), &span)?;
             if let Some(violation) =
-                external_token_violation(successor.declaration_key(), single_string_limit)
+                external_token_violation(successor.declaration_key(), identity_ascii_limit)
             {
                 return Err(DiagnosticBundle::single(Diagnostic::invalid_reference_key(
                     EntityKind::LaneEdge,
