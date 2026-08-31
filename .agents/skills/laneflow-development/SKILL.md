@@ -77,7 +77,7 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 
 ## 规则
 
-- 1.0 正式发布前遵守 `.agents/skills/laneflow-pre-1.0/SKILL.md`。
+- 1.0 正式发布前遵守 `.agents/skills/laneflow-pre-1-0/SKILL.md`。
 - 不要把引擎相关依赖引入当前 Core 或目标 Traffic Runtime。
 - 可运行世界使用中文规范名“LaneFlow 交通运行时”及精确标识符
   `laneflow-runtime` / `TrafficWorld`。`laneflow-core` / `CoreWorld` 与 current

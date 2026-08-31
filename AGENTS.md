@@ -17,7 +17,7 @@ LaneFlow 采用单一事实源管理 Agent 工作流。
 - `.agents/skills/laneflow-development/SKILL.md`
 - `.agents/skills/laneflow-core-design/SKILL.md`
 - `.agents/skills/laneflow-adapter/SKILL.md`
-- `.agents/skills/laneflow-pre-1.0/SKILL.md`（1.0 前：一套权威，不为弯路堆兼容）
+- `.agents/skills/laneflow-pre-1-0/SKILL.md`（1.0 前：一套权威，不为弯路堆兼容）
 
 不要在工具专用说明文件中重复长期项目规则。`.cursor/skills/` 等工具入口应保持薄包装，并转读 `.agents/` 与 `docs/`。
 

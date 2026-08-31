@@ -74,7 +74,7 @@ exact head 重新取得审阅；不得沿用旧 head 的设计结论。
 
 **1.0 正式发布前**：G1 冻的是当前权威，不是对外兼容承诺。若设计字面会逼出并行实现
 或兼容层，改写 ADR/design 并只留一套。态度见
-`.agents/skills/laneflow-pre-1.0/SKILL.md`。1.0 之后的对外兼容必须单开 G1。
+`.agents/skills/laneflow-pre-1-0/SKILL.md`。1.0 之后的对外兼容必须单开 G1。
 
 Project 的 `Design gate` 使用 `N/A`、`Required`、`Accepted`。`Required` 表示尚未完成
 设计冻结，不能进入 `Ready`；`Accepted` 必须能链接到本节允许的设计证据。

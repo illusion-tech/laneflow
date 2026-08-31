@@ -22,7 +22,7 @@
 - `skills/laneflow-adapter/SKILL.md`：Unity、Unreal、Godot、O3DE、Web 等引擎适配器
   （Engine Adapter）开发及当前态核心（Current Core）→目标态交通运行时（Target
   Traffic Runtime）迁移边界。
-- `skills/laneflow-pre-1.0/SKILL.md`：1.0 前的开发态度。当前树只留一套权威，不为
+- `skills/laneflow-pre-1-0/SKILL.md`：1.0 前的开发态度。当前树只留一套权威，不为
   弯路堆兼容；G1/ADR 可改写。发布后失效。
 
 ## 使用方式

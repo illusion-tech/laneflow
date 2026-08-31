@@ -104,7 +104,7 @@ AI Agent 不应：
 - 用“测试未运行”结束而不说明原因。
 - 为了兼容未发布的分支变更叠加无意义 shim。
 - 1.0 前为开发弯路保留并行实现或兼容层（见
-  `.agents/skills/laneflow-pre-1.0/SKILL.md`）。
+  `.agents/skills/laneflow-pre-1-0/SKILL.md`）。
 - 把 GitHub 评论当成合并门禁输入，或手写 G3 / G4 档案。
 
 ## 10. PR 交付说明要求
