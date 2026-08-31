@@ -230,6 +230,8 @@ pub enum DiagnosticCode {
     InvalidParkingSpaceGeometry,
     /// 停车设施的虚拟容量与入口/出口集合不匹配。
     InvalidParkingFacilityVirtualPool,
+    /// 同一停车设施的同一虚拟锚点角色包含重复的规范车道位置。
+    DuplicateParkingFacilityVirtualAnchor,
     /// 停车设施既没有显式泊位成员，也没有虚拟容量。
     OrphanParkingFacility,
     /// 参与者类别的单继承链形成循环。
@@ -343,6 +345,9 @@ impl DiagnosticCode {
             Self::InvalidParkingAnchorProgress => "LF-COMP-PARKING-ANCHOR-PROGRESS",
             Self::InvalidParkingSpaceGeometry => "LF-COMP-PARKING-SPACE-GEOMETRY",
             Self::InvalidParkingFacilityVirtualPool => "LF-COMP-PARKING-FACILITY-VIRTUAL-POOL",
+            Self::DuplicateParkingFacilityVirtualAnchor => {
+                "LF-COMP-DUPLICATE-PARKING-VIRTUAL-ANCHOR"
+            }
             Self::OrphanParkingFacility => "LF-COMP-ORPHAN-PARKING-FACILITY",
             Self::ParticipantClassInheritanceCycle => "LF-COMP-PARTICIPANT-CLASS-CYCLE",
             Self::InvalidVehicleProfileValue => "LF-COMP-VEHICLE-PROFILE-VALUE",
@@ -378,6 +383,8 @@ pub enum RoadEditingInputViolation {
     InvalidReferenceDepth { expected: u8, actual: u8 },
     /// 语义要求非空的集合没有成员。
     EmptyCollection,
+    /// 单个语义集合超过其固定产品上限。
+    CollectionTooLarge { maximum: u64, actual: u64 },
     /// 唯一集合或所有者向量中出现重复值。
     DuplicateValue,
     /// 浮点字段是 NaN 或正负无穷。
@@ -627,6 +634,10 @@ impl SpatialAxis {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum ConflictZoneRegionViolation {
+    PointCountExceeded {
+        maximum: u32,
+        actual: u32,
+    },
     NonFiniteAuthoringCoordinate {
         point_index: u32,
         axis: SpatialAxis,
@@ -1186,6 +1197,13 @@ pub enum DiagnosticPayload {
         virtual_capacity: u32,
         virtual_entry_count: u64,
         virtual_exit_count: u64,
+    },
+    /// 同一虚拟入口或出口角色内重复的规范车道位置。
+    DuplicateParkingFacilityVirtualAnchor {
+        parking_facility_key: Box<str>,
+        role: ParkingAnchorRole,
+        lane_edge_stable_id: StableId128,
+        progress_mm: u32,
     },
     /// 总容量为零的停车设施。
     OrphanParkingFacility {
@@ -2758,6 +2776,27 @@ impl Diagnostic {
         )
     }
 
+    pub(crate) fn duplicate_parking_facility_virtual_anchor(
+        parking_facility_key: &str,
+        role: ParkingAnchorRole,
+        lane_edge_stable_id: StableId128,
+        progress_mm: u32,
+        primary_span: impl Into<SourceLocation>,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DuplicateParkingFacilityVirtualAnchor,
+            DiagnosticPayload::DuplicateParkingFacilityVirtualAnchor {
+                parking_facility_key: parking_facility_key.into(),
+                role,
+                lane_edge_stable_id,
+                progress_mm,
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(parking_facility_key.into()),
+        )
+    }
+
     pub(crate) fn participant_class_inheritance_cycle(
         participant_class_key: &str,
         primary_span: impl Into<SourceLocation>,
@@ -3640,6 +3679,16 @@ impl fmt::Display for Diagnostic {
                 formatter,
                 "停车设施 {parking_facility_key} 的虚拟池非法：virtualCapacity={virtual_capacity}，入口 {virtual_entry_count} 个，出口 {virtual_exit_count} 个；容量为零时两组必须为空，容量非零时两组都必须非空"
             ),
+            DiagnosticPayload::DuplicateParkingFacilityVirtualAnchor {
+                parking_facility_key,
+                role,
+                lane_edge_stable_id,
+                progress_mm,
+            } => write!(
+                formatter,
+                "停车设施 {parking_facility_key} 的 {} 集合重复包含车道图边 {lane_edge_stable_id:x} 上的 {progress_mm} mm 锚点",
+                role.as_str(),
+            ),
             DiagnosticPayload::OrphanParkingFacility {
                 parking_facility_key,
             } => {
@@ -3940,6 +3989,10 @@ impl fmt::Display for SpatialGeometryViolationDisplay {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             SpatialGeometryViolation::InvalidConflictZoneRegion(violation) => match violation {
+                ConflictZoneRegionViolation::PointCountExceeded { maximum, actual } => write!(
+                    formatter,
+                    "冲突区 region 的 ring 有 {actual} 个点，最多允许 {maximum} 个"
+                ),
                 ConflictZoneRegionViolation::NonFiniteAuthoringCoordinate {
                     point_index,
                     axis,

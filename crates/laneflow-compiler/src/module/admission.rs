@@ -261,6 +261,21 @@ impl TestOfficialModule {
         }
     }
 
+    pub(super) fn move_first_parking_virtual_anchor_span_to(&mut self, source_document_key: &str) {
+        let declaration = self
+            .admitted
+            .typed_ast
+            .declarations
+            .iter_mut()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::ParkingFacility(declaration) => Some(declaration),
+                _ => None,
+            })
+            .expect("test wrapper expected one ParkingFacility declaration");
+        declaration.virtual_entries[0].lane_edge.span =
+            SourceSpan::point(Arc::from(source_document_key), 47, 11).into();
+    }
+
     pub(super) fn move_signal_relation_spans_to(
         &mut self,
         controller_group_document: &str,

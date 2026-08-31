@@ -120,6 +120,7 @@ pub(crate) struct LirConflictCounts {
     pub(crate) streams: u64,
     pub(crate) passages: u64,
     pub(crate) zone_streams: u64,
+    pub(crate) max_zone_streams: u64,
 }
 
 pub(crate) struct LirSpatialCounts {
@@ -200,6 +201,12 @@ impl LirFreezePlan {
             streams: mir_len(mir.participant_streams.len()),
             passages: mir_len(mir.conflict_passages.len()),
             zone_streams: mir_len(mir.conflict_zone_streams.len()),
+            max_zone_streams: mir
+                .conflict_zones
+                .iter()
+                .map(|zone| u64::from(zone.participant_streams.len()))
+                .max()
+                .unwrap_or(0),
         };
         let spatial = LirSpatialCounts {
             canonical_frames: mir_len(mir.canonical_frames.len()),
@@ -257,6 +264,8 @@ impl LirFreezePlan {
             parking.areas,
             parking.spaces,
             parking.memberships,
+            parking.virtual_entries,
+            parking.virtual_exits,
             access.participant_classes,
             access.vehicle_profiles,
             spatial.canonical_frames,
@@ -378,6 +387,16 @@ impl LirFreezePlan {
             ))
             .saturating_add(requested_bytes::<ArenaKey<MirConflictPassage>>(
                 conflict.passages,
+            ))
+            // zone→stream 反向闭包只在冻结时证明 MIR 没有丢失 passage authority：外层
+            // Vec、各 zone 精确容量的成员表，以及复用的单-zone 对照缓冲都属于 scratch。
+            .saturating_add(requested_bytes::<Vec<ParticipantStreamOrdinal>>(
+                conflict.zones,
+            ))
+            .saturating_add(requested_bytes::<ParticipantStreamOrdinal>(
+                conflict
+                    .zone_streams
+                    .saturating_add(conflict.max_zone_streams),
             ))
             .saturating_add(requested_bytes::<ArenaKey<MirLaneEdgeConnection>>(
                 successor_count,
@@ -704,9 +723,6 @@ impl LirFreezePlan {
             .saturating_add(requested_bytes::<LirConflictZone>(conflict.zones))
             .saturating_add(requested_bytes::<LirParticipantStream>(conflict.streams))
             .saturating_add(requested_bytes::<LirConflictPassage>(conflict.passages))
-            .saturating_add(requested_bytes::<ParticipantStreamOrdinal>(
-                conflict.zone_streams,
-            ))
             .saturating_add(requested_bytes::<LirParkingFacility>(parking.areas))
             .saturating_add(requested_bytes::<LirParkingSpace>(parking.spaces))
             .saturating_add(requested_bytes::<ParkingSpaceOrdinal>(parking.memberships))

@@ -248,6 +248,34 @@ pub(crate) fn build_parking_hir(
                     anchor.progress_mm,
                 )
             });
+            let role = if is_entry {
+                ParkingAnchorRole::VirtualEntry
+            } else {
+                ParkingAnchorRole::VirtualExit
+            };
+            let mut last_duplicate = None;
+            for pair in destination[start..].windows(2) {
+                let first_edge = lane_edges.get(pair[0].lane_edge);
+                let duplicate_edge = lane_edges.get(pair[1].lane_edge);
+                if first_edge.stable_id == duplicate_edge.stable_id
+                    && pair[0].progress_mm == pair[1].progress_mm
+                {
+                    let duplicate = (duplicate_edge.stable_id.into_untyped(), pair[1].progress_mm);
+                    if last_duplicate == Some(duplicate) {
+                        continue;
+                    }
+                    last_duplicate = Some(duplicate);
+                    let mut diagnostic = Diagnostic::duplicate_parking_facility_virtual_anchor(
+                        &source.header.stable_key,
+                        role,
+                        duplicate.0,
+                        duplicate.1,
+                        source.header.span.clone(),
+                    );
+                    diagnostic.set_canonical_module_order(location.source_module_index);
+                    diagnostics.push(diagnostic);
+                }
+            }
             let count = destination.len().saturating_sub(start);
             let range = TableRange::try_from_usize(start, count).map_err(|overflow| {
                 arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))

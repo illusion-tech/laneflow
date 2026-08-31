@@ -1,7 +1,7 @@
 # 编译器基础设施与合成领域专用语言前端
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-08-30<br>
+**最后更新**: 2026-08-31<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
 Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层
@@ -897,6 +897,9 @@ owner-local conflict passages 与可选 `ConflictZoneRegion` 纳入同一确定�
 | 横断面准入     | 参与者类别（`ParticipantClass`）、准入规则（`AccessRule`）、静态继承 / 准入及当前态车辆投影                                                       | 把 `ParticipantClass` 当执行域；未实现非机动车 / 行人 / 轨道行为               |
 | 车辆配置       | 当前态既有车辆跟驰模型的 `VehicleProfile` 静态参数                                                                                                | 把车辆配置提升为所有交通执行域的公共基类                                       |
 | 空间           | 显式规范坐标框架（`CanonicalFrame`）、已量化规范 `f32` 折线、可选 `ConflictZoneRegion`、长度 / 连续性校验                                         | 曲线、高程求值、曲线细分（tessellation）和几何文档前端                         |
+
+百万级配置档的聚合几何预算不扩大单个几何原语：每个 `ConflictZoneRegion` ring 固定为
+`3..=256` 点，超限必须在 compiler-owned ring 分配和精确自交检查前失败。
 
 领域专用语言必须能表达标识登记表修订 3 的全部 **可构造** 实体种类（kind `1..=23`、
 field tag `1..=34` 连续登记）。支持“声明该实体”不表示对应交通运行时

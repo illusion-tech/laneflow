@@ -82,6 +82,12 @@ pub const CANONICAL_POINT_COMPONENT_MIN_METERS: f32 = -16_384.0;
 /// canonical frame 中点分量允许的最大值，单位为米。
 pub const CANONICAL_POINT_COMPONENT_MAX_METERS: f32 = 16_384.0;
 
+/// 单个 `ConflictZoneRegion.ringXZ` 允许的最大规范点数。
+///
+/// region 表达一个路口内的局部冲突棱柱，不是整张路网或通用 GIS 边界。该上限把精确
+/// 自交校验限制在至多 32,384 对非相邻边，同时不限制一份路网可包含的 region 数量。
+pub const MAX_CONFLICT_ZONE_REGION_RING_POINTS: u32 = 256;
+
 /// 规范中心线线段允许的最小长度，单位为米；有效线段必须严格大于该值。
 pub const SPATIAL_MIN_SEGMENT_LENGTH_METERS: f32 = 0.1;
 

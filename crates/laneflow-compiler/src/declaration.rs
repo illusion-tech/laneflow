@@ -1415,9 +1415,23 @@ impl TypedAstDeclaration {
                     }
                 }
             }
-            Self::SignalGroup(SignalGroupDeclaration { header })
-            | Self::ParkingFacility(ParkingFacilityDeclaration { header, .. }) => {
+            Self::SignalGroup(SignalGroupDeclaration { header }) => {
                 try_visit_declaration_header(header, &mut visit)?;
+            }
+            Self::ParkingFacility(ParkingFacilityDeclaration {
+                header,
+                virtual_capacity: _,
+                virtual_entries,
+                virtual_exits,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                for anchor in virtual_entries.iter().chain(virtual_exits.iter()) {
+                    let ParkingLaneAnchorDeclaration {
+                        lane_edge,
+                        progress_mm: _,
+                    } = anchor;
+                    try_visit_reference(lane_edge, &mut visit)?;
+                }
             }
             Self::Junction(JunctionDeclaration {
                 header,

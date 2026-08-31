@@ -12,10 +12,10 @@ use laneflow_format::{
 use laneflow_static_contract::{
     CANONICAL_ARTIFACT_FORMAT_VERSION, CONSTRAINT_CONTRACT_VERSION, CanonicalFrameOrdinal,
     EntityKind, FacilityBandOrdinal, IDENTITY_ENCODING_VERSION, IDENTITY_REGISTRY_REVISION,
-    JunctionOrdinal, LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal, MovementOrdinal,
-    NETWORK_REVISION_DERIVATION_VERSION, ParticipantStreamOrdinal,
-    SPATIAL_JOIN_POSITION_TOLERANCE_METERS, STATIC_EXECUTION_CONTRACT_VERSION, StableId128,
-    WaitingZoneOrdinal,
+    JunctionOrdinal, LaneEdgeOrdinal, MAX_CONFLICT_ZONE_REGION_RING_POINTS, ManeuverGateOrdinal,
+    ManeuverPathOrdinal, MovementOrdinal, NETWORK_REVISION_DERIVATION_VERSION,
+    ParticipantStreamOrdinal, SPATIAL_JOIN_POSITION_TOLERANCE_METERS,
+    STATIC_EXECUTION_CONTRACT_VERSION, StableId128, WaitingZoneOrdinal,
 };
 
 use crate::{
@@ -473,6 +473,11 @@ fn count_and_preflight(
         poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
         let ring_point_count =
             checked_record_vector(row, 5, BuildStructure::ConflictZoneRegion)?.len();
+        if ring_point_count > MAX_CONFLICT_ZONE_REGION_RING_POINTS {
+            return Err(BuildError::InputInvariant {
+                structure: BuildStructure::ConflictZoneRegion,
+            });
+        }
         conflict_region_point_count = checked_add_count(
             conflict_region_point_count,
             ring_point_count,
@@ -2961,7 +2966,7 @@ fn build_spatial(
             }
             ring.push(point);
         }
-        validate_canonical_conflict_ring(&ring)?;
+        validate_canonical_conflict_ring(&ring, options)?;
         if retain {
             let start = u32::try_from(conflict_region_points.len()).map_err(|_| {
                 BuildError::ArithmeticOverflow {
@@ -3025,13 +3030,21 @@ fn canonical_spatial_component(value: f32) -> bool {
         && (value != 0.0 || value.to_bits() == 0)
 }
 
-fn validate_canonical_conflict_ring(points: &[CanonicalPointXZ]) -> Result<(), BuildError> {
+fn validate_canonical_conflict_ring(
+    points: &[CanonicalPointXZ],
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<(), BuildError> {
     let structure = BuildStructure::ConflictZoneRegion;
-    if points.len() < 3 {
+    if points.len() < 3
+        || u32::try_from(points.len()).unwrap_or(u32::MAX) > MAX_CONFLICT_ZONE_REGION_RING_POINTS
+    {
         return Err(BuildError::InputInvariant { structure });
     }
+    let mut work_ordinal = 0_u32;
     for (index, point) in points.iter().enumerate() {
         for other in &points[..index] {
+            poll_cancelled(options, work_ordinal)?;
+            work_ordinal = work_ordinal.saturating_add(1);
             if point.x.to_bits() == other.x.to_bits() && point.z.to_bits() == other.z.to_bits() {
                 return Err(BuildError::InputInvariant { structure });
             }
@@ -3044,12 +3057,14 @@ fn validate_canonical_conflict_ring(points: &[CanonicalPointXZ]) -> Result<(), B
             .total_cmp(&first.x)
             .then_with(|| point.z.total_cmp(&first.z))
             == core::cmp::Ordering::Less
-    }) || polygon_area_sign(points)? != core::cmp::Ordering::Greater
+    }) || polygon_area_sign(points, options)? != core::cmp::Ordering::Greater
     {
         return Err(BuildError::InputInvariant { structure });
     }
     let count = points.len();
     for vertex in 0..count {
+        poll_cancelled(options, work_ordinal)?;
+        work_ordinal = work_ordinal.saturating_add(1);
         let previous = points[(vertex + count - 1) % count];
         let current = points[vertex];
         let next = points[(vertex + 1) % count];
@@ -3064,6 +3079,8 @@ fn validate_canonical_conflict_ring(points: &[CanonicalPointXZ]) -> Result<(), B
             if second_edge == first_edge + 1 || (first_edge == 0 && second_edge == count - 1) {
                 continue;
             }
+            poll_cancelled(options, work_ordinal)?;
+            work_ordinal = work_ordinal.saturating_add(1);
             if segments_intersect_xz(
                 points[first_edge],
                 points[(first_edge + 1) % count],
@@ -3077,7 +3094,10 @@ fn validate_canonical_conflict_ring(points: &[CanonicalPointXZ]) -> Result<(), B
     Ok(())
 }
 
-fn polygon_area_sign(points: &[CanonicalPointXZ]) -> Result<core::cmp::Ordering, BuildError> {
+fn polygon_area_sign(
+    points: &[CanonicalPointXZ],
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<core::cmp::Ordering, BuildError> {
     let term_count = u32::try_from(points.len())
         .map_err(|_| BuildError::ArithmeticOverflow {
             structure: BuildStructure::BuilderScratch,
@@ -3089,6 +3109,7 @@ fn polygon_area_sign(points: &[CanonicalPointXZ]) -> Result<core::cmp::Ordering,
     let mut expansion = allocate_vec(term_count, BuildStructure::BuilderScratch)?;
     let mut scratch = allocate_vec(term_count, BuildStructure::BuilderScratch)?;
     for index in 0..points.len() {
+        poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
         let left = points[index];
         let right = points[(index + 1) % points.len()];
         add_expansion_term(
@@ -3110,8 +3131,9 @@ fn orientation_xz(
     second: CanonicalPointXZ,
     third: CanonicalPointXZ,
 ) -> core::cmp::Ordering {
-    let mut expansion = Vec::new();
-    let mut scratch = Vec::new();
+    let mut expansion = [0.0_f64; 6];
+    let mut scratch = [0.0_f64; 6];
+    let mut expansion_len = 0_usize;
     for term in [
         f64::from(first.x) * f64::from(second.z),
         f64::from(second.x) * f64::from(third.z),
@@ -3120,9 +3142,37 @@ fn orientation_xz(
         -(f64::from(second.z) * f64::from(third.x)),
         -(f64::from(third.z) * f64::from(first.x)),
     ] {
-        add_expansion_term(&mut expansion, &mut scratch, term);
+        expansion_len =
+            add_bounded_expansion_term(&mut expansion, &mut scratch, expansion_len, term);
     }
-    expansion_sign(&expansion)
+    expansion_sign(&expansion[..expansion_len])
+}
+
+fn add_bounded_expansion_term<const N: usize>(
+    expansion: &mut [f64; N],
+    scratch: &mut [f64; N],
+    expansion_len: usize,
+    term: f64,
+) -> usize {
+    if term == 0.0 {
+        return expansion_len;
+    }
+    let mut scratch_len = 0_usize;
+    let mut accumulator = term;
+    for &component in &expansion[..expansion_len] {
+        let (sum, error) = two_sum(accumulator, component);
+        if error != 0.0 {
+            scratch[scratch_len] = error;
+            scratch_len += 1;
+        }
+        accumulator = sum;
+    }
+    if accumulator != 0.0 || scratch_len == 0 {
+        scratch[scratch_len] = accumulator;
+        scratch_len += 1;
+    }
+    expansion[..scratch_len].copy_from_slice(&scratch[..scratch_len]);
+    scratch_len
 }
 
 fn add_expansion_term(expansion: &mut Vec<f64>, scratch: &mut Vec<f64>, term: f64) {
@@ -3184,6 +3234,13 @@ fn segments_intersect_xz(
     second_start: CanonicalPointXZ,
     second_end: CanonicalPointXZ,
 ) -> bool {
+    if first_start.x.max(first_end.x) < second_start.x.min(second_end.x)
+        || second_start.x.max(second_end.x) < first_start.x.min(first_end.x)
+        || first_start.z.max(first_end.z) < second_start.z.min(second_end.z)
+        || second_start.z.max(second_end.z) < first_start.z.min(first_end.z)
+    {
+        return false;
+    }
     let first_second_start = orientation_xz(first_start, first_end, second_start);
     let first_second_end = orientation_xz(first_start, first_end, second_end);
     let second_first_start = orientation_xz(second_start, second_end, first_start);
@@ -3659,6 +3716,50 @@ mod tests {
         SpatialBuildOption::Omit,
         SharedNetworkBuildLimits::new(u64::MAX, u64::MAX),
     );
+
+    fn maximum_canonical_conflict_ring() -> Vec<CanonicalPointXZ> {
+        let side = i32::try_from(MAX_CONFLICT_ZONE_REGION_RING_POINTS / 4).unwrap();
+        let half = side / 2;
+        let mut points = Vec::with_capacity(MAX_CONFLICT_ZONE_REGION_RING_POINTS as usize);
+        points.extend((-half..half).map(|x| CanonicalPointXZ {
+            x: x as f32,
+            z: -half as f32,
+        }));
+        points.extend((-half..half).map(|z| CanonicalPointXZ {
+            x: half as f32,
+            z: z as f32,
+        }));
+        points.extend(((-half + 1)..=half).rev().map(|x| CanonicalPointXZ {
+            x: x as f32,
+            z: half as f32,
+        }));
+        points.extend(((-half + 1)..=half).rev().map(|z| CanonicalPointXZ {
+            x: -half as f32,
+            z: z as f32,
+        }));
+        points
+    }
+
+    #[test]
+    fn conflict_ring_accepts_the_local_region_point_ceiling() {
+        let points = maximum_canonical_conflict_ring();
+        assert_eq!(points.len(), MAX_CONFLICT_ZONE_REGION_RING_POINTS as usize);
+        validate_canonical_conflict_ring(&points, TEST_OPTIONS).unwrap();
+    }
+
+    #[test]
+    fn conflict_ring_rejects_point_ceiling_plus_one_before_pair_work() {
+        let points = vec![
+            CanonicalPointXZ { x: 0.0, z: 0.0 };
+            MAX_CONFLICT_ZONE_REGION_RING_POINTS as usize + 1
+        ];
+        assert!(matches!(
+            validate_canonical_conflict_ring(&points, TEST_OPTIONS),
+            Err(BuildError::InputInvariant {
+                structure: BuildStructure::ConflictZoneRegion,
+            })
+        ));
+    }
 
     #[test]
     fn all_six_contract_versions_must_be_supported() {

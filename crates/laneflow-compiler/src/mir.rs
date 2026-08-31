@@ -702,6 +702,8 @@ pub(crate) fn lower_to_mir(
         hir.parking_facilities.len(),
         hir.parking_spaces.len(),
         hir.parking_facility_spaces.len(),
+        hir.parking_facility_virtual_entries.len(),
+        hir.parking_facility_virtual_exits.len(),
     ]
     .into_iter()
     .fold(0_u64, |total, count| {

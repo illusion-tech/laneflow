@@ -6,9 +6,9 @@
 
 use laneflow_static_contract::{
     CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS,
-    SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS, SPATIAL_LENGTH_ABS_TOLERANCE_METERS,
-    SPATIAL_LENGTH_REL_TOLERANCE, SPATIAL_MIN_PROJECTED_UP_LENGTH,
-    SPATIAL_MIN_SEGMENT_LENGTH_METERS,
+    MAX_CONFLICT_ZONE_REGION_RING_POINTS, SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS,
+    SPATIAL_LENGTH_ABS_TOLERANCE_METERS, SPATIAL_LENGTH_REL_TOLERANCE,
+    SPATIAL_MIN_PROJECTED_UP_LENGTH, SPATIAL_MIN_SEGMENT_LENGTH_METERS,
 };
 
 use core::cmp::Ordering;
@@ -106,6 +106,15 @@ pub(crate) fn freeze_conflict_zone_region(
             minimum: 3,
             actual: u32::try_from(input.len()).unwrap_or(u32::MAX),
         });
+    }
+    let point_count = u32::try_from(input.len()).unwrap_or(u32::MAX);
+    if point_count > MAX_CONFLICT_ZONE_REGION_RING_POINTS {
+        return Err(SpatialGeometryViolation::InvalidConflictZoneRegion(
+            ConflictZoneRegionViolation::PointCountExceeded {
+                maximum: MAX_CONFLICT_ZONE_REGION_RING_POINTS,
+                actual: point_count,
+            },
+        ));
     }
     let min_y = quantize_region_component(min_y, u32::MAX, SpatialAxis::Y)?;
     let max_y = quantize_region_component(max_y, u32::MAX, SpatialAxis::Y)?;
@@ -210,23 +219,27 @@ fn same_point(left: HirCanonicalPoint2F32, right: HirCanonicalPoint2F32) -> bool
 }
 
 fn polygon_area_sign(points: &[HirCanonicalPoint2F32]) -> Ordering {
-    let mut expansion = Vec::new();
-    let mut scratch = Vec::new();
+    const MAX_AREA_EXPANSION_TERMS: usize = MAX_CONFLICT_ZONE_REGION_RING_POINTS as usize * 2;
+    let mut expansion = [0.0_f64; MAX_AREA_EXPANSION_TERMS];
+    let mut scratch = [0.0_f64; MAX_AREA_EXPANSION_TERMS];
+    let mut expansion_len = 0_usize;
     for index in 0..points.len() {
         let left = points[index];
         let right = points[(index + 1) % points.len()];
-        add_expansion_term(
+        expansion_len = add_bounded_expansion_term(
             &mut expansion,
             &mut scratch,
+            expansion_len,
             f64::from(left.x) * f64::from(right.z),
         );
-        add_expansion_term(
+        expansion_len = add_bounded_expansion_term(
             &mut expansion,
             &mut scratch,
+            expansion_len,
             -(f64::from(left.z) * f64::from(right.x)),
         );
     }
-    expansion_sign(&expansion)
+    expansion_sign(&expansion[..expansion_len])
 }
 
 fn orientation(
@@ -234,8 +247,9 @@ fn orientation(
     second: HirCanonicalPoint2F32,
     third: HirCanonicalPoint2F32,
 ) -> Ordering {
-    let mut expansion = Vec::new();
-    let mut scratch = Vec::new();
+    let mut expansion = [0.0_f64; 6];
+    let mut scratch = [0.0_f64; 6];
+    let mut expansion_len = 0_usize;
     for term in [
         f64::from(first.x) * f64::from(second.z),
         f64::from(second.x) * f64::from(third.z),
@@ -244,28 +258,37 @@ fn orientation(
         -(f64::from(second.z) * f64::from(third.x)),
         -(f64::from(third.z) * f64::from(first.x)),
     ] {
-        add_expansion_term(&mut expansion, &mut scratch, term);
+        expansion_len =
+            add_bounded_expansion_term(&mut expansion, &mut scratch, expansion_len, term);
     }
-    expansion_sign(&expansion)
+    expansion_sign(&expansion[..expansion_len])
 }
 
-fn add_expansion_term(expansion: &mut Vec<f64>, scratch: &mut Vec<f64>, term: f64) {
+fn add_bounded_expansion_term<const N: usize>(
+    expansion: &mut [f64; N],
+    scratch: &mut [f64; N],
+    expansion_len: usize,
+    term: f64,
+) -> usize {
     if term == 0.0 {
-        return;
+        return expansion_len;
     }
-    scratch.clear();
+    let mut scratch_len = 0_usize;
     let mut accumulator = term;
-    for &component in expansion.iter() {
+    for &component in &expansion[..expansion_len] {
         let (sum, error) = two_sum(accumulator, component);
         if error != 0.0 {
-            scratch.push(error);
+            scratch[scratch_len] = error;
+            scratch_len += 1;
         }
         accumulator = sum;
     }
-    if accumulator != 0.0 || scratch.is_empty() {
-        scratch.push(accumulator);
+    if accumulator != 0.0 || scratch_len == 0 {
+        scratch[scratch_len] = accumulator;
+        scratch_len += 1;
     }
-    core::mem::swap(expansion, scratch);
+    expansion[..scratch_len].copy_from_slice(&scratch[..scratch_len]);
+    scratch_len
 }
 
 fn two_sum(left: f64, right: f64) -> (f64, f64) {
@@ -350,6 +373,13 @@ fn segments_intersect(
     second_start: HirCanonicalPoint2F32,
     second_end: HirCanonicalPoint2F32,
 ) -> bool {
+    if first_start.x.max(first_end.x) < second_start.x.min(second_end.x)
+        || second_start.x.max(second_end.x) < first_start.x.min(first_end.x)
+        || first_start.z.max(first_end.z) < second_start.z.min(second_end.z)
+        || second_start.z.max(second_end.z) < first_start.z.min(first_end.z)
+    {
+        return false;
+    }
     let first_second_start = orientation(first_start, first_end, second_start);
     let first_second_end = orientation(first_start, first_end, second_end);
     let second_first_start = orientation(second_start, second_end, first_start);
@@ -558,6 +588,52 @@ const fn canonicalize_spatial_zero(value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn maximum_authoring_conflict_ring() -> Vec<AuthoringPoint2F64> {
+        let side = i32::try_from(MAX_CONFLICT_ZONE_REGION_RING_POINTS / 4).unwrap();
+        let half = side / 2;
+        let mut points = Vec::with_capacity(MAX_CONFLICT_ZONE_REGION_RING_POINTS as usize);
+        points.extend((-half..half).map(|x| AuthoringPoint2F64 {
+            x: f64::from(x),
+            z: f64::from(-half),
+        }));
+        points.extend((-half..half).map(|z| AuthoringPoint2F64 {
+            x: f64::from(half),
+            z: f64::from(z),
+        }));
+        points.extend(((-half + 1)..=half).rev().map(|x| AuthoringPoint2F64 {
+            x: f64::from(x),
+            z: f64::from(half),
+        }));
+        points.extend(((-half + 1)..=half).rev().map(|z| AuthoringPoint2F64 {
+            x: f64::from(-half),
+            z: f64::from(z),
+        }));
+        points
+    }
+
+    #[test]
+    fn conflict_region_freeze_accepts_point_ceiling_and_rejects_plus_one() {
+        let mut points = maximum_authoring_conflict_ring();
+        let mut output = Vec::new();
+        let frozen = freeze_conflict_zone_region(-1.0, 1.0, &points, &mut output)
+            .expect("point ceiling must remain usable");
+        assert_eq!(
+            frozen.point_count,
+            MAX_CONFLICT_ZONE_REGION_RING_POINTS as usize
+        );
+
+        points.push(AuthoringPoint2F64 { x: -31.5, z: -32.0 });
+        assert!(matches!(
+            freeze_conflict_zone_region(-1.0, 1.0, &points, &mut Vec::new()),
+            Err(SpatialGeometryViolation::InvalidConflictZoneRegion(
+                ConflictZoneRegionViolation::PointCountExceeded {
+                    maximum: MAX_CONFLICT_ZONE_REGION_RING_POINTS,
+                    actual,
+                }
+            )) if actual == MAX_CONFLICT_ZONE_REGION_RING_POINTS + 1
+        ));
+    }
 
     #[test]
     fn canonical_polyline_failure_restores_the_existing_point_table() {

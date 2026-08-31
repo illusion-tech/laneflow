@@ -704,7 +704,9 @@ fn lower_anchor(
             }))
         }
         PathAnchorDeclaration::EdgeBoundary { boundary_index, .. } => {
-            if usize::try_from(*boundary_index).map_or(true, |index| index > path_edges.len()) {
+            let index = usize::try_from(*boundary_index)
+                .expect("u32 path edge index fits usize on every supported target");
+            if index > path_edges.len() {
                 push_conflict_diagnostic(
                     unit,
                     module_order,
@@ -747,9 +749,8 @@ fn lower_anchor(
             progress_mm,
             ..
         } => {
-            let Ok(index) = usize::try_from(*path_edge_index) else {
-                return Ok(None);
-            };
+            let index = usize::try_from(*path_edge_index)
+                .expect("u32 path edge index fits usize on every supported target");
             let Some(path_edge) = path_edges.get(index) else {
                 push_conflict_diagnostic(
                     unit,

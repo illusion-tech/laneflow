@@ -2003,6 +2003,52 @@ fn hir_rejects_unregistered_relation_span_before_semantic_diagnostics() {
 }
 
 #[test]
+fn hir_rejects_unregistered_parking_virtual_anchor_span_before_unknown_target() {
+    let limits = CompileLimits::p100_initial_v2();
+    let mut synthetic = SyntheticModuleBuilder::new(header("city/a", "source/a"), &limits).unwrap();
+    synthetic
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "edge-exit",
+            length_meters: 12.0,
+            speed_limit_meters_per_second: 8.0,
+            successors: &[],
+        })
+        .unwrap()
+        .add_parking_facility(ParkingFacilityInput {
+            parking_facility_key: "facility-main",
+            virtual_capacity: 1,
+            virtual_entries: &[ParkingLaneAnchorInput {
+                lane_edge: LaneEdgeReference::local("missing-edge"),
+                progress_meters: 2.0,
+            }],
+            virtual_exits: &[ParkingLaneAnchorInput {
+                lane_edge: LaneEdgeReference::local("edge-exit"),
+                progress_meters: 4.0,
+            }],
+        })
+        .unwrap();
+    let mut test_module =
+        TestOfficialModule::from_synthetic_with_documents(synthetic.finish().unwrap(), &[]);
+    test_module.move_first_parking_virtual_anchor_span_to("source/missing");
+
+    let mut unit_builder = CompilationUnitBuilder::new(limits);
+    unit_builder.add_test_official_module(test_module).unwrap();
+    let diagnostics =
+        expect_diagnostics(crate::Compiler::new().compile(unit_builder.build().unwrap()));
+
+    assert_eq!(diagnostics.diagnostics().len(), 1);
+    assert!(matches!(
+        diagnostics.diagnostics()[0].payload(),
+        DiagnosticPayload::SourceDocumentOwnershipMismatch {
+            source_document_key,
+            expected_authoring_namespace_id,
+            actual_authoring_namespace_id: None,
+        } if source_document_key.as_ref() == "source/missing"
+            && expected_authoring_namespace_id.as_ref() == "city/a"
+    ));
+}
+
+#[test]
 #[ignore = "measurement-only admission benchmark; run explicitly with --release --nocapture"]
 fn benchmark_common_admission_only_reports_median_mad_and_memory() {
     use std::hint::black_box;

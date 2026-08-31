@@ -5,13 +5,13 @@ use laneflow_static_contract::{
     AccessEffect, AccessRuleKind, AuthoringLaneKind, CANONICAL_POINT_COMPONENT_MAX_METERS,
     CANONICAL_POINT_COMPONENT_MIN_METERS, CanonicalFrameKind, ConflictZoneKind, EntityKind,
     EntityKindMarker, FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind,
-    MAX_LANE_EDGE_LENGTH_MM, MAX_MIN_GAP_MM, MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_SPEED_MM_S,
-    MAX_VEHICLE_LENGTH_MM, MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S,
-    MIN_VEHICLE_LENGTH_MM, ManeuverGateKind, ManeuverPathKind, MovementKind,
-    PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, ParkingFacilityKind, ParkingSpaceKind,
-    ParticipantClassKind, ParticipantStreamKind, RoadCorridorKind, RoadSectionKind, SignalAspect,
-    SignalControllerKind, SignalGroupKind, SignalPhaseKind, StopLineKind, VehicleProfileKind,
-    WaitingZoneKind,
+    MAX_CONFLICT_ZONE_REGION_RING_POINTS, MAX_LANE_EDGE_LENGTH_MM, MAX_MIN_GAP_MM,
+    MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_SPEED_MM_S, MAX_VEHICLE_LENGTH_MM,
+    MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S, MIN_VEHICLE_LENGTH_MM, ManeuverGateKind,
+    ManeuverPathKind, MovementKind, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, ParkingFacilityKind,
+    ParkingSpaceKind, ParticipantClassKind, ParticipantStreamKind, RoadCorridorKind,
+    RoadSectionKind, SignalAspect, SignalControllerKind, SignalGroupKind, SignalPhaseKind,
+    StopLineKind, VehicleProfileKind, WaitingZoneKind,
 };
 
 use super::rules::{
@@ -2323,6 +2323,16 @@ impl ConflictZoneRegionInput {
                 RoadEditingInputViolation::InvalidCombination,
             ));
         }
+        let point_count = u64::try_from(ring_xz.len()).unwrap_or(u64::MAX);
+        if point_count > u64::from(MAX_CONFLICT_ZONE_REGION_RING_POINTS) {
+            return Err(input_error(
+                "conflictZoneRegion.ringXZ",
+                RoadEditingInputViolation::CollectionTooLarge {
+                    maximum: u64::from(MAX_CONFLICT_ZONE_REGION_RING_POINTS),
+                    actual: point_count,
+                },
+            ));
+        }
         Ok(Self {
             conflict_zone,
             canonical_frame,
@@ -2866,5 +2876,34 @@ mod tests {
         assert_eq!(regulation.jurisdiction(), "中国");
         assert_eq!(regulation.version(), "二〇二六");
         assert_eq!(regulation.source(), Some("法规库"));
+    }
+
+    #[test]
+    fn conflict_region_rejects_point_ceiling_plus_one_at_first_party_input() {
+        let points = vec![
+            RoadEditingPoint2::try_new(0.0, 0.0).unwrap();
+            MAX_CONFLICT_ZONE_REGION_RING_POINTS as usize + 1
+        ];
+        let error = ConflictZoneRegionInput::try_new(
+            ConflictZoneReference::owner_scoped(vec!["junction".into()], "zone").unwrap(),
+            CanonicalFrameReference::local("frame").unwrap(),
+            -1.0,
+            1.0,
+            points,
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error.diagnostics()[0].payload(),
+            crate::DiagnosticPayload::InvalidRoadEditingInput {
+                field,
+                violation: RoadEditingInputViolation::CollectionTooLarge {
+                    maximum,
+                    actual,
+                },
+            } if field.as_ref() == "conflictZoneRegion.ringXZ"
+                && *maximum == u64::from(MAX_CONFLICT_ZONE_REGION_RING_POINTS)
+                && *actual == u64::from(MAX_CONFLICT_ZONE_REGION_RING_POINTS) + 1
+        ));
     }
 }

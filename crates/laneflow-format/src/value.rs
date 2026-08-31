@@ -12,11 +12,12 @@ use laneflow_static_contract::{
     CANONICAL_ARTIFACT_FORMAT_VERSION, CONSTRAINT_CONTRACT_VERSION, EntityKind,
     FORMAT_HARD_MAX_FIELDS_PER_ROW, FieldEncoding, FieldTag, HEADING_MINUS_PI_F32_BITS,
     HEADING_PLUS_PI_F32_BITS, IDENTITY_REGISTRY_REVISION, MAX_ACCEL_METERS_PER_SECOND_SQUARED,
-    MAX_LANE_EDGE_LENGTH_MM, MAX_MIN_GAP_MM, MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_SPEED_MM_S,
-    MAX_TIME_HEADWAY_SECONDS, MAX_VEHICLE_LENGTH_MM, MIN_ACCEL_METERS_PER_SECOND_SQUARED,
-    MIN_LANE_EDGE_LENGTH_MM, MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S,
-    MIN_VEHICLE_LENGTH_MM, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, PortableObjectKind,
-    PortableTableSchema, SOURCE_MAP_FORMAT_VERSION, STATIC_EXECUTION_CONTRACT_VERSION,
+    MAX_CONFLICT_ZONE_REGION_RING_POINTS, MAX_LANE_EDGE_LENGTH_MM, MAX_MIN_GAP_MM,
+    MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_SPEED_MM_S, MAX_TIME_HEADWAY_SECONDS,
+    MAX_VEHICLE_LENGTH_MM, MIN_ACCEL_METERS_PER_SECOND_SQUARED, MIN_LANE_EDGE_LENGTH_MM,
+    MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S, MIN_VEHICLE_LENGTH_MM,
+    PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, PortableObjectKind, PortableTableSchema,
+    SOURCE_MAP_FORMAT_VERSION, STATIC_EXECUTION_CONTRACT_VERSION,
 };
 
 use crate::{
@@ -177,6 +178,7 @@ enum SemanticDiffBaseKind {
     Artifact,
 }
 
+#[derive(Default)]
 struct DirectBindings {
     lfca_spatial_present: Option<u8>,
     lfca_direction_profile: Option<u8>,
@@ -187,24 +189,6 @@ struct DirectBindings {
     lfsd_base_kind: Option<SemanticDiffBaseKind>,
     lfcp_artifact_digest: Option<[u8; 32]>,
     lfcp_source_map_digest: Option<[u8; 32]>,
-    contract_format: u16,
-}
-
-impl Default for DirectBindings {
-    fn default() -> Self {
-        Self {
-            lfca_spatial_present: None,
-            lfca_direction_profile: None,
-            lfca_has_canonical_frame: false,
-            lfca_has_lane_edge_geometry: false,
-            lfca_has_facility_band_geometry: false,
-            lfca_has_conflict_zone_region: false,
-            lfsd_base_kind: None,
-            lfcp_artifact_digest: None,
-            lfcp_source_map_digest: None,
-            contract_format: 1,
-        }
-    }
 }
 
 fn validate_object_values(
@@ -212,10 +196,7 @@ fn validate_object_values(
     limits: FormatLimits,
 ) -> Result<(), FormatError> {
     let object_schema = view.schema();
-    let mut bindings = DirectBindings {
-        contract_format: view.contract_format(),
-        ..DirectBindings::default()
-    };
+    let mut bindings = DirectBindings::default();
     for (section_index, section_schema) in object_schema.sections.iter().enumerate() {
         let ordinal =
             u32::try_from(section_index).map_err(|_| FormatError::ArithmeticOverflow {
@@ -460,7 +441,7 @@ fn validate_lfca_row(
     }
     match (section, table) {
         (1, 1) => {
-            require_exact_u16(row.required(1)?, bindings.contract_format)?;
+            require_exact_u16(row.required(1)?, CANONICAL_ARTIFACT_FORMAT_VERSION)?;
             require_exact_u16(row.required(2)?, 1)?;
             require_exact_u16(row.required(3)?, IDENTITY_REGISTRY_REVISION)?;
             require_exact_u16(row.required(4)?, 1)?;
@@ -863,14 +844,16 @@ fn validate_conflict_zone_region(row: RowRef<'_>) -> Result<(), FormatError> {
     if min_y >= max_y {
         return Err(row_binding_mismatch());
     }
-    let count = visit_record_rows(row.required(5)?, |point| {
+    let ring = row.required(5)?;
+    let count = vector_count(ring, FormatStructure::RecordVector)?;
+    if !(3..=MAX_CONFLICT_ZONE_REGION_RING_POINTS).contains(&count) {
+        return Err(row_binding_mismatch());
+    }
+    visit_record_rows(ring, |point| {
         require_canonical_spatial_coordinate(point.required(1)?)?;
         require_canonical_spatial_coordinate(point.required(2)?)?;
         Ok(())
     })?;
-    if count < 3 {
-        return Err(row_binding_mismatch());
-    }
     Ok(())
 }
 
@@ -2682,6 +2665,7 @@ mod tests {
             &[point(0.0, 0.0), point(1.0, 0.0), point(0.0, 1.0)],
         )))
         .unwrap();
+        let too_many = vec![point(0.0, 0.0); MAX_CONFLICT_ZONE_REGION_RING_POINTS as usize + 1];
         for invalid in [
             region(
                 1.0,
@@ -2699,6 +2683,7 @@ mod tests {
                 1.0,
                 &[point(16_385.0, 0.0), point(1.0, 0.0), point(0.0, 1.0)],
             ),
+            region(0.0, 1.0, &too_many),
         ] {
             assert!(validate_conflict_zone_region(parse_test_row(&invalid)).is_err());
         }

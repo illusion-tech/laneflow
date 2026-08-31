@@ -1191,7 +1191,8 @@ pub(crate) fn freeze_source_map(
                     owner_ordinal: frozen_lir.parking_facilities.ordinal(mir_key),
                     owner_stable_id: area.stable_id,
                     role,
-                    local_index: u32::try_from(local_index).unwrap_or(u32::MAX),
+                    local_index: u32::try_from(local_index)
+                        .expect("MIR relation range precheck proved local index fits u32"),
                     primary: location.record(anchor.source_location.clone()),
                 });
             }
