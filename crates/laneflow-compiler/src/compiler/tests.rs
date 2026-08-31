@@ -1017,6 +1017,40 @@ fn parking_module(document: &str, area_key: &str, permuted: bool) -> SyntheticMo
     builder.finish().unwrap()
 }
 
+fn parking_module_with_virtual_anchors(document: &str, area_key: &str) -> SyntheticModule {
+    let mut builder = parking_builder(document);
+    add_parking_edges(&mut builder);
+    builder
+        .add_parking_facility(ParkingFacilityInput {
+            parking_facility_key: area_key,
+            virtual_capacity: 1,
+            virtual_entries: &[
+                ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("parking-entry"),
+                    progress_meters: 4.0,
+                },
+                ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("parking-entry"),
+                    progress_meters: 5.0,
+                },
+            ],
+            virtual_exits: &[
+                ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("parking-exit"),
+                    progress_meters: 6.0,
+                },
+                ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("parking-exit"),
+                    progress_meters: 7.0,
+                },
+            ],
+        })
+        .unwrap();
+    add_parking_space(&mut builder, "space-owned", Some(area_key));
+    add_parking_space(&mut builder, "space-independent", None);
+    builder.finish().unwrap()
+}
+
 fn edge_key(edge: CanonicalLaneEdgeView<'_>) -> String {
     edge.identity_fields()
         .find(|field| field.tag() == FieldTag::LaneEdgeKey)
@@ -3255,6 +3289,101 @@ fn parking_static_contract_freezes_area_standalone_space_and_source_roles() {
 }
 
 #[test]
+fn parking_virtual_anchors_are_records_in_both_mir_and_lir_limits() {
+    let baseline = unit([parking_module(
+        "parking-count-base.document",
+        "area-main",
+        false,
+    )]);
+    let mut with_virtual = unit([parking_module_with_virtual_anchors(
+        "parking-count-virtual.document",
+        "area-main",
+    )]);
+    let baseline_hir = build_hir(&baseline).unwrap();
+    let with_virtual_hir = build_hir(&with_virtual).unwrap();
+    let baseline_mir = lower_to_mir(&baseline, &baseline_hir).unwrap();
+    let with_virtual_mir = lower_to_mir(&with_virtual, &with_virtual_hir).unwrap();
+
+    assert_eq!(
+        with_virtual_mir.mir_record_count,
+        baseline_mir.mir_record_count + 4
+    );
+    assert_eq!(with_virtual_mir.parking_facility_virtual_entries.len(), 2);
+    assert_eq!(with_virtual_mir.parking_facility_virtual_exits.len(), 2);
+
+    let baseline_lir = freeze_lir(&baseline, &baseline_mir).unwrap().lir;
+    let with_virtual_lir = freeze_lir(&with_virtual, &with_virtual_mir).unwrap().lir;
+    assert_eq!(
+        with_virtual_lir.lir_record_count,
+        baseline_lir.lir_record_count + 4
+    );
+    assert_eq!(with_virtual_lir.parking_facility_virtual_entries.len(), 2);
+    assert_eq!(with_virtual_lir.parking_facility_virtual_exits.len(), 2);
+
+    let mir_limit = u32::try_from(baseline_mir.mir_record_count).expect("small fixture");
+    with_virtual.limits = CompileLimits::p100_initial_v1().with_test_pipeline_limits(
+        u32::MAX,
+        mir_limit,
+        u32::MAX,
+        u32::MAX,
+    );
+    let mir_failure = match lower_to_mir(&with_virtual, &with_virtual_hir) {
+        Ok(_) => panic!("virtual anchors must consume the MIR record limit"),
+        Err(diagnostics) => diagnostics,
+    };
+    assert!(mir_failure.diagnostics().iter().any(|diagnostic| matches!(
+        diagnostic.payload(),
+        DiagnosticPayload::CompileLimitExceeded {
+            dimension: CompileLimitDimension::MirRecordCount,
+            limit,
+            observed,
+        } if *limit == baseline_mir.mir_record_count
+            && *observed == with_virtual_mir.mir_record_count
+    )));
+
+    let lir_limit = u32::try_from(baseline_lir.lir_record_count).expect("small fixture");
+    with_virtual.limits = CompileLimits::p100_initial_v1().with_test_lir_limits(
+        lir_limit,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+    );
+    let lir_failure = match freeze_lir(&with_virtual, &with_virtual_mir) {
+        Ok(_) => panic!("virtual anchors must consume the LIR record limit"),
+        Err(diagnostics) => diagnostics,
+    };
+    assert!(lir_failure.diagnostics().iter().any(|diagnostic| matches!(
+        diagnostic.payload(),
+        DiagnosticPayload::CompileLimitExceeded {
+            dimension: CompileLimitDimension::LirRecordCount,
+            limit,
+            observed,
+        } if *limit == baseline_lir.lir_record_count
+            && *observed == with_virtual_lir.lir_record_count
+    )));
+
+    let output = Compiler::new()
+        .compile(unit([parking_module_with_virtual_anchors(
+            "parking-count-source-map.document",
+            "area-main",
+        )]))
+        .unwrap();
+    assert_eq!(
+        output
+            .source_map_input()
+            .parking_facility_relation_sources()
+            .map(|source| (source.role(), source.local_index()))
+            .collect::<Vec<_>>(),
+        [
+            (SourceRelationRole::ParkingFacilityVirtualEntry, 0),
+            (SourceRelationRole::ParkingFacilityVirtualEntry, 1),
+            (SourceRelationRole::ParkingFacilityVirtualExit, 0),
+            (SourceRelationRole::ParkingFacilityVirtualExit, 1),
+        ]
+    );
+}
+
+#[test]
 fn parking_identity_and_digest_obey_set_and_organizational_semantics() {
     let first = Compiler::new()
         .compile(unit([parking_module(
@@ -3397,6 +3526,37 @@ fn parking_validation_rejects_orphan_anchor_and_geometry_failures() {
         2
     );
     assert!(!codes.contains(&DiagnosticCode::OrphanParkingFacility));
+}
+
+#[test]
+fn parking_validation_rejects_virtual_anchors_that_quantize_to_the_same_position() {
+    let mut builder = parking_builder("parking-duplicate-virtual-anchor.document");
+    add_parking_edges(&mut builder);
+    builder
+        .add_parking_facility(ParkingFacilityInput {
+            parking_facility_key: "area-main",
+            virtual_capacity: 1,
+            virtual_entries: &[
+                ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("parking-entry"),
+                    progress_meters: 4.000_1,
+                },
+                ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("parking-entry"),
+                    progress_meters: 4.000_2,
+                },
+            ],
+            virtual_exits: &[ParkingLaneAnchorInput {
+                lane_edge: LaneEdgeReference::local("parking-exit"),
+                progress_meters: 6.0,
+            }],
+        })
+        .unwrap();
+
+    assert_eq!(
+        compile_diagnostic_codes(builder),
+        [DiagnosticCode::DuplicateParkingFacilityVirtualAnchor]
+    );
 }
 
 #[test]

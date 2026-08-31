@@ -1,9 +1,9 @@
 //! 完整对象的附录 A registry 结构预检。
 
 use laneflow_static_contract::{
-    CANONICAL_ARTIFACT_FORMAT_VERSION, CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH, PortableFieldSchema,
-    PortableFieldType, PortableObjectKind, PortableObjectSchema, PortableRowCardinality,
-    PortableRowSchema, PortableSectionSchema, PortableTableSchema, Sha256Digest, StableId128,
+    CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH, PortableFieldSchema, PortableFieldType,
+    PortableObjectKind, PortableObjectSchema, PortableRowCardinality, PortableRowSchema,
+    PortableSectionSchema, PortableTableSchema, Sha256Digest, StableId128,
     TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH, portable_object_schema,
 };
 use sha2::{Digest, Sha256};
@@ -12,6 +12,7 @@ use crate::{
     FormatError, FormatLimits, FormatStructure, LimitDimension, ObjectFramingView,
     SectionFramingView,
     framing::ObjectFramingProof,
+    limits::{CanonicalChunkMetrics, canonical_chunk_with_appended_row},
     table::{PreflightBudget, preflight_table_with_registry},
     wire::{checked_slice, read_u8, read_u16, read_u32, read_u64},
 };
@@ -30,7 +31,6 @@ pub struct RegistryCheckedObjectView<'a> {
     framing: ObjectFramingView<'a>,
     limits: FormatLimits,
     schema: &'static PortableObjectSchema,
-    contract_format: u16,
 }
 
 /// 成功 registry 预检后可对同一不可变 backing 做 O(1) 重借用的 crate-private 证明。
@@ -39,7 +39,6 @@ pub(crate) struct RegistryCheckProof {
     framing: ObjectFramingProof,
     limits: FormatLimits,
     schema: &'static PortableObjectSchema,
-    contract_format: u16,
 }
 
 impl<'a> RegistryCheckedObjectView<'a> {
@@ -48,7 +47,6 @@ impl<'a> RegistryCheckedObjectView<'a> {
             framing: self.framing.proof(),
             limits: self.limits,
             schema: self.schema,
-            contract_format: self.contract_format,
         }
     }
 
@@ -70,10 +68,6 @@ impl<'a> RegistryCheckedObjectView<'a> {
 
     pub(crate) const fn schema(self) -> &'static PortableObjectSchema {
         self.schema
-    }
-
-    pub(crate) const fn contract_format(self) -> u16 {
-        self.contract_format
     }
 
     /// 附录 A 冻结的精确 section 数量。
@@ -110,7 +104,6 @@ impl RegistryCheckProof {
             framing: self.framing.reborrow(bytes)?,
             limits: self.limits,
             schema: self.schema,
-            contract_format: self.contract_format,
         })
     }
 }
@@ -879,7 +872,6 @@ pub fn preflight_object_registry(
         expected_kind,
         expected_kind.format_version(),
         portable_object_schema(expected_kind),
-        CANONICAL_ARTIFACT_FORMAT_VERSION,
         limits,
     )
 }
@@ -889,7 +881,6 @@ fn preflight_object_registry_at<'a>(
     expected_kind: PortableObjectKind,
     expected_format_version: u16,
     schema: &'static PortableObjectSchema,
-    contract_format: u16,
     limits: FormatLimits,
 ) -> Result<RegistryCheckedObjectView<'a>, FormatError> {
     let framing = crate::framing::preflight_object_framing_at(
@@ -919,7 +910,6 @@ fn preflight_object_registry_at<'a>(
         framing,
         limits,
         schema,
-        contract_format,
     })
 }
 
@@ -996,6 +986,7 @@ fn preflight_chunked_section(
     let mut previous_table_kind = 0_u16;
     let mut expected_chunk_index = 0_u32;
     let mut expected_first_row = 0_u32;
+    let mut previous_canonical_chunk = None;
     for entry_index in 0..chunk_count {
         let entry = u64::from(entry_index) * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH;
         let table_kind = read_u16(directory, entry, FormatStructure::ChunkDirectoryEntry)?;
@@ -1025,6 +1016,7 @@ fn preflight_chunked_section(
             previous_table_kind = table_kind;
             expected_chunk_index = 0;
             expected_first_row = 0;
+            previous_canonical_chunk = None;
         }
         let table_schema_version =
             read_u16(directory, entry + 2, FormatStructure::ChunkDirectoryEntry)?;
@@ -1119,7 +1111,28 @@ fn preflight_chunked_section(
             });
         }
         let mut budget = PreflightBudget::default();
-        preflight_table_with_registry(chunk, table_schema, limits, &mut budget)?;
+        let summary = preflight_table_with_registry(chunk, table_schema, limits, &mut budget)?;
+        if let Some(previous) = previous_canonical_chunk
+            && canonical_chunk_with_appended_row(
+                object_kind,
+                schema.kind,
+                table_kind,
+                previous,
+                summary.first_row_metrics(),
+            )
+            .is_some()
+        {
+            return Err(FormatError::NonCanonicalValue {
+                structure: FormatStructure::ChunkDirectoryEntry,
+                offset: entry + 12,
+            });
+        }
+        previous_canonical_chunk = Some(CanonicalChunkMetrics {
+            row_count,
+            exact_byte_length: byte_length,
+            total_utf8_bytes: summary.total_utf8_bytes(),
+            total_vector_bytes: summary.total_vector_bytes(),
+        });
 
         expected_first_row =
             expected_first_row
@@ -1374,17 +1387,29 @@ mod tests {
             .copy_from_slice(&(TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH as u16).to_le_bytes());
         bytes[8..16].copy_from_slice(&directory_length.to_le_bytes());
         let mut chunk_offset = directory_length;
+        let mut previous_table_kind = 0_u16;
+        let mut chunk_index = 0_u32;
+        let mut first_row = 0_u32;
         for (ordinal, table) in tables.into_iter().enumerate() {
             let entry = CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH as usize
                 + ordinal * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH as usize;
             let table_kind = u16::from_le_bytes(table[0..2].try_into().unwrap());
             let row_count = u32::from_le_bytes(table[4..8].try_into().unwrap());
+            if table_kind != previous_table_kind {
+                previous_table_kind = table_kind;
+                chunk_index = 0;
+                first_row = 0;
+            }
             bytes[entry..entry + 2].copy_from_slice(&table_kind.to_le_bytes());
             bytes[entry + 2..entry + 4].copy_from_slice(&1_u16.to_le_bytes());
+            bytes[entry + 4..entry + 8].copy_from_slice(&chunk_index.to_le_bytes());
+            bytes[entry + 8..entry + 12].copy_from_slice(&first_row.to_le_bytes());
             bytes[entry + 12..entry + 16].copy_from_slice(&row_count.to_le_bytes());
             bytes[entry + 24..entry + 32].copy_from_slice(&chunk_offset.to_le_bytes());
             bytes[entry + 32..entry + 40].copy_from_slice(&(table.len() as u64).to_le_bytes());
             bytes[entry + 40..entry + 72].copy_from_slice(&Sha256::digest(&table));
+            chunk_index += 1;
+            first_row += row_count;
             chunk_offset += table.len() as u64;
             bytes.extend_from_slice(&table);
         }
@@ -1549,6 +1574,41 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn chunked_reader_rejects_an_early_split_that_the_hard_budget_does_not_require() {
+        let kind = PortableObjectKind::CanonicalArtifact;
+        let schema = portable_object_schema(kind);
+        let table_schema = &schema.sections[2].tables[0];
+        let row = encoded_row(table_schema.row, None);
+        let early_split = encoded_section(
+            kind,
+            vec![
+                table_with_rows(table_schema, core::slice::from_ref(&row)),
+                table_with_rows(table_schema, core::slice::from_ref(&row)),
+            ],
+        );
+        let sections = schema
+            .sections
+            .iter()
+            .enumerate()
+            .map(|(ordinal, section)| {
+                if ordinal == 2 {
+                    early_split.clone()
+                } else {
+                    encoded_section(kind, section.tables.iter().map(encoded_table).collect())
+                }
+            })
+            .collect::<Vec<_>>();
+        let bytes = object_from_sections(kind, &sections);
+
+        assert_eq!(
+            preflight_object_registry(&bytes, kind, FormatLimits::HARD)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::NonCanonicalValue
+        );
     }
 
     #[test]

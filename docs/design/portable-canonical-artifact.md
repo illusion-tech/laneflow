@@ -1,7 +1,7 @@
 # 可移植规范制品与辅助制品格式
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-08-30<br>
+**最后更新**: 2026-08-31<br>
 **适用范围**: LFCA、LFSM、LFSD、LFCP 的权威格式、规范排序、跨对象绑定、
 失败关闭与格式安全天花板<br>
 **关联决策与设计**:
@@ -144,9 +144,12 @@ section 起点；第一块紧随 directory，后续块紧随前块，最后一�
 section byte length。
 
 逻辑表为空时不发射 chunk；singleton 表必须恰有一块一行。其余表先形成唯一规范逻辑
-行序，再从首行起贪心装入当前块：加入下一行后若会超过 65,536 行或 16,777,216 exact
-bytes，则在该行前结束当前块。单行本身超出单块 byte 上限时失败。该算法只依赖规范行
-bytes，不依赖 source module、worker 数、hash iteration、运行时分区或空间 cell。
+行序，再从首行起贪心装入当前块：加入下一行后若会超过 65,536 行、16,777,216 exact
+bytes、8,388,608 UTF-8 value bytes 或 8,388,608 vector value bytes，则在该行前结束
+当前块；LFSM `SourceLocation` 同时服从其固定 65,536 行上限。单行本身超出任一单块
+hard limit 时失败。该算法只依赖规范行 bytes 和固定格式 hard limit，不依赖 source
+module、worker 数、hash iteration、运行时分区、空间 cell 或调用方预算。调用方收紧的
+chunk 预算在唯一规范块形成后逐块检查，只能拒绝，不能提前切块或改变 exact bytes。
 
 七个基础结构的规范性 ASCII 图如下。图内从左到右、从上到下表示递增 wire byte offset；
 顶部 `0..31` 是每个 4-byte 行内的 wire bit slot，多字节数值仍按小端序编码。图与随后
@@ -866,7 +869,7 @@ LFCA provenance、LFSM bindings 与 LFCP source-map binding 中重复的
 `compilerBuildId/sourceCollectionDigestVersion/sourceCollectionDigest` 必须逐字节相等；
 这些副本只用于绑定，不是对象内 trust anchor。
 
-`ConflictZoneRegion` 每个 ConflictZone 至多一行；ring 至少三个不同点，wire 不重复首点，
+`ConflictZoneRegion` 每个 ConflictZone 至多一行；ring 必须包含 `3..=256` 个不同点，wire 不重复首点，
 从 `+Y` 观察必须逆时针，首点是 `(x,z)` 词典序最小点，ring 无自交且面积为正，
 `minY < maxY`。min/max Y 与 ring 坐标必须有限、使用 bit-exact 正零并位于
 `[-16384, 16384] m`。region 只服务验证、调试与表现，缺失时 headless 冲突行为保持完整。
@@ -936,7 +939,8 @@ epsilon。标记为 0 只跳过方向谓词，不跳过 frame、gap、点表、s
 闭合。`FacilityBandGeometry.points` 至少两项，同样执行坐标、逐弦长度与适用的方向谓词，
 但不发射 segments/arc-length。
 
-`ConflictZoneRegion.ringXZ` 的规范判断不使用平台浮点几何库：把每个有限 binary32 坐标
+`ConflictZoneRegion.ringXZ` 在进入成对边检查前必须先拒绝超过 256 点的 ring；该领域上限
+不因通用 vector item 上限更大而扩大。其规范判断不使用平台浮点几何库：把每个有限 binary32 坐标
 无损提升为精确二进制有理数；词典序、orientation、非相邻边相交和 shoelace 有向面积都在
 该精确域计算。首点必须是唯一词典序最小点，有向面积必须严格为正；任何重复点、非相邻边
 相交/接触、共线重叠，或相邻边除共同端点外再相交都失败关闭。这样逆时针、自交与面积结论
@@ -1335,7 +1339,8 @@ subject occurrence rank 保留重复基数；`domain` 的位置属于语义顺�
 role 21 的名称固定为 `ParkingSpaceFacility`。设施声明、`virtualCapacity` 和每个 anchor
 都必须回指 exact Road Editing v3 property path。anchor 先按
 `(LaneEdge StableId128, progressMillimetres)` 规范排序，因此来源 vector 顺序不能改变
-canonical localIndex。
+canonical localIndex。同一 role 内该完整二元组必须唯一；两个来源进度量化到同一毫米也
+视为重复。同一边上的不同毫米位置以及 entry/exit 两个不同 role 不冲突。
 
 RoadEditing primary-source projection 不是“任一合法 property path”。下表冻结 role 1–29
 的唯一来源语义；`Declaration` 表示目标 declaration 的位置，`OwnerLocal` 表示相应 owner
@@ -1772,22 +1777,23 @@ wire 或 compiler/format 核心合同。加载方仍须按受认证 LFCP/宿主�
 接收方 budget 按设备、工具或部署约束整个对象，但正式产品 profile 不得低于本节容量
 合同。
 
-| 限制                              | 值 / 规则                                                                           |
-| --------------------------------- | ----------------------------------------------------------------------------------- |
-| 对象 exact bytes                  | wire 为 checked `u64`；读取任一 section directory 前必须比较调用方 `maxObjectBytes` |
-| section chunk 数                  | wire 为 `u32`；分配 directory 前必须比较调用方 `maxChunksPerSection`                |
-| 单 `TableV1` chunk exact bytes    | `16,777,216`                                                                        |
-| 单 chunk 行数                     | `65,536`                                                                            |
-| 单逻辑表累计行数                  | `firstLogicalRow + rowCount` checked 且不得超过 `u32::MAX`                          |
-| 单行字段数                        | `17`                                                                                |
-| Identity ASCII value              | `53 bytes`                                                                          |
-| 单 UTF-8 Field value              | `1,048,576 bytes`                                                                   |
-| 单 chunk 累计 UTF-8 value         | `8,388,608 bytes`                                                                   |
-| 单 vector item 数                 | `65,536`                                                                            |
-| 单 chunk 累计 vector bytes        | `8,388,608 bytes`                                                                   |
-| `RecordVector` 深度               | `1`                                                                                 |
-| 单 LFSM SourceLocation chunk 行数 | `65,536`；完整 location ordinal 空间仍为全局 `u32`                                  |
-| 同时 staged LFCA+LFSM+LFSD chunk  | `50,331,648 bytes`；不得据此缓存三个完整对象                                        |
+| 限制                                | 值 / 规则                                                                           |
+| ----------------------------------- | ----------------------------------------------------------------------------------- |
+| 对象 exact bytes                    | wire 为 checked `u64`；读取任一 section directory 前必须比较调用方 `maxObjectBytes` |
+| section chunk 数                    | wire 为 `u32`；分配 directory 前必须比较调用方 `maxChunksPerSection`                |
+| 单 `TableV1` chunk exact bytes      | `16,777,216`                                                                        |
+| 单 chunk 行数                       | `65,536`                                                                            |
+| 单逻辑表累计行数                    | `firstLogicalRow + rowCount` checked 且不得超过 `u32::MAX`                          |
+| 单行字段数                          | `17`                                                                                |
+| Identity ASCII value                | `53 bytes`                                                                          |
+| 单 UTF-8 Field value                | `1,048,576 bytes`                                                                   |
+| 单 chunk 累计 UTF-8 value           | `8,388,608 bytes`                                                                   |
+| 单 vector item 数                   | `65,536`                                                                            |
+| 单 chunk 累计 vector bytes          | `8,388,608 bytes`                                                                   |
+| 单 `ConflictZoneRegion.ringXZ` 点数 | `256`；领域上限，通用 vector 上限不扩大它                                           |
+| `RecordVector` 深度                 | `1`                                                                                 |
+| 单 LFSM SourceLocation chunk 行数   | `65,536`；完整 location ordinal 空间仍为全局 `u32`                                  |
+| 同时 staged LFCA+LFSM+LFSD chunk    | `50,331,648 bytes`；不得据此缓存三个完整对象                                        |
 
 `16,777,216` 只表示单 `TableV1` chunk ceiling，`50,331,648` 只表示三个同时 staged chunk
 的内存 ceiling；两者都不是完整对象或完整三对象候选上限。完整对象与 bundle 由调用方

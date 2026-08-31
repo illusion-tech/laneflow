@@ -1,7 +1,7 @@
 # 共享静态路网
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-08-30<br>
+**最后更新**: 2026-08-31<br>
 **适用范围**: `laneflow-static-network`、受检 LFCA admission、共享静态路网构建、
 Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验收<br>
 **关联文档**: `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
@@ -580,6 +580,9 @@ Traffic retained 标量/向量；
 
 `ConflictZoneRegion` 只进入可选 `SharedSpatialNetwork`：按 zone ordinal 形成唯一可选 region，
 保存 canonical frame、规范 ring 与高度范围；缺失 region 不影响 headless 冲突静态语义。
+每个 ring 必须为 `3..=256` 点；builder 在申请 region backing 和执行精确相交检查前先验证
+该计数，并在有界的成对检查中持续响应取消。百万级路网允许很多现实小 region，不允许
+把单个异常大 polygon 的二次检查成本藏进聚合实体预算。
 
 ### 13.4 反向索引与闭合
 

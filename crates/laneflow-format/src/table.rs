@@ -11,6 +11,7 @@ use laneflow_static_contract::{
 
 use crate::{
     FormatError, FormatLimits, FormatStructure, LimitDimension,
+    limits::CanonicalRowMetrics,
     wire::{checked_slice, checked_slice_within, read_u8, read_u16, read_u32, read_u64},
 };
 
@@ -29,6 +30,9 @@ pub struct TableStructureSummary {
     total_utf8_bytes: u64,
     total_vector_bytes: u64,
     maximum_record_vector_depth: u8,
+    first_row_exact_byte_length: u64,
+    first_row_total_utf8_bytes: u64,
+    first_row_total_vector_bytes: u64,
 }
 
 impl TableStructureSummary {
@@ -65,6 +69,14 @@ impl TableStructureSummary {
     #[must_use]
     pub const fn maximum_record_vector_depth(self) -> u8 {
         self.maximum_record_vector_depth
+    }
+
+    pub(crate) const fn first_row_metrics(self) -> CanonicalRowMetrics {
+        CanonicalRowMetrics {
+            exact_byte_length: self.first_row_exact_byte_length,
+            total_utf8_bytes: self.first_row_total_utf8_bytes,
+            total_vector_bytes: self.first_row_total_vector_bytes,
+        }
     }
 }
 
@@ -187,19 +199,47 @@ fn preflight_table_structure_with_registry(
             structure: FormatStructure::Table,
         },
     )?;
-    let cursor = parse_rows(
-        bytes,
-        TABLE_HEADER_BYTES,
-        ContainerBoundary {
-            end,
-            structure: FormatStructure::TableRows,
-        },
-        row_count,
-        0,
-        schema.map(|schema| schema.row),
-        limits,
-        budget,
-    )?;
+    let boundary = ContainerBoundary {
+        end,
+        structure: FormatStructure::TableRows,
+    };
+    let (cursor, first_row_metrics) = if row_count == 0 {
+        (
+            TABLE_HEADER_BYTES,
+            CanonicalRowMetrics {
+                exact_byte_length: 0,
+                total_utf8_bytes: 0,
+                total_vector_bytes: 0,
+            },
+        )
+    } else {
+        let first_budget = *budget;
+        let first_end = parse_row(
+            bytes,
+            TABLE_HEADER_BYTES,
+            boundary,
+            0,
+            schema.map(|schema| schema.row),
+            limits,
+            budget,
+        )?;
+        let first_row_metrics = CanonicalRowMetrics {
+            exact_byte_length: first_end - TABLE_HEADER_BYTES,
+            total_utf8_bytes: budget.total_utf8_bytes - first_budget.total_utf8_bytes,
+            total_vector_bytes: budget.total_vector_bytes - first_budget.total_vector_bytes,
+        };
+        let cursor = parse_rows(
+            bytes,
+            first_end,
+            boundary,
+            row_count - 1,
+            0,
+            schema.map(|schema| schema.row),
+            limits,
+            budget,
+        )?;
+        (cursor, first_row_metrics)
+    };
     if cursor != end {
         return Err(FormatError::LengthMismatch {
             structure: FormatStructure::TableRows,
@@ -216,6 +256,9 @@ fn preflight_table_structure_with_registry(
         total_utf8_bytes: budget.total_utf8_bytes - budget_before.total_utf8_bytes,
         total_vector_bytes: budget.total_vector_bytes - budget_before.total_vector_bytes,
         maximum_record_vector_depth: budget.maximum_record_vector_depth,
+        first_row_exact_byte_length: first_row_metrics.exact_byte_length,
+        first_row_total_utf8_bytes: first_row_metrics.total_utf8_bytes,
+        first_row_total_vector_bytes: first_row_metrics.total_vector_bytes,
     })
 }
 

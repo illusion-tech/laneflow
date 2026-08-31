@@ -4,9 +4,10 @@ use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
 use laneflow_road_editing_wire::runtime::{ForwardsUOffset, Vector};
 use laneflow_static_contract::{
     CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS, EntityKind,
-    MAX_LANE_EDGE_LENGTH_MM, MAX_MIN_GAP_MM, MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_SPEED_MM_S,
-    MAX_VEHICLE_LENGTH_MM, MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S,
-    MIN_VEHICLE_LENGTH_MM, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM,
+    MAX_CONFLICT_ZONE_REGION_RING_POINTS, MAX_LANE_EDGE_LENGTH_MM, MAX_MIN_GAP_MM,
+    MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_SPEED_MM_S, MAX_VEHICLE_LENGTH_MM,
+    MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S, MIN_VEHICLE_LENGTH_MM,
+    PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM,
 };
 
 use super::model::{
@@ -1914,14 +1915,14 @@ fn validate_parking(
     ensure_unique_by(
         root.parking_facilities().iter(),
         |value| value.parking_facility_key(),
-        "parkingFacilities.parkingAreaKey",
+        "parkingFacilities.parkingFacilityKey",
         expected_key,
     )?;
     for value in root.parking_facilities() {
         usage.charge_declaration(EntityKind::ParkingFacility);
         usage.charge_token(
             value.parking_facility_key(),
-            "parkingArea.parkingAreaKey",
+            "parkingFacility.parkingFacilityKey",
             limits,
             expected_key,
         )?;
@@ -1987,7 +1988,7 @@ fn validate_parking(
                 area,
                 1,
                 true,
-                "parkingSpace.parkingArea",
+                "parkingSpace.parkingFacility",
                 namespace,
                 imports,
                 limits,
@@ -2569,6 +2570,17 @@ fn validate_conflicts_and_regions(
         }
         if value.min_y() >= value.max_y() || value.ring_xz().len() < 3 {
             return Err(invalid_combination("conflictZoneRegion", expected_key));
+        }
+        let ring_point_count = u64::try_from(value.ring_xz().len()).unwrap_or(u64::MAX);
+        if ring_point_count > u64::from(MAX_CONFLICT_ZONE_REGION_RING_POINTS) {
+            return Err(semantic_error(
+                "conflictZoneRegion.ringXZ",
+                RoadEditingInputViolation::CollectionTooLarge {
+                    maximum: u64::from(MAX_CONFLICT_ZONE_REGION_RING_POINTS),
+                    actual: ring_point_count,
+                },
+                expected_key,
+            ));
         }
         for point in value.ring_xz() {
             for component in [point.x(), point.z()] {

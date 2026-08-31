@@ -548,7 +548,7 @@ mod tests {
     use super::*;
     use crate::road_editing::{
         CanonicalFrameInput, CanonicalFrameReference, LaneEdgeInput, LaneEdgeReference,
-        RoadAlignmentInput, RoadEditingCurveProgram, RoadEditingCurveSegment,
+        ParkingFacilityInput, RoadAlignmentInput, RoadEditingCurveProgram, RoadEditingCurveSegment,
         RoadEditingDeclaration, RoadEditingModuleHeader, RoadEditingPoint3, RoadEditingProvenance,
         RoadEditingSignalPhaseState, RoadEditingSourceModuleBuilder, RoadEditingSourceWriter,
         SignalControllerInput, SignalControllerReference, SignalGroupInput, SignalGroupReference,
@@ -731,6 +731,33 @@ mod tests {
             .expect("buffer")
     }
 
+    fn parking_source_buffer(limits: &CompileLimits) -> super::super::OwnedRoadEditingSourceBuffer {
+        let header = RoadEditingModuleHeader::try_new(
+            "city",
+            "road-editing",
+            Vec::new(),
+            RoadEditingProvenance::direct("editor save").expect("provenance"),
+        )
+        .expect("header");
+        let mut builder = RoadEditingSourceModuleBuilder::new(
+            header,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            limits,
+        )
+        .expect("builder");
+        for key in ["facility-a", "facility-b"] {
+            builder
+                .add_declaration(RoadEditingDeclaration::ParkingFacility(
+                    ParkingFacilityInput::try_new(key).expect("parking facility"),
+                ))
+                .expect("parking facility declaration");
+        }
+        RoadEditingSourceWriter::new(limits)
+            .write(builder.finish().expect("module"))
+            .expect("buffer")
+    }
+
     fn first_diagnostic(error: &DiagnosticBundle) -> &crate::Diagnostic {
         error.diagnostics().first().expect("diagnostic")
     }
@@ -770,6 +797,53 @@ mod tests {
         let field_offset = u16::from_le_bytes(bytes[entry..entry + 2].try_into().expect("field"));
         assert_ne!(field_offset, 0, "test field must be present");
         bytes[root_position + usize::from(field_offset)] = value;
+    }
+
+    fn overwrite_table_string_field(
+        bytes: &mut [u8],
+        table_position: usize,
+        vtable_field: u16,
+        replacement: &[u8],
+    ) {
+        let vtable_distance = i32::from_le_bytes(
+            bytes[table_position..table_position + 4]
+                .try_into()
+                .expect("vtable offset"),
+        );
+        let vtable_is_before_table = vtable_distance.is_positive();
+        let vtable_distance = usize::try_from(vtable_distance.unsigned_abs())
+            .expect("u32 vtable distance fits usize on supported targets");
+        let vtable_position = if vtable_is_before_table {
+            table_position
+                .checked_sub(vtable_distance)
+                .expect("vtable position")
+        } else {
+            table_position
+                .checked_add(vtable_distance)
+                .expect("vtable position")
+        };
+        let entry = vtable_position + usize::from(vtable_field);
+        let field_offset = u16::from_le_bytes(bytes[entry..entry + 2].try_into().expect("field"));
+        assert_ne!(field_offset, 0, "test field must be present");
+        let field_position = table_position + usize::from(field_offset);
+        let string_offset = u32::from_le_bytes(
+            bytes[field_position..field_position + 4]
+                .try_into()
+                .expect("string offset"),
+        );
+        let string_position = field_position + usize::try_from(string_offset).expect("string");
+        let string_length = u32::from_le_bytes(
+            bytes[string_position..string_position + 4]
+                .try_into()
+                .expect("string length"),
+        );
+        assert_eq!(
+            usize::try_from(string_length).expect("string length"),
+            replacement.len(),
+            "replacement must preserve the verified FlatBuffers shape"
+        );
+        let value_start = string_position + 4;
+        bytes[value_start..value_start + replacement.len()].copy_from_slice(replacement);
     }
 
     #[test]
@@ -841,6 +915,74 @@ mod tests {
         assert!(matches!(
             primary.subject(),
             crate::RoadEditingSubject::ModuleHeader
+        ));
+    }
+
+    #[test]
+    fn parking_preflight_uses_current_facility_field_paths() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = parking_source_buffer(&limits);
+        let mut bytes = buffer.as_bytes().to_vec();
+        let key = b"facility-a";
+        let key_offset = bytes
+            .windows(key.len())
+            .position(|window| window == key)
+            .expect("facility key");
+        bytes[key_offset..key_offset + key.len()].copy_from_slice(b"facility!a");
+        let input = RoadEditingModuleInput::try_new("road-editing", &bytes, None).expect("input");
+        let error = verify_source(input, &limits, 0, 0).expect_err("invalid facility key");
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                field: Some(field),
+                ..
+            } if field.as_ref() == "parkingFacility.parkingFacilityKey"
+        ));
+
+        let mut bytes = buffer.as_bytes().to_vec();
+        let duplicate = b"facility-b";
+        let duplicate_offset = bytes
+            .windows(duplicate.len())
+            .position(|window| window == duplicate)
+            .expect("second facility key");
+        bytes[duplicate_offset..duplicate_offset + duplicate.len()].copy_from_slice(key);
+        let input = RoadEditingModuleInput::try_new("road-editing", &bytes, None).expect("input");
+        let error = verify_source(input, &limits, 0, 0).expect_err("duplicate facility key");
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                field: Some(field),
+                ..
+            } if field.as_ref() == "parkingFacilities.parkingFacilityKey"
+        ));
+
+        let buffer = RoadEditingSourceWriter::new(&limits)
+            .write(super::super::writer::tests::module_with_every_declaration(
+                &limits,
+            ))
+            .expect("complete parking source");
+        let mut bytes = buffer.as_bytes().to_vec();
+        let parking_space_position = {
+            let root = wire::size_prefixed_root_as_road_editing_source(&bytes)
+                .expect("writer output remains structurally valid");
+            let parking_space = root.parking_spaces().get(0);
+            assert_eq!(parking_space.parking_facility(), Some("parking-facility"));
+            parking_space._tab.loc()
+        };
+        overwrite_table_string_field(
+            &mut bytes,
+            parking_space_position,
+            wire::ParkingSpace::VT_PARKING_FACILITY,
+            b"parking!facility",
+        );
+        let input = RoadEditingModuleInput::try_new("road-editing", &bytes, None).expect("input");
+        let error = verify_source(input, &limits, 0, 0).expect_err("invalid facility reference");
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                field: Some(field),
+                ..
+            } if field.as_ref() == "parkingSpace.parkingFacility"
         ));
     }
 

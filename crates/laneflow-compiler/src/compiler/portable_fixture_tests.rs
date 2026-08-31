@@ -852,3 +852,97 @@ pub(crate) fn refresh_portable_chunk_digest_containing(
     }
     panic!("offset {absolute_offset} is not inside a physical table chunk");
 }
+
+#[test]
+fn conflict_reverse_closure_scratch_is_exact_bounded_and_not_retained() {
+    let mut unit = full_spatial_portable_fixture_unit();
+    let hir = crate::hir::build_hir(&unit).expect("full-spatial HIR");
+    let mut mir = crate::mir::lower_to_mir(&unit, &hir).expect("full-spatial MIR");
+    let plan = crate::lir::LirFreezePlan::analyze(&unit, &mir);
+
+    assert_eq!(plan.conflict.zones, 1);
+    assert_eq!(plan.conflict.streams, 2);
+    assert_eq!(plan.conflict.passages, 2);
+    assert_eq!(plan.conflict.zone_streams, 2);
+    assert_eq!(plan.conflict.max_zone_streams, 2);
+
+    let zone_ranges = mir
+        .conflict_zones
+        .iter()
+        .map(|zone| zone.participant_streams)
+        .collect::<Vec<_>>();
+    let zone_streams = core::mem::take(&mut mir.conflict_zone_streams);
+    for zone in &mut mir.conflict_zones {
+        zone.participant_streams = crate::arena::TableRange::empty();
+    }
+    let without_reverse_closure = crate::lir::LirFreezePlan::analyze(&unit, &mir);
+    let expected_reverse_membership_bytes = u64::try_from(
+        core::mem::size_of::<laneflow_static_contract::ParticipantStreamOrdinal>() * 4,
+    )
+    .expect("small fixed test size");
+    assert_eq!(
+        plan.stage_scratch_bytes - without_reverse_closure.stage_scratch_bytes,
+        expected_reverse_membership_bytes
+    );
+    assert_eq!(
+        plan.controlled_live_bytes - without_reverse_closure.controlled_live_bytes,
+        expected_reverse_membership_bytes
+    );
+    assert_eq!(
+        plan.output_owned_bytes,
+        without_reverse_closure.output_owned_bytes
+    );
+
+    let conflict_zones = core::mem::take(&mut mir.conflict_zones);
+    let without_conflict_zones = crate::lir::LirFreezePlan::analyze(&unit, &mir);
+    let expected_zone_scratch_bytes = u64::try_from(
+        core::mem::size_of::<u32>() * 2
+            + core::mem::size_of::<Vec<laneflow_static_contract::ParticipantStreamOrdinal>>(),
+    )
+    .expect("small fixed test size");
+    assert_eq!(
+        without_reverse_closure.stage_scratch_bytes - without_conflict_zones.stage_scratch_bytes,
+        expected_zone_scratch_bytes
+    );
+    mir.conflict_zones = conflict_zones;
+    mir.conflict_zone_streams = zone_streams;
+    for (zone, range) in mir.conflict_zones.iter_mut().zip(zone_ranges) {
+        zone.participant_streams = range;
+    }
+
+    let exact_scratch = u32::try_from(plan.stage_scratch_bytes).expect("fixture scratch fits u32");
+    unit.limits = CompileLimits::p100_initial_v1().with_test_lir_limits(
+        u32::MAX,
+        exact_scratch,
+        u32::MAX,
+        u32::MAX,
+    );
+    let frozen = crate::lir::freeze_lir(&unit, &mir)
+        .expect("exact LIR scratch boundary")
+        .lir;
+    assert_eq!(frozen.controlled_live_bytes, plan.output_owned_bytes);
+    assert_eq!(
+        frozen.peak_controlled_live_bytes,
+        plan.controlled_live_bytes
+    );
+
+    unit.limits = CompileLimits::p100_initial_v1().with_test_lir_limits(
+        u32::MAX,
+        exact_scratch - 1,
+        u32::MAX,
+        u32::MAX,
+    );
+    let failure = match crate::lir::freeze_lir(&unit, &mir) {
+        Ok(_) => panic!("one byte below LIR scratch must fail closed"),
+        Err(diagnostics) => diagnostics,
+    };
+    assert!(failure.diagnostics().iter().any(|diagnostic| matches!(
+        diagnostic.payload(),
+        crate::DiagnosticPayload::CompileLimitExceeded {
+            dimension: crate::CompileLimitDimension::StageScratchBytes,
+            limit,
+            observed,
+        } if *limit == plan.stage_scratch_bytes - 1
+            && *observed == plan.stage_scratch_bytes
+    )));
+}

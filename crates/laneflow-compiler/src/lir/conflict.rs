@@ -116,14 +116,27 @@ pub(super) fn freeze(
     // 反向表只用于证明 HIR→MIR 降阶未丢失 passage authority。最终
     // Canonical LIR/LFCA 不保存第二份可独立漂移的 zone→stream 表。
     let zone_capacity = env.capacity(counts.zones)?;
-    let mut streams_by_zone = vec![Vec::<ParticipantStreamOrdinal>::new(); zone_capacity];
+    let mut streams_by_zone = Vec::with_capacity(zone_capacity);
+    for mir_key in env
+        .orders
+        .conflict_zones
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
+        let zone = &env.mir.conflict_zones[mir_key.index()];
+        streams_by_zone.push(Vec::<ParticipantStreamOrdinal>::with_capacity(
+            usize::try_from(zone.participant_streams.len())
+                .expect("u32 relation count fits usize on every supported target"),
+        ));
+    }
     for stream in &participant_streams {
         for passage in &conflict_passages[stream.passages.as_usize_range()] {
             streams_by_zone[passage.conflict_zone.raw() as usize].push(stream.ordinal);
         }
     }
     let mut conflict_zones = Vec::with_capacity(zone_capacity);
-    let mut canonical_mir_streams = Vec::new();
+    let mut canonical_mir_streams = Vec::with_capacity(env.capacity(counts.max_zone_streams)?);
     for mir_key in env
         .orders
         .conflict_zones
@@ -148,6 +161,11 @@ pub(super) fn freeze(
         )?;
         let ordinal = env.orders.conflict_zones.ordinal(mir_key);
         let streams = &mut streams_by_zone[ordinal.raw() as usize];
+        debug_assert_eq!(
+            streams.len(),
+            usize::try_from(zone.participant_streams.len())
+                .expect("u32 relation count fits usize on every supported target")
+        );
         streams.sort_unstable();
         streams.dedup();
         canonical_mir_streams.clear();

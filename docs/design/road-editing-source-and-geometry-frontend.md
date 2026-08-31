@@ -1,7 +1,7 @@
 # 道路编辑来源与几何编制前端
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-08-30<br>
+**最后更新**: 2026-08-31<br>
 **适用范围**: 道路编辑状态、有类型道路编辑模型、几何编制前端、程序化生成器接入、
 来源持久化编码与 topology/geometry MIR 降阶<br>
 **关联文档**: `network-compiler.md`、`compiler-foundation.md`、
@@ -323,6 +323,10 @@ ConflictZoneRegion:
 compiler 分别映射到 LFCA anchor kind `0/1/2`。Gate 只允许 gate reference；EdgeBoundary
 只解释 boundary index；Interior 只解释 path edge index 与严格正的 progress，所有不适用
 string 必须缺失、不适用 scalar 必须为规范零。`Vec2F64` 的 member 0/1 分别为 x/z。
+`ConflictZoneRegion.ring_xz` 必须包含 `3..=256` 个点；该上限在模型构造和 raw LFRE
+预检时先于 ring 分配或几何 lowering 检查。`ParkingFacility.virtual_entries` 与
+`virtual_exits` 分别是以 `(LaneEdge StableId128, progressMillimetres)` 为键的集合；来源
+`double` 进度量化到毫米、引用解析后重复的完整锚点失败关闭。
 这些 table/field/member 的 LFSM container code 与可达 property path 由
 [`portable-canonical-artifact.md` §4.1](portable-canonical-artifact.md#41-bindings-与来源池登记)
 唯一登记，schema declaration order 或生成语言 enum 不得另行改号。
@@ -397,7 +401,8 @@ lane/edge 并显式连接。v1 不接受自由 offset 曲线或第二份 lane/fa
 v1 `AccessTargetKind` 只包含 LaneEdge、LaneGroup、RoadSection 与 ManeuverPath；数值 5
 保留且无效，第一方 writer/UI 不暴露 FacilityBand target。imports、successors、junction
 approach/internal、controller signal group、phase state group 与 access participant class
-等全部 set-like vector 在 reader/writer 都拒绝重复。路线边序列不再进入编制来源
+以及停车设施每个角色内的完整虚拟锚点等全部 set-like vector 在 reader/writer 或共享
+lowering 边界拒绝重复。路线边序列不再进入编制来源
 （ADR 0029）；同一边的多次有序出现只存在于运行时 `register_route` 输入。
 namespace、local key 与 alignment key 禁止
 `::`，owner-qualified reference 使用 token 中禁止的 `>` 分隔完整 owner key 链；

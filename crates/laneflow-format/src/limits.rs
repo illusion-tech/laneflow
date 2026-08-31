@@ -6,10 +6,64 @@ use laneflow_static_contract::{
     FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK, FORMAT_HARD_MAX_STAGED_CHUNK_BYTES,
     FORMAT_HARD_MAX_TABLE_CHUNK_BYTES, FORMAT_HARD_MAX_TOTAL_UTF8_BYTES,
     FORMAT_HARD_MAX_TOTAL_VECTOR_BYTES, FORMAT_HARD_MAX_UTF8_FIELD_BYTES,
-    FORMAT_HARD_MAX_VECTOR_ITEMS,
+    FORMAT_HARD_MAX_VECTOR_ITEMS, PortableObjectKind,
 };
 
 use crate::{FormatError, LimitDimension};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CanonicalRowMetrics {
+    pub(crate) exact_byte_length: u64,
+    pub(crate) total_utf8_bytes: u64,
+    pub(crate) total_vector_bytes: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CanonicalChunkMetrics {
+    pub(crate) row_count: u32,
+    pub(crate) exact_byte_length: u64,
+    pub(crate) total_utf8_bytes: u64,
+    pub(crate) total_vector_bytes: u64,
+}
+
+impl CanonicalChunkMetrics {
+    pub(crate) const fn empty(table_header_byte_length: u64) -> Self {
+        Self {
+            row_count: 0,
+            exact_byte_length: table_header_byte_length,
+            total_utf8_bytes: 0,
+            total_vector_bytes: 0,
+        }
+    }
+}
+
+pub(crate) fn canonical_chunk_with_appended_row(
+    object_kind: PortableObjectKind,
+    section_kind: u16,
+    table_kind: u16,
+    chunk: CanonicalChunkMetrics,
+    row: CanonicalRowMetrics,
+) -> Option<CanonicalChunkMetrics> {
+    let next = CanonicalChunkMetrics {
+        row_count: chunk.row_count.checked_add(1)?,
+        exact_byte_length: chunk.exact_byte_length.checked_add(row.exact_byte_length)?,
+        total_utf8_bytes: chunk.total_utf8_bytes.checked_add(row.total_utf8_bytes)?,
+        total_vector_bytes: chunk
+            .total_vector_bytes
+            .checked_add(row.total_vector_bytes)?,
+    };
+    let row_limit =
+        if object_kind == PortableObjectKind::SourceMap && section_kind == 2 && table_kind == 3 {
+            FORMAT_HARD_MAX_ROWS_PER_CHUNK.min(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS_PER_CHUNK)
+        } else {
+            FORMAT_HARD_MAX_ROWS_PER_CHUNK
+        };
+    (next.row_count <= row_limit
+        && next.exact_byte_length <= FORMAT_HARD_MAX_TABLE_CHUNK_BYTES
+        && next.total_utf8_bytes <= FORMAT_HARD_MAX_TOTAL_UTF8_BYTES
+        && next.total_vector_bytes <= FORMAT_HARD_MAX_TOTAL_VECTOR_BYTES)
+        .then_some(next)
+}
 
 /// 构造 [`FormatLimits`] 的调用方配置。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
