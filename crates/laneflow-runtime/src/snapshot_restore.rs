@@ -1,18 +1,22 @@
-//! `LFRS` v1 的 verifier-first 读取、语义 lowering 与原子新世界恢复。
+//! `LFRS` v2 的 verifier-first 读取、语义 lowering 与原子新世界恢复。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v1 as wire;
+use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v2 as wire;
 use laneflow_runtime_snapshot_wire::runtime::VerifierOptions;
-use laneflow_static_contract::{ParkingSpaceId, ParticipantClassId, StableId128, VehicleProfileId};
+use laneflow_static_contract::{
+    LaneEdgeId, ParkingFacilityId, ParkingSpaceId, ParticipantClassId, StableId128,
+    VehicleProfileId,
+};
 use laneflow_static_network::SharedNetworkRevision;
 use thiserror::Error;
 
 use crate::{
     AdmittedRouteRegisterError, AdmittedRouteRegisterInput, CommittedNetworkSource, InstallError,
-    ObservationStateSequence, ParkingError, RouteHandle, SpawnError, StepError, TrafficWorld,
-    VehicleHandle, VehicleSpawnInput, VehicleStatus, WorldConfig,
+    ObservationStateSequence, ParkedVehicleSpawnInput, ParkingError, ParkingTarget,
+    ReserveParkingTarget, RouteHandle, SpawnError, StepError, TrafficWorld, VehicleHandle,
+    VehicleSpawnInput, VehicleStatus, VirtualEntryAnchorSelector, WorldConfig,
 };
 use crate::{RUNTIME_STATE_VERSION, SNAPSHOT_FORMAT_VERSION};
 
@@ -20,13 +24,15 @@ const MIN_SIZE_PREFIXED_LFRS_BYTES: usize = 12;
 const MAX_SCHEMA_TABLE_DEPTH: usize = 4;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
 const MICROMETRES_PER_MILLIMETRE: u16 = 1_000;
-const ROOT_V1_FIELDS: usize = vtable_field_count(wire::RuntimeSnapshot::VT_LIVE_ORDER);
-const WORLD_CONFIG_V1_FIELDS: usize =
+const ROOT_V2_FIELDS: usize = vtable_field_count(wire::RuntimeSnapshot::VT_LIVE_ORDER);
+const WORLD_CONFIG_V2_FIELDS: usize =
     vtable_field_count(wire::WorldConfigBinding::VT_FIXED_DELTA_TIME_MS);
-const PUBLISHED_SOURCE_V1_FIELDS: usize =
+const PUBLISHED_SOURCE_V2_FIELDS: usize =
     vtable_field_count(wire::PublishedSourceBinding::VT_NETWORK_REVISION);
-const ROUTE_V1_FIELDS: usize = vtable_field_count(wire::SnapshotRoute::VT_EDGES);
-const VEHICLE_V1_FIELDS: usize = vtable_field_count(wire::SnapshotVehicle::VT_PARKING_SPACE);
+const ROUTE_V2_FIELDS: usize = vtable_field_count(wire::SnapshotRoute::VT_EDGES);
+const VEHICLE_V2_FIELDS: usize = vtable_field_count(wire::SnapshotVehicle::VT_PARKING);
+const PARKING_BINDING_V2_FIELDS: usize =
+    vtable_field_count(wire::ParkingBinding::VT_VIRTUAL_ENTRY_PROGRESS_MM);
 
 const fn vtable_field_count(
     last_field: laneflow_runtime_snapshot_wire::runtime::VOffsetT,
@@ -123,8 +129,8 @@ pub enum SnapshotRestoreError {
         /// 实际版本。
         actual: u16,
     },
-    /// v1 table 出现 schema 未登记的字段槽；这类字段可能携带禁绑状态。
-    #[error("LFRS v1 table {table} 含未知字段槽: supported={supported}, actual={actual}")]
+    /// v2 table 出现 schema 未登记的字段槽；这类字段可能携带禁绑状态。
+    #[error("LFRS v2 table {table} 含未知字段槽: supported={supported}, actual={actual}")]
     UnknownTableFields {
         /// table 名。
         table: &'static str,
@@ -251,6 +257,27 @@ pub enum SnapshotRestoreError {
         /// 车辆 ID。
         snapshot_vehicle_id: u64,
     },
+    /// 停车设施稳定标识在目标根中未知或 kind 不匹配。
+    #[error("车辆 {snapshot_vehicle_id} 的停车设施稳定标识未知")]
+    UnknownParkingFacility { snapshot_vehicle_id: u64 },
+    /// parking binding state 未知或 Unspecified。
+    #[error("车辆 {snapshot_vehicle_id} 的 parking binding state 不支持: {actual}")]
+    InvalidParkingBindingState {
+        snapshot_vehicle_id: u64,
+        actual: u8,
+    },
+    /// parking target kind 未知或 Unspecified。
+    #[error("车辆 {snapshot_vehicle_id} 的 parking target kind 不支持: {actual}")]
+    InvalidParkingTargetKind {
+        snapshot_vehicle_id: u64,
+        actual: u8,
+    },
+    /// Reserved/Occupied、target kind 与 semantic entry presence 不闭合。
+    #[error("车辆 {snapshot_vehicle_id} 的 parking binding shape 非法")]
+    InvalidParkingBindingShape { snapshot_vehicle_id: u64 },
+    /// virtual Reserved semantic entry 在目标设施中没有 exact 对应。
+    #[error("车辆 {snapshot_vehicle_id} 的 virtual parking entry 无 exact 对应")]
+    UnknownVirtualParkingEntry { snapshot_vehicle_id: u64 },
     /// parked 状态与停车绑定不一致，或非 parked 状态携带停车绑定。
     #[error("车辆 {snapshot_vehicle_id} 的 parked 状态与停车绑定不一致")]
     ParkingStatusMismatch {
@@ -464,6 +491,7 @@ pub fn restore_lfrs(
     }
 
     world.live_order = live_order;
+    world.rebuild_active_order();
     world.tick_index = root.tick();
     world.time_ms = root.time_ms();
     world.command_cursor = root.command_cursor();
@@ -515,7 +543,7 @@ fn verify_lfrs<'a>(
     }
 
     let max_tables_u64 = u64::from(target_config.route_capacity())
-        .checked_add(u64::from(target_config.vehicle_capacity()))
+        .checked_add(u64::from(target_config.vehicle_capacity()).saturating_mul(2))
         .and_then(|value| value.checked_add(3))
         .ok_or_else(|| limit_error(SnapshotLimitDimension::VerifierBudget, u64::MAX, u64::MAX))?;
     let max_tables = usize::try_from(max_tables_u64).map_err(|_| {
@@ -562,7 +590,7 @@ fn validate_bindings(
             actual: root.runtime_state_version(),
         });
     }
-    validate_closed_v1_tables(root)?;
+    validate_closed_v2_tables(root)?;
     let network_revision = root
         .network_revision()
         .ok_or(SnapshotRestoreError::MissingField {
@@ -705,25 +733,28 @@ fn validate_bindings(
     Ok(())
 }
 
-fn validate_closed_v1_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), SnapshotRestoreError> {
-    validate_table_field_count("RuntimeSnapshot", root._tab, ROOT_V1_FIELDS)?;
+fn validate_closed_v2_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), SnapshotRestoreError> {
+    validate_table_field_count("RuntimeSnapshot", root._tab, ROOT_V2_FIELDS)?;
     validate_table_field_count(
         "WorldConfigBinding",
         root.world_config()._tab,
-        WORLD_CONFIG_V1_FIELDS,
+        WORLD_CONFIG_V2_FIELDS,
     )?;
     if let Some(published) = root.source_published() {
         validate_table_field_count(
             "PublishedSourceBinding",
             published._tab,
-            PUBLISHED_SOURCE_V1_FIELDS,
+            PUBLISHED_SOURCE_V2_FIELDS,
         )?;
     }
     for route in root.routes() {
-        validate_table_field_count("SnapshotRoute", route._tab, ROUTE_V1_FIELDS)?;
+        validate_table_field_count("SnapshotRoute", route._tab, ROUTE_V2_FIELDS)?;
     }
     for vehicle in root.vehicles() {
-        validate_table_field_count("SnapshotVehicle", vehicle._tab, VEHICLE_V1_FIELDS)?;
+        validate_table_field_count("SnapshotVehicle", vehicle._tab, VEHICLE_V2_FIELDS)?;
+        if let Some(parking) = vehicle.parking() {
+            validate_table_field_count("ParkingBinding", parking._tab, PARKING_BINDING_V2_FIELDS)?;
+        }
     }
     Ok(())
 }
@@ -742,6 +773,148 @@ fn validate_table_field_count(
         });
     }
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum DecodedParkingBinding {
+    Reserved(ReserveParkingTarget),
+    Occupied(ParkingTarget),
+}
+
+fn decode_parking_binding(
+    world: &TrafficWorld,
+    vehicle: wire::SnapshotVehicle<'_>,
+    status: VehicleStatus,
+) -> Result<Option<DecodedParkingBinding>, SnapshotRestoreError> {
+    let snapshot_vehicle_id = vehicle.snapshot_vehicle_id();
+    let Some(binding) = vehicle.parking() else {
+        return if status == VehicleStatus::Parked {
+            Err(SnapshotRestoreError::ParkingStatusMismatch {
+                snapshot_vehicle_id,
+            })
+        } else {
+            Ok(None)
+        };
+    };
+    let state = if binding.state() == wire::ParkingBindingStateKind::Reserved {
+        wire::ParkingBindingStateKind::Reserved
+    } else if binding.state() == wire::ParkingBindingStateKind::Occupied {
+        wire::ParkingBindingStateKind::Occupied
+    } else {
+        return Err(SnapshotRestoreError::InvalidParkingBindingState {
+            snapshot_vehicle_id,
+            actual: binding.state().0,
+        });
+    };
+    let target_wire = binding.target().ok_or(SnapshotRestoreError::MissingField {
+        field: "vehicles.parking.target",
+    })?;
+    let identity = world.revision.identity();
+    let target = if binding.target_kind() == wire::ParkingTargetKind::ExplicitSpace {
+        ParkingTarget::ExplicitSpace(
+            identity
+                .ordinal(ParkingSpaceId::from_untyped(StableId128::from_bytes(
+                    target_wire.0,
+                )))
+                .ok_or(SnapshotRestoreError::UnknownParkingSpace {
+                    snapshot_vehicle_id,
+                })?,
+        )
+    } else if binding.target_kind() == wire::ParkingTargetKind::VirtualPool {
+        ParkingTarget::VirtualPool(
+            identity
+                .ordinal(ParkingFacilityId::from_untyped(StableId128::from_bytes(
+                    target_wire.0,
+                )))
+                .ok_or(SnapshotRestoreError::UnknownParkingFacility {
+                    snapshot_vehicle_id,
+                })?,
+        )
+    } else {
+        return Err(SnapshotRestoreError::InvalidParkingTargetKind {
+            snapshot_vehicle_id,
+            actual: binding.target_kind().0,
+        });
+    };
+
+    match (state, target, status) {
+        (
+            wire::ParkingBindingStateKind::Reserved,
+            ParkingTarget::ExplicitSpace(space),
+            VehicleStatus::Active,
+        ) => {
+            if binding.virtual_entry_edge().is_some() || binding.virtual_entry_progress_mm() != 0 {
+                return Err(SnapshotRestoreError::InvalidParkingBindingShape {
+                    snapshot_vehicle_id,
+                });
+            }
+            Ok(Some(DecodedParkingBinding::Reserved(
+                ReserveParkingTarget::ExplicitSpace {
+                    space,
+                    entry_route_occurrence: binding.entry_route_occurrence(),
+                },
+            )))
+        }
+        (
+            wire::ParkingBindingStateKind::Reserved,
+            ParkingTarget::VirtualPool(facility),
+            VehicleStatus::Active,
+        ) => {
+            let entry_wire = binding.virtual_entry_edge().ok_or(
+                SnapshotRestoreError::InvalidParkingBindingShape {
+                    snapshot_vehicle_id,
+                },
+            )?;
+            let entry_edge = identity
+                .ordinal(LaneEdgeId::from_untyped(StableId128::from_bytes(
+                    entry_wire.0,
+                )))
+                .ok_or(SnapshotRestoreError::UnknownVirtualParkingEntry {
+                    snapshot_vehicle_id,
+                })?;
+            let view = world
+                .revision
+                .traffic()
+                .relations()
+                .parking_facility(facility)
+                .ok_or(SnapshotRestoreError::UnknownParkingFacility {
+                    snapshot_vehicle_id,
+                })?;
+            let selector = view
+                .virtual_entries()
+                .iter()
+                .position(|anchor| {
+                    anchor.lane_edge() == entry_edge
+                        && anchor.progress_mm() == binding.virtual_entry_progress_mm()
+                })
+                .ok_or(SnapshotRestoreError::UnknownVirtualParkingEntry {
+                    snapshot_vehicle_id,
+                })?;
+            Ok(Some(DecodedParkingBinding::Reserved(
+                ReserveParkingTarget::VirtualPool {
+                    facility,
+                    entry_anchor: VirtualEntryAnchorSelector::from_raw(
+                        u32::try_from(selector).expect("virtual entry selector fits u32"),
+                    ),
+                    entry_route_occurrence: binding.entry_route_occurrence(),
+                },
+            )))
+        }
+        (wire::ParkingBindingStateKind::Occupied, target, VehicleStatus::Parked) => {
+            if binding.entry_route_occurrence() != 0
+                || binding.virtual_entry_edge().is_some()
+                || binding.virtual_entry_progress_mm() != 0
+            {
+                return Err(SnapshotRestoreError::InvalidParkingBindingShape {
+                    snapshot_vehicle_id,
+                });
+            }
+            Ok(Some(DecodedParkingBinding::Occupied(target)))
+        }
+        _ => Err(SnapshotRestoreError::ParkingStatusMismatch {
+            snapshot_vehicle_id,
+        }),
+    }
 }
 
 fn restore_vehicle(
@@ -773,15 +946,7 @@ fn restore_vehicle(
             actual: vehicle.carry_um(),
         });
     }
-    let parking_binding_matches = match status {
-        VehicleStatus::Parked => vehicle.parking_space().is_some(),
-        VehicleStatus::Active | VehicleStatus::Completed => vehicle.parking_space().is_none(),
-    };
-    if !parking_binding_matches {
-        return Err(SnapshotRestoreError::ParkingStatusMismatch {
-            snapshot_vehicle_id,
-        });
-    }
+    let parking = decode_parking_binding(world, vehicle, status)?;
     if status != VehicleStatus::Active && (vehicle.speed_mm_s() != 0 || vehicle.carry_um() != 0) {
         return Err(SnapshotRestoreError::InvalidInactiveMotion {
             snapshot_vehicle_id,
@@ -840,18 +1005,36 @@ fn restore_vehicle(
         }
     }
 
-    let handle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            profile,
-            route,
-            vehicle.route_edge_index(),
-            vehicle.progress_mm(),
-            vehicle.speed_mm_s(),
-        ))
-        .map_err(|error| SnapshotRestoreError::Vehicle {
-            snapshot_vehicle_id,
-            error,
-        })?;
+    let handle = if let Some(DecodedParkingBinding::Occupied(target)) = parking {
+        world
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(
+                    profile,
+                    route,
+                    vehicle.route_edge_index(),
+                    vehicle.progress_mm(),
+                ),
+                target,
+            )
+            .map_err(|error| SnapshotRestoreError::Parking {
+                snapshot_vehicle_id,
+                error,
+            })?
+            .vehicle
+    } else {
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                profile,
+                route,
+                vehicle.route_edge_index(),
+                vehicle.progress_mm(),
+                vehicle.speed_mm_s(),
+            ))
+            .map_err(|error| SnapshotRestoreError::Vehicle {
+                snapshot_vehicle_id,
+                error,
+            })?
+    };
     match status {
         VehicleStatus::Active => {
             world.vehicles[usize::try_from(handle.index()).expect("vehicle index")]
@@ -859,27 +1042,16 @@ fn restore_vehicle(
                 .as_mut()
                 .expect("spawned vehicle")
                 .carry_um = vehicle.carry_um();
-        }
-        VehicleStatus::Parked => {
-            let parking = vehicle
-                .parking_space()
-                .expect("parking binding validated for Parked");
-            let parking = world
-                .revision
-                .identity()
-                .ordinal(ParkingSpaceId::from_untyped(StableId128::from_bytes(
-                    parking.0,
-                )))
-                .ok_or(SnapshotRestoreError::UnknownParkingSpace {
-                    snapshot_vehicle_id,
+            if let Some(DecodedParkingBinding::Reserved(target)) = parking {
+                world.reserve_parking(handle, target).map_err(|error| {
+                    SnapshotRestoreError::Parking {
+                        snapshot_vehicle_id,
+                        error,
+                    }
                 })?;
-            world.occupy_parking(handle, parking).map_err(|error| {
-                SnapshotRestoreError::Parking {
-                    snapshot_vehicle_id,
-                    error,
-                }
-            })?;
+            }
         }
+        VehicleStatus::Parked => {}
         VehicleStatus::Completed => {
             world.vehicles[usize::try_from(handle.index()).expect("vehicle index")]
                 .state
@@ -956,10 +1128,55 @@ const fn limit_error(
 mod tests {
     use super::*;
     use crate::cutover::tests::transaction_tests::world_with_vehicle;
-    use crate::{RouteRegisterInput, TickInput, encode_lfrs};
+    use crate::cutover_migration::tests::virtual_parking_cutover_world;
+    use crate::{
+        CapturedParkingBinding, CapturedParkingTarget, CapturedVirtualParkingEntry,
+        ParkedVehicleSpawnInput, ParkingBinding, ParkingTarget, RouteRegisterInput, TickInput,
+        encode_lfrs,
+    };
 
     fn generous_limits() -> SnapshotRestoreLimits {
         SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024)
+    }
+
+    fn captured_parking_for(
+        world: &TrafficWorld,
+        vehicle: VehicleHandle,
+    ) -> Option<CapturedParkingBinding> {
+        let revision = world.revision();
+        let identity = revision.identity();
+        let stable_target = |target: ParkingTarget| match target {
+            ParkingTarget::ExplicitSpace(space) => CapturedParkingTarget::ExplicitSpace(
+                *identity.stable_id(space).expect("space").as_untyped(),
+            ),
+            ParkingTarget::VirtualPool(facility) => CapturedParkingTarget::VirtualPool(
+                *identity.stable_id(facility).expect("facility").as_untyped(),
+            ),
+        };
+        world.parking_binding(vehicle).map(|binding| match binding {
+            ParkingBinding::Occupied(target) => CapturedParkingBinding::Occupied {
+                target: stable_target(target),
+            },
+            ParkingBinding::Reserved(reservation) => {
+                let virtual_entry = match reservation.target() {
+                    ParkingTarget::ExplicitSpace(_) => None,
+                    ParkingTarget::VirtualPool(_) => {
+                        let (edge, progress_mm) = world
+                            .reservation_anchor(reservation)
+                            .expect("reserved virtual anchor");
+                        Some(CapturedVirtualParkingEntry {
+                            lane_edge: *identity.stable_id(edge).expect("edge").as_untyped(),
+                            progress_mm,
+                        })
+                    }
+                };
+                CapturedParkingBinding::Reserved {
+                    target: stable_target(reservation.target()),
+                    entry_route_occurrence: reservation.entry_route_occurrence(),
+                    virtual_entry,
+                }
+            }
+        })
     }
 
     #[test]
@@ -967,15 +1184,15 @@ mod tests {
         let (mut original, route, _) = world_with_vehicle(true);
         original.step(TickInput::new(100)).expect("step");
         let profile = laneflow_static_contract::VehicleProfileOrdinal::from_raw(0);
-        let second = original
-            .spawn_vehicle(VehicleSpawnInput::new(profile, route, 0, 10_000, 0))
-            .expect("second far from first");
-        original
-            .occupy_parking(
-                second,
-                laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0),
+        let _second = original
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(profile, route, 0, 10_000),
+                ParkingTarget::ExplicitSpace(
+                    laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0),
+                ),
             )
-            .expect("park second");
+            .expect("park second")
+            .vehicle;
         let snapshot = original.capture_snapshot().expect("capture");
         assert_eq!(snapshot.vehicles[0].status, VehicleStatus::Active);
         assert_eq!(snapshot.vehicles[1].status, VehicleStatus::Parked);
@@ -1045,12 +1262,7 @@ mod tests {
                     .as_untyped(),
                 captured.class
             );
-            assert_eq!(
-                state
-                    .parking()
-                    .map(|space| { *identity.stable_id(space).expect("parking").as_untyped() }),
-                captured.parking_space
-            );
+            assert_eq!(captured_parking_for(world, handle), captured.parking);
         }
         let mapped_live_order = snapshot
             .live_order
@@ -1432,28 +1644,26 @@ mod tests {
 
     #[test]
     fn parking_and_live_order_invariants_fail_closed() {
-        let (mut world, route, first) = world_with_vehicle(true);
-        world
-            .occupy_parking(
-                first,
-                laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0),
-            )
-            .expect("park first");
+        let (mut world, route, _) = world_with_vehicle(true);
         let _second = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
-            .expect("second");
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(
+                    laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    10_000,
+                ),
+                ParkingTarget::ExplicitSpace(
+                    laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0),
+                ),
+            )
+            .expect("parked second");
         let revision = world.revision();
         let source = world.committed_source().clone();
         let config = world.config();
 
         let mut parking_mismatch = world.capture_snapshot().expect("capture");
-        parking_mismatch.vehicles[0].parking_space = None;
+        parking_mismatch.vehicles[1].parking = None;
         assert!(matches!(
             restore_lfrs(
                 &encode_lfrs(&parking_mismatch),
@@ -1476,6 +1686,177 @@ mod tests {
                 generous_limits(),
             ),
             Err(SnapshotRestoreError::DuplicateLiveOrderVehicle { .. })
+        ));
+    }
+
+    #[test]
+    fn virtual_parking_corruption_capacity_and_duplicate_resources_fail_closed() {
+        let (world, reserved, _occupied) = virtual_parking_cutover_world();
+        let revision = world.revision();
+        let source = world.committed_source().clone();
+        let config = world.config();
+        let before = world.capture_snapshot().expect("base virtual snapshot");
+        let reserved_id = before
+            .vehicles
+            .iter()
+            .find(|vehicle| vehicle.status == VehicleStatus::Active)
+            .expect("reserved row")
+            .snapshot_vehicle_id;
+        assert_eq!(
+            world.vehicle(reserved).expect("reserved").status(),
+            VehicleStatus::Active
+        );
+
+        let mut missing_target = before.clone();
+        let row = missing_target
+            .vehicles
+            .iter_mut()
+            .find(|vehicle| vehicle.snapshot_vehicle_id == reserved_id)
+            .expect("reserved row");
+        let Some(CapturedParkingBinding::Reserved { target, .. }) = row.parking.as_mut() else {
+            panic!("reserved binding")
+        };
+        *target = CapturedParkingTarget::VirtualPool(StableId128::from_bytes([0xab; 16]));
+        assert_eq!(
+            restore_lfrs(
+                &encode_lfrs(&missing_target),
+                Arc::clone(&revision),
+                source.clone(),
+                config,
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::UnknownParkingFacility {
+                snapshot_vehicle_id: reserved_id
+            }
+        );
+
+        let facility = laneflow_static_contract::ParkingFacilityOrdinal::from_raw(0);
+        let facility_stable = *world
+            .revision
+            .identity()
+            .stable_id(facility)
+            .expect("facility stable id")
+            .as_untyped();
+        let mut wrong_kind = before.clone();
+        let row = wrong_kind
+            .vehicles
+            .iter_mut()
+            .find(|vehicle| vehicle.snapshot_vehicle_id == reserved_id)
+            .expect("reserved row");
+        let Some(CapturedParkingBinding::Reserved { target, .. }) = row.parking.as_mut() else {
+            panic!("reserved binding")
+        };
+        *target = CapturedParkingTarget::ExplicitSpace(facility_stable);
+        assert_eq!(
+            restore_lfrs(
+                &encode_lfrs(&wrong_kind),
+                Arc::clone(&revision),
+                source.clone(),
+                config,
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::UnknownParkingSpace {
+                snapshot_vehicle_id: reserved_id
+            }
+        );
+
+        let mut moved_anchor = before.clone();
+        let row = moved_anchor
+            .vehicles
+            .iter_mut()
+            .find(|vehicle| vehicle.snapshot_vehicle_id == reserved_id)
+            .expect("reserved row");
+        let Some(CapturedParkingBinding::Reserved {
+            virtual_entry: Some(entry),
+            ..
+        }) = row.parking.as_mut()
+        else {
+            panic!("virtual entry")
+        };
+        entry.progress_mm += 1;
+        assert_eq!(
+            restore_lfrs(
+                &encode_lfrs(&moved_anchor),
+                Arc::clone(&revision),
+                source.clone(),
+                config,
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::UnknownVirtualParkingEntry {
+                snapshot_vehicle_id: reserved_id
+            }
+        );
+
+        let mut over_capacity = before.clone();
+        let template = over_capacity
+            .vehicles
+            .iter()
+            .find(|vehicle| vehicle.status == VehicleStatus::Parked)
+            .expect("occupied row")
+            .clone();
+        for snapshot_vehicle_id in [3, 4] {
+            let mut duplicate = template.clone();
+            duplicate.snapshot_vehicle_id = snapshot_vehicle_id;
+            over_capacity.vehicles.push(duplicate);
+            over_capacity.live_order.push(snapshot_vehicle_id);
+        }
+        assert!(matches!(
+            restore_lfrs(
+                &encode_lfrs(&over_capacity),
+                Arc::clone(&revision),
+                source.clone(),
+                config,
+                generous_limits(),
+            ),
+            Err(SnapshotRestoreError::Parking {
+                error: ParkingError::VirtualCapacityExhausted,
+                ..
+            })
+        ));
+        assert_eq!(world.capture_snapshot().expect("zero publish"), before);
+
+        let (mut explicit_world, route, _) = world_with_vehicle(true);
+        explicit_world
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(
+                    laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    10_000,
+                ),
+                ParkingTarget::ExplicitSpace(
+                    laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0),
+                ),
+            )
+            .expect("explicit parked");
+        let explicit_revision = explicit_world.revision();
+        let explicit_source = explicit_world.committed_source().clone();
+        let explicit_config = explicit_world.config();
+        let mut duplicate_resource = explicit_world.capture_snapshot().expect("explicit capture");
+        let mut duplicate = duplicate_resource
+            .vehicles
+            .iter()
+            .find(|vehicle| vehicle.status == VehicleStatus::Parked)
+            .expect("parked row")
+            .clone();
+        duplicate.snapshot_vehicle_id = 3;
+        duplicate_resource.vehicles.push(duplicate);
+        duplicate_resource.live_order.push(3);
+        assert!(matches!(
+            restore_lfrs(
+                &encode_lfrs(&duplicate_resource),
+                explicit_revision,
+                explicit_source,
+                explicit_config,
+                generous_limits(),
+            ),
+            Err(SnapshotRestoreError::Parking {
+                error: ParkingError::TargetBoundByOther,
+                ..
+            })
         ));
     }
 
@@ -1532,22 +1913,31 @@ mod tests {
 
     #[test]
     fn unknown_parking_space_and_participant_class_fail_closed() {
-        let (mut world, _, first) = world_with_vehicle(true);
+        let (mut world, route, _) = world_with_vehicle(true);
         world
-            .occupy_parking(
-                first,
-                laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0),
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(
+                    laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    10_000,
+                ),
+                ParkingTarget::ExplicitSpace(
+                    laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0),
+                ),
             )
-            .expect("park first");
+            .expect("parked second");
         let revision = world.revision();
         let source = world.committed_source().clone();
         let config = world.config();
 
         // 未知停车位稳定标识：绑定一致（Parked + Some）但 ID 不解析。
         let mut unknown_space = world.capture_snapshot().expect("capture");
-        unknown_space.vehicles[0].parking_space = Some(
-            laneflow_static_contract::StableId128::from_bytes([0xAB; 16]),
-        );
+        unknown_space.vehicles[1].parking = Some(CapturedParkingBinding::Occupied {
+            target: CapturedParkingTarget::ExplicitSpace(
+                laneflow_static_contract::StableId128::from_bytes([0xAB; 16]),
+            ),
+        });
         assert!(matches!(
             restore_lfrs(
                 &encode_lfrs(&unknown_space),
@@ -1655,7 +2045,7 @@ mod tests {
                 .expect("verified LFRS");
             table_field_offset(root._tab, wire::RuntimeSnapshot::VT_FORMAT_VERSION)
         };
-        unknown_format[format_offset..format_offset + 4].copy_from_slice(&2_u32.to_le_bytes());
+        unknown_format[format_offset..format_offset + 4].copy_from_slice(&3_u32.to_le_bytes());
         assert_eq!(
             restore_lfrs(
                 &unknown_format,
@@ -1665,7 +2055,7 @@ mod tests {
                 generous_limits(),
             )
             .unwrap_err(),
-            SnapshotRestoreError::UnsupportedFormatVersion { actual: 2 }
+            SnapshotRestoreError::UnsupportedFormatVersion { actual: 3 }
         );
 
         let mut unknown_runtime = valid.clone();
@@ -1674,7 +2064,7 @@ mod tests {
                 .expect("verified LFRS");
             table_field_offset(root._tab, wire::RuntimeSnapshot::VT_RUNTIME_STATE_VERSION)
         };
-        unknown_runtime[runtime_offset..runtime_offset + 2].copy_from_slice(&2_u16.to_le_bytes());
+        unknown_runtime[runtime_offset..runtime_offset + 2].copy_from_slice(&3_u16.to_le_bytes());
         assert_eq!(
             restore_lfrs(
                 &unknown_runtime,
@@ -1684,7 +2074,7 @@ mod tests {
                 generous_limits(),
             )
             .unwrap_err(),
-            SnapshotRestoreError::UnsupportedRuntimeStateVersion { actual: 2 }
+            SnapshotRestoreError::UnsupportedRuntimeStateVersion { actual: 3 }
         );
 
         let mut unknown_fields = valid.clone();
@@ -1700,8 +2090,8 @@ mod tests {
             .unwrap_err(),
             SnapshotRestoreError::UnknownTableFields {
                 table: "RuntimeSnapshot",
-                supported: ROOT_V1_FIELDS,
-                actual: ROOT_V1_FIELDS + 4,
+                supported: ROOT_V2_FIELDS,
+                actual: ROOT_V2_FIELDS + 4,
             }
         );
 
@@ -1780,6 +2170,62 @@ mod tests {
             ),
             Err(SnapshotRestoreError::InvalidVehicleStatus { actual: 0xff, .. })
         ));
+
+        let (parking_world, _, _) = virtual_parking_cutover_world();
+        let parking_revision = parking_world.revision();
+        let parking_source = parking_world.committed_source().clone();
+        let parking_config = parking_world.config();
+        let parking_valid =
+            encode_lfrs(&parking_world.capture_snapshot().expect("parking capture"));
+        let mut unknown_parking_state = parking_valid.clone();
+        let (parking_state_offset, parking_vehicle_id) = {
+            let root = wire::size_prefixed_root_as_runtime_snapshot(&unknown_parking_state)
+                .expect("verified parking LFRS");
+            let vehicle = root.vehicles().get(0);
+            let binding = vehicle.parking().expect("parking binding");
+            (
+                table_field_offset(binding._tab, wire::ParkingBinding::VT_STATE),
+                vehicle.snapshot_vehicle_id(),
+            )
+        };
+        unknown_parking_state[parking_state_offset] = 0xff;
+        assert_eq!(
+            restore_lfrs(
+                &unknown_parking_state,
+                Arc::clone(&parking_revision),
+                parking_source.clone(),
+                parking_config,
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::InvalidParkingBindingState {
+                snapshot_vehicle_id: parking_vehicle_id,
+                actual: 0xff,
+            }
+        );
+
+        let mut unknown_parking_kind = parking_valid;
+        let parking_kind_offset = {
+            let root = wire::size_prefixed_root_as_runtime_snapshot(&unknown_parking_kind)
+                .expect("verified parking LFRS");
+            let binding = root.vehicles().get(0).parking().expect("parking binding");
+            table_field_offset(binding._tab, wire::ParkingBinding::VT_TARGET_KIND)
+        };
+        unknown_parking_kind[parking_kind_offset] = 0xff;
+        assert_eq!(
+            restore_lfrs(
+                &unknown_parking_kind,
+                parking_revision,
+                parking_source,
+                parking_config,
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::InvalidParkingTargetKind {
+                snapshot_vehicle_id: parking_vehicle_id,
+                actual: 0xff,
+            }
+        );
 
         let mut wrong_revision = valid.clone();
         let revision_offset = {

@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-08-28
+**最后更新**: 2026-08-31（#541 typed parking lifecycle）
 
 **适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -32,7 +32,7 @@ v0.7 的完成目标是提供一条可构建、可测试、可演示且默认依
 - 升级到 Bevy 0.20 必须创建独立迁移 Issue，重新审计 API、feature graph、MSRV、许可证、RustSec 与性能，不在 v0.7 中静默放宽版本范围。
 - LaneFlow workspace MSRV 为 Rust `1.98.0`（#495 显式提升，不跟随开发机静默变化）。Bevy 0.19.0 的 MSRV 为 Rust 1.95.0，不构成 LaneFlow 的工具链下限约束。
 - Bevy 0.19.0 使用 `MIT OR Apache-2.0`，可进入 LaneFlow 当前 cargo-deny 允许范围；最终实现仍必须以实际 lock graph 重新运行完整 dependency policy。
-- production `laneflow-bevy` 直接依赖最小 modular crates：`bevy_app`、`bevy_ecs`、`bevy_time` 与 `bevy_transform`。LaneFlow 生产依赖只有 `laneflow-runtime` 与 `laneflow-spatial`；`occupy_parking` 的停车序号走 Runtime 再导出，不把 `laneflow-static-contract` 写入 Adapter 生产 graph。
+- production `laneflow-bevy` 直接依赖最小 modular crates：`bevy_app`、`bevy_ecs`、`bevy_time` 与 `bevy_transform`。LaneFlow 生产依赖只有 `laneflow-runtime` 与 `laneflow-spatial`；parking target/record 由 Runtime 再导出，不把 `laneflow-static-contract` 写入 Adapter 生产 graph。
 - production manifest 对四个 modular crates 关闭 default features；`bevy_app`、`bevy_ecs`、`bevy_time` 只启用 `std`，`bevy_transform` 启用 `std + bevy-support`。默认 graph 不激活 Bevy reflect、async executor 或 backtrace。
 - 默认 production feature graph 不包含 umbrella `bevy`、renderer、window、audio、asset、scene、UI、Gizmos，以及没有被实现证明必要的 reflect/state/input。
 - 完整 `DefaultPlugins`、render/window、mesh/material 和 Gizmos 只能进入显式 opt-in feature 或 example 边界。
@@ -145,7 +145,7 @@ Bevy Transform 写入系统运行在 `PostUpdate`，并位于 `TransformSystems:
 - 默认同步路径不得对每辆车调用 Spatial 单记录查询。
 - 稳定容量下必须复用 extraction、validation 与 Transform staging 内存。
 
-Presentation 从 committed `TrafficWorld::committed_pose_sources()` 重建 pose inputs：Active vehicle 使用当前 route edge 与 progress，Parked vehicle 使用已提交停车占用，Completed vehicle 不进入 presentation batch。batch 同时包含已映射和未绑定 vehicle，映射查询不会改变 record 顺序。
+Presentation 从 committed `TrafficWorld::committed_pose_sources()` 重建 pose inputs：Active vehicle 使用当前 route edge 与 progress；explicit Parked 使用已提交 `ParkingSpace` pose；virtual Parked 与 Completed 不进入 presentation batch。batch 同时包含已映射和未绑定 vehicle，映射查询不会改变 record 顺序。无 pose 不能被解释为 removal。
 
 `LaneFlowPlugin` 安装 exclusive `PostUpdate` 系统并显式排序在 `TransformSystems::Propagate` 前。实现先完成 Spatial batch、frame/token、root、所有 mapped Entity/parent/Transform 与转换结果校验，再统一写入 ECS；exclusive system 内两阶段之间没有其他 system 可以修改 Entity。`LaneFlowPresentationReport` 暴露 `pose_records`、`mapped_records`、`unbound_records` 与 `applied_records`，失败时 `applied_records` 恒为零，具体失败保存在 Session 的最近错误中。
 
@@ -237,7 +237,11 @@ replace-and-rebind；薄示例仍可不启用 50–200 人口。不得再走已�
 
 车辆完成 route 后，既有 proxy/model 不 despawn。等待可用入口时，Completed vehicle 不产生 pose record，Entity 保留最后 Transform。caller 在 `Lifecycle` 使用 `replace_completed_vehicle`：`Blocked` 保持 Runtime/映射/Transform 不变并允许继续处理其他计划；`Replaced` 把同一 Entity 从 old handle 轮换到 new handle，下一次正常 `PostUpdate` presentation 才更新入口位姿。fatal Adapter/Runtime error 停止该 outer frame 当前和后续 catch-up，完整保留 backlog；已成功的前序 command 不做跨 command 回滚。
 
-该边界不提供通用 runtime despawn、Adapter-owned persistent queue/retry 或人口 controller。初始人口在创建 Session 前由调用方建立；seed、portal/lane 抽样与 retry policy 由 `laneflow-scenario` 的 engine-neutral caller policy 拥有。
+该边界提供 typed `despawn_vehicle`，并只在 Runtime removal 成功后清除 Vehicle/Entity
+映射；失败或 virtual Parked 无 pose 均保留映射。Session 还薄转发 typed
+reserve/cancel/park/leave/rebind/parked-spawn，不复制停车判据。Adapter-owned persistent
+queue/retry 或人口 controller 仍不提供；初始人口在创建 Session 前由调用方建立；seed、
+portal/lane 抽样与 retry policy 由 `laneflow-scenario` 的 engine-neutral caller policy 拥有。
 
 ## 14. v0.8 signalized-corridor native specialization
 

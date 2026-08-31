@@ -1,11 +1,12 @@
 # 中国特色城市工作负载 v1
 
 **文档状态**: Draft（#304）；其中 §4 停车切片已 Accepted（#540 G1）<br>
-**最后更新**: 2026-08-30<br>
+**最后更新**: 2026-08-31（#541 停车 Runtime/Adapter 切片）<br>
 **适用范围**: `LF-CN-URBAN-v1` 的 topology / demand / runtime 分层、计数口径、
 首批场景边界与阶段依赖<br>
 **实现状态**: #304 尚未完成 G1；本文不声称已有 production generator、完整行为域或
-Product Pass。#540 只冻结停车输入，#541 负责实现，#543 负责 exact topology/容量核算。<br>
+Product Pass。#540 冻结停车输入，#541 已实现 Runtime/Snapshot/Cutover/Adapter 停车切片，
+#543 仍负责 exact topology/容量核算。<br>
 **关联文档**:
 
 - `parking-system.md`
@@ -31,7 +32,7 @@ Product Pass。#540 只冻结停车输入，#541 负责实现，#543 负责 exac
 三层必须独立计数和版本化。城市人口、停车容量、静态表行数、道路 Active vehicle 和
 引擎 presented entity 不是同一个数字，不能相互代替。
 
-本文当前只把 #540 已决策的停车切片写成候选实现输入。多阶段信号、左转待转区、干支路、
+本文当前把 #540 已决策且由 #541 实现的停车切片写成 workload 输入。多阶段信号、左转待转区、干支路、
 小区出口、方向性高峰、公交/出租/上下客/路侧摩擦等仍由 #304 及其依赖逐项冻结；本次
 停车文档变更不代表这些切片已完成。
 
@@ -84,7 +85,7 @@ counting spike 冻结。#540 只提供现实 workload，不复制或改写 compi
 registry、静态格式版本轴或容量上限；测量结果必须回到各自 SSOT/独立 G1 裁决，也不能
 为了迎合既定结论删除真实拓扑语义。
 
-## 4. 停车切片（#540 G1 合同）
+## 4. 停车切片（#540 G1 合同；#541 当前实现）
 
 ### 4.1 代表性场景
 
@@ -188,16 +189,20 @@ route reference；virtual Parked 无 pose 或 Adapter 隐藏不改变 `N_individ
 必须记录 declaration/IR/LFCA/shared-static/runtime/Adapter 各层计数，不能只报进程总内存
 或帧率。理论 `u32` 极限不属于首批 Product Gate；exact/exact+1 和现实 10k/100k 才是。
 
+#541 的 Runtime 稀疏证据已经证明只改变 10k/100k virtual capacity 时，shared-static
+retained 与单 binding 每世界分配形状不变；它没有构造 #304 exact topology，也不替代
+#543 对 declaration/IR/LFCA/build/load/Adapter 各层的完整核算。
+
 ## 5. 其他首批场景的当前状态
 
-| 切片                      | 当前状态                                                | 本文允许的声明                                |
-| ------------------------- | ------------------------------------------------------- | --------------------------------------------- |
-| 多阶段信号/左转待转区     | 依赖现有 signal 与 waiting/conflict 设计，#304 尚需整合 | 只登记输入，不声称 workload 已通过            |
-| 干支路与小区出口          | topology/法规 fixture 需与 #238 对齐                    | 不用普通十字路口替代                          |
-| 方向性高峰                | demand 规则、seed 和 oracle 待冻结                      | 不用均匀随机人口替代                          |
-| 公交/出租/上下客/路侧摩擦 | 首批闭环尚待 #304 决定                                  | 未实现域必须标为 unsupported/future           |
-| 非机动车/步行/轨道        | 不在当前道路机动车 Runtime 生产能力内                   | 不以机动车伪装支持                            |
-| 停车                      | #540 G1 Accepted；#541 未实现                           | 只可声称设计合同，不可声称 production support |
+| 切片                      | 当前状态                                                       | 本文允许的声明                                 |
+| ------------------------- | -------------------------------------------------------------- | ---------------------------------------------- |
+| 多阶段信号/左转待转区     | 依赖现有 signal 与 waiting/conflict 设计，#304 尚需整合        | 只登记输入，不声称 workload 已通过             |
+| 干支路与小区出口          | topology/法规 fixture 需与 #238 对齐                           | 不用普通十字路口替代                           |
+| 方向性高峰                | demand 规则、seed 和 oracle 待冻结                             | 不用均匀随机人口替代                           |
+| 公交/出租/上下客/路侧摩擦 | 首批闭环尚待 #304 决定                                         | 未实现域必须标为 unsupported/future            |
+| 非机动车/步行/轨道        | 不在当前道路机动车 Runtime 生产能力内                          | 不以机动车伪装支持                             |
+| 停车                      | #540 G1 Accepted；#541 Runtime/Snapshot/Cutover/Adapter 已实现 | 可声称停车切片支持；不可推导 #304/Product Pass |
 
 ## 6. 制品与可重放要求
 
@@ -211,13 +216,14 @@ route reference；virtual Parked 无 pose 或 Adapter 隐藏不改变 `N_individ
 - functional oracle、state digest、失败面和性能 Gate；
 - current/target 比较的合法范围，不把旧 `CoreWorld` 当永久预言机。
 
-#540 只提供停车字段和 oracle 输入；不替 #304 选择最终城市地图、需求分布、硬件门槛或
-总体性能阈值。
+#540/#541 只提供停车字段、Runtime/Adapter 实现和 oracle；不替 #304 选择最终城市地图、
+需求分布、硬件门槛或总体性能阈值。
 
 ## 7. 阶段和完成边界
 
 1. #540 G1 Accepted：停车设施和虚拟停驻合同可作为实现输入。
-2. #541 完成：production compiler/Runtime/Adapter 能跑停车切片。
+2. #541：production compiler/Runtime/Adapter 能跑停车切片，Snapshot v2 与 cutover/replay
+   保持同一停车 authority。
 3. #543 完成：10k/100k exact topology 容量判断可复核。
 4. #304 G1 Accepted：其余首批场景、三层制品和 Product Gate 一并冻结。
 5. 后续 generator/harness/certification 交付可运行制品和证据。

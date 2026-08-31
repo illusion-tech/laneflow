@@ -1,6 +1,4 @@
-use laneflow_static_contract::{
-    ParkingSpaceOrdinal, ParticipantClassOrdinal, VehicleProfileOrdinal,
-};
+use laneflow_static_contract::{ParticipantClassOrdinal, VehicleProfileOrdinal};
 
 use crate::{RouteHandle, VehicleHandle};
 
@@ -28,7 +26,6 @@ pub struct VehicleState {
     pub(crate) speed_mm_s: u32,
     pub(crate) length_mm: u32,
     pub(crate) status: VehicleStatus,
-    pub(crate) parking: Option<ParkingSpaceOrdinal>,
 }
 
 impl VehicleState {
@@ -90,12 +87,6 @@ impl VehicleState {
     #[must_use]
     pub const fn status(self) -> VehicleStatus {
         self.status
-    }
-
-    /// 停车占用。
-    #[must_use]
-    pub const fn parking(self) -> Option<ParkingSpaceOrdinal> {
-        self.parking
     }
 }
 

@@ -70,29 +70,41 @@ impl TickInput {
 }
 
 /// 成功步进后的可观察时间。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StepOutcome {
     tick_index: u64,
     time_ms: u64,
+    parking_arrivals: Vec<crate::ParkingArrivalObservation>,
 }
 
 impl StepOutcome {
-    pub(crate) const fn new(tick_index: u64, time_ms: u64) -> Self {
+    pub(crate) const fn new(
+        tick_index: u64,
+        time_ms: u64,
+        parking_arrivals: Vec<crate::ParkingArrivalObservation>,
+    ) -> Self {
         Self {
             tick_index,
             time_ms,
+            parking_arrivals,
         }
     }
 
     /// 成功步进后的已提交 `tick_index`。
     #[must_use]
-    pub const fn tick_index(self) -> u64 {
+    pub const fn tick_index(&self) -> u64 {
         self.tick_index
     }
 
     /// 成功步进后的已提交 `time_ms`。
     #[must_use]
-    pub const fn time_ms(self) -> u64 {
+    pub const fn time_ms(&self) -> u64 {
         self.time_ms
+    }
+
+    /// 本拍从未到达变为 exact committed arrival 的稳定 live-order observation。
+    #[must_use]
+    pub fn parking_arrivals(&self) -> &[crate::ParkingArrivalObservation] {
+        &self.parking_arrivals
     }
 }

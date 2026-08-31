@@ -1,12 +1,12 @@
 # 停车系统设计
 
 **文档状态**: Accepted（#540 G1）<br>
-**最后更新**: 2026-08-30<br>
+**最后更新**: 2026-08-31（#541 clean-break 实现）<br>
 **适用范围**: `ParkingFacility` / `ParkingSpace` 静态模型、显式与虚拟停车资源、
 Traffic Runtime 生命周期、快照/修订切换、Spatial/Adapter 和复杂度边界<br>
-**实现状态**: 本文是 #541 的唯一实现输入。当前 `main` 仍是
-`ParkingArea + ParkingSpace + occupy_parking` 的已交付路径；在 #541 完成前，本文的
-`ParkingFacility`、virtual capacity、reserve/park/leave 和无 pose 停驻均未生产化。<br>
+**实现状态**: 当前实现已以 `ParkingFacility + ParkingSpace`、tagged
+`ExplicitSpace | VirtualPool` 和私有稀疏 binding aggregate 完成 clean break；旧
+`ParkingArea` / `occupy_parking` 入口、Runtime Snapshot v1 reader/writer 均不保留。<br>
 **关联文档**:
 
 - `../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`
@@ -674,17 +674,21 @@ Adapter 可以自行选择对象池和视觉过渡，但不能延迟、回滚或
 
 目标边界：
 
-| 路径                    | 时间/空间边界                                                      |
-| ----------------------- | ------------------------------------------------------------------ |
-| shared static retained  | `O(F + S + A)`，与 `C` 无关                                        |
-| 每世界 parking retained | `O(F + S + B)`，与空容量无关                                       |
-| reserve/park/cancel     | ordinal 已解析后摊销 `O(1)`；anchor membership 可用有序 range 查找 |
-| leave safety            | 复用 edge-local/route-aware 候选，不扫描全部车辆                   |
-| fixed tick              | `O(V_active + active constraints)`；不扫描 Parked 或 `C`           |
-| snapshot/cutover        | `O(V + B + routes)`，无 `O(C)` 展开                                |
+| 路径                    | 时间/空间边界                                                               |
+| ----------------------- | --------------------------------------------------------------------------- |
+| shared static retained  | `O(F + S + A)`，与 `C` 无关                                                 |
+| 每世界 parking retained | `O(F + S + B)`，与空容量无关                                                |
+| reserve/park/cancel     | ordinal 已解析后摊销 `O(1)`；anchor membership 可用有序 range 查找          |
+| leave safety            | 一次扫描 `V_active` 并复用 route-aware occupancy 查询；不扫描 Parked 或 `C` |
+| fixed tick              | `O(V_active + active constraints)`；不扫描 Parked 或 `C`                    |
+| snapshot/cutover        | `O(V + B + routes)`，无 `O(C)` 展开                                         |
 
 “100k 容量、100 辆实际 parked”只增加 100 个稀疏 binding；“100k 辆实际 parked”则需要
 100k 个 live vehicle/binding，这是产品真实状态，不能也不应该伪装成常数内存。
+
+当前 `parking_sparse_scale_evidence` 对只改变 virtual capacity 的 10k/100k 两个根给出
+相同 shared-static retained 与相同单 binding 世界分配形状；该证据只闭合 #541 的稀疏
+容量轴，不替代 #543 对 #304 exact topology、制品和加载峰值的核算。
 
 #543 负责在 #304 exact topology 上测 declarations、各 IR、静态制品、共享静态路网和
 build/load 峰值；本设计不复制或改写其格式容量上限，所有判断回到对应静态格式权威。
@@ -753,12 +757,12 @@ build/load 峰值；本设计不复制或改写其格式容量上限，所有判
 
 - **#540 / G1**：本文、ADR、跨层影响、术语和 #304 停车 workload 合同已接受；不改
   production schema 或代码，也不把 Accepted 设计写成已经实现。
-- **#541 / G2+**：一次 clean-break 实现当前静态制品权威，并改
-  shared static/Runtime/snapshot/cutover/Spatial/Adapter/API/fixtures/docs，按上节验证。
+- **#541 / G2+**：当前 clean-break 实现消费静态制品权威，并同步
+  Runtime/snapshot/cutover/Spatial/Adapter/API/fixtures/docs；定向证据按上节闭合。
 - **#543 / research**：只做 exact capacity report；格式容量裁决留在对应独立权威。
 - **#304**：消费已接受的停车切片，并继续分别登记信号、干支路、小区出口、公交/出租/
   路侧摩擦等其他域的支持状态；不能因为停车切片冻结就宣称整个 workload G1 完成。
 
-#540 G1 Accepted 后，#541 可以进入 Ready/G2；#541 完成前，当前代码仍以 `ParkingArea`
-和具体 `ParkingSpace` 占用为现实。任何实现 PR 必须同时报告满足、依赖绑定和明确延后的
-验收项，不能用“核心路径已跑通”替代完整跨层 clean-break。
+当前实现报告仍必须区分已满足、依赖绑定和明确延后的验收项。#541 的停车切片不完成
+#543 的 exact topology/容量核算，也不使 #304 的其他城市 workload 域自动达到 G1 或
+Product Pass。

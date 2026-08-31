@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+#[cfg(test)]
+use std::cell::Cell;
+
 use laneflow_static_contract::{
     EntityKind, ParkingSpaceOrdinal, SignalAspect, SignalControllerOrdinal, SignalGroupOrdinal,
 };
@@ -7,17 +10,34 @@ use laneflow_static_network::SharedNetworkRevision;
 
 use crate::migration_journal::{MigrationDeltaJournal, MigrationJournalError, VehicleDelta};
 use crate::occupancy::OccupancyIndex;
+use crate::parking::ParkingRuntimeState;
 use crate::tables::{
     CompiledRoute, RouteSlot, VehicleSlot, bodies_overlap, compile_route, occupancy_front_gap,
     route_access_denied,
 };
 use crate::{
     CommittedNetworkSource, CommittedPoseSourceBatch, CommittedSignalGroupBatch, CutoverError,
-    InstallError, ObservationStateSequence, ParkingError, PoseSource, ReplaceError, RouteError,
+    InstallError, ObservationStateSequence, ParkingBinding, ParkingFacilityCounts,
+    ParkingPoolCounts, ParkingSpaceState, ParkingTarget, PoseSource, ReplaceError, RouteError,
     RouteHandle, RouteRegisterInput, SpawnError, StepError, StepOutcome, TickInput, VehicleHandle,
     VehicleReplaceBlock, VehicleReplaceRecord, VehicleSpawnInput, VehicleState, VehicleStatus,
     WorldConfig,
 };
+
+#[cfg(test)]
+thread_local! {
+    static OVERLAP_BLOCKER_INSPECTIONS: Cell<usize> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+fn reset_overlap_blocker_inspections() {
+    OVERLAP_BLOCKER_INSPECTIONS.set(0);
+}
+
+#[cfg(test)]
+fn overlap_blocker_inspections() -> usize {
+    OVERLAP_BLOCKER_INSPECTIONS.get()
+}
 
 /// 活动世界世代。安装时从 [`Self::INITIAL`] 开始，每次成功换绑活动聚合时递增。
 ///
@@ -50,8 +70,8 @@ impl WorldGeneration {
 }
 
 /// 1-worker 交通世界。只克隆根 `Arc`，不复制静态 component。
-/// 生命周期命令（`register_route` / `spawn_vehicle` / `occupy_parking` /
-/// `replace_completed_vehicle`）只在两次 `step` 之间调用。
+/// 生命周期命令（路线、车辆、parking lifecycle 与原子 replace/despawn）只在两次
+/// `step` 之间调用。
 pub struct TrafficWorld {
     pub(crate) revision: Arc<SharedNetworkRevision>,
     pub(crate) source: CommittedNetworkSource,
@@ -78,7 +98,10 @@ pub struct TrafficWorld {
     pub(crate) vehicles: Vec<VehicleSlot>,
     pub(crate) free_vehicles: Vec<usize>,
     pub(crate) live_order: Vec<VehicleHandle>,
-    pub(crate) parking_occupants: Box<[Option<VehicleHandle>]>,
+    /// 仅含 `Active` 的固定步进执行顺序；按 `live_order` 投影维护，Parked / Completed
+    /// 不进入 tick 或 lane occupancy 重建扫描。
+    pub(crate) active_order: Vec<VehicleHandle>,
+    pub(crate) parking: ParkingRuntimeState,
     pub(crate) next_states: Vec<(usize, VehicleState)>,
     pub(crate) occupancy: OccupancyIndex,
     /// 武装中的迁移增量日志（#513 切片 C）：`Some` ⟺ 本世界存在在途切换事务。
@@ -136,6 +159,13 @@ impl TrafficWorld {
                 .count(EntityKind::ParkingSpace),
         )
         .expect("parking space count fits usize");
+        let facility_count = usize::try_from(
+            revision
+                .traffic()
+                .entity_counts()
+                .count(EntityKind::ParkingFacility),
+        )
+        .expect("parking facility count fits usize");
         let vehicle_capacity = usize::try_from(config.vehicle_capacity()).unwrap_or(0);
         let route_capacity = usize::try_from(config.route_capacity()).unwrap_or(0);
         let mut world = Self {
@@ -157,7 +187,8 @@ impl TrafficWorld {
             vehicles: Vec::with_capacity(vehicle_capacity),
             free_vehicles: Vec::with_capacity(vehicle_capacity),
             live_order: Vec::with_capacity(vehicle_capacity),
-            parking_occupants: vec![None; space_count].into_boxed_slice(),
+            active_order: Vec::with_capacity(vehicle_capacity),
+            parking: ParkingRuntimeState::new(space_count, facility_count),
             next_states: Vec::with_capacity(vehicle_capacity),
             occupancy: OccupancyIndex::with_capacity(0, 0),
             migration_journal: None,
@@ -211,9 +242,8 @@ impl TrafficWorld {
 
     /// 已应用输入命令计数（快照合同 §3 双游标之一）。
     ///
-    /// 生命周期命令（`register_route` / `remove_route` / `spawn_vehicle` /
-    /// `replace_completed_vehicle` / `occupy_parking`）成功返回即计数，
-    /// 幂等成功（如重复占用同车位）同样计数；失败命令不计数。`step`
+    /// 生命周期命令（路线、车辆、parking lifecycle 与原子 replace/despawn）成功返回即
+    /// 计数；合法 parking `NoChange` 同样计数，失败命令不计数。`step`
     /// 与切换事务不是输入命令，不推进本游标。安装后为零。
     #[must_use]
     pub const fn command_cursor(&self) -> u64 {
@@ -509,7 +539,6 @@ impl TrafficWorld {
             speed_mm_s: input.initial_speed_mm_s(),
             length_mm: profile.length_mm(),
             status: VehicleStatus::Active,
-            parking: None,
         };
         let slot = VehicleSlot {
             generation,
@@ -523,6 +552,7 @@ impl TrafficWorld {
         let route_index = usize::try_from(input.route().index()).expect("route index fits usize");
         self.routes[route_index].live_vehicles += 1;
         self.live_order.push(handle);
+        self.active_order.push(handle);
         self.observation_state_sequence = next_observation_state_sequence;
         self.command_cursor = next_command_cursor;
         if let Some(journal) = self.migration_journal.as_mut() {
@@ -544,7 +574,7 @@ impl TrafficWorld {
         if old_state.status != VehicleStatus::Completed {
             return Err(ReplaceError::NotCompleted);
         }
-        if old_state.parking.is_some() {
+        if self.parking.binding(old).is_some() {
             return Err(ReplaceError::ParkingOccupied);
         }
         let Some(order_index) = self.live_order.iter().position(|handle| *handle == old) else {
@@ -636,7 +666,6 @@ impl TrafficWorld {
             speed_mm_s: input.initial_speed_mm_s(),
             length_mm: profile.length_mm(),
             status: VehicleStatus::Active,
-            parking: None,
         };
 
         if reusable_generation.is_some() {
@@ -660,6 +689,7 @@ impl TrafficWorld {
         let route_index = usize::try_from(input.route().index()).expect("route index fits usize");
         self.routes[route_index].live_vehicles += 1;
         self.live_order[order_index] = new;
+        self.rebuild_active_order();
         self.observation_state_sequence = next_observation_state_sequence;
         self.command_cursor = next_command_cursor;
         let new_delta = VehicleDelta::from_state(
@@ -675,68 +705,6 @@ impl TrafficWorld {
             );
         }
         Ok(VehicleReplaceRecord { old, new })
-    }
-
-    /// 停车占用：每车一个车位、每车位一车；同车位幂等。
-    pub fn occupy_parking(
-        &mut self,
-        vehicle: VehicleHandle,
-        space: ParkingSpaceOrdinal,
-    ) -> Result<(), ParkingError> {
-        let space_index = space.index();
-        let Some(occupant_slot) = self.parking_occupants.get(space_index) else {
-            return Err(ParkingError::UnknownSpace);
-        };
-        let Some(state) = self.vehicle_state(vehicle) else {
-            return Err(ParkingError::UnknownVehicle);
-        };
-        if let Some(current) = state.parking {
-            if current == space {
-                self.command_cursor = self
-                    .command_cursor
-                    .checked_add(1)
-                    .ok_or(ParkingError::CommandCursorExhausted)?;
-                return Ok(());
-            }
-            return Err(ParkingError::VehicleBoundToOtherSpace);
-        }
-        if let Some(other) = *occupant_slot {
-            if other == vehicle {
-                self.command_cursor = self
-                    .command_cursor
-                    .checked_add(1)
-                    .ok_or(ParkingError::CommandCursorExhausted)?;
-                return Ok(());
-            }
-            return Err(ParkingError::SpaceOccupiedByOther);
-        }
-        if state.status != VehicleStatus::Active {
-            return Err(ParkingError::UnknownVehicle);
-        }
-        let next_observation_state_sequence = self
-            .observation_state_sequence
-            .checked_next()
-            .ok_or(ParkingError::ObservationStateSequenceExhausted)?;
-        let next_command_cursor = self
-            .command_cursor
-            .checked_add(1)
-            .ok_or(ParkingError::CommandCursorExhausted)?;
-        let slot_index = usize::try_from(vehicle.index()).expect("vehicle index fits usize");
-        let state = self.vehicles[slot_index]
-            .state
-            .as_mut()
-            .expect("resolved vehicle remains live");
-        state.status = VehicleStatus::Parked;
-        state.speed_mm_s = 0;
-        state.carry_um = 0;
-        state.parking = Some(space);
-        self.parking_occupants[space_index] = Some(vehicle);
-        self.observation_state_sequence = next_observation_state_sequence;
-        self.command_cursor = next_command_cursor;
-        if let Some(journal) = self.migration_journal.as_mut() {
-            journal.record_parking_occupied(next_command_cursor, vehicle, space.raw());
-        }
-        Ok(())
     }
 
     /// 固定步进。`delta_time_ms` 必须等于 `WorldConfig.fixed_delta_time_ms`；
@@ -759,8 +727,14 @@ impl TrafficWorld {
                 let state = self.vehicle_state(handle)?;
                 let source = match state.status {
                     VehicleStatus::Completed => return None,
-                    VehicleStatus::Parked => PoseSource::Parking {
-                        space: state.parking.expect("parked vehicle has a space"),
+                    VehicleStatus::Parked => match self.parking.binding(handle) {
+                        Some(ParkingBinding::Occupied(ParkingTarget::ExplicitSpace(space))) => {
+                            PoseSource::Parking { space }
+                        }
+                        Some(ParkingBinding::Occupied(ParkingTarget::VirtualPool(_))) => {
+                            return None;
+                        }
+                        _ => return None,
                     },
                     VehicleStatus::Active => {
                         let edges = self.route_edges(state.route)?;
@@ -780,7 +754,67 @@ impl TrafficWorld {
     /// 按停车位序号读占用者。
     #[must_use]
     pub fn committed_parking_occupant(&self, space: ParkingSpaceOrdinal) -> Option<VehicleHandle> {
-        self.parking_occupants.get(space.index()).copied().flatten()
+        match self.parking.explicit_state(space)? {
+            ParkingSpaceState::Occupied(vehicle) => Some(vehicle),
+            ParkingSpaceState::Vacant | ParkingSpaceState::Reserved(_) => None,
+        }
+    }
+
+    /// 车辆的只读 tagged parking binding。
+    #[must_use]
+    pub fn parking_binding(&self, vehicle: VehicleHandle) -> Option<ParkingBinding> {
+        self.vehicle_state(vehicle)?;
+        self.parking.binding(vehicle)
+    }
+
+    /// 显式泊位的排他资源状态。
+    #[must_use]
+    pub fn parking_space_state(&self, space: ParkingSpaceOrdinal) -> Option<ParkingSpaceState> {
+        self.revision.traffic().relations().parking_space(space)?;
+        self.parking.explicit_state(space)
+    }
+
+    /// 设施显式池、虚拟池和总量的守恒查询。
+    #[must_use]
+    pub fn parking_facility_counts(
+        &self,
+        facility: laneflow_static_contract::ParkingFacilityOrdinal,
+    ) -> Option<ParkingFacilityCounts> {
+        let view = self
+            .revision
+            .traffic()
+            .relations()
+            .parking_facility(facility)?;
+        let mut explicit_reserved = 0_u64;
+        let mut explicit_occupied = 0_u64;
+        for &space in view.spaces() {
+            match self.parking.explicit_state(space)? {
+                ParkingSpaceState::Vacant => {}
+                ParkingSpaceState::Reserved(_) => explicit_reserved += 1,
+                ParkingSpaceState::Occupied(_) => explicit_occupied += 1,
+            }
+        }
+        let virtual_state = self.parking.virtual_state(facility)?;
+        let explicit = ParkingPoolCounts::checked(
+            u64::try_from(view.spaces().len()).ok()?,
+            explicit_reserved,
+            explicit_occupied,
+        )?;
+        let virtual_pool = ParkingPoolCounts::checked(
+            u64::from(view.virtual_capacity()),
+            u64::from(virtual_state.reserved_count),
+            u64::from(virtual_state.occupied_count),
+        )?;
+        let total = ParkingPoolCounts::checked(
+            explicit.capacity.checked_add(virtual_pool.capacity)?,
+            explicit.reserved.checked_add(virtual_pool.reserved)?,
+            explicit.occupied.checked_add(virtual_pool.occupied)?,
+        )?;
+        Some(ParkingFacilityCounts {
+            explicit,
+            virtual_pool,
+            total,
+        })
     }
 
     /// 稳定按组序号的当前 aspect。
@@ -851,7 +885,7 @@ impl TrafficWorld {
         slot.compiled.as_ref()
     }
 
-    fn route_suffix_denied(
+    pub(crate) fn route_suffix_denied(
         &self,
         route: RouteHandle,
         class: laneflow_static_contract::ParticipantClassOrdinal,
@@ -875,7 +909,7 @@ impl TrafficWorld {
         )
     }
 
-    fn overlap_blocker(
+    pub(crate) fn overlap_blocker(
         &self,
         route: RouteHandle,
         cursor: usize,
@@ -884,7 +918,9 @@ impl TrafficWorld {
     ) -> Option<VehicleHandle> {
         let spawn_edges = self.route_edges(route)?;
         let lengths = self.revision.traffic().lane_lengths_millimetres();
-        self.live_order.iter().copied().find(|&handle| {
+        self.active_order.iter().copied().find(|&handle| {
+            #[cfg(test)]
+            OVERLAP_BLOCKER_INSPECTIONS.set(OVERLAP_BLOCKER_INSPECTIONS.get() + 1);
             let Some(state) = self.vehicle_state(handle) else {
                 return false;
             };
@@ -970,6 +1006,23 @@ impl TrafficWorld {
             return;
         }
         slot.live_vehicles = slot.live_vehicles.saturating_sub(1);
+    }
+
+    pub(crate) fn rebuild_active_order(&mut self) {
+        let vehicles = &self.vehicles;
+        self.active_order.clear();
+        for handle in self.live_order.iter().copied() {
+            let index = usize::try_from(handle.index()).expect("vehicle index fits usize");
+            if vehicles.get(index).is_some_and(|slot| {
+                slot.generation == handle.generation()
+                    && slot
+                        .state
+                        .as_ref()
+                        .is_some_and(|state| state.status == VehicleStatus::Active)
+            }) {
+                self.active_order.push(handle);
+            }
+        }
     }
 
     pub(crate) fn refresh_signals(&mut self) {
@@ -1059,6 +1112,7 @@ pub(crate) fn validate_signal_programs(
 mod overflow_tests {
     use super::*;
     use laneflow_format::{FormatLimits, check_canonical_network_input};
+    use laneflow_static_contract::{LaneEdgeOrdinal, VehicleProfileOrdinal};
     use laneflow_static_network::{
         SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
         build_shared_network_revision,
@@ -1117,6 +1171,57 @@ mod overflow_tests {
         );
         assert_eq!(world.tick_index, 0);
         assert_eq!(world.time_ms, u64::MAX);
+    }
+
+    #[test]
+    fn overlap_blocker_inspects_only_active_order() {
+        let mut world = world();
+        let edge_for_length = |world: &TrafficWorld, length: u32| {
+            let index = world
+                .traffic()
+                .lane_lengths_millimetres()
+                .iter()
+                .position(|actual| *actual == length)
+                .expect("fixture LaneEdge length");
+            LaneEdgeOrdinal::try_from_usize(index).expect("fixture LaneEdge ordinal")
+        };
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![
+                edge_for_length(&world, 10_000),
+                edge_for_length(&world, 8_000),
+                edge_for_length(&world, 12_000),
+            ]))
+            .expect("register route");
+        let profile = VehicleProfileOrdinal::from_raw(0);
+        let positions = [(0, 0), (0, 6_000), (1, 2_000), (2, 0)];
+        let vehicles = positions.map(|(occurrence, progress)| {
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(
+                    profile, route, occurrence, progress, 0,
+                ))
+                .expect("non-overlapping vehicle")
+        });
+        for vehicle in vehicles.iter().take(3).copied() {
+            let index = usize::try_from(vehicle.index()).expect("vehicle index");
+            world.vehicles[index]
+                .state
+                .as_mut()
+                .expect("live vehicle")
+                .status = VehicleStatus::Parked;
+        }
+        world.rebuild_active_order();
+        assert_eq!(world.live_order.len(), 4);
+        assert_eq!(world.active_order.len(), 1);
+
+        let vehicle_length = world
+            .traffic()
+            .relations()
+            .vehicle_profile(profile)
+            .expect("profile")
+            .length_mm();
+        reset_overlap_blocker_inspections();
+        assert_eq!(world.overlap_blocker(route, 0, 0, vehicle_length), None);
+        assert_eq!(overlap_blocker_inspections(), 1);
     }
 }
 

@@ -5,9 +5,11 @@ use std::{num::NonZeroU32, sync::Arc, time::Duration};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::resource::Resource;
 use laneflow_runtime::{
-    ParkingError, ParkingSpaceOrdinal, PoseSource as RuntimePoseSource, RouteError, RouteHandle,
-    RouteRegisterInput, SpawnError, StepOutcome, TickInput, TrafficWorld, VehicleHandle,
-    VehicleSpawnInput,
+    LeaveParkingTarget, ParkedVehicleSpawnInput, ParkedVehicleSpawnRecord, ParkingCancelRecord,
+    ParkingCommandOutcome, ParkingError, ParkingLeaveRecord, ParkingParkRecord,
+    ParkingRebindRecord, ParkingReserveRecord, ParkingTarget, PoseSource as RuntimePoseSource,
+    RebindParkingTarget, ReserveParkingTarget, RouteError, RouteHandle, RouteRegisterInput,
+    SpawnError, StepOutcome, TickInput, TrafficWorld, VehicleHandle, VehicleSpawnInput,
 };
 use laneflow_spatial::{PoseInput, PoseRecordId, SpatialSession};
 
@@ -116,10 +118,11 @@ impl LaneFlowSession {
         &self.world
     }
 
-    /// 两次 `step` 之间提交 spawn / occupy / register / remove。
+    /// 两次 `step` 之间提交 route、spawn 与 parking lifecycle 命令。
     ///
     /// 已绑定车辆的原子替换必须走 [`crate::replace_completed_vehicle`]，避免 Runtime
-    /// 成功后留下 stale 映射。
+    /// 成功后留下 stale 映射；真正移除必须走 [`crate::despawn_vehicle`]，先验证宿主
+    /// Entity 再组合 Runtime removal 与 mapping 清理。
     pub const fn world_mut(&mut self) -> LaneFlowWorldMut<'_> {
         LaneFlowWorldMut {
             world: &mut self.world,
@@ -203,6 +206,20 @@ impl LaneFlowSession {
         entity: Option<Entity>,
     ) {
         self.vehicle_entities.rotate(old, new, entity);
+    }
+
+    pub(crate) fn prepare_despawned_vehicle(
+        &self,
+        vehicle: VehicleHandle,
+    ) -> Option<PreparedVehicleEntityRemoval> {
+        self.vehicle_entities.prepare_remove(vehicle)
+    }
+
+    pub(crate) fn commit_despawned_vehicle(
+        &mut self,
+        prepared: Option<PreparedVehicleEntityRemoval>,
+    ) -> Option<Entity> {
+        prepared.map(|prepared| self.vehicle_entities.commit_remove(prepared))
     }
 
     pub(crate) fn fixed_quantum(&self) -> Duration {
@@ -292,19 +309,77 @@ impl LaneFlowWorldMut<'_> {
         self.world.remove_route(route)
     }
 
-    /// 停车占用。
-    pub fn occupy_parking(
+    /// 预留精确停车 target/payload。
+    pub fn reserve_parking(
         &mut self,
         vehicle: VehicleHandle,
-        space: ParkingSpaceOrdinal,
-    ) -> Result<(), ParkingError> {
-        self.world.occupy_parking(vehicle, space)
+        target: ReserveParkingTarget,
+    ) -> Result<ParkingCommandOutcome<ParkingReserveRecord>, ParkingError> {
+        self.world.reserve_parking(vehicle, target)
+    }
+
+    /// 取消 exact reservation。
+    pub fn cancel_parking(
+        &mut self,
+        vehicle: VehicleHandle,
+        target: ParkingTarget,
+    ) -> Result<ParkingCancelRecord, ParkingError> {
+        self.world.cancel_parking(vehicle, target)
+    }
+
+    /// 提交 exact arrived reservation。
+    pub fn park_vehicle(
+        &mut self,
+        vehicle: VehicleHandle,
+        target: ParkingTarget,
+    ) -> Result<ParkingCommandOutcome<ParkingParkRecord>, ParkingError> {
+        self.world.park_vehicle(vehicle, target)
+    }
+
+    /// 从 parking target 安全插回 lane。
+    pub fn leave_parking(
+        &mut self,
+        vehicle: VehicleHandle,
+        target: LeaveParkingTarget,
+    ) -> Result<ParkingLeaveRecord, ParkingError> {
+        self.world.leave_parking(vehicle, target)
+    }
+
+    /// 在完整 footprint 相等时重绑 reservation route。
+    pub fn rebind_parking_route(
+        &mut self,
+        vehicle: VehicleHandle,
+        target: RebindParkingTarget,
+    ) -> Result<ParkingCommandOutcome<ParkingRebindRecord>, ParkingError> {
+        self.world.rebind_parking_route(vehicle, target)
+    }
+
+    /// 直接构造 `Parked + Occupied`，不建立 lane pose。
+    pub fn spawn_parked_vehicle(
+        &mut self,
+        input: ParkedVehicleSpawnInput,
+        target: ParkingTarget,
+    ) -> Result<ParkedVehicleSpawnRecord, ParkingError> {
+        self.world.spawn_parked_vehicle(input, target)
     }
 }
 
 #[derive(Clone, Debug, Default)]
 struct VehicleEntityMap {
     pairs: Vec<(VehicleHandle, Entity)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PreparedVehicleEntityRemoval {
+    index: usize,
+    vehicle: VehicleHandle,
+    entity: Entity,
+}
+
+impl PreparedVehicleEntityRemoval {
+    pub(crate) const fn entity(self) -> Entity {
+        self.entity
+    }
 }
 
 impl VehicleEntityMap {
@@ -353,5 +428,23 @@ impl VehicleEntityMap {
         if let Some(pair) = self.pairs.iter_mut().find(|(handle, _)| *handle == old) {
             *pair = (new, entity);
         }
+    }
+
+    fn prepare_remove(&self, vehicle: VehicleHandle) -> Option<PreparedVehicleEntityRemoval> {
+        let index = self
+            .pairs
+            .iter()
+            .position(|(handle, _)| *handle == vehicle)?;
+        Some(PreparedVehicleEntityRemoval {
+            index,
+            vehicle,
+            entity: self.pairs[index].1,
+        })
+    }
+
+    fn commit_remove(&mut self, prepared: PreparedVehicleEntityRemoval) -> Entity {
+        let removed = self.pairs.swap_remove(prepared.index);
+        debug_assert_eq!(removed, (prepared.vehicle, prepared.entity));
+        removed.1
     }
 }

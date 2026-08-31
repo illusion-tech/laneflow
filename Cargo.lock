@@ -2871,6 +2871,7 @@ dependencies = [
  "bevy_mesh",
  "bevy_time",
  "bevy_transform",
+ "laneflow-compiler",
  "laneflow-format",
  "laneflow-runtime",
  "laneflow-scenario",

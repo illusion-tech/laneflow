@@ -651,6 +651,62 @@ fn occupancy_slices_overlap(left: &[OccupancyInterval], right: &[OccupancyInterv
     })
 }
 
+/// 两个 route cursor 展开的完整车身物理 footprint 是否逐项相等。
+///
+/// 短车身走固定栈；超过 16 个物理区间时才按 route occurrence 上界可失败预留。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn occupancy_footprints_equal(
+    lengths: &[u32],
+    a_edges: &[LaneEdgeOrdinal],
+    a_index: usize,
+    a_progress: u32,
+    a_length: u32,
+    b_edges: &[LaneEdgeOrdinal],
+    b_index: usize,
+    b_progress: u32,
+    b_length: u32,
+) -> Result<bool, ()> {
+    let Some((left, left_n, left_overflow)) =
+        occupancy_intervals_stack(lengths, a_edges, a_index, a_progress, a_length)
+    else {
+        return Ok(false);
+    };
+    let Some((right, right_n, right_overflow)) =
+        occupancy_intervals_stack(lengths, b_edges, b_index, b_progress, b_length)
+    else {
+        return Ok(false);
+    };
+    if !left_overflow && !right_overflow {
+        return Ok(left[..left_n] == right[..right_n]);
+    }
+
+    let mut left_full = Vec::new();
+    left_full.try_reserve_exact(a_edges.len()).map_err(|_| ())?;
+    for_each_occupancy_interval(
+        lengths,
+        a_edges,
+        a_index,
+        a_progress,
+        a_length,
+        |edge, lo, hi| left_full.push((edge, lo, hi)),
+    )
+    .ok_or(())?;
+    let mut right_full = Vec::new();
+    right_full
+        .try_reserve_exact(b_edges.len())
+        .map_err(|_| ())?;
+    for_each_occupancy_interval(
+        lengths,
+        b_edges,
+        b_index,
+        b_progress,
+        b_length,
+        |edge, lo, hi| right_full.push((edge, lo, hi)),
+    )
+    .ok_or(())?;
+    Ok(left_full == right_full)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn bodies_overlap(
     lengths: &[u32],
@@ -818,6 +874,37 @@ pub(crate) fn distance_to_occurrence_start(
     let to_off = *offsets.get(to_index)?;
     if from_seg == to_seg {
         return Some(BoundedDistance::Finite(to_off.saturating_sub(from_off)));
+    }
+    let from_total = *totals.get(from_seg)?;
+    let mut distance = BoundedDistance::Finite(from_total.checked_sub(from_off)?);
+    for total in totals.get(from_seg + 1..to_seg)? {
+        distance = distance.add_u32(*total);
+    }
+    Some(distance.add_u32(to_off))
+}
+
+/// 当前 route cursor 到目标 occurrence 内 exact progress 的分段有界距离。
+pub(crate) fn distance_to_occurrence_progress(
+    segments: &[u32],
+    offsets: &[u32],
+    totals: &[u32],
+    from_index: usize,
+    from_progress: u32,
+    to_index: usize,
+    to_progress: u32,
+) -> Option<BoundedDistance> {
+    if to_index < from_index {
+        return None;
+    }
+    let from_seg = usize::try_from(*segments.get(from_index)?).ok()?;
+    let to_seg = usize::try_from(*segments.get(to_index)?).ok()?;
+    if to_seg < from_seg {
+        return None;
+    }
+    let from_off = offsets.get(from_index)?.checked_add(from_progress)?;
+    let to_off = offsets.get(to_index)?.checked_add(to_progress)?;
+    if from_seg == to_seg {
+        return Some(BoundedDistance::Finite(to_off.checked_sub(from_off)?));
     }
     let from_total = *totals.get(from_seg)?;
     let mut distance = BoundedDistance::Finite(from_total.checked_sub(from_off)?);

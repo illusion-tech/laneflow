@@ -1,7 +1,7 @@
 # 运行时快照
 
 **文档状态**: Accepted（#302 G1；Runtime Snapshot v2 停车扩展 #540 G1）<br>
-**最后更新**: 2026-08-30（#540 停车 v2 合同）<br>
+**最后更新**: 2026-08-31（#541 Runtime Snapshot v2 clean break）<br>
 **适用范围**: 版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)（§12；static image / receipt 条款已被 ADR 0025 §8 取代，origin 以 LFCA 为准）、
@@ -21,10 +21,10 @@
 本文的 #303 观测/Routing 恢复与回放接缝已由 #303 G1 接受，与 #302 合同共同构成
 当前唯一实现权威。
 
-> **实现状态**：本文只定义 Runtime Snapshot v2 目标合同，其中停车使用 tagged
+> **实现状态**：当前唯一生产合同与实现均为 Runtime Snapshot v2；停车使用 tagged
 > `ExplicitSpace | VirtualPool` binding，并保存 Reserved/Occupied 状态、所有 Reserved
 > binding 的精确 entry route occurrence 和 virtual reservation 的 semantic entry anchor。
-> #541 尚未完成，当前代码仍为 v1。
+> v1 schema、reader 与 writer 已同切片移除，不提供双读或自动迁移。
 
 ## 1. 问题与设计立场
 
@@ -116,7 +116,7 @@ Reserved entry 还必须从保存的 vehicle cursor 前向可达。对同一 rou
 ## 4. 容器
 
 封闭契约：size-prefixed FlatBuffers、file identifier `LFRS`、`formatVersion = 2`；
-目标 schema 位于 `schemas/runtime-snapshot/v2`，由 #541 创建；生成物隔离于私有 wire package（沿
+schema 位于 `schemas/runtime-snapshot/v2`；生成物隔离于私有 wire package（沿
 `laneflow-road-editing-wire` 先例）。读取 verifier-first：语义 lowering 前完成
 长度、基数与版本预检。确认 `formatVersion = 2` / `runtime_state_version = 2` 后，
 reader 还逐 table 拒绝超过 v2 schema 对该 table 登记字段数的 vtable 槽；该上界只在
@@ -128,8 +128,8 @@ G2 writer 入口为 `encode_lfrs(&CapturedSnapshot)`：它只读边界捕获，�
 world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空表也编码为
 存在的空 vector。
 
-#541 必须原子切换到 `schemas/runtime-snapshot/v2`，旧 v1 reader/writer
-同切片移除；不提供双读或自动迁移。恢复先解析全部 target/anchor StableId，再验证
+当前实现已原子切换到 `schemas/runtime-snapshot/v2`，旧 v1 reader/writer
+已移除；不提供双读或自动迁移。恢复先解析全部 target/anchor StableId，再验证
 显式排他性和每设施 `reserved + occupied <= virtual_capacity`，成功后才发布 world。
 
 ## 5. 保存与恢复
@@ -267,9 +267,10 @@ reservation 的已保存 semantic entry 必须 exact 存在；explicit reservati
 exact bytes、save 停顿（墙钟与主线程）、load 停顿（editable 重编译与
 published 认证分别度量）、恢复峰值内存、保存期间对稳态 tick 的干扰。
 
-### 切片 B 初值（published fresh restore）
+### 历史切片 B 初值（v1 published fresh restore）
 
-同机描述性基线：`LF-P100-REF-01`（2026-08-28，rustc 1.98.0，release）。固定
+以下是切换前 v1 的同机描述性基线，不得作为 v2 exact bytes 或性能结论复用：
+`LF-P100-REF-01`（2026-08-28，rustc 1.98.0，release）。固定
 workload `signalized-corridor-v1` = `v0.2-signalized-corridor.lfca`（exact
 420,332 bytes，28 条 catalog 路线、2 车辆、`4 ms` 固定步进），安装后运行 64 tick；
 快照点 `tick = 64`、`command_cursor = 30`。以下数字均为初值，不是产品 Pass 阈值。
@@ -297,10 +298,10 @@ cargo +1.98.0 test --release --locked -p laneflow-runtime --test snapshot_wall_c
 
 ## 9. Runtime Snapshot v2 的 G2 边界与必测义务
 
-v2 的 schema 与版本轴到字段映射由 #541 在
+v2 的 schema 与版本轴到字段映射已在
 `schemas/runtime-snapshot/v2/README.md` clean-generate 并逐项绑定本文 §3–§6；摘要输入的
-精确规范化序列化见 §6。production v1 的 G2 证据不能自动替 v2 通过，但下列不受停车
-扩展改变的义务必须继续复用为回归 oracle。
+精确规范化序列化见 §6。历史 v1 的 G2 证据不能自动替 v2 通过；不受停车扩展改变的
+义务继续作为回归 oracle。
 
 必测义务：save → load exact oracle（逻辑状态含双游标与 `time_ms` 全等，句柄
 不比对）；检查点 + 命令重放逐点相等与失同步定位；`fixed_delta_time_ms` 不一致
@@ -316,19 +317,19 @@ v2 的 schema 与版本轴到字段映射由 #541 在
 #532 追加：捕获与摘要的预留失败注入——失败关闭（世界无感知）、清点后重试得到
 同一快照/摘要；save 路径的失败关闭由捕获侧承载（编码边界见 §5）。
 
-### 当前 production v1 证据与 v2 重新验收边界
+### 当前 production v2 证据与遗留边界
 
-下表只说明当前实现已有的证据基线；#541 必须在 v2 exact head 上重新执行，并扩展 tagged
-target、Reserved route occurrence、virtual semantic entry、资源守恒和 digest 反例。
+下表说明当前 v2 exact head 已有的功能证据；tagged target、Reserved route occurrence、
+virtual semantic entry、资源守恒、未知 parking 枚举和 digest 往返均纳入 v2 测试。
 
-| 义务                        | 当前事实                                                                                                                                                                                                                                                                           |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| save → load exact oracle    | 已覆盖：完整逻辑状态、双游标、`time_ms` 与局部 ID → 新句柄映射；句柄值不作 oracle                                                                                                                                                                                                  |
-| 检查点回放 / 首个失同步区间 | 已覆盖：宿主耐久 ID 重绑、检查点后新实体 ID、已准入路线稳定边序列重放；逐点 `(command_cursor, tick, digest)` 相等，偏移 spawn 命令定位首个分歧区间                                                                                                                                 |
-| 配置判据                    | 已覆盖：fixed dt 不等拒绝，三类语义容量缩小拒绝/放大允许，保存 worker 与目标 worker 差异不影响恢复；容量不同不冒充 exact replay                                                                                                                                                    |
-| 容器与完整性拒绝面          | 已覆盖：framing / identifier / verifier / wire 与 asset-key 上限、format/runtime/静态版本、未知 vtable 槽/枚举、必需字段、标识/引用/live 排列/停车/数值/时钟/Active 重叠；错误只返回失败，不暴露 staging                                                                           |
-| Published 来源              | 已覆盖：端到端 fresh restore；同语义修订、不同 asset key / exact-byte digest / length 的已认证重发布来源允许恢复                                                                                                                                                                   |
-| Editable 来源               | **尚未覆盖，不视为已满足**：当前没有 committed `RoadEditingState` 生产来源变体；类型落地后必须补重编译 + `EditableDiffBase` 对应关系 + 端到端恢复                                                                                                                                  |
-| 边界捕获 / 候选准备期保存   | production v1 的结构闭合基线：`capture_snapshot(&self)` 与所有提交入口 `&mut self` 不能在 safe Rust 中交错；v2 必须保持该闭合。切换候选在同步 `&mut self` 调用内局部持有、无可并发观测的半提交 world，调用前捕获旧聚合、成功返回后捕获新聚合；未来异步候选形态必须补可交错定向测试 |
-| occurrence max / max+1      | 已覆盖：总 occurrence 正好等于保存/目标上限恢复成功；max+1 在 world staging 前以 `RouteEdgeOccurrences` 上限错误失败                                                                                                                                                               |
-| 快照五维预算                | Published 初值已登记于 §8；editable load 初值随 Editable 来源生产化补齐                                                                                                                                                                                                            |
+| 义务                        | 当前事实                                                                                                                                                                                                                                           |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| save → load exact oracle    | 已覆盖：完整逻辑状态、双游标、`time_ms` 与局部 ID → 新句柄映射；句柄值不作 oracle                                                                                                                                                                  |
+| 检查点回放 / 首个失同步区间 | 已覆盖：宿主耐久 ID 重绑、检查点后新实体 ID、已准入路线稳定边序列重放；逐点 `(command_cursor, tick, digest)` 相等，偏移 spawn 命令定位首个分歧区间                                                                                                 |
+| 配置判据                    | 已覆盖：fixed dt 不等拒绝，三类语义容量缩小拒绝/放大允许，保存 worker 与目标 worker 差异不影响恢复；容量不同不冒充 exact replay                                                                                                                    |
+| 容器与完整性拒绝面          | 已覆盖：framing / identifier / verifier / wire 与 asset-key 上限、format/runtime/静态版本、未知 vtable 槽/枚举、必需字段、标识/引用/live 排列/停车/数值/时钟/Active 重叠；错误只返回失败，不暴露 staging                                           |
+| Published 来源              | 已覆盖：端到端 fresh restore；同语义修订、不同 asset key / exact-byte digest / length 的已认证重发布来源允许恢复                                                                                                                                   |
+| Editable 来源               | **尚未覆盖，不视为已满足**：当前没有 committed `RoadEditingState` 生产来源变体；类型落地后必须补重编译 + `EditableDiffBase` 对应关系 + 端到端恢复                                                                                                  |
+| 边界捕获 / 候选准备期保存   | v2 保持结构闭合：`capture_snapshot(&self)` 与所有提交入口 `&mut self` 不能在 safe Rust 中交错。切换候选在同步 `&mut self` 调用内局部持有、无可并发观测的半提交 world，调用前捕获旧聚合、成功返回后捕获新聚合；未来异步候选形态必须补可交错定向测试 |
+| occurrence max / max+1      | 已覆盖：总 occurrence 正好等于保存/目标上限恢复成功；max+1 在 world staging 前以 `RouteEdgeOccurrences` 上限错误失败                                                                                                                               |
+| 快照五维预算                | Published 初值已登记于 §8；editable load 初值随 Editable 来源生产化补齐                                                                                                                                                                            |

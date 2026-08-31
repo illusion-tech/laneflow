@@ -569,6 +569,12 @@ pub enum CutoverError {
         /// base 侧停车位序数原始值。
         base_space: u32,
     },
+    /// 引用不存在：base 侧停车设施在 target 修订无稳定对应。
+    #[error("停车设施在 target 修订不存在稳定对应（base 序数 {base_facility}）")]
+    UnmappableParkingFacility {
+        /// base 侧停车设施序数原始值。
+        base_facility: u32,
+    },
     /// 引用不存在：base 侧车辆 profile 在 target 修订无稳定对应。
     #[error("车辆 profile 在 target 修订不存在稳定对应（base 序数 {base_profile}）")]
     UnmappableVehicleProfile {
@@ -586,6 +592,12 @@ pub enum CutoverError {
     #[error("车辆原样重绑违反 target 不变量（车辆序数 {vehicle}）")]
     VehicleRevalidationFailed {
         /// 违反不变量的车辆槽位序数。
+        vehicle: u32,
+    },
+    /// tagged parking binding、资源守恒或 semantic anchor 在 target 上无法闭合。
+    #[error("停车 binding 在 target 修订无法闭合（车辆序数 {vehicle}）")]
+    ParkingRevalidationFailed {
+        /// 违反停车不变量的车辆槽位序数。
         vehicle: u32,
     },
     /// 迁移后路线总 occurrence 超出世界容量配置（防御性闭合：迁移本身
@@ -1596,18 +1608,31 @@ pub(crate) mod tests {
 
         #[test]
         fn command_cursor_counts_applied_commands_only() {
-            let (mut world, _, vehicle) = world_with_vehicle(true);
+            let (mut world, route, _) = world_with_vehicle(true);
             // 夹具 = 1 次路线注册 + 1 次车辆生成。
             assert_eq!(world.command_cursor(), 2);
             // step 不是输入命令。
             world.step(TickInput::new(100)).expect("step");
             assert_eq!(world.command_cursor(), 2);
-            // 成功的停车占用计数。
+            // 成功的 parked spawn 计数。
             let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
-            world.occupy_parking(vehicle, space).expect("parking");
+            let parked = world
+                .spawn_parked_vehicle(
+                    crate::ParkedVehicleSpawnInput::new(
+                        laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        0,
+                        10_000,
+                    ),
+                    crate::ParkingTarget::ExplicitSpace(space),
+                )
+                .expect("parked spawn")
+                .vehicle;
             assert_eq!(world.command_cursor(), 3);
-            // 幂等成功同样计数。
-            world.occupy_parking(vehicle, space).expect("idempotent");
+            // 窄幂等 park 成功同样计数。
+            world
+                .park_vehicle(parked, crate::ParkingTarget::ExplicitSpace(space))
+                .expect("idempotent");
             assert_eq!(world.command_cursor(), 4);
         }
 
@@ -1669,24 +1694,36 @@ pub(crate) mod tests {
             let before_active = *world.vehicle_state(vehicle).expect("active vehicle");
             let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
             assert_eq!(
-                world.occupy_parking(vehicle, space).unwrap_err(),
+                world.despawn_vehicle(vehicle).unwrap_err(),
                 ParkingError::CommandCursorExhausted
             );
             assert_eq!(world.vehicle_state(vehicle), Some(&before_active));
-            assert_eq!(world.parking_occupants[space.index()], None);
+            assert_eq!(
+                world.parking_space_state(space),
+                Some(crate::ParkingSpaceState::Vacant)
+            );
             assert_eq!(world.command_cursor(), u64::MAX);
 
-            let (mut parked_world, _, parked_vehicle) = world_with_vehicle(true);
-            parked_world
-                .occupy_parking(parked_vehicle, space)
-                .expect("parking");
+            let (mut parked_world, parked_route, _) = world_with_vehicle(true);
+            let parked_vehicle = parked_world
+                .spawn_parked_vehicle(
+                    crate::ParkedVehicleSpawnInput::new(
+                        laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                        parked_route,
+                        0,
+                        10_000,
+                    ),
+                    crate::ParkingTarget::ExplicitSpace(space),
+                )
+                .expect("parking")
+                .vehicle;
             parked_world.command_cursor = u64::MAX;
             let before_parked = *parked_world
                 .vehicle_state(parked_vehicle)
                 .expect("parked vehicle");
             assert_eq!(
                 parked_world
-                    .occupy_parking(parked_vehicle, space)
+                    .park_vehicle(parked_vehicle, crate::ParkingTarget::ExplicitSpace(space))
                     .unwrap_err(),
                 ParkingError::CommandCursorExhausted
             );
@@ -1695,8 +1732,8 @@ pub(crate) mod tests {
                 Some(&before_parked)
             );
             assert_eq!(
-                parked_world.parking_occupants[space.index()],
-                Some(parked_vehicle)
+                parked_world.parking_space_state(space),
+                Some(crate::ParkingSpaceState::Occupied(parked_vehicle))
             );
             assert_eq!(parked_world.command_cursor(), u64::MAX);
         }

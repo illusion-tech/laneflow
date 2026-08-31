@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
-    PoseSource, RouteHandle, RouteRegisterInput, SpawnError, TickInput, TrafficWorld,
-    VehicleSpawnInput, VehicleStatus, WorldConfig,
+    ParkedVehicleSpawnInput, ParkingTarget, PoseSource, RouteHandle, RouteRegisterInput,
+    SpawnError, TickInput, TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig,
 };
 use laneflow_static_contract::{
     EntityKind, LaneEdgeOrdinal, SignalAspect, SignalControllerOrdinal, VehicleProfileOrdinal,
@@ -280,17 +280,13 @@ fn both_vehicles_can_advance_on_fixture_route() {
 fn parked_vehicle_does_not_move() {
     let mut world = world();
     let route = fixture_route(&mut world);
-    let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            0,
-            0,
-        ))
-        .expect("spawn");
     let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
-    world.occupy_parking(vehicle, space).expect("occupy");
+    world
+        .spawn_parked_vehicle(
+            ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0),
+            ParkingTarget::ExplicitSpace(space),
+        )
+        .expect("spawn parked");
     world.step(TickInput::new(100)).expect("step");
     assert!(matches!(
         world.committed_pose_sources().as_slice()[0].1,

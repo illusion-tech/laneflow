@@ -601,7 +601,7 @@ impl TrafficWorld {
             }
         }
         visit_occupancy_records_with(
-            &self.live_order,
+            &self.active_order,
             &self.vehicles,
             revision,
             &self.routes,
@@ -619,7 +619,7 @@ impl TrafficWorld {
         staged.try_reserve_records(total)?;
         staged.finish_layout(bucket_count);
         visit_occupancy_records_with(
-            &self.live_order,
+            &self.active_order,
             &self.vehicles,
             revision,
             &self.routes,
@@ -639,7 +639,7 @@ impl TrafficWorld {
         occupancy.reset_inspections();
         occupancy.try_prepare_scratch(bucket_count)?;
         visit_occupancy_records(
-            &self.live_order,
+            &self.active_order,
             &self.vehicles,
             &self.revision,
             &self.routes,
@@ -656,7 +656,7 @@ impl TrafficWorld {
         occupancy.try_reserve_records(total)?;
         occupancy.finish_layout(bucket_count);
         visit_occupancy_records(
-            &self.live_order,
+            &self.active_order,
             &self.vehicles,
             &self.revision,
             &self.routes,
@@ -698,8 +698,8 @@ mod tests {
     use crate::tick::leader_query_horizon;
     use crate::units::ceil_mm;
     use crate::{
-        RouteError, RouteRegisterInput, StepError, TickInput, TrafficWorld, VehicleSpawnInput,
-        WorldConfig,
+        ParkedVehicleSpawnInput, ParkingTarget, RouteError, RouteRegisterInput, StepError,
+        TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig,
     };
 
     fn install_fixture(
@@ -1528,15 +1528,18 @@ mod tests {
             .relations()
             .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
             .unwrap();
-        let parked = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
-                0,
-            ))
-            .unwrap();
+        let _parked = world
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
+                ),
+                ParkingTarget::ExplicitSpace(ParkingSpaceOrdinal::from_raw(0)),
+            )
+            .unwrap()
+            .vehicle;
         let follower = world
             .spawn_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
@@ -1546,9 +1549,6 @@ mod tests {
                 0,
             ))
             .unwrap();
-        world
-            .occupy_parking(parked, ParkingSpaceOrdinal::from_raw(0))
-            .expect("park");
         world.rebuild_occupancy_index().expect("occupancy rebuild");
         let follower_state = world.vehicle_state(follower).copied().unwrap();
         assert_eq!(index_gap(&world, &follower_state), None);

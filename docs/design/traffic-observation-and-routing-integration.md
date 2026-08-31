@@ -1,7 +1,7 @@
 # 交通观测与 Routing 接入
 
 **文档状态**: Accepted（#303 G1 Pass）<br>
-**最后更新**: 2026-08-28<br>
+**最后更新**: 2026-08-31（#541 parking lifecycle 接缝）<br>
 **适用范围**: 已提交交通观测的 full/delta/partition 导出、动态成本绑定、候选路线注册、过期语义、#302 切换/快照交互与独立性能门禁<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)、
@@ -58,7 +58,8 @@ v1 选择**宿主自有 Routing 实现 + LaneFlow 纯契约边界**：
 `time_ms`、命令游标、事件游标或下述观测状态序号。
 
 `tick_index` 不是已提交状态的完整版本：`spawn_vehicle`、`replace_completed_vehicle`、
-`occupy_parking` 等生命周期命令可在同一 tick 内改变观测事实。因此每个活动世界还
+`park_vehicle` / `leave_parking` / `despawn_vehicle` 等生命周期命令可在同一 tick 内改变
+观测事实。因此每个活动世界还
 维护一个只在当前世界世代/观测 stream 内单调递增的
 `ObservationStateSequence(u64)` / `observationStateSequence`：成功 `step` 以及每个会改变 v1 观测行的成功生命周期
 提交各推进一次；失败、只读查询、导出和不影响 v1 行的路线表变更不推进。安装、
@@ -488,7 +489,8 @@ restore/replay 消费仍由 #512 后续集成验证，不能由本 case 替代�
 G2 已按 §2 落定完整/增量/分区观测实现：
 
 - `ObservationStateSequence(u64)` 安装/新世代初值 `0`，成功 step 与改变 v1 行的
-  spawn/replace/park checked 递增；路线表变更、幂等停车、失败和导出不推进；
+  Active spawn/replace、park、leave、Active despawn checked 递增；reserve/cancel/rebind、
+  parked spawn、Parked/Completed despawn、路线表变更、parking `NoChange`、失败和导出不推进；
 - `ObservationStreamBinding` 直接复用世界身份/共同世界世代，不维护第三套 stream
   状态；成功切换与世代递增同界重置状态序号，旧 session stale；
 - `AllLaneEdges` 与严格升序显式 LaneEdge 集合在 open 时一次性解析并摘要；full 含
@@ -530,7 +532,7 @@ length/count/digest 和上限矩阵；该 fixture 不成为 Routing 产品或算
 自动化 contract tests 除 §7 矩阵外至少覆盖：full 首批约束；delta 缺批/重排/重复/
 跨 selection 拒绝；全零清除；导出失败 session 不前移；同 tick 生命周期提交推进
 状态序号；不同状态序号的分区拒绝拼接；成功跨边 step 后立即导出以及 step 间
-spawn/park/replace 后立即导出；不得复用旧 `OccupancyIndex` 形成混合状态；整数聚合
+spawn/park/leave/despawn/replace 后立即导出；不得复用旧 `OccupancyIndex` 形成混合状态；整数聚合
 跨边车身；Parked/Completed 排除；前保险杠在 denied hop、permitted hop 与最后一边
 端点的归属；未来/过期边界恰好等于两端时的判定；旧 tick 绑定大于当前值的状态序号
 拒绝；修订相等但 StableId 内容非法；cost digest 不授予拓扑信任；direct/candidate/

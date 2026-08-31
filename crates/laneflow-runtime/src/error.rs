@@ -68,6 +68,12 @@ pub enum StepError {
     /// Active 车辆占用区间遍历失败（路线下标或边长越界）。
     #[error("占用区间遍历失败")]
     OccupancyIntervalIncomplete,
+    /// parking 状态矩阵、资源反向 binding 或 reservation anchor 不闭合。
+    #[error("parking runtime aggregate 不变量损坏")]
+    ParkingInvariantViolation,
+    /// arrival observation 缓冲预留失败。
+    #[error("parking arrival observation 分配失败")]
+    ParkingObservationAllocFailed,
 }
 
 /// 路线注册或移除失败。
@@ -192,25 +198,67 @@ pub enum ReplaceError {
     CommandCursorExhausted,
 }
 
-/// `occupy_parking` 失败。
+/// 停车生命周期命令失败。所有变体都保证已提交世界零副作用。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum ParkingError {
-    /// 车辆句柄无效。
     #[error("未知或失效车辆句柄")]
-    UnknownVehicle,
-    /// 停车位序号越界。
+    StaleVehicle,
     #[error("未知停车位")]
     UnknownSpace,
-    /// 该车已占用别的车位。
-    #[error("车辆已占用其他车位")]
-    VehicleBoundToOtherSpace,
-    /// 目标车位已被其他车占用。
-    #[error("停车位已被其他车辆占用")]
-    SpaceOccupiedByOther,
-    /// 本次成功停车本应推进观测状态序号，但序号已耗尽。
+    #[error("未知停车设施")]
+    UnknownFacility,
+    #[error("未知车辆 profile")]
+    UnknownProfile,
+    #[error("未知或失效路线句柄")]
+    UnknownRoute,
+    #[error("停车 target kind 与命令不匹配")]
+    TargetKindMismatch,
+    #[error("车辆生命周期状态不允许该停车命令")]
+    InvalidVehicleStatus,
+    #[error("车辆已绑定其他停车 payload")]
+    VehicleAlreadyBound,
+    #[error("停车目标已被其他车辆绑定")]
+    TargetBoundByOther,
+    #[error("虚拟停车容量已耗尽")]
+    VirtualCapacityExhausted,
+    #[error("虚拟入口 selector 不属于目标设施")]
+    EntrySelectorNotOwned,
+    #[error("虚拟出口 selector 不属于目标设施")]
+    ExitSelectorNotOwned,
+    #[error("路线 occurrence 越界")]
+    RouteOccurrenceOutOfRange,
+    #[error("停车 retained cursor 进度越界")]
+    InvalidProgress,
+    #[error("路线 occurrence 与停车 anchor 的 LaneEdge 不匹配")]
+    RouteOccurrenceAnchorMismatch,
+    #[error("停车入口不再前向可达")]
+    EntryNotForwardReachable,
+    #[error("路线后缀准入拒绝")]
+    AccessDenied,
+    #[error("车辆没有 exact Reserved binding")]
+    NotReserved,
+    #[error("车辆尚未精确到达停车入口")]
+    NotArrived,
+    #[error("车辆没有 exact Occupied binding")]
+    NotOccupied,
+    #[error("rebind current occurrence 与车辆物理 LaneEdge 不匹配")]
+    RebindCurrentOccurrenceMismatch,
+    #[error("rebind 会改变车辆完整车身占用 footprint")]
+    RebindBodyFootprintMismatch,
+    #[error("leave 插入与已提交车辆发生物理重叠")]
+    LeavePhysicalOverlap { blocker: VehicleHandle },
+    #[error("leave 会让移动 direct follower 无法安全制动")]
+    LeaveUnsafeFollower { follower: VehicleHandle },
+    #[error("车辆数量达到容量")]
+    VehicleCapacityExceeded,
+    #[error("停车稀疏状态分配失败")]
+    AllocationFailed,
+    #[error("路线引用计数已耗尽")]
+    RouteReferenceCapacityExceeded,
+    #[error("停车运行时 aggregate 不变量损坏")]
+    InvariantViolation,
     #[error("观测状态序号已耗尽")]
     ObservationStateSequenceExhausted,
-    /// 本次成功停车命令本应推进输入命令游标，但游标已耗尽。
     #[error("输入命令游标已耗尽")]
     CommandCursorExhausted,
 }

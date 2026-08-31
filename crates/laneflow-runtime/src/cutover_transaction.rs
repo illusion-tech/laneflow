@@ -12,9 +12,7 @@
 
 use std::sync::Arc;
 
-use laneflow_static_contract::{
-    LaneEdgeOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal, VehicleProfileOrdinal,
-};
+use laneflow_static_contract::{LaneEdgeOrdinal, ParticipantClassOrdinal, VehicleProfileOrdinal};
 use laneflow_static_network::{CanonicalNetworkOrigin, SharedNetworkRevision};
 
 use crate::cutover::{
@@ -26,20 +24,21 @@ use crate::cutover_migration::{
     revalidate_vehicle_on,
 };
 use crate::migration_journal::{
-    DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES, JournalRecord, VEHICLE_DELTA_BYTES, VehicleDelta,
-    raw_u32_stream,
+    DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES, JournalRecord, ParkingBindingDelta, VEHICLE_DELTA_BYTES,
+    VehicleDelta, raw_u32_stream,
 };
 use crate::snapshot_digest::deterministic_state_digest;
 use crate::{
-    CommittedNetworkSource, ObservationStateSequence, RouteHandle, TrafficWorld, VehicleHandle,
-    VehicleState, WorldGeneration,
+    CommittedNetworkSource, ObservationStateSequence, ParkingBinding, ParkingReservation,
+    ParkingSpaceState, ParkingTarget, RouteHandle, TrafficWorld, VehicleHandle, VehicleState,
+    VirtualEntryAnchorSelector, WorldGeneration,
 };
 
 /// 最大追赶滞后的文档化默认值（tick 距离；切换合同 §9）。
 ///
 /// v1 取 600 tick：4 ms 固定步进下约 2.4 s 的可追窗口上限；实际可追
 /// 窗口由日志字节上界与滞后上限共同约束——千车量级先撞字节上界
-/// （8 MiB / 约 48 KB 每 tick ≈ 174 tick），更紧的宿主预算可显式配置
+/// （8 MiB / 约 43 KB 每 tick ≈ 195 tick），更紧的宿主预算可显式配置
 /// 更小值。初值随切片 C 证据登记。
 pub const DEFAULT_MAX_CATCH_UP_LAG_TICKS: u64 = 600;
 
@@ -424,10 +423,8 @@ impl CutoverTransaction {
         std::mem::swap(&mut world.vehicles, &mut candidate.vehicles);
         std::mem::swap(&mut world.free_vehicles, &mut candidate.free_vehicles);
         std::mem::swap(&mut world.live_order, &mut candidate.live_order);
-        std::mem::swap(
-            &mut world.parking_occupants,
-            &mut candidate.parking_occupants,
-        );
+        std::mem::swap(&mut world.active_order, &mut candidate.active_order);
+        std::mem::swap(&mut world.parking, &mut candidate.parking);
         std::mem::swap(&mut world.signal_aspects, &mut candidate.signal_aspects);
         std::mem::swap(&mut world.next_states, &mut candidate.next_states);
         std::mem::swap(&mut world.occupancy, &mut candidate.occupancy);
@@ -480,19 +477,6 @@ fn rebind_class(
         })
 }
 
-fn rebind_parking(
-    rebinding: &CrossRevisionRebinding,
-    delta: &VehicleDelta,
-) -> Result<Option<ParkingSpaceOrdinal>, CutoverError> {
-    match delta.parking {
-        None => Ok(None),
-        Some(raw) => rebinding
-            .parking_space(ParkingSpaceOrdinal::from_raw(raw))
-            .map(Some)
-            .ok_or(CutoverError::UnmappableParkingSpace { base_space: raw }),
-    }
-}
-
 fn vehicle_state_from_delta(
     rebinding: &CrossRevisionRebinding,
     delta: &VehicleDelta,
@@ -508,8 +492,200 @@ fn vehicle_state_from_delta(
         speed_mm_s: delta.speed_mm_s,
         length_mm: delta.length_mm,
         status: delta.status,
-        parking: rebind_parking(rebinding, delta)?,
     })
+}
+
+fn rebind_parking_target(
+    rebinding: &CrossRevisionRebinding,
+    target: ParkingTarget,
+) -> Result<ParkingTarget, CutoverError> {
+    match target {
+        ParkingTarget::ExplicitSpace(base_space) => Ok(ParkingTarget::ExplicitSpace(
+            rebinding
+                .parking_space(base_space)
+                .ok_or(CutoverError::UnmappableParkingSpace {
+                    base_space: base_space.raw(),
+                })?,
+        )),
+        ParkingTarget::VirtualPool(base_facility) => Ok(ParkingTarget::VirtualPool(
+            rebinding.parking_facility(base_facility).ok_or(
+                CutoverError::UnmappableParkingFacility {
+                    base_facility: base_facility.raw(),
+                },
+            )?,
+        )),
+    }
+}
+
+fn rebind_parking_delta(
+    candidate: &TrafficWorld,
+    rebinding: &CrossRevisionRebinding,
+    vehicle: VehicleHandle,
+    delta: ParkingBindingDelta,
+) -> Result<Option<ParkingBinding>, CutoverError> {
+    let invalid = || CutoverError::ParkingRevalidationFailed {
+        vehicle: vehicle.index(),
+    };
+    match delta.binding {
+        None => {
+            if delta.semantic_entry_edge.is_some() {
+                return Err(invalid());
+            }
+            Ok(None)
+        }
+        Some(ParkingBinding::Occupied(base_target)) => {
+            if delta.semantic_entry_edge.is_some() {
+                return Err(invalid());
+            }
+            Ok(Some(ParkingBinding::Occupied(rebind_parking_target(
+                rebinding,
+                base_target,
+            )?)))
+        }
+        Some(ParkingBinding::Reserved(base_reservation)) => {
+            let target = rebind_parking_target(rebinding, base_reservation.target())?;
+            let selector = match (base_reservation.target(), target) {
+                (ParkingTarget::ExplicitSpace(_), ParkingTarget::ExplicitSpace(_)) => {
+                    if delta.semantic_entry_edge.is_some() {
+                        return Err(invalid());
+                    }
+                    None
+                }
+                (ParkingTarget::VirtualPool(_), ParkingTarget::VirtualPool(facility)) => {
+                    let base_edge = delta.semantic_entry_edge.ok_or_else(invalid)?;
+                    let target_edge =
+                        rebinding
+                            .lane_edge(base_edge)
+                            .ok_or(CutoverError::UnmappableLaneEdge {
+                                base_edge: base_edge.raw(),
+                            })?;
+                    let facility_view = candidate
+                        .revision
+                        .traffic()
+                        .relations()
+                        .parking_facility(facility)
+                        .ok_or_else(invalid)?;
+                    let selector = facility_view
+                        .virtual_entries()
+                        .iter()
+                        .position(|anchor| {
+                            anchor.lane_edge() == target_edge
+                                && anchor.progress_mm() == delta.semantic_entry_progress_mm
+                        })
+                        .ok_or_else(invalid)?;
+                    Some(VirtualEntryAnchorSelector::from_raw(
+                        u32::try_from(selector).expect("virtual entry selector fits u32"),
+                    ))
+                }
+                _ => return Err(invalid()),
+            };
+            Ok(Some(ParkingBinding::Reserved(ParkingReservation::new(
+                target,
+                base_reservation.route(),
+                base_reservation.entry_route_occurrence(),
+                selector,
+            ))))
+        }
+    }
+}
+
+fn remove_candidate_parking_binding(
+    candidate: &mut TrafficWorld,
+    vehicle: VehicleHandle,
+    binding: Option<ParkingBinding>,
+) {
+    match binding {
+        Some(ParkingBinding::Reserved(_)) => {
+            candidate.parking.cancel_reserved(vehicle);
+        }
+        Some(ParkingBinding::Occupied(_)) => {
+            candidate.parking.release_occupied(vehicle);
+        }
+        None => {}
+    }
+}
+
+fn insert_candidate_parking_binding(
+    candidate: &mut TrafficWorld,
+    vehicle: VehicleHandle,
+    binding: Option<ParkingBinding>,
+) -> Result<(), CutoverError> {
+    let Some(binding) = binding else {
+        return Ok(());
+    };
+    candidate
+        .parking
+        .try_reserve_binding()
+        .map_err(|()| CutoverError::StagingAllocFailed)?;
+    let target = binding.target();
+    match target {
+        ParkingTarget::ExplicitSpace(space) => {
+            if candidate.parking.explicit_state(space) != Some(ParkingSpaceState::Vacant) {
+                return Err(CutoverError::ParkingRevalidationFailed {
+                    vehicle: vehicle.index(),
+                });
+            }
+        }
+        ParkingTarget::VirtualPool(facility) => {
+            let state = candidate.parking.virtual_state(facility).ok_or(
+                CutoverError::ParkingRevalidationFailed {
+                    vehicle: vehicle.index(),
+                },
+            )?;
+            let used = state
+                .reserved_count
+                .checked_add(state.occupied_count)
+                .ok_or(CutoverError::ParkingRevalidationFailed {
+                    vehicle: vehicle.index(),
+                })?;
+            let capacity = candidate
+                .revision
+                .traffic()
+                .relations()
+                .parking_facility(facility)
+                .ok_or(CutoverError::ParkingRevalidationFailed {
+                    vehicle: vehicle.index(),
+                })?
+                .virtual_capacity();
+            if used >= capacity {
+                return Err(CutoverError::ParkingRevalidationFailed {
+                    vehicle: vehicle.index(),
+                });
+            }
+        }
+    }
+    match binding {
+        ParkingBinding::Reserved(reservation) => {
+            candidate.parking.insert_reserved(vehicle, reservation);
+        }
+        ParkingBinding::Occupied(target) => {
+            candidate.parking.insert_occupied(vehicle, target);
+        }
+    }
+    Ok(())
+}
+
+fn checked_candidate_route_ref(
+    candidate: &TrafficWorld,
+    route: RouteHandle,
+) -> Result<u32, CutoverError> {
+    let route_index =
+        usize::try_from(route.index()).map_err(|_| CutoverError::ReplayInconsistent)?;
+    let slot = candidate
+        .routes
+        .get(route_index)
+        .ok_or(CutoverError::ReplayInconsistent)?;
+    if slot.generation != route.generation() || slot.compiled.is_none() {
+        return Err(CutoverError::ReplayInconsistent);
+    }
+    slot.live_vehicles
+        .checked_add(1)
+        .ok_or(CutoverError::ReplayInconsistent)
+}
+
+fn commit_candidate_route_ref(candidate: &mut TrafficWorld, route: RouteHandle, value: u32) {
+    let route_index = usize::try_from(route.index()).expect("validated route index fits usize");
+    candidate.routes[route_index].live_vehicles = value;
 }
 
 /// 应用一条迁移增量到候选。生命周期类增量（生成/替换/停车）在写入后
@@ -554,8 +730,8 @@ fn apply_record(
                 state.carry_um = delta.carry_um;
                 state.speed_mm_s = delta.speed_mm_s;
                 state.status = delta.status;
-                state.parking = rebind_parking(rebinding, &delta)?;
             }
+            candidate.rebuild_active_order();
             candidate.refresh_signals();
         }
         JournalRecord::RouteRegistered {
@@ -672,9 +848,13 @@ fn apply_record(
                     .map_err(|_| CutoverError::StagingAllocFailed)?;
                 candidate.vehicles.push(staged);
             } else if let Some(existing) = candidate.vehicles.get_mut(slot_index) {
+                if candidate.free_vehicles.last().copied() != Some(slot_index) {
+                    return Err(CutoverError::ReplayInconsistent);
+                }
                 if existing.state.is_some() {
                     return Err(CutoverError::ReplayInconsistent);
                 }
+                candidate.free_vehicles.pop();
                 *existing = staged;
             } else {
                 return Err(CutoverError::ReplayInconsistent);
@@ -684,6 +864,7 @@ fn apply_record(
                 .try_reserve_exact(1)
                 .map_err(|_| CutoverError::StagingAllocFailed)?;
             candidate.live_order.push(handle);
+            candidate.rebuild_active_order();
             let route_index =
                 usize::try_from(route.index()).map_err(|_| CutoverError::ReplayInconsistent)?;
             if let Some(slot) = candidate.routes.get_mut(route_index) {
@@ -704,87 +885,210 @@ fn apply_record(
             let new_route = state.route;
             let old_index =
                 usize::try_from(*old_slot).map_err(|_| CutoverError::ReplayInconsistent)?;
-            let old_slot_ref = candidate
+            let old_state = candidate
                 .vehicles
-                .get_mut(old_index)
+                .get(old_index)
+                .and_then(|slot| slot.state.as_ref())
+                .copied()
                 .ok_or(CutoverError::ReplayInconsistent)?;
-            let Some(old_state) = old_slot_ref.state.as_ref() else {
-                return Err(CutoverError::ReplayInconsistent);
-            };
             if old_state.handle != old_handle {
                 return Err(CutoverError::ReplayInconsistent);
             }
             let released_route = old_state.route;
             let slot_index =
                 usize::try_from(vehicle.slot).map_err(|_| CutoverError::ReplayInconsistent)?;
+            let order =
+                usize::try_from(*order_index).map_err(|_| CutoverError::ReplayInconsistent)?;
+            if candidate.live_order.get(order).copied() != Some(old_handle)
+                || candidate.parking.binding(old_handle).is_some()
+            {
+                return Err(CutoverError::ReplayInconsistent);
+            }
+            let next_route_ref = (released_route != new_route)
+                .then(|| checked_candidate_route_ref(candidate, new_route))
+                .transpose()?;
+
+            if slot_index == old_index {
+                if old_generation.checked_add(1) != Some(vehicle.generation) {
+                    return Err(CutoverError::ReplayInconsistent);
+                }
+            } else {
+                if *old_generation != u32::MAX {
+                    return Err(CutoverError::ReplayInconsistent);
+                }
+                if slot_index == candidate.vehicles.len() {
+                    if vehicle.generation != 0 {
+                        return Err(CutoverError::ReplayInconsistent);
+                    }
+                    candidate
+                        .vehicles
+                        .try_reserve_exact(1)
+                        .map_err(|_| CutoverError::StagingAllocFailed)?;
+                } else {
+                    if candidate.free_vehicles.last().copied() != Some(slot_index) {
+                        return Err(CutoverError::ReplayInconsistent);
+                    }
+                    let existing = candidate
+                        .vehicles
+                        .get(slot_index)
+                        .ok_or(CutoverError::ReplayInconsistent)?;
+                    if existing.state.is_some() || existing.generation != vehicle.generation {
+                        return Err(CutoverError::ReplayInconsistent);
+                    }
+                }
+            }
+
             let staged = crate::tables::VehicleSlot {
                 generation: vehicle.generation,
                 state: Some(state),
             };
             if slot_index == old_index {
-                *old_slot_ref = staged;
+                candidate.vehicles[old_index] = staged;
             } else {
-                old_slot_ref.state = None;
+                candidate.vehicles[old_index].state = None;
                 if slot_index == candidate.vehicles.len() {
-                    candidate
-                        .vehicles
-                        .try_reserve_exact(1)
-                        .map_err(|_| CutoverError::StagingAllocFailed)?;
                     candidate.vehicles.push(staged);
-                } else if let Some(existing) = candidate.vehicles.get_mut(slot_index) {
-                    if existing.state.is_some() {
-                        return Err(CutoverError::ReplayInconsistent);
-                    }
-                    *existing = staged;
                 } else {
-                    return Err(CutoverError::ReplayInconsistent);
+                    let popped = candidate.free_vehicles.pop();
+                    debug_assert_eq!(popped, Some(slot_index));
+                    candidate.vehicles[slot_index] = staged;
                 }
             }
-            candidate.release_route_ref(released_route);
-            let order =
-                usize::try_from(*order_index).map_err(|_| CutoverError::ReplayInconsistent)?;
-            let order_slot = candidate
-                .live_order
-                .get_mut(order)
-                .ok_or(CutoverError::ReplayInconsistent)?;
-            if *order_slot != old_handle {
-                return Err(CutoverError::ReplayInconsistent);
+            if let Some(next_route_ref) = next_route_ref {
+                candidate.release_route_ref(released_route);
+                commit_candidate_route_ref(candidate, new_route, next_route_ref);
             }
-            *order_slot = new_handle;
-            let route_index =
-                usize::try_from(new_route.index()).map_err(|_| CutoverError::ReplayInconsistent)?;
-            if let Some(slot) = candidate.routes.get_mut(route_index) {
-                slot.live_vehicles += 1;
-            }
+            candidate.live_order[order] = new_handle;
+            candidate.rebuild_active_order();
             revalidate_vehicle_on(candidate, new_handle)?;
         }
-        JournalRecord::ParkingOccupied {
+        JournalRecord::VehicleParkingUpdated {
+            vehicle, parking, ..
+        } => {
+            let next_state = vehicle_state_from_delta(rebinding, vehicle)?;
+            let handle = next_state.handle;
+            let slot_index =
+                usize::try_from(vehicle.slot).map_err(|_| CutoverError::ReplayInconsistent)?;
+            let current = candidate
+                .vehicles
+                .get(slot_index)
+                .and_then(|slot| slot.state.as_ref())
+                .copied()
+                .ok_or(CutoverError::ReplayInconsistent)?;
+            if current.handle != handle {
+                return Err(CutoverError::ReplayInconsistent);
+            }
+            let next_binding = rebind_parking_delta(candidate, rebinding, handle, *parking)?;
+            let current_binding = candidate.parking.binding(handle);
+            let next_route_ref = (current.route != next_state.route)
+                .then(|| checked_candidate_route_ref(candidate, next_state.route))
+                .transpose()?;
+
+            remove_candidate_parking_binding(candidate, handle, current_binding);
+            insert_candidate_parking_binding(candidate, handle, next_binding)?;
+            if let Some(next_route_ref) = next_route_ref {
+                candidate.release_route_ref(current.route);
+                commit_candidate_route_ref(candidate, next_state.route, next_route_ref);
+            }
+            candidate.vehicles[slot_index].state = Some(next_state);
+            candidate.rebuild_active_order();
+            revalidate_vehicle_on(candidate, handle)?;
+        }
+        JournalRecord::VehicleParkingSpawned {
+            vehicle, parking, ..
+        } => {
+            let state = vehicle_state_from_delta(rebinding, vehicle)?;
+            let handle = state.handle;
+            let binding = rebind_parking_delta(candidate, rebinding, handle, *parking)?;
+            if !matches!(binding, Some(ParkingBinding::Occupied(_))) {
+                return Err(CutoverError::ParkingRevalidationFailed {
+                    vehicle: handle.index(),
+                });
+            }
+            let route_ref = checked_candidate_route_ref(candidate, state.route)?;
+            let slot_index =
+                usize::try_from(vehicle.slot).map_err(|_| CutoverError::ReplayInconsistent)?;
+            let staged = crate::tables::VehicleSlot {
+                generation: vehicle.generation,
+                state: Some(state),
+            };
+            candidate
+                .live_order
+                .try_reserve_exact(1)
+                .map_err(|_| CutoverError::StagingAllocFailed)?;
+            if slot_index == candidate.vehicles.len() {
+                candidate
+                    .vehicles
+                    .try_reserve_exact(1)
+                    .map_err(|_| CutoverError::StagingAllocFailed)?;
+                candidate.vehicles.push(staged);
+            } else {
+                if candidate.free_vehicles.last().copied() != Some(slot_index) {
+                    return Err(CutoverError::ReplayInconsistent);
+                }
+                let existing = candidate
+                    .vehicles
+                    .get_mut(slot_index)
+                    .ok_or(CutoverError::ReplayInconsistent)?;
+                if existing.state.is_some() || existing.generation != vehicle.generation {
+                    return Err(CutoverError::ReplayInconsistent);
+                }
+                candidate.free_vehicles.pop();
+                *existing = staged;
+            }
+            candidate.live_order.push(handle);
+            commit_candidate_route_ref(candidate, state.route, route_ref);
+            insert_candidate_parking_binding(candidate, handle, binding)?;
+            revalidate_vehicle_on(candidate, handle)?;
+        }
+        JournalRecord::VehicleDespawned {
             slot,
             generation,
-            space,
+            order_index,
+            recyclable,
+            generation_after,
             ..
         } => {
             let handle = VehicleHandle::new(*slot, *generation);
-            let target_space = rebinding
-                .parking_space(ParkingSpaceOrdinal::from_raw(*space))
-                .ok_or(CutoverError::UnmappableParkingSpace { base_space: *space })?;
             let slot_index =
                 usize::try_from(*slot).map_err(|_| CutoverError::ReplayInconsistent)?;
             let state = candidate
                 .vehicles
-                .get_mut(slot_index)
-                .and_then(|slot| slot.state.as_mut())
+                .get(slot_index)
+                .and_then(|slot| slot.state.as_ref())
+                .copied()
                 .ok_or(CutoverError::ReplayInconsistent)?;
             if state.handle != handle {
                 return Err(CutoverError::ReplayInconsistent);
             }
-            state.status = crate::VehicleStatus::Parked;
-            state.speed_mm_s = 0;
-            state.carry_um = 0;
-            state.parking = Some(target_space);
-            if let Some(occupant) = candidate.parking_occupants.get_mut(target_space.index()) {
-                *occupant = Some(handle);
+            let order_index =
+                usize::try_from(*order_index).map_err(|_| CutoverError::ReplayInconsistent)?;
+            if candidate.live_order.get(order_index).copied() != Some(handle) {
+                return Err(CutoverError::ReplayInconsistent);
             }
+            if *recyclable {
+                if generation.checked_add(1) != Some(*generation_after) {
+                    return Err(CutoverError::ReplayInconsistent);
+                }
+                candidate
+                    .free_vehicles
+                    .try_reserve_exact(1)
+                    .map_err(|_| CutoverError::StagingAllocFailed)?;
+            } else if *generation != u32::MAX || *generation_after != *generation {
+                return Err(CutoverError::ReplayInconsistent);
+            }
+
+            let binding = candidate.parking.binding(handle);
+            remove_candidate_parking_binding(candidate, handle, binding);
+            candidate.release_route_ref(state.route);
+            candidate.live_order.remove(order_index);
+            let slot = &mut candidate.vehicles[slot_index];
+            slot.state = None;
+            slot.generation = *generation_after;
+            if *recyclable {
+                candidate.free_vehicles.push(slot_index);
+            }
+            candidate.rebuild_active_order();
         }
     }
     Ok(())
@@ -818,9 +1122,10 @@ mod tests {
 
     use super::*;
     use crate::{
-        CutoverEvent, LfcaOriginBinding, ObservationError, ObservationExportMode,
-        ObservationSelection, RouteRegisterInput, SemanticDiffOriginBinding, TickInput,
-        VehicleSpawnInput, WorldConfig,
+        CutoverEvent, LeaveParkingTarget, LfcaOriginBinding, ObservationError,
+        ObservationExportMode, ObservationSelection, ParkedVehicleSpawnInput, ParkingTarget,
+        ReserveParkingTarget, RouteRegisterInput, SemanticDiffOriginBinding, TickInput,
+        VehicleSpawnInput, VehicleStatus, WorldConfig,
     };
 
     const ORACLE_BASE: &[u8] = include_bytes!(
@@ -985,11 +1290,22 @@ mod tests {
             ORACLE_LFSD,
             &CutoverTransactionLimits::default(),
         );
-        let third = spawn_on(&mut cut, route, 10_000, 5_000);
-        spawn_on(&mut plain, route, 10_000, 5_000);
         let space = ParkingSpaceOrdinal::from_raw(0);
-        cut.occupy_parking(third, space).expect("parking");
-        plain.occupy_parking(third, space).expect("parking");
+        let third = cut
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 10_000),
+                ParkingTarget::ExplicitSpace(space),
+            )
+            .expect("parking")
+            .vehicle;
+        let plain_third = plain
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 10_000),
+                ParkingTarget::ExplicitSpace(space),
+            )
+            .expect("parking")
+            .vehicle;
+        assert_eq!(third, plain_third);
         let temp = cut
             .register_route(RouteRegisterInput::new(vec![entry]))
             .expect("temp route");
@@ -1046,7 +1362,7 @@ mod tests {
             .expect("route");
         let vehicle = spawn_on(&mut cut, route, 10_000, 5_000);
         let limits = CutoverTransactionLimits {
-            max_journal_bytes: 64,
+            max_journal_bytes: 63,
             ..CutoverTransactionLimits::default()
         };
         let mut tx = prepare(&mut cut, ORACLE_TARGET, ORACLE_LFSD, &limits);
@@ -1330,9 +1646,14 @@ mod tests {
         let route = cut
             .register_route(RouteRegisterInput::new(vec![entry, exit]))
             .expect("route");
-        let vehicle = spawn_on(&mut cut, route, 10_000, 5_000);
         let space = ParkingSpaceOrdinal::from_raw(0);
-        cut.occupy_parking(vehicle, space).expect("parking");
+        let vehicle = cut
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 10_000),
+                ParkingTarget::ExplicitSpace(space),
+            )
+            .expect("parking")
+            .vehicle;
         let tx = prepare(
             &mut cut,
             ORACLE_TARGET,
@@ -1342,9 +1663,9 @@ mod tests {
         cut.step(TickInput::new(100)).expect("step");
         // 幂等重占推进命令游标但不产生日志记录：最终游标必须由静默边界
         // 原子取样，而不是重放计数。
-        cut.occupy_parking(vehicle, space)
+        cut.park_vehicle(vehicle, ParkingTarget::ExplicitSpace(space))
             .expect("idempotent re-occupy");
-        cut.occupy_parking(vehicle, space)
+        cut.park_vehicle(vehicle, ParkingTarget::ExplicitSpace(space))
             .expect("idempotent re-occupy");
         let cursor_before_commit = cut.command_cursor();
         let commit = tx.commit(&mut cut).expect("commit drains without pump");
@@ -1352,6 +1673,79 @@ mod tests {
         assert_eq!(cut.command_cursor(), cursor_before_commit);
         assert_eq!(cut.committed_parking_occupant(space), Some(vehicle));
         cut.step(TickInput::new(100)).expect("steps on target");
+    }
+
+    #[test]
+    fn parking_update_spawn_and_despawn_replay_preserve_active_execution_membership() {
+        let mut cut = installed_world(ORACLE_BASE, "fixture://parking-window");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        let space = ParkingSpaceOrdinal::from_raw(0);
+        let vehicle = cut
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                4_000,
+                0,
+            ))
+            .expect("vehicle at exact entry");
+        let mut tx = prepare(
+            &mut cut,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+
+        cut.reserve_parking(
+            vehicle,
+            ReserveParkingTarget::ExplicitSpace {
+                space,
+                entry_route_occurrence: 0,
+            },
+        )
+        .expect("window reserve");
+        cut.park_vehicle(vehicle, ParkingTarget::ExplicitSpace(space))
+            .expect("window park");
+        assert!(cut.active_order.is_empty());
+        cut.leave_parking(
+            vehicle,
+            LeaveParkingTarget::ExplicitSpace {
+                space,
+                route,
+                exit_route_occurrence: 0,
+            },
+        )
+        .expect("window leave");
+        assert_eq!(cut.active_order, [vehicle]);
+
+        let transient = cut
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0),
+                ParkingTarget::ExplicitSpace(space),
+            )
+            .expect("window parked spawn")
+            .vehicle;
+        assert_eq!(cut.active_order, [vehicle]);
+        cut.despawn_vehicle(transient)
+            .expect("window parked despawn");
+
+        tx.pump(&mut cut).expect("replay parking window");
+        let commit = tx.commit(&mut cut).expect("commit parking window");
+        assert_eq!(commit.final_command_cursor, cut.command_cursor());
+        assert_eq!(cut.active_order, [vehicle]);
+        let state = cut.vehicle(vehicle).expect("migrated active vehicle");
+        assert_eq!(state.status(), VehicleStatus::Active);
+        assert_eq!(state.route(), route);
+        assert_eq!(state.route_edge_index(), 0);
+        assert_eq!(state.progress_mm(), 6_000);
+        assert_eq!(cut.parking_binding(vehicle), None);
+        assert_eq!(cut.committed_parking_occupant(space), None);
+        assert_eq!(cut.vehicle(transient), None);
+        cut.step(TickInput::new(100))
+            .expect("migrated active set continues stepping");
     }
 
     #[test]
@@ -1366,7 +1760,7 @@ mod tests {
             .expect("route");
         let vehicle = spawn_on(&mut cut, route, 10_000, 5_000);
         let limits = CutoverTransactionLimits {
-            max_journal_bytes: 64,
+            max_journal_bytes: 63,
             ..CutoverTransactionLimits::default()
         };
         // 在线尝试：追赶窗口内一步即溢出，整体放弃、零事件。
@@ -1619,9 +2013,14 @@ mod tests {
         let route = cut
             .register_route(RouteRegisterInput::new(vec![entry, exit]))
             .expect("route");
-        let vehicle = spawn_on(&mut cut, route, 10_000, 5_000);
         let space = ParkingSpaceOrdinal::from_raw(0);
-        cut.occupy_parking(vehicle, space).expect("parking");
+        let vehicle = cut
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 10_000),
+                ParkingTarget::ExplicitSpace(space),
+            )
+            .expect("parking")
+            .vehicle;
         let target_revision = revision(TARGET);
         let target_origin = *target_revision.canonical_origin();
         let descriptor = descriptor_for(&cut, target_origin, LFSD_BYTES);
@@ -1668,7 +2067,7 @@ mod tests {
                 ORACLE_LFSD,
                 &preflight_limits(),
                 &CutoverTransactionLimits {
-                    max_journal_bytes: 64,
+                    max_journal_bytes: 63,
                     ..CutoverTransactionLimits::default()
                 },
             )
@@ -1827,7 +2226,7 @@ mod tests {
             .expect("route");
         spawn_on(&mut cut, route, 10_000, 5_000);
         let limits = CutoverTransactionLimits {
-            max_journal_bytes: 64,
+            max_journal_bytes: 63,
             ..CutoverTransactionLimits::default()
         };
         let mut tx = prepare(&mut cut, ORACLE_TARGET, ORACLE_LFSD, &limits);
@@ -1862,7 +2261,7 @@ mod tests {
                 ORACLE_LFSD,
                 &preflight_limits(),
                 &CutoverTransactionLimits {
-                    max_journal_bytes: 64,
+                    max_journal_bytes: 63,
                     ..CutoverTransactionLimits::default()
                 },
             )
@@ -2019,6 +2418,77 @@ mod tests {
             plain.step(TickInput::new(100)).expect("plain step");
             assert_same_committed(&cut, &plain);
         }
+    }
+
+    #[test]
+    fn saturated_vehicle_replacement_replay_consumes_reused_free_slot() {
+        let mut cut = installed_world(ORACLE_BASE, "fixture://saturated-replace");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        let old = spawn_on(&mut cut, route, 20_000, 0);
+        let free_slot_vehicle = spawn_on(&mut cut, route, 2_000, 0);
+        cut.despawn_vehicle(free_slot_vehicle)
+            .expect("create a recyclable free slot");
+        let free_slot = usize::try_from(free_slot_vehicle.index()).expect("free slot index");
+        assert_eq!(cut.free_vehicles.last().copied(), Some(free_slot));
+
+        let old_index = usize::try_from(old.index()).expect("old slot index");
+        let saturated_old = VehicleHandle::new(old.index(), u32::MAX);
+        let old_state = cut.vehicles[old_index]
+            .state
+            .as_mut()
+            .expect("old vehicle remains live");
+        old_state.handle = saturated_old;
+        cut.vehicles[old_index].generation = u32::MAX;
+        let order_index = cut
+            .live_order
+            .iter()
+            .position(|handle| *handle == old)
+            .expect("old vehicle is in stable live order");
+        cut.live_order[order_index] = saturated_old;
+        cut.rebuild_active_order();
+
+        let mut tx = prepare(
+            &mut cut,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        cut.vehicles[old_index]
+            .state
+            .as_mut()
+            .expect("old vehicle remains live during the journal window")
+            .status = VehicleStatus::Completed;
+        cut.rebuild_active_order();
+        let replacement = cut
+            .replace_completed_vehicle(
+                saturated_old,
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 2_000, 0),
+            )
+            .expect("saturated generation replacement reuses the free slot");
+        assert_eq!(
+            usize::try_from(replacement.new.index()).expect("replacement index"),
+            free_slot
+        );
+        assert!(cut.free_vehicles.is_empty());
+
+        tx.pump(&mut cut).expect("replay saturated replacement");
+        let _ = tx.commit(&mut cut).expect("commit saturated replacement");
+        assert!(cut.free_vehicles.is_empty());
+        let committed_route = cut
+            .vehicle(replacement.new)
+            .expect("replacement survives cutover")
+            .route();
+
+        let next = spawn_on(&mut cut, committed_route, 20_000, 0);
+        assert_ne!(next, replacement.new);
+        assert_eq!(
+            cut.vehicle(replacement.new).map(|state| state.handle()),
+            Some(replacement.new)
+        );
+        assert_eq!(cut.vehicle(next).map(|state| state.handle()), Some(next));
     }
 
     #[test]
