@@ -725,15 +725,15 @@ same-tick enter+leave、shared boundary 与 traversal completion 都可能增加
 
 ## 10. 快照、摘要与修订切换
 
-#282 新增逻辑状态后一次性升级：
+#282 已随本地 Waiting 逻辑状态完成一次性升级，当前唯一生产版本为：
 
-| 权威轴                  | 当前 | #282 目标 |
-| ----------------------- | ---: | --------: |
-| LFRS `formatVersion`    |    3 |         4 |
-| `runtime_state_version` |    3 |         4 |
-| deterministic digest    |    5 |         6 |
+| 权威轴                  | 当前版本 |
+| ----------------------- | -------: |
+| LFRS `formatVersion`    |        4 |
+| `runtime_state_version` |        4 |
+| deterministic digest    |        6 |
 
-只保留目标 writer/reader；旧 v3 明确失败关闭，不保留双读、双写或迁移 shim。
+只保留当前 writer/reader；旧 v3 输入明确失败关闭，不保留双读、双写或迁移 shim。
 
 持久化保存 vehicle traversal/membership、zone occupancy、next admission counter 与稳定
 queue order；稠密 handle/link 在 restore 重建。空 zone 只要 counter 非零就仍有逻辑

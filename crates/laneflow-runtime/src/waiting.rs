@@ -542,6 +542,9 @@ impl crate::TrafficWorld {
                                     .flatten()
                     })
                     .ok_or(WaitingBindingError::AuthorityMismatch)?;
+                if !waiting_membership_cursor_valid(new_cursor_u32, new_waiting) {
+                    return Err(WaitingBindingError::AuthorityMismatch);
+                }
                 Some(WaitingMembership {
                     waiting_zone: old_membership.waiting_zone,
                     admission_sequence: old_membership.admission_sequence,
@@ -1583,8 +1586,7 @@ impl crate::TrafficWorld {
             occurrence.maneuver_index == traversal.maneuver_occurrence_index
                 && occurrence.zone == membership.waiting_zone
                 && occurrence.release_hop == membership.release_hop
-                && state.route_edge_index > occurrence.entry_hop
-                && state.route_edge_index <= occurrence.release_hop
+                && waiting_membership_cursor_valid(state.route_edge_index, occurrence)
                 && state.length_mm <= occurrence.storage_length_mm
         })
     }
@@ -1595,6 +1597,7 @@ impl crate::TrafficWorld {
             let mut current = state.head;
             let mut has_front = false;
             let mut previous_rank = None;
+            let mut previous_length_mm = 0_u32;
             while let Some(vehicle) = current {
                 let Some(vehicle_state) = self.vehicle_state(vehicle) else {
                     return false;
@@ -1644,12 +1647,28 @@ impl crate::TrafficWorld {
                 else {
                     return false;
                 };
-                if previous_rank.is_some_and(|previous| previous >= rank)
-                    || used > u64::from(occurrence.storage_length_mm)
-                {
+                if previous_rank.is_some_and(|previous| previous >= rank) {
+                    return false;
+                }
+                if let Some(front_rank) = previous_rank {
+                    let Some(front_distance_mm) = waiting_front_distance_mm(front_rank, rank)
+                    else {
+                        return false;
+                    };
+                    let Some(required_distance_mm) =
+                        u64::from(previous_length_mm).checked_add(u64::from(profile.min_gap_mm()))
+                    else {
+                        return false;
+                    };
+                    if front_distance_mm < required_distance_mm {
+                        return false;
+                    }
+                }
+                if used > u64::from(occurrence.storage_length_mm) {
                     return false;
                 }
                 previous_rank = Some(rank);
+                previous_length_mm = vehicle_state.length_mm;
                 has_front = true;
                 current = self.waiting_links[vehicle.index() as usize].next;
             }
@@ -1782,6 +1801,21 @@ impl crate::TrafficWorld {
             .occupancy
             .checked_add(1)
             .expect("admission preflight guarantees occupancy room");
+    }
+}
+
+const fn waiting_membership_cursor_valid(
+    route_edge_index: u32,
+    occurrence: &crate::tables::WaitingOccurrence,
+) -> bool {
+    route_edge_index > occurrence.entry_hop && route_edge_index <= occurrence.release_hop
+}
+
+fn waiting_front_distance_mm(front: (u8, u64), follower: (u8, u64)) -> Option<u64> {
+    match (front.0, follower.0) {
+        (0, 0) | (1, 1) => follower.1.checked_sub(front.1),
+        (0, 1) => u64::MAX.checked_sub(front.1)?.checked_add(follower.1),
+        _ => None,
     }
 }
 
@@ -2021,6 +2055,13 @@ mod tests {
     }
 
     fn waiting_scale_revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
+        waiting_scale_revision_with(8.0, 1)
+    }
+
+    fn waiting_scale_revision_with(
+        storage_length_meters: f64,
+        max_occupancy: u32,
+    ) -> Arc<laneflow_static_network::SharedNetworkRevision> {
         const NS: &str = "city/waiting-scale";
         const STEM_COUNT: usize = 64;
         let limits = CompileLimits::p100_initial_v1();
@@ -2082,11 +2123,18 @@ mod tests {
             .expect("entry")
             .add_lane_edge(LaneEdgeInput {
                 lane_edge_key: "storage",
-                length_meters: 8.0,
+                length_meters: storage_length_meters,
+                speed_limit_meters_per_second: 13.75,
+                successors: &[LaneEdgeReference::local("after-release")],
+            })
+            .expect("storage")
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "after-release",
+                length_meters: 12.0,
                 speed_limit_meters_per_second: 13.75,
                 successors: &[LaneEdgeReference::local("exit")],
             })
-            .expect("storage")
+            .expect("after release")
             .add_lane_edge(LaneEdgeInput {
                 lane_edge_key: "exit",
                 length_meters: 12.0,
@@ -2109,7 +2157,10 @@ mod tests {
                 maneuver_path_key: "path",
                 movement: MovementReference::local("movement"),
                 entry_edge: LaneEdgeReference::local("entry"),
-                internal_edges: &[LaneEdgeReference::local("storage")],
+                internal_edges: &[
+                    LaneEdgeReference::local("storage"),
+                    LaneEdgeReference::local("after-release"),
+                ],
                 exit_edge: LaneEdgeReference::local("exit"),
             })
             .expect("path")
@@ -2144,7 +2195,7 @@ mod tests {
                 maneuver_path: ManeuverPathReference::local("path"),
                 entry_gate: ManeuverGateReference::local("gate-entry"),
                 release_gate: ManeuverGateReference::local("gate-release"),
-                max_occupancy: 1,
+                max_occupancy,
             })
             .expect("WaitingZone");
         let mut unit = CompilationUnitBuilder::new(limits);
@@ -2208,7 +2259,12 @@ mod tests {
         let mut keys = (0..STEM_COUNT)
             .map(|index| format!("stem-{index:02}"))
             .collect::<Vec<_>>();
-        keys.extend(["entry".into(), "storage".into(), "exit".into()]);
+        keys.extend([
+            "entry".into(),
+            "storage".into(),
+            "after-release".into(),
+            "exit".into(),
+        ]);
         let edges = keys
             .iter()
             .map(|key| {
@@ -2585,6 +2641,112 @@ mod tests {
             restore(&membership_without_traversal),
             Err(SnapshotRestoreError::InvalidWaitingAuthority { .. })
         ));
+    }
+
+    #[test]
+    fn restore_rejects_actual_waiting_gap_below_profile_minimum() {
+        let revision = waiting_scale_revision_with(20.0, 2);
+        let (mut world, zone) = waiting_scale_world(revision, 2);
+        world.step(TickInput::new(4)).expect("admit front member");
+
+        let front = VehicleHandle::new(0, 0);
+        let front_state = world.vehicle_state(front).copied().expect("front state");
+        let membership = front_state.waiting_membership.expect("front membership");
+        let profile = world
+            .traffic()
+            .relations()
+            .vehicle_profile(front_state.profile)
+            .expect("profile");
+        let front_progress_mm = 15_000_u32;
+        let follower_progress_at_minimum = front_progress_mm
+            .checked_sub(front_state.length_mm)
+            .and_then(|value| value.checked_sub(profile.min_gap_mm()))
+            .expect("20 metre storage fits both vehicles");
+
+        let mut exact_gap = world.capture_snapshot().expect("capture");
+        let front_index = exact_gap
+            .vehicles
+            .iter()
+            .position(|vehicle| vehicle.waiting_membership.is_some())
+            .expect("front row");
+        let follower_index = exact_gap
+            .vehicles
+            .iter()
+            .position(|vehicle| vehicle.waiting_membership.is_none())
+            .expect("follower row");
+        let traversal = exact_gap.vehicles[front_index]
+            .maneuver_traversal
+            .expect("front traversal");
+        let mut follower_membership = exact_gap.vehicles[front_index]
+            .waiting_membership
+            .expect("front membership row");
+        follower_membership.admission_sequence = 1;
+        exact_gap.vehicles[front_index].route_edge_index = membership.release_hop;
+        exact_gap.vehicles[front_index].progress_mm = front_progress_mm;
+        exact_gap.vehicles[front_index].speed_mm_s = 0;
+        exact_gap.vehicles[follower_index].route_edge_index = membership.release_hop;
+        exact_gap.vehicles[follower_index].progress_mm = follower_progress_at_minimum;
+        exact_gap.vehicles[follower_index].speed_mm_s = 0;
+        exact_gap.vehicles[follower_index].maneuver_traversal = Some(traversal);
+        exact_gap.vehicles[follower_index].waiting_membership = Some(follower_membership);
+        let zone_identity = exact_gap.waiting_zones[0].waiting_zone;
+        let zone_state = exact_gap
+            .waiting_zones
+            .iter_mut()
+            .find(|state| state.waiting_zone == zone_identity)
+            .expect("zone state");
+        zone_state.occupancy = 2;
+        zone_state.next_admission_sequence = 2;
+
+        let restore = |captured: &crate::CapturedSnapshot| {
+            restore_lfrs(
+                &encode_lfrs(captured),
+                world.revision(),
+                world.committed_source().clone(),
+                world.config(),
+                SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
+            )
+            .map(|_| ())
+        };
+        restore(&exact_gap).expect("exact profile minimum gap is valid");
+
+        let mut one_millimetre_short = exact_gap;
+        one_millimetre_short.vehicles[follower_index].progress_mm =
+            follower_progress_at_minimum + 1;
+        assert_eq!(
+            restore(&one_millimetre_short),
+            Err(SnapshotRestoreError::WaitingInvariantViolation)
+        );
+        assert_eq!(
+            world.waiting_zone(zone).expect("source zone").occupancy(),
+            1,
+            "malformed restore must not mutate the source world"
+        );
+    }
+
+    #[test]
+    fn waiting_rebind_rejects_target_cursor_past_release_gate() {
+        let revision = waiting_scale_revision();
+        let (mut world, _) = waiting_scale_world(revision, 1);
+        world.step(TickInput::new(4)).expect("admit member");
+        let vehicle = VehicleHandle::new(0, 0);
+        let state = world.vehicle_state(vehicle).copied().expect("member state");
+        let membership = state.waiting_membership.expect("membership");
+        let target_cursor = membership
+            .release_hop
+            .checked_add(1)
+            .expect("fixture release has a following internal edge");
+        let compiled = world.compiled_route(state.route).expect("compiled route");
+        let traversal = state.maneuver_traversal.expect("traversal");
+        let maneuver = compiled
+            .maneuvers
+            .get(traversal.maneuver_occurrence_index as usize)
+            .expect("maneuver");
+        assert!(target_cursor < maneuver.exit_route_edge_index);
+        assert_eq!(
+            world.rebind_waiting_authority(state, state.route, target_cursor as usize),
+            Err(WaitingBindingError::AuthorityMismatch)
+        );
     }
 
     #[test]

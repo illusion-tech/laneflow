@@ -86,7 +86,8 @@ const STATUS_COMPLETED: u8 = 3;
 const TICK_HEADER_BYTES: usize = 1 + 8 + 8 + 4 + 4;
 const WAITING_ZONE_DELTA_BYTES: usize = 4 + 8;
 
-/// 单条车辆增量：tick 条目与生成/替换记录共用，固定 82 字节小端布局。
+/// 单条车辆增量：tick 条目与生成/替换记录共用，固定 78 字节小端布局
+/// （见 [`VEHICLE_DELTA_BYTES`]）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct VehicleDelta {
     /// 车辆槽位下标（句柄 index）。
