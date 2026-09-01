@@ -1,10 +1,10 @@
 # Traffic Runtime WaitingZone 运行时
 
-**文档状态**: Review（#282 G1 候选设计，2026-09-01）<br>
+**文档状态**: Accepted（#282 G1，2026-09-01）<br>
 **适用范围**: `laneflow-runtime` / `TrafficWorld` 的 WaitingZone 准入、物理存储、
 成员关系、队列、固定步进、只读观察、快照与路网修订切换<br>
-**交付边界**: 本文提出待审实现约束，不声称 G1 已接受或运行时代码已经交付；实时
-进度以 GitHub Issue 为准
+**交付边界**: 本文是 #282 G1 当前唯一详细设计，只冻结实现约束，不声称运行时代码
+已经交付；实时进度以 GitHub Issue 为准
 
 **关联文档**:
 
@@ -22,8 +22,7 @@
 
 ## 1. 权威与重基线
 
-本文是 #282 WaitingZone 动态运行时的 G1 候选详细设计；经设计 PR 审阅合入并明确
-接受后，才成为该切片的当前唯一详细设计。ADR 0019 继续拥有
+本文是 #282 WaitingZone 动态运行时已接受的当前唯一详细设计。ADR 0019 继续拥有
 WaitingZone 是 Gate 有界资源、行为 authority 属于交通运行时、Adapter/Spatial
 不得反推行为的架构决策。
 

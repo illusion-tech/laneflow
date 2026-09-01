@@ -1,11 +1,11 @@
 # WaitingZone、ConflictZone 与通行权分层
 
-**文档状态**: Accepted（#235 联合架构；#282 WaitingZone 动态切片仍为 Review，
-2026-09-01）<br>
+**文档状态**: Accepted（#235 联合架构与 #282 WaitingZone G1，2026-09-01）<br>
 **适用范围**: WaitingZone 本地准入、Conflict 路线出现项、车辆级通行权、下游净空、
 Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
 **交付状态**: WaitingZone 静态关系已存在；`ConflictPassageOccurrence` 与 #284 前的
-3A 能力保护已交付；#282、#284 动态能力均不得由本文声称已实现或已接受<br>
+3A 能力保护已交付；#282 详细设计已接受但动态运行时尚未实现，本文不声称 #284 动态
+能力已经接受或实现<br>
 
 **关联文档**:
 

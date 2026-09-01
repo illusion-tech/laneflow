@@ -20,7 +20,7 @@
   起实现）。
 - `traffic-runtime-conflict-occurrence.md`：#283 的路线冲突出现项、route-local
   坐标、独立容量与 #284 前的全车身能力保护（#283 G1 已接受）。
-- `traffic-runtime-waiting-zone.md`：#282 Review 状态的 WaitingZone 本地
+- `traffic-runtime-waiting-zone.md`：#282 G1 Accepted 的 WaitingZone 本地
   membership/admission/storage/queue 设计，以及 LFRS 3→4、runtime state 3→4、
   deterministic digest 5→6 的一次性升级；不包含 #284 的组合 ledger。
 - `shared-static-network.md`：从受检 LFCA 构建 `SharedNetworkRevision`。
@@ -47,7 +47,7 @@
 - `parking-system.md`：#540 G1 Accepted；`ParkingFacility`、显式泊位/虚拟容量、
   anchor selector、reserve/park/leave、原子 despawn、无 pose 停驻与迁移合同（#541 起实现）。
 - `road-junction-model.md`：Junction / Movement / ManeuverPath / ManeuverGate。
-- `waiting-zone-conflict-right-of-way.md`：#282 Review 状态的 Waiting 本地边界与 #284
+- `waiting-zone-conflict-right-of-way.md`：#282 G1 Accepted 的 Waiting 本地边界与 #284
   组合仲裁边界；冲突静态 exact shape 见 LFCA/共享根文档，路线出现项与
   `ConflictRuntimeUnavailable` 临时能力保护见 #559 当前设计。
 - `cross-section-access.md`：横断面与准入 overlay。
