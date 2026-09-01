@@ -1526,6 +1526,12 @@ mod tests {
         let mut world =
             install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).unwrap();
         let route = register_full_spatial_route(&mut world);
+        world.routes[route.index() as usize]
+            .compiled
+            .as_mut()
+            .expect("route")
+            .waiting
+            .clear();
         let profile = world
             .revision
             .traffic()

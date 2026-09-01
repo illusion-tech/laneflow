@@ -1,22 +1,23 @@
-//! `LFRS` v3 的 verifier-first 读取、语义 lowering 与原子新世界恢复。
+//! `LFRS` v4 的 verifier-first 读取、语义 lowering 与原子新世界恢复。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v3 as wire;
+use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v4 as wire;
 use laneflow_runtime_snapshot_wire::runtime::VerifierOptions;
 use laneflow_static_contract::{
-    LaneEdgeId, ParkingFacilityId, ParkingSpaceId, ParticipantClassId, StableId128,
-    VehicleProfileId,
+    LaneEdgeId, ManeuverGateId, ManeuverPathId, ParkingFacilityId, ParkingSpaceId,
+    ParticipantClassId, StableId128, VehicleProfileId, WaitingZoneId, WaitingZoneOrdinal,
 };
 use laneflow_static_network::SharedNetworkRevision;
 use thiserror::Error;
 
 use crate::{
     AdmittedRouteRegisterError, AdmittedRouteRegisterInput, CommittedNetworkSource, InstallError,
-    ObservationStateSequence, ParkedVehicleSpawnInput, ParkingError, ParkingTarget,
-    ReserveParkingTarget, RouteHandle, SpawnError, StepError, TrafficWorld, VehicleHandle,
-    VehicleSpawnInput, VehicleStatus, VirtualEntryAnchorSelector, WorldConfig,
+    ManeuverTraversalPhase, ManeuverTraversalState, ObservationStateSequence,
+    ParkedVehicleSpawnInput, ParkingError, ParkingTarget, ReserveParkingTarget, RouteHandle,
+    SpawnError, StepError, TrafficWorld, VehicleHandle, VehicleSpawnInput, VehicleStatus,
+    VirtualEntryAnchorSelector, WaitingMembership, WorldConfig,
 };
 use crate::{RUNTIME_STATE_VERSION, SNAPSHOT_FORMAT_VERSION};
 
@@ -24,15 +25,21 @@ const MIN_SIZE_PREFIXED_LFRS_BYTES: usize = 12;
 const MAX_SCHEMA_TABLE_DEPTH: usize = 4;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
 const MICROMETRES_PER_MILLIMETRE: u16 = 1_000;
-const ROOT_V3_FIELDS: usize = vtable_field_count(wire::RuntimeSnapshot::VT_LIVE_ORDER);
-const WORLD_CONFIG_V3_FIELDS: usize =
+const ROOT_V4_FIELDS: usize = vtable_field_count(wire::RuntimeSnapshot::VT_WAITING_ZONES);
+const WORLD_CONFIG_V4_FIELDS: usize =
     vtable_field_count(wire::WorldConfigBinding::VT_FIXED_DELTA_TIME_MS);
-const PUBLISHED_SOURCE_V3_FIELDS: usize =
+const PUBLISHED_SOURCE_V4_FIELDS: usize =
     vtable_field_count(wire::PublishedSourceBinding::VT_NETWORK_REVISION);
-const ROUTE_V3_FIELDS: usize = vtable_field_count(wire::SnapshotRoute::VT_EDGES);
-const VEHICLE_V3_FIELDS: usize = vtable_field_count(wire::SnapshotVehicle::VT_PARKING);
-const PARKING_BINDING_V3_FIELDS: usize =
+const ROUTE_V4_FIELDS: usize = vtable_field_count(wire::SnapshotRoute::VT_EDGES);
+const VEHICLE_V4_FIELDS: usize = vtable_field_count(wire::SnapshotVehicle::VT_WAITING_MEMBERSHIP);
+const PARKING_BINDING_V4_FIELDS: usize =
     vtable_field_count(wire::ParkingBinding::VT_VIRTUAL_ENTRY_PROGRESS_MM);
+const MANEUVER_TRAVERSAL_V4_FIELDS: usize =
+    vtable_field_count(wire::ManeuverTraversalBinding::VT_PHASE_GATE);
+const WAITING_MEMBERSHIP_V4_FIELDS: usize =
+    vtable_field_count(wire::WaitingMembershipBinding::VT_ADMISSION_SEQUENCE);
+const WAITING_ZONE_STATE_V4_FIELDS: usize =
+    vtable_field_count(wire::WaitingZoneState::VT_NEXT_ADMISSION_SEQUENCE);
 
 const fn vtable_field_count(
     last_field: laneflow_runtime_snapshot_wire::runtime::VOffsetT,
@@ -131,8 +138,8 @@ pub enum SnapshotRestoreError {
         /// 实际版本。
         actual: u16,
     },
-    /// v3 table 出现 schema 未登记的字段槽；这类字段可能携带禁绑状态。
-    #[error("LFRS v3 table {table} 含未知字段槽: supported={supported}, actual={actual}")]
+    /// v4 table 出现 schema 未登记的字段槽；这类字段可能携带禁绑状态。
+    #[error("LFRS v4 table {table} 含未知字段槽: supported={supported}, actual={actual}")]
     UnknownTableFields {
         /// table 名。
         table: &'static str,
@@ -306,6 +313,15 @@ pub enum SnapshotRestoreError {
         /// 车辆 ID。
         snapshot_vehicle_id: u64,
     },
+    /// Waiting traversal/membership 的 stable identity、route occurrence 或 phase 不闭合。
+    #[error("车辆 {snapshot_vehicle_id} 的 Waiting authority 非法")]
+    InvalidWaitingAuthority { snapshot_vehicle_id: u64 },
+    /// WaitingZone state row 的 stable identity 未知或重复。
+    #[error("WaitingZone state row 非法或重复")]
+    InvalidWaitingZoneState,
+    /// WaitingZone occupancy/counter/member/queue 关系不闭合。
+    #[error("WaitingZone snapshot aggregate 不闭合")]
+    WaitingInvariantViolation,
     /// 路线经规范化 admitted 入口恢复失败。
     #[error("路线 {snapshot_route_id} 恢复失败: {error}")]
     Route {
@@ -418,7 +434,11 @@ pub fn restore_lfrs(
     target_config: WorldConfig,
     limits: SnapshotRestoreLimits,
 ) -> Result<RestoredSnapshot, SnapshotRestoreError> {
-    let root = verify_lfrs(bytes, target_config, limits)?;
+    let waiting_zone_count = revision
+        .traffic()
+        .entity_counts()
+        .count(laneflow_static_contract::EntityKind::WaitingZone);
+    let root = verify_lfrs(bytes, target_config, waiting_zone_count, limits)?;
     validate_bindings(root, revision.as_ref(), &source, target_config, limits)?;
 
     // 路线重编译必须得到完整实际冲突出现项总数，才能同时校验
@@ -476,6 +496,13 @@ pub fn restore_lfrs(
         target_config.route_conflict_occurrence_capacity(),
     )?;
     world.config = target_config;
+    // Waiting phase validity depends on the committed tick-start signal view. Set the
+    // snapshot clock before lowering vehicle authority inside this private staging world.
+    world.tick_index = root.tick();
+    world.time_ms = root.time_ms();
+    world.command_cursor = root.command_cursor();
+    world.event_cursor = root.event_cursor();
+    world.refresh_signals();
 
     let vehicle_rows = root.vehicles();
     let mut vehicle_map = BTreeMap::new();
@@ -512,11 +539,10 @@ pub fn restore_lfrs(
 
     world.live_order = live_order;
     world.rebuild_active_order();
-    world.tick_index = root.tick();
-    world.time_ms = root.time_ms();
+    restore_waiting_aggregate(&mut world, root)?;
+    world.observation_state_sequence = ObservationStateSequence::INITIAL;
     world.command_cursor = root.command_cursor();
     world.event_cursor = root.event_cursor();
-    world.observation_state_sequence = ObservationStateSequence::INITIAL;
     world.next_states.clear();
     world.refresh_signals();
     world
@@ -530,9 +556,108 @@ pub fn restore_lfrs(
     })
 }
 
+fn restore_waiting_aggregate(
+    world: &mut TrafficWorld,
+    root: wire::RuntimeSnapshot<'_>,
+) -> Result<(), SnapshotRestoreError> {
+    let mut rows = vec![None; world.waiting_zones.len()];
+    for row in root.waiting_zones() {
+        let zone = row
+            .waiting_zone()
+            .and_then(|stable| {
+                world
+                    .revision
+                    .identity()
+                    .ordinal(WaitingZoneId::from_untyped(StableId128::from_bytes(
+                        stable.0,
+                    )))
+            })
+            .ok_or(SnapshotRestoreError::InvalidWaitingZoneState)?;
+        if (row.occupancy() == 0 && row.next_admission_sequence() == 0)
+            || rows[zone.index()]
+                .replace((row.occupancy(), row.next_admission_sequence()))
+                .is_some()
+        {
+            return Err(SnapshotRestoreError::InvalidWaitingZoneState);
+        }
+    }
+
+    let mut members = Vec::new();
+    members
+        .try_reserve_exact(world.live_order.len())
+        .map_err(|_| SnapshotRestoreError::WaitingInvariantViolation)?;
+    for vehicle in world.live_order.iter().copied() {
+        if let Some(membership) = world
+            .vehicle_state(vehicle)
+            .and_then(|state| state.waiting_membership)
+        {
+            members.push((
+                membership.waiting_zone.index(),
+                membership.admission_sequence,
+                vehicle,
+                membership,
+            ));
+        }
+    }
+    members.sort_by_key(|(zone, sequence, vehicle, _)| {
+        (*zone, *sequence, vehicle.index(), vehicle.generation())
+    });
+    if members
+        .windows(2)
+        .any(|pair| pair[0].0 == pair[1].0 && pair[0].1 == pair[1].1)
+    {
+        return Err(SnapshotRestoreError::WaitingInvariantViolation);
+    }
+
+    for (zone_index, state) in world.waiting_zones.iter_mut().enumerate() {
+        let member_count = members
+            .iter()
+            .filter(|(member_zone, _, _, _)| *member_zone == zone_index)
+            .count();
+        let Some((occupancy, next_admission_sequence)) = rows[zone_index] else {
+            if member_count != 0 {
+                return Err(SnapshotRestoreError::WaitingInvariantViolation);
+            }
+            continue;
+        };
+        let zone = WaitingZoneOrdinal::from_raw(
+            u32::try_from(zone_index)
+                .map_err(|_| SnapshotRestoreError::WaitingInvariantViolation)?,
+        );
+        let max_occupancy = world
+            .revision
+            .traffic()
+            .relations()
+            .waiting_zone(zone)
+            .ok_or(SnapshotRestoreError::InvalidWaitingZoneState)?
+            .max_occupancy();
+        if usize::try_from(occupancy).ok() != Some(member_count)
+            || occupancy > max_occupancy
+            || (member_count != 0 && next_admission_sequence == 0)
+        {
+            return Err(SnapshotRestoreError::WaitingInvariantViolation);
+        }
+        state.next_admission_sequence = next_admission_sequence;
+    }
+
+    for (_, sequence, vehicle, membership) in members {
+        let next = world.waiting_zones[membership.waiting_zone.index()].next_admission_sequence;
+        if sequence >= next {
+            return Err(SnapshotRestoreError::WaitingInvariantViolation);
+        }
+        world.append_waiting_member(vehicle, membership);
+    }
+    if !world.waiting_state_valid() || !world.waiting_snapshot_storage_valid() {
+        return Err(SnapshotRestoreError::WaitingInvariantViolation);
+    }
+    world.rebuild_waiting_member_rows();
+    Ok(())
+}
+
 fn verify_lfrs<'a>(
     bytes: &'a [u8],
     target_config: WorldConfig,
+    waiting_zone_count: u32,
     limits: SnapshotRestoreLimits,
 ) -> Result<wire::RuntimeSnapshot<'a>, SnapshotRestoreError> {
     let byte_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
@@ -563,7 +688,10 @@ fn verify_lfrs<'a>(
     }
 
     let max_tables_u64 = u64::from(target_config.route_capacity())
-        .checked_add(u64::from(target_config.vehicle_capacity()).saturating_mul(2))
+        // 每辆车最多有 vehicle、parking、traversal、membership 四张表；
+        // WaitingZone 状态按静态根的实际 zone 数量设界，不新增调用方容量轴。
+        .checked_add(u64::from(target_config.vehicle_capacity()).saturating_mul(4))
+        .and_then(|value| value.checked_add(u64::from(waiting_zone_count)))
         .and_then(|value| value.checked_add(3))
         .ok_or_else(|| limit_error(SnapshotLimitDimension::VerifierBudget, u64::MAX, u64::MAX))?;
     let max_tables = usize::try_from(max_tables_u64).map_err(|_| {
@@ -610,7 +738,7 @@ fn validate_bindings(
             actual: root.runtime_state_version(),
         });
     }
-    validate_closed_v3_tables(root)?;
+    validate_closed_v4_tables(root)?;
     let network_revision = root
         .network_revision()
         .ok_or(SnapshotRestoreError::MissingField {
@@ -758,28 +886,45 @@ fn validate_bindings(
     Ok(())
 }
 
-fn validate_closed_v3_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), SnapshotRestoreError> {
-    validate_table_field_count("RuntimeSnapshot", root._tab, ROOT_V3_FIELDS)?;
+fn validate_closed_v4_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), SnapshotRestoreError> {
+    validate_table_field_count("RuntimeSnapshot", root._tab, ROOT_V4_FIELDS)?;
     validate_table_field_count(
         "WorldConfigBinding",
         root.world_config()._tab,
-        WORLD_CONFIG_V3_FIELDS,
+        WORLD_CONFIG_V4_FIELDS,
     )?;
     if let Some(published) = root.source_published() {
         validate_table_field_count(
             "PublishedSourceBinding",
             published._tab,
-            PUBLISHED_SOURCE_V3_FIELDS,
+            PUBLISHED_SOURCE_V4_FIELDS,
         )?;
     }
     for route in root.routes() {
-        validate_table_field_count("SnapshotRoute", route._tab, ROUTE_V3_FIELDS)?;
+        validate_table_field_count("SnapshotRoute", route._tab, ROUTE_V4_FIELDS)?;
     }
     for vehicle in root.vehicles() {
-        validate_table_field_count("SnapshotVehicle", vehicle._tab, VEHICLE_V3_FIELDS)?;
+        validate_table_field_count("SnapshotVehicle", vehicle._tab, VEHICLE_V4_FIELDS)?;
         if let Some(parking) = vehicle.parking() {
-            validate_table_field_count("ParkingBinding", parking._tab, PARKING_BINDING_V3_FIELDS)?;
+            validate_table_field_count("ParkingBinding", parking._tab, PARKING_BINDING_V4_FIELDS)?;
         }
+        if let Some(traversal) = vehicle.maneuver_traversal() {
+            validate_table_field_count(
+                "ManeuverTraversalBinding",
+                traversal._tab,
+                MANEUVER_TRAVERSAL_V4_FIELDS,
+            )?;
+        }
+        if let Some(membership) = vehicle.waiting_membership() {
+            validate_table_field_count(
+                "WaitingMembershipBinding",
+                membership._tab,
+                WAITING_MEMBERSHIP_V4_FIELDS,
+            )?;
+        }
+    }
+    for state in root.waiting_zones() {
+        validate_table_field_count("WaitingZoneState", state._tab, WAITING_ZONE_STATE_V4_FIELDS)?;
     }
     Ok(())
 }
@@ -804,6 +949,192 @@ fn validate_table_field_count(
 enum DecodedParkingBinding {
     Reserved(ReserveParkingTarget),
     Occupied(ParkingTarget),
+}
+
+#[derive(Clone, Copy, Default)]
+struct DecodedWaitingAuthority {
+    traversal: Option<ManeuverTraversalState>,
+    membership: Option<WaitingMembership>,
+}
+
+fn decode_waiting_authority(
+    world: &TrafficWorld,
+    vehicle: wire::SnapshotVehicle<'_>,
+    status: VehicleStatus,
+    route: RouteHandle,
+) -> Result<DecodedWaitingAuthority, SnapshotRestoreError> {
+    let snapshot_vehicle_id = vehicle.snapshot_vehicle_id();
+    if status != VehicleStatus::Active {
+        return if vehicle.maneuver_traversal().is_none() && vehicle.waiting_membership().is_none() {
+            Ok(DecodedWaitingAuthority::default())
+        } else {
+            Err(SnapshotRestoreError::InvalidWaitingAuthority {
+                snapshot_vehicle_id,
+            })
+        };
+    }
+
+    let Some(binding) = vehicle.maneuver_traversal() else {
+        return if vehicle.waiting_membership().is_none() {
+            Ok(DecodedWaitingAuthority::default())
+        } else {
+            Err(SnapshotRestoreError::InvalidWaitingAuthority {
+                snapshot_vehicle_id,
+            })
+        };
+    };
+    let compiled =
+        world
+            .compiled_route(route)
+            .ok_or(SnapshotRestoreError::InvalidWaitingAuthority {
+                snapshot_vehicle_id,
+            })?;
+    let maneuver_index = usize::try_from(binding.maneuver_occurrence_index()).map_err(|_| {
+        SnapshotRestoreError::InvalidWaitingAuthority {
+            snapshot_vehicle_id,
+        }
+    })?;
+    let maneuver = compiled.maneuvers.get(maneuver_index).ok_or(
+        SnapshotRestoreError::InvalidWaitingAuthority {
+            snapshot_vehicle_id,
+        },
+    )?;
+    let path = binding
+        .maneuver_path()
+        .and_then(|stable| {
+            world
+                .revision
+                .identity()
+                .ordinal(ManeuverPathId::from_untyped(StableId128::from_bytes(
+                    stable.0,
+                )))
+        })
+        .filter(|path| *path == maneuver.path)
+        .ok_or(SnapshotRestoreError::InvalidWaitingAuthority {
+            snapshot_vehicle_id,
+        })?;
+    let _ = path;
+    let phase_gate = binding
+        .phase_gate()
+        .and_then(|stable| {
+            world
+                .revision
+                .identity()
+                .ordinal(ManeuverGateId::from_untyped(StableId128::from_bytes(
+                    stable.0,
+                )))
+        })
+        .ok_or(SnapshotRestoreError::InvalidWaitingAuthority {
+            snapshot_vehicle_id,
+        })?;
+    let phase_hop = (maneuver.entry_route_edge_index..maneuver.exit_route_edge_index)
+        .find(|hop| compiled.hop_gate.get(*hop as usize).copied().flatten() == Some(phase_gate))
+        .ok_or(SnapshotRestoreError::InvalidWaitingAuthority {
+            snapshot_vehicle_id,
+        })?;
+    let phase = if binding.phase().0 == wire::ManeuverTraversalPhaseKind::PreGate.0 {
+        ManeuverTraversalPhase::PreGate {
+            next_gate_hop: phase_hop,
+        }
+    } else if binding.phase().0 == wire::ManeuverTraversalPhaseKind::Committed.0 {
+        ManeuverTraversalPhase::Committed {
+            last_crossed_gate_hop: phase_hop,
+        }
+    } else if binding.phase().0 == wire::ManeuverTraversalPhaseKind::Waiting.0 {
+        ManeuverTraversalPhase::Waiting {
+            release_gate_hop: phase_hop,
+        }
+    } else {
+        return Err(SnapshotRestoreError::InvalidWaitingAuthority {
+            snapshot_vehicle_id,
+        });
+    };
+    let traversal = ManeuverTraversalState {
+        route,
+        maneuver_occurrence_index: binding.maneuver_occurrence_index(),
+        phase,
+    };
+
+    let membership = match vehicle.waiting_membership() {
+        None => None,
+        Some(binding) => {
+            if binding.maneuver_occurrence_index() != traversal.maneuver_occurrence_index {
+                return Err(SnapshotRestoreError::InvalidWaitingAuthority {
+                    snapshot_vehicle_id,
+                });
+            }
+            let zone = binding
+                .waiting_zone()
+                .and_then(|stable| {
+                    world
+                        .revision
+                        .identity()
+                        .ordinal(WaitingZoneId::from_untyped(StableId128::from_bytes(
+                            stable.0,
+                        )))
+                })
+                .ok_or(SnapshotRestoreError::InvalidWaitingAuthority {
+                    snapshot_vehicle_id,
+                })?;
+            let entry_gate = binding
+                .entry_gate()
+                .and_then(|stable| {
+                    world
+                        .revision
+                        .identity()
+                        .ordinal(ManeuverGateId::from_untyped(StableId128::from_bytes(
+                            stable.0,
+                        )))
+                })
+                .ok_or(SnapshotRestoreError::InvalidWaitingAuthority {
+                    snapshot_vehicle_id,
+                })?;
+            let release_gate = binding
+                .release_gate()
+                .and_then(|stable| {
+                    world
+                        .revision
+                        .identity()
+                        .ordinal(ManeuverGateId::from_untyped(StableId128::from_bytes(
+                            stable.0,
+                        )))
+                })
+                .ok_or(SnapshotRestoreError::InvalidWaitingAuthority {
+                    snapshot_vehicle_id,
+                })?;
+            let occurrence = compiled
+                .waiting
+                .iter()
+                .find(|occurrence| {
+                    occurrence.maneuver_index == traversal.maneuver_occurrence_index
+                        && occurrence.zone == zone
+                        && compiled
+                            .hop_gate
+                            .get(occurrence.entry_hop as usize)
+                            .copied()
+                            .flatten()
+                            == Some(entry_gate)
+                        && compiled
+                            .hop_gate
+                            .get(occurrence.release_hop as usize)
+                            .copied()
+                            .flatten()
+                            == Some(release_gate)
+                })
+                .ok_or(SnapshotRestoreError::InvalidWaitingAuthority {
+                    snapshot_vehicle_id,
+                })?;
+            Some(WaitingMembership {
+                waiting_zone: zone,
+                admission_sequence: binding.admission_sequence(),
+                release_hop: occurrence.release_hop,
+            })
+        }
+    };
+    Ok(DecodedWaitingAuthority {
+        traversal: Some(traversal),
+        membership,
+    })
 }
 
 fn decode_parking_binding(
@@ -1012,6 +1343,7 @@ fn restore_vehicle(
             snapshot_vehicle_id,
         });
     }
+    let waiting = decode_waiting_authority(world, vehicle, status, route)?;
 
     if status == VehicleStatus::Completed {
         let edges = world
@@ -1058,6 +1390,8 @@ fn restore_vehicle(
                 ),
                 vehicle.carry_um(),
                 status,
+                waiting.traversal,
+                waiting.membership,
             )
             .map_err(|error| SnapshotRestoreError::Vehicle {
                 snapshot_vehicle_id,
@@ -1077,6 +1411,15 @@ fn restore_vehicle(
         }
         VehicleStatus::Parked => {}
         VehicleStatus::Completed => {}
+    }
+    if !world
+        .vehicle_state(handle)
+        .copied()
+        .is_some_and(|state| world.restored_waiting_authority_valid(state))
+    {
+        return Err(SnapshotRestoreError::InvalidWaitingAuthority {
+            snapshot_vehicle_id,
+        });
     }
     vehicle_map.insert(snapshot_vehicle_id, handle);
     Ok(())
@@ -2070,7 +2413,7 @@ mod tests {
                 wire::size_prefixed_root_as_runtime_snapshot(&prior_format).expect("verified LFRS");
             table_field_offset(root._tab, wire::RuntimeSnapshot::VT_FORMAT_VERSION)
         };
-        prior_format[format_offset..format_offset + 4].copy_from_slice(&2_u32.to_le_bytes());
+        prior_format[format_offset..format_offset + 4].copy_from_slice(&3_u32.to_le_bytes());
         assert_eq!(
             restore_lfrs(
                 &prior_format,
@@ -2080,11 +2423,11 @@ mod tests {
                 generous_limits(),
             )
             .unwrap_err(),
-            SnapshotRestoreError::UnsupportedFormatVersion { actual: 2 }
+            SnapshotRestoreError::UnsupportedFormatVersion { actual: 3 }
         );
 
         let mut unknown_format = valid.clone();
-        unknown_format[format_offset..format_offset + 4].copy_from_slice(&4_u32.to_le_bytes());
+        unknown_format[format_offset..format_offset + 4].copy_from_slice(&5_u32.to_le_bytes());
         assert_eq!(
             restore_lfrs(
                 &unknown_format,
@@ -2094,7 +2437,7 @@ mod tests {
                 generous_limits(),
             )
             .unwrap_err(),
-            SnapshotRestoreError::UnsupportedFormatVersion { actual: 4 }
+            SnapshotRestoreError::UnsupportedFormatVersion { actual: 5 }
         );
 
         let mut prior_runtime = valid.clone();
@@ -2103,7 +2446,7 @@ mod tests {
                 .expect("verified LFRS");
             table_field_offset(root._tab, wire::RuntimeSnapshot::VT_RUNTIME_STATE_VERSION)
         };
-        prior_runtime[runtime_offset..runtime_offset + 2].copy_from_slice(&2_u16.to_le_bytes());
+        prior_runtime[runtime_offset..runtime_offset + 2].copy_from_slice(&3_u16.to_le_bytes());
         assert_eq!(
             restore_lfrs(
                 &prior_runtime,
@@ -2113,11 +2456,11 @@ mod tests {
                 generous_limits(),
             )
             .unwrap_err(),
-            SnapshotRestoreError::UnsupportedRuntimeStateVersion { actual: 2 }
+            SnapshotRestoreError::UnsupportedRuntimeStateVersion { actual: 3 }
         );
 
         let mut unknown_runtime = valid.clone();
-        unknown_runtime[runtime_offset..runtime_offset + 2].copy_from_slice(&4_u16.to_le_bytes());
+        unknown_runtime[runtime_offset..runtime_offset + 2].copy_from_slice(&5_u16.to_le_bytes());
         assert_eq!(
             restore_lfrs(
                 &unknown_runtime,
@@ -2127,7 +2470,7 @@ mod tests {
                 generous_limits(),
             )
             .unwrap_err(),
-            SnapshotRestoreError::UnsupportedRuntimeStateVersion { actual: 4 }
+            SnapshotRestoreError::UnsupportedRuntimeStateVersion { actual: 5 }
         );
 
         let mut unknown_fields = valid.clone();
@@ -2143,8 +2486,8 @@ mod tests {
             .unwrap_err(),
             SnapshotRestoreError::UnknownTableFields {
                 table: "RuntimeSnapshot",
-                supported: ROOT_V3_FIELDS,
-                actual: ROOT_V3_FIELDS + 4,
+                supported: ROOT_V4_FIELDS,
+                actual: ROOT_V4_FIELDS + 4,
             }
         );
 

@@ -38,6 +38,9 @@ fn install_fixture(
 const FULL_SPATIAL: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
 );
+const PARKING_ONLY: &[u8] = include_bytes!(
+    "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-base.lfca"
+);
 
 fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
     let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
@@ -54,6 +57,21 @@ fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
 
 fn world() -> TrafficWorld {
     install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install")
+}
+
+fn parking_world() -> TrafficWorld {
+    let input = check_canonical_network_input(PARKING_ONLY, FormatLimits::HARD)
+        .expect("checked parking fixture");
+    let revision = build_shared_network_revision(
+        input,
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::Omit,
+            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+        ),
+    )
+    .expect("parking revision");
+    install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
+        .expect("install parking world")
 }
 
 fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
@@ -78,6 +96,18 @@ fn fixture_route(world: &mut TrafficWorld) -> RouteHandle {
     world
         .register_route(RouteRegisterInput::new(fixture_edges(world)))
         .expect("register")
+}
+
+fn parking_route(world: &mut TrafficWorld) -> RouteHandle {
+    let (entry_edge, _) = world
+        .traffic()
+        .relations()
+        .parking_space(ParkingSpaceOrdinal::from_raw(0))
+        .expect("fixture parking space")
+        .entry();
+    world
+        .register_route(RouteRegisterInput::new(vec![entry_edge]))
+        .expect("register parking-only route")
 }
 
 fn spawn_on_route(
@@ -205,14 +235,14 @@ fn spawn_respects_speed_limit_equality_and_overlap() {
 
 #[test]
 fn explicit_parking_lifecycle_enforces_exclusivity_and_narrow_idempotency() {
-    let mut world = world();
+    let mut world = parking_world();
     let spaces = world
         .traffic()
         .entity_counts()
         .count(EntityKind::ParkingSpace);
     assert!(spaces >= 1);
     let space = ParkingSpaceOrdinal::from_raw(0);
-    let route = fixture_route(&mut world);
+    let route = parking_route(&mut world);
     let (entry_edge, entry_progress_mm) = world
         .traffic()
         .relations()
@@ -302,6 +332,51 @@ fn explicit_parking_lifecycle_enforces_exclusivity_and_narrow_idempotency() {
 }
 
 #[test]
+fn parking_entry_inside_waiting_maneuver_fails_atomically() {
+    let mut active_world = world();
+    let route = fixture_route(&mut active_world);
+    let space = ParkingSpaceOrdinal::from_raw(0);
+    let vehicle = spawn_on_route(&mut active_world, route, 0, 0);
+    let cursor_before = active_world.command_cursor();
+    assert_eq!(active_world.parking_binding(vehicle), None);
+    assert_eq!(
+        active_world
+            .reserve_parking(
+                vehicle,
+                ReserveParkingTarget::ExplicitSpace {
+                    space,
+                    entry_route_occurrence: 0,
+                },
+            )
+            .unwrap_err(),
+        ParkingError::WaitingTraversalConflict
+    );
+    assert_eq!(active_world.command_cursor(), cursor_before);
+    assert_eq!(active_world.parking_binding(vehicle), None);
+    assert_eq!(active_world.committed_parking_occupant(space), None);
+
+    let mut parked_world = world();
+    let parked_route = fixture_route(&mut parked_world);
+    let cursor_before = parked_world.command_cursor();
+    assert_eq!(
+        parked_world
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    parked_route,
+                    0,
+                    4_000,
+                ),
+                ParkingTarget::ExplicitSpace(space),
+            )
+            .unwrap_err(),
+        ParkingError::WaitingTraversalConflict
+    );
+    assert_eq!(parked_world.command_cursor(), cursor_before);
+    assert_eq!(parked_world.committed_parking_occupant(space), None);
+}
+
+#[test]
 fn remove_route_rejects_live_vehicle() {
     let mut world = world();
     let first = edge_for_length(&world, 10_000);
@@ -327,13 +402,8 @@ fn remove_route_rejects_live_vehicle() {
 
 #[test]
 fn parking_keeps_route_so_remove_fails() {
-    let mut world = world();
-    let first = edge_for_length(&world, 10_000);
-    let middle = edge_for_length(&world, 8_000);
-    let last = edge_for_length(&world, 12_000);
-    let route = world
-        .register_route(RouteRegisterInput::new(vec![first, middle, last]))
-        .expect("route");
+    let mut world = parking_world();
+    let route = parking_route(&mut world);
     let vehicle = world
         .spawn_parked_vehicle(
             ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0),
@@ -623,8 +693,8 @@ fn completed_route_stays_referenced_until_replace() {
 
 #[test]
 fn parked_and_stale_replace_leave_world_unchanged() {
-    let mut world = world();
-    let route = fixture_route(&mut world);
+    let mut world = parking_world();
+    let route = parking_route(&mut world);
     let parked = world
         .spawn_parked_vehicle(
             ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0),

@@ -4,7 +4,7 @@ use laneflow_static_contract::{
     LaneEdgeOrdinal, ParkingFacilityOrdinal, ParkingSpaceOrdinal, VehicleProfileOrdinal,
 };
 
-use crate::migration_journal::{ParkingBindingDelta, VehicleDelta};
+use crate::migration_journal::{ParkingBindingDelta, VehicleDelta, WaitingMembershipReleaseDelta};
 use crate::occupancy::{LeaderQueryHorizon, OccupancyIndex};
 use crate::tables::{
     ConflictCapabilityError, VehicleSlot, occupancy_footprints_equal, occupancy_front_gap,
@@ -422,6 +422,7 @@ pub struct VehicleDespawnRecord {
     pub vehicle: VehicleHandle,
     pub status: VehicleStatus,
     pub parking_binding: Option<ParkingBinding>,
+    pub waiting_release: Option<crate::WaitingMembershipReleaseRecord>,
 }
 
 /// step 中首次提交 arrival 的稳定顺序 observation。
@@ -727,6 +728,18 @@ fn exact_parking_arrival(
         && state.carry_um == 0
 }
 
+fn map_waiting_parking_error(error: crate::waiting::WaitingBindingError) -> ParkingError {
+    match error {
+        crate::waiting::WaitingBindingError::VehicleTooLong => ParkingError::WaitingVehicleTooLong,
+        crate::waiting::WaitingBindingError::StatefulManeuverInterior
+        | crate::waiting::WaitingBindingError::AuthorityMismatch
+        | crate::waiting::WaitingBindingError::ParkingConflict => {
+            ParkingError::WaitingTraversalConflict
+        }
+        crate::waiting::WaitingBindingError::InvalidRoute => ParkingError::InvariantViolation,
+    }
+}
+
 impl TrafficWorld {
     fn resolve_reserve_anchor(
         &self,
@@ -1004,7 +1017,7 @@ impl TrafficWorld {
         let state = *self
             .vehicle_state(vehicle)
             .expect("committed parking update keeps vehicle live");
-        let delta = VehicleDelta::from_state(&state);
+        let delta = VehicleDelta::from_state(&state, self.compiled_route(state.route));
         let parking = self.parking_binding_delta(vehicle);
         if let Some(journal) = self.migration_journal.as_mut() {
             journal.record_vehicle_parking_updated(command_cursor, delta, parking);
@@ -1075,6 +1088,15 @@ impl TrafficWorld {
         {
             return false;
         }
+        if self
+            .validate_waiting_parking_anchor(
+                reservation.route(),
+                reservation.entry_route_occurrence(),
+            )
+            .is_err()
+        {
+            return false;
+        }
         self.validate_forward_reachable(state, reservation.entry_route_occurrence(), progress_mm)
             .is_ok()
     }
@@ -1132,6 +1154,13 @@ impl TrafficWorld {
             return Err(ParkingError::AccessDenied);
         }
         self.validate_forward_reachable(state, anchor.route_occurrence, anchor.progress_mm)?;
+        self.validate_waiting_parking_anchor(state.route, anchor.route_occurrence)
+            .map_err(|error| match error {
+                crate::waiting::WaitingBindingError::ParkingConflict => {
+                    ParkingError::WaitingTraversalConflict
+                }
+                _ => ParkingError::InvariantViolation,
+            })?;
         let reservation = ParkingReservation::new(
             anchor.target,
             state.route,
@@ -1236,6 +1265,9 @@ impl TrafficWorld {
                 }
                 if !self.parking_arrived_for(state, reservation) {
                     return Err(ParkingError::NotArrived);
+                }
+                if state.maneuver_traversal.is_some() || state.waiting_membership.is_some() {
+                    return Err(ParkingError::WaitingTraversalConflict);
                 }
             }
             Some(_) | None => return Err(ParkingError::NotReserved),
@@ -1393,6 +1425,14 @@ impl TrafficWorld {
             status: VehicleStatus::Active,
             ..state
         };
+        let traversal = self
+            .validate_waiting_bootstrap(route, occurrence, state.length_mm)
+            .map_err(map_waiting_parking_error)?;
+        let candidate = VehicleState {
+            maneuver_traversal: traversal,
+            waiting_membership: None,
+            ..candidate
+        };
         if let Some(blocker) =
             self.overlap_blocker(route, occurrence, exit_progress_mm, state.length_mm)
         {
@@ -1513,12 +1553,19 @@ impl TrafficWorld {
         if !footprints_equal {
             return Err(ParkingError::RebindBodyFootprintMismatch);
         }
+        let (maneuver_traversal, waiting_membership) = self
+            .rebind_waiting_authority(state, new_route, new_current_index)
+            .map_err(map_waiting_parking_error)?;
         let candidate = VehicleState {
             route: new_route,
             route_edge_index: input.new_current_route_occurrence(),
+            maneuver_traversal,
+            waiting_membership,
             ..state
         };
         self.validate_forward_reachable(candidate, anchor.route_occurrence, anchor.progress_mm)?;
+        self.validate_waiting_parking_anchor(new_route, anchor.route_occurrence)
+            .map_err(map_waiting_parking_error)?;
         match self.check_active_conflict_capability(
             new_route,
             new_current_index,
@@ -1613,6 +1660,8 @@ impl TrafficWorld {
         if self.route_suffix_denied(input.route(), profile.class(), occurrence) {
             return Err(ParkingError::AccessDenied);
         }
+        self.validate_waiting_parking_anchor(input.route(), input.route_occurrence())
+            .map_err(map_waiting_parking_error)?;
         let route_ref = self.route_ref_increment(input.route())?;
         let command_cursor = self.checked_parking_command()?;
         self.parking
@@ -1639,6 +1688,8 @@ impl TrafficWorld {
             speed_mm_s: 0,
             length_mm: profile.length_mm(),
             status: VehicleStatus::Parked,
+            maneuver_traversal: None,
+            waiting_membership: None,
         };
         let slot = VehicleSlot {
             generation,
@@ -1653,7 +1704,7 @@ impl TrafficWorld {
         self.commit_route_ref_increment(input.route(), route_ref);
         self.parking.insert_occupied(vehicle, target);
         self.command_cursor = command_cursor;
-        let delta = VehicleDelta::from_state(&state);
+        let delta = VehicleDelta::from_state(&state, self.compiled_route(state.route));
         let parking = self.parking_binding_delta(vehicle);
         if let Some(journal) = self.migration_journal.as_mut() {
             journal.record_vehicle_parking_spawned(command_cursor, delta, parking);
@@ -1671,6 +1722,9 @@ impl TrafficWorld {
             .copied()
             .ok_or(ParkingError::StaleVehicle)?;
         let binding = self.parking.binding(vehicle);
+        if !self.waiting_state_valid() {
+            return Err(ParkingError::InvariantViolation);
+        }
         let valid = matches!(
             (state.status, binding),
             (
@@ -1696,10 +1750,26 @@ impl TrafficWorld {
                 (self.checked_parking_command()?, None)
             }
         };
+        let waiting_release_delta =
+            WaitingMembershipReleaseDelta::from_state(&state, self.compiled_route(state.route));
         let record = VehicleDespawnRecord {
             vehicle,
             status: state.status,
             parking_binding: binding,
+            waiting_release: state.waiting_membership.map(|membership| {
+                let traversal = state
+                    .maneuver_traversal
+                    .expect("validated Waiting member has traversal");
+                crate::WaitingMembershipReleaseRecord {
+                    waiting_zone: membership.waiting_zone,
+                    route_anchor: crate::WaitingRouteAnchor {
+                        route: state.route,
+                        maneuver_occurrence_index: traversal.maneuver_occurrence_index,
+                        hop: membership.release_hop,
+                    },
+                    admission_sequence: membership.admission_sequence,
+                }
+            }),
         };
 
         match binding {
@@ -1712,6 +1782,9 @@ impl TrafficWorld {
             None => {}
         }
         self.release_route_ref(state.route);
+        if let Some(membership) = state.waiting_membership {
+            self.unlink_waiting_member(vehicle, membership);
+        }
         self.live_order.remove(order_index);
         let slot_index = usize::try_from(vehicle.index()).expect("validated vehicle index");
         let slot = &mut self.vehicles[slot_index];
@@ -1724,6 +1797,7 @@ impl TrafficWorld {
         }
         let generation_after = slot.generation;
         self.rebuild_active_order();
+        self.rebuild_waiting_member_rows();
         self.command_cursor = command_cursor;
         if let Some(sequence) = sequence {
             self.observation_state_sequence = sequence;
@@ -1735,6 +1809,7 @@ impl TrafficWorld {
                 u32::try_from(order_index).expect("live order index fits u32"),
                 recyclable,
                 generation_after,
+                waiting_release_delta,
             );
         }
         Ok(record)
@@ -1762,6 +1837,8 @@ mod tests {
                 speed_mm_s: 0,
                 length_mm: 4_500,
                 status: VehicleStatus::Active,
+                maneuver_traversal: None,
+                waiting_membership: None,
             },
             ParkingReservation::new(
                 ParkingTarget::VirtualPool(ParkingFacilityOrdinal::from_raw(1)),

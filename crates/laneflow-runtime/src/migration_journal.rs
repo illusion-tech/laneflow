@@ -13,17 +13,22 @@
 //! 游标)：命令记录携带自身提交游标，静默边界上最终游标由事务在同一原子
 //! 边界取样，不存在既不在基线也不在日志、也不由最终游标定归属的提交。
 
-use laneflow_static_contract::LaneEdgeOrdinal;
+use laneflow_static_contract::{
+    LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal, WaitingZoneOrdinal,
+};
 use thiserror::Error;
 
+use crate::tables::CompiledRoute;
 use crate::{
-    ParkingBinding, ParkingTarget, RouteHandle, VehicleHandle, VehicleState, VehicleStatus,
+    ManeuverTraversalPhase, ParkingBinding, ParkingTarget, RouteHandle, VehicleHandle,
+    VehicleState, VehicleStatus,
 };
 
 /// 迁移增量日志字节上界的文档化默认值（切换合同 §5：默认值由容量合同登记）。
 ///
-/// v2 取 8 MiB：按每 tick 每活跃车辆 43 字节条目估算，千车量级世界约可覆盖
-/// 一百余 tick 的在线追赶窗口；更大的世界按比例缩小可追窗口，超界由事务
+/// 当前取 8 MiB：按每 tick 每活跃车辆 78 字节条目及发生变化的 WaitingZone
+/// counter 条目估算，千车量级世界约可覆盖百 tick 左右的在线追赶窗口；更大的世界
+/// 按比例缩小可追窗口，超界由事务
 /// 失败关闭放弃、宿主显式改用维护暂停模式重试。初值随切片 C 证据登记
 /// （合同 §9「迁移增量日志」行）。
 pub const DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES: u64 = 8 * 1024 * 1024;
@@ -77,10 +82,11 @@ const STATUS_ACTIVE: u8 = 1;
 const STATUS_PARKED: u8 = 2;
 const STATUS_COMPLETED: u8 = 3;
 
-// TICK 记录头：tag + tick_index + time_ms + entry_count。
-const TICK_HEADER_BYTES: usize = 1 + 8 + 8 + 4;
+// TICK 记录头：tag + tick_index + time_ms + vehicle_count + waiting_zone_count。
+const TICK_HEADER_BYTES: usize = 1 + 8 + 8 + 4 + 4;
+const WAITING_ZONE_DELTA_BYTES: usize = 4 + 8;
 
-/// 单条车辆增量：tick 条目与生成/替换记录共用，固定 43 字节小端布局。
+/// 单条车辆增量：tick 条目与生成/替换记录共用，固定 82 字节小端布局。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct VehicleDelta {
     /// 车辆槽位下标（句柄 index）。
@@ -107,11 +113,67 @@ pub(crate) struct VehicleDelta {
     pub(crate) length_mm: u32,
     /// 生命周期状态。
     pub(crate) status: VehicleStatus,
+    pub(crate) traversal_present: bool,
+    pub(crate) maneuver_occurrence_index: u32,
+    pub(crate) maneuver_path: u32,
+    pub(crate) traversal_phase: u8,
+    pub(crate) phase_gate: u32,
+    pub(crate) membership_present: bool,
+    pub(crate) waiting_zone: u32,
+    pub(crate) entry_gate: u32,
+    pub(crate) release_gate: u32,
+    pub(crate) admission_sequence: u64,
 }
 
 impl VehicleDelta {
     /// 从已提交车辆状态提取增量。
-    pub(crate) fn from_state(state: &VehicleState) -> Self {
+    pub(crate) fn from_state(state: &VehicleState, compiled: Option<&CompiledRoute>) -> Self {
+        let authority = state.maneuver_traversal.map(|traversal| {
+            let compiled = compiled.expect("Waiting traversal route is compiled");
+            let maneuver = compiled
+                .maneuvers
+                .get(traversal.maneuver_occurrence_index as usize)
+                .expect("Waiting traversal occurrence exists");
+            let (traversal_phase, phase_hop) = match traversal.phase {
+                ManeuverTraversalPhase::PreGate { next_gate_hop } => (1, next_gate_hop),
+                ManeuverTraversalPhase::Committed {
+                    last_crossed_gate_hop,
+                } => (2, last_crossed_gate_hop),
+                ManeuverTraversalPhase::Waiting { release_gate_hop } => (3, release_gate_hop),
+            };
+            let phase_gate = compiled
+                .hop_gate
+                .get(phase_hop as usize)
+                .copied()
+                .flatten()
+                .expect("Waiting phase hop resolves Gate");
+            (
+                traversal.maneuver_occurrence_index,
+                maneuver.path,
+                traversal_phase,
+                phase_gate,
+            )
+        });
+        let membership = state.waiting_membership.map(|membership| {
+            let traversal = state
+                .maneuver_traversal
+                .expect("Waiting membership has traversal");
+            let compiled = compiled.expect("Waiting membership route is compiled");
+            let occurrence = compiled
+                .waiting
+                .iter()
+                .find(|occurrence| {
+                    occurrence.maneuver_index == traversal.maneuver_occurrence_index
+                        && occurrence.zone == membership.waiting_zone
+                        && occurrence.release_hop == membership.release_hop
+                })
+                .expect("Waiting membership occurrence exists");
+            let entry_gate = compiled.hop_gate[occurrence.entry_hop as usize]
+                .expect("Waiting entry hop resolves Gate");
+            let release_gate = compiled.hop_gate[occurrence.release_hop as usize]
+                .expect("Waiting release hop resolves Gate");
+            (membership, entry_gate, release_gate)
+        });
         Self {
             slot: state.handle().index(),
             generation: state.handle().generation(),
@@ -125,6 +187,16 @@ impl VehicleDelta {
             speed_mm_s: state.speed_mm_s(),
             length_mm: state.length_mm(),
             status: state.status(),
+            traversal_present: authority.is_some(),
+            maneuver_occurrence_index: authority.map_or(0, |value| value.0),
+            maneuver_path: authority.map_or(0, |value| value.1.raw()),
+            traversal_phase: authority.map_or(0, |value| value.2),
+            phase_gate: authority.map_or(0, |value| value.3.raw()),
+            membership_present: membership.is_some(),
+            waiting_zone: membership.map_or(0, |value| value.0.waiting_zone.raw()),
+            entry_gate: membership.map_or(0, |value| value.1.raw()),
+            release_gate: membership.map_or(0, |value| value.2.raw()),
+            admission_sequence: membership.map_or(0, |value| value.0.admission_sequence),
         }
     }
 
@@ -141,6 +213,16 @@ impl VehicleDelta {
         put_u32(out, self.speed_mm_s);
         put_u32(out, self.length_mm);
         put_u8(out, status_to_raw(self.status));
+        put_u8(out, u8::from(self.traversal_present));
+        put_u32(out, self.maneuver_occurrence_index);
+        put_u32(out, self.maneuver_path);
+        put_u8(out, self.traversal_phase);
+        put_u32(out, self.phase_gate);
+        put_u8(out, u8::from(self.membership_present));
+        put_u32(out, self.waiting_zone);
+        put_u32(out, self.entry_gate);
+        put_u32(out, self.release_gate);
+        put_u64(out, self.admission_sequence);
     }
 
     pub(crate) fn decode(bytes: &[u8]) -> Self {
@@ -161,12 +243,101 @@ impl VehicleDelta {
             speed_mm_s: read_u32(bytes, 34),
             length_mm: read_u32(bytes, 38),
             status: status_from_raw(bytes[42]),
+            traversal_present: bytes[43] == 1,
+            maneuver_occurrence_index: read_u32(bytes, 44),
+            maneuver_path: read_u32(bytes, 48),
+            traversal_phase: bytes[52],
+            phase_gate: read_u32(bytes, 53),
+            membership_present: bytes[57] == 1,
+            waiting_zone: read_u32(bytes, 58),
+            entry_gate: read_u32(bytes, 62),
+            release_gate: read_u32(bytes, 66),
+            admission_sequence: read_u64(bytes, 70),
         }
     }
 }
 
 /// 车辆增量固定字节宽度。
-pub(crate) const VEHICLE_DELTA_BYTES: usize = 43;
+pub(crate) const VEHICLE_DELTA_BYTES: usize = 78;
+
+/// despawn 命令内可选 Waiting release 的跨修订稳定语义。
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct WaitingMembershipReleaseDelta {
+    pub(crate) present: bool,
+    pub(crate) waiting_zone: u32,
+    pub(crate) maneuver_occurrence_index: u32,
+    pub(crate) maneuver_path: u32,
+    pub(crate) release_gate: u32,
+    pub(crate) admission_sequence: u64,
+}
+
+impl WaitingMembershipReleaseDelta {
+    pub(crate) fn from_state(state: &VehicleState, compiled: Option<&CompiledRoute>) -> Self {
+        let Some(membership) = state.waiting_membership else {
+            return Self::default();
+        };
+        let traversal = state
+            .maneuver_traversal
+            .expect("Waiting membership has traversal");
+        let compiled = compiled.expect("Waiting membership route is compiled");
+        let maneuver = compiled
+            .maneuvers
+            .get(traversal.maneuver_occurrence_index as usize)
+            .expect("Waiting maneuver occurrence exists");
+        let release_gate = compiled
+            .hop_gate
+            .get(membership.release_hop as usize)
+            .copied()
+            .flatten()
+            .expect("Waiting release hop resolves Gate");
+        Self {
+            present: true,
+            waiting_zone: membership.waiting_zone.raw(),
+            maneuver_occurrence_index: traversal.maneuver_occurrence_index,
+            maneuver_path: maneuver.path.raw(),
+            release_gate: release_gate.raw(),
+            admission_sequence: membership.admission_sequence,
+        }
+    }
+
+    fn encode(self, out: &mut Vec<u8>) {
+        put_u8(out, u8::from(self.present));
+        put_u32(out, self.waiting_zone);
+        put_u32(out, self.maneuver_occurrence_index);
+        put_u32(out, self.maneuver_path);
+        put_u32(out, self.release_gate);
+        put_u64(out, self.admission_sequence);
+    }
+
+    fn decode(bytes: &[u8]) -> Self {
+        assert!(
+            bytes.len() >= WAITING_RELEASE_DELTA_BYTES,
+            "Waiting release delta needs full width"
+        );
+        Self {
+            present: bytes[0] == 1,
+            waiting_zone: read_u32(bytes, 1),
+            maneuver_occurrence_index: read_u32(bytes, 5),
+            maneuver_path: read_u32(bytes, 9),
+            release_gate: read_u32(bytes, 13),
+            admission_sequence: read_u64(bytes, 17),
+        }
+    }
+
+    pub(crate) const fn waiting_zone(self) -> WaitingZoneOrdinal {
+        WaitingZoneOrdinal::from_raw(self.waiting_zone)
+    }
+
+    pub(crate) const fn maneuver_path(self) -> ManeuverPathOrdinal {
+        ManeuverPathOrdinal::from_raw(self.maneuver_path)
+    }
+
+    pub(crate) const fn release_gate(self) -> ManeuverGateOrdinal {
+        ManeuverGateOrdinal::from_raw(self.release_gate)
+    }
+}
+
+const WAITING_RELEASE_DELTA_BYTES: usize = 25;
 
 const PARKING_BINDING_DELTA_BYTES: usize = 20;
 
@@ -307,8 +478,10 @@ pub(crate) enum JournalRecord<'a> {
         tick_index: u64,
         /// 已提交世界时间（毫秒）。
         time_ms: u64,
-        /// 43 字节步长的 [`VehicleDelta`] 流。
+        /// 78 字节步长的 [`VehicleDelta`] 流。
         entries: &'a [u8],
+        /// 12 字节步长的 `(base WaitingZone ordinal, next admission sequence)` 流。
+        waiting_zones: &'a [u8],
     },
     /// 路线注册（base 侧边序数；消费方经 LFSD 重绑到 target 再编译验证）。
     RouteRegistered {
@@ -372,6 +545,7 @@ pub(crate) enum JournalRecord<'a> {
         order_index: u32,
         recyclable: bool,
         generation_after: u32,
+        waiting_release: WaitingMembershipReleaseDelta,
     },
 }
 
@@ -386,8 +560,10 @@ pub(crate) struct MigrationDeltaJournal {
     baseline_command_cursor: u64,
     /// 打开的 TICK 记录的 entry_count 字段在 arena 中的绝对偏移。
     open_tick_count_at: Option<usize>,
+    open_tick_waiting_count_at: Option<usize>,
     /// 当前打开 TICK 记录已成功写入的条目数。
     open_tick_entries: u32,
+    open_tick_waiting_zones: u32,
 }
 
 impl MigrationDeltaJournal {
@@ -416,7 +592,9 @@ impl MigrationDeltaJournal {
             last_tick: None,
             baseline_command_cursor,
             open_tick_count_at: None,
+            open_tick_waiting_count_at: None,
             open_tick_entries: 0,
+            open_tick_waiting_zones: 0,
         })
     }
 
@@ -509,12 +687,16 @@ impl MigrationDeltaJournal {
             return;
         }
         let count_at = self.bytes.len() + 1 + 8 + 8;
+        let waiting_count_at = count_at + 4;
         put_u8(&mut self.bytes, TAG_TICK);
         put_u64(&mut self.bytes, tick_index);
         put_u64(&mut self.bytes, time_ms);
         put_u32(&mut self.bytes, 0);
+        put_u32(&mut self.bytes, 0);
         self.open_tick_count_at = Some(count_at);
+        self.open_tick_waiting_count_at = Some(waiting_count_at);
         self.open_tick_entries = 0;
+        self.open_tick_waiting_zones = 0;
         if self.first_tick.is_none() {
             self.first_tick = Some(tick_index);
         }
@@ -533,13 +715,36 @@ impl MigrationDeltaJournal {
         self.open_tick_entries = self.open_tick_entries.saturating_add(1);
     }
 
+    /// 向打开的 TICK 记录写入一个发生变化的单调 WaitingZone counter。
+    pub(crate) fn tick_waiting_zone(
+        &mut self,
+        zone: WaitingZoneOrdinal,
+        next_admission_sequence: u64,
+    ) {
+        let Some(_) = self.open_tick_count_at else {
+            return;
+        };
+        if !self.ensure(WAITING_ZONE_DELTA_BYTES) {
+            return;
+        }
+        put_u32(&mut self.bytes, zone.raw());
+        put_u64(&mut self.bytes, next_admission_sequence);
+        self.open_tick_waiting_zones = self.open_tick_waiting_zones.saturating_add(1);
+    }
+
     /// 关闭 TICK 记录并回填条目数。
     pub(crate) fn finish_tick(&mut self) {
         let Some(count_at) = self.open_tick_count_at.take() else {
             return;
         };
         let entries = self.open_tick_entries;
+        let waiting_zones = self.open_tick_waiting_zones;
         write_u32_at(&mut self.bytes, count_at, entries);
+        let waiting_count_at = self
+            .open_tick_waiting_count_at
+            .take()
+            .expect("open tick has WaitingZone count slot");
+        write_u32_at(&mut self.bytes, waiting_count_at, waiting_zones);
         self.record_count += 1;
     }
 
@@ -659,8 +864,9 @@ impl MigrationDeltaJournal {
         order_index: u32,
         recyclable: bool,
         generation_after: u32,
+        waiting_release: WaitingMembershipReleaseDelta,
     ) {
-        if !self.ensure(1 + 8 + 4 + 4 + 4 + 1 + 4) {
+        if !self.ensure(1 + 8 + 4 + 4 + 4 + 1 + 4 + WAITING_RELEASE_DELTA_BYTES) {
             return;
         }
         put_u8(&mut self.bytes, TAG_VEHICLE_DESPAWNED);
@@ -670,6 +876,7 @@ impl MigrationDeltaJournal {
         put_u32(&mut self.bytes, order_index);
         put_u8(&mut self.bytes, u8::from(recyclable));
         put_u32(&mut self.bytes, generation_after);
+        waiting_release.encode(&mut self.bytes);
         self.record_count += 1;
     }
 }
@@ -681,6 +888,21 @@ pub(crate) fn raw_u32_stream(bytes: &[u8]) -> impl Iterator<Item = u32> + '_ {
         .0
         .iter()
         .map(|chunk| read_u32_chunk(chunk))
+}
+
+pub(crate) fn waiting_zone_delta_stream(
+    bytes: &[u8],
+) -> impl Iterator<Item = (WaitingZoneOrdinal, u64)> + '_ {
+    bytes
+        .as_chunks::<WAITING_ZONE_DELTA_BYTES>()
+        .0
+        .iter()
+        .map(|chunk| {
+            (
+                WaitingZoneOrdinal::from_raw(read_u32(chunk, 0)),
+                read_u64(chunk, 4),
+            )
+        })
 }
 
 fn read_u32_chunk(chunk: &[u8]) -> u32 {
@@ -718,15 +940,23 @@ impl<'a> Iterator for RecordIter<'a> {
                 at += 8;
                 let count = read_u32(rest, at) as usize;
                 at += 4;
+                let waiting_count = read_u32(rest, at) as usize;
+                at += 4;
                 let entries_len = count * VEHICLE_DELTA_BYTES;
                 let entries = rest
                     .get(at..at + entries_len)
                     .expect("tick entries within journal");
                 at += entries_len;
+                let waiting_len = waiting_count * WAITING_ZONE_DELTA_BYTES;
+                let waiting_zones = rest
+                    .get(at..at + waiting_len)
+                    .expect("tick WaitingZone deltas within journal");
+                at += waiting_len;
                 JournalRecord::Tick {
                     tick_index,
                     time_ms,
                     entries,
+                    waiting_zones,
                 }
             }
             TAG_ROUTE_REGISTERED => {
@@ -831,6 +1061,10 @@ impl<'a> Iterator for RecordIter<'a> {
                 at += 1;
                 let generation_after = read_u32(rest, at);
                 at += 4;
+                let waiting_release = WaitingMembershipReleaseDelta::decode(
+                    rest.get(at..).expect("Waiting release delta present"),
+                );
+                at += WAITING_RELEASE_DELTA_BYTES;
                 JournalRecord::VehicleDespawned {
                     command_cursor,
                     slot,
@@ -838,6 +1072,7 @@ impl<'a> Iterator for RecordIter<'a> {
                     order_index,
                     recyclable,
                     generation_after,
+                    waiting_release,
                 }
             }
             other => panic!("unknown migration journal tag {other}"),
@@ -981,6 +1216,16 @@ mod tests {
             speed_mm_s: 8_900,
             length_mm: 4_500,
             status: VehicleStatus::Active,
+            traversal_present: false,
+            maneuver_occurrence_index: 0,
+            maneuver_path: 0,
+            traversal_phase: 0,
+            phase_gate: 0,
+            membership_present: false,
+            waiting_zone: 0,
+            entry_gate: 0,
+            release_gate: 0,
+            admission_sequence: 0,
         }
     }
 
@@ -1045,7 +1290,15 @@ mod tests {
                 None,
             ),
         );
-        journal.record_vehicle_despawned(12, VehicleHandle::new(7, 0), 3, true, 1);
+        let waiting_release = WaitingMembershipReleaseDelta {
+            present: true,
+            waiting_zone: 13,
+            maneuver_occurrence_index: 2,
+            maneuver_path: 8,
+            release_gate: 9,
+            admission_sequence: 55,
+        };
+        journal.record_vehicle_despawned(12, VehicleHandle::new(7, 0), 3, true, 1, waiting_release);
 
         let records: Vec<_> = journal.records_from(0).collect();
         assert_eq!(records.len(), 9);
@@ -1053,6 +1306,7 @@ mod tests {
             tick_index,
             time_ms,
             entries,
+            ..
         } = records[0]
         else {
             panic!("expected tick record");
@@ -1062,7 +1316,7 @@ mod tests {
         assert_eq!(VehicleDelta::decode(entries), delta);
         assert!(matches!(
             records[1],
-            JournalRecord::Tick { tick_index: 8, time_ms: 800, entries } if entries.is_empty()
+            JournalRecord::Tick { tick_index: 8, time_ms: 800, entries, .. } if entries.is_empty()
         ));
         let JournalRecord::RouteRegistered {
             command_cursor,
@@ -1122,6 +1376,7 @@ mod tests {
                 order_index: 3,
                 recyclable: true,
                 generation_after: 1,
+                waiting_release,
             }
         );
         assert_eq!(journal.first_tick(), Some(7));
@@ -1300,7 +1555,7 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert!(matches!(
             records[0],
-            JournalRecord::Tick { tick_index: 1, time_ms: 100, entries } if entries.is_empty()
+            JournalRecord::Tick { tick_index: 1, time_ms: 100, entries, .. } if entries.is_empty()
         ));
     }
 

@@ -189,12 +189,12 @@ edge/hop 数增长，继续由 `route_edge_occurrence_capacity` 约束。未来�
 确定性摘要。现行唯一生产版本轴为：
 
 ```text
-LFRS formatVersion               = 3
-runtime_state_version            = 3
-RUNTIME_STATE_DIGEST_VERSION     = 5
+LFRS formatVersion               = 4
+runtime_state_version            = 4
+RUNTIME_STATE_DIGEST_VERSION     = 6
 ```
 
-v3 `WorldConfigBinding` 包含 `route_conflict_occurrence_capacity: ulong`。旧 reader、writer
+v4 `WorldConfigBinding` 继续包含 `route_conflict_occurrence_capacity: ulong`。旧 reader、writer
 和 schema 不属于当前生产入口，不双读、不自动迁移。其它需要修改 Runtime Snapshot
 的设计必须从 current 版本继续编号，不能并行占用同一版本值。
 恢复容量错误新增 `RouteConflictOccurrences` dimension，与现行 routes、vehicles 和
@@ -257,7 +257,7 @@ ordinal、passage local index 与 zone ordinal；不能退化成 `UnknownRoute`�
 `SharedNetworkRevision` 确定，不进入 LFRS：
 
 - capture 仍只保存路线边稳定标识序列；
-- v3 保存新的 `WorldConfig` 容量并把它纳入 deterministic digest；
+- v4 保存 `WorldConfig` 容量并把它纳入 deterministic digest；
 - restore 使用目标根的唯一路线编译器重建出现项，先核对 edge 与 conflict 两个总容量，
   再执行 Active 车辆 3A 保护，全部成功后才发布 world；
 - 恢复目标容量可以放大，但必须容纳快照内重建出的 exact 出现项总数；精确回放对拍
@@ -290,7 +290,7 @@ G2 必须覆盖：
 - 上表全部生命周期入口、Parked/Completed 允许面和失败零副作用；
 - edge 容量与 conflict 容量分别达到 `max-1 / max / max+1`，checked overflow、分配
   failpoint、route removal 释放和三个路线注册入口共用计数；
-- LFRS v3 round-trip、v2/unknown version 拒绝、摘要差异、恢复容量放大、cutover
+- LFRS v4 round-trip、v3/unknown version 拒绝、摘要差异、恢复容量放大、cutover
   target conflict count 增减与整事务回滚；
 - 10,000 冲突路线出现项产品档与 100,000 scaling 档的注册时间、retained logical
   bytes 和近线性比例。它们是路线元数据，不等于活动车辆数。
@@ -328,5 +328,5 @@ cargo +1.98.0 test --release --locked -p laneflow-runtime --test compiled_networ
 
 实现前必须把本文更新为 `Accepted`，把 #283 的 Project `Design gate` 更新为
 `Accepted`、Status 更新为 `Ready`，并相对届时 current main 再冻结版本与依赖。实现
-PR 是一个 Runtime completion slice：路线编译、容量、LFRS v3、生命周期、恢复、切换、
+PR 是一个 Runtime completion slice：路线编译、容量、现行 LFRS、生命周期、恢复、切换、
 测试和 exact-current 文档必须闭合提交；不得把只有路线编译的部分结果称为 #283 完成。

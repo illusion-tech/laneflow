@@ -1,4 +1,4 @@
-//! `LFRS`（Runtime Snapshot v3）的私有 FlatBuffers 生成绑定。
+//! `LFRS`（Runtime Snapshot v4）的私有 FlatBuffers 生成绑定。
 //!
 //! 本 package 不属于 LaneFlow 产品 API，也不提供未经验证的读取入口。手写运行时只从
 //! `laneflow-runtime` 的受检快照入口使用这些类型，且不得重导出 generated table。

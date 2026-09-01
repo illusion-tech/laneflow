@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use laneflow_static_contract::{LaneEdgeOrdinal, ParticipantClassOrdinal, VehicleProfileOrdinal};
+use laneflow_static_contract::LaneEdgeOrdinal;
 use laneflow_static_network::{CanonicalNetworkOrigin, SharedNetworkRevision};
 
 use crate::cutover::{
@@ -21,16 +21,16 @@ use crate::cutover::{
 };
 use crate::cutover_migration::{
     CrossRevisionRebinding, migrate_structural_clone, revalidate_migrated_vehicles,
-    revalidate_vehicle_on,
+    revalidate_vehicle_on, revalidate_waiting_routes, vehicle_state_from_delta,
 };
 use crate::migration_journal::{
     DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES, JournalRecord, ParkingBindingDelta, VEHICLE_DELTA_BYTES,
-    VehicleDelta, raw_u32_stream,
+    VehicleDelta, raw_u32_stream, waiting_zone_delta_stream,
 };
 use crate::snapshot_digest::deterministic_state_digest;
 use crate::{
     CommittedNetworkSource, ObservationStateSequence, ParkingBinding, ParkingReservation,
-    ParkingSpaceState, ParkingTarget, RouteHandle, TrafficWorld, VehicleHandle, VehicleState,
+    ParkingSpaceState, ParkingTarget, RouteHandle, TrafficWorld, VehicleHandle,
     VirtualEntryAnchorSelector, WorldGeneration,
 };
 
@@ -38,7 +38,8 @@ use crate::{
 ///
 /// v1 取 600 tick：4 ms 固定步进下约 2.4 s 的可追窗口上限；实际可追
 /// 窗口由日志字节上界与滞后上限共同约束——千车量级先撞字节上界
-/// （8 MiB / 约 43 KB 每 tick ≈ 195 tick），更紧的宿主预算可显式配置
+/// （8 MiB / 约 78 KB 每 tick，另加发生变化的 WaitingZone counter，约 107 tick），
+/// 更紧的宿主预算可显式配置
 /// 更小值。初值随切片 C 证据登记。
 pub const DEFAULT_MAX_CATCH_UP_LAG_TICKS: u64 = 600;
 
@@ -384,6 +385,7 @@ impl CutoverTransaction {
             // 日志记录了全部已提交 step；tick 不一致即重放路径损坏。
             return Err(CutoverError::ReplayInconsistent);
         }
+        revalidate_waiting_routes(world, candidate, &self.rebinding)?;
         // 最终游标在同一原子边界取样（半开覆盖区间上界；幂等重占等无记录
         // 提交的归属由取样而非重放决定），先写入候选供摘要复核与晋升共用。
         let final_command_cursor = world.command_cursor;
@@ -425,6 +427,50 @@ impl CutoverTransaction {
         std::mem::swap(&mut world.live_order, &mut candidate.live_order);
         std::mem::swap(&mut world.active_order, &mut candidate.active_order);
         std::mem::swap(&mut world.parking, &mut candidate.parking);
+        std::mem::swap(&mut world.waiting_zones, &mut candidate.waiting_zones);
+        std::mem::swap(&mut world.waiting_links, &mut candidate.waiting_links);
+        std::mem::swap(
+            &mut world.waiting_member_rows,
+            &mut candidate.waiting_member_rows,
+        );
+        std::mem::swap(&mut world.waiting_claims, &mut candidate.waiting_claims);
+        std::mem::swap(&mut world.waiting_plans, &mut candidate.waiting_plans);
+        std::mem::swap(
+            &mut world.waiting_plan_by_vehicle,
+            &mut candidate.waiting_plan_by_vehicle,
+        );
+        std::mem::swap(
+            &mut world.waiting_next_state_index,
+            &mut candidate.waiting_next_state_index,
+        );
+        std::mem::swap(
+            &mut world.waiting_staged_decisions,
+            &mut candidate.waiting_staged_decisions,
+        );
+        std::mem::swap(
+            &mut world.waiting_staged_events,
+            &mut candidate.waiting_staged_events,
+        );
+        std::mem::swap(
+            &mut world.waiting_next_counters,
+            &mut candidate.waiting_next_counters,
+        );
+        std::mem::swap(
+            &mut world.waiting_staged_occupancy,
+            &mut candidate.waiting_staged_occupancy,
+        );
+        std::mem::swap(
+            &mut world.waiting_staged_storage_mm,
+            &mut candidate.waiting_staged_storage_mm,
+        );
+        std::mem::swap(
+            &mut world.latest_waiting_decisions,
+            &mut candidate.latest_waiting_decisions,
+        );
+        std::mem::swap(
+            &mut world.latest_waiting_events,
+            &mut candidate.latest_waiting_events,
+        );
         std::mem::swap(&mut world.signal_aspects, &mut candidate.signal_aspects);
         std::mem::swap(&mut world.next_states, &mut candidate.next_states);
         std::mem::swap(&mut world.occupancy, &mut candidate.occupancy);
@@ -454,46 +500,6 @@ impl CutoverTransaction {
         world.disarm_migration_journal();
         Ok(())
     }
-}
-
-fn rebind_profile(
-    rebinding: &CrossRevisionRebinding,
-    delta: &VehicleDelta,
-) -> Result<VehicleProfileOrdinal, CutoverError> {
-    rebinding
-        .vehicle_profile(VehicleProfileOrdinal::from_raw(delta.profile))
-        .ok_or(CutoverError::UnmappableVehicleProfile {
-            base_profile: delta.profile,
-        })
-}
-
-fn rebind_class(
-    rebinding: &CrossRevisionRebinding,
-    delta: &VehicleDelta,
-) -> Result<ParticipantClassOrdinal, CutoverError> {
-    rebinding
-        .participant_class(ParticipantClassOrdinal::from_raw(delta.class))
-        .ok_or(CutoverError::UnmappableParticipantClass {
-            base_class: delta.class,
-        })
-}
-
-fn vehicle_state_from_delta(
-    rebinding: &CrossRevisionRebinding,
-    delta: &VehicleDelta,
-) -> Result<VehicleState, CutoverError> {
-    Ok(VehicleState {
-        handle: VehicleHandle::new(delta.slot, delta.generation),
-        profile: rebind_profile(rebinding, delta)?,
-        class: rebind_class(rebinding, delta)?,
-        route: RouteHandle::new(delta.route_index, delta.route_generation),
-        route_edge_index: delta.route_edge_index,
-        progress_mm: delta.progress_mm,
-        carry_um: delta.carry_um,
-        speed_mm_s: delta.speed_mm_s,
-        length_mm: delta.length_mm,
-        status: delta.status,
-    })
 }
 
 fn rebind_parking_target(
@@ -689,6 +695,48 @@ fn commit_candidate_route_ref(candidate: &mut TrafficWorld, route: RouteHandle, 
     candidate.routes[route_index].live_vehicles = value;
 }
 
+fn waiting_release_matches(
+    candidate: &TrafficWorld,
+    rebinding: &CrossRevisionRebinding,
+    state: crate::VehicleState,
+    release: crate::migration_journal::WaitingMembershipReleaseDelta,
+) -> bool {
+    if !release.present {
+        return state.waiting_membership.is_none();
+    }
+    let (
+        Some(membership),
+        Some(traversal),
+        Some(target_zone),
+        Some(target_path),
+        Some(target_gate),
+    ) = (
+        state.waiting_membership,
+        state.maneuver_traversal,
+        rebinding.waiting_zone(release.waiting_zone()),
+        rebinding.maneuver_path(release.maneuver_path()),
+        rebinding.maneuver_gate(release.release_gate()),
+    )
+    else {
+        return false;
+    };
+    let Some(compiled) = candidate.compiled_route(state.route) else {
+        return false;
+    };
+    membership.waiting_zone == target_zone
+        && membership.admission_sequence == release.admission_sequence
+        && compiled
+            .maneuvers
+            .get(traversal.maneuver_occurrence_index as usize)
+            .is_some_and(|maneuver| maneuver.path == target_path)
+        && compiled
+            .hop_gate
+            .get(membership.release_hop as usize)
+            .copied()
+            .flatten()
+            == Some(target_gate)
+}
+
 /// 应用一条迁移增量到候选。生命周期类增量（生成/替换/停车）在写入后
 /// 立即重验证（重绑即重验证覆盖窗口内新建绑定）；tick 增量只搬整值状态，
 /// 终态由静默提交的全量重验证与摘要复核闭合。
@@ -702,13 +750,16 @@ fn apply_record(
             tick_index,
             time_ms,
             entries,
+            waiting_zones,
         } => {
             candidate.tick_index = *tick_index;
             candidate.time_ms = *time_ms;
+            candidate.refresh_signals();
             let (chunks, remainder) = entries.as_chunks::<VEHICLE_DELTA_BYTES>();
             debug_assert!(remainder.is_empty());
             for chunk in chunks {
                 let delta = VehicleDelta::decode(chunk);
+                let next_state = vehicle_state_from_delta(candidate, rebinding, &delta)?;
                 let slot_index =
                     usize::try_from(delta.slot).map_err(|_| CutoverError::ReplayInconsistent)?;
                 let slot = candidate
@@ -717,23 +768,29 @@ fn apply_record(
                     .ok_or(CutoverError::ReplayInconsistent)?;
                 let state = slot
                     .state
-                    .as_mut()
+                    .as_ref()
                     .ok_or(CutoverError::ReplayInconsistent)?;
                 if state.handle.index() != delta.slot
                     || state.handle.generation() != delta.generation
                 {
                     return Err(CutoverError::ReplayInconsistent);
                 }
-                state.profile = rebind_profile(rebinding, &delta)?;
-                state.class = rebind_class(rebinding, &delta)?;
-                state.route_edge_index = delta.route_edge_index;
-                state.progress_mm = delta.progress_mm;
-                state.carry_um = delta.carry_um;
-                state.speed_mm_s = delta.speed_mm_s;
-                state.status = delta.status;
+                slot.state = Some(next_state);
+            }
+            for (base_zone, next_counter) in waiting_zone_delta_stream(waiting_zones) {
+                let target_zone = rebinding
+                    .waiting_zone(base_zone)
+                    .ok_or(CutoverError::WaitingRevalidationFailed)?;
+                let state = candidate
+                    .waiting_zones
+                    .get_mut(target_zone.index())
+                    .ok_or(CutoverError::WaitingRevalidationFailed)?;
+                if next_counter <= state.next_admission_sequence {
+                    return Err(CutoverError::ReplayInconsistent);
+                }
+                state.next_admission_sequence = next_counter;
             }
             candidate.rebuild_active_order();
-            candidate.refresh_signals();
         }
         JournalRecord::RouteRegistered {
             slot,
@@ -847,7 +904,7 @@ fn apply_record(
             }
         }
         JournalRecord::VehicleSpawned { vehicle, .. } => {
-            let state = vehicle_state_from_delta(rebinding, vehicle)?;
+            let state = vehicle_state_from_delta(candidate, rebinding, vehicle)?;
             let handle = state.handle;
             let route = state.route;
             let slot_index =
@@ -894,7 +951,7 @@ fn apply_record(
             vehicle,
             ..
         } => {
-            let state = vehicle_state_from_delta(rebinding, vehicle)?;
+            let state = vehicle_state_from_delta(candidate, rebinding, vehicle)?;
             let old_handle = VehicleHandle::new(*old_slot, *old_generation);
             let new_handle = state.handle;
             let new_route = state.route;
@@ -980,7 +1037,7 @@ fn apply_record(
         JournalRecord::VehicleParkingUpdated {
             vehicle, parking, ..
         } => {
-            let next_state = vehicle_state_from_delta(rebinding, vehicle)?;
+            let next_state = vehicle_state_from_delta(candidate, rebinding, vehicle)?;
             let handle = next_state.handle;
             let slot_index =
                 usize::try_from(vehicle.slot).map_err(|_| CutoverError::ReplayInconsistent)?;
@@ -1012,7 +1069,7 @@ fn apply_record(
         JournalRecord::VehicleParkingSpawned {
             vehicle, parking, ..
         } => {
-            let state = vehicle_state_from_delta(rebinding, vehicle)?;
+            let state = vehicle_state_from_delta(candidate, rebinding, vehicle)?;
             let handle = state.handle;
             let binding = rebind_parking_delta(candidate, rebinding, handle, *parking)?;
             if !matches!(binding, Some(ParkingBinding::Occupied(_))) {
@@ -1062,6 +1119,7 @@ fn apply_record(
             order_index,
             recyclable,
             generation_after,
+            waiting_release,
             ..
         } => {
             let handle = VehicleHandle::new(*slot, *generation);
@@ -1074,6 +1132,9 @@ fn apply_record(
                 .copied()
                 .ok_or(CutoverError::ReplayInconsistent)?;
             if state.handle != handle {
+                return Err(CutoverError::ReplayInconsistent);
+            }
+            if !waiting_release_matches(candidate, rebinding, state, *waiting_release) {
                 return Err(CutoverError::ReplayInconsistent);
             }
             let order_index =
@@ -1105,6 +1166,9 @@ fn apply_record(
             }
             candidate.rebuild_active_order();
         }
+    }
+    if !candidate.rebuild_waiting_aggregate_from_semantics() {
+        return Err(CutoverError::WaitingRevalidationFailed);
     }
     Ok(())
 }

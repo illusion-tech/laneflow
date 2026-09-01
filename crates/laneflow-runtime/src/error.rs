@@ -123,6 +123,15 @@ pub enum StepError {
     /// arrival observation 缓冲预留失败。
     #[error("parking arrival observation 分配失败")]
     ParkingObservationAllocFailed,
+    /// WaitingZone committed state、membership、queue 或 counter 不闭合。
+    #[error("WaitingZone runtime aggregate 不变量损坏")]
+    WaitingInvariantViolation,
+    /// Waiting claim/decision/transition/event staging scratch 预留失败。
+    #[error("WaitingZone tick scratch 分配失败")]
+    WaitingScratchAllocFailed,
+    /// 某个 zone 的 admission sequence 无法覆盖本拍 successful entries。
+    #[error("WaitingZone admission sequence 已耗尽")]
+    WaitingAdmissionSequenceExhausted,
 }
 
 /// 路线注册或移除失败。
@@ -176,6 +185,9 @@ pub enum RouteError {
     /// 走到机动入口，但剩余边序列对不上任何一条完整机动路径。
     #[error("路线对不上完整机动路径")]
     ManeuverMismatch,
+    /// WaitingZone entry/release 的本地存储跨度不能证明为有限 `u32` 毫米。
+    #[error("WaitingZone 本地存储跨度超出有限 u32 毫米范围")]
+    WaitingStorageSpanUnbounded,
 }
 
 /// `spawn_vehicle` 失败。
@@ -205,6 +217,12 @@ pub enum SpawnError {
     /// 与已提交车辆车身重叠。
     #[error("spawn 与已提交车辆重叠")]
     Overlap,
+    /// 车型长度超过某个尚未清除 Waiting occurrence 的本地存储跨度。
+    #[error("车辆长度超过 WaitingZone 本地存储跨度")]
+    WaitingVehicleTooLong,
+    /// 调用方试图在无法重建既有 Gate/Waiting authority 的 maneuver interior 生成车辆。
+    #[error("不能在 stateful maneuver interior 创建无 Waiting authority 的车辆")]
+    WaitingStatefulManeuverInterior,
     /// #284 能力不存在，候选 Active 车辆尚未用车尾清除最后冲突通行段。
     #[error("冲突运行时能力尚不可用: {0:?}")]
     ConflictRuntimeUnavailable(ConflictRuntimeUnavailable),
@@ -228,6 +246,9 @@ pub enum ReplaceError {
     /// 旧车仍占用停车位。
     #[error("Completed 车辆仍占用停车位")]
     ParkingOccupied,
+    /// Completed 车辆仍携带 maneuver traversal 或 Waiting membership。
+    #[error("Completed 车辆携带悬空 Waiting authority")]
+    WaitingInvariantViolation,
     /// 车辆 profile 序号越界。
     #[error("未知车辆 profile")]
     UnknownProfile,
@@ -252,6 +273,12 @@ pub enum ReplaceError {
     /// 入口占用/重叠；可原样重放同一 `VehicleSpawnInput`。
     #[error("入口占用阻塞")]
     Blocked(VehicleReplaceBlock),
+    /// 车型长度超过某个尚未清除 Waiting occurrence 的本地存储跨度。
+    #[error("车辆长度超过 WaitingZone 本地存储跨度")]
+    WaitingVehicleTooLong,
+    /// 新 Active 候选落在无法重建既有 Gate/Waiting authority 的 maneuver interior。
+    #[error("不能在 stateful maneuver interior 创建无 Waiting authority 的车辆")]
+    WaitingStatefulManeuverInterior,
     /// #284 能力不存在，新 Active 车辆尚未用车尾清除最后冲突通行段。
     #[error("冲突运行时能力尚不可用: {0:?}")]
     ConflictRuntimeUnavailable(ConflictRuntimeUnavailable),
@@ -300,6 +327,12 @@ pub enum ParkingError {
     EntryNotForwardReachable,
     #[error("路线后缀准入拒绝")]
     AccessDenied,
+    #[error("车辆长度超过 WaitingZone 本地存储跨度")]
+    WaitingVehicleTooLong,
+    #[error("不能在 stateful maneuver interior 创建无 Waiting authority 的车辆")]
+    WaitingStatefulManeuverInterior,
+    #[error("停车 entry 与 Waiting traversal 区间冲突")]
+    WaitingTraversalConflict,
     #[error("车辆没有 exact Reserved binding")]
     NotReserved,
     #[error("车辆尚未精确到达停车入口")]

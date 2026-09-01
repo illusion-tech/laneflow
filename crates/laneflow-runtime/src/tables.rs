@@ -42,6 +42,7 @@ pub(crate) struct WaitingOccurrence {
     pub maneuver_index: u32,
     pub entry_hop: u32,
     pub release_hop: u32,
+    pub storage_length_mm: u32,
 }
 
 /// 路线 occurrence 坐标；同一 `LaneEdgeOrdinal` 在循环路线中的不同下标不会折叠。
@@ -410,7 +411,14 @@ pub(crate) fn compile_route(
         }
     }
 
-    let waiting = compile_waiting(traffic, &hop_gate, &maneuvers)?;
+    let waiting = compile_waiting(
+        traffic,
+        &hop_gate,
+        &maneuvers,
+        &occurrence_segments,
+        &occurrence_offsets,
+        &segment_totals,
+    )?;
     let mut compiled_edges = try_route_vec(edges.len())?;
     compiled_edges.extend_from_slice(edges);
 
@@ -466,6 +474,9 @@ fn compile_waiting(
     traffic: &SharedTrafficNetwork,
     hop_gate: &[Option<ManeuverGateOrdinal>],
     maneuvers: &[ManeuverOccurrence],
+    occurrence_segments: &[u32],
+    occurrence_offsets: &[u32],
+    segment_totals: &[u32],
 ) -> Result<Vec<WaitingOccurrence>, RouteError> {
     let network = traffic.maneuvers();
     let relations = traffic.relations();
@@ -510,11 +521,31 @@ fn compile_waiting(
             {
                 return Err(RouteError::ManeuverMismatch);
             }
+            let storage_start = entry_index
+                .checked_add(1)
+                .ok_or(RouteError::WaitingStorageSpanUnbounded)?;
+            let storage_end = release_index
+                .checked_add(1)
+                .ok_or(RouteError::WaitingStorageSpanUnbounded)?;
+            let storage_length_mm = match distance_to_occurrence_start(
+                occurrence_segments,
+                occurrence_offsets,
+                segment_totals,
+                storage_start,
+                0,
+                storage_end,
+            ) {
+                Some(BoundedDistance::Finite(value)) => value,
+                Some(BoundedDistance::BeyondFinite) | None => {
+                    return Err(RouteError::WaitingStorageSpanUnbounded);
+                }
+            };
             waiting.push(WaitingOccurrence {
                 zone: *zone,
                 maneuver_index: u32::try_from(maneuver_index).expect("occurrence index fits u32"),
                 entry_hop,
                 release_hop,
+                storage_length_mm,
             });
         }
     }

@@ -21,6 +21,7 @@ mod tables;
 mod tick;
 mod units;
 mod vehicle;
+mod waiting;
 mod world;
 
 pub use config::{StepOutcome, TickInput, WorldConfig};
@@ -62,9 +63,10 @@ pub use routing::{
     RoutingAdmissionSession, bind_observation_set,
 };
 pub use snapshot::{
-    CapturedParkingBinding, CapturedParkingTarget, CapturedRoute, CapturedSnapshot,
-    CapturedVehicle, CapturedVirtualParkingEntry, RUNTIME_STATE_VERSION, SNAPSHOT_FORMAT_VERSION,
-    SnapshotCaptureError, encode_lfrs,
+    CapturedManeuverTraversal, CapturedManeuverTraversalPhase, CapturedParkingBinding,
+    CapturedParkingTarget, CapturedRoute, CapturedSnapshot, CapturedVehicle,
+    CapturedVirtualParkingEntry, CapturedWaitingMembership, CapturedWaitingZoneState,
+    RUNTIME_STATE_VERSION, SNAPSHOT_FORMAT_VERSION, SnapshotCaptureError, encode_lfrs,
 };
 pub use snapshot_digest::{
     RUNTIME_STATE_DIGEST_DOMAIN, RUNTIME_STATE_DIGEST_VERSION, SnapshotDigestError,
@@ -76,6 +78,12 @@ pub use snapshot_restore::{
 };
 pub use source::{CommittedNetworkSource, InvalidPublishedLfcaReference, PublishedLfcaReference};
 pub use vehicle::{VehicleReplaceBlock, VehicleReplaceRecord, VehicleState, VehicleStatus};
+pub use waiting::{
+    ManeuverTraversalPhase, ManeuverTraversalState, WaitingDecision, WaitingDecisionOutcome,
+    WaitingMembership, WaitingMembershipReleaseRecord, WaitingNoGrantReason,
+    WaitingProjectionReason, WaitingRouteAnchor, WaitingTransitionEvent, WaitingTransitionKind,
+    WaitingZoneMember, WaitingZoneSnapshot,
+};
 pub use world::{TrafficWorld, WorldGeneration};
 
 #[cfg(test)]

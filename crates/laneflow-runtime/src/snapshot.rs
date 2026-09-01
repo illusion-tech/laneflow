@@ -7,7 +7,7 @@
 //! `WorldConfig`（含 edge/conflict 两项路线 occurrence 容量）、绑定集与逻辑状态
 //! 映射到 size-prefixed `LFRS`；不回读活动 world，也不推进游标。
 
-use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v3 as wire;
+use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v4 as wire;
 use laneflow_runtime_snapshot_wire::runtime;
 use laneflow_static_contract::StableId128 as ContractStableId128;
 use laneflow_static_network::CanonicalNetworkOrigin;
@@ -18,9 +18,9 @@ use crate::{
 };
 
 /// LFRS 容器格式版本（快照合同 §4）。
-pub const SNAPSHOT_FORMAT_VERSION: u32 = 3;
+pub const SNAPSHOT_FORMAT_VERSION: u32 = 4;
 /// Runtime 逻辑状态形状轴（快照合同 §2 版本轴分离）。
-pub const RUNTIME_STATE_VERSION: u16 = 3;
+pub const RUNTIME_STATE_VERSION: u16 = 4;
 
 /// 快照局部标识的起点（1..=N 分配，0 保留为非法）。
 const FIRST_SNAPSHOT_ID: u64 = 1;
@@ -143,6 +143,8 @@ pub struct CapturedSnapshot {
     /// live 顺序：`snapshot_vehicle_id` 的规范排序序列（实际更新顺序，
     /// 不是局部 ID 的自然序；恢复侧核对其为活跃车辆的精确排列）。
     pub(crate) live_order: Vec<u64>,
+    /// 有 member 或历史 counter 的 WaitingZone 语义状态。
+    pub(crate) waiting_zones: Vec<CapturedWaitingZoneState>,
 }
 
 /// 快照路线：局部 ID + 有序边稳定标识序列（允许重复边，ADR 0029 §6）。
@@ -177,6 +179,41 @@ pub struct CapturedVehicle {
     pub(crate) class: ContractStableId128,
     /// tagged parking binding；`None` 表示未绑定。
     pub(crate) parking: Option<CapturedParkingBinding>,
+    /// stateful maneuver traversal。
+    pub(crate) maneuver_traversal: Option<CapturedManeuverTraversal>,
+    /// WaitingZone semantic membership。
+    pub(crate) waiting_membership: Option<CapturedWaitingMembership>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CapturedManeuverTraversalPhase {
+    PreGate,
+    Committed,
+    Waiting,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CapturedManeuverTraversal {
+    pub(crate) maneuver_occurrence_index: u32,
+    pub(crate) maneuver_path: ContractStableId128,
+    pub(crate) phase: CapturedManeuverTraversalPhase,
+    pub(crate) phase_gate: ContractStableId128,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CapturedWaitingMembership {
+    pub(crate) waiting_zone: ContractStableId128,
+    pub(crate) maneuver_occurrence_index: u32,
+    pub(crate) entry_gate: ContractStableId128,
+    pub(crate) release_gate: ContractStableId128,
+    pub(crate) admission_sequence: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CapturedWaitingZoneState {
+    pub(crate) waiting_zone: ContractStableId128,
+    pub(crate) occupancy: u32,
+    pub(crate) next_admission_sequence: u64,
 }
 
 /// 快照中的 tagged parking target stable identity。
@@ -280,9 +317,85 @@ impl CapturedVehicle {
     pub const fn parking_binding(&self) -> Option<CapturedParkingBinding> {
         self.parking
     }
+
+    #[must_use]
+    pub const fn maneuver_traversal(&self) -> Option<CapturedManeuverTraversal> {
+        self.maneuver_traversal
+    }
+
+    #[must_use]
+    pub const fn waiting_membership(&self) -> Option<CapturedWaitingMembership> {
+        self.waiting_membership
+    }
 }
 
-/// 把不可变快照点编码为 size-prefixed `LFRS` v3。
+impl CapturedManeuverTraversal {
+    #[must_use]
+    pub const fn maneuver_occurrence_index(self) -> u32 {
+        self.maneuver_occurrence_index
+    }
+
+    #[must_use]
+    pub const fn maneuver_path(self) -> ContractStableId128 {
+        self.maneuver_path
+    }
+
+    #[must_use]
+    pub const fn phase(self) -> CapturedManeuverTraversalPhase {
+        self.phase
+    }
+
+    #[must_use]
+    pub const fn phase_gate(self) -> ContractStableId128 {
+        self.phase_gate
+    }
+}
+
+impl CapturedWaitingMembership {
+    #[must_use]
+    pub const fn waiting_zone(self) -> ContractStableId128 {
+        self.waiting_zone
+    }
+
+    #[must_use]
+    pub const fn maneuver_occurrence_index(self) -> u32 {
+        self.maneuver_occurrence_index
+    }
+
+    #[must_use]
+    pub const fn entry_gate(self) -> ContractStableId128 {
+        self.entry_gate
+    }
+
+    #[must_use]
+    pub const fn release_gate(self) -> ContractStableId128 {
+        self.release_gate
+    }
+
+    #[must_use]
+    pub const fn admission_sequence(self) -> u64 {
+        self.admission_sequence
+    }
+}
+
+impl CapturedWaitingZoneState {
+    #[must_use]
+    pub const fn waiting_zone(self) -> ContractStableId128 {
+        self.waiting_zone
+    }
+
+    #[must_use]
+    pub const fn occupancy(self) -> u32 {
+        self.occupancy
+    }
+
+    #[must_use]
+    pub const fn next_admission_sequence(self) -> u64 {
+        self.next_admission_sequence
+    }
+}
+
+/// 把不可变快照点编码为 size-prefixed `LFRS` v4。
 ///
 /// 捕获与编码分离：调用方可先在固定步进安全边界调用
 /// [`TrafficWorld::capture_snapshot`]，再把本函数放到后台线程。编码只映射已捕获
@@ -388,6 +501,44 @@ pub fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
                     },
                 )
             });
+            let maneuver_traversal = vehicle.maneuver_traversal.map(|traversal| {
+                let maneuver_path = wire::StableId128::new(traversal.maneuver_path.as_bytes());
+                let phase_gate = wire::StableId128::new(traversal.phase_gate.as_bytes());
+                wire::ManeuverTraversalBinding::create(
+                    &mut fbb,
+                    &wire::ManeuverTraversalBindingArgs {
+                        maneuver_occurrence_index: traversal.maneuver_occurrence_index,
+                        maneuver_path: Some(&maneuver_path),
+                        phase: match traversal.phase {
+                            CapturedManeuverTraversalPhase::PreGate => {
+                                wire::ManeuverTraversalPhaseKind::PreGate
+                            }
+                            CapturedManeuverTraversalPhase::Committed => {
+                                wire::ManeuverTraversalPhaseKind::Committed
+                            }
+                            CapturedManeuverTraversalPhase::Waiting => {
+                                wire::ManeuverTraversalPhaseKind::Waiting
+                            }
+                        },
+                        phase_gate: Some(&phase_gate),
+                    },
+                )
+            });
+            let waiting_membership = vehicle.waiting_membership.map(|membership| {
+                let waiting_zone = wire::StableId128::new(membership.waiting_zone.as_bytes());
+                let entry_gate = wire::StableId128::new(membership.entry_gate.as_bytes());
+                let release_gate = wire::StableId128::new(membership.release_gate.as_bytes());
+                wire::WaitingMembershipBinding::create(
+                    &mut fbb,
+                    &wire::WaitingMembershipBindingArgs {
+                        waiting_zone: Some(&waiting_zone),
+                        maneuver_occurrence_index: membership.maneuver_occurrence_index,
+                        entry_gate: Some(&entry_gate),
+                        release_gate: Some(&release_gate),
+                        admission_sequence: membership.admission_sequence,
+                    },
+                )
+            });
             wire::SnapshotVehicle::create(
                 &mut fbb,
                 &wire::SnapshotVehicleArgs {
@@ -401,12 +552,30 @@ pub fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
                     profile: Some(&profile),
                     class: Some(&class),
                     parking,
+                    maneuver_traversal,
+                    waiting_membership,
                 },
             )
         })
         .collect::<Vec<_>>();
     let vehicles = fbb.create_vector(&vehicle_offsets);
     let live_order = fbb.create_vector(&snapshot.live_order);
+    let waiting_zone_offsets = snapshot
+        .waiting_zones
+        .iter()
+        .map(|state| {
+            let waiting_zone = wire::StableId128::new(state.waiting_zone.as_bytes());
+            wire::WaitingZoneState::create(
+                &mut fbb,
+                &wire::WaitingZoneStateArgs {
+                    waiting_zone: Some(&waiting_zone),
+                    occupancy: state.occupancy,
+                    next_admission_sequence: state.next_admission_sequence,
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    let waiting_zones = fbb.create_vector(&waiting_zone_offsets);
 
     let (source_kind, source_published) = match &snapshot.source {
         CommittedNetworkSource::Published { reference } => {
@@ -460,6 +629,7 @@ pub fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
             routes: Some(routes),
             vehicles: Some(vehicles),
             live_order: Some(live_order),
+            waiting_zones: Some(waiting_zones),
         },
     );
     wire::finish_size_prefixed_runtime_snapshot_buffer(&mut fbb, root);
@@ -539,6 +709,11 @@ impl CapturedSnapshot {
     #[must_use]
     pub fn live_order(&self) -> &[u64] {
         &self.live_order
+    }
+
+    #[must_use]
+    pub fn waiting_zones(&self) -> &[CapturedWaitingZoneState] {
+        &self.waiting_zones
     }
 }
 
@@ -666,6 +841,84 @@ impl TrafficWorld {
                     },
                 }
             });
+            let maneuver_traversal = state.maneuver_traversal.map(|traversal| {
+                let compiled = self
+                    .compiled_route(state.route)
+                    .expect("live traversal route exists");
+                let maneuver = compiled
+                    .maneuvers
+                    .get(traversal.maneuver_occurrence_index as usize)
+                    .expect("live traversal occurrence exists");
+                let (phase, phase_hop) = match traversal.phase {
+                    crate::ManeuverTraversalPhase::PreGate { next_gate_hop } => {
+                        (CapturedManeuverTraversalPhase::PreGate, next_gate_hop)
+                    }
+                    crate::ManeuverTraversalPhase::Committed {
+                        last_crossed_gate_hop,
+                    } => (
+                        CapturedManeuverTraversalPhase::Committed,
+                        last_crossed_gate_hop,
+                    ),
+                    crate::ManeuverTraversalPhase::Waiting { release_gate_hop } => {
+                        (CapturedManeuverTraversalPhase::Waiting, release_gate_hop)
+                    }
+                };
+                let gate = compiled
+                    .hop_gate
+                    .get(phase_hop as usize)
+                    .copied()
+                    .flatten()
+                    .expect("traversal phase hop resolves Gate");
+                CapturedManeuverTraversal {
+                    maneuver_occurrence_index: traversal.maneuver_occurrence_index,
+                    maneuver_path: *identity
+                        .stable_id(maneuver.path)
+                        .expect("maneuver path resolves stable id")
+                        .as_untyped(),
+                    phase,
+                    phase_gate: *identity
+                        .stable_id(gate)
+                        .expect("maneuver Gate resolves stable id")
+                        .as_untyped(),
+                }
+            });
+            let waiting_membership = state.waiting_membership.map(|membership| {
+                let traversal = state
+                    .maneuver_traversal
+                    .expect("Waiting membership has traversal");
+                let compiled = self
+                    .compiled_route(state.route)
+                    .expect("live membership route exists");
+                let occurrence = compiled
+                    .waiting
+                    .iter()
+                    .find(|occurrence| {
+                        occurrence.maneuver_index == traversal.maneuver_occurrence_index
+                            && occurrence.zone == membership.waiting_zone
+                            && occurrence.release_hop == membership.release_hop
+                    })
+                    .expect("Waiting membership resolves occurrence");
+                let entry_gate = compiled.hop_gate[occurrence.entry_hop as usize]
+                    .expect("Waiting entry hop resolves Gate");
+                let release_gate = compiled.hop_gate[occurrence.release_hop as usize]
+                    .expect("Waiting release hop resolves Gate");
+                CapturedWaitingMembership {
+                    waiting_zone: *identity
+                        .stable_id(membership.waiting_zone)
+                        .expect("WaitingZone resolves stable id")
+                        .as_untyped(),
+                    maneuver_occurrence_index: traversal.maneuver_occurrence_index,
+                    entry_gate: *identity
+                        .stable_id(entry_gate)
+                        .expect("Waiting entry Gate resolves stable id")
+                        .as_untyped(),
+                    release_gate: *identity
+                        .stable_id(release_gate)
+                        .expect("Waiting release Gate resolves stable id")
+                        .as_untyped(),
+                    admission_sequence: membership.admission_sequence,
+                }
+            });
             vehicles.push(CapturedVehicle {
                 snapshot_vehicle_id,
                 snapshot_route_id: route_id_for(state.route.generation(), state.route.index()),
@@ -683,6 +936,8 @@ impl TrafficWorld {
                     .expect("live class ordinal resolves to stable id")
                     .as_untyped(),
                 parking,
+                maneuver_traversal,
+                waiting_membership,
             });
         }
         let mut vehicle_id_by_handle: std::collections::HashMap<(u32, u32), u64> =
@@ -701,6 +956,30 @@ impl TrafficWorld {
             );
         }
 
+        let waiting_state_count = self
+            .waiting_zones
+            .iter()
+            .filter(|state| state.occupancy != 0 || state.next_admission_sequence != 0)
+            .count();
+        let mut waiting_zones = Vec::new();
+        capture_try_reserve_exact(&mut waiting_zones, waiting_state_count)?;
+        for (index, state) in self.waiting_zones.iter().copied().enumerate() {
+            if state.occupancy == 0 && state.next_admission_sequence == 0 {
+                continue;
+            }
+            let zone = laneflow_static_contract::WaitingZoneOrdinal::from_raw(
+                u32::try_from(index).expect("WaitingZone index fits u32"),
+            );
+            waiting_zones.push(CapturedWaitingZoneState {
+                waiting_zone: *identity
+                    .stable_id(zone)
+                    .expect("WaitingZone resolves stable id")
+                    .as_untyped(),
+                occupancy: state.occupancy,
+                next_admission_sequence: state.next_admission_sequence,
+            });
+        }
+
         Ok(CapturedSnapshot {
             world_id: self.world_id,
             tick: self.tick_index,
@@ -716,6 +995,7 @@ impl TrafficWorld {
             routes,
             vehicles,
             live_order,
+            waiting_zones,
         })
     }
 }
