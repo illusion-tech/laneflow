@@ -1,484 +1,289 @@
 # ADR 0019：WaitingZone、ConflictZone 与车辆级通行权 authority
 
-**状态**: Accepted（#235 G1）<br>
-**日期**: 2026-08-31<br>
-**适用范围**: LaneFlow 的多阶段 ManeuverGate、WaitingZone、ConflictZone、jurisdiction/right-of-way policy、车辆级 conflict grant 与 Traffic Runtime safety 集成<br>
+**状态**: Accepted（架构决策；#282 详细设计仍为 Review）<br>
+**日期**: 2026-09-01<br>
+**适用范围**: 多阶段 ManeuverGate、WaitingZone、ConflictZone、车辆级通行权、
+Traffic Runtime 安全组合、持久化与引擎边界<br>
+
 **关联文档**:
 
-- 上游决策:
-  - `0003-runtime-tick-and-determinism.md`
-  - `0005-core-identity-and-handle-model.md`
-  - `0006-vehicle-following-control-and-safety.md`
-  - `0007-traffic-data-crate-and-loader-boundary.md`
-  - `0008-pre-1.0-data-format-version-policy.md`
-  - `0009-signal-indication-gate-and-policy-separation.md`
-  - `0012-core-numeric-authority-and-presentation-precision.md`
-  - `0013-engine-neutral-spatial-geometry-and-length-authority.md`
-  - `0015-bounded-f32-canonical-spatial-frames.md`
-  - `0017-static-road-junction-maneuver-and-gate-identity.md`
-  - `0018-multimodal-cross-section-and-access-overlay.md`
-- 详细设计:
-  - `../design/waiting-zone-conflict-right-of-way.md`
-  - `../design/traffic-runtime-conflict-occurrence.md`
-  - `../design/road-junction-model.md`
-  - `../design/signal-system.md`
-  - `../design/vehicle-following.md`
-  - `../design/numeric-representation.md`
-  - `../design/spatial-geometry.md`
-- GitHub:
-  - #227
-  - #228
-  - #229
-  - #234
-  - #235
-  - #264
-  - #283
-  - #284
+- `../design/traffic-runtime-waiting-zone.md`
+- `../design/waiting-zone-conflict-right-of-way.md`
+- `../design/traffic-runtime-conflict-occurrence.md`
+- `../design/traffic-runtime-shared-consumption.md`
+- `../design/traffic-runtime-integer-geometry.md`
+- `../design/traffic-runtime-snapshot.md`
+- `../design/traffic-runtime-revision-cutover.md`
+- `../design/parking-system.md`
+- `0017-static-road-junction-maneuver-and-gate-identity.md`
+- `0018-multimodal-cross-section-and-access-overlay.md`
+- `0025-checked-canonical-network-and-shared-static-network.md`
+- `0028-integer-millimeter-traffic-geometry.md`
+- GitHub: #235、#281、#282、#283、#284、#541、#559
 
 ## 背景
 
-ADR 0009 已把 signal indication、Gate permission、法规解释、conflict arbitration 与
-Core safety 分层；ADR 0017 又冻结了
-`Junction -> Movement -> ManeuverPath`、带 `transitionIndex` 的一等
-`ManeuverGate`，以及 Route registration-time occurrence compilation。当前
-production 仍只接受每条 ManeuverPath 的 entry Gate（`transitionIndex = 0`），
-没有待行区、多 Gate 路径内状态、冲突区域或车辆级通行权裁决。
+中国路口中的左转待转区、多阶段信号、无保护转向与条件通行需要同时表达：
 
-中国路口中的左转待转区、多阶段信号、无保护转向、条件通行与复杂让行需要组合
-上述能力。若把规则写进 SignalController、Adapter、二维几何相交推导或
-JunctionGroup 级大 solver，会破坏既有 authority、确定性与安全边界。
+- 同一 ManeuverPath 上 Gate 之间可排队的有限物理空间；
+- 多条 ParticipantStream 在 ConflictZone 内的互斥或有条件兼容；
+- 车辆级准入、通行权、车尾清除与下游净空；
+- 固定步进下可重放、可持久化且失败原子的状态转换。
 
-ADR 0018 还冻结了 `AccessRule.regulation` 的
-`(jurisdiction, version, source?)` provenance 与“allow 不解除其他约束”原则。
-Traffic v0.9 已将 ParticipantClass、CrossSection 与 AccessRule 静态模型生产化：
-VehicleProfile 必填 participant class，AccessRule 在 normalization 期消解为
-edge/path `AccessCell`，static deny 在 `(ParticipantClass, Route)` 绑定期原子拒绝。
-新的 right-of-way policy 必须复用该审计口径和 resolved cells，不能形成第二套
-互不相容的法规身份或准入求值器。
+这些职责不能由 SignalController、Adapter、Spatial 几何相交或一个设施级大 solver
+隐式代替。Signal 只提供许可输入，Spatial 只提供规范几何，最终车辆运动仍必须服从
+Traffic Runtime 的 leader、minimum gap、no-overlap、Gate、路线终点和停车约束。
+
+当前生产基线已经统一为：
+
+- 受检 LFCA 4 构造唯一 `SharedNetworkRevision`；
+- `TrafficWorld` 消费该共享根并拥有唯一动态交通 authority；
+- 已提交一维运动使用整数毫米、`mm/s` 与 `carry_um`；
+- `ParkingBinding`、停驻/离场生命周期已经存在；
+- `ConflictPassageOccurrence` 与 #284 前的
+  `ConflictRuntimeUnavailable` 全车身能力保护已经存在。
+
+本 ADR 冻结长期 ownership；#282 的实现细节仍须由其 Review 状态设计明确接受后才可
+进入实现。
 
 ## 决策
 
-### 1. ManeuverPath 与 Route authority 不变，多 Gate 按 occurrence 预编译
+### 1. 静态 identity 与动态 authority 分层
 
-`ManeuverPath` 继续拥有规范 lane-level traversal；`Route` 继续拥有车辆实际
-edge occurrence。一个 `ManeuverGate` 精确覆盖其
-`(maneuverPathId, transitionIndex)`，同一路径按 `transitionIndex` 严格递增排序，
-同一 transition 最多一个 Gate。Gate 不拥有路径区间、车辆队列或 conflict solver。
+`ManeuverPath` 继续拥有规范 lane-level traversal，`Route` 继续拥有车辆实际 edge
+occurrence。Gate、WaitingZone、ConflictZone 与 ParticipantStream identity 由 LFCA 4
+及其 `SharedNetworkRevision` 提供，运行时不得从 external string、文件系统或画面
+几何重新推导。
 
-Route 注册时把每个 `ManeuverOccurrence` 展开为有序 `GateOccurrence`，每项保存
-route transition index、Gate/StopLine handle 及其后续 WaitingZone/ConflictZone
-覆盖范围。steady tick 不匹配 external ID、不重新扫描 ManeuverPath，也不通过几何
-寻找 Gate。
+`WaitingZone` 是同一 ManeuverPath 上严格有序 entry/release Gate 之间的一等静态
+实体。它声明非零 `maxOccupancy`，但该值只是一项运营容量上限；实际可存储性仍由
+zone 局部长度、车辆实际长度、minimum gap 与 no-overlap 共同决定。
 
-### 2. WaitingZone 是 Gate 有界的一等静态实体，运行时队列由 Core 拥有
+`ConflictZone` 与 `ParticipantStream` 描述冲突覆盖和策略输入。路线注册将稳定
+路线输入编译为 route-local `ConflictPassageOccurrence` 与 conflict Gate ranges；
+`route_conflict_occurrence_capacity` 是这类派生项的独立显式容量。
 
-`WaitingZone` 引用同一 ManeuverPath 上严格有序的 `entryGateId` 与
-`releaseGateId`，两者之间的 path interval 是其规范拓扑范围；parent Junction 从
-ManeuverPath 唯一派生，不重复存储可漂移的 Junction 引用。
+所有动态 membership、claim、grant、reservation、counter、queue 与车辆 phase 都属于
+`TrafficWorld`。Adapter、Spatial、Scenario 和调用方只能读取已提交观察，不能修改这些
+状态。
 
-WaitingZone 声明非零 `maxOccupancy`，它是运营容量上限，不替代车辆长度、
-minimum gap 与 no-overlap。进入条件同时要求：
+### 2. #282 只拥有 WaitingZone 本地状态与 claim
 
-1. entry Gate 的 signal/regulatory permission 不为 deny；
-2. 当前 occupancy 小于 `maxOccupancy`；
-3. zone 内有足够物理存储，不会越过 release Gate 或与队尾重叠；
-4. Core 更严格的 leader、safe-speed、RouteEnd 等约束允许运动。
+#282 拥有：
 
-车辆跨 entry Gate 时，Core 从 WaitingZone 全局 counter 分配单调 admission
-sequence 并增加 occupancy；同 tick 多个 successful crossings 必须按 post-step
-physical queue front-to-back 顺序统一分配，不按 reducer、vehicle update 或 raw
-handle 顺序。未 crossing 的 staged claim 不消费 sequence，counter overflow 使 step
-原子失败。跨 release Gate 时退出 WaitingZone。队列顺序由 admission sequence
-冻结，实际纵向位置继续由 Route progress、车辆长度、minimum gap 和 no-overlap
-决定，不在 data 中预存等距 parking-like slot。
+- `TrafficWorld` 内 WaitingZone 本地 membership；
+- `PreGate / Committed / Waiting` traversal phase；
+- zone-local、tick-local `WaitingAdmissionClaim`；
+- `maxOccupancy` 与实际车辆长度/minimum gap/no-overlap 形成的本地物理存储判定；
+- occupancy、单调 admission counter 与稠密 intrusive queue；
+- lifecycle、snapshot、restore、digest、journal 与 cutover 中的 Waiting 状态；
+- 只读 decision、member batch 与 transition event。
 
-WaitingZone 的静态 identity/范围归 Traffic，共享静态根之外的动态状态归 Traffic
-Runtime；可选 3D region/marking/pose 归 Spatial。缺少 Spatial geometry 不改变
-Traffic 行为，Adapter 不从画面反推 zone。
+`WaitingAdmissionClaim` 只证明当前 zone 的本地 admission/storage，不声明 release
+Gate 后的道路净空，也不声明任何 Conflict resource。
 
-### 3. ConflictZone 与 ParticipantStream 构成独立 conflict domain
+每辆车每 tick 只为 route order 中最早一个尚未持有的 Waiting occurrence 请求新
+claim。即使取得后 unconstrained travel 能到达更晚 Waiting entry，本 tick 也必须停在
+更晚 entry boundary 前；后者下一 tick 再求值。#282 不形成同车多 zone 的原子 claim
+集合。
 
-共享静态根的 immutable `SharedConflictNetwork` 包含一等 `ConflictZone` 与
-`ParticipantStream`：
+### 3. #284 拥有通用组合仲裁
 
-- `ConflictZone` 归属于一个 Junction；参与 stream 集合只从
-  `ParticipantStream` 的 conflict passage 引用派生，不进入 LFCA zone row；共享根
-  可以保存派生反向 CSR；
-- v1 road-vehicle `ParticipantStream` 引用一个 ManeuverPath 与按该 path 规范进度
-  定义的 entry/exit anchors；admission ManeuverGate 从 passage entry 之前最近的
-  Gate 唯一派生，不在 wire 重复保存；
-- 同一 stream 可依次穿过多个 ConflictZone；Route 注册时按
-  [`traffic-runtime-conflict-occurrence.md`](../design/traffic-runtime-conflict-occurrence.md)
-  编译 owner-local `ConflictPassageOccurrence`；
-- 可选 `ConflictZoneRegion` 与 Traffic entity 同在 LFCA 和同一
-  `SharedNetworkRevision`；区域只服务验证、调试和表现；
-- pedestrian/cyclist crossing 的非 ManeuverPath traversal 由 #236 或后续独立
-  G1 扩展，不在本 ADR 伪装成 LaneEdge/ManeuverPath。
+#284 独占以下职责：
 
-PathAnchor 的 source/LFCA endpoint 使用精确结构规则；路线位置按
-[`traffic-runtime-conflict-occurrence.md`](../design/traffic-runtime-conflict-occurrence.md)
-映射为整数毫米和现行微米余数。#284 的 front enter、tail clear、
-distance-to-anchor、one-shot event 与 downstream proof 必须使用同一组整数 inclusive
-predicate；不得恢复米制 tolerance 哨兵，也不得与普通 edge boundary 或 physical gap
-混为一个 owner。
+- 通用 downstream-clearance claim；
+- `ConflictArbiter`、candidate、grant 与 reservation；
+- Waiting、Conflict 与 downstream 资源的组合 ledger；
+- 跨 WaitingZone 的原子取得、失败回滚、未提交 bundle 选择与 prospective cycle
+  prevention；
+- 正式冲突能力接管后的 vehicle-level right-of-way 与 tail-clear 生命周期。
 
-Traffic 中显式声明的 zone-stream 关系是行为 authority。Spatial 拥有 canonical
-3D geometry、pose 与 authoring validation；二维投影相交、mesh overlap 或
-Adapter collider 只能提出 authoring 候选，不能自动创建或删除 conflict 语义。
+#284 可以消费 #282 已提交的 Waiting state，也可以扩展资源 outcome，但不得把
+Waiting occupancy、admission counter 或 queue mutation authority 移出
+`TrafficWorld`。在 #284 交付前，#282 不承诺跨 zone 活性或完整 keep-clear。
 
-### 4. 最终车辆级通行权由 Core ConflictArbiter 决定
+[`waiting-zone-conflict-right-of-way.md`](../design/waiting-zone-conflict-right-of-way.md)
+§6 保存 #235 已接受、#284 直接消费的 current-compatible 详细合同：policy
+normalization、multi-subject coverage priority、directed lower-bound ETA、top-two distinct
+owner frontier、gap acceptance、mandatory downstream-clearance、single-writer 组合 ledger、
+grant/reservation/Clearing、first-error、持久化与验证矩阵。ownership 重划没有重新打开
+这些选择；如果未来不保留任一项，#284 必须显式返回 G1。
 
-SignalController 只产生 indication。每个 `[T, T + D)` step 的 policy 与
-ConflictArbiter 使用 tick-start committed signal snapshot(T)；预先计算的
-snapshot(T + D) 只在 successful step 末尾提交给下一 tick。版本化 Gate compliance
-policy 把 indication、车辆类别、标志标线事实与既有 traversal state 解释为
-`deny / protected candidate / permissive candidate / uncontrolled candidate`。
-AccessRule、时变法规等 regulatory overlay 只能追加 deny。
+### 4. Waiting membership、phase 与 Parking 正交
 
-Core `ConflictArbiter` 消费候选、yield/priority relation、gap-acceptance profile、
-现有 zone occupancy/reservation 与 tick-local candidate set，按稳定总序产生
-vehicle-specific `ConflictGrant`。执行顺序固定为：
+车辆实际跨过 entry Gate 后才取得 Waiting membership；仍在 zone 内运动时 phase 为
+`Committed`。只有 member 到达 release Gate 且最终最严格约束归因为 release Gate
+时才进入 `Waiting`。leader jam、低速或 `speed_mm_s == 0` 本身不能创建 Waiting
+phase。
 
-```text
-signal snapshot
-  -> jurisdiction/compliance interpretation
-  -> AccessRule / other regulatory deny
-  -> right-of-way relation
-  -> gap acceptance
-  -> downstream-clearance guard
-  -> ConflictGrant / reservation
-  -> longitudinal stop constraints
-  -> leader + safe-speed + no-overlap
-  -> permission-aware traversal hard guard
-```
+release Gate 与 leader/minimum-gap 得到相同 `finalTravelMm` 时，release Gate
+attribution 胜出；该 tie 只决定 phase、事件和快照归因，不放宽运动约束。
 
-protected 只表示无需向配置的相交 approach 让行，不表示可以进入仍被占用的 zone；
-任何 allow/grant 都不能覆盖 leader、safe-speed、RouteEnd、minimum-gap 或
-no-overlap。
+Waiting membership 与 `ParkingBinding` 是正交状态轴。`Active + Reserved` 可以继续
+携带 Waiting membership；预约停车不得释放队列状态。实际选择的 parking entry 若按
+精确 route occurrence/hop 落入 Waiting occurrence 的
+`[waitingEntryBoundary, waitingReleaseBoundary]`，或 exact arrival 后仍会保留
+`ManeuverTraversalState`，则 reserve/rebind、restore 与 same/cross-revision cutover 必须
+失败关闭。entry 正好位于 Waiting entry boundary 时虽未取得 membership，仍持有
+`PreGate`，不能停车。真正进入 Parked、完成、
+completed replacement、despawn、路线替换或移除时，不得留下悬空 membership、
+queue link 或 occupancy。Parked/Completed 不持有 traversal 或 Waiting membership；
+离场产生的新 Active 候选从无 membership 开始并重新执行全部能力检查。
 
-#235 选择性能优先的保守确定性 v1 gap solver。它不做随机 critical-gap 分布、
-driver aggressiveness、长时域 trajectory search 或每路口可替换算法；只使用
-pre-step committed state、route-relative distance、VehicleProfile 最大加速度、
-整数毫秒 policy gap 与已编译 conflict approach frontier。frontier 必须覆盖车辆
-current cursor 之后 horizon 内的 current/upcoming/repeated passage occurrence，
-不能只扫描当前 Maneuver occurrence。每个静态
-`(ConflictZone, ParticipantStream)` passage cell 保留按保守程度排序的 top-two
-distinct vehicle contributors；Route-specific occurrences 只产生并归约
-contribution，不复制 frontier cell。candidate 查询排除 exact subject 后取最严格
-剩余值，避免 looping/repeated Route 的车辆用自己的 future target-stream passage
-阻塞自己，同时保持 O(1) lookup。normalization 中 static AccessRule deny 的合成
-stream/profile approach 不贡献 frontier；public route binding 不会创建该 active
-vehicle，已 occupied/reserved 的状态仍由 zone authority fail closed。对每个
-subject passage cell 在同一 ConflictZone 中编译出的 exact yield target cell，Core 先以
-segmented directed-bound route-distance query 得到冲突车辆到 passage entry 的
-距离下界，再使用 fixed-order directed-bound 运算得到 ETA 下界，并要求：
+`rebind_parking_route` 是已有 authority 的精确迁移，不是 interior bootstrap。目标 route
+只有在物理 footprint、ManeuverPath/Gate/WaitingZone identity、phase、crossing side 与
+release anchor 全部一一映射时，才能原样保留 admission sequence、queue order、occupancy
+和 counter；没有既有 traversal/membership 的 rebind 与新 Active 使用同一 interior guard。
+
+### 5. 确定性与失败原子性
+
+同一 WaitingZone 的 admission candidate 使用 tick-start committed state，并按下列
+规范键排序：
 
 ```text
-foeEarliestEntryMs
-  > fixedDeltaTimeMs + minimumLeadGapMs + clearanceBufferMs
+(approachDistanceMm ASC, vehicleUpdateSequence ASC, entryHop ASC)
 ```
 
-同时，最近 incompatible passage clear 后必须已过去
-`minimumLagGapMs + clearanceBufferMs`。任一 zone 已占用/预留、时间窗无法有限且
-确定地求值时都 no-grant/fail-closed；空 approach 或已证明超出 horizon 的
-`OutsideHorizon` 等价于正无穷并通过，不能与 `Unprovable` 混淆。gap 与 fixed
-delta 的和必须在 world 初始化时受检且不超过 portable `2^53-1 ms`。具体公式、
-directed rounding、fixed operation order、high-precision interval oracle、
-first-error 与性能结构见详细设计。该选择优先 tick 成本与 replay，接受无保护转向
-吞吐偏保守；可校准概率/预测 solver 必须走 #72 或后续独立 G1，不得静默替换 v1。
+`approachDistanceMm` 必须在 Waiting claim 改变 GateStop 之前计算。raw handle、
+slot/generation、worker index、proposal 完成顺序、HashMap 顺序或调用方输入顺序都
+不能决定 winner。
 
-v1 还强制执行 downstream-clearance guard：grant 前必须以 tick-start route-local
-occupancy、车辆长度/minimum gap、最远 conflict exit、下一 Gate、RouteEnd 与其他
-hard stop boundary 证明车尾存在可清空全部 coverage zone 的安全存储，并把最远
-exit 之后的 storage proof 扩展成 admission Gate crossed side 至 clearance target
-的 physical edge/progress claim span；storage proof 使用与 tail-clear 相同的
-`storageUpperBound + tolerance >= exit + vehicle.length` inclusive predicate。只
-claim 最终 footprint 会漏掉 coverage 内的跨 Route merge。stable-order arbiter
-必须针对 committed 与 earlier staged claim 原子取得该 span；不同 Route/Junction
-汇入同一 physical downstream edge 时不能重复分配。同 edge 相邻 claim 按 progress
-找到实际 follower，并使用该 follower 的 minimum gap，不能始终使用当前 candidate
-profile。未落位 claim 不作为可依赖继续移动的虚拟 leader，因此 v1 不做同 tick
-convoy/packing。不能证明或 claim 冲突时 normal no-grant；该 guard 不能按 Junction、
-Adapter LOD 或 solver tier 关闭。
+#284 的组合仲裁必须先消费按该键产生的 zone-local
+`WaitingAdmissionEntitlement`，再使用法规/冲突全局 priority；全局 priority 不能把同
+zone 物理后车提到前车之前。entitlement 不是可持久化 claim，最终
+membership/queue/counter mutation 仍由 Waiting reducer 与组合事务共同提交。
 
-Route registration 必须为每个 resource-bearing Gate occurrence 编译
-empty-occupancy Waiting storage 与 conflict-clearance boundary metadata，但
-`register_route` 继续保持 class/profile-agnostic，不能因为某个无关长车型不适配就
-拒绝整条 Route。initial/spawn/replacement/runtime route assignment 在既有
-`(ParticipantClass, Route)` static access validation 之后，必须按实际
-VehicleProfile 对 cursor 后缀逐 occurrence 执行 static feasibility check：空
-WaitingZone 连车身都容纳不下，或最远 conflict exit 到下一 Gate/RouteEnd 连车尾都
-无法清空时，原子拒绝该 `(VehicleProfile, Route, cursor)` 绑定。initial Routes 与
-dynamic Routes 使用同一 compiler；永久 impossible 的 profile-route 组合不得留成
-每 tick no-grant，也不得扩大成 route-global rejection。
+motion staging 后，实际 successful entry 按 post-step 物理前后顺序分配连续
+admission sequence，再以 `vehicleUpdateSequence`、`entryHop` 防御性破除不可能
+出现的并列。latest decision batch 使用稳定 route order。
 
-### 5. Grant 是 tick-local，跨 Gate 后原子升级为 reservation
+committed Waiting transition event batch 使用
+`(vehicleUpdateSequence ASC, routeAnchor ASC, eventKindRank ASC)` 全序；同一 route
+anchor 的 rank 固定为 projection、Waiting leave、Waiting enter、maneuver completion。
+raw handle、worker/producer 或 staging 完成顺序不得影响公开 batch。
 
-stable arbitration 中的 `ConflictGrant` 必须原子取得一个 resource bundle：
-coverage ConflictZones、optional Waiting admission capacity/storage 与 optional
-downstream clearance span。candidate 只产生 request；唯一
-`ConflictArbiter` 按规范 total order 更新 committed + earlier-staged 可见的
-single-writer ledger。任何一个资源失败都 no-grant 且不得留下部分 claim；同 tick
-staged leave/clear 不返还 capacity，避免 winner 依赖尚未提交的运动。
+command-driven removal 使用另一条既有顺序轴：Active member 的 `despawn_vehicle` 在同步
+`VehicleDespawnRecord` 中回显可选 Waiting release payload，按 `command_cursor`/caller
+order 观察。它不改写刚完成 tick 的 event batch，也不推进 cutover `event_cursor`；因此
+不新增全局 lifecycle event backlog。
 
-无 Waiting/Conflict resource coverage 的 pure signal/regulatory Gate 沿用既有
-permission path，不创建空 grant；latest decision 以 `NotRequired` 区分。regulatory
-deny 以 `NotEvaluated` 区分，resource-bearing evaluation 才产生
-`Granted | NoGrant(reason)`。records 和 multi-reason attribution 必须使用规范顺序，
-不能由 proposal completion 或 raw handle 决定。
+claim、decision、transition 与 event scratch 必须分别以实际 checked batch count 在
+任何 committed mutation 前 `try_reserve`。算术、counter、allocation、journal、
+snapshot 或 invariant 失败时，world、tick/time、latest batch 与事件保持失败前状态。
 
-未跨 admission Gate 的 `ConflictGrant` 只对当前 tick 有效；车辆因更严格约束没有
-跨 Gate 时，grant 及全部 staged claim 自动失效，不长期占用 zone。车辆成功跨 Gate
-时，grant 与 Maneuver traversal state 按 bundle 内容分别原子提交 Waiting
-membership、`ConflictReservation` 和/或 committed downstream claim；只有非空
-ConflictZone coverage 才创建 reservation，纯 Waiting admission 不伪造空
-reservation。作用域包含 vehicle、Route occurrence、Gate 与覆盖的
-ConflictZone/physical span。
+### 6. 所有许可只收紧运动约束
 
-reservation 在车辆清除全部对应 exit anchor 后释放；失败 step 不改变 grant、
-reservation、WaitingZone occupancy、downstream claim、vehicle state、events、
-tick/time。claim 只在同一 successful step 的 post-step actual occupancy 已成为下一
-tick leader authority 后随 final tail-clear 释放。任何 route 替换或 completion 都
-不得遗留 reservation/claim；不能证明等价迁移时必须原子拒绝命令。
-若 passage 在 `[T, T + D)` 内 clear，`lastClearTimeMs` 只在 successful commit
-记录 post-step `T + D`；同 step 较早的 arbitration 不观察该 staged clear，下一
-tick 的 lag elapsed 从零开始。
+Waiting、signal、Conflict 与 downstream grant 只允许移除其负责的 Gate stop，不能覆盖
+leader、minimum gap、no-overlap、safe speed、RouteEnd 或 ParkingStop。正常
+no-grant/等待不是 `StepError`。
 
-Rust 实现应把 staged grant 表达为 Core 私有、不可 `Copy`/`Clone` 的消费式
-capability，并由 crossing 显式转换为 committed state；权威 release 不依赖
-`Drop`/panic unwinding。proposal 计算可以并行，但锁竞争、CAS 或 worker 完成顺序
-不能决定 winner；所有 proposal 必须 stable-sort 后进入单一 reducer。
+同 tick staged release 不返还 Waiting capacity；未伴随 successful entry crossing 的
+claim 在 tick 结束失效且不消费 admission sequence。successful entry 即使同 tick 又
+release，也必须分配 sequence 并按 route order 产生 enter/leave event。
 
-### 6. 车辆状态属于 CoreWorld，不写回静态数据
+每车一个新 claim 不妨碍 #284 预防跨 zone cycle。#284 的 bundle 还要携带只读 Waiting
+dependency footprint：既有 membership、crossing release intent，以及当前 membership
+释放前必需的 downstream Waiting occurrences。single-writer reducer 对 tentative owner /
+resource wait-for graph 做稳定 SCC 检查；任何 candidate 若会形成 committed cycle，按
+normal no-grant 零提交拒绝。same-tick staged release 仍不返还 capacity，不能交换已提交
+membership 或让同车取得多个新 claim；restore/cutover 发现既有 cycle 时整体失败关闭。
 
-Core 保存可观察但不可由 Adapter 修改的 committed
-`ManeuverTraversalState`：
+### 7. #559 临时能力保护不可弱化
 
-```text
-PreGate -> Committed <-> Waiting
-             |             |
-             +--> Clearing <-+
-                    |
-                    +--> Committed / PreGate / complete
-```
+在 #284 正式冲突仲裁交付前，`ConflictPassageOccurrence` 的 3A 保护继续覆盖：
 
-多个 WaitingZone 可使 `Committed <-> Waiting` 重复。release/admission grant
-属于当前 step 的候选决策，不是 committed vehicle state：未跨 Gate 时 vehicle state
-保持不变且 grant 失效；跨 Gate 时直接原子提交下一 `Committed`/`Clearing` 状态与
-必要 reservation。CoreWorld 级稀疏 latest-decision batch 只记录刚完成 tick 中
-evaluated Gate frontier 的归因，不能在下一 tick 复用为 permission。黄灯或 signal
-切换只影响尚未跨越的 Gate，不能撤销已提交的 Gate crossing；后续 Gate 仍按各自
-当前 snapshot 独立裁决。
+- `spawn_vehicle`；
+- `replace_completed_vehicle`；
+- `leave_parking`；
+- `rebind_parking_route`；
+- snapshot restore；
+- same/cross-revision cutover。
 
-Waiting membership 与车辆当前是 `Committed` 还是已停住的 `Waiting` phase 正交：
-车辆跨 entry Gate 后即持有 membership，即使同 tick 继续行驶也不能丢失；stop/resume
-只切换 phase，successful release crossing 或显式原子 removal 才移除 membership。
-per-zone queue index 必须与该车辆侧 semantic authority 同事务维护。
+#282 不得删除、绕过、改名掩盖或降低
+`ConflictRuntimeUnavailable` 的失败关闭条件。Waiting 检查成功不代表 conflict
+能力可用。只有 #284 在同一切片安装正式 grant/reservation/组合 ledger 后，才能原子
+移除这项临时保护。
 
-既有 spawn/initial/Completed replacement 可以指定非零 route cursor，但 v1 不根据
-cursor 猜测历史 Gate、Waiting 或 Conflict authority。对含 stateful occurrence 的
-Route，车辆只可在 first stateful Gate 未跨越侧或 occurrence exit 之后
-materialize；cursor 位于 crossed side 到 exit 的 interior 时 capability-unavailable
-并原子拒绝。未来 interior bootstrap 必须独立 G1，一次验证 maneuver state、
-Waiting membership/sequence、reservation/downstream claim 与 occupancy。
+### 8. 快照、摘要与切换是逻辑合同
 
-在 #284 正式冲突能力交付前，#283 的临时保护更严格：只有实际车型车尾已经清除该
-路线全部 conflict passage 的车辆才能提交为 `Active`。这是一条能力可用性边界，不是
-未来 arbiter 的通行判定；完整入口与精确谓词见
-[`traffic-runtime-conflict-occurrence.md`](../design/traffic-runtime-conflict-occurrence.md)。
+#282 新增持久状态时执行一次性闭合升级：
 
-### 7. jurisdiction/right-of-way policy 复用统一 provenance
+- LFRS `formatVersion: 3 -> 4`；
+- `runtime_state_version: 3 -> 4`；
+- deterministic digest `5 -> 6`。
 
-right-of-way policy header 使用 ADR 0018 已冻结的
-`(jurisdiction, version, source?)` 口径，并增加半开
-`[effectiveFrom, effectiveUntil)` 审计范围。Scenario/World 初始化必须显式 pin
-policy set 与 regulation date；不得读取宿主墙钟，运行中不得隐式切换法规版本。
+只保留 v4 writer/reader；v3 reader 明确失败关闭，不提供双读、双写、转换器、feature
+flag 或迁移 shim。digest 6 纳入 Waiting semantic membership、zone occupancy、单调
+counter 与 queue order，不纳入派生 link 或 latest output batch。
 
-Traffic v0.9 AccessRegistry normalization 已保证同一 package 中所有显式
-AccessRule regulation 共享一个 `(jurisdiction, version)`。#235 只把这一个
-optional normalized identity 与 right-of-way policy 比较：两者必须一致；未声明
-provenance 的 AccessRule 继续沿用 ADR 0018 的合法“未指定”语义。sign、road
-marking、vehicle class 等输入必须先规范化为 Traffic/Core 事实并保留 provenance；
-SignalController 与 Adapter 不解析国家代码或视觉资产来决定通行权。
+快照按稳定 identity 保存语义状态；restore 重建稠密 link 并验证 capacity、物理顺序、
+phase、route occurrence 与 Parking 状态，包括所选 parking entry 不得落入 Waiting
+拒绝区间。跨修订切换按稳定 identity 重绑并执行同一检查；任何
+occupancy/member，或 occupancy 为零但 counter 非零的 zone，都不能因目标修订缺失而
+静默丢弃。
 
-“可合法进入”统一由 Traffic v0.9 `AccessRegistry::path_access/edge_access`
-resolved `AccessCell` 派生：profile 对 ParticipantStream admission Gate 至 last
-passage exit 的 path 平面和全部 physical edge 平面都不是
-`Decided { effect: Deny, .. }` 时为 `conflictEligible`；`Allow` 与
-`Unconstrained` 都 eligible。current public binding 已拒绝 route suffix 上的
-static deny，因此该静态定义用于 policy totality/authoring coherence，不重复执行
-route access。current production 仍 capability-reject `timeWindows`；未来时变
-runtime 必须对任一规范 segment 曾 eligible 的 `everConflictEligible` union 建总表，
-不能让 policy table 随 tick 缺项。
+Waiting restore/cutover 与 #559 能力检查必须同时成功。候选世界还须重编译
+`ConflictPassageOccurrence`、核对独立容量并对全部 Active 车辆执行 3A 保护。
 
-World 初始化必须为每个 `everConflictEligible` registered VehicleProfile 编译恰好
-一个 resolved stream rule；缺失/歧义 rule、非空 yield set 缺少 gap profile、或
-target stream 任一 eligible profile 不具备严格更高 priority 时拒绝，tick 不得猜测
-默认值。pinned policy 还必须与 signal phase/ConflictZone 做 protected-coherence
-validation：同 phase 不能让 incompatible PreGate streams 同时得到 Protected；
-runtime reservation 只是 invariant 防线，不是错误 authoring 的静默降级。
-一个 Gate coverage 含多个 subject streams 时，每个 exact subject cell 仍使用自己的
-resolved rule/yield range，candidate effective priority 取全部 distinct subject
-rules 的最小值；不得任选一条 rule。纯 Waiting admission 不虚构 stream priority，
-以显式 absent-priority rank 进入 arrival/waiting-ticket 排序。
+### 9. 容量与性能边界
 
-多法规版本在同一 world 热切换、实时政策下载与城市级预约系统不属于本 ADR。
+WaitingZone 状态按共享静态根中的 zone 数量稠密构造，不新增调用方 WaitingZone
+capacity 配置轴。per-member link 与每车最早新 claim 受 `vehicle_capacity` 约束；
+临时批次使用 actual checked count，不用理论全路线笛卡尔积常驻预留。
 
-### 8. 稠密存储、确定性与性能边界
-
-Conflict/Waiting static entities 使用 external ID + dense typed handle + flat
-storage/range；Route registration 编译 Gate/Waiting/Conflict occurrences。运行时
-使用 dense occupancy/reservation tables、owner-attributed top-two approach
-frontier、physical downstream/Waiting claim ledger、route-local clearance-boundary
-index 与预分配 scratch；禁止每 vehicle 热路径分配、字符串比较、hash iteration、
-全 catalog 扫描或每 tick 几何相交。
-
-static entity handle 继续按 normalization order 分配，但 raw handle 数值不参与业务/
-事件 tie-break；normalization 从 external ID ASCII byte order 一次编译 dense
-`canonicalRank`。input permutation 后按 external ID 对齐的 grant、diagnostic 与
-same-anchor event 必须语义等价，steady tick 不做字符串排序。
-
-同一 tick 的候选按 protected rank、policy-priority presence rank、coverage-min
-right-of-way priority、首次到达 tick、带显式 presence rank 的 Waiting admission
-sequence、唯一 vehicle update sequence 组成的规范键排序；pure Waiting 的 absent
-numeric slot 规范为 `0` 且不参与有/无 priority 的相对顺序，不能冒充 policy default。
-raw vehicle handle 不参与 tie-break。同输入、同 fixed delta、同命令序列必须得到
-逐位一致的 state/event order。生产实施必须维持现有一万 product budget 与十万
-research scaling guard，并报告 top-two frontier bytes、claim count/collision 与
-physical-span visits；具体协议见详细设计。
-
-## 与既有 ADR 的关系
-
-- 本 ADR **扩展但不 supersede** ADR 0009：Controller/indication、policy、
-  conflict、Core safety 的既有职责分离保持不变。
-- 本 ADR **扩展但不 supersede** ADR 0017：ManeuverPath/Route occurrence/
-  ManeuverGate identity 保持不变，只解除 v0.9 protected-turning 产品 profile 的
-  `transitionIndex = 0` 限制并增加 occurrence metadata；该产品版本与 Traffic
-  format v0.9 是不同版本轴。
-- 本 ADR **复用而不替换** ADR 0018 及其 Traffic v0.9 实现：AccessRule 的
-  target/effect/组合、resolved AccessCell 与 regulation provenance 不变；
-  right-of-way policy 不能跨平面解除 AccessRule deny。
-- 本 ADR **扩展但不改变 current production** ADR 0012：新增独立 conflict-anchor
-  tolerance owner 与 ETA directed-bound helper；只有后续 implementation G1 才能
-  原子进入 Core numeric policy。
-- 本 ADR 不改变 ADR 0013/0015 的 Spatial authority：几何可验证/表现，不拥有行为。
+steady tick 不扫描全部静态 zone、不按 external ID 热查找、不分配每车对象；当前仍是
+单 worker。数据布局和稳定 reducer 可以为未来 producer 并行保留空间，但 #282 不引入
+线程池、锁或 worker-specific authority。
 
 ## 后果
 
-### 正向后果
+正面后果：
 
-- 待转区、多阶段信号与无保护转向拥有同一套可组合 identity/authority。
-- signal allow 不再被误当作最终通行权，冲突裁决可以给出 vehicle-specific、
-  可审计结果。
-- Route occurrence、WaitingZone queue 与 ConflictZone reservation 均可 replay，
-  且不把字符串或几何扫描带入 steady tick。
-- frontier retained state 由 static passage cell 数量决定，dynamic Route/repeated
-  occurrence 只增加有界 contribution visits，不复制 cell。
-- 中国法规差异通过 versioned policy 表达，而不是 Controller/Adapter 私有分支。
+- Waiting 本地存储可以先独立生产化，不假装完整冲突仲裁已经存在；
+- #282/#284 ownership 唯一，组合 ledger 不会出现两套竞争实现；
+- 物理队列顺序、snapshot/replay 与 cutover 具有统一确定性；
+- #284 全局法规 priority 不会覆盖 Waiting 物理 winner，prospective SCC 在提交前阻止
+  committed cross-zone cycle；
+- Parking 和 conflict 已交付能力被显式组合，不会因新切片形成旁路；
+- 容量按真实静态/车辆规模和当 tick 实际工作量付费。
 
-### 代价与风险
+代价：
 
-- Core 增加静态 registry、车辆 maneuver state、zone occupancy/reservation 与新的
-  constraint/event 面；Traffic 必须从届时 current version（当前为已发布 v0.9）
-  原子升级，Spatial schema 是否升级由 geometry implementation G1 决定。
-- gap acceptance 与多 zone grant 会扩大 tick 热路径，必须通过 active frontier、
-  稠密索引与一万/十万证据约束。
-- mandatory downstream-clearance guard 会增加每 candidate 的 route-local
-  storage/boundary/claim query，并在出口拥堵或同 tick claim 冲突时更早拒绝进入；
-  v1 不在未落位 claim 后做 convoy packing，吞吐偏保守，但避免车辆持有
-  reservation 却无法独立清空 zone 的网络级阻塞。
-- frontier cell 保存两个 distinct-owner contribution，retained bytes 高于单一
-  tri-state cell；它以常数内存换取 O(1) exact-subject exclusion，避免
-  candidate × vehicle 回扫。
-- WaitingZone 同 tick successful admissions 需要在 commit 前按 physical queue
-  order 做有界 stable ordering 与 counter preflight；canonical-rank arrays 也增加少量
-  static retained memory。
-- arbitrary-progress spawn/replace 仍可用于普通 route segment，但 stateful
-  occurrence interior 在 v1 被 capability guard 拒绝；需要从路口内部 materialize
-  的产品必须先设计完整 bootstrap transaction。
-- 性能优先 v1 会低估部分 permissive movement 的可接受 gap，可能增加等待和队列；
-  它不是专业交通工程容量校准模型。
-- 只使用 path anchors 的 Core 行为可能与精细 Spatial region 有近似差异；authoring
-  validation 必须检查绑定一致性，不能悄悄让 geometry 取代 path progress。
-- starvation/fairness 依赖稳定 arrival/admission ticket；implementation 若改用
-  hash/map iteration 会破坏 replay。
+- #284 前依赖跨 zone 原子性、完整 downstream-clearance 或无保护转向的场景仍然
+  dependency-blocked；
+- 每辆车每 tick 只获取一个新 Waiting claim，可能比未来组合仲裁更保守；
+- #284 只预防新 committed cycle，不通过车辆换位、同 tick capacity 复用或 teleport
+  恢复已经形成的物理网格锁；
+- 快照 4/4 与 digest 6 是一次性不兼容升级，开发期 v3 存档直接拒绝；
+- Waiting lifecycle、restore 与 cutover 必须增加一致性验证和失败路径测试。
 
-## 被拒绝的替代方案
+## 未选择的方案
 
-### SignalController 直接决定最终通行权
+### 让 #282 同时实现 downstream-clearance 与组合 ledger
 
-会把国家法规、车辆类别、gap acceptance 与 zone occupancy 写进 phase clock，违反
-ADR 0009，且无法处理 signal 已放行但 conflict 仍被占用的情形。
+拒绝。它会把 Conflict 资源和跨 zone 活性提前塞进本地 Waiting 切片，形成与 #284
+重叠的 authority，也会扩大审阅和回滚面。
 
-### Adapter collider 或二维折线相交自动产生 ConflictZone
+### 同车同 tick 获取多个独立 Waiting claim
 
-mesh/collider 属表现层，二维相交不能表达高架分离、错层、共享边界或 authoring
-意图；不同 Adapter 还会得到不同结果，因而拒绝。
+拒绝。各 zone 独立成功后无法保证组合原子性，反向 route order 会产生现实可达的
+cycle。#282 采用最早 occurrence 的保守 horizon；真正的多资源取得由 #284 统一实现。
 
-### WaitingZone 使用固定等距 slot
+### 只按 `maxOccupancy` 判断容量
 
-车辆长度与 minimum gap 不同，固定 slot 会与 Core no-overlap 产生第二套物理
-authority。采用 maxOccupancy + route-relative physical storage。
+拒绝。不同车长与 minimum gap 会让计数未满但物理空间不足；运行时必须同时证明本地
+storage 与 no-overlap。
 
-### grant 一经产生即长期 reservation
+### 通过低速或停车推断 Waiting membership
 
-车辆可能被 leader、RouteEnd 或安全投影挡住；未跨 Gate 就持有长期 reservation 会
-制造无谓阻塞和死锁。grant 只在 crossing 成功时升级。
+拒绝。车辆可能因 leader、signal、ParkingStop 或其他约束停止。membership 只由
+entry/release Gate crossing 与提交事务改变。
 
-### 只检查 zone 空闲，不检查下游可清空存储
+### 为 WaitingZone 增加调用方容量参数
 
-leader 可以位于 exit anchor 之后、因而不算当前 ConflictZone occupant，却仍让
-subject 无法把车尾移出 zone。若只依赖 crossing 后的 no-overlap 与 reservation，
-车辆会安全但长期占住路口，并可能形成相邻 Junction 的循环死锁。v1 因此在 grant
-前强制 downstream-clearance guard；模拟违规 block-the-box 行为必须另立
-versioned policy。
+拒绝。zone 数来自静态共享根，member/link 来自 `vehicle_capacity`，临时工作量来自
+checked exact count；额外轴只会制造错误配置和常驻浪费。
 
-### clearance 只读取 tick-start occupancy，不取得排他 claim
+### 为开发期快照保留兼容层
 
-两个不共享 ConflictZone、甚至属于不同 Junction 的 candidate 可能汇入同一
-physical downstream edge；若都只看 tick-start free space，它们会同时通过 proof，
-随后由 no-overlap 把其中一辆安全地停在 conflict 内。v1 因此把 Waiting/
-Conflict/downstream 资源组成 stable-order atomic grant bundle，并让后续 candidate
-观察 earlier staged claim。
-
-### 把未落位 claim 当作 virtual leader 允许同 tick packing
-
-后车若按前一 grant 的未来目标位置计算 storage，就依赖该 owner 继续移动；而 owner
-仍可能被更严格 leader/safety constraint 延迟，违反 mandatory keep-clear 的独立
-清空证明。v1 对重叠未落位 span fail closed；预测 convoy/conditional multi-commit
-属于后续独立 solver G1。
-
-### 每 tick 对 Route 重新匹配 ManeuverPath/Gate/zone
-
-这会重复 ADR 0017 已消除的路径匹配成本并引入歧义；所有 occurrence metadata 必须
-在 Route 注册时编译。
-
-### 以 deny-overrides 代替 right-of-way arbitration
-
-AccessRule 的 allow/deny 是准入 overlay，不表达同时到达车辆之间的时序与资源互斥。
-把二者混为一层既无法给出 gap acceptance，也会破坏 ADR 0018 的组合语义。
-
-### 首版直接采用可校准概率/长时域预测 gap solver
-
-这会把 driver distribution、场景校准、trajectory prediction、额外状态和更大的
-hot-path 矩阵一次引入 #235，超出“非完整专业交通工程 solver”的范围，也无法在当前
-证据下证明一万/十万成本。保留为 #72 或后续独立 G1；v1 使用规范的保守确定性
-critical-gap filter。
-
-## 后续
-
-- #235：完成本 ADR 与 `waiting-zone-conflict-right-of-way.md` 的 G1/G3/G4。
-- 后续最小 production 切片应至少分为：
-  1. 从届时 current Traffic（当前为 v0.9）原子升级的
-     multi-Gate/WaitingZone static + Route occurrence compilation + profile-route
-     static feasibility binding；
-  2. WaitingZone runtime state/queue/constraints；
-  3. ConflictZone/ParticipantStream static + Spatial binding；
-  4. right-of-way policy normalization + ConflictArbiter/grant/reservation；
-  5. cross-layer fixtures、一万/十万与 Adapter observation。
-- #264：消费本 ADR 与 #237 的冻结结论，拆分 JunctionGroup、环岛、停车连接与互通
-  组合设施 G1。
-
-如果未来改变最终 conflict decision owner、让 Spatial/Adapter/SignalController
-拥有行为、让 grant 绕过 Core safety、或放弃 registration-time occurrence
-compilation，必须新增或 supersede 本 ADR，不得通过 private 实现静默偏离。
+拒绝。1.0 前只维护一套当前权威，v3 失败关闭比双读、双写和迁移 shim 更可验证。

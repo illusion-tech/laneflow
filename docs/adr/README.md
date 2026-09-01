@@ -44,7 +44,9 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
 - `0016`: 场景人口、确定性出口回流、Core 原子 replace 与 Adapter binding 生命周期权威（已接受）
 - `0017`: 静态 Junction/Movement/ManeuverPath owner、ManeuverGate identity、Route occurrence 与复杂设施演进边界（已接受）
 - `0018`: 多模式横断面 owner（RoadCorridor/RoadSection/FacilityBand）、FacilityKind/ParticipantClass/AccessRule 分层与准入 overlay（已接受）
-- `0019`: WaitingZone/ConflictZone identity、多阶段 Gate occurrence、车辆级 right-of-way authority 与 grant/reservation（已接受）
+- `0019`: WaitingZone/ConflictZone identity、多阶段 Gate occurrence、车辆级
+  right-of-way authority 与 grant/reservation；架构 ownership 已接受，#282 本地
+  Waiting 详细设计仍为 Review，通用 downstream-clearance 与组合 ledger 归 #284
 - `0020`: 权威来源模块图（Authoritative Source Module Graph）、编译器拥有的静态路网、
   编译器中间表示（Compiler IR）、完整标识登记表（Identity Registry）、可移植规范
   制品（Portable Canonical Artifact）、历史目标静态镜像方案，以及目标态
@@ -72,7 +74,7 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
   静态镜像文件/ABI、descriptor/完整性清单、mmap 或磁盘缓存，保存只接受已进入
   Runtime 的 committed 道路状态或已认证 LFCA asset reference；可编辑 session 在共享根外
   保留 exact LFCA diff base，但不把它写入存档（Accepted；LFCA 4 百万级分块输入已纳入现行权威）
-- `0026`: 推倒 G3/G4 自然语言门禁，改为原生 PullRequestReview Check、Merge Queue
+- `0026`: 推倒旧自然语言门禁，改为原生 PullRequestReview Check、Merge Queue
   盖章与收窄的 commit 校验；退役 Schema Publication / ADR 0011 公共发布义务；
   External Review、六项 required checks 与相关启用顺序已被 0027 取代，其它决策继续
   有效（Accepted；#468）
