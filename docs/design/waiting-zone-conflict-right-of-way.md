@@ -3,9 +3,8 @@
 **文档状态**: Accepted（#235 联合架构与 #282 WaitingZone G1，2026-09-01）<br>
 **适用范围**: WaitingZone 本地准入、Conflict 路线出现项、车辆级通行权、下游净空、
 Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
-**交付状态**: WaitingZone 静态关系已存在；`ConflictPassageOccurrence` 与 #284 前的
-3A 能力保护已交付；#282 详细设计已接受但动态运行时尚未实现，本文不声称 #284 动态
-能力已经接受或实现<br>
+**交付边界**: WaitingZone 本地动态 authority 属于 #282；本文不声称 #284 的
+downstream-clearance、Conflict 仲裁或组合 ledger 已经接受或实现<br>
 
 **关联文档**:
 
@@ -37,7 +36,7 @@ Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
 - `ParkingBinding`、reserve/park/leave/rebind/despawn 生命周期已存在；
 - `ConflictPassageOccurrence`、`route_conflict_occurrence_capacity`、路线 conflict
   Gate ranges，以及生命周期/restore/cutover 的 3A 保护已存在；
-- 当前持久化轴是 LFRS 3、runtime state 3、deterministic digest 5。
+- 当前持久化轴是 LFRS 4、runtime state 4、deterministic digest 6。
 
 #282 只新增 WaitingZone 本地动态能力。#284 才新增正式 Conflict/right-of-way 与组合
 资源能力。

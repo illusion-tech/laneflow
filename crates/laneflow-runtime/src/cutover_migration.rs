@@ -9,16 +9,20 @@
 use std::sync::Arc;
 
 use laneflow_static_contract::{
-    EntityKind, EntityKindMarker, LaneEdgeOrdinal, Ordinal, OrdinalKind, ParkingFacilityOrdinal,
-    ParkingSpaceOrdinal, ParticipantClassOrdinal, SignalAspect, VehicleProfileOrdinal,
+    EntityKind, EntityKindMarker, LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
+    Ordinal, OrdinalKind, ParkingFacilityOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal,
+    SignalAspect, VehicleProfileOrdinal, WaitingZoneOrdinal,
 };
 use laneflow_static_network::{SharedIdentityIndex, SharedNetworkRevision};
 
+use crate::migration_journal::VehicleDelta;
 use crate::parking::ParkingRuntimeState;
 use crate::tables::{RouteSlot, VehicleSlot, bodies_overlap, compile_route, route_access_denied};
 use crate::{
-    CommittedNetworkSource, CutoverError, ParkingBinding, ParkingReservation, ParkingSpaceState,
-    ParkingTarget, TrafficWorld, VehicleHandle, VehicleStatus, VirtualEntryAnchorSelector,
+    CommittedNetworkSource, CutoverError, ManeuverTraversalPhase, ManeuverTraversalState,
+    ParkingBinding, ParkingReservation, ParkingSpaceState, ParkingTarget, RouteHandle,
+    TrafficWorld, VehicleHandle, VehicleState, VehicleStatus, VirtualEntryAnchorSelector,
+    WaitingMembership,
 };
 
 #[cfg(test)]
@@ -86,6 +90,9 @@ pub(crate) struct CrossRevisionRebinding {
     parking_spaces: Vec<Option<ParkingSpaceOrdinal>>,
     vehicle_profiles: Vec<Option<VehicleProfileOrdinal>>,
     participant_classes: Vec<Option<ParticipantClassOrdinal>>,
+    maneuver_paths: Vec<Option<ManeuverPathOrdinal>>,
+    maneuver_gates: Vec<Option<ManeuverGateOrdinal>>,
+    waiting_zones: Vec<Option<WaitingZoneOrdinal>>,
 }
 
 fn map_kind<K>(
@@ -121,6 +128,9 @@ impl CrossRevisionRebinding {
             parking_spaces: map_kind(base, target, EntityKind::ParkingSpace)?,
             vehicle_profiles: map_kind(base, target, EntityKind::VehicleProfile)?,
             participant_classes: map_kind(base, target, EntityKind::ParticipantClass)?,
+            maneuver_paths: map_kind(base, target, EntityKind::ManeuverPath)?,
+            maneuver_gates: map_kind(base, target, EntityKind::ManeuverGate)?,
+            waiting_zones: map_kind(base, target, EntityKind::WaitingZone)?,
         })
     }
 
@@ -131,6 +141,9 @@ impl CrossRevisionRebinding {
         self.parking_spaces = Vec::new();
         self.vehicle_profiles = Vec::new();
         self.participant_classes = Vec::new();
+        self.maneuver_paths = Vec::new();
+        self.maneuver_gates = Vec::new();
+        self.waiting_zones = Vec::new();
     }
 
     /// 车道边序数重绑；`None` = 引用不存在。
@@ -174,6 +187,144 @@ impl CrossRevisionRebinding {
             .copied()
             .flatten()
     }
+
+    #[must_use]
+    pub(crate) fn maneuver_path(&self, base: ManeuverPathOrdinal) -> Option<ManeuverPathOrdinal> {
+        self.maneuver_paths.get(base.index()).copied().flatten()
+    }
+
+    #[must_use]
+    pub(crate) fn maneuver_gate(&self, base: ManeuverGateOrdinal) -> Option<ManeuverGateOrdinal> {
+        self.maneuver_gates.get(base.index()).copied().flatten()
+    }
+
+    #[must_use]
+    pub(crate) fn waiting_zone(&self, base: WaitingZoneOrdinal) -> Option<WaitingZoneOrdinal> {
+        self.waiting_zones.get(base.index()).copied().flatten()
+    }
+}
+
+pub(crate) fn vehicle_state_from_delta(
+    candidate: &TrafficWorld,
+    rebinding: &CrossRevisionRebinding,
+    delta: &VehicleDelta,
+) -> Result<VehicleState, CutoverError> {
+    let invalid = || CutoverError::VehicleRevalidationFailed {
+        vehicle: delta.slot,
+    };
+    let route = RouteHandle::new(delta.route_index, delta.route_generation);
+    let compiled = candidate.compiled_route(route).ok_or_else(invalid)?;
+    let mut traversal = None;
+    if delta.traversal_present {
+        let path = rebinding
+            .maneuver_path(ManeuverPathOrdinal::from_raw(delta.maneuver_path))
+            .ok_or_else(invalid)?;
+        let cursor = delta.route_edge_index;
+        let mut matches = compiled
+            .maneuvers
+            .iter()
+            .enumerate()
+            .filter(|(_, maneuver)| {
+                maneuver.path == path
+                    && cursor >= maneuver.entry_route_edge_index
+                    && cursor < maneuver.exit_route_edge_index
+            });
+        let (maneuver_index, maneuver) = matches.next().ok_or_else(invalid)?;
+        if matches.next().is_some() {
+            return Err(invalid());
+        }
+        let gate = rebinding
+            .maneuver_gate(ManeuverGateOrdinal::from_raw(delta.phase_gate))
+            .ok_or_else(invalid)?;
+        let phase_hop = (maneuver.entry_route_edge_index..maneuver.exit_route_edge_index)
+            .find(|hop| compiled.hop_gate.get(*hop as usize).copied().flatten() == Some(gate))
+            .ok_or_else(invalid)?;
+        let phase = match delta.traversal_phase {
+            1 => ManeuverTraversalPhase::PreGate {
+                next_gate_hop: phase_hop,
+            },
+            2 => ManeuverTraversalPhase::Committed {
+                last_crossed_gate_hop: phase_hop,
+            },
+            3 => ManeuverTraversalPhase::Waiting {
+                release_gate_hop: phase_hop,
+            },
+            _ => return Err(invalid()),
+        };
+        traversal = Some(ManeuverTraversalState {
+            route,
+            maneuver_occurrence_index: u32::try_from(maneuver_index).map_err(|_| invalid())?,
+            phase,
+        });
+    } else if delta.membership_present {
+        return Err(invalid());
+    }
+
+    let mut membership = None;
+    if delta.membership_present {
+        let traversal = traversal.ok_or_else(invalid)?;
+        let zone = rebinding
+            .waiting_zone(WaitingZoneOrdinal::from_raw(delta.waiting_zone))
+            .ok_or_else(invalid)?;
+        let entry_gate = rebinding
+            .maneuver_gate(ManeuverGateOrdinal::from_raw(delta.entry_gate))
+            .ok_or_else(invalid)?;
+        let release_gate = rebinding
+            .maneuver_gate(ManeuverGateOrdinal::from_raw(delta.release_gate))
+            .ok_or_else(invalid)?;
+        let occurrence = compiled
+            .waiting
+            .iter()
+            .find(|occurrence| {
+                occurrence.maneuver_index == traversal.maneuver_occurrence_index
+                    && occurrence.zone == zone
+                    && compiled
+                        .hop_gate
+                        .get(occurrence.entry_hop as usize)
+                        .copied()
+                        .flatten()
+                        == Some(entry_gate)
+                    && compiled
+                        .hop_gate
+                        .get(occurrence.release_hop as usize)
+                        .copied()
+                        .flatten()
+                        == Some(release_gate)
+            })
+            .ok_or_else(invalid)?;
+        membership = Some(WaitingMembership {
+            waiting_zone: zone,
+            admission_sequence: delta.admission_sequence,
+            release_hop: occurrence.release_hop,
+        });
+    }
+
+    let state = VehicleState {
+        handle: VehicleHandle::new(delta.slot, delta.generation),
+        profile: rebinding
+            .vehicle_profile(VehicleProfileOrdinal::from_raw(delta.profile))
+            .ok_or(CutoverError::UnmappableVehicleProfile {
+                base_profile: delta.profile,
+            })?,
+        class: rebinding
+            .participant_class(ParticipantClassOrdinal::from_raw(delta.class))
+            .ok_or(CutoverError::UnmappableParticipantClass {
+                base_class: delta.class,
+            })?,
+        route,
+        route_edge_index: delta.route_edge_index,
+        progress_mm: delta.progress_mm,
+        carry_um: delta.carry_um,
+        speed_mm_s: delta.speed_mm_s,
+        length_mm: delta.length_mm,
+        status: delta.status,
+        maneuver_traversal: traversal,
+        waiting_membership: membership,
+    };
+    if !candidate.restored_waiting_authority_valid(state) {
+        return Err(invalid());
+    }
+    Ok(state)
 }
 
 fn try_clone<T: Clone>(source: &[T]) -> Result<Vec<T>, CutoverError> {
@@ -183,6 +334,86 @@ fn try_clone<T: Clone>(source: &[T]) -> Result<Vec<T>, CutoverError> {
         .map_err(|_| CutoverError::StagingAllocFailed)?;
     clone.extend_from_slice(source);
     Ok(clone)
+}
+
+fn waiting_occurrences_rebind(
+    base: &crate::tables::CompiledRoute,
+    target: &crate::tables::CompiledRoute,
+    rebinding: &CrossRevisionRebinding,
+) -> bool {
+    base.waiting.iter().all(|occurrence| {
+        let Some(base_maneuver) = base.maneuvers.get(occurrence.maneuver_index as usize) else {
+            return false;
+        };
+        let Some(target_path) = rebinding.maneuver_path(base_maneuver.path) else {
+            return false;
+        };
+        let Some(target_zone) = rebinding.waiting_zone(occurrence.zone) else {
+            return false;
+        };
+        let Some(target_entry_gate) = base
+            .hop_gate
+            .get(occurrence.entry_hop as usize)
+            .copied()
+            .flatten()
+            .and_then(|gate| rebinding.maneuver_gate(gate))
+        else {
+            return false;
+        };
+        let Some(target_release_gate) = base
+            .hop_gate
+            .get(occurrence.release_hop as usize)
+            .copied()
+            .flatten()
+            .and_then(|gate| rebinding.maneuver_gate(gate))
+        else {
+            return false;
+        };
+        target.waiting.iter().any(|candidate| {
+            candidate.entry_hop == occurrence.entry_hop
+                && candidate.release_hop == occurrence.release_hop
+                && candidate.zone == target_zone
+                && target
+                    .maneuvers
+                    .get(candidate.maneuver_index as usize)
+                    .is_some_and(|maneuver| maneuver.path == target_path)
+                && target
+                    .hop_gate
+                    .get(candidate.entry_hop as usize)
+                    .copied()
+                    .flatten()
+                    == Some(target_entry_gate)
+                && target
+                    .hop_gate
+                    .get(candidate.release_hop as usize)
+                    .copied()
+                    .flatten()
+                    == Some(target_release_gate)
+        })
+    })
+}
+
+pub(crate) fn revalidate_waiting_routes(
+    base: &TrafficWorld,
+    target: &TrafficWorld,
+    rebinding: &CrossRevisionRebinding,
+) -> Result<(), CutoverError> {
+    if base.routes.len() != target.routes.len() {
+        return Err(CutoverError::ReplayInconsistent);
+    }
+    for (base_slot, target_slot) in base.routes.iter().zip(&target.routes) {
+        if base_slot.generation != target_slot.generation {
+            return Err(CutoverError::ReplayInconsistent);
+        }
+        match (base_slot.compiled.as_ref(), target_slot.compiled.as_ref()) {
+            (Some(base_route), Some(target_route))
+                if waiting_occurrences_rebind(base_route, target_route, rebinding) => {}
+            (None, None) => {}
+            (Some(_), Some(_)) => return Err(CutoverError::WaitingRevalidationFailed),
+            _ => return Err(CutoverError::ReplayInconsistent),
+        }
+    }
+    Ok(())
 }
 
 /// 把 `world` 的动态状态结构克隆到 `target_revision` 上并完成直移。
@@ -246,6 +477,9 @@ pub(crate) fn migrate_structural_clone(
             },
             _ => CutoverError::RouteRevalidationFailed,
         })?;
+        if !waiting_occurrences_rebind(compiled, &migrated, rebinding) {
+            return Err(CutoverError::WaitingRevalidationFailed);
+        }
         conflict_occurrence_total = conflict_occurrence_total
             .checked_add(
                 u64::try_from(migrated.conflicts.len())
@@ -283,6 +517,8 @@ pub(crate) fn migrate_structural_clone(
                 base_class: state.class.raw(),
             },
         )?;
+        migrated.maneuver_traversal = None;
+        migrated.waiting_membership = None;
         vehicles.push(VehicleSlot {
             generation: slot.generation,
             state: Some(migrated),
@@ -523,6 +759,13 @@ pub(crate) fn migrate_structural_clone(
     let mut signal_aspects = Vec::new();
     try_reserve_staging_exact(&mut signal_aspects, group_count)?;
     signal_aspects.resize(group_count, SignalAspect::Red);
+    let waiting_zone_count = usize::try_from(
+        target_revision
+            .traffic()
+            .entity_counts()
+            .count(laneflow_static_contract::EntityKind::WaitingZone),
+    )
+    .expect("waiting zone count fits usize");
 
     // occurrence 总数重算（迁移不增减边数；防御性闭合后文校验容量）。
     let mut occurrence_total: u64 = 0;
@@ -555,6 +798,22 @@ pub(crate) fn migrate_structural_clone(
         live_order,
         active_order,
         parking,
+        waiting_zones: vec![crate::waiting::WaitingZoneState::default(); waiting_zone_count]
+            .into_boxed_slice(),
+        waiting_links: vec![crate::waiting::WaitingQueueLink::default(); vehicle_capacity]
+            .into_boxed_slice(),
+        waiting_member_rows: Vec::with_capacity(vehicle_capacity),
+        waiting_claims: Vec::with_capacity(vehicle_capacity),
+        waiting_plans: Vec::with_capacity(vehicle_capacity),
+        waiting_plan_by_vehicle: vec![None; vehicle_capacity].into_boxed_slice(),
+        waiting_next_state_index: vec![0; vehicle_capacity].into_boxed_slice(),
+        waiting_staged_decisions: Vec::new(),
+        waiting_staged_events: Vec::new(),
+        waiting_next_counters: vec![0; waiting_zone_count].into_boxed_slice(),
+        waiting_staged_occupancy: vec![0; waiting_zone_count].into_boxed_slice(),
+        waiting_staged_storage_mm: vec![0; waiting_zone_count].into_boxed_slice(),
+        latest_waiting_decisions: Vec::new(),
+        latest_waiting_events: Vec::new(),
         next_states,
         occupancy: crate::occupancy::OccupancyIndex::with_capacity(0, 0),
         migration_journal: None,
@@ -567,6 +826,30 @@ pub(crate) fn migrate_structural_clone(
         });
     }
     candidate.refresh_signals();
+    for (base_index, base_zone) in world.waiting_zones.iter().copied().enumerate() {
+        let base = WaitingZoneOrdinal::from_raw(
+            u32::try_from(base_index).expect("WaitingZone index fits u32"),
+        );
+        match rebinding.waiting_zone(base) {
+            Some(target) => {
+                candidate.waiting_zones[target.index()].next_admission_sequence =
+                    base_zone.next_admission_sequence;
+            }
+            None if base_zone.next_admission_sequence == 0 => {}
+            None => return Err(CutoverError::WaitingRevalidationFailed),
+        }
+    }
+    for handle in world.live_order.iter().copied() {
+        let base_state = world
+            .vehicle_state(handle)
+            .ok_or(CutoverError::WaitingRevalidationFailed)?;
+        let delta = VehicleDelta::from_state(base_state, world.compiled_route(base_state.route));
+        let migrated = vehicle_state_from_delta(&candidate, rebinding, &delta)?;
+        candidate.vehicles[handle.index() as usize].state = Some(migrated);
+    }
+    if !candidate.rebuild_waiting_aggregate_from_semantics() {
+        return Err(CutoverError::WaitingRevalidationFailed);
+    }
     revalidate_migrated_vehicles(&candidate)?;
     Ok(candidate)
 }
@@ -574,6 +857,9 @@ pub(crate) fn migrate_structural_clone(
 /// 重绑即重验证：对候选内每个 live 车辆按其生命周期状态复核 target
 /// 不变量（切换合同 §3 原则 2，等价重执行 spawn 检查）。
 pub(crate) fn revalidate_migrated_vehicles(candidate: &TrafficWorld) -> Result<(), CutoverError> {
+    if !candidate.waiting_state_valid() || !candidate.waiting_snapshot_storage_valid() {
+        return Err(CutoverError::WaitingRevalidationFailed);
+    }
     for handle in candidate.live_order.iter().copied() {
         revalidate_vehicle_on(candidate, handle)?;
     }
@@ -596,6 +882,9 @@ pub(crate) fn revalidate_vehicle_on(
         .ok_or(CutoverError::VehicleRevalidationFailed {
             vehicle: handle.index(),
         })?;
+    if !candidate.restored_waiting_authority_valid(*state) {
+        return Err(CutoverError::WaitingRevalidationFailed);
+    }
     if !candidate.parking_state_valid(handle) {
         return Err(CutoverError::ParkingRevalidationFailed {
             vehicle: handle.index(),

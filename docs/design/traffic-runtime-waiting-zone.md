@@ -3,8 +3,7 @@
 **文档状态**: Accepted（#282 G1，2026-09-01）<br>
 **适用范围**: `laneflow-runtime` / `TrafficWorld` 的 WaitingZone 准入、物理存储、
 成员关系、队列、固定步进、只读观察、快照与路网修订切换<br>
-**交付边界**: 本文是 #282 G1 当前唯一详细设计，只冻结实现约束，不声称运行时代码
-已经交付；实时进度以 GitHub Issue 为准
+**交付边界**: 本文是 #282 当前唯一详细合同；实时交付进度以 GitHub Issue 为准
 
 **关联文档**:
 
@@ -41,9 +40,10 @@ WaitingZone 是 Gate 有界资源、行为 authority 属于交通运行时、Ada
 - `ParkingBinding`、停驻/离场生命周期已经生产化；Waiting membership 必须与它正交；
 - `ConflictPassageOccurrence`、`route_conflict_occurrence_capacity`、路线 conflict Gate
   ranges 与 `ConflictRuntimeUnavailable` 3A 保护已经生产化；
-- LFRS 3、runtime state 3、deterministic digest 5、同修订/跨修订切换和在线迁移日志
-  已经是生产合同；
-- 当前 tick、车辆状态、生命周期与持久化都没有消费 Waiting occurrence。
+- LFRS 4、runtime state 4、deterministic digest 6、同修订/跨修订切换和在线迁移日志
+  共同保存 Waiting 逻辑状态；
+- fixed step、车辆状态与生命周期消费 route `WaitingOccurrence`，但不取得 #284 的
+  downstream/conflict 组合资源。
 
 ## 2. 目标与非目标
 
@@ -460,13 +460,13 @@ tick-start 已在 boundary、两者都给出零 travel），phase attribution �
 
 ### 8.1 查询
 
-公开 API 提供只读借用视图，精确 Rust 拼写由 G2 落定：
+公开 API 提供只读借用视图：
 
-- vehicle `ManeuverTraversalState` snapshot；
-- WaitingZone `occupancy/maxOccupancy` 与按 admission sequence 的 member batch；
-- 刚完成 successful tick 的稀疏 latest Gate decision batch；
-- 刚完成 successful tick 的 Waiting transition event batch；
-- lifecycle command 的同步 typed result；不把 command transition 塞入历史 tick batch。
+- `VehicleState::maneuver_traversal` / `waiting_membership`；
+- `TrafficWorld::waiting_zone` 与 `waiting_zone_members`；
+- `TrafficWorld::latest_waiting_decisions`；
+- `TrafficWorld::latest_waiting_events`；
+- `VehicleDespawnRecord::waiting_release`；不把 command transition 塞入历史 tick batch。
 
 Adapter、scenario 与 caller 不获得 claim、counter、queue 或 phase mutation authority。
 `StepOutcome` 继续只承担 tick/time；批量观察从 world 借用，避免让 `StepOutcome` 拥有
@@ -536,7 +536,8 @@ membership transition。`despawn_vehicle` 是 step 边界的同步 lifecycle com
 Active member 时不得修改“刚完成 successful tick”的 latest event batch，也不得推进只
 属于 cutover event batch 的 `event_cursor`。
 
-现有 `VehicleDespawnRecord` 扩展一个可选同步 payload，精确 Rust 字段名由 G2 落定：
+现有 `VehicleDespawnRecord::waiting_release` 是可选的
+`WaitingMembershipReleaseRecord`：
 
 ```text
 WaitingMembershipReleaseRecord?
@@ -575,16 +576,15 @@ Waiting 拒绝区间的快照整体失败，不通过恢复时清除 reservation
 
 ### 9.2 版本
 
-当前 LFRS `formatVersion=3`、`runtime_state_version=3`、deterministic digest version=5。
-新增 Waiting wire fields 后权威轴升为：
+当前唯一生产版本轴为：
 
 - `formatVersion=4`；
 - `runtime_state_version=4`；
 - deterministic state digest version=6。
 
-实现只保留当前 writer/reader；旧 v3 reader 明确失败关闭，不提供 v3→v4 reader、
-转换器、迁移 shim、feature flag、双读或双写。摘要 version 6 纳入 Waiting semantic state、zone counter 与 queue
-order，不纳入派生 links 或 latest output batch。
+实现只保留当前 writer/reader；旧 v3 输入明确失败关闭，不提供 v3→v4 reader、
+转换器、迁移 shim、feature flag、双读或双写。摘要 version 6 纳入 Waiting semantic
+state、zone counter 与 queue order，不纳入派生 links 或 latest output batch。
 
 ### 9.3 同修订与跨修订切换
 

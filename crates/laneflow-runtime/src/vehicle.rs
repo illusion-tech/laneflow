@@ -26,6 +26,8 @@ pub struct VehicleState {
     pub(crate) speed_mm_s: u32,
     pub(crate) length_mm: u32,
     pub(crate) status: VehicleStatus,
+    pub(crate) maneuver_traversal: Option<crate::ManeuverTraversalState>,
+    pub(crate) waiting_membership: Option<crate::WaitingMembership>,
 }
 
 impl VehicleState {
@@ -87,6 +89,18 @@ impl VehicleState {
     #[must_use]
     pub const fn status(self) -> VehicleStatus {
         self.status
+    }
+
+    /// 当前 stateful maneuver traversal；未进入时为 `None`。
+    #[must_use]
+    pub const fn maneuver_traversal(self) -> Option<crate::ManeuverTraversalState> {
+        self.maneuver_traversal
+    }
+
+    /// 当前 WaitingZone semantic membership。
+    #[must_use]
+    pub const fn waiting_membership(self) -> Option<crate::WaitingMembership> {
+        self.waiting_membership
     }
 }
 

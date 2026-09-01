@@ -82,6 +82,7 @@ impl TrafficWorld {
             .ok_or(StepError::ObservationStateSequenceExhausted)?;
         let delta_s = expected as f32 / 1_000.0;
         self.rebuild_occupancy_index()?;
+        self.prepare_waiting_step(delta_s)?;
         self.next_states.clear();
         self.next_states.reserve(self.active_order.len());
         let mut parking_arrivals = Vec::new();
@@ -102,8 +103,9 @@ impl TrafficWorld {
             };
             let arrived_before =
                 reservation.is_some_and(|reservation| self.parking_arrived_for(state, reservation));
+            let waiting_stop = self.waiting_stop_for(state)?;
             let next = self
-                .advance_active_vehicle(state, delta_s)
+                .advance_active_vehicle_with_waiting_stop(state, delta_s, waiting_stop)
                 .ok_or(StepError::NonFiniteMotion)?;
             if let Some(reservation) = reservation {
                 if next.status != VehicleStatus::Active {
@@ -123,22 +125,43 @@ impl TrafficWorld {
             self.next_states.push((slot, next));
         }
         let mut updates = std::mem::take(&mut self.next_states);
+        if let Err(error) = self.finalize_waiting_step(&mut updates, tick_index) {
+            updates.clear();
+            self.next_states = updates;
+            return Err(error);
+        }
+        self.commit_waiting_removals(&updates);
         // 武装期 TICK 记录在状态写回前开帧、写回后闭帧；无变化条目被过滤，
         // 零变化步进仍保留空记录（tick/时间是候选时钟与摘要头部的收敛依据）。
         if let Some(journal) = self.migration_journal.as_mut() {
             journal.begin_tick(tick_index, time_ms);
         }
-        for (slot, next) in updates.drain(..) {
-            let previous = self.vehicles[slot].state.replace(next);
-            if let Some(journal) = self.migration_journal.as_mut()
-                && !previous.as_ref().is_some_and(|old| *old == next)
+        for (slot, next) in &updates {
+            let previous = self.vehicles[*slot].state.replace(*next);
+            if !previous.as_ref().is_some_and(|old| *old == *next) {
+                let delta = VehicleDelta::from_state(next, self.compiled_route(next.route));
+                if let Some(journal) = self.migration_journal.as_mut() {
+                    journal.tick_entry(&delta);
+                }
+            }
+        }
+        for (zone_index, next_counter) in self.waiting_next_counters.iter().copied().enumerate() {
+            if self.waiting_zones[zone_index].next_admission_sequence != next_counter
+                && let Some(journal) = self.migration_journal.as_mut()
             {
-                journal.tick_entry(&VehicleDelta::from_state(&next));
+                journal.tick_waiting_zone(
+                    laneflow_static_contract::WaitingZoneOrdinal::from_raw(
+                        u32::try_from(zone_index).expect("WaitingZone index fits u32"),
+                    ),
+                    next_counter,
+                );
             }
         }
         if let Some(journal) = self.migration_journal.as_mut() {
             journal.finish_tick();
         }
+        self.commit_waiting_additions(&updates);
+        updates.clear();
         self.next_states = updates;
         let vehicles = &self.vehicles;
         self.active_order.retain(|handle| {
@@ -160,8 +183,17 @@ impl TrafficWorld {
 
     pub(crate) fn advance_active_vehicle(
         &self,
+        state: VehicleState,
+        delta_s: f32,
+    ) -> Option<VehicleState> {
+        self.advance_active_vehicle_with_waiting_stop(state, delta_s, None)
+    }
+
+    pub(crate) fn advance_active_vehicle_with_waiting_stop(
+        &self,
         mut state: VehicleState,
         delta_s: f32,
+        waiting_stop: Option<crate::waiting::WaitingStopConstraint>,
     ) -> Option<VehicleState> {
         let compiled = self.compiled_route(state.route)?;
         let edges = compiled.edges.as_slice();
@@ -194,8 +226,16 @@ impl TrafficWorld {
         let parking = self.parking_stop_distance(compiled, &state, cursor)?;
         let parking_stop = parking.map(|(_, distance)| distance);
         let selected_stop = select_movement_stop(signal_stop, parking_stop, route_end);
-        let movement_stop = (!matches!(selected_stop.attribution, StopAttribution::RouteEnd))
+        let mut movement_stop = (!matches!(selected_stop.attribution, StopAttribution::RouteEnd))
             .then_some(selected_stop.distance);
+        if let Some(waiting) = waiting_stop {
+            movement_stop = match movement_stop {
+                Some(current) if !stop_is_nearer_or_equal(waiting.distance, current) => {
+                    Some(current)
+                }
+                Some(_) | None => Some(waiting.distance),
+            };
+        }
         let (mut travel_m, next_speed_m) = si_comfort_travel(
             state.speed_mm_s,
             desired_mm_s,
@@ -248,6 +288,7 @@ impl TrafficWorld {
         let route = state.route;
         apply_travel_mm(&mut state, edges, lengths, travel_mm, |index| {
             self.hop_permitted(route, edges, index)
+                && waiting_stop.is_none_or(|waiting| waiting.hop as usize != index)
         })?;
         let committed_index = usize::try_from(state.route_edge_index).ok()?;
         let committed_edge = *edges.get(committed_index)?;
@@ -434,7 +475,10 @@ impl TrafficWorld {
         }
     }
 
-    fn gate_is_restrictive(&self, gate: laneflow_static_contract::ManeuverGateOrdinal) -> bool {
+    pub(crate) fn gate_is_restrictive(
+        &self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+    ) -> bool {
         self.revision
             .traffic()
             .relations()
@@ -1183,6 +1227,8 @@ mod preview {
             speed_mm_s: 0,
             length_mm: 4_500,
             status: VehicleStatus::Active,
+            maneuver_traversal: None,
+            waiting_membership: None,
         }
     }
 

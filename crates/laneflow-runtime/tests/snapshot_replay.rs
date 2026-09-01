@@ -25,6 +25,9 @@ use laneflow_static_network::{
 const FULL_SPATIAL: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
 );
+const PARKING_ONLY: &[u8] = include_bytes!(
+    "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-base.lfca"
+);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ReplayPoint {
@@ -58,7 +61,24 @@ fn revision() -> Arc<SharedNetworkRevision> {
 }
 
 fn world() -> TrafficWorld {
-    let revision = revision();
+    install_world(revision())
+}
+
+fn parking_replay_world() -> TrafficWorld {
+    let input = check_canonical_network_input(PARKING_ONLY, FormatLimits::HARD)
+        .expect("checked parking fixture");
+    let revision = build_shared_network_revision(
+        input,
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::Omit,
+            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+        ),
+    )
+    .expect("parking revision");
+    install_world(revision)
+}
+
+fn install_world(revision: Arc<SharedNetworkRevision>) -> TrafficWorld {
     let origin = *revision.canonical_origin();
     TrafficWorld::install(
         revision,
@@ -75,6 +95,23 @@ fn world() -> TrafficWorld {
         77,
     )
     .expect("install")
+}
+
+fn parking_fixture_edges(world: &TrafficWorld) -> Vec<LaneEdgeOrdinal> {
+    let entry = world
+        .traffic()
+        .relations()
+        .parking_space(ParkingSpaceOrdinal::from_raw(0))
+        .expect("parking space")
+        .entry()
+        .0;
+    let exit = world
+        .traffic()
+        .successors(entry)
+        .and_then(|successors| successors.first())
+        .copied()
+        .expect("parking fixture successor");
+    vec![entry, exit]
 }
 
 fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
@@ -323,8 +360,8 @@ fn replay_divergence_under_capacity_mismatch_is_a_desync_signal() {
 
 #[test]
 fn checkpoint_replay_is_pointwise_equal_and_locates_first_desync_interval() {
-    let mut original = world();
-    let edges = fixture_edges(&original);
+    let mut original = parking_replay_world();
+    let edges = parking_fixture_edges(&original);
     let route = original
         .register_route(RouteRegisterInput::new(edges.clone()))
         .expect("checkpoint route");

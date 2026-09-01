@@ -998,6 +998,12 @@ mod tests {
             .position(|edge| *edge == entry_edge)
             .and_then(|index| u32::try_from(index).ok())
             .expect("parking entry on route");
+        world.routes[route.index() as usize]
+            .compiled
+            .as_mut()
+            .expect("route")
+            .waiting
+            .clear();
         let vehicle = spawn(&mut world, route, entry_occurrence, entry_progress_mm, 0);
         assert_eq!(world.active_order, [vehicle]);
         let target = ParkingTarget::ExplicitSpace(space);
@@ -1067,7 +1073,11 @@ mod tests {
     fn cross_edge_body_is_split_but_front_is_owned_by_current_occurrence() {
         let (mut world, route) = world_and_route();
         let edges = world.route_edges(route).expect("route").to_vec();
-        let vehicle = spawn(&mut world, route, 1, 1_000, 700);
+        let vehicle = spawn(&mut world, route, 0, 0, 700);
+        let index = usize::try_from(vehicle.index()).expect("vehicle index");
+        let state = world.vehicles[index].state.as_mut().expect("vehicle");
+        state.route_edge_index = 1;
+        state.progress_mm = 1_000;
         let state = *world.vehicle_state(vehicle).expect("vehicle");
         let mut session = world
             .open_observation_export(ObservationSelection::AllLaneEdges)
@@ -1326,6 +1336,12 @@ mod tests {
             .position(|edge| *edge == entry_edge)
             .and_then(|index| u32::try_from(index).ok())
             .expect("parking entry on route");
+        world.routes[route.index() as usize]
+            .compiled
+            .as_mut()
+            .expect("route")
+            .waiting
+            .clear();
         let vehicle = spawn(&mut world, route, entry_occurrence, entry_progress_mm, 0);
         let mut session = world
             .open_observation_export(ObservationSelection::AllLaneEdges)

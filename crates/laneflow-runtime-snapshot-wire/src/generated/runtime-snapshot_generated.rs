@@ -10,7 +10,7 @@ pub mod lane_flow {
 pub mod runtime_snapshot {
 
 #[allow(unused_imports, dead_code)]
-pub mod v3 {
+pub mod v4 {
 
 
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
@@ -365,6 +365,98 @@ impl<'a> ::flatbuffers::Verifiable for ParkingTargetKind {
 }
 
 impl ::flatbuffers::SimpleToVerifyInSlice for ParkingTargetKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_MANEUVER_TRAVERSAL_PHASE_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_MANEUVER_TRAVERSAL_PHASE_KIND: u8 = 3;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_MANEUVER_TRAVERSAL_PHASE_KIND: [ManeuverTraversalPhaseKind; 4] = [
+  ManeuverTraversalPhaseKind::Unspecified,
+  ManeuverTraversalPhaseKind::PreGate,
+  ManeuverTraversalPhaseKind::Committed,
+  ManeuverTraversalPhaseKind::Waiting,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct ManeuverTraversalPhaseKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl ManeuverTraversalPhaseKind {
+  pub const Unspecified: Self = Self(0);
+  pub const PreGate: Self = Self(1);
+  pub const Committed: Self = Self(2);
+  pub const Waiting: Self = Self(3);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 3;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Unspecified,
+    Self::PreGate,
+    Self::Committed,
+    Self::Waiting,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Unspecified => Some("Unspecified"),
+      Self::PreGate => Some("PreGate"),
+      Self::Committed => Some("Committed"),
+      Self::Waiting => Some("Waiting"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for ManeuverTraversalPhaseKind {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for ManeuverTraversalPhaseKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for ManeuverTraversalPhaseKind {
+    type Output = ManeuverTraversalPhaseKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for ManeuverTraversalPhaseKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for ManeuverTraversalPhaseKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for ManeuverTraversalPhaseKind {}
 // struct Digest256, aligned to 1
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq)]
@@ -1406,6 +1498,317 @@ impl ::core::fmt::Debug for ParkingBinding<'_> {
       ds.finish()
   }
 }
+pub enum ManeuverTraversalBindingOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ManeuverTraversalBinding<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for ManeuverTraversalBinding<'a> {
+  type Inner = ManeuverTraversalBinding<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ManeuverTraversalBinding<'a> {
+  pub const VT_MANEUVER_OCCURRENCE_INDEX: ::flatbuffers::VOffsetT = 4;
+  pub const VT_MANEUVER_PATH: ::flatbuffers::VOffsetT = 6;
+  pub const VT_PHASE: ::flatbuffers::VOffsetT = 8;
+  pub const VT_PHASE_GATE: ::flatbuffers::VOffsetT = 10;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    ManeuverTraversalBinding { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ManeuverTraversalBindingArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<ManeuverTraversalBinding<'bldr>> {
+    let mut builder = ManeuverTraversalBindingBuilder::new(_fbb);
+    if let Some(x) = args.phase_gate { builder.add_phase_gate(x); }
+    if let Some(x) = args.maneuver_path { builder.add_maneuver_path(x); }
+    builder.add_maneuver_occurrence_index(args.maneuver_occurrence_index);
+    builder.add_phase(args.phase);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn maneuver_occurrence_index(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ManeuverTraversalBinding::VT_MANEUVER_OCCURRENCE_INDEX, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn maneuver_path(&self) -> Option<&'a StableId128> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<StableId128>(ManeuverTraversalBinding::VT_MANEUVER_PATH, None)}
+  }
+  #[inline]
+  pub fn phase(&self) -> ManeuverTraversalPhaseKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<ManeuverTraversalPhaseKind>(ManeuverTraversalBinding::VT_PHASE, Some(ManeuverTraversalPhaseKind::Unspecified)).unwrap()}
+  }
+  #[inline]
+  pub fn phase_gate(&self) -> Option<&'a StableId128> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<StableId128>(ManeuverTraversalBinding::VT_PHASE_GATE, None)}
+  }
+}
+
+impl ::flatbuffers::Verifiable for ManeuverTraversalBinding<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<u32>("maneuver_occurrence_index", Self::VT_MANEUVER_OCCURRENCE_INDEX, false)?
+     .visit_field::<StableId128>("maneuver_path", Self::VT_MANEUVER_PATH, false)?
+     .visit_field::<ManeuverTraversalPhaseKind>("phase", Self::VT_PHASE, false)?
+     .visit_field::<StableId128>("phase_gate", Self::VT_PHASE_GATE, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ManeuverTraversalBindingArgs<'a> {
+    pub maneuver_occurrence_index: u32,
+    pub maneuver_path: Option<&'a StableId128>,
+    pub phase: ManeuverTraversalPhaseKind,
+    pub phase_gate: Option<&'a StableId128>,
+}
+impl<'a> Default for ManeuverTraversalBindingArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ManeuverTraversalBindingArgs {
+      maneuver_occurrence_index: 0,
+      maneuver_path: None,
+      phase: ManeuverTraversalPhaseKind::Unspecified,
+      phase_gate: None,
+    }
+  }
+}
+
+pub struct ManeuverTraversalBindingBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ManeuverTraversalBindingBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_maneuver_occurrence_index(&mut self, maneuver_occurrence_index: u32) {
+    self.fbb_.push_slot::<u32>(ManeuverTraversalBinding::VT_MANEUVER_OCCURRENCE_INDEX, maneuver_occurrence_index, 0);
+  }
+  #[inline]
+  pub fn add_maneuver_path(&mut self, maneuver_path: &StableId128) {
+    self.fbb_.push_slot_always::<&StableId128>(ManeuverTraversalBinding::VT_MANEUVER_PATH, maneuver_path);
+  }
+  #[inline]
+  pub fn add_phase(&mut self, phase: ManeuverTraversalPhaseKind) {
+    self.fbb_.push_slot::<ManeuverTraversalPhaseKind>(ManeuverTraversalBinding::VT_PHASE, phase, ManeuverTraversalPhaseKind::Unspecified);
+  }
+  #[inline]
+  pub fn add_phase_gate(&mut self, phase_gate: &StableId128) {
+    self.fbb_.push_slot_always::<&StableId128>(ManeuverTraversalBinding::VT_PHASE_GATE, phase_gate);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ManeuverTraversalBindingBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ManeuverTraversalBindingBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<ManeuverTraversalBinding<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for ManeuverTraversalBinding<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("ManeuverTraversalBinding");
+      ds.field("maneuver_occurrence_index", &self.maneuver_occurrence_index());
+      ds.field("maneuver_path", &self.maneuver_path());
+      ds.field("phase", &self.phase());
+      ds.field("phase_gate", &self.phase_gate());
+      ds.finish()
+  }
+}
+pub enum WaitingMembershipBindingOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct WaitingMembershipBinding<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for WaitingMembershipBinding<'a> {
+  type Inner = WaitingMembershipBinding<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> WaitingMembershipBinding<'a> {
+  pub const VT_WAITING_ZONE: ::flatbuffers::VOffsetT = 4;
+  pub const VT_MANEUVER_OCCURRENCE_INDEX: ::flatbuffers::VOffsetT = 6;
+  pub const VT_ENTRY_GATE: ::flatbuffers::VOffsetT = 8;
+  pub const VT_RELEASE_GATE: ::flatbuffers::VOffsetT = 10;
+  pub const VT_ADMISSION_SEQUENCE: ::flatbuffers::VOffsetT = 12;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    WaitingMembershipBinding { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args WaitingMembershipBindingArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<WaitingMembershipBinding<'bldr>> {
+    let mut builder = WaitingMembershipBindingBuilder::new(_fbb);
+    builder.add_admission_sequence(args.admission_sequence);
+    if let Some(x) = args.release_gate { builder.add_release_gate(x); }
+    if let Some(x) = args.entry_gate { builder.add_entry_gate(x); }
+    builder.add_maneuver_occurrence_index(args.maneuver_occurrence_index);
+    if let Some(x) = args.waiting_zone { builder.add_waiting_zone(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn waiting_zone(&self) -> Option<&'a StableId128> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<StableId128>(WaitingMembershipBinding::VT_WAITING_ZONE, None)}
+  }
+  #[inline]
+  pub fn maneuver_occurrence_index(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(WaitingMembershipBinding::VT_MANEUVER_OCCURRENCE_INDEX, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn entry_gate(&self) -> Option<&'a StableId128> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<StableId128>(WaitingMembershipBinding::VT_ENTRY_GATE, None)}
+  }
+  #[inline]
+  pub fn release_gate(&self) -> Option<&'a StableId128> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<StableId128>(WaitingMembershipBinding::VT_RELEASE_GATE, None)}
+  }
+  #[inline]
+  pub fn admission_sequence(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(WaitingMembershipBinding::VT_ADMISSION_SEQUENCE, Some(0)).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for WaitingMembershipBinding<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<StableId128>("waiting_zone", Self::VT_WAITING_ZONE, false)?
+     .visit_field::<u32>("maneuver_occurrence_index", Self::VT_MANEUVER_OCCURRENCE_INDEX, false)?
+     .visit_field::<StableId128>("entry_gate", Self::VT_ENTRY_GATE, false)?
+     .visit_field::<StableId128>("release_gate", Self::VT_RELEASE_GATE, false)?
+     .visit_field::<u64>("admission_sequence", Self::VT_ADMISSION_SEQUENCE, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct WaitingMembershipBindingArgs<'a> {
+    pub waiting_zone: Option<&'a StableId128>,
+    pub maneuver_occurrence_index: u32,
+    pub entry_gate: Option<&'a StableId128>,
+    pub release_gate: Option<&'a StableId128>,
+    pub admission_sequence: u64,
+}
+impl<'a> Default for WaitingMembershipBindingArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    WaitingMembershipBindingArgs {
+      waiting_zone: None,
+      maneuver_occurrence_index: 0,
+      entry_gate: None,
+      release_gate: None,
+      admission_sequence: 0,
+    }
+  }
+}
+
+pub struct WaitingMembershipBindingBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> WaitingMembershipBindingBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_waiting_zone(&mut self, waiting_zone: &StableId128) {
+    self.fbb_.push_slot_always::<&StableId128>(WaitingMembershipBinding::VT_WAITING_ZONE, waiting_zone);
+  }
+  #[inline]
+  pub fn add_maneuver_occurrence_index(&mut self, maneuver_occurrence_index: u32) {
+    self.fbb_.push_slot::<u32>(WaitingMembershipBinding::VT_MANEUVER_OCCURRENCE_INDEX, maneuver_occurrence_index, 0);
+  }
+  #[inline]
+  pub fn add_entry_gate(&mut self, entry_gate: &StableId128) {
+    self.fbb_.push_slot_always::<&StableId128>(WaitingMembershipBinding::VT_ENTRY_GATE, entry_gate);
+  }
+  #[inline]
+  pub fn add_release_gate(&mut self, release_gate: &StableId128) {
+    self.fbb_.push_slot_always::<&StableId128>(WaitingMembershipBinding::VT_RELEASE_GATE, release_gate);
+  }
+  #[inline]
+  pub fn add_admission_sequence(&mut self, admission_sequence: u64) {
+    self.fbb_.push_slot::<u64>(WaitingMembershipBinding::VT_ADMISSION_SEQUENCE, admission_sequence, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> WaitingMembershipBindingBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    WaitingMembershipBindingBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<WaitingMembershipBinding<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for WaitingMembershipBinding<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("WaitingMembershipBinding");
+      ds.field("waiting_zone", &self.waiting_zone());
+      ds.field("maneuver_occurrence_index", &self.maneuver_occurrence_index());
+      ds.field("entry_gate", &self.entry_gate());
+      ds.field("release_gate", &self.release_gate());
+      ds.field("admission_sequence", &self.admission_sequence());
+      ds.finish()
+  }
+}
 pub enum SnapshotVehicleOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -1432,6 +1835,8 @@ impl<'a> SnapshotVehicle<'a> {
   pub const VT_PROFILE: ::flatbuffers::VOffsetT = 18;
   pub const VT_CLASS: ::flatbuffers::VOffsetT = 20;
   pub const VT_PARKING: ::flatbuffers::VOffsetT = 22;
+  pub const VT_MANEUVER_TRAVERSAL: ::flatbuffers::VOffsetT = 24;
+  pub const VT_WAITING_MEMBERSHIP: ::flatbuffers::VOffsetT = 26;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -1445,6 +1850,8 @@ impl<'a> SnapshotVehicle<'a> {
     let mut builder = SnapshotVehicleBuilder::new(_fbb);
     builder.add_snapshot_route_id(args.snapshot_route_id);
     builder.add_snapshot_vehicle_id(args.snapshot_vehicle_id);
+    if let Some(x) = args.waiting_membership { builder.add_waiting_membership(x); }
+    if let Some(x) = args.maneuver_traversal { builder.add_maneuver_traversal(x); }
     if let Some(x) = args.parking { builder.add_parking(x); }
     if let Some(x) = args.class { builder.add_class(x); }
     if let Some(x) = args.profile { builder.add_profile(x); }
@@ -1527,6 +1934,20 @@ impl<'a> SnapshotVehicle<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<ParkingBinding>>(SnapshotVehicle::VT_PARKING, None)}
   }
+  #[inline]
+  pub fn maneuver_traversal(&self) -> Option<ManeuverTraversalBinding<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<ManeuverTraversalBinding>>(SnapshotVehicle::VT_MANEUVER_TRAVERSAL, None)}
+  }
+  #[inline]
+  pub fn waiting_membership(&self) -> Option<WaitingMembershipBinding<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<WaitingMembershipBinding>>(SnapshotVehicle::VT_WAITING_MEMBERSHIP, None)}
+  }
 }
 
 impl ::flatbuffers::Verifiable for SnapshotVehicle<'_> {
@@ -1545,6 +1966,8 @@ impl ::flatbuffers::Verifiable for SnapshotVehicle<'_> {
      .visit_field::<StableId128>("profile", Self::VT_PROFILE, false)?
      .visit_field::<StableId128>("class", Self::VT_CLASS, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<ParkingBinding>>("parking", Self::VT_PARKING, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<ManeuverTraversalBinding>>("maneuver_traversal", Self::VT_MANEUVER_TRAVERSAL, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<WaitingMembershipBinding>>("waiting_membership", Self::VT_WAITING_MEMBERSHIP, false)?
      .finish();
     Ok(())
   }
@@ -1560,6 +1983,8 @@ pub struct SnapshotVehicleArgs<'a> {
     pub profile: Option<&'a StableId128>,
     pub class: Option<&'a StableId128>,
     pub parking: Option<::flatbuffers::WIPOffset<ParkingBinding<'a>>>,
+    pub maneuver_traversal: Option<::flatbuffers::WIPOffset<ManeuverTraversalBinding<'a>>>,
+    pub waiting_membership: Option<::flatbuffers::WIPOffset<WaitingMembershipBinding<'a>>>,
 }
 impl<'a> Default for SnapshotVehicleArgs<'a> {
   #[inline]
@@ -1575,6 +2000,8 @@ impl<'a> Default for SnapshotVehicleArgs<'a> {
       profile: None,
       class: None,
       parking: None,
+      maneuver_traversal: None,
+      waiting_membership: None,
     }
   }
 }
@@ -1625,6 +2052,14 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> SnapshotVehicleBuilder<'a, 'b
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<ParkingBinding>>(SnapshotVehicle::VT_PARKING, parking);
   }
   #[inline]
+  pub fn add_maneuver_traversal(&mut self, maneuver_traversal: ::flatbuffers::WIPOffset<ManeuverTraversalBinding<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<ManeuverTraversalBinding>>(SnapshotVehicle::VT_MANEUVER_TRAVERSAL, maneuver_traversal);
+  }
+  #[inline]
+  pub fn add_waiting_membership(&mut self, waiting_membership: ::flatbuffers::WIPOffset<WaitingMembershipBinding<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<WaitingMembershipBinding>>(SnapshotVehicle::VT_WAITING_MEMBERSHIP, waiting_membership);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> SnapshotVehicleBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     SnapshotVehicleBuilder {
@@ -1652,6 +2087,138 @@ impl ::core::fmt::Debug for SnapshotVehicle<'_> {
       ds.field("profile", &self.profile());
       ds.field("class", &self.class());
       ds.field("parking", &self.parking());
+      ds.field("maneuver_traversal", &self.maneuver_traversal());
+      ds.field("waiting_membership", &self.waiting_membership());
+      ds.finish()
+  }
+}
+pub enum WaitingZoneStateOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct WaitingZoneState<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for WaitingZoneState<'a> {
+  type Inner = WaitingZoneState<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> WaitingZoneState<'a> {
+  pub const VT_WAITING_ZONE: ::flatbuffers::VOffsetT = 4;
+  pub const VT_OCCUPANCY: ::flatbuffers::VOffsetT = 6;
+  pub const VT_NEXT_ADMISSION_SEQUENCE: ::flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    WaitingZoneState { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args WaitingZoneStateArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<WaitingZoneState<'bldr>> {
+    let mut builder = WaitingZoneStateBuilder::new(_fbb);
+    builder.add_next_admission_sequence(args.next_admission_sequence);
+    builder.add_occupancy(args.occupancy);
+    if let Some(x) = args.waiting_zone { builder.add_waiting_zone(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn waiting_zone(&self) -> Option<&'a StableId128> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<StableId128>(WaitingZoneState::VT_WAITING_ZONE, None)}
+  }
+  #[inline]
+  pub fn occupancy(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(WaitingZoneState::VT_OCCUPANCY, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn next_admission_sequence(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(WaitingZoneState::VT_NEXT_ADMISSION_SEQUENCE, Some(0)).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for WaitingZoneState<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<StableId128>("waiting_zone", Self::VT_WAITING_ZONE, false)?
+     .visit_field::<u32>("occupancy", Self::VT_OCCUPANCY, false)?
+     .visit_field::<u64>("next_admission_sequence", Self::VT_NEXT_ADMISSION_SEQUENCE, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct WaitingZoneStateArgs<'a> {
+    pub waiting_zone: Option<&'a StableId128>,
+    pub occupancy: u32,
+    pub next_admission_sequence: u64,
+}
+impl<'a> Default for WaitingZoneStateArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    WaitingZoneStateArgs {
+      waiting_zone: None,
+      occupancy: 0,
+      next_admission_sequence: 0,
+    }
+  }
+}
+
+pub struct WaitingZoneStateBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> WaitingZoneStateBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_waiting_zone(&mut self, waiting_zone: &StableId128) {
+    self.fbb_.push_slot_always::<&StableId128>(WaitingZoneState::VT_WAITING_ZONE, waiting_zone);
+  }
+  #[inline]
+  pub fn add_occupancy(&mut self, occupancy: u32) {
+    self.fbb_.push_slot::<u32>(WaitingZoneState::VT_OCCUPANCY, occupancy, 0);
+  }
+  #[inline]
+  pub fn add_next_admission_sequence(&mut self, next_admission_sequence: u64) {
+    self.fbb_.push_slot::<u64>(WaitingZoneState::VT_NEXT_ADMISSION_SEQUENCE, next_admission_sequence, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> WaitingZoneStateBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    WaitingZoneStateBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<WaitingZoneState<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for WaitingZoneState<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("WaitingZoneState");
+      ds.field("waiting_zone", &self.waiting_zone());
+      ds.field("occupancy", &self.occupancy());
+      ds.field("next_admission_sequence", &self.next_admission_sequence());
       ds.finish()
   }
 }
@@ -1688,6 +2255,7 @@ impl<'a> RuntimeSnapshot<'a> {
   pub const VT_ROUTES: ::flatbuffers::VOffsetT = 32;
   pub const VT_VEHICLES: ::flatbuffers::VOffsetT = 34;
   pub const VT_LIVE_ORDER: ::flatbuffers::VOffsetT = 36;
+  pub const VT_WAITING_ZONES: ::flatbuffers::VOffsetT = 38;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -1705,6 +2273,7 @@ impl<'a> RuntimeSnapshot<'a> {
     builder.add_time_ms(args.time_ms);
     builder.add_tick(args.tick);
     builder.add_world_id(args.world_id);
+    if let Some(x) = args.waiting_zones { builder.add_waiting_zones(x); }
     if let Some(x) = args.live_order { builder.add_live_order(x); }
     if let Some(x) = args.vehicles { builder.add_vehicles(x); }
     if let Some(x) = args.routes { builder.add_routes(x); }
@@ -1839,6 +2408,13 @@ impl<'a> RuntimeSnapshot<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u64>>>(RuntimeSnapshot::VT_LIVE_ORDER, None).unwrap()}
   }
+  #[inline]
+  pub fn waiting_zones(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<WaitingZoneState<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<WaitingZoneState>>>>(RuntimeSnapshot::VT_WAITING_ZONES, None).unwrap()}
+  }
 }
 
 impl ::flatbuffers::Verifiable for RuntimeSnapshot<'_> {
@@ -1864,6 +2440,7 @@ impl ::flatbuffers::Verifiable for RuntimeSnapshot<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<SnapshotRoute>>>>("routes", Self::VT_ROUTES, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<SnapshotVehicle>>>>("vehicles", Self::VT_VEHICLES, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u64>>>("live_order", Self::VT_LIVE_ORDER, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<WaitingZoneState>>>>("waiting_zones", Self::VT_WAITING_ZONES, true)?
      .finish();
     Ok(())
   }
@@ -1886,6 +2463,7 @@ pub struct RuntimeSnapshotArgs<'a> {
     pub routes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<SnapshotRoute<'a>>>>>,
     pub vehicles: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<SnapshotVehicle<'a>>>>>,
     pub live_order: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u64>>>,
+    pub waiting_zones: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<WaitingZoneState<'a>>>>>,
 }
 impl<'a> Default for RuntimeSnapshotArgs<'a> {
   #[inline]
@@ -1908,6 +2486,7 @@ impl<'a> Default for RuntimeSnapshotArgs<'a> {
       routes: None, // required field
       vehicles: None, // required field
       live_order: None, // required field
+      waiting_zones: None, // required field
     }
   }
 }
@@ -1986,6 +2565,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RuntimeSnapshotBuilder<'a, 'b
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RuntimeSnapshot::VT_LIVE_ORDER, live_order);
   }
   #[inline]
+  pub fn add_waiting_zones(&mut self, waiting_zones: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<WaitingZoneState<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RuntimeSnapshot::VT_WAITING_ZONES, waiting_zones);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> RuntimeSnapshotBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     RuntimeSnapshotBuilder {
@@ -2000,6 +2583,7 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RuntimeSnapshotBuilder<'a, 'b
     self.fbb_.required(o, RuntimeSnapshot::VT_ROUTES,"routes");
     self.fbb_.required(o, RuntimeSnapshot::VT_VEHICLES,"vehicles");
     self.fbb_.required(o, RuntimeSnapshot::VT_LIVE_ORDER,"live_order");
+    self.fbb_.required(o, RuntimeSnapshot::VT_WAITING_ZONES,"waiting_zones");
     ::flatbuffers::WIPOffset::new(o.value())
   }
 }
@@ -2024,6 +2608,7 @@ impl ::core::fmt::Debug for RuntimeSnapshot<'_> {
       ds.field("routes", &self.routes());
       ds.field("vehicles", &self.vehicles());
       ds.field("live_order", &self.live_order());
+      ds.field("waiting_zones", &self.waiting_zones());
       ds.finish()
   }
 }
@@ -2112,7 +2697,7 @@ pub fn finish_runtime_snapshot_buffer<'a, 'b, A: ::flatbuffers::Allocator + 'a>(
 pub fn finish_size_prefixed_runtime_snapshot_buffer<'a, 'b, A: ::flatbuffers::Allocator + 'a>(fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>, root: ::flatbuffers::WIPOffset<RuntimeSnapshot<'a>>) {
   fbb.finish_size_prefixed(root, Some(RUNTIME_SNAPSHOT_IDENTIFIER));
 }
-}  // pub mod V3
+}  // pub mod V4
 }  // pub mod RuntimeSnapshot
 }  // pub mod LaneFlow
 

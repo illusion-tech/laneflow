@@ -604,6 +604,9 @@ pub enum CutoverError {
         /// 违反停车不变量的车辆槽位序数。
         vehicle: u32,
     },
+    /// Waiting traversal/member/counter/queue 在 target 修订无法闭合。
+    #[error("WaitingZone authority 在 target 修订无法闭合")]
+    WaitingRevalidationFailed,
     /// 迁移后路线总 occurrence 超出世界容量配置（防御性闭合：迁移本身
     /// 不增减 occurrence）。
     #[error("迁移后路线总 occurrence {total} 超出容量 {capacity}")]
@@ -862,6 +865,9 @@ impl TrafficWorld {
                     },
                     _ => CutoverError::RouteRevalidationFailed,
                 })?;
+                if staged_route.waiting != compiled.waiting {
+                    return Err(CutoverError::WaitingRevalidationFailed);
+                }
                 staged_conflict_occurrence_count = staged_conflict_occurrence_count
                     .checked_add(
                         u64::try_from(staged_route.conflicts.len())
@@ -913,6 +919,24 @@ impl TrafficWorld {
                 Err(ConflictCapabilityError::RuntimeUnavailable(error)) => {
                     return Err(CutoverError::ConflictRuntimeUnavailable(error));
                 }
+            }
+        }
+        if !self.waiting_state_valid() || !self.waiting_snapshot_storage_valid() {
+            return Err(CutoverError::WaitingRevalidationFailed);
+        }
+        for handle in self.live_order.iter().copied() {
+            let state =
+                self.vehicle_state(handle)
+                    .ok_or(CutoverError::VehicleRevalidationFailed {
+                        vehicle: handle.index(),
+                    })?;
+            if !self.restored_waiting_authority_valid(*state) {
+                return Err(CutoverError::WaitingRevalidationFailed);
+            }
+            if !self.parking_state_valid(handle) {
+                return Err(CutoverError::ParkingRevalidationFailed {
+                    vehicle: handle.index(),
+                });
             }
         }
         // 事件批次与游标推进量在换绑前构建并预检：耗尽先于任何突变失败关闭。

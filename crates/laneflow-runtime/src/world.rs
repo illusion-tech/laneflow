@@ -16,6 +16,9 @@ use crate::tables::{
     CompiledRoute, ConflictCapabilityError, RouteSlot, VehicleSlot, bodies_overlap,
     check_conflict_capability, compile_route, occupancy_front_gap, route_access_denied,
 };
+use crate::waiting::{
+    WaitingAdmissionClaim, WaitingQueueLink, WaitingVehiclePlan, WaitingZoneState,
+};
 use crate::{
     CommittedNetworkSource, CommittedPoseSourceBatch, CommittedSignalGroupBatch, CutoverError,
     InstallError, ObservationStateSequence, ParkingBinding, ParkingFacilityCounts,
@@ -104,6 +107,26 @@ pub struct TrafficWorld {
     /// 不进入 tick 或 lane occupancy 重建扫描。
     pub(crate) active_order: Vec<VehicleHandle>,
     pub(crate) parking: ParkingRuntimeState,
+    /// 每个静态 WaitingZone 的稠密本地动态状态。
+    pub(crate) waiting_zones: Box<[WaitingZoneState]>,
+    /// 车辆槽位下标对应的 intrusive queue link；长度固定为 `vehicle_capacity`。
+    pub(crate) waiting_links: Box<[WaitingQueueLink]>,
+    /// 只读 member batch，按 `(zone, admission_sequence)` 排列。
+    pub(crate) waiting_member_rows: Vec<crate::WaitingZoneMember>,
+    /// tick scratch：每车至多一个新 Waiting admission claim。
+    pub(crate) waiting_claims: Vec<WaitingAdmissionClaim>,
+    pub(crate) waiting_plans: Vec<WaitingVehiclePlan>,
+    pub(crate) waiting_plan_by_vehicle: Box<[Option<WaitingVehiclePlan>]>,
+    pub(crate) waiting_next_state_index: Box<[u32]>,
+    pub(crate) waiting_staged_decisions: Vec<crate::WaitingDecision>,
+    pub(crate) waiting_staged_events: Vec<crate::WaitingTransitionEvent>,
+    pub(crate) waiting_next_counters: Box<[u64]>,
+    pub(crate) waiting_staged_occupancy: Box<[u32]>,
+    pub(crate) waiting_staged_storage_mm: Box<[u64]>,
+    /// 刚完成 successful tick 的 latest decision batch。
+    pub(crate) latest_waiting_decisions: Vec<crate::WaitingDecision>,
+    /// 刚完成 successful tick 的 committed transition event batch。
+    pub(crate) latest_waiting_events: Vec<crate::WaitingTransitionEvent>,
     pub(crate) next_states: Vec<(usize, VehicleState)>,
     pub(crate) occupancy: OccupancyIndex,
     /// 武装中的迁移增量日志（#513 切片 C）：`Some` ⟺ 本世界存在在途切换事务。
@@ -114,6 +137,13 @@ pub struct TrafficWorld {
     /// 武装时的轮次，配对校验一并比对——世界级恢复后重新武装的新日志
     /// 对旧事务按配对失配失败关闭，防止旧事务认领后继日志。
     pub(crate) migration_epoch: u64,
+}
+
+struct UnparkedVehicleAuthority {
+    class: ParticipantClassOrdinal,
+    length_mm: u32,
+    maneuver_traversal: Option<crate::ManeuverTraversalState>,
+    waiting_membership: Option<crate::WaitingMembership>,
 }
 
 impl TrafficWorld {
@@ -168,6 +198,13 @@ impl TrafficWorld {
                 .count(EntityKind::ParkingFacility),
         )
         .expect("parking facility count fits usize");
+        let waiting_zone_count = usize::try_from(
+            revision
+                .traffic()
+                .entity_counts()
+                .count(EntityKind::WaitingZone),
+        )
+        .expect("waiting zone count fits usize");
         let vehicle_capacity = usize::try_from(config.vehicle_capacity()).unwrap_or(0);
         let route_capacity = usize::try_from(config.route_capacity()).unwrap_or(0);
         let mut world = Self {
@@ -192,6 +229,20 @@ impl TrafficWorld {
             live_order: Vec::with_capacity(vehicle_capacity),
             active_order: Vec::with_capacity(vehicle_capacity),
             parking: ParkingRuntimeState::new(space_count, facility_count),
+            waiting_zones: vec![WaitingZoneState::default(); waiting_zone_count].into_boxed_slice(),
+            waiting_links: vec![WaitingQueueLink::default(); vehicle_capacity].into_boxed_slice(),
+            waiting_member_rows: Vec::with_capacity(vehicle_capacity),
+            waiting_claims: Vec::with_capacity(vehicle_capacity),
+            waiting_plans: Vec::with_capacity(vehicle_capacity),
+            waiting_plan_by_vehicle: vec![None; vehicle_capacity].into_boxed_slice(),
+            waiting_next_state_index: vec![0; vehicle_capacity].into_boxed_slice(),
+            waiting_staged_decisions: Vec::new(),
+            waiting_staged_events: Vec::new(),
+            waiting_next_counters: vec![0; waiting_zone_count].into_boxed_slice(),
+            waiting_staged_occupancy: vec![0; waiting_zone_count].into_boxed_slice(),
+            waiting_staged_storage_mm: vec![0; waiting_zone_count].into_boxed_slice(),
+            latest_waiting_decisions: Vec::new(),
+            latest_waiting_events: Vec::new(),
             next_states: Vec::with_capacity(vehicle_capacity),
             occupancy: OccupancyIndex::with_capacity(0, 0),
             migration_journal: None,
@@ -496,7 +547,8 @@ impl TrafficWorld {
 
     /// 生成一辆车。失败不留半辆车。
     pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, SpawnError> {
-        let (class, length_mm) = self.validate_unparked_vehicle(input, 0, VehicleStatus::Active)?;
+        let (class, length_mm, traversal) =
+            self.validate_unparked_vehicle(input, 0, VehicleStatus::Active, None)?;
         let next_observation_state_sequence = self
             .observation_state_sequence
             .checked_next()
@@ -506,12 +558,19 @@ impl TrafficWorld {
             .checked_add(1)
             .ok_or(SpawnError::CommandCursorExhausted)?;
 
+        let authority = UnparkedVehicleAuthority {
+            class,
+            length_mm,
+            maneuver_traversal: traversal,
+            waiting_membership: None,
+        };
         let (handle, state) =
-            self.commit_unparked_vehicle(input, 0, VehicleStatus::Active, class, length_mm);
+            self.commit_unparked_vehicle(input, 0, VehicleStatus::Active, authority);
         self.observation_state_sequence = next_observation_state_sequence;
         self.command_cursor = next_command_cursor;
+        let delta = VehicleDelta::from_state(&state, self.compiled_route(state.route));
         if let Some(journal) = self.migration_journal.as_mut() {
-            journal.record_vehicle_spawned(next_command_cursor, VehicleDelta::from_state(&state));
+            journal.record_vehicle_spawned(next_command_cursor, delta);
         }
         Ok(handle)
     }
@@ -523,13 +582,22 @@ impl TrafficWorld {
         input: VehicleSpawnInput,
         carry_um: u16,
         status: VehicleStatus,
+        maneuver_traversal: Option<crate::ManeuverTraversalState>,
+        waiting_membership: Option<crate::WaitingMembership>,
     ) -> Result<VehicleHandle, SpawnError> {
         debug_assert!(matches!(
             status,
             VehicleStatus::Active | VehicleStatus::Completed
         ));
-        let (class, length_mm) = self.validate_unparked_vehicle(input, carry_um, status)?;
-        let (handle, _) = self.commit_unparked_vehicle(input, carry_um, status, class, length_mm);
+        let (class, length_mm, traversal) =
+            self.validate_unparked_vehicle(input, carry_um, status, Some(maneuver_traversal))?;
+        let authority = UnparkedVehicleAuthority {
+            class,
+            length_mm,
+            maneuver_traversal: traversal,
+            waiting_membership,
+        };
+        let (handle, _) = self.commit_unparked_vehicle(input, carry_um, status, authority);
         Ok(handle)
     }
 
@@ -538,7 +606,15 @@ impl TrafficWorld {
         input: VehicleSpawnInput,
         carry_um: u16,
         status: VehicleStatus,
-    ) -> Result<(ParticipantClassOrdinal, u32), SpawnError> {
+        restored_traversal: Option<Option<crate::ManeuverTraversalState>>,
+    ) -> Result<
+        (
+            ParticipantClassOrdinal,
+            u32,
+            Option<crate::ManeuverTraversalState>,
+        ),
+        SpawnError,
+    > {
         let live = u32::try_from(self.live_order.len()).expect("live vehicle count fits u32");
         if live >= self.config.vehicle_capacity() {
             return Err(SpawnError::CapacityExceeded);
@@ -570,6 +646,28 @@ impl TrafficWorld {
         if self.route_suffix_denied(input.route(), profile.class(), cursor) {
             return Err(SpawnError::AccessDenied);
         }
+        let traversal = if status == VehicleStatus::Active {
+            if let Some(traversal) = restored_traversal {
+                traversal
+            } else {
+                self.validate_waiting_bootstrap(input.route(), cursor, profile.length_mm())
+                    .map_err(|error| match error {
+                        crate::waiting::WaitingBindingError::VehicleTooLong => {
+                            SpawnError::WaitingVehicleTooLong
+                        }
+                        crate::waiting::WaitingBindingError::StatefulManeuverInterior => {
+                            SpawnError::WaitingStatefulManeuverInterior
+                        }
+                        crate::waiting::WaitingBindingError::InvalidRoute
+                        | crate::waiting::WaitingBindingError::AuthorityMismatch
+                        | crate::waiting::WaitingBindingError::ParkingConflict => {
+                            SpawnError::InvalidProgress
+                        }
+                    })?
+            }
+        } else {
+            None
+        };
         if status == VehicleStatus::Active {
             if self
                 .overlap_blocker(
@@ -598,7 +696,7 @@ impl TrafficWorld {
                 }
             }
         }
-        Ok((profile.class(), profile.length_mm()))
+        Ok((profile.class(), profile.length_mm(), traversal))
     }
 
     fn commit_unparked_vehicle(
@@ -606,8 +704,7 @@ impl TrafficWorld {
         input: VehicleSpawnInput,
         carry_um: u16,
         status: VehicleStatus,
-        class: ParticipantClassOrdinal,
-        length_mm: u32,
+        authority: UnparkedVehicleAuthority,
     ) -> (VehicleHandle, VehicleState) {
         let slot_index = self.free_vehicles.pop().unwrap_or(self.vehicles.len());
         let generation = self
@@ -621,14 +718,16 @@ impl TrafficWorld {
         let state = VehicleState {
             handle,
             profile: input.profile(),
-            class,
+            class: authority.class,
             route: input.route(),
             route_edge_index: input.route_edge_index(),
             progress_mm: input.progress_mm(),
             carry_um,
             speed_mm_s: input.initial_speed_mm_s(),
-            length_mm,
+            length_mm: authority.length_mm,
             status,
+            maneuver_traversal: authority.maneuver_traversal,
+            waiting_membership: authority.waiting_membership,
         };
         let slot = VehicleSlot {
             generation,
@@ -664,6 +763,9 @@ impl TrafficWorld {
         if self.parking.binding(old).is_some() {
             return Err(ReplaceError::ParkingOccupied);
         }
+        if old_state.maneuver_traversal.is_some() || old_state.waiting_membership.is_some() {
+            return Err(ReplaceError::WaitingInvariantViolation);
+        }
         let Some(order_index) = self.live_order.iter().position(|handle| *handle == old) else {
             return Err(ReplaceError::StaleHandle);
         };
@@ -697,6 +799,21 @@ impl TrafficWorld {
         if self.route_suffix_denied(input.route(), profile.class(), cursor) {
             return Err(ReplaceError::AccessDenied);
         }
+        let traversal = self
+            .validate_waiting_bootstrap(input.route(), cursor, profile.length_mm())
+            .map_err(|error| match error {
+                crate::waiting::WaitingBindingError::VehicleTooLong => {
+                    ReplaceError::WaitingVehicleTooLong
+                }
+                crate::waiting::WaitingBindingError::StatefulManeuverInterior => {
+                    ReplaceError::WaitingStatefulManeuverInterior
+                }
+                crate::waiting::WaitingBindingError::InvalidRoute
+                | crate::waiting::WaitingBindingError::AuthorityMismatch
+                | crate::waiting::WaitingBindingError::ParkingConflict => {
+                    ReplaceError::InvalidProgress
+                }
+            })?;
         if let Some(blocker) = self.overlap_blocker(
             input.route(),
             cursor,
@@ -768,6 +885,8 @@ impl TrafficWorld {
             speed_mm_s: input.initial_speed_mm_s(),
             length_mm: profile.length_mm(),
             status: VehicleStatus::Active,
+            maneuver_traversal: traversal,
+            waiting_membership: None,
         };
 
         if reusable_generation.is_some() {
@@ -794,10 +913,11 @@ impl TrafficWorld {
         self.rebuild_active_order();
         self.observation_state_sequence = next_observation_state_sequence;
         self.command_cursor = next_command_cursor;
-        let new_delta = VehicleDelta::from_state(
-            self.vehicle_state(new)
-                .expect("freshly committed replacement vehicle"),
-        );
+        let new_state = self
+            .vehicle_state(new)
+            .copied()
+            .expect("freshly committed replacement vehicle");
+        let new_delta = VehicleDelta::from_state(&new_state, self.compiled_route(new_state.route));
         if let Some(journal) = self.migration_journal.as_mut() {
             journal.record_vehicle_replaced(
                 next_command_cursor,
@@ -942,6 +1062,45 @@ impl TrafficWorld {
     #[must_use]
     pub fn vehicle(&self, handle: VehicleHandle) -> Option<VehicleState> {
         self.vehicle_state(handle).copied()
+    }
+
+    /// WaitingZone 的已提交计数；未知 zone 返回 `None`。
+    #[must_use]
+    pub fn waiting_zone(
+        &self,
+        zone: laneflow_static_contract::WaitingZoneOrdinal,
+    ) -> Option<crate::WaitingZoneSnapshot> {
+        let state = *self.waiting_zones.get(zone.index())?;
+        let max_occupancy = self
+            .revision
+            .traffic()
+            .relations()
+            .waiting_zone(zone)?
+            .max_occupancy();
+        Some(crate::WaitingZoneSnapshot {
+            zone,
+            occupancy: state.occupancy,
+            max_occupancy,
+            next_admission_sequence: state.next_admission_sequence,
+        })
+    }
+
+    /// 按 `(zone ordinal, admission sequence)` 排列的全部 Waiting member。
+    #[must_use]
+    pub fn waiting_zone_members(&self) -> &[crate::WaitingZoneMember] {
+        &self.waiting_member_rows
+    }
+
+    /// 刚完成 successful tick 的 Waiting admission decision batch。
+    #[must_use]
+    pub fn latest_waiting_decisions(&self) -> &[crate::WaitingDecision] {
+        &self.latest_waiting_decisions
+    }
+
+    /// 刚完成 successful tick 的 Waiting transition event batch。
+    #[must_use]
+    pub fn latest_waiting_events(&self) -> &[crate::WaitingTransitionEvent] {
+        &self.latest_waiting_events
     }
 
     /// 稳定更新顺序，含 Active / Parked / Completed。
@@ -1319,11 +1478,24 @@ mod overflow_tests {
         let profile = VehicleProfileOrdinal::from_raw(0);
         let positions = [(0, 0), (0, 6_000), (1, 2_000), (2, 0)];
         let vehicles = positions.map(|(occurrence, progress)| {
-            world
+            let spawn_occurrence = if occurrence == 1 { 2 } else { occurrence };
+            let spawn_progress = if occurrence == 1 { 6_000 } else { progress };
+            let vehicle = world
                 .spawn_vehicle(VehicleSpawnInput::new(
-                    profile, route, occurrence, progress, 0,
+                    profile,
+                    route,
+                    spawn_occurrence,
+                    spawn_progress,
+                    0,
                 ))
-                .expect("non-overlapping vehicle")
+                .expect("non-overlapping vehicle");
+            if occurrence == 1 {
+                let index = usize::try_from(vehicle.index()).expect("vehicle index");
+                let state = world.vehicles[index].state.as_mut().expect("vehicle");
+                state.route_edge_index = occurrence;
+                state.progress_mm = progress;
+            }
+            vehicle
         });
         for vehicle in vehicles.iter().take(3).copied() {
             let index = usize::try_from(vehicle.index()).expect("vehicle index");

@@ -5,12 +5,12 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::{
-    CapturedParkingBinding, CapturedParkingTarget, CapturedRoute, CapturedSnapshot,
-    CapturedVehicle, VehicleStatus,
+    CapturedManeuverTraversalPhase, CapturedParkingBinding, CapturedParkingTarget, CapturedRoute,
+    CapturedSnapshot, CapturedVehicle, VehicleStatus,
 };
 
 /// 确定性状态摘要规范化版本。
-pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 5;
+pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 6;
 /// SHA-256 域分隔前缀；尾随 NUL 属于前缀字节。
 pub const RUNTIME_STATE_DIGEST_DOMAIN: &[u8] = b"laneflow:runtime-state-digest:v1\0";
 
@@ -173,6 +173,25 @@ pub fn deterministic_state_digest(
     push_u64(&mut canonical, snapshot.command_cursor);
     push_u64(&mut canonical, snapshot.event_cursor);
 
+    let mut waiting_zone_records = Vec::new();
+    digest_try_reserve_exact(&mut waiting_zone_records, snapshot.waiting_zones.len())?;
+    for state in &snapshot.waiting_zones {
+        let mut record = Vec::new();
+        digest_try_reserve_exact(&mut record, 16 + 4 + 8)?;
+        record.extend_from_slice(state.waiting_zone.as_bytes());
+        push_u32(&mut record, state.occupancy);
+        push_u64(&mut record, state.next_admission_sequence);
+        waiting_zone_records.push(record);
+    }
+    waiting_zone_records.sort_unstable();
+    try_push_u64(
+        &mut canonical,
+        u64::try_from(waiting_zone_records.len()).expect("WaitingZone count fits u64"),
+    )?;
+    for record in &waiting_zone_records {
+        try_push_record(&mut canonical, record)?;
+    }
+
     try_push_u64(
         &mut canonical,
         u64::try_from(route_groups.len()).expect("route group count fits u64"),
@@ -223,7 +242,17 @@ fn canonical_vehicle_record(vehicle: &CapturedVehicle) -> Result<Vec<u8>, Snapsh
             1 + 1 + 1 + 16 + 4 + 1 + if virtual_entry.is_some() { 16 + 4 } else { 0 }
         }
     };
-    let record_len = 4 + 4 + 2 + 4 + 1 + 16 + 16 + parking_len;
+    let traversal_len = if vehicle.maneuver_traversal.is_some() {
+        1 + 4 + 16 + 1 + 16
+    } else {
+        1
+    };
+    let waiting_len = if vehicle.waiting_membership.is_some() {
+        1 + 16 + 4 + 16 + 16 + 8
+    } else {
+        1
+    };
+    let record_len = 4 + 4 + 2 + 4 + 1 + 16 + 16 + parking_len + traversal_len + waiting_len;
     let mut record = Vec::new();
     digest_try_reserve_exact(&mut record, record_len)?;
     push_u32(&mut record, vehicle.route_edge_index);
@@ -271,6 +300,31 @@ fn canonical_vehicle_record(vehicle: &CapturedVehicle) -> Result<Vec<u8>, Snapsh
                     push_u32(&mut record, entry.progress_mm);
                 }
             }
+        }
+    }
+    match vehicle.maneuver_traversal {
+        None => record.push(0),
+        Some(traversal) => {
+            record.push(1);
+            push_u32(&mut record, traversal.maneuver_occurrence_index);
+            record.extend_from_slice(traversal.maneuver_path.as_bytes());
+            record.push(match traversal.phase {
+                CapturedManeuverTraversalPhase::PreGate => 1,
+                CapturedManeuverTraversalPhase::Committed => 2,
+                CapturedManeuverTraversalPhase::Waiting => 3,
+            });
+            record.extend_from_slice(traversal.phase_gate.as_bytes());
+        }
+    }
+    match vehicle.waiting_membership {
+        None => record.push(0),
+        Some(membership) => {
+            record.push(1);
+            record.extend_from_slice(membership.waiting_zone.as_bytes());
+            push_u32(&mut record, membership.maneuver_occurrence_index);
+            record.extend_from_slice(membership.entry_gate.as_bytes());
+            record.extend_from_slice(membership.release_gate.as_bytes());
+            push_u64(&mut record, membership.admission_sequence);
         }
     }
     Ok(record)
@@ -473,9 +527,9 @@ mod tests {
         assert_eq!(
             expected,
             Sha256Digest::from_bytes([
-                0x9d, 0x73, 0x3e, 0x03, 0x12, 0x6b, 0x52, 0x72, 0xdc, 0x49, 0x53, 0x7c, 0x47, 0xba,
-                0xe0, 0x54, 0xf8, 0xc4, 0xf1, 0x67, 0x4b, 0x90, 0x58, 0xd3, 0x19, 0xaf, 0xa5, 0xa2,
-                0xaf, 0xc3, 0xca, 0x23,
+                0x1d, 0x1d, 0x6c, 0x60, 0xe4, 0x42, 0x6a, 0x28, 0x27, 0xe2, 0xe6, 0x72, 0x75, 0x07,
+                0x30, 0x97, 0x28, 0x2d, 0x6a, 0xad, 0x07, 0xcc, 0x2d, 0xad, 0xd1, 0x83, 0x7d, 0xcf,
+                0x23, 0xb9, 0xf0, 0xe1,
             ])
         );
         let mut equivalent = original.clone();

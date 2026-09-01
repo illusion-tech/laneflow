@@ -276,10 +276,10 @@ fn allocation_ledgers_and_per_world_live_bytes() {
             live_per > 0,
             "{count} worlds must allocate per-world tables"
         );
-        // 占用索引与 compiled 路线表在每世界上。2/8 个空世界仍应低于一条走廊静态根；
-        // 32 个允许不超过两倍。
+        // 占用索引、compiled 路线表与 Waiting vehicle-capacity scratch 在每世界上。
+        // 2/8 个空世界仍应低于一条走廊静态根；32 个允许不超过三倍。
         let live_budget = if count >= 32 {
-            static_retained.saturating_mul(2)
+            static_retained.saturating_mul(3)
         } else {
             static_retained
         };
@@ -288,8 +288,11 @@ fn allocation_ledgers_and_per_world_live_bytes() {
             "{count} worlds live {} must stay below budget {live_budget} (static retained {static_retained})",
             second.live_bytes
         );
+        // Waiting 为 vehicle_capacity 保留 member link 与 fixed-step scratch 后，8 车
+        // world 仍须显著小于共享 corridor 根；1/8 门既覆盖必要动态 authority，
+        // 也继续阻止把静态路网表复制进每个 world。
         assert!(
-            u64::try_from(live_per).expect("per-world") * 16 < corridor_build.retained,
+            u64::try_from(live_per).expect("per-world") * 8 < corridor_build.retained,
             "per-world live {live_per} must not masquerade as static retained"
         );
         per_world.push(live_per);

@@ -6,7 +6,8 @@ use laneflow_runtime::{
     SpawnError, TickInput, TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig,
 };
 use laneflow_static_contract::{
-    EntityKind, LaneEdgeOrdinal, SignalAspect, SignalControllerOrdinal, VehicleProfileOrdinal,
+    EntityKind, LaneEdgeOrdinal, ParkingSpaceOrdinal, SignalAspect, SignalControllerOrdinal,
+    VehicleProfileOrdinal,
 };
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
@@ -37,6 +38,9 @@ fn install_fixture(
 const FULL_SPATIAL: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
 );
+const PARKING_ONLY: &[u8] = include_bytes!(
+    "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-base.lfca"
+);
 
 fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
     let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
@@ -61,6 +65,44 @@ fn world_with_delta(delta_ms: u64) -> TrafficWorld {
         WorldConfig::new(8, 4, 1_024, 1_024, 1, delta_ms),
     )
     .expect("install")
+}
+
+fn parking_world() -> TrafficWorld {
+    let input = check_canonical_network_input(PARKING_ONLY, FormatLimits::HARD)
+        .expect("checked parking fixture");
+    let revision = build_shared_network_revision(
+        input,
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::Omit,
+            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+        ),
+    )
+    .expect("parking revision");
+    install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
+        .expect("install parking world")
+}
+
+fn parking_fixture_edges(world: &TrafficWorld) -> Vec<LaneEdgeOrdinal> {
+    let entry = world
+        .traffic()
+        .relations()
+        .parking_space(ParkingSpaceOrdinal::from_raw(0))
+        .expect("parking space")
+        .entry()
+        .0;
+    let exit = world
+        .traffic()
+        .successors(entry)
+        .and_then(|successors| successors.first())
+        .copied()
+        .expect("parking fixture successor");
+    vec![entry, exit]
+}
+
+fn parking_route(world: &mut TrafficWorld) -> RouteHandle {
+    world
+        .register_route(RouteRegisterInput::new(parking_fixture_edges(world)))
+        .expect("parking route")
 }
 
 fn aspects_at(world: &TrafficWorld, time_ms: u64) -> Vec<SignalAspect> {
@@ -282,9 +324,9 @@ fn both_vehicles_can_advance_on_fixture_route() {
 
 #[test]
 fn parked_vehicle_does_not_move() {
-    let mut world = world();
-    let route = fixture_route(&mut world);
-    let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
+    let mut world = parking_world();
+    let route = parking_route(&mut world);
+    let space = ParkingSpaceOrdinal::from_raw(0);
     world
         .spawn_parked_vehicle(
             ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0),
@@ -455,20 +497,23 @@ fn red_snapshot_prevents_controlled_transition() {
     let mut world = world();
     let route = fixture_route(&mut world);
     let edges = world.route_edges(route).expect("edges").to_vec();
+    let entry = edges[0];
     let from = edges[1];
-    let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[from.index()];
+    let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[entry.index()];
     let t_aspects = aspects_at(&world, world.time_ms());
     assert_eq!(t_aspects.get(1).copied(), Some(SignalAspect::Red));
     world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
-            1,
-            7_200,
+            0,
+            9_900,
             speed_limit,
         ))
         .expect("spawn");
-    world.step(TickInput::new(100)).expect("step");
+    for _ in 0..20 {
+        world.step(TickInput::new(100)).expect("step");
+    }
     let PoseSource::Lane { edge, progress_mm } = world.committed_pose_sources().as_slice()[0].1
     else {
         panic!("expected lane pose");
@@ -830,8 +875,8 @@ fn registered_vehicles_follow_on_shared_edges() {
 
 #[test]
 fn spawn_rejects_overlap_across_adjacent_edges() {
-    let mut world = world();
-    let route = fixture_route(&mut world);
+    let mut world = parking_world();
+    let route = parking_route(&mut world);
     let profile = world
         .traffic()
         .relations()
@@ -852,7 +897,7 @@ fn spawn_rejects_overlap_across_adjacent_edges() {
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
-                8_000,
+                99_000,
                 0,
             ))
             .unwrap_err(),

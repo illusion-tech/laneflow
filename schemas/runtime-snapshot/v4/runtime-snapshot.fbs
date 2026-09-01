@@ -1,7 +1,8 @@
-// LaneFlow 运行时快照容器 v3。
-// v3 在完整行为配置中加入路线冲突出现项容量；派生冲突热表不持久化。
+// LaneFlow 运行时快照容器 v4。
+// v4 加入 WaitingZone traversal、membership 与单调 admission counter；派生 queue link、
+// occupancy index、latest decision/event batch 和 tick-local claim 不持久化。
 
-namespace LaneFlow.RuntimeSnapshot.V3;
+namespace LaneFlow.RuntimeSnapshot.V4;
 
 struct Digest256 { bytes:[ubyte:32]; }
 struct StableId128 { bytes:[ubyte:16]; }
@@ -19,6 +20,12 @@ enum SourceKind:ubyte { Unspecified = 0, Published = 1 }
 enum VehicleStatusKind:ubyte { Unspecified = 0, Active = 1, Parked = 2, Completed = 3 }
 enum ParkingBindingStateKind:ubyte { Unspecified = 0, Reserved = 1, Occupied = 2 }
 enum ParkingTargetKind:ubyte { Unspecified = 0, ExplicitSpace = 1, VirtualPool = 2 }
+enum ManeuverTraversalPhaseKind:ubyte {
+  Unspecified = 0,
+  PreGate = 1,
+  Committed = 2,
+  Waiting = 3
+}
 
 table WorldConfigBinding {
   vehicle_capacity:uint;
@@ -52,6 +59,22 @@ table ParkingBinding {
   virtual_entry_progress_mm:uint;
 }
 
+// phase_gate is the stable identity of next/last/release Gate according to phase.
+table ManeuverTraversalBinding {
+  maneuver_occurrence_index:uint;
+  maneuver_path:StableId128;
+  phase:ManeuverTraversalPhaseKind;
+  phase_gate:StableId128;
+}
+
+table WaitingMembershipBinding {
+  waiting_zone:StableId128;
+  maneuver_occurrence_index:uint;
+  entry_gate:StableId128;
+  release_gate:StableId128;
+  admission_sequence:ulong;
+}
+
 table SnapshotVehicle {
   snapshot_vehicle_id:ulong;
   snapshot_route_id:ulong;
@@ -63,6 +86,16 @@ table SnapshotVehicle {
   profile:StableId128;
   class:StableId128;
   parking:ParkingBinding;
+  maneuver_traversal:ManeuverTraversalBinding;
+  waiting_membership:WaitingMembershipBinding;
+}
+
+// occupancy is serialized defensively and must equal the reconstructed member count.
+// A zero-occupancy row remains required whenever next_admission_sequence is non-zero.
+table WaitingZoneState {
+  waiting_zone:StableId128;
+  occupancy:uint;
+  next_admission_sequence:ulong;
 }
 
 table RuntimeSnapshot {
@@ -83,6 +116,7 @@ table RuntimeSnapshot {
   routes:[SnapshotRoute] (required);
   vehicles:[SnapshotVehicle] (required);
   live_order:[ulong] (required);
+  waiting_zones:[WaitingZoneState] (required);
 }
 
 root_type RuntimeSnapshot;

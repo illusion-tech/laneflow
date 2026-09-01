@@ -43,8 +43,8 @@ Traffic Runtime 的 leader、minimum gap、no-overlap、Gate、路线终点和�
 - `ConflictPassageOccurrence` 与 #284 前的
   `ConflictRuntimeUnavailable` 全车身能力保护已经存在。
 
-本 ADR 冻结长期 ownership；#282 的实现细节由已接受的详细设计冻结，仍须在记录 G2
-后才可进入实现。
+本 ADR 冻结长期 ownership；#282 的实现细节由已接受的详细设计冻结，G2 实现不得把
+#284 的 downstream-clearance、Conflict 仲裁或组合 ledger 提前并入本地 Waiting claim。
 
 ## 决策
 
