@@ -1,6 +1,6 @@
 # ADR 0019：WaitingZone、ConflictZone 与车辆级通行权 authority
 
-**状态**: Accepted（架构决策；#282 详细设计仍为 Review）<br>
+**状态**: Accepted（架构决策与 #282 G1 详细设计）<br>
 **日期**: 2026-09-01<br>
 **适用范围**: 多阶段 ManeuverGate、WaitingZone、ConflictZone、车辆级通行权、
 Traffic Runtime 安全组合、持久化与引擎边界<br>
@@ -43,8 +43,8 @@ Traffic Runtime 的 leader、minimum gap、no-overlap、Gate、路线终点和�
 - `ConflictPassageOccurrence` 与 #284 前的
   `ConflictRuntimeUnavailable` 全车身能力保护已经存在。
 
-本 ADR 冻结长期 ownership；#282 的实现细节仍须由其 Review 状态设计明确接受后才可
-进入实现。
+本 ADR 冻结长期 ownership；#282 的实现细节由已接受的详细设计冻结，仍须在记录 G2
+后才可进入实现。
 
 ## 决策
 
