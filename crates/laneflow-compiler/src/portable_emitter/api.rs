@@ -181,6 +181,7 @@ pub enum PortableEmissionError {
     InvalidCompilerBuildId,
     Format(FormatError),
     ArithmeticOverflow,
+    AllocationFailure,
     InvalidDiffBaseKind,
     DiffBaseSemanticMismatch,
     UnsupportedSemanticContractTransition,
