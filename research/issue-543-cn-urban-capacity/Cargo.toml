@@ -1,0 +1,21 @@
+[package]
+name = "laneflow-issue-543-spike"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.98"
+publish = false
+
+# 本 crate 是 #543 调研 spike，故意不加入主工作区成员（#308 规则：研究代码不得进入
+# 生产 crate 或 workspace 成员）。独立 workspace 使其 `cargo` 命令不依赖根清单。
+[workspace]
+
+[dependencies]
+laneflow-compiler = { path = "../../crates/laneflow-compiler" }
+laneflow-format = { path = "../../crates/laneflow-format", features = ["std"] }
+laneflow-runtime = { path = "../../crates/laneflow-runtime" }
+laneflow-static-contract = { path = "../../crates/laneflow-static-contract" }
+laneflow-static-network = { path = "../../crates/laneflow-static-network" }
+stats_alloc = "=0.1.10"
+
+[profile.release]
+debug = false
