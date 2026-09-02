@@ -1,7 +1,7 @@
 # 路权策略编译与 ConflictArbiter 实施合同
 
 **文档状态**: Review（#284 实施细化；不表示生产能力已经交付）<br>
-**最后更新**: 2026-09-02<br>
+**最后更新**: 2026-09-03<br>
 **适用范围**: 官方编制来源、LFCA、共享静态路网、策略绑定、信号解释、冲突资源、
 运行时快照与修订切换<br>
 **设计依据**: ADR 0009、0019、0025、0028、0029；
@@ -35,7 +35,8 @@
 
 合成有类型 DSL 的 `SyntheticModuleBuilder` 与道路编辑来源的 builder/reader/writer
 新增同构 `RightOfWayPolicySetInput`。道路编辑 FlatBuffers 跟随 §8 原子升级，保持
-`LFRE` 根版本的前置拒绝。两条前端均按现行 import、module namespace、来源位置、
+`LFRE` 根版本的前置拒绝；新增来源字段与 LFSM 编码登记见 §4.4。
+两条前端均按现行 import、module namespace、来源位置、
 预算和失败原子性规则接入；不从 LFSM、外部 URL 或 Runtime 对象回填缺失声明。
 
 同一策略集及其局部成员由一个来源模块拥有；成员可引用已导入模块中的 stream、Gate
@@ -192,7 +193,8 @@ evidence 集必须编码为空向量，不能用缺字段代替；evidence 为�
 
 LFSM 增加 owner-local role `PolicyEvidence=33`、`PolicyGapProfile=34`、
 `PolicyStreamRule=35`、`PolicyGateRule=36`：owner 是 policy StableId，member index
-是该 owner 同类局部成员按 key 排序后的下标。来源路径保留实际字段位置；它不是
+是该 owner 同类局部成员按 key 排序后的下标；完整来源编码与投影见 §4.4。
+来源路径保留实际字段位置；它不是
 持久规则身份。局部引用由完整成员 payload 检查，不向既有只容纳稳定实体的 relation
 tuple 填入假 StableId。LFSD 4 的局部成员变更使用 §4.3 的专用表、稳定值投影与
 两端闭合规则；不得把局部成员伪装成 EntityChange 的稳定 subject 或关系 target。
@@ -348,6 +350,126 @@ PolicyLocal Add；Artifact 中整个 policy 新增/删除也必须逐项发射�
    独立投影与扫描 scratch 计入既有编译/后发射预算，Runtime tick 不读取 LFSD 表。
    未完成本节闭合的差异制品不得用于发布候选或跨修订认证；目标根仍由完整 LFCA
    重建，差异表本身不授予迁移权限。
+
+### 4.4 LFSM 4 来源编码与闭合
+
+本节与 §4.3 一同构成格式增量；复用[规范制品格式](portable-canonical-artifact.md)
+§4 的完整 LFSM 表形状，仅替换本节明确列出的版本、代码登记和投影。
+`magic="LFSM"`、`sourceMapFormatVersion=4`，仍为五节、八张逻辑表，首节偏移
+`0x0098`；section format 2、table schema 1、SourceLocation tag 1–21 不变。
+SourceMapBindings tag 3 固定为 LFCA 5，先验证其 exact length、digest、revision 及
+§8 合同组合，再暴露来源行。SourceModule 的 Synthetic/RoadEditing frontendVersion
+分别为 5/4，sourceLanguage 仍为 1/2；文档集合与来源集合摘要算法均保持版本 1。
+不接受用 LFSM 3、Road Editing v3 路径登记或旧 frontend version 描述新登记。
+
+#### 4.4.1 Road Editing v4 的 container/member 登记
+
+LFRE `format_version=4`，现行 schema 的字段及 LFSM table container code 0–39
+保持含义；新增和扩展如下。`id` 为 FlatBuffers field id，同时是 TableField 的
+`memberCode`，不是 LFCA field tag。字符串、引用、日期、集合与数值语义服从 §2–§3。
+
+| containerCode | table               | 新增 field id、名称及来源类型                                                                                                                                                                                                                                               |
+| ------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0             | RoadEditingSource   | `29 right_of_way_policy_sets:[RightOfWayPolicySet]`，required，允许空                                                                                                                                                                                                       |
+| 14            | Movement            | `5 turn_direction:ManeuverDirection?`                                                                                                                                                                                                                                       |
+| 40            | RightOfWayPolicySet | `0 policy_set_key:string, 1 regulation:AccessRegulation, 2 effective_from:string?, 3 effective_until:string?, 4 evidence:[PolicyEvidence], 5 gap_profiles:[PolicyGapProfile], 6 stream_rules:[PolicyStreamRule], 7 gate_rules:[PolicyGateRule], 8 canvas_selection:string?` |
+| 41            | PolicyEvidence      | `0 evidence_key:string, 1 locator:string, 2 description:string?`                                                                                                                                                                                                            |
+| 42            | PolicyGapProfile    | `0 profile_key:string, 1 parameter_version:string, 2 minimum_lead_gap_ms:ulong, 3 minimum_lag_gap_ms:ulong, 4 clearance_buffer_ms:ulong`                                                                                                                                    |
+| 43            | PolicyStreamRule    | `0 rule_key:string, 1 stream:string, 2 participant_classes:[string]?, 3 priority:int, 4 yield_to_streams:[string], 5 gap_profile_key:string?, 6 evidence_keys:[string]`                                                                                                     |
+| 44            | PolicyGateRule      | `0 rule_key:string, 1 gate:string, 2 participant_classes:[string]?, 3 interpretation:GateInterpretation, 4 prohibition:GateProhibition, 5 evidence_keys:[string]`                                                                                                           |
+
+除 `?` 外，全部字段必须有值；新增 FlatBuffers 标量采用 `= null` 的 optional-scalar
+物理编码以保留存在性，语义预检拒绝缺失的必需数值/枚举，不能把缺失补成零。
+三个枚举的来源底层类型均为 `ubyte`。Movement 方向允许 null；存在时精确使用
+§3.1 的 `0..3`。门解释 `0..5` 与禁令 `0..2` 同 §3.1；不新增隐式 Unspecified 值。
+日期来源仍为严格 `YYYY-MM-DD`。`AccessRegulation` 复用已有 container 30 的
+`0 jurisdiction, 1 version, 2 source?`，作为共同法规值编码；不新增同形 container，
+也不把 source locator 变成 SourceDocument。
+
+新增合法 table→table 边仅为 `40.1→30`、`40.4→41`、`40.5→42`、`40.6→43`、
+`40.7→44`；每一步都是 `stepKind=0 TableField`。struct/union 登记保持原样，
+路径上限仍为四步。policy Declaration 的 root 为 container 40；指向成员向量内部的路径
+必须使用下节对应 OwnerLocal subject，不能靠 Declaration 加路径猜出第几个成员。
+四类新增 OwnerLocal 的第一步必须是对应的 `40.{4,5,6,7}`，可以止于该步表示完整成员，
+或再接对应成员 table 的一个合法字段；拒绝跨成员种类、向量下标或额外第三步。
+成员内的引用向量以完整字段定位，不在 propertySteps 里嵌入第二层 occurrence。
+
+例如间隙数值路径是两步 `(0,40,5),(0,42,2)`；机动方向是一步 `(0,14,5)`。
+`RoadEditingSource.29` 登记顶层来源向量，但不能替代具体 policy Declaration 地址。
+这些 wire 数字必须显式映射，不能取 Rust enum 的声明顺序或把 LFCA tag 强转过去。
+
+#### 4.4.2 OwnerLocal 来源关系及位置字段
+
+新增 `roadEditingRelationKind` 如下；现有 0–15 不变。四者均要求 Address owner
+指向 RightOfWayPolicySet，以及 `CanonicalSetOrdinal`；不新增 subject/owner/occurrence
+变体，也不把 LFSM sourceRelationRole 的 33–36 当作来源关系 wire 值。
+
+| roadEditingRelationKind | 名称             | sourceRelationRole | 唯一 LFCA 5 投影                    | primary propertySteps |
+| ----------------------- | ---------------- | ------------------ | ----------------------------------- | --------------------- |
+| 16                      | PolicyEvidence   | 33                 | section 4 / table 2，按 policy 过滤 | `(0,40,4)`            |
+| 17                      | PolicyGapProfile | 34                 | section 4 / table 3，按 policy 过滤 | `(0,40,5)`            |
+| 18                      | PolicyStreamRule | 35                 | section 4 / table 4，按 policy 过滤 | `(0,40,6)`            |
+| 19                      | PolicyGateRule   | 36                 | section 4 / table 5，按 policy 过滤 | `(0,40,7)`            |
+
+新增位置必须满足 SourceLocation 的以下精确形状；共同 tag 1–4 与 Text/RoadEditing
+互斥矩阵仍服从现行合同，RoadEditing 的 tag 5–8 禁止：
+
+- policy 主位置为 `RoadEditing(1)`、`Declaration(2)`；tag 10 为所属模块 namespace，
+  tag 11 为 EntityKind 24，tag 15 为 `policy_set_key`，tag 12–14/16–20 全部禁止。
+  policy 无 parent key chain，其 key 必须等于 Identity tag 35，namespace 等于 tag 1。
+- 成员主位置为 `RoadEditing(1)`、`OwnerLocal(3)`；tag 10/11/15 仍标识 owner policy，
+  tag 12–14 禁止，tag 16=`Address(1)`，tag 17 为上表 16–19，tag 18=
+  `CanonicalSetOrdinal(1)`，tag 19 为该 policy 内同种成员按原始 key 字节严格排序后
+  的零基序号；tag 20 必须为上表的一步路径。tag 15 不能替换成成员 key。
+- 成员字段位置使用同一 OwnerLocal 地址，只将 tag 20 扩展为 §4.4.1 的两步路径；
+  policy 自身字段位置使用同一 Declaration 地址并携带对应合法 tag 20。
+  tag 21 均逐值继承该 policy 的 optional `canvas_selection`，保留缺失/空值差异。
+
+关系 occurrence 按局部 key 排序，是现有 CanonicalSetOrdinal 对 owner-local 具名
+成员的扩展；不按 stream/gate 目标引用、来源物理 vector 下标或 StableId 摘要排序。
+同 policy 同种 key 重复拒绝，不同成员种类可同名。四张 LFCA 局部表按同一 key 序
+过滤，因此上述 occurrenceOrdinal 必须恰等于 OwnerLocalSource.localIndex。
+这个相等关系从两个受检输入重算，不以 LFSM 自报序号建立；跨 chunk 连续，重排来源
+声明不改变成员定位。持久变更身份仍是 §4.3 的 K，来源序号不是成员 StableId。
+
+#### 4.4.3 主来源、贡献来源及完整双射
+
+每个 policy 实体恰有一行既有 StableEntitySource，entityKind=24；StableId 与
+typedOrdinal 来自绑定 LFCA 的 Identity/实体行，RoadEditing primary 为上述 Declaration。
+每个四类局部成员恰有一行既有 OwnerLocalSource，ownerEntityKind=24、ownerStableId
+为所属 policy，role/localIndex 严格按上表投影，RoadEditing primary 使用上表路径。
+Synthetic primary 使用下文的 Text 投影。新增行不需要 subject
+StableId，不产生 DerivedRelationSource 或 SpatialGeometrySourceRange，也不向
+LFSD RelationChange 发射假实体关系；LFSD 局部成员变化仅走 §4.3。
+
+两个官方前端都必须向同一 ValidatedSourceMapInput 提供上述实体与成员 source view：
+
+- RoadEditing policy 的贡献来源为 Declaration 字段 `40.0`、`40.1→30.{0,1}`，
+  以及存在时的 `40.1→30.2`、`40.2`、`40.3`。成员贡献来源为其两步属性路径，
+  覆盖本成员全部实际存在的字段，包括 key、显式零和空向量；可选字段缺失时无对应位置。
+  不把其他成员、被引用目标的 Declaration 或法规 URL 添加到该成员的贡献来源。
+  canvas 仅编码为 tag 21；成员来源不再重复汇入 policy 自身的贡献集合。
+- Synthetic frontend 5 继续使用调用方显式提供并受检的 Text SourceSpan：policy 与
+  每个成员的 primary 分别投影其声明主位置，字段贡献来源投影同一 source view 实际
+  保存的位置，按现行 `C(view)` 排序去重。共同输入允许复用同一真实 span，但不从
+  canonical ordinal 生成行列号，也不把 RoadEditing 路径转成虚构 Text 位置。
+
+emitter 与独立 checker 先验证 LFCA、来源记录及同一编译输出的完整绑定，再分别重建
+policy 实体和 `(ownerStableId, role, key)` 成员全集；根据 key 排序计算 localIndex，
+从正式来源中定位所属声明/成员，独立产生 primary、贡献集合及位置池。所有投影必须
+逐值等于 source view 的 `primary_source()`/`C(view)`，并与 LFSM 逐行、逐位置闭合。
+仅凭 LFCA 不能恢复 Text span 或 canvas；这些事实必须来自同一个受检来源输入，不能
+由 LFSM 自报地址证明自身正确。结构读取不等于完成这种来源闭合检查。
+
+必须覆盖未被世界选中的 policy 及空成员集合；漏行、多行、重复 role/index、错 owner、
+错种类路径、同形另一成员的位置、伪造贡献集合均拒绝。空集合恰无对应 OwnerLocalSource，
+不得放占位行。SourceLocation 池仍精确等于全部被引用位置的集合，按完整位置语义值
+排序去重，全局 ordinal、行键和唯一性跨 chunk 延续。现有 role 1–32 的投影保持不变；
+Movement 的新方向属性存在时，RoadEditing 的贡献来源增加同一 Declaration 的
+`(0,14,5)` 路径；缺失时无此位置，Synthetic 则投影实际提供的 Text 字段来源。
+两者均不新增 owner-local role，也不改变 Movement 的 primary。
+新增行、属性路径、来源 context、intern 字符串与向量全部计入既有编译及后发射预算，
+先计量后分配；所有绑定与投影成功后才返回完整候选，失败不留下部分来源映射。
 
 ## 5. 世界和场景绑定
 
@@ -520,7 +642,7 @@ cells/bytes、claim/query/collision 与 wait-for node/edge/visit counts。开发
 | LFCA / canonical format        | 4     | 5     | 一实体、四局部表、机动方向和策略语义              |
 | constraint contract            | 2     | 3     | 门解释与组合资源约束                              |
 | static execution contract      | 4     | 5     | policy 解析与 conflict 执行输入                   |
-| LFSM                           | 3     | 4     | 新 owner-local 角色和实体登记                     |
+| LFSM                           | 3     | 4     | §4.4 来源编码、角色登记与逐值投影闭合             |
 | LFSD                           | 3     | 4     | 七节/七表，PolicyLocalChange 完整增删改与两端闭合 |
 | LFCP                           | 2     | 2     | descriptor 形状不变，精确绑定新版 LFCA/LFSM       |
 | NetworkRevision derivation     | 1     | 1     | 现有规范静态覆盖算法；新表和契约值进入现有输入    |
@@ -576,6 +698,13 @@ cells/bytes、claim/query/collision 与 wait-for node/edge/visit counts。开发
 - 独立 checker 拒绝漏掉成员/整节、错 owner/kind、错侧/同值载荷、重复 K（包括跨
   chunk）、错误稳定引用与格式轴；覆盖 Bytes 内层计数超限和失败后重试。验证声明
   顺序置换产生同一 canonical LFSD；不把两端摘要匹配当成变化清单完整的证明。
+- LFSM 4 为 policy Declaration、四类 OwnerLocal 主位置及每类字段路径建立固定
+  wire 向量；包含法规嵌套属性、Movement 方向和 optional canvas。覆盖两个正式
+  前端、相同 key 跨种类、来源成员重排、空集合、多 policy 和跨 chunk 定位。
+- LFSM 独立 checker 拒绝角色与来源关系代码混用、错误 container/member/路径边、
+  错 owner/key/occurrence、漏行、额外行、伪造 primary/contributing、悬空位置及
+  LFCA/frontend 版本不匹配；覆盖新增计数超限和失败后重试。验证 source-only 改动
+  可改变 LFSM 及来源摘要而不改变 LFCA 语义部分与 NetworkRevisionId，不伪造 LFSD 语义变化。
 
 文档验证运行 Markdown 表格与本地链接检查；生产实现还须满足仓库对应 Rust、codegen、
 制品和场景测试。设计候选的检查通过不等于 runtime 已实现、G2 已记录或 #284 已完成。
