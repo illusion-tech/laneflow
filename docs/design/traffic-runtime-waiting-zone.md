@@ -505,6 +505,9 @@ reason 的含义或让历史 record 成为 authority。
 `NotRequired` 只覆盖正式 staged motion 实际 crossing 或接触的 Gate，不使用尚未施加
 Waiting capacity/storage/horizon 约束的预览位置。claim 的 `Granted` 仍表示本 tick 已取得
 claim，不等同于实际 successful entry。
+非 Waiting entry 的 Gate（包括 release Gate）同样先按 tick-start 灯色判定：限制通行时
+输出 `NotEvaluated`，允许通行且无需新 Waiting admission 时才输出 `NotRequired`。
+tick 结束时的信号刷新不改写该批次的历史决定。
 
 ### 8.3 事件
 
@@ -625,6 +628,9 @@ state、zone counter 与 queue order，不纳入派生 links 或 latest output b
 - 从未产生逻辑状态的 base-only 空 zone 不进入持久 Waiting state；target-only zone 从
   occupancy/counter 零值开始。已注册路线仍须在 target 重编译并重验全部 future
   occurrence，不能用“当前无 active member”跳过缺失 metadata；
+- target-only zone 的 `(entryHop, releaseHop]` 内若已有 `Active` cursor 而无对应
+  membership，切换失败；不得自动补造 admission 或以零 occupancy 接受区间内车辆。
+  `Parked` 的 retained cursor 不代表进入，不适用这项 Active 约束；
 - restore 与 cutover 必须继续核对 `route_conflict_occurrence_capacity`、重建
   `ConflictPassageOccurrence` 并对全部候选 `Active` 车辆执行 #559 3A 保护；Waiting
   状态迁移成功不得绕过 `ConflictRuntimeUnavailable`。

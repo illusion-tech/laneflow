@@ -79,6 +79,18 @@ fn try_reserve_staging_exact<T>(values: &mut Vec<T>, capacity: usize) -> Result<
         .map_err(|_| CutoverError::StagingAllocFailed)
 }
 
+fn try_staging_vec<T>(capacity: usize) -> Result<Vec<T>, CutoverError> {
+    let mut values = Vec::new();
+    try_reserve_staging_exact(&mut values, capacity)?;
+    Ok(values)
+}
+
+fn try_staging_slice<T: Default + Clone>(capacity: usize) -> Result<Box<[T]>, CutoverError> {
+    let mut values = try_staging_vec(capacity)?;
+    values.resize(capacity, T::default());
+    Ok(values.into_boxed_slice())
+}
+
 /// base→target 稳定引用重绑表：按实体种类分列的稠密序数映射。
 ///
 /// 构造自两侧 `SharedIdentityIndex`（切换合同 §2：base 侧来自活动聚合、
@@ -798,20 +810,18 @@ pub(crate) fn migrate_structural_clone(
         live_order,
         active_order,
         parking,
-        waiting_zones: vec![crate::waiting::WaitingZoneState::default(); waiting_zone_count]
-            .into_boxed_slice(),
-        waiting_links: vec![crate::waiting::WaitingQueueLink::default(); vehicle_capacity]
-            .into_boxed_slice(),
-        waiting_member_rows: Vec::with_capacity(vehicle_capacity),
-        waiting_claims: Vec::with_capacity(vehicle_capacity),
-        waiting_plans: Vec::with_capacity(vehicle_capacity),
-        waiting_plan_by_vehicle: vec![None; vehicle_capacity].into_boxed_slice(),
-        waiting_next_state_index: vec![0; vehicle_capacity].into_boxed_slice(),
+        waiting_zones: try_staging_slice(waiting_zone_count)?,
+        waiting_links: try_staging_slice(vehicle_capacity)?,
+        waiting_member_rows: try_staging_vec(vehicle_capacity)?,
+        waiting_claims: try_staging_vec(vehicle_capacity)?,
+        waiting_plans: try_staging_vec(vehicle_capacity)?,
+        waiting_plan_by_vehicle: try_staging_slice(vehicle_capacity)?,
+        waiting_next_state_index: try_staging_slice(vehicle_capacity)?,
         waiting_staged_decisions: Vec::new(),
         waiting_staged_events: Vec::new(),
-        waiting_next_counters: vec![0; waiting_zone_count].into_boxed_slice(),
-        waiting_staged_occupancy: vec![0; waiting_zone_count].into_boxed_slice(),
-        waiting_staged_storage_mm: vec![0; waiting_zone_count].into_boxed_slice(),
+        waiting_next_counters: try_staging_slice(waiting_zone_count)?,
+        waiting_staged_occupancy: try_staging_slice(waiting_zone_count)?,
+        waiting_staged_storage_mm: try_staging_slice(waiting_zone_count)?,
         latest_waiting_decisions: Vec::new(),
         latest_waiting_events: Vec::new(),
         next_states,
@@ -1319,6 +1329,45 @@ pub(crate) mod tests {
             },
             CutoverError::StagingAllocFailed
         );
+    }
+
+    #[test]
+    fn each_waiting_staging_reservation_fails_closed_and_can_retry() {
+        let world = installed_world(FULL_SPATIAL_LFCA, "fixture://waiting-stage");
+        let target = revision(FULL_SPATIAL_LFCA);
+        let origin = *target.canonical_origin();
+        let rebinding = CrossRevisionRebinding::build(world.revision.identity(), target.identity())
+            .expect("rebinding");
+        let before = world.capture_snapshot().expect("before");
+        // 首次为 signal；随后十次分别覆盖全部新增 Waiting 稠密状态与 scratch。
+        for fail_after in 1..=10 {
+            let result = with_staging_allocation_failure_after(fail_after, || {
+                migrate_structural_clone(
+                    &world,
+                    Arc::clone(&target),
+                    source_for(origin, "fixture://waiting-stage-target"),
+                    &rebinding,
+                )
+            });
+            assert_eq!(
+                result.err(),
+                Some(CutoverError::StagingAllocFailed),
+                "Waiting allocation {fail_after}"
+            );
+            assert_eq!(world.capture_snapshot().expect("unchanged"), before);
+        }
+        let candidate = with_staging_allocation_failure_after(11, || {
+            migrate_structural_clone(
+                &world,
+                target,
+                source_for(origin, "fixture://waiting-stage-target"),
+                &rebinding,
+            )
+        })
+        .expect("all Waiting allocations succeeded");
+        assert_eq!(candidate.waiting_zones.len(), world.waiting_zones.len());
+        assert_eq!(candidate.waiting_links.len(), world.waiting_links.len());
+        assert!(candidate.waiting_state_valid());
     }
 
     fn installed_world(bytes: &[u8], key: &str) -> TrafficWorld {
