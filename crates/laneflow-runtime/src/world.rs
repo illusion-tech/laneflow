@@ -1092,12 +1092,16 @@ impl TrafficWorld {
     }
 
     /// 刚完成 successful tick 的 Waiting admission decision batch。
+    /// 跨修订成功切换后置空；需要历史记录的调用方必须在切换前消费。
+    /// 同修订切换、生命周期命令和失败操作保留原批次。
     #[must_use]
     pub fn latest_waiting_decisions(&self) -> &[crate::WaitingDecision] {
         &self.latest_waiting_decisions
     }
 
     /// 刚完成 successful tick 的 Waiting transition event batch。
+    /// 跨修订成功切换后置空；需要历史记录的调用方必须在切换前消费。
+    /// 同修订切换、生命周期命令和失败操作保留原批次。
     #[must_use]
     pub fn latest_waiting_events(&self) -> &[crate::WaitingTransitionEvent] {
         &self.latest_waiting_events

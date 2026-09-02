@@ -332,7 +332,7 @@ fn explicit_parking_lifecycle_enforces_exclusivity_and_narrow_idempotency() {
 }
 
 #[test]
-fn parking_entry_inside_waiting_maneuver_fails_atomically() {
+fn active_parking_entry_rejects_waiting_traversal_but_parked_cursor_is_orthogonal() {
     let mut active_world = world();
     let route = fixture_route(&mut active_world);
     let space = ParkingSpaceOrdinal::from_raw(0);
@@ -358,22 +358,24 @@ fn parking_entry_inside_waiting_maneuver_fails_atomically() {
     let mut parked_world = world();
     let parked_route = fixture_route(&mut parked_world);
     let cursor_before = parked_world.command_cursor();
-    assert_eq!(
-        parked_world
-            .spawn_parked_vehicle(
-                ParkedVehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    parked_route,
-                    0,
-                    4_000,
-                ),
-                ParkingTarget::ExplicitSpace(space),
-            )
-            .unwrap_err(),
-        ParkingError::WaitingTraversalConflict
-    );
-    assert_eq!(parked_world.command_cursor(), cursor_before);
-    assert_eq!(parked_world.committed_parking_occupant(space), None);
+    let parked = parked_world
+        .spawn_parked_vehicle(
+            ParkedVehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                parked_route,
+                0,
+                4_000,
+            ),
+            ParkingTarget::ExplicitSpace(space),
+        )
+        .expect("Parked retained cursor is not an Active arrival")
+        .vehicle;
+    assert_eq!(parked_world.command_cursor(), cursor_before + 1);
+    assert_eq!(parked_world.committed_parking_occupant(space), Some(parked));
+    let state = parked_world.vehicle(parked).expect("parked state");
+    assert_eq!(state.status(), VehicleStatus::Parked);
+    assert!(state.waiting_membership().is_none());
+    assert!(state.maneuver_traversal().is_none());
 }
 
 #[test]

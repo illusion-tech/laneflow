@@ -101,6 +101,10 @@ WaitingZone 是 Gate 有界资源、行为 authority 属于交通运行时、Ada
 Runtime 不依赖 compiler、文件系统、Serde 或 Spatial，也不按 external string 在热路径
 查找 WaitingZone。
 
+路线注册同时编译按 route order 排列的实际 Gate hop 索引。固定步进按 cursor 定位下一
+Gate，不逐车辆扫描没有 Gate 的剩余路线后缀；没有 Waiting coverage 的 Gate 仍保留
+`NotRequired` 观察语义。
+
 ### 3.2 `WaitingOccurrence`
 
 共同路线编译器继续 profile-agnostic，并为每个 Waiting occurrence 物化：
@@ -255,6 +259,9 @@ membership 与 `ParkingBinding` 也是正交状态轴：通过 §3.4 绑定检�
 `Active + Reserved` 可以继续携带 Waiting membership；预约停车不释放队列 authority。
 只有真正提交 `park_vehicle`（`Active -> Parked + Occupied`）前才必须先证明
 traversal/membership 已清空。
+`spawn_parked_vehicle` 直接构造无 traversal/membership 的 `Parked + Occupied`；其
+retained route cursor 不是 arrival anchor，也不授予道路占用，不执行 Active parking-entry
+检查。恢复该状态使用同一规则；离场时才对新的 Active 候选执行完整绑定检查。
 `leave_parking` 创建的新 `Active` 候选从无 Waiting membership 开始，并同时经过
 Waiting 绑定与 conflict 3A 检查。
 
@@ -426,6 +433,10 @@ tick-start 已在 boundary、两者都给出零 travel），phase attribution �
 来自 leader/minimum-gap 时才保持 `Committed`。这个 tie 只决定 phase/event/snapshot
 归因，不放宽任一 hard constraint，也不复用 #284 的 business right-of-way priority。
 
+phase 保存产生该 committed state 的 tick-start 约束归因。提交时信号推进到下一时点，
+不追溯改写该归因。restore/cutover 校验 route、Gate、crossing side、membership 与 release
+boundary 的结构一致性，不以恢复时或目标修订的当前 signal aspect 重判历史 phase。
+
 ## 7. 生命周期命令
 
 - `register_route`：profile-agnostic 编译 Waiting local operands；任何失败不占 route
@@ -490,6 +501,10 @@ NoGrant(PhysicalStorage)
 record 只描述刚完成的 successful tick，不是下一 tick 的 permission lease。#284 可以
 在同一 resource-outcome 面增加 Conflict/downstream reason，但不得改变 #282 Waiting
 reason 的含义或让历史 record 成为 authority。
+
+`NotRequired` 只覆盖正式 staged motion 实际 crossing 或接触的 Gate，不使用尚未施加
+Waiting capacity/storage/horizon 约束的预览位置。claim 的 `Granted` 仍表示本 tick 已取得
+claim，不等同于实际 successful entry。
 
 ### 8.3 事件
 
@@ -567,6 +582,11 @@ Waiting 是逻辑状态，必须进入 `CapturedSnapshot` / LFRS：
   `nextAdmissionSequence`；空队列但 counter 非零仍须保存；
 - queue link/head/tail、route-relative occupancy、latest decisions/events 与 tick-local
   claims 是可重建或输出状态，不持久化。
+
+跨修订成功切换使源修订 latest decision/event batch 的 route/zone anchors 失效，原子
+置空这两批临时输出；需要历史记录的调用方必须在 commit 前消费。不同于生命周期命令，
+跨修订不把旧 ordinal 当成新修订引用，也不为历史输出保留旧 root、强制重绑已删除路线或
+增加新的迁移失败条件。同修订切换保留批次；失败或放弃切换保留源批次。恢复后的批次为空。
 
 restore 解析稳定 identity 后重建稠密索引，并拒绝 unknown zone、route occurrence
 不匹配、重复 member/sequence、sequence 不小于 next counter、phase/membership 不一致、

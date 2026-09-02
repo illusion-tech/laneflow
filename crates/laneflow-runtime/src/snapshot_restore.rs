@@ -496,11 +496,9 @@ pub fn restore_lfrs(
         target_config.route_conflict_occurrence_capacity(),
     )?;
     world.config = target_config;
-    // Waiting phase validity depends on the committed tick-start signal view. Set the
-    // snapshot clock before lowering vehicle authority inside this private staging world.
+    // 在私有 staging 恢复已提交时钟；Waiting phase 保留历史归因，不按当前信号重解释。
     world.tick_index = root.tick();
     world.time_ms = root.time_ms();
-    world.command_cursor = root.command_cursor();
     world.event_cursor = root.event_cursor();
     world.refresh_signals();
 
@@ -1635,6 +1633,40 @@ mod tests {
         world
             .step(TickInput::new(100))
             .expect("restored world steps");
+    }
+
+    #[test]
+    fn exhausted_command_cursor_restores_parked_and_reserved_without_new_commands() {
+        let (mut world, _, _) = virtual_parking_cutover_world();
+        world.command_cursor = u64::MAX;
+        let captured = world.capture_snapshot().expect("capture");
+        assert!(captured.vehicles.iter().any(|vehicle| matches!(
+            vehicle.parking,
+            Some(CapturedParkingBinding::Occupied { .. })
+        )));
+        assert!(captured.vehicles.iter().any(|vehicle| matches!(
+            vehicle.parking,
+            Some(CapturedParkingBinding::Reserved { .. })
+        )));
+        let restored = restore_lfrs(
+            &encode_lfrs(&captured),
+            world.revision(),
+            world.committed_source().clone(),
+            world.config(),
+            generous_limits(),
+        )
+        .expect("restore does not consume commands");
+        assert_eq!(restored.world().command_cursor(), u64::MAX);
+        assert_eq!(
+            crate::deterministic_state_digest(
+                &restored
+                    .world()
+                    .capture_snapshot()
+                    .expect("capture restored")
+            )
+            .expect("restored digest"),
+            crate::deterministic_state_digest(&captured).expect("source digest")
+        );
     }
 
     #[test]
