@@ -1,23 +1,21 @@
 //! 附录 A 的字段值域与对象内直接绑定预检。
 //!
 //! 本层只消费已经完成 registry 结构预检的对象借用。它检查不需要外部对象或全局语义重算
-//! 即可判定的闭合值域与同对象直接绑定；跨表排序/引用、Identity/NetworkRevision 重算、
+//! 即可判定的闭合值域、策略局部表行序与同对象直接绑定；跨表引用、Identity/NetworkRevision 重算、
 //! diff 完备性和来源真实性不属于本层。
 
 use core::str;
 
-#[cfg(test)]
-use laneflow_static_contract::FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES;
 use laneflow_static_contract::{
     CANONICAL_ARTIFACT_FORMAT_VERSION, CONSTRAINT_CONTRACT_VERSION, EntityKind,
-    FORMAT_HARD_MAX_FIELDS_PER_ROW, FieldEncoding, FieldTag, HEADING_MINUS_PI_F32_BITS,
-    HEADING_PLUS_PI_F32_BITS, IDENTITY_REGISTRY_REVISION, MAX_ACCEL_METERS_PER_SECOND_SQUARED,
-    MAX_CONFLICT_ZONE_REGION_RING_POINTS, MAX_LANE_EDGE_LENGTH_MM, MAX_MIN_GAP_MM,
-    MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_SPEED_MM_S, MAX_TIME_HEADWAY_SECONDS,
-    MAX_VEHICLE_LENGTH_MM, MIN_ACCEL_METERS_PER_SECOND_SQUARED, MIN_LANE_EDGE_LENGTH_MM,
-    MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S, MIN_VEHICLE_LENGTH_MM,
-    PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, PortableObjectKind, PortableTableSchema,
-    SOURCE_MAP_FORMAT_VERSION, STATIC_EXECUTION_CONTRACT_VERSION,
+    FORMAT_HARD_MAX_FIELDS_PER_ROW, FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES, FieldEncoding, FieldTag,
+    HEADING_MINUS_PI_F32_BITS, HEADING_PLUS_PI_F32_BITS, IDENTITY_REGISTRY_REVISION,
+    MAX_ACCEL_METERS_PER_SECOND_SQUARED, MAX_CONFLICT_ZONE_REGION_RING_POINTS,
+    MAX_LANE_EDGE_LENGTH_MM, MAX_MIN_GAP_MM, MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_SPEED_MM_S,
+    MAX_TIME_HEADWAY_SECONDS, MAX_VEHICLE_LENGTH_MM, MIN_ACCEL_METERS_PER_SECOND_SQUARED,
+    MIN_LANE_EDGE_LENGTH_MM, MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S,
+    MIN_VEHICLE_LENGTH_MM, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, PortableObjectKind,
+    PortableTableSchema, SOURCE_MAP_FORMAT_VERSION, STATIC_EXECUTION_CONTRACT_VERSION,
 };
 
 use crate::{
@@ -42,7 +40,7 @@ const PORTABLE_COMPILE_OPTIONS_DIGEST_V1: [u8; 32] = [
 ///
 /// 该能力值证明字段已按登记类型解码，并且对象种类专用的封闭枚举、版本、token、
 /// 同行存在性矩阵、局部向量基数、局部数值关系和 LFCP v2 对象键直接绑定有效。它不证明跨行/跨表引用、
-/// 行排序键、StableId/NetworkRevision 重算、LFSD 完备性、跨对象摘要绑定或真实性，因而
+/// 通用行排序键、StableId/NetworkRevision 重算、LFSD 完备性、跨对象摘要绑定或真实性，因而
 /// 不是 `validated` 或 `trusted` view。
 #[derive(Clone, Copy, Debug)]
 pub struct ValueCheckedObjectView<'a> {
@@ -244,11 +242,26 @@ fn validate_table_values(
         row_count,
         bindings,
     )?;
-    for checked_row in table.rows() {
+    // rows() 跨物理 chunk 延续同一逻辑表，不在 chunk 边界重置成员键。
+    let mut previous_policy_member: Option<(u32, &[u8])> = None;
+    for (row_index, checked_row) in table.rows().enumerate() {
         let row_bytes = checked_row.bytes();
         let (row, end) = parse_row(row_bytes, 0)?;
         match object_kind {
             PortableObjectKind::CanonicalArtifact => {
+                if section_kind == 3
+                    && table_schema.kind == 24
+                    && u64::from(row.required(1)?.u32()?) != row_index as u64
+                {
+                    return Err(row_binding_mismatch());
+                }
+                if section_kind == 4 && (2..=5).contains(&table_schema.kind) {
+                    let key = (row.required(1)?.u32()?, row.required(2)?.value);
+                    if previous_policy_member.is_some_and(|previous| previous >= key) {
+                        return Err(row_binding_mismatch());
+                    }
+                    previous_policy_member = Some(key);
+                }
                 validate_lfca_row(
                     section_kind,
                     table_schema.kind,
@@ -408,9 +421,9 @@ fn parse_row(bytes: &[u8], row_offset: u64) -> Result<(RowRef<'_>, u64), FormatE
     ))
 }
 
-fn visit_record_rows(
-    field: FieldRef<'_>,
-    mut visitor: impl FnMut(RowRef<'_>) -> Result<(), FormatError>,
+fn visit_record_rows<'a>(
+    field: FieldRef<'a>,
+    mut visitor: impl FnMut(RowRef<'a>) -> Result<(), FormatError>,
 ) -> Result<u32, FormatError> {
     let count = read_u32(field.value, 0, FormatStructure::RecordVector)?;
     let mut cursor = 4;
@@ -466,6 +479,11 @@ fn validate_lfca_row(
             )?;
             require_u32_inclusive(row.required(4)?, MIN_SPEED_MM_S, MAX_SPEED_MM_S)?;
         }
+        (3, 6) => {
+            if let Some(direction) = row.field(7) {
+                require_u8_range(direction, 0, 3)?;
+            }
+        }
         (3, 8) => {
             let control = require_u8_range(row.required(6)?, 0, 1)?;
             if row.has(7) != (control == 1) {
@@ -515,12 +533,14 @@ fn validate_lfca_row(
         }
         (3, 20) => validate_vehicle_profile(row)?,
         (3, 23) => validate_participant_stream(row)?,
-        (4, 5) => {
-            let kind = row.required(1)?;
-            if !matches!(kind.u16()?, 4 | 7 | 8 | 9) {
-                return Err(unknown(kind, u64::from(kind.u16()?)));
+        (3, 24) => {
+            require_scalar_count(row.required(3)?, 1, 128)?;
+            require_scalar_count(row.required(4)?, 1, 128)?;
+            if let Some(source) = row.field(5) {
+                require_scalar_count(source, 1, 128)?;
             }
         }
+        (4, 2..=5) => validate_policy_member(table, row)?,
         (5, 1) => {
             let present = require_u8_range(row.required(1)?, 0, 1)?;
             let profile = require_u8_range(row.required(2)?, 0, 3)?;
@@ -562,6 +582,63 @@ fn validate_lfca_row(
         _ => {}
     }
     Ok(())
+}
+
+fn validate_policy_member(table: u16, row: RowRef<'_>) -> Result<(), FormatError> {
+    // 局部 key 使用编制 key 的硬上限，不属于调用方缩小的 Identity 字段预算。
+    validate_identity_ascii_token(row.required(2)?, FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES)?;
+    match table {
+        2 | 3 => {
+            // locator / parameterVersion 必须非空；UTF-8 和字节预算由结构预检收费。
+            let value = row.required(3)?;
+            if value.value.is_empty() {
+                return Err(noncanonical(value));
+            }
+        }
+        4 | 5 => {
+            if let Some(classes) = row.field(4)
+                && policy_ordinal_count(classes)? == 0
+            {
+                return Err(noncanonical(classes));
+            }
+            let evidence_tag = if table == 4 {
+                let yield_count = policy_ordinal_count(row.required(6)?)?;
+                if row.has(7) != (yield_count != 0) {
+                    return Err(row_binding_mismatch());
+                }
+                if let Some(gap) = row.field(7) {
+                    validate_identity_ascii_token(gap, FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES)?;
+                }
+                8
+            } else {
+                require_u8_range(row.required(5)?, 0, 5)?;
+                require_u8_range(row.required(6)?, 0, 2)?;
+                7
+            };
+            let mut previous: Option<&[u8]> = None;
+            visit_record_rows(row.required(evidence_tag)?, |evidence| {
+                let key = evidence.required(1)?;
+                validate_identity_ascii_token(key, FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES)?;
+                if previous.is_some_and(|value| value >= key.value) {
+                    return Err(noncanonical(key));
+                }
+                previous = Some(key.value);
+                Ok(())
+            })?;
+        }
+        _ => return Err(row_binding_mismatch()),
+    }
+    Ok(())
+}
+
+fn policy_ordinal_count(field: FieldRef<'_>) -> Result<u32, FormatError> {
+    // 稳定引用的排序和去重需要对应实体表，不能把 ordinal 的整数大小冒充 StableId 顺序。
+    // 本层只检查向量基数与 gap 的同行存在性；引用全集由 compiler/shared root 闭合。
+    let count = field.u32()?;
+    if field.value.len() as u64 != 4 + u64::from(count) * 4 {
+        return Err(noncanonical(field));
+    }
+    Ok(count)
 }
 
 fn validate_lfca_entity_vector_cardinalities(
@@ -1171,6 +1248,7 @@ fn road_table_for_entity(entity: EntityKind) -> u16 {
         EntityKind::CanonicalFrame => 35,
         EntityKind::ConflictZone => 36,
         EntityKind::ParticipantStream => 39,
+        EntityKind::RightOfWayPolicySet => 40,
     }
 }
 
@@ -1468,6 +1546,7 @@ fn diff_field_tag_allowed(section: u16, entity: EntityKind, tag: u16) -> bool {
             EntityKind::ParkingFacility => matches!(tag, 5 | 6),
             EntityKind::ParticipantClass => tag == 4,
             EntityKind::ParticipantStream => tag == 5,
+            EntityKind::Movement => tag == 7,
             EntityKind::VehicleProfile => (4..=10).contains(&tag),
             _ => false,
         },
@@ -1478,6 +1557,7 @@ fn diff_field_tag_allowed(section: u16, entity: EntityKind, tag: u16) -> bool {
             EntityKind::SignalPhase => matches!(tag, 4 | 5),
             EntityKind::ParkingFacility => tag == 4,
             EntityKind::AccessRule => matches!(tag, 5 | 7 | 8),
+            EntityKind::RightOfWayPolicySet => (3..=5).contains(&tag),
             _ => false,
         },
         _ => false,
@@ -2021,6 +2101,13 @@ mod tests {
     }
 
     fn encoded_value_object(kind: PortableObjectKind) -> Vec<u8> {
+        encoded_value_object_with_rows(kind, None)
+    }
+
+    fn encoded_value_object_with_rows(
+        kind: PortableObjectKind,
+        replacement: Option<(u16, u16, Vec<Vec<u8>>)>,
+    ) -> Vec<u8> {
         let schema = portable_object_schema(kind);
         let sections = schema
             .sections
@@ -2028,7 +2115,12 @@ mod tests {
             .map(|section| {
                 let mut tables = Vec::new();
                 for table in section.tables {
-                    let rows = if table.cardinality == PortableRowCardinality::ExactlyOne {
+                    let rows = if let Some((_, _, rows)) = replacement
+                        .as_ref()
+                        .filter(|(s, t, _)| *s == section.kind && *t == table.kind)
+                    {
+                        rows.clone()
+                    } else if table.cardinality == PortableRowCardinality::ExactlyOne {
                         vec![schema_row_bytes(kind, section.kind, table.kind, table.row)]
                     } else if kind == PortableObjectKind::SemanticDiff
                         && section.kind == 6
@@ -2126,7 +2218,7 @@ mod tests {
             .unwrap();
 
         let unknown_tag = row_bytes(&[
-            field_bytes(1, PortableFieldType::U16, &35_u16.to_le_bytes()),
+            field_bytes(1, PortableFieldType::U16, &36_u16.to_le_bytes()),
             field_bytes(2, PortableFieldType::Bytes, b"edge-a"),
         ]);
         assert_eq!(
@@ -2237,25 +2329,30 @@ mod tests {
                 &record_value(&rows),
             )])
         };
-        let exact = identity_field(&[1, 5]);
-        validate_identity_fields(
-            EntityKind::LaneEdge,
-            parse_test_row(&exact).required(4).unwrap(),
-            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
-        )
-        .unwrap();
-        for tags in [&[1_u16][..], &[5, 1][..], &[1, 5, 5][..]] {
-            let invalid = identity_field(tags);
-            assert_eq!(
-                validate_identity_fields(
-                    EntityKind::LaneEdge,
-                    parse_test_row(&invalid).required(4).unwrap(),
-                    FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
-                )
-                .unwrap_err()
-                .class(),
-                FormatErrorClass::BindingMismatch
-            );
+        for (kind, key_tag) in [
+            (EntityKind::LaneEdge, 5),
+            (EntityKind::RightOfWayPolicySet, 35),
+        ] {
+            let exact = identity_field(&[1, key_tag]);
+            validate_identity_fields(
+                kind,
+                parse_test_row(&exact).required(4).unwrap(),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            )
+            .unwrap();
+            for tags in [&[1_u16][..], &[key_tag, 1][..], &[1, key_tag, key_tag][..]] {
+                let invalid = identity_field(tags);
+                assert_eq!(
+                    validate_identity_fields(
+                        kind,
+                        parse_test_row(&invalid).required(4).unwrap(),
+                        FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+                    )
+                    .unwrap_err()
+                    .class(),
+                    FormatErrorClass::BindingMismatch
+                );
+            }
         }
     }
 
@@ -2289,6 +2386,194 @@ mod tests {
                 limit: 1,
             })
         );
+    }
+
+    fn policy_row(table: u16, policy: u32, key: &[u8]) -> Vec<Vec<u8>> {
+        use PortableFieldType::{I32, OrdinalVectorU32, RecordVector, U8, U32, U64, Utf8};
+        let mut fields = vec![
+            field_bytes(1, U32, &policy.to_le_bytes()),
+            field_bytes(2, Utf8, key),
+        ];
+        match table {
+            2 => fields.push(field_bytes(3, Utf8, b"fixture:policy-v1")),
+            3 => {
+                fields.push(field_bytes(3, Utf8, b"parameters-v1"));
+                for (tag, value) in [(4, 0_u64), (5, 1), (6, u64::MAX)] {
+                    fields.push(field_bytes(tag, U64, &value.to_le_bytes()));
+                }
+            }
+            4 => fields.extend([
+                field_bytes(3, U32, &0_u32.to_le_bytes()),
+                field_bytes(5, I32, &i32::MIN.to_le_bytes()),
+                field_bytes(6, OrdinalVectorU32, &ordinal_value(&[])),
+                field_bytes(8, RecordVector, &record_value(&[])),
+            ]),
+            5 => fields.extend([
+                field_bytes(3, U32, &0_u32.to_le_bytes()),
+                field_bytes(5, U8, &[5]),
+                field_bytes(6, U8, &[2]),
+                field_bytes(7, RecordVector, &record_value(&[])),
+            ]),
+            _ => panic!("not a policy member table"),
+        }
+        fields
+    }
+
+    #[test]
+    fn policy_members_are_ordered_by_owner_then_local_key() {
+        let kind = PortableObjectKind::CanonicalArtifact;
+        for table in 2..=5 {
+            for (keys, valid) in [
+                ([(0, b"a"), (0, b"b"), (1, b"a")], true),
+                ([(0, b"a"), (0, b"a"), (1, b"a")], false),
+                ([(0, b"b"), (0, b"a"), (1, b"a")], false),
+                ([(1, b"a"), (0, b"b"), (1, b"b")], false),
+            ] {
+                let rows = keys
+                    .into_iter()
+                    .map(|(owner, key)| row_bytes(&policy_row(table, owner, key)))
+                    .collect();
+                let bytes = encoded_value_object_with_rows(kind, Some((4, table, rows)));
+                preflight_object_registry(&bytes, kind, FormatLimits::HARD).unwrap();
+                assert_eq!(
+                    preflight_object_values(&bytes, kind, FormatLimits::HARD).is_ok(),
+                    valid
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn policy_entity_and_movement_direction_values_are_closed() {
+        use PortableFieldType::{OrdinalVectorU32, StableId128, U8, U32, Utf8};
+        let kind = PortableObjectKind::CanonicalArtifact;
+        for (ordinal, jurisdiction, valid) in
+            [(0_u32, "CN", true), (1, "CN", false), (0, "", false)]
+        {
+            let row = row_bytes(&[
+                field_bytes(1, U32, &ordinal.to_le_bytes()),
+                field_bytes(2, StableId128, &[0; 16]),
+                field_bytes(3, Utf8, jurisdiction.as_bytes()),
+                field_bytes(4, Utf8, b"fixture-v1"),
+            ]);
+            let bytes = encoded_value_object_with_rows(kind, Some((3, 24, vec![row])));
+            assert_eq!(
+                preflight_object_values(&bytes, kind, FormatLimits::HARD).is_ok(),
+                valid
+            );
+        }
+        for (direction, valid) in [
+            (None, true),
+            (Some(0), true),
+            (Some(3), true),
+            (Some(4), false),
+        ] {
+            let mut fields = vec![
+                field_bytes(1, U32, &0_u32.to_le_bytes()),
+                field_bytes(2, StableId128, &[0; 16]),
+                field_bytes(3, U32, &0_u32.to_le_bytes()),
+                field_bytes(4, Utf8, b"entry"),
+                field_bytes(5, Utf8, b"exit"),
+                field_bytes(6, OrdinalVectorU32, &ordinal_value(&[0])),
+            ];
+            if let Some(direction) = direction {
+                fields.push(field_bytes(7, U8, &[direction]));
+            }
+            let bytes =
+                encoded_value_object_with_rows(kind, Some((3, 6, vec![row_bytes(&fields)])));
+            assert_eq!(
+                preflight_object_values(&bytes, kind, FormatLimits::HARD).is_ok(),
+                valid
+            );
+        }
+    }
+
+    #[test]
+    fn policy_rule_classes_and_gap_presence_have_no_implicit_defaults() {
+        use PortableFieldType::{OrdinalVectorU32, Utf8};
+        for table in [4, 5] {
+            for (classes, valid) in [(&[][..], false), (&[0, 2][..], true), (&[2, 0][..], true)] {
+                let mut fields = policy_row(table, 0, b"rule");
+                fields.insert(3, field_bytes(4, OrdinalVectorU32, &ordinal_value(classes)));
+                assert_eq!(
+                    validate_policy_member(table, parse_test_row(&row_bytes(&fields))).is_ok(),
+                    valid
+                );
+            }
+        }
+        for (yield_to, gap, valid) in [
+            (&[][..], None, true),
+            (&[][..], Some(b"gap".as_slice()), false),
+            (&[1, 3][..], None, false),
+            (&[1, 3][..], Some(b"gap".as_slice()), true),
+            (&[3, 1][..], Some(b"gap".as_slice()), true),
+            (&[1][..], Some(b"".as_slice()), false),
+        ] {
+            let mut fields = policy_row(4, 0, b"rule");
+            fields[4] = field_bytes(6, OrdinalVectorU32, &ordinal_value(yield_to));
+            if let Some(key) = gap {
+                fields.insert(5, field_bytes(7, Utf8, key));
+            }
+            assert_eq!(
+                validate_policy_member(4, parse_test_row(&row_bytes(&fields))).is_ok(),
+                valid
+            );
+        }
+    }
+
+    #[test]
+    fn policy_keys_evidence_and_enums_reject_invalid_declarations() {
+        use PortableFieldType::{RecordVector, U8, Utf8};
+        for key in [b"".as_slice(), b"bad key", b"-bad", &[b'a'; 54]] {
+            for table in 2..=5 {
+                assert!(
+                    validate_policy_member(
+                        table,
+                        parse_test_row(&row_bytes(&policy_row(table, 0, key)))
+                    )
+                    .is_err()
+                );
+            }
+        }
+        for table in [2, 3] {
+            let mut fields = policy_row(table, 0, &[b'a'; 53]);
+            validate_policy_member(table, parse_test_row(&row_bytes(&fields))).unwrap();
+            fields[2] = field_bytes(3, Utf8, b"");
+            assert!(validate_policy_member(table, parse_test_row(&row_bytes(&fields))).is_err());
+        }
+        for table in [4, 5] {
+            for (keys, valid) in [
+                (&[b"a", b"b"][..], true),
+                (&[b"a", b"a"][..], false),
+                (&[b"b", b"a"][..], false),
+            ] {
+                let evidence = keys
+                    .iter()
+                    .map(|key| row_bytes(&[field_bytes(1, Utf8, *key)]))
+                    .collect::<Vec<_>>();
+                let mut fields = policy_row(table, 0, b"rule");
+                *fields.last_mut().unwrap() = field_bytes(
+                    if table == 4 { 8 } else { 7 },
+                    RecordVector,
+                    &record_value(&evidence),
+                );
+                assert_eq!(
+                    validate_policy_member(table, parse_test_row(&row_bytes(&fields))).is_ok(),
+                    valid
+                );
+            }
+        }
+        for (interpretation, prohibition, valid) in
+            [(0, 0, true), (5, 2, true), (6, 0, false), (0, 3, false)]
+        {
+            let mut fields = policy_row(5, 0, b"rule");
+            fields[3] = field_bytes(5, U8, &[interpretation]);
+            fields[4] = field_bytes(6, U8, &[prohibition]);
+            assert_eq!(
+                validate_policy_member(5, parse_test_row(&row_bytes(&fields))).is_ok(),
+                valid
+            );
+        }
     }
 
     #[test]
@@ -2355,7 +2640,7 @@ mod tests {
         let unknown_kind = row_bytes(&[field_bytes(
             1,
             PortableFieldType::U16,
-            &24_u16.to_le_bytes(),
+            &25_u16.to_le_bytes(),
         )]);
         assert_eq!(
             require_entity_kind(parse_test_row(&unknown_kind).required(1).unwrap())
@@ -2363,8 +2648,8 @@ mod tests {
                 .class(),
             FormatErrorClass::UnknownKind
         );
-        assert_eq!(laneflow_static_contract::EntityKind::from_code(24), None);
-        assert_eq!(laneflow_static_contract::FieldTag::from_code(35), None);
+        assert_eq!(laneflow_static_contract::EntityKind::from_code(25), None);
+        assert_eq!(laneflow_static_contract::FieldTag::from_code(36), None);
     }
 
     #[test]

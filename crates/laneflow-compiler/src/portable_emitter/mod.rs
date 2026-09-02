@@ -44,7 +44,7 @@ use std::{collections::BTreeMap, path::Path};
 use crate::{CompilationOutput, CompileLimitDimension};
 
 const SOURCE_COLLECTION_DIGEST_VERSION_V1: u16 = 1;
-const EMITTER_VERSION_LFCA4: u16 = 2;
+const CHUNKED_EMITTER_VERSION: u16 = 2;
 const SOURCE_COLLECTION_DOMAIN_V1: &[u8] = b"laneflow.source-collection.v1\0";
 const PORTABLE_COMPILE_OPTIONS_DIGEST_V1: [u8; 32] = [
     0x32, 0x26, 0x82, 0xf4, 0x55, 0xd0, 0x6b, 0x36, 0xe9, 0xe3, 0x71, 0x9f, 0x34, 0x1d, 0xb3, 0x8f,

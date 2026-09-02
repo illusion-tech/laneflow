@@ -7,7 +7,6 @@ fn entity_modify_tags(entity_kind: EntityKind) -> &'static [u16] {
         EntityKind::RoadSection => &[4],
         EntityKind::AuthoringLane
         | EntityKind::Junction
-        | EntityKind::Movement
         | EntityKind::ManeuverPath
         | EntityKind::WaitingZone
         | EntityKind::SignalGroup
@@ -15,6 +14,7 @@ fn entity_modify_tags(entity_kind: EntityKind) -> &'static [u16] {
         | EntityKind::SignalPhase
         | EntityKind::LaneGroup
         | EntityKind::AccessRule
+        | EntityKind::RightOfWayPolicySet
         | EntityKind::ConflictZone
         | EntityKind::CanonicalFrame => &[],
         EntityKind::ParkingFacility => &[5, 6],
@@ -25,6 +25,7 @@ fn entity_modify_tags(entity_kind: EntityKind) -> &'static [u16] {
         EntityKind::FacilityBand | EntityKind::ParticipantClass => &[4],
         EntityKind::VehicleProfile => &[4, 5, 6, 7, 8, 9, 10],
         EntityKind::ParticipantStream => &[5],
+        EntityKind::Movement => &[7],
     }
 }
 
@@ -35,6 +36,7 @@ fn static_rule_modify_tags(entity_kind: EntityKind) -> &'static [u16] {
         EntityKind::SignalController => &[3, 4],
         EntityKind::SignalPhase => &[4, 5],
         EntityKind::AccessRule => &[5, 7, 8],
+        EntityKind::RightOfWayPolicySet => &[3, 4, 5],
         EntityKind::RoadCorridor
         | EntityKind::RoadSection
         | EntityKind::AuthoringLane
@@ -407,7 +409,7 @@ mod tests {
             (EntityKind::AuthoringLane, &[][..], &[][..]),
             (EntityKind::LaneEdge, &[3, 4][..], &[][..]),
             (EntityKind::Junction, &[][..], &[][..]),
-            (EntityKind::Movement, &[][..], &[][..]),
+            (EntityKind::Movement, &[7][..], &[][..]),
             (EntityKind::ManeuverPath, &[][..], &[][..]),
             (EntityKind::ManeuverGate, &[4][..], &[6][..]),
             (EntityKind::WaitingZone, &[][..], &[4, 5, 6][..]),
@@ -429,6 +431,7 @@ mod tests {
             (EntityKind::ConflictZone, &[][..], &[][..]),
             (EntityKind::CanonicalFrame, &[][..], &[][..]),
             (EntityKind::ParticipantStream, &[5][..], &[][..]),
+            (EntityKind::RightOfWayPolicySet, &[][..], &[3, 4, 5][..]),
         ];
         assert_eq!(expected.len(), EntityKind::ALL.len());
         for (actual, (kind, entity_tags, static_rule_tags)) in

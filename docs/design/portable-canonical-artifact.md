@@ -1,7 +1,7 @@
 # 可移植规范制品与辅助制品格式
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-08-31<br>
+**最后更新**: 2026-09-03<br>
 **适用范围**: LFCA、LFSM、LFSD、LFCP 的权威格式、规范排序、跨对象绑定、
 失败关闭与格式安全天花板<br>
 **关联决策与设计**:
@@ -18,16 +18,17 @@
 
 ## 1. 权威结论
 
-#284 的策略表、机动方向及关联版本升级候选见
-[`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §4、§8
-（Review）；本文仍描述当前已交付格式。
+LFCA 5 的策略表和机动方向按
+[`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §4.1 登记。
+该实施合同 §4.3、§4.4、§8 还约束 LFSD 4、LFSM 4 与运行时的整体升级；单个格式
+登记不代表策略编制、共享根或冲突裁决已经交付，完整组合必须按该合同原子发布。
 
 对象集合只有四种。LFCA、LFSM 与 LFSD 使用同一套分块节格式；LFCP 继续使用
 非分块 singleton 节：
 
 | 对象           | magic  | 对象版本 | 节数 | 逻辑表种类 | 作用                                               |
 | -------------- | ------ | -------: | ---: | ---------: | -------------------------------------------------- |
-| 可移植规范制品 | `LFCA` |        4 |    8 |         33 | 目标无关的规范静态路网语义与编译 provenance        |
+| 可移植规范制品 | `LFCA` |        5 |    8 |         38 | 目标无关的规范静态路网语义与编译 provenance        |
 | 来源映射       | `LFSM` |        3 |    5 |          8 | LFCA 实体、owner-local occurrence 与来源位置的映射 |
 | 语义差异       | `LFSD` |        3 |    6 |          6 | 两个受绑定 LFCA 修订之间的可重算语义差异           |
 | 规范发布描述符 | `LFCP` |        2 |    3 |          3 | LFCA/LFSM exact bytes 与发布 provenance 的最小闭合 |
@@ -35,12 +36,12 @@
 格式轴固定为：
 
 ```text
-canonicalFormatVersion                = 4
+canonicalFormatVersion                = 5
 identityEncodingVersion               = 1
-identityRegistryRevision              = 3
+identityRegistryRevision              = 4
 networkRevisionDerivationVersion      = 1
-constraintContractVersion             = 2
-staticExecutionContractVersion        = 4
+constraintContractVersion             = 3
+staticExecutionContractVersion        = 5
 sourceMapFormatVersion                = 3
 semanticDiffFormatVersion             = 3
 canonicalPublicationDescriptorVersion = 2
@@ -57,7 +58,7 @@ compiler/发布链，LFCA 到 `SharedNetworkRevision` 的完整语义构建另�
 可重算变化，不能自行授权 cutover。compiler/source/publisher provenance、worker 数和资源
 budget 不进入 `NetworkRevisionId`，也不得用内部 `semantic_fingerprint` 替代本格式摘要。
 
-LFCA 4 同时原子冻结停车设施与冲突静态领域：停车实体只有 `ParkingFacility` 与
+LFCA 的停车实体只有 `ParkingFacility` 与
 `ParkingSpace`，冲突静态实体为 `ConflictZone` 与 `ParticipantStream`，并允许与同一
 修订配对的 `ConflictZoneRegion`。`ParkingArea` 不是别名、兼容入口或可接受 wire 名称。
 一个设施可以同时拥有显式泊位与虚拟容量，并可以拥有多个虚拟入口和多个虚拟出口；
@@ -135,7 +136,7 @@ FieldV1 :=
   valueBytes[valueByteLength]
 ```
 
-LFCA 4、LFSM 3 与 LFSD 3 的每个 section 使用 `sectionFormatVersion = 2`，section
+LFCA 5、LFSM 3 与 LFSD 3 的每个 section 使用 `sectionFormatVersion = 2`，section
 exact bytes 为一个 `ChunkedSectionPreambleV1`、紧随其后的 chunk directory 和所有
 `TableV1` chunk。LFCP 2 继续使用 `sectionFormatVersion = 1`，每节直接保存一张
 singleton `TableV1`，不增加空洞或兼容分支。
@@ -314,7 +315,7 @@ An ObjectPreambleV1 is formatted as follows:
 | 结构                         | offset |   宽度 | 字段                       | 约束                                   |
 | ---------------------------- | -----: | -----: | -------------------------- | -------------------------------------- |
 | `ObjectPreambleV1`           | `0x00` |      4 | `magic`                    | 对象专用 ASCII magic                   |
-|                              | `0x04` |      2 | `formatVersion`            | LFCA=4，LFSM/LFSD=3，LFCP=2            |
+|                              | `0x04` |      2 | `formatVersion`            | LFCA=5，LFSM/LFSD=3，LFCP=2            |
 |                              | `0x06` |      2 | `headerByteLength`         | `32`                                   |
 |                              | `0x08` |      4 | `flags`                    | `0`                                    |
 |                              | `0x0c` |      4 | `sectionCount`             | 对象登记节数                           |
@@ -366,7 +367,7 @@ chunk 表达，不伪造空 `TableV1`。
 `count:u32 || item:u32[count]`；`RecordVector` 为 `count:u32 || RowV1[count]`，只允许
 登记表明确声明的一层内嵌行。
 
-## 3. LFCA 4
+## 3. LFCA 5
 
 ### 3.1 节登记
 
@@ -374,7 +375,7 @@ chunk 表达，不伪造空 `TableV1`。
 | ----------- | ---------------------------- | ---------------- | ------------------------------------------------------ |
 | `0x0001`    | `ContractVersions`           | 是               | 格式、identity、修订派生、constraint 与 execution 版本 |
 | `0x0002`    | `CanonicalIdentityTable`     | 是               | 完整 identity 前像、`StableId128` 与 typed ordinal     |
-| `0x0003`    | `CanonicalEntityTables`      | 是               | 23 种可构造静态实体；kind `1..=23` 连续                |
+| `0x0003`    | `CanonicalEntityTables`      | 是               | 24 种可构造静态实体；kind `1..=24` 连续                |
 | `0x0004`    | `CanonicalRelationTables`    | 是               | 不能由实体字段直接表达的规范关系                       |
 | `0x0005`    | `CanonicalSpatialTables`     | 是               | 空间存在、规范折线与派生采样                           |
 | `0x0006`    | `StaticExecutionConstraints` | 是               | worker-count-neutral 的静态执行约束                    |
@@ -383,7 +384,7 @@ chunk 表达，不伪造空 `TableV1`。
 
 八节必须全部存在。headless 用 `SpatialPresence.spatialPresent = 0` 表达，不删除空间节。
 
-LFCA 4 的对象组合图如下；第一节 wire offset 固定为 `0x00e0`（`32 + 8 * 24`）：
+LFCA 5 的对象组合图如下；第一节 wire offset 固定为 `0x00e0`（`32 + 8 * 24`）：
 
 ```text
     +---------------------------------------------------------------+
@@ -430,15 +431,15 @@ LFCA 4 的对象组合图如下；第一节 wire offset 固定为 `0x00e0`（`32
 `ContractVersions(0x0001)` 只有一张 `ContractVersions(0x0001)` singleton：
 
 ```text
-1:canonicalFormatVersion:u16:R                 (=4)
+1:canonicalFormatVersion:u16:R                 (=5)
 2:identityEncodingVersion:u16:R                (=1)
-3:identityRegistryRevision:u16:R               (=3)
+3:identityRegistryRevision:u16:R               (=4)
 4:networkRevisionDerivationVersion:u16:R       (=1)
-5:constraintContractVersion:u16:R              (=2)
-6:staticExecutionContractVersion:u16:R         (=4)
+5:constraintContractVersion:u16:R              (=3)
+6:staticExecutionContractVersion:u16:R         (=5)
 ```
 
-### 3.3 Identity v1 / registry revision 3
+### 3.3 Identity v1 / registry revision 4
 
 `CanonicalIdentity(0x0001)` 行键为 `(entityKind, typedOrdinal)`：
 
@@ -478,10 +479,10 @@ StableId128 := first-16-bytes(
 13 SignalPhase       14 ParkingFacility   15 ParkingSpace
 16 LaneGroup         17 FacilityBand      18 ParticipantClass
 19 AccessRule        20 VehicleProfile    21 ConflictZone
-22 CanonicalFrame    23 ParticipantStream
+22 CanonicalFrame    23 ParticipantStream    24 RightOfWayPolicySet
 ```
 
-revision 3 的 identity field tag 连续登记为 `1..=34`；tag 22 的名称为
+revision 4 的 identity field tag 连续登记为 `1..=35`；tag 22 的名称为
 `parkingFacilityKey`，tag 23/30 分别为 `conflictZoneKey` / `participantStreamKey`。
 主要字段为：
 
@@ -499,7 +500,7 @@ revision 3 的 identity field tag 连续登记为 `1..=34`；tag 22 的名称为
 28 accessRuleKey         29 vehicleProfileKey
 30 participantStreamKey  31 canonicalFrameKey
 32 roadSectionStableId   33 roadCorridorStableId
-34 junctionStableId
+34 junctionStableId      35 rightOfWayPolicySetKey
 ```
 
 全部可构造 kind 的 required tag sequence 为：
@@ -516,10 +517,10 @@ revision 3 的 identity field tag 连续登记为 `1..=34`；tag 22 的名称为
 17 FacilityBand      [1,26,33]        18 ParticipantClass  [1,27]
 19 AccessRule        [1,28]           20 VehicleProfile    [1,29]
 21 ConflictZone      [1,23,34]        22 CanonicalFrame    [1,31]
-23 ParticipantStream [1,30,34]
+23 ParticipantStream [1,30,34]       24 RightOfWayPolicySet [1,35]
 ```
 
-kind `1..=23` 与 identity tag `1..=34` 都是连续的现行登记；历史 `StaticRoute` / `routeKey`
+kind `1..=24` 与 identity tag `1..=35` 都是连续的现行登记；历史 `StaticRoute` / `routeKey`
 不再保留编号墓碑，也不得由名字、旧字段形状或旧对象版本复活。上表中的方括号数字全部是
 identity field tag。
 
@@ -539,35 +540,39 @@ LFCA 不接受 `ParkingArea` wire 名称或 alias；设施语义变化会产生�
 
 ### 3.4 实体表登记
 
-`CanonicalEntityTables(0x0003)` 精确包含下列 23 个连续逻辑表种类。
+`CanonicalEntityTables(0x0003)` 精确包含下列 24 个连续逻辑表种类。
 每行共同以
 `1:typedOrdinal:u32:R, 2:stableId:StableId128:R` 开始：
 
-| tableKind | 表名              | tag 3 起的字段                                                                                                                                                                                                                                                                                                     |
-| --------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `0x0001`  | RoadCorridor      | `3:referenceSection:u32:R, 4:elements:RecordVector:R`                                                                                                                                                                                                                                                              |
-| `0x0002`  | RoadSection       | `3:roadCorridor:u32:R, 4:kindId:Utf8:R, 5:lanes:OrdinalVectorU32:R`                                                                                                                                                                                                                                                |
-| `0x0003`  | AuthoringLane     | `3:roadSection:u32:R, 4:edgeChain:OrdinalVectorU32:R, 5:laneGroup:u32:O`                                                                                                                                                                                                                                           |
-| `0x0004`  | LaneEdge          | `3:lengthMillimetres:u32:R, 4:speedLimitMillimetresPerSecond:u32:R, 5:successors:OrdinalVectorU32:R`                                                                                                                                                                                                               |
-| `0x0005`  | Junction          | `3:movements:OrdinalVectorU32:R`                                                                                                                                                                                                                                                                                   |
-| `0x0006`  | Movement          | `3:junction:u32:R, 4:directedEntryApproachKey:Utf8:R, 5:directedExitApproachKey:Utf8:R, 6:maneuverPaths:OrdinalVectorU32:R`                                                                                                                                                                                        |
-| `0x0007`  | ManeuverPath      | `3:movement:u32:R, 4:edges:OrdinalVectorU32:R, 5:maneuverGates:OrdinalVectorU32:R, 6:waitingZones:OrdinalVectorU32:R`                                                                                                                                                                                              |
-| `0x0008`  | ManeuverGate      | `3:maneuverPath:u32:R, 4:transitionIndex:u32:R, 5:stopLine:u32:R, 6:signalControlKind:u8:R, 7:signalGroup:u32:O`                                                                                                                                                                                                   |
-| `0x0009`  | WaitingZone       | `3:maneuverPath:u32:R, 4:entryGate:u32:R, 5:releaseGate:u32:R, 6:maxOccupancy:u32:R`                                                                                                                                                                                                                               |
-| `0x000a`  | StopLine          | `3:laneEdge:u32:R, 4:maneuverGates:OrdinalVectorU32:R`                                                                                                                                                                                                                                                             |
-| `0x000b`  | SignalGroup       | `3:controller:u32:R, 4:maneuverGates:OrdinalVectorU32:R`                                                                                                                                                                                                                                                           |
-| `0x000c`  | SignalController  | `3:offsetMs:u64:R, 4:cycleDurationMs:u64:R, 5:signalGroups:OrdinalVectorU32:R, 6:phases:OrdinalVectorU32:R`                                                                                                                                                                                                        |
-| `0x000d`  | SignalPhase       | `3:controller:u32:R, 4:durationMs:u64:R, 5:states:RecordVector:R`                                                                                                                                                                                                                                                  |
-| `0x000e`  | ParkingFacility   | `3:parkingSpaces:OrdinalVectorU32:R, 4:virtualCapacity:u32:R, 5:virtualEntries:RecordVector:R, 6:virtualExits:RecordVector:R`                                                                                                                                                                                      |
-| `0x000f`  | ParkingSpace      | `3:parkingFacility:u32:O, 4:entryLaneEdge:u32:R, 5:entryProgressMillimetres:u32:R, 6:exitLaneEdge:u32:R, 7:exitProgressMillimetres:u32:R, 8:lateralOffsetMillimetres:i32:R, 9:headingOffsetRadians:f32:R, 10:lengthMillimetres:u32:R, 11:widthMillimetres:u32:R`                                                   |
-| `0x0010`  | LaneGroup         | `3:roadSection:u32:R, 4:members:OrdinalVectorU32:R`                                                                                                                                                                                                                                                                |
-| `0x0011`  | FacilityBand      | `3:roadCorridor:u32:R, 4:kindId:Utf8:R`                                                                                                                                                                                                                                                                            |
-| `0x0012`  | ParticipantClass  | `3:parent:u32:O, 4:depth:u32:R, 5:subtreeEnter:u32:R, 6:subtreeExit:u32:R`                                                                                                                                                                                                                                         |
-| `0x0013`  | AccessRule        | `3:targetKind:u8:R, 4:targetOrdinal:u32:R, 5:effect:u8:R, 6:participantClasses:OrdinalVectorU32:R, 7:regulation:RecordVector:O, 8:priority:i32:R`                                                                                                                                                                  |
-| `0x0014`  | VehicleProfile    | `3:participantClass:u32:R, 4:lengthMillimetres:u32:R, 5:desiredSpeedMillimetresPerSecond:u32:R, 6:minGapMillimetres:u32:R, 7:timeHeadwaySeconds:f32:R, 8:maxAccelerationMetersPerSecondSquared:f32:R, 9:comfortableDecelerationMetersPerSecondSquared:f32:R, 10:emergencyDecelerationMetersPerSecondSquared:f32:R` |
-| `0x0015`  | ConflictZone      | `3:junction:u32:R`                                                                                                                                                                                                                                                                                                 |
-| `0x0016`  | CanonicalFrame    | 无额外字段                                                                                                                                                                                                                                                                                                         |
-| `0x0017`  | ParticipantStream | `3:junction:u32:R, 4:maneuverPath:u32:R, 5:passages:RecordVector:R`                                                                                                                                                                                                                                                |
+| tableKind | 表名                | tag 3 起的字段                                                                                                                                                                                                                                                                                                     |
+| --------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `0x0001`  | RoadCorridor        | `3:referenceSection:u32:R, 4:elements:RecordVector:R`                                                                                                                                                                                                                                                              |
+| `0x0002`  | RoadSection         | `3:roadCorridor:u32:R, 4:kindId:Utf8:R, 5:lanes:OrdinalVectorU32:R`                                                                                                                                                                                                                                                |
+| `0x0003`  | AuthoringLane       | `3:roadSection:u32:R, 4:edgeChain:OrdinalVectorU32:R, 5:laneGroup:u32:O`                                                                                                                                                                                                                                           |
+| `0x0004`  | LaneEdge            | `3:lengthMillimetres:u32:R, 4:speedLimitMillimetresPerSecond:u32:R, 5:successors:OrdinalVectorU32:R`                                                                                                                                                                                                               |
+| `0x0005`  | Junction            | `3:movements:OrdinalVectorU32:R`                                                                                                                                                                                                                                                                                   |
+| `0x0006`  | Movement            | `3:junction:u32:R, 4:directedEntryApproachKey:Utf8:R, 5:directedExitApproachKey:Utf8:R, 6:maneuverPaths:OrdinalVectorU32:R, 7:turnDirection:u8:O`                                                                                                                                                                  |
+| `0x0007`  | ManeuverPath        | `3:movement:u32:R, 4:edges:OrdinalVectorU32:R, 5:maneuverGates:OrdinalVectorU32:R, 6:waitingZones:OrdinalVectorU32:R`                                                                                                                                                                                              |
+| `0x0008`  | ManeuverGate        | `3:maneuverPath:u32:R, 4:transitionIndex:u32:R, 5:stopLine:u32:R, 6:signalControlKind:u8:R, 7:signalGroup:u32:O`                                                                                                                                                                                                   |
+| `0x0009`  | WaitingZone         | `3:maneuverPath:u32:R, 4:entryGate:u32:R, 5:releaseGate:u32:R, 6:maxOccupancy:u32:R`                                                                                                                                                                                                                               |
+| `0x000a`  | StopLine            | `3:laneEdge:u32:R, 4:maneuverGates:OrdinalVectorU32:R`                                                                                                                                                                                                                                                             |
+| `0x000b`  | SignalGroup         | `3:controller:u32:R, 4:maneuverGates:OrdinalVectorU32:R`                                                                                                                                                                                                                                                           |
+| `0x000c`  | SignalController    | `3:offsetMs:u64:R, 4:cycleDurationMs:u64:R, 5:signalGroups:OrdinalVectorU32:R, 6:phases:OrdinalVectorU32:R`                                                                                                                                                                                                        |
+| `0x000d`  | SignalPhase         | `3:controller:u32:R, 4:durationMs:u64:R, 5:states:RecordVector:R`                                                                                                                                                                                                                                                  |
+| `0x000e`  | ParkingFacility     | `3:parkingSpaces:OrdinalVectorU32:R, 4:virtualCapacity:u32:R, 5:virtualEntries:RecordVector:R, 6:virtualExits:RecordVector:R`                                                                                                                                                                                      |
+| `0x000f`  | ParkingSpace        | `3:parkingFacility:u32:O, 4:entryLaneEdge:u32:R, 5:entryProgressMillimetres:u32:R, 6:exitLaneEdge:u32:R, 7:exitProgressMillimetres:u32:R, 8:lateralOffsetMillimetres:i32:R, 9:headingOffsetRadians:f32:R, 10:lengthMillimetres:u32:R, 11:widthMillimetres:u32:R`                                                   |
+| `0x0010`  | LaneGroup           | `3:roadSection:u32:R, 4:members:OrdinalVectorU32:R`                                                                                                                                                                                                                                                                |
+| `0x0011`  | FacilityBand        | `3:roadCorridor:u32:R, 4:kindId:Utf8:R`                                                                                                                                                                                                                                                                            |
+| `0x0012`  | ParticipantClass    | `3:parent:u32:O, 4:depth:u32:R, 5:subtreeEnter:u32:R, 6:subtreeExit:u32:R`                                                                                                                                                                                                                                         |
+| `0x0013`  | AccessRule          | `3:targetKind:u8:R, 4:targetOrdinal:u32:R, 5:effect:u8:R, 6:participantClasses:OrdinalVectorU32:R, 7:regulation:RecordVector:O, 8:priority:i32:R`                                                                                                                                                                  |
+| `0x0014`  | VehicleProfile      | `3:participantClass:u32:R, 4:lengthMillimetres:u32:R, 5:desiredSpeedMillimetresPerSecond:u32:R, 6:minGapMillimetres:u32:R, 7:timeHeadwaySeconds:f32:R, 8:maxAccelerationMetersPerSecondSquared:f32:R, 9:comfortableDecelerationMetersPerSecondSquared:f32:R, 10:emergencyDecelerationMetersPerSecondSquared:f32:R` |
+| `0x0015`  | ConflictZone        | `3:junction:u32:R`                                                                                                                                                                                                                                                                                                 |
+| `0x0016`  | CanonicalFrame      | 无额外字段                                                                                                                                                                                                                                                                                                         |
+| `0x0017`  | ParticipantStream   | `3:junction:u32:R, 4:maneuverPath:u32:R, 5:passages:RecordVector:R`                                                                                                                                                                                                                                                |
+| `0x0018`  | RightOfWayPolicySet | `3:jurisdiction:Utf8:R, 4:regulationVersion:Utf8:R, 5:regulationSource:Utf8:O`                                                                                                                                                                                                                                     |
+
+`Movement.turnDirection` 为 `0=Straight, 1=Left, 2=Right, 3=UTurn`；缺失表示来源未声明，不能推断为直行。
+`RightOfWayPolicySet` 的法规字段复用 AccessRule 法规字符串值域；规则启用时机由宿主显式选择，实体不含历法或生效日期。
 
 内嵌行：
 
@@ -625,7 +630,7 @@ Gate 时才允许 `EdgeBoundary`。官方来源准入必须规范化为这一表
 等价 variant 失败关闭；不得让 Gate ordinal 决定路径顺序。admission Gate 必须从规范化
 entry 位置唯一派生，不进入 LFCA passage row。
 
-上表连同 `CanonicalIdentity.identityFields` 已穷举 LFCA 4 的全部 `RecordVector` 行布局；
+上表连同 `CanonicalIdentity.identityFields` 及 §3.7 的策略 evidenceKeys 已穷举 LFCA 5 的全部 `RecordVector` 行布局；
 这些内嵌行均不得再含 `RecordVector`。任何未登记的内嵌字段、额外 tag 或第二层嵌套失败关闭。
 
 #### 3.4.1 身份、ordinal 与所有权闭合
@@ -790,7 +795,38 @@ authority。
 ```text
 JunctionInternalEdge(0x0001):
   1:laneEdge:u32:R, 2:junction:u32:R
+
+PolicyEvidence(0x0002):
+  1:policy:u32:R, 2:key:Utf8:R, 3:locator:Utf8:R, 4:description:Utf8:O
+
+PolicyGapProfile(0x0003):
+  1:policy:u32:R, 2:key:Utf8:R, 3:parameterVersion:Utf8:R,
+  4:minimumLeadGapMs:u64:R, 5:minimumLagGapMs:u64:R, 6:clearanceBufferMs:u64:R
+
+PolicyStreamRule(0x0004):
+  1:policy:u32:R, 2:key:Utf8:R, 3:stream:u32:R,
+  4:classes:OrdinalVectorU32:O, 5:priority:i32:R,
+  6:yieldToStreams:OrdinalVectorU32:R, 7:gapProfileKey:Utf8:O,
+  8:evidenceKeys:RecordVector:R
+
+PolicyGateRule(0x0005):
+  1:policy:u32:R, 2:key:Utf8:R, 3:gate:u32:R,
+  4:classes:OrdinalVectorU32:O, 5:interpretation:u8:R, 6:prohibition:u8:R,
+  7:evidenceKeys:RecordVector:R
+
+PolicyStreamRule.evidenceKeys / PolicyGateRule.evidenceKeys:
+  1:key:Utf8:R
 ```
+
+四张策略局部表均按 `(policy typedOrdinal, key bytes)` 严格递增；局部 key 使用编制
+ASCII token 值域和 53-byte 上限，不能重复。`locator` 与 `parameterVersion` 非空。
+间隙时长是 `u64` 毫秒，允许零；固定步长换算的溢出检查属于共享根构建。
+`classes` 缺失表示 fallback，存在时不得为空；classes/yield 集合按被引用稳定身份
+排序且无重复，不能把 typed ordinal 的整数顺序当作稳定身份顺序。`yieldToStreams` 非空时必须有 `gapProfileKey`，为空时
+必须省略。`evidenceKeys` 按局部 key bytes 严格递增，允许空向量。
+`interpretation` 的闭合值为 `0..=5`，`prohibition` 为 `0..=2`，含义见实施合同 §3。
+目标、引用集合的排序去重、局部引用及法规来源继承的完整闭合由共同编译管线和共享根构建按 §2–§4 检查；
+格式预检不把合法 ordinal 或空 evidence 向量当作引用与来源已经闭合的证明。
 
 `CanonicalSpatialTables(0x0005)`：
 
@@ -861,7 +897,7 @@ reader 选择其中一份作为权威。
   随机 nonce 不得进入；
 - `sourceCollectionDigestVersion=1`，digest 必须按 §4.1 的 exact framing 从同次 LFSM
   来源模块重算，调用方不能覆盖；
-- LFCA 4 的 `emitterVersion=2`；这表示分块 emitter 合同，不是 compiler build 号；
+- LFCA 5 的 `emitterVersion=2`；这表示分块 emitter 合同，不是 compiler build 号；
 - `geometryAccuracyProfile = 0 None / 1 Fine2Cm / 2 Balanced5Cm / 3 Compact10Cm`，并与
   `geometryDirectionProfile` 保持零/非零 presence 一致；
 - `compileOptionsDigest = SHA-256("laneflow.portable-compile-options.v1\0" ||
@@ -1412,7 +1448,7 @@ set。它们只在相应 relation tuple 集合或重集变化时生成 LFSD rela
 必须落到同一个 passage owner-local row。独立 writer/checker 必须从绑定 LFCA 与这些
 路径一一反解，不能仅凭 role 数值猜测 projection。
 
-LFSM 接受前必须先用 tag 3/4/5 绑定 LFCA 4 exact bytes，再暴露任一来源行。
+LFSM 接受前必须先用 tag 3/4/5 绑定 LFCA 5 exact bytes，再暴露任一来源行。
 `sourceMapDigest` 是完整 LFSM exact bytes 的 SHA-256；`sourceMapByteLength` 是同一字节序列的
 精确 `u64` 长度，二者不嵌回 LFSM。
 
@@ -1485,7 +1521,7 @@ Genesis/Artifact 操作与双端闭合见
 ```
 
 `baseBindingKind` 固定为 `0=Genesis, 1=Artifact`。Genesis 的四个 base 值精确为
-`0, zero[32], zero[32], 0`；Artifact 禁止零占位。target 永远是具体 LFCA 4。Artifact diff
+`0, zero[32], zero[32], 0`；Artifact 禁止零占位。target 永远是具体 LFCA 5。Artifact diff
 要求两端 LFCA 的 identity/constraint/execution 合同轴一致，并在变化分类前验证所有共有
 `StableId128` 的 `entityKind` 和完整 identity 前像逐字节相同；合同轴不一致返回
 `UnsupportedSemanticContractTransition`，共有 StableId 的 kind/前像不一致返回
@@ -1554,31 +1590,35 @@ payload 缺侧、放错侧、两侧相同、或为两端都缺失的字段生成
 对 retained identity，每个变化字段必须按下表排他归类。Identity/derived 列只参与两端
 闭合或由其他规范关系派生，不生成字段 `Modify`：
 
-| entity table      | Entity `Modify` | Relation 投影 | StaticRule `Modify` | Identity / derived |
-| ----------------- | --------------- | ------------- | ------------------- | ------------------ |
-| RoadCorridor      | `3`             | `4`           | —                   | —                  |
-| RoadSection       | `4`             | `5`           | —                   | `3`                |
-| AuthoringLane     | —               | `4,5`         | —                   | `3`                |
-| LaneEdge          | `3,4`           | `5`           | —                   | —                  |
-| Junction          | —               | `3`           | —                   | —                  |
-| Movement          | —               | `6`           | —                   | `3..5`             |
-| ManeuverPath      | —               | `4..6`        | —                   | `3`                |
-| ManeuverGate      | `4`             | `5,7`         | `6`                 | `3`                |
-| WaitingZone       | —               | —             | `4..6`              | `3`                |
-| StopLine          | `3`             | `4`           | —                   | —                  |
-| SignalGroup       | —               | `3,4`         | —                   | —                  |
-| SignalController  | —               | `5,6`         | `3,4`               | —                  |
-| SignalPhase       | —               | —             | `4,5`               | `3`                |
-| ParkingFacility   | `5,6`           | `3,5,6`       | `4`                 | —                  |
-| ParkingSpace      | `5,7..11`       | `3,4,6`       | —                   | —                  |
-| LaneGroup         | —               | `4`           | —                   | `3`                |
-| FacilityBand      | `4`             | —             | —                   | `3`                |
-| ParticipantClass  | `4`             | `3`           | —                   | `5,6`              |
-| AccessRule        | —               | `3,4,6`       | `5,7,8`             | —                  |
-| VehicleProfile    | `4..10`         | `3`           | —                   | —                  |
-| CanonicalFrame    | —               | —             | —                   | —                  |
-| ConflictZone      | —               | —             | —                   | `3`                |
-| ParticipantStream | `5`             | `4,5`         | —                   | `3`                |
+| entity table        | Entity `Modify` | Relation 投影 | StaticRule `Modify` | Identity / derived |
+| ------------------- | --------------- | ------------- | ------------------- | ------------------ |
+| RoadCorridor        | `3`             | `4`           | —                   | —                  |
+| RoadSection         | `4`             | `5`           | —                   | `3`                |
+| AuthoringLane       | —               | `4,5`         | —                   | `3`                |
+| LaneEdge            | `3,4`           | `5`           | —                   | —                  |
+| Junction            | —               | `3`           | —                   | —                  |
+| Movement            | `7`             | `6`           | —                   | `3..5`             |
+| ManeuverPath        | —               | `4..6`        | —                   | `3`                |
+| ManeuverGate        | `4`             | `5,7`         | `6`                 | `3`                |
+| WaitingZone         | —               | —             | `4..6`              | `3`                |
+| StopLine            | `3`             | `4`           | —                   | —                  |
+| SignalGroup         | —               | `3,4`         | —                   | —                  |
+| SignalController    | —               | `5,6`         | `3,4`               | —                  |
+| SignalPhase         | —               | —             | `4,5`               | `3`                |
+| ParkingFacility     | `5,6`           | `3,5,6`       | `4`                 | —                  |
+| ParkingSpace        | `5,7..11`       | `3,4,6`       | —                   | —                  |
+| LaneGroup           | —               | `4`           | —                   | `3`                |
+| FacilityBand        | `4`             | —             | —                   | `3`                |
+| ParticipantClass    | `4`             | `3`           | —                   | `5,6`              |
+| AccessRule          | —               | `3,4,6`       | `5,7,8`             | —                  |
+| VehicleProfile      | `4..10`         | `3`           | —                   | —                  |
+| CanonicalFrame      | —               | —             | —                   | —                  |
+| ConflictZone        | —               | —             | —                   | `3`                |
+| ParticipantStream   | `5`             | `4,5`         | —                   | `3`                |
+| RightOfWayPolicySet | —               | —             | `3..5`              | —                  |
+
+策略局部成员不在上表伪装为实体字段或 Relation tuple；其完整差异使用路权实施合同
+§4.3 的 LFSD 4 `PolicyLocalChange`，未完成两端闭合的策略差异不得发布。
 
 字段级 before/after `Bytes` 只保存 `SemanticFieldValueV1`，不包含 12-byte `FieldV1`
 header；Entity Add/Remove 保存所在一侧完整 LFCA entity `RowV1`。所有 before/after payload
@@ -1708,7 +1748,7 @@ role 10 Move。`ParticipantClass.subtreeEnter/subtreeExit` 从 parent forest 与
 
 Genesis 对目标每个实体、合法 relation tuple 和 geometry 分别产生 Add，禁止
 Remove/Modify/Move/Reconnect，StaticRule 为空，并恰有一条空间 Initialize。Artifact diff
-由两份受绑定 LFCA 独立重算。LFCA 3 到 LFCA 4 是不支持的语义合同转换，不生成跨格式 LFSD。
+由两份受绑定 LFCA 独立重算。旧 LFCA 到 LFCA 5 是不支持的语义合同转换，不生成跨格式 LFSD。
 `semanticDiffDigest` 是完整 LFSD exact bytes 的 SHA-256，`semanticDiffByteLength` 是同一
 字节序列的精确 `u64` 长度；两者不嵌回 LFSD。内容寻址 key 唯一为
 `"sha256/" || hexLower(semanticDiffDigest)`，调用方不能覆盖。该绑定供候选、宿主资产绑定与
@@ -1870,7 +1910,7 @@ reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构�
 公共格式实现必须原子满足：
 
 1. Road Editing v3、Road Editing frontend 3、Synthetic frontend 4、Identity registry
-   revision 3、LFCA 4、LFSM 3 与 LFSD 3；
+   revision 4、LFCA 5、LFSM 3 与 LFSD 3；
 2. schema clean regeneration，删除 `ParkingArea` reader/writer/public symbol，加入冲突
    静态声明，不保留 alias、双读、双写或迁移 façade；
 3. `laneflow-static-contract` 机器登记表、chunk directory 与本文逐项一致；
@@ -1886,22 +1926,22 @@ reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构�
 固定向量不得在测试运行时用 production emitter 自己生成 expected。目标实现至少冻结并
 检入输入、完整 expected bytes、SHA-256、exact length、object key 与 revision/binding：
 
-| 向量族                          | 必须证明                                                                                            |
-| ------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `min-headless`                  | 最小合法 LFCA 4 的八节、空逻辑表表达、首 chunk/section offset 与 revision framing                   |
-| `lfca-full-spatial`             | 23 种可构造实体、所有合法 relation role、停车/冲突静态、规范 f32、三类 geometry 与 LFSM/LFSD 配对   |
-| `lfsm-mixed-location`           | Synthetic Text 与 Road Editing Declaration/OwnerLocal/property/canvas、文档与来源集合摘要的完整绑定 |
-| `provenance-*`                  | 语义相同而来源/build provenance 不同时 revision 相同、artifact digest 不同                          |
-| `claim-mismatch`                | 只篡改 declared revision 时对象结构可读但 bundle binding 稳定失败                                   |
-| `reorder-equivalent`            | declaration、集合与 hash iteration 扰动后 exact bytes 完全相同                                      |
-| `signed-zero`                   | 编译边界把 `-0.0` 规范为 `+0.0`，负零 wire 失败                                                     |
-| `lfsd-change-set` / `lfsd-noop` | add/remove/modify/reconnect/move、空间配置及空差异的完整两端绑定                                    |
-| `lfcp-min-bindings`             | LFCP 2 的三节、`0x0068` 首节 offset、object keys 与无 receipt/LFSD binding                          |
-| `path-anchor-boundary`          | Gate/EdgeBoundary/Interior 统一位置键、边界唯一 variant、entry/exit/order 与 admission Gate 派生    |
-| `lfsm-role9-filtered-row`       | path occurrence 顺序/重复变化不改 filtered-row localIndex，primary 仍定位到选中来源 occurrence      |
-| `parking-anchor-multiset`       | 同一 LaneEdge 多 anchor 删除/新增一个时保留基数，progress-only 变化只走完整字段 payload             |
-| `closed-value-rejection`        | regulation tag 缺失或恰一行成功，零/多行与非法 `x-lane-*` / `x-*` ASCII token 稳定失败              |
-| `lfsd-field-presence`           | required/optional 字段的四种 base/target 存在性只接受唯一 before/after payload 形状                 |
+| 向量族                          | 必须证明                                                                                               |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `min-headless`                  | 最小合法 LFCA 5 的八节、空逻辑表表达、首 chunk/section offset 与 revision framing                      |
+| `lfca-full-spatial`             | 既有 23 种实体与空策略表、既有 relation role、停车/冲突静态、规范 f32、三类 geometry 与 LFSM/LFSD 配对 |
+| `lfsm-mixed-location`           | Synthetic Text 与 Road Editing Declaration/OwnerLocal/property/canvas、文档与来源集合摘要的完整绑定    |
+| `provenance-*`                  | 语义相同而来源/build provenance 不同时 revision 相同、artifact digest 不同                             |
+| `claim-mismatch`                | 只篡改 declared revision 时对象结构可读但 bundle binding 稳定失败                                      |
+| `reorder-equivalent`            | declaration、集合与 hash iteration 扰动后 exact bytes 完全相同                                         |
+| `signed-zero`                   | 编译边界把 `-0.0` 规范为 `+0.0`，负零 wire 失败                                                        |
+| `lfsd-change-set` / `lfsd-noop` | add/remove/modify/reconnect/move、空间配置及空差异的完整两端绑定                                       |
+| `lfcp-min-bindings`             | LFCP 2 的三节、`0x0068` 首节 offset、object keys 与无 receipt/LFSD binding                             |
+| `path-anchor-boundary`          | Gate/EdgeBoundary/Interior 统一位置键、边界唯一 variant、entry/exit/order 与 admission Gate 派生       |
+| `lfsm-role9-filtered-row`       | path occurrence 顺序/重复变化不改 filtered-row localIndex，primary 仍定位到选中来源 occurrence         |
+| `parking-anchor-multiset`       | 同一 LaneEdge 多 anchor 删除/新增一个时保留基数，progress-only 变化只走完整字段 payload                |
+| `closed-value-rejection`        | regulation tag 缺失或恰一行成功，零/多行与非法 `x-lane-*` / `x-*` ASCII token 稳定失败                 |
+| `lfsd-field-presence`           | required/optional 字段的四种 base/target 存在性只接受唯一 before/after payload 形状                    |
 
 这些向量必须原子保持 `4/3/3/2`；不得把旧版本 bytes 当作当前成功向量，
 也不得为保留旧 fixture 增加双读分支。

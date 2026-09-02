@@ -927,14 +927,16 @@ G1 曾冻结两个 current JSON 固定样例的等价迁移。这些 JSON 文件
 
 - `StableId128([u8; 16])` 与有类型包装；
 - `identityEncodingVersion = 1`；
-- `identityRegistryRevision = 3`（kind `1..=23`、tag `1..=34` 连续登记，ADR 0029）；
+- `identityRegistryRevision = 4`（kind `1..=24`、tag `1..=35` 连续登记）；
 - 实体种类代码 / 英文短名、字段标签代码 / 编码和必需标签序列；
 - `LFID` 魔数、文本形态规则和 `BLAKE3` 域分隔字节。
 
 登记表保留 `identityEncodingVersion = 1` 与既有 kind 的 canonical bytes/StableId；
 kind 14 / tag 22 使用 `ParkingFacility` / `parkingFacilityKey`，kind 21/23 与 tag 23/30
 分别用于 `ConflictZone` / `ParticipantStream`，kind 22 / tag 31 的
-`CanonicalFrame` / `canonicalFrameKey` 不变。
+`CanonicalFrame` / `canonicalFrameKey` 不变。kind 24 / tag 35 新增
+`RightOfWayPolicySet` / `rightOfWayPolicySetKey`，身份字段顺序为 namespace、policy key；
+其局部规则、间隙参数和依据不派生独立稳定实体。
 
 `laneflow-compiler` 独立实现：
 

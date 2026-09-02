@@ -31,6 +31,11 @@ pub(super) fn entity_stable_id(
         EntityKind::ConflictZone => stable_id_bytes(lir.conflict_zones[index].stable_id),
         EntityKind::ParticipantStream => stable_id_bytes(lir.participant_streams[index].stable_id),
         EntityKind::CanonicalFrame => stable_id_bytes(lir.canonical_frames[index].stable_id),
+        EntityKind::RightOfWayPolicySet => {
+            // 合同 §4.4.3：策略局部成员走 OwnerLocalSource/PolicyLocalChange，
+            // 不派生拓扑关系或空间几何关系；本函数只投影这两类关系的端点。
+            unreachable!("policy sets cannot be topology or spatial relation endpoints")
+        }
     }
 }
 
