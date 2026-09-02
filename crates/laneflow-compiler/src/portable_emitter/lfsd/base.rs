@@ -118,6 +118,19 @@ impl<'a> ArtifactIndex<'a> {
             .copied()
             .ok_or(mismatch)
     }
+
+    pub(super) fn entity_row(
+        &self,
+        entity_kind: EntityKind,
+        typed_ordinal: u32,
+        mismatch: PortableEmissionError,
+    ) -> Result<RegistryCheckedRowView<'a>, PortableEmissionError> {
+        let stable_id = self.stable_id(entity_kind, typed_ordinal, mismatch)?;
+        self.entities
+            .get(&(entity_kind, stable_id))
+            .map(|entity| entity.row)
+            .ok_or(mismatch)
+    }
 }
 
 pub(super) fn checked_u8_with(

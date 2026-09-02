@@ -29,7 +29,7 @@ DSL）已接入车道图边、完整横断面所有者树，以及由 `Junction`
 `CanonicalFrame`、`ParticipantStream` 分别占用身份种类 21、22、23。构建器原子拒绝非法数值 / token、非法或未
 导入引用、重复声明和重复无序关系，并保留横断面、车道、覆盖链与完整机动路径的领域顺序。
 包内标识 v1 编码器严格校验登记字段，
-流式形成规范字节并派生 BLAKE3-128 `StableId128`；修订 3 的 23 个可构造种类由
+流式形成规范字节并派生 BLAKE3-128 `StableId128`；修订 4 的 24 个可构造种类由
 `tests/identity-v1-known-vectors.txt` 冻结已知向量，并由独立字节组装预言机校验。
 纵向管线使用有类型 `u32` 区块键完成跨模块符号解析、车道覆盖与机动路径连通性、
 横断面唯一所有者，以及路口内部边排他角色校验，并按父项先于子项派生横断面和路口
@@ -72,6 +72,14 @@ regularity visit cache、待提交几何包装与单 corridor 临时集合使用
 必须先取得 `ValueCheckedObjectView`；emitter 在变化分类前拒绝不兼容 contract、base 内部
 身份/实体错配和跨修订 StableId 前像冲突，并按 A.3/A.5 的字段、set/scalar/domain/occurrence、
 geometry、static rule 与全局 spatial 规则产生诊断性 LFSD。
+
+LFCA 5 策略引用在最终目标字节和 Artifact base 上另行核对：四张局部表的 owner 必须
+存在，stream/gate/classes/yield 引用必须解析到对应种类，引用集合按 StableId 严格排序；
+gap/evidence key 只能解析到同一 policy。每条规则须继承策略级来源或具有已解析依据，
+已有来源也不豁免显式依据引用。evidence/gap 的借用键索引先按完整逻辑行数计量，再分配，
+受 `StageScratchBytes` 约束并在检查结束后释放；跨 chunk 不改变 owner、key 或引用语义。
+该检查不替代规则选择、覆盖性、灯型一致性及完整 LFSD/LFSM 投影闭合；正式策略前端和
+共享根消费按路权实施合同分别交付。
 
 发射器对受检 table/RecordVector 的顺序消费使用单游标零拷贝迭代器；writer 适配层把
 nested/top fields、rows、tables、sections 降低到少量连续 arena，并通过
