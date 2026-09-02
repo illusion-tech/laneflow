@@ -7,8 +7,8 @@ const MIN_HEADLESS_BUILD_ID: &str = "laneflow-fixture-298-min-headless-v1";
 const VARIANT_BUILD_ID: &str = "laneflow-fixture-298-variants-v1";
 const VARIANT_ALTERNATE_BUILD_ID: &str = "laneflow-fixture-298-variants-v2";
 const MIN_HEADLESS_REVISION: [u8; 32] = [
-    0x84, 0x3b, 0x03, 0xfb, 0x3d, 0x07, 0x16, 0xac, 0x00, 0x9c, 0x1f, 0xe3, 0xa8, 0x51, 0xaa, 0x9e,
-    0x98, 0x53, 0xb5, 0x8f, 0x2e, 0xc1, 0xe4, 0x34, 0x3c, 0x68, 0x36, 0xaf, 0xc4, 0xaa, 0x16, 0x0f,
+    0xf1, 0xa1, 0x51, 0x0b, 0x31, 0xc9, 0x06, 0x8b, 0x72, 0xd2, 0xe8, 0x7b, 0xf5, 0xd1, 0x92, 0x24,
+    0xa3, 0xeb, 0x49, 0xf7, 0x14, 0x85, 0xb5, 0x0a, 0xc9, 0xbd, 0xfa, 0x30, 0x2c, 0x18, 0xa8, 0x6b,
 ];
 
 const MIN_HEADLESS_EXPECTED: &[u8] =
@@ -28,25 +28,25 @@ const CLAIM_MISMATCH_EXPECTED: &[u8] =
 
 const MIN_HEADLESS_LENGTH: u64 = 1_231;
 const MIN_HEADLESS_KEY: &str =
-    "sha256/b2a8b2b6ff7a57089562eb758b7ad663b46781b6f51ea5d634823af160bec0b8";
+    "sha256/385739f2485c5265df5da990610ff0b90b1ad9150adeaf336a3e4220b400b19a";
 const PROVENANCE_BASE_LENGTH: u64 = 1_227;
 const PROVENANCE_BASE_KEY: &str =
-    "sha256/a1e9e50b0d912c9fe352d990c5f9d202d16a1602c7f89f84ce1def7a503c5db2";
+    "sha256/b3c67e9579347af48ac439a946b3a070beab0ffbcbcf5ec9fbbaacfd421931ce";
 const PROVENANCE_SOURCE_LENGTH: u64 = 1_227;
 const PROVENANCE_SOURCE_KEY: &str =
-    "sha256/db0eb9a405c31d99b9bdab6a21636a29fe65dae00345b608d5ec942319bbf539";
+    "sha256/5a2bdc98670ff1f2d39c6f26c2be305175f99f91083cf13c37748b235216a94e";
 const PROVENANCE_BUILD_LENGTH: u64 = 1_227;
 const PROVENANCE_BUILD_KEY: &str =
-    "sha256/c847f74695229ebbd9793463f578ee756ee4d939945725eb742875f6609f115c";
+    "sha256/3880891a1c7f476835368d82d2561783945c4e526ff8853deaad17664c8bf3fa";
 const REORDER_EQUIVALENT_LENGTH: u64 = 3_289;
 const REORDER_EQUIVALENT_KEY: &str =
-    "sha256/47d2e78fc0f92886601d18dcb4e163ca04ec09e2310bee285e8eb3404c75641b";
+    "sha256/86c6c508dafd60061c2e6869f375bf2079c6799eee73fdd5a3f2f2fed7b71454";
 const SIGNED_ZERO_LENGTH: u64 = 2_559;
 const SIGNED_ZERO_KEY: &str =
-    "sha256/7762057b6522a2f8d441f40fd5e520e0de25e777fa8c2e28275865c87a7e229c";
+    "sha256/d71ec57b5b59fb9eee3f884a1c8b2a43be0cf5550bc1b0f13c5508b32ef40c4f";
 const CLAIM_MISMATCH_LENGTH: u64 = 1_231;
 const CLAIM_MISMATCH_KEY: &str =
-    "sha256/67f8ba1761f9a995f9477366ac7d7e42156f9884a3a6b67bc6c568e5fafacd9f";
+    "sha256/d2105be82fc931d5dc7ef734068057f1b6ba46c580b2420e956c53be5de400c8";
 
 fn emit(output: &CompilationOutput, build_id: &str) -> crate::PortablePublicationCandidate {
     let provenance = crate::PortableEmissionProvenance::try_new(build_id).unwrap();
@@ -276,12 +276,12 @@ fn portable_min_headless_matches_g1_anchor_and_frozen_exact_bytes() {
     assert_eq!(first_section_offset, 0x00e0);
     let expected_lengths = [204, 16, 16, 16, 146, 148];
     let expected_digests = [
-        "334dd52c8b9a8352b19d5903b22caed35adce9be6ceb07957c4037f4ca89d00a",
+        "2e2641659783ab14916b82d42634323206ae0ab9b47f6c64c053b1066a0ed301",
         "dfa9925a2db09a0a641cc3908a1b4c47b32dcf958247f428e5306b871a524276",
         "dfa9925a2db09a0a641cc3908a1b4c47b32dcf958247f428e5306b871a524276",
         "dfa9925a2db09a0a641cc3908a1b4c47b32dcf958247f428e5306b871a524276",
         "9177e786da481ef65111262d38e857431dd9db7cf6bdae03a778698d9e9f5d95",
-        "c4c12ea0db48dea6cf67a97b06565f9861f93b20667cf6f0ad336aeca85e280e",
+        "e1807294856d5e781d1ca97d8a385e44a7347f42ece47d496fadb8b5f90475a6",
     ];
     for (ordinal, (length, expected_digest)) in expected_lengths
         .into_iter()
@@ -292,8 +292,8 @@ fn portable_min_headless_matches_g1_anchor_and_frozen_exact_bytes() {
         assert_eq!(section.bytes().len(), length);
         assert_eq!(digest_hex(section.bytes()), expected_digest);
     }
-    assert_eq!(view.section(2).unwrap().table_count(), 23);
-    assert_eq!(view.section(3).unwrap().table_count(), 1);
+    assert_eq!(view.section(2).unwrap().table_count(), 24);
+    assert_eq!(view.section(3).unwrap().table_count(), 5);
     assert_eq!(view.section(4).unwrap().table_count(), 4);
 }
 

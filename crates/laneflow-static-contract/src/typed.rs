@@ -411,6 +411,12 @@ define_entity_markers!(
         ParticipantStreamId,
         ParticipantStreamOrdinal
     ),
+    (
+        RightOfWayPolicySetKind,
+        RightOfWayPolicySet,
+        RightOfWayPolicySetId,
+        RightOfWayPolicySetOrdinal
+    ),
 );
 
 #[cfg(test)]
@@ -425,6 +431,9 @@ mod tests {
         assert_eq!(size_of::<StableId128>(), 16);
         assert_eq!(size_of::<RoadCorridorId>(), 16);
         assert_eq!(size_of::<LaneEdgeId>(), 16);
+        assert_eq!(size_of::<RightOfWayPolicySetId>(), 16);
+        assert_eq!(size_of::<RightOfWayPolicySetKind>(), 0);
+        assert_eq!(size_of::<RightOfWayPolicySetOrdinal>(), size_of::<u32>());
         assert_eq!(size_of::<LaneEdgeOrdinal>(), size_of::<u32>());
     }
 
@@ -440,6 +449,20 @@ mod tests {
         assert_eq!(id.to_string(), text);
         assert_eq!(text.parse::<LaneEdgeId>(), Ok(id));
         assert_eq!(id.into_untyped(), raw);
+
+        let policy = RightOfWayPolicySetId::from_untyped(raw);
+        let policy_text = "lfid1_right-of-way-policy-set_00112233445566778899aabbccddeeff";
+        assert_eq!(policy.to_string(), policy_text);
+        assert_eq!(policy_text.parse::<RightOfWayPolicySetId>(), Ok(policy));
+        assert_eq!(policy.into_untyped(), raw);
+        assert_eq!(
+            text.parse::<RightOfWayPolicySetId>(),
+            Err(StableIdTextError::UnexpectedEntityKind)
+        );
+        assert_eq!(
+            policy_text.parse::<LaneEdgeId>(),
+            Err(StableIdTextError::UnexpectedEntityKind)
+        );
     }
 
     #[test]
