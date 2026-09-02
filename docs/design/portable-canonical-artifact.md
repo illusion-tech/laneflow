@@ -974,6 +974,11 @@ NetworkRevisionIdV1 := SHA-256(
 
 ## 4. LFSM 3
 
+#284 的 LFSM 4 候选完整登记见
+[`traffic-runtime-right-of-way-policy.md` §4.4](traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合)：
+包含 Road Editing v4 container/member、来源关系代码、policy 与局部成员的主来源和
+贡献来源投影（Review）。本节仍描述当前已交付的 LFSM 3 五节/八表合同。
+
 `magic = "LFSM"`，`sourceMapFormatVersion = 3`。LFSM 3 精确包含：
 
 | sectionKind | 名称                     | tables                                             |

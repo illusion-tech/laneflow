@@ -199,6 +199,11 @@ FlatBuffers verifier 必须先证明全部被访问的 offset、vector、table�
 
 ### 9.3 schema 形状
 
+#284 的 Road Editing v4 来源字段及 LFSM 4 属性路径增量，统一登记于
+[`traffic-runtime-right-of-way-policy.md` §4.4](traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合)
+（Review），包含具名策略局部成员的 CanonicalSetOrdinal 规则。本节及 §9.7 仍描述
+已交付的 v3 来源合同；候选不表示 schema、reader/writer 或来源位置代码已经升级。
+
 schema 路径为 `schemas/road-editing/v3/road-editing.fbs`。
 字段级领域语义由同目录 README 与本设计共同冻结。`.fbs` 是精确
 wire shape 的机器事实源；生成的 wire 类型只存在于私有、`publish = false` 的生成绑定
