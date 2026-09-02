@@ -194,8 +194,8 @@ LFSM 增加 owner-local role `PolicyEvidence=33`、`PolicyGapProfile=34`、
 `PolicyStreamRule=35`、`PolicyGateRule=36`：owner 是 policy StableId，member index
 是该 owner 同类局部成员按 key 排序后的下标。来源路径保留实际字段位置；它不是
 持久规则身份。局部引用由完整成员 payload 检查，不向既有只容纳稳定实体的 relation
-tuple 填入假 StableId。LFSD 对 policy 及局部表的增删改产生 owner-keyed payload
-变化，并重算两端规范内容；未知局部成员不静默跳过。
+tuple 填入假 StableId。LFSD 4 的局部成员变更使用 §4.3 的专用表、稳定值投影与
+两端闭合规则；不得把局部成员伪装成 EntityChange 的稳定 subject 或关系 target。
 
 新的语义表位于 section 3/4，进入现行 NetworkRevisionId 对前六个 section 的规范
 字节覆盖；Movement 字段同样被覆盖，派生算法不变。发布 provenance 的排除
@@ -233,6 +233,121 @@ target ranges 计入既有 CompileLimits/BuildLimits，超限失败，不随意�
 同一根可被不同 fixedDelta 的 world 共享。`requiredLeadMs` 和 proof horizon 必须在
 world 安装时 checked 派生，不能把某个世界的步长写进共享根。world 只保留选中策略的
 派生阈值，不复制静态规则表。
+
+### 4.3 LFSD 4 策略局部成员变更
+
+本节是 LFSD 4 的封闭增量，复用[规范制品格式](portable-canonical-artifact.md) §2、
+§5 的 framing、两端绑定及既有六节；仅本节列出的登记和字段分类改变。
+`magic="LFSD"`、`semanticDiffFormatVersion=4`，七节按 kind `1..7` 排列，逻辑表总数为 7。
+新增 section `0x0007 PolicyLocalChanges`，其中唯一 table 为
+`0x0001 PolicyLocalChange`（策略局部成员变更）；`sectionFormatVersion=2`、
+`tableSchemaVersion=1`。首节偏移为 `32 + 7 * 24 = 200 (0x00c8)`，沿用分块目录、
+chunk digest、RowV1/FieldV1 及零 flags。无成员变化时第七节仍存在，表以零 chunk
+表示；不能省略该节或写空 TableV1。
+
+#### 4.3.1 行字段、身份与操作
+
+以下为外层变更行的完整字段集合，未登记 tag、类型或 enum 一律拒绝。R 为必需，
+O 的存在性由后表唯一决定，不接受额外 local index、fieldTag 或 subjectStableId。
+
+| tag | 字段                  | 类型        | 存在性                                                  |
+| --- | --------------------- | ----------- | ------------------------------------------------------- |
+| 1   | `changeKind`          | U8          | R；`0=Add, 1=Remove, 2=Modify`                          |
+| 2   | `ownerPolicyStableId` | StableId128 | R；对应侧必须解析为 EntityKind 24                       |
+| 3   | `memberKind`          | U8          | R；`0=Evidence, 1=GapProfile, 2=StreamRule, 3=GateRule` |
+| 4   | `memberKey`           | Utf8        | R；复用 §2.2 编制 key 值域及上限                        |
+| 5   | `beforeValue`         | Bytes       | O；完整规范成员值 RowV1                                 |
+| 6   | `afterValue`          | Bytes       | O；完整规范成员值 RowV1                                 |
+
+成员键 `K = (ownerPolicyStableId, memberKind, memberKey)` 不包含内容摘要、来源位置或
+根内 ordinal。key 使用原始 UTF-8 字节，不做大小写折叠或 Unicode 归一化；编码为
+普通 Utf8 FieldV1，其 byte length 来自字段头，不增加第二个字符串长度前缀。
+memberKind 是本节自有封闭代码，不能拿 LFSM role 33–36 当它的 wire 值。
+
+| base 中 K | target 中 K      | 唯一操作 | beforeValue | afterValue |
+| --------- | ---------------- | -------- | ----------- | ---------- |
+| 不存在    | 存在             | Add      | 禁止        | 必需       |
+| 存在      | 不存在           | Remove   | 必需        | 禁止       |
+| 存在      | 存在且规范值不同 | Modify   | 必需        | 必需       |
+| 存在      | 存在且规范值相同 | 无行     | —           | —          |
+| 不存在    | 不存在           | 无行     | —           | —          |
+
+以 K 配对后才按 `(changeKind, ownerPolicyStableId, memberKind, memberKey)` 严格排序。
+整数按数值序，StableId 和 key 按无符号字节字典序；顺序和唯一性跨 chunk 延续。
+同一 K 在整个表中最多一行，不能用 Remove+Add 代替同键 Modify。改 key 或换 owner
+意味着旧 K Remove、新 K Add；无 Move/Reconnect，插入其他成员造成的局部下标变化
+不产生变更。空 Bytes、同值 Modify、缺侧/错侧载荷和重复 K 均拒绝。
+
+#### 4.3.2 四种完整规范成员值
+
+每个 before/after Bytes 精确包含一个 RowV1，包括标准 rowByteLength、fieldCount
+及零 reserved，不包含 TableV1 或其他封套，无尾随字节。使用下表唯一 schema；
+tag 沿用 LFCA 局部行的 `3..`，省略原 tag 1 的 policy ordinal 和 tag 2 的 key，
+二者由外层 K 表达。类型名称均为现有 FieldV1 登记，`?` 表示可选，其余必需。
+
+| memberKind   | 唯一字段（`tag:name:type`）                                                                                                    |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| 0 Evidence   | `3:locator:Utf8, 4:description:Utf8?`                                                                                          |
+| 1 GapProfile | `3:parameterVersion:Utf8, 4:minimumLeadGapMs:U64, 5:minimumLagGapMs:U64, 6:clearanceBufferMs:U64`                              |
+| 2 StreamRule | `3:stream:Bytes, 4:classes:Bytes?, 5:priority:I32, 6:yieldToStreams:Bytes, 7:gapProfileKey:Utf8?, 8:evidenceKeys:RecordVector` |
+| 3 GateRule   | `3:gate:Bytes, 4:classes:Bytes?, 5:interpretation:U8, 6:prohibition:U8, 7:evidenceKeys:RecordVector`                           |
+
+有类型稳定引用的 Bytes 精确复用 `StableRefV1 = entityKind:u16_le || stableId[16]`，
+共 18 bytes：stream 必须为 ParticipantStream，gate 必须为 ManeuverGate。
+classes 和 yieldToStreams 的 Bytes 为 `count:u32_le || StableRefV1[count]`；前者
+只允许 ParticipantClass，后者只允许 ParticipantStream，均按 StableId 字节序严格
+递增、无重复。必须先用对应侧 LFCA 的 Identity 表解析 ordinal，再编码和排序；
+不把两侧相同数字的 ordinal 当成同一引用。
+
+evidenceKeys 复用唯一 child row `{tag1 key:Utf8}`，按 key 原字节严格排序、无重复。
+gapProfileKey、evidence key 都是同一 ownerPolicy 下的局部引用，须在对应侧完整
+LFCA 中存在。classes 缺失表达 fallback，显式空集拒绝；空 yield/evidence 仍编码
+count=0 的向量，gap 的条件存在性及来源继承按 §2.2–§2.3 检查。未知 enum、空的
+必填 token 和整数值域等约束沿用声明合同，不能因处于 Bytes 中而放宽。
+
+所有整数小端，字段 tag 严格递增；字符串、向量和引用均只采用以上规范形式。
+字节投影包含证据描述、参数版本及规则全部语义字段；只改变 locator、gap 数值或
+prohibition 也必须能观察到。语义引用相同但两根 ordinal 排列不同，投影字节必须相同。
+
+#### 4.3.3 与既有变更表的排他分工
+
+| LFCA 所有者/字段                                   | 唯一 LFSD 表与操作                                                      |
+| -------------------------------------------------- | ----------------------------------------------------------------------- |
+| RightOfWayPolicySet 实体新增/删除                  | 既有 EntityChange Add/Remove，保存所在侧完整实体 RowV1；不内嵌局部成员  |
+| 保留 policy 的 tag 3–7（法域、版本、来源、有效期） | 既有 StaticRuleChange Modify；按实际字段存在性保存 SemanticFieldValueV1 |
+| policy tag 1/2（typed ordinal/StableId）           | Identity/derived；不产生字段 Modify                                     |
+| 四类局部表全部成员及字段                           | 仅 PolicyLocalChange；每个变化 K 恰好一行完整前后值                     |
+| 保留 Movement 的可选 tag 7 turnDirection           | 既有 EntityChange Modify；按实际字段存在性保存 U8 SemanticFieldValueV1  |
+
+policy 内不虚构成员数组字段或成员 StableId，也不为局部行的 stream/gate/classes/
+yield/evidence 引用再发射 RelationChange。LFSM role 33–36 仅用于来源定位，不因此
+进入 LFSD 的稳定实体关系 tuple。既有其他字段和 relation role 的分类保持不变。
+
+Genesis 必须为每个 policy 实体发射 Entity Add，并为其全部局部成员发射独立的
+PolicyLocal Add；Artifact 中整个 policy 新增/删除也必须逐项发射其成员 Add/Remove。
+父实体记录不能代替局部成员记录；跨表按两端完整事实验证，不把表顺序当逐步应用命令。
+同键规则引用发生变化是一次完整 Modify，不再重复记成员内部字段变化。policy 身份
+改变时沿用旧实体及成员 Remove、新实体及成员 Add，不猜测 lineage。
+
+#### 4.3.4 两端闭合与资源约束
+
+1. 先按现行绑定合同验证 base/target exact digest、length、NetworkRevisionId 和共有
+   Identity 前像。LFSD 4 的目标及非 Genesis 基线均为 LFCA 5，身份/约束/执行合同
+   使用 §8 同一组合；不支持 LFCA 4→5 的跨格式 diff。Genesis 保留原四项零 base 值。
+2. emitter 与独立 checker 分别从两侧 LFCA 5 的 section 4、table 2–5 局部表和
+   Identity 表重建 K、稳定成员值及必需操作；Genesis 将 base 成员集视为空。
+   不以 LFSD 自报的键、载荷或来源位置决定哪一侧应当存在成员。
+3. 实际记录必须与独立重算结果逐键、逐操作、逐字节相等。完整检查所有 owner 和成员，
+   包括未被当前世界选择的 policy；漏一行、多一行、换 kind/owner、载荷篡改或漏掉
+   整个第七节都拒绝。其他表的排他分类同时复核，不能以在另一表重复表达来补缺项。
+4. 外层行与每个完整载荷必须受现有单 chunk 16,777,216 bytes、65,536 行、字段和
+   向量上限约束。内层 UTF-8、RecordVector 及 Bytes 中的稳定引用向量分别计入对应
+   字符串/向量累计预算；before/after 都收费，Bytes 封装不绕过语义预检。checked
+   长度、count×18、来源和派生计数在分配前验证；超限按现行失败原子性处理。
+5. 局部载荷逐成员发射，不把整份 policy 拼成一个巨型 Bytes 或新增全量历史。
+   独立投影与扫描 scratch 计入既有编译/后发射预算，Runtime tick 不读取 LFSD 表。
+   未完成本节闭合的差异制品不得用于发布候选或跨修订认证；目标根仍由完整 LFCA
+   重建，差异表本身不授予迁移权限。
 
 ## 5. 世界和场景绑定
 
@@ -398,24 +513,24 @@ cells/bytes、claim/query/collision 与 wait-for node/edge/visit counts。开发
 下表是本实施候选选择的唯一切换组合。仅在完整 #284 交付时替换现行 writer/reader；
 本文审阅本身不修改代码常量、不安装新格式，也不接受跨行混搭。
 
-| 轴                             | 当前  | #284  | 原因                                           |
-| ------------------------------ | ----- | ----- | ---------------------------------------------- |
-| Identity encoding              | 1     | 1     | 编码算法不变                                   |
-| Identity registry              | 3     | 4     | 新 policy 实体和 key 标签                      |
-| LFCA / canonical format        | 4     | 5     | 一实体、四局部表、机动方向和策略语义           |
-| constraint contract            | 2     | 3     | 门解释与组合资源约束                           |
-| static execution contract      | 4     | 5     | policy 解析与 conflict 执行输入                |
-| LFSM                           | 3     | 4     | 新 owner-local 角色和实体登记                  |
-| LFSD                           | 3     | 4     | policy 局部 payload 增删改闭合                 |
-| LFCP                           | 2     | 2     | descriptor 形状不变，精确绑定新版 LFCA/LFSM    |
-| NetworkRevision derivation     | 1     | 1     | 现有规范静态覆盖算法；新表和契约值进入现有输入 |
-| chunked / singleton section    | 2 / 1 | 2 / 1 | 不改 framing、chunk 或 field 编码              |
-| Road Editing schema / frontend | 3 / 3 | 4 / 4 | 正式来源新增 policy 声明                       |
-| Synthetic frontend             | 4     | 5     | 同构 policy 声明与机动方向                     |
-| LFRS / runtime state           | 4 / 4 | 5 / 5 | pin、reservation、Clearing 和历史              |
-| deterministic digest           | 6     | 7     | 新增语义字段与目标规范化                       |
-| cutover descriptor             | 1     | 2     | 新策略、冲突历史和规范化语义                   |
-| corridor catalog               | 0.3   | 0.4   | 必填 policy selection                          |
+| 轴                             | 当前  | #284  | 原因                                              |
+| ------------------------------ | ----- | ----- | ------------------------------------------------- |
+| Identity encoding              | 1     | 1     | 编码算法不变                                      |
+| Identity registry              | 3     | 4     | 新 policy 实体和 key 标签                         |
+| LFCA / canonical format        | 4     | 5     | 一实体、四局部表、机动方向和策略语义              |
+| constraint contract            | 2     | 3     | 门解释与组合资源约束                              |
+| static execution contract      | 4     | 5     | policy 解析与 conflict 执行输入                   |
+| LFSM                           | 3     | 4     | 新 owner-local 角色和实体登记                     |
+| LFSD                           | 3     | 4     | 七节/七表，PolicyLocalChange 完整增删改与两端闭合 |
+| LFCP                           | 2     | 2     | descriptor 形状不变，精确绑定新版 LFCA/LFSM       |
+| NetworkRevision derivation     | 1     | 1     | 现有规范静态覆盖算法；新表和契约值进入现有输入    |
+| chunked / singleton section    | 2 / 1 | 2 / 1 | 不改 framing、chunk 或 field 编码                 |
+| Road Editing schema / frontend | 3 / 3 | 4 / 4 | 正式来源新增 policy 声明                          |
+| Synthetic frontend             | 4     | 5     | 同构 policy 声明与机动方向                        |
+| LFRS / runtime state           | 4 / 4 | 5 / 5 | pin、reservation、Clearing 和历史                 |
+| deterministic digest           | 6     | 7     | 新增语义字段与目标规范化                          |
+| cutover descriptor             | 1     | 2     | 新策略、冲突历史和规范化语义                      |
+| corridor catalog               | 0.3   | 0.4   | 必填 policy selection                             |
 
 几何计算和浮点量化算法未变，其独立 geometry semantics 版本保持不变。
 
@@ -454,6 +569,13 @@ cells/bytes、claim/query/collision 与 wait-for node/edge/visit counts。开发
   不生成虚构 clear 事件。
 - 策略级来源继承、规则级依据分别可满足来源要求；两者皆无或引用悬空失败，孤立
   evidence 不代替规则引用；工程 fixture 的版本化依据按同一正式入口验证。
+- LFSD 4 四类成员各自的固定字节向量及 Add/Remove/Modify，包含只改 gap 数值、
+  证据 locator、规则目标/禁令、可选字段存在性；同键修改不得记成 Remove+Add。
+  覆盖改名、policy 整体增删、Genesis、纯 ordinal 重排不变、仅 policy 自身字段改变
+  不伪造成员变化，以及 Movement tag 7 的分类。
+- 独立 checker 拒绝漏掉成员/整节、错 owner/kind、错侧/同值载荷、重复 K（包括跨
+  chunk）、错误稳定引用与格式轴；覆盖 Bytes 内层计数超限和失败后重试。验证声明
+  顺序置换产生同一 canonical LFSD；不把两端摘要匹配当成变化清单完整的证明。
 
 文档验证运行 Markdown 表格与本地链接检查；生产实现还须满足仓库对应 Rust、codegen、
 制品和场景测试。设计候选的检查通过不等于 runtime 已实现、G2 已记录或 #284 已完成。

@@ -1413,6 +1413,11 @@ LFSM 接受前必须先用 tag 3/4/5 绑定 LFCA 4 exact bytes，再暴露任一
 
 ## 5. LFSD 3
 
+#284 的 LFSD 4 候选新增策略局部成员变更节，完整行字段、成员值编码、排序、
+Genesis/Artifact 操作与双端闭合见
+[`traffic-runtime-right-of-way-policy.md` §4.3](traffic-runtime-right-of-way-policy.md#43-lfsd-4-策略局部成员变更)
+（Review）。本节仍描述当前已交付的 LFSD 3 六节合同。
+
 `magic = "LFSD"`，`semanticDiffFormatVersion = 3`。六节和各自唯一的表为：
 
 | sectionKind | 名称                          | tableKind `0x0001`                       |
