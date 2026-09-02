@@ -1,7 +1,7 @@
 # 运行时快照
 
 **文档状态**: Accepted（#302 G1；停车 #540；路线冲突出现项 #283；Waiting #282）<br>
-**最后更新**: 2026-09-01<br>
+**最后更新**: 2026-09-02<br>
 **适用范围**: 版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)（§12；static image / receipt 条款已被 ADR 0025 §8 取代，origin 以 LFCA 为准）、
@@ -166,6 +166,8 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   总数并核对快照与目标容量，再以保存的 `carry_um` 直接提交最终车辆状态。每个
   `Active` 都必须满足冲突仲裁能力缺席期的 3A 车尾清除谓词；`Parked/Completed`
   不经过瞬时 `Active`。任一失败不发布 world。
+- 普通恢复严格核对已保存的 Waiting traversal/membership；缺失状态不得自动补成
+  `PreGate`。首次 Waiting 覆盖的零历史初始化只属于显式跨修订切换（切换文档 §3.3）。
 - 恢复成功后世界处于快照 `tick` 边界的一致状态；`install` 核对与
   `register_admitted_route` 规范化路线重建沿现行消费契约执行。
 - G2 fresh restore 入口 `restore_lfrs` 的顺序不可绕过：调用方 wire / asset-key
@@ -252,8 +254,9 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   换序保持等价（有序对内容相同，全部后续命令行为一致）。这样局部 ID、句柄
   与表排列变化不影响摘要，但多重度、车辆-路线绑定与 live 顺序仍被保留。LFCA exact-byte digest/length、Published 审计来源、
   worker、`WorldGeneration`、观测 session 不入摘要。同一逻辑状态在任何合法容器编码
-  与恢复句柄分配下摘要相等；该摘要同时是切换事务静默期复核的期望值来源（切换文档
-  §3/§5）。
+  与恢复句柄分配下摘要相等；切换事务的期望值从源捕获独立计算，只允许 target origin
+  替换与首次 Waiting 覆盖的零历史 `PreGate` 规范化（切换文档 §3.3/§5），不省略
+  traversal 摘要字段，也不从候选动态状态取值。
 - 检查点（checkpoint）是回放序列中的快照锚点，与命令游标共同界定重放区间；
   G2 对拍点冻结为 `(command_cursor, tick, deterministic_state_digest)`；宿主从检查点
   依序重放并比较各点，首个不等点与上一个相等点构成首个分歧区间。失同步只诊断，

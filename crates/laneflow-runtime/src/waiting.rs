@@ -1181,7 +1181,7 @@ impl crate::TrafficWorld {
         self.derive_waiting_traversal_with_signals(state, true)
     }
 
-    fn derive_waiting_traversal_with_signals(
+    pub(crate) fn derive_waiting_traversal_with_signals(
         &self,
         state: crate::VehicleState,
         apply_current_signals: bool,
@@ -1989,7 +1989,7 @@ fn first_gate_hop(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::mem::size_of;
     use std::sync::Arc;
     use std::time::Instant;
@@ -2097,6 +2097,7 @@ mod tests {
 
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum ScaleLayout {
+        NoWaiting,
         SingleZone,
         AdditionalGate,
         SecondZone,
@@ -2107,6 +2108,21 @@ mod tests {
         max_occupancy: u32,
         layout: ScaleLayout,
     ) -> Arc<laneflow_static_network::SharedNetworkRevision> {
+        let candidate = waiting_scale_candidate_with_layout(
+            storage_length_meters,
+            max_occupancy,
+            layout,
+            PortableDiffBase::Genesis,
+        );
+        waiting_scale_shared(&candidate)
+    }
+
+    fn waiting_scale_candidate_with_layout(
+        storage_length_meters: f64,
+        max_occupancy: u32,
+        layout: ScaleLayout,
+        base: PortableDiffBase<'_>,
+    ) -> laneflow_compiler::PortablePublicationCandidate {
         const NS: &str = "city/waiting-scale";
         const STEM_COUNT: usize = 64;
         let limits = CompileLimits::p100_initial_v1();
@@ -2234,17 +2250,23 @@ mod tests {
                 stop_line: StopLineReference::local("stop-release"),
                 signal_control: SignalControlInput::None,
             })
-            .expect("release gate")
-            .add_waiting_zone(WaitingZoneInput {
-                waiting_zone_key: "waiting",
-                maneuver_path: ManeuverPathReference::local("path"),
-                entry_gate: ManeuverGateReference::local("gate-entry"),
-                release_gate: ManeuverGateReference::local("gate-release"),
-                max_occupancy,
-            })
-            .expect("WaitingZone");
+            .expect("release gate");
+        if layout != ScaleLayout::NoWaiting {
+            module
+                .add_waiting_zone(WaitingZoneInput {
+                    waiting_zone_key: "waiting",
+                    maneuver_path: ManeuverPathReference::local("path"),
+                    entry_gate: ManeuverGateReference::local("gate-entry"),
+                    release_gate: ManeuverGateReference::local("gate-release"),
+                    max_occupancy,
+                })
+                .expect("WaitingZone");
+        }
         // 两个修订均保留相同 Gate；target 仅新增共享边界后的 Waiting 区间。
-        if layout != ScaleLayout::SingleZone {
+        if matches!(
+            layout,
+            ScaleLayout::AdditionalGate | ScaleLayout::SecondZone
+        ) {
             module
                 .add_stop_line(StopLineInput {
                     stop_line_key: "stop-exit",
@@ -2293,13 +2315,13 @@ mod tests {
             .expect("compiled");
         let provenance =
             PortableEmissionProvenance::try_new("laneflow-waiting-scale-v1").expect("provenance");
-        let candidate = emit_portable_candidate(
-            &output,
-            &provenance,
-            FormatLimits::HARD,
-            PortableDiffBase::Genesis,
-        )
-        .expect("portable candidate");
+        emit_portable_candidate(&output, &provenance, FormatLimits::HARD, base)
+            .expect("portable candidate")
+    }
+
+    fn waiting_scale_shared(
+        candidate: &laneflow_compiler::PortablePublicationCandidate,
+    ) -> Arc<laneflow_static_network::SharedNetworkRevision> {
         let checked = check_post_emission_bundle(
             candidate.canonical_artifact().bytes(),
             candidate.source_map().bytes(),
@@ -2323,6 +2345,36 @@ mod tests {
         vehicle_count: u32,
     ) -> (TrafficWorld, WaitingZoneOrdinal) {
         waiting_scale_world_at_delta(revision, vehicle_count, 4)
+    }
+
+    pub(crate) fn first_waiting_cutover_pair() -> (
+        Arc<laneflow_static_network::SharedNetworkRevision>,
+        Arc<laneflow_static_network::SharedNetworkRevision>,
+        Vec<u8>,
+    ) {
+        let base = waiting_scale_candidate_with_layout(
+            8.0,
+            1,
+            ScaleLayout::NoWaiting,
+            PortableDiffBase::Genesis,
+        );
+        let values = laneflow_format::preflight_object_values(
+            base.canonical_artifact().bytes(),
+            laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
+            FormatLimits::HARD,
+        )
+        .expect("base values");
+        let target = waiting_scale_candidate_with_layout(
+            8.0,
+            1,
+            ScaleLayout::SingleZone,
+            PortableDiffBase::Artifact(values),
+        );
+        (
+            waiting_scale_shared(&base),
+            waiting_scale_shared(&target),
+            target.semantic_diff().bytes().to_vec(),
+        )
     }
 
     fn waiting_scale_world_at_delta(
