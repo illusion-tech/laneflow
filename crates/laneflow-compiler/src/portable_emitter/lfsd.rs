@@ -1,6 +1,7 @@
 mod base;
 mod entity;
 mod geometry;
+mod policy;
 mod relation;
 
 use base::{ArtifactIndex, verify_artifact_diff_compatibility};
@@ -8,6 +9,7 @@ use entity::{artifact_entity_changes, artifact_static_rule_changes, genesis_enti
 use geometry::{
     artifact_geometry_changes, artifact_spatial_configuration_changes, genesis_geometry_changes,
 };
+use policy::validate_policy_references;
 use relation::{artifact_relation_changes, artifact_relation_tuples, genesis_relation_changes};
 
 use super::relations::{canonical_relation_tuples, entity_stable_id};
@@ -90,9 +92,15 @@ pub(super) fn build_lfsd(
             build_genesis_lfsd(output, network_revision, artifact, limits)?,
             ExpectedSemanticDiffBase::Genesis,
         )),
-        PortableDiffBase::Artifact(base) => {
-            build_artifact_lfsd(base, network_revision, artifact, limits)
-        }
+        PortableDiffBase::Artifact(base) => build_artifact_lfsd(
+            base,
+            network_revision,
+            artifact,
+            limits,
+            output
+                .compile_limits()
+                .value(CompileLimitDimension::StageScratchBytes),
+        ),
     }
 }
 
@@ -102,6 +110,13 @@ pub(super) fn verify_target_relation_projection(
 ) -> Result<(), PortableEmissionError> {
     let target_index =
         ArtifactIndex::build(target, PortableEmissionError::InternalBindingMismatch)?;
+    validate_policy_references(
+        &target_index,
+        output
+            .compile_limits()
+            .value(CompileLimitDimension::StageScratchBytes),
+        PortableEmissionError::InternalBindingMismatch,
+    )?;
     if artifact_relation_tuples(
         &target_index,
         PortableEmissionError::InternalBindingMismatch,
@@ -117,6 +132,7 @@ fn build_artifact_lfsd(
     target_network_revision: NetworkRevisionId,
     target_artifact: &PortableObjectCandidate,
     limits: FormatLimits,
+    policy_scratch_limit: u64,
 ) -> Result<(OwnedObject, ExpectedSemanticDiffBase), PortableEmissionError> {
     if base.kind() != PortableObjectKind::CanonicalArtifact {
         return Err(PortableEmissionError::InvalidDiffBaseKind);
@@ -134,6 +150,16 @@ fn build_artifact_lfsd(
         ArtifactIndex::build(base_view, PortableEmissionError::DiffBaseSemanticMismatch)?;
     let target_index =
         ArtifactIndex::build(target_view, PortableEmissionError::InternalBindingMismatch)?;
+    validate_policy_references(
+        &base_index,
+        policy_scratch_limit,
+        PortableEmissionError::DiffBaseSemanticMismatch,
+    )?;
+    validate_policy_references(
+        &target_index,
+        policy_scratch_limit,
+        PortableEmissionError::InternalBindingMismatch,
+    )?;
     verify_artifact_diff_compatibility(base_view, target_view, &base_index, &target_index)?;
 
     let base_network_revision = network_revision_from_checked(base)?;
@@ -257,6 +283,7 @@ mod tests {
                 NetworkRevisionId::from_digest(Sha256Digest::ZERO),
                 &target,
                 limits,
+                u64::MAX,
             ),
             Err(PortableEmissionError::Format(FormatError::LimitExceeded {
                 dimension: LimitDimension::ObjectBytes,

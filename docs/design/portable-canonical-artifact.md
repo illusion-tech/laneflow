@@ -828,6 +828,15 @@ ASCII token 值域和 53-byte 上限，不能重复。`locator` 与 `parameterVe
 目标、引用集合的排序去重、局部引用及法规来源继承的完整闭合由共同编译管线和共享根构建按 §2–§4 检查；
 格式预检不把合法 ordinal 或空 evidence 向量当作引用与来源已经闭合的证明。
 
+编译器在最终目标制品及 Artifact 差异基线上独立读取 LFCA 行，复用已核对的
+Identity/实体索引验证策略引用，不从 LIR 或 LFSD 自报值推断引用存在。
+全部局部成员都核对 policy owner；stream/gate/classes/yield 按对应实体种类解析，
+集合按 StableId 严格递增。gap/evidence 使用 `(成员种类, policy ordinal, key)` 查找；
+同名成员不能跨 policy 或成员种类借用。规则没有策略级来源且 evidence 为空时拒绝，
+有策略级来源时仍逐项核对显式 evidence 引用。检查使用跨 chunk 的逻辑表行序，
+新增的 evidence/gap 借用键索引按行数先计量后分配，并在检查后释放。
+完整规则选择、覆盖性及共享根语义验证继续服从实施合同，不能由这项引用检查替代。
+
 `CanonicalSpatialTables(0x0005)`：
 
 ```text
