@@ -607,11 +607,17 @@ fn restore_waiting_aggregate(
         return Err(SnapshotRestoreError::WaitingInvariantViolation);
     }
 
+    // 成员已经按 zone 排序；单调游标只消费当前组，计数总成本为 O(zones + members)。
+    let mut member_cursor = 0;
     for (zone_index, state) in world.waiting_zones.iter_mut().enumerate() {
-        let member_count = members
-            .iter()
-            .filter(|(member_zone, _, _, _)| *member_zone == zone_index)
-            .count();
+        let group_start = member_cursor;
+        while members
+            .get(member_cursor)
+            .is_some_and(|member| member.0 == zone_index)
+        {
+            member_cursor += 1;
+        }
+        let member_count = member_cursor - group_start;
         let Some((occupancy, next_admission_sequence)) = rows[zone_index] else {
             if member_count != 0 {
                 return Err(SnapshotRestoreError::WaitingInvariantViolation);

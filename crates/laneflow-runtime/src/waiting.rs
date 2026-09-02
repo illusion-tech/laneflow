@@ -2098,6 +2098,8 @@ pub(crate) mod tests {
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum ScaleLayout {
         NoWaiting,
+        NoWaitingEarlyEntry,
+        NoWaitingEarlyExit,
         SingleZone,
         AdditionalGate,
         SecondZone,
@@ -2174,6 +2176,16 @@ pub(crate) mod tests {
                 })
                 .expect("stem");
         }
+        let internal_edges = [
+            LaneEdgeReference::local("entry"),
+            LaneEdgeReference::local("storage"),
+            LaneEdgeReference::local("after-release"),
+        ];
+        let internal_range = match layout {
+            ScaleLayout::NoWaitingEarlyEntry => 0..3,
+            ScaleLayout::NoWaitingEarlyExit => 1..2,
+            _ => 1..3,
+        };
         module
             .add_lane_edge(LaneEdgeInput {
                 lane_edge_key: "entry",
@@ -2217,12 +2229,19 @@ pub(crate) mod tests {
             .add_maneuver_path(ManeuverPathInput {
                 maneuver_path_key: "path",
                 movement: MovementReference::local("movement"),
-                entry_edge: LaneEdgeReference::local("entry"),
-                internal_edges: &[
-                    LaneEdgeReference::local("storage"),
-                    LaneEdgeReference::local("after-release"),
-                ],
-                exit_edge: LaneEdgeReference::local("exit"),
+                entry_edge: LaneEdgeReference::local(
+                    if layout == ScaleLayout::NoWaitingEarlyEntry {
+                        "stem-63"
+                    } else {
+                        "entry"
+                    },
+                ),
+                internal_edges: &internal_edges[internal_range],
+                exit_edge: LaneEdgeReference::local(if layout == ScaleLayout::NoWaitingEarlyExit {
+                    "after-release"
+                } else {
+                    "exit"
+                }),
             })
             .expect("path")
             .add_stop_line(StopLineInput {
@@ -2238,7 +2257,7 @@ pub(crate) mod tests {
             .add_maneuver_gate(ManeuverGateInput {
                 maneuver_gate_key: "gate-entry",
                 maneuver_path: ManeuverPathReference::local("path"),
-                transition_index: 0,
+                transition_index: u32::from(layout == ScaleLayout::NoWaitingEarlyEntry),
                 stop_line: StopLineReference::local("stop-entry"),
                 signal_control: SignalControlInput::None,
             })
@@ -2246,12 +2265,17 @@ pub(crate) mod tests {
             .add_maneuver_gate(ManeuverGateInput {
                 maneuver_gate_key: "gate-release",
                 maneuver_path: ManeuverPathReference::local("path"),
-                transition_index: 1,
+                transition_index: 1 + u32::from(layout == ScaleLayout::NoWaitingEarlyEntry),
                 stop_line: StopLineReference::local("stop-release"),
                 signal_control: SignalControlInput::None,
             })
             .expect("release gate");
-        if layout != ScaleLayout::NoWaiting {
+        if !matches!(
+            layout,
+            ScaleLayout::NoWaiting
+                | ScaleLayout::NoWaitingEarlyEntry
+                | ScaleLayout::NoWaitingEarlyExit
+        ) {
             module
                 .add_waiting_zone(WaitingZoneInput {
                     waiting_zone_key: "waiting",
@@ -2352,12 +2376,31 @@ pub(crate) mod tests {
         Arc<laneflow_static_network::SharedNetworkRevision>,
         Vec<u8>,
     ) {
-        let base = waiting_scale_candidate_with_layout(
-            8.0,
-            1,
-            ScaleLayout::NoWaiting,
-            PortableDiffBase::Genesis,
-        );
+        first_waiting_cutover_pair_with_layout(ScaleLayout::NoWaiting)
+    }
+
+    pub(crate) fn first_waiting_changed_identity_cutover_pair(
+        shift_entry: bool,
+    ) -> (
+        Arc<laneflow_static_network::SharedNetworkRevision>,
+        Arc<laneflow_static_network::SharedNetworkRevision>,
+        Vec<u8>,
+    ) {
+        first_waiting_cutover_pair_with_layout(if shift_entry {
+            ScaleLayout::NoWaitingEarlyEntry
+        } else {
+            ScaleLayout::NoWaitingEarlyExit
+        })
+    }
+
+    fn first_waiting_cutover_pair_with_layout(
+        layout: ScaleLayout,
+    ) -> (
+        Arc<laneflow_static_network::SharedNetworkRevision>,
+        Arc<laneflow_static_network::SharedNetworkRevision>,
+        Vec<u8>,
+    ) {
+        let base = waiting_scale_candidate_with_layout(8.0, 1, layout, PortableDiffBase::Genesis);
         let values = laneflow_format::preflight_object_values(
             base.canonical_artifact().bytes(),
             laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
@@ -3032,6 +3075,34 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn restore_counts_sorted_members_across_occupied_and_empty_zones() {
+        let revision = waiting_scale_revision_with_layout(20.0, 2, ScaleLayout::SecondZone);
+        let (mut world, _) = waiting_scale_world(revision, 2);
+        for _ in 0..1_000 {
+            if world.waiting_zones.iter().all(|zone| zone.occupancy != 0) {
+                break;
+            }
+            world.step(TickInput::new(4)).unwrap();
+        }
+        assert_eq!(world.waiting_zones.len(), 2);
+        assert!(world.waiting_zones.iter().all(|zone| zone.occupancy == 1));
+        let restored = roundtrip(&world);
+        assert_eq!(restored.waiting_zone_members().len(), 2);
+        for empty_zone in 0..2 {
+            let mut copy = roundtrip(&world);
+            let member = copy.waiting_zones[empty_zone].head.unwrap();
+            copy.despawn_vehicle(member).unwrap();
+            let restored = roundtrip(&copy);
+            assert_eq!(restored.waiting_zones[empty_zone].occupancy, 0);
+            assert_ne!(
+                restored.waiting_zones[empty_zone].next_admission_sequence,
+                0
+            );
+            assert_eq!(restored.waiting_zone_members().len(), 1);
+        }
+    }
+
+    #[test]
     fn malformed_waiting_snapshot_aggregate_fails_closed() {
         let (mut world, route, occurrence) = waiting_world();
         let entry_edge = world.route_edges(route).expect("route")[occurrence.entry_hop as usize];
@@ -3072,6 +3143,13 @@ pub(crate) mod tests {
         occupancy_mismatch.waiting_zones[0].occupancy = 0;
         assert_eq!(
             restore(&occupancy_mismatch),
+            Err(SnapshotRestoreError::WaitingInvariantViolation)
+        );
+
+        let mut missing_zone = snapshot.clone();
+        missing_zone.waiting_zones.clear();
+        assert_eq!(
+            restore(&missing_zone),
             Err(SnapshotRestoreError::WaitingInvariantViolation)
         );
 

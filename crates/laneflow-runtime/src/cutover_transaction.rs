@@ -34,6 +34,12 @@ use crate::{
     VirtualEntryAnchorSelector, WorldGeneration,
 };
 
+#[cfg(test)]
+thread_local! {
+    // 只在单元测试记录 Tick active-order / journal Waiting 重建次数，不进入生产布局。
+    static REPLAY_REBUILD_COUNTS: core::cell::Cell<(usize, usize)> = const { core::cell::Cell::new((0, 0)) };
+}
+
 /// 最大追赶滞后的文档化默认值（tick 距离；切换合同 §9）。
 ///
 /// v1 取 600 tick：4 ms 固定步进下约 2.4 s 的可追窗口上限；实际可追
@@ -837,6 +843,11 @@ fn apply_record(
             candidate.tick_index = *tick_index;
             candidate.time_ms = *time_ms;
             candidate.refresh_signals();
+            if entries.is_empty() && waiting_zones.is_empty() {
+                // 时钟与信号仍推进；车辆/Waiting 语义未变，不重建 active order 或 aggregate。
+                // 外层照常推进日志游标，静默提交仍进行完整校验和独立摘要比对。
+                return Ok(());
+            }
             let (chunks, remainder) = entries.as_chunks::<VEHICLE_DELTA_BYTES>();
             debug_assert!(remainder.is_empty());
             for chunk in chunks {
@@ -873,6 +884,11 @@ fn apply_record(
                 }
                 state.next_admission_sequence = next_counter;
             }
+            #[cfg(test)]
+            REPLAY_REBUILD_COUNTS.with(|counts| {
+                let (active, waiting) = counts.get();
+                counts.set((active + 1, waiting));
+            });
             candidate.rebuild_active_order();
         }
         JournalRecord::RouteRegistered {
@@ -1255,9 +1271,15 @@ fn apply_record(
     if !matches!(
         record,
         JournalRecord::RouteRegistered { .. } | JournalRecord::RouteRemoved { .. }
-    ) && !candidate.rebuild_waiting_aggregate_from_semantics()
-    {
-        return Err(CutoverError::WaitingRevalidationFailed);
+    ) {
+        #[cfg(test)]
+        REPLAY_REBUILD_COUNTS.with(|counts| {
+            let (active, waiting) = counts.get();
+            counts.set((active, waiting + 1));
+        });
+        if !candidate.rebuild_waiting_aggregate_from_semantics() {
+            return Err(CutoverError::WaitingRevalidationFailed);
+        }
     }
     Ok(())
 }
@@ -1591,6 +1613,95 @@ mod tests {
     }
 
     #[test]
+    fn first_waiting_coverage_rejects_changed_path_identity() {
+        for shift_entry in [false, true] {
+            let (base, target, lfsd) =
+                crate::waiting::tests::first_waiting_changed_identity_cutover_pair(shift_entry);
+            let (mut world, old_vehicle) = first_waiting_world(base, 100_000, 1_000);
+            let path = laneflow_static_contract::ManeuverPathOrdinal::from_raw(0);
+            assert_ne!(
+                world.revision.identity().stable_id(path),
+                target.identity().stable_id(path),
+                "entry/exit edge identity is part of ManeuverPath identity"
+            );
+            let old_route = world.vehicle_state(old_vehicle).unwrap().route;
+            let mut edges = world.route_edges(old_route).unwrap().to_vec();
+            world.despawn_vehicle(old_vehicle).unwrap();
+            world.remove_route(old_route).unwrap();
+            if !shift_entry {
+                let exit = world.traffic().successors(*edges.last().unwrap()).unwrap()[0];
+                edges.push(exit);
+            }
+            let cursor = u32::from(shift_entry);
+            let length = world.traffic().lane_lengths_millimetres()[edges[cursor as usize].index()];
+            let route = world
+                .register_route(RouteRegisterInput::new(edges))
+                .unwrap();
+            let vehicle = world
+                .spawn_vehicle(VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    cursor,
+                    length - 100_000,
+                    1_000,
+                ))
+                .unwrap();
+            let before = world.capture_snapshot().unwrap();
+            let invalid = CutoverError::VehicleRevalidationFailed {
+                vehicle: vehicle.index(),
+            };
+
+            // 旧 path 已移除，独立 expected 不补 PreGate；迁移入口拒绝不同身份的新 path。
+            let mut expected = before.clone();
+            assert_eq!(
+                initialize_expected_waiting_pre_gate(&world, &target, &mut expected),
+                Ok(())
+            );
+            assert_eq!(expected, before);
+            assert_eq!(
+                prepare_first_waiting(&mut world, target, &lfsd).err(),
+                Some(invalid)
+            );
+            assert_eq!(world.capture_snapshot().unwrap(), before);
+            assert!(world.migration_journal().is_none());
+            world
+                .step(TickInput::new(100))
+                .expect("source remains usable");
+        }
+    }
+
+    #[test]
+    fn first_waiting_journal_uses_record_route_before_slot_reuse() {
+        let (base, target, lfsd) = crate::waiting::tests::first_waiting_cutover_pair();
+        let (mut world, vehicle) = first_waiting_world(base, 100_000, 1_000);
+        let route = world.vehicle_state(vehicle).unwrap().route;
+        let edges = world.route_edges(route).unwrap().to_vec();
+        let mut tx = prepare_first_waiting(&mut world, target, &lfsd).unwrap();
+        world.step(TickInput::new(100)).unwrap();
+        world.despawn_vehicle(vehicle).unwrap();
+        world.remove_route(route).unwrap();
+        // 旧 Tick 仍引用完整 maneuver 路线，而活动世界该槽位已改成出口单边路线。
+        let replacement = world
+            .register_route(RouteRegisterInput::new(vec![*edges.last().unwrap()]))
+            .unwrap();
+        assert_eq!(replacement.index(), route.index());
+        assert_ne!(replacement, route);
+        let next_vehicle = spawn_on(&mut world, replacement, 6_000, 0);
+        assert_eq!(next_vehicle.index(), vehicle.index());
+        assert_ne!(next_vehicle, vehicle);
+        assert!(
+            tx.pump(&mut world)
+                .expect("old records retain their route context")
+                .caught_up
+        );
+        let before = *world.vehicle_state(next_vehicle).unwrap();
+        let _ = tx
+            .commit(&mut world)
+            .expect("commit after route and vehicle slot reuse");
+        assert_eq!(*world.vehicle_state(next_vehicle).unwrap(), before);
+    }
+
+    #[test]
     fn first_waiting_expected_digest_remains_independent_of_candidate() {
         let (base, target, lfsd) = crate::waiting::tests::first_waiting_cutover_pair();
         let (mut world, vehicle) = first_waiting_world(base, 100_000, 1_000);
@@ -1649,6 +1760,145 @@ mod tests {
             ),
             Err(crate::SnapshotRestoreError::InvalidWaitingAuthority { .. })
         ));
+    }
+
+    #[test]
+    fn clock_only_journal_ticks_skip_rebuilds_and_still_commit() {
+        let mut world = installed_world(ORACLE_BASE, "fixture://clock-only");
+        let (entry, exit) = entry_exit(&world);
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .unwrap();
+        let parked = world
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 1_000),
+                ParkingTarget::ExplicitSpace(ParkingSpaceOrdinal::from_raw(0)),
+            )
+            .unwrap()
+            .vehicle;
+        let limits = CutoverTransactionLimits {
+            max_records_per_pump: 3,
+            ..CutoverTransactionLimits::default()
+        };
+        let mut tx = prepare(&mut world, ORACLE_TARGET, ORACLE_LFSD, &limits);
+        for _ in 0..8 {
+            world.step(TickInput::new(100)).unwrap();
+        }
+        assert!(world.migration_journal().unwrap().records_from(0).all(|record| {
+            matches!(record, JournalRecord::Tick { entries, waiting_zones, .. } if entries.is_empty() && waiting_zones.is_empty())
+        }));
+        REPLAY_REBUILD_COUNTS.set((0, 0));
+        assert_eq!(tx.pump(&mut world).unwrap().applied_records, 3);
+        assert_eq!(tx.candidate.as_ref().unwrap().tick_index(), 3);
+        assert_eq!(tx.pump(&mut world).unwrap().applied_records, 3);
+        let _ = tx
+            .commit(&mut world)
+            .expect("final two clock records drain during commit");
+        assert_eq!(REPLAY_REBUILD_COUNTS.get(), (0, 0));
+        assert_eq!(world.tick_index(), 8);
+        assert_eq!(world.time_ms, 800);
+        assert_eq!(
+            world.vehicle_state(parked).unwrap().status,
+            crate::VehicleStatus::Parked
+        );
+        assert!(world.active_order.is_empty());
+    }
+
+    #[test]
+    fn clock_only_fast_path_keeps_signal_refresh_and_nonempty_validation() {
+        let mut world = installed_world(
+            include_bytes!(
+                "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+            ),
+            "fixture://clock-signals",
+        );
+        let rebinding =
+            CrossRevisionRebinding::build(world.revision.identity(), world.revision.identity())
+                .unwrap();
+        let base_revision = world.revision();
+        let initial_aspects = world.signal_aspects.clone();
+        assert!(!initial_aspects.is_empty());
+        REPLAY_REBUILD_COUNTS.set((0, 0));
+        let changed = (1..600).any(|tick| {
+            apply_record(
+                &base_revision,
+                &mut world,
+                &rebinding,
+                &JournalRecord::Tick {
+                    tick_index: tick,
+                    time_ms: tick * 100,
+                    entries: &[],
+                    waiting_zones: &[],
+                },
+            )
+            .unwrap();
+            world.signal_aspects != initial_aspects
+        });
+        assert!(
+            changed,
+            "empty Tick must refresh signals across a phase boundary"
+        );
+        assert_eq!(REPLAY_REBUILD_COUNTS.get(), (0, 0));
+
+        let mut world = installed_world(ORACLE_BASE, "fixture://nonempty-tick");
+        let base_revision = world.revision();
+        let rebinding =
+            CrossRevisionRebinding::build(world.revision.identity(), world.revision.identity())
+                .unwrap();
+        let (entry, exit) = entry_exit(&world);
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .unwrap();
+        spawn_on(&mut world, route, 10_000, 0);
+        world.arm_migration_journal(4_096).unwrap();
+        world.step(TickInput::new(100)).unwrap();
+        let Some(JournalRecord::Tick { entries, .. }) =
+            world.migration_journal().unwrap().records_from(0).next()
+        else {
+            panic!("step emits Tick");
+        };
+        let entries = entries.to_vec();
+        assert_eq!(entries.len(), VEHICLE_DELTA_BYTES);
+        apply_record(
+            &base_revision,
+            &mut world,
+            &rebinding,
+            &JournalRecord::Tick {
+                tick_index: 1,
+                time_ms: 100,
+                entries: &entries,
+                waiting_zones: &[],
+            },
+        )
+        .unwrap();
+        assert_eq!(REPLAY_REBUILD_COUNTS.get(), (1, 1));
+
+        // counter-only 也不属于空 Tick；重复 counter 必须照常失败关闭。
+        let (base, target, lfsd) = crate::waiting::tests::first_waiting_cutover_pair();
+        let (mut source, _) = first_waiting_world(base, 100_000, 1_000);
+        let mut tx = prepare_first_waiting(&mut source, target, &lfsd).unwrap();
+        let candidate = tx.candidate.as_mut().unwrap();
+        let mut counter = [0_u8; 12];
+        counter[4..].copy_from_slice(&1_u64.to_le_bytes());
+        let target_rebinding = CrossRevisionRebinding::build(
+            candidate.revision.identity(),
+            candidate.revision.identity(),
+        )
+        .unwrap();
+        let revision = candidate.revision();
+        let record = JournalRecord::Tick {
+            tick_index: 1,
+            time_ms: 100,
+            entries: &[],
+            waiting_zones: &counter,
+        };
+        apply_record(&revision, candidate, &target_rebinding, &record).unwrap();
+        assert_eq!(candidate.waiting_zones[0].next_admission_sequence, 1);
+        assert_eq!(
+            apply_record(&revision, candidate, &target_rebinding, &record),
+            Err(CutoverError::ReplayInconsistent)
+        );
+        tx.abandon(&mut source).unwrap();
     }
 
     #[test]
