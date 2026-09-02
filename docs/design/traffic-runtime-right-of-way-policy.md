@@ -24,7 +24,7 @@
 - 两个官方前端都进入共同有类型模块；不新增法规文件加载器、脚本表达式或 Runtime 回调。
 - 路权策略集（`RightOfWayPolicySet`）是新增的唯一独立静态实体；规则、间隙参数和依据
   是策略集的局部成员，不为每个组合派生稳定实体。
-- 每个世界只选择一份策略集及一个法规适用日期；策略内容由所安装的路网修订固定。
+- 每个世界只显式选择一份策略集；策略内容由所安装的路网修订固定。
 - 信号解释产生候选，`ConflictArbiter` 决定车辆实际放行。Controller 继续只推进灯态。
 - 编译器和共享根持有只读解析表；world 持有时钟相关阈值、车辆意图和可变资源。
 - 新能力、存档与切换闭环、旧保护移除一次性交付；不会单独发布提前放开保护的中间态。
@@ -59,7 +59,6 @@ RegulationIdentity { jurisdiction, version, source? }
 RightOfWayPolicySet {
   policySetKey,
   regulation,
-  effectiveFrom?, effectiveUntil?,
   evidence[], gapProfiles[], streamRules[], gateRules[]
 }
 ```
@@ -77,10 +76,9 @@ locator；两者同时缺失即编译失败。仅在策略中存在未被规则�
 或 fixture 说明，并如实标识其工程性质，不伪称法规。此检查验证来源存在和引用闭合，
 不声称自动证明法义正确，也不联网抓取或验证页面存活。
 
-日期统一为 `RegulationDate`：外层文本是严格 `YYYY-MM-DD`，内部和 LFCA 为合法公历
-日期 `YYYYMMDD:u32`，年份 `0001..9999`，检查闰年与月日。不是 Unix 时间，也不从
-模拟时钟加算。省略端点表达无该方向界限；有界有效期必须满足 from < until，选择日期
-满足 `[from, until)`。未知日期和解析失败不能用 0 代替。
+游戏历法、游戏日期和规则启用时机由宿主游戏拥有。LaneFlow 按显式选择的策略身份与
+版本执行规则，不要求真实公历、不读取宿主墙钟，也不按日期判断策略是否有效。
+法规版本及来源仅用于固定规则含义和审计追溯；游戏可以在自己的历法下选用该策略。
 
 局部 key 使用现行编制 key 值域、不做 Unicode 归一化；各成员种类内 key 唯一。
 `(policy StableId, member kind, member key)` 是持久归因地址，dense ordinal 只在当前根内
@@ -178,7 +176,7 @@ Waiting、ParkingStop、RouteEnd 或 no-overlap 约束。
 
 | section/table | 名称                  | 顺序字段（从 tag 1 起连续）                                                                                                                                  |
 | ------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 3/24          | `RightOfWayPolicySet` | `typedOrdinal:U32, stableId:StableId128, jurisdiction:Utf8, regulationVersion:Utf8, regulationSource?:Utf8, effectiveFrom?:U32, effectiveUntil?:U32`         |
+| 3/24          | `RightOfWayPolicySet` | `typedOrdinal:U32, stableId:StableId128, jurisdiction:Utf8, regulationVersion:Utf8, regulationSource?:Utf8`                                                  |
 | 4/2           | `PolicyEvidence`      | `policy:U32, key:Utf8, locator:Utf8, description?:Utf8`                                                                                                      |
 | 4/3           | `PolicyGapProfile`    | `policy:U32, key:Utf8, parameterVersion:Utf8, minimumLeadGapMs:U64, minimumLagGapMs:U64, clearanceBufferMs:U64`                                              |
 | 4/4           | `PolicyStreamRule`    | `policy:U32, key:Utf8, stream:U32, classes?:OrdinalVectorU32, priority:I32, yieldToStreams:OrdinalVectorU32, gapProfileKey?:Utf8, evidenceKeys:RecordVector` |
@@ -209,7 +207,7 @@ tuple 填入假 StableId。LFSD 4 的局部成员变更使用 §4.3 的专用表
 1. 来源准入：检查 closed shape、局部 key、值域与声明预算，失败不修改 builder。
 2. HIR：绑定跨模块静态引用、法规来源和 class 层次，闭合所有局部引用。
 3. MIR：计算可准入 profile 集，选择门规则/stream 规则；验证 totality、specificity、
-   yield、priority cycle、protected coherence 和法规有效期形状。
+   yield、priority cycle、protected coherence 和法规来源相容性。
 4. LIR：冻结规范表、稳定排序和来源映射；发射 LFCA/LFSM/LFSD，并执行完整后发射检查。
 5. 共享根构建：从受检 LFCA 重建只读解析表和 exact passage target ranges，完成当前
    builder 的语义闭合后一次 seal。Runtime 不读 compiler IR 或源码。
@@ -226,11 +224,11 @@ target ranges 计入既有 CompileLimits/BuildLimits，超限失败，不随意�
 实体基线的格式上限。不同世界不复制这些静态表。LFCA 保存声明语义，builder 只派生
 当前根的执行表，不存在同时持久化一份可与声明不一致的 resolved 副本。
 
-| 持有者                  | 持有内容                                                                                                                 |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `SharedNetworkRevision` | policy 身份/日期区间、不可变门/流解析表、gap 值、稳定规则归因、exact target ranges                                       |
-| 每世界 route table      | #559 occurrence、Gate coverage、分段距离和后继边界、Waiting dependency operands                                          |
-| `TrafficWorld`          | 选定策略与日期、依 fixedDelta 派生的阈值、firstEligibleTick、reservation、occupancy、last-clear、ledger、frontier 和输出 |
+| 持有者                  | 持有内容                                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `SharedNetworkRevision` | policy 身份与版本、不可变门/流解析表、gap 值、稳定规则归因、exact target ranges                                    |
+| 每世界 route table      | #559 occurrence、Gate coverage、分段距离和后继边界、Waiting dependency operands                                    |
+| `TrafficWorld`          | 选定策略、依 fixedDelta 派生的阈值、firstEligibleTick、reservation、occupancy、last-clear、ledger、frontier 和输出 |
 
 同一根可被不同 fixedDelta 的 world 共享。`requiredLeadMs` 和 proof horizon 必须在
 world 安装时 checked 派生，不能把某个世界的步长写进共享根。world 只保留选中策略的
@@ -313,13 +311,13 @@ prohibition 也必须能观察到。语义引用相同但两根 ordinal 排列�
 
 #### 4.3.3 与既有变更表的排他分工
 
-| LFCA 所有者/字段                                   | 唯一 LFSD 表与操作                                                      |
-| -------------------------------------------------- | ----------------------------------------------------------------------- |
-| RightOfWayPolicySet 实体新增/删除                  | 既有 EntityChange Add/Remove，保存所在侧完整实体 RowV1；不内嵌局部成员  |
-| 保留 policy 的 tag 3–7（法域、版本、来源、有效期） | 既有 StaticRuleChange Modify；按实际字段存在性保存 SemanticFieldValueV1 |
-| policy tag 1/2（typed ordinal/StableId）           | Identity/derived；不产生字段 Modify                                     |
-| 四类局部表全部成员及字段                           | 仅 PolicyLocalChange；每个变化 K 恰好一行完整前后值                     |
-| 保留 Movement 的可选 tag 7 turnDirection           | 既有 EntityChange Modify；按实际字段存在性保存 U8 SemanticFieldValueV1  |
+| LFCA 所有者/字段                           | 唯一 LFSD 表与操作                                                      |
+| ------------------------------------------ | ----------------------------------------------------------------------- |
+| RightOfWayPolicySet 实体新增/删除          | 既有 EntityChange Add/Remove，保存所在侧完整实体 RowV1；不内嵌局部成员  |
+| 保留 policy 的 tag 3–5（法域、版本、来源） | 既有 StaticRuleChange Modify；按实际字段存在性保存 SemanticFieldValueV1 |
+| policy tag 1/2（typed ordinal/StableId）   | Identity/derived；不产生字段 Modify                                     |
+| 四类局部表全部成员及字段                   | 仅 PolicyLocalChange；每个变化 K 恰好一行完整前后值                     |
+| 保留 Movement 的可选 tag 7 turnDirection   | 既有 EntityChange Modify；按实际字段存在性保存 U8 SemanticFieldValueV1  |
 
 policy 内不虚构成员数组字段或成员 StableId，也不为局部行的 stream/gate/classes/
 yield/evidence 引用再发射 RelationChange。LFSM role 33–36 仅用于来源定位，不因此
@@ -366,35 +364,35 @@ SourceMapBindings tag 3 固定为 LFCA 5，先验证其 exact length、digest、
 
 LFRE `format_version=4`，现行 schema 的字段及 LFSM table container code 0–39
 保持含义；新增和扩展如下。`id` 为 FlatBuffers field id，同时是 TableField 的
-`memberCode`，不是 LFCA field tag。字符串、引用、日期、集合与数值语义服从 §2–§3。
+`memberCode`，不是 LFCA field tag。字符串、引用、集合与数值语义服从 §2–§3。
 
-| containerCode | table               | 新增 field id、名称及来源类型                                                                                                                                                                                                                                               |
-| ------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0             | RoadEditingSource   | `29 right_of_way_policy_sets:[RightOfWayPolicySet]`，required，允许空                                                                                                                                                                                                       |
-| 14            | Movement            | `5 turn_direction:ManeuverDirection?`                                                                                                                                                                                                                                       |
-| 40            | RightOfWayPolicySet | `0 policy_set_key:string, 1 regulation:AccessRegulation, 2 effective_from:string?, 3 effective_until:string?, 4 evidence:[PolicyEvidence], 5 gap_profiles:[PolicyGapProfile], 6 stream_rules:[PolicyStreamRule], 7 gate_rules:[PolicyGateRule], 8 canvas_selection:string?` |
-| 41            | PolicyEvidence      | `0 evidence_key:string, 1 locator:string, 2 description:string?`                                                                                                                                                                                                            |
-| 42            | PolicyGapProfile    | `0 profile_key:string, 1 parameter_version:string, 2 minimum_lead_gap_ms:ulong, 3 minimum_lag_gap_ms:ulong, 4 clearance_buffer_ms:ulong`                                                                                                                                    |
-| 43            | PolicyStreamRule    | `0 rule_key:string, 1 stream:string, 2 participant_classes:[string]?, 3 priority:int, 4 yield_to_streams:[string], 5 gap_profile_key:string?, 6 evidence_keys:[string]`                                                                                                     |
-| 44            | PolicyGateRule      | `0 rule_key:string, 1 gate:string, 2 participant_classes:[string]?, 3 interpretation:GateInterpretation, 4 prohibition:GateProhibition, 5 evidence_keys:[string]`                                                                                                           |
+| containerCode | table               | 新增 field id、名称及来源类型                                                                                                                                                                                          |
+| ------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0             | RoadEditingSource   | `29 right_of_way_policy_sets:[RightOfWayPolicySet]`，required，允许空                                                                                                                                                  |
+| 14            | Movement            | `5 turn_direction:ManeuverDirection?`                                                                                                                                                                                  |
+| 40            | RightOfWayPolicySet | `0 policy_set_key:string, 1 regulation:AccessRegulation, 2 evidence:[PolicyEvidence], 3 gap_profiles:[PolicyGapProfile], 4 stream_rules:[PolicyStreamRule], 5 gate_rules:[PolicyGateRule], 6 canvas_selection:string?` |
+| 41            | PolicyEvidence      | `0 evidence_key:string, 1 locator:string, 2 description:string?`                                                                                                                                                       |
+| 42            | PolicyGapProfile    | `0 profile_key:string, 1 parameter_version:string, 2 minimum_lead_gap_ms:ulong, 3 minimum_lag_gap_ms:ulong, 4 clearance_buffer_ms:ulong`                                                                               |
+| 43            | PolicyStreamRule    | `0 rule_key:string, 1 stream:string, 2 participant_classes:[string]?, 3 priority:int, 4 yield_to_streams:[string], 5 gap_profile_key:string?, 6 evidence_keys:[string]`                                                |
+| 44            | PolicyGateRule      | `0 rule_key:string, 1 gate:string, 2 participant_classes:[string]?, 3 interpretation:GateInterpretation, 4 prohibition:GateProhibition, 5 evidence_keys:[string]`                                                      |
 
 除 `?` 外，全部字段必须有值；新增 FlatBuffers 标量采用 `= null` 的 optional-scalar
 物理编码以保留存在性，语义预检拒绝缺失的必需数值/枚举，不能把缺失补成零。
 三个枚举的来源底层类型均为 `ubyte`。Movement 方向允许 null；存在时精确使用
 §3.1 的 `0..3`。门解释 `0..5` 与禁令 `0..2` 同 §3.1；不新增隐式 Unspecified 值。
-日期来源仍为严格 `YYYY-MM-DD`。`AccessRegulation` 复用已有 container 30 的
+`AccessRegulation` 复用已有 container 30 的
 `0 jurisdiction, 1 version, 2 source?`，作为共同法规值编码；不新增同形 container，
 也不把 source locator 变成 SourceDocument。
 
-新增合法 table→table 边仅为 `40.1→30`、`40.4→41`、`40.5→42`、`40.6→43`、
-`40.7→44`；每一步都是 `stepKind=0 TableField`。struct/union 登记保持原样，
+新增合法 table→table 边仅为 `40.1→30`、`40.2→41`、`40.3→42`、`40.4→43`、
+`40.5→44`；每一步都是 `stepKind=0 TableField`。struct/union 登记保持原样，
 路径上限仍为四步。policy Declaration 的 root 为 container 40；指向成员向量内部的路径
 必须使用下节对应 OwnerLocal subject，不能靠 Declaration 加路径猜出第几个成员。
-四类新增 OwnerLocal 的第一步必须是对应的 `40.{4,5,6,7}`，可以止于该步表示完整成员，
+四类新增 OwnerLocal 的第一步必须是对应的 `40.{2,3,4,5}`，可以止于该步表示完整成员，
 或再接对应成员 table 的一个合法字段；拒绝跨成员种类、向量下标或额外第三步。
 成员内的引用向量以完整字段定位，不在 propertySteps 里嵌入第二层 occurrence。
 
-例如间隙数值路径是两步 `(0,40,5),(0,42,2)`；机动方向是一步 `(0,14,5)`。
+例如间隙数值路径是两步 `(0,40,3),(0,42,2)`；机动方向是一步 `(0,14,5)`。
 `RoadEditingSource.29` 登记顶层来源向量，但不能替代具体 policy Declaration 地址。
 这些 wire 数字必须显式映射，不能取 Rust enum 的声明顺序或把 LFCA tag 强转过去。
 
@@ -406,10 +404,10 @@ LFRE `format_version=4`，现行 schema 的字段及 LFSM table container code 0
 
 | roadEditingRelationKind | 名称             | sourceRelationRole | 唯一 LFCA 5 投影                    | primary propertySteps |
 | ----------------------- | ---------------- | ------------------ | ----------------------------------- | --------------------- |
-| 16                      | PolicyEvidence   | 33                 | section 4 / table 2，按 policy 过滤 | `(0,40,4)`            |
-| 17                      | PolicyGapProfile | 34                 | section 4 / table 3，按 policy 过滤 | `(0,40,5)`            |
-| 18                      | PolicyStreamRule | 35                 | section 4 / table 4，按 policy 过滤 | `(0,40,6)`            |
-| 19                      | PolicyGateRule   | 36                 | section 4 / table 5，按 policy 过滤 | `(0,40,7)`            |
+| 16                      | PolicyEvidence   | 33                 | section 4 / table 2，按 policy 过滤 | `(0,40,2)`            |
+| 17                      | PolicyGapProfile | 34                 | section 4 / table 3，按 policy 过滤 | `(0,40,3)`            |
+| 18                      | PolicyStreamRule | 35                 | section 4 / table 4，按 policy 过滤 | `(0,40,4)`            |
+| 19                      | PolicyGateRule   | 36                 | section 4 / table 5，按 policy 过滤 | `(0,40,5)`            |
 
 新增位置必须满足 SourceLocation 的以下精确形状；共同 tag 1–4 与 Text/RoadEditing
 互斥矩阵仍服从现行合同，RoadEditing 的 tag 5–8 禁止：
@@ -445,7 +443,7 @@ LFSD RelationChange 发射假实体关系；LFSD 局部成员变化仅走 §4.3�
 两个官方前端都必须向同一 ValidatedSourceMapInput 提供上述实体与成员 source view：
 
 - RoadEditing policy 的贡献来源为 Declaration 字段 `40.0`、`40.1→30.{0,1}`，
-  以及存在时的 `40.1→30.2`、`40.2`、`40.3`。成员贡献来源为其两步属性路径，
+  以及存在时的 `40.1→30.2`。成员贡献来源为其两步属性路径，
   覆盖本成员全部实际存在的字段，包括 key、显式零和空向量；可选字段缺失时无对应位置。
   不把其他成员、被引用目标的 Declaration 或法规 URL 添加到该成员的贡献来源。
   canvas 仅编码为 tag 21；成员来源不再重复汇入 policy 自身的贡献集合。
@@ -479,12 +477,12 @@ Movement 的新方向属性存在时，RoadEditing 的贡献来源增加同一 D
 ```text
 install(revision, config, source, world_id, policy_selection)
 WorldPolicySelection = NotRequired | Pinned(PolicyPin)
-PolicyPin { policy: RightOfWayPolicySetId, regulationDate: RegulationDate }
+PolicyPin { policy: RightOfWayPolicySetId }
 ```
 
 `RightOfWayPolicySetId` 是 policy StableId 的有类型包装，不是根内 dense handle。
 `PolicyPin` 构造器不接受未经验证的 ordinal 或可执行 closure。install 用给定根解析
-StableId，验证版本、有效期、法规来源相容性、完整解析表和依 fixedDelta 的 gap 加法。
+StableId，验证版本、法规来源相容性、完整解析表和依 fixedDelta 的 gap 加法。
 所有检查在 world 发布前完成，失败不返回半安装世界。现有唯一 install 签名直接修改，
 不保留旧签名或隐式 protected-only 默认。
 
@@ -493,8 +491,8 @@ StableId，验证版本、有效期、法规来源相容性、完整解析表和
 表示，又避免只检查当前已注册路线而在后来注册时悄悄启用另一套语义。
 
 走廊 catalog 升为 0.4，顶层增加必填 `policy_selection` 闭合 tagged value：
-`not_required` 不带其他字段，`pinned` 必带 policy 的规范 StableId 文本与
-`regulation_date`。prepare 解析到 `PolicyPin` 后只调用上述 install；来源政策内容
+`not_required` 不带其他字段，`pinned` 只带 policy 的规范 StableId 文本。prepare
+解析到 `PolicyPin` 后只调用上述 install；来源政策内容
 仍来自同一 LFCA。所有现行带信号的例子由 generator 发射显式 protected-entry 策略并
 pin，不能在场景库或 Adapter 内复制绿色放行算法。无 Gate 的例子显式 NotRequired。
 
@@ -540,7 +538,7 @@ downstream owner 与 route 引用。
 
 | 类别     | LFRS 5 / runtime state 5 合同                                                                                               |
 | -------- | --------------------------------------------------------------------------------------------------------------------------- |
-| 策略绑定 | selection tag；Pinned 保存 policy StableId 与 regulationDate；exact 内容仍由快照的 LFCA origin 绑定                         |
+| 策略绑定 | selection tag；Pinned 保存 policy StableId；exact 内容仍由快照的 LFCA origin 绑定                                           |
 | 排序历史 | 每车当前 Gate occurrence 的 firstEligibleTick；None 与 tick 0 明确区分                                                      |
 | 通行状态 | Clearing、reservation owner、acquired tick、Gate/passages 的稳定 occurrence 地址、committed downstream 区间                 |
 | 冲突历史 | 以 ConflictPassageLocator 键控的 ConflictLagReference；包含历史类别及时间，无历史与时间 0 区分                              |
@@ -570,9 +568,9 @@ graph；存在两 owner 以上的 committed cycle、悬空 owner 或不合法历
 
 ### 6.2 修订切换
 
-same-revision 保持 pin、日期及全部逻辑历史。cross-revision 仍以 LFSD 和现有完整根
-事务切换；目标必须保留同一个被选 policy StableId、法域/法规版本和适用日期，且日期
-在目标区间内。若需更换 policy identity 或适用日期，首版通过新建世界显式完成，
+same-revision 保持 pin 及全部逻辑历史。cross-revision 仍以 LFSD 和现有完整根
+事务切换；目标必须保留同一个被选 policy StableId 和法域/法规版本。
+若需更换 policy identity，首版通过新建世界显式完成，
 不增加独立 policy hot-swap 命令。
 
 同一 policy 在目标路网中的 Gate/stream 规则可随道路编辑改变，内容由目标
