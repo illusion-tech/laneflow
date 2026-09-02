@@ -1163,7 +1163,12 @@ fn apply_record(
             candidate.rebuild_active_order();
         }
     }
-    if !candidate.rebuild_waiting_aggregate_from_semantics() {
+    // 纯路线记录不改变车辆 membership、queue 或 counter；无需扫描 live 车辆重建。
+    if !matches!(
+        record,
+        JournalRecord::RouteRegistered { .. } | JournalRecord::RouteRemoved { .. }
+    ) && !candidate.rebuild_waiting_aggregate_from_semantics()
+    {
         return Err(CutoverError::WaitingRevalidationFailed);
     }
     Ok(())
