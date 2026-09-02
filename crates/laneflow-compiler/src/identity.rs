@@ -401,14 +401,14 @@ mod tests {
         output
     }
 
-    /// Registry revision 3 全部可构造种类的规范字节与 BLAKE3-128 已知向量。
+    /// Registry revision 4 全部可构造种类的规范字节与 BLAKE3-128 已知向量。
     ///
     /// 字段生成规则和文件列语义记录在向量文件头；该文件是独立预言机可复用的期望
     /// 事实，不能在测试运行时从生产编码器重写。
     const KNOWN_VECTORS: &str = include_str!("../tests/identity-v1-known-vectors.txt");
 
     #[test]
-    fn all_registry_revision_three_kinds_match_frozen_independent_vectors() {
+    fn all_registry_kinds_match_frozen_independent_vectors() {
         let vectors = KNOWN_VECTORS
             .lines()
             .filter(|line| !line.is_empty() && !line.starts_with('#'))
@@ -454,6 +454,46 @@ mod tests {
             assert_eq!(compiler.canonical_bytes(), oracle_bytes, "{kind:?}");
             assert_eq!(compiler.stable_id().as_bytes(), &oracle_id, "{kind:?}");
         }
+    }
+
+    #[test]
+    fn policy_identity_uses_namespace_and_policy_key() {
+        let limits = CompileLimits::single_network_1m_v2();
+        let derive = |namespace, key| {
+            derive_canonical_stable_id_v1(EntityKind::RightOfWayPolicySet, namespace, key, &limits)
+                .unwrap()
+        };
+        let policy = derive("vector/v1", "field-35");
+        let expected = KNOWN_VECTORS
+            .lines()
+            .find(|line| line.starts_with("24 "))
+            .unwrap()
+            .split_ascii_whitespace()
+            .nth(2)
+            .unwrap();
+        assert_eq!(hexadecimal(policy.as_bytes()), expected);
+        assert_ne!(derive("vector/other", "field-35"), policy);
+        assert_ne!(derive("vector/v1", "other-key"), policy);
+        assert_ne!(
+            derive_canonical_stable_id_v1(EntityKind::LaneEdge, "vector/v1", "field-35", &limits)
+                .unwrap(),
+            policy
+        );
+        assert!(matches!(
+            derive_canonical_stable_id_v1(
+                EntityKind::RightOfWayPolicySet,
+                "vector/v1",
+                &"a".repeat(54),
+                &limits,
+            ),
+            Err(CanonicalIdentityViolation::InvalidAsciiField {
+                tag: 35,
+                violation: SourceTextViolation::TooLong {
+                    limit: 53,
+                    observed: 54
+                },
+            })
+        ));
     }
 
     #[test]
@@ -570,13 +610,13 @@ mod tests {
 
         let unknown = [
             IdentityFieldInput::new(FieldTag::AuthoringNamespaceId, b"city/vector"),
-            IdentityFieldInput::from_raw(35, b"edge-a"),
+            IdentityFieldInput::from_raw(36, b"edge-a"),
         ];
         assert_eq!(
             encode_canonical_identity(EntityKind::LaneEdge, &unknown, STRING_LIMIT).unwrap_err(),
             CanonicalIdentityViolation::UnknownFieldTag {
                 position: 1,
-                tag: 35,
+                tag: 36,
             }
         );
 

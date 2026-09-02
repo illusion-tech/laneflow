@@ -683,8 +683,8 @@ const FULL_SPATIAL_EXPECTED_LFSM: &[u8] =
 const FULL_SPATIAL_EXPECTED_LFSD: &[u8] =
     include_bytes!("../../tests/fixtures/portable/lfca-full-spatial/expected.lfsd");
 const FULL_SPATIAL_NETWORK_REVISION: [u8; 32] = [
-    0xd0, 0xb0, 0x28, 0x43, 0x84, 0xa7, 0x20, 0xbf, 0x96, 0x88, 0xe7, 0xec, 0x96, 0xbe, 0xc9, 0x45,
-    0xc2, 0x48, 0x5f, 0x6f, 0x5b, 0x40, 0x71, 0x42, 0xf4, 0x42, 0x46, 0x90, 0x4e, 0x14, 0x24, 0x74,
+    0xdb, 0xad, 0x94, 0x3c, 0x1a, 0x9f, 0x9d, 0xd6, 0x27, 0x90, 0x01, 0x1d, 0xad, 0x06, 0x18, 0xb6,
+    0x3f, 0x71, 0xd7, 0xd3, 0xaf, 0x59, 0x98, 0xda, 0x1d, 0x65, 0xbf, 0x28, 0x35, 0xe5, 0xac, 0x4d,
 ];
 
 #[test]
@@ -734,15 +734,15 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         candidate.canonical_artifact().object_key(),
-        "sha256/48301c00c5e42b2e4c93b22296b7ec9c1f7b493bab75db8186baf07ba041f45f"
+        "sha256/828976d195e1cd0b13ba9326f259e0b6cdc30685cdd4829a25bc759844763061"
     );
     assert_eq!(
         candidate.source_map().object_key(),
-        "sha256/5d30779eff4fb3ad5e0ac36571952da3fad06ea124fa321556421368d894ebbe"
+        "sha256/8a18998de79ec60aef13a35a85aad1d3177c13d8d975c5b9b29ef08ffcc08a23"
     );
     assert_eq!(
         candidate.semantic_diff().object_key(),
-        "sha256/7d6dddc347926e7b1badbdbc80f148584ff4c5ad33d296ca808f490ba2e3d321"
+        "sha256/36f21ad6e571560000d8526638c2599eac92ab35d60c86390142c3b453875c20"
     );
     assert_eq!(
         candidate.network_revision(),
@@ -757,13 +757,15 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     .unwrap()
     .registry_view();
     let entity_tables = artifact.section(2).unwrap();
-    assert_eq!(entity_tables.table_count(), 23);
+    assert_eq!(entity_tables.table_count(), 24);
     assert!((0..23).all(|ordinal| entity_tables.table(ordinal).unwrap().row_count() > 0));
     assert_eq!(entity_tables.table(20).unwrap().row_count(), 1);
     assert_eq!(entity_tables.table(22).unwrap().row_count(), 2);
+    assert_eq!(entity_tables.table(23).unwrap().row_count(), 0);
     let relation_tables = artifact.section(3).unwrap();
-    assert_eq!(relation_tables.table_count(), 1);
+    assert_eq!(relation_tables.table_count(), 5);
     assert!(relation_tables.table(0).unwrap().row_count() > 0);
+    assert!((1..5).all(|ordinal| relation_tables.table(ordinal).unwrap().row_count() == 0));
     let spatial_tables = artifact.section(4).unwrap();
     assert!(spatial_tables.table(1).unwrap().row_count() > 0);
     assert!(spatial_tables.table(2).unwrap().row_count() > 0);

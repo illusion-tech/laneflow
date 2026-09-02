@@ -75,7 +75,7 @@ pub(super) fn build_lfca(
                         field(2, OwnedValue::U16(SOURCE_COLLECTION_DIGEST_VERSION_V1)),
                         field(3, OwnedValue::Sha256(source_collection_digest)),
                         field(4, OwnedValue::Sha256(PORTABLE_COMPILE_OPTIONS_DIGEST_V1)),
-                        field(5, OwnedValue::U16(EMITTER_VERSION_LFCA4)),
+                        field(5, OwnedValue::U16(CHUNKED_EMITTER_VERSION)),
                         field(6, OwnedValue::U8(accuracy_profile)),
                     ])],
                 )],
@@ -649,6 +649,8 @@ fn canonical_entity_tables(
         table(21, conflict_zones),
         table(22, canonical_frames),
         table(23, participant_streams),
+        // 两个正式前端的策略声明由 W2 接入；无声明的制品仍必须发射完整的空表。
+        table(24, []),
     ])
 }
 
@@ -787,7 +789,13 @@ fn canonical_relation_tables(lir: &crate::lir::LirUnit) -> Vec<OwnedTable> {
             field(2, OwnedValue::U32(record.junction.raw())),
         ])
     });
-    vec![table(1, junction_internal_edges)]
+    vec![
+        table(1, junction_internal_edges),
+        table(2, []),
+        table(3, []),
+        table(4, []),
+        table(5, []),
+    ]
 }
 
 fn geometry_relation_flags(output: &CompilationOutput) -> BTreeMap<(u32, u8, u32), bool> {

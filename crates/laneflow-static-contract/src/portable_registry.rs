@@ -331,6 +331,7 @@ const MOVEMENT_FIELDS: &[PortableFieldSchema] = &[
     field(4, "directedEntryApproachKey", PortableFieldType::Utf8, R),
     field(5, "directedExitApproachKey", PortableFieldType::Utf8, R),
     field(6, "maneuverPaths", PortableFieldType::OrdinalVectorU32, R),
+    field(7, "turnDirection", PortableFieldType::U8, O),
 ];
 const MOVEMENT_ROW: PortableRowSchema = PortableRowSchema {
     fields: MOVEMENT_FIELDS,
@@ -601,6 +602,18 @@ const PARTICIPANT_STREAM_ROW: PortableRowSchema = PortableRowSchema {
     shape: PortableRowShape::Uniform,
 };
 
+const RIGHT_OF_WAY_POLICY_SET_FIELDS: &[PortableFieldSchema] = &[
+    field(1, "typedOrdinal", PortableFieldType::U32, R),
+    field(2, "stableId", PortableFieldType::StableId128, R),
+    field(3, "jurisdiction", PortableFieldType::Utf8, R),
+    field(4, "regulationVersion", PortableFieldType::Utf8, R),
+    field(5, "regulationSource", PortableFieldType::Utf8, O),
+];
+const RIGHT_OF_WAY_POLICY_SET_ROW: PortableRowSchema = PortableRowSchema {
+    fields: RIGHT_OF_WAY_POLICY_SET_FIELDS,
+    shape: PortableRowShape::Uniform,
+};
+
 const LFCA_SECTION_3_TABLES: &[PortableTableSchema] = &[
     table(1, "RoadCorridor", &ROAD_CORRIDOR_ROW, ANY),
     table(2, "RoadSection", &ROAD_SECTION_ROW, ANY),
@@ -625,6 +638,7 @@ const LFCA_SECTION_3_TABLES: &[PortableTableSchema] = &[
     table(21, "ConflictZone", &CONFLICT_ZONE_ROW, ANY),
     table(22, "CanonicalFrame", &CANONICAL_FRAME_ROW, ANY),
     table(23, "ParticipantStream", &PARTICIPANT_STREAM_ROW, ANY),
+    table(24, "RightOfWayPolicySet", &RIGHT_OF_WAY_POLICY_SET_ROW, ANY),
 ];
 
 // LFCA section 0x0004: canonical relation tables.
@@ -637,12 +651,68 @@ const JUNCTION_INTERNAL_EDGE_ROW: PortableRowSchema = PortableRowSchema {
     fields: JUNCTION_INTERNAL_EDGE_FIELDS,
     shape: PortableRowShape::Uniform,
 };
-const LFCA_SECTION_4_TABLES: &[PortableTableSchema] = &[table(
-    1,
-    "JunctionInternalEdge",
-    &JUNCTION_INTERNAL_EDGE_ROW,
-    ANY,
-)];
+const POLICY_EVIDENCE_FIELDS: &[PortableFieldSchema] = &[
+    field(1, "policy", PortableFieldType::U32, R),
+    field(2, "key", PortableFieldType::Utf8, R),
+    field(3, "locator", PortableFieldType::Utf8, R),
+    field(4, "description", PortableFieldType::Utf8, O),
+];
+const POLICY_EVIDENCE_ROW: PortableRowSchema = PortableRowSchema {
+    fields: POLICY_EVIDENCE_FIELDS,
+    shape: PortableRowShape::Uniform,
+};
+const POLICY_GAP_PROFILE_FIELDS: &[PortableFieldSchema] = &[
+    field(1, "policy", PortableFieldType::U32, R),
+    field(2, "key", PortableFieldType::Utf8, R),
+    field(3, "parameterVersion", PortableFieldType::Utf8, R),
+    field(4, "minimumLeadGapMs", PortableFieldType::U64, R),
+    field(5, "minimumLagGapMs", PortableFieldType::U64, R),
+    field(6, "clearanceBufferMs", PortableFieldType::U64, R),
+];
+const POLICY_GAP_PROFILE_ROW: PortableRowSchema = PortableRowSchema {
+    fields: POLICY_GAP_PROFILE_FIELDS,
+    shape: PortableRowShape::Uniform,
+};
+const POLICY_EVIDENCE_KEY_FIELDS: &[PortableFieldSchema] =
+    &[field(1, "key", PortableFieldType::Utf8, R)];
+const POLICY_EVIDENCE_KEY_ROW: PortableRowSchema = PortableRowSchema {
+    fields: POLICY_EVIDENCE_KEY_FIELDS,
+    shape: PortableRowShape::Uniform,
+};
+const POLICY_STREAM_RULE_FIELDS: &[PortableFieldSchema] = &[
+    field(1, "policy", PortableFieldType::U32, R),
+    field(2, "key", PortableFieldType::Utf8, R),
+    field(3, "stream", PortableFieldType::U32, R),
+    field(4, "classes", PortableFieldType::OrdinalVectorU32, O),
+    field(5, "priority", PortableFieldType::I32, R),
+    field(6, "yieldToStreams", PortableFieldType::OrdinalVectorU32, R),
+    field(7, "gapProfileKey", PortableFieldType::Utf8, O),
+    record_field(8, "evidenceKeys", R, &POLICY_EVIDENCE_KEY_ROW),
+];
+const POLICY_STREAM_RULE_ROW: PortableRowSchema = PortableRowSchema {
+    fields: POLICY_STREAM_RULE_FIELDS,
+    shape: PortableRowShape::Uniform,
+};
+const POLICY_GATE_RULE_FIELDS: &[PortableFieldSchema] = &[
+    field(1, "policy", PortableFieldType::U32, R),
+    field(2, "key", PortableFieldType::Utf8, R),
+    field(3, "gate", PortableFieldType::U32, R),
+    field(4, "classes", PortableFieldType::OrdinalVectorU32, O),
+    field(5, "interpretation", PortableFieldType::U8, R),
+    field(6, "prohibition", PortableFieldType::U8, R),
+    record_field(7, "evidenceKeys", R, &POLICY_EVIDENCE_KEY_ROW),
+];
+const POLICY_GATE_RULE_ROW: PortableRowSchema = PortableRowSchema {
+    fields: POLICY_GATE_RULE_FIELDS,
+    shape: PortableRowShape::Uniform,
+};
+const LFCA_SECTION_4_TABLES: &[PortableTableSchema] = &[
+    table(1, "JunctionInternalEdge", &JUNCTION_INTERNAL_EDGE_ROW, ANY),
+    table(2, "PolicyEvidence", &POLICY_EVIDENCE_ROW, ANY),
+    table(3, "PolicyGapProfile", &POLICY_GAP_PROFILE_ROW, ANY),
+    table(4, "PolicyStreamRule", &POLICY_STREAM_RULE_ROW, ANY),
+    table(5, "PolicyGateRule", &POLICY_GATE_RULE_ROW, ANY),
+];
 
 // LFCA section 0x0005..0x0008.
 
@@ -1597,7 +1667,8 @@ mod tests {
     fn appendix_registry_matches_reviewed_literal_fingerprint() {
         // 这只是对已依据附录 A 人工复核过的 Rust 登记做防漂移固定，不是独立格式 oracle。
         // 更新该值必须先逐项审阅附录；不得从测试失败输出自动追认新的 production registry。
-        assert_eq!(appendix_registry_fingerprint(), 0x66b2_fadf_2210_bc48);
+        // LFCA 5 的新增行另按路权策略实施合同 §4.1 逐 tag/type/presence 复核。
+        assert_eq!(appendix_registry_fingerprint(), 0xe39a_cf2d_8d23_4a02);
     }
 
     #[test]
