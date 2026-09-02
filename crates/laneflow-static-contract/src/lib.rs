@@ -32,9 +32,7 @@ pub use portable_registry::{
     PortableTableSchema, portable_field_mask, portable_object_schema,
 };
 
-pub use policy::{
-    GateInterpretation, GateProhibition, ManeuverDirection, RegulationDate, RegulationDateError,
-};
+pub use policy::{GateInterpretation, GateProhibition, ManeuverDirection};
 pub use registry::{
     EntityCategory, EntityKind, FieldEncoding, FieldTag, IDENTITY_ENCODING_VERSION, IDENTITY_MAGIC,
     IDENTITY_REGISTRY_REVISION, STABLE_ID_DOMAIN_PREFIX,

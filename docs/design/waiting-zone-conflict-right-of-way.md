@@ -232,8 +232,6 @@ RegulationIdentity
 
 RightOfWayPolicySet
   regulation
-  effectiveFrom?        // inclusive
-  effectiveUntil?       // exclusive
   evidenceRefs[]
   gapProfiles[]
   streamRules[]
@@ -253,10 +251,10 @@ GapAcceptanceProfile
 
 normalization 必须在 world/policy 安装前完成并失败原子：
 
-- Scenario/world 显式 pin policy identity 与 regulation date；不读宿主墙钟，不按“最新”
-  猜测，也不在 tick 热切换；
-- regulation interval 使用 `[effectiveFrom, effectiveUntil)`；反向/空区间、重复或
-  dangling evidence/rule/profile 引用拒绝；provenance 不触发网络抓取；
+- Scenario/world 显式 pin policy identity；游戏历法与规则启用时机由宿主决定，不按
+  真实公历或宿主墙钟筛选规则，不按“最新”猜测，也不在 tick 热切换；
+- 重复或 dangling evidence/rule/profile 引用拒绝；provenance 用于追溯，
+  不触发网络抓取或按日期判定策略有效性；
 - participant class specificity 使用已受检 class hierarchy；显式 class 规则优先于
   fallback，同 specificity/priority 的冲突拒绝，不在 tick 做字符串或祖先遍历；
 - self-yield、duplicate yield edge、严格 priority cycle、未共享 passage cell 的 yield
@@ -657,7 +655,7 @@ phase、stable vehicle/route/entity key 选择首错，不能依赖 scan/worker 
 
 #284 从届时 current snapshot/runtime/digest 版本一次性升级，不预占 #282 的 4/4/6：
 
-- 持久化 pinned policy identity/date、`firstEligibleTick`、Clearing/reservation、committed
+- 持久化 pinned policy identity、`firstEligibleTick`、Clearing/reservation、committed
   downstream claims、Conflict 滞后基准与必要 semantic owner；occupancy 从 reservation
   和实际位置重建，基准类别及保守切换起点见实施候选 §6.1，不伪造实际 clear 事件；
 - tick-local grants、approach frontier、target ranges、dense handles 与 scratch 是派生状态，
@@ -677,7 +675,7 @@ frontier cells。warm-up 后 steady tick 零 heap allocation。
 
 #284 targeted validation 至少覆盖：
 
-- policy provenance/date、specificity、totality、cycle、protected coherence、multi-subject
+- policy provenance、specificity、totality、cycle、protected coherence、multi-subject
   coverage-min priority 与 exact target-cell ranges；
 - current/upcoming/repeated passage、cursor `carry_um`、directed helper predecessor/equal/
   successor、subnormal/overflow oracle、Finite/OutsideHorizon/Unprovable；
