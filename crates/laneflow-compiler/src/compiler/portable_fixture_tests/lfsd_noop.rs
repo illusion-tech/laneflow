@@ -32,11 +32,11 @@ fn portable_full_spatial_noop_diff_matches_frozen_exact_bytes() {
     assert_eq!(candidate.semantic_diff().bytes(), EXPECTED_LFSD);
     assert_eq!(
         candidate.semantic_diff().byte_length(),
-        exact_byte_length(633)
+        exact_byte_length(673)
     );
     assert_eq!(
         candidate.semantic_diff().object_key(),
-        "sha256/a9e8a973cee5d23f838a4f2c62ddf0e99166bd68bbaac9136fbf0f24b2882ca0"
+        "sha256/efa047207c57ca7abf36fff2e1d157786ed67c96a34d4763c23d7928766a1fab"
     );
     assert_eq!(
         candidate.network_revision(),

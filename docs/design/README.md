@@ -25,7 +25,7 @@
   deterministic digest 6 合同；不包含 #284 的组合 ledger。
 - `shared-static-network.md`：从受检 LFCA 构建 `SharedNetworkRevision`。
 - `adapter-api.md`：Runtime / Spatial 与引擎适配器的只读快照、位姿和权威边界。
-- `portable-canonical-artifact.md`：统一 LFCA 4 / LFSM 3 / LFSD 3 /
+- `portable-canonical-artifact.md`：统一 LFCA 5 / LFSM 3 / LFSD 4 /
   LFCP 2、确定性分块与单路网一百万现实混合静态实体容量合同。
 - `compiler-post-emission-check-and-minimal-publication-closure.md`：后发射检查与
   LFCP v2 最小发布闭合。

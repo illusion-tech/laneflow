@@ -1,7 +1,7 @@
 # 共享静态路网
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-08-31<br>
+**最后更新**: 2026-09-03<br>
 **适用范围**: `laneflow-static-network`、受检 LFCA admission、共享静态路网构建、
 Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验收<br>
 **关联文档**: `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
@@ -97,7 +97,7 @@ rename、no-replace、目录耐久或 winner 竞争。
 
 #### LFCA admission
 
-只承认 LFCA/LFSM/LFSD `4/3/3`：受检输入字段私有，digest / exact length /
+只承认 LFCA/LFSM/LFSD `5/3/4`：受检输入字段私有，digest / exact length /
 `NetworkRevisionId` 闭合；
 object kind 精确为 LFCA，chunk directory、chunk digest、连续逻辑范围与当前 registry
 全部预检。LFSM `canonicalArtifactFormatVersion` 必须等于所绑 LFCA 的
@@ -229,7 +229,7 @@ memory 代价。
 
 ### 6.2 `PartitionPlanningHints`
 
-LFCA 4 不保存分区提示 payload。`laneflow-static-network` 是现行提示的唯一派生 owner：
+LFCA 5 不保存分区提示 payload。`laneflow-static-network` 是现行提示的唯一派生 owner：
 它按 `partitionPlanningHintsDerivationVersion` 标识的确定性函数，从受检 LFCA 的规范关系、
 拓扑和 execution contract 派生 worker-count-neutral 资源/边界/成本信息。compiler 只拥有
 并发所需的静态语义与规范关系，不再从 LIR 向不可见的旁路传递提示。
@@ -470,7 +470,7 @@ builder 测试只补充能够通过格式直接值域但不能构成功能正确
 
 ## 13. Runtime 关系闭包
 
-**适用范围**: `SharedTrafficNetwork` 从 LFCA 4 保留的完整 compiled relation / 实体字段；
+**适用范围**: `SharedTrafficNetwork` 从 LFCA 5 保留的完整 compiled relation / 实体字段；
 不改变 ADR 0025、§1–§12 的根所有权、admission、Spatial 基线或性能证据职责。<br>
 
 现行根以唯一 `Arc<SharedNetworkRevision>` 绑定 23 类实体 Identity 双射、LaneEdge

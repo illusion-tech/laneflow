@@ -29,7 +29,7 @@ pub use portable::{
 pub use portable_registry::{
     PortableFieldPresence, PortableFieldSchema, PortableObjectSchema, PortableRowCardinality,
     PortableRowSchema, PortableRowShape, PortableRowVariant, PortableSectionSchema,
-    PortableTableSchema, portable_field_mask, portable_object_schema,
+    PortableTableSchema, policy_local_value_schema, portable_field_mask, portable_object_schema,
 };
 
 pub use policy::{

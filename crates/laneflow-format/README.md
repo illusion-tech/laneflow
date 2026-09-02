@@ -1,8 +1,7 @@
 # laneflow_format
 
 LaneFlow 可移植规范制品 `LFCA`、源映射封套 `LFSM`、语义差异封套 `LFSD` 与规范发布描述符
-`LFCP` 的受限线格式 crate。LFCA 对象 `formatVersion` 只承认当前值 `4`；LFSM /
-LFSD 封套版本只承认 `3`。规范术语见
+`LFCP` 的受限线格式 crate。LFCA/LFSM/LFSD 对象版本只承认当前组合 `5/3/4`。规范术语见
 [`docs/reference/glossary.md`](../../docs/reference/glossary.md)。
 
 当前线格式层包括：
@@ -26,6 +25,9 @@ LFSD 封套版本只承认 `3`。规范术语见
   LFCA 的版本/封闭枚举/实体内部向量基数/局部标量、LFSM 的来源种类/address/property path、
   LFSD 的 Genesis/Artifact 直接绑定和同行 change 约束，以及 LFCP v2 的版本、publisher kind 与
   `sha256/<64 lowercase hex>` 同对象摘要绑定。
+- LFSD 4 的第七节及四类完整成员 RowV1：Bytes 内部也执行字段/字符串/向量计量，
+  两侧载荷共同收费并参与规范分块；检查稳定引用编码、成员 K 的跨 chunk 顺序和全局
+  唯一性。真实两根的策略差异完备性由 compiler 的独立检查入口证明。
 - 无分配的 `check_post_emission_bundle`：从三份最终字节重算 digest、length 与 LFCA
   `NetworkRevisionId`，并闭合 LFSM provenance/artifact binding 以及 LFSD 显式 base/target
   binding；成功后只返回字段私有的借用型发布能力。它不重跑完整路网语义或验证 LFSD
@@ -41,7 +43,7 @@ LFSD 封套版本只承认 `3`。规范术语见
 
 `ObjectFramingView` 只证明对象前导、目录、连续节范围和格式上限，不把节内字节暴露为
 语义已验证或可信视图。`RegistryCheckedObjectView` 进一步证明附录登记形状；
-`ValueCheckedObjectView` 再证明不需要外部对象或全局语义重算的直接值域与同对象绑定。两者仍不证明行排序键、
+`ValueCheckedObjectView` 再证明不需要外部对象或全局语义重算的直接值域、策略局部行排序与同对象绑定。两者仍不证明其他通用行排序键、
 跨表引用、StableId/NetworkRevision 重算、跨对象摘要绑定、语义差异完备性或发布真实性。
 只有额外取得 `CheckedCanonicalNetworkInput` 后，LFCA 的实际摘要、精确长度和重算
 `NetworkRevisionId` 才被绑定；跨表、Identity 双射与 Traffic/Spatial 闭合继续由共享静态

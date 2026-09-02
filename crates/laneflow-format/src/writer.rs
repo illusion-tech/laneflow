@@ -537,7 +537,7 @@ fn measure_row(
         }
         schema_index += 1;
         seen_fields |= portable_field_mask(field.tag);
-        if let PortableRowShape::DiscriminatedU8 { tag, .. } = schema.shape
+        if let Some((tag, _)) = schema.shape.discriminant()
             && field.tag == tag
             && let FieldWriteValue::U8(value) = field.value
         {
@@ -552,7 +552,50 @@ fn measure_row(
         )?;
     }
     validate_row_shape(schema, seen_fields, discriminant)?;
+    if schema.shape == PortableRowShape::PolicyLocalChange {
+        let embedded = policy_value_budget(row, limits)?;
+        budget.total_utf8_bytes = checked_add(
+            budget.total_utf8_bytes,
+            embedded.total_utf8_bytes,
+            FormatStructure::Row,
+        )?;
+        check_limit(
+            LimitDimension::TotalUtf8Bytes,
+            budget.total_utf8_bytes,
+            limits.config().max_total_utf8_bytes,
+        )?;
+        budget.total_vector_bytes = checked_total_vector_bytes(
+            budget.total_vector_bytes,
+            embedded.total_vector_bytes,
+            limits,
+        )?;
+    }
     Ok(row_length)
+}
+
+fn policy_value_budget(
+    row: RowWriteInput<'_>,
+    limits: FormatLimits,
+) -> Result<crate::table::PreflightBudget, FormatError> {
+    let kind = row
+        .fields
+        .iter()
+        .find_map(|f| match (f.tag, f.value) {
+            (3, FieldWriteValue::U8(v)) => Some(v),
+            _ => None,
+        })
+        .ok_or(FormatError::BindingMismatch {
+            structure: FormatStructure::RowFields,
+        })?;
+    let mut budget = crate::table::PreflightBudget::default();
+    for field in row.fields {
+        if matches!(field.tag, 5 | 6)
+            && let FieldWriteValue::Bytes(bytes) = field.value
+        {
+            crate::policy_value::preflight_member_value(kind, bytes, limits, &mut budget)?;
+        }
+    }
+    Ok(budget)
 }
 
 fn measure_value(
@@ -687,7 +730,8 @@ fn validate_row_shape(
                 }
             }
         }
-        PortableRowShape::DiscriminatedU8 { variants, .. } => {
+        shape => {
+            let (_, variants) = shape.discriminant().expect("non-uniform row shape");
             let discriminant = discriminant.ok_or(FormatError::BindingMismatch {
                 structure: FormatStructure::RowFields,
             })?;
@@ -845,7 +889,13 @@ fn next_chunk_end(
     let mut end = first_row;
     let mut chunk = CanonicalChunkMetrics::empty(TABLE_HEADER_BYTES);
     while end < table.rows.len() {
-        let (row_length, row_budget) = encoded_row_measure(table.rows[end]);
+        let (row_length, mut row_budget) = encoded_row_measure(table.rows[end]);
+        if object_kind == PortableObjectKind::SemanticDiff && section_kind == 7 {
+            let embedded = policy_value_budget(table.rows[end], FormatLimits::HARD)
+                .expect("prepared immutable policy value");
+            row_budget.total_utf8_bytes += embedded.total_utf8_bytes;
+            row_budget.total_vector_bytes += embedded.total_vector_bytes;
+        }
         let row = CanonicalRowMetrics {
             exact_byte_length: row_length,
             total_utf8_bytes: row_budget.total_utf8_bytes,
@@ -1224,7 +1274,8 @@ mod tests {
                 }
                 (fields, None)
             }
-            PortableRowShape::DiscriminatedU8 { tag, variants } => {
+            shape => {
+                let (tag, variants) = shape.discriminant().unwrap();
                 let variant = variants[0];
                 let mut fields = variant.required_fields;
                 if variant.at_least_one_field != 0 && fields & variant.at_least_one_field == 0 {

@@ -19,7 +19,7 @@ pub const STATIC_EXECUTION_CONTRACT_VERSION: u16 = 5;
 pub const SOURCE_MAP_FORMAT_VERSION: u16 = 3;
 
 /// 当前 LFSD 对象格式版本。
-pub const SEMANTIC_DIFF_FORMAT_VERSION: u16 = 3;
+pub const SEMANTIC_DIFF_FORMAT_VERSION: u16 = 4;
 
 /// LFCP 的对象格式版本；生产代码只接受无 receipt 的 v2。
 pub const CANONICAL_PUBLICATION_DESCRIPTOR_VERSION: u16 = 2;
@@ -131,7 +131,7 @@ impl PortableObjectKind {
         match self {
             Self::CanonicalArtifact => 8,
             Self::SourceMap => 5,
-            Self::SemanticDiff => 6,
+            Self::SemanticDiff => 7,
             Self::CanonicalPublicationDescriptor => 3,
         }
     }
@@ -142,7 +142,7 @@ impl PortableObjectKind {
         match self {
             Self::CanonicalArtifact => 38,
             Self::SourceMap => 8,
-            Self::SemanticDiff => 6,
+            Self::SemanticDiff => 7,
             Self::CanonicalPublicationDescriptor => 3,
         }
     }
@@ -354,7 +354,7 @@ mod tests {
         assert_eq!(CONSTRAINT_CONTRACT_VERSION, 3);
         assert_eq!(STATIC_EXECUTION_CONTRACT_VERSION, 5);
         assert_eq!(SOURCE_MAP_FORMAT_VERSION, 3);
-        assert_eq!(SEMANTIC_DIFF_FORMAT_VERSION, 3);
+        assert_eq!(SEMANTIC_DIFF_FORMAT_VERSION, 4);
         assert_eq!(NETWORK_REVISION_DERIVATION_VERSION, 1);
         assert_eq!(PortableObjectKind::CanonicalArtifact.format_version(), 5);
     }
@@ -370,7 +370,7 @@ mod tests {
                 0x00e0,
             ),
             (PortableObjectKind::SourceMap, *b"LFSM", 5, 8, 0x0098),
-            (PortableObjectKind::SemanticDiff, *b"LFSD", 6, 6, 0x00b0),
+            (PortableObjectKind::SemanticDiff, *b"LFSD", 7, 7, 0x00c8),
             (
                 PortableObjectKind::CanonicalPublicationDescriptor,
                 *b"LFCP",
@@ -391,7 +391,8 @@ mod tests {
                 kind.format_version(),
                 match kind {
                     PortableObjectKind::CanonicalArtifact => 5,
-                    PortableObjectKind::SourceMap | PortableObjectKind::SemanticDiff => 3,
+                    PortableObjectKind::SourceMap => 3,
+                    PortableObjectKind::SemanticDiff => 4,
                     PortableObjectKind::CanonicalPublicationDescriptor => 2,
                 }
             );
