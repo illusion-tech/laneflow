@@ -1,4 +1,5 @@
 use super::*;
+mod diff;
 
 const FULL_LFCA: &[u8] =
     include_bytes!("../../../../tests/fixtures/portable/lfca-full-spatial/expected.lfca");

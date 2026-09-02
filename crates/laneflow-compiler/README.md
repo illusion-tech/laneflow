@@ -81,6 +81,12 @@ gap/evidence key 只能解析到同一 policy。每条规则须继承策略级�
 该检查不替代规则选择、覆盖性、灯型一致性及完整 LFSD/LFSM 投影闭合；正式策略前端和
 共享根消费按路权实施合同分别交付。
 
+LFSD 4 第七节按策略 StableId、成员种类和 key 配对完整成员，生成 Add/Remove/Modify；
+Genesis 与整个策略增删均逐项产生成员记录，纯 ordinal 重排不改变局部成员值。
+`check_portable_policy_diff` 从实际两根独立重建并核对最终差异，检查漏行、错侧、
+错误载荷与原 Entity/StaticRule 表的排他分工。该检查在返回候选前执行，不复用 emitter
+的配对和编码器；新增投影/扫描缓冲计入 `StageScratchBytes`。LFSM 4 来源闭合仍按实施合同交付。
+
 发射器对受检 table/RecordVector 的顺序消费使用单游标零拷贝迭代器；writer 适配层把
 nested/top fields、rows、tables、sections 降低到少量连续 arena，并通过
 `PreparedObject` 只执行一次完整计量/预检。ordinal 随机访问只保留给 singleton 或真正的

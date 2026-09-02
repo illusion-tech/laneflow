@@ -150,11 +150,11 @@ fn portable_change_set_diff_matches_frozen_exact_bytes() {
     assert_eq!(target.semantic_diff().bytes(), EXPECTED_LFSD);
     assert_eq!(
         target.semantic_diff().byte_length(),
-        exact_byte_length(2_959)
+        exact_byte_length(2_999)
     );
     assert_eq!(
         target.semantic_diff().object_key(),
-        "sha256/40434391d445f3185903717e19dbe6d9486adf956ab7b999b329e263251c8c24"
+        "sha256/63c8d36c6c1ec2e985f32eeba59fea7abb6ab5a65084d4f04b5635bc266419b2"
     );
     assert_eq!(
         base.canonical_artifact().object_key(),

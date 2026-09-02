@@ -84,9 +84,51 @@ impl TableStructureSummary {
 pub(crate) struct PreflightBudget {
     total_rows: u64,
     total_fields: u64,
-    total_utf8_bytes: u64,
-    total_vector_bytes: u64,
+    pub(crate) total_utf8_bytes: u64,
+    pub(crate) total_vector_bytes: u64,
     maximum_record_vector_depth: u8,
+}
+
+pub(crate) fn preflight_embedded_row(
+    bytes: &[u8],
+    schema: &'static PortableRowSchema,
+    limits: FormatLimits,
+    budget: &mut PreflightBudget,
+) -> Result<(), FormatError> {
+    let end = parse_row(
+        bytes,
+        0,
+        ContainerBoundary {
+            end: bytes.len() as u64,
+            structure: FormatStructure::Row,
+        },
+        0,
+        Some(schema),
+        limits,
+        budget,
+    )?;
+    if end != bytes.len() as u64 {
+        return Err(FormatError::LengthMismatch {
+            structure: FormatStructure::Row,
+            declared: end,
+            actual: bytes.len() as u64,
+        });
+    }
+    Ok(())
+}
+
+pub(crate) fn charge_stable_vector(
+    bytes: u64,
+    limits: FormatLimits,
+    budget: &mut PreflightBudget,
+) -> Result<(), FormatError> {
+    precheck_variable_limits(
+        PortableFieldType::OrdinalVectorU32,
+        bytes,
+        0,
+        limits,
+        budget,
+    )
 }
 
 /// 对一张 exact TableV1 执行冗余长度、计数、字段和通用值结构预检。
@@ -458,7 +500,7 @@ fn parse_row(
             budget,
         )?;
         if let Some(schema) = row_schema
-            && let PortableRowShape::DiscriminatedU8 { tag, .. } = schema.shape
+            && let Some((tag, _)) = schema.shape.discriminant()
             && actual_tag == tag
         {
             discriminant = parsed.u8_value;
@@ -474,6 +516,13 @@ fn parse_row(
     }
     if let Some(schema) = row_schema {
         validate_row_shape(schema, seen_fields, discriminant)?;
+        if schema.shape == PortableRowShape::PolicyLocalChange {
+            crate::policy_value::preflight_change_values(
+                checked_slice(bytes, row_offset, row_byte_length, FormatStructure::Row)?,
+                limits,
+                budget,
+            )?;
+        }
     }
     Ok(row_end)
 }
@@ -789,7 +838,8 @@ fn validate_row_shape(
                 }
             }
         }
-        PortableRowShape::DiscriminatedU8 { variants, .. } => {
+        shape => {
+            let (_, variants) = shape.discriminant().expect("non-uniform row shape");
             let discriminant = discriminant.ok_or(FormatError::BindingMismatch {
                 structure: FormatStructure::RowFields,
             })?;

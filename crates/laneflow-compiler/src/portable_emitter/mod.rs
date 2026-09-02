@@ -1,7 +1,8 @@
 //! `CompilationOutput` 到 LFCA/LFSM/LFSD 的原子可移植候选发射。
 //!
 //! 本模块拥有编译器私有 LIR/source-map 语义投影、摘要和跨对象绑定。线格式的结构、
-//! 编码和值域预检仍只由 `laneflow-format` 提供；后发射检查与 LFCP 构造不属于 emitter，
+//! 编码和值域预检仍只由 `laneflow-format` 提供；通用 binding 检查与 LFCP 构造不属于 emitter，
+//! LFSD 路权差异在发射后交给独立策略检查器核对实际两根，
 //! exact bytes 的持久化、认证与发布由宿主负责。
 
 mod api;
@@ -18,6 +19,7 @@ pub use api::{
 };
 pub(crate) use api::{close_object, close_staged_object, object_key, sha256};
 use lfca::build_lfca;
+pub use lfsd::check_portable_policy_diff;
 use lfsd::{build_lfsd, verify_target_relation_projection};
 use lfsm::build_lfsm;
 use model::*;
@@ -206,6 +208,13 @@ fn emit_portable_candidate_with(
         limits,
     )?;
     drop(lfsd);
+    check_portable_policy_diff(
+        base,
+        canonical_artifact.bytes(),
+        semantic_diff.bytes(),
+        limits,
+        compile_limits,
+    )?;
 
     Ok(PortablePublicationCandidate {
         canonical_artifact,

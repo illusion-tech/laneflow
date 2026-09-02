@@ -244,6 +244,7 @@ fn validate_table_values(
     )?;
     // rows() 跨物理 chunk 延续同一逻辑表，不在 chunk 边界重置成员键。
     let mut previous_policy_member: Option<(u32, &[u8])> = None;
+    let mut previous_policy_change = None;
     for (row_index, checked_row) in table.rows().enumerate() {
         let row_bytes = checked_row.bytes();
         let (row, end) = parse_row(row_bytes, 0)?;
@@ -280,6 +281,18 @@ fn validate_table_values(
             }
             PortableObjectKind::SemanticDiff => {
                 validate_lfsd_row(section_kind, table_schema.kind, row, bindings)?;
+                if section_kind == 7 {
+                    let key = (
+                        row.required(1)?.u8()?,
+                        row.required(2)?.value,
+                        row.required(3)?.u8()?,
+                        row.required(4)?.value,
+                    );
+                    if previous_policy_change.is_some_and(|previous| previous >= key) {
+                        return Err(row_binding_mismatch());
+                    }
+                    previous_policy_change = Some(key);
+                }
             }
             PortableObjectKind::CanonicalPublicationDescriptor => {
                 validate_lfcp_row(section_kind, row, bindings)?;
@@ -293,7 +306,36 @@ fn validate_table_values(
             });
         }
     }
+    if object_kind == PortableObjectKind::SemanticDiff && section_kind == 7 {
+        // 三种操作分别有序。用常量个顺序游标核对跨操作的 K，避免全表 HashSet 或平方扫描。
+        for (left, right) in [(0, 1), (0, 2), (1, 2)] {
+            let operation = |row: &crate::RegistryCheckedRowView<'_>| {
+                row.field_by_tag(1).unwrap().value_bytes()[0]
+            };
+            let mut a = table.rows().filter(|r| operation(r) == left).peekable();
+            let mut b = table.rows().filter(|r| operation(r) == right).peekable();
+            while let (Some(x), Some(y)) = (a.peek(), b.peek()) {
+                match policy_change_key(*x).cmp(&policy_change_key(*y)) {
+                    core::cmp::Ordering::Equal => return Err(row_binding_mismatch()),
+                    core::cmp::Ordering::Less => {
+                        a.next();
+                    }
+                    core::cmp::Ordering::Greater => {
+                        b.next();
+                    }
+                }
+            }
+        }
+    }
     Ok(())
+}
+
+fn policy_change_key(row: crate::RegistryCheckedRowView<'_>) -> (&[u8], u8, &[u8]) {
+    (
+        row.field_by_tag(2).unwrap().value_bytes(),
+        row.field_by_tag(3).unwrap().value_bytes()[0],
+        row.field_by_tag(4).unwrap().value_bytes(),
+    )
 }
 
 fn record_table_bindings(
@@ -587,6 +629,10 @@ fn validate_lfca_row(
 fn validate_policy_member(table: u16, row: RowRef<'_>) -> Result<(), FormatError> {
     // 局部 key 使用编制 key 的硬上限，不属于调用方缩小的 Identity 字段预算。
     validate_identity_ascii_token(row.required(2)?, FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES)?;
+    validate_policy_fields(table, row, false)
+}
+
+fn validate_policy_fields(table: u16, row: RowRef<'_>, stable: bool) -> Result<(), FormatError> {
     match table {
         2 | 3 => {
             // locator / parameterVersion 必须非空；UTF-8 和字节预算由结构预检收费。
@@ -597,12 +643,12 @@ fn validate_policy_member(table: u16, row: RowRef<'_>) -> Result<(), FormatError
         }
         4 | 5 => {
             if let Some(classes) = row.field(4)
-                && policy_ordinal_count(classes)? == 0
+                && policy_reference_count(classes, stable)? == 0
             {
                 return Err(noncanonical(classes));
             }
             let evidence_tag = if table == 4 {
-                let yield_count = policy_ordinal_count(row.required(6)?)?;
+                let yield_count = policy_reference_count(row.required(6)?, stable)?;
                 if row.has(7) != (yield_count != 0) {
                     return Err(row_binding_mismatch());
                 }
@@ -631,11 +677,11 @@ fn validate_policy_member(table: u16, row: RowRef<'_>) -> Result<(), FormatError
     Ok(())
 }
 
-fn policy_ordinal_count(field: FieldRef<'_>) -> Result<u32, FormatError> {
+fn policy_reference_count(field: FieldRef<'_>, stable: bool) -> Result<u32, FormatError> {
     // 稳定引用的排序和去重需要对应实体表，不能把 ordinal 的整数大小冒充 StableId 顺序。
     // 本层只检查向量基数与 gap 的同行存在性；引用全集由 compiler/shared root 闭合。
     let count = field.u32()?;
-    if field.value.len() as u64 != 4 + u64::from(count) * 4 {
+    if field.value.len() as u64 != 4 + u64::from(count) * if stable { 18 } else { 4 } {
         return Err(noncanonical(field));
     }
     Ok(count)
@@ -1442,6 +1488,23 @@ fn validate_lfsd_row(
             }
             if kind == 1 && row.required(2)?.value == row.required(3)?.value {
                 return Err(row_binding_mismatch());
+            }
+        }
+        7 => {
+            let change = require_u8_range(row.required(1)?, 0, 2)?;
+            let member = require_u8_range(row.required(3)?, 0, 3)?;
+            if bindings.lfsd_base_kind == Some(SemanticDiffBaseKind::Genesis) && change != 0 {
+                return Err(row_binding_mismatch());
+            }
+            validate_identity_ascii_token(row.required(4)?, FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES)?;
+            if change == 2 && row.required(5)?.value == row.required(6)?.value {
+                return Err(row_binding_mismatch());
+            }
+            for tag in [5, 6] {
+                if let Some(value) = row.field(tag) {
+                    let (member_row, _) = parse_row(value.value, 0)?;
+                    validate_policy_fields(u16::from(member) + 2, member_row, true)?;
+                }
             }
         }
         _ => {}
