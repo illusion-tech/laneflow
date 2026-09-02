@@ -74,30 +74,30 @@ LF-CN-URBAN-v1 的城市尺度不是同一档，文档中 "P10/P100" 性能分�
 
 原始输出（key=value 行）在 `evidence/`：
 
-| 文件 | 内容 |
-| --- | --- |
-| `run-100-cells.txt` | 10k 全管线（1M v2） |
-| `run-1000-cells.txt` | 100k 全管线（1M v2） |
+| 文件                                           | 内容                                    |
+| ---------------------------------------------- | --------------------------------------- |
+| `run-100-cells.txt`                            | 10k 全管线（1M v2）                     |
+| `run-1000-cells.txt`                           | 100k 全管线（1M v2）                    |
 | `parts-100-cells.txt` / `parts-1000-cells.txt` | synthetic-only / conflict-only 分解编译 |
-| `probe-p100-synthetic.txt` | P100 v2 合成前端拒绝面 |
-| `probe-p100-conflict.txt` | P100 v2 冲突前端拒绝面 |
+| `probe-p100-synthetic.txt`                     | P100 v2 合成前端拒绝面                  |
+| `probe-p100-conflict.txt`                      | P100 v2 冲突前端拒绝面                  |
 
 ### 端到端阶段（1M v2；release，Windows x64）
 
-| 指标 | 10k（100 cells） | 100k（1,000 cells） |
-| --- | ---: | ---: |
-| 稳定实体（shared `entity_counts()`） | 12,540 | 125,400 |
-| LIR 逻辑记录（公开 metric） | 44,290 | 442,900 |
-| output_logical_bytes | 1,919,784 | 19,197,534 |
-| compiler_controlled_peak_bytes | 55,102,839 | 550,938,489 |
-| LFCA exact bytes | 6,025,452 | 60,223,898 |
-| LFSM / LFSD exact bytes | 6,158,094 / 5,998,848 | 61,565,234 / 59,979,132 |
-| bundle exact bytes | 18,182,394 | 181,768,264 |
-| source-build / compile 耗时 | 0.36 s / 0.11 s | 26.9 s / 1.18 s |
-| emit / post-check 耗时 | 0.63 s / 0.098 s | 6.58 s / 0.93 s |
+| 指标                                  |      10k（100 cells） |     100k（1,000 cells） |
+| ------------------------------------- | --------------------: | ----------------------: |
+| 稳定实体（shared `entity_counts()`）  |                12,540 |                 125,400 |
+| LIR 逻辑记录（公开 metric）           |                44,290 |                 442,900 |
+| output_logical_bytes                  |             1,919,784 |              19,197,534 |
+| compiler_controlled_peak_bytes        |            55,102,839 |             550,938,489 |
+| LFCA exact bytes                      |             6,025,452 |              60,223,898 |
+| LFSM / LFSD exact bytes               | 6,158,094 / 5,998,848 | 61,565,234 / 59,979,132 |
+| bundle exact bytes                    |            18,182,394 |             181,768,264 |
+| source-build / compile 耗时           |       0.36 s / 0.11 s |         26.9 s / 1.18 s |
+| emit / post-check 耗时                |      0.63 s / 0.098 s |         6.58 s / 0.93 s |
 | shared retained（headless / spatial） | 1,017,986 / 1,231,586 | 10,228,316 / 12,364,316 |
-| shared 必需 scratch | 788,000 | 68,360,000 |
-| TrafficWorld install live delta | 23,825 | 190,145 |
+| shared 必需 scratch                   |               788,000 |              68,360,000 |
+| TrafficWorld install live delta       |                23,825 |                 190,145 |
 
 post-emission check 全程**零分配**（断言通过）。100k 的 LIR 恰为 10k 的 10 倍；
 synthetic-only + conflict-only 分解编译在两档都精确可加
@@ -105,23 +105,23 @@ synthetic-only + conflict-only 分解编译在两档都精确可加
 
 ### 关键维度 vs 配置档上限（100k 档）
 
-| 维度 | 100k 观测 | 1M v2 上限 | 占比 | P100 v2 上限 |
-| --- | ---: | ---: | ---: | ---: |
-| declarations | 125,400 | 1,500,000 | 8.4% | 11,265 ✗ |
-| stable entities | 125,400 | 1,000,000 | 12.5% | 11,265 ✗ |
-| LIR records | 442,900 | 8,000,000 | 5.5% | 38,112 ✗ |
-| identity field occurrences | 353,800 | 8,000,000 | 4.4% | 29,184 ✗ |
-| relation occurrences | ≈234,000（合成侧精确 212,700） | 16,000,000 | ≈1.5% | 10,032 ✗ |
-| references | ≈218,000（合成侧精确 192,700） | 16,000,000 | ≈1.4% | 37,920 ✗ |
-| typed AST records | ≥785,100（合成侧精确） | 8,000,000 | ≥9.8% | 58,387 ✗ |
-| geometry points | 52,000 | 16,000,000 | 0.33% | 22,368 ✓ |
-| maneuver gates | 14,000 | 1,000,000 | 1.4% | 2,304 ✓ |
-| waiting zones | 2,000 | 1,000,000 | 0.2% | 1,536 ✗ |
-| modules | 101 | 65,536 | 0.15% | 522 ✓ |
-| source bytes total | ≈29.1 MB（合成 18.0 MB 精确） | 512 MiB | ≈5.4% | 542,741 B ✗ |
-| controlled live peak | 550,938,489 | 6,442,450,944 | 8.6% | 43,269,120 ✗ |
-| portable object（LFCA） | 60,223,898 | 4 GiB | 1.4% | 无维度 |
-| portable bundle | 181,768,264 | 8 GiB | 2.1% | 无维度 |
+| 维度                       |                      100k 观测 |    1M v2 上限 |  占比 | P100 v2 上限 |
+| -------------------------- | -----------------------------: | ------------: | ----: | -----------: |
+| declarations               |                        125,400 |     1,500,000 |  8.4% |     11,265 ✗ |
+| stable entities            |                        125,400 |     1,000,000 | 12.5% |     11,265 ✗ |
+| LIR records                |                        442,900 |     8,000,000 |  5.5% |     38,112 ✗ |
+| identity field occurrences |                        353,800 |     8,000,000 |  4.4% |     29,184 ✗ |
+| relation occurrences       | ≈234,000（合成侧精确 212,700） |    16,000,000 | ≈1.5% |     10,032 ✗ |
+| references                 | ≈218,000（合成侧精确 192,700） |    16,000,000 | ≈1.4% |     37,920 ✗ |
+| typed AST records          |         ≥785,100（合成侧精确） |     8,000,000 | ≥9.8% |     58,387 ✗ |
+| geometry points            |                         52,000 |    16,000,000 | 0.33% |     22,368 ✓ |
+| maneuver gates             |                         14,000 |     1,000,000 |  1.4% |      2,304 ✓ |
+| waiting zones              |                          2,000 |     1,000,000 |  0.2% |      1,536 ✗ |
+| modules                    |                            101 |        65,536 | 0.15% |        522 ✓ |
+| source bytes total         |  ≈29.1 MB（合成 18.0 MB 精确） |       512 MiB | ≈5.4% |  542,741 B ✗ |
+| controlled live peak       |                    550,938,489 | 6,442,450,944 |  8.6% | 43,269,120 ✗ |
+| portable object（LFCA）    |                     60,223,898 |         4 GiB |  1.4% |       无维度 |
+| portable bundle            |                    181,768,264 |         8 GiB |  2.1% |       无维度 |
 
 合成侧逐维度精确增量（与 `synthetic.rs` 各 `add_*` 的 `DeclarationResourceDelta`
 逐项同构，经 10k/100k 公开锚点验证）：每 cell declarations 94 / typed_ast 782 /
