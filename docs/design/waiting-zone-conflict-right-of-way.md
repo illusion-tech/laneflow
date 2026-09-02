@@ -251,8 +251,9 @@ GapAcceptanceProfile
 
 normalization 必须在 world/policy 安装前完成并失败原子：
 
-- Scenario/world 显式 pin policy identity；游戏历法与规则启用时机由宿主决定，不按
-  真实公历或宿主墙钟筛选规则，不按“最新”猜测，也不在 tick 热切换；
+- Scenario/world 显式 pin policy identity；业务时间、历法与规则启用时机由宿主产品
+  决定，覆盖游戏、数字孪生、仿真等场景。核心不按真实公历或宿主墙钟筛选规则，
+  不按“最新”猜测，也不在 tick 热切换；
 - 重复或 dangling evidence/rule/profile 引用拒绝；provenance 用于追溯，
   不触发网络抓取或按日期判定策略有效性；
 - participant class specificity 使用已受检 class hierarchy；显式 class 规则优先于
