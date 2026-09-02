@@ -4,6 +4,7 @@
 #[cfg(test)]
 extern crate std;
 
+mod policy;
 mod portable;
 mod portable_registry;
 mod registry;
@@ -31,6 +32,9 @@ pub use portable_registry::{
     PortableTableSchema, portable_field_mask, portable_object_schema,
 };
 
+pub use policy::{
+    GateInterpretation, GateProhibition, ManeuverDirection, RegulationDate, RegulationDateError,
+};
 pub use registry::{
     EntityCategory, EntityKind, FieldEncoding, FieldTag, IDENTITY_ENCODING_VERSION, IDENTITY_MAGIC,
     IDENTITY_REGISTRY_REVISION, STABLE_ID_DOMAIN_PREFIX,
