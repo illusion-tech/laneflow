@@ -53,6 +53,11 @@ ConflictPassageAddress =
 admission Gate 与 route position 可以缓存为执行操作数，但都不能成为第二套 passage
 身份。#284 必须复用这一地址，不能从几何或 `(zone, path)` 重新猜测 passage。
 
+#284 的快照与跨修订定位候选见
+[`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §6
+（Review）：使用 stream/zone 的稳定引用定位已有唯一局部关系，核验 LFSD 与路径语义后
+重建本节地址；不把当前根 ordinal/local index 写成跨修订身份，也不新增 passage 实体。
+
 ### 2.2 每路线保留数据
 
 实现目标的私有逻辑形状为：

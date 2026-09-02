@@ -68,6 +68,14 @@ RightOfWayPolicySet {
 这不让 AccessRule 的来源信息获得路权裁决能力。既有准入来源的一致性检查继续执行；
 被选策略与已声明 Access regulation 的法域、法规版本必须一致，source URL 不代替版本。
 
+每条门合规规则与通行流规则必须具有可追溯依据：要么继承策略级非空
+`regulation.source`，要么有非空 `evidenceKeys`，且每个 key 都解析到该策略的非空
+locator；两者同时缺失即编译失败。仅在策略中存在未被规则引用的 evidence 不满足
+要求。策略级来源须适用于继承它的规则，特定标志或局部限制可另附规则依据。
+法规解释引用对应版本的法规或条款；工程参考与合成测试策略可以引用项目版本化设计
+或 fixture 说明，并如实标识其工程性质，不伪称法规。此检查验证来源存在和引用闭合，
+不声称自动证明法义正确，也不联网抓取或验证页面存活。
+
 日期统一为 `RegulationDate`：外层文本是严格 `YYYY-MM-DD`，内部和 LFCA 为合法公历
 日期 `YYYYMMDD:u32`，年份 `0001..9999`，检查闰年与月日。不是 Unix 时间，也不从
 模拟时钟加算。省略端点表达无该方向界限；有界有效期必须满足 from < until，选择日期
@@ -117,6 +125,14 @@ UTurn=3`；缺字段表示未声明，不能推断为直行或右转。方向是
 方向灯是该 Gate 的受检解释声明，SignalGroup 仍只提供 indication；引用同一 group
 不等于可以把不适用该方向的箭头灯指定为右转解释。
 
+灯型声明在同一静态根的整个 Gate 范围内必须一致，不能按 policy 或车型改变物理事实。
+编译器汇总所有策略中指向该 Gate 的门规则，代码 3 声明圆形灯，代码 4/5 声明右转
+方向灯；两类声明并存即拒绝，即使分属不同 class、策略或被 specificity 遮蔽。
+代码 1/2 不声明灯型，也不能覆盖已有声明；代码 0 与 Group 绑定不相容，仍按绑定
+检查拒绝。Protected/Permissive 与车型禁令可以不同，均不改变 Gate 的物理灯型。
+该校验独立于 protected coherence，在共同编译管线及受检 LFCA 的共享根构建中执行；
+不新增灯具实体或另一份可与规则矛盾的持久化灯型表。
+
 `CnCircularRightTurn` 是本轮已核实红灯右转规则的有限解释类型，不声称完整中国
 交通法行为。黄灯仍采用已接受的限制性 PreGate 策略；已 crossing 的车辆按 reservation
 继续清空，不倒退或重新施加入口停止线。熄灭、闪烁、故障信号与现场交警指挥未进入
@@ -129,8 +145,9 @@ UTurn=3`；缺字段表示未声明，不能推断为直行或右转。方向是
 
 ### 3.2 解析与候选合成
 
-对静态 Access 允许到达的 `(Gate, VehicleProfile)` 恰好解析一条门合规规则，对可能
-进入 Conflict passage 的 `(stream, VehicleProfile)` 恰好解析一条通行流规则。
+对每份 policy 分别解析：静态 Access 允许到达的 `(Gate, VehicleProfile)` 恰好选择
+一条门合规规则，可能进入 Conflict passage 的 `(stream, VehicleProfile)` 恰好选择
+一条通行流规则；不能用另一份策略的规则补齐缺项。
 两类规则先执行 nearest-ancestor specificity；通行流规则随后按 priority 选择，最高
 优先级仍有多重匹配则拒绝。门规则没有 priority，同 specificity 多重匹配即拒绝。
 不按声明顺序挑选；其余规则合法性、coverage-min 和 protected coherence 继续执行
@@ -167,7 +184,9 @@ Waiting、ParkingStop、RouteEnd 或 no-overlap 约束。
 | 4/5           | `PolicyGateRule`      | `policy:U32, key:Utf8, gate:U32, classes?:OrdinalVectorU32, interpretation:U8, prohibition:U8, evidenceKeys:RecordVector`                                    |
 
 `evidenceKeys` 的唯一 child row 为 `{tag1 key:Utf8}`，不嵌套 RecordVector。空 yield /
-evidence 集必须编码为空向量，不能用缺字段代替；gap 的条件存在性按 §2.3 额外验证。
+evidence 集必须编码为空向量，不能用缺字段代替；evidence 为空仅在满足 §2.2 策略级
+来源继承时合法。gap 的条件存在性按 §2.3 额外验证。共同编译管线与受检 LFCA 的共享根
+构建均检查这些跨表约束，不因线格式允许空向量而跳过规则来源验证。
 实体表按 typed ordinal，局部表按 `(policy ordinal, key 的 UTF-8 字节序)` 排序。
 跨 chunk 延续同一全局顺序和唯一性，引用可以跨 chunk，不能以 chunk 为语义边界。
 
@@ -193,11 +212,17 @@ tuple 填入假 StableId。LFSD 对 policy 及局部表的增删改产生 owner-
 5. 共享根构建：从受检 LFCA 重建只读解析表和 exact passage target ranges，完成当前
    builder 的语义闭合后一次 seal。Runtime 不读 compiler IR 或源码。
 
-解析结果是 `(owner ordinal, profile ordinal)` 的稠密行与每 owner 的 CSR 范围，仅存
-Access 允许的实际组合；不能分配全局 stream × profile × route 数组。循环生成、内存
-预留、来源和派生计数均 checked，超过既有 CompileLimits/BuildLimits 失败，不随意
-提高一百万静态实体基线的格式上限。LFCA 保存声明语义，builder 只派生当前根的执行表，
-不存在同时持久化一份可与声明不一致的 resolved 副本。
+解析结果以 `(policy ordinal, owner ordinal, profile ordinal)` 唯一定位，owner 在门表
+中是 Gate、在流表中是 stream；CSR 先按 policy 划分，再按 owner 划分 profile 行。
+每个流规则的 exact yield-target-cell ranges 归属同一 policy/stream/profile 行，目标
+车型的 effective priority 也只取该 policy 的解析结果。世界安装时绑定所选 policy 的
+只读范围；规则归因和派生阈值使用同一 policy，不存在跨策略 fallback。
+
+仅保存各策略下 Access 允许的实际组合；不能预分配全局 policy × owner × profile ×
+route 数组。循环生成、内存预留、来源和派生计数均 checked，按实际解析行、CSR 和
+target ranges 计入既有 CompileLimits/BuildLimits，超限失败，不随意提高一百万静态
+实体基线的格式上限。不同世界不复制这些静态表。LFCA 保存声明语义，builder 只派生
+当前根的执行表，不存在同时持久化一份可与声明不一致的 resolved 副本。
 
 | 持有者                  | 持有内容                                                                                                                 |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -253,11 +278,26 @@ bundle；frontier 使用静态 passage cell 的 top-two distinct owners，不随
 位于两者之间而需要补造 crossing/claim 历史时拒绝。正常 step crossing 是新 reservation
 的唯一创建路径；restore/rebind 只迁移可验证的既有 authority。
 
-live reservation 按 vehicle + snapshot route occurrence + Gate/stream/passages
-稳定地址定位；资源物理区间使用 edge StableId、route hop、整数 progress 和必要的
-车尾/clearance 锚点。不能仅凭 Gate StableId 合并 repeated occurrence。grant 未发生
-crossing 时不提交任何成员或 reservation；whole-vehicle lifecycle 释放必须同事务清理
-Waiting、Conflict、downstream owner 与 route 引用。
+运行时仍使用 #559 的 `(ParticipantStreamOrdinal, passageLocalIndex)` 地址；该地址
+仅在当前根有效，不写入存档或原样用于跨修订匹配。冲突通行段持久定位值
+（`ConflictPassageLocator`）固定为两个 `StableId128`：
+
+```text
+ConflictPassageLocator { participantStreamStableId, conflictZoneStableId }
+```
+
+LFCA 已保证同一 `(ParticipantStream, ConflictZone)` 至多一条 passage，因此 locator
+能在绑定根中唯一找到既有局部关系；它不是新增实体或第二个运行时地址。快照的 LFCA
+origin 固定其完整 entry/exit 与所属路径。restore 先解析两种 StableId 并验证关系
+确实存在，再派生当前根的 local index，不从几何或局部下标猜测另一条 passage。
+
+live reservation 还保存 `snapshot_vehicle_id`、`snapshot_route_id`、本次 maneuver
+的 entry route edge index 和 Gate StableId，再携带所持有 passages 的 locator；
+结合重编译路线核验该次 occurrence、entry/clearance 和车辆位置。只按 stream/zone
+不能区分循环路线中的重复出现。资源物理区间使用 edge StableId、route hop、整数
+progress 和必要的车尾/clearance 锚点。grant 未发生 crossing 时不提交任何成员或
+reservation；whole-vehicle lifecycle 释放必须同事务清理 Waiting、Conflict、
+downstream owner 与 route 引用。
 
 ### 6.1 快照分类
 
@@ -266,9 +306,21 @@ Waiting、Conflict、downstream owner 与 route 引用。
 | 策略绑定 | selection tag；Pinned 保存 policy StableId 与 regulationDate；exact 内容仍由快照的 LFCA origin 绑定                         |
 | 排序历史 | 每车当前 Gate occurrence 的 firstEligibleTick；None 与 tick 0 明确区分                                                      |
 | 通行状态 | Clearing、reservation owner、acquired tick、Gate/passages 的稳定 occurrence 地址、committed downstream 区间                 |
-| 冲突历史 | 有历史的 passage cell 的 lastClearTimeMs；无历史与时间 0 区分                                                               |
+| 冲突历史 | 以 ConflictPassageLocator 键控的 ConflictLagReference；包含历史类别及时间，无历史与时间 0 区分                              |
 | Waiting  | 继续保存既有 membership、occupancy、counter 与 traversal；queue link 由历史重建                                             |
 | 派生状态 | 不保存 tick-local grant、entitlement、top-two frontier、dense handles、target ranges、graph、scratch 或 latest output batch |
+
+冲突滞后基准（`ConflictLagReference`）是每个 cell 的单份 tagged value：
+`NoHistory | ActualClear(timeMs:u64) | CutoverFloor(timeMs:u64)`，tag 分别为 0/1/2，
+仅后两项带时间。前者不检查滞后间隙；后两者均以 timeMs 作为联合设计 §6.5 的
+referenceTimeMs，按同一 checked 比较判定。`ActualClear` 保存实际 `lastClearTimeMs`；
+`CutoverFloor` 是 §6.2 的保守约束起点，不宣称发生过实际清空，也不生成 crossing/
+clear 事件或增加计数。其后的真实 tail-clear 用 `ActualClear(postStepTimeMs)` 替换
+旧基准，不维护第二份全量历史。类别和时间均参与 snapshot、digest 与 journal；
+restore 拒绝 future timestamp，并保留 CutoverFloor，不能把它降级为 NoHistory。
+新建且没有既往运行历史的世界使用 NoHistory；迁移不适用这个初始化理由。
+快照只写非 NoHistory 行，按 locator 的 stream StableId、zone StableId 字节序严格
+排序并拒绝重复；单根热表仍按静态 cell 保存一个基准，不另存稳定标识副本或历史轨迹。
 
 冲突 occupancy 从 reservation、车辆位置和 passages 重建，不能同时信任一份独立计数。
 保存后捕获结构的语义字段全部参与 deterministic digest 7，派生内容不参与。
@@ -292,16 +344,34 @@ firstEligibleTick 只在同一 arrival occurrence 和 predicate 仍成立时保�
 设计清除。任何这类目标相关规范化必须同时进入静默点的独立期望值构造和迁移增量追赶，
 不能只修改候选状态并宣称 digest 一致。
 
+跨修订先绑定 LFSD 的完整 base/target LFCA，按 locator 中 stream 与 zone 的 StableId
+定位两侧关系，再核对 role 31 及 `ParticipantStream.passages` tag 5 的完整 before/
+after 投影（见[规范制品格式 §5.3](portable-canonical-artifact.md#53-字段变化分类)）。
+仅 local index 重排不影响匹配；entry/exit 的解释必须使用各自根的 ManeuverPath
+edge occurrence 序列，不能只比较仍可能相同的 boundaryIndex/pathEdgeIndex 数字。
+相同 locator 不足以证明语义连续，还须核验路径、派生 admission Gate、物理区间及
+本次 route occurrence。live reservation 无法保持原 physical claims 与完整清空条件
+时拒绝直移，不能把同键的新范围自动变成既有 authority。
+
 已有 reservation 保留其既有 owner 和 acquired tick，不能按新规则重新授予。必须将
 原 physical claims、passages/clearance、车辆全长和 Waiting 依赖精确映射到目标，验证
 无新增未持有的 incompatible coverage、空间不足或 committed cycle；不能映射就整次
 失败。没有 authority 的车辆若被目标新增冲突覆盖包在内部，同样拒绝，不补 grant。
-删掉仍影响 lag check 的 last-clear 历史会丢失 gap 语义。无 live 引用的 cell 只有在无
-历史，或静默点 elapsed 已不小于源/目标所选策略所有 gap profile 的
+删掉仍影响 lag check 的基准会丢失 gap 语义。无 live 引用的 cell 只有在 NoHistory，
+或从 ActualClear/CutoverFloor 到静默点的 elapsed 已不小于源/目标所选策略所有 gap profile 的
 `minimumLagGapMs + clearanceBufferMs` 最大值时才可删除；空 profile 集的最大值为 0，
 加法溢出或 future timestamp 拒绝。这样不要求永久保留已经失效的历史。该删除判定同样
-进入独立期望值与增量追赶；保留下来的 cell 原样迁移历史。目标新增 cell 在不存在
-occupant/reservation 时以无 clear 历史初始化。
+进入独立期望值与增量追赶。语义连续的 cell 原样迁移 ConflictLagReference，不能因
+仅下标重排或再次切换而重置计时；同键但物理范围等语义不连续、且已通过无 live
+authority 校验的 cell 与新增 cell 一样处理。
+
+目标新增或无法继承可信基准的 cell，在已验证无 occupant/reservation 后，必须以
+最终静默提交的模拟时刻 `T_commit` 设置 `CutoverFloor(T_commit)`。不能用 Prepare
+时刻、后台追赶时刻或宿主墙钟提前开始计时。仅这些 cell 施加保守间隙，其他 cell
+继续使用原基准；间隙为零自然无需额外等待。候选准备/追赶只记录哪些 cell 需初始化，
+在静默点取同一源世界时间，分别用于候选最终化和从源状态构造的独立期望值；完成
+digest 复核后才一次发布。快照/恢复保留该基准，失败丢弃候选，不给旧世界增加历史
+或事件。此规则不补造真实清空历史，不要求保存或回放全路网旧轨迹。
 
 以上目标规范化扩展现有描述符的迁移语义，因此描述符版本升级为 2，kind 名称仍为
 `same_revision_restore` 和 `cross_revision_direct`；字段形状不新增暗含 policy 选择的
@@ -361,7 +431,7 @@ cells/bytes、claim/query/collision 与 wait-for node/edge/visit counts。开发
 | 策略解析         | totality/specificity、实际允许 profile、exact target ranges、coverage-min、protected coherence；声明排列不改变解析         |
 | 中国右转         | 圆形红灯候选且仍让行；方向红灯/禁令拒绝；同车道排队与下游阻塞；错误 signal binding 不被默认为无控制                        |
 | 仲裁与运动       | entitlement、repeated occurrence 自排除、ETA/lead/lag 边界、物理 span 和 SCC；最终 crossing 与 grant/reservation 对应      |
-| 持久化与生命周期 | 所有 owner 原子释放；restore/replay；same/cross revision；新增覆盖不补造历史；policy drift 和错误历史拒绝                  |
+| 持久化与生命周期 | 所有 owner 原子释放；restore/replay；same/cross revision；新增覆盖仅初始化保守基准；policy drift 和错误历史拒绝            |
 | 确定性与资源     | stable permutations 下 state/decision/event 相同；checked 失败零提交；无暖机后稳态分配；一万/十万实测                      |
 | 原子接管         | 全部正式路径已接通后删除 ConflictRuntimeUnavailable；没有单独绕过 guard 的生产入口或测试特权                               |
 
@@ -369,6 +439,21 @@ cells/bytes、claim/query/collision 与 wait-for node/edge/visit counts。开发
 校验与语义差异、static-network builder/共享表、runtime 安装/route/tick/Waiting/
 生命周期/snapshot/cutover，以及 scenario/generator 的显式 pin。Spatial 不获得行为
 职责；Adapter 只接入新 install 参数和读取结果，不新增法规执行副本。
+
+必须补以下定向验收，不扩展成全字段穷举矩阵：
+
+- 同 Gate 的不同车型、不同策略声明圆形/方向灯冲突时，两前端及共享根构建均拒绝；
+  相同灯型下的车型禁令差异合法。
+- 同根两个世界选择不同策略，对相同 Gate/stream/profile 得到各自门结果、priority、
+  yield targets 和 gap；颠倒声明或安装顺序不改变结果，缺项不从另一策略补齐。
+- passage 插入导致的局部下标重排可保持原 reservation；同键锚点/路径改变不能误绑；
+  同一路线重复 occurrence 不合并，悬空 locator 拒绝。
+- 新增空 cell 的滞后约束从最终切换时刻起算：假设测试间隙为 500 ms，切换前 100 ms
+  才离开的旧车不能使其立刻放行；499 ms 拒绝、500 ms 仅通过 lag 检查。覆盖 Prepare
+  后继续步进、基准为 tick 0、存档恢复、再次切换保持连续 cell 基准，以及失败零发布；
+  不生成虚构 clear 事件。
+- 策略级来源继承、规则级依据分别可满足来源要求；两者皆无或引用悬空失败，孤立
+  evidence 不代替规则引用；工程 fixture 的版本化依据按同一正式入口验证。
 
 文档验证运行 Markdown 表格与本地链接检查；生产实现还须满足仓库对应 Rust、codegen、
 制品和场景测试。设计候选的检查通过不等于 runtime 已实现、G2 已记录或 #284 已完成。
