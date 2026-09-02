@@ -186,6 +186,7 @@ const fn owner_depth(kind: EntityKind) -> u8 {
         | EntityKind::ParticipantClass
         | EntityKind::AccessRule
         | EntityKind::VehicleProfile
+        | EntityKind::RightOfWayPolicySet
         | EntityKind::CanonicalFrame => 0,
     }
 }

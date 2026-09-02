@@ -345,7 +345,7 @@ fn map_direct_versions_languages_document_lengths_locations_and_derived_values_f
         .unwrap();
     assert!(derived.row_count() > 0);
     for tag in [5, 6] {
-        let bytes = mutate_u16(4, 0, 0, tag, 3);
+        let bytes = mutate_u16(4, 0, 0, tag, 4);
         assert_eq!(
             preflight_object_values(&bytes, PortableObjectKind::SourceMap, FormatLimits::HARD,)
                 .unwrap_err()

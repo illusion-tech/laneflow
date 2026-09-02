@@ -377,6 +377,7 @@ pub(super) fn artifact_relation_tuples(
             | EntityKind::SignalGroup
             | EntityKind::SignalPhase
             | EntityKind::FacilityBand
+            | EntityKind::RightOfWayPolicySet
             | EntityKind::CanonicalFrame => {}
         }
     }

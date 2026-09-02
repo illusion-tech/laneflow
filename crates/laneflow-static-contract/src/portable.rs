@@ -7,13 +7,13 @@
 use core::fmt;
 
 /// 当前 LFCA 对象格式版本。读器只承认该值。
-pub const CANONICAL_ARTIFACT_FORMAT_VERSION: u16 = 4;
+pub const CANONICAL_ARTIFACT_FORMAT_VERSION: u16 = 5;
 
 /// 当前约束契约版本。
-pub const CONSTRAINT_CONTRACT_VERSION: u16 = 2;
+pub const CONSTRAINT_CONTRACT_VERSION: u16 = 3;
 
 /// 当前静态执行契约版本。
-pub const STATIC_EXECUTION_CONTRACT_VERSION: u16 = 4;
+pub const STATIC_EXECUTION_CONTRACT_VERSION: u16 = 5;
 
 /// 当前 LFSM 对象格式版本。
 pub const SOURCE_MAP_FORMAT_VERSION: u16 = 3;
@@ -140,7 +140,7 @@ impl PortableObjectKind {
     #[must_use]
     pub const fn table_count(self) -> u32 {
         match self {
-            Self::CanonicalArtifact => 33,
+            Self::CanonicalArtifact => 38,
             Self::SourceMap => 8,
             Self::SemanticDiff => 6,
             Self::CanonicalPublicationDescriptor => 3,
@@ -350,13 +350,13 @@ mod tests {
 
     #[test]
     fn lfca_contract_versions_match_current() {
-        assert_eq!(CANONICAL_ARTIFACT_FORMAT_VERSION, 4);
-        assert_eq!(CONSTRAINT_CONTRACT_VERSION, 2);
-        assert_eq!(STATIC_EXECUTION_CONTRACT_VERSION, 4);
+        assert_eq!(CANONICAL_ARTIFACT_FORMAT_VERSION, 5);
+        assert_eq!(CONSTRAINT_CONTRACT_VERSION, 3);
+        assert_eq!(STATIC_EXECUTION_CONTRACT_VERSION, 5);
         assert_eq!(SOURCE_MAP_FORMAT_VERSION, 3);
         assert_eq!(SEMANTIC_DIFF_FORMAT_VERSION, 3);
         assert_eq!(NETWORK_REVISION_DERIVATION_VERSION, 1);
-        assert_eq!(PortableObjectKind::CanonicalArtifact.format_version(), 4);
+        assert_eq!(PortableObjectKind::CanonicalArtifact.format_version(), 5);
     }
 
     #[test]
@@ -366,7 +366,7 @@ mod tests {
                 PortableObjectKind::CanonicalArtifact,
                 *b"LFCA",
                 8,
-                33,
+                38,
                 0x00e0,
             ),
             (PortableObjectKind::SourceMap, *b"LFSM", 5, 8, 0x0098),
@@ -390,7 +390,7 @@ mod tests {
             assert_eq!(
                 kind.format_version(),
                 match kind {
-                    PortableObjectKind::CanonicalArtifact => 4,
+                    PortableObjectKind::CanonicalArtifact => 5,
                     PortableObjectKind::SourceMap | PortableObjectKind::SemanticDiff => 3,
                     PortableObjectKind::CanonicalPublicationDescriptor => 2,
                 }

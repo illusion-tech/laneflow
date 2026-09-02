@@ -13,8 +13,9 @@ pub const IDENTITY_ENCODING_VERSION: u16 = 1;
 
 /// Identity v1 的实体种类 / 字段标签登记表修订；登记项增删或身份字段变化时必须提升。
 ///
-/// 修订 3：种类 `1..=23`、字段标签 `1..=34` 连续登记。
-pub const IDENTITY_REGISTRY_REVISION: u16 = 3;
+/// 修订 4：种类 `1..=24`、字段标签 `1..=35` 连续登记。
+/// 此修订不进入身份前像；既有实体的稳定标识保持不变。
+pub const IDENTITY_REGISTRY_REVISION: u16 = 4;
 
 /// 拼接在规范身份字节之前的 Stable ID BLAKE3 输入域分离前缀。
 ///
@@ -61,11 +62,12 @@ pub enum EntityKind {
     ConflictZone = 21,
     CanonicalFrame = 22,
     ParticipantStream = 23,
+    RightOfWayPolicySet = 24,
 }
 
 impl EntityKind {
-    /// 按代码升序排列的 23 个可构造种类。
-    pub const ALL: [Self; 23] = [
+    /// 按代码升序排列的 24 个可构造种类。
+    pub const ALL: [Self; 24] = [
         Self::RoadCorridor,
         Self::RoadSection,
         Self::AuthoringLane,
@@ -89,6 +91,7 @@ impl EntityKind {
         Self::ConflictZone,
         Self::CanonicalFrame,
         Self::ParticipantStream,
+        Self::RightOfWayPolicySet,
     ];
 
     /// 返回写入 Identity v1 envelope 的稳定 `u16` 种类代码。
@@ -124,11 +127,12 @@ impl EntityKind {
             21 => Some(Self::ConflictZone),
             22 => Some(Self::CanonicalFrame),
             23 => Some(Self::ParticipantStream),
+            24 => Some(Self::RightOfWayPolicySet),
             _ => None,
         }
     }
 
-    /// revision 3 登记中的所有种类都可构造。
+    /// revision 4 登记中的所有种类都可构造。
     #[must_use]
     pub const fn is_constructible(self) -> bool {
         true
@@ -170,6 +174,7 @@ impl EntityKind {
             Self::ConflictZone => "conflict-zone",
             Self::CanonicalFrame => "canonical-frame",
             Self::ParticipantStream => "participant-stream",
+            Self::RightOfWayPolicySet => "right-of-way-policy-set",
         }
     }
 
@@ -258,6 +263,10 @@ impl EntityKind {
                 FieldTag::ParticipantStreamKey,
                 FieldTag::JunctionStableId,
             ],
+            Self::RightOfWayPolicySet => &[
+                FieldTag::AuthoringNamespaceId,
+                FieldTag::RightOfWayPolicySetKey,
+            ],
         }
     }
 }
@@ -273,7 +282,7 @@ pub enum FieldEncoding {
     StableId128,
 }
 
-/// Identity v1 revision 3 的连续字段标签登记表。
+/// Identity v1 revision 4 的连续字段标签登记表。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(u16)]
 pub enum FieldTag {
@@ -311,11 +320,12 @@ pub enum FieldTag {
     RoadSectionStableId = 32,
     RoadCorridorStableId = 33,
     JunctionStableId = 34,
+    RightOfWayPolicySetKey = 35,
 }
 
 impl FieldTag {
-    /// 按代码升序排列的 34 个字段标签。
-    pub const ALL: [Self; 34] = [
+    /// 按代码升序排列的 35 个字段标签。
+    pub const ALL: [Self; 35] = [
         Self::AuthoringNamespaceId,
         Self::CorridorKey,
         Self::SectionKey,
@@ -350,6 +360,7 @@ impl FieldTag {
         Self::RoadSectionStableId,
         Self::RoadCorridorStableId,
         Self::JunctionStableId,
+        Self::RightOfWayPolicySetKey,
     ];
 
     /// 返回写入规范身份字节的稳定 `u16` 字段代码。
@@ -396,6 +407,7 @@ impl FieldTag {
             32 => Some(Self::RoadSectionStableId),
             33 => Some(Self::RoadCorridorStableId),
             34 => Some(Self::JunctionStableId),
+            35 => Some(Self::RightOfWayPolicySetKey),
             _ => None,
         }
     }
@@ -438,6 +450,7 @@ impl FieldTag {
             Self::RoadSectionStableId => "roadSectionStableId",
             Self::RoadCorridorStableId => "roadCorridorStableId",
             Self::JunctionStableId => "junctionStableId",
+            Self::RightOfWayPolicySetKey => "rightOfWayPolicySetKey",
         }
     }
 
@@ -466,7 +479,7 @@ mod tests {
     fn identity_v1_constants_match_contract() {
         assert_eq!(IDENTITY_MAGIC, *b"LFID");
         assert_eq!(IDENTITY_ENCODING_VERSION, 1);
-        assert_eq!(IDENTITY_REGISTRY_REVISION, 3);
+        assert_eq!(IDENTITY_REGISTRY_REVISION, 4);
         assert_eq!(STABLE_ID_DOMAIN_PREFIX, b"laneflow.stable-id.v1\0");
     }
 
@@ -512,9 +525,14 @@ mod tests {
                 "participant-stream",
                 &[1, 30, 34][..],
             ),
+            (
+                EntityKind::RightOfWayPolicySet,
+                "right-of-way-policy-set",
+                &[1, 35][..],
+            ),
         ];
 
-        assert_eq!(EntityKind::ALL.len(), 23);
+        assert_eq!(EntityKind::ALL.len(), 24);
         assert_eq!(EntityKind::ALL.len(), expected.len());
         for (index, kind) in EntityKind::ALL.into_iter().enumerate() {
             assert_eq!(kind.code(), u16::try_from(index + 1).unwrap());
@@ -532,7 +550,8 @@ mod tests {
             }
         }
         assert_eq!(EntityKind::from_code(0), None);
-        assert_eq!(EntityKind::from_code(24), None);
+        assert_eq!(EntityKind::from_code(25), None);
+        assert_eq!(EntityKind::from_code(u16::MAX), None);
         assert_eq!(
             EntityKind::LaneEdge.category(),
             EntityCategory::AddressableTopologyEntity
@@ -598,6 +617,7 @@ mod tests {
             (32, "roadSectionStableId", FieldEncoding::StableId128),
             (33, "roadCorridorStableId", FieldEncoding::StableId128),
             (34, "junctionStableId", FieldEncoding::StableId128),
+            (35, "rightOfWayPolicySetKey", FieldEncoding::Ascii),
         ];
 
         assert_eq!(FieldTag::ALL.len(), expected.len());
@@ -611,6 +631,7 @@ mod tests {
             assert_eq!(tag.encoding(), encoding);
         }
         assert_eq!(FieldTag::from_code(0), None);
-        assert_eq!(FieldTag::from_code(35), None);
+        assert_eq!(FieldTag::from_code(36), None);
+        assert_eq!(FieldTag::from_code(u16::MAX), None);
     }
 }
