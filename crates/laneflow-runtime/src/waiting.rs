@@ -8,6 +8,31 @@ use laneflow_static_network::BoundedDistance;
 thread_local! {
     static WAITING_RESERVATIONS_BEFORE_FAILURE: core::cell::Cell<Option<usize>> =
         const { core::cell::Cell::new(None) };
+    static WAITING_WORK_COUNTS: core::cell::Cell<WaitingWorkCounts> =
+        const { core::cell::Cell::new(WaitingWorkCounts {
+            checked_zones: 0, staged_zones: 0, journal_zones: 0,
+            committed_zones: 0, member_vehicles: 0,
+        }) };
+}
+
+/// 测试专用访问计数，不进入生产世界布局或持久状态。
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct WaitingWorkCounts {
+    pub(crate) checked_zones: usize,
+    pub(crate) staged_zones: usize,
+    pub(crate) journal_zones: usize,
+    pub(crate) committed_zones: usize,
+    pub(crate) member_vehicles: usize,
+}
+
+#[cfg(test)]
+pub(crate) fn count_waiting_work(update: impl FnOnce(&mut WaitingWorkCounts)) {
+    WAITING_WORK_COUNTS.with(|counts| {
+        let mut value = counts.get();
+        update(&mut value);
+        counts.set(value);
+    });
 }
 
 #[cfg(test)]
@@ -577,7 +602,7 @@ impl crate::TrafficWorld {
     }
 
     pub(crate) fn prepare_waiting_step(&mut self, delta_s: f32) -> Result<(), crate::StepError> {
-        if !self.waiting_state_valid() {
+        if !self.waiting_member_rows_valid() {
             return Err(crate::StepError::WaitingInvariantViolation);
         }
         self.waiting_plans.clear();
@@ -726,36 +751,6 @@ impl crate::TrafficWorld {
             });
         }
 
-        for (zone_index, state) in self.waiting_zones.iter().copied().enumerate() {
-            self.waiting_next_counters[zone_index] = state.next_admission_sequence;
-            self.waiting_staged_occupancy[zone_index] = state.occupancy;
-            let mut used = 0_u64;
-            let mut current = state.head;
-            let mut has_front = false;
-            while let Some(vehicle) = current {
-                let member = self
-                    .vehicle_state(vehicle)
-                    .ok_or(crate::StepError::WaitingInvariantViolation)?;
-                let profile = self
-                    .revision
-                    .traffic()
-                    .relations()
-                    .vehicle_profile(member.profile)
-                    .ok_or(crate::StepError::WaitingInvariantViolation)?;
-                if has_front {
-                    used = used
-                        .checked_add(u64::from(profile.min_gap_mm()))
-                        .ok_or(crate::StepError::WaitingInvariantViolation)?;
-                }
-                used = used
-                    .checked_add(u64::from(member.length_mm))
-                    .ok_or(crate::StepError::WaitingInvariantViolation)?;
-                has_front = true;
-                current = self.waiting_links[vehicle.index() as usize].next;
-            }
-            self.waiting_staged_storage_mm[zone_index] = used;
-        }
-
         self.waiting_plans.sort_unstable_by_key(|plan| {
             (
                 plan.zone.raw(),
@@ -764,11 +759,16 @@ impl crate::TrafficWorld {
                 plan.entry_hop,
             )
         });
+        let mut staged_zone = None;
         for index in 0..self.waiting_plans.len() {
             if self.waiting_plans[index].decision == WaitingDecisionOutcome::NotEvaluated {
                 continue;
             }
             let plan = self.waiting_plans[index];
+            if staged_zone != Some(plan.zone) {
+                self.stage_waiting_zone(plan.zone)?;
+                staged_zone = Some(plan.zone);
+            }
             let zone_index = plan.zone.index();
             let max_occupancy = self
                 .revision
@@ -888,6 +888,44 @@ impl crate::TrafficWorld {
                 outcome: plan.decision,
             });
         }
+        Ok(())
+    }
+
+    /// 只初始化本 tick 实际请求的 zone；失败重试也总是从 committed state 开始。
+    fn stage_waiting_zone(&mut self, zone: WaitingZoneOrdinal) -> Result<(), crate::StepError> {
+        if self.waiting_zone_member_count(zone).is_none() {
+            return Err(crate::StepError::WaitingInvariantViolation);
+        }
+        #[cfg(test)]
+        count_waiting_work(|counts| counts.staged_zones += 1);
+        let state = self.waiting_zones[zone.index()];
+        self.waiting_next_counters[zone.index()] = state.next_admission_sequence;
+        self.waiting_staged_occupancy[zone.index()] = state.occupancy;
+        let mut used = 0_u64;
+        let mut current = state.head;
+        let mut has_front = false;
+        while let Some(vehicle) = current {
+            let member = self
+                .vehicle_state(vehicle)
+                .ok_or(crate::StepError::WaitingInvariantViolation)?;
+            let profile = self
+                .revision
+                .traffic()
+                .relations()
+                .vehicle_profile(member.profile)
+                .ok_or(crate::StepError::WaitingInvariantViolation)?;
+            if has_front {
+                used = used
+                    .checked_add(u64::from(profile.min_gap_mm()))
+                    .ok_or(crate::StepError::WaitingInvariantViolation)?;
+            }
+            used = used
+                .checked_add(u64::from(member.length_mm))
+                .ok_or(crate::StepError::WaitingInvariantViolation)?;
+            has_front = true;
+            current = self.waiting_links[vehicle.index() as usize].next;
+        }
+        self.waiting_staged_storage_mm[zone.index()] = used;
         Ok(())
     }
 
@@ -1160,8 +1198,17 @@ impl crate::TrafficWorld {
                 self.append_waiting_member(plan.vehicle, membership);
             }
         }
-        for (index, state) in self.waiting_zones.iter_mut().enumerate() {
-            state.next_admission_sequence = self.waiting_next_counters[index];
+        // finalize 后 claims 只含 successful entry，按 zone 排序；同拍 enter+leave
+        // 虽无终态 member，仍必须提交该 zone 的 counter。
+        for claims in self
+            .waiting_claims
+            .chunk_by(|left, right| left.zone == right.zone)
+        {
+            #[cfg(test)]
+            count_waiting_work(|counts| counts.committed_zones += 1);
+            let zone_index = claims[0].zone.index();
+            self.waiting_zones[zone_index].next_admission_sequence =
+                self.waiting_next_counters[zone_index];
         }
         self.rebuild_waiting_member_rows();
         std::mem::swap(
@@ -1460,68 +1507,103 @@ impl crate::TrafficWorld {
 
     pub(crate) fn waiting_state_valid(&self) -> bool {
         let mut total = 0_usize;
-        for (zone_index, state) in self.waiting_zones.iter().copied().enumerate() {
+        for zone_index in 0..self.waiting_zones.len() {
             let zone = WaitingZoneOrdinal::from_raw(
                 u32::try_from(zone_index).expect("waiting zone index fits u32"),
             );
-            let Some(view) = self.revision.traffic().relations().waiting_zone(zone) else {
+            let Some(count) = self.waiting_zone_member_count(zone) else {
                 return false;
             };
-            if state.occupancy > view.max_occupancy()
-                || (state.occupancy == 0) != (state.head.is_none() && state.tail.is_none())
-            {
+            total = match total.checked_add(count) {
+                Some(value) if value <= self.live_order.len() => value,
+                _ => return false,
+            };
+        }
+        self.waiting_semantic_member_count() == total
+    }
+
+    /// 稳态从已有 member batch 定位非空 zone，而非遍历静态表。队列和语义仍交叉
+    /// 验证；未涉及的空 zone 保留历史 counter，由 restore/cutover 做全量验证。
+    fn waiting_member_rows_valid(&self) -> bool {
+        if self.waiting_member_rows.windows(2).any(|pair| {
+            (pair[0].zone.raw(), pair[0].admission_sequence)
+                >= (pair[1].zone.raw(), pair[1].admission_sequence)
+        }) {
+            return false;
+        }
+        for members in self
+            .waiting_member_rows
+            .chunk_by(|left, right| left.zone == right.zone)
+        {
+            if self.waiting_zone_member_count(members[0].zone) != Some(members.len()) {
                 return false;
             }
-            let mut previous = None;
-            let mut current = state.head;
-            let mut count = 0_u32;
-            let mut previous_sequence = None;
-            while let Some(vehicle) = current {
-                let Some(vehicle_state) = self.vehicle_state(vehicle) else {
-                    return false;
-                };
-                let Some(membership) = vehicle_state.waiting_membership else {
-                    return false;
-                };
-                if membership.waiting_zone != zone
-                    || membership.admission_sequence >= state.next_admission_sequence
+            let mut current = self.waiting_zones[members[0].zone.index()].head;
+            for member in members {
+                if current != Some(member.vehicle)
+                    || self
+                        .vehicle_state(member.vehicle)
+                        .and_then(|state| state.waiting_membership)
+                        != Some(WaitingMembership {
+                            waiting_zone: member.zone,
+                            admission_sequence: member.admission_sequence,
+                            release_hop: member.release_hop,
+                        })
                 {
                     return false;
                 }
-                if previous_sequence.is_some_and(|value| value >= membership.admission_sequence) {
-                    return false;
-                }
-                let Some(link) = self.waiting_links.get(vehicle.index() as usize).copied() else {
-                    return false;
-                };
-                if link.previous != previous {
-                    return false;
-                }
-                previous = Some(vehicle);
-                previous_sequence = Some(membership.admission_sequence);
-                current = link.next;
-                count = match count.checked_add(1) {
-                    Some(value) => value,
-                    None => return false,
-                };
-                total = match total.checked_add(1) {
-                    Some(value) if value <= self.live_order.len() => value,
-                    _ => return false,
-                };
-            }
-            if count != state.occupancy || previous != state.tail {
-                return false;
+                current = self.waiting_links[member.vehicle.index() as usize].next;
             }
         }
-        let semantic_count = self
-            .live_order
+        self.waiting_semantic_member_count() == self.waiting_member_rows.len()
+    }
+
+    /// 验证一个实际涉及的 zone；全量冷路径和稀疏热路径共享同一队列合同。
+    fn waiting_zone_member_count(&self, zone: WaitingZoneOrdinal) -> Option<usize> {
+        #[cfg(test)]
+        count_waiting_work(|counts| counts.checked_zones += 1);
+        let state = self.waiting_zones.get(zone.index())?;
+        let view = self.revision.traffic().relations().waiting_zone(zone)?;
+        if state.occupancy > view.max_occupancy()
+            || (state.occupancy == 0) != (state.head.is_none() && state.tail.is_none())
+        {
+            return None;
+        }
+        let mut previous = None;
+        let mut current = state.head;
+        let mut count = 0_u32;
+        let mut previous_sequence = None;
+        while let Some(vehicle) = current {
+            let membership = self.vehicle_state(vehicle)?.waiting_membership?;
+            if membership.waiting_zone != zone
+                || membership.admission_sequence >= state.next_admission_sequence
+                || previous_sequence.is_some_and(|value| value >= membership.admission_sequence)
+            {
+                return None;
+            }
+            let link = self.waiting_links.get(vehicle.index() as usize)?;
+            if link.previous != previous {
+                return None;
+            }
+            previous = Some(vehicle);
+            previous_sequence = Some(membership.admission_sequence);
+            current = link.next;
+            count = count.checked_add(1)?;
+            if count as usize > self.live_order.len() {
+                return None;
+            }
+        }
+        (count == state.occupancy && previous == state.tail).then_some(count as usize)
+    }
+
+    fn waiting_semantic_member_count(&self) -> usize {
+        self.live_order
             .iter()
             .filter(|vehicle| {
                 self.vehicle_state(**vehicle)
                     .is_some_and(|state| state.waiting_membership.is_some())
             })
-            .count();
-        semantic_count == total
+            .count()
     }
 
     pub(crate) fn restored_waiting_authority_valid(&self, state: crate::VehicleState) -> bool {
@@ -1684,25 +1766,23 @@ impl crate::TrafficWorld {
 
     pub(crate) fn rebuild_waiting_member_rows(&mut self) {
         self.waiting_member_rows.clear();
-        for (zone_index, state) in self.waiting_zones.iter().copied().enumerate() {
-            let zone = WaitingZoneOrdinal::from_raw(
-                u32::try_from(zone_index).expect("waiting zone index fits u32"),
-            );
-            let mut current = state.head;
-            while let Some(vehicle) = current {
-                let membership = self
-                    .vehicle_state(vehicle)
-                    .and_then(|state| state.waiting_membership)
-                    .expect("validated Waiting queue member");
+        for vehicle in self.live_order.iter().copied() {
+            #[cfg(test)]
+            count_waiting_work(|counts| counts.member_vehicles += 1);
+            if let Some(membership) = self
+                .vehicle_state(vehicle)
+                .and_then(|state| state.waiting_membership)
+            {
                 self.waiting_member_rows.push(WaitingZoneMember {
-                    zone,
+                    zone: membership.waiting_zone,
                     vehicle,
                     admission_sequence: membership.admission_sequence,
                     release_hop: membership.release_hop,
                 });
-                current = self.waiting_links[vehicle.index() as usize].next;
             }
         }
+        self.waiting_member_rows
+            .sort_unstable_by_key(|member| (member.zone.raw(), member.admission_sequence));
     }
 
     pub(crate) fn rebuild_waiting_aggregate_from_semantics(&mut self) -> bool {
@@ -2103,6 +2183,7 @@ pub(crate) mod tests {
         SingleZone,
         AdditionalGate,
         SecondZone,
+        IdleZones(usize),
     }
 
     fn waiting_scale_revision_with_layout(
@@ -2317,6 +2398,11 @@ pub(crate) mod tests {
                 })
                 .expect("target-only WaitingZone");
         }
+        if let ScaleLayout::IdleZones(count) = layout {
+            for index in 0..count {
+                add_idle_waiting_path(&mut module, index);
+            }
+        }
         module
             .add_parking_facility(laneflow_compiler::ParkingFacilityInput {
                 parking_facility_key: "parking-after-exit",
@@ -2362,6 +2448,93 @@ pub(crate) mod tests {
             ),
         )
         .expect("revision")
+    }
+
+    fn add_idle_waiting_path(module: &mut SyntheticModuleBuilder, index: usize) {
+        let [
+            entry,
+            storage,
+            exit,
+            junction,
+            movement,
+            path,
+            entry_stop,
+            release_stop,
+            entry_gate,
+            release_gate,
+            zone,
+        ] = [
+            "entry",
+            "storage",
+            "exit",
+            "junction",
+            "movement",
+            "path",
+            "entry-stop",
+            "release-stop",
+            "entry-gate",
+            "release-gate",
+            "zone",
+        ]
+        .map(|suffix| format!("idle-{index}-{suffix}"));
+        for (edge, successor) in [(&entry, &storage), (&storage, &exit), (&exit, &entry)] {
+            module
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: edge,
+                    length_meters: 20.0,
+                    speed_limit_meters_per_second: 13.75,
+                    successors: &[LaneEdgeReference::local(successor)],
+                })
+                .expect("idle lane");
+        }
+        module
+            .add_junction(JunctionInput {
+                junction_key: &junction,
+            })
+            .expect("idle junction")
+            .add_movement(MovementInput {
+                movement_key: &movement,
+                junction: JunctionReference::local(&junction),
+                directed_entry_approach_key: "in",
+                directed_exit_approach_key: "out",
+            })
+            .expect("idle movement")
+            .add_maneuver_path(ManeuverPathInput {
+                maneuver_path_key: &path,
+                movement: MovementReference::local(&movement),
+                entry_edge: LaneEdgeReference::local(&entry),
+                internal_edges: &[LaneEdgeReference::local(&storage)],
+                exit_edge: LaneEdgeReference::local(&exit),
+            })
+            .expect("idle path");
+        for (gate, stop, edge, transition_index) in [
+            (&entry_gate, &entry_stop, &entry, 0),
+            (&release_gate, &release_stop, &storage, 1),
+        ] {
+            module
+                .add_stop_line(StopLineInput {
+                    stop_line_key: stop,
+                    lane_edge: LaneEdgeReference::local(edge),
+                })
+                .expect("idle stop")
+                .add_maneuver_gate(ManeuverGateInput {
+                    maneuver_gate_key: gate,
+                    maneuver_path: ManeuverPathReference::local(&path),
+                    transition_index,
+                    stop_line: StopLineReference::local(stop),
+                    signal_control: SignalControlInput::None,
+                })
+                .expect("idle gate");
+        }
+        module
+            .add_waiting_zone(WaitingZoneInput {
+                waiting_zone_key: &zone,
+                maneuver_path: ManeuverPathReference::local(&path),
+                entry_gate: ManeuverGateReference::local(&entry_gate),
+                release_gate: ManeuverGateReference::local(&release_gate),
+                max_occupancy: 2,
+            })
+            .expect("idle zone");
     }
 
     fn waiting_scale_world(
@@ -2550,6 +2723,131 @@ pub(crate) mod tests {
         }
         samples.sort_unstable();
         (samples[10], samples[19])
+    }
+
+    fn step_waiting_counts(world: &mut TrafficWorld) -> WaitingWorkCounts {
+        WAITING_WORK_COUNTS.with(|counts| counts.set(WaitingWorkCounts::default()));
+        world
+            .step(TickInput::new(world.config.fixed_delta_time_ms()))
+            .expect("step");
+        WAITING_WORK_COUNTS.with(core::cell::Cell::get)
+    }
+
+    #[test]
+    fn sparse_waiting_tick_work_ignores_idle_static_zones_and_preserves_history() {
+        for idle_zones in [0, 256] {
+            let revision =
+                waiting_scale_revision_with_layout(8.0, 1, ScaleLayout::IdleZones(idle_zones));
+            for armed in [false, true] {
+                let (mut empty, _) = waiting_scale_world(Arc::clone(&revision), 0);
+                assert_eq!(empty.waiting_zones.len(), idle_zones + 1);
+                if armed {
+                    empty.arm_migration_journal(16 * 1_024).unwrap();
+                }
+                assert_eq!(
+                    step_waiting_counts(&mut empty),
+                    WaitingWorkCounts::default()
+                );
+
+                let (mut world, zone) = waiting_scale_world(Arc::clone(&revision), 1);
+                let vehicle = VehicleHandle::new(0, 0);
+                let initial = *world.vehicle_state(vehicle).unwrap();
+                if armed {
+                    world.arm_migration_journal(16 * 1_024).unwrap();
+                }
+                assert_eq!(
+                    step_waiting_counts(&mut world),
+                    WaitingWorkCounts {
+                        checked_zones: 1,
+                        staged_zones: 1,
+                        journal_zones: usize::from(armed),
+                        committed_zones: 1,
+                        member_vehicles: 1,
+                    }
+                );
+                assert_eq!(world.waiting_zone_members().len(), 1);
+                assert_eq!(
+                    step_waiting_counts(&mut world),
+                    WaitingWorkCounts {
+                        checked_zones: 1,
+                        member_vehicles: 1,
+                        ..WaitingWorkCounts::default()
+                    }
+                );
+                world.despawn_vehicle(vehicle).unwrap();
+                for _ in 0..3 {
+                    assert_eq!(
+                        step_waiting_counts(&mut world),
+                        WaitingWorkCounts::default()
+                    );
+                    assert_eq!(world.waiting_zones[zone.index()].next_admission_sequence, 1);
+                }
+                let restored = roundtrip(&world);
+                assert_eq!(
+                    restored.waiting_zones[zone.index()].next_admission_sequence,
+                    1
+                );
+                let next = world
+                    .spawn_vehicle(VehicleSpawnInput::new(
+                        initial.profile,
+                        initial.route,
+                        initial.route_edge_index,
+                        initial.progress_mm,
+                        initial.speed_mm_s,
+                    ))
+                    .unwrap();
+                assert_eq!(step_waiting_counts(&mut world).committed_zones, 1);
+                assert_eq!(
+                    world
+                        .vehicle_state(next)
+                        .unwrap()
+                        .waiting_membership
+                        .unwrap()
+                        .admission_sequence,
+                    1
+                );
+                assert_eq!(world.waiting_zones[zone.index()].next_admission_sequence, 2);
+            }
+        }
+    }
+
+    #[test]
+    fn successful_same_tick_enter_leave_journals_counter_without_member() {
+        let (mut world, zone) = waiting_scale_world_at_delta(waiting_scale_revision(), 1, 1_000);
+        world.arm_migration_journal(16 * 1_024).unwrap();
+        assert_eq!(step_waiting_counts(&mut world).journal_zones, 1);
+        assert!(world.waiting_zone_members().is_empty());
+        assert_eq!(world.waiting_zones[zone.index()].occupancy, 0);
+        assert_eq!(world.waiting_zones[zone.index()].next_admission_sequence, 1);
+        let record = world
+            .migration_journal()
+            .unwrap()
+            .records_from(0)
+            .next()
+            .unwrap();
+        let JournalRecord::Tick { waiting_zones, .. } = record else {
+            panic!("tick");
+        };
+        assert_eq!(
+            waiting_zone_delta_stream(waiting_zones).collect::<Vec<_>>(),
+            [(zone, 1)]
+        );
+        assert_eq!(
+            world
+                .latest_waiting_events()
+                .iter()
+                .filter(|event| matches!(
+                    event.kind(),
+                    WaitingTransitionKind::Entered { .. } | WaitingTransitionKind::Left { .. }
+                ))
+                .count(),
+            2
+        );
+        assert_eq!(step_waiting_counts(&mut world).committed_zones, 0);
+        assert_eq!(
+            roundtrip(&world).waiting_zones[zone.index()].next_admission_sequence,
+            1
+        );
     }
 
     #[test]
@@ -3103,6 +3401,52 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn sparse_member_validation_and_output_keep_queue_order() {
+        let revision = waiting_scale_revision_with_layout(20.0, 2, ScaleLayout::SecondZone);
+        let (mut world, _) = waiting_scale_world(revision, 2);
+        for _ in 0..1_000 {
+            if world.waiting_zones.iter().all(|zone| zone.occupancy == 1) {
+                break;
+            }
+            world.step(TickInput::new(4)).unwrap();
+        }
+        assert!(world.waiting_zones.iter().all(|zone| zone.occupancy == 1));
+        let expected = world.waiting_member_rows.clone();
+        world.live_order.reverse();
+        world.active_order.reverse();
+        world.rebuild_waiting_member_rows();
+        assert_eq!(world.waiting_member_rows, expected);
+        assert!(world.waiting_member_rows_valid());
+
+        let before = world.capture_snapshot().unwrap();
+        world.waiting_member_rows.reverse();
+        assert_eq!(
+            world.step(TickInput::new(4)),
+            Err(crate::StepError::WaitingInvariantViolation)
+        );
+        assert_eq!(world.capture_snapshot().unwrap(), before);
+        world.waiting_member_rows.reverse();
+        world.waiting_member_rows[0].release_hop += 1;
+        assert_eq!(
+            world.step(TickInput::new(4)),
+            Err(crate::StepError::WaitingInvariantViolation)
+        );
+        world.waiting_member_rows[0].release_hop -= 1;
+        let member = world.waiting_member_rows[0].vehicle;
+        world.waiting_links[member.index() as usize].previous = Some(member);
+        assert_eq!(
+            world.step(TickInput::new(4)),
+            Err(crate::StepError::WaitingInvariantViolation)
+        );
+        world.waiting_links[member.index() as usize].previous = None;
+        assert_eq!(world.capture_snapshot().unwrap(), before);
+        world
+            .step(TickInput::new(4))
+            .expect("retry valid member batch and queue");
+        assert!(world.waiting_state_valid());
+    }
+
+    #[test]
     fn malformed_waiting_snapshot_aggregate_fails_closed() {
         let (mut world, route, occurrence) = waiting_world();
         let entry_edge = world.route_edges(route).expect("route")[occurrence.entry_hop as usize];
@@ -3475,7 +3819,9 @@ pub(crate) mod tests {
                     8_000,
                 ))
                 .expect("vehicle");
+            world.arm_migration_journal(16 * 1_024).unwrap();
             let before = world.capture_snapshot().expect("before");
+            let members_before = world.waiting_member_rows.clone();
             let guard = fail_after.map(fail_waiting_reservation_after);
             let error = world
                 .step(TickInput::new(100))
@@ -3484,8 +3830,30 @@ pub(crate) mod tests {
             assert_eq!(world.capture_snapshot().expect("after"), before);
             assert!(world.latest_waiting_decisions().is_empty());
             assert!(world.latest_waiting_events().is_empty());
+            assert_eq!(world.waiting_member_rows, members_before);
+            assert_eq!(
+                world.migration_journal().unwrap().records_from(0).count(),
+                0
+            );
             drop(guard);
             world.step(TickInput::new(100)).expect("retry");
+            assert_eq!(
+                world.waiting_zones[occurrence.zone.index()].next_admission_sequence,
+                1
+            );
+            let record = world
+                .migration_journal()
+                .unwrap()
+                .records_from(0)
+                .next()
+                .unwrap();
+            let JournalRecord::Tick { waiting_zones, .. } = record else {
+                panic!("tick");
+            };
+            assert_eq!(
+                waiting_zone_delta_stream(waiting_zones).collect::<Vec<_>>(),
+                [(occurrence.zone, 1)]
+            );
         };
         atomic_failure(Some(0));
         atomic_failure(Some(1));

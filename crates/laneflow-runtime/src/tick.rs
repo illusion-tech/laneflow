@@ -145,19 +145,16 @@ impl TrafficWorld {
                 }
             }
         }
-        for (zone_index, next_counter) in self.waiting_next_counters.iter().copied().enumerate() {
-            if self.waiting_zones[zone_index].next_admission_sequence != next_counter
-                && let Some(journal) = self.migration_journal.as_mut()
-            {
-                journal.tick_waiting_zone(
-                    laneflow_static_contract::WaitingZoneOrdinal::from_raw(
-                        u32::try_from(zone_index).expect("WaitingZone index fits u32"),
-                    ),
-                    next_counter,
-                );
-            }
-        }
         if let Some(journal) = self.migration_journal.as_mut() {
+            for claims in self
+                .waiting_claims
+                .chunk_by(|left, right| left.zone == right.zone)
+            {
+                #[cfg(test)]
+                crate::waiting::count_waiting_work(|counts| counts.journal_zones += 1);
+                let zone = claims[0].zone;
+                journal.tick_waiting_zone(zone, self.waiting_next_counters[zone.index()]);
+            }
             journal.finish_tick();
         }
         self.commit_waiting_additions(&updates);
