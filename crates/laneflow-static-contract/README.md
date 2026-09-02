@@ -12,6 +12,8 @@ LaneFlow 编译器、线格式后发射检查与目标 Traffic Runtime 共享的
   `AccessEffect`）、已接受停车数值边界，以及 canonical `f32` 点、线段、长度绑定和
   连接连续性的共享空间数值边界；
 - Identity v1 的版本常量、实体种类和字段标签元数据。
+- 受检公历日期 `RegulationDate`、机动方向、门解释与禁令的封闭值；这些类型不执行
+  运行时裁决，也不表示 LFCA/来源格式已安装对应策略表。
 - LFCA 4、LFSM 3、LFSD 3 与 LFCP 2 的 magic、版本、封闭字段类型、结构安全天花板，以及
   SHA-256、路网修订标识和 exact-byte 长度值类型；
 - 附录 A.1-A.4 的 section/table/field 名称、kind/tag/type/presence、singleton 行数、
