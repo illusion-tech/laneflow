@@ -3,13 +3,14 @@
 **文档状态**: Accepted（#235 联合架构与 #282 WaitingZone G1，2026-09-01）<br>
 **适用范围**: WaitingZone 本地准入、Conflict 路线出现项、车辆级通行权、下游净空、
 Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
-**交付边界**: WaitingZone 本地动态 authority 属于 #282；本文不声称 #284 的
-downstream-clearance、Conflict 仲裁或组合 ledger 已经接受或实现<br>
+**交付边界**: WaitingZone 本地动态 authority 属于 #282；§6 的联合算法已由 #235 接受，
+#284 实施细化另处 Review，downstream-clearance、Conflict 仲裁与组合 ledger 尚未交付<br>
 
 **关联文档**:
 
 - `traffic-runtime-waiting-zone.md`
 - `traffic-runtime-conflict-occurrence.md`
+- [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md)（#284 实施细化，Review）
 - `traffic-runtime-shared-consumption.md`
 - `traffic-runtime-integer-geometry.md`
 - `traffic-runtime-snapshot.md`
@@ -210,9 +211,10 @@ ownership 分离不重新打开这些算法选择，也不声称 #284 已实现�
 当前静态根仍是受检 LFCA 4 / `SharedNetworkRevision`，route conflict operands 来自 #559
 已经交付的 `ConflictPassageOccurrence`、Gate ranges 与
 `route_conflict_occurrence_capacity`。#284 的 regulation/policy source 必须从届时 official
-source 经唯一 compiler/LFCA/shared-root 路径原子引入；不得恢复 current JSON、让
-`TrafficWorld` 解析文件，或在本设计中预占尚未冻结的下一格式版本。#284 从届时 current
-版本执行一次 clean bump，并与正式 Runtime state/digest 同切片闭合。
+source 经唯一 compiler/LFCA/shared-root 路径原子引入；不得恢复 current JSON 或让
+`TrafficWorld` 解析文件。具体来源、世界绑定与候选版本组合见
+[`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §2–§8；
+其 Review 状态不改变上述当前版本。实施时与正式 Runtime state/digest 同切片闭合。
 
 #284 消费 #282 已提交的 Waiting membership、occupancy、counter 与 local admission
 outcome，但 mutation owner 仍留在各 zone reducer。#284 可以把 zone-local claim 纳入
@@ -281,6 +283,42 @@ yield/gap。任一 signal/Access/regulatory deny 都得到 `DenyAndStop`，任�
 policy 安装还必须对全部 steady signal phase 做 protected coherence：两个 Gate coverage
 共享 incompatible ConflictZone，且某对可进入 profile 在同一 phase 都会得到
 `Candidate(Protected)` 时，安装失败；不能把错误 authoring 静默降级为运行时排队。
+
+#### 6.2.1 中国机动车红灯右转的最小策略
+
+#284 首版包含中国机动车红灯条件右转。法规依据是
+[《中华人民共和国道路交通安全法实施条例》2017 年修订本](https://xzfg.moj.gov.cn/law/download?LawID=1614&type=pdf)
+第 38、41、51、53 条；国家行政法规库将该版本列为现行有效，本次核验日期为
+2026-09-02。圆形灯、方向指示灯及禁止右转标志的区别同时参照
+[盐城市公安局 2025-11-26 公开说明](https://www.yancheng.gov.cn/art/2025/11/26/art_34214_4383922.html)。
+本节将已核实规则映射为运行时合同，不把地方说明作为额外的全国性法规。
+
+- 普通圆形红灯、右转且没有适用的禁止右转约束时，在不妨碍被放行车辆、行人的
+  条件下可以通行。中国策略将其解析为 `Candidate(Permissive)`，仍须取得最终 grant。
+- 适用于该右转方向的箭头红灯，或适用的“禁止右转”“红灯时禁止右转”约束，解析为
+  `DenyAndStop`。不能因为车辆是右转就绕过该限制，也不能把其他方向的箭头灯误用到右转。
+- 同车道前车正在等候放行时，右转车辆依次等候；没有方向指示灯时还须表达转弯让直行、
+  相对方向右转让左转。前方路口交通阻塞时不得进入。这些分别由编译的让行关系、
+  Waiting/leader 顺序和 mandatory downstream-clearance 共同落实。
+- source 必须明确表示适用的灯态解释、机动方向和禁令条件，经唯一 compiler/LFCA/shared-root
+  路径规范化。`signalControl:none` 不是“没有右转专用灯”的别名：普通圆形灯仍有真实
+  信号组绑定。缺失或含糊的输入不能当成圆形灯，也不能推断不存在禁令。
+- `SignalAspect::Red` 本身不预先生成不可撤销的 deny；先由已 pin 的地区策略解释灯态，
+  再组合真实的 signal/Access/regulatory deny。已解析的 deny 仍不能被其他 allow 覆盖。
+  不在 SignalController 或 Adapter 内硬编码中国右转特例。
+
+全国规则、地区/标志限制与工程间隙参数分别保留来源和版本。法规中的行人让行义务不因
+当前 Runtime 只实现机动车而消失；#284 的可运行参考场景和支持声明限定为已建模的
+机动车冲突，不能将未实现的行人/非机动车交通当作已经验证安全。更广泛的中国复杂道路
+法规矩阵和跨层场景由 #238、#285 承接。
+
+#### 6.2.2 首版参考间隙参数
+
+#284 提供一套由项目维护、具名且版本化的保守参考 `GapAcceptanceProfile`，调用方必须
+显式选入 policy；缺失必需参数仍拒绝，不新增隐式 fallback。具体数值通过短长车型、
+让行汇入、无保护转向、饱和主路和下游堵塞的受控场景确定，并记录适用范围、通行量、
+等待分布与拒绝归因。这些数值是工程参考，不冒充法规规定或专业交通工程校准结果；
+参数调整不得放宽本设计的安全不变量。
 
 ### 6.3 Gate evaluation frontier 与稳定 candidate
 

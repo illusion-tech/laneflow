@@ -9,6 +9,7 @@ Traffic Runtime 安全组合、持久化与引擎边界<br>
 
 - `../design/traffic-runtime-waiting-zone.md`
 - `../design/waiting-zone-conflict-right-of-way.md`
+- [`../design/traffic-runtime-right-of-way-policy.md`](../design/traffic-runtime-right-of-way-policy.md)（#284 实施细化，Review）
 - `../design/traffic-runtime-conflict-occurrence.md`
 - `../design/traffic-runtime-shared-consumption.md`
 - `../design/traffic-runtime-integer-geometry.md`
