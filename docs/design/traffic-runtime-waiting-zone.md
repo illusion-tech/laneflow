@@ -631,6 +631,10 @@ state、zone counter 与 queue order，不纳入派生 links 或 latest output b
 - target-only zone 的 `(entryHop, releaseHop]` 内若已有 `Active` cursor 而无对应
   membership，切换失败；不得自动补造 admission 或以零 occupancy 接受区间内车辆。
   `Parked` 的 retained cursor 不代表进入，不适用这项 Active 约束；
+- 既有 maneuver 首次增加 Waiting 覆盖时，源无 traversal/membership 的 `Active` 若
+  尚未越过目标首个 maneuver Gate，可按切换文档 §3.3 初始化零历史 `PreGate`。
+  Prepare、增量追赶与独立期望摘要必须一致；不补 claim/member/counter，不放宽既有
+  phase 的恒等迁移，也不让普通 restore 自动修补缺失状态；
 - restore 与 cutover 必须继续核对 `route_conflict_occurrence_capacity`、重建
   `ConflictPassageOccurrence` 并对全部候选 `Active` 车辆执行 #559 3A 保护；Waiting
   状态迁移成功不得绕过 `ConflictRuntimeUnavailable`。

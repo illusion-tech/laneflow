@@ -217,6 +217,7 @@ impl CrossRevisionRebinding {
 }
 
 pub(crate) fn vehicle_state_from_delta(
+    base_revision: &SharedNetworkRevision,
     candidate: &TrafficWorld,
     rebinding: &CrossRevisionRebinding,
     delta: &VehicleDelta,
@@ -311,7 +312,7 @@ pub(crate) fn vehicle_state_from_delta(
         });
     }
 
-    let state = VehicleState {
+    let mut state = VehicleState {
         handle: VehicleHandle::new(delta.slot, delta.generation),
         profile: rebinding
             .vehicle_profile(VehicleProfileOrdinal::from_raw(delta.profile))
@@ -333,6 +334,38 @@ pub(crate) fn vehicle_state_from_delta(
         maneuver_traversal: traversal,
         waiting_membership: membership,
     };
+    if state.status == VehicleStatus::Active && state.maneuver_traversal.is_none() {
+        let bootstrap = candidate
+            .derive_waiting_traversal_with_signals(state, false)
+            .map_err(|_| invalid())?;
+        if let Some(traversal) = bootstrap {
+            if !matches!(traversal.phase, ManeuverTraversalPhase::PreGate { .. }) {
+                return Err(invalid());
+            }
+            let path = compiled.maneuvers[traversal.maneuver_occurrence_index as usize].path;
+            let stable_path = candidate
+                .revision
+                .identity()
+                .stable_id(path)
+                .ok_or_else(invalid)?;
+            let base_path = base_revision
+                .identity()
+                .ordinal(stable_path)
+                .ok_or_else(invalid)?;
+            if !base_revision
+                .traffic()
+                .maneuvers()
+                .maneuver_path(base_path)
+                .ok_or_else(invalid)?
+                .waiting_zones()
+                .is_empty()
+            {
+                return Err(invalid());
+            }
+            // 仅首次覆盖、尚未跨第一个 Gate 的零历史初始化；bootstrap 不生成 membership。
+            state.maneuver_traversal = Some(traversal);
+        }
+    }
     if !candidate.restored_waiting_authority_valid(state) {
         return Err(invalid());
     }
@@ -854,7 +887,7 @@ pub(crate) fn migrate_structural_clone(
             .vehicle_state(handle)
             .ok_or(CutoverError::WaitingRevalidationFailed)?;
         let delta = VehicleDelta::from_state(base_state, world.compiled_route(base_state.route));
-        let migrated = vehicle_state_from_delta(&candidate, rebinding, &delta)?;
+        let migrated = vehicle_state_from_delta(&world.revision, &candidate, rebinding, &delta)?;
         candidate.vehicles[handle.index() as usize].state = Some(migrated);
     }
     if !candidate.rebuild_waiting_aggregate_from_semantics() {

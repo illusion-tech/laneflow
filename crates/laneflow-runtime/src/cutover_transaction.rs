@@ -5,7 +5,7 @@
 //! 日志）：不模拟未来、不重执行输入命令。静默提交在同一原子边界排空日志
 //! 尾 → 最终命令游标原子取样并写入候选 → 占用重建 + 全量重验证 →
 //! 确定性摘要复核（期望值 = 旧世界静默点捕获的头部替换形式：`origin`
-//! 换为 target，记录内容全部按稳定引用键控、直移不改写；取样必须先于
+//! 换为 target，仅首次 Waiting 覆盖的零历史 PreGate 按目标静态定义初始化；取样必须先于
 //! 摘要——双游标是摘要输入）→ 不可失败原地晋升（世代 checked+1、观测
 //! 序号同界重置）。任一失败整体放弃：旧修订、旧动态状态、旧来源原样
 //! 生效、零事件。
@@ -340,6 +340,7 @@ impl CutoverTransaction {
                 break;
             }
             apply_record(
+                &world.revision,
                 self.candidate
                     .as_mut()
                     .expect("live transaction owns a candidate"),
@@ -396,11 +397,12 @@ impl CutoverTransaction {
             .map_err(CutoverError::OccupancyRebuild)?;
         revalidate_migrated_vehicles(candidate)?;
         // 确定性摘要复核：期望值 = 旧世界静默点捕获 + target origin 头部
-        // 替换（记录内容按稳定引用键控，直移不改写；候选侧走自身捕获）。
+        // 替换 + 首次 Waiting 覆盖的零历史 PreGate 初始化；期望值不读取候选动态状态。
         // 捕获与摘要的预留失败按快照轴错误族失败关闭（#532），不冒充
         // `StagingAllocFailed`（那是切换暂存预留的错误面）。
         let mut expected = world.capture_snapshot()?;
         expected.origin = self.target_origin;
+        initialize_expected_waiting_pre_gate(world, &candidate.revision, &mut expected)?;
         let expected_digest = deterministic_state_digest(&expected)?;
         let candidate_digest = deterministic_state_digest(&candidate.capture_snapshot()?)?;
         if expected_digest != candidate_digest {
@@ -733,10 +735,94 @@ fn waiting_release_matches(
             == Some(target_gate)
 }
 
+/// 唯一期望状态例外：从源车辆/源 occurrence 和目标静态 Gate 独立推导零历史 PreGate。
+/// 不读取候选车辆、候选快照或候选编译路线；其余捕获字段保持源值，仍由完整摘要验证。
+fn initialize_expected_waiting_pre_gate(
+    world: &TrafficWorld,
+    target: &SharedNetworkRevision,
+    expected: &mut crate::CapturedSnapshot,
+) -> Result<(), CutoverError> {
+    // capture_snapshot 按 live 槽位序分配局部车辆 ID，非 live_order 序。
+    let source_states = world.vehicles.iter().filter_map(|slot| slot.state.as_ref());
+    for (state, captured) in source_states.zip(&mut expected.vehicles) {
+        if state.status != crate::VehicleStatus::Active
+            || state.maneuver_traversal.is_some()
+            || state.waiting_membership.is_some()
+        {
+            continue;
+        }
+        let invalid = || CutoverError::VehicleRevalidationFailed {
+            vehicle: state.handle.index(),
+        };
+        let compiled = world.compiled_route(state.route).ok_or_else(invalid)?;
+        let index = compiled.maneuvers.partition_point(|occurrence| {
+            occurrence.exit_route_edge_index <= state.route_edge_index
+        });
+        let Some(occurrence) = compiled
+            .maneuvers
+            .get(index)
+            .filter(|occurrence| occurrence.entry_route_edge_index <= state.route_edge_index)
+        else {
+            continue;
+        };
+        let base_path = world
+            .traffic()
+            .maneuvers()
+            .maneuver_path(occurrence.path)
+            .ok_or_else(invalid)?;
+        if !base_path.waiting_zones().is_empty() {
+            continue;
+        }
+        let stable_path = world
+            .revision
+            .identity()
+            .stable_id(occurrence.path)
+            .ok_or_else(invalid)?;
+        let Some(target_path) = target.identity().ordinal(stable_path) else {
+            // 无 Waiting authority 的旧 maneuver 被移除时，没有新 PreGate 需要初始化。
+            continue;
+        };
+        let path = target
+            .traffic()
+            .maneuvers()
+            .maneuver_path(target_path)
+            .ok_or_else(invalid)?;
+        if path.waiting_zones().is_empty() {
+            continue;
+        }
+        let gate = *path.maneuver_gates().first().ok_or_else(invalid)?;
+        let transition = target
+            .traffic()
+            .relations()
+            .maneuver_gate(gate)
+            .ok_or_else(invalid)?
+            .transition_index();
+        let hop = occurrence
+            .entry_route_edge_index
+            .checked_add(transition)
+            .ok_or_else(invalid)?;
+        if state.route_edge_index > hop {
+            return Err(invalid());
+        }
+        captured.maneuver_traversal = Some(crate::snapshot::CapturedManeuverTraversal {
+            maneuver_occurrence_index: u32::try_from(index).map_err(|_| invalid())?,
+            maneuver_path: *stable_path.as_untyped(),
+            phase: crate::snapshot::CapturedManeuverTraversalPhase::PreGate,
+            phase_gate: *target
+                .identity()
+                .stable_id(gate)
+                .ok_or_else(invalid)?
+                .as_untyped(),
+        });
+    }
+    Ok(())
+}
+
 /// 应用一条迁移增量到候选。生命周期类增量（生成/替换/停车）在写入后
 /// 立即重验证（重绑即重验证覆盖窗口内新建绑定）；tick 增量只搬整值状态，
 /// 终态由静默提交的全量重验证与摘要复核闭合。
 fn apply_record(
+    base_revision: &SharedNetworkRevision,
     candidate: &mut TrafficWorld,
     rebinding: &CrossRevisionRebinding,
     record: &JournalRecord<'_>,
@@ -755,7 +841,8 @@ fn apply_record(
             debug_assert!(remainder.is_empty());
             for chunk in chunks {
                 let delta = VehicleDelta::decode(chunk);
-                let next_state = vehicle_state_from_delta(candidate, rebinding, &delta)?;
+                let next_state =
+                    vehicle_state_from_delta(base_revision, candidate, rebinding, &delta)?;
                 let slot_index =
                     usize::try_from(delta.slot).map_err(|_| CutoverError::ReplayInconsistent)?;
                 let slot = candidate
@@ -900,7 +987,7 @@ fn apply_record(
             }
         }
         JournalRecord::VehicleSpawned { vehicle, .. } => {
-            let state = vehicle_state_from_delta(candidate, rebinding, vehicle)?;
+            let state = vehicle_state_from_delta(base_revision, candidate, rebinding, vehicle)?;
             let handle = state.handle;
             let route = state.route;
             let slot_index =
@@ -947,7 +1034,7 @@ fn apply_record(
             vehicle,
             ..
         } => {
-            let state = vehicle_state_from_delta(candidate, rebinding, vehicle)?;
+            let state = vehicle_state_from_delta(base_revision, candidate, rebinding, vehicle)?;
             let old_handle = VehicleHandle::new(*old_slot, *old_generation);
             let new_handle = state.handle;
             let new_route = state.route;
@@ -1033,7 +1120,8 @@ fn apply_record(
         JournalRecord::VehicleParkingUpdated {
             vehicle, parking, ..
         } => {
-            let next_state = vehicle_state_from_delta(candidate, rebinding, vehicle)?;
+            let next_state =
+                vehicle_state_from_delta(base_revision, candidate, rebinding, vehicle)?;
             let handle = next_state.handle;
             let slot_index =
                 usize::try_from(vehicle.slot).map_err(|_| CutoverError::ReplayInconsistent)?;
@@ -1065,7 +1153,7 @@ fn apply_record(
         JournalRecord::VehicleParkingSpawned {
             vehicle, parking, ..
         } => {
-            let state = vehicle_state_from_delta(candidate, rebinding, vehicle)?;
+            let state = vehicle_state_from_delta(base_revision, candidate, rebinding, vehicle)?;
             let handle = state.handle;
             let binding = rebind_parking_delta(candidate, rebinding, handle, *parking)?;
             if !matches!(binding, Some(ParkingBinding::Occupied(_))) {
@@ -1351,6 +1439,216 @@ mod tests {
 
     fn assert_same_committed(cut: &TrafficWorld, plain: &TrafficWorld) {
         crate::cutover_migration::assert_committed_logical_state_equal(cut, plain);
+    }
+
+    fn first_waiting_world(
+        base: Arc<SharedNetworkRevision>,
+        distance_to_gate_mm: u32,
+        speed_mm_s: u32,
+    ) -> (TrafficWorld, VehicleHandle) {
+        let origin = *base.canonical_origin();
+        let mut world = TrafficWorld::install(
+            base,
+            WorldConfig::new(4, 4, 1_024, 1_024, 1, 100),
+            source_for(origin, "fixture://first-waiting"),
+            282,
+        )
+        .expect("world");
+        let edges = world
+            .traffic()
+            .maneuvers()
+            .maneuver_path(laneflow_static_contract::ManeuverPathOrdinal::from_raw(0))
+            .expect("path")
+            .edges()
+            .to_vec();
+        let length = world.traffic().lane_lengths_millimetres()[edges[0].index()];
+        let route = world
+            .register_route(RouteRegisterInput::new(edges))
+            .expect("route");
+        let vehicle = spawn_on(&mut world, route, length - distance_to_gate_mm, speed_mm_s);
+        assert!(
+            world
+                .vehicle_state(vehicle)
+                .expect("vehicle")
+                .maneuver_traversal
+                .is_none()
+        );
+        (world, vehicle)
+    }
+
+    fn prepare_first_waiting(
+        world: &mut TrafficWorld,
+        target: Arc<SharedNetworkRevision>,
+        lfsd: &[u8],
+    ) -> Result<CutoverTransaction, CutoverError> {
+        let origin = *target.canonical_origin();
+        let descriptor = descriptor_for(world, origin, lfsd);
+        world.prepare_cross_revision_cutover(
+            target,
+            source_for(origin, "fixture://first-waiting-target"),
+            &descriptor,
+            lfsd,
+            &preflight_limits(),
+            &CutoverTransactionLimits::default(),
+        )
+    }
+
+    #[test]
+    fn first_waiting_coverage_initializes_pre_gate_through_prepare_pump_commit() {
+        let (base, target, lfsd) = crate::waiting::tests::first_waiting_cutover_pair();
+        // 上游移动和恰好未 crossing 的 Gate boundary 都允许建立零历史 PreGate。
+        for (distance, ticks) in [(100_000, 2), (0, 0)] {
+            let (mut world, vehicle) = first_waiting_world(Arc::clone(&base), distance, 1_000);
+            let before_generation = world.world_generation();
+            let mut tx =
+                prepare_first_waiting(&mut world, Arc::clone(&target), &lfsd).expect("prepare");
+            for _ in 0..ticks {
+                world
+                    .step(TickInput::new(100))
+                    .expect("source step before Gate");
+            }
+            let source_motion = *world.vehicle_state(vehicle).expect("source");
+            assert!(source_motion.maneuver_traversal.is_none());
+            assert!(tx.pump(&mut world).expect("pump").caught_up);
+            let _commit = tx
+                .commit(&mut world)
+                .expect("commit including independent digest");
+            let migrated = *world.vehicle_state(vehicle).expect("migrated");
+            assert!(matches!(
+                migrated.maneuver_traversal.expect("PreGate").phase,
+                crate::ManeuverTraversalPhase::PreGate { next_gate_hop: 0 }
+            ));
+            assert!(migrated.waiting_membership.is_none());
+            let mut motion = migrated;
+            motion.maneuver_traversal = None;
+            assert_eq!(motion, source_motion);
+            assert_ne!(world.world_generation(), before_generation);
+            assert_eq!(world.waiting_zones[0].occupancy, 0);
+            assert_eq!(world.waiting_zones[0].next_admission_sequence, 0);
+            let captured = world.capture_snapshot().expect("capture");
+            let bytes = crate::encode_lfrs(&captured);
+            let restored = crate::restore_lfrs(
+                &bytes,
+                world.revision(),
+                world.committed_source().clone(),
+                world.config(),
+                crate::SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
+            )
+            .expect("new authority roundtrip");
+            assert_eq!(
+                deterministic_state_digest(&captured).unwrap(),
+                deterministic_state_digest(&restored.world().capture_snapshot().unwrap()).unwrap()
+            );
+            if distance == 0 {
+                world
+                    .step(TickInput::new(100))
+                    .expect("first real admission after cutover");
+                assert!(
+                    world
+                        .vehicle_state(vehicle)
+                        .unwrap()
+                        .waiting_membership
+                        .is_some()
+                );
+                assert_eq!(world.waiting_zones[0].next_admission_sequence, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn first_waiting_coverage_rejects_crossed_gate_and_preserves_source() {
+        let (base, target, lfsd) = crate::waiting::tests::first_waiting_cutover_pair();
+        for prepare_before_crossing in [false, true] {
+            let (mut world, vehicle) = first_waiting_world(Arc::clone(&base), 1, 1_000);
+            let mut tx = prepare_before_crossing.then(|| {
+                prepare_first_waiting(&mut world, Arc::clone(&target), &lfsd)
+                    .expect("prepare upstream")
+            });
+            world
+                .step(TickInput::new(100))
+                .expect("source crosses Gate");
+            assert_eq!(world.vehicle_state(vehicle).unwrap().route_edge_index, 1);
+            let before = world.capture_snapshot().expect("source before rejection");
+            let error = if let Some(tx) = tx.as_mut() {
+                tx.pump(&mut world).unwrap_err()
+            } else {
+                prepare_first_waiting(&mut world, Arc::clone(&target), &lfsd)
+                    .err()
+                    .expect("reject interior")
+            };
+            assert_eq!(
+                error,
+                CutoverError::VehicleRevalidationFailed {
+                    vehicle: vehicle.index()
+                }
+            );
+            assert_eq!(world.capture_snapshot().expect("unchanged"), before);
+            assert!(world.migration_journal().is_none());
+            world
+                .step(TickInput::new(100))
+                .expect("source can continue");
+        }
+    }
+
+    #[test]
+    fn first_waiting_expected_digest_remains_independent_of_candidate() {
+        let (base, target, lfsd) = crate::waiting::tests::first_waiting_cutover_pair();
+        let (mut world, vehicle) = first_waiting_world(base, 100_000, 1_000);
+        let mut tx = prepare_first_waiting(&mut world, target, &lfsd).expect("prepare");
+        tx.pump(&mut world).expect("pump");
+        let before = world.capture_snapshot().expect("source");
+        // 该偏移仍满足全部物理/PreGate 不变量，必须由独立期望摘要发现。
+        tx.candidate.as_mut().unwrap().vehicles[vehicle.index() as usize]
+            .state
+            .as_mut()
+            .unwrap()
+            .progress_mm += 1;
+        assert_eq!(
+            tx.commit(&mut world).unwrap_err(),
+            CutoverError::DigestMismatch
+        );
+        assert_eq!(world.capture_snapshot().expect("unchanged"), before);
+        assert!(world.migration_journal().is_none());
+    }
+
+    #[test]
+    fn first_waiting_coverage_does_not_bootstrap_parked_or_repair_snapshot() {
+        let (base, target, lfsd) = crate::waiting::tests::first_waiting_cutover_pair();
+        let (mut world, active) = first_waiting_world(Arc::clone(&base), 100_000, 1_000);
+        let route = world.vehicle_state(active).unwrap().route;
+        world.despawn_vehicle(active).unwrap();
+        let parked = world
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 1, 1_000),
+                ParkingTarget::VirtualPool(
+                    laneflow_static_contract::ParkingFacilityOrdinal::from_raw(0),
+                ),
+            )
+            .expect("parked retained cursor inside future Waiting")
+            .vehicle;
+        let mut tx =
+            prepare_first_waiting(&mut world, Arc::clone(&target), &lfsd).expect("prepare parked");
+        tx.pump(&mut world).unwrap();
+        let _ = tx.commit(&mut world).expect("commit parked");
+        let state = world.vehicle_state(parked).unwrap();
+        assert_eq!(state.status, crate::VehicleStatus::Parked);
+        assert!(state.maneuver_traversal.is_none() && state.waiting_membership.is_none());
+
+        let (mut world, _) = first_waiting_world(base, 100_000, 1_000);
+        let tx = prepare_first_waiting(&mut world, target, &lfsd).expect("prepare active");
+        let _ = tx.commit(&mut world).unwrap();
+        let mut captured = world.capture_snapshot().unwrap();
+        captured.vehicles[0].maneuver_traversal = None;
+        assert!(matches!(
+            crate::restore_lfrs(
+                &crate::encode_lfrs(&captured),
+                world.revision(),
+                world.committed_source().clone(),
+                world.config(),
+                crate::SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024)
+            ),
+            Err(crate::SnapshotRestoreError::InvalidWaitingAuthority { .. })
+        ));
     }
 
     #[test]

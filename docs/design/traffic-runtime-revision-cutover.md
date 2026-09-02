@@ -1,7 +1,7 @@
 # 修订切换事务
 
 **文档状态**: Accepted（#302 G1）<br>
-**最后更新**: 2026-08-31（#541 tagged parking migration）<br>
+**最后更新**: 2026-09-02<br>
 **适用范围**: 在线路网修订切换的设计原则、切换描述符、迁移策略、失败关闭语义与 G1 预算<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)、
@@ -72,11 +72,12 @@ revision 不构成迁移权限；#299 历史 receipt 与静态镜像 descriptor 
 
 三条闭合原则：
 
-1. **逻辑恒等**：迁移是稳定引用键控逻辑状态上的恒等变换——直移只改序号绑定，
-   不产生、不消灭、不改写逻辑内容。由此导出两条必然结论：当期
+1. **逻辑恒等**：直移保留稳定引用键控的既有逻辑状态；唯一初始化例外是 §3.3
+   首次 Waiting 覆盖的零历史 `PreGate`，不得补造已发生的 crossing。当期
    `RouteHandle` / `VehicleHandle` 跨切换保持有效（ADR 0029 §6 原地更新语义，
    Adapter 持有的引用继续寻址同一逻辑实体）；等价证明的摘要期望值 = 旧世界
-   在静默点由自身摘要机制独立计算的确定性状态摘要，不取自候选路径（§5）。
+   在静默点捕获、按目标 origin 与 §3.3 独立规范化后的确定性状态摘要，不取自
+   候选动态状态或候选编译路线（§5）。
 2. **重绑即重验证**：每个动态实体重绑后必须在 target 修订上重新满足其全部
    注册/准入不变量（等价于重执行 `register_route` / `spawn` 检查）。引用不存在，
    或实体仍在但原样重绑会违反 target 不变量，都视为不可映射。路线在 target 根上
@@ -121,6 +122,26 @@ revision 不构成迁移权限；#299 历史 receipt 与静态镜像 descriptor 
 全部存活路线累计 `route_conflict_occurrence_capacity`；目标新增、删除或改变 passage
 时以重建后的 exact 总数为准，不沿用旧计数。任一容量、分配或 Active 3A 失败都在
 晋升前丢弃整个候选；迁移增量日志的路线注册、删除与槽位复用必须同步更新候选计数。
+
+### 3.3 首次 Waiting 覆盖的零历史初始化
+
+跨修订给既有同一稳定身份的 ManeuverPath 首次增加 WaitingZone 时，允许为当前
+`Active` 车辆建立 `None → PreGate`，但须同时满足：源 path 没有 WaitingZone、源车辆
+没有 traversal/membership，且车辆尚未越过目标 maneuver 的第一个 Gate（包括仍在
+Gate 上游边末端的 boundary）。路线与当前 maneuver occurrence 锚点保持不变；这不是
+目标 Waiting entry 之前任意位置都可补状态的许可，若已有更早的 Gate，仍以首个 Gate
+为界。Prepare 与窗口内增量追赶应用同一规则。
+
+初始化只设置 `PreGate`，不移动车辆，不创建 claim、membership、admission sequence
+或 occupancy；首次真实 admission 仍由提交后的固定步进产生。已越过首个 Gate 且仍在
+该 maneuver 内、缺失既有 Waiting authority，或需要补造 `Committed/Waiting` 历史时
+均失败关闭。`Parked/Completed` 不初始化；普通快照恢复与同修订切换不使用此例外。
+
+静默提交的期望状态从源世界捕获，使用源车辆/源 occurrence 和目标静态 Gate 独立
+推导上述 `PreGate`，不得复制候选的 traversal、快照或编译路线充当期望值。除 target
+origin 与此可证明的零历史初始化外，捕获字段保持源值；traversal 仍完整进入摘要，
+membership/counter、运动、停车与路线逻辑仍须通过全量对拍。此规则不改变快照 wire、
+runtime state 或 digest 版本，也不放宽目标不变量和 `ConflictRuntimeUnavailable`。
 
 ## 4. 状态机
 
@@ -369,8 +390,8 @@ G2 回写（切片 A 落定，#511）：
   SHA-256、注册表校验、绑定行与两侧 origin 逐项交叉验证）+ 两侧
   `SharedIdentityIndex` 序数重绑（`None` 即引用不存在）；追赶只应用迁移
   增量，生命周期增量写入即重验证；静默期摘要复核期望值 = 旧世界捕获 +
-  target origin 头部替换；最终命令游标由静默边界原子取样写入候选后参与
-  摘要与晋升。
+  target origin 头部替换 + §3.3 首次 Waiting 覆盖的独立零历史初始化；最终命令游标由
+  静默边界原子取样写入候选后参与摘要与晋升。
 - 正式审阅轮回写（切片 C）：Prepare 对目标修订执行信号程序 × 本世界步长的
   install 对等校验（不兼容即 `TargetSignalProgramInvalid`，先于 LFSD 认证与
   武装）；泵送按记录边界字节偏移续读（`records_from`），消费摊还线性；事件
