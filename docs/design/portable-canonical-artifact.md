@@ -18,6 +18,10 @@
 
 ## 1. 权威结论
 
+#284 的策略表、机动方向及关联版本升级候选见
+[`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §4、§8
+（Review）；本文仍描述当前已交付格式。
+
 对象集合只有四种。LFCA、LFSM 与 LFSD 使用同一套分块节格式；LFCP 继续使用
 非分块 singleton 节：
 

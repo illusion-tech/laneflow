@@ -30,6 +30,10 @@
 
 ## 1. 问题与设计立场
 
+#284 的策略绑定、Conflict reservation 与历史状态增量见
+[`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §6、§8
+（Review）；当前生产快照仍为 v4。
+
 城市游戏需要存档、恢复与回放。Runtime Snapshot 是每世界可变状态的独立版本化
 制品：不进入 LFCP 发布链，真实性由宿主存档清单在对象外绑定（ADR 0021）。
 设计立场：

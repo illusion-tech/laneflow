@@ -28,6 +28,10 @@
 
 ## 1. 问题与设计立场
 
+#284 的策略及冲突历史迁移、目标规范化与描述符 v2 候选见
+[`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §6.2、§8
+（Review）；本文当前描述符与生产实现尚未随该候选升级。
+
 路网修订不可变（ADR 0025），而城市游戏的改路与制品重发布要求运行中世界换绑
 新修订。本文冻结该换绑的事务设计，立场有三：
 

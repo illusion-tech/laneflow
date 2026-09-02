@@ -571,7 +571,10 @@ policy/profile 在初始化时拒绝同 phase simultaneous Protected 的 incompa
 Gate coverage；runtime reservation 不是错误 signal authoring 的降级机制。在
 后续 implementation slices 完成前 current protected-only runtime 不变。
 
-法规行为必须由明确版本、适用地区与可审计依据驱动。中国现行信号通行语义的正式来源之一是[《中华人民共和国道路交通安全法实施条例》](https://www.samr.gov.cn/zljds/zcfg/art/2023/art_5c212e15369443b3b2bea4e17a1c565b.html)；未来实现仍需在对应版本立项时重新核验，不把当前链接永久硬编码为 runtime 规则。
+法规行为必须由明确版本、适用地区与可审计依据驱动。#284 的中国机动车红灯右转
+策略、法规来源与支持边界以
+[`waiting-zone-conflict-right-of-way.md` §6.2.1](waiting-zone-conflict-right-of-way.md#621-中国机动车红灯右转的最小策略)
+为准；法规版本通过 policy pin 固定，不把“最新法规”或页面链接硬编码为 runtime 规则。
 
 ## 17. 历史 v0.8 双路口固定时制 profile
 

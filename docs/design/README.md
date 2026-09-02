@@ -50,6 +50,9 @@
 - `waiting-zone-conflict-right-of-way.md`：#282 G1 Accepted 的 Waiting 本地边界与 #284
   组合仲裁边界；冲突静态 exact shape 见 LFCA/共享根文档，路线出现项与
   `ConflictRuntimeUnavailable` 临时能力保护见 #559 当前设计。
+- [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md)：#284
+  实施合同（Review），细化策略来源、中国右转灯态解释、世界绑定、格式版本矩阵与
+  持久化验收；不表示新格式或 Conflict 仲裁已交付。
 - `cross-section-access.md`：横断面与准入 overlay。
 - `numeric-representation.md`：数值分层；已提交一维几何为整数毫米，编制 `f64` 与 Spatial `f32` 仍在量化之前。
 - `traffic-runtime-integer-geometry.md`：#496 整数毫米 / 微米余数 / `mm/s` 实现合同（Accepted）；#500 编译器 IR 交通一维同一套整数毫米。
