@@ -1,0 +1,7 @@
+lf543-probe front=synthetic profile=LF-COMP-P100-INITIAL-v2 max_tiles=20
+lf543-probe front=synthetic tile=0 admission=ok
+lf543-probe front=synthetic tile=1 admission=ok
+lf543-probe front=synthetic tile=2 admission=ok
+lf543-probe front=synthetic tile=3 admission=REJECTED
+lf543-limit-exceeded stage=admission dimension=SourceBytesTotal limit=542741 observed=720740
+lf543-diagnostic-summary stage=admission count=1 truncated=false

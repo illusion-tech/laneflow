@@ -1,0 +1,54 @@
+lf543-probe front=conflict profile=LF-COMP-P100-INITIAL-v2 max_cells=60
+lf543-probe front=conflict cells=1 admission=ok
+lf543-probe front=conflict cells=2 admission=ok
+lf543-probe front=conflict cells=3 admission=ok
+lf543-probe front=conflict cells=4 admission=ok
+lf543-probe front=conflict cells=5 admission=ok
+lf543-probe front=conflict cells=6 admission=ok
+lf543-probe front=conflict cells=7 admission=ok
+lf543-probe front=conflict cells=8 admission=ok
+lf543-probe front=conflict cells=9 admission=ok
+lf543-probe front=conflict cells=10 admission=ok
+lf543-probe front=conflict cells=11 admission=ok
+lf543-probe front=conflict cells=12 admission=ok
+lf543-probe front=conflict cells=13 admission=ok
+lf543-probe front=conflict cells=14 admission=ok
+lf543-probe front=conflict cells=15 admission=ok
+lf543-probe front=conflict cells=16 admission=ok
+lf543-probe front=conflict cells=17 admission=ok
+lf543-probe front=conflict cells=18 admission=ok
+lf543-probe front=conflict cells=19 admission=ok
+lf543-probe front=conflict cells=20 admission=ok
+lf543-probe front=conflict cells=21 admission=ok
+lf543-probe front=conflict cells=22 admission=ok
+lf543-probe front=conflict cells=23 admission=ok
+lf543-probe front=conflict cells=24 admission=ok
+lf543-probe front=conflict cells=25 admission=ok
+lf543-probe front=conflict cells=26 admission=ok
+lf543-probe front=conflict cells=27 admission=ok
+lf543-probe front=conflict cells=28 admission=ok
+lf543-probe front=conflict cells=29 admission=ok
+lf543-probe front=conflict cells=30 admission=ok
+lf543-probe front=conflict cells=31 admission=ok
+lf543-probe front=conflict cells=32 admission=ok
+lf543-probe front=conflict cells=33 admission=ok
+lf543-probe front=conflict cells=34 admission=ok
+lf543-probe front=conflict cells=35 admission=ok
+lf543-probe front=conflict cells=36 admission=ok
+lf543-probe front=conflict cells=37 admission=ok
+lf543-probe front=conflict cells=38 admission=ok
+lf543-probe front=conflict cells=39 admission=ok
+lf543-probe front=conflict cells=40 admission=ok
+lf543-probe front=conflict cells=41 admission=ok
+lf543-probe front=conflict cells=42 admission=ok
+lf543-probe front=conflict cells=43 admission=ok
+lf543-probe front=conflict cells=44 admission=ok
+lf543-probe front=conflict cells=45 admission=ok
+lf543-probe front=conflict cells=46 admission=ok
+lf543-probe front=conflict cells=47 admission=ok
+lf543-probe front=conflict cells=48 admission=ok
+
+thread 'main' (50744) panicked at src\main.rs:958:18:
+called `Result::unwrap()` on an `Err` value: DiagnosticBundle { diagnostics: [Diagnostic { canonical_module_order: 0, primary_span: None, code: CompileLimitExceeded, severity: Error, payload: CompileLimitExceeded { dimension: SourceBytesPerModule, limit: 542741, observed: 542750 }, stable_key: None, related_spans: [] }], diagnostics_truncated: false }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+lf543-probe front=conflict cells=49 module-build=REJECTED panic="called `Result::unwrap()` on an `Err` value: DiagnosticBundle { diagnostics: [Diagnostic { canonical_module_order: 0, primary_span: None, code: CompileLimitExceeded, severity: Error, payload: CompileLimitExceeded { dimension: SourceBytesPerModule, limit: 542741, observed: 542750 }, stable_key: None, related_spans: [] }], diagnostics_truncated: false }"
