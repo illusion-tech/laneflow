@@ -1,6 +1,8 @@
 //! #441 分配账本。独立 integration test，避免污染 uninstrumented 墙钟。
 //!
-//! 本文件只有一个默认测试，避免 `stats_alloc::Region` 在并行测试之间串账。
+//! 本文件必须只有一个测试（包括 ignored），避免 libtest 同时报告另一个测试的
+//! ignored/result 时，其主线程分配被进程级 `stats_alloc::Region` 计入测量。
+//! 手动插桩墙钟校准独立放在 `shared_network_instrumented_wall_clock_evidence`。
 //! 每条账本采样先丢一次 warmup；`retained` 必须稳定，`stats_alloc` 计数只作描述性输出。
 //! `allocated_bytes` 采用 `stats_alloc` 0.1.10 净值：普通 alloc 记全量，变大 realloc
 //! 只把 `new_size - old_size` 计入 `bytes_allocated`。`live_bytes` 已含该净增长；
@@ -9,7 +11,6 @@
 use std::alloc::System;
 use std::hint::black_box;
 use std::sync::Arc;
-use std::time::Instant;
 
 use laneflow_corridor_generator::{CorridorConfig, generate};
 use laneflow_format::{FormatLimits, check_canonical_network_input};
@@ -309,17 +310,5 @@ fn allocation_ledgers_and_per_world_live_bytes() {
     assert!(
         max <= min.saturating_mul(2) + 64,
         "per-world live bytes must stay in a tight band, got {per_world:?}"
-    );
-}
-
-#[test]
-#[ignore = "manual instrumented vs uninstrumented wall-clock delta"]
-fn instrumented_build_wall_clock_for_calibration() {
-    let started = Instant::now();
-    let held = build(CORRIDOR, SpatialBuildOption::RetainAvailable);
-    let elapsed_ns = started.elapsed().as_nanos();
-    black_box(&held);
-    println!(
-        "shared-static-network-evidence calibrate instrumented_corridor_build_ns={elapsed_ns}"
     );
 }
