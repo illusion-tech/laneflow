@@ -2,6 +2,9 @@ mod base;
 mod entity;
 mod geometry;
 mod policy;
+mod policy_change;
+mod policy_check;
+pub use policy_check::check_portable_policy_diff;
 mod relation;
 
 use base::{ArtifactIndex, verify_artifact_diff_compatibility};
@@ -27,6 +30,15 @@ fn build_genesis_lfsd(
         limits,
     )?
     .registry_view();
+    let target_index =
+        ArtifactIndex::build(target, PortableEmissionError::InternalBindingMismatch)?;
+    let policy_changes = policy_change::policy_changes(
+        None,
+        &target_index,
+        output
+            .compile_limits()
+            .value(CompileLimitDimension::StageScratchBytes),
+    )?;
     let entity_changes = genesis_entity_changes(target)?;
     let relation_changes = genesis_relation_changes(output.lir().unit());
     let geometry_changes = genesis_geometry_changes(output.lir().unit(), target)?;
@@ -75,6 +87,7 @@ fn build_genesis_lfsd(
                     ])],
                 )],
             ),
+            section(7, [table(1, policy_changes)]),
         ]
         .into_boxed_slice(),
     })
@@ -172,6 +185,8 @@ fn build_artifact_lfsd(
     let geometry_changes = artifact_geometry_changes(&base_index, &target_index)?;
     let static_rule_changes = artifact_static_rule_changes(&base_index, &target_index)?;
     let spatial_changes = artifact_spatial_configuration_changes(&base_index, &target_index)?;
+    let policy_changes =
+        policy_change::policy_changes(Some(&base_index), &target_index, policy_scratch_limit)?;
 
     let expected_base = ExpectedSemanticDiffBase::Artifact {
         network_revision_derivation_version: NETWORK_REVISION_DERIVATION_VERSION,
@@ -216,6 +231,7 @@ fn build_artifact_lfsd(
                 section(4, [table(1, geometry_changes)]),
                 section(5, [table(1, static_rule_changes)]),
                 section(6, [table(1, spatial_changes)]),
+                section(7, [table(1, policy_changes)]),
             ]
             .into_boxed_slice(),
         },

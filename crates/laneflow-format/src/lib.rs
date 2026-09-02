@@ -10,6 +10,7 @@ mod framing;
 mod limits;
 mod object;
 mod object_source;
+mod policy_value;
 mod post_emission;
 #[cfg(test)]
 mod security_tests;

@@ -2,6 +2,24 @@ use super::*;
 
 use laneflow_static_contract::PortableFieldType;
 
+fn refresh_diff_base_revision(bytes: &mut [u8]) {
+    // 正例基线的字段改动必须同步 revision claim；chunk digest 只证明局部字节完整。
+    let view = registry(bytes, PortableObjectKind::CanonicalArtifact);
+    let mut hash = Sha256::new();
+    hash.update(laneflow_static_contract::NETWORK_REVISION_DOMAIN_PREFIX);
+    for ordinal in 0..6 {
+        let section = view.section(ordinal).unwrap();
+        hash.update((ordinal as u16 + 1).to_le_bytes());
+        hash.update(2_u16.to_le_bytes());
+        hash.update((section.bytes().len() as u64).to_le_bytes());
+        hash.update(section.bytes());
+    }
+    let claim = field_value_range(bytes, PortableObjectKind::CanonicalArtifact, 7, 0, 0, 1);
+    let start = claim.start;
+    bytes[claim].copy_from_slice(&hash.finalize());
+    refresh_chunk_digest_containing(bytes, PortableObjectKind::CanonicalArtifact, start);
+}
+
 fn candidate_mutations(field_type: PortableFieldType, current: &[u8]) -> Vec<Vec<u8>> {
     let mut values = Vec::new();
     match field_type {
@@ -175,13 +193,15 @@ fn prove_field_change(
             PortableObjectKind::CanonicalArtifact,
             range.start,
         );
-        let Ok(base) = preflight_object_values(
+        let Ok(_) = preflight_object_values(
             &bytes,
             PortableObjectKind::CanonicalArtifact,
             FormatLimits::HARD,
         ) else {
             continue;
         };
+        refresh_diff_base_revision(&mut bytes);
+        let base = value_checked(&bytes, PortableObjectKind::CanonicalArtifact);
         let Ok(candidate) = crate::emit_portable_candidate(
             output,
             &provenance,
@@ -360,6 +380,7 @@ fn diff_signal_control_kind_and_scalar_relation_change_remain_separate() {
         PortableObjectKind::CanonicalArtifact,
         control_kind.start,
     );
+    refresh_diff_base_revision(&mut base_bytes);
     let base = value_checked(&base_bytes, PortableObjectKind::CanonicalArtifact);
     let candidate = crate::emit_portable_candidate(
         &output,
@@ -574,6 +595,7 @@ fn diff_gate_transition_field_modify_and_role_move_are_both_reported() {
         PortableObjectKind::CanonicalArtifact,
         second_transition_start,
     );
+    refresh_diff_base_revision(&mut base_bytes);
     let base = value_checked(&base_bytes, PortableObjectKind::CanonicalArtifact);
     let candidate = crate::emit_portable_candidate(
         &output,

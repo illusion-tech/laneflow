@@ -72,7 +72,8 @@ pub use module::{
 };
 pub use portable_emitter::{
     PortableDiffBase, PortableEmissionError, PortableEmissionProvenance, PortableObjectCandidate,
-    PortablePublicationCandidate, emit_portable_candidate, emit_portable_candidate_to_staging,
+    PortablePublicationCandidate, check_portable_policy_diff, emit_portable_candidate,
+    emit_portable_candidate_to_staging,
 };
 pub use portable_publication::{
     PortablePublicationError, PortablePublicationProvenance, PortablePublisherKind,

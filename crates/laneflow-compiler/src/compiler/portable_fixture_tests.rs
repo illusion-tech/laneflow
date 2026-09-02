@@ -634,7 +634,7 @@ fn full_spatial_portable_fixture_unit() -> CompilationUnit {
     fixture
 }
 
-fn full_spatial_portable_fixture_output() -> CompilationOutput {
+pub(crate) fn full_spatial_portable_fixture_output() -> CompilationOutput {
     Compiler::new()
         .compile(full_spatial_portable_fixture_unit())
         .unwrap()
@@ -742,7 +742,7 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         candidate.semantic_diff().object_key(),
-        "sha256/36f21ad6e571560000d8526638c2599eac92ab35d60c86390142c3b453875c20"
+        "sha256/0cd2406a4fc35c265ad60208c7882bc9f27b41c02063a96477b9ee14306fe912"
     );
     assert_eq!(
         candidate.network_revision(),

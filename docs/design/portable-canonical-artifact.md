@@ -30,7 +30,7 @@ LFCA 5 的策略表和机动方向按
 | -------------- | ------ | -------: | ---: | ---------: | -------------------------------------------------- |
 | 可移植规范制品 | `LFCA` |        5 |    8 |         38 | 目标无关的规范静态路网语义与编译 provenance        |
 | 来源映射       | `LFSM` |        3 |    5 |          8 | LFCA 实体、owner-local occurrence 与来源位置的映射 |
-| 语义差异       | `LFSD` |        3 |    6 |          6 | 两个受绑定 LFCA 修订之间的可重算语义差异           |
+| 语义差异       | `LFSD` |        4 |    7 |          7 | 两个受绑定 LFCA 修订之间的可重算语义差异           |
 | 规范发布描述符 | `LFCP` |        2 |    3 |          3 | LFCA/LFSM exact bytes 与发布 provenance 的最小闭合 |
 
 格式轴固定为：
@@ -43,7 +43,7 @@ networkRevisionDerivationVersion      = 1
 constraintContractVersion             = 3
 staticExecutionContractVersion        = 5
 sourceMapFormatVersion                = 3
-semanticDiffFormatVersion             = 3
+semanticDiffFormatVersion             = 4
 canonicalPublicationDescriptorVersion = 2
 ```
 
@@ -136,7 +136,7 @@ FieldV1 :=
   valueBytes[valueByteLength]
 ```
 
-LFCA 5、LFSM 3 与 LFSD 3 的每个 section 使用 `sectionFormatVersion = 2`，section
+LFCA 5、LFSM 3 与 LFSD 4 的每个 section 使用 `sectionFormatVersion = 2`，section
 exact bytes 为一个 `ChunkedSectionPreambleV1`、紧随其后的 chunk directory 和所有
 `TableV1` chunk。LFCP 2 继续使用 `sectionFormatVersion = 1`，每节直接保存一张
 singleton `TableV1`，不增加空洞或兼容分支。
@@ -315,7 +315,7 @@ An ObjectPreambleV1 is formatted as follows:
 | 结构                         | offset |   宽度 | 字段                       | 约束                                   |
 | ---------------------------- | -----: | -----: | -------------------------- | -------------------------------------- |
 | `ObjectPreambleV1`           | `0x00` |      4 | `magic`                    | 对象专用 ASCII magic                   |
-|                              | `0x04` |      2 | `formatVersion`            | LFCA=5，LFSM/LFSD=3，LFCP=2            |
+|                              | `0x04` |      2 | `formatVersion`            | LFCA=5，LFSM=3，LFSD=4，LFCP=2         |
 |                              | `0x06` |      2 | `headerByteLength`         | `32`                                   |
 |                              | `0x08` |      4 | `flags`                    | `0`                                    |
 |                              | `0x0c` |      4 | `sectionCount`             | 对象登记节数                           |
@@ -1461,14 +1461,14 @@ LFSM 接受前必须先用 tag 3/4/5 绑定 LFCA 5 exact bytes，再暴露任一
 `sourceMapDigest` 是完整 LFSM exact bytes 的 SHA-256；`sourceMapByteLength` 是同一字节序列的
 精确 `u64` 长度，二者不嵌回 LFSM。
 
-## 5. LFSD 3
+## 5. LFSD 4
 
-#284 的 LFSD 4 候选新增策略局部成员变更节，完整行字段、成员值编码、排序、
+LFSD 4 新增策略局部成员变更节，完整行字段、成员值编码、排序、
 Genesis/Artifact 操作与双端闭合见
 [`traffic-runtime-right-of-way-policy.md` §4.3](traffic-runtime-right-of-way-policy.md#43-lfsd-4-策略局部成员变更)
-（Review）。本节仍描述当前已交付的 LFSD 3 六节合同。
+；前六节延续下述合同，第七节按该实施合同唯一登记，不保留 LFSD 3 读写入口。
 
-`magic = "LFSD"`，`semanticDiffFormatVersion = 3`。六节和各自唯一的表为：
+`magic = "LFSD"`，`semanticDiffFormatVersion = 4`。七节和各自唯一的表为：
 
 | sectionKind | 名称                          | tableKind `0x0001`                       |
 | ----------- | ----------------------------- | ---------------------------------------- |
@@ -1478,14 +1478,15 @@ Genesis/Artifact 操作与双端闭合见
 | `0x0004`    | `GeometryChanges`             | `GeometryChange`                         |
 | `0x0005`    | `StaticRuleChanges`           | `StaticRuleChange`                       |
 | `0x0006`    | `SpatialConfigurationChanges` | `SpatialConfigurationChange`（至多一行） |
+| `0x0007`    | `PolicyLocalChanges`          | `PolicyLocalChange`                      |
 
-第一节 wire offset 固定为 `0x00b0`（`32 + 6 * 24`）：
+第一节 wire offset 固定为 `0x00c8`（`32 + 7 * 24`）：
 
 ```text
     +---------------------------------------------------------------+
-    |           LFSD ObjectPreambleV1 (32 bytes; SC == 6)           |
+    |           LFSD ObjectPreambleV1 (32 bytes; SC == 7)           |
     +---------------------------------------------------------------+
-    |            SectionDirectoryEntryV1[6] (144 bytes)             |
+    |            SectionDirectoryEntryV1[7] (168 bytes)             |
     +===============================================================+
     |                                                               :
     :         SemanticDiffBindings (0x0001; variable bytes)         :
@@ -1511,7 +1512,25 @@ Genesis/Artifact 操作与双端闭合见
     :      SpatialConfigurationChanges (0x0006; variable bytes)     :
     :                                                               |
     +---------------------------------------------------------------+
+    |                                                               :
+    :          PolicyLocalChanges (0x0007; variable bytes)          :
+    :                                                               |
+    +---------------------------------------------------------------+
 ```
+
+`PolicyLocalChange` 的 before/after Bytes 由成员种类选择精确 RowV1 schema；内层
+UTF-8、RecordVector 与 StableRef 向量和外层字段共用当前 chunk 的预算。reader 与
+writer 均在计量时递归检查，规范分块也包含这些计数。值域预检检查操作存在性、
+局部 key、稳定引用类型/顺序、payload 同值与全局 K 唯一性；跨操作 K 重复使用常量个
+顺序游标检测，不按操作分组漏掉 Remove+Add，也不分配全表集合。
+
+compiler 的 `check_portable_policy_diff` 从实际 LFCA base/target 重建完整成员集，
+重新核对 exact binding、NetworkRevision 和共有 Identity 前像；不调用 emitter 的
+成员配对或值编码函数。它独立解析最终载荷并逐字段、逐稳定引用比较，验证必需操作和
+全集完备性，并核对 policy 实体增删、保留属性以及 Movement 方向在原表中的排他分工。
+新增排序索引与 emitter 的成员值、返回行缓冲按同时存活量计入 `StageScratchBytes`；
+checker 借用载荷，不复制完整 before/after。候选发射结束前必须通过该检查。
+此能力不替代其他既有领域的完整差异语义、LFSM 来源真实性或共享根运行时语义。
 
 ### 5.1 两端绑定
 
@@ -1919,7 +1938,7 @@ reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构�
 公共格式实现必须原子满足：
 
 1. Road Editing v3、Road Editing frontend 3、Synthetic frontend 4、Identity registry
-   revision 4、LFCA 5、LFSM 3 与 LFSD 3；
+   revision 4、LFCA 5、LFSM 3 与 LFSD 4；
 2. schema clean regeneration，删除 `ParkingArea` reader/writer/public symbol，加入冲突
    静态声明，不保留 alias、双读、双写或迁移 façade；
 3. `laneflow-static-contract` 机器登记表、chunk directory 与本文逐项一致；
