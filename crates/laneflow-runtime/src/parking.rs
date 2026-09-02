@@ -1619,6 +1619,7 @@ impl TrafficWorld {
         let index = usize::try_from(vehicle.index()).expect("validated vehicle index");
         self.vehicles[index].state = Some(candidate);
         self.parking.replace_reservation(vehicle, reservation);
+        self.rebuild_waiting_member_rows();
         self.command_cursor = command_cursor;
         self.record_parking_update(vehicle, command_cursor);
         let _ = entry_index;
@@ -1660,8 +1661,7 @@ impl TrafficWorld {
         if self.route_suffix_denied(input.route(), profile.class(), occurrence) {
             return Err(ParkingError::AccessDenied);
         }
-        self.validate_waiting_parking_anchor(input.route(), input.route_occurrence())
-            .map_err(map_waiting_parking_error)?;
+        // Parked retained cursor 不是道路 arrival；真正离场时再验证 Active 绑定。
         let route_ref = self.route_ref_increment(input.route())?;
         let command_cursor = self.checked_parking_command()?;
         self.parking

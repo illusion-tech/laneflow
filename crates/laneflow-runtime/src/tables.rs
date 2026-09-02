@@ -79,6 +79,8 @@ pub(crate) struct CompiledRoute {
     pub edges: Vec<LaneEdgeOrdinal>,
     pub maneuvers: Vec<ManeuverOccurrence>,
     pub hop_gate: Vec<Option<ManeuverGateOrdinal>>,
+    /// 按 route order 排列的实际 Gate hops；稀疏路线不逐车扫描空 hop 后缀。
+    pub gate_hops: Vec<u32>,
     pub remaining_to_end: Vec<BoundedDistance>,
     pub occurrence_segments: Vec<u32>,
     pub occurrence_offsets: Vec<u32>,
@@ -97,6 +99,7 @@ impl CompiledRoute {
         logical_vec_bytes::<LaneEdgeOrdinal>(self.edges.len())
             + logical_vec_bytes::<ManeuverOccurrence>(self.maneuvers.len())
             + logical_vec_bytes::<Option<ManeuverGateOrdinal>>(self.hop_gate.len())
+            + logical_vec_bytes::<u32>(self.gate_hops.len())
             + logical_vec_bytes::<BoundedDistance>(self.remaining_to_end.len())
             + logical_vec_bytes::<u32>(self.occurrence_segments.len())
             + logical_vec_bytes::<u32>(self.occurrence_offsets.len())
@@ -361,6 +364,12 @@ pub(crate) fn compile_route(
     for hop in 0..hop_count {
         hop_gate[hop] = hop_gate_at(network, &maneuvers, hop, edges[hop], edges[hop + 1]);
     }
+    let mut gate_hops = try_route_vec(hop_gate.iter().filter(|gate| gate.is_some()).count())?;
+    for (hop, gate) in hop_gate.iter().enumerate() {
+        if gate.is_some() {
+            gate_hops.push(u32::try_from(hop).expect("hop fits u32"));
+        }
+    }
 
     let conflict_occurrence_count = count_conflict_occurrences(revision, &maneuvers)?;
     checked_conflict_occurrence_total(
@@ -426,6 +435,7 @@ pub(crate) fn compile_route(
         edges: compiled_edges,
         maneuvers,
         hop_gate,
+        gate_hops,
         remaining_to_end,
         occurrence_segments,
         occurrence_offsets,
@@ -1831,6 +1841,7 @@ mod compile_route_tests {
             edges: path.edges().to_vec(),
             maneuvers: Vec::new(),
             hop_gate: Vec::new(),
+            gate_hops: Vec::new(),
             remaining_to_end: Vec::new(),
             occurrence_segments: Vec::new(),
             occurrence_offsets: Vec::new(),

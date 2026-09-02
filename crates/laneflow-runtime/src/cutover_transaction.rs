@@ -463,14 +463,10 @@ impl CutoverTransaction {
             &mut world.waiting_staged_storage_mm,
             &mut candidate.waiting_staged_storage_mm,
         );
-        std::mem::swap(
-            &mut world.latest_waiting_decisions,
-            &mut candidate.latest_waiting_decisions,
-        );
-        std::mem::swap(
-            &mut world.latest_waiting_events,
-            &mut candidate.latest_waiting_events,
-        );
+        // 跨修订提交使旧 route/zone anchors 失效。历史 tick 输出不参与迁移，
+        // 调用方在 commit 前消费；此处处于不可失败的原子发布段。
+        world.latest_waiting_decisions.clear();
+        world.latest_waiting_events.clear();
         std::mem::swap(&mut world.signal_aspects, &mut candidate.signal_aspects);
         std::mem::swap(&mut world.next_states, &mut candidate.next_states);
         std::mem::swap(&mut world.occupancy, &mut candidate.occupancy);
@@ -1958,7 +1954,10 @@ mod tests {
         );
         cut.step(TickInput::new(100)).expect("window step");
         tx.pump(&mut cut).expect("pump");
+        seed_latest_waiting_output(&mut cut);
         let _ = tx.commit(&mut cut).expect("commit");
+        assert!(cut.latest_waiting_decisions().is_empty());
+        assert!(cut.latest_waiting_events().is_empty());
         assert_eq!(
             cut.observation_state_sequence(),
             crate::ObservationStateSequence::INITIAL
@@ -1979,6 +1978,35 @@ mod tests {
             full.observation_state_sequence(),
             crate::ObservationStateSequence::INITIAL
         );
+    }
+
+    // 只测试非持久输出通道的事务寿命；payload 不参与候选 authority/digest。
+    fn seed_latest_waiting_output(world: &mut TrafficWorld) {
+        let vehicle = world.live_order[0];
+        let state = world.vehicle_state(vehicle).expect("live vehicle");
+        let anchor = crate::WaitingRouteAnchor {
+            route: state.route,
+            maneuver_occurrence_index: 0,
+            hop: state.route_edge_index,
+        };
+        world.latest_waiting_decisions.push(crate::WaitingDecision {
+            vehicle,
+            vehicle_update_sequence: 0,
+            zone: None,
+            anchor,
+            outcome: crate::WaitingDecisionOutcome::NotRequired,
+        });
+        world
+            .latest_waiting_events
+            .push(crate::WaitingTransitionEvent {
+                tick: world.tick_index(),
+                vehicle,
+                vehicle_update_sequence: 0,
+                anchor,
+                kind: crate::WaitingTransitionKind::ManeuverTraversalCompleted {
+                    maneuver_occurrence_index: 0,
+                },
+            });
     }
 
     #[test]
@@ -2023,10 +2051,15 @@ mod tests {
             .progress_mm += 1;
         let generation_before = world.world_generation();
         let sequence_before = world.observation_state_sequence();
+        seed_latest_waiting_output(&mut world);
+        let decisions_before = world.latest_waiting_decisions().to_vec();
+        let events_before = world.latest_waiting_events().to_vec();
         assert_eq!(
             tx.commit(&mut world).unwrap_err(),
             CutoverError::DigestMismatch
         );
+        assert_eq!(world.latest_waiting_decisions(), decisions_before);
+        assert_eq!(world.latest_waiting_events(), events_before);
         assert_eq!(world.world_generation(), generation_before);
         assert_eq!(world.observation_state_sequence(), sequence_before);
         assert_eq!(world.event_cursor(), 0);
@@ -2045,7 +2078,12 @@ mod tests {
         );
         let generation_before = world.world_generation();
         let sequence_before = world.observation_state_sequence();
+        seed_latest_waiting_output(&mut world);
+        let decisions_before = world.latest_waiting_decisions().to_vec();
+        let events_before = world.latest_waiting_events().to_vec();
         tx.abandon(&mut world).expect("abandon");
+        assert_eq!(world.latest_waiting_decisions(), decisions_before);
+        assert_eq!(world.latest_waiting_events(), events_before);
         assert_eq!(world.world_generation(), generation_before);
         assert_eq!(world.observation_state_sequence(), sequence_before);
         assert!(world.migration_journal_stats().is_none());
