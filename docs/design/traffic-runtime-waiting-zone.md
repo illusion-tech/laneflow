@@ -642,6 +642,11 @@ state、zone counter 与 queue order，不纳入派生 links 或 latest output b
 ## 10. 内存、性能与执行计划
 
 - per-zone state 按共享静态 WaitingZone 数量在 install 时稠密分配；
+- steady tick 由已提交 member batch 定位非空 zone，并交叉核对车辆语义、队列与
+  counter；按实际 admission request 的 zone 分组初始化暂存，只按 successful entry
+  涉及的 zone 提交 counter 和 journal，包括同 tick enter+leave。member batch 从
+  live membership 重建并保持 `(zone, admissionSequence)` 顺序，不扫描全部静态
+  zone。未涉及的空 zone 历史 counter 原样保留，restore/cutover 继续执行全量校验；
 - per-vehicle traversal/link 与“每车至多一个最早新 admission request/claim”以
   `vehicle_capacity` 为上界；同一车辆仍可因已有 membership leave、新 membership
   enter、same-tick enter+leave、maneuver completion 等产生多个 decision/transition/
@@ -764,6 +769,8 @@ leader/RouteEnd/no-overlap attribution。优先级只决定观察记录，不改
   completion 的 scratch 条目数可以大于
   `vehicle_capacity`，扩容发生在提交前且 allocation failure 保持世界不变；
 - warm-up 后稳态零 heap allocation；
+- 固定零车/少量相关车辆、增加静态闲置 zone 数时，Waiting tick 的 zone 访问次数
+  不随静态总数增长；同时验证空历史 counter、再次准入与失败重试；
 - 10k 产品门与 100k scaling/retained-memory 报告；
 - #544 `WAITING-RELEASE` 在 #282 完成后从 `dependency-blocked` 切为真实 runnable
   capacity/FIFO/entry/release oracle，不读取 workload 名称选择 Runtime 行为。
