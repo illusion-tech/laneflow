@@ -449,8 +449,10 @@ candidate 查询 `valueExcluding(subject)`：first owner 不是 subject 时取 f
 
 1. incompatible occupant、committed reservation 或 earlier staged grant 存在时
    no-grant；
-2. 若 target cell 有最近 clear time，要求
-   `currentTimeMs - lastClearTimeMs >= minimumLagGapMs + clearanceBufferMs`；
+2. 若 target cell 有滞后基准，要求
+   `currentTimeMs - referenceTimeMs >= minimumLagGapMs + clearanceBufferMs`；
+   实际清空时 referenceTimeMs 即 `lastClearTimeMs`，跨修订无法继承历史时使用下面的
+   保守切换基准；
 3. target 的 `valueExcluding(subject)` 为 `OutsideHorizon` 时通过 lead check；为
    `Finite(ms)` 时必须严格大于 `requiredLeadMs`，等于仍 no-grant；`Unprovable`
    no-grant；
@@ -460,7 +462,15 @@ candidate 查询 `valueExcluding(subject)`：first owner 不是 subject 时取 f
 stationary foe 只要 max acceleration 为正仍产生 finite earliest ETA；不能因当前红灯、
 leader 或 ParkingStop 推断未来不动。clear 发生在 `[T,T+D)` 时，`lastClearTimeMs` 记录
 post-step `T+D`；下一 tick elapsed 从 0 开始。future timestamp、状态不一致或非法 finite
-input 是 step error，gap equality/不足与 `Unprovable` 是 normal no-grant。
+input 是 step error，lead equality、任一 gap 不足与 `Unprovable` 是 normal no-grant；
+lag equality 通过该项检查。
+
+#284 实施候选对跨修订新 cell 补充保守初始化：只有真正无既往运行历史的新世界可以
+直接使用无历史；切换新增或无法证明语义连续的无 occupant/reservation cell，以最终
+静默提交的模拟时刻作为 lag 基准，不从 Prepare 起算，也不生成实际 clear 事件。
+具体 tagged value、持久化和独立迁移期望值见
+[`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §6.1–§6.2
+（Review）。ActualClear 与 CutoverFloor 使用同一间隙比较边界，lead 检查不变。
 
 ### 6.6 mandatory downstream-clearance
 
@@ -648,7 +658,8 @@ phase、stable vehicle/route/entity key 选择首错，不能依赖 scan/worker 
 #284 从届时 current snapshot/runtime/digest 版本一次性升级，不预占 #282 的 4/4/6：
 
 - 持久化 pinned policy identity/date、`firstEligibleTick`、Clearing/reservation、committed
-  downstream claims、Conflict occupancy/last-clear 与必要 semantic owner；
+  downstream claims、Conflict 滞后基准与必要 semantic owner；occupancy 从 reservation
+  和实际位置重建，基准类别及保守切换起点见实施候选 §6.1，不伪造实际 clear 事件；
 - tick-local grants、approach frontier、target ranges、dense handles 与 scratch 是派生状态，
   restore 从 stable policy/route/vehicle identity 重建；
 - restore/same/cross-revision cutover 必须重新编译 policy/route operands、核对 capacity、
