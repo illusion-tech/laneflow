@@ -1,6 +1,6 @@
 //! 可移植规范制品的 section/table/field 静态登记。
 //!
-//! 本模块逐项转录当前 LFCA（`formatVersion = 4`）、LFSM/LFSD（封套版本 3）与 LFCP 的线格式形状。它是可供 emitter 与
+//! 本模块逐项转录当前 LFCA 5、LFSM 3、LFSD 4 与 LFCP 的线格式形状。它是可供 emitter 与
 //! 结构预检共享的只读数据，不包含序列化器、文件系统发布、
 //! 跨表语义验证或摘要信任判断。
 
@@ -13,7 +13,7 @@ pub enum PortableFieldPresence {
     Required,
     /// 行允许省略该字段。
     Optional,
-    /// 是否必需或禁止由 [`PortableRowShape::DiscriminatedU8`] 决定。
+    /// 是否必需或禁止由行形状的判别矩阵决定。
     ByRowVariant,
 }
 
@@ -49,9 +49,23 @@ pub enum PortableRowShape {
         tag: u16,
         variants: &'static [PortableRowVariant],
     },
+    /// LFSD 策略局部变更：tag 1 选择侧，tag 3 选择 Bytes 中完整 RowV1 的登记。
+    PolicyLocalChange,
 }
 
-/// TableV1 或 RecordVector 中每一行的静态 schema。
+impl PortableRowShape {
+    /// 外层存在性矩阵。内嵌策略值仍须另行按成员种类检查。
+    #[must_use]
+    pub const fn discriminant(self) -> Option<(u16, &'static [PortableRowVariant])> {
+        match self {
+            Self::Uniform => None,
+            Self::DiscriminatedU8 { tag, variants } => Some((tag, variants)),
+            Self::PolicyLocalChange => Some((1, POLICY_LOCAL_CHANGE_VARIANTS)),
+        }
+    }
+}
+
+/// TableV1、RecordVector 或登记的 Bytes 载荷中每一行的静态 schema。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PortableRowSchema {
     pub fields: &'static [PortableFieldSchema],
@@ -1472,6 +1486,90 @@ const SPATIAL_CONFIGURATION_CHANGE_ROW: PortableRowSchema = PortableRowSchema {
     },
 };
 
+const POLICY_LOCAL_CHANGE_FIELDS: &[PortableFieldSchema] = &[
+    field(1, "changeKind", PortableFieldType::U8, V),
+    field(2, "ownerPolicyStableId", PortableFieldType::StableId128, V),
+    field(3, "memberKind", PortableFieldType::U8, V),
+    field(4, "memberKey", PortableFieldType::Utf8, V),
+    field(5, "beforeValue", PortableFieldType::Bytes, V),
+    field(6, "afterValue", PortableFieldType::Bytes, V),
+];
+const POLICY_LOCAL_CHANGE_VARIANTS: &[PortableRowVariant] = &[
+    PortableRowVariant {
+        discriminant: 0,
+        required_fields: 0b101_1110,
+        allowed_fields: 0b101_1110,
+        at_least_one_field: 0,
+    },
+    PortableRowVariant {
+        discriminant: 1,
+        required_fields: 0b011_1110,
+        allowed_fields: 0b011_1110,
+        at_least_one_field: 0,
+    },
+    PortableRowVariant {
+        discriminant: 2,
+        required_fields: 0b111_1110,
+        allowed_fields: 0b111_1110,
+        at_least_one_field: 0,
+    },
+];
+const POLICY_LOCAL_CHANGE_ROW: PortableRowSchema = PortableRowSchema {
+    fields: POLICY_LOCAL_CHANGE_FIELDS,
+    shape: PortableRowShape::PolicyLocalChange,
+};
+const POLICY_EVIDENCE_VALUE: PortableRowSchema = PortableRowSchema {
+    fields: &[
+        field(3, "locator", PortableFieldType::Utf8, R),
+        field(4, "description", PortableFieldType::Utf8, O),
+    ],
+    shape: PortableRowShape::Uniform,
+};
+const POLICY_GAP_VALUE: PortableRowSchema = PortableRowSchema {
+    fields: &[
+        field(3, "parameterVersion", PortableFieldType::Utf8, R),
+        field(4, "minimumLeadGapMs", PortableFieldType::U64, R),
+        field(5, "minimumLagGapMs", PortableFieldType::U64, R),
+        field(6, "clearanceBufferMs", PortableFieldType::U64, R),
+    ],
+    shape: PortableRowShape::Uniform,
+};
+const POLICY_STREAM_VALUE: PortableRowSchema = PortableRowSchema {
+    fields: &[
+        field(3, "stream", PortableFieldType::Bytes, R),
+        field(4, "classes", PortableFieldType::Bytes, O),
+        field(5, "priority", PortableFieldType::I32, R),
+        field(6, "yieldToStreams", PortableFieldType::Bytes, R),
+        field(7, "gapProfileKey", PortableFieldType::Utf8, O),
+        record_field(8, "evidenceKeys", R, &POLICY_EVIDENCE_KEY_ROW),
+    ],
+    shape: PortableRowShape::Uniform,
+};
+const POLICY_GATE_VALUE: PortableRowSchema = PortableRowSchema {
+    fields: &[
+        field(3, "gate", PortableFieldType::Bytes, R),
+        field(4, "classes", PortableFieldType::Bytes, O),
+        field(5, "interpretation", PortableFieldType::U8, R),
+        field(6, "prohibition", PortableFieldType::U8, R),
+        record_field(7, "evidenceKeys", R, &POLICY_EVIDENCE_KEY_ROW),
+    ],
+    shape: PortableRowShape::Uniform,
+};
+
+/// LFSD 完整规范成员值的唯一 RowV1 登记；未知成员代码不作转换。
+#[must_use]
+pub const fn policy_local_value_schema(kind: u8) -> Option<&'static PortableRowSchema> {
+    match kind {
+        0 => Some(&POLICY_EVIDENCE_VALUE),
+        1 => Some(&POLICY_GAP_VALUE),
+        2 => Some(&POLICY_STREAM_VALUE),
+        3 => Some(&POLICY_GATE_VALUE),
+        _ => None,
+    }
+}
+
+const LFSD_SECTION_7_TABLES: &[PortableTableSchema] =
+    &[table(1, "PolicyLocalChange", &POLICY_LOCAL_CHANGE_ROW, ANY)];
 const LFSD_SECTION_2_TABLES: &[PortableTableSchema] =
     &[table(1, "EntityChange", &ENTITY_CHANGE_ROW, ANY)];
 const LFSD_SECTION_3_TABLES: &[PortableTableSchema] =
@@ -1516,6 +1614,11 @@ const LFSD_SECTIONS: &[PortableSectionSchema] = &[
         kind: 6,
         name: "SpatialConfigurationChanges",
         tables: LFSD_SECTION_6_TABLES,
+    },
+    PortableSectionSchema {
+        kind: 7,
+        name: "PolicyLocalChanges",
+        tables: LFSD_SECTION_7_TABLES,
     },
 ];
 
@@ -1667,8 +1770,60 @@ mod tests {
     fn appendix_registry_matches_reviewed_literal_fingerprint() {
         // 这只是对已依据附录 A 人工复核过的 Rust 登记做防漂移固定，不是独立格式 oracle。
         // 更新该值必须先逐项审阅附录；不得从测试失败输出自动追认新的 production registry。
-        // LFCA 5 的新增行另按路权策略实施合同 §4.1 逐 tag/type/presence 复核。
-        assert_eq!(appendix_registry_fingerprint(), 0xe39a_cf2d_8d23_4a02);
+        // LFCA 5 / LFSD 4 的新增行另按路权实施合同 §4.1/§4.3 逐 tag/type/presence 复核。
+        assert_eq!(appendix_registry_fingerprint(), 0x2215_5f7a_8773_7277);
+    }
+
+    #[test]
+    fn policy_member_value_schemas_match_contract_literal_fields() {
+        let expected: &[&[(u16, u8, bool)]] = &[
+            &[(3, 9, true), (4, 9, false)],
+            &[(3, 9, true), (4, 4, true), (5, 4, true), (6, 4, true)],
+            &[
+                (3, 10, true),
+                (4, 10, false),
+                (5, 13, true),
+                (6, 10, true),
+                (7, 9, false),
+                (8, 12, true),
+            ],
+            &[
+                (3, 10, true),
+                (4, 10, false),
+                (5, 1, true),
+                (6, 1, true),
+                (7, 12, true),
+            ],
+        ];
+        for (kind, expected) in expected.iter().enumerate() {
+            let schema = policy_local_value_schema(kind as u8).unwrap();
+            check_row(schema);
+            assert_eq!(
+                schema
+                    .fields
+                    .iter()
+                    .map(|f| (
+                        f.tag,
+                        f.field_type as u8,
+                        f.presence == PortableFieldPresence::Required
+                    ))
+                    .collect::<std::vec::Vec<_>>(),
+                *expected
+            );
+        }
+        assert!(policy_local_value_schema(4).is_none());
+        assert!(policy_local_value_schema(33).is_none());
+        for (variant, required) in POLICY_LOCAL_CHANGE_VARIANTS.iter().zip([
+            &[1, 2, 3, 4, 6][..],
+            &[1, 2, 3, 4, 5][..],
+            &[1, 2, 3, 4, 5, 6][..],
+        ]) {
+            let mask = required
+                .iter()
+                .fold(0, |mask, tag| mask | portable_field_mask(*tag));
+            assert_eq!(variant.required_fields, mask);
+            assert_eq!(variant.allowed_fields, mask);
+        }
     }
 
     #[test]
@@ -1771,7 +1926,8 @@ mod tests {
                         .all(|field| field.presence != PortableFieldPresence::ByRowVariant)
                 );
             }
-            PortableRowShape::DiscriminatedU8 { tag, variants } => {
+            shape => {
+                let (tag, variants) = shape.discriminant().unwrap();
                 let field = row.fields.iter().find(|field| field.tag == tag).unwrap();
                 assert_eq!(field.field_type, PortableFieldType::U8);
                 assert!(
@@ -1800,6 +1956,14 @@ mod tests {
             for byte in std::format!("{:?}", portable_object_schema(kind)).bytes() {
                 hash = (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME);
             }
+        }
+        for kind in 0..4 {
+            for byte in std::format!("{:?}", policy_local_value_schema(kind)).bytes() {
+                hash = (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME);
+            }
+        }
+        for byte in std::format!("{POLICY_LOCAL_CHANGE_VARIANTS:?}").bytes() {
+            hash = (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME);
         }
         hash
     }

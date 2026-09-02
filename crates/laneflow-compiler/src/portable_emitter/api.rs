@@ -182,6 +182,7 @@ pub enum PortableEmissionError {
     Format(FormatError),
     ArithmeticOverflow,
     AllocationFailure,
+    PolicyDiffMismatch,
     InvalidDiffBaseKind,
     DiffBaseSemanticMismatch,
     UnsupportedSemanticContractTransition,
