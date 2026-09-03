@@ -297,7 +297,7 @@ G2 必须覆盖：
 - 上表全部生命周期入口、Parked/Completed 允许面和失败零副作用；
 - edge 容量与 conflict 容量分别达到 `max-1 / max / max+1`，checked overflow、分配
   failpoint、route removal 释放和三个路线注册入口共用计数；
-- LFRS v4 round-trip、v3/unknown version 拒绝、摘要差异、恢复容量放大、cutover
+- LFRS v5 round-trip、v4 及更早版本/unknown version 拒绝、摘要差异、恢复容量放大、cutover
   target conflict count 增减与整事务回滚；
 - 10,000 冲突路线出现项产品档与 100,000 scaling 档的注册时间、retained logical
   bytes 和近线性比例。它们是路线元数据，不等于活动车辆数。
