@@ -96,6 +96,8 @@ impl WorldPolicyBinding {
                 let lead = checked_ms(dt, gap.minimum_lead_ms())
                     .and_then(|v| checked_ms(v, gap.clearance_ms()))
                     .ok_or(overflow)?;
+                // clear 时间按 post-step 末端记录；lag 从该保守基准计已逝时间，
+                // 不再加 dt。只有 lead 需要覆盖 subject 在本 interval 末端 crossing。
                 let lag = checked_ms(gap.minimum_lag_ms(), gap.clearance_ms()).ok_or(overflow)?;
                 let proof = checked_ms(lead, 1).ok_or(overflow)?;
                 horizon = Some(horizon.map_or(proof, |old: u64| old.max(proof)));

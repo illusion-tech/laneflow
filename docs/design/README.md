@@ -21,8 +21,8 @@
 - `traffic-runtime-conflict-occurrence.md`：#283 的路线冲突出现项、route-local
   坐标、独立容量与 #284 前的全车身能力保护（#283 G1 已接受）。
 - `traffic-runtime-waiting-zone.md`：#282 G1 Accepted 的 WaitingZone 本地
-  membership/admission/storage/queue 设计，以及当前 LFRS 4、runtime state 4、
-  deterministic digest 6 合同；不包含 #284 的组合 ledger。
+  membership/admission/storage/queue 设计，以及当前 LFRS 5、runtime state 5、
+  deterministic digest 7 合同；不包含 #284 的组合 ledger。
 - `shared-static-network.md`：从受检 LFCA 构建 `SharedNetworkRevision`。
 - `adapter-api.md`：Runtime / Spatial 与引擎适配器的只读快照、位姿和权威边界。
 - `portable-canonical-artifact.md`：统一 LFCA 5 / LFSM 4 / LFSD 4 /

@@ -37,7 +37,7 @@ app.insert_resource(LaneFlowSession::new(world, spatial, config).expect("paired 
 ```
 
 campus / `native_reference` 的 Core 入口已删除。现行走廊 Bevy 最小路径使用检入的
-catalog 0.3 与 LFCA，prepare 绑到已安装共享路网修订，不恢复 50–200 回流；回流见
+catalog 0.4 与 LFCA，prepare 绑到已安装共享路网修订，不恢复 50–200 回流；回流见
 [#475](https://github.com/illusion-tech/laneflow/issues/475)。Bevy debug gizmos 不是现行交付（[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭）。
 
 ## 依赖与分发
@@ -49,7 +49,11 @@ catalog 0.3 与 LFCA，prepare 绑到已安装共享路网修订，不恢复 50�
 
 二者均在 `deny.toml` 允许的 SPDX 分支内，无 copyleft，不新增 crates.io 之外的来源。已知漏洞由 CI `Dependency policy`（cargo-deny advisories）把关。
 
-最小 Bevy 证据是 `runtime_min`；走廊最小路径是 `signalized_corridor`：
+最小 Bevy 证据是 `runtime_min`；它与 `runtime_min_smoke` 共用
+`examples/support/runtime_min_scene.rs`，从同一带策略的空间夹具显式绑定
+`runtime-fixture-policy / fixture-policy`，再创建车辆和配对 Spatial session。
+无窗口测试执行这条初始化路径并验证固定步进与 Transform 位移。
+走廊最小路径是 `signalized_corridor`：
 
 ```powershell
 cargo +1.98.0 test --locked -p laneflow-bevy --test runtime_min_smoke
