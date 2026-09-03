@@ -472,6 +472,11 @@ policy 实体和 `(ownerStableId, role, key)` 成员全集；根据 key 排序�
 一次建立并计入预算的索引或有序合并，不能为每份文档/每个位置重新线性扫描全集。
 仅在策略来源、策略实体、四张局部成员表及 Movement 方向均为空时采用空策略路径。
 
+位置引用的同一次顺序扫描核对 StableEntitySource 的 `(entityKind, stableId)` 严格递增，
+并累计策略、Movement 和策略局部成员的来源行数，与绑定 LFCA 的对应表行数一致。
+空策略路径也执行计数与唯一性检查，且拒绝 Movement 的非空贡献来源。计数和前一行身份
+跨物理 chunk 延续，仅增加常量状态；不为此新增索引、堆分配或单独的全表扫描。
+
 策略成员的 owner 使用按 LFCA 全局 typedOrdinal 一次建立的 StableId 索引，索引先按
 实际策略数计入同一累计 scratch 预算，成员投影完成后释放。Identity 只顺序扫描一次，
 根据各实体表行数定位策略区间，逐行核对 kind、ordinal、StableId 和完整数量；不按
