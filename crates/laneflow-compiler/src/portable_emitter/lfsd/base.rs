@@ -155,7 +155,7 @@ pub(super) fn checked_u16_with(
     }
 }
 
-pub(super) fn checked_u32_with(
+pub(in crate::portable_emitter) fn checked_u32_with(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
     mismatch: PortableEmissionError,
@@ -166,7 +166,7 @@ pub(super) fn checked_u32_with(
     }
 }
 
-pub(super) fn checked_stable_id_with(
+pub(in crate::portable_emitter) fn checked_stable_id_with(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
     mismatch: PortableEmissionError,

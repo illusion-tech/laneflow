@@ -1,6 +1,6 @@
 //! 可移植规范制品的 section/table/field 静态登记。
 //!
-//! 本模块逐项转录当前 LFCA 5、LFSM 3、LFSD 4 与 LFCP 的线格式形状。它是可供 emitter 与
+//! 本模块逐项转录当前 LFCA 5、LFSM 4、LFSD 4 与 LFCP 的线格式形状。它是可供 emitter 与
 //! 结构预检共享的只读数据，不包含序列化器、文件系统发布、
 //! 跨表语义验证或摘要信任判断。
 

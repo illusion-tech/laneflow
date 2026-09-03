@@ -20,16 +20,19 @@ impl Member<'_> {
     }
 }
 
-pub(super) struct Scratch {
+pub(in crate::portable_emitter) struct Scratch {
     used: u64,
     limit: u64,
 }
 
 impl Scratch {
-    pub(super) const fn new(limit: u64) -> Self {
+    pub(in crate::portable_emitter) const fn new(limit: u64) -> Self {
         Self { used: 0, limit }
     }
-    pub(super) fn charge(&mut self, bytes: u64) -> Result<(), PortableEmissionError> {
+    pub(in crate::portable_emitter) fn charge(
+        &mut self,
+        bytes: u64,
+    ) -> Result<(), PortableEmissionError> {
         let actual = self
             .used
             .checked_add(bytes)
@@ -44,7 +47,7 @@ impl Scratch {
         self.used = actual;
         Ok(())
     }
-    fn release(&mut self, bytes: u64) {
+    pub(in crate::portable_emitter) fn release(&mut self, bytes: u64) {
         self.used -= bytes;
     }
 }
@@ -83,7 +86,7 @@ fn members<'a>(
     Ok(members)
 }
 
-pub(super) fn reserved<T>(
+pub(in crate::portable_emitter) fn reserved<T>(
     count: usize,
     scratch: &mut Scratch,
 ) -> Result<Vec<T>, PortableEmissionError> {

@@ -1029,7 +1029,7 @@ fn validate_lfsm_row(
             }
             require_exact_u32(row.required(5)?, 1)?;
             let frontend = row.required(6)?;
-            let expected_frontend = if language == 1 { 4 } else { 3 };
+            let expected_frontend = if language == 1 { 5 } else { 4 };
             require_exact_u32(frontend, expected_frontend)?;
             visit_record_rows(row.required(12)?, |import| {
                 validate_identity_ascii_token(import.required(1)?, max_identity_ascii_bytes)
@@ -1041,8 +1041,10 @@ fn validate_lfsm_row(
         }
         (2, 3) => validate_source_location(row, max_identity_ascii_bytes)?,
         (3, 1) => {
-            require_entity_kind(row.required(1)?)?;
-            if read_u32(row.required(5)?.value, 0, FormatStructure::OrdinalVector)? != 0 {
+            let kind = require_entity_kind(row.required(1)?)?;
+            if !matches!(kind, EntityKind::RightOfWayPolicySet | EntityKind::Movement)
+                && read_u32(row.required(5)?.value, 0, FormatStructure::OrdinalVector)? != 0
+            {
                 return Err(row_binding_mismatch());
             }
         }
@@ -1111,6 +1113,7 @@ fn owner_kind_for_source_role(role: u8) -> Option<EntityKind> {
         28 | 29 => Some(EntityKind::CanonicalFrame),
         30 | 31 => Some(EntityKind::ParticipantStream),
         32 => Some(EntityKind::CanonicalFrame),
+        33..=36 => Some(EntityKind::RightOfWayPolicySet),
         _ => None,
     }
 }
@@ -1175,6 +1178,17 @@ fn validate_road_editing_location(
             validate_address_depth(row, entity)?;
             if let Some(property) = property {
                 validate_property_path(property, road_table_for_entity(entity))?;
+                if entity == EntityKind::RightOfWayPolicySet {
+                    // 具名成员必须使用 OwnerLocal 地址，Declaration 不定位向量内部。
+                    visit_record_rows(property, |step| {
+                        if step.required(2)?.u16()? == 40
+                            && matches!(step.required(3)?.u16()?, 2..=5)
+                        {
+                            return Err(row_binding_mismatch());
+                        }
+                        Ok(())
+                    })?;
+                }
             }
         }
         3 => validate_owner_local_location(row, property)?,
@@ -1191,7 +1205,7 @@ fn validate_owner_local_location(
     let owner_kind_field = row.required(16)?;
     let owner_kind = require_u8_range(owner_kind_field, 0, 1)?;
     let relation_field = row.required(17)?;
-    let relation = require_u8_range(relation_field, 0, 15)?;
+    let relation = require_u8_range(relation_field, 0, 19)?;
     let occurrence = require_u8_range(row.required(18)?, 0, 1)?;
     let (expected_owner, expected_occurrence, root) = road_relation_shape(relation);
 
@@ -1226,7 +1240,25 @@ fn validate_owner_local_location(
     if occurrence != expected_occurrence {
         return Err(row_binding_mismatch());
     }
-    validate_property_path(property.ok_or_else(row_binding_mismatch)?, root)
+    let property = property.ok_or_else(row_binding_mismatch)?;
+    validate_property_path(property, root)?;
+    if relation >= 16 {
+        let mut index = 0;
+        visit_record_rows(property, |step| {
+            let container = step.required(2)?.u16()?;
+            let member = step.required(3)?.u16()?;
+            if step.required(1)?.u8()? != 0
+                || (index == 0 && (container != 40 || member != u16::from(relation - 14)))
+                || (index == 1 && container != u16::from(relation + 25))
+                || index > 1
+            {
+                return Err(row_binding_mismatch());
+            }
+            index += 1;
+            Ok(())
+        })?;
+    }
+    Ok(())
 }
 
 fn road_relation_shape(relation: u8) -> (Option<EntityKind>, u8, u16) {
@@ -1245,6 +1277,7 @@ fn road_relation_shape(relation: u8) -> (Option<EntityKind>, u8, u16) {
         12 | 13 => (Some(EntityKind::ParkingFacility), 1, 23),
         14 => (Some(EntityKind::ParticipantStream), 0, 39),
         15 => (None, 1, 0),
+        16..=19 => (Some(EntityKind::RightOfWayPolicySet), 1, 40),
         _ => (None, 0, 0),
     }
 }
@@ -1441,14 +1474,16 @@ fn table_edge_target(step: PropertyStep) -> Option<u16> {
         (39, 3) => Some(38),
         (38, 1 | 2) => Some(37),
         (0, 28) => Some(34),
+        (40, 1) => Some(30),
+        (40, 2..=5) => Some(41 + step.member - 2),
         _ => None,
     }
 }
 
 fn table_field_max(container: u16) -> Option<u16> {
-    const MAX: [u16; 40] = [
-        28, 3, 5, 0, 2, 2, 1, 3, 1, 8, 4, 6, 4, 3, 4, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4, 2,
-        2, 7, 6, 3, 5, 1, 2, 4, 2, 4,
+    const MAX: [u16; 45] = [
+        29, 3, 5, 0, 2, 2, 1, 3, 1, 8, 4, 6, 4, 3, 5, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4, 2,
+        2, 7, 6, 3, 5, 1, 2, 4, 2, 4, 6, 2, 4, 6, 5,
     ];
     MAX.get(usize::from(container)).copied()
 }
@@ -1561,7 +1596,7 @@ fn validate_change_row(
         if !matches!(role_value, 1..=18 | 20..=27 | 30 | 31) {
             return Err(unknown(role, u64::from(role_value)));
         }
-        if owner_kind_for_source_role(role_value) != Some(entity) {
+        if role_value > 32 || owner_kind_for_source_role(role_value) != Some(entity) {
             return Err(row_binding_mismatch());
         }
     }
@@ -3270,9 +3305,9 @@ mod tests {
 
     #[test]
     fn every_registered_property_path_shape_accepts_and_invalid_compositions_fail_closed() {
-        const TABLE_FIELD_MAX: [u16; 40] = [
-            28, 3, 5, 0, 2, 2, 1, 3, 1, 8, 4, 6, 4, 3, 4, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4,
-            2, 2, 7, 6, 3, 5, 1, 2, 4, 2, 4,
+        const TABLE_FIELD_MAX: [u16; 45] = [
+            29, 3, 5, 0, 2, 2, 1, 3, 1, 8, 4, 6, 4, 3, 5, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4,
+            2, 2, 7, 6, 3, 5, 1, 2, 4, 2, 4, 6, 2, 4, 6, 5,
         ];
         const STRUCT_MEMBER_MAX: [u16; 5] = [0, 0, 2, 1, 1];
         const STRUCT_EDGES: &[(u16, u16, u16)] = &[
@@ -3305,6 +3340,11 @@ mod tests {
             (38, 1, 37),
             (38, 2, 37),
             (0, 28, 34),
+            (40, 1, 30),
+            (40, 2, 41),
+            (40, 3, 42),
+            (40, 4, 43),
+            (40, 5, 44),
         ];
 
         for (table, max_field) in TABLE_FIELD_MAX.into_iter().enumerate() {
@@ -3405,6 +3445,71 @@ mod tests {
     }
 
     #[test]
+    fn policy_source_roles_and_owner_local_paths_are_distinct_closed_codes() {
+        for (relation, role, member) in
+            [(16_u8, 33_u8, 2_u16), (17, 34, 3), (18, 35, 4), (19, 36, 5)]
+        {
+            assert_eq!(
+                owner_kind_for_source_role(role),
+                Some(EntityKind::RightOfWayPolicySet)
+            );
+            for path in [
+                vec![(0, 40, member)],
+                vec![(0, 40, member), (0, 39 + member, 0)],
+            ] {
+                let fields = [
+                    field_bytes(1, PortableFieldType::U32, &0_u32.to_le_bytes()),
+                    field_bytes(2, PortableFieldType::U8, &[1]),
+                    field_bytes(3, PortableFieldType::U32, &0_u32.to_le_bytes()),
+                    field_bytes(4, PortableFieldType::U32, &0_u32.to_le_bytes()),
+                    field_bytes(9, PortableFieldType::U8, &[3]),
+                    field_bytes(10, PortableFieldType::Utf8, b"fixture/policy"),
+                    field_bytes(11, PortableFieldType::U16, &24_u16.to_le_bytes()),
+                    field_bytes(15, PortableFieldType::Utf8, b"policy"),
+                    field_bytes(16, PortableFieldType::U8, &[1]),
+                    field_bytes(17, PortableFieldType::U8, &[relation]),
+                    field_bytes(18, PortableFieldType::U8, &[1]),
+                    field_bytes(19, PortableFieldType::U32, &65_536_u32.to_le_bytes()),
+                    field_bytes(20, PortableFieldType::RecordVector, &property_value(&path)),
+                ];
+                let bytes = row_bytes(&fields);
+                validate_source_location(parse_test_row(&bytes), 53).unwrap();
+                for (index, wrong) in [
+                    (9, field_bytes(17, PortableFieldType::U8, &[role])),
+                    (10, field_bytes(18, PortableFieldType::U8, &[0])),
+                    (
+                        6,
+                        field_bytes(11, PortableFieldType::U16, &6_u16.to_le_bytes()),
+                    ),
+                    (
+                        12,
+                        field_bytes(
+                            20,
+                            PortableFieldType::RecordVector,
+                            &property_value(&[(0, 40, if member == 2 { 3 } else { 2 })]),
+                        ),
+                    ),
+                    (
+                        12,
+                        field_bytes(
+                            20,
+                            PortableFieldType::RecordVector,
+                            &property_value(&[(0, 40, member), (0, 39 + member, 0), (0, 41, 0)]),
+                        ),
+                    ),
+                ] {
+                    let mut invalid = fields.clone();
+                    invalid[index] = wrong;
+                    assert!(
+                        validate_source_location(parse_test_row(&row_bytes(&invalid)), 53).is_err()
+                    );
+                }
+            }
+        }
+        assert_eq!(owner_kind_for_source_role(37), None);
+    }
+
+    #[test]
     fn every_owner_local_role_has_one_closed_owner_kind() {
         let expected = [
             (1_u8, EntityKind::LaneEdge),
@@ -3439,10 +3544,14 @@ mod tests {
             (30, EntityKind::ParticipantStream),
             (31, EntityKind::ParticipantStream),
             (32, EntityKind::CanonicalFrame),
+            (33, EntityKind::RightOfWayPolicySet),
+            (34, EntityKind::RightOfWayPolicySet),
+            (35, EntityKind::RightOfWayPolicySet),
+            (36, EntityKind::RightOfWayPolicySet),
         ];
         assert_eq!(owner_kind_for_source_role(0), None);
-        assert_eq!(owner_kind_for_source_role(33), None);
-        for role in [0_u8, 33] {
+        assert_eq!(owner_kind_for_source_role(37), None);
+        for role in [0_u8, 37] {
             let reserved = row_bytes(&[
                 field_bytes(
                     1,

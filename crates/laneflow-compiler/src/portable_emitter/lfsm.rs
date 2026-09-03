@@ -1,5 +1,10 @@
 use super::relations::canonical_relation_tuples;
 use super::*;
+mod policy_check;
+mod policy_projection;
+#[cfg(test)]
+mod policy_tests;
+pub use policy_check::check_portable_policy_sources;
 
 fn road_editing_relation_code(value: crate::RoadEditingRelationKind) -> u8 {
     match value {
@@ -19,6 +24,10 @@ fn road_editing_relation_code(value: crate::RoadEditingRelationKind) -> u8 {
         crate::RoadEditingRelationKind::ParkingFacilityVirtualExit => 13,
         crate::RoadEditingRelationKind::ParticipantStreamPassage => 14,
         crate::RoadEditingRelationKind::ConflictZoneRegion => 15,
+        crate::RoadEditingRelationKind::PolicyEvidence => 16,
+        crate::RoadEditingRelationKind::PolicyGapProfile => 17,
+        crate::RoadEditingRelationKind::PolicyStreamRule => 18,
+        crate::RoadEditingRelationKind::PolicyGateRule => 19,
     }
 }
 
@@ -71,6 +80,11 @@ fn road_editing_table_code(value: crate::RoadEditingTableKind) -> u16 {
         crate::RoadEditingTableKind::PathAnchor => 37,
         crate::RoadEditingTableKind::ConflictPassage => 38,
         crate::RoadEditingTableKind::ParticipantStream => 39,
+        crate::RoadEditingTableKind::RightOfWayPolicySet => 40,
+        crate::RoadEditingTableKind::PolicyEvidence => 41,
+        crate::RoadEditingTableKind::PolicyGapProfile => 42,
+        crate::RoadEditingTableKind::PolicyStreamRule => 43,
+        crate::RoadEditingTableKind::PolicyGateRule => 44,
     }
 }
 
@@ -734,6 +748,7 @@ pub(super) fn build_lfsm(
             contributing,
         });
     }
+    // W1 新增来源独立投影；既有 LIR 来源键核对仍保持原样。
     owner_local_sources.sort_unstable_by_key(|source| {
         (
             source.owner_entity_kind,
@@ -756,6 +771,22 @@ pub(super) fn build_lfsm(
     if actual_owner_local_keys != expected_owner_local_source_keys(lir) {
         return Err(PortableEmissionError::InternalBindingMismatch);
     }
+    policy_projection::append_policy_sources(
+        source_map,
+        &document_ordinals,
+        &mut stable_sources,
+        &mut owner_local_sources,
+        output.compile_limits(),
+    )?;
+    stable_sources.sort_unstable_by_key(|s| (s.entity_kind, s.stable_id, s.typed_ordinal));
+    owner_local_sources.sort_unstable_by_key(|s| {
+        (
+            s.owner_entity_kind,
+            s.owner_stable_id,
+            s.role,
+            s.local_index,
+        )
+    });
     spatial_ranges.sort_unstable_by_key(|source| {
         (
             source.owner_entity_kind,

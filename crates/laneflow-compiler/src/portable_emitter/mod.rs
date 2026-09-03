@@ -22,6 +22,7 @@ use lfca::build_lfca;
 pub use lfsd::check_portable_policy_diff;
 use lfsd::{build_lfsd, verify_target_relation_projection};
 use lfsm::build_lfsm;
+pub use lfsm::check_portable_policy_sources;
 use model::*;
 use wire::*;
 
@@ -91,6 +92,10 @@ fn source_relation_role_code(value: crate::SourceRelationRole) -> u8 {
         crate::SourceRelationRole::ParticipantStreamManeuverPath => 30,
         crate::SourceRelationRole::ParticipantStreamConflictPassage => 31,
         crate::SourceRelationRole::CanonicalFrameConflictZoneRegion => 32,
+        crate::SourceRelationRole::PolicyEvidence => 33,
+        crate::SourceRelationRole::PolicyGapProfile => 34,
+        crate::SourceRelationRole::PolicyStreamRule => 35,
+        crate::SourceRelationRole::PolicyGateRule => 36,
     }
 }
 
@@ -197,6 +202,13 @@ fn emit_portable_candidate_with(
     add_to_portable_bundle(&mut bundle_bytes, source_map.byte_length(), bundle_limit)?;
     preflight_object_values(source_map.bytes(), PortableObjectKind::SourceMap, limits)?;
     drop(lfsm);
+    check_portable_policy_sources(
+        canonical_artifact.bytes(),
+        output.source_map_input(),
+        source_map.bytes(),
+        limits,
+        compile_limits,
+    )?;
 
     let (lfsd, expected_semantic_diff_base) =
         build_lfsd(output, base, network_revision, &canonical_artifact, limits)?;
@@ -250,7 +262,13 @@ fn add_to_portable_bundle(
 }
 
 fn source_collection_digest(output: &CompilationOutput) -> Result<[u8; 32], PortableEmissionError> {
-    let modules: Vec<_> = output.source_map_input().source_modules().collect();
+    source_collection_digest_from_map(output.source_map_input())
+}
+
+fn source_collection_digest_from_map(
+    source: &crate::ValidatedSourceMapInput,
+) -> Result<[u8; 32], PortableEmissionError> {
+    let modules = source.source_modules();
     let module_count =
         u32::try_from(modules.len()).map_err(|_| PortableEmissionError::ArithmeticOverflow)?;
     let mut hasher = Sha256::new();
