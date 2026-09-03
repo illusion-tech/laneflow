@@ -550,6 +550,10 @@ ignore_missing_null_terminator = false
 深度 5 来自 `RoadEditingSource -> RoadAlignment -> CurveProgram -> CurveSegment ->
 geometry payload` 的 schema 最长路径。只有 root 与 `Provenance` 两张 wire table 不进入
 Typed AST record 计数；`ModuleHeader` 延续 compiler foundation 既有规则消费一条记录。
+LFRE 4 中每个显式 `Movement.turn_direction`（包括 Straight/0）还产生一个字段来源
+记录，因此逻辑记录数为物理 table occurrence 数减二，再加方向字段出现数。该来源
+同时消费一条 `RelationOccurrenceCount`；builder、原始预检与累计模块准入使用同一
+口径，不能把 `max_tables` 的物理表检查当作全部逻辑记录预算。
 verifier 访问的其余每个 table occurrence（包括 curve/union payload、owner-local table、
 停车子表和 IIDM 子表）在第一遍预检中各消费一个
 `TypedAstRecordCount` 候选，不增加公开 limit 维度。`max_tables` 命中使用现有
