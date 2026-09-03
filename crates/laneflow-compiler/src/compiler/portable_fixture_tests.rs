@@ -581,7 +581,7 @@ fn portable_fixture_full_spatial_conflict_source(
         .unwrap()
 }
 
-fn full_spatial_portable_fixture_unit() -> CompilationUnit {
+pub(crate) fn full_spatial_portable_fixture_unit() -> CompilationUnit {
     let limits = CompileLimits::p100_initial_v1();
     let conflict_source = portable_fixture_full_spatial_conflict_source(&limits);
     let mut builder = CompilationUnitBuilder::new(limits);
@@ -734,15 +734,15 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         candidate.canonical_artifact().object_key(),
-        "sha256/828976d195e1cd0b13ba9326f259e0b6cdc30685cdd4829a25bc759844763061"
+        "sha256/b8209061c8a0b112b95551d0c62c5470f07f8f43e2271efe95fd775415d521d2"
     );
     assert_eq!(
         candidate.source_map().object_key(),
-        "sha256/8a18998de79ec60aef13a35a85aad1d3177c13d8d975c5b9b29ef08ffcc08a23"
+        "sha256/adb1f581805c9680155d2eb8e70514d49621f8812527bc1646f26b0302b5c97f"
     );
     assert_eq!(
         candidate.semantic_diff().object_key(),
-        "sha256/0cd2406a4fc35c265ad60208c7882bc9f27b41c02063a96477b9ee14306fe912"
+        "sha256/91a8746b14e930aa7ed6c791eb7035be7be1677e6ae524e11405db576bb97ff7"
     );
     assert_eq!(
         candidate.network_revision(),

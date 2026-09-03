@@ -166,7 +166,7 @@ chunk。
 capability 只在三个来源句柄都可克隆时实现 `Clone`，不要求 `Copy`；不可伪造来自字段
 私有性和构造入口，而不是一次性消费技巧。
 
-后发射检查只接纳 LFCA/LFSM/LFSD 对象版本 `5/3/4`；
+后发射检查只接纳 LFCA/LFSM/LFSD 对象版本 `5/4/4`；
 `canonicalArtifactFormatVersion` 必须与所绑 LFCA 一致，Genesis target 合同行须与 LFCA
 一致。
 `NetworkRevisionId` 仍按
@@ -175,8 +175,10 @@ capability 只在三个来源句柄都可克隆时实现 `Clone`，不要求 `Co
 
 LFSD 4 策略增量另由 compiler 的 `check_portable_policy_diff` 从实际 base/target
 独立闭合，候选发射在返回前调用它；规则见路权实施合同 §4.3。该检查不把通用
-`PostEmissionCheckedBundle` 提升为全部差异或全部来源的语义证明。LFSM 4 来源
-checker 按实施合同 §4.4 接续，不能从本节的直接 binding 检查推断已经完成。
+`PostEmissionCheckedBundle` 提升为全部差异或全部来源的语义证明。LFSM 4 的
+`check_portable_policy_sources` 在候选返回前按实施合同 §4.4 独立比较最终字节与
+同次受检 source view；格式层已闭合策略及方向来源，两个正式前端的非空策略输入
+仍由 W2 提供。不能从通用直接 binding 检查推断所有来源语义都已验证。
 
 ## 5. 检查顺序
 
@@ -424,4 +426,4 @@ file-backed LFCA 必须可直接构造现有 `SharedNetworkRevision`。
 - LFCP v1 已存在未登记的公开消费者；
 - 共享静态构建必须依赖新的语义能力而非本设计的 checked view；
 - 实现需要完整身份、图语义或 LFSD 重建才能满足验收；
-- 需要改变 LFCA 5 / LFSM 3 / LFSD 4 wire，而不仅是 LFCP 2。
+- 需要改变 LFCA 5 / LFSM 4 / LFSD 4 wire，而不仅是 LFCP 2。

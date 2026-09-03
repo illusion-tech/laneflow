@@ -97,7 +97,7 @@ rename、no-replace、目录耐久或 winner 竞争。
 
 #### LFCA admission
 
-只承认 LFCA/LFSM/LFSD `5/3/4`：受检输入字段私有，digest / exact length /
+只承认 LFCA/LFSM/LFSD `5/4/4`：受检输入字段私有，digest / exact length /
 `NetworkRevisionId` 闭合；
 object kind 精确为 LFCA，chunk directory、chunk digest、连续逻辑范围与当前 registry
 全部预检。LFSM `canonicalArtifactFormatVersion` 必须等于所绑 LFCA 的

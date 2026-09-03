@@ -76,6 +76,14 @@ impl CompilationMetrics {
 }
 
 impl CompilationOutput {
+    #[cfg(test)]
+    pub(crate) fn test_source_map_mut(&mut self) -> &mut ValidatedSourceMapInput {
+        &mut self.source_map_input
+    }
+    #[cfg(test)]
+    pub(crate) fn set_test_compile_limits(&mut self, limits: CompileLimits) {
+        self.limits = limits;
+    }
     pub(super) fn from_success(
         lir: ValidatedCanonicalLir,
         source_map_input: ValidatedSourceMapInput,
