@@ -60,7 +60,7 @@ IIDM 仍在 `f32` SI 中算出「这一拍最多走多远」。**先**用整数�
 
 检入走廊 `examples/config/v0.10-signalized-corridor.toml` 使用
 `fixed_delta_ms = 16`、`yellow_ms = 3008`、`all_red_ms = 1008`。制品
-`formatVersion` 随当前 LFCA 合同为 `4`。
+`formatVersion` 随当前 LFCA 合同为 `5`。
 
 ## 3. 共享列与 profile
 
@@ -247,7 +247,7 @@ Genesis 重生，不做格式迁移 diff。
 `fieldType`：`3=u32`、`5=f32`、`13=i32`。Spatial `LaneEdgeGeometry.arcLengthMeters` /
 `segments.lengthMeters` 仍为 `f32` 米，不进本表。
 
-| 表             | tableKind | tag | v1 `name:type:R`                                      | v2 `name:type:R`                                      |
+| 表             | tableKind | tag | 历史米制 `name:type:R`                                | 当前毫米制 `name:type:R`                              |
 | -------------- | --------- | --- | ----------------------------------------------------- | ----------------------------------------------------- |
 | LaneEdge       | `0x0004`  | 3   | `lengthMeters:f64:R`                                  | `lengthMillimetres:u32:R`                             |
 | LaneEdge       | `0x0004`  | 4   | `speedLimitMetersPerSecond:f64:R`                     | `speedLimitMillimetresPerSecond:u32:R`                |
@@ -267,7 +267,7 @@ Genesis 重生，不做格式迁移 diff。
 
 闭包（准入先量化再检查；停车进度相对 **提交后** 边长比较）：
 
-| v2 字段                                                        | 闭包                                                                     |
+| 当前字段                                                       | 闭包                                                                     |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | `LaneEdge.lengthMillimetres`                                   | `100..=10_000_000`                                                       |
 | `LaneEdge.speedLimitMillimetresPerSecond`                      | `1..=100_000`                                                            |
@@ -284,7 +284,8 @@ Genesis 重生，不做格式迁移 diff。
 | `VehicleProfile.comfortableDecelerationMetersPerSecondSquared` | `0.5..=50`                                                               |
 | `VehicleProfile.emergencyDecelerationMetersPerSecondSquared`   | `0.5..=50`，且 `>= comfortableDeceleration`                              |
 
-后发射检查失败关闭旧 v1 字节。走廊检入 LFCA 必须按 v2 重生并对拍。
+后发射检查拒绝非当前格式的字节。走廊检入 LFCA 必须按当前 `formatVersion = 5`
+重生并对拍。
 `NetworkRevisionId` 随载荷变化（算法仍是 §4.2 v1）。
 
 `laneflow-static-contract` 常量：最短尺寸 `100` mm，端点留白 `1` mm。生产判定使用
@@ -342,7 +343,7 @@ Genesis 重生，不做格式迁移 diff。
 - 前缀超过 `u32::MAX` mm 时注册失败，或把 `BeyondFinite` 饱和成 `u32::MAX` 路终硬停。
 - 从路线头溢出后把后续后缀查询一律标成 `BeyondFinite`。
 - 空升 `networkRevisionDerivationVersion = 2` 却不改哈希算法。
-- 发布或构建把 LFCA v2 送进只承认 v1 的入口。
+- 发布或构建把当前 LFCA 送进只承认旧格式的入口。
 - 公开一维表面继续用米制作权威。
 - 公开 `Canonical*View` 为交通一维保留米制只读换算。
 - 把 G1 写成现行每个 Rust 访问器的签名对照表。
