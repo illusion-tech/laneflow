@@ -1144,7 +1144,7 @@ SHA-256(
 `roadEditingSubjectKind` 固定为 `0=ModuleHeader, 1=RoadAlignment, 2=Declaration,
 3=OwnerLocal`；`occurrenceKind` 固定为 `0=OrderedProductOrdinal,
 1=CanonicalSetOrdinal`；`stepKind` 固定为 `0=TableField, 1=StructMember,
-2=UnionVariant`。Road Editing 的 container/member 闭合集以 Road Editing v3 schema 和
+2=UnionVariant`。Road Editing 的 container/member 闭合集以 Road Editing v4 schema 和
 [`road-editing-source-and-geometry-frontend.md`](road-editing-source-and-geometry-frontend.md)
 冻结的 property-path 登记为准，LFSM 不接受未登记的自由组合。
 
@@ -1246,7 +1246,7 @@ RoadEditing 变体的 optional 字段还受以下闭合矩阵约束：
 | `Declaration(2)`   | tag 10 `moduleNamespace`、tag 11 `entityKind`、tag 15 `localKey`                              | owner-local tag 16..19 禁止；tag 12..14 按实体 owner 深度连续出现；tag 20/21 可选                                                                                            |
 | `OwnerLocal(3)`    | tag 16 `ownerKind`、17 `roadEditingRelationKind`、18 `occurrenceKind`、19 `occurrenceOrdinal` | `ownerKind=0(ModuleHeader)` 禁止 tag 10..15；`ownerKind=1(Address)` 要求 tag 10/15，tag 11 仅 Declaration owner 存在；tag 12..14 按 owner 深度连续；tag 20 必需，tag 21 可选 |
 
-`propertySteps` 必须有 `1..=4` 行并构成 Road Editing v3 登记的一条完整可达路径，不能只因
+`propertySteps` 必须有 `1..=4` 行并构成 Road Editing v4 登记的一条完整可达路径，不能只因
 各 step 单独合法就拼接。`sourceLanguage` 只允许 `1=SyntheticDsl` 与
 `2=RoadEditingSource`；LFSM 4 分别要求 `frontendVersion=5` 与 `frontendVersion=4`。
 前者只允许 Text 且 `SourceDocument.displaySource` 必须缺失，后者只允许 RoadEditing 且
@@ -1403,7 +1403,7 @@ subject occurrence rank 保留重复基数；`domain` 的位置属于语义顺�
 | `36 PolicyGateRule`                     | RightOfWayPolicySet | 无独立实体                    | section 4 / table 5                         | owner 内 key 序     | PolicyLocalChange        |
 
 role 21 的名称固定为 `ParkingSpaceFacility`。设施声明、`virtualCapacity` 和每个 anchor
-都必须回指 exact Road Editing v3 property path。anchor 先按
+都必须回指 exact Road Editing v4 property path。anchor 先按
 `(LaneEdge StableId128, progressMillimetres)` 规范排序，因此来源 vector 顺序不能改变
 canonical localIndex。同一 role 内该完整二元组必须唯一；两个来源进度量化到同一毫米也
 视为重复。同一边上的不同毫米位置以及 entry/exit 两个不同 role 不冲突。
@@ -1412,7 +1412,7 @@ RoadEditing primary-source projection 不是“任一合法 property path”。�
 的唯一来源语义；`Declaration` 表示目标 declaration 的位置，`OwnerLocal` 表示相应 owner
 关系 occurrence 的位置，set/domain 的 occurrence kind 必须与本节 role 表一致：
 
-| role | Road Editing v3 primary source projection                                                                |
+| role | Road Editing v4 primary source projection                                                                |
 | ---: | -------------------------------------------------------------------------------------------------------- |
 |    1 | LaneEdge owner 的 `successors[canonical localIndex]` OwnerLocal                                          |
 |    2 | RoadCorridor owner 的 `elements[localIndex]` OwnerLocal                                                  |
@@ -1452,7 +1452,7 @@ StableId 最小、且 internal-edge occurrence 序列包含该 subject edge 的 
 替代或改变 filtered-row `localIndex`；不存在候选或无法得到唯一投影时失败关闭。选择只从
 绑定 LFCA 稳定身份和关系重算，不能使用 LFSM 自报路径打破平局。
 
-role 30–32 的 Road Editing v3 primary-source projection 固定为：
+role 30–32 的 Road Editing v4 primary-source projection 固定为：
 
 | role | primary declaration / owner-local path                                                                      |
 | ---: | ----------------------------------------------------------------------------------------------------------- |
@@ -1968,7 +1968,7 @@ reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构�
 
 公共格式实现必须原子满足：
 
-1. 当前 Road Editing wire v3、Road Editing frontend 4、Synthetic frontend 5、Identity registry
+1. 当前 Road Editing wire v4、Road Editing frontend 4、Synthetic frontend 5、Identity registry
    revision 4、LFCA 5、LFSM 4 与 LFSD 4；
 2. schema clean regeneration，删除 `ParkingArea` reader/writer/public symbol，加入冲突
    静态声明，不保留 alias、双读、双写或迁移 façade；
@@ -2002,7 +2002,7 @@ reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构�
 | `closed-value-rejection`        | regulation tag 缺失或恰一行成功，零/多行与非法 `x-lane-*` / `x-*` ASCII token 稳定失败                 |
 | `lfsd-field-presence`           | required/optional 字段的四种 base/target 存在性只接受唯一 before/after payload 形状                    |
 
-这些向量必须原子保持 `4/3/3/2`；不得把旧版本 bytes 当作当前成功向量，
+这些向量必须原子保持 LFCA/LFSM/LFSD/LFCP `5/4/4/2`；不得把旧版本 bytes 当作当前成功向量，
 也不得为保留旧 fixture 增加双读分支。
 
 确定性矩阵至少覆盖 Windows x86-64 与 Ubuntu x86-64、single-thread 与 compiler 支持的全部

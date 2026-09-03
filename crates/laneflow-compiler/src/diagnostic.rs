@@ -455,7 +455,7 @@ pub enum RoadEditingSourceViolation {
     VerifierApparentSizeExceeded,
     /// wire table 数超过调用点剩余 Typed AST record 预算。
     VerifierTableBudgetExceeded,
-    /// reader 只接受 exact `format_version = 3`。
+    /// reader 只接受 exact `format_version = 4`。
     UnsupportedFormatVersion { expected: u32, actual: u32 },
     /// verified wire 内的 source-document key 与 wire 外 expected key 不同。
     SourceDocumentKeyMismatch,
