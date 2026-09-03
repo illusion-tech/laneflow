@@ -207,15 +207,18 @@ membership 或让同车取得多个新 claim；restore/cutover 发现既有 cycl
 
 ### 8. 快照、摘要与切换是逻辑合同
 
-#282 新增持久状态时执行一次性闭合升级：
+#282 落地时曾执行以下一次性闭合升级；这些数字记录该决策的演进：
 
 - LFRS `formatVersion: 3 -> 4`；
 - `runtime_state_version: 3 -> 4`；
 - deterministic digest `5 -> 6`。
 
-只保留 v4 writer/reader；v3 reader 明确失败关闭，不提供双读、双写、转换器、feature
-flag 或迁移 shim。digest 6 纳入 Waiting semantic membership、zone occupancy、单调
-counter 与 queue order，不纳入派生 link 或 latest output batch。
+当前唯一入口已由显式策略绑定统一推进至 LFRS 5 / runtime state 5 / digest 7，见
+[`traffic-runtime-snapshot.md`](../design/traffic-runtime-snapshot.md) 与
+[`traffic-runtime-right-of-way-policy.md`](../design/traffic-runtime-right-of-way-policy.md)。
+只保留当前 writer/reader；旧版本快照明确失败关闭，不提供双读、双写、转换器、feature
+flag 或迁移 shim。Waiting semantic membership、zone occupancy、单调 counter 与
+queue order 继续参与当前摘要，派生 link 或 latest output batch 不参与。
 
 快照按稳定 identity 保存语义状态；restore 重建稠密 link 并验证 capacity、物理顺序、
 phase、route occurrence 与 Parking 状态，包括所选 parking entry 不得落入 Waiting
@@ -255,7 +258,7 @@ steady tick 不扫描全部静态 zone、不按 external ID 热查找、不分�
 - 每辆车每 tick 只获取一个新 Waiting claim，可能比未来组合仲裁更保守；
 - #284 只预防新 committed cycle，不通过车辆换位、同 tick capacity 复用或 teleport
   恢复已经形成的物理网格锁；
-- 快照 4/4 与 digest 6 是一次性不兼容升级，开发期 v3 存档直接拒绝；
+- 持久化版本直接替换当前入口，开发期旧版本存档拒绝，不承担兼容转换成本；
 - Waiting lifecycle、restore 与 cutover 必须增加一致性验证和失败路径测试。
 
 ## 未选择的方案
