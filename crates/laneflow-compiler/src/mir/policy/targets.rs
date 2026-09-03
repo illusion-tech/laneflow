@@ -1,5 +1,6 @@
 //! 按 subject passage 建立 exact target-cell ranges；未共享的 zone 不产生虚构 cell。
 use super::*;
+use super::{passages::PassageIndex, work::WorkBudget};
 use crate::arena::TableRange;
 
 #[derive(Clone, Copy)]
@@ -22,8 +23,10 @@ pub(super) fn build(
     unit: &CompilationUnit,
     mir: &MirUnit,
     policy: &MirPolicy,
+    passages: &PassageIndex,
     prior_bytes: u64,
     prior_records: u64,
+    work: &mut WorkBudget,
 ) -> Result<TargetTable, DiagnosticBundle> {
     let mut range_count = 0_u64;
     let mut cell_count = 0_u64;
@@ -33,9 +36,10 @@ pub(super) fn build(
             .as_usize_range()
         {
             range_count = range_count.saturating_add(1);
-            visit(mir, rule, source_index, |_| {
+            work.charge(1)?;
+            visit(mir, passages, rule, source_index, work, |_| {
                 cell_count = cell_count.saturating_add(1);
-            });
+            })?;
             super::validation::budget(
                 unit,
                 mir,
@@ -59,7 +63,10 @@ pub(super) fn build(
             .as_usize_range()
         {
             let start = cells.len();
-            visit(mir, rule, source_index, |cell| cells.push(cell));
+            work.charge(1)?;
+            visit(mir, passages, rule, source_index, work, |cell| {
+                cells.push(cell)
+            })?;
             cells[start..].sort_unstable_by(|a, b| {
                 // 同一 range 的 zone 固定；按流的完整 Identity 前像规范顺序比较，
                 // 不能用摘要字节顺序代替 canonical rank。
@@ -98,29 +105,85 @@ pub(super) fn build(
 }
 fn visit(
     mir: &MirUnit,
+    passages: &PassageIndex,
     rule: &StreamRule<MirParticipantStreamKey, MirParticipantClassKey>,
     source: usize,
+    work: &mut WorkBudget,
     mut emit: impl FnMut(TargetCell),
-) {
+) -> Result<(), DiagnosticBundle> {
     let zone = mir.conflict_passages[source].conflict_zone;
     for &stream in &rule.yield_to {
-        for passage in mir.participant_streams[stream.index()]
-            .passages
-            .as_usize_range()
-        {
-            if mir.conflict_passages[passage].conflict_zone == zone {
-                emit(TargetCell {
-                    stream,
-                    passage: passage as u32,
-                });
-            }
+        work.charge(1)?;
+        let entries = passages.in_zone(stream, zone);
+        work.charge(entries.len() as u64)?;
+        for entry in entries {
+            emit(TargetCell {
+                stream,
+                passage: entry.passage,
+            });
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sparse_shared_zone_uses_indexed_targets_with_linear_work() {
+        let (mut unit, mut mir) = super::super::fixture();
+        unit.limits = crate::CompileLimits::single_network_1m_v2();
+        let count = 2_000;
+        let mut passages = Vec::new();
+        for (index, stream) in mir.participant_streams.iter_mut().enumerate() {
+            let template = &mir.conflict_passages[stream.passages.as_usize_range().start];
+            let start = passages.len();
+            for offset in 0..count {
+                passages.push(super::super::super::MirConflictPassage {
+                    conflict_zone: MirConflictZoneKey::from_raw(if offset == 0 {
+                        0
+                    } else {
+                        (index * count + offset) as u32
+                    }),
+                    entry: template.entry.clone(),
+                    exit: template.exit.clone(),
+                    admission_gate: template.admission_gate,
+                    source_location: template.source_location.clone(),
+                });
+            }
+            stream.passages = TableRange::try_from_usize(start, count).unwrap();
+        }
+        mir.conflict_passages = passages.into_boxed_slice();
+        let index = PassageIndex::build(&unit, &mir).unwrap();
+        let mut work = WorkBudget::new(&unit.limits);
+        let table = build(
+            &unit,
+            &mir,
+            &mir.policies[0],
+            &index,
+            index.bytes(),
+            0,
+            &mut work,
+        )
+        .unwrap();
+        assert_eq!(table.cells.len(), 1);
+        assert_eq!(table.ranges.len(), count * 2);
+        assert!(work.used() < (count * 8) as u64);
+        let before = work.used();
+        let rule = mir.policies[0]
+            .value
+            .streams
+            .iter()
+            .find(|r| !r.yield_to.is_empty())
+            .unwrap();
+        assert!(
+            index
+                .shares_zone(rule.stream, rule.yield_to[0], &mut work)
+                .unwrap()
+        );
+        assert_eq!(work.used() - before, 1);
+    }
 
     #[test]
     fn target_cells_are_exact_for_each_subject_zone_without_fake_missing_cells() {
@@ -154,7 +217,17 @@ mod tests {
         mir.participant_streams[subject_stream.index()].passages =
             TableRange::try_from_usize(start, 2).unwrap();
         mir.conflict_passages = passages.into_boxed_slice();
-        let table = build(&unit, &mir, &mir.policies[0], 0, 0).unwrap();
+        let passages = PassageIndex::build(&unit, &mir).unwrap();
+        let table = build(
+            &unit,
+            &mir,
+            &mir.policies[0],
+            &passages,
+            passages.bytes(),
+            0,
+            &mut WorkBudget::new(&unit.limits),
+        )
+        .unwrap();
         let shared = table
             .ranges
             .iter()
