@@ -214,7 +214,7 @@ SHA-256；`sourceDocumentSetDigest` 是对模块内按文档键排序的文档�
 
 - 道路编辑状态是 production 编辑器和程序化生成场景的主要 source language；可视化编辑器、
   第一方 Rust 构造面与 importer 共享有类型道路编辑模型，使用按模块的
-  `LF-ROAD-EDITING-SOURCE-v3` FlatBuffers 来源缓冲区持久化；
+  `LF-ROAD-EDITING-SOURCE-v4` FlatBuffers 来源缓冲区持久化；
 - Synthetic DSL source 是测试、fixture、benchmark 和示例 module 的权威输入；
 - import module 必须记录原始 source bytes/digest、importer build、选项和 provenance；
   选择 materialize 为道路编辑来源模块时，必须显式记录 authority 切换；
@@ -326,7 +326,7 @@ current JSON 不属于官方编译器前端，schema 与加载 crate 已删除�
 
 这不是第三方前端插件协议。公开面只使用 LaneFlow 拥有的具体入口以及它们进入共同
 私有接入的规则，不冻结 Geometry 公共签名。Road Editing 接口借用完整
-`LF-ROAD-EDITING-SOURCE-v3` bytes 的字段私有 `RoadEditingModuleInput` 和唯一原子
+`LF-ROAD-EDITING-SOURCE-v4` bytes 的字段私有 `RoadEditingModuleInput` 和唯一原子
 `add_road_editing_module`；wire DTO、typed module 和 descriptor 均保持私有。
 当前树不存在 JSON 迁移入口、相应特性、输入类型或导入器。
 通用 `add_module`、公共前端
@@ -335,7 +335,7 @@ current JSON 不属于官方编译器前端，schema 与加载 crate 已删除�
 ### 5.3 道路编辑与几何编制前端（Road Editing and Geometry Frontend）
 
 长期 production authoring frontend 使用
-`LF-ROAD-EDITING-SOURCE-v3`（按模块的 size-prefixed FlatBuffers 来源缓冲区）；道路编辑
+`LF-ROAD-EDITING-SOURCE-v4`（按模块的 size-prefixed FlatBuffers 来源缓冲区）；道路编辑
 状态、有类型道路编辑模型、公开 Rust 构造面、generated `unsafe` 审计边界、阶段
 生命周期、曲线细分、stationing、资源/诊断顺序、验证矩阵和性能门槛统一由
 `road-editing-source-and-geometry-frontend.md` 管理。本节只保留综合架构边界。目标模型包含：

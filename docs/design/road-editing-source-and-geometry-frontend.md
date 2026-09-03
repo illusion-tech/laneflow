@@ -524,9 +524,10 @@ LFSD 4；来源前端版本和 LFRE wire 版本分别精确校验。
 
 1. 在分配前检查来源模块/累计字节余额、最小长度、size prefix 的 checked exact length
    和 `LFRE` file identifier；
-2. 使用下述固定公式从当前 `CompileLimits` 与调用点剩余预算导出 `VerifierOptions`，再
+2. 从受 framing 约束的根表执行有界版本探针，非 `4` 立即拒绝，旧文档无需携带
+   v4 新增的 required vector；再使用下述固定公式从当前 `CompileLimits` 与调用点剩余预算导出 `VerifierOptions`，再
    执行 `size_prefixed_root_with_opts`；不使用 crate 默认值；
-3. verifier 成功后检查唯一 exact version `3`；其它值在 LaneFlow 语义读取和规模相关
+3. verifier 成功后检查唯一 exact version `4`；其它值在 LaneFlow 语义读取和规模相关
    分配前拒绝；
 4. 对借用 view 执行第一遍语义预检：必需值、enum/union、字符串、24 类可构造声明与
    owner-local 集合基数、有限数值、引用键字节和 checked 总量；
