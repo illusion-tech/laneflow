@@ -474,6 +474,13 @@ pub(crate) fn migrate_structural_clone(
     target_source: CommittedNetworkSource,
     rebinding: &CrossRevisionRebinding,
 ) -> Result<TrafficWorld, CutoverError> {
+    world.validate_cutover_policy(&target_revision)?;
+    let policy_binding = crate::policy::WorldPolicyBinding::install(
+        &target_revision,
+        world.policy_selection(),
+        world.config.fixed_delta_time_ms(),
+    )
+    .map_err(CutoverError::PolicyInstall)?;
     let target_traffic = target_revision.traffic();
 
     // 路线：逐槽位重绑边序数并对 target 根重编译（等价重执行 register_route
@@ -822,6 +829,7 @@ pub(crate) fn migrate_structural_clone(
     }
 
     let mut candidate = TrafficWorld {
+        policy_binding,
         revision: target_revision,
         source: target_source,
         world_id: world.world_id,
@@ -1335,7 +1343,7 @@ pub(crate) mod tests {
     }
 
     const FULL_SPATIAL_LFCA: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
     #[test]
@@ -1407,10 +1415,11 @@ pub(crate) mod tests {
         let revision = revision(bytes);
         let origin = *revision.canonical_origin();
         TrafficWorld::install(
-            revision,
+            std::sync::Arc::clone(&revision),
             WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
             source_for(origin, key),
             0,
+            crate::test_policy::selection(&revision),
         )
         .expect("install")
     }
@@ -1548,10 +1557,11 @@ pub(crate) mod tests {
         });
         let origin = *revision.canonical_origin();
         let mut world = TrafficWorld::install(
-            revision,
+            std::sync::Arc::clone(&revision),
             WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
             source_for(origin, "fixture://parking-cutover-base"),
             0,
+            crate::test_policy::selection(&revision),
         )
         .expect("parking cutover install");
         let route = world

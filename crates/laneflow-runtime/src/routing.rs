@@ -690,7 +690,7 @@ mod tests {
     fn revision() -> Arc<SharedNetworkRevision> {
         let input = check_canonical_network_input(
             include_bytes!(
-                "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+                "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
             ),
             FormatLimits::HARD,
         )
@@ -725,7 +725,7 @@ mod tests {
         let revision = revision();
         let origin = *revision.canonical_origin();
         TrafficWorld::install(
-            revision,
+            std::sync::Arc::clone(&revision),
             WorldConfig::new(
                 16,
                 route_capacity,
@@ -736,6 +736,7 @@ mod tests {
             ),
             source_for(origin, "fixture://routing"),
             world_id,
+            crate::test_policy::selection(&revision),
         )
         .expect("install")
     }

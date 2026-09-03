@@ -1,3 +1,6 @@
+#[path = "policy.rs"]
+mod test_policy;
+
 use std::sync::Arc;
 
 use laneflow_format::{FormatLimits, check_canonical_network_input};
@@ -51,6 +54,7 @@ pub fn install_corridor_world(revision: &Arc<SharedNetworkRevision>) -> TrafficW
         WorldConfig::new(8, 32, 1_024, 1_024, 1, DELTA_MS),
         source_for("fixture://snapshot-corridor"),
         512,
+        test_policy::selection(revision),
     )
     .expect("install");
     let catalog: CorridorCatalog = toml::from_str(CORRIDOR_CATALOG).expect("catalog TOML");

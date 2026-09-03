@@ -1135,7 +1135,7 @@ mod tests {
     };
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
     fn world() -> TrafficWorld {
@@ -1151,7 +1151,7 @@ mod tests {
         .expect("shared network revision");
         let origin = *revision.canonical_origin();
         TrafficWorld::install(
-            revision,
+            std::sync::Arc::clone(&revision),
             WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
             CommittedNetworkSource::Published {
                 reference: crate::PublishedLfcaReference::new(
@@ -1163,6 +1163,7 @@ mod tests {
                 .expect("non-empty fixture key"),
             },
             0,
+            crate::test_policy::selection(&revision),
         )
         .expect("install")
     }

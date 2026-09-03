@@ -1,7 +1,7 @@
 # 修订切换事务
 
 **文档状态**: Accepted（#302 G1）<br>
-**最后更新**: 2026-09-02<br>
+**最后更新**: 2026-09-03<br>
 **适用范围**: 在线路网修订切换的设计原则、切换描述符、迁移策略、失败关闭语义与 G1 预算<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)、
@@ -30,7 +30,11 @@
 
 #284 的策略及冲突历史迁移、目标规范化与描述符 v2 候选见
 [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §6.2、§8
-（Review）；本文当前描述符与生产实现尚未随该候选升级。
+（Accepted）。当前描述符版本为 2，字段形状不新增自由 policy JSON。
+同修订保持显式策略选择；跨修订要求所选 policy StableId、法域、法规版本完全一致。
+目标根可修改该策略的规则与参数，候选重建步长派生间隙，并在晋升时与共享根一起
+原子交换。独立摘要期望值保留旧世界选择，不能从候选读取另一份选择。
+更换策略身份必须显式创建新世界；冲突历史迁移由后续切片完成。
 
 路网修订不可变（ADR 0025），而城市游戏的改路与制品重发布要求运行中世界换绑
 新修订。本文冻结该换绑的事务设计，立场有三：

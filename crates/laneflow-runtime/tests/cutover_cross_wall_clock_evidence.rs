@@ -11,6 +11,9 @@
 //!
 //! 中位数对偶数样本取中间两值平均；dev profile 计时不得登记。
 
+#[path = "support/policy.rs"]
+mod test_policy;
+
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -86,10 +89,11 @@ fn descriptor_for(world: &TrafficWorld) -> NetworkRevisionCutoverDescriptor {
 fn world_with_fleet() -> TrafficWorld {
     let revision = build(ORACLE_BASE);
     let mut world = TrafficWorld::install(
-        revision,
+        std::sync::Arc::clone(&revision),
         WorldConfig::new(VEHICLES, 4, 1_024, 1_024, 1, DELTA_MS),
         source_for("fixture://cross-base", ORACLE_BASE),
         1,
+        test_policy::selection(&revision),
     )
     .expect("install");
     let traffic = world.traffic();

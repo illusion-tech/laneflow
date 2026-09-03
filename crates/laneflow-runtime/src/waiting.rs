@@ -2107,7 +2107,7 @@ pub(crate) mod tests {
     };
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
     fn waiting_world() -> (TrafficWorld, RouteHandle, crate::tables::WaitingOccurrence) {
@@ -2141,6 +2141,7 @@ pub(crate) mod tests {
                 .expect("source"),
             },
             82,
+            crate::test_policy::selection(&revision),
         )
         .expect("install");
         let edges = world
@@ -2208,7 +2209,8 @@ pub(crate) mod tests {
     ) -> laneflow_compiler::PortablePublicationCandidate {
         const NS: &str = "city/waiting-scale";
         const STEM_COUNT: usize = 64;
-        let limits = CompileLimits::p100_initial_v1();
+        // 多 WaitingZone 夹具的显式策略也参与后发射预算，使用已有规模档。
+        let limits = CompileLimits::single_network_1m_v2();
         let header = SourceModuleHeader::new(
             SourceModuleHeaderInput {
                 authoring_namespace_id: NS,
@@ -2418,6 +2420,29 @@ pub(crate) mod tests {
                 }],
             })
             .expect("parking after maneuver");
+        let mut policy_gates = vec!["gate-entry".to_owned(), "gate-release".to_owned()];
+        if matches!(
+            layout,
+            ScaleLayout::AdditionalGate | ScaleLayout::SecondZone
+        ) {
+            policy_gates.push("gate-exit".to_owned());
+        }
+        if let ScaleLayout::IdleZones(count) = layout {
+            for index in 0..count {
+                policy_gates.push(format!("idle-{index}-entry-gate"));
+                policy_gates.push(format!("idle-{index}-release-gate"));
+            }
+        }
+        let policy_rules: Vec<_> = policy_gates
+            .iter()
+            .map(|key| {
+                (
+                    key.as_str(),
+                    laneflow_compiler::GateInterpretation::Uncontrolled,
+                )
+            })
+            .collect();
+        crate::test_policy::add_gate_policy(&mut module, "waiting-policy", &policy_rules);
         let mut unit = CompilationUnitBuilder::new(limits);
         unit.add_synthetic_module(module.finish().expect("finished module"))
             .expect("unit module");
@@ -2618,6 +2643,7 @@ pub(crate) mod tests {
                 .expect("source"),
             },
             u64::from(vehicle_count),
+            crate::test_policy::selection(&revision),
         )
         .expect("install");
         let limits = CompileLimits::p100_initial_v1();

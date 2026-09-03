@@ -48,6 +48,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .expect("non-empty scenario key"),
             },
             0,
+            laneflow_runtime::WorldPolicySelection::NotRequired,
         )?
     };
     let edge_for_length = |world: &TrafficWorld, length: u32| {

@@ -55,6 +55,16 @@ impl Sizing {
 }
 
 impl SyntheticModuleBuilder {
+    /// 取得本模块中当前 Rust 调用点的受检来源；供完整策略及局部成员共享。
+    #[must_use]
+    #[track_caller]
+    pub fn policy_source_span(&self) -> SourceSpan {
+        SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        )
+    }
+
     /// 加入由一个模块拥有的完整策略。所有检查成功后才修改 builder。
     pub fn add_right_of_way_policy_set(
         &mut self,

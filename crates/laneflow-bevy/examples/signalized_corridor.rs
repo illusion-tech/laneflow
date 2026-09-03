@@ -1,4 +1,4 @@
-//! 现行走廊 Bevy 最小路径：检入的 catalog 0.3 + LFCA，prepare 绑定后少数车辆 tick / pose。
+//! 现行走廊 Bevy 最小路径：检入的 catalog 0.4 + LFCA，prepare 绑定后少数车辆 tick / pose。
 //!
 //! 不恢复 50–200 人口、HUD、灯具或同一 Entity 回流。GUI 不进 CI。
 
@@ -52,6 +52,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .expect("non-empty scenario key"),
             },
             0,
+            bound.policy_selection,
         )?
     };
     let profile = *bound

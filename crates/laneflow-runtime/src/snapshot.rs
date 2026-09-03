@@ -7,7 +7,7 @@
 //! `WorldConfig`（含 edge/conflict 两项路线 occurrence 容量）、绑定集与逻辑状态
 //! 映射到 size-prefixed `LFRS`；不回读活动 world，也不推进游标。
 
-use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v4 as wire;
+use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v5 as wire;
 use laneflow_runtime_snapshot_wire::runtime;
 use laneflow_static_contract::StableId128 as ContractStableId128;
 use laneflow_static_network::CanonicalNetworkOrigin;
@@ -18,9 +18,9 @@ use crate::{
 };
 
 /// LFRS 容器格式版本（快照合同 §4）。
-pub const SNAPSHOT_FORMAT_VERSION: u32 = 4;
+pub const SNAPSHOT_FORMAT_VERSION: u32 = 5;
 /// Runtime 逻辑状态形状轴（快照合同 §2 版本轴分离）。
-pub const RUNTIME_STATE_VERSION: u16 = 4;
+pub const RUNTIME_STATE_VERSION: u16 = 5;
 
 /// 快照局部标识的起点（1..=N 分配，0 保留为非法）。
 const FIRST_SNAPSHOT_ID: u64 = 1;
@@ -132,6 +132,8 @@ pub struct CapturedSnapshot {
     pub(crate) event_cursor: u64,
     /// 安装时冻结的世界配置。
     pub(crate) config: WorldConfig,
+    /// 显式策略选择；规则内容由 LFCA origin 绑定。
+    pub(crate) policy_selection: crate::WorldPolicySelection,
     /// 被绑定共享根的 LFCA origin。
     pub(crate) origin: CanonicalNetworkOrigin,
     /// 已提交路网来源。
@@ -395,7 +397,7 @@ impl CapturedWaitingZoneState {
     }
 }
 
-/// 把不可变快照点编码为 size-prefixed `LFRS` v4。
+/// 把不可变快照点编码为 size-prefixed `LFRS` v5。
 ///
 /// 捕获与编码分离：调用方可先在固定步进安全边界调用
 /// [`TrafficWorld::capture_snapshot`]，再把本函数放到后台线程。编码只映射已捕获
@@ -609,6 +611,22 @@ pub fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
         contracts.constraint_contract_version(),
         contracts.static_execution_contract_version(),
     );
+    let (selection, policy) = match snapshot.policy_selection {
+        crate::WorldPolicySelection::NotRequired => {
+            (wire::WorldPolicySelectionKind::NotRequired, None)
+        }
+        crate::WorldPolicySelection::Pinned(pin) => (
+            wire::WorldPolicySelectionKind::Pinned,
+            Some(wire::StableId128::new(pin.policy.as_untyped().as_bytes())),
+        ),
+    };
+    let world_policy = wire::WorldPolicyBinding::create(
+        &mut fbb,
+        &wire::WorldPolicyBindingArgs {
+            selection,
+            policy: policy.as_ref(),
+        },
+    );
     let root = wire::RuntimeSnapshot::create(
         &mut fbb,
         &wire::RuntimeSnapshotArgs {
@@ -630,6 +648,7 @@ pub fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
             vehicles: Some(vehicles),
             live_order: Some(live_order),
             waiting_zones: Some(waiting_zones),
+            world_policy: Some(world_policy),
         },
     );
     wire::finish_size_prefixed_runtime_snapshot_buffer(&mut fbb, root);
@@ -645,6 +664,12 @@ const fn encode_vehicle_status(status: VehicleStatus) -> wire::VehicleStatusKind
 }
 
 impl CapturedSnapshot {
+    /// 保存时绑定的策略身份。
+    #[must_use]
+    pub const fn policy_selection(&self) -> crate::WorldPolicySelection {
+        self.policy_selection
+    }
+
     /// 世界身份。
     #[must_use]
     pub const fn world_id(&self) -> u64 {
@@ -987,6 +1012,7 @@ impl TrafficWorld {
             command_cursor: self.command_cursor,
             event_cursor: self.event_cursor,
             config: self.config,
+            policy_selection: self.policy_selection(),
             origin: *self.revision.canonical_origin(),
             source: self
                 .source
@@ -1309,13 +1335,14 @@ mod tests {
         let root_revision = crate::cutover::tests::transaction_tests::revision(true);
         let origin = *root_revision.canonical_origin();
         let world = TrafficWorld::install(
-            root_revision,
+            std::sync::Arc::clone(&root_revision),
             WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
             crate::cutover::tests::transaction_tests::source_for(
                 origin,
                 "fixture://empty-snapshot",
             ),
             9,
+            crate::test_policy::selection(&root_revision),
         )
         .expect("install");
         let bytes = encode_lfrs(&world.capture_snapshot().expect("capture"));

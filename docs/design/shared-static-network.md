@@ -106,11 +106,17 @@ object kind 精确为 LFCA，chunk directory、chunk digest、连续逻辑范围
 正式产品 profile 必须覆盖一百万现实混合静态实体门禁。
 公开 API 不带世代后缀，不得把米列读成毫米。
 
-#284 分切片实施期间，格式登记升级不等于共享根已经支持策略消费。W3 完成策略
-解析表与跨表闭合前，builder 在分配前以 `ContractMismatch(ExecutionContract)` 拒绝
-任何非空 `RightOfWayPolicySet` 表、四类局部策略表，或携带 `Movement.turnDirection`
-的输入（包括显式零）。该检查对 `Omit` 和 `RetainAvailable` 都成立；空策略且无方向
-属性的 LFCA 5 继续构建。W3 实现消费能力时用完整语义闭合替换这项拒绝条件。
+#284 W3 的共享构建以策略跨表闭合替换格式升级期间的策略/方向拒绝条件。必需的
+`SharedPolicyNetwork` 由根独占，通过 `policy()` 返回借用；按策略、实际获 Access
+准入的 owner、车型建立 CSR，保留稳定规则归因、逐流优先级、依据、原始间隙参数与
+逐 subject passage 的精确让行目标。缺规则、规则歧义、目标优先级、法规相容性、
+信号绑定、明确右转方向、跨策略灯型和保护冲突均由 builder 独立检查；`Omit` 与
+`RetainAvailable` 使用同一套策略闭合。世界固定步长和间隙派生值不进入共享根。
+
+策略构建的 owned 表和冷字符串计入既有 retained 上限，借用声明与索引工作表计入
+既有 scratch 上限；计数、乘积、范围和预留失败不发布根。`max_policy_work` 默认
+为 `16777216` 次候选/引用访问，可由调用方显式配置，Access 拒绝的候选也收费。
+没有策略的根保留空 component，不分配策略工作表。该能力不解除运行时冲突保护。
 
 对象预检结果本身不证明跨表引用、row ordering 或真实性，因此不能直接作为共享静态
 路网成功结果。`laneflow-static-network` 必须继续完成 §7 的构建闭合；发布内容

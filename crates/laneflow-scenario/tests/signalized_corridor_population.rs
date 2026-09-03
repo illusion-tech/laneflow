@@ -1,3 +1,6 @@
+#[path = "../../laneflow-runtime/tests/support/policy.rs"]
+mod test_policy;
+
 use std::sync::Arc;
 
 use laneflow_format::{FormatLimits, check_canonical_network_input};
@@ -24,7 +27,7 @@ fn install_fixture(
 ) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
     let origin = *revision.canonical_origin();
     laneflow_runtime::TrafficWorld::install(
-        revision,
+        Arc::clone(&revision),
         config,
         laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
@@ -36,6 +39,7 @@ fn install_fixture(
             .expect("non-empty fixture key"),
         },
         0,
+        test_policy::selection(&revision),
     )
 }
 
@@ -406,7 +410,7 @@ fn consume_world_rejects_untracked_completed_vehicle() {
 
 fn foreign_world() -> TrafficWorld {
     const S1: &[u8] = include_bytes!(
-        "../../../crates/laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+        "../../../crates/laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
     let input = check_canonical_network_input(S1, FormatLimits::HARD).expect("s1");
     let foreign = build_shared_network_revision(
@@ -783,4 +787,26 @@ fn grouped_steps_without_per_tick_consume_are_rejected() {
             actual: 3
         }
     ));
+}
+
+#[test]
+fn catalog_binding_rejects_unknown_policy_and_not_required_on_gated_root() {
+    use laneflow_scenario::signalized_corridor::{BindError, CatalogPolicySelection};
+    let revision = revision();
+    let mut catalog = catalog();
+    catalog.policy_selection = CatalogPolicySelection::NotRequired {};
+    assert_eq!(
+        bind(&catalog, &revision).unwrap_err(),
+        BindError::PolicyRequired
+    );
+    let policy = laneflow_static_contract::RightOfWayPolicySetId::from_untyped(
+        laneflow_static_contract::StableId128::ZERO,
+    );
+    catalog.policy_selection = CatalogPolicySelection::Pinned {
+        policy: policy.to_string(),
+    };
+    assert_eq!(
+        bind(&catalog, &revision).unwrap_err(),
+        BindError::UnknownPolicy(policy)
+    );
 }

@@ -17,6 +17,9 @@
 //! `cutover_budget_evidence` 的纪律：单一默认测试承载全局计数分配器，
 //! 账本数字为描述性输出，干扰不变量为硬断言。
 
+#[path = "support/policy.rs"]
+mod test_policy;
+
 use std::alloc::System;
 use std::sync::Arc;
 
@@ -139,10 +142,11 @@ fn entry_exit(
 fn world_with_fleet() -> TrafficWorld {
     let revision = build(ORACLE_BASE);
     let mut world = TrafficWorld::install(
-        revision,
+        std::sync::Arc::clone(&revision),
         WorldConfig::new(VEHICLES, 4, 1_024, 1_024, 1, DELTA_MS),
         source_for("fixture://cross-base", ORACLE_BASE),
         1,
+        test_policy::selection(&revision),
     )
     .expect("install");
     let (entry, exit) = entry_exit(&world);

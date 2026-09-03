@@ -8,6 +8,9 @@
 //! 只把 `new_size - old_size` 计入 `bytes_allocated`。`live_bytes` 已含该净增长；
 //! `reallocated_delta_bytes` 是有符号 realloc 净值，不得再加进 `live_bytes`。
 
+#[path = "support/policy.rs"]
+mod test_policy;
+
 use std::alloc::System;
 use std::hint::black_box;
 use std::sync::Arc;
@@ -27,7 +30,7 @@ fn install_fixture(
 ) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
     let origin = *revision.canonical_origin();
     laneflow_runtime::TrafficWorld::install(
-        revision,
+        std::sync::Arc::clone(&revision),
         config,
         laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
@@ -39,6 +42,7 @@ fn install_fixture(
             .expect("non-empty fixture key"),
         },
         0,
+        test_policy::selection(&revision),
     )
 }
 
@@ -49,7 +53,7 @@ const MIN_HEADLESS: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/min-headless.lfca"
 );
 const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
 );
 const CORRIDOR: &[u8] = include_bytes!("../../../examples/data/v0.2-signalized-corridor.lfca");
 const CORRIDOR_CONFIG: &str =

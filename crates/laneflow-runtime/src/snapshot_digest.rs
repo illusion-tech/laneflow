@@ -10,7 +10,7 @@ use crate::{
 };
 
 /// 确定性状态摘要规范化版本。
-pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 6;
+pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 7;
 /// SHA-256 域分隔前缀；尾随 NUL 属于前缀字节。
 pub const RUNTIME_STATE_DIGEST_DOMAIN: &[u8] = b"laneflow:runtime-state-digest:v1\0";
 
@@ -42,6 +42,7 @@ const fn canonical_prefix_len() -> usize {
         + 8 // 四个容量字段
         + 8 // fixed dt
         + 8 * 4 // tick / 时间 / 双游标
+        + 1 + 16 // selection tag + 可选策略 StableId 的最大长度
 }
 
 /// 摘要轴可失败精确预留（注入点与 capture 侧共用同一快照轴计数器）。
@@ -172,6 +173,13 @@ pub fn deterministic_state_digest(
     push_u64(&mut canonical, snapshot.time_ms);
     push_u64(&mut canonical, snapshot.command_cursor);
     push_u64(&mut canonical, snapshot.event_cursor);
+    match snapshot.policy_selection {
+        crate::WorldPolicySelection::NotRequired => canonical.push(0),
+        crate::WorldPolicySelection::Pinned(pin) => {
+            canonical.push(1);
+            canonical.extend_from_slice(pin.policy.as_untyped().as_bytes());
+        }
+    }
 
     let mut waiting_zone_records = Vec::new();
     digest_try_reserve_exact(&mut waiting_zone_records, snapshot.waiting_zones.len())?;
@@ -524,15 +532,15 @@ mod tests {
         let (world, _, _) = world_with_vehicle(true);
         let original = world.capture_snapshot().expect("capture");
         let expected = deterministic_state_digest(&original).expect("digest");
-        // W1 升级静态契约后同步向量：独立重算 LFCA 的六个语义节，
-        // 仅替换 365-byte 摘要输入的路网修订/契约前缀即可复原旧摘要。
-        // Runtime 摘要算法与版本 6 未变；完整策略状态由 W5 接续。
+        // digest 7：独立保留已审核的车辆/路线记录后缀，替换版本与 LFCA 六节摘要，
+        // 追加 tag + 从身份表读取的 policy StableId；382-byte 前像得到本向量。
+        // 下方等价类同时约束来源、worker 与局部 ID 不进入摘要。
         assert_eq!(
             expected,
             Sha256Digest::from_bytes([
-                0x26, 0x9c, 0x40, 0x46, 0x40, 0x25, 0x73, 0x1f, 0x3f, 0xe2, 0x8a, 0x0a, 0xe0, 0xf8,
-                0xe8, 0x4a, 0x40, 0xe0, 0x92, 0xdd, 0x07, 0x2a, 0xb8, 0xe0, 0x96, 0xf5, 0x9e, 0xa9,
-                0x50, 0x8b, 0x5e, 0x78,
+                0x86, 0xab, 0xf1, 0xe8, 0xff, 0x34, 0xd4, 0x0c, 0x46, 0x6f, 0xac, 0x1a, 0x5b, 0x91,
+                0x75, 0x7b, 0x9f, 0x0a, 0x97, 0x77, 0x58, 0x15, 0xe9, 0x87, 0xca, 0xa3, 0xc6, 0xb4,
+                0x22, 0x47, 0xd2, 0xd7
             ])
         );
         let mut equivalent = original.clone();

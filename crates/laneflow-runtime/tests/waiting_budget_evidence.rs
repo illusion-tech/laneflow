@@ -4,6 +4,9 @@
 //! release Gate 后，再测量连续固定步进；该窗口覆盖 membership、traversal phase、
 //! occupancy 和本地存储约束的 steady path，硬断言 allocation / reallocation 均为零。
 
+#[path = "support/policy.rs"]
+mod test_policy;
+
 use std::alloc::System;
 use std::sync::Arc;
 
@@ -23,7 +26,7 @@ use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
 const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
 );
 const DELTA_MS: u64 = 4;
 const STEADY_TICKS: u32 = 16;
@@ -54,6 +57,7 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
             .expect("source"),
         },
         282,
+        test_policy::selection(&revision),
     )
     .expect("world");
     let edges = world

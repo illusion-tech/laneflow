@@ -1,5 +1,11 @@
 #![doc = include_str!("../README.md")]
 
+#[cfg(test)]
+extern crate self as laneflow_runtime;
+#[cfg(test)]
+#[path = "../tests/support/policy.rs"]
+mod test_policy;
+
 mod config;
 mod cutover;
 mod cutover_migration;
@@ -11,6 +17,7 @@ mod migration_journal;
 mod observation;
 mod occupancy;
 mod parking;
+mod policy;
 mod pose;
 mod routing;
 mod snapshot;
@@ -55,6 +62,7 @@ pub use parking::{
     ParkingTarget, RebindParkingTarget, ReserveParkingTarget, VehicleDespawnRecord,
     VirtualEntryAnchorSelector, VirtualExitAnchorSelector,
 };
+pub use policy::{DerivedPolicyGap, PolicyPin, WorldPolicySelection};
 pub use pose::{CommittedPoseSourceBatch, CommittedSignalGroupBatch, PoseSource};
 pub use routing::{
     AdmittedRouteRegisterError, AdmittedRouteRegisterInput, CandidateRouteError,

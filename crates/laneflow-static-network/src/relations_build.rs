@@ -405,7 +405,7 @@ fn unique_stamp_bytes(limit: u32) -> Result<u64, BuildError> {
         })
 }
 
-fn entity_table<'a>(
+pub(crate) fn entity_table<'a>(
     view: ValueCheckedObjectView<'a>,
     kind: EntityKind,
 ) -> Result<laneflow_format::RegistryCheckedTableView<'a>, BuildError> {
