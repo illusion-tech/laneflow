@@ -93,25 +93,29 @@ LF-CN-URBAN-v1 的城市尺度不是同一档，文档中 "P10/P100" 性能分�
 
 ### 端到端阶段（1M v2；release，Windows x64）
 
-| 指标                                         |      10k（100 cells） |     100k（1,000 cells） |
-| -------------------------------------------- | --------------------: | ----------------------: |
-| 稳定实体（shared `entity_counts()`）         |                12,540 |                 125,400 |
-| `C_parking_virtual_declared`（声明虚拟容量） |                20,000 |                 200,000 |
-| LIR 逻辑记录（公开 metric）                  |                44,290 |                 442,900 |
-| output_logical_bytes                         |             1,919,784 |              19,197,534 |
-| compiler_controlled_peak_bytes               |            55,102,839 |             550,938,489 |
-| LFCA exact bytes                             |             6,025,452 |              60,223,898 |
-| LFSM / LFSD exact bytes                      | 6,158,094 / 5,998,848 | 61,565,234 / 59,979,132 |
-| bundle exact bytes                           |            18,182,394 |             181,768,264 |
-| source-build / compile 耗时                  |       0.36 s / 0.11 s |         26.9 s / 1.18 s |
-| emit / post-check 耗时                       |      0.63 s / 0.098 s |         6.58 s / 0.93 s |
-| shared retained（headless / spatial）        | 1,017,986 / 1,231,586 | 10,228,316 / 12,364,316 |
-| shared 必需 scratch                          |               788,000 |              68,360,000 |
-| TrafficWorld install live delta              |                23,825 |                 190,145 |
+| 指标                                             |      10k（100 cells） |     100k（1,000 cells） |
+| ------------------------------------------------ | --------------------: | ----------------------: |
+| 稳定实体（shared `entity_counts()`）             |                12,540 |                 125,400 |
+| `C_parking_virtual_declared`（声明虚拟容量）     |                20,000 |                 200,000 |
+| LIR 逻辑记录（公开 metric）                      |                44,290 |                 442,900 |
+| output_logical_bytes                             |             1,919,784 |              19,197,534 |
+| compiler_controlled_peak_bytes                   |            55,102,839 |             550,938,489 |
+| LFCA exact bytes                                 |             6,025,452 |              60,223,898 |
+| LFSM / LFSD exact bytes                          | 6,158,094 / 5,998,848 | 61,565,234 / 59,979,132 |
+| bundle exact bytes                               |            18,182,394 |             181,768,264 |
+| source-build / compile 耗时                      |       0.36 s / 0.11 s |         26.9 s / 1.18 s |
+| emit / post-check 耗时                           |      0.63 s / 0.098 s |         6.58 s / 0.93 s |
+| shared retained（headless / spatial）            | 1,017,986 / 1,231,586 | 10,228,316 / 12,364,316 |
+| shared 必需 scratch                              |               788,000 |              68,360,000 |
+| TrafficWorld install live delta（空载 8 槽世界） |                23,825 |                 190,145 |
 
 post-emission check 全程**零分配**（断言通过）。100k 的 LIR 恰为 10k 的 10 倍；
 synthetic-only + conflict-only 分解编译在两档都精确可加
 （10k：35,290 + 9,000 = 44,290；100k：352,900 + 90,000 = 442,900）。
+`TrafficWorld install live delta` 一行以 `WorldConfig` vehicle_capacity = 8 的
+**空载世界**（无车辆、无停车绑定）测量，仅覆盖静态网络安装/驻留分配，不含
+`N_individual` 车辆状态与停车绑定；运行层随档缩放（按
+`docs/design/chinese-style-city-workload.md` 的运行层档位定义）不在本 spike 证据内。
 
 ### 关键维度 vs 配置档上限（100k 档）
 
@@ -124,8 +128,8 @@ synthetic-only + conflict-only 分解编译在两档都精确可加
 | relation occurrences       | ≈234,000（合成侧精确 212,700） |    16,000,000 | ≈1.5% |     10,032 ✗ |
 | references                 | ≈218,000（合成侧精确 192,700） |    16,000,000 | ≈1.4% |     37,920 ✗ |
 | typed AST records          |         ≥785,100（合成侧精确） |     8,000,000 | ≥9.8% |     58,387 ✗ |
-| geometry points            |                         52,000 |    16,000,000 | 0.33% |     22,368 ✓ |
-| maneuver gates             |                         14,000 |     1,000,000 |  1.4% |      2,304 ✓ |
+| geometry points            |                         52,000 |    16,000,000 | 0.33% |     22,368 ✗ |
+| maneuver gates             |                         14,000 |     1,000,000 |  1.4% |      2,304 ✗ |
 | waiting zones              |                          2,000 |     1,000,000 |  0.2% |      1,536 ✗ |
 | modules                    |                            101 |        65,536 | 0.15% |        522 ✓ |
 | source bytes total         |  ≈29.1 MB（合成 18.0 MB 精确） |       512 MiB | ≈5.4% |  542,741 B ✗ |
@@ -206,6 +210,10 @@ $bin = "research/issue-543-cn-urban-capacity/target/release/laneflow-issue-543-s
   build/load/Adapter 各层完整核算；而 #543 Issue 正文未列 Adapter 层——两处口径差异
   在此登记。Adapter 层证据归 #544（Adapter harness）与 #545（证据矩阵）；建议
   #304 G1 冻结时对齐 §4.5 表述。本报告与 #543 关闭口径不得暗示已覆盖 Adapter 层。
+- **运行层随档缩放不在本 spike 范围**：install live delta 用空载 8 槽世界测量，
+  不含 `N_individual` 车辆状态与停车绑定；运行层 `N_individual`/停车绑定随档
+  缩放的实测证据归 #544（Adapter harness）/#545（证据矩阵）。本 spike 的 install
+  delta 不得被引用为运行层容量证据。
 - **重算触发条件**（#543 评论）：#304 G1 candidate rules 变动（cell/tile/设施配比），
   或 #284 落地改变 LFCA 表集。本 spike 的生成器参数化到 cell 粒度，重跑成本低。
 - **HIR/MIR 计数公开化**是独立 G1 事项；本报告以公开锚点 + admission 成功代替直接读数。

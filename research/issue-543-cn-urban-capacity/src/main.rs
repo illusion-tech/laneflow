@@ -75,6 +75,10 @@ const APPROACHES: [&str; 4] = ["w", "e", "s", "n"];
 const CELL_FACILITY_VIRTUAL_CAPACITY: u32 = 100;
 /// 每 macro-tile 一个 virtual-only 地下车库的声明虚拟容量。
 const GARAGE_VIRTUAL_CAPACITY: u32 = 1_000;
+/// 来源模块头的生成器构建标识。保持 20 字节：`generator_build_id` 计入 source
+/// record 长度（`encoded_source_record_len`），改变长度会使既有证据的 source
+/// bytes 锚点漂移。
+const GENERATOR_BUILD_ID: &str = "laneflow-543-spikev1";
 
 /// 一次规模运行的形状。
 #[derive(Clone, Copy, Debug)]
@@ -723,14 +727,53 @@ fn add_synthetic_cell(builder: &mut SyntheticModuleBuilder, shape: Shape, cell: 
         .unwrap();
 }
 
-fn synthetic_module_header(limits: &CompileLimits, tile: u32) -> SourceModuleHeader {
+/// FNV-1a 64 位混合。仅用于 provenance 摘要的确定性派生，非密码学用途
+///（摘要算法契约归生成方，见 `SourceModuleHeaderInput` 字段文档）。
+fn fnv1a64(mut state: u64, bytes: &[u8]) -> u64 {
+    for &byte in bytes {
+        state = (state ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    state
+}
+
+/// 把各输入段（带分隔边界）混成 64 位种子，再往返 4 轮摊满定长 32 字节摘要。
+/// 任一输入段变化即得到不同摘要；输出定长，不影响 source record 长度与测量值。
+fn derive_provenance_digest(parts: &[&[u8]]) -> [u8; 32] {
+    let mut state = 0xcbf2_9ce4_8422_2325_u64;
+    for part in parts {
+        state = fnv1a64(state, part);
+        state = fnv1a64(state, &[0xff]);
+    }
+    let mut digest = [0_u8; 32];
+    for (round, chunk) in digest.chunks_exact_mut(8).enumerate() {
+        state = fnv1a64(state, &(round as u64).to_le_bytes());
+        chunk.copy_from_slice(&state.to_le_bytes());
+    }
+    digest
+}
+
+fn synthetic_module_header(limits: &CompileLimits, shape: Shape, tile: u32) -> SourceModuleHeader {
+    // 两个摘要均从模块实际参数/编译选项确定性派生：不同 shape/tile/profile 必不同。
+    let parameters_and_inputs_digest = derive_provenance_digest(&[
+        &shape.cells.to_le_bytes(),
+        &shape.tiles.to_le_bytes(),
+        &tile.to_le_bytes(),
+        &CELLS_PER_TILE.to_le_bytes(),
+        &CELL_FACILITY_VIRTUAL_CAPACITY.to_le_bytes(),
+        &GARAGE_VIRTUAL_CAPACITY.to_le_bytes(),
+        &543_u64.to_le_bytes(),
+    ]);
+    let frontend_options_digest = derive_provenance_digest(&[
+        b"synthetic".as_slice(),
+        limits.profile_id().as_bytes(),
+    ]);
     SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: &format!("city/lf-cn-urban-543/t{tile:03}"),
             source_document_key: &format!("t{tile:03}.document"),
-            generator_build_id: "git:0123456789abcdef",
-            parameters_and_inputs_digest: [0x11; 32],
-            frontend_options_digest: [0x22; 32],
+            generator_build_id: GENERATOR_BUILD_ID,
+            parameters_and_inputs_digest,
+            frontend_options_digest,
             random_seed: Some(543),
             provenance: "repository:laneflow",
         },
@@ -741,7 +784,7 @@ fn synthetic_module_header(limits: &CompileLimits, tile: u32) -> SourceModuleHea
 
 /// 一个 macro-tile 的合成模块：10 cells + 1 多门地下车库 + 模块级共享三元组。
 fn build_synthetic_tile_module(limits: &CompileLimits, shape: Shape, tile: u32) -> SyntheticModule {
-    let header = synthetic_module_header(limits, tile);
+    let header = synthetic_module_header(limits, shape, tile);
     let mut module = SyntheticModuleBuilder::new(header, limits).unwrap();
     for within in 0..CELLS_PER_TILE {
         add_synthetic_cell(&mut module, shape, tile * CELLS_PER_TILE + within);
@@ -1682,6 +1725,9 @@ fn required_shared_network_scratch_bytes(
     }
 }
 
+/// 刻意以 8 槽空世界（`vehicle_capacity` = 8、无车辆、无停车绑定）安装：本 spike 只测
+/// 静态网络安装/驻留分配增量。运行层 `N_individual`/停车绑定随档缩放的实测证据归
+/// #544/#545；该 install delta 不得被引用为运行层容量证据。
 fn install_world(revision: std::sync::Arc<SharedNetworkRevision>) -> TrafficWorld {
     let origin = *revision.canonical_origin();
     TrafficWorld::install(
