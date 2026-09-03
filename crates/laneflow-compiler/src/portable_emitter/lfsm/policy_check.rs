@@ -347,13 +347,15 @@ pub fn check_portable_policy_sources(
         (primaries.capacity() * size_of::<(u32, crate::SourceModuleSourceView<'_>)>()) as u64,
     );
     drop(primaries);
-    check_pool(view, location_table.row_count() as usize, &mut scratch)?;
+    let projection_rows = check_pool(view, location_table.row_count() as usize, &mut scratch)?;
+    if projection_rows.policies != table(root, 2, 23)?.row_count() as usize
+        || projection_rows.members != member_count
+        || projection_rows.movements != table(root, 2, 5)?.row_count() as usize
+    {
+        return Err(MISMATCH);
+    }
     if !needs_projection {
-        if table(view, 2, 0)?.rows().any(|r| {
-            number(r, 1) == Ok(24)
-                || (number(r, 1) == Ok(6) && ordinals(r, 5).is_ok_and(|v| !v.is_empty()))
-        }) || table(view, 3, 0)?.rows().any(|r| number(r, 1) == Ok(24))
-        {
+        if projection_rows.movement_contributions {
             return Err(MISMATCH);
         }
         return Ok(());
@@ -480,17 +482,6 @@ pub fn check_portable_policy_sources(
             &documents,
         )?;
         seen += 1;
-    }
-    let policy_rows = stable_rows
-        .iter()
-        .filter(|r| number(**r, 1) == Ok(24))
-        .count();
-    let member_rows = local_rows
-        .iter()
-        .filter(|r| number(**r, 1) == Ok(24))
-        .count();
-    if policy_rows != table(root, 2, 23)?.row_count() as usize || member_rows != members.len() {
-        return Err(MISMATCH);
     }
     let mut movement_sources = reserved::<([u8; 16], crate::MovementSourceView<'_>)>(
         source.movement_sources().len(),
@@ -885,13 +876,23 @@ fn check_documents<'a>(
     })
 }
 
+#[derive(Default)]
+struct ProjectionRowCounts {
+    policies: usize,
+    members: usize,
+    movements: usize,
+    movement_contributions: bool,
+}
+
 fn check_pool(
     view: RegistryCheckedObjectView<'_>,
     location_count: usize,
     scratch: &mut Scratch,
-) -> Result<(), PortableEmissionError> {
+) -> Result<ProjectionRowCounts, PortableEmissionError> {
     let mut used = reserved::<bool>(location_count, scratch)?;
     used.resize(location_count, false);
+    let mut counts = ProjectionRowCounts::default();
+    let mut previous_stable = None;
     for (section, table_id, scalar, vector) in [
         (1, 0, Some(13), None),
         (2, 0, Some(4), Some(5)),
@@ -900,11 +901,31 @@ fn check_pool(
         (4, 0, None, Some(7)),
     ] {
         for row in table(view, section, table_id)?.rows() {
+            // 与位置引用复用一次扫描；全局键跨 chunk 连续，保证后续二分的有序与唯一性。
+            let movement = match (section, table_id) {
+                (2, 0) => {
+                    let kind = number(row, 1)?;
+                    let key = (kind, checked_stable_id_with(row, 2, MISMATCH)?);
+                    if previous_stable.is_some_and(|previous| previous >= key) {
+                        return Err(MISMATCH);
+                    }
+                    previous_stable = Some(key);
+                    counts.policies += usize::from(kind == 24);
+                    counts.movements += usize::from(kind == 6);
+                    kind == 6
+                }
+                (3, 0) => {
+                    counts.members += usize::from(number(row, 1)? == 24);
+                    false
+                }
+                _ => false,
+            };
             if let Some(tag) = scalar {
                 *used.get_mut(number(row, tag)? as usize).ok_or(MISMATCH)? = true;
             }
             if let Some(tag) = vector {
                 let values = ordinals(row, tag)?;
+                counts.movement_contributions |= movement && !values.is_empty();
                 for i in 0..values.len() {
                     *used
                         .get_mut(values.get(i).ok_or(MISMATCH)? as usize)
@@ -917,5 +938,5 @@ fn check_pool(
         return Err(MISMATCH);
     }
     scratch.release(used.capacity() as u64);
-    Ok(())
+    Ok(counts)
 }
