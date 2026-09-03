@@ -320,6 +320,7 @@ prohibition 也必须能观察到。语义引用相同但两根 ordinal 排列�
 | 保留 policy 的 tag 3–5（法域、版本、来源） | 既有 StaticRuleChange Modify；按实际字段存在性保存 SemanticFieldValueV1 |
 | policy tag 1/2（typed ordinal/StableId）   | Identity/derived；不产生字段 Modify                                     |
 | 四类局部表全部成员及字段                   | 仅 PolicyLocalChange；每个变化 K 恰好一行完整前后值                     |
+| Movement 实体新增/删除                     | 既有 EntityChange Add/Remove；所在侧完整 RowV1，含实际存在的 tag 7      |
 | 保留 Movement 的可选 tag 7 turnDirection   | 既有 EntityChange Modify；按实际字段存在性保存 U8 SemanticFieldValueV1  |
 
 policy 内不虚构成员数组字段或成员 StableId，也不为局部行的 stream/gate/classes/
@@ -329,6 +330,8 @@ yield/evidence 引用再发射 RelationChange。LFSM role 33–36 仅用于来�
 Genesis 必须为每个 policy 实体发射 Entity Add，并为其全部局部成员发射独立的
 PolicyLocal Add；Artifact 中整个 policy 新增/删除也必须逐项发射其成员 Add/Remove。
 父实体记录不能代替局部成员记录；跨表按两端完整事实验证，不把表顺序当逐步应用命令。
+Movement 的 Genesis、新增和删除同样逐字节比较所在侧完整实体行；不能只检查保留
+Movement 的方向 Modify。方向缺失、显式零和其他合法值不能彼此替代。
 同键规则引用发生变化是一次完整 Modify，不再重复记成员内部字段变化。policy 身份
 改变时沿用旧实体及成员 Remove、新实体及成员 Add，不猜测 lineage。
 
@@ -476,6 +479,8 @@ policy 实体和 `(ownerStableId, role, key)` 成员全集；根据 key 排序�
 Movement 的新方向属性存在时，RoadEditing 的贡献来源增加同一 Declaration 的
 `(0,14,5)` 路径；缺失时无此位置，Synthetic 则投影实际提供的 Text 字段来源。
 两者均不新增 owner-local role，也不改变 Movement 的 primary。
+发射方向贡献来源时复用既有稳定实体的有序索引或合并扫描，不为每个方向重新线性
+查找全部稳定来源；追加 policy 来源不能破坏既有实体的查找边界。
 新增行、属性路径、来源 context、intern 字符串与向量全部计入既有编译及后发射预算，
 先计量后分配；所有绑定与投影成功后才返回完整候选，失败不留下部分来源映射。
 
@@ -640,27 +645,30 @@ cells/bytes、claim/query/collision 与 wait-for node/edge/visit counts。开发
 
 ## 8. 原子版本矩阵
 
-下表是本实施候选选择的唯一切换组合。仅在完整 #284 交付时替换现行 writer/reader；
-本文审阅本身不修改代码常量、不安装新格式，也不接受跨行混搭。
+下表记录实施前基线与完整 #284 的唯一切换组合。各切片在集成分支更新其负责的
+writer/reader；仅在完整 #284 闭合后发布整组版本，不能把切片格式登记当作运行时
+能力已交付。W1 的 LFCA/LFSM/LFSD 为 5/4/4；W3 完成消费闭合前，共享根在分配前
+拒绝非空策略实体、任一局部成员表或 Movement 方向属性，包含显式零。
+此拒绝不影响空策略且无方向属性的 LFCA 5 构建；W3 以完整语义闭合替换拒绝条件。
 
-| 轴                             | 当前  | #284  | 原因                                              |
-| ------------------------------ | ----- | ----- | ------------------------------------------------- |
-| Identity encoding              | 1     | 1     | 编码算法不变                                      |
-| Identity registry              | 3     | 4     | 新 policy 实体和 key 标签                         |
-| LFCA / canonical format        | 4     | 5     | 一实体、四局部表、机动方向和策略语义              |
-| constraint contract            | 2     | 3     | 门解释与组合资源约束                              |
-| static execution contract      | 4     | 5     | policy 解析与 conflict 执行输入                   |
-| LFSM                           | 3     | 4     | §4.4 来源编码、角色登记与逐值投影闭合             |
-| LFSD                           | 3     | 4     | 七节/七表，PolicyLocalChange 完整增删改与两端闭合 |
-| LFCP                           | 2     | 2     | descriptor 形状不变，精确绑定新版 LFCA/LFSM       |
-| NetworkRevision derivation     | 1     | 1     | 现有规范静态覆盖算法；新表和契约值进入现有输入    |
-| chunked / singleton section    | 2 / 1 | 2 / 1 | 不改 framing、chunk 或 field 编码                 |
-| Road Editing schema / frontend | 3 / 3 | 4 / 4 | 正式来源新增 policy 声明                          |
-| Synthetic frontend             | 4     | 5     | 同构 policy 声明与机动方向                        |
-| LFRS / runtime state           | 4 / 4 | 5 / 5 | pin、reservation、Clearing 和历史                 |
-| deterministic digest           | 6     | 7     | 新增语义字段与目标规范化                          |
-| cutover descriptor             | 1     | 2     | 新策略、冲突历史和规范化语义                      |
-| corridor catalog               | 0.3   | 0.4   | 必填 policy selection                             |
+| 轴                             | 实施前 | #284  | 原因                                              |
+| ------------------------------ | ------ | ----- | ------------------------------------------------- |
+| Identity encoding              | 1      | 1     | 编码算法不变                                      |
+| Identity registry              | 3      | 4     | 新 policy 实体和 key 标签                         |
+| LFCA / canonical format        | 4      | 5     | 一实体、四局部表、机动方向和策略语义              |
+| constraint contract            | 2      | 3     | 门解释与组合资源约束                              |
+| static execution contract      | 4      | 5     | policy 解析与 conflict 执行输入                   |
+| LFSM                           | 3      | 4     | §4.4 来源编码、角色登记与逐值投影闭合             |
+| LFSD                           | 3      | 4     | 七节/七表，PolicyLocalChange 完整增删改与两端闭合 |
+| LFCP                           | 2      | 2     | descriptor 形状不变，精确绑定新版 LFCA/LFSM       |
+| NetworkRevision derivation     | 1      | 1     | 现有规范静态覆盖算法；新表和契约值进入现有输入    |
+| chunked / singleton section    | 2 / 1  | 2 / 1 | 不改 framing、chunk 或 field 编码                 |
+| Road Editing schema / frontend | 3 / 3  | 4 / 4 | 正式来源新增 policy 声明                          |
+| Synthetic frontend             | 4      | 5     | 同构 policy 声明与机动方向                        |
+| LFRS / runtime state           | 4 / 4  | 5 / 5 | pin、reservation、Clearing 和历史                 |
+| deterministic digest           | 6      | 7     | 新增语义字段与目标规范化                          |
+| cutover descriptor             | 1      | 2     | 新策略、冲突历史和规范化语义                      |
+| corridor catalog               | 0.3    | 0.4   | 必填 policy selection                             |
 
 几何计算和浮点量化算法未变，其独立 geometry semantics 版本保持不变。
 

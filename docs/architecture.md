@@ -135,7 +135,7 @@ component 可选。headless 构建不保留 geometry；稳定身份索引不进�
 target/profile 文件变体；#551 的私有 staged backing 只读映射不是共享根布局或持久化缓存。
 
 LFCA 的规范关系保存编译器派生的静态执行约束事实（Static Execution Constraint
-Facts）；LFCA 4 不保存提示 payload。`laneflow-static-network` 按显式非语义 derivation
+Facts）；LFCA 不保存提示 payload。`laneflow-static-network` 按显式非语义 derivation
 version 确定性派生 `PartitionPlanningHints` component，Runtime 可以忽略或重建，但不得保存
 最终分区/工作线程分配（Partition/Worker Assignment）。每个世界依据这些约束、硬件与
 动态负载建立自己的

@@ -18,7 +18,7 @@
 
 ## 1. 结论
 
-冲突静态领域已经由现行 official source、LFCA 4 与
+冲突静态领域已经由现行 official source、LFCA 与
 `SharedNetworkRevision::conflict()` 完整拥有。本文不再登记实体、格式表、来源映射、
 语义差异或空间区域，也不重述这些权威文档。
 

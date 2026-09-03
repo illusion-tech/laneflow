@@ -281,6 +281,126 @@ fn policy_diff_preserves_entity_attribute_partition_and_checks_exact_roots() {
 }
 
 #[test]
+fn movement_add_remove_and_genesis_check_complete_direction_payloads() {
+    let movement_id = without_policies().sections[2].tables[5].rows[0].fields[1]
+        .value
+        .clone();
+    let empty: &[u8] =
+        include_bytes!("../../../../../tests/fixtures/portable/lfca-variants/min-headless.lfca");
+    let output = crate::compiler::portable_fixture_tests::full_spatial_portable_fixture_output();
+    let verify = |base: Option<&[u8]>, target: &[u8], diff: &OwnedObject| {
+        let base = match base {
+            Some(bytes) => PortableDiffBase::Artifact(
+                preflight_object_values(
+                    bytes,
+                    PortableObjectKind::CanonicalArtifact,
+                    FormatLimits::HARD,
+                )
+                .unwrap(),
+            ),
+            None => PortableDiffBase::Genesis,
+        };
+        check_portable_policy_diff(
+            base,
+            target,
+            &raw_bytes(diff),
+            FormatLimits::HARD,
+            &CompileLimits::single_network_1m_v2(),
+        )
+    };
+    // 缺失、显式零和另一合法方向的 fullRowV1 都结构合法，但不能彼此替代。
+    let roots: Vec<_> = [None, Some(0), Some(1)]
+        .into_iter()
+        .map(|direction| {
+            let mut object = without_policies();
+            if let Some(direction) = direction {
+                let movement = &mut object.sections[2].tables[5].rows[0];
+                let mut fields = movement.fields.to_vec();
+                fields.push(field(7, OwnedValue::U8(direction)));
+                movement.fields = fields.into();
+            }
+            root(&object)
+        })
+        .collect();
+    let movement_rows: Vec<_> = roots
+        .iter()
+        .map(|bytes| {
+            preflight_object_values(
+                bytes,
+                PortableObjectKind::CanonicalArtifact,
+                FormatLimits::HARD,
+            )
+            .unwrap()
+            .registry_view()
+            .section(2)
+            .unwrap()
+            .table(5)
+            .unwrap()
+            .row(0)
+            .unwrap()
+            .bytes()
+            .to_vec()
+            .into_boxed_slice()
+        })
+        .collect();
+    for (direction, artifact) in roots.iter().enumerate() {
+        let genesis = build_genesis_lfsd(
+            &output,
+            network_revision(artifact, FormatLimits::HARD).unwrap(),
+            &close_object(artifact.clone()),
+            FormatLimits::HARD,
+        )
+        .unwrap();
+        for (base, target, diff, payload_tag) in [
+            (None, artifact.as_ref(), genesis, 10),
+            (
+                Some(empty),
+                artifact.as_ref(),
+                generate(empty, artifact),
+                10,
+            ),
+            (Some(artifact.as_ref()), empty, generate(artifact, empty), 9),
+        ] {
+            verify(base, target, &diff).unwrap();
+            let mut omitted = diff.clone();
+            omitted.sections[1].tables[0].rows = omitted.sections[1].tables[0]
+                .rows
+                .iter()
+                .filter(|r| r.fields[1].value != OwnedValue::U16(6))
+                .cloned()
+                .collect();
+            assert_eq!(
+                verify(base, target, &omitted),
+                Err(PortableEmissionError::PolicyDiffMismatch)
+            );
+            for (other_direction, replacement) in movement_rows.iter().enumerate() {
+                if direction == other_direction {
+                    continue;
+                }
+                let mut changed = diff.clone();
+                let movement = changed.sections[1].tables[0]
+                    .rows
+                    .iter_mut()
+                    .find(|r| {
+                        r.fields[1].value == OwnedValue::U16(6) && r.fields[2].value == movement_id
+                    })
+                    .unwrap();
+                movement
+                    .fields
+                    .iter_mut()
+                    .find(|f| f.tag == payload_tag)
+                    .unwrap()
+                    .value = OwnedValue::Bytes(replacement.clone());
+                assert_eq!(
+                    verify(base, target, &changed),
+                    Err(PortableEmissionError::PolicyDiffMismatch)
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn policy_diff_cross_chunk_members_and_cross_operation_duplicate_key() {
     let base = root(&without_policies());
     let mut object = fixture();
