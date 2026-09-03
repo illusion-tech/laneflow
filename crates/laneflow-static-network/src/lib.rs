@@ -6,6 +6,8 @@ mod error;
 mod identity;
 mod numeric;
 mod origin;
+mod policy;
+mod policy_build;
 mod relations;
 mod relations_build;
 mod spatial;
@@ -24,10 +26,14 @@ pub use conflict::{
     ConflictPassage, ConflictPathAnchor, ConflictZoneView, ParticipantStreamView,
     SharedConflictNetwork,
 };
-pub use error::{BuildError, BuildErrorClass, BuildStructure};
+pub use error::{BuildError, BuildErrorClass, BuildStructure, PolicyBuildViolation};
 pub use identity::SharedIdentityIndex;
 pub use origin::{
     CanonicalNetworkOrigin, PARTITION_PLANNING_HINTS_DERIVATION_VERSION, StaticContractVersions,
+};
+pub use policy::{
+    PolicyEvidence, PolicyGapProfile, PolicyRuleAttribution, PolicyView, ResolvedGatePolicy,
+    ResolvedStreamPolicy, SharedPolicyNetwork, YieldTargetCell,
 };
 pub use relations::{
     AccessCell, AccessRuleView, AccessTarget, BoundedDistance, CorridorElement, FacilityKind,
@@ -53,6 +59,7 @@ pub struct SharedNetworkRevision {
     identity: SharedIdentityIndex,
     planning_hints: PartitionPlanningHints,
     conflict: SharedConflictNetwork,
+    policy: SharedPolicyNetwork,
     spatial: Option<SharedSpatialNetwork>,
 }
 
@@ -88,6 +95,11 @@ impl SharedNetworkRevision {
     }
 
     #[must_use]
+    pub const fn policy(&self) -> &SharedPolicyNetwork {
+        &self.policy
+    }
+
+    #[must_use]
     pub const fn spatial(&self) -> Option<&SharedSpatialNetwork> {
         self.spatial.as_ref()
     }
@@ -99,6 +111,7 @@ impl SharedNetworkRevision {
             + self.identity.retained_logical_bytes()
             + self.planning_hints.retained_logical_bytes()
             + self.conflict.retained_logical_bytes()
+            + self.policy.retained_logical_bytes()
             + self
                 .spatial
                 .as_ref()

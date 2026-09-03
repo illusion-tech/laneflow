@@ -4,6 +4,9 @@
 //! 两个制品仅改变一个设施的声明容量；静态 retained 与相同稀疏 binding 的每世界
 //! live bytes 都必须保持相同。
 
+#[path = "support/policy.rs"]
+mod test_policy;
+
 use std::alloc::System;
 use std::hint::black_box;
 use std::sync::Arc;
@@ -126,7 +129,7 @@ fn compile_capacity(capacity: u32) -> Arc<SharedNetworkRevision> {
 fn install(revision: Arc<SharedNetworkRevision>) -> TrafficWorld {
     let origin = *revision.canonical_origin();
     TrafficWorld::install(
-        revision,
+        std::sync::Arc::clone(&revision),
         WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
         CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
@@ -138,6 +141,7 @@ fn install(revision: Arc<SharedNetworkRevision>) -> TrafficWorld {
             .expect("source"),
         },
         541,
+        test_policy::selection(&revision),
     )
     .expect("install")
 }

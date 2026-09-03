@@ -25,7 +25,7 @@ use crate::{
 };
 
 /// 描述符封闭契约版本（#302 切换合同 §2）。
-pub const CUTOVER_DESCRIPTOR_FORMAT_VERSION: u16 = 1;
+pub const CUTOVER_DESCRIPTOR_FORMAT_VERSION: u16 = 2;
 
 /// 迁移策略封闭种类选择器（#302 切换合同 §3；术语表：封闭种类选择器）。
 ///
@@ -512,6 +512,11 @@ impl NetworkRevisionCutoverDescriptor {
 /// 继续：旧修订、旧动态状态、旧来源、旧占用与信号语义不变。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum CutoverError {
+    /// 相同策略身份必须保留法域和法规版本。
+    #[error("目标路权策略法域或法规版本不一致")]
+    PolicyRegulationMismatch,
+    #[error("目标世界的路权策略安装失败")]
+    PolicyInstall(crate::InstallError),
     /// 描述符一致性验证失败（对应合同 §8「描述符不一致/不可信」）。
     #[error("切换描述符一致性验证失败")]
     Descriptor(#[from] CutoverDescriptorError),
@@ -977,7 +982,7 @@ pub(crate) mod tests {
     use super::*;
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
     const MIN_HEADLESS: &[u8] = include_bytes!(
         "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/min-headless.lfca"
@@ -1269,7 +1274,7 @@ pub(crate) mod tests {
         pub(crate) fn revision(retain: bool) -> Arc<SharedNetworkRevision> {
             let input = check_canonical_network_input(
                 include_bytes!(
-                    "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+                    "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
                 ),
                 FormatLimits::HARD,
             )
@@ -1313,6 +1318,7 @@ pub(crate) mod tests {
                 WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
                 source_for(origin, "fixture://base"),
                 1,
+                crate::test_policy::selection(&revision),
             )
             .expect("install");
             let first = laneflow_static_contract::LaneEdgeOrdinal::from_raw(0);

@@ -22,6 +22,13 @@ fn install_fixture(
             .expect("non-empty fixture key"),
         },
         0,
+        toml::from_str::<laneflow_scenario::signalized_corridor::CorridorCatalog>(include_str!(
+            "../../../examples/data/v0.2-signalized-corridor.catalog.toml"
+        ))
+        .unwrap()
+        .policy_selection
+        .resolve()
+        .unwrap(),
     )
 }
 
@@ -311,7 +318,7 @@ fn default_catalog_locks_physical_slots_lane_choices_and_weights() {
     let catalog: laneflow_corridor_generator::CorridorCatalog =
         toml::from_str(std::str::from_utf8(generated.catalog_bytes()).expect("catalog is UTF-8"))
             .expect("catalog TOML must parse");
-    assert_eq!(catalog.catalog_version, "0.3");
+    assert_eq!(catalog.catalog_version, "0.4");
     assert_eq!(
         catalog
             .portals

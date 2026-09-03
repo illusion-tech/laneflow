@@ -1,3 +1,6 @@
+#[path = "support/policy.rs"]
+mod test_policy;
+
 use std::hint::black_box;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -39,7 +42,7 @@ use laneflow_static_network::{
     SpatialBuildOption, build_shared_network_revision,
 };
 
-use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v4 as snapshot_wire;
+use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v5 as snapshot_wire;
 
 fn install_fixture(
     revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
@@ -50,6 +53,7 @@ fn install_fixture(
         config,
         published_source(&revision, "fixture://in-process"),
         0,
+        test_policy::selection(&revision),
     )
 }
 
@@ -766,6 +770,71 @@ fn conflict_road_editing_module_with_shape(
             .expect("vehicle profile"),
         ))
         .expect("add vehicle profile");
+    let policy_gates = [
+        ("east-west", "east-west-path", "east-west-gate"),
+        ("north-south", "north-south-path", "north-south-gate"),
+    ]
+    .iter()
+    .map(|(movement, path, gate)| {
+        lfre::PolicyGateRuleInput::try_new(
+            *gate,
+            lfre::ManeuverGateReference::owner_scoped(
+                vec!["crossing".into(), (*movement).into(), (*path).into()],
+                *gate,
+            )
+            .unwrap(),
+            None,
+            laneflow_compiler::GateInterpretation::Uncontrolled,
+            laneflow_compiler::GateProhibition::None,
+            vec![],
+        )
+        .unwrap()
+    })
+    .collect();
+    let mut stream_keys = Vec::new();
+    if include_conflict {
+        if multiplicity {
+            stream_keys.extend(["east-west-stream-a", "east-west-stream-b"]);
+        } else {
+            stream_keys.extend(
+                ["east-west-stream", "north-south-stream"]
+                    .into_iter()
+                    .take(stream_count),
+            );
+        }
+    }
+    let policy_streams = stream_keys
+        .iter()
+        .map(|key| {
+            lfre::PolicyStreamRuleInput::try_new(
+                *key,
+                lfre::ParticipantStreamReference::owner_scoped(vec!["crossing".into()], *key)
+                    .unwrap(),
+                None,
+                0,
+                vec![],
+                None,
+                vec![],
+            )
+            .unwrap()
+        })
+        .collect();
+    module
+        .add_declaration(lfre::RoadEditingDeclaration::RightOfWayPolicySet(
+            lfre::RightOfWayPolicySetInput::try_new(
+                "conflict-policy",
+                laneflow_compiler::RegulationIdentity::try_new("engineering", "fixture-1")
+                    .unwrap()
+                    .with_source("repository:runtime-fixture-1")
+                    .unwrap(),
+                vec![],
+                vec![],
+                policy_streams,
+                policy_gates,
+            )
+            .unwrap(),
+        ))
+        .unwrap();
     module.finish().expect("Road Editing module")
 }
 
@@ -2607,7 +2676,7 @@ fn virtual_arrival_is_observed_once_then_park_is_pose_less_and_narrowly_idempote
 }
 
 #[test]
-fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v4() {
+fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v5() {
     let revision = compile_virtual_parking_revision(2);
     let mut world = install_fixture(
         Arc::clone(&revision),
@@ -2638,9 +2707,9 @@ fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v4() {
         .expect("spawn occupied virtual")
         .vehicle;
 
-    assert_eq!(laneflow_runtime::SNAPSHOT_FORMAT_VERSION, 4);
-    assert_eq!(laneflow_runtime::RUNTIME_STATE_VERSION, 4);
-    assert_eq!(laneflow_runtime::RUNTIME_STATE_DIGEST_VERSION, 6);
+    assert_eq!(laneflow_runtime::SNAPSHOT_FORMAT_VERSION, 5);
+    assert_eq!(laneflow_runtime::RUNTIME_STATE_VERSION, 5);
+    assert_eq!(laneflow_runtime::RUNTIME_STATE_DIGEST_VERSION, 7);
     let snapshot = world.capture_snapshot().expect("capture");
     let digest = deterministic_state_digest(&snapshot).expect("snapshot digest");
     let reserved_id = snapshot
@@ -3485,6 +3554,14 @@ fn add_signalized_corridor(module: &mut SyntheticModuleBuilder, phase_ms: u64) {
             }],
         })
         .expect("controller");
+    test_policy::add_gate_policy(
+        module,
+        "signal-policy",
+        &[(
+            "gate-entry",
+            laneflow_compiler::GateInterpretation::ProtectedGroup,
+        )],
+    );
 }
 
 #[test]

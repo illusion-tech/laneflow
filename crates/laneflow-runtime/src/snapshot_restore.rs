@@ -1,9 +1,9 @@
-//! `LFRS` v4 的 verifier-first 读取、语义 lowering 与原子新世界恢复。
+//! `LFRS` v5 的 verifier-first 读取、语义 lowering 与原子新世界恢复。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v4 as wire;
+use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v5 as wire;
 use laneflow_runtime_snapshot_wire::runtime::VerifierOptions;
 use laneflow_static_contract::{
     LaneEdgeId, ManeuverGateId, ManeuverPathId, ParkingFacilityId, ParkingSpaceId,
@@ -25,20 +25,20 @@ const MIN_SIZE_PREFIXED_LFRS_BYTES: usize = 12;
 const MAX_SCHEMA_TABLE_DEPTH: usize = 4;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
 const MICROMETRES_PER_MILLIMETRE: u16 = 1_000;
-const ROOT_V4_FIELDS: usize = vtable_field_count(wire::RuntimeSnapshot::VT_WAITING_ZONES);
-const WORLD_CONFIG_V4_FIELDS: usize =
+const ROOT_V5_FIELDS: usize = vtable_field_count(wire::RuntimeSnapshot::VT_WORLD_POLICY);
+const WORLD_CONFIG_V5_FIELDS: usize =
     vtable_field_count(wire::WorldConfigBinding::VT_FIXED_DELTA_TIME_MS);
-const PUBLISHED_SOURCE_V4_FIELDS: usize =
+const PUBLISHED_SOURCE_V5_FIELDS: usize =
     vtable_field_count(wire::PublishedSourceBinding::VT_NETWORK_REVISION);
-const ROUTE_V4_FIELDS: usize = vtable_field_count(wire::SnapshotRoute::VT_EDGES);
-const VEHICLE_V4_FIELDS: usize = vtable_field_count(wire::SnapshotVehicle::VT_WAITING_MEMBERSHIP);
-const PARKING_BINDING_V4_FIELDS: usize =
+const ROUTE_V5_FIELDS: usize = vtable_field_count(wire::SnapshotRoute::VT_EDGES);
+const VEHICLE_V5_FIELDS: usize = vtable_field_count(wire::SnapshotVehicle::VT_WAITING_MEMBERSHIP);
+const PARKING_BINDING_V5_FIELDS: usize =
     vtable_field_count(wire::ParkingBinding::VT_VIRTUAL_ENTRY_PROGRESS_MM);
-const MANEUVER_TRAVERSAL_V4_FIELDS: usize =
+const MANEUVER_TRAVERSAL_V5_FIELDS: usize =
     vtable_field_count(wire::ManeuverTraversalBinding::VT_PHASE_GATE);
-const WAITING_MEMBERSHIP_V4_FIELDS: usize =
+const WAITING_MEMBERSHIP_V5_FIELDS: usize =
     vtable_field_count(wire::WaitingMembershipBinding::VT_ADMISSION_SEQUENCE);
-const WAITING_ZONE_STATE_V4_FIELDS: usize =
+const WAITING_ZONE_STATE_V5_FIELDS: usize =
     vtable_field_count(wire::WaitingZoneState::VT_NEXT_ADMISSION_SEQUENCE);
 
 const fn vtable_field_count(
@@ -126,6 +126,9 @@ pub enum SnapshotRestoreError {
     /// FlatBuffers verifier 拒绝结构。
     #[error("LFRS FlatBuffers 结构无效")]
     InvalidFlatbuffer,
+    /// 选择 tag 与 StableId 的闭合形状不合法。
+    #[error("LFRS 世界策略绑定无效")]
+    InvalidPolicyBinding,
     /// 容器格式版本未知。
     #[error("LFRS format version 不支持: {actual}")]
     UnsupportedFormatVersion {
@@ -138,8 +141,8 @@ pub enum SnapshotRestoreError {
         /// 实际版本。
         actual: u16,
     },
-    /// v4 table 出现 schema 未登记的字段槽；这类字段可能携带禁绑状态。
-    #[error("LFRS v4 table {table} 含未知字段槽: supported={supported}, actual={actual}")]
+    /// v5 table 出现 schema 未登记的字段槽；这类字段可能携带禁绑状态。
+    #[error("LFRS v5 table {table} 含未知字段槽: supported={supported}, actual={actual}")]
     UnknownTableFields {
         /// table 名。
         table: &'static str,
@@ -451,8 +454,14 @@ pub fn restore_lfrs(
         target_config.worker_count(),
         target_config.fixed_delta_time_ms(),
     );
-    let mut world = TrafficWorld::install(revision, staging_config, source, root.world_id())
-        .map_err(SnapshotRestoreError::Install)?;
+    let mut world = TrafficWorld::install(
+        revision,
+        staging_config,
+        source,
+        root.world_id(),
+        decode_world_policy(root.world_policy())?,
+    )
+    .map_err(SnapshotRestoreError::Install)?;
     let root_revision = root
         .network_revision()
         .expect("binding validation requires network_revision");
@@ -696,7 +705,7 @@ fn verify_lfrs<'a>(
         // WaitingZone 状态按静态根的实际 zone 数量设界，不新增调用方容量轴。
         .checked_add(u64::from(target_config.vehicle_capacity()).saturating_mul(4))
         .and_then(|value| value.checked_add(u64::from(waiting_zone_count)))
-        .and_then(|value| value.checked_add(3))
+        .and_then(|value| value.checked_add(4))
         .ok_or_else(|| limit_error(SnapshotLimitDimension::VerifierBudget, u64::MAX, u64::MAX))?;
     let max_tables = usize::try_from(max_tables_u64).map_err(|_| {
         limit_error(
@@ -742,7 +751,7 @@ fn validate_bindings(
             actual: root.runtime_state_version(),
         });
     }
-    validate_closed_v4_tables(root)?;
+    validate_closed_v5_tables(root)?;
     let network_revision = root
         .network_revision()
         .ok_or(SnapshotRestoreError::MissingField {
@@ -890,45 +899,68 @@ fn validate_bindings(
     Ok(())
 }
 
-fn validate_closed_v4_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), SnapshotRestoreError> {
-    validate_table_field_count("RuntimeSnapshot", root._tab, ROOT_V4_FIELDS)?;
+fn decode_world_policy(
+    binding: wire::WorldPolicyBinding<'_>,
+) -> Result<crate::WorldPolicySelection, SnapshotRestoreError> {
+    match (binding.selection(), binding.policy()) {
+        (wire::WorldPolicySelectionKind::NotRequired, None) => {
+            Ok(crate::WorldPolicySelection::NotRequired)
+        }
+        (wire::WorldPolicySelectionKind::Pinned, Some(id)) => {
+            Ok(crate::WorldPolicySelection::Pinned(crate::PolicyPin {
+                policy: laneflow_static_contract::RightOfWayPolicySetId::from_untyped(
+                    StableId128::from_bytes(id.0),
+                ),
+            }))
+        }
+        _ => Err(SnapshotRestoreError::InvalidPolicyBinding),
+    }
+}
+
+fn validate_closed_v5_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), SnapshotRestoreError> {
+    validate_table_field_count("RuntimeSnapshot", root._tab, ROOT_V5_FIELDS)?;
+    validate_table_field_count(
+        "WorldPolicyBinding",
+        root.world_policy()._tab,
+        vtable_field_count(wire::WorldPolicyBinding::VT_POLICY),
+    )?;
     validate_table_field_count(
         "WorldConfigBinding",
         root.world_config()._tab,
-        WORLD_CONFIG_V4_FIELDS,
+        WORLD_CONFIG_V5_FIELDS,
     )?;
     if let Some(published) = root.source_published() {
         validate_table_field_count(
             "PublishedSourceBinding",
             published._tab,
-            PUBLISHED_SOURCE_V4_FIELDS,
+            PUBLISHED_SOURCE_V5_FIELDS,
         )?;
     }
     for route in root.routes() {
-        validate_table_field_count("SnapshotRoute", route._tab, ROUTE_V4_FIELDS)?;
+        validate_table_field_count("SnapshotRoute", route._tab, ROUTE_V5_FIELDS)?;
     }
     for vehicle in root.vehicles() {
-        validate_table_field_count("SnapshotVehicle", vehicle._tab, VEHICLE_V4_FIELDS)?;
+        validate_table_field_count("SnapshotVehicle", vehicle._tab, VEHICLE_V5_FIELDS)?;
         if let Some(parking) = vehicle.parking() {
-            validate_table_field_count("ParkingBinding", parking._tab, PARKING_BINDING_V4_FIELDS)?;
+            validate_table_field_count("ParkingBinding", parking._tab, PARKING_BINDING_V5_FIELDS)?;
         }
         if let Some(traversal) = vehicle.maneuver_traversal() {
             validate_table_field_count(
                 "ManeuverTraversalBinding",
                 traversal._tab,
-                MANEUVER_TRAVERSAL_V4_FIELDS,
+                MANEUVER_TRAVERSAL_V5_FIELDS,
             )?;
         }
         if let Some(membership) = vehicle.waiting_membership() {
             validate_table_field_count(
                 "WaitingMembershipBinding",
                 membership._tab,
-                WAITING_MEMBERSHIP_V4_FIELDS,
+                WAITING_MEMBERSHIP_V5_FIELDS,
             )?;
         }
     }
     for state in root.waiting_zones() {
-        validate_table_field_count("WaitingZoneState", state._tab, WAITING_ZONE_STATE_V4_FIELDS)?;
+        validate_table_field_count("WaitingZoneState", state._tab, WAITING_ZONE_STATE_V5_FIELDS)?;
     }
     Ok(())
 }
@@ -2451,7 +2483,7 @@ mod tests {
                 wire::size_prefixed_root_as_runtime_snapshot(&prior_format).expect("verified LFRS");
             table_field_offset(root._tab, wire::RuntimeSnapshot::VT_FORMAT_VERSION)
         };
-        prior_format[format_offset..format_offset + 4].copy_from_slice(&3_u32.to_le_bytes());
+        prior_format[format_offset..format_offset + 4].copy_from_slice(&4_u32.to_le_bytes());
         assert_eq!(
             restore_lfrs(
                 &prior_format,
@@ -2461,11 +2493,11 @@ mod tests {
                 generous_limits(),
             )
             .unwrap_err(),
-            SnapshotRestoreError::UnsupportedFormatVersion { actual: 3 }
+            SnapshotRestoreError::UnsupportedFormatVersion { actual: 4 }
         );
 
         let mut unknown_format = valid.clone();
-        unknown_format[format_offset..format_offset + 4].copy_from_slice(&5_u32.to_le_bytes());
+        unknown_format[format_offset..format_offset + 4].copy_from_slice(&6_u32.to_le_bytes());
         assert_eq!(
             restore_lfrs(
                 &unknown_format,
@@ -2475,7 +2507,7 @@ mod tests {
                 generous_limits(),
             )
             .unwrap_err(),
-            SnapshotRestoreError::UnsupportedFormatVersion { actual: 5 }
+            SnapshotRestoreError::UnsupportedFormatVersion { actual: 6 }
         );
 
         let mut prior_runtime = valid.clone();
@@ -2484,7 +2516,7 @@ mod tests {
                 .expect("verified LFRS");
             table_field_offset(root._tab, wire::RuntimeSnapshot::VT_RUNTIME_STATE_VERSION)
         };
-        prior_runtime[runtime_offset..runtime_offset + 2].copy_from_slice(&3_u16.to_le_bytes());
+        prior_runtime[runtime_offset..runtime_offset + 2].copy_from_slice(&4_u16.to_le_bytes());
         assert_eq!(
             restore_lfrs(
                 &prior_runtime,
@@ -2494,11 +2526,11 @@ mod tests {
                 generous_limits(),
             )
             .unwrap_err(),
-            SnapshotRestoreError::UnsupportedRuntimeStateVersion { actual: 3 }
+            SnapshotRestoreError::UnsupportedRuntimeStateVersion { actual: 4 }
         );
 
         let mut unknown_runtime = valid.clone();
-        unknown_runtime[runtime_offset..runtime_offset + 2].copy_from_slice(&5_u16.to_le_bytes());
+        unknown_runtime[runtime_offset..runtime_offset + 2].copy_from_slice(&6_u16.to_le_bytes());
         assert_eq!(
             restore_lfrs(
                 &unknown_runtime,
@@ -2508,7 +2540,7 @@ mod tests {
                 generous_limits(),
             )
             .unwrap_err(),
-            SnapshotRestoreError::UnsupportedRuntimeStateVersion { actual: 5 }
+            SnapshotRestoreError::UnsupportedRuntimeStateVersion { actual: 6 }
         );
 
         let mut unknown_fields = valid.clone();
@@ -2524,8 +2556,8 @@ mod tests {
             .unwrap_err(),
             SnapshotRestoreError::UnknownTableFields {
                 table: "RuntimeSnapshot",
-                supported: ROOT_V4_FIELDS,
-                actual: ROOT_V4_FIELDS + 4,
+                supported: ROOT_V5_FIELDS,
+                actual: ROOT_V5_FIELDS + 4,
             }
         );
 

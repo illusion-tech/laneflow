@@ -1002,7 +1002,7 @@ mod preview {
     ) -> Result<crate::TrafficWorld, crate::InstallError> {
         let origin = *revision.canonical_origin();
         crate::TrafficWorld::install(
-            revision,
+            std::sync::Arc::clone(&revision),
             config,
             crate::CommittedNetworkSource::Published {
                 reference: crate::PublishedLfcaReference::new(
@@ -1014,6 +1014,7 @@ mod preview {
                 .expect("non-empty fixture key"),
             },
             0,
+            crate::test_policy::selection(&revision),
         )
     }
 
@@ -1045,7 +1046,7 @@ mod preview {
     }
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
     #[test]

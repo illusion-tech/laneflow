@@ -84,6 +84,7 @@ pub struct TrafficWorld {
     /// 活动聚合世代；成功切换/恢复的唯一失效轴。
     pub(crate) world_generation: WorldGeneration,
     pub(crate) config: WorldConfig,
+    pub(crate) policy_binding: crate::policy::WorldPolicyBinding,
     pub(crate) tick_index: u64,
     pub(crate) time_ms: u64,
     /// 已应用输入命令计数（快照合同 §3 双游标之一；切换 `worldBinding`
@@ -157,6 +158,7 @@ impl TrafficWorld {
         config: WorldConfig,
         source: CommittedNetworkSource,
         world_id: u64,
+        policy_selection: crate::WorldPolicySelection,
     ) -> Result<Self, InstallError> {
         let installed = revision.canonical_origin().network_revision();
         if source.network_revision() != installed {
@@ -177,6 +179,8 @@ impl TrafficWorld {
             return Err(InstallError::WorkerCountNotOne);
         }
         validate_signal_programs(revision.as_ref(), config.fixed_delta_time_ms())?;
+        let policy_binding =
+            crate::policy::WorldPolicyBinding::install(&revision, policy_selection, dt)?;
         let group_count = usize::try_from(
             revision
                 .traffic()
@@ -213,6 +217,7 @@ impl TrafficWorld {
             world_id,
             world_generation: WorldGeneration::INITIAL,
             config,
+            policy_binding,
             tick_index: 0,
             time_ms: 0,
             command_cursor: 0,
@@ -262,6 +267,27 @@ impl TrafficWorld {
     #[must_use]
     pub const fn world_id(&self) -> u64 {
         self.world_id
+    }
+
+    #[must_use]
+    pub const fn policy_selection(&self) -> crate::WorldPolicySelection {
+        self.policy_binding.selection()
+    }
+
+    /// 当前世界唯一所选策略，借用同一个共享根。
+    #[must_use]
+    pub fn policy(&self) -> Option<laneflow_static_network::PolicyView<'_>> {
+        self.policy_binding.policy(&self.revision)
+    }
+
+    #[must_use]
+    pub fn policy_gap_profiles(&self) -> &[crate::DerivedPolicyGap] {
+        self.policy_binding.gaps()
+    }
+
+    #[must_use]
+    pub const fn frontier_proof_horizon_ms(&self) -> Option<u64> {
+        self.policy_binding.horizon()
     }
 
     /// 当前活动世界世代。成功切换后递增；失败或放弃保持不变。
@@ -1406,7 +1432,7 @@ mod overflow_tests {
     };
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
     fn world() -> TrafficWorld {
@@ -1422,7 +1448,7 @@ mod overflow_tests {
         .expect("shared network revision");
         let origin = *revision.canonical_origin();
         TrafficWorld::install(
-            revision,
+            std::sync::Arc::clone(&revision),
             WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
             CommittedNetworkSource::Published {
                 reference: crate::PublishedLfcaReference::new(
@@ -1434,6 +1460,7 @@ mod overflow_tests {
                 .expect("non-empty fixture key"),
             },
             0,
+            crate::test_policy::selection(&revision),
         )
         .expect("install")
     }
@@ -1539,7 +1566,7 @@ mod source_tests {
     use crate::PublishedLfcaReference;
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
     fn revision() -> Arc<SharedNetworkRevision> {
@@ -1576,6 +1603,7 @@ mod source_tests {
             WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
             CommittedNetworkSource::Published { reference },
             0,
+            crate::test_policy::selection(&revision),
         )
         .expect("source matches installed revision");
         assert_eq!(world.world_generation(), WorldGeneration::INITIAL);
@@ -1602,6 +1630,7 @@ mod source_tests {
                 reference: reference_for(mismatched),
             },
             0,
+            crate::test_policy::selection(&revision),
         ) {
             Err(error) => error,
             Ok(_) => panic!("mismatched revision must fail closed"),
