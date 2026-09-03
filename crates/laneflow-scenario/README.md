@@ -2,8 +2,8 @@
 
 `laneflow-scenario` 提供可选、引擎无关的 reference scenario catalog 线格式。
 
-当前保留 v0.10 protected-turning signalized-corridor catalog 0.3 的 TOML wire
-类型，以及 caller-owned `50..=200` 人口/回流 policy。`validate` 闭合 catalog 0.3；
+当前保留 v0.10 protected-turning signalized-corridor catalog 0.4 的 TOML wire
+类型，以及 caller-owned `50..=200` 人口/回流 policy。`validate` 闭合 catalog 0.4；
 `bind(catalog, &SharedNetworkRevision)` 用 Identity v1 把编制字符串派生为
 `StableId128`，再经已安装修订的 `SharedIdentityIndex` 得到类型化序号，并记下
 `NetworkRevisionId`。热路径不查字符串。`CorridorPopulationPrepare` /
@@ -19,3 +19,10 @@
 ```powershell
 cargo +1.98.0 test --offline -p laneflow-scenario --test signalized_corridor_population soak_50_cars_10000_replacements -- --ignored --exact
 ```
+
+`policy_selection` 是 catalog 顶层必填的闭合选择。`pinned` 仅携带规范 policy StableId
+文本，`not_required` 不带其他字段。绑定阶段拒绝未知身份以及带 Gate 根上的
+`not_required`。生成器明确编制 `protected-entry`，工程法域 `engineering`、
+版本 `protected-entry-1`、依据 `repository:corridor/protected-entry-1`；
+示例声明只表示受保护信号组准入，不宣称覆盖现实道路法规全集。
+调用方把 bind 结果的 `policy_selection` 传入唯一世界安装入口。

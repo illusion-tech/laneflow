@@ -14,10 +14,11 @@ use super::{
     SHUTTLE_BUS_PROFILE_KEY, SpawnSlotCatalogEntry, validate,
 };
 
-/// prepare 阶段把 catalog 0.3 字符串绑到本共享路网修订的类型化序号。
+/// prepare 阶段把 catalog 0.4 字符串绑到本共享路网修订的类型化序号。
 #[derive(Clone, Debug, PartialEq)]
 pub struct BoundCorridorCatalog {
     pub network_revision: NetworkRevisionId,
+    pub policy_selection: laneflow_runtime::WorldPolicySelection,
     pub routes: BTreeMap<String, Box<[LaneEdgeOrdinal]>>,
     pub edges: BTreeMap<String, LaneEdgeOrdinal>,
     pub profiles: BTreeMap<String, VehicleProfileOrdinal>,
@@ -73,6 +74,9 @@ pub struct BoundSpawnSlot {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BindError {
     Catalog(CatalogError),
+    PolicyRequired,
+    UnknownPolicy(laneflow_static_contract::RightOfWayPolicySetId),
+    WorldPolicyMismatch,
     Identity(CanonicalIdentityViolation),
     UnknownRoute(String),
     UnknownEdge(String),
@@ -85,6 +89,13 @@ pub enum BindError {
 impl fmt::Display for BindError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::PolicyRequired => {
+                write!(formatter, "this network requires an explicit policy pin")
+            }
+            Self::UnknownPolicy(id) => write!(formatter, "policy {id} is absent from this network"),
+            Self::WorldPolicyMismatch => {
+                write!(formatter, "world policy differs from catalog selection")
+            }
             Self::Catalog(error) => write!(formatter, "{error}"),
             Self::Identity(error) => {
                 write!(formatter, "catalog identity is not Identity v1: {error:?}")
@@ -138,6 +149,26 @@ pub fn bind(
     revision: &SharedNetworkRevision,
 ) -> Result<BoundCorridorCatalog, BindError> {
     validate(catalog)?;
+    let policy_selection = catalog.policy_selection.resolve()?;
+    match policy_selection {
+        laneflow_runtime::WorldPolicySelection::NotRequired => {
+            if [
+                EntityKind::ManeuverGate,
+                EntityKind::ConflictZone,
+                EntityKind::ParticipantStream,
+            ]
+            .iter()
+            .any(|kind| revision.traffic().entity_counts().count(*kind) != 0)
+            {
+                return Err(BindError::PolicyRequired);
+            }
+        }
+        laneflow_runtime::WorldPolicySelection::Pinned(pin) => {
+            if revision.identity().ordinal(pin.policy).is_none() {
+                return Err(BindError::UnknownPolicy(pin.policy));
+            }
+        }
+    }
     let limits = CompileLimits::p100_initial_v1();
     let mut routes = BTreeMap::new();
     for route in &catalog.routes {
@@ -252,6 +283,7 @@ pub fn bind(
     }
 
     Ok(BoundCorridorCatalog {
+        policy_selection,
         network_revision: revision.network_revision(),
         routes,
         edges,
@@ -266,6 +298,9 @@ pub fn bind(
 impl BoundCorridorCatalog {
     /// 对本世界每条 catalog 路线恰好 `register_route` 一次。失败撤回本次注册的句柄。
     pub fn install_routes(&self, world: &mut TrafficWorld) -> Result<Vec<RouteHandle>, BindError> {
+        if world.policy_selection() != self.policy_selection {
+            return Err(BindError::WorldPolicyMismatch);
+        }
         if world.revision().network_revision() != self.network_revision {
             return Err(BindError::UnknownRoute(
                 "TrafficWorld 修订与 catalog bind 不一致".to_owned(),

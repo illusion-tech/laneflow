@@ -1,4 +1,8 @@
-catalog_version = "0.3"
+catalog_version = "0.4"
+
+[policy_selection]
+kind = "pinned"
+policy = "lfid1_right-of-way-policy-set_ca2119927067c9918fce95996b8b5792"
 
 [[portals]]
 id = "portal-main-west"

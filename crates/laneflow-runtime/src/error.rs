@@ -56,6 +56,18 @@ impl ConflictRuntimeUnavailable {
 /// `TrafficWorld::install` 失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum InstallError {
+    #[error("共享根含门、冲突区或参与者流，必须显式固定路权策略")]
+    PolicyRequired,
+    #[error("共享根中不存在指定路权策略 {policy:?}")]
+    UnknownPolicy {
+        policy: laneflow_static_contract::RightOfWayPolicySetId,
+    },
+    #[error("策略间隙参数 {gap_profile_index} 的步长派生超出可移植毫秒值域")]
+    PolicyGapOverflow { gap_profile_index: u32 },
+    #[error("世界策略派生表容量算术溢出")]
+    PolicyCapacityOverflow,
+    #[error("世界策略派生表分配失败")]
+    PolicyAllocationFailed,
     /// `fixed_delta_time_ms` 必须落在 `4..=1000`。
     #[error("fixed_delta_time_ms 必须落在 {min}..={max}，实际 {actual}")]
     DeltaOutOfRange {

@@ -18,6 +18,9 @@
 //! warmup。账本数字是描述性输出（登记进合同 §9 初值表），确定性与干扰
 //! 不变量是硬断言。
 
+#[path = "support/policy.rs"]
+mod test_policy;
+
 use std::alloc::System;
 use std::hint::black_box;
 use std::sync::Arc;
@@ -117,6 +120,7 @@ fn install_corridor_world(revision: &Arc<SharedNetworkRevision>) -> TrafficWorld
         WorldConfig::new(8, 32, 1_024, 1_024, 1, DELTA_MS),
         source_for("fixture://corridor-base"),
         1,
+        test_policy::selection(revision),
     )
     .expect("install");
     let catalog: CorridorCatalog = toml::from_str(CORRIDOR_CATALOG).expect("catalog TOML");

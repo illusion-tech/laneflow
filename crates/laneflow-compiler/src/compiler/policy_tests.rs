@@ -8,6 +8,7 @@ use laneflow_static_contract::{EntityKindMarker, ParticipantStreamKind};
 
 const TOPOLOGY: &str = "city/portable-full-spatial-conflict";
 const DOCUMENT: &str = "policy.document";
+mod w3_shared_policy;
 const JUNCTION: &str = "conflict-junction";
 static VEHICLE_CLASSES: std::sync::LazyLock<[ParticipantClassReference<'static>; 1]> =
     std::sync::LazyLock::new(|| [ParticipantClassReference::local("vehicle")]);

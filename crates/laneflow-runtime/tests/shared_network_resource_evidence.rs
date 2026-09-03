@@ -2,6 +2,9 @@
 //!
 //! 分配次数走 `shared_network_allocation_evidence`；本文件不加全局分配器。
 
+#[path = "support/policy.rs"]
+mod test_policy;
+
 use std::hint::black_box;
 use std::sync::{Arc, atomic::AtomicBool};
 use std::time::Instant;
@@ -39,7 +42,7 @@ fn install_fixture(
 ) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
     let origin = *revision.canonical_origin();
     laneflow_runtime::TrafficWorld::install(
-        revision,
+        std::sync::Arc::clone(&revision),
         config,
         laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
@@ -51,6 +54,7 @@ fn install_fixture(
             .expect("non-empty fixture key"),
         },
         0,
+        test_policy::selection(&revision),
     )
 }
 
@@ -58,13 +62,13 @@ const MIN_HEADLESS: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/min-headless.lfca"
 );
 const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
 );
 const FULL_SPATIAL_LFSM: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfsm"
+    "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfsm"
 );
 const FULL_SPATIAL_LFSD: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfsd"
+    "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfsd"
 );
 const CORRIDOR: &[u8] = include_bytes!("../../../examples/data/v0.2-signalized-corridor.lfca");
 const CORRIDOR_CATALOG: &str =
@@ -80,14 +84,14 @@ const CORRIDOR_KERNEL_STEPS: u32 = 1_024;
 const CORRIDOR_DELTA_MS: u64 = 4;
 const WARMUP: usize = 1;
 const SAMPLES: usize = 7;
-const CORRIDOR_LFCA_LEN: usize = 420_332;
+const CORRIDOR_LFCA_LEN: usize = 425_418;
 const CORRIDOR_SHA256: [u8; 32] = [
-    0x02, 0xe2, 0xb2, 0xb3, 0xc8, 0xea, 0x8d, 0x28, 0x44, 0x8c, 0xc6, 0x7b, 0x45, 0xfa, 0x3f, 0x49,
-    0x2c, 0xa0, 0x66, 0x53, 0x4a, 0x61, 0x39, 0xc4, 0xa5, 0x1e, 0x42, 0x73, 0x2c, 0x16, 0x2f, 0xae,
+    0x8b, 0xaf, 0x0f, 0x01, 0xcd, 0x66, 0xbe, 0xe8, 0x98, 0x05, 0x86, 0x05, 0x95, 0x8d, 0x9a, 0x4d,
+    0x96, 0x06, 0x69, 0x9f, 0x95, 0x42, 0xc1, 0x97, 0xdb, 0xcb, 0xc9, 0x93, 0x30, 0x07, 0xa1, 0x64,
 ];
 const CORRIDOR_NETWORK_REVISION: [u8; 32] = [
-    0x00, 0x29, 0xd1, 0xed, 0x19, 0xb9, 0xf9, 0xb0, 0x31, 0xcc, 0xdd, 0x58, 0xcd, 0x7f, 0x33, 0x64,
-    0xc5, 0x3d, 0x54, 0x05, 0x14, 0x1b, 0x74, 0xaa, 0x85, 0x73, 0xf5, 0xda, 0x92, 0x7b, 0xce, 0x0e,
+    0x2d, 0xe4, 0x82, 0x0d, 0x35, 0xbe, 0xe0, 0xef, 0x71, 0x37, 0x4c, 0xae, 0x49, 0x03, 0x6f, 0xbe,
+    0xf7, 0x51, 0x55, 0xa2, 0xa5, 0x87, 0xcb, 0xd1, 0x3b, 0x35, 0x1d, 0x5f, 0x76, 0x55, 0xad, 0x27,
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -98,6 +102,7 @@ struct SceneLedger {
     traffic: u64,
     identity: u64,
     hints: u64,
+    policy: u64,
     spatial: u64,
     root: u64,
     scratch: u64,
@@ -277,6 +282,7 @@ fn scene_ledger(lfca: &[u8], spatial: SpatialBuildOption) -> SceneLedger {
         traffic: revision.traffic().retained_logical_bytes(),
         identity: revision.identity().retained_logical_bytes(),
         hints: revision.planning_hints().retained_logical_bytes(),
+        policy: revision.policy().retained_logical_bytes(),
         spatial: revision.spatial().map_or(
             0,
             laneflow_static_network::SharedSpatialNetwork::retained_logical_bytes,
@@ -312,7 +318,7 @@ fn assert_stable_ledger(
     let second = scene_ledger(lfca, spatial);
     assert_eq!(first, second, "{scene} ledger must be deterministic");
     println!(
-        "shared-static-network-evidence ledger scene={scene} spatial={spatial:?} lfca_exact={} artifact_digest={:x} network_revision={:x} lfsm_exact={} lfsd_exact={} traffic_retained={} identity_retained={} hints_retained={} spatial_retained={} root_retained={} scratch_required={} facility_geometry_count={} lane_pose={} identity_round_trips={}",
+        "shared-static-network-evidence ledger scene={scene} spatial={spatial:?} lfca_exact={} artifact_digest={:x} network_revision={:x} lfsm_exact={} lfsd_exact={} traffic_retained={} identity_retained={} hints_retained={} policy_retained={} spatial_retained={} root_retained={} scratch_required={} facility_geometry_count={} lane_pose={} identity_round_trips={}",
         first.lfca_exact,
         first.artifact_digest,
         first.network_revision,
@@ -321,6 +327,7 @@ fn assert_stable_ledger(
         first.traffic,
         first.identity,
         first.hints,
+        first.policy,
         first.spatial,
         first.root,
         first.scratch,

@@ -51,6 +51,7 @@ pub enum SpatialBuildOption {
 pub struct SharedNetworkBuildLimits {
     max_retained_bytes: u64,
     max_scratch_bytes: u64,
+    max_policy_work: u64,
 }
 
 impl SharedNetworkBuildLimits {
@@ -59,6 +60,7 @@ impl SharedNetworkBuildLimits {
         Self {
             max_retained_bytes,
             max_scratch_bytes,
+            max_policy_work: 16_777_216,
         }
     }
 
@@ -70,6 +72,19 @@ impl SharedNetworkBuildLimits {
     #[must_use]
     pub const fn max_scratch_bytes(self) -> u64 {
         self.max_scratch_bytes
+    }
+
+    /// 策略解析的候选/引用访问上限；包含被 Access 拒绝的候选。
+    #[must_use]
+    pub const fn max_policy_work(self) -> u64 {
+        self.max_policy_work
+    }
+
+    /// 收紧或显式配置本次构建的策略工作预算，不改变 retained/scratch 上限。
+    #[must_use]
+    pub const fn with_max_policy_work(mut self, max_policy_work: u64) -> Self {
+        self.max_policy_work = max_policy_work;
+        self
     }
 }
 
@@ -265,6 +280,23 @@ where
         PartitionPlanningHints::from_traffic(&traffic, |ordinal| poll_cancelled(options, ordinal))?;
     let spatial = build_spatial(input.value_checked_view(), &counts, &traffic, options)?;
 
+    let prior_retained = size_of::<SharedNetworkRevision>() as u64
+        + traffic.retained_logical_bytes()
+        + identity.retained_logical_bytes()
+        + conflict.retained_logical_bytes()
+        + planning_hints.retained_logical_bytes()
+        + spatial
+            .as_ref()
+            .map_or(0, SharedSpatialNetwork::retained_logical_bytes);
+    let policy = crate::policy_build::build(
+        input.value_checked_view(),
+        &traffic,
+        &conflict,
+        &identity,
+        prior_retained,
+        options,
+    )?;
+
     check_cancelled(options)?;
     let origin = CanonicalNetworkOrigin::new(
         input.canonical_artifact_digest(),
@@ -278,6 +310,7 @@ where
         identity,
         planning_hints,
         conflict,
+        policy,
         spatial,
     };
     let retained = revision.retained_logical_bytes();
@@ -289,43 +322,6 @@ where
         });
     }
     Ok(Arc::new(revision))
-}
-
-// #284 W3 实现完整策略消费前，格式受检不能冒充共享根的语义支持。
-// 必须在任何构建分配前拒绝；空策略 LFCA 继续使用现行格式。
-fn validate_supported_policy_payload(
-    view: ValueCheckedObjectView<'_>,
-    options: SharedNetworkBuildOptions<'_>,
-) -> Result<(), BuildError> {
-    let registry = view.registry_view();
-    let unsupported = BuildError::ContractMismatch {
-        structure: BuildStructure::ExecutionContract,
-    };
-    for (section, table) in [(2, 23), (3, 1), (3, 2), (3, 3), (3, 4)] {
-        let table = registry
-            .section(section)
-            .and_then(|s| s.table(table))
-            .ok_or(BuildError::InputInvariant {
-                structure: BuildStructure::ExecutionContract,
-            })?;
-        if table.row_count() != 0 {
-            return Err(unsupported);
-        }
-    }
-    let movements =
-        registry
-            .section(2)
-            .and_then(|s| s.table(5))
-            .ok_or(BuildError::InputInvariant {
-                structure: BuildStructure::ExecutionContract,
-            })?;
-    for (index, row) in movements.rows().enumerate() {
-        poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
-        if row.field_by_tag(7).is_some() {
-            return Err(unsupported);
-        }
-    }
-    Ok(())
 }
 
 fn count_and_preflight(
@@ -343,7 +339,6 @@ fn count_and_preflight(
         checked_u16(contract_row, 6, BuildStructure::ContractVersions)?,
     );
     validate_supported_contract_versions(contracts)?;
-    validate_supported_policy_payload(view, options)?;
 
     let entity_section = registry.section(2).ok_or(BuildError::InputInvariant {
         structure: BuildStructure::CanonicalEntityTable,
@@ -3712,7 +3707,7 @@ fn add_retained_bytes(total: u64, bytes: u32) -> Result<u64, BuildError> {
         })
 }
 
-fn check_cancelled(options: SharedNetworkBuildOptions<'_>) -> Result<(), BuildError> {
+pub(crate) fn check_cancelled(options: SharedNetworkBuildOptions<'_>) -> Result<(), BuildError> {
     if options
         .cancellation
         .is_some_and(|flag| flag.load(Ordering::Relaxed))

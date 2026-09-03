@@ -1,3 +1,6 @@
+#[path = "policy.rs"]
+mod test_policy;
+
 use std::sync::Arc;
 
 use laneflow_compiler::{
@@ -115,10 +118,11 @@ pub fn build_fixture() -> RoutingEvidenceFixture {
         .expect("non-empty source key"),
     };
     let mut world = TrafficWorld::install(
-        revision,
+        std::sync::Arc::clone(&revision),
         WorldConfig::new(0, 1, EDGE_COUNT as u64, EDGE_COUNT as u64, 1, DELTA_MS),
         source,
         WORLD_ID,
+        test_policy::selection(&revision),
     )
     .expect("install routing evidence world");
     for _ in 0..WARMUP_TICKS {

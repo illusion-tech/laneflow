@@ -1,5 +1,24 @@
 use laneflow_static_contract::{EntityKind, StableId128};
 
+/// 共享根独立闭合策略失败的原因。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PolicyBuildViolation {
+    CanonicalMembers,
+    Reference,
+    Evidence,
+    GapBinding,
+    RegulationMismatch,
+    SignalBinding,
+    RightTurnRequired,
+    LampTypeConflict,
+    SelfYield,
+    DisjointYield,
+    MissingRule,
+    AmbiguousRule,
+    YieldPriority,
+    ProtectedConflict,
+}
+
 /// 构建失败涉及的稳定结构分类。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BuildStructure {
@@ -12,6 +31,8 @@ pub enum BuildStructure {
     ManeuverPath,
     ManeuverCandidates,
     Conflict,
+    Policy,
+    PolicyWork,
     PlanningHints,
     ExecutionContract,
     SpatialPresence,
@@ -42,6 +63,10 @@ pub enum BuildErrorClass {
 /// 受检 LFCA 无法闭合为共享静态路网的稳定错误。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BuildError {
+    Policy {
+        policy: u32,
+        violation: PolicyBuildViolation,
+    },
     InputInvariant {
         structure: BuildStructure,
     },
@@ -126,6 +151,7 @@ impl BuildError {
     #[must_use]
     pub const fn class(self) -> BuildErrorClass {
         match self {
+            Self::Policy { .. } => BuildErrorClass::Reference,
             Self::InputInvariant { .. } => BuildErrorClass::InputInvariant,
             Self::UnexpectedOrdinal { .. }
             | Self::EntityKindOrder { .. }

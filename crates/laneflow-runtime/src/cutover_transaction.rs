@@ -175,6 +175,7 @@ impl TrafficWorld {
         if descriptor.policy_kind() != MigrationPolicyKind::CrossRevisionDirect {
             return Err(CutoverError::PolicyMismatch);
         }
+        self.validate_cutover_policy(&target_revision)?;
         if target_source.network_revision() != target_origin.network_revision() {
             return Err(CutoverError::TargetSourceRevisionMismatch);
         }
@@ -427,6 +428,7 @@ impl CutoverTransaction {
             .ok_or(CutoverError::EventCursorExhausted)?;
         // 不可失败原地晋升：逐字段交换（零分配），世代与观测序号同界写入。
         std::mem::swap(&mut world.revision, &mut candidate.revision);
+        std::mem::swap(&mut world.policy_binding, &mut candidate.policy_binding);
         std::mem::swap(&mut world.source, &mut candidate.source);
         std::mem::swap(&mut world.routes, &mut candidate.routes);
         std::mem::swap(&mut world.free_routes, &mut candidate.free_routes);
@@ -1399,10 +1401,11 @@ mod tests {
         let revision = revision(bytes);
         let origin = *revision.canonical_origin();
         TrafficWorld::install(
-            revision,
+            std::sync::Arc::clone(&revision),
             WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
             source_for(origin, key),
             0,
+            crate::test_policy::selection(&revision),
         )
         .expect("install")
     }
@@ -1470,10 +1473,11 @@ mod tests {
     ) -> (TrafficWorld, VehicleHandle) {
         let origin = *base.canonical_origin();
         let mut world = TrafficWorld::install(
-            base,
+            std::sync::Arc::clone(&base),
             WorldConfig::new(4, 4, 1_024, 1_024, 1, 100),
             source_for(origin, "fixture://first-waiting"),
             282,
+            crate::test_policy::selection(&base),
         )
         .expect("world");
         let edges = world
@@ -1808,7 +1812,7 @@ mod tests {
     fn clock_only_fast_path_keeps_signal_refresh_and_nonempty_validation() {
         let mut world = installed_world(
             include_bytes!(
-                "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+                "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
             ),
             "fixture://clock-signals",
         );
@@ -2666,10 +2670,11 @@ mod tests {
             let revision = revision(ORACLE_BASE);
             let origin = *revision.canonical_origin();
             TrafficWorld::install(
-                revision,
+                std::sync::Arc::clone(&revision),
                 WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
                 source_for(origin, "fixture://other-world"),
                 9,
+                crate::test_policy::selection(&revision),
             )
             .expect("install other world")
         };
@@ -2817,10 +2822,11 @@ mod tests {
             let revision = revision(ORACLE_BASE);
             let origin = *revision.canonical_origin();
             TrafficWorld::install(
-                revision,
+                std::sync::Arc::clone(&revision),
                 WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
                 source_for(origin, "fixture://other-world"),
                 9,
+                crate::test_policy::selection(&revision),
             )
             .expect("install other world")
         };
@@ -2978,10 +2984,11 @@ mod tests {
             let revision = revision(ORACLE_BASE);
             let origin = *revision.canonical_origin();
             TrafficWorld::install(
-                revision,
+                std::sync::Arc::clone(&revision),
                 WorldConfig::new(8, 4, 2, 2, 1, 100),
                 source_for(origin, "fixture://capacity-cut"),
                 0,
+                crate::test_policy::selection(&revision),
             )
             .expect("install")
         };
@@ -3012,10 +3019,11 @@ mod tests {
             let revision = revision(ORACLE_BASE);
             let origin = *revision.canonical_origin();
             TrafficWorld::install(
-                revision,
+                std::sync::Arc::clone(&revision),
                 WorldConfig::new(8, 4, 3, 3, 1, 100),
                 source_for(origin, "fixture://capacity-tight"),
                 0,
+                crate::test_policy::selection(&revision),
             )
             .expect("install")
         };
@@ -3290,17 +3298,18 @@ mod tests {
     }
 
     const FULL_SPATIAL_LFCA: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
     fn installed_world_with_dt(bytes: &[u8], key: &str, dt: u64) -> TrafficWorld {
         let revision = revision(bytes);
         let origin = *revision.canonical_origin();
         TrafficWorld::install(
-            revision,
+            std::sync::Arc::clone(&revision),
             WorldConfig::new(8, 4, 1_024, 1_024, 1, dt),
             source_for(origin, key),
             0,
+            crate::test_policy::selection(&revision),
         )
         .expect("install")
     }

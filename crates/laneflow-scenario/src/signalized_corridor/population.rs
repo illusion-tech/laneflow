@@ -435,6 +435,11 @@ impl CorridorPopulationPrepare {
                 tick_index: world.tick_index(),
             });
         }
+        if world.policy_selection() != self.catalog.policy_selection {
+            return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
+                detail: "TrafficWorld 策略与 catalog bind 不一致".to_owned(),
+            });
+        }
         if world.revision().network_revision() != self.catalog.network_revision {
             return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
                 detail: "TrafficWorld 修订与 catalog bind 不一致".to_owned(),

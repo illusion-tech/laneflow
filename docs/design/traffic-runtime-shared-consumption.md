@@ -141,6 +141,7 @@ TrafficWorld::install(
     config: WorldConfig,
     source: CommittedNetworkSource,
     world_id: u64,
+    policy_selection: WorldPolicySelection,
 ) -> Result<TrafficWorld, InstallError>;
 
 TrafficWorld::register_route(input: RouteRegisterInput) -> Result<RouteHandle, RouteError>;
