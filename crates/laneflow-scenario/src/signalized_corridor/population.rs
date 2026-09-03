@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use laneflow_runtime::{
     RouteHandle, TrafficWorld, VehicleHandle, VehicleReplaceBlock, VehicleReplaceRecord,
-    VehicleSpawnInput, VehicleStatus,
+    VehicleSpawnInput, VehicleStatus, WorldPolicySelection,
 };
 use laneflow_static_contract::{LaneEdgeOrdinal, NetworkRevisionId, VehicleProfileOrdinal};
 use laneflow_static_network::SharedNetworkRevision;
@@ -25,6 +25,8 @@ pub struct CorridorVehiclePlan {
     pub initial_speed_mm_s: u32,
     /// 产出该计划的共享路网修订。
     pub network_revision: NetworkRevisionId,
+    /// 产出该计划的 catalog 世界策略选择。
+    pub policy_selection: WorldPolicySelection,
 }
 
 impl CorridorVehiclePlan {
@@ -37,6 +39,11 @@ impl CorridorVehiclePlan {
         if world.revision().network_revision() != self.network_revision {
             return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
                 detail: "计划 NetworkRevisionId 与 TrafficWorld 不一致".to_owned(),
+            });
+        }
+        if world.policy_selection() != self.policy_selection {
+            return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
+                detail: "计划策略与 TrafficWorld 不一致".to_owned(),
             });
         }
         let route = *routes.get(self.route_index).ok_or(
@@ -381,6 +388,7 @@ impl CorridorPopulationPrepare {
                 progress_mm: spawn_slot.progress_mm,
                 initial_speed_mm_s: initial_speed,
                 network_revision: catalog.network_revision,
+                policy_selection: catalog.policy_selection,
             });
             slots.push(PreparedLogicalSlot {
                 route_index,
@@ -599,17 +607,21 @@ impl CorridorPopulationController {
 
     /// 在一个 lifecycle boundary 内按 FIFO 各尝试一次既有 pending plan。
     ///
-    /// `network_revision` 必须与 catalog bind 一致。host callback 仍是
-    /// transport-neutral，可把同一输入交给 `TrafficWorld` 或 Adapter typed replace。
+    /// `network_revision` 与 `policy_selection` 必须取自即将提交替换的世界，
+    /// 并与 catalog bind 一致；校验失败不调用 callback、不修改 pending 状态。
+    /// host callback 仍是 transport-neutral，可把同一输入交给 `TrafficWorld`
+    /// 或 Adapter typed replace。宿主负责把 controller、上下文与 callback
+    /// 绑定到同一个世界；这些可复制值不表示世界实例身份。
     pub fn apply_pending<F, E>(
         &mut self,
         network_revision: NetworkRevisionId,
+        policy_selection: WorldPolicySelection,
         mut apply: F,
     ) -> Result<CorridorBoundaryReport, CorridorReplaceApplyError<E>>
     where
         F: FnMut(VehicleHandle, VehicleSpawnInput) -> Result<CorridorReplaceAttemptOutcome, E>,
     {
-        if let Err(error) = self.require_bound_revision(network_revision) {
+        if let Err(error) = self.require_bound_context(network_revision, policy_selection) {
             return Err(CorridorReplaceApplyError::Policy(error));
         }
         let boundary_pending = self.pending.len();
@@ -812,16 +824,25 @@ impl CorridorPopulationController {
     }
 
     fn require_bound_world(&self, world: &TrafficWorld) -> Result<(), CorridorPopulationError> {
-        self.require_bound_revision(world.revision().network_revision())
+        self.require_bound_context(
+            world.revision().network_revision(),
+            world.policy_selection(),
+        )
     }
 
-    fn require_bound_revision(
+    fn require_bound_context(
         &self,
         network_revision: NetworkRevisionId,
+        policy_selection: WorldPolicySelection,
     ) -> Result<(), CorridorPopulationError> {
         if network_revision != self.catalog.network_revision {
             return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
                 detail: "TrafficWorld 修订与 catalog bind 不一致".to_owned(),
+            });
+        }
+        if policy_selection != self.catalog.policy_selection {
+            return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
+                detail: "TrafficWorld 策略与 catalog bind 不一致".to_owned(),
             });
         }
         Ok(())

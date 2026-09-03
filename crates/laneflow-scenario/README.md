@@ -6,7 +6,7 @@
 类型，以及 caller-owned `50..=200` 人口/回流 policy。`validate` 闭合 catalog 0.4；
 `bind(catalog, &SharedNetworkRevision)` 用 Identity v1 把编制字符串派生为
 `StableId128`，再经已安装修订的 `SharedIdentityIndex` 得到类型化序号，并记下
-`NetworkRevisionId`。热路径不查字符串。`CorridorPopulationPrepare` /
+`NetworkRevisionId` 与 `WorldPolicySelection`。热路径不查字符串。`CorridorPopulationPrepare` /
 `CorridorPopulationController` 在 `TrafficWorld` 上做 Fisher–Yates、portal/lane
 抽样、blocked retry 与原子替换调度；不把政策写入 `step`。
 
@@ -26,3 +26,9 @@ cargo +1.98.0 test --offline -p laneflow-scenario --test signalized_corridor_pop
 版本 `protected-entry-1`、依据 `repository:corridor/protected-entry-1`；
 示例声明只表示受保护信号组准入，不宣称覆盖现实道路法规全集。
 调用方把 bind 结果的 `policy_selection` 传入唯一世界安装入口。
+
+初始计划和 controller 的持续消费均校验修订与策略；
+`apply_pending(network_revision, policy_selection, callback)` 必须接收替换目标世界的
+显式上下文，拒绝时不调用 callback、不修改 pending。宿主仍负责将 controller、
+世界局部句柄和 callback 绑定到同一个世界实例。完整启动顺序与契约见
+[人口与回流设计](../../docs/design/signalized-corridor-population.md)。

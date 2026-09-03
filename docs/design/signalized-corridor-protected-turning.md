@@ -272,8 +272,10 @@ turn toward corridor 后 straight 15、继续 right 5。
 
 ### 6.3 Catalog ownership
 
-scenario-local catalog 现行 exact `0.3`。当时从 exact `0.1` clean-break 到 exact `0.2`；
-#498 起有序边键由 catalog 拥有，不进 LFCA：
+scenario-local catalog 现行 exact `0.4`。当时从 exact `0.1` clean-break 到 exact `0.2`；
+#498 的 0.3 起有序边键由 catalog 拥有，不进 LFCA；0.4 另增加必填
+`policy_selection`，显式钉住生成器声明的 `protected-entry` 策略。闭合形状与绑定顺序见
+[`signalized-corridor-population.md`](signalized-corridor-population.md#3-catalog-契约)：
 
 - Portal 拥有 ordered PortalLane；
 - PortalLane 拥有 weighted RouteChoice，并引用一个共享 entry SpawnSlot；

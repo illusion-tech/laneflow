@@ -373,7 +373,7 @@ occurrence 超过恢复配置则整次恢复失败关闭。
   为交通观测，因为它按车辆输出、为位姿采样服务，不具备边聚合/full/delta 语义。
 - `laneflow-bevy` 若暴露新入口，只能像现有 `register_route` 一样薄转发；默认 schedule
   不自动导出、不运行成本模型、不在 ECS component 中缓存另一份路线权威。
-- scenario catalog 0.3 仍是示例层预定边序列，可直接 `register_route`。若场景需要
+- scenario catalog 0.4 仍是示例层预定边序列，可直接 `register_route`。若场景需要
   动态改道，必须由上层系统消费正式观测并走候选入口，不能在 scenario policy 中读
   pose 后静默选路。
 - Adapter 只消费成功注册后的 `RouteHandle` / 车辆位姿；不得根据 cost digest、观测

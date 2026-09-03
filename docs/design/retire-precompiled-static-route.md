@@ -3,7 +3,7 @@
 **文档状态**: Accepted<br>
 **最后更新**: 2026-08-30<br>
 **适用范围**: 从路网产品删除 `StaticRoute` 后的制品表、连续身份登记、运行时编译、
-场景 catalog 0.3 与每世界路线表形状<br>
+场景 catalog 0.4 与每世界路线表形状<br>
 **关联文档**: [`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)、
 [`traffic-runtime-shared-consumption.md`](traffic-runtime-shared-consumption.md)、
 [`portable-canonical-artifact.md`](portable-canonical-artifact.md)、
@@ -76,7 +76,7 @@ hop 是否受控：用已编译机动出现项定位 path，再在共享根
 `speed_limit_transitions`。这些索引改由本世界 compiled 在 `register_route` 时物化。
 
 编制 `StaticRoute.canvas_selection` 随 table 删除，不迁入 Runtime。走廊生成器停止
-`add_static_route`，把有序边键写进 catalog 0.3。LFSM/LFSD 的现行来源登记连续；旧
+`add_static_route`，把有序边键写进 catalog 0.4。LFSM/LFSD 的现行来源登记连续；旧
 StaticRoute table、关系和 property path 不能通过新格式闭合。
 
 ## 2. LFCA / 关系 / 身份删除清单
@@ -167,9 +167,12 @@ StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 seal 不再为路线做 owner-local 分区或出现项闭合。空路线不是合法可选；根本不存在
 该实体。
 
-## 4. 场景 catalog 0.3
+## 4. 场景 catalog 0.4
 
-`catalog_version = "0.3"`。拒绝 `0.2`。
+`catalog_version = "0.4"`，拒绝 `0.3` 及更早版本。顶层必填
+`policy_selection`，闭合形状与世界策略绑定见
+[`signalized-corridor-population.md`](signalized-corridor-population.md#3-catalog-契约)。
+`bind` 解析策略与边序号，宿主显式选策略安装世界后再 `install_routes`。
 
 `RouteCatalogEntry` 使用有序边键，语义如下：
 
@@ -231,7 +234,8 @@ profile / class / parking: StableId128
 
 **同进程在线切修订**：允许原地改现有槽位的 compiled（新序号 + 重编译出现项），
 当期 `RouteHandle` 保持到该进程结束。不得把该布局写进快照。走廊 catalog
-controller 绑定的是 `(世界令牌, NetworkRevisionId)`：修订变化后 controller **失效**，
+controller 校验的是 `(NetworkRevisionId, WorldPolicySelection)`，宿主保证同一世界
+实例与局部句柄的对应关系（详见人口设计 §2、§6）：修订变化后 controller **失效**，
 调用方按新修订重新 bind。重绑不得新分配句柄，也不得丢掉切修订已保住的句柄。本合同
 不设计 catalog 原子热切换，也不让人口层在切修订后继续用旧修订句柄。
 
@@ -259,10 +263,10 @@ controller 绑定的是 `(世界令牌, NetworkRevisionId)`：修订变化后 co
 - 信号停车沿受控 hop 链走到第一盏当前限制的门，不扫全部剩余 hop，也不在 compiled
   里存当前红灯。
 - 下游限速下降读本世界 `speed_limit_drop`，不扫剩余边；限速值仍读共享根边热列。
-- 同一修订上两个 `TrafficWorld` 各自 `register_route`；catalog / scenario bind 把句柄
-  钉在该 world 的 `install` 令牌上，不得用指针比较。`RouteHandle` 只有槽位与
-  generation，不编码 world。spawn 只查本世界表。跨 world 把句柄塞进另一个 world
-  是调用方错误，不作为运行时比特必测。
+- 同一修订上两个 `TrafficWorld` 各自 `register_route`；catalog / scenario 校验
+  修订与策略，宿主保持 controller 与 world 的一对一绑定。`RouteHandle` 只有槽位
+  与 generation，不编码 world。spawn 只查本世界表。跨 world 把句柄塞进另一个
+  world 是调用方错误；不同策略必须在场景生命周期入口被拒绝。
 - 同进程切修订后走廊 catalog controller 不得继续 `consume_world` / `apply_pending`；
   必须按新修订重新 bind。重绑不得新分配句柄、不得丢掉已保住的句柄。不测 catalog
   原子热切换。
