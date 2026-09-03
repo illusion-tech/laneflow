@@ -20,7 +20,7 @@ LaneFlow 编译器、线格式后发射检查与目标 Traffic Runtime 共享的
 - LFCA 5 的策略实体、四张局部成员表与 Movement 可选机动方向登记。
 - LFSD 4 的 `PolicyLocalChange` 第七节、操作侧存在性与四种完整成员值 RowV1 登记；
   完整差异验证由 compiler 独立执行，本叶子 crate 只提供封闭格式形状。
-- LFCA 5、LFSM 3、LFSD 4 与 LFCP 2 的 magic、版本、封闭字段类型、结构安全天花板，以及
+- LFCA 5、LFSM 4、LFSD 4 与 LFCP 2 的 magic、版本、封闭字段类型、结构安全天花板，以及
   SHA-256、路网修订标识和 exact-byte 长度值类型；
 - 附录 A.1-A.4 的 section/table/field 名称、kind/tag/type/presence、singleton 行数、
   field-specific RecordVector 行和按 `u8` 判别值选择的字段存在性矩阵。

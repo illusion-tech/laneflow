@@ -72,8 +72,8 @@ pub use module::{
 };
 pub use portable_emitter::{
     PortableDiffBase, PortableEmissionError, PortableEmissionProvenance, PortableObjectCandidate,
-    PortablePublicationCandidate, check_portable_policy_diff, emit_portable_candidate,
-    emit_portable_candidate_to_staging,
+    PortablePublicationCandidate, check_portable_policy_diff, check_portable_policy_sources,
+    emit_portable_candidate, emit_portable_candidate_to_staging,
 };
 pub use portable_publication::{
     PortablePublicationError, PortablePublicationProvenance, PortablePublisherKind,
@@ -99,9 +99,9 @@ pub use source_map::{
     LaneEdgeSourceView, LaneEdgeSuccessorSourceView, LaneGroupSourceView, ManeuverGateSourceView,
     ManeuverPathSourceView, MovementSourceView, ParkingFacilityRelationSourceView,
     ParkingFacilitySourceView, ParkingRelationSourceView, ParkingSpaceSourceView,
-    ParticipantClassSourceView, RoadCorridorSourceView, RoadSectionSourceView,
-    SignalControllerSourceView, SignalGroupSourceView, SignalPhaseSourceView, SignalRelationOwner,
-    SignalRelationSourceView, SourceDocumentView, SourceLocationView, SourceModuleSourceView,
-    SourceRelationRole, SpatialRelationSourceView, StopLineSourceView, ValidatedSourceMapInput,
-    VehicleProfileSourceView, WaitingZoneSourceView,
+    ParticipantClassSourceView, PolicySourceTarget, PolicySourceView, RoadCorridorSourceView,
+    RoadSectionSourceView, SignalControllerSourceView, SignalGroupSourceView,
+    SignalPhaseSourceView, SignalRelationOwner, SignalRelationSourceView, SourceDocumentView,
+    SourceLocationView, SourceModuleSourceView, SourceRelationRole, SpatialRelationSourceView,
+    StopLineSourceView, ValidatedSourceMapInput, VehicleProfileSourceView, WaitingZoneSourceView,
 };

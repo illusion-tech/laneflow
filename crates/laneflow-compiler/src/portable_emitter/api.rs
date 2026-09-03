@@ -183,6 +183,8 @@ pub enum PortableEmissionError {
     ArithmeticOverflow,
     AllocationFailure,
     PolicyDiffMismatch,
+    /// LFSM 策略来源与实际 LFCA 或同次受检来源输入不闭合。
+    PolicySourceMismatch,
     InvalidDiffBaseKind,
     DiffBaseSemanticMismatch,
     UnsupportedSemanticContractTransition,

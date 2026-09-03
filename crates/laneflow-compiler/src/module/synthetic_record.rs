@@ -208,7 +208,7 @@ pub(super) fn encoded_declaration_len(declaration: &TypedAstDeclaration) -> Opti
             declaration.regulation.as_ref(),
         )),
         TypedAstDeclaration::ConflictZone(_) | TypedAstDeclaration::ParticipantStream(_) => {
-            unreachable!("Synthetic frontend v4 does not construct conflict declarations")
+            unreachable!("Synthetic frontend v5 does not construct conflict declarations")
         }
     }
 }
@@ -1016,7 +1016,7 @@ pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclar
             }
         }
         TypedAstDeclaration::ConflictZone(_) | TypedAstDeclaration::ParticipantStream(_) => {
-            unreachable!("Synthetic frontend v4 does not construct conflict declarations")
+            unreachable!("Synthetic frontend v5 does not construct conflict declarations")
         }
     }
 }

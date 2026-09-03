@@ -6,6 +6,8 @@
 //! [`crate::CompilationOutput`] 中的 [`crate::ValidatedCanonicalLir`]。
 
 mod freeze;
+pub(crate) mod policy;
+pub use policy::{PolicySourceTarget, PolicySourceView};
 
 pub(crate) use freeze::freeze_source_map;
 
@@ -158,6 +160,14 @@ pub enum SourceRelationRole {
     ParticipantStreamConflictPassage = 31,
     /// 规范坐标框架拥有的一项冲突区区域。
     CanonicalFrameConflictZoneRegion = 32,
+    /// 策略内按 key 排序的一项依据。
+    PolicyEvidence = 33,
+    /// 策略内按 key 排序的一项间隙配置。
+    PolicyGapProfile = 34,
+    /// 策略内按 key 排序的一项流规则。
+    PolicyStreamRule = 35,
+    /// 策略内按 key 排序的一项门规则。
+    PolicyGateRule = 36,
 }
 
 #[derive(Clone)]
@@ -329,6 +339,7 @@ enum SignalRelationOwnerRecord {
 /// 一份或多份来源文档再按文档键字节序保存；`sourceDocumentKey` 已在共同准入时证明
 /// 全局唯一，并与所属逻辑模块不可分绑定。
 pub struct ValidatedSourceMapInput {
+    policy_sources: Box<[policy::PolicySourceRecord]>,
     source_modules: Box<[SourceModuleDescriptor]>,
     source_module_declaration_sources: Box<[SourceLocationRecord]>,
     source_documents: Box<[SourceDocumentDescriptor]>,
@@ -374,6 +385,25 @@ pub struct ValidatedSourceMapInput {
 }
 
 impl ValidatedSourceMapInput {
+    #[cfg(test)]
+    pub(crate) fn set_test_policy_sources(
+        &mut self,
+        unit: &CompilationUnit,
+        inputs: &[policy::PolicySourceInput<'_>],
+    ) -> Result<(), DiagnosticBundle> {
+        let (records, _, _) =
+            policy::freeze_policy_sources(unit, inputs, self.peak_controlled_live_bytes, 0)?;
+        self.policy_sources = records;
+        Ok(())
+    }
+    /// 策略声明、具名成员与 Movement 方向字段的受检来源；当前前端生产由 W2 接入。
+    pub fn policy_sources(&self) -> impl ExactSizeIterator<Item = PolicySourceView<'_>> {
+        self.policy_sources.iter().map(|record| PolicySourceView {
+            source_map: self,
+            record,
+        })
+    }
+
     /// 返回源映射冻结阶段的编译器控制峰值。
     pub(crate) const fn peak_controlled_live_bytes(&self) -> u64 {
         self.peak_controlled_live_bytes
