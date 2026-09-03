@@ -259,13 +259,15 @@ bumper_gap = route_distance(F.front, L.front) - L.length
 
 `edge_progress = 0` 允许车身暂时位于 route 入口外。Adapter 可从 front progress 和 length 推导车辆中心，但 Core 不消费世界坐标几何。
 
+跨分支 overhang 候选——从其他 incoming branch 汇入共享 downstream edge、尾部仍悬在分支上的车辆——不按上式把尾部沿 follower 路线反推：其在共享边上的占用记录裁剪为 `lo_mm = 0`，跟车查询的实测后杠是共享边入口（`base_mm`），而非字面读出的 `base + p - L`。跨分支几何本就不参与纵向投影（§6.4）。
+
 ### 6.2 Leader 规则
 
 查询顺序：
 
 1. 当前物理边上所有 `hi_mm >` follower 前保险杠的占用记录中，取最小 `lo_mm`（最紧后杠）。同边占用重叠时不得只取最小 `hi_mm`。间隙大于 `bumper_gap_horizon` 则本边不接纳。
 2. follower 路线跟车前视内后续出现项上该桶全部非 self 记录中的最小 `lo_mm`。入口距离大于跟车前视则早停。
-3. 取最小间隙（可负）。接纳以 `bumper_gap_horizon` 为准；超出则本拍无 leader。跟车前视不得短于该行走窗。`bumper_gap_horizon` 仍满足 ADR 0006 的搜索下界。
+3. 取最小间隙（可负）。接纳以 `bumper_gap_horizon` 为准；超出则本拍无 leader。跟车前视不得短于 `bumper_gap_horizon`（见 §10.1）。`bumper_gap_horizon` 仍满足 ADR 0006 的搜索下界。
 
 Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时不搜索 follower 未选 branch；其他 incoming branch 上、尚未进入共享 downstream edge 的车辆不是 longitudinal leader，而应由未来 merge/conflict constraint 处理。车辆进入共享 downstream edge 后，才按普通 leader 处理。支路汇入后同边占用可以重叠；跟车间隙仍取最紧后杠，不把重叠合法化。
 
@@ -463,6 +465,8 @@ front_query_horizon = bumper_gap_horizon + max_vehicle_length
 `minimum_gap_horizon` 保证低速 follower 也能看到本 tick 内可能被侵入 minimum-gap floor 的车辆；专用 tolerance 覆盖 `s0` 边界附近的舍入。整数毫米合同下 `minimum_gap_tolerance` 取 1 mm。后杠间隙大于 `bumper_gap_horizon` 的车辆即使静止，follower 以 `travel_upper` 前进后仍不会低于 `s0`，本拍不接纳为 leader。
 
 当前 `TrafficWorld` 每车每拍先在 SI 中求有限的 `bumper_gap_horizon`，再**向上取整**到毫米，并令 `front_query_horizon = bumper_gap_horizon + MAX_VEHICLE_LENGTH_MM`（溢出饱和，禁止缩短行走窗）。占用查询在跟车前视内行走；接纳以 `bumper_gap_horizon` 为准。占用索引仍按全部 `Active` 重建。ADR 0006 的搜索下界是 `minimum_gap_horizon`，不是跟车前视本身。
+
+`+ MAX_VEHICLE_LENGTH_MM` 的行走窗余量恰好覆盖跨分支 overhang 候选（§6.1）按未裁剪投影语义进入视野所需的行走范围，可作未来 merge/conflict constraint 的讨论基础。
 
 ### 10.2 Emergency safe-speed
 
