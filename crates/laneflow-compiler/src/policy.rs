@@ -73,15 +73,19 @@ pub(crate) fn validate_local_declaration(
 ) -> Result<(), DiagnosticBundle> {
     use PolicyViolation as V;
     let key = policy.header.stable_key.as_ref();
-    let fail = |member: Option<&str>, violation| error(key, member, violation, &policy.header.span);
     if policy.regulation.validate().is_err() {
-        return Err(fail(None, V::InvalidRegulation));
+        return Err(error(key, None, V::InvalidRegulation, &policy.header.span));
     }
     macro_rules! unique_members {
         ($members:expr) => {
             for pair in $members.windows(2) {
                 if pair[0].key >= pair[1].key {
-                    return Err(fail(Some(&pair[1].key), V::DuplicateMember));
+                    return Err(error(
+                        key,
+                        Some(&pair[1].key),
+                        V::DuplicateMember,
+                        &pair[1].source.primary,
+                    ));
                 }
             }
         };
@@ -90,12 +94,16 @@ pub(crate) fn validate_local_declaration(
     unique_members!(policy.gap_profiles);
     unique_members!(policy.stream_rules);
     unique_members!(policy.gate_rules);
-    let evidence = |rule: &str, values: &[std::sync::Arc<str>]| -> Result<(), DiagnosticBundle> {
+    let evidence = |rule: &str,
+                    values: &[std::sync::Arc<str>],
+                    location: &SourceLocation|
+     -> Result<(), DiagnosticBundle> {
+        let fail = |violation| error(key, Some(rule), violation, location);
         if values.is_empty() && policy.regulation.source.is_none() {
-            return Err(fail(Some(rule), V::MissingEvidence));
+            return Err(fail(V::MissingEvidence));
         }
         if values.windows(2).any(|v| v[0] >= v[1]) {
-            return Err(fail(Some(rule), V::DuplicateReference));
+            return Err(fail(V::DuplicateReference));
         }
         for value in values {
             if policy
@@ -103,17 +111,18 @@ pub(crate) fn validate_local_declaration(
                 .binary_search_by(|entry| entry.key.cmp(value))
                 .is_err()
             {
-                return Err(fail(Some(rule), V::MissingLocalReference));
+                return Err(fail(V::MissingLocalReference));
             }
         }
         Ok(())
     };
     for rule in &policy.stream_rules {
+        let fail = |violation| error(key, Some(&rule.key), violation, &rule.source.primary);
         if rule.classes.as_ref().is_some_and(|v| v.is_empty()) {
-            return Err(fail(Some(&rule.key), V::EmptyClasses));
+            return Err(fail(V::EmptyClasses));
         }
         if rule.yield_to.is_empty() != rule.gap.is_none() {
-            return Err(fail(Some(&rule.key), V::GapBinding));
+            return Err(fail(V::GapBinding));
         }
         if let Some(gap) = &rule.gap
             && policy
@@ -121,7 +130,7 @@ pub(crate) fn validate_local_declaration(
                 .binary_search_by(|v| v.key.cmp(gap))
                 .is_err()
         {
-            return Err(fail(Some(&rule.key), V::MissingLocalReference));
+            return Err(fail(V::MissingLocalReference));
         }
         if duplicate_references(&rule.yield_to)
             || rule
@@ -129,22 +138,23 @@ pub(crate) fn validate_local_declaration(
                 .as_ref()
                 .is_some_and(|v| duplicate_references(v))
         {
-            return Err(fail(Some(&rule.key), V::DuplicateReference));
+            return Err(fail(V::DuplicateReference));
         }
-        evidence(&rule.key, &rule.evidence)?;
+        evidence(&rule.key, &rule.evidence, &rule.source.primary)?;
     }
     for rule in &policy.gate_rules {
+        let fail = |violation| error(key, Some(&rule.key), violation, &rule.source.primary);
         if rule.classes.as_ref().is_some_and(|v| v.is_empty()) {
-            return Err(fail(Some(&rule.key), V::EmptyClasses));
+            return Err(fail(V::EmptyClasses));
         }
         if rule
             .classes
             .as_ref()
             .is_some_and(|v| duplicate_references(v))
         {
-            return Err(fail(Some(&rule.key), V::DuplicateReference));
+            return Err(fail(V::DuplicateReference));
         }
-        evidence(&rule.key, &rule.evidence)?;
+        evidence(&rule.key, &rule.evidence, &rule.source.primary)?;
     }
     Ok(())
 }
