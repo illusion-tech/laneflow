@@ -7,6 +7,7 @@ use crate::{PolicySourceTarget, SourceLocation, SourceSpan};
 use laneflow_static_contract::{PolicyLocalMemberKind, StableId128};
 use std::sync::Arc;
 
+mod movements;
 mod owners;
 
 #[test]
