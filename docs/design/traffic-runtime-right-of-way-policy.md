@@ -472,6 +472,11 @@ policy 实体和 `(ownerStableId, role, key)` 成员全集；根据 key 排序�
 一次建立并计入预算的索引或有序合并，不能为每份文档/每个位置重新线性扫描全集。
 仅在策略来源、策略实体、四张局部成员表及 Movement 方向均为空时采用空策略路径。
 
+策略成员的 owner 使用按 LFCA 全局 typedOrdinal 一次建立的 StableId 索引，索引先按
+实际策略数计入同一累计 scratch 预算，成员投影完成后释放。Identity 只顺序扫描一次，
+根据各实体表行数定位策略区间，逐行核对 kind、ordinal、StableId 和完整数量；不按
+每个策略或成员重启块内行扫描。策略表与 Identity 表跨 chunk 边界不必对齐。
+
 必须覆盖未被世界选中的 policy 及空成员集合；漏行、多行、重复 role/index、错 owner、
 错种类路径、同形另一成员的位置、伪造贡献集合均拒绝。空集合恰无对应 OwnerLocalSource，
 不得放占位行。SourceLocation 池仍精确等于全部被引用位置的集合，按完整位置语义值

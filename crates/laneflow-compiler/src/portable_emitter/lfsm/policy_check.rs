@@ -4,6 +4,10 @@ use super::super::lfsd::base::{checked_stable_id_with, checked_u32_with};
 use super::super::lfsd::policy_change::{Scratch, reserved};
 use super::*;
 use crate::{PolicySourceTarget, SourceLocationView, ValidatedSourceMapInput};
+use laneflow_format::RegistryCheckedTableView;
+
+#[cfg(test)]
+mod tests;
 
 const MISMATCH: PortableEmissionError = PortableEmissionError::PolicySourceMismatch;
 type Row<'a> = RegistryCheckedRowView<'a>;
@@ -354,6 +358,8 @@ pub fn check_portable_policy_sources(
         }
         return Ok(());
     }
+    let policies = table(root, 2, 23)?;
+    let owners = policy_owner_ids(policies, &mut scratch)?;
     let mut members = reserved::<Member<'_>>(member_count, &mut scratch)?;
     for kind in 0..4_u8 {
         let mut previous_owner = None;
@@ -364,9 +370,8 @@ pub fn check_portable_policy_sources(
                 previous_owner = Some(ordinal);
                 local_index = 0;
             }
-            let owner = table(root, 2, 23)?.row(ordinal).ok_or(MISMATCH)?;
             members.push(Member {
-                owner: checked_stable_id_with(owner, 2, MISMATCH)?,
+                owner: *owners.get(ordinal as usize).ok_or(MISMATCH)?,
                 kind,
                 key: text(row, 2)?,
                 local_index,
@@ -375,6 +380,8 @@ pub fn check_portable_policy_sources(
             local_index += 1;
         }
     }
+    scratch.release((owners.capacity() * size_of::<[u8; 16]>()) as u64);
+    drop(owners);
     members.sort_unstable_by_key(|m| (m.owner, m.kind, m.key));
     let mut sources =
         reserved::<crate::PolicySourceView<'_>>(source.policy_sources().len(), &mut scratch)?;
@@ -390,9 +397,17 @@ pub fn check_portable_policy_sources(
         reserved::<Row<'_>>(table(view, 3, 0)?.row_count() as usize, &mut scratch)?;
     local_rows.extend(table(view, 3, 0)?.rows());
     let mut seen = 0_usize;
-    for row in table(root, 2, 23)?.rows() {
+    let mut identities = policy_identities(root)?;
+    for row in policies.rows() {
         let id = checked_stable_id_with(row, 2, MISMATCH)?;
         let ordinal = checked_u32_with(row, 1, MISMATCH)?;
+        let identity = identities.next().ok_or(MISMATCH)?;
+        if number(identity, 1)? != 24
+            || checked_u32_with(identity, 2, MISMATCH)? != ordinal
+            || checked_stable_id_with(identity, 3, MISMATCH)? != id
+        {
+            return Err(MISMATCH);
+        }
         let target = PolicySourceTarget::Declaration {
             id: typed_id(id),
             ordinal: Ordinal::from_raw(ordinal),
@@ -404,9 +419,12 @@ pub fn check_portable_policy_sources(
         }
         check_projection(source_view, actual, 4, &locations, &documents, &mut scratch)?;
         let primary = source_key(source_view.primary_source(), &documents)?;
-        check_policy_primary(primary, policy_identity(root, ordinal, id)?, source)?;
+        check_policy_primary(primary, identity, source)?;
         check_road_fields(source_view, primary, row, None, &documents)?;
         seen += 1;
+    }
+    if identities.next().is_some() {
+        return Err(MISMATCH);
     }
     for member in &members {
         // 比较借用 key，不从 LFSM localIndex 反推需要检查的来源成员。
@@ -594,22 +612,37 @@ fn find_local<'a>(
     .map_err(|_| MISMATCH)
 }
 
-fn policy_identity(
+fn policy_owner_ids(
+    policies: RegistryCheckedTableView<'_>,
+    scratch: &mut Scratch,
+) -> Result<Vec<[u8; 16]>, PortableEmissionError> {
+    // 只索引成员需要的 StableId；共用累计预算，不复制策略或 Identity 载荷。
+    let mut owners = reserved::<[u8; 16]>(policies.row_count() as usize, scratch)?;
+    for (ordinal, row) in policies.rows().enumerate() {
+        if checked_u32_with(row, 1, MISMATCH)? as usize != ordinal {
+            return Err(MISMATCH);
+        }
+        owners.push(checked_stable_id_with(row, 2, MISMATCH)?);
+    }
+    Ok(owners)
+}
+
+fn policy_identities(
     view: RegistryCheckedObjectView<'_>,
-    ordinal: u32,
-    id: [u8; 16],
-) -> Result<Row<'_>, PortableEmissionError> {
-    let offset = (0..23).try_fold(u64::from(ordinal), |n, i| {
-        n.checked_add(u64::from(table(view, 2, i)?.row_count()))
+) -> Result<impl Iterator<Item = Row<'_>>, PortableEmissionError> {
+    let offset = (0..23).try_fold(0_u32, |n, i| {
+        n.checked_add(table(view, 2, i)?.row_count())
             .ok_or(PortableEmissionError::ArithmeticOverflow)
     })?;
-    let row = table(view, 1, 0)?
-        .row(u32::try_from(offset).map_err(|_| MISMATCH)?)
-        .ok_or(MISMATCH)?;
-    if number(row, 1)? != 24 || checked_stable_id_with(row, 3, MISMATCH)? != id {
+    let identities = table(view, 1, 0)?;
+    let expected = offset
+        .checked_add(table(view, 2, 23)?.row_count())
+        .ok_or(PortableEmissionError::ArithmeticOverflow)?;
+    if identities.row_count() != expected {
         return Err(MISMATCH);
     }
-    Ok(row)
+    // 仅跳过一次前序种类；之后逐行与策略配对，跨 chunk 保持同一个游标。
+    Ok(identities.rows().skip(offset as usize))
 }
 
 fn check_policy_primary(
