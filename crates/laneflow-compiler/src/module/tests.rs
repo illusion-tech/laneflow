@@ -75,6 +75,7 @@ fn signal_module_with_document(namespace: &str, document: &str) -> SyntheticModu
         })
         .unwrap()
         .add_movement(MovementInput {
+            turn_direction: None,
             movement_key: "movement-through",
             junction: JunctionReference::local("junction-main"),
             directed_entry_approach_key: "approach-westbound",

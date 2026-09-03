@@ -35,6 +35,12 @@ impl CanonicalJunctionView<'_> {
 }
 
 impl CanonicalMovementView<'_> {
+    /// 返回来源显式声明的方向；缺失不代表直行。
+    #[must_use]
+    pub const fn turn_direction(&self) -> Option<crate::ManeuverDirection> {
+        self.record.turn_direction
+    }
+
     /// 返回唯一拥有本转向动作的路口。
     #[must_use]
     pub const fn junction(&self) -> JunctionOrdinal {

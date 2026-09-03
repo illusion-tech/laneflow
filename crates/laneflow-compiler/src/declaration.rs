@@ -17,6 +17,15 @@ use laneflow_static_contract::{
 };
 
 use crate::SourceLocation;
+mod policy;
+pub use policy::{
+    OwnerQualifiedReference, PolicyEvidenceInput, PolicyGapProfileInput, PolicyGateRuleInput,
+    PolicyInputSource, PolicyStreamRuleInput, RightOfWayPolicySetInput,
+};
+pub(crate) use policy::{
+    PolicyDeclarationSource, PolicyEvidenceDeclaration, PolicyGapProfileDeclaration,
+    PolicyGateRuleDeclaration, PolicyStreamRuleDeclaration, RightOfWayPolicySetDeclaration,
+};
 
 /// JavaScript/JSON 等常见编制前端可以无损表达的最大整数毫秒值。
 pub(crate) const MAX_PORTABLE_SIGNAL_TIME_MS: u64 = 9_007_199_254_740_991;
@@ -261,6 +270,8 @@ pub struct MovementInput<'a> {
     pub directed_entry_approach_key: &'a str,
     /// 离开路口的有向引道稳定键。
     pub directed_exit_approach_key: &'a str,
+    /// 显式机动方向；省略时不从引道键或几何推断。
+    pub turn_direction: Option<laneflow_static_contract::ManeuverDirection>,
 }
 
 /// 合成领域专用语言的机动路径声明输入。
@@ -513,17 +524,6 @@ pub enum AccessRuleTargetInput<'a> {
     FacilityBand(FacilityBandReference<'a>),
 }
 
-/// 准入规则携带的法规来源信息；该信息用于审计，不参与规则优先级计算。
-#[derive(Clone, Copy, Debug)]
-pub struct AccessRegulationInput<'a> {
-    /// 法域；字符数必须位于 1 到 128。
-    pub jurisdiction: &'a str,
-    /// 法规版本；字符数必须位于 1 到 128。
-    pub version: &'a str,
-    /// 可选来源说明；存在时字符数必须位于 1 到 128。
-    pub source: Option<&'a str>,
-}
-
 /// 合成领域专用语言的静态准入规则声明输入。
 ///
 /// `participant_classes` 按集合解释：输入顺序不影响规范结果，重复引用会被规范化去重。
@@ -539,7 +539,7 @@ pub struct AccessRuleInput<'a> {
     /// 非空参与者类别集合；类别的传递后代也匹配本规则。
     pub participant_classes: &'a [ParticipantClassReference<'a>],
     /// 可选法规来源；同一编译单元内所有已声明来源必须共享法域和版本。
-    pub regulation: Option<AccessRegulationInput<'a>>,
+    pub regulation: Option<crate::RegulationIdentity<&'a str>>,
     /// 在参与者和目标 specificity 相同后使用的显式优先级。
     pub priority: i32,
 }
@@ -1050,6 +1050,8 @@ pub(crate) struct MovementDeclaration {
     pub(crate) junction: OwnedEntityReference<JunctionKind>,
     pub(crate) directed_entry_approach_key: Arc<str>,
     pub(crate) directed_exit_approach_key: Arc<str>,
+    pub(crate) turn_direction: Option<laneflow_static_contract::ManeuverDirection>,
+    pub(crate) direction_source: Option<SourceLocation>,
 }
 
 /// 已通过字段级检查、等待解析父项和完整边序列的机动路径 Typed AST 记录。
@@ -1185,11 +1187,7 @@ pub(crate) enum OwnedAccessRuleTarget {
 }
 
 /// Typed AST 中已拥有的法规来源信息。
-pub(crate) struct OwnedAccessRegulation {
-    pub(crate) jurisdiction: Arc<str>,
-    pub(crate) version: Arc<str>,
-    pub(crate) source: Option<Arc<str>>,
-}
+pub(crate) type OwnedRegulationIdentity = crate::RegulationIdentity<Arc<str>>;
 
 /// 已通过字段级检查、等待目标/类别解析和组合裁决的静态准入规则记录。
 pub(crate) struct AccessRuleDeclaration {
@@ -1197,7 +1195,7 @@ pub(crate) struct AccessRuleDeclaration {
     pub(crate) target: OwnedAccessRuleTarget,
     pub(crate) effect: AccessEffect,
     pub(crate) participant_classes: Box<[OwnedEntityReference<ParticipantClassKind>]>,
-    pub(crate) regulation: Option<OwnedAccessRegulation>,
+    pub(crate) regulation: Option<OwnedRegulationIdentity>,
     pub(crate) priority: i32,
 }
 
@@ -1293,6 +1291,7 @@ impl ConflictZoneRegionDeclaration {
 
 /// 官方合成前端当前支持的封闭声明集合。
 pub(crate) enum TypedAstDeclaration {
+    RightOfWayPolicySet(RightOfWayPolicySetDeclaration),
     LaneEdge(LaneEdgeDeclaration),
     RoadCorridor(RoadCorridorDeclaration),
     RoadSection(RoadSectionDeclaration),
@@ -1327,6 +1326,7 @@ impl TypedAstDeclaration {
         mut visit: impl FnMut(&SourceLocation) -> Result<(), E>,
     ) -> Result<(), E> {
         match self {
+            Self::RightOfWayPolicySet(policy) => policy.try_visit_source_locations(visit)?,
             Self::LaneEdge(LaneEdgeDeclaration {
                 header,
                 geometry_authority,
@@ -1447,7 +1447,12 @@ impl TypedAstDeclaration {
                 junction,
                 directed_entry_approach_key: _,
                 directed_exit_approach_key: _,
+                turn_direction: _,
+                direction_source,
             }) => {
+                if let Some(source) = direction_source {
+                    visit(source)?;
+                }
                 try_visit_declaration_header(header, &mut visit)?;
                 try_visit_reference(junction, &mut visit)?;
             }

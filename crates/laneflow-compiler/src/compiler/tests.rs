@@ -3,20 +3,20 @@ use crate::declaration::{
     CompiledFacilityBandGeometry, EdgeLength, OwnedEntityReference, TypedAstDeclaration,
 };
 use crate::{
-    AccessCapability, AccessRegulationInput, AccessRuleInput, AccessRuleTargetInput,
-    AuthoringLaneInput, CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder,
-    CompileLimitDimension, CompileLimits, CorridorElementReference, DiagnosticCode,
-    DiagnosticPayload, FacilityBandInput, FacilityBandReference, IidmVehicleProfileInput,
-    JunctionInput, JunctionReference, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference,
-    LaneGroupInput, LaneGroupReference, ManeuverGateInput, ManeuverGateReference,
-    ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
-    ParkingFacilityInput, ParkingFacilityReference, ParkingLaneAnchorInput,
-    ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference,
-    RoadCorridorInput, RoadSectionInput, RoadSectionReference, SignalControlInput,
-    SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
-    SignalPhaseInput, SourceModuleDescriptor, SourceModuleHeader, SourceModuleHeaderInput,
-    SourceRelationRole, SourceSpan, StopLineInput, StopLineReference, SyntheticModule,
-    SyntheticModuleBuilder, VehicleProfileInput, WaitingZoneInput,
+    AccessCapability, AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput,
+    CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder, CompileLimitDimension,
+    CompileLimits, CorridorElementReference, DiagnosticCode, DiagnosticPayload, FacilityBandInput,
+    FacilityBandReference, IidmVehicleProfileInput, JunctionInput, JunctionReference,
+    LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference,
+    ManeuverGateInput, ManeuverGateReference, ManeuverPathInput, ManeuverPathReference,
+    MovementInput, MovementReference, ParkingFacilityInput, ParkingFacilityReference,
+    ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput,
+    ParticipantClassReference, RegulationIdentity, RoadCorridorInput, RoadSectionInput,
+    RoadSectionReference, SignalControlInput, SignalControllerInput, SignalGroupInput,
+    SignalGroupReference, SignalGroupStateInput, SignalPhaseInput, SourceModuleDescriptor,
+    SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole, SourceSpan, StopLineInput,
+    StopLineReference, SyntheticModule, SyntheticModuleBuilder, VehicleProfileInput,
+    WaitingZoneInput,
 };
 use laneflow_static_contract::{CanonicalFrameKind, HEADING_MINUS_PI_F32_BITS};
 use std::sync::Arc;
@@ -434,6 +434,7 @@ fn junction_module(permuted: bool, selected_internal: &'static str) -> Synthetic
     let add_movement = |builder: &mut SyntheticModuleBuilder| {
         builder
             .add_movement(MovementInput {
+                turn_direction: None,
                 movement_key: "movement-through",
                 junction: JunctionReference::local("junction-main"),
                 directed_entry_approach_key: "approach-westbound",
@@ -499,6 +500,7 @@ fn control_builder(document: &str) -> SyntheticModuleBuilder {
         })
         .unwrap()
         .add_movement(MovementInput {
+            turn_direction: None,
             movement_key: "movement-through",
             junction: JunctionReference::local("junction-main"),
             directed_entry_approach_key: "approach-westbound",
@@ -562,6 +564,7 @@ fn branched_control_builder(document: &str, include_right_path: bool) -> Synthet
         })
         .unwrap()
         .add_movement(MovementInput {
+            turn_direction: None,
             movement_key: "movement-through",
             junction: JunctionReference::local("junction-main"),
             directed_entry_approach_key: "approach-westbound",
@@ -916,7 +919,7 @@ fn access_semantics_module(permuted: bool) -> SyntheticModule {
                 target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("edge-main")),
                 effect: AccessEffect::Allow,
                 participant_classes: &[ParticipantClassReference::local("road-user")],
-                regulation: Some(AccessRegulationInput {
+                regulation: Some(RegulationIdentity {
                     jurisdiction: "CN-test",
                     version: "2026-01",
                     source: Some("fixture"),
@@ -2111,6 +2114,7 @@ fn compiler_accepts_a_direct_maneuver_path_without_internal_edges() {
         })
         .unwrap()
         .add_movement(MovementInput {
+            turn_direction: None,
             movement_key: "movement-main",
             junction: JunctionReference::local("junction-main"),
             directed_entry_approach_key: "approach-entry",
@@ -2192,6 +2196,7 @@ fn compiler_rejects_junction_topology_semantic_failures_before_lir() {
         |builder: &mut SyntheticModuleBuilder, key: &'static str, junction: &'static str| {
             builder
                 .add_movement(MovementInput {
+                    turn_direction: None,
                     movement_key: key,
                     junction: JunctionReference::local(junction),
                     directed_entry_approach_key: "approach-entry",
@@ -2369,6 +2374,7 @@ fn movement_approach_identity_fields_reject_non_ascii_input_atomically() {
         })
         .unwrap();
     let diagnostic = match builder.add_movement(MovementInput {
+        turn_direction: None,
         movement_key: "movement-main",
         junction: JunctionReference::local("junction-main"),
         directed_entry_approach_key: "入口",
@@ -2384,6 +2390,7 @@ fn movement_approach_identity_fields_reject_non_ascii_input_atomically() {
     // 同一个稳定键仍可被合法声明，证明失败路径没有预占符号或部分提交资源计数。
     builder
         .add_movement(MovementInput {
+            turn_direction: None,
             movement_key: "movement-main",
             junction: JunctionReference::local("junction-main"),
             directed_entry_approach_key: "approach-entry",
@@ -3042,6 +3049,7 @@ fn synthetic_maneuver_path_requires_successors_for_internal_sequence() {
         })
         .unwrap()
         .add_movement(MovementInput {
+            turn_direction: None,
             movement_key: "movement-through",
             junction: JunctionReference::local("junction-main"),
             directed_entry_approach_key: "approach-westbound",
@@ -3127,6 +3135,7 @@ fn path_owned_internal_transition_accepts_release_stop_without_explicit_successo
         })
         .unwrap()
         .add_movement(MovementInput {
+            turn_direction: None,
             movement_key: "movement-through",
             junction: JunctionReference::local("junction-main"),
             directed_entry_approach_key: "approach-westbound",
@@ -4609,6 +4618,7 @@ fn compiler_preserves_all_supported_access_target_planes() {
         })
         .unwrap()
         .add_movement(MovementInput {
+            turn_direction: None,
             movement_key: "movement-main",
             junction: JunctionReference::local("junction-main"),
             directed_entry_approach_key: "approach-entry",
@@ -4746,7 +4756,7 @@ fn access_validation_closes_shape_capability_reference_and_regulation_failures()
             target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("edge-main")),
             effect: AccessEffect::Allow,
             participant_classes: &[ParticipantClassReference::local("all")],
-            regulation: Some(AccessRegulationInput {
+            regulation: Some(RegulationIdentity {
                 jurisdiction: "",
                 version: "2026-01",
                 source: None,
@@ -4773,7 +4783,7 @@ fn access_validation_closes_shape_capability_reference_and_regulation_failures()
                 target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("edge-main")),
                 effect: AccessEffect::Allow,
                 participant_classes: &[ParticipantClassReference::local("all")],
-                regulation: Some(AccessRegulationInput {
+                regulation: Some(RegulationIdentity {
                     jurisdiction,
                     version: "2026-01",
                     source: None,

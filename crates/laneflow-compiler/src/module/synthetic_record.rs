@@ -6,11 +6,11 @@ use laneflow_static_contract::{
 };
 
 use crate::declaration::{
-    AccessRegulationInput, AccessRuleTargetInput, AuthoringLaneDeclaration,
-    CanonicalFrameDeclaration, DeclarationHeader, LaneEdgeGeometryInput, OwnedAccessRegulation,
-    OwnedAccessRuleTarget, OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl,
-    ParkingSpaceDeclaration, ParkingSpaceInput, ParticipantClassReference,
-    SignalControllerDeclaration, SignalGroupReference, SignalPhaseInput, TypedAstDeclaration,
+    AccessRuleTargetInput, AuthoringLaneDeclaration, CanonicalFrameDeclaration, DeclarationHeader,
+    LaneEdgeGeometryInput, OwnedAccessRuleTarget, OwnedCorridorElementReference,
+    OwnedEntityReference, OwnedRegulationIdentity, OwnedSignalControl, ParkingSpaceDeclaration,
+    ParkingSpaceInput, ParticipantClassReference, SignalControllerDeclaration,
+    SignalGroupReference, SignalPhaseInput, TypedAstDeclaration,
 };
 use crate::{
     CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation, SourceModuleHeader,
@@ -22,6 +22,7 @@ use super::descriptor::SourceLanguage;
 use super::synthetic::SYNTHETIC_FRONTEND_VERSION;
 
 const SOURCE_RECORD_MAGIC: [u8; 8] = *b"LFSOURCE";
+mod policy;
 
 #[inline]
 pub(super) fn encoded_source_record_len(
@@ -115,6 +116,7 @@ pub(super) fn encode_source_record(
 
 pub(super) fn encoded_declaration_len(declaration: &TypedAstDeclaration) -> Option<u64> {
     match declaration {
+        TypedAstDeclaration::RightOfWayPolicySet(value) => Some(policy::length(value)),
         TypedAstDeclaration::LaneEdge(declaration) => {
             let mut length = lane_edge_declaration_base_len(&declaration.header.stable_key);
             for successor in &declaration.successors {
@@ -151,6 +153,7 @@ pub(super) fn encoded_declaration_len(declaration: &TypedAstDeclaration) -> Opti
             &declaration.junction,
             &declaration.directed_entry_approach_key,
             &declaration.directed_exit_approach_key,
+            declaration.turn_direction,
         )),
         TypedAstDeclaration::ManeuverPath(declaration) => Some(maneuver_path_declaration_len(
             &declaration.header.stable_key,
@@ -298,6 +301,7 @@ pub(super) fn movement_declaration_len(
     junction: &OwnedEntityReference<JunctionKind>,
     directed_entry_approach_key: &str,
     directed_exit_approach_key: &str,
+    turn_direction: Option<laneflow_static_contract::ManeuverDirection>,
 ) -> u64 {
     declaration_header_len(stable_key)
         .saturating_add(encoded_reference_len(
@@ -308,6 +312,7 @@ pub(super) fn movement_declaration_len(
         .saturating_add(u64::try_from(directed_entry_approach_key.len()).unwrap_or(u64::MAX))
         .saturating_add(4)
         .saturating_add(u64::try_from(directed_exit_approach_key.len()).unwrap_or(u64::MAX))
+        .saturating_add(1 + u64::from(turn_direction.is_some()))
 }
 
 #[inline]
@@ -568,7 +573,7 @@ pub(super) fn access_rule_input_len(
     stable_key: &str,
     target: AccessRuleTargetInput<'_>,
     participant_classes: &[ParticipantClassReference<'_>],
-    regulation: Option<AccessRegulationInput<'_>>,
+    regulation: Option<crate::RegulationIdentity<&'_ str>>,
     local_namespace: &str,
 ) -> u64 {
     let (_, target_namespace, target_key) = access_target_input_parts(target);
@@ -607,7 +612,7 @@ pub(super) fn access_rule_declaration_len(
     stable_key: &str,
     target: &OwnedAccessRuleTarget,
     participant_classes: &[OwnedEntityReference<ParticipantClassKind>],
-    regulation: Option<&OwnedAccessRegulation>,
+    regulation: Option<&OwnedRegulationIdentity>,
 ) -> u64 {
     let mut length = declaration_header_len(stable_key)
         .saturating_add(2)
@@ -759,6 +764,7 @@ pub(super) fn encoded_reference_len(module_namespace: &str, declaration_key: &st
 
 pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclaration) {
     match declaration {
+        TypedAstDeclaration::RightOfWayPolicySet(value) => policy::encode(value, output),
         TypedAstDeclaration::LaneEdge(declaration) => {
             put_declaration_header(output, &declaration.header);
             output.extend_from_slice(
@@ -847,6 +853,10 @@ pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclar
             put_owned_reference(output, &declaration.junction);
             put_bytes(output, &declaration.directed_entry_approach_key);
             put_bytes(output, &declaration.directed_exit_approach_key);
+            output.push(u8::from(declaration.turn_direction.is_some()));
+            if let Some(direction) = declaration.turn_direction {
+                output.push(direction.code());
+            }
         }
         TypedAstDeclaration::ManeuverPath(declaration) => {
             put_declaration_header(output, &declaration.header);

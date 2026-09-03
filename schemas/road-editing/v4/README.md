@@ -1,8 +1,8 @@
-# 道路编辑来源缓冲区 v3 Schema
+# 道路编辑来源缓冲区 v4 Schema
 
-**状态**: 生产。`format_version = 3`；根表 field id 连续至 id 28。
+**状态**: 生产。`format_version = 4`；根表 field id 连续至 id 29。
 其它版本的 `LFRE` 在语义读取前失败关闭。<br>
-**格式标识**: `LF-ROAD-EDITING-SOURCE-v3`<br>
+**格式标识**: `LF-ROAD-EDITING-SOURCE-v4`<br>
 **机器事实源**: [`road-editing.fbs`](road-editing.fbs)<br>
 **设计依据**:
 [`road-editing-source-and-geometry-frontend.md`](../../../docs/design/road-editing-source-and-geometry-frontend.md)、
@@ -22,9 +22,9 @@ file identifier。`.fbs` 冻结 wire shape；本文冻结不能只靠 verifier �
 
 - 一个逻辑来源模块恰好对应一个标准 size-prefixed FlatBuffer；根表是
   `RoadEditingSource`，file identifier 是 ASCII `LFRE`，默认扩展名是 `.lfre`。
-- `format_version` 必须精确为 `3`。其它值都在任何 LaneFlow 语义
+- `format_version` 必须精确为 `4`。其它值都在任何 LaneFlow 语义
   lowering 或按规模分配前拒绝。
-- `module_header`、`road_alignments`、23 个可构造 Identity 声明向量和 owner-local
+- `module_header`、`road_alignments`、24 个可构造 Identity 声明向量和 owner-local
   `conflict_zone_regions` 都必须在 wire 中存在；向量可以为空。根表无
   `static_routes` / `parking_areas` 字段；现行停车设施字段是
   `parking_facilities`。
@@ -66,7 +66,7 @@ namespace::owner-key>...>local-key
 ```
 
 `>` 不属于 token 字符；链中每段分别按 token 和 53-byte 上限验证。限定引用必须恰好
-包含一个 `::`，两侧非空；namespace 必须等于当前模块或出现在 imports。当前 v3 最深
+包含一个 `::`，两侧非空；namespace 必须等于当前模块或出现在 imports。当前 v4 最深
 目标是 `Junction > Movement > ManeuverPath > ManeuverGate/WaitingZone`，所以完整引用
 最多 4 个 key token；连同可选 53-byte namespace 和分隔符，wire string 的派生硬上限
 固定为 `270 bytes`。该例外只适用于已解析为有类型实体引用的 string，普通 string 和
@@ -104,43 +104,44 @@ import。`RoadCorridor.road_alignment_key` 只引用当前模块的 `RoadAlignme
 1. `format_version` 与唯一 `ModuleHeader`；
 2. 显式位置/方向配置档；
 3. `road_alignments:[RoadAlignment]`；
-4. 按 Identity 可构造种类排列的 23 个有类型声明向量；
+4. 按 Identity 可构造种类排列的 24 个有类型声明向量；
 5. 不分配 StableId 的 `conflict_zone_regions` 空间记录。
 
 `RoadAlignment` 是可继续编辑的当前道路走向定义。其 `road_alignment_key` 在模块内稳定
-且唯一，但它不是第 23 种静态路网实体，不分配 `StableId128`，也不进入 LIR。它只为
+且唯一，但它不是静态路网实体，不分配 `StableId128`，也不进入 LIR。它只为
 一个或多个 `RoadCorridor` 提供同一规范坐标框架中的参考曲线。
 
-23 个可构造声明向量与 Identity revision 3 种类一一对应：
+24 个可构造声明向量与 Identity revision 4 种类一一对应：
 
-| 代码 | FlatBuffers table   | 稳定 key 字段            | 所有者 / 身份锚点来源                           |
-| ---: | ------------------- | ------------------------ | ----------------------------------------------- |
-|    1 | `RoadCorridor`      | `road_corridor_key`      | 当前 module namespace                           |
-|    2 | `RoadSection`       | `road_section_key`       | 同模块 `road_corridor` + 唯一 elements 成员     |
-|    3 | `AuthoringLane`     | `authoring_lane_key`     | 同模块 `road_section` + 唯一 lanes 成员         |
-|    4 | `LaneEdge`          | `lane_edge_key`          | 当前 module namespace；角色不参与身份           |
-|    5 | `Junction`          | `junction_key`           | 当前 module namespace                           |
-|    6 | `Movement`          | `movement_key`           | `junction` + 两个有向 approach key              |
-|    7 | `ManeuverPath`      | `maneuver_path_key`      | `movement`                                      |
-|    8 | `ManeuverGate`      | `maneuver_gate_key`      | `maneuver_path`                                 |
-|    9 | `WaitingZone`       | `waiting_zone_key`       | `maneuver_path`                                 |
-|   10 | `StopLine`          | `stop_line_key`          | 当前 module namespace                           |
-|   11 | `SignalGroup`       | `signal_group_key`       | 当前 module namespace                           |
-|   12 | `SignalController`  | `signal_controller_key`  | 当前 module namespace                           |
-|   13 | `SignalPhase`       | `signal_phase_key`       | 同模块 controller + 唯一 phases 成员            |
-|   14 | `ParkingFacility`   | `parking_facility_key`   | 当前 module namespace                           |
-|   15 | `ParkingSpace`      | `parking_space_key`      | 当前 module namespace；可选 facility 不参与身份 |
-|   16 | `LaneGroup`         | `lane_group_key`         | `road_section`                                  |
-|   17 | `FacilityBand`      | `facility_band_key`      | 同模块 corridor + 唯一 elements 成员            |
-|   18 | `ParticipantClass`  | `participant_class_key`  | 当前 module namespace                           |
-|   19 | `AccessRule`        | `access_rule_key`        | 当前 module namespace                           |
-|   20 | `VehicleProfile`    | `vehicle_profile_key`    | 当前 module namespace                           |
-|   21 | `ConflictZone`      | `conflict_zone_key`      | 同模块 `junction`                               |
-|   22 | `CanonicalFrame`    | `canonical_frame_key`    | 当前 module namespace                           |
-|   23 | `ParticipantStream` | `participant_stream_key` | 同模块 `junction`                               |
+| 代码 | FlatBuffers table     | 稳定 key 字段            | 所有者 / 身份锚点来源                           |
+| ---: | --------------------- | ------------------------ | ----------------------------------------------- |
+|    1 | `RoadCorridor`        | `road_corridor_key`      | 当前 module namespace                           |
+|    2 | `RoadSection`         | `road_section_key`       | 同模块 `road_corridor` + 唯一 elements 成员     |
+|    3 | `AuthoringLane`       | `authoring_lane_key`     | 同模块 `road_section` + 唯一 lanes 成员         |
+|    4 | `LaneEdge`            | `lane_edge_key`          | 当前 module namespace；角色不参与身份           |
+|    5 | `Junction`            | `junction_key`           | 当前 module namespace                           |
+|    6 | `Movement`            | `movement_key`           | `junction` + 两个有向 approach key              |
+|    7 | `ManeuverPath`        | `maneuver_path_key`      | `movement`                                      |
+|    8 | `ManeuverGate`        | `maneuver_gate_key`      | `maneuver_path`                                 |
+|    9 | `WaitingZone`         | `waiting_zone_key`       | `maneuver_path`                                 |
+|   10 | `StopLine`            | `stop_line_key`          | 当前 module namespace                           |
+|   11 | `SignalGroup`         | `signal_group_key`       | 当前 module namespace                           |
+|   12 | `SignalController`    | `signal_controller_key`  | 当前 module namespace                           |
+|   13 | `SignalPhase`         | `signal_phase_key`       | 同模块 controller + 唯一 phases 成员            |
+|   14 | `ParkingFacility`     | `parking_facility_key`   | 当前 module namespace                           |
+|   15 | `ParkingSpace`        | `parking_space_key`      | 当前 module namespace；可选 facility 不参与身份 |
+|   16 | `LaneGroup`           | `lane_group_key`         | `road_section`                                  |
+|   17 | `FacilityBand`        | `facility_band_key`      | 同模块 corridor + 唯一 elements 成员            |
+|   18 | `ParticipantClass`    | `participant_class_key`  | 当前 module namespace                           |
+|   19 | `AccessRule`          | `access_rule_key`        | 当前 module namespace                           |
+|   20 | `VehicleProfile`      | `vehicle_profile_key`    | 当前 module namespace                           |
+|   21 | `ConflictZone`        | `conflict_zone_key`      | 同模块 `junction`                               |
+|   22 | `CanonicalFrame`      | `canonical_frame_key`    | 当前 module namespace                           |
+|   23 | `ParticipantStream`   | `participant_stream_key` | 同模块 `junction`                               |
+|   24 | `RightOfWayPolicySet` | `policy_set_key`         | 当前 module namespace                           |
 
 所有 table 在其根向量中的物理顺序都不进入语义。一个 buffer 只属于一个 namespace，
-且全部身份 owner 必须在同一 buffer。来源 v3 要求 `RoadAlignment` 和模块级身份种类在
+且全部身份 owner 必须在同一 buffer。来源 v4 要求 `RoadAlignment` 和模块级身份种类在
 各自根向量内 local key 唯一；owner-scoped 种类只要求同一直接 owner 下 sibling local
 key 唯一，不同 owner 可以合法复用同名 local key。每个 child 的显式 parent 字段必须与
 owner 向量精确互证，缺失、重复或冲突 owner 均失败关闭。
@@ -167,7 +168,7 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
   `Generated` 必须保存真实生成器 build ID、参数/输入摘要、来源前端选项摘要和可选
   seed。两类 `description` 都必须是非空、受长度上限约束的可见 ASCII。沿袭不认证内容，
   也不能替代实际保存的道路编辑状态。
-- v3 不保存一张永远固定、却会与字段后缀竞争权威的 `Units` table。距离、角度、速度和
+- v4 不保存一张永远固定、却会与字段后缀竞争权威的 `Units` table。距离、角度、速度和
   时间单位由精确字段名冻结为米、弧度、米每秒、秒或毫秒；writer/reader 不能接受
   每文档单位切换，也不能把宿主单位隐式带入来源。
 - `geometry_accuracy_profile` 只接受 `Fine2Cm / Balanced5Cm / Compact10Cm`；这些名称
@@ -260,7 +261,7 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
   矩形尺寸、横向偏移和朝向继续遵守已接受停车几何范围。
 - `ConflictZone` 与 `ParticipantStream` 是稳定实体；`ConflictPassage` / `PathAnchor` 是
   stream 的 owner-local 行。每个 stream 绑定同一 Junction 的 ManeuverPath，passage
-  顺序与 anchor 规范化遵循公共 LFCA 4 合同。`ConflictZoneRegion` 只提供可选 2.5D
+  顺序与 anchor 规范化遵循公共 LFCA 5 合同。`ConflictZoneRegion` 只提供可选 2.5D
   空间区域，不获得行为 authority。
 - `ParticipantClass.extends` 形成可选无环单继承。`VehicleProfile.iidm` 只描述当前道路
   机动车执行域，全部数值继续遵守当前 IIDM 范围。
@@ -273,6 +274,12 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
   中声明；场景 catalog 0.3 拥有示例边键，运行时只经 `register_route` 编译。
 
 ## 7. 数值、顺序与 scalar 缺省
+
+策略成员的 priority、三项间隙和两个门枚举采用 optional scalar，领域准入必须
+显式提供；零是合法值，缺失拒绝。Movement 的可选方向缺失不等于 Straight。
+这些新增字段的完整合同见[路权策略实施合同 §4.4](../../../docs/design/traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合)。
+
+以下旧字段继续按既有规则解释：
 
 FlatBuffers scalar 的 wire 缺省值与显式写入同一默认值不可区分。本契约不把“是否写入
 默认 scalar”当作产品语义：
@@ -291,7 +298,7 @@ FlatBuffers scalar 的 wire 缺省值与显式写入同一默认值不可区分�
 
 - `RoadAlignment`、curve segment、corridor element、signal phase state 和其他
   owner-local 值只进入道路编辑 Typed AST / geometry intent，不分配额外 StableId。
-- 23 个可构造稳定 table 各产生且只产生一个同名共同声明；所有 wire 字段必须被消费一次，
+- 24 个可构造稳定 table 各产生且只产生一个同名共同声明；所有 wire 字段必须被消费一次，
   或明确只属于来源沿袭/画布诊断。
 - schema 不保存 HIR/MIR/LIR ordinal、运行时 handle、目标静态镜像布局、车辆状态、
   mesh、材质、碰撞体或任意扩展 map。
@@ -314,3 +321,14 @@ FlatBuffers scalar 的 wire 缺省值与显式写入同一默认值不可区分�
 - 实现必须使用固定 `flatc 25.12.19` 对 Rust、C++、C# 生成物执行 clean regeneration；
   Rust clean diff 只允许把平台原生 CRLF/LF 统一为 LF，其他源码字节必须逐字节一致，并
   证明 production 调用图只从受检 size-prefixed root 进入且不调用 `_unchecked`。
+
+## 10. 路权策略来源
+
+根表 id 29 `right_of_way_policy_sets` 为 required vector，可为空。每份策略是
+模块级 kind 24 声明，包含共用 RegulationIdentity 值与 Evidence、GapProfile、
+StreamRule、GateRule 四种局部具名成员。成员不能跨模块追加，引用的 stream、Gate
+和 class 可以来自显式导入模块。成员按 key 排序产生来源 occurrence；策略及成员的
+全部已提供字段进入 LFSM 贡献位置，空集合与零数值仍保留。策略 canvas 的 None 和
+空字符串分别保留。业务日期和策略启用时机由宿主拥有。
+
+详见[路权策略实施合同](../../../docs/design/traffic-runtime-right-of-way-policy.md)。

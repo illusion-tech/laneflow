@@ -188,6 +188,7 @@ pub enum RoadEditingRootVectorKind {
     ConflictZone,
     ParticipantStream,
     ConflictZoneRegion,
+    RightOfWayPolicySet,
 }
 
 /// 道路编辑来源地址中的有类型声明种类；道路走向不是 Identity v1 实体。

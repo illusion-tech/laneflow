@@ -9,6 +9,8 @@
 //! 发布输出。
 
 use std::sync::Arc;
+mod policy;
+pub(crate) use policy::validate as validate_policies;
 
 use laneflow_static_contract::{
     AccessEffect, AccessRuleId, AuthoringLaneId, CanonicalFrameId, ConflictZoneId, FacilityBandId,
@@ -200,6 +202,8 @@ pub(crate) struct MirMovement {
     pub(crate) junction_source_location: Option<ResolvedSourceLocation>,
     pub(crate) directed_entry_approach_key: Arc<str>,
     pub(crate) directed_exit_approach_key: Arc<str>,
+    pub(crate) turn_direction: Option<laneflow_static_contract::ManeuverDirection>,
+    pub(crate) direction_source: Option<SourceLocation>,
     pub(crate) maneuver_paths: TableRange<MirMovementManeuverPath>,
     pub(crate) source_span: SourceLocation,
 }
@@ -513,11 +517,7 @@ pub(crate) enum MirAccessTarget {
     ManeuverPath(MirManeuverPathKey),
 }
 
-pub(crate) struct MirAccessRegulation {
-    pub(crate) jurisdiction: Arc<str>,
-    pub(crate) version: Arc<str>,
-    pub(crate) source: Option<Arc<str>>,
-}
+pub(crate) type MirAccessRegulation = crate::RegulationIdentity<Arc<str>>;
 
 pub(crate) struct MirAccessRuleParticipantClass {
     pub(crate) participant_class: MirParticipantClassKey,
@@ -563,6 +563,13 @@ pub(crate) struct MirJunctionInternalEdge {
 /// `lane_edges`。`controlled_live_bytes` 只统计 MIR 成功返回后自身拥有的表；
 /// `peak_controlled_live_bytes` 另保存 CompilationUnit、HIR 与键映射暂存区的共存峰值。
 pub(crate) struct MirUnit {
+    pub(crate) policies: Box<
+        [crate::policy::model::PolicyRecord<
+            MirManeuverGateKey,
+            MirParticipantStreamKey,
+            MirParticipantClassKey,
+        >],
+    >,
     pub(crate) geometry_profiles: Option<GeometryCompilationProfiles>,
     pub(crate) modules: Box<[MirModule]>,
     pub(crate) lane_edges: Box<[MirLaneEdge]>,
@@ -720,6 +727,11 @@ pub(crate) fn lower_to_mir(
         total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
     });
     let mir_record_count = lane_edge_count
+        .saturating_add(
+            hir.policies
+                .iter()
+                .fold(0_u64, |n, p| n.saturating_add(p.value.records())),
+        )
         .saturating_add(connection_count)
         .saturating_add(cross_record_count)
         .saturating_add(junction_record_count)
@@ -777,6 +789,10 @@ pub(crate) fn lower_to_mir(
             u64::try_from(hir.canonical_frames.len()).unwrap_or(u64::MAX),
         ));
     let mir_owned_bytes = requested_bytes::<MirModule>(module_count)
+        .saturating_add(hir.policies.iter().fold(0_u64, |n, p| {
+            n.saturating_add(p.value.owned_bytes())
+                .saturating_add(size_of::<crate::policy::model::PolicyOrigin>() as u64)
+        }))
         .saturating_add(requested_bytes::<MirLaneEdge>(lane_edge_count))
         .saturating_add(requested_bytes::<MirLaneEdgeConnection>(connection_count))
         .saturating_add(requested_bytes::<MirRoadCorridor>(
@@ -1199,6 +1215,8 @@ pub(crate) fn lower_to_mir(
                 junction_source_location: movement.junction_source_location.clone(),
                 directed_entry_approach_key: Arc::clone(&movement.directed_entry_approach_key),
                 directed_exit_approach_key: Arc::clone(&movement.directed_exit_approach_key),
+                turn_direction: movement.turn_direction,
+                direction_source: movement.direction_source.clone(),
                 maneuver_paths: remap_range(
                     movement.maneuver_paths,
                     &unit.limits,
@@ -1790,6 +1808,18 @@ pub(crate) fn lower_to_mir(
     debug_assert_eq!(lane_edges.len(), edge_capacity);
     debug_assert_eq!(connections.len(), connection_capacity);
     Ok(MirUnit {
+        policies: hir
+            .policies
+            .iter()
+            .map(|p| crate::policy::model::PolicyRecord {
+                origin: p.origin,
+                value: p.value.map(
+                    |g| maneuver_gate_mapping[g.index()],
+                    |s| participant_stream_mapping[s.index()],
+                    |c| participant_class_mapping[c.index()],
+                ),
+            })
+            .collect(),
         geometry_profiles: hir.geometry_profiles,
         modules: modules.into_boxed_slice(),
         lane_edges: lane_edges.into_boxed_slice(),

@@ -392,11 +392,11 @@ impl ValidatedSourceMapInput {
         inputs: &[policy::PolicySourceInput<'_>],
     ) -> Result<(), DiagnosticBundle> {
         let (records, _, _) =
-            policy::freeze_policy_sources(unit, inputs, self.peak_controlled_live_bytes, 0)?;
+            policy::freeze_policy_sources(unit, inputs, self.peak_controlled_live_bytes, 0, 0)?;
         self.policy_sources = records;
         Ok(())
     }
-    /// 策略声明、具名成员与 Movement 方向字段的受检来源；当前前端生产由 W2 接入。
+    /// 两个正式前端共同产生的策略声明、具名成员与 Movement 方向字段受检来源。
     pub fn policy_sources(&self) -> impl ExactSizeIterator<Item = PolicySourceView<'_>> {
         self.policy_sources.iter().map(|record| PolicySourceView {
             source_map: self,

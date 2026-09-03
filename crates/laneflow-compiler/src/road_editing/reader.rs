@@ -9,7 +9,7 @@ use crate::{
     RoadEditingRootVectorKind, RoadEditingSourceViolation, RoadEditingTableKind, SourceLocation,
 };
 
-const FORMAT_VERSION: u32 = 3;
+const FORMAT_VERSION: u32 = 4;
 const MIN_SIZE_PREFIXED_LFRE_BYTES: usize = 12;
 const MAX_SCHEMA_TABLE_DEPTH: usize = 5;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
@@ -111,6 +111,19 @@ pub(crate) fn verify_source<'a>(
     }
 
     let typed_ast_limit = limits.value(CompileLimitDimension::TypedAstRecordCount);
+    // 版本探针只读受界定的 root 标量。旧版本不要求携带 v4 新增的 required vector。
+    if let Some(actual) = probe_format_version(bytes)
+        && actual != FORMAT_VERSION
+    {
+        return Err(source_error(
+            RoadEditingSourceViolation::UnsupportedFormatVersion {
+                expected: FORMAT_VERSION,
+                actual,
+            },
+            expected_key,
+            None,
+        ));
+    }
     let remaining_records = typed_ast_limit.saturating_sub(typed_ast_records_already_admitted);
     let max_tables_u64 = remaining_records.checked_add(2).ok_or_else(|| {
         source_error(
@@ -326,6 +339,10 @@ fn wire_location_from_trace(
 
 fn root_vector_site(field_name: &str) -> Option<(RoadEditingRootVectorKind, RoadEditingTableKind)> {
     Some(match field_name {
+        "right_of_way_policy_sets" => (
+            RoadEditingRootVectorKind::RightOfWayPolicySet,
+            RoadEditingTableKind::RightOfWayPolicySet,
+        ),
         "road_alignments" => (
             RoadEditingRootVectorKind::RoadAlignment,
             RoadEditingTableKind::RoadAlignment,
@@ -486,6 +503,14 @@ fn limit_error(
 
 fn table_count(root: wire::RoadEditingSource<'_>) -> u64 {
     let mut count = 3_u64; // root + ModuleHeader + Provenance
+    for policy in root.right_of_way_policy_sets() {
+        count = count
+            .saturating_add(2)
+            .saturating_add(len_u64(policy.evidence()))
+            .saturating_add(len_u64(policy.gap_profiles()))
+            .saturating_add(len_u64(policy.stream_rules()))
+            .saturating_add(len_u64(policy.gate_rules()));
+    }
     for value in root.road_alignments() {
         count = count.saturating_add(1 + curve_program_table_count(value.reference_line()));
     }
@@ -537,6 +562,40 @@ fn table_count(root: wire::RoadEditingSource<'_>) -> u64 {
 
 fn curve_program_table_count(program: wire::CurveProgram<'_>) -> u64 {
     1_u64.saturating_add(len_u64(program.segments()).saturating_mul(2))
+}
+
+fn probe_format_version(bytes: &[u8]) -> Option<u32> {
+    fn u16_at(bytes: &[u8], at: usize) -> Option<u16> {
+        Some(u16::from_le_bytes(
+            bytes.get(at..at.checked_add(2)?)?.try_into().ok()?,
+        ))
+    }
+    fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
+        Some(u32::from_le_bytes(
+            bytes.get(at..at.checked_add(4)?)?.try_into().ok()?,
+        ))
+    }
+    let table = 4_usize.checked_add(usize::try_from(u32_at(bytes, 4)?).ok()?)?;
+    let offset = i32::from_le_bytes(bytes.get(table..table.checked_add(4)?)?.try_into().ok()?);
+    let vtable =
+        usize::try_from(i64::try_from(table).ok()?.checked_sub(i64::from(offset))?).ok()?;
+    let vtable_len = usize::from(u16_at(bytes, vtable)?);
+    bytes.get(vtable..vtable.checked_add(vtable_len)?)?;
+    if vtable_len < 4 {
+        return None;
+    }
+    if vtable_len < 6 {
+        return Some(0);
+    }
+    let field = usize::from(u16_at(bytes, vtable.checked_add(4)?)?);
+    if field == 0 {
+        return Some(0);
+    }
+    let table_len = usize::from(u16_at(bytes, vtable.checked_add(2)?)?);
+    if field < 4 || field.checked_add(4)? > table_len {
+        return None;
+    }
+    u32_at(bytes, table.checked_add(field)?)
 }
 
 fn len_u64<T>(values: laneflow_road_editing_wire::runtime::Vector<'_, T>) -> u64 {
@@ -1193,7 +1252,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_format_version_after_verification() {
+    fn rejects_unknown_format_version_before_current_schema_verification() {
         let limits = CompileLimits::p100_initial_v1();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
@@ -1206,7 +1265,7 @@ mod tests {
             first_diagnostic(&error).payload(),
             DiagnosticPayload::InvalidRoadEditingSource {
                 violation: RoadEditingSourceViolation::UnsupportedFormatVersion {
-                    expected: 3,
+                    expected: 4,
                     actual: 1
                 },
                 ..

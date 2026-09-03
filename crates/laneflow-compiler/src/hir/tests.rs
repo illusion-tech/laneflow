@@ -5,15 +5,15 @@ use crate::declaration::{
 use crate::lir::freeze_lir;
 use crate::mir::lower_to_mir;
 use crate::{
-    AccessRegulationInput, AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput,
-    CanonicalFrameInput, CompilationUnitBuilder, CompileLimits, CorridorElementReference,
-    DiagnosticCode, DiagnosticPayload, FacilityBandInput, FacilityBandReference,
-    GeometryAccuracyProfile, GeometryDirectionProfile, IidmVehicleProfileInput, JunctionInput,
-    JunctionReference, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference, LaneGroupInput,
-    LaneGroupReference, ManeuverGateInput, ManeuverGateReference, ManeuverPathInput,
-    ManeuverPathReference, MovementInput, MovementReference, ParkingFacilityInput,
-    ParkingFacilityReference, ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput,
-    ParticipantClassInput, ParticipantClassReference, RoadCorridorInput, RoadSectionInput,
+    AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput, CanonicalFrameInput,
+    CompilationUnitBuilder, CompileLimits, CorridorElementReference, DiagnosticCode,
+    DiagnosticPayload, FacilityBandInput, FacilityBandReference, GeometryAccuracyProfile,
+    GeometryDirectionProfile, IidmVehicleProfileInput, JunctionInput, JunctionReference,
+    LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference,
+    ManeuverGateInput, ManeuverGateReference, ManeuverPathInput, ManeuverPathReference,
+    MovementInput, MovementReference, ParkingFacilityInput, ParkingFacilityReference,
+    ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput,
+    ParticipantClassReference, RegulationIdentity, RoadCorridorInput, RoadSectionInput,
     RoadSectionReference, SignalControlInput, SignalControllerInput, SignalGroupInput,
     SignalGroupReference, SignalGroupStateInput, SignalPhaseInput, SourceModuleHeader,
     SourceModuleHeaderInput, SourceSpan, StopLineInput, StopLineReference, SyntheticModule,
@@ -248,6 +248,7 @@ fn compiled_junction_unit(conflicting_frames: bool) -> CompilationUnit {
         })
         .unwrap()
         .add_movement(MovementInput {
+            turn_direction: None,
             movement_key: "movement-through",
             junction: JunctionReference::local("junction-main"),
             directed_entry_approach_key: "approach-westbound",
@@ -1295,6 +1296,7 @@ fn full_domain_unit() -> CompilationUnit {
         })
         .unwrap()
         .add_movement(MovementInput {
+            turn_direction: None,
             movement_key: "movement-through",
             junction: JunctionReference::local("junction-main"),
             directed_entry_approach_key: "approach-westbound",
@@ -1469,7 +1471,7 @@ fn full_domain_unit() -> CompilationUnit {
             target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("edge-a")),
             effect: AccessEffect::Allow,
             participant_classes: &[ParticipantClassReference::local("road-user")],
-            regulation: Some(AccessRegulationInput {
+            regulation: Some(RegulationIdentity {
                 jurisdiction: "CN-test",
                 version: "2026-01",
                 source: Some("fixture"),
@@ -1650,6 +1652,7 @@ fn explicit_junction_internal_set_must_equal_the_path_internal_union() {
         })
         .unwrap()
         .add_movement(MovementInput {
+            turn_direction: None,
             movement_key: "movement",
             junction: JunctionReference::local("junction"),
             directed_entry_approach_key: "entry",
@@ -1753,6 +1756,7 @@ fn explicit_junction_internal_edge_cannot_be_section_derived() {
         })
         .unwrap()
         .add_movement(MovementInput {
+            turn_direction: None,
             movement_key: "movement",
             junction: JunctionReference::local("junction"),
             directed_entry_approach_key: "entry",
@@ -1875,6 +1879,7 @@ fn explicit_junction_internal_unit(
         })
         .unwrap()
         .add_movement(MovementInput {
+            turn_direction: None,
             movement_key: "movement",
             junction: JunctionReference::local("junction"),
             directed_entry_approach_key: "entry",

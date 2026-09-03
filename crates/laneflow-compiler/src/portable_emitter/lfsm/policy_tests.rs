@@ -1013,6 +1013,6 @@ fn policy_source_fixture_matches_frozen_wire() {
     assert_eq!(map.len(), 54_823);
     assert_eq!(
         object_key(sha256(&map)).as_ref(),
-        "sha256/ba9290374c23e89ea719249d1f319f441112214bea0ef753c01670c16088a013"
+        "sha256/42cec62db752f9e51bc3e2ee489789f7731dc93e503c021da19f7ac86a616c01"
     );
 }

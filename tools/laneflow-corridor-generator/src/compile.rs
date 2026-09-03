@@ -215,6 +215,7 @@ fn add_junctions_and_movements(
         let exit = directed_approach_key(connector.key.approach.exit(connector.key.turn));
         builder
             .add_movement(MovementInput {
+                turn_direction: None,
                 movement_key: connector.movement_id.as_str(),
                 junction: laneflow_compiler::JunctionReference::local(junction_id.as_str()),
                 directed_entry_approach_key: entry,

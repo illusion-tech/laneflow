@@ -1,12 +1,19 @@
-// LaneFlow 道路编辑来源缓冲区 v3。
+// LaneFlow 道路编辑来源缓冲区 v4。
 //
 // 本 schema 只冻结 portable wire shape。字符串语法、引用闭包、数值范围、所有者
-// 唯一性、曲线误差与资源上限仍由 LaneFlow 语义验证器执行。`format_version = 3`：
+// 唯一性、曲线误差与资源上限仍由 LaneFlow 语义验证器执行。`format_version = 4`：
 // 根表 field id 连续；`canonical_frames`、`conflict_zones`、`participant_streams` 与
 // `conflict_zone_regions` 分别为 id 25、26、27、28。无 `static_routes` 字段。
 // file identifier 仍 `LFRE`。当前 exact version 的 table id / enum / union 判别值固定。
 
 namespace LaneFlow.RoadEditing.V1;
+
+enum ManeuverDirection:ubyte { Straight = 0, Left = 1, Right = 2, UTurn = 3 }
+enum GateInterpretation:ubyte {
+  Uncontrolled = 0, ProtectedGroup = 1, PermissiveGroup = 2,
+  CnCircularRightTurn = 3, DirectionalRightProtected = 4, DirectionalRightPermissive = 5
+}
+enum GateProhibition:ubyte { None = 0, Always = 1, OnRed = 2 }
 
 /// 32-byte SHA-256 摘要。
 struct Digest256 {
@@ -220,6 +227,7 @@ table Movement {
   directed_entry_approach_key:string (required, id: 2);
   directed_exit_approach_key:string (required, id: 3);
   canvas_selection:string (id: 4);
+  turn_direction:ManeuverDirection = null (id: 5);
 }
 
 table ManeuverPath {
@@ -410,7 +418,50 @@ table ConflictZoneRegion {
   canvas_selection:string (id: 5);
 }
 
-/// v3 root。road_alignments 是编辑状态记录；其余 23 个向量与可构造 Identity 种类对应。
+table PolicyEvidence {
+  evidence_key:string (required, id: 0);
+  locator:string (required, id: 1);
+  description:string (id: 2);
+}
+
+table PolicyGapProfile {
+  profile_key:string (required, id: 0);
+  parameter_version:string (required, id: 1);
+  minimum_lead_gap_ms:ulong = null (id: 2);
+  minimum_lag_gap_ms:ulong = null (id: 3);
+  clearance_buffer_ms:ulong = null (id: 4);
+}
+
+table PolicyStreamRule {
+  rule_key:string (required, id: 0);
+  stream:string (required, id: 1);
+  participant_classes:[string] (id: 2);
+  priority:int = null (id: 3);
+  yield_to_streams:[string] (required, id: 4);
+  gap_profile_key:string (id: 5);
+  evidence_keys:[string] (required, id: 6);
+}
+
+table PolicyGateRule {
+  rule_key:string (required, id: 0);
+  gate:string (required, id: 1);
+  participant_classes:[string] (id: 2);
+  interpretation:GateInterpretation = null (id: 3);
+  prohibition:GateProhibition = null (id: 4);
+  evidence_keys:[string] (required, id: 5);
+}
+
+table RightOfWayPolicySet {
+  policy_set_key:string (required, id: 0);
+  regulation:AccessRegulation (required, id: 1);
+  evidence:[PolicyEvidence] (required, id: 2);
+  gap_profiles:[PolicyGapProfile] (required, id: 3);
+  stream_rules:[PolicyStreamRule] (required, id: 4);
+  gate_rules:[PolicyGateRule] (required, id: 5);
+  canvas_selection:string (id: 6);
+}
+
+/// v4 root。road_alignments 是编辑状态记录；24 个声明向量对应稳定实体种类。
 /// field id 连续；`conflict_zone_regions` 是 owner-local 空间记录，不分配 StableId。
 table RoadEditingSource {
   format_version:uint = 0 (id: 0);
@@ -442,6 +493,7 @@ table RoadEditingSource {
   conflict_zones:[ConflictZone] (required, id: 26);
   participant_streams:[ParticipantStream] (required, id: 27);
   conflict_zone_regions:[ConflictZoneRegion] (required, id: 28);
+  right_of_way_policy_sets:[RightOfWayPolicySet] (required, id: 29);
 }
 
 root_type RoadEditingSource;
