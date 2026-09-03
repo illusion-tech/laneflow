@@ -864,6 +864,82 @@ fn canonical_access_regulation_checks_every_policy_and_ignores_source_variants()
 }
 
 #[test]
+fn policy_diagnostic_preserves_member_kind_when_gate_and_stream_keys_match() {
+    let check = |result: Result<CompilationOutput, DiagnosticBundle>,
+                 expected,
+                 relation,
+                 field_id| {
+        let errors = result.err().unwrap();
+        let diagnostic = errors
+            .diagnostics()
+            .iter()
+            .find(|d| {
+                matches!(d.payload(),
+            DiagnosticPayload::InvalidPolicy { violation, .. } if *violation == expected)
+            })
+            .unwrap();
+        let Some(SourceLocation::RoadEditing(location)) = diagnostic.primary_location() else {
+            panic!("expected editor location");
+        };
+        assert!(
+            matches!(location.subject(), RoadEditingSubject::OwnerLocal { relation: actual, .. } if *actual == relation)
+        );
+        assert_eq!(
+            location.property_path().unwrap().steps(),
+            &[RoadEditingPropertyStep::TableField {
+                table: RoadEditingTableKind::RightOfWayPolicySet,
+                field_id,
+            }]
+        );
+    };
+    check(
+        compile_editing_custom(None, None, |_, policy| {
+            policy.gates[0].interpretation = GateInterpretation::ProtectedGroup;
+        }),
+        PolicyViolation::SignalBinding,
+        RoadEditingRelationKind::PolicyGateRule,
+        5,
+    );
+    check(
+        compile_editing_custom(None, Some([SignalAspect::Red; 2]), |_, policy| {
+            for gate in &mut policy.gates {
+                gate.interpretation = GateInterpretation::CnCircularRightTurn;
+            }
+        }),
+        PolicyViolation::RightTurnRequired,
+        RoadEditingRelationKind::PolicyGateRule,
+        5,
+    );
+    check(
+        compile_editing_custom(
+            Some(ManeuverDirection::Right),
+            Some([SignalAspect::Red; 2]),
+            |_, policy| {
+                for gate in &mut policy.gates {
+                    gate.interpretation = GateInterpretation::CnCircularRightTurn;
+                }
+                let mut shadow = policy.gates[0].clone();
+                shadow.key = "a-shadow".into();
+                shadow.interpretation = GateInterpretation::DirectionalRightPermissive;
+                policy.gates = policy.gates.iter().cloned().chain([shadow]).collect();
+                policy.streams[0].key = "a-shadow".into();
+            },
+        ),
+        PolicyViolation::LampTypeConflict,
+        RoadEditingRelationKind::PolicyGateRule,
+        5,
+    );
+    check(
+        compile_editing_custom(None, None, |_, policy| {
+            policy.streams[0].priority = 2;
+        }),
+        PolicyViolation::YieldPriority,
+        RoadEditingRelationKind::PolicyStreamRule,
+        4,
+    );
+}
+
+#[test]
 fn physical_lamp_kind_is_shared_across_policies_and_class_prohibitions() {
     violation(
         compile_editing_custom(

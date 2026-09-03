@@ -21,7 +21,6 @@ const APPARENT_SIZE_MULTIPLIER: usize = 16;
 pub(crate) struct VerifiedRoadEditingSource<'a> {
     input: RoadEditingModuleInput<'a>,
     root: wire::RoadEditingSource<'a>,
-    table_count: u64,
     preflight_counts: RoadEditingPreflightCounts,
 }
 
@@ -35,13 +34,12 @@ impl<'a> VerifiedRoadEditingSource<'a> {
     }
 
     #[cfg(test)]
-    pub(crate) const fn table_count(&self) -> u64 {
-        self.table_count
+    pub(crate) fn table_count(&self) -> u64 {
+        table_count(self.root)
     }
 
     pub(crate) const fn typed_ast_record_count(&self) -> u64 {
-        // root 与 Provenance 不进入 Typed AST record 计数。
-        self.table_count - 2
+        self.preflight_counts.typed_ast_record_count()
     }
 
     pub(crate) const fn preflight_counts(&self) -> RoadEditingPreflightCounts {
@@ -181,7 +179,13 @@ pub(crate) fn verify_source<'a>(
     }
 
     let table_count = table_count(root);
-    let typed_ast_record_count = table_count.saturating_sub(2);
+    // 物理 table 与 Typed AST 来源记录是两个口径；方向标量产生一个额外来源记录。
+    let directions = root
+        .movements()
+        .iter()
+        .filter(|movement| movement.turn_direction().is_some())
+        .count() as u64;
+    let typed_ast_record_count = table_count.saturating_sub(2).saturating_add(directions);
     let total_records = typed_ast_records_already_admitted.saturating_add(typed_ast_record_count);
     if total_records > typed_ast_limit {
         return Err(limit_error(
@@ -202,7 +206,7 @@ pub(crate) fn verify_source<'a>(
         .map_err(|bundle| bundle.with_fallback_primary_location(verified_header_location()))?;
     if preflight_counts.typed_ast_record_count() != typed_ast_record_count {
         return Err(semantic_error(
-            "roadEditingSource.tableAccounting",
+            "roadEditingSource.recordAccounting",
             crate::RoadEditingInputViolation::InvalidCombination,
             expected_key,
         )
@@ -212,7 +216,6 @@ pub(crate) fn verify_source<'a>(
     Ok(VerifiedRoadEditingSource {
         input,
         root,
-        table_count,
         preflight_counts,
     })
 }
