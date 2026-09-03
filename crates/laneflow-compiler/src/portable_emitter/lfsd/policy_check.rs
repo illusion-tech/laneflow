@@ -60,19 +60,18 @@ pub fn check_portable_policy_diff(
     } else if checked_u8_with(bindings, 1, MISMATCH)? != 0 {
         return Err(MISMATCH);
     }
-    let target_index = ArtifactIndex::build(target_view.registry_view(), MISMATCH)?;
+    let mut scratch = Scratch::new(compile_limits.value(CompileLimitDimension::StageScratchBytes));
+    let target_index = ArtifactIndex::build(target_view.registry_view(), MISMATCH, &mut scratch)?;
     let base_index = base_view
-        .map(|v| ArtifactIndex::build(v.registry_view(), MISMATCH))
+        .map(|v| ArtifactIndex::build(v.registry_view(), MISMATCH, &mut scratch))
         .transpose()?;
     if let Some(base) = &base_index {
         verify_artifact_diff_compatibility(base.view, target_index.view, base, &target_index)?;
     }
-    let scratch_limit = compile_limits.value(CompileLimitDimension::StageScratchBytes);
     for index in base_index.iter().chain(core::iter::once(&target_index)) {
-        validate_policy_references(index, scratch_limit, MISMATCH)?;
+        validate_policy_references(index, &mut scratch, MISMATCH)?;
     }
     let indices = [base_index.as_ref(), Some(&target_index)];
-    let mut scratch = Scratch::new(scratch_limit);
     let mut count = 0_usize;
     for index in indices.iter().flatten() {
         for table in 1..=4 {
@@ -428,11 +427,11 @@ fn check_field_partition(
             continue;
         };
         let other = if side == 0 { Some(target) } else { base };
-        for ((kind, id), entity) in &index.entities {
+        for ((kind, id), entity) in index.entities() {
             if *kind != EntityKind::RightOfWayPolicySet {
                 continue;
             }
-            if other.is_some_and(|o| o.entities.contains_key(&(*kind, *id))) {
+            if other.is_some_and(|o| o.entity(&(*kind, *id)).is_some()) {
                 continue;
             }
             let op = if side == 0 { 1 } else { 0 };
@@ -450,13 +449,13 @@ fn check_field_partition(
         }
     }
     if let Some(base) = base {
-        for ((kind, id), before) in &base.entities {
+        for ((kind, id), before) in base.entities() {
             let tags: &[u16] = match kind {
                 EntityKind::RightOfWayPolicySet => &[3, 4, 5],
                 EntityKind::Movement => &[7],
                 _ => continue,
             };
-            let Some(after) = target.entities.get(&(*kind, *id)) else {
+            let Some(after) = target.entity(&(*kind, *id)) else {
                 continue;
             };
             for tag in tags {

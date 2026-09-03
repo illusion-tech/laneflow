@@ -173,8 +173,9 @@ fn check(object: &OwnedObject, scratch_limit: u64) -> Result<(), PortableEmissio
         FormatLimits::HARD,
     )?
     .registry_view();
-    let index = ArtifactIndex::build(view, MISMATCH)?;
-    validate_policy_references(&index, scratch_limit, MISMATCH)
+    let mut scratch = Scratch::new(scratch_limit);
+    let index = ArtifactIndex::build(view, MISMATCH, &mut scratch)?;
+    validate_policy_references(&index, &mut scratch, MISMATCH)
 }
 
 fn replace_field(object: &mut OwnedObject, table: usize, tag: u16, value: OwnedValue) {
@@ -274,7 +275,17 @@ fn every_rule_requires_inherited_or_resolved_evidence() {
 #[test]
 fn local_reference_scratch_is_measured_before_allocation_and_retry_is_clean() {
     let object = fixture();
-    let exact = 2 * core::mem::size_of::<LocalKey<'_>>() as u64;
+    let encoded = raw_bytes(&object);
+    let view = preflight_object_values(
+        &encoded,
+        PortableObjectKind::CanonicalArtifact,
+        FormatLimits::HARD,
+    )
+    .unwrap()
+    .registry_view();
+    let mut scratch = Scratch::new(u64::MAX);
+    let _index = ArtifactIndex::build(view, MISMATCH, &mut scratch).unwrap();
+    let exact = scratch.used() + 2 * core::mem::size_of::<LocalKey<'_>>() as u64;
     assert_eq!(
         check(&object, exact - 1),
         Err(PortableEmissionError::CompileLimitExceeded {
@@ -310,8 +321,9 @@ fn evidence_reference_and_duplicate_detection_cross_chunk_boundaries() {
     .unwrap()
     .registry_view();
     assert_eq!(view.section(3).unwrap().table(1).unwrap().chunk_count(), 2);
-    let index = ArtifactIndex::build(view, MISMATCH).unwrap();
-    validate_policy_references(&index, u64::MAX, MISMATCH).unwrap();
+    let mut scratch = Scratch::new(u64::MAX);
+    let index = ArtifactIndex::build(view, MISMATCH, &mut scratch).unwrap();
+    validate_policy_references(&index, &mut scratch, MISMATCH).unwrap();
     object.sections[3].tables[1].rows[65_536].fields[1].value =
         OwnedValue::Utf8("key-65535".into());
     assert!(matches!(

@@ -201,8 +201,8 @@ fn retained_field_changes(
     tags: fn(EntityKind) -> &'static [u16],
 ) -> Result<Vec<FieldChangeProjection>, PortableEmissionError> {
     let mut changes = Vec::new();
-    for ((entity_kind, stable_id), base_entity) in &base.entities {
-        let Some(target_entity) = target.entities.get(&(*entity_kind, *stable_id)) else {
+    for ((entity_kind, stable_id), base_entity) in base.entities() {
+        let Some(target_entity) = target.entity(&(*entity_kind, *stable_id)) else {
             continue;
         };
         for tag in tags(*entity_kind) {
@@ -240,8 +240,8 @@ pub(super) fn artifact_entity_changes(
     target: &ArtifactIndex<'_>,
 ) -> Result<Vec<OwnedRow>, PortableEmissionError> {
     let mut changes = Vec::<(u8, EntityKind, [u8; 16], u16, OwnedRow)>::new();
-    for ((entity_kind, stable_id), entity) in &target.entities {
-        if !base.entities.contains_key(&(*entity_kind, *stable_id)) {
+    for ((entity_kind, stable_id), entity) in target.entities() {
+        if base.entity(&(*entity_kind, *stable_id)).is_none() {
             changes.push((
                 0,
                 *entity_kind,
@@ -259,8 +259,8 @@ pub(super) fn artifact_entity_changes(
             ));
         }
     }
-    for ((entity_kind, stable_id), entity) in &base.entities {
-        if !target.entities.contains_key(&(*entity_kind, *stable_id)) {
+    for ((entity_kind, stable_id), entity) in base.entities() {
+        if target.entity(&(*entity_kind, *stable_id)).is_none() {
             changes.push((
                 1,
                 *entity_kind,

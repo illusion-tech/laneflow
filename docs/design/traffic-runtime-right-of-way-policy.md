@@ -348,7 +348,9 @@ PolicyLocal Add；Artifact 中整个 policy 新增/删除也必须逐项发射�
    字符串/向量累计预算；before/after 都收费，Bytes 封装不绕过语义预检。checked
    长度、count×18、来源和派生计数在分配前验证；超限按现行失败原子性处理。
 5. 局部载荷逐成员发射，不把整份 policy 拼成一个巨型 Bytes 或新增全量历史。
-   独立投影与扫描 scratch 计入既有编译/后发射预算，Runtime tick 不读取 LFSD 表。
+   独立投影与扫描 scratch 计入既有编译/后发射预算，包括同时存活的 base/target
+   Identity/实体索引与局部引用索引；各步骤共用累计预算，在分配前计量并允许分配失败。
+   索引借用原始身份载荷，不逐条复制前像。Runtime tick 不读取 LFSD 表。
    未完成本节闭合的差异制品不得用于发布候选或跨修订认证；目标根仍由完整 LFCA
    重建，差异表本身不授予迁移权限。
 
@@ -461,6 +463,11 @@ policy 实体和 `(ownerStableId, role, key)` 成员全集；根据 key 排序�
 逐值等于 source view 的 `primary_source()`/`C(view)`，并与 LFSM 逐行、逐位置闭合。
 仅凭 LFCA 不能恢复 Text span 或 canvas；这些事实必须来自同一个受检来源输入，不能
 由 LFSM 自报地址证明自身正确。结构读取不等于完成这种来源闭合检查。
+
+来源模块的 `primaryLocation` 同样逐值对应受检模块的 `primary_source()`；仅证明位置
+被引用或属于同一模块不足以证明该主来源正确。模块/文档匹配与位置文档键查询使用
+一次建立并计入预算的索引或有序合并，不能为每份文档/每个位置重新线性扫描全集。
+仅在策略来源、策略实体、四张局部成员表及 Movement 方向均为空时采用空策略路径。
 
 必须覆盖未被世界选中的 policy 及空成员集合；漏行、多行、重复 role/index、错 owner、
 错种类路径、同形另一成员的位置、伪造贡献集合均拒绝。空集合恰无对应 OwnerLocalSource，
