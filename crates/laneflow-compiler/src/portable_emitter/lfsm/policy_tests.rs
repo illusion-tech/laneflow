@@ -7,6 +7,8 @@ use crate::{PolicySourceTarget, SourceLocation, SourceSpan};
 use laneflow_static_contract::{PolicyLocalMemberKind, StableId128};
 use std::sync::Arc;
 
+mod owners;
+
 #[test]
 fn shared_root_rejects_unsupported_policy_payload_before_allocation() {
     use laneflow_static_network::{
