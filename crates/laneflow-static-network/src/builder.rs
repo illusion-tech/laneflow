@@ -291,6 +291,43 @@ where
     Ok(Arc::new(revision))
 }
 
+// #284 W3 实现完整策略消费前，格式受检不能冒充共享根的语义支持。
+// 必须在任何构建分配前拒绝；空策略 LFCA 继续使用现行格式。
+fn validate_supported_policy_payload(
+    view: ValueCheckedObjectView<'_>,
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<(), BuildError> {
+    let registry = view.registry_view();
+    let unsupported = BuildError::ContractMismatch {
+        structure: BuildStructure::ExecutionContract,
+    };
+    for (section, table) in [(2, 23), (3, 1), (3, 2), (3, 3), (3, 4)] {
+        let table = registry
+            .section(section)
+            .and_then(|s| s.table(table))
+            .ok_or(BuildError::InputInvariant {
+                structure: BuildStructure::ExecutionContract,
+            })?;
+        if table.row_count() != 0 {
+            return Err(unsupported);
+        }
+    }
+    let movements =
+        registry
+            .section(2)
+            .and_then(|s| s.table(5))
+            .ok_or(BuildError::InputInvariant {
+                structure: BuildStructure::ExecutionContract,
+            })?;
+    for (index, row) in movements.rows().enumerate() {
+        poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
+        if row.field_by_tag(7).is_some() {
+            return Err(unsupported);
+        }
+    }
+    Ok(())
+}
+
 fn count_and_preflight(
     view: ValueCheckedObjectView<'_>,
     options: SharedNetworkBuildOptions<'_>,
@@ -306,6 +343,7 @@ fn count_and_preflight(
         checked_u16(contract_row, 6, BuildStructure::ContractVersions)?,
     );
     validate_supported_contract_versions(contracts)?;
+    validate_supported_policy_payload(view, options)?;
 
     let entity_section = registry.section(2).ok_or(BuildError::InputInvariant {
         structure: BuildStructure::CanonicalEntityTable,

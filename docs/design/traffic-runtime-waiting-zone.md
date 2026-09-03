@@ -31,7 +31,7 @@ WaitingZone 是 Gate 有界资源、行为 authority 属于交通运行时、Ada
 
 当前实现基线如下：
 
-- 唯一运行世界是 `TrafficWorld`，唯一静态输入是受检 LFCA 4 构造的
+- 唯一运行世界是 `TrafficWorld`，唯一静态输入是受检 LFCA 构造的
   `SharedNetworkRevision`；
 - 静态路网由受检 LFCA 构造 `SharedNetworkRevision`，WaitingZone identity、
   entry/release Gate、`maxOccupancy` 与 route `WaitingOccurrence` 已存在；

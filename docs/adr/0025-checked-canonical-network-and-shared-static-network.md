@@ -22,9 +22,9 @@ Traffic/Spatial/每世界可变状态分层、稳定身份索引和失败关闭�
 - `../design/network-compiler.md`
 - `../design/portable-canonical-artifact.md`
 
-> **#496 / ADR 0028**：交通热列为整数毫米。**#498 / ADR 0029**：只承认
-> `formatVersion = 4` 的受检 LFCA；路网不含 `StaticRoute`。公开 API 不带世代后缀；
-> 读器拒绝 `formatVersion != 4`。
+> **#496 / ADR 0028**：交通热列为整数毫米。**#498 / ADR 0029**：移除静态路线。对象版本按 #284 格式登记更新，只承认
+> `formatVersion = 5` 的受检 LFCA；路网不含 `StaticRoute`。公开 API 不带世代后缀；
+> 读器拒绝 `formatVersion != 5`。
 >
 > LFCA 的 `65,536` 行与 `16,777,216` bytes 是单个规范 table chunk 上限；一个
 > `SharedNetworkRevision` 必须支持至少 `1,000,000` 个现实混合稳定静态实体。chunk 只属于
@@ -149,7 +149,7 @@ Traffic、Identity、Planning Hints 和 Spatial 可以在 builder 内物理独�
 和按 `(EntityKind, StableId128)` 排序的反向查找。它服务动态通行定义、存档/快照恢复和
 跨修订迁移，不进入逐交通参与单元 fixed tick。
 
-LFCA 4 不保存分区提示 payload。`laneflow-static-network` 按根中记录但不进入 LFCA/
+LFCA 不保存分区提示 payload。`laneflow-static-network` 按根中记录但不进入 LFCA/
 `NetworkRevisionId` 的 `partitionPlanningHintsDerivationVersion`，从受检规范关系与 execution
 contract 确定性派生 `PartitionPlanningHints`。它保存 worker 数无关、可以忽略或重建的
 成本/边界提示，不保存最终 partition、worker assignment、动态负载、world seed 或每世界

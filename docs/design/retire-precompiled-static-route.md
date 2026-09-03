@@ -83,6 +83,13 @@ StaticRoute table、关系和 property path 不能通过新格式闭合。
 
 ### 2.1 实体表
 
+第 2 节与 §6 中 format 4、23 张实体表和 33 张逻辑表记录 #498 路线退役时的基线。
+#284 W1 已将当前 LFCA 升至 5，实体表扩展为 24 张、逻辑表共 38 张；当前读器只接受
+LFCA 5。后续版本及来源登记增量以
+[`portable-canonical-artifact.md`](portable-canonical-artifact.md) 和
+[`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §8 为准。
+以下退役语义继续适用，历史数量不作为当前 reader 的接纳条件。
+
 `CanonicalEntityTables` 精确包含连续 `0x0001..=0x0017` 共 23 个逻辑表种类。
 
 | tableKind | 现行名称            |
@@ -91,7 +98,7 @@ StaticRoute table、关系和 property path 不能通过新格式闭合。
 | `0x0016`  | `CanonicalFrame`    |
 | `0x0017`  | `ParticipantStream` |
 
-缺少任一表、`formatVersion != 4`，或 `0x0015` 行不满足 `ConflictZone` schema，读器
+缺少任一当前登记表、版本不匹配当前登记，或 `0x0015` 行不满足 `ConflictZone` schema，读器
 失败关闭。format 4 对象精确逻辑表种类数为 `33`；每个实体逻辑表可由一个或多个
 TableV1 chunk 承载。
 
@@ -230,7 +237,7 @@ controller 绑定的是 `(世界令牌, NetworkRevisionId)`：修订变化后 co
 
 ## 6. 必测项
 
-- `formatVersion != 4` 的 LFCA 失败关闭；旧 `StaticRoute` 行不能通过 format 4 的
+- 版本不匹配当前登记的 LFCA 失败关闭；旧 `StaticRoute` 行不能通过当前
   `ConflictZone` 表、身份与关系闭合。
 - format 4 LFCA 精确逻辑表种类数为 33；实体表种类 `0x0001..=0x0017` 连续。
 - Identity kind `1..=23`、field tag `1..=34` 连续；kind 21 / tag 23 是

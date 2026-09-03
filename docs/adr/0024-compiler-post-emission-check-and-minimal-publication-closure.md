@@ -14,7 +14,7 @@ LIR、可移植规范制品、目标静态镜像或对象外信任锚决定<br>
 > 下游改为“从同一受检 LFCA capability 构建进程内 `SharedNetworkRevision`”，并取消
 > 独立镜像发布对象。
 >
-> LFCA 4 / LFSM 3 / LFSD 3 的分块容量合同把本文输入从“三份完整 slice 同时驻留”修订为
+> LFCA / LFSM / LFSD 的分块容量合同把本文输入从“三份完整 slice 同时驻留”修订为
 > 三个由 `laneflow-format` 封闭构造、保证没有 LaneFlow safe API 可达写能力的不可变、有界、可重读对象
 > 来源。完整 slice 只是零复制 adapter；候选、检查能力与共享静态构建可以保存或借用冻结
 > source handle，不要求 `Box<[u8]>`。LaneFlow 不拥有内容仓库、原子文件安装或 manifest

@@ -100,17 +100,21 @@ LaneFlow 的第一长期消费者是上层类 Cities: Skylines 2 的城市模拟
 破坏制品形状时提升 exact 拒绝闸口。新增语义占用退役或未分配槽位，不改变任何既有
 合法 kind/tag/role 的含义或 StableId。
 
-| 闸口                               | 权威值 |
-| ---------------------------------- | -----: |
-| 对象 `formatVersion`               |      4 |
-| `canonicalFormatVersion`           |      4 |
-| `identityEncodingVersion`          |      1 |
-| `identityRegistryRevision`         |      3 |
-| `networkRevisionDerivationVersion` |      1 |
-| `constraintContractVersion`        |      2 |
-| `staticExecutionContractVersion`   |      4 |
+下表以及本节 Identity revision 3、LFSM 3 / LFSD 3 数字记录 #498 完成时的基线。
+#284 W1 的当前格式为 LFCA/LFSM/LFSD 5/4/4、Identity registry 4；完整版本与
+新增登记遵循路权策略实施合同 §8 及 `portable-canonical-artifact.md`，不保留旧读器。
 
-读器拒绝 `formatVersion != 4`。format 4 的 `tableKind=0x0015` 只允许现行
+| 闸口                               | #498 基线 |
+| ---------------------------------- | --------: |
+| 对象 `formatVersion`               |         4 |
+| `canonicalFormatVersion`           |         4 |
+| `identityEncodingVersion`          |         1 |
+| `identityRegistryRevision`         |         3 |
+| `networkRevisionDerivationVersion` |         1 |
+| `constraintContractVersion`        |         2 |
+| `staticExecutionContractVersion`   |         4 |
+
+读器拒绝不匹配当前登记的版本。`tableKind=0x0015` 只允许现行
 `ConflictZone` 行形状；旧 `StaticRoute` 行不能通过字段、身份与关系闭合。不恢复制品旧
 读器，不为旧字节提供迁移器。
 
@@ -223,7 +227,7 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 
 ## 后果
 
-- LFCA 4 的 23 张实体逻辑表按 `0x0001..=0x0017` 连续登记；`0x0015` 为
+- 路线退役时 LFCA 4 的 23 张实体逻辑表按 `0x0001..=0x0017` 连续登记；`0x0015` 为
   `ConflictZone`、`0x0016` 为 `CanonicalFrame`、`0x0017` 为 `ParticipantStream`。
 - 道路编辑来源 `format_version = 3`：没有 `StaticRoute` table 与根上的
   `static_routes`；声明向量与 Identity 可构造种类一一对应（23 个）。
@@ -264,7 +268,7 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 
 实现必须证明：
 
-- 生产路径无 `StaticRoute` / `static_route`；旧 LFCA 含该实体或 `formatVersion != 4`
+- 生产路径无 `StaticRoute` / `static_route`；旧 LFCA 含该实体或版本不匹配当前登记
   则失败关闭。
 - 走廊、Bevy smoke、`runtime_min`、替换/回流测试只通过 `register_route` 放车，
   受保护转向覆盖不弱于现行静态夹具。
