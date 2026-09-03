@@ -4,7 +4,10 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 /// 当前 scenario-local corridor catalog 版本。
-pub const CATALOG_VERSION: &str = "0.3";
+pub const CATALOG_VERSION: &str = "0.4";
+
+/// 走廊生成器明确编制的受保护准入策略键。
+pub const PROTECTED_ENTRY_POLICY_KEY: &str = "protected-entry";
 
 /// 走廊编制 Identity v1 的 `AuthoringNamespaceId`。
 pub const AUTHORING_NAMESPACE: &str = "laneflow/signalized-corridor";
@@ -37,12 +40,39 @@ pub const PORTAL_IDS: [&str; 6] = [
 pub struct CorridorCatalog {
     /// 内部 catalog 版本。
     pub catalog_version: String,
+    /// 宿主必须明确选择策略。
+    pub policy_selection: CatalogPolicySelection,
     /// portal entries。
     pub portals: Vec<PortalCatalogEntry>,
     /// Traffic route 到 exit portal 的 cross-reference。
     pub routes: Vec<RouteCatalogEntry>,
     /// route-independent physical spawn slots。
     pub spawn_slots: Vec<SpawnSlotCatalogEntry>,
+}
+
+/// 必填、闭合的宿主策略选择；内容来自同一 LFCA。
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CatalogPolicySelection {
+    NotRequired {},
+    Pinned { policy: String },
+}
+
+impl CatalogPolicySelection {
+    /// 只接受带实体种类的规范 StableId 文本。
+    pub fn resolve(&self) -> Result<laneflow_runtime::WorldPolicySelection, CatalogError> {
+        match self {
+            Self::NotRequired {} => Ok(laneflow_runtime::WorldPolicySelection::NotRequired),
+            Self::Pinned { policy } => policy
+                .parse()
+                .map(|policy| {
+                    laneflow_runtime::WorldPolicySelection::Pinned(laneflow_runtime::PolicyPin {
+                        policy,
+                    })
+                })
+                .map_err(|_| CatalogError::InvalidPolicyIdentity),
+        }
+    }
 }
 
 /// corridor portal wire entry。
@@ -105,10 +135,11 @@ pub struct SpawnSlotCatalogEntry {
     pub progress: f64,
 }
 
-/// catalog 0.3 线格式或交叉引用不合法。
+/// catalog 0.4 线格式或交叉引用不合法。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CatalogError {
     UnsupportedVersion(String),
+    InvalidPolicyIdentity,
     PortalSet,
     DuplicatePortal(String),
     LaneCount {
@@ -172,6 +203,10 @@ pub enum CatalogError {
 impl fmt::Display for CatalogError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidPolicyIdentity => write!(
+                formatter,
+                "policy must be a canonical RightOfWayPolicySet StableId"
+            ),
             Self::UnsupportedVersion(version) => {
                 write!(formatter, "unsupported catalog_version {version:?}")
             }
@@ -288,10 +323,11 @@ impl fmt::Display for CatalogError {
 
 impl std::error::Error for CatalogError {}
 
-/// 校验封闭 catalog 0.3 的版本、重复 ID、portal/lane/weight 与 slot 交叉引用。
+/// 校验封闭 catalog 0.4 的版本、重复 ID、portal/lane/weight 与 slot 交叉引用。
 ///
 /// 边是否属于所选 route、progress 是否落在已安装修订的边长内，由 `bind` 对照共享路网修订检查。
 pub fn validate(catalog: &CorridorCatalog) -> Result<(), CatalogError> {
+    catalog.policy_selection.resolve()?;
     if catalog.catalog_version != CATALOG_VERSION {
         return Err(CatalogError::UnsupportedVersion(
             catalog.catalog_version.clone(),
@@ -496,8 +532,8 @@ mod tests {
     }
 
     #[test]
-    fn checked_in_catalog_is_closed_0_3() {
-        validate(&golden_catalog()).expect("checked-in catalog 0.3");
+    fn checked_in_catalog_is_closed_0_4() {
+        validate(&golden_catalog()).expect("checked-in catalog 0.4");
     }
 
     #[test]
@@ -512,6 +548,48 @@ mod tests {
         assert_eq!(
             validate(&catalog),
             Err(CatalogError::UnsupportedVersion("0.2".to_owned()))
+        );
+    }
+
+    #[test]
+    fn policy_selection_is_mandatory_and_closed() {
+        for text in [
+            "kind = 'missing'",
+            "kind = 'pinned'",
+            "kind = 'not_required'\npolicy = 'anything'",
+            "kind = 'not_required'\nextra = true",
+            "kind = 'pinned'\npolicy = 'anything'\nextra = true",
+        ] {
+            assert!(
+                toml::from_str::<CatalogPolicySelection>(text).is_err(),
+                "{text}"
+            );
+        }
+        let mut document: toml::Value = toml::from_str(GOLDEN).unwrap();
+        document.as_table_mut().unwrap().remove("policy_selection");
+        assert!(toml::from_str::<CorridorCatalog>(&toml::to_string(&document).unwrap()).is_err());
+        let mut catalog = golden_catalog();
+        catalog.catalog_version = "0.3".into();
+        assert_eq!(
+            validate(&catalog),
+            Err(CatalogError::UnsupportedVersion("0.3".into()))
+        );
+        for identity in [
+            "",
+            "lfid1_lane-edge_00000000000000000000000000000001",
+            "lfid1_right-of-way-policy-set_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ] {
+            catalog.policy_selection = CatalogPolicySelection::Pinned {
+                policy: identity.into(),
+            };
+            assert_eq!(
+                catalog.policy_selection.resolve(),
+                Err(CatalogError::InvalidPolicyIdentity)
+            );
+        }
+        assert_eq!(
+            CatalogPolicySelection::NotRequired {}.resolve().unwrap(),
+            laneflow_runtime::WorldPolicySelection::NotRequired
         );
     }
 

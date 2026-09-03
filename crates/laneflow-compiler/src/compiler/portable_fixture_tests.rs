@@ -652,6 +652,10 @@ pub(crate) fn policy_topology_variant(
 }
 
 pub(crate) fn full_spatial_portable_fixture_unit() -> CompilationUnit {
+    full_spatial_portable_fixture_unit_with_policy(false)
+}
+
+fn full_spatial_portable_fixture_unit_with_policy(with_policy: bool) -> CompilationUnit {
     let limits = CompileLimits::p100_initial_v1();
     let conflict_source = portable_fixture_full_spatial_conflict_source(&limits);
     let mut builder = CompilationUnitBuilder::new(limits);
@@ -667,6 +671,11 @@ pub(crate) fn full_spatial_portable_fixture_unit() -> CompilationUnit {
             .unwrap(),
         )
         .unwrap();
+    if with_policy {
+        builder
+            .add_synthetic_module(runtime_fixture_policy())
+            .unwrap();
+    }
     let mut fixture = builder.build().unwrap();
     let module = fixture
         .modules
@@ -1039,4 +1048,143 @@ fn conflict_reverse_closure_scratch_is_exact_bounded_and_not_retained() {
         } if *limit == plan.stage_scratch_bytes - 1
             && *observed == plan.stage_scratch_bytes
     )));
+}
+
+fn runtime_fixture_policy() -> SyntheticModule {
+    use crate::{
+        EntityReference, GateInterpretation, GateProhibition, OwnerQualifiedReference,
+        PolicyGateRuleInput, PolicyInputSource, PolicyStreamRuleInput, RightOfWayPolicySetInput,
+    };
+    const SPATIAL: &str = "city/portable-full-spatial";
+    const CONFLICT: &str = "city/portable-full-spatial-conflict";
+    let mut builder =
+        portable_fixture_builder("runtime-fixture-policy", "runtime-fixture-policy.document");
+    builder
+        .add_import(SPATIAL)
+        .unwrap()
+        .add_import(CONFLICT)
+        .unwrap();
+    let span = builder.policy_source_span();
+    let source = PolicyInputSource {
+        primary: &span,
+        contributing: &[],
+    };
+    let gates: Vec<_> = [
+        (
+            "entry",
+            SPATIAL,
+            "gate-entry",
+            &[][..],
+            GateInterpretation::ProtectedGroup,
+        ),
+        (
+            "release",
+            SPATIAL,
+            "gate-release",
+            &[][..],
+            GateInterpretation::ProtectedGroup,
+        ),
+        (
+            "a",
+            CONFLICT,
+            "admission",
+            &["conflict-junction", "conflict-movement-a", "path"][..],
+            GateInterpretation::Uncontrolled,
+        ),
+        (
+            "b",
+            CONFLICT,
+            "admission",
+            &["conflict-junction", "conflict-movement-b", "path"][..],
+            GateInterpretation::Uncontrolled,
+        ),
+    ]
+    .iter()
+    .map(
+        |(key, namespace, gate, owners, interpretation)| PolicyGateRuleInput {
+            rule_key: key,
+            gate: OwnerQualifiedReference {
+                target: EntityReference::imported(namespace, gate),
+                owner_keys: owners,
+            },
+            participant_classes: None,
+            interpretation: *interpretation,
+            prohibition: GateProhibition::None,
+            evidence_keys: &[],
+            source,
+        },
+    )
+    .collect();
+    let streams: Vec<_> = ["conflict-stream-a", "conflict-stream-b"]
+        .iter()
+        .map(|key| PolicyStreamRuleInput {
+            rule_key: key,
+            stream: OwnerQualifiedReference {
+                target: EntityReference::imported(CONFLICT, key),
+                owner_keys: &["conflict-junction"],
+            },
+            participant_classes: None,
+            priority: 0,
+            yield_to_streams: &[],
+            gap_profile_key: None,
+            evidence_keys: &[],
+            source,
+        })
+        .collect();
+    builder
+        .add_right_of_way_policy_set(RightOfWayPolicySetInput {
+            policy_set_key: "fixture-policy",
+            regulation: RegulationIdentity {
+                jurisdiction: "CN-test",
+                version: "2026-01",
+                source: Some("repository:runtime-fixture-1"),
+            },
+            evidence: &[],
+            gap_profiles: &[],
+            stream_rules: &streams,
+            gate_rules: &gates,
+            source,
+        })
+        .unwrap();
+    builder.finish().unwrap()
+}
+
+#[test]
+fn runtime_full_spatial_policy_fixture_is_reproducible() {
+    let output = Compiler::new()
+        .compile(full_spatial_portable_fixture_unit_with_policy(true))
+        .unwrap();
+    let candidate = crate::emit_portable_candidate(
+        &output,
+        &crate::PortableEmissionProvenance::try_new("runtime-full-spatial-policy-1").unwrap(),
+        laneflow_format::FormatLimits::HARD,
+        crate::PortableDiffBase::Genesis,
+    )
+    .unwrap();
+    let bytes = candidate.canonical_artifact().bytes();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/portable/lfca-world-policies/full-spatial.lfca");
+    if std::env::var_os("DUMP_W3_POLICY").is_some() {
+        std::fs::write(&path, bytes).unwrap();
+        std::fs::write(path.with_extension("lfsm"), candidate.source_map().bytes()).unwrap();
+        std::fs::write(
+            path.with_extension("lfsd"),
+            candidate.semantic_diff().bytes(),
+        )
+        .unwrap();
+    } else {
+        assert!(
+            bytes == std::fs::read(&path).unwrap(),
+            "runtime LFCA is stale"
+        );
+        assert!(
+            candidate.source_map().bytes() == std::fs::read(path.with_extension("lfsm")).unwrap(),
+            "runtime LFSM is stale"
+        );
+        assert!(
+            candidate.semantic_diff().bytes()
+                == std::fs::read(path.with_extension("lfsd")).unwrap(),
+            "runtime LFSD is stale"
+        );
+    }
 }

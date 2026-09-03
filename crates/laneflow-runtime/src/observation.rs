@@ -813,7 +813,7 @@ mod tests {
     fn revision(retain_spatial: bool) -> Arc<SharedNetworkRevision> {
         let input = check_canonical_network_input(
             include_bytes!(
-                "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+                "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
             ),
             FormatLimits::HARD,
         )
@@ -852,6 +852,7 @@ mod tests {
             WorldConfig::new(16, 8, 1_024, 1_024, 1, 100),
             source_for(origin, "fixture://observation"),
             41,
+            crate::test_policy::selection(&revision),
         )
         .expect("install");
         let edge_for_length = |length: u32| {

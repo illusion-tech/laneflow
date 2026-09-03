@@ -1,3 +1,6 @@
+#[path = "../../laneflow-runtime/tests/support/policy.rs"]
+mod test_policy;
+
 use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use bevy_app::App;
@@ -28,7 +31,7 @@ fn install_fixture(
 ) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
     let origin = *revision.canonical_origin();
     laneflow_runtime::TrafficWorld::install(
-        revision,
+        std::sync::Arc::clone(&revision),
         config,
         laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
@@ -40,6 +43,7 @@ fn install_fixture(
             .expect("non-empty fixture key"),
         },
         0,
+        test_policy::selection(&revision),
     )
 }
 

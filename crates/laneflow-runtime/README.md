@@ -3,6 +3,15 @@
 目标交通运行时。`TrafficWorld` 安装完整 `Arc<SharedNetworkRevision>`，只分配每世界
 可变状态与 1-worker 执行计划；热路径借用共享根静态 accessor，并读本世界已提交表。
 
+安装的第五个必填参数为 `WorldPolicySelection`。宿主以 `Pinned(PolicyPin)` 指定策略
+稳定标识；仅当整个共享根没有门、冲突区或参与者流时可用 `NotRequired`。不推断默认
+策略、不读取业务日期，也没有安装后 setter。`policy()` 借用所选共享规则；
+`policy_gap_profiles()` 保存本世界固定步长对应的 checked 间隙派生值。
+
+LFRS 5 / runtime state 5 保存策略选择与 StableId，digest 7 纳入相同逻辑字段。
+切换描述符 2 保持字段形状；跨修订保留策略身份、法域和法规版本，并按目标根重建派生间隙。
+已有 `ConflictRuntimeUnavailable` 在冲突仲裁接入前继续保留。
+
 生命周期命令只在两次 `step` 之间调用。`replace_completed_vehicle` 把 Completed
 车辆一次提交为新的 Active 句柄；到终点保留 Completed，不进 pose、不占车道，占容量。
 `despawn_vehicle` 原子移除任意合法 live status 并释放 route/parking binding；人口政策仍

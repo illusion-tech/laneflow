@@ -4,6 +4,9 @@
 //! `snapshot local ID -> restored handle` 映射重绑；检查点后新增实体的耐久 ID 由
 //! 命令载荷拥有；候选准入结果按稳定边序列经 `register_admitted_route` 重放。
 
+#[path = "support/policy.rs"]
+mod test_policy;
+
 use std::{collections::BTreeMap, sync::Arc};
 
 use laneflow_format::{FormatLimits, check_canonical_network_input};
@@ -23,7 +26,7 @@ use laneflow_static_network::{
 };
 
 const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
 );
 const PARKING_ONLY: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-base.lfca"
@@ -81,7 +84,7 @@ fn parking_replay_world() -> TrafficWorld {
 fn install_world(revision: Arc<SharedNetworkRevision>) -> TrafficWorld {
     let origin = *revision.canonical_origin();
     TrafficWorld::install(
-        revision,
+        std::sync::Arc::clone(&revision),
         WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
         CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
@@ -93,6 +96,7 @@ fn install_world(revision: Arc<SharedNetworkRevision>) -> TrafficWorld {
             .expect("published fixture reference"),
         },
         77,
+        test_policy::selection(&revision),
     )
     .expect("install")
 }

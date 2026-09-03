@@ -1,7 +1,7 @@
 # 运行时快照
 
 **文档状态**: Accepted（#302 G1；停车 #540；路线冲突出现项 #283；Waiting #282）<br>
-**最后更新**: 2026-09-02<br>
+**最后更新**: 2026-09-03<br>
 **适用范围**: 版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)（§12；static image / receipt 条款已被 ADR 0025 §8 取代，origin 以 LFCA 为准）、
@@ -21,7 +21,7 @@
 本文的 #303 观测/Routing 恢复与回放接缝已由 #303 G1 接受，与 #302 合同共同构成
 当前唯一实现权威。
 
-> **实现状态**：当前唯一生产合同与实现均为 Runtime Snapshot v4；停车使用 tagged
+> **实现状态**：当前唯一生产合同与实现均为 Runtime Snapshot v5；停车使用 tagged
 > `ExplicitSpace | VirtualPool` binding，并保存 Reserved/Occupied 状态、所有 Reserved
 > binding 的精确 entry route occurrence 和 virtual reservation 的 semantic entry anchor；
 > Waiting 保存 traversal、semantic membership 与非零历史 admission counter；
@@ -32,7 +32,8 @@
 
 #284 的策略绑定、Conflict reservation 与历史状态增量见
 [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §6、§8
-（Review）；当前生产快照仍为 v4。
+（Accepted）。当前已实现策略绑定的持久化；Conflict reservation 与冲突历史仍由后续
+切片闭合，不能凭本次版本升级宣称仲裁状态已经可保存。
 
 城市游戏需要存档、恢复与回放。Runtime Snapshot 是每世界可变状态的独立版本化
 制品：不进入 LFCP 发布链，真实性由宿主存档清单在对象外绑定（ADR 0021）。
@@ -56,7 +57,11 @@ revision）不混用单一数字；未知版本值失败关闭。
 `RoadEditingState`；runtime-only 世界 = `PublishedLfcaReference`）；上列版本；
 世界身份（快照局部）；`tick` / `time_ms` / 输入命令与已提交事件双游标（切换
 事务的 `worldBinding` 需要双游标基线）；全部每世界可变状态（§3）；
-`WorldConfig`。
+`WorldConfig` 与 `WorldPolicySelection`。必填 `world_policy` 使用封闭 tag：
+`NotRequired = 1` 且无 policy，或 `Pinned = 2` 且带 policy StableId；0、未知 tag、
+缺失/多余身份及未知 table 字段都拒绝。恢复把选择传入唯一 install 入口，
+拒绝根内未知策略与不合法 NotRequired；规则内容及法规来源由绑定的 LFCA 确定，
+不保存 dense ordinal、解析表或步长派生间隙。
 
 `WorldConfig` 分两类，恢复语义不同：**行为语义配置**（`fixed_delta_time_ms`
 与语义容量）参与恢复核对——`fixed_delta_time_ms` 必须精确相等；语义容量只许
@@ -123,12 +128,12 @@ Reserved entry 还必须从保存的 vehicle cursor 前向可达。对同一 rou
 
 ## 4. 容器
 
-封闭契约：size-prefixed FlatBuffers、file identifier `LFRS`、`formatVersion = 4`；
-schema 位于 `schemas/runtime-snapshot/v4`；生成物隔离于私有 wire package（沿
+封闭契约：size-prefixed FlatBuffers、file identifier `LFRS`、`formatVersion = 5`；
+schema 位于 `schemas/runtime-snapshot/v5`；生成物隔离于私有 wire package（沿
 `laneflow-road-editing-wire` 先例）。读取 verifier-first：语义 lowering 前完成
-长度、基数与版本预检。确认 `formatVersion = 4` / `runtime_state_version = 4` 后，
-reader 还逐 table 拒绝超过 v4 schema 对该 table 登记字段数的 vtable 槽；该上界只在
-上述两个 version-4 gate 成功后选择。FlatBuffers verifier
+长度、基数与版本预检。确认 `formatVersion = 5` / `runtime_state_version = 5` 后，
+reader 还逐 table 拒绝超过 v5 schema 对该 table 登记字段数的 vtable 槽；该上界只在
+上述两个 version-5 gate 成功后选择。FlatBuffers verifier
 本身允许旧 reader 忽略未知字段，不能替代禁绑字段的封闭性检查。发布链的自定义
 规范制品仍只有 LFCA / LFSM / LFSD / LFCP；
 快照不是发布对象，不要求跨实现字节规范序，只要求逻辑确定性（§6）。
@@ -136,7 +141,7 @@ G2 writer 入口为 `encode_lfrs(&CapturedSnapshot)`：它只读边界捕获，�
 world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空表也编码为
 存在的空 vector。
 
-当前实现只读取 `schemas/runtime-snapshot/v4`；旧 reader/writer 不保留。恢复先解析
+当前实现只读取 `schemas/runtime-snapshot/v5`；旧 reader/writer 不保留。恢复先解析
 全部 target/anchor StableId，再验证
 显式排他性和每设施 `reserved + occupied <= virtual_capacity`，成功后才发布 world。
 
@@ -202,10 +207,11 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   Routing，不重放 stale admission。
   跨修订不匹配必须经 #302 受信任迁移策略显式迁移命令稳定引用，否则拒绝。
 - **确定性状态摘要（术语表）**：当前唯一算法为 SHA-256，域分隔字节是
-  `laneflow:runtime-state-digest:v1\0`，随后写 `u16` 摘要版本 `6` 与 `u16`
-  `runtime_state_version` `4`；整数均小端。顶层依次写：`world_id`、语义
+  `laneflow:runtime-state-digest:v1\0`，随后写 `u16` 摘要版本 `7` 与 `u16`
+  `runtime_state_version` `5`；整数均小端。顶层依次写：`world_id`、语义
   `NetworkRevisionId`、六轴静态契约版本、行为语义配置（vehicle/route、edge/conflict
-  两类 occurrence 容量与 fixed dt；不写 worker）、tick/时间/双游标、按 stable
+  两类 occurrence 容量与 fixed dt；不写 worker）、tick/时间/双游标、策略选择
+  （`u8`：NotRequired=0，Pinned=1 后紧跟 16 字节 policy StableId）、按 stable
   WaitingZone identity 排序的 `occupancy + nextAdmissionSequence` 记录，再写路线实例
   分组多重集和 live 更新序列。每条记录写 `u64 byteLength + bytes`，每个集合先写
   `u64` 数量。路线实例
@@ -289,7 +295,7 @@ published 认证分别度量）、恢复峰值内存、保存期间对稳态 tic
 
 ### 历史切片 B 初值（v1 published fresh restore）
 
-以下是切换前 v1 的同机描述性基线，不得作为当前 v4 exact bytes 或性能结论复用：
+以下是切换前 v1 的同机描述性基线，不得作为当前 v5 exact bytes 或性能结论复用：
 `LF-P100-REF-01`（2026-08-28，rustc 1.98.0，release）。固定
 workload `signalized-corridor-v1` = `v0.2-signalized-corridor.lfca`（exact
 420,332 bytes，28 条 catalog 路线、2 车辆、`4 ms` 固定步进），安装后运行 64 tick；
@@ -316,11 +322,11 @@ cargo +1.98.0 test --release --locked -p laneflow-runtime --test snapshot_wall_c
 | 恢复峰值内存         | DHAT 增量堆实际高水位 `19,240` bytes / 272 blocks；调用返回时 `17,920` bytes / 266 blocks。输入 LFRS 与既有共享根/source 在 profiler 前准备，不重复计入增量                                                                                     |
 | 保存期稳态 tick 干扰 | 保存前后各 32 tick 的分配账本均 0 次 / 0 bytes；后台连续执行 4,096 次 encode 时，128 tick 墙钟中位 `0.001 ms`，与无竞争基线 `0.001 ms` 相同（比值 `1,000,000 ppm`）；同 tick 序列最终确定性状态摘要相等。CPU 干扰数值仅描述本机，不作跨机硬断言 |
 
-## 9. Runtime Snapshot v4 的 G2 边界与必测义务
+## 9. Runtime Snapshot v5 的 G2 边界与必测义务
 
-v4 的 schema 与版本轴到字段映射已在
-`schemas/runtime-snapshot/v4/README.md` clean-generate 并逐项绑定本文 §3–§6；摘要输入的
-精确规范化序列化见 §6。历史版本的 G2 证据不能自动替 v4 通过；不受当前字段集改变的
+v5 的 schema 与版本轴到字段映射已在
+`schemas/runtime-snapshot/v5/README.md` clean-generate 并逐项绑定本文 §3–§6；摘要输入的
+精确规范化序列化见 §6。历史版本的 G2 证据不能自动替 v5 通过；不受当前字段集改变的
 义务继续作为回归 oracle。
 
 必测义务：save → load exact oracle（逻辑状态含双游标与 `time_ms` 全等，句柄
@@ -338,11 +344,11 @@ v4 的 schema 与版本轴到字段映射已在
 Completed 不经过瞬时 Active。捕获与摘要的预留失败注入须证明失败关闭（世界无感知）、清点后重试得到
 同一快照/摘要；save 路径的失败关闭由捕获侧承载（编码边界见 §5）。
 
-### 当前 production v4 证据与遗留边界
+### 当前 production v5 证据与遗留边界
 
-下表说明当前 v4 exact head 的功能证据；tagged target、Reserved route occurrence、
+下表说明当前 v5 exact head 的功能证据；tagged target、Reserved route occurrence、
 virtual semantic entry、两类路线 occurrence 容量、资源守恒、未知 parking 枚举和
-Waiting traversal/membership/counter、digest 往返均纳入 v4 测试。
+Waiting traversal/membership/counter、digest 往返均纳入 v5 测试。
 
 | 义务                        | 当前事实                                                                                                                                                                                                                                           |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -352,7 +358,7 @@ Waiting traversal/membership/counter、digest 往返均纳入 v4 测试。
 | 容器与完整性拒绝面          | 已覆盖：framing / identifier / verifier / wire 与 asset-key 上限、format/runtime/静态版本、未知 vtable 槽/枚举、必需字段、标识/引用/live 排列/停车/数值/时钟/Active 重叠；错误只返回失败，不暴露 staging                                           |
 | Published 来源              | 已覆盖：端到端 fresh restore；同语义修订、不同 asset key / exact-byte digest / length 的已认证重发布来源允许恢复                                                                                                                                   |
 | Editable 来源               | **尚未覆盖，不视为已满足**：当前没有 committed `RoadEditingState` 生产来源变体；类型落地后必须补重编译 + `EditableDiffBase` 对应关系 + 端到端恢复                                                                                                  |
-| 边界捕获 / 候选准备期保存   | v4 保持结构闭合：`capture_snapshot(&self)` 与所有提交入口 `&mut self` 不能在 safe Rust 中交错。切换候选在同步 `&mut self` 调用内局部持有、无可并发观测的半提交 world，调用前捕获旧聚合、成功返回后捕获新聚合；未来异步候选形态必须补可交错定向测试 |
+| 边界捕获 / 候选准备期保存   | v5 保持结构闭合：`capture_snapshot(&self)` 与所有提交入口 `&mut self` 不能在 safe Rust 中交错。切换候选在同步 `&mut self` 调用内局部持有、无可并发观测的半提交 world，调用前捕获旧聚合、成功返回后捕获新聚合；未来异步候选形态必须补可交错定向测试 |
 | occurrence max / max+1      | 已覆盖：edge 与 conflict 两类总 occurrence 正好等于保存/目标上限时恢复成功；max+1 分别以 `RouteEdgeOccurrences` / `RouteConflictOccurrences` 上限错误失败；实际 conflict 总数由完整 staging 路线表重建后核对                                       |
 | 冲突能力保护                | 已覆盖：保存的微米 carry 参与车尾位置；clearance 前一微米拒绝、相等允许；Completed 直接恢复最终态，不经过瞬时 Active；失败零发布                                                                                                                   |
 | 快照五维预算                | Published 初值已登记于 §8；editable load 初值随 Editable 来源生产化补齐                                                                                                                                                                            |

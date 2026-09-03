@@ -1,8 +1,8 @@
-// LaneFlow 运行时快照容器 v4。
+// LaneFlow 运行时快照容器 v5。
 // v4 加入 WaitingZone traversal、membership 与单调 admission counter；派生 queue link、
 // occupancy index、latest decision/event batch 和 tick-local claim 不持久化。
 
-namespace LaneFlow.RuntimeSnapshot.V4;
+namespace LaneFlow.RuntimeSnapshot.V5;
 
 struct Digest256 { bytes:[ubyte:32]; }
 struct StableId128 { bytes:[ubyte:16]; }
@@ -25,6 +25,13 @@ enum ManeuverTraversalPhaseKind:ubyte {
   PreGate = 1,
   Committed = 2,
   Waiting = 3
+}
+
+enum WorldPolicySelectionKind:ubyte { Unspecified = 0, NotRequired = 1, Pinned = 2 }
+
+table WorldPolicyBinding {
+  selection:WorldPolicySelectionKind;
+  policy:StableId128;
 }
 
 table WorldConfigBinding {
@@ -117,6 +124,7 @@ table RuntimeSnapshot {
   vehicles:[SnapshotVehicle] (required);
   live_order:[ulong] (required);
   waiting_zones:[WaitingZoneState] (required);
+  world_policy:WorldPolicyBinding (required);
 }
 
 root_type RuntimeSnapshot;

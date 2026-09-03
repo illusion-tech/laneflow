@@ -1524,6 +1524,18 @@ fn build_catalog(
 
     Ok(CorridorCatalog {
         catalog_version: CATALOG_VERSION.to_owned(),
+        policy_selection: laneflow_scenario::signalized_corridor::CatalogPolicySelection::Pinned {
+            policy: laneflow_static_contract::RightOfWayPolicySetId::from_untyped(
+                laneflow_compiler::derive_canonical_stable_id_v1(
+                    laneflow_static_contract::EntityKind::RightOfWayPolicySet,
+                    laneflow_scenario::signalized_corridor::AUTHORING_NAMESPACE,
+                    laneflow_scenario::signalized_corridor::PROTECTED_ENTRY_POLICY_KEY,
+                    &laneflow_compiler::CompileLimits::p100_initial_v1(),
+                )
+                .map_err(|error| Error::Catalog(format!("policy identity: {error:?}")))?,
+            )
+            .to_string(),
+        },
         portals,
         routes: route_catalog,
         spawn_slots: slots,

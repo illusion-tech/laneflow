@@ -16,6 +16,9 @@
 //! 计时不得被当作基线（沿 #441 `shared_network_resource_evidence` 先例）。
 //! 复现命令见合同 §9 初值表。
 
+#[path = "support/policy.rs"]
+mod test_policy;
+
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -92,6 +95,7 @@ fn install_corridor_world(revision: &Arc<SharedNetworkRevision>) -> TrafficWorld
         WorldConfig::new(8, 32, 1_024, 1_024, 1, DELTA_MS),
         source_for("fixture://corridor-base"),
         1,
+        test_policy::selection(revision),
     )
     .expect("install");
     let catalog: CorridorCatalog = toml::from_str(CORRIDOR_CATALOG).expect("catalog TOML");

@@ -8,6 +8,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+laneflow-static-contract = { version = "0.0.0", path = "../../crates/laneflow-static-contract" }
 laneflow-compiler = { version = "0.0.0", path = "../../crates/laneflow-compiler" }
 laneflow-format = { version = "0.0.0", path = "../../crates/laneflow-format" }
 laneflow-scenario = { version = "0.0.0", path = "../../crates/laneflow-scenario" }
@@ -19,7 +20,6 @@ toml = "1.1.3"
 
 [dev-dependencies]
 laneflow-runtime = { version = "0.0.0", path = "../../crates/laneflow-runtime" }
-laneflow-static-contract = { version = "0.0.0", path = "../../crates/laneflow-static-contract" }
 laneflow-static-network = { version = "0.0.0", path = "../../crates/laneflow-static-network" }
 
 [lints]

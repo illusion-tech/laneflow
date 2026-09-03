@@ -10,7 +10,12 @@ use laneflow_compiler::{
     SignalPhaseInput, SourceModuleHeader, SourceModuleHeaderInput, StopLineInput,
     SyntheticModuleBuilder, VehicleProfileInput, emit_portable_candidate,
 };
+use laneflow_compiler::{
+    GateInterpretation, GateProhibition, ManeuverGateReference, OwnerQualifiedReference,
+    PolicyGateRuleInput, PolicyInputSource, RegulationIdentity, RightOfWayPolicySetInput,
+};
 use laneflow_format::{FormatLimits, check_post_emission_bundle};
+use laneflow_scenario::signalized_corridor::PROTECTED_ENTRY_POLICY_KEY;
 use laneflow_scenario::signalized_corridor::{
     AUTHORING_NAMESPACE, PASSENGER_CAR_PROFILE_KEY, SHUTTLE_BUS_PROFILE_KEY,
 };
@@ -62,6 +67,7 @@ pub(crate) fn compile_corridor(
     add_stop_lines(&mut builder, corridor)?;
     add_signal_groups_and_controllers(&mut builder, config)?;
     add_maneuver_gates(&mut builder, corridor)?;
+    add_protected_entry_policy(&mut builder, corridor)?;
     add_cross_section(&mut builder, cross_section)?;
     add_access_rules(&mut builder, cross_section)?;
     add_canonical_frame(&mut builder, config, corridor)?;
@@ -625,4 +631,48 @@ fn compile_error(stage: &'static str, bundle: laneflow_compiler::DiagnosticBundl
         stage,
         message: format!("{bundle:?}"),
     }
+}
+
+/// 工程示例策略，明确声明版本与依据，不冒充现实法域的法规全集。
+fn add_protected_entry_policy(
+    builder: &mut SyntheticModuleBuilder,
+    corridor: &CorridorBuild,
+) -> Result<(), Error> {
+    let span = builder.policy_source_span();
+    let source = PolicyInputSource {
+        primary: &span,
+        contributing: &[],
+    };
+    let gates: Vec<_> = corridor
+        .connectors
+        .iter()
+        .map(|connector| PolicyGateRuleInput {
+            rule_key: &connector.maneuver_gate_id,
+            gate: OwnerQualifiedReference {
+                target: ManeuverGateReference::local(&connector.maneuver_gate_id),
+                owner_keys: &[],
+            },
+            participant_classes: None,
+            interpretation: GateInterpretation::ProtectedGroup,
+            prohibition: GateProhibition::None,
+            evidence_keys: &[],
+            source,
+        })
+        .collect();
+    builder
+        .add_right_of_way_policy_set(RightOfWayPolicySetInput {
+            policy_set_key: PROTECTED_ENTRY_POLICY_KEY,
+            regulation: RegulationIdentity {
+                jurisdiction: "engineering",
+                version: "protected-entry-1",
+                source: Some("repository:corridor/protected-entry-1"),
+            },
+            evidence: &[],
+            gap_profiles: &[],
+            stream_rules: &[],
+            gate_rules: &gates,
+            source,
+        })
+        .map_err(|bundle| compile_error("protected-entry policy", bundle))?;
+    Ok(())
 }

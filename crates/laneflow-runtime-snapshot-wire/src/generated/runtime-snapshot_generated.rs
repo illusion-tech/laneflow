@@ -10,7 +10,7 @@ pub mod lane_flow {
 pub mod runtime_snapshot {
 
 #[allow(unused_imports, dead_code)]
-pub mod v4 {
+pub mod v5 {
 
 
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
@@ -457,6 +457,94 @@ impl<'a> ::flatbuffers::Verifiable for ManeuverTraversalPhaseKind {
 }
 
 impl ::flatbuffers::SimpleToVerifyInSlice for ManeuverTraversalPhaseKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_WORLD_POLICY_SELECTION_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_WORLD_POLICY_SELECTION_KIND: u8 = 2;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_WORLD_POLICY_SELECTION_KIND: [WorldPolicySelectionKind; 3] = [
+  WorldPolicySelectionKind::Unspecified,
+  WorldPolicySelectionKind::NotRequired,
+  WorldPolicySelectionKind::Pinned,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct WorldPolicySelectionKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl WorldPolicySelectionKind {
+  pub const Unspecified: Self = Self(0);
+  pub const NotRequired: Self = Self(1);
+  pub const Pinned: Self = Self(2);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Unspecified,
+    Self::NotRequired,
+    Self::Pinned,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Unspecified => Some("Unspecified"),
+      Self::NotRequired => Some("NotRequired"),
+      Self::Pinned => Some("Pinned"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for WorldPolicySelectionKind {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for WorldPolicySelectionKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for WorldPolicySelectionKind {
+    type Output = WorldPolicySelectionKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for WorldPolicySelectionKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for WorldPolicySelectionKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for WorldPolicySelectionKind {}
 // struct Digest256, aligned to 1
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq)]
@@ -874,6 +962,119 @@ impl<'a> StaticContractVersionSet {
 
 }
 
+pub enum WorldPolicyBindingOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct WorldPolicyBinding<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for WorldPolicyBinding<'a> {
+  type Inner = WorldPolicyBinding<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> WorldPolicyBinding<'a> {
+  pub const VT_SELECTION: ::flatbuffers::VOffsetT = 4;
+  pub const VT_POLICY: ::flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    WorldPolicyBinding { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args WorldPolicyBindingArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<WorldPolicyBinding<'bldr>> {
+    let mut builder = WorldPolicyBindingBuilder::new(_fbb);
+    if let Some(x) = args.policy { builder.add_policy(x); }
+    builder.add_selection(args.selection);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn selection(&self) -> WorldPolicySelectionKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<WorldPolicySelectionKind>(WorldPolicyBinding::VT_SELECTION, Some(WorldPolicySelectionKind::Unspecified)).unwrap()}
+  }
+  #[inline]
+  pub fn policy(&self) -> Option<&'a StableId128> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<StableId128>(WorldPolicyBinding::VT_POLICY, None)}
+  }
+}
+
+impl ::flatbuffers::Verifiable for WorldPolicyBinding<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<WorldPolicySelectionKind>("selection", Self::VT_SELECTION, false)?
+     .visit_field::<StableId128>("policy", Self::VT_POLICY, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct WorldPolicyBindingArgs<'a> {
+    pub selection: WorldPolicySelectionKind,
+    pub policy: Option<&'a StableId128>,
+}
+impl<'a> Default for WorldPolicyBindingArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    WorldPolicyBindingArgs {
+      selection: WorldPolicySelectionKind::Unspecified,
+      policy: None,
+    }
+  }
+}
+
+pub struct WorldPolicyBindingBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> WorldPolicyBindingBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_selection(&mut self, selection: WorldPolicySelectionKind) {
+    self.fbb_.push_slot::<WorldPolicySelectionKind>(WorldPolicyBinding::VT_SELECTION, selection, WorldPolicySelectionKind::Unspecified);
+  }
+  #[inline]
+  pub fn add_policy(&mut self, policy: &StableId128) {
+    self.fbb_.push_slot_always::<&StableId128>(WorldPolicyBinding::VT_POLICY, policy);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> WorldPolicyBindingBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    WorldPolicyBindingBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<WorldPolicyBinding<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for WorldPolicyBinding<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("WorldPolicyBinding");
+      ds.field("selection", &self.selection());
+      ds.field("policy", &self.policy());
+      ds.finish()
+  }
+}
 pub enum WorldConfigBindingOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -2256,6 +2457,7 @@ impl<'a> RuntimeSnapshot<'a> {
   pub const VT_VEHICLES: ::flatbuffers::VOffsetT = 34;
   pub const VT_LIVE_ORDER: ::flatbuffers::VOffsetT = 36;
   pub const VT_WAITING_ZONES: ::flatbuffers::VOffsetT = 38;
+  pub const VT_WORLD_POLICY: ::flatbuffers::VOffsetT = 40;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -2273,6 +2475,7 @@ impl<'a> RuntimeSnapshot<'a> {
     builder.add_time_ms(args.time_ms);
     builder.add_tick(args.tick);
     builder.add_world_id(args.world_id);
+    if let Some(x) = args.world_policy { builder.add_world_policy(x); }
     if let Some(x) = args.waiting_zones { builder.add_waiting_zones(x); }
     if let Some(x) = args.live_order { builder.add_live_order(x); }
     if let Some(x) = args.vehicles { builder.add_vehicles(x); }
@@ -2415,6 +2618,13 @@ impl<'a> RuntimeSnapshot<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<WaitingZoneState>>>>(RuntimeSnapshot::VT_WAITING_ZONES, None).unwrap()}
   }
+  #[inline]
+  pub fn world_policy(&self) -> WorldPolicyBinding<'a> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<WorldPolicyBinding>>(RuntimeSnapshot::VT_WORLD_POLICY, None).unwrap()}
+  }
 }
 
 impl ::flatbuffers::Verifiable for RuntimeSnapshot<'_> {
@@ -2441,6 +2651,7 @@ impl ::flatbuffers::Verifiable for RuntimeSnapshot<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<SnapshotVehicle>>>>("vehicles", Self::VT_VEHICLES, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u64>>>("live_order", Self::VT_LIVE_ORDER, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<WaitingZoneState>>>>("waiting_zones", Self::VT_WAITING_ZONES, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<WorldPolicyBinding>>("world_policy", Self::VT_WORLD_POLICY, true)?
      .finish();
     Ok(())
   }
@@ -2464,6 +2675,7 @@ pub struct RuntimeSnapshotArgs<'a> {
     pub vehicles: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<SnapshotVehicle<'a>>>>>,
     pub live_order: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u64>>>,
     pub waiting_zones: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<WaitingZoneState<'a>>>>>,
+    pub world_policy: Option<::flatbuffers::WIPOffset<WorldPolicyBinding<'a>>>,
 }
 impl<'a> Default for RuntimeSnapshotArgs<'a> {
   #[inline]
@@ -2487,6 +2699,7 @@ impl<'a> Default for RuntimeSnapshotArgs<'a> {
       vehicles: None, // required field
       live_order: None, // required field
       waiting_zones: None, // required field
+      world_policy: None, // required field
     }
   }
 }
@@ -2569,6 +2782,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RuntimeSnapshotBuilder<'a, 'b
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RuntimeSnapshot::VT_WAITING_ZONES, waiting_zones);
   }
   #[inline]
+  pub fn add_world_policy(&mut self, world_policy: ::flatbuffers::WIPOffset<WorldPolicyBinding<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<WorldPolicyBinding>>(RuntimeSnapshot::VT_WORLD_POLICY, world_policy);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> RuntimeSnapshotBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     RuntimeSnapshotBuilder {
@@ -2584,6 +2801,7 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RuntimeSnapshotBuilder<'a, 'b
     self.fbb_.required(o, RuntimeSnapshot::VT_VEHICLES,"vehicles");
     self.fbb_.required(o, RuntimeSnapshot::VT_LIVE_ORDER,"live_order");
     self.fbb_.required(o, RuntimeSnapshot::VT_WAITING_ZONES,"waiting_zones");
+    self.fbb_.required(o, RuntimeSnapshot::VT_WORLD_POLICY,"world_policy");
     ::flatbuffers::WIPOffset::new(o.value())
   }
 }
@@ -2609,6 +2827,7 @@ impl ::core::fmt::Debug for RuntimeSnapshot<'_> {
       ds.field("vehicles", &self.vehicles());
       ds.field("live_order", &self.live_order());
       ds.field("waiting_zones", &self.waiting_zones());
+      ds.field("world_policy", &self.world_policy());
       ds.finish()
   }
 }
@@ -2697,7 +2916,7 @@ pub fn finish_runtime_snapshot_buffer<'a, 'b, A: ::flatbuffers::Allocator + 'a>(
 pub fn finish_size_prefixed_runtime_snapshot_buffer<'a, 'b, A: ::flatbuffers::Allocator + 'a>(fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>, root: ::flatbuffers::WIPOffset<RuntimeSnapshot<'a>>) {
   fbb.finish_size_prefixed(root, Some(RUNTIME_SNAPSHOT_IDENTIFIER));
 }
-}  // pub mod V4
+}  // pub mod V5
 }  // pub mod RuntimeSnapshot
 }  // pub mod LaneFlow
 
