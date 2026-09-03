@@ -276,7 +276,7 @@ field id `0..=17` 的含义及其余字段如下：
 |       28 | `conflict_zone_regions`    | owner-local 可选 2.5D region；空向量表示 headless        |
 |       29 | `right_of_way_policy_sets` | 具名策略、共同法规值及证据、间隙、流/门规则四类局部成员  |
 
-v3 新增/替换 table 的 field id 与类型语义固定为：
+LFRE 4 中停车与冲突相关 table 的 field id 与类型语义固定为：
 
 ```text
 ParkingFacility:
