@@ -134,15 +134,16 @@ StableId 不变。`StaticRoute` / `routeKey` 不因编号复用而成为现行�
 LFSM `sourceMapFormatVersion` 与 LFSD `semanticDiffFormatVersion` 均为 3；对象不得再出现
 静态路线行。旧对象因 `formatVersion` 被拒，不单独兼容。
 
-### 4. 场景 catalog 0.3 拥有示例边序列
+### 4. 场景 catalog 拥有示例边序列
 
 仓库信号化走廊的 28 条路线是**场景层出行清单**，不是路网产品。
 
-catalog 升到 `0.3`：每条 `route` 在既有 `route_id` / 出口 portal 之外，列出有序
+本 ADR 将 catalog 升到 `0.3`：每条 `route` 在既有 `route_id` / 出口 portal 之外，列出有序
 `laneEdgeKey`。走廊生成器把序列写进 catalog，不再写入 LFCA / 编制来源。
 bind 把键解析为共享根边序号，对每条 catalog 路线 `register_route` 一次，并在本
 世界生命周期内保留句柄。人口与回流政策继续按 catalog 选择，只是句柄来自注册而非
-静态序号。
+静态序号。现行 catalog 已由 [路权策略合同](../design/traffic-runtime-right-of-way-policy.md)
+升级为 `0.4`，新增必填 `policy_selection`；边序列权威保持本 ADR 的决定。
 
 城市游戏与 #303 不使用本 catalog；规划器直接提交边序列。不得为示例另发明第三类
 路网 sidecar。不得在 bind 时从机动路径「反推」边序列——那会变成第二套路线编译器。
@@ -192,7 +193,8 @@ replay 统一执行，移除路线时释放。它不是单条路线的产品政�
 **同进程在线修订切换**：Adapter 可能仍持有当期句柄。允许在现有槽位 **原地** 把
 compiled 边序号换成映射后的新序号并重编译出现项，句柄保持到该进程结束。这不是
 磁盘格式，不得把槽位布局写进存档。走廊 catalog controller 绑定的是
-`(世界令牌, NetworkRevisionId)`：修订变化后 controller **失效**，调用方按新修订
+`(NetworkRevisionId, WorldPolicySelection)`，宿主保证同一世界实例与局部句柄对应
+（现行人口设计 §2、§6）：修订变化后 controller **失效**，调用方按新修订
 重新 bind。重绑不得新分配句柄，也不得丢掉切修订已保住的句柄。本切片不设计
 catalog 原子热切换，也不让人口层在切修订后继续用旧修订句柄。#302 实现切修订
 状态机时消费本约束。
@@ -273,7 +275,7 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 - 走廊、Bevy smoke、`runtime_min`、替换/回流测试只通过 `register_route` 放车，
   受保护转向覆盖不弱于现行静态夹具。
 - tick 热路径只有一套已编译边序列与出现项。
-- catalog `0.3` 带边键；生成器不再往 LFCA 写路线。
+- catalog 带边键（本 ADR 首次定义为 `0.3`；现行 `0.4` 另必填策略选择）；生成器不再往 LFCA 写路线。
 - 文档、glossary、compiler-foundation、portable-canonical-artifact、道路编辑
   schema 不再把预编译静态路线写成路网必选产品。
 - 磁盘快照合同：局部路线 ID + 边 `StableId128`；不落盘槽位 / generation / 密集序号 /

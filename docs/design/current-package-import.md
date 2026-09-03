@@ -16,6 +16,6 @@ current JSON（Traffic v0.10 / SpatialPackage v0.1 / ScenarioManifest v0.1）
 - 编译器正确性使用编译器原生有类型模块，不以旧 JSON loader 为预言机；
 - 可运行世界只从 `SharedNetworkRevision` 安装。
 
-走廊生成器不再构造 current JSON；编制走 compiler，制品是 catalog 0.3 与 LFCA。详细现行路径见
+走廊生成器不再构造 current JSON；编制走 compiler，制品是 catalog 0.4 与 LFCA。详细现行路径见
 `compiler-foundation.md`、`portable-canonical-artifact.md`、
 `shared-static-network.md` 与 `traffic-runtime-shared-consumption.md`。
