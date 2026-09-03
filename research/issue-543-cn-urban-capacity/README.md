@@ -15,11 +15,13 @@
 **结论：方案 A。** 在现有具名生产配置档 `LF-COMP-SINGLE-NETWORK-1M-v2`（#315 系）下，
 10k（100 cells / 10 tiles）与 100k（1,000 cells / 100 tiles）两档完整走通
 "源构建 → 编译 → file-backed 发射 → post-emission check → SharedNetworkRevision build
-（headless + spatial）→ TrafficWorld install" 全管线，全部维度处于上限的 12.6% 以内。
+（headless + spatial）→ TrafficWorld install" 全管线，**已测量维度**均处于上限的
+12.5% 以内（最大为 stable entities 125,400 / 1,000,000）；HIR/MIR 维度无公开读数，
+仅以 1M profile 编译成功证明低于上限，占比未测量（解析推导值另行标注）。
 不需要新 compiler profile（排除 B），也不需要新 LFCA format/version（排除 C）。
 
 同时实测确认：`LF-COMP-P100-INITIAL-v2`（#292/#315 冻结）**不适用**于该 workload——
-10k 档在 6 个 admission 维度上超限（见"P100 拒绝面"节）。这不改变 A 的判定，因为
+10k 档在至少 7 个 admission 维度上超限（解析口径，见"P100 拒绝面"节）。这不改变 A 的判定，因为
 1M v2 是既有具名生产配置档；但它提示 P100 的标定场景（#308 校准基线）与
 LF-CN-URBAN-v1 的城市尺度不是同一档，文档中 "P10/P100" 性能分档与 compiler admission
 维度不应混用。
@@ -39,24 +41,31 @@ LF-CN-URBAN-v1 的城市尺度不是同一档，文档中 "P10/P100" 性能分�
    每 tile 加 1 个 virtual-only 地下车库（capacity 1,000，2 进 2 出多门锚点）；
    每 synthetic 模块自带 ParticipantClass/VehicleProfile/AccessRule 三元组
    （避免跨模块 import；import_edge = 0）。
-3. **冲突/无保护转向由 road-editing 前端承担**：synthetic 前端无 ConflictZone /
+3. **停车声明容量是拓扑档参数，不等于 runtime 名义规模**：`C_parking_virtual_declared`
+   = cells×100 + tiles×1,000（10k 档 20,000、100k 档 200,000，证据行 `lf543-parking`；
+   设施数 cells+tiles、显式泊位 4×cells、virtual 锚点 2×cells+4×tiles）。按设计文档
+   （`docs/design/chinese-style-city-workload.md`）§2 口径，该声明值不意味着等量
+   `ParkingSpace`、LFCA 行、Runtime slot 或 presented entity；每 cell 100 / 每 tile
+   1,000 是 spike 选取的拓扑档输入，不承诺等于 §3 的 runtime 个体/停车容量名义规模
+   （10k/100k）。显式泊位 400 / 4,000 已作为 `ParkingSpace` 行计入 stable entities。
+4. **冲突/无保护转向由 road-editing 前端承担**：synthetic 前端无 ConflictZone /
    ParticipantStream 声明面，故每 cell 另配 1 个冲突 tile（31 稳定实体：4 走廊/4 区段/
    4 车道/6 边/1 junction/1 ConflictZone+region/2 movement/2 path/2 stopline/2 gate/
    2 ParticipantStream），结构逐项照抄
    `crates/laneflow-compiler/tests/portable_emission_resources.rs` 的
    `build_conflict_module` 并加 per-cell 整数 offset。冲突 junction 与信号 junction
    分离是前端能力所限，计数偏保守高端。
-4. **不跨 cell 接线**：exit 边 successors 为空。敏感性上界：若每 cell 4 条出口边各接
+5. **不跨 cell 接线**：exit 边 successors 为空。敏感性上界：若每 cell 4 条出口边各接
    相邻 cell，+8 successor references/relations/cell（100k 约 +8,000），对全部维度
    余量无影响。
-5. **无 LaneGroup / FacilityBand**（两表 rows=0）：candidate rules 未要求；若 #304 后续
+6. **无 LaneGroup / FacilityBand**（两表 rows=0）：candidate rules 未要求；若 #304 后续
    引入，按其行增量线性外推即可。
-6. **HIR/MIR 总计数无公开读数**：报告给出解析推导值，并用公开锚点交叉验证——LIR 公开
+7. **HIR/MIR 总计数无公开读数**：报告给出解析推导值，并用公开锚点交叉验证——LIR 公开
    metric（`CompilationMetrics::lir_record_count`）精确命中、LFCA 逐表行数、shared
    network `entity_counts()`、P100 探针失败点的精确 observed。HIR/MIR 计数公开化是
    独立 G1 事项，不影响 A/B/C 判定（1M profile 下编译成功本身即证明 HIR/MIR 维度通过）。
-7. **几何全部为整数值坐标、轴对齐**，边长 == 几何弧长（125.0/95.0/65.0/30.0 精确）。
-8. **堆峰值为 1ms 采样下界**（stats_alloc + 采样线程，与既有
+8. **几何全部为整数值坐标、轴对齐**，边长 == 几何弧长（125.0/95.0/65.0/30.0 精确）。
+9. **堆峰值为 1ms 采样下界**（stats_alloc + 采样线程，与既有
    `portable_emission_resources.rs` 同模式）；`compiler_controlled_peak_bytes` 是编译器
    资源模型逻辑值，不是进程 RSS。
 
@@ -84,20 +93,21 @@ LF-CN-URBAN-v1 的城市尺度不是同一档，文档中 "P10/P100" 性能分�
 
 ### 端到端阶段（1M v2；release，Windows x64）
 
-| 指标                                  |      10k（100 cells） |     100k（1,000 cells） |
-| ------------------------------------- | --------------------: | ----------------------: |
-| 稳定实体（shared `entity_counts()`）  |                12,540 |                 125,400 |
-| LIR 逻辑记录（公开 metric）           |                44,290 |                 442,900 |
-| output_logical_bytes                  |             1,919,784 |              19,197,534 |
-| compiler_controlled_peak_bytes        |            55,102,839 |             550,938,489 |
-| LFCA exact bytes                      |             6,025,452 |              60,223,898 |
-| LFSM / LFSD exact bytes               | 6,158,094 / 5,998,848 | 61,565,234 / 59,979,132 |
-| bundle exact bytes                    |            18,182,394 |             181,768,264 |
-| source-build / compile 耗时           |       0.36 s / 0.11 s |         26.9 s / 1.18 s |
-| emit / post-check 耗时                |      0.63 s / 0.098 s |         6.58 s / 0.93 s |
-| shared retained（headless / spatial） | 1,017,986 / 1,231,586 | 10,228,316 / 12,364,316 |
-| shared 必需 scratch                   |               788,000 |              68,360,000 |
-| TrafficWorld install live delta       |                23,825 |                 190,145 |
+| 指标                                         |      10k（100 cells） |     100k（1,000 cells） |
+| -------------------------------------------- | --------------------: | ----------------------: |
+| 稳定实体（shared `entity_counts()`）         |                12,540 |                 125,400 |
+| `C_parking_virtual_declared`（声明虚拟容量） |                20,000 |                 200,000 |
+| LIR 逻辑记录（公开 metric）                  |                44,290 |                 442,900 |
+| output_logical_bytes                         |             1,919,784 |              19,197,534 |
+| compiler_controlled_peak_bytes               |            55,102,839 |             550,938,489 |
+| LFCA exact bytes                             |             6,025,452 |              60,223,898 |
+| LFSM / LFSD exact bytes                      | 6,158,094 / 5,998,848 | 61,565,234 / 59,979,132 |
+| bundle exact bytes                           |            18,182,394 |             181,768,264 |
+| source-build / compile 耗时                  |       0.36 s / 0.11 s |         26.9 s / 1.18 s |
+| emit / post-check 耗时                       |      0.63 s / 0.098 s |         6.58 s / 0.93 s |
+| shared retained（headless / spatial）        | 1,017,986 / 1,231,586 | 10,228,316 / 12,364,316 |
+| shared 必需 scratch                          |               788,000 |              68,360,000 |
+| TrafficWorld install live delta              |                23,825 |                 190,145 |
 
 post-emission check 全程**零分配**（断言通过）。100k 的 LIR 恰为 10k 的 10 倍；
 synthetic-only + conflict-only 分解编译在两档都精确可加
@@ -152,17 +162,24 @@ chunk）。本 workload 的 identity chunk 在 53,890 行处切分，由单 chun
 
 ### P100 拒绝面（exact / exact+1 式边界证据，`LF-COMP-P100-INITIAL-v2`）
 
+**(a) 真实 admission oracle 实测拒绝**（`DiagnosticPayload::CompileLimitExceeded`
+携带 dimension/limit/observed）：
+
 - 合成前端：逐 tile 准入，3 个模块通过，第 4 个模块拒绝——
   `SourceBytesTotal limit=542,741 observed=720,740`（合成模块源字节精确值
-  180,185 B/模块 × 4）。即便无视源字节维度，解析模型显示 relation occurrences 会在
-  第 5 模块超限（5×2,127 = 10,635 > 10,032）、declarations 在第 12 模块超限
-  （12×944 = 11,328 > 11,265）。
+  180,185 B/模块 × 4）。
 - 冲突前端（单模块逐 cell）：48 cells 通过，49 cells 拒绝——
   `SourceBytesPerModule limit=542,741 observed=542,750`（超出 9 B）。
+
+**(b) 解析模型推论**（非 oracle 实测；基于每模块精确资源增量线性外推）：
+
+- 即便无视源字节维度，relation occurrences 会在第 5 模块超限
+  （5×2,127 = 10,635 > 10,032）；declarations 在第 12 模块超限
+  （12×944 = 11,328 > 11,265）。
 - 推论：10k 全量（11 模块）在 P100 v2 下至少 7 维超限（source bytes、declarations、
-  stable entities、typed AST、relations、identity fields、symbols）；P100 两档均不可用。
-  拒绝面全部来自真实 admission oracle（`DiagnosticPayload::CompileLimitExceeded`
-  携带 dimension/limit/observed），非外推。
+  stable entities、typed AST、relations、identity fields、symbols）；其中仅
+  source bytes 两维（total / per-module）有 (a) 的实测拒绝点，其余维度为解析口径，
+  未逐一探针实测。P100 两档均不可用。
 
 ## 复现命令
 
@@ -183,6 +200,12 @@ $bin = "research/issue-543-cn-urban-capacity/target/release/laneflow-issue-543-s
 
 ## 风险与后续
 
+- **Adapter 层计数不在本 spike 范围**：本 spike 是 headless 容量测量，没有引擎表现域
+  可测，`N_presented` 等 Adapter 侧计数未采集。设计文档 §4.5 要求记录
+  "declaration/IR/LFCA/shared-static/runtime/Adapter 各层计数"，并称 #543 覆盖
+  build/load/Adapter 各层完整核算；而 #543 Issue 正文未列 Adapter 层——两处口径差异
+  在此登记。Adapter 层证据归 #544（Adapter harness）与 #545（证据矩阵）；建议
+  #304 G1 冻结时对齐 §4.5 表述。本报告与 #543 关闭口径不得暗示已覆盖 Adapter 层。
 - **重算触发条件**（#543 评论）：#304 G1 candidate rules 变动（cell/tile/设施配比），
   或 #284 落地改变 LFCA 表集。本 spike 的生成器参数化到 cell 粒度，重跑成本低。
 - **HIR/MIR 计数公开化**是独立 G1 事项；本报告以公开锚点 + admission 成功代替直接读数。

@@ -1496,6 +1496,7 @@ fn print_model(shape: Shape) {
         synthetic.waiting_zones,
         synthetic.geometry_points,
     );
+    print_parking_summary(shape);
     for row in LIMIT_ROWS {
         let observed = match row.dimension {
             "max_declaration_count" | "max_stable_entity_count" => synthetic.declarations,
@@ -1514,6 +1515,25 @@ fn print_model(shape: Shape) {
             shape.cells, row.dimension, row.p100_v2, row.net1m_v2,
         );
     }
+}
+
+/// 按 `docs/design/chinese-style-city-workload.md` §2 的停车计数块汇总本 workload 的
+/// 停车声明量。`C_parking_virtual_declared` 是设施声明的虚拟容量上界之和
+/// （cells×100 + tiles×1,000），不物化为 ParkingSpace/LFCA 行/Runtime slot——
+/// 与名义 10k/100k 拓扑档明确区分（§3 的 10k/100k 首先描述 runtime 个体/停车容量目标，
+/// 本 spike 的 100/1,000-cell 是拓扑档）。这些配方值同时被实测锚点覆盖：
+/// shared `entity_counts()` 的 ParkingFacility/ParkingSpace 与 LFCA 逐表
+/// nested.virtualEntries/virtualExits 与之逐项相等。
+fn print_parking_summary(shape: Shape) {
+    let facilities = u64::from(shape.cells) + u64::from(shape.tiles);
+    let explicit_spaces = u64::from(shape.cells) * 4;
+    let virtual_anchors = u64::from(shape.cells) * 2 + u64::from(shape.tiles) * 4;
+    let declared_virtual = u64::from(shape.cells) * u64::from(CELL_FACILITY_VIRTUAL_CAPACITY)
+        + u64::from(shape.tiles) * u64::from(GARAGE_VIRTUAL_CAPACITY);
+    println!(
+        "lf543-parking cells={} tiles={} n_parking_facility={facilities} n_parking_space_explicit={explicit_spaces} n_parking_virtual_anchor={virtual_anchors} c_parking_virtual_declared={declared_virtual}",
+        shape.cells, shape.tiles,
+    );
 }
 
 fn probe_p100_synthetic(max_tiles: u32) {
