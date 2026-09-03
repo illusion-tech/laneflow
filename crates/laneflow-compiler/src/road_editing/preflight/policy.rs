@@ -45,6 +45,23 @@ pub(super) fn validate(
     for movement in root.movements() {
         closed(movement._tab, 6, key)?;
     }
+    // 复用无分配查重前先界定比较量，不能给大批不同策略键引入平方级无界工作。
+    let policy_count = root.right_of_way_policy_sets().len() as u64;
+    let comparisons = policy_count.saturating_mul(policy_count.saturating_sub(1)) / 2;
+    let relation_limit = limits.value(CompileLimitDimension::RelationOccurrenceCount);
+    if comparisons > relation_limit {
+        return Err(limit_error(
+            CompileLimitDimension::RelationOccurrenceCount,
+            relation_limit,
+            comparisons,
+        ));
+    }
+    ensure_unique_by(
+        root.right_of_way_policy_sets().iter(),
+        |value| value.policy_set_key(),
+        "rightOfWayPolicySets.policySetKey",
+        key,
+    )?;
     for policy in root.right_of_way_policy_sets() {
         closed(policy._tab, 7, key)?;
         closed(policy.regulation()._tab, 3, key)?;
@@ -163,6 +180,10 @@ pub(super) fn validate(
             usage.charge_relation(
                 6 + usize::from(value.participant_classes().is_some())
                     + usize::from(value.gap_profile_key().is_some())
+                    + value
+                        .participant_classes()
+                        .map_or(0, |classes| classes.len())
+                    + value.yield_to_streams().len()
                     + value.evidence_keys().len(),
             );
         }
@@ -207,6 +228,9 @@ pub(super) fn validate(
             }
             usage.charge_relation(
                 6 + usize::from(value.participant_classes().is_some())
+                    + value
+                        .participant_classes()
+                        .map_or(0, |classes| classes.len())
                     + value.evidence_keys().len(),
             );
         }

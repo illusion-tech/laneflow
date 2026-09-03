@@ -244,7 +244,7 @@ controller 绑定的是 `(世界令牌, NetworkRevisionId)`：修订变化后 co
   `ConflictZone`，kind 23 / tag 30 是 `ParticipantStream`。
 - identity backing 长度为 23，`kind_index(CanonicalFrame/ConflictZone/ParticipantStream)`
   均可寻址。
-- 道路编辑只接受 `format_version = 3`。根表无
+- 道路编辑只接受 `format_version = 4`。根表无
   `static_routes` 字段，field id 连续。其它未知槽仍忽略。
 - 三边 `entry → middle → exit` 夹具：`register_route` 后两车跟车，行为不弱于原
   `static_route(0)`。

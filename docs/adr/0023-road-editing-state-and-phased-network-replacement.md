@@ -15,9 +15,10 @@
 > runtime-only 来源，以已认证 asset reference 重载；其晋升与 Runtime 修订切换由 #302 原子
 > 提交。
 >
-> **后继决策**：ADR 0029 取代本文 §2.1 的静态路线来源形状；当前生产
-> `format_version = 3` 根表保存 23 个可构造 Identity 声明向量及 owner-local
-> `conflict_zone_regions`，无 `static_routes` 字段，field id 连续至 28。
+> **后继决策**：ADR 0029 取代本文 §2.1 的静态路线来源形状；路权策略合同 §4.4
+> 增加策略声明并升级 LFRE。当前生产
+> `format_version = 4` 根表保存 24 个可构造 Identity 声明向量及 owner-local
+> `conflict_zone_regions`，无 `static_routes` 字段，field id 连续至 29。
 > 道路编辑状态权威、A → C 候选替换与 FlatBuffers 编码选择继续有效；本文旧来源
 > 形状只作历史背景。
 
@@ -87,7 +88,7 @@ LaneFlow 的实际生产入口首先是可视化编辑器，同时需要游戏�
 
 根表保存精确格式版本、唯一模块头、一组不分配 `StableId128` 的道路走向定义，以及按
 Identity v1 稳定声明分组的有类型向量；owner-local 值留在 owner table。当前生产
-`format_version = 3` 为 23 个可构造 Identity 向量及 owner-local
+`format_version = 4` 为 24 个可构造 Identity 向量及 owner-local
 `conflict_zone_regions`，无 `static_routes` 字段。额外道路走向向量保存当前曲线编制
 事实，但不创造静态路网身份。编译器先检查 size
 prefix、完整长度和 `LFRE`，再使用

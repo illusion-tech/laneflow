@@ -76,9 +76,12 @@ LFRE 4 writer/reader 以 root field 29 与 container 40–44 承载策略，必�
 
 HIR 闭合模块和 owner-qualified 引用，MIR 按静态 Access 实际允许的 profile 解析
 唯一规则，验证 nearest-ancestor specificity、严格让行优先级、间隙绑定、逐 passage
-目标范围、coverage 最低优先级和稳态信号的 Protected 一致性。同 Gate 的物理灯型
+目标范围和稳态信号的 Protected 一致性。同 Gate 的物理灯型
 检查覆盖全部策略与全部声明规则，不允许被车型选择或遮蔽规则掩盖。临时解析行和
-索引在分配前计量；LIR/LFCA 只冻结策略声明，运行时解析表由共享根构建阶段重建。
+索引在分配前计量；未命中的候选查询和关系遍历也累计受现有关系上限约束。
+让行目标按流/冲突区查找，保护一致性按绿灯相位成员检查，法规只比较 HIR 已统一的
+Access 身份。LIR/LFCA 只冻结策略声明，运行时解析表由共享根构建阶段重建。Gate coverage 的最低优先级用于后续候选
+仲裁；门声明没有可与之比较的优先级，编译器不计算并丢弃该派生值。
 
 可移植候选发射由 `emit_portable_candidate` 提供。它只能原子借用同一个
 `CompilationOutput` 中已配对的 LIR/source-map input，并接收规范化
