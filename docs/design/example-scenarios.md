@@ -1,8 +1,8 @@
 # 示例场景设计
 
 **文档状态**: Accepted（#184 G1；#196 v0.9 增量）<br>
-**最后更新**: 2026-08-26<br>
-**适用范围**: 信号化走廊几何、受保护转向 profile、catalog 0.3、人口和车辆回流策略。
+**最后更新**: 2026-09-04<br>
+**适用范围**: 信号化走廊几何、受保护转向 profile、catalog 0.4、人口和车辆回流策略。
 JSON 制品与 production loader 已删除。
 
 **关联 ADR**:
@@ -29,7 +29,7 @@ envelope、限速、50–200 辆车人口、出口回流和 Runtime/Spatial/Adap
 前提下，clean-break 切换为受保护左转、直行和右转 profile。
 
 current 走廊几何与人口策略仍按下列边界描述。Traffic / Spatial / Manifest JSON
-与 production JSON loader 已随 #301 删除；仓库保留 catalog 0.3 与 LFCA。可运行世界从
+与 production JSON loader 已随 #301 删除；仓库保留 catalog 0.4 与 LFCA。可运行世界从
 共享静态路网安装。现行走廊 Bevy 最小路径见
 [#472](https://github.com/illusion-tech/laneflow/issues/472)；50–200 人口与回流见
 [#475](https://github.com/illusion-tech/laneflow/issues/475)。
@@ -43,7 +43,7 @@ current 走廊几何与人口策略仍按下列边界描述。Traffic / Spatial 
 - 两套可配置固定时制信号控制器，每个 Junction 四组、12 phase/84 秒；
 - `50..=200` 可调车辆人口、显式 seed 和确定性出口回流（#475）；
 - 同一 Bevy proxy/model 复用，但每次回流获得新的 Runtime 车辆句柄（#475）；
-- scenario-local catalog 0.3（28 条路线的有序 `laneEdgeKey` 由 catalog 拥有，不进 LFCA；ADR 0029）；
+- scenario-local catalog 0.4（28 条路线的有序 `laneEdgeKey` 由 catalog 拥有，不进 LFCA；ADR 0029）；
 - 确定性 generator 写出 catalog 与 LFCA。
 
 current 场景不包含换道、路径搜索、permissive turn、红灯右转、感应或自适应信号、
@@ -174,10 +174,10 @@ yellow 固定 `3 s`，每个 active set 后 all-red 固定 `1 s`，完整 cycle 
 
 ### 6.1 Native runtime 参数
 
-现行走廊 Bevy 最小路径不恢复 50–200 人口或 `--vehicles` CLI。权威 catalog 是 0.3
-（每条路线含有序 `laneEdgeKey`）。仓库夹具为 format 4 LFCA 与 catalog 0.3；
-prepare 绑到已安装共享路网修订后，按 catalog 边键 `register_route` 再 spawn
-少数车辆。运行命令为：
+现行走廊 Bevy 最小路径不恢复 50–200 人口或 `--vehicles` CLI。权威 catalog 是 0.4
+（必填 `policy_selection`，每条路线含有序 `laneEdgeKey`）。仓库夹具为 format 5
+LFCA 与 catalog 0.4；先把 catalog 绑到共享根，显式使用绑定的策略安装世界，
+再按 catalog 边键 `register_route` 并 spawn 少数车辆。运行命令为：
 
 ```powershell
 cargo +1.98.0 run --locked -p laneflow-bevy --example signalized_corridor --features native-example
@@ -282,7 +282,7 @@ lane index，RouteChoice 按 catalog 文档化路线表顺序规范化。blocked
 - 多车同 tick completion 的 portal/lane/route 决策顺序；
 - blocked 若干 boundary 后恢复时与未阻塞车辆的 draw state。
 
-确定性承诺仍限定同一 LaneFlow 实现版本和运行环境；更改算法、catalog 0.3 规范顺序、
+确定性承诺仍限定同一 LaneFlow 实现版本和运行环境；更改算法、catalog 0.4 规范顺序、
 raw weights 或 draw order 必须经过新的版本/迁移决策，不能静默改变 replay。
 
 ## 9. 制品与配置边界
@@ -292,7 +292,7 @@ raw weights 或 draw order 必须经过新的版本/迁移决策，不能静默�
 current v0.10 场景的可运行制品是：
 
 - `v0.2-signalized-corridor.lfca`：编译器从走廊合成模块发射的 LFCA（含 Spatial）；
-- `v0.2-signalized-corridor.catalog.toml`：scenario-local catalog（现行合同 0.3：每条路线含有序边键）。
+- `v0.2-signalized-corridor.catalog.toml`：scenario-local catalog（现行合同 0.4：每条路线含有序边键）。
 
 历史 Traffic package / SpatialPackage / ScenarioManifest JSON 已随 #301 删除，不再是
 现行制品。seed、车辆数、runtime handle、Entity 或 engine asset metadata 不写入 LFCA
@@ -307,10 +307,14 @@ artifacts 输出文件名。它不包含车辆数、seed、回流策略或展示
 
 generator 写出 `v0.2-signalized-corridor.catalog.toml` 与
 `v0.2-signalized-corridor.lfca`（文件名是场景制品名，不是 catalog 格式号）。
-catalog 0.3 记录每条路线的非空有序 `laneEdgeKey`、ordered PortalLane、weighted
+catalog 0.4 必填 `policy_selection`，并记录每条路线的非空有序 `laneEdgeKey`、ordered PortalLane、weighted
 RouteChoice、共享 entry SpawnSlot、Route→exit portal 和全部 physical slot
-cross-reference。authoring config 与 catalog 都是内部 TOML。可运行世界只安装 LFCA
-构建的共享路网修订，路线经 bind `register_route`。50–200 确定性回流见
+cross-reference。`pinned` 必须携带当前共享根中存在的规范策略 StableId；
+`not_required` 仅用于没有 Gate、ConflictZone、ParticipantStream 的根。受保护走廊
+显式选择生成器声明的 `protected-entry`，省略字段或旧版 catalog 均拒绝。
+完整 TOML 形状与启动绑定见[人口设计 §3](signalized-corridor-population.md#3-catalog-契约)。
+authoring config 与 catalog 都是内部 TOML。可运行世界只安装 LFCA
+构建的共享路网修订，显式传入 catalog 的策略选择；路线经 `install_routes` 注册。50–200 确定性回流见
 [#475](https://github.com/illusion-tech/laneflow/issues/475)。
 
 同一配置和 generator 版本必须 byte-deterministically 生成相同 artifacts、size、digest 和 catalog。仓库根目录使用下列命令生成或只读检查：
@@ -340,7 +344,7 @@ cargo +1.98.0 run --locked -p laneflow-corridor-generator -- check --config exam
 
 TrafficWorld 是 vehicle identity、状态、overlap、Route、SignalStop 和 speed-limit
 behavior 的权威，但不限制车辆数量，也不拥有回流 policy。`laneflow-scenario` 是目标人口、seed、
-catalog 0.3 normalization 和 portal/lane/weighted-route 决策的 reference authority；
+catalog 0.4 normalization 和 portal/lane/weighted-route 决策的 reference authority；
 未来城市游戏可以完全替换它。Traffic/Spatial 是静态拓扑和几何的权威；Adapter 是
 VehicleHandle/Entity 部分双射与宿主 schedule 的权威；Presentation 只拥有
 proxy/model/Transform/灯具和 route-class 视觉。

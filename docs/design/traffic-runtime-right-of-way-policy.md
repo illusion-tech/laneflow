@@ -534,6 +534,13 @@ pin，不能在场景库或 Adapter 内复制绿色放行算法。无 Gate 的�
 读器只接受 catalog 0.4；旧 catalog/fixture 与生成器同步替换。外部宿主可以直接传
 有类型 pin，不必采用走廊 catalog；Runtime 不因此新增 TOML/JSON 依赖。
 
+场景初始计划与人口 controller 持续绑定 catalog 的修订和策略选择。
+`spawn_input`、`consume_world`、`pending_spawn_input` 在使用世界前校验两者；
+`apply_pending(network_revision, policy_selection, callback)` 在修改队列或调用回调前
+校验宿主传入的目标上下文。可复制上下文不表示世界实例身份，宿主仍负责将局部句柄、
+controller 和 callback 绑定到同一个世界；完整顺序见
+[`signalized-corridor-population.md`](signalized-corridor-population.md)。
+
 ## 6. 仲裁、持久状态与生命周期
 
 固定步进仍按联合设计的阶段执行：tick-start committed state → route/leader/frontier

@@ -88,7 +88,7 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
   （Accepted；整数毫米与 LFCA 合同轴为现行权威）
 - `0029`: 路网产品删除预编译 `StaticRoute`；`TrafficWorld` 路线入口只留
   `register_route`；路线退役时 Identity kind `1..=23`、field tag `1..=34` 与 relation role
-  `1..=32` 连续登记；对象 `formatVersion = 4`；走廊示例边序列改由 catalog 0.3 拥有
+  `1..=32` 连续登记；对象 `formatVersion = 4`；走廊示例边序列改由场景 catalog 拥有（本 ADR 为 0.3；现行 0.4 必填策略选择）
   （Accepted；路线退役决定继续有效；后续版本与登记增量见路权策略实施合同 §8）
 
 ## 命名规则

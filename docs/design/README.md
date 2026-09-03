@@ -9,7 +9,7 @@
 - `traffic-runtime-shared-consumption.md`：`TrafficWorld` 安装共享静态路网，
   Spatial 只 bind 同一根 `Arc`，current Core/JSON 入口已拆除。路线入口只留
   `register_route`（ADR 0029）。
-- `retire-precompiled-static-route.md`：路网制品不声明路线；场景 catalog 0.3
+- `retire-precompiled-static-route.md`：路网制品不声明路线；场景 catalog 0.4
   拥有示例边序列（ADR 0029）。
 - `traffic-runtime-revision-cutover.md`：在线修订切换事务、切换描述符、封闭迁移
   策略、迁移增量日志与失败关闭预算（#302 G1；G2 起实现）。
