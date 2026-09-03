@@ -62,13 +62,12 @@ impl SyntheticModuleBuilder {
     ) -> Result<&mut Self, DiagnosticBundle> {
         let span = input.source.primary;
         let key = input.policy_set_key;
-        let location = SourceLocation::from(span.clone());
-        let fail = |member: Option<&str>, violation| {
-            crate::policy::error(key, member, violation, &location)
+        let fail = |member: Option<&str>, violation, span: &SourceSpan| {
+            crate::policy::error(key, member, violation, &span.clone().into())
         };
         self.validate_declaration_key(EntityKind::RightOfWayPolicySet, key, span)?;
         if input.regulation.validate().is_err() {
-            return Err(fail(None, V::InvalidRegulation));
+            return Err(fail(None, V::InvalidRegulation, span));
         }
         let mut size = Sizing::default();
         size.text(key);
@@ -78,30 +77,36 @@ impl SyntheticModuleBuilder {
         if let Some(source) = input.regulation.source {
             size.text(source);
         }
-        let check_source = |source: PolicyInputSource<'_>| -> Result<(), DiagnosticBundle> {
+        let check_source = |source: PolicyInputSource<'_>,
+                            member: Option<&str>|
+         -> Result<(), DiagnosticBundle> {
             if core::iter::once(source.primary)
                 .chain(source.contributing)
                 .any(|span| span.source_document_key() != self.header.source_document_key.as_ref())
             {
-                return Err(fail(None, V::SourceDocument));
+                return Err(fail(member, V::SourceDocument, source.primary));
             }
             Ok(())
         };
-        let check_key = |value: &str| -> Result<(), DiagnosticBundle> {
+        let check_key = |value: &str, source: &SourceSpan| -> Result<(), DiagnosticBundle> {
             if external_token_violation(value, self.limits.identity_ascii_bytes_limit()).is_some()
                 || value.contains("::")
             {
-                return Err(fail(Some(value), V::InvalidKey));
+                return Err(fail(Some(value), V::InvalidKey, source));
             }
             Ok(())
         };
-        check_source(input.source)?;
+        check_source(input.source, None)?;
         size.source(input.source);
         for member in input.evidence {
-            check_key(member.evidence_key)?;
-            check_source(member.source)?;
+            check_key(member.evidence_key, member.source.primary)?;
+            check_source(member.source, Some(member.evidence_key))?;
             if member.locator.is_empty() {
-                return Err(fail(Some(member.evidence_key), V::EmptyValue));
+                return Err(fail(
+                    Some(member.evidence_key),
+                    V::EmptyValue,
+                    member.source.primary,
+                ));
             }
             size.text(member.evidence_key);
             size.text(member.locator);
@@ -111,24 +116,36 @@ impl SyntheticModuleBuilder {
             size.source(member.source);
         }
         for member in input.gap_profiles {
-            check_key(member.profile_key)?;
-            check_source(member.source)?;
+            check_key(member.profile_key, member.source.primary)?;
+            check_source(member.source, Some(member.profile_key))?;
             if member.parameter_version.is_empty() {
-                return Err(fail(Some(member.profile_key), V::EmptyValue));
+                return Err(fail(
+                    Some(member.profile_key),
+                    V::EmptyValue,
+                    member.source.primary,
+                ));
             }
             size.text(member.profile_key);
             size.text(member.parameter_version);
             size.source(member.source);
         }
         for member in input.stream_rules {
-            check_key(member.rule_key)?;
-            check_source(member.source)?;
+            check_key(member.rule_key, member.source.primary)?;
+            check_source(member.source, Some(member.rule_key))?;
             self.validate_policy_reference(member.stream, member.source.primary)?;
             if member.participant_classes.is_some_and(<[_]>::is_empty) {
-                return Err(fail(Some(member.rule_key), V::EmptyClasses));
+                return Err(fail(
+                    Some(member.rule_key),
+                    V::EmptyClasses,
+                    member.source.primary,
+                ));
             }
             if member.yield_to_streams.is_empty() != member.gap_profile_key.is_none() {
-                return Err(fail(Some(member.rule_key), V::GapBinding));
+                return Err(fail(
+                    Some(member.rule_key),
+                    V::GapBinding,
+                    member.source.primary,
+                ));
             }
             size.text(member.rule_key);
             size.qualified(member.stream, &self.header.authoring_namespace_id);
@@ -146,20 +163,24 @@ impl SyntheticModuleBuilder {
                 size.qualified(*reference, &self.header.authoring_namespace_id);
             }
             if let Some(gap) = member.gap_profile_key {
-                check_key(gap)?;
+                check_key(gap, member.source.primary)?;
                 size.text(gap);
             }
             for evidence in member.evidence_keys {
-                check_key(evidence)?;
+                check_key(evidence, member.source.primary)?;
                 size.text(evidence);
             }
         }
         for member in input.gate_rules {
-            check_key(member.rule_key)?;
-            check_source(member.source)?;
+            check_key(member.rule_key, member.source.primary)?;
+            check_source(member.source, Some(member.rule_key))?;
             self.validate_policy_reference(member.gate, member.source.primary)?;
             if member.participant_classes.is_some_and(<[_]>::is_empty) {
-                return Err(fail(Some(member.rule_key), V::EmptyClasses));
+                return Err(fail(
+                    Some(member.rule_key),
+                    V::EmptyClasses,
+                    member.source.primary,
+                ));
             }
             size.text(member.rule_key);
             size.qualified(member.gate, &self.header.authoring_namespace_id);
@@ -173,7 +194,7 @@ impl SyntheticModuleBuilder {
                 size.reference(*reference, &self.header.authoring_namespace_id);
             }
             for evidence in member.evidence_keys {
-                check_key(evidence)?;
+                check_key(evidence, member.source.primary)?;
                 size.text(evidence);
             }
         }
@@ -315,7 +336,7 @@ impl SyntheticModuleBuilder {
             header: DeclarationHeader::module_scoped(
                 EntityKind::RightOfWayPolicySet,
                 key.into(),
-                location,
+                span.clone().into(),
             ),
             regulation: crate::RegulationIdentity {
                 jurisdiction: input.regulation.jurisdiction.into(),
