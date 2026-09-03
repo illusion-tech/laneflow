@@ -689,6 +689,10 @@ fn charge_declaration(
         }
         RoadEditingDeclaration::Movement(value) => {
             usage.charge_table(6, 21);
+            if value.turn_direction().is_some() {
+                usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
+                charge_relation(usage, 1);
+            }
             usage.charge_reference(
                 value.junction(),
                 current_namespace,

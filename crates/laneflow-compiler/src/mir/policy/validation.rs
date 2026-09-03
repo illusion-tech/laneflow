@@ -58,10 +58,23 @@ fn specificity(
             .map(|d| u64::from(d) + 1)
     }))
 }
+#[derive(Clone, Copy)]
+enum RuleMember<'a> {
+    Stream(&'a str),
+    Gate(&'a str),
+}
+impl<'a> RuleMember<'a> {
+    fn key(self) -> &'a str {
+        match self {
+            Self::Stream(key) | Self::Gate(key) => key,
+        }
+    }
+}
+
 fn fail(
     unit: &CompilationUnit,
     p: &MirPolicy,
-    member: Option<&str>,
+    member: Option<RuleMember<'_>>,
     violation: V,
 ) -> DiagnosticBundle {
     let TypedAstDeclaration::RightOfWayPolicySet(source) =
@@ -70,22 +83,25 @@ fn fail(
         unreachable!("bound origin");
     };
     let location = member
-        .and_then(|key| {
-            source
+        .and_then(|member| match member {
+            RuleMember::Stream(key) => source
                 .stream_rules
                 .iter()
                 .find(|r| r.key.as_ref() == key)
-                .map(|r| &r.source.primary)
-                .or_else(|| {
-                    source
-                        .gate_rules
-                        .iter()
-                        .find(|r| r.key.as_ref() == key)
-                        .map(|r| &r.source.primary)
-                })
+                .map(|r| &r.source.primary),
+            RuleMember::Gate(key) => source
+                .gate_rules
+                .iter()
+                .find(|r| r.key.as_ref() == key)
+                .map(|r| &r.source.primary),
         })
         .unwrap_or(&source.header.span);
-    crate::policy::error(&p.value.key, member, violation, location)
+    crate::policy::error(
+        &p.value.key,
+        member.map(RuleMember::key),
+        violation,
+        location,
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -143,7 +159,12 @@ pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<(), 
             if (r.interpretation == I::Uncontrolled) != unbound
                 || (unbound && r.prohibition == P::OnRed)
             {
-                return Err(fail(unit, p, Some(&r.key), V::SignalBinding));
+                return Err(fail(
+                    unit,
+                    p,
+                    Some(RuleMember::Gate(&r.key)),
+                    V::SignalBinding,
+                ));
             }
             let lamp = match r.interpretation {
                 I::CnCircularRightTurn => 1,
@@ -155,10 +176,20 @@ pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<(), 
                 if mir.movements[path.movement.index()].turn_direction
                     != Some(ManeuverDirection::Right)
                 {
-                    return Err(fail(unit, p, Some(&r.key), V::RightTurnRequired));
+                    return Err(fail(
+                        unit,
+                        p,
+                        Some(RuleMember::Gate(&r.key)),
+                        V::RightTurnRequired,
+                    ));
                 }
                 if lamps[r.gate.index()] != 0 && lamps[r.gate.index()] != lamp {
-                    return Err(fail(unit, p, Some(&r.key), V::LampTypeConflict));
+                    return Err(fail(
+                        unit,
+                        p,
+                        Some(RuleMember::Gate(&r.key)),
+                        V::LampTypeConflict,
+                    ));
                 }
                 lamps[r.gate.index()] = lamp;
             }
@@ -168,10 +199,20 @@ pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<(), 
             for &target in &r.yield_to {
                 work.charge(1)?;
                 if target == r.stream {
-                    return Err(fail(unit, p, Some(&r.key), V::SelfYield));
+                    return Err(fail(
+                        unit,
+                        p,
+                        Some(RuleMember::Stream(&r.key)),
+                        V::SelfYield,
+                    ));
                 }
                 if !passages.shares_zone(r.stream, target, &mut work)? {
-                    return Err(fail(unit, p, Some(&r.key), V::DisjointYield));
+                    return Err(fail(
+                        unit,
+                        p,
+                        Some(RuleMember::Stream(&r.key)),
+                        V::DisjointYield,
+                    ));
                 }
             }
         }
@@ -372,7 +413,12 @@ pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<(), 
                     if minimum_stream_priority[target.stream.index()]
                         .is_some_and(|priority| priority <= rule.priority)
                     {
-                        return Err(fail(unit, p, Some(&rule.key), V::YieldPriority));
+                        return Err(fail(
+                            unit,
+                            p,
+                            Some(RuleMember::Stream(&rule.key)),
+                            V::YieldPriority,
+                        ));
                     }
                 }
             }
