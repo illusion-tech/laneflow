@@ -6,8 +6,8 @@
 路线入口、信号化走廊场景 catalog、以及 #302 快照字段可消费的每世界路线表形状<br>
 **部分取代**: ADR 0017 中「目标态由编译器预编译初始路线出现项」；ADR 0020 /
 `network-compiler.md` 把 `StaticRoute` 列为 Identity v1 必选声明种类；ADR 0025 /
-共享静态路网把 `StaticRoute` 列为 Traffic 必需关系。道路编辑根表使用
-`format_version = 3`，包含 23 个可构造声明向量且没有 `static_routes`。ADR 0005 中「Runtime 持有
+共享静态路网把 `StaticRoute` 列为 Traffic 必需关系。道路编辑根表按后继路权策略合同 §4.4 使用
+`format_version = 4`，包含 24 个可构造声明向量且没有 `static_routes`。ADR 0005 中「Runtime 持有
 route external ID resolver、`remove_route` 必须返回 external route ID」对
 `TrafficWorld` 不再适用：catalog / 调用方自己持有 `route_id`，Runtime 热表只有
 `RouteHandle`。`network-compiler.md` §9.7
@@ -229,8 +229,8 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 
 - 路线退役时 LFCA 4 的 23 张实体逻辑表按 `0x0001..=0x0017` 连续登记；`0x0015` 为
   `ConflictZone`、`0x0016` 为 `CanonicalFrame`、`0x0017` 为 `ParticipantStream`。
-- 道路编辑来源 `format_version = 3`：没有 `StaticRoute` table 与根上的
-  `static_routes`；声明向量与 Identity 可构造种类一一对应（23 个）。
+- 道路编辑来源 `format_version = 4`：没有 `StaticRoute` table 与根上的
+  `static_routes`；声明向量与 Identity 可构造种类一一对应（24 个，包含后继策略声明）。
   `canonical_frames`、`conflict_zones` 与 `participant_streams` 分别为根表 field id
   25、26、27。路线退役时为 wire 3；当前由 #284 W2 提升到 `schemas/road-editing/v4/`，
   新增策略向量 id 29，`frontendVersion = 4`，file identifier 仍为 `LFRE`。

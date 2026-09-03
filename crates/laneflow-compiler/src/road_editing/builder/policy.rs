@@ -50,6 +50,8 @@ pub(super) fn charge(
         usage.relation_occurrence_count = usage.relation_occurrence_count.saturating_add(
             6 + u64::from(v.classes.is_some())
                 + u64::from(v.gap.is_some())
+                + v.classes.as_ref().map_or(0, |classes| classes.len()) as u64
+                + v.yield_to.len() as u64
                 + v.evidence.len() as u64,
         );
         usage.charge_table(7, 28);
@@ -74,9 +76,11 @@ pub(super) fn charge(
         }
     }
     for v in &value.gates {
-        usage.relation_occurrence_count = usage
-            .relation_occurrence_count
-            .saturating_add(6 + u64::from(v.classes.is_some()) + v.evidence.len() as u64);
+        usage.relation_occurrence_count = usage.relation_occurrence_count.saturating_add(
+            6 + u64::from(v.classes.is_some())
+                + v.classes.as_ref().map_or(0, |classes| classes.len()) as u64
+                + v.evidence.len() as u64,
+        );
         usage.charge_table(6, 18);
         usage.charge_token(&v.key, limits)?;
         usage.charge_reference(&v.gate, namespace, imports, limits)?;
@@ -92,4 +96,80 @@ pub(super) fn charge(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::road_editing::{RoadEditingModuleInput, RoadEditingSourceWriter};
+
+    #[test]
+    fn policy_reference_members_share_builder_and_raw_relation_limits() {
+        let limits = CompileLimits::p100_initial_v1();
+        let mut policy = None;
+        crate::compiler::policy_tests::editing_policy_custom(&limits, |_, value| {
+            for rule in &mut value.streams {
+                rule.classes =
+                    Some(vec![ParticipantClassReference::local("vehicle").unwrap()].into());
+            }
+            for rule in &mut value.gates {
+                rule.classes =
+                    Some(vec![ParticipantClassReference::local("vehicle").unwrap()].into());
+            }
+            policy = Some(value.clone());
+        });
+        let policy = policy.unwrap();
+        let new_builder = |limits| {
+            RoadEditingSourceModuleBuilder::new(
+                RoadEditingModuleHeader::try_new(
+                    "policy",
+                    "policy.document",
+                    vec!["city/portable-full-spatial-conflict".into()],
+                    RoadEditingProvenance::direct("policy-relations").unwrap(),
+                )
+                .unwrap(),
+                GeometryAccuracyProfile::Balanced5Cm,
+                GeometryDirectionProfile::Balanced2Deg,
+                limits,
+            )
+            .unwrap()
+        };
+        let exact = limits
+            .clone()
+            .with_test_admission_limit(CompileLimitDimension::RelationOccurrenceCount, 50);
+        let low = limits
+            .clone()
+            .with_test_admission_limit(CompileLimitDimension::RelationOccurrenceCount, 49);
+        let mut good = new_builder(&exact);
+        good.add_declaration(RoadEditingDeclaration::RightOfWayPolicySet(policy.clone()))
+            .unwrap();
+        // 规则字段/来源、依据、四个 selector 成员与一个 yield 成员共 50 条关系。
+        assert_eq!(good.usage.relation_occurrence_count, 50);
+        let source = RoadEditingSourceWriter::new(&exact)
+            .write(good.finish().unwrap())
+            .unwrap();
+        let input =
+            RoadEditingModuleInput::try_new("policy.document", source.as_bytes(), None).unwrap();
+        let checked = super::super::super::reader::verify_source(input, &exact, 0, 0).unwrap();
+        assert_eq!(checked.preflight_counts().relation_occurrence_count(), 50);
+        assert!(super::super::super::reader::verify_source(input, &low, 0, 0).is_err());
+        let mut rejected = new_builder(&low);
+        assert!(
+            rejected
+                .add_declaration(RoadEditingDeclaration::RightOfWayPolicySet(policy.clone()))
+                .is_err()
+        );
+        assert_eq!(rejected.usage.relation_occurrence_count, 0);
+        let mut smaller = policy;
+        for rule in &mut smaller.streams {
+            rule.classes = None;
+        }
+        for rule in &mut smaller.gates {
+            rule.classes = None;
+        }
+        rejected
+            .add_declaration(RoadEditingDeclaration::RightOfWayPolicySet(smaller))
+            .unwrap();
+        assert_eq!(rejected.usage.relation_occurrence_count, 42);
+    }
 }

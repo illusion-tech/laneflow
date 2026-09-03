@@ -4,8 +4,11 @@ use crate::declaration::TypedAstDeclaration;
 use crate::policy::model::{PolicyRecord, StreamRule};
 type MirPolicy = PolicyRecord<MirManeuverGateKey, MirParticipantStreamKey, MirParticipantClassKey>;
 mod access;
+mod passages;
+mod protected;
 mod targets;
 mod validation;
+mod work;
 pub(crate) use validation::validate;
 
 #[cfg(test)]

@@ -143,7 +143,7 @@ fn synthetic_policy(
 fn editing_policy(limits: &CompileLimits) -> re::OwnedRoadEditingSourceBuffer {
     editing_policy_custom(limits, |_, _| {})
 }
-fn editing_policy_custom(
+pub(crate) fn editing_policy_custom(
     limits: &CompileLimits,
     customize: impl FnOnce(
         &mut re::RoadEditingSourceModuleBuilder<'_>,
@@ -262,7 +262,7 @@ pub(crate) fn unit_with_policy(
 ) -> Result<CompilationUnit, DiagnosticBundle> {
     unit_with_control(editing, None, None, mutate)
 }
-fn unit_with_control(
+pub(crate) fn unit_with_control(
     editing: bool,
     direction: Option<ManeuverDirection>,
     aspects: Option<[SignalAspect; 2]>,
@@ -685,6 +685,17 @@ fn compile_editing_custom(
         &mut re::RightOfWayPolicySetInput,
     ),
 ) -> Result<CompilationOutput, DiagnosticBundle> {
+    Compiler::new().compile(unit_editing_custom(direction, aspects, customize)?)
+}
+
+fn unit_editing_custom(
+    direction: Option<ManeuverDirection>,
+    aspects: Option<[SignalAspect; 2]>,
+    customize: impl FnOnce(
+        &mut re::RoadEditingSourceModuleBuilder<'_>,
+        &mut re::RightOfWayPolicySetInput,
+    ),
+) -> Result<CompilationUnit, DiagnosticBundle> {
     let limits = CompileLimits::p100_initial_v1();
     let policy = editing_policy_custom(&limits, customize);
     let topology = re::RoadEditingSourceWriter::new(&limits)
@@ -706,7 +717,150 @@ fn compile_editing_custom(
             re::RoadEditingModuleInput::try_new(document, bytes, None).unwrap(),
         )?;
     }
-    Compiler::new().compile(unit.build()?)
+    unit.build()
+}
+
+#[test]
+fn denied_policy_candidates_exhaust_work_budget_and_can_retry() {
+    let mut unit = unit_editing_custom(None, None, |builder, _| {
+        for index in 0..80 {
+            builder
+                .add_declaration(re::RoadEditingDeclaration::VehicleProfile(
+                    re::VehicleProfileInput::try_new(
+                        format!("car-{index}"),
+                        re::ParticipantClassReference::local("vehicle").unwrap(),
+                        re::IidmVehicleProfileInput::try_new(4.5, 12., 2., 1.4, 1.8, 2., 4.5)
+                            .unwrap(),
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+        }
+        for suffix in ["a", "b"] {
+            builder
+                .add_declaration(re::RoadEditingDeclaration::AccessRule(
+                    re::AccessRuleInput::try_new(
+                        format!("deny-{suffix}"),
+                        re::RoadEditingAccessTarget::ManeuverPath(
+                            re::ManeuverPathReference::imported(
+                                TOPOLOGY,
+                                vec![JUNCTION.into(), format!("conflict-movement-{suffix}")],
+                                "path",
+                            )
+                            .unwrap(),
+                        ),
+                        AccessEffect::Deny,
+                        vec![re::ParticipantClassReference::local("vehicle").unwrap()],
+                        0,
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+        }
+    })
+    .unwrap();
+    let hir = crate::hir::build_hir(&unit).unwrap();
+    let mut mir = crate::mir::lower_to_mir(&unit, &hir).unwrap();
+    let original = unit.limits.clone();
+    unit.limits = original
+        .clone()
+        .with_test_admission_limit(CompileLimitDimension::RelationOccurrenceCount, 64);
+    let error = crate::mir::validate_policies(&unit, &mut mir).unwrap_err();
+    assert!(matches!(
+        error.diagnostics()[0].payload(),
+        DiagnosticPayload::CompileLimitExceeded {
+            dimension: CompileLimitDimension::RelationOccurrenceCount,
+            ..
+        }
+    ));
+    unit.limits = original;
+    crate::mir::validate_policies(&unit, &mut mir).unwrap();
+}
+
+#[test]
+fn duplicate_policy_key_fails_during_raw_admission_and_can_retry() {
+    use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
+    let limits = CompileLimits::p100_initial_v1();
+    let source = editing_policy_custom(&limits, |builder, policy| {
+        let mut other = policy.clone();
+        other.key = "other".into();
+        builder
+            .add_declaration(re::RoadEditingDeclaration::RightOfWayPolicySet(other))
+            .unwrap();
+    });
+    let root = wire::size_prefixed_root_as_road_editing_source(source.as_bytes()).unwrap();
+    let a = root.right_of_way_policy_sets().get(0).policy_set_key();
+    let b = root.right_of_way_policy_sets().get(1).policy_set_key();
+    assert_eq!(a.len(), b.len());
+    let at = b.as_ptr() as usize - source.as_bytes().as_ptr() as usize;
+    let mut bytes = source.as_bytes().to_vec();
+    bytes[at..at + a.len()].copy_from_slice(a.as_bytes());
+    let mut builder = CompilationUnitBuilder::new(limits);
+    let error = builder
+        .add_road_editing_module(
+            re::RoadEditingModuleInput::try_new(DOCUMENT, &bytes, None).unwrap(),
+        )
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error.diagnostics()[0].payload(),
+        DiagnosticPayload::InvalidRoadEditingSource {
+            violation: RoadEditingSourceViolation::InvalidSemanticValue(
+                RoadEditingInputViolation::DuplicateValue
+            ),
+            ..
+        }
+    ));
+    builder
+        .add_road_editing_module(
+            re::RoadEditingModuleInput::try_new(DOCUMENT, source.as_bytes(), None).unwrap(),
+        )
+        .unwrap();
+}
+
+#[test]
+fn canonical_access_regulation_checks_every_policy_and_ignores_source_variants() {
+    let build = |mismatch| {
+        compile_editing_custom(None, None, |builder, policy| {
+            for index in 0..4 {
+                let regulation = RegulationIdentity::try_new("engineering", "fixture-1")
+                    .unwrap()
+                    .with_source(format!("repository:access-{index}"))
+                    .unwrap();
+                builder
+                    .add_declaration(re::RoadEditingDeclaration::AccessRule(
+                        re::AccessRuleInput::try_new(
+                            format!("allow-{index}"),
+                            re::RoadEditingAccessTarget::ManeuverPath(
+                                re::ManeuverPathReference::imported(
+                                    TOPOLOGY,
+                                    vec![JUNCTION.into(), "conflict-movement-a".into()],
+                                    "path",
+                                )
+                                .unwrap(),
+                            ),
+                            AccessEffect::Allow,
+                            vec![re::ParticipantClassReference::local("vehicle").unwrap()],
+                            0,
+                        )
+                        .unwrap()
+                        .with_regulation(regulation),
+                    ))
+                    .unwrap();
+                let mut other = policy.clone();
+                other.key = format!("policy-{index}").into();
+                if mismatch && index == 3 {
+                    other.regulation =
+                        RegulationIdentity::try_new("engineering", "fixture-2").unwrap();
+                }
+                builder
+                    .add_declaration(re::RoadEditingDeclaration::RightOfWayPolicySet(other))
+                    .unwrap();
+            }
+        })
+    };
+    build(false).unwrap();
+    violation(build(true), PolicyViolation::RegulationMismatch);
 }
 
 #[test]
@@ -812,6 +966,7 @@ fn inherited_evidence_and_source_only_edits_keep_semantic_diff_empty() {
     };
     let a = compile_source(None);
     let b = compile_source(Some(""));
+    let host_key = compile_source(Some("canvas::reserved"));
     assert_eq!(
         a.metrics().semantic_fingerprint(),
         b.metrics().semantic_fingerprint()
@@ -820,6 +975,16 @@ fn inherited_evidence_and_source_only_edits_keep_semantic_diff_empty() {
     let limits = laneflow_format::FormatLimits::HARD;
     let genesis =
         emit_portable_candidate(&a, &provenance, limits, PortableDiffBase::Genesis).unwrap();
+    let host_candidate =
+        emit_portable_candidate(&host_key, &provenance, limits, PortableDiffBase::Genesis).unwrap();
+    assert_eq!(
+        genesis.network_revision(),
+        host_candidate.network_revision()
+    );
+    assert_ne!(
+        genesis.source_map().bytes(),
+        host_candidate.source_map().bytes()
+    );
     let candidate = || {
         let base = laneflow_format::preflight_object_values(
             genesis.canonical_artifact().bytes(),
