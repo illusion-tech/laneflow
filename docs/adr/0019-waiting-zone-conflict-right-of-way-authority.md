@@ -37,7 +37,7 @@ Traffic Runtime 的 leader、minimum gap、no-overlap、Gate、路线终点和�
 
 当前生产基线已经统一为：
 
-- 受检 LFCA 4 构造唯一 `SharedNetworkRevision`；
+- 受检 LFCA 构造唯一 `SharedNetworkRevision`；
 - `TrafficWorld` 消费该共享根并拥有唯一动态交通 authority；
 - 已提交一维运动使用整数毫米、`mm/s` 与 `carry_um`；
 - `ParkingBinding`、停驻/离场生命周期已经存在；
@@ -52,7 +52,7 @@ Traffic Runtime 的 leader、minimum gap、no-overlap、Gate、路线终点和�
 ### 1. 静态 identity 与动态 authority 分层
 
 `ManeuverPath` 继续拥有规范 lane-level traversal，`Route` 继续拥有车辆实际 edge
-occurrence。Gate、WaitingZone、ConflictZone 与 ParticipantStream identity 由 LFCA 4
+occurrence。Gate、WaitingZone、ConflictZone 与 ParticipantStream identity 由 LFCA
 及其 `SharedNetworkRevision` 提供，运行时不得从 external string、文件系统或画面
 几何重新推导。
 

@@ -367,9 +367,7 @@ fn check_field_partition(
         |section: u8, row: RegistryCheckedRowView<'_>| -> Result<bool, PortableEmissionError> {
             let kind = checked_u16_with(row, 2, MISMATCH)?;
             Ok(kind == EntityKind::RightOfWayPolicySet.code()
-                || (section == 1
-                    && kind == EntityKind::Movement.code()
-                    && checked_u8_with(row, 1, MISMATCH)? == 2))
+                || (section == 1 && kind == EntityKind::Movement.code()))
         };
     let mut count = 0_usize;
     for section in [1, 4] {
@@ -428,7 +426,7 @@ fn check_field_partition(
         };
         let other = if side == 0 { Some(target) } else { base };
         for ((kind, id), entity) in index.entities() {
-            if *kind != EntityKind::RightOfWayPolicySet {
+            if !matches!(kind, EntityKind::RightOfWayPolicySet | EntityKind::Movement) {
                 continue;
             }
             if other.is_some_and(|o| o.entity(&(*kind, *id)).is_some()) {

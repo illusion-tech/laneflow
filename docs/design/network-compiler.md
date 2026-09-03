@@ -242,7 +242,7 @@ compiler 唯一负责静态路网的：
 - portable artifact、source map 和 semantic diff emission；共享静态路网由独立
   `laneflow-static-network` crate 从受检 LFCA 构建。
 
-LFCA 4 不发射分区提示 payload。可丢弃、可重建且不拥有行为权威的
+LFCA 不发射分区提示 payload。可丢弃、可重建且不拥有行为权威的
 `PartitionPlanningHints` 由 `laneflow-static-network` 按显式 derivation version 从上述已
 受检规范关系确定性派生；compiler 不经 LIR 私有旁路把提示交给 Runtime。
 
@@ -508,39 +508,40 @@ add/remove。
 ### 7.3 标识 v1 登记表（Identity v1 Registry）
 
 `identityEncodingVersion = 1` 冻结公共字节 envelope；
-`identityRegistryRevision = 3` 冻结本表的 kind、slug 和 required tag sequence
-（kind `1..=23`、tag `1..=34` 连续登记；ADR 0029）。
+`identityRegistryRevision = 4` 冻结本表的 kind、slug 和 required tag sequence
+（kind `1..=24`、tag `1..=35` 连续登记；ADR 0029 及 #284 格式增量）。
 required tags 必须按数值严格递增编码：
 
 本表冻结 identity v1 的规范登记。新增 kind
 只能提升 registry revision，修改既有 kind 的字段、标签含义或编码必须提升
 encoding version。
 
-| 代码（Code） | `entityKind`        | 类别（Category）                              | 英文短名（Slug）     | 必需标签（Required Tags） |
-| -----------: | ------------------- | --------------------------------------------- | -------------------- | ------------------------- |
-|            1 | `RoadCorridor`      | 声明（Declaration）                           | `corridor`           | `1,2`                     |
-|            2 | `RoadSection`       | 声明（Declaration）                           | `section`            | `1,3,33`                  |
-|            3 | `AuthoringLane`     | 声明（Declaration）                           | `lane`               | `1,4,32`                  |
-|            4 | `LaneEdge`          | 可寻址拓扑实体（Addressable Topology Entity） | `lane-edge`          | `1,5`                     |
-|            5 | `Junction`          | 声明（Declaration）                           | `junction`           | `1,6`                     |
-|            6 | `Movement`          | 声明（Declaration）                           | `movement`           | `1,8,9,10,34`             |
-|            7 | `ManeuverPath`      | 声明（Declaration）                           | `path`               | `1,7,11,12,13`            |
-|            8 | `ManeuverGate`      | 声明（Declaration）                           | `gate`               | `1,14,15`                 |
-|            9 | `WaitingZone`       | 声明（Declaration）                           | `waiting-zone`       | `1,14,16`                 |
-|           10 | `StopLine`          | 声明（Declaration）                           | `stop-line`          | `1,17`                    |
-|           11 | `SignalGroup`       | 声明（Declaration）                           | `signal-group`       | `1,18`                    |
-|           12 | `SignalController`  | 声明（Declaration）                           | `signal-controller`  | `1,19`                    |
-|           13 | `SignalPhase`       | 声明（Declaration）                           | `signal-phase`       | `1,20,21`                 |
-|           14 | `ParkingFacility`   | 声明（Declaration）                           | `parking-facility`   | `1,22`                    |
-|           15 | `ParkingSpace`      | 声明（Declaration）                           | `parking-space`      | `1,24`                    |
-|           16 | `LaneGroup`         | 声明（Declaration）                           | `lane-group`         | `1,25,32`                 |
-|           17 | `FacilityBand`      | 声明（Declaration）                           | `facility-band`      | `1,26,33`                 |
-|           18 | `ParticipantClass`  | 声明（Declaration）                           | `participant-class`  | `1,27`                    |
-|           19 | `AccessRule`        | 声明（Declaration）                           | `access-rule`        | `1,28`                    |
-|           20 | `VehicleProfile`    | 声明（Declaration）                           | `vehicle-profile`    | `1,29`                    |
-|           21 | `ConflictZone`      | 声明（Declaration）                           | `conflict-zone`      | `1,23,34`                 |
-|           22 | `CanonicalFrame`    | 声明（Declaration）                           | `canonical-frame`    | `1,31`                    |
-|           23 | `ParticipantStream` | 声明（Declaration）                           | `participant-stream` | `1,30,34`                 |
+| 代码（Code） | `entityKind`          | 类别（Category）                              | 英文短名（Slug）          | 必需标签（Required Tags） |
+| -----------: | --------------------- | --------------------------------------------- | ------------------------- | ------------------------- |
+|            1 | `RoadCorridor`        | 声明（Declaration）                           | `corridor`                | `1,2`                     |
+|            2 | `RoadSection`         | 声明（Declaration）                           | `section`                 | `1,3,33`                  |
+|            3 | `AuthoringLane`       | 声明（Declaration）                           | `lane`                    | `1,4,32`                  |
+|            4 | `LaneEdge`            | 可寻址拓扑实体（Addressable Topology Entity） | `lane-edge`               | `1,5`                     |
+|            5 | `Junction`            | 声明（Declaration）                           | `junction`                | `1,6`                     |
+|            6 | `Movement`            | 声明（Declaration）                           | `movement`                | `1,8,9,10,34`             |
+|            7 | `ManeuverPath`        | 声明（Declaration）                           | `path`                    | `1,7,11,12,13`            |
+|            8 | `ManeuverGate`        | 声明（Declaration）                           | `gate`                    | `1,14,15`                 |
+|            9 | `WaitingZone`         | 声明（Declaration）                           | `waiting-zone`            | `1,14,16`                 |
+|           10 | `StopLine`            | 声明（Declaration）                           | `stop-line`               | `1,17`                    |
+|           11 | `SignalGroup`         | 声明（Declaration）                           | `signal-group`            | `1,18`                    |
+|           12 | `SignalController`    | 声明（Declaration）                           | `signal-controller`       | `1,19`                    |
+|           13 | `SignalPhase`         | 声明（Declaration）                           | `signal-phase`            | `1,20,21`                 |
+|           14 | `ParkingFacility`     | 声明（Declaration）                           | `parking-facility`        | `1,22`                    |
+|           15 | `ParkingSpace`        | 声明（Declaration）                           | `parking-space`           | `1,24`                    |
+|           16 | `LaneGroup`           | 声明（Declaration）                           | `lane-group`              | `1,25,32`                 |
+|           17 | `FacilityBand`        | 声明（Declaration）                           | `facility-band`           | `1,26,33`                 |
+|           18 | `ParticipantClass`    | 声明（Declaration）                           | `participant-class`       | `1,27`                    |
+|           19 | `AccessRule`          | 声明（Declaration）                           | `access-rule`             | `1,28`                    |
+|           20 | `VehicleProfile`      | 声明（Declaration）                           | `vehicle-profile`         | `1,29`                    |
+|           21 | `ConflictZone`        | 声明（Declaration）                           | `conflict-zone`           | `1,23,34`                 |
+|           22 | `CanonicalFrame`      | 声明（Declaration）                           | `canonical-frame`         | `1,31`                    |
+|           23 | `ParticipantStream`   | 声明（Declaration）                           | `participant-stream`      | `1,30,34`                 |
+|           24 | `RightOfWayPolicySet` | 声明（Declaration）                           | `right-of-way-policy-set` | `1,35`                    |
 
 本表冻结的是 identity v1 可构造静态实体集合，不是 Traffic
 Runtime 永久封闭的参与单元种类表。`VehicleProfile` 只服务当前道路机动车执行域；
@@ -572,7 +573,8 @@ canonical LIR 保存有类型的 `ParkingSpace -> ParkingFacility` 关系；字�
 `ManeuverPath` 的引用不进入身份前像；路径几何或拓扑调整不得无故改写同一编制 stream
 的身份，重新归属 Junction 则必须改变身份。
 
-Movement 的 left/straight/right/u-turn 分类是可重算元数据，不参与标识。
+Movement 的 left/straight/right/u-turn 分类是来源显式声明的非身份属性，不参与标识；
+缺失不能由几何推断，见路权策略实施合同 §3。
 路线只经 runtime `register_route` 使用 generation-aware handle，不获得持久
 StableId128，也不进入 Identity 可构造种类（ADR 0029）。
 
@@ -613,8 +615,8 @@ validated canonical LIR 必须保存有类型（Typed）的
 - 缺失边键只能产生待确认建议，未持久化确认前不得发布匿名、按几何或按序号派生的
   边身份。
 
-`ParkingFacility`、`ConflictZone` 与 `ParticipantStream` 统一登记在
-`identityRegistryRevision = 3`。`JunctionGroup`
+`ParkingFacility`、`ConflictZone`、`ParticipantStream` 与 `RightOfWayPolicySet` 统一登记在
+`identityRegistryRevision = 4`。`JunctionGroup`
 等其它未来 domain 只有在权威设计冻结后才能 append 新 kind code。新增 kind 提升
 registry revision，但不改变既有 kind 的 bytes/ID；修改既有 kind 的 required field、
 tag 含义或编码必须提升 `identityEncodingVersion`。LFCA 的物理分块只改变承载方式；
@@ -658,6 +660,7 @@ typed ordinal 与 StableId 仍在完整逻辑表范围内定义，不得改成 `
 |          32 | `roadSectionStableId`      | 16 个原始字节（Raw Bytes） |
 |          33 | `roadCorridorStableId`     | 16 个原始字节（Raw Bytes） |
 |          34 | `junctionStableId`         | 16 个原始字节（Raw Bytes） |
+|          35 | `rightOfWayPolicySetKey`   | ASCII 字节（Bytes）        |
 
 Boundary/Approach/curve segment 若成为独立 LIR table、可被引用或需要独立 semantic
 diff，必须通过后续 registry revision 获得 kind；否则只能作为所属 declaration 的
@@ -789,7 +792,7 @@ freeze 后计算该字段；#299 后发射检查从 artifact semantic payload �
 只接受字段私有的 `CheckedCanonicalNetworkInput`，按 LFCA wire order 先计数和预算，
 再一次性 reserve/fill 连续 typed columns、CSR/ranges、身份索引、按显式非语义 derivation
 version 从受检关系确定性派生的规划提示，以及可选 Spatial 数据，完成跨表/身份/
-Traffic-Spatial/执行约束闭合后返回。构建只认 `formatVersion = 4` 的受检输入；
+Traffic-Spatial/执行约束闭合后返回。构建只认 `formatVersion = 5` 的受检输入；
 详见 `shared-static-network.md` §3.1。闭合后返回：
 
 ```text
@@ -1337,7 +1340,7 @@ image header 的可选自证字段。
 （Safe Cut）、规范提案/资源声明/事件合并键和提交顺序。它是 LIR 派生的行为约束，
 对工作线程数量和具体分区计划中立。
 
-分区规划提示只保存预估成本、边界权重或推荐 cut 等性能信息；LFCA 4 不保存该 payload，
+分区规划提示只保存预估成本、边界权重或推荐 cut 等性能信息；LFCA 不保存该 payload，
 `laneflow-static-network` 按显式 derivation version 从受检静态关系确定性派生，运行时可以
 忽略或重建。derivation version 不进入 `NetworkRevisionId`，提示差异不得改变精确结果。
 每个 `TrafficWorld` 依据静态约束、硬件与动态负载构造自己的运行时执行计划，实际

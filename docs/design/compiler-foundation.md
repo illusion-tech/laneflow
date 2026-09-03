@@ -435,7 +435,7 @@ CanonicalIdentity 随后严格按 Identity v1 registry 的完整 `EntityKind::re
 携带实测存续内存和真实工作负载证据另行提升配置档版本。现行精确上限表不含路线出现项
 维度。
 
-LFCA 4 的一百万稳定静态实体端到端路径使用独立的
+LFCA 的一百万稳定静态实体端到端路径使用独立的
 `LF-COMP-SINGLE-NETWORK-1M-v2`；它不是 P100 v1/v2 的隐式升级，也不改变既有生产基线。
 该配置档只由显式 constructor 选择，保持字段私有、没有 `Default`/unlimited/调用方覆写。
 
@@ -813,7 +813,7 @@ components；每个 component 分别消费 `StringItemCount`，实际 bytes 消�
    冻结模块图前预检拓扑排序、环检测、规范重排的阶段 scratch 与总共存峰值；
 3. `Compiler` 在每个编译遍分配后继表或扩大暂存区前执行 AST/HIR/MIR/LIR、关系、
    诊断、暂存内存和总存续内存上限；
-4. LFCA 4 emitter 在 seal identity、开始每个 portable object 和把 closed staged source 加入
+4. LFCA emitter 在 seal identity、开始每个 portable object 和把 closed staged source 加入
    bundle 前，分别执行稳定实体、单对象 exact bytes 和 bundle exact bytes 上限；失败关闭
    staged writer，不返回部分 `PortablePublicationCandidate`。
 

@@ -186,11 +186,11 @@ publishable programmatic generator 必须保留 build ID、参数、seed、names
 标识编码封装（Identity Envelope）与实体登记表（Entity Registry）使用独立版本
 轴。`identityEncodingVersion = 1`
 冻结 magic、kind、field count、strictly-increasing tag/length/value bytes；
-`identityRegistryRevision = 3` 覆盖 topology、Gate/Waiting、Signals/Phase、
+`identityRegistryRevision = 4` 覆盖 topology、Gate/Waiting、Signals/Phase、
 Parking、cross-section/access/profile、canonical frame、`ConflictZone` 与
-`ParticipantStream` declaration，并统一使用 `ParkingFacility` 名称；既有 identity
+`ParticipantStream` 与 #284 新增的 `RightOfWayPolicySet` declaration，并统一使用 `ParkingFacility` 名称；既有 identity
 canonical bytes 不变。
-kind `1..=23` 与 field tag `1..=34` 连续登记；新增的 `ConflictZone` / `ParticipantStream`
+kind `1..=24` 与 field tag `1..=35` 连续登记；ADR 0029 新增的 `ConflictZone` / `ParticipantStream`
 使用已退役且从未对外发布的编号槽位，不改变任何既有合法 kind/tag 或 StableId
 （ADR 0029）。新增 kind 只 append registry revision；修改既有 kind 的字段集合、tag 含义
 或编码必须提升 encoding version。完整

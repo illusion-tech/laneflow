@@ -29,7 +29,7 @@ Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
 
 当前生产基线为：
 
-- LFCA `formatVersion = 4`，受检 LFCA 构造唯一 `SharedNetworkRevision`；
+- LFCA `formatVersion = 5`，受检 LFCA 构造唯一 `SharedNetworkRevision`；
 - `TrafficWorld` 是唯一运行世界；
 - 已提交纵向 authority 是整数毫米、`mm/s` 与 `carry_um`；
 - WaitingZone identity、entry/release Gate、`maxOccupancy` 和 route
@@ -44,19 +44,19 @@ Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
 
 ## 2. Authority 地图
 
-| 对象或职责                                                    | 唯一 owner                       | 本阶段合同                                  |
-| ------------------------------------------------------------- | -------------------------------- | ------------------------------------------- |
-| WaitingZone 静态 identity、entry/release Gate、`maxOccupancy` | LFCA 4 / `SharedNetworkRevision` | Runtime 只消费受检 ordinal 和局部整数距离   |
-| Waiting membership、occupancy、counter、queue、phase          | `TrafficWorld` / #282            | 本地动态 authority                          |
-| zone-local `WaitingAdmissionClaim`                            | `TrafficWorld` / #282            | 只证明一个 WaitingZone 的 admission/storage |
-| `ConflictPassageOccurrence` 与 conflict Gate ranges           | 路线编译器 / #559                | route-local 派生热表                        |
-| `ConflictRuntimeUnavailable` 3A 保护                          | `TrafficWorld` / #559            | #284 前不可绕过                             |
-| downstream-clearance claim                                    | `TrafficWorld` / #284            | 通用物理下游资源                            |
-| `ConflictArbiter`、grant、reservation                         | `TrafficWorld` / #284            | 车辆级冲突 authority                        |
-| Waiting/Conflict/downstream 组合 ledger                       | `TrafficWorld` / #284            | 原子取得、未提交选择与 cycle prevention     |
-| signal indication                                             | Signal Runtime                   | 许可输入，不是最终车辆 grant                |
-| canonical 3D 几何与 pairing validation                        | Spatial                          | 不反推行为或修改 claim                      |
-| 只读状态与事件消费                                            | Adapter / Scenario / caller      | 不获得 mutation authority                   |
+| 对象或职责                                                    | 唯一 owner                     | 本阶段合同                                  |
+| ------------------------------------------------------------- | ------------------------------ | ------------------------------------------- |
+| WaitingZone 静态 identity、entry/release Gate、`maxOccupancy` | LFCA / `SharedNetworkRevision` | Runtime 只消费受检 ordinal 和局部整数距离   |
+| Waiting membership、occupancy、counter、queue、phase          | `TrafficWorld` / #282          | 本地动态 authority                          |
+| zone-local `WaitingAdmissionClaim`                            | `TrafficWorld` / #282          | 只证明一个 WaitingZone 的 admission/storage |
+| `ConflictPassageOccurrence` 与 conflict Gate ranges           | 路线编译器 / #559              | route-local 派生热表                        |
+| `ConflictRuntimeUnavailable` 3A 保护                          | `TrafficWorld` / #559          | #284 前不可绕过                             |
+| downstream-clearance claim                                    | `TrafficWorld` / #284          | 通用物理下游资源                            |
+| `ConflictArbiter`、grant、reservation                         | `TrafficWorld` / #284          | 车辆级冲突 authority                        |
+| Waiting/Conflict/downstream 组合 ledger                       | `TrafficWorld` / #284          | 原子取得、未提交选择与 cycle prevention     |
+| signal indication                                             | Signal Runtime                 | 许可输入，不是最终车辆 grant                |
+| canonical 3D 几何与 pairing validation                        | Spatial                        | 不反推行为或修改 claim                      |
+| 只读状态与事件消费                                            | Adapter / Scenario / caller    | 不获得 mutation authority                   |
 
 ## 3. 静态区间与路线出现项
 
@@ -208,7 +208,7 @@ ownership 分离不重新打开这些算法选择，也不声称 #284 已实现�
 - Adapter、Scenario、SignalController、Spatial 与 caller 只能读取 committed decision、
   state 和 event，不能注入 winner、grant 或 reservation。
 
-当前静态根仍是受检 LFCA 4 / `SharedNetworkRevision`，route conflict operands 来自 #559
+当前静态根仍是受检 LFCA / `SharedNetworkRevision`，route conflict operands 来自 #559
 已经交付的 `ConflictPassageOccurrence`、Gate ranges 与
 `route_conflict_occurrence_capacity`。#284 的 regulation/policy source 必须从届时 official
 source 经唯一 compiler/LFCA/shared-root 路径原子引入；不得恢复 current JSON 或让

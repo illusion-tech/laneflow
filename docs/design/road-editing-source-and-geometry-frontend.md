@@ -345,7 +345,7 @@ entry/exit `PathAnchor`；admission Gate 从同一 ManeuverPath 的 Gate 序列�
 几何只能辅助验证与表现，不能生成或改写行为 passage。
 
 声明、owner-local 地址与 property path 必须逐项投影到
-[`portable-canonical-artifact.md`](portable-canonical-artifact.md) 的 LFSM 3 role
+[`portable-canonical-artifact.md`](portable-canonical-artifact.md) 的 LFSM 4 role
 13–16 / 30–32
 登记。生成的 Rust/C++/C# binding 与 known vectors 必须由同一 exact schema 和固定命令
 clean-regenerate。
