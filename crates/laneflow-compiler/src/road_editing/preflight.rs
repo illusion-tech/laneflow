@@ -1487,6 +1487,10 @@ fn validate_movements(
             return Err(invalid_combination("movement.turnDirection", expected_key));
         }
         usage.charge_declaration(EntityKind::Movement);
+        if value.turn_direction().is_some() {
+            usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
+            usage.charge_relation(1);
+        }
         usage.charge_token(
             value.movement_key(),
             "movement.movementKey",

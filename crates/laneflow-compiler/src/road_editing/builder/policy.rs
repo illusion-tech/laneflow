@@ -104,6 +104,108 @@ mod tests {
     use crate::road_editing::{RoadEditingModuleInput, RoadEditingSourceWriter};
 
     #[test]
+    fn movement_direction_charges_logical_records_and_relations_before_admission() {
+        let limits = CompileLimits::p100_initial_v1();
+        fn new_builder(limits: &CompileLimits) -> RoadEditingSourceModuleBuilder<'_> {
+            let mut builder = RoadEditingSourceModuleBuilder::new(
+                RoadEditingModuleHeader::try_new(
+                    "city",
+                    "directions",
+                    vec![],
+                    RoadEditingProvenance::direct("direction-budget").unwrap(),
+                )
+                .unwrap(),
+                GeometryAccuracyProfile::Balanced5Cm,
+                GeometryDirectionProfile::Balanced2Deg,
+                limits,
+            )
+            .unwrap();
+            builder
+                .add_declaration(RoadEditingDeclaration::Junction(
+                    JunctionInput::try_new(
+                        "junction",
+                        vec![LaneEdgeReference::local("entry").unwrap()],
+                        vec![],
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+            builder
+        }
+        let movement = || {
+            MovementInput::try_new(
+                "movement",
+                JunctionReference::local("junction").unwrap(),
+                "from",
+                "to",
+            )
+            .unwrap()
+        };
+        for direction in [
+            crate::ManeuverDirection::Straight,
+            crate::ManeuverDirection::Right,
+        ] {
+            let exact = limits
+                .clone()
+                .with_test_admission_limit(CompileLimitDimension::TypedAstRecordCount, 4)
+                .with_test_admission_limit(CompileLimitDimension::RelationOccurrenceCount, 2);
+            let mut builder = new_builder(&exact);
+            builder
+                .add_declaration(RoadEditingDeclaration::Movement(
+                    movement().with_turn_direction(direction),
+                ))
+                .unwrap();
+            assert_eq!(builder.usage.typed_ast_record_count, 4);
+            assert_eq!(builder.usage.relation_occurrence_count, 2);
+            let source = RoadEditingSourceWriter::new(&exact)
+                .write(builder.finish().unwrap())
+                .unwrap();
+            let input =
+                RoadEditingModuleInput::try_new("directions", source.as_bytes(), None).unwrap();
+            let checked = super::super::super::reader::verify_source(input, &exact, 0, 0).unwrap();
+            assert_eq!(checked.table_count(), 5);
+            assert_eq!(checked.typed_ast_record_count(), 4);
+            assert_eq!(checked.preflight_counts().relation_occurrence_count(), 2);
+            assert!(super::super::super::reader::verify_source(input, &exact, 0, 1).is_err());
+            for (dimension, limit) in [
+                (CompileLimitDimension::TypedAstRecordCount, 3),
+                (CompileLimitDimension::RelationOccurrenceCount, 1),
+            ] {
+                let low = limits.clone().with_test_admission_limit(dimension, limit);
+                let mut retry = new_builder(&low);
+                assert!(
+                    retry
+                        .add_declaration(RoadEditingDeclaration::Movement(
+                            movement().with_turn_direction(direction)
+                        ))
+                        .is_err()
+                );
+                assert_eq!(retry.usage.typed_ast_record_count, 2);
+                assert_eq!(retry.usage.relation_occurrence_count, 1);
+                retry
+                    .add_declaration(RoadEditingDeclaration::Movement(movement()))
+                    .unwrap();
+                let error =
+                    super::super::super::reader::verify_source(input, &low, 0, 0).unwrap_err();
+                assert!(
+                    matches!(error.diagnostics()[0].payload(), crate::DiagnosticPayload::CompileLimitExceeded { dimension: found, .. } if *found == dimension)
+                );
+                let small = RoadEditingSourceWriter::new(&low)
+                    .write(retry.finish().unwrap())
+                    .unwrap();
+                let small =
+                    RoadEditingModuleInput::try_new("directions", small.as_bytes(), None).unwrap();
+                assert_eq!(
+                    super::super::super::reader::verify_source(small, &low, 0, 0)
+                        .unwrap()
+                        .typed_ast_record_count(),
+                    3
+                );
+            }
+        }
+    }
+
+    #[test]
     fn policy_reference_members_share_builder_and_raw_relation_limits() {
         let limits = CompileLimits::p100_initial_v1();
         let mut policy = None;
