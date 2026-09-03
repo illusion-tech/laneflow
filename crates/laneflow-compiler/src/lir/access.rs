@@ -42,11 +42,7 @@ pub(crate) enum LirAccessTarget {
     ManeuverPath(ManeuverPathOrdinal),
 }
 
-pub(crate) struct LirAccessRegulation {
-    pub(crate) jurisdiction: Box<str>,
-    pub(crate) version: Box<str>,
-    pub(crate) source: Option<Box<str>>,
-}
+pub(crate) type LirAccessRegulation = crate::RegulationIdentity;
 
 pub(crate) struct LirAccessRule {
     pub(crate) ordinal: AccessRuleOrdinal,

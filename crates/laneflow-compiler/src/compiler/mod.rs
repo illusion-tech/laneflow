@@ -25,6 +25,8 @@ use crate::Diagnostic;
 use laneflow_static_contract::{AccessEffect, FieldTag, SignalAspect};
 
 mod output;
+#[cfg(test)]
+pub(crate) mod policy_tests;
 mod views;
 
 pub use output::{CompilationMetrics, CompilationOutput};
@@ -533,11 +535,12 @@ impl Compiler {
         let selected_limits = unit.limits.clone();
         let hir = build_hir(&unit)?;
         let hir_peak_controlled_live_bytes = hir.peak_controlled_live_bytes;
-        let mir = lower_to_mir(&unit, &hir)?;
-        let mir_peak_controlled_live_bytes = mir.peak_controlled_live_bytes;
+        let mut mir = lower_to_mir(&unit, &hir)?;
         // MIR 已拥有后继阶段所需的完整语义与来源位置；尽早释放 HIR，避免把阶段共存
         // 时间延长到 LIR/source-map 冻结并破坏资源峰值模型。
         drop(hir);
+        crate::mir::validate_policies(&unit, &mut mir)?;
+        let mir_peak_controlled_live_bytes = mir.peak_controlled_live_bytes;
         let frozen_lir = freeze_lir(&unit, &mir)?;
         let lir_record_count = frozen_lir.lir.lir_record_count;
         let output_logical_bytes = frozen_lir.lir.output_bytes;

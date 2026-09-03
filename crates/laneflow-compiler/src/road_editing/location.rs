@@ -108,6 +108,7 @@ impl RoadEditingLocationFactory {
         collect_root!(root.facility_bands(), facility_band_key);
         collect_root!(root.participant_classes(), participant_class_key);
         collect_root!(root.access_rules(), access_rule_key);
+        collect_root!(root.right_of_way_policy_sets(), policy_set_key);
         collect_root!(root.vehicle_profiles(), vehicle_profile_key);
         collect_root!(root.canonical_frames(), canonical_frame_key);
         collect_root!(root.conflict_zones(), conflict_zone_key);
@@ -397,6 +398,7 @@ fn location_string_occurrence_count(root: wire::RoadEditingSource<'_>) -> usize 
         .saturating_add(root.facility_bands().len())
         .saturating_add(root.participant_classes().len())
         .saturating_add(root.access_rules().len())
+        .saturating_add(root.right_of_way_policy_sets().len())
         .saturating_add(root.vehicle_profiles().len())
         .saturating_add(root.canonical_frames().len())
         .saturating_add(root.conflict_zones().len())
@@ -435,6 +437,7 @@ fn canvas_occurrence_count(root: wire::RoadEditingSource<'_>) -> usize {
     charge_root!(root.facility_bands());
     charge_root!(root.participant_classes());
     charge_root!(root.access_rules());
+    charge_root!(root.right_of_way_policy_sets());
     charge_root!(root.vehicle_profiles());
     charge_root!(root.canonical_frames());
     charge_root!(root.conflict_zones());
@@ -466,7 +469,7 @@ fn canvas_occurrence_count(root: wire::RoadEditingSource<'_>) -> usize {
 
 fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
     let tables = [
-        (RoadEditingTableKind::RoadEditingSource, 28_u16),
+        (RoadEditingTableKind::RoadEditingSource, 29_u16),
         (RoadEditingTableKind::ModuleHeader, 3),
         (RoadEditingTableKind::Provenance, 5),
         (RoadEditingTableKind::LineSegment, 0),
@@ -480,7 +483,7 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
         (RoadEditingTableKind::AuthoringLane, 6),
         (RoadEditingTableKind::LaneEdge, 4),
         (RoadEditingTableKind::Junction, 3),
-        (RoadEditingTableKind::Movement, 4),
+        (RoadEditingTableKind::Movement, 5),
         (RoadEditingTableKind::ManeuverPath, 5),
         (RoadEditingTableKind::ManeuverGate, 6),
         (RoadEditingTableKind::WaitingZone, 5),
@@ -506,6 +509,11 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
         (RoadEditingTableKind::PathAnchor, 4),
         (RoadEditingTableKind::ConflictPassage, 2),
         (RoadEditingTableKind::ParticipantStream, 4),
+        (RoadEditingTableKind::RightOfWayPolicySet, 6),
+        (RoadEditingTableKind::PolicyEvidence, 2),
+        (RoadEditingTableKind::PolicyGapProfile, 4),
+        (RoadEditingTableKind::PolicyStreamRule, 6),
+        (RoadEditingTableKind::PolicyGateRule, 5),
     ];
     let mut paths = Vec::with_capacity(512);
     for (table, last_field_id) in tables {
@@ -570,6 +578,36 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
         }
     }
     for (outer_table, outer_field_id, inner_table, inner_last_field_id) in [
+        (
+            RoadEditingTableKind::RightOfWayPolicySet,
+            1,
+            RoadEditingTableKind::AccessRegulation,
+            2,
+        ),
+        (
+            RoadEditingTableKind::RightOfWayPolicySet,
+            2,
+            RoadEditingTableKind::PolicyEvidence,
+            2,
+        ),
+        (
+            RoadEditingTableKind::RightOfWayPolicySet,
+            3,
+            RoadEditingTableKind::PolicyGapProfile,
+            4,
+        ),
+        (
+            RoadEditingTableKind::RightOfWayPolicySet,
+            4,
+            RoadEditingTableKind::PolicyStreamRule,
+            6,
+        ),
+        (
+            RoadEditingTableKind::RightOfWayPolicySet,
+            5,
+            RoadEditingTableKind::PolicyGateRule,
+            5,
+        ),
         (
             RoadEditingTableKind::ModuleHeader,
             3,
@@ -933,9 +971,9 @@ mod tests {
     }
 
     #[test]
-    fn closed_paths_include_all_v3_root_members_through_member_28() {
+    fn closed_paths_include_all_v4_root_members_through_member_29() {
         let paths = closed_property_paths();
-        for field_id in 25..=28 {
+        for field_id in 25..=29 {
             let path =
                 RoadEditingPropertyPath::new(Box::new([RoadEditingPropertyStep::TableField {
                     table: RoadEditingTableKind::RoadEditingSource,
@@ -946,7 +984,7 @@ mod tests {
         let missing =
             RoadEditingPropertyPath::new(Box::new([RoadEditingPropertyStep::TableField {
                 table: RoadEditingTableKind::RoadEditingSource,
-                field_id: 29,
+                field_id: 30,
             }]));
         assert!(!paths.contains(&missing));
     }

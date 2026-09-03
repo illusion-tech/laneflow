@@ -2301,6 +2301,7 @@ pub(crate) mod tests {
             })
             .expect("junction")
             .add_movement(MovementInput {
+                turn_direction: None,
                 movement_key: "movement",
                 junction: JunctionReference::local("junction"),
                 directed_entry_approach_key: "approach-in",
@@ -2493,6 +2494,7 @@ pub(crate) mod tests {
             })
             .expect("idle junction")
             .add_movement(MovementInput {
+                turn_direction: None,
                 movement_key: &movement,
                 junction: JunctionReference::local(&junction),
                 directed_entry_approach_key: "in",

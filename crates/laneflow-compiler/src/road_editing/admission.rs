@@ -13,7 +13,8 @@ use super::geometry::NumericFreezeKind;
 use super::location::RoadEditingLocationFactory;
 use super::lowering::{
     lower_aggregate_declarations, lower_conflict_zone_regions, lower_independent_declarations,
-    lower_owner_scoped_declarations, lower_road_alignments, lower_topology_authoring_declarations,
+    lower_owner_scoped_declarations, lower_policy_declarations, lower_road_alignments,
+    lower_topology_authoring_declarations,
 };
 use super::preflight::RoadEditingPreflightCounts;
 use super::reader::{VerifiedRoadEditingSource, verify_source};
@@ -171,6 +172,12 @@ fn lowering_sort_scratch_bytes(root: wire::RoadEditingSource<'_>) -> u64 {
     charge_root!(root.conflict_zones(), wire::ConflictZone<'_>);
     charge_root!(root.participant_streams(), wire::ParticipantStream<'_>);
     charge_root!(root.conflict_zone_regions(), wire::ConflictZoneRegion<'_>);
+    for policy in root.right_of_way_policy_sets() {
+        charge_root!(policy.evidence(), wire::PolicyEvidence<'_>);
+        charge_root!(policy.gap_profiles(), wire::PolicyGapProfile<'_>);
+        charge_root!(policy.stream_rules(), wire::PolicyStreamRule<'_>);
+        charge_root!(policy.gate_rules(), wire::PolicyGateRule<'_>);
+    }
 
     // authoring lanes 保持规范排序以供随后每个 section 做 binary search，因此两个
     // root sort view 在 section lowering 全程共存。
@@ -495,6 +502,7 @@ fn lower_verified_source(
     lower_owner_scoped_declarations(root, &locations, &shared_namespace, &mut declarations);
     lower_topology_authoring_declarations(root, &locations, &shared_namespace, &mut declarations)?;
     lower_aggregate_declarations(root, &locations, &shared_namespace, &mut declarations);
+    lower_policy_declarations(root, &locations, &shared_namespace, &mut declarations)?;
     debug_assert_eq!(declarations.len(), top_level_declaration_count);
 
     let namespace = root.module_header().authoring_namespace_id();

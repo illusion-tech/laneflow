@@ -20,16 +20,16 @@ use crate::declaration::{
     FacilityKindViolation, JunctionDeclaration, JunctionInput, LaneEdgeDeclaration,
     LaneEdgeGeometryAuthority, LaneEdgeGeometryDeclaration, LaneEdgeInput, LaneGroupDeclaration,
     LaneGroupInput, ManeuverGateDeclaration, ManeuverGateInput, ManeuverPathDeclaration,
-    ManeuverPathInput, MovementDeclaration, MovementInput, OwnedAccessRegulation,
-    OwnedAccessRuleTarget, OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl,
-    ParkingFacilityDeclaration, ParkingFacilityInput, ParkingLaneAnchorDeclaration,
-    ParkingSpaceDeclaration, ParkingSpaceInput, ParticipantClassDeclaration, ParticipantClassInput,
-    RoadCorridorDeclaration, RoadCorridorInput, RoadSectionDeclaration, RoadSectionInput,
-    ScalarViolation, SignalControlInput, SignalControllerDeclaration, SignalControllerInput,
-    SignalGroupDeclaration, SignalGroupInput, SignalGroupStateDeclaration, SignalPhaseDeclaration,
-    SpeedLimit, StopLineDeclaration, StopLineInput, TypedAstDeclaration, VehicleProfileDeclaration,
-    VehicleProfileInput, WaitingZoneDeclaration, WaitingZoneInput, closed_millimetres,
-    facility_kind_category,
+    ManeuverPathInput, MovementDeclaration, MovementInput, OwnedAccessRuleTarget,
+    OwnedCorridorElementReference, OwnedEntityReference, OwnedRegulationIdentity,
+    OwnedSignalControl, ParkingFacilityDeclaration, ParkingFacilityInput,
+    ParkingLaneAnchorDeclaration, ParkingSpaceDeclaration, ParkingSpaceInput,
+    ParticipantClassDeclaration, ParticipantClassInput, RoadCorridorDeclaration, RoadCorridorInput,
+    RoadSectionDeclaration, RoadSectionInput, ScalarViolation, SignalControlInput,
+    SignalControllerDeclaration, SignalControllerInput, SignalGroupDeclaration, SignalGroupInput,
+    SignalGroupStateDeclaration, SignalPhaseDeclaration, SpeedLimit, StopLineDeclaration,
+    StopLineInput, TypedAstDeclaration, VehicleProfileDeclaration, VehicleProfileInput,
+    WaitingZoneDeclaration, WaitingZoneInput, closed_millimetres, facility_kind_category,
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::source::external_token_violation;
@@ -59,6 +59,7 @@ use super::synthetic_record::{
 ///
 /// `5`：绑定 Identity revision 4 与 LFCA 5 的路权策略登记及来源映射。
 pub const SYNTHETIC_FRONTEND_VERSION: u32 = 5;
+mod policy;
 
 pub struct SyntheticModuleBuilder {
     header: SourceModuleHeader,
@@ -83,7 +84,7 @@ pub struct SyntheticModuleBuilder {
     geometry_point_count: u64,
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 struct DeclarationResourceDelta {
     declarations: u64,
     typed_ast_records: u64,
@@ -938,9 +939,9 @@ impl SyntheticModuleBuilder {
         let state = self.check_declaration_resources(
             DeclarationResourceDelta {
                 declarations: 1,
-                typed_ast_records: 7,
+                typed_ast_records: 7 + u64::from(input.turn_direction.is_some()),
                 references: 1,
-                relations: 1,
+                relations: 1 + u64::from(input.turn_direction.is_some()),
                 identity_fields: 5,
                 symbols: 1,
                 string_items: 5,
@@ -962,6 +963,7 @@ impl SyntheticModuleBuilder {
                     &junction,
                     input.directed_entry_approach_key,
                     input.directed_exit_approach_key,
+                    input.turn_direction,
                 ),
                 ..DeclarationResourceDelta::default()
             },
@@ -979,6 +981,8 @@ impl SyntheticModuleBuilder {
             junction,
             directed_entry_approach_key: input.directed_entry_approach_key.into(),
             directed_exit_approach_key: input.directed_exit_approach_key.into(),
+            turn_direction: input.turn_direction,
+            direction_source: input.turn_direction.map(|_| span.clone().into()),
         });
         self.declaration_index
             .entry(EntityKind::Movement)
@@ -2148,7 +2152,7 @@ impl SyntheticModuleBuilder {
                     .saturating_add(size_bytes::<OwnedEntityReference<ParticipantClassKind>>(
                         u64::try_from(input.participant_classes.len()).unwrap_or(u64::MAX),
                     ))
-                    .saturating_add(size_bytes::<OwnedAccessRegulation>(u64::from(
+                    .saturating_add(size_bytes::<OwnedRegulationIdentity>(u64::from(
                         input.regulation.is_some(),
                     ))),
                 source_bytes: access_rule_input_len(
@@ -2191,7 +2195,7 @@ impl SyntheticModuleBuilder {
                 &span,
             )?);
         }
-        let regulation = input.regulation.map(|regulation| OwnedAccessRegulation {
+        let regulation = input.regulation.map(|regulation| OwnedRegulationIdentity {
             jurisdiction: regulation.jurisdiction.into(),
             version: regulation.version.into(),
             source: regulation.source.map(Into::into),

@@ -70,6 +70,7 @@ pub(super) fn freeze_policy_sources(
     inputs: &[PolicySourceInput<'_>],
     prior_live: u64,
     prior_output: u64,
+    prior_scratch: u64,
 ) -> Result<(Box<[PolicySourceRecord]>, u64, u64), DiagnosticBundle> {
     let mut owned = (inputs.len() as u64).saturating_mul(size_of::<PolicySourceRecord>() as u64);
     let mut logical = 0_u64;
@@ -95,7 +96,10 @@ pub(super) fn freeze_policy_sources(
     }
     let observations = [
         (CompileLimitDimension::RelationOccurrenceCount, occurrences),
-        (CompileLimitDimension::StageScratchBytes, owned),
+        (
+            CompileLimitDimension::StageScratchBytes,
+            prior_scratch.saturating_add(owned),
+        ),
         (
             CompileLimitDimension::CompilerControlledLiveBytes,
             prior_live.saturating_add(owned),

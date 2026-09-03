@@ -8,7 +8,7 @@ use laneflow_static_contract::{
 };
 
 use crate::arena::{ArenaKeyOverflow, TableRange, TypedArena};
-use crate::declaration::{OwnedAccessRegulation, OwnedAccessRuleTarget, TypedAstDeclaration};
+use crate::declaration::{OwnedAccessRuleTarget, OwnedRegulationIdentity, TypedAstDeclaration};
 use crate::diagnostic::DiagnosticCollector;
 use crate::identity::{IdentityFieldInput, IdentityRegistry};
 use crate::{
@@ -68,12 +68,7 @@ pub(crate) enum HirAccessTarget {
 }
 
 /// 已验证的法规来源信息；该值参与规范 LIR，但不参与准入组合键。
-#[derive(Debug, PartialEq)]
-pub(crate) struct HirAccessRegulation {
-    pub(crate) jurisdiction: Arc<str>,
-    pub(crate) version: Arc<str>,
-    pub(crate) source: Option<Arc<str>>,
-}
+pub(crate) type HirAccessRegulation = crate::RegulationIdentity<Arc<str>>;
 
 /// 一条准入规则引用的参与者类别。
 #[derive(Debug, PartialEq)]
@@ -835,7 +830,7 @@ fn access_target_source_span(source: &crate::declaration::AccessRuleDeclaration)
 }
 
 fn validate_access_regulation(
-    regulation: &OwnedAccessRegulation,
+    regulation: &OwnedRegulationIdentity,
     source: &crate::declaration::AccessRuleDeclaration,
     module_order: u32,
     diagnostics: &mut DiagnosticCollector,
@@ -849,7 +844,7 @@ fn validate_access_regulation(
         (AccessRegulationField::Version, regulation.version.as_ref()),
     ] {
         let character_count = u32::try_from(value.chars().count()).unwrap_or(u32::MAX);
-        if !(1..=128).contains(&character_count) {
+        if !crate::regulation::valid_text(value) {
             let mut diagnostic = Diagnostic::invalid_access_regulation_string(
                 &source.header.stable_key,
                 field,
@@ -863,7 +858,7 @@ fn validate_access_regulation(
     }
     if let Some(value) = &regulation.source {
         let character_count = u32::try_from(value.chars().count()).unwrap_or(u32::MAX);
-        if !(1..=128).contains(&character_count) {
+        if !crate::regulation::valid_text(value) {
             let mut diagnostic = Diagnostic::invalid_access_regulation_string(
                 &source.header.stable_key,
                 AccessRegulationField::Source,

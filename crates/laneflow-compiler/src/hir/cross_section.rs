@@ -377,7 +377,8 @@ pub(crate) fn build_cross_section_hir(
                         hir_key: key,
                     });
                 }
-                TypedAstDeclaration::Junction(_)
+                TypedAstDeclaration::RightOfWayPolicySet(_)
+                | TypedAstDeclaration::Junction(_)
                 | TypedAstDeclaration::Movement(_)
                 | TypedAstDeclaration::ManeuverPath(_)
                 | TypedAstDeclaration::StopLine(_)

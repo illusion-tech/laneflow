@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+mod policy;
 
 use laneflow_static_contract::{EntityKind, EntityKindMarker};
 
@@ -329,8 +330,8 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
             wire_upper_bound: 32,
             ..ModuleUsage::default()
         };
-        usage.charge_table(29, 110);
-        for _ in 0..25 {
+        usage.charge_table(30, 114);
+        for _ in 0..26 {
             usage.charge_vector(0, 4);
         }
         usage.charge_table(6, 81);
@@ -573,6 +574,9 @@ fn charge_declaration(
     usage.charge_token(value.local_key(), limits)?;
 
     match value {
+        RoadEditingDeclaration::RightOfWayPolicySet(value) => {
+            policy::charge(usage, value, current_namespace, import_namespaces, limits)?
+        }
         RoadEditingDeclaration::RoadCorridor(value) => {
             usage.charge_table(9, 41);
             usage.charge_vector(value.elements().len(), 4);
@@ -684,7 +688,7 @@ fn charge_declaration(
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::Movement(value) => {
-            usage.charge_table(5, 20);
+            usage.charge_table(6, 21);
             usage.charge_reference(
                 value.junction(),
                 current_namespace,
@@ -930,6 +934,7 @@ fn charge_declaration(
                 limits,
             )?;
             if let Some(regulation) = value.regulation() {
+                regulation.validate()?;
                 usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
                 usage.charge_table(3, 12);
                 usage.charge_token(regulation.jurisdiction(), limits)?;

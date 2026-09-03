@@ -148,6 +148,7 @@ fn add_synthetic_tile(builder: &mut SyntheticModuleBuilder, ordinal: u32) {
         })
         .unwrap()
         .add_movement(MovementInput {
+            turn_direction: None,
             movement_key: &movement,
             junction: JunctionReference::local(&junction),
             directed_entry_approach_key: "westbound",

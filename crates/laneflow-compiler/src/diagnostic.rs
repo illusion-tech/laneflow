@@ -94,6 +94,8 @@ impl SourceSpan {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum DiagnosticCode {
+    /// 路权策略未通过输入、绑定或静态语义闭合。
+    InvalidPolicy,
     /// 第一方道路编辑编制模型的字段值或闭合构造非法。
     InvalidRoadEditingInput,
     /// size-prefixed 道路编辑来源的 framing、wire、版本或外部身份绑定非法。
@@ -271,6 +273,7 @@ impl DiagnosticCode {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::InvalidPolicy => "LF-COMP-POLICY",
             Self::InvalidRoadEditingInput => "LF-COMP-ROAD-EDITING-INPUT",
             Self::InvalidRoadEditingSource => "LF-COMP-ROAD-EDITING-SOURCE",
             Self::InvalidSourceHeaderField => "LF-COMP-SOURCE-HEADER-FIELD",
@@ -806,6 +809,11 @@ pub enum AccessRegulationField {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum DiagnosticPayload {
+    InvalidPolicy {
+        policy_key: Box<str>,
+        member_key: Option<Box<str>>,
+        violation: crate::PolicyViolation,
+    },
     /// 第一方道路编辑编制模型中的字段级失败。
     InvalidRoadEditingInput {
         field: Box<str>,
@@ -1311,6 +1319,24 @@ impl<T: Into<SourceLocation>> IntoSourceLocationOption for Option<T> {
 }
 
 impl Diagnostic {
+    pub(crate) fn invalid_policy(
+        key: &str,
+        member: Option<&str>,
+        violation: crate::PolicyViolation,
+        source: SourceLocation,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidPolicy,
+            DiagnosticPayload::InvalidPolicy {
+                policy_key: key.into(),
+                member_key: member.map(Into::into),
+                violation,
+            },
+            Some(source),
+            Box::default(),
+            Some(key.into()),
+        )
+    }
     pub(crate) fn invalid_road_editing_input(
         field: &str,
         violation: RoadEditingInputViolation,
@@ -3094,6 +3120,14 @@ impl fmt::Display for Diagnostic {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{}: ", self.code.as_str())?;
         match &self.payload {
+            DiagnosticPayload::InvalidPolicy {
+                policy_key,
+                member_key,
+                violation,
+            } => write!(
+                formatter,
+                "路权策略 {policy_key} 的成员 {member_key:?} 未通过校验：{violation:?}"
+            ),
             DiagnosticPayload::InvalidRoadEditingInput { field, violation } => {
                 write!(formatter, "道路编辑编制字段 {field} 非法：{violation:?}")
             }

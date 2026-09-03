@@ -15,6 +15,10 @@ mod limits;
 mod lir;
 mod mir;
 mod module;
+mod policy;
+pub use policy::PolicyViolation;
+mod regulation;
+pub use regulation::RegulationIdentity;
 mod portable_emitter;
 mod portable_publication;
 mod portable_transport;
@@ -40,15 +44,17 @@ pub use compiler::{
     ValidatedCanonicalLir,
 };
 pub use declaration::{
-    AccessRegulationInput, AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput,
-    CanonicalFrameInput, CanonicalPoint3F32Input, CorridorElementReference, EntityReference,
-    FacilityBandInput, FacilityBandReference, FacilityKindCategory, FacilityKindViolation,
-    IidmVehicleProfileInput, JunctionInput, JunctionReference, LaneEdgeGeometryInput,
-    LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference, ManeuverGateInput,
-    ManeuverGateReference, ManeuverPathInput, ManeuverPathReference, MovementInput,
-    MovementReference, ParkingFacilityInput, ParkingFacilityReference, ParkingLaneAnchorInput,
-    ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference,
-    RoadCorridorInput, RoadSectionInput, RoadSectionReference, ScalarViolation, SignalControlInput,
+    AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput, CanonicalFrameInput,
+    CanonicalPoint3F32Input, CorridorElementReference, EntityReference, FacilityBandInput,
+    FacilityBandReference, FacilityKindCategory, FacilityKindViolation, IidmVehicleProfileInput,
+    JunctionInput, JunctionReference, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference,
+    LaneGroupInput, LaneGroupReference, ManeuverGateInput, ManeuverGateReference,
+    ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
+    OwnerQualifiedReference, ParkingFacilityInput, ParkingFacilityReference,
+    ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput,
+    ParticipantClassReference, PolicyEvidenceInput, PolicyGapProfileInput, PolicyGateRuleInput,
+    PolicyInputSource, PolicyStreamRuleInput, RightOfWayPolicySetInput, RoadCorridorInput,
+    RoadSectionInput, RoadSectionReference, ScalarViolation, SignalControlInput,
     SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
     SignalPhaseInput, StopLineInput, StopLineReference, VehicleProfileInput,
     VehicleProfileReference, WaitingZoneInput,
@@ -63,7 +69,9 @@ pub use diagnostic::{
 };
 pub use geometry_profile::{GeometryAccuracyProfile, GeometryDirectionProfile};
 pub use identity::{CanonicalIdentityViolation, derive_canonical_stable_id_v1};
-pub use laneflow_static_contract::{AccessEffect, SignalAspect};
+pub use laneflow_static_contract::{
+    AccessEffect, GateInterpretation, GateProhibition, ManeuverDirection, SignalAspect,
+};
 pub use limits::{CompileLimitDimension, CompileLimits};
 pub use module::{
     CompilationUnit, CompilationUnitBuilder, SOURCE_DOCUMENT_SET_DIGEST_VERSION,
