@@ -271,7 +271,9 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
   格式版本。`regulation` 存在时继续遵守同一编译单元法域/版本一致性。
 - 所有唯一 owner 向量也拒绝重复 occurrence；“唯一 owner”不是让 reader 选择第一个
   或最后一个。writer 只排序无序集合，绝不修复重复或冲突 owner。路线边序列不在来源
-  中声明；场景 catalog 0.3 拥有示例边键，运行时只经 `register_route` 编译。
+  中声明；场景 catalog 0.4 拥有示例边键，并显式携带必填 `policy_selection`，
+  运行时只经 `register_route` 编译。策略形状与绑定顺序见
+  [人口与回流合同](../../../docs/design/signalized-corridor-population.md#3-catalog-契约)。
 
 ## 7. 数值、顺序与 scalar 缺省
 
