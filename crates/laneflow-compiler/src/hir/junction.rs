@@ -43,6 +43,8 @@ pub(crate) struct HirMovement {
     pub(crate) junction_source_location: Option<ResolvedSourceLocation>,
     pub(crate) directed_entry_approach_key: Arc<str>,
     pub(crate) directed_exit_approach_key: Arc<str>,
+    pub(crate) turn_direction: Option<laneflow_static_contract::ManeuverDirection>,
+    pub(crate) direction_source: Option<SourceLocation>,
     pub(crate) maneuver_paths: TableRange<HirMovementManeuverPath>,
     pub(crate) source_span: SourceLocation,
 }
@@ -252,6 +254,8 @@ pub(crate) fn build_junction_hir(
                             directed_exit_approach_key: Arc::clone(
                                 &source.directed_exit_approach_key,
                             ),
+                            turn_direction: source.turn_direction,
+                            direction_source: source.direction_source.clone(),
                             maneuver_paths: TableRange::empty(),
                             source_span: source.header.span.clone(),
                         })

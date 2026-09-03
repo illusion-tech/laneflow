@@ -3442,6 +3442,7 @@ fn add_signalized_corridor(module: &mut SyntheticModuleBuilder, phase_ms: u64) {
         })
         .expect("junction")
         .add_movement(MovementInput {
+            turn_direction: None,
             movement_key: "movement-through",
             junction: JunctionReference::local("junction-main"),
             directed_entry_approach_key: "approach-westbound",

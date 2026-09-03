@@ -23,6 +23,7 @@ pub(crate) struct LirMovement {
     pub(crate) junction: JunctionOrdinal,
     pub(crate) directed_entry_approach_key: Box<str>,
     pub(crate) directed_exit_approach_key: Box<str>,
+    pub(crate) turn_direction: Option<laneflow_static_contract::ManeuverDirection>,
     pub(crate) maneuver_paths: TableRange<ManeuverPathOrdinal>,
 }
 
@@ -167,6 +168,7 @@ pub(super) fn freeze(
             junction: env.orders.junctions.ordinal(movement.junction),
             directed_entry_approach_key: movement.directed_entry_approach_key.as_ref().into(),
             directed_exit_approach_key: movement.directed_exit_approach_key.as_ref().into(),
+            turn_direction: movement.turn_direction,
             maneuver_paths: relation_range(
                 relation_start,
                 movement_maneuver_paths.len(),

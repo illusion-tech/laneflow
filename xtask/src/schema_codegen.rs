@@ -44,7 +44,7 @@ pub(crate) struct WireFamily {
 pub(crate) const ROAD_EDITING: WireFamily = WireFamily {
     label: "道路编辑",
     command: "check-road-editing-codegen",
-    schema_path: "schemas/road-editing/v3/road-editing.fbs",
+    schema_path: "schemas/road-editing/v4/road-editing.fbs",
     checked_rust_path: "crates/laneflow-road-editing-wire/src/generated/road-editing_generated.rs",
     wire_manifest_path: "crates/laneflow-road-editing-wire/Cargo.toml",
     wire_package_root: "crates/laneflow-road-editing-wire",

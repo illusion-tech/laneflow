@@ -1033,7 +1033,8 @@ pub(super) fn cross_section_counts(unit: &CompilationUnit) -> CrossSectionCounts
             TypedAstDeclaration::FacilityBand(_) => {
                 counts.facility_bands = counts.facility_bands.saturating_add(1);
             }
-            TypedAstDeclaration::Junction(_)
+            TypedAstDeclaration::RightOfWayPolicySet(_)
+            | TypedAstDeclaration::Junction(_)
             | TypedAstDeclaration::Movement(_)
             | TypedAstDeclaration::ManeuverPath(_)
             | TypedAstDeclaration::StopLine(_)
@@ -1344,6 +1345,7 @@ fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
                 | TypedAstDeclaration::ParticipantClass(_)
                 | TypedAstDeclaration::VehicleProfile(_)
                 | TypedAstDeclaration::CanonicalFrame(_)
+                | TypedAstDeclaration::RightOfWayPolicySet(_)
                 | TypedAstDeclaration::AccessRule(_) => 22_u64
                     .saturating_add(namespace_bytes)
                     .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),

@@ -84,6 +84,7 @@ pub(crate) struct HirConflictPassage {
 pub(crate) struct HirParticipantStream {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
+    pub(crate) source_address: crate::declaration::TypedAstEntityAddress,
     pub(crate) stable_id: ParticipantStreamId,
     pub(crate) junction: HirJunctionKey,
     pub(crate) junction_source_location: Option<ResolvedSourceLocation>,
@@ -188,6 +189,7 @@ pub(crate) fn build_conflict_hir(
                         .push(HirParticipantStream {
                             module: module_key,
                             stable_key: Arc::clone(&source.header.stable_key),
+                            source_address: source.header.source_address.clone(),
                             stable_id: ParticipantStreamId::from_untyped(StableId128::ZERO),
                             junction: HirJunctionKey::from_raw(0),
                             junction_source_location: None,

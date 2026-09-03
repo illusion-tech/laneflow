@@ -47,7 +47,7 @@ const LIR_LANE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 + 1 + 4;
 const LIR_GROUP_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8;
 const LIR_BAND_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4;
 const LIR_JUNCTION_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8;
-const LIR_MOVEMENT_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 4 + 8;
+const LIR_MOVEMENT_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 4 + 8 + 2;
 const LIR_MANEUVER_PATH_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 + 8 + 8;
 const LIR_STOP_LINE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8;
 const LIR_MANEUVER_GATE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 4 + 1 + 4;
@@ -111,6 +111,8 @@ mod cross_section;
 mod junction;
 mod orders;
 mod parking;
+mod policy;
+pub(crate) use policy::LirPolicy;
 mod plan;
 mod signal;
 mod spatial;
@@ -157,6 +159,7 @@ pub(crate) use spatial::{
 /// 对应平面表内。`controlled_live_bytes` 只统计成功返回后由本结果持有的请求字节；
 /// `peak_controlled_live_bytes` 另保存 MIR、冻结暂存区与新输出共存时的阶段峰值。
 pub(crate) struct LirUnit {
+    pub(crate) policies: Box<[LirPolicy]>,
     /// `None` 使用两个零 code；道路编辑规范几何使用两个闭合的非零档位 code。
     #[cfg_attr(
         not(test),
@@ -439,6 +442,7 @@ pub(crate) fn freeze_lir(
     let access_classes = access::freeze_classes(&mut env, &plan.access)?;
     let spatial = spatial::freeze(&mut env, &plan.spatial)?;
     let access_rules = access::freeze_rules(&mut env, &plan.access)?;
+    let policies = policy::freeze(&mut env)?;
     let CrossSectionParts {
         road_corridors,
         corridor_elements,
@@ -516,6 +520,7 @@ pub(crate) fn freeze_lir(
     debug_assert_eq!(identity_field_bytes.len(), identity_byte_capacity);
     let geometry_profiles = mir.geometry_profiles;
     let semantic_digest = semantic_digest(
+        &policies,
         geometry_profiles,
         &lane_edges,
         &successors,
@@ -572,6 +577,7 @@ pub(crate) fn freeze_lir(
     );
     Ok(LirFreezeOutput {
         lir: LirUnit {
+            policies,
             geometry_profiles,
             lane_edges: lane_edges.into_boxed_slice(),
             lane_edge_successors: successors.into_boxed_slice(),
@@ -791,7 +797,10 @@ fn push_lir_identity(
 }
 
 fn identity_field_byte_count(mir: &MirUnit) -> u64 {
-    let mut total = 0_u64;
+    let mut total = mir.policies.iter().fold(0_u64, |n, p| {
+        n.saturating_add(p.value.namespace.len() as u64)
+            .saturating_add(p.value.key.len() as u64)
+    });
     let add = |total: &mut u64, module_index: usize, stable_key: &str, has_parent: bool| {
         *total = total
             .saturating_add(
@@ -953,6 +962,7 @@ fn push_identity_field(
 // 已支持的封闭实体表增长，但保持每张表是否进入确定性摘要一目了然。
 #[allow(clippy::too_many_arguments)]
 fn semantic_digest(
+    policies: &[LirPolicy],
     geometry_profiles: Option<GeometryCompilationProfiles>,
     edges: &[LirLaneEdge],
     successors: &[LaneEdgeOrdinal],
@@ -1009,6 +1019,7 @@ fn semantic_digest(
 ) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(LIR_SEMANTIC_DIGEST_DOMAIN);
+    policy::hash(&mut hasher, policies);
     let profile_codes = geometry_profiles.map_or([0, 0], |profiles| {
         [profiles.accuracy as u8, profiles.direction as u8]
     });
@@ -1165,6 +1176,10 @@ fn semantic_digest(
         hash_u32(&mut hasher, movement.junction.raw());
         hash_bytes(&mut hasher, movement.directed_entry_approach_key.as_bytes());
         hash_bytes(&mut hasher, movement.directed_exit_approach_key.as_bytes());
+        hasher.update(&[u8::from(movement.turn_direction.is_some())]);
+        if let Some(direction) = movement.turn_direction {
+            hasher.update(&[direction.code()]);
+        }
         hash_u32(&mut hasher, movement.maneuver_paths.len());
         for path in &movement_maneuver_paths[movement.maneuver_paths.as_usize_range()] {
             hash_u32(&mut hasher, path.raw());

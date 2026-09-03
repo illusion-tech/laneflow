@@ -69,8 +69,16 @@ LFSM 4 已登记策略 container 40–44、关系 16–19 与来源角色 33–3
 来源描述符、完整成员、贡献集合与位置池；它不使用 emitter 的位置编码器重放答案。
 来源冻结和投影均先计量，空策略走流式位置检查，失败不会发布半份来源映射。
 当前格式组合为 LFCA/LFSM/LFSD 5/4/4；Synthetic/RoadEditing 的 frontendVersion 为
-5/4。非空正式策略语法、LFRE 4 writer/reader 与 HIR/MIR/LIR 生产仍由 #564（W2）
-接入同一冻结入口，当前工程样例不代表这些生产能力已经交付。
+5/4。两个正式前端均接收完整 `RightOfWayPolicySetInput` 与可选 `ManeuverDirection`；
+共同 `RegulationIdentity` 保存法域、版本与可选依据，不解释宿主业务时间或历法。
+LFRE 4 writer/reader 以 root field 29 与 container 40–44 承载策略，必需数值显式提供，
+包括零间隙、零优先级和枚举零值；缺失、未知值、重复或悬空成员均拒绝。
+
+HIR 闭合模块和 owner-qualified 引用，MIR 按静态 Access 实际允许的 profile 解析
+唯一规则，验证 nearest-ancestor specificity、严格让行优先级、间隙绑定、逐 passage
+目标范围、coverage 最低优先级和稳态信号的 Protected 一致性。同 Gate 的物理灯型
+检查覆盖全部策略与全部声明规则，不允许被车型选择或遮蔽规则掩盖。临时解析行和
+索引在分配前计量；LIR/LFCA 只冻结策略声明，运行时解析表由共享根构建阶段重建。
 
 可移植候选发射由 `emit_portable_candidate` 提供。它只能原子借用同一个
 `CompilationOutput` 中已配对的 LIR/source-map input，并接收规范化
@@ -88,8 +96,8 @@ LFCA 5 策略引用在最终目标字节和 Artifact base 上另行核对：四�
 gap/evidence key 只能解析到同一 policy。每条规则须继承策略级来源或具有已解析依据，
 已有来源也不豁免显式依据引用。evidence/gap 的借用键索引先按完整逻辑行数计量，再分配，
 受 `StageScratchBytes` 约束并在检查结束后释放；跨 chunk 不改变 owner、key 或引用语义。
-该检查不替代规则选择、覆盖性、灯型一致性及完整 LFSD/LFSM 投影闭合；正式策略前端和
-共享根消费按路权实施合同分别交付。
+该检查与编译器 MIR 的规则选择、覆盖性和灯型检查独立执行。共享根消费继续按路权
+实施合同交付，编译成功不会自行启用运行时 Conflict 执行。
 
 LFSD 4 第七节按策略 StableId、成员种类和 key 配对完整成员，生成 Add/Remove/Modify；
 Genesis 与整个策略增删均逐项产生成员记录，纯 ordinal 重排不改变局部成员值。

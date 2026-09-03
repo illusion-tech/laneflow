@@ -139,13 +139,13 @@ StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 
 ### 2.4 编制来源与 IR
 
-道路编辑 FlatBuffers：`format_version = 3`；删除 `StaticRoute` table 与
-`RoadEditingSource.static_routes`；顶层稳定声明向量 23 个（可构造 Identity 种类）。
+道路编辑 FlatBuffers：`format_version = 4`；删除 `StaticRoute` table 与
+`RoadEditingSource.static_routes`；顶层稳定声明向量 24 个（可构造 Identity 种类）。
 `canonical_frames` 为根表 field id 25，`conflict_zones` 与 `participant_streams`
 分别为 26、27；stock `flatc` 要求 field id 连续，不保留空号。schema 为
-`schemas/road-editing/v3/road-editing.fbs`。其它版本失败关闭。
+`schemas/road-editing/v4/road-editing.fbs`。其它版本失败关闭。
 来源描述符的 `frontendVersion` 已由后续路权登记提升为 `4`，
-`SourceLanguage::RoadEditingSource = 2`。当前 wire 仍为 3，file identifier 仍 `LFRE`。
+`SourceLanguage::RoadEditingSource = 2`。当前 wire 为 4，file identifier 仍 `LFRE`；field 29 是路权策略声明向量。
 
 合成 DSL / typed AST / HIR / MIR / LIR：不再有静态路线声明或出现项表。
 首批支持矩阵「静态路线」行改为明确拒绝。

@@ -23,8 +23,8 @@ use crate::declaration::{
     ConflictZoneDeclaration, ConflictZoneRegionDeclaration, DeclarationHeader,
     FacilityBandDeclaration, JunctionDeclaration, LaneEdgeDeclaration, LaneEdgeGeometryAuthority,
     LaneGroupDeclaration, ManeuverGateDeclaration, ManeuverPathDeclaration, MovementDeclaration,
-    OwnedAccessRegulation, OwnedAccessRuleTarget, OwnedCorridorElementReference,
-    OwnedEntityReference, OwnedSignalControl, ParkingFacilityDeclaration,
+    OwnedAccessRuleTarget, OwnedCorridorElementReference, OwnedEntityReference,
+    OwnedRegulationIdentity, OwnedSignalControl, ParkingFacilityDeclaration,
     ParkingLaneAnchorDeclaration, ParkingSpaceDeclaration, ParticipantClassDeclaration,
     ParticipantStreamDeclaration, PathAnchorDeclaration, RoadAlignmentDeclaration,
     RoadCorridorAuthoringGeometry, RoadCorridorDeclaration, RoadSectionDeclaration,
@@ -39,6 +39,8 @@ use crate::{
 };
 
 const MAX_OWNER_QUALIFIED_COMPONENTS: usize = 4;
+mod policy;
+pub(super) use policy::lower as lower_policy_declarations;
 
 pub(super) fn lower_road_alignments(
     root: wire::RoadEditingSource<'_>,
@@ -947,6 +949,23 @@ pub(super) fn lower_owner_scoped_declarations(
             ),
             directed_entry_approach_key: Arc::from(value.directed_entry_approach_key()),
             directed_exit_approach_key: Arc::from(value.directed_exit_approach_key()),
+            turn_direction: value.turn_direction().map(|direction| {
+                crate::ManeuverDirection::from_code(direction.0)
+                    .expect("preflight checked direction")
+            }),
+            direction_source: value.turn_direction().map(|_| {
+                owner_property_location(
+                    locations,
+                    EntityKind::Movement,
+                    value.junction(),
+                    1,
+                    key,
+                    RoadEditingTableKind::Movement,
+                    5,
+                    value.canvas_selection(),
+                    namespace,
+                )
+            }),
         })
     }));
 
@@ -1904,11 +1923,13 @@ pub(super) fn lower_aggregate_declarations(
                 )
             })
             .collect();
-        let regulation = value.regulation().map(|regulation| OwnedAccessRegulation {
-            jurisdiction: Arc::from(regulation.jurisdiction()),
-            version: Arc::from(regulation.version()),
-            source: regulation.source().map(Arc::from),
-        });
+        let regulation = value
+            .regulation()
+            .map(|regulation| OwnedRegulationIdentity {
+                jurisdiction: Arc::from(regulation.jurisdiction()),
+                version: Arc::from(regulation.version()),
+                source: regulation.source().map(Arc::from),
+            });
 
         TypedAstDeclaration::AccessRule(AccessRuleDeclaration {
             header: module_scoped_header(
@@ -2141,13 +2162,12 @@ mod tests {
 
     use super::*;
     use crate::road_editing::{
-        AccessRegulationInput, CanonicalFrameInput,
-        IidmVehicleProfileInput as RoadEditingIidmInput, JunctionInput, JunctionReference,
-        LaneEdgeInput, LaneEdgeReference, ManeuverPathInput, MovementInput, MovementReference,
-        ParkingFacilityInput, ParticipantClassInput, ParticipantClassReference,
-        RoadEditingDeclaration, RoadEditingModuleHeader, RoadEditingModuleInput,
-        RoadEditingProvenance, RoadEditingSourceModuleBuilder, RoadEditingSourceWriter,
-        StopLineInput, VehicleProfileInput,
+        CanonicalFrameInput, IidmVehicleProfileInput as RoadEditingIidmInput, JunctionInput,
+        JunctionReference, LaneEdgeInput, LaneEdgeReference, ManeuverPathInput, MovementInput,
+        MovementReference, ParkingFacilityInput, ParticipantClassInput, ParticipantClassReference,
+        RegulationIdentity, RoadEditingDeclaration, RoadEditingModuleHeader,
+        RoadEditingModuleInput, RoadEditingProvenance, RoadEditingSourceModuleBuilder,
+        RoadEditingSourceWriter, StopLineInput, VehicleProfileInput,
     };
     use crate::{CompileLimits, GeometryAccuracyProfile, GeometryDirectionProfile, SourceSpan};
 
@@ -2851,7 +2871,7 @@ mod tests {
             let declaration = match declaration.clone() {
                 RoadEditingDeclaration::AccessRule(rule) => RoadEditingDeclaration::AccessRule(
                     rule.with_regulation(
-                        AccessRegulationInput::try_new("中国", "二〇二六")
+                        RegulationIdentity::try_new("中国", "二〇二六")
                             .expect("regulation")
                             .with_source("交通规则")
                             .expect("source"),

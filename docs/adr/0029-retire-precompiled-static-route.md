@@ -232,8 +232,8 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 - 道路编辑来源 `format_version = 3`：没有 `StaticRoute` table 与根上的
   `static_routes`；声明向量与 Identity 可构造种类一一对应（23 个）。
   `canonical_frames`、`conflict_zones` 与 `participant_streams` 分别为根表 field id
-  25、26、27。schema 路径为 `schemas/road-editing/v3/`；`frontendVersion = 3`，file
-  identifier 仍为 `LFRE`。
+  25、26、27。路线退役时为 wire 3；当前由 #284 W2 提升到 `schemas/road-editing/v4/`，
+  新增策略向量 id 29，`frontendVersion = 4`，file identifier 仍为 `LFRE`。
 - 合成 DSL 不接受静态路线声明；合成 `frontendVersion` 为 4，拒绝
   `StaticRoute` 不另升。
 - 生产 `CompileLimits` 与现行 P100 精确表不再包含 `RouteOccurrenceCount`。
