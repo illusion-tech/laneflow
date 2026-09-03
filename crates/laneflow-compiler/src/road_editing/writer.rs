@@ -10,7 +10,8 @@ use crate::{
     GeometryDirectionProfile, RoadEditingInputViolation,
 };
 
-const FORMAT_VERSION: u32 = 3;
+const FORMAT_VERSION: u32 = 4;
+mod policy;
 
 /// 直接拥有 FlatBuffers storage 与有效尾部起点的 size-prefixed 来源缓冲区。
 pub struct OwnedRoadEditingSourceBuffer {
@@ -105,9 +106,12 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
         let mut canonical_frames = Vec::new();
         let mut conflict_zones = Vec::new();
         let mut participant_streams = Vec::new();
+        let mut right_of_way_policy_sets = Vec::new();
 
         for declaration in &declarations {
             match declaration {
+                RoadEditingDeclaration::RightOfWayPolicySet(value) => right_of_way_policy_sets
+                    .push(policy::encode(&mut fbb, value, current_namespace)),
                 RoadEditingDeclaration::RoadCorridor(value) => {
                     road_corridors.push(encode_road_corridor(&mut fbb, value));
                 }
@@ -213,6 +217,7 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
             .map(|value| encode_conflict_zone_region(&mut fbb, value))
             .collect::<Vec<_>>();
         let conflict_zone_regions = fbb.create_vector(&conflict_zone_regions);
+        let right_of_way_policy_sets = fbb.create_vector(&right_of_way_policy_sets);
 
         let root = wire::RoadEditingSource::create(
             &mut fbb,
@@ -246,6 +251,7 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
                 conflict_zones: Some(conflict_zones),
                 participant_streams: Some(participant_streams),
                 conflict_zone_regions: Some(conflict_zone_regions),
+                right_of_way_policy_sets: Some(right_of_way_policy_sets),
             },
         );
         wire::finish_size_prefixed_road_editing_source_buffer(&mut fbb, root);
@@ -651,6 +657,9 @@ fn encode_movement<'fbb>(
             junction: Some(junction),
             directed_entry_approach_key: Some(entry),
             directed_exit_approach_key: Some(exit),
+            turn_direction: value
+                .turn_direction()
+                .map(|value| wire::ManeuverDirection(value.code())),
             canvas_selection: canvas,
         },
     )
@@ -964,7 +973,7 @@ fn encode_participant_class<'fbb>(
 
 fn encode_access_regulation<'fbb>(
     fbb: &mut runtime::FlatBufferBuilder<'fbb>,
-    value: &AccessRegulationInput,
+    value: &RegulationIdentity,
 ) -> runtime::WIPOffset<wire::AccessRegulation<'fbb>> {
     let jurisdiction = fbb.create_string(value.jurisdiction());
     let version = fbb.create_string(value.version());
@@ -1487,7 +1496,7 @@ pub(super) mod tests {
                     0,
                 )
                 .expect("access rule")
-                .with_regulation(AccessRegulationInput::try_new("test", "v1").expect("regulation")),
+                .with_regulation(RegulationIdentity::try_new("test", "v1").expect("regulation")),
             ),
             RoadEditingDeclaration::VehicleProfile(
                 VehicleProfileInput::try_new(

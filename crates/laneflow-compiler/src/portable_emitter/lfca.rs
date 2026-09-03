@@ -1,4 +1,5 @@
 use super::*;
+mod policy;
 
 pub(super) fn build_lfca(
     output: &CompilationOutput,
@@ -162,6 +163,7 @@ fn canonical_identity_rows(lir: &crate::lir::LirUnit) -> Vec<OwnedRow> {
     append!(EntityKind::ConflictZone, lir.conflict_zones);
     append!(EntityKind::CanonicalFrame, lir.canonical_frames);
     append!(EntityKind::ParticipantStream, lir.participant_streams);
+    rows.extend(policy::identities(lir));
     rows
 }
 
@@ -285,7 +287,7 @@ fn canonical_entity_tables(
         ])
     });
     let movements = lir.movements.iter().map(|record| {
-        row([
+        let mut fields = vec![
             field(1, OwnedValue::U32(record.ordinal.raw())),
             field(
                 2,
@@ -306,7 +308,11 @@ fn canonical_entity_tables(
                     &lir.movement_maneuver_paths[record.maneuver_paths.as_usize_range()],
                 )),
             ),
-        ])
+        ];
+        if let Some(direction) = record.turn_direction {
+            fields.push(field(7, OwnedValue::U8(direction.code())));
+        }
+        row(fields)
     });
     let maneuver_paths = lir.maneuver_paths.iter().map(|record| {
         row([
@@ -649,8 +655,7 @@ fn canonical_entity_tables(
         table(21, conflict_zones),
         table(22, canonical_frames),
         table(23, participant_streams),
-        // 两个正式前端的策略声明由 W2 接入；无声明的制品仍必须发射完整的空表。
-        table(24, []),
+        table(24, policy::declarations(lir)),
     ])
 }
 
@@ -791,10 +796,10 @@ fn canonical_relation_tables(lir: &crate::lir::LirUnit) -> Vec<OwnedTable> {
     });
     vec![
         table(1, junction_internal_edges),
-        table(2, []),
-        table(3, []),
-        table(4, []),
-        table(5, []),
+        table(2, policy::evidence_rows(lir)),
+        table(3, policy::gap_rows(lir)),
+        table(4, policy::stream_rows(lir)),
+        table(5, policy::gate_rows(lir)),
     ]
 }
 

@@ -14,6 +14,286 @@ pub mod v1 {
 
 
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_MANEUVER_DIRECTION: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_MANEUVER_DIRECTION: u8 = 3;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_MANEUVER_DIRECTION: [ManeuverDirection; 4] = [
+  ManeuverDirection::Straight,
+  ManeuverDirection::Left,
+  ManeuverDirection::Right,
+  ManeuverDirection::UTurn,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct ManeuverDirection(pub u8);
+#[allow(non_upper_case_globals)]
+impl ManeuverDirection {
+  pub const Straight: Self = Self(0);
+  pub const Left: Self = Self(1);
+  pub const Right: Self = Self(2);
+  pub const UTurn: Self = Self(3);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 3;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Straight,
+    Self::Left,
+    Self::Right,
+    Self::UTurn,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Straight => Some("Straight"),
+      Self::Left => Some("Left"),
+      Self::Right => Some("Right"),
+      Self::UTurn => Some("UTurn"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for ManeuverDirection {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for ManeuverDirection {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for ManeuverDirection {
+    type Output = ManeuverDirection;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for ManeuverDirection {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for ManeuverDirection {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for ManeuverDirection {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_GATE_INTERPRETATION: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_GATE_INTERPRETATION: u8 = 5;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_GATE_INTERPRETATION: [GateInterpretation; 6] = [
+  GateInterpretation::Uncontrolled,
+  GateInterpretation::ProtectedGroup,
+  GateInterpretation::PermissiveGroup,
+  GateInterpretation::CnCircularRightTurn,
+  GateInterpretation::DirectionalRightProtected,
+  GateInterpretation::DirectionalRightPermissive,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct GateInterpretation(pub u8);
+#[allow(non_upper_case_globals)]
+impl GateInterpretation {
+  pub const Uncontrolled: Self = Self(0);
+  pub const ProtectedGroup: Self = Self(1);
+  pub const PermissiveGroup: Self = Self(2);
+  pub const CnCircularRightTurn: Self = Self(3);
+  pub const DirectionalRightProtected: Self = Self(4);
+  pub const DirectionalRightPermissive: Self = Self(5);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 5;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Uncontrolled,
+    Self::ProtectedGroup,
+    Self::PermissiveGroup,
+    Self::CnCircularRightTurn,
+    Self::DirectionalRightProtected,
+    Self::DirectionalRightPermissive,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Uncontrolled => Some("Uncontrolled"),
+      Self::ProtectedGroup => Some("ProtectedGroup"),
+      Self::PermissiveGroup => Some("PermissiveGroup"),
+      Self::CnCircularRightTurn => Some("CnCircularRightTurn"),
+      Self::DirectionalRightProtected => Some("DirectionalRightProtected"),
+      Self::DirectionalRightPermissive => Some("DirectionalRightPermissive"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for GateInterpretation {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for GateInterpretation {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for GateInterpretation {
+    type Output = GateInterpretation;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for GateInterpretation {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for GateInterpretation {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for GateInterpretation {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_GATE_PROHIBITION: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_GATE_PROHIBITION: u8 = 2;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_GATE_PROHIBITION: [GateProhibition; 3] = [
+  GateProhibition::None,
+  GateProhibition::Always,
+  GateProhibition::OnRed,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct GateProhibition(pub u8);
+#[allow(non_upper_case_globals)]
+impl GateProhibition {
+  pub const None: Self = Self(0);
+  pub const Always: Self = Self(1);
+  pub const OnRed: Self = Self(2);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::None,
+    Self::Always,
+    Self::OnRed,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::None => Some("None"),
+      Self::Always => Some("Always"),
+      Self::OnRed => Some("OnRed"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for GateProhibition {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for GateProhibition {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for GateProhibition {
+    type Output = GateProhibition;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for GateProhibition {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for GateProhibition {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for GateProhibition {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_PROVENANCE_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MAX_PROVENANCE_KIND: u8 = 2;
@@ -3767,6 +4047,7 @@ impl<'a> Movement<'a> {
   pub const VT_DIRECTED_ENTRY_APPROACH_KEY: ::flatbuffers::VOffsetT = 8;
   pub const VT_DIRECTED_EXIT_APPROACH_KEY: ::flatbuffers::VOffsetT = 10;
   pub const VT_CANVAS_SELECTION: ::flatbuffers::VOffsetT = 12;
+  pub const VT_TURN_DIRECTION: ::flatbuffers::VOffsetT = 14;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -3783,6 +4064,7 @@ impl<'a> Movement<'a> {
     if let Some(x) = args.directed_entry_approach_key { builder.add_directed_entry_approach_key(x); }
     if let Some(x) = args.junction { builder.add_junction(x); }
     if let Some(x) = args.movement_key { builder.add_movement_key(x); }
+    if let Some(x) = args.turn_direction { builder.add_turn_direction(x); }
     builder.finish()
   }
 
@@ -3822,6 +4104,13 @@ impl<'a> Movement<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(Movement::VT_CANVAS_SELECTION, None)}
   }
+  #[inline]
+  pub fn turn_direction(&self) -> Option<ManeuverDirection> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<ManeuverDirection>(Movement::VT_TURN_DIRECTION, None)}
+  }
 }
 
 impl ::flatbuffers::Verifiable for Movement<'_> {
@@ -3835,6 +4124,7 @@ impl ::flatbuffers::Verifiable for Movement<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("directed_entry_approach_key", Self::VT_DIRECTED_ENTRY_APPROACH_KEY, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("directed_exit_approach_key", Self::VT_DIRECTED_EXIT_APPROACH_KEY, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("canvas_selection", Self::VT_CANVAS_SELECTION, false)?
+     .visit_field::<ManeuverDirection>("turn_direction", Self::VT_TURN_DIRECTION, false)?
      .finish();
     Ok(())
   }
@@ -3845,6 +4135,7 @@ pub struct MovementArgs<'a> {
     pub directed_entry_approach_key: Option<::flatbuffers::WIPOffset<&'a str>>,
     pub directed_exit_approach_key: Option<::flatbuffers::WIPOffset<&'a str>>,
     pub canvas_selection: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub turn_direction: Option<ManeuverDirection>,
 }
 impl<'a> Default for MovementArgs<'a> {
   #[inline]
@@ -3855,6 +4146,7 @@ impl<'a> Default for MovementArgs<'a> {
       directed_entry_approach_key: None, // required field
       directed_exit_approach_key: None, // required field
       canvas_selection: None,
+      turn_direction: None,
     }
   }
 }
@@ -3885,6 +4177,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> MovementBuilder<'a, 'b, A> {
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(Movement::VT_CANVAS_SELECTION, canvas_selection);
   }
   #[inline]
+  pub fn add_turn_direction(&mut self, turn_direction: ManeuverDirection) {
+    self.fbb_.push_slot_always::<ManeuverDirection>(Movement::VT_TURN_DIRECTION, turn_direction);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> MovementBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     MovementBuilder {
@@ -3911,6 +4207,7 @@ impl ::core::fmt::Debug for Movement<'_> {
       ds.field("directed_entry_approach_key", &self.directed_entry_approach_key());
       ds.field("directed_exit_approach_key", &self.directed_exit_approach_key());
       ds.field("canvas_selection", &self.canvas_selection());
+      ds.field("turn_direction", &self.turn_direction());
       ds.finish()
   }
 }
@@ -7820,10 +8117,898 @@ impl ::core::fmt::Debug for ConflictZoneRegion<'_> {
       ds.finish()
   }
 }
+pub enum PolicyEvidenceOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct PolicyEvidence<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for PolicyEvidence<'a> {
+  type Inner = PolicyEvidence<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> PolicyEvidence<'a> {
+  pub const VT_EVIDENCE_KEY: ::flatbuffers::VOffsetT = 4;
+  pub const VT_LOCATOR: ::flatbuffers::VOffsetT = 6;
+  pub const VT_DESCRIPTION: ::flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    PolicyEvidence { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args PolicyEvidenceArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<PolicyEvidence<'bldr>> {
+    let mut builder = PolicyEvidenceBuilder::new(_fbb);
+    if let Some(x) = args.description { builder.add_description(x); }
+    if let Some(x) = args.locator { builder.add_locator(x); }
+    if let Some(x) = args.evidence_key { builder.add_evidence_key(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn evidence_key(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(PolicyEvidence::VT_EVIDENCE_KEY, None).unwrap()}
+  }
+  #[inline]
+  pub fn locator(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(PolicyEvidence::VT_LOCATOR, None).unwrap()}
+  }
+  #[inline]
+  pub fn description(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(PolicyEvidence::VT_DESCRIPTION, None)}
+  }
+}
+
+impl ::flatbuffers::Verifiable for PolicyEvidence<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("evidence_key", Self::VT_EVIDENCE_KEY, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("locator", Self::VT_LOCATOR, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("description", Self::VT_DESCRIPTION, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct PolicyEvidenceArgs<'a> {
+    pub evidence_key: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub locator: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub description: Option<::flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for PolicyEvidenceArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    PolicyEvidenceArgs {
+      evidence_key: None, // required field
+      locator: None, // required field
+      description: None,
+    }
+  }
+}
+
+pub struct PolicyEvidenceBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> PolicyEvidenceBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_evidence_key(&mut self, evidence_key: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PolicyEvidence::VT_EVIDENCE_KEY, evidence_key);
+  }
+  #[inline]
+  pub fn add_locator(&mut self, locator: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PolicyEvidence::VT_LOCATOR, locator);
+  }
+  #[inline]
+  pub fn add_description(&mut self, description: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PolicyEvidence::VT_DESCRIPTION, description);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> PolicyEvidenceBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    PolicyEvidenceBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<PolicyEvidence<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, PolicyEvidence::VT_EVIDENCE_KEY,"evidence_key");
+    self.fbb_.required(o, PolicyEvidence::VT_LOCATOR,"locator");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for PolicyEvidence<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("PolicyEvidence");
+      ds.field("evidence_key", &self.evidence_key());
+      ds.field("locator", &self.locator());
+      ds.field("description", &self.description());
+      ds.finish()
+  }
+}
+pub enum PolicyGapProfileOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct PolicyGapProfile<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for PolicyGapProfile<'a> {
+  type Inner = PolicyGapProfile<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> PolicyGapProfile<'a> {
+  pub const VT_PROFILE_KEY: ::flatbuffers::VOffsetT = 4;
+  pub const VT_PARAMETER_VERSION: ::flatbuffers::VOffsetT = 6;
+  pub const VT_MINIMUM_LEAD_GAP_MS: ::flatbuffers::VOffsetT = 8;
+  pub const VT_MINIMUM_LAG_GAP_MS: ::flatbuffers::VOffsetT = 10;
+  pub const VT_CLEARANCE_BUFFER_MS: ::flatbuffers::VOffsetT = 12;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    PolicyGapProfile { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args PolicyGapProfileArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<PolicyGapProfile<'bldr>> {
+    let mut builder = PolicyGapProfileBuilder::new(_fbb);
+    if let Some(x) = args.clearance_buffer_ms { builder.add_clearance_buffer_ms(x); }
+    if let Some(x) = args.minimum_lag_gap_ms { builder.add_minimum_lag_gap_ms(x); }
+    if let Some(x) = args.minimum_lead_gap_ms { builder.add_minimum_lead_gap_ms(x); }
+    if let Some(x) = args.parameter_version { builder.add_parameter_version(x); }
+    if let Some(x) = args.profile_key { builder.add_profile_key(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn profile_key(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(PolicyGapProfile::VT_PROFILE_KEY, None).unwrap()}
+  }
+  #[inline]
+  pub fn parameter_version(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(PolicyGapProfile::VT_PARAMETER_VERSION, None).unwrap()}
+  }
+  #[inline]
+  pub fn minimum_lead_gap_ms(&self) -> Option<u64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(PolicyGapProfile::VT_MINIMUM_LEAD_GAP_MS, None)}
+  }
+  #[inline]
+  pub fn minimum_lag_gap_ms(&self) -> Option<u64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(PolicyGapProfile::VT_MINIMUM_LAG_GAP_MS, None)}
+  }
+  #[inline]
+  pub fn clearance_buffer_ms(&self) -> Option<u64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(PolicyGapProfile::VT_CLEARANCE_BUFFER_MS, None)}
+  }
+}
+
+impl ::flatbuffers::Verifiable for PolicyGapProfile<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("profile_key", Self::VT_PROFILE_KEY, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("parameter_version", Self::VT_PARAMETER_VERSION, true)?
+     .visit_field::<u64>("minimum_lead_gap_ms", Self::VT_MINIMUM_LEAD_GAP_MS, false)?
+     .visit_field::<u64>("minimum_lag_gap_ms", Self::VT_MINIMUM_LAG_GAP_MS, false)?
+     .visit_field::<u64>("clearance_buffer_ms", Self::VT_CLEARANCE_BUFFER_MS, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct PolicyGapProfileArgs<'a> {
+    pub profile_key: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub parameter_version: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub minimum_lead_gap_ms: Option<u64>,
+    pub minimum_lag_gap_ms: Option<u64>,
+    pub clearance_buffer_ms: Option<u64>,
+}
+impl<'a> Default for PolicyGapProfileArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    PolicyGapProfileArgs {
+      profile_key: None, // required field
+      parameter_version: None, // required field
+      minimum_lead_gap_ms: None,
+      minimum_lag_gap_ms: None,
+      clearance_buffer_ms: None,
+    }
+  }
+}
+
+pub struct PolicyGapProfileBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> PolicyGapProfileBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_profile_key(&mut self, profile_key: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PolicyGapProfile::VT_PROFILE_KEY, profile_key);
+  }
+  #[inline]
+  pub fn add_parameter_version(&mut self, parameter_version: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PolicyGapProfile::VT_PARAMETER_VERSION, parameter_version);
+  }
+  #[inline]
+  pub fn add_minimum_lead_gap_ms(&mut self, minimum_lead_gap_ms: u64) {
+    self.fbb_.push_slot_always::<u64>(PolicyGapProfile::VT_MINIMUM_LEAD_GAP_MS, minimum_lead_gap_ms);
+  }
+  #[inline]
+  pub fn add_minimum_lag_gap_ms(&mut self, minimum_lag_gap_ms: u64) {
+    self.fbb_.push_slot_always::<u64>(PolicyGapProfile::VT_MINIMUM_LAG_GAP_MS, minimum_lag_gap_ms);
+  }
+  #[inline]
+  pub fn add_clearance_buffer_ms(&mut self, clearance_buffer_ms: u64) {
+    self.fbb_.push_slot_always::<u64>(PolicyGapProfile::VT_CLEARANCE_BUFFER_MS, clearance_buffer_ms);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> PolicyGapProfileBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    PolicyGapProfileBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<PolicyGapProfile<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, PolicyGapProfile::VT_PROFILE_KEY,"profile_key");
+    self.fbb_.required(o, PolicyGapProfile::VT_PARAMETER_VERSION,"parameter_version");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for PolicyGapProfile<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("PolicyGapProfile");
+      ds.field("profile_key", &self.profile_key());
+      ds.field("parameter_version", &self.parameter_version());
+      ds.field("minimum_lead_gap_ms", &self.minimum_lead_gap_ms());
+      ds.field("minimum_lag_gap_ms", &self.minimum_lag_gap_ms());
+      ds.field("clearance_buffer_ms", &self.clearance_buffer_ms());
+      ds.finish()
+  }
+}
+pub enum PolicyStreamRuleOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct PolicyStreamRule<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for PolicyStreamRule<'a> {
+  type Inner = PolicyStreamRule<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> PolicyStreamRule<'a> {
+  pub const VT_RULE_KEY: ::flatbuffers::VOffsetT = 4;
+  pub const VT_STREAM: ::flatbuffers::VOffsetT = 6;
+  pub const VT_PARTICIPANT_CLASSES: ::flatbuffers::VOffsetT = 8;
+  pub const VT_PRIORITY: ::flatbuffers::VOffsetT = 10;
+  pub const VT_YIELD_TO_STREAMS: ::flatbuffers::VOffsetT = 12;
+  pub const VT_GAP_PROFILE_KEY: ::flatbuffers::VOffsetT = 14;
+  pub const VT_EVIDENCE_KEYS: ::flatbuffers::VOffsetT = 16;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    PolicyStreamRule { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args PolicyStreamRuleArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<PolicyStreamRule<'bldr>> {
+    let mut builder = PolicyStreamRuleBuilder::new(_fbb);
+    if let Some(x) = args.evidence_keys { builder.add_evidence_keys(x); }
+    if let Some(x) = args.gap_profile_key { builder.add_gap_profile_key(x); }
+    if let Some(x) = args.yield_to_streams { builder.add_yield_to_streams(x); }
+    if let Some(x) = args.priority { builder.add_priority(x); }
+    if let Some(x) = args.participant_classes { builder.add_participant_classes(x); }
+    if let Some(x) = args.stream { builder.add_stream(x); }
+    if let Some(x) = args.rule_key { builder.add_rule_key(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn rule_key(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(PolicyStreamRule::VT_RULE_KEY, None).unwrap()}
+  }
+  #[inline]
+  pub fn stream(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(PolicyStreamRule::VT_STREAM, None).unwrap()}
+  }
+  #[inline]
+  pub fn participant_classes(&self) -> Option<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>>>(PolicyStreamRule::VT_PARTICIPANT_CLASSES, None)}
+  }
+  #[inline]
+  pub fn priority(&self) -> Option<i32> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<i32>(PolicyStreamRule::VT_PRIORITY, None)}
+  }
+  #[inline]
+  pub fn yield_to_streams(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>>>(PolicyStreamRule::VT_YIELD_TO_STREAMS, None).unwrap()}
+  }
+  #[inline]
+  pub fn gap_profile_key(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(PolicyStreamRule::VT_GAP_PROFILE_KEY, None)}
+  }
+  #[inline]
+  pub fn evidence_keys(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>>>(PolicyStreamRule::VT_EVIDENCE_KEYS, None).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for PolicyStreamRule<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("rule_key", Self::VT_RULE_KEY, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("stream", Self::VT_STREAM, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<&'_ str>>>>("participant_classes", Self::VT_PARTICIPANT_CLASSES, false)?
+     .visit_field::<i32>("priority", Self::VT_PRIORITY, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<&'_ str>>>>("yield_to_streams", Self::VT_YIELD_TO_STREAMS, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("gap_profile_key", Self::VT_GAP_PROFILE_KEY, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<&'_ str>>>>("evidence_keys", Self::VT_EVIDENCE_KEYS, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct PolicyStreamRuleArgs<'a> {
+    pub rule_key: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub stream: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub participant_classes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>>>,
+    pub priority: Option<i32>,
+    pub yield_to_streams: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>>>,
+    pub gap_profile_key: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub evidence_keys: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>>>,
+}
+impl<'a> Default for PolicyStreamRuleArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    PolicyStreamRuleArgs {
+      rule_key: None, // required field
+      stream: None, // required field
+      participant_classes: None,
+      priority: None,
+      yield_to_streams: None, // required field
+      gap_profile_key: None,
+      evidence_keys: None, // required field
+    }
+  }
+}
+
+pub struct PolicyStreamRuleBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> PolicyStreamRuleBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_rule_key(&mut self, rule_key: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PolicyStreamRule::VT_RULE_KEY, rule_key);
+  }
+  #[inline]
+  pub fn add_stream(&mut self, stream: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PolicyStreamRule::VT_STREAM, stream);
+  }
+  #[inline]
+  pub fn add_participant_classes(&mut self, participant_classes: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<&'b  str>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PolicyStreamRule::VT_PARTICIPANT_CLASSES, participant_classes);
+  }
+  #[inline]
+  pub fn add_priority(&mut self, priority: i32) {
+    self.fbb_.push_slot_always::<i32>(PolicyStreamRule::VT_PRIORITY, priority);
+  }
+  #[inline]
+  pub fn add_yield_to_streams(&mut self, yield_to_streams: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<&'b  str>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PolicyStreamRule::VT_YIELD_TO_STREAMS, yield_to_streams);
+  }
+  #[inline]
+  pub fn add_gap_profile_key(&mut self, gap_profile_key: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PolicyStreamRule::VT_GAP_PROFILE_KEY, gap_profile_key);
+  }
+  #[inline]
+  pub fn add_evidence_keys(&mut self, evidence_keys: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<&'b  str>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PolicyStreamRule::VT_EVIDENCE_KEYS, evidence_keys);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> PolicyStreamRuleBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    PolicyStreamRuleBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<PolicyStreamRule<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, PolicyStreamRule::VT_RULE_KEY,"rule_key");
+    self.fbb_.required(o, PolicyStreamRule::VT_STREAM,"stream");
+    self.fbb_.required(o, PolicyStreamRule::VT_YIELD_TO_STREAMS,"yield_to_streams");
+    self.fbb_.required(o, PolicyStreamRule::VT_EVIDENCE_KEYS,"evidence_keys");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for PolicyStreamRule<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("PolicyStreamRule");
+      ds.field("rule_key", &self.rule_key());
+      ds.field("stream", &self.stream());
+      ds.field("participant_classes", &self.participant_classes());
+      ds.field("priority", &self.priority());
+      ds.field("yield_to_streams", &self.yield_to_streams());
+      ds.field("gap_profile_key", &self.gap_profile_key());
+      ds.field("evidence_keys", &self.evidence_keys());
+      ds.finish()
+  }
+}
+pub enum PolicyGateRuleOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct PolicyGateRule<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for PolicyGateRule<'a> {
+  type Inner = PolicyGateRule<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> PolicyGateRule<'a> {
+  pub const VT_RULE_KEY: ::flatbuffers::VOffsetT = 4;
+  pub const VT_GATE: ::flatbuffers::VOffsetT = 6;
+  pub const VT_PARTICIPANT_CLASSES: ::flatbuffers::VOffsetT = 8;
+  pub const VT_INTERPRETATION: ::flatbuffers::VOffsetT = 10;
+  pub const VT_PROHIBITION: ::flatbuffers::VOffsetT = 12;
+  pub const VT_EVIDENCE_KEYS: ::flatbuffers::VOffsetT = 14;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    PolicyGateRule { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args PolicyGateRuleArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<PolicyGateRule<'bldr>> {
+    let mut builder = PolicyGateRuleBuilder::new(_fbb);
+    if let Some(x) = args.evidence_keys { builder.add_evidence_keys(x); }
+    if let Some(x) = args.participant_classes { builder.add_participant_classes(x); }
+    if let Some(x) = args.gate { builder.add_gate(x); }
+    if let Some(x) = args.rule_key { builder.add_rule_key(x); }
+    if let Some(x) = args.prohibition { builder.add_prohibition(x); }
+    if let Some(x) = args.interpretation { builder.add_interpretation(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn rule_key(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(PolicyGateRule::VT_RULE_KEY, None).unwrap()}
+  }
+  #[inline]
+  pub fn gate(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(PolicyGateRule::VT_GATE, None).unwrap()}
+  }
+  #[inline]
+  pub fn participant_classes(&self) -> Option<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>>>(PolicyGateRule::VT_PARTICIPANT_CLASSES, None)}
+  }
+  #[inline]
+  pub fn interpretation(&self) -> Option<GateInterpretation> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<GateInterpretation>(PolicyGateRule::VT_INTERPRETATION, None)}
+  }
+  #[inline]
+  pub fn prohibition(&self) -> Option<GateProhibition> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<GateProhibition>(PolicyGateRule::VT_PROHIBITION, None)}
+  }
+  #[inline]
+  pub fn evidence_keys(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>>>(PolicyGateRule::VT_EVIDENCE_KEYS, None).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for PolicyGateRule<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("rule_key", Self::VT_RULE_KEY, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("gate", Self::VT_GATE, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<&'_ str>>>>("participant_classes", Self::VT_PARTICIPANT_CLASSES, false)?
+     .visit_field::<GateInterpretation>("interpretation", Self::VT_INTERPRETATION, false)?
+     .visit_field::<GateProhibition>("prohibition", Self::VT_PROHIBITION, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<&'_ str>>>>("evidence_keys", Self::VT_EVIDENCE_KEYS, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct PolicyGateRuleArgs<'a> {
+    pub rule_key: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub gate: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub participant_classes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>>>,
+    pub interpretation: Option<GateInterpretation>,
+    pub prohibition: Option<GateProhibition>,
+    pub evidence_keys: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>>>,
+}
+impl<'a> Default for PolicyGateRuleArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    PolicyGateRuleArgs {
+      rule_key: None, // required field
+      gate: None, // required field
+      participant_classes: None,
+      interpretation: None,
+      prohibition: None,
+      evidence_keys: None, // required field
+    }
+  }
+}
+
+pub struct PolicyGateRuleBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> PolicyGateRuleBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_rule_key(&mut self, rule_key: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PolicyGateRule::VT_RULE_KEY, rule_key);
+  }
+  #[inline]
+  pub fn add_gate(&mut self, gate: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PolicyGateRule::VT_GATE, gate);
+  }
+  #[inline]
+  pub fn add_participant_classes(&mut self, participant_classes: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<&'b  str>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PolicyGateRule::VT_PARTICIPANT_CLASSES, participant_classes);
+  }
+  #[inline]
+  pub fn add_interpretation(&mut self, interpretation: GateInterpretation) {
+    self.fbb_.push_slot_always::<GateInterpretation>(PolicyGateRule::VT_INTERPRETATION, interpretation);
+  }
+  #[inline]
+  pub fn add_prohibition(&mut self, prohibition: GateProhibition) {
+    self.fbb_.push_slot_always::<GateProhibition>(PolicyGateRule::VT_PROHIBITION, prohibition);
+  }
+  #[inline]
+  pub fn add_evidence_keys(&mut self, evidence_keys: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<&'b  str>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PolicyGateRule::VT_EVIDENCE_KEYS, evidence_keys);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> PolicyGateRuleBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    PolicyGateRuleBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<PolicyGateRule<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, PolicyGateRule::VT_RULE_KEY,"rule_key");
+    self.fbb_.required(o, PolicyGateRule::VT_GATE,"gate");
+    self.fbb_.required(o, PolicyGateRule::VT_EVIDENCE_KEYS,"evidence_keys");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for PolicyGateRule<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("PolicyGateRule");
+      ds.field("rule_key", &self.rule_key());
+      ds.field("gate", &self.gate());
+      ds.field("participant_classes", &self.participant_classes());
+      ds.field("interpretation", &self.interpretation());
+      ds.field("prohibition", &self.prohibition());
+      ds.field("evidence_keys", &self.evidence_keys());
+      ds.finish()
+  }
+}
+pub enum RightOfWayPolicySetOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct RightOfWayPolicySet<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for RightOfWayPolicySet<'a> {
+  type Inner = RightOfWayPolicySet<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> RightOfWayPolicySet<'a> {
+  pub const VT_POLICY_SET_KEY: ::flatbuffers::VOffsetT = 4;
+  pub const VT_REGULATION: ::flatbuffers::VOffsetT = 6;
+  pub const VT_EVIDENCE: ::flatbuffers::VOffsetT = 8;
+  pub const VT_GAP_PROFILES: ::flatbuffers::VOffsetT = 10;
+  pub const VT_STREAM_RULES: ::flatbuffers::VOffsetT = 12;
+  pub const VT_GATE_RULES: ::flatbuffers::VOffsetT = 14;
+  pub const VT_CANVAS_SELECTION: ::flatbuffers::VOffsetT = 16;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    RightOfWayPolicySet { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args RightOfWayPolicySetArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<RightOfWayPolicySet<'bldr>> {
+    let mut builder = RightOfWayPolicySetBuilder::new(_fbb);
+    if let Some(x) = args.canvas_selection { builder.add_canvas_selection(x); }
+    if let Some(x) = args.gate_rules { builder.add_gate_rules(x); }
+    if let Some(x) = args.stream_rules { builder.add_stream_rules(x); }
+    if let Some(x) = args.gap_profiles { builder.add_gap_profiles(x); }
+    if let Some(x) = args.evidence { builder.add_evidence(x); }
+    if let Some(x) = args.regulation { builder.add_regulation(x); }
+    if let Some(x) = args.policy_set_key { builder.add_policy_set_key(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn policy_set_key(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(RightOfWayPolicySet::VT_POLICY_SET_KEY, None).unwrap()}
+  }
+  #[inline]
+  pub fn regulation(&self) -> AccessRegulation<'a> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<AccessRegulation>>(RightOfWayPolicySet::VT_REGULATION, None).unwrap()}
+  }
+  #[inline]
+  pub fn evidence(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PolicyEvidence<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PolicyEvidence>>>>(RightOfWayPolicySet::VT_EVIDENCE, None).unwrap()}
+  }
+  #[inline]
+  pub fn gap_profiles(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PolicyGapProfile<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PolicyGapProfile>>>>(RightOfWayPolicySet::VT_GAP_PROFILES, None).unwrap()}
+  }
+  #[inline]
+  pub fn stream_rules(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PolicyStreamRule<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PolicyStreamRule>>>>(RightOfWayPolicySet::VT_STREAM_RULES, None).unwrap()}
+  }
+  #[inline]
+  pub fn gate_rules(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PolicyGateRule<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PolicyGateRule>>>>(RightOfWayPolicySet::VT_GATE_RULES, None).unwrap()}
+  }
+  #[inline]
+  pub fn canvas_selection(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(RightOfWayPolicySet::VT_CANVAS_SELECTION, None)}
+  }
+}
+
+impl ::flatbuffers::Verifiable for RightOfWayPolicySet<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("policy_set_key", Self::VT_POLICY_SET_KEY, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<AccessRegulation>>("regulation", Self::VT_REGULATION, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<PolicyEvidence>>>>("evidence", Self::VT_EVIDENCE, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<PolicyGapProfile>>>>("gap_profiles", Self::VT_GAP_PROFILES, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<PolicyStreamRule>>>>("stream_rules", Self::VT_STREAM_RULES, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<PolicyGateRule>>>>("gate_rules", Self::VT_GATE_RULES, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("canvas_selection", Self::VT_CANVAS_SELECTION, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct RightOfWayPolicySetArgs<'a> {
+    pub policy_set_key: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub regulation: Option<::flatbuffers::WIPOffset<AccessRegulation<'a>>>,
+    pub evidence: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PolicyEvidence<'a>>>>>,
+    pub gap_profiles: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PolicyGapProfile<'a>>>>>,
+    pub stream_rules: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PolicyStreamRule<'a>>>>>,
+    pub gate_rules: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PolicyGateRule<'a>>>>>,
+    pub canvas_selection: Option<::flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for RightOfWayPolicySetArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    RightOfWayPolicySetArgs {
+      policy_set_key: None, // required field
+      regulation: None, // required field
+      evidence: None, // required field
+      gap_profiles: None, // required field
+      stream_rules: None, // required field
+      gate_rules: None, // required field
+      canvas_selection: None,
+    }
+  }
+}
+
+pub struct RightOfWayPolicySetBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RightOfWayPolicySetBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_policy_set_key(&mut self, policy_set_key: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RightOfWayPolicySet::VT_POLICY_SET_KEY, policy_set_key);
+  }
+  #[inline]
+  pub fn add_regulation(&mut self, regulation: ::flatbuffers::WIPOffset<AccessRegulation<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<AccessRegulation>>(RightOfWayPolicySet::VT_REGULATION, regulation);
+  }
+  #[inline]
+  pub fn add_evidence(&mut self, evidence: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<PolicyEvidence<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RightOfWayPolicySet::VT_EVIDENCE, evidence);
+  }
+  #[inline]
+  pub fn add_gap_profiles(&mut self, gap_profiles: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<PolicyGapProfile<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RightOfWayPolicySet::VT_GAP_PROFILES, gap_profiles);
+  }
+  #[inline]
+  pub fn add_stream_rules(&mut self, stream_rules: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<PolicyStreamRule<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RightOfWayPolicySet::VT_STREAM_RULES, stream_rules);
+  }
+  #[inline]
+  pub fn add_gate_rules(&mut self, gate_rules: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<PolicyGateRule<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RightOfWayPolicySet::VT_GATE_RULES, gate_rules);
+  }
+  #[inline]
+  pub fn add_canvas_selection(&mut self, canvas_selection: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RightOfWayPolicySet::VT_CANVAS_SELECTION, canvas_selection);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> RightOfWayPolicySetBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    RightOfWayPolicySetBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<RightOfWayPolicySet<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, RightOfWayPolicySet::VT_POLICY_SET_KEY,"policy_set_key");
+    self.fbb_.required(o, RightOfWayPolicySet::VT_REGULATION,"regulation");
+    self.fbb_.required(o, RightOfWayPolicySet::VT_EVIDENCE,"evidence");
+    self.fbb_.required(o, RightOfWayPolicySet::VT_GAP_PROFILES,"gap_profiles");
+    self.fbb_.required(o, RightOfWayPolicySet::VT_STREAM_RULES,"stream_rules");
+    self.fbb_.required(o, RightOfWayPolicySet::VT_GATE_RULES,"gate_rules");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for RightOfWayPolicySet<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("RightOfWayPolicySet");
+      ds.field("policy_set_key", &self.policy_set_key());
+      ds.field("regulation", &self.regulation());
+      ds.field("evidence", &self.evidence());
+      ds.field("gap_profiles", &self.gap_profiles());
+      ds.field("stream_rules", &self.stream_rules());
+      ds.field("gate_rules", &self.gate_rules());
+      ds.field("canvas_selection", &self.canvas_selection());
+      ds.finish()
+  }
+}
 pub enum RoadEditingSourceOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-/// v3 root。road_alignments 是编辑状态记录；其余 23 个向量与可构造 Identity 种类对应。
+/// v4 root。road_alignments 是编辑状态记录；24 个声明向量对应稳定实体种类。
 /// field id 连续；`conflict_zone_regions` 是 owner-local 空间记录，不分配 StableId。
 pub struct RoadEditingSource<'a> {
   pub _tab: ::flatbuffers::Table<'a>,
@@ -7867,6 +9052,7 @@ impl<'a> RoadEditingSource<'a> {
   pub const VT_CONFLICT_ZONES: ::flatbuffers::VOffsetT = 56;
   pub const VT_PARTICIPANT_STREAMS: ::flatbuffers::VOffsetT = 58;
   pub const VT_CONFLICT_ZONE_REGIONS: ::flatbuffers::VOffsetT = 60;
+  pub const VT_RIGHT_OF_WAY_POLICY_SETS: ::flatbuffers::VOffsetT = 62;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -7878,6 +9064,7 @@ impl<'a> RoadEditingSource<'a> {
     args: &'args RoadEditingSourceArgs<'args>
   ) -> ::flatbuffers::WIPOffset<RoadEditingSource<'bldr>> {
     let mut builder = RoadEditingSourceBuilder::new(_fbb);
+    if let Some(x) = args.right_of_way_policy_sets { builder.add_right_of_way_policy_sets(x); }
     if let Some(x) = args.conflict_zone_regions { builder.add_conflict_zone_regions(x); }
     if let Some(x) = args.participant_streams { builder.add_participant_streams(x); }
     if let Some(x) = args.conflict_zones { builder.add_conflict_zones(x); }
@@ -8114,6 +9301,13 @@ impl<'a> RoadEditingSource<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictZoneRegion>>>>(RoadEditingSource::VT_CONFLICT_ZONE_REGIONS, None).unwrap()}
   }
+  #[inline]
+  pub fn right_of_way_policy_sets(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<RightOfWayPolicySet<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<RightOfWayPolicySet>>>>(RoadEditingSource::VT_RIGHT_OF_WAY_POLICY_SETS, None).unwrap()}
+  }
 }
 
 impl ::flatbuffers::Verifiable for RoadEditingSource<'_> {
@@ -8151,6 +9345,7 @@ impl ::flatbuffers::Verifiable for RoadEditingSource<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ConflictZone>>>>("conflict_zones", Self::VT_CONFLICT_ZONES, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ParticipantStream>>>>("participant_streams", Self::VT_PARTICIPANT_STREAMS, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ConflictZoneRegion>>>>("conflict_zone_regions", Self::VT_CONFLICT_ZONE_REGIONS, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<RightOfWayPolicySet>>>>("right_of_way_policy_sets", Self::VT_RIGHT_OF_WAY_POLICY_SETS, true)?
      .finish();
     Ok(())
   }
@@ -8185,6 +9380,7 @@ pub struct RoadEditingSourceArgs<'a> {
     pub conflict_zones: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictZone<'a>>>>>,
     pub participant_streams: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParticipantStream<'a>>>>>,
     pub conflict_zone_regions: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictZoneRegion<'a>>>>>,
+    pub right_of_way_policy_sets: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<RightOfWayPolicySet<'a>>>>>,
 }
 impl<'a> Default for RoadEditingSourceArgs<'a> {
   #[inline]
@@ -8219,6 +9415,7 @@ impl<'a> Default for RoadEditingSourceArgs<'a> {
       conflict_zones: None, // required field
       participant_streams: None, // required field
       conflict_zone_regions: None, // required field
+      right_of_way_policy_sets: None, // required field
     }
   }
 }
@@ -8345,6 +9542,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RoadEditingSourceBuilder<'a, 
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RoadEditingSource::VT_CONFLICT_ZONE_REGIONS, conflict_zone_regions);
   }
   #[inline]
+  pub fn add_right_of_way_policy_sets(&mut self, right_of_way_policy_sets: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<RightOfWayPolicySet<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RoadEditingSource::VT_RIGHT_OF_WAY_POLICY_SETS, right_of_way_policy_sets);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> RoadEditingSourceBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     RoadEditingSourceBuilder {
@@ -8381,6 +9582,7 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RoadEditingSourceBuilder<'a, 
     self.fbb_.required(o, RoadEditingSource::VT_CONFLICT_ZONES,"conflict_zones");
     self.fbb_.required(o, RoadEditingSource::VT_PARTICIPANT_STREAMS,"participant_streams");
     self.fbb_.required(o, RoadEditingSource::VT_CONFLICT_ZONE_REGIONS,"conflict_zone_regions");
+    self.fbb_.required(o, RoadEditingSource::VT_RIGHT_OF_WAY_POLICY_SETS,"right_of_way_policy_sets");
     ::flatbuffers::WIPOffset::new(o.value())
   }
 }
@@ -8417,6 +9619,7 @@ impl ::core::fmt::Debug for RoadEditingSource<'_> {
       ds.field("conflict_zones", &self.conflict_zones());
       ds.field("participant_streams", &self.participant_streams());
       ds.field("conflict_zone_regions", &self.conflict_zone_regions());
+      ds.field("right_of_way_policy_sets", &self.right_of_way_policy_sets());
       ds.finish()
   }
 }

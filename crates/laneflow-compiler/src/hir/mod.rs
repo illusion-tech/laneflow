@@ -22,8 +22,10 @@ mod control;
 mod cross_section;
 mod junction;
 mod parking;
+mod policy;
 mod signal;
 mod spatial;
+pub(crate) use policy::HirPolicy;
 
 #[cfg(test)]
 mod tests;
@@ -164,6 +166,7 @@ pub(crate) type HirParticipantStreamKey = ArenaKey<HirParticipantStreamTag>;
 /// `peak_controlled_live_bytes` 另保存资源预检已经计算的输入、查找表和暂存区共存峰值。
 #[derive(Debug, PartialEq)]
 pub(crate) struct HirUnit {
+    pub(crate) policies: Box<[HirPolicy]>,
     /// 全编译单元唯一的道路几何编译档；无 RoadEditing 规范几何时为 `None`。
     pub(crate) geometry_profiles: Option<GeometryCompilationProfiles>,
     pub(crate) modules: Box<[HirModule]>,
@@ -253,6 +256,7 @@ impl HirParts {
     /// 已经完成，本函数不再引入新的失败点。
     fn finish(self, plan: &HirBuildPlan) -> HirUnit {
         HirUnit {
+            policies: Box::default(),
             geometry_profiles: self.spatial.geometry_profiles,
             modules: self.base.modules.into_boxed_slice(),
             imports: self.base.imports.into_boxed_slice(),
@@ -431,9 +435,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     )?;
     // 完整规范前像只服务本阶段的重复/碰撞判断。此后各表仅保留 16 字节有类型 ID，
     // 避免在 HIR 与 MIR 中复制可由稳定键和父项重建的 identity envelope。
-    drop(identities);
-
-    Ok(HirParts {
+    let mut hir = HirParts {
         base,
         cross_section,
         junction,
@@ -444,7 +446,10 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         spatial,
         access,
     }
-    .finish(&plan))
+    .finish(&plan);
+    policy::bind(unit, &mut hir, &mut identities)?;
+    drop(identities);
+    Ok(hir)
 }
 
 /// 在任何 HIR 语义诊断产生前，核对全部模块、导入、声明与关系位置的文档所有权。
@@ -490,6 +495,7 @@ fn lane_edge_declaration(declaration: &TypedAstDeclaration) -> Option<&LaneEdgeD
 
 fn declaration_header(declaration: &TypedAstDeclaration) -> &crate::declaration::DeclarationHeader {
     match declaration {
+        TypedAstDeclaration::RightOfWayPolicySet(declaration) => &declaration.header,
         TypedAstDeclaration::LaneEdge(declaration) => &declaration.header,
         TypedAstDeclaration::RoadCorridor(declaration) => &declaration.header,
         TypedAstDeclaration::RoadSection(declaration) => &declaration.header,

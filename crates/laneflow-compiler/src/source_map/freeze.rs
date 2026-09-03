@@ -1557,9 +1557,109 @@ pub(crate) fn freeze_source_map(
             ),
         ));
     }
-    // W2 在此接入两个正式前端的完整策略输入；空输入仍走同一受检冻结入口。
-    let (policy_sources, policy_owned, _) =
-        policy::freeze_policy_sources(&unit, &[], sizing.controlled_live_bytes, output_bytes)?;
+    let direction_count = mir
+        .movements
+        .iter()
+        .filter(|movement| movement.direction_source.is_some())
+        .count();
+    let mut policy_count = direction_count;
+    let mut key_bytes = 0_u64;
+    for p in &mir.policies {
+        policy_count = policy_count
+            .saturating_add(1)
+            .saturating_add(p.value.evidence.len())
+            .saturating_add(p.value.gaps.len())
+            .saturating_add(p.value.streams.len())
+            .saturating_add(p.value.gates.len());
+        for key in p
+            .value
+            .evidence
+            .iter()
+            .map(|v| &v.key)
+            .chain(p.value.gaps.iter().map(|v| &v.key))
+            .chain(p.value.streams.iter().map(|v| &v.key))
+            .chain(p.value.gates.iter().map(|v| &v.key))
+        {
+            key_bytes = key_bytes.saturating_add(key.len() as u64);
+        }
+    }
+    let input_bytes = (policy_count as u64)
+        .saturating_mul(size_of::<policy::PolicySourceInput<'_>>() as u64)
+        .saturating_add(key_bytes);
+    for (dimension, actual) in [
+        (
+            CompileLimitDimension::StageScratchBytes,
+            sizing.scratch_bytes.saturating_add(input_bytes),
+        ),
+        (
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            sizing.controlled_live_bytes.saturating_add(input_bytes),
+        ),
+    ] {
+        let limit = unit.limits.value(dimension);
+        if actual > limit {
+            return Err(DiagnosticBundle::single(
+                Diagnostic::compile_limit_exceeded(dimension, limit, actual),
+            ));
+        }
+    }
+    let mut policy_inputs = Vec::with_capacity(policy_count);
+    for movement in &mir.movements {
+        if let Some(source) = &movement.direction_source {
+            policy_inputs.push(policy::PolicySourceInput {
+                target: PolicySourceTarget::MovementDirection {
+                    id: movement.stable_id,
+                },
+                owner_module: movement.module.raw(),
+                primary: source,
+                contributing: &[],
+            });
+        }
+    }
+    for (index, p) in mir.policies.iter().enumerate() {
+        let crate::declaration::TypedAstDeclaration::RightOfWayPolicySet(source) =
+            &unit.modules[p.origin.module as usize].declarations[p.origin.declaration as usize]
+        else {
+            unreachable!("policy origin bound by HIR");
+        };
+        debug_assert_eq!(p.value.id, frozen_lir.lir.policies[index].value.id);
+        policy_inputs.push(policy::PolicySourceInput {
+            target: PolicySourceTarget::Declaration {
+                id: p.value.id,
+                ordinal: frozen_lir.lir.policies[index].ordinal,
+            },
+            owner_module: p.origin.module,
+            primary: &source.header.span,
+            contributing: &source.contributing,
+        });
+        macro_rules! members {
+            ($values:expr, $kind:ident) => {
+                for member in $values {
+                    policy_inputs.push(policy::PolicySourceInput {
+                        target: PolicySourceTarget::Member {
+                            owner: p.value.id,
+                            kind: laneflow_static_contract::PolicyLocalMemberKind::$kind,
+                            key: member.key.as_ref().into(),
+                        },
+                        owner_module: p.origin.module,
+                        primary: &member.source.primary,
+                        contributing: &member.source.contributing,
+                    });
+                }
+            };
+        }
+        members!(&source.evidence, Evidence);
+        members!(&source.gap_profiles, GapProfile);
+        members!(&source.stream_rules, StreamRule);
+        members!(&source.gate_rules, GateRule);
+    }
+    let (policy_sources, policy_owned, _) = policy::freeze_policy_sources(
+        &unit,
+        &policy_inputs,
+        sizing.controlled_live_bytes.saturating_add(input_bytes),
+        output_bytes,
+        sizing.scratch_bytes.saturating_add(input_bytes),
+    )?;
     let (source_modules, source_documents) = unit.into_source_descriptors();
     Ok(ValidatedSourceMapInput {
         policy_sources,
@@ -1598,7 +1698,10 @@ pub(crate) fn freeze_source_map(
         access_rule_sources: access_rule_sources.into_boxed_slice(),
         access_relation_sources: access_relation_sources.into_boxed_slice(),
         junction_relation_sources: junction_relation_sources.into_boxed_slice(),
-        peak_controlled_live_bytes: sizing.controlled_live_bytes.saturating_add(policy_owned),
+        peak_controlled_live_bytes: sizing
+            .controlled_live_bytes
+            .saturating_add(input_bytes)
+            .saturating_add(policy_owned),
     })
 }
 

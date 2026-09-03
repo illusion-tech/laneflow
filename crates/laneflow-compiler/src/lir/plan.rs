@@ -229,6 +229,9 @@ impl LirFreezePlan {
         // `waiting_zones` / `maneuver_gates` 在信号段前与数组末尾重复累加。#374 重建
         // 精确账本前原样保留。
         let lir_record_count = [
+            mir.policies
+                .iter()
+                .fold(0_u64, |n, p| n.saturating_add(p.value.records())),
             lane_edge_count,
             successor_count,
             cross_section.road_corridors,
@@ -284,6 +287,7 @@ impl LirFreezePlan {
         .fold(0_u64, u64::saturating_add);
         let identity_field_count = lane_edge_count
             .saturating_mul(2)
+            .saturating_add((mir.policies.len() as u64).saturating_mul(2))
             .saturating_add(cross_section.road_corridors.saturating_mul(2))
             .saturating_add(
                 cross_section
@@ -417,6 +421,11 @@ impl LirFreezePlan {
         // 当前平台对齐冒充规范输出量；受控存续内存则按真实堆容量请求单独计算。
         let output_bytes = lane_edge_count
             .saturating_mul(LIR_LANE_EDGE_LOGICAL_BYTES)
+            .saturating_add(
+                mir.policies
+                    .iter()
+                    .fold(0_u64, |n, p| n.saturating_add(p.value.logical_bytes())),
+            )
             .saturating_add(successor_count.saturating_mul(LIR_SUCCESSOR_LOGICAL_BYTES))
             .saturating_add(identity_field_count.saturating_mul(LIR_IDENTITY_FIELD_LOGICAL_BYTES))
             .saturating_add(identity_field_byte_count)
@@ -654,6 +663,7 @@ impl LirFreezePlan {
             .saturating_add(LIR_SEMANTIC_DIGEST_BYTES)
             .saturating_add(LIR_GEOMETRY_PROFILE_LOGICAL_BYTES);
         let output_owned_bytes = requested_bytes::<LirLaneEdge>(lane_edge_count)
+            .saturating_add(super::policy::bytes(mir))
             .saturating_add(requested_bytes::<LaneEdgeOrdinal>(successor_count))
             .saturating_add(requested_bytes::<LirIdentityField>(identity_field_count))
             .saturating_add(identity_field_byte_count)

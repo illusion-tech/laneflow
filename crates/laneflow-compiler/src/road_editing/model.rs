@@ -1030,6 +1030,7 @@ pub struct MovementInput {
     junction: JunctionReference,
     directed_entry_approach_key: Box<str>,
     directed_exit_approach_key: Box<str>,
+    turn_direction: Option<crate::ManeuverDirection>,
     canvas_selection: Option<Box<str>>,
 }
 
@@ -1057,6 +1058,7 @@ impl MovementInput {
             junction,
             directed_entry_approach_key: directed_entry_approach_key.into_boxed_str(),
             directed_exit_approach_key: directed_exit_approach_key.into_boxed_str(),
+            turn_direction: None,
             canvas_selection: None,
         })
     }
@@ -1082,6 +1084,20 @@ impl MovementInput {
     }
 }
 impl_canvas!(MovementInput);
+
+impl MovementInput {
+    /// 设置显式机动方向，不改变稳定身份。
+    #[must_use]
+    pub const fn with_turn_direction(mut self, direction: crate::ManeuverDirection) -> Self {
+        self.turn_direction = Some(direction);
+        self
+    }
+
+    #[must_use]
+    pub const fn turn_direction(&self) -> Option<crate::ManeuverDirection> {
+        self.turn_direction
+    }
+}
 
 /// 路口内一条机动路径声明。
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1856,52 +1872,7 @@ pub enum RoadEditingAccessTarget {
     ManeuverPath(ManeuverPathReference),
 }
 
-/// 准入规则携带的可选法规来源。
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AccessRegulationInput {
-    jurisdiction: Box<str>,
-    version: Box<str>,
-    source: Option<Box<str>>,
-}
-
-impl AccessRegulationInput {
-    pub fn try_new(
-        jurisdiction: impl Into<String>,
-        version: impl Into<String>,
-    ) -> Result<Self, DiagnosticBundle> {
-        let jurisdiction = jurisdiction.into();
-        let version = version.into();
-        validate_non_empty_text(&jurisdiction, "accessRegulation.jurisdiction")?;
-        validate_non_empty_text(&version, "accessRegulation.version")?;
-        Ok(Self {
-            jurisdiction: jurisdiction.into_boxed_str(),
-            version: version.into_boxed_str(),
-            source: None,
-        })
-    }
-
-    pub fn with_source(mut self, source: impl Into<String>) -> Result<Self, DiagnosticBundle> {
-        let source = source.into();
-        validate_non_empty_text(&source, "accessRegulation.source")?;
-        self.source = Some(source.into_boxed_str());
-        Ok(self)
-    }
-
-    #[must_use]
-    pub fn jurisdiction(&self) -> &str {
-        &self.jurisdiction
-    }
-
-    #[must_use]
-    pub fn version(&self) -> &str {
-        &self.version
-    }
-
-    #[must_use]
-    pub fn source(&self) -> Option<&str> {
-        self.source.as_deref()
-    }
-}
+pub use crate::RegulationIdentity;
 
 /// 静态准入规则声明。
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1910,7 +1881,7 @@ pub struct AccessRuleInput {
     target: RoadEditingAccessTarget,
     effect: AccessEffect,
     participant_classes: Box<[ParticipantClassReference]>,
-    regulation: Option<AccessRegulationInput>,
+    regulation: Option<RegulationIdentity>,
     priority: i32,
     canvas_selection: Option<Box<str>>,
 }
@@ -1948,7 +1919,7 @@ impl AccessRuleInput {
     }
 
     #[must_use]
-    pub fn with_regulation(mut self, regulation: AccessRegulationInput) -> Self {
+    pub fn with_regulation(mut self, regulation: RegulationIdentity) -> Self {
         self.regulation = Some(regulation);
         self
     }
@@ -1974,7 +1945,7 @@ impl AccessRuleInput {
     }
 
     #[must_use]
-    pub const fn regulation(&self) -> Option<&AccessRegulationInput> {
+    pub const fn regulation(&self) -> Option<&RegulationIdentity> {
         self.regulation.as_ref()
     }
 
@@ -2395,9 +2366,13 @@ impl CanonicalFrameInput {
 }
 impl_canvas!(CanonicalFrameInput);
 
-/// Road Editing Source 的 23 个可构造声明种类。
+mod policy;
+pub use policy::*;
+
+/// Road Editing Source 的 24 个可构造声明种类。
 #[derive(Clone, Debug, PartialEq)]
 pub enum RoadEditingDeclaration {
+    RightOfWayPolicySet(RightOfWayPolicySetInput),
     RoadCorridor(RoadCorridorInput),
     RoadSection(RoadSectionInput),
     AuthoringLane(AuthoringLaneInput),
@@ -2428,6 +2403,7 @@ impl RoadEditingDeclaration {
     #[must_use]
     pub const fn entity_kind(&self) -> EntityKind {
         match self {
+            Self::RightOfWayPolicySet(_) => EntityKind::RightOfWayPolicySet,
             Self::RoadCorridor(_) => EntityKind::RoadCorridor,
             Self::RoadSection(_) => EntityKind::RoadSection,
             Self::AuthoringLane(_) => EntityKind::AuthoringLane,
@@ -2458,6 +2434,7 @@ impl RoadEditingDeclaration {
     #[must_use]
     pub fn local_key(&self) -> &str {
         match self {
+            Self::RightOfWayPolicySet(value) => value.policy_set_key(),
             Self::RoadCorridor(value) => value.road_corridor_key(),
             Self::RoadSection(value) => value.road_section_key(),
             Self::AuthoringLane(value) => value.authoring_lane_key(),
@@ -2497,7 +2474,8 @@ impl RoadEditingDeclaration {
             Self::FacilityBand(value) => value.road_corridor().components().collect(),
             Self::ConflictZone(value) => value.junction().components().collect(),
             Self::ParticipantStream(value) => value.junction().components().collect(),
-            Self::RoadCorridor(_)
+            Self::RightOfWayPolicySet(_)
+            | Self::RoadCorridor(_)
             | Self::LaneEdge(_)
             | Self::Junction(_)
             | Self::StopLine(_)
@@ -2869,7 +2847,7 @@ mod tests {
 
     #[test]
     fn access_regulation_provenance_accepts_bounded_unicode_text() {
-        let regulation = AccessRegulationInput::try_new("中国", "二〇二六")
+        let regulation = RegulationIdentity::try_new("中国", "二〇二六")
             .expect("unicode regulation")
             .with_source("法规库")
             .expect("unicode source");

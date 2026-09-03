@@ -26,6 +26,7 @@ use crate::{
 };
 
 type StringVector<'a> = Vector<'a, ForwardsUOffset<&'a str>>;
+mod policy;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct RoadEditingPreflightCounts {
@@ -392,6 +393,7 @@ pub(crate) fn preflight_source(
     validate_access_and_profiles(&mut usage, root, namespace, imports, limits, expected_key)?;
     validate_routes_and_frames(&mut usage, root, namespace, imports, limits, expected_key)?;
     validate_conflicts_and_regions(&mut usage, root, namespace, imports, limits, expected_key)?;
+    policy::validate(&mut usage, root, namespace, imports, limits, expected_key)?;
 
     let usage = usage.validate(limits)?;
     validate_owner_closure(root, expected_key)?;
@@ -1478,6 +1480,12 @@ fn validate_movements(
         expected_key,
     )?;
     for value in root.movements() {
+        if value
+            .turn_direction()
+            .is_some_and(|direction| crate::ManeuverDirection::from_code(direction.0).is_none())
+        {
+            return Err(invalid_combination("movement.turnDirection", expected_key));
+        }
         usage.charge_declaration(EntityKind::Movement);
         usage.charge_token(
             value.movement_key(),

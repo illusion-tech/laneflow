@@ -5,15 +5,15 @@ use crate::declaration::{
 };
 use crate::road_editing as editing;
 use crate::{
-    AccessRegulationInput, AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput,
-    CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnit, CompilationUnitBuilder,
-    CompileLimits, CorridorElementReference, FacilityBandInput, FacilityBandReference,
-    GeometryAccuracyProfile, GeometryDirectionProfile, IidmVehicleProfileInput, JunctionInput,
-    JunctionReference, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference, LaneGroupInput,
-    LaneGroupReference, ManeuverGateInput, ManeuverGateReference, ManeuverPathInput,
-    ManeuverPathReference, MovementInput, MovementReference, ParkingFacilityInput,
-    ParkingFacilityReference, ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput,
-    ParticipantClassInput, ParticipantClassReference, RoadCorridorInput, RoadSectionInput,
+    AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput, CanonicalFrameInput,
+    CanonicalPoint3F32Input, CompilationUnit, CompilationUnitBuilder, CompileLimits,
+    CorridorElementReference, FacilityBandInput, FacilityBandReference, GeometryAccuracyProfile,
+    GeometryDirectionProfile, IidmVehicleProfileInput, JunctionInput, JunctionReference,
+    LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference,
+    ManeuverGateInput, ManeuverGateReference, ManeuverPathInput, ManeuverPathReference,
+    MovementInput, MovementReference, ParkingFacilityInput, ParkingFacilityReference,
+    ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput,
+    ParticipantClassReference, RegulationIdentity, RoadCorridorInput, RoadSectionInput,
     RoadSectionReference, SignalControlInput, SignalControllerInput, SignalGroupInput,
     SignalGroupReference, SignalGroupStateInput, SignalPhaseInput, SourceModuleHeader,
     SourceModuleHeaderInput, StopLineInput, StopLineReference, SyntheticModule,
@@ -256,6 +256,7 @@ fn portable_fixture_full_spatial_module() -> SyntheticModule {
         })
         .unwrap()
         .add_movement(MovementInput {
+            turn_direction: None,
             movement_key: "movement-through",
             junction: JunctionReference::local("junction-main"),
             directed_entry_approach_key: "approach-westbound",
@@ -321,7 +322,7 @@ fn portable_fixture_full_spatial_module() -> SyntheticModule {
             target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("entry")),
             effect: AccessEffect::Allow,
             participant_classes: &[ParticipantClassReference::local("passenger-car")],
-            regulation: Some(AccessRegulationInput {
+            regulation: Some(RegulationIdentity {
                 jurisdiction: "CN-test",
                 version: "2026-01",
                 source: Some("portable fixture"),
@@ -346,6 +347,22 @@ fn portable_fixture_full_spatial_module() -> SyntheticModule {
 fn portable_fixture_full_spatial_conflict_source(
     limits: &CompileLimits,
 ) -> editing::OwnedRoadEditingSourceBuffer {
+    editing::RoadEditingSourceWriter::new(limits)
+        .write(policy_topology_builder(limits).finish().unwrap())
+        .unwrap()
+}
+
+pub(crate) fn policy_topology_builder(
+    limits: &CompileLimits,
+) -> editing::RoadEditingSourceModuleBuilder<'_> {
+    policy_topology_variant(limits, None, None)
+}
+
+pub(crate) fn policy_topology_variant(
+    limits: &CompileLimits,
+    direction: Option<crate::ManeuverDirection>,
+    aspects: Option<[SignalAspect; 2]>,
+) -> editing::RoadEditingSourceModuleBuilder<'_> {
     const DOCUMENT_KEY: &str = "portable-full-spatial-conflict.document";
     const JUNCTION: &str = "conflict-junction";
     const ZONE: &str = "conflict-zone";
@@ -506,16 +523,18 @@ fn portable_fixture_full_spatial_conflict_source(
             "admission",
         )
         .unwrap();
+        let mut movement_input = editing::MovementInput::try_new(
+            &movement_key,
+            junction.clone(),
+            format!("approach-{suffix}-entry"),
+            format!("approach-{suffix}-exit"),
+        )
+        .unwrap();
+        if let Some(direction) = direction {
+            movement_input = movement_input.with_turn_direction(direction);
+        }
         builder
-            .add_declaration(editing::RoadEditingDeclaration::Movement(
-                editing::MovementInput::try_new(
-                    &movement_key,
-                    junction.clone(),
-                    format!("approach-{suffix}-entry"),
-                    format!("approach-{suffix}-exit"),
-                )
-                .unwrap(),
-            ))
+            .add_declaration(editing::RoadEditingDeclaration::Movement(movement_input))
             .unwrap()
             .add_declaration(editing::RoadEditingDeclaration::ManeuverPath(
                 editing::ManeuverPathInput::try_new(
@@ -538,7 +557,14 @@ fn portable_fixture_full_spatial_conflict_source(
                     path.clone(),
                     0,
                     editing::StopLineReference::local(&stop_key).unwrap(),
-                    editing::RoadEditingSignalControl::None,
+                    if aspects.is_some() {
+                        editing::RoadEditingSignalControl::SignalGroup(
+                            editing::SignalGroupReference::local(format!("group-{suffix}"))
+                                .unwrap(),
+                        )
+                    } else {
+                        editing::RoadEditingSignalControl::None
+                    },
                 )
                 .unwrap(),
             ))
@@ -576,9 +602,53 @@ fn portable_fixture_full_spatial_conflict_source(
         )
         .unwrap();
 
-    editing::RoadEditingSourceWriter::new(limits)
-        .write(builder.finish().unwrap())
-        .unwrap()
+    if let Some(aspects) = aspects {
+        let mut groups = Vec::new();
+        let mut states = Vec::new();
+        for (suffix, aspect) in ["a", "b"].into_iter().zip(aspects) {
+            let key = format!("group-{suffix}");
+            builder
+                .add_declaration(editing::RoadEditingDeclaration::SignalGroup(
+                    editing::SignalGroupInput::try_new(&key).unwrap(),
+                ))
+                .unwrap();
+            let group = editing::SignalGroupReference::local(key).unwrap();
+            states.push(
+                editing::RoadEditingSignalPhaseState::try_new(group.clone(), aspect).unwrap(),
+            );
+            groups.push(group);
+        }
+        builder
+            .add_declaration(editing::RoadEditingDeclaration::SignalController(
+                editing::SignalControllerInput::try_new(
+                    "controller",
+                    0,
+                    groups,
+                    vec![
+                        editing::SignalPhaseReference::owner_scoped(
+                            vec!["controller".into()],
+                            "phase",
+                        )
+                        .unwrap(),
+                    ],
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+        builder
+            .add_declaration(editing::RoadEditingDeclaration::SignalPhase(
+                editing::SignalPhaseInput::try_new(
+                    "phase",
+                    1000,
+                    states,
+                    editing::SignalControllerReference::local("controller").unwrap(),
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+    }
+
+    builder
 }
 
 pub(crate) fn full_spatial_portable_fixture_unit() -> CompilationUnit {
@@ -734,15 +804,15 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         candidate.canonical_artifact().object_key(),
-        "sha256/b8209061c8a0b112b95551d0c62c5470f07f8f43e2271efe95fd775415d521d2"
+        "sha256/ea3b7361fe736352cc69a6d751ff1ba2a6a1ea8df430ce4a1ed1b343e1cc8c77"
     );
     assert_eq!(
         candidate.source_map().object_key(),
-        "sha256/adb1f581805c9680155d2eb8e70514d49621f8812527bc1646f26b0302b5c97f"
+        "sha256/8002ebb9e98e4672f444d7d43f39d2dc0244c63eb63a1ced86a46ed7a63ac813"
     );
     assert_eq!(
         candidate.semantic_diff().object_key(),
-        "sha256/91a8746b14e930aa7ed6c791eb7035be7be1677e6ae524e11405db576bb97ff7"
+        "sha256/fc4fa517f00772708ab0e26f9fc31d45b68edcc24264f8704f15bfa7031a2cee"
     );
     assert_eq!(
         candidate.network_revision(),
