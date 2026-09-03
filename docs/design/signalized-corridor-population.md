@@ -1,8 +1,8 @@
 # Signalized Corridor Population
 
 **文档状态**: Accepted（#203 G1；#475 Runtime 回流）<br>
-**最后更新**: 2026-08-26<br>
-**适用范围**: current v0.10 signalized-corridor catalog 0.3 人口/回流 policy；
+**最后更新**: 2026-09-04<br>
+**适用范围**: current v0.10 signalized-corridor catalog 0.4 人口/回流 policy；
 caller-owned authority 继续继承 ADR 0016。catalog 字符串在 prepare 绑到共享路网修订
 （#472）；50–200 原子替换由 #475 交付。
 
@@ -11,7 +11,8 @@ caller-owned authority 继续继承 ADR 0016。catalog 字符串在 prepare 绑�
 - [`example-scenarios.md`](example-scenarios.md)
 - [`signalized-corridor-protected-turning.md`](signalized-corridor-protected-turning.md)
 - [`../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`](../adr/0016-scenario-population-and-recycle-lifecycle-authority.md)
-- [`core-runtime.md`](core-runtime.md)
+- [`traffic-runtime-shared-consumption.md`](traffic-runtime-shared-consumption.md)
+- [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md)
 - [`bevy-reference-adapter.md`](bevy-reference-adapter.md)
 
 ## 1. 边界与依赖
@@ -44,32 +45,30 @@ generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate �
 
 ## 2. 两阶段启动
 
-#472 现行 prepare 绑定是 `validate(catalog)` 之后对 **某一** `TrafficWorld`
-`register_route`。编制字符串经 Identity v1 派生 `StableId128`，再查该 world 已安装
-修订的 `SharedIdentityIndex`。可运行世界由 LFCA 安装，不再经过已拆除的 JSON/Core
-运行时入口。
-
-#475 现行启动协议：
-
 启动使用 catalog `bind`、`CorridorPopulationPrepare::prepare` 与 controller `bind`：
 
-1. caller 安装共享路网修订并 `TrafficWorld::install`，在内存中解析 catalog；
-2. `validate` 对 catalog 0.3 完成交叉引用与边键校验；`bind` 在 **该**
-   `TrafficWorld` 上解析边序号、`register_route`，并把 `RouteHandle` 钉到
-   `NetworkRevisionId` **以及 `install` 颁发的不透明、move 稳定世界令牌**。
-   不得用指针/地址比较当 world 身份。同一修订上的第二个 world 必须重新注册，
-   不得复用另一 world 的句柄；
-3. `prepare` 校验 config/profile，执行一次确定性 Fisher–Yates，返回完整 `CorridorVehiclePlan` batch；
-4. caller 只在 **bind 时所针对的** `TrafficWorld` 上按计划逐辆 `spawn_vehicle`；
-5. population bind 必须发生在 tick 0，并按已绑定句柄回查所有 vehicle、route 和 profile identity；
-6. 全部 identity 一致后，controller 才进入 `Running = target, Pending = 0`。
+1. caller 从受检 LFCA 构建共享路网修订，在内存中解析 catalog 0.4；
+2. catalog `bind` 执行 `validate`，通过 Identity v1 与 `SharedIdentityIndex` 解析
+   编制边键和 profile，并校验显式 `policy_selection`；此时尚未创建世界或路线句柄；
+3. `prepare` 校验 config/profile，执行一次确定性 Fisher–Yates，返回完整
+   `CorridorVehiclePlan` batch，计划保留 `NetworkRevisionId` 与策略选择；
+4. caller 把 bound catalog 的 `policy_selection` 显式传入唯一
+   `TrafficWorld::install`，再调用 prepared `install_routes` 注册每条路线；
+5. caller 在同一个世界按计划逐辆 `spawn_vehicle`；`spawn_input` 同时校验修订和策略；
+6. population bind 必须发生在 tick 0，校验世界修订、策略和所有 vehicle、route、
+   profile identity；全部一致后，controller 才进入 `Running = target, Pending = 0`。
+
+`RouteHandle` 与 `VehicleHandle` 是世界局部句柄。宿主必须维持 controller 与世界的
+一对一绑定；同一修订上的第二个世界仍须独立注册、生成和绑定，不能复用句柄。
+修订和策略值不表示世界实例身份，当前 API 不提供或校验不透明安装令牌。
 
 `take_initial_vehicles` 是一次性转移。Runtime spawn 失败或 bind 发现任一缺失、stale、route/profile/status/progress 不一致时，启动整体失败，不进入首个 step。
 
 ## 3. Catalog 契约
 
-catalog version 固定为 `0.3`，拒绝 `0.2`。必须精确包含：
+catalog version 固定为 `0.4`，拒绝 `0.3` 及更早版本。必须精确包含：
 
+- 顶层 `policy_selection` 闭合选择，不能省略、使用未知 kind 或增加未知字段；
 - 文档化顺序中的 6 个 portal；
 - 每个 portal 的 ordered PortalLane：主干道 portal 各 3 条、次干道 portal 各 2 条；
 - 每条 PortalLane 的共享 entry SpawnSlot 与至少一个正权重 RouteChoice；
@@ -77,6 +76,22 @@ catalog version 固定为 `0.3`，拒绝 `0.2`。必须精确包含：
   边多次出现）；bind 经身份索引解析序号后 `register_route`（ADR 0029）；
 - 全部 28 条路线到 exit portal 的唯一 cross-reference；
 - 至少 200 个 route-independent physical SpawnSlot。
+
+受保护走廊使用生成器显式声明的 `protected-entry` 策略，TOML 形状为：
+
+```toml
+catalog_version = "0.4"
+
+[policy_selection]
+kind = "pinned"
+policy = "lfid1_right-of-way-policy-set_ca2119927067c9918fce95996b8b5792"
+```
+
+`pinned` 的 `policy` 必须是规范 `RightOfWayPolicySetId` 字符串，且该策略必须存在于
+绑定的共享根中。另一合法形状为 `[policy_selection]` 下仅含
+`kind = "not_required"`；只有共享根不含 Gate、ConflictZone、ParticipantStream 时
+才可使用，因此不能用于受保护走廊。没有默认策略或安装后的策略 setter。
+策略身份不要求真实公历日期，宿主可以是游戏、数字孪生或其他仿真产品。
 
 normalize 必须拒绝未知或重复 portal/route/slot、lane count/index 不一致、空 route
 choice、零权重或 weight sum overflow、重复 choice、dangling Traffic route、相同
@@ -113,10 +128,11 @@ apply pending lifecycle commands
   -> enqueue frozen plans for next lifecycle boundary
 ```
 
-`consume_world` 与 `pending_spawn_input` 先校验传入的是 **bind 时的同一个**
-`TrafficWorld`（世界身份），再校验其 `NetworkRevisionId` 与 catalog bind 一致。
-只核对修订 ID 不够：`RouteHandle` 是世界局部槽位。`apply_pending` 同样先校验世界
-身份，再校验 `NetworkRevisionId`（通常来自即将提交 replace 的那份 `TrafficWorld`）。
+`consume_world` 与 `pending_spawn_input` 先校验传入世界的 `NetworkRevisionId` 和
+`WorldPolicySelection` 均与 catalog bind 一致。`apply_pending` 对宿主显式传入的
+同一组上下文执行相同校验。同一共享根上的不同策略世界必须被拒绝；拒绝发生在
+消费 completion、修改队列或调用 host callback 之前。世界实例与局部句柄的对应
+关系仍由宿主保证（见两阶段启动）。
 `consume_world` 再要求恰好消费上一拍之后的那一拍（`last_consumed_tick + 1`），并以先验证、后提交的方式处理整个 completion batch。跳过中间 tick 或同一拍重复消费都失败。Running 句柄若已从 world 消失，视为「先消失再生成」契约失败。每个 completion 必须满足：
 
 - vehicle 属于一个 `Running` logical slot，状态为 `Completed`，且同一 batch 不重复；world 中未跟踪的 Completed 车辆同样使整个 batch 失败；
@@ -143,9 +159,11 @@ Running(vehicle, route)
 Pending(old, frozen route plan)
 ```
 
-`apply_pending` 先校验传入的是 bind 时的同一个 `TrafficWorld`（不透明 install
-令牌），再校验 `NetworkRevisionId`。只核对修订 ID 不够：`RouteHandle` 是世界局部
-槽位。host callback 仍是 transport-neutral，caller 可把同一 `VehicleSpawnInput` 交给 `TrafficWorld` 或 Adapter 的 typed transaction，并将结果映射为：
+`apply_pending(network_revision, policy_selection, callback)` 的前两个参数必须取自
+即将提交替换的世界；二者都与 catalog bind 匹配后才开始处理 FIFO。仅传修订的旧
+签名不再保留。可复制上下文避免借用世界时与可变替换回调冲突，但不能证明回调实际
+使用哪个世界；宿主必须把上下文与 callback 绑定到同一个世界。caller 可把同一
+`VehicleSpawnInput` 交给 `TrafficWorld` 或 Adapter 的 typed transaction，并将结果映射为：
 
 - `Replaced(old, new)`：controller 以 new handle 原子轮换 logical identity，回到 Running；
 - `Blocked(old, blocker, ...)`：保留 old 与 frozen plan，移动到 FIFO 队尾；
@@ -173,18 +191,19 @@ cargo +1.98.0 test --offline -p laneflow-scenario --test signalized_corridor_pop
 
 ## 8. Replay 与兼容性
 
-catalog 0.3 规范顺序、每条路线的有序边键、SplitMix64 算法、physical-slot
+catalog 0.4 的策略选择、规范顺序、每条路线的有序边键、SplitMix64 算法、physical-slot
 Fisher–Yates、initial weighted route draw、completion 的 portal/lane/route draw
 order、raw weights、initial ID 和 batch permutation 共同构成 current replay
 contract。blocked retry 不 draw、不改变 frozen plan。修改其中任一项必须通过新的
 设计/迁移决策，不能作为无说明的内部重构。
 
 catalog `0.2 -> 0.3` 是无兼容 clean break（补边键、启动时 `register_route`），
-不提供旧 DTO、dual parser、alias 或 migration shim。本实现通过
+`0.3 -> 0.4` 继续直接替换当前格式（必填策略选择），不提供旧 DTO、dual parser、
+alias 或 migration shim。本实现通过
 `TrafficWorld::replace_completed_vehicle` 与 Adapter typed 换绑交付回流；不恢复
 current JSON / `laneflow-data`，也不把人口政策写入 `step`。
 
-## 9. 当时 catalog 0.2 实现（历史；现行契约为 0.3）
+## 9. 当时 catalog 0.2 实现（历史；现行契约为 0.4）
 
 #190 在不改变 caller-owned lifecycle、ordered completion、bounded state 与 blocked
 retry authority 的前提下，已按 #196 clean-break 实现：

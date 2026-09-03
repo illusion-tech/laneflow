@@ -1,3 +1,5 @@
+#[path = "support/population_policy.rs"]
+mod population_policy;
 #[path = "../../laneflow-runtime/tests/support/policy.rs"]
 mod test_policy;
 
@@ -25,6 +27,15 @@ fn install_fixture(
     revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
     config: laneflow_runtime::WorldConfig,
 ) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
+    let selection = test_policy::selection(&revision);
+    install_with_policy(revision, config, selection)
+}
+
+fn install_with_policy(
+    revision: Arc<laneflow_static_network::SharedNetworkRevision>,
+    config: WorldConfig,
+    selection: laneflow_runtime::WorldPolicySelection,
+) -> Result<TrafficWorld, laneflow_runtime::InstallError> {
     let origin = *revision.canonical_origin();
     laneflow_runtime::TrafficWorld::install(
         Arc::clone(&revision),
@@ -39,7 +50,7 @@ fn install_fixture(
             .expect("non-empty fixture key"),
         },
         0,
-        test_policy::selection(&revision),
+        selection,
     )
 }
 
@@ -195,9 +206,15 @@ fn bind_and_replace_does_not_despawn_then_spawn() {
 
     let rng_before = controller.rng_state();
     let report = controller
-        .apply_pending(world.revision().network_revision(), |old, input| {
-            CorridorReplaceAttemptOutcome::from_replace(world.replace_completed_vehicle(old, input))
-        })
+        .apply_pending(
+            world.revision().network_revision(),
+            world.policy_selection(),
+            |old, input| {
+                CorridorReplaceAttemptOutcome::from_replace(
+                    world.replace_completed_vehicle(old, input),
+                )
+            },
+        )
         .expect("apply");
     assert_eq!(report.attempted, completed);
     assert_eq!(report.replaced + report.blocked, completed);
@@ -254,16 +271,20 @@ fn blocked_retry_replays_the_same_plan() {
     let before_caps = controller.capacities();
     let pending = controller.counts().pending;
     let report = controller
-        .apply_pending(world.revision().network_revision(), |old, _input| {
-            Ok::<_, std::convert::Infallible>(CorridorReplaceAttemptOutcome::Blocked(
-                VehicleReplaceBlock {
-                    old,
-                    blocker: old,
-                    blocker_ahead: true,
-                    bumper_gap: 0,
-                },
-            ))
-        })
+        .apply_pending(
+            world.revision().network_revision(),
+            world.policy_selection(),
+            |old, _input| {
+                Ok::<_, std::convert::Infallible>(CorridorReplaceAttemptOutcome::Blocked(
+                    VehicleReplaceBlock {
+                        old,
+                        blocker: old,
+                        blocker_ahead: true,
+                        bumper_gap: 0,
+                    },
+                ))
+            },
+        )
         .expect("forced blocked");
     assert_eq!(report.blocked, pending);
     assert_eq!(report.replaced, 0);
@@ -304,10 +325,14 @@ fn apply_pending_host_error_restores_fifo_front() {
     assert!(pending > 0);
     let mut front = None;
     let error = controller
-        .apply_pending(world.revision().network_revision(), |old, input| {
-            front = Some((old, input));
-            Err("host-fail")
-        })
+        .apply_pending(
+            world.revision().network_revision(),
+            world.policy_selection(),
+            |old, input| {
+                front = Some((old, input));
+                Err("host-fail")
+            },
+        )
         .expect_err("host failure");
     assert!(matches!(
         error,
@@ -549,17 +574,21 @@ fn apply_pending_rejects_foreign_revision() {
     assert!(pending > 0);
     let mut called = false;
     let error = controller
-        .apply_pending(foreign_world().revision().network_revision(), |old, _| {
-            called = true;
-            Ok::<_, std::convert::Infallible>(CorridorReplaceAttemptOutcome::Blocked(
-                VehicleReplaceBlock {
-                    old,
-                    blocker: old,
-                    blocker_ahead: true,
-                    bumper_gap: 0,
-                },
-            ))
-        })
+        .apply_pending(
+            foreign_world().revision().network_revision(),
+            world.policy_selection(),
+            |old, _| {
+                called = true;
+                Ok::<_, std::convert::Infallible>(CorridorReplaceAttemptOutcome::Blocked(
+                    VehicleReplaceBlock {
+                        old,
+                        blocker: old,
+                        blocker_ahead: true,
+                        bumper_gap: 0,
+                    },
+                ))
+            },
+        )
         .expect_err("foreign apply");
     assert!(!called, "host callback must not run on revision mismatch");
     assert!(matches!(
@@ -603,7 +632,7 @@ fn lifecycle_tick(
 ) -> usize {
     let revision = world.revision().network_revision();
     let replaced = controller
-        .apply_pending(revision, |old, input| {
+        .apply_pending(revision, world.policy_selection(), |old, input| {
             CorridorReplaceAttemptOutcome::from_replace(world.replace_completed_vehicle(old, input))
         })
         .expect("apply")
@@ -809,4 +838,110 @@ fn catalog_binding_rejects_unknown_policy_and_not_required_on_gated_root() {
         bind(&catalog, &revision).unwrap_err(),
         BindError::UnknownPolicy(policy)
     );
+}
+
+#[test]
+fn population_rejects_other_policy_on_same_root_without_mutating_lifecycle() {
+    let (revision, catalog, selections) = population_policy::fixture(catalog());
+    for (selected, other) in [
+        (selections[0], selections[1]),
+        (selections[0], selections[2]),
+        (selections[2], selections[0]),
+    ] {
+        let prepare_selected = |selection| {
+            let mut catalog = catalog.clone();
+            population_policy::select(&mut catalog, selection);
+            let bound = bind(&catalog, &revision).unwrap();
+            let profile = bound.profiles[PASSENGER_CAR_PROFILE_KEY];
+            CorridorPopulationPrepare::prepare(
+                CorridorPopulationConfig::try_new(MIN_TARGET_VEHICLE_COUNT, 0).unwrap(),
+                bound,
+                &revision,
+                profile,
+            )
+            .unwrap()
+        };
+        let config = WorldConfig::new(50, 28, 1_024, 1_024, 1, TICK_MS);
+        let mut world = install_with_policy(Arc::clone(&revision), config, selected).unwrap();
+        let mut foreign = install_with_policy(Arc::clone(&revision), config, other).unwrap();
+        assert!(Arc::ptr_eq(&world.revision(), &foreign.revision()));
+        assert_ne!(world.policy_selection(), foreign.policy_selection());
+        let prepared = prepare_selected(selected);
+        let foreign_prepared = prepare_selected(other);
+        let (vehicles, routes) = spawn_population(&mut world, &prepared);
+        let (foreign_vehicles, foreign_routes) = spawn_population(&mut foreign, &foreign_prepared);
+        // 两个世界的局部句柄碰巧完全一致，修订和句柄校验不足以发现错配。
+        assert_eq!(vehicles, foreign_vehicles);
+        assert_eq!(routes, foreign_routes);
+        assert!(matches!(
+            prepared.initial_vehicles()[0].spawn_input(&foreign, &foreign_routes),
+            Err(CorridorPopulationError::BoundWorldCatalogMismatch { .. })
+        ));
+        assert!(prepared.install_routes(&mut foreign).is_err());
+        assert!(matches!(
+            prepare_selected(selected).bind(&mut foreign, &foreign_vehicles, &foreign_routes),
+            Err(CorridorPopulationError::BoundWorldCatalogMismatch { .. })
+        ));
+        let mut controller = prepared.bind(&mut world, &vehicles, &routes).unwrap();
+        let rng = controller.rng_state();
+        world.step(TickInput::new(TICK_MS)).unwrap();
+        foreign.step(TickInput::new(TICK_MS)).unwrap();
+        let before = snapshot(&world, &controller, rng, 0);
+        assert!(matches!(
+            controller.consume_world(&foreign),
+            Err(CorridorPopulationError::BoundWorldCatalogMismatch { .. })
+        ));
+        assert_eq!(snapshot(&world, &controller, rng, 0), before);
+        controller.consume_world(&world).unwrap();
+        for _ in 0..8_000 {
+            world.step(TickInput::new(TICK_MS)).unwrap();
+            if controller.consume_world(&world).unwrap() > 0 {
+                break;
+            }
+        }
+        let before = snapshot(&world, &controller, rng, 0);
+        let old = *before
+            .pending_fifo
+            .first()
+            .expect("fixture reaches completion");
+        assert!(matches!(
+            controller.pending_spawn_input(&foreign, old),
+            Err(CorridorPopulationError::BoundWorldCatalogMismatch { .. })
+        ));
+        let foreign_digest =
+            laneflow_runtime::deterministic_state_digest(&foreign.capture_snapshot().unwrap())
+                .unwrap();
+        let mut called = false;
+        let error = controller
+            .apply_pending(
+                foreign.revision().network_revision(),
+                foreign.policy_selection(),
+                |old, input| {
+                    called = true;
+                    CorridorReplaceAttemptOutcome::from_replace(
+                        foreign.replace_completed_vehicle(old, input),
+                    )
+                },
+            )
+            .expect_err("foreign policy must fail before callback");
+        assert!(!called);
+        assert!(matches!(
+            error,
+            CorridorReplaceApplyError::Policy(
+                CorridorPopulationError::BoundWorldCatalogMismatch { .. }
+            )
+        ));
+        assert_eq!(snapshot(&world, &controller, rng, 0), before);
+        assert_eq!(
+            laneflow_runtime::deterministic_state_digest(&foreign.capture_snapshot().unwrap())
+                .unwrap(),
+            foreign_digest
+        );
+        // 拒绝不污染队列、PRNG、句柄、容量或消费拍号，原世界可继续替换与步进。
+        assert!(lifecycle_tick(&mut world, &mut controller) > 0);
+        assert_eq!(
+            controller.counts().running + controller.counts().pending,
+            MIN_TARGET_VEHICLE_COUNT
+        );
+    }
 }
