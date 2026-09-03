@@ -207,6 +207,8 @@ pub(crate) fn build(
         budget.charge_work(1)?;
         if row.field_by_tag(7).is_some() {
             let records = checked_record_vector(row, 7, S)?;
+            // regulation 是 optional singleton 的 wire record-vector；值域检查及
+            // 先完成的 Access 关系闭合都已拒绝 len != 1，不存在被忽略的后续法规。
             let r = records.rows().next().ok_or(INVALID)?;
             let value = (text(r, 1)?, text(r, 2)?);
             if regulation.is_some_and(|old| old != value) {

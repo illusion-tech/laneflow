@@ -2486,6 +2486,68 @@ mod tests {
         );
     }
 
+    #[test]
+    fn access_regulation_is_optional_singleton_before_shared_root() {
+        use PortableFieldType::{I32, OrdinalVectorU32, RecordVector, StableId128, U8, U32, Utf8};
+        let regulation = |jurisdiction: &[u8], version: &[u8]| {
+            row_bytes(&[
+                field_bytes(1, Utf8, jurisdiction),
+                field_bytes(2, Utf8, version),
+            ])
+        };
+        let first = regulation(b"engineering", b"fixture-1");
+        for (records, valid) in [
+            (None, true),
+            (Some(vec![]), false),
+            (Some(vec![first.clone()]), true),
+            (Some(vec![first.clone(), first.clone()]), false),
+            (
+                Some(vec![
+                    first.clone(),
+                    regulation(b"engineering", b"fixture-2"),
+                ]),
+                false,
+            ),
+            (
+                Some(vec![first.clone(), regulation(b"other", b"fixture-1")]),
+                false,
+            ),
+        ] {
+            let mut fields = vec![
+                field_bytes(1, U32, &0_u32.to_le_bytes()),
+                field_bytes(2, StableId128, &[0; 16]),
+                field_bytes(3, U8, &[0]),
+                field_bytes(4, U32, &0_u32.to_le_bytes()),
+                field_bytes(5, U8, &[1]),
+                field_bytes(6, OrdinalVectorU32, &ordinal_value(&[0])),
+            ];
+            if let Some(records) = records {
+                fields.push(field_bytes(7, RecordVector, &record_value(&records)));
+            }
+            fields.push(field_bytes(8, I32, &0_i32.to_le_bytes()));
+            let kind = PortableObjectKind::CanonicalArtifact;
+            let bytes =
+                encoded_value_object_with_rows(kind, Some((3, 19, vec![row_bytes(&fields)])));
+            // record-vector 在结构层允许多个嵌套行；随后必须由值域层拒绝非单例。
+            preflight_object_registry(&bytes, kind, FormatLimits::HARD).unwrap();
+            let result = preflight_object_values(&bytes, kind, FormatLimits::HARD);
+            if valid {
+                result.unwrap();
+            } else {
+                assert_eq!(
+                    result.unwrap_err().class(),
+                    FormatErrorClass::BindingMismatch
+                );
+                // 正式共享根入口所需的不可伪造输入能力也无法取得。
+                assert!(matches!(
+                    crate::check_canonical_network_input(bytes.as_slice(), FormatLimits::HARD),
+                    Err(crate::CanonicalNetworkInputError::Format(error))
+                        if error.class() == FormatErrorClass::BindingMismatch
+                ));
+            }
+        }
+    }
+
     fn policy_row(table: u16, policy: u32, key: &[u8]) -> Vec<Vec<u8>> {
         use PortableFieldType::{I32, OrdinalVectorU32, RecordVector, U8, U32, U64, Utf8};
         let mut fields = vec![

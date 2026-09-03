@@ -40,7 +40,7 @@ WaitingZone 是 Gate 有界资源、行为 authority 属于交通运行时、Ada
 - `ParkingBinding`、停驻/离场生命周期已经生产化；Waiting membership 必须与它正交；
 - `ConflictPassageOccurrence`、`route_conflict_occurrence_capacity`、路线 conflict Gate
   ranges 与 `ConflictRuntimeUnavailable` 3A 保护已经生产化；
-- LFRS 4、runtime state 4、deterministic digest 6、同修订/跨修订切换和在线迁移日志
+- LFRS 5、runtime state 5、deterministic digest 7、同修订/跨修订切换和在线迁移日志
   共同保存 Waiting 逻辑状态；
 - fixed step、车辆状态与生命周期消费 route `WaitingOccurrence`，但不取得 #284 的
   downstream/conflict 组合资源。
@@ -601,13 +601,16 @@ Waiting 拒绝区间的快照整体失败，不通过恢复时清除 reservation
 
 当前唯一生产版本轴为：
 
-- `formatVersion=4`；
-- `runtime_state_version=4`；
-- deterministic state digest version=6。
+- `formatVersion=5`；
+- `runtime_state_version=5`；
+- deterministic state digest version=7。
 
-实现只保留当前 writer/reader；旧 v3 输入明确失败关闭，不提供 v3→v4 reader、
-转换器、迁移 shim、feature flag、双读或双写。摘要 version 6 纳入 Waiting semantic
-state、zone counter 与 queue order，不纳入派生 links 或 latest output batch。
+实现只保留当前 writer/reader；旧版本快照明确失败关闭，不提供转换器、迁移 shim、
+feature flag、双读或双写。摘要 version 7 同时纳入显式世界策略选择、Waiting semantic
+state、zone counter 与 queue order，不纳入派生 links、步长派生间隙或 latest output batch。
+公共持久化版本与字段以 `traffic-runtime-snapshot.md` 为准；策略选择的保存、恢复和
+修订切换连续性见 `traffic-runtime-right-of-way-policy.md`。组合 reservation、冲突滞后
+历史与 passage locator 迁移仍由 #284 后续切片交付。
 
 ### 9.3 同修订与跨修订切换
 
