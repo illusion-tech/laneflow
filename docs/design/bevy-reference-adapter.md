@@ -164,7 +164,7 @@ cargo +1.98.0 check --locked -p laneflow-bevy --example runtime_min --features n
 cargo +1.98.0 test --locked -p laneflow-bevy --test runtime_min_smoke
 ```
 
-`native-example` 仍是非默认 opt-in，完整 `DefaultPlugins` / window / renderer 留在示例边界。v0.7 `native_reference`、campus JSON 与 `laneflow_data::from_scenario_json_slice` 已删除。现行走廊 native example 使用检入 catalog 0.3 与 LFCA，prepare 绑到已安装共享路网修订并 `register_route`；50–200 回流见 [#475](https://github.com/illusion-tech/laneflow/issues/475)。
+`native-example` 仍是非默认 opt-in，完整 `DefaultPlugins` / window / renderer 留在示例边界。v0.7 `native_reference`、campus JSON 与 `laneflow_data::from_scenario_json_slice` 已删除。现行走廊 native example 使用检入 catalog 0.4 与 LFCA，prepare 绑到已安装共享路网修订并 `register_route`；50–200 回流见 [#475](https://github.com/illusion-tech/laneflow/issues/475)。
 
 ## 10. 验证与性能 Gate
 
@@ -228,7 +228,7 @@ Spatial batch extract
 
 ## 13. v0.8 直行走廊 schedule 与 proxy 复用
 
-现行 `signalized_corridor` 安装 `TrafficWorld` 与可选 `SpatialSession`，用 catalog 0.3
+现行 `signalized_corridor` 安装 `TrafficWorld` 与可选 `SpatialSession`，用 catalog 0.4
 prepare 绑定车辆。#475 交付 `TrafficWorld::replace_completed_vehicle` 与 Session typed
 replace-and-rebind；薄示例仍可不启用 50–200 人口。不得再走已拆除的 JSON 运行时入口。
 
@@ -253,7 +253,7 @@ public API。
 启动顺序固定为：
 
 ```text
-检入 catalog 0.3 + LFCA
+检入 catalog 0.4 + LFCA
   -> SharedNetworkRevision::build + TrafficWorld::install
   -> catalog bind（含 register_route）+ population prepare
   -> spawn_vehicle batch

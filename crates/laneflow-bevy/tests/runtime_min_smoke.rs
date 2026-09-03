@@ -1,7 +1,7 @@
-#[path = "../../laneflow-runtime/tests/support/policy.rs"]
-mod test_policy;
+#[path = "../examples/support/runtime_min_scene.rs"]
+mod runtime_min_scene;
 
-use std::{num::NonZeroU32, sync::Arc, time::Duration};
+use std::time::Duration;
 
 use bevy_app::App;
 use bevy_ecs::{
@@ -11,100 +11,11 @@ use bevy_ecs::{
 };
 use bevy_time::{TimePlugin, TimeUpdateStrategy};
 use bevy_transform::{TransformPlugin, components::Transform};
-use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig, pose_input};
-use laneflow_format::{FormatLimits, check_canonical_network_input};
-use laneflow_runtime::{RouteRegisterInput, TrafficWorld, VehicleSpawnInput, WorldConfig};
-use laneflow_spatial::{CanonicalPoseBatch, FramePlacementToken, PoseRecordId, SpatialSession};
-use laneflow_static_contract::{LaneEdgeOrdinal, VehicleProfileOrdinal};
-use laneflow_static_network::{
-    SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
-    build_shared_network_revision,
-};
-
-fn install_fixture(
-    revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
-    config: laneflow_runtime::WorldConfig,
-) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
-    let origin = *revision.canonical_origin();
-    laneflow_runtime::TrafficWorld::install(
-        std::sync::Arc::clone(&revision),
-        config,
-        laneflow_runtime::CommittedNetworkSource::Published {
-            reference: laneflow_runtime::PublishedLfcaReference::new(
-                "fixture://in-process",
-                origin.canonical_artifact_digest(),
-                origin.canonical_artifact_byte_length(),
-                origin.network_revision(),
-            )
-            .expect("non-empty fixture key"),
-        },
-        0,
-        test_policy::selection(&revision),
-    )
-}
-
-const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
-);
+use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, pose_input};
+use laneflow_spatial::{CanonicalPoseBatch, FramePlacementToken, PoseRecordId};
 
 #[derive(Resource)]
 struct Proxy(Entity);
-
-fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
-    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
-        .expect("checked canonical network input");
-    build_shared_network_revision(
-        input,
-        SharedNetworkBuildOptions::new(
-            SpatialBuildOption::RetainAvailable,
-            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
-        ),
-    )
-    .expect("shared network revision")
-}
-
-fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
-    let index = world
-        .traffic()
-        .lane_lengths_millimetres()
-        .iter()
-        .position(|actual| *actual == length)
-        .expect("fixture lane length");
-    LaneEdgeOrdinal::try_from_usize(index).expect("fixture lane ordinal")
-}
-
-fn spawn_two_vehicles(world: &mut TrafficWorld) {
-    let route = world
-        .register_route(RouteRegisterInput::new(vec![
-            edge_for_length(world, 10_000),
-            edge_for_length(world, 8_000),
-            edge_for_length(world, 12_000),
-        ]))
-        .expect("register");
-    let profile = world
-        .traffic()
-        .relations()
-        .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
-        .expect("profile");
-    world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
-            0,
-        ))
-        .expect("leader");
-    world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            1_000,
-            0,
-        ))
-        .expect("follower");
-}
 
 fn setup_proxy(mut commands: Commands) {
     let entity = commands.spawn(Transform::IDENTITY).id();
@@ -144,22 +55,11 @@ fn sync_proxy(
 
 #[test]
 fn headless_app_steps_runtime_and_moves_proxy_transform() {
-    let revision = revision();
-    let mut world = install_fixture(
-        Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
-    )
-    .expect("install");
-    spawn_two_vehicles(&mut world);
-    let spatial = SpatialSession::bind(revision)
-        .expect("bind")
-        .expect("session");
-    let session = LaneFlowSession::new(
-        world,
-        Some(spatial),
-        LaneFlowSessionConfig::new(NonZeroU32::new(8).expect("non-zero")),
-    )
-    .expect("paired session");
+    let session = runtime_min_scene::session().expect("native example initialization");
+    assert!(matches!(
+        session.world().policy_selection(),
+        laneflow_runtime::WorldPolicySelection::Pinned(_)
+    ));
     let mut app = App::new();
     app.add_plugins((TimePlugin, TransformPlugin, LaneFlowPlugin));
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(

@@ -37,7 +37,7 @@ Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
 - `ParkingBinding`、reserve/park/leave/rebind/despawn 生命周期已存在；
 - `ConflictPassageOccurrence`、`route_conflict_occurrence_capacity`、路线 conflict
   Gate ranges，以及生命周期/restore/cutover 的 3A 保护已存在；
-- 当前持久化轴是 LFRS 4、runtime state 4、deterministic digest 6。
+- 当前持久化轴是 LFRS 5、runtime state 5、deterministic digest 7。
 
 #282 只新增 WaitingZone 本地动态能力。#284 才新增正式 Conflict/right-of-way 与组合
 资源能力。
@@ -773,15 +773,19 @@ same-tick enter+leave、shared boundary 与 traversal completion 都可能增加
 
 ## 10. 快照、摘要与修订切换
 
-#282 已随本地 Waiting 逻辑状态完成一次性升级，当前唯一生产版本为：
+当前持久化同时保存 #282 的本地 Waiting 逻辑状态与 #284 的显式世界策略选择；
+唯一版本轴与 `traffic-runtime-snapshot.md` 一致：
 
 | 权威轴                  | 当前版本 |
 | ----------------------- | -------: |
-| LFRS `formatVersion`    |        4 |
-| `runtime_state_version` |        4 |
-| deterministic digest    |        6 |
+| LFRS `formatVersion`    |        5 |
+| `runtime_state_version` |        5 |
+| deterministic digest    |        7 |
 
-只保留当前 writer/reader；旧 v3 输入明确失败关闭，不保留双读、双写或迁移 shim。
+只保留当前 writer/reader；旧版本快照明确失败关闭，不保留双读、双写或迁移 shim。
+策略选择随快照恢复，并在跨修订时验证稳定身份、法域和法规版本连续性；步长派生
+间隙按目标根重建。组合 reservation、冲突滞后历史与 passage locator 迁移仍属
+#284 后续切片，不因本版本轴已切换而声明完成。
 
 持久化保存 vehicle traversal/membership、zone occupancy、next admission counter 与稳定
 queue order；稠密 handle/link 在 restore 重建。空 zone 只要 counter 非零就仍有逻辑
@@ -848,7 +852,7 @@ occurrence 同 tick 笛卡尔积预留常驻内存。
 - 同车同 tick 仅最早一个新 Waiting claim；
 - stable candidate order、post-step admission order、release Gate tie；
 - Parking lifecycle、completion、replace、despawn 同步 release record 与 route guard；
-- snapshot 4/4、digest 6、restore、journal 与 cutover；
+- 当前 snapshot 5/5、digest 7 中的 Waiting 状态、restore、journal 与 cutover；
 - #559 3A 保护和 `ConflictRuntimeUnavailable` 不回退；
 - checked exact-count scratch、失败原子性和 10k/100k 证据。
 

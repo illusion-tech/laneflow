@@ -133,6 +133,19 @@ fn same_root_worlds_isolate_selection_attribution_targets_and_step_derivation() 
                     .prohibition();
         }
         assert!(priority_difference && gate_difference && target_difference);
+        // 同一策略换步长：lead 覆盖的未来 interval 增长，已清空后的 lag 阈值不变。
+        let slower = install(&root, a.policy_selection(), 200).unwrap();
+        for (fast_gap, slow_gap) in a
+            .policy_gap_profiles()
+            .iter()
+            .zip(slower.policy_gap_profiles())
+        {
+            assert_eq!(
+                slow_gap.required_lead_ms() - fast_gap.required_lead_ms(),
+                100
+            );
+            assert_eq!(slow_gap.required_lag_ms(), fast_gap.required_lag_ms());
+        }
         for (world, dt) in [(&a, 100), (&b, 200)] {
             let raw = &world.policy().unwrap().gap_profiles()[0];
             let derived = world.policy_gap_profiles()[0];
