@@ -200,9 +200,10 @@ FlatBuffers verifier 必须先证明全部被访问的 offset、vector、table�
 ### 9.3 schema 形状
 
 #284 的 Road Editing v4 来源字段及 LFSM 4 属性路径增量，统一登记于
-[`traffic-runtime-right-of-way-policy.md` §4.4](traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合)
-（Review），包含具名策略局部成员的 CanonicalSetOrdinal 规则。本节及 §9.7 仍描述
-已交付的 v3 来源合同；候选不表示 schema、reader/writer 或来源位置代码已经升级。
+[`traffic-runtime-right-of-way-policy.md` §4.4](traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合)，
+包含具名策略局部成员的 CanonicalSetOrdinal 规则。该来源扩展由 W2 交付；本节及
+§9.7 仍描述当前 LFRE wire 3，W1 的格式登记不表示 LFRE schema、reader/writer
+或策略来源位置代码已经升级。
 
 schema 路径为 `schemas/road-editing/v3/road-editing.fbs`。
 字段级领域语义由同目录 README 与本设计共同冻结。`.fbs` 是精确
@@ -222,7 +223,8 @@ schema 遵守以下闭合规则：
   字段语义竞争的全局 `Units` table；不使用 reflection、
   FlexBuffers、nested FlatBuffer、动态 schema 或 RPC；
 - `RoadAlignment` 保存道路走向，具有模块内稳定编辑键但不属于 Identity v1、不分配
-  `StableId128`。23 个稳定声明 vector 按 Identity 登记表修订 3 的可构造种类一一对应。
+  `StableId128`。LFRE wire 3 的 23 个稳定声明 vector 对应 Identity kind `1..=23`；
+  当前登记表修订 4 新增的 kind 24 不在此来源版本中。
   `RoadCorridor` 以 alignment key 和 station 区间引用走向，避免在每个走廊复制完整曲线；
 - 不使用尚未在预期 C++、C#、Rust 组合中形成共同稳定基线的 vector-of-union；只有
   每个 `CurveSegment` table 内的普通 `CurveSegmentGeometry` union；
@@ -248,13 +250,13 @@ schema 遵守以下闭合规则：
   完整 owner-key tuple；不把 FlatBuffers
   table offset 当成领域身份或跨声明引用。
 
-除 `road_alignments` 外，顶层有类型 vector 与 Identity v1 **可构造**实体一一对应：`RoadCorridor`、
-`RoadSection`、`AuthoringLane`、`LaneEdge`、`Junction`、`Movement`、`ManeuverPath`、
-`ManeuverGate`、`WaitingZone`、`StopLine`、`SignalGroup`、`SignalController`、
+当前 LFRE wire 3 用于实体声明的顶层有类型 vector 覆盖以下 23 类 Identity v1 实体：
+`RoadCorridor`、`RoadSection`、`AuthoringLane`、`LaneEdge`、`Junction`、`Movement`、
+`ManeuverPath`、`ManeuverGate`、`WaitingZone`、`StopLine`、`SignalGroup`、`SignalController`、
 `SignalPhase`、`ParkingFacility`、`ParkingSpace`、`LaneGroup`、`FacilityBand`、
 `ParticipantClass`、`AccessRule`、`VehicleProfile`、`CanonicalFrame`、`ConflictZone` 和
 `ParticipantStream`。
-Identity kind `1..=23` 连续登记，其中 21/22/23 分别为
+上述实体对应 Identity kind `1..=23`，其中 21/22/23 分别为
 `ConflictZone` / `CanonicalFrame` / `ParticipantStream`。
 来源格式可以用较高层 road/cross-section intent 生成其中部分声明，但任何最终稳定实体
 都必须具有 Identity v1 要求的显式、持久 ASCII authoring key；数组位置、table offset
@@ -262,8 +264,10 @@ Identity kind `1..=23` 连续登记，其中 21/22/23 分别为
 
 根表使用 `LFRE` 与 size-prefixed `RoadEditingSource` envelope，绑定
 `format_version = 3`、Road Editing `frontendVersion = 4`、Identity registry revision 4、
-LFCA 5、LFSM 4 与 LFSD 4。前端与制品的路权登记已提升；LFRE 策略声明扩展由路权实施合同
-后续切片交付，当前 wire 仍为 3。field id `0..=17` 的含义及其余字段如下：
+LFCA 5、LFSM 4 与 LFSD 4。当前 Identity registry 还登记了可构造实体
+`RightOfWayPolicySet`（kind 24），但 LFRE wire 3 不承载该实体的来源声明；策略声明
+vector 与 LFRE wire 4 由 W2 交付，字段合同见路权策略实施合同 §4.4。
+field id `0..=17` 的含义及其余字段如下：
 
 | field id | required vector         | 目标语义                                                 |
 | -------: | ----------------------- | -------------------------------------------------------- |
@@ -337,8 +341,8 @@ string 必须缺失、不适用 scalar 必须为规范零。`Vec2F64` 的 member
 [`portable-canonical-artifact.md` §4.1](portable-canonical-artifact.md#41-bindings-与来源池登记)
 唯一登记，schema declaration order 或生成语言 enum 不得另行改号。
 
-因此根表包含 23 个可构造稳定声明向量；`conflict_zone_regions` 是空间 owner-local
-记录向量，不是第 24 种稳定实体。所有向量继续 required，语义上允许空。
+因此当前 LFRE wire 3 根表包含 23 个可构造稳定声明向量；`conflict_zone_regions` 是
+空间 owner-local 记录向量，不分配独立稳定身份。所有向量继续 required，语义上允许空。
 `ParkingSpace.parking_facility` 不进入泊位身份。每个 conflict passage 只保存 zone 与
 entry/exit `PathAnchor`；admission Gate 从同一 ManeuverPath 的 Gate 序列派生，不进入
 来源或 LFCA wire。region 保存 zone、canonical frame、`min_y`/`max_y` 与 `ring_xz`；
