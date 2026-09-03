@@ -7,6 +7,202 @@ use crate::{PolicySourceTarget, SourceLocation, SourceSpan};
 use laneflow_static_contract::{PolicyLocalMemberKind, StableId128};
 use std::sync::Arc;
 
+#[test]
+fn shared_root_rejects_unsupported_policy_payload_before_allocation() {
+    use laneflow_static_network::{
+        BuildError, BuildStructure, SharedNetworkBuildLimits, SharedNetworkBuildOptions,
+        SpatialBuildOption, build_shared_network_revision,
+    };
+    let empty = empty_policy_fixture();
+    let policy = own_object(
+        include_bytes!("../../../tests/fixtures/portable/lfca-policy-references/expected.lfca"),
+        PortableObjectKind::CanonicalArtifact,
+    );
+    let mut cases = vec![policy.clone()];
+    // 各局部表即使没有 owner，或仅有未被策略引用的方向，也不能被静默丢弃。
+    for (section, table) in [(2, 23), (3, 1), (3, 2), (3, 3), (3, 4)] {
+        let mut object = own_object(
+            empty.artifact.bytes(),
+            PortableObjectKind::CanonicalArtifact,
+        );
+        object.sections[section].tables[table].rows =
+            policy.sections[section].tables[table].rows.clone();
+        cases.push(object);
+    }
+    for direction in 0..=3 {
+        let mut object = own_object(
+            empty.artifact.bytes(),
+            PortableObjectKind::CanonicalArtifact,
+        );
+        let movement = &mut object.sections[2].tables[5].rows[0];
+        let mut fields = movement.fields.to_vec();
+        fields.push(field(7, OwnedValue::U8(direction)));
+        movement.fields = fields.into();
+        cases.push(object);
+    }
+    for (case, mut object) in cases.into_iter().enumerate() {
+        let revision = network_revision(&bytes(&object), FormatLimits::HARD).unwrap();
+        set_lfca_network_revision(&mut object, revision).unwrap();
+        let bytes = bytes(&object);
+        for spatial in [
+            SpatialBuildOption::Omit,
+            SpatialBuildOption::RetainAvailable,
+        ] {
+            let input = laneflow_format::check_canonical_network_input(&*bytes, FormatLimits::HARD)
+                .unwrap();
+            let result = build_shared_network_revision(
+                input,
+                SharedNetworkBuildOptions::new(spatial, SharedNetworkBuildLimits::new(0, 0)),
+            );
+            assert_eq!(
+                result.err(),
+                Some(BuildError::ContractMismatch {
+                    structure: BuildStructure::ExecutionContract,
+                }),
+                "case {case}"
+            );
+        }
+    }
+    for spatial in [
+        SpatialBuildOption::Omit,
+        SpatialBuildOption::RetainAvailable,
+    ] {
+        let input = laneflow_format::check_canonical_network_input(
+            empty.artifact.bytes(),
+            FormatLimits::HARD,
+        )
+        .unwrap();
+        build_shared_network_revision(
+            input,
+            SharedNetworkBuildOptions::new(
+                spatial,
+                SharedNetworkBuildLimits::new(64 * 1024 * 1024, 16 * 1024 * 1024),
+            ),
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn direction_projection_finds_many_mixed_kind_sources_and_rejects_missing_owner() {
+    let mut output = full_spatial_portable_fixture_output();
+    let mut unit = full_spatial_portable_fixture_unit();
+    unit.limits = crate::CompileLimits::single_network_1m_v2();
+    let module = unit
+        .modules
+        .iter()
+        .position(|m| m.descriptor().source_language() == crate::SourceLanguage::SyntheticDsl)
+        .unwrap();
+    let namespace = unit.modules[module].descriptor().authoring_namespace_id();
+    let document = unit
+        .source_document_descriptors()
+        .find(|d| d.authoring_namespace_id() == namespace)
+        .unwrap()
+        .source_document_key()
+        .to_owned();
+    let documents = [(document.as_str(), (module as u32, 0))]
+        .into_iter()
+        .collect();
+    let locations: Vec<SourceLocation> = (0..4096)
+        .map(|i| SourceSpan::point(document.clone().into(), i + 2, 1).into())
+        .collect();
+    let id = |i: u32| {
+        let mut bytes = [0; 16];
+        bytes[..4].copy_from_slice(&i.to_be_bytes());
+        StableId128::from_bytes(bytes)
+    };
+    let primary = LocationValue::Text {
+        source_module_ordinal: module as u32,
+        source_document_ordinal: 0,
+        start_line: 1,
+        start_column: 1,
+        end_line: 1,
+        end_column: 1,
+    };
+    let mut stable = Vec::new();
+    for kind in [
+        EntityKind::LaneEdge,
+        EntityKind::Movement,
+        EntityKind::ParticipantStream,
+    ] {
+        for i in 0..4096 {
+            stable.push(StableSourceProjection {
+                entity_kind: kind,
+                stable_id: id(i).into_bytes(),
+                typed_ordinal: i,
+                primary: primary.clone(),
+                contributing: Vec::new(),
+            });
+        }
+    }
+    let original = stable.clone();
+    let mut inputs: Vec<_> = locations
+        .iter()
+        .enumerate()
+        .rev()
+        .map(|(i, location)| PolicySourceInput {
+            target: PolicySourceTarget::MovementDirection {
+                id: StableId::from_untyped(id(i as u32)),
+            },
+            owner_module: module as u32,
+            primary: location,
+            contributing: &[],
+        })
+        .collect();
+    inputs.push(PolicySourceInput {
+        target: PolicySourceTarget::Declaration {
+            id: StableId::from_untyped(id(4096)),
+            ordinal: Ordinal::from_raw(0),
+        },
+        owner_module: module as u32,
+        primary: &locations[0],
+        contributing: &[],
+    });
+    output
+        .test_source_map_mut()
+        .set_test_policy_sources(&unit, &inputs)
+        .unwrap();
+    let mut members = Vec::new();
+    policy_projection::append_policy_sources(
+        output.source_map_input(),
+        &documents,
+        &mut stable,
+        &mut members,
+        &unit.limits,
+    )
+    .unwrap();
+    assert_eq!(stable.len(), original.len() + 1);
+    assert!(members.is_empty());
+    for entry in &stable[..original.len()] {
+        assert_eq!(entry.primary, primary);
+        if entry.entity_kind == EntityKind::Movement {
+            let expected = LocationValue::Text {
+                source_module_ordinal: module as u32,
+                source_document_ordinal: 0,
+                start_line: entry.typed_ordinal + 2,
+                end_line: entry.typed_ordinal + 2,
+                start_column: 1,
+                end_column: 1,
+            };
+            assert_eq!(entry.contributing, [expected]);
+        } else {
+            assert!(entry.contributing.is_empty());
+        }
+    }
+    let mut missing = original;
+    missing.retain(|s| s.entity_kind != EntityKind::Movement || s.typed_ordinal != 2048);
+    assert_eq!(
+        policy_projection::append_policy_sources(
+            output.source_map_input(),
+            &documents,
+            &mut missing,
+            &mut Vec::new(),
+            &unit.limits
+        ),
+        Err(PortableEmissionError::PolicySourceMismatch)
+    );
+}
+
 fn own(row_ref: RegistryCheckedRowView<'_>) -> OwnedRow {
     row(row_ref.fields().map(|f| {
         field(

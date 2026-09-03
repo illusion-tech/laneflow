@@ -42,7 +42,7 @@ identityRegistryRevision              = 4
 networkRevisionDerivationVersion      = 1
 constraintContractVersion             = 3
 staticExecutionContractVersion        = 5
-sourceMapFormatVersion                = 3
+sourceMapFormatVersion                = 4
 semanticDiffFormatVersion             = 4
 canonicalPublicationDescriptorVersion = 2
 ```
@@ -1072,7 +1072,7 @@ NetworkRevisionIdV1 := SHA-256(
 ```text
 1:networkRevisionDerivationVersion:u16:R (=1)
 2:networkRevision:Sha256:R
-3:canonicalArtifactFormatVersion:u16:R (=4)
+3:canonicalArtifactFormatVersion:u16:R (=5)
 4:canonicalArtifactDigest:Sha256:R
 5:canonicalArtifactByteLength:u64:R
 6:compilerBuildId:Utf8:R
@@ -1850,14 +1850,14 @@ Remove/Modify/Move/Reconnect，StaticRule 为空，并恰有一条空间 Initial
 
 ```text
 CanonicalArtifactBinding(0x0001):
-  1:canonicalArtifactFormatVersion:u16:R (=4)
+  1:canonicalArtifactFormatVersion:u16:R (=5)
   2:networkRevisionDerivationVersion:u16:R (=1)
   3:networkRevision:Sha256:R
   4:canonicalArtifactDigest:Sha256:R
   5:canonicalArtifactByteLength:u64:R
 
 SourceMapBinding(0x0001):
-  1:sourceMapFormatVersion:u16:R (=3)
+  1:sourceMapFormatVersion:u16:R (=4)
   2:sourceMapDigest:Sha256:R
   3:sourceMapByteLength:u64:R
   4:compilerBuildId:Utf8:R

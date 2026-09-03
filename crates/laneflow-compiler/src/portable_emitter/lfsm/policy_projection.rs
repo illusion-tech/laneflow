@@ -84,6 +84,8 @@ pub(super) fn append_policy_sources(
         .map_err(|_| PortableEmissionError::AllocationFailure)?;
     let mut previous = None;
     let mut local_index = 0;
+    // 调用方已按 kind/id/ordinal 排序；后续追加的 policy 不参与既有实体查找。
+    let existing_stable_count = stable.len();
     for source in sources {
         let primary = location_value(source.primary_source(), documents)?;
         let contributing = source
@@ -120,13 +122,12 @@ pub(super) fn append_policy_sources(
                 if !contributing.is_empty() {
                     return Err(PortableEmissionError::PolicySourceMismatch);
                 }
-                let target = stable
-                    .iter_mut()
-                    .find(|s| {
-                        s.entity_kind == EntityKind::Movement && s.stable_id == stable_id_bytes(*id)
+                let index = stable[..existing_stable_count]
+                    .binary_search_by_key(&(EntityKind::Movement, stable_id_bytes(*id)), |s| {
+                        (s.entity_kind, s.stable_id)
                     })
-                    .ok_or(PortableEmissionError::PolicySourceMismatch)?;
-                target.contributing.push(primary);
+                    .map_err(|_| PortableEmissionError::PolicySourceMismatch)?;
+                stable[index].contributing.push(primary);
             }
         }
     }

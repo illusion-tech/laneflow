@@ -103,7 +103,7 @@ Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通�
 
 完成状态：2026-07-21 已完成。当时收口流水账见 git 历史。现行设计见 [`design/numeric-representation.md`](design/numeric-representation.md) 与 [`design/spatial-geometry.md`](design/spatial-geometry.md)。
 
-已接受交通权威为整数毫米（ADR 0028 / #496；边长/进度/车长/停车锚点为 `u32` mm，速度为 `mm/s`）、共享静态路网与 LFCA 对象合同 `formatVersion = 4`（含 static Junction/Movement/ManeuverPath、ConflictZone/ParticipantStream、multi-Gate/WaitingZone、per-edge 基础道路限速与 #262 横断面/准入静态模型），以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。仓库夹具与读器只承认 format 4。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退，不再构成现行权威；Spatial `f32` 通过误差、零分配、内存和一万/十万性能 Gate。未来重启三维/编制数值迁移必须新建议题并重新进入 G1。
+已接受交通权威为整数毫米（ADR 0028 / #496；边长/进度/车长/停车锚点为 `u32` mm，速度为 `mm/s`）、共享静态路网与 LFCA 对象合同 `formatVersion = 5`（含 static Junction/Movement/ManeuverPath、ConflictZone/ParticipantStream、multi-Gate/WaitingZone、per-edge 基础道路限速与 #262 横断面/准入静态模型），以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。仓库夹具与读器只承认 format 5。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退，不再构成现行权威；Spatial `f32` 通过误差、零分配、内存和一万/十万性能 Gate。未来重启三维/编制数值迁移必须新建议题并重新进入 G1。
 
 范围：
 
@@ -315,7 +315,7 @@ Accepted ADR 0024 的 #299 后发射检查不重新执行逐实体身份派生�
 `laneflow-core/CoreWorld` clean-break 为 `laneflow-runtime/TrafficWorld`，并通过
 中立 `laneflow-static-contract`/`laneflow-static-network` 保持无环依赖。
 
-编译器从 LIR 派生 worker 数无关的静态执行约束事实并规范发射到 LFCA 4 关系；LFCA 4
+编译器从 LIR 派生 worker 数无关的静态执行约束事实并规范发射到 LFCA 关系；LFCA
 不保存提示 payload，`laneflow-static-network` 按显式非语义 derivation version 确定性派生
 可丢弃的分区规划提示。每个 `TrafficWorld` 再依据硬件、容量和动态负载建立自己的运行时
 执行计划。最终

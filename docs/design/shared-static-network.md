@@ -106,6 +106,12 @@ object kind 精确为 LFCA，chunk directory、chunk digest、连续逻辑范围
 正式产品 profile 必须覆盖一百万现实混合静态实体门禁。
 公开 API 不带世代后缀，不得把米列读成毫米。
 
+#284 分切片实施期间，格式登记升级不等于共享根已经支持策略消费。W3 完成策略
+解析表与跨表闭合前，builder 在分配前以 `ContractMismatch(ExecutionContract)` 拒绝
+任何非空 `RightOfWayPolicySet` 表、四类局部策略表，或携带 `Movement.turnDirection`
+的输入（包括显式零）。该检查对 `Omit` 和 `RetainAvailable` 都成立；空策略且无方向
+属性的 LFCA 5 继续构建。W3 实现消费能力时用完整语义闭合替换这项拒绝条件。
+
 对象预检结果本身不证明跨表引用、row ordering 或真实性，因此不能直接作为共享静态
 路网成功结果。`laneflow-static-network` 必须继续完成 §7 的构建闭合；发布内容
 是否被产品/宿主接受，则由 LFCP/manifest admission 在调用前决定。
@@ -138,7 +144,7 @@ RoadEditingState
 可编辑 session 为后续 `PortableDiffBase::Artifact` 保留的 exact LFCA 由 editor/#302 作为
 `EditableDiffBase` 单独拥有，不进入 `SharedNetworkRevision`，也不改变 builder 的借用边界。
 
-两条路径都只接受 `formatVersion = 4` 的受检输入。
+两条路径都只接受 `formatVersion = 5` 的受检输入。
 
 ## 4. 根修订与 component
 
@@ -248,7 +254,7 @@ LFCA、`NetworkRevisionId` 或存档兼容性，也不得改变精确执行结�
 
 - direction profile、canonical frame 与实际存在的 geometry capability；
 - 可选 lane-pose 子视图：edge-aligned geometry handle、flat canonical `f32` points、
-  cumulative arc/segment/sampling ranges，以及按 LFCA（`formatVersion = 4`）
+  cumulative arc/segment/sampling ranges，以及按 LFCA（`formatVersion = 5`）
   冻结容差谓词闭合的 Traffic 边长；
 - 独立的 FacilityBand geometry 子集与连续 points/ranges。
 
@@ -277,7 +283,7 @@ CheckedCanonicalNetworkInput
   -> SharedNetworkRevision
 ```
 
-算法起点是 `formatVersion = 4` 的受检输入。不得靠 `formatVersion` 隐式把米列当成毫米。
+算法起点是 `formatVersion = 5` 的受检输入。不得靠 `formatVersion` 隐式把米列当成毫米。
 
 pass A/B 都按 LFCA wire order 线性遍历，不使用保留的 O(n) ordinal random-access API 形成
 O(n²) 构建。实现可以融合不影响精确预算或错误语义的子 pass，但不得增加第二个 projection。

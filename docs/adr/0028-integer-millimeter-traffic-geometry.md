@@ -260,13 +260,14 @@ lockstep 不在本合同范围。
 允许破坏。1.0 前不保留制品双栈：旧米制登记表、旧读器、旧夹具以 git 历史为准，
 **不**进当前树，也 **不** 做 v1→毫米转换。公开 Rust 入口不带 `V1`/`V2` 后缀。
 
-对象前导 `formatVersion` 与 `ContractVersions.canonicalFormatVersion` 为 **`4`**。
-`constraintContractVersion` 为 **`2`**；`staticExecutionContractVersion`
-为 **`4`**。LFSM `sourceMapFormatVersion` 与 LFSD `semanticDiffFormatVersion` 为 **`3`**。
+对象前导 `formatVersion` 与 `ContractVersions.canonicalFormatVersion` 为 **`5`**。
+`constraintContractVersion` 为 **`3`**；`staticExecutionContractVersion`
+为 **`5`**。LFSM `sourceMapFormatVersion` 与 LFSD `semanticDiffFormatVersion` 为 **`4`**。
 `networkRevisionDerivationVersion` 保持 **`1`**（哈希算法未改，见下）。
-`identityEncodingVersion` 保持 `1`，`identityRegistryRevision` 为 **`3`**（ADR 0029）。
-读器拒绝 `formatVersion != 4`。LFSM `canonicalArtifactFormatVersion` 必须等于所绑
-LFCA 的 `canonicalFormatVersion`（故为 `4`）。
+`identityEncodingVersion` 保持 `1`，`identityRegistryRevision` 为 **`4`**。
+以上版本已随 #284 格式登记更新；完整切换矩阵见路权策略实施合同 §8。
+读器拒绝 `formatVersion != 5`。LFSM `canonicalArtifactFormatVersion` 必须等于所绑
+LFCA 的 `canonicalFormatVersion`（故为 `5`）。
 
 LFSD Genesis 的 target `ContractVersions` / `ExecutionContract` 必须与所绑 LFCA
 一致。Artifact diff 两端合同行仍须逐字段相等。检入走廊按 Genesis 重生，不走格式
