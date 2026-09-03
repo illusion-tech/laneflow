@@ -70,6 +70,116 @@ struct Fixture {
     artifact: PortableObjectCandidate,
     map: OwnedObject,
 }
+
+fn empty_policy_fixture() -> Fixture {
+    let output = full_spatial_portable_fixture_output();
+    let provenance =
+        PortableEmissionProvenance::try_new("policy-source-review-regression").unwrap();
+    let candidate = emit_portable_candidate(
+        &output,
+        &provenance,
+        FormatLimits::HARD,
+        PortableDiffBase::Genesis,
+    )
+    .unwrap();
+    Fixture {
+        output,
+        artifact: candidate.canonical_artifact().clone(),
+        map: own_object(
+            candidate.source_map().bytes(),
+            PortableObjectKind::SourceMap,
+        ),
+    }
+}
+
+#[test]
+fn module_primary_must_equal_its_source_even_when_the_pool_is_unchanged() {
+    for fixture in [empty_policy_fixture(), fixture(true, None, 2)] {
+        fixture.check(&fixture.map).unwrap();
+        let mut swapped = fixture.map.clone();
+        let first = value(&mut swapped.sections[1].tables[0].rows[0], 13).clone();
+        let second = value(&mut swapped.sections[1].tables[0].rows[1], 13).clone();
+        assert_ne!(first, second);
+        *value(&mut swapped.sections[1].tables[0].rows[0], 13) = second;
+        *value(&mut swapped.sections[1].tables[0].rows[1], 13) = first;
+        assert_eq!(
+            fixture.check(&swapped),
+            Err(PortableEmissionError::PolicySourceMismatch)
+        );
+    }
+    let fixture = empty_policy_fixture();
+    let mut wrong_span = fixture.map.clone();
+    let OwnedValue::U32(primary) = *value(&mut wrong_span.sections[1].tables[0].rows[0], 13) else {
+        panic!()
+    };
+    let alternative = wrong_span.sections[1].tables[2]
+        .rows
+        .iter_mut()
+        .find_map(|row| {
+            let ordinal = value(row, 1).clone();
+            if *value(row, 3) == OwnedValue::U32(0) && ordinal != OwnedValue::U32(primary) {
+                Some(ordinal)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    *value(&mut wrong_span.sections[1].tables[0].rows[0], 13) = alternative;
+    // 另一个既有关系继续引用原位置，使池完整性无法单独发现模块位置被换掉。
+    let OwnedValue::OrdinalVectorU32(contributing) =
+        value(&mut wrong_span.sections[3].tables[0].rows[0], 6)
+    else {
+        panic!()
+    };
+    let mut ordinals = contributing.to_vec();
+    ordinals.push(primary);
+    ordinals.sort_unstable();
+    ordinals.dedup();
+    *contributing = ordinals.into();
+    assert_eq!(
+        fixture.check(&wrong_span),
+        Err(PortableEmissionError::PolicySourceMismatch)
+    );
+}
+
+#[test]
+fn empty_policy_fast_path_rejects_each_orphan_member_table() {
+    let fixture = empty_policy_fixture();
+    let members = own_object(
+        include_bytes!("../../../tests/fixtures/portable/lfca-policy-references/expected.lfca"),
+        PortableObjectKind::CanonicalArtifact,
+    );
+    fixture.check(&fixture.map).unwrap();
+    for table in 1..=4 {
+        let mut artifact = own_object(
+            fixture.artifact.bytes(),
+            PortableObjectKind::CanonicalArtifact,
+        );
+        assert!(artifact.sections[2].tables[23].rows.is_empty());
+        artifact.sections[3].tables[table].rows =
+            [members.sections[3].tables[table].rows[0].clone()].into();
+        let revision = network_revision(&bytes(&artifact), FormatLimits::HARD).unwrap();
+        set_lfca_network_revision(&mut artifact, revision).unwrap();
+        let artifact = close_object(bytes(&artifact));
+        let mut map = fixture.map.clone();
+        let binding = &mut map.sections[0].tables[0].rows[0];
+        *value(binding, 2) = OwnedValue::Sha256(revision.into_digest().into_bytes());
+        *value(binding, 4) = OwnedValue::Sha256(artifact.digest().into_bytes());
+        *value(binding, 5) = OwnedValue::U64(artifact.byte_length().get());
+        assert_eq!(
+            check_portable_policy_sources(
+                artifact.bytes(),
+                fixture.output.source_map_input(),
+                &bytes(&map),
+                FormatLimits::HARD,
+                &crate::CompileLimits::single_network_1m_v2()
+            ),
+            Err(PortableEmissionError::PolicySourceMismatch),
+            "member table {table}"
+        );
+    }
+    fixture.check(&fixture.map).unwrap();
+}
 impl Fixture {
     fn check(&self, map: &OwnedObject) -> Result<(), PortableEmissionError> {
         check_portable_policy_sources(

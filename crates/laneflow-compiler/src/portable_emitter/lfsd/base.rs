@@ -1,110 +1,114 @@
+use super::policy_change::{Scratch, reserved};
 use super::*;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct IdentityRecord {
-    entity_kind: EntityKind,
-    typed_ordinal: u32,
-    canonical_fields: Box<[u8]>,
-}
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct EntityRecord<'a> {
     pub(super) row: RegistryCheckedRowView<'a>,
+    canonical_fields: &'a [u8],
 }
+
+type IndexedEntity<'a> = ((EntityKind, [u8; 16]), EntityRecord<'a>);
 
 pub(super) struct ArtifactIndex<'a> {
     pub(super) view: RegistryCheckedObjectView<'a>,
-    identities: BTreeMap<[u8; 16], IdentityRecord>,
-    pub(super) entities: BTreeMap<(EntityKind, [u8; 16]), EntityRecord<'a>>,
-    ordinal_stable_ids: BTreeMap<(EntityKind, u32), [u8; 16]>,
+    // 原始 kind/ordinal 顺序支持 O(1) 引用；StableId 查询仅另存 u32 排序索引。
+    entities: Vec<IndexedEntity<'a>>,
+    by_stable_id: Vec<u32>,
+    kind_ranges: [(usize, usize); EntityKind::ALL.len()],
 }
 
 impl<'a> ArtifactIndex<'a> {
     pub(super) fn build(
         view: RegistryCheckedObjectView<'a>,
         mismatch: PortableEmissionError,
+        scratch: &mut Scratch,
     ) -> Result<Self, PortableEmissionError> {
         let identity_table = view
             .section(1)
             .and_then(|section| section.table(0))
             .ok_or(mismatch)?;
-        let mut identities = BTreeMap::new();
-        let mut identity_ordinals = BTreeMap::new();
-        for identity in identity_table.rows() {
-            let entity_kind =
-                EntityKind::from_code(checked_u16_with(identity, 1, mismatch)?).ok_or(mismatch)?;
-            let typed_ordinal = checked_u32_with(identity, 2, mismatch)?;
-            let stable_id = checked_stable_id_with(identity, 3, mismatch)?;
-            let canonical_fields = identity
-                .field_by_tag(4)
-                .ok_or(mismatch)?
-                .value_bytes()
-                .to_vec()
-                .into_boxed_slice();
-            if identities
-                .insert(
-                    stable_id,
-                    IdentityRecord {
-                        entity_kind,
-                        typed_ordinal,
-                        canonical_fields,
-                    },
-                )
-                .is_some()
-                || identity_ordinals
-                    .insert((entity_kind, typed_ordinal), stable_id)
-                    .is_some()
-            {
-                return Err(mismatch);
-            }
-        }
-
         let entity_section = view.section(2).ok_or(mismatch)?;
-        let mut entities = BTreeMap::new();
-        let mut ordinal_stable_ids = BTreeMap::new();
+        let count = identity_table.row_count() as usize;
+        let entity_count = entity_section.tables().try_fold(0_usize, |n, t| {
+            n.checked_add(t.row_count() as usize)
+                .ok_or(PortableEmissionError::ArithmeticOverflow)
+        })?;
+        if entity_count != count {
+            return Err(mismatch);
+        }
+        let mut entities = reserved::<IndexedEntity<'a>>(count, scratch)?;
+        let mut by_stable_id = reserved::<u32>(count, scratch)?;
+        let mut kind_ranges = [(0, 0); EntityKind::ALL.len()];
+        let mut identities = identity_table.rows();
         let mut entity_tables = entity_section.tables();
         for entity_kind in EntityKind::ALL {
             if !entity_kind.is_constructible() {
                 continue;
             }
             let entity_table = entity_tables.next().ok_or(mismatch)?;
-            for entity in entity_table.rows() {
-                let typed_ordinal = checked_u32_with(entity, 1, mismatch)?;
+            let start = entities.len();
+            for (ordinal, entity) in entity_table.rows().enumerate() {
+                let identity = identities.next().ok_or(mismatch)?;
                 let stable_id = checked_stable_id_with(entity, 2, mismatch)?;
-                if entities
-                    .insert((entity_kind, stable_id), EntityRecord { row: entity })
-                    .is_some()
-                    || ordinal_stable_ids
-                        .insert((entity_kind, typed_ordinal), stable_id)
-                        .is_some()
+                if checked_u32_with(entity, 1, mismatch)? as usize != ordinal
+                    || checked_u16_with(identity, 1, mismatch)? != entity_kind.code()
+                    || checked_u32_with(identity, 2, mismatch)? as usize != ordinal
+                    || checked_stable_id_with(identity, 3, mismatch)? != stable_id
                 {
                     return Err(mismatch);
                 }
+                entities.push((
+                    (entity_kind, stable_id),
+                    EntityRecord {
+                        row: entity,
+                        canonical_fields: identity.field_by_tag(4).ok_or(mismatch)?.value_bytes(),
+                    },
+                ));
             }
+            kind_ranges[usize::from(entity_kind.code() - 1)] = (start, entities.len());
         }
-        if entity_tables.next().is_some() {
+        if entity_tables.next().is_some() || identities.next().is_some() {
             return Err(mismatch);
         }
-        if identities.len() != entities.len() {
+        by_stable_id.extend(0..identity_table.row_count());
+        by_stable_id.sort_unstable_by_key(|i| entities[*i as usize].0.1);
+        if by_stable_id
+            .windows(2)
+            .any(|w| entities[w[0] as usize].0.1 == entities[w[1] as usize].0.1)
+        {
             return Err(mismatch);
-        }
-        for (stable_id, identity) in &identities {
-            if identity_ordinals.get(&(identity.entity_kind, identity.typed_ordinal))
-                != Some(stable_id)
-                || ordinal_stable_ids.get(&(identity.entity_kind, identity.typed_ordinal))
-                    != Some(stable_id)
-                || !entities.contains_key(&(identity.entity_kind, *stable_id))
-            {
-                return Err(mismatch);
-            }
         }
 
         Ok(Self {
             view,
-            identities,
             entities,
-            ordinal_stable_ids,
+            by_stable_id,
+            kind_ranges,
         })
+    }
+
+    pub(super) fn entities(
+        &self,
+    ) -> impl Iterator<Item = (&(EntityKind, [u8; 16]), &EntityRecord<'a>)> {
+        self.entities.iter().map(|(key, value)| (key, value))
+    }
+
+    fn find(&self, id: [u8; 16]) -> Option<&IndexedEntity<'a>> {
+        self.by_stable_id
+            .binary_search_by_key(&id, |i| self.entities[*i as usize].0.1)
+            .ok()
+            .map(|i| &self.entities[self.by_stable_id[i] as usize])
+    }
+
+    pub(super) fn entity(&self, key: &(EntityKind, [u8; 16])) -> Option<&EntityRecord<'a>> {
+        self.find(key.1)
+            .filter(|(actual, _)| actual == key)
+            .map(|(_, record)| record)
+    }
+
+    fn ordinal_entity(&self, kind: EntityKind, ordinal: u32) -> Option<&IndexedEntity<'a>> {
+        let (start, end) = self.kind_ranges[usize::from(kind.code() - 1)];
+        self.entities[start..end].get(ordinal as usize)
     }
 
     pub(super) fn stable_id(
@@ -113,9 +117,8 @@ impl<'a> ArtifactIndex<'a> {
         typed_ordinal: u32,
         mismatch: PortableEmissionError,
     ) -> Result<[u8; 16], PortableEmissionError> {
-        self.ordinal_stable_ids
-            .get(&(entity_kind, typed_ordinal))
-            .copied()
+        self.ordinal_entity(entity_kind, typed_ordinal)
+            .map(|(key, _)| key.1)
             .ok_or(mismatch)
     }
 
@@ -125,10 +128,8 @@ impl<'a> ArtifactIndex<'a> {
         typed_ordinal: u32,
         mismatch: PortableEmissionError,
     ) -> Result<RegistryCheckedRowView<'a>, PortableEmissionError> {
-        let stable_id = self.stable_id(entity_kind, typed_ordinal, mismatch)?;
-        self.entities
-            .get(&(entity_kind, stable_id))
-            .map(|entity| entity.row)
+        self.ordinal_entity(entity_kind, typed_ordinal)
+            .map(|(_, entity)| entity.row)
             .ok_or(mismatch)
     }
 }
@@ -229,9 +230,9 @@ pub(super) fn verify_artifact_diff_compatibility(
     {
         return Err(PortableEmissionError::UnsupportedSemanticContractTransition);
     }
-    for (stable_id, base_identity) in &base_index.identities {
-        if let Some(target_identity) = target_index.identities.get(stable_id)
-            && (base_identity.entity_kind != target_identity.entity_kind
+    for ((base_kind, stable_id), base_identity) in base_index.entities() {
+        if let Some(((target_kind, _), target_identity)) = target_index.find(*stable_id)
+            && (base_kind != target_kind
                 || base_identity.canonical_fields != target_identity.canonical_fields)
         {
             return Err(PortableEmissionError::CrossRevisionStableIdCollision);

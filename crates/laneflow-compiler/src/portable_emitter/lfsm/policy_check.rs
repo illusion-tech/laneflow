@@ -126,13 +126,10 @@ fn raw_key(row: Row<'_>) -> Result<LocationKey<'_>, PortableEmissionError> {
 
 fn source_key<'a>(
     view: SourceLocationView<'a>,
-    documents: &[(&str, u32)],
+    documents: &Documents<'_>,
 ) -> Result<LocationKey<'a>, PortableEmissionError> {
-    let document = documents
-        .iter()
-        .position(|(k, _)| *k == view.source_document_key())
-        .ok_or(MISMATCH)?;
-    let mut key = LocationKey::empty(0, documents[document].1, document as u32);
+    let (module, document) = documents.resolve(view.source_document_key())?;
+    let mut key = LocationKey::empty(0, module, document);
     match view {
         SourceLocationView::Text { start, end, .. } => {
             key.text = Some((start.line(), start.column(), end.line(), end.column()));
@@ -273,8 +270,13 @@ pub fn check_portable_policy_sources(
     let documents = check_documents(source, view, &mut scratch)?;
     let location_table = table(view, 1, 2)?;
     let root = canonical.registry_view();
+    let member_count = (1..=4).try_fold(0_usize, |n, t| {
+        n.checked_add(table(root, 3, t)?.row_count() as usize)
+            .ok_or(PortableEmissionError::ArithmeticOverflow)
+    })?;
     let needs_projection = source.policy_sources().len() != 0
         || table(root, 2, 23)?.row_count() != 0
+        || member_count != 0
         || table(root, 2, 5)?
             .rows()
             .any(|r| r.field_by_tag(7).is_some());
@@ -293,6 +295,19 @@ pub fn check_portable_policy_sources(
             .source_modules()
             .map(|m| (source_language_code(m.source_language()) - 1) as u8),
     );
+    // 只保存来源借用及 LFSM ordinal；按实际 ordinal 合并位置流，不随机重扫位置表。
+    let mut primaries = reserved::<(u32, crate::SourceModuleSourceView<'_>)>(
+        source.source_modules().len(),
+        &mut scratch,
+    )?;
+    for (row, module) in table(view, 1, 0)?
+        .rows()
+        .zip(source.source_module_sources())
+    {
+        primaries.push((checked_u32_with(row, 13, MISMATCH)?, module));
+    }
+    primaries.sort_unstable_by_key(|p| p.0);
+    let mut primary_index = 0;
     let mut previous_location = None;
     for (i, row) in location_table.rows().enumerate() {
         if number(row, 1)? != i as u64 {
@@ -301,17 +316,33 @@ pub fn check_portable_policy_sources(
         let key = raw_key(row)?;
         if previous_location.is_some_and(|last| last >= key)
             || documents
+                .entries
                 .get(key.document as usize)
                 .is_none_or(|d| d.1 != key.module)
             || languages.get(key.module as usize) != Some(&key.kind)
         {
             return Err(MISMATCH);
         }
+        while let Some((ordinal, module)) = primaries.get(primary_index)
+            && *ordinal as usize == i
+        {
+            if key != source_key(module.primary_source(), &documents)? {
+                return Err(MISMATCH);
+            }
+            primary_index += 1;
+        }
         previous_location = Some(key);
         if needs_projection {
             locations.push(key);
         }
     }
+    if primary_index != primaries.len() {
+        return Err(MISMATCH);
+    }
+    scratch.release(
+        (primaries.capacity() * size_of::<(u32, crate::SourceModuleSourceView<'_>)>()) as u64,
+    );
+    drop(primaries);
     check_pool(view, location_table.row_count() as usize, &mut scratch)?;
     if !needs_projection {
         if table(view, 2, 0)?.rows().any(|r| {
@@ -323,11 +354,7 @@ pub fn check_portable_policy_sources(
         }
         return Ok(());
     }
-    let count = (1..=4).try_fold(0_usize, |n, t| {
-        n.checked_add(table(root, 3, t)?.row_count() as usize)
-            .ok_or(PortableEmissionError::ArithmeticOverflow)
-    })?;
-    let mut members = reserved::<Member<'_>>(count, &mut scratch)?;
+    let mut members = reserved::<Member<'_>>(member_count, &mut scratch)?;
     for kind in 0..4_u8 {
         let mut previous_owner = None;
         let mut local_index = 0;
@@ -643,7 +670,7 @@ fn check_projection(
     row: Row<'_>,
     primary_tag: u16,
     locations: &[LocationKey<'_>],
-    documents: &[(&str, u32)],
+    documents: &Documents<'_>,
     scratch: &mut Scratch,
 ) -> Result<(), PortableEmissionError> {
     let primary = source_key(source.primary_source(), documents)?;
@@ -675,7 +702,7 @@ fn check_road_fields(
     primary: LocationKey<'_>,
     row: Row<'_>,
     kind: Option<u8>,
-    documents: &[(&str, u32)],
+    documents: &Documents<'_>,
 ) -> Result<(), PortableEmissionError> {
     if primary.kind == 0 {
         return Ok(());
@@ -725,11 +752,28 @@ fn check_road_fields(
     Ok(())
 }
 
+struct Documents<'a> {
+    // entries 保持真实全局 ordinal，by_key 只保存排序索引，不重排或复制文档键。
+    entries: Vec<(&'a str, u32)>,
+    by_key: Vec<u32>,
+}
+
+impl Documents<'_> {
+    fn resolve(&self, key: &str) -> Result<(u32, u32), PortableEmissionError> {
+        let index = self
+            .by_key
+            .binary_search_by_key(&key, |i| self.entries[*i as usize].0)
+            .map_err(|_| MISMATCH)?;
+        let document = self.by_key[index];
+        Ok((self.entries[document as usize].1, document))
+    }
+}
+
 fn check_documents<'a>(
     source: &'a ValidatedSourceMapInput,
     view: RegistryCheckedObjectView<'_>,
     scratch: &mut Scratch,
-) -> Result<Vec<(&'a str, u32)>, PortableEmissionError> {
+) -> Result<Documents<'a>, PortableEmissionError> {
     let module_table = table(view, 1, 0)?;
     if module_table.row_count() as usize != source.source_modules().len() {
         return Err(MISMATCH);
@@ -771,11 +815,16 @@ fn check_documents<'a>(
     if table.row_count() as usize != source.source_documents().len() {
         return Err(MISMATCH);
     }
+    // 受检输入的文档按模块拓扑顺序连续登记；每个模块最多消费一次。
+    let mut modules = source.source_modules().enumerate().peekable();
     for (i, (doc, row)) in source.source_documents().zip(table.rows()).enumerate() {
-        let module = source
-            .source_modules()
-            .position(|m| m.authoring_namespace_id() == doc.authoring_namespace_id())
-            .ok_or(MISMATCH)? as u32;
+        while modules
+            .peek()
+            .is_some_and(|(_, m)| m.authoring_namespace_id() != doc.authoring_namespace_id())
+        {
+            modules.next();
+        }
+        let module = modules.peek().ok_or(MISMATCH)?.0 as u32;
         if number(row, 1)? != i as u64
             || number(row, 2)? != u64::from(module)
             || text(row, 3)? != doc.source_document_key()
@@ -788,7 +837,19 @@ fn check_documents<'a>(
         }
         documents.push((doc.source_document_key(), module));
     }
-    Ok(documents)
+    let mut by_key = reserved::<u32>(documents.len(), scratch)?;
+    by_key.extend(0..u32::try_from(documents.len()).map_err(|_| MISMATCH)?);
+    by_key.sort_unstable_by_key(|i| documents[*i as usize].0);
+    if by_key
+        .windows(2)
+        .any(|w| documents[w[0] as usize].0 == documents[w[1] as usize].0)
+    {
+        return Err(MISMATCH);
+    }
+    Ok(Documents {
+        entries: documents,
+        by_key,
+    })
 }
 
 fn check_pool(

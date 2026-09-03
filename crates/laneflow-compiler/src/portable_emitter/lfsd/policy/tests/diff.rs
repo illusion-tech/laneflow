@@ -332,7 +332,7 @@ fn policy_diff_scratch_and_embedded_budgets_fail_before_output_and_retry() {
     )
     .unwrap();
     let tiny = CompileLimits::single_network_1m_v2()
-        // 大于本夹具原有引用索引的 48 bytes，专门击中新加的差异扫描/投影缓冲。
+        // 索引本身也必须在首次分配前受同一个预算约束。
         .with_test_admission_limit(CompileLimitDimension::StageScratchBytes, 64);
     assert!(matches!(
         check_portable_policy_diff(
@@ -371,6 +371,42 @@ fn policy_diff_scratch_and_embedded_budgets_fail_before_output_and_retry() {
                 .is_err()
         );
     }
+    verify(&base, &target, &diff).unwrap();
+}
+
+#[test]
+fn policy_diff_counts_both_artifact_indexes_in_one_scratch_budget() {
+    let base = root(&fixture());
+    let target = root(&changed_fixture());
+    let diff = generate(&base, &target);
+    let target_view = preflight_object_values(
+        &target,
+        PortableObjectKind::CanonicalArtifact,
+        FormatLimits::HARD,
+    )
+    .unwrap();
+    let base_view = preflight_object_values(
+        &base,
+        PortableObjectKind::CanonicalArtifact,
+        FormatLimits::HARD,
+    )
+    .unwrap();
+    let mut measured = Scratch::new(u64::MAX);
+    let _target_index =
+        ArtifactIndex::build(target_view.registry_view(), MISMATCH, &mut measured).unwrap();
+    let one_index = measured.used();
+    let _base_index =
+        ArtifactIndex::build(base_view.registry_view(), MISMATCH, &mut measured).unwrap();
+    assert!(measured.used() > one_index);
+    let limit = CompileLimits::single_network_1m_v2().with_test_admission_limit(
+        CompileLimitDimension::StageScratchBytes,
+        one_index.try_into().unwrap(),
+    );
+    assert!(
+        matches!(check_portable_policy_diff(PortableDiffBase::Artifact(base_view), &target, &raw_bytes(&diff), FormatLimits::HARD, &limit),
+        Err(PortableEmissionError::CompileLimitExceeded { dimension: CompileLimitDimension::StageScratchBytes, actual, limit }) if actual > limit && limit == one_index)
+    );
+    // 预算失败不污染下一次同输入检查。
     verify(&base, &target, &diff).unwrap();
 }
 

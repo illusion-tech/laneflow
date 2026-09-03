@@ -50,6 +50,11 @@ impl Scratch {
     pub(in crate::portable_emitter) fn release(&mut self, bytes: u64) {
         self.used -= bytes;
     }
+
+    #[cfg(test)]
+    pub(in crate::portable_emitter) const fn used(&self) -> u64 {
+        self.used
+    }
 }
 
 fn members<'a>(
@@ -104,19 +109,18 @@ pub(in crate::portable_emitter) fn reserved<T>(
 pub(super) fn policy_changes(
     base: Option<&ArtifactIndex<'_>>,
     target: &ArtifactIndex<'_>,
-    scratch_limit: u64,
+    scratch: &mut Scratch,
 ) -> Result<Vec<OwnedRow>, PortableEmissionError> {
-    let mut scratch = Scratch::new(scratch_limit);
     let before = base
-        .map(|b| members(b, &mut scratch))
+        .map(|b| members(b, scratch))
         .transpose()?
         .unwrap_or_default();
-    let after = members(target, &mut scratch)?;
+    let after = members(target, scratch)?;
     let maximum = before
         .len()
         .checked_add(after.len())
         .ok_or(PortableEmissionError::ArithmeticOverflow)?;
-    let mut changes = reserved::<(u8, [u8; 16], u8, &str, OwnedRow)>(maximum, &mut scratch)?;
+    let mut changes = reserved::<(u8, [u8; 16], u8, &str, OwnedRow)>(maximum, scratch)?;
     let (mut i, mut j) = (0, 0);
     while i < before.len() || j < after.len() {
         let b = before.get(i);
@@ -142,9 +146,9 @@ pub(super) fn policy_changes(
             }
         };
         let bv = b
-            .map(|m| project(base.ok_or(MISMATCH)?, *m, &mut scratch))
+            .map(|m| project(base.ok_or(MISMATCH)?, *m, scratch))
             .transpose()?;
-        let av = a.map(|m| project(target, *m, &mut scratch)).transpose()?;
+        let av = a.map(|m| project(target, *m, scratch)).transpose()?;
         if bv == av {
             scratch.release(
                 bv.as_ref().map_or(0, |v| v.len() as u64)
@@ -158,7 +162,7 @@ pub(super) fn policy_changes(
             (_, None) => 1,
             _ => 2,
         };
-        let mut fields = reserved::<OwnedField>(if op == 2 { 6 } else { 5 }, &mut scratch)?;
+        let mut fields = reserved::<OwnedField>(if op == 2 { 6 } else { 5 }, scratch)?;
         scratch.charge(member.key.len() as u64)?;
         fields.extend([
             field(1, OwnedValue::U8(op)),
@@ -184,7 +188,7 @@ pub(super) fn policy_changes(
     }
     changes.sort_unstable_by(|a, b| (a.0, a.1, a.2, a.3).cmp(&(b.0, b.1, b.2, b.3)));
     // 排序记录与返回行缓冲短暂同时存活，两个都计入峰值。
-    let mut rows = reserved::<OwnedRow>(changes.len(), &mut scratch)?;
+    let mut rows = reserved::<OwnedRow>(changes.len(), scratch)?;
     rows.extend(changes.into_iter().map(|r| r.4));
     Ok(rows)
 }
