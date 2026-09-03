@@ -13,6 +13,7 @@ use geometry::{
     artifact_geometry_changes, artifact_spatial_configuration_changes, genesis_geometry_changes,
 };
 use policy::validate_policy_references;
+use policy_change::Scratch;
 use relation::{artifact_relation_changes, artifact_relation_tuples, genesis_relation_changes};
 
 use super::relations::{canonical_relation_tuples, entity_stable_id};
@@ -30,15 +31,17 @@ fn build_genesis_lfsd(
         limits,
     )?
     .registry_view();
-    let target_index =
-        ArtifactIndex::build(target, PortableEmissionError::InternalBindingMismatch)?;
-    let policy_changes = policy_change::policy_changes(
-        None,
-        &target_index,
+    let mut scratch = Scratch::new(
         output
             .compile_limits()
             .value(CompileLimitDimension::StageScratchBytes),
+    );
+    let target_index = ArtifactIndex::build(
+        target,
+        PortableEmissionError::InternalBindingMismatch,
+        &mut scratch,
     )?;
+    let policy_changes = policy_change::policy_changes(None, &target_index, &mut scratch)?;
     let entity_changes = genesis_entity_changes(target)?;
     let relation_changes = genesis_relation_changes(output.lir().unit());
     let geometry_changes = genesis_geometry_changes(output.lir().unit(), target)?;
@@ -121,13 +124,19 @@ pub(super) fn verify_target_relation_projection(
     output: &CompilationOutput,
     target: RegistryCheckedObjectView<'_>,
 ) -> Result<(), PortableEmissionError> {
-    let target_index =
-        ArtifactIndex::build(target, PortableEmissionError::InternalBindingMismatch)?;
-    validate_policy_references(
-        &target_index,
+    let mut scratch = Scratch::new(
         output
             .compile_limits()
             .value(CompileLimitDimension::StageScratchBytes),
+    );
+    let target_index = ArtifactIndex::build(
+        target,
+        PortableEmissionError::InternalBindingMismatch,
+        &mut scratch,
+    )?;
+    validate_policy_references(
+        &target_index,
+        &mut scratch,
         PortableEmissionError::InternalBindingMismatch,
     )?;
     if artifact_relation_tuples(
@@ -159,18 +168,25 @@ fn build_artifact_lfsd(
         limits,
     )?
     .registry_view();
-    let base_index =
-        ArtifactIndex::build(base_view, PortableEmissionError::DiffBaseSemanticMismatch)?;
-    let target_index =
-        ArtifactIndex::build(target_view, PortableEmissionError::InternalBindingMismatch)?;
+    let mut scratch = Scratch::new(policy_scratch_limit);
+    let base_index = ArtifactIndex::build(
+        base_view,
+        PortableEmissionError::DiffBaseSemanticMismatch,
+        &mut scratch,
+    )?;
+    let target_index = ArtifactIndex::build(
+        target_view,
+        PortableEmissionError::InternalBindingMismatch,
+        &mut scratch,
+    )?;
     validate_policy_references(
         &base_index,
-        policy_scratch_limit,
+        &mut scratch,
         PortableEmissionError::DiffBaseSemanticMismatch,
     )?;
     validate_policy_references(
         &target_index,
-        policy_scratch_limit,
+        &mut scratch,
         PortableEmissionError::InternalBindingMismatch,
     )?;
     verify_artifact_diff_compatibility(base_view, target_view, &base_index, &target_index)?;
@@ -186,7 +202,7 @@ fn build_artifact_lfsd(
     let static_rule_changes = artifact_static_rule_changes(&base_index, &target_index)?;
     let spatial_changes = artifact_spatial_configuration_changes(&base_index, &target_index)?;
     let policy_changes =
-        policy_change::policy_changes(Some(&base_index), &target_index, policy_scratch_limit)?;
+        policy_change::policy_changes(Some(&base_index), &target_index, &mut scratch)?;
 
     let expected_base = ExpectedSemanticDiffBase::Artifact {
         network_revision_derivation_version: NETWORK_REVISION_DERIVATION_VERSION,

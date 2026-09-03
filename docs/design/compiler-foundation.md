@@ -861,7 +861,8 @@ components；每个 component 分别消费 `StringItemCount`，实际 bytes 消�
 来源模块描述符。首版合成来源记录使用 `frontendVersion` 版本化的确定性长度前缀
 编码，精确字节以 `LFSOURCE` 魔数 / 域前缀开头，并对完整记录精确字节计算 SHA-256
 形成 #292 已接受的 `sourceContentDigest`；**编码**变化必须提升前端版本并更新已知向量。
-合成前端固定为 `frontendVersion = 4`：准入后交通一维以整数毫米 / 受检 `f32` SI
+合成前端固定为 `frontendVersion = 5`：绑定 Identity revision 4 / LFCA 5 的路权策略登记；
+准入后交通一维以整数毫米 / 受检 `f32` SI
 写入来源记录，不再写编制 `f64`。它使用 `ParkingFacility`，并把
 `virtualCapacity`、有序 virtual entry/exit、`ConflictZone`、`ParticipantStream`、
 owner-local conflict passages 与可选 `ConflictZoneRegion` 纳入同一确定性来源记录。

@@ -261,8 +261,9 @@ Identity kind `1..=23` 连续登记，其中 21/22/23 分别为
 和几何都不能替代稳定身份。
 
 根表使用 `LFRE` 与 size-prefixed `RoadEditingSource` envelope，绑定
-`format_version = 3`、Road Editing `frontendVersion = 3`、Identity registry revision 3、
-LFCA 4、LFSM 3 与 LFSD 3。field id `0..=17` 的含义及其余字段如下：
+`format_version = 3`、Road Editing `frontendVersion = 4`、Identity registry revision 4、
+LFCA 5、LFSM 4 与 LFSD 4。前端与制品的路权登记已提升；LFRE 策略声明扩展由路权实施合同
+后续切片交付，当前 wire 仍为 3。field id `0..=17` 的含义及其余字段如下：
 
 | field id | required vector         | 目标语义                                                 |
 | -------: | ----------------------- | -------------------------------------------------------- |
@@ -488,11 +489,11 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
 
 ### 9.5 版本、未知字段与摘要
 
-唯一组合是 `format_version = 3`、Road Editing `frontendVersion = 3`、LFCA 4、LFSM 3 与
-LFSD 3。
+当前组合是 `format_version = 3`、Road Editing `frontendVersion = 4`、LFCA 5、LFSM 4 与
+LFSD 4；来源前端版本和 LFRE wire 版本分别精确校验。
 
 - 来源描述符固定使用 `SourceLanguage::RoadEditingSource = 2`、
-  `SourceLanguage::as_str() = "road-editing-source"` 和 `frontendVersion = 3`；
+  `SourceLanguage::as_str() = "road-editing-source"` 和 `frontendVersion = 4`；
 - `format_version = 3` 是本 exact schema 的精确版本，不是“最低兼容版本”。
   其它版本在语义读取前失败关闭，不提供迁移。
   该 exact schema 未作为稳定 public format 发布。任何可能让旧 bytes 被不同解释的 wire 或语义变化都必须

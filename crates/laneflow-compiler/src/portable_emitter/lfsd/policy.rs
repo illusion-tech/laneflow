@@ -3,6 +3,7 @@
 use super::base::{
     ArtifactIndex, checked_ordinal_vector_with, checked_record_vector_with, checked_u32_with,
 };
+use super::policy_change::{Scratch, reserved};
 use super::*;
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
@@ -18,7 +19,7 @@ struct LocalKey<'a> {
 /// 的借用键，按两个表的完整逻辑行数计量；不会复制字符串或按引用数重新扫描表。
 pub(super) fn validate_policy_references(
     index: &ArtifactIndex<'_>,
-    scratch_limit: u64,
+    scratch: &mut Scratch,
     mismatch: PortableEmissionError,
 ) -> Result<(), PortableEmissionError> {
     let section = index.view.section(3).ok_or(mismatch)?;
@@ -27,21 +28,10 @@ pub(super) fn validate_policy_references(
     let count = u64::from(evidence.row_count())
         .checked_add(u64::from(gaps.row_count()))
         .ok_or(PortableEmissionError::ArithmeticOverflow)?;
-    let scratch_bytes = count
-        .checked_mul(core::mem::size_of::<LocalKey<'_>>() as u64)
-        .ok_or(PortableEmissionError::ArithmeticOverflow)?;
-    if scratch_bytes > scratch_limit {
-        return Err(PortableEmissionError::CompileLimitExceeded {
-            dimension: CompileLimitDimension::StageScratchBytes,
-            actual: scratch_bytes,
-            limit: scratch_limit,
-        });
-    }
-    let mut keys = Vec::new();
-    keys.try_reserve_exact(
+    let mut keys = reserved::<LocalKey<'_>>(
         usize::try_from(count).map_err(|_| PortableEmissionError::ArithmeticOverflow)?,
-    )
-    .map_err(|_| PortableEmissionError::AllocationFailure)?;
+        scratch,
+    )?;
     for table in [evidence, gaps] {
         for row in table.rows() {
             let key = member_key(table.kind(), row, mismatch)?;
@@ -91,6 +81,7 @@ pub(super) fn validate_policy_references(
             }
         }
     }
+    scratch.release((keys.capacity() * size_of::<LocalKey<'_>>()) as u64);
     Ok(())
 }
 
