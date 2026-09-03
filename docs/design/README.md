@@ -32,7 +32,7 @@
 - `compiler-foundation.md`：编译器 crate、Typed AST → HIR → MIR → Canonical LIR、
   合成 DSL 与官方前端接入。
 - `network-compiler.md`：#291 目标静态编译架构。
-- `road-editing-source-and-geometry-frontend.md`：道路编辑 FlatBuffers v3 来源与
+- `road-editing-source-and-geometry-frontend.md`：道路编辑 FlatBuffers v4 来源与
   几何编制前端合同。
 
 ## 领域规则
