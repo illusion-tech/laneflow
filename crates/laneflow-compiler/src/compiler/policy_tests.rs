@@ -1,4 +1,6 @@
 //! W2 正式输入到受检三件套的集成证据。
+mod diagnostics;
+
 use super::*;
 use crate::road_editing as re;
 use crate::*;
