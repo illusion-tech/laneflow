@@ -57,7 +57,7 @@ use super::synthetic_record::{
 
 /// 当前合成领域专用语言 `LFSOURCE` 来源记录编码版本。
 ///
-/// `4`：绑定 Identity revision 3 与 LFCA 4 的连续登记，不再产生旧格式来源映射。
+/// `5`：绑定 Identity revision 4 与 LFCA 5 的路权策略登记及来源映射。
 pub const SYNTHETIC_FRONTEND_VERSION: u32 = 5;
 
 pub struct SyntheticModuleBuilder {

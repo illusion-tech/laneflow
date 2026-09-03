@@ -1968,7 +1968,7 @@ reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构�
 
 公共格式实现必须原子满足：
 
-1. Road Editing v3、Road Editing frontend 3、Synthetic frontend 4、Identity registry
+1. 当前 Road Editing wire v3、Road Editing frontend 4、Synthetic frontend 5、Identity registry
    revision 4、LFCA 5、LFSM 4 与 LFSD 4；
 2. schema clean regeneration，删除 `ParkingArea` reader/writer/public symbol，加入冲突
    静态声明，不保留 alias、双读、双写或迁移 façade；

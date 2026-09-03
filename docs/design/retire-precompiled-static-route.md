@@ -137,7 +137,8 @@ StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 `canonical_frames` 为根表 field id 25，`conflict_zones` 与 `participant_streams`
 分别为 26、27；stock `flatc` 要求 field id 连续，不保留空号。schema 为
 `schemas/road-editing/v3/road-editing.fbs`。其它版本失败关闭。
-`frontendVersion = 3`，`SourceLanguage::RoadEditingSource = 2`。file identifier 仍 `LFRE`。
+来源描述符的 `frontendVersion` 已由后续路权登记提升为 `4`，
+`SourceLanguage::RoadEditingSource = 2`。当前 wire 仍为 3，file identifier 仍 `LFRE`。
 
 合成 DSL / typed AST / HIR / MIR / LIR：不再有静态路线声明或出现项表。
 首批支持矩阵「静态路线」行改为明确拒绝。

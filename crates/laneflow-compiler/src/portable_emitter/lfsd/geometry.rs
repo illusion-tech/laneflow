@@ -300,12 +300,18 @@ mod tests {
             )
             .unwrap()
             .registry_view();
-            let base =
-                ArtifactIndex::build(base_view, PortableEmissionError::DiffBaseSemanticMismatch)
-                    .unwrap();
-            let target =
-                ArtifactIndex::build(target_view, PortableEmissionError::InternalBindingMismatch)
-                    .unwrap();
+            let base = ArtifactIndex::build(
+                base_view,
+                PortableEmissionError::DiffBaseSemanticMismatch,
+                &mut Scratch::new(u64::MAX),
+            )
+            .unwrap();
+            let target = ArtifactIndex::build(
+                target_view,
+                PortableEmissionError::InternalBindingMismatch,
+                &mut Scratch::new(u64::MAX),
+            )
+            .unwrap();
 
             let changes = artifact_geometry_changes(&base, &target).unwrap();
             assert_eq!(changes.len(), 1, "{subject_kind:?}");
@@ -351,11 +357,18 @@ mod tests {
         )
         .unwrap()
         .registry_view();
-        let base = ArtifactIndex::build(base_view, PortableEmissionError::DiffBaseSemanticMismatch)
-            .unwrap();
-        let target =
-            ArtifactIndex::build(target_view, PortableEmissionError::InternalBindingMismatch)
-                .unwrap();
+        let base = ArtifactIndex::build(
+            base_view,
+            PortableEmissionError::DiffBaseSemanticMismatch,
+            &mut Scratch::new(u64::MAX),
+        )
+        .unwrap();
+        let target = ArtifactIndex::build(
+            target_view,
+            PortableEmissionError::InternalBindingMismatch,
+            &mut Scratch::new(u64::MAX),
+        )
+        .unwrap();
 
         let changes = artifact_geometry_changes(&base, &target).unwrap();
         assert_eq!(changes.len(), 1);

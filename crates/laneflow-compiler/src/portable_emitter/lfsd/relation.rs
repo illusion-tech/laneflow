@@ -69,7 +69,7 @@ pub(super) fn artifact_relation_tuples(
     let mut relations = Vec::new();
     let mut conflict_zone_memberships = Vec::<(u32, u32)>::new();
     let mut participant_stream_memberships = Vec::<(u32, u32)>::new();
-    for ((owner_kind, owner_stable_id), owner) in &index.entities {
+    for ((owner_kind, owner_stable_id), owner) in index.entities() {
         match owner_kind {
             EntityKind::RoadCorridor => {
                 let elements = checked_record_vector_with(owner.row, 4, mismatch)?;
