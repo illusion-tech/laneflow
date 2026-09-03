@@ -367,7 +367,7 @@ fn portable_migration_pair_matches_frozen_exact_bytes() {
     assert_eq!(target.semantic_diff().bytes(), MIGRATION_LFSD);
     assert_eq!(
         target.semantic_diff().object_key(),
-        "sha256/60ffff8b94db6d58c61112c12047d0599ced33821241c11c242cb76f5d43ce67"
+        "sha256/c244ada8f865f85a80135aa641280a8bcd0c812d87761dbc47589ecaf57ec8de"
     );
     assert_ne!(base.network_revision(), target.network_revision());
 
@@ -377,7 +377,7 @@ fn portable_migration_pair_matches_frozen_exact_bytes() {
     assert_eq!(otarget.semantic_diff().bytes(), ORACLE_LFSD);
     assert_eq!(
         otarget.semantic_diff().object_key(),
-        "sha256/1c4f1308384c7094d3840eadfcf5aad64d44ef8c50fab419a7e8720e7452f2e5"
+        "sha256/e6772818ee386bbcc35a5b5cd9d74f16287d836f93022437138c27678d3f4a54"
     );
     assert_ne!(obase.network_revision(), otarget.network_revision());
 
@@ -389,7 +389,7 @@ fn portable_migration_pair_matches_frozen_exact_bytes() {
     assert_eq!(ptarget.semantic_diff().bytes(), PROFILE_LFSD);
     assert_eq!(
         ptarget.semantic_diff().object_key(),
-        "sha256/fc5e72c30095921ee672800cca1262d0919fafaefeccd09b77482b4acc585dea"
+        "sha256/706764e4f8caa87ccc39a00a89082065d00edd7471b8217300cafb9aa2c31aeb"
     );
     assert_ne!(pbase.network_revision(), ptarget.network_revision());
 }

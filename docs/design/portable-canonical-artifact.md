@@ -29,7 +29,7 @@ LFCA 5 的策略表和机动方向按
 | 对象           | magic  | 对象版本 | 节数 | 逻辑表种类 | 作用                                               |
 | -------------- | ------ | -------: | ---: | ---------: | -------------------------------------------------- |
 | 可移植规范制品 | `LFCA` |        5 |    8 |         38 | 目标无关的规范静态路网语义与编译 provenance        |
-| 来源映射       | `LFSM` |        3 |    5 |          8 | LFCA 实体、owner-local occurrence 与来源位置的映射 |
+| 来源映射       | `LFSM` |        4 |    5 |          8 | LFCA 实体、owner-local occurrence 与来源位置的映射 |
 | 语义差异       | `LFSD` |        4 |    7 |          7 | 两个受绑定 LFCA 修订之间的可重算语义差异           |
 | 规范发布描述符 | `LFCP` |        2 |    3 |          3 | LFCA/LFSM exact bytes 与发布 provenance 的最小闭合 |
 
@@ -136,7 +136,7 @@ FieldV1 :=
   valueBytes[valueByteLength]
 ```
 
-LFCA 5、LFSM 3 与 LFSD 4 的每个 section 使用 `sectionFormatVersion = 2`，section
+LFCA 5、LFSM 4 与 LFSD 4 的每个 section 使用 `sectionFormatVersion = 2`，section
 exact bytes 为一个 `ChunkedSectionPreambleV1`、紧随其后的 chunk directory 和所有
 `TableV1` chunk。LFCP 2 继续使用 `sectionFormatVersion = 1`，每节直接保存一张
 singleton `TableV1`，不增加空洞或兼容分支。
@@ -315,7 +315,7 @@ An ObjectPreambleV1 is formatted as follows:
 | 结构                         | offset |   宽度 | 字段                       | 约束                                   |
 | ---------------------------- | -----: | -----: | -------------------------- | -------------------------------------- |
 | `ObjectPreambleV1`           | `0x00` |      4 | `magic`                    | 对象专用 ASCII magic                   |
-|                              | `0x04` |      2 | `formatVersion`            | LFCA=5，LFSM=3，LFSD=4，LFCP=2         |
+|                              | `0x04` |      2 | `formatVersion`            | LFCA=5，LFSM=4，LFSD=4，LFCP=2         |
 |                              | `0x06` |      2 | `headerByteLength`         | `32`                                   |
 |                              | `0x08` |      4 | `flags`                    | `0`                                    |
 |                              | `0x0c` |      4 | `sectionCount`             | 对象登记节数                           |
@@ -1017,14 +1017,15 @@ NetworkRevisionIdV1 := SHA-256(
 重算并逐字节比较。完整 LFCA exact bytes 另做 SHA-256 得到
 `canonicalArtifactDigest`，摘要和 exact `u64` length 由外部对象绑定。
 
-## 4. LFSM 3
+## 4. LFSM 4
 
-#284 的 LFSM 4 候选完整登记见
+#284 的 LFSM 4 完整登记见
 [`traffic-runtime-right-of-way-policy.md` §4.4](traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合)：
 包含 Road Editing v4 container/member、来源关系代码、policy 与局部成员的主来源和
-贡献来源投影（Review）。本节仍描述当前已交付的 LFSM 3 五节/八表合同。
+贡献来源投影。格式层提供 `ValidatedSourceMapInput::policy_sources()` 和独立
+`check_portable_policy_sources`；两个正式前端的非空策略生产由 W2 接续。
 
-`magic = "LFSM"`，`sourceMapFormatVersion = 3`。LFSM 3 精确包含：
+`magic = "LFSM"`，`sourceMapFormatVersion = 4`。LFSM 4 精确包含：
 
 | sectionKind | 名称                     | tables                                             |
 | ----------- | ------------------------ | -------------------------------------------------- |
@@ -1159,6 +1160,8 @@ SHA-256(
 10 SignalPhaseState             11 AccessRuleParticipantClass
 12 ParkingFacilityVirtualEntry  13 ParkingFacilityVirtualExit
 14 ParticipantStreamPassage     15 ConflictZoneRegion
+16 PolicyEvidence              17 PolicyGapProfile
+18 PolicyStreamRule            19 PolicyGateRule
 ```
 
 code 12/13 要求 Address owner=ParkingFacility 与 CanonicalSet occurrence；14 要求
@@ -1167,18 +1170,18 @@ Address owner=ParticipantStream 与 OrderedProduct occurrence；15 要求 Module
 规范化的 CanonicalSet occurrence。未知代码、错误 owner/occurrence 或把这些代码按数值强转
 为 `sourceRelationRole` 都失败关闭。
 
-`propertySteps.containerCode` 同样是 LFSM 3 的封闭登记，不读取 Rust enum 判别值。table
+`propertySteps.containerCode` 同样是 LFSM 4 的封闭登记，不读取 Rust enum 判别值。table
 container code 与可用 field id 为：
 
 ```text
- 0 RoadEditingSource[0..28]       1 ModuleHeader[0..3]
+ 0 RoadEditingSource[0..29]       1 ModuleHeader[0..3]
  2 Provenance[0..5]               3 LineSegment[0]
  4 CubicBezierSegment[0..2]       5 CurveSegment[0..2]
  6 CurveProgram[0..1]             7 RoadAlignment[0..3]
  8 CorridorElement[0..1]          9 RoadCorridor[0..8]
 10 RoadSection[0..4]             11 AuthoringLane[0..6]
 12 LaneEdge[0..4]                13 Junction[0..3]
-14 Movement[0..4]                15 ManeuverPath[0..5]
+14 Movement[0..5]                15 ManeuverPath[0..5]
 16 ManeuverGate[0..6]            17 WaitingZone[0..5]
 18 StopLine[0..2]                19 SignalGroup[0..1]
 20 SignalController[0..4]        21 SignalPhaseState[0..1]
@@ -1191,6 +1194,9 @@ container code 与可用 field id 为：
 34 ConflictZoneRegion[0..5]      35 CanonicalFrame[0..1]
 36 ConflictZone[0..2]            37 PathAnchor[0..4]
 38 ConflictPassage[0..2]         39 ParticipantStream[0..4]
+40 RightOfWayPolicySet[0..6]     41 PolicyEvidence[0..2]
+42 PolicyGapProfile[0..4]        43 PolicyStreamRule[0..6]
+44 PolicyGateRule[0..5]
 ```
 
 code 23 是 `ParkingFacility`，不接受 `ParkingArea` 名称；新增 source table 的 field id
@@ -1209,7 +1215,7 @@ struct container code 为 `0 Digest256[0] / 1 OptionalU64[0] / 2 Vec3F64[0..2] /
 3 LinearWidthProfile[0..1] / 4 Vec2F64[0..1]`；union container 只有
 `0 CurveSegmentGeometry`，合法 discriminant 为 `1 LineSegment / 2 CubicBezierSegment`。
 
-单步 `TableField` 只要命中上表已登记 field 就是完整 path。多步 path 只能沿下列 v3 schema
+单步 `TableField` 只要命中上表已登记 field 就是完整 path。多步 path 只能沿下列 v4 schema
 边继续，任何前缀、跨表拼接或未列边失败关闭：
 
 - table→struct：`Provenance.{2,3}->Digest256`、`Provenance.4->OptionalU64`、
@@ -1222,6 +1228,8 @@ struct container code 为 `0 Digest256[0] / 1 OptionalU64[0] / 2 Vec3F64[0..2] /
   `ParkingSpace.4->ParkingSpaceGeometry`、`AccessRule.5->AccessRegulation`、
   `VehicleProfile.2->IidmVehicleProfile`、`ParticipantStream.3->ConflictPassage`、
   `ConflictPassage.{1,2}->PathAnchor`、`RoadEditingSource.28->ConflictZoneRegion`；
+  以及 `RightOfWayPolicySet.1->AccessRegulation`、`RightOfWayPolicySet.{2,3,4,5}`
+  分别到 `PolicyEvidence/PolicyGapProfile/PolicyStreamRule/PolicyGateRule`；
 - union：`CurveSegment.1 -> CurveSegmentGeometry(1) -> LineSegment.0 -> Vec3F64 member`，
   或 discriminant 2 后接 `CubicBezierSegment.{0,1,2} -> Vec3F64 member`。
 
@@ -1240,7 +1248,7 @@ RoadEditing 变体的 optional 字段还受以下闭合矩阵约束：
 
 `propertySteps` 必须有 `1..=4` 行并构成 Road Editing v3 登记的一条完整可达路径，不能只因
 各 step 单独合法就拼接。`sourceLanguage` 只允许 `1=SyntheticDsl` 与
-`2=RoadEditingSource`；LFSM 3 分别要求 `frontendVersion=4` 与 `frontendVersion=3`。
+`2=RoadEditingSource`；LFSM 4 分别要求 `frontendVersion=5` 与 `frontendVersion=4`。
 前者只允许 Text 且 `SourceDocument.displaySource` 必须缺失，后者只允许 RoadEditing 且
 display source 可选。optional `canvasSelection` 缺失与存在但为空是不同语义值，writer
 不得互换。
@@ -1317,7 +1325,7 @@ Movement=8 ManeuverPath=7 ManeuverGate=15 WaitingZone=16 StopLine=17
 SignalGroup=18 SignalController=19 SignalPhase=21 ParkingFacility=22
 ParkingSpace=24 LaneGroup=25 FacilityBand=26 ParticipantClass=27
 AccessRule=28 VehicleProfile=29 CanonicalFrame=31 ConflictZone=23
-ParticipantStream=30
+ParticipantStream=30 RightOfWayPolicySet=35
 ```
 
 parent anchor 为 RoadSection/AuthoringLane/LaneGroup 的 33/32/32，
@@ -1355,40 +1363,44 @@ geometry 没有 curve range。role 32 的 range location 必须落到同一
 `set` 的位置只服务 wire 排序和来源定位，不产生 LFSD Move；`multiset`（重集）另以同
 subject occurrence rank 保留重复基数；`domain` 的位置属于语义顺序。
 
-| role / 名称                             | owner kind        | subject kind                  | 绑定 LFCA 唯一投影                          | localIndex / 序策略 | LFSD 投影                |
-| --------------------------------------- | ----------------- | ----------------------------- | ------------------------------------------- | ------------------- | ------------------------ |
-| `1 LaneEdgeSuccessor`                   | LaneEdge          | LaneEdge                      | `LaneEdge.successors`                       | vector / set        | Relation                 |
-| `2 RoadCorridorElement`                 | RoadCorridor      | RoadSection 或 FacilityBand   | `RoadCorridor.elements`                     | vector / domain     | Relation                 |
-| `3 RoadSectionLane`                     | RoadSection       | AuthoringLane                 | `RoadSection.lanes`                         | vector / domain     | Relation                 |
-| `4 AuthoringLaneEdge`                   | AuthoringLane     | LaneEdge                      | `AuthoringLane.edgeChain`                   | vector / domain     | Relation                 |
-| `5 LaneGroupMember`                     | LaneGroup         | AuthoringLane                 | `LaneGroup.members`                         | vector / domain     | Relation                 |
-| `6 JunctionMovement`                    | Junction          | Movement                      | `Junction.movements`                        | vector / set        | Relation                 |
-| `7 MovementManeuverPath`                | Movement          | ManeuverPath                  | `Movement.maneuverPaths`                    | vector / set        | Relation                 |
-| `8 ManeuverPathEdge`                    | ManeuverPath      | LaneEdge                      | `ManeuverPath.edges`                        | vector / domain     | Relation                 |
-| `9 JunctionInternalEdge`                | Junction          | LaneEdge                      | `JunctionInternalEdge` owner rows           | filtered row / set  | Relation + derived       |
-| `10 ManeuverPathGate`                   | ManeuverPath      | ManeuverGate                  | `ManeuverPath.maneuverGates`                | vector / domain     | Relation                 |
-| `11 ManeuverPathWaitingZone`            | ManeuverPath      | WaitingZone                   | `ManeuverPath.waitingZones`                 | vector / domain     | Relation                 |
-| `12 StopLineManeuverGate`               | StopLine          | ManeuverGate                  | `StopLine.maneuverGates`                    | vector / set        | Relation                 |
-| `13 ParkingFacilityVirtualEntry`        | ParkingFacility   | LaneEdge                      | `ParkingFacility.virtualEntries[].laneEdge` | vector / multiset   | Relation + field payload |
-| `14 ParkingFacilityVirtualExit`         | ParkingFacility   | LaneEdge                      | `ParkingFacility.virtualExits[].laneEdge`   | vector / multiset   | Relation + field payload |
-| `15 JunctionConflictZone`               | Junction          | ConflictZone                  | 按 `ConflictZone.junction` 过滤实体行       | filtered row / set  | Relation                 |
-| `16 JunctionParticipantStream`          | Junction          | ParticipantStream             | 按 `ParticipantStream.junction` 过滤实体行  | filtered row / set  | Relation                 |
-| `17 SignalControllerGroup`              | SignalController  | SignalGroup                   | `SignalController.signalGroups`             | vector / set        | Relation                 |
-| `18 SignalControllerPhase`              | SignalController  | SignalPhase                   | `SignalController.phases`                   | vector / domain     | Relation                 |
-| `19 SignalPhaseState`                   | SignalPhase       | SignalGroup                   | `SignalPhase.states.signalGroup`            | vector / set        | StaticRule only          |
-| `20 ManeuverGateSignalGroup`            | ManeuverGate      | SignalGroup                   | Group 时的 `ManeuverGate.signalGroup`       | scalar              | Relation                 |
-| `21 ParkingSpaceFacility`               | ParkingSpace      | ParkingFacility               | 可选 `ParkingSpace.parkingFacility`         | scalar              | Relation                 |
-| `22 ParkingSpaceEntry`                  | ParkingSpace      | LaneEdge                      | `ParkingSpace.entryLaneEdge`                | scalar              | Relation                 |
-| `23 ParkingSpaceExit`                   | ParkingSpace      | LaneEdge                      | `ParkingSpace.exitLaneEdge`                 | scalar              | Relation                 |
-| `24 ParticipantClassExtends`            | ParticipantClass  | ParticipantClass              | 可选 `ParticipantClass.parent`              | scalar              | Relation                 |
-| `25 AccessRuleTarget`                   | AccessRule        | targetKind 指定的四种实体之一 | `AccessRule.(targetKind,targetOrdinal)`     | scalar              | Relation                 |
-| `26 AccessRuleParticipantClass`         | AccessRule        | ParticipantClass              | `AccessRule.participantClasses`             | vector / set        | Relation                 |
-| `27 VehicleProfileParticipantClass`     | VehicleProfile    | ParticipantClass              | `VehicleProfile.participantClass`           | scalar              | Relation                 |
-| `28 CanonicalFrameLaneEdgeGeometry`     | CanonicalFrame    | LaneEdge                      | `LaneEdgeGeometry` owner rows               | filtered row / set  | Geometry only            |
-| `29 CanonicalFrameFacilityBandGeometry` | CanonicalFrame    | FacilityBand                  | `FacilityBandGeometry` owner rows           | filtered row / set  | Geometry only            |
-| `30 ParticipantStreamManeuverPath`      | ParticipantStream | ManeuverPath                  | `ParticipantStream.maneuverPath`            | scalar              | Relation                 |
-| `31 ParticipantStreamConflictPassage`   | ParticipantStream | ConflictZone                  | `ParticipantStream.passages[].conflictZone` | vector / domain     | Relation + field payload |
-| `32 CanonicalFrameConflictZoneRegion`   | CanonicalFrame    | ConflictZone                  | `ConflictZoneRegion` owner rows             | filtered row / set  | Geometry only            |
+| role / 名称                             | owner kind          | subject kind                  | 绑定 LFCA 唯一投影                          | localIndex / 序策略 | LFSD 投影                |
+| --------------------------------------- | ------------------- | ----------------------------- | ------------------------------------------- | ------------------- | ------------------------ |
+| `1 LaneEdgeSuccessor`                   | LaneEdge            | LaneEdge                      | `LaneEdge.successors`                       | vector / set        | Relation                 |
+| `2 RoadCorridorElement`                 | RoadCorridor        | RoadSection 或 FacilityBand   | `RoadCorridor.elements`                     | vector / domain     | Relation                 |
+| `3 RoadSectionLane`                     | RoadSection         | AuthoringLane                 | `RoadSection.lanes`                         | vector / domain     | Relation                 |
+| `4 AuthoringLaneEdge`                   | AuthoringLane       | LaneEdge                      | `AuthoringLane.edgeChain`                   | vector / domain     | Relation                 |
+| `5 LaneGroupMember`                     | LaneGroup           | AuthoringLane                 | `LaneGroup.members`                         | vector / domain     | Relation                 |
+| `6 JunctionMovement`                    | Junction            | Movement                      | `Junction.movements`                        | vector / set        | Relation                 |
+| `7 MovementManeuverPath`                | Movement            | ManeuverPath                  | `Movement.maneuverPaths`                    | vector / set        | Relation                 |
+| `8 ManeuverPathEdge`                    | ManeuverPath        | LaneEdge                      | `ManeuverPath.edges`                        | vector / domain     | Relation                 |
+| `9 JunctionInternalEdge`                | Junction            | LaneEdge                      | `JunctionInternalEdge` owner rows           | filtered row / set  | Relation + derived       |
+| `10 ManeuverPathGate`                   | ManeuverPath        | ManeuverGate                  | `ManeuverPath.maneuverGates`                | vector / domain     | Relation                 |
+| `11 ManeuverPathWaitingZone`            | ManeuverPath        | WaitingZone                   | `ManeuverPath.waitingZones`                 | vector / domain     | Relation                 |
+| `12 StopLineManeuverGate`               | StopLine            | ManeuverGate                  | `StopLine.maneuverGates`                    | vector / set        | Relation                 |
+| `13 ParkingFacilityVirtualEntry`        | ParkingFacility     | LaneEdge                      | `ParkingFacility.virtualEntries[].laneEdge` | vector / multiset   | Relation + field payload |
+| `14 ParkingFacilityVirtualExit`         | ParkingFacility     | LaneEdge                      | `ParkingFacility.virtualExits[].laneEdge`   | vector / multiset   | Relation + field payload |
+| `15 JunctionConflictZone`               | Junction            | ConflictZone                  | 按 `ConflictZone.junction` 过滤实体行       | filtered row / set  | Relation                 |
+| `16 JunctionParticipantStream`          | Junction            | ParticipantStream             | 按 `ParticipantStream.junction` 过滤实体行  | filtered row / set  | Relation                 |
+| `17 SignalControllerGroup`              | SignalController    | SignalGroup                   | `SignalController.signalGroups`             | vector / set        | Relation                 |
+| `18 SignalControllerPhase`              | SignalController    | SignalPhase                   | `SignalController.phases`                   | vector / domain     | Relation                 |
+| `19 SignalPhaseState`                   | SignalPhase         | SignalGroup                   | `SignalPhase.states.signalGroup`            | vector / set        | StaticRule only          |
+| `20 ManeuverGateSignalGroup`            | ManeuverGate        | SignalGroup                   | Group 时的 `ManeuverGate.signalGroup`       | scalar              | Relation                 |
+| `21 ParkingSpaceFacility`               | ParkingSpace        | ParkingFacility               | 可选 `ParkingSpace.parkingFacility`         | scalar              | Relation                 |
+| `22 ParkingSpaceEntry`                  | ParkingSpace        | LaneEdge                      | `ParkingSpace.entryLaneEdge`                | scalar              | Relation                 |
+| `23 ParkingSpaceExit`                   | ParkingSpace        | LaneEdge                      | `ParkingSpace.exitLaneEdge`                 | scalar              | Relation                 |
+| `24 ParticipantClassExtends`            | ParticipantClass    | ParticipantClass              | 可选 `ParticipantClass.parent`              | scalar              | Relation                 |
+| `25 AccessRuleTarget`                   | AccessRule          | targetKind 指定的四种实体之一 | `AccessRule.(targetKind,targetOrdinal)`     | scalar              | Relation                 |
+| `26 AccessRuleParticipantClass`         | AccessRule          | ParticipantClass              | `AccessRule.participantClasses`             | vector / set        | Relation                 |
+| `27 VehicleProfileParticipantClass`     | VehicleProfile      | ParticipantClass              | `VehicleProfile.participantClass`           | scalar              | Relation                 |
+| `28 CanonicalFrameLaneEdgeGeometry`     | CanonicalFrame      | LaneEdge                      | `LaneEdgeGeometry` owner rows               | filtered row / set  | Geometry only            |
+| `29 CanonicalFrameFacilityBandGeometry` | CanonicalFrame      | FacilityBand                  | `FacilityBandGeometry` owner rows           | filtered row / set  | Geometry only            |
+| `30 ParticipantStreamManeuverPath`      | ParticipantStream   | ManeuverPath                  | `ParticipantStream.maneuverPath`            | scalar              | Relation                 |
+| `31 ParticipantStreamConflictPassage`   | ParticipantStream   | ConflictZone                  | `ParticipantStream.passages[].conflictZone` | vector / domain     | Relation + field payload |
+| `32 CanonicalFrameConflictZoneRegion`   | CanonicalFrame      | ConflictZone                  | `ConflictZoneRegion` owner rows             | filtered row / set  | Geometry only            |
+| `33 PolicyEvidence`                     | RightOfWayPolicySet | 无独立实体                    | section 4 / table 2                         | owner 内 key 序     | PolicyLocalChange        |
+| `34 PolicyGapProfile`                   | RightOfWayPolicySet | 无独立实体                    | section 4 / table 3                         | owner 内 key 序     | PolicyLocalChange        |
+| `35 PolicyStreamRule`                   | RightOfWayPolicySet | 无独立实体                    | section 4 / table 4                         | owner 内 key 序     | PolicyLocalChange        |
+| `36 PolicyGateRule`                     | RightOfWayPolicySet | 无独立实体                    | section 4 / table 5                         | owner 内 key 序     | PolicyLocalChange        |
 
 role 21 的名称固定为 `ParkingSpaceFacility`。设施声明、`virtualCapacity` 和每个 anchor
 都必须回指 exact Road Editing v3 property path。anchor 先按
@@ -1456,6 +1468,25 @@ set。它们只在相应 relation tuple 集合或重集变化时生成 LFSD rela
 `SpatialGeometrySourceRange` 覆盖 ring point range；role 31 的 entry/exit property steps
 必须落到同一个 passage owner-local row。独立 writer/checker 必须从绑定 LFCA 与这些
 路径一一反解，不能仅凭 role 数值猜测 projection。
+
+role 33–36 仅属于来源表，分别对应 LFCA section 4 / table 2–5 的策略成员；
+不会产生 LFSD RelationChange。owner 为 policy，按每个 owner、每种成员的原始 key
+字节排序得到 localIndex，跨 chunk 连续。RoadEditing 主位置携带 relation 16–19、
+CanonicalSetOrdinal 和一步 `40.{2,3,4,5}`；字段贡献为同一地址的两步路径。policy
+Declaration 禁止进入成员向量。策略自身贡献仅为 key 与嵌套 regulation 的实际字段；
+canvas 只用 tag 21，严格保留缺失和空字符串。Movement 方向存在时增加 `14.5`
+贡献位置，主声明位置不变。完整字段及存在性见路权实施合同 §4.4。
+
+`check_portable_policy_sources` 重新预检最终两份对象，核对 LFCA revision、exact
+digest/length、provenance、来源模块和文档描述符，再从 LFCA 与受检来源视图各自
+重建完整策略集合。它不调用 emitter 的成员配对和位置编码，直接借用字符串和最多
+四步属性路径比较完整语义值。来源位置池必须排序去重且精确被所有来源行引用；
+错地址、错贡献集合、漏行、额外行、错误方向来源及跨 chunk 错序号均拒绝。
+新增来源记录及贡献位置纳入来源冻结的 occurrence、output、scratch 和 live 计量；
+来源 context 已由共同准入计入，克隆引用不重复计费。发射器对新增位置、路径、
+字符串和行的同时存活副本预先收取保守上界；检查器的借用索引及临时 ordinal
+集合计入 StageScratchBytes，返回前释放。本检查不提升为既有全部来源语义或
+正式前端的策略生产证明；W2 仍须提供同次真实来源输入。
 
 LFSM 接受前必须先用 tag 3/4/5 绑定 LFCA 5 exact bytes，再暴露任一来源行。
 `sourceMapDigest` 是完整 LFSM exact bytes 的 SHA-256；`sourceMapByteLength` 是同一字节序列的
@@ -1938,7 +1969,7 @@ reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构�
 公共格式实现必须原子满足：
 
 1. Road Editing v3、Road Editing frontend 3、Synthetic frontend 4、Identity registry
-   revision 4、LFCA 5、LFSM 3 与 LFSD 4；
+   revision 4、LFCA 5、LFSM 4 与 LFSD 4；
 2. schema clean regeneration，删除 `ParkingArea` reader/writer/public symbol，加入冲突
    静态声明，不保留 alias、双读、双写或迁移 façade；
 3. `laneflow-static-contract` 机器登记表、chunk directory 与本文逐项一致；

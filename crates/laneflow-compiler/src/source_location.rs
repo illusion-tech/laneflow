@@ -241,6 +241,11 @@ pub enum RoadEditingTableKind {
     PathAnchor,
     ConflictPassage,
     ParticipantStream,
+    RightOfWayPolicySet,
+    PolicyEvidence,
+    PolicyGapProfile,
+    PolicyStreamRule,
+    PolicyGateRule,
 }
 
 /// 道路编辑 schema 中可出现在来源路径的 inline struct 种类。
@@ -281,6 +286,10 @@ pub enum RoadEditingRelationKind {
     ParkingFacilityVirtualExit,
     ParticipantStreamPassage,
     ConflictZoneRegion,
+    PolicyEvidence,
+    PolicyGapProfile,
+    PolicyStreamRule,
+    PolicyGateRule,
 }
 
 /// 有序产品关系或规范集合关系中的稳定 occurrence。

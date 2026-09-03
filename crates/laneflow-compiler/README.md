@@ -62,6 +62,16 @@ regularity visit cache、待提交几何包装与单 corridor 临时集合使用
 文档索引及模块包装均不能游离于 `CompileLimits`；
 路线生命周期由 `TrafficWorld::register_route` 拥有，不在编译器内。
 
+LFSM 4 已登记策略 container 40–44、关系 16–19 与来源角色 33–36。受检
+`PolicySourceView` 从同次 `ValidatedSourceMapInput` 借用声明、成员和方向字段来源；
+成员按 owner/kind/key 计算全局 localIndex，保留真实 Text span、RoadEditing 属性路径
+和 optional canvas。候选返回前，`check_portable_policy_sources` 独立核对 LFCA、
+来源描述符、完整成员、贡献集合与位置池；它不使用 emitter 的位置编码器重放答案。
+来源冻结和投影均先计量，空策略走流式位置检查，失败不会发布半份来源映射。
+当前格式组合为 LFCA/LFSM/LFSD 5/4/4；Synthetic/RoadEditing 的 frontendVersion 为
+5/4。非空正式策略语法、LFRE 4 writer/reader 与 HIR/MIR/LIR 生产仍由 #564（W2）
+接入同一冻结入口，当前工程样例不代表这些生产能力已经交付。
+
 可移植候选发射由 `emit_portable_candidate` 提供。它只能原子借用同一个
 `CompilationOutput` 中已配对的 LIR/source-map input，并接收规范化
 `PortableEmissionProvenance`、显式 `PortableDiffBase::{Genesis, Artifact}` 和格式上限。

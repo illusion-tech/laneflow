@@ -1,8 +1,8 @@
-mod base;
+pub(super) mod base;
 mod entity;
 mod geometry;
 mod policy;
-mod policy_change;
+pub(super) mod policy_change;
 mod policy_check;
 pub use policy_check::check_portable_policy_diff;
 mod relation;

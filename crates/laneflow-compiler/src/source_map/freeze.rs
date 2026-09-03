@@ -1557,8 +1557,12 @@ pub(crate) fn freeze_source_map(
             ),
         ));
     }
+    // W2 在此接入两个正式前端的完整策略输入；空输入仍走同一受检冻结入口。
+    let (policy_sources, policy_owned, _) =
+        policy::freeze_policy_sources(&unit, &[], sizing.controlled_live_bytes, output_bytes)?;
     let (source_modules, source_documents) = unit.into_source_descriptors();
     Ok(ValidatedSourceMapInput {
+        policy_sources,
         source_modules,
         source_module_declaration_sources: source_module_declaration_sources.into_boxed_slice(),
         source_documents,
@@ -1594,7 +1598,7 @@ pub(crate) fn freeze_source_map(
         access_rule_sources: access_rule_sources.into_boxed_slice(),
         access_relation_sources: access_relation_sources.into_boxed_slice(),
         junction_relation_sources: junction_relation_sources.into_boxed_slice(),
-        peak_controlled_live_bytes: sizing.controlled_live_bytes,
+        peak_controlled_live_bytes: sizing.controlled_live_bytes.saturating_add(policy_owned),
     })
 }
 
