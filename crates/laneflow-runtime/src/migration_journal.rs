@@ -115,7 +115,9 @@ pub(crate) struct VehicleDelta {
     /// 生命周期状态。
     pub(crate) status: VehicleStatus,
     pub(crate) traversal_present: bool,
-    pub(crate) maneuver_occurrence_index: u32,
+    /// maneuver 在动态路线中的 exact entry edge occurrence；跨修订时与 stable path
+    /// 共同定位目标 maneuver，不依赖可能已越过 exit 的车辆前端 cursor。
+    pub(crate) maneuver_entry_route_edge_index: u32,
     pub(crate) maneuver_path: u32,
     pub(crate) traversal_phase: u8,
     pub(crate) phase_gate: u32,
@@ -150,7 +152,7 @@ impl VehicleDelta {
                 .flatten()
                 .expect("Waiting phase hop resolves Gate");
             (
-                traversal.maneuver_occurrence_index,
+                maneuver.entry_route_edge_index,
                 maneuver.path,
                 traversal_phase,
                 phase_gate,
@@ -190,7 +192,7 @@ impl VehicleDelta {
             length_mm: state.length_mm(),
             status: state.status(),
             traversal_present: authority.is_some(),
-            maneuver_occurrence_index: authority.map_or(0, |value| value.0),
+            maneuver_entry_route_edge_index: authority.map_or(0, |value| value.0),
             maneuver_path: authority.map_or(0, |value| value.1.raw()),
             traversal_phase: authority.map_or(0, |value| value.2),
             phase_gate: authority.map_or(0, |value| value.3.raw()),
@@ -216,7 +218,7 @@ impl VehicleDelta {
         put_u32(out, self.length_mm);
         put_u8(out, status_to_raw(self.status));
         put_u8(out, u8::from(self.traversal_present));
-        put_u32(out, self.maneuver_occurrence_index);
+        put_u32(out, self.maneuver_entry_route_edge_index);
         put_u32(out, self.maneuver_path);
         put_u8(out, self.traversal_phase);
         put_u32(out, self.phase_gate);
@@ -246,7 +248,7 @@ impl VehicleDelta {
             length_mm: read_u32(bytes, 38),
             status: status_from_raw(bytes[42]),
             traversal_present: bytes[43] == 1,
-            maneuver_occurrence_index: read_u32(bytes, 44),
+            maneuver_entry_route_edge_index: read_u32(bytes, 44),
             maneuver_path: read_u32(bytes, 48),
             traversal_phase: bytes[52],
             phase_gate: read_u32(bytes, 53),
@@ -1220,7 +1222,7 @@ mod tests {
             length_mm: 4_500,
             status: VehicleStatus::Active,
             traversal_present: false,
-            maneuver_occurrence_index: 0,
+            maneuver_entry_route_edge_index: 0,
             maneuver_path: 0,
             traversal_phase: 0,
             phase_gate: 0,

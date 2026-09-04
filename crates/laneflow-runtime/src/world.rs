@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::cell::Cell;
 
 use laneflow_static_contract::{
-    EntityKind, ParkingSpaceOrdinal, ParticipantClassOrdinal, SignalAspect,
-    SignalControllerOrdinal, SignalGroupOrdinal,
+    EntityKind, ManeuverGateOrdinal, ManeuverPathOrdinal, ParkingSpaceOrdinal,
+    ParticipantClassOrdinal, SignalAspect, SignalControllerOrdinal, SignalGroupOrdinal,
 };
 use laneflow_static_network::SharedNetworkRevision;
 
@@ -50,6 +50,33 @@ fn overlap_blocker_inspections() -> usize {
 /// 再把它绑定到切换、观测或 Routing 会话，而不是自行猜测世代。
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct WorldGeneration(u64);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ManeuverOccurrenceAnchor {
+    OccurrenceIndex(u32),
+    EntryRouteEdgeIndex(u32),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ResolvedManeuverAnchor {
+    pub(crate) occurrence_index: u32,
+    pub(crate) entry_route_edge_index: u32,
+    pub(crate) exit_route_edge_index: u32,
+    pub(crate) gate_hop: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ReservationDownstreamClaimPlan {
+    route: RouteHandle,
+    plan: crate::conflict::DownstreamClaimPlan,
+}
+
+impl ReservationDownstreamClaimPlan {
+    #[must_use]
+    pub(crate) const fn raw_interval_capacity(self) -> usize {
+        self.plan.raw_interval_capacity()
+    }
+}
 
 impl WorldGeneration {
     /// 新安装世界的初始世代。
@@ -565,16 +592,56 @@ impl TrafficWorld {
         )
     }
 
-    /// 从 reservation 级 exact route/Gate/passage 证明重建 downstream 物理资源并集。
-    ///
-    /// committed claim 只保留热路径需要的物理区间；snapshot/restore/cutover
-    /// 必须调用本入口证明这些区间仍是当前根与整车长度的唯一推导结果。
-    pub(crate) fn derive_reservation_downstream_claims(
+    /// 按 exact occurrence 或跨修订稳定的 entry route occurrence 解析 maneuver/Gate。
+    pub(crate) fn resolve_maneuver_anchor(
+        &self,
+        route: RouteHandle,
+        anchor: ManeuverOccurrenceAnchor,
+        expected_path: ManeuverPathOrdinal,
+        expected_gate: ManeuverGateOrdinal,
+    ) -> Option<ResolvedManeuverAnchor> {
+        let compiled = self.compiled_route(route)?;
+        let (occurrence_index, maneuver) = match anchor {
+            ManeuverOccurrenceAnchor::OccurrenceIndex(index) => {
+                let maneuver = compiled.maneuvers.get(index as usize)?;
+                (index, maneuver)
+            }
+            ManeuverOccurrenceAnchor::EntryRouteEdgeIndex(entry) => {
+                let mut matches = compiled
+                    .maneuvers
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, maneuver)| {
+                        maneuver.path == expected_path && maneuver.entry_route_edge_index == entry
+                    });
+                let (index, maneuver) = matches.next()?;
+                if matches.next().is_some() {
+                    return None;
+                }
+                (u32::try_from(index).ok()?, maneuver)
+            }
+        };
+        if maneuver.path != expected_path {
+            return None;
+        }
+        let gate_hop =
+            (maneuver.entry_route_edge_index..maneuver.exit_route_edge_index).find(|hop| {
+                compiled.hop_gate.get(*hop as usize).copied().flatten() == Some(expected_gate)
+            })?;
+        Some(ResolvedManeuverAnchor {
+            occurrence_index,
+            entry_route_edge_index: maneuver.entry_route_edge_index,
+            exit_route_edge_index: maneuver.exit_route_edge_index,
+            gate_hop,
+        })
+    }
+
+    /// 从 reservation 级 exact route/Gate/passage 证明构造 downstream 派生计划。
+    pub(crate) fn reservation_downstream_claim_plan(
         &self,
         range: crate::ConflictPassageRange,
         vehicle_length_mm: u32,
-        output: &mut Vec<crate::DownstreamInterval>,
-    ) -> Result<(), ConflictAcquireError> {
+    ) -> Result<ReservationDownstreamClaimPlan, ConflictAcquireError> {
         let compiled = self
             .compiled_route(range.route())
             .ok_or(ConflictAcquireError::InvalidBundle)?;
@@ -625,13 +692,46 @@ impl TrafficWorld {
             farthest,
             vehicle_length_mm,
         )?;
-        crate::conflict::derive_downstream_claims(
+        Ok(ReservationDownstreamClaimPlan {
+            route: range.route(),
+            plan: crate::conflict::downstream_claim_plan(gate, target)?,
+        })
+    }
+
+    /// 使用调用方已经按资源轴预留的 scratch 填充 downstream 物理资源并集。
+    pub(crate) fn derive_reservation_downstream_claims_from_plan(
+        &self,
+        plan: ReservationDownstreamClaimPlan,
+        output: &mut Vec<crate::DownstreamInterval>,
+    ) -> Result<(), ConflictAcquireError> {
+        let compiled = self
+            .compiled_route(plan.route)
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        crate::conflict::derive_downstream_claims_from_plan(
             &compiled.edges,
             self.revision.traffic().lane_lengths_millimetres(),
-            gate,
-            target,
+            plan.plan,
             output,
         )
+    }
+
+    /// 从 reservation 级 exact route/Gate/passage 证明重建 downstream 物理资源并集。
+    ///
+    /// committed claim 只保留热路径需要的物理区间；snapshot/restore/cutover
+    /// 必须调用本入口证明这些区间仍是当前根与整车长度的唯一推导结果。
+    #[cfg(test)]
+    pub(crate) fn derive_reservation_downstream_claims(
+        &self,
+        range: crate::ConflictPassageRange,
+        vehicle_length_mm: u32,
+        output: &mut Vec<crate::DownstreamInterval>,
+    ) -> Result<(), ConflictAcquireError> {
+        let plan = self.reservation_downstream_claim_plan(range, vehicle_length_mm)?;
+        output.clear();
+        output
+            .try_reserve_exact(plan.raw_interval_capacity())
+            .map_err(|_| ConflictAcquireError::Capacity)?;
+        self.derive_reservation_downstream_claims_from_plan(plan, output)
     }
 
     #[must_use]

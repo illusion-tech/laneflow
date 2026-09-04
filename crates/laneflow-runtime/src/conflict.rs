@@ -572,6 +572,25 @@ pub struct DownstreamRoutePoint {
     carry_um: u16,
 }
 
+/// downstream claim 的已验证派生计划。
+///
+/// `raw_interval_capacity` 是合并重复物理边之前的 route occurrence 数。持久化与
+/// cutover 调用方先通过各自的资源预算入口预留该容量，再调用无分配填充入口，
+/// 从而不让共享语义 helper 隐式改变错误轴。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct DownstreamClaimPlan {
+    gate_crossed_side: DownstreamRoutePoint,
+    target: DownstreamRoutePoint,
+    raw_interval_capacity: usize,
+}
+
+impl DownstreamClaimPlan {
+    #[must_use]
+    pub(crate) const fn raw_interval_capacity(self) -> usize {
+        self.raw_interval_capacity
+    }
+}
+
 impl DownstreamRoutePoint {
     pub(crate) const fn new(
         route_edge_index: u32,
@@ -647,6 +666,15 @@ pub(crate) fn derive_downstream_claims(
     target: DownstreamRoutePoint,
     output: &mut Vec<DownstreamInterval>,
 ) -> Result<(), ConflictAcquireError> {
+    let plan = downstream_claim_plan(gate_crossed_side, target)?;
+    reserve_for_len(output, plan.raw_interval_capacity)?;
+    derive_downstream_claims_from_plan(route_edges, edge_lengths_mm, plan, output)
+}
+
+pub(crate) fn downstream_claim_plan(
+    gate_crossed_side: DownstreamRoutePoint,
+    target: DownstreamRoutePoint,
+) -> Result<DownstreamClaimPlan, ConflictAcquireError> {
     if gate_crossed_side.carry_um != 0 || target.carry_um != 0 {
         return Err(ConflictAcquireError::InvalidBundle);
     }
@@ -661,8 +689,30 @@ pub(crate) fn derive_downstream_claims(
         .checked_sub(start_index)
         .and_then(|value| value.checked_add(1))
         .ok_or(ConflictAcquireError::InvalidBundle)?;
-    reserve_for_len(output, required)?;
+    Ok(DownstreamClaimPlan {
+        gate_crossed_side,
+        target,
+        raw_interval_capacity: required,
+    })
+}
+
+/// 使用调用方已经显式预留的 scratch 填充物理区间并集。
+pub(crate) fn derive_downstream_claims_from_plan(
+    route_edges: &[LaneEdgeOrdinal],
+    edge_lengths_mm: &[u32],
+    plan: DownstreamClaimPlan,
+    output: &mut Vec<DownstreamInterval>,
+) -> Result<(), ConflictAcquireError> {
+    if output.capacity() < plan.raw_interval_capacity {
+        return Err(ConflictAcquireError::Capacity);
+    }
     output.clear();
+    let gate_crossed_side = plan.gate_crossed_side;
+    let target = plan.target;
+    let start_index = usize::try_from(gate_crossed_side.route_edge_index)
+        .map_err(|_| ConflictAcquireError::InvalidBundle)?;
+    let target_index = usize::try_from(target.route_edge_index)
+        .map_err(|_| ConflictAcquireError::InvalidBundle)?;
     for index in start_index..=target_index {
         let edge = *route_edges
             .get(index)
@@ -1426,6 +1476,31 @@ impl ConflictArbiter {
 
     pub(crate) fn contains_address(&self, address: ConflictPassageAddress) -> bool {
         self.cell_index(address).is_ok()
+    }
+
+    /// 在已排序的规范地址表中解析唯一 `(zone, stream)` locator。
+    ///
+    /// 同一 stream 对同一 zone 存在多个 passage 时保持失败关闭；无需为 restore/
+    /// cutover 另建常驻或临时索引。
+    pub(crate) fn unique_address(
+        &self,
+        zone: ConflictZoneOrdinal,
+        stream: ParticipantStreamOrdinal,
+    ) -> Option<ConflictPassageAddress> {
+        let key = (zone, stream);
+        let start = self
+            .addresses
+            .partition_point(|address| (address.zone, address.stream) < key);
+        let address = *self.addresses.get(start)?;
+        if (address.zone, address.stream) != key
+            || self
+                .addresses
+                .get(start + 1)
+                .is_some_and(|next| (next.zone, next.stream) == key)
+        {
+            return None;
+        }
+        Some(address)
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -3093,6 +3168,54 @@ mod tests {
         assert!(intervals_conflict(follower, 6, leader, 0));
         assert!(!intervals_conflict(leader, 99, follower, 5));
         assert!(intervals_conflict(leader, 0, follower, 6));
+    }
+
+    #[test]
+    fn downstream_claim_plan_exposes_raw_loop_capacity_before_union_merge() {
+        let shared = LaneEdgeOrdinal::from_raw(0);
+        let middle = LaneEdgeOrdinal::from_raw(1);
+        let edges = [shared, middle, shared];
+        let lengths = [100, 50];
+        let plan = downstream_claim_plan(
+            DownstreamRoutePoint::new(0, 20, 0).unwrap(),
+            DownstreamRoutePoint::new(2, 40, 0).unwrap(),
+        )
+        .expect("valid repeated-edge plan");
+        assert_eq!(plan.raw_interval_capacity(), 3);
+
+        let mut undersized = Vec::with_capacity(2);
+        assert_eq!(
+            derive_downstream_claims_from_plan(&edges, &lengths, plan, &mut undersized),
+            Err(ConflictAcquireError::Capacity)
+        );
+
+        let mut exact = Vec::with_capacity(plan.raw_interval_capacity());
+        derive_downstream_claims_from_plan(&edges, &lengths, plan, &mut exact)
+            .expect("exact raw capacity avoids hidden allocation");
+        assert_eq!(
+            exact,
+            vec![
+                DownstreamInterval::new(shared, 0, 100).unwrap(),
+                DownstreamInterval::new(middle, 0, 50).unwrap(),
+            ]
+        );
+    }
+
+    #[test]
+    fn unique_address_uses_canonical_table_and_rejects_ambiguous_locator() {
+        let zone = ConflictZoneOrdinal::from_raw(0);
+        let stream = ParticipantStreamOrdinal::from_raw(0);
+        let unique = address(0, 0, 0);
+        let arbiter = ConflictArbiter::new(vec![unique], 1).expect("unique arbiter");
+        assert_eq!(arbiter.unique_address(zone, stream), Some(unique));
+
+        let ambiguous = ConflictArbiter::new(vec![unique, address(0, 0, 1)], 1)
+            .expect("distinct passage addresses are valid");
+        assert_eq!(ambiguous.unique_address(zone, stream), None);
+        assert_eq!(
+            ambiguous.unique_address(zone, ParticipantStreamOrdinal::from_raw(1)),
+            None
+        );
     }
 
     #[test]

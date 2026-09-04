@@ -1252,10 +1252,15 @@ impl TrafficWorld {
                         committed_downstream.push(claim.interval);
                     }
                     let mut derived_downstream = Vec::new();
-                    capture_try_reserve_exact(&mut derived_downstream, committed_downstream.len())?;
-                    self.derive_reservation_downstream_claims(
-                        range,
-                        state.length_mm,
+                    let downstream_plan = self
+                        .reservation_downstream_claim_plan(range, state.length_mm)
+                        .map_err(|_| SnapshotCaptureError::ConflictInvariantViolation)?;
+                    capture_try_reserve_exact(
+                        &mut derived_downstream,
+                        downstream_plan.raw_interval_capacity(),
+                    )?;
+                    self.derive_reservation_downstream_claims_from_plan(
+                        downstream_plan,
                         &mut derived_downstream,
                     )
                     .map_err(|_| SnapshotCaptureError::ConflictInvariantViolation)?;
@@ -1514,6 +1519,33 @@ mod tests {
         let retried = world.capture_snapshot().expect("retry after clearing");
         assert_eq!(retried, baseline);
         assert_eq!(encode_lfrs(&retried), baseline_bytes);
+    }
+
+    #[test]
+    fn conflict_capture_routes_every_scratch_reservation_through_capture_axis() {
+        let (world, _) = crate::snapshot_restore::tests::world_with_conflict_reservation();
+        let baseline = world.capture_snapshot().expect("baseline Conflict capture");
+        let baseline_bytes = encode_lfrs(&baseline);
+        let mut fail_after = 0;
+        loop {
+            let result =
+                with_snapshot_allocation_failure_after(fail_after, || world.capture_snapshot());
+            match result {
+                Err(error) => assert_eq!(
+                    error,
+                    SnapshotCaptureError::ReservationFailed,
+                    "Conflict capture allocation {fail_after}"
+                ),
+                Ok(captured) => {
+                    assert_eq!(captured, baseline);
+                    assert_eq!(encode_lfrs(&captured), baseline_bytes);
+                    assert!(fail_after > 10, "Conflict capture exercised extra scratch");
+                    break;
+                }
+            }
+            fail_after += 1;
+            assert!(fail_after < 64, "capture allocation enumeration terminates");
+        }
     }
 
     #[test]
