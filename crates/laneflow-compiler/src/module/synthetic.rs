@@ -1352,6 +1352,7 @@ impl SyntheticModuleBuilder {
                 ),
                 controller_relation_span: span.clone().into(),
                 duration_ms: phase.duration_ms,
+                duration_span: span.clone().into(),
                 states: states.into_boxed_slice(),
             });
         }
@@ -1370,6 +1371,7 @@ impl SyntheticModuleBuilder {
                         span.clone().into(),
                     ),
                     offset_ms: input.offset_ms,
+                    offset_span: span.clone().into(),
                     signal_groups: signal_groups.into_boxed_slice(),
                     phases: phases.into_boxed_slice(),
                 },
@@ -1501,6 +1503,7 @@ impl SyntheticModuleBuilder {
                 Ok(ParkingLaneAnchorDeclaration {
                     lane_edge: self.own_reference(EntityKind::LaneEdge, lane_edge, &span)?,
                     progress_mm,
+                    progress_span: Box::new(span.clone().into()),
                 })
             })
             .collect::<Result<Box<[_]>, DiagnosticBundle>>()?;
@@ -1510,6 +1513,7 @@ impl SyntheticModuleBuilder {
                 Ok(ParkingLaneAnchorDeclaration {
                     lane_edge: self.own_reference(EntityKind::LaneEdge, lane_edge, &span)?,
                     progress_mm,
+                    progress_span: Box::new(span.clone().into()),
                 })
             })
             .collect::<Result<Box<[_]>, DiagnosticBundle>>()?;
@@ -1609,10 +1613,12 @@ impl SyntheticModuleBuilder {
         let entry = ParkingLaneAnchorDeclaration {
             lane_edge: self.own_reference(EntityKind::LaneEdge, input.entry.lane_edge, &span)?,
             progress_mm: entry_progress_mm,
+            progress_span: Box::new(span.clone().into()),
         };
         let exit = ParkingLaneAnchorDeclaration {
             lane_edge: self.own_reference(EntityKind::LaneEdge, input.exit.lane_edge, &span)?,
             progress_mm: exit_progress_mm,
+            progress_span: Box::new(span.clone().into()),
         };
         let stable_key: Arc<str> = input.parking_space_key.into();
         self.declaration_index

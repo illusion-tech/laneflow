@@ -404,7 +404,7 @@ pub(crate) fn build_signal_hir(
                     &phase_source.header.stable_key,
                     phase_source.duration_ms,
                     MAX_PORTABLE_SIGNAL_TIME_MS,
-                    phase_source.header.span.clone(),
+                    phase_source.duration_span.clone(),
                 );
                 diagnostic.set_canonical_module_order(module_order);
                 diagnostics.push(diagnostic);
@@ -419,7 +419,7 @@ pub(crate) fn build_signal_hir(
                         let mut diagnostic = Diagnostic::signal_cycle_duration_overflow(
                             &source.header.stable_key,
                             MAX_PORTABLE_SIGNAL_TIME_MS,
-                            source.header.span.clone(),
+                            phase_source.duration_span.clone(),
                         );
                         diagnostic.set_canonical_module_order(module_order);
                         diagnostics.push(diagnostic);
@@ -570,7 +570,7 @@ pub(crate) fn build_signal_hir(
                 source.offset_ms,
                 cycle_duration_ms,
                 MAX_PORTABLE_SIGNAL_TIME_MS,
-                source.header.span.clone(),
+                source.offset_span.clone(),
             );
             diagnostic.set_canonical_module_order(module_order);
             diagnostics.push(diagnostic);
