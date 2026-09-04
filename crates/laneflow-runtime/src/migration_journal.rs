@@ -129,10 +129,6 @@ pub(crate) struct VehicleDelta {
 impl VehicleDelta {
     /// 从已提交车辆状态提取增量。
     pub(crate) fn from_state(state: &VehicleState, compiled: Option<&CompiledRoute>) -> Self {
-        debug_assert!(
-            state.conflict_reservation().is_none(),
-            "W5 接入前 3A 不允许提交 Conflict traversal"
-        );
         let authority = state.maneuver_traversal.map(|traversal| {
             let compiled = compiled.expect("Waiting traversal route is compiled");
             let maneuver = compiled
@@ -145,8 +141,8 @@ impl VehicleDelta {
                     last_crossed_gate_hop,
                 } => (2, last_crossed_gate_hop),
                 ManeuverTraversalPhase::Waiting { release_gate_hop } => (3, release_gate_hop),
-                ManeuverTraversalPhase::Clearing { .. } => {
-                    unreachable!("W5 接入前 3A 不允许提交 Conflict traversal")
+                ManeuverTraversalPhase::Clearing { reservation } => {
+                    (4, reservation.admission_gate_hop())
                 }
             };
             let phase_gate = compiled
