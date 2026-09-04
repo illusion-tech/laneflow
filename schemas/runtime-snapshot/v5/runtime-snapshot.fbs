@@ -114,14 +114,12 @@ table ConflictPassageBinding {
   clearance_progress_mm:uint;
 }
 
-// 保留实际已提交的物理 claim；route_edge_index 用于拒绝循环路线误绑。
+// 保留实际已提交的物理 claim 并集。route occurrence、owner 顺序与车型间距均由
+// reservation exact route/Gate/passages 和被绑定 LFCA 重新推导，不在每个区间重复保存。
 table ConflictDownstreamIntervalBinding {
   lane_edge:StableId128;
-  route_edge_index:uint;
   start_mm:uint;
   end_mm:uint;
-  owner_sequence:uint;
-  follower_min_gap_mm:uint;
 }
 
 table ConflictReservationBinding {

@@ -2596,11 +2596,8 @@ impl<'a> ::flatbuffers::Follow<'a> for ConflictDownstreamIntervalBinding<'a> {
 
 impl<'a> ConflictDownstreamIntervalBinding<'a> {
   pub const VT_LANE_EDGE: ::flatbuffers::VOffsetT = 4;
-  pub const VT_ROUTE_EDGE_INDEX: ::flatbuffers::VOffsetT = 6;
-  pub const VT_START_MM: ::flatbuffers::VOffsetT = 8;
-  pub const VT_END_MM: ::flatbuffers::VOffsetT = 10;
-  pub const VT_OWNER_SEQUENCE: ::flatbuffers::VOffsetT = 12;
-  pub const VT_FOLLOWER_MIN_GAP_MM: ::flatbuffers::VOffsetT = 14;
+  pub const VT_START_MM: ::flatbuffers::VOffsetT = 6;
+  pub const VT_END_MM: ::flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -2612,11 +2609,8 @@ impl<'a> ConflictDownstreamIntervalBinding<'a> {
     args: &'args ConflictDownstreamIntervalBindingArgs<'args>
   ) -> ::flatbuffers::WIPOffset<ConflictDownstreamIntervalBinding<'bldr>> {
     let mut builder = ConflictDownstreamIntervalBindingBuilder::new(_fbb);
-    builder.add_follower_min_gap_mm(args.follower_min_gap_mm);
-    builder.add_owner_sequence(args.owner_sequence);
     builder.add_end_mm(args.end_mm);
     builder.add_start_mm(args.start_mm);
-    builder.add_route_edge_index(args.route_edge_index);
     if let Some(x) = args.lane_edge { builder.add_lane_edge(x); }
     builder.finish()
   }
@@ -2628,13 +2622,6 @@ impl<'a> ConflictDownstreamIntervalBinding<'a> {
     // Created from valid Table for this object
     // which contains a valid value in this slot
     unsafe { self._tab.get::<StableId128>(ConflictDownstreamIntervalBinding::VT_LANE_EDGE, None)}
-  }
-  #[inline]
-  pub fn route_edge_index(&self) -> u32 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u32>(ConflictDownstreamIntervalBinding::VT_ROUTE_EDGE_INDEX, Some(0)).unwrap()}
   }
   #[inline]
   pub fn start_mm(&self) -> u32 {
@@ -2650,20 +2637,6 @@ impl<'a> ConflictDownstreamIntervalBinding<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u32>(ConflictDownstreamIntervalBinding::VT_END_MM, Some(0)).unwrap()}
   }
-  #[inline]
-  pub fn owner_sequence(&self) -> u32 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u32>(ConflictDownstreamIntervalBinding::VT_OWNER_SEQUENCE, Some(0)).unwrap()}
-  }
-  #[inline]
-  pub fn follower_min_gap_mm(&self) -> u32 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u32>(ConflictDownstreamIntervalBinding::VT_FOLLOWER_MIN_GAP_MM, Some(0)).unwrap()}
-  }
 }
 
 impl ::flatbuffers::Verifiable for ConflictDownstreamIntervalBinding<'_> {
@@ -2673,33 +2646,24 @@ impl ::flatbuffers::Verifiable for ConflictDownstreamIntervalBinding<'_> {
   ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
     v.visit_table(pos)?
      .visit_field::<StableId128>("lane_edge", Self::VT_LANE_EDGE, false)?
-     .visit_field::<u32>("route_edge_index", Self::VT_ROUTE_EDGE_INDEX, false)?
      .visit_field::<u32>("start_mm", Self::VT_START_MM, false)?
      .visit_field::<u32>("end_mm", Self::VT_END_MM, false)?
-     .visit_field::<u32>("owner_sequence", Self::VT_OWNER_SEQUENCE, false)?
-     .visit_field::<u32>("follower_min_gap_mm", Self::VT_FOLLOWER_MIN_GAP_MM, false)?
      .finish();
     Ok(())
   }
 }
 pub struct ConflictDownstreamIntervalBindingArgs<'a> {
     pub lane_edge: Option<&'a StableId128>,
-    pub route_edge_index: u32,
     pub start_mm: u32,
     pub end_mm: u32,
-    pub owner_sequence: u32,
-    pub follower_min_gap_mm: u32,
 }
 impl<'a> Default for ConflictDownstreamIntervalBindingArgs<'a> {
   #[inline]
   fn default() -> Self {
     ConflictDownstreamIntervalBindingArgs {
       lane_edge: None,
-      route_edge_index: 0,
       start_mm: 0,
       end_mm: 0,
-      owner_sequence: 0,
-      follower_min_gap_mm: 0,
     }
   }
 }
@@ -2714,24 +2678,12 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ConflictDownstreamIntervalBin
     self.fbb_.push_slot_always::<&StableId128>(ConflictDownstreamIntervalBinding::VT_LANE_EDGE, lane_edge);
   }
   #[inline]
-  pub fn add_route_edge_index(&mut self, route_edge_index: u32) {
-    self.fbb_.push_slot::<u32>(ConflictDownstreamIntervalBinding::VT_ROUTE_EDGE_INDEX, route_edge_index, 0);
-  }
-  #[inline]
   pub fn add_start_mm(&mut self, start_mm: u32) {
     self.fbb_.push_slot::<u32>(ConflictDownstreamIntervalBinding::VT_START_MM, start_mm, 0);
   }
   #[inline]
   pub fn add_end_mm(&mut self, end_mm: u32) {
     self.fbb_.push_slot::<u32>(ConflictDownstreamIntervalBinding::VT_END_MM, end_mm, 0);
-  }
-  #[inline]
-  pub fn add_owner_sequence(&mut self, owner_sequence: u32) {
-    self.fbb_.push_slot::<u32>(ConflictDownstreamIntervalBinding::VT_OWNER_SEQUENCE, owner_sequence, 0);
-  }
-  #[inline]
-  pub fn add_follower_min_gap_mm(&mut self, follower_min_gap_mm: u32) {
-    self.fbb_.push_slot::<u32>(ConflictDownstreamIntervalBinding::VT_FOLLOWER_MIN_GAP_MM, follower_min_gap_mm, 0);
   }
   #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ConflictDownstreamIntervalBindingBuilder<'a, 'b, A> {
@@ -2752,11 +2704,8 @@ impl ::core::fmt::Debug for ConflictDownstreamIntervalBinding<'_> {
   fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
     let mut ds = f.debug_struct("ConflictDownstreamIntervalBinding");
       ds.field("lane_edge", &self.lane_edge());
-      ds.field("route_edge_index", &self.route_edge_index());
       ds.field("start_mm", &self.start_mm());
       ds.field("end_mm", &self.end_mm());
-      ds.field("owner_sequence", &self.owner_sequence());
-      ds.field("follower_min_gap_mm", &self.follower_min_gap_mm());
       ds.finish()
   }
 }

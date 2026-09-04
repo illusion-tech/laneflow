@@ -48,7 +48,7 @@ const CONFLICT_ELIGIBILITY_V5_FIELDS: usize =
 const CONFLICT_PASSAGE_V5_FIELDS: usize =
     vtable_field_count(wire::ConflictPassageBinding::VT_CLEARANCE_PROGRESS_MM);
 const CONFLICT_DOWNSTREAM_V5_FIELDS: usize =
-    vtable_field_count(wire::ConflictDownstreamIntervalBinding::VT_FOLLOWER_MIN_GAP_MM);
+    vtable_field_count(wire::ConflictDownstreamIntervalBinding::VT_END_MM);
 const CONFLICT_RESERVATION_V5_FIELDS: usize =
     vtable_field_count(wire::ConflictReservationBinding::VT_DOWNSTREAM_INTERVALS);
 const CONFLICT_LAG_STATE_V5_FIELDS: usize =
@@ -645,7 +645,13 @@ fn restore_conflict_aggregate(
 ) -> Result<(), SnapshotRestoreError> {
     let capacity = usize::try_from(world.config.vehicle_capacity())
         .map_err(|_| SnapshotRestoreError::InvalidConflictHistory)?;
-    world.conflict_eligibility = vec![None; capacity];
+    let mut eligibility = Vec::new();
+    eligibility
+        .try_reserve_exact(capacity)
+        .map_err(|_| SnapshotRestoreError::InvalidConflictHistory)?;
+    eligibility.resize(capacity, None);
+    world.conflict_eligibility = eligibility;
+    let mut cleared_cells = Vec::new();
 
     for vehicle in root.vehicles() {
         let snapshot_vehicle_id = vehicle.snapshot_vehicle_id();
@@ -930,6 +936,14 @@ fn restore_conflict_aggregate(
                 occupant: entered && !cleared,
                 cleared,
             });
+            if cleared {
+                cleared_cells.try_reserve(1).map_err(|_| {
+                    SnapshotRestoreError::InvalidConflictAuthority {
+                        snapshot_vehicle_id,
+                    }
+                })?;
+                cleared_cells.push(address);
+            }
         }
         restored_cells.sort_unstable_by_key(|cell| cell.address);
         if restored_cells
@@ -947,17 +961,25 @@ fn restore_conflict_aggregate(
             .map_err(|_| SnapshotRestoreError::InvalidConflictAuthority {
                 snapshot_vehicle_id,
             })?;
-        let mut claim_identity = None;
+        let mut previous_wire_key = None;
         for row in binding.downstream_intervals() {
-            let edge = row
-                .lane_edge()
-                .and_then(|stable| {
-                    world
-                        .revision
-                        .identity()
-                        .ordinal(LaneEdgeId::from_untyped(StableId128::from_bytes(stable.0)))
-                })
-                .filter(|edge| compiled.edges.get(row.route_edge_index() as usize) == Some(edge))
+            let lane_edge =
+                row.lane_edge()
+                    .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
+                        snapshot_vehicle_id,
+                    })?;
+            let stable = StableId128::from_bytes(lane_edge.0);
+            let wire_key = (stable, row.start_mm(), row.end_mm());
+            if previous_wire_key.is_some_and(|previous| previous >= wire_key) {
+                return Err(SnapshotRestoreError::InvalidConflictAuthority {
+                    snapshot_vehicle_id,
+                });
+            }
+            previous_wire_key = Some(wire_key);
+            let edge = world
+                .revision
+                .identity()
+                .ordinal(LaneEdgeId::from_untyped(stable))
                 .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
                     snapshot_vehicle_id,
                 })?;
@@ -969,22 +991,41 @@ fn restore_conflict_aggregate(
                 .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
                     snapshot_vehicle_id,
                 })?;
-            let current_identity = (row.owner_sequence(), row.follower_min_gap_mm());
-            if claim_identity.is_some_and(|expected| expected != current_identity) {
-                return Err(SnapshotRestoreError::InvalidConflictAuthority {
-                    snapshot_vehicle_id,
-                });
-            }
-            claim_identity = Some(current_identity);
             downstream.push(interval);
         }
+        downstream.sort_unstable();
         if downstream.windows(2).any(|pair| pair[0] >= pair[1]) {
             return Err(SnapshotRestoreError::InvalidConflictAuthority {
                 snapshot_vehicle_id,
             });
         }
-        let (owner_sequence, follower_min_gap_mm) =
-            claim_identity.ok_or(SnapshotRestoreError::InvalidConflictAuthority {
+        let mut expected_downstream = Vec::new();
+        expected_downstream
+            .try_reserve_exact(downstream.len())
+            .map_err(|_| SnapshotRestoreError::InvalidConflictAuthority {
+                snapshot_vehicle_id,
+            })?;
+        world
+            .derive_reservation_downstream_claims(
+                passage_range,
+                state.length_mm,
+                &mut expected_downstream,
+            )
+            .map_err(|_| SnapshotRestoreError::InvalidConflictAuthority {
+                snapshot_vehicle_id,
+            })?;
+        if downstream != expected_downstream {
+            return Err(SnapshotRestoreError::InvalidConflictAuthority {
+                snapshot_vehicle_id,
+            });
+        }
+        let follower_min_gap_mm = world
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+            .map(|profile| profile.min_gap_mm())
+            .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
                 snapshot_vehicle_id,
             })?;
         let reservation = world
@@ -992,7 +1033,6 @@ fn restore_conflict_aggregate(
             .restore_reservation(
                 handle,
                 crate::conflict::RestoredConflictReservation {
-                    owner_sequence,
                     follower_min_gap_mm,
                     acquired_tick: binding.acquired_tick(),
                     passage_range,
@@ -1041,6 +1081,14 @@ fn restore_conflict_aggregate(
             .conflict_arbiter
             .restore_lag_reference(address, reference)
             .map_err(|_| SnapshotRestoreError::InvalidConflictHistory)?;
+    }
+    if cleared_cells.iter().any(|address| {
+        !matches!(
+            world.conflict_arbiter.lag_reference(*address),
+            Some(crate::ConflictLagReference::ActualClear(_))
+        )
+    }) {
+        return Err(SnapshotRestoreError::InvalidConflictHistory);
     }
     if !world.conflict_state_valid() {
         return Err(SnapshotRestoreError::InvalidConflictHistory);
@@ -2063,7 +2111,7 @@ const fn limit_error(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::cutover::tests::transaction_tests::{revision, source_for, world_with_vehicle};
     use crate::cutover_migration::tests::virtual_parking_cutover_world;
@@ -2111,7 +2159,7 @@ mod tests {
         (world, route)
     }
 
-    fn world_with_conflict_reservation() -> (TrafficWorld, VehicleHandle) {
+    pub(crate) fn world_with_conflict_reservation() -> (TrafficWorld, VehicleHandle) {
         world_with_conflict_reservation_config(WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
     }
 
@@ -2135,15 +2183,11 @@ mod tests {
                 true,
             )
             .expect("upstream vehicle");
-        let (gate_range, first_occurrence, route_edge) = {
+        let (gate_range, first_occurrence) = {
             let compiled = world.compiled_route(route).expect("compiled route");
             let first_occurrence = *compiled.conflicts.first().expect("conflict occurrence");
             let gate_range = compiled.conflict_gate_ranges[first_occurrence.admission_hop as usize];
-            (
-                gate_range,
-                first_occurrence,
-                compiled.edges[first_occurrence.admission_hop as usize],
-            )
+            (gate_range, first_occurrence)
         };
         {
             let state = world.vehicles[vehicle.index() as usize]
@@ -2198,8 +2242,6 @@ mod tests {
             });
         }
         cells.sort_unstable_by_key(|cell| cell.address);
-        let downstream =
-            [crate::DownstreamInterval::new(route_edge, 0, 1).expect("non-empty downstream")];
         let passage_range = crate::ConflictPassageRange::new(
             route,
             first_occurrence.maneuver_index,
@@ -2208,13 +2250,24 @@ mod tests {
             gate_range.len,
         )
         .expect("passage range");
+        let mut downstream = Vec::new();
+        world
+            .derive_reservation_downstream_claims(passage_range, length_mm, &mut downstream)
+            .expect("derive downstream physical union");
+        assert!(!downstream.is_empty());
+        let follower_min_gap_mm = world
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(world.vehicle_state(vehicle).expect("vehicle").profile)
+            .expect("vehicle profile")
+            .min_gap_mm();
         let reservation = world
             .conflict_arbiter
             .restore_reservation(
                 vehicle,
                 crate::conflict::RestoredConflictReservation {
-                    owner_sequence: 0,
-                    follower_min_gap_mm: 0,
+                    follower_min_gap_mm,
                     acquired_tick: 0,
                     passage_range,
                     cells: &cells,
@@ -2325,6 +2378,91 @@ mod tests {
         assert_eq!(
             crate::deterministic_state_digest(&captured).expect("source digest"),
             crate::deterministic_state_digest(&recaptured).expect("restored digest")
+        );
+    }
+
+    #[test]
+    fn conflict_downstream_union_is_rederived_from_reservation_proof() {
+        let (world, _) = world_with_conflict_reservation();
+        let captured = world.capture_snapshot().expect("capture Conflict state");
+        let owner = captured
+            .vehicles
+            .iter()
+            .find(|vehicle| vehicle.conflict_reservation.is_some())
+            .expect("reservation owner");
+        let snapshot_vehicle_id = owner.snapshot_vehicle_id;
+        let mut changed = captured.clone();
+        let interval = changed
+            .vehicles
+            .iter_mut()
+            .find(|vehicle| vehicle.snapshot_vehicle_id == snapshot_vehicle_id)
+            .and_then(|vehicle| vehicle.conflict_reservation.as_mut())
+            .and_then(|reservation| reservation.downstream_intervals.first_mut())
+            .expect("downstream interval");
+        assert!(interval.end_mm - interval.start_mm > 1);
+        interval.start_mm += 1;
+        assert_eq!(
+            restore_lfrs(
+                &encode_lfrs(&changed),
+                world.revision(),
+                world.committed_source().clone(),
+                world.config(),
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::InvalidConflictAuthority {
+                snapshot_vehicle_id,
+            }
+        );
+
+        let mut missing = captured;
+        missing
+            .vehicles
+            .iter_mut()
+            .find(|vehicle| vehicle.snapshot_vehicle_id == snapshot_vehicle_id)
+            .and_then(|vehicle| vehicle.conflict_reservation.as_mut())
+            .expect("reservation")
+            .downstream_intervals
+            .pop();
+        assert_eq!(
+            restore_lfrs(
+                &encode_lfrs(&missing),
+                world.revision(),
+                world.committed_source().clone(),
+                world.config(),
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::InvalidConflictAuthority {
+                snapshot_vehicle_id,
+            }
+        );
+    }
+
+    #[test]
+    fn pending_conflict_authority_does_not_hide_an_invalid_endpoint_cursor() {
+        let (world, vehicle) = world_with_conflict_reservation();
+        let mut captured = world.capture_snapshot().expect("capture Conflict state");
+        let state = world.vehicle_state(vehicle).expect("vehicle");
+        let edge = world.route_edges(state.route).expect("route")
+            [usize::try_from(state.route_edge_index).expect("route index")];
+        let owner = &mut captured.vehicles[vehicle.index() as usize];
+        owner.progress_mm = world.revision.traffic().lane_lengths_millimetres()[edge.index()];
+        owner.carry_um = 1;
+        let snapshot_vehicle_id = owner.snapshot_vehicle_id;
+        assert_eq!(
+            restore_lfrs(
+                &encode_lfrs(&captured),
+                world.revision(),
+                world.committed_source().clone(),
+                world.config(),
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::Vehicle {
+                snapshot_vehicle_id,
+                error: crate::SpawnError::InvalidProgress,
+            }
         );
     }
 

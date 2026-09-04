@@ -615,22 +615,40 @@ pub(crate) fn prove_downstream_clearance(
     storage_upper_bound: DownstreamRoutePoint,
     output: &mut Vec<DownstreamInterval>,
 ) -> Result<(), ConflictAcquireError> {
-    if gate_crossed_side.carry_um != 0 || farthest_clearance.carry_um != 0 {
-        return Err(ConflictAcquireError::InvalidBundle);
-    }
-    let target = advance_route_point(
+    let target = downstream_claim_target(
         route_edges,
         edge_lengths_mm,
         farthest_clearance,
         vehicle_length_mm,
-    )
-    .ok_or(ConflictAcquireError::NoGrant(
-        ConflictResourceNoGrant::DownstreamStorageBoundary,
-    ))?;
+    )?;
     if storage_upper_bound < target {
         return Err(ConflictAcquireError::NoGrant(
             ConflictResourceNoGrant::DownstreamStorageBoundary,
         ));
+    }
+    derive_downstream_claims(
+        route_edges,
+        edge_lengths_mm,
+        gate_crossed_side,
+        target,
+        output,
+    )
+}
+
+/// 从 reservation 级路线证明重建 mandatory downstream 物理资源并集。
+///
+/// 输出只包含 `(physical edge, start, end)`；循环路线中同一物理边的重叠
+/// occurrence 会合并。持久化与切换必须重新调用本函数并精确比较结果，不能
+/// 为合并后的物理区间虚构单一来源 occurrence。
+pub(crate) fn derive_downstream_claims(
+    route_edges: &[LaneEdgeOrdinal],
+    edge_lengths_mm: &[u32],
+    gate_crossed_side: DownstreamRoutePoint,
+    target: DownstreamRoutePoint,
+    output: &mut Vec<DownstreamInterval>,
+) -> Result<(), ConflictAcquireError> {
+    if gate_crossed_side.carry_um != 0 || target.carry_um != 0 {
+        return Err(ConflictAcquireError::InvalidBundle);
     }
     if gate_crossed_side > target {
         return Err(ConflictAcquireError::InvalidBundle);
@@ -685,6 +703,26 @@ pub(crate) fn prove_downstream_clearance(
     }
     output.truncate(write_index);
     Ok(())
+}
+
+pub(crate) fn downstream_claim_target(
+    route_edges: &[LaneEdgeOrdinal],
+    edge_lengths_mm: &[u32],
+    farthest_clearance: DownstreamRoutePoint,
+    vehicle_length_mm: u32,
+) -> Result<DownstreamRoutePoint, ConflictAcquireError> {
+    if farthest_clearance.carry_um != 0 {
+        return Err(ConflictAcquireError::InvalidBundle);
+    }
+    advance_route_point(
+        route_edges,
+        edge_lengths_mm,
+        farthest_clearance,
+        vehicle_length_mm,
+    )
+    .ok_or(ConflictAcquireError::NoGrant(
+        ConflictResourceNoGrant::DownstreamStorageBoundary,
+    ))
 }
 
 fn advance_route_point(
@@ -748,7 +786,6 @@ impl DownstreamInterval {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct OwnedDownstreamClaim {
     owner: VehicleHandle,
-    owner_sequence: u32,
     follower_min_gap_mm: u32,
     interval: DownstreamInterval,
     serial: u64,
@@ -759,7 +796,6 @@ struct OwnedDownstreamClaim {
 /// `serial` 是仲裁器内部连接值，不通过此类型离开进程。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PersistedDownstreamClaim {
-    pub(crate) owner_sequence: u32,
     pub(crate) follower_min_gap_mm: u32,
     pub(crate) interval: DownstreamInterval,
 }
@@ -774,7 +810,6 @@ pub(crate) struct RestoredConflictCell {
 
 /// restore/cutover 在未发布 staging world 中重建的一份完整 reservation 输入。
 pub(crate) struct RestoredConflictReservation<'a> {
-    pub(crate) owner_sequence: u32,
     pub(crate) follower_min_gap_mm: u32,
     pub(crate) acquired_tick: u64,
     pub(crate) passage_range: ConflictPassageRange,
@@ -1040,7 +1075,6 @@ impl WaitingAdmissionEntitlement {
 /// 候选所需的完整 Conflict/downstream 资源；声明顺序不承载 winner 语义。
 pub(crate) struct GrantResourceBundle<'a> {
     pub(crate) owner: VehicleHandle,
-    pub(crate) owner_sequence: u32,
     pub(crate) follower_min_gap_mm: u32,
     pub(crate) cells: &'a [ConflictPassageAddress],
     pub(crate) downstream: &'a [DownstreamInterval],
@@ -1206,7 +1240,6 @@ impl ConflictArbiter {
                 claim.owner == reservation.owner && claim.serial == reservation.claim_serial
             })
             .map(|claim| PersistedDownstreamClaim {
-                owner_sequence: claim.owner_sequence,
                 follower_min_gap_mm: claim.follower_min_gap_mm,
                 interval: claim.interval,
             })
@@ -1221,7 +1254,6 @@ impl ConflictArbiter {
         restored: RestoredConflictReservation<'_>,
     ) -> Result<ConflictReservation, ConflictAcquireError> {
         let RestoredConflictReservation {
-            owner_sequence,
             follower_min_gap_mm,
             acquired_tick,
             passage_range,
@@ -1245,7 +1277,6 @@ impl ConflictArbiter {
             acquired_tick,
             GrantResourceBundle {
                 owner,
-                owner_sequence,
                 follower_min_gap_mm,
                 cells: &addresses,
                 downstream,
@@ -1485,6 +1516,7 @@ impl ConflictArbiter {
                     && cell.occupant.is_none_or(&mut owner_valid)
                     && (cell.reservation.is_some() == cell.reservation_serial.is_some())
                     && (!cell.cleared || cell.reservation.is_some())
+                    && (!cell.cleared || matches!(cell.lag, ConflictLagReference::ActualClear(_)))
                     && cell
                         .occupant
                         .is_none_or(|owner| cell.reservation == Some(owner) && !cell.cleared)
@@ -1673,7 +1705,6 @@ impl ConflictArbiter {
         for interval in bundle.downstream {
             self.staged_downstream.push(OwnedDownstreamClaim {
                 owner: bundle.owner,
-                owner_sequence: bundle.owner_sequence,
                 follower_min_gap_mm: bundle.follower_min_gap_mm,
                 interval: *interval,
                 serial,
@@ -2333,6 +2364,50 @@ mod tests {
     }
 
     #[test]
+    fn cleared_reservation_cells_require_actual_clear_history() {
+        let owner = vehicle(1);
+        let cleared = address(0, 0, 0);
+        let occupied = address(1, 0, 1);
+        let mut arbiter = ConflictArbiter::new(vec![cleared, occupied], 2).expect("arbiter");
+        let downstream =
+            [DownstreamInterval::new(LaneEdgeOrdinal::from_raw(0), 0, 10).expect("downstream")];
+        arbiter
+            .restore_reservation(
+                owner,
+                RestoredConflictReservation {
+                    follower_min_gap_mm: 5,
+                    acquired_tick: 0,
+                    passage_range: passage_range(0, 0, 0, 0, 2),
+                    cells: &[
+                        RestoredConflictCell {
+                            address: cleared,
+                            occupant: false,
+                            cleared: true,
+                        },
+                        RestoredConflictCell {
+                            address: occupied,
+                            occupant: true,
+                            cleared: false,
+                        },
+                    ],
+                    downstream: &downstream,
+                },
+            )
+            .expect("restore reservation");
+        assert!(!arbiter.authority_owners_valid(|candidate| candidate == owner));
+
+        arbiter
+            .restore_lag_reference(cleared, ConflictLagReference::ActualClear(0))
+            .expect("restore actual clear");
+        assert!(arbiter.authority_owners_valid(|candidate| candidate == owner));
+
+        arbiter
+            .restore_lag_reference(cleared, ConflictLagReference::CutoverFloor(0))
+            .expect("replace with cutover floor");
+        assert!(!arbiter.authority_owners_valid(|candidate| candidate == owner));
+    }
+
+    #[test]
     fn chinese_circular_red_is_permissive_but_directional_red_and_prohibitions_deny() {
         assert_eq!(
             interpret_gate_declaration(
@@ -2542,7 +2617,6 @@ mod tests {
                 1,
                 GrantResourceBundle {
                     owner: vehicle(2),
-                    owner_sequence: 2,
                     follower_min_gap_mm: 0,
                     cells: &[target],
                     downstream: &[
@@ -2589,7 +2663,6 @@ mod tests {
                 7,
                 GrantResourceBundle {
                     owner: vehicle(1),
-                    owner_sequence: 1,
                     follower_min_gap_mm: 5,
                     cells: &cells,
                     downstream: &downstream,
@@ -2616,7 +2689,6 @@ mod tests {
                     7,
                     GrantResourceBundle {
                         owner: vehicle(3),
-                        owner_sequence: 3,
                         follower_min_gap_mm: 0,
                         cells: &[c],
                         downstream: &[
@@ -2639,7 +2711,6 @@ mod tests {
             7,
             GrantResourceBundle {
                 owner: vehicle(2),
-                owner_sequence: 2,
                 follower_min_gap_mm: 5,
                 cells: &[c],
                 downstream: &[
@@ -2805,7 +2876,6 @@ mod tests {
                     1,
                     GrantResourceBundle {
                         owner: vehicle(1),
-                        owner_sequence: 1,
                         follower_min_gap_mm: 0,
                         cells: &[cell],
                         downstream: &[interval],
@@ -2824,7 +2894,6 @@ mod tests {
                 1,
                 GrantResourceBundle {
                     owner: vehicle(1),
-                    owner_sequence: 1,
                     follower_min_gap_mm: 0,
                     cells: &[cell],
                     downstream: &[
@@ -2856,7 +2925,6 @@ mod tests {
                     1,
                     GrantResourceBundle {
                         owner: vehicle(1),
-                        owner_sequence: 1,
                         follower_min_gap_mm: 0,
                         cells: &[cell],
                         downstream: &[],
@@ -2882,7 +2950,6 @@ mod tests {
                 1,
                 GrantResourceBundle {
                     owner: vehicle(1),
-                    owner_sequence: 1,
                     follower_min_gap_mm: 0,
                     cells: &[a],
                     downstream: &downstream_a,
@@ -2896,7 +2963,6 @@ mod tests {
                 1,
                 GrantResourceBundle {
                     owner: vehicle(2),
-                    owner_sequence: 2,
                     follower_min_gap_mm: 0,
                     cells: &[b],
                     downstream: &downstream_b,
@@ -2930,7 +2996,6 @@ mod tests {
                 1,
                 GrantResourceBundle {
                     owner: vehicle(1),
-                    owner_sequence: 1,
                     follower_min_gap_mm: 0,
                     cells: &[cell],
                     downstream: &[
@@ -2960,7 +3025,6 @@ mod tests {
                 9,
                 GrantResourceBundle {
                     owner: vehicle(1),
-                    owner_sequence: 1,
                     follower_min_gap_mm: 0,
                     cells: &[],
                     downstream: &[],
@@ -2982,7 +3046,6 @@ mod tests {
                     9,
                     GrantResourceBundle {
                         owner: vehicle(1),
-                        owner_sequence: 1,
                         follower_min_gap_mm: 0,
                         cells: &[],
                         downstream: &[],

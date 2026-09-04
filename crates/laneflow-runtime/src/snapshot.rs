@@ -33,6 +33,9 @@ pub enum SnapshotCaptureError {
     /// 捕获期容量预留失败（分配压力下失败关闭，旧世界原样继续）。
     #[error("快照捕获容量预留失败")]
     ReservationFailed,
+    /// 已提交 Conflict authority 不能由 reservation 级证明精确重建。
+    #[error("已提交 Conflict authority 与路线证明不一致")]
+    ConflictInvariantViolation,
 }
 
 #[cfg(test)]
@@ -253,11 +256,8 @@ pub struct CapturedConflictPassage {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CapturedConflictDownstreamInterval {
     pub(crate) lane_edge: ContractStableId128,
-    pub(crate) route_edge_index: u32,
     pub(crate) start_mm: u32,
     pub(crate) end_mm: u32,
-    pub(crate) owner_sequence: u32,
-    pub(crate) follower_min_gap_mm: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -667,11 +667,8 @@ pub fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
                             &mut fbb,
                             &wire::ConflictDownstreamIntervalBindingArgs {
                                 lane_edge: Some(&lane_edge),
-                                route_edge_index: row.route_edge_index,
                                 start_mm: row.start_mm,
                                 end_mm: row.end_mm,
-                                owner_sequence: row.owner_sequence,
-                                follower_min_gap_mm: row.follower_min_gap_mm,
                             },
                         )
                     })
@@ -1228,42 +1225,50 @@ impl TrafficWorld {
                         usize::try_from(reservation.downstream_claim_count())
                             .expect("downstream count fits usize"),
                     )?;
+                    let mut committed_downstream = Vec::new();
+                    capture_try_reserve_exact(
+                        &mut committed_downstream,
+                        reservation.downstream_claim_count() as usize,
+                    )?;
+                    let follower_min_gap_mm = self
+                        .revision
+                        .traffic()
+                        .relations()
+                        .vehicle_profile(state.profile)
+                        .expect("committed vehicle profile resolves")
+                        .min_gap_mm();
                     for claim in self
                         .conflict_arbiter
                         .persisted_downstream_claims(reservation)
                     {
-                        let route_edge_index = compiled
-                            .edges
-                            .iter()
-                            .enumerate()
-                            .skip(range.admission_gate_hop() as usize)
-                            .find(|(_, edge)| **edge == claim.interval.edge())
-                            .map(|(index, _)| {
-                                u32::try_from(index).expect("route edge index fits u32")
-                            })
-                            .expect("committed downstream edge occurs after admission Gate");
+                        if claim.follower_min_gap_mm != follower_min_gap_mm {
+                            return Err(SnapshotCaptureError::ConflictInvariantViolation);
+                        }
+                        committed_downstream.push(claim.interval);
+                    }
+                    let mut derived_downstream = Vec::new();
+                    capture_try_reserve_exact(&mut derived_downstream, committed_downstream.len())?;
+                    self.derive_reservation_downstream_claims(
+                        range,
+                        state.length_mm,
+                        &mut derived_downstream,
+                    )
+                    .map_err(|_| SnapshotCaptureError::ConflictInvariantViolation)?;
+                    if committed_downstream != derived_downstream {
+                        return Err(SnapshotCaptureError::ConflictInvariantViolation);
+                    }
+                    for interval in committed_downstream {
                         downstream_intervals.push(CapturedConflictDownstreamInterval {
                             lane_edge: *identity
-                                .stable_id(claim.interval.edge())
+                                .stable_id(interval.edge())
                                 .expect("downstream edge resolves stable id")
                                 .as_untyped(),
-                            route_edge_index,
-                            start_mm: claim.interval.start_mm(),
-                            end_mm: claim.interval.end_mm(),
-                            owner_sequence: claim.owner_sequence,
-                            follower_min_gap_mm: claim.follower_min_gap_mm,
+                            start_mm: interval.start_mm(),
+                            end_mm: interval.end_mm(),
                         });
                     }
-                    downstream_intervals.sort_unstable_by_key(|row| {
-                        (
-                            row.lane_edge,
-                            row.start_mm,
-                            row.end_mm,
-                            row.route_edge_index,
-                            row.owner_sequence,
-                            row.follower_min_gap_mm,
-                        )
-                    });
+                    downstream_intervals
+                        .sort_unstable_by_key(|row| (row.lane_edge, row.start_mm, row.end_mm));
                     Some(CapturedConflictReservation {
                         acquired_tick: reservation.acquired_tick(),
                         maneuver_occurrence_index: range.maneuver_occurrence_index(),
