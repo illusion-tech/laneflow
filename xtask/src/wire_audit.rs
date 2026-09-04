@@ -284,11 +284,13 @@ fn require_audited_source_includes(
     Ok(())
 }
 
-/// 审计 `macro_rules!` 定义：体内出现 `$ident!`（元变量直接作为宏名调用）即拒绝
-/// 整个源文件——`call_macro!(include, "../../outside.rs")` 这类调用在展开期生成
-/// 真实 `include!(...)`，目标完全由调用方决定，include 闭合与 unsafe 扫描都会被
-/// 绕过。matcher 侧的元变量（`$m:ident`）后随 `:`，重复展开 `$( ... )*` 的 `$`
-/// 后随 `(`，均不误判。
+/// 审计 `macro_rules!` 定义：体内出现 `$ident!`（元变量直接作为宏名调用）或
+/// `#[$ident]` / `#![$ident]`（元变量作为属性内容）即拒绝整个源文件——
+/// `call_macro!(include, "../../outside.rs")` 与 `with_attr!(path = "../../outside.rs")`
+/// 这类调用在展开期生成真实 `include!(...)` / `#[path = "..."]`，目标完全由调用方
+/// 决定，include 闭合与 unsafe 扫描都会被绕过。matcher 侧的元变量（`$m:ident`）后随
+/// `:`，重复展开 `$( ... )*` 的 `$` 后随 `(`，模板内具名属性（`#[derive(...)]`）
+/// 均不误判。
 fn audit_macro_rules_metavariable_invocations(
     text: &str,
     label: &str,
@@ -356,7 +358,11 @@ fn audit_macro_rules_metavariable_invocations(
         let body_end = cursor;
         let mut scan = body_start;
         while scan < body_end {
-            if code[scan] && bytes[scan] == b'$' {
+            if !code[scan] {
+                scan += 1;
+                continue;
+            }
+            if bytes[scan] == b'$' {
                 let mut at = scan + 1;
                 let ident_start = at;
                 while at < body_end && schema_codegen::is_identifier_character(bytes[at] as char) {
@@ -372,9 +378,30 @@ fn audit_macro_rules_metavariable_invocations(
                     }
                 }
                 scan = at.max(scan + 1);
-            } else {
-                scan += 1;
+                continue;
             }
+            // 元变量作为属性内容（`#[$a]` / `#![$a]`）：`with_attr!(path = "...")`
+            // 在展开期生成真实 #[path] 属性，同样绕开闭合审计。
+            if bytes[scan] == b'#' {
+                let mut at = scan + 1;
+                skip_trivia(bytes, &mut at);
+                if at < body_end && bytes[at] == b'!' {
+                    at += 1;
+                    skip_trivia(bytes, &mut at);
+                }
+                if at < body_end && bytes[at] == b'[' {
+                    at += 1;
+                    skip_trivia(bytes, &mut at);
+                    if at < body_end && bytes[at] == b'$' {
+                        return Err(format!(
+                            "`{label}` 的 macro_rules! 模板以元变量作为属性内容（`#[$ident]`），展开结果无法静态审计"
+                        ));
+                    }
+                }
+                scan += 1;
+                continue;
+            }
+            scan += 1;
         }
         cursor = body_end + 1;
     }
@@ -872,9 +899,10 @@ fn check_rustflags_configs(repository_root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// 审计单份 Cargo 配置（TOML）：递归遍历解析树，任何层级出现 `rustflags` 键
-/// （大小写不敏感，覆盖 `[build]` / `[target.*]` / `[env]` 等所有 Cargo 接受的位置；
-/// 键的引号与 `\u` 转义、多行数组、三引号字符串及 `\` 续行均由解析器归一化）即对其
+/// 审计单份 Cargo 配置（TOML）：递归遍历解析树，任何层级出现 rustflags 键
+/// （见 `is_rustflags_key`，覆盖 `[build]` / `[target.*]` / `[env]` 等所有 Cargo
+/// 接受的位置及 `CARGO_*_RUSTFLAGS` 环境变量形态；键的引号与 `\u` 转义、多行数组、
+/// 三引号字符串及 `\` 续行均由解析器归一化）即对其
 /// 值套用统一检查。解析失败一律拒绝（fail closed）。
 fn require_toml_config_respects_unsafe_forbid(text: &str, label: &str) -> Result<(), String> {
     let parsed: toml::Table = text
@@ -887,7 +915,7 @@ fn audit_toml_tree_for_rustflags(value: &toml::Value, label: &str) -> Result<(),
     match value {
         toml::Value::Table(table) => {
             for (key, child) in table {
-                if key.eq_ignore_ascii_case("rustflags") {
+                if is_rustflags_key(key) {
                     require_audited_toml_flag_value(child, label)?;
                 }
                 audit_toml_tree_for_rustflags(child, label)?;
@@ -924,10 +952,23 @@ fn require_audited_toml_flag_value(value: &toml::Value, label: &str) -> Result<(
     }
 }
 
+/// rustflags 键名判定（TOML/YAML 两侧共用）：除精确的 `rustflags` 外，Cargo 的
+/// 环境变量配置层把 `CARGO_BUILD_RUSTFLAGS` 映射为 `[build] rustflags`、
+/// `CARGO_TARGET_<TRIPLE>_RUSTFLAGS` 映射为 target 专属 rustflags、
+/// `CARGO_ENCODED_RUSTFLAGS` 直接生效（cargo check -vv 实测确认这些形态进入
+/// rustc 命令行），全部同罪。大小写不敏感。
+fn is_rustflags_key(key: &str) -> bool {
+    let lower = key.to_lowercase();
+    lower == "rustflags"
+        || lower == "cargo_build_rustflags"
+        || lower == "cargo_encoded_rustflags"
+        || (lower.starts_with("cargo_target_") && lower.ends_with("_rustflags"))
+}
+
 /// 审计单份 GitHub workflow（YAML）：递归遍历所有 document，任何层级出现
-/// `rustflags` 键（大小写不敏感，覆盖顶层 / job / step 级 env 等所有位置；键的引号
-/// 与转义、块标量（含显式缩进指示符）与多行标量折叠均由解析器归一化）即对其值
-/// 套用统一检查。解析失败一律拒绝（fail closed）。
+/// rustflags 键（见 `is_rustflags_key`；键的引号与转义、块标量（含显式缩进指示符）
+/// 与多行标量折叠均由解析器归一化）即对其值套用统一检查；任何字符串标量（如
+/// `run` 脚本）内的 rustflags 赋值形态一并拒绝。解析失败一律拒绝（fail closed）。
 fn require_workflow_respects_unsafe_forbid(text: &str, label: &str) -> Result<(), String> {
     let documents = yaml_rust2::YamlLoader::load_from_str(text)
         .map_err(|error| format!("`{label}` YAML 解析失败，无法静态审计: {error}"))?;
@@ -941,10 +982,7 @@ fn audit_yaml_tree_for_rustflags(value: &yaml_rust2::Yaml, label: &str) -> Resul
     match value {
         yaml_rust2::Yaml::Hash(hash) => {
             for (key, child) in hash {
-                if key
-                    .as_str()
-                    .is_some_and(|name| name.eq_ignore_ascii_case("rustflags"))
-                {
+                if key.as_str().is_some_and(is_rustflags_key) {
                     require_audited_yaml_flag_value(child, label)?;
                 }
                 audit_yaml_tree_for_rustflags(child, label)?;
@@ -957,8 +995,29 @@ fn audit_yaml_tree_for_rustflags(value: &yaml_rust2::Yaml, label: &str) -> Resul
             }
             Ok(())
         }
+        yaml_rust2::Yaml::String(text) => reject_rustflags_assignment_in_script(text, label),
         _ => Ok(()),
     }
+}
+
+/// workflow 字符串标量的兜底扫描：`run` 脚本等自由文本里的 rustflags 赋值
+/// （shell 前缀 `RUSTFLAGS=... cmd`、`export RUSTFLAGS=...`、`env RUSTFLAGS=...`、
+/// pwsh `$env:RUSTFLAGS = ...` 都以 `rustflags` 后随 `=` 为共同形态）无法做 shell
+/// 语义级静态审计，一律拒绝。读取引用（`$RUSTFLAGS`、`${RUSTFLAGS}`）后随字符
+/// 不是 `=`，不误伤。
+fn reject_rustflags_assignment_in_script(text: &str, label: &str) -> Result<(), String> {
+    let lower = text.to_lowercase();
+    let mut search = 0;
+    while let Some(relative) = lower[search..].find("rustflags") {
+        let after_key = search + relative + "rustflags".len();
+        if lower[after_key..].trim_start().starts_with('=') {
+            return Err(format!(
+                "`{label}` 的脚本文本含 rustflags 赋值，shell 语义无法静态审计"
+            ));
+        }
+        search = after_key;
+    }
+    Ok(())
 }
 
 fn require_audited_yaml_flag_value(value: &yaml_rust2::Yaml, label: &str) -> Result<(), String> {
@@ -1775,6 +1834,93 @@ mod tests {
         // 正常 macro_rules（matcher 元变量、模板内具名宏调用、重复展开）不误伤。
         let (sandbox, source, roots) = temp_source_fixture("macro-ok", &[]);
         let benign = "macro_rules! twice { ($x:expr) => { $x + $x } }\nmacro_rules! with_vec { ($($x:expr),*) => { vec![$($x),*] } }\n";
+        assert_source_ok(&sandbox, &source, &roots, benign);
+    }
+
+    #[test]
+    fn rustflags_audit_rejects_script_assignments() {
+        // run 脚本内的 rustflags 赋值（shell 前缀 / export / pwsh 形态）无法做
+        // shell 语义级静态审计，一律拒绝。
+        assert!(
+            require_workflow_respects_unsafe_forbid(
+                "jobs:\n  build:\n    steps:\n      - run: RUSTFLAGS='--cap-lints allow' cargo check\n",
+                "workflow"
+            )
+            .is_err()
+        );
+        assert!(
+            require_workflow_respects_unsafe_forbid(
+                "jobs:\n  build:\n    steps:\n      - run: export RUSTFLAGS=\"--force-warn unsafe_code\"\n",
+                "workflow"
+            )
+            .is_err()
+        );
+        assert!(
+            require_workflow_respects_unsafe_forbid(
+                "jobs:\n  build:\n    steps:\n      - run: $env:RUSTFLAGS = '-A unsafe_code'\n",
+                "workflow"
+            )
+            .is_err()
+        );
+        // 读取引用（`$RUSTFLAGS`）与普通脚本不误伤。
+        assert_eq!(
+            require_workflow_respects_unsafe_forbid(
+                "jobs:\n  build:\n    steps:\n      - run: echo \"$RUSTFLAGS\" && cargo check\n",
+                "workflow"
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn rustflags_audit_recognizes_cargo_environment_spellings() {
+        // CARGO_BUILD_RUSTFLAGS / CARGO_TARGET_<TRIPLE>_RUSTFLAGS /
+        // CARGO_ENCODED_RUSTFLAGS 经 Cargo 环境变量配置层生效（cargo check -vv
+        // 实测确认进入 rustc 命令行），与 RUSTFLAGS 同罪。
+        assert!(
+            require_workflow_respects_unsafe_forbid(
+                "env:\n  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: --cap-lints allow\n",
+                "workflow"
+            )
+            .is_err()
+        );
+        assert!(
+            require_workflow_respects_unsafe_forbid(
+                "env:\n  CARGO_BUILD_RUSTFLAGS: --force-warn unsafe_code\n",
+                "workflow"
+            )
+            .is_err()
+        );
+        assert!(
+            require_toml_config_respects_unsafe_forbid(
+                "[env]\nCARGO_ENCODED_RUSTFLAGS = \"--cap-lints\\u001fallow\"\n",
+                "fixture"
+            )
+            .is_err()
+        );
+        // 非 rustflags 的 CARGO_* 变量不误伤。
+        assert_eq!(
+            require_workflow_respects_unsafe_forbid("env:\n  CARGO_BUILD_JOBS: 4\n", "workflow"),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn source_includes_reject_macro_rules_metavariable_attribute() {
+        // 元变量作为属性内容（`#[$a]`）：`with_attr!(path = "...")` 在展开期生成
+        // 真实 #[path] 属性，与元变量宏名调用同罪。
+        let (sandbox, source, roots) = temp_source_fixture(
+            "macro-attr",
+            &[("pkg/src/payload.rs", "pub fn payload() {}\n")],
+        );
+        let evil = "macro_rules! with_attr { ($a:meta) => { #[$a] mod payload; } }\nwith_attr!(path = \"payload.rs\");\n";
+        assert_source_err(&sandbox, &source, &roots, evil);
+        let (sandbox, source, roots) = temp_source_fixture("macro-attr", &[]);
+        let evil_inner = "macro_rules! with_attr { ($a:meta) => { #![$a] } }\n";
+        assert_source_err(&sandbox, &source, &roots, evil_inner);
+        // 模板内具名属性不误伤。
+        let (sandbox, source, roots) = temp_source_fixture("macro-attr-ok", &[]);
+        let benign = "macro_rules! stamped { ($x:item) => { #[allow(dead_code)] $x } }\n";
         assert_source_ok(&sandbox, &source, &roots, benign);
     }
 }
