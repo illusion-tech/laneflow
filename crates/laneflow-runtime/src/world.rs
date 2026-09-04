@@ -216,17 +216,8 @@ impl TrafficWorld {
         let vehicle_capacity = usize::try_from(config.vehicle_capacity()).unwrap_or(0);
         let route_capacity = usize::try_from(config.route_capacity()).unwrap_or(0);
         let conflict_arbiter =
-            crate::conflict::ConflictArbiter::install(&revision, vehicle_capacity).map_err(
-                |error| match error {
-                    crate::conflict::ConflictAcquireError::Capacity => {
-                        InstallError::ConflictArbiterAllocationFailed
-                    }
-                    crate::conflict::ConflictAcquireError::InvalidBundle
-                    | crate::conflict::ConflictAcquireError::NoGrant(_) => {
-                        InstallError::ConflictArbiterCapacityOverflow
-                    }
-                },
-            )?;
+            crate::conflict::ConflictArbiter::install(&revision, vehicle_capacity)
+                .map_err(map_conflict_install_error)?;
         let mut world = Self {
             revision,
             source,
@@ -1476,6 +1467,41 @@ impl TrafficWorld {
             self.revision.as_ref(),
             self.time_ms,
             &mut self.signal_aspects,
+        );
+    }
+}
+
+fn map_conflict_install_error(error: crate::conflict::ConflictInstallError) -> InstallError {
+    match error {
+        crate::conflict::ConflictInstallError::InvalidNetwork => {
+            InstallError::ConflictArbiterInvalidNetwork
+        }
+        crate::conflict::ConflictInstallError::CapacityOverflow => {
+            InstallError::ConflictArbiterCapacityOverflow
+        }
+        crate::conflict::ConflictInstallError::AllocationFailed => {
+            InstallError::ConflictArbiterAllocationFailed
+        }
+    }
+}
+
+#[cfg(test)]
+mod conflict_install_error_tests {
+    use super::*;
+
+    #[test]
+    fn conflict_install_errors_keep_distinct_host_remediation_semantics() {
+        assert_eq!(
+            map_conflict_install_error(crate::conflict::ConflictInstallError::InvalidNetwork),
+            InstallError::ConflictArbiterInvalidNetwork
+        );
+        assert_eq!(
+            map_conflict_install_error(crate::conflict::ConflictInstallError::CapacityOverflow),
+            InstallError::ConflictArbiterCapacityOverflow
+        );
+        assert_eq!(
+            map_conflict_install_error(crate::conflict::ConflictInstallError::AllocationFailed),
+            InstallError::ConflictArbiterAllocationFailed
         );
     }
 }
