@@ -1,0 +1,29 @@
+[package]
+name = "laneflow-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# 本地运行：cargo +nightly fuzz run <target>。
+# 注意：Windows MSVC 下 nightly 不附带 clang_rt.asan_dynamic-x86_64.dll，
+# 需从 VS（VC/Tools/MSVC/<ver>/bin/Hostx64/x64/）复制到 exe 旁才能执行；
+# `--sanitizer none` 在 windows-msvc 缺 __start_/__stop___sancov_pcs 无法链接。
+# 权威执行环境是 .github/workflows/fuzz.yml 的 ubuntu runner。
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+laneflow-compiler = { path = "../crates/laneflow-compiler" }
+
+[[bin]]
+name = "lfre_arbitrary_bytes"
+path = "fuzz_targets/lfre_arbitrary_bytes.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "lfre_writer_differential"
+path = "fuzz_targets/lfre_writer_differential.rs"
+test = false
+doc = false

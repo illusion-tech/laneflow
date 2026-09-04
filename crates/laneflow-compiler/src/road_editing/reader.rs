@@ -558,6 +558,7 @@ mod tests {
         DiagnosticCode, DiagnosticPayload, GeometryAccuracyProfile, GeometryDirectionProfile,
         RoadEditingDocumentIdentity, RoadEditingRootVectorKind, RoadEditingSubject,
     };
+    use laneflow_road_editing_wire::runtime::{self, ForwardsUOffset, WIPOffset};
 
     fn source_buffer(
         limits: &CompileLimits,
@@ -844,6 +845,208 @@ mod tests {
         );
         let value_start = string_position + 4;
         bytes[value_start..value_start + replacement.len()].copy_from_slice(replacement);
+    }
+
+    fn root_table_position(bytes: &[u8]) -> usize {
+        let root_offset = u32::from_le_bytes(bytes[4..8].try_into().expect("root offset"));
+        4_usize
+            .checked_add(usize::try_from(root_offset).expect("root position"))
+            .expect("root position")
+    }
+
+    fn table_vtable_position(bytes: &[u8], table_position: usize) -> usize {
+        let vtable_distance = i32::from_le_bytes(
+            bytes[table_position..table_position + 4]
+                .try_into()
+                .expect("vtable offset"),
+        );
+        let distance = usize::try_from(vtable_distance.unsigned_abs())
+            .expect("u32 vtable distance fits usize on supported targets");
+        if vtable_distance.is_positive() {
+            table_position
+                .checked_sub(distance)
+                .expect("vtable position")
+        } else {
+            table_position
+                .checked_add(distance)
+                .expect("vtable position")
+        }
+    }
+
+    fn table_field_position(bytes: &[u8], table_position: usize, field: u16) -> Option<usize> {
+        let vtable_position = table_vtable_position(bytes, table_position);
+        let vtable_length = u16::from_le_bytes(
+            bytes[vtable_position..vtable_position + 2]
+                .try_into()
+                .expect("vtable length"),
+        );
+        if field >= vtable_length {
+            return None;
+        }
+        let entry = vtable_position + usize::from(field);
+        let field_offset =
+            u16::from_le_bytes(bytes[entry..entry + 2].try_into().expect("field offset"));
+        (field_offset > 0).then(|| table_position + usize::from(field_offset))
+    }
+
+    fn table_field_target_position(bytes: &[u8], table_position: usize, field: u16) -> usize {
+        let field_position =
+            table_field_position(bytes, table_position, field).expect("test field must be present");
+        let target_offset = u32::from_le_bytes(
+            bytes[field_position..field_position + 4]
+                .try_into()
+                .expect("target offset"),
+        );
+        field_position
+            .checked_add(usize::try_from(target_offset).expect("target position"))
+            .expect("target position")
+    }
+
+    fn clear_table_vtable_entry(bytes: &mut [u8], table_position: usize, field: u16) {
+        let vtable_position = table_vtable_position(bytes, table_position);
+        let entry = vtable_position + usize::from(field);
+        bytes[entry..entry + 2].copy_from_slice(&0_u16.to_le_bytes());
+    }
+
+    fn empty_table_vector<'fbb, T>(
+        fbb: &mut runtime::FlatBufferBuilder<'fbb>,
+    ) -> WIPOffset<runtime::Vector<'fbb, ForwardsUOffset<T>>> {
+        fbb.create_vector::<WIPOffset<T>>(&[])
+    }
+
+    /// 第三方 writer 视角的共享 DAG fixture：一条 alignment 的曲线在同一个
+    /// `CurveSegment` 表上重复 `segments` 槽位引用。复制数放大 verifier 的
+    /// apparent size 而几乎不放大缓冲区，用于探测 16 倍上限的精确边界。
+    fn shared_segment_dag_buffer(segment_copies: usize) -> Vec<u8> {
+        let mut fbb = runtime::FlatBufferBuilder::new();
+        let generator_build_id = fbb.create_string("third-party-generator");
+        let description = fbb.create_string("shared segment dag fixture");
+        let digest = wire::Digest256::new(&[0; 32]);
+        let provenance = wire::Provenance::create(
+            &mut fbb,
+            &wire::ProvenanceArgs {
+                kind: wire::ProvenanceKind::Generated,
+                generator_build_id: Some(generator_build_id),
+                parameters_and_inputs_digest: Some(&digest),
+                frontend_options_digest: Some(&digest),
+                random_seed: None,
+                description: Some(description),
+            },
+        );
+        let namespace = fbb.create_string("city");
+        let source_document_key = fbb.create_string("roads/main");
+        let import = fbb.create_string("base");
+        let imports = fbb.create_vector(&[import]);
+        let module_header = wire::ModuleHeader::create(
+            &mut fbb,
+            &wire::ModuleHeaderArgs {
+                authoring_namespace_id: Some(namespace),
+                source_document_key: Some(source_document_key),
+                imports: Some(imports),
+                provenance: Some(provenance),
+            },
+        );
+        let control_1 = wire::Vec3F64::new(1.0, 0.0, 0.0);
+        let control_2 = wire::Vec3F64::new(2.0, 0.0, 0.0);
+        let end = wire::Vec3F64::new(3.0, 0.0, 0.0);
+        let geometry = wire::CubicBezierSegment::create(
+            &mut fbb,
+            &wire::CubicBezierSegmentArgs {
+                control_1: Some(&control_1),
+                control_2: Some(&control_2),
+                end: Some(&end),
+            },
+        );
+        let shared_segment = wire::CurveSegment::create(
+            &mut fbb,
+            &wire::CurveSegmentArgs {
+                geometry_type: wire::CurveSegmentGeometry::CubicBezierSegment,
+                geometry: Some(geometry.as_union_value()),
+                canvas_selection: None,
+            },
+        );
+        let segments = vec![shared_segment; segment_copies];
+        let segments = fbb.create_vector(&segments);
+        let start = wire::Vec3F64::new(0.0, 0.0, 0.0);
+        let reference_line = wire::CurveProgram::create(
+            &mut fbb,
+            &wire::CurveProgramArgs {
+                start: Some(&start),
+                segments: Some(segments),
+            },
+        );
+        let alignment_key = fbb.create_string("alignment");
+        let frame = fbb.create_string("base::frame");
+        let alignment = wire::RoadAlignment::create(
+            &mut fbb,
+            &wire::RoadAlignmentArgs {
+                road_alignment_key: Some(alignment_key),
+                canonical_frame: Some(frame),
+                reference_line: Some(reference_line),
+                canvas_selection: None,
+            },
+        );
+        let road_alignments = fbb.create_vector(&[alignment]);
+        let road_corridors = empty_table_vector::<wire::RoadCorridor>(&mut fbb);
+        let road_sections = empty_table_vector::<wire::RoadSection>(&mut fbb);
+        let authoring_lanes = empty_table_vector::<wire::AuthoringLane>(&mut fbb);
+        let lane_edges = empty_table_vector::<wire::LaneEdge>(&mut fbb);
+        let junctions = empty_table_vector::<wire::Junction>(&mut fbb);
+        let movements = empty_table_vector::<wire::Movement>(&mut fbb);
+        let maneuver_paths = empty_table_vector::<wire::ManeuverPath>(&mut fbb);
+        let maneuver_gates = empty_table_vector::<wire::ManeuverGate>(&mut fbb);
+        let waiting_zones = empty_table_vector::<wire::WaitingZone>(&mut fbb);
+        let stop_lines = empty_table_vector::<wire::StopLine>(&mut fbb);
+        let signal_groups = empty_table_vector::<wire::SignalGroup>(&mut fbb);
+        let signal_controllers = empty_table_vector::<wire::SignalController>(&mut fbb);
+        let signal_phases = empty_table_vector::<wire::SignalPhase>(&mut fbb);
+        let parking_facilities = empty_table_vector::<wire::ParkingFacility>(&mut fbb);
+        let parking_spaces = empty_table_vector::<wire::ParkingSpace>(&mut fbb);
+        let lane_groups = empty_table_vector::<wire::LaneGroup>(&mut fbb);
+        let facility_bands = empty_table_vector::<wire::FacilityBand>(&mut fbb);
+        let participant_classes = empty_table_vector::<wire::ParticipantClass>(&mut fbb);
+        let access_rules = empty_table_vector::<wire::AccessRule>(&mut fbb);
+        let vehicle_profiles = empty_table_vector::<wire::VehicleProfile>(&mut fbb);
+        let canonical_frames = empty_table_vector::<wire::CanonicalFrame>(&mut fbb);
+        let conflict_zones = empty_table_vector::<wire::ConflictZone>(&mut fbb);
+        let participant_streams = empty_table_vector::<wire::ParticipantStream>(&mut fbb);
+        let conflict_zone_regions = empty_table_vector::<wire::ConflictZoneRegion>(&mut fbb);
+        let root = wire::RoadEditingSource::create(
+            &mut fbb,
+            &wire::RoadEditingSourceArgs {
+                format_version: FORMAT_VERSION,
+                module_header: Some(module_header),
+                geometry_accuracy_profile: wire::GeometryAccuracyProfile::Balanced5Cm,
+                geometry_direction_profile: wire::GeometryDirectionProfile::Balanced2Deg,
+                road_alignments: Some(road_alignments),
+                road_corridors: Some(road_corridors),
+                road_sections: Some(road_sections),
+                authoring_lanes: Some(authoring_lanes),
+                lane_edges: Some(lane_edges),
+                junctions: Some(junctions),
+                movements: Some(movements),
+                maneuver_paths: Some(maneuver_paths),
+                maneuver_gates: Some(maneuver_gates),
+                waiting_zones: Some(waiting_zones),
+                stop_lines: Some(stop_lines),
+                signal_groups: Some(signal_groups),
+                signal_controllers: Some(signal_controllers),
+                signal_phases: Some(signal_phases),
+                parking_facilities: Some(parking_facilities),
+                parking_spaces: Some(parking_spaces),
+                lane_groups: Some(lane_groups),
+                facility_bands: Some(facility_bands),
+                participant_classes: Some(participant_classes),
+                access_rules: Some(access_rules),
+                vehicle_profiles: Some(vehicle_profiles),
+                canonical_frames: Some(canonical_frames),
+                conflict_zones: Some(conflict_zones),
+                participant_streams: Some(participant_streams),
+                conflict_zone_regions: Some(conflict_zone_regions),
+            },
+        );
+        wire::finish_size_prefixed_road_editing_source_buffer(&mut fbb, root);
+        fbb.finished_data().to_vec()
     }
 
     #[test]
@@ -1372,5 +1575,489 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn rejects_empty_input_and_every_truncated_length_before_verifier() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&limits, "roads/main");
+        let bytes = buffer.as_bytes();
+
+        let input = RoadEditingModuleInput::try_new("roads/main", &[], None).expect("input");
+        let error = verify_source(input, &limits, 0, 0).expect_err("empty input");
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::TruncatedFraming,
+                ..
+            }
+        ));
+
+        for end in 0..bytes.len() {
+            let input =
+                RoadEditingModuleInput::try_new("roads/main", &bytes[..end], None).expect("input");
+            let error = verify_source(input, &limits, 0, 0).expect_err("truncated source");
+            let violation = match first_diagnostic(&error).payload() {
+                DiagnosticPayload::InvalidRoadEditingSource { violation, .. } => violation,
+                payload => panic!("truncation must fail closed as a source violation: {payload:?}"),
+            };
+            if end < MIN_SIZE_PREFIXED_LFRE_BYTES {
+                assert!(
+                    matches!(violation, RoadEditingSourceViolation::TruncatedFraming),
+                    "length {end} must hit the minimum-framing check"
+                );
+            } else {
+                assert!(
+                    matches!(
+                        violation,
+                        RoadEditingSourceViolation::SizePrefixMismatch { .. }
+                    ),
+                    "length {end} must hit the exact-length check before the verifier"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_size_prefix_off_by_one_in_both_directions() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&limits, "roads/main");
+        let actual = u64::try_from(buffer.as_bytes().len() - 4).expect("payload length");
+        for declared in [actual - 1, actual + 1] {
+            let mut bytes = buffer.as_bytes().to_vec();
+            let declared_u32 = u32::try_from(declared).expect("portable size prefix");
+            bytes[..4].copy_from_slice(&declared_u32.to_le_bytes());
+            let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+            let error = verify_source(input, &limits, 0, 0).expect_err("off-by-one size prefix");
+
+            assert!(matches!(
+                first_diagnostic(&error).payload(),
+                DiagnosticPayload::InvalidRoadEditingSource {
+                    violation: RoadEditingSourceViolation::SizePrefixMismatch {
+                        declared: seen_declared,
+                        actual: seen_actual,
+                    },
+                    ..
+                } if *seen_declared == declared && *seen_actual == actual
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_trailing_bytes_after_declared_end() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&limits, "roads/main");
+        let declared = u64::try_from(buffer.as_bytes().len() - 4).expect("declared length");
+        let mut bytes = buffer.as_bytes().to_vec();
+        bytes.resize(bytes.len() + 8, 0);
+        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("trailing bytes");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::SizePrefixMismatch {
+                    declared: seen_declared,
+                    actual: seen_actual,
+                },
+                ..
+            } if *seen_declared == declared && *seen_actual == declared + 8
+        ));
+    }
+
+    #[test]
+    fn rejects_identifier_case_and_adjacent_byte_variants() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&limits, "roads/main");
+        for identifier in [b"lfre", b"LFRD", b"LFRF", b"LFRe"] {
+            let mut bytes = buffer.as_bytes().to_vec();
+            bytes[8..12].copy_from_slice(identifier);
+            let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+            let error = verify_source(input, &limits, 0, 0).expect_err("identifier variant");
+
+            assert!(matches!(
+                first_diagnostic(&error).payload(),
+                DiagnosticPayload::InvalidRoadEditingSource {
+                    violation: RoadEditingSourceViolation::FileIdentifierMismatch,
+                    ..
+                }
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_root_offset_pointing_at_buffer_end() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&limits, "roads/main");
+        let mut bytes = buffer.as_bytes().to_vec();
+        let root_offset = u32::try_from(bytes.len() - 4).expect("portable root offset");
+        bytes[4..8].copy_from_slice(&root_offset.to_le_bytes());
+        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("root offset at buffer end");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::MalformedWire,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_misaligned_root_table_offset() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&limits, "roads/main");
+        let mut bytes = buffer.as_bytes().to_vec();
+        bytes[4..8].copy_from_slice(&5_u32.to_le_bytes());
+        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("misaligned root table");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::MalformedWire,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_out_of_bounds_vtable_offset() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&limits, "roads/main");
+        let mut bytes = buffer.as_bytes().to_vec();
+        let root_position = root_table_position(&bytes);
+        bytes[root_position..root_position + 4].copy_from_slice(&i32::MAX.to_le_bytes());
+        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("out-of-bounds vtable");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::MalformedWire,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_truncated_vtable_beyond_buffer() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&limits, "roads/main");
+        let mut bytes = buffer.as_bytes().to_vec();
+        let vtable_position = table_vtable_position(&bytes, root_table_position(&bytes));
+        bytes[vtable_position..vtable_position + 2].copy_from_slice(&0xFFFE_u16.to_le_bytes());
+        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("truncated vtable");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::MalformedWire,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_vector_length_beyond_buffer() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&limits, "roads/main");
+        let mut bytes = buffer.as_bytes().to_vec();
+        let vector_position = table_field_target_position(
+            &bytes,
+            root_table_position(&bytes),
+            wire::RoadEditingSource::VT_CANONICAL_FRAMES,
+        );
+        bytes[vector_position..vector_position + 4].copy_from_slice(&0x4000_0000_u32.to_le_bytes());
+        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("vector length overflow");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::MalformedWire,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_string_missing_null_terminator() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&limits, "roads/main");
+        let mut bytes = buffer.as_bytes().to_vec();
+        let key_position = bytes
+            .windows(b"frame".len())
+            .position(|window| window == b"frame")
+            .expect("canonical-frame key bytes");
+        let terminator = key_position + b"frame".len();
+        assert_eq!(bytes[terminator], 0, "writer strings are NUL-terminated");
+        bytes[terminator] = b'!';
+        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("missing NUL terminator");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::MalformedWire,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_string_offset_beyond_buffer() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&limits, "roads/main");
+        let mut bytes = buffer.as_bytes().to_vec();
+        let frame_position = {
+            let root = wire::size_prefixed_root_as_road_editing_source(&bytes)
+                .expect("writer output must be structurally valid");
+            root.canonical_frames().get(0)._tab.loc()
+        };
+        let field_position = table_field_position(
+            &bytes,
+            frame_position,
+            wire::CanonicalFrame::VT_CANONICAL_FRAME_KEY,
+        )
+        .expect("key field must be present");
+        bytes[field_position..field_position + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("string offset out of bounds");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::MalformedWire,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_union_value_without_discriminant_at_verifier() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer_with_imported_frame(&limits);
+        let mut bytes = buffer.as_bytes().to_vec();
+        let segment_position = {
+            let root = wire::size_prefixed_root_as_road_editing_source(&bytes)
+                .expect("writer output must be structurally valid");
+            root.road_alignments()
+                .get(0)
+                .reference_line()
+                .segments()
+                .get(0)
+                ._tab
+                .loc()
+        };
+        clear_table_vtable_entry(
+            &mut bytes,
+            segment_position,
+            wire::CurveSegment::VT_GEOMETRY_TYPE,
+        );
+        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("inconsistent union");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::MalformedWire,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_unknown_union_discriminant_after_verification() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer_with_imported_frame(&limits);
+        let mut bytes = buffer.as_bytes().to_vec();
+        let segment_position = {
+            let root = wire::size_prefixed_root_as_road_editing_source(&bytes)
+                .expect("writer output must be structurally valid");
+            root.road_alignments()
+                .get(0)
+                .reference_line()
+                .segments()
+                .get(0)
+                ._tab
+                .loc()
+        };
+        let field_position = table_field_position(
+            &bytes,
+            segment_position,
+            wire::CurveSegment::VT_GEOMETRY_TYPE,
+        )
+        .expect("discriminant field must be present");
+        bytes[field_position] = 200;
+        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("unknown union discriminant");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::InvalidSemanticValue(
+                    crate::RoadEditingInputViolation::InvalidCombination
+                ),
+                field: Some(field),
+                ..
+            } if field.as_ref() == "curveSegment.geometry"
+        ));
+    }
+
+    #[test]
+    fn rejects_absent_required_field_at_verifier() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&limits, "roads/main");
+        let mut bytes = buffer.as_bytes().to_vec();
+        let frame_position = {
+            let root = wire::size_prefixed_root_as_road_editing_source(&bytes)
+                .expect("writer output must be structurally valid");
+            root.canonical_frames().get(0)._tab.loc()
+        };
+        clear_table_vtable_entry(
+            &mut bytes,
+            frame_position,
+            wire::CanonicalFrame::VT_CANONICAL_FRAME_KEY,
+        );
+        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("missing required field");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::MalformedWire,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_unknown_geometry_profile_enum_after_verification() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&limits, "roads/main");
+        let mut bytes = buffer.as_bytes().to_vec();
+        overwrite_root_u8_field(&mut bytes, 2, 200);
+        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("unknown enum value");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::InvalidSemanticValue(
+                    crate::RoadEditingInputViolation::InvalidCombination
+                ),
+                field: Some(field),
+                ..
+            } if field.as_ref() == "roadEditingSource.geometryAccuracyProfile"
+        ));
+    }
+
+    #[test]
+    fn verifier_depth_admits_schema_longest_path() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer_with_imported_frame(&limits);
+        let input =
+            RoadEditingModuleInput::try_new("roads/main", buffer.as_bytes(), None).expect("input");
+
+        let verified = verify_source(input, &limits, 0, 0).expect("depth-five schema path");
+
+        let alignment = verified.root().road_alignments().get(0);
+        assert_eq!(alignment.reference_line().segments().len(), 1);
+    }
+
+    #[test]
+    fn verifier_dos_errors_map_to_closed_violations() {
+        let limits = CompileLimits::p100_initial_v1();
+
+        let error = verifier_error(
+            InvalidFlatbuffer::DepthLimitReached,
+            &limits,
+            "roads/main",
+            64,
+        );
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::VerifierDepthExceeded,
+                ..
+            }
+        ));
+
+        let error = verifier_error(
+            InvalidFlatbuffer::ApparentSizeTooLarge,
+            &limits,
+            "roads/main",
+            64,
+        );
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::VerifierApparentSizeExceeded,
+                ..
+            }
+        ));
+
+        let error = verifier_error(InvalidFlatbuffer::TooManyTables, &limits, "roads/main", 64);
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::CompileLimitExceeded {
+                dimension: CompileLimitDimension::TypedAstRecordCount,
+                limit,
+                observed,
+            } if *limit == 58_387 && *observed == 58_388
+        ));
+    }
+
+    #[test]
+    fn verifier_apparent_size_admits_boundary_and_rejects_boundary_plus_one() {
+        let limits = CompileLimits::p100_initial_v1();
+        let mut accepted_copies = 0_usize;
+        let mut rejection = None;
+        for copies in 1..=5_000 {
+            let bytes = shared_segment_dag_buffer(copies);
+            let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+            match verify_source(input, &limits, 0, 0) {
+                Ok(_) => accepted_copies = copies,
+                Err(error) => {
+                    rejection = Some((copies, error));
+                    break;
+                }
+            }
+        }
+        let (rejected_copies, error) =
+            rejection.expect("shared-DAG apparent size must cross the 16x budget");
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::VerifierApparentSizeExceeded,
+                ..
+            }
+        ));
+        assert!(
+            accepted_copies >= 1,
+            "single-copy fixture must stay accepted"
+        );
+        assert_eq!(
+            accepted_copies + 1,
+            rejected_copies,
+            "apparent-size rejection must flip exactly at the boundary"
+        );
     }
 }

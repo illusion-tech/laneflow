@@ -97,6 +97,8 @@ jobs:
               - 'research/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - '.cargo/**'
+              - 'rust-toolchain*'
               - 'deny.toml'
               - '.github/workflows/ci.yml'
               - '.github/workflows/codeql.yml'

@@ -11,6 +11,9 @@ on:
       - "xtask/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - ".cargo/**"
+      - "rust-toolchain*"
+      - ".github/workflows/ci.yml"
       - ".github/workflows/schema-codegen.yml"
   push:
     branches:
@@ -24,6 +27,9 @@ on:
       - "xtask/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - ".cargo/**"
+      - "rust-toolchain*"
+      - ".github/workflows/ci.yml"
       - ".github/workflows/schema-codegen.yml"
 
 permissions:
@@ -129,6 +135,10 @@ jobs:
             check-road-editing-codegen --flatc "$flatc_path"
           cargo +1.98.0 run --locked -p xtask -- \
             check-runtime-snapshot-codegen --flatc "$flatc_path"
+
+      - name: Check wire toolchain audit
+        shell: bash
+        run: cargo +1.98.0 run --locked -p xtask -- check-wire-audit
 
       - name: Compile generated Rust bindings
         shell: bash
