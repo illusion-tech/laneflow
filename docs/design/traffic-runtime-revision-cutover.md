@@ -149,7 +149,7 @@ Gate 上游边末端的 boundary）。路线与当前 maneuver occurrence 锚点
 推导上述 `PreGate`，不得复制候选的 traversal、快照或编译路线充当期望值。除 target
 origin 与此可证明的零历史初始化外，捕获字段保持源值；traversal 仍完整进入摘要，
 membership/counter、运动、停车与路线逻辑仍须通过全量对拍。此规则不改变快照 wire、
-runtime state 或 digest 版本，也不放宽目标不变量和 `ConflictRuntimeUnavailable`。
+runtime state 或 digest 版本，也不放宽目标 Conflict authority 不变量。
 
 ### 3.4 Conflict authority 的增量追赶
 
@@ -157,8 +157,8 @@ Prepare 从来源完整权威迁移 reservation、eligibility 与 lag 一次，�
 写 `CutoverFloor` 的目标 cell address 列表，以及被目标删除的 history 按
 `reference_time + retention` 计算出的最晚到期时刻。删除历史允许在 Prepare 时尚未到期；
 Quiescent Commit 必须先按最终 `T_commit` 校验到期时刻，再以零部分写最终化 floor。
-W7 生产 tick 接线前，含 live Conflict
-authority 的来源 `step` 原子失败，故 tick 日志不会出现无法独立解释的半份 `Clearing`；
+生产 tick 的 grant、crossing、tail-clear 与 lag history 以一条完整 tick frame 写入日志，
+不会出现无法独立解释的半份 `Clearing`；
 eligibility 在候选与独立期望投影中都复用完整 committed authority 谓词，除稳定
 occurrence/车辆 Gate 位置外还要求目标所选 policy 当前决策为 `Candidate`；
 Prepare 对 committed downstream ledger 只做一次线性分组与闭合校验，随后按 vehicle
@@ -168,8 +168,8 @@ slot 直接读取各 reservation 的 claim slice，不能在逐车迁移中反�
 反推 occurrence，并保留候选已有 authority。带 authority 的 park/rebind 生命周期
 转换失败关闭；despawn 记录在候选同步释放 authority、清 eligibility，并以候选当前模拟时间
 写 `ActualClear`。静默提交只排空这些增量并最终化 address 列表，
-禁止再次调用全量 Conflict 迁移。W7 移除 tick 保护时，grant/tail-clear/eligibility 的 tick
-变化必须在同一切片加入 migration journal，不能退回静默点全量重算。
+禁止再次调用全量 Conflict 迁移。grant/tail-clear/eligibility 的 tick 变化已纳入同一
+migration journal，不能退回静默点全量重算。
 
 ## 4. 状态机
 

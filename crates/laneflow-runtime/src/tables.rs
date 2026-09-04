@@ -10,7 +10,7 @@ use laneflow_static_network::{
 #[cfg(test)]
 use std::cell::Cell;
 
-use crate::{ConflictRuntimeUnavailable, RouteError, RouteHandle, VehicleState};
+use crate::{RouteError, RouteHandle, VehicleState};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ManeuverOccurrence {
@@ -1002,11 +1002,39 @@ enum RouteRearPosition {
     Position(RouteCursorPosition),
 }
 
-/// 3A 检查内部错误；调用方把非规范 cursor 映射到各自既有 invariant 错误面。
+pub(crate) fn vehicle_rear_at_or_beyond(
+    lengths: &[u32],
+    edges: &[LaneEdgeOrdinal],
+    route_edge_index: usize,
+    progress_mm: u32,
+    carry_um: u16,
+    vehicle_length_mm: u32,
+    target: RoutePosition,
+) -> Option<bool> {
+    Some(
+        match route_rear_position(
+            lengths,
+            edges,
+            route_edge_index,
+            progress_mm,
+            carry_um,
+            vehicle_length_mm,
+        )? {
+            RouteRearPosition::BeforeRouteStart => false,
+            RouteRearPosition::Position(rear) => {
+                (rear.route_edge_index, rear.progress_mm, rear.carry_um)
+                    >= (target.route_edge_index, target.progress_mm, 0)
+            }
+        },
+    )
+}
+
+/// 冷生命周期 Conflict 检查内部错误；调用方把非规范 cursor 映射到各自既有
+/// invariant 错误面。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ConflictCapabilityError {
     InvalidCursor,
-    RuntimeUnavailable(ConflictRuntimeUnavailable),
+    AuthorityRequired,
 }
 
 fn route_rear_position(
@@ -1050,9 +1078,12 @@ fn route_rear_position(
     Some(RouteRearPosition::Position(rear))
 }
 
-/// #284 前的能力保护。只看 compiled route 的最后 clearance，不在 tick 扫描冲突表。
+/// 冷生命周期的 Conflict authority 边界。
+///
+/// Gate 上游或精确停在线上可以由下一次 production tick 取得 grant；车辆前端已越过
+/// Gate、但车尾尚未清空该 Gate 完整 coverage 时，spawn/replace/rebind 不能凭空制造
+/// reservation。该入口只用于低频生命周期预检，允许按 route-local Gate range 扫描。
 pub(crate) fn check_conflict_capability(
-    route: RouteHandle,
     compiled: &CompiledRoute,
     lengths: &[u32],
     route_edge_index: usize,
@@ -1060,9 +1091,32 @@ pub(crate) fn check_conflict_capability(
     carry_um: u16,
     vehicle_length_mm: u32,
 ) -> Result<(), ConflictCapabilityError> {
-    let Some((final_clearance, conflict_index)) = compiled.final_conflict_clearance else {
+    if compiled.final_conflict_clearance.is_none() {
         return Ok(());
-    };
+    }
+    let edge = *compiled
+        .edges
+        .get(route_edge_index)
+        .ok_or(ConflictCapabilityError::InvalidCursor)?;
+    let edge_length = *lengths
+        .get(edge.index())
+        .ok_or(ConflictCapabilityError::InvalidCursor)?;
+    if progress_mm > edge_length || (progress_mm == edge_length && carry_um != 0) {
+        return Err(ConflictCapabilityError::InvalidCursor);
+    }
+    let mut front = (
+        u32::try_from(route_edge_index).map_err(|_| ConflictCapabilityError::InvalidCursor)?,
+        progress_mm,
+        carry_um,
+    );
+    if progress_mm == edge_length && carry_um == 0 && route_edge_index + 1 < compiled.edges.len() {
+        front = (
+            u32::try_from(route_edge_index + 1)
+                .map_err(|_| ConflictCapabilityError::InvalidCursor)?,
+            0,
+            0,
+        );
+    }
     let rear = route_rear_position(
         lengths,
         compiled.edges.as_slice(),
@@ -1072,35 +1126,65 @@ pub(crate) fn check_conflict_capability(
         vehicle_length_mm,
     )
     .ok_or(ConflictCapabilityError::InvalidCursor)?;
-    let cleared = match rear {
-        RouteRearPosition::BeforeRouteStart => false,
-        RouteRearPosition::Position(position) => {
+    for (gate_hop, range) in compiled.conflict_gate_ranges.iter().copied().enumerate() {
+        if range.len == 0 {
+            continue;
+        }
+        let end = range
+            .start
+            .checked_add(range.len)
+            .ok_or(ConflictCapabilityError::InvalidCursor)?;
+        let occurrences = compiled
+            .conflicts
+            .get(range.start as usize..end as usize)
+            .ok_or(ConflictCapabilityError::InvalidCursor)?;
+        let farthest = occurrences
+            .iter()
+            .max_by_key(|occurrence| occurrence.clearance)
+            .ok_or(ConflictCapabilityError::InvalidCursor)?;
+        let cleared = match rear {
+            RouteRearPosition::BeforeRouteStart => false,
+            RouteRearPosition::Position(position) => {
+                (
+                    position.route_edge_index,
+                    position.progress_mm,
+                    position.carry_um,
+                ) >= (
+                    farthest.clearance.route_edge_index,
+                    farthest.clearance.progress_mm,
+                    0,
+                )
+            }
+        };
+        if cleared {
+            continue;
+        }
+        let gate_edge = *compiled
+            .edges
+            .get(gate_hop)
+            .ok_or(ConflictCapabilityError::InvalidCursor)?;
+        let gate_progress = *lengths
+            .get(gate_edge.index())
+            .ok_or(ConflictCapabilityError::InvalidCursor)?;
+        let gate_crossed_side = if gate_hop + 1 < compiled.edges.len() {
             (
-                position.route_edge_index,
-                position.progress_mm,
-                position.carry_um,
-            ) >= (
-                final_clearance.route_edge_index,
-                final_clearance.progress_mm,
+                u32::try_from(gate_hop + 1).map_err(|_| ConflictCapabilityError::InvalidCursor)?,
+                0,
                 0,
             )
+        } else {
+            (
+                u32::try_from(gate_hop).map_err(|_| ConflictCapabilityError::InvalidCursor)?,
+                gate_progress,
+                0,
+            )
+        };
+        if front <= gate_crossed_side {
+            return Ok(());
         }
-    };
-    if cleared {
-        return Ok(());
+        return Err(ConflictCapabilityError::AuthorityRequired);
     }
-    let occurrence = compiled
-        .conflicts
-        .get(usize::try_from(conflict_index).expect("conflict index fits usize"))
-        .expect("final conflict index references compiled occurrence");
-    Err(ConflictCapabilityError::RuntimeUnavailable(
-        ConflictRuntimeUnavailable::new(
-            route,
-            occurrence.stream,
-            occurrence.passage_local_index,
-            occurrence.zone,
-        ),
-    ))
+    Ok(())
 }
 
 pub(crate) fn bumpers_overlap(a_front: u32, a_length: u32, b_front: u32, b_length: u32) -> bool {
@@ -1897,41 +1981,39 @@ mod compile_route_tests {
                 + logical_vec_bytes::<ConflictPassageOccurrence>(1)
                 + logical_vec_bytes::<ConflictGateRange>(1)
         );
-        let route = RouteHandle::new(9, 4);
         let lengths = revision.traffic().lane_lengths_millimetres();
 
-        let before =
-            check_conflict_capability(route, &compiled, lengths, 2, 4_499, 999, 4_500).unwrap_err();
-        let ConflictCapabilityError::RuntimeUnavailable(unavailable) = before else {
-            panic!("one micrometre before clearance must be a 3A rejection");
-        };
-        assert_eq!(unavailable.route(), route);
         assert_eq!(
-            check_conflict_capability(route, &compiled, lengths, 2, 4_500, 0, 4_500),
+            check_conflict_capability(&compiled, lengths, 2, 4_499, 999, 4_500),
+            Err(ConflictCapabilityError::AuthorityRequired),
+            "one micrometre before clearance requires pre-existing authority",
+        );
+        assert_eq!(
+            check_conflict_capability(&compiled, lengths, 2, 4_500, 0, 4_500),
             Ok(())
         );
         assert_eq!(
-            check_conflict_capability(route, &compiled, lengths, 2, 4_500, 1, 4_500),
+            check_conflict_capability(&compiled, lengths, 2, 4_500, 1, 4_500),
             Ok(())
         );
         assert_eq!(
-            check_conflict_capability(route, &compiled, lengths, 2, 4_500, 0, 4_499),
+            check_conflict_capability(&compiled, lengths, 2, 4_500, 0, 4_499),
             Ok(()),
             "a shorter vehicle clears the same passage earlier",
         );
         assert!(matches!(
-            check_conflict_capability(route, &compiled, lengths, 2, 4_500, 0, 4_501),
-            Err(ConflictCapabilityError::RuntimeUnavailable(_))
+            check_conflict_capability(&compiled, lengths, 2, 4_500, 0, 4_501),
+            Err(ConflictCapabilityError::AuthorityRequired)
         ));
 
         let previous_length = lengths[path.edges()[1].index()];
         assert_eq!(
-            check_conflict_capability(route, &compiled, lengths, 1, previous_length, 0, 0),
-            check_conflict_capability(route, &compiled, lengths, 2, 0, 0, 0),
+            check_conflict_capability(&compiled, lengths, 1, previous_length, 0, 0),
+            check_conflict_capability(&compiled, lengths, 2, 0, 0, 0),
             "previous edge end and next edge zero are one canonical position",
         );
         assert_eq!(
-            check_conflict_capability(route, &compiled, lengths, 1, previous_length, 1, 0),
+            check_conflict_capability(&compiled, lengths, 1, previous_length, 1, 0),
             Err(ConflictCapabilityError::InvalidCursor),
         );
     }

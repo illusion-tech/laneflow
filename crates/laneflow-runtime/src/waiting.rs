@@ -834,19 +834,6 @@ impl crate::TrafficWorld {
             let mut plan = self.waiting_plans[index];
             match plan.decision {
                 WaitingDecisionOutcome::Granted => {
-                    self.waiting_claims.push(WaitingAdmissionClaim {
-                        vehicle: plan.vehicle,
-                        vehicle_update_sequence: plan.vehicle_update_sequence,
-                        occurrence_index: plan.occurrence_index,
-                        zone: plan.zone,
-                        entry_hop: plan.entry_hop,
-                        release_hop: plan.release_hop,
-                        approach_distance_mm: plan.approach_distance_mm,
-                        plan_index: u32::try_from(index)
-                            .map_err(|_| crate::StepError::WaitingInvariantViolation)?,
-                        post_step_group: 0,
-                        post_step_rank: 0,
-                    });
                     let state = self
                         .vehicle_state(plan.vehicle)
                         .ok_or(crate::StepError::WaitingInvariantViolation)?;
@@ -895,6 +882,306 @@ impl crate::TrafficWorld {
                 outcome: plan.decision,
             });
         }
+        Ok(())
+    }
+
+    /// Conflict 单写者取得包含该 Waiting entitlement 的完整 bundle 后，才把本地
+    /// zone reducer 的 provisional grant 激活为可随 crossing 提交的 claim。
+    pub(crate) fn activate_waiting_claim(
+        &mut self,
+        vehicle: crate::VehicleHandle,
+        entry_hop: u32,
+    ) -> Result<(), crate::StepError> {
+        let plan = self
+            .waiting_plan_by_vehicle
+            .get(vehicle.index() as usize)
+            .copied()
+            .flatten()
+            .filter(|plan| {
+                plan.vehicle == vehicle
+                    && plan.entry_hop == entry_hop
+                    && plan.decision == WaitingDecisionOutcome::Granted
+            });
+        let Some(plan) = plan else {
+            return Ok(());
+        };
+        if self
+            .waiting_claims
+            .iter()
+            .any(|claim| claim.vehicle == vehicle)
+        {
+            return Err(crate::StepError::WaitingInvariantViolation);
+        }
+        let plan_index = self
+            .waiting_plans
+            .iter()
+            .position(|candidate| *candidate == plan)
+            .ok_or(crate::StepError::WaitingInvariantViolation)?;
+        reserve_waiting_exact(&mut self.waiting_claims, 1)?;
+        self.waiting_claims.push(WaitingAdmissionClaim {
+            vehicle: plan.vehicle,
+            vehicle_update_sequence: plan.vehicle_update_sequence,
+            occurrence_index: plan.occurrence_index,
+            zone: plan.zone,
+            entry_hop: plan.entry_hop,
+            release_hop: plan.release_hop,
+            approach_distance_mm: plan.approach_distance_mm,
+            plan_index: u32::try_from(plan_index)
+                .map_err(|_| crate::StepError::WaitingInvariantViolation)?,
+            post_step_group: 0,
+            post_step_rank: 0,
+        });
+        Ok(())
+    }
+
+    /// 为组合 ledger 的当前 tentative Waiting admission 构造完整 wait-for 图。
+    /// committed membership 与 earlier successful staged claim 都保留为 blocker；
+    /// 同 tick release 不返还容量或物理存储。
+    pub(crate) fn prepare_waiting_dependency_footprint(
+        &mut self,
+        vehicle: crate::VehicleHandle,
+        entry_hop: u32,
+    ) -> Result<(), crate::StepError> {
+        use crate::conflict::WaitingDependencyNode::{Owner, Zone};
+
+        self.conflict_waiting_dependencies.clear();
+        let candidate = self
+            .waiting_plan_by_vehicle
+            .get(vehicle.index() as usize)
+            .copied()
+            .flatten()
+            .filter(|plan| {
+                plan.vehicle == vehicle
+                    && plan.entry_hop == entry_hop
+                    && plan.decision == WaitingDecisionOutcome::Granted
+            })
+            .ok_or(crate::StepError::WaitingInvariantViolation)?;
+
+        for index in 0..self.waiting_member_rows.len() {
+            let member = self.waiting_member_rows[index];
+            let state = self
+                .vehicle_state(member.vehicle)
+                .copied()
+                .ok_or(crate::StepError::WaitingInvariantViolation)?;
+            let traversal = state
+                .maneuver_traversal
+                .ok_or(crate::StepError::WaitingInvariantViolation)?;
+            let occurrence_index = self
+                .compiled_route(state.route)
+                .and_then(|compiled| {
+                    compiled.waiting.iter().position(|occurrence| {
+                        occurrence.zone == member.zone
+                            && occurrence.release_hop == member.release_hop
+                            && occurrence.maneuver_index == traversal.maneuver_occurrence_index
+                    })
+                })
+                .ok_or(crate::StepError::WaitingInvariantViolation)?;
+            self.append_waiting_hold_dependencies(
+                member.vehicle,
+                u32::try_from(occurrence_index)
+                    .map_err(|_| crate::StepError::WaitingInvariantViolation)?,
+            )?;
+        }
+        for index in 0..self.waiting_claims.len() {
+            let claim = self.waiting_claims[index];
+            self.append_waiting_hold_dependencies(claim.vehicle, claim.occurrence_index)?;
+        }
+        self.append_waiting_hold_dependencies(candidate.vehicle, candidate.occurrence_index)?;
+        self.conflict_waiting_dependencies.sort_unstable();
+        self.conflict_waiting_dependencies.dedup();
+
+        // 每个持有资源都必须有 resource -> owner 边；即使它本拍没有后继依赖，
+        // 也可能是另一 owner 的 blocker。
+        debug_assert!(
+            self.conflict_waiting_dependencies
+                .iter()
+                .any(|edge| { *edge == (Zone(candidate.zone), Owner(candidate.vehicle.index())) })
+        );
+        Ok(())
+    }
+
+    fn append_waiting_hold_dependencies(
+        &mut self,
+        owner: crate::VehicleHandle,
+        occurrence_index: u32,
+    ) -> Result<(), crate::StepError> {
+        use crate::conflict::WaitingDependencyNode::{Owner, Zone};
+
+        let state = self
+            .vehicle_state(owner)
+            .copied()
+            .ok_or(crate::StepError::WaitingInvariantViolation)?;
+        let held = *self
+            .compiled_route(state.route)
+            .and_then(|compiled| compiled.waiting.get(occurrence_index as usize))
+            .ok_or(crate::StepError::WaitingInvariantViolation)?;
+        self.push_waiting_dependency((Zone(held.zone), Owner(owner.index())))?;
+
+        let dependency_start = occurrence_index as usize + 1;
+        let dependency_count = self
+            .compiled_route(state.route)
+            .ok_or(crate::StepError::WaitingInvariantViolation)?
+            .waiting
+            .iter()
+            .skip(dependency_start)
+            .take_while(|dependency| dependency.entry_hop <= held.release_hop)
+            .count();
+        for offset in 0..dependency_count {
+            let dependency = *self
+                .compiled_route(state.route)
+                .and_then(|compiled| compiled.waiting.get(dependency_start + offset))
+                .ok_or(crate::StepError::WaitingInvariantViolation)?;
+            if self.waiting_owner_holds_zone(owner, dependency.zone)
+                || !self.waiting_dependency_resource_blocked(owner, dependency)?
+            {
+                continue;
+            }
+            self.push_waiting_dependency((Owner(owner.index()), Zone(dependency.zone)))?;
+            for index in 0..self.waiting_member_rows.len() {
+                let blocker = self.waiting_member_rows[index];
+                if blocker.zone == dependency.zone {
+                    self.push_waiting_dependency((
+                        Zone(dependency.zone),
+                        Owner(blocker.vehicle.index()),
+                    ))?;
+                }
+            }
+            for index in 0..self.waiting_claims.len() {
+                let blocker = self.waiting_claims[index];
+                if blocker.zone == dependency.zone {
+                    self.push_waiting_dependency((
+                        Zone(dependency.zone),
+                        Owner(blocker.vehicle.index()),
+                    ))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn waiting_owner_holds_zone(
+        &self,
+        owner: crate::VehicleHandle,
+        zone: WaitingZoneOrdinal,
+    ) -> bool {
+        self.vehicle_state(owner)
+            .and_then(|state| state.waiting_membership)
+            .is_some_and(|membership| membership.waiting_zone == zone)
+            || self
+                .waiting_claims
+                .iter()
+                .any(|claim| claim.vehicle == owner && claim.zone == zone)
+    }
+
+    fn waiting_dependency_resource_blocked(
+        &self,
+        owner: crate::VehicleHandle,
+        dependency: crate::tables::WaitingOccurrence,
+    ) -> Result<bool, crate::StepError> {
+        let zone = self
+            .waiting_zones
+            .get(dependency.zone.index())
+            .copied()
+            .ok_or(crate::StepError::WaitingInvariantViolation)?;
+        let staged_count = self
+            .waiting_claims
+            .iter()
+            .filter(|claim| claim.zone == dependency.zone)
+            .count();
+        let occupancy = usize::try_from(zone.occupancy)
+            .ok()
+            .and_then(|count| count.checked_add(staged_count))
+            .ok_or(crate::StepError::WaitingInvariantViolation)?;
+        let max_occupancy = self
+            .revision
+            .traffic()
+            .relations()
+            .waiting_zone(dependency.zone)
+            .ok_or(crate::StepError::WaitingInvariantViolation)?
+            .max_occupancy() as usize;
+        if occupancy >= max_occupancy {
+            return Ok(true);
+        }
+
+        let mut used = 0_u64;
+        let mut has_front = false;
+        let mut current = zone.head;
+        while let Some(vehicle) = current {
+            let state = self
+                .vehicle_state(vehicle)
+                .ok_or(crate::StepError::WaitingInvariantViolation)?;
+            let profile = self
+                .revision
+                .traffic()
+                .relations()
+                .vehicle_profile(state.profile)
+                .ok_or(crate::StepError::WaitingInvariantViolation)?;
+            if has_front {
+                used = used
+                    .checked_add(u64::from(profile.min_gap_mm()))
+                    .ok_or(crate::StepError::WaitingInvariantViolation)?;
+            }
+            used = used
+                .checked_add(u64::from(state.length_mm))
+                .ok_or(crate::StepError::WaitingInvariantViolation)?;
+            has_front = true;
+            current = self.waiting_links[vehicle.index() as usize].next;
+        }
+        for claim in self
+            .waiting_claims
+            .iter()
+            .filter(|claim| claim.zone == dependency.zone)
+        {
+            let state = self
+                .vehicle_state(claim.vehicle)
+                .ok_or(crate::StepError::WaitingInvariantViolation)?;
+            let profile = self
+                .revision
+                .traffic()
+                .relations()
+                .vehicle_profile(state.profile)
+                .ok_or(crate::StepError::WaitingInvariantViolation)?;
+            if has_front {
+                used = used
+                    .checked_add(u64::from(profile.min_gap_mm()))
+                    .ok_or(crate::StepError::WaitingInvariantViolation)?;
+            }
+            used = used
+                .checked_add(u64::from(state.length_mm))
+                .ok_or(crate::StepError::WaitingInvariantViolation)?;
+            has_front = true;
+        }
+        let subject = self
+            .vehicle_state(owner)
+            .ok_or(crate::StepError::WaitingInvariantViolation)?;
+        let subject_profile = self
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(subject.profile)
+            .ok_or(crate::StepError::WaitingInvariantViolation)?;
+        if has_front {
+            used = used
+                .checked_add(u64::from(subject_profile.min_gap_mm()))
+                .ok_or(crate::StepError::WaitingInvariantViolation)?;
+        }
+        used = used
+            .checked_add(u64::from(subject.length_mm))
+            .ok_or(crate::StepError::WaitingInvariantViolation)?;
+        Ok(used > u64::from(dependency.storage_length_mm))
+    }
+
+    fn push_waiting_dependency(
+        &mut self,
+        edge: (
+            crate::conflict::WaitingDependencyNode,
+            crate::conflict::WaitingDependencyNode,
+        ),
+    ) -> Result<(), crate::StepError> {
+        self.conflict_waiting_dependencies
+            .try_reserve(1)
+            .map_err(|_| crate::StepError::ConflictScratchAllocFailed)?;
+        self.conflict_waiting_dependencies.push(edge);
         Ok(())
     }
 
@@ -1178,6 +1465,19 @@ impl crate::TrafficWorld {
                 self.unlink_waiting_member(old.handle, membership);
             }
         }
+    }
+
+    pub(crate) fn rollback_waiting_step(&mut self) {
+        for claim in &self.waiting_claims {
+            let zone_index = claim.zone.index();
+            self.waiting_next_counters[zone_index] =
+                self.waiting_zones[zone_index].next_admission_sequence;
+        }
+        self.waiting_claims.clear();
+        self.waiting_plans.clear();
+        self.waiting_staged_decisions.clear();
+        self.waiting_staged_events.clear();
+        self.waiting_plan_by_vehicle.fill(None);
     }
 
     pub(crate) fn commit_waiting_additions(&mut self, updates: &[(usize, crate::VehicleState)]) {

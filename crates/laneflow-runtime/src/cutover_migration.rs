@@ -892,7 +892,20 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
         world_generation: world.world_generation,
         config: world.config,
         conflict_arbiter,
-        conflict_eligibility: Vec::new(),
+        conflict_eligibility: try_staging_vec(vehicle_capacity)?,
+        conflict_candidates: try_staging_vec(vehicle_capacity)?,
+        conflict_candidate_cells: Vec::new(),
+        conflict_candidate_downstream: Vec::new(),
+        conflict_cell_work: Vec::new(),
+        conflict_downstream_work: Vec::new(),
+        conflict_grants: try_staging_vec(vehicle_capacity)?,
+        conflict_motion_by_vehicle: try_staging_slice(vehicle_capacity)?,
+        conflict_next_eligibility: try_staging_slice(vehicle_capacity)?,
+        conflict_passage_transitions: Vec::new(),
+        conflict_changed_owners: Vec::with_capacity(vehicle_capacity),
+        conflict_waiting_dependencies: Vec::new(),
+        conflict_staged_decisions: try_staging_vec(vehicle_capacity)?,
+        latest_conflict_decisions: try_staging_vec(vehicle_capacity)?,
         tick_index: world.tick_index,
         time_ms: world.time_ms,
         command_cursor: world.command_cursor,
@@ -1003,15 +1016,14 @@ fn conflict_anchor_rebinds(
 }
 
 fn conflict_anchor_path_cursor(
-    world: &TrafficWorld,
+    revision: &SharedNetworkRevision,
     path: ManeuverPathOrdinal,
     anchor: ConflictPathAnchor,
 ) -> Option<(usize, u32)> {
-    let path_view = world.revision.traffic().maneuvers().maneuver_path(path)?;
+    let path_view = revision.traffic().maneuvers().maneuver_path(path)?;
     match anchor {
         ConflictPathAnchor::Gate(gate) => {
-            let transition = world
-                .revision
+            let transition = revision
                 .traffic()
                 .relations()
                 .maneuver_gate(gate)
@@ -1030,8 +1042,7 @@ fn conflict_anchor_path_cursor(
         } => {
             let index = usize::try_from(path_edge_index).ok()?;
             let edge = *path_view.edges().get(index)?;
-            let length = *world
-                .revision
+            let length = *revision
                 .traffic()
                 .lane_lengths_millimetres()
                 .get(edge.index())?;
@@ -1042,27 +1053,17 @@ fn conflict_anchor_path_cursor(
 }
 
 fn conflict_passage_physical_interval_continuous(
-    source: &TrafficWorld,
-    target: &TrafficWorld,
+    source: &SharedNetworkRevision,
+    target: &SharedNetworkRevision,
     source_path: ManeuverPathOrdinal,
     target_path: ManeuverPathOrdinal,
     source_passage: laneflow_static_network::ConflictPassage,
     target_passage: laneflow_static_network::ConflictPassage,
 ) -> bool {
-    let Some(source_path_view) = source
-        .revision
-        .traffic()
-        .maneuvers()
-        .maneuver_path(source_path)
-    else {
+    let Some(source_path_view) = source.traffic().maneuvers().maneuver_path(source_path) else {
         return false;
     };
-    let Some(target_path_view) = target
-        .revision
-        .traffic()
-        .maneuvers()
-        .maneuver_path(target_path)
-    else {
+    let Some(target_path_view) = target.traffic().maneuvers().maneuver_path(target_path) else {
         return false;
     };
     let Some(source_start) =
@@ -1090,8 +1091,8 @@ fn conflict_passage_physical_interval_continuous(
     {
         return false;
     }
-    let source_lengths = source.revision.traffic().lane_lengths_millimetres();
-    let target_lengths = target.revision.traffic().lane_lengths_millimetres();
+    let source_lengths = source.traffic().lane_lengths_millimetres();
+    let target_lengths = target.traffic().lane_lengths_millimetres();
     let last = if source_end.1 == 0 {
         source_end.0
     } else {
@@ -1132,22 +1133,20 @@ fn conflict_passage_physical_interval_continuous(
     true
 }
 
-fn conflict_passage_semantics_continuous(
-    source: &TrafficWorld,
-    target: &TrafficWorld,
+pub(crate) fn conflict_passage_semantics_continuous(
+    source: &SharedNetworkRevision,
+    target: &SharedNetworkRevision,
     rebinding: &CrossRevisionRebinding,
     source_address: crate::ConflictPassageAddress,
     target_address: crate::ConflictPassageAddress,
 ) -> bool {
     let Some(source_stream) = source
-        .revision
         .conflict()
         .participant_stream(source_address.stream())
     else {
         return false;
     };
     let Some(target_stream) = target
-        .revision
         .conflict()
         .participant_stream(target_address.stream())
     else {
@@ -1173,31 +1172,19 @@ fn conflict_passage_semantics_continuous(
     if target_stream.maneuver_path() != target_path
         || rebinding.maneuver_gate(source_passage.admission_gate())
             != Some(target_passage.admission_gate())
-        || source
-            .revision
-            .identity()
-            .stable_id(source_stream.junction())
-            != target
-                .revision
-                .identity()
-                .stable_id(target_stream.junction())
+        || source.identity().stable_id(source_stream.junction())
+            != target.identity().stable_id(target_stream.junction())
     {
         return false;
     }
     let Some(source_path) = source
-        .revision
         .traffic()
         .maneuvers()
         .maneuver_path(source_stream.maneuver_path())
     else {
         return false;
     };
-    let Some(target_path_view) = target
-        .revision
-        .traffic()
-        .maneuvers()
-        .maneuver_path(target_path)
-    else {
+    let Some(target_path_view) = target.traffic().maneuvers().maneuver_path(target_path) else {
         return false;
     };
     source_path.edges().len() == target_path_view.edges().len()
@@ -1234,8 +1221,8 @@ fn mapped_conflict_occurrence(
     let source_address = source_occurrence.address();
     let target_address = mapped_conflict_address(source, target, rebinding, source_address)?;
     if !conflict_passage_semantics_continuous(
-        source,
-        target,
+        &source.revision,
+        &target.revision,
         rebinding,
         source_address,
         target_address,
@@ -1607,8 +1594,8 @@ pub(crate) fn migrate_conflict_state(
         let target_address = mapped_conflict_address(source, target, rebinding, source_address);
         let continuous = target_address.is_some_and(|target_address| {
             conflict_passage_semantics_continuous(
-                source,
-                target,
+                &source.revision,
+                &target.revision,
                 rebinding,
                 source_address,
                 target_address,
@@ -1953,8 +1940,8 @@ pub(crate) fn project_expected_conflict(
         if let Some(target_address) =
             mapped_conflict_address(source, target, rebinding, source_address)
             && conflict_passage_semantics_continuous(
-                source,
-                target,
+                &source.revision,
+                &target.revision,
                 rebinding,
                 source_address,
                 target_address,
@@ -2148,14 +2135,16 @@ pub(crate) fn revalidate_vehicle_on(
                     vehicle: handle.index(),
                 });
             }
-            Err(crate::tables::ConflictCapabilityError::RuntimeUnavailable(_))
+            Err(crate::tables::ConflictCapabilityError::AuthorityRequired)
                 if candidate.conflict_reservation(handle).is_some()
                     || candidate
                         .conflict_eligibility
                         .get(handle.index() as usize)
                         .is_some_and(Option::is_some) => {}
-            Err(crate::tables::ConflictCapabilityError::RuntimeUnavailable(error)) => {
-                return Err(CutoverError::ConflictRuntimeUnavailable(error));
+            Err(crate::tables::ConflictCapabilityError::AuthorityRequired) => {
+                return Err(CutoverError::VehicleRevalidationFailed {
+                    vehicle: handle.index(),
+                });
             }
         }
     }
@@ -2214,8 +2203,9 @@ pub(crate) mod tests {
         preflight_object_values,
     };
     use laneflow_static_contract::{
-        ExactByteLength, ParticipantStreamOrdinal, PortableObjectKind,
-        SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest, StableId128, VehicleProfileOrdinal,
+        EntityKind, ExactByteLength, LaneEdgeId, ParticipantStreamOrdinal, PortableObjectKind,
+        RightOfWayPolicySetId, SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest, StableId128,
+        VehicleProfileOrdinal,
     };
     use laneflow_static_network::{
         CanonicalNetworkOrigin, SharedNetworkBuildLimits, SharedNetworkBuildOptions,
@@ -2232,9 +2222,10 @@ pub(crate) mod tests {
     use crate::{
         CUTOVER_DESCRIPTOR_FORMAT_VERSION, CutoverPreflightLimits, CutoverTransactionLimits,
         LfcaOriginBinding, MigrationPolicyKind, NetworkRevisionCutoverDescriptor,
-        ParkedVehicleSpawnInput, ParkingTarget, PoseSource, ReserveParkingTarget,
-        RouteRegisterInput, SemanticDiffOriginBinding, TickInput, VehicleSpawnInput, VehicleStatus,
-        VirtualEntryAnchorSelector, WorldBinding, WorldConfig, WorldGeneration,
+        ParkedVehicleSpawnInput, ParkingTarget, PolicyPin, PoseSource, PublishedLfcaReference,
+        ReserveParkingTarget, RouteRegisterInput, SemanticDiffOriginBinding, TickInput,
+        VehicleSpawnInput, VehicleStatus, VirtualEntryAnchorSelector, WorldBinding, WorldConfig,
+        WorldGeneration, WorldPolicySelection,
     };
 
     const BASE: &[u8] =
@@ -2269,6 +2260,41 @@ pub(crate) mod tests {
             )],
         )
         .expect("line curve")
+    }
+
+    fn conflict_scale_loop() -> lfre::RoadEditingCurveProgram {
+        let point = |x, z| lfre::RoadEditingPoint3::try_new(x, 0.0, z).expect("scale point");
+        // Keep each closed approach below the 10 km static-contract ceiling while
+        // providing enough distinct route length for the 100k population fixture.
+        const RADIUS: f64 = 1_500.0;
+        const K: f64 = RADIUS * 0.552_284_749_830_793_6;
+        const X: f64 = -13.0;
+        lfre::RoadEditingCurveProgram::try_new(
+            point(X, 0.0),
+            vec![
+                lfre::RoadEditingCurveSegment::cubic_bezier(
+                    point(X + K, 0.0),
+                    point(X + RADIUS, RADIUS - K),
+                    point(X + RADIUS, RADIUS),
+                ),
+                lfre::RoadEditingCurveSegment::cubic_bezier(
+                    point(X + RADIUS, RADIUS + K),
+                    point(X + K, 2.0 * RADIUS),
+                    point(X, 2.0 * RADIUS),
+                ),
+                lfre::RoadEditingCurveSegment::cubic_bezier(
+                    point(X - K, 2.0 * RADIUS),
+                    point(X - RADIUS, RADIUS + K),
+                    point(X - RADIUS, RADIUS),
+                ),
+                lfre::RoadEditingCurveSegment::cubic_bezier(
+                    point(X - RADIUS, RADIUS - K),
+                    point(X - K, 0.0),
+                    point(X, 0.0),
+                ),
+            ],
+        )
+        .expect("scale loop")
     }
 
     fn add_conflict_cutover_test_approach(
@@ -2343,8 +2369,14 @@ pub(crate) mod tests {
     fn conflict_cutover_test_module(
         insert_preceding_passage: bool,
         change_stable_passage_exit: bool,
+        long_approaches: bool,
+        yielding: bool,
     ) -> lfre::RoadEditingSourceModule {
-        let limits = CompileLimits::p100_initial_v2();
+        let limits = if long_approaches {
+            CompileLimits::single_network_1m_v2()
+        } else {
+            CompileLimits::p100_initial_v2()
+        };
         let header = lfre::RoadEditingModuleHeader::try_new(
             "city/runtime-live-conflict-cutover",
             "runtime-live-conflict-cutover.lfre",
@@ -2398,6 +2430,22 @@ pub(crate) mod tests {
                 lfre::CanonicalFrameInput::try_new("frame").expect("canonical frame"),
             ))
             .expect("add frame");
+        if long_approaches {
+            for index in 0..70 {
+                let edge = format!("scale-stem-{index:02}");
+                let successor = if index == 69 {
+                    "entry".to_owned()
+                } else {
+                    format!("scale-stem-{:02}", index + 1)
+                };
+                add_conflict_cutover_test_approach(
+                    &mut module,
+                    &edge,
+                    conflict_scale_loop(),
+                    vec![lfre::LaneEdgeReference::local(successor).expect("scale successor")],
+                );
+            }
+        }
         add_conflict_cutover_test_approach(
             &mut module,
             "entry",
@@ -2635,14 +2683,24 @@ pub(crate) mod tests {
                 .expect("add conflict zone region");
         }
         let stream_rule = |stream| {
+            let yield_to = (yielding && stream == "stream")
+                .then(|| {
+                    lfre::ParticipantStreamReference::owner_scoped(
+                        vec!["crossing".into()],
+                        "other-stream",
+                    )
+                    .expect("yield target")
+                })
+                .into_iter()
+                .collect();
             lfre::PolicyStreamRuleInput::try_new(
                 stream,
                 lfre::ParticipantStreamReference::owner_scoped(vec!["crossing".into()], stream)
                     .expect("stream reference"),
                 None,
-                0,
-                vec![],
-                None,
+                i32::from(stream == "other-stream"),
+                yield_to,
+                (yielding && stream == "stream").then(|| "calibration-gap".to_owned()),
                 vec![],
             )
             .expect("stream policy")
@@ -2676,7 +2734,19 @@ pub(crate) mod tests {
                         .with_source("repository:runtime-live-conflict-cutover")
                         .expect("regulation source"),
                     vec![],
-                    vec![],
+                    yielding
+                        .then(|| {
+                            lfre::PolicyGapProfileInput::try_new(
+                                "calibration-gap",
+                                "fixture-1",
+                                500,
+                                500,
+                                100,
+                            )
+                            .expect("calibration gap")
+                        })
+                        .into_iter()
+                        .collect(),
                     policy_streams,
                     vec![
                         lfre::PolicyGateRuleInput::try_new(
@@ -2703,6 +2773,191 @@ pub(crate) mod tests {
             ))
             .expect("add right-of-way policy");
         module.finish().expect("Road Editing module")
+    }
+
+    pub(crate) fn conflict_scale_revision() -> Arc<SharedNetworkRevision> {
+        let limits = CompileLimits::single_network_1m_v2();
+        let source = lfre::RoadEditingSourceWriter::new(&limits)
+            .write(conflict_cutover_test_module(false, false, true, true))
+            .expect("Conflict scale Road Editing source");
+        let input = lfre::RoadEditingModuleInput::try_new(
+            "runtime-live-conflict-cutover.lfre",
+            source.as_bytes(),
+            None,
+        )
+        .expect("Conflict scale Road Editing input");
+        let mut unit = CompilationUnitBuilder::new(limits);
+        unit.add_road_editing_module(input)
+            .expect("Conflict scale module admission");
+        let output = Compiler::new()
+            .compile(unit.build().expect("Conflict scale compilation unit"))
+            .unwrap_or_else(|bundle| {
+                panic!(
+                    "Conflict scale compile diagnostics: {:?}",
+                    bundle
+                        .diagnostics()
+                        .iter()
+                        .map(|diagnostic| (diagnostic.code(), diagnostic.payload()))
+                        .collect::<Vec<_>>()
+                )
+            });
+        let provenance = PortableEmissionProvenance::try_new("runtime-conflict-scale-v1")
+            .expect("Conflict scale provenance");
+        let candidate = emit_portable_candidate(
+            &output,
+            &provenance,
+            FormatLimits::HARD,
+            PortableDiffBase::Genesis,
+        )
+        .expect("Conflict scale portable candidate");
+        let checked = check_post_emission_bundle(
+            candidate.canonical_artifact().bytes(),
+            candidate.source_map().bytes(),
+            candidate.semantic_diff().bytes(),
+            candidate.expected_semantic_diff_base(),
+            FormatLimits::HARD,
+        )
+        .expect("Conflict scale checked bundle");
+        build_shared_network_revision(
+            checked.canonical_network_input(),
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::Omit,
+                SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+            ),
+        )
+        .expect("Conflict scale shared revision")
+    }
+
+    pub(crate) fn conflict_scale_world(
+        revision: Arc<SharedNetworkRevision>,
+        vehicle_count: u32,
+    ) -> TrafficWorld {
+        const SPACING_MM: u64 = 6_500;
+
+        let stream = revision
+            .conflict()
+            .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+            .expect("Conflict scale stream");
+        let cycle = revision
+            .traffic()
+            .maneuvers()
+            .maneuver_path(stream.maneuver_path())
+            .expect("Conflict scale path")
+            .edges()
+            .to_vec();
+        assert_eq!(cycle.len(), 3);
+        let limits = CompileLimits::single_network_1m_v2();
+        let mut route_edges = (0..70)
+            .map(|index| {
+                let stable = laneflow_compiler::derive_canonical_stable_id_v1(
+                    EntityKind::LaneEdge,
+                    "city/runtime-live-conflict-cutover",
+                    &format!("scale-stem-{index:02}"),
+                    &limits,
+                )
+                .expect("Conflict scale stem identity");
+                revision
+                    .identity()
+                    .ordinal(LaneEdgeId::from_untyped(stable))
+                    .expect("Conflict scale stem ordinal")
+            })
+            .collect::<Vec<_>>();
+        route_edges.extend_from_slice(&cycle);
+        let span_mm = u64::from(vehicle_count.saturating_sub(1))
+            .checked_mul(SPACING_MM)
+            .and_then(|span| span.checked_add(1))
+            .expect("Conflict scale population span");
+        let route_lengths = route_edges
+            .iter()
+            .map(|edge| u64::from(revision.traffic().lane_lengths_millimetres()[edge.index()]))
+            .collect::<Vec<_>>();
+        let mut route_ends = Vec::with_capacity(route_lengths.len());
+        let mut route_length_mm = 0_u64;
+        for length in &route_lengths {
+            route_length_mm = route_length_mm.checked_add(*length).expect("route length");
+            route_ends.push(route_length_mm);
+        }
+        let entry_route_index = 70_usize;
+        let entry_end_mm = route_ends[entry_route_index];
+        assert!(entry_end_mm > span_mm);
+
+        let origin = *revision.canonical_origin();
+        let mut world = TrafficWorld::install(
+            Arc::clone(&revision),
+            WorldConfig::new(vehicle_count, 1, route_edges.len() as u64, 1, 1, 4),
+            CommittedNetworkSource::Published {
+                reference: PublishedLfcaReference::new(
+                    "fixture://conflict-scale",
+                    origin.canonical_artifact_digest(),
+                    origin.canonical_artifact_byte_length(),
+                    origin.network_revision(),
+                )
+                .expect("Conflict scale source"),
+            },
+            u64::from(vehicle_count),
+            WorldPolicySelection::Pinned(PolicyPin {
+                policy: RightOfWayPolicySetId::from_untyped(
+                    laneflow_compiler::derive_canonical_stable_id_v1(
+                        EntityKind::RightOfWayPolicySet,
+                        "city/runtime-live-conflict-cutover",
+                        "policy",
+                        &CompileLimits::single_network_1m_v2(),
+                    )
+                    .expect("Conflict scale policy identity"),
+                ),
+            }),
+        )
+        .expect("Conflict scale world install");
+        let route = world
+            .register_route(RouteRegisterInput::new(route_edges))
+            .expect("Conflict scale route");
+        let profile = VehicleProfileOrdinal::from_raw(0);
+        let profile_view = world
+            .traffic()
+            .relations()
+            .vehicle_profile(profile)
+            .expect("Conflict scale vehicle profile");
+        let profile_class = profile_view.class();
+        let profile_length_mm = profile_view.length_mm();
+        let frontmost_mm = entry_end_mm - 1;
+        for update_sequence in 0..vehicle_count {
+            let absolute_mm = frontmost_mm
+                .checked_sub(u64::from(update_sequence) * SPACING_MM)
+                .expect("Conflict scale route has room");
+            let route_edge_index = route_ends.partition_point(|end| *end <= absolute_mm);
+            let edge_start_mm = route_edge_index
+                .checked_sub(1)
+                .map_or(0, |previous| route_ends[previous]);
+            let progress_mm =
+                u32::try_from(absolute_mm - edge_start_mm).expect("Conflict scale edge progress");
+            let route_edge_index =
+                u32::try_from(route_edge_index).expect("Conflict scale route occurrence");
+            let handle = VehicleHandle::new(update_sequence, 0);
+            world.vehicles.push(VehicleSlot {
+                generation: 0,
+                state: Some(VehicleState {
+                    handle,
+                    profile,
+                    class: profile_class,
+                    route,
+                    route_edge_index,
+                    progress_mm,
+                    carry_um: 999,
+                    speed_mm_s: 10_000,
+                    length_mm: profile_length_mm,
+                    status: VehicleStatus::Active,
+                    maneuver_traversal: None,
+                    waiting_membership: None,
+                }),
+            });
+            world.live_order.push(handle);
+            world.active_order.push(handle);
+        }
+        world.routes[route.index() as usize].live_vehicles = vehicle_count;
+        world
+            .rebuild_occupancy_index()
+            .expect("Conflict scale occupancy");
+        world
     }
 
     fn compile_conflict_cutover_test_pair(
@@ -2741,10 +2996,12 @@ pub(crate) mod tests {
                     )
                 })
         };
-        let base_output = compile(conflict_cutover_test_module(false, false));
+        let base_output = compile(conflict_cutover_test_module(false, false, false, false));
         let target_output = compile(conflict_cutover_test_module(
             target_insert_preceding_passage,
             target_change_stable_passage_exit,
+            false,
+            false,
         ));
         let provenance = PortableEmissionProvenance::try_new("runtime-live-conflict-cutover-v1")
             .expect("portable provenance");
@@ -3401,9 +3658,9 @@ pub(crate) mod tests {
         let rebinding = CrossRevisionRebinding::build(world.revision.identity(), target.identity())
             .expect("rebinding");
         let before = world.capture_snapshot().expect("before");
-        // 首次为 signal；随后十次覆盖 Waiting 稠密状态与 scratch，最后四次
-        // 覆盖 Conflict eligibility、批量 authority 索引、继承地址和目标地址 staging。
-        for fail_after in 1..=14 {
+        // 首次为 signal；随后十次覆盖 Waiting 稠密状态与 scratch；W5/W7 的
+        // Conflict eligibility、authority 与 fixed-step scratch 继续走同一受检分配轴。
+        for fail_after in 1..=21 {
             let result = with_staging_allocation_failure_after(fail_after, || {
                 migrate_structural_clone(
                     &world,
@@ -3419,7 +3676,7 @@ pub(crate) mod tests {
             );
             assert_eq!(world.capture_snapshot().expect("unchanged"), before);
         }
-        let candidate = with_staging_allocation_failure_after(15, || {
+        let candidate = with_staging_allocation_failure_after(22, || {
             migrate_structural_clone(
                 &world,
                 target,

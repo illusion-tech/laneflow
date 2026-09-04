@@ -48,8 +48,8 @@
   anchor selector、reserve/park/leave、原子 despawn、无 pose 停驻与迁移合同（#541 起实现）。
 - `road-junction-model.md`：Junction / Movement / ManeuverPath / ManeuverGate。
 - `waiting-zone-conflict-right-of-way.md`：#282 G1 Accepted 的 Waiting 本地边界与 #284
-  组合仲裁边界；冲突静态 exact shape 见 LFCA/共享根文档，W4 仲裁与 W5 持久化已
-  落入集成实现，生产 tick 接线前仍保留 `ConflictRuntimeUnavailable` 保护。
+  组合仲裁边界；冲突静态 exact shape 见 LFCA/共享根文档，正式仲裁、持久化、
+  修订迁移与生产 fixed tick 已落入集成实现。
 - [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md)：#284
   已接受实施合同，细化策略来源、中国右转灯态解释、世界绑定、格式版本矩阵与
   持久化验收；各能力的集成与生产接线状态以该文档和对应 W 切片为准。

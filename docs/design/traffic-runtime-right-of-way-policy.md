@@ -1,7 +1,7 @@
 # 路权策略编译与 ConflictArbiter 实施合同
 
-**文档状态**: Accepted（#284 G1；各 W 切片按集成分支逐步交付）<br>
-**最后更新**: 2026-09-04<br>
+**文档状态**: Accepted（#284 G1；W1–W7 已在集成分支闭合）<br>
+**最后更新**: 2026-09-05<br>
 **适用范围**: 官方编制来源、LFCA、共享静态路网、策略绑定、信号解释、冲突资源、
 运行时快照与修订切换<br>
 **设计依据**: ADR 0009、0019、0025、0028、0029；
@@ -16,8 +16,8 @@
 
 已确认的产品范围是：中国机动车普通红灯条件右转，以及一套具名、显式选择的参考
 间隙参数。法规依据和机动车支持边界见联合设计 §6.2.1–§6.2.2。本文新增的输入形状、
-版本矩阵和迁移细节约束各实施切片；格式文档随对应登记实现更新，但不能据此宣称
-完整策略编制、共享根和运行时已经交付。§8 的完整组合须在集成候选闭合后原子发布。
+版本矩阵和迁移细节已经由 W1–W7 在集成分支闭合；正式发布仍须按 §8 将完整组合原子
+晋升，不能拆分发布其中一部分。
 
 本次选择：
 
@@ -622,11 +622,11 @@ graph；存在两 owner 以上的 committed cycle、悬空 owner 或不合法历
 同一输入重建。无状态 batch 不能伪装为从档中复活的 grant；回放比较从一致 checkpoint
 继续，必须比较每个后续成功 tick 的 decision/event/state。
 
-W5 只交付 authority 的保存、恢复和迁移，W7 才接通生产 crossing/tail-clear tick。
-因此只要世界含 eligibility 或 live reservation，`step` 必须在 Waiting/motion staging 前以
-`ConflictRuntimeUnavailable` 原子失败，不能让通用 Waiting 提交路径覆盖 `Clearing`；只有
-lag history、没有 live authority 的世界仍可正常步进。该保护在 W7 与生产单写者同界接通后
-由真实推进替代，不能先放宽再补 journal。
+W7 已在 W5 authority 保存、恢复和迁移之上接通生产 crossing/tail-clear tick。`step`
+先建立 approach frontier 与 Gate candidate，再由 single-writer 组合 Waiting、gap、
+Conflict 和 downstream 资源；只有实际 crossing 才提交 reservation/Clearing，车尾清空
+全部 coverage 后释放并写 `ActualClear`。tick journal 同拍记录 eligibility、reservation、
+downstream claim 与 lag history 变化，在线切换不需要重新执行全量 Conflict 迁移。
 
 ### 6.2 修订切换
 
@@ -684,14 +684,13 @@ authority 校验的 cell 与新增 cell 一样处理。
 digest 复核后才一次发布。快照/恢复保留该基准，失败丢弃候选，不给旧世界增加历史
 或事件。此规则不补造真实清空历史，不要求保存或回放全路网旧轨迹。
 
-W5 的在线事务在 Prepare 只全量迁移一次 Conflict，并把新增/不连续 cell 的目标 address
-保存为有界最终化计划。追赶期含 live authority 的 tick 由上述保护原子拒绝；只改变
-binding 的 reserve/cancel 增量保留候选既有 authority，带 authority 的 park/rebind 转换失败
-关闭，despawn 增量在候选以该记录时刻同步释放 reservation、清 eligibility 并写真实 clear
-history。静默提交只排空日志尾并把计划中
+在线事务在 Prepare 只全量迁移一次 Conflict，并把新增/不连续 cell 的目标 address
+保存为有界最终化计划。追赶期的生产 tick 将 grant、crossing、tail-clear 与 lag history
+变化写入增量日志；只改变 binding 的 reserve/cancel 增量保留候选既有 authority，带
+authority 的 park/rebind 转换失败关闭，despawn 增量在候选以该记录时刻同步释放
+reservation、清 eligibility 并写真实 clear history。静默提交只排空日志尾并把计划中
 的 floor 更新时间改为 `T_commit`，工作量与本次新增/不连续 cell 数成正比；禁止再次按
-全部车辆和全部 Conflict cell 调用全量迁移。W7 接通会产生新 grant/clear 的 tick 时，必须
-同界扩展 journal 后才能移除 W5 的失败保护。
+全部车辆和全部 Conflict cell 调用全量迁移。
 
 以上目标规范化扩展现有描述符的迁移语义，因此描述符版本升级为 2，kind 名称仍为
 `same_revision_restore` 和 `cross_revision_direct`；字段形状不新增暗含 policy 选择的
@@ -700,18 +699,47 @@ history。静默提交只排空日志尾并把计划中
 ## 7. 参考参数与实测口径
 
 参考 profile 的 key/parameterVersion 与三个整数值通过普通策略局部成员发射，不是
-隐藏在 Runtime 的默认常量。首次推荐数值在正式 solver 上通过受控场景校准后与源模块
-一起交付；设计阶段不以未经测量的数字宣称产品通过。算法单测使用显式人工 profile
-覆盖 equality、+1 ms 等边界，不把测试参数冒充推荐参数。
+隐藏在 Runtime 的默认常量。首版工程参考为：
+
+| profileKey           | parameterVersion        | minimumLeadGapMs | minimumLagGapMs | clearanceBufferMs |
+| -------------------- | ----------------------- | ---------------: | --------------: | ----------------: |
+| `urban-conservative` | `urban-conservative-v1` |             5000 |            2000 |               500 |
+
+在 100 ms 固定步长下，world 安装派生 `requiredLeadMs=5600` 与
+`requiredLagMs=2500`。该 profile 通过普通 Road Editing policy source builder 编制并经
+compiler → LFCA → shared root → 正式 Runtime solver 使用；Runtime 没有同名常量、fallback
+或安装后 setter。算法单测继续使用显式人工 profile 覆盖 equality、+1 ms 等边界，不把
+测试参数冒充推荐参数。
 
 必须报告每个场景的实际车长/间距、需求、固定步长、观察长度、通过车辆数、等待分布、
 拒绝原因和稳定排队情况。保护性算法可能导致次要车流长等，不能为了通过通行量用例
 引入等待提权、同 tick release 复用或不可证明时放行。
 
-性能取证沿用当前产品基线的 workload/hardware 分类。一万报告完整 tick p50/p95、
-仲裁增量、retained bytes 和暖机后分配；十万报告正确性、visited passages、top-two
-cells/bytes、claim/query/collision 与 wait-for node/edge/visit counts。开发机数据不
-替代 P10 认证。最终跨层场景和 Adapter 收口仍由 #285 承担。
+受控校准每个场景执行 8 次确定性到达，结果如下；观察长度是单次 trial 的最大窗口：
+
+| 场景               | 车长/最小间距 | 主路需求                       | fixed dt | 观察长度 | 通过 | wait p50/p95 | 拒绝归因与排队                                               |
+| ------------------ | ------------- | ------------------------------ | -------- | -------- | ---- | ------------ | ------------------------------------------------------------ |
+| 短车空冲突区       | 4.5 m / 2 m   | 无                             | 100 ms   | 100 ms   | 8/8  | 100/100 ms   | 无排队                                                       |
+| 长车空冲突区       | 12 m / 3 m    | 无                             | 100 ms   | 100 ms   | 8/8  | 100/100 ms   | 无排队；全车身 claim 通过                                    |
+| 让行汇入开放间隙   | 4.5 m / 2 m   | 无逼近车                       | 100 ms   | 100 ms   | 8/8  | 100/100 ms   | 无排队                                                       |
+| 无保护转向单车逼近 | 4.5 m / 2 m   | 每 trial 1 辆                  | 100 ms   | 3.4 s    | 8/8  | 3.4/3.4 s    | occupied 56、lag 200、lead 8；Gate 队列有界                  |
+| 饱和主路脉冲       | 4.5 m / 2 m   | 每 trial 3 辆、500 ms 车头间隔 | 100 ms   | 12 s     | 8/8  | 12/12 s      | occupied 488、lag 456、lead 8；Gate 队列有界且脉冲结束后放行 |
+| 下游堵塞           | 4.5 m / 2 m   | 静止下游 owner                 | 100 ms   | 100 ms   | 0/8  | 100/100 ms   | downstream-storage 8；全部稳定停在 Gate                      |
+
+保护性算法没有等待提权、同 tick release 复用或不可证明时放行。数值是当前受控机动车
+工程参考，不是法规数值、真实城市通行能力或专业交通工程校准结论；宿主可通过另一份
+具名版本化 policy source 显式选择不同参数。
+
+性能取证沿用当前产品基线的 workload/hardware 分类。本开发机的 release 证据为：
+
+| 档位 | full tick p50/p95 | Conflict 仲裁 p50/p95 | retained logical bytes | 结构计数                                                                                                                                                    |
+| ---- | ----------------- | --------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 10k  | 6.36/6.45 ms      | 2.31/2.36 ms          | 6,640,904 B            | 暖机后 16 tick allocation/reallocation/bytes 均为 0                                                                                                         |
+| 100k | 描述性正确性 tick | —                     | 66,400,904 B           | visited passages 100,001；frontier updates 1；top-two 2 cells/128 B；candidate/yield/cell/downstream query 各 1；collision 0；wait-for node/edge/visit 均 0 |
+
+开发机墙钟只作本次实现证据，不替代尚待具名硬件执行的 P10 认证，也不在共享 CI 上硬编码
+4 ms 阈值。10k/100k 的近线性 retained、访问计数、正确性与零分配是可复现约束。最终
+跨层场景和 Adapter 收口仍由 #285 承担。
 
 ## 8. 原子版本矩阵
 
@@ -756,7 +784,7 @@ writer/reader；仅在完整 #284 闭合后发布整组版本，不能把切片�
 | 仲裁与运动       | entitlement、repeated occurrence 自排除、ETA/lead/lag 边界、物理 span 和 SCC；最终 crossing 与 grant/reservation 对应      |
 | 持久化与生命周期 | 所有 owner 原子释放；restore/replay；same/cross revision；新增覆盖仅初始化保守基准；policy drift 和错误历史拒绝            |
 | 确定性与资源     | stable permutations 下 state/decision/event 相同；checked 失败零提交；无暖机后稳态分配；一万/十万实测                      |
-| 原子接管         | 全部正式路径已接通后删除 ConflictRuntimeUnavailable；没有单独绕过 guard 的生产入口或测试特权                               |
+| 原子接管         | 全部正式路径已接通并删除临时 `ConflictRuntimeUnavailable`；生命周期内部位置只接受可证明 authority，没有测试特权            |
 
 核心变更面为 static-contract 登记和值、compiler 两前端与 HIR/MIR/LIR/emitter、format
 校验与语义差异、static-network builder/共享表、runtime 安装/route/tick/Waiting/
