@@ -139,11 +139,14 @@ fn check_wire_manifest_targets(repository_root: &Path) -> Result<(), String> {
 }
 
 /// 审计单个 wire manifest：`[lib]` / `[[bin]]` / `[[test]]` / `[[bench]]` /
-/// `[[example]]` 的显式 `path` canonicalize 后必须仍在 package 根目录内；`[package]`
-/// 不得出现 build 脚本键；package 根目录不得存在 build.rs。TOML 点号键
-/// （`package.build = "..."`、`lib.path = "..."`）与引号键（`["package"]`、
-/// `"build" = "..."`）均已用 cargo metadata 实测确认会被 Cargo 接受，解析时按段
-/// 归一化（去引号、拆点号）后套用同一检查。
+/// `[[example]]` 的显式 `path` 必须以 `.rs` 结尾（Cargo 会把任意后缀的显式 target
+/// path 按 Rust 源编译），且 canonicalize 后仍在 package 根目录内；`[package]` 不得
+/// 出现 build 脚本键；package 根目录不得存在 build.rs。TOML 点号键
+/// （`package.build = "..."`、`lib.path = "..."`）、引号键（`["package"]`、
+/// `"build" = "..."`）与内联表（`package = { build = "..." }`、
+/// `lib = { path = "..." }`、`bin = [{ path = "..." }]`）均已用 cargo metadata 实测
+/// 确认会被 Cargo 接受，解析时按段归一化（去引号、拆点号）并下钻内联表后套用同一
+/// 检查。
 fn require_wire_manifest_targets(
     manifest_text: &str,
     package_root: &Path,
@@ -167,11 +170,33 @@ fn require_wire_manifest_targets(
         };
         let mut effective_section = section;
         let mut effective_key = unquote_toml_key(key);
-        if section.is_empty()
-            && let Some((table, leaf)) = split_dotted_key(key)
-        {
-            effective_section = table;
-            effective_key = leaf;
+        if section.is_empty() {
+            if let Some((table, leaf)) = split_dotted_key(key) {
+                effective_section = table;
+                effective_key = leaf;
+            } else {
+                // 内联表形态：`package = { build = "..." }` 与
+                // `lib = { path = "..." }` / `bin = [{ path = "..." }]`（内联表数组
+                // 与 [[bin]] 段在 Cargo 侧反序列化等价）。
+                let trimmed_value = value.trim();
+                if trimmed_value.starts_with('{') || trimmed_value.starts_with('[') {
+                    if effective_key == "package"
+                        && inline_table_value(trimmed_value, "build").is_some()
+                    {
+                        return Err(format!("wire manifest `{label}` 不得声明 build 脚本键"));
+                    }
+                    if WIRE_TARGET_SECTIONS.contains(&effective_key)
+                        && let Some(target_value) = inline_table_value(trimmed_value, "path")
+                    {
+                        require_manifest_target_contained(
+                            package_root,
+                            &canonical_root,
+                            unquote_toml_key(target_value),
+                            label,
+                        )?;
+                    }
+                }
+            }
         }
         if section_is(effective_section, "package") && effective_key == "build" {
             return Err(format!("wire manifest `{label}` 不得声明 build 脚本键"));
@@ -182,25 +207,108 @@ fn require_wire_manifest_targets(
             && effective_key == "path"
         {
             let relative = value.trim().trim_matches('"');
-            let candidate = package_root
-                .join(relative)
-                .canonicalize()
-                .map_err(|error| {
-                    format!(
-                        "wire manifest `{label}` 的显式 target path `{relative}` 无法解析: {error}"
-                    )
-                })?;
-            if !candidate.starts_with(&canonical_root) {
-                return Err(format!(
-                    "wire manifest `{label}` 的显式 target path `{relative}` 逃逸 package 根目录"
-                ));
-            }
+            require_manifest_target_contained(package_root, &canonical_root, relative, label)?;
         }
     }
     if package_root.join("build.rs").is_file() {
         return Err(format!("wire package `{label}` 不得包含 build.rs"));
     }
     Ok(())
+}
+
+/// 断言 wire manifest 的显式 target path 以 `.rs` 结尾，且相对 package 根目录解析并
+/// canonicalize 后仍落在根目录内；绝对路径与 `..` 逃逸由此一并拒绝。
+fn require_manifest_target_contained(
+    package_root: &Path,
+    canonical_root: &Path,
+    relative: &str,
+    label: &str,
+) -> Result<(), String> {
+    if !relative.ends_with(".rs") {
+        return Err(format!(
+            "wire manifest `{label}` 的显式 target path `{relative}` 不是 .rs 文件"
+        ));
+    }
+    let candidate = package_root
+        .join(relative)
+        .canonicalize()
+        .map_err(|error| {
+            format!("wire manifest `{label}` 的显式 target path `{relative}` 无法解析: {error}")
+        })?;
+    if !candidate.starts_with(canonical_root) {
+        return Err(format!(
+            "wire manifest `{label}` 的显式 target path `{relative}` 逃逸 package 根目录"
+        ));
+    }
+    Ok(())
+}
+
+/// 在 TOML 内联表文本中查找 `key` 的值文本；键不存在返回 `None`。扫描以每个 `{`
+/// 起算深度 1，字符串内的 `,` / `=` 与嵌套括号不干扰键定位；`bin = [{ ... }, { ... }]`
+/// 这类内联表数组中的每个表都会参与（`,` 在深度 0 时不切分，下一个 `{` 重新开始
+/// 计段）。
+fn inline_table_value<'a>(value: &'a str, key: &str) -> Option<&'a str> {
+    let bytes = value.as_bytes();
+    let mut depth = 0i64;
+    let mut segment_start = 0usize;
+    let mut segments: Vec<&str> = Vec::new();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' => {
+                i += 1;
+                while i < bytes.len() {
+                    match bytes[i] {
+                        b'\\' => i += 2,
+                        b'"' => {
+                            i += 1;
+                            break;
+                        }
+                        _ => i += 1,
+                    }
+                }
+            }
+            b'\'' => {
+                i += 1;
+                while i < bytes.len() {
+                    if bytes[i] == b'\'' {
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            b'{' => {
+                depth += 1;
+                if depth == 1 {
+                    segment_start = i + 1;
+                }
+                i += 1;
+            }
+            b'}' => {
+                if depth == 1 {
+                    segments.push(&value[segment_start..i]);
+                }
+                depth -= 1;
+                i += 1;
+            }
+            b',' if depth == 1 => {
+                segments.push(&value[segment_start..i]);
+                segment_start = i + 1;
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+    for segment in segments {
+        let Some((entry_key, entry_value)) = segment.split_once('=') else {
+            continue;
+        };
+        if unquote_toml_key(entry_key) == key {
+            return Some(entry_value.trim());
+        }
+    }
+    None
 }
 
 /// 归一化 TOML 键 / 表单段：去首尾空白与一层配对引号（`"..."` 或 `'...'`）。
@@ -278,7 +386,8 @@ fn check_source_includes(repository_root: &Path) -> Result<(), String> {
 /// 审计单个 Rust 源文本：include 宏的参数必须是静态字符串字面量、以 `.rs` 结尾，
 /// 且 canonicalize 后仍落在**源文件自己所属的** workspace package 根目录内
 /// （`include_bytes!` / `include_str!` 不引入 Rust 源，不在此列）；`#[path]` 属性
-/// 与 `#[cfg_attr]` 嵌套的 path 属性适用同一闭合规则。宏名与 `!` 之间允许空白与
+/// 与 `#[cfg_attr]` 嵌套的 path 属性适用同一闭合规则，`#` 与 `[` 之间的空白 / 注释
+/// 与 `#![...]` 内部属性写法不改变判定。宏名与 `!` 之间允许空白与
 /// 注释；`use ... include` 形态的别名导入与任何无法静态确认目标的用法一律拒绝。
 fn require_audited_source_includes(
     text: &str,
@@ -492,12 +601,23 @@ fn audit_path_attributes(
 ) -> Result<(), String> {
     let bytes = text.as_bytes();
     let mut cursor = 0;
-    while let Some(relative) = text[cursor..].find("#[") {
+    // `#` 与 `[` 之间允许空白与注释（`# [path = "..."]`），crate 级内部属性
+    // `#![...]` 套用同一检查；宏 / raw 字符串内的 `#` 已被掩码排除。
+    while let Some(relative) = text[cursor..].find('#') {
         let start = cursor + relative;
-        cursor = start + 2;
-        if !is_code(code, start, 2) {
+        cursor = start + 1;
+        if !is_code(code, start, 1) {
             continue;
         }
+        skip_trivia(bytes, &mut cursor);
+        if bytes.get(cursor) == Some(&b'!') {
+            cursor += 1;
+            skip_trivia(bytes, &mut cursor);
+        }
+        if bytes.get(cursor) != Some(&b'[') {
+            continue;
+        }
+        cursor += 1;
         skip_trivia(bytes, &mut cursor);
         if text[cursor..].starts_with("cfg_attr")
             && !text[cursor + "cfg_attr".len()..]
@@ -789,7 +909,9 @@ fn require_rustflags_respect_unsafe_forbid(text: &str, label: &str) -> Result<()
     let mut continuation = RustflagsContinuation::None;
     for (number, raw_line) in text.lines().enumerate() {
         let lower = raw_line.to_lowercase();
-        let decoded = decode_flag_escapes(&lower);
+        // 必须先解码再小写：`\U0000002D` 若先小写会折叠成 `\u0000002d`，解码器只消费
+        // 4 位十六进制而把 8 位 `\U` 序列截断成不可匹配的内容。
+        let decoded = decode_flag_escapes(raw_line).to_lowercase();
         if let RustflagsContinuation::BlockScalar(indent) = continuation {
             let line_indent = raw_line.len() - raw_line.trim_start().len();
             if raw_line.trim().is_empty() || line_indent > indent {
@@ -868,24 +990,68 @@ fn rustflags_value_continuation(line: &str) -> RustflagsContinuation {
     }
 }
 
-/// 统计 `[` `{` 相对 `]` `}` 的净余额（从 `initial` 累加）。
+/// 统计 `[` `{` 相对 `]` `}` 的净余额（从 `initial` 累加）。双引号（含 `\` 转义）与
+/// 单引号字符串字面量的内容不参与计数：`rustflags = ["]",` 中字符串内的 `]` 不会
+/// 抵消未闭合的 `[` 而导致后续续行漏检。
 fn bracket_balance(text: &str, initial: i64) -> i64 {
-    text.chars().fold(initial, |balance, ch| match ch {
-        '[' | '{' => balance + 1,
-        ']' | '}' => balance - 1,
-        _ => balance,
-    })
+    let bytes = text.as_bytes();
+    let mut balance = initial;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' => {
+                i += 1;
+                while i < bytes.len() {
+                    match bytes[i] {
+                        b'\\' => i += 2,
+                        b'"' => {
+                            i += 1;
+                            break;
+                        }
+                        _ => i += 1,
+                    }
+                }
+            }
+            b'\'' => {
+                i += 1;
+                while i < bytes.len() {
+                    if bytes[i] == b'\'' {
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            b'[' | b'{' => {
+                balance += 1;
+                i += 1;
+            }
+            b']' | b'}' => {
+                balance -= 1;
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+    balance
 }
 
 /// 对原始行与转义解码行各匹配一次弱化 token。TOML/YAML 双引号字符串会把
 /// `\u002d` 这类转义解码成 `-`（TOML/Cargo 侧按解码后的值生效），解码后匹配
-/// 使标准字符串转义无法绕过边界。
+/// 使标准字符串转义无法绕过边界。解码值中的 `@` 一律拒绝：rustc 会把 `@file`
+/// 展开为响应文件参数（换行分隔），文件内容不在本审计覆盖范围内。
 fn reject_weakening_token(
     lowered_line: &str,
     decoded_line: &str,
     label: &str,
     number: usize,
 ) -> Result<(), String> {
+    if decoded_line.contains('@') {
+        return Err(format!(
+            "`{label}` 第 {} 行 rustflags 含 `@`，rustc `@file` 响应文件参数无法静态审计",
+            number + 1
+        ));
+    }
     if let Some(token) = RUSTFLAGS_WEAKENING_TOKENS
         .iter()
         .find(|token| lowered_line.contains(**token) || decoded_line.contains(**token))
@@ -1413,6 +1579,143 @@ mod tests {
                 "fixture"
             ),
             Ok(())
+        );
+    }
+
+    #[test]
+    fn wire_manifest_rejects_inline_table_build_key() {
+        // cargo metadata 实测确认 `package = { build = "..." }` 内联表同样生成
+        // custom-build target。
+        let root = temp_package_root("inline-build");
+        let inline = "package = { name = \"fixture\", build = \"build.rs\" }\n";
+        assert!(require_wire_manifest_targets(inline, &root, "fixture").is_err());
+        let clean = "package = { name = \"fixture\" }\nlib = { path = \"src/lib.rs\" }\n";
+        assert_eq!(
+            require_wire_manifest_targets(clean, &root, "fixture"),
+            Ok(())
+        );
+        fs::remove_dir_all(&root).expect("remove temporary wire package");
+    }
+
+    #[test]
+    fn wire_manifest_rejects_inline_table_target_path_escape() {
+        let sandbox = std::env::temp_dir().join(format!(
+            "laneflow-wire-audit-inline-escape-{}",
+            std::process::id()
+        ));
+        let root = sandbox.join("pkg");
+        fs::create_dir_all(root.join("src")).expect("temporary wire package src directory");
+        fs::write(root.join("src/lib.rs"), "pub fn placeholder() {}\n")
+            .expect("temporary wire lib target");
+        fs::write(sandbox.join("outside.rs"), "pub fn outside() {}\n")
+            .expect("temporary escaping target");
+
+        let inline = "lib = { path = \"../outside.rs\" }\n";
+        let error = require_wire_manifest_targets(inline, &root, "fixture").unwrap_err();
+        assert!(error.contains("逃逸"));
+        // 内联表数组与 [[bin]] 段在 Cargo 侧反序列化等价，套用同一闭合规则。
+        let inline_array = "bin = [{ name = \"fixture-bin\", path = \"../outside.rs\" }]\n";
+        let error = require_wire_manifest_targets(inline_array, &root, "fixture").unwrap_err();
+        assert!(error.contains("逃逸"));
+        let contained = "bin = [{ name = \"fixture-bin\", path = \"src/lib.rs\" }]\n";
+        assert_eq!(
+            require_wire_manifest_targets(contained, &root, "fixture"),
+            Ok(())
+        );
+        fs::remove_dir_all(&sandbox).expect("remove temporary inline escape sandbox");
+    }
+
+    #[test]
+    fn wire_manifest_rejects_non_rs_target_path() {
+        // Cargo 会把任意后缀的显式 target path 按 Rust 源编译，审计只放行 .rs。
+        let root = temp_package_root("non-rs-target");
+        let section_form = "[lib]\npath = \"src/lib.txt\"\n";
+        assert!(require_wire_manifest_targets(section_form, &root, "fixture").is_err());
+        let inline_form = "lib = { path = \"src/lib.txt\" }\n";
+        assert!(require_wire_manifest_targets(inline_form, &root, "fixture").is_err());
+        fs::remove_dir_all(&root).expect("remove temporary wire package");
+    }
+
+    #[test]
+    fn source_includes_audit_hash_bracket_separated_path_attribute() {
+        // rustc 接受 `#` 与 `[` 之间的空白 / 注释，审计必须按同一形态归一。
+        let (sandbox, source, roots) = temp_source_fixture(
+            "spaced-attr",
+            &[("pkg/src/support.rs", "pub fn support() {}\n")],
+        );
+        let spaced_ok = concat!("#", " [path = \"support.rs\"]\nmod support;");
+        assert_source_ok(&sandbox, &source, &roots, spaced_ok);
+        let (sandbox, source, roots) =
+            temp_source_fixture("spaced-attr", &[("outside.rs", "pub fn outside() {}\n")]);
+        let spaced_escape = concat!("#", " [path = \"../../outside.rs\"]\nmod outside;");
+        assert_source_err(&sandbox, &source, &roots, spaced_escape);
+        let (sandbox, source, roots) =
+            temp_source_fixture("spaced-attr", &[("outside.rs", "pub fn outside() {}\n")]);
+        let comment_gap = concat!(
+            "#",
+            " /* 间隔 */ [path = \"../../outside.rs\"]\nmod outside;"
+        );
+        assert_source_err(&sandbox, &source, &roots, comment_gap);
+    }
+
+    #[test]
+    fn rustflags_audit_decodes_before_lowercasing() {
+        // `\U` 八位转义若先小写会折叠成 `\u` 四位序列而被截断漏解，必须先解码再小写。
+        assert!(
+            require_rustflags_respect_unsafe_forbid(
+                "rustflags = [\"--cap\\U0000002dlints\", \"allow\"]\n",
+                "fixture"
+            )
+            .is_err()
+        );
+        assert!(
+            require_rustflags_respect_unsafe_forbid(
+                "env:\n  RUSTFLAGS: \"--force-warn=unsafe\\U0000002Dcode\"\n",
+                "workflow"
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn rustflags_audit_ignores_brackets_inside_strings() {
+        // 字符串内的 `]` 不抵消未闭合的 `[`：数组实际跨行时续行必须仍被扫描。
+        assert!(
+            require_rustflags_respect_unsafe_forbid(
+                "rustflags = [\"]\",\n  \"--cap-lints\", \"allow\"]\n",
+                "fixture"
+            )
+            .is_err()
+        );
+        assert!(
+            require_rustflags_respect_unsafe_forbid(
+                "rustflags = [']',\n  \"--cap-lints\", \"warn\"]\n",
+                "fixture"
+            )
+            .is_err()
+        );
+        assert_eq!(
+            require_rustflags_respect_unsafe_forbid("rustflags = [\"]\", \"-C\"]\n", "fixture"),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn rustflags_audit_rejects_response_file_argument() {
+        // rustc 把 `@file` 展开为换行分隔的响应文件参数，文件内容不受本审计覆盖。
+        assert!(
+            require_rustflags_respect_unsafe_forbid(
+                "env:\n  RUSTFLAGS: @/tmp/flags.rsp\n",
+                "workflow"
+            )
+            .is_err()
+        );
+        assert!(
+            require_rustflags_respect_unsafe_forbid(
+                "rustflags = [\"\\u0040/tmp/flags.rsp\"]\n",
+                "fixture"
+            )
+            .is_err()
         );
     }
 }
