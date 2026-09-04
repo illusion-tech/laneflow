@@ -15,7 +15,8 @@ path = "src/lib.rs"
 [dependencies]
 flatbuffers = { version = "=25.12.19", default-features = false, features = ["std"] }
 
-# 本 package 只承载固定 flatc 生成物。手写 LaneFlow crate 继续继承 workspace
-# `unsafe_code = forbid`；生成路径以 CI clean-regeneration 与边界扫描单独审计。
+# 本 package 只承载固定 flatc 生成物：生成 .rs 由 CI clean-regeneration 钉版，
+# src/lib.rs 包装器与 xtask/src/wire_pins/ 钉版副本字节相等；手写 LaneFlow crate
+# 继承 workspace `unsafe_code = forbid` 并由 check-wire-audit hermetic 编译验证。
 [lints.rust]
 unsafe_code = "allow"
