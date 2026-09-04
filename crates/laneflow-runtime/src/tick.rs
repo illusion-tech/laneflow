@@ -74,12 +74,6 @@ impl TrafficWorld {
         if !self.conflict_state_valid() {
             return Err(StepError::ConflictInvariantViolation);
         }
-        if self.conflict_authority_pending() {
-            return Err(self.pending_conflict_runtime_unavailable().map_or(
-                StepError::ConflictInvariantViolation,
-                StepError::ConflictRuntimeUnavailable,
-            ));
-        }
         let tick_index = self.tick_index.checked_add(1).ok_or(StepError::Overflow)?;
         let time_ms = self
             .time_ms
@@ -92,6 +86,10 @@ impl TrafficWorld {
         let delta_s = expected as f32 / 1_000.0;
         self.rebuild_occupancy_index()?;
         self.prepare_waiting_step(delta_s)?;
+        if let Err(error) = self.prepare_conflict_step(delta_s, tick_index) {
+            self.conflict_arbiter.expire_unconsumed_grants();
+            return Err(error);
+        }
         self.next_states.clear();
         self.next_states.reserve(self.active_order.len());
         let mut parking_arrivals = Vec::new();
@@ -113,8 +111,14 @@ impl TrafficWorld {
             let arrived_before =
                 reservation.is_some_and(|reservation| self.parking_arrived_for(state, reservation));
             let waiting_stop = self.waiting_stop_for(state)?;
+            let conflict_stop = self.conflict_stop_for(state)?;
             let next = self
-                .advance_active_vehicle_with_waiting_stop(state, delta_s, waiting_stop)
+                .advance_active_vehicle_with_waiting_stop(
+                    state,
+                    delta_s,
+                    waiting_stop,
+                    conflict_stop,
+                )
                 .ok_or(StepError::NonFiniteMotion)?;
             if next.status == VehicleStatus::Completed
                 && (self.conflict_reservation(handle).is_some()
@@ -141,6 +145,15 @@ impl TrafficWorld {
         }
         let mut updates = std::mem::take(&mut self.next_states);
         if let Err(error) = self.finalize_waiting_step(&mut updates, tick_index) {
+            self.rollback_waiting_step();
+            self.conflict_arbiter.expire_unconsumed_grants();
+            updates.clear();
+            self.next_states = updates;
+            return Err(error);
+        }
+        if let Err(error) = self.finalize_conflict_step(&mut updates, time_ms) {
+            self.rollback_waiting_step();
+            self.conflict_arbiter.expire_unconsumed_grants();
             updates.clear();
             self.next_states = updates;
             return Err(error);
@@ -148,19 +161,20 @@ impl TrafficWorld {
         self.commit_waiting_removals(&updates);
         // 武装期 TICK 记录在状态写回前开帧、写回后闭帧；无变化条目被过滤，
         // 零变化步进仍保留空记录（tick/时间是候选时钟与摘要头部的收敛依据）。
-        if let Some(journal) = self.migration_journal.as_mut() {
+        let mut migration_journal = self.migration_journal.take();
+        if let Some(journal) = migration_journal.as_mut() {
             journal.begin_tick(tick_index, time_ms);
         }
         for (slot, next) in &updates {
             let previous = self.vehicles[*slot].state.replace(*next);
             if !previous.as_ref().is_some_and(|old| *old == *next) {
                 let delta = VehicleDelta::from_state(next, self.compiled_route(next.route));
-                if let Some(journal) = self.migration_journal.as_mut() {
+                if let Some(journal) = migration_journal.as_mut() {
                     journal.tick_entry(&delta);
                 }
             }
         }
-        if let Some(journal) = self.migration_journal.as_mut() {
+        if let Some(journal) = migration_journal.as_mut() {
             for claims in self
                 .waiting_claims
                 .chunk_by(|left, right| left.zone == right.zone)
@@ -170,9 +184,12 @@ impl TrafficWorld {
                 let zone = claims[0].zone;
                 journal.tick_waiting_zone(zone, self.waiting_next_counters[zone.index()]);
             }
+            self.write_conflict_tick_journal(journal, &updates);
             journal.finish_tick();
         }
+        self.migration_journal = migration_journal;
         self.commit_waiting_additions(&updates);
+        self.commit_conflict_step();
         updates.clear();
         self.next_states = updates;
         let vehicles = &self.vehicles;
@@ -198,7 +215,7 @@ impl TrafficWorld {
         state: VehicleState,
         delta_s: f32,
     ) -> Option<VehicleState> {
-        self.advance_active_vehicle_with_waiting_stop(state, delta_s, None)
+        self.advance_active_vehicle_with_waiting_stop(state, delta_s, None, None)
     }
 
     pub(crate) fn advance_active_vehicle_with_waiting_stop(
@@ -206,6 +223,7 @@ impl TrafficWorld {
         mut state: VehicleState,
         delta_s: f32,
         waiting_stop: Option<crate::waiting::WaitingStopConstraint>,
+        conflict_stop: Option<crate::waiting::WaitingStopConstraint>,
     ) -> Option<VehicleState> {
         let compiled = self.compiled_route(state.route)?;
         let edges = compiled.edges.as_slice();
@@ -246,6 +264,14 @@ impl TrafficWorld {
                     Some(current)
                 }
                 Some(_) | None => Some(waiting.distance),
+            };
+        }
+        if let Some(conflict) = conflict_stop {
+            movement_stop = match movement_stop {
+                Some(current) if !stop_is_nearer_or_equal(conflict.distance, current) => {
+                    Some(current)
+                }
+                Some(_) | None => Some(conflict.distance),
             };
         }
         let (mut travel_m, next_speed_m) = si_comfort_travel(
@@ -302,6 +328,7 @@ impl TrafficWorld {
         apply_travel_mm(&mut state, edges, lengths, travel_mm, |index| {
             self.hop_permitted(route, edges, index, vehicle_profile)
                 && waiting_stop.is_none_or(|waiting| waiting.hop as usize != index)
+                && conflict_stop.is_none_or(|conflict| conflict.hop as usize != index)
         })?;
         let committed_index = usize::try_from(state.route_edge_index).ok()?;
         let committed_edge = *edges.get(committed_index)?;

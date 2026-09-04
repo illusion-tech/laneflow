@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use laneflow_static_contract::LaneEdgeOrdinal;
+use laneflow_static_contract::{ConflictZoneOrdinal, LaneEdgeOrdinal, ParticipantStreamOrdinal};
 use laneflow_static_network::{CanonicalNetworkOrigin, SharedNetworkRevision};
 
 use crate::cutover::{
@@ -20,14 +20,16 @@ use crate::cutover::{
     NetworkRevisionCutoverDescriptor,
 };
 use crate::cutover_migration::{
-    ConflictCutoverFinalizationPlan, CrossRevisionRebinding, finalize_conflict_cutover_floors,
-    migrate_structural_clone_with_conflict_plan, project_expected_conflict,
-    revalidate_migrated_vehicles, revalidate_vehicle_on, revalidate_waiting_routes,
-    vehicle_state_from_delta,
+    ConflictCutoverFinalizationPlan, CrossRevisionRebinding, conflict_passage_semantics_continuous,
+    finalize_conflict_cutover_floors, migrate_structural_clone_with_conflict_plan,
+    project_expected_conflict, revalidate_migrated_vehicles, revalidate_vehicle_on,
+    revalidate_waiting_routes, vehicle_state_from_delta,
 };
 use crate::migration_journal::{
     DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES, JournalRecord, ParkingBindingDelta, VEHICLE_DELTA_BYTES,
-    VehicleDelta, raw_u32_stream, waiting_zone_delta_stream,
+    VehicleDelta, conflict_authority_cell_delta_stream, conflict_authority_delta_stream,
+    conflict_eligibility_delta_stream, conflict_lag_delta_stream, raw_u32_stream,
+    waiting_zone_delta_stream,
 };
 use crate::snapshot_digest::deterministic_state_digest;
 use crate::{
@@ -846,6 +848,271 @@ fn initialize_expected_waiting_pre_gate(
     Ok(())
 }
 
+fn mapped_journal_conflict_occurrence(
+    base_revision: &SharedNetworkRevision,
+    candidate: &TrafficWorld,
+    rebinding: &CrossRevisionRebinding,
+    locator: crate::migration_journal::ConflictOccurrenceJournalLocator,
+) -> Result<(u32, crate::ConflictPassageAddress), CutoverError> {
+    let source_stream_ordinal = ParticipantStreamOrdinal::from_raw(locator.stream);
+    let source_zone_ordinal = ConflictZoneOrdinal::from_raw(locator.zone);
+    let source_stream = base_revision
+        .conflict()
+        .participant_stream(source_stream_ordinal)
+        .ok_or(CutoverError::ConflictRevalidationFailed)?;
+    let source_passage = source_stream
+        .passages()
+        .get(locator.passage_local_index as usize)
+        .ok_or(CutoverError::ConflictRevalidationFailed)?;
+    if source_passage.conflict_zone() != source_zone_ordinal {
+        return Err(CutoverError::ConflictRevalidationFailed);
+    }
+    let target_stream = rebinding
+        .participant_stream(source_stream_ordinal)
+        .ok_or(CutoverError::ConflictRevalidationFailed)?;
+    let target_zone = rebinding
+        .conflict_zone(source_zone_ordinal)
+        .ok_or(CutoverError::ConflictRevalidationFailed)?;
+    let target_address = candidate
+        .conflict_arbiter
+        .unique_address(target_zone, target_stream)
+        .ok_or(CutoverError::ConflictRevalidationFailed)?;
+    let source_address = crate::ConflictPassageAddress::new(
+        source_zone_ordinal,
+        source_stream_ordinal,
+        locator.passage_local_index,
+    );
+    if !conflict_passage_semantics_continuous(
+        base_revision,
+        &candidate.revision,
+        rebinding,
+        source_address,
+        target_address,
+    ) {
+        return Err(CutoverError::ConflictRevalidationFailed);
+    }
+    let compiled = candidate
+        .compiled_route(locator.route)
+        .ok_or(CutoverError::ConflictRevalidationFailed)?;
+    let mut matches = compiled
+        .conflicts
+        .iter()
+        .enumerate()
+        .filter(|(_, occurrence)| {
+            occurrence.address() == target_address
+                && occurrence.entry.route_edge_index == locator.entry_route_edge_index
+                && occurrence.entry.progress_mm == locator.entry_progress_mm
+                && occurrence.clearance.route_edge_index == locator.clearance_route_edge_index
+                && occurrence.clearance.progress_mm == locator.clearance_progress_mm
+        });
+    let (index, _) = matches
+        .next()
+        .ok_or(CutoverError::ConflictRevalidationFailed)?;
+    if matches.next().is_some() {
+        return Err(CutoverError::ConflictRevalidationFailed);
+    }
+    Ok((
+        u32::try_from(index).map_err(|_| CutoverError::ConflictRevalidationFailed)?,
+        target_address,
+    ))
+}
+
+fn apply_conflict_tick_deltas(
+    base_revision: &SharedNetworkRevision,
+    candidate: &mut TrafficWorld,
+    rebinding: &CrossRevisionRebinding,
+    eligibility_bytes: &[u8],
+    authority_bytes: &[u8],
+    lag_bytes: &[u8],
+) -> Result<(), CutoverError> {
+    for delta in conflict_eligibility_delta_stream(eligibility_bytes) {
+        let state = candidate
+            .vehicle_state(delta.owner)
+            .copied()
+            .ok_or(CutoverError::ConflictRevalidationFailed)?;
+        if state.status != crate::VehicleStatus::Active {
+            return Err(CutoverError::ConflictRevalidationFailed);
+        }
+        let value = match delta.value {
+            None => None,
+            Some((locator, first_eligible_tick)) => {
+                if locator.route != state.route || first_eligible_tick > candidate.tick_index {
+                    return Err(CutoverError::ConflictRevalidationFailed);
+                }
+                let (index, _) = mapped_journal_conflict_occurrence(
+                    base_revision,
+                    candidate,
+                    rebinding,
+                    locator,
+                )?;
+                let exact = candidate
+                    .conflict_passage_occurrence_locator(state.route, index)
+                    .ok_or(CutoverError::ConflictRevalidationFailed)?;
+                let value =
+                    crate::ConflictEligibilityState::update(None, exact, true, first_eligible_tick)
+                        .expect("true Conflict eligibility predicate creates a value");
+                if !candidate.conflict_eligibility_authority_valid(&state, value) {
+                    return Err(CutoverError::ConflictRevalidationFailed);
+                }
+                Some(value)
+            }
+        };
+        let slot = candidate
+            .conflict_eligibility
+            .get_mut(delta.owner.index() as usize)
+            .ok_or(CutoverError::ConflictRevalidationFailed)?;
+        *slot = value;
+    }
+    candidate.normalize_conflict_eligibility();
+
+    for delta in conflict_authority_delta_stream(authority_bytes) {
+        let state = candidate
+            .vehicle_state(delta.owner)
+            .copied()
+            .ok_or(CutoverError::ConflictRevalidationFailed)?;
+        if state.status != crate::VehicleStatus::Active {
+            return Err(CutoverError::ConflictRevalidationFailed);
+        }
+        let mut mapped = Vec::new();
+        let cell_count = conflict_authority_cell_delta_stream(delta.cells).len();
+        mapped
+            .try_reserve_exact(cell_count)
+            .map_err(|_| CutoverError::StagingAllocFailed)?;
+        for cell in conflict_authority_cell_delta_stream(delta.cells) {
+            if cell.locator.route != state.route {
+                return Err(CutoverError::ConflictRevalidationFailed);
+            }
+            let (index, address) = mapped_journal_conflict_occurrence(
+                base_revision,
+                candidate,
+                rebinding,
+                cell.locator,
+            )?;
+            let stage = crate::conflict::ConflictPassageStage::from_journal_tag(cell.stage)
+                .ok_or(CutoverError::ConflictRevalidationFailed)?;
+            mapped.push((
+                index,
+                crate::conflict::RestoredConflictCell {
+                    address,
+                    occupant: stage == crate::conflict::ConflictPassageStage::Occupied,
+                    cleared: stage == crate::conflict::ConflictPassageStage::Cleared,
+                },
+            ));
+        }
+        mapped.sort_unstable_by_key(|(index, _)| *index);
+        candidate
+            .conflict_arbiter
+            .remove_authority_for_replay(delta.owner)
+            .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
+        let Some(acquired_tick) = delta.acquired_tick else {
+            if !mapped.is_empty() {
+                return Err(CutoverError::ConflictRevalidationFailed);
+            }
+            continue;
+        };
+        let first_index = mapped
+            .first()
+            .map(|(index, _)| *index)
+            .ok_or(CutoverError::ConflictRevalidationFailed)?;
+        if acquired_tick > candidate.tick_index
+            || mapped
+                .iter()
+                .enumerate()
+                .any(|(offset, (index, _))| first_index.checked_add(offset as u32) != Some(*index))
+        {
+            return Err(CutoverError::ConflictRevalidationFailed);
+        }
+        let first = *candidate
+            .compiled_route(state.route)
+            .and_then(|compiled| compiled.conflicts.get(first_index as usize))
+            .ok_or(CutoverError::ConflictRevalidationFailed)?;
+        if mapped.iter().any(|(index, _)| {
+            candidate
+                .compiled_route(state.route)
+                .and_then(|compiled| compiled.conflicts.get(*index as usize))
+                .is_none_or(|occurrence| {
+                    occurrence.maneuver_index != first.maneuver_index
+                        || occurrence.admission_hop != first.admission_hop
+                })
+        }) {
+            return Err(CutoverError::ConflictRevalidationFailed);
+        }
+        let range = crate::ConflictPassageRange::new(
+            state.route,
+            first.maneuver_index,
+            first.admission_hop,
+            first_index,
+            u32::try_from(mapped.len()).map_err(|_| CutoverError::ConflictRevalidationFailed)?,
+        )
+        .ok_or(CutoverError::ConflictRevalidationFailed)?;
+        let plan = candidate
+            .reservation_downstream_claim_plan(range, state.length_mm)
+            .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
+        let mut downstream = Vec::new();
+        downstream
+            .try_reserve_exact(plan.raw_interval_capacity())
+            .map_err(|_| CutoverError::StagingAllocFailed)?;
+        candidate
+            .derive_reservation_downstream_claims_from_plan(plan, &mut downstream)
+            .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
+        let follower_min_gap_mm = candidate
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+            .map(|profile| profile.min_gap_mm())
+            .ok_or(CutoverError::ConflictRevalidationFailed)?;
+        let mut cells = Vec::new();
+        cells
+            .try_reserve_exact(mapped.len())
+            .map_err(|_| CutoverError::StagingAllocFailed)?;
+        cells.extend(mapped.into_iter().map(|(_, cell)| cell));
+        cells.sort_unstable_by_key(|cell| cell.address);
+        candidate
+            .conflict_arbiter
+            .restore_reservation(
+                delta.owner,
+                crate::conflict::RestoredConflictReservation {
+                    follower_min_gap_mm,
+                    acquired_tick,
+                    passage_range: range,
+                    cells: &cells,
+                    downstream: &downstream,
+                },
+            )
+            .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
+    }
+
+    for delta in conflict_lag_delta_stream(lag_bytes) {
+        let target_stream = rebinding
+            .participant_stream(delta.address.stream())
+            .ok_or(CutoverError::ConflictRevalidationFailed)?;
+        let target_zone = rebinding
+            .conflict_zone(delta.address.zone())
+            .ok_or(CutoverError::ConflictRevalidationFailed)?;
+        let target_address = candidate
+            .conflict_arbiter
+            .unique_address(target_zone, target_stream)
+            .ok_or(CutoverError::ConflictRevalidationFailed)?;
+        if delta.reference == crate::ConflictLagReference::NoHistory
+            || !conflict_passage_semantics_continuous(
+                base_revision,
+                &candidate.revision,
+                rebinding,
+                delta.address,
+                target_address,
+            )
+        {
+            return Err(CutoverError::ConflictRevalidationFailed);
+        }
+        candidate
+            .conflict_arbiter
+            .restore_lag_reference(target_address, delta.reference)
+            .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
+    }
+    Ok(())
+}
+
 /// 应用一条迁移增量到候选。生命周期类增量（生成/替换/停车）在写入后
 /// 立即重验证（重绑即重验证覆盖窗口内新建绑定）；tick 增量只搬整值状态，
 /// 终态由静默提交的全量重验证与摘要复核闭合。
@@ -861,11 +1128,19 @@ fn apply_record(
             time_ms,
             entries,
             waiting_zones,
+            conflict_eligibility,
+            conflict_authorities,
+            conflict_lags,
         } => {
             candidate.tick_index = *tick_index;
             candidate.time_ms = *time_ms;
             candidate.refresh_signals();
-            if entries.is_empty() && waiting_zones.is_empty() {
+            if entries.is_empty()
+                && waiting_zones.is_empty()
+                && conflict_eligibility.is_empty()
+                && conflict_authorities.is_empty()
+                && conflict_lags.is_empty()
+            {
                 // 时钟与信号仍推进；车辆/Waiting 语义未变，不重建 active order 或 aggregate。
                 // 外层照常推进日志游标，静默提交仍进行完整校验和独立摘要比对。
                 return Ok(());
@@ -906,12 +1181,22 @@ fn apply_record(
                 }
                 state.next_admission_sequence = next_counter;
             }
+            apply_conflict_tick_deltas(
+                base_revision,
+                candidate,
+                rebinding,
+                conflict_eligibility,
+                conflict_authorities,
+                conflict_lags,
+            )?;
             #[cfg(test)]
             REPLAY_REBUILD_COUNTS.with(|counts| {
                 let (active, waiting) = counts.get();
                 counts.set((active + 1, waiting));
             });
-            candidate.rebuild_active_order();
+            if !entries.is_empty() {
+                candidate.rebuild_active_order();
+            }
         }
         JournalRecord::RouteRegistered {
             slot,
@@ -1592,6 +1877,86 @@ mod tests {
         );
     }
 
+    #[test]
+    fn production_conflict_ticks_replay_acquire_stage_clear_and_lag_without_remigration() {
+        let (mut source, vehicle) =
+            crate::snapshot_restore::tests::world_with_conflict_eligibility();
+        source.vehicles[vehicle.index() as usize]
+            .state
+            .as_mut()
+            .expect("source vehicle")
+            .speed_mm_s = 1_000;
+        let target_revision = crate::cutover::tests::transaction_tests::revision(false);
+        let target_origin = *target_revision.canonical_origin();
+        let rebinding =
+            CrossRevisionRebinding::build(source.revision.identity(), target_revision.identity())
+                .expect("same semantic identities rebind");
+        let mut candidate = crate::cutover_migration::migrate_structural_clone(
+            &source,
+            target_revision,
+            source_for(
+                target_origin,
+                "fixture://production-conflict-journal-target",
+            ),
+            &rebinding,
+        )
+        .expect("baseline Conflict migration");
+        source
+            .arm_migration_journal(64 * 1_024)
+            .expect("arm journal");
+        let mut offset = 0;
+        let mut saw_reservation = false;
+        let mut saw_actual_clear = false;
+        for _ in 0..128 {
+            source
+                .step(TickInput::new(100))
+                .expect("production Conflict tick");
+            let journal = source.migration_journal().expect("armed journal");
+            let mut records = journal.records_from(offset);
+            let record = records.next().expect("one Tick record");
+            offset = records.offset();
+            assert!(
+                records.next().is_none(),
+                "one source step emits one Tick record"
+            );
+            apply_record(&source.revision, &mut candidate, &rebinding, &record)
+                .expect("candidate replays production Conflict delta");
+            assert_same_committed(&source, &candidate);
+            assert!(candidate.conflict_state_valid());
+            saw_reservation |= source.conflict_reservation(vehicle).is_some();
+            saw_actual_clear |=
+                source
+                    .conflict_arbiter
+                    .persisted_lag_rows()
+                    .any(|(_, reference)| {
+                        matches!(reference, crate::ConflictLagReference::ActualClear(_))
+                    });
+            if saw_reservation && saw_actual_clear && source.conflict_reservation(vehicle).is_none()
+            {
+                break;
+            }
+        }
+        assert!(
+            saw_reservation,
+            "formal tick acquires a Conflict reservation"
+        );
+        assert!(
+            saw_actual_clear,
+            "tail clear publishes an ActualClear lag reference"
+        );
+        assert!(source.conflict_reservation(vehicle).is_none());
+        assert_eq!(
+            source
+                .capture_snapshot()
+                .expect("source snapshot")
+                .conflict_lag_states,
+            candidate
+                .capture_snapshot()
+                .expect("candidate snapshot")
+                .conflict_lag_states
+        );
+    }
+
     fn assert_same_committed(cut: &TrafficWorld, plain: &TrafficWorld) {
         crate::cutover_migration::assert_committed_logical_state_equal(cut, plain);
     }
@@ -2013,6 +2378,9 @@ mod tests {
                     time_ms: tick * 100,
                     entries: &[],
                     waiting_zones: &[],
+                    conflict_eligibility: &[],
+                    conflict_authorities: &[],
+                    conflict_lags: &[],
                 },
             )
             .unwrap();
@@ -2052,6 +2420,9 @@ mod tests {
                 time_ms: 100,
                 entries: &entries,
                 waiting_zones: &[],
+                conflict_eligibility: &[],
+                conflict_authorities: &[],
+                conflict_lags: &[],
             },
         )
         .unwrap();
@@ -2075,6 +2446,9 @@ mod tests {
             time_ms: 100,
             entries: &[],
             waiting_zones: &counter,
+            conflict_eligibility: &[],
+            conflict_authorities: &[],
+            conflict_lags: &[],
         };
         apply_record(&revision, candidate, &target_rebinding, &record).unwrap();
         assert_eq!(candidate.waiting_zones[0].next_admission_sequence, 1);

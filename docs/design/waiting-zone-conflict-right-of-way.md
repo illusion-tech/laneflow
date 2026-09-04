@@ -1,11 +1,10 @@
 # WaitingZone、ConflictZone 与通行权分层
 
-**文档状态**: Accepted（#235 联合架构与 #282 WaitingZone G1，2026-09-01）<br>
+**文档状态**: Accepted（#235 联合架构；#282 与 #284 已实现）<br>
 **适用范围**: WaitingZone 本地准入、Conflict 路线出现项、车辆级通行权、下游净空、
 Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
-**交付边界**: WaitingZone 本地动态 authority 属于 #282；§6 的联合算法已由 #235 接受，
-#284 实施合同已接受，W4 已交付 downstream/Conflict 组合仲裁，W5 已交付其持久化与
-修订迁移；生产 tick 接线仍由 W7 完成<br>
+**交付边界**: WaitingZone 本地动态 authority 属于 #282；§6 的联合算法由 #235 接受，
+#284 已交付 policy、downstream/Conflict 组合仲裁、持久化、修订迁移与生产 fixed tick<br>
 
 **关联文档**:
 
@@ -37,11 +36,11 @@ Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
   `WaitingOccurrence` 已存在；
 - `ParkingBinding`、reserve/park/leave/rebind/despawn 生命周期已存在；
 - `ConflictPassageOccurrence`、`route_conflict_occurrence_capacity`、路线 conflict
-  Gate ranges，以及生命周期/restore/cutover 的 3A 保护已存在；
+  Gate ranges、正式组合仲裁及 lifecycle/restore/cutover authority 检查已存在；
 - 当前持久化轴是 LFRS 5、runtime state 5、deterministic digest 7。
 
-#282 只新增 WaitingZone 本地动态能力。#284 的 W4/W5 已新增 Conflict/right-of-way
-组合资源及其持久状态；W7 负责把该能力接入生产固定步进。
+#282 只新增 WaitingZone 本地动态能力。#284 已将 Conflict/right-of-way 组合资源、
+持久状态和生产固定步进接入同一 `TrafficWorld`。
 
 ## 2. Authority 地图
 
@@ -51,7 +50,7 @@ Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
 | Waiting membership、occupancy、counter、queue、phase          | `TrafficWorld` / #282          | 本地动态 authority                          |
 | zone-local `WaitingAdmissionClaim`                            | `TrafficWorld` / #282          | 只证明一个 WaitingZone 的 admission/storage |
 | `ConflictPassageOccurrence` 与 conflict Gate ranges           | 路线编译器 / #559              | route-local 派生热表                        |
-| `ConflictRuntimeUnavailable` 3A 保护                          | `TrafficWorld` / #559          | #284 前不可绕过                             |
+| Conflict interior lifecycle authority guard                   | `TrafficWorld` / #284          | 普通命令不凭空创建 reservation              |
 | downstream-clearance claim                                    | `TrafficWorld` / #284          | 通用物理下游资源                            |
 | `ConflictArbiter`、grant、reservation                         | `TrafficWorld` / #284          | 车辆级冲突 authority                        |
 | Waiting/Conflict/downstream 组合 ledger                       | `TrafficWorld` / #284          | 原子取得、未提交选择与 cycle prevention     |
@@ -105,11 +104,12 @@ authority 的 Active 候选必须依次通过：
 
 1. 现有 Access、route/cursor/progress/speed 与 Parking 合法性；
 2. future Waiting occurrence 的 empty-zone 车型可行性与 stateful interior guard；
-3. #559 对全部 route conflict occurrence 的整车身 3A 能力保护；
+3. 正式 Conflict authority 的 Gate side、reservation 与整车身检查；
 4. existing occupancy/no-overlap 等提交前验证。
 
-任一步失败都保持旧 world、旧 lifecycle 状态和 command cursor。W7 完成生产接线前，
-未持有既有 reservation 的冲突路线状态仍须按 #559 返回 `ConflictRuntimeUnavailable`。
+任一步失败都保持旧 world、旧 lifecycle 状态和 command cursor。Gate 上游与边界由后续
+fixed tick 正式仲裁；普通命令试图在 passage 内创建无 reservation 状态时返回
+`ConflictAuthorityRequired`。
 
 `rebind_parking_route` 先执行 #541 的 current occurrence 与完整 physical footprint
 等价检查。已有 traversal/membership 时，目标 route 必须按稳定 ManeuverPath、Gate 与
@@ -614,8 +614,8 @@ phase。route completion 前必须清空 reservation；despawn 原子释放 Wait
 downstream authority。active reservation 的 arbitrary route replace/rebind 除非完整证明
 同一 stable passages/claims/footprint，否则失败关闭；不能只迁移 enum。
 
-#559 `ConflictRuntimeUnavailable` 只在本节 policy、arbiter、grant/reservation、组合 ledger、
-snapshot/cutover 与测试同切片安装后原子移除。禁止先解除 3A，再补任一资源 owner。
+#284 已在本节 policy、arbiter、grant/reservation、组合 ledger、snapshot/cutover 与生产
+tick 同切片安装后原子移除 #559 临时错误；当前不存在单独绕过资源 owner 的生产入口。
 
 ### 6.9 fixed step、观察、事件与 first-error
 
@@ -670,7 +670,7 @@ phase、stable vehicle/route/entity key 选择首错，不能依赖 scan/worker 
   必须已在 Gate crossed side，已 clear cell 的 `ActualClear` 不得早于
   `acquiredTick × fixedDeltaTimeMs`；任一失败零发布；
 - 不保留旧 reader、双写、迁移 shim 或 feature flag；W4/W5 的可恢复、可切换内部能力
-  在集成分支先闭合，W7 的生产接线与 3A 移除必须同界提交。
+  与 W7 的生产接线、journal 增量和临时保护移除已经同界闭合。
 
 容量按现实 retained payload 收费：static frontier cell/top-two 按共享根 passage cell 数，
 route occurrences 继续由独立 route conflict capacity 约束；reservation/owner 由
@@ -769,12 +769,11 @@ same-tick enter+leave、shared boundary 与 traversal completion 都可能增加
 全部 `ConflictPassageOccurrence`。保护覆盖 spawn、completed replacement、Parking
 离场/路线重绑定、restore 和 same/cross-revision cutover。
 
-#282 必须保持这套检查和 `ConflictRuntimeUnavailable` 原样生效。它不能因为车辆将
-等待在某个 WaitingZone、因为 signal 当前为红灯，或因为本地 claim 尚未取得而推断
-“暂时不会进入 conflict”并放宽能力检查。
+#282 实现阶段曾保持这套临时检查原样生效，不能因为车辆等待在某个 WaitingZone、signal
+当前为红灯或本地 claim 尚未取得而推断“暂时不会进入 conflict”并放宽能力检查。
 
-#284 交付正式 conflict grant/reservation 与组合 ledger 时，才在同一切片原子移除 3A
-保护。禁止先移除保护、后补仲裁。
+#284 已在正式 conflict grant/reservation 与组合 ledger 接通时原子移除临时失败保护；
+普通生命周期命令的 interior authority guard 与 restore/cutover 完整证明继续生效。
 
 ## 10. 快照、摘要与修订切换
 
@@ -789,8 +788,8 @@ same-tick enter+leave、shared boundary 与 traversal completion 都可能增加
 
 只保留当前 writer/reader；旧版本快照明确失败关闭，不保留双读、双写或迁移 shim。
 策略选择随快照恢复，并在跨修订时验证稳定身份、法域和法规版本连续性；步长派生
-间隙按目标根重建。组合 reservation、冲突滞后历史与 passage locator 迁移仍属
-#284 后续切片，不因本版本轴已切换而声明完成。
+间隙按目标根重建。组合 reservation、冲突滞后历史、passage locator 与 downstream
+物理 claim 已由 #284 保存、恢复并迁移。
 
 持久化保存 vehicle traversal/membership、zone occupancy、next admission counter 与稳定
 queue order；稠密 handle/link 在 restore 重建。空 zone 只要 counter 非零就仍有逻辑
@@ -803,7 +802,7 @@ restore/cutover 必须同时完成：
   entry 不得落入 `[waitingEntryBoundary, waitingReleaseBoundary]`；
 - `ConflictPassageOccurrence` 重编译和
   `route_conflict_occurrence_capacity` 核对；
-- 全部 Active 车辆的 #559 3A 能力检查；
+- 全部 Active 车辆的 Conflict Gate side、reservation 与车尾清空检查；
 - journal replay 后 semantic digest 一致。
 
 任一步失败都不发布候选 world，不清空旧 world 的 Waiting、Parking 或 Conflict 相关
@@ -858,7 +857,7 @@ occurrence 同 tick 笛卡尔积预留常驻内存。
 - stable candidate order、post-step admission order、release Gate tie；
 - Parking lifecycle、completion、replace、despawn 同步 release record 与 route guard；
 - 当前 snapshot 5/5、digest 7 中的 Waiting 状态、restore、journal 与 cutover；
-- #559 3A 保护和 `ConflictRuntimeUnavailable` 不回退；
+- #559 临时保护在 #284 正式能力接管前不回退；
 - checked exact-count scratch、失败原子性和 10k/100k 证据。
 
 #282 不交付 downstream-clearance、Conflict arbitration、组合 ledger 或 cycle
@@ -866,7 +865,7 @@ prevention，也不记录完整冲突能力已经生产化。
 
 ### #284
 
-后续实现直接消费 §6 的 Accepted 合同，必须覆盖：
+已实现路径直接消费 §6 的 Accepted 合同并覆盖：
 
 - regulation/policy normalization、multi-subject coverage-min priority 与 protected
   coherence；

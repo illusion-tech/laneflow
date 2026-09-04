@@ -1,9 +1,9 @@
-# 路线冲突出现项与仲裁前能力保护
+# 路线冲突出现项与正式仲裁能力边界
 
-**文档状态**: Accepted（#283 G1；PR #546）<br>
-**最后更新**: 2026-09-01<br>
+**文档状态**: Accepted（#283 路线出现项；#284 正式仲裁已接管）<br>
+**最后更新**: 2026-09-05<br>
 **适用范围**: `TrafficWorld` 路线冲突出现项、路线坐标规范化、资源容量，以及
-#284 交付冲突仲裁前的活动车辆能力保护
+正式 Conflict authority 的活动车辆边界
 
 **关联文档**:
 
@@ -22,21 +22,21 @@
 `SharedNetworkRevision::conflict()` 完整拥有。本文不再登记实体、格式表、来源映射、
 语义差异或空间区域，也不重述这些权威文档。
 
-#283 尚需交付的 Runtime 合同只有：
+#283 交付的 Runtime 合同为：
 
 1. 唯一 `compile_route` 为每个 `ManeuverOccurrence` 展开全部
    `ConflictPassageOccurrence`，保留同一路线中的重复出现；
 2. 把 path-local anchor 映射为无二义性的 route-local 整数位置，并保留
    admission Gate coverage；
 3. 用独立语义容量限制全部存活路线保留的冲突出现项；
-4. #284 冲突仲裁能力不存在时，禁止创建或留下尚未由车尾清除全部冲突通行段的
-   `Active` 车辆；
+4. 生命周期入口不能在已越过 Gate、但车尾尚未清除 passage 的位置凭空创建
+   Conflict authority；
 5. 快照恢复与路网修订切换只保存稳定路线输入并重新编译派生出现项，不持久化热表。
 
-静态根与含冲突路线可以正常 build、install、register、保存和加载。能力保护只约束
-会提交 `Active` 车辆的低频生命周期边界；W7 前 fixed tick 在无 live authority 的常态路径
-只做 O(1) 空表检查，存在已恢复/迁移 eligibility 或 reservation 时原子返回
-`ConflictRuntimeUnavailable`，不临时停车，也不伪造或覆盖 grant、reservation 或通行权。
+静态根与含冲突路线可以正常 build、install、register、保存和加载。#284 W7 已直接消费
+这些出现项和 Gate range：fixed tick 通过所选 policy 产生候选，经 gap、Conflict 与
+downstream 组合仲裁后提交 grant/reservation/Clearing/tail-clear。低频生命周期入口仍不
+临时停车，也不伪造 grant、reservation 或通行权。
 
 ## 2. Authority 与保留形状
 
@@ -94,8 +94,9 @@ clearance buffer 或未来 policy tolerance。`conflictGateRanges` 与现有 `ho
 (admissionHop, entry, clearance, stream.raw(), passageLocalIndex)
 ```
 
-`finalConflictClearance` 取 `(clearance, 上述出现项总序)` 的最大项。它只用于 #284
-前的 O(1) 能力保护；#284 可以直接消费完整 `conflicts` 与 Gate range。
+`finalConflictClearance` 取 `(clearance, 上述出现项总序)` 的最大项。它用于生命周期
+入口快速判定车尾是否已清空全部 coverage；正式 tick 直接消费完整 `conflicts` 与 Gate
+range。
 
 ## 3. 路线位置规范化
 
@@ -203,17 +204,18 @@ RUNTIME_STATE_DIGEST_VERSION     = 7
 v5 `WorldConfigBinding` 继续包含 `route_conflict_occurrence_capacity: ulong`。旧 reader、writer
 和 schema 不属于当前生产入口，不双读、不自动迁移。其它需要修改 Runtime Snapshot
 的设计必须遵循 `traffic-runtime-snapshot.md` 与 #284 实施合同的统一版本安排，
-不能并行占用同一版本值。#284 W5 已在 5/5 与 digest 7 上交付组合 reservation、
-冲突滞后历史、passage locator 与 downstream 物理并集的保存、恢复及修订迁移；
-生产 crossing/tick 接线仍由 #284 后续切片完成。
+不能并行占用同一版本值。#284 已在 5/5 与 digest 7 上交付组合 reservation、
+冲突滞后历史、passage locator 与 downstream 物理并集的保存、恢复、修订迁移及生产
+crossing/tick 接线。
 恢复容量错误新增 `RouteConflictOccurrences` dimension，与现行 routes、vehicles 和
 route-edge-occurrences 一样分别报告 snapshot 配置、target 配置与实际重建计数。
 
-## 6. #284 前的 3A 能力保护
+## 6. 正式能力接管后的 3A 边界
 
 ### 6.1 不变量与判定
 
-在冲突仲裁能力尚未安装时，每辆成功提交的 `Active` 车辆必须满足：
+对没有可继承 Conflict authority 的普通生命周期命令，每辆成功提交的 `Active` 车辆必须
+满足：
 
 > 该车辆的 route-local 车尾位置已经到达或越过该路线全部
 > `ConflictPassageOccurrence.clearance` 的最大值。
@@ -227,7 +229,8 @@ compiled route occurrence sequence 向后计算。跨边时使用共享根整数
 精确谓词为：
 
 ```text
-allowed = route.finalConflictClearance is None
+allowed = cursor is at-or-before next admission Gate
+       OR route.finalConflictClearance is None
        OR routeRear(candidateCursor, profile.length_mm) >= finalClearance
 ```
 
@@ -237,27 +240,27 @@ edge、第一处 passage 或“cursor 之后是否还有 entry”。这个判定
 
 ### 6.2 必须覆盖的入口
 
-| 入口                         | 行为                                                    |
-| ---------------------------- | ------------------------------------------------------- |
-| build/install 含冲突的共享根 | 允许；新 world 尚无车辆                                 |
-| 任意路线注册入口             | 允许；完整编译出现项并收费                              |
-| `spawn_vehicle`              | 候选 `Active` 车辆执行保护                              |
-| `replace_completed_vehicle`  | 新 `Active` 车辆执行保护，失败保留旧 Completed          |
-| `leave_parking`              | `Parked -> Active` 的候选 exit cursor 执行保护          |
-| `rebind_parking_route`       | 对保持 `Active + Reserved` 的候选路线和完整车身执行保护 |
-| `spawn_parked_vehicle`       | 允许；不创建 Active，离场时再检查                       |
-| snapshot restore             | 路线重编译后检查全部 Active；任一失败零发布             |
-| same/cross-revision cutover  | target 路线重编译后检查全部 Active；任一失败保留旧聚合  |
-| fixed tick                   | 不查冲突表；满足不变量的车辆只会继续向前                |
+| 入口                         | 行为                                                       |
+| ---------------------------- | ---------------------------------------------------------- |
+| build/install 含冲突的共享根 | 允许；新 world 尚无车辆                                    |
+| 任意路线注册入口             | 允许；完整编译出现项并收费                                 |
+| `spawn_vehicle`              | 候选 `Active` 车辆执行保护                                 |
+| `replace_completed_vehicle`  | 新 `Active` 车辆执行保护，失败保留旧 Completed             |
+| `leave_parking`              | `Parked -> Active` 的候选 exit cursor 执行保护             |
+| `rebind_parking_route`       | 对保持 `Active + Reserved` 的候选路线和完整车身执行保护    |
+| `spawn_parked_vehicle`       | 允许；不创建 Active，离场时再检查                          |
+| snapshot restore             | 路线重编译后检查全部 Active；任一失败零发布                |
+| same/cross-revision cutover  | target 路线重编译后检查全部 Active；任一失败保留旧聚合     |
+| fixed tick                   | 在 Gate lookahead 内正式求值并取得组合 grant 后才 crossing |
 
 `park_vehicle`、despawn 与 Completed 转换只减少 Active 集，不需要把已经安全的路线重新
 判为不安全。Parked / Completed 可以保留含冲突路线；再次变为 Active 时必须经过上表
 入口。
 
 生命周期检查位于既有 handle/profile/route/cursor、静态 access 与物理 footprint
-验证之后，任何 world mutation、occupancy 发布或命令游标推进之前。失败使用明确的
-`ConflictRuntimeUnavailable` 错误类，并至少携带 route/staged route 标识、stream
-ordinal、passage local index 与 zone ordinal；不能退化成 `UnknownRoute`、Overlap 或
+验证之后，任何 world mutation、occupancy 发布或命令游标推进之前。无法凭普通命令创建
+内部 authority 时返回 `ConflictAuthorityRequired`；损坏的 restored/migrated authority
+继续作为 snapshot/cutover 领域错误失败关闭，不能退化成 `UnknownRoute`、Overlap 或
 普通 invariant error。
 
 ## 7. 快照、恢复与切换
@@ -279,9 +282,9 @@ ordinal、passage local index 与 zone ordinal；不能退化成 `UnknownRoute`�
 
 - #282 只拥有 WaitingZone 本地 membership/admission/storage，不得借 #283 预置通用
   Conflict grant、reservation 或组合 ledger。
-- #284 直接消费本文的 passage address、route position、occurrence 与 Gate range；其
-  正式能力同切片移除 `ConflictRuntimeUnavailable` 临时保护，并建立车辆级
-  grant/reservation/tail-clear 状态。不能先删除保护再分期补仲裁。
+- #284 已直接消费本文的 passage address、route position、occurrence 与 Gate range，并
+  在同一切片建立车辆级 grant/reservation/tail-clear、snapshot/cutover 与 journal 后移除
+  临时保护。
 - #542 可以生成场景路线或显式 conflict authoring，但路线最终仍进入同一 Runtime
   编译器；场景 catalog 不保存另一份 occurrence 权威。
 - Spatial 与 Adapter 只消费共享根的可选区域或只读 Runtime 结果，不参与路线

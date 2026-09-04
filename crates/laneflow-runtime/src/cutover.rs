@@ -19,10 +19,7 @@ use crate::source::CommittedNetworkSource;
 use crate::tables::{
     CompiledRoute, ConflictCapabilityError, check_conflict_capability, compile_route,
 };
-use crate::{
-    ConflictRuntimeUnavailable, ObservationStateSequence, RouteError, StepError, TrafficWorld,
-    WorldGeneration,
-};
+use crate::{ObservationStateSequence, RouteError, StepError, TrafficWorld, WorldGeneration};
 
 /// 描述符封闭契约版本（#302 切换合同 §2）。
 pub const CUTOVER_DESCRIPTOR_FORMAT_VERSION: u16 = 2;
@@ -632,9 +629,6 @@ pub enum CutoverError {
         /// 世界配置的冲突出现项容量。
         capacity: u64,
     },
-    /// #284 能力不存在，target 上某辆 Active 车辆尚未用车尾清除最后 passage。
-    #[error("冲突运行时能力尚不可用: {0:?}")]
-    ConflictRuntimeUnavailable(ConflictRuntimeUnavailable),
     /// 已存在在途切换事务（切换合同 §4 在途唯一；#513 切片 C）。
     #[error("存在在途切换事务")]
     InFlightTransaction,
@@ -927,7 +921,6 @@ impl TrafficWorld {
                 continue;
             }
             match check_conflict_capability(
-                state.route,
                 &staged[staged_index].1,
                 target_lengths,
                 usize::try_from(state.route_edge_index).map_err(|_| {
@@ -945,8 +938,10 @@ impl TrafficWorld {
                         vehicle: handle.index(),
                     });
                 }
-                Err(ConflictCapabilityError::RuntimeUnavailable(error)) => {
-                    return Err(CutoverError::ConflictRuntimeUnavailable(error));
+                Err(ConflictCapabilityError::AuthorityRequired) => {
+                    return Err(CutoverError::VehicleRevalidationFailed {
+                        vehicle: handle.index(),
+                    });
                 }
             }
         }

@@ -26,9 +26,9 @@ use crate::{
 
 /// 迁移增量日志字节上界的文档化默认值（切换合同 §5：默认值由容量合同登记）。
 ///
-/// 当前取 8 MiB：按每 tick 每活跃车辆 78 字节条目及发生变化的 WaitingZone
-/// counter 条目估算，千车量级世界约可覆盖百 tick 左右的在线追赶窗口；更大的世界
-/// 按比例缩小可追窗口，超界由事务
+/// 当前取 8 MiB：按 37 字节 TICK 头、每个发生变化的活跃车辆 78 字节条目，
+/// 以及发生变化的 WaitingZone/Conflict authority 增量估算；千车量级世界约可覆盖
+/// 百 tick 左右的在线追赶窗口。更大的世界按比例缩小可追窗口，超界由事务
 /// 失败关闭放弃、宿主显式改用维护暂停模式重试。初值随切片 C 证据登记
 /// （合同 §9「迁移增量日志」行）。
 pub const DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES: u64 = 8 * 1024 * 1024;
@@ -82,9 +82,81 @@ const STATUS_ACTIVE: u8 = 1;
 const STATUS_PARKED: u8 = 2;
 const STATUS_COMPLETED: u8 = 3;
 
-// TICK 记录头：tag + tick_index + time_ms + vehicle_count + waiting_zone_count。
-const TICK_HEADER_BYTES: usize = 1 + 8 + 8 + 4 + 4;
+// TICK 记录头：tag + tick/time + vehicle/waiting/conflict 三类增量计数。
+const TICK_HEADER_BYTES: usize = 1 + 8 + 8 + 4 + 4 + 4 + 4 + 4;
 const WAITING_ZONE_DELTA_BYTES: usize = 4 + 8;
+pub(crate) const CONFLICT_OCCURRENCE_JOURNAL_BYTES: usize = 9 * 4;
+pub(crate) const CONFLICT_ELIGIBILITY_DELTA_BYTES: usize =
+    4 + 4 + 1 + CONFLICT_OCCURRENCE_JOURNAL_BYTES + 8;
+pub(crate) const CONFLICT_AUTHORITY_HEADER_BYTES: usize = 4 + 4 + 1 + 8 + 4;
+pub(crate) const CONFLICT_AUTHORITY_CELL_BYTES: usize = CONFLICT_OCCURRENCE_JOURNAL_BYTES + 1;
+pub(crate) const CONFLICT_LAG_DELTA_BYTES: usize = 4 + 4 + 4 + 1 + 8;
+
+/// journal 内的 source-route exact Conflict occurrence；消费侧经 LFSD 重绑静态地址，
+/// 再以 route-local entry/clearance 位置解析目标 occurrence。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ConflictOccurrenceJournalLocator {
+    pub(crate) route: RouteHandle,
+    pub(crate) stream: u32,
+    pub(crate) zone: u32,
+    pub(crate) passage_local_index: u32,
+    pub(crate) entry_route_edge_index: u32,
+    pub(crate) entry_progress_mm: u32,
+    pub(crate) clearance_route_edge_index: u32,
+    pub(crate) clearance_progress_mm: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ConflictEligibilityJournalDelta {
+    pub(crate) owner: VehicleHandle,
+    pub(crate) value: Option<(ConflictOccurrenceJournalLocator, u64)>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ConflictAuthorityJournalDelta<'a> {
+    pub(crate) owner: VehicleHandle,
+    pub(crate) acquired_tick: Option<u64>,
+    pub(crate) cells: &'a [u8],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ConflictAuthorityCellJournalDelta {
+    pub(crate) locator: ConflictOccurrenceJournalLocator,
+    pub(crate) stage: u8,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ConflictLagJournalDelta {
+    pub(crate) address: crate::ConflictPassageAddress,
+    pub(crate) reference: crate::ConflictLagReference,
+}
+
+impl ConflictOccurrenceJournalLocator {
+    fn encode(self, out: &mut Vec<u8>) {
+        put_u32(out, self.route.index());
+        put_u32(out, self.route.generation());
+        put_u32(out, self.stream);
+        put_u32(out, self.zone);
+        put_u32(out, self.passage_local_index);
+        put_u32(out, self.entry_route_edge_index);
+        put_u32(out, self.entry_progress_mm);
+        put_u32(out, self.clearance_route_edge_index);
+        put_u32(out, self.clearance_progress_mm);
+    }
+
+    pub(crate) fn decode(bytes: &[u8]) -> Self {
+        Self {
+            route: RouteHandle::new(read_u32(bytes, 0), read_u32(bytes, 4)),
+            stream: read_u32(bytes, 8),
+            zone: read_u32(bytes, 12),
+            passage_local_index: read_u32(bytes, 16),
+            entry_route_edge_index: read_u32(bytes, 20),
+            entry_progress_mm: read_u32(bytes, 24),
+            clearance_route_edge_index: read_u32(bytes, 28),
+            clearance_progress_mm: read_u32(bytes, 32),
+        }
+    }
+}
 
 /// 单条车辆增量：tick 条目与生成/替换记录共用，固定 78 字节小端布局
 /// （见 [`VEHICLE_DELTA_BYTES`]）。
@@ -486,6 +558,12 @@ pub(crate) enum JournalRecord<'a> {
         entries: &'a [u8],
         /// 12 字节步长的 `(base WaitingZone ordinal, next admission sequence)` 流。
         waiting_zones: &'a [u8],
+        /// 固定宽度 Conflict eligibility replacement 行。
+        conflict_eligibility: &'a [u8],
+        /// 变长 Conflict owner authority replacement 行。
+        conflict_authorities: &'a [u8],
+        /// 固定宽度 Conflict lag reference replacement 行。
+        conflict_lags: &'a [u8],
     },
     /// 路线注册（base 侧边序数；消费方经 LFSD 重绑到 target 再编译验证）。
     RouteRegistered {
@@ -565,9 +643,15 @@ pub(crate) struct MigrationDeltaJournal {
     /// 打开的 TICK 记录的 entry_count 字段在 arena 中的绝对偏移。
     open_tick_count_at: Option<usize>,
     open_tick_waiting_count_at: Option<usize>,
+    open_tick_conflict_eligibility_count_at: Option<usize>,
+    open_tick_conflict_authority_count_at: Option<usize>,
+    open_tick_conflict_lag_count_at: Option<usize>,
     /// 当前打开 TICK 记录已成功写入的条目数。
     open_tick_entries: u32,
     open_tick_waiting_zones: u32,
+    open_tick_conflict_eligibility: u32,
+    open_tick_conflict_authorities: u32,
+    open_tick_conflict_lags: u32,
 }
 
 impl MigrationDeltaJournal {
@@ -597,8 +681,14 @@ impl MigrationDeltaJournal {
             baseline_command_cursor,
             open_tick_count_at: None,
             open_tick_waiting_count_at: None,
+            open_tick_conflict_eligibility_count_at: None,
+            open_tick_conflict_authority_count_at: None,
+            open_tick_conflict_lag_count_at: None,
             open_tick_entries: 0,
             open_tick_waiting_zones: 0,
+            open_tick_conflict_eligibility: 0,
+            open_tick_conflict_authorities: 0,
+            open_tick_conflict_lags: 0,
         })
     }
 
@@ -692,15 +782,27 @@ impl MigrationDeltaJournal {
         }
         let count_at = self.bytes.len() + 1 + 8 + 8;
         let waiting_count_at = count_at + 4;
+        let conflict_eligibility_count_at = waiting_count_at + 4;
+        let conflict_authority_count_at = conflict_eligibility_count_at + 4;
+        let conflict_lag_count_at = conflict_authority_count_at + 4;
         put_u8(&mut self.bytes, TAG_TICK);
         put_u64(&mut self.bytes, tick_index);
         put_u64(&mut self.bytes, time_ms);
         put_u32(&mut self.bytes, 0);
         put_u32(&mut self.bytes, 0);
+        put_u32(&mut self.bytes, 0);
+        put_u32(&mut self.bytes, 0);
+        put_u32(&mut self.bytes, 0);
         self.open_tick_count_at = Some(count_at);
         self.open_tick_waiting_count_at = Some(waiting_count_at);
+        self.open_tick_conflict_eligibility_count_at = Some(conflict_eligibility_count_at);
+        self.open_tick_conflict_authority_count_at = Some(conflict_authority_count_at);
+        self.open_tick_conflict_lag_count_at = Some(conflict_lag_count_at);
         self.open_tick_entries = 0;
         self.open_tick_waiting_zones = 0;
+        self.open_tick_conflict_eligibility = 0;
+        self.open_tick_conflict_authorities = 0;
+        self.open_tick_conflict_lags = 0;
         if self.first_tick.is_none() {
             self.first_tick = Some(tick_index);
         }
@@ -736,6 +838,109 @@ impl MigrationDeltaJournal {
         self.open_tick_waiting_zones = self.open_tick_waiting_zones.saturating_add(1);
     }
 
+    pub(crate) fn tick_conflict_eligibility(
+        &mut self,
+        owner: VehicleHandle,
+        value: Option<(ConflictOccurrenceJournalLocator, u64)>,
+    ) {
+        if self.open_tick_count_at.is_none() || !self.ensure(CONFLICT_ELIGIBILITY_DELTA_BYTES) {
+            return;
+        }
+        put_u32(&mut self.bytes, owner.index());
+        put_u32(&mut self.bytes, owner.generation());
+        put_u8(&mut self.bytes, u8::from(value.is_some()));
+        let (locator, first_tick) = value.unwrap_or((
+            ConflictOccurrenceJournalLocator {
+                route: RouteHandle::new(0, 0),
+                stream: 0,
+                zone: 0,
+                passage_local_index: 0,
+                entry_route_edge_index: 0,
+                entry_progress_mm: 0,
+                clearance_route_edge_index: 0,
+                clearance_progress_mm: 0,
+            },
+            0,
+        ));
+        locator.encode(&mut self.bytes);
+        put_u64(&mut self.bytes, first_tick);
+        self.open_tick_conflict_eligibility = self.open_tick_conflict_eligibility.saturating_add(1);
+    }
+
+    pub(crate) fn tick_conflict_authority_absent(&mut self, owner: VehicleHandle) {
+        if self.open_tick_count_at.is_none() || !self.ensure(CONFLICT_AUTHORITY_HEADER_BYTES) {
+            return;
+        }
+        put_u32(&mut self.bytes, owner.index());
+        put_u32(&mut self.bytes, owner.generation());
+        put_u8(&mut self.bytes, 0);
+        put_u64(&mut self.bytes, 0);
+        put_u32(&mut self.bytes, 0);
+        self.open_tick_conflict_authorities = self.open_tick_conflict_authorities.saturating_add(1);
+    }
+
+    pub(crate) fn tick_conflict_authority<I>(
+        &mut self,
+        owner: VehicleHandle,
+        acquired_tick: u64,
+        cells: I,
+    ) where
+        I: ExactSizeIterator<Item = (ConflictOccurrenceJournalLocator, u8)>,
+    {
+        let cell_count = cells.len();
+        let Some(needed) = cell_count
+            .checked_mul(CONFLICT_AUTHORITY_CELL_BYTES)
+            .and_then(|bytes| bytes.checked_add(CONFLICT_AUTHORITY_HEADER_BYTES))
+        else {
+            self.overflowed = true;
+            return;
+        };
+        if self.open_tick_count_at.is_none() || !self.ensure(needed) {
+            return;
+        }
+        put_u32(&mut self.bytes, owner.index());
+        put_u32(&mut self.bytes, owner.generation());
+        put_u8(&mut self.bytes, 1);
+        put_u64(&mut self.bytes, acquired_tick);
+        put_u32(
+            &mut self.bytes,
+            u32::try_from(cell_count).unwrap_or(u32::MAX),
+        );
+        for (locator, stage) in cells {
+            locator.encode(&mut self.bytes);
+            put_u8(&mut self.bytes, stage);
+        }
+        self.open_tick_conflict_authorities = self.open_tick_conflict_authorities.saturating_add(1);
+    }
+
+    pub(crate) fn tick_conflict_lag(
+        &mut self,
+        address: crate::ConflictPassageAddress,
+        reference: crate::ConflictLagReference,
+    ) {
+        if self.open_tick_count_at.is_none() || !self.ensure(CONFLICT_LAG_DELTA_BYTES) {
+            return;
+        }
+        put_u32(&mut self.bytes, address.stream().raw());
+        put_u32(&mut self.bytes, address.zone().raw());
+        put_u32(&mut self.bytes, address.passage_local_index());
+        match reference {
+            crate::ConflictLagReference::NoHistory => {
+                put_u8(&mut self.bytes, 0);
+                put_u64(&mut self.bytes, 0);
+            }
+            crate::ConflictLagReference::ActualClear(at) => {
+                put_u8(&mut self.bytes, 1);
+                put_u64(&mut self.bytes, at);
+            }
+            crate::ConflictLagReference::CutoverFloor(at) => {
+                put_u8(&mut self.bytes, 2);
+                put_u64(&mut self.bytes, at);
+            }
+        }
+        self.open_tick_conflict_lags = self.open_tick_conflict_lags.saturating_add(1);
+    }
+
     /// 关闭 TICK 记录并回填条目数。
     pub(crate) fn finish_tick(&mut self) {
         let Some(count_at) = self.open_tick_count_at.take() else {
@@ -743,12 +948,36 @@ impl MigrationDeltaJournal {
         };
         let entries = self.open_tick_entries;
         let waiting_zones = self.open_tick_waiting_zones;
+        let conflict_eligibility = self.open_tick_conflict_eligibility;
+        let conflict_authorities = self.open_tick_conflict_authorities;
+        let conflict_lags = self.open_tick_conflict_lags;
         write_u32_at(&mut self.bytes, count_at, entries);
         let waiting_count_at = self
             .open_tick_waiting_count_at
             .take()
             .expect("open tick has WaitingZone count slot");
         write_u32_at(&mut self.bytes, waiting_count_at, waiting_zones);
+        write_u32_at(
+            &mut self.bytes,
+            self.open_tick_conflict_eligibility_count_at
+                .take()
+                .expect("open tick has Conflict eligibility count slot"),
+            conflict_eligibility,
+        );
+        write_u32_at(
+            &mut self.bytes,
+            self.open_tick_conflict_authority_count_at
+                .take()
+                .expect("open tick has Conflict authority count slot"),
+            conflict_authorities,
+        );
+        write_u32_at(
+            &mut self.bytes,
+            self.open_tick_conflict_lag_count_at
+                .take()
+                .expect("open tick has Conflict lag count slot"),
+            conflict_lags,
+        );
         self.record_count += 1;
     }
 
@@ -909,6 +1138,99 @@ pub(crate) fn waiting_zone_delta_stream(
         })
 }
 
+pub(crate) fn conflict_eligibility_delta_stream(
+    bytes: &[u8],
+) -> impl Iterator<Item = ConflictEligibilityJournalDelta> + '_ {
+    let (chunks, remainder) = bytes.as_chunks::<CONFLICT_ELIGIBILITY_DELTA_BYTES>();
+    debug_assert!(remainder.is_empty());
+    chunks.iter().map(|chunk| {
+        let owner = VehicleHandle::new(read_u32(chunk, 0), read_u32(chunk, 4));
+        let value = (chunk[8] == 1).then(|| {
+            (
+                ConflictOccurrenceJournalLocator::decode(&chunk[9..]),
+                read_u64(chunk, 9 + CONFLICT_OCCURRENCE_JOURNAL_BYTES),
+            )
+        });
+        ConflictEligibilityJournalDelta { owner, value }
+    })
+}
+
+pub(crate) fn conflict_authority_delta_stream(bytes: &[u8]) -> ConflictAuthorityJournalIter<'_> {
+    ConflictAuthorityJournalIter { bytes, at: 0 }
+}
+
+pub(crate) struct ConflictAuthorityJournalIter<'a> {
+    bytes: &'a [u8],
+    at: usize,
+}
+
+impl<'a> Iterator for ConflictAuthorityJournalIter<'a> {
+    type Item = ConflictAuthorityJournalDelta<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.at == self.bytes.len() {
+            return None;
+        }
+        let header = self
+            .bytes
+            .get(self.at..self.at + CONFLICT_AUTHORITY_HEADER_BYTES)
+            .expect("Conflict authority header within journal");
+        let owner = VehicleHandle::new(read_u32(header, 0), read_u32(header, 4));
+        let present = header[8] == 1;
+        let acquired_tick = read_u64(header, 9);
+        let cell_count = read_u32(header, 17) as usize;
+        let cells_len = cell_count
+            .checked_mul(CONFLICT_AUTHORITY_CELL_BYTES)
+            .expect("Conflict authority cell length");
+        let cells_start = self.at + CONFLICT_AUTHORITY_HEADER_BYTES;
+        let cells = self
+            .bytes
+            .get(cells_start..cells_start + cells_len)
+            .expect("Conflict authority cells within journal");
+        self.at = cells_start + cells_len;
+        debug_assert!(present || cell_count == 0);
+        Some(ConflictAuthorityJournalDelta {
+            owner,
+            acquired_tick: present.then_some(acquired_tick),
+            cells,
+        })
+    }
+}
+
+pub(crate) fn conflict_authority_cell_delta_stream(
+    bytes: &[u8],
+) -> impl ExactSizeIterator<Item = ConflictAuthorityCellJournalDelta> + '_ {
+    let (chunks, remainder) = bytes.as_chunks::<CONFLICT_AUTHORITY_CELL_BYTES>();
+    debug_assert!(remainder.is_empty());
+    chunks
+        .iter()
+        .map(|chunk| ConflictAuthorityCellJournalDelta {
+            locator: ConflictOccurrenceJournalLocator::decode(chunk),
+            stage: chunk[CONFLICT_OCCURRENCE_JOURNAL_BYTES],
+        })
+}
+
+pub(crate) fn conflict_lag_delta_stream(
+    bytes: &[u8],
+) -> impl Iterator<Item = ConflictLagJournalDelta> + '_ {
+    let (chunks, remainder) = bytes.as_chunks::<CONFLICT_LAG_DELTA_BYTES>();
+    debug_assert!(remainder.is_empty());
+    chunks.iter().map(|chunk| {
+        let address = crate::ConflictPassageAddress::new(
+            laneflow_static_contract::ConflictZoneOrdinal::from_raw(read_u32(chunk, 4)),
+            laneflow_static_contract::ParticipantStreamOrdinal::from_raw(read_u32(chunk, 0)),
+            read_u32(chunk, 8),
+        );
+        let reference = match chunk[12] {
+            0 => crate::ConflictLagReference::NoHistory,
+            1 => crate::ConflictLagReference::ActualClear(read_u64(chunk, 13)),
+            2 => crate::ConflictLagReference::CutoverFloor(read_u64(chunk, 13)),
+            tag => panic!("unknown Conflict lag journal tag {tag}"),
+        };
+        ConflictLagJournalDelta { address, reference }
+    })
+}
+
 fn read_u32_chunk(chunk: &[u8]) -> u32 {
     u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
 }
@@ -946,6 +1268,12 @@ impl<'a> Iterator for RecordIter<'a> {
                 at += 4;
                 let waiting_count = read_u32(rest, at) as usize;
                 at += 4;
+                let conflict_eligibility_count = read_u32(rest, at) as usize;
+                at += 4;
+                let conflict_authority_count = read_u32(rest, at) as usize;
+                at += 4;
+                let conflict_lag_count = read_u32(rest, at) as usize;
+                at += 4;
                 let entries_len = count * VEHICLE_DELTA_BYTES;
                 let entries = rest
                     .get(at..at + entries_len)
@@ -956,11 +1284,37 @@ impl<'a> Iterator for RecordIter<'a> {
                     .get(at..at + waiting_len)
                     .expect("tick WaitingZone deltas within journal");
                 at += waiting_len;
+                let conflict_eligibility_len = conflict_eligibility_count
+                    .checked_mul(CONFLICT_ELIGIBILITY_DELTA_BYTES)
+                    .expect("Conflict eligibility journal length");
+                let conflict_eligibility = rest
+                    .get(at..at + conflict_eligibility_len)
+                    .expect("tick Conflict eligibility within journal");
+                at += conflict_eligibility_len;
+                let authority_start = at;
+                for _ in 0..conflict_authority_count {
+                    let cell_count = read_u32(rest, at + 4 + 4 + 1 + 8) as usize;
+                    at += CONFLICT_AUTHORITY_HEADER_BYTES
+                        + cell_count * CONFLICT_AUTHORITY_CELL_BYTES;
+                }
+                let conflict_authorities = rest
+                    .get(authority_start..at)
+                    .expect("tick Conflict authorities within journal");
+                let conflict_lag_len = conflict_lag_count
+                    .checked_mul(CONFLICT_LAG_DELTA_BYTES)
+                    .expect("Conflict lag journal length");
+                let conflict_lags = rest
+                    .get(at..at + conflict_lag_len)
+                    .expect("tick Conflict lags within journal");
+                at += conflict_lag_len;
                 JournalRecord::Tick {
                     tick_index,
                     time_ms,
                     entries,
                     waiting_zones,
+                    conflict_eligibility,
+                    conflict_authorities,
+                    conflict_lags,
                 }
             }
             TAG_ROUTE_REGISTERED => {

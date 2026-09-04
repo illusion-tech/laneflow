@@ -67,14 +67,22 @@ pub(crate) struct ResolvedManeuverAnchor {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ReservationDownstreamClaimPlan {
-    route: RouteHandle,
-    plan: crate::conflict::DownstreamClaimPlan,
+    pub(crate) route: RouteHandle,
+    pub(crate) plan: crate::conflict::DownstreamClaimPlan,
 }
 
 impl ReservationDownstreamClaimPlan {
+    pub(crate) const fn route(self) -> RouteHandle {
+        self.route
+    }
+
     #[must_use]
     pub(crate) const fn raw_interval_capacity(self) -> usize {
         self.plan.raw_interval_capacity()
+    }
+
+    pub(crate) const fn target(self) -> crate::DownstreamRoutePoint {
+        self.plan.target()
     }
 }
 
@@ -117,6 +125,25 @@ pub struct TrafficWorld {
     pub(crate) conflict_arbiter: crate::conflict::ConflictArbiter,
     /// 车辆槽位对应的 exact Gate occurrence 首次资格时钟；W5 负责持久化。
     pub(crate) conflict_eligibility: Vec<Option<crate::ConflictEligibilityState>>,
+    /// W7 fixed-step scratch；所有增长走 checked reserve，warm-up 后不再分配。
+    pub(crate) conflict_candidates: Vec<crate::conflict_tick::ConflictCandidate>,
+    pub(crate) conflict_candidate_cells: Vec<crate::ConflictPassageAddress>,
+    pub(crate) conflict_candidate_downstream: Vec<crate::DownstreamInterval>,
+    pub(crate) conflict_cell_work: Vec<crate::ConflictPassageAddress>,
+    pub(crate) conflict_downstream_work: Vec<crate::DownstreamInterval>,
+    pub(crate) conflict_grants: Vec<crate::conflict_tick::PreparedConflictGrant>,
+    pub(crate) conflict_motion_by_vehicle: Box<[Option<crate::conflict_tick::ConflictMotionPlan>]>,
+    pub(crate) conflict_next_eligibility: Box<[Option<crate::ConflictEligibilityState>]>,
+    pub(crate) conflict_passage_transitions: Vec<crate::conflict_tick::ConflictPassageTransition>,
+    /// 本 tick reservation/stage/release 发生变化的稀疏 owner 集；迁移日志据此
+    /// 写 authority replacement，避免为在线切换额外扫描车辆容量。
+    pub(crate) conflict_changed_owners: Vec<VehicleHandle>,
+    pub(crate) conflict_waiting_dependencies: Vec<(
+        crate::conflict::WaitingDependencyNode,
+        crate::conflict::WaitingDependencyNode,
+    )>,
+    pub(crate) conflict_staged_decisions: Vec<crate::ConflictDecision>,
+    pub(crate) latest_conflict_decisions: Vec<crate::ConflictDecision>,
     pub(crate) tick_index: u64,
     pub(crate) time_ms: u64,
     /// 已应用输入命令计数（快照合同 §3 双游标之一；切换 `worldBinding`
@@ -254,7 +281,20 @@ impl TrafficWorld {
             config,
             policy_binding,
             conflict_arbiter,
-            conflict_eligibility: Vec::new(),
+            conflict_eligibility: Vec::with_capacity(vehicle_capacity),
+            conflict_candidates: Vec::with_capacity(vehicle_capacity),
+            conflict_candidate_cells: Vec::new(),
+            conflict_candidate_downstream: Vec::new(),
+            conflict_cell_work: Vec::new(),
+            conflict_downstream_work: Vec::new(),
+            conflict_grants: Vec::with_capacity(vehicle_capacity),
+            conflict_motion_by_vehicle: vec![None; vehicle_capacity].into_boxed_slice(),
+            conflict_next_eligibility: vec![None; vehicle_capacity].into_boxed_slice(),
+            conflict_passage_transitions: Vec::new(),
+            conflict_changed_owners: Vec::with_capacity(vehicle_capacity),
+            conflict_waiting_dependencies: Vec::new(),
+            conflict_staged_decisions: Vec::with_capacity(vehicle_capacity),
+            latest_conflict_decisions: Vec::with_capacity(vehicle_capacity),
             tick_index: 0,
             time_ms: 0,
             command_cursor: 0,
@@ -481,14 +521,6 @@ impl TrafficWorld {
         )
     }
 
-    /// W5 已恢复/迁移但尚未由 W7 tick 推进的 Conflict authority。
-    ///
-    /// eligibility 表在无条目时规范化为空，因此稳态无权威路径为 O(1)；
-    /// arbiter 只扫描实际 owner authority 行，不按车辆容量扫描。
-    pub(crate) fn conflict_authority_pending(&self) -> bool {
-        !self.conflict_eligibility.is_empty() || self.conflict_arbiter.has_live_authority()
-    }
-
     pub(crate) fn normalize_conflict_eligibility(&mut self) {
         if self.conflict_eligibility.iter().all(Option::is_none) {
             self.conflict_eligibility.clear();
@@ -511,34 +543,6 @@ impl TrafficWorld {
             || self.conflict_arbiter.has_authority(vehicle)
     }
 
-    pub(crate) fn pending_conflict_runtime_unavailable(
-        &self,
-    ) -> Option<crate::ConflictRuntimeUnavailable> {
-        self.live_order.iter().copied().find_map(|handle| {
-            let state = self.vehicle_state(handle)?;
-            let eligibility = self
-                .conflict_eligibility
-                .get(handle.index() as usize)
-                .copied()
-                .flatten();
-            if self.conflict_reservation(handle).is_none() && eligibility.is_none() {
-                return None;
-            }
-            match self.check_active_conflict_capability(
-                state.route,
-                usize::try_from(state.route_edge_index).ok()?,
-                state.progress_mm,
-                state.carry_um,
-                state.length_mm,
-            ) {
-                Err(crate::tables::ConflictCapabilityError::RuntimeUnavailable(error)) => {
-                    Some(error)
-                }
-                Ok(()) | Err(crate::tables::ConflictCapabilityError::InvalidCursor) => None,
-            }
-        })
-    }
-
     pub(crate) fn conflict_eligibility_position_valid(
         &self,
         state: &VehicleState,
@@ -551,9 +555,17 @@ impl TrafficWorld {
         let Some(edge) = compiled.edges.get(hop as usize) else {
             return false;
         };
-        state.route_edge_index == hop
-            && state.progress_mm == self.revision.traffic().lane_lengths_millimetres()[edge.index()]
-            && state.carry_um == 0
+        let at_upstream_edge_end = state.route_edge_index == hop
+            && state.progress_mm
+                == self.revision.traffic().lane_lengths_millimetres()[edge.index()]
+            && state.carry_um == 0;
+        let at_canonical_crossed_side = hop.checked_add(1).is_some_and(|crossed_hop| {
+            compiled.edges.get(crossed_hop as usize).is_some()
+                && state.route_edge_index == crossed_hop
+                && state.progress_mm == 0
+                && state.carry_um == 0
+        });
+        at_upstream_edge_end || at_canonical_crossed_side
     }
 
     /// eligibility 的唯一 committed authority predicate。
@@ -1059,7 +1071,7 @@ impl TrafficWorld {
         status: VehicleStatus,
         maneuver_traversal: Option<crate::ManeuverTraversalState>,
         waiting_membership: Option<crate::WaitingMembership>,
-        conflict_authority_pending: bool,
+        restored_conflict_authority: bool,
     ) -> Result<VehicleHandle, SpawnError> {
         debug_assert!(matches!(
             status,
@@ -1070,7 +1082,7 @@ impl TrafficWorld {
             carry_um,
             status,
             Some(maneuver_traversal),
-            conflict_authority_pending,
+            restored_conflict_authority,
         )?;
         let authority = UnparkedVehicleAuthority {
             class,
@@ -1088,7 +1100,7 @@ impl TrafficWorld {
         carry_um: u16,
         status: VehicleStatus,
         restored_traversal: Option<Option<crate::ManeuverTraversalState>>,
-        conflict_authority_pending: bool,
+        restored_conflict_authority: bool,
     ) -> Result<
         (
             ParticipantClassOrdinal,
@@ -1173,10 +1185,9 @@ impl TrafficWorld {
                 Err(ConflictCapabilityError::InvalidCursor) => {
                     return Err(SpawnError::InvalidProgress);
                 }
-                Err(ConflictCapabilityError::RuntimeUnavailable(_))
-                    if conflict_authority_pending => {}
-                Err(ConflictCapabilityError::RuntimeUnavailable(error)) => {
-                    return Err(SpawnError::ConflictRuntimeUnavailable(error));
+                Err(ConflictCapabilityError::AuthorityRequired) if restored_conflict_authority => {}
+                Err(ConflictCapabilityError::AuthorityRequired) => {
+                    return Err(SpawnError::ConflictAuthorityRequired);
                 }
             }
         }
@@ -1335,8 +1346,8 @@ impl TrafficWorld {
             Err(ConflictCapabilityError::InvalidCursor) => {
                 return Err(ReplaceError::InvalidProgress);
             }
-            Err(ConflictCapabilityError::RuntimeUnavailable(error)) => {
-                return Err(ReplaceError::ConflictRuntimeUnavailable(error));
+            Err(ConflictCapabilityError::AuthorityRequired) => {
+                return Err(ReplaceError::ConflictAuthorityRequired);
             }
         }
         let next_observation_state_sequence = self
@@ -1655,7 +1666,6 @@ impl TrafficWorld {
             .compiled_route(route)
             .ok_or(ConflictCapabilityError::InvalidCursor)?;
         check_conflict_capability(
-            route,
             compiled,
             self.revision.traffic().lane_lengths_millimetres(),
             cursor,

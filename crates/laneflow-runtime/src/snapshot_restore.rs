@@ -2351,28 +2351,17 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn restored_conflict_authority_blocks_tick_without_partial_commit() {
+    fn restored_conflict_authority_continues_through_the_production_tick() {
         for (mut world, label) in [
             (world_with_conflict_reservation().0, "reservation"),
             (world_with_conflict_eligibility().0, "eligibility"),
         ] {
-            let before = world
-                .capture_snapshot()
-                .expect("capture before blocked tick");
-            assert!(
-                matches!(
-                    world.step(crate::TickInput::new(100)),
-                    Err(crate::StepError::ConflictRuntimeUnavailable(_))
-                ),
-                "{label} must remain protected until W7 tick integration"
-            );
-            assert_eq!(
-                world
-                    .capture_snapshot()
-                    .expect("capture after blocked tick"),
-                before,
-                "{label} tick failure must be atomic"
-            );
+            let tick_before = world.tick_index();
+            world
+                .step(crate::TickInput::new(100))
+                .unwrap_or_else(|error| panic!("{label} production continuation: {error:?}"));
+            assert_eq!(world.tick_index(), tick_before + 1, "{label}");
+            assert!(world.conflict_state_valid(), "{label}");
         }
     }
 
