@@ -1,6 +1,6 @@
 # ADR 0019：WaitingZone、ConflictZone 与车辆级通行权 authority
 
-**状态**: Accepted（架构决策与 #282 G1 详细设计）<br>
+**状态**: Accepted（架构决策；#282 与 #284 已实现）<br>
 **日期**: 2026-09-01<br>
 **适用范围**: 多阶段 ManeuverGate、WaitingZone、ConflictZone、车辆级通行权、
 Traffic Runtime 安全组合、持久化与引擎边界<br>
@@ -41,8 +41,8 @@ Traffic Runtime 的 leader、minimum gap、no-overlap、Gate、路线终点和�
 - `TrafficWorld` 消费该共享根并拥有唯一动态交通 authority；
 - 已提交一维运动使用整数毫米、`mm/s` 与 `carry_um`；
 - `ParkingBinding`、停驻/离场生命周期已经存在；
-- `ConflictPassageOccurrence` 与 #284 前的
-  `ConflictRuntimeUnavailable` 全车身能力保护已经存在。
+- `ConflictPassageOccurrence`、正式 `ConflictArbiter`、组合资源 ledger、持久化和
+  fixed-tick crossing/tail-clear 已经接入唯一 `TrafficWorld` 路径。
 
 本 ADR 冻结长期 ownership；#282 的实现细节由已接受的详细设计冻结，G2 实现不得把
 #284 的 downstream-clearance、Conflict 仲裁或组合 ledger 提前并入本地 Waiting claim。
@@ -99,9 +99,9 @@ claim。即使取得后 unconstrained travel 能到达更晚 Waiting entry，本
   prevention；
 - 正式冲突能力接管后的 vehicle-level right-of-way 与 tail-clear 生命周期。
 
-#284 可以消费 #282 已提交的 Waiting state，也可以扩展资源 outcome，但不得把
+#284 消费 #282 已提交的 Waiting state，并扩展资源 outcome，但不得把
 Waiting occupancy、admission counter 或 queue mutation authority 移出
-`TrafficWorld`。在 #284 交付前，#282 不承诺跨 zone 活性或完整 keep-clear。
+`TrafficWorld`。
 
 [`waiting-zone-conflict-right-of-way.md`](../design/waiting-zone-conflict-right-of-way.md)
 §6 保存 #235 已接受、#284 直接消费的 current-compatible 详细合同：policy
@@ -189,9 +189,11 @@ resource wait-for graph 做稳定 SCC 检查；任何 candidate 若会形成 com
 normal no-grant 零提交拒绝。same-tick staged release 仍不返还 capacity，不能交换已提交
 membership 或让同车取得多个新 claim；restore/cutover 发现既有 cycle 时整体失败关闭。
 
-### 7. #559 临时能力保护不可弱化
+### 7. #559 临时能力保护的原子接管
 
-在 #284 正式冲突仲裁交付前，`ConflictPassageOccurrence` 的 3A 保护继续覆盖：
+历史上的 `ConflictRuntimeUnavailable` 曾在 #284 交付前保护以下入口；#284 W7 已在同一
+切片接通 grant/reservation、组合 ledger、snapshot/cutover 与正式 fixed tick 后删除该
+临时错误：
 
 - `spawn_vehicle`；
 - `replace_completed_vehicle`；
@@ -200,10 +202,11 @@ membership 或让同车取得多个新 claim；restore/cutover 发现既有 cycl
 - snapshot restore；
 - same/cross-revision cutover。
 
-#282 不得删除、绕过、改名掩盖或降低
-`ConflictRuntimeUnavailable` 的失败关闭条件。Waiting 检查成功不代表 conflict
-能力可用。只有 #284 在同一切片安装正式 grant/reservation/组合 ledger 后，才能原子
-移除这项临时保护。
+当前普通 spawn/replace/leave/rebind 可以位于 Conflict Gate 上游或 Gate 边界，并在后续
+tick 进入正式仲裁；它们不能在已越过 Gate 且车尾尚未清空 coverage 的位置凭空创建
+authority，此时返回各生命周期入口的 `ConflictAuthorityRequired`。restore/cutover 只有
+在 reservation、passage locator、downstream claim、lag history 与车辆位置全部闭合时才
+能恢复该位置。Waiting 检查成功本身仍不授予 Conflict authority。
 
 ### 8. 快照、摘要与切换是逻辑合同
 
@@ -226,8 +229,9 @@ phase、route occurrence 与 Parking 状态，包括所选 parking entry 不得�
 occupancy/member，或 occupancy 为零但 counter 非零的 zone，都不能因目标修订缺失而
 静默丢弃。
 
-Waiting restore/cutover 与 #559 能力检查必须同时成功。候选世界还须重编译
-`ConflictPassageOccurrence`、核对独立容量并对全部 Active 车辆执行 3A 保护。
+Waiting restore/cutover 与正式 Conflict authority 检查必须同时成功。候选世界还须重编译
+`ConflictPassageOccurrence`、核对独立容量，并对全部 Active 车辆验证 Gate side、完整
+reservation 与车尾清空状态。
 
 ### 9. 容量与性能边界
 

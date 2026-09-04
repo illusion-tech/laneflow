@@ -6,7 +6,7 @@
 //!
 //! - 武装期在线准备干扰不变量：武装前后稳态 tick 分配账本相等（武装只
 //!   写入已预留 arena，不新增分配）——硬断言；
-//! - 迁移增量日志字节口径：每 tick 精确 = TICK 头 25 字节 + 78 字节 ×
+//! - 迁移增量日志字节口径：每 tick 精确 = TICK 头 37 字节 + 78 字节 ×
 //!   活跃车辆数（活跃车全速段每 tick 都变化）——结构性硬断言；
 //! - Prepare 与静默提交（排空 + 占用重建 + 全量重验证 + 摘要复核 + 原地
 //!   晋升）的分配账本、迁移期共存峰值输入——描述性输出，登记进合同
@@ -225,17 +225,18 @@ fn cross_revision_cutover_budget_evidence() {
     let stats = armed.migration_journal_stats().expect("armed journal");
     assert!(!stats.overflowed);
     assert_eq!(stats.record_count, u64::from(STEADY_TICKS));
-    // 每条 TICK 记录 = 25 字节头 + 78 字节 × 活跃车辆（本夹具无 WaitingZone counter 变化）。
+    // 每条 TICK 记录 = 37 字节头 + 78 字节 × 活跃车辆；本夹具无 WaitingZone
+    // counter 或 Conflict eligibility/authority/lag 变化。
     assert_eq!(
         stats.written_bytes,
-        u64::from(STEADY_TICKS * (25 + 78 * VEHICLES)),
+        u64::from(STEADY_TICKS * (37 + 78 * VEHICLES)),
         "journal bytes are exactly header + 78 per changed vehicle"
     );
     println!(
         "journal: {written} bytes over {ticks} ticks ({per_tick} B/tick, {vehicles} vehicles)",
         written = stats.written_bytes,
         ticks = STEADY_TICKS,
-        per_tick = 25 + 78 * VEHICLES,
+        per_tick = 37 + 78 * VEHICLES,
         vehicles = VEHICLES,
     );
 

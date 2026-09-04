@@ -29,13 +29,15 @@ use laneflow_runtime::{
     PublishedLfcaReference, RebindParkingTarget, ReplaceError, ReserveParkingTarget, RouteError,
     RouteHandle, RouteRegisterInput, SemanticDiffOriginBinding, SnapshotLimitDimension,
     SnapshotRestoreError, SnapshotRestoreLimits, SpawnError, TickInput, TrafficWorld,
-    VehicleSpawnInput, VehicleStatus, VirtualEntryAnchorSelector, VirtualExitAnchorSelector,
-    WorldConfig, bind_observation_set, deterministic_state_digest, encode_lfrs, restore_lfrs,
+    VehicleHandle, VehicleSpawnInput, VehicleStatus, VirtualEntryAnchorSelector,
+    VirtualExitAnchorSelector, WorldConfig, bind_observation_set, deterministic_state_digest,
+    encode_lfrs, restore_lfrs,
 };
 use laneflow_static_contract::{
     AccessEffect, ConflictZoneOrdinal, EntityKind, LaneEdgeId, ParkingFacilityOrdinal,
-    ParkingSpaceOrdinal, ParticipantStreamOrdinal, PortableObjectKind,
-    SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest, SignalAspect, VehicleProfileOrdinal,
+    ParkingSpaceOrdinal, ParticipantStreamOrdinal, PortableObjectKind, RightOfWayPolicySetOrdinal,
+    SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest, SignalAspect, VehicleProfileId,
+    VehicleProfileOrdinal,
 };
 use laneflow_static_network::{
     ConflictPathAnchor, SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision,
@@ -433,6 +435,36 @@ fn conflict_road_editing_module_with_vehicle_speed(
         true,
         false,
         desired_speed_meters_per_second,
+        ConflictPolicyFixture::default(),
+    )
+}
+
+fn conflict_yield_road_editing_module() -> lfre::RoadEditingSourceModule {
+    conflict_road_editing_module_with_shape_and_speed(
+        2,
+        false,
+        true,
+        false,
+        13.0,
+        ConflictPolicyFixture {
+            yielding: true,
+            ..ConflictPolicyFixture::default()
+        },
+    )
+}
+
+fn conflict_calibration_road_editing_module() -> lfre::RoadEditingSourceModule {
+    conflict_road_editing_module_with_shape_and_speed(
+        2,
+        false,
+        true,
+        false,
+        13.0,
+        ConflictPolicyFixture {
+            yielding: true,
+            gap_values_ms: Some((5_000, 2_000, 500)),
+            include_long_vehicle: true,
+        },
     )
 }
 
@@ -467,7 +499,15 @@ fn conflict_road_editing_module_with_shape(
         include_conflict,
         multiplicity,
         13.0,
+        ConflictPolicyFixture::default(),
     )
+}
+
+#[derive(Clone, Copy, Default)]
+struct ConflictPolicyFixture {
+    yielding: bool,
+    gap_values_ms: Option<(u64, u64, u64)>,
+    include_long_vehicle: bool,
 }
 
 fn conflict_road_editing_module_with_shape_and_speed(
@@ -476,7 +516,13 @@ fn conflict_road_editing_module_with_shape_and_speed(
     include_conflict: bool,
     multiplicity: bool,
     desired_speed_meters_per_second: f64,
+    policy_fixture: ConflictPolicyFixture,
 ) -> lfre::RoadEditingSourceModule {
+    let ConflictPolicyFixture {
+        yielding,
+        gap_values_ms,
+        include_long_vehicle,
+    } = policy_fixture;
     assert!(stream_count <= 2);
     assert!(!multiplicity || (include_conflict && stream_count == 2));
     let limits = CompileLimits::p100_initial_v2();
@@ -791,7 +837,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
         .add_declaration(lfre::RoadEditingDeclaration::VehicleProfile(
             lfre::VehicleProfileInput::try_new(
                 "car",
-                participant,
+                participant.clone(),
                 lfre::IidmVehicleProfileInput::try_new(
                     4.5,
                     desired_speed_meters_per_second,
@@ -806,6 +852,27 @@ fn conflict_road_editing_module_with_shape_and_speed(
             .expect("vehicle profile"),
         ))
         .expect("add vehicle profile");
+    if include_long_vehicle {
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::VehicleProfile(
+                lfre::VehicleProfileInput::try_new(
+                    "long-vehicle",
+                    participant,
+                    lfre::IidmVehicleProfileInput::try_new(
+                        12.0,
+                        desired_speed_meters_per_second,
+                        3.0,
+                        1.2,
+                        1.5,
+                        2.0,
+                        4.0,
+                    )
+                    .expect("long vehicle iidm profile"),
+                )
+                .expect("long vehicle profile"),
+            ))
+            .expect("add long vehicle profile");
+    }
     let policy_gates = [
         ("east-west", "east-west-path", "east-west-gate"),
         ("north-south", "north-south-path", "north-south-gate"),
@@ -839,22 +906,58 @@ fn conflict_road_editing_module_with_shape_and_speed(
             );
         }
     }
+    let gap_profile_key = if gap_values_ms.is_some() {
+        "urban-conservative"
+    } else {
+        "urban-gap"
+    };
     let policy_streams = stream_keys
         .iter()
-        .map(|key| {
+        .enumerate()
+        .map(|(index, key)| {
+            let yield_to = if yielding && index == 0 {
+                vec![
+                    lfre::ParticipantStreamReference::owner_scoped(
+                        vec!["crossing".into()],
+                        "north-south-stream",
+                    )
+                    .unwrap(),
+                ]
+            } else {
+                Vec::new()
+            };
             lfre::PolicyStreamRuleInput::try_new(
                 *key,
                 lfre::ParticipantStreamReference::owner_scoped(vec!["crossing".into()], *key)
                     .unwrap(),
                 None,
-                0,
-                vec![],
-                None,
+                i32::try_from(index).expect("fixture stream priority"),
+                yield_to,
+                (yielding && index == 0).then(|| gap_profile_key.to_owned()),
                 vec![],
             )
             .unwrap()
         })
         .collect();
+    let gap_profiles = if yielding {
+        let (lead, lag, clearance) = gap_values_ms.unwrap_or((500, 500, 0));
+        vec![
+            lfre::PolicyGapProfileInput::try_new(
+                gap_profile_key,
+                if gap_values_ms.is_some() {
+                    "urban-conservative-v1"
+                } else {
+                    "fixture-1"
+                },
+                lead,
+                lag,
+                clearance,
+            )
+            .unwrap(),
+        ]
+    } else {
+        Vec::new()
+    };
     module
         .add_declaration(lfre::RoadEditingDeclaration::RightOfWayPolicySet(
             lfre::RightOfWayPolicySetInput::try_new(
@@ -864,7 +967,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
                     .with_source("repository:runtime-fixture-1")
                     .unwrap(),
                 vec![],
-                vec![],
+                gap_profiles,
                 policy_streams,
                 policy_gates,
             )
@@ -1186,7 +1289,7 @@ fn road_editing_conflict_fixture_closes_integer_passages_and_f32_region() {
 }
 
 #[test]
-fn conflict_routes_charge_independent_capacity_and_gate_active_spawn() {
+fn conflict_routes_charge_independent_capacity_and_use_the_production_gate_path() {
     let revision = compile_road_editing_revision(conflict_road_editing_module());
     let stream = revision
         .conflict()
@@ -1236,35 +1339,37 @@ fn conflict_routes_charge_independent_capacity_and_gate_active_spawn() {
     assert_eq!(world.command_cursor(), cursor_after_first);
     assert_eq!(world.live_routes().count(), 1);
 
-    let spawn_cursor = world.command_cursor();
-    let error = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            0,
-            0,
-        ))
-        .unwrap_err();
-    let SpawnError::ConflictRuntimeUnavailable(unavailable) = error else {
-        panic!("route start must be rejected by 3A: {error:?}");
-    };
-    assert_eq!(unavailable.route(), route);
-    assert_eq!(unavailable.stream(), ParticipantStreamOrdinal::from_raw(0));
-    assert_eq!(unavailable.passage_local_index(), 0);
-    assert_eq!(unavailable.zone(), ConflictZoneOrdinal::from_raw(0));
-    assert_eq!(world.command_cursor(), spawn_cursor);
-    assert!(world.live_vehicles().is_empty());
-
+    let gate_length = revision.traffic().lane_lengths_millimetres()[route_edges[0].index()];
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
-            1,
-            10_501,
             0,
+            gate_length,
+            10_000,
         ))
-        .expect("rear exactly at 6,001 mm clearance is allowed");
+        .expect("Gate upstream/boundary spawn is handled by production arbitration");
+    world
+        .step(TickInput::new(100))
+        .expect("acquire and cross Gate");
+    assert!(world.conflict_reservation(vehicle).is_some());
+    assert!(
+        world
+            .latest_conflict_decisions()
+            .iter()
+            .any(|decision| decision.vehicle() == vehicle
+                && decision.outcome() == laneflow_runtime::ConflictDecisionOutcome::Granted)
+    );
+    for _ in 0..20 {
+        world.step(TickInput::new(100)).expect("clear passage");
+        if world.conflict_reservation(vehicle).is_none() {
+            break;
+        }
+    }
+    assert!(
+        world.conflict_reservation(vehicle).is_none(),
+        "tail clearance releases reservation/downstream authority"
+    );
     world
         .despawn_vehicle(vehicle)
         .expect("despawn active vehicle");
@@ -1274,6 +1379,605 @@ fn conflict_routes_charge_independent_capacity_and_gate_active_spawn() {
     world
         .register_route(RouteRegisterInput::new(route_edges))
         .expect("released conflict capacity is reusable");
+}
+
+#[test]
+fn conflict_tick_arbitrates_the_canonical_post_gate_zero_position() {
+    let revision = compile_road_editing_revision(conflict_road_editing_module_with_stream_count(2));
+    let route_edges = [0_u32, 1].map(|raw| {
+        let stream = revision
+            .conflict()
+            .participant_stream(ParticipantStreamOrdinal::from_raw(raw))
+            .expect("fixture stream");
+        revision
+            .traffic()
+            .maneuvers()
+            .maneuver_path(stream.maneuver_path())
+            .expect("fixture path")
+            .edges()
+            .to_vec()
+    });
+    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 1, 100))
+        .expect("install conflict world");
+    let routes = route_edges.map(|edges| {
+        world
+            .register_route(RouteRegisterInput::new(edges))
+            .expect("route")
+    });
+    let vehicles = routes.map(|route| {
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                1,
+                0,
+                10_000,
+            ))
+            .expect("canonical post-Gate zero position is still a Gate boundary")
+    });
+
+    world.step(TickInput::new(100)).expect("arbitrate boundary");
+
+    let decisions = world.latest_conflict_decisions();
+    assert_eq!(decisions.len(), 2);
+    assert!(
+        decisions
+            .iter()
+            .all(|decision| decision.anchor().hop() == 0)
+    );
+    assert_eq!(
+        decisions
+            .iter()
+            .find(|decision| decision.vehicle() == vehicles[1])
+            .expect("formal winner decision")
+            .outcome(),
+        laneflow_runtime::ConflictDecisionOutcome::Granted
+    );
+    assert_eq!(
+        decisions
+            .iter()
+            .find(|decision| decision.vehicle() == vehicles[0])
+            .expect("formal loser decision")
+            .outcome(),
+        laneflow_runtime::ConflictDecisionOutcome::NoGrant(
+            laneflow_runtime::ConflictNoGrantReason::ConflictOccupied,
+        )
+    );
+    assert!(world.conflict_reservation(vehicles[1]).is_some());
+    assert!(world.conflict_reservation(vehicles[0]).is_none());
+    let loser = world.vehicle(vehicles[0]).expect("loser remains active");
+    assert_eq!(loser.route_edge_index(), 1);
+    assert_eq!(loser.progress_mm(), 0);
+    world
+        .step(TickInput::new(100))
+        .expect("retained canonical-boundary eligibility remains valid");
+}
+
+#[test]
+fn conflict_tick_uses_stable_single_writer_winner_and_retries_the_loser() {
+    let revision = compile_road_editing_revision(conflict_road_editing_module_with_stream_count(2));
+    let routes = [0_u32, 1].map(|raw| {
+        let stream = revision
+            .conflict()
+            .participant_stream(ParticipantStreamOrdinal::from_raw(raw))
+            .expect("fixture stream");
+        revision
+            .traffic()
+            .maneuvers()
+            .maneuver_path(stream.maneuver_path())
+            .expect("stream path")
+            .edges()
+            .to_vec()
+    });
+    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 1, 100))
+        .expect("install conflict world");
+    let routes = routes.map(|edges| {
+        world
+            .register_route(RouteRegisterInput::new(edges))
+            .expect("route")
+    });
+    let mut vehicles = Vec::new();
+    for route in routes {
+        let edge = world.route_edges(route).expect("route edges")[0];
+        let boundary = world.traffic().lane_lengths_millimetres()[edge.index()];
+        vehicles.push(
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    boundary,
+                    10_000,
+                ))
+                .expect("Gate-boundary candidate"),
+        );
+    }
+
+    world.step(TickInput::new(100)).expect("arbitrate");
+    let decisions = world.latest_conflict_decisions();
+    assert_eq!(decisions.len(), 2);
+    let winner = vehicles[1];
+    let loser = vehicles[0];
+    assert_eq!(
+        decisions
+            .iter()
+            .find(|decision| decision.vehicle() == winner)
+            .expect("higher-priority decision")
+            .outcome(),
+        laneflow_runtime::ConflictDecisionOutcome::Granted,
+    );
+    assert_eq!(
+        decisions
+            .iter()
+            .find(|decision| decision.vehicle() == loser)
+            .expect("lower-priority decision")
+            .outcome(),
+        laneflow_runtime::ConflictDecisionOutcome::NoGrant(
+            laneflow_runtime::ConflictNoGrantReason::ConflictOccupied,
+        ),
+    );
+    assert!(world.conflict_reservation(winner).is_some());
+    let loser_state = world.vehicle(loser).expect("loser remains active");
+    assert_eq!(loser_state.route_edge_index(), 0);
+    assert_eq!(loser_state.speed_mm_s(), 0);
+
+    for _ in 0..40 {
+        world.step(TickInput::new(100)).expect("retry loser");
+        if world.conflict_reservation(loser).is_some() {
+            break;
+        }
+    }
+    assert!(
+        world.conflict_reservation(loser).is_some(),
+        "loser retries after the earlier reservation clears"
+    );
+}
+
+#[test]
+fn conflict_tick_rejects_when_committed_downstream_storage_is_blocked() {
+    let revision = compile_road_editing_revision(conflict_road_editing_module());
+    let stream = revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("fixture stream");
+    let edges = revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(stream.maneuver_path())
+        .expect("path")
+        .edges()
+        .to_vec();
+    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 2, 64, 1, 1, 100))
+        .expect("world");
+    let route = world
+        .register_route(RouteRegisterInput::new(edges))
+        .expect("route");
+    let leader = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            1,
+            10_501,
+            0,
+        ))
+        .expect("leader rear exactly clears passage");
+    let entry = world.route_edges(route).expect("route")[0];
+    let gate = world.traffic().lane_lengths_millimetres()[entry.index()];
+    let subject = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            gate,
+            10_000,
+        ))
+        .expect("subject");
+
+    world.step(TickInput::new(100)).expect("normal no-grant");
+    let decision = world
+        .latest_conflict_decisions()
+        .iter()
+        .find(|decision| decision.vehicle() == subject)
+        .expect("subject decision");
+    assert_eq!(
+        decision.outcome(),
+        laneflow_runtime::ConflictDecisionOutcome::NoGrant(
+            laneflow_runtime::ConflictNoGrantReason::DownstreamStorageBoundary,
+        )
+    );
+    assert!(world.conflict_reservation(subject).is_none());
+    assert_eq!(
+        world.vehicle(subject).expect("subject").route_edge_index(),
+        0
+    );
+    assert!(world.vehicle(leader).is_some());
+}
+
+#[test]
+fn permissive_conflict_uses_the_compiled_gap_profile_and_approach_frontier() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    let route_edges = [0_u32, 1].map(|raw| {
+        let stream = revision
+            .conflict()
+            .participant_stream(ParticipantStreamOrdinal::from_raw(raw))
+            .expect("stream");
+        revision
+            .traffic()
+            .maneuvers()
+            .maneuver_path(stream.maneuver_path())
+            .expect("path")
+            .edges()
+            .to_vec()
+    });
+    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 1, 100))
+        .expect("world");
+    assert_eq!(world.policy_gap_profiles()[0].required_lead_ms(), 600);
+    assert_eq!(world.policy_gap_profiles()[0].required_lag_ms(), 500);
+    let routes = route_edges.map(|edges| {
+        world
+            .register_route(RouteRegisterInput::new(edges))
+            .expect("route")
+    });
+    let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
+    let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
+    let subject = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            world.traffic().lane_lengths_millimetres()[subject_edge.index()],
+            10_000,
+        ))
+        .expect("yielding subject");
+    let foe = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            world.traffic().lane_lengths_millimetres()[foe_edge.index()],
+            10_000,
+        ))
+        .expect("priority foe");
+
+    world.step(TickInput::new(100)).expect("gap arbitration");
+    assert_eq!(
+        world
+            .latest_conflict_decisions()
+            .iter()
+            .find(|decision| decision.vehicle() == subject)
+            .expect("subject decision")
+            .outcome(),
+        laneflow_runtime::ConflictDecisionOutcome::NoGrant(
+            laneflow_runtime::ConflictNoGrantReason::LeadGap,
+        )
+    );
+    assert_eq!(
+        world.vehicle(subject).expect("subject").route_edge_index(),
+        0
+    );
+    assert!(world.conflict_reservation(subject).is_none());
+    assert!(world.conflict_reservation(foe).is_some());
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct CalibrationRejects {
+    occupied: u32,
+    lag_gap: u32,
+    lead_gap: u32,
+    downstream: u32,
+    other: u32,
+}
+
+impl CalibrationRejects {
+    fn record(&mut self, reason: laneflow_runtime::ConflictNoGrantReason) {
+        match reason {
+            laneflow_runtime::ConflictNoGrantReason::ConflictOccupied => self.occupied += 1,
+            laneflow_runtime::ConflictNoGrantReason::LagGap => self.lag_gap += 1,
+            laneflow_runtime::ConflictNoGrantReason::LeadGap => self.lead_gap += 1,
+            laneflow_runtime::ConflictNoGrantReason::DownstreamStorageBoundary => {
+                self.downstream += 1;
+            }
+            _ => self.other += 1,
+        }
+    }
+}
+
+fn calibration_profile(revision: &SharedNetworkRevision, key: &str) -> VehicleProfileOrdinal {
+    let stable = derive_canonical_stable_id_v1(
+        EntityKind::VehicleProfile,
+        "city/runtime-conflict",
+        key,
+        &CompileLimits::p100_initial_v2(),
+    )
+    .expect("calibration profile identity");
+    revision
+        .identity()
+        .ordinal(VehicleProfileId::from_untyped(stable))
+        .expect("calibration profile ordinal")
+}
+
+fn calibration_world(revision: Arc<SharedNetworkRevision>) -> (TrafficWorld, [RouteHandle; 2]) {
+    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(8, 4, 64, 2, 1, 100))
+        .expect("calibration world");
+    let routes = [0_u32, 1].map(|raw| {
+        let stream = revision
+            .conflict()
+            .participant_stream(ParticipantStreamOrdinal::from_raw(raw))
+            .expect("calibration stream");
+        let edges = revision
+            .traffic()
+            .maneuvers()
+            .maneuver_path(stream.maneuver_path())
+            .expect("calibration path")
+            .edges()
+            .to_vec();
+        world
+            .register_route(RouteRegisterInput::new(edges))
+            .expect("calibration route")
+    });
+    (world, routes)
+}
+
+fn spawn_calibration_vehicle(
+    world: &mut TrafficWorld,
+    profile: VehicleProfileOrdinal,
+    route: RouteHandle,
+    progress_mm: u32,
+    speed_mm_s: u32,
+) -> VehicleHandle {
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            profile,
+            route,
+            0,
+            progress_mm,
+            speed_mm_s,
+        ))
+        .expect("calibration vehicle")
+}
+
+fn calibration_gate(world: &TrafficWorld, route: RouteHandle) -> u32 {
+    let edge = world.route_edges(route).expect("calibration route edges")[0];
+    world.traffic().lane_lengths_millimetres()[edge.index()]
+}
+
+fn calibration_outcome(
+    world: &TrafficWorld,
+    subject: VehicleHandle,
+) -> laneflow_runtime::ConflictDecisionOutcome {
+    world
+        .latest_conflict_decisions()
+        .iter()
+        .find(|decision| decision.vehicle() == subject)
+        .expect("Gate frontier decision")
+        .outcome()
+}
+
+fn wait_for_calibration_grant(
+    world: &mut TrafficWorld,
+    subject: VehicleHandle,
+    max_ticks: u32,
+    rejects: &mut CalibrationRejects,
+) -> u64 {
+    for tick in 1..=max_ticks {
+        world.step(TickInput::new(100)).expect("calibration tick");
+        match calibration_outcome(world, subject) {
+            laneflow_runtime::ConflictDecisionOutcome::Granted => return u64::from(tick) * 100,
+            laneflow_runtime::ConflictDecisionOutcome::NoGrant(reason) => rejects.record(reason),
+            outcome => panic!("unexpected calibration outcome: {outcome:?}"),
+        }
+        assert_eq!(
+            world
+                .vehicle(subject)
+                .expect("queued subject")
+                .route_edge_index(),
+            0,
+            "no-grant subject must remain on the Gate approach"
+        );
+    }
+    panic!("calibration subject did not receive a grant within {max_ticks} ticks: {rejects:?}");
+}
+
+fn calibration_percentiles(mut waits_ms: Vec<u64>) -> (u64, u64) {
+    waits_ms.sort_unstable();
+    let p50 = waits_ms[(waits_ms.len() - 1) / 2];
+    let p95 = waits_ms[((waits_ms.len() - 1) * 95) / 100];
+    (p50, p95)
+}
+
+#[test]
+fn conservative_gap_profile_calibration_matrix_uses_the_formal_solver() {
+    const TRIALS: u32 = 8;
+    let revision = compile_road_editing_revision(conflict_calibration_road_editing_module());
+    let policy = revision
+        .policy()
+        .policy(RightOfWayPolicySetOrdinal::from_raw(0))
+        .expect("calibration policy");
+    let gap = policy.gap_profiles().first().expect("calibration gap");
+    assert_eq!(gap.key(), "urban-conservative");
+    assert_eq!(gap.parameter_version(), "urban-conservative-v1");
+    assert_eq!(gap.minimum_lead_ms(), 5_000);
+    assert_eq!(gap.minimum_lag_ms(), 2_000);
+    assert_eq!(gap.clearance_ms(), 500);
+    let car = calibration_profile(&revision, "car");
+    let long_vehicle = calibration_profile(&revision, "long-vehicle");
+
+    assert_eq!(
+        revision
+            .traffic()
+            .relations()
+            .vehicle_profile(car)
+            .unwrap()
+            .length_mm(),
+        4_500
+    );
+    assert_eq!(
+        revision
+            .traffic()
+            .relations()
+            .vehicle_profile(car)
+            .unwrap()
+            .min_gap_mm(),
+        2_000
+    );
+    assert_eq!(
+        revision
+            .traffic()
+            .relations()
+            .vehicle_profile(long_vehicle)
+            .unwrap()
+            .length_mm(),
+        12_000
+    );
+    assert_eq!(
+        revision
+            .traffic()
+            .relations()
+            .vehicle_profile(long_vehicle)
+            .unwrap()
+            .min_gap_mm(),
+        3_000
+    );
+
+    let mut clear_short = Vec::new();
+    let mut clear_long = Vec::new();
+    let mut accepted_gap = Vec::new();
+    let mut unprotected_turn = Vec::new();
+    let mut unprotected_rejects = CalibrationRejects::default();
+    let mut saturated = Vec::new();
+    let mut saturated_rejects = CalibrationRejects::default();
+    let mut downstream_rejects = CalibrationRejects::default();
+
+    for _ in 0..TRIALS {
+        for (profile, waits) in [(car, &mut clear_short), (long_vehicle, &mut clear_long)] {
+            let (mut world, routes) = calibration_world(Arc::clone(&revision));
+            assert_eq!(world.policy_gap_profiles()[0].required_lead_ms(), 5_600);
+            assert_eq!(world.policy_gap_profiles()[0].required_lag_ms(), 2_500);
+            let gate = calibration_gate(&world, routes[0]);
+            let subject = spawn_calibration_vehicle(&mut world, profile, routes[0], gate, 10_000);
+            waits.push(wait_for_calibration_grant(
+                &mut world,
+                subject,
+                1,
+                &mut CalibrationRejects::default(),
+            ));
+        }
+
+        let (mut world, routes) = calibration_world(Arc::clone(&revision));
+        let subject_gate = calibration_gate(&world, routes[0]);
+        let subject = spawn_calibration_vehicle(&mut world, car, routes[0], subject_gate, 10_000);
+        accepted_gap.push(wait_for_calibration_grant(
+            &mut world,
+            subject,
+            1,
+            &mut CalibrationRejects::default(),
+        ));
+
+        let (mut world, routes) = calibration_world(Arc::clone(&revision));
+        let subject_gate = calibration_gate(&world, routes[0]);
+        let priority_gate = calibration_gate(&world, routes[1]);
+        spawn_calibration_vehicle(&mut world, car, routes[1], priority_gate, 13_000);
+        let subject = spawn_calibration_vehicle(&mut world, car, routes[0], subject_gate, 10_000);
+        unprotected_turn.push(wait_for_calibration_grant(
+            &mut world,
+            subject,
+            80,
+            &mut unprotected_rejects,
+        ));
+
+        let (mut world, routes) = calibration_world(Arc::clone(&revision));
+        let subject_gate = calibration_gate(&world, routes[0]);
+        let priority_gate = calibration_gate(&world, routes[1]);
+        spawn_calibration_vehicle(&mut world, car, routes[1], priority_gate, 13_000);
+        spawn_calibration_vehicle(&mut world, car, routes[1], priority_gate - 6_500, 13_000);
+        spawn_calibration_vehicle(&mut world, car, routes[1], priority_gate - 13_000, 13_000);
+        let subject = spawn_calibration_vehicle(&mut world, car, routes[0], subject_gate, 10_000);
+        saturated.push(wait_for_calibration_grant(
+            &mut world,
+            subject,
+            120,
+            &mut saturated_rejects,
+        ));
+
+        let (mut world, routes) = calibration_world(Arc::clone(&revision));
+        let subject_gate = calibration_gate(&world, routes[0]);
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(car, routes[0], 1, 10_501, 0))
+            .expect("downstream blocker");
+        let subject = spawn_calibration_vehicle(&mut world, car, routes[0], subject_gate, 10_000);
+        world
+            .step(TickInput::new(100))
+            .expect("blocked calibration tick");
+        match calibration_outcome(&world, subject) {
+            laneflow_runtime::ConflictDecisionOutcome::NoGrant(reason) => {
+                downstream_rejects.record(reason);
+            }
+            outcome => panic!("blocked calibration subject was not rejected: {outcome:?}"),
+        }
+        assert_eq!(world.vehicle(subject).unwrap().route_edge_index(), 0);
+    }
+
+    assert_eq!(downstream_rejects.downstream, TRIALS);
+    assert_eq!(downstream_rejects.other, 0);
+    assert!(unprotected_rejects.lead_gap > 0);
+    assert!(unprotected_rejects.lag_gap > 0);
+    assert_eq!(unprotected_rejects.other, 0);
+    assert!(saturated_rejects.lead_gap > 0);
+    assert!(saturated_rejects.lag_gap > 0);
+    assert_eq!(saturated_rejects.other, 0);
+
+    for (name, waits, vehicle_length_mm, minimum_gap_mm, stable_queue) in [
+        ("short-clear", clear_short, 4_500, 2_000, "none"),
+        ("long-clear", clear_long, 12_000, 3_000, "none"),
+        (
+            "yielding-merge-open-gap",
+            accepted_gap,
+            4_500,
+            2_000,
+            "none",
+        ),
+        (
+            "unprotected-turn-closing-gap",
+            unprotected_turn,
+            4_500,
+            2_000,
+            "bounded-at-gate",
+        ),
+        (
+            "saturated-mainline",
+            saturated,
+            4_500,
+            2_000,
+            "bounded-at-gate",
+        ),
+    ] {
+        let passed = waits.len();
+        let observation_ms = waits.iter().copied().max().unwrap_or(0);
+        let (p50_ms, p95_ms) = calibration_percentiles(waits);
+        println!(
+            "conflict-gap-calibration scenario={name} demand={TRIALS}-controlled-arrivals \
+             vehicle_length_mm={vehicle_length_mm} minimum_gap_mm={minimum_gap_mm} fixed_dt_ms=100 \
+             observation_ms={observation_ms} passed={passed} \
+             wait_p50_ms={p50_ms} wait_p95_ms={p95_ms} stable_queue={stable_queue}"
+        );
+    }
+    println!(
+        "conflict-gap-calibration scenario=unprotected-turn-closing-gap \
+         rejects=occupied:{},lag-gap:{},lead-gap:{}",
+        unprotected_rejects.occupied, unprotected_rejects.lag_gap, unprotected_rejects.lead_gap
+    );
+    println!(
+        "conflict-gap-calibration scenario=saturated-mainline \
+         rejects=occupied:{},lag-gap:{},lead-gap:{}",
+        saturated_rejects.occupied, saturated_rejects.lag_gap, saturated_rejects.lead_gap
+    );
+    println!(
+        "conflict-gap-calibration scenario=downstream-blockage \
+         demand={TRIALS}-controlled-arrivals vehicle_length_mm=4500 minimum_gap_mm=2000 \
+         fixed_dt_ms=100 observation_ms=100 passed=0 \
+         wait_p50_ms=100 wait_p95_ms=100 rejects=downstream-storage:{} stable_queue=true",
+        downstream_rejects.downstream
+    );
 }
 
 #[test]
@@ -1294,7 +1998,7 @@ fn conflict_multiplicity_preserves_owner_local_and_repeated_occurrences() {
             .is_some_and(|view| view.maneuver_path() == path && view.passages().len() == 2)
     }));
 
-    let final_stream = streams
+    let _final_stream = streams
         .iter()
         .copied()
         .find(|stream| {
@@ -1346,11 +2050,11 @@ fn conflict_multiplicity_preserves_owner_local_and_repeated_occurrences() {
             0,
         ))
         .unwrap_err();
-    let SpawnError::ConflictRuntimeUnavailable(unavailable) = error else {
-        panic!("rear clears the last entry but not the maximum clearance: {error:?}");
-    };
-    assert_eq!(unavailable.stream(), final_stream);
-    assert_eq!(unavailable.passage_local_index(), 1);
+    assert_eq!(
+        error,
+        SpawnError::ConflictAuthorityRequired,
+        "rear clears the last entry but not the maximum clearance",
+    );
     world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
@@ -1659,13 +2363,10 @@ fn conflict_cutover_recompiles_same_and_rejects_target_extension_atomically() {
         Ok(_) => panic!("extended conflict clearance must reject cutover"),
         Err(error) => error,
     };
-    let CutoverError::ConflictRuntimeUnavailable(unavailable) = error else {
-        panic!("unexpected cutover error: {error:?}");
-    };
-    assert_eq!(unavailable.route(), route);
-    assert_eq!(unavailable.stream(), ParticipantStreamOrdinal::from_raw(0));
-    assert_eq!(unavailable.passage_local_index(), 0);
-    assert_eq!(unavailable.zone(), ConflictZoneOrdinal::from_raw(0));
+    assert_eq!(
+        error,
+        CutoverError::VehicleRevalidationFailed { vehicle: 0 },
+    );
     assert_eq!(world.world_generation(), before_generation);
     assert_eq!(world.world_binding(), before_binding);
     assert_eq!(
@@ -1687,7 +2388,10 @@ fn conflict_cutover_recompiles_same_and_rejects_target_extension_atomically() {
         Ok(_) => panic!("extended conflict clearance retry must reject cutover"),
         Err(error) => error,
     };
-    assert!(matches!(retry, CutoverError::ConflictRuntimeUnavailable(_)));
+    assert_eq!(
+        retry,
+        CutoverError::VehicleRevalidationFailed { vehicle: 0 },
+    );
 }
 
 #[test]
@@ -2069,7 +2773,7 @@ fn conflict_snapshot_restore_uses_saved_carry_and_exact_rebuilt_count() {
             SnapshotRestoreLimits::new(1_048_576, 1_024),
         ),
         Err(SnapshotRestoreError::Vehicle {
-            error: SpawnError::ConflictRuntimeUnavailable(_),
+            error: SpawnError::ConflictAuthorityRequired,
             ..
         })
     ));
@@ -2232,7 +2936,7 @@ fn conflict_three_a_covers_replace_leave_and_rebind_atomically() {
                 exit_route_occurrence: 1,
             },
         ),
-        Err(ParkingError::ConflictRuntimeUnavailable(_))
+        Err(ParkingError::ConflictAuthorityRequired)
     ));
     assert_eq!(leave_world.vehicle(parked), parked_state);
     assert_eq!(leave_world.parking_binding(parked), parked_binding);
@@ -2291,7 +2995,7 @@ fn conflict_three_a_covers_replace_leave_and_rebind_atomically() {
                 new_entry_route_occurrence: 2,
             },
         ),
-        Err(ParkingError::ConflictRuntimeUnavailable(_))
+        Err(ParkingError::ConflictAuthorityRequired)
     ));
     assert_eq!(world.vehicle(active), active_state);
     assert_eq!(world.parking_binding(active), active_binding);
@@ -2324,7 +3028,7 @@ fn conflict_three_a_covers_replace_leave_and_rebind_atomically() {
                 0,
             ),
         ),
-        Err(ReplaceError::ConflictRuntimeUnavailable(_))
+        Err(ReplaceError::ConflictAuthorityRequired)
     ));
     assert_eq!(
         world

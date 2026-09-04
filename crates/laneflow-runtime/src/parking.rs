@@ -1460,8 +1460,8 @@ impl TrafficWorld {
             Err(ConflictCapabilityError::InvalidCursor) => {
                 return Err(ParkingError::InvariantViolation);
             }
-            Err(ConflictCapabilityError::RuntimeUnavailable(error)) => {
-                return Err(ParkingError::ConflictRuntimeUnavailable(error));
+            Err(ConflictCapabilityError::AuthorityRequired) => {
+                return Err(ParkingError::ConflictAuthorityRequired);
             }
         }
         let new_route_ref = (route != state.route)
@@ -1584,8 +1584,8 @@ impl TrafficWorld {
             Err(ConflictCapabilityError::InvalidCursor) => {
                 return Err(ParkingError::InvariantViolation);
             }
-            Err(ConflictCapabilityError::RuntimeUnavailable(error)) => {
-                return Err(ParkingError::ConflictRuntimeUnavailable(error));
+            Err(ConflictCapabilityError::AuthorityRequired) => {
+                return Err(ParkingError::ConflictAuthorityRequired);
             }
         }
         let reservation = ParkingReservation::new(

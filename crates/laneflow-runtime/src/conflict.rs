@@ -1,7 +1,6 @@
 //! 冲突候选、间隙证明与组合资源的单写者核心。
 //!
-//! W4 先把仲裁权威建立在 runtime 内部；生产路线仍受
-//! `ConflictRuntimeUnavailable` 保护，直到后续完整集成切片接通 tick、快照与切换。
+//! W7 已把仲裁、crossing、tail-clear、快照与在线切换接入生产固定步进。
 #![cfg_attr(not(test), allow(dead_code))]
 
 use core::cmp::Ordering;
@@ -13,6 +12,63 @@ use laneflow_static_contract::{
 use laneflow_static_network::ResolvedGatePolicy;
 
 use crate::{RouteHandle, VehicleHandle};
+
+#[cfg(test)]
+thread_local! {
+    static CONFLICT_WORK_COUNTS: core::cell::Cell<ConflictWorkCounts> =
+        const { core::cell::Cell::new(ConflictWorkCounts::ZERO) };
+}
+
+/// 测试专用访问计数；不进入生产世界布局、公开 API 或持久状态。
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ConflictWorkCounts {
+    pub(crate) visited_passages: usize,
+    pub(crate) frontier_updates: usize,
+    pub(crate) candidates: usize,
+    pub(crate) yield_queries: usize,
+    pub(crate) cell_claim_queries: usize,
+    pub(crate) downstream_claim_queries: usize,
+    pub(crate) collision_rejections: usize,
+    pub(crate) wait_for_nodes: usize,
+    pub(crate) wait_for_edges: usize,
+    pub(crate) wait_for_visits: usize,
+}
+
+#[cfg(test)]
+impl ConflictWorkCounts {
+    const ZERO: Self = Self {
+        visited_passages: 0,
+        frontier_updates: 0,
+        candidates: 0,
+        yield_queries: 0,
+        cell_claim_queries: 0,
+        downstream_claim_queries: 0,
+        collision_rejections: 0,
+        wait_for_nodes: 0,
+        wait_for_edges: 0,
+        wait_for_visits: 0,
+    };
+}
+
+#[cfg(test)]
+pub(crate) fn count_conflict_work(update: impl FnOnce(&mut ConflictWorkCounts)) {
+    CONFLICT_WORK_COUNTS.with(|counts| {
+        let mut value = counts.get();
+        update(&mut value);
+        counts.set(value);
+    });
+}
+
+#[cfg(test)]
+pub(crate) fn reset_conflict_work_counts() {
+    CONFLICT_WORK_COUNTS.with(|counts| counts.set(ConflictWorkCounts::ZERO));
+}
+
+#[cfg(test)]
+pub(crate) fn conflict_work_counts() -> ConflictWorkCounts {
+    CONFLICT_WORK_COUNTS.with(core::cell::Cell::get)
+}
 
 /// 静态 passage cell 的规范地址；同一流中的 owner-local 下标不会跨流解释。
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -589,6 +645,10 @@ impl DownstreamClaimPlan {
     pub(crate) const fn raw_interval_capacity(self) -> usize {
         self.raw_interval_capacity
     }
+
+    pub(crate) const fn target(self) -> DownstreamRoutePoint {
+        self.target
+    }
 }
 
 impl DownstreamRoutePoint {
@@ -1156,6 +1216,46 @@ pub(crate) struct ConflictCrossingCommit {
     pub(crate) waiting_admission: Option<WaitingZoneOrdinal>,
 }
 
+struct ConflictCrossingPreflight {
+    cells: usize,
+    downstream_claims: usize,
+    downstream_claim_count: u32,
+    authority_index: usize,
+    entered_index: Option<usize>,
+}
+
+struct PureWaitingGrantPreflight {
+    waiting_zone: WaitingZoneOrdinal,
+    staged_index: usize,
+    authority_index: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ConflictPassageStage {
+    Reserved,
+    Occupied,
+    Cleared,
+}
+
+impl ConflictPassageStage {
+    pub(crate) const fn journal_tag(self) -> u8 {
+        match self {
+            Self::Reserved => 0,
+            Self::Occupied => 1,
+            Self::Cleared => 2,
+        }
+    }
+
+    pub(crate) const fn from_journal_tag(tag: u8) -> Option<Self> {
+        match tag {
+            0 => Some(Self::Reserved),
+            1 => Some(Self::Occupied),
+            2 => Some(Self::Cleared),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ConflictClearOutcome {
     Retained,
@@ -1525,12 +1625,6 @@ impl ConflictArbiter {
             .is_some_and(|authority| authority.has_authority())
     }
 
-    pub(crate) fn has_live_authority(&self) -> bool {
-        self.owner_authorities
-            .iter()
-            .any(|authority| authority.has_authority())
-    }
-
     pub(crate) fn clear_approach_frontier(&mut self) {
         for cell in &mut self.cells {
             cell.frontier = ApproachFrontierCell::default();
@@ -1561,6 +1655,24 @@ impl ConflictArbiter {
             .ok()
             .and_then(|index| self.cells.get(index))
             .is_some_and(|cell| cell.reservation == Some(owner))
+    }
+
+    pub(crate) fn passage_stage(
+        &self,
+        owner: VehicleHandle,
+        address: ConflictPassageAddress,
+    ) -> Option<ConflictPassageStage> {
+        let cell = self.cells.get(self.cell_index(address).ok()?)?;
+        if cell.reservation != Some(owner) {
+            return None;
+        }
+        Some(if cell.cleared {
+            ConflictPassageStage::Cleared
+        } else if cell.occupant == Some(owner) {
+            ConflictPassageStage::Occupied
+        } else {
+            ConflictPassageStage::Reserved
+        })
     }
 
     pub(crate) fn reservation(&self, owner: VehicleHandle) -> Option<ConflictReservation> {
@@ -1731,6 +1843,8 @@ impl ConflictArbiter {
         required_lag_ms: u64,
         required_lead_ms: u64,
     ) -> Option<ConflictYieldOutcome> {
+        #[cfg(test)]
+        count_conflict_work(|counts| counts.yield_queries += 1);
         let index = self.cell_index(target).ok()?;
         let cell = self.cells.get(index).copied().unwrap_or_default();
         if cell.reservation.is_some_and(|owner| owner != subject)
@@ -1780,6 +1894,8 @@ impl ConflictArbiter {
             .waiting_cycle_scratch
             .contains_multi_owner_cycle(bundle.waiting_dependencies)?
         {
+            #[cfg(test)]
+            count_conflict_work(|counts| counts.collision_rejections += 1);
             return Err(ConflictAcquireError::NoGrant(
                 ConflictResourceNoGrant::WaitingCycle,
             ));
@@ -1790,6 +1906,8 @@ impl ConflictArbiter {
         reserve_for_len(&mut self.scratch_cell_indices, bundle.cells.len())?;
         self.scratch_cell_indices.clear();
         for address in bundle.cells {
+            #[cfg(test)]
+            count_conflict_work(|counts| counts.cell_claim_queries += 1);
             let index = self.cell_index(*address)?;
             if self
                 .scratch_cell_indices
@@ -1803,6 +1921,8 @@ impl ConflictArbiter {
                     *owner != bundle.owner && self.addresses[*other].zone == address.zone
                 })
             {
+                #[cfg(test)]
+                count_conflict_work(|counts| counts.collision_rejections += 1);
                 return Err(ConflictAcquireError::NoGrant(
                     ConflictResourceNoGrant::ConflictOccupied,
                 ));
@@ -1813,6 +1933,8 @@ impl ConflictArbiter {
             return Err(ConflictAcquireError::InvalidBundle);
         }
         for interval in bundle.downstream {
+            #[cfg(test)]
+            count_conflict_work(|counts| counts.downstream_claim_queries += 1);
             if self
                 .committed_downstream
                 .iter()
@@ -1827,6 +1949,8 @@ impl ConflictArbiter {
                         )
                 })
             {
+                #[cfg(test)]
+                count_conflict_work(|counts| counts.collision_rejections += 1);
                 return Err(ConflictAcquireError::NoGrant(
                     ConflictResourceNoGrant::DownstreamClaimConflict,
                 ));
@@ -1942,6 +2066,87 @@ impl ConflictArbiter {
         passage_range: ConflictPassageRange,
         entered_passage: ConflictPassageAddress,
     ) -> Result<ConflictCrossingCommit, ConflictAcquireError> {
+        self.commit_crossing_inner(grant, passage_range, Some(entered_passage))
+    }
+
+    /// Gate crossing 提交 reservation；实际 passage occupancy 由 post-step front
+    /// transitions 随后逐 cell 建立，避免把 Gate 到 passage entry 的距离提前占用。
+    pub(crate) fn commit_gate_crossing(
+        &mut self,
+        grant: ConflictGrant,
+        passage_range: ConflictPassageRange,
+    ) -> Result<ConflictCrossingCommit, ConflictAcquireError> {
+        self.commit_crossing_inner(grant, passage_range, None)
+    }
+
+    pub(crate) fn validate_gate_crossing(
+        &self,
+        grant: &ConflictGrant,
+        passage_range: ConflictPassageRange,
+    ) -> Result<(), ConflictAcquireError> {
+        self.crossing_commit_preflight(grant, passage_range, None)
+            .map(|_| ())
+    }
+
+    fn commit_crossing_inner(
+        &mut self,
+        grant: ConflictGrant,
+        passage_range: ConflictPassageRange,
+        entered_passage: Option<ConflictPassageAddress>,
+    ) -> Result<ConflictCrossingCommit, ConflictAcquireError> {
+        let preflight = self.crossing_commit_preflight(&grant, passage_range, entered_passage)?;
+        for (index, owner, serial) in &self.staged_cells {
+            if *owner == grant.owner && *serial == grant.serial {
+                self.cells[*index].reservation = Some(grant.owner);
+                self.cells[*index].reservation_serial = Some(grant.serial);
+                self.cells[*index].cleared = false;
+                if preflight.entered_index == Some(*index) {
+                    self.cells[*index].occupant = Some(grant.owner);
+                }
+                self.committed_cells.push((*index, *owner, *serial));
+            }
+        }
+        self.staged_cells
+            .retain(|(_, owner, serial)| *owner != grant.owner || *serial != grant.serial);
+        self.committed_downstream.extend(
+            self.staged_downstream
+                .iter()
+                .filter(|claim| claim.owner == grant.owner && claim.serial == grant.serial)
+                .copied(),
+        );
+        self.staged_downstream
+            .retain(|claim| claim.owner != grant.owner || claim.serial != grant.serial);
+        let reservation = ConflictReservation {
+            owner: grant.owner,
+            passage_range,
+            downstream_owner: grant.owner,
+            downstream_claim_count: preflight.downstream_claim_count,
+            acquired_tick: grant.tick,
+            claim_serial: grant.serial,
+        };
+        self.reservations.push(reservation);
+        self.owner_authorities[preflight.authority_index] = ConflictOwnerAuthority::committed(
+            reservation,
+            preflight.cells,
+            preflight.downstream_claims,
+        );
+        self.staged_grants
+            .iter_mut()
+            .find(|staged| staged.owner == grant.owner && staged.serial == grant.serial)
+            .expect("validated staged grant")
+            .consumed = true;
+        Ok(ConflictCrossingCommit {
+            reservation,
+            waiting_admission: grant.waiting_zone,
+        })
+    }
+
+    fn crossing_commit_preflight(
+        &self,
+        grant: &ConflictGrant,
+        passage_range: ConflictPassageRange,
+        entered_passage: Option<ConflictPassageAddress>,
+    ) -> Result<ConflictCrossingPreflight, ConflictAcquireError> {
         if !self.staged_grants.iter().any(|staged| {
             staged.owner == grant.owner && staged.serial == grant.serial && !staged.consumed
         }) {
@@ -1964,14 +2169,18 @@ impl ConflictArbiter {
             .owner_authority_index(grant.owner)
             .map_err(|_| ConflictAcquireError::InvalidBundle)?;
         let authority = self.owner_authorities[authority_index];
-        let entered_index = self.cell_index(entered_passage)?;
+        let entered_index = entered_passage
+            .map(|address| self.cell_index(address))
+            .transpose()?;
         if cells == 0
             || downstream_claims == 0
             || passage_range.passage_count != cell_count
             || self.reservations.len() >= self.vehicle_capacity
             || self.reservations.iter().any(|r| r.owner == grant.owner)
-            || !self.staged_cells.iter().any(|(index, owner, serial)| {
-                *index == entered_index && *owner == grant.owner && *serial == grant.serial
+            || entered_index.is_some_and(|entered_index| {
+                !self.staged_cells.iter().any(|(index, owner, serial)| {
+                    *index == entered_index && *owner == grant.owner && *serial == grant.serial
+                })
             })
             || authority.staged_serial != Some(grant.serial)
             || authority.staged_cell_count != cells
@@ -1988,53 +2197,37 @@ impl ConflictArbiter {
                 return Err(ConflictAcquireError::InvalidBundle);
             }
         }
-        for (index, owner, serial) in &self.staged_cells {
-            if *owner == grant.owner && *serial == grant.serial {
-                self.cells[*index].reservation = Some(grant.owner);
-                self.cells[*index].reservation_serial = Some(grant.serial);
-                self.cells[*index].cleared = false;
-                if *index == entered_index {
-                    self.cells[*index].occupant = Some(grant.owner);
-                }
-                self.committed_cells.push((*index, *owner, *serial));
-            }
-        }
-        self.staged_cells
-            .retain(|(_, owner, serial)| *owner != grant.owner || *serial != grant.serial);
-        self.committed_downstream.extend(
-            self.staged_downstream
-                .iter()
-                .filter(|claim| claim.owner == grant.owner && claim.serial == grant.serial)
-                .copied(),
-        );
-        self.staged_downstream
-            .retain(|claim| claim.owner != grant.owner || claim.serial != grant.serial);
-        let reservation = ConflictReservation {
-            owner: grant.owner,
-            passage_range,
-            downstream_owner: grant.owner,
+        Ok(ConflictCrossingPreflight {
+            cells,
+            downstream_claims,
             downstream_claim_count,
-            acquired_tick: grant.tick,
-            claim_serial: grant.serial,
-        };
-        self.reservations.push(reservation);
-        self.owner_authorities[authority_index] =
-            ConflictOwnerAuthority::committed(reservation, cells, downstream_claims);
-        self.staged_grants
-            .iter_mut()
-            .find(|staged| staged.owner == grant.owner && staged.serial == grant.serial)
-            .expect("validated staged grant")
-            .consumed = true;
-        Ok(ConflictCrossingCommit {
-            reservation,
-            waiting_admission: grant.waiting_zone,
+            authority_index,
+            entered_index,
         })
+    }
+
+    pub(crate) fn validate_pure_waiting_grant(
+        &self,
+        grant: &ConflictGrant,
+    ) -> Result<(), ConflictAcquireError> {
+        self.pure_waiting_grant_preflight(grant).map(|_| ())
     }
 
     pub(crate) fn consume_pure_waiting_grant(
         &mut self,
         grant: ConflictGrant,
     ) -> Result<WaitingZoneOrdinal, ConflictAcquireError> {
+        let preflight = self.pure_waiting_grant_preflight(&grant)?;
+        self.staged_grants[preflight.staged_index].consumed = true;
+        self.owner_authorities[preflight.authority_index] =
+            ConflictOwnerAuthority::consumed(grant.owner);
+        Ok(preflight.waiting_zone)
+    }
+
+    fn pure_waiting_grant_preflight(
+        &self,
+        grant: &ConflictGrant,
+    ) -> Result<PureWaitingGrantPreflight, ConflictAcquireError> {
         let Some(waiting_zone) = grant.waiting_zone else {
             return Err(ConflictAcquireError::InvalidBundle);
         };
@@ -2065,9 +2258,11 @@ impl ConflictArbiter {
         {
             return Err(ConflictAcquireError::InvalidBundle);
         }
-        self.staged_grants[staged_index].consumed = true;
-        self.owner_authorities[authority_index] = ConflictOwnerAuthority::consumed(grant.owner);
-        Ok(waiting_zone)
+        Ok(PureWaitingGrantPreflight {
+            waiting_zone,
+            staged_index,
+            authority_index,
+        })
     }
 
     pub(crate) fn expire_unconsumed_grants(&mut self) {
@@ -2095,6 +2290,39 @@ impl ConflictArbiter {
         }
         cell.occupant = Some(owner);
         true
+    }
+
+    pub(crate) fn passage_transition_valid_after_staged_commits(
+        &self,
+        owner: VehicleHandle,
+        address: ConflictPassageAddress,
+        enter: bool,
+        clear: bool,
+    ) -> bool {
+        let Ok(index) = self.cell_index(address) else {
+            return false;
+        };
+        let cell = &self.cells[index];
+        let committed = cell.reservation == Some(owner);
+        let staged_serial = self
+            .owner_authority(owner)
+            .and_then(|authority| authority.staged_serial);
+        let staged = cell.reservation.is_none()
+            && self
+                .staged_cells
+                .iter()
+                .any(|(staged_index, staged_owner, serial)| {
+                    *staged_index == index
+                        && *staged_owner == owner
+                        && Some(*serial) == staged_serial
+                });
+        if (!committed && !staged)
+            || (committed && cell.cleared)
+            || (enter && cell.occupant.is_some_and(|occupant| occupant != owner))
+        {
+            return false;
+        }
+        !clear || enter || cell.occupant == Some(owner)
     }
 
     pub(crate) fn clear_passage(
@@ -2166,6 +2394,48 @@ impl ConflictArbiter {
         }
     }
 
+    /// 在线 cutover journal 的 authority replacement 先移除候选旧 owner 行；
+    /// cell 的 lag 历史由同一 tick 的独立 lag delta 更新，不能伪造一次 clear。
+    pub(crate) fn remove_authority_for_replay(
+        &mut self,
+        owner: VehicleHandle,
+    ) -> Result<(), ConflictAcquireError> {
+        if self
+            .staged_cells
+            .iter()
+            .any(|(_, current, _)| *current == owner)
+            || self
+                .staged_downstream
+                .iter()
+                .any(|claim| claim.owner == owner)
+            || self.staged_grants.iter().any(|grant| grant.owner == owner)
+        {
+            return Err(ConflictAcquireError::InvalidBundle);
+        }
+        for (index, current, _) in &self.committed_cells {
+            if *current == owner {
+                let cell = &mut self.cells[*index];
+                if cell.reservation != Some(owner) {
+                    return Err(ConflictAcquireError::InvalidBundle);
+                }
+                cell.reservation = None;
+                cell.reservation_serial = None;
+                cell.occupant = None;
+                cell.cleared = false;
+            }
+        }
+        self.committed_cells
+            .retain(|(_, current, _)| *current != owner);
+        self.reservations
+            .retain(|reservation| reservation.owner != owner);
+        self.committed_downstream
+            .retain(|claim| claim.owner != owner);
+        if let Ok(index) = self.owner_authority_index(owner) {
+            self.owner_authorities.remove(index);
+        }
+        Ok(())
+    }
+
     fn owner_authority_index(&self, owner: VehicleHandle) -> Result<usize, usize> {
         self.owner_authorities
             .binary_search_by_key(&(owner.index(), owner.generation()), |authority| {
@@ -2215,7 +2485,7 @@ impl ConflictArbiter {
     }
 
     #[cfg(test)]
-    fn retained_logical_bytes(&self) -> u64 {
+    pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             addresses,
             cells,
@@ -2328,6 +2598,12 @@ impl WaitingCycleScratch {
         self.forward.sort_unstable();
         self.forward.dedup();
 
+        #[cfg(test)]
+        count_conflict_work(|counts| {
+            counts.wait_for_nodes += self.nodes.len();
+            counts.wait_for_edges += self.forward.len();
+        });
+
         reserve_for_len(&mut self.reverse, self.forward.len())?;
         self.reverse.clear();
         self.reverse
@@ -2350,6 +2626,8 @@ impl WaitingCycleScratch {
                 continue;
             }
             self.visited[root] = true;
+            #[cfg(test)]
+            count_conflict_work(|counts| counts.wait_for_visits += 1);
             self.dfs_stack.push((root, self.forward_offsets[root]));
             while let Some((node, next)) = self.dfs_stack.last_mut() {
                 let end = self.forward_offsets[*node + 1];
@@ -2358,6 +2636,8 @@ impl WaitingCycleScratch {
                     *next += 1;
                     if !self.visited[target] {
                         self.visited[target] = true;
+                        #[cfg(test)]
+                        count_conflict_work(|counts| counts.wait_for_visits += 1);
                         self.dfs_stack.push((target, self.forward_offsets[target]));
                     }
                 } else {
@@ -2376,6 +2656,8 @@ impl WaitingCycleScratch {
                 continue;
             }
             self.visited[root] = true;
+            #[cfg(test)]
+            count_conflict_work(|counts| counts.wait_for_visits += 1);
             let mut owner_count =
                 usize::from(matches!(self.nodes[root], WaitingDependencyNode::Owner(_)));
             self.component_stack.push(root);
@@ -2385,6 +2667,8 @@ impl WaitingCycleScratch {
                 {
                     if !self.visited[*target] {
                         self.visited[*target] = true;
+                        #[cfg(test)]
+                        count_conflict_work(|counts| counts.wait_for_visits += 1);
                         owner_count += usize::from(matches!(
                             self.nodes[*target],
                             WaitingDependencyNode::Owner(_)

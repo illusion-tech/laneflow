@@ -35,8 +35,7 @@
 #284 的策略绑定、Conflict reservation 与历史状态增量见
 [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §6、§8
 （Accepted）。当前已实现策略绑定、Conflict eligibility/reservation/Clearing、
-downstream authority 与 lag history 的持久化和同/跨修订迁移；生产 fixed-step 接线仍由
-W7 完成。
+downstream authority 与 lag history 的持久化、同/跨修订迁移和生产 fixed-step 接线。
 
 城市游戏需要存档、恢复与回放。Runtime Snapshot 是每世界可变状态的独立版本化
 制品：不进入 LFCP 发布链，真实性由宿主存档清单在对象外绑定（ADR 0021）。
@@ -187,10 +186,9 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   的位置子谓词。
 - 恢复成功后世界处于快照 `tick` 边界的一致状态；`install` 核对与
   `register_admitted_route` 规范化路线重建沿现行消费契约执行。
-- W5 恢复出的 Conflict eligibility/reservation 是可继续保存、同修订换根、跨修订迁移或
-  显式 despawn 的权威状态；W7 生产 tick 接线前，含这些 live authority 的 `step` 以
-  `ConflictRuntimeUnavailable` 在任何运动/Waiting 写回前原子失败，避免首拍丢失
-  `Clearing`。仅含 lag history、没有 live authority 的世界不受该保护影响。
+- 恢复出的 Conflict eligibility/reservation 可继续进入正式 fixed tick、保存、同修订
+  换根、跨修订迁移或显式 despawn。首拍由同一 single-writer 组合路径推进
+  `Clearing`、tail-clear 与 lag history，不丢失或重新授予既有 authority。
 - G2 fresh restore 入口 `restore_lfrs` 的顺序不可绕过：调用方 wire / asset-key
   上限 → size prefix / file identifier → 有界 FlatBuffers verifier → 版本/绑定/配置与
   表基数预检 → 标识、引用、排列、停车和值不变量 lowering → 局部 world 路线/车辆/

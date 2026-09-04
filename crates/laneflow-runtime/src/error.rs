@@ -1,57 +1,8 @@
 use thiserror::Error;
 
-use laneflow_static_contract::{ConflictZoneOrdinal, NetworkRevisionId, ParticipantStreamOrdinal};
+use laneflow_static_contract::NetworkRevisionId;
 
 use crate::{RouteHandle, VehicleHandle, VehicleReplaceBlock};
-
-/// #284 冲突仲裁能力尚未安装时，候选 Active 车辆仍未用车尾清除的最后 passage。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ConflictRuntimeUnavailable {
-    route: RouteHandle,
-    stream: ParticipantStreamOrdinal,
-    passage_local_index: u32,
-    zone: ConflictZoneOrdinal,
-}
-
-impl ConflictRuntimeUnavailable {
-    pub(crate) const fn new(
-        route: RouteHandle,
-        stream: ParticipantStreamOrdinal,
-        passage_local_index: u32,
-        zone: ConflictZoneOrdinal,
-    ) -> Self {
-        Self {
-            route,
-            stream,
-            passage_local_index,
-            zone,
-        }
-    }
-
-    /// 被检查的已注册或 staged 路线句柄。
-    #[must_use]
-    pub const fn route(self) -> RouteHandle {
-        self.route
-    }
-
-    /// passage 所属参与者流。
-    #[must_use]
-    pub const fn stream(self) -> ParticipantStreamOrdinal {
-        self.stream
-    }
-
-    /// passage 在其参与者流规范 slice 中的 owner-local 下标。
-    #[must_use]
-    pub const fn passage_local_index(self) -> u32 {
-        self.passage_local_index
-    }
-
-    /// passage 指向的冲突区。
-    #[must_use]
-    pub const fn zone(self) -> ConflictZoneOrdinal {
-        self.zone
-    }
-}
 
 /// `TrafficWorld::install` 失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
@@ -147,16 +98,15 @@ pub enum StepError {
     /// Waiting claim/decision/transition/event staging scratch 预留失败。
     #[error("WaitingZone tick scratch 分配失败")]
     WaitingScratchAllocFailed,
+    /// Conflict 候选、claim、decision 或 transition staging scratch 预留失败。
+    #[error("Conflict tick scratch 分配失败")]
+    ConflictScratchAllocFailed,
     /// 某个 zone 的 admission sequence 无法覆盖本拍 successful entries。
     #[error("WaitingZone admission sequence 已耗尽")]
     WaitingAdmissionSequenceExhausted,
     /// completion、traversal 或 ledger 的 Conflict authority 不闭合。
     #[error("Conflict runtime aggregate 不变量损坏")]
     ConflictInvariantViolation,
-    /// W7 生产 tick 尚未接通，已恢复/迁移的 Conflict authority 不能被
-    /// Waiting 提交路径覆盖；本拍在任何状态写回前失败关闭。
-    #[error("冲突运行时能力尚不可用: {0:?}")]
-    ConflictRuntimeUnavailable(ConflictRuntimeUnavailable),
 }
 
 /// 路线注册或移除失败。
@@ -248,9 +198,10 @@ pub enum SpawnError {
     /// 调用方试图在无法重建既有 Gate/Waiting authority 的 maneuver interior 生成车辆。
     #[error("不能在 stateful maneuver interior 创建无 Waiting authority 的车辆")]
     WaitingStatefulManeuverInterior,
-    /// #284 能力不存在，候选 Active 车辆尚未用车尾清除最后冲突通行段。
-    #[error("冲突运行时能力尚不可用: {0:?}")]
-    ConflictRuntimeUnavailable(ConflictRuntimeUnavailable),
+    /// 调用方试图在已越过 Conflict Gate、但车尾尚未清空 coverage 的位置
+    /// 创建没有既有 Conflict authority 的车辆。
+    #[error("不能在冲突通行段内部创建无 Conflict authority 的车辆")]
+    ConflictAuthorityRequired,
     /// 本次成功生成本应推进观测状态序号，但序号已耗尽。
     #[error("观测状态序号已耗尽")]
     ObservationStateSequenceExhausted,
@@ -307,9 +258,10 @@ pub enum ReplaceError {
     /// 新 Active 候选落在无法重建既有 Gate/Waiting authority 的 maneuver interior。
     #[error("不能在 stateful maneuver interior 创建无 Waiting authority 的车辆")]
     WaitingStatefulManeuverInterior,
-    /// #284 能力不存在，新 Active 车辆尚未用车尾清除最后冲突通行段。
-    #[error("冲突运行时能力尚不可用: {0:?}")]
-    ConflictRuntimeUnavailable(ConflictRuntimeUnavailable),
+    /// 新 Active 候选已越过 Conflict Gate、但车尾尚未清空 coverage，且没有
+    /// 可继承的 Conflict authority。
+    #[error("不能在冲突通行段内部创建无 Conflict authority 的车辆")]
+    ConflictAuthorityRequired,
     /// 本次成功替换本应推进观测状态序号，但序号已耗尽。
     #[error("观测状态序号已耗尽")]
     ObservationStateSequenceExhausted,
@@ -377,8 +329,8 @@ pub enum ParkingError {
     LeavePhysicalOverlap { blocker: VehicleHandle },
     #[error("leave 会让移动 direct follower 无法安全制动")]
     LeaveUnsafeFollower { follower: VehicleHandle },
-    #[error("冲突运行时能力尚不可用: {0:?}")]
-    ConflictRuntimeUnavailable(ConflictRuntimeUnavailable),
+    #[error("不能在冲突通行段内部恢复无 Conflict authority 的 Active 车辆")]
+    ConflictAuthorityRequired,
     #[error("车辆数量达到容量")]
     VehicleCapacityExceeded,
     #[error("停车稀疏状态分配失败")]

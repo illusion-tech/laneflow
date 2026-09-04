@@ -27,7 +27,7 @@ WaitingZone 是 Gate 有界资源、行为 authority 属于交通运行时、Ada
 
 `waiting-zone-conflict-right-of-way.md` 保存 Waiting、Conflict 与通行权的联合边界；本文
 进一步冻结 #282 的本地 Waiting 动态合同。发生不一致时，#282 的字段、管线、版本与
-验收以本文为准，组合仲裁以 #284 后续接受的设计为准。
+验收以本文为准，组合仲裁以 #284 已接受并实现的设计为准。
 
 当前实现基线如下：
 
@@ -39,11 +39,10 @@ WaitingZone 是 Gate 有界资源、行为 authority 属于交通运行时、Ada
 - `TrafficWorld` 当前只接受一个 worker，生命周期命令只在两次 `step` 之间调用；
 - `ParkingBinding`、停驻/离场生命周期已经生产化；Waiting membership 必须与它正交；
 - `ConflictPassageOccurrence`、`route_conflict_occurrence_capacity`、路线 conflict Gate
-  ranges 与 `ConflictRuntimeUnavailable` 3A 保护已经生产化；
+  ranges 与正式 Conflict 组合 authority 已经生产化；
 - LFRS 5、runtime state 5、deterministic digest 7、同修订/跨修订切换和在线迁移日志
   共同保存 Waiting 逻辑状态；
-- fixed step、车辆状态与生命周期消费 route `WaitingOccurrence`，但不取得 #284 的
-  downstream/conflict 组合资源。
+- fixed step、车辆状态与生命周期共同消费 Waiting、Conflict 与 downstream 组合资源。
 
 ## 2. 目标与非目标
 
@@ -77,8 +76,8 @@ WaitingZone 是 Gate 有界资源、行为 authority 属于交通运行时、Ada
 - 除 #541 `rebind_parking_route` 外新增通用 active route reassignment，或从 stateful
   maneuver interior 创建车辆的 bootstrap transaction；现有 lifecycle 命令必须接入
   Waiting 清理/校验，interior bootstrap 继续失败关闭；
-- 删除、绕过或弱化 #559 的 `ConflictRuntimeUnavailable`；该临时保护只能由 #284 在
-  正式冲突 grant/reservation 与组合 ledger 同一切片移除；
+- 由 #282 单独删除、绕过或弱化 #559 的临时保护；该保护已由 #284 在正式冲突
+  grant/reservation、组合 ledger、持久化与 fixed tick 同一切片原子接管；
 - 多 worker candidate producer、分布式/城市级预约、概率驾驶人耐心、死锁传送或
   长时域预测；
 - fixed equal slot、按速度阈值推断 Waiting membership，或另一套米制物理权威。
@@ -143,9 +142,8 @@ vehicle.length_mm <= occurrence.storage_length_mm
 
 若 cursor 位于包含多个 Gate 或任一 WaitingZone 的 maneuver occurrence 第一个 Gate
 之后、maneuver exit 之前，则候选 `Active` 绑定原子拒绝。第一版不根据 cursor 猜测
-已经发生的 Gate crossing、membership 或 admission sequence。随后仍须执行 #559 的
-整车身 conflict 3A 保护；Waiting 检查成功不构成跳过
-`ConflictRuntimeUnavailable` 的授权。
+已经发生的 Gate crossing、membership 或 admission sequence。随后仍须执行正式
+Conflict interior authority 检查；Waiting 检查成功不构成凭空创建 reservation 的授权。
 
 `rebind_parking_route` 不属于上述无 authority bootstrap。它只接受已有
 `Active + Reserved`，并先执行 #541 已冻结的 current occurrence、完整物理 footprint、
@@ -610,7 +608,7 @@ feature flag、双读或双写。摘要 version 7 同时纳入显式世界策略
 state、zone counter 与 queue order，不纳入派生 links、步长派生间隙或 latest output batch。
 公共持久化版本与字段以 `traffic-runtime-snapshot.md` 为准；策略选择的保存、恢复和
 修订切换连续性见 `traffic-runtime-right-of-way-policy.md`。组合 reservation、冲突滞后
-历史与 passage locator 迁移仍由 #284 后续切片交付。
+历史、passage locator 与生产 tick journal 已由 #284 交付。
 
 ### 9.3 同修订与跨修订切换
 
@@ -639,8 +637,9 @@ state、zone counter 与 queue order，不纳入派生 links、步长派生间�
   Prepare、增量追赶与独立期望摘要必须一致；不补 claim/member/counter，不放宽既有
   phase 的恒等迁移，也不让普通 restore 自动修补缺失状态；
 - restore 与 cutover 必须继续核对 `route_conflict_occurrence_capacity`、重建
-  `ConflictPassageOccurrence` 并对全部候选 `Active` 车辆执行 #559 3A 保护；Waiting
-  状态迁移成功不得绕过 `ConflictRuntimeUnavailable`。
+  `ConflictPassageOccurrence`，并对全部候选 `Active` 车辆验证 Gate side、reservation、
+  downstream claim 与整车身清空状态；Waiting 状态迁移成功不得绕过正式 Conflict
+  authority 检查。
 
 ## 10. 内存、性能与执行计划
 
@@ -691,7 +690,8 @@ state、zone counter 与 queue order，不纳入派生 links、步长派生间�
 - admission counter exhaustion；
 - membership/queue/occupancy/counter invariant 破坏；
 - 快照/迁移中的 stable identity、phase 或物理状态不一致；
-- 现有 `ConflictRuntimeUnavailable`，语义与优先级保持 #559 定义；
+- 普通生命周期命令在 passage interior 无法继承 authority 时的
+  `ConflictAuthorityRequired`；
 - scratch/journal/摘要等已有可失败基础设施错误。
 
 诊断优先级在同一 Waiting admission 中固定为：regulatory deny（`NotEvaluated`），
@@ -727,8 +727,9 @@ leader/RouteEnd/no-overlap attribution。优先级只决定观察记录，不改
   才能取得新的 admission；horizon stop 当 tick 产生一次
   `EvaluationHorizon` projection event，下一 tick capacity/storage no-grant 只进入 latest
   decision，不重复 projection；
-- A 按 X→Y、B 按 Y→X 争用两个短 zone 时，不构造会 split 后整体 rollback 的 multi-zone
-  claim set；验证本地结果确定，并明确该跨 zone cycle 在 #284 前不具备活性保证；
+- A 按 X→Y、B 按 Y→X 争用两个短 zone 时，Waiting 本地层不构造会 split 后整体
+  rollback 的 multi-zone claim set；正式组合 reducer 通过 #284 prospective SCC 检查
+  拒绝会形成 committed cycle 的 candidate；
 - post-step physical front-to-back admission sequence，proposal/update permutation 不变；
 - counter exhaustion 全 step rollback；
 - leader/red 同为 release boundary 零 travel 时 release Gate attribution 胜出；Gate allow
@@ -737,7 +738,7 @@ leader/RouteEnd/no-overlap attribution。优先级只决定观察记录，不改
 - reserve/park/leave/rebind/despawn 各生命周期边界不留下悬空 membership；已有
   traversal/membership 的 rebind 精确保留 phase、admission sequence、queue order 与
   occupancy/counter，没有 authority 的 rebind 不能 bootstrap interior。Waiting 校验不能
-  绕过 `ConflictRuntimeUnavailable`；
+  绕过正式 Conflict authority；
 - Active member despawn 的成功 typed result 恰好回显一个 Waiting release payload，按
   command cursor 观察且不改 latest tick event batch/`event_cursor`；无 membership 时 absent，
   失败不产生 record；

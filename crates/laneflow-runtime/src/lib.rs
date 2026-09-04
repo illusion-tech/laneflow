@@ -8,6 +8,7 @@ mod test_policy;
 
 mod config;
 mod conflict;
+mod conflict_tick;
 mod cutover;
 mod cutover_migration;
 mod cutover_transaction;
@@ -39,6 +40,9 @@ pub use conflict::{
     ConflictPassageRange, ConflictReservation, ConflictResourceNoGrant, ConflictYieldOutcome,
     DownstreamInterval, DownstreamRoutePoint, GateCandidateKind, GatePolicyDecision,
 };
+pub use conflict_tick::{
+    ConflictDecision, ConflictDecisionOutcome, ConflictNoGrantReason, ConflictRouteAnchor,
+};
 pub use cutover::{
     CUTOVER_DESCRIPTOR_FORMAT_VERSION, CutoverDescriptorError, CutoverError, CutoverEvent,
     CutoverEventBatch, CutoverPreflightLimits, LfcaOriginBinding, MigrationPolicyKind,
@@ -48,10 +52,7 @@ pub use cutover_transaction::{
     CutoverCommit, CutoverTransaction, CutoverTransactionLimits, DEFAULT_MAX_CATCH_UP_LAG_TICKS,
     DEFAULT_MAX_RECORDS_PER_PUMP, PumpOutcome,
 };
-pub use error::{
-    ConflictRuntimeUnavailable, InstallError, ParkingError, ReplaceError, RouteError, SpawnError,
-    StepError,
-};
+pub use error::{InstallError, ParkingError, ReplaceError, RouteError, SpawnError, StepError};
 pub use handle::{RouteHandle, VehicleHandle};
 pub use input::{RouteRegisterInput, VehicleSpawnInput};
 pub use laneflow_static_contract::{ParkingFacilityOrdinal, ParkingSpaceOrdinal};
