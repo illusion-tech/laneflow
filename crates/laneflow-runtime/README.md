@@ -48,7 +48,9 @@ Runtime Snapshot 以 `capture_snapshot` 在固定步进边界冻结不可变逻�
 Waiting 与 Conflict authority/lag 不变量 lowering；所有路线
 经 `register_admitted_route`，所有车辆/停车经共同运行时不变量入口在局部 world 中
 重建，Conflict occupant/cleared 从 reservation、车辆整车位置和 passage 锚点派生；完全
-成功后才返回 `RestoredSnapshot` 及局部 ID 到新句柄映射。
+成功后才返回 `RestoredSnapshot` 及局部 ID 到新句柄映射。Conflict eligibility 还必须在
+已恢复时刻由所选 policy 对 exact admission Gate 给出 `Candidate`；`DenyAndStop` 不能仅凭
+locator 与车辆位置合法而恢复为已提交资格。
 `deterministic_state_digest` 按逻辑路线/车辆内容规范化，不依赖 LFRS 字节、进程句柄、
 局部 ID、Published 审计地址或 worker 计划；容量、tick/时间/双游标与 live 顺序仍进入
 SHA-256 状态身份。
