@@ -61,14 +61,20 @@
 //!    `schema_codegen::check_audited_mmap_sources` 断言例外 lib.rs 恰好一次
 //!    模块级 allow、一次固定只读映射调用、一处 unsafe token（strip 后计数），
 //!    crate 内其他源文件零 unsafe、零 allow(unsafe_code)；crate 内全面禁止
-//!    `#[path]` 模块属性、`include!` 宏与 `cfg_attr`（cfg_attr 可包裹 path
-//!    属性逃逸直接形态检测）——禁绝后 .rs 全集即编译器可达源码全集。
+//!    `#[path]` 模块属性、`include!` 宏、`cfg_attr`（cfg_attr 可包裹 path
+//!    属性逃逸直接形态检测）与 `macro_rules!` 宏定义（元变量间接可把
+//!    include! 藏出文本扫描）——禁绝后 .rs 全集即编译器可达源码全集。
 //! 8. 仓库 cargo config 卫生：`.cargo/config.toml`（及旧式 `.cargo/config`）
-//!    若存在则禁止 `[env]` 段。cargo 会把 `[env]` 注入它启动的进程（含
-//!    `cargo run` 启动的 xtask 自身）；hermetic 嵌套 cargo 继承被投毒的
-//!    HOME / CARGO_HOME 后会发现仓库控制的 `$HOME/.cargo/config.toml`，
-//!    进而装载 rustc-wrapper 剥离尾参 `-F`。第 4 条的 cwd 外移只挡住 cwd
-//!    向上的配置发现，挡不住这条 env 继承链——故在源头禁绝 `[env]`。
+//!    若存在，禁止一切可替换 CI 门禁执行语义的键——`[env]` 段（经
+//!    `cargo run` 进程环境投毒 hermetic 嵌套 cargo 的 HOME/CARGO_HOME
+//!    配置发现，装载仓库控制的 rustc-wrapper 剥离尾参 `-F`）、任意层级
+//!    `runner` 键（替换 `cargo run`/`cargo test` 的可执行文件启动；立即
+//!    退出 0 的 runner 让全部测试与审计空转通过）、`[build]` 的
+//!    rustc/rustc-wrapper/rustc-workspace-wrapper（替换或包装编译器，
+//!    可剥离 lint 参数或给审计器构建换源）。审计器自身引导同样免疫：
+//!    ci.yml 的 wire audit 步骤从仓库外 cwd 以 --manifest-path 构建
+//!    xtask（cargo 配置按 cwd 向上发现，仓库 config 不参与）并直接执行
+//!    二进制（不经 runner）。
 //!
 //! 残余信任边界（本模块不尝试自审）：本检查步骤的定义（.github/workflows/）、
 //! xtask 源码（含 wire_pins 钉版副本）与依赖政策配置（deny.toml）可被 PR
@@ -173,7 +179,7 @@ pub(crate) fn run() -> Result<(), String> {
     schema_codegen::check_audited_mmap_sources(&repository_root)?;
     check_workspace_unsafe_boundary(&repository_root)?;
     println!(
-        "wire 工具链审计已通过：仓库 cargo config 卫生闭合（禁 `[env]` 段，env 继承链无从投毒嵌套 cargo 配置发现），flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include!/cfg_attr 加载入口禁令与 path 属性 walker 兜底），workspace unsafe 分类断言闭合（forbid/allow 两级），forbid 成员禁 build 脚本且 target 源一律 .rs，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支）且源码加载指令收口（include! 禁绝、path 目标限包内相对 .rs），forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
+        "wire 工具链审计已通过：仓库 cargo config 卫生闭合（禁 `[env]` 段、`runner` 键与 `[build]` 编译器替换/包装键，env 继承链与执行语义替换无从投毒门禁），flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include!/cfg_attr/macro_rules 加载与间接禁令、path 属性 walker 兜底），workspace unsafe 分类断言闭合（forbid/allow 两级），forbid 成员禁 build 脚本且 target 源一律 .rs，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支）且源码加载指令收口（include! 禁绝、path 目标限包内相对 .rs），forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
     );
     Ok(())
 }
@@ -188,12 +194,24 @@ fn require_repository_root(root: &Path) -> Result<(), String> {
 }
 
 /// 仓库 cargo config 卫生：`.cargo/config.toml`（及旧式 `.cargo/config`）若
-/// 存在则禁止 `[env]` 段。cargo 会把 `[env]` 注入它启动的进程（含
-/// `cargo run` 启动的 xtask 自身）；hermetic 嵌套 cargo 继承被投毒的
-/// HOME / CARGO_HOME 后会发现仓库控制的 `$HOME/.cargo/config.toml`，进而
-/// 装载 rustc-wrapper 剥离尾参 `-F`。嵌套命令的仓库外 cwd 只挡住 cwd 向上
-/// 的配置发现，挡不住这条 env 继承链——唯一闭合方式是在源头禁绝 `[env]`。
-/// 存在但不可读、TOML 解析失败均 fail closed。
+/// 存在，禁止一切可替换 CI 门禁执行语义的键：
+///
+/// - `[env]` 段：cargo 把它注入它启动的进程（含 `cargo run` 启动的 xtask
+///   自身）；hermetic 嵌套 cargo 继承被投毒的 HOME / CARGO_HOME 后会发现
+///   仓库控制的 `$HOME/.cargo/config.toml`，进而装载 rustc-wrapper 剥离
+///   尾参 `-F`。嵌套命令的仓库外 cwd 只挡住 cwd 向上的配置发现，挡不住
+///   这条 env 继承链——故在源头禁绝。
+/// - 任意层级的 `runner` 键（`[target.<triple>]` / `[target.'cfg()']`）：
+///   runner 替换 `cargo run`/`cargo test` 的可执行文件启动方式；一个立即
+///   退出 0 的 runner 脚本可让全部 workspace 测试与审计二进制空转通过，
+///   required check 保持绿色。
+/// - `[build]` 的 `rustc` / `rustc-wrapper` / `rustc-workspace-wrapper`：
+///   替换或包装编译器，可剥离 lint 参数或给 `cargo build -p xtask` 的
+///   审计器二进制换源。
+///
+/// 审计器自身引导（构建并运行 xtask 的 workflow 步骤）同样免疫上述配置：
+/// 见 .github/workflows/ci.yml 的 Check wire toolchain audit 步骤（仓库外
+/// cwd 构建 + 直接执行二进制）。存在但不可读、TOML 解析失败均 fail closed。
 fn check_repo_cargo_config_hygiene(repository_root: &Path) -> Result<(), String> {
     for name in ["config.toml", "config"] {
         let path = repository_root.join(".cargo").join(name);
@@ -214,8 +232,42 @@ fn check_repo_cargo_config_hygiene(repository_root: &Path) -> Result<(), String>
                 path.display()
             ));
         }
+        if let Some(runner_path) = find_runner_key(&config, ".cargo") {
+            return Err(format!(
+                "仓库 cargo config `{}` 禁止 `{runner_path}`：runner 可让 `cargo run`/`cargo test` 空转退出 0，全部测试与审计在 required check 绿色下被跳过",
+                path.display()
+            ));
+        }
+        if let Some(build) = config.get("build").and_then(toml::Value::as_table) {
+            for key in ["rustc", "rustc-wrapper", "rustc-workspace-wrapper"] {
+                if build.contains_key(key) {
+                    return Err(format!(
+                        "仓库 cargo config `{}` 禁止 `[build] {key}`：替换或包装编译器可剥离 lint 参数或给审计器构建换源",
+                        path.display()
+                    ));
+                }
+            }
+        }
     }
     Ok(())
+}
+
+/// 递归查找 TOML 表中任意层级的 `runner` 键，返回点分路径供报错。
+/// cargo config 中 `runner` 只在 `[target.*]` 下有意义，但递归全表扫描
+/// 简单且 fail closed——其他段不存在合法的 `runner` 键。
+fn find_runner_key(table: &toml::Table, prefix: &str) -> Option<String> {
+    for (key, value) in table {
+        let path = format!("{prefix}.{key}");
+        if key == "runner" {
+            return Some(path);
+        }
+        if let Some(nested) = value.as_table()
+            && let Some(found) = find_runner_key(nested, &path)
+        {
+            return Some(found);
+        }
+    }
+    None
 }
 
 fn check_lockfile_pins(repository_root: &Path) -> Result<(), String> {
@@ -1235,6 +1287,31 @@ mod tests {
         let error = check_repo_cargo_config_hygiene(&root).unwrap_err();
         assert!(error.contains("[env]"), "{error}");
         fs::remove_file(cargo_dir.join("config")).unwrap();
+        // runner 键（替换 cargo run/test 的可执行文件启动，空转退出 0 即
+        // 假绿）：直接 target 三元组与 cfg 表达式形态都拒绝。
+        fs::write(
+            cargo_dir.join("config.toml"),
+            "[target.x86_64-unknown-linux-gnu]\nrunner = \"./noop.sh\"\n",
+        )
+        .unwrap();
+        let error = check_repo_cargo_config_hygiene(&root).unwrap_err();
+        assert!(error.contains("runner"), "{error}");
+        fs::write(
+            cargo_dir.join("config.toml"),
+            "[target.'cfg(windows)']\nrunner = \"noop\"\n",
+        )
+        .unwrap();
+        let error = check_repo_cargo_config_hygiene(&root).unwrap_err();
+        assert!(error.contains("cfg(windows)"), "{error}");
+        // [build] 编译器替换/包装键：拒绝。
+        fs::write(
+            cargo_dir.join("config.toml"),
+            "[build]\nrustc-wrapper = \"./wrap.sh\"\n",
+        )
+        .unwrap();
+        let error = check_repo_cargo_config_hygiene(&root).unwrap_err();
+        assert!(error.contains("rustc-wrapper"), "{error}");
+        fs::remove_file(cargo_dir.join("config.toml")).unwrap();
         // TOML 解析失败 fail closed。
         fs::write(cargo_dir.join("config.toml"), "[env\n").unwrap();
         assert!(check_repo_cargo_config_hygiene(&root).is_err());
