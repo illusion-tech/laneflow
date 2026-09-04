@@ -571,10 +571,14 @@ origin 固定其完整 entry/exit 与所属路径。restore 先解析两种 Stab
 live reservation 还保存 `snapshot_vehicle_id`、`snapshot_route_id`、本次 maneuver
 的 entry route edge index 和 Gate StableId，再携带所持有 passages 的 locator；
 结合重编译路线核验该次 occurrence、entry/clearance 和车辆位置。只按 stream/zone
-不能区分循环路线中的重复出现。资源物理区间使用 edge StableId、route hop、整数
-progress 和必要的车尾/clearance 锚点。grant 未发生 crossing 时不提交任何成员或
-reservation；whole-vehicle lifecycle 释放必须同事务清理 Waiting、Conflict、
-downstream owner 与 route 引用。
+不能区分循环路线中的重复出现。downstream 热状态和 wire 只保存规范化的
+`(LaneEdge StableId, startMm, endMm)` 物理区间并集；同一物理边的重叠 route
+occurrence 合并，因此单个合并区间没有唯一可保存的 route hop。reservation 级
+route/Gate/passages、车辆全长和当前根边长才是可复现证明：capture、restore 和
+cutover 均从该证明重新推导整个物理并集并精确比较，不能按 edge 搜索猜测 occurrence。
+owner 由所属车辆记录给出，跟车最小间隙由该车 profile 派生，不在每个区间重复持久化。
+grant 未发生 crossing 时不提交任何成员或 reservation；whole-vehicle lifecycle 释放
+必须同事务清理 Waiting、Conflict、downstream owner 与 route 引用。
 
 ### 6.1 快照分类
 
@@ -582,7 +586,7 @@ downstream owner 与 route 引用。
 | -------- | --------------------------------------------------------------------------------------------------------------------------- |
 | 策略绑定 | selection tag；Pinned 保存 policy StableId；exact 内容仍由快照的 LFCA origin 绑定                                           |
 | 排序历史 | 每车当前 Gate occurrence 的 firstEligibleTick；None 与 tick 0 明确区分                                                      |
-| 通行状态 | Clearing、reservation owner、acquired tick、Gate/passages 的稳定 occurrence 地址、committed downstream 区间                 |
+| 通行状态 | Clearing、reservation owner、acquired tick、Gate/passages 的稳定 occurrence 证明、committed downstream 物理区间并集         |
 | 冲突历史 | 以 ConflictPassageLocator 键控的 ConflictLagReference；包含历史类别及时间，无历史与时间 0 区分                              |
 | Waiting  | 继续保存既有 membership、occupancy、counter 与 traversal；queue link 由历史重建                                             |
 | 派生状态 | 不保存 tick-local grant、entitlement、top-two frontier、dense handles、target ranges、graph、scratch 或 latest output batch |
@@ -599,7 +603,10 @@ restore 拒绝 future timestamp，并保留 CutoverFloor，不能把它降级为
 快照只写非 NoHistory 行，按 locator 的 stream StableId、zone StableId 字节序严格
 排序并拒绝重复；单根热表仍按静态 cell 保存一个基准，不另存稳定标识副本或历史轨迹。
 
-冲突 occupancy 从 reservation、车辆位置和 passages 重建，不能同时信任一份独立计数。
+冲突 occupancy 从 reservation、车辆位置和 passages 重建，不能同时信任一份独立计数；
+downstream 物理并集也必须从同一 reservation 证明重建并与入档值逐项相等。wire 按 edge
+StableId/start/end 排序，lowering 后再按当前根 ordinal 规范化；两种顺序不能混作同一判据。
+已清 cell 必须同时有 `ActualClear`，缺行或 `CutoverFloor` 都不能证明真实 tail-clear。
 保存后捕获结构的语义字段全部参与 deterministic digest 7，派生内容不参与。
 普通 restore 重建规则/route/ledger，核对每个 owner、时间、full-body footprint 和 wait-for
 graph；存在两 owner 以上的 committed cycle、悬空 owner 或不合法历史即整体失败。
@@ -632,8 +639,12 @@ edge occurrence 序列，不能只比较仍可能相同的 boundaryIndex/pathEdg
 
 已有 reservation 保留其既有 owner 和 acquired tick，不能按新规则重新授予。必须将
 原 physical claims、passages/clearance、车辆全长和 Waiting 依赖精确映射到目标，验证
-无新增未持有的 incompatible coverage、空间不足或 committed cycle；不能映射就整次
-失败。没有 authority 的车辆若被目标新增冲突覆盖包在内部，同样拒绝，不补 grant。
+源端 committed physical union 等于源 reservation 重建值，再将该 union 按稳定 edge
+identity 映射，并要求它逐项等于目标 reservation 重建值；目标 profile 派生的最小跟车
+间隙也必须与源 authority 相同。任一边长、route occurrence、clearance、车长或间隙变化
+导致集合或语义不等，就整次失败。还须验证无新增未持有的 incompatible coverage、
+空间不足或 committed cycle。没有 authority 的车辆若被目标新增冲突覆盖包在内部，
+同样拒绝，不补 grant。
 删掉仍影响 lag check 的基准会丢失 gap 语义。无 live 引用的 cell 只有在 NoHistory，
 或从 ActualClear/CutoverFloor 到静默点的 elapsed 已不小于源/目标所选策略所有 gap profile 的
 `minimumLagGapMs + clearanceBufferMs` 最大值时才可删除；空 profile 集的最大值为 0，

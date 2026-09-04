@@ -431,11 +431,8 @@ fn canonical_vehicle_record(vehicle: &CapturedVehicle) -> Result<Vec<u8>, Snapsh
             );
             for interval in &reservation.downstream_intervals {
                 record.extend_from_slice(interval.lane_edge.as_bytes());
-                push_u32(&mut record, interval.route_edge_index);
                 push_u32(&mut record, interval.start_mm);
                 push_u32(&mut record, interval.end_mm);
-                push_u32(&mut record, interval.owner_sequence);
-                push_u32(&mut record, interval.follower_min_gap_mm);
             }
         }
     }

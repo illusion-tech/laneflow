@@ -15,6 +15,13 @@ exact route occurrence、committed downstream 物理区间，以及按 stream/zo
 grant、内部 serial 和索引不入档；恢复从 reservation、整车位置与 passage 锚点重建并
 整体校验，悬空 locator、重复/未来历史或不完整 authority 失败关闭。
 
+downstream wire 行只含 `(lane_edge StableId, start_mm, end_mm)`，表示规范物理区间并集。
+循环路线的同一物理边可由多个 route occurrence 合并，因而不保存含糊的 per-interval
+route index；owner 由车辆记录给出，最小跟车间隙由 profile 派生。writer 与 reader 都从
+reservation 的 exact Gate/passages、route、车辆全长和绑定根边长重建完整并集并精确
+比较。wire 使用 StableId 规范序，lowering 后才按当前根 ordinal 排序。已清 cell 只能由
+同地址 `ActualClear` 闭合，`CutoverFloor` 不冒充真实清空。
+
 clean regeneration 使用固定 flatc 25.12.19：
 
 ```text
