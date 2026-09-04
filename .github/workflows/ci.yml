@@ -147,6 +147,14 @@ jobs:
         shell: bash
         run: cargo +1.98.0 test --workspace --locked
 
+      - name: Check wire toolchain audit
+        if: steps.filter.outputs.rust == 'true'
+        shell: bash
+        env:
+          # hermetic 子进程经 rustup shim 解析 rustc；固定 MSRV，避免 runner 默认工具链漂移。
+          RUSTUP_TOOLCHAIN: 1.98.0
+        run: cargo +1.98.0 run --locked -p xtask -- check-wire-audit
+
       - name: Compile Bevy native examples
         if: steps.filter.outputs.bevy == 'true'
         shell: bash
@@ -201,3 +209,9 @@ jobs:
           set -euo pipefail
           cargo-deny --version
           cargo-deny --locked --all-features check advisories bans licenses sources
+
+      - name: Check fuzz package policy
+        shell: bash
+        run: >-
+          cargo-deny --manifest-path fuzz/Cargo.toml --config deny.toml
+          --locked --all-features check advisories bans licenses sources

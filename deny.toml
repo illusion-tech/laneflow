@@ -33,6 +33,9 @@ exceptions = [
     { allow = ["CC0-1.0"], crate = "hexf-parse@0.2.1" },
     { allow = ["ISC"], crate = "libloading@0.8.9" },
     { allow = ["BSD-3-Clause"], crate = "pp-rs@0.2.1" },
+    # #376 LFRE fuzz harness：libfuzzer-sys 以 (MIT OR Apache-2.0) AND NCSA 发布；
+    # NCSA 是宽松许可证（OSI 认证），仅对该精确版本放行，版本漂移时重新审查。
+    { allow = ["NCSA"], crate = "libfuzzer-sys@0.4.13" },
 ]
 
 [licenses.private]

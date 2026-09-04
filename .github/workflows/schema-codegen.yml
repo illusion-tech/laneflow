@@ -143,10 +143,6 @@ jobs:
           cargo +1.98.0 run --locked -p xtask -- \
             check-runtime-snapshot-codegen --flatc "$flatc_path"
 
-      - name: Check wire toolchain audit
-        shell: bash
-        run: cargo +1.98.0 run --locked -p xtask -- check-wire-audit
-
       - name: Compile generated Rust bindings
         shell: bash
         run: |
