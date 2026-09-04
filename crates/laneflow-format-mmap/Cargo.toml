@@ -7,6 +7,12 @@ repository.workspace = true
 license.workspace = true
 description = "LaneFlow staged object 的平台私有临时文件与只读映射 backing。"
 publish = false
+# 关闭 Cargo 自动 target 发现：src/bin/、tests/、examples/、benches/ 下的文件
+# 不经 manifest 段即成编译入口，会逃逸 check-wire-audit 的钉版边界。
+autobins = false
+autotests = false
+autoexamples = false
+autobenches = false
 
 [lib]
 name = "laneflow_format_mmap"

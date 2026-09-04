@@ -7,7 +7,9 @@
 //!    Unix 上匿名/立即 unlink（无目录项即无路径可达），Windows 上以
 //!    `share_mode(0)` + delete-on-close 打开（拒绝一切 reopen）。外部进程
 //!    既无路径也无句柄。
-//! 2. 写能力仅经 `&mut` 借出（[`PrivateStagedFile::file_mut`]）；
+//! 2. 写能力仅经受限接口暴露：[`io::Write`] 实现（顺序写/flush）与
+//!    [`PrivateStagedFile::patch_exact_at`]（定点覆写后恢复写位置）；`File`
+//!    句柄本身永不外借，调用方无法 `try_clone` 出 seal 后仍存活的写副本。
 //!    [`PrivateStagedFile::seal`] 消费所有权并核对 exact length，之后本 crate
 //!    外不存在任何写路径。
 //! 3. [`SealedPrivateFile::map_read_only`] 在映射前再次核对 backing 长度
@@ -18,7 +20,12 @@
 
 #![allow(unsafe_code)]
 
-use std::{fs::File, io, ops::Deref, path::Path};
+use std::{
+    fs::File,
+    io::{self, Seek, SeekFrom, Write},
+    ops::Deref,
+    path::Path,
+};
 
 use memmap2::{Mmap, MmapOptions};
 
@@ -52,7 +59,8 @@ impl std::error::Error for BackingError {}
 
 /// 写窗口开放中的平台私有临时 backing。
 ///
-/// 只能通过 [`Self::file_mut`] 获得 `&mut File` 写能力；[`Self::seal`] 消费本值
+/// 写能力仅经 [`io::Write`] 实现与 [`Self::patch_exact_at`] 暴露，`File` 句柄
+/// 不可达（无法 `try_clone` 出 seal 后仍存活的写副本）；[`Self::seal`] 消费本值
 /// 后写能力在本 crate 外不再存在。
 #[derive(Debug)]
 pub struct PrivateStagedFile {
@@ -68,9 +76,13 @@ impl PrivateStagedFile {
         })
     }
 
-    /// 借出独占写能力。
-    pub fn file_mut(&mut self) -> &mut File {
-        &mut self.file
+    /// 在 `offset` 处定点覆写已 staged 的字节，随后把内核写位置恢复到
+    /// `resume`（调用方跟踪的顺序写末尾）。覆写直达句柄，不经用户态缓冲。
+    pub fn patch_exact_at(&mut self, offset: u64, bytes: &[u8], resume: u64) -> io::Result<()> {
+        self.file.seek(SeekFrom::Start(offset))?;
+        self.file.write_all(bytes)?;
+        self.file.seek(SeekFrom::Start(resume))?;
+        Ok(())
     }
 
     /// 核对 backing 当前长度与登记的 exact length 一致后消费本值，关闭写窗口。
@@ -82,6 +94,23 @@ impl PrivateStagedFile {
             file: self.file,
             exact_byte_length,
         })
+    }
+}
+
+/// 顺序写能力经标准 [`io::Write`] trait 暴露：`File` 句柄本身不可达，
+/// 调用方无法 `try_clone` 出 seal 后仍存活的写副本，也无法 seek 改变写位置
+/// （定点覆写只能走 [`PrivateStagedFile::patch_exact_at`]）。
+impl io::Write for PrivateStagedFile {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.file.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+        self.file.write_all(buf)
     }
 }
 

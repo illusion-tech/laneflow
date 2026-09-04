@@ -27,11 +27,8 @@ fn create_test_directory(label: &str) -> PathBuf {
 fn staged_bytes_roundtrip_through_read_only_map() {
     let directory = create_test_directory("roundtrip");
     let mut staged = PrivateStagedFile::create_in(&directory).expect("create staged backing");
-    staged
-        .file_mut()
-        .write_all(&[0xa5, 0x5a])
-        .expect("write staged bytes");
-    staged.file_mut().flush().expect("flush staged bytes");
+    staged.write_all(&[0xa5, 0x5a]).expect("write staged bytes");
+    staged.flush().expect("flush staged bytes");
 
     let sealed = staged.seal(2).expect("seal with matching length");
     assert_eq!(sealed.exact_byte_length(), 2);
@@ -45,14 +42,33 @@ fn staged_bytes_roundtrip_through_read_only_map() {
 }
 
 #[test]
+fn patch_exact_at_overwrites_in_place_and_restores_write_position() {
+    let directory = create_test_directory("patch");
+    let mut staged = PrivateStagedFile::create_in(&directory).expect("create staged backing");
+    staged
+        .write_all(&[0xaa, 0xbb, 0xcc, 0xdd])
+        .expect("write staged bytes");
+    staged
+        .patch_exact_at(1, &[0x11, 0x22], 4)
+        .expect("patch in place");
+    // 写位置已恢复到 resume：继续顺序写是追加，不是覆写。
+    staged.write_all(&[0xee]).expect("append after patch");
+    staged.flush().expect("flush patched bytes");
+
+    let sealed = staged.seal(5).expect("seal with patched length");
+    let map = sealed.map_read_only().expect("map read only");
+    assert_eq!(&map[..], &[0xaa, 0x11, 0x22, 0xdd, 0xee]);
+
+    drop((map, sealed));
+    std::fs::remove_dir(&directory).expect("remove empty test directory");
+}
+
+#[test]
 fn seal_rejects_length_mismatch_before_mapping() {
     let directory = create_test_directory("seal-mismatch");
     let mut staged = PrivateStagedFile::create_in(&directory).expect("create staged backing");
-    staged
-        .file_mut()
-        .write_all(&[0xa5])
-        .expect("write one byte");
-    staged.file_mut().flush().expect("flush one byte");
+    staged.write_all(&[0xa5]).expect("write one byte");
+    staged.flush().expect("flush one byte");
 
     assert!(matches!(staged.seal(2), Err(BackingError::BackingChanged)));
     std::fs::remove_dir(&directory).expect("remove empty test directory");
@@ -62,11 +78,8 @@ fn seal_rejects_length_mismatch_before_mapping() {
 fn map_rechecks_length_on_every_call() {
     let directory = create_test_directory("map-recheck");
     let mut staged = PrivateStagedFile::create_in(&directory).expect("create staged backing");
-    staged
-        .file_mut()
-        .write_all(&[0xa5, 0x5a])
-        .expect("write staged bytes");
-    staged.file_mut().flush().expect("flush staged bytes");
+    staged.write_all(&[0xa5, 0x5a]).expect("write staged bytes");
+    staged.flush().expect("flush staged bytes");
     let sealed = staged.seal(2).expect("seal with matching length");
     sealed.map_read_only().expect("map with matching length");
 
