@@ -1,8 +1,9 @@
 //! FlatBuffers wire 生成物与受审计 `unsafe` 边界检查。
 //!
 //! 覆盖道路编辑（`LFRE`）与运行时快照（`LFRS`）两个私有 wire 家族；两者共用
-//! 固定 flatc 版本、Rust canonical bytes clean-regeneration 比对、C++/C# probe
-//! 与 generated wire / staged read-only mmap unsafe 边界扫描协议。
+//! 固定 flatc 版本、Rust canonical bytes clean-regeneration 比对、C++/C# probe。
+//! unsafe 边界由 `check-wire-audit`（见 wire_audit.rs 模块文档）以 hermetic 编译
+//! 与钉版断言闭合。
 
 use std::collections::HashSet;
 use std::ffi::OsStr;
