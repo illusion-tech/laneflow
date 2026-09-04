@@ -554,6 +554,35 @@ pub(crate) fn contains_cfg_attr_token(code: &str) -> bool {
     contains_bare_token(code, "cfg_attr")
 }
 
+/// 识别 macro_rules 转写器里的元变量调用（`$m!`，其间可夹 trivia）：宏
+/// 调用名被元变量间接后，`include!` 等源码加载指令可藏出文本扫描。
+/// forbid 成员的 `macro_rules!` 本身合法，禁令只落在元变量调用位置。
+/// `$crate`（后跟 `::`）、重复结构 `$( ... )*`、元变量类型标注
+/// `$x:expr` 均不匹配。输入应为 strip 后的代码文本（字面量已剥除）。
+pub(crate) fn contains_metavariable_invocation(code: &str) -> bool {
+    let bytes = code.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'$' {
+            let mut end = index + 1;
+            while end < bytes.len() {
+                let Some(character) = code[end..].chars().next() else {
+                    break;
+                };
+                if !is_identifier_character(character) {
+                    break;
+                }
+                end += character.len_utf8();
+            }
+            if end > index + 1 && code[skip_trivia(code, end)..].starts_with('!') {
+                return true;
+            }
+        }
+        index += 1;
+    }
+    false
+}
+
 pub(crate) fn workspace_manifest_paths(repository_root: &Path) -> Result<Vec<PathBuf>, String> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let output = Command::new(cargo)
@@ -1414,5 +1443,24 @@ mod tests {
         assert!(!contains_bare_token("my_macro_rules! {}", "macro_rules"));
         // 宏调用不是定义，不受禁令影响。
         assert!(!contains_bare_token("println!(\"hi\");", "macro_rules"));
+    }
+
+    #[test]
+    fn metavariable_invocation_detection_respects_macro_grammar() {
+        // `$m!`（含 trivia 变体）是元变量调用：可把宏调用名间接化。
+        assert!(contains_metavariable_invocation(
+            "macro_rules! load { ($m:ident) => { $m!(\"p.txt\"); } }"
+        ));
+        assert!(contains_metavariable_invocation(
+            "macro_rules! load { ($m:ident) => { $m /* mid */ ! (); } }"
+        ));
+        // $crate 路径、元变量类型标注、重复结构都不是元变量调用。
+        assert!(!contains_metavariable_invocation(
+            "macro_rules! reexport { () => { $crate::helper!() } }"
+        ));
+        assert!(!contains_metavariable_invocation(
+            "macro_rules! list { ($($x:expr),*) => { vec![$($x),*] } }"
+        ));
+        assert!(!contains_metavariable_invocation("fn f() { foo!(); }"));
     }
 }
