@@ -141,9 +141,7 @@ impl VehicleDelta {
                     last_crossed_gate_hop,
                 } => (2, last_crossed_gate_hop),
                 ManeuverTraversalPhase::Waiting { release_gate_hop } => (3, release_gate_hop),
-                ManeuverTraversalPhase::Clearing { reservation } => {
-                    (4, reservation.admission_gate_hop())
-                }
+                ManeuverTraversalPhase::Clearing { admission_gate_hop } => (4, admission_gate_hop),
             };
             let phase_gate = compiled
                 .hop_gate

@@ -117,7 +117,7 @@ impl TrafficWorld {
                 .advance_active_vehicle_with_waiting_stop(state, delta_s, waiting_stop)
                 .ok_or(StepError::NonFiniteMotion)?;
             if next.status == VehicleStatus::Completed
-                && (next.conflict_reservation().is_some()
+                && (self.conflict_reservation(handle).is_some()
                     || self.conflict_arbiter.has_authority(handle))
             {
                 return Err(StepError::ConflictInvariantViolation);
