@@ -651,7 +651,6 @@ fn restore_conflict_aggregate(
         .map_err(|_| SnapshotRestoreError::InvalidConflictHistory)?;
     eligibility.resize(capacity, None);
     world.conflict_eligibility = eligibility;
-    let mut cleared_cells = Vec::new();
 
     for vehicle in root.vehicles() {
         let snapshot_vehicle_id = vehicle.snapshot_vehicle_id();
@@ -672,7 +671,7 @@ fn restore_conflict_aggregate(
                 },
             )?;
             if state.status != VehicleStatus::Active
-                || state.conflict_reservation().is_some()
+                || world.conflict_reservation(handle).is_some()
                 || binding.first_eligible_tick() > root.tick()
             {
                 return Err(SnapshotRestoreError::InvalidConflictAuthority {
@@ -825,6 +824,17 @@ fn restore_conflict_aggregate(
                 snapshot_vehicle_id,
             }
         })?;
+        let gate_range = compiled
+            .conflict_gate_ranges
+            .get(admission_hop as usize)
+            .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
+                snapshot_vehicle_id,
+            })?;
+        if gate_range.start != first_occurrence || gate_range.len != passage_count {
+            return Err(SnapshotRestoreError::InvalidConflictAuthority {
+                snapshot_vehicle_id,
+            });
+        }
         let passage_range = crate::ConflictPassageRange::new(
             state.route,
             binding.maneuver_occurrence_index(),
@@ -835,6 +845,24 @@ fn restore_conflict_aggregate(
         .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
             snapshot_vehicle_id,
         })?;
+        let gate_edge = compiled.edges.get(admission_hop as usize).copied().ok_or(
+            SnapshotRestoreError::InvalidConflictAuthority {
+                snapshot_vehicle_id,
+            },
+        )?;
+        let gate_progress_mm = world
+            .revision
+            .traffic()
+            .lane_lengths_millimetres()
+            .get(gate_edge.index())
+            .copied()
+            .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
+                snapshot_vehicle_id,
+            })?;
+        let gate_um = route_position_um(world, state.route, admission_hop, gate_progress_mm, 0)
+            .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
+                snapshot_vehicle_id,
+            })?;
         let front_um = route_position_um(
             world,
             state.route,
@@ -845,6 +873,11 @@ fn restore_conflict_aggregate(
         .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
             snapshot_vehicle_id,
         })?;
+        if front_um < gate_um {
+            return Err(SnapshotRestoreError::InvalidConflictAuthority {
+                snapshot_vehicle_id,
+            });
+        }
         let tail_um = i128::try_from(front_um).map_err(|_| {
             SnapshotRestoreError::InvalidConflictAuthority {
                 snapshot_vehicle_id,
@@ -936,14 +969,6 @@ fn restore_conflict_aggregate(
                 occupant: entered && !cleared,
                 cleared,
             });
-            if cleared {
-                cleared_cells.try_reserve(1).map_err(|_| {
-                    SnapshotRestoreError::InvalidConflictAuthority {
-                        snapshot_vehicle_id,
-                    }
-                })?;
-                cleared_cells.push(address);
-            }
         }
         restored_cells.sort_unstable_by_key(|cell| cell.address);
         if restored_cells
@@ -1028,7 +1053,7 @@ fn restore_conflict_aggregate(
             .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
                 snapshot_vehicle_id,
             })?;
-        let reservation = world
+        world
             .conflict_arbiter
             .restore_reservation(
                 handle,
@@ -1050,7 +1075,9 @@ fn restore_conflict_aggregate(
             .maneuver_traversal = Some(ManeuverTraversalState {
             route: state.route,
             maneuver_occurrence_index: binding.maneuver_occurrence_index(),
-            phase: ManeuverTraversalPhase::Clearing { reservation },
+            phase: ManeuverTraversalPhase::Clearing {
+                admission_gate_hop: admission_hop,
+            },
         });
     }
 
@@ -1081,14 +1108,6 @@ fn restore_conflict_aggregate(
             .conflict_arbiter
             .restore_lag_reference(address, reference)
             .map_err(|_| SnapshotRestoreError::InvalidConflictHistory)?;
-    }
-    if cleared_cells.iter().any(|address| {
-        !matches!(
-            world.conflict_arbiter.lag_reference(*address),
-            Some(crate::ConflictLagReference::ActualClear(_))
-        )
-    }) {
-        return Err(SnapshotRestoreError::InvalidConflictHistory);
     }
     world.normalize_conflict_eligibility();
     if !world.conflict_state_valid() {
@@ -2283,7 +2302,9 @@ pub(crate) mod tests {
             .maneuver_traversal = Some(ManeuverTraversalState {
             route,
             maneuver_occurrence_index: first_occurrence.maneuver_index,
-            phase: ManeuverTraversalPhase::Clearing { reservation },
+            phase: ManeuverTraversalPhase::Clearing {
+                admission_gate_hop: reservation.admission_gate_hop(),
+            },
         });
         world
             .conflict_arbiter
@@ -2421,14 +2442,67 @@ pub(crate) mod tests {
         assert!(
             restored
                 .world()
-                .vehicle_state(restored_handle)
-                .is_some_and(|state| state.conflict_reservation().is_some())
+                .conflict_reservation(restored_handle)
+                .is_some()
         );
         let recaptured = restored.world().capture_snapshot().expect("recapture");
         assert_eq!(captured, recaptured);
         assert_eq!(
             crate::deterministic_state_digest(&captured).expect("source digest"),
             crate::deterministic_state_digest(&recaptured).expect("restored digest")
+        );
+    }
+
+    #[test]
+    fn conflict_reservation_requires_exact_gate_range_and_crossed_side() {
+        let (world, vehicle) = world_with_conflict_reservation();
+        let captured = world.capture_snapshot().expect("capture Conflict state");
+        let snapshot_vehicle_id = captured.vehicles[vehicle.index() as usize].snapshot_vehicle_id;
+
+        let mut wrong_range = captured.clone();
+        let passages = &mut wrong_range.vehicles[vehicle.index() as usize]
+            .conflict_reservation
+            .as_mut()
+            .expect("reservation")
+            .passages;
+        if passages.len() > 1 {
+            passages.pop();
+        } else {
+            let mut extra = passages[0];
+            extra.conflict_occurrence_index += 1;
+            passages.push(extra);
+        }
+        assert_eq!(
+            restore_lfrs(
+                &encode_lfrs(&wrong_range),
+                world.revision(),
+                world.committed_source().clone(),
+                world.config(),
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::InvalidConflictAuthority {
+                snapshot_vehicle_id,
+            }
+        );
+
+        let mut upstream = captured;
+        let owner = &mut upstream.vehicles[vehicle.index() as usize];
+        owner.route_edge_index = 0;
+        owner.progress_mm = 0;
+        owner.carry_um = 0;
+        assert_eq!(
+            restore_lfrs(
+                &encode_lfrs(&upstream),
+                world.revision(),
+                world.committed_source().clone(),
+                world.config(),
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::InvalidConflictAuthority {
+                snapshot_vehicle_id,
+            }
         );
     }
 

@@ -25,7 +25,7 @@
 > `ExplicitSpace | VirtualPool` binding，并保存 Reserved/Occupied 状态、所有 Reserved
 > binding 的精确 entry route occurrence 和 virtual reservation 的 semantic entry anchor；
 > Waiting 保存 traversal、semantic membership 与非零历史 admission counter；
-> Conflict 保存 first eligibility、Clearing reservation/passages/downstream authority 与
+> Conflict 保存 first eligibility、Clearing Gate marker、reservation/passages/downstream authority 与
 > 非 `NoHistory` lag reference，occupancy 从整车位置和 passage 锚点重建；
 > `WorldConfig` 保存独立的路线边出现项与路线冲突出现项容量。旧 schema、reader 与
 > writer 不属于当前生产入口，不提供双读或自动迁移。
@@ -90,15 +90,15 @@ capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime �
 
 ## 3. 每世界可变状态
 
-| 状态        | 快照表示                                                                                                                                                                                                                                                                                                                                                                                  |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 路线表      | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）；机动、等待区与冲突 passage 出现项均由目标共享根重新编译，不入快照                                                                                                                                                                                                                                        |
-| 车辆        | ADR 0029 §6 形状 + 每车唯一 `snapshot_vehicle_id`：所属 `snapshot_route_id`、`route_edge_index`、`progress_mm` / `carry_um` / `speed_mm_s` / `status`；profile / class 等静态绑定用 `StableId128`                                                                                                                                                                                         |
-| 停车状态    | 保存 `Reserved | Occupied` + tagged target；显式 target 保存 `ParkingSpace StableId128`，虚拟 target 保存 `ParkingFacility StableId128`；Reserved 保存 entry route occurrence，所属 route 即同一车辆的 `snapshot_route_id`，Reserved virtual 另存 `(entry LaneEdge StableId128, progress_mm)`；counts/capacity 不作为第二 authority 入档                                                  |
-| Waiting     | 每车保存可选 maneuver traversal 与 semantic membership；每个有逻辑历史的 zone 保存 `WaitingZone StableId128`、occupancy 与单调 `nextAdmissionSequence`。queue link、tick-local claim 与 latest output batch 不入档                                                                                                                                                                        |
-| Conflict    | 每车保存可选 exact Gate occurrence eligibility（含 `firstEligibleTick`）或 `Clearing` reservation（owner 由车辆记录、acquired tick、passage stable locator/route occurrence 证明、committed downstream 物理区间并集）；每个非 `NoHistory` cell 保存 tagged `ActualClear | CutoverFloor` 与时间。occupant/cleared、profile 派生的跟车间隙、frontier、tick-local grant 和内部 serial 不入档 |
-| live 顺序   | 车辆 `snapshot_vehicle_id` 的规范排序序列                                                                                                                                                                                                                                                                                                                                                 |
-| tick / 时钟 | `tick` / `time_ms` / 输入命令游标 / 已提交事件游标                                                                                                                                                                                                                                                                                                                                        |
+| 状态        | 快照表示                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 路线表      | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）；机动、等待区与冲突 passage 出现项均由目标共享根重新编译，不入快照                                                                                                                                                                                                                                                                                                                                 |
+| 车辆        | ADR 0029 §6 形状 + 每车唯一 `snapshot_vehicle_id`：所属 `snapshot_route_id`、`route_edge_index`、`progress_mm` / `carry_um` / `speed_mm_s` / `status`；profile / class 等静态绑定用 `StableId128`                                                                                                                                                                                                                                                                                  |
+| 停车状态    | 保存 `Reserved | Occupied` + tagged target；显式 target 保存 `ParkingSpace StableId128`，虚拟 target 保存 `ParkingFacility StableId128`；Reserved 保存 entry route occurrence，所属 route 即同一车辆的 `snapshot_route_id`，Reserved virtual 另存 `(entry LaneEdge StableId128, progress_mm)`；counts/capacity 不作为第二 authority 入档                                                                                                                                           |
+| Waiting     | 每车保存可选 maneuver traversal 与 semantic membership；每个有逻辑历史的 zone 保存 `WaitingZone StableId128`、occupancy 与单调 `nextAdmissionSequence`。queue link、tick-local claim 与 latest output batch 不入档                                                                                                                                                                                                                                                                 |
+| Conflict    | 每车保存可选 exact Gate occurrence eligibility（含 `firstEligibleTick`），或 `Clearing` Gate marker 与该车的 reservation wire row（acquired tick、passage stable locator/route occurrence 证明、committed downstream 物理区间并集）；restore 后完整 reservation 只安装进 `ConflictArbiter`，vehicle 不保留副本。每个非 `NoHistory` cell 保存 tagged `ActualClear | CutoverFloor` 与时间。occupant/cleared、profile 派生的跟车间隙、frontier、tick-local grant 和内部 serial 不入档 |
+| live 顺序   | 车辆 `snapshot_vehicle_id` 的规范排序序列                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| tick / 时钟 | `tick` / `time_ms` / 输入命令游标 / 已提交事件游标                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 车辆是运行时实体，没有 `StableId128`：它以 `snapshot_vehicle_id` 持存并被
 停车、live 序引用；静态实体（边、profile、class、停车位和停车设施）用 `StableId128`。
@@ -357,8 +357,19 @@ reservation 的 exact route/Gate/passages、车辆全长与当前边长重建物
 committed 热状态相等，再按 `(edge StableId, startMm, endMm)` 写入。reader 先检查这一
 wire 规范序，解析到当前根后按 ordinal 排序，再从 reservation 证明独立重建并逐项比较。
 循环路线中同一物理边的重叠 occurrence 可以合并；合并区间没有唯一 route hop，禁止用
-“Gate 后第一个同边 occurrence”补造来源。owner 和最小跟车间隙分别由车辆记录及 profile
-派生。已清 reservation cell 必须存在同地址 `ActualClear`；缺行和 `CutoverFloor` 均拒绝。
+“Gate 后第一个同边 occurrence”补造来源。wire owner 由所属车辆记录给出；恢复后完整
+reservation 只由 `ConflictArbiter` 持有，车辆 `Clearing` 只保存 Gate route anchor。
+最小跟车间隙由 profile 派生。reservation passages 必须精确等于重编译所得 Gate range，
+vehicle front 必须位于 Gate crossed side。已清 reservation cell 必须存在同地址
+`ActualClear`，且时间不得早于 `acquiredTick × fixedDeltaTimeMs`；缺行、过早时间和
+`CutoverFloor` 均拒绝。
+
+writer 在进入逐车编码前，从 `ConflictArbiter` 的 committed reservation 与 downstream
+ledger 一次建立按 vehicle slot 寻址的临时只读视图；同一 reservation 的 claims 必须连续、
+计数和内部 serial 必须闭合。此后每车只读取自己的 claim slice，不得为每份 reservation
+重新扫描完整 ledger。该冷路径总工作量为
+`O(vehicleCapacity + liveReservations + downstreamClaims)`，临时索引的预留失败仍使用
+快照捕获错误轴失败关闭，不进入 fixed-step 热状态。
 
 ### 当前 production v5 证据与遗留边界
 

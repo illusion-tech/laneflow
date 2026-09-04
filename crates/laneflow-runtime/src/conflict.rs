@@ -800,6 +800,60 @@ pub(crate) struct PersistedDownstreamClaim {
     pub(crate) interval: DownstreamInterval,
 }
 
+/// 冷路径为每个 live vehicle 建立的 committed Conflict 直接索引。
+///
+/// 调用方负责按 `vehicle_capacity` 预留这张临时表，使 snapshot/cutover 的
+/// 分配失败仍归入各自错误轴；arbiter 只在线性扫描中填充并验证它。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CommittedConflictIndexEntry {
+    reservation: ConflictReservation,
+    downstream_start: usize,
+    downstream_count: usize,
+}
+
+/// 一份 committed reservation 及其连续 downstream claims 的只读视图。
+pub(crate) struct PersistedConflictAuthority<'a> {
+    pub(crate) reservation: ConflictReservation,
+    downstream: &'a [OwnedDownstreamClaim],
+}
+
+impl PersistedConflictAuthority<'_> {
+    pub(crate) fn downstream_claims(
+        &self,
+    ) -> impl ExactSizeIterator<Item = PersistedDownstreamClaim> + '_ {
+        self.downstream
+            .iter()
+            .map(|claim| PersistedDownstreamClaim {
+                follower_min_gap_mm: claim.follower_min_gap_mm,
+                interval: claim.interval,
+            })
+    }
+}
+
+/// snapshot/cutover 共用的 committed Conflict 批量视图。
+///
+/// 构建成本为 `O(vehicle_capacity + reservations + downstream_claims)`；随后按
+/// `VehicleHandle` 读取 reservation 与 claims 都是 `O(1 + owner_claims)`。
+pub(crate) struct ConflictPersistenceView<'a> {
+    downstream: &'a [OwnedDownstreamClaim],
+    index: &'a [Option<CommittedConflictIndexEntry>],
+}
+
+impl ConflictPersistenceView<'_> {
+    pub(crate) fn authority(&self, owner: VehicleHandle) -> Option<PersistedConflictAuthority<'_>> {
+        let entry = self.index.get(owner.index() as usize).copied().flatten()?;
+        if entry.reservation.owner != owner {
+            return None;
+        }
+        let end = entry.downstream_start.checked_add(entry.downstream_count)?;
+        let downstream = self.downstream.get(entry.downstream_start..end)?;
+        Some(PersistedConflictAuthority {
+            reservation: entry.reservation,
+            downstream,
+        })
+    }
+}
+
 /// restore/cutover 已由车辆位姿与 passage 锚点重建的 cell 阶段。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct RestoredConflictCell {
@@ -1230,19 +1284,64 @@ impl ConflictArbiter {
             })
     }
 
-    pub(crate) fn persisted_downstream_claims(
+    /// 按规范 address 序返回迁移所需的 cell 权威。reservation 标记直接来自
+    /// arbiter 单一事实源，调用方不再为每个 cell 扫描车辆表。
+    pub(crate) fn migration_rows(
         &self,
-        reservation: ConflictReservation,
-    ) -> impl Iterator<Item = PersistedDownstreamClaim> + '_ {
-        self.committed_downstream
+    ) -> impl Iterator<Item = (ConflictPassageAddress, ConflictLagReference, bool)> + '_ {
+        self.addresses
             .iter()
-            .filter(move |claim| {
-                claim.owner == reservation.owner && claim.serial == reservation.claim_serial
+            .copied()
+            .enumerate()
+            .map(|(index, address)| {
+                let cell = self.cells.get(index).copied().unwrap_or_default();
+                (address, cell.lag, cell.reservation.is_some())
             })
-            .map(|claim| PersistedDownstreamClaim {
-                follower_min_gap_mm: claim.follower_min_gap_mm,
-                interval: claim.interval,
-            })
+    }
+
+    /// 以一次线性扫描建立 snapshot/cutover 使用的 committed authority 视图。
+    ///
+    /// `committed_downstream` 的同一 reservation claims 在 commit 时连续追加，
+    /// release 只稳定 retain，因此这里同时验证连续性、计数和 serial 归属。
+    pub(crate) fn persistence_view<'a>(
+        &'a self,
+        index: &'a mut [Option<CommittedConflictIndexEntry>],
+    ) -> Option<ConflictPersistenceView<'a>> {
+        if index.len() != self.vehicle_capacity {
+            return None;
+        }
+        index.fill(None);
+        let mut downstream_start = 0_usize;
+        for reservation in &self.reservations {
+            let owner_index = reservation.owner.index() as usize;
+            let downstream_count = usize::try_from(reservation.downstream_claim_count).ok()?;
+            let downstream_end = downstream_start.checked_add(downstream_count)?;
+            let claims = self
+                .committed_downstream
+                .get(downstream_start..downstream_end)?;
+            if claims.iter().any(|claim| {
+                claim.owner != reservation.owner || claim.serial != reservation.claim_serial
+            }) {
+                return None;
+            }
+            let slot = index.get_mut(owner_index)?;
+            if slot.is_some() {
+                return None;
+            }
+            *slot = Some(CommittedConflictIndexEntry {
+                reservation: *reservation,
+                downstream_start,
+                downstream_count,
+            });
+            downstream_start = downstream_end;
+        }
+        if downstream_start != self.committed_downstream.len() {
+            return None;
+        }
+        Some(ConflictPersistenceView {
+            downstream: &self.committed_downstream,
+            index,
+        })
     }
 
     /// 在未发布候选世界中安装一个已验证 reservation。全部预留与
@@ -1389,27 +1488,34 @@ impl ConflictArbiter {
             .is_some_and(|cell| cell.reservation == Some(owner))
     }
 
+    pub(crate) fn reservation(&self, owner: VehicleHandle) -> Option<ConflictReservation> {
+        self.owner_authority(owner)?.reservation
+    }
+
     pub(crate) fn state_valid(&self, state: &crate::VehicleState) -> bool {
         let Some(traversal) = state.maneuver_traversal else {
             return !self.has_authority(state.handle);
         };
-        let crate::ManeuverTraversalPhase::Clearing { reservation } = traversal.phase else {
+        let crate::ManeuverTraversalPhase::Clearing { admission_gate_hop } = traversal.phase else {
             return !self.has_authority(state.handle);
         };
         let Some(authority) = self.owner_authority(state.handle) else {
+            return false;
+        };
+        let Some(reservation) = authority.reservation else {
             return false;
         };
         if state.status != crate::VehicleStatus::Active
             || state.waiting_membership.is_some()
             || traversal.route != state.route
             || traversal.maneuver_occurrence_index != reservation.maneuver_occurrence_index()
+            || admission_gate_hop != reservation.admission_gate_hop()
             || reservation.owner != state.handle
             || reservation.route() != state.route
             || reservation.downstream_owner != state.handle
             || authority.staged_serial.is_some()
             || authority.staged_cell_count != 0
             || authority.staged_downstream_claim_count != 0
-            || authority.reservation != Some(reservation)
         {
             return false;
         }
@@ -1423,6 +1529,7 @@ impl ConflictArbiter {
     pub(crate) fn authority_owners_valid(
         &self,
         mut owner_valid: impl FnMut(VehicleHandle) -> bool,
+        fixed_delta_time_ms: u64,
     ) -> bool {
         let staged_cell_count = self
             .owner_authorities
@@ -1486,13 +1593,25 @@ impl ConflictArbiter {
                 .is_some_and(|authority| authority.staged_serial == Some(*serial))
         }) && self.committed_cells.iter().all(|(index, owner, serial)| {
             self.owner_authority(*owner).is_some_and(|authority| {
-                authority
-                    .reservation
-                    .is_some_and(|reservation| reservation.claim_serial == *serial)
-            }) && self.cells.get(*index).is_some_and(|cell| {
-                cell.reservation == Some(*owner)
-                    && cell.reservation_serial == Some(*serial)
-                    && (!cell.cleared || cell.occupant.is_none())
+                authority.reservation.is_some_and(|reservation| {
+                    reservation.claim_serial == *serial
+                        && reservation
+                            .acquired_tick
+                            .checked_mul(fixed_delta_time_ms)
+                            .is_some_and(|acquired_time_ms| {
+                                self.cells.get(*index).is_some_and(|cell| {
+                                    cell.reservation == Some(*owner)
+                                        && cell.reservation_serial == Some(*serial)
+                                        && (!cell.cleared || cell.occupant.is_none())
+                                        && (!cell.cleared
+                                            || matches!(
+                                                cell.lag,
+                                                ConflictLagReference::ActualClear(time)
+                                                    if time >= acquired_time_ms
+                                            ))
+                                })
+                            })
+                })
             })
         }) && self.staged_downstream.iter().all(|claim| {
             self.owner_authority(claim.owner)
@@ -2343,7 +2462,9 @@ mod tests {
             maneuver_traversal: Some(crate::ManeuverTraversalState {
                 route: reservation.route(),
                 maneuver_occurrence_index: reservation.maneuver_occurrence_index(),
-                phase: crate::ManeuverTraversalPhase::Clearing { reservation },
+                phase: crate::ManeuverTraversalPhase::Clearing {
+                    admission_gate_hop: reservation.admission_gate_hop(),
+                },
             }),
             waiting_membership: None,
         }
@@ -2382,7 +2503,7 @@ mod tests {
                 owner,
                 RestoredConflictReservation {
                     follower_min_gap_mm: 5,
-                    acquired_tick: 0,
+                    acquired_tick: 10,
                     passage_range: passage_range(0, 0, 0, 0, 2),
                     cells: &[
                         RestoredConflictCell {
@@ -2400,17 +2521,121 @@ mod tests {
                 },
             )
             .expect("restore reservation");
-        assert!(!arbiter.authority_owners_valid(|candidate| candidate == owner));
+        assert!(!arbiter.authority_owners_valid(|candidate| candidate == owner, 100));
 
         arbiter
-            .restore_lag_reference(cleared, ConflictLagReference::ActualClear(0))
-            .expect("restore actual clear");
-        assert!(arbiter.authority_owners_valid(|candidate| candidate == owner));
+            .restore_lag_reference(cleared, ConflictLagReference::ActualClear(999))
+            .expect("restore old actual clear");
+        assert!(!arbiter.authority_owners_valid(|candidate| candidate == owner, 100));
+
+        arbiter
+            .restore_lag_reference(cleared, ConflictLagReference::ActualClear(1_000))
+            .expect("restore acquisition-time clear");
+        assert!(arbiter.authority_owners_valid(|candidate| candidate == owner, 100));
 
         arbiter
             .restore_lag_reference(cleared, ConflictLagReference::CutoverFloor(0))
             .expect("replace with cutover floor");
-        assert!(!arbiter.authority_owners_valid(|candidate| candidate == owner));
+        assert!(!arbiter.authority_owners_valid(|candidate| candidate == owner, 100));
+    }
+
+    #[test]
+    fn migration_rows_cover_lazy_cells_once_in_canonical_order() {
+        let first = address(0, 0, 0);
+        let second = address(1, 0, 1);
+        let arbiter = ConflictArbiter::new(vec![second, first], 1).expect("arbiter");
+        assert_eq!(
+            arbiter.migration_rows().collect::<Vec<_>>(),
+            vec![
+                (first, ConflictLagReference::NoHistory, false),
+                (second, ConflictLagReference::NoHistory, false),
+            ]
+        );
+    }
+
+    #[test]
+    fn persistence_view_indexes_each_reservation_without_rescanning_claims() {
+        let first_owner = vehicle(1);
+        let second_owner = vehicle(3);
+        let first_cell = address(0, 0, 0);
+        let second_cell = address(1, 0, 1);
+        let first_claims = [
+            DownstreamInterval::new(LaneEdgeOrdinal::from_raw(0), 0, 10).expect("claim"),
+            DownstreamInterval::new(LaneEdgeOrdinal::from_raw(1), 0, 10).expect("claim"),
+        ];
+        let second_claims =
+            [DownstreamInterval::new(LaneEdgeOrdinal::from_raw(2), 0, 10).expect("claim")];
+        let mut arbiter = ConflictArbiter::new(vec![first_cell, second_cell], 4).expect("arbiter");
+        let first = arbiter
+            .restore_reservation(
+                first_owner,
+                RestoredConflictReservation {
+                    follower_min_gap_mm: 5,
+                    acquired_tick: 1,
+                    passage_range: passage_range(0, 0, 0, 0, 1),
+                    cells: &[RestoredConflictCell {
+                        address: first_cell,
+                        occupant: true,
+                        cleared: false,
+                    }],
+                    downstream: &first_claims,
+                },
+            )
+            .expect("first reservation");
+        let second = arbiter
+            .restore_reservation(
+                second_owner,
+                RestoredConflictReservation {
+                    follower_min_gap_mm: 7,
+                    acquired_tick: 2,
+                    passage_range: passage_range(1, 0, 0, 0, 1),
+                    cells: &[RestoredConflictCell {
+                        address: second_cell,
+                        occupant: true,
+                        cleared: false,
+                    }],
+                    downstream: &second_claims,
+                },
+            )
+            .expect("second reservation");
+
+        let mut index = vec![None; 4];
+        let view = arbiter.persistence_view(&mut index).expect("valid view");
+        assert_eq!(
+            view.authority(first_owner)
+                .expect("first authority")
+                .downstream_claims()
+                .map(|claim| claim.interval)
+                .collect::<Vec<_>>(),
+            first_claims
+        );
+        assert_eq!(
+            view.authority(second_owner)
+                .expect("second authority")
+                .downstream_claims()
+                .map(|claim| claim.interval)
+                .collect::<Vec<_>>(),
+            second_claims
+        );
+        assert_eq!(view.authority(first_owner).unwrap().reservation, first);
+        assert_eq!(view.authority(second_owner).unwrap().reservation, second);
+        assert!(view.authority(vehicle(0)).is_none());
+
+        arbiter.release_vehicle(first_owner, 300);
+        let mut compacted_index = vec![None; 4];
+        let compacted = arbiter
+            .persistence_view(&mut compacted_index)
+            .expect("view after stable retain");
+        assert!(compacted.authority(first_owner).is_none());
+        assert_eq!(
+            compacted
+                .authority(second_owner)
+                .expect("retained authority")
+                .downstream_claims()
+                .map(|claim| claim.interval)
+                .collect::<Vec<_>>(),
+            second_claims
+        );
     }
 
     #[test]
