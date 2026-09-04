@@ -368,14 +368,15 @@ impl ::flatbuffers::SimpleToVerifyInSlice for ParkingTargetKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_MANEUVER_TRAVERSAL_PHASE_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_MANEUVER_TRAVERSAL_PHASE_KIND: u8 = 3;
+pub const ENUM_MAX_MANEUVER_TRAVERSAL_PHASE_KIND: u8 = 4;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_MANEUVER_TRAVERSAL_PHASE_KIND: [ManeuverTraversalPhaseKind; 4] = [
+pub const ENUM_VALUES_MANEUVER_TRAVERSAL_PHASE_KIND: [ManeuverTraversalPhaseKind; 5] = [
   ManeuverTraversalPhaseKind::Unspecified,
   ManeuverTraversalPhaseKind::PreGate,
   ManeuverTraversalPhaseKind::Committed,
   ManeuverTraversalPhaseKind::Waiting,
+  ManeuverTraversalPhaseKind::Clearing,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -387,14 +388,16 @@ impl ManeuverTraversalPhaseKind {
   pub const PreGate: Self = Self(1);
   pub const Committed: Self = Self(2);
   pub const Waiting: Self = Self(3);
+  pub const Clearing: Self = Self(4);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 3;
+  pub const ENUM_MAX: u8 = 4;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Unspecified,
     Self::PreGate,
     Self::Committed,
     Self::Waiting,
+    Self::Clearing,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -403,6 +406,7 @@ impl ManeuverTraversalPhaseKind {
       Self::PreGate => Some("PreGate"),
       Self::Committed => Some("Committed"),
       Self::Waiting => Some("Waiting"),
+      Self::Clearing => Some("Clearing"),
       _ => None,
     }
   }
@@ -545,6 +549,94 @@ impl<'a> ::flatbuffers::Verifiable for WorldPolicySelectionKind {
 }
 
 impl ::flatbuffers::SimpleToVerifyInSlice for WorldPolicySelectionKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_CONFLICT_LAG_REFERENCE_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_CONFLICT_LAG_REFERENCE_KIND: u8 = 2;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_CONFLICT_LAG_REFERENCE_KIND: [ConflictLagReferenceKind; 3] = [
+  ConflictLagReferenceKind::Unspecified,
+  ConflictLagReferenceKind::ActualClear,
+  ConflictLagReferenceKind::CutoverFloor,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct ConflictLagReferenceKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl ConflictLagReferenceKind {
+  pub const Unspecified: Self = Self(0);
+  pub const ActualClear: Self = Self(1);
+  pub const CutoverFloor: Self = Self(2);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Unspecified,
+    Self::ActualClear,
+    Self::CutoverFloor,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Unspecified => Some("Unspecified"),
+      Self::ActualClear => Some("ActualClear"),
+      Self::CutoverFloor => Some("CutoverFloor"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for ConflictLagReferenceKind {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for ConflictLagReferenceKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for ConflictLagReferenceKind {
+    type Output = ConflictLagReferenceKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for ConflictLagReferenceKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for ConflictLagReferenceKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for ConflictLagReferenceKind {}
 // struct Digest256, aligned to 1
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq)]
@@ -2010,6 +2102,978 @@ impl ::core::fmt::Debug for WaitingMembershipBinding<'_> {
       ds.finish()
   }
 }
+pub enum ConflictPassageLocatorBindingOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ConflictPassageLocatorBinding<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for ConflictPassageLocatorBinding<'a> {
+  type Inner = ConflictPassageLocatorBinding<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ConflictPassageLocatorBinding<'a> {
+  pub const VT_PARTICIPANT_STREAM: ::flatbuffers::VOffsetT = 4;
+  pub const VT_CONFLICT_ZONE: ::flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    ConflictPassageLocatorBinding { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ConflictPassageLocatorBindingArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<ConflictPassageLocatorBinding<'bldr>> {
+    let mut builder = ConflictPassageLocatorBindingBuilder::new(_fbb);
+    if let Some(x) = args.conflict_zone { builder.add_conflict_zone(x); }
+    if let Some(x) = args.participant_stream { builder.add_participant_stream(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn participant_stream(&self) -> Option<&'a StableId128> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<StableId128>(ConflictPassageLocatorBinding::VT_PARTICIPANT_STREAM, None)}
+  }
+  #[inline]
+  pub fn conflict_zone(&self) -> Option<&'a StableId128> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<StableId128>(ConflictPassageLocatorBinding::VT_CONFLICT_ZONE, None)}
+  }
+}
+
+impl ::flatbuffers::Verifiable for ConflictPassageLocatorBinding<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<StableId128>("participant_stream", Self::VT_PARTICIPANT_STREAM, false)?
+     .visit_field::<StableId128>("conflict_zone", Self::VT_CONFLICT_ZONE, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ConflictPassageLocatorBindingArgs<'a> {
+    pub participant_stream: Option<&'a StableId128>,
+    pub conflict_zone: Option<&'a StableId128>,
+}
+impl<'a> Default for ConflictPassageLocatorBindingArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ConflictPassageLocatorBindingArgs {
+      participant_stream: None,
+      conflict_zone: None,
+    }
+  }
+}
+
+pub struct ConflictPassageLocatorBindingBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ConflictPassageLocatorBindingBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_participant_stream(&mut self, participant_stream: &StableId128) {
+    self.fbb_.push_slot_always::<&StableId128>(ConflictPassageLocatorBinding::VT_PARTICIPANT_STREAM, participant_stream);
+  }
+  #[inline]
+  pub fn add_conflict_zone(&mut self, conflict_zone: &StableId128) {
+    self.fbb_.push_slot_always::<&StableId128>(ConflictPassageLocatorBinding::VT_CONFLICT_ZONE, conflict_zone);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ConflictPassageLocatorBindingBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ConflictPassageLocatorBindingBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<ConflictPassageLocatorBinding<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for ConflictPassageLocatorBinding<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("ConflictPassageLocatorBinding");
+      ds.field("participant_stream", &self.participant_stream());
+      ds.field("conflict_zone", &self.conflict_zone());
+      ds.finish()
+  }
+}
+pub enum ConflictEligibilityBindingOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ConflictEligibilityBinding<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for ConflictEligibilityBinding<'a> {
+  type Inner = ConflictEligibilityBinding<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ConflictEligibilityBinding<'a> {
+  pub const VT_MANEUVER_OCCURRENCE_INDEX: ::flatbuffers::VOffsetT = 4;
+  pub const VT_MANEUVER_ENTRY_ROUTE_EDGE_INDEX: ::flatbuffers::VOffsetT = 6;
+  pub const VT_ADMISSION_GATE: ::flatbuffers::VOffsetT = 8;
+  pub const VT_CONFLICT_OCCURRENCE_INDEX: ::flatbuffers::VOffsetT = 10;
+  pub const VT_PASSAGE: ::flatbuffers::VOffsetT = 12;
+  pub const VT_FIRST_ELIGIBLE_TICK: ::flatbuffers::VOffsetT = 14;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    ConflictEligibilityBinding { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ConflictEligibilityBindingArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<ConflictEligibilityBinding<'bldr>> {
+    let mut builder = ConflictEligibilityBindingBuilder::new(_fbb);
+    builder.add_first_eligible_tick(args.first_eligible_tick);
+    if let Some(x) = args.passage { builder.add_passage(x); }
+    builder.add_conflict_occurrence_index(args.conflict_occurrence_index);
+    if let Some(x) = args.admission_gate { builder.add_admission_gate(x); }
+    builder.add_maneuver_entry_route_edge_index(args.maneuver_entry_route_edge_index);
+    builder.add_maneuver_occurrence_index(args.maneuver_occurrence_index);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn maneuver_occurrence_index(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ConflictEligibilityBinding::VT_MANEUVER_OCCURRENCE_INDEX, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn maneuver_entry_route_edge_index(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ConflictEligibilityBinding::VT_MANEUVER_ENTRY_ROUTE_EDGE_INDEX, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn admission_gate(&self) -> Option<&'a StableId128> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<StableId128>(ConflictEligibilityBinding::VT_ADMISSION_GATE, None)}
+  }
+  #[inline]
+  pub fn conflict_occurrence_index(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ConflictEligibilityBinding::VT_CONFLICT_OCCURRENCE_INDEX, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn passage(&self) -> ConflictPassageLocatorBinding<'a> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<ConflictPassageLocatorBinding>>(ConflictEligibilityBinding::VT_PASSAGE, None).unwrap()}
+  }
+  #[inline]
+  pub fn first_eligible_tick(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(ConflictEligibilityBinding::VT_FIRST_ELIGIBLE_TICK, Some(0)).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for ConflictEligibilityBinding<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<u32>("maneuver_occurrence_index", Self::VT_MANEUVER_OCCURRENCE_INDEX, false)?
+     .visit_field::<u32>("maneuver_entry_route_edge_index", Self::VT_MANEUVER_ENTRY_ROUTE_EDGE_INDEX, false)?
+     .visit_field::<StableId128>("admission_gate", Self::VT_ADMISSION_GATE, false)?
+     .visit_field::<u32>("conflict_occurrence_index", Self::VT_CONFLICT_OCCURRENCE_INDEX, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<ConflictPassageLocatorBinding>>("passage", Self::VT_PASSAGE, true)?
+     .visit_field::<u64>("first_eligible_tick", Self::VT_FIRST_ELIGIBLE_TICK, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ConflictEligibilityBindingArgs<'a> {
+    pub maneuver_occurrence_index: u32,
+    pub maneuver_entry_route_edge_index: u32,
+    pub admission_gate: Option<&'a StableId128>,
+    pub conflict_occurrence_index: u32,
+    pub passage: Option<::flatbuffers::WIPOffset<ConflictPassageLocatorBinding<'a>>>,
+    pub first_eligible_tick: u64,
+}
+impl<'a> Default for ConflictEligibilityBindingArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ConflictEligibilityBindingArgs {
+      maneuver_occurrence_index: 0,
+      maneuver_entry_route_edge_index: 0,
+      admission_gate: None,
+      conflict_occurrence_index: 0,
+      passage: None, // required field
+      first_eligible_tick: 0,
+    }
+  }
+}
+
+pub struct ConflictEligibilityBindingBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ConflictEligibilityBindingBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_maneuver_occurrence_index(&mut self, maneuver_occurrence_index: u32) {
+    self.fbb_.push_slot::<u32>(ConflictEligibilityBinding::VT_MANEUVER_OCCURRENCE_INDEX, maneuver_occurrence_index, 0);
+  }
+  #[inline]
+  pub fn add_maneuver_entry_route_edge_index(&mut self, maneuver_entry_route_edge_index: u32) {
+    self.fbb_.push_slot::<u32>(ConflictEligibilityBinding::VT_MANEUVER_ENTRY_ROUTE_EDGE_INDEX, maneuver_entry_route_edge_index, 0);
+  }
+  #[inline]
+  pub fn add_admission_gate(&mut self, admission_gate: &StableId128) {
+    self.fbb_.push_slot_always::<&StableId128>(ConflictEligibilityBinding::VT_ADMISSION_GATE, admission_gate);
+  }
+  #[inline]
+  pub fn add_conflict_occurrence_index(&mut self, conflict_occurrence_index: u32) {
+    self.fbb_.push_slot::<u32>(ConflictEligibilityBinding::VT_CONFLICT_OCCURRENCE_INDEX, conflict_occurrence_index, 0);
+  }
+  #[inline]
+  pub fn add_passage(&mut self, passage: ::flatbuffers::WIPOffset<ConflictPassageLocatorBinding<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<ConflictPassageLocatorBinding>>(ConflictEligibilityBinding::VT_PASSAGE, passage);
+  }
+  #[inline]
+  pub fn add_first_eligible_tick(&mut self, first_eligible_tick: u64) {
+    self.fbb_.push_slot::<u64>(ConflictEligibilityBinding::VT_FIRST_ELIGIBLE_TICK, first_eligible_tick, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ConflictEligibilityBindingBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ConflictEligibilityBindingBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<ConflictEligibilityBinding<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, ConflictEligibilityBinding::VT_PASSAGE,"passage");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for ConflictEligibilityBinding<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("ConflictEligibilityBinding");
+      ds.field("maneuver_occurrence_index", &self.maneuver_occurrence_index());
+      ds.field("maneuver_entry_route_edge_index", &self.maneuver_entry_route_edge_index());
+      ds.field("admission_gate", &self.admission_gate());
+      ds.field("conflict_occurrence_index", &self.conflict_occurrence_index());
+      ds.field("passage", &self.passage());
+      ds.field("first_eligible_tick", &self.first_eligible_tick());
+      ds.finish()
+  }
+}
+pub enum ConflictPassageBindingOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ConflictPassageBinding<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for ConflictPassageBinding<'a> {
+  type Inner = ConflictPassageBinding<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ConflictPassageBinding<'a> {
+  pub const VT_CONFLICT_OCCURRENCE_INDEX: ::flatbuffers::VOffsetT = 4;
+  pub const VT_PASSAGE: ::flatbuffers::VOffsetT = 6;
+  pub const VT_ENTRY_ROUTE_EDGE_INDEX: ::flatbuffers::VOffsetT = 8;
+  pub const VT_ENTRY_PROGRESS_MM: ::flatbuffers::VOffsetT = 10;
+  pub const VT_CLEARANCE_ROUTE_EDGE_INDEX: ::flatbuffers::VOffsetT = 12;
+  pub const VT_CLEARANCE_PROGRESS_MM: ::flatbuffers::VOffsetT = 14;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    ConflictPassageBinding { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ConflictPassageBindingArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<ConflictPassageBinding<'bldr>> {
+    let mut builder = ConflictPassageBindingBuilder::new(_fbb);
+    builder.add_clearance_progress_mm(args.clearance_progress_mm);
+    builder.add_clearance_route_edge_index(args.clearance_route_edge_index);
+    builder.add_entry_progress_mm(args.entry_progress_mm);
+    builder.add_entry_route_edge_index(args.entry_route_edge_index);
+    if let Some(x) = args.passage { builder.add_passage(x); }
+    builder.add_conflict_occurrence_index(args.conflict_occurrence_index);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn conflict_occurrence_index(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ConflictPassageBinding::VT_CONFLICT_OCCURRENCE_INDEX, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn passage(&self) -> ConflictPassageLocatorBinding<'a> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<ConflictPassageLocatorBinding>>(ConflictPassageBinding::VT_PASSAGE, None).unwrap()}
+  }
+  #[inline]
+  pub fn entry_route_edge_index(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ConflictPassageBinding::VT_ENTRY_ROUTE_EDGE_INDEX, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn entry_progress_mm(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ConflictPassageBinding::VT_ENTRY_PROGRESS_MM, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn clearance_route_edge_index(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ConflictPassageBinding::VT_CLEARANCE_ROUTE_EDGE_INDEX, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn clearance_progress_mm(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ConflictPassageBinding::VT_CLEARANCE_PROGRESS_MM, Some(0)).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for ConflictPassageBinding<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<u32>("conflict_occurrence_index", Self::VT_CONFLICT_OCCURRENCE_INDEX, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<ConflictPassageLocatorBinding>>("passage", Self::VT_PASSAGE, true)?
+     .visit_field::<u32>("entry_route_edge_index", Self::VT_ENTRY_ROUTE_EDGE_INDEX, false)?
+     .visit_field::<u32>("entry_progress_mm", Self::VT_ENTRY_PROGRESS_MM, false)?
+     .visit_field::<u32>("clearance_route_edge_index", Self::VT_CLEARANCE_ROUTE_EDGE_INDEX, false)?
+     .visit_field::<u32>("clearance_progress_mm", Self::VT_CLEARANCE_PROGRESS_MM, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ConflictPassageBindingArgs<'a> {
+    pub conflict_occurrence_index: u32,
+    pub passage: Option<::flatbuffers::WIPOffset<ConflictPassageLocatorBinding<'a>>>,
+    pub entry_route_edge_index: u32,
+    pub entry_progress_mm: u32,
+    pub clearance_route_edge_index: u32,
+    pub clearance_progress_mm: u32,
+}
+impl<'a> Default for ConflictPassageBindingArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ConflictPassageBindingArgs {
+      conflict_occurrence_index: 0,
+      passage: None, // required field
+      entry_route_edge_index: 0,
+      entry_progress_mm: 0,
+      clearance_route_edge_index: 0,
+      clearance_progress_mm: 0,
+    }
+  }
+}
+
+pub struct ConflictPassageBindingBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ConflictPassageBindingBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_conflict_occurrence_index(&mut self, conflict_occurrence_index: u32) {
+    self.fbb_.push_slot::<u32>(ConflictPassageBinding::VT_CONFLICT_OCCURRENCE_INDEX, conflict_occurrence_index, 0);
+  }
+  #[inline]
+  pub fn add_passage(&mut self, passage: ::flatbuffers::WIPOffset<ConflictPassageLocatorBinding<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<ConflictPassageLocatorBinding>>(ConflictPassageBinding::VT_PASSAGE, passage);
+  }
+  #[inline]
+  pub fn add_entry_route_edge_index(&mut self, entry_route_edge_index: u32) {
+    self.fbb_.push_slot::<u32>(ConflictPassageBinding::VT_ENTRY_ROUTE_EDGE_INDEX, entry_route_edge_index, 0);
+  }
+  #[inline]
+  pub fn add_entry_progress_mm(&mut self, entry_progress_mm: u32) {
+    self.fbb_.push_slot::<u32>(ConflictPassageBinding::VT_ENTRY_PROGRESS_MM, entry_progress_mm, 0);
+  }
+  #[inline]
+  pub fn add_clearance_route_edge_index(&mut self, clearance_route_edge_index: u32) {
+    self.fbb_.push_slot::<u32>(ConflictPassageBinding::VT_CLEARANCE_ROUTE_EDGE_INDEX, clearance_route_edge_index, 0);
+  }
+  #[inline]
+  pub fn add_clearance_progress_mm(&mut self, clearance_progress_mm: u32) {
+    self.fbb_.push_slot::<u32>(ConflictPassageBinding::VT_CLEARANCE_PROGRESS_MM, clearance_progress_mm, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ConflictPassageBindingBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ConflictPassageBindingBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<ConflictPassageBinding<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, ConflictPassageBinding::VT_PASSAGE,"passage");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for ConflictPassageBinding<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("ConflictPassageBinding");
+      ds.field("conflict_occurrence_index", &self.conflict_occurrence_index());
+      ds.field("passage", &self.passage());
+      ds.field("entry_route_edge_index", &self.entry_route_edge_index());
+      ds.field("entry_progress_mm", &self.entry_progress_mm());
+      ds.field("clearance_route_edge_index", &self.clearance_route_edge_index());
+      ds.field("clearance_progress_mm", &self.clearance_progress_mm());
+      ds.finish()
+  }
+}
+pub enum ConflictDownstreamIntervalBindingOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ConflictDownstreamIntervalBinding<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for ConflictDownstreamIntervalBinding<'a> {
+  type Inner = ConflictDownstreamIntervalBinding<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ConflictDownstreamIntervalBinding<'a> {
+  pub const VT_LANE_EDGE: ::flatbuffers::VOffsetT = 4;
+  pub const VT_ROUTE_EDGE_INDEX: ::flatbuffers::VOffsetT = 6;
+  pub const VT_START_MM: ::flatbuffers::VOffsetT = 8;
+  pub const VT_END_MM: ::flatbuffers::VOffsetT = 10;
+  pub const VT_OWNER_SEQUENCE: ::flatbuffers::VOffsetT = 12;
+  pub const VT_FOLLOWER_MIN_GAP_MM: ::flatbuffers::VOffsetT = 14;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    ConflictDownstreamIntervalBinding { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ConflictDownstreamIntervalBindingArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<ConflictDownstreamIntervalBinding<'bldr>> {
+    let mut builder = ConflictDownstreamIntervalBindingBuilder::new(_fbb);
+    builder.add_follower_min_gap_mm(args.follower_min_gap_mm);
+    builder.add_owner_sequence(args.owner_sequence);
+    builder.add_end_mm(args.end_mm);
+    builder.add_start_mm(args.start_mm);
+    builder.add_route_edge_index(args.route_edge_index);
+    if let Some(x) = args.lane_edge { builder.add_lane_edge(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn lane_edge(&self) -> Option<&'a StableId128> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<StableId128>(ConflictDownstreamIntervalBinding::VT_LANE_EDGE, None)}
+  }
+  #[inline]
+  pub fn route_edge_index(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ConflictDownstreamIntervalBinding::VT_ROUTE_EDGE_INDEX, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn start_mm(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ConflictDownstreamIntervalBinding::VT_START_MM, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn end_mm(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ConflictDownstreamIntervalBinding::VT_END_MM, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn owner_sequence(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ConflictDownstreamIntervalBinding::VT_OWNER_SEQUENCE, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn follower_min_gap_mm(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ConflictDownstreamIntervalBinding::VT_FOLLOWER_MIN_GAP_MM, Some(0)).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for ConflictDownstreamIntervalBinding<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<StableId128>("lane_edge", Self::VT_LANE_EDGE, false)?
+     .visit_field::<u32>("route_edge_index", Self::VT_ROUTE_EDGE_INDEX, false)?
+     .visit_field::<u32>("start_mm", Self::VT_START_MM, false)?
+     .visit_field::<u32>("end_mm", Self::VT_END_MM, false)?
+     .visit_field::<u32>("owner_sequence", Self::VT_OWNER_SEQUENCE, false)?
+     .visit_field::<u32>("follower_min_gap_mm", Self::VT_FOLLOWER_MIN_GAP_MM, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ConflictDownstreamIntervalBindingArgs<'a> {
+    pub lane_edge: Option<&'a StableId128>,
+    pub route_edge_index: u32,
+    pub start_mm: u32,
+    pub end_mm: u32,
+    pub owner_sequence: u32,
+    pub follower_min_gap_mm: u32,
+}
+impl<'a> Default for ConflictDownstreamIntervalBindingArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ConflictDownstreamIntervalBindingArgs {
+      lane_edge: None,
+      route_edge_index: 0,
+      start_mm: 0,
+      end_mm: 0,
+      owner_sequence: 0,
+      follower_min_gap_mm: 0,
+    }
+  }
+}
+
+pub struct ConflictDownstreamIntervalBindingBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ConflictDownstreamIntervalBindingBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_lane_edge(&mut self, lane_edge: &StableId128) {
+    self.fbb_.push_slot_always::<&StableId128>(ConflictDownstreamIntervalBinding::VT_LANE_EDGE, lane_edge);
+  }
+  #[inline]
+  pub fn add_route_edge_index(&mut self, route_edge_index: u32) {
+    self.fbb_.push_slot::<u32>(ConflictDownstreamIntervalBinding::VT_ROUTE_EDGE_INDEX, route_edge_index, 0);
+  }
+  #[inline]
+  pub fn add_start_mm(&mut self, start_mm: u32) {
+    self.fbb_.push_slot::<u32>(ConflictDownstreamIntervalBinding::VT_START_MM, start_mm, 0);
+  }
+  #[inline]
+  pub fn add_end_mm(&mut self, end_mm: u32) {
+    self.fbb_.push_slot::<u32>(ConflictDownstreamIntervalBinding::VT_END_MM, end_mm, 0);
+  }
+  #[inline]
+  pub fn add_owner_sequence(&mut self, owner_sequence: u32) {
+    self.fbb_.push_slot::<u32>(ConflictDownstreamIntervalBinding::VT_OWNER_SEQUENCE, owner_sequence, 0);
+  }
+  #[inline]
+  pub fn add_follower_min_gap_mm(&mut self, follower_min_gap_mm: u32) {
+    self.fbb_.push_slot::<u32>(ConflictDownstreamIntervalBinding::VT_FOLLOWER_MIN_GAP_MM, follower_min_gap_mm, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ConflictDownstreamIntervalBindingBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ConflictDownstreamIntervalBindingBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<ConflictDownstreamIntervalBinding<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for ConflictDownstreamIntervalBinding<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("ConflictDownstreamIntervalBinding");
+      ds.field("lane_edge", &self.lane_edge());
+      ds.field("route_edge_index", &self.route_edge_index());
+      ds.field("start_mm", &self.start_mm());
+      ds.field("end_mm", &self.end_mm());
+      ds.field("owner_sequence", &self.owner_sequence());
+      ds.field("follower_min_gap_mm", &self.follower_min_gap_mm());
+      ds.finish()
+  }
+}
+pub enum ConflictReservationBindingOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ConflictReservationBinding<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for ConflictReservationBinding<'a> {
+  type Inner = ConflictReservationBinding<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ConflictReservationBinding<'a> {
+  pub const VT_ACQUIRED_TICK: ::flatbuffers::VOffsetT = 4;
+  pub const VT_MANEUVER_OCCURRENCE_INDEX: ::flatbuffers::VOffsetT = 6;
+  pub const VT_MANEUVER_ENTRY_ROUTE_EDGE_INDEX: ::flatbuffers::VOffsetT = 8;
+  pub const VT_ADMISSION_GATE: ::flatbuffers::VOffsetT = 10;
+  pub const VT_PASSAGES: ::flatbuffers::VOffsetT = 12;
+  pub const VT_DOWNSTREAM_INTERVALS: ::flatbuffers::VOffsetT = 14;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    ConflictReservationBinding { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ConflictReservationBindingArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<ConflictReservationBinding<'bldr>> {
+    let mut builder = ConflictReservationBindingBuilder::new(_fbb);
+    builder.add_acquired_tick(args.acquired_tick);
+    if let Some(x) = args.downstream_intervals { builder.add_downstream_intervals(x); }
+    if let Some(x) = args.passages { builder.add_passages(x); }
+    if let Some(x) = args.admission_gate { builder.add_admission_gate(x); }
+    builder.add_maneuver_entry_route_edge_index(args.maneuver_entry_route_edge_index);
+    builder.add_maneuver_occurrence_index(args.maneuver_occurrence_index);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn acquired_tick(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(ConflictReservationBinding::VT_ACQUIRED_TICK, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn maneuver_occurrence_index(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ConflictReservationBinding::VT_MANEUVER_OCCURRENCE_INDEX, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn maneuver_entry_route_edge_index(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ConflictReservationBinding::VT_MANEUVER_ENTRY_ROUTE_EDGE_INDEX, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn admission_gate(&self) -> Option<&'a StableId128> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<StableId128>(ConflictReservationBinding::VT_ADMISSION_GATE, None)}
+  }
+  #[inline]
+  pub fn passages(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictPassageBinding<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictPassageBinding>>>>(ConflictReservationBinding::VT_PASSAGES, None).unwrap()}
+  }
+  #[inline]
+  pub fn downstream_intervals(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictDownstreamIntervalBinding<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictDownstreamIntervalBinding>>>>(ConflictReservationBinding::VT_DOWNSTREAM_INTERVALS, None).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for ConflictReservationBinding<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<u64>("acquired_tick", Self::VT_ACQUIRED_TICK, false)?
+     .visit_field::<u32>("maneuver_occurrence_index", Self::VT_MANEUVER_OCCURRENCE_INDEX, false)?
+     .visit_field::<u32>("maneuver_entry_route_edge_index", Self::VT_MANEUVER_ENTRY_ROUTE_EDGE_INDEX, false)?
+     .visit_field::<StableId128>("admission_gate", Self::VT_ADMISSION_GATE, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ConflictPassageBinding>>>>("passages", Self::VT_PASSAGES, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ConflictDownstreamIntervalBinding>>>>("downstream_intervals", Self::VT_DOWNSTREAM_INTERVALS, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ConflictReservationBindingArgs<'a> {
+    pub acquired_tick: u64,
+    pub maneuver_occurrence_index: u32,
+    pub maneuver_entry_route_edge_index: u32,
+    pub admission_gate: Option<&'a StableId128>,
+    pub passages: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictPassageBinding<'a>>>>>,
+    pub downstream_intervals: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictDownstreamIntervalBinding<'a>>>>>,
+}
+impl<'a> Default for ConflictReservationBindingArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ConflictReservationBindingArgs {
+      acquired_tick: 0,
+      maneuver_occurrence_index: 0,
+      maneuver_entry_route_edge_index: 0,
+      admission_gate: None,
+      passages: None, // required field
+      downstream_intervals: None, // required field
+    }
+  }
+}
+
+pub struct ConflictReservationBindingBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ConflictReservationBindingBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_acquired_tick(&mut self, acquired_tick: u64) {
+    self.fbb_.push_slot::<u64>(ConflictReservationBinding::VT_ACQUIRED_TICK, acquired_tick, 0);
+  }
+  #[inline]
+  pub fn add_maneuver_occurrence_index(&mut self, maneuver_occurrence_index: u32) {
+    self.fbb_.push_slot::<u32>(ConflictReservationBinding::VT_MANEUVER_OCCURRENCE_INDEX, maneuver_occurrence_index, 0);
+  }
+  #[inline]
+  pub fn add_maneuver_entry_route_edge_index(&mut self, maneuver_entry_route_edge_index: u32) {
+    self.fbb_.push_slot::<u32>(ConflictReservationBinding::VT_MANEUVER_ENTRY_ROUTE_EDGE_INDEX, maneuver_entry_route_edge_index, 0);
+  }
+  #[inline]
+  pub fn add_admission_gate(&mut self, admission_gate: &StableId128) {
+    self.fbb_.push_slot_always::<&StableId128>(ConflictReservationBinding::VT_ADMISSION_GATE, admission_gate);
+  }
+  #[inline]
+  pub fn add_passages(&mut self, passages: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<ConflictPassageBinding<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ConflictReservationBinding::VT_PASSAGES, passages);
+  }
+  #[inline]
+  pub fn add_downstream_intervals(&mut self, downstream_intervals: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<ConflictDownstreamIntervalBinding<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(ConflictReservationBinding::VT_DOWNSTREAM_INTERVALS, downstream_intervals);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ConflictReservationBindingBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ConflictReservationBindingBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<ConflictReservationBinding<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, ConflictReservationBinding::VT_PASSAGES,"passages");
+    self.fbb_.required(o, ConflictReservationBinding::VT_DOWNSTREAM_INTERVALS,"downstream_intervals");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for ConflictReservationBinding<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("ConflictReservationBinding");
+      ds.field("acquired_tick", &self.acquired_tick());
+      ds.field("maneuver_occurrence_index", &self.maneuver_occurrence_index());
+      ds.field("maneuver_entry_route_edge_index", &self.maneuver_entry_route_edge_index());
+      ds.field("admission_gate", &self.admission_gate());
+      ds.field("passages", &self.passages());
+      ds.field("downstream_intervals", &self.downstream_intervals());
+      ds.finish()
+  }
+}
+pub enum ConflictLagStateOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ConflictLagState<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for ConflictLagState<'a> {
+  type Inner = ConflictLagState<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ConflictLagState<'a> {
+  pub const VT_PASSAGE: ::flatbuffers::VOffsetT = 4;
+  pub const VT_REFERENCE_KIND: ::flatbuffers::VOffsetT = 6;
+  pub const VT_REFERENCE_TIME_MS: ::flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    ConflictLagState { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ConflictLagStateArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<ConflictLagState<'bldr>> {
+    let mut builder = ConflictLagStateBuilder::new(_fbb);
+    builder.add_reference_time_ms(args.reference_time_ms);
+    if let Some(x) = args.passage { builder.add_passage(x); }
+    builder.add_reference_kind(args.reference_kind);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn passage(&self) -> ConflictPassageLocatorBinding<'a> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<ConflictPassageLocatorBinding>>(ConflictLagState::VT_PASSAGE, None).unwrap()}
+  }
+  #[inline]
+  pub fn reference_kind(&self) -> ConflictLagReferenceKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<ConflictLagReferenceKind>(ConflictLagState::VT_REFERENCE_KIND, Some(ConflictLagReferenceKind::Unspecified)).unwrap()}
+  }
+  #[inline]
+  pub fn reference_time_ms(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(ConflictLagState::VT_REFERENCE_TIME_MS, Some(0)).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for ConflictLagState<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<ConflictPassageLocatorBinding>>("passage", Self::VT_PASSAGE, true)?
+     .visit_field::<ConflictLagReferenceKind>("reference_kind", Self::VT_REFERENCE_KIND, false)?
+     .visit_field::<u64>("reference_time_ms", Self::VT_REFERENCE_TIME_MS, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ConflictLagStateArgs<'a> {
+    pub passage: Option<::flatbuffers::WIPOffset<ConflictPassageLocatorBinding<'a>>>,
+    pub reference_kind: ConflictLagReferenceKind,
+    pub reference_time_ms: u64,
+}
+impl<'a> Default for ConflictLagStateArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ConflictLagStateArgs {
+      passage: None, // required field
+      reference_kind: ConflictLagReferenceKind::Unspecified,
+      reference_time_ms: 0,
+    }
+  }
+}
+
+pub struct ConflictLagStateBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ConflictLagStateBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_passage(&mut self, passage: ::flatbuffers::WIPOffset<ConflictPassageLocatorBinding<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<ConflictPassageLocatorBinding>>(ConflictLagState::VT_PASSAGE, passage);
+  }
+  #[inline]
+  pub fn add_reference_kind(&mut self, reference_kind: ConflictLagReferenceKind) {
+    self.fbb_.push_slot::<ConflictLagReferenceKind>(ConflictLagState::VT_REFERENCE_KIND, reference_kind, ConflictLagReferenceKind::Unspecified);
+  }
+  #[inline]
+  pub fn add_reference_time_ms(&mut self, reference_time_ms: u64) {
+    self.fbb_.push_slot::<u64>(ConflictLagState::VT_REFERENCE_TIME_MS, reference_time_ms, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ConflictLagStateBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ConflictLagStateBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<ConflictLagState<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, ConflictLagState::VT_PASSAGE,"passage");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for ConflictLagState<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("ConflictLagState");
+      ds.field("passage", &self.passage());
+      ds.field("reference_kind", &self.reference_kind());
+      ds.field("reference_time_ms", &self.reference_time_ms());
+      ds.finish()
+  }
+}
 pub enum SnapshotVehicleOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -2038,6 +3102,8 @@ impl<'a> SnapshotVehicle<'a> {
   pub const VT_PARKING: ::flatbuffers::VOffsetT = 22;
   pub const VT_MANEUVER_TRAVERSAL: ::flatbuffers::VOffsetT = 24;
   pub const VT_WAITING_MEMBERSHIP: ::flatbuffers::VOffsetT = 26;
+  pub const VT_CONFLICT_ELIGIBILITY: ::flatbuffers::VOffsetT = 28;
+  pub const VT_CONFLICT_RESERVATION: ::flatbuffers::VOffsetT = 30;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -2051,6 +3117,8 @@ impl<'a> SnapshotVehicle<'a> {
     let mut builder = SnapshotVehicleBuilder::new(_fbb);
     builder.add_snapshot_route_id(args.snapshot_route_id);
     builder.add_snapshot_vehicle_id(args.snapshot_vehicle_id);
+    if let Some(x) = args.conflict_reservation { builder.add_conflict_reservation(x); }
+    if let Some(x) = args.conflict_eligibility { builder.add_conflict_eligibility(x); }
     if let Some(x) = args.waiting_membership { builder.add_waiting_membership(x); }
     if let Some(x) = args.maneuver_traversal { builder.add_maneuver_traversal(x); }
     if let Some(x) = args.parking { builder.add_parking(x); }
@@ -2149,6 +3217,20 @@ impl<'a> SnapshotVehicle<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<WaitingMembershipBinding>>(SnapshotVehicle::VT_WAITING_MEMBERSHIP, None)}
   }
+  #[inline]
+  pub fn conflict_eligibility(&self) -> Option<ConflictEligibilityBinding<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<ConflictEligibilityBinding>>(SnapshotVehicle::VT_CONFLICT_ELIGIBILITY, None)}
+  }
+  #[inline]
+  pub fn conflict_reservation(&self) -> Option<ConflictReservationBinding<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<ConflictReservationBinding>>(SnapshotVehicle::VT_CONFLICT_RESERVATION, None)}
+  }
 }
 
 impl ::flatbuffers::Verifiable for SnapshotVehicle<'_> {
@@ -2169,6 +3251,8 @@ impl ::flatbuffers::Verifiable for SnapshotVehicle<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<ParkingBinding>>("parking", Self::VT_PARKING, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<ManeuverTraversalBinding>>("maneuver_traversal", Self::VT_MANEUVER_TRAVERSAL, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<WaitingMembershipBinding>>("waiting_membership", Self::VT_WAITING_MEMBERSHIP, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<ConflictEligibilityBinding>>("conflict_eligibility", Self::VT_CONFLICT_ELIGIBILITY, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<ConflictReservationBinding>>("conflict_reservation", Self::VT_CONFLICT_RESERVATION, false)?
      .finish();
     Ok(())
   }
@@ -2186,6 +3270,8 @@ pub struct SnapshotVehicleArgs<'a> {
     pub parking: Option<::flatbuffers::WIPOffset<ParkingBinding<'a>>>,
     pub maneuver_traversal: Option<::flatbuffers::WIPOffset<ManeuverTraversalBinding<'a>>>,
     pub waiting_membership: Option<::flatbuffers::WIPOffset<WaitingMembershipBinding<'a>>>,
+    pub conflict_eligibility: Option<::flatbuffers::WIPOffset<ConflictEligibilityBinding<'a>>>,
+    pub conflict_reservation: Option<::flatbuffers::WIPOffset<ConflictReservationBinding<'a>>>,
 }
 impl<'a> Default for SnapshotVehicleArgs<'a> {
   #[inline]
@@ -2203,6 +3289,8 @@ impl<'a> Default for SnapshotVehicleArgs<'a> {
       parking: None,
       maneuver_traversal: None,
       waiting_membership: None,
+      conflict_eligibility: None,
+      conflict_reservation: None,
     }
   }
 }
@@ -2261,6 +3349,14 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> SnapshotVehicleBuilder<'a, 'b
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<WaitingMembershipBinding>>(SnapshotVehicle::VT_WAITING_MEMBERSHIP, waiting_membership);
   }
   #[inline]
+  pub fn add_conflict_eligibility(&mut self, conflict_eligibility: ::flatbuffers::WIPOffset<ConflictEligibilityBinding<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<ConflictEligibilityBinding>>(SnapshotVehicle::VT_CONFLICT_ELIGIBILITY, conflict_eligibility);
+  }
+  #[inline]
+  pub fn add_conflict_reservation(&mut self, conflict_reservation: ::flatbuffers::WIPOffset<ConflictReservationBinding<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<ConflictReservationBinding>>(SnapshotVehicle::VT_CONFLICT_RESERVATION, conflict_reservation);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> SnapshotVehicleBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     SnapshotVehicleBuilder {
@@ -2290,6 +3386,8 @@ impl ::core::fmt::Debug for SnapshotVehicle<'_> {
       ds.field("parking", &self.parking());
       ds.field("maneuver_traversal", &self.maneuver_traversal());
       ds.field("waiting_membership", &self.waiting_membership());
+      ds.field("conflict_eligibility", &self.conflict_eligibility());
+      ds.field("conflict_reservation", &self.conflict_reservation());
       ds.finish()
   }
 }
@@ -2458,6 +3556,7 @@ impl<'a> RuntimeSnapshot<'a> {
   pub const VT_LIVE_ORDER: ::flatbuffers::VOffsetT = 36;
   pub const VT_WAITING_ZONES: ::flatbuffers::VOffsetT = 38;
   pub const VT_WORLD_POLICY: ::flatbuffers::VOffsetT = 40;
+  pub const VT_CONFLICT_LAG_STATES: ::flatbuffers::VOffsetT = 42;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -2475,6 +3574,7 @@ impl<'a> RuntimeSnapshot<'a> {
     builder.add_time_ms(args.time_ms);
     builder.add_tick(args.tick);
     builder.add_world_id(args.world_id);
+    if let Some(x) = args.conflict_lag_states { builder.add_conflict_lag_states(x); }
     if let Some(x) = args.world_policy { builder.add_world_policy(x); }
     if let Some(x) = args.waiting_zones { builder.add_waiting_zones(x); }
     if let Some(x) = args.live_order { builder.add_live_order(x); }
@@ -2625,6 +3725,13 @@ impl<'a> RuntimeSnapshot<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<WorldPolicyBinding>>(RuntimeSnapshot::VT_WORLD_POLICY, None).unwrap()}
   }
+  #[inline]
+  pub fn conflict_lag_states(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictLagState<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictLagState>>>>(RuntimeSnapshot::VT_CONFLICT_LAG_STATES, None).unwrap()}
+  }
 }
 
 impl ::flatbuffers::Verifiable for RuntimeSnapshot<'_> {
@@ -2652,6 +3759,7 @@ impl ::flatbuffers::Verifiable for RuntimeSnapshot<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u64>>>("live_order", Self::VT_LIVE_ORDER, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<WaitingZoneState>>>>("waiting_zones", Self::VT_WAITING_ZONES, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<WorldPolicyBinding>>("world_policy", Self::VT_WORLD_POLICY, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ConflictLagState>>>>("conflict_lag_states", Self::VT_CONFLICT_LAG_STATES, true)?
      .finish();
     Ok(())
   }
@@ -2676,6 +3784,7 @@ pub struct RuntimeSnapshotArgs<'a> {
     pub live_order: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u64>>>,
     pub waiting_zones: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<WaitingZoneState<'a>>>>>,
     pub world_policy: Option<::flatbuffers::WIPOffset<WorldPolicyBinding<'a>>>,
+    pub conflict_lag_states: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ConflictLagState<'a>>>>>,
 }
 impl<'a> Default for RuntimeSnapshotArgs<'a> {
   #[inline]
@@ -2700,6 +3809,7 @@ impl<'a> Default for RuntimeSnapshotArgs<'a> {
       live_order: None, // required field
       waiting_zones: None, // required field
       world_policy: None, // required field
+      conflict_lag_states: None, // required field
     }
   }
 }
@@ -2786,6 +3896,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RuntimeSnapshotBuilder<'a, 'b
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<WorldPolicyBinding>>(RuntimeSnapshot::VT_WORLD_POLICY, world_policy);
   }
   #[inline]
+  pub fn add_conflict_lag_states(&mut self, conflict_lag_states: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<ConflictLagState<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RuntimeSnapshot::VT_CONFLICT_LAG_STATES, conflict_lag_states);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> RuntimeSnapshotBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     RuntimeSnapshotBuilder {
@@ -2802,6 +3916,7 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RuntimeSnapshotBuilder<'a, 'b
     self.fbb_.required(o, RuntimeSnapshot::VT_LIVE_ORDER,"live_order");
     self.fbb_.required(o, RuntimeSnapshot::VT_WAITING_ZONES,"waiting_zones");
     self.fbb_.required(o, RuntimeSnapshot::VT_WORLD_POLICY,"world_policy");
+    self.fbb_.required(o, RuntimeSnapshot::VT_CONFLICT_LAG_STATES,"conflict_lag_states");
     ::flatbuffers::WIPOffset::new(o.value())
   }
 }
@@ -2828,6 +3943,7 @@ impl ::core::fmt::Debug for RuntimeSnapshot<'_> {
       ds.field("live_order", &self.live_order());
       ds.field("waiting_zones", &self.waiting_zones());
       ds.field("world_policy", &self.world_policy());
+      ds.field("conflict_lag_states", &self.conflict_lag_states());
       ds.finish()
   }
 }

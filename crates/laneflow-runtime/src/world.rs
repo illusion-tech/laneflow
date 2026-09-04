@@ -357,7 +357,8 @@ impl TrafficWorld {
                             || self.conflict_passage_occurrence_locator(
                                 state.route,
                                 eligibility.locator().conflict_occurrence_index(),
-                            ) != Some(eligibility.locator()))
+                            ) != Some(eligibility.locator())
+                            || !self.conflict_eligibility_position_valid(state, eligibility))
                     {
                         return false;
                     }
@@ -398,6 +399,23 @@ impl TrafficWorld {
         }
         self.conflict_arbiter
             .authority_owners_valid(|owner| self.vehicle_state(owner).is_some())
+    }
+
+    pub(crate) fn conflict_eligibility_position_valid(
+        &self,
+        state: &VehicleState,
+        eligibility: crate::ConflictEligibilityState,
+    ) -> bool {
+        let hop = eligibility.locator().admission_gate_hop();
+        let Some(compiled) = self.compiled_route(state.route) else {
+            return false;
+        };
+        let Some(edge) = compiled.edges.get(hop as usize) else {
+            return false;
+        };
+        state.route_edge_index == hop
+            && state.progress_mm == self.revision.traffic().lane_lengths_millimetres()[edge.index()]
+            && state.carry_um == 0
     }
 
     #[must_use]
@@ -689,7 +707,7 @@ impl TrafficWorld {
     /// 生成一辆车。失败不留半辆车。
     pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, SpawnError> {
         let (class, length_mm, traversal) =
-            self.validate_unparked_vehicle(input, 0, VehicleStatus::Active, None)?;
+            self.validate_unparked_vehicle(input, 0, VehicleStatus::Active, None, false)?;
         let next_observation_state_sequence = self
             .observation_state_sequence
             .checked_next()
@@ -725,13 +743,19 @@ impl TrafficWorld {
         status: VehicleStatus,
         maneuver_traversal: Option<crate::ManeuverTraversalState>,
         waiting_membership: Option<crate::WaitingMembership>,
+        conflict_authority_pending: bool,
     ) -> Result<VehicleHandle, SpawnError> {
         debug_assert!(matches!(
             status,
             VehicleStatus::Active | VehicleStatus::Completed
         ));
-        let (class, length_mm, traversal) =
-            self.validate_unparked_vehicle(input, carry_um, status, Some(maneuver_traversal))?;
+        let (class, length_mm, traversal) = self.validate_unparked_vehicle(
+            input,
+            carry_um,
+            status,
+            Some(maneuver_traversal),
+            conflict_authority_pending,
+        )?;
         let authority = UnparkedVehicleAuthority {
             class,
             length_mm,
@@ -748,6 +772,7 @@ impl TrafficWorld {
         carry_um: u16,
         status: VehicleStatus,
         restored_traversal: Option<Option<crate::ManeuverTraversalState>>,
+        conflict_authority_pending: bool,
     ) -> Result<
         (
             ParticipantClassOrdinal,
@@ -821,19 +846,21 @@ impl TrafficWorld {
             {
                 return Err(SpawnError::Overlap);
             }
-            match self.check_active_conflict_capability(
-                input.route(),
-                cursor,
-                input.progress_mm(),
-                carry_um,
-                profile.length_mm(),
-            ) {
-                Ok(()) => {}
-                Err(ConflictCapabilityError::InvalidCursor) => {
-                    return Err(SpawnError::InvalidProgress);
-                }
-                Err(ConflictCapabilityError::RuntimeUnavailable(error)) => {
-                    return Err(SpawnError::ConflictRuntimeUnavailable(error));
+            if !conflict_authority_pending {
+                match self.check_active_conflict_capability(
+                    input.route(),
+                    cursor,
+                    input.progress_mm(),
+                    carry_um,
+                    profile.length_mm(),
+                ) {
+                    Ok(()) => {}
+                    Err(ConflictCapabilityError::InvalidCursor) => {
+                        return Err(SpawnError::InvalidProgress);
+                    }
+                    Err(ConflictCapabilityError::RuntimeUnavailable(error)) => {
+                        return Err(SpawnError::ConflictRuntimeUnavailable(error));
+                    }
                 }
             }
         }

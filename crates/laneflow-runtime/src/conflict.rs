@@ -754,6 +754,34 @@ struct OwnedDownstreamClaim {
     serial: u64,
 }
 
+/// snapshot/cutover 边界只读取的已提交 downstream claim。
+///
+/// `serial` 是仲裁器内部连接值，不通过此类型离开进程。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PersistedDownstreamClaim {
+    pub(crate) owner_sequence: u32,
+    pub(crate) follower_min_gap_mm: u32,
+    pub(crate) interval: DownstreamInterval,
+}
+
+/// restore/cutover 已由车辆位姿与 passage 锚点重建的 cell 阶段。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct RestoredConflictCell {
+    pub(crate) address: ConflictPassageAddress,
+    pub(crate) occupant: bool,
+    pub(crate) cleared: bool,
+}
+
+/// restore/cutover 在未发布 staging world 中重建的一份完整 reservation 输入。
+pub(crate) struct RestoredConflictReservation<'a> {
+    pub(crate) owner_sequence: u32,
+    pub(crate) follower_min_gap_mm: u32,
+    pub(crate) acquired_tick: u64,
+    pub(crate) passage_range: ConflictPassageRange,
+    pub(crate) cells: &'a [RestoredConflictCell],
+    pub(crate) downstream: &'a [DownstreamInterval],
+}
+
 /// 组合资源 preflight 的 normal no-grant 原因。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConflictResourceNoGrant {
@@ -1150,8 +1178,120 @@ impl ConflictArbiter {
         )
     }
 
+    /// 按当前根的规范 address 序返回非 `NoHistory` 行。调用方在
+    /// 持久化前将 address 解析为稳定 locator 并按 locator 字节重排。
+    pub(crate) fn persisted_lag_rows(
+        &self,
+    ) -> impl Iterator<Item = (ConflictPassageAddress, ConflictLagReference)> + '_ {
+        self.addresses
+            .iter()
+            .copied()
+            .enumerate()
+            .filter_map(|(index, address)| {
+                let reference = self
+                    .cells
+                    .get(index)
+                    .map_or(ConflictLagReference::NoHistory, |cell| cell.lag);
+                (reference != ConflictLagReference::NoHistory).then_some((address, reference))
+            })
+    }
+
+    pub(crate) fn persisted_downstream_claims(
+        &self,
+        reservation: ConflictReservation,
+    ) -> impl Iterator<Item = PersistedDownstreamClaim> + '_ {
+        self.committed_downstream
+            .iter()
+            .filter(move |claim| {
+                claim.owner == reservation.owner && claim.serial == reservation.claim_serial
+            })
+            .map(|claim| PersistedDownstreamClaim {
+                owner_sequence: claim.owner_sequence,
+                follower_min_gap_mm: claim.follower_min_gap_mm,
+                interval: claim.interval,
+            })
+    }
+
+    /// 在未发布候选世界中安装一个已验证 reservation。全部预留与
+    /// bundle 检查复用正常单写者路径；只有 occupancy/cleared 是根据已验证
+    /// 车身 footprint 在 commit 后设置的恢复态。
+    pub(crate) fn restore_reservation(
+        &mut self,
+        owner: VehicleHandle,
+        restored: RestoredConflictReservation<'_>,
+    ) -> Result<ConflictReservation, ConflictAcquireError> {
+        let RestoredConflictReservation {
+            owner_sequence,
+            follower_min_gap_mm,
+            acquired_tick,
+            passage_range,
+            cells,
+            downstream,
+        } = restored;
+        if cells.is_empty()
+            || downstream.is_empty()
+            || cells.iter().all(|cell| cell.cleared)
+            || cells
+                .windows(2)
+                .any(|pair| pair[0].address >= pair[1].address)
+            || cells.iter().any(|cell| cell.occupant && cell.cleared)
+        {
+            return Err(ConflictAcquireError::InvalidBundle);
+        }
+        let mut addresses = Vec::new();
+        reserve_for_len(&mut addresses, cells.len())?;
+        addresses.extend(cells.iter().map(|cell| cell.address));
+        let grant = self.try_acquire(
+            acquired_tick,
+            GrantResourceBundle {
+                owner,
+                owner_sequence,
+                follower_min_gap_mm,
+                cells: &addresses,
+                downstream,
+                waiting_entitlement: None,
+                waiting_dependencies: &[],
+            },
+        )?;
+        let entered = cells
+            .iter()
+            .find(|cell| cell.occupant)
+            .or_else(|| cells.iter().find(|cell| !cell.cleared))
+            .expect("validated reservation retains one uncleared cell")
+            .address;
+        let reservation = self
+            .commit_crossing(grant, passage_range, entered)?
+            .reservation;
+        for restored in cells {
+            let index = self.cell_index(restored.address)?;
+            let cell = &mut self.cells[index];
+            cell.occupant = restored.occupant.then_some(owner);
+            cell.cleared = restored.cleared;
+        }
+        self.expire_unconsumed_grants();
+        Ok(reservation)
+    }
+
+    pub(crate) fn restore_lag_reference(
+        &mut self,
+        address: ConflictPassageAddress,
+        reference: ConflictLagReference,
+    ) -> Result<(), ConflictAcquireError> {
+        if reference == ConflictLagReference::NoHistory {
+            return Err(ConflictAcquireError::InvalidBundle);
+        }
+        let index = self.cell_index(address)?;
+        self.ensure_cells()?;
+        self.cells[index].lag = reference;
+        Ok(())
+    }
+
     pub(crate) fn cell_count(&self) -> usize {
         self.addresses.len()
+    }
+
+    pub(crate) fn addresses(&self) -> impl Iterator<Item = ConflictPassageAddress> + '_ {
+        self.addresses.iter().copied()
     }
 
     pub(crate) fn contains_address(&self, address: ConflictPassageAddress) -> bool {

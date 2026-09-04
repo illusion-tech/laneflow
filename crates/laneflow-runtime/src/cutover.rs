@@ -876,6 +876,16 @@ impl TrafficWorld {
                 if staged_route.waiting != compiled.waiting {
                     return Err(CutoverError::WaitingRevalidationFailed);
                 }
+                // same-revision 必须保持用于解释 eligibility/reservation 的完整
+                // occurrence 语义。先证明 target 重编译结果等价，提交段才可原样
+                // 保留 Conflict owner、Clearing 与 lag history。
+                if staged_route.maneuvers != compiled.maneuvers
+                    || staged_route.hop_gate != compiled.hop_gate
+                    || staged_route.conflicts != compiled.conflicts
+                    || staged_route.conflict_gate_ranges != compiled.conflict_gate_ranges
+                {
+                    return Err(CutoverError::ConflictRevalidationFailed);
+                }
                 staged_conflict_occurrence_count = staged_conflict_occurrence_count
                     .checked_add(
                         u64::try_from(staged_route.conflicts.len())
@@ -905,6 +915,17 @@ impl TrafficWorld {
                 .map_err(|_| CutoverError::VehicleRevalidationFailed {
                     vehicle: handle.index(),
                 })?;
+            if state.conflict_reservation().is_some()
+                || self
+                    .conflict_eligibility
+                    .get(handle.index() as usize)
+                    .is_some_and(Option::is_some)
+            {
+                // 已持有的 reservation 或 exact Gate eligibility 由下方
+                // conflict_state_valid 和上方 occurrence 等价证明承接；3A 只保护
+                // 没有既有 Conflict authority 的 Active。
+                continue;
+            }
             match check_conflict_capability(
                 state.route,
                 &staged[staged_index].1,
@@ -931,6 +952,9 @@ impl TrafficWorld {
         }
         if !self.waiting_state_valid() || !self.waiting_snapshot_storage_valid() {
             return Err(CutoverError::WaitingRevalidationFailed);
+        }
+        if !self.conflict_state_valid() {
+            return Err(CutoverError::ConflictRevalidationFailed);
         }
         for handle in self.live_order.iter().copied() {
             let state =
