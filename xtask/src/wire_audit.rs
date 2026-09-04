@@ -53,8 +53,11 @@
 //!    通道断言），每个 target 的 src_path 必须是 .rs 扩展名（`[lib] path =
 //!    "src/lib.txt"` 形态的非 .rs 源逃逸本扫描，fail closed），且源码加载
 //!    指令同受限：`include!` 全面禁止，path 属性（含 cfg_attr 包裹形态）
-//!    目标必须是以 .rs 结尾的包内相对路径——编译器可达源码全集即本扫描的
-//!    .rs 全集。
+//!    目标必须是以 .rs 结尾的包内相对路径，且禁止元变量调用 `$m!`（宏调用
+//!    名间接化可把 include! 藏出文本扫描，payload 再经 cfg 门控避开单平台
+//!    hermetic 编译）——编译器可达源码全集即本扫描的 .rs 全集。proc-macro
+//!    target 一律 fail closed（宏展开期任意构造 token，文本扫描与单平台
+//!    check 编译都无法闭合）。
 //! 7. laneflow-format-mmap 的例外边界在本审计内闭合：manifest 卫生（与 wire
 //!    同构——auto* 四键关闭、[target] 段与自动发现目录禁绝，[dependencies]
 //!    恰好 memmap2/tempfile 两条钉版，resolved source/checksum 由第 1 条闭合）；
@@ -179,7 +182,7 @@ pub(crate) fn run() -> Result<(), String> {
     schema_codegen::check_audited_mmap_sources(&repository_root)?;
     check_workspace_unsafe_boundary(&repository_root)?;
     println!(
-        "wire 工具链审计已通过：仓库 cargo config 卫生闭合（禁 `[env]` 段、`runner` 键与 `[build]` 编译器替换/包装键，env 继承链与执行语义替换无从投毒门禁），flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include!/cfg_attr/macro_rules 加载与间接禁令、path 属性 walker 兜底），workspace unsafe 分类断言闭合（forbid/allow 两级），forbid 成员禁 build 脚本且 target 源一律 .rs，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支）且源码加载指令收口（include! 禁绝、path 目标限包内相对 .rs），forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
+        "wire 工具链审计已通过：仓库 cargo config 卫生闭合（禁 `[env]` 段、`runner` 键与 `[build]` 编译器替换/包装键，env 继承链与执行语义替换无从投毒门禁），flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include!/cfg_attr/macro_rules 加载与间接禁令、path 属性 walker 兜底），workspace unsafe 分类断言闭合（forbid/allow 两级，proc-macro target 一律 fail closed），forbid 成员禁 build 脚本且 target 源一律 .rs，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支）且源码加载指令收口（include! 禁绝、path 目标限包内相对 .rs、元变量调用 `$m!` 禁绝），forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
     );
     Ok(())
 }
@@ -768,8 +771,9 @@ struct MemberPackage {
 /// 从 workspace cargo metadata（--no-deps）解析全部成员的 name/manifest_path/
 /// 编译 target。每个 target 的 src_path 必须是 .rs 扩展名（非 .rs 源逃逸
 /// forbid 文本扫描，fail closed）；custom-build 不可单独编译，记录到
-/// has_build_script 后跳过；lib/bin/test/bench/example 全部纳入 hermetic
-/// 编译；未知 kind fail closed。
+/// has_build_script 后跳过；proc-macro 一律 fail closed（宏展开期任意构造
+/// token，文本扫描与单平台 check 编译都无法闭合）；lib/bin/test/bench/example
+/// 全部纳入 hermetic 编译；未知 kind fail closed。
 fn parse_workspace_members(metadata: &serde_json::Value) -> Result<Vec<MemberPackage>, String> {
     let packages = metadata
         .get("packages")
@@ -827,6 +831,16 @@ fn parse_workspace_members(metadata: &serde_json::Value) -> Result<Vec<MemberPac
                 has_build_script = true;
                 continue;
             }
+            // proc-macro 在宏展开期任意构造 token：unsafe 可由字符串残片拼出
+            // 文本扫描面，再经 cfg 门控避开 check 配置（debug_assertions 开）
+            // 的 lint——文本扫描与单平台 check 编译都无法闭合。本 workspace
+            // 没有合法 proc-macro，一律 fail closed；引入需先改设计并更新
+            // 本审计。
+            if kinds.contains(&"proc-macro") {
+                return Err(format!(
+                    "workspace package `{name}` 的 target `{target_name}` 是 proc-macro：宏展开期可任意构造 token 逃逸文本扫描与 lint 配置，fail closed"
+                ));
+            }
             let required_features = match target.get("required-features") {
                 None => Vec::new(),
                 Some(value) => value
@@ -846,10 +860,7 @@ fn parse_workspace_members(metadata: &serde_json::Value) -> Result<Vec<MemberPac
                     })
                     .collect::<Result<Vec<_>, _>>()?,
             };
-            let (flag, name, label) = if kinds
-                .iter()
-                .any(|kind| *kind == "lib" || *kind == "proc-macro")
-            {
+            let (flag, name, label) = if kinds.contains(&"lib") {
                 ("--lib", None, "lib".to_string())
             } else if kinds.contains(&"bin") {
                 (
@@ -1032,6 +1043,16 @@ fn check_forbid_textual_boundary(
             if schema_codegen::contains_include_macro(&code) {
                 return Err(format!(
                     "forbid 成员 `{}` 的源文件含 `include!` 宏（可加载文本扫描面之外的源码；workspace 内零合法用法，一律禁止）：`{}`",
+                    member.name,
+                    source.display()
+                ));
+            }
+            // 元变量调用（`$m!`）可把宏调用名间接化，让 include! 等加载指令
+            // 藏出文本扫描（payload 再经 cfg 门控避开单平台 hermetic 编译）。
+            // macro_rules 本身合法，禁令只落在元变量调用位置。
+            if schema_codegen::contains_metavariable_invocation(&code) {
+                return Err(format!(
+                    "forbid 成员 `{}` 的源文件含元变量调用 `$...!` 形态（可把 include! 等源码加载指令间接化藏出文本扫描）：`{}`",
                     member.name,
                     source.display()
                 ));
@@ -1717,6 +1738,23 @@ mod tests {
         )
         .unwrap();
         check_forbid_textual_boundary(&members, &classified).unwrap();
+        // 元变量调用（`$m!`）可把 include! 间接化藏出文本扫描（payload 再经
+        // cfg 门控避开单平台 hermetic 编译）：拒绝。
+        fs::write(
+            root.join("src/lib.rs"),
+            "macro_rules! load { ($m:ident, $p:literal) => { #[cfg(windows)] $m!($p); } }\nload!(include, \"payload.txt\");\n",
+        )
+        .unwrap();
+        let error = check_forbid_textual_boundary(&members, &classified).unwrap_err();
+        assert!(error.contains("元变量"), "{error}");
+        // 无元变量调用的普通宏定义是合法用法（$crate、$x:expr、重复结构均
+        // 不匹配）：放行。
+        fs::write(
+            root.join("src/lib.rs"),
+            "macro_rules! double { ($x:expr) => { $x + $x } }\nmacro_rules! reexport { () => { $crate::helper!() } }\nfn f() { double!(1); }\n",
+        )
+        .unwrap();
+        check_forbid_textual_boundary(&members, &classified).unwrap();
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -1859,9 +1897,10 @@ mod tests {
                 "targets": [{ "name": "demo", "kind": ["proc-macro"], "src_path": "/repo/crates/demo/src/lib.rs" }]
             }]
         });
-        let members = parse_workspace_members(&proc_macro).unwrap();
-        assert_eq!(members[0].targets[0].flag, "--lib");
-        assert!(!members[0].has_build_script);
+        // proc-macro 在宏展开期任意构造 token，文本扫描与单平台 check 编译
+        // 都无法闭合：fail closed。
+        let error = parse_workspace_members(&proc_macro).unwrap_err();
+        assert!(error.contains("proc-macro"), "{error}");
     }
 
     #[test]
