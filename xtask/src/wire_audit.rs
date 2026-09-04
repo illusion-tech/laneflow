@@ -3,14 +3,19 @@
 //! 不变量：workspace 内除钉版 flatc 生成物与唯一登记的手写 mmap 例外 crate
 //! 外没有 unsafe 代码，且该边界不能被配置 / 环境注入削弱。机制：
 //!
-//! 1. Cargo.lock flatbuffers resolved 钉版唯一性（有界文本检查）。
+//! 1. Cargo.lock resolved 钉版唯一性（有界文本检查）：flatbuffers（wire 生成物
+//!    运行时）与 memmap2/tempfile（mmap 例外 crate 的全部依赖）逐一断言
+//!    version/source/checksum，`[patch.crates-io]` 换名替换或 registry 漂移
+//!    均被拒绝。
 //! 2. 两个 wire crate 只承载钉版生成物，全部在 required check（本审计）内闭合：
 //!    manifest 卫生（真 TOML 解析两个已知 manifest——[package] 必须存在、不得
-//!    声明 build 脚本键、[lib] 固定指向 src/lib.rs 包装器、不得声明
-//!    bin/test/bench/example target 段、[dependencies] 恰好一条
+//!    声明 build 脚本键、auto* 四键必须显式关闭以禁绝 Cargo 自动 target 发现、
+//!    [lib] 固定指向 src/lib.rs 包装器、不得声明 bin/test/bench/example
+//!    target 段与 [target] 条件依赖段、[dependencies] 恰好一条
 //!    `flatbuffers = { version = "=<钉版>", default-features = false,
 //!    features = ["std"] }` 且无 dev/build 依赖段、package 根目录不得存在
-//!    build.rs）；包装器 lib.rs 与 `xtask/src/wire_pins/` 下钉版副本字节相等；
+//!    build.rs 与 src/bin/、tests/、benches/、examples/ 目录）；包装器 lib.rs
+//!    与 `xtask/src/wire_pins/` 下钉版副本字节相等；
 //!    生成 .rs 的 sha256 与钉版常量一致（字节正确性在本审计闭合；
 //!    schema+flatc → bytes 的语义对应另由 schema-codegen.yml 的
 //!    clean-regeneration 证明）。这些钉版叠加后，wire crate 内不存在任何
@@ -43,8 +48,13 @@
 //!    因此 feature 组合、`cfg(not(debug_assertions))`、`cfg(windows)` 等非活动
 //!    分支里的 unsafe 无处可藏（编译扫描只覆盖活动分支，本扫描补齐）；宏展开
 //!    unsafe 的 workspace 内定义体也必含 token（外部依赖宏归残余信任边界）。
+//!    forbid 成员禁止 build 脚本（build.rs 可向 OUT_DIR 生成文本扫描不可见的
+//!    Rust 源码；metadata custom-build target 与 package 根 build.rs 文件双
+//!    通道断言），且每个 target 的 src_path 必须是 .rs 扩展名（`[lib] path =
+//!    "src/lib.txt"` 形态的非 .rs 源逃逸本扫描，fail closed）。
 //! 7. laneflow-format-mmap 的例外边界在本审计内闭合：manifest 卫生（与 wire
-//!    同构，[dependencies] 恰好 memmap2/tempfile 两条钉版）；
+//!    同构——auto* 四键关闭、[target] 段与自动发现目录禁绝，[dependencies]
+//!    恰好 memmap2/tempfile 两条钉版，resolved source/checksum 由第 1 条闭合）；
 //!    `schema_codegen::check_audited_mmap_sources` 断言例外 lib.rs 恰好一次
 //!    模块级 allow、一次固定只读映射调用、一处 unsafe token（strip 后计数），
 //!    crate 内其他源文件零 unsafe、零 allow(unsafe_code)；crate 内全面禁止
@@ -63,9 +73,36 @@ use std::process::{Command, Output};
 
 use crate::schema_codegen;
 
-const FLATBUFFERS_LOCK_SOURCE: &str = "registry+https://github.com/rust-lang/crates.io-index";
-const FLATBUFFERS_LOCK_CHECKSUM: &str =
-    "35f6839d7b3b98adde531effaf34f0c2badc6f4735d26fe74709d8e513a96ef3";
+/// resolved 依赖钉版四元组：package/version/checksum 钉死，source 必须来自
+/// crates.io registry。`[patch.crates-io]` 换名替换或 registry 漂移都会被拒绝。
+struct LockfilePin {
+    package: &'static str,
+    version: &'static str,
+    checksum: &'static str,
+}
+
+const LOCKFILE_REGISTRY_SOURCE: &str = "registry+https://github.com/rust-lang/crates.io-index";
+
+/// resolved 钉版清单：flatbuffers 是 wire 生成物运行时；memmap2/tempfile 是
+/// mmap 例外 crate 的全部依赖（manifest 拼写钉版之外，resolved source/checksum
+/// 也在此闭合）。升级任一钉版必须在同一 PR 更新本表，diff 随评审可见。
+const LOCKFILE_PINS: [LockfilePin; 3] = [
+    LockfilePin {
+        package: "flatbuffers",
+        version: schema_codegen::FLATBUFFERS_VERSION,
+        checksum: "35f6839d7b3b98adde531effaf34f0c2badc6f4735d26fe74709d8e513a96ef3",
+    },
+    LockfilePin {
+        package: "memmap2",
+        version: "0.9.11",
+        checksum: "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0",
+    },
+    LockfilePin {
+        package: "tempfile",
+        version: "3.27.0",
+        checksum: "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd",
+    },
+];
 
 /// wire crate 包装器 lib.rs 的钉版副本（与 crate 内文件字节相等）。
 const ROAD_EDITING_WIRE_LIB_RS_PIN: &str = include_str!("wire_pins/road_editing_wire_lib.rs");
@@ -111,7 +148,7 @@ pub(crate) fn run() -> Result<(), String> {
     let repository_root =
         std::env::current_dir().map_err(|error| format!("无法解析仓库根目录: {error}"))?;
     require_repository_root(&repository_root)?;
-    check_flatbuffers_lockfile_pin(&repository_root)?;
+    check_lockfile_pins(&repository_root)?;
     check_wire_manifest_hygiene(&repository_root)?;
     check_mmap_manifest_hygiene(&repository_root)?;
     check_wire_lib_rs_pins(&repository_root)?;
@@ -119,7 +156,7 @@ pub(crate) fn run() -> Result<(), String> {
     schema_codegen::check_audited_mmap_sources(&repository_root)?;
     check_workspace_unsafe_boundary(&repository_root)?;
     println!(
-        "wire 工具链审计已通过：flatbuffers 钉版闭合，wire crate 包装器/生成物/依赖表钉版闭合，mmap 例外 crate manifest/源码复核闭合（含 #[path]/include! 加载入口禁令），workspace unsafe 分类断言闭合（forbid/allow 两级），forbid 成员全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支），forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
+        "wire 工具链审计已通过：flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include! 加载入口禁令），workspace unsafe 分类断言闭合（forbid/allow 两级），forbid 成员禁 build 脚本且 target 源一律 .rs，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支），forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
     );
     Ok(())
 }
@@ -133,52 +170,61 @@ fn require_repository_root(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn check_flatbuffers_lockfile_pin(repository_root: &Path) -> Result<(), String> {
+fn check_lockfile_pins(repository_root: &Path) -> Result<(), String> {
     let lock_text = fs::read_to_string(repository_root.join("Cargo.lock"))
         .map_err(|error| format!("无法读取 workspace Cargo.lock: {error}"))?;
-    require_flatbuffers_lockfile_pin(&lock_text)
+    for pin in &LOCKFILE_PINS {
+        require_lockfile_pin(&lock_text, pin)?;
+    }
+    Ok(())
 }
 
-/// 断言 workspace Cargo.lock 中 flatbuffers 恰好有一条 resolved 记录，且
-/// version/source/checksum 与钉版常量完全一致。`research/` 下的独立 lock 不属于
+/// 断言 workspace Cargo.lock 中被钉版依赖恰好有一条 resolved 记录，且
+/// version/source/checksum 与钉版常量完全一致——`[patch.crates-io]` 换名替换
+/// 或 registry 漂移都在这里被拒绝。`research/` 下的独立 lock 不属于
 /// 本 workspace，不在此扫描。
-fn require_flatbuffers_lockfile_pin(lock_text: &str) -> Result<(), String> {
+fn require_lockfile_pin(lock_text: &str, pin: &LockfilePin) -> Result<(), String> {
     let mut found = 0usize;
     for block in lock_text.split("[[package]]").skip(1) {
-        if lock_string_value(block, "name") != Some("flatbuffers") {
+        if lock_string_value(block, "name") != Some(pin.package) {
             continue;
         }
         found += 1;
         let version = lock_string_value(block, "version")
-            .ok_or_else(|| "Cargo.lock 的 flatbuffers package 缺少 version".to_string())?;
-        if version != schema_codegen::FLATBUFFERS_VERSION {
+            .ok_or_else(|| format!("Cargo.lock 的 {} package 缺少 version", pin.package))?;
+        if version != pin.version {
             return Err(format!(
-                "Cargo.lock flatbuffers resolved version 不匹配：预期 `{}`，实际 `{version}`",
-                schema_codegen::FLATBUFFERS_VERSION
+                "Cargo.lock {} resolved version 不匹配：预期 `{}`，实际 `{version}`",
+                pin.package, pin.version
             ));
         }
         let source = lock_string_value(block, "source").ok_or_else(|| {
-            "Cargo.lock 的 flatbuffers package 缺少 source（必须来自 crates.io registry）"
-                .to_string()
+            format!(
+                "Cargo.lock 的 {} package 缺少 source（必须来自 crates.io registry）",
+                pin.package
+            )
         })?;
-        if source != FLATBUFFERS_LOCK_SOURCE {
+        if source != LOCKFILE_REGISTRY_SOURCE {
             return Err(format!(
-                "Cargo.lock flatbuffers source 不匹配：预期 `{FLATBUFFERS_LOCK_SOURCE}`，实际 `{source}`"
+                "Cargo.lock {} source 不匹配：预期 `{LOCKFILE_REGISTRY_SOURCE}`，实际 `{source}`",
+                pin.package
             ));
         }
         let checksum = lock_string_value(block, "checksum")
-            .ok_or_else(|| "Cargo.lock 的 flatbuffers package 缺少 checksum".to_string())?;
-        if checksum != FLATBUFFERS_LOCK_CHECKSUM {
+            .ok_or_else(|| format!("Cargo.lock 的 {} package 缺少 checksum", pin.package))?;
+        if checksum != pin.checksum {
             return Err(format!(
-                "Cargo.lock flatbuffers checksum 不匹配：预期 `{FLATBUFFERS_LOCK_CHECKSUM}`，实际 `{checksum}`；升级钉版时必须同步更新 xtask 审计常量"
+                "Cargo.lock {} checksum 不匹配：预期 `{}`，实际 `{checksum}`；升级钉版时必须同步更新 xtask 审计常量",
+                pin.package, pin.checksum
             ));
         }
     }
     match found {
-        0 => Err("Cargo.lock 缺少 flatbuffers package".to_string()),
+        0 => Err(format!("Cargo.lock 缺少 {} package", pin.package)),
         1 => Ok(()),
         _ => Err(format!(
-            "Cargo.lock 含有 {found} 个 flatbuffers package，resolved 钉版审计要求唯一"
+            "Cargo.lock 含有 {found} 个 {} package，resolved 钉版审计要求唯一",
+            pin.package
         )),
     }
 }
@@ -221,8 +267,11 @@ fn check_wire_manifest_hygiene(repository_root: &Path) -> Result<(), String> {
 
 /// wire manifest 卫生：真 TOML 解析（点号键 / 引号键 / 转义键 / 内联表统一由
 /// 解析器归一化，解析失败 fail closed）；[package] 必须存在且不得声明 build
-/// 脚本键；[lib] 必须固定指向 src/lib.rs 包装器（否则 lib.rs 钉版失去意义）；
-/// package 根目录不得存在 build.rs。
+/// 脚本键，auto* 四键必须显式关闭（Cargo 自动 target 发现不经 manifest 段
+/// 即成编译入口）；[lib] 必须固定指向 src/lib.rs 包装器（否则 lib.rs 钉版
+/// 失去意义）；不得声明 [target] 段（target 条件依赖表逃逸顶层依赖钉版）；
+/// package 根目录不得存在 build.rs 与 src/bin/、tests/、benches/、examples/
+/// 目录（纵深：即使 auto* 键被移除，目录缺席也使自动发现无物可发现）。
 fn require_wire_manifest_hygiene(
     manifest_text: &str,
     package_root: &Path,
@@ -237,6 +286,13 @@ fn require_wire_manifest_hygiene(
         .ok_or_else(|| format!("wire manifest `{label}` 缺少 [package] 段"))?;
     if package.contains_key("build") {
         return Err(format!("wire manifest `{label}` 不得声明 build 脚本键"));
+    }
+    for key in ["autobins", "autotests", "autoexamples", "autobenches"] {
+        if package.get(key).and_then(toml::Value::as_bool) != Some(false) {
+            return Err(format!(
+                "wire manifest `{label}` 的 [package] 必须显式 `{key} = false`（关闭 Cargo 自动 target 发现）"
+            ));
+        }
     }
     let lib_path = manifest
         .get("lib")
@@ -258,9 +314,21 @@ fn require_wire_manifest_hygiene(
             ));
         }
     }
+    if manifest.contains_key("target") {
+        return Err(format!(
+            "wire manifest `{label}` 不得声明 [target] 段（target 条件依赖表逃逸顶层依赖钉版）"
+        ));
+    }
     require_wire_flatbuffers_dep(&manifest, label)?;
     if package_root.join("build.rs").is_file() {
         return Err(format!("wire package `{label}` 不得包含 build.rs"));
+    }
+    for directory in ["src/bin", "tests", "benches", "examples"] {
+        if package_root.join(directory).is_dir() {
+            return Err(format!(
+                "wire package `{label}` 不得包含 `{directory}/` 目录（自动发现的 target 不经 manifest 段即成编译入口）"
+            ));
+        }
     }
     Ok(())
 }
@@ -329,10 +397,12 @@ fn require_wire_flatbuffers_dep(manifest: &toml::Table, label: &str) -> Result<(
 }
 
 /// mmap 例外 crate 的 manifest 卫生：与 wire crate 同构——[package] 必须存在、
-/// 不得声明 build 脚本键、[lib] 固定指向 src/lib.rs、不得声明额外 target 段、
-/// package 根目录不得存在 build.rs；[dependencies] 必须恰好两条钉版：
+/// 不得声明 build 脚本键、auto* 四键必须显式关闭；[lib] 固定指向 src/lib.rs、
+/// 不得声明额外 target 段与 [target] 段；package 根目录不得存在 build.rs 与
+/// src/bin/、tests/、benches/、examples/ 目录；[dependencies] 必须恰好两条钉版：
 /// `memmap2 = { version = "=0.9.11", default-features = false }`（恰两键）与
-/// `tempfile = "=3.27.0"`；无 dev/build 依赖段。
+/// `tempfile = "=3.27.0"`；无 dev/build 依赖段。resolved source/checksum 钉版
+/// 由 `check_lockfile_pins` 闭合。
 fn check_mmap_manifest_hygiene(repository_root: &Path) -> Result<(), String> {
     let manifest_path = "crates/laneflow-format-mmap/Cargo.toml";
     let manifest_text = fs::read_to_string(repository_root.join(manifest_path))
@@ -348,6 +418,13 @@ fn check_mmap_manifest_hygiene(repository_root: &Path) -> Result<(), String> {
         return Err(format!(
             "mmap 例外 manifest `{manifest_path}` 不得声明 build 脚本键"
         ));
+    }
+    for key in ["autobins", "autotests", "autoexamples", "autobenches"] {
+        if package.get(key).and_then(toml::Value::as_bool) != Some(false) {
+            return Err(format!(
+                "mmap 例外 manifest `{manifest_path}` 的 [package] 必须显式 `{key} = false`（关闭 Cargo 自动 target 发现）"
+            ));
+        }
     }
     let lib_path = manifest
         .get("lib")
@@ -366,6 +443,11 @@ fn check_mmap_manifest_hygiene(repository_root: &Path) -> Result<(), String> {
                 "mmap 例外 manifest `{manifest_path}` 不得声明 {section} target 段（例外 crate 只许 [lib] 一个编译入口）"
             ));
         }
+    }
+    if manifest.contains_key("target") {
+        return Err(format!(
+            "mmap 例外 manifest `{manifest_path}` 不得声明 [target] 段（target 条件依赖表逃逸顶层依赖钉版）"
+        ));
     }
     let dependencies = manifest
         .get("dependencies")
@@ -414,6 +496,17 @@ fn check_mmap_manifest_hygiene(repository_root: &Path) -> Result<(), String> {
         return Err(format!(
             "mmap 例外 package `{manifest_path}` 不得包含 build.rs"
         ));
+    }
+    for directory in ["src/bin", "tests", "benches", "examples"] {
+        if repository_root
+            .join("crates/laneflow-format-mmap")
+            .join(directory)
+            .is_dir()
+        {
+            return Err(format!(
+                "mmap 例外 package `{manifest_path}` 不得包含 `{directory}/` 目录（自动发现的 target 不经 manifest 段即成编译入口）"
+            ));
+        }
     }
     Ok(())
 }
@@ -566,11 +659,17 @@ struct MemberPackage {
     name: String,
     manifest_path: PathBuf,
     targets: Vec<TargetInvocation>,
+    /// metadata 中出现 custom-build target 即本 package 含 build 脚本（自动
+    /// 发现或 manifest `build` 键均在此显形）。forbid 成员禁止 build 脚本：
+    /// build.rs 可向 OUT_DIR 生成文本扫描不可见的 Rust 源码。
+    has_build_script: bool,
 }
 
 /// 从 workspace cargo metadata（--no-deps）解析全部成员的 name/manifest_path/
-/// 编译 target。custom-build（build 脚本 target 不可单独编译）跳过；lib/bin/
-/// test/bench/example 全部纳入 hermetic 编译；未知 kind fail closed。
+/// 编译 target。每个 target 的 src_path 必须是 .rs 扩展名（非 .rs 源逃逸
+/// forbid 文本扫描，fail closed）；custom-build 不可单独编译，记录到
+/// has_build_script 后跳过；lib/bin/test/bench/example 全部纳入 hermetic
+/// 编译；未知 kind fail closed。
 fn parse_workspace_members(metadata: &serde_json::Value) -> Result<Vec<MemberPackage>, String> {
     let packages = metadata
         .get("packages")
@@ -592,6 +691,7 @@ fn parse_workspace_members(metadata: &serde_json::Value) -> Result<Vec<MemberPac
             .and_then(serde_json::Value::as_array)
             .ok_or_else(|| format!("workspace metadata package `{name}` 缺少 targets 数组"))?;
         let mut invocations = Vec::new();
+        let mut has_build_script = false;
         for target in targets {
             let target_name = target
                 .get("name")
@@ -608,7 +708,23 @@ fn parse_workspace_members(metadata: &serde_json::Value) -> Result<Vec<MemberPac
                         "workspace metadata package `{name}` 的 target `{target_name}` 缺少 kind"
                     )
                 })?;
+            let src_path = target
+                .get("src_path")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| {
+                    format!(
+                        "workspace metadata package `{name}` 的 target `{target_name}` 缺少 src_path"
+                    )
+                })?;
+            // 非 .rs target 源（如 `[lib] path = "src/lib.txt"`）逃逸 forbid 文本
+            // 扫描：cfg 门控 unsafe 可藏在扫描面之外进入其他平台的编译单元。
+            if Path::new(src_path).extension() != Some(OsStr::new("rs")) {
+                return Err(format!(
+                    "workspace package `{name}` 的 target `{target_name}` 源文件 `{src_path}` 不是 .rs 扩展名，fail closed"
+                ));
+            }
             if kinds.contains(&"custom-build") {
+                has_build_script = true;
                 continue;
             }
             let required_features = match target.get("required-features") {
@@ -675,6 +791,7 @@ fn parse_workspace_members(metadata: &serde_json::Value) -> Result<Vec<MemberPac
             name,
             manifest_path: PathBuf::from(manifest_path),
             targets: invocations,
+            has_build_script,
         });
     }
     if members.is_empty() {
@@ -756,11 +873,16 @@ fn run_workspace_unsafe_boundary(repository_root: &Path, audit_root: &Path) -> R
     Ok(())
 }
 
-/// forbid 集文本边界：每个 forbid 成员 package 目录下全部 .rs（含 build.rs、
-/// tests、benches、examples——cfg 门控、release profile 与非 Linux 平台分支在
-/// 文本层面无差别覆盖），strip 注释与字符串/字符字面量后不得出现 `unsafe`
+/// forbid 集文本边界：每个 forbid 成员 package 目录下全部 .rs（含 tests、
+/// benches、examples——cfg 门控、release profile 与非 Linux 平台分支在文本
+/// 层面无差别覆盖），strip 注释与字符串/字符字面量后不得出现 `unsafe`
 /// token 或 `allow(unsafe_code)`。与 hermetic `-F` 编译（宏展开维度 + lint
 /// 不可覆盖语义）叠加：宏展开 unsafe 由编译抓，cfg 门控 unsafe 由本扫描抓。
+///
+/// forbid 成员一律禁止 build 脚本：build.rs 可向 OUT_DIR 生成文本扫描不可见
+/// 的 Rust 源码，cfg 门控 unsafe 经 `include!` 挂接即逃逸本扫描。metadata
+/// custom-build target 与 package 根 build.rs 文件双通道断言（前者覆盖
+/// manifest `build = "..."` 改名路径，后者兜底自动发现）。
 fn check_forbid_textual_boundary(
     members: &[MemberPackage],
     classified: &[(String, UnsafeLevel)],
@@ -773,6 +895,18 @@ fn check_forbid_textual_boundary(
             .manifest_path
             .parent()
             .ok_or_else(|| format!("成员 `{}` 的 manifest 路径没有父目录", member.name))?;
+        if member.has_build_script {
+            return Err(format!(
+                "forbid 成员 `{}` 不得含 build 脚本（metadata 出现 custom-build target）：build.rs 可生成文本扫描不可见的 Rust 源码，fail closed",
+                member.name
+            ));
+        }
+        if package_root.join("build.rs").is_file() {
+            return Err(format!(
+                "forbid 成员 `{}` 的 package 根目录不得存在 build.rs：build 脚本可生成文本扫描不可见的 Rust 源码",
+                member.name
+            ));
+        }
         let mut sources = Vec::new();
         schema_codegen::collect_extension_files(package_root, OsStr::new("rs"), &mut sources)?;
         for source in sources {
@@ -978,10 +1112,19 @@ fn run_injection_canaries(audit_root: &Path) -> Result<(), String> {
 
 fn stderr_tail(output: &Output) -> String {
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let trimmed = stderr.trim();
+    tail_truncate(stderr.trim())
+}
+
+/// 超长 stderr 截尾。from_utf8_lossy 保证有效 UTF-8，但字节切口可能落在
+/// 多字节字符中间：向前推进到下一个 char 边界再切，避免 slice panic。
+fn tail_truncate(trimmed: &str) -> String {
     const TAIL_LIMIT: usize = 4000;
     if trimmed.len() > TAIL_LIMIT {
-        format!("…（截断）\n{}", &trimmed[trimmed.len() - TAIL_LIMIT..])
+        let mut start = trimmed.len() - TAIL_LIMIT;
+        while !trimmed.is_char_boundary(start) {
+            start += 1;
+        }
+        format!("…（截断）\n{}", &trimmed[start..])
     } else {
         trimmed.to_string()
     }
@@ -1012,37 +1155,47 @@ mod tests {
         }
     }
 
+    const FLATBUFFERS_PIN: &LockfilePin = &LOCKFILE_PINS[0];
+
+    fn flatbuffers_lock_block() -> String {
+        format!(
+            "[[package]]\nname = \"flatbuffers\"\nversion = \"{}\"\nsource = \"{LOCKFILE_REGISTRY_SOURCE}\"\nchecksum = \"{}\"\n",
+            schema_codegen::FLATBUFFERS_VERSION,
+            FLATBUFFERS_PIN.checksum
+        )
+    }
+
     #[test]
     fn lockfile_pin_accepts_exact_match() {
-        let lock = format!(
-            "[[package]]\nname = \"flatbuffers\"\nversion = \"{}\"\nsource = \"{FLATBUFFERS_LOCK_SOURCE}\"\nchecksum = \"{FLATBUFFERS_LOCK_CHECKSUM}\"\n",
-            schema_codegen::FLATBUFFERS_VERSION
-        );
-        require_flatbuffers_lockfile_pin(&lock).unwrap();
+        require_lockfile_pin(&flatbuffers_lock_block(), FLATBUFFERS_PIN).unwrap();
     }
 
     #[test]
     fn lockfile_pin_rejects_checksum_drift() {
         let lock = format!(
-            "[[package]]\nname = \"flatbuffers\"\nversion = \"{}\"\nsource = \"{FLATBUFFERS_LOCK_SOURCE}\"\nchecksum = \"{0000}\"\n",
+            "[[package]]\nname = \"flatbuffers\"\nversion = \"{}\"\nsource = \"{LOCKFILE_REGISTRY_SOURCE}\"\nchecksum = \"{0000}\"\n",
             schema_codegen::FLATBUFFERS_VERSION
         );
-        let error = require_flatbuffers_lockfile_pin(&lock).unwrap_err();
+        let error = require_lockfile_pin(&lock, FLATBUFFERS_PIN).unwrap_err();
         assert!(error.contains("checksum"), "{error}");
     }
 
     #[test]
     fn lockfile_pin_rejects_missing_and_duplicate() {
         let error =
-            require_flatbuffers_lockfile_pin("[[package]]\nname = \"serde\"\n").unwrap_err();
+            require_lockfile_pin("[[package]]\nname = \"serde\"\n", FLATBUFFERS_PIN).unwrap_err();
         assert!(error.contains("缺少 flatbuffers"), "{error}");
-        let block = format!(
-            "[[package]]\nname = \"flatbuffers\"\nversion = \"{}\"\nsource = \"{FLATBUFFERS_LOCK_SOURCE}\"\nchecksum = \"{FLATBUFFERS_LOCK_CHECKSUM}\"\n",
-            schema_codegen::FLATBUFFERS_VERSION
-        );
-        let doubled = format!("{block}{block}");
-        let error = require_flatbuffers_lockfile_pin(&doubled).unwrap_err();
+        let doubled = format!("{}{}", flatbuffers_lock_block(), flatbuffers_lock_block());
+        let error = require_lockfile_pin(&doubled, FLATBUFFERS_PIN).unwrap_err();
         assert!(error.contains("唯一"), "{error}");
+    }
+
+    #[test]
+    fn lockfile_pins_match_checked_in_lockfile() {
+        let repository_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask 必须有父目录（仓库根）");
+        check_lockfile_pins(repository_root).unwrap();
     }
 
     #[test]
@@ -1054,7 +1207,7 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         require_wire_manifest_hygiene(
-            "[package]\nname = \"w\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n",
+            "[package]\nname = \"w\"\nversion = \"0.0.0\"\nedition = \"2021\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n",
             &root,
             "w/Cargo.toml",
         )
@@ -1078,7 +1231,7 @@ mod tests {
         .unwrap_err();
         assert!(error.contains("build 脚本键"), "{error}");
         let error = require_wire_manifest_hygiene(
-            "[package]\nname = \"w\"\n\n[lib]\npath = \"src/generated.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n",
+            "[package]\nname = \"w\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/generated.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n",
             &root,
             "w/Cargo.toml",
         )
@@ -1086,12 +1239,61 @@ mod tests {
         assert!(error.contains("src/lib.rs"), "{error}");
         fs::write(root.join("build.rs"), "fn main() {}\n").unwrap();
         let error = require_wire_manifest_hygiene(
-            "[package]\nname = \"w\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n",
+            "[package]\nname = \"w\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n",
             &root,
             "w/Cargo.toml",
         )
         .unwrap_err();
         assert!(error.contains("build.rs"), "{error}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn manifest_hygiene_rejects_auto_discovery_target_table_and_directories() {
+        let root = std::env::temp_dir().join(format!(
+            "laneflow-wire-audit-test-hygiene-auto-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        // auto* 键缺失（默认开启自动发现）即拒绝。
+        let error = require_wire_manifest_hygiene(
+            "[package]\nname = \"w\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n",
+            &root,
+            "w/Cargo.toml",
+        )
+        .unwrap_err();
+        assert!(error.contains("autobins"), "{error}");
+        // 任一键为 true 即拒绝。
+        for enabled in ["autobins", "autotests", "autoexamples", "autobenches"] {
+            let mut keys = String::new();
+            for key in ["autobins", "autotests", "autoexamples", "autobenches"] {
+                keys.push_str(&format!("{key} = {}\n", key == enabled));
+            }
+            let manifest = format!(
+                "[package]\nname = \"w\"\n{keys}\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = {{ version = \"=25.12.19\", default-features = false, features = [\"std\"] }}\n"
+            );
+            let error =
+                require_wire_manifest_hygiene(&manifest, &root, "w/Cargo.toml").unwrap_err();
+            assert!(error.contains(enabled), "{error}");
+        }
+        // [target] 条件依赖段逃逸顶层依赖表钉版，整键禁绝。
+        let error = require_wire_manifest_hygiene(
+            "[package]\nname = \"w\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n\n[target.'cfg(unix)'.dependencies]\nshim = { path = \"shim\" }\n",
+            &root,
+            "w/Cargo.toml",
+        )
+        .unwrap_err();
+        assert!(error.contains("[target]"), "{error}");
+        // 自动发现目录存在即拒绝（即使 auto* 键已关闭，纵深防御）。
+        fs::create_dir_all(root.join("src/bin")).unwrap();
+        let error = require_wire_manifest_hygiene(
+            "[package]\nname = \"w\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n",
+            &root,
+            "w/Cargo.toml",
+        )
+        .unwrap_err();
+        assert!(error.contains("src/bin"), "{error}");
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -1115,7 +1317,7 @@ mod tests {
             "[[example]]\nname = \"x\"\n",
         ] {
             let manifest = format!(
-                "[package]\nname = \"w\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = {{ version = \"=25.12.19\", default-features = false, features = [\"std\"] }}\n\n{section}"
+                "[package]\nname = \"w\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = {{ version = \"=25.12.19\", default-features = false, features = [\"std\"] }}\n\n{section}"
             );
             let error = require_wire_manifest_hygiene(&manifest, root, "w/Cargo.toml").unwrap_err();
             assert!(error.contains("只许 [lib] 包装器"), "{error}");
@@ -1127,7 +1329,7 @@ mod tests {
         let root = Path::new(".");
         // package 改名注入：第四键触发拒绝。
         let error = require_wire_manifest_hygiene(
-            "[package]\nname = \"w\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"], package = \"shim\" }\n",
+            "[package]\nname = \"w\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"], package = \"shim\" }\n",
             root,
             "w/Cargo.toml",
         )
@@ -1135,7 +1337,7 @@ mod tests {
         assert!(error.contains("三键"), "{error}");
         // 多余依赖条目。
         let error = require_wire_manifest_hygiene(
-            "[package]\nname = \"w\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\nserde = \"1\"\n",
+            "[package]\nname = \"w\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\nserde = \"1\"\n",
             root,
             "w/Cargo.toml",
         )
@@ -1143,7 +1345,7 @@ mod tests {
         assert!(error.contains("恰好一条"), "{error}");
         // 版本未精确钉版。
         let error = require_wire_manifest_hygiene(
-            "[package]\nname = \"w\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"25.12.19\", default-features = false, features = [\"std\"] }\n",
+            "[package]\nname = \"w\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"25.12.19\", default-features = false, features = [\"std\"] }\n",
             root,
             "w/Cargo.toml",
         )
@@ -1151,7 +1353,7 @@ mod tests {
         assert!(error.contains("精确钉"), "{error}");
         // dev-dependencies 段不允许存在。
         let error = require_wire_manifest_hygiene(
-            "[package]\nname = \"w\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n\n[dev-dependencies]\ntempfile = \"3\"\n",
+            "[package]\nname = \"w\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n\n[dev-dependencies]\ntempfile = \"3\"\n",
             root,
             "w/Cargo.toml",
         )
@@ -1159,7 +1361,7 @@ mod tests {
         assert!(error.contains("dev-dependencies"), "{error}");
         // build-dependencies 段不允许存在。
         let error = require_wire_manifest_hygiene(
-            "[package]\nname = \"w\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n\n[build-dependencies]\ncc = \"1\"\n",
+            "[package]\nname = \"w\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n\n[build-dependencies]\ncc = \"1\"\n",
             root,
             "w/Cargo.toml",
         )
@@ -1187,31 +1389,48 @@ mod tests {
         let write_manifest = |body: &str| {
             fs::write(package_root.join("Cargo.toml"), body).unwrap();
         };
+        // auto* 键缺失（默认开启自动发现）即拒绝。
+        write_manifest(
+            "[package]\nname = \"m\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\n",
+        );
+        let error = check_mmap_manifest_hygiene(&root).unwrap_err();
+        assert!(error.contains("autobins"), "{error}");
         // 依赖表多一条。
         write_manifest(
-            "[package]\nname = \"m\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\nserde = \"1\"\n",
+            "[package]\nname = \"m\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\nserde = \"1\"\n",
         );
         let error = check_mmap_manifest_hygiene(&root).unwrap_err();
         assert!(error.contains("恰好 memmap2/tempfile 两条"), "{error}");
         // memmap2 未精确钉版。
         write_manifest(
-            "[package]\nname = \"m\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\n",
+            "[package]\nname = \"m\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\n",
         );
         let error = check_mmap_manifest_hygiene(&root).unwrap_err();
         assert!(error.contains("memmap2"), "{error}");
         // 额外 target 段。
         write_manifest(
-            "[package]\nname = \"m\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\n\n[[bin]]\nname = \"x\"\n",
+            "[package]\nname = \"m\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\n\n[[bin]]\nname = \"x\"\n",
         );
         let error = check_mmap_manifest_hygiene(&root).unwrap_err();
         assert!(error.contains("只许 [lib] 一个编译入口"), "{error}");
+        // [target] 条件依赖段逃逸顶层依赖表钉版。
+        write_manifest(
+            "[package]\nname = \"m\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\n\n[target.'cfg(unix)'.dependencies]\nshim = { path = \"shim\" }\n",
+        );
+        let error = check_mmap_manifest_hygiene(&root).unwrap_err();
+        assert!(error.contains("[target]"), "{error}");
         // build.rs 存在。
         write_manifest(
-            "[package]\nname = \"m\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\n",
+            "[package]\nname = \"m\"\nautobins = false\nautotests = false\nautoexamples = false\nautobenches = false\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\n",
         );
         fs::write(package_root.join("build.rs"), "fn main() {}\n").unwrap();
         let error = check_mmap_manifest_hygiene(&root).unwrap_err();
         assert!(error.contains("build.rs"), "{error}");
+        fs::remove_file(package_root.join("build.rs")).unwrap();
+        // 自动发现目录存在即拒绝（即使 auto* 键已关闭，纵深防御）。
+        fs::create_dir_all(package_root.join("examples")).unwrap();
+        let error = check_mmap_manifest_hygiene(&root).unwrap_err();
+        assert!(error.contains("examples"), "{error}");
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -1233,6 +1452,7 @@ mod tests {
             name: "demo".to_string(),
             manifest_path: root.join("Cargo.toml"),
             targets: Vec::new(),
+            has_build_script: false,
         }];
         let classified = vec![("demo".to_string(), UnsafeLevel::Forbid)];
         let error = check_forbid_textual_boundary(&members, &classified).unwrap_err();
@@ -1248,6 +1468,20 @@ mod tests {
         let classified_allow = vec![("demo".to_string(), UnsafeLevel::Allow)];
         fs::write(root.join("src/lib.rs"), "unsafe fn allowed_here() {}\n").unwrap();
         check_forbid_textual_boundary(&members, &classified_allow).unwrap();
+        // build 脚本禁令：metadata custom-build target 与 package 根 build.rs
+        // 文件双通道（build.rs 可生成文本扫描不可见的 Rust 源码）。
+        let members_with_build = vec![MemberPackage {
+            name: "demo".to_string(),
+            manifest_path: root.join("Cargo.toml"),
+            targets: Vec::new(),
+            has_build_script: true,
+        }];
+        let error = check_forbid_textual_boundary(&members_with_build, &classified).unwrap_err();
+        assert!(error.contains("build 脚本"), "{error}");
+        fs::write(root.join("build.rs"), "fn main() {}\n").unwrap();
+        let error = check_forbid_textual_boundary(&members, &classified).unwrap_err();
+        assert!(error.contains("build.rs"), "{error}");
+        fs::remove_file(root.join("build.rs")).unwrap();
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -1307,18 +1541,18 @@ mod tests {
     }
 
     #[test]
-    fn parse_workspace_members_maps_kinds_and_skips_custom_build_only() {
+    fn parse_workspace_members_maps_kinds_and_records_custom_build() {
         let metadata = serde_json::json!({
             "packages": [{
                 "name": "demo",
                 "manifest_path": "/repo/crates/demo/Cargo.toml",
                 "targets": [
-                    { "name": "demo", "kind": ["lib"] },
-                    { "name": "integration", "kind": ["test"] },
-                    { "name": "tool", "kind": ["bin"] },
-                    { "name": "bench1", "kind": ["bench"] },
-                    { "name": "ex", "kind": ["example"], "required-features": ["native-example"] },
-                    { "name": "build-script", "kind": ["custom-build"] }
+                    { "name": "demo", "kind": ["lib"], "src_path": "/repo/crates/demo/src/lib.rs" },
+                    { "name": "integration", "kind": ["test"], "src_path": "/repo/crates/demo/tests/integration.rs" },
+                    { "name": "tool", "kind": ["bin"], "src_path": "/repo/crates/demo/src/bin/tool.rs" },
+                    { "name": "bench1", "kind": ["bench"], "src_path": "/repo/crates/demo/benches/bench1.rs" },
+                    { "name": "ex", "kind": ["example"], "required-features": ["native-example"], "src_path": "/repo/crates/demo/examples/ex.rs" },
+                    { "name": "build-script", "kind": ["custom-build"], "src_path": "/repo/crates/demo/build.rs" }
                 ]
             }]
         });
@@ -1329,6 +1563,7 @@ mod tests {
             members[0].manifest_path,
             PathBuf::from("/repo/crates/demo/Cargo.toml")
         );
+        assert!(members[0].has_build_script);
         assert_eq!(
             members[0].targets,
             vec![
@@ -1372,7 +1607,7 @@ mod tests {
             "packages": [{
                 "name": "demo",
                 "manifest_path": "/repo/crates/demo/Cargo.toml",
-                "targets": [{ "name": "mystery", "kind": ["cdylib"] }]
+                "targets": [{ "name": "mystery", "kind": ["cdylib"], "src_path": "/repo/crates/demo/src/lib.rs" }]
             }]
         });
         let error = parse_workspace_members(&unknown).unwrap_err();
@@ -1386,16 +1621,66 @@ mod tests {
             "packages": [{
                 "name": "demo",
                 "manifest_path": "/repo/crates/demo/Cargo.toml",
-                "targets": [{ "name": "demo", "kind": ["proc-macro"] }]
+                "targets": [{ "name": "demo", "kind": ["proc-macro"], "src_path": "/repo/crates/demo/src/lib.rs" }]
             }]
         });
         let members = parse_workspace_members(&proc_macro).unwrap();
         assert_eq!(members[0].targets[0].flag, "--lib");
+        assert!(!members[0].has_build_script);
+    }
+
+    #[test]
+    fn parse_workspace_members_rejects_non_rs_target_source() {
+        // `[lib] path = "src/lib.txt"` 形态：非 .rs 源逃逸 forbid 文本扫描。
+        let non_rs = serde_json::json!({
+            "packages": [{
+                "name": "demo",
+                "manifest_path": "/repo/crates/demo/Cargo.toml",
+                "targets": [{ "name": "demo", "kind": ["lib"], "src_path": "/repo/crates/demo/src/lib.txt" }]
+            }]
+        });
+        let error = parse_workspace_members(&non_rs).unwrap_err();
+        assert!(error.contains(".rs 扩展名"), "{error}");
+
+        let no_extension = serde_json::json!({
+            "packages": [{
+                "name": "demo",
+                "manifest_path": "/repo/crates/demo/Cargo.toml",
+                "targets": [{ "name": "demo", "kind": ["lib"], "src_path": "/repo/crates/demo/src/lib" }]
+            }]
+        });
+        let error = parse_workspace_members(&no_extension).unwrap_err();
+        assert!(error.contains(".rs 扩展名"), "{error}");
+
+        let missing_src_path = serde_json::json!({
+            "packages": [{
+                "name": "demo",
+                "manifest_path": "/repo/crates/demo/Cargo.toml",
+                "targets": [{ "name": "demo", "kind": ["lib"] }]
+            }]
+        });
+        let error = parse_workspace_members(&missing_src_path).unwrap_err();
+        assert!(error.contains("src_path"), "{error}");
     }
 
     #[test]
     fn canary_source_contains_unsafe_usage() {
         assert!(CANARY_LIB_RS.contains("unsafe"));
+    }
+
+    #[test]
+    fn tail_truncate_respects_char_boundary() {
+        // 切口正落在三字节字符 `界`（字节 101..104）中间：旧实现按字节切片
+        // 会 panic，新实现必须推进到 char 边界并把半个字符整体排除。
+        let mut text = "x".repeat(101);
+        text.push('界');
+        text.push_str(&"y".repeat(3998));
+        let tail = tail_truncate(&text);
+        let prefix = "…（截断）\n";
+        assert!(tail.starts_with(prefix), "{tail}");
+        assert_eq!(&tail[prefix.len()..], &"y".repeat(3998), "{tail}");
+
+        assert_eq!(tail_truncate("abc"), "abc");
     }
 
     #[test]

@@ -7,7 +7,7 @@
 use core::fmt;
 use std::{
     boxed::Box,
-    io::{self, BufWriter, Seek, SeekFrom, Write},
+    io::{self, BufWriter, Write},
     path::Path,
     sync::{Arc, OnceLock},
 };
@@ -53,9 +53,7 @@ impl StagedObjectWriter {
     ) -> Result<Self, StagedObjectError> {
         let exact_byte_length = ExactByteLength::new(prepared.byte_len());
         let mut staged = PrivateStagedFile::create_in(directory).map_err(stage_error)?;
-        if let Err(error) =
-            encode_prepared_object_to_sink(prepared, FileSink::new(staged.file_mut()))
-        {
+        if let Err(error) = encode_prepared_object_to_sink(prepared, FileSink::new(&mut staged)) {
             return Err(StagedObjectError::Io(error));
         }
         Ok(Self {
@@ -71,7 +69,7 @@ impl StagedObjectWriter {
             .staged
             .take()
             .expect("unfinished staged writer retains its file");
-        staged.file_mut().flush()?;
+        staged.flush()?;
         let sealed = staged
             .seal(self.exact_byte_length.get())
             .map_err(stage_error)?;
@@ -232,12 +230,12 @@ impl BoundedReReadableObjectSource for ImmutableObjectSource {
 }
 
 struct FileSink<'a> {
-    file: BufWriter<&'a mut std::fs::File>,
+    file: BufWriter<&'a mut PrivateStagedFile>,
     position: u64,
 }
 
 impl<'a> FileSink<'a> {
-    fn new(file: &'a mut std::fs::File) -> Self {
+    fn new(file: &'a mut PrivateStagedFile) -> Self {
         Self {
             file: BufWriter::with_capacity(64 * 1024, file),
             position: 0,
@@ -263,9 +261,9 @@ impl ObjectWriteSink for FileSink<'_> {
 
     fn patch_exact_at(&mut self, offset: u64, bytes: &[u8]) -> Result<(), Self::Error> {
         self.file.flush()?;
-        self.file.get_mut().seek(SeekFrom::Start(offset))?;
-        self.file.get_mut().write_all(bytes)?;
-        self.file.get_mut().seek(SeekFrom::Start(self.position))?;
+        self.file
+            .get_mut()
+            .patch_exact_at(offset, bytes, self.position)?;
         Ok(())
     }
 
