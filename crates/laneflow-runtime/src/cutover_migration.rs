@@ -818,6 +818,18 @@ pub(crate) fn migrate_structural_clone(
             .count(laneflow_static_contract::EntityKind::WaitingZone),
     )
     .expect("waiting zone count fits usize");
+    if !world.conflict_arbiter.is_empty()
+        || world.conflict_eligibility.iter().any(Option::is_some)
+        || world.vehicles.iter().any(|slot| {
+            slot.state
+                .is_some_and(|state| state.conflict_reservation().is_some())
+        })
+    {
+        return Err(CutoverError::ConflictRevalidationFailed);
+    }
+    let conflict_arbiter =
+        crate::conflict::ConflictArbiter::install(&target_revision, vehicle_capacity)
+            .map_err(|_| CutoverError::StagingAllocFailed)?;
 
     // occurrence 总数重算（迁移不增减边数；防御性闭合后文校验容量）。
     let mut occurrence_total: u64 = 0;
@@ -835,6 +847,8 @@ pub(crate) fn migrate_structural_clone(
         world_id: world.world_id,
         world_generation: world.world_generation,
         config: world.config,
+        conflict_arbiter,
+        conflict_eligibility: Vec::new(),
         tick_index: world.tick_index,
         time_ms: world.time_ms,
         command_cursor: world.command_cursor,
@@ -910,6 +924,9 @@ pub(crate) fn migrate_structural_clone(
 pub(crate) fn revalidate_migrated_vehicles(candidate: &TrafficWorld) -> Result<(), CutoverError> {
     if !candidate.waiting_state_valid() || !candidate.waiting_snapshot_storage_valid() {
         return Err(CutoverError::WaitingRevalidationFailed);
+    }
+    if !candidate.conflict_state_valid() {
+        return Err(CutoverError::ConflictRevalidationFailed);
     }
     for handle in candidate.live_order.iter().copied() {
         revalidate_vehicle_on(candidate, handle)?;

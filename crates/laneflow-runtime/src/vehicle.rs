@@ -102,6 +102,18 @@ impl VehicleState {
     pub const fn waiting_membership(self) -> Option<crate::WaitingMembership> {
         self.waiting_membership
     }
+
+    /// 已 crossing 且尚未由车尾清空的冲突 reservation。
+    #[must_use]
+    pub const fn conflict_reservation(self) -> Option<crate::ConflictReservation> {
+        match self.maneuver_traversal {
+            Some(crate::ManeuverTraversalState {
+                phase: crate::ManeuverTraversalPhase::Clearing { reservation },
+                ..
+            }) => Some(reservation),
+            Some(_) | None => None,
+        }
+    }
 }
 
 /// 原子替换成功记录。旧句柄立即 stale；新句柄不同 generation。

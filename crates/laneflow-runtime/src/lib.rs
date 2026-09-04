@@ -7,6 +7,7 @@ extern crate self as laneflow_runtime;
 mod test_policy;
 
 mod config;
+mod conflict;
 mod cutover;
 mod cutover_migration;
 mod cutover_transaction;
@@ -32,6 +33,12 @@ mod waiting;
 mod world;
 
 pub use config::{StepOutcome, TickInput, WorldConfig};
+pub use conflict::{
+    ApproachEstimate, ConflictEligibilityState, ConflictGapOutcome, ConflictLagReference,
+    ConflictPassageAddress, ConflictPassageLocator, ConflictPassageOccurrenceLocator,
+    ConflictPassageRange, ConflictReservation, ConflictResourceNoGrant, ConflictYieldOutcome,
+    DownstreamInterval, DownstreamRoutePoint, GateCandidateKind, GatePolicyDecision,
+};
 pub use cutover::{
     CUTOVER_DESCRIPTOR_FORMAT_VERSION, CutoverDescriptorError, CutoverError, CutoverEvent,
     CutoverEventBatch, CutoverPreflightLimits, LfcaOriginBinding, MigrationPolicyKind,
