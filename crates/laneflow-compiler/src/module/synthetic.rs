@@ -1481,7 +1481,10 @@ impl SyntheticModuleBuilder {
                 string_bytes: logical_string_bytes,
                 controlled_string_bytes,
                 controlled_structural_bytes: size_bytes::<ParkingFacilityDeclaration>(1)
-                    .saturating_add(size_bytes::<ParkingLaneAnchorDeclaration>(reference_count)),
+                    .saturating_add(size_bytes::<ParkingLaneAnchorDeclaration>(reference_count))
+                    // 每个虚拟锚点的 progress_span 是 Box<SourceLocation>，指针已含在
+                    // ParkingLaneAnchorDeclaration 尺寸内，此处补记 pointee。
+                    .saturating_add(size_bytes::<SourceLocation>(reference_count)),
                 source_bytes: parking_facility_input_len(
                     &input,
                     &self.header.authoring_namespace_id,
@@ -1598,7 +1601,10 @@ impl SyntheticModuleBuilder {
                 string_items: 2_u64.saturating_add(reference_count),
                 string_bytes: logical_string_bytes,
                 controlled_string_bytes,
-                controlled_structural_bytes: size_bytes::<ParkingSpaceDeclaration>(1),
+                controlled_structural_bytes: size_bytes::<ParkingSpaceDeclaration>(1)
+                    // entry/exit 锚点的 progress_span 是 Box<SourceLocation>，指针已含在
+                    // ParkingSpaceDeclaration 尺寸内，此处补记两个 pointee。
+                    .saturating_add(size_bytes::<SourceLocation>(2)),
                 source_bytes,
                 ..DeclarationResourceDelta::default()
             },

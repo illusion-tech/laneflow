@@ -18,7 +18,8 @@ use super::lowering::{
 use super::preflight::RoadEditingPreflightCounts;
 use super::reader::{VerifiedRoadEditingSource, verify_source};
 use crate::declaration::{
-    AuthoringCurveSegmentDeclaration, CanonicalPoint3F32Input, CompiledGeometrySourceRange,
+    AuthoringCurveCubicPointSpans, AuthoringCurveSegmentDeclaration,
+    AuthoringCurveSegmentPointSpans, CanonicalPoint3F32Input, CompiledGeometrySourceRange,
     RoadAlignmentDeclaration, TypedAstDeclaration,
 };
 use crate::geometry_profile::GeometryCompilationProfiles;
@@ -86,27 +87,60 @@ impl RoadEditingAdmissionSizing {
 
 fn alignment_input_scratch_bytes_from_root(root: wire::RoadEditingSource<'_>) -> u64 {
     let alignments = root.road_alignments();
-    let segment_count = alignments.iter().fold(0_u64, |total, alignment| {
-        total.saturating_add(
-            u64::try_from(alignment.reference_line().segments().len()).unwrap_or(u64::MAX),
-        )
-    });
+    let mut segment_count = 0_u64;
+    let mut cubic_count = 0_u64;
+    for alignment in alignments.iter() {
+        let segments = alignment.reference_line().segments();
+        segment_count =
+            segment_count.saturating_add(u64::try_from(segments.len()).unwrap_or(u64::MAX));
+        cubic_count = cubic_count.saturating_add(
+            segments
+                .iter()
+                .filter(|segment| {
+                    segment.geometry_type() == wire::CurveSegmentGeometry::CubicBezierSegment
+                })
+                .count()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        );
+    }
     size_bytes::<RoadAlignmentDeclaration>(u64::try_from(alignments.len()).unwrap_or(u64::MAX))
         .saturating_add(size_bytes::<AuthoringCurveSegmentDeclaration>(
             segment_count,
         ))
+        // 每个 cubic 段的 point_spans 是 Box<AuthoringCurveCubicPointSpans>，指针已含在
+        // AuthoringCurveSegmentDeclaration 尺寸内，此处补记 pointee。
+        .saturating_add(size_bytes::<AuthoringCurveCubicPointSpans>(cubic_count))
 }
 
 fn alignment_input_scratch_bytes_from_lowered(alignments: &[RoadAlignmentDeclaration]) -> u64 {
-    let segment_count = alignments.iter().fold(0_u64, |total, alignment| {
-        total.saturating_add(
+    let mut segment_count = 0_u64;
+    let mut cubic_count = 0_u64;
+    for alignment in alignments {
+        segment_count = segment_count.saturating_add(
             u64::try_from(alignment.reference_line.segments.len()).unwrap_or(u64::MAX),
-        )
-    });
+        );
+        cubic_count = cubic_count.saturating_add(
+            alignment
+                .reference_line
+                .segments
+                .iter()
+                .filter(|segment| {
+                    matches!(
+                        segment.point_spans,
+                        AuthoringCurveSegmentPointSpans::CubicBezier(_)
+                    )
+                })
+                .count()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        );
+    }
     size_bytes::<RoadAlignmentDeclaration>(u64::try_from(alignments.len()).unwrap_or(u64::MAX))
         .saturating_add(size_bytes::<AuthoringCurveSegmentDeclaration>(
             segment_count,
         ))
+        .saturating_add(size_bytes::<AuthoringCurveCubicPointSpans>(cubic_count))
 }
 
 fn lowering_sort_scratch_bytes(root: wire::RoadEditingSource<'_>) -> u64 {
