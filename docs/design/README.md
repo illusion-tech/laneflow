@@ -22,7 +22,7 @@
   坐标、独立容量与 #284 前的全车身能力保护（#283 G1 已接受）。
 - `traffic-runtime-waiting-zone.md`：#282 G1 Accepted 的 WaitingZone 本地
   membership/admission/storage/queue 设计，以及当前 LFRS 5、runtime state 5、
-  deterministic digest 7 合同；不包含 #284 的组合 ledger。
+  deterministic digest 7 合同；#284 的组合 ledger 与持久化由下列路权文档管理。
 - `shared-static-network.md`：从受检 LFCA 构建 `SharedNetworkRevision`。
 - `adapter-api.md`：Runtime / Spatial 与引擎适配器的只读快照、位姿和权威边界。
 - `portable-canonical-artifact.md`：统一 LFCA 5 / LFSM 4 / LFSD 4 /
@@ -48,11 +48,11 @@
   anchor selector、reserve/park/leave、原子 despawn、无 pose 停驻与迁移合同（#541 起实现）。
 - `road-junction-model.md`：Junction / Movement / ManeuverPath / ManeuverGate。
 - `waiting-zone-conflict-right-of-way.md`：#282 G1 Accepted 的 Waiting 本地边界与 #284
-  组合仲裁边界；冲突静态 exact shape 见 LFCA/共享根文档，路线出现项与
-  `ConflictRuntimeUnavailable` 临时能力保护见 #559 当前设计。
+  组合仲裁边界；冲突静态 exact shape 见 LFCA/共享根文档，W4 仲裁与 W5 持久化已
+  落入集成实现，生产 tick 接线前仍保留 `ConflictRuntimeUnavailable` 保护。
 - [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md)：#284
-  实施合同（Review），细化策略来源、中国右转灯态解释、世界绑定、格式版本矩阵与
-  持久化验收；不表示新格式或 Conflict 仲裁已交付。
+  已接受实施合同，细化策略来源、中国右转灯态解释、世界绑定、格式版本矩阵与
+  持久化验收；各能力的集成与生产接线状态以该文档和对应 W 切片为准。
 - `cross-section-access.md`：横断面与准入 overlay。
 - `numeric-representation.md`：数值分层；已提交一维几何为整数毫米，编制 `f64` 与 Spatial `f32` 仍在量化之前。
 - `traffic-runtime-integer-geometry.md`：#496 整数毫米 / 微米余数 / `mm/s` 实现合同（Accepted）；#500 编译器 IR 交通一维同一套整数毫米。

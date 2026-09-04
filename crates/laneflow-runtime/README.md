@@ -8,9 +8,12 @@
 策略、不读取业务日期，也没有安装后 setter。`policy()` 借用所选共享规则；
 `policy_gap_profiles()` 保存本世界固定步长对应的 checked 间隙派生值。
 
-LFRS 5 / runtime state 5 保存策略选择与 StableId，digest 7 纳入相同逻辑字段。
-切换描述符 2 保持字段形状；跨修订保留策略身份、法域和法规版本，并按目标根重建派生间隙。
-已有 `ConflictRuntimeUnavailable` 在冲突仲裁接入前继续保留。
+LFRS 5 / runtime state 5 保存策略选择、Conflict eligibility/reservation/Clearing 与 lag
+history，digest 7 纳入相同逻辑字段。切换描述符 2 保持字段形状；跨修订保留策略身份、
+法域和法规版本，并按稳定 passage locator/route occurrence 精确迁移 authority。新增或
+语义不连续的冷 cell 使用最终静默提交时间的 `CutoverFloor`，不生成虚构 clear。
+W4 仲裁器和 W5 持久化内部已闭合；生产 crossing/tick 接线仍由 W7 完成，因此公开生命周期
+入口继续以 `ConflictRuntimeUnavailable` 保护未持有既有 reservation 的冲突路线状态。
 
 生命周期命令只在两次 `step` 之间调用。`replace_completed_vehicle` 把 Completed
 车辆一次提交为新的 Active 句柄；到终点保留 Completed，不进 pose、不占车道，占容量。
@@ -36,10 +39,11 @@ dirty journal 或后台任务，观测 session/基线也不进入 Runtime Snapsh
 
 Runtime Snapshot 以 `capture_snapshot` 在固定步进边界冻结不可变逻辑状态，再由
 `encode_lfrs` 离线编码。`restore_lfrs` 先核对 framing / file identifier / verifier
-预算，再执行版本、v2 table 未知字段槽、来源、配置、标识、引用、排列、tagged 停车和值
-不变量 lowering；所有路线
+预算，再执行版本、v5 table 未知字段槽、来源、配置、标识、引用、排列、tagged 停车、
+Waiting 与 Conflict authority/lag 不变量 lowering；所有路线
 经 `register_admitted_route`，所有车辆/停车经共同运行时不变量入口在局部 world 中
-重建，完全成功后才返回 `RestoredSnapshot` 及局部 ID 到新句柄映射。
+重建，Conflict occupant/cleared 从 reservation、车辆整车位置和 passage 锚点派生；完全
+成功后才返回 `RestoredSnapshot` 及局部 ID 到新句柄映射。
 `deterministic_state_digest` 按逻辑路线/车辆内容规范化，不依赖 LFRS 字节、进程句柄、
 局部 ID、Published 审计地址或 worker 计划；容量、tick/时间/双游标与 live 顺序仍进入
 SHA-256 状态身份。
