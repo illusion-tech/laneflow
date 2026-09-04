@@ -9,6 +9,7 @@ use laneflow_static_contract::{
 };
 use laneflow_static_network::SharedNetworkRevision;
 
+use crate::conflict::ConflictAcquireError;
 use crate::migration_journal::{MigrationDeltaJournal, MigrationJournalError, VehicleDelta};
 use crate::occupancy::OccupancyIndex;
 use crate::parking::ParkingRuntimeState;
@@ -416,6 +417,75 @@ impl TrafficWorld {
         state.route_edge_index == hop
             && state.progress_mm == self.revision.traffic().lane_lengths_millimetres()[edge.index()]
             && state.carry_um == 0
+    }
+
+    /// 从 reservation 级 exact route/Gate/passage 证明重建 downstream 物理资源并集。
+    ///
+    /// committed claim 只保留热路径需要的物理区间；snapshot/restore/cutover
+    /// 必须调用本入口证明这些区间仍是当前根与整车长度的唯一推导结果。
+    pub(crate) fn derive_reservation_downstream_claims(
+        &self,
+        range: crate::ConflictPassageRange,
+        vehicle_length_mm: u32,
+        output: &mut Vec<crate::DownstreamInterval>,
+    ) -> Result<(), ConflictAcquireError> {
+        let compiled = self
+            .compiled_route(range.route())
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let first = usize::try_from(range.first_conflict_occurrence_index())
+            .map_err(|_| ConflictAcquireError::InvalidBundle)?;
+        let end = range
+            .first_conflict_occurrence_index()
+            .checked_add(range.passage_count())
+            .and_then(|end| usize::try_from(end).ok())
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let occurrences = compiled
+            .conflicts
+            .get(first..end)
+            .filter(|occurrences| {
+                !occurrences.is_empty()
+                    && occurrences.iter().all(|occurrence| {
+                        occurrence.admission_hop == range.admission_gate_hop()
+                            && occurrence.maneuver_index == range.maneuver_occurrence_index()
+                    })
+            })
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let farthest = occurrences
+            .iter()
+            .map(|occurrence| occurrence.clearance)
+            .max()
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let gate_hop = usize::try_from(range.admission_gate_hop())
+            .map_err(|_| ConflictAcquireError::InvalidBundle)?;
+        let gate_edge = *compiled
+            .edges
+            .get(gate_hop)
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let gate_progress_mm = *self
+            .revision
+            .traffic()
+            .lane_lengths_millimetres()
+            .get(gate_edge.index())
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let gate =
+            crate::DownstreamRoutePoint::new(range.admission_gate_hop(), gate_progress_mm, 0)
+                .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let farthest =
+            crate::DownstreamRoutePoint::new(farthest.route_edge_index, farthest.progress_mm, 0)
+                .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let target = crate::conflict::downstream_claim_target(
+            &compiled.edges,
+            self.revision.traffic().lane_lengths_millimetres(),
+            farthest,
+            vehicle_length_mm,
+        )?;
+        crate::conflict::derive_downstream_claims(
+            &compiled.edges,
+            self.revision.traffic().lane_lengths_millimetres(),
+            gate,
+            target,
+            output,
+        )
     }
 
     #[must_use]
@@ -846,21 +916,21 @@ impl TrafficWorld {
             {
                 return Err(SpawnError::Overlap);
             }
-            if !conflict_authority_pending {
-                match self.check_active_conflict_capability(
-                    input.route(),
-                    cursor,
-                    input.progress_mm(),
-                    carry_um,
-                    profile.length_mm(),
-                ) {
-                    Ok(()) => {}
-                    Err(ConflictCapabilityError::InvalidCursor) => {
-                        return Err(SpawnError::InvalidProgress);
-                    }
-                    Err(ConflictCapabilityError::RuntimeUnavailable(error)) => {
-                        return Err(SpawnError::ConflictRuntimeUnavailable(error));
-                    }
+            match self.check_active_conflict_capability(
+                input.route(),
+                cursor,
+                input.progress_mm(),
+                carry_um,
+                profile.length_mm(),
+            ) {
+                Ok(()) => {}
+                Err(ConflictCapabilityError::InvalidCursor) => {
+                    return Err(SpawnError::InvalidProgress);
+                }
+                Err(ConflictCapabilityError::RuntimeUnavailable(_))
+                    if conflict_authority_pending => {}
+                Err(ConflictCapabilityError::RuntimeUnavailable(error)) => {
+                    return Err(SpawnError::ConflictRuntimeUnavailable(error));
                 }
             }
         }

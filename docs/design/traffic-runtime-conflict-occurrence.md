@@ -202,8 +202,9 @@ RUNTIME_STATE_DIGEST_VERSION     = 7
 v5 `WorldConfigBinding` 继续包含 `route_conflict_occurrence_capacity: ulong`。旧 reader、writer
 和 schema 不属于当前生产入口，不双读、不自动迁移。其它需要修改 Runtime Snapshot
 的设计必须遵循 `traffic-runtime-snapshot.md` 与 #284 实施合同的统一版本安排，
-不能并行占用同一版本值。5/5 与 digest 7 已纳入显式世界策略选择；不表示组合
-reservation、冲突滞后历史或 passage locator 迁移已交付。
+不能并行占用同一版本值。#284 W5 已在 5/5 与 digest 7 上交付组合 reservation、
+冲突滞后历史、passage locator 与 downstream 物理并集的保存、恢复及修订迁移；
+生产 crossing/tick 接线仍由 #284 后续切片完成。
 恢复容量错误新增 `RouteConflictOccurrences` dimension，与现行 routes、vehicles 和
 route-edge-occurrences 一样分别报告 snapshot 配置、target 配置与实际重建计数。
 
