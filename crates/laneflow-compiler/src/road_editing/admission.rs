@@ -906,15 +906,20 @@ mod tests {
         AuthoringLaneInput, AuthoringLaneReference, CanonicalFrameInput, CanonicalFrameReference,
         FacilityBandInput, FacilityBandReference, JunctionInput, JunctionReference, LaneEdgeInput,
         LaneEdgeReference, LinearWidthProfile, ManeuverPathInput, MovementInput, MovementReference,
-        RoadAlignmentInput, RoadAlignmentReference, RoadCorridorInput, RoadCorridorReference,
-        RoadEditingCorridorElement, RoadEditingCurveProgram, RoadEditingCurveSegment,
-        RoadEditingDeclaration, RoadEditingLaneDirection, RoadEditingModuleHeader,
-        RoadEditingPoint3, RoadEditingProvenance, RoadEditingSignalPhaseState,
-        RoadEditingSourceModuleBuilder, RoadEditingSourceWriter, RoadEditingStationEnd,
-        RoadSectionInput, RoadSectionReference, SignalControllerInput, SignalControllerReference,
-        SignalGroupInput, SignalGroupReference, SignalPhaseInput, SignalPhaseReference,
+        ParkingFacilityInput, ParkingLaneAnchor, RoadAlignmentInput, RoadAlignmentReference,
+        RoadCorridorInput, RoadCorridorReference, RoadEditingCorridorElement,
+        RoadEditingCurveProgram, RoadEditingCurveSegment, RoadEditingDeclaration,
+        RoadEditingLaneDirection, RoadEditingModuleHeader, RoadEditingPoint3,
+        RoadEditingProvenance, RoadEditingSignalPhaseState, RoadEditingSourceModuleBuilder,
+        RoadEditingSourceWriter, RoadEditingStationEnd, RoadSectionInput, RoadSectionReference,
+        SignalControllerInput, SignalControllerReference, SignalGroupInput, SignalGroupReference,
+        SignalPhaseInput, SignalPhaseReference,
     };
-    use crate::{RoadEditingDocumentIdentity, RoadEditingSubject, SignalAspect, SourceLocation};
+    use crate::{
+        RoadEditingAddressKind, RoadEditingDocumentIdentity, RoadEditingOwner, RoadEditingSubject,
+        SignalAspect, SourceLocation,
+    };
+    use laneflow_static_contract::EntityKind;
 
     fn source_buffer(
         limits: &CompileLimits,
@@ -990,6 +995,64 @@ mod tests {
         builder
             .add_declaration(RoadEditingDeclaration::LaneEdge(
                 LaneEdgeInput::try_new("edge-b", 10.0, Vec::new(), None).unwrap(),
+            ))
+            .unwrap();
+        RoadEditingSourceWriter::new(limits)
+            .write(builder.finish().unwrap())
+            .unwrap()
+    }
+
+    fn parking_virtual_anchor_buffer(
+        limits: &CompileLimits,
+    ) -> super::super::OwnedRoadEditingSourceBuffer {
+        let header = RoadEditingModuleHeader::try_new(
+            "city",
+            "roads/parking-virtual",
+            Vec::new(),
+            RoadEditingProvenance::direct("editor save").unwrap(),
+        )
+        .unwrap();
+        let mut builder = RoadEditingSourceModuleBuilder::new(
+            header,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            limits,
+        )
+        .unwrap();
+        builder
+            .add_declaration(RoadEditingDeclaration::CanonicalFrame(
+                CanonicalFrameInput::try_new("frame").unwrap(),
+            ))
+            .unwrap();
+        let start = RoadEditingPoint3::try_new(0.0, 0.0, 0.0).unwrap();
+        let end = RoadEditingPoint3::try_new(10.0, 0.0, 0.0).unwrap();
+        let curve = || {
+            RoadEditingCurveProgram::try_new(start, vec![RoadEditingCurveSegment::line(end)])
+                .unwrap()
+        };
+        builder
+            .add_declaration(RoadEditingDeclaration::LaneEdge(
+                LaneEdgeInput::try_new("edge-a", 10.0, Vec::new(), Some(curve())).unwrap(),
+            ))
+            .unwrap();
+        builder
+            .add_declaration(RoadEditingDeclaration::LaneEdge(
+                LaneEdgeInput::try_new("edge-b", 10.0, Vec::new(), Some(curve())).unwrap(),
+            ))
+            .unwrap();
+        let anchor = |edge: &str, progress_meters| {
+            ParkingLaneAnchor::try_new(LaneEdgeReference::local(edge).unwrap(), progress_meters)
+                .unwrap()
+        };
+        builder
+            .add_declaration(RoadEditingDeclaration::ParkingFacility(
+                ParkingFacilityInput::try_new("parking-virtual")
+                    .unwrap()
+                    .with_virtual_capacity(
+                        2,
+                        vec![anchor("edge-a", 1.0), anchor("edge-b", 2.0)],
+                        vec![anchor("edge-b", 3.0)],
+                    ),
             ))
             .unwrap();
         RoadEditingSourceWriter::new(limits)
@@ -2037,6 +2100,106 @@ mod tests {
 
         assert_eq!(order(false), order(true));
         assert_eq!(order(false), ["city/a", "city/b"]);
+    }
+
+    #[test]
+    fn parking_facility_virtual_anchors_resolve_locations_through_admission() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = parking_virtual_anchor_buffer(&limits);
+        let mut builder = CompilationUnitBuilder::new(limits);
+        builder
+            .add_road_editing_module(
+                RoadEditingModuleInput::try_new("roads/parking-virtual", buffer.as_bytes(), None)
+                    .unwrap(),
+            )
+            .expect("virtual anchors must lower without a closed property path panic");
+        let unit = builder.build().unwrap();
+        let facility = unit.modules[0]
+            .declarations
+            .iter()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::ParkingFacility(value) => Some(value),
+                _ => None,
+            })
+            .expect("parking facility declaration");
+        assert_eq!(facility.virtual_capacity, 2);
+        assert_eq!(facility.virtual_entries.len(), 2);
+        assert_eq!(facility.virtual_exits.len(), 1);
+
+        let assert_anchor_locations =
+            |anchors: &[crate::declaration::ParkingLaneAnchorDeclaration],
+             relation: RoadEditingRelationKind,
+             field_id: u16| {
+                let mut ordinals = Vec::with_capacity(anchors.len());
+                for anchor in anchors {
+                    let SourceLocation::RoadEditing(location) = &anchor.lane_edge.span else {
+                        panic!(
+                            "virtual anchor lane-edge reference must carry a road-editing location"
+                        );
+                    };
+                    let RoadEditingSubject::OwnerLocal {
+                        owner: RoadEditingOwner::Address(owner),
+                        relation: actual_relation,
+                        occurrence: RoadEditingRelationOccurrence::CanonicalSetOrdinal(ordinal),
+                    } = location.subject()
+                    else {
+                        panic!("virtual anchor must be an owner-local canonical-set occurrence");
+                    };
+                    assert_eq!(*actual_relation, relation);
+                    assert_eq!(
+                        owner.kind(),
+                        RoadEditingAddressKind::Declaration(EntityKind::ParkingFacility)
+                    );
+                    assert_eq!(owner.local_key(location.context()), "parking-virtual");
+                    assert_eq!(
+                        location
+                            .property_path()
+                            .expect("virtual anchor property path")
+                            .steps(),
+                        [
+                            RoadEditingPropertyStep::TableField {
+                                table: RoadEditingTableKind::ParkingFacility,
+                                field_id,
+                            },
+                            RoadEditingPropertyStep::TableField {
+                                table: RoadEditingTableKind::ParkingLaneAnchor,
+                                field_id: 0,
+                            },
+                        ]
+                        .as_slice()
+                    );
+                    ordinals.push(*ordinal);
+                }
+                ordinals.sort_unstable();
+                let expected = (0..u32::try_from(anchors.len()).unwrap()).collect::<Vec<_>>();
+                assert_eq!(ordinals, expected);
+            };
+        assert_anchor_locations(
+            &facility.virtual_entries,
+            RoadEditingRelationKind::ParkingFacilityVirtualEntry,
+            3,
+        );
+        assert_anchor_locations(
+            &facility.virtual_exits,
+            RoadEditingRelationKind::ParkingFacilityVirtualExit,
+            4,
+        );
+
+        let mut entry_progress = facility
+            .virtual_entries
+            .iter()
+            .map(|anchor| anchor.progress_mm)
+            .collect::<Vec<_>>();
+        entry_progress.sort_unstable();
+        assert_eq!(entry_progress, [1_000, 2_000]);
+        assert_eq!(
+            facility
+                .virtual_exits
+                .iter()
+                .map(|anchor| anchor.progress_mm)
+                .collect::<Vec<_>>(),
+            [3_000]
+        );
     }
 
     #[test]
