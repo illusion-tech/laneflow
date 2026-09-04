@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    跨语言 LFRE writer（C#）。绑定与 FlatBuffers 运行时不走 NuGet：
+    二者都来自仓库钉版来源（见 ../README.md），先按 README 准备 target/ 下的
+    生成物与源码，再 dotnet run。
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>CrosslangWriter</AssemblyName>
+    <RootNamespace>LaneFlow.Tools.CrosslangWriter</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="..\..\..\target\flatbuffers-25.12.19\net\FlatBuffers\*.cs" />
+    <Compile Include="..\..\..\target\road-editing-codegen\csharp\**\*.cs" />
+  </ItemGroup>
+
+</Project>
