@@ -4,39 +4,48 @@
 //! 配置 / 环境注入削弱。机制：
 //!
 //! 1. Cargo.lock flatbuffers resolved 钉版唯一性（有界文本检查）。
-//! 2. 两个 wire crate 只承载钉版生成物：manifest 卫生（真 TOML 解析两个已知
-//!    manifest——[package] 必须存在、不得声明 build 脚本键、[lib] 固定指向
-//!    src/lib.rs 包装器、package 根目录不得存在 build.rs）；包装器 lib.rs 与
-//!    `xtask/src/wire_pins/` 下钉版副本字节相等；生成 .rs 由 check-*-codegen
-//!    clean-regeneration 钉版。三条字节/语义钉版叠加后，wire crate 内不存在
-//!    任何可写入手写 unsafe 的载体。
+//! 2. 两个 wire crate 只承载钉版生成物，全部在 required check（本审计）内闭合：
+//!    manifest 卫生（真 TOML 解析两个已知 manifest——[package] 必须存在、不得
+//!    声明 build 脚本键、[lib] 固定指向 src/lib.rs 包装器、不得声明
+//!    bin/test/bench/example target 段、[dependencies] 恰好一条
+//!    `flatbuffers = { version = "=<钉版>", default-features = false,
+//!    features = ["std"] }` 且无 dev/build 依赖段、package 根目录不得存在
+//!    build.rs）；包装器 lib.rs 与 `xtask/src/wire_pins/` 下钉版副本字节相等；
+//!    生成 .rs 的 sha256 与钉版常量一致（字节正确性在本审计闭合；
+//!    schema+flatc → bytes 的语义对应另由 schema-codegen.yml 的
+//!    clean-regeneration 证明）。这些钉版叠加后，wire crate 内不存在任何
+//!    可写入手写 unsafe 的载体。
 //! 3. workspace 成员 lint 分类断言（真 TOML 解析每个成员 manifest）：继承
 //!    workspace `unsafe_code = "forbid"` 的成员构成 forbid 集；唯一登记的
-//!    deny 例外是 laneflow-format（已审计的只读 mmap，文件级 allow 机制）；
-//!    仅两个 wire crate 允许 `[lints.rust] unsafe_code = "allow"`。deny 集与
-//!    allow 集逐一与登记名单比对，新增例外或改类一律 fail closed。
-//! 4. forbid / deny 成员的每个 target（lib/bin/test/bench）以 hermetic 编译
-//!    验证：剔除注入向量的环境（RUSTFLAGS / CARGO_ENCODED_RUSTFLAGS /
-//!    CARGO_BUILD_RUSTFLAGS / CARGO_TARGET_*_RUSTFLAGS / RUSTC / *_WRAPPER /
-//!    CARGO_BUILD_RUSTC* / RUSTC_BOOTSTRAP）、仓库外临时 cwd（仓库内
-//!    .cargo/config.toml 因 cargo 配置按 cwd 向上发现而不可达）、尾参
-//!    `-F unsafe_code`（forbid 集）/ `-D unsafe_code`（deny 集）。cargo 尾参
-//!    （`--` 之后）优先级高于 manifest [lints]、env rustflags 与
-//!    .cargo/config.toml rustflags（金丝雀逐次复核，见下），因此一切文本形态
-//!    绕过（转义、拆分数组、宏元变量、shell 构造、include / #[path] 形态）对
-//!    本门禁无效：无论源码以何形态进入编译单元，都在同一 crate 编译中过 lint。
-//!    example target 不参与 hermetic 编译（特性门控差异），其 unsafe 边界由
-//!    workspace lints 在常规 cargo test 编译渲染中执行。
+//!    deny 例外是 laneflow-format（已审计的只读 mmap，文件级 allow 机制，
+//!    其例外文件的精确内容见第 6 条）；仅两个 wire crate 允许
+//!    `[lints.rust] unsafe_code = "allow"`。deny 集与 allow 集逐一与登记
+//!    名单比对，新增例外或改类一律 fail closed。
+//! 4. forbid / deny 成员的每个 target（lib/bin/test/bench/example）以
+//!    hermetic 编译验证：剔除注入向量的环境（RUSTFLAGS /
+//!    CARGO_ENCODED_RUSTFLAGS / CARGO_BUILD_RUSTFLAGS /
+//!    CARGO_TARGET_*_RUSTFLAGS / RUSTC / *_WRAPPER / CARGO_BUILD_RUSTC* /
+//!    RUSTC_BOOTSTRAP）、仓库外临时 cwd（仓库内 .cargo/config.toml 因 cargo
+//!    配置按 cwd 向上发现而不可达）、`--all-features`（feature 门控代码
+//!    必须进入编译单元）、尾参 `-F unsafe_code`（forbid 集）/
+//!    `-D unsafe_code`（deny 集）。cargo 尾参（`--` 之后）优先级高于
+//!    manifest [lints]、env rustflags 与 .cargo/config.toml rustflags
+//!    （金丝雀逐次复核，见下），因此一切文本形态绕过（转义、拆分数组、
+//!    宏元变量、shell 构造、include / #[path] 形态）对本门禁无效：无论源码
+//!    以何形态进入编译单元，都在同一 crate 编译中过 lint。
 //! 5. 尾参优先级语义不依赖文档假设：正式检查前先跑三个金丝雀 crate
 //!    （manifest [lints] 注入 / RUSTFLAGS 环境注入 / cwd .cargo/config.toml
 //!    注入），三者都必须被尾参击败（编译失败且 stderr 指向 unsafe）；任一
 //!    金丝雀编译成功或以非 unsafe 原因失败，即判定工具链行为改变，fail closed。
+//! 6. laneflow-format 的 mmap 例外由
+//!    `schema_codegen::check_audited_mmap_sources` 在本审计内复核：
+//!    例外文件恰好一次模块级 allow 与一次固定只读映射调用，crate 内其他
+//!    源文件零 unsafe、零 allow(unsafe_code)。
 //!
 //! 残余信任边界（本模块不尝试自审）：本检查步骤的定义（.github/workflows/）、
-//! xtask 源码（含 wire_pins 钉版副本）与依赖政策配置（deny.toml）可被 PR 修改，
-//! 由 .github/CODEOWNERS + 分支保护 "Require review from Code Owners" 守住。
-//! deny 集 crate（laneflow-format）内部新增文件级 `#[allow(unsafe_code)]` 属于
-//! 源码评审义务，不在本门禁范围内。
+//! xtask 源码（含 wire_pins 钉版副本）与依赖政策配置（deny.toml）可被 PR
+//! 修改，现由普通 PR review 守住；是否以 CODEOWNERS + code owner review
+//! 强制，按 ADR 0027 另开治理 Issue 评估（#579）。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -52,6 +61,14 @@ const FLATBUFFERS_LOCK_CHECKSUM: &str =
 const ROAD_EDITING_WIRE_LIB_RS_PIN: &str = include_str!("wire_pins/road_editing_wire_lib.rs");
 const RUNTIME_SNAPSHOT_WIRE_LIB_RS_PIN: &str =
     include_str!("wire_pins/runtime_snapshot_wire_lib.rs");
+
+/// wire crate 生成 .rs 的 sha256 钉版：字节正确性在 required check（本审计）
+/// 内闭合；schema+flatc → bytes 的语义对应另由 clean-regeneration 证明。
+/// 合法再生成（schema 或 flatc 钉版升级）需在同一 PR 更新本常量，diff 随评审可见。
+const ROAD_EDITING_GENERATED_RS_SHA256: &str =
+    "763a5419d93f46842152df2d5a71339a135cb207137a539e6266e8bdb970589d";
+const RUNTIME_SNAPSHOT_GENERATED_RS_SHA256: &str =
+    "4d40bdb2015771fa3ba3650b1eaa99ed52148f49d572dedb7e9a51ca65afe3ff";
 
 /// 分类断言：整个 workspace 只允许这一个 crate 以 `deny` + 文件级例外承载
 /// unsafe（laneflow-format 的已审计只读 mmap）。新增 deny crate 必须在此登记，
@@ -87,9 +104,11 @@ pub(crate) fn run() -> Result<(), String> {
     check_flatbuffers_lockfile_pin(&repository_root)?;
     check_wire_manifest_hygiene(&repository_root)?;
     check_wire_lib_rs_pins(&repository_root)?;
+    check_generated_rs_pins(&repository_root)?;
+    schema_codegen::check_audited_mmap_sources(&repository_root)?;
     check_workspace_unsafe_boundary(&repository_root)?;
     println!(
-        "wire 工具链审计已通过：flatbuffers 钉版闭合，wire crate 包装器与生成物钉版闭合，workspace unsafe 分类断言闭合，forbid/deny 成员全部 target 通过 hermetic 编译（含三路注入金丝雀复核）"
+        "wire 工具链审计已通过：flatbuffers 钉版闭合，wire crate 包装器/生成物/依赖表钉版闭合，mmap 例外复核闭合，workspace unsafe 分类断言闭合，forbid/deny 成员全部 target（--all-features，含 example）通过 hermetic 编译（含三路注入金丝雀复核）"
     );
     Ok(())
 }
@@ -219,8 +238,81 @@ fn require_wire_manifest_hygiene(
             "wire manifest `{label}` 的 [lib].path 必须固定为 `src/lib.rs`，实际 `{lib_path}`"
         ));
     }
+    // wire crate 只许 [lib] 包装器一个 target：AllowGenerated 分类不参与 hermetic
+    // 编译，任何额外 target 段都会成为不受 lint 约束的编译入口。
+    for section in ["bin", "test", "bench", "example"] {
+        if manifest.get(section).is_some() {
+            return Err(format!(
+                "wire manifest `{label}` 不得声明 {section} target 段（wire crate 只许 [lib] 包装器）"
+            ));
+        }
+    }
+    require_wire_flatbuffers_dep(&manifest, label)?;
     if package_root.join("build.rs").is_file() {
         return Err(format!("wire package `{label}` 不得包含 build.rs"));
+    }
+    Ok(())
+}
+
+/// wire crate 依赖表钉版：[dependencies] 必须恰好一条 flatbuffers，且为恰三键
+/// 内联表形态（version 精确钉版 / default-features = false / features = ["std"]）。
+/// 键数不符即拒绝——`package = "..."` 改名注入会多出第四键；[dev-dependencies]
+/// 与 [build-dependencies] 段必须不存在（wire crate 无 dev/build 依赖面）。
+fn require_wire_flatbuffers_dep(manifest: &toml::Table, label: &str) -> Result<(), String> {
+    let dependencies = manifest
+        .get("dependencies")
+        .and_then(toml::Value::as_table)
+        .ok_or_else(|| format!("wire manifest `{label}` 缺少 [dependencies] 段"))?;
+    if dependencies.len() != 1 {
+        return Err(format!(
+            "wire manifest `{label}` 的 [dependencies] 必须恰好一条 flatbuffers，实际 {} 条",
+            dependencies.len()
+        ));
+    }
+    let flatbuffers = dependencies
+        .get("flatbuffers")
+        .and_then(toml::Value::as_table)
+        .ok_or_else(|| format!("wire manifest `{label}` 的 flatbuffers 依赖必须是内联表形态"))?;
+    if flatbuffers.len() != 3 {
+        return Err(format!(
+            "wire manifest `{label}` 的 flatbuffers 依赖必须恰好 version/default-features/features 三键（禁止 `package` 改名等注入），实际 {} 键",
+            flatbuffers.len()
+        ));
+    }
+    let expected_version = format!("={}", schema_codegen::FLATBUFFERS_VERSION);
+    let version = flatbuffers
+        .get("version")
+        .and_then(toml::Value::as_str)
+        .ok_or_else(|| format!("wire manifest `{label}` 的 flatbuffers 依赖缺少 version 键"))?;
+    if version != expected_version {
+        return Err(format!(
+            "wire manifest `{label}` 的 flatbuffers version 必须精确钉为 `{expected_version}`，实际 `{version}`"
+        ));
+    }
+    if flatbuffers
+        .get("default-features")
+        .and_then(toml::Value::as_bool)
+        != Some(false)
+    {
+        return Err(format!(
+            "wire manifest `{label}` 的 flatbuffers 依赖必须 `default-features = false`"
+        ));
+    }
+    let features = flatbuffers
+        .get("features")
+        .and_then(toml::Value::as_array)
+        .ok_or_else(|| format!("wire manifest `{label}` 的 flatbuffers 依赖缺少 features 键"))?;
+    if features.len() != 1 || features[0].as_str() != Some("std") {
+        return Err(format!(
+            "wire manifest `{label}` 的 flatbuffers 依赖 features 必须恰好 `[\"std\"]`"
+        ));
+    }
+    for section in ["dev-dependencies", "build-dependencies"] {
+        if manifest.contains_key(section) {
+            return Err(format!(
+                "wire manifest `{label}` 不得声明 [{section}] 段（wire crate 无 dev/build 依赖面）"
+            ));
+        }
     }
     Ok(())
 }
@@ -246,6 +338,40 @@ fn check_wire_lib_rs_pins(repository_root: &Path) -> Result<(), String> {
             return Err(format!(
                 "wire crate `{}` 的 src/lib.rs 与钉版副本 xtask/src/wire_pins/ 不符；合法变更需在同一 PR 更新钉版副本",
                 family.wire_package_name
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// 生成 .rs 钉版：逐字节读入两个 wire family 的生成物并比对 sha256 常量。
+/// 生成物是 clean-regeneration 的对象，但本审计不依赖 CI 时再生成一次——
+/// 常量即钉版；flatc 升级等合法再生成必须在同一 PR 更新常量，diff 随评审可见。
+fn check_generated_rs_pins(repository_root: &Path) -> Result<(), String> {
+    use sha2::Digest;
+    for (family, expected) in [
+        (
+            &schema_codegen::ROAD_EDITING,
+            ROAD_EDITING_GENERATED_RS_SHA256,
+        ),
+        (
+            &schema_codegen::RUNTIME_SNAPSHOT,
+            RUNTIME_SNAPSHOT_GENERATED_RS_SHA256,
+        ),
+    ] {
+        let generated_path = repository_root.join(family.checked_rust_path);
+        let bytes = fs::read(&generated_path)
+            .map_err(|error| format!("无法读取 `{}`: {error}", generated_path.display()))?;
+        let digest: [u8; 32] = sha2::Sha256::digest(&bytes).into();
+        let mut actual = String::with_capacity(64);
+        for byte in digest {
+            use std::fmt::Write;
+            write!(&mut actual, "{byte:02x}").expect("写入 String 不会失败");
+        }
+        if actual != expected {
+            return Err(format!(
+                "生成物 `{}` 的 sha256 与钉版常量不符（预期 `{expected}`，实际 `{actual}`）；合法再生成需在同一 PR 更新 xtask 审计常量",
+                family.checked_rust_path
             ));
         }
     }
@@ -350,8 +476,8 @@ struct MemberPackage {
 }
 
 /// 从 workspace cargo metadata（--no-deps）解析全部成员的 name/manifest_path/
-/// 编译 target。custom-build（build 脚本 target 不可单独编译）与 example
-/// （特性门控差异）跳过；未知 kind fail closed。
+/// 编译 target。custom-build（build 脚本 target 不可单独编译）跳过；lib/bin/
+/// test/bench/example 全部纳入 hermetic 编译；未知 kind fail closed。
 fn parse_workspace_members(metadata: &serde_json::Value) -> Result<Vec<MemberPackage>, String> {
     let packages = metadata
         .get("packages")
@@ -389,7 +515,7 @@ fn parse_workspace_members(metadata: &serde_json::Value) -> Result<Vec<MemberPac
                         "workspace metadata package `{name}` 的 target `{target_name}` 缺少 kind"
                     )
                 })?;
-            if kinds.contains(&"custom-build") || kinds.contains(&"example") {
+            if kinds.contains(&"custom-build") {
                 continue;
             }
             let invocation = if kinds
@@ -418,6 +544,12 @@ fn parse_workspace_members(metadata: &serde_json::Value) -> Result<Vec<MemberPac
                     flag: "--bench",
                     name: Some(target_name.to_string()),
                     label: format!("bench `{target_name}`"),
+                }
+            } else if kinds.contains(&"example") {
+                TargetInvocation {
+                    flag: "--example",
+                    name: Some(target_name.to_string()),
+                    label: format!("example `{target_name}`"),
                 }
             } else {
                 return Err(format!(
@@ -533,10 +665,12 @@ struct UnsafeCompile<'a> {
 
 /// 以尾参 `-F` / `-D unsafe_code` 编译指定成员 target。尾参位于 rustc 命令行
 /// 最末，优先级高于 manifest [lints]、env rustflags 与 .cargo/config.toml
-/// rustflags（由金丝雀逐次运行复核）。返回完整 Output 由调用方判定成败。
+/// rustflags（由金丝雀逐次运行复核）。`--all-features` 确保特性门控代码
+/// （含 example 的 required-features）全部进入编译面。返回完整 Output 由调用方
+/// 判定成败。
 fn run_unsafe_level_compile(request: UnsafeCompile<'_>) -> Result<Output, String> {
     let mut command = hermetic_cargo_command(request.work_dir);
-    command.args(["rustc", "--profile", "check"]);
+    command.args(["rustc", "--profile", "check", "--all-features"]);
     if request.locked {
         command.arg("--locked");
     }
@@ -753,7 +887,7 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         require_wire_manifest_hygiene(
-            "[package]\nname = \"w\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[lib]\npath = \"src/lib.rs\"\n",
+            "[package]\nname = \"w\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n",
             &root,
             "w/Cargo.toml",
         )
@@ -770,14 +904,14 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         let error = require_wire_manifest_hygiene(
-            "[package]\nname = \"w\"\nbuild = \"build.rs\"\n\n[lib]\npath = \"src/lib.rs\"\n",
+            "[package]\nname = \"w\"\nbuild = \"build.rs\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n",
             &root,
             "w/Cargo.toml",
         )
         .unwrap_err();
         assert!(error.contains("build 脚本键"), "{error}");
         let error = require_wire_manifest_hygiene(
-            "[package]\nname = \"w\"\n\n[lib]\npath = \"src/generated.rs\"\n",
+            "[package]\nname = \"w\"\n\n[lib]\npath = \"src/generated.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n",
             &root,
             "w/Cargo.toml",
         )
@@ -785,7 +919,7 @@ mod tests {
         assert!(error.contains("src/lib.rs"), "{error}");
         fs::write(root.join("build.rs"), "fn main() {}\n").unwrap();
         let error = require_wire_manifest_hygiene(
-            "[package]\nname = \"w\"\n\n[lib]\npath = \"src/lib.rs\"\n",
+            "[package]\nname = \"w\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n",
             &root,
             "w/Cargo.toml",
         )
@@ -802,6 +936,68 @@ mod tests {
         let error =
             require_wire_manifest_hygiene("[dependencies]\n", root, "w/Cargo.toml").unwrap_err();
         assert!(error.contains("[package]"), "{error}");
+    }
+
+    #[test]
+    fn manifest_hygiene_rejects_extra_target_sections() {
+        let root = Path::new(".");
+        for section in [
+            "[[bin]]\nname = \"x\"\n",
+            "[[test]]\nname = \"x\"\n",
+            "[[bench]]\nname = \"x\"\n",
+            "[[example]]\nname = \"x\"\n",
+        ] {
+            let manifest = format!(
+                "[package]\nname = \"w\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = {{ version = \"=25.12.19\", default-features = false, features = [\"std\"] }}\n\n{section}"
+            );
+            let error = require_wire_manifest_hygiene(&manifest, root, "w/Cargo.toml").unwrap_err();
+            assert!(error.contains("只许 [lib] 包装器"), "{error}");
+        }
+    }
+
+    #[test]
+    fn manifest_hygiene_rejects_dependency_table_drift() {
+        let root = Path::new(".");
+        // package 改名注入：第四键触发拒绝。
+        let error = require_wire_manifest_hygiene(
+            "[package]\nname = \"w\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"], package = \"shim\" }\n",
+            root,
+            "w/Cargo.toml",
+        )
+        .unwrap_err();
+        assert!(error.contains("三键"), "{error}");
+        // 多余依赖条目。
+        let error = require_wire_manifest_hygiene(
+            "[package]\nname = \"w\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\nserde = \"1\"\n",
+            root,
+            "w/Cargo.toml",
+        )
+        .unwrap_err();
+        assert!(error.contains("恰好一条"), "{error}");
+        // 版本未精确钉版。
+        let error = require_wire_manifest_hygiene(
+            "[package]\nname = \"w\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"25.12.19\", default-features = false, features = [\"std\"] }\n",
+            root,
+            "w/Cargo.toml",
+        )
+        .unwrap_err();
+        assert!(error.contains("精确钉"), "{error}");
+        // dev-dependencies 段不允许存在。
+        let error = require_wire_manifest_hygiene(
+            "[package]\nname = \"w\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n\n[dev-dependencies]\ntempfile = \"3\"\n",
+            root,
+            "w/Cargo.toml",
+        )
+        .unwrap_err();
+        assert!(error.contains("dev-dependencies"), "{error}");
+        // build-dependencies 段不允许存在。
+        let error = require_wire_manifest_hygiene(
+            "[package]\nname = \"w\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nflatbuffers = { version = \"=25.12.19\", default-features = false, features = [\"std\"] }\n\n[build-dependencies]\ncc = \"1\"\n",
+            root,
+            "w/Cargo.toml",
+        )
+        .unwrap_err();
+        assert!(error.contains("build-dependencies"), "{error}");
     }
 
     #[test]
@@ -864,7 +1060,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_workspace_members_maps_kinds_and_skips_build_and_example() {
+    fn parse_workspace_members_maps_kinds_and_skips_custom_build_only() {
         let metadata = serde_json::json!({
             "packages": [{
                 "name": "demo",
@@ -909,6 +1105,11 @@ mod tests {
                     name: Some("bench1".to_string()),
                     label: "bench `bench1`".to_string()
                 },
+                TargetInvocation {
+                    flag: "--example",
+                    name: Some("ex".to_string()),
+                    label: "example `ex`".to_string()
+                },
             ]
         );
     }
@@ -951,5 +1152,13 @@ mod tests {
             .parent()
             .expect("xtask 必须有父目录（仓库根）");
         check_wire_lib_rs_pins(repository_root).unwrap();
+    }
+
+    #[test]
+    fn generated_rs_pins_match_checked_in_files() {
+        let repository_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask 必须有父目录（仓库根）");
+        check_generated_rs_pins(repository_root).unwrap();
     }
 }

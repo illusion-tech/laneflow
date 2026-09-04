@@ -414,7 +414,7 @@ fn check_unsafe_boundary(repository_root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn check_audited_mmap_sources(repository_root: &Path) -> Result<(), String> {
+pub(crate) fn check_audited_mmap_sources(repository_root: &Path) -> Result<(), String> {
     let package_root = repository_root.join(AUDITED_MMAP_PACKAGE_ROOT);
     let allowed_source = repository_root.join(AUDITED_MMAP_SOURCE_PATH);
     let mut sources = Vec::new();
