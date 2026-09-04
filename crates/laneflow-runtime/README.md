@@ -9,9 +9,12 @@
 `policy_gap_profiles()` 保存本世界固定步长对应的 checked 间隙派生值。
 
 LFRS 5 / runtime state 5 保存策略选择、Conflict eligibility/reservation/Clearing 与 lag
-history，digest 7 纳入相同逻辑字段。切换描述符 2 保持字段形状；跨修订保留策略身份、
-法域和法规版本，并按稳定 passage locator/route occurrence 精确迁移 authority。新增或
-语义不连续的冷 cell 使用最终静默提交时间的 `CutoverFloor`，不生成虚构 clear。
+history，digest 7 纳入相同逻辑字段。downstream 以热路径物理区间并集保存，并由
+reservation 的 route/Gate/passages、车辆全长和边长在 capture/restore/cutover 精确重建；
+不为可合并的物理区间保存含糊的单一 route occurrence。切换描述符 2 保持字段形状；
+跨修订保留策略身份、法域和法规版本，并按稳定 passage locator 与 reservation 证明精确
+迁移 authority。新增或语义不连续的冷 cell 使用最终静默提交时间的 `CutoverFloor`，
+不生成虚构 clear。
 W4 仲裁器和 W5 持久化内部已闭合；生产 crossing/tick 接线仍由 W7 完成，因此公开生命周期
 入口继续以 `ConflictRuntimeUnavailable` 保护未持有既有 reservation 的冲突路线状态。
 
