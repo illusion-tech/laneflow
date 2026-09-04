@@ -1,0 +1,2587 @@
+//! 冲突候选、间隙证明与组合资源的单写者核心。
+//!
+//! W4 先把仲裁权威建立在 runtime 内部；生产路线仍受
+//! `ConflictRuntimeUnavailable` 保护，直到后续完整集成切片接通 tick、快照与切换。
+#![cfg_attr(not(test), allow(dead_code))]
+
+use core::cmp::Ordering;
+
+use laneflow_static_contract::{
+    ConflictZoneId, ConflictZoneOrdinal, GateInterpretation, GateProhibition, LaneEdgeOrdinal,
+    ParticipantStreamId, ParticipantStreamOrdinal, SignalAspect, WaitingZoneOrdinal,
+};
+use laneflow_static_network::ResolvedGatePolicy;
+
+use crate::{RouteHandle, VehicleHandle};
+
+/// 静态 passage cell 的规范地址；同一流中的 owner-local 下标不会跨流解释。
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ConflictPassageAddress {
+    zone: ConflictZoneOrdinal,
+    stream: ParticipantStreamOrdinal,
+    passage_local_index: u32,
+}
+
+impl ConflictPassageAddress {
+    pub(crate) const fn new(
+        zone: ConflictZoneOrdinal,
+        stream: ParticipantStreamOrdinal,
+        passage_local_index: u32,
+    ) -> Self {
+        Self {
+            zone,
+            stream,
+            passage_local_index,
+        }
+    }
+
+    #[must_use]
+    pub const fn zone(self) -> ConflictZoneOrdinal {
+        self.zone
+    }
+
+    #[must_use]
+    pub const fn stream(self) -> ParticipantStreamOrdinal {
+        self.stream
+    }
+
+    #[must_use]
+    pub const fn passage_local_index(self) -> u32 {
+        self.passage_local_index
+    }
+}
+
+/// 可持久化、可跨修订重绑定的冲突通行段定位值。
+///
+/// 同一 `(ParticipantStream, ConflictZone)` 在受检 LFCA 中至多对应一条 passage；
+/// Runtime ordinal/local index 不进入该值。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConflictPassageLocator {
+    participant_stream_stable_id: ParticipantStreamId,
+    conflict_zone_stable_id: ConflictZoneId,
+}
+
+impl ConflictPassageLocator {
+    pub(crate) const fn new(
+        participant_stream_stable_id: ParticipantStreamId,
+        conflict_zone_stable_id: ConflictZoneId,
+    ) -> Self {
+        Self {
+            participant_stream_stable_id,
+            conflict_zone_stable_id,
+        }
+    }
+
+    #[must_use]
+    pub const fn participant_stream_stable_id(self) -> ParticipantStreamId {
+        self.participant_stream_stable_id
+    }
+
+    #[must_use]
+    pub const fn conflict_zone_stable_id(self) -> ConflictZoneId {
+        self.conflict_zone_stable_id
+    }
+}
+
+/// 动态 Route 中一次 passage occurrence 的精确运行时定位信息。
+///
+/// `conflict_occurrence_index` 区分循环路线中稳定 locator 相同的重复出现项。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConflictPassageOccurrenceLocator {
+    route: RouteHandle,
+    maneuver_occurrence_index: u32,
+    admission_gate_hop: u32,
+    conflict_occurrence_index: u32,
+    address: ConflictPassageAddress,
+    stable_locator: ConflictPassageLocator,
+}
+
+impl ConflictPassageOccurrenceLocator {
+    pub(crate) const fn new(
+        route: RouteHandle,
+        maneuver_occurrence_index: u32,
+        admission_gate_hop: u32,
+        conflict_occurrence_index: u32,
+        address: ConflictPassageAddress,
+        stable_locator: ConflictPassageLocator,
+    ) -> Self {
+        Self {
+            route,
+            maneuver_occurrence_index,
+            admission_gate_hop,
+            conflict_occurrence_index,
+            address,
+            stable_locator,
+        }
+    }
+
+    #[must_use]
+    pub const fn route(self) -> RouteHandle {
+        self.route
+    }
+
+    #[must_use]
+    pub const fn maneuver_occurrence_index(self) -> u32 {
+        self.maneuver_occurrence_index
+    }
+
+    #[must_use]
+    pub const fn admission_gate_hop(self) -> u32 {
+        self.admission_gate_hop
+    }
+
+    #[must_use]
+    pub const fn conflict_occurrence_index(self) -> u32 {
+        self.conflict_occurrence_index
+    }
+
+    #[must_use]
+    pub const fn address(self) -> ConflictPassageAddress {
+        self.address
+    }
+
+    #[must_use]
+    pub const fn stable_locator(self) -> ConflictPassageLocator {
+        self.stable_locator
+    }
+}
+
+/// 策略解释后、进入资源仲裁前的候选类型。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GateCandidateKind {
+    Protected,
+    Permissive,
+    Uncontrolled,
+}
+
+/// 门规则只生成 deny 或候选，不直接授予通行权。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GatePolicyDecision {
+    DenyAndStop,
+    Candidate(GateCandidateKind),
+}
+
+/// 按受检 gate rule 解释当前灯态。错误 binding 失败关闭。
+pub(crate) fn interpret_gate_policy(
+    rule: ResolvedGatePolicy,
+    signal_bound: bool,
+    aspect: Option<SignalAspect>,
+) -> Option<GatePolicyDecision> {
+    interpret_gate_declaration(
+        rule.interpretation(),
+        rule.prohibition(),
+        signal_bound,
+        aspect,
+    )
+}
+
+fn interpret_gate_declaration(
+    interpretation: GateInterpretation,
+    prohibition: GateProhibition,
+    signal_bound: bool,
+    aspect: Option<SignalAspect>,
+) -> Option<GatePolicyDecision> {
+    if prohibition == GateProhibition::Always {
+        return Some(GatePolicyDecision::DenyAndStop);
+    }
+    if (interpretation == GateInterpretation::Uncontrolled) == signal_bound {
+        return None;
+    }
+    if !signal_bound {
+        if prohibition == GateProhibition::OnRed || aspect.is_some() {
+            return None;
+        }
+        return Some(GatePolicyDecision::Candidate(
+            GateCandidateKind::Uncontrolled,
+        ));
+    }
+    let aspect = aspect?;
+    if prohibition == GateProhibition::OnRed && aspect == SignalAspect::Red {
+        return Some(GatePolicyDecision::DenyAndStop);
+    }
+    let candidate = match (interpretation, aspect) {
+        (GateInterpretation::ProtectedGroup, SignalAspect::Green)
+        | (GateInterpretation::DirectionalRightProtected, SignalAspect::Green) => {
+            Some(GateCandidateKind::Protected)
+        }
+        (GateInterpretation::PermissiveGroup, SignalAspect::Green)
+        | (GateInterpretation::DirectionalRightPermissive, SignalAspect::Green)
+        | (GateInterpretation::CnCircularRightTurn, SignalAspect::Red | SignalAspect::Green) => {
+            Some(GateCandidateKind::Permissive)
+        }
+        (GateInterpretation::Uncontrolled, _) => return None,
+        _ => None,
+    };
+    Some(candidate.map_or(
+        GatePolicyDecision::DenyAndStop,
+        GatePolicyDecision::Candidate,
+    ))
+}
+
+/// §6.3 的完整稳定候选键。presence 单独编码，合法整数不充当 absent sentinel。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ConflictCandidateOrderKey {
+    kind: GateCandidateKind,
+    priority: Option<i32>,
+    first_eligible_tick: u64,
+    waiting_admission_sequence: Option<u64>,
+    vehicle_update_sequence: u32,
+}
+
+impl ConflictCandidateOrderKey {
+    pub(crate) const fn new(
+        kind: GateCandidateKind,
+        priority: Option<i32>,
+        first_eligible_tick: u64,
+        waiting_admission_sequence: Option<u64>,
+        vehicle_update_sequence: u32,
+    ) -> Self {
+        Self {
+            kind,
+            priority,
+            first_eligible_tick,
+            waiting_admission_sequence,
+            vehicle_update_sequence,
+        }
+    }
+
+    fn tuple(self) -> (u8, u8, core::cmp::Reverse<i32>, u64, u8, u64, u32) {
+        (
+            u8::from(self.kind != GateCandidateKind::Protected),
+            u8::from(self.priority.is_none()),
+            core::cmp::Reverse(self.priority.unwrap_or_default()),
+            self.first_eligible_tick,
+            u8::from(self.waiting_admission_sequence.is_none()),
+            self.waiting_admission_sequence.unwrap_or_default(),
+            self.vehicle_update_sequence,
+        )
+    }
+}
+
+impl Ord for ConflictCandidateOrderKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.tuple().cmp(&other.tuple())
+    }
+}
+
+impl PartialOrd for ConflictCandidateOrderKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// 同一 Gate coverage 的实际规则优先级；声明/流遍历顺序不影响最小值。
+pub(crate) fn coverage_min_priority(priorities: impl IntoIterator<Item = i32>) -> Option<i32> {
+    priorities.into_iter().min()
+}
+
+/// 一辆车对一个 exact Gate occurrence 的首次资格时钟。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConflictEligibilityState {
+    locator: ConflictPassageOccurrenceLocator,
+    first_eligible_tick: u64,
+}
+
+impl ConflictEligibilityState {
+    #[must_use]
+    pub const fn locator(self) -> ConflictPassageOccurrenceLocator {
+        self.locator
+    }
+
+    #[must_use]
+    pub const fn first_eligible_tick(self) -> u64 {
+        self.first_eligible_tick
+    }
+
+    pub(crate) fn update(
+        current: Option<Self>,
+        locator: ConflictPassageOccurrenceLocator,
+        eligible: bool,
+        tick: u64,
+    ) -> Option<Self> {
+        if !eligible {
+            return None;
+        }
+        Some(match current {
+            Some(current) if current.locator == locator => current,
+            Some(_) | None => Self {
+                locator,
+                first_eligible_tick: tick,
+            },
+        })
+    }
+}
+
+/// 对一个 passage cell 的保守最早到达证明。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ApproachEstimate {
+    Unprovable,
+    Finite(u64),
+    OutsideHorizon,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ApproachOwner {
+    vehicle: VehicleHandle,
+    vehicle_update_sequence: u32,
+    estimate: ApproachEstimate,
+}
+
+impl ApproachOwner {
+    fn rank(self) -> (u8, u64, u32) {
+        match self.estimate {
+            ApproachEstimate::Unprovable => (0, 0, self.vehicle_update_sequence),
+            ApproachEstimate::Finite(ms) => (1, ms, self.vehicle_update_sequence),
+            ApproachEstimate::OutsideHorizon => (2, 0, self.vehicle_update_sequence),
+        }
+    }
+}
+
+/// 每个静态 cell 只保留两个不同 owner，查询时可排除 subject 自身。
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ApproachFrontierCell {
+    first: Option<ApproachOwner>,
+    second: Option<ApproachOwner>,
+}
+
+impl ApproachFrontierCell {
+    /// 调用方必须先完成 owner-local current/upcoming/repeated 归约。
+    pub(crate) fn insert_owner_reduced(
+        &mut self,
+        vehicle: VehicleHandle,
+        vehicle_update_sequence: u32,
+        estimate: ApproachEstimate,
+    ) {
+        if estimate == ApproachEstimate::OutsideHorizon {
+            return;
+        }
+        let incoming = ApproachOwner {
+            vehicle,
+            vehicle_update_sequence,
+            estimate,
+        };
+        let mut owners = [self.first, self.second, Some(incoming)];
+        let mut reduced = [None, None, None];
+        let mut len = 0;
+        for owner in owners.iter_mut().filter_map(Option::take) {
+            if let Some(index) =
+                reduced[..len]
+                    .iter()
+                    .position(|current: &Option<ApproachOwner>| {
+                        current.is_some_and(|current| current.vehicle == owner.vehicle)
+                    })
+            {
+                let current = reduced[index].expect("matched owner exists");
+                reduced[index] = Some(if owner.rank() < current.rank() {
+                    owner
+                } else {
+                    current
+                });
+            } else {
+                reduced[len] = Some(owner);
+                len += 1;
+            }
+        }
+        reduced[..len].sort_unstable_by_key(|owner| owner.expect("dense owners").rank());
+        self.first = reduced.first().copied().flatten();
+        self.second = reduced.get(1).copied().flatten();
+    }
+
+    pub(crate) fn value_excluding(self, subject: VehicleHandle) -> ApproachEstimate {
+        self.first
+            .filter(|owner| owner.vehicle != subject)
+            .or_else(|| self.second.filter(|owner| owner.vehicle != subject))
+            .map_or(ApproachEstimate::OutsideHorizon, |owner| owner.estimate)
+    }
+}
+
+/// ETA 输入只使用已提交整数纵向状态与受检 profile 加速度。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ApproachEtaInput {
+    pub(crate) exact_distance_mm: u64,
+    pub(crate) carry_um: u16,
+    pub(crate) speed_mm_s: u32,
+    pub(crate) max_acceleration_m_s2: f32,
+    pub(crate) proof_horizon_ms: u64,
+}
+
+/// 计算 directed lower-bound ETA；任何无法证明的浮点状态都保守拒绝。
+pub(crate) fn approach_eta_lower_bound(input: ApproachEtaInput) -> ApproachEstimate {
+    if input.carry_um >= 1_000
+        || !input.max_acceleration_m_s2.is_finite()
+        || input.max_acceleration_m_s2 < 0.0
+    {
+        return ApproachEstimate::Unprovable;
+    }
+    let distance = input.exact_distance_mm as f64;
+    if distance as u64 != input.exact_distance_mm {
+        return ApproachEstimate::Unprovable;
+    }
+    let calculated = (|| -> Option<ApproachEstimate> {
+        let carry = upper_div(f64::from(input.carry_um), 1_000.0)?;
+        let d_lower = lower_sub(distance, carry)?.max(0.0);
+        if d_lower == 0.0 {
+            return Some(ApproachEstimate::Finite(0));
+        }
+        let speed = f64::from(input.speed_mm_s);
+        let acceleration = upper_mul(f64::from(input.max_acceleration_m_s2), 1_000.0)?;
+        let horizon_s = upper_div(input.proof_horizon_ms as f64, 1_000.0)?;
+        let reachable = upper_add(
+            upper_mul(speed, horizon_s)?,
+            upper_mul(
+                0.5,
+                upper_mul(acceleration, upper_mul(horizon_s, horizon_s)?)?,
+            )?,
+        )?;
+        if reachable < d_lower {
+            return Some(ApproachEstimate::OutsideHorizon);
+        }
+        let eta_s = if acceleration > 0.0 {
+            let radicand = upper_add(
+                upper_mul(speed, speed)?,
+                upper_mul(upper_mul(2.0, acceleration)?, d_lower)?,
+            )?;
+            let denominator = upper_add(upper_sqrt(radicand)?, speed)?;
+            lower_div(lower_mul(2.0, d_lower)?, denominator)?
+        } else if speed > 0.0 {
+            lower_div(d_lower, speed)?
+        } else {
+            return Some(ApproachEstimate::OutsideHorizon);
+        };
+        let millis = lower_mul(eta_s.max(0.0), 1_000.0)?;
+        if !millis.is_finite() || millis < 0.0 || millis > u64::MAX as f64 {
+            return None;
+        }
+        Some(ApproachEstimate::Finite(millis.floor() as u64))
+    })();
+    calculated.unwrap_or(ApproachEstimate::Unprovable)
+}
+
+fn lower_sub(left: f64, right: f64) -> Option<f64> {
+    directed(left - right, false)
+}
+fn lower_mul(left: f64, right: f64) -> Option<f64> {
+    directed(left * right, false)
+}
+fn lower_div(left: f64, right: f64) -> Option<f64> {
+    if right <= 0.0 {
+        return None;
+    }
+    directed(left / right, false)
+}
+fn upper_add(left: f64, right: f64) -> Option<f64> {
+    directed(left + right, true)
+}
+fn upper_mul(left: f64, right: f64) -> Option<f64> {
+    directed(left * right, true)
+}
+fn upper_div(left: f64, right: f64) -> Option<f64> {
+    if right <= 0.0 {
+        return None;
+    }
+    directed(left / right, true)
+}
+fn upper_sqrt(value: f64) -> Option<f64> {
+    if value < 0.0 {
+        return None;
+    }
+    directed(value.sqrt(), true)
+}
+fn directed(value: f64, upper: bool) -> Option<f64> {
+    if !value.is_finite() {
+        return None;
+    }
+    Some(if value == 0.0 {
+        value
+    } else if upper {
+        value.next_up()
+    } else {
+        value.next_down()
+    })
+}
+
+/// 已清空 cell 的滞后基准；切换保守基准与真实 clear 不混淆。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConflictLagReference {
+    NoHistory,
+    ActualClear(u64),
+    CutoverFloor(u64),
+}
+
+/// 间隙 normal outcome。lag 相等通过，lead 相等拒绝。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConflictGapOutcome {
+    Accepted,
+    LagGap,
+    LeadGap,
+    ApproachUnprovable,
+}
+
+/// exact yield-target cell 的完整检查结果。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConflictYieldOutcome {
+    Accepted,
+    Occupied,
+    LagGap,
+    LeadGap,
+    ApproachUnprovable,
+}
+
+pub(crate) fn check_gap(
+    now_ms: u64,
+    reference: ConflictLagReference,
+    required_lag_ms: u64,
+    approach: ApproachEstimate,
+    required_lead_ms: u64,
+) -> Option<ConflictGapOutcome> {
+    let reference = match reference {
+        ConflictLagReference::NoHistory => None,
+        ConflictLagReference::ActualClear(at) | ConflictLagReference::CutoverFloor(at) => Some(at),
+    };
+    if let Some(reference) = reference {
+        let elapsed = now_ms.checked_sub(reference)?;
+        if elapsed < required_lag_ms {
+            return Some(ConflictGapOutcome::LagGap);
+        }
+    }
+    Some(match approach {
+        ApproachEstimate::OutsideHorizon => ConflictGapOutcome::Accepted,
+        ApproachEstimate::Finite(ms) if ms > required_lead_ms => ConflictGapOutcome::Accepted,
+        ApproachEstimate::Finite(_) => ConflictGapOutcome::LeadGap,
+        ApproachEstimate::Unprovable => ConflictGapOutcome::ApproachUnprovable,
+    })
+}
+
+/// 下游物理 claim 的规范半开区间。
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct DownstreamInterval {
+    edge: LaneEdgeOrdinal,
+    start_mm: u32,
+    end_mm: u32,
+}
+
+/// Route occurrence 上带微米余数的规范位置，用于 mandatory downstream proof。
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct DownstreamRoutePoint {
+    route_edge_index: u32,
+    progress_mm: u32,
+    carry_um: u16,
+}
+
+impl DownstreamRoutePoint {
+    pub(crate) const fn new(
+        route_edge_index: u32,
+        progress_mm: u32,
+        carry_um: u16,
+    ) -> Option<Self> {
+        if carry_um >= 1_000 {
+            return None;
+        }
+        Some(Self {
+            route_edge_index,
+            progress_mm,
+            carry_um,
+        })
+    }
+
+    #[must_use]
+    pub const fn route_edge_index(self) -> u32 {
+        self.route_edge_index
+    }
+    #[must_use]
+    pub const fn progress_mm(self) -> u32 {
+        self.progress_mm
+    }
+    #[must_use]
+    pub const fn carry_um(self) -> u16 {
+        self.carry_um
+    }
+}
+
+/// 从 Gate crossed side 到“最远 passage clearance + 实际车长”的物理 claim。
+///
+/// `storage_upper_bound` 已由 leader、next Gate、RouteEnd、ParkingStop 与 Waiting hard
+/// boundary 取最小值；相等通过，提前一微米失败。
+pub(crate) fn prove_downstream_clearance(
+    route_edges: &[LaneEdgeOrdinal],
+    edge_lengths_mm: &[u32],
+    gate_crossed_side: DownstreamRoutePoint,
+    farthest_clearance: DownstreamRoutePoint,
+    vehicle_length_mm: u32,
+    storage_upper_bound: DownstreamRoutePoint,
+    output: &mut Vec<DownstreamInterval>,
+) -> Result<(), ConflictAcquireError> {
+    if gate_crossed_side.carry_um != 0 || farthest_clearance.carry_um != 0 {
+        return Err(ConflictAcquireError::InvalidBundle);
+    }
+    let target = advance_route_point(
+        route_edges,
+        edge_lengths_mm,
+        farthest_clearance,
+        vehicle_length_mm,
+    )
+    .ok_or(ConflictAcquireError::NoGrant(
+        ConflictResourceNoGrant::DownstreamStorageBoundary,
+    ))?;
+    if storage_upper_bound < target {
+        return Err(ConflictAcquireError::NoGrant(
+            ConflictResourceNoGrant::DownstreamStorageBoundary,
+        ));
+    }
+    if gate_crossed_side > target {
+        return Err(ConflictAcquireError::InvalidBundle);
+    }
+    let start_index = usize::try_from(gate_crossed_side.route_edge_index)
+        .map_err(|_| ConflictAcquireError::InvalidBundle)?;
+    let target_index = usize::try_from(target.route_edge_index)
+        .map_err(|_| ConflictAcquireError::InvalidBundle)?;
+    let required = target_index
+        .checked_sub(start_index)
+        .and_then(|value| value.checked_add(1))
+        .ok_or(ConflictAcquireError::InvalidBundle)?;
+    reserve_for_len(output, required)?;
+    output.clear();
+    for index in start_index..=target_index {
+        let edge = *route_edges
+            .get(index)
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let length = *edge_lengths_mm
+            .get(edge.index())
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let start = if index == start_index {
+            gate_crossed_side.progress_mm
+        } else {
+            0
+        };
+        let end = if index == target_index {
+            target.progress_mm
+        } else {
+            length
+        };
+        if start > length || end > length || start > end {
+            return Err(ConflictAcquireError::InvalidBundle);
+        }
+        if let Some(interval) = DownstreamInterval::new(edge, start, end) {
+            output.push(interval);
+        }
+    }
+    output.sort_unstable();
+    let mut write_index = 0;
+    for read_index in 0..output.len() {
+        let interval = output[read_index];
+        if write_index != 0
+            && output[write_index - 1].edge == interval.edge
+            && interval.start_mm <= output[write_index - 1].end_mm
+        {
+            output[write_index - 1].end_mm = output[write_index - 1].end_mm.max(interval.end_mm);
+        } else {
+            output[write_index] = interval;
+            write_index += 1;
+        }
+    }
+    output.truncate(write_index);
+    Ok(())
+}
+
+fn advance_route_point(
+    route_edges: &[LaneEdgeOrdinal],
+    edge_lengths_mm: &[u32],
+    mut point: DownstreamRoutePoint,
+    mut distance_mm: u32,
+) -> Option<DownstreamRoutePoint> {
+    if point.carry_um != 0 {
+        return None;
+    }
+    let mut index = usize::try_from(point.route_edge_index).ok()?;
+    loop {
+        let edge = *route_edges.get(index)?;
+        let length = *edge_lengths_mm.get(edge.index())?;
+        if point.progress_mm > length {
+            return None;
+        }
+        let available = length - point.progress_mm;
+        if distance_mm < available || (distance_mm == available && index + 1 == route_edges.len()) {
+            point.progress_mm = point.progress_mm.checked_add(distance_mm)?;
+            return Some(point);
+        }
+        distance_mm -= available;
+        index = index.checked_add(1)?;
+        route_edges.get(index)?;
+        point.route_edge_index = u32::try_from(index).ok()?;
+        point.progress_mm = 0;
+        if distance_mm == 0 {
+            return Some(point);
+        }
+    }
+}
+
+impl DownstreamInterval {
+    pub(crate) const fn new(edge: LaneEdgeOrdinal, start_mm: u32, end_mm: u32) -> Option<Self> {
+        if start_mm >= end_mm {
+            return None;
+        }
+        Some(Self {
+            edge,
+            start_mm,
+            end_mm,
+        })
+    }
+
+    #[must_use]
+    pub const fn edge(self) -> LaneEdgeOrdinal {
+        self.edge
+    }
+    #[must_use]
+    pub const fn start_mm(self) -> u32 {
+        self.start_mm
+    }
+    #[must_use]
+    pub const fn end_mm(self) -> u32 {
+        self.end_mm
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct OwnedDownstreamClaim {
+    owner: VehicleHandle,
+    owner_sequence: u32,
+    follower_min_gap_mm: u32,
+    interval: DownstreamInterval,
+    serial: u64,
+}
+
+/// 组合资源 preflight 的 normal no-grant 原因。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConflictResourceNoGrant {
+    WaitingCycle,
+    ConflictOccupied,
+    DownstreamStorageBoundary,
+    DownstreamClaimConflict,
+}
+
+/// 非 normal 的 bundle 拒绝；调用方必须把 invariant/capacity 映射成零提交 step error。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ConflictAcquireError {
+    NoGrant(ConflictResourceNoGrant),
+    InvalidBundle,
+    Capacity,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ConflictCellAuthority {
+    frontier: ApproachFrontierCell,
+    reservation: Option<VehicleHandle>,
+    reservation_serial: Option<u64>,
+    occupant: Option<VehicleHandle>,
+    cleared: bool,
+    lag: ConflictLagReference,
+}
+
+impl Default for ConflictCellAuthority {
+    fn default() -> Self {
+        Self {
+            frontier: ApproachFrontierCell::default(),
+            reservation: None,
+            reservation_serial: None,
+            occupant: None,
+            cleared: false,
+            lag: ConflictLagReference::NoHistory,
+        }
+    }
+}
+
+/// crossing 后保留到全部 passage 车尾清空的明确状态。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConflictPassageRange {
+    route: RouteHandle,
+    maneuver_occurrence_index: u32,
+    admission_gate_hop: u32,
+    first_conflict_occurrence_index: u32,
+    passage_count: u32,
+}
+
+impl ConflictPassageRange {
+    pub(crate) const fn new(
+        route: RouteHandle,
+        maneuver_occurrence_index: u32,
+        admission_gate_hop: u32,
+        first_conflict_occurrence_index: u32,
+        passage_count: u32,
+    ) -> Option<Self> {
+        if passage_count == 0
+            || first_conflict_occurrence_index
+                .checked_add(passage_count)
+                .is_none()
+        {
+            return None;
+        }
+        Some(Self {
+            route,
+            maneuver_occurrence_index,
+            admission_gate_hop,
+            first_conflict_occurrence_index,
+            passage_count,
+        })
+    }
+
+    #[must_use]
+    pub const fn route(self) -> RouteHandle {
+        self.route
+    }
+    #[must_use]
+    pub const fn maneuver_occurrence_index(self) -> u32 {
+        self.maneuver_occurrence_index
+    }
+    #[must_use]
+    pub const fn admission_gate_hop(self) -> u32 {
+        self.admission_gate_hop
+    }
+    #[must_use]
+    pub const fn first_conflict_occurrence_index(self) -> u32 {
+        self.first_conflict_occurrence_index
+    }
+    #[must_use]
+    pub const fn passage_count(self) -> u32 {
+        self.passage_count
+    }
+}
+
+/// crossing 后保留到全部 passage 车尾清空的明确状态。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConflictReservation {
+    owner: VehicleHandle,
+    passage_range: ConflictPassageRange,
+    downstream_owner: VehicleHandle,
+    downstream_claim_count: u32,
+    acquired_tick: u64,
+    claim_serial: u64,
+}
+
+impl ConflictReservation {
+    #[must_use]
+    pub const fn owner(self) -> VehicleHandle {
+        self.owner
+    }
+    #[must_use]
+    pub const fn route(self) -> RouteHandle {
+        self.passage_range.route()
+    }
+    #[must_use]
+    pub const fn maneuver_occurrence_index(self) -> u32 {
+        self.passage_range.maneuver_occurrence_index()
+    }
+    #[must_use]
+    pub const fn admission_gate_hop(self) -> u32 {
+        self.passage_range.admission_gate_hop()
+    }
+    #[must_use]
+    pub const fn passage_range(self) -> ConflictPassageRange {
+        self.passage_range
+    }
+    #[must_use]
+    pub const fn downstream_owner(self) -> VehicleHandle {
+        self.downstream_owner
+    }
+    #[must_use]
+    pub const fn downstream_claim_count(self) -> u32 {
+        self.downstream_claim_count
+    }
+    #[must_use]
+    pub const fn acquired_tick(self) -> u64 {
+        self.acquired_tick
+    }
+}
+
+pub(crate) struct ConflictGrant {
+    owner: VehicleHandle,
+    serial: u64,
+    tick: u64,
+    waiting_zone: Option<WaitingZoneOrdinal>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct StagedGrant {
+    owner: VehicleHandle,
+    serial: u64,
+    consumed: bool,
+}
+
+pub(crate) struct ConflictCrossingCommit {
+    pub(crate) reservation: ConflictReservation,
+    pub(crate) waiting_admission: Option<WaitingZoneOrdinal>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ConflictClearOutcome {
+    Retained,
+    ReservationReleased,
+}
+
+/// Waiting reducer 预演后签发的 tick-local 资格；字段私有，宿主无法伪造。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct WaitingAdmissionEntitlement {
+    owner: VehicleHandle,
+    zone: WaitingZoneOrdinal,
+    tick: u64,
+}
+
+impl WaitingAdmissionEntitlement {
+    pub(crate) const fn new(owner: VehicleHandle, zone: WaitingZoneOrdinal, tick: u64) -> Self {
+        Self { owner, zone, tick }
+    }
+}
+
+/// 候选所需的完整 Conflict/downstream 资源；声明顺序不承载 winner 语义。
+pub(crate) struct GrantResourceBundle<'a> {
+    pub(crate) owner: VehicleHandle,
+    pub(crate) owner_sequence: u32,
+    pub(crate) follower_min_gap_mm: u32,
+    pub(crate) cells: &'a [ConflictPassageAddress],
+    pub(crate) downstream: &'a [DownstreamInterval],
+    pub(crate) waiting_entitlement: Option<WaitingAdmissionEntitlement>,
+    pub(crate) waiting_dependencies: &'a [(WaitingDependencyNode, WaitingDependencyNode)],
+}
+
+/// Conflict 与 downstream 的唯一 mutation owner。
+pub(crate) struct ConflictArbiter {
+    addresses: Box<[ConflictPassageAddress]>,
+    cells: Vec<ConflictCellAuthority>,
+    staged_cells: Vec<(usize, VehicleHandle, u64)>,
+    committed_cells: Vec<(usize, VehicleHandle, u64)>,
+    scratch_cell_indices: Vec<usize>,
+    staged_downstream: Vec<OwnedDownstreamClaim>,
+    committed_downstream: Vec<OwnedDownstreamClaim>,
+    reservations: Vec<ConflictReservation>,
+    staged_grants: Vec<StagedGrant>,
+    waiting_cycle_scratch: WaitingCycleScratch,
+    next_serial: u64,
+    conflict_capacity: usize,
+    vehicle_capacity: usize,
+}
+
+impl ConflictArbiter {
+    pub(crate) fn install(
+        revision: &laneflow_static_network::SharedNetworkRevision,
+        vehicle_capacity: usize,
+    ) -> Result<Self, ConflictAcquireError> {
+        let stream_count = revision
+            .traffic()
+            .entity_counts()
+            .count(laneflow_static_contract::EntityKind::ParticipantStream);
+        let mut address_count = 0_usize;
+        for raw in 0..stream_count {
+            let stream = ParticipantStreamOrdinal::from_raw(raw);
+            let passages = revision
+                .conflict()
+                .participant_stream(stream)
+                .ok_or(ConflictAcquireError::InvalidBundle)?
+                .passages();
+            address_count = address_count
+                .checked_add(passages.len())
+                .ok_or(ConflictAcquireError::Capacity)?;
+        }
+        let mut addresses = Vec::new();
+        addresses
+            .try_reserve_exact(address_count)
+            .map_err(|_| ConflictAcquireError::Capacity)?;
+        for raw in 0..stream_count {
+            let stream = ParticipantStreamOrdinal::from_raw(raw);
+            for (passage_local_index, passage) in revision
+                .conflict()
+                .participant_stream(stream)
+                .ok_or(ConflictAcquireError::InvalidBundle)?
+                .passages()
+                .iter()
+                .enumerate()
+            {
+                addresses.push(ConflictPassageAddress::new(
+                    passage.conflict_zone(),
+                    stream,
+                    u32::try_from(passage_local_index)
+                        .map_err(|_| ConflictAcquireError::Capacity)?,
+                ));
+            }
+        }
+        Self::new(addresses, vehicle_capacity)
+    }
+
+    pub(crate) fn new(
+        mut addresses: Vec<ConflictPassageAddress>,
+        vehicle_capacity: usize,
+    ) -> Result<Self, ConflictAcquireError> {
+        addresses.sort_unstable();
+        if addresses.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(ConflictAcquireError::InvalidBundle);
+        }
+        let conflict_capacity = addresses.len();
+        let addresses = addresses.into_boxed_slice();
+        let cells = Vec::new();
+        let staged_cells = Vec::new();
+        let scratch_cell_indices = Vec::new();
+        let committed_cells = Vec::new();
+        let staged_downstream = Vec::new();
+        let committed_downstream = Vec::new();
+        let reservations = Vec::new();
+        let staged_grants = Vec::new();
+        Ok(Self {
+            addresses,
+            cells,
+            staged_cells,
+            committed_cells,
+            scratch_cell_indices,
+            staged_downstream,
+            committed_downstream,
+            reservations,
+            staged_grants,
+            waiting_cycle_scratch: WaitingCycleScratch::default(),
+            next_serial: 0,
+            conflict_capacity,
+            vehicle_capacity,
+        })
+    }
+
+    pub(crate) fn lag_reference(
+        &self,
+        address: ConflictPassageAddress,
+    ) -> Option<ConflictLagReference> {
+        let index = self.cell_index(address).ok()?;
+        Some(
+            self.cells
+                .get(index)
+                .map_or(ConflictLagReference::NoHistory, |cell| cell.lag),
+        )
+    }
+
+    pub(crate) fn cell_count(&self) -> usize {
+        self.addresses.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.staged_cells.is_empty()
+            && self.committed_cells.is_empty()
+            && self.staged_downstream.is_empty()
+            && self.committed_downstream.is_empty()
+            && self.reservations.is_empty()
+            && self.staged_grants.is_empty()
+            && self.cells.iter().all(|cell| {
+                cell.reservation.is_none()
+                    && cell.reservation_serial.is_none()
+                    && cell.occupant.is_none()
+                    && !cell.cleared
+                    && cell.lag == ConflictLagReference::NoHistory
+            })
+    }
+
+    pub(crate) fn has_authority(&self, owner: VehicleHandle) -> bool {
+        self.staged_cells
+            .iter()
+            .any(|(_, current, _)| *current == owner)
+            || self
+                .committed_cells
+                .iter()
+                .any(|(_, current, _)| *current == owner)
+            || self
+                .staged_downstream
+                .iter()
+                .chain(&self.committed_downstream)
+                .any(|claim| claim.owner == owner)
+            || self
+                .reservations
+                .iter()
+                .any(|reservation| reservation.owner == owner)
+            || self
+                .staged_grants
+                .iter()
+                .any(|grant| grant.owner == owner && !grant.consumed)
+    }
+
+    pub(crate) fn clear_approach_frontier(&mut self) {
+        for cell in &mut self.cells {
+            cell.frontier = ApproachFrontierCell::default();
+        }
+    }
+
+    pub(crate) fn insert_approach_owner_reduced(
+        &mut self,
+        address: ConflictPassageAddress,
+        vehicle: VehicleHandle,
+        vehicle_update_sequence: u32,
+        estimate: ApproachEstimate,
+    ) -> Result<(), ConflictAcquireError> {
+        let index = self.cell_index(address)?;
+        self.ensure_cells()?;
+        self.cells[index]
+            .frontier
+            .insert_owner_reduced(vehicle, vehicle_update_sequence, estimate);
+        Ok(())
+    }
+
+    pub(crate) fn reservation_has_cell(
+        &self,
+        owner: VehicleHandle,
+        address: ConflictPassageAddress,
+    ) -> bool {
+        self.cell_index(address)
+            .ok()
+            .and_then(|index| self.cells.get(index))
+            .is_some_and(|cell| cell.reservation == Some(owner))
+    }
+
+    pub(crate) fn state_valid(&self, state: &crate::VehicleState) -> bool {
+        let Some(traversal) = state.maneuver_traversal else {
+            return !self.has_authority(state.handle);
+        };
+        let crate::ManeuverTraversalPhase::Clearing { reservation } = traversal.phase else {
+            return !self.has_authority(state.handle);
+        };
+        if state.status != crate::VehicleStatus::Active
+            || state.waiting_membership.is_some()
+            || traversal.route != state.route
+            || traversal.maneuver_occurrence_index != reservation.maneuver_occurrence_index()
+            || reservation.owner != state.handle
+            || reservation.route() != state.route
+            || reservation.downstream_owner != state.handle
+            || self
+                .staged_cells
+                .iter()
+                .any(|(_, owner, _)| *owner == state.handle)
+            || self
+                .staged_downstream
+                .iter()
+                .any(|claim| claim.owner == state.handle)
+            || self
+                .reservations
+                .iter()
+                .filter(|current| current.owner == state.handle)
+                .count()
+                != 1
+            || !self.reservations.contains(&reservation)
+        {
+            return false;
+        }
+        let reserved_cells = self
+            .committed_cells
+            .iter()
+            .filter(|(_, owner, serial)| {
+                *owner == state.handle && *serial == reservation.claim_serial
+            })
+            .count();
+        if reserved_cells == 0
+            || u32::try_from(reserved_cells).ok() != Some(reservation.passage_range.passage_count)
+            || self.committed_cells.iter().any(|(index, owner, serial)| {
+                *owner == state.handle
+                    && (*serial != reservation.claim_serial
+                        || self.cells[*index].reservation != Some(state.handle)
+                        || self.cells[*index].reservation_serial != Some(reservation.claim_serial)
+                        || (self.cells[*index].occupant == Some(state.handle)
+                            && self.cells[*index].cleared))
+            })
+        {
+            return false;
+        }
+        let downstream_claims = self
+            .committed_downstream
+            .iter()
+            .filter(|claim| claim.owner == state.handle && claim.serial == reservation.claim_serial)
+            .count();
+        u32::try_from(downstream_claims).ok() == Some(reservation.downstream_claim_count)
+            && self.committed_downstream.iter().all(|claim| {
+                claim.owner != state.handle || claim.serial == reservation.claim_serial
+            })
+    }
+
+    pub(crate) fn authority_owners_valid(
+        &self,
+        mut owner_valid: impl FnMut(VehicleHandle) -> bool,
+    ) -> bool {
+        self.staged_cells
+            .iter()
+            .all(|(_, owner, _)| owner_valid(*owner))
+            && self
+                .committed_cells
+                .iter()
+                .all(|(_, owner, _)| owner_valid(*owner))
+            && self
+                .staged_downstream
+                .iter()
+                .chain(&self.committed_downstream)
+                .all(|claim| owner_valid(claim.owner))
+            && self
+                .reservations
+                .iter()
+                .all(|reservation| owner_valid(reservation.owner))
+            && self.cells.iter().all(|cell| {
+                cell.reservation.is_none_or(&mut owner_valid)
+                    && cell.occupant.is_none_or(&mut owner_valid)
+                    && (cell.reservation.is_some() == cell.reservation_serial.is_some())
+                    && (!cell.cleared || cell.reservation.is_some())
+                    && cell
+                        .occupant
+                        .is_none_or(|owner| cell.reservation == Some(owner) && !cell.cleared)
+            })
+    }
+
+    pub(crate) fn evaluate_yield_target(
+        &self,
+        subject: VehicleHandle,
+        target: ConflictPassageAddress,
+        now_ms: u64,
+        required_lag_ms: u64,
+        required_lead_ms: u64,
+    ) -> Option<ConflictYieldOutcome> {
+        let index = self.cell_index(target).ok()?;
+        let cell = self.cells.get(index).copied().unwrap_or_default();
+        if cell.reservation.is_some_and(|owner| owner != subject)
+            || cell.occupant.is_some_and(|owner| owner != subject)
+            || self
+                .staged_cells
+                .iter()
+                .any(|(other, owner, _)| *other == index && *owner != subject)
+        {
+            return Some(ConflictYieldOutcome::Occupied);
+        }
+        Some(
+            match check_gap(
+                now_ms,
+                cell.lag,
+                required_lag_ms,
+                cell.frontier.value_excluding(subject),
+                required_lead_ms,
+            )? {
+                ConflictGapOutcome::Accepted => ConflictYieldOutcome::Accepted,
+                ConflictGapOutcome::LagGap => ConflictYieldOutcome::LagGap,
+                ConflictGapOutcome::LeadGap => ConflictYieldOutcome::LeadGap,
+                ConflictGapOutcome::ApproachUnprovable => ConflictYieldOutcome::ApproachUnprovable,
+            },
+        )
+    }
+
+    pub(crate) fn try_acquire(
+        &mut self,
+        tick: u64,
+        bundle: GrantResourceBundle<'_>,
+    ) -> Result<ConflictGrant, ConflictAcquireError> {
+        if (bundle.cells.is_empty()
+            && (bundle.waiting_entitlement.is_none() || !bundle.downstream.is_empty()))
+            || self
+                .staged_grants
+                .iter()
+                .any(|grant| grant.owner == bundle.owner)
+            || self.reservations.iter().any(|r| r.owner == bundle.owner)
+        {
+            return Err(ConflictAcquireError::InvalidBundle);
+        }
+        if bundle.waiting_entitlement.is_some_and(|entitlement| {
+            entitlement.owner != bundle.owner || entitlement.tick != tick
+        }) || (bundle.waiting_entitlement.is_none() && !bundle.waiting_dependencies.is_empty())
+        {
+            return Err(ConflictAcquireError::InvalidBundle);
+        }
+        if self
+            .waiting_cycle_scratch
+            .contains_multi_owner_cycle(bundle.waiting_dependencies)?
+        {
+            return Err(ConflictAcquireError::NoGrant(
+                ConflictResourceNoGrant::WaitingCycle,
+            ));
+        }
+        if !bundle.cells.is_empty() {
+            self.ensure_cells()?;
+        }
+        reserve_for_len(&mut self.scratch_cell_indices, bundle.cells.len())?;
+        self.scratch_cell_indices.clear();
+        for address in bundle.cells {
+            let index = self.cell_index(*address)?;
+            if self
+                .scratch_cell_indices
+                .last()
+                .is_some_and(|last| *last >= index)
+            {
+                return Err(ConflictAcquireError::InvalidBundle);
+            }
+            if self.zone_owned_by_other(address.zone, bundle.owner)
+                || self.staged_cells.iter().any(|(other, owner, _)| {
+                    *owner != bundle.owner && self.addresses[*other].zone == address.zone
+                })
+            {
+                return Err(ConflictAcquireError::NoGrant(
+                    ConflictResourceNoGrant::ConflictOccupied,
+                ));
+            }
+            self.scratch_cell_indices.push(index);
+        }
+        if bundle.downstream.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return Err(ConflictAcquireError::InvalidBundle);
+        }
+        for interval in bundle.downstream {
+            if self
+                .committed_downstream
+                .iter()
+                .chain(&self.staged_downstream)
+                .any(|claim| {
+                    claim.owner != bundle.owner
+                        && intervals_conflict(
+                            *interval,
+                            bundle.follower_min_gap_mm,
+                            claim.interval,
+                            claim.follower_min_gap_mm,
+                        )
+                })
+            {
+                return Err(ConflictAcquireError::NoGrant(
+                    ConflictResourceNoGrant::DownstreamClaimConflict,
+                ));
+            }
+        }
+        if self
+            .staged_cells
+            .len()
+            .saturating_add(self.scratch_cell_indices.len())
+            > self.conflict_capacity
+            || self.staged_grants.len() >= self.vehicle_capacity
+        {
+            return Err(ConflictAcquireError::Capacity);
+        }
+        let staged_required = self
+            .staged_downstream
+            .len()
+            .checked_add(bundle.downstream.len())
+            .ok_or(ConflictAcquireError::Capacity)?;
+        let committed_required = self
+            .committed_downstream
+            .len()
+            .checked_add(staged_required)
+            .ok_or(ConflictAcquireError::Capacity)?;
+        let staged_cell_required = self
+            .staged_cells
+            .len()
+            .checked_add(self.scratch_cell_indices.len())
+            .ok_or(ConflictAcquireError::Capacity)?;
+        let committed_cell_required = self
+            .committed_cells
+            .len()
+            .checked_add(self.scratch_cell_indices.len())
+            .ok_or(ConflictAcquireError::Capacity)?;
+        let staged_grant_required = self
+            .staged_grants
+            .len()
+            .checked_add(1)
+            .ok_or(ConflictAcquireError::Capacity)?;
+        reserve_for_len(&mut self.staged_cells, staged_cell_required)?;
+        reserve_for_len(&mut self.committed_cells, committed_cell_required)?;
+        reserve_for_len(&mut self.staged_grants, staged_grant_required)?;
+        if !bundle.cells.is_empty() {
+            let reservation_required = self
+                .reservations
+                .len()
+                .checked_add(1)
+                .ok_or(ConflictAcquireError::Capacity)?;
+            reserve_for_len(&mut self.reservations, reservation_required)?;
+        }
+        self.staged_downstream
+            .try_reserve_exact(staged_required.saturating_sub(self.staged_downstream.len()))
+            .map_err(|_| ConflictAcquireError::Capacity)?;
+        self.committed_downstream
+            .try_reserve_exact(committed_required.saturating_sub(self.committed_downstream.len()))
+            .map_err(|_| ConflictAcquireError::Capacity)?;
+        let serial = self
+            .next_serial
+            .checked_add(1)
+            .ok_or(ConflictAcquireError::Capacity)?;
+        for index in self.scratch_cell_indices.iter().copied() {
+            self.staged_cells.push((index, bundle.owner, serial));
+        }
+        for interval in bundle.downstream {
+            self.staged_downstream.push(OwnedDownstreamClaim {
+                owner: bundle.owner,
+                owner_sequence: bundle.owner_sequence,
+                follower_min_gap_mm: bundle.follower_min_gap_mm,
+                interval: *interval,
+                serial,
+            });
+        }
+        self.staged_grants.push(StagedGrant {
+            owner: bundle.owner,
+            serial,
+            consumed: false,
+        });
+        self.next_serial = serial;
+        Ok(ConflictGrant {
+            owner: bundle.owner,
+            serial,
+            tick,
+            waiting_zone: bundle
+                .waiting_entitlement
+                .map(|entitlement| entitlement.zone),
+        })
+    }
+
+    pub(crate) fn commit_crossing(
+        &mut self,
+        grant: ConflictGrant,
+        passage_range: ConflictPassageRange,
+        entered_passage: ConflictPassageAddress,
+    ) -> Result<ConflictCrossingCommit, ConflictAcquireError> {
+        if !self.staged_grants.iter().any(|staged| {
+            staged.owner == grant.owner && staged.serial == grant.serial && !staged.consumed
+        }) {
+            return Err(ConflictAcquireError::InvalidBundle);
+        }
+        let cells = self
+            .staged_cells
+            .iter()
+            .filter(|(_, owner, serial)| *owner == grant.owner && *serial == grant.serial)
+            .count();
+        let downstream_claims = self
+            .staged_downstream
+            .iter()
+            .filter(|claim| claim.owner == grant.owner && claim.serial == grant.serial)
+            .count();
+        let cell_count = u32::try_from(cells).map_err(|_| ConflictAcquireError::Capacity)?;
+        let downstream_claim_count =
+            u32::try_from(downstream_claims).map_err(|_| ConflictAcquireError::Capacity)?;
+        let entered_index = self.cell_index(entered_passage)?;
+        if cells == 0
+            || passage_range.passage_count != cell_count
+            || self.reservations.len() >= self.vehicle_capacity
+            || self.reservations.iter().any(|r| r.owner == grant.owner)
+            || !self.staged_cells.iter().any(|(index, owner, serial)| {
+                *index == entered_index && *owner == grant.owner && *serial == grant.serial
+            })
+        {
+            return Err(ConflictAcquireError::InvalidBundle);
+        }
+        for (index, owner, serial) in &self.staged_cells {
+            if *owner == grant.owner
+                && *serial == grant.serial
+                && self.cells[*index].reservation.is_some()
+            {
+                return Err(ConflictAcquireError::InvalidBundle);
+            }
+        }
+        for (index, owner, serial) in &self.staged_cells {
+            if *owner == grant.owner && *serial == grant.serial {
+                self.cells[*index].reservation = Some(grant.owner);
+                self.cells[*index].reservation_serial = Some(grant.serial);
+                self.cells[*index].cleared = false;
+                if *index == entered_index {
+                    self.cells[*index].occupant = Some(grant.owner);
+                }
+                self.committed_cells.push((*index, *owner, *serial));
+            }
+        }
+        self.staged_cells
+            .retain(|(_, owner, serial)| *owner != grant.owner || *serial != grant.serial);
+        self.committed_downstream.extend(
+            self.staged_downstream
+                .iter()
+                .filter(|claim| claim.owner == grant.owner && claim.serial == grant.serial)
+                .copied(),
+        );
+        self.staged_downstream
+            .retain(|claim| claim.owner != grant.owner || claim.serial != grant.serial);
+        let reservation = ConflictReservation {
+            owner: grant.owner,
+            passage_range,
+            downstream_owner: grant.owner,
+            downstream_claim_count,
+            acquired_tick: grant.tick,
+            claim_serial: grant.serial,
+        };
+        self.reservations.push(reservation);
+        self.staged_grants
+            .iter_mut()
+            .find(|staged| staged.owner == grant.owner && staged.serial == grant.serial)
+            .expect("validated staged grant")
+            .consumed = true;
+        Ok(ConflictCrossingCommit {
+            reservation,
+            waiting_admission: grant.waiting_zone,
+        })
+    }
+
+    pub(crate) fn consume_pure_waiting_grant(
+        &mut self,
+        grant: ConflictGrant,
+    ) -> Result<WaitingZoneOrdinal, ConflictAcquireError> {
+        let Some(waiting_zone) = grant.waiting_zone else {
+            return Err(ConflictAcquireError::InvalidBundle);
+        };
+        if self
+            .staged_cells
+            .iter()
+            .any(|(_, owner, serial)| *owner == grant.owner && *serial == grant.serial)
+            || self
+                .staged_downstream
+                .iter()
+                .any(|claim| claim.owner == grant.owner && claim.serial == grant.serial)
+        {
+            return Err(ConflictAcquireError::InvalidBundle);
+        }
+        let Some(staged) = self.staged_grants.iter_mut().find(|staged| {
+            staged.owner == grant.owner && staged.serial == grant.serial && !staged.consumed
+        }) else {
+            return Err(ConflictAcquireError::InvalidBundle);
+        };
+        staged.consumed = true;
+        Ok(waiting_zone)
+    }
+
+    pub(crate) fn expire_unconsumed_grants(&mut self) {
+        self.staged_cells.clear();
+        self.staged_downstream.clear();
+        self.staged_grants.clear();
+    }
+
+    pub(crate) fn enter_passage(
+        &mut self,
+        owner: VehicleHandle,
+        address: ConflictPassageAddress,
+    ) -> bool {
+        let Ok(index) = self.cell_index(address) else {
+            return false;
+        };
+        let cell = &mut self.cells[index];
+        if cell.reservation != Some(owner)
+            || cell.cleared
+            || cell.occupant.is_some_and(|occupant| occupant != owner)
+        {
+            return false;
+        }
+        cell.occupant = Some(owner);
+        true
+    }
+
+    pub(crate) fn clear_passage(
+        &mut self,
+        owner: VehicleHandle,
+        address: ConflictPassageAddress,
+        post_step_time_ms: u64,
+    ) -> Option<ConflictClearOutcome> {
+        let Ok(index) = self.cell_index(address) else {
+            return None;
+        };
+        let cell = &mut self.cells[index];
+        if cell.reservation != Some(owner) || cell.occupant != Some(owner) {
+            return None;
+        }
+        cell.occupant = None;
+        cell.cleared = true;
+        cell.lag = ConflictLagReference::ActualClear(post_step_time_ms);
+        let reservation_serial = cell.reservation_serial?;
+        if !self.committed_cells.iter().any(|(index, current, serial)| {
+            *current == owner && *serial == reservation_serial && !self.cells[*index].cleared
+        }) {
+            for (index, current, serial) in &self.committed_cells {
+                if *current == owner && *serial == reservation_serial {
+                    self.cells[*index].reservation = None;
+                    self.cells[*index].reservation_serial = None;
+                    self.cells[*index].cleared = false;
+                }
+            }
+            self.committed_cells
+                .retain(|(_, current, serial)| *current != owner || *serial != reservation_serial);
+            self.reservations
+                .retain(|reservation| reservation.owner != owner);
+            self.committed_downstream
+                .retain(|claim| claim.owner != owner);
+            return Some(ConflictClearOutcome::ReservationReleased);
+        }
+        Some(ConflictClearOutcome::Retained)
+    }
+
+    pub(crate) fn release_vehicle(&mut self, owner: VehicleHandle, post_step_time_ms: u64) {
+        self.staged_cells
+            .retain(|(_, current, _)| *current != owner);
+        self.staged_downstream.retain(|claim| claim.owner != owner);
+        self.staged_grants.retain(|grant| grant.owner != owner);
+        for (index, current, _) in &self.committed_cells {
+            if *current == owner {
+                let cell = &mut self.cells[*index];
+                if !cell.cleared {
+                    cell.lag = ConflictLagReference::ActualClear(post_step_time_ms);
+                }
+                cell.reservation = None;
+                cell.reservation_serial = None;
+                cell.occupant = None;
+                cell.cleared = false;
+            }
+        }
+        self.committed_cells
+            .retain(|(_, current, _)| *current != owner);
+        self.reservations
+            .retain(|reservation| reservation.owner != owner);
+        self.committed_downstream
+            .retain(|claim| claim.owner != owner);
+    }
+
+    fn cell_index(&self, address: ConflictPassageAddress) -> Result<usize, ConflictAcquireError> {
+        self.addresses
+            .binary_search(&address)
+            .map_err(|_| ConflictAcquireError::InvalidBundle)
+    }
+
+    fn ensure_cells(&mut self) -> Result<(), ConflictAcquireError> {
+        if self.cells.len() == self.conflict_capacity {
+            return Ok(());
+        }
+        if !self.cells.is_empty() {
+            return Err(ConflictAcquireError::InvalidBundle);
+        }
+        reserve_for_len(&mut self.cells, self.conflict_capacity)?;
+        self.cells
+            .resize(self.conflict_capacity, ConflictCellAuthority::default());
+        Ok(())
+    }
+
+    fn zone_owned_by_other(&self, zone: ConflictZoneOrdinal, owner: VehicleHandle) -> bool {
+        if self.cells.is_empty() {
+            return false;
+        }
+        let start = self
+            .addresses
+            .partition_point(|address| address.zone < zone);
+        let end = self
+            .addresses
+            .partition_point(|address| address.zone <= zone);
+        self.cells[start..end].iter().any(|cell| {
+            cell.reservation.is_some_and(|current| current != owner)
+                || cell.occupant.is_some_and(|current| current != owner)
+        })
+    }
+
+    #[cfg(test)]
+    fn retained_logical_bytes(&self) -> u64 {
+        let Self {
+            addresses,
+            cells,
+            staged_cells,
+            committed_cells,
+            scratch_cell_indices,
+            staged_downstream,
+            committed_downstream,
+            reservations,
+            staged_grants,
+            waiting_cycle_scratch,
+            next_serial: _,
+            conflict_capacity: _,
+            vehicle_capacity: _,
+        } = self;
+        retained_slice_bytes(addresses)
+            + retained_vec_bytes(cells)
+            + retained_vec_bytes(staged_cells)
+            + retained_vec_bytes(committed_cells)
+            + retained_vec_bytes(scratch_cell_indices)
+            + retained_vec_bytes(staged_downstream)
+            + retained_vec_bytes(committed_downstream)
+            + retained_vec_bytes(reservations)
+            + retained_vec_bytes(staged_grants)
+            + waiting_cycle_scratch.retained_logical_bytes()
+    }
+}
+
+fn intervals_conflict(
+    left: DownstreamInterval,
+    left_min_gap: u32,
+    right: DownstreamInterval,
+    right_min_gap: u32,
+) -> bool {
+    if left.edge != right.edge {
+        return false;
+    }
+    if left.start_mm < right.end_mm && right.start_mm < left.end_mm {
+        return true;
+    }
+    if left.end_mm <= right.start_mm {
+        right.start_mm - left.end_mm < left_min_gap
+    } else {
+        left.start_mm - right.end_mm < right_min_gap
+    }
+}
+
+/// Waiting wait-for 图中的规范节点。
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum WaitingDependencyNode {
+    Owner(u32),
+    Zone(WaitingZoneOrdinal),
+}
+
+/// 加入候选依赖后是否形成含两个以上 owner 的 SCC。
+pub(crate) fn contains_multi_owner_waiting_cycle(
+    edges: &[(WaitingDependencyNode, WaitingDependencyNode)],
+) -> bool {
+    WaitingCycleScratch::default()
+        .contains_multi_owner_cycle(edges)
+        .unwrap_or(true)
+}
+
+#[derive(Default)]
+struct WaitingCycleScratch {
+    nodes: Vec<WaitingDependencyNode>,
+    forward: Vec<(usize, usize)>,
+    reverse: Vec<(usize, usize)>,
+    forward_offsets: Vec<usize>,
+    reverse_offsets: Vec<usize>,
+    visited: Vec<bool>,
+    finish: Vec<usize>,
+    dfs_stack: Vec<(usize, usize)>,
+    component_stack: Vec<usize>,
+}
+
+impl WaitingCycleScratch {
+    fn contains_multi_owner_cycle(
+        &mut self,
+        edges: &[(WaitingDependencyNode, WaitingDependencyNode)],
+    ) -> Result<bool, ConflictAcquireError> {
+        let node_limit = edges
+            .len()
+            .checked_mul(2)
+            .ok_or(ConflictAcquireError::Capacity)?;
+        reserve_for_len(&mut self.nodes, node_limit)?;
+        self.nodes.clear();
+        for (from, to) in edges {
+            self.nodes.push(*from);
+            self.nodes.push(*to);
+        }
+        self.nodes.sort_unstable();
+        self.nodes.dedup();
+        if self.nodes.is_empty() {
+            return Ok(false);
+        }
+
+        reserve_for_len(&mut self.forward, edges.len())?;
+        self.forward.clear();
+        for (from, to) in edges {
+            self.forward.push((
+                self.nodes
+                    .binary_search(from)
+                    .expect("collected source node"),
+                self.nodes.binary_search(to).expect("collected target node"),
+            ));
+        }
+        self.forward.sort_unstable();
+        self.forward.dedup();
+
+        reserve_for_len(&mut self.reverse, self.forward.len())?;
+        self.reverse.clear();
+        self.reverse
+            .extend(self.forward.iter().map(|(from, to)| (*to, *from)));
+        self.reverse.sort_unstable();
+
+        let node_count = self.nodes.len();
+        fill_dependency_offsets(&mut self.forward_offsets, node_count, &self.forward)?;
+        fill_dependency_offsets(&mut self.reverse_offsets, node_count, &self.reverse)?;
+        reserve_for_len(&mut self.visited, node_count)?;
+        self.visited.clear();
+        self.visited.resize(node_count, false);
+        reserve_for_len(&mut self.finish, node_count)?;
+        self.finish.clear();
+        reserve_for_len(&mut self.dfs_stack, node_count)?;
+        self.dfs_stack.clear();
+
+        for root in 0..node_count {
+            if self.visited[root] {
+                continue;
+            }
+            self.visited[root] = true;
+            self.dfs_stack.push((root, self.forward_offsets[root]));
+            while let Some((node, next)) = self.dfs_stack.last_mut() {
+                let end = self.forward_offsets[*node + 1];
+                if *next < end {
+                    let target = self.forward[*next].1;
+                    *next += 1;
+                    if !self.visited[target] {
+                        self.visited[target] = true;
+                        self.dfs_stack.push((target, self.forward_offsets[target]));
+                    }
+                } else {
+                    let (node, _) = self.dfs_stack.pop().expect("non-empty DFS stack");
+                    self.finish.push(node);
+                }
+            }
+        }
+
+        self.visited.fill(false);
+        reserve_for_len(&mut self.component_stack, node_count)?;
+        self.component_stack.clear();
+        for finish_index in (0..self.finish.len()).rev() {
+            let root = self.finish[finish_index];
+            if self.visited[root] {
+                continue;
+            }
+            self.visited[root] = true;
+            let mut owner_count =
+                usize::from(matches!(self.nodes[root], WaitingDependencyNode::Owner(_)));
+            self.component_stack.push(root);
+            while let Some(node) = self.component_stack.pop() {
+                for (_, target) in
+                    &self.reverse[self.reverse_offsets[node]..self.reverse_offsets[node + 1]]
+                {
+                    if !self.visited[*target] {
+                        self.visited[*target] = true;
+                        owner_count += usize::from(matches!(
+                            self.nodes[*target],
+                            WaitingDependencyNode::Owner(_)
+                        ));
+                        self.component_stack.push(*target);
+                    }
+                }
+            }
+            if owner_count >= 2 {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    #[cfg(test)]
+    fn retained_logical_bytes(&self) -> u64 {
+        let Self {
+            nodes,
+            forward,
+            reverse,
+            forward_offsets,
+            reverse_offsets,
+            visited,
+            finish,
+            dfs_stack,
+            component_stack,
+        } = self;
+        retained_vec_bytes(nodes)
+            + retained_vec_bytes(forward)
+            + retained_vec_bytes(reverse)
+            + retained_vec_bytes(forward_offsets)
+            + retained_vec_bytes(reverse_offsets)
+            + retained_vec_bytes(visited)
+            + retained_vec_bytes(finish)
+            + retained_vec_bytes(dfs_stack)
+            + retained_vec_bytes(component_stack)
+    }
+}
+
+#[cfg(test)]
+fn retained_vec_bytes<T>(values: &Vec<T>) -> u64 {
+    u64::try_from(
+        values
+            .capacity()
+            .checked_mul(core::mem::size_of::<T>())
+            .expect("retained byte count fits usize"),
+    )
+    .expect("retained byte count fits u64")
+}
+
+#[cfg(test)]
+fn retained_slice_bytes<T>(values: &[T]) -> u64 {
+    u64::try_from(
+        values
+            .len()
+            .checked_mul(core::mem::size_of::<T>())
+            .expect("retained byte count fits usize"),
+    )
+    .expect("retained byte count fits u64")
+}
+
+fn reserve_for_len<T>(values: &mut Vec<T>, required: usize) -> Result<(), ConflictAcquireError> {
+    if values.capacity() < required {
+        values
+            .try_reserve_exact(required.saturating_sub(values.len()))
+            .map_err(|_| ConflictAcquireError::Capacity)?;
+    }
+    Ok(())
+}
+
+fn fill_dependency_offsets(
+    offsets: &mut Vec<usize>,
+    node_count: usize,
+    edges: &[(usize, usize)],
+) -> Result<(), ConflictAcquireError> {
+    let required = node_count
+        .checked_add(1)
+        .ok_or(ConflictAcquireError::Capacity)?;
+    reserve_for_len(offsets, required)?;
+    offsets.clear();
+    offsets.resize(required, 0);
+    for (from, _) in edges {
+        offsets[*from + 1] += 1;
+    }
+    for index in 1..offsets.len() {
+        offsets[index] += offsets[index - 1];
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vehicle(index: u32) -> VehicleHandle {
+        VehicleHandle::new(index, 0)
+    }
+    fn route(index: u32) -> RouteHandle {
+        RouteHandle::new(index, 0)
+    }
+    fn address(zone: u32, stream: u32, passage: u32) -> ConflictPassageAddress {
+        ConflictPassageAddress::new(
+            ConflictZoneOrdinal::from_raw(zone),
+            ParticipantStreamOrdinal::from_raw(stream),
+            passage,
+        )
+    }
+    fn stable_locator(zone: u8, stream: u8) -> ConflictPassageLocator {
+        ConflictPassageLocator::new(
+            ParticipantStreamId::from_untyped(laneflow_static_contract::StableId128::from_bytes(
+                [stream; 16],
+            )),
+            ConflictZoneId::from_untyped(laneflow_static_contract::StableId128::from_bytes(
+                [zone; 16],
+            )),
+        )
+    }
+    fn passage_range(
+        route_index: u32,
+        maneuver: u32,
+        gate_hop: u32,
+        first_occurrence: u32,
+        count: u32,
+    ) -> ConflictPassageRange {
+        ConflictPassageRange::new(
+            route(route_index),
+            maneuver,
+            gate_hop,
+            first_occurrence,
+            count,
+        )
+        .unwrap()
+    }
+    fn clearing_state(
+        owner: VehicleHandle,
+        reservation: ConflictReservation,
+    ) -> crate::VehicleState {
+        crate::VehicleState {
+            handle: owner,
+            profile: laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+            class: laneflow_static_contract::ParticipantClassOrdinal::from_raw(0),
+            route: reservation.route(),
+            route_edge_index: 0,
+            progress_mm: 0,
+            carry_um: 0,
+            speed_mm_s: 0,
+            length_mm: 4_000,
+            status: crate::VehicleStatus::Active,
+            maneuver_traversal: Some(crate::ManeuverTraversalState {
+                route: reservation.route(),
+                maneuver_occurrence_index: reservation.maneuver_occurrence_index(),
+                phase: crate::ManeuverTraversalPhase::Clearing { reservation },
+            }),
+            waiting_membership: None,
+        }
+    }
+    fn downstream_claims(
+        route_edges: &[LaneEdgeOrdinal],
+        edge_lengths_mm: &[u32],
+        gate_crossed_side: DownstreamRoutePoint,
+        farthest_clearance: DownstreamRoutePoint,
+        vehicle_length_mm: u32,
+        storage_upper_bound: DownstreamRoutePoint,
+    ) -> Result<Vec<DownstreamInterval>, ConflictAcquireError> {
+        let mut claims = Vec::new();
+        prove_downstream_clearance(
+            route_edges,
+            edge_lengths_mm,
+            gate_crossed_side,
+            farthest_clearance,
+            vehicle_length_mm,
+            storage_upper_bound,
+            &mut claims,
+        )?;
+        Ok(claims)
+    }
+
+    #[test]
+    fn chinese_circular_red_is_permissive_but_directional_red_and_prohibitions_deny() {
+        assert_eq!(
+            interpret_gate_declaration(
+                GateInterpretation::CnCircularRightTurn,
+                GateProhibition::None,
+                true,
+                Some(SignalAspect::Red),
+            ),
+            Some(GatePolicyDecision::Candidate(GateCandidateKind::Permissive))
+        );
+        for interpretation in [
+            GateInterpretation::DirectionalRightProtected,
+            GateInterpretation::DirectionalRightPermissive,
+        ] {
+            assert_eq!(
+                interpret_gate_declaration(
+                    interpretation,
+                    GateProhibition::None,
+                    true,
+                    Some(SignalAspect::Red),
+                ),
+                Some(GatePolicyDecision::DenyAndStop)
+            );
+        }
+        for prohibition in [GateProhibition::Always, GateProhibition::OnRed] {
+            assert_eq!(
+                interpret_gate_declaration(
+                    GateInterpretation::CnCircularRightTurn,
+                    prohibition,
+                    true,
+                    Some(SignalAspect::Red),
+                ),
+                Some(GatePolicyDecision::DenyAndStop)
+            );
+        }
+        assert_eq!(
+            interpret_gate_declaration(
+                GateInterpretation::CnCircularRightTurn,
+                GateProhibition::None,
+                false,
+                None,
+            ),
+            None,
+            "wrong binding fails closed instead of becoming uncontrolled"
+        );
+    }
+
+    #[test]
+    fn candidate_order_consumes_coverage_min_priority_and_explicit_absence() {
+        assert_eq!(coverage_min_priority([7, 2, 9]), Some(2));
+        assert_eq!(coverage_min_priority([9, 7, 2]), Some(2));
+        let mut keys = [
+            ConflictCandidateOrderKey::new(GateCandidateKind::Permissive, None, 1, Some(1), 1),
+            ConflictCandidateOrderKey::new(GateCandidateKind::Permissive, Some(4), 1, None, 2),
+            ConflictCandidateOrderKey::new(
+                GateCandidateKind::Permissive,
+                coverage_min_priority([7, 2]),
+                1,
+                None,
+                3,
+            ),
+            ConflictCandidateOrderKey::new(GateCandidateKind::Protected, Some(-100), 9, None, 4),
+        ];
+        keys.sort_unstable();
+        assert_eq!(keys[0].vehicle_update_sequence, 4);
+        assert_eq!(keys[1].vehicle_update_sequence, 2);
+        assert_eq!(keys[2].vehicle_update_sequence, 3);
+        assert_eq!(keys[3].vehicle_update_sequence, 1);
+    }
+
+    #[test]
+    fn repeated_locator_resets_first_eligible_tick() {
+        let stable = stable_locator(0, 0);
+        let first =
+            ConflictPassageOccurrenceLocator::new(route(0), 0, 2, 0, address(0, 0, 0), stable);
+        let repeated =
+            ConflictPassageOccurrenceLocator::new(route(0), 2, 8, 3, address(0, 0, 0), stable);
+        let state = ConflictEligibilityState::update(None, first, true, 10).unwrap();
+        assert_eq!(
+            ConflictEligibilityState::update(Some(state), first, true, 20)
+                .unwrap()
+                .first_eligible_tick(),
+            10
+        );
+        assert_eq!(
+            ConflictEligibilityState::update(Some(state), repeated, true, 20)
+                .unwrap()
+                .first_eligible_tick(),
+            20
+        );
+        assert_eq!(
+            ConflictEligibilityState::update(Some(state), first, false, 30),
+            None
+        );
+    }
+
+    #[test]
+    fn top_two_excludes_looping_subject_without_losing_other_owner() {
+        let mut cell = ApproachFrontierCell::default();
+        cell.insert_owner_reduced(vehicle(1), 10, ApproachEstimate::Finite(20));
+        cell.insert_owner_reduced(vehicle(2), 11, ApproachEstimate::Finite(30));
+        cell.insert_owner_reduced(vehicle(1), 10, ApproachEstimate::Finite(5));
+        assert_eq!(
+            cell.value_excluding(vehicle(1)),
+            ApproachEstimate::Finite(30)
+        );
+        assert_eq!(
+            cell.value_excluding(vehicle(2)),
+            ApproachEstimate::Finite(5)
+        );
+    }
+
+    #[test]
+    fn eta_and_gap_boundaries_are_conservative() {
+        assert_eq!(
+            approach_eta_lower_bound(ApproachEtaInput {
+                exact_distance_mm: 0,
+                carry_um: 0,
+                speed_mm_s: 0,
+                max_acceleration_m_s2: 1.0,
+                proof_horizon_ms: 1_001,
+            }),
+            ApproachEstimate::Finite(0)
+        );
+        assert_eq!(
+            approach_eta_lower_bound(ApproachEtaInput {
+                exact_distance_mm: 10_000,
+                carry_um: 0,
+                speed_mm_s: 0,
+                max_acceleration_m_s2: 0.0,
+                proof_horizon_ms: 1_001,
+            }),
+            ApproachEstimate::OutsideHorizon
+        );
+        assert_eq!(
+            check_gap(
+                500,
+                ConflictLagReference::ActualClear(0),
+                500,
+                ApproachEstimate::Finite(1_000),
+                1_000,
+            ),
+            Some(ConflictGapOutcome::LeadGap)
+        );
+        assert_eq!(
+            check_gap(
+                500,
+                ConflictLagReference::ActualClear(0),
+                500,
+                ApproachEstimate::Finite(1_001),
+                1_000,
+            ),
+            Some(ConflictGapOutcome::Accepted)
+        );
+        assert_eq!(
+            check_gap(
+                499,
+                ConflictLagReference::ActualClear(0),
+                500,
+                ApproachEstimate::OutsideHorizon,
+                1_000,
+            ),
+            Some(ConflictGapOutcome::LagGap)
+        );
+        assert_eq!(
+            check_gap(
+                499,
+                ConflictLagReference::ActualClear(500),
+                0,
+                ApproachEstimate::OutsideHorizon,
+                0,
+            ),
+            None,
+            "future history is an invariant error"
+        );
+    }
+
+    #[test]
+    fn exact_target_checks_occupied_lag_unprovable_and_lead_in_order() {
+        let target = address(0, 0, 0);
+        let mut arbiter = ConflictArbiter::new(vec![target], 2).unwrap();
+        arbiter
+            .insert_approach_owner_reduced(target, vehicle(2), 2, ApproachEstimate::Unprovable)
+            .unwrap();
+        assert_eq!(
+            arbiter.evaluate_yield_target(vehicle(1), target, 10, 0, 0),
+            Some(ConflictYieldOutcome::ApproachUnprovable)
+        );
+        let grant = arbiter
+            .try_acquire(
+                1,
+                GrantResourceBundle {
+                    owner: vehicle(2),
+                    owner_sequence: 2,
+                    follower_min_gap_mm: 0,
+                    cells: &[target],
+                    downstream: &[],
+                    waiting_entitlement: None,
+                    waiting_dependencies: &[],
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            arbiter.evaluate_yield_target(vehicle(1), target, 10, 0, 0,),
+            Some(ConflictYieldOutcome::Occupied)
+        );
+        let _commit = arbiter
+            .commit_crossing(grant, passage_range(0, 0, 0, 0, 1), target)
+            .unwrap();
+        assert_eq!(
+            arbiter.clear_passage(vehicle(2), target, 100),
+            Some(ConflictClearOutcome::ReservationReleased)
+        );
+        arbiter.clear_approach_frontier();
+        assert_eq!(
+            arbiter.evaluate_yield_target(vehicle(1), target, 599, 500, 0,),
+            Some(ConflictYieldOutcome::LagGap)
+        );
+        assert_eq!(
+            arbiter.evaluate_yield_target(vehicle(1), target, 600, 500, 0,),
+            Some(ConflictYieldOutcome::Accepted)
+        );
+    }
+
+    #[test]
+    fn bundle_is_all_or_nothing_and_release_waits_for_last_cell() {
+        let a = address(0, 0, 0);
+        let b = address(0, 0, 1);
+        let c = address(1, 1, 0);
+        let mut arbiter = ConflictArbiter::new(vec![c, b, a], 8).unwrap();
+        let interval = DownstreamInterval::new(LaneEdgeOrdinal::from_raw(3), 10, 30).unwrap();
+        let cells = [a, b];
+        let downstream = [interval];
+        let grant = arbiter
+            .try_acquire(
+                7,
+                GrantResourceBundle {
+                    owner: vehicle(1),
+                    owner_sequence: 1,
+                    follower_min_gap_mm: 5,
+                    cells: &cells,
+                    downstream: &downstream,
+                    waiting_entitlement: Some(WaitingAdmissionEntitlement::new(
+                        vehicle(1),
+                        WaitingZoneOrdinal::from_raw(0),
+                        7,
+                    )),
+                    waiting_dependencies: &[],
+                },
+            )
+            .unwrap();
+        assert_eq!(grant.waiting_zone, Some(WaitingZoneOrdinal::from_raw(0)));
+        use WaitingDependencyNode::{Owner, Zone};
+        let cycle_edges = [
+            (Owner(1), Zone(WaitingZoneOrdinal::from_raw(0))),
+            (Zone(WaitingZoneOrdinal::from_raw(0)), Owner(2)),
+            (Owner(2), Zone(WaitingZoneOrdinal::from_raw(1))),
+            (Zone(WaitingZoneOrdinal::from_raw(1)), Owner(1)),
+        ];
+        assert_eq!(
+            arbiter
+                .try_acquire(
+                    7,
+                    GrantResourceBundle {
+                        owner: vehicle(3),
+                        owner_sequence: 3,
+                        follower_min_gap_mm: 0,
+                        cells: &[c],
+                        downstream: &[],
+                        waiting_entitlement: Some(WaitingAdmissionEntitlement::new(
+                            vehicle(3),
+                            WaitingZoneOrdinal::from_raw(1),
+                            7,
+                        )),
+                        waiting_dependencies: &cycle_edges,
+                    },
+                )
+                .err(),
+            Some(ConflictAcquireError::NoGrant(
+                ConflictResourceNoGrant::WaitingCycle
+            ))
+        );
+        let rejected = arbiter.try_acquire(
+            7,
+            GrantResourceBundle {
+                owner: vehicle(2),
+                owner_sequence: 2,
+                follower_min_gap_mm: 5,
+                cells: &[c],
+                downstream: &[
+                    DownstreamInterval::new(LaneEdgeOrdinal::from_raw(3), 31, 40).unwrap(),
+                ],
+                waiting_entitlement: None,
+                waiting_dependencies: &[],
+            },
+        );
+        assert_eq!(
+            rejected.err(),
+            Some(ConflictAcquireError::NoGrant(
+                ConflictResourceNoGrant::DownstreamClaimConflict
+            ))
+        );
+        assert_eq!(
+            arbiter
+                .staged_cells
+                .iter()
+                .filter(|(_, owner, _)| *owner == vehicle(2))
+                .count(),
+            0,
+            "failed bundle leaves no partial zone claim"
+        );
+        let commit = arbiter
+            .commit_crossing(grant, passage_range(0, 3, 4, 0, 2), a)
+            .unwrap();
+        let reservation = commit.reservation;
+        assert_eq!(
+            commit.waiting_admission,
+            Some(WaitingZoneOrdinal::from_raw(0))
+        );
+        assert_eq!(reservation.acquired_tick(), 7);
+        assert_eq!(reservation.passage_range().passage_count(), 2);
+        assert_eq!(reservation.downstream_owner(), vehicle(1));
+        assert_eq!(reservation.downstream_claim_count(), 1);
+        let mut state = clearing_state(vehicle(1), reservation);
+        assert!(arbiter.state_valid(&state));
+        state
+            .maneuver_traversal
+            .as_mut()
+            .expect("Clearing traversal")
+            .maneuver_occurrence_index += 1;
+        assert!(!arbiter.state_valid(&state));
+        state
+            .maneuver_traversal
+            .as_mut()
+            .expect("Clearing traversal")
+            .maneuver_occurrence_index -= 1;
+        state.waiting_membership = Some(crate::WaitingMembership {
+            waiting_zone: WaitingZoneOrdinal::from_raw(0),
+            admission_sequence: 0,
+            release_hop: 4,
+        });
+        assert!(!arbiter.state_valid(&state));
+        state.waiting_membership = None;
+        assert_eq!(
+            arbiter.clear_passage(vehicle(1), a, 800),
+            Some(ConflictClearOutcome::Retained)
+        );
+        assert!(arbiter.state_valid(&state));
+        assert_eq!(arbiter.reservations.len(), 1);
+        assert_eq!(arbiter.committed_downstream.len(), 1);
+        assert!(arbiter.enter_passage(vehicle(1), b));
+        assert_eq!(
+            arbiter.clear_passage(vehicle(1), b, 900),
+            Some(ConflictClearOutcome::ReservationReleased)
+        );
+        assert!(!arbiter.state_valid(&state));
+        assert!(arbiter.reservations.is_empty());
+        assert!(arbiter.committed_downstream.is_empty());
+        assert!(!arbiter.has_authority(vehicle(1)));
+        arbiter.expire_unconsumed_grants();
+        assert!(!arbiter.is_empty(), "last-clear history is W5 state");
+        assert_eq!(
+            arbiter.lag_reference(b),
+            Some(ConflictLagReference::ActualClear(900))
+        );
+    }
+
+    #[test]
+    fn downstream_clearance_uses_actual_length_and_exact_micrometre_boundary() {
+        let edges = [LaneEdgeOrdinal::from_raw(0), LaneEdgeOrdinal::from_raw(1)];
+        let lengths = [100, 100];
+        let gate = DownstreamRoutePoint::new(0, 50, 0).unwrap();
+        let clearance = DownstreamRoutePoint::new(0, 90, 0).unwrap();
+        let exact = DownstreamRoutePoint::new(1, 10, 0).unwrap();
+        let claims = downstream_claims(&edges, &lengths, gate, clearance, 20, exact)
+            .expect("target equality passes");
+        assert_eq!(
+            claims,
+            vec![
+                DownstreamInterval::new(edges[0], 50, 100).unwrap(),
+                DownstreamInterval::new(edges[1], 0, 10).unwrap(),
+            ]
+        );
+        assert_eq!(
+            downstream_claims(
+                &edges,
+                &lengths,
+                gate,
+                clearance,
+                20,
+                DownstreamRoutePoint::new(1, 9, 999).unwrap(),
+            )
+            .unwrap_err(),
+            ConflictAcquireError::NoGrant(ConflictResourceNoGrant::DownstreamStorageBoundary)
+        );
+        assert_eq!(
+            downstream_claims(
+                &edges,
+                &lengths,
+                gate,
+                clearance,
+                111,
+                DownstreamRoutePoint::new(1, 100, 0).unwrap(),
+            )
+            .unwrap_err(),
+            ConflictAcquireError::NoGrant(ConflictResourceNoGrant::DownstreamStorageBoundary)
+        );
+    }
+
+    #[test]
+    fn downstream_claims_merge_repeated_physical_edges_and_use_follower_gap() {
+        let shared = LaneEdgeOrdinal::from_raw(0);
+        let middle = LaneEdgeOrdinal::from_raw(1);
+        let edges = [shared, middle, shared];
+        let lengths = [100, 50];
+        let claims = downstream_claims(
+            &edges,
+            &lengths,
+            DownstreamRoutePoint::new(0, 20, 0).unwrap(),
+            DownstreamRoutePoint::new(2, 10, 0).unwrap(),
+            30,
+            DownstreamRoutePoint::new(2, 40, 0).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            claims,
+            vec![
+                DownstreamInterval::new(shared, 0, 100).unwrap(),
+                DownstreamInterval::new(middle, 0, 50).unwrap(),
+            ]
+        );
+
+        let follower = DownstreamInterval::new(shared, 0, 10).unwrap();
+        let leader = DownstreamInterval::new(shared, 15, 20).unwrap();
+        assert!(!intervals_conflict(follower, 5, leader, 99));
+        assert!(intervals_conflict(follower, 6, leader, 0));
+        assert!(!intervals_conflict(leader, 99, follower, 5));
+        assert!(intervals_conflict(leader, 0, follower, 6));
+    }
+
+    #[test]
+    fn checked_failure_never_partially_stages_a_bundle_or_crossing() {
+        let cell = address(0, 0, 0);
+        let interval = DownstreamInterval::new(LaneEdgeOrdinal::from_raw(0), 0, 10).unwrap();
+        let mut arbiter = ConflictArbiter::new(vec![cell], 1).unwrap();
+        arbiter.next_serial = u64::MAX;
+        assert_eq!(
+            arbiter
+                .try_acquire(
+                    1,
+                    GrantResourceBundle {
+                        owner: vehicle(1),
+                        owner_sequence: 1,
+                        follower_min_gap_mm: 0,
+                        cells: &[cell],
+                        downstream: &[interval],
+                        waiting_entitlement: None,
+                        waiting_dependencies: &[],
+                    },
+                )
+                .err(),
+            Some(ConflictAcquireError::Capacity)
+        );
+        assert!(arbiter.is_empty());
+        arbiter.next_serial = 0;
+
+        let grant = arbiter
+            .try_acquire(
+                1,
+                GrantResourceBundle {
+                    owner: vehicle(1),
+                    owner_sequence: 1,
+                    follower_min_gap_mm: 0,
+                    cells: &[cell],
+                    downstream: &[],
+                    waiting_entitlement: None,
+                    waiting_dependencies: &[],
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            arbiter
+                .commit_crossing(grant, passage_range(0, 0, 0, 0, 2), cell)
+                .err(),
+            Some(ConflictAcquireError::InvalidBundle)
+        );
+        assert_eq!(arbiter.staged_cells.len(), 1);
+        assert!(arbiter.reservations.is_empty());
+        assert!(arbiter.committed_downstream.is_empty());
+    }
+
+    #[test]
+    fn unused_grant_expires_without_committed_authority() {
+        let cell = address(0, 0, 0);
+        let mut arbiter = ConflictArbiter::new(vec![cell], 2).unwrap();
+        let installed_bytes = arbiter.retained_logical_bytes();
+        assert!(installed_bytes >= core::mem::size_of::<ConflictPassageAddress>() as u64);
+        let _grant = arbiter
+            .try_acquire(
+                1,
+                GrantResourceBundle {
+                    owner: vehicle(1),
+                    owner_sequence: 1,
+                    follower_min_gap_mm: 0,
+                    cells: &[cell],
+                    downstream: &[],
+                    waiting_entitlement: None,
+                    waiting_dependencies: &[],
+                },
+            )
+            .unwrap();
+        assert!(
+            arbiter.retained_logical_bytes() > installed_bytes,
+            "first actual arbitration must expose its lazily retained owner tables"
+        );
+        arbiter.expire_unconsumed_grants();
+        assert!(arbiter.staged_cells.is_empty());
+        assert!(arbiter.reservations.is_empty());
+        assert!(arbiter.is_empty());
+    }
+
+    #[test]
+    fn pure_waiting_grant_consumes_entitlement_without_empty_reservation() {
+        let mut arbiter = ConflictArbiter::new(Vec::new(), 2).unwrap();
+        let zone = WaitingZoneOrdinal::from_raw(3);
+        let grant = arbiter
+            .try_acquire(
+                9,
+                GrantResourceBundle {
+                    owner: vehicle(1),
+                    owner_sequence: 1,
+                    follower_min_gap_mm: 0,
+                    cells: &[],
+                    downstream: &[],
+                    waiting_entitlement: Some(WaitingAdmissionEntitlement::new(
+                        vehicle(1),
+                        zone,
+                        9,
+                    )),
+                    waiting_dependencies: &[],
+                },
+            )
+            .unwrap();
+        assert_eq!(arbiter.consume_pure_waiting_grant(grant), Ok(zone));
+        assert!(arbiter.reservations.is_empty());
+        assert!(arbiter.committed_downstream.is_empty());
+        assert_eq!(
+            arbiter
+                .try_acquire(
+                    9,
+                    GrantResourceBundle {
+                        owner: vehicle(1),
+                        owner_sequence: 1,
+                        follower_min_gap_mm: 0,
+                        cells: &[],
+                        downstream: &[],
+                        waiting_entitlement: Some(WaitingAdmissionEntitlement::new(
+                            vehicle(1),
+                            zone,
+                            9,
+                        )),
+                        waiting_dependencies: &[],
+                    },
+                )
+                .err(),
+            Some(ConflictAcquireError::InvalidBundle),
+            "one vehicle can consume at most one new Waiting claim in a tick"
+        );
+        arbiter.expire_unconsumed_grants();
+        assert!(arbiter.is_empty());
+    }
+
+    #[test]
+    fn waiting_cycle_requires_two_distinct_owners_in_one_scc() {
+        use WaitingDependencyNode::{Owner, Zone};
+        assert!(contains_multi_owner_waiting_cycle(&[
+            (Owner(1), Zone(WaitingZoneOrdinal::from_raw(0))),
+            (Zone(WaitingZoneOrdinal::from_raw(0)), Owner(2)),
+            (Owner(2), Zone(WaitingZoneOrdinal::from_raw(1))),
+            (Zone(WaitingZoneOrdinal::from_raw(1)), Owner(1)),
+        ]));
+        assert!(!contains_multi_owner_waiting_cycle(&[
+            (Owner(1), Zone(WaitingZoneOrdinal::from_raw(0))),
+            (Zone(WaitingZoneOrdinal::from_raw(0)), Owner(1)),
+        ]));
+    }
+}

@@ -85,6 +85,10 @@ pub struct TrafficWorld {
     pub(crate) world_generation: WorldGeneration,
     pub(crate) config: WorldConfig,
     pub(crate) policy_binding: crate::policy::WorldPolicyBinding,
+    /// W4 的单写者冲突/下游资源权威；生产 passage 入口仍由 3A 保护到完整接通。
+    pub(crate) conflict_arbiter: crate::conflict::ConflictArbiter,
+    /// 车辆槽位对应的 exact Gate occurrence 首次资格时钟；W5 负责持久化。
+    pub(crate) conflict_eligibility: Vec<Option<crate::ConflictEligibilityState>>,
     pub(crate) tick_index: u64,
     pub(crate) time_ms: u64,
     /// 已应用输入命令计数（快照合同 §3 双游标之一；切换 `worldBinding`
@@ -211,6 +215,18 @@ impl TrafficWorld {
         .expect("waiting zone count fits usize");
         let vehicle_capacity = usize::try_from(config.vehicle_capacity()).unwrap_or(0);
         let route_capacity = usize::try_from(config.route_capacity()).unwrap_or(0);
+        let conflict_arbiter =
+            crate::conflict::ConflictArbiter::install(&revision, vehicle_capacity).map_err(
+                |error| match error {
+                    crate::conflict::ConflictAcquireError::Capacity => {
+                        InstallError::ConflictArbiterAllocationFailed
+                    }
+                    crate::conflict::ConflictAcquireError::InvalidBundle
+                    | crate::conflict::ConflictAcquireError::NoGrant(_) => {
+                        InstallError::ConflictArbiterCapacityOverflow
+                    }
+                },
+            )?;
         let mut world = Self {
             revision,
             source,
@@ -218,6 +234,8 @@ impl TrafficWorld {
             world_generation: WorldGeneration::INITIAL,
             config,
             policy_binding,
+            conflict_arbiter,
+            conflict_eligibility: Vec::new(),
             tick_index: 0,
             time_ms: 0,
             command_cursor: 0,
@@ -283,6 +301,111 @@ impl TrafficWorld {
     #[must_use]
     pub fn policy_gap_profiles(&self) -> &[crate::DerivedPolicyGap] {
         self.policy_binding.gaps()
+    }
+
+    /// 把当前根内的 passage 地址派生为可持久化的稳定 locator。
+    #[must_use]
+    pub fn conflict_passage_locator(
+        &self,
+        address: crate::ConflictPassageAddress,
+    ) -> Option<crate::ConflictPassageLocator> {
+        Some(crate::ConflictPassageLocator::new(
+            self.revision.identity().stable_id(address.stream())?,
+            self.revision.identity().stable_id(address.zone())?,
+        ))
+    }
+
+    /// 返回已注册路线中的 exact conflict occurrence locator。
+    ///
+    /// 该只读派生不授予通行权；循环路线中的重复 passage 由 occurrence 下标区分，
+    /// 其 `stable_locator` 仍只包含跨修订所需的两个稳定 ID。
+    #[must_use]
+    pub fn conflict_passage_occurrence_locator(
+        &self,
+        route: RouteHandle,
+        conflict_occurrence_index: u32,
+    ) -> Option<crate::ConflictPassageOccurrenceLocator> {
+        let compiled = self.compiled_route(route)?;
+        let occurrence = *compiled
+            .conflicts
+            .get(usize::try_from(conflict_occurrence_index).ok()?)?;
+        let stable_locator = self.conflict_passage_locator(occurrence.address())?;
+        compiled.conflict_occurrence_locator(route, conflict_occurrence_index, stable_locator)
+    }
+
+    /// 当前共享根中的静态 conflict passage cell 数；动态路线及其重复 occurrence 不复制 cell。
+    #[must_use]
+    pub fn conflict_passage_cell_count(&self) -> usize {
+        self.conflict_arbiter.cell_count()
+    }
+
+    pub(crate) fn conflict_state_valid(&self) -> bool {
+        if !self.conflict_eligibility.is_empty()
+            && self.conflict_eligibility.len()
+                != usize::try_from(self.config.vehicle_capacity()).unwrap_or(usize::MAX)
+        {
+            return false;
+        }
+        for (index, slot) in self.vehicles.iter().enumerate() {
+            let state = slot.state.as_ref();
+            let eligibility = self.conflict_eligibility.get(index).copied().flatten();
+            match (state, eligibility) {
+                (None, None) => {}
+                (None, Some(_)) => return false,
+                (Some(state), eligibility) => {
+                    if !self.conflict_arbiter.state_valid(state) {
+                        return false;
+                    }
+                    if let Some(eligibility) = eligibility
+                        && (state.status != VehicleStatus::Active
+                            || state.conflict_reservation().is_some()
+                            || eligibility.locator().route() != state.route
+                            || self.conflict_passage_occurrence_locator(
+                                state.route,
+                                eligibility.locator().conflict_occurrence_index(),
+                            ) != Some(eligibility.locator()))
+                    {
+                        return false;
+                    }
+                    if let Some(reservation) = state.conflict_reservation() {
+                        let range = reservation.passage_range();
+                        let Some(end) = range
+                            .first_conflict_occurrence_index()
+                            .checked_add(range.passage_count())
+                        else {
+                            return false;
+                        };
+                        for occurrence_index in range.first_conflict_occurrence_index()..end {
+                            let Some(locator) = self
+                                .conflict_passage_occurrence_locator(state.route, occurrence_index)
+                            else {
+                                return false;
+                            };
+                            if locator.maneuver_occurrence_index()
+                                != range.maneuver_occurrence_index()
+                                || locator.admission_gate_hop() != range.admission_gate_hop()
+                                || !self
+                                    .conflict_arbiter
+                                    .reservation_has_cell(state.handle, locator.address())
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if self
+            .conflict_eligibility
+            .get(self.vehicles.len()..)
+            .is_some_and(|tail| tail.iter().any(Option::is_some))
+        {
+            return false;
+        }
+        self.conflict_arbiter.authority_owners_valid(|owner| {
+            self.vehicle_state(owner)
+                .is_some_and(|state| self.conflict_arbiter.state_valid(state))
+        })
     }
 
     #[must_use]
@@ -755,6 +878,9 @@ impl TrafficWorld {
             maneuver_traversal: authority.maneuver_traversal,
             waiting_membership: authority.waiting_membership,
         };
+        if let Some(eligibility) = self.conflict_eligibility.get_mut(slot_index) {
+            *eligibility = None;
+        }
         let slot = VehicleSlot {
             generation,
             state: Some(state),
@@ -788,6 +914,9 @@ impl TrafficWorld {
         }
         if self.parking.binding(old).is_some() {
             return Err(ReplaceError::ParkingOccupied);
+        }
+        if old_state.conflict_reservation().is_some() || self.conflict_arbiter.has_authority(old) {
+            return Err(ReplaceError::ConflictInvariantViolation);
         }
         if old_state.maneuver_traversal.is_some() || old_state.waiting_membership.is_some() {
             return Err(ReplaceError::WaitingInvariantViolation);
@@ -914,6 +1043,9 @@ impl TrafficWorld {
             maneuver_traversal: traversal,
             waiting_membership: None,
         };
+        if let Some(eligibility) = self.conflict_eligibility.get_mut(slot_index) {
+            *eligibility = None;
+        }
 
         if reusable_generation.is_some() {
             self.vehicles[old_index] = VehicleSlot {

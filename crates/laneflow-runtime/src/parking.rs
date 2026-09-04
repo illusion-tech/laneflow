@@ -423,6 +423,7 @@ pub struct VehicleDespawnRecord {
     pub status: VehicleStatus,
     pub parking_binding: Option<ParkingBinding>,
     pub waiting_release: Option<crate::WaitingMembershipReleaseRecord>,
+    pub conflict_release: Option<crate::ConflictReservation>,
 }
 
 /// step 中首次提交 arrival 的稳定顺序 observation。
@@ -1498,6 +1499,9 @@ impl TrafficWorld {
         if state.status != VehicleStatus::Active {
             return Err(ParkingError::InvalidVehicleStatus);
         }
+        if state.conflict_reservation().is_some() || self.conflict_arbiter.has_authority(vehicle) {
+            return Err(ParkingError::ConflictTraversalActive);
+        }
         let anchor = self.resolve_rebind_anchor(input)?;
         let binding = self
             .parking
@@ -1722,7 +1726,7 @@ impl TrafficWorld {
             .copied()
             .ok_or(ParkingError::StaleVehicle)?;
         let binding = self.parking.binding(vehicle);
-        if !self.waiting_state_valid() {
+        if !self.waiting_state_valid() || !self.conflict_state_valid() {
             return Err(ParkingError::InvariantViolation);
         }
         let valid = matches!(
@@ -1736,6 +1740,7 @@ impl TrafficWorld {
         if !valid || binding.is_some_and(|value| !self.resource_matches_binding(vehicle, value)) {
             return Err(ParkingError::InvariantViolation);
         }
+        let conflict_release = state.conflict_reservation();
         let order_index = self
             .live_order
             .iter()
@@ -1770,6 +1775,7 @@ impl TrafficWorld {
                     admission_sequence: membership.admission_sequence,
                 }
             }),
+            conflict_release,
         };
 
         match binding {
@@ -1780,6 +1786,10 @@ impl TrafficWorld {
                 self.parking.release_occupied(vehicle);
             }
             None => {}
+        }
+        self.conflict_arbiter.release_vehicle(vehicle, self.time_ms);
+        if let Some(eligibility) = self.conflict_eligibility.get_mut(vehicle.index() as usize) {
+            *eligibility = None;
         }
         self.release_route_ref(state.route);
         if let Some(membership) = state.waiting_membership {
