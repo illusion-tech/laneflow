@@ -1389,18 +1389,9 @@ pub(crate) fn migrate_conflict_state(
                     source_eligibility.first_eligible_tick(),
                 )
                 .expect("true predicate creates eligibility");
-                let target_gate = target
-                    .compiled_route(target_state.route)?
-                    .hop_gate
-                    .get(target_locator.admission_gate_hop() as usize)
-                    .copied()
-                    .flatten()?;
-                (target.conflict_eligibility_position_valid(&target_state, migrated)
-                    && matches!(
-                        target.gate_policy_decision(target_gate, target_state.profile),
-                        crate::GatePolicyDecision::Candidate(_)
-                    ))
-                .then_some(migrated)
+                target
+                    .conflict_eligibility_authority_valid(&target_state, migrated)
+                    .then_some(migrated)
             });
         }
 
@@ -1772,14 +1763,6 @@ pub(crate) fn project_expected_conflict(
                 match mapped {
                     None => None,
                     Some((target_occurrence_index, locator)) => {
-                        let compiled = target
-                            .compiled_route(target_state.route)
-                            .ok_or(CutoverError::ConflictRevalidationFailed)?;
-                        let gate = compiled
-                            .hop_gate
-                            .get(locator.admission_gate_hop() as usize)
-                            .copied()
-                            .flatten();
                         let migrated = crate::ConflictEligibilityState::update(
                             None,
                             locator,
@@ -1787,17 +1770,18 @@ pub(crate) fn project_expected_conflict(
                             eligibility.first_eligible_tick(),
                         )
                         .expect("true predicate creates eligibility");
-                        if !target.conflict_eligibility_position_valid(target_state, migrated)
-                            || gate.is_none_or(|gate| {
-                                !matches!(
-                                    target.gate_policy_decision(gate, target_state.profile),
-                                    crate::GatePolicyDecision::Candidate(_)
-                                )
-                            })
-                        {
+                        if !target.conflict_eligibility_authority_valid(target_state, migrated) {
                             None
                         } else {
-                            let gate = gate.expect("checked Some above");
+                            let compiled = target
+                                .compiled_route(target_state.route)
+                                .ok_or(CutoverError::ConflictRevalidationFailed)?;
+                            let gate = compiled
+                                .hop_gate
+                                .get(locator.admission_gate_hop() as usize)
+                                .copied()
+                                .flatten()
+                                .ok_or(CutoverError::ConflictRevalidationFailed)?;
                             let maneuver = compiled
                                 .maneuvers
                                 .get(locator.maneuver_occurrence_index() as usize)
@@ -2220,14 +2204,15 @@ pub(crate) mod tests {
         LaneEdgeReference, ParkingFacilityInput, ParkingLaneAnchorInput, ParkingSpaceGeometryInput,
         ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference, PortableDiffBase,
         PortableEmissionProvenance, SourceModuleHeader, SourceModuleHeaderInput,
-        SyntheticModuleBuilder, VehicleProfileInput, emit_portable_candidate,
+        SyntheticModuleBuilder, VehicleProfileInput, emit_portable_candidate, road_editing as lfre,
     };
     use laneflow_format::{
         FormatLimits, check_canonical_network_input, check_post_emission_bundle,
+        preflight_object_values,
     };
     use laneflow_static_contract::{
-        ExactByteLength, SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest, StableId128,
-        VehicleProfileOrdinal,
+        ExactByteLength, ParticipantStreamOrdinal, PortableObjectKind,
+        SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest, StableId128, VehicleProfileOrdinal,
     };
     use laneflow_static_network::{
         CanonicalNetworkOrigin, SharedNetworkBuildLimits, SharedNetworkBuildOptions,
@@ -2238,13 +2223,15 @@ pub(crate) mod tests {
     use super::*;
     use crate::cutover::tests::transaction_tests::revision as conflict_revision;
     use crate::snapshot_restore::tests::{
-        world_with_conflict_eligibility, world_with_conflict_reservation,
+        install_conflict_reservation, world_with_conflict_eligibility,
+        world_with_conflict_reservation,
     };
     use crate::{
-        CUTOVER_DESCRIPTOR_FORMAT_VERSION, LfcaOriginBinding, MigrationPolicyKind,
-        NetworkRevisionCutoverDescriptor, ParkedVehicleSpawnInput, ParkingTarget, PoseSource,
-        ReserveParkingTarget, RouteRegisterInput, SemanticDiffOriginBinding, TickInput,
-        VehicleSpawnInput, VirtualEntryAnchorSelector, WorldBinding, WorldConfig, WorldGeneration,
+        CUTOVER_DESCRIPTOR_FORMAT_VERSION, CutoverPreflightLimits, CutoverTransactionLimits,
+        LfcaOriginBinding, MigrationPolicyKind, NetworkRevisionCutoverDescriptor,
+        ParkedVehicleSpawnInput, ParkingTarget, PoseSource, ReserveParkingTarget,
+        RouteRegisterInput, SemanticDiffOriginBinding, TickInput, VehicleSpawnInput, VehicleStatus,
+        VirtualEntryAnchorSelector, WorldBinding, WorldConfig, WorldGeneration,
     };
 
     const BASE: &[u8] =
@@ -2267,6 +2254,601 @@ pub(crate) mod tests {
     const PROFILE_TARGET: &[u8] = include_bytes!(
         "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/profile-target.lfca"
     );
+
+    fn conflict_cutover_test_line(
+        start: (f64, f64),
+        end: (f64, f64),
+    ) -> lfre::RoadEditingCurveProgram {
+        lfre::RoadEditingCurveProgram::try_new(
+            lfre::RoadEditingPoint3::try_new(start.0, 0.0, start.1).expect("curve start"),
+            vec![lfre::RoadEditingCurveSegment::line(
+                lfre::RoadEditingPoint3::try_new(end.0, 0.0, end.1).expect("curve end"),
+            )],
+        )
+        .expect("line curve")
+    }
+
+    fn add_conflict_cutover_test_approach(
+        module: &mut lfre::RoadEditingSourceModuleBuilder<'_>,
+        edge_key: &str,
+        geometry: lfre::RoadEditingCurveProgram,
+        successors: Vec<lfre::LaneEdgeReference>,
+    ) {
+        let alignment_key = format!("{edge_key}-alignment");
+        let corridor_key = format!("{edge_key}-corridor");
+        let corridor =
+            lfre::RoadCorridorReference::local(&corridor_key).expect("corridor reference");
+        let section =
+            lfre::RoadSectionReference::owner_scoped(vec![corridor_key.clone()], "section")
+                .expect("section reference");
+        let lane = lfre::AuthoringLaneReference::owner_scoped(
+            vec![corridor_key.clone(), "section".into()],
+            "lane",
+        )
+        .expect("authoring lane reference");
+        let edge = lfre::LaneEdgeReference::local(edge_key).expect("approach edge reference");
+        module
+            .add_alignment(
+                lfre::RoadAlignmentInput::try_new(
+                    &alignment_key,
+                    lfre::CanonicalFrameReference::local("frame").expect("frame reference"),
+                    geometry,
+                )
+                .expect("road alignment"),
+            )
+            .expect("add road alignment")
+            .add_declaration(lfre::RoadEditingDeclaration::RoadCorridor(
+                lfre::RoadCorridorInput::try_new(
+                    &corridor_key,
+                    lfre::RoadAlignmentReference::try_new(&alignment_key)
+                        .expect("alignment reference"),
+                    0.0,
+                    lfre::RoadEditingStationEnd::AlignmentEnd,
+                    section.clone(),
+                    lane.clone(),
+                    vec![lfre::RoadEditingCorridorElement::RoadSection(
+                        section.clone(),
+                    )],
+                )
+                .expect("road corridor"),
+            ))
+            .expect("add road corridor")
+            .add_declaration(lfre::RoadEditingDeclaration::RoadSection(
+                lfre::RoadSectionInput::try_new("section", "motorLane", vec![lane], corridor)
+                    .expect("road section"),
+            ))
+            .expect("add road section")
+            .add_declaration(lfre::RoadEditingDeclaration::AuthoringLane(
+                lfre::AuthoringLaneInput::try_new(
+                    "lane",
+                    edge,
+                    lfre::RoadEditingLaneDirection::Forward,
+                    lfre::LinearWidthProfile::try_new(3.5, 3.5).expect("lane width"),
+                    None,
+                    section,
+                )
+                .expect("authoring lane"),
+            ))
+            .expect("add authoring lane")
+            .add_declaration(lfre::RoadEditingDeclaration::LaneEdge(
+                lfre::LaneEdgeInput::try_new(edge_key, 13.0, successors, None)
+                    .expect("approach lane edge"),
+            ))
+            .expect("add approach lane edge");
+    }
+
+    fn conflict_cutover_test_module(
+        insert_preceding_passage: bool,
+        change_stable_passage_exit: bool,
+    ) -> lfre::RoadEditingSourceModule {
+        let limits = CompileLimits::p100_initial_v2();
+        let header = lfre::RoadEditingModuleHeader::try_new(
+            "city/runtime-live-conflict-cutover",
+            "runtime-live-conflict-cutover.lfre",
+            Vec::new(),
+            lfre::RoadEditingProvenance::direct("runtime live Conflict cutover fixture")
+                .expect("provenance"),
+        )
+        .expect("Road Editing header");
+        let mut module = lfre::RoadEditingSourceModuleBuilder::new(
+            header,
+            laneflow_compiler::GeometryAccuracyProfile::Balanced5Cm,
+            laneflow_compiler::GeometryDirectionProfile::Balanced2Deg,
+            &limits,
+        )
+        .expect("Road Editing builder");
+        let junction = lfre::JunctionReference::local("crossing").expect("junction reference");
+        let frame = lfre::CanonicalFrameReference::local("frame").expect("frame reference");
+        let path = lfre::ManeuverPathReference::owner_scoped(
+            vec!["crossing".into(), "through".into()],
+            "path",
+        )
+        .expect("path reference");
+        let gate = lfre::ManeuverGateReference::owner_scoped(
+            vec!["crossing".into(), "through".into(), "path".into()],
+            "admission",
+        )
+        .expect("Gate reference");
+        let other_path = lfre::ManeuverPathReference::owner_scoped(
+            vec!["crossing".into(), "other-through".into()],
+            "other-path",
+        )
+        .expect("other path reference");
+        let other_gate = lfre::ManeuverGateReference::owner_scoped(
+            vec![
+                "crossing".into(),
+                "other-through".into(),
+                "other-path".into(),
+            ],
+            "other-admission",
+        )
+        .expect("other Gate reference");
+        let stable_zone =
+            lfre::ConflictZoneReference::owner_scoped(vec!["crossing".into()], "z-stable")
+                .expect("stable zone reference");
+        let inserted_zone =
+            lfre::ConflictZoneReference::owner_scoped(vec!["crossing".into()], "a-inserted")
+                .expect("inserted zone reference");
+
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::CanonicalFrame(
+                lfre::CanonicalFrameInput::try_new("frame").expect("canonical frame"),
+            ))
+            .expect("add frame");
+        add_conflict_cutover_test_approach(
+            &mut module,
+            "entry",
+            conflict_cutover_test_line((-13.0, 0.0), (0.0, 0.0)),
+            Vec::new(),
+        );
+        add_conflict_cutover_test_approach(
+            &mut module,
+            "exit",
+            conflict_cutover_test_line((13.0, 0.0), (26.0, 0.0)),
+            Vec::new(),
+        );
+        add_conflict_cutover_test_approach(
+            &mut module,
+            "other-entry",
+            conflict_cutover_test_line((0.0, -13.0), (0.0, 0.0)),
+            Vec::new(),
+        );
+        add_conflict_cutover_test_approach(
+            &mut module,
+            "other-exit",
+            conflict_cutover_test_line((0.0, 13.0), (0.0, 26.0)),
+            Vec::new(),
+        );
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::LaneEdge(
+                lfre::LaneEdgeInput::try_new(
+                    "internal",
+                    13.0,
+                    Vec::new(),
+                    Some(conflict_cutover_test_line((0.0, 0.0), (13.0, 0.0))),
+                )
+                .expect("internal lane edge"),
+            ))
+            .expect("add internal lane edge")
+            .add_declaration(lfre::RoadEditingDeclaration::LaneEdge(
+                lfre::LaneEdgeInput::try_new(
+                    "other-internal",
+                    13.0,
+                    Vec::new(),
+                    Some(conflict_cutover_test_line((0.0, 0.0), (0.0, 13.0))),
+                )
+                .expect("other internal lane edge"),
+            ))
+            .expect("add other internal lane edge");
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::Junction(
+                lfre::JunctionInput::try_new(
+                    "crossing",
+                    ["entry", "exit", "other-entry", "other-exit"]
+                        .into_iter()
+                        .map(|edge| lfre::LaneEdgeReference::local(edge).expect("approach"))
+                        .collect(),
+                    ["internal", "other-internal"]
+                        .into_iter()
+                        .map(|edge| lfre::LaneEdgeReference::local(edge).expect("internal"))
+                        .collect(),
+                )
+                .expect("junction"),
+            ))
+            .expect("add junction")
+            .add_declaration(lfre::RoadEditingDeclaration::Movement(
+                lfre::MovementInput::try_new("through", junction.clone(), "entry", "exit")
+                    .expect("movement"),
+            ))
+            .expect("add movement")
+            .add_declaration(lfre::RoadEditingDeclaration::ManeuverPath(
+                lfre::ManeuverPathInput::try_new(
+                    "path",
+                    lfre::MovementReference::owner_scoped(vec!["crossing".into()], "through")
+                        .expect("movement reference"),
+                    lfre::LaneEdgeReference::local("entry").expect("entry"),
+                    vec![lfre::LaneEdgeReference::local("internal").expect("internal")],
+                    lfre::LaneEdgeReference::local("exit").expect("exit"),
+                )
+                .expect("maneuver path"),
+            ))
+            .expect("add maneuver path")
+            .add_declaration(lfre::RoadEditingDeclaration::StopLine(
+                lfre::StopLineInput::try_new(
+                    "stop",
+                    lfre::LaneEdgeReference::local("entry").expect("stop edge"),
+                )
+                .expect("stop line"),
+            ))
+            .expect("add stop line")
+            .add_declaration(lfre::RoadEditingDeclaration::ManeuverGate(
+                lfre::ManeuverGateInput::try_new(
+                    "admission",
+                    path.clone(),
+                    0,
+                    lfre::StopLineReference::local("stop").expect("stop line reference"),
+                    lfre::RoadEditingSignalControl::None,
+                )
+                .expect("maneuver Gate"),
+            ))
+            .expect("add maneuver Gate")
+            .add_declaration(lfre::RoadEditingDeclaration::Movement(
+                lfre::MovementInput::try_new(
+                    "other-through",
+                    junction.clone(),
+                    "other-entry",
+                    "other-exit",
+                )
+                .expect("other movement"),
+            ))
+            .expect("add other movement")
+            .add_declaration(lfre::RoadEditingDeclaration::ManeuverPath(
+                lfre::ManeuverPathInput::try_new(
+                    "other-path",
+                    lfre::MovementReference::owner_scoped(vec!["crossing".into()], "other-through")
+                        .expect("other movement reference"),
+                    lfre::LaneEdgeReference::local("other-entry").expect("other entry"),
+                    vec![lfre::LaneEdgeReference::local("other-internal").expect("other internal")],
+                    lfre::LaneEdgeReference::local("other-exit").expect("other exit"),
+                )
+                .expect("other maneuver path"),
+            ))
+            .expect("add other maneuver path")
+            .add_declaration(lfre::RoadEditingDeclaration::StopLine(
+                lfre::StopLineInput::try_new(
+                    "other-stop",
+                    lfre::LaneEdgeReference::local("other-entry").expect("other stop edge"),
+                )
+                .expect("other stop line"),
+            ))
+            .expect("add other stop line")
+            .add_declaration(lfre::RoadEditingDeclaration::ManeuverGate(
+                lfre::ManeuverGateInput::try_new(
+                    "other-admission",
+                    other_path.clone(),
+                    0,
+                    lfre::StopLineReference::local("other-stop")
+                        .expect("other stop line reference"),
+                    lfre::RoadEditingSignalControl::None,
+                )
+                .expect("other maneuver Gate"),
+            ))
+            .expect("add other maneuver Gate")
+            .add_declaration(lfre::RoadEditingDeclaration::ConflictZone(
+                lfre::ConflictZoneInput::try_new("z-stable", junction.clone())
+                    .expect("stable zone"),
+            ))
+            .expect("add stable zone");
+        if insert_preceding_passage {
+            module
+                .add_declaration(lfre::RoadEditingDeclaration::ConflictZone(
+                    lfre::ConflictZoneInput::try_new("a-inserted", junction.clone())
+                        .expect("inserted zone"),
+                ))
+                .expect("add inserted zone");
+        }
+        let stable_passage = lfre::ConflictPassageInput::new(
+            stable_zone.clone(),
+            lfre::PathAnchorInput::interior(1, 3.0).expect("stable entry"),
+            lfre::PathAnchorInput::interior(1, if change_stable_passage_exit { 9.0 } else { 8.0 })
+                .expect("stable exit"),
+        );
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::ParticipantStream(
+                lfre::ParticipantStreamInput::try_new(
+                    "stream",
+                    junction.clone(),
+                    path.clone(),
+                    vec![stable_passage],
+                )
+                .expect("participant stream"),
+            ))
+            .expect("add participant stream");
+        let other_stable_passage = lfre::ConflictPassageInput::new(
+            stable_zone.clone(),
+            lfre::PathAnchorInput::interior(1, 3.5).expect("other stable entry"),
+            lfre::PathAnchorInput::interior(1, 7.5).expect("other stable exit"),
+        );
+        let other_passages = if insert_preceding_passage {
+            vec![
+                lfre::ConflictPassageInput::new(
+                    inserted_zone.clone(),
+                    lfre::PathAnchorInput::interior(1, 1.2).expect("other inserted entry"),
+                    lfre::PathAnchorInput::interior(1, 1.8).expect("other inserted exit"),
+                ),
+                other_stable_passage,
+            ]
+        } else {
+            vec![other_stable_passage]
+        };
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::ParticipantStream(
+                lfre::ParticipantStreamInput::try_new(
+                    "other-stream",
+                    junction.clone(),
+                    other_path.clone(),
+                    other_passages,
+                )
+                .expect("other participant stream"),
+            ))
+            .expect("add other participant stream");
+        if insert_preceding_passage {
+            module
+                .add_declaration(lfre::RoadEditingDeclaration::ParticipantStream(
+                    lfre::ParticipantStreamInput::try_new(
+                        "inserted-stream",
+                        junction.clone(),
+                        other_path.clone(),
+                        vec![lfre::ConflictPassageInput::new(
+                            inserted_zone.clone(),
+                            lfre::PathAnchorInput::interior(1, 1.3).expect("inserted peer entry"),
+                            lfre::PathAnchorInput::interior(1, 1.7).expect("inserted peer exit"),
+                        )],
+                    )
+                    .expect("inserted peer stream"),
+                ))
+                .expect("add inserted peer stream");
+        }
+        for (zone, min_x, max_x) in [(stable_zone, -1.0, 1.0), (inserted_zone, -3.0, -2.0)]
+            .into_iter()
+            .take(if insert_preceding_passage { 2 } else { 1 })
+        {
+            module
+                .add_conflict_zone_region(
+                    lfre::ConflictZoneRegionInput::try_new(
+                        zone,
+                        frame.clone(),
+                        -1.0,
+                        1.0,
+                        [(min_x, -1.0), (max_x, -1.0), (max_x, 1.0), (min_x, 1.0)]
+                            .into_iter()
+                            .map(|(x, z)| {
+                                lfre::RoadEditingPoint2::try_new(x, z).expect("region point")
+                            })
+                            .collect(),
+                    )
+                    .expect("conflict zone region"),
+                )
+                .expect("add conflict zone region");
+        }
+        let stream_rule = |stream| {
+            lfre::PolicyStreamRuleInput::try_new(
+                stream,
+                lfre::ParticipantStreamReference::owner_scoped(vec!["crossing".into()], stream)
+                    .expect("stream reference"),
+                None,
+                0,
+                vec![],
+                None,
+                vec![],
+            )
+            .expect("stream policy")
+        };
+        let mut policy_streams = vec![stream_rule("stream"), stream_rule("other-stream")];
+        if insert_preceding_passage {
+            policy_streams.push(stream_rule("inserted-stream"));
+        }
+        let participant =
+            lfre::ParticipantClassReference::local("road-user").expect("participant class");
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::ParticipantClass(
+                lfre::ParticipantClassInput::try_new("road-user").expect("participant class"),
+            ))
+            .expect("add participant class")
+            .add_declaration(lfre::RoadEditingDeclaration::VehicleProfile(
+                lfre::VehicleProfileInput::try_new(
+                    "car",
+                    participant,
+                    lfre::IidmVehicleProfileInput::try_new(4.5, 13.0, 2.0, 1.5, 1.5, 2.0, 4.0)
+                        .expect("vehicle profile"),
+                )
+                .expect("vehicle profile"),
+            ))
+            .expect("add vehicle profile")
+            .add_declaration(lfre::RoadEditingDeclaration::RightOfWayPolicySet(
+                lfre::RightOfWayPolicySetInput::try_new(
+                    "policy",
+                    laneflow_compiler::RegulationIdentity::try_new("engineering", "fixture-1")
+                        .expect("regulation")
+                        .with_source("repository:runtime-live-conflict-cutover")
+                        .expect("regulation source"),
+                    vec![],
+                    vec![],
+                    policy_streams,
+                    vec![
+                        lfre::PolicyGateRuleInput::try_new(
+                            "admission",
+                            gate,
+                            None,
+                            laneflow_compiler::GateInterpretation::Uncontrolled,
+                            laneflow_compiler::GateProhibition::None,
+                            vec![],
+                        )
+                        .expect("Gate policy"),
+                        lfre::PolicyGateRuleInput::try_new(
+                            "other-admission",
+                            other_gate,
+                            None,
+                            laneflow_compiler::GateInterpretation::Uncontrolled,
+                            laneflow_compiler::GateProhibition::None,
+                            vec![],
+                        )
+                        .expect("other Gate policy"),
+                    ],
+                )
+                .expect("right-of-way policy"),
+            ))
+            .expect("add right-of-way policy");
+        module.finish().expect("Road Editing module")
+    }
+
+    fn compile_conflict_cutover_test_pair(
+        target_insert_preceding_passage: bool,
+        target_change_stable_passage_exit: bool,
+    ) -> (
+        Arc<SharedNetworkRevision>,
+        Arc<SharedNetworkRevision>,
+        Vec<u8>,
+        SemanticDiffOriginBinding,
+    ) {
+        let compile = |module| {
+            let limits = CompileLimits::p100_initial_v2();
+            let source = lfre::RoadEditingSourceWriter::new(&limits)
+                .write(module)
+                .expect("Road Editing source");
+            let input = lfre::RoadEditingModuleInput::try_new(
+                "runtime-live-conflict-cutover.lfre",
+                source.as_bytes(),
+                None,
+            )
+            .expect("Road Editing module input");
+            let mut unit = CompilationUnitBuilder::new(limits);
+            unit.add_road_editing_module(input)
+                .expect("Road Editing admission");
+            Compiler::new()
+                .compile(unit.build().expect("compilation unit"))
+                .unwrap_or_else(|bundle| {
+                    panic!(
+                        "compile diagnostics: {:?}",
+                        bundle
+                            .diagnostics()
+                            .iter()
+                            .map(|diagnostic| (diagnostic.code(), diagnostic.payload()))
+                            .collect::<Vec<_>>()
+                    )
+                })
+        };
+        let base_output = compile(conflict_cutover_test_module(false, false));
+        let target_output = compile(conflict_cutover_test_module(
+            target_insert_preceding_passage,
+            target_change_stable_passage_exit,
+        ));
+        let provenance = PortableEmissionProvenance::try_new("runtime-live-conflict-cutover-v1")
+            .expect("portable provenance");
+        let base_candidate = emit_portable_candidate(
+            &base_output,
+            &provenance,
+            FormatLimits::HARD,
+            PortableDiffBase::Genesis,
+        )
+        .expect("base portable candidate");
+        let base_values = preflight_object_values(
+            base_candidate.canonical_artifact().bytes(),
+            PortableObjectKind::CanonicalArtifact,
+            FormatLimits::HARD,
+        )
+        .expect("base artifact values");
+        let target_candidate = emit_portable_candidate(
+            &target_output,
+            &provenance,
+            FormatLimits::HARD,
+            PortableDiffBase::Artifact(base_values),
+        )
+        .expect("target portable candidate");
+        let base_checked = check_post_emission_bundle(
+            base_candidate.canonical_artifact().bytes(),
+            base_candidate.source_map().bytes(),
+            base_candidate.semantic_diff().bytes(),
+            base_candidate.expected_semantic_diff_base(),
+            FormatLimits::HARD,
+        )
+        .expect("base bundle");
+        let target_checked = check_post_emission_bundle(
+            target_candidate.canonical_artifact().bytes(),
+            target_candidate.source_map().bytes(),
+            target_candidate.semantic_diff().bytes(),
+            target_candidate.expected_semantic_diff_base(),
+            FormatLimits::HARD,
+        )
+        .expect("target bundle");
+        let options = || {
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::RetainAvailable,
+                SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+            )
+        };
+        let base = build_shared_network_revision(base_checked.canonical_network_input(), options())
+            .expect("base revision");
+        let target =
+            build_shared_network_revision(target_checked.canonical_network_input(), options())
+                .expect("target revision");
+        let semantic_diff = target_candidate.semantic_diff().bytes().to_vec();
+        let binding = SemanticDiffOriginBinding::new(
+            SEMANTIC_DIFF_FORMAT_VERSION,
+            target_candidate.semantic_diff().digest(),
+            target_candidate.semantic_diff().byte_length(),
+        );
+        (base, target, semantic_diff, binding)
+    }
+
+    fn live_conflict_cutover_world(
+        revision: Arc<SharedNetworkRevision>,
+    ) -> (TrafficWorld, VehicleHandle) {
+        let origin = *revision.canonical_origin();
+        let mut world = TrafficWorld::install(
+            Arc::clone(&revision),
+            WorldConfig::new(4, 4, 64, 8, 1, 100),
+            crate::cutover::tests::transaction_tests::source_for(
+                origin,
+                "fixture://live-conflict-cutover-base",
+            ),
+            284,
+            crate::WorldPolicySelection::Pinned(crate::PolicyPin {
+                policy: revision
+                    .identity()
+                    .stable_id(laneflow_static_contract::RightOfWayPolicySetOrdinal::from_raw(0))
+                    .expect("fixture policy"),
+            }),
+        )
+        .expect("install live Conflict world");
+        let stream = revision
+            .conflict()
+            .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+            .expect("participant stream");
+        let route = world
+            .register_route(RouteRegisterInput::new(
+                revision
+                    .traffic()
+                    .maneuvers()
+                    .maneuver_path(stream.maneuver_path())
+                    .expect("maneuver path")
+                    .edges()
+                    .to_vec(),
+            ))
+            .expect("conflict route");
+        let vehicle = world
+            .restore_unparked_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0),
+                0,
+                VehicleStatus::Active,
+                None,
+                None,
+                true,
+            )
+            .expect("reservation vehicle");
+        install_conflict_reservation(&mut world, route, vehicle);
+        (world, vehicle)
+    }
 
     #[test]
     fn live_conflict_reservation_survives_structural_revalidation() {
@@ -2292,6 +2874,151 @@ pub(crate) mod tests {
             after.vehicles[vehicle.index() as usize].conflict_reservation
         );
         assert_eq!(before.conflict_lag_states, after.conflict_lag_states);
+    }
+
+    #[test]
+    fn live_conflict_reservation_follows_stable_passage_across_cross_revision_static_insertion() {
+        let (base, target, semantic_diff, semantic_diff_binding) =
+            compile_conflict_cutover_test_pair(true, false);
+        let (mut world, vehicle) = live_conflict_cutover_world(Arc::clone(&base));
+        let source_reservation = world
+            .conflict_reservation(vehicle)
+            .expect("source reservation");
+        let source_range = source_reservation.passage_range();
+        let source_address = world
+            .compiled_route(source_range.route())
+            .expect("source compiled route")
+            .conflicts[source_range.first_conflict_occurrence_index() as usize]
+            .address();
+        let source_locator = (
+            base.identity()
+                .stable_id(source_address.stream())
+                .expect("source stream identity"),
+            base.identity()
+                .stable_id(source_address.zone())
+                .expect("source zone identity"),
+        );
+        let descriptor = NetworkRevisionCutoverDescriptor::new(
+            LfcaOriginBinding::from_canonical_origin(*base.canonical_origin()),
+            LfcaOriginBinding::from_canonical_origin(*target.canonical_origin()),
+            Some(semantic_diff_binding),
+            MigrationPolicyKind::CrossRevisionDirect,
+            world.world_binding(),
+        );
+        let transaction = world
+            .prepare_cross_revision_cutover(
+                Arc::clone(&target),
+                crate::cutover::tests::transaction_tests::source_for(
+                    *target.canonical_origin(),
+                    "fixture://live-conflict-insertion-target",
+                ),
+                &descriptor,
+                &semantic_diff,
+                &CutoverPreflightLimits::new(1_048_576),
+                &CutoverTransactionLimits::default(),
+            )
+            .expect("stable passage survives insertion during Prepare");
+        let _commit = transaction
+            .commit(&mut world)
+            .expect("commit inserted passage cutover");
+
+        let target_reservation = world
+            .conflict_reservation(vehicle)
+            .expect("target reservation");
+        let target_range = target_reservation.passage_range();
+        assert_eq!(target_range.passage_count(), source_range.passage_count());
+        let target_address = world
+            .compiled_route(target_range.route())
+            .expect("target compiled route")
+            .conflicts[target_range.first_conflict_occurrence_index() as usize]
+            .address();
+        assert_eq!(
+            (
+                target
+                    .identity()
+                    .stable_id(target_address.stream())
+                    .expect("target stream identity"),
+                target
+                    .identity()
+                    .stable_id(target_address.zone())
+                    .expect("target zone identity"),
+            ),
+            source_locator,
+            "reservation must follow stream/zone stable identity, not target table order"
+        );
+        assert_eq!(
+            target
+                .identity()
+                .entity_count(laneflow_static_contract::EntityKind::ConflictZone),
+            base.identity()
+                .entity_count(laneflow_static_contract::EntityKind::ConflictZone)
+                + 1
+        );
+        assert_eq!(
+            target_reservation.acquired_tick(),
+            source_reservation.acquired_tick()
+        );
+        assert!(world.conflict_state_valid());
+        assert!(world.migration_journal().is_none());
+    }
+
+    #[test]
+    fn live_conflict_reservation_rejects_same_stable_passage_with_changed_anchor_atomically() {
+        let (base, target, semantic_diff, semantic_diff_binding) =
+            compile_conflict_cutover_test_pair(false, true);
+        let (mut world, vehicle) = live_conflict_cutover_world(Arc::clone(&base));
+        let before = world
+            .capture_snapshot()
+            .expect("snapshot before failed cutover");
+        let before_revision = *world.revision().canonical_origin();
+        let target_origin = *target.canonical_origin();
+        let descriptor = NetworkRevisionCutoverDescriptor::new(
+            LfcaOriginBinding::from_canonical_origin(*base.canonical_origin()),
+            LfcaOriginBinding::from_canonical_origin(target_origin),
+            Some(semantic_diff_binding),
+            MigrationPolicyKind::CrossRevisionDirect,
+            world.world_binding(),
+        );
+        let error = match world.prepare_cross_revision_cutover(
+            Arc::clone(&target),
+            crate::cutover::tests::transaction_tests::source_for(
+                target_origin,
+                "fixture://live-conflict-anchor-target",
+            ),
+            &descriptor,
+            &semantic_diff,
+            &CutoverPreflightLimits::new(1_048_576),
+            &CutoverTransactionLimits::default(),
+        ) {
+            Ok(_) => panic!("changed stable passage anchor must reject Prepare"),
+            Err(error) => error,
+        };
+        assert_eq!(error, CutoverError::ConflictRevalidationFailed);
+        assert_eq!(*world.revision().canonical_origin(), before_revision);
+        assert_eq!(
+            world
+                .capture_snapshot()
+                .expect("snapshot after failed cutover"),
+            before
+        );
+        assert!(world.conflict_reservation(vehicle).is_some());
+        assert!(world.migration_journal().is_none());
+        let retry = match world.prepare_cross_revision_cutover(
+            target,
+            crate::cutover::tests::transaction_tests::source_for(
+                target_origin,
+                "fixture://live-conflict-anchor-retry",
+            ),
+            &descriptor,
+            &semantic_diff,
+            &CutoverPreflightLimits::new(1_048_576),
+            &CutoverTransactionLimits::default(),
+        ) {
+            Ok(_) => panic!("changed stable passage anchor retry must reject Prepare"),
+            Err(error) => error,
+        };
+        assert_eq!(retry, CutoverError::ConflictRevalidationFailed);
+        assert!(world.migration_journal().is_none());
     }
 
     #[test]
