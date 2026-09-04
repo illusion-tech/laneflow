@@ -1,0 +1,23 @@
+[package]
+name = "laneflow-format-mmap"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "LaneFlow staged object 的平台私有临时文件与只读映射 backing。"
+publish = false
+
+[lib]
+name = "laneflow_format_mmap"
+path = "src/lib.rs"
+
+[dependencies]
+memmap2 = { version = "=0.9.11", default-features = false }
+tempfile = "=3.27.0"
+
+# 本 package 是 workspace 内唯一登记的手写 unsafe 例外：恰一次模块级 allow、
+# 恰一次 memmap2 只读映射调用、恰一处 unsafe token，全部在本 crate 的单一
+# lib.rs 内，由 check-wire-audit 的 mmap 例外复核逐次断言。
+[lints.rust]
+unsafe_code = "allow"

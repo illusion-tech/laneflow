@@ -66,15 +66,15 @@ laneflow-static-network ─────────┘              │
 ```toml
 # crates/laneflow-format/Cargo.toml
 sha2 = { version = "0.11", default-features = false }
-memmap2 = { version = "0.9.11", optional = true }
-tempfile = { version = "3.27.0", optional = true }
+laneflow-format-mmap = { version = "0.0.0", path = "../laneflow-format-mmap", optional = true }
 ```
 
-`std` staged adapter 直接声明 `memmap2` 与 `tempfile`；checker/writer core 默认仍为
-`no_std`。写侧使用安全的顺序 file sink 与定点回填，唯一 `unsafe` island 是 finish 后的
-私有只读映射；`tempfile` 在 Unix 使用匿名或立即 unlink 的 backing，在 Windows 使用
-`share_mode(0)` + delete-on-close 的 backing。该适配器只持有临时 backing，不提供安装或
-发布事务。
+`std` staged adapter 经 `laneflow-format-mmap` 获得平台私有临时 backing 与只读映射；
+checker/writer core 默认仍为 `no_std`，`laneflow-format` 自身继承 workspace
+`unsafe_code = "forbid"`。写侧使用安全的顺序 file sink 与定点回填；唯一的
+`unsafe` island 封在 `laneflow-format-mmap` 内部：backing 创建即平台私有（Unix
+匿名/unlink、Windows `share_mode(0)` + delete-on-close），写窗口经 seal 消费关闭，
+映射前再次核对 exact length。该适配器只持有临时 backing，不提供安装或发布事务。
 
 ## 4. 公共检查 API
 

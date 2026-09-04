@@ -1,7 +1,7 @@
 //! Wire / toolchain 审计边界（#376）。
 //!
-//! 不变量：workspace 内除钉版 flatc 生成物外没有 unsafe 代码，且该边界不能被
-//! 配置 / 环境注入削弱。机制：
+//! 不变量：workspace 内除钉版 flatc 生成物与唯一登记的手写 mmap 例外 crate
+//! 外没有 unsafe 代码，且该边界不能被配置 / 环境注入削弱。机制：
 //!
 //! 1. Cargo.lock flatbuffers resolved 钉版唯一性（有界文本检查）。
 //! 2. 两个 wire crate 只承载钉版生成物，全部在 required check（本审计）内闭合：
@@ -16,41 +16,47 @@
 //!    clean-regeneration 证明）。这些钉版叠加后，wire crate 内不存在任何
 //!    可写入手写 unsafe 的载体。
 //! 3. workspace 成员 lint 分类断言（真 TOML 解析每个成员 manifest）：继承
-//!    workspace `unsafe_code = "forbid"` 的成员构成 forbid 集；唯一登记的
-//!    deny 例外是 laneflow-format（已审计的只读 mmap，文件级 allow 机制，
-//!    其例外文件的精确内容见第 6 条）；仅两个 wire crate 允许
-//!    `[lints.rust] unsafe_code = "allow"`。deny 集与 allow 集逐一与登记
-//!    名单比对，新增例外或改类一律 fail closed。
-//! 4. forbid / deny 成员的每个 target（lib/bin/test/bench/example）以
-//!    hermetic 编译验证：剔除注入向量的环境（RUSTFLAGS /
-//!    CARGO_ENCODED_RUSTFLAGS / CARGO_BUILD_RUSTFLAGS /
-//!    CARGO_TARGET_*_RUSTFLAGS / RUSTC / *_WRAPPER / CARGO_BUILD_RUSTC* /
-//!    RUSTC_BOOTSTRAP）、仓库外临时 cwd（仓库内 .cargo/config.toml 因 cargo
-//!    配置按 cwd 向上发现而不可达）、默认特性集与 `--all-features` 全特性集
-//!    各跑一遍（`cfg(feature)` / `cfg(not(feature))` 互补分支都必须进入
-//!    编译单元）、尾参 `-F unsafe_code`（forbid 集）/
-//!    `-D unsafe_code`（deny 集）。cargo 尾参（`--` 之后）优先级高于
-//!    manifest [lints]、env rustflags 与 .cargo/config.toml rustflags
-//!    （金丝雀逐次复核，见下），因此一切文本形态绕过（转义、拆分数组、
-//!    宏元变量、shell 构造、include / #[path] 形态）对本门禁无效：无论源码
-//!    以何形态进入编译单元，都在同一 crate 编译中过 lint。
+//!    workspace `unsafe_code = "forbid"` 的成员构成 forbid 集；
+//!    `[lints.rust] unsafe_code = "allow"` 只允许两个 wire crate 与唯一手写
+//!    例外 laneflow-format-mmap。allow 集逐一与登记名单比对，新增例外或
+//!    改类一律 fail closed；`deny` 不再是可登记形态（中间档既允许文件级
+//!    allow 覆盖、又制造模糊地带，已随 mmap 例外独立成 crate 删除）。
+//! 4. forbid 成员的每个 target（lib/bin/test/bench/example）以 hermetic
+//!    编译验证：剔除注入向量的环境（RUSTFLAGS / CARGO_ENCODED_RUSTFLAGS /
+//!    CARGO_BUILD_RUSTFLAGS / CARGO_TARGET_*_RUSTFLAGS / RUSTC / *_WRAPPER /
+//!    CARGO_BUILD_RUSTC* / RUSTC_BOOTSTRAP）、仓库外临时 cwd（仓库内
+//!    .cargo/config.toml 因 cargo 配置按 cwd 向上发现而不可达）、默认特性集
+//!    与 `--all-features` 全特性集各跑一遍（`cfg(feature)` /
+//!    `cfg(not(feature))` 互补分支都必须进入编译单元）、尾参
+//!    `-F unsafe_code`。cargo 尾参（`--` 之后）优先级高于 manifest [lints]、
+//!    env rustflags 与 .cargo/config.toml rustflags（金丝雀逐次复核，见下），
+//!    因此一切文本形态绕过（转义、拆分数组、宏元变量、shell 构造、
+//!    include / #[path] / cfg_attr 形态）对本门禁无效：无论源码以何形态
+//!    进入编译单元，都在同一 crate 编译中过 lint。
 //! 5. 尾参优先级语义不依赖文档假设：正式检查前先跑三个金丝雀 crate
 //!    （manifest [lints] 注入 / RUSTFLAGS 环境注入 / cwd .cargo/config.toml
 //!    注入），三者都必须被尾参击败（编译失败且 stderr 指向 unsafe）；任一
 //!    金丝雀编译成功或以非 unsafe 原因失败，即判定工具链行为改变，fail closed。
-//! 6. laneflow-format 的 mmap 例外由
-//!    `schema_codegen::check_audited_mmap_sources` 在本审计内复核：
-//!    例外文件恰好一次模块级 allow 与一次固定只读映射调用，crate 内其他
-//!    源文件零 unsafe、零 allow(unsafe_code)；crate 内全面禁止
+//! 6. forbid 集文本边界（与第 4 条叠加，二者职责不重叠）：成员 package 目录下
+//!    全部 .rs 经 `schema_codegen::strip_non_code` 剥掉注释与字面量后，
+//!    `unsafe` token 必须为 0 且不得出现 `allow(unsafe_code)`。文本与 cfg 无关，
+//!    因此 feature 组合、`cfg(not(debug_assertions))`、`cfg(windows)` 等非活动
+//!    分支里的 unsafe 无处可藏（编译扫描只覆盖活动分支，本扫描补齐）；宏展开
+//!    unsafe 的 workspace 内定义体也必含 token（外部依赖宏归残余信任边界）。
+//! 7. laneflow-format-mmap 的例外边界在本审计内闭合：manifest 卫生（与 wire
+//!    同构，[dependencies] 恰好 memmap2/tempfile 两条钉版）；
+//!    `schema_codegen::check_audited_mmap_sources` 断言例外 lib.rs 恰好一次
+//!    模块级 allow、一次固定只读映射调用、一处 unsafe token（strip 后计数），
+//!    crate 内其他源文件零 unsafe、零 allow(unsafe_code)；crate 内全面禁止
 //!    `#[path]` 模块属性与 `include!` 宏——rustc 仅经此二路加载 .rs 扫描面
-//!    之外的源码（如 `#[path = "payload.txt"]`），禁绝后 .rs 全集即编译器
-//!    可达源码全集。
+//!    之外的源码，禁绝后 .rs 全集即编译器可达源码全集。
 //!
 //! 残余信任边界（本模块不尝试自审）：本检查步骤的定义（.github/workflows/）、
 //! xtask 源码（含 wire_pins 钉版副本）与依赖政策配置（deny.toml）可被 PR
 //! 修改，现由普通 PR review 守住；是否以 CODEOWNERS + code owner review
 //! 强制，按 ADR 0027 另开治理 Issue 评估（#579）。
 
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -74,10 +80,10 @@ const ROAD_EDITING_GENERATED_RS_SHA256: &str =
 const RUNTIME_SNAPSHOT_GENERATED_RS_SHA256: &str =
     "4d40bdb2015771fa3ba3650b1eaa99ed52148f49d572dedb7e9a51ca65afe3ff";
 
-/// 分类断言：整个 workspace 只允许这一个 crate 以 `deny` + 文件级例外承载
-/// unsafe（laneflow-format 的已审计只读 mmap）。新增 deny crate 必须在此登记，
-/// 登记变更随 PR 评审。
-const EXPECTED_DENY_UNSAFE_PACKAGES: [&str; 1] = ["laneflow-format"];
+/// 分类断言：workspace 内唯一登记的手写 unsafe 例外 crate（平台私有临时文件
+/// staging + 只读映射）。它与两个 wire crate 构成 `allow` 登记名单；新增
+/// allow crate 必须在 `require_expected_classification` 登记，登记变更随 PR 评审。
+const AUDITED_MMAP_PACKAGE_NAME: &str = "laneflow-format-mmap";
 
 /// hermetic 编译前必须剔除的精确环境变量：它们能把 rustc 二进制、wrapper 或
 /// 额外 rustflags 注入编译命令行。
@@ -107,12 +113,13 @@ pub(crate) fn run() -> Result<(), String> {
     require_repository_root(&repository_root)?;
     check_flatbuffers_lockfile_pin(&repository_root)?;
     check_wire_manifest_hygiene(&repository_root)?;
+    check_mmap_manifest_hygiene(&repository_root)?;
     check_wire_lib_rs_pins(&repository_root)?;
     check_generated_rs_pins(&repository_root)?;
     schema_codegen::check_audited_mmap_sources(&repository_root)?;
     check_workspace_unsafe_boundary(&repository_root)?;
     println!(
-        "wire 工具链审计已通过：flatbuffers 钉版闭合，wire crate 包装器/生成物/依赖表钉版闭合，mmap 例外复核闭合（含 #[path]/include! 加载入口禁令），workspace unsafe 分类断言闭合，forbid/deny 成员全部 target（默认+全特性双配置，含 example）通过 hermetic 编译（含三路注入金丝雀复核）"
+        "wire 工具链审计已通过：flatbuffers 钉版闭合，wire crate 包装器/生成物/依赖表钉版闭合，mmap 例外 crate manifest/源码复核闭合（含 #[path]/include! 加载入口禁令），workspace unsafe 分类断言闭合（forbid/allow 两级），forbid 成员全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支），forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
     );
     Ok(())
 }
@@ -321,6 +328,96 @@ fn require_wire_flatbuffers_dep(manifest: &toml::Table, label: &str) -> Result<(
     Ok(())
 }
 
+/// mmap 例外 crate 的 manifest 卫生：与 wire crate 同构——[package] 必须存在、
+/// 不得声明 build 脚本键、[lib] 固定指向 src/lib.rs、不得声明额外 target 段、
+/// package 根目录不得存在 build.rs；[dependencies] 必须恰好两条钉版：
+/// `memmap2 = { version = "=0.9.11", default-features = false }`（恰两键）与
+/// `tempfile = "=3.27.0"`；无 dev/build 依赖段。
+fn check_mmap_manifest_hygiene(repository_root: &Path) -> Result<(), String> {
+    let manifest_path = "crates/laneflow-format-mmap/Cargo.toml";
+    let manifest_text = fs::read_to_string(repository_root.join(manifest_path))
+        .map_err(|error| format!("无法读取 `{manifest_path}`: {error}"))?;
+    let manifest: toml::Table = manifest_text.parse().map_err(|error| {
+        format!("mmap 例外 manifest `{manifest_path}` TOML 解析失败，无法静态审计: {error}")
+    })?;
+    let package = manifest
+        .get("package")
+        .and_then(toml::Value::as_table)
+        .ok_or_else(|| format!("mmap 例外 manifest `{manifest_path}` 缺少 [package] 段"))?;
+    if package.contains_key("build") {
+        return Err(format!(
+            "mmap 例外 manifest `{manifest_path}` 不得声明 build 脚本键"
+        ));
+    }
+    let lib_path = manifest
+        .get("lib")
+        .and_then(toml::Value::as_table)
+        .and_then(|lib| lib.get("path"))
+        .and_then(toml::Value::as_str)
+        .ok_or_else(|| format!("mmap 例外 manifest `{manifest_path}` 缺少 [lib].path"))?;
+    if lib_path != "src/lib.rs" {
+        return Err(format!(
+            "mmap 例外 manifest `{manifest_path}` 的 [lib].path 必须固定为 `src/lib.rs`，实际 `{lib_path}`"
+        ));
+    }
+    for section in ["bin", "test", "bench", "example"] {
+        if manifest.get(section).is_some() {
+            return Err(format!(
+                "mmap 例外 manifest `{manifest_path}` 不得声明 {section} target 段（例外 crate 只许 [lib] 一个编译入口）"
+            ));
+        }
+    }
+    let dependencies = manifest
+        .get("dependencies")
+        .and_then(toml::Value::as_table)
+        .ok_or_else(|| format!("mmap 例外 manifest `{manifest_path}` 缺少 [dependencies] 段"))?;
+    if dependencies.len() != 2 {
+        return Err(format!(
+            "mmap 例外 manifest `{manifest_path}` 的 [dependencies] 必须恰好 memmap2/tempfile 两条，实际 {} 条",
+            dependencies.len()
+        ));
+    }
+    let memmap2 = dependencies
+        .get("memmap2")
+        .and_then(toml::Value::as_table)
+        .ok_or_else(|| {
+            format!("mmap 例外 manifest `{manifest_path}` 的 memmap2 依赖必须是内联表形态")
+        })?;
+    if memmap2.len() != 2
+        || memmap2.get("version").and_then(toml::Value::as_str) != Some("=0.9.11")
+        || memmap2
+            .get("default-features")
+            .and_then(toml::Value::as_bool)
+            != Some(false)
+    {
+        return Err(format!(
+            "mmap 例外 manifest `{manifest_path}` 的 memmap2 依赖必须恰好为 `version = \"=0.9.11\", default-features = false` 两键（禁止 `package` 改名等注入）"
+        ));
+    }
+    if dependencies.get("tempfile").and_then(toml::Value::as_str) != Some("=3.27.0") {
+        return Err(format!(
+            "mmap 例外 manifest `{manifest_path}` 的 tempfile 依赖必须精确钉为 `\"=3.27.0\"`"
+        ));
+    }
+    for section in ["dev-dependencies", "build-dependencies"] {
+        if manifest.contains_key(section) {
+            return Err(format!(
+                "mmap 例外 manifest `{manifest_path}` 不得声明 [{section}] 段（例外 crate 无 dev/build 依赖面）"
+            ));
+        }
+    }
+    if repository_root
+        .join("crates/laneflow-format-mmap")
+        .join("build.rs")
+        .is_file()
+    {
+        return Err(format!(
+            "mmap 例外 package `{manifest_path}` 不得包含 build.rs"
+        ));
+    }
+    Ok(())
+}
+
 /// wire crate 的手写载体只有包装器 lib.rs；它与钉版副本字节相等，因此
 /// 其中不可能出现未审计内容。合法变更（flatc 升级导致模块形态变化等）必须
 /// 在同一 PR 同步更新钉版副本，diff 随评审可见。
@@ -387,25 +484,24 @@ fn check_generated_rs_pins(repository_root: &Path) -> Result<(), String> {
 enum UnsafeLevel {
     /// 继承 workspace `unsafe_code = "forbid"`：hermetic 尾参 `-F`。
     Forbid,
-    /// 自有 `[lints.rust] unsafe_code = "deny"`（登记例外）：hermetic 尾参 `-D`，
-    /// 保留其文件级 allow 例外机制。
-    Deny,
-    /// 自有 `[lints.rust] unsafe_code = "allow"`：只允许两个纯生成物 wire crate，
-    /// 不参与 hermetic 编译（其边界由钉版与 clean-regeneration 闭合）。
-    AllowGenerated,
+    /// 自有 `[lints.rust] unsafe_code = "allow"` 的登记例外：两个纯生成物 wire
+    /// crate（边界由钉版与 clean-regeneration 闭合）与唯一手写例外
+    /// laneflow-format-mmap（边界由 mmap 例外复核闭合）。不参与 hermetic 编译。
+    Allow,
 }
 
 impl UnsafeLevel {
     fn tail_flag(self) -> Option<&'static str> {
         match self {
             UnsafeLevel::Forbid => Some("-F"),
-            UnsafeLevel::Deny => Some("-D"),
-            UnsafeLevel::AllowGenerated => None,
+            UnsafeLevel::Allow => None,
         }
     }
 }
 
 /// 真 TOML 解析成员 manifest 的 lint 分类；未分类形态 fail closed。
+/// `unsafe_code = "deny"` 不再是可登记形态：中间档既允许文件级 allow 覆盖，
+/// 又制造"非 forbid 也非钉版"的模糊地带，已随 mmap 例外独立成 crate 删除。
 fn classify_member_lints(manifest_text: &str, label: &str) -> Result<UnsafeLevel, String> {
     let manifest: toml::Table = manifest_text
         .parse()
@@ -424,40 +520,30 @@ fn classify_member_lints(manifest_text: &str, label: &str) -> Result<UnsafeLevel
         .and_then(|rust| rust.get("unsafe_code"))
         .and_then(toml::Value::as_str)
     {
-        Some("deny") => Ok(UnsafeLevel::Deny),
-        Some("allow") => Ok(UnsafeLevel::AllowGenerated),
+        Some("allow") => Ok(UnsafeLevel::Allow),
         _ => Err(format!(
-            "成员 manifest `{label}` 的 [lints] 既非 workspace 继承也非已登记的 unsafe_code deny/allow 形态，fail closed"
+            "成员 manifest `{label}` 的 [lints] 既非 workspace 继承也非已登记的 unsafe_code allow 形态，fail closed"
         )),
     }
 }
 
-/// 断言 deny 集与 allow 集与登记名单完全一致；任何新增例外或改类都使审计失败。
+/// 断言 allow 集与登记名单（两个 wire crate + 唯一手写 mmap 例外 crate）
+/// 完全一致；任何新增例外或改类都使审计失败。
 fn require_expected_classification(classified: &[(String, UnsafeLevel)]) -> Result<(), String> {
-    let mut deny: Vec<&str> = classified
-        .iter()
-        .filter(|(_, level)| *level == UnsafeLevel::Deny)
-        .map(|(name, _)| name.as_str())
-        .collect();
-    deny.sort_unstable();
-    if deny != EXPECTED_DENY_UNSAFE_PACKAGES {
-        return Err(format!(
-            "workspace unsafe_code = \"deny\" crate 集合 {deny:?} 与登记名单 {EXPECTED_DENY_UNSAFE_PACKAGES:?} 不符；新增例外必须在 xtask 审计常量登记并随 PR 评审"
-        ));
-    }
     let mut allow: Vec<&str> = classified
         .iter()
-        .filter(|(_, level)| *level == UnsafeLevel::AllowGenerated)
+        .filter(|(_, level)| *level == UnsafeLevel::Allow)
         .map(|(name, _)| name.as_str())
         .collect();
     allow.sort_unstable();
     let mut expected_allow: Vec<&str> = wire_families()
         .map(|family| family.wire_package_name)
         .to_vec();
+    expected_allow.push(AUDITED_MMAP_PACKAGE_NAME);
     expected_allow.sort_unstable();
     if allow != expected_allow {
         return Err(format!(
-            "workspace unsafe_code = \"allow\" crate 集合 {allow:?} 与 wire crate 名单 {expected_allow:?} 不符；`allow` 只许钉版生成物 crate 使用"
+            "workspace unsafe_code = \"allow\" crate 集合 {allow:?} 与登记名单 {expected_allow:?} 不符；`allow` 只许钉版生成物 crate 与已审计 mmap 例外 crate 使用，新增例外必须在 xtask 审计常量登记并随 PR 评审"
         ));
     }
     Ok(())
@@ -629,6 +715,7 @@ fn run_workspace_unsafe_boundary(repository_root: &Path, audit_root: &Path) -> R
         classified.push((member.name.clone(), level));
     }
     require_expected_classification(&classified)?;
+    check_forbid_textual_boundary(&members, &classified)?;
     let target_dir = repository_root.join("target");
     for (member, (_, level)) in members.iter().zip(classified.iter()) {
         let Some(flag) = level.tail_flag() else {
@@ -663,6 +750,43 @@ fn run_workspace_unsafe_boundary(repository_root: &Path, audit_root: &Path) -> R
                         stderr_tail(&output)
                     ));
                 }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// forbid 集文本边界：每个 forbid 成员 package 目录下全部 .rs（含 build.rs、
+/// tests、benches、examples——cfg 门控、release profile 与非 Linux 平台分支在
+/// 文本层面无差别覆盖），strip 注释与字符串/字符字面量后不得出现 `unsafe`
+/// token 或 `allow(unsafe_code)`。与 hermetic `-F` 编译（宏展开维度 + lint
+/// 不可覆盖语义）叠加：宏展开 unsafe 由编译抓，cfg 门控 unsafe 由本扫描抓。
+fn check_forbid_textual_boundary(
+    members: &[MemberPackage],
+    classified: &[(String, UnsafeLevel)],
+) -> Result<(), String> {
+    for (member, (_, level)) in members.iter().zip(classified.iter()) {
+        if *level != UnsafeLevel::Forbid {
+            continue;
+        }
+        let package_root = member
+            .manifest_path
+            .parent()
+            .ok_or_else(|| format!("成员 `{}` 的 manifest 路径没有父目录", member.name))?;
+        let mut sources = Vec::new();
+        schema_codegen::collect_extension_files(package_root, OsStr::new("rs"), &mut sources)?;
+        for source in sources {
+            let text = fs::read_to_string(&source)
+                .map_err(|error| format!("无法读取 `{}`: {error}", source.display()))?;
+            let code = schema_codegen::strip_non_code(&text);
+            if schema_codegen::count_unsafe_tokens(&code) != 0
+                || code.contains("allow(unsafe_code)")
+            {
+                return Err(format!(
+                    "forbid 成员 `{}` 的源文件含 unsafe token 或 allow(unsafe_code)（strip 注释与字面量后判定）：`{}`",
+                    member.name,
+                    source.display()
+                ));
             }
         }
     }
@@ -1044,19 +1168,103 @@ mod tests {
     }
 
     #[test]
-    fn classify_member_lints_covers_three_classes_and_fail_closed() {
+    fn mmap_manifest_hygiene_accepts_checked_in_manifest() {
+        let repository_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask 必须有父目录（仓库根）");
+        check_mmap_manifest_hygiene(repository_root).unwrap();
+    }
+
+    #[test]
+    fn mmap_manifest_hygiene_rejects_dependency_and_target_drift() {
+        let root = std::env::temp_dir().join(format!(
+            "laneflow-wire-audit-mmap-hygiene-{}",
+            std::process::id()
+        ));
+        let package_root = root.join("crates/laneflow-format-mmap");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&package_root).unwrap();
+        let write_manifest = |body: &str| {
+            fs::write(package_root.join("Cargo.toml"), body).unwrap();
+        };
+        // 依赖表多一条。
+        write_manifest(
+            "[package]\nname = \"m\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\nserde = \"1\"\n",
+        );
+        let error = check_mmap_manifest_hygiene(&root).unwrap_err();
+        assert!(error.contains("恰好 memmap2/tempfile 两条"), "{error}");
+        // memmap2 未精确钉版。
+        write_manifest(
+            "[package]\nname = \"m\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\n",
+        );
+        let error = check_mmap_manifest_hygiene(&root).unwrap_err();
+        assert!(error.contains("memmap2"), "{error}");
+        // 额外 target 段。
+        write_manifest(
+            "[package]\nname = \"m\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\n\n[[bin]]\nname = \"x\"\n",
+        );
+        let error = check_mmap_manifest_hygiene(&root).unwrap_err();
+        assert!(error.contains("只许 [lib] 一个编译入口"), "{error}");
+        // build.rs 存在。
+        write_manifest(
+            "[package]\nname = \"m\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[dependencies]\nmemmap2 = { version = \"=0.9.11\", default-features = false }\ntempfile = \"=3.27.0\"\n",
+        );
+        fs::write(package_root.join("build.rs"), "fn main() {}\n").unwrap();
+        let error = check_mmap_manifest_hygiene(&root).unwrap_err();
+        assert!(error.contains("build.rs"), "{error}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn forbid_textual_boundary_catches_cfg_gated_unsafe() {
+        let root = std::env::temp_dir().join(format!(
+            "laneflow-wire-audit-textual-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("src")).unwrap();
+        // cfg 门控不改变文本：平台分支里的 unsafe 必须被文本扫描抓到。
+        fs::write(
+            root.join("src/lib.rs"),
+            "#[cfg(windows)]\nmod win { unsafe fn platform() {} }\n",
+        )
+        .unwrap();
+        let members = vec![MemberPackage {
+            name: "demo".to_string(),
+            manifest_path: root.join("Cargo.toml"),
+            targets: Vec::new(),
+        }];
+        let classified = vec![("demo".to_string(), UnsafeLevel::Forbid)];
+        let error = check_forbid_textual_boundary(&members, &classified).unwrap_err();
+        assert!(error.contains("unsafe token"), "{error}");
+        // 字面量与注释里的 unsafe 字样不误报。
+        fs::write(
+            root.join("src/lib.rs"),
+            "fn f() { assert!(\"unsafe\".len() == 6); } // unsafe naming\n",
+        )
+        .unwrap();
+        check_forbid_textual_boundary(&members, &classified).unwrap();
+        // allow 级成员不参与文本扫描（wire/mmap 由各自边界闭合）。
+        let classified_allow = vec![("demo".to_string(), UnsafeLevel::Allow)];
+        fs::write(root.join("src/lib.rs"), "unsafe fn allowed_here() {}\n").unwrap();
+        check_forbid_textual_boundary(&members, &classified_allow).unwrap();
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn classify_member_lints_covers_two_classes_and_fail_closed() {
         assert_eq!(
             classify_member_lints("[lints]\nworkspace = true\n", "a").unwrap(),
             UnsafeLevel::Forbid
         );
         assert_eq!(
-            classify_member_lints("[lints.rust]\nunsafe_code = \"deny\"\n", "a").unwrap(),
-            UnsafeLevel::Deny
-        );
-        assert_eq!(
             classify_member_lints("[lints.rust]\nunsafe_code = \"allow\"\n", "a").unwrap(),
-            UnsafeLevel::AllowGenerated
+            UnsafeLevel::Allow
         );
+        // deny 不再是可登记形态：中间档已随 mmap 例外独立成 crate 删除。
+        let error =
+            classify_member_lints("[lints.rust]\nunsafe_code = \"deny\"\n", "a").unwrap_err();
+        assert!(error.contains("fail closed"), "{error}");
         let error = classify_member_lints("[dependencies]\n", "a").unwrap_err();
         assert!(error.contains("没有 [lints] 段"), "{error}");
         let error =
@@ -1070,36 +1278,32 @@ mod tests {
     fn expected_classification_matches_registered_sets() {
         let classified: Vec<(String, UnsafeLevel)> = vec![
             ("laneflow-core".to_string(), UnsafeLevel::Forbid),
-            ("laneflow-format".to_string(), UnsafeLevel::Deny),
+            ("laneflow-format".to_string(), UnsafeLevel::Forbid),
+            (AUDITED_MMAP_PACKAGE_NAME.to_string(), UnsafeLevel::Allow),
             (
                 schema_codegen::ROAD_EDITING.wire_package_name.to_string(),
-                UnsafeLevel::AllowGenerated,
+                UnsafeLevel::Allow,
             ),
             (
                 schema_codegen::RUNTIME_SNAPSHOT
                     .wire_package_name
                     .to_string(),
-                UnsafeLevel::AllowGenerated,
+                UnsafeLevel::Allow,
             ),
         ];
         require_expected_classification(&classified).unwrap();
 
-        let mut extra_deny = classified.clone();
-        extra_deny.push(("evil".to_string(), UnsafeLevel::Deny));
-        let error = require_expected_classification(&extra_deny).unwrap_err();
-        assert!(error.contains("deny"), "{error}");
-
         let mut extra_allow = classified.clone();
-        extra_allow.push(("evil".to_string(), UnsafeLevel::AllowGenerated));
+        extra_allow.push(("evil".to_string(), UnsafeLevel::Allow));
         let error = require_expected_classification(&extra_allow).unwrap_err();
         assert!(error.contains("allow"), "{error}");
 
-        let missing_wire: Vec<(String, UnsafeLevel)> = classified
+        let missing_allow: Vec<(String, UnsafeLevel)> = classified
             .iter()
-            .filter(|(_, level)| *level != UnsafeLevel::AllowGenerated)
+            .filter(|(_, level)| *level != UnsafeLevel::Allow)
             .cloned()
             .collect();
-        assert!(require_expected_classification(&missing_wire).is_err());
+        assert!(require_expected_classification(&missing_allow).is_err());
     }
 
     #[test]

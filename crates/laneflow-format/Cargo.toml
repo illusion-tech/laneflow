@@ -10,7 +10,7 @@ publish = false
 
 [features]
 default = []
-std = ["dep:memmap2", "dep:tempfile"]
+std = ["dep:laneflow-format-mmap"]
 
 [lib]
 name = "laneflow_format"
@@ -18,11 +18,11 @@ path = "src/lib.rs"
 
 [dependencies]
 laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }
+laneflow-format-mmap = { version = "0.0.0", path = "../laneflow-format-mmap", optional = true }
 sha2 = { version = "0.11", default-features = false }
-memmap2 = { version = "0.9.11", optional = true }
-tempfile = { version = "3.27.0", optional = true }
 
-[lints.rust]
-# checker/writer core remains safe and `no_std`; the optional staged adapter contains one
-# audited read-only mmap call because Rust's mapping contract is necessarily unsafe.
-unsafe_code = "deny"
+# checker/writer core remains safe and `no_std`; the optional staged adapter delegates
+# its single audited read-only mapping to the separately audited `laneflow-format-mmap`
+# crate, so this crate inherits the workspace `unsafe_code = "forbid"` boundary.
+[lints]
+workspace = true
