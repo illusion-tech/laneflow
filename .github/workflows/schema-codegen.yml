@@ -17,6 +17,9 @@ on:
       - "tools/lfre-crosslang-writer/**"
       - "crates/laneflow-compiler/tests/fixtures/lfre-crosslang/**"
       - "crates/laneflow-compiler/tests/crosslang_lfre_fixtures.rs"
+  merge_group:
+    types:
+      - checks_requested
   push:
     branches:
       - main

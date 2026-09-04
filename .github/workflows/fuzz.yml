@@ -8,6 +8,9 @@ on:
       - "schemas/road-editing/**"
       - "fuzz/**"
       - ".github/workflows/fuzz.yml"
+  merge_group:
+    types:
+      - checks_requested
   workflow_dispatch:
 
 permissions:
