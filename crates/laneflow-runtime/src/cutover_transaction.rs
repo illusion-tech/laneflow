@@ -20,7 +20,7 @@ use crate::cutover::{
     NetworkRevisionCutoverDescriptor,
 };
 use crate::cutover_migration::{
-    CrossRevisionRebinding, finalize_conflict_cutover_floors,
+    ConflictCutoverFinalizationPlan, CrossRevisionRebinding, finalize_conflict_cutover_floors,
     migrate_structural_clone_with_conflict_plan, project_expected_conflict,
     revalidate_migrated_vehicles, revalidate_vehicle_on, revalidate_waiting_routes,
     vehicle_state_from_delta,
@@ -130,9 +130,9 @@ pub struct CutoverTransaction {
     /// 日志消费的字节偏移（记录边界）：泵送从此处续读，避免每次泵从头
     /// 重扫已消费记录（总量二次方）。
     consumed_offset: usize,
-    /// Prepare 已精确登记的新/不连续 Conflict cell；静默点只更新这些
-    /// `CutoverFloor` 的时间，不再全量重迁移 Conflict。
-    conflict_cutover_floors: Vec<crate::ConflictPassageAddress>,
+    /// Prepare 已精确登记的新/不连续 Conflict cell 与删除历史到期边界；
+    /// 静默点只验证/最终化该计划，不再全量重迁移 Conflict。
+    conflict_finalization: ConflictCutoverFinalizationPlan,
     settled: bool,
 }
 
@@ -212,7 +212,7 @@ impl TrafficWorld {
                 return Err(error);
             }
         };
-        let (candidate, conflict_cutover_floors) = match migrate_structural_clone_with_conflict_plan(
+        let (candidate, conflict_finalization) = match migrate_structural_clone_with_conflict_plan(
             self,
             Arc::clone(&target_revision),
             target_source,
@@ -235,7 +235,7 @@ impl TrafficWorld {
             armed_epoch,
             applied_records: 0,
             consumed_offset: 0,
-            conflict_cutover_floors,
+            conflict_finalization,
             settled: false,
         })
     }
@@ -286,7 +286,7 @@ impl CutoverTransaction {
     fn settle_failure(&mut self, world: &mut TrafficWorld) {
         self.settled = true;
         self.candidate = None;
-        self.conflict_cutover_floors = Vec::new();
+        self.conflict_finalization = ConflictCutoverFinalizationPlan::default();
         self.rebinding.release();
         world.disarm_migration_journal();
     }
@@ -401,7 +401,7 @@ impl CutoverTransaction {
             return Err(CutoverError::ReplayInconsistent);
         }
         revalidate_waiting_routes(world, candidate, &self.rebinding)?;
-        finalize_conflict_cutover_floors(candidate, &self.conflict_cutover_floors, world.time_ms)?;
+        finalize_conflict_cutover_floors(candidate, &self.conflict_finalization, world.time_ms)?;
         // 最终游标在同一原子边界取样（半开覆盖区间上界；幂等重占等无记录
         // 提交的归属由取样而非重放决定），先写入候选供摘要复核与晋升共用。
         let final_command_cursor = world.command_cursor;
@@ -1528,6 +1528,26 @@ mod tests {
         .expect("baseline Conflict migration");
 
         let source_state = *source.vehicle_state(vehicle).expect("source vehicle");
+        let traversal = source_state
+            .maneuver_traversal
+            .expect("source Clearing traversal");
+        let exit_route_edge_index = source
+            .compiled_route(source_state.route)
+            .expect("source route")
+            .maneuvers[traversal.maneuver_occurrence_index as usize]
+            .exit_route_edge_index;
+        for world in [&mut source, &mut candidate] {
+            let state = world.vehicles[vehicle.index() as usize]
+                .state
+                .as_mut()
+                .expect("Clearing vehicle");
+            state.route_edge_index = exit_route_edge_index;
+            state.progress_mm = 0;
+            state.carry_um = 0;
+        }
+        let source_state = *source
+            .vehicle_state(vehicle)
+            .expect("advanced source vehicle");
         let parking_update = JournalRecord::VehicleParkingUpdated {
             command_cursor: source.command_cursor(),
             vehicle: VehicleDelta::from_state(
@@ -1542,7 +1562,7 @@ mod tests {
             &rebinding,
             &parking_update,
         )
-        .expect("parking delta preserves candidate Clearing authority");
+        .expect("parking delta preserves Clearing after the front passes maneuver exit");
         assert!(candidate.conflict_reservation(vehicle).is_some());
 
         source.arm_migration_journal(4_096).expect("arm journal");
@@ -1752,10 +1772,12 @@ mod tests {
         let gate = compiled.hop_gate[gate_hop as usize].expect("admission Gate");
         let mut delta = VehicleDelta::from_state(&state, Some(compiled));
         delta.traversal_present = true;
+        delta.maneuver_entry_route_edge_index = maneuver.entry_route_edge_index;
         delta.maneuver_path = maneuver.path.raw();
         delta.traversal_phase = 4;
         delta.phase_gate = gate.raw();
         delta.membership_present = false;
+        delta.route_edge_index = maneuver.exit_route_edge_index;
 
         let migrated = vehicle_state_from_delta(
             world.revision.as_ref(),

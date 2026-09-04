@@ -154,13 +154,18 @@ runtime state 或 digest 版本，也不放宽目标不变量和 `ConflictRuntim
 ### 3.4 Conflict authority 的增量追赶
 
 Prepare 从来源完整权威迁移 reservation、eligibility 与 lag 一次，并保存需要在最终时刻
-写 `CutoverFloor` 的目标 cell address 列表。W7 生产 tick 接线前，含 live Conflict
+写 `CutoverFloor` 的目标 cell address 列表，以及被目标删除的 history 按
+`reference_time + retention` 计算出的最晚到期时刻。删除历史允许在 Prepare 时尚未到期；
+Quiescent Commit 必须先按最终 `T_commit` 校验到期时刻，再以零部分写最终化 floor。
+W7 生产 tick 接线前，含 live Conflict
 authority 的来源 `step` 原子失败，故 tick 日志不会出现无法独立解释的半份 `Clearing`；
 eligibility 在候选与独立期望投影中都复用完整 committed authority 谓词，除稳定
 occurrence/车辆 Gate 位置外还要求目标所选 policy 当前决策为 `Candidate`；
 Prepare 对 committed downstream ledger 只做一次线性分组与闭合校验，随后按 vehicle
 slot 直接读取各 reservation 的 claim slice，不能在逐车迁移中反复扫描全 ledger；
-只改变 binding 的 parking 更新保留候选已有 authority，带 authority 的 park/rebind 生命周期
+只改变 binding 的 parking 更新以 `ManeuverPath + entry route edge occurrence + Gate`
+重建 exact maneuver 锚点；`Clearing` 不从可能已越过 maneuver exit 的当前车头 cursor
+反推 occurrence，并保留候选已有 authority。带 authority 的 park/rebind 生命周期
 转换失败关闭；despawn 记录在候选同步释放 authority、清 eligibility，并以候选当前模拟时间
 写 `ActualClear`。静默提交只排空这些增量并最终化 address 列表，
 禁止再次调用全量 Conflict 迁移。W7 移除 tick 保护时，grant/tail-clear/eligibility 的 tick
