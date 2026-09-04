@@ -1,6 +1,7 @@
 mod commit_messages;
 mod markdown_tables;
 mod schema_codegen;
+mod wire_audit;
 
 use std::env;
 use std::process::ExitCode;
@@ -29,9 +30,10 @@ fn run(args: Vec<String>) -> Result<(), String> {
         Some("check-runtime-snapshot-codegen") => {
             schema_codegen::run(&schema_codegen::RUNTIME_SNAPSHOT, &args[1..])
         }
+        Some("check-wire-audit") => wire_audit::run(),
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, format-md-tables, check-road-editing-codegen, check-runtime-snapshot-codegen"
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, format-md-tables, check-road-editing-codegen, check-runtime-snapshot-codegen, check-wire-audit"
                 .to_string(),
         ),
     }
