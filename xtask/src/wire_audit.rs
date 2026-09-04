@@ -26,8 +26,9 @@
 //!    CARGO_ENCODED_RUSTFLAGS / CARGO_BUILD_RUSTFLAGS /
 //!    CARGO_TARGET_*_RUSTFLAGS / RUSTC / *_WRAPPER / CARGO_BUILD_RUSTC* /
 //!    RUSTC_BOOTSTRAP）、仓库外临时 cwd（仓库内 .cargo/config.toml 因 cargo
-//!    配置按 cwd 向上发现而不可达）、`--all-features`（feature 门控代码
-//!    必须进入编译单元）、尾参 `-F unsafe_code`（forbid 集）/
+//!    配置按 cwd 向上发现而不可达）、默认特性集与 `--all-features` 全特性集
+//!    各跑一遍（`cfg(feature)` / `cfg(not(feature))` 互补分支都必须进入
+//!    编译单元）、尾参 `-F unsafe_code`（forbid 集）/
 //!    `-D unsafe_code`（deny 集）。cargo 尾参（`--` 之后）优先级高于
 //!    manifest [lints]、env rustflags 与 .cargo/config.toml rustflags
 //!    （金丝雀逐次复核，见下），因此一切文本形态绕过（转义、拆分数组、
@@ -40,7 +41,10 @@
 //! 6. laneflow-format 的 mmap 例外由
 //!    `schema_codegen::check_audited_mmap_sources` 在本审计内复核：
 //!    例外文件恰好一次模块级 allow 与一次固定只读映射调用，crate 内其他
-//!    源文件零 unsafe、零 allow(unsafe_code)。
+//!    源文件零 unsafe、零 allow(unsafe_code)；crate 内全面禁止
+//!    `#[path]` 模块属性与 `include!` 宏——rustc 仅经此二路加载 .rs 扫描面
+//!    之外的源码（如 `#[path = "payload.txt"]`），禁绝后 .rs 全集即编译器
+//!    可达源码全集。
 //!
 //! 残余信任边界（本模块不尝试自审）：本检查步骤的定义（.github/workflows/）、
 //! xtask 源码（含 wire_pins 钉版副本）与依赖政策配置（deny.toml）可被 PR
@@ -108,7 +112,7 @@ pub(crate) fn run() -> Result<(), String> {
     schema_codegen::check_audited_mmap_sources(&repository_root)?;
     check_workspace_unsafe_boundary(&repository_root)?;
     println!(
-        "wire 工具链审计已通过：flatbuffers 钉版闭合，wire crate 包装器/生成物/依赖表钉版闭合，mmap 例外复核闭合，workspace unsafe 分类断言闭合，forbid/deny 成员全部 target（--all-features，含 example）通过 hermetic 编译（含三路注入金丝雀复核）"
+        "wire 工具链审计已通过：flatbuffers 钉版闭合，wire crate 包装器/生成物/依赖表钉版闭合，mmap 例外复核闭合（含 #[path]/include! 加载入口禁令），workspace unsafe 分类断言闭合，forbid/deny 成员全部 target（默认+全特性双配置，含 example）通过 hermetic 编译（含三路注入金丝雀复核）"
     );
     Ok(())
 }
@@ -459,12 +463,15 @@ fn require_expected_classification(classified: &[(String, UnsafeLevel)]) -> Resu
     Ok(())
 }
 
-/// 单个编译调用形态：`--lib`（无名字）或 `--bin` / `--test` / `--bench`（带名）。
+/// 单个编译调用形态：`--lib`（无名字）或 `--bin` / `--test` / `--bench` /
+/// `--example`（带名）。`required_features` 非空的 target 在默认特性集下不可
+/// 编译（cargo 直接拒绝），默认集那遍跳过，由全特性集那遍覆盖。
 #[derive(Debug, PartialEq, Eq)]
 struct TargetInvocation {
     flag: &'static str,
     name: Option<String>,
     label: String,
+    required_features: Vec<String>,
 }
 
 /// workspace 成员 package（来自 cargo metadata）。
@@ -518,45 +525,65 @@ fn parse_workspace_members(metadata: &serde_json::Value) -> Result<Vec<MemberPac
             if kinds.contains(&"custom-build") {
                 continue;
             }
-            let invocation = if kinds
+            let required_features = match target.get("required-features") {
+                None => Vec::new(),
+                Some(value) => value
+                    .as_array()
+                    .ok_or_else(|| {
+                        format!(
+                            "workspace metadata package `{name}` 的 target `{target_name}` required-features 不是数组，fail closed"
+                        )
+                    })?
+                    .iter()
+                    .map(|feature| {
+                        feature.as_str().map(str::to_string).ok_or_else(|| {
+                            format!(
+                                "workspace metadata package `{name}` 的 target `{target_name}` required-features 含非字符串项，fail closed"
+                            )
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            };
+            let (flag, name, label) = if kinds
                 .iter()
                 .any(|kind| *kind == "lib" || *kind == "proc-macro")
             {
-                TargetInvocation {
-                    flag: "--lib",
-                    name: None,
-                    label: "lib".to_string(),
-                }
+                ("--lib", None, "lib".to_string())
             } else if kinds.contains(&"bin") {
-                TargetInvocation {
-                    flag: "--bin",
-                    name: Some(target_name.to_string()),
-                    label: format!("bin `{target_name}`"),
-                }
+                (
+                    "--bin",
+                    Some(target_name.to_string()),
+                    format!("bin `{target_name}`"),
+                )
             } else if kinds.contains(&"test") {
-                TargetInvocation {
-                    flag: "--test",
-                    name: Some(target_name.to_string()),
-                    label: format!("test `{target_name}`"),
-                }
+                (
+                    "--test",
+                    Some(target_name.to_string()),
+                    format!("test `{target_name}`"),
+                )
             } else if kinds.contains(&"bench") {
-                TargetInvocation {
-                    flag: "--bench",
-                    name: Some(target_name.to_string()),
-                    label: format!("bench `{target_name}`"),
-                }
+                (
+                    "--bench",
+                    Some(target_name.to_string()),
+                    format!("bench `{target_name}`"),
+                )
             } else if kinds.contains(&"example") {
-                TargetInvocation {
-                    flag: "--example",
-                    name: Some(target_name.to_string()),
-                    label: format!("example `{target_name}`"),
-                }
+                (
+                    "--example",
+                    Some(target_name.to_string()),
+                    format!("example `{target_name}`"),
+                )
             } else {
                 return Err(format!(
                     "workspace package `{name}` 的 target `{target_name}` kind {kinds:?} 未知，fail closed"
                 ));
             };
-            invocations.push(invocation);
+            invocations.push(TargetInvocation {
+                flag,
+                name,
+                label,
+                required_features,
+            });
         }
         members.push(MemberPackage {
             name,
@@ -608,24 +635,34 @@ fn run_workspace_unsafe_boundary(repository_root: &Path, audit_root: &Path) -> R
             continue;
         };
         for target in &member.targets {
-            let output = run_unsafe_level_compile(UnsafeCompile {
-                root_manifest: &root_manifest,
-                package_name: &member.name,
-                target_dir: &target_dir,
-                work_dir: audit_root,
-                target_flag: target.flag,
-                target_name: target.name.as_deref(),
-                level_flag: flag,
-                extra_env: &[],
-                locked: true,
-            })?;
-            if !output.status.success() {
-                return Err(format!(
-                    "workspace 成员 `{}` target `{}` 未通过 hermetic `{flag} unsafe_code` 编译：\n{}",
-                    member.name,
-                    target.label,
-                    stderr_tail(&output)
-                ));
+            // 默认特性集与全特性集各跑一遍：`cfg(feature)` 与
+            // `cfg(not(feature))` 互补分支都要经过不可覆盖的 lint。
+            // 带 required-features 的 target 默认集下不可编译，由全集那遍覆盖。
+            for (all_features, config_label) in [(false, "默认特性集"), (true, "全特性集")]
+            {
+                if !all_features && !target.required_features.is_empty() {
+                    continue;
+                }
+                let output = run_unsafe_level_compile(UnsafeCompile {
+                    root_manifest: &root_manifest,
+                    package_name: &member.name,
+                    target_dir: &target_dir,
+                    work_dir: audit_root,
+                    target_flag: target.flag,
+                    target_name: target.name.as_deref(),
+                    level_flag: flag,
+                    extra_env: &[],
+                    locked: true,
+                    all_features,
+                })?;
+                if !output.status.success() {
+                    return Err(format!(
+                        "workspace 成员 `{}` target `{}`（{config_label}）未通过 hermetic `{flag} unsafe_code` 编译：\n{}",
+                        member.name,
+                        target.label,
+                        stderr_tail(&output)
+                    ));
+                }
             }
         }
     }
@@ -661,16 +698,21 @@ struct UnsafeCompile<'a> {
     level_flag: &'a str,
     extra_env: &'a [(&'a str, &'a str)],
     locked: bool,
+    all_features: bool,
 }
 
 /// 以尾参 `-F` / `-D unsafe_code` 编译指定成员 target。尾参位于 rustc 命令行
 /// 最末，优先级高于 manifest [lints]、env rustflags 与 .cargo/config.toml
-/// rustflags（由金丝雀逐次运行复核）。`--all-features` 确保特性门控代码
-/// （含 example 的 required-features）全部进入编译面。返回完整 Output 由调用方
-/// 判定成败。
+/// rustflags（由金丝雀逐次运行复核）。`all_features` 控制是否带
+/// `--all-features`：默认特性集与全特性集互补，`cfg(feature)` /
+/// `cfg(not(feature))` 两支都可能藏 unsafe，调用方须两种配置各跑一遍。
+/// 返回完整 Output 由调用方判定成败。
 fn run_unsafe_level_compile(request: UnsafeCompile<'_>) -> Result<Output, String> {
     let mut command = hermetic_cargo_command(request.work_dir);
-    command.args(["rustc", "--profile", "check", "--all-features"]);
+    command.args(["rustc", "--profile", "check"]);
+    if request.all_features {
+        command.arg("--all-features");
+    }
     if request.locked {
         command.arg("--locked");
     }
@@ -790,6 +832,7 @@ fn run_injection_canaries(audit_root: &Path) -> Result<(), String> {
             level_flag: "-F",
             extra_env: canary.extra_env,
             locked: false,
+            all_features: true,
         })?;
         if output.status.success() {
             return Err(format!(
@@ -1070,7 +1113,7 @@ mod tests {
                     { "name": "integration", "kind": ["test"] },
                     { "name": "tool", "kind": ["bin"] },
                     { "name": "bench1", "kind": ["bench"] },
-                    { "name": "ex", "kind": ["example"] },
+                    { "name": "ex", "kind": ["example"], "required-features": ["native-example"] },
                     { "name": "build-script", "kind": ["custom-build"] }
                 ]
             }]
@@ -1088,27 +1131,32 @@ mod tests {
                 TargetInvocation {
                     flag: "--lib",
                     name: None,
-                    label: "lib".to_string()
+                    label: "lib".to_string(),
+                    required_features: Vec::new()
                 },
                 TargetInvocation {
                     flag: "--test",
                     name: Some("integration".to_string()),
-                    label: "test `integration`".to_string()
+                    label: "test `integration`".to_string(),
+                    required_features: Vec::new()
                 },
                 TargetInvocation {
                     flag: "--bin",
                     name: Some("tool".to_string()),
-                    label: "bin `tool`".to_string()
+                    label: "bin `tool`".to_string(),
+                    required_features: Vec::new()
                 },
                 TargetInvocation {
                     flag: "--bench",
                     name: Some("bench1".to_string()),
-                    label: "bench `bench1`".to_string()
+                    label: "bench `bench1`".to_string(),
+                    required_features: Vec::new()
                 },
                 TargetInvocation {
                     flag: "--example",
                     name: Some("ex".to_string()),
-                    label: "example `ex`".to_string()
+                    label: "example `ex`".to_string(),
+                    required_features: vec!["native-example".to_string()]
                 },
             ]
         );

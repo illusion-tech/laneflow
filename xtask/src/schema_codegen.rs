@@ -422,6 +422,15 @@ pub(crate) fn check_audited_mmap_sources(repository_root: &Path) -> Result<(), S
     for source in sources {
         let text = fs::read_to_string(&source)
             .map_err(|error| format!("无法读取 `{}`: {error}", source.display()))?;
+        // rustc 只有两条路径加载 .rs 扫描面之外的源码：`#[path = "..."]` 模块
+        // 属性与 `include!(...)` 宏。两者皆禁，保证 .rs 全集即编译器可达源码全集，
+        // 非 .rs 载荷（如 `#[path = "payload.txt"]`）无处挂接。
+        if contains_source_loading_directive(&text) {
+            return Err(format!(
+                "受审计 mmap package 内禁止 `#[path]` 模块属性与 `include!` 宏（防止加载 .rs 扫描面之外的源码）：`{}`",
+                source.display()
+            ));
+        }
         if source == allowed_source {
             if text.matches("#![allow(unsafe_code)]").count() != 1
                 || text.matches(AUDITED_MMAP_EXPRESSION).count() != 1
@@ -442,6 +451,38 @@ pub(crate) fn check_audited_mmap_sources(repository_root: &Path) -> Result<(), S
         }
     }
     Ok(())
+}
+
+/// 识别源码加载指令：`#[path]` 属性与 `include!` 宏调用。token 级扫描——
+/// `#[` 与 `path` 之间、`include` 与 `!` 之间的空白在 rustc 词法中合法，
+/// 逐一容忍；`include_str!` / `include_bytes!` 只加载数据不加载代码，豁免。
+fn contains_source_loading_directive(text: &str) -> bool {
+    for (index, _) in text.match_indices("#[") {
+        let rest = text[index + 2..].trim_start();
+        if rest.starts_with("path")
+            && rest[4..]
+                .chars()
+                .next()
+                .is_none_or(|character| !is_identifier_character(character))
+        {
+            return true;
+        }
+    }
+    for (index, token) in text.match_indices("include") {
+        let before = text[..index].chars().next_back();
+        if before.is_some_and(is_identifier_character) {
+            continue;
+        }
+        let rest = &text[index + token.len()..];
+        if rest.chars().next().is_some_and(is_identifier_character) {
+            // include_str! / include_bytes! 等标识符延续。
+            continue;
+        }
+        if rest.trim_start().starts_with('!') {
+            return true;
+        }
+    }
+    false
 }
 
 pub(crate) fn workspace_manifest_paths(repository_root: &Path) -> Result<Vec<PathBuf>, String> {
@@ -756,5 +797,29 @@ mod tests {
 
         assert!(check_wire_rust_sources(&package_root, &generated_path).is_err());
         fs::remove_dir_all(&package_root).expect("remove temporary wire package");
+    }
+
+    #[test]
+    fn detects_source_loading_directives_with_token_whitespace() {
+        assert!(contains_source_loading_directive(
+            "#[path = \"payload.txt\"]\nmod payload;"
+        ));
+        assert!(contains_source_loading_directive(
+            "#[ path = \"x.txt\"] mod x;"
+        ));
+        assert!(contains_source_loading_directive(
+            "include!(\"payload.rsx\")"
+        ));
+        assert!(contains_source_loading_directive(
+            "include ! (\"payload.rsx\")"
+        ));
+        // include_str! / include_bytes! 只加载数据，不是源码加载指令。
+        assert!(!contains_source_loading_directive(
+            "const TEXT: &str = include_str!(\"data.txt\");"
+        ));
+        assert!(!contains_source_loading_directive(
+            "const BYTES: &[u8] = include_bytes!(\"data.bin\");"
+        ));
+        assert!(!contains_source_loading_directive("pub fn plain() {}\n"));
     }
 }

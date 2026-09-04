@@ -48,6 +48,7 @@ C# 运行时不使用 NuGet `Google.FlatBuffers`（其上最新版落后于钉�
 4. 运行两个 writer，覆盖 golden fixture：
 
    ```bash
+   mkdir -p target/tmp
    g++ -std=c++17 -Wall -Wextra \
      -I target/flatbuffers-25.12.19/include -I target/road-editing-codegen/cpp \
      tools/lfre-crosslang-writer/cpp/writer.cpp -o target/tmp/cpp-writer
