@@ -28,13 +28,13 @@
 
 ## 1. 问题与设计立场
 
-#284 的策略及冲突历史迁移、目标规范化与描述符 v2 候选见
+#284 的策略及冲突历史迁移、目标规范化与描述符 v2 见
 [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §6.2、§8
 （Accepted）。当前描述符版本为 2，字段形状不新增自由 policy JSON。
 同修订保持显式策略选择；跨修订要求所选 policy StableId、法域、法规版本完全一致。
 目标根可修改该策略的规则与参数，候选重建步长派生间隙，并在晋升时与共享根一起
 原子交换。独立摘要期望值保留旧世界选择，不能从候选读取另一份选择。
-更换策略身份必须显式创建新世界；冲突历史迁移由后续切片完成。
+更换策略身份必须显式创建新世界；冲突 authority/history 迁移已由 W5 接入本事务。
 
 路网修订不可变（ADR 0025），而城市游戏的改路与制品重发布要求运行中世界换绑
 新修订。本文冻结该换绑的事务设计，立场有三：
@@ -150,6 +150,17 @@ Gate 上游边末端的 boundary）。路线与当前 maneuver occurrence 锚点
 origin 与此可证明的零历史初始化外，捕获字段保持源值；traversal 仍完整进入摘要，
 membership/counter、运动、停车与路线逻辑仍须通过全量对拍。此规则不改变快照 wire、
 runtime state 或 digest 版本，也不放宽目标不变量和 `ConflictRuntimeUnavailable`。
+
+### 3.4 Conflict authority 的增量追赶
+
+Prepare 从来源完整权威迁移 reservation、eligibility 与 lag 一次，并保存需要在最终时刻
+写 `CutoverFloor` 的目标 cell address 列表。W7 生产 tick 接线前，含 live Conflict
+authority 的来源 `step` 原子失败，故 tick 日志不会出现无法独立解释的半份 `Clearing`；
+只改变 binding 的 parking 更新保留候选已有 authority，带 authority 的 park/rebind 生命周期
+转换失败关闭；despawn 记录在候选同步释放 authority、清 eligibility，并以候选当前模拟时间
+写 `ActualClear`。静默提交只排空这些增量并最终化 address 列表，
+禁止再次调用全量 Conflict 迁移。W7 移除 tick 保护时，grant/tail-clear/eligibility 的 tick
+变化必须在同一切片加入 migration journal，不能退回静默点全量重算。
 
 ## 4. 状态机
 

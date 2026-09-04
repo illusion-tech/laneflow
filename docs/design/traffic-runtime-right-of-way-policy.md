@@ -615,6 +615,12 @@ graph；存在两 owner 以上的 committed cycle、悬空 owner 或不合法历
 同一输入重建。无状态 batch 不能伪装为从档中复活的 grant；回放比较从一致 checkpoint
 继续，必须比较每个后续成功 tick 的 decision/event/state。
 
+W5 只交付 authority 的保存、恢复和迁移，W7 才接通生产 crossing/tail-clear tick。
+因此只要世界含 eligibility 或 live reservation，`step` 必须在 Waiting/motion staging 前以
+`ConflictRuntimeUnavailable` 原子失败，不能让通用 Waiting 提交路径覆盖 `Clearing`；只有
+lag history、没有 live authority 的世界仍可正常步进。该保护在 W7 与生产单写者同界接通后
+由真实推进替代，不能先放宽再补 journal。
+
 ### 6.2 修订切换
 
 same-revision 保持 pin 及全部逻辑历史。cross-revision 仍以 LFSD 和现有完整根
@@ -660,6 +666,15 @@ authority 校验的 cell 与新增 cell 一样处理。
 在静默点取同一源世界时间，分别用于候选最终化和从源状态构造的独立期望值；完成
 digest 复核后才一次发布。快照/恢复保留该基准，失败丢弃候选，不给旧世界增加历史
 或事件。此规则不补造真实清空历史，不要求保存或回放全路网旧轨迹。
+
+W5 的在线事务在 Prepare 只全量迁移一次 Conflict，并把新增/不连续 cell 的目标 address
+保存为有界最终化计划。追赶期含 live authority 的 tick 由上述保护原子拒绝；只改变
+binding 的 reserve/cancel 增量保留候选既有 authority，带 authority 的 park/rebind 转换失败
+关闭，despawn 增量在候选以该记录时刻同步释放 reservation、清 eligibility 并写真实 clear
+history。静默提交只排空日志尾并把计划中
+的 floor 更新时间改为 `T_commit`，工作量与本次新增/不连续 cell 数成正比；禁止再次按
+全部车辆和全部 Conflict cell 调用全量迁移。W7 接通会产生新 grant/clear 的 tick 时，必须
+同界扩展 journal 后才能移除 W5 的失败保护。
 
 以上目标规范化扩展现有描述符的迁移语义，因此描述符版本升级为 2，kind 名称仍为
 `same_revision_restore` 和 `cross_revision_direct`；字段形状不新增暗含 policy 选择的

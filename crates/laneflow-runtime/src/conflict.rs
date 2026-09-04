@@ -1351,6 +1351,12 @@ impl ConflictArbiter {
             .is_some_and(|authority| authority.has_authority())
     }
 
+    pub(crate) fn has_live_authority(&self) -> bool {
+        self.owner_authorities
+            .iter()
+            .any(|authority| authority.has_authority())
+    }
+
     pub(crate) fn clear_approach_frontier(&mut self) {
         for cell in &mut self.cells {
             cell.frontier = ApproachFrontierCell::default();
