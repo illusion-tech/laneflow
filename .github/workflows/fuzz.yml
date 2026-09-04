@@ -18,9 +18,16 @@ permissions:
 
 jobs:
   lfre-fuzz:
-    name: LFRE fuzz bounded smoke
+    name: LFRE fuzz bounded smoke (${{ matrix.target }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      # 一个 target 出 crash 时另一个仍要跑完并各自上传 artifact。
+      fail-fast: false
+      matrix:
+        target:
+          - lfre_arbitrary_bytes
+          - lfre_writer_differential
     env:
       # 每个 target 的有界运行秒数，保持 PR 反馈在分钟级。
       FUZZ_MAX_TOTAL_TIME: "300"
@@ -48,22 +55,18 @@ jobs:
         shell: bash
         run: cargo +nightly install cargo-fuzz --locked --version 0.13.2
 
-      - name: Fuzz lfre_arbitrary_bytes
+      - name: Fuzz ${{ matrix.target }}
         shell: bash
+        env:
+          FUZZ_TARGET: ${{ matrix.target }}
         run: >-
-          cargo +nightly fuzz run lfre_arbitrary_bytes --
-          -max_total_time=${FUZZ_MAX_TOTAL_TIME} -timeout=${FUZZ_TIMEOUT}
-
-      - name: Fuzz lfre_writer_differential
-        shell: bash
-        run: >-
-          cargo +nightly fuzz run lfre_writer_differential --
+          cargo +nightly fuzz run ${FUZZ_TARGET} --
           -max_total_time=${FUZZ_MAX_TOTAL_TIME} -timeout=${FUZZ_TIMEOUT}
 
       - name: Upload crash artifacts
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: lfre-fuzz-artifacts
+          name: lfre-fuzz-artifacts-${{ matrix.target }}
           path: fuzz/artifacts/
           if-no-files-found: ignore
