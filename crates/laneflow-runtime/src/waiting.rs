@@ -1622,42 +1622,57 @@ impl crate::TrafficWorld {
 
     pub(crate) fn restored_waiting_authority_valid(&self, state: crate::VehicleState) -> bool {
         // phase 是产生该状态的 tick-start Gate 归因，不以恢复/新修订的当前信号改判历史。
-        let Ok(mut expected) = self.derive_waiting_traversal_with_signals(state, false) else {
-            return false;
-        };
-        if let Some(ManeuverTraversalState {
-            phase: ManeuverTraversalPhase::Waiting { release_gate_hop },
-            ..
-        }) = state.maneuver_traversal
-        {
-            let Some(membership) = state.waiting_membership else {
+        let clearing = matches!(
+            state.maneuver_traversal,
+            Some(ManeuverTraversalState {
+                phase: ManeuverTraversalPhase::Clearing { .. },
+                ..
+            })
+        );
+        if clearing {
+            // Clearing 的完整 owner/passages/downstream 由 Conflict 聚合校验；
+            // Waiting 侧仍负责证明它没有 membership，也没有凭空落入 Waiting 区间。
+            if state.status != crate::VehicleStatus::Active || state.waiting_membership.is_some() {
+                return false;
+            }
+        } else {
+            let Ok(mut expected) = self.derive_waiting_traversal_with_signals(state, false) else {
                 return false;
             };
-            let Some(compiled) = self.compiled_route(state.route) else {
-                return false;
-            };
-            if release_gate_hop != membership.release_hop
-                || state.speed_mm_s != 0
-                || state.carry_um != 0
-                || !front_at_hop_boundary(
-                    compiled,
-                    &state,
-                    release_gate_hop,
-                    self.revision.traffic().lane_lengths_millimetres(),
-                )
+            if let Some(ManeuverTraversalState {
+                phase: ManeuverTraversalPhase::Waiting { release_gate_hop },
+                ..
+            }) = state.maneuver_traversal
             {
+                let Some(membership) = state.waiting_membership else {
+                    return false;
+                };
+                let Some(compiled) = self.compiled_route(state.route) else {
+                    return false;
+                };
+                if release_gate_hop != membership.release_hop
+                    || state.speed_mm_s != 0
+                    || state.carry_um != 0
+                    || !front_at_hop_boundary(
+                        compiled,
+                        &state,
+                        release_gate_hop,
+                        self.revision.traffic().lane_lengths_millimetres(),
+                    )
+                {
+                    return false;
+                }
+                let Some(traversal) = expected.as_mut() else {
+                    return false;
+                };
+                if !matches!(traversal.phase, ManeuverTraversalPhase::Committed { .. }) {
+                    return false;
+                }
+                traversal.phase = ManeuverTraversalPhase::Waiting { release_gate_hop };
+            }
+            if expected != state.maneuver_traversal {
                 return false;
             }
-            let Some(traversal) = expected.as_mut() else {
-                return false;
-            };
-            if !matches!(traversal.phase, ManeuverTraversalPhase::Committed { .. }) {
-                return false;
-            }
-            traversal.phase = ManeuverTraversalPhase::Waiting { release_gate_hop };
-        }
-        if expected != state.maneuver_traversal {
-            return false;
         }
         let Some(compiled) = self.compiled_route(state.route) else {
             return false;

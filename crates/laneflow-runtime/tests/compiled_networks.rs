@@ -424,6 +424,18 @@ fn conflict_multiplicity_road_editing_module() -> lfre::RoadEditingSourceModule 
     conflict_road_editing_module_with_shape(2, false, true, true)
 }
 
+fn conflict_road_editing_module_with_vehicle_speed(
+    desired_speed_meters_per_second: f64,
+) -> lfre::RoadEditingSourceModule {
+    conflict_road_editing_module_with_shape_and_speed(
+        2,
+        false,
+        true,
+        false,
+        desired_speed_meters_per_second,
+    )
+}
+
 fn conflict_road_editing_module_with_stream_count(
     stream_count: usize,
 ) -> lfre::RoadEditingSourceModule {
@@ -448,6 +460,22 @@ fn conflict_road_editing_module_with_shape(
     terminal_clearance: bool,
     include_conflict: bool,
     multiplicity: bool,
+) -> lfre::RoadEditingSourceModule {
+    conflict_road_editing_module_with_shape_and_speed(
+        stream_count,
+        terminal_clearance,
+        include_conflict,
+        multiplicity,
+        13.0,
+    )
+}
+
+fn conflict_road_editing_module_with_shape_and_speed(
+    stream_count: usize,
+    terminal_clearance: bool,
+    include_conflict: bool,
+    multiplicity: bool,
+    desired_speed_meters_per_second: f64,
 ) -> lfre::RoadEditingSourceModule {
     assert!(stream_count <= 2);
     assert!(!multiplicity || (include_conflict && stream_count == 2));
@@ -764,8 +792,16 @@ fn conflict_road_editing_module_with_shape(
             lfre::VehicleProfileInput::try_new(
                 "car",
                 participant,
-                lfre::IidmVehicleProfileInput::try_new(4.5, 13.0, 2.0, 1.5, 1.5, 2.0, 4.0)
-                    .expect("iidm profile"),
+                lfre::IidmVehicleProfileInput::try_new(
+                    4.5,
+                    desired_speed_meters_per_second,
+                    2.0,
+                    1.5,
+                    1.5,
+                    2.0,
+                    4.0,
+                )
+                .expect("iidm profile"),
             )
             .expect("vehicle profile"),
         ))
@@ -1779,6 +1815,111 @@ fn cutover_rebuilds_exact_conflict_count_for_decrease_and_increase() {
     assert_eq!(world.committed_source().network_revision(), before_source);
     assert_eq!(world.vehicle(vehicle), before_vehicle);
     assert_eq!(world.live_routes().count(), 2);
+}
+
+#[test]
+fn cutover_conflict_floor_uses_final_commit_time_and_survives_continuous_recutover() {
+    let (plain_revision, conflict_revision, add_diff, add_binding) = compile_conflict_cutover_pair(
+        non_conflict_road_editing_module(),
+        conflict_road_editing_module(),
+    );
+    let mut world = install_fixture(
+        Arc::clone(&plain_revision),
+        WorldConfig::new(4, 4, 64, 4, 1, 100),
+    )
+    .expect("install plain base");
+    let descriptor = NetworkRevisionCutoverDescriptor::new(
+        LfcaOriginBinding::from_canonical_origin(*plain_revision.canonical_origin()),
+        LfcaOriginBinding::from_canonical_origin(*conflict_revision.canonical_origin()),
+        Some(add_binding),
+        MigrationPolicyKind::CrossRevisionDirect,
+        world.world_binding(),
+    );
+    let prepare_time = world.time_ms();
+    let mut transaction = world
+        .prepare_cross_revision_cutover(
+            Arc::clone(&conflict_revision),
+            published_source(&conflict_revision, "fixture://conflict-floor-add"),
+            &descriptor,
+            &add_diff,
+            &CutoverPreflightLimits::new(1_048_576),
+            &CutoverTransactionLimits::default(),
+        )
+        .expect("prepare conflict addition");
+    world
+        .step(TickInput::new(100))
+        .expect("source continues after Prepare");
+    assert!(transaction.pump(&mut world).expect("catch up").caught_up);
+    world
+        .step(TickInput::new(100))
+        .expect("source advances again before commit");
+    let final_commit_time = world.time_ms();
+    assert!(final_commit_time > prepare_time);
+    let commit = transaction
+        .commit(&mut world)
+        .expect("commit conflict addition");
+    assert_eq!(commit.events.as_slice().len(), 1);
+
+    let first_snapshot = encode_lfrs(&world.capture_snapshot().expect("capture first cutover"));
+    let first_root = snapshot_wire::size_prefixed_root_as_runtime_snapshot(&first_snapshot)
+        .expect("verified first snapshot");
+    assert_eq!(
+        first_root.conflict_lag_states().len(),
+        world.conflict_passage_cell_count()
+    );
+    for row in first_root.conflict_lag_states() {
+        assert_eq!(
+            row.reference_kind(),
+            snapshot_wire::ConflictLagReferenceKind::CutoverFloor
+        );
+        assert_eq!(row.reference_time_ms(), final_commit_time);
+    }
+
+    // 只改变不相关的车型期望速度；passage 的稳定身份、路径和锚点连续。
+    // 第二次跨修订必须继承第一次的 floor，不能从新的提交时刻重新起算。
+    let (continuous_base, continuous_target, continuous_diff, continuous_binding) =
+        compile_conflict_cutover_pair(
+            conflict_road_editing_module(),
+            conflict_road_editing_module_with_vehicle_speed(12.5),
+        );
+    assert_eq!(
+        continuous_base.canonical_origin(),
+        world.revision().canonical_origin()
+    );
+    let continuous_descriptor = NetworkRevisionCutoverDescriptor::new(
+        LfcaOriginBinding::from_canonical_origin(*continuous_base.canonical_origin()),
+        LfcaOriginBinding::from_canonical_origin(*continuous_target.canonical_origin()),
+        Some(continuous_binding),
+        MigrationPolicyKind::CrossRevisionDirect,
+        world.world_binding(),
+    );
+    let transaction = world
+        .prepare_cross_revision_cutover(
+            Arc::clone(&continuous_target),
+            published_source(&continuous_target, "fixture://conflict-floor-continuous"),
+            &continuous_descriptor,
+            &continuous_diff,
+            &CutoverPreflightLimits::new(1_048_576),
+            &CutoverTransactionLimits::default(),
+        )
+        .expect("prepare continuous conflict cutover");
+    world
+        .step(TickInput::new(100))
+        .expect("advance before continuous commit");
+    assert!(world.time_ms() > final_commit_time);
+    let _commit = transaction
+        .commit(&mut world)
+        .expect("commit continuous conflict cutover");
+    let second_snapshot = encode_lfrs(&world.capture_snapshot().expect("capture recutover"));
+    let second_root = snapshot_wire::size_prefixed_root_as_runtime_snapshot(&second_snapshot)
+        .expect("verified second snapshot");
+    for row in second_root.conflict_lag_states() {
+        assert_eq!(
+            row.reference_kind(),
+            snapshot_wire::ConflictLagReferenceKind::CutoverFloor
+        );
+        assert_eq!(row.reference_time_ms(), final_commit_time);
+    }
 }
 
 #[test]

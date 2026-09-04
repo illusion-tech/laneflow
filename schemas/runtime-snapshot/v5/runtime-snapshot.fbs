@@ -1,6 +1,6 @@
 // LaneFlow 运行时快照容器 v5。
-// v4 加入 WaitingZone traversal、membership 与单调 admission counter；派生 queue link、
-// occupancy index、latest decision/event batch 和 tick-local claim 不持久化。
+// v5 加入策略选择、Conflict 资格/reservation/lag history 与 Clearing；派生
+// queue link、occupancy index、frontier、latest decision/event batch 和 tick-local claim 不持久化。
 
 namespace LaneFlow.RuntimeSnapshot.V5;
 
@@ -24,10 +24,16 @@ enum ManeuverTraversalPhaseKind:ubyte {
   Unspecified = 0,
   PreGate = 1,
   Committed = 2,
-  Waiting = 3
+  Waiting = 3,
+  Clearing = 4
 }
 
 enum WorldPolicySelectionKind:ubyte { Unspecified = 0, NotRequired = 1, Pinned = 2 }
+enum ConflictLagReferenceKind:ubyte {
+  Unspecified = 0,
+  ActualClear = 1,
+  CutoverFloor = 2
+}
 
 table WorldPolicyBinding {
   selection:WorldPolicySelectionKind;
@@ -82,6 +88,58 @@ table WaitingMembershipBinding {
   admission_sequence:ulong;
 }
 
+// 持久化 locator 只含跨修订稳定身份，不写 Runtime ordinal/local index。
+table ConflictPassageLocatorBinding {
+  participant_stream:StableId128;
+  conflict_zone:StableId128;
+}
+
+// 精确 Gate arrival occurrence；first_eligible_tick=0 是合法历史。
+table ConflictEligibilityBinding {
+  maneuver_occurrence_index:uint;
+  maneuver_entry_route_edge_index:uint;
+  admission_gate:StableId128;
+  conflict_occurrence_index:uint;
+  passage:ConflictPassageLocatorBinding (required);
+  first_eligible_tick:ulong;
+}
+
+// reservation 中一次 route passage occurrence 的稳定身份与物理锚点。
+table ConflictPassageBinding {
+  conflict_occurrence_index:uint;
+  passage:ConflictPassageLocatorBinding (required);
+  entry_route_edge_index:uint;
+  entry_progress_mm:uint;
+  clearance_route_edge_index:uint;
+  clearance_progress_mm:uint;
+}
+
+// 保留实际已提交的物理 claim；route_edge_index 用于拒绝循环路线误绑。
+table ConflictDownstreamIntervalBinding {
+  lane_edge:StableId128;
+  route_edge_index:uint;
+  start_mm:uint;
+  end_mm:uint;
+  owner_sequence:uint;
+  follower_min_gap_mm:uint;
+}
+
+table ConflictReservationBinding {
+  acquired_tick:ulong;
+  maneuver_occurrence_index:uint;
+  maneuver_entry_route_edge_index:uint;
+  admission_gate:StableId128;
+  passages:[ConflictPassageBinding] (required);
+  downstream_intervals:[ConflictDownstreamIntervalBinding] (required);
+}
+
+// 只允许 ActualClear/CutoverFloor；NoHistory 不写行。
+table ConflictLagState {
+  passage:ConflictPassageLocatorBinding (required);
+  reference_kind:ConflictLagReferenceKind;
+  reference_time_ms:ulong;
+}
+
 table SnapshotVehicle {
   snapshot_vehicle_id:ulong;
   snapshot_route_id:ulong;
@@ -95,6 +153,8 @@ table SnapshotVehicle {
   parking:ParkingBinding;
   maneuver_traversal:ManeuverTraversalBinding;
   waiting_membership:WaitingMembershipBinding;
+  conflict_eligibility:ConflictEligibilityBinding;
+  conflict_reservation:ConflictReservationBinding;
 }
 
 // occupancy is serialized defensively and must equal the reconstructed member count.
@@ -125,6 +185,7 @@ table RuntimeSnapshot {
   live_order:[ulong] (required);
   waiting_zones:[WaitingZoneState] (required);
   world_policy:WorldPolicyBinding (required);
+  conflict_lag_states:[ConflictLagState] (required);
 }
 
 root_type RuntimeSnapshot;

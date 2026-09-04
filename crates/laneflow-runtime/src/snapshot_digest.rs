@@ -200,6 +200,33 @@ pub fn deterministic_state_digest(
         try_push_record(&mut canonical, record)?;
     }
 
+    let mut conflict_lag_records = Vec::new();
+    digest_try_reserve_exact(
+        &mut conflict_lag_records,
+        snapshot.conflict_lag_states.len(),
+    )?;
+    for state in &snapshot.conflict_lag_states {
+        let mut record = Vec::new();
+        digest_try_reserve_exact(&mut record, 32 + 1 + 8)?;
+        push_conflict_locator(&mut record, state.passage);
+        let (tag, time) = match state.reference {
+            crate::ConflictLagReference::NoHistory => (0, 0),
+            crate::ConflictLagReference::ActualClear(time) => (1, time),
+            crate::ConflictLagReference::CutoverFloor(time) => (2, time),
+        };
+        record.push(tag);
+        push_u64(&mut record, time);
+        conflict_lag_records.push(record);
+    }
+    conflict_lag_records.sort_unstable();
+    try_push_u64(
+        &mut canonical,
+        u64::try_from(conflict_lag_records.len()).expect("Conflict lag count fits u64"),
+    )?;
+    for record in &conflict_lag_records {
+        try_push_record(&mut canonical, record)?;
+    }
+
     try_push_u64(
         &mut canonical,
         u64::try_from(route_groups.len()).expect("route group count fits u64"),
@@ -260,7 +287,36 @@ fn canonical_vehicle_record(vehicle: &CapturedVehicle) -> Result<Vec<u8>, Snapsh
     } else {
         1
     };
-    let record_len = 4 + 4 + 2 + 4 + 1 + 16 + 16 + parking_len + traversal_len + waiting_len;
+    let eligibility_len = if vehicle.conflict_eligibility.is_some() {
+        1 + 4 + 4 + 16 + 4 + 32 + 8
+    } else {
+        1
+    };
+    let reservation_len = vehicle
+        .conflict_reservation
+        .as_ref()
+        .map_or(1, |reservation| {
+            1 + 8
+                + 4
+                + 4
+                + 16
+                + 8
+                + reservation.passages.len() * (4 + 32 + 4 + 4 + 4 + 4)
+                + 8
+                + reservation.downstream_intervals.len() * (16 + 4 + 4 + 4 + 4 + 4)
+        });
+    let record_len = 4
+        + 4
+        + 2
+        + 4
+        + 1
+        + 16
+        + 16
+        + parking_len
+        + traversal_len
+        + waiting_len
+        + eligibility_len
+        + reservation_len;
     let mut record = Vec::new();
     digest_try_reserve_exact(&mut record, record_len)?;
     push_u32(&mut record, vehicle.route_edge_index);
@@ -320,6 +376,7 @@ fn canonical_vehicle_record(vehicle: &CapturedVehicle) -> Result<Vec<u8>, Snapsh
                 CapturedManeuverTraversalPhase::PreGate => 1,
                 CapturedManeuverTraversalPhase::Committed => 2,
                 CapturedManeuverTraversalPhase::Waiting => 3,
+                CapturedManeuverTraversalPhase::Clearing => 4,
             });
             record.extend_from_slice(traversal.phase_gate.as_bytes());
         }
@@ -335,7 +392,62 @@ fn canonical_vehicle_record(vehicle: &CapturedVehicle) -> Result<Vec<u8>, Snapsh
             push_u64(&mut record, membership.admission_sequence);
         }
     }
+    match vehicle.conflict_eligibility {
+        None => record.push(0),
+        Some(eligibility) => {
+            record.push(1);
+            push_u32(&mut record, eligibility.maneuver_occurrence_index);
+            push_u32(&mut record, eligibility.maneuver_entry_route_edge_index);
+            record.extend_from_slice(eligibility.admission_gate.as_bytes());
+            push_u32(&mut record, eligibility.conflict_occurrence_index);
+            push_conflict_locator(&mut record, eligibility.passage);
+            push_u64(&mut record, eligibility.first_eligible_tick);
+        }
+    }
+    match vehicle.conflict_reservation.as_ref() {
+        None => record.push(0),
+        Some(reservation) => {
+            record.push(1);
+            push_u64(&mut record, reservation.acquired_tick);
+            push_u32(&mut record, reservation.maneuver_occurrence_index);
+            push_u32(&mut record, reservation.maneuver_entry_route_edge_index);
+            record.extend_from_slice(reservation.admission_gate.as_bytes());
+            push_u64(
+                &mut record,
+                u64::try_from(reservation.passages.len()).expect("passage count fits u64"),
+            );
+            for passage in &reservation.passages {
+                push_u32(&mut record, passage.conflict_occurrence_index);
+                push_conflict_locator(&mut record, passage.passage);
+                push_u32(&mut record, passage.entry_route_edge_index);
+                push_u32(&mut record, passage.entry_progress_mm);
+                push_u32(&mut record, passage.clearance_route_edge_index);
+                push_u32(&mut record, passage.clearance_progress_mm);
+            }
+            push_u64(
+                &mut record,
+                u64::try_from(reservation.downstream_intervals.len())
+                    .expect("downstream count fits u64"),
+            );
+            for interval in &reservation.downstream_intervals {
+                record.extend_from_slice(interval.lane_edge.as_bytes());
+                push_u32(&mut record, interval.route_edge_index);
+                push_u32(&mut record, interval.start_mm);
+                push_u32(&mut record, interval.end_mm);
+                push_u32(&mut record, interval.owner_sequence);
+                push_u32(&mut record, interval.follower_min_gap_mm);
+            }
+        }
+    }
     Ok(record)
+}
+
+fn push_conflict_locator(
+    target: &mut Vec<u8>,
+    locator: crate::snapshot::CapturedConflictPassageLocator,
+) {
+    target.extend_from_slice(locator.participant_stream.as_bytes());
+    target.extend_from_slice(locator.conflict_zone.as_bytes());
 }
 
 /// 预留后写入长度前缀记录（预留成功则本次写入不再分配）。
@@ -533,14 +645,15 @@ mod tests {
         let original = world.capture_snapshot().expect("capture");
         let expected = deterministic_state_digest(&original).expect("digest");
         // digest 7：独立保留已审核的车辆/路线记录后缀，替换版本与 LFCA 六节摘要，
-        // 追加 tag + 从身份表读取的 policy StableId；382-byte 前像得到本向量。
+        // 追加 tag + 从身份表读取的 policy StableId，以及空 Conflict
+        // lag 分类的显式计数；本向量锁定完整 digest 7 前像。
         // 下方等价类同时约束来源、worker 与局部 ID 不进入摘要。
         assert_eq!(
             expected,
             Sha256Digest::from_bytes([
-                0x86, 0xab, 0xf1, 0xe8, 0xff, 0x34, 0xd4, 0x0c, 0x46, 0x6f, 0xac, 0x1a, 0x5b, 0x91,
-                0x75, 0x7b, 0x9f, 0x0a, 0x97, 0x77, 0x58, 0x15, 0xe9, 0x87, 0xca, 0xa3, 0xc6, 0xb4,
-                0x22, 0x47, 0xd2, 0xd7
+                0xa9, 0x0c, 0x03, 0x17, 0xc9, 0x21, 0xc7, 0x6f, 0x64, 0xe6, 0xfe, 0x2d, 0x6c, 0x39,
+                0x02, 0x9b, 0x32, 0x5c, 0x0b, 0xf2, 0xe2, 0xeb, 0x97, 0xe9, 0xdd, 0x87, 0x5b, 0x81,
+                0x6f, 0x0a, 0xee, 0xf3
             ])
         );
         let mut equivalent = original.clone();
