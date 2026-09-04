@@ -94,6 +94,27 @@ fn map_rechecks_length_on_every_call() {
     std::fs::remove_dir(&directory).expect("remove empty test directory");
 }
 
+#[test]
+fn debug_output_never_exposes_file_descriptor() {
+    let directory = create_test_directory("debug-redacted");
+    let mut staged = PrivateStagedFile::create_in(&directory).expect("create staged backing");
+    staged.write_all(&[0xa5]).expect("write one byte");
+    let staged_debug = format!("{staged:?}");
+    let sealed = staged.seal(1).expect("seal");
+    let sealed_debug = format!("{sealed:?}");
+    let map = sealed.map_read_only().expect("map read only");
+    let map_debug = format!("{map:?}");
+
+    for output in [&staged_debug, &sealed_debug, &map_debug] {
+        assert!(!output.contains("fd"), "{output}");
+        assert!(!output.contains("handle"), "{output}");
+    }
+    assert!(sealed_debug.contains("exact_byte_length"), "{sealed_debug}");
+
+    drop((map, sealed));
+    std::fs::remove_dir(&directory).expect("remove empty test directory");
+}
+
 #[cfg(unix)]
 #[test]
 fn unix_private_backing_has_no_directory_entry_while_open() {

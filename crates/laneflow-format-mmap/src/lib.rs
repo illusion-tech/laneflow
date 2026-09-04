@@ -1,7 +1,7 @@
 //! 平台私有临时文件 staging 与只读映射 backing。
 //!
 //! 本 crate 是 workspace 内唯一登记的手写 unsafe 例外。SAFETY 自证链完整封在
-//! 本模块内，不依赖调用方守约：
+//! 本模块内：
 //!
 //! 1. [`PrivateStagedFile::create_in`] 经 `tempfile::tempfile_in` 创建 backing：
 //!    Unix 上匿名/立即 unlink（无目录项即无路径可达），Windows 上以
@@ -11,9 +11,22 @@
 //!    [`PrivateStagedFile::patch_exact_at`]（定点覆写后恢复写位置）；`File`
 //!    句柄本身永不外借，调用方无法 `try_clone` 出 seal 后仍存活的写副本。
 //!    [`PrivateStagedFile::seal`] 消费所有权并核对 exact length，之后本 crate
-//!    外不存在任何写路径。
+//!    外不存在任何 API 可达的写路径。三个类型的 `Debug` 均不委托 `File`，
+//!    不泄露 fd/handle 数值。
 //! 3. [`SealedPrivateFile::map_read_only`] 在映射前再次核对 backing 长度
 //!    （纵深防御），映射对象字段私有，只暴露只读字节视图。
+//!
+//! ## 威胁模型（刻意声明，不是疏漏）
+//!
+//! 上述私有性防的是**外部进程**（Unix 无目录项、Windows 拒绝 reopen）与
+//! **意外/半意外误用**（句柄不可达、seal 消费所有权、Debug 不泄露 fd）。
+//! 同进程内的恶意代码不在防御范围：此类代码可枚举 `/proc/self/fd` 重开
+//! backing，亦可经 `/proc/self/mem` 直接改写进程地址空间——后者对一切
+//! Rust 抽象（含 owned memory）同样成立，Rust 生态一致将同进程同 UID 的
+//! debugger 级内省视为模型外。以 owned memory 替代 mmap 亦被冻结合同明文
+//! 排除（`docs/design/compiler-foundation.md` 百万单路网配置档：staged
+//! bytes 不计入 `CompilerControlledLiveBytes`，emitter 必须写入 sealed
+//! closed staged file，不得物化为 `Box<[u8]>`）。
 //!
 //! 本 crate 不实现安装、rename、目录耐久或发布事务；只承载 staging 生命周期
 //! 与只读映射边界。
@@ -21,6 +34,7 @@
 #![allow(unsafe_code)]
 
 use std::{
+    fmt,
     fs::File,
     io::{self, Seek, SeekFrom, Write},
     ops::Deref,
@@ -62,9 +76,18 @@ impl std::error::Error for BackingError {}
 /// 写能力仅经 [`io::Write`] 实现与 [`Self::patch_exact_at`] 暴露，`File` 句柄
 /// 不可达（无法 `try_clone` 出 seal 后仍存活的写副本）；[`Self::seal`] 消费本值
 /// 后写能力在本 crate 外不再存在。
-#[derive(Debug)]
 pub struct PrivateStagedFile {
     file: File,
+}
+
+/// Debug 不委托 `File`：Linux 上其 formatter 会暴露数值 fd，成为
+/// `/proc/self/fd/<n>` 重开尝试的指路牌（威胁模型见模块文档）。
+impl fmt::Debug for PrivateStagedFile {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PrivateStagedFile")
+            .finish_non_exhaustive()
+    }
 }
 
 impl PrivateStagedFile {
@@ -115,10 +138,20 @@ impl io::Write for PrivateStagedFile {
 }
 
 /// 写窗口已关闭的平台私有 backing；只保留只读映射能力。
-#[derive(Debug)]
 pub struct SealedPrivateFile {
     file: File,
     exact_byte_length: u64,
+}
+
+/// Debug 不委托 `File`（同 [`PrivateStagedFile`] 的 fd 泄露防护）；
+/// `exact_byte_length` 非敏感，照常输出。
+impl fmt::Debug for SealedPrivateFile {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SealedPrivateFile")
+            .field("exact_byte_length", &self.exact_byte_length)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SealedPrivateFile {
@@ -146,9 +179,18 @@ impl SealedPrivateFile {
 }
 
 /// 只读映射的持有型字节视图。
-#[derive(Debug)]
 pub struct ReadOnlyMap {
     map: Mmap,
+}
+
+/// Debug 不委托 `Mmap`/`File`（同 [`PrivateStagedFile`] 的 fd 泄露防护）。
+impl fmt::Debug for ReadOnlyMap {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ReadOnlyMap")
+            .field("len", &self.map.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Deref for ReadOnlyMap {

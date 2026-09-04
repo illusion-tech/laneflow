@@ -50,21 +50,28 @@
 //!    unsafe 的 workspace 内定义体也必含 token（外部依赖宏归残余信任边界）。
 //!    forbid 成员禁止 build 脚本（build.rs 可向 OUT_DIR 生成文本扫描不可见的
 //!    Rust 源码；metadata custom-build target 与 package 根 build.rs 文件双
-//!    通道断言），且每个 target 的 src_path 必须是 .rs 扩展名（`[lib] path =
-//!    "src/lib.txt"` 形态的非 .rs 源逃逸本扫描，fail closed）。
+//!    通道断言），每个 target 的 src_path 必须是 .rs 扩展名（`[lib] path =
+//!    "src/lib.txt"` 形态的非 .rs 源逃逸本扫描，fail closed），且源码加载
+//!    指令同受限：`include!` 全面禁止，path 属性（含 cfg_attr 包裹形态）
+//!    目标必须是以 .rs 结尾的包内相对路径——编译器可达源码全集即本扫描的
+//!    .rs 全集。
 //! 7. laneflow-format-mmap 的例外边界在本审计内闭合：manifest 卫生（与 wire
 //!    同构——auto* 四键关闭、[target] 段与自动发现目录禁绝，[dependencies]
 //!    恰好 memmap2/tempfile 两条钉版，resolved source/checksum 由第 1 条闭合）；
 //!    `schema_codegen::check_audited_mmap_sources` 断言例外 lib.rs 恰好一次
 //!    模块级 allow、一次固定只读映射调用、一处 unsafe token（strip 后计数），
 //!    crate 内其他源文件零 unsafe、零 allow(unsafe_code)；crate 内全面禁止
-//!    `#[path]` 模块属性与 `include!` 宏——rustc 仅经此二路加载 .rs 扫描面
-//!    之外的源码，禁绝后 .rs 全集即编译器可达源码全集。
+//!    `#[path]` 模块属性、`include!` 宏与 `cfg_attr`（cfg_attr 可包裹 path
+//!    属性逃逸直接形态检测）——禁绝后 .rs 全集即编译器可达源码全集。
 //!
 //! 残余信任边界（本模块不尝试自审）：本检查步骤的定义（.github/workflows/）、
 //! xtask 源码（含 wire_pins 钉版副本）与依赖政策配置（deny.toml）可被 PR
 //! 修改，现由普通 PR review 守住；是否以 CODEOWNERS + code owner review
-//! 强制，按 ADR 0027 另开治理 Issue 评估（#579）。
+//! 强制，按 ADR 0027 另开治理 Issue 评估（#579）。mmap 例外 crate 的
+//! backing 私有性防外部进程与意外误用；同进程同 UID 的恶意代码（枚举
+//! /proc/self/fd 重开 backing、/proc/self/mem 直写地址空间）不在防御
+//! 范围——后者对一切 Rust 抽象（含 owned memory）同样成立，Rust 生态
+//! 一致视其为模型外（详见 laneflow-format-mmap 模块文档的威胁模型节）。
 
 use std::ffi::OsStr;
 use std::fs;
@@ -883,6 +890,13 @@ fn run_workspace_unsafe_boundary(repository_root: &Path, audit_root: &Path) -> R
 /// 的 Rust 源码，cfg 门控 unsafe 经 `include!` 挂接即逃逸本扫描。metadata
 /// custom-build target 与 package 根 build.rs 文件双通道断言（前者覆盖
 /// manifest `build = "..."` 改名路径，后者兜底自动发现）。
+///
+/// 源码加载指令同受限：`include!` 全面禁止（workspace 内零合法用法）；
+/// path 属性（含 `cfg_attr(...)` 包裹形态）的目标必须是以 `.rs` 结尾的包内
+/// 相对路径（无 `..`、无盘符/绝对前缀、无反斜杠）——保证编译器可达源码
+/// 全集就是本扫描的 .rs 全集。检测经词法感知 walker
+/// （`schema_codegen::check_path_attribute_values`），注释与字面量里的
+/// 字样不触发误判。
 fn check_forbid_textual_boundary(
     members: &[MemberPackage],
     classified: &[(String, UnsafeLevel)],
@@ -922,6 +936,18 @@ fn check_forbid_textual_boundary(
                     source.display()
                 ));
             }
+            if schema_codegen::contains_include_macro(&code) {
+                return Err(format!(
+                    "forbid 成员 `{}` 的源文件含 `include!` 宏（可加载文本扫描面之外的源码；workspace 内零合法用法，一律禁止）：`{}`",
+                    member.name,
+                    source.display()
+                ));
+            }
+            schema_codegen::check_path_attribute_values(
+                &text,
+                &format!("forbid 成员 `{}`", member.name),
+                schema_codegen::PathAttributePolicy::PackageRelativeRs,
+            )?;
         }
     }
     Ok(())
@@ -1482,6 +1508,57 @@ mod tests {
         let error = check_forbid_textual_boundary(&members, &classified).unwrap_err();
         assert!(error.contains("build.rs"), "{error}");
         fs::remove_file(root.join("build.rs")).unwrap();
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn forbid_textual_boundary_rejects_include_and_escaping_path() {
+        let root = std::env::temp_dir().join(format!(
+            "laneflow-wire-audit-source-loading-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("src")).unwrap();
+        let members = vec![MemberPackage {
+            name: "demo".to_string(),
+            manifest_path: root.join("Cargo.toml"),
+            targets: Vec::new(),
+            has_build_script: false,
+        }];
+        let classified = vec![("demo".to_string(), UnsafeLevel::Forbid)];
+        // include! 宏可挂接文本扫描面之外的源码，forbid 成员全面禁止
+        // （include_str!/include_bytes! 只加载数据，豁免）。
+        fs::write(root.join("src/lib.rs"), "include!(\"payload.rs\");\n").unwrap();
+        let error = check_forbid_textual_boundary(&members, &classified).unwrap_err();
+        assert!(error.contains("include!"), "{error}");
+        fs::write(
+            root.join("src/lib.rs"),
+            "const DATA: &[u8] = include_bytes!(\"data.bin\");\n",
+        )
+        .unwrap();
+        check_forbid_textual_boundary(&members, &classified).unwrap();
+        // path 属性目标越界（.. 逃逸包根）fail closed。
+        fs::write(
+            root.join("src/lib.rs"),
+            "#[path = \"../sibling.rs\"]\nmod sibling;\n",
+        )
+        .unwrap();
+        let error = check_forbid_textual_boundary(&members, &classified).unwrap_err();
+        assert!(error.contains("path 属性目标"), "{error}");
+        // 包内相对 .rs 挂接是合法用法（tests 指向包内 support 文件），放行。
+        fs::write(
+            root.join("src/lib.rs"),
+            "#[path = \"support/evidence.rs\"]\nmod evidence;\n",
+        )
+        .unwrap();
+        check_forbid_textual_boundary(&members, &classified).unwrap();
+        // 注释与字面量里的字样不误报。
+        fs::write(
+            root.join("src/lib.rs"),
+            "// include!(\"payload.rs\")\nconst FIXTURE: &str = \"#[path = \\\"../x.rs\\\"]\";\n",
+        )
+        .unwrap();
+        check_forbid_textual_boundary(&members, &classified).unwrap();
         let _ = fs::remove_dir_all(&root);
     }
 

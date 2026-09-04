@@ -433,6 +433,21 @@ pub(crate) fn check_audited_mmap_sources(repository_root: &Path) -> Result<(), S
         // 注释与字面量内容不参与编译，计数在 strip 后的代码文本上进行：
         // 文档注释可以提及 unsafe 语义，字符串断言不再误报。
         let code = strip_non_code(&text);
+        // `cfg_attr(..., path = "...")` 可包裹 path 属性逃逸上面的直接形态
+        // 检测；本 crate 没有任何合法 cfg_attr 需求，全面禁用。
+        if contains_cfg_attr_token(&code) {
+            return Err(format!(
+                "受审计 mmap package 内禁止 `cfg_attr`（其可包裹 path 属性逃逸源码加载检测）：`{}`",
+                source.display()
+            ));
+        }
+        // 词法精确兜底：任何真实 path 属性（含 `# [` trivia 变体）一律拒绝，
+        // 编译器可达源码全集收敛为包内 .rs 扫描面。
+        check_path_attribute_values(
+            &text,
+            &format!("受审计 mmap source `{}`", source.display()),
+            PathAttributePolicy::RejectAll,
+        )?;
         if source == allowed_source {
             if code.matches("#![allow(unsafe_code)]").count() != 1
                 || code.matches(AUDITED_MMAP_EXPRESSION).count() != 1
@@ -455,6 +470,46 @@ pub(crate) fn check_audited_mmap_sources(repository_root: &Path) -> Result<(), S
     Ok(())
 }
 
+/// 从 `/*` 起始位置跳过（可嵌套）块注释，返回注释结束之后第一个字节的下标。
+fn skip_block_comment(text: &str, start: usize) -> usize {
+    let bytes = text.as_bytes();
+    let mut depth = 1usize;
+    let mut cursor = start + 2;
+    while cursor < bytes.len() && depth > 0 {
+        if text[cursor..].starts_with("/*") {
+            depth += 1;
+            cursor += 2;
+        } else if text[cursor..].starts_with("*/") {
+            depth -= 1;
+            cursor += 2;
+        } else {
+            cursor += text[cursor..].chars().next().map_or(1, char::len_utf8);
+        }
+    }
+    cursor
+}
+
+/// 识别 `include!` 宏调用（token 级：标识符边界 + `!`，其间可夹空白与
+/// 注释 trivia——rustc 词法允许）。`include_str!` / `include_bytes!`
+/// 只加载数据不加载代码，豁免。
+pub(crate) fn contains_include_macro(text: &str) -> bool {
+    for (index, token) in text.match_indices("include") {
+        let before = text[..index].chars().next_back();
+        if before.is_some_and(is_identifier_character) {
+            continue;
+        }
+        let rest = &text[index + token.len()..];
+        if rest.chars().next().is_some_and(is_identifier_character) {
+            // include_str! / include_bytes! 等标识符延续。
+            continue;
+        }
+        if text[skip_trivia(text, index + token.len())..].starts_with('!') {
+            return true;
+        }
+    }
+    false
+}
+
 /// 识别源码加载指令：`#[path]` 属性与 `include!` 宏调用。token 级扫描——
 /// `#[` 与 `path` 之间、`include` 与 `!` 之间的空白在 rustc 词法中合法，
 /// 逐一容忍；`include_str!` / `include_bytes!` 只加载数据不加载代码，豁免。
@@ -470,21 +525,18 @@ fn contains_source_loading_directive(text: &str) -> bool {
             return true;
         }
     }
-    for (index, token) in text.match_indices("include") {
-        let before = text[..index].chars().next_back();
-        if before.is_some_and(is_identifier_character) {
-            continue;
-        }
-        let rest = &text[index + token.len()..];
-        if rest.chars().next().is_some_and(is_identifier_character) {
-            // include_str! / include_bytes! 等标识符延续。
-            continue;
-        }
-        if rest.trim_start().starts_with('!') {
-            return true;
-        }
-    }
-    false
+    contains_include_macro(text)
+}
+
+/// 识别 strip 后代码中的裸 `cfg_attr` token。mmap 例外 crate 全面禁用
+/// `cfg_attr`：`#[cfg_attr(..., path = "...")]` 可包裹 path 属性，逃逸
+/// 直接形态的源码加载指令检测。
+pub(crate) fn contains_cfg_attr_token(code: &str) -> bool {
+    code.match_indices("cfg_attr").any(|(index, token)| {
+        let before = code[..index].chars().next_back();
+        let after = code[index + token.len()..].chars().next();
+        !before.is_some_and(is_identifier_character) && !after.is_some_and(is_identifier_character)
+    })
 }
 
 pub(crate) fn workspace_manifest_paths(repository_root: &Path) -> Result<Vec<PathBuf>, String> {
@@ -582,6 +634,231 @@ fn toml_has_value(text: &str, section: &str, key: &str, expected: &str) -> bool 
     false
 }
 
+/// path 属性目标的审计策略。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PathAttributePolicy {
+    /// 任何真实 path 属性都拒绝：mmap 例外 crate 的源码全集必须就是包内
+    /// .rs 扫描面，`mod` 外挂接一律禁绝。
+    RejectAll,
+    /// 目标必须是以 `.rs` 结尾的包内相对路径（无 `..`、无盘符/绝对前缀、
+    /// 无反斜杠）：forbid 成员的合法用法（tests 指向包内 support 文件）
+    /// 保留，越界加载 fail closed。无 `..` 且无绝对前缀的相对路径不可能
+    /// 逃出 package 根目录。
+    PackageRelativeRs,
+}
+
+/// 校验源码中全部 path 属性（直接 `#[path = "..."]` 与 `cfg_attr(...)` 包裹
+/// 形态）的目标值。与 [`strip_non_code`] 同构的逐字节状态机：注释与
+/// 字符串/字符字面量整体跳过，文档与测试固件里的 `#[path]` 字样不触发误判；
+/// 只有编译器真实可达的属性被解析。`#[path]` 只接受立即字符串值是 rustc
+/// 语法约束，因此 `path` 后未紧跟 `= <字面量>` 的必然不是真实属性，跳过。
+pub(crate) fn check_path_attribute_values(
+    text: &str,
+    owner: &str,
+    policy: PathAttributePolicy,
+) -> Result<(), String> {
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        let rest = &text[index..];
+        if rest.starts_with("//") {
+            index += rest.find('\n').unwrap_or(rest.len());
+            continue;
+        }
+        if rest.starts_with("/*") {
+            index = skip_block_comment(text, index);
+            continue;
+        }
+        if let Some((prefix_width, hashes)) = raw_string_prefix(rest) {
+            index = skip_raw_string(text, index + prefix_width, hashes);
+            continue;
+        }
+        if rest.starts_with('"') {
+            index = skip_escaped_literal(text, index + 1, '"');
+            continue;
+        }
+        if rest.starts_with("b\"") || rest.starts_with("c\"") {
+            index = skip_escaped_literal(text, index + 2, '"');
+            continue;
+        }
+        if rest.starts_with('\'')
+            && let Some(width) = char_literal_width(rest)
+        {
+            index += width;
+            continue;
+        }
+        if rest.starts_with('#') {
+            // rustc 允许 `#` 与 `[`（内层属性还有 `!`）之间夹 trivia。
+            let mut cursor = skip_trivia(text, index + 1);
+            if text[cursor..].starts_with('!') {
+                cursor = skip_trivia(text, cursor + 1);
+            }
+            if text[cursor..].starts_with('[') {
+                index = check_attribute_region(text, cursor + 1, owner, policy)?;
+                continue;
+            }
+        }
+        let character = rest.chars().next().expect("non-empty rest");
+        index += character.len_utf8();
+    }
+    Ok(())
+}
+
+/// 从 `[` 之后扫描一个属性区域，按分隔符配对走到闭合 `]`；识别区域内全部
+/// 裸 `path` 标识符 + `=` + 字符串字面量形态并校验目标值（cfg_attr 包裹形态
+/// 只是区域内的嵌套，天然覆盖）。返回属性区域之后的下标。区域截断或分隔符
+/// 不配对时 fail closed——合法 Rust 属性的分隔符必然配对。
+fn check_attribute_region(
+    text: &str,
+    mut index: usize,
+    owner: &str,
+    policy: PathAttributePolicy,
+) -> Result<usize, String> {
+    let bytes = text.as_bytes();
+    let mut stack = vec![b']'];
+    while index < bytes.len() {
+        let rest = &text[index..];
+        if rest.starts_with("//") {
+            index += rest.find('\n').unwrap_or(rest.len());
+            continue;
+        }
+        if rest.starts_with("/*") {
+            index = skip_block_comment(text, index);
+            continue;
+        }
+        if let Some((prefix_width, hashes)) = raw_string_prefix(rest) {
+            index = skip_raw_string(text, index + prefix_width, hashes);
+            continue;
+        }
+        if rest.starts_with('"') {
+            index = skip_escaped_literal(text, index + 1, '"');
+            continue;
+        }
+        if rest.starts_with('\'')
+            && let Some(width) = char_literal_width(rest)
+        {
+            index += width;
+            continue;
+        }
+        match bytes[index] {
+            b'[' => stack.push(b']'),
+            b'(' => stack.push(b')'),
+            b'{' => stack.push(b'}'),
+            byte @ (b']' | b')' | b'}') => {
+                if stack.pop() != Some(byte) {
+                    return Err(format!(
+                        "{owner} 的属性区域分隔符不配对，无法静态审计，fail closed"
+                    ));
+                }
+                if stack.is_empty() {
+                    return Ok(index + 1);
+                }
+            }
+            _ => {
+                if is_bare_ident_at(text, index, "path") {
+                    match scan_path_value(text, index + "path".len()) {
+                        PathValueScan::NotAttribute => {}
+                        PathValueScan::Value(end, value) => {
+                            check_path_value(&value, owner, policy)?;
+                            index = end;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        index += text[index..].chars().next().map_or(1, char::len_utf8);
+    }
+    Err(format!(
+        "{owner} 的属性区域未闭合，无法静态审计，fail closed"
+    ))
+}
+
+/// `index` 处是否以裸标识符 `name` 起始（前后均非标识符字符）。
+fn is_bare_ident_at(text: &str, index: usize, name: &str) -> bool {
+    let rest = &text[index..];
+    if !rest.starts_with(name) {
+        return false;
+    }
+    let before = text[..index].chars().next_back();
+    let after = rest[name.len()..].chars().next();
+    !before.is_some_and(is_identifier_character) && !after.is_some_and(is_identifier_character)
+}
+
+enum PathValueScan {
+    /// `path` 后未紧跟 `= <字符串字面量>`：不是真实 path 属性，跳过。
+    NotAttribute,
+    /// （字面量结束后下标, 字面量原始内容）。
+    Value(usize, String),
+}
+
+/// 从 `path` 之后解析 `= <字符串字面量>`（普通与 raw string 两种形态），
+/// 容忍其间的空白与注释。
+fn scan_path_value(text: &str, mut index: usize) -> PathValueScan {
+    index = skip_trivia(text, index);
+    if !text[index..].starts_with('=') {
+        return PathValueScan::NotAttribute;
+    }
+    index = skip_trivia(text, index + 1);
+    let rest = &text[index..];
+    if let Some((prefix_width, hashes)) = raw_string_prefix(rest) {
+        let content_start = index + prefix_width;
+        let end = skip_raw_string(text, content_start, hashes);
+        let content_end = end.saturating_sub(1 + hashes);
+        return PathValueScan::Value(end, text[content_start..content_end].to_string());
+    }
+    if rest.starts_with('"') {
+        let end = skip_escaped_literal(text, index + 1, '"');
+        return PathValueScan::Value(end, text[index + 1..end.saturating_sub(1)].to_string());
+    }
+    PathValueScan::NotAttribute
+}
+
+/// 跳过空白与注释（trivia）。
+fn skip_trivia(text: &str, mut index: usize) -> usize {
+    loop {
+        let rest = &text[index..];
+        let trimmed = rest.trim_start();
+        index += rest.len() - trimmed.len();
+        let rest = &text[index..];
+        if rest.starts_with("//") {
+            index += rest.find('\n').unwrap_or(rest.len());
+            continue;
+        }
+        if rest.starts_with("/*") {
+            index = skip_block_comment(text, index);
+            continue;
+        }
+        return index;
+    }
+}
+
+fn check_path_value(value: &str, owner: &str, policy: PathAttributePolicy) -> Result<(), String> {
+    let violation = match policy {
+        PathAttributePolicy::RejectAll => true,
+        PathAttributePolicy::PackageRelativeRs => {
+            !value.ends_with(".rs")
+                || value.contains("..")
+                || value.contains([':', '\\'])
+                || value.starts_with('/')
+        }
+    };
+    if violation {
+        let rule = match policy {
+            PathAttributePolicy::RejectAll => {
+                "本 crate 禁止任何 path 属性（`mod` 外挂接逃逸 .rs 扫描面）"
+            }
+            PathAttributePolicy::PackageRelativeRs => {
+                "path 属性目标只允许以 .rs 结尾的包内相对路径（无 `..`、无盘符/绝对前缀、无反斜杠）"
+            }
+        };
+        return Err(format!(
+            "{owner} 的 path 属性目标 `{value}` 不被允许：{rule}，防止加载文本扫描面之外的源码"
+        ));
+    }
+    Ok(())
+}
+
 fn contains_unsafe_token(text: &str) -> bool {
     count_unsafe_tokens(text) != 0
 }
@@ -617,20 +894,7 @@ pub(crate) fn strip_non_code(text: &str) -> String {
             continue;
         }
         if rest.starts_with("/*") {
-            let mut depth = 1usize;
-            let mut cursor = index + 2;
-            while cursor < bytes.len() && depth > 0 {
-                if text[cursor..].starts_with("/*") {
-                    depth += 1;
-                    cursor += 2;
-                } else if text[cursor..].starts_with("*/") {
-                    depth -= 1;
-                    cursor += 2;
-                } else {
-                    cursor += text[cursor..].chars().next().map_or(1, char::len_utf8);
-                }
-            }
-            index = cursor;
+            index = skip_block_comment(text, index);
             output.push(' ');
             continue;
         }
@@ -998,6 +1262,9 @@ mod tests {
             "include!(\"payload.rsx\")"
         ));
         assert!(contains_source_loading_directive(
+            "include /* 注释 */ ! (\"payload.rsx\")"
+        ));
+        assert!(contains_source_loading_directive(
             "include ! (\"payload.rsx\")"
         ));
         // include_str! / include_bytes! 只加载数据，不是源码加载指令。
@@ -1008,5 +1275,118 @@ mod tests {
             "const BYTES: &[u8] = include_bytes!(\"data.bin\");"
         ));
         assert!(!contains_source_loading_directive("pub fn plain() {}\n"));
+    }
+
+    #[test]
+    fn path_attribute_values_accept_package_relative_rs() {
+        // forbid 成员的合法用法：tests 指向包内 support 文件。
+        check_path_attribute_values(
+            "#[path = \"support/snapshot_evidence.rs\"]\nmod snapshot_evidence;",
+            "demo",
+            PathAttributePolicy::PackageRelativeRs,
+        )
+        .unwrap();
+        // cfg_attr 包裹形态同样被解析，合法值放行。
+        check_path_attribute_values(
+            "#[cfg_attr(test, path = \"support/cond.rs\")]\nmod cond;",
+            "demo",
+            PathAttributePolicy::PackageRelativeRs,
+        )
+        .unwrap();
+        // `path` 后未紧跟 `= <字面量>` 不是真实属性（rustc 只接受立即值），跳过。
+        check_path_attribute_values(
+            "#[path]\nmod never_valid;",
+            "demo",
+            PathAttributePolicy::PackageRelativeRs,
+        )
+        .unwrap();
+        // trivia 变体同样是真实属性，合法值放行；无 path 的内层属性不受影响。
+        check_path_attribute_values(
+            "# [path = \"support/cond.rs\"]\nmod cond;",
+            "demo",
+            PathAttributePolicy::PackageRelativeRs,
+        )
+        .unwrap();
+        check_path_attribute_values(
+            "#![allow(unsafe_code)]\nfn f() {}\n",
+            "demo",
+            PathAttributePolicy::RejectAll,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn path_attribute_values_reject_escape_and_non_rs() {
+        for source in [
+            "#[path = \"../../../payload.txt\"]\nmod payload;",
+            "#[path = \"../sibling.rs\"]\nmod sibling;",
+            "#[path = \"/abs/x.rs\"]\nmod abs;",
+            "#[cfg_attr(unix, path = \"nested.txt\")]\nmod nested;",
+            "#[path = \"..\\up.rs\"]\nmod up;",
+            // `#` 与 `[`（内层属性还有 `!`）之间的 trivia 变体同样是真实属性。
+            "# [path = \"../sibling.rs\"]\nmod sibling;",
+            "#! [path = \"../sibling.rs\"]",
+        ] {
+            assert!(
+                check_path_attribute_values(source, "demo", PathAttributePolicy::PackageRelativeRs)
+                    .is_err(),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn path_attribute_values_skip_comments_and_string_fixtures() {
+        // 注释与字面量内容不参与编译：文档与测试固件里的 `#[path]` 字样
+        // 不触发误判，即使最严格的 RejectAll 策略也放行。字符字面量里的
+        // 方括号不干扰属性区域的配对扫描。
+        let source = r##"
+            // #[path = "evil.txt"]
+            /* #[path = "../evil.rs"] */
+            /// doc 提及 `#[path = "evil.txt"]` 形态
+            const FIXTURE: &str = "#[path = \"evil.txt\"]\nmod evil;";
+            fn brackets() -> char { '[' }
+        "##;
+        check_path_attribute_values(source, "demo", PathAttributePolicy::RejectAll).unwrap();
+    }
+
+    #[test]
+    fn path_attribute_values_reject_all_for_mmap_policy() {
+        // mmap 例外 crate 的源码全集必须就是包内 .rs 扫描面：
+        // 连合法的包内相对 .rs 挂接也一并拒绝。
+        let error = check_path_attribute_values(
+            "#[path = \"support/ok.rs\"]\nmod ok;",
+            "mmap 例外 crate",
+            PathAttributePolicy::RejectAll,
+        )
+        .unwrap_err();
+        assert!(error.contains("support/ok.rs"), "{error}");
+        // 属性区域未闭合 / 分隔符不配对：无法静态审计，fail closed。
+        assert!(
+            check_path_attribute_values(
+                "#[cfg(test",
+                "demo",
+                PathAttributePolicy::PackageRelativeRs
+            )
+            .is_err()
+        );
+        assert!(
+            check_path_attribute_values(
+                "#[cfg(test})]",
+                "demo",
+                PathAttributePolicy::PackageRelativeRs
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn cfg_attr_token_detection_respects_ident_boundaries() {
+        assert!(contains_cfg_attr_token(
+            "#[cfg_attr(test, path = \"x.rs\")]"
+        ));
+        assert!(contains_cfg_attr_token("cfg_attr"));
+        assert!(!contains_cfg_attr_token("let my_cfg_attr = 1;"));
+        assert!(!contains_cfg_attr_token("cfg_attrlike();"));
     }
 }
