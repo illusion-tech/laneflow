@@ -309,6 +309,9 @@ impl TrafficWorld {
         &self,
         address: crate::ConflictPassageAddress,
     ) -> Option<crate::ConflictPassageLocator> {
+        if !self.conflict_arbiter.contains_address(address) {
+            return None;
+        }
         Some(crate::ConflictPassageLocator::new(
             self.revision.identity().stable_id(address.stream())?,
             self.revision.identity().stable_id(address.zone())?,
@@ -402,10 +405,8 @@ impl TrafficWorld {
         {
             return false;
         }
-        self.conflict_arbiter.authority_owners_valid(|owner| {
-            self.vehicle_state(owner)
-                .is_some_and(|state| self.conflict_arbiter.state_valid(state))
-        })
+        self.conflict_arbiter
+            .authority_owners_valid(|owner| self.vehicle_state(owner).is_some())
     }
 
     #[must_use]
