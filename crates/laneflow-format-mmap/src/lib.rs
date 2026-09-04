@@ -18,13 +18,15 @@
 //!
 //! ## 威胁模型（刻意声明，不是疏漏）
 //!
-//! 上述私有性防的是**外部进程**（Unix 无目录项、Windows 拒绝 reopen）与
-//! **意外/半意外误用**（句柄不可达、seal 消费所有权、Debug 不泄露 fd）。
-//! 同进程内的恶意代码不在防御范围：此类代码可枚举 `/proc/self/fd` 重开
-//! backing，亦可经 `/proc/self/mem` 直接改写进程地址空间——后者对一切
-//! Rust 抽象（含 owned memory）同样成立，Rust 生态一致将同进程同 UID 的
-//! debugger 级内省视为模型外。以 owned memory 替代 mmap 亦被冻结合同明文
-//! 排除（`docs/design/compiler-foundation.md` 百万单路网配置档：staged
+//! 上述私有性防的是**不同 UID 的外部进程**（Unix 无目录项、Windows 拒绝
+//! reopen）与**意外/半意外误用**（句柄不可达、seal 消费所有权、Debug 不
+//! 泄露 fd）。同 UID 的恶意代码——无论同进程还是跨进程——不在防御范围：
+//! 此类代码可枚举 `/proc/self/fd` 或 `/proc/<pid>/fd` 重开 backing，亦可
+//! 经 `/proc/self/mem`、`/proc/<pid>/mem` 或 ptrace 直接读写进程地址空间——
+//! 后者对一切 Rust 抽象（含 owned memory）同样成立。Unix 安全模型以 UID 为
+//! 边界，同 UID 即同安全域；Rust 生态一致将同 UID 的 debugger 级内省视为
+//! 模型外。以 owned memory 替代 mmap 亦被冻结合同明文排除
+//! （`docs/design/compiler-foundation.md` 百万单路网配置档：staged
 //! bytes 不计入 `CompilerControlledLiveBytes`，emitter 必须写入 sealed
 //! closed staged file，不得物化为 `Box<[u8]>`）。
 //!
