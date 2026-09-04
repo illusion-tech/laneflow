@@ -63,18 +63,27 @@
 //!    crate 内其他源文件零 unsafe、零 allow(unsafe_code)；crate 内全面禁止
 //!    `#[path]` 模块属性、`include!` 宏与 `cfg_attr`（cfg_attr 可包裹 path
 //!    属性逃逸直接形态检测）——禁绝后 .rs 全集即编译器可达源码全集。
+//! 8. 仓库 cargo config 卫生：`.cargo/config.toml`（及旧式 `.cargo/config`）
+//!    若存在则禁止 `[env]` 段。cargo 会把 `[env]` 注入它启动的进程（含
+//!    `cargo run` 启动的 xtask 自身）；hermetic 嵌套 cargo 继承被投毒的
+//!    HOME / CARGO_HOME 后会发现仓库控制的 `$HOME/.cargo/config.toml`，
+//!    进而装载 rustc-wrapper 剥离尾参 `-F`。第 4 条的 cwd 外移只挡住 cwd
+//!    向上的配置发现，挡不住这条 env 继承链——故在源头禁绝 `[env]`。
 //!
 //! 残余信任边界（本模块不尝试自审）：本检查步骤的定义（.github/workflows/）、
 //! xtask 源码（含 wire_pins 钉版副本）与依赖政策配置（deny.toml）可被 PR
 //! 修改，现由普通 PR review 守住；是否以 CODEOWNERS + code owner review
 //! 强制，按 ADR 0027 另开治理 Issue 评估（#579）。mmap 例外 crate 的
-//! backing 私有性防外部进程与意外误用；同进程同 UID 的恶意代码（枚举
-//! /proc/self/fd 重开 backing、/proc/self/mem 直写地址空间）不在防御
-//! 范围——后者对一切 Rust 抽象（含 owned memory）同样成立，Rust 生态
-//! 一致视其为模型外（详见 laneflow-format-mmap 模块文档的威胁模型节）。
+//! backing 私有性防不同 UID 的外部进程与意外误用；同 UID 的恶意代码
+//! （无论同进程或跨进程——枚举 /proc/self/fd 或 /proc/<pid>/fd 重开
+//! backing、/proc/<pid>/mem 或 ptrace 读写地址空间）不在防御范围：
+//! Unix 安全模型以 UID 为边界，同 UID 即同安全域，且此类内省对一切
+//! Rust 抽象（含 owned memory）同样成立，Rust 生态一致视其为模型外
+//! （详见 laneflow-format-mmap 模块文档的威胁模型节）。
 
 use std::ffi::OsStr;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -155,6 +164,7 @@ pub(crate) fn run() -> Result<(), String> {
     let repository_root =
         std::env::current_dir().map_err(|error| format!("无法解析仓库根目录: {error}"))?;
     require_repository_root(&repository_root)?;
+    check_repo_cargo_config_hygiene(&repository_root)?;
     check_lockfile_pins(&repository_root)?;
     check_wire_manifest_hygiene(&repository_root)?;
     check_mmap_manifest_hygiene(&repository_root)?;
@@ -163,7 +173,7 @@ pub(crate) fn run() -> Result<(), String> {
     schema_codegen::check_audited_mmap_sources(&repository_root)?;
     check_workspace_unsafe_boundary(&repository_root)?;
     println!(
-        "wire 工具链审计已通过：flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include! 加载入口禁令），workspace unsafe 分类断言闭合（forbid/allow 两级），forbid 成员禁 build 脚本且 target 源一律 .rs，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支），forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
+        "wire 工具链审计已通过：仓库 cargo config 卫生闭合（禁 `[env]` 段，env 继承链无从投毒嵌套 cargo 配置发现），flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include!/cfg_attr 加载入口禁令与 path 属性 walker 兜底），workspace unsafe 分类断言闭合（forbid/allow 两级），forbid 成员禁 build 脚本且 target 源一律 .rs，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支）且源码加载指令收口（include! 禁绝、path 目标限包内相对 .rs），forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
     );
     Ok(())
 }
@@ -172,6 +182,37 @@ fn require_repository_root(root: &Path) -> Result<(), String> {
     for path in ["Cargo.toml", "Cargo.lock"] {
         if !root.join(path).is_file() {
             return Err(format!("必须从 LaneFlow 仓库根目录运行；缺少 `{path}`"));
+        }
+    }
+    Ok(())
+}
+
+/// 仓库 cargo config 卫生：`.cargo/config.toml`（及旧式 `.cargo/config`）若
+/// 存在则禁止 `[env]` 段。cargo 会把 `[env]` 注入它启动的进程（含
+/// `cargo run` 启动的 xtask 自身）；hermetic 嵌套 cargo 继承被投毒的
+/// HOME / CARGO_HOME 后会发现仓库控制的 `$HOME/.cargo/config.toml`，进而
+/// 装载 rustc-wrapper 剥离尾参 `-F`。嵌套命令的仓库外 cwd 只挡住 cwd 向上
+/// 的配置发现，挡不住这条 env 继承链——唯一闭合方式是在源头禁绝 `[env]`。
+/// 存在但不可读、TOML 解析失败均 fail closed。
+fn check_repo_cargo_config_hygiene(repository_root: &Path) -> Result<(), String> {
+    for name in ["config.toml", "config"] {
+        let path = repository_root.join(".cargo").join(name);
+        let text = match fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("无法读取 `{}`: {error}", path.display())),
+        };
+        let config: toml::Table = text.parse().map_err(|error| {
+            format!(
+                "仓库 cargo config `{}` TOML 解析失败（fail closed）: {error}",
+                path.display()
+            )
+        })?;
+        if config.contains_key("env") {
+            return Err(format!(
+                "仓库 cargo config `{}` 禁止 `[env]` 段：其可经 `cargo run` 进程环境投毒 hermetic 嵌套 cargo 的配置发现（HOME/CARGO_HOME），装载仓库控制的 rustc-wrapper 剥离尾参 `-F`",
+                path.display()
+            ));
         }
     }
     Ok(())
@@ -954,7 +995,9 @@ fn check_forbid_textual_boundary(
 }
 
 /// 构造剔除注入向量后的 cargo 命令。cwd 固定为审计临时目录（仓库外），
-/// 使仓库内 .cargo/config.toml 不参与配置发现。
+/// 使仓库内 .cargo/config.toml 不参与配置发现；`[env]` 经 `cargo run`
+/// 进程环境继承的 HOME/CARGO_HOME 投毒链路由
+/// [`check_repo_cargo_config_hygiene`] 在源头禁绝。
 fn hermetic_cargo_command(work_dir: &Path) -> Command {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let mut command = Command::new(cargo);
@@ -1159,6 +1202,44 @@ fn tail_truncate(trimmed: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cargo_config_hygiene_forbids_env_section() {
+        let root = std::env::temp_dir().join(format!(
+            "laneflow-wire-audit-cargo-config-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        // 无 .cargo 目录：放行。
+        check_repo_cargo_config_hygiene(&root).unwrap();
+        let cargo_dir = root.join(".cargo");
+        fs::create_dir_all(&cargo_dir).unwrap();
+        // 普通段（target-dir 等）：放行。
+        fs::write(
+            cargo_dir.join("config.toml"),
+            "[build]\ntarget-dir = \"target\"\n",
+        )
+        .unwrap();
+        check_repo_cargo_config_hygiene(&root).unwrap();
+        // [env] 段：拒绝（新旧文件名同样拒绝）。
+        fs::write(
+            cargo_dir.join("config.toml"),
+            "[env]\nHOME = { value = \"..\", relative = true, force = true }\n",
+        )
+        .unwrap();
+        let error = check_repo_cargo_config_hygiene(&root).unwrap_err();
+        assert!(error.contains("[env]"), "{error}");
+        fs::remove_file(cargo_dir.join("config.toml")).unwrap();
+        fs::write(cargo_dir.join("config"), "[env]\nCARGO_HOME = \"x\"\n").unwrap();
+        let error = check_repo_cargo_config_hygiene(&root).unwrap_err();
+        assert!(error.contains("[env]"), "{error}");
+        fs::remove_file(cargo_dir.join("config")).unwrap();
+        // TOML 解析失败 fail closed。
+        fs::write(cargo_dir.join("config.toml"), "[env\n").unwrap();
+        assert!(check_repo_cargo_config_hygiene(&root).is_err());
+        let _ = fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn hermetic_scrub_env_key_covers_exact_and_target_patterns() {
