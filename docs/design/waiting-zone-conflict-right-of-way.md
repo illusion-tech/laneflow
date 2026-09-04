@@ -4,13 +4,14 @@
 **适用范围**: WaitingZone 本地准入、Conflict 路线出现项、车辆级通行权、下游净空、
 Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
 **交付边界**: WaitingZone 本地动态 authority 属于 #282；§6 的联合算法已由 #235 接受，
-#284 实施细化另处 Review，downstream-clearance、Conflict 仲裁与组合 ledger 尚未交付<br>
+#284 实施合同已接受，W4 已交付 downstream/Conflict 组合仲裁，W5 已交付其持久化与
+修订迁移；生产 tick 接线仍由 W7 完成<br>
 
 **关联文档**:
 
 - `traffic-runtime-waiting-zone.md`
 - `traffic-runtime-conflict-occurrence.md`
-- [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md)（#284 实施细化，Review）
+- [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md)（#284 已接受实施合同）
 - `traffic-runtime-shared-consumption.md`
 - `traffic-runtime-integer-geometry.md`
 - `traffic-runtime-snapshot.md`
@@ -39,8 +40,8 @@ Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
   Gate ranges，以及生命周期/restore/cutover 的 3A 保护已存在；
 - 当前持久化轴是 LFRS 5、runtime state 5、deterministic digest 7。
 
-#282 只新增 WaitingZone 本地动态能力。#284 才新增正式 Conflict/right-of-way 与组合
-资源能力。
+#282 只新增 WaitingZone 本地动态能力。#284 的 W4/W5 已新增 Conflict/right-of-way
+组合资源及其持久状态；W7 负责把该能力接入生产固定步进。
 
 ## 2. Authority 地图
 
@@ -107,8 +108,8 @@ authority 的 Active 候选必须依次通过：
 3. #559 对全部 route conflict occurrence 的整车身 3A 能力保护；
 4. existing occupancy/no-overlap 等提交前验证。
 
-任一步失败都保持旧 world、旧 lifecycle 状态和 command cursor。Waiting 可行不代表
-Conflict Runtime 可用；`ConflictRuntimeUnavailable` 仍须按 #559 返回。
+任一步失败都保持旧 world、旧 lifecycle 状态和 command cursor。W7 完成生产接线前，
+未持有既有 reservation 的冲突路线状态仍须按 #559 返回 `ConflictRuntimeUnavailable`。
 
 `rebind_parking_route` 先执行 #541 的 current occurrence 与完整 physical footprint
 等价检查。已有 traversal/membership 时，目标 route 必须按稳定 ManeuverPath、Gate 与
@@ -140,8 +141,8 @@ PreGate -> Committed -> Waiting -> Committed -> ... -> completed traversal
 - successful release crossing 才移除 membership；
 - shared release/next-entry boundary 在一个事务内先 leave、后 enter。
 
-#282 不预置空的 `Clearing` 变体。Conflict reservation 和 tail-clear phase 必须由 #284
-与正式状态、快照和恢复验证同时引入。
+#282 不预置空的 `Clearing` 变体。W4/W5 已将 Conflict reservation、tail-clear phase 与
+对应快照、恢复和切换验证一并引入。
 
 Waiting membership 与 `ParkingBinding` 正交：
 
@@ -214,7 +215,7 @@ ownership 分离不重新打开这些算法选择，也不声称 #284 已实现�
 source 经唯一 compiler/LFCA/shared-root 路径原子引入；不得恢复 current JSON 或让
 `TrafficWorld` 解析文件。具体来源、世界绑定与候选版本组合见
 [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §2–§8；
-其 Review 状态不改变上述当前版本。实施时与正式 Runtime state/digest 同切片闭合。
+该合同已由 #284 G1 接受；实施时与正式 Runtime state/digest 同切片闭合。
 
 #284 消费 #282 已提交的 Waiting membership、occupancy、counter 与 local admission
 outcome，但 mutation owner 仍留在各 zone reducer。#284 可以把 zone-local claim 纳入
@@ -464,12 +465,12 @@ post-step `T+D`；下一 tick elapsed 从 0 开始。future timestamp、状态�
 input 是 step error，lead equality、任一 gap 不足与 `Unprovable` 是 normal no-grant；
 lag equality 通过该项检查。
 
-#284 实施候选对跨修订新 cell 补充保守初始化：只有真正无既往运行历史的新世界可以
+#284 实施合同对跨修订新 cell 补充保守初始化：只有真正无既往运行历史的新世界可以
 直接使用无历史；切换新增或无法证明语义连续的无 occupant/reservation cell，以最终
 静默提交的模拟时刻作为 lag 基准，不从 Prepare 起算，也不生成实际 clear 事件。
 具体 tagged value、持久化和独立迁移期望值见
 [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §6.1–§6.2
-（Review）。ActualClear 与 CutoverFloor 使用同一间隙比较边界，lead 检查不变。
+（Accepted）。ActualClear 与 CutoverFloor 使用同一间隙比较边界，lead 检查不变。
 
 ### 6.6 mandatory downstream-clearance
 
@@ -658,14 +659,14 @@ phase、stable vehicle/route/entity key 选择首错，不能依赖 scan/worker 
 
 - 持久化 pinned policy identity、`firstEligibleTick`、Clearing/reservation、committed
   downstream claims、Conflict 滞后基准与必要 semantic owner；occupancy 从 reservation
-  和实际位置重建，基准类别及保守切换起点见实施候选 §6.1，不伪造实际 clear 事件；
+  和实际位置重建，基准类别及保守切换起点见实施合同 §6.1，不伪造实际 clear 事件；
 - tick-local grants、approach frontier、target ranges、dense handles 与 scratch 是派生状态，
   restore 从 stable policy/route/vehicle identity 重建；
 - restore/same/cross-revision cutover 必须重新编译 policy/route operands、核对 capacity、
   重建 ledger/occupancy/Waiting dependency graph，并验证 owner 闭合且不存在 committed
   wait-for SCC；任一失败零发布；
-- 不保留旧 reader、双写、迁移 shim 或 feature flag；#284 正式能力与 3A 移除必须处在
-  同一可恢复/可切换切片。
+- 不保留旧 reader、双写、迁移 shim 或 feature flag；W4/W5 的可恢复、可切换内部能力
+  在集成分支先闭合，W7 的生产接线与 3A 移除必须同界提交。
 
 容量按现实 retained payload 收费：static frontier cell/top-two 按共享根 passage cell 数，
 route occurrences 继续由独立 route conflict capacity 约束；reservation/owner 由
