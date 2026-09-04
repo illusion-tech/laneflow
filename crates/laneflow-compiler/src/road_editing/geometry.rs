@@ -8,7 +8,7 @@ use laneflow_static_contract::{
     CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS,
 };
 
-use crate::declaration::CanonicalPoint3F32Input;
+use crate::declaration::{CanonicalPoint3F32Input, CurvePointRole};
 use crate::{GeometryAccuracyProfile, GeometryDirectionProfile};
 
 const MAX_SUBDIVISION_DEPTH: u8 = 20;
@@ -27,8 +27,9 @@ pub(super) const fn numeric_stack_scratch_bytes() -> u64 {
     }
 }
 
+/// 数值冻结类别；不含来源信息，保证几何内核对 authoring 结构不可知。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum NumericFreezeError {
+pub(super) enum NumericFreezeKind {
     NonFinite,
     DivisionByZero,
     SquareRootDomain,
@@ -44,6 +45,55 @@ pub(super) enum NumericFreezeError {
     DegenerateCanonicalSegment,
     DirectionDiscontinuity,
     LaneEdgeLengthOutOfRange,
+}
+
+/// 数值冻结在 source curve program 内的出事位置；`None` 表示内核证明不到该粒度，
+/// 消费侧按诚实降级回退到 declaration 级 span。
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct NumericErrorSite {
+    pub(super) segment_ordinal: Option<u32>,
+    pub(super) point_role: Option<CurvePointRole>,
+}
+
+/// 数值冻结诊断：类别 + 可选来源位置。walk 层只在尚未归因时填充 site，
+/// 内层（更精确）的归因不被外层覆盖。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct NumericFreezeError {
+    kind: NumericFreezeKind,
+    site: NumericErrorSite,
+}
+
+impl NumericFreezeError {
+    pub(super) fn kind(&self) -> NumericFreezeKind {
+        self.kind
+    }
+
+    pub(super) fn site(&self) -> NumericErrorSite {
+        self.site
+    }
+
+    pub(super) fn at_segment(mut self, segment_ordinal: u32) -> Self {
+        if self.site.segment_ordinal.is_none() {
+            self.site.segment_ordinal = Some(segment_ordinal);
+        }
+        self
+    }
+
+    pub(super) fn at_point_role(mut self, point_role: CurvePointRole) -> Self {
+        if self.site.point_role.is_none() {
+            self.site.point_role = Some(point_role);
+        }
+        self
+    }
+}
+
+impl From<NumericFreezeKind> for NumericFreezeError {
+    fn from(kind: NumericFreezeKind) -> Self {
+        Self {
+            kind,
+            site: NumericErrorSite::default(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -92,7 +142,7 @@ pub(super) fn quantize_point(value: Point3) -> Result<ApproximationPoint, Numeri
         .into_iter()
         .any(|component| !(minimum..=maximum).contains(&component))
     {
-        return Err(NumericFreezeError::CoordinateOutOfRange);
+        return Err(NumericFreezeKind::CoordinateOutOfRange.into());
     }
     Ok(ApproximationPoint {
         x: canonical_f32(value.x as f32),
@@ -192,7 +242,7 @@ pub(super) fn approximate_interval(
         || !parameter_end.is_finite()
         || parameter_start >= parameter_end
     {
-        return Err(NumericFreezeError::ApproximationNotConverged);
+        return Err(NumericFreezeKind::ApproximationNotConverged.into());
     }
     let mut start = CandidateEndpoint::evaluate(evaluator, parameter_start)?;
     if let Some(welded_start) = welded_start {
@@ -201,7 +251,7 @@ pub(super) fn approximate_interval(
         // An omitted start is already present in the shared output. Require the
         // caller to pass that exact canonical point so the candidate chord is
         // validated against the point that the assembled polyline retains.
-        return Err(NumericFreezeError::ApproximationNotConverged);
+        return Err(NumericFreezeKind::ApproximationNotConverged.into());
     }
     let end = CandidateEndpoint::evaluate(evaluator, parameter_end)?;
     if emit_start {
@@ -233,12 +283,12 @@ pub(super) fn approximate_interval(
             continue;
         }
         if node.depth == MAX_SUBDIVISION_DEPTH {
-            return Err(NumericFreezeError::ApproximationNotConverged);
+            return Err(NumericFreezeKind::ApproximationNotConverged.into());
         }
         let parameter_mid =
             finite(node.parameter_start + (node.parameter_end - node.parameter_start) / 2.0)?;
         if parameter_mid <= node.parameter_start || parameter_mid >= node.parameter_end {
-            return Err(NumericFreezeError::ApproximationNotConverged);
+            return Err(NumericFreezeKind::ApproximationNotConverged.into());
         }
         let midpoint = CandidateEndpoint::evaluate(evaluator, parameter_mid)?;
         let child_depth = node.depth + 1;
@@ -278,7 +328,7 @@ fn candidate_accepts(
         || parameter_quarter_3 <= parameter_mid
         || parameter_quarter_3 >= node.parameter_end
     {
-        return Err(NumericFreezeError::ApproximationNotConverged);
+        return Err(NumericFreezeKind::ApproximationNotConverged.into());
     }
 
     let start = promote_point(node.start.point);
@@ -352,26 +402,40 @@ fn scale_direction(value: Point3) -> Result<Option<Point3>, NumericFreezeError> 
     )?))
 }
 
+/// 校验规范折线的弦退化与方向连续性；失败时按窗口首点（退化弦的起点 / 方向不连续的
+/// 共享顶点）经 `segment_ordinal_of_point` 归因到 source segment，查询返回 `None` 时
+/// 保持未归因的诚实降级。
 pub(super) fn validate_canonical_polyline(
     points: &[ApproximationPoint],
     direction: GeometryDirectionProfile,
+    mut segment_ordinal_of_point: impl FnMut(u32) -> Option<u32>,
 ) -> Result<f64, NumericFreezeError> {
     if points.len() < 2 {
-        return Err(NumericFreezeError::DegenerateCanonicalSegment);
+        return Err(NumericFreezeKind::DegenerateCanonicalSegment.into());
     }
     let cosine_squared = direction.full_angle_cosine_squared();
     let mut previous_chord = None;
     let mut cumulative_length = 0.0_f64;
-    for pair in points.windows(2) {
+    for (index, pair) in points.windows(2).enumerate() {
+        let mut at_first_point = |error: NumericFreezeError| match segment_ordinal_of_point(
+            u32::try_from(index).expect("point ordinals fit u32"),
+        ) {
+            Some(segment_ordinal) => error.at_segment(segment_ordinal),
+            None => error,
+        };
         let chord = point_sub(promote_point(pair[1]), promote_point(pair[0]))?;
         let chord_norm_squared = norm_squared(chord)?;
         if chord_norm_squared == 0.0 {
-            return Err(NumericFreezeError::DegenerateCanonicalSegment);
+            return Err(at_first_point(
+                NumericFreezeKind::DegenerateCanonicalSegment.into(),
+            ));
         }
         if let Some(previous_chord) = previous_chord
             && !direction_accepts(previous_chord, chord, cosine_squared)?
         {
-            return Err(NumericFreezeError::DirectionDiscontinuity);
+            return Err(at_first_point(
+                NumericFreezeKind::DirectionDiscontinuity.into(),
+            ));
         }
         let chord_length = finite(chord_norm_squared.sqrt())?;
         cumulative_length = finite(cumulative_length + chord_length)?;
@@ -482,7 +546,7 @@ impl Dual {
 
     fn div(self, other: Self) -> Result<Self, NumericFreezeError> {
         if other.value == 0.0 {
-            return Err(NumericFreezeError::DivisionByZero);
+            return Err(NumericFreezeKind::DivisionByZero.into());
         }
         let value = finite(self.value / other.value)?;
         let left_first = finite(self.first * other.value)?;
@@ -490,7 +554,7 @@ impl Dual {
         let numerator = finite(left_first - right_first)?;
         let denominator = finite(other.value * other.value)?;
         if denominator == 0.0 {
-            return Err(NumericFreezeError::DivisionByZero);
+            return Err(NumericFreezeKind::DivisionByZero.into());
         }
         Ok(Self {
             value,
@@ -500,7 +564,7 @@ impl Dual {
 
     fn sqrt(self) -> Result<Self, NumericFreezeError> {
         if self.value <= 0.0 {
-            return Err(NumericFreezeError::SquareRootDomain);
+            return Err(NumericFreezeKind::SquareRootDomain.into());
         }
         let value = finite(self.value.sqrt())?;
         let denominator = finite(2.0 * value)?;
@@ -666,7 +730,7 @@ impl CurveSegment {
                 let x = finite(end.x - start.x)?;
                 let z = finite(end.z - start.z)?;
                 if x == 0.0 && z == 0.0 {
-                    Err(NumericFreezeError::HorizontalDerivativeZero)
+                    Err(NumericFreezeKind::HorizontalDerivativeZero.into())
                 } else {
                     Ok(0)
                 }
@@ -682,7 +746,7 @@ impl CurveSegment {
                     .iter()
                     .all(|control| control.x == 0.0 && control.z == 0.0)
                 {
-                    return Err(NumericFreezeError::HorizontalDerivativeZero);
+                    return Err(NumericFreezeKind::HorizontalDerivativeZero.into());
                 }
                 regularity_walk(controls)
             }
@@ -811,7 +875,7 @@ fn regularity_walk(controls: [Point3; 3]) -> Result<u32, NumericFreezeError> {
 
     while stack_len != 0 {
         if visits == MAX_REGULARITY_NODE_VISITS {
-            return Err(NumericFreezeError::HorizontalDerivativeNotProvenNonZero);
+            return Err(NumericFreezeKind::HorizontalDerivativeNotProvenNonZero.into());
         }
         stack_len -= 1;
         let node = stack[stack_len]
@@ -822,7 +886,7 @@ fn regularity_walk(controls: [Point3; 3]) -> Result<u32, NumericFreezeError> {
             continue;
         }
         if node.depth == MAX_SUBDIVISION_DEPTH {
-            return Err(NumericFreezeError::HorizontalDerivativeNotProvenNonZero);
+            return Err(NumericFreezeKind::HorizontalDerivativeNotProvenNonZero.into());
         }
         let (left, right) = split_regularity_node(node)?;
         debug_assert!(stack_len + 2 <= REGULARITY_STACK_CAPACITY);
@@ -873,7 +937,7 @@ fn split_regularity_node(
 
 fn finite(value: f64) -> Result<f64, NumericFreezeError> {
     if !value.is_finite() {
-        return Err(NumericFreezeError::NonFinite);
+        return Err(NumericFreezeKind::NonFinite.into());
     }
     Ok(if value == 0.0 { 0.0 } else { value })
 }
@@ -919,7 +983,7 @@ mod tests {
     impl ApproximationPointSink for TestPointSink {
         fn push(&mut self, vertex: ApproximationVertex) -> Result<(), NumericFreezeError> {
             if self.maximum_points == Some(self.vertices.len()) {
-                return Err(NumericFreezeError::GeometryPointLimit);
+                return Err(NumericFreezeKind::GeometryPointLimit.into());
             }
             self.vertices.push(vertex);
             Ok(())
@@ -1131,7 +1195,7 @@ mod tests {
                 GeometryDirectionProfile::Smooth1Deg,
                 &mut missing,
             ),
-            Err(NumericFreezeError::ApproximationNotConverged)
+            Err(NumericFreezeKind::ApproximationNotConverged.into())
         );
         assert!(missing.vertices.is_empty());
 
@@ -1190,14 +1254,17 @@ mod tests {
             },
         ];
         assert_eq!(
-            validate_canonical_polyline(&straight, GeometryDirectionProfile::Smooth1Deg).unwrap(),
+            validate_canonical_polyline(&straight, GeometryDirectionProfile::Smooth1Deg, |_| None)
+                .unwrap(),
             5.0
         );
 
         let duplicate = [straight[0], straight[0]];
         assert_eq!(
-            validate_canonical_polyline(&duplicate, GeometryDirectionProfile::Compact5Deg),
-            Err(NumericFreezeError::DegenerateCanonicalSegment)
+            validate_canonical_polyline(&duplicate, GeometryDirectionProfile::Compact5Deg, |_| {
+                None
+            }),
+            Err(NumericFreezeKind::DegenerateCanonicalSegment.into())
         );
 
         let direction_jump = [
@@ -1218,12 +1285,20 @@ mod tests {
             },
         ];
         assert_eq!(
-            validate_canonical_polyline(&direction_jump, GeometryDirectionProfile::Smooth1Deg),
-            Err(NumericFreezeError::DirectionDiscontinuity)
+            validate_canonical_polyline(
+                &direction_jump,
+                GeometryDirectionProfile::Smooth1Deg,
+                |_| None
+            ),
+            Err(NumericFreezeKind::DirectionDiscontinuity.into())
         );
         assert!(
-            validate_canonical_polyline(&direction_jump, GeometryDirectionProfile::Compact5Deg)
-                .is_ok()
+            validate_canonical_polyline(
+                &direction_jump,
+                GeometryDirectionProfile::Compact5Deg,
+                |_| None
+            )
+            .is_ok()
         );
     }
 
@@ -1303,7 +1378,7 @@ mod tests {
                 GeometryDirectionProfile::Smooth1Deg,
                 &mut sink,
             ),
-            Err(NumericFreezeError::GeometryPointLimit)
+            Err(NumericFreezeKind::GeometryPointLimit.into())
         );
         assert_eq!(
             sink.vertices,
@@ -1354,7 +1429,7 @@ mod tests {
                 GeometryDirectionProfile::Smooth1Deg,
                 &mut sink,
             ),
-            Err(NumericFreezeError::CoordinateOutOfRange)
+            Err(NumericFreezeKind::CoordinateOutOfRange.into())
         );
         assert!(sink.vertices.is_empty());
     }
@@ -1379,7 +1454,7 @@ mod tests {
         };
         assert_eq!(
             vertical.prove_horizontal_regularity(),
-            Err(NumericFreezeError::HorizontalDerivativeZero)
+            Err(NumericFreezeKind::HorizontalDerivativeZero.into())
         );
 
         let cusp = CurveSegment::CubicBezier {
@@ -1390,7 +1465,7 @@ mod tests {
         };
         assert_eq!(
             cusp.prove_horizontal_regularity(),
-            Err(NumericFreezeError::HorizontalDerivativeNotProvenNonZero)
+            Err(NumericFreezeKind::HorizontalDerivativeNotProvenNonZero.into())
         );
     }
 
@@ -1400,7 +1475,10 @@ mod tests {
         assert_eq!(next_down(0.0).unwrap().to_bits(), (1_u64 << 63) | 1);
         assert_eq!(next_up(-1.0).unwrap().to_bits(), (-1.0_f64).to_bits() - 1);
         assert_eq!(next_down(1.0).unwrap().to_bits(), 1.0_f64.to_bits() - 1);
-        assert_eq!(next_up(f64::MAX), Err(NumericFreezeError::NonFinite));
-        assert_eq!(next_down(-f64::MAX), Err(NumericFreezeError::NonFinite));
+        assert_eq!(next_up(f64::MAX), Err(NumericFreezeKind::NonFinite.into()));
+        assert_eq!(
+            next_down(-f64::MAX),
+            Err(NumericFreezeKind::NonFinite.into())
+        );
     }
 }

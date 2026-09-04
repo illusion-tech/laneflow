@@ -16,8 +16,9 @@ use super::location::RoadEditingLocationFactory;
 use super::rules::validate_wire_reference;
 use crate::declaration::{
     AccessRuleDeclaration, AdmittedIidmProfile, AdmittedParkingGeometry,
-    AuthoringCurveProgramDeclaration, AuthoringCurveSegmentDeclaration,
-    AuthoringCurveSegmentGeometry, AuthoringLaneDeclaration, AuthoringLaneDirection,
+    AuthoringCurveCubicPointSpans, AuthoringCurveProgramDeclaration,
+    AuthoringCurveSegmentDeclaration, AuthoringCurveSegmentGeometry,
+    AuthoringCurveSegmentPointSpans, AuthoringLaneDeclaration, AuthoringLaneDirection,
     AuthoringLaneGeometry, AuthoringPoint2F64, AuthoringPoint3F64, AuthoringStationEnd,
     AuthoringWidthProfile, CanonicalFrameDeclaration, ConflictPassageDeclaration,
     ConflictZoneDeclaration, ConflictZoneRegionDeclaration, DeclarationHeader,
@@ -35,7 +36,7 @@ use crate::declaration::{
 use crate::identity::derive_canonical_stable_id_v1;
 use crate::{
     CompileLimits, RoadEditingPropertyStep, RoadEditingRelationKind, RoadEditingRelationOccurrence,
-    RoadEditingTableKind, SourceLocation,
+    RoadEditingStructKind, RoadEditingTableKind, RoadEditingUnionKind, SourceLocation,
 };
 
 const MAX_OWNER_QUALIFIED_COMPONENTS: usize = 4;
@@ -72,15 +73,12 @@ pub(super) fn lower_road_alignments(
                 ),
                 reference_line: lower_curve_program(
                     value.reference_line(),
-                    locations.road_alignment_property(
-                        key,
-                        &[RoadEditingPropertyStep::TableField {
-                            table: RoadEditingTableKind::RoadAlignment,
-                            field_id: 2,
-                        }],
-                        value.canvas_selection(),
-                    ),
-                    |index, canvas_selection| {
+                    RoadEditingPropertyStep::TableField {
+                        table: RoadEditingTableKind::RoadAlignment,
+                        field_id: 2,
+                    },
+                    |steps| locations.road_alignment_property(key, steps, value.canvas_selection()),
+                    |index, steps, canvas_selection| {
                         locations.road_alignment_owner_local(
                             key,
                             RoadEditingRelationKind::CurveSegment,
@@ -88,10 +86,7 @@ pub(super) fn lower_road_alignments(
                                 u32::try_from(index)
                                     .expect("compile limits bound curve segment ordinals"),
                             ),
-                            &[RoadEditingPropertyStep::TableField {
-                                table: RoadEditingTableKind::CurveSegment,
-                                field_id: 1,
-                            }],
+                            steps,
                             canvas_selection,
                         )
                     },
@@ -177,41 +172,127 @@ pub(super) fn lower_conflict_zone_regions(
         .collect()
 }
 
+/// curve point 来源路径统一锚到 Vec3F64 member 0（x）；preflight 已证明三分量同处一个
+/// source point，member 级路径的倒数第二步承载 point 角色。
+const CURVE_POINT_MEMBER_LEAF: RoadEditingPropertyStep = RoadEditingPropertyStep::StructMember {
+    structure: RoadEditingStructKind::Vec3F64,
+    member_id: 0,
+};
+
+fn curve_point_path(
+    discriminant: u8,
+    table: RoadEditingTableKind,
+    field_id: u16,
+) -> [RoadEditingPropertyStep; 4] {
+    [
+        RoadEditingPropertyStep::TableField {
+            table: RoadEditingTableKind::CurveSegment,
+            field_id: 1,
+        },
+        RoadEditingPropertyStep::UnionVariant {
+            union: RoadEditingUnionKind::CurveSegmentGeometry,
+            discriminant,
+        },
+        RoadEditingPropertyStep::TableField { table, field_id },
+        CURVE_POINT_MEMBER_LEAF,
+    ]
+}
+
 fn lower_curve_program(
     value: wire::CurveProgram<'_>,
-    start_span: SourceLocation,
-    mut segment_span: impl FnMut(usize, Option<&str>) -> SourceLocation,
+    program_field: RoadEditingPropertyStep,
+    mut program_location: impl FnMut(&[RoadEditingPropertyStep]) -> SourceLocation,
+    mut segment_location: impl FnMut(usize, &[RoadEditingPropertyStep], Option<&str>) -> SourceLocation,
 ) -> AuthoringCurveProgramDeclaration {
     let start = lower_point(value.start());
+    let start_span = program_location(&[
+        program_field,
+        RoadEditingPropertyStep::TableField {
+            table: RoadEditingTableKind::CurveProgram,
+            field_id: 0,
+        },
+        CURVE_POINT_MEMBER_LEAF,
+    ]);
     let segments = value
         .segments()
         .iter()
         .enumerate()
         .map(|(index, segment)| {
-            let geometry = match segment.geometry_type() {
+            let canvas_selection = segment.canvas_selection();
+            let (geometry, point_spans) = match segment.geometry_type() {
                 wire::CurveSegmentGeometry::LineSegment => {
                     let geometry = segment
                         .geometry_as_line_segment()
                         .expect("semantic preflight validated curve union payloads");
-                    AuthoringCurveSegmentGeometry::Line {
-                        end: lower_point(geometry.end()),
-                    }
+                    (
+                        AuthoringCurveSegmentGeometry::Line {
+                            end: lower_point(geometry.end()),
+                        },
+                        AuthoringCurveSegmentPointSpans::Line {
+                            end: segment_location(
+                                index,
+                                &curve_point_path(1, RoadEditingTableKind::LineSegment, 0),
+                                canvas_selection,
+                            ),
+                        },
+                    )
                 }
                 wire::CurveSegmentGeometry::CubicBezierSegment => {
                     let geometry = segment
                         .geometry_as_cubic_bezier_segment()
                         .expect("semantic preflight validated curve union payloads");
-                    AuthoringCurveSegmentGeometry::CubicBezier {
-                        control_1: lower_point(geometry.control_1()),
-                        control_2: lower_point(geometry.control_2()),
-                        end: lower_point(geometry.end()),
-                    }
+                    (
+                        AuthoringCurveSegmentGeometry::CubicBezier {
+                            control_1: lower_point(geometry.control_1()),
+                            control_2: lower_point(geometry.control_2()),
+                            end: lower_point(geometry.end()),
+                        },
+                        AuthoringCurveSegmentPointSpans::CubicBezier(Box::new(
+                            AuthoringCurveCubicPointSpans {
+                                control_1: segment_location(
+                                    index,
+                                    &curve_point_path(
+                                        2,
+                                        RoadEditingTableKind::CubicBezierSegment,
+                                        0,
+                                    ),
+                                    canvas_selection,
+                                ),
+                                control_2: segment_location(
+                                    index,
+                                    &curve_point_path(
+                                        2,
+                                        RoadEditingTableKind::CubicBezierSegment,
+                                        1,
+                                    ),
+                                    canvas_selection,
+                                ),
+                                end: segment_location(
+                                    index,
+                                    &curve_point_path(
+                                        2,
+                                        RoadEditingTableKind::CubicBezierSegment,
+                                        2,
+                                    ),
+                                    canvas_selection,
+                                ),
+                            },
+                        )),
+                    )
                 }
                 _ => unreachable!("semantic preflight validated curve union discriminants"),
             };
             AuthoringCurveSegmentDeclaration {
                 geometry,
-                span: segment_span(index, segment.canvas_selection()),
+                span: segment_location(
+                    index,
+                    &[RoadEditingPropertyStep::TableField {
+                        table: RoadEditingTableKind::CurveSegment,
+                        field_id: 1,
+                    }],
+                    canvas_selection,
+                ),
+                point_spans,
             }
         })
         .collect();
@@ -413,6 +494,29 @@ pub(super) fn lower_independent_declarations(
                             ),
                         ),
                         progress_mm,
+                        progress_span: Box::new(
+                            locations.owner_local(
+                                EntityKind::ParkingFacility,
+                                &[],
+                                key,
+                                relation,
+                                RoadEditingRelationOccurrence::CanonicalSetOrdinal(
+                                    u32::try_from(index)
+                                        .expect("compile limits bound parking anchor ordinals"),
+                                ),
+                                &[
+                                    RoadEditingPropertyStep::TableField {
+                                        table: RoadEditingTableKind::ParkingFacility,
+                                        field_id,
+                                    },
+                                    RoadEditingPropertyStep::TableField {
+                                        table: RoadEditingTableKind::ParkingLaneAnchor,
+                                        field_id: 1,
+                                    },
+                                ],
+                                value.canvas_selection(),
+                            ),
+                        ),
                     },
                 )
                 .collect::<Box<[_]>>()
@@ -1263,15 +1367,20 @@ pub(super) fn lower_topology_authoring_declarations(
         let explicit_curve = value.explicit_geometry().map(|curve| {
             lower_curve_program(
                 curve,
-                property_location(
-                    locations,
-                    EntityKind::LaneEdge,
-                    key,
-                    RoadEditingTableKind::LaneEdge,
-                    3,
-                    value.canvas_selection(),
-                ),
-                |index, canvas_selection| {
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::LaneEdge,
+                    field_id: 3,
+                },
+                |steps| {
+                    locations.property(
+                        EntityKind::LaneEdge,
+                        &[],
+                        key,
+                        steps,
+                        value.canvas_selection(),
+                    )
+                },
+                |index, steps, canvas_selection| {
                     locations.owner_local(
                         EntityKind::LaneEdge,
                         &[],
@@ -1281,10 +1390,7 @@ pub(super) fn lower_topology_authoring_declarations(
                             u32::try_from(index)
                                 .expect("compile limits bound curve segment ordinals"),
                         ),
-                        &[RoadEditingPropertyStep::TableField {
-                            table: RoadEditingTableKind::CurveSegment,
-                            field_id: 1,
-                        }],
+                        steps,
                         canvas_selection,
                     )
                 },
@@ -1392,6 +1498,14 @@ pub(super) fn lower_topology_authoring_declarations(
             elements,
             authoring_geometry: Some(RoadCorridorAuthoringGeometry {
                 road_alignment_key: Arc::from(value.road_alignment_key()),
+                road_alignment_key_span: property_location(
+                    locations,
+                    EntityKind::RoadCorridor,
+                    key,
+                    RoadEditingTableKind::RoadCorridor,
+                    1,
+                    value.canvas_selection(),
+                ),
                 start_station_meters: canonicalize_zero(value.start_station_meters()),
                 end_station,
                 reference_lane: lower_reference::<AuthoringLaneKind>(
@@ -1734,6 +1848,17 @@ pub(super) fn lower_aggregate_declarations(
                         controller.canvas_selection(),
                     ),
                     duration_ms: phase.duration_milliseconds(),
+                    duration_span: owner_property_location(
+                        locations,
+                        EntityKind::SignalPhase,
+                        phase.signal_controller(),
+                        1,
+                        phase_key,
+                        RoadEditingTableKind::SignalPhase,
+                        1,
+                        phase.canvas_selection(),
+                        namespace,
+                    ),
                     states,
                 }
             })
@@ -1747,6 +1872,14 @@ pub(super) fn lower_aggregate_declarations(
                 controller.canvas_selection(),
             ),
             offset_ms: controller.offset_milliseconds(),
+            offset_span: property_location(
+                locations,
+                EntityKind::SignalController,
+                controller_key,
+                RoadEditingTableKind::SignalController,
+                1,
+                controller.canvas_selection(),
+            ),
             signal_groups,
             phases,
         })
@@ -1802,6 +1935,16 @@ pub(super) fn lower_aggregate_declarations(
                     ),
                 ),
                 progress_mm: admit_parking_progress(entry.progress_meters()),
+                progress_span: Box::new(nested_property_location(
+                    locations,
+                    EntityKind::ParkingSpace,
+                    key,
+                    RoadEditingTableKind::ParkingSpace,
+                    2,
+                    RoadEditingTableKind::ParkingLaneAnchor,
+                    1,
+                    value.canvas_selection(),
+                )),
             },
             exit: ParkingLaneAnchorDeclaration {
                 lane_edge: lower_reference::<LaneEdgeKind>(
@@ -1820,6 +1963,16 @@ pub(super) fn lower_aggregate_declarations(
                     ),
                 ),
                 progress_mm: admit_parking_progress(exit.progress_meters()),
+                progress_span: Box::new(nested_property_location(
+                    locations,
+                    EntityKind::ParkingSpace,
+                    key,
+                    RoadEditingTableKind::ParkingSpace,
+                    3,
+                    RoadEditingTableKind::ParkingLaneAnchor,
+                    1,
+                    value.canvas_selection(),
+                )),
             },
             geometry: admit_parking_geometry(geometry),
         })

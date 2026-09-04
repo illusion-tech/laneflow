@@ -9,7 +9,7 @@ use super::RoadEditingModuleInput;
 use super::compile_geometry::{
     GeometryCompilationBudget, GeometryCompilationError, compile_authoring_geometry,
 };
-use super::geometry::NumericFreezeError;
+use super::geometry::NumericFreezeKind;
 use super::location::RoadEditingLocationFactory;
 use super::lowering::{
     lower_aggregate_declarations, lower_conflict_zone_regions, lower_independent_declarations,
@@ -820,7 +820,7 @@ fn geometry_compilation_diagnostic(
         unreachable!("resource limits were handled above")
     };
     let primary_location = source.unwrap_or_else(|| locations.module_header());
-    if error == NumericFreezeError::GeometryPointLimit {
+    if error.kind() == NumericFreezeKind::GeometryPointLimit {
         let limit = limits.value(CompileLimitDimension::GeometryPointCount);
         return DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
             CompileLimitDimension::GeometryPointCount,
@@ -836,7 +836,7 @@ fn geometry_compilation_diagnostic(
             ),
         ));
     }
-    if error == NumericFreezeError::StationRowLimit {
+    if error.kind() == NumericFreezeKind::StationRowLimit {
         let limit = limits.value(CompileLimitDimension::StageScratchBytes);
         return DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
             CompileLimitDimension::StageScratchBytes,
@@ -852,39 +852,39 @@ fn geometry_compilation_diagnostic(
             ),
         ));
     }
-    let violation = match error {
-        NumericFreezeError::NonFinite => RoadEditingNumericViolation::NonFinite,
-        NumericFreezeError::DivisionByZero => RoadEditingNumericViolation::DivisionByZero,
-        NumericFreezeError::SquareRootDomain => RoadEditingNumericViolation::SquareRootDomain,
-        NumericFreezeError::HorizontalDerivativeZero => {
+    let violation = match error.kind() {
+        NumericFreezeKind::NonFinite => RoadEditingNumericViolation::NonFinite,
+        NumericFreezeKind::DivisionByZero => RoadEditingNumericViolation::DivisionByZero,
+        NumericFreezeKind::SquareRootDomain => RoadEditingNumericViolation::SquareRootDomain,
+        NumericFreezeKind::HorizontalDerivativeZero => {
             RoadEditingNumericViolation::HorizontalDerivativeZero
         }
-        NumericFreezeError::HorizontalDerivativeNotProvenNonZero => {
+        NumericFreezeKind::HorizontalDerivativeNotProvenNonZero => {
             RoadEditingNumericViolation::HorizontalDerivativeNotProvenNonZero
         }
-        NumericFreezeError::CoordinateOutOfRange => {
+        NumericFreezeKind::CoordinateOutOfRange => {
             RoadEditingNumericViolation::CoordinateOutOfRange
         }
-        NumericFreezeError::ApproximationNotConverged => {
+        NumericFreezeKind::ApproximationNotConverged => {
             RoadEditingNumericViolation::ApproximationNotConverged
         }
-        NumericFreezeError::StationOutOfRange => RoadEditingNumericViolation::StationOutOfRange,
-        NumericFreezeError::GeometryTopologyMismatch => {
+        NumericFreezeKind::StationOutOfRange => RoadEditingNumericViolation::StationOutOfRange,
+        NumericFreezeKind::GeometryTopologyMismatch => {
             RoadEditingNumericViolation::GeometryTopologyMismatch
         }
-        NumericFreezeError::SourceJoinGapExceeded => {
+        NumericFreezeKind::SourceJoinGapExceeded => {
             RoadEditingNumericViolation::SourceJoinGapExceeded
         }
-        NumericFreezeError::DegenerateCanonicalSegment => {
+        NumericFreezeKind::DegenerateCanonicalSegment => {
             RoadEditingNumericViolation::DegenerateCanonicalSegment
         }
-        NumericFreezeError::DirectionDiscontinuity => {
+        NumericFreezeKind::DirectionDiscontinuity => {
             RoadEditingNumericViolation::DirectionDiscontinuity
         }
-        NumericFreezeError::LaneEdgeLengthOutOfRange => {
+        NumericFreezeKind::LaneEdgeLengthOutOfRange => {
             RoadEditingNumericViolation::LaneEdgeLengthOutOfRange
         }
-        NumericFreezeError::GeometryPointLimit | NumericFreezeError::StationRowLimit => {
+        NumericFreezeKind::GeometryPointLimit | NumericFreezeKind::StationRowLimit => {
             unreachable!("handled above")
         }
     };
@@ -906,18 +906,18 @@ mod tests {
         AuthoringLaneInput, AuthoringLaneReference, CanonicalFrameInput, CanonicalFrameReference,
         FacilityBandInput, FacilityBandReference, JunctionInput, JunctionReference, LaneEdgeInput,
         LaneEdgeReference, LinearWidthProfile, ManeuverPathInput, MovementInput, MovementReference,
-        ParkingFacilityInput, ParkingLaneAnchor, RoadAlignmentInput, RoadAlignmentReference,
-        RoadCorridorInput, RoadCorridorReference, RoadEditingCorridorElement,
-        RoadEditingCurveProgram, RoadEditingCurveSegment, RoadEditingDeclaration,
-        RoadEditingLaneDirection, RoadEditingModuleHeader, RoadEditingPoint3,
-        RoadEditingProvenance, RoadEditingSignalPhaseState, RoadEditingSourceModuleBuilder,
-        RoadEditingSourceWriter, RoadEditingStationEnd, RoadSectionInput, RoadSectionReference,
-        SignalControllerInput, SignalControllerReference, SignalGroupInput, SignalGroupReference,
-        SignalPhaseInput, SignalPhaseReference,
+        ParkingFacilityInput, ParkingLaneAnchor, ParkingSpaceGeometry, ParkingSpaceInput,
+        RoadAlignmentInput, RoadAlignmentReference, RoadCorridorInput, RoadCorridorReference,
+        RoadEditingCorridorElement, RoadEditingCurveProgram, RoadEditingCurveSegment,
+        RoadEditingDeclaration, RoadEditingLaneDirection, RoadEditingModuleHeader,
+        RoadEditingPoint3, RoadEditingProvenance, RoadEditingSignalPhaseState,
+        RoadEditingSourceModuleBuilder, RoadEditingSourceWriter, RoadEditingStationEnd,
+        RoadSectionInput, RoadSectionReference, SignalControllerInput, SignalControllerReference,
+        SignalGroupInput, SignalGroupReference, SignalPhaseInput, SignalPhaseReference,
     };
     use crate::{
-        RoadEditingAddressKind, RoadEditingDocumentIdentity, RoadEditingOwner, RoadEditingSubject,
-        SignalAspect, SourceLocation,
+        DiagnosticCode, RoadEditingAddressKind, RoadEditingDocumentIdentity, RoadEditingOwner,
+        RoadEditingSubject, SignalAspect, SourceLocation,
     };
     use laneflow_static_contract::EntityKind;
 
@@ -1060,6 +1060,45 @@ mod tests {
             .unwrap()
     }
 
+    fn parking_space_anchor_buffer(
+        limits: &CompileLimits,
+        entry_progress_meters: f64,
+    ) -> super::super::OwnedRoadEditingSourceBuffer {
+        let edge = LaneEdgeReference::local("edge").unwrap();
+        complete_geometry_buffer_with_alignment_reference(
+            limits,
+            Vec::new(),
+            "alignment",
+            vec![RoadEditingDeclaration::ParkingSpace(
+                ParkingSpaceInput::try_new(
+                    "space",
+                    ParkingLaneAnchor::try_new(edge.clone(), entry_progress_meters).unwrap(),
+                    ParkingLaneAnchor::try_new(edge, 5.0).unwrap(),
+                    ParkingSpaceGeometry::try_new(-3.0, 0.25, 5.5, 2.6).unwrap(),
+                )
+                .unwrap(),
+            )],
+        )
+    }
+
+    fn parking_virtual_anchor_overflow_buffer(
+        limits: &CompileLimits,
+    ) -> super::super::OwnedRoadEditingSourceBuffer {
+        let edge = LaneEdgeReference::local("edge").unwrap();
+        let anchor =
+            |progress_meters| ParkingLaneAnchor::try_new(edge.clone(), progress_meters).unwrap();
+        complete_geometry_buffer_with_alignment_reference(
+            limits,
+            Vec::new(),
+            "alignment",
+            vec![RoadEditingDeclaration::ParkingFacility(
+                ParkingFacilityInput::try_new("parking-virtual")
+                    .unwrap()
+                    .with_virtual_capacity(2, vec![anchor(10.0), anchor(2.0)], vec![anchor(3.0)]),
+            )],
+        )
+    }
+
     fn signal_sort_buffer(limits: &CompileLimits) -> super::super::OwnedRoadEditingSourceBuffer {
         let header = RoadEditingModuleHeader::try_new(
             "city",
@@ -1118,6 +1157,74 @@ mod tests {
             .unwrap()
     }
 
+    fn signal_duration_buffer(
+        limits: &CompileLimits,
+        document_key: &str,
+        offset_milliseconds: u64,
+        phase_durations: &[(&str, u64)],
+    ) -> super::super::OwnedRoadEditingSourceBuffer {
+        let header = RoadEditingModuleHeader::try_new(
+            "city",
+            document_key,
+            Vec::new(),
+            RoadEditingProvenance::direct("editor save").unwrap(),
+        )
+        .unwrap();
+        let mut builder = RoadEditingSourceModuleBuilder::new(
+            header,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            limits,
+        )
+        .unwrap();
+        let group = SignalGroupReference::local("group").unwrap();
+        let controller = SignalControllerReference::local("controller").unwrap();
+        let mut phase_references = Vec::new();
+        let mut phases = Vec::new();
+        for (key, duration_milliseconds) in phase_durations {
+            phase_references.push(
+                SignalPhaseReference::owner_scoped(vec!["controller".into()], (*key).to_owned())
+                    .unwrap(),
+            );
+            phases.push(
+                SignalPhaseInput::try_new(
+                    *key,
+                    *duration_milliseconds,
+                    vec![
+                        RoadEditingSignalPhaseState::try_new(group.clone(), SignalAspect::Green)
+                            .unwrap(),
+                    ],
+                    controller.clone(),
+                )
+                .unwrap(),
+            );
+        }
+        builder
+            .add_declaration(RoadEditingDeclaration::SignalGroup(
+                SignalGroupInput::try_new("group").unwrap(),
+            ))
+            .unwrap();
+        builder
+            .add_declaration(RoadEditingDeclaration::SignalController(
+                SignalControllerInput::try_new(
+                    "controller",
+                    offset_milliseconds,
+                    vec![group],
+                    phase_references,
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+        for phase in phases {
+            builder
+                .add_declaration(RoadEditingDeclaration::SignalPhase(phase))
+                .unwrap();
+        }
+        RoadEditingSourceWriter::new(limits)
+            .write(builder.finish().unwrap())
+            .unwrap()
+    }
+
     fn degenerate_geometry_buffer(
         limits: &CompileLimits,
     ) -> super::super::OwnedRoadEditingSourceBuffer {
@@ -1164,6 +1271,15 @@ mod tests {
         limits: &CompileLimits,
         imports: Vec<String>,
     ) -> super::super::OwnedRoadEditingSourceBuffer {
+        complete_geometry_buffer_with_alignment_reference(limits, imports, "alignment", Vec::new())
+    }
+
+    fn complete_geometry_buffer_with_alignment_reference(
+        limits: &CompileLimits,
+        imports: Vec<String>,
+        corridor_alignment_key: &str,
+        extra_declarations: Vec<RoadEditingDeclaration>,
+    ) -> super::super::OwnedRoadEditingSourceBuffer {
         let header = RoadEditingModuleHeader::try_new(
             "city",
             "road-editing",
@@ -1209,7 +1325,7 @@ mod tests {
             RoadEditingDeclaration::RoadCorridor(
                 RoadCorridorInput::try_new(
                     "corridor",
-                    RoadAlignmentReference::try_new("alignment").unwrap(),
+                    RoadAlignmentReference::try_new(corridor_alignment_key).unwrap(),
                     0.0,
                     RoadEditingStationEnd::AlignmentEnd,
                     section.clone(),
@@ -1254,6 +1370,9 @@ mod tests {
                 .unwrap(),
             ),
         ] {
+            builder.add_declaration(declaration).unwrap();
+        }
+        for declaration in extra_declarations {
             builder.add_declaration(declaration).unwrap();
         }
         RoadEditingSourceWriter::new(limits)
@@ -1978,10 +2097,30 @@ mod tests {
         else {
             panic!("numeric failure must retain an exact road-editing location");
         };
-        assert!(matches!(
-            location.subject(),
-            RoadEditingSubject::Declaration { .. }
-        ));
+        let RoadEditingSubject::OwnerLocal {
+            owner: RoadEditingOwner::Address(owner),
+            relation,
+            occurrence: RoadEditingRelationOccurrence::OrderedProductOrdinal(0),
+        } = location.subject()
+        else {
+            panic!("numeric failure must point at the degenerate source segment");
+        };
+        assert_eq!(*relation, RoadEditingRelationKind::CurveSegment);
+        assert_eq!(
+            owner.kind(),
+            RoadEditingAddressKind::Declaration(EntityKind::LaneEdge)
+        );
+        assert_eq!(owner.local_key(location.context()), "edge");
+        assert_eq!(
+            location
+                .property_path()
+                .expect("segment location must carry a closed property path")
+                .steps(),
+            [RoadEditingPropertyStep::TableField {
+                table: RoadEditingTableKind::CurveSegment,
+                field_id: 1,
+            }]
+        );
         let Some(SourceLocation::RoadEditing(location)) = error.diagnostics()[0].primary_location()
         else {
             panic!("numeric failure must retain a verified road-editing location");
@@ -2272,6 +2411,261 @@ mod tests {
         assert_eq!(
             builder.already_admitted(CompileLimitDimension::ModuleCount),
             0
+        );
+    }
+
+    fn assert_declaration_leaf_location(
+        diagnostic: &Diagnostic,
+        entity: EntityKind,
+        expected_owner_local_keys: &[&str],
+        expected_local_key: &str,
+        expected_steps: &[RoadEditingPropertyStep],
+    ) {
+        let Some(SourceLocation::RoadEditing(location)) = diagnostic.primary_location() else {
+            panic!("diagnostic must carry a road-editing primary location");
+        };
+        let RoadEditingSubject::Declaration { address } = location.subject() else {
+            panic!("leaf location must address the owning declaration");
+        };
+        assert_eq!(address.kind(), RoadEditingAddressKind::Declaration(entity));
+        assert_eq!(
+            address
+                .owner_local_keys(location.context())
+                .collect::<Vec<_>>(),
+            expected_owner_local_keys
+        );
+        assert_eq!(address.local_key(location.context()), expected_local_key);
+        assert_eq!(
+            location
+                .property_path()
+                .expect("leaf location must carry a closed property path")
+                .steps(),
+            expected_steps
+        );
+    }
+
+    #[test]
+    fn signal_cycle_duration_overflow_points_at_overflowing_phase_duration_leaf() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = signal_duration_buffer(
+            &limits,
+            "roads/signal-cycle-overflow",
+            0,
+            &[
+                ("phase-a-long", 9_007_199_254_740_991),
+                ("phase-b-overflow", 1),
+            ],
+        );
+        let mut builder = CompilationUnitBuilder::new(limits);
+        builder
+            .add_road_editing_module(
+                RoadEditingModuleInput::try_new(
+                    "roads/signal-cycle-overflow",
+                    buffer.as_bytes(),
+                    None,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        let Err(diagnostics) = Compiler::new().compile(builder.build().unwrap()) else {
+            panic!("cycle duration overflow must fail the compile");
+        };
+        let diagnostic = diagnostics
+            .diagnostics()
+            .iter()
+            .find(|diagnostic| diagnostic.code() == DiagnosticCode::SignalCycleDurationOverflow)
+            .expect("cycle overflow diagnostic");
+        assert_declaration_leaf_location(
+            diagnostic,
+            EntityKind::SignalPhase,
+            &["controller"],
+            "phase-b-overflow",
+            &[RoadEditingPropertyStep::TableField {
+                table: RoadEditingTableKind::SignalPhase,
+                field_id: 1,
+            }],
+        );
+    }
+
+    #[test]
+    fn invalid_signal_controller_offset_points_at_offset_leaf() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer =
+            signal_duration_buffer(&limits, "roads/signal-offset", 100, &[("phase-a", 100)]);
+        let mut builder = CompilationUnitBuilder::new(limits);
+        builder
+            .add_road_editing_module(
+                RoadEditingModuleInput::try_new("roads/signal-offset", buffer.as_bytes(), None)
+                    .unwrap(),
+            )
+            .unwrap();
+
+        let Err(diagnostics) = Compiler::new().compile(builder.build().unwrap()) else {
+            panic!("offset equal to the cycle duration must fail the compile");
+        };
+        let diagnostic = diagnostics
+            .diagnostics()
+            .iter()
+            .find(|diagnostic| diagnostic.code() == DiagnosticCode::InvalidSignalControllerOffset)
+            .expect("controller offset diagnostic");
+        assert_declaration_leaf_location(
+            diagnostic,
+            EntityKind::SignalController,
+            &[],
+            "controller",
+            &[RoadEditingPropertyStep::TableField {
+                table: RoadEditingTableKind::SignalController,
+                field_id: 1,
+            }],
+        );
+    }
+
+    #[test]
+    fn invalid_parking_anchor_progress_points_at_space_anchor_leaf() {
+        let limits = CompileLimits::p100_initial_v1();
+        // 写入端与 preflight 只按全局上限放行 10.0m；10m 边的 HIR 可用闭区间是
+        // [1mm, 9999mm]，端点净距拒绝恰好落在远端的 entry 锚点。
+        let buffer = parking_space_anchor_buffer(&limits, 10.0);
+        let mut builder = CompilationUnitBuilder::new(limits);
+        builder
+            .add_road_editing_module(
+                RoadEditingModuleInput::try_new("road-editing", buffer.as_bytes(), None).unwrap(),
+            )
+            .unwrap();
+
+        let Err(diagnostics) = Compiler::new().compile(builder.build().unwrap()) else {
+            panic!("anchor progress past the emitted edge length must fail the compile");
+        };
+        let mut matching = diagnostics
+            .diagnostics()
+            .iter()
+            .filter(|diagnostic| diagnostic.code() == DiagnosticCode::InvalidParkingAnchorProgress);
+        let diagnostic = matching.next().expect("parking anchor progress diagnostic");
+        assert_eq!(
+            matching.count(),
+            0,
+            "only the entry anchor may be diagnosed"
+        );
+        assert_declaration_leaf_location(
+            diagnostic,
+            EntityKind::ParkingSpace,
+            &[],
+            "space",
+            &[
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::ParkingSpace,
+                    field_id: 2,
+                },
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::ParkingLaneAnchor,
+                    field_id: 1,
+                },
+            ],
+        );
+    }
+
+    #[test]
+    fn invalid_parking_anchor_progress_points_at_facility_virtual_anchor_leaf() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = parking_virtual_anchor_overflow_buffer(&limits);
+        let mut builder = CompilationUnitBuilder::new(limits);
+        builder
+            .add_road_editing_module(
+                RoadEditingModuleInput::try_new("road-editing", buffer.as_bytes(), None).unwrap(),
+            )
+            .unwrap();
+
+        let Err(diagnostics) = Compiler::new().compile(builder.build().unwrap()) else {
+            panic!("virtual anchor progress past the emitted edge length must fail the compile");
+        };
+        let mut matching = diagnostics
+            .diagnostics()
+            .iter()
+            .filter(|diagnostic| diagnostic.code() == DiagnosticCode::InvalidParkingAnchorProgress);
+        let diagnostic = matching.next().expect("parking anchor progress diagnostic");
+        assert_eq!(
+            matching.count(),
+            0,
+            "only the out-of-range virtual entry may be diagnosed"
+        );
+        let Some(SourceLocation::RoadEditing(location)) = diagnostic.primary_location() else {
+            panic!("diagnostic must carry a road-editing primary location");
+        };
+        let RoadEditingSubject::OwnerLocal {
+            owner: RoadEditingOwner::Address(owner),
+            relation,
+            occurrence: RoadEditingRelationOccurrence::CanonicalSetOrdinal(_),
+        } = location.subject()
+        else {
+            panic!("virtual anchor leaf must be an owner-local canonical-set occurrence");
+        };
+        assert_eq!(
+            *relation,
+            RoadEditingRelationKind::ParkingFacilityVirtualEntry
+        );
+        assert_eq!(
+            owner.kind(),
+            RoadEditingAddressKind::Declaration(EntityKind::ParkingFacility)
+        );
+        assert_eq!(owner.local_key(location.context()), "parking-virtual");
+        assert_eq!(
+            location
+                .property_path()
+                .expect("leaf location must carry a closed property path")
+                .steps(),
+            [
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::ParkingFacility,
+                    field_id: 3,
+                },
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::ParkingLaneAnchor,
+                    field_id: 1,
+                },
+            ]
+            .as_slice()
+        );
+    }
+
+    #[test]
+    fn corridor_alignment_mismatch_points_at_alignment_reference_leaf() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = complete_geometry_buffer_with_alignment_reference(
+            &limits,
+            Vec::new(),
+            "missing-alignment",
+            Vec::new(),
+        );
+        let mut builder = CompilationUnitBuilder::new(limits);
+        let Err(diagnostics) = builder.add_road_editing_module(
+            RoadEditingModuleInput::try_new("road-editing", buffer.as_bytes(), None).unwrap(),
+        ) else {
+            panic!("an unresolvable corridor alignment must fail admission");
+        };
+        let diagnostic = diagnostics
+            .diagnostics()
+            .iter()
+            .find(|diagnostic| diagnostic.code() == DiagnosticCode::InvalidRoadEditingSource)
+            .expect("numeric freeze diagnostic");
+        assert!(matches!(
+            diagnostic.payload(),
+            crate::DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::NumericFreeze(
+                    RoadEditingNumericViolation::GeometryTopologyMismatch
+                ),
+                ..
+            }
+        ));
+        assert_declaration_leaf_location(
+            diagnostic,
+            EntityKind::RoadCorridor,
+            &[],
+            "corridor",
+            &[RoadEditingPropertyStep::TableField {
+                table: RoadEditingTableKind::RoadCorridor,
+                field_id: 1,
+            }],
         );
     }
 }

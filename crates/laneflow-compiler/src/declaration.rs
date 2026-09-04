@@ -817,6 +817,19 @@ pub(crate) struct AuthoringPoint3F64 {
     pub(crate) z: f64,
 }
 
+/// 编制曲线 source 点的闭合角色。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CurvePointRole {
+    /// `CurveProgram.start` 显式起点。
+    Start,
+    /// `CubicBezierSegment.control_1`。
+    Control1,
+    /// `CubicBezierSegment.control_2`。
+    Control2,
+    /// `LineSegment.end` 或 `CubicBezierSegment.end`。
+    End,
+}
+
 /// 一条编制曲线段的闭合几何载荷。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum AuthoringCurveSegmentGeometry {
@@ -830,23 +843,52 @@ pub(crate) enum AuthoringCurveSegmentGeometry {
     },
 }
 
+/// `CubicBezierSegment` 三个控制点的闭合来源位置；独立装箱保持
+/// `AuthoringCurveSegmentPointSpans` 各 variant 尺寸相近。
+pub(crate) struct AuthoringCurveCubicPointSpans {
+    pub(crate) control_1: SourceLocation,
+    pub(crate) control_2: SourceLocation,
+    pub(crate) end: SourceLocation,
+}
+
+/// 一条编制曲线段按 union variant 区分的控制点闭合来源位置。
+///
+/// 每条路径沿 `CurveSegment.geometry`、union variant、点字段闭合到 `Vec3F64` member
+/// 叶。闭合词表与可移植制品的形状校验只接受 member 终止的曲线点路径，因此 member 0
+/// （x）是点位置的规范叶锚点，点角色由路径倒数第二步承载；诊断如需区分具体分量，
+/// 必须另行证明，不得从该锚点反推。
+pub(crate) enum AuthoringCurveSegmentPointSpans {
+    Line { end: SourceLocation },
+    CubicBezier(Box<AuthoringCurveCubicPointSpans>),
+}
+
+impl AuthoringCurveSegmentPointSpans {
+    /// 返回指定角色控制点的保留位置；角色与该段的 union variant 不匹配时返回 `None`。
+    pub(crate) fn role(&self, role: CurvePointRole) -> Option<&SourceLocation> {
+        match (self, role) {
+            (Self::Line { end }, CurvePointRole::End) => Some(end),
+            (Self::CubicBezier(spans), CurvePointRole::Control1) => Some(&spans.control_1),
+            (Self::CubicBezier(spans), CurvePointRole::Control2) => Some(&spans.control_2),
+            (Self::CubicBezier(spans), CurvePointRole::End) => Some(&spans.end),
+            _ => None,
+        }
+    }
+}
+
 /// 共同 Typed AST 中一条带来源位置的 owner-local 曲线段。
-#[allow(
-    dead_code,
-    reason = "consumed by the following topology/geometry compiler slice"
-)]
 pub(crate) struct AuthoringCurveSegmentDeclaration {
     pub(crate) geometry: AuthoringCurveSegmentGeometry,
+    /// segment 级来源位置（`CurveSegment.geometry`）；segment source map 合同只消费它。
     pub(crate) span: SourceLocation,
+    /// 各控制点的闭合 member 级来源位置，供诊断选择具体 control。
+    pub(crate) point_spans: AuthoringCurveSegmentPointSpans,
 }
 
 /// 共同 Typed AST 中一条从显式起点开始的非空编制曲线。
-#[allow(
-    dead_code,
-    reason = "consumed by the following topology/geometry compiler slice"
-)]
 pub(crate) struct AuthoringCurveProgramDeclaration {
     pub(crate) start: AuthoringPoint3F64,
+    /// `CurveProgram.start` 起点的闭合 member 级来源位置
+    /// （`… → CurveProgram.0 → Vec3F64.x`）。
     pub(crate) start_span: SourceLocation,
     pub(crate) segments: Box<[AuthoringCurveSegmentDeclaration]>,
 }
@@ -902,6 +944,8 @@ pub(crate) enum AuthoringLaneDirection {
 )]
 pub(crate) struct RoadCorridorAuthoringGeometry {
     pub(crate) road_alignment_key: Arc<str>,
+    /// `road_alignment_key` 字段自身的叶来源位置。
+    pub(crate) road_alignment_key_span: SourceLocation,
     pub(crate) start_station_meters: f64,
     pub(crate) end_station: AuthoringStationEnd,
     pub(crate) reference_lane: OwnedEntityReference<AuthoringLaneKind>,
@@ -1096,12 +1140,16 @@ pub(crate) struct SignalPhaseDeclaration {
     /// 该相位在所属控制器有序 `signal_phases` 关系中的来源位置。
     pub(crate) controller_relation_span: SourceLocation,
     pub(crate) duration_ms: u64,
+    /// `duration_milliseconds` 字段自身的叶来源位置。
+    pub(crate) duration_span: SourceLocation,
     pub(crate) states: Box<[SignalGroupStateDeclaration]>,
 }
 
 pub(crate) struct SignalControllerDeclaration {
     pub(crate) header: DeclarationHeader,
     pub(crate) offset_ms: u64,
+    /// `offset_milliseconds` 字段自身的叶来源位置。
+    pub(crate) offset_span: SourceLocation,
     pub(crate) signal_groups: Box<[OwnedEntityReference<SignalGroupKind>]>,
     pub(crate) phases: Box<[SignalPhaseDeclaration]>,
 }
@@ -1118,6 +1166,9 @@ pub(crate) struct ParkingFacilityDeclaration {
 pub(crate) struct ParkingLaneAnchorDeclaration {
     pub(crate) lane_edge: OwnedEntityReference<LaneEdgeKind>,
     pub(crate) progress_mm: u32,
+    /// `progress_meters` 字段自身的叶来源位置。独立分配以控制 `TypedAstDeclaration`
+    /// 最大变体尺寸，诊断路径之外的读者不感知这层间接。
+    pub(crate) progress_span: Box<SourceLocation>,
 }
 
 /// 准入后的停车矩形：交通一维为毫米，朝向为受检 `f32`。
@@ -1359,6 +1410,7 @@ impl TypedAstDeclaration {
                 try_visit_declaration_header(header, &mut visit)?;
                 try_visit_reference(reference_section, &mut visit)?;
                 if let Some(authoring_geometry) = authoring_geometry {
+                    visit(&authoring_geometry.road_alignment_key_span)?;
                     try_visit_reference(&authoring_geometry.reference_lane, &mut visit)?;
                 }
                 for element in elements {
@@ -1429,8 +1481,10 @@ impl TypedAstDeclaration {
                     let ParkingLaneAnchorDeclaration {
                         lane_edge,
                         progress_mm: _,
+                        progress_span,
                     } = anchor;
                     try_visit_reference(lane_edge, &mut visit)?;
+                    visit(progress_span)?;
                 }
             }
             Self::Junction(JunctionDeclaration {
@@ -1500,20 +1554,24 @@ impl TypedAstDeclaration {
             Self::SignalController(SignalControllerDeclaration {
                 header,
                 offset_ms: _,
+                offset_span,
                 signal_groups,
                 phases,
             }) => {
                 try_visit_declaration_header(header, &mut visit)?;
+                visit(offset_span)?;
                 try_visit_references(signal_groups, &mut visit)?;
                 for phase in phases {
                     let SignalPhaseDeclaration {
                         header,
                         controller_relation_span,
                         duration_ms: _,
+                        duration_span,
                         states,
                     } = phase;
                     try_visit_declaration_header(header, &mut visit)?;
                     visit(controller_relation_span)?;
+                    visit(duration_span)?;
                     for state in states {
                         let SignalGroupStateDeclaration {
                             signal_group,
@@ -1538,8 +1596,10 @@ impl TypedAstDeclaration {
                     let ParkingLaneAnchorDeclaration {
                         lane_edge,
                         progress_mm: _,
+                        progress_span,
                     } = anchor;
                     try_visit_reference(lane_edge, &mut visit)?;
+                    visit(progress_span)?;
                 }
             }
             Self::ParticipantClass(ParticipantClassDeclaration { header, extends }) => {
@@ -1646,6 +1706,14 @@ fn try_visit_authoring_curve<E>(
     visit(&curve.start_span)?;
     for segment in &curve.segments {
         visit(&segment.span)?;
+        match &segment.point_spans {
+            AuthoringCurveSegmentPointSpans::Line { end } => visit(end)?,
+            AuthoringCurveSegmentPointSpans::CubicBezier(spans) => {
+                visit(&spans.control_1)?;
+                visit(&spans.control_2)?;
+                visit(&spans.end)?;
+            }
+        }
     }
     Ok(())
 }

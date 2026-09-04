@@ -49,6 +49,8 @@ pub(crate) struct HirParkingLaneAnchor {
     pub(crate) lane_edge: HirLaneEdgeKey,
     pub(crate) progress_mm: u32,
     pub(crate) source_location: ResolvedSourceLocation,
+    /// `progress_meters` 字段自身的叶来源位置；只在编译期诊断使用，不进入源映射。
+    pub(crate) progress_source_span: SourceLocation,
 }
 
 /// 已验证的停车位矩形几何；交通一维为毫米，朝向为受检 `f32`。
@@ -240,6 +242,7 @@ pub(crate) fn build_parking_hir(
                         location.source_module_index,
                         &anchor.lane_edge.span,
                     )?,
+                    progress_source_span: anchor.progress_span.as_ref().clone(),
                 });
             }
             destination[start..].sort_unstable_by_key(|anchor| {
@@ -388,6 +391,7 @@ pub(crate) fn build_parking_hir(
                         module_order,
                         &source.entry.lane_edge.span,
                     )?,
+                    progress_source_span: source.entry.progress_span.as_ref().clone(),
                 },
                 exit: HirParkingLaneAnchor {
                     lane_edge: exit_edge,
@@ -396,6 +400,7 @@ pub(crate) fn build_parking_hir(
                         module_order,
                         &source.exit.lane_edge.span,
                     )?,
+                    progress_source_span: source.exit.progress_span.as_ref().clone(),
                 },
                 geometry: HirParkingSpaceGeometry {
                     lateral_offset_mm: geometry.lateral_offset_mm,
@@ -531,7 +536,7 @@ fn diagnose_parking_anchors_against_emitted_length<'a>(
                     f64::from(length_mm) / 1_000.0,
                     min_progress_mm,
                     max_progress_mm,
-                    space.source_span.clone(),
+                    anchor.progress_source_span.clone(),
                 );
                 diagnostic.set_canonical_module_order(space.module.raw());
                 diagnostics.push(diagnostic);
@@ -564,7 +569,7 @@ fn diagnose_parking_anchors_against_emitted_length<'a>(
                         f64::from(edge.length_mm) / 1_000.0,
                         min_progress_mm,
                         max_progress_mm,
-                        facility.source_span.clone(),
+                        anchor.progress_source_span.clone(),
                     );
                     diagnostic.set_canonical_module_order(facility.module.raw());
                     diagnostics.push(diagnostic);
