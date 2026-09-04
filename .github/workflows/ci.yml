@@ -108,6 +108,7 @@ jobs:
               - 'crates/laneflow-spatial/**'
               - 'crates/laneflow-scenario/**'
               - 'crates/laneflow-format/**'
+              - 'crates/laneflow-format-mmap/**'
               - 'crates/laneflow-static-contract/**'
               - 'crates/laneflow-static-network/**'
               - 'crates/laneflow-compiler/**'

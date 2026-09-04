@@ -5,6 +5,7 @@ on:
     paths:
       - "crates/laneflow-road-editing-wire/**"
       - "crates/laneflow-compiler/**"
+      - "crates/laneflow-format-mmap/**"
       - "schemas/road-editing/**"
       - "fuzz/**"
       - ".github/workflows/fuzz.yml"
