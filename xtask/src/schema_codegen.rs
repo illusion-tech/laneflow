@@ -448,6 +448,16 @@ pub(crate) fn check_audited_mmap_sources(repository_root: &Path) -> Result<(), S
             &format!("受审计 mmap source `{}`", source.display()),
             PathAttributePolicy::RejectAll,
         )?;
+        // macro_rules 元变量间接（`$m:ident` → `load!(include)` 展开为
+        // `include!`）可把加载指令藏出上面的文本扫描；本 crate 无合法宏定义
+        // 需求，禁 `macro_rules!` 定义即闭合该间接层。宏调用不受限。不另禁
+        // `macro` 定义：其需 #![feature]，stable 工具链编译即失败，自闭合。
+        if contains_bare_token(&code, "macro_rules") {
+            return Err(format!(
+                "受审计 mmap package 内禁止 `macro_rules!` 宏定义（元变量间接可把 include! 藏出文本扫描）：`{}`",
+                source.display()
+            ));
+        }
         if source == allowed_source {
             if code.matches("#![allow(unsafe_code)]").count() != 1
                 || code.matches(AUDITED_MMAP_EXPRESSION).count() != 1
@@ -528,15 +538,20 @@ fn contains_source_loading_directive(text: &str) -> bool {
     contains_include_macro(text)
 }
 
-/// 识别 strip 后代码中的裸 `cfg_attr` token。mmap 例外 crate 全面禁用
-/// `cfg_attr`：`#[cfg_attr(..., path = "...")]` 可包裹 path 属性，逃逸
-/// 直接形态的源码加载指令检测。
-pub(crate) fn contains_cfg_attr_token(code: &str) -> bool {
-    code.match_indices("cfg_attr").any(|(index, token)| {
+/// 识别 strip 后代码中的裸 `name` token（前后均非标识符字符）。
+pub(crate) fn contains_bare_token(code: &str, name: &str) -> bool {
+    code.match_indices(name).any(|(index, token)| {
         let before = code[..index].chars().next_back();
         let after = code[index + token.len()..].chars().next();
         !before.is_some_and(is_identifier_character) && !after.is_some_and(is_identifier_character)
     })
+}
+
+/// 识别 strip 后代码中的裸 `cfg_attr` token。mmap 例外 crate 全面禁用
+/// `cfg_attr`：`#[cfg_attr(..., path = "...")]` 可包裹 path 属性，逃逸
+/// 直接形态的源码加载指令检测。
+pub(crate) fn contains_cfg_attr_token(code: &str) -> bool {
+    contains_bare_token(code, "cfg_attr")
 }
 
 pub(crate) fn workspace_manifest_paths(repository_root: &Path) -> Result<Vec<PathBuf>, String> {
@@ -1388,5 +1403,16 @@ mod tests {
         assert!(contains_cfg_attr_token("cfg_attr"));
         assert!(!contains_cfg_attr_token("let my_cfg_attr = 1;"));
         assert!(!contains_cfg_attr_token("cfg_attrlike();"));
+    }
+
+    #[test]
+    fn macro_rules_token_detection_respects_ident_boundaries() {
+        assert!(contains_bare_token(
+            "macro_rules! load { ($m:ident) => { $m!(\"payload.txt\"); } }",
+            "macro_rules"
+        ));
+        assert!(!contains_bare_token("my_macro_rules! {}", "macro_rules"));
+        // 宏调用不是定义，不受禁令影响。
+        assert!(!contains_bare_token("println!(\"hi\");", "macro_rules"));
     }
 }
