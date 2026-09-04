@@ -1090,6 +1090,7 @@ fn restore_conflict_aggregate(
     }) {
         return Err(SnapshotRestoreError::InvalidConflictHistory);
     }
+    world.normalize_conflict_eligibility();
     if !world.conflict_state_valid() {
         return Err(SnapshotRestoreError::InvalidConflictHistory);
     }
@@ -2295,7 +2296,7 @@ pub(crate) mod tests {
         (world, vehicle)
     }
 
-    fn world_with_conflict_eligibility() -> (TrafficWorld, VehicleHandle) {
+    pub(crate) fn world_with_conflict_eligibility() -> (TrafficWorld, VehicleHandle) {
         let (mut world, route) = conflict_world_with_route();
         let locator = world
             .conflict_passage_occurrence_locator(route, 0)
@@ -2333,6 +2334,56 @@ pub(crate) mod tests {
             crate::ConflictEligibilityState::update(None, locator, true, 0);
         assert!(world.conflict_state_valid());
         (world, vehicle)
+    }
+
+    #[test]
+    fn restored_conflict_authority_blocks_tick_without_partial_commit() {
+        for (mut world, label) in [
+            (world_with_conflict_reservation().0, "reservation"),
+            (world_with_conflict_eligibility().0, "eligibility"),
+        ] {
+            let before = world
+                .capture_snapshot()
+                .expect("capture before blocked tick");
+            assert!(
+                matches!(
+                    world.step(crate::TickInput::new(100)),
+                    Err(crate::StepError::ConflictRuntimeUnavailable(_))
+                ),
+                "{label} must remain protected until W7 tick integration"
+            );
+            assert_eq!(
+                world
+                    .capture_snapshot()
+                    .expect("capture after blocked tick"),
+                before,
+                "{label} tick failure must be atomic"
+            );
+        }
+    }
+
+    #[test]
+    fn conflict_eligibility_blocks_route_rebind_without_partial_commit() {
+        let (mut world, vehicle) = world_with_conflict_eligibility();
+        let state = *world.vehicle_state(vehicle).expect("eligible vehicle");
+        let before = world.capture_snapshot().expect("capture before rebind");
+        assert!(matches!(
+            world.rebind_parking_route(
+                vehicle,
+                crate::RebindParkingTarget::ExplicitSpace {
+                    space: laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0),
+                    new_route: state.route,
+                    new_current_route_occurrence: state.route_edge_index,
+                    new_entry_route_occurrence: state.route_edge_index,
+                },
+            ),
+            Err(crate::ParkingError::ConflictTraversalActive)
+        ));
+        assert_eq!(
+            world.capture_snapshot().expect("capture after rebind"),
+            before,
+            "eligibility-protected rebind must remain atomic"
+        );
     }
 
     #[test]

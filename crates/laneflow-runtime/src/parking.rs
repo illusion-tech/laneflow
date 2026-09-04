@@ -1258,6 +1258,9 @@ impl TrafficWorld {
                 if state.status != VehicleStatus::Active {
                     return Err(ParkingError::InvariantViolation);
                 }
+                if self.vehicle_has_conflict_authority(vehicle) {
+                    return Err(ParkingError::ConflictTraversalActive);
+                }
                 if reservation.route() != state.route
                     || !self
                         .resource_matches_binding(vehicle, ParkingBinding::Reserved(reservation))
@@ -1499,7 +1502,7 @@ impl TrafficWorld {
         if state.status != VehicleStatus::Active {
             return Err(ParkingError::InvalidVehicleStatus);
         }
-        if state.conflict_reservation().is_some() || self.conflict_arbiter.has_authority(vehicle) {
+        if self.vehicle_has_conflict_authority(vehicle) {
             return Err(ParkingError::ConflictTraversalActive);
         }
         let anchor = self.resolve_rebind_anchor(input)?;
@@ -1788,9 +1791,7 @@ impl TrafficWorld {
             None => {}
         }
         self.conflict_arbiter.release_vehicle(vehicle, self.time_ms);
-        if let Some(eligibility) = self.conflict_eligibility.get_mut(vehicle.index() as usize) {
-            *eligibility = None;
-        }
+        self.clear_conflict_eligibility(vehicle);
         self.release_route_ref(state.route);
         if let Some(membership) = state.waiting_membership {
             self.unlink_waiting_member(vehicle, membership);

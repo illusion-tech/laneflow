@@ -34,8 +34,9 @@
 5. 快照恢复与路网修订切换只保存稳定路线输入并重新编译派生出现项，不持久化热表。
 
 静态根与含冲突路线可以正常 build、install、register、保存和加载。能力保护只约束
-会提交 `Active` 车辆的低频生命周期边界；fixed tick 不扫描冲突表、不临时停车，也不
-伪造 grant、reservation 或通行权。
+会提交 `Active` 车辆的低频生命周期边界；W7 前 fixed tick 在无 live authority 的常态路径
+只做 O(1) 空表检查，存在已恢复/迁移 eligibility 或 reservation 时原子返回
+`ConflictRuntimeUnavailable`，不临时停车，也不伪造或覆盖 grant、reservation 或通行权。
 
 ## 2. Authority 与保留形状
 
