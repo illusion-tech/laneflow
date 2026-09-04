@@ -55,7 +55,7 @@ admission Gate 与 route position 可以缓存为执行操作数，但都不能�
 
 #284 的快照与跨修订定位候选见
 [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §6
-（Review）：使用 stream/zone 的稳定引用定位已有唯一局部关系，核验 LFSD 与路径语义后
+（Accepted）：使用 stream/zone 的稳定引用定位已有唯一局部关系，核验 LFSD 与路径语义后
 重建本节地址；不把当前根 ordinal/local index 写成跨修订身份，也不新增 passage 实体。
 
 ### 2.2 每路线保留数据
