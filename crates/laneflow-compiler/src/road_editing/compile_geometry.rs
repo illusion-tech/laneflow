@@ -1,12 +1,14 @@
 //! RoadEditingSource authoring curve 到共同规范几何的有界两遍编译。
 
 use crate::declaration::{
-    AuthoringCurveProgramDeclaration, AuthoringCurveSegmentDeclaration,
-    AuthoringCurveSegmentGeometry, AuthoringLaneDirection, AuthoringPoint3F64, AuthoringStationEnd,
-    AuthoringWidthProfile, CanonicalPoint3F32Input, CompiledFacilityBandGeometry,
-    CompiledGeometrySourceRange, CompiledLaneEdgeGeometry, CurvePointRole, EdgeLength,
-    FacilityBandDeclaration, LaneEdgeGeometryAuthority, OwnedCorridorElementReference,
-    RoadAlignmentDeclaration, RoadSectionDeclaration, TypedAstDeclaration, TypedAstEntityAddress,
+    AuthoringCurveCubicPointSpans, AuthoringCurveProgramDeclaration,
+    AuthoringCurveSegmentDeclaration, AuthoringCurveSegmentGeometry,
+    AuthoringCurveSegmentPointSpans, AuthoringLaneDirection, AuthoringPoint3F64,
+    AuthoringStationEnd, AuthoringWidthProfile, CanonicalPoint3F32Input,
+    CompiledFacilityBandGeometry, CompiledGeometrySourceRange, CompiledLaneEdgeGeometry,
+    CurvePointRole, EdgeLength, FacilityBandDeclaration, LaneEdgeGeometryAuthority,
+    OwnedCorridorElementReference, RoadAlignmentDeclaration, RoadSectionDeclaration,
+    TypedAstDeclaration, TypedAstEntityAddress,
 };
 use crate::{GeometryAccuracyProfile, GeometryDirectionProfile, SourceLocation};
 use laneflow_static_contract::{MAX_LANE_EDGE_LENGTH_MM, MIN_LANE_EDGE_LENGTH_MM};
@@ -296,9 +298,27 @@ fn alignment_input_scratch_bytes(alignments: &[RoadAlignmentDeclaration]) -> Opt
     alignments.iter().try_fold(
         capacity_bytes::<RoadAlignmentDeclaration>(alignments.len())?,
         |total, alignment| {
-            total.checked_add(capacity_bytes::<AuthoringCurveSegmentDeclaration>(
-                alignment.reference_line.segments.len(),
-            )?)
+            // cubic 段的 point_spans 是 Box<AuthoringCurveCubicPointSpans>，指针已含在
+            // AuthoringCurveSegmentDeclaration 尺寸内，此处按 cubic 段数补记 pointee，
+            // 与 admission 侧 sizing 保持同一口径。
+            let cubic_count = alignment
+                .reference_line
+                .segments
+                .iter()
+                .filter(|segment| {
+                    matches!(
+                        segment.point_spans,
+                        AuthoringCurveSegmentPointSpans::CubicBezier(_)
+                    )
+                })
+                .count();
+            total
+                .checked_add(capacity_bytes::<AuthoringCurveSegmentDeclaration>(
+                    alignment.reference_line.segments.len(),
+                )?)?
+                .checked_add(capacity_bytes::<AuthoringCurveCubicPointSpans>(
+                    cubic_count,
+                )?)
         },
     )
 }
