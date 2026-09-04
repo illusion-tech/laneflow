@@ -567,6 +567,10 @@ LFCA 已保证同一 `(ParticipantStream, ConflictZone)` 至多一条 passage，
 能在绑定根中唯一找到既有局部关系；它不是新增实体或第二个运行时地址。快照的 LFCA
 origin 固定其完整 entry/exit 与所属路径。restore 先解析两种 StableId 并验证关系
 确实存在，再派生当前根的 local index，不从几何或局部下标猜测另一条 passage。
+eligibility 的恢复还必须复算 exact admission Gate 在已恢复时刻、所选 policy 与车辆
+profile 下的决策；只有 `Candidate` 可提交，`DenyAndStop` 即使 locator 与位置仍成立也
+必须以 `InvalidConflictAuthority` 失败关闭。aggregate 校验、restore、cross-revision
+migration 与独立 expected projection 复用同一完整谓词。
 
 live reservation 还保存 `snapshot_vehicle_id`、`snapshot_route_id`、本次 maneuver
 的 entry route edge index 和 Gate StableId，再携带所持有 passages 的 locator；
@@ -645,6 +649,10 @@ edge occurrence 序列，不能只比较仍可能相同的 boundaryIndex/pathEdg
 相同 locator 不足以证明语义连续，还须核验路径、派生 admission Gate、物理区间及
 本次 route occurrence。live reservation 无法保持原 physical claims 与完整清空条件
 时拒绝直移，不能把同键的新范围自动变成既有 authority。
+与车辆当前路径无关的 zone/stream/passage 插入不得因 dense ordinal 或表顺序变化丢失
+已有 reservation；迁移按 stream/zone StableId 找回 locator。相同 locator 的路径或
+entry/exit anchor 改变则原子拒绝，失败的 Prepare 必须保持旧 world、reservation 与日志
+武装状态不变且可重试。
 
 已有 reservation 保留其既有 owner 和 acquired tick，不能按新规则重新授予。必须将
 原 physical claims、passages/clearance、车辆全长和 Waiting 依赖精确映射到目标，验证

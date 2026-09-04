@@ -732,7 +732,7 @@ fn restore_conflict_aggregate(
                 binding.first_eligible_tick(),
             )
             .expect("true predicate creates eligibility");
-            if !world.conflict_eligibility_position_valid(&state, eligibility) {
+            if !world.conflict_eligibility_authority_valid(&state, eligibility) {
                 return Err(SnapshotRestoreError::InvalidConflictAuthority {
                     snapshot_vehicle_id,
                 });
@@ -2203,6 +2203,15 @@ pub(crate) mod tests {
                 true,
             )
             .expect("upstream vehicle");
+        install_conflict_reservation(&mut world, route, vehicle);
+        (world, vehicle)
+    }
+
+    pub(crate) fn install_conflict_reservation(
+        world: &mut TrafficWorld,
+        route: RouteHandle,
+        vehicle: VehicleHandle,
+    ) {
         let (gate_range, first_occurrence) = {
             let compiled = world.compiled_route(route).expect("compiled route");
             let first_occurrence = *compiled.conflicts.first().expect("conflict occurrence");
@@ -2221,7 +2230,7 @@ pub(crate) mod tests {
             state.waiting_membership = None;
         }
         let front_um = route_position_um(
-            &world,
+            world,
             route,
             first_occurrence.entry.route_edge_index,
             first_occurrence.entry.progress_mm,
@@ -2239,7 +2248,7 @@ pub(crate) mod tests {
                 .expect("compiled route")
                 .conflicts[index as usize];
             let entry_um = route_position_um(
-                &world,
+                world,
                 route,
                 occurrence.entry.route_edge_index,
                 occurrence.entry.progress_mm,
@@ -2247,7 +2256,7 @@ pub(crate) mod tests {
             )
             .expect("entry");
             let clearance_um = route_position_um(
-                &world,
+                world,
                 route,
                 occurrence.clearance.route_edge_index,
                 occurrence.clearance.progress_mm,
@@ -2314,7 +2323,6 @@ pub(crate) mod tests {
             )
             .expect("tick-zero history");
         assert!(world.conflict_state_valid());
-        (world, vehicle)
     }
 
     pub(crate) fn world_with_conflict_eligibility() -> (TrafficWorld, VehicleHandle) {
@@ -2642,6 +2650,148 @@ pub(crate) mod tests {
         assert_ne!(
             crate::deterministic_state_digest(&absent).expect("None digest"),
             crate::deterministic_state_digest(&recaptured).expect("tick-zero digest")
+        );
+    }
+
+    #[test]
+    fn conflict_eligibility_rejects_gate_policy_deny_at_restored_time() {
+        const POLICIES: &[u8] = include_bytes!(
+            "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/expected.lfca"
+        );
+        let revision = laneflow_static_network::build_shared_network_revision(
+            laneflow_format::check_canonical_network_input(
+                POLICIES,
+                laneflow_format::FormatLimits::HARD,
+            )
+            .expect("checked policy fixture"),
+            laneflow_static_network::SharedNetworkBuildOptions::new(
+                laneflow_static_network::SpatialBuildOption::Omit,
+                laneflow_static_network::SharedNetworkBuildLimits::new(
+                    64 * 1_024 * 1_024,
+                    16 * 1_024 * 1_024,
+                ),
+            ),
+        )
+        .expect("shared policy fixture");
+        let profile = laneflow_static_contract::VehicleProfileOrdinal::from_raw(0);
+        let policy_count = revision
+            .identity()
+            .entity_count(laneflow_static_contract::EntityKind::RightOfWayPolicySet);
+        let stream_count = revision
+            .identity()
+            .entity_count(laneflow_static_contract::EntityKind::ParticipantStream);
+        let pin = |ordinal| {
+            crate::WorldPolicySelection::Pinned(crate::PolicyPin {
+                policy: revision
+                    .identity()
+                    .stable_id(
+                        laneflow_static_contract::RightOfWayPolicySetOrdinal::from_raw(ordinal),
+                    )
+                    .expect("policy identity"),
+            })
+        };
+        let origin = *revision.canonical_origin();
+        let mut selection = None;
+        for stream_raw in 0..stream_count {
+            let stream = laneflow_static_contract::ParticipantStreamOrdinal::from_raw(stream_raw);
+            let gate = revision
+                .conflict()
+                .participant_stream(stream)
+                .and_then(|view| view.passages().first())
+                .map(|passage| passage.admission_gate())
+                .expect("stream passage Gate");
+            let mut candidate = None;
+            let mut deny = None;
+            for policy_raw in 0..policy_count {
+                let world = TrafficWorld::install(
+                    Arc::clone(&revision),
+                    WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+                    source_for(origin, "fixture://eligibility-policy-selection"),
+                    77,
+                    pin(policy_raw),
+                )
+                .expect("install selected policy");
+                match world.gate_policy_decision(gate, profile) {
+                    crate::GatePolicyDecision::Candidate(_) => candidate = Some(policy_raw),
+                    crate::GatePolicyDecision::DenyAndStop => deny = Some(policy_raw),
+                }
+            }
+            if let (Some(candidate), Some(deny)) = (candidate, deny) {
+                selection = Some((stream, candidate, deny));
+                break;
+            }
+        }
+        let (stream, candidate_policy, deny_policy) =
+            selection.expect("fixture has Candidate/Deny policy pair for one stream");
+        let mut world = TrafficWorld::install(
+            Arc::clone(&revision),
+            WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+            source_for(origin, "fixture://eligibility-policy-selection"),
+            77,
+            pin(candidate_policy),
+        )
+        .expect("install Candidate policy");
+        let path = revision
+            .conflict()
+            .participant_stream(stream)
+            .expect("selected stream")
+            .maneuver_path();
+        let route = world
+            .register_route(RouteRegisterInput::new(
+                revision
+                    .traffic()
+                    .maneuvers()
+                    .maneuver_path(path)
+                    .expect("selected path")
+                    .edges()
+                    .to_vec(),
+            ))
+            .expect("selected route");
+        let locator = world
+            .conflict_passage_occurrence_locator(route, 0)
+            .expect("selected conflict occurrence");
+        let gate_hop = locator.admission_gate_hop();
+        let gate_progress = {
+            let edge =
+                world.compiled_route(route).expect("compiled route").edges[gate_hop as usize];
+            revision.traffic().lane_lengths_millimetres()[edge.index()]
+        };
+        let vehicle = world
+            .restore_unparked_vehicle(
+                VehicleSpawnInput::new(profile, route, gate_hop, gate_progress, 0),
+                0,
+                VehicleStatus::Active,
+                None,
+                None,
+                true,
+            )
+            .expect("restore Candidate vehicle");
+        world.conflict_eligibility.resize(
+            usize::try_from(world.config.vehicle_capacity()).expect("vehicle capacity"),
+            None,
+        );
+        world.conflict_eligibility[vehicle.index() as usize] =
+            crate::ConflictEligibilityState::update(None, locator, true, 0);
+        assert!(world.conflict_state_valid());
+
+        let mut captured = world
+            .capture_snapshot()
+            .expect("capture Candidate eligibility");
+        let snapshot_vehicle_id = captured.vehicles[vehicle.index() as usize].snapshot_vehicle_id;
+        captured.policy_selection = pin(deny_policy);
+
+        assert_eq!(
+            restore_lfrs(
+                &encode_lfrs(&captured),
+                world.revision(),
+                world.committed_source().clone(),
+                world.config(),
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::InvalidConflictAuthority {
+                snapshot_vehicle_id,
+            }
         );
     }
 
