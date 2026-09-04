@@ -1,21 +1,19 @@
 //! 本地 file-backed 对象的写能力闭合适配器。
 //!
 //! 本模块只负责临时 backing 的类型状态转换；不实现安装、rename、no-replace、目录耐久、
-//! winner 竞争或 manifest 事务。
-
-#![allow(unsafe_code)]
+//! winner 竞争或 manifest 事务。平台私有临时文件与只读映射的 unsafe 边界由
+//! `laneflow-format-mmap` 承载，本 crate 保持 `unsafe_code = "forbid"`。
 
 use core::fmt;
 use std::{
     boxed::Box,
-    fs::File,
     io::{self, BufWriter, Seek, SeekFrom, Write},
     path::Path,
     sync::{Arc, OnceLock},
 };
 
+use laneflow_format_mmap::{BackingError, PrivateStagedFile, SealedPrivateFile};
 use laneflow_static_contract::ExactByteLength;
-use memmap2::{Mmap, MmapOptions};
 
 use crate::{
     BoundedReReadableObjectSource, ObjectSourceError, PreparedObject,
@@ -39,11 +37,11 @@ impl From<io::Error> for StagedObjectError {
 
 /// 字段私有的顺序 file-backed writer。
 ///
-/// 构造时只接受已经完成全对象预检的 [`PreparedObject`]；不公开路径、`File`、`Write`、
+/// 构造时只接受已经完成全对象预检的 [`PreparedObject`]；不公开路径、`File`、
 /// raw handle/fd 或可写映射。调用 [`Self::finish`] 后本能力被消费。
 #[derive(Debug)]
 pub struct StagedObjectWriter {
-    file: Option<File>,
+    staged: Option<PrivateStagedFile>,
     exact_byte_length: ExactByteLength,
 }
 
@@ -54,12 +52,14 @@ impl StagedObjectWriter {
         prepared: PreparedObject<'_>,
     ) -> Result<Self, StagedObjectError> {
         let exact_byte_length = ExactByteLength::new(prepared.byte_len());
-        let mut file = create_private_file(directory)?;
-        if let Err(error) = encode_prepared_object_to_sink(prepared, FileSink::new(&mut file)) {
+        let mut staged = PrivateStagedFile::create_in(directory).map_err(stage_error)?;
+        if let Err(error) =
+            encode_prepared_object_to_sink(prepared, FileSink::new(staged.file_mut()))
+        {
             return Err(StagedObjectError::Io(error));
         }
         Ok(Self {
-            file: Some(file),
+            staged: Some(staged),
             exact_byte_length,
         })
     }
@@ -67,20 +67,18 @@ impl StagedObjectWriter {
     /// 排空用户态写缓冲、固定 exact length、关闭全部 LaneFlow 写能力，并返回只保留
     /// 私有 backing 的来源。
     pub fn finish(mut self) -> Result<ClosedStagedObjectSource, StagedObjectError> {
-        let mut writer = self
-            .file
+        let mut staged = self
+            .staged
             .take()
             .expect("unfinished staged writer retains its file");
-        writer.flush()?;
-        let writer_metadata = writer.metadata()?;
-        if writer_metadata.len() != self.exact_byte_length.get() {
-            return Err(StagedObjectError::BackingChanged);
-        }
+        staged.file_mut().flush()?;
+        let sealed = staged
+            .seal(self.exact_byte_length.get())
+            .map_err(stage_error)?;
 
         Ok(ClosedStagedObjectSource {
             inner: Arc::new(ClosedBacking {
-                backing: writer,
-                exact_byte_length: self.exact_byte_length,
+                backing: sealed,
                 map: OnceLock::new(),
             }),
         })
@@ -89,17 +87,16 @@ impl StagedObjectWriter {
 
 impl Drop for StagedObjectWriter {
     fn drop(&mut self) {
-        drop(self.file.take());
+        drop(self.staged.take());
     }
 }
 
 struct ClosedBacking {
     // `tempfile_in` uses an anonymous/unlinked file on Unix and an exclusive delete-on-close file
-    // on Windows. The handle remains private, and this type has no mutating operation after
-    // `StagedObjectWriter::finish`.
-    backing: File,
-    exact_byte_length: ExactByteLength,
-    map: OnceLock<Result<Mmap, ObjectSourceError>>,
+    // on Windows. The handle remains private inside `SealedPrivateFile`, and this type has no
+    // mutating operation after `StagedObjectWriter::finish`.
+    backing: SealedPrivateFile,
+    map: OnceLock<Result<laneflow_format_mmap::ReadOnlyMap, ObjectSourceError>>,
 }
 
 /// 已关闭 LaneFlow 写能力、只保留同一临时 file backing 的不可变来源。
@@ -111,7 +108,7 @@ pub struct ClosedStagedObjectSource {
 impl ClosedStagedObjectSource {
     #[must_use]
     pub fn exact_byte_length(&self) -> ExactByteLength {
-        self.inner.exact_byte_length
+        ExactByteLength::new(self.inner.backing.exact_byte_length())
     }
 
     /// 返回只读 exact bytes；首次调用惰性建立 read-only mapping。
@@ -124,7 +121,7 @@ impl fmt::Debug for ClosedStagedObjectSource {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("ClosedStagedObjectSource")
-            .field("exact_byte_length", &self.inner.exact_byte_length)
+            .field("exact_byte_length", &self.exact_byte_length())
             .finish_non_exhaustive()
     }
 }
@@ -134,7 +131,7 @@ impl PartialEq for ClosedStagedObjectSource {
         if Arc::ptr_eq(&self.inner, &other.inner) {
             return true;
         }
-        if self.inner.exact_byte_length != other.inner.exact_byte_length {
+        if self.exact_byte_length() != other.exact_byte_length() {
             return false;
         }
         match (self.as_bytes(), other.as_bytes()) {
@@ -149,27 +146,9 @@ impl Eq for ClosedStagedObjectSource {}
 impl SealedImmutableBacking for ClosedStagedObjectSource {
     fn contiguous_bytes(&self) -> Result<&[u8], ObjectSourceError> {
         let result = self.inner.map.get_or_init(|| {
-            let metadata = self
-                .inner
-                .backing
-                .metadata()
-                .map_err(|_| ObjectSourceError::ReadFailed)?;
-            if metadata.len() != self.inner.exact_byte_length.get() {
-                return Err(ObjectSourceError::BackingChanged);
-            }
-            let expected = usize::try_from(self.inner.exact_byte_length.get())
-                .map_err(|_| ObjectSourceError::OutOfBounds)?;
-            // SAFETY: `tempfile_in` creates an anonymous/unlinked backing on Unix and opens its
-            // randomized delete-on-close backing with share_mode(0) on Windows. `finish` consumes
-            // the only LaneFlow write capability; the retained file and mapping are field-private,
-            // and this module performs no mutation after that state transition. No safe API exposes
-            // a path, handle, writable mapping, or writer token.
-            let map = unsafe { MmapOptions::new().len(expected).map(&self.inner.backing) }
-                .map_err(|_| ObjectSourceError::ReadFailed)?;
-            if map.len() != expected {
-                return Err(ObjectSourceError::BackingChanged);
-            }
-            Ok(map)
+            // 长度核对与平台私有性论证封在 `laneflow-format-mmap` 内；
+            // 本模块在 finish 之后没有任何可达写能力。
+            self.inner.backing.map_read_only().map_err(map_error)
         });
         result.as_ref().map(|map| &map[..]).map_err(|error| *error)
     }
@@ -177,7 +156,7 @@ impl SealedImmutableBacking for ClosedStagedObjectSource {
 
 impl BoundedReReadableObjectSource for ClosedStagedObjectSource {
     fn exact_byte_length(&self) -> ExactByteLength {
-        self.inner.exact_byte_length
+        ExactByteLength::new(self.inner.backing.exact_byte_length())
     }
 
     fn read_exact_at(&self, offset: u64, destination: &mut [u8]) -> Result<(), ObjectSourceError> {
@@ -253,12 +232,12 @@ impl BoundedReReadableObjectSource for ImmutableObjectSource {
 }
 
 struct FileSink<'a> {
-    file: BufWriter<&'a mut File>,
+    file: BufWriter<&'a mut std::fs::File>,
     position: u64,
 }
 
 impl<'a> FileSink<'a> {
-    fn new(file: &'a mut File) -> Self {
+    fn new(file: &'a mut std::fs::File) -> Self {
         Self {
             file: BufWriter::with_capacity(64 * 1024, file),
             position: 0,
@@ -296,8 +275,20 @@ impl ObjectWriteSink for FileSink<'_> {
     }
 }
 
-fn create_private_file(directory: &Path) -> Result<File, StagedObjectError> {
-    Ok(tempfile::tempfile_in(directory)?)
+fn stage_error(error: BackingError) -> StagedObjectError {
+    match error {
+        BackingError::Io(error) => StagedObjectError::Io(error),
+        BackingError::LengthOverflow => StagedObjectError::ArithmeticOverflow,
+        BackingError::BackingChanged => StagedObjectError::BackingChanged,
+    }
+}
+
+fn map_error(error: BackingError) -> ObjectSourceError {
+    match error {
+        BackingError::Io(_) => ObjectSourceError::ReadFailed,
+        BackingError::LengthOverflow => ObjectSourceError::OutOfBounds,
+        BackingError::BackingChanged => ObjectSourceError::BackingChanged,
+    }
 }
 
 #[cfg(test)]
@@ -330,72 +321,13 @@ mod tests {
     #[test]
     fn unfinished_writer_drop_removes_its_private_path() {
         let directory = create_test_directory("unfinished-drop");
-        let file = create_private_file(&directory).expect("private staged file");
+        let staged = PrivateStagedFile::create_in(&directory).expect("private staged file");
         let writer = StagedObjectWriter {
-            file: Some(file),
+            staged: Some(staged),
             exact_byte_length: ExactByteLength::new(0),
         };
 
         drop(writer);
-
-        assert_eq!(fs::read_dir(&directory).expect("test directory").count(), 0);
-        fs::remove_dir(directory).expect("remove empty test directory");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn unix_private_backing_has_no_directory_entry_while_open() {
-        let directory = create_test_directory("unix-unlinked");
-        let backing = create_private_file(&directory).expect("private staged file");
-
-        assert_eq!(fs::read_dir(&directory).expect("test directory").count(), 0);
-
-        drop(backing);
-        fs::remove_dir(directory).expect("remove empty test directory");
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_private_backing_rejects_reopen_until_delete_on_close() {
-        let directory = create_test_directory("windows-exclusive");
-        let backing = create_private_file(&directory).expect("private staged file");
-        let entry = fs::read_dir(&directory)
-            .expect("test directory")
-            .next()
-            .expect("delete-on-close entry")
-            .expect("directory entry");
-
-        let reopen = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(entry.path());
-        assert!(reopen.is_err(), "exclusive staged backing was reopened");
-
-        drop(backing);
-        assert_eq!(fs::read_dir(&directory).expect("test directory").count(), 0);
-        fs::remove_dir(directory).expect("remove empty test directory");
-    }
-
-    #[test]
-    fn closed_backing_length_mismatch_fails_before_mmap() {
-        let directory = create_test_directory("length-mismatch");
-        let mut backing = create_private_file(&directory).expect("private staged file");
-        backing.write_all(&[0xa5]).expect("write test byte");
-        backing.flush().expect("flush test byte");
-
-        // This state cannot be constructed through the public API. Building it inside the module
-        // pins the fail-closed ordering: metadata length is checked before the mapping boundary.
-        let source = ClosedStagedObjectSource {
-            inner: Arc::new(ClosedBacking {
-                backing,
-                exact_byte_length: ExactByteLength::new(2),
-                map: OnceLock::new(),
-            }),
-        };
-
-        assert_eq!(source.as_bytes(), Err(ObjectSourceError::BackingChanged));
-        assert_eq!(source.as_bytes(), Err(ObjectSourceError::BackingChanged));
-        drop(source);
 
         assert_eq!(fs::read_dir(&directory).expect("test directory").count(), 0);
         fs::remove_dir(directory).expect("remove empty test directory");
