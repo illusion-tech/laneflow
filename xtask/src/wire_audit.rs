@@ -904,7 +904,10 @@ fn check_rustflags_configs(repository_root: &Path) -> Result<(), String> {
 /// 审计单份 Cargo 配置或 workflow 文本：任何 rustflags / RUSTFLAGS 赋值（含 TOML
 /// 多行数组与三引号字符串、YAML 块标量）不得包含削弱 `unsafe_code = "forbid"` 的
 /// token。YAML 块标量（`|` / `>` 及其 `±` 变体）的续行按缩进判定而非按行尾字符，
-/// 键行缩进更浅的行结束标量并作为普通行重新参与判定。
+/// 键行缩进更浅的行结束标量并作为普通行重新参与判定。激活与续行分析基于转义解码
+/// 后的行：TOML/YAML 双引号键的 \u 转义（把键名中的字符写成转义形态的等价键）会被
+/// Cargo / YAML 解析器解码为 rustflags（cargo config get 实测确认），未解码行
+/// 匹配不到键名会整体漏检。
 fn require_rustflags_respect_unsafe_forbid(text: &str, label: &str) -> Result<(), String> {
     let mut continuation = RustflagsContinuation::None;
     for (number, raw_line) in text.lines().enumerate() {
@@ -920,7 +923,8 @@ fn require_rustflags_respect_unsafe_forbid(text: &str, label: &str) -> Result<()
             }
             continuation = RustflagsContinuation::None;
         }
-        let opens = lower.contains("rustflags");
+        // 激活判定看解码行：转义编码的等价键名与直白写法同罪。
+        let opens = decoded.contains("rustflags");
         let active = opens || !matches!(continuation, RustflagsContinuation::None);
         if active {
             reject_weakening_token(&lower, &decoded, label, number)?;
@@ -941,7 +945,8 @@ fn require_rustflags_respect_unsafe_forbid(text: &str, label: &str) -> Result<()
                     RustflagsContinuation::TripleQuote
                 }
             }
-            RustflagsContinuation::None if opens => rustflags_value_continuation(raw_line),
+            // 续行形态同样从解码行分析：编码键的定位与值结构判定由此保持可用。
+            RustflagsContinuation::None if opens => rustflags_value_continuation(&decoded),
             state => state,
         };
     }
@@ -959,8 +964,9 @@ enum RustflagsContinuation {
     TripleQuote,
 }
 
-/// 对含 rustflags 的行分析其值的续行形态：三引号字符串、YAML 块标量指示符、
-/// 未闭合括号；行内闭合则为 `None`。
+/// 对含 rustflags 的解码行分析其值的续行形态：三引号字符串、YAML 块标量指示符、
+/// 未闭合括号；行内闭合则为 `None`。输入是转义解码并小写后的行——编码键名由此
+/// 可定位；解码只替换转义序列，括号 / 引号 / 缩进结构保持不变。
 fn rustflags_value_continuation(line: &str) -> RustflagsContinuation {
     let lower = line.to_lowercase();
     let Some(key_at) = lower.find("rustflags") else {
@@ -1716,6 +1722,43 @@ mod tests {
                 "fixture"
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn rustflags_audit_activates_on_escape_encoded_key() {
+        // TOML 双引号键的 \u 转义由 Cargo 解码后识别为 rustflags（cargo config get
+        // 实测确认），激活判定与续行跟踪都必须基于解码行。
+        assert!(
+            require_rustflags_respect_unsafe_forbid(
+                "[build]\n\"rust\\u0066lags\" = [\"--cap-lints\", \"allow\"]\n",
+                "fixture"
+            )
+            .is_err()
+        );
+        // 编码键的多行数组：续行跟踪同样由解码行激活。
+        assert!(
+            require_rustflags_respect_unsafe_forbid(
+                "\"rust\\u0066lags\" = [\n  \"-C\", \"opt-level=2\",\n  \"--cap-lints\", \"allow\"\n]\n",
+                "fixture"
+            )
+            .is_err()
+        );
+        // YAML 双引号键同口径。
+        assert!(
+            require_rustflags_respect_unsafe_forbid(
+                "env:\n  \"RUST\\u0046LAGS\": --force-warn unsafe_code\n",
+                "workflow"
+            )
+            .is_err()
+        );
+        // 编码键的良性值仍放行（不误伤）。
+        assert_eq!(
+            require_rustflags_respect_unsafe_forbid(
+                "\"rust\\u0066lags\" = [\"-C\", \"opt-level=2\"]\n",
+                "fixture"
+            ),
+            Ok(())
         );
     }
 }
