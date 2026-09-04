@@ -771,6 +771,14 @@ pub(crate) enum ConflictAcquireError {
     Capacity,
 }
 
+/// 冲突仲裁器冷安装失败；与运行期 bundle 拒绝分开，避免丢失宿主可采取的补救语义。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ConflictInstallError {
+    InvalidNetwork,
+    CapacityOverflow,
+    AllocationFailed,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ConflictCellAuthority {
     frontier: ApproachFrontierCell,
@@ -1034,7 +1042,7 @@ impl ConflictArbiter {
     pub(crate) fn install(
         revision: &laneflow_static_network::SharedNetworkRevision,
         vehicle_capacity: usize,
-    ) -> Result<Self, ConflictAcquireError> {
+    ) -> Result<Self, ConflictInstallError> {
         let stream_count = revision
             .traffic()
             .entity_counts()
@@ -1045,22 +1053,22 @@ impl ConflictArbiter {
             let passages = revision
                 .conflict()
                 .participant_stream(stream)
-                .ok_or(ConflictAcquireError::InvalidBundle)?
+                .ok_or(ConflictInstallError::InvalidNetwork)?
                 .passages();
             address_count = address_count
                 .checked_add(passages.len())
-                .ok_or(ConflictAcquireError::Capacity)?;
+                .ok_or(ConflictInstallError::CapacityOverflow)?;
         }
         let mut addresses = Vec::new();
         addresses
             .try_reserve_exact(address_count)
-            .map_err(|_| ConflictAcquireError::Capacity)?;
+            .map_err(|_| ConflictInstallError::AllocationFailed)?;
         for raw in 0..stream_count {
             let stream = ParticipantStreamOrdinal::from_raw(raw);
             for (passage_local_index, passage) in revision
                 .conflict()
                 .participant_stream(stream)
-                .ok_or(ConflictAcquireError::InvalidBundle)?
+                .ok_or(ConflictInstallError::InvalidNetwork)?
                 .passages()
                 .iter()
                 .enumerate()
@@ -1069,11 +1077,18 @@ impl ConflictArbiter {
                     passage.conflict_zone(),
                     stream,
                     u32::try_from(passage_local_index)
-                        .map_err(|_| ConflictAcquireError::Capacity)?,
+                        .map_err(|_| ConflictInstallError::CapacityOverflow)?,
                 ));
             }
         }
-        Self::new(addresses, vehicle_capacity)
+        addresses.sort_unstable();
+        if addresses.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(ConflictInstallError::InvalidNetwork);
+        }
+        Ok(Self::from_sorted_unique_addresses(
+            addresses,
+            vehicle_capacity,
+        ))
     }
 
     pub(crate) fn new(
@@ -1084,6 +1099,16 @@ impl ConflictArbiter {
         if addresses.windows(2).any(|pair| pair[0] == pair[1]) {
             return Err(ConflictAcquireError::InvalidBundle);
         }
+        Ok(Self::from_sorted_unique_addresses(
+            addresses,
+            vehicle_capacity,
+        ))
+    }
+
+    fn from_sorted_unique_addresses(
+        addresses: Vec<ConflictPassageAddress>,
+        vehicle_capacity: usize,
+    ) -> Self {
         let conflict_capacity = addresses.len();
         let addresses = addresses.into_boxed_slice();
         let cells = Vec::new();
@@ -1095,7 +1120,7 @@ impl ConflictArbiter {
         let reservations = Vec::new();
         let staged_grants = Vec::new();
         let owner_authorities = Vec::new();
-        Ok(Self {
+        Self {
             addresses,
             cells,
             staged_cells,
@@ -1110,7 +1135,7 @@ impl ConflictArbiter {
             next_serial: 0,
             conflict_capacity,
             vehicle_capacity,
-        })
+        }
     }
 
     pub(crate) fn lag_reference(
