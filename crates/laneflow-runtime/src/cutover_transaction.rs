@@ -430,6 +430,11 @@ impl CutoverTransaction {
         std::mem::swap(&mut world.revision, &mut candidate.revision);
         std::mem::swap(&mut world.policy_binding, &mut candidate.policy_binding);
         std::mem::swap(&mut world.source, &mut candidate.source);
+        std::mem::swap(&mut world.conflict_arbiter, &mut candidate.conflict_arbiter);
+        std::mem::swap(
+            &mut world.conflict_eligibility,
+            &mut candidate.conflict_eligibility,
+        );
         std::mem::swap(&mut world.routes, &mut candidate.routes);
         std::mem::swap(&mut world.free_routes, &mut candidate.free_routes);
         std::mem::swap(&mut world.vehicles, &mut candidate.vehicles);

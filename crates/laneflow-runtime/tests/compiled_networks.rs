@@ -1680,6 +1680,10 @@ fn cutover_rebuilds_exact_conflict_count_for_decrease_and_increase() {
     let route = world
         .register_route(RouteRegisterInput::new(route_edges.clone()))
         .expect("register conflict route");
+    let source_passage = world
+        .conflict_passage_occurrence_locator(route, 0)
+        .expect("source conflict passage")
+        .address();
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
@@ -1720,6 +1724,12 @@ fn cutover_rebuilds_exact_conflict_count_for_decrease_and_increase() {
             .conflict()
             .participant_stream(ParticipantStreamOrdinal::from_raw(0))
             .is_none()
+    );
+    assert_eq!(world.conflict_passage_cell_count(), 0);
+    assert_eq!(
+        world.conflict_passage_locator(source_passage),
+        None,
+        "a source-world address must not resolve after target promotion"
     );
 
     // 归零后的计数允许再注册一条无冲突路线；随后 target 为两条路线各重建一项。
