@@ -20,8 +20,9 @@ use crate::cutover::{
     NetworkRevisionCutoverDescriptor,
 };
 use crate::cutover_migration::{
-    CrossRevisionRebinding, migrate_structural_clone, revalidate_migrated_vehicles,
-    revalidate_vehicle_on, revalidate_waiting_routes, vehicle_state_from_delta,
+    CrossRevisionRebinding, migrate_conflict_state, migrate_structural_clone,
+    project_expected_conflict, revalidate_migrated_vehicles, revalidate_vehicle_on,
+    revalidate_waiting_routes, vehicle_state_from_delta,
 };
 use crate::migration_journal::{
     DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES, JournalRecord, ParkingBindingDelta, VEHICLE_DELTA_BYTES,
@@ -394,6 +395,7 @@ impl CutoverTransaction {
             return Err(CutoverError::ReplayInconsistent);
         }
         revalidate_waiting_routes(world, candidate, &self.rebinding)?;
+        migrate_conflict_state(world, candidate, &self.rebinding, world.time_ms)?;
         // 最终游标在同一原子边界取样（半开覆盖区间上界；幂等重占等无记录
         // 提交的归属由取样而非重放决定），先写入候选供摘要复核与晋升共用。
         let final_command_cursor = world.command_cursor;
@@ -410,6 +412,13 @@ impl CutoverTransaction {
         let mut expected = world.capture_snapshot()?;
         expected.origin = self.target_origin;
         initialize_expected_waiting_pre_gate(world, &candidate.revision, &mut expected)?;
+        project_expected_conflict(
+            world,
+            candidate,
+            &self.rebinding,
+            &mut expected,
+            world.time_ms,
+        )?;
         let expected_digest = deterministic_state_digest(&expected)?;
         let candidate_digest = deterministic_state_digest(&candidate.capture_snapshot()?)?;
         if expected_digest != candidate_digest {

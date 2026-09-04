@@ -33,9 +33,6 @@ pub enum SnapshotCaptureError {
     /// 捕获期容量预留失败（分配压力下失败关闭，旧世界原样继续）。
     #[error("快照捕获容量预留失败")]
     ReservationFailed,
-    /// W4 已建立冲突状态，W5 的 wire/digest 尚未接入时拒绝丢失该状态。
-    #[error("当前快照版本尚不能编码 Conflict authority")]
-    ConflictStateUnsupported,
 }
 
 #[cfg(test)]
@@ -149,6 +146,8 @@ pub struct CapturedSnapshot {
     pub(crate) live_order: Vec<u64>,
     /// 有 member 或历史 counter 的 WaitingZone 语义状态。
     pub(crate) waiting_zones: Vec<CapturedWaitingZoneState>,
+    /// 非 `NoHistory` 的 Conflict lag 行，按稳定 locator 字节序排列。
+    pub(crate) conflict_lag_states: Vec<CapturedConflictLagState>,
 }
 
 /// 快照路线：局部 ID + 有序边稳定标识序列（允许重复边，ADR 0029 §6）。
@@ -187,6 +186,10 @@ pub struct CapturedVehicle {
     pub(crate) maneuver_traversal: Option<CapturedManeuverTraversal>,
     /// WaitingZone semantic membership。
     pub(crate) waiting_membership: Option<CapturedWaitingMembership>,
+    /// 当前 exact Gate occurrence 的首次资格时钟。
+    pub(crate) conflict_eligibility: Option<CapturedConflictEligibility>,
+    /// Crossing 后仍在 Clearing 的组合资源。
+    pub(crate) conflict_reservation: Option<CapturedConflictReservation>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -194,6 +197,7 @@ pub enum CapturedManeuverTraversalPhase {
     PreGate,
     Committed,
     Waiting,
+    Clearing,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -218,6 +222,58 @@ pub struct CapturedWaitingZoneState {
     pub(crate) waiting_zone: ContractStableId128,
     pub(crate) occupancy: u32,
     pub(crate) next_admission_sequence: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct CapturedConflictPassageLocator {
+    pub(crate) participant_stream: ContractStableId128,
+    pub(crate) conflict_zone: ContractStableId128,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CapturedConflictEligibility {
+    pub(crate) maneuver_occurrence_index: u32,
+    pub(crate) maneuver_entry_route_edge_index: u32,
+    pub(crate) admission_gate: ContractStableId128,
+    pub(crate) conflict_occurrence_index: u32,
+    pub(crate) passage: CapturedConflictPassageLocator,
+    pub(crate) first_eligible_tick: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CapturedConflictPassage {
+    pub(crate) conflict_occurrence_index: u32,
+    pub(crate) passage: CapturedConflictPassageLocator,
+    pub(crate) entry_route_edge_index: u32,
+    pub(crate) entry_progress_mm: u32,
+    pub(crate) clearance_route_edge_index: u32,
+    pub(crate) clearance_progress_mm: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CapturedConflictDownstreamInterval {
+    pub(crate) lane_edge: ContractStableId128,
+    pub(crate) route_edge_index: u32,
+    pub(crate) start_mm: u32,
+    pub(crate) end_mm: u32,
+    pub(crate) owner_sequence: u32,
+    pub(crate) follower_min_gap_mm: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CapturedConflictReservation {
+    pub(crate) acquired_tick: u64,
+    pub(crate) maneuver_occurrence_index: u32,
+    pub(crate) maneuver_entry_route_edge_index: u32,
+    pub(crate) admission_gate: ContractStableId128,
+    pub(crate) passages: Vec<CapturedConflictPassage>,
+    pub(crate) downstream_intervals: Vec<CapturedConflictDownstreamInterval>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CapturedConflictLagState {
+    pub(crate) passage: CapturedConflictPassageLocator,
+    pub(crate) reference: crate::ConflictLagReference,
 }
 
 /// 快照中的 tagged parking target stable identity。
@@ -523,6 +579,9 @@ pub fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
                             CapturedManeuverTraversalPhase::Waiting => {
                                 wire::ManeuverTraversalPhaseKind::Waiting
                             }
+                            CapturedManeuverTraversalPhase::Clearing => {
+                                wire::ManeuverTraversalPhaseKind::Clearing
+                            }
                         },
                         phase_gate: Some(&phase_gate),
                     },
@@ -543,6 +602,95 @@ pub fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
                     },
                 )
             });
+            let conflict_eligibility = vehicle.conflict_eligibility.map(|eligibility| {
+                let participant_stream =
+                    wire::StableId128::new(eligibility.passage.participant_stream.as_bytes());
+                let conflict_zone =
+                    wire::StableId128::new(eligibility.passage.conflict_zone.as_bytes());
+                let passage = wire::ConflictPassageLocatorBinding::create(
+                    &mut fbb,
+                    &wire::ConflictPassageLocatorBindingArgs {
+                        participant_stream: Some(&participant_stream),
+                        conflict_zone: Some(&conflict_zone),
+                    },
+                );
+                let admission_gate = wire::StableId128::new(eligibility.admission_gate.as_bytes());
+                wire::ConflictEligibilityBinding::create(
+                    &mut fbb,
+                    &wire::ConflictEligibilityBindingArgs {
+                        maneuver_occurrence_index: eligibility.maneuver_occurrence_index,
+                        maneuver_entry_route_edge_index: eligibility
+                            .maneuver_entry_route_edge_index,
+                        admission_gate: Some(&admission_gate),
+                        conflict_occurrence_index: eligibility.conflict_occurrence_index,
+                        passage: Some(passage),
+                        first_eligible_tick: eligibility.first_eligible_tick,
+                    },
+                )
+            });
+            let conflict_reservation = vehicle.conflict_reservation.as_ref().map(|reservation| {
+                let passage_offsets = reservation
+                    .passages
+                    .iter()
+                    .map(|row| {
+                        let participant_stream =
+                            wire::StableId128::new(row.passage.participant_stream.as_bytes());
+                        let conflict_zone =
+                            wire::StableId128::new(row.passage.conflict_zone.as_bytes());
+                        let passage = wire::ConflictPassageLocatorBinding::create(
+                            &mut fbb,
+                            &wire::ConflictPassageLocatorBindingArgs {
+                                participant_stream: Some(&participant_stream),
+                                conflict_zone: Some(&conflict_zone),
+                            },
+                        );
+                        wire::ConflictPassageBinding::create(
+                            &mut fbb,
+                            &wire::ConflictPassageBindingArgs {
+                                conflict_occurrence_index: row.conflict_occurrence_index,
+                                passage: Some(passage),
+                                entry_route_edge_index: row.entry_route_edge_index,
+                                entry_progress_mm: row.entry_progress_mm,
+                                clearance_route_edge_index: row.clearance_route_edge_index,
+                                clearance_progress_mm: row.clearance_progress_mm,
+                            },
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let passages = fbb.create_vector(&passage_offsets);
+                let downstream_offsets = reservation
+                    .downstream_intervals
+                    .iter()
+                    .map(|row| {
+                        let lane_edge = wire::StableId128::new(row.lane_edge.as_bytes());
+                        wire::ConflictDownstreamIntervalBinding::create(
+                            &mut fbb,
+                            &wire::ConflictDownstreamIntervalBindingArgs {
+                                lane_edge: Some(&lane_edge),
+                                route_edge_index: row.route_edge_index,
+                                start_mm: row.start_mm,
+                                end_mm: row.end_mm,
+                                owner_sequence: row.owner_sequence,
+                                follower_min_gap_mm: row.follower_min_gap_mm,
+                            },
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let downstream_intervals = fbb.create_vector(&downstream_offsets);
+                let admission_gate = wire::StableId128::new(reservation.admission_gate.as_bytes());
+                wire::ConflictReservationBinding::create(
+                    &mut fbb,
+                    &wire::ConflictReservationBindingArgs {
+                        acquired_tick: reservation.acquired_tick,
+                        maneuver_occurrence_index: reservation.maneuver_occurrence_index,
+                        maneuver_entry_route_edge_index: reservation
+                            .maneuver_entry_route_edge_index,
+                        admission_gate: Some(&admission_gate),
+                        passages: Some(passages),
+                        downstream_intervals: Some(downstream_intervals),
+                    },
+                )
+            });
             wire::SnapshotVehicle::create(
                 &mut fbb,
                 &wire::SnapshotVehicleArgs {
@@ -558,6 +706,8 @@ pub fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
                     parking,
                     maneuver_traversal,
                     waiting_membership,
+                    conflict_eligibility,
+                    conflict_reservation,
                 },
             )
         })
@@ -580,6 +730,42 @@ pub fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
         })
         .collect::<Vec<_>>();
     let waiting_zones = fbb.create_vector(&waiting_zone_offsets);
+    let conflict_lag_offsets = snapshot
+        .conflict_lag_states
+        .iter()
+        .map(|state| {
+            let participant_stream =
+                wire::StableId128::new(state.passage.participant_stream.as_bytes());
+            let conflict_zone = wire::StableId128::new(state.passage.conflict_zone.as_bytes());
+            let passage = wire::ConflictPassageLocatorBinding::create(
+                &mut fbb,
+                &wire::ConflictPassageLocatorBindingArgs {
+                    participant_stream: Some(&participant_stream),
+                    conflict_zone: Some(&conflict_zone),
+                },
+            );
+            let (reference_kind, reference_time_ms) = match state.reference {
+                crate::ConflictLagReference::ActualClear(time) => {
+                    (wire::ConflictLagReferenceKind::ActualClear, time)
+                }
+                crate::ConflictLagReference::CutoverFloor(time) => {
+                    (wire::ConflictLagReferenceKind::CutoverFloor, time)
+                }
+                crate::ConflictLagReference::NoHistory => {
+                    unreachable!("NoHistory rows are omitted during capture")
+                }
+            };
+            wire::ConflictLagState::create(
+                &mut fbb,
+                &wire::ConflictLagStateArgs {
+                    passage: Some(passage),
+                    reference_kind,
+                    reference_time_ms,
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    let conflict_lag_states = fbb.create_vector(&conflict_lag_offsets);
 
     let (source_kind, source_published) = match &snapshot.source {
         CommittedNetworkSource::Published { reference } => {
@@ -651,6 +837,7 @@ pub fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
             live_order: Some(live_order),
             waiting_zones: Some(waiting_zones),
             world_policy: Some(world_policy),
+            conflict_lag_states: Some(conflict_lag_states),
         },
     );
     wire::finish_size_prefixed_runtime_snapshot_buffer(&mut fbb, root);
@@ -752,15 +939,6 @@ impl TrafficWorld {
     /// 局部标识分配规范：路线按 live 槽位序取 `1..=N`，车辆按 live 槽位序
     /// 取 `1..=M`；`live_order` 保存实际更新顺序，与局部 ID 的自然序解耦。
     pub fn capture_snapshot(&self) -> Result<CapturedSnapshot, SnapshotCaptureError> {
-        if !self.conflict_arbiter.is_empty()
-            || self.conflict_eligibility.iter().any(Option::is_some)
-            || self.vehicles.iter().any(|slot| {
-                slot.state
-                    .is_some_and(|state| state.conflict_reservation().is_some())
-            })
-        {
-            return Err(SnapshotCaptureError::ConflictStateUnsupported);
-        }
         let identity = self.revision.identity();
 
         // 路线：live 槽位序枚举，序号→稳定标识经 SharedIdentityIndex。
@@ -898,9 +1076,10 @@ impl TrafficWorld {
                     crate::ManeuverTraversalPhase::Waiting { release_gate_hop } => {
                         (CapturedManeuverTraversalPhase::Waiting, release_gate_hop)
                     }
-                    crate::ManeuverTraversalPhase::Clearing { .. } => {
-                        unreachable!("Conflict capture is rejected before row construction")
-                    }
+                    crate::ManeuverTraversalPhase::Clearing { reservation } => (
+                        CapturedManeuverTraversalPhase::Clearing,
+                        reservation.admission_gate_hop(),
+                    ),
                 };
                 let gate = compiled
                     .hop_gate
@@ -958,6 +1137,146 @@ impl TrafficWorld {
                     admission_sequence: membership.admission_sequence,
                 }
             });
+            let stable_passage =
+                |locator: crate::ConflictPassageLocator| CapturedConflictPassageLocator {
+                    participant_stream: *locator.participant_stream_stable_id().as_untyped(),
+                    conflict_zone: *locator.conflict_zone_stable_id().as_untyped(),
+                };
+            let conflict_eligibility = self
+                .conflict_eligibility
+                .get(slot_index)
+                .copied()
+                .flatten()
+                .map(|eligibility| {
+                    let locator = eligibility.locator();
+                    let compiled = self
+                        .compiled_route(state.route)
+                        .expect("eligible vehicle route exists");
+                    let maneuver = compiled
+                        .maneuvers
+                        .get(locator.maneuver_occurrence_index() as usize)
+                        .expect("eligible maneuver occurrence exists");
+                    let gate = compiled
+                        .hop_gate
+                        .get(locator.admission_gate_hop() as usize)
+                        .copied()
+                        .flatten()
+                        .expect("eligible admission hop resolves Gate");
+                    CapturedConflictEligibility {
+                        maneuver_occurrence_index: locator.maneuver_occurrence_index(),
+                        maneuver_entry_route_edge_index: maneuver.entry_route_edge_index,
+                        admission_gate: *identity
+                            .stable_id(gate)
+                            .expect("eligible Gate resolves stable id")
+                            .as_untyped(),
+                        conflict_occurrence_index: locator.conflict_occurrence_index(),
+                        passage: stable_passage(locator.stable_locator()),
+                        first_eligible_tick: eligibility.first_eligible_tick(),
+                    }
+                });
+            let conflict_reservation = match state.conflict_reservation() {
+                None => None,
+                Some(reservation) => {
+                    let compiled = self
+                        .compiled_route(state.route)
+                        .expect("reservation route exists");
+                    let range = reservation.passage_range();
+                    let maneuver = compiled
+                        .maneuvers
+                        .get(range.maneuver_occurrence_index() as usize)
+                        .expect("reservation maneuver occurrence exists");
+                    let gate = compiled
+                        .hop_gate
+                        .get(range.admission_gate_hop() as usize)
+                        .copied()
+                        .flatten()
+                        .expect("reservation admission hop resolves Gate");
+                    let mut passages = Vec::new();
+                    capture_try_reserve_exact(
+                        &mut passages,
+                        usize::try_from(range.passage_count()).expect("passage count fits usize"),
+                    )?;
+                    let passage_end = range
+                        .first_conflict_occurrence_index()
+                        .checked_add(range.passage_count())
+                        .expect("validated reservation passage range");
+                    for conflict_occurrence_index in
+                        range.first_conflict_occurrence_index()..passage_end
+                    {
+                        let occurrence = compiled
+                            .conflicts
+                            .get(conflict_occurrence_index as usize)
+                            .expect("reservation occurrence exists");
+                        let locator = self
+                            .conflict_passage_occurrence_locator(
+                                state.route,
+                                conflict_occurrence_index,
+                            )
+                            .expect("reservation occurrence resolves locator");
+                        passages.push(CapturedConflictPassage {
+                            conflict_occurrence_index,
+                            passage: stable_passage(locator.stable_locator()),
+                            entry_route_edge_index: occurrence.entry.route_edge_index,
+                            entry_progress_mm: occurrence.entry.progress_mm,
+                            clearance_route_edge_index: occurrence.clearance.route_edge_index,
+                            clearance_progress_mm: occurrence.clearance.progress_mm,
+                        });
+                    }
+                    let mut downstream_intervals = Vec::new();
+                    capture_try_reserve_exact(
+                        &mut downstream_intervals,
+                        usize::try_from(reservation.downstream_claim_count())
+                            .expect("downstream count fits usize"),
+                    )?;
+                    for claim in self
+                        .conflict_arbiter
+                        .persisted_downstream_claims(reservation)
+                    {
+                        let route_edge_index = compiled
+                            .edges
+                            .iter()
+                            .enumerate()
+                            .skip(range.admission_gate_hop() as usize)
+                            .find(|(_, edge)| **edge == claim.interval.edge())
+                            .map(|(index, _)| {
+                                u32::try_from(index).expect("route edge index fits u32")
+                            })
+                            .expect("committed downstream edge occurs after admission Gate");
+                        downstream_intervals.push(CapturedConflictDownstreamInterval {
+                            lane_edge: *identity
+                                .stable_id(claim.interval.edge())
+                                .expect("downstream edge resolves stable id")
+                                .as_untyped(),
+                            route_edge_index,
+                            start_mm: claim.interval.start_mm(),
+                            end_mm: claim.interval.end_mm(),
+                            owner_sequence: claim.owner_sequence,
+                            follower_min_gap_mm: claim.follower_min_gap_mm,
+                        });
+                    }
+                    downstream_intervals.sort_unstable_by_key(|row| {
+                        (
+                            row.lane_edge,
+                            row.start_mm,
+                            row.end_mm,
+                            row.route_edge_index,
+                            row.owner_sequence,
+                            row.follower_min_gap_mm,
+                        )
+                    });
+                    Some(CapturedConflictReservation {
+                        acquired_tick: reservation.acquired_tick(),
+                        maneuver_occurrence_index: range.maneuver_occurrence_index(),
+                        maneuver_entry_route_edge_index: maneuver.entry_route_edge_index,
+                        admission_gate: *identity
+                            .stable_id(gate)
+                            .expect("reservation Gate resolves stable id")
+                            .as_untyped(),
+                        passages,
+                        downstream_intervals,
+                    })
+                }
+            };
             vehicles.push(CapturedVehicle {
                 snapshot_vehicle_id,
                 snapshot_route_id: route_id_for(state.route.generation(), state.route.index()),
@@ -977,6 +1296,8 @@ impl TrafficWorld {
                 parking,
                 maneuver_traversal,
                 waiting_membership,
+                conflict_eligibility,
+                conflict_reservation,
             });
         }
         let mut vehicle_id_by_handle: std::collections::HashMap<(u32, u32), u64> =
@@ -1019,6 +1340,28 @@ impl TrafficWorld {
             });
         }
 
+        let conflict_lag_count = self.conflict_arbiter.persisted_lag_rows().count();
+        let mut conflict_lag_states = Vec::new();
+        capture_try_reserve_exact(&mut conflict_lag_states, conflict_lag_count)?;
+        for (address, reference) in self.conflict_arbiter.persisted_lag_rows() {
+            let locator = self
+                .conflict_passage_locator(address)
+                .expect("installed conflict address resolves stable locator");
+            conflict_lag_states.push(CapturedConflictLagState {
+                passage: CapturedConflictPassageLocator {
+                    participant_stream: *locator.participant_stream_stable_id().as_untyped(),
+                    conflict_zone: *locator.conflict_zone_stable_id().as_untyped(),
+                },
+                reference,
+            });
+        }
+        conflict_lag_states.sort_unstable_by_key(|state| {
+            (
+                state.passage.participant_stream,
+                state.passage.conflict_zone,
+            )
+        });
+
         Ok(CapturedSnapshot {
             world_id: self.world_id,
             tick: self.tick_index,
@@ -1036,6 +1379,7 @@ impl TrafficWorld {
             vehicles,
             live_order,
             waiting_zones,
+            conflict_lag_states,
         })
     }
 }
