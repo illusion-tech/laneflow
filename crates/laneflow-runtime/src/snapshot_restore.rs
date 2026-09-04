@@ -590,25 +590,10 @@ fn decode_conflict_locator(
     let identity = world.revision.identity();
     let stream = identity.ordinal(stream_id).ok_or(())?;
     let zone = identity.ordinal(zone_id).ok_or(())?;
-    let stream_view = world
-        .revision
-        .conflict()
-        .participant_stream(stream)
+    let address = world
+        .conflict_arbiter
+        .unique_address(zone, stream)
         .ok_or(())?;
-    let mut matches = stream_view
-        .passages()
-        .iter()
-        .enumerate()
-        .filter(|(_, passage)| passage.conflict_zone() == zone);
-    let (local_index, _) = matches.next().ok_or(())?;
-    if matches.next().is_some() {
-        return Err(());
-    }
-    let address = crate::ConflictPassageAddress::new(
-        zone,
-        stream,
-        u32::try_from(local_index).map_err(|_| ())?,
-    );
     let locator = crate::ConflictPassageLocator::new(stream_id, zone_id);
     (world.conflict_passage_locator(address) == Some(locator))
         .then_some((locator, address))
@@ -1025,15 +1010,19 @@ fn restore_conflict_aggregate(
             });
         }
         let mut expected_downstream = Vec::new();
+        let downstream_plan = world
+            .reservation_downstream_claim_plan(passage_range, state.length_mm)
+            .map_err(|_| SnapshotRestoreError::InvalidConflictAuthority {
+                snapshot_vehicle_id,
+            })?;
         expected_downstream
-            .try_reserve_exact(downstream.len())
+            .try_reserve_exact(downstream_plan.raw_interval_capacity())
             .map_err(|_| SnapshotRestoreError::InvalidConflictAuthority {
                 snapshot_vehicle_id,
             })?;
         world
-            .derive_reservation_downstream_claims(
-                passage_range,
-                state.length_mm,
+            .derive_reservation_downstream_claims_from_plan(
+                downstream_plan,
                 &mut expected_downstream,
             )
             .map_err(|_| SnapshotRestoreError::InvalidConflictAuthority {
@@ -1609,19 +1598,15 @@ fn decode_waiting_authority(
             })
         };
     };
-    if binding.phase().0 == wire::ManeuverTraversalPhaseKind::Clearing.0 {
-        return if vehicle.waiting_membership().is_none() && vehicle.conflict_reservation().is_some()
-        {
-            // owner handle 只在车辆提交后存在；完整 Clearing traversal 由
-            // `restore_conflict_aggregate` 验证并原子回填。
-            Ok(DecodedWaitingAuthority::default())
-        } else {
-            Err(SnapshotRestoreError::InvalidConflictAuthority {
-                snapshot_vehicle_id,
-            })
-        };
+    let clearing = binding.phase().0 == wire::ManeuverTraversalPhaseKind::Clearing.0;
+    if clearing
+        && (vehicle.waiting_membership().is_some() || vehicle.conflict_reservation().is_none())
+    {
+        return Err(SnapshotRestoreError::InvalidConflictAuthority {
+            snapshot_vehicle_id,
+        });
     }
-    if vehicle.conflict_reservation().is_some() {
+    if !clearing && vehicle.conflict_reservation().is_some() {
         return Err(SnapshotRestoreError::InvalidConflictAuthority {
             snapshot_vehicle_id,
         });
@@ -1632,16 +1617,6 @@ fn decode_waiting_authority(
             .ok_or(SnapshotRestoreError::InvalidWaitingAuthority {
                 snapshot_vehicle_id,
             })?;
-    let maneuver_index = usize::try_from(binding.maneuver_occurrence_index()).map_err(|_| {
-        SnapshotRestoreError::InvalidWaitingAuthority {
-            snapshot_vehicle_id,
-        }
-    })?;
-    let maneuver = compiled.maneuvers.get(maneuver_index).ok_or(
-        SnapshotRestoreError::InvalidWaitingAuthority {
-            snapshot_vehicle_id,
-        },
-    )?;
     let path = binding
         .maneuver_path()
         .and_then(|stable| {
@@ -1652,11 +1627,9 @@ fn decode_waiting_authority(
                     stable.0,
                 )))
         })
-        .filter(|path| *path == maneuver.path)
         .ok_or(SnapshotRestoreError::InvalidWaitingAuthority {
             snapshot_vehicle_id,
         })?;
-    let _ = path;
     let phase_gate = binding
         .phase_gate()
         .and_then(|stable| {
@@ -1670,11 +1643,19 @@ fn decode_waiting_authority(
         .ok_or(SnapshotRestoreError::InvalidWaitingAuthority {
             snapshot_vehicle_id,
         })?;
-    let phase_hop = (maneuver.entry_route_edge_index..maneuver.exit_route_edge_index)
-        .find(|hop| compiled.hop_gate.get(*hop as usize).copied().flatten() == Some(phase_gate))
+    let anchor = world
+        .resolve_maneuver_anchor(
+            route,
+            crate::world::ManeuverOccurrenceAnchor::OccurrenceIndex(
+                binding.maneuver_occurrence_index(),
+            ),
+            path,
+            phase_gate,
+        )
         .ok_or(SnapshotRestoreError::InvalidWaitingAuthority {
             snapshot_vehicle_id,
         })?;
+    let phase_hop = anchor.gate_hop;
     let phase = if binding.phase().0 == wire::ManeuverTraversalPhaseKind::PreGate.0 {
         ManeuverTraversalPhase::PreGate {
             next_gate_hop: phase_hop,
@@ -1687,6 +1668,10 @@ fn decode_waiting_authority(
         ManeuverTraversalPhase::Waiting {
             release_gate_hop: phase_hop,
         }
+    } else if clearing {
+        ManeuverTraversalPhase::Clearing {
+            admission_gate_hop: phase_hop,
+        }
     } else {
         return Err(SnapshotRestoreError::InvalidWaitingAuthority {
             snapshot_vehicle_id,
@@ -1694,7 +1679,7 @@ fn decode_waiting_authority(
     };
     let traversal = ManeuverTraversalState {
         route,
-        maneuver_occurrence_index: binding.maneuver_occurrence_index(),
+        maneuver_occurrence_index: anchor.occurrence_index,
         phase,
     };
 
@@ -2138,7 +2123,7 @@ pub(crate) mod tests {
     use crate::{
         CapturedParkingBinding, CapturedParkingTarget, CapturedVirtualParkingEntry,
         ParkedVehicleSpawnInput, ParkingBinding, ParkingTarget, RouteRegisterInput, TickInput,
-        encode_lfrs,
+        VehicleState, encode_lfrs,
     };
 
     fn generous_limits() -> SnapshotRestoreLimits {
@@ -2459,6 +2444,31 @@ pub(crate) mod tests {
             crate::deterministic_state_digest(&captured).expect("source digest"),
             crate::deterministic_state_digest(&recaptured).expect("restored digest")
         );
+    }
+
+    #[test]
+    fn clearing_marker_is_decoded_before_conflict_aggregate_installation() {
+        let (world, vehicle) = world_with_conflict_reservation();
+        let state = *world.vehicle_state(vehicle).expect("Clearing vehicle");
+        let expected = state.maneuver_traversal.expect("Clearing marker");
+        let captured = world.capture_snapshot().expect("capture Conflict state");
+        let bytes = encode_lfrs(&captured);
+        let root = wire::size_prefixed_root_as_runtime_snapshot(&bytes).expect("verified LFRS");
+        let row = root
+            .vehicles()
+            .iter()
+            .find(|row| row.snapshot_vehicle_id() == u64::from(vehicle.index()) + 1)
+            .expect("reservation owner row");
+
+        let decoded = decode_waiting_authority(&world, row, VehicleStatus::Active, state.route)
+            .expect("Clearing anchor decodes before reservation installation");
+        assert_eq!(decoded.traversal, Some(expected));
+        assert!(decoded.membership.is_none());
+        assert!(world.restored_waiting_authority_valid(VehicleState {
+            maneuver_traversal: decoded.traversal,
+            waiting_membership: decoded.membership,
+            ..state
+        }));
     }
 
     #[test]

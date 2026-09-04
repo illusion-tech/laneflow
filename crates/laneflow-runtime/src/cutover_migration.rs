@@ -266,26 +266,26 @@ pub(crate) fn vehicle_state_from_delta(
         let path = rebinding
             .maneuver_path(ManeuverPathOrdinal::from_raw(delta.maneuver_path))
             .ok_or_else(invalid)?;
-        let cursor = delta.route_edge_index;
-        let mut matches = compiled
-            .maneuvers
-            .iter()
-            .enumerate()
-            .filter(|(_, maneuver)| {
-                maneuver.path == path
-                    && cursor >= maneuver.entry_route_edge_index
-                    && cursor < maneuver.exit_route_edge_index
-            });
-        let (maneuver_index, maneuver) = matches.next().ok_or_else(invalid)?;
-        if matches.next().is_some() {
-            return Err(invalid());
-        }
         let gate = rebinding
             .maneuver_gate(ManeuverGateOrdinal::from_raw(delta.phase_gate))
             .ok_or_else(invalid)?;
-        let phase_hop = (maneuver.entry_route_edge_index..maneuver.exit_route_edge_index)
-            .find(|hop| compiled.hop_gate.get(*hop as usize).copied().flatten() == Some(gate))
+        let anchor = candidate
+            .resolve_maneuver_anchor(
+                route,
+                crate::world::ManeuverOccurrenceAnchor::EntryRouteEdgeIndex(
+                    delta.maneuver_entry_route_edge_index,
+                ),
+                path,
+                gate,
+            )
             .ok_or_else(invalid)?;
+        if delta.traversal_phase != 4
+            && (delta.route_edge_index < anchor.entry_route_edge_index
+                || delta.route_edge_index >= anchor.exit_route_edge_index)
+        {
+            return Err(invalid());
+        }
+        let phase_hop = anchor.gate_hop;
         let phase = match delta.traversal_phase {
             1 => Some(ManeuverTraversalPhase::PreGate {
                 next_gate_hop: phase_hop,
@@ -307,7 +307,7 @@ pub(crate) fn vehicle_state_from_delta(
         if let Some(phase) = phase {
             traversal = Some(ManeuverTraversalState {
                 route,
-                maneuver_occurrence_index: u32::try_from(maneuver_index).map_err(|_| invalid())?,
+                maneuver_occurrence_index: anchor.occurrence_index,
                 phase,
             });
         }
@@ -526,7 +526,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
     target_revision: Arc<SharedNetworkRevision>,
     target_source: CommittedNetworkSource,
     rebinding: &CrossRevisionRebinding,
-) -> Result<(TrafficWorld, Vec<crate::ConflictPassageAddress>), CutoverError> {
+) -> Result<(TrafficWorld, ConflictCutoverFinalizationPlan), CutoverError> {
     world.validate_cutover_policy(&target_revision)?;
     let policy_binding = crate::policy::WorldPolicyBinding::install(
         &target_revision,
@@ -959,10 +959,10 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
     if !candidate.rebuild_waiting_aggregate_from_semantics() {
         return Err(CutoverError::WaitingRevalidationFailed);
     }
-    let conflict_cutover_floors =
+    let conflict_finalization =
         migrate_conflict_state(world, &mut candidate, rebinding, world.time_ms)?;
     revalidate_migrated_vehicles(&candidate)?;
-    Ok((candidate, conflict_cutover_floors))
+    Ok((candidate, conflict_finalization))
 }
 
 fn mapped_conflict_address(
@@ -973,24 +973,7 @@ fn mapped_conflict_address(
 ) -> Option<crate::ConflictPassageAddress> {
     let stream = rebinding.participant_stream(source_address.stream())?;
     let zone = rebinding.conflict_zone(source_address.zone())?;
-    let passages = target
-        .revision
-        .conflict()
-        .participant_stream(stream)?
-        .passages();
-    let mut matches = passages
-        .iter()
-        .enumerate()
-        .filter(|(_, passage)| passage.conflict_zone() == zone);
-    let (local, _) = matches.next()?;
-    if matches.next().is_some() {
-        return None;
-    }
-    let address = crate::ConflictPassageAddress::new(zone, stream, u32::try_from(local).ok()?);
-    target
-        .conflict_arbiter
-        .contains_address(address)
-        .then_some(address)
+    target.conflict_arbiter.unique_address(zone, stream)
 }
 
 fn conflict_anchor_rebinds(
@@ -1320,17 +1303,24 @@ fn cutover_route_position_um(
         .checked_add(u128::from(carry_um))
 }
 
+/// Prepare 已验证的 Conflict 静默点最终化计划。
+#[derive(Debug, Default)]
+pub(crate) struct ConflictCutoverFinalizationPlan {
+    floor_addresses: Vec<crate::ConflictPassageAddress>,
+    removed_history_ready_at_ms: Option<u64>,
+}
+
 /// 从完整来源权威重建候选 Conflict 状态。Prepare 返回新/不连续 cell 的
-/// 精确地址计划；静默提交只最终化这些行，不再全量重迁移 Conflict。
+/// 精确地址与删除历史到期计划；静默提交只校验/最终化该计划，不再全量重迁移。
 pub(crate) fn migrate_conflict_state(
     source: &TrafficWorld,
     target: &mut TrafficWorld,
     rebinding: &CrossRevisionRebinding,
-    commit_time_ms: u64,
-) -> Result<Vec<crate::ConflictPassageAddress>, CutoverError> {
+    prepare_time_ms: u64,
+) -> Result<ConflictCutoverFinalizationPlan, CutoverError> {
     #[cfg(test)]
     CONFLICT_MIGRATION_CALLS.with(|calls| calls.set(calls.get() + 1));
-    if commit_time_ms != source.time_ms {
+    if prepare_time_ms != source.time_ms {
         return Err(CutoverError::ConflictRevalidationFailed);
     }
     let vehicle_capacity = usize::try_from(target.config.vehicle_capacity())
@@ -1525,11 +1515,13 @@ pub(crate) fn migrate_conflict_state(
             }
             source_downstream.push(claim.interval);
         }
-        let mut expected_source = try_staging_vec(claim_count)?;
+        let source_downstream_plan = source
+            .reservation_downstream_claim_plan(source_range, source_state.length_mm)
+            .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
+        let mut expected_source = try_staging_vec(source_downstream_plan.raw_interval_capacity())?;
         source
-            .derive_reservation_downstream_claims(
-                source_range,
-                source_state.length_mm,
+            .derive_reservation_downstream_claims_from_plan(
+                source_downstream_plan,
                 &mut expected_source,
             )
             .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
@@ -1559,13 +1551,12 @@ pub(crate) fn migrate_conflict_state(
         if mapped_source.windows(2).any(|pair| pair[0] >= pair[1]) {
             return Err(CutoverError::ConflictRevalidationFailed);
         }
-        let mut downstream = try_staging_vec(claim_count)?;
+        let target_downstream_plan = target
+            .reservation_downstream_claim_plan(target_range, target_state.length_mm)
+            .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
+        let mut downstream = try_staging_vec(target_downstream_plan.raw_interval_capacity())?;
         target
-            .derive_reservation_downstream_claims(
-                target_range,
-                target_state.length_mm,
-                &mut downstream,
-            )
+            .derive_reservation_downstream_claims_from_plan(target_downstream_plan, &mut downstream)
             .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
         if downstream != mapped_source {
             return Err(CutoverError::ConflictRevalidationFailed);
@@ -1611,6 +1602,7 @@ pub(crate) fn migrate_conflict_state(
         .unwrap_or(0);
     let mut inherited_addresses: Vec<crate::ConflictPassageAddress> =
         try_staging_vec(source.conflict_arbiter.cell_count())?;
+    let mut removed_history_ready_at_ms = None;
     for (source_address, reference, live_reference) in source.conflict_arbiter.migration_rows() {
         let target_address = mapped_conflict_address(source, target, rebinding, source_address);
         let continuous = target_address.is_some_and(|target_address| {
@@ -1646,12 +1638,15 @@ pub(crate) fn migrate_conflict_state(
             crate::ConflictLagReference::ActualClear(time)
             | crate::ConflictLagReference::CutoverFloor(time) => time,
         };
-        let elapsed = commit_time_ms
-            .checked_sub(reference_time)
-            .ok_or(CutoverError::ConflictRevalidationFailed)?;
-        if elapsed < retention_ms {
+        if reference_time > prepare_time_ms {
             return Err(CutoverError::ConflictRevalidationFailed);
         }
+        let ready_at = reference_time
+            .checked_add(retention_ms)
+            .ok_or(CutoverError::ConflictRevalidationFailed)?;
+        removed_history_ready_at_ms = Some(
+            removed_history_ready_at_ms.map_or(ready_at, |current: u64| current.max(ready_at)),
+        );
     }
     inherited_addresses.sort_unstable();
     inherited_addresses.dedup();
@@ -1662,7 +1657,7 @@ pub(crate) fn migrate_conflict_state(
         arbiter
             .restore_lag_reference(
                 address,
-                crate::ConflictLagReference::CutoverFloor(commit_time_ms),
+                crate::ConflictLagReference::CutoverFloor(prepare_time_ms),
             )
             .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
     }
@@ -1680,17 +1675,26 @@ pub(crate) fn migrate_conflict_state(
     if !target.conflict_state_valid() {
         return Err(CutoverError::ConflictRevalidationFailed);
     }
-    Ok(target_addresses)
+    Ok(ConflictCutoverFinalizationPlan {
+        floor_addresses: target_addresses,
+        removed_history_ready_at_ms,
+    })
 }
 
 /// 静默点只把 Prepare 已登记的新/不连续 cell 推迟到最终 `T_commit`。
 /// 地址集合由目标静态根决定，循环量与本次新增/不连续 cell 数成正比。
 pub(crate) fn finalize_conflict_cutover_floors(
     target: &mut TrafficWorld,
-    addresses: &[crate::ConflictPassageAddress],
+    plan: &ConflictCutoverFinalizationPlan,
     commit_time_ms: u64,
 ) -> Result<(), CutoverError> {
-    for address in addresses.iter().copied() {
+    if plan
+        .removed_history_ready_at_ms
+        .is_some_and(|ready_at| commit_time_ms < ready_at)
+    {
+        return Err(CutoverError::ConflictRevalidationFailed);
+    }
+    for address in plan.floor_addresses.iter().copied() {
         if !matches!(
             target.conflict_arbiter.lag_reference(address),
             Some(crate::ConflictLagReference::CutoverFloor(_))
@@ -1902,13 +1906,12 @@ pub(crate) fn project_expected_conflict(
             u32::try_from(passages.len()).map_err(|_| CutoverError::ConflictRevalidationFailed)?,
         )
         .ok_or(CutoverError::ConflictRevalidationFailed)?;
-        let mut physical = try_staging_vec(existing.downstream_intervals.len())?;
+        let downstream_plan = target
+            .reservation_downstream_claim_plan(target_range, target_state.length_mm)
+            .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
+        let mut physical = try_staging_vec(downstream_plan.raw_interval_capacity())?;
         target
-            .derive_reservation_downstream_claims(
-                target_range,
-                target_state.length_mm,
-                &mut physical,
-            )
+            .derive_reservation_downstream_claims_from_plan(downstream_plan, &mut physical)
             .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
         let mut downstream_intervals = try_staging_vec(physical.len())?;
         for interval in physical {
@@ -3090,6 +3093,83 @@ pub(crate) mod tests {
             projected.vehicles[vehicle.index() as usize]
                 .conflict_eligibility
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn conflict_finalization_waits_for_removed_history_at_commit_time() {
+        let mut target = installed_world(FULL_SPATIAL_LFCA, "fixture://finalization-time");
+        let address = target
+            .conflict_arbiter
+            .addresses()
+            .next()
+            .expect("fixture conflict address");
+        target
+            .conflict_arbiter
+            .restore_lag_reference(address, crate::ConflictLagReference::CutoverFloor(100))
+            .expect("seed Prepare floor");
+        let plan = ConflictCutoverFinalizationPlan {
+            floor_addresses: vec![address],
+            removed_history_ready_at_ms: Some(500),
+        };
+
+        assert_eq!(
+            finalize_conflict_cutover_floors(&mut target, &plan, 499),
+            Err(CutoverError::ConflictRevalidationFailed)
+        );
+        assert_eq!(
+            target.conflict_arbiter.lag_reference(address),
+            Some(crate::ConflictLagReference::CutoverFloor(100)),
+            "failed finalization must not mutate any floor"
+        );
+
+        finalize_conflict_cutover_floors(&mut target, &plan, 500)
+            .expect("history becomes eligible exactly at T_commit");
+        assert_eq!(
+            target.conflict_arbiter.lag_reference(address),
+            Some(crate::ConflictLagReference::CutoverFloor(500))
+        );
+    }
+
+    #[test]
+    fn conflict_migration_routes_every_scratch_reservation_through_staging_axis() {
+        let (source, _) = crate::snapshot_restore::tests::world_with_conflict_reservation();
+        let target = conflict_revision(true);
+        let target_origin = *target.canonical_origin();
+        let rebinding =
+            CrossRevisionRebinding::build(source.revision.identity(), target.identity())
+                .expect("same-semantics rebind");
+        let before = source
+            .capture_snapshot()
+            .expect("source before allocation failures");
+        let mut fail_after = 0;
+        loop {
+            let result = with_staging_allocation_failure_after(fail_after, || {
+                migrate_structural_clone(
+                    &source,
+                    Arc::clone(&target),
+                    source_for(target_origin, "fixture://conflict-staging-target"),
+                    &rebinding,
+                )
+            });
+            match result {
+                Err(error) => assert_eq!(
+                    error,
+                    CutoverError::StagingAllocFailed,
+                    "Conflict staging allocation {fail_after}"
+                ),
+                Ok(candidate) => {
+                    assert!(candidate.conflict_state_valid());
+                    break;
+                }
+            }
+            assert_eq!(source.capture_snapshot().expect("unchanged source"), before);
+            fail_after += 1;
+            assert!(fail_after < 64, "staging allocation enumeration terminates");
+        }
+        assert!(
+            fail_after > 14,
+            "Conflict migration exercised authority scratch"
         );
     }
 
