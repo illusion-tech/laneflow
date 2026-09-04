@@ -1743,7 +1743,7 @@ impl TrafficWorld {
         if !valid || binding.is_some_and(|value| !self.resource_matches_binding(vehicle, value)) {
             return Err(ParkingError::InvariantViolation);
         }
-        let conflict_release = state.conflict_reservation();
+        let conflict_release = self.conflict_reservation(vehicle);
         let order_index = self
             .live_order
             .iter()

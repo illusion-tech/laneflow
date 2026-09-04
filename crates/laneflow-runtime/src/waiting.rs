@@ -74,9 +74,9 @@ pub enum ManeuverTraversalPhase {
     /// 已到达所持 membership 的 release Gate，且该 Gate 是最终硬约束归因。
     Waiting { release_gate_hop: u32 },
     /// 已 crossing，继续持有 Conflict/downstream authority，直到车尾清空全部 coverage。
-    Clearing {
-        reservation: crate::ConflictReservation,
-    },
+    /// reservation 内容只由 `ConflictArbiter` 按 vehicle owner 保存；这里仅保留
+    /// 与 Waiting traversal 共用的 admission Gate 路线锚点。
+    Clearing { admission_gate_hop: u32 },
 }
 
 /// 车辆当前 stateful maneuver occurrence 的语义状态。
@@ -1515,7 +1515,7 @@ impl crate::TrafficWorld {
     pub(crate) fn waiting_state_valid(&self) -> bool {
         if self.live_order.iter().any(|vehicle| {
             self.vehicle_state(*vehicle).is_some_and(|state| {
-                state.conflict_reservation().is_some() && state.waiting_membership.is_some()
+                self.conflict_reservation(*vehicle).is_some() && state.waiting_membership.is_some()
             })
         }) {
             return false;
@@ -1631,10 +1631,11 @@ impl crate::TrafficWorld {
         );
         if clearing {
             // Clearing 的完整 owner/passages/downstream 由 Conflict 聚合校验；
-            // Waiting 侧仍负责证明它没有 membership，也没有凭空落入 Waiting 区间。
-            if state.status != crate::VehicleStatus::Active || state.waiting_membership.is_some() {
-                return false;
-            }
+            // Waiting 侧只证明它没有 membership。跨修订新增的 Waiting 覆盖不得
+            // 把已经 crossing 的 Conflict owner 重新解释为 Waiting member；其物理
+            // 占用由既有 downstream reservation 继续保护。
+            return state.status == crate::VehicleStatus::Active
+                && state.waiting_membership.is_none();
         } else {
             let Ok(mut expected) = self.derive_waiting_traversal_with_signals(state, false) else {
                 return false;

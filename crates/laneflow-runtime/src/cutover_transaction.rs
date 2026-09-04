@@ -1158,7 +1158,7 @@ fn apply_record(
         JournalRecord::VehicleParkingUpdated {
             vehicle, parking, ..
         } => {
-            let mut next_state =
+            let next_state =
                 vehicle_state_from_delta(base_revision, candidate, rebinding, vehicle)?;
             let handle = next_state.handle;
             let slot_index =
@@ -1172,20 +1172,8 @@ fn apply_record(
             if current.handle != handle {
                 return Err(CutoverError::ReplayInconsistent);
             }
-            if vehicle.traversal_phase == 4 {
-                let Some(
-                    traversal @ crate::ManeuverTraversalState {
-                        phase: crate::ManeuverTraversalPhase::Clearing { .. },
-                        ..
-                    },
-                ) = current.maneuver_traversal
-                else {
-                    return Err(CutoverError::ReplayInconsistent);
-                };
-                if next_state.route != current.route {
-                    return Err(CutoverError::ConflictRevalidationFailed);
-                }
-                next_state.maneuver_traversal = Some(traversal);
+            if vehicle.traversal_phase == 4 && next_state.route != current.route {
+                return Err(CutoverError::ConflictRevalidationFailed);
             }
             let next_binding = rebind_parking_delta(candidate, rebinding, handle, *parking)?;
             let current_binding = candidate.parking.binding(handle);
@@ -1555,11 +1543,7 @@ mod tests {
             &parking_update,
         )
         .expect("parking delta preserves candidate Clearing authority");
-        assert!(
-            candidate
-                .vehicle_state(vehicle)
-                .is_some_and(|state| state.conflict_reservation().is_some())
-        );
+        assert!(candidate.conflict_reservation(vehicle).is_some());
 
         source.arm_migration_journal(4_096).expect("arm journal");
         source
@@ -1740,6 +1724,54 @@ mod tests {
                 .step(TickInput::new(100))
                 .expect("source can continue");
         }
+    }
+
+    #[test]
+    fn clearing_delta_keeps_conflict_phase_when_target_adds_waiting_coverage() {
+        let (base, target, lfsd) = crate::waiting::tests::first_waiting_cutover_pair();
+        let (mut world, vehicle) = first_waiting_world(base, 1, 1_000);
+        let tx = prepare_first_waiting(&mut world, target, &lfsd).expect("prepare upstream");
+        world
+            .step(TickInput::new(100))
+            .expect("source crosses the admission Gate");
+
+        let state = *world.vehicle_state(vehicle).expect("source vehicle");
+        let compiled = world
+            .compiled_route(state.route)
+            .expect("compiled source route");
+        let (_, maneuver) = compiled
+            .maneuvers
+            .iter()
+            .enumerate()
+            .find(|(_, maneuver)| {
+                state.route_edge_index >= maneuver.entry_route_edge_index
+                    && state.route_edge_index < maneuver.exit_route_edge_index
+            })
+            .expect("covering maneuver");
+        let gate_hop = maneuver.entry_route_edge_index;
+        let gate = compiled.hop_gate[gate_hop as usize].expect("admission Gate");
+        let mut delta = VehicleDelta::from_state(&state, Some(compiled));
+        delta.traversal_present = true;
+        delta.maneuver_path = maneuver.path.raw();
+        delta.traversal_phase = 4;
+        delta.phase_gate = gate.raw();
+        delta.membership_present = false;
+
+        let migrated = vehicle_state_from_delta(
+            world.revision.as_ref(),
+            tx.candidate.as_ref().expect("candidate"),
+            &tx.rebinding,
+            &delta,
+        )
+        .expect("Clearing is not reinterpreted as Waiting");
+        assert!(matches!(
+            migrated.maneuver_traversal.expect("Clearing marker").phase,
+            crate::ManeuverTraversalPhase::Clearing {
+                admission_gate_hop: 0
+            }
+        ));
+        assert!(migrated.waiting_membership.is_none());
+        tx.abandon(&mut world).expect("abandon test transaction");
     }
 
     #[test]

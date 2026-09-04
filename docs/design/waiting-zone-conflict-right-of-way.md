@@ -595,19 +595,21 @@ non-empty reservation 保存 vehicle、route/maneuver/Gate occurrence、exact pa
 downstream owner 与 acquired tick。front crossing passage entry 建立 zone occupancy；
 actual vehicle rear 到达/越过 exact clearance 才 clear。全部 coverage clear 后释放
 reservation/downstream claim；post-step occupancy 已成为下一 tick 权威后才释放，不能出现
-无 owner 空窗。
+无 owner 空窗。完整 reservation 只由 `ConflictArbiter` 持有；vehicle traversal 不复制
+passages、downstream claims 或 acquired tick，避免两个可独立漂移的 owner authority。
 
 #284 与正式 reservation 同时为 `ManeuverTraversalState` 增加真实 `Clearing`：
 
 ```text
 PreGate | Committed | Waiting
-  -> Clearing { reservation }
+  -> Clearing { admission_gate_hop }
 Clearing
   -> Committed | PreGate | completed traversal
 ```
 
 crossing release Gate 时先移除旧 Waiting membership，再提交可选下一-zone membership 与
-reservation；`Clearing` 不携带 Waiting membership。未 crossing 的 grant 不改变 committed
+reservation；`Clearing` 只保留定位 phase 所需的 Gate route anchor，不携带 Waiting
+membership 或 reservation 副本。未 crossing 的 grant 不改变 committed
 phase。route completion 前必须清空 reservation；despawn 原子释放 Waiting、Conflict 与
 downstream authority。active reservation 的 arbitrary route replace/rebind 除非完整证明
 同一 stable passages/claims/footprint，否则失败关闭；不能只迁移 enum。
@@ -664,7 +666,9 @@ phase、stable vehicle/route/entity key 选择首错，不能依赖 scan/worker 
   restore 从 stable policy/route/vehicle identity 重建；
 - restore/same/cross-revision cutover 必须重新编译 policy/route operands、核对 capacity、
   重建 ledger/occupancy/Waiting dependency graph，并验证 owner 闭合且不存在 committed
-  wait-for SCC；任一失败零发布；
+  wait-for SCC；reservation passage range 必须精确等于该 Gate 的完整编译区间，车辆 front
+  必须已在 Gate crossed side，已 clear cell 的 `ActualClear` 不得早于
+  `acquiredTick × fixedDeltaTimeMs`；任一失败零发布；
 - 不保留旧 reader、双写、迁移 shim 或 feature flag；W4/W5 的可恢复、可切换内部能力
   在集成分支先闭合，W7 的生产接线与 3A 移除必须同界提交。
 

@@ -915,7 +915,7 @@ impl TrafficWorld {
                 .map_err(|_| CutoverError::VehicleRevalidationFailed {
                     vehicle: handle.index(),
                 })?;
-            if state.conflict_reservation().is_some()
+            if self.conflict_reservation(handle).is_some()
                 || self
                     .conflict_eligibility
                     .get(handle.index() as usize)

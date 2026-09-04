@@ -334,6 +334,15 @@ impl TrafficWorld {
         self.conflict_arbiter.cell_count()
     }
 
+    /// 返回该车辆当前由 Conflict arbiter 单独持有的 committed reservation。
+    #[must_use]
+    pub fn conflict_reservation(
+        &self,
+        vehicle: VehicleHandle,
+    ) -> Option<crate::ConflictReservation> {
+        self.conflict_arbiter.reservation(vehicle)
+    }
+
     pub(crate) fn conflict_state_valid(&self) -> bool {
         if !self.conflict_eligibility.is_empty()
             && self.conflict_eligibility.len()
@@ -353,7 +362,7 @@ impl TrafficWorld {
                     }
                     if let Some(eligibility) = eligibility
                         && (state.status != VehicleStatus::Active
-                            || state.conflict_reservation().is_some()
+                            || self.conflict_reservation(state.handle).is_some()
                             || eligibility.locator().route() != state.route
                             || self.conflict_passage_occurrence_locator(
                                 state.route,
@@ -363,8 +372,56 @@ impl TrafficWorld {
                     {
                         return false;
                     }
-                    if let Some(reservation) = state.conflict_reservation() {
+                    if let Some(reservation) = self.conflict_reservation(state.handle) {
                         let range = reservation.passage_range();
+                        let Some(compiled) = self.compiled_route(state.route) else {
+                            return false;
+                        };
+                        let Some(gate_range) = compiled
+                            .conflict_gate_ranges
+                            .get(range.admission_gate_hop() as usize)
+                        else {
+                            return false;
+                        };
+                        if gate_range.start != range.first_conflict_occurrence_index()
+                            || gate_range.len != range.passage_count()
+                            || reservation.acquired_tick() > self.tick_index
+                        {
+                            return false;
+                        }
+                        let Some(gate_edge) = compiled
+                            .edges
+                            .get(range.admission_gate_hop() as usize)
+                            .copied()
+                        else {
+                            return false;
+                        };
+                        let Some(gate_progress_mm) = self
+                            .revision
+                            .traffic()
+                            .lane_lengths_millimetres()
+                            .get(gate_edge.index())
+                            .copied()
+                        else {
+                            return false;
+                        };
+                        let Some(gate_crossed_side) = crate::DownstreamRoutePoint::new(
+                            range.admission_gate_hop(),
+                            gate_progress_mm,
+                            0,
+                        ) else {
+                            return false;
+                        };
+                        let Some(front) = crate::DownstreamRoutePoint::new(
+                            state.route_edge_index,
+                            state.progress_mm,
+                            state.carry_um,
+                        ) else {
+                            return false;
+                        };
+                        if front < gate_crossed_side {
+                            return false;
+                        }
                         let Some(end) = range
                             .first_conflict_occurrence_index()
                             .checked_add(range.passage_count())
@@ -398,8 +455,10 @@ impl TrafficWorld {
         {
             return false;
         }
-        self.conflict_arbiter
-            .authority_owners_valid(|owner| self.vehicle_state(owner).is_some())
+        self.conflict_arbiter.authority_owners_valid(
+            |owner| self.vehicle_state(owner).is_some(),
+            self.config.fixed_delta_time_ms(),
+        )
     }
 
     /// W5 已恢复/迁移但尚未由 W7 tick 推进的 Conflict authority。
@@ -424,8 +483,7 @@ impl TrafficWorld {
     }
 
     pub(crate) fn vehicle_has_conflict_authority(&self, vehicle: VehicleHandle) -> bool {
-        self.vehicle_state(vehicle)
-            .is_some_and(|state| state.conflict_reservation().is_some())
+        self.conflict_reservation(vehicle).is_some()
             || self
                 .conflict_eligibility
                 .get(vehicle.index() as usize)
@@ -443,7 +501,7 @@ impl TrafficWorld {
                 .get(handle.index() as usize)
                 .copied()
                 .flatten();
-            if state.conflict_reservation().is_none() && eligibility.is_none() {
+            if self.conflict_reservation(handle).is_none() && eligibility.is_none() {
                 return None;
             }
             match self.check_active_conflict_capability(
@@ -1063,7 +1121,7 @@ impl TrafficWorld {
         if self.parking.binding(old).is_some() {
             return Err(ReplaceError::ParkingOccupied);
         }
-        if old_state.conflict_reservation().is_some() || self.conflict_arbiter.has_authority(old) {
+        if self.conflict_reservation(old).is_some() || self.conflict_arbiter.has_authority(old) {
             return Err(ReplaceError::ConflictInvariantViolation);
         }
         if old_state.maneuver_traversal.is_some() || old_state.waiting_membership.is_some() {
