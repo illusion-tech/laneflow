@@ -15,8 +15,10 @@ reservation 的 route/Gate/passages、车辆全长和边长在 capture/restore/c
 跨修订保留策略身份、法域和法规版本，并按稳定 passage locator 与 reservation 证明精确
 迁移 authority。新增或语义不连续的冷 cell 使用最终静默提交时间的 `CutoverFloor`，
 不生成虚构 clear。
-W4 仲裁器和 W5 持久化内部已闭合；生产 crossing/tick 接线仍由 W7 完成，因此公开生命周期
-入口继续以 `ConflictRuntimeUnavailable` 保护未持有既有 reservation 的冲突路线状态。
+W4 仲裁器和 W5 持久化内部已闭合；生产 crossing/tick 接线仍由 W7 完成。含已恢复或迁移
+eligibility/reservation 的 `step` 会在状态写回前以 `ConflictRuntimeUnavailable` 原子失败；
+无 live authority 的常态路径只做 O(1) 空表检查。跨修订 Prepare 只全量迁移 Conflict 一次，
+静默点只排空 lifecycle 增量并最终化新增/不连续 cell 的 `CutoverFloor` 地址计划。
 
 生命周期命令只在两次 `step` 之间调用。`replace_completed_vehicle` 把 Completed
 车辆一次提交为新的 Active 句柄；到终点保留 Completed，不进 pose、不占车道，占容量。

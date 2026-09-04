@@ -20,9 +20,10 @@ use crate::cutover::{
     NetworkRevisionCutoverDescriptor,
 };
 use crate::cutover_migration::{
-    CrossRevisionRebinding, migrate_conflict_state, migrate_structural_clone,
-    project_expected_conflict, revalidate_migrated_vehicles, revalidate_vehicle_on,
-    revalidate_waiting_routes, vehicle_state_from_delta,
+    CrossRevisionRebinding, finalize_conflict_cutover_floors,
+    migrate_structural_clone_with_conflict_plan, project_expected_conflict,
+    revalidate_migrated_vehicles, revalidate_vehicle_on, revalidate_waiting_routes,
+    vehicle_state_from_delta,
 };
 use crate::migration_journal::{
     DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES, JournalRecord, ParkingBindingDelta, VEHICLE_DELTA_BYTES,
@@ -129,6 +130,9 @@ pub struct CutoverTransaction {
     /// 日志消费的字节偏移（记录边界）：泵送从此处续读，避免每次泵从头
     /// 重扫已消费记录（总量二次方）。
     consumed_offset: usize,
+    /// Prepare 已精确登记的新/不连续 Conflict cell；静默点只更新这些
+    /// `CutoverFloor` 的时间，不再全量重迁移 Conflict。
+    conflict_cutover_floors: Vec<crate::ConflictPassageAddress>,
     settled: bool,
 }
 
@@ -208,7 +212,7 @@ impl TrafficWorld {
                 return Err(error);
             }
         };
-        let candidate = match migrate_structural_clone(
+        let (candidate, conflict_cutover_floors) = match migrate_structural_clone_with_conflict_plan(
             self,
             Arc::clone(&target_revision),
             target_source,
@@ -231,6 +235,7 @@ impl TrafficWorld {
             armed_epoch,
             applied_records: 0,
             consumed_offset: 0,
+            conflict_cutover_floors,
             settled: false,
         })
     }
@@ -281,6 +286,7 @@ impl CutoverTransaction {
     fn settle_failure(&mut self, world: &mut TrafficWorld) {
         self.settled = true;
         self.candidate = None;
+        self.conflict_cutover_floors = Vec::new();
         self.rebinding.release();
         world.disarm_migration_journal();
     }
@@ -395,7 +401,7 @@ impl CutoverTransaction {
             return Err(CutoverError::ReplayInconsistent);
         }
         revalidate_waiting_routes(world, candidate, &self.rebinding)?;
-        migrate_conflict_state(world, candidate, &self.rebinding, world.time_ms)?;
+        finalize_conflict_cutover_floors(candidate, &self.conflict_cutover_floors, world.time_ms)?;
         // 最终游标在同一原子边界取样（半开覆盖区间上界；幂等重占等无记录
         // 提交的归属由取样而非重放决定），先写入候选供摘要复核与晋升共用。
         let final_command_cursor = world.command_cursor;
@@ -1152,7 +1158,7 @@ fn apply_record(
         JournalRecord::VehicleParkingUpdated {
             vehicle, parking, ..
         } => {
-            let next_state =
+            let mut next_state =
                 vehicle_state_from_delta(base_revision, candidate, rebinding, vehicle)?;
             let handle = next_state.handle;
             let slot_index =
@@ -1165,6 +1171,21 @@ fn apply_record(
                 .ok_or(CutoverError::ReplayInconsistent)?;
             if current.handle != handle {
                 return Err(CutoverError::ReplayInconsistent);
+            }
+            if vehicle.traversal_phase == 4 {
+                let Some(
+                    traversal @ crate::ManeuverTraversalState {
+                        phase: crate::ManeuverTraversalPhase::Clearing { .. },
+                        ..
+                    },
+                ) = current.maneuver_traversal
+                else {
+                    return Err(CutoverError::ReplayInconsistent);
+                };
+                if next_state.route != current.route {
+                    return Err(CutoverError::ConflictRevalidationFailed);
+                }
+                next_state.maneuver_traversal = Some(traversal);
             }
             let next_binding = rebind_parking_delta(candidate, rebinding, handle, *parking)?;
             let current_binding = candidate.parking.binding(handle);
@@ -1272,6 +1293,10 @@ fn apply_record(
 
             let binding = candidate.parking.binding(handle);
             remove_candidate_parking_binding(candidate, handle, binding);
+            candidate
+                .conflict_arbiter
+                .release_vehicle(handle, candidate.time_ms);
+            candidate.clear_conflict_eligibility(handle);
             candidate.release_route_ref(state.route);
             candidate.live_order.remove(order_index);
             let slot = &mut candidate.vehicles[slot_index];
@@ -1474,6 +1499,93 @@ mod tests {
                 limits,
             )
             .expect("prepare")
+    }
+
+    #[test]
+    fn quiescent_commit_does_not_rerun_full_conflict_migration() {
+        crate::cutover_migration::reset_conflict_migration_calls();
+        let mut world = installed_world(ORACLE_BASE, "fixture://conflict-plan-source");
+        let transaction = prepare(
+            &mut world,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        assert_eq!(crate::cutover_migration::conflict_migration_calls(), 1);
+        let _commit = transaction
+            .commit(&mut world)
+            .expect("targeted Conflict floor finalization commits");
+        assert_eq!(
+            crate::cutover_migration::conflict_migration_calls(),
+            1,
+            "quiescent commit must not rerun full Conflict migration"
+        );
+    }
+
+    #[test]
+    fn conflict_authority_journal_replay_preserves_updates_without_full_remigration() {
+        let (mut source, vehicle) =
+            crate::snapshot_restore::tests::world_with_conflict_reservation();
+        let target_revision = crate::cutover::tests::transaction_tests::revision(true);
+        let target_origin = *target_revision.canonical_origin();
+        let rebinding =
+            CrossRevisionRebinding::build(source.revision.identity(), target_revision.identity())
+                .expect("same semantics rebind");
+        let mut candidate = crate::cutover_migration::migrate_structural_clone(
+            &source,
+            target_revision,
+            source_for(target_origin, "fixture://conflict-journal-target"),
+            &rebinding,
+        )
+        .expect("baseline Conflict migration");
+
+        let source_state = *source.vehicle_state(vehicle).expect("source vehicle");
+        let parking_update = JournalRecord::VehicleParkingUpdated {
+            command_cursor: source.command_cursor(),
+            vehicle: VehicleDelta::from_state(
+                &source_state,
+                source.compiled_route(source_state.route),
+            ),
+            parking: ParkingBindingDelta::new(None, None),
+        };
+        apply_record(
+            &source.revision,
+            &mut candidate,
+            &rebinding,
+            &parking_update,
+        )
+        .expect("parking delta preserves candidate Clearing authority");
+        assert!(
+            candidate
+                .vehicle_state(vehicle)
+                .is_some_and(|state| state.conflict_reservation().is_some())
+        );
+
+        source.arm_migration_journal(4_096).expect("arm journal");
+        source
+            .despawn_vehicle(vehicle)
+            .expect("despawn authority owner");
+        let record = source
+            .migration_journal()
+            .expect("journal")
+            .records_from(0)
+            .next()
+            .expect("despawn record");
+        apply_record(&source.revision, &mut candidate, &rebinding, &record)
+            .expect("despawn delta releases candidate Conflict authority");
+        assert!(!candidate.conflict_arbiter.has_authority(vehicle));
+        assert!(candidate.conflict_eligibility.is_empty());
+        assert!(candidate.conflict_state_valid());
+        assert_eq!(
+            source
+                .capture_snapshot()
+                .expect("source snapshot")
+                .conflict_lag_states,
+            candidate
+                .capture_snapshot()
+                .expect("candidate snapshot")
+                .conflict_lag_states
+        );
     }
 
     fn assert_same_committed(cut: &TrafficWorld, plain: &TrafficWorld) {

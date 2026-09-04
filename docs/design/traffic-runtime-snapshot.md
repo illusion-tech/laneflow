@@ -183,6 +183,10 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   `PreGate`。首次 Waiting 覆盖的零历史初始化只属于显式跨修订切换（切换文档 §3.3）。
 - 恢复成功后世界处于快照 `tick` 边界的一致状态；`install` 核对与
   `register_admitted_route` 规范化路线重建沿现行消费契约执行。
+- W5 恢复出的 Conflict eligibility/reservation 是可继续保存、同修订换根、跨修订迁移或
+  显式 despawn 的权威状态；W7 生产 tick 接线前，含这些 live authority 的 `step` 以
+  `ConflictRuntimeUnavailable` 在任何运动/Waiting 写回前原子失败，避免首拍丢失
+  `Clearing`。仅含 lag history、没有 live authority 的世界不受该保护影响。
 - G2 fresh restore 入口 `restore_lfrs` 的顺序不可绕过：调用方 wire / asset-key
   上限 → size prefix / file identifier → 有界 FlatBuffers verifier → 版本/绑定/配置与
   表基数预检 → 标识、引用、排列、停车和值不变量 lowering → 局部 world 路线/车辆/

@@ -30,6 +30,17 @@ use crate::{
 thread_local! {
     static STAGING_RESERVATIONS_BEFORE_FAILURE: core::cell::Cell<Option<usize>> =
         const { core::cell::Cell::new(None) };
+    static CONFLICT_MIGRATION_CALLS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_conflict_migration_calls() {
+    CONFLICT_MIGRATION_CALLS.with(|calls| calls.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn conflict_migration_calls() -> usize {
+    CONFLICT_MIGRATION_CALLS.with(core::cell::Cell::get)
 }
 
 #[cfg(test)]
@@ -286,8 +297,9 @@ pub(crate) fn vehicle_state_from_delta(
                 release_gate_hop: phase_hop,
             }),
             // Clearing reservation 包含 owner 与组合资源，不能靠固定宽度
-            // VehicleDelta 拼造。prepare/静默提交在同一个候选中由
-            // `migrate_conflict_state` 从完整来源状态原子重建。
+            // VehicleDelta 拼造。Prepare 从完整来源状态原子重建；静默期
+            // 禁止带存量 Conflict 权限的 tick，停车绑定更新保留候选中的
+            // Clearing，despawn 则由生命周期日志显式释放。
             4 => None,
             _ => return Err(invalid()),
         };
@@ -497,12 +509,23 @@ pub(crate) fn revalidate_waiting_routes(
 /// 重绑即重验证：任一引用不存在、路线重编译失败或车辆原样重绑违反
 /// target 不变量（进度越界、超速、后缀访问被拒、与其它迁移车辆重叠）都
 /// 返回错误并丢弃候选——旧世界从不被本函数触及。
+#[cfg(test)]
 pub(crate) fn migrate_structural_clone(
     world: &TrafficWorld,
     target_revision: Arc<SharedNetworkRevision>,
     target_source: CommittedNetworkSource,
     rebinding: &CrossRevisionRebinding,
 ) -> Result<TrafficWorld, CutoverError> {
+    migrate_structural_clone_with_conflict_plan(world, target_revision, target_source, rebinding)
+        .map(|(candidate, _)| candidate)
+}
+
+pub(crate) fn migrate_structural_clone_with_conflict_plan(
+    world: &TrafficWorld,
+    target_revision: Arc<SharedNetworkRevision>,
+    target_source: CommittedNetworkSource,
+    rebinding: &CrossRevisionRebinding,
+) -> Result<(TrafficWorld, Vec<crate::ConflictPassageAddress>), CutoverError> {
     world.validate_cutover_policy(&target_revision)?;
     let policy_binding = crate::policy::WorldPolicyBinding::install(
         &target_revision,
@@ -935,9 +958,10 @@ pub(crate) fn migrate_structural_clone(
     if !candidate.rebuild_waiting_aggregate_from_semantics() {
         return Err(CutoverError::WaitingRevalidationFailed);
     }
-    migrate_conflict_state(world, &mut candidate, rebinding, world.time_ms)?;
+    let conflict_cutover_floors =
+        migrate_conflict_state(world, &mut candidate, rebinding, world.time_ms)?;
     revalidate_migrated_vehicles(&candidate)?;
-    Ok(candidate)
+    Ok((candidate, conflict_cutover_floors))
 }
 
 fn mapped_conflict_address(
@@ -1295,15 +1319,16 @@ fn cutover_route_position_um(
         .checked_add(u128::from(carry_um))
 }
 
-/// 从完整来源权威重建候选 Conflict 状态。Prepare 用当时模拟时间构造
-/// 未发布候选；静默提交再以最终 `T_commit` 整体覆写，因此新/不连续
-/// cell 的 `CutoverFloor` 不会从后台准备时间提前起算。
+/// 从完整来源权威重建候选 Conflict 状态。Prepare 返回新/不连续 cell 的
+/// 精确地址计划；静默提交只最终化这些行，不再全量重迁移 Conflict。
 pub(crate) fn migrate_conflict_state(
     source: &TrafficWorld,
     target: &mut TrafficWorld,
     rebinding: &CrossRevisionRebinding,
     commit_time_ms: u64,
-) -> Result<(), CutoverError> {
+) -> Result<Vec<crate::ConflictPassageAddress>, CutoverError> {
+    #[cfg(test)]
+    CONFLICT_MIGRATION_CALLS.with(|calls| calls.set(calls.get() + 1));
     if commit_time_ms != source.time_ms {
         return Err(CutoverError::ConflictRevalidationFailed);
     }
@@ -1335,7 +1360,7 @@ pub(crate) fn migrate_conflict_state(
                 return Err(CutoverError::ConflictRevalidationFailed);
             }
             let source_locator = source_eligibility.locator();
-            let (target_occurrence, _) = mapped_conflict_occurrence(
+            let target_locator = mapped_conflict_occurrence(
                 source,
                 target,
                 rebinding,
@@ -1343,31 +1368,29 @@ pub(crate) fn migrate_conflict_state(
                 target_state.route,
                 source_locator.conflict_occurrence_index(),
             )
-            .ok_or(CutoverError::ConflictRevalidationFailed)?;
-            let target_locator = target
-                .conflict_passage_occurrence_locator(target_state.route, target_occurrence)
-                .ok_or(CutoverError::ConflictRevalidationFailed)?;
-            let target_compiled = target
-                .compiled_route(target_state.route)
-                .ok_or(CutoverError::ConflictRevalidationFailed)?;
-            let target_gate = target_compiled
-                .hop_gate
-                .get(target_locator.admission_gate_hop() as usize)
-                .copied()
-                .flatten()
-                .ok_or(CutoverError::ConflictRevalidationFailed)?;
-            let predicate_holds = matches!(
-                target.gate_policy_decision(target_gate, target_state.profile),
-                crate::GatePolicyDecision::Candidate(_)
-            );
-            eligibility[handle.index() as usize] = predicate_holds.then(|| {
-                crate::ConflictEligibilityState::update(
+            .and_then(|(target_occurrence, _)| {
+                target.conflict_passage_occurrence_locator(target_state.route, target_occurrence)
+            });
+            eligibility[handle.index() as usize] = target_locator.and_then(|target_locator| {
+                let migrated = crate::ConflictEligibilityState::update(
                     None,
                     target_locator,
                     true,
                     source_eligibility.first_eligible_tick(),
                 )
-                .expect("true predicate creates eligibility")
+                .expect("true predicate creates eligibility");
+                let target_gate = target
+                    .compiled_route(target_state.route)?
+                    .hop_gate
+                    .get(target_locator.admission_gate_hop() as usize)
+                    .copied()
+                    .flatten()?;
+                (target.conflict_eligibility_position_valid(&target_state, migrated)
+                    && matches!(
+                        target.gate_policy_decision(target_gate, target_state.profile),
+                        crate::GatePolicyDecision::Candidate(_)
+                    ))
+                .then_some(migrated)
             });
         }
 
@@ -1648,19 +1671,19 @@ pub(crate) fn migrate_conflict_state(
     inherited_addresses.dedup();
     let mut target_addresses = try_staging_vec(arbiter.cell_count())?;
     target_addresses.extend(arbiter.addresses());
-    for address in target_addresses {
-        if inherited_addresses.binary_search(&address).is_err() {
-            arbiter
-                .restore_lag_reference(
-                    address,
-                    crate::ConflictLagReference::CutoverFloor(commit_time_ms),
-                )
-                .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
-        }
+    target_addresses.retain(|address| inherited_addresses.binary_search(address).is_err());
+    for address in target_addresses.iter().copied() {
+        arbiter
+            .restore_lag_reference(
+                address,
+                crate::ConflictLagReference::CutoverFloor(commit_time_ms),
+            )
+            .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
     }
 
     target.conflict_arbiter = arbiter;
     target.conflict_eligibility = eligibility.into_vec();
+    target.normalize_conflict_eligibility();
     for (handle, traversal) in restored_traversals {
         target.vehicles[handle.index() as usize]
             .state
@@ -1670,6 +1693,31 @@ pub(crate) fn migrate_conflict_state(
     }
     if !target.conflict_state_valid() {
         return Err(CutoverError::ConflictRevalidationFailed);
+    }
+    Ok(target_addresses)
+}
+
+/// 静默点只把 Prepare 已登记的新/不连续 cell 推迟到最终 `T_commit`。
+/// 地址集合由目标静态根决定，循环量与本次新增/不连续 cell 数成正比。
+pub(crate) fn finalize_conflict_cutover_floors(
+    target: &mut TrafficWorld,
+    addresses: &[crate::ConflictPassageAddress],
+    commit_time_ms: u64,
+) -> Result<(), CutoverError> {
+    for address in addresses.iter().copied() {
+        if !matches!(
+            target.conflict_arbiter.lag_reference(address),
+            Some(crate::ConflictLagReference::CutoverFloor(_))
+        ) {
+            return Err(CutoverError::ConflictRevalidationFailed);
+        }
+        target
+            .conflict_arbiter
+            .restore_lag_reference(
+                address,
+                crate::ConflictLagReference::CutoverFloor(commit_time_ms),
+            )
+            .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
     }
     Ok(())
 }
@@ -1710,7 +1758,7 @@ pub(crate) fn project_expected_conflict(
                 {
                     return Err(CutoverError::ConflictRevalidationFailed);
                 }
-                let (target_occurrence_index, _) = mapped_conflict_occurrence(
+                let mapped = mapped_conflict_occurrence(
                     source,
                     target,
                     rebinding,
@@ -1718,49 +1766,68 @@ pub(crate) fn project_expected_conflict(
                     target_state.route,
                     eligibility.locator().conflict_occurrence_index(),
                 )
-                .ok_or(CutoverError::ConflictRevalidationFailed)?;
-                let locator = target
-                    .conflict_passage_occurrence_locator(
-                        target_state.route,
-                        target_occurrence_index,
-                    )
-                    .ok_or(CutoverError::ConflictRevalidationFailed)?;
-                let compiled = target
-                    .compiled_route(target_state.route)
-                    .ok_or(CutoverError::ConflictRevalidationFailed)?;
-                let maneuver = compiled
-                    .maneuvers
-                    .get(locator.maneuver_occurrence_index() as usize)
-                    .ok_or(CutoverError::ConflictRevalidationFailed)?;
-                let gate = compiled
-                    .hop_gate
-                    .get(locator.admission_gate_hop() as usize)
-                    .copied()
-                    .flatten()
-                    .ok_or(CutoverError::ConflictRevalidationFailed)?;
-                if !matches!(
-                    target.gate_policy_decision(gate, target_state.profile),
-                    crate::GatePolicyDecision::Candidate(_)
-                ) {
-                    None
-                } else {
-                    let stable = locator.stable_locator();
-                    Some(crate::snapshot::CapturedConflictEligibility {
-                        maneuver_occurrence_index: locator.maneuver_occurrence_index(),
-                        maneuver_entry_route_edge_index: maneuver.entry_route_edge_index,
-                        admission_gate: *target
-                            .revision
-                            .identity()
-                            .stable_id(gate)
-                            .ok_or(CutoverError::ConflictRevalidationFailed)?
-                            .as_untyped(),
-                        conflict_occurrence_index: target_occurrence_index,
-                        passage: crate::snapshot::CapturedConflictPassageLocator {
-                            participant_stream: *stable.participant_stream_stable_id().as_untyped(),
-                            conflict_zone: *stable.conflict_zone_stable_id().as_untyped(),
-                        },
-                        first_eligible_tick: eligibility.first_eligible_tick(),
-                    })
+                .and_then(|(target_occurrence_index, _)| {
+                    target
+                        .conflict_passage_occurrence_locator(
+                            target_state.route,
+                            target_occurrence_index,
+                        )
+                        .map(|locator| (target_occurrence_index, locator))
+                });
+                match mapped {
+                    None => None,
+                    Some((target_occurrence_index, locator)) => {
+                        let compiled = target
+                            .compiled_route(target_state.route)
+                            .ok_or(CutoverError::ConflictRevalidationFailed)?;
+                        let gate = compiled
+                            .hop_gate
+                            .get(locator.admission_gate_hop() as usize)
+                            .copied()
+                            .flatten();
+                        let migrated = crate::ConflictEligibilityState::update(
+                            None,
+                            locator,
+                            true,
+                            eligibility.first_eligible_tick(),
+                        )
+                        .expect("true predicate creates eligibility");
+                        if !target.conflict_eligibility_position_valid(target_state, migrated)
+                            || gate.is_none_or(|gate| {
+                                !matches!(
+                                    target.gate_policy_decision(gate, target_state.profile),
+                                    crate::GatePolicyDecision::Candidate(_)
+                                )
+                            })
+                        {
+                            None
+                        } else {
+                            let gate = gate.expect("checked Some above");
+                            let maneuver = compiled
+                                .maneuvers
+                                .get(locator.maneuver_occurrence_index() as usize)
+                                .ok_or(CutoverError::ConflictRevalidationFailed)?;
+                            let stable = locator.stable_locator();
+                            Some(crate::snapshot::CapturedConflictEligibility {
+                                maneuver_occurrence_index: locator.maneuver_occurrence_index(),
+                                maneuver_entry_route_edge_index: maneuver.entry_route_edge_index,
+                                admission_gate: *target
+                                    .revision
+                                    .identity()
+                                    .stable_id(gate)
+                                    .ok_or(CutoverError::ConflictRevalidationFailed)?
+                                    .as_untyped(),
+                                conflict_occurrence_index: target_occurrence_index,
+                                passage: crate::snapshot::CapturedConflictPassageLocator {
+                                    participant_stream: *stable
+                                        .participant_stream_stable_id()
+                                        .as_untyped(),
+                                    conflict_zone: *stable.conflict_zone_stable_id().as_untyped(),
+                                },
+                                first_eligible_tick: eligibility.first_eligible_tick(),
+                            })
+                        }
+                    }
                 }
             }
         };
@@ -2175,7 +2242,9 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::cutover::tests::transaction_tests::revision as conflict_revision;
-    use crate::snapshot_restore::tests::world_with_conflict_reservation;
+    use crate::snapshot_restore::tests::{
+        world_with_conflict_eligibility, world_with_conflict_reservation,
+    };
     use crate::{
         CUTOVER_DESCRIPTOR_FORMAT_VERSION, LfcaOriginBinding, MigrationPolicyKind,
         NetworkRevisionCutoverDescriptor, ParkedVehicleSpawnInput, ParkingTarget, PoseSource,
@@ -2232,6 +2301,78 @@ pub(crate) mod tests {
             after.vehicles[vehicle.index() as usize].conflict_reservation
         );
         assert_eq!(before.conflict_lag_states, after.conflict_lag_states);
+    }
+
+    #[test]
+    fn eligibility_clears_when_target_vehicle_is_no_longer_at_gate() {
+        let (source, vehicle) = world_with_conflict_eligibility();
+        let target_revision = conflict_revision(true);
+        let target_origin = *target_revision.canonical_origin();
+        let rebinding =
+            CrossRevisionRebinding::build(source.revision.identity(), target_revision.identity())
+                .expect("same semantics rebind");
+        let mut target = migrate_structural_clone(
+            &source,
+            target_revision,
+            source_for(target_origin, "fixture://eligibility-position-target"),
+            &rebinding,
+        )
+        .expect("baseline eligibility migration");
+        target.vehicles[vehicle.index() as usize]
+            .state
+            .as_mut()
+            .expect("vehicle")
+            .progress_mm -= 1;
+
+        migrate_conflict_state(&source, &mut target, &rebinding, source.time_ms)
+            .expect("invalid target eligibility is cleared");
+        assert!(target.conflict_eligibility.is_empty());
+
+        let mut projected = source.capture_snapshot().expect("source snapshot");
+        project_expected_conflict(&source, &target, &rebinding, &mut projected, source.time_ms)
+            .expect("independent projection clears invalid eligibility");
+        assert!(
+            projected.vehicles[vehicle.index() as usize]
+                .conflict_eligibility
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn eligibility_clears_when_target_occurrence_is_not_mappable() {
+        let (source, vehicle) = world_with_conflict_eligibility();
+        let target_revision = conflict_revision(true);
+        let target_origin = *target_revision.canonical_origin();
+        let rebinding =
+            CrossRevisionRebinding::build(source.revision.identity(), target_revision.identity())
+                .expect("same semantics rebind");
+        let mut target = migrate_structural_clone(
+            &source,
+            target_revision,
+            source_for(target_origin, "fixture://eligibility-occurrence-target"),
+            &rebinding,
+        )
+        .expect("baseline eligibility migration");
+        let route = target.vehicle_state(vehicle).expect("vehicle").route;
+        target.routes[route.index() as usize]
+            .compiled
+            .as_mut()
+            .expect("compiled route")
+            .conflicts
+            .clear();
+
+        migrate_conflict_state(&source, &mut target, &rebinding, source.time_ms)
+            .expect("unmappable eligibility is cleared");
+        assert!(target.conflict_eligibility.is_empty());
+
+        let mut projected = source.capture_snapshot().expect("source snapshot");
+        project_expected_conflict(&source, &target, &rebinding, &mut projected, source.time_ms)
+            .expect("independent projection clears unmappable eligibility");
+        assert!(
+            projected.vehicles[vehicle.index() as usize]
+                .conflict_eligibility
+                .is_none()
+        );
     }
 
     fn revision(bytes: &[u8]) -> Arc<SharedNetworkRevision> {
