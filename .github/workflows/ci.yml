@@ -159,12 +159,12 @@ jobs:
           # 审计器自身引导必须免疫仓库 cargo 配置：`[target.*] runner` 可让
           # `cargo run`/`cargo test` 空转退出 0（门禁假绿），`[build]`
           # rustc-wrapper 可给审计器编译换源。cargo 配置按 cwd 向上发现，
-          # 因此从仓库外临时 cwd 以 --manifest-path 构建 xtask（仓库 config
-          # 不参与构建），再直接执行二进制（不经 cargo run，runner 不适用）。
+          # 因此构建在子 shell 内从仓库外临时 cwd 以 --manifest-path 进行
+          # （仓库 config 不参与构建）；审计执行回到仓库根（xtask 以 cwd 为
+          # 仓库根），直接执行二进制（不经 cargo run，runner 不适用）。
           # 仓库 config 的 [env]/runner/rustc* 键由审计自身在源头禁绝。
           bootstrap_dir="$(mktemp -d)"
-          cd "$bootstrap_dir"
-          cargo +1.98.0 build --locked --manifest-path "$GITHUB_WORKSPACE/Cargo.toml" -p xtask
+          (cd "$bootstrap_dir" && cargo +1.98.0 build --locked --manifest-path "$GITHUB_WORKSPACE/Cargo.toml" -p xtask)
           "$GITHUB_WORKSPACE/target/debug/xtask" check-wire-audit
 
       - name: Compile Bevy native examples
