@@ -281,10 +281,11 @@ fn allocation_ledgers_and_per_world_live_bytes() {
             live_per > 0,
             "{count} worlds must allocate per-world tables"
         );
-        // 占用索引、compiled 路线表与 Waiting vehicle-capacity scratch 在每世界上。
-        // 2/8 个空世界仍应低于一条走廊静态根；32 个允许不超过三倍。
+        // 占用索引、compiled 路线表、Waiting scratch 与 W4 Conflict 单写者元数据在每世界上。
+        // Conflict cell/claim payload 按首次实际仲裁延迟扩展；2/8 个空世界仍应低于一条
+        // 走廊静态根，32 个空世界允许不超过三点五倍。
         let live_budget = if count >= 32 {
-            static_retained.saturating_mul(3)
+            static_retained.saturating_mul(7) / 2
         } else {
             static_retained
         };

@@ -27,13 +27,15 @@ const FIRST_SNAPSHOT_ID: u64 = 1;
 
 /// 快照捕获失败（#532 capture 轴错误族；`SnapshotRestoreError` 的保存侧对偶）。
 ///
-/// 捕获只读已提交状态，唯一失败模式是容量预留失败；失败时世界无感知
-/// （不推进游标、不改状态），宿主清点后可直接重试。
+/// 捕获只读已提交状态；失败时世界无感知（不推进游标、不改状态）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum SnapshotCaptureError {
     /// 捕获期容量预留失败（分配压力下失败关闭，旧世界原样继续）。
     #[error("快照捕获容量预留失败")]
     ReservationFailed,
+    /// W4 已建立冲突状态，W5 的 wire/digest 尚未接入时拒绝丢失该状态。
+    #[error("当前快照版本尚不能编码 Conflict authority")]
+    ConflictStateUnsupported,
 }
 
 #[cfg(test)]
@@ -750,6 +752,15 @@ impl TrafficWorld {
     /// 局部标识分配规范：路线按 live 槽位序取 `1..=N`，车辆按 live 槽位序
     /// 取 `1..=M`；`live_order` 保存实际更新顺序，与局部 ID 的自然序解耦。
     pub fn capture_snapshot(&self) -> Result<CapturedSnapshot, SnapshotCaptureError> {
+        if !self.conflict_arbiter.is_empty()
+            || self.conflict_eligibility.iter().any(Option::is_some)
+            || self.vehicles.iter().any(|slot| {
+                slot.state
+                    .is_some_and(|state| state.conflict_reservation().is_some())
+            })
+        {
+            return Err(SnapshotCaptureError::ConflictStateUnsupported);
+        }
         let identity = self.revision.identity();
 
         // 路线：live 槽位序枚举，序号→稳定标识经 SharedIdentityIndex。
@@ -886,6 +897,9 @@ impl TrafficWorld {
                     ),
                     crate::ManeuverTraversalPhase::Waiting { release_gate_hop } => {
                         (CapturedManeuverTraversalPhase::Waiting, release_gate_hop)
+                    }
+                    crate::ManeuverTraversalPhase::Clearing { .. } => {
+                        unreachable!("Conflict capture is rejected before row construction")
                     }
                 };
                 let gate = compiled

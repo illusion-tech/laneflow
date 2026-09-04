@@ -73,6 +73,10 @@ pub enum ManeuverTraversalPhase {
     Committed { last_crossed_gate_hop: u32 },
     /// 已到达所持 membership 的 release Gate，且该 Gate 是最终硬约束归因。
     Waiting { release_gate_hop: u32 },
+    /// 已 crossing，继续持有 Conflict/downstream authority，直到车尾清空全部 coverage。
+    Clearing {
+        reservation: crate::ConflictReservation,
+    },
 }
 
 /// 车辆当前 stateful maneuver occurrence 的语义状态。
@@ -526,6 +530,9 @@ impl crate::TrafficWorld {
                     release_gate_hop: mapped,
                 }
             }
+            ManeuverTraversalPhase::Clearing { .. } => {
+                return Err(WaitingBindingError::AuthorityMismatch);
+            }
         };
         let membership = match state.waiting_membership {
             None => None,
@@ -725,7 +732,7 @@ impl crate::TrafficWorld {
             );
             let decision = if preview_crossed {
                 WaitingDecisionOutcome::Granted
-            } else if preview_at_boundary && self.gate_is_restrictive(entry_gate) {
+            } else if preview_at_boundary && self.gate_is_restrictive(entry_gate, state.profile) {
                 WaitingDecisionOutcome::NotEvaluated
             } else {
                 continue;
@@ -1122,7 +1129,7 @@ impl crate::TrafficWorld {
             ) {
                 let gate = compiled.hop_gate[hop as usize].expect("indexed Gate");
                 // finalize 仍使用本 tick 的起始灯色；发布后刷新信号不改写这批决策。
-                let outcome = if self.gate_is_restrictive(gate) {
+                let outcome = if self.gate_is_restrictive(gate, old.profile) {
                     WaitingDecisionOutcome::NotEvaluated
                 } else {
                     WaitingDecisionOutcome::NotRequired
@@ -1279,7 +1286,7 @@ impl crate::TrafficWorld {
                 membership.release_hop,
                 self.revision.traffic().lane_lengths_millimetres(),
             ) && apply_current_signals
-                && self.gate_is_restrictive(release_gate)
+                && self.gate_is_restrictive(release_gate, state.profile)
             {
                 ManeuverTraversalPhase::Waiting {
                     release_gate_hop: membership.release_hop,
@@ -1506,6 +1513,13 @@ impl crate::TrafficWorld {
     }
 
     pub(crate) fn waiting_state_valid(&self) -> bool {
+        if self.live_order.iter().any(|vehicle| {
+            self.vehicle_state(*vehicle).is_some_and(|state| {
+                state.conflict_reservation().is_some() && state.waiting_membership.is_some()
+            })
+        }) {
+            return false;
+        }
         let mut total = 0_usize;
         for zone_index in 0..self.waiting_zones.len() {
             let zone = WaitingZoneOrdinal::from_raw(
@@ -3264,15 +3278,17 @@ pub(crate) mod tests {
             world.step(TickInput::new(100)).expect("entry");
             let release_length = world.traffic().lane_lengths_millimetres()
                 [edges[occurrence.release_hop as usize].index()];
-            let member_state = world.vehicles[member.index() as usize]
-                .state
-                .as_mut()
-                .expect("member");
-            member_state.route_edge_index = occurrence.release_hop;
-            member_state.progress_mm = release_length;
-            member_state.speed_mm_s = 0;
-            member_state.carry_um = 0;
-            let length = member_state.length_mm;
+            let (length, profile) = {
+                let member_state = world.vehicles[member.index() as usize]
+                    .state
+                    .as_mut()
+                    .expect("member");
+                member_state.route_edge_index = occurrence.release_hop;
+                member_state.progress_mm = release_length;
+                member_state.speed_mm_s = 0;
+                member_state.carry_um = 0;
+                (member_state.length_mm, member_state.profile)
+            };
             world
                 .spawn_vehicle(VehicleSpawnInput::new(
                     VehicleProfileOrdinal::from_raw(0),
@@ -3289,10 +3305,11 @@ pub(crate) mod tests {
                 .find(|&tick| {
                     world.time_ms = (tick - 1) * 100;
                     world.refresh_signals();
-                    let before = world.gate_is_restrictive(gate);
+                    let before = world.gate_is_restrictive(gate, profile);
                     world.time_ms = tick * 100;
                     world.refresh_signals();
-                    before == restrictive_before && world.gate_is_restrictive(gate) != before
+                    before == restrictive_before
+                        && world.gate_is_restrictive(gate, profile) != before
                 })
                 .expect("ordinary signal phase boundary");
             world.tick_index = boundary - 1;
@@ -3307,7 +3324,10 @@ pub(crate) mod tests {
                 ),
                 restrictive_before
             );
-            assert_eq!(world.gate_is_restrictive(gate), !restrictive_before);
+            assert_eq!(
+                world.gate_is_restrictive(gate, profile),
+                !restrictive_before
+            );
             assert!(world.latest_waiting_decisions().iter().any(|decision| {
                 decision.vehicle() == member
                     && decision.anchor().hop() == occurrence.release_hop

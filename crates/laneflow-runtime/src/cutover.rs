@@ -612,6 +612,9 @@ pub enum CutoverError {
     /// Waiting traversal/member/counter/queue 在 target 修订无法闭合。
     #[error("WaitingZone authority 在 target 修订无法闭合")]
     WaitingRevalidationFailed,
+    /// Conflict reservation/downstream owner 或 wait-for authority 无法原子重建。
+    #[error("Conflict authority 在 target 修订无法闭合")]
+    ConflictRevalidationFailed,
     /// 迁移后路线总 occurrence 超出世界容量配置（防御性闭合：迁移本身
     /// 不增减 occurrence）。
     #[error("迁移后路线总 occurrence {total} 超出容量 {capacity}")]

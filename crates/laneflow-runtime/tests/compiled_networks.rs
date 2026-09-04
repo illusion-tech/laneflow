@@ -1342,9 +1342,34 @@ fn conflict_multiplicity_preserves_owner_local_and_repeated_occurrences() {
     );
     let mut repeated = install_fixture(revision, WorldConfig::new(0, 1, 6, 8, 1, 100))
         .expect("install exact repeated fixture");
-    repeated
+    let static_cell_count = repeated.conflict_passage_cell_count();
+    let repeated_route = repeated
         .register_route(RouteRegisterInput::new(repeated_edges))
         .expect("two maneuver occurrences retain eight passage occurrences");
+    assert_eq!(
+        repeated.conflict_passage_cell_count(),
+        static_cell_count,
+        "dynamic repeated occurrences must not copy retained static frontier cells"
+    );
+    let first = repeated
+        .conflict_passage_occurrence_locator(repeated_route, 0)
+        .expect("first exact locator");
+    let second = repeated
+        .conflict_passage_occurrence_locator(repeated_route, 4)
+        .expect("repeated exact locator");
+    assert_eq!(first.address(), second.address());
+    assert_eq!(first.stable_locator(), second.stable_locator());
+    assert_eq!(
+        repeated.conflict_passage_locator(first.address()),
+        Some(first.stable_locator())
+    );
+    assert_eq!(first.conflict_occurrence_index(), 0);
+    assert_eq!(second.conflict_occurrence_index(), 4);
+    assert_ne!(
+        first.maneuver_occurrence_index(),
+        second.maneuver_occurrence_index(),
+        "dynamic occurrence identity must not collapse to the static passage address"
+    );
 }
 
 #[test]
