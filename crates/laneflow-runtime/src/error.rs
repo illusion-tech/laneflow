@@ -72,6 +72,8 @@ pub enum InstallError {
     ConflictArbiterCapacityOverflow,
     #[error("冲突仲裁状态分配失败")]
     ConflictArbiterAllocationFailed,
+    #[error("共享路网中的冲突通行关系不满足仲裁器安装不变量")]
+    ConflictArbiterInvalidNetwork,
     /// `fixed_delta_time_ms` 必须落在 `4..=1000`。
     #[error("fixed_delta_time_ms 必须落在 {min}..={max}，实际 {actual}")]
     DeltaOutOfRange {
