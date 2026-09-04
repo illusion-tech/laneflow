@@ -68,6 +68,10 @@ pub enum InstallError {
     PolicyCapacityOverflow,
     #[error("世界策略派生表分配失败")]
     PolicyAllocationFailed,
+    #[error("冲突仲裁状态容量超出当前平台")]
+    ConflictArbiterCapacityOverflow,
+    #[error("冲突仲裁状态分配失败")]
+    ConflictArbiterAllocationFailed,
     /// `fixed_delta_time_ms` 必须落在 `4..=1000`。
     #[error("fixed_delta_time_ms 必须落在 {min}..={max}，实际 {actual}")]
     DeltaOutOfRange {
@@ -144,6 +148,9 @@ pub enum StepError {
     /// 某个 zone 的 admission sequence 无法覆盖本拍 successful entries。
     #[error("WaitingZone admission sequence 已耗尽")]
     WaitingAdmissionSequenceExhausted,
+    /// completion、traversal 或 ledger 的 Conflict authority 不闭合。
+    #[error("Conflict runtime aggregate 不变量损坏")]
+    ConflictInvariantViolation,
 }
 
 /// 路线注册或移除失败。
@@ -261,6 +268,9 @@ pub enum ReplaceError {
     /// Completed 车辆仍携带 maneuver traversal 或 Waiting membership。
     #[error("Completed 车辆携带悬空 Waiting authority")]
     WaitingInvariantViolation,
+    /// Completed 车辆仍携带冲突 reservation/downstream authority。
+    #[error("Completed 车辆携带悬空 Conflict authority")]
+    ConflictInvariantViolation,
     /// 车辆 profile 序号越界。
     #[error("未知车辆 profile")]
     UnknownProfile,
@@ -351,6 +361,8 @@ pub enum ParkingError {
     NotArrived,
     #[error("车辆没有 exact Occupied binding")]
     NotOccupied,
+    #[error("active Conflict reservation 期间不能更换路线")]
+    ConflictTraversalActive,
     #[error("rebind current occurrence 与车辆物理 LaneEdge 不匹配")]
     RebindCurrentOccurrenceMismatch,
     #[error("rebind 会改变车辆完整车身占用 footprint")]

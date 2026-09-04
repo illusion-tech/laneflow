@@ -64,6 +64,12 @@ pub(crate) struct ConflictPassageOccurrence {
     pub clearance: RoutePosition,
 }
 
+impl ConflictPassageOccurrence {
+    pub(crate) const fn address(self) -> crate::ConflictPassageAddress {
+        crate::ConflictPassageAddress::new(self.zone, self.stream, self.passage_local_index)
+    }
+}
+
 /// `conflicts` 中属于一个 admission hop 的连续半开区间。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ConflictGateRange {
@@ -91,6 +97,27 @@ pub(crate) struct CompiledRoute {
     pub conflicts: Vec<ConflictPassageOccurrence>,
     pub conflict_gate_ranges: Vec<ConflictGateRange>,
     pub final_conflict_clearance: Option<(RoutePosition, u32)>,
+}
+
+impl CompiledRoute {
+    pub(crate) fn conflict_occurrence_locator(
+        &self,
+        route: RouteHandle,
+        conflict_occurrence_index: u32,
+        stable_locator: crate::ConflictPassageLocator,
+    ) -> Option<crate::ConflictPassageOccurrenceLocator> {
+        let occurrence = *self
+            .conflicts
+            .get(usize::try_from(conflict_occurrence_index).ok()?)?;
+        Some(crate::ConflictPassageOccurrenceLocator::new(
+            route,
+            occurrence.maneuver_index,
+            occurrence.admission_hop,
+            conflict_occurrence_index,
+            occurrence.address(),
+            stable_locator,
+        ))
+    }
 }
 
 #[cfg(test)]

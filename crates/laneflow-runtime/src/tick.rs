@@ -1,4 +1,4 @@
-use laneflow_static_contract::{LaneEdgeOrdinal, MAX_VEHICLE_LENGTH_MM, SignalAspect};
+use laneflow_static_contract::{LaneEdgeOrdinal, MAX_VEHICLE_LENGTH_MM, VehicleProfileOrdinal};
 use laneflow_static_network::{BoundedDistance, VehicleProfileView};
 
 use crate::migration_journal::VehicleDelta;
@@ -71,6 +71,9 @@ impl TrafficWorld {
                 actual_delta_time_ms: input.delta_time_ms,
             });
         }
+        if !self.conflict_state_valid() {
+            return Err(StepError::ConflictInvariantViolation);
+        }
         let tick_index = self.tick_index.checked_add(1).ok_or(StepError::Overflow)?;
         let time_ms = self
             .time_ms
@@ -107,6 +110,12 @@ impl TrafficWorld {
             let next = self
                 .advance_active_vehicle_with_waiting_stop(state, delta_s, waiting_stop)
                 .ok_or(StepError::NonFiniteMotion)?;
+            if next.status == VehicleStatus::Completed
+                && (next.conflict_reservation().is_some()
+                    || self.conflict_arbiter.has_authority(handle))
+            {
+                return Err(StepError::ConflictInvariantViolation);
+            }
             if let Some(reservation) = reservation {
                 if next.status != VehicleStatus::Active {
                     return Err(StepError::ParkingInvariantViolation);
@@ -261,7 +270,7 @@ impl TrafficWorld {
             route_end,
             lengths.get(edge.index()).copied()?,
             state.progress_mm,
-            self.hop_permitted(state.route, edges, cursor),
+            self.hop_permitted(state.route, edges, cursor, state.profile),
         );
         if hard_room == 0 {
             state.speed_mm_s = 0;
@@ -283,8 +292,9 @@ impl TrafficWorld {
             state.carry_um = u16::try_from(um % 1_000).ok()?;
         }
         let route = state.route;
+        let vehicle_profile = state.profile;
         apply_travel_mm(&mut state, edges, lengths, travel_mm, |index| {
-            self.hop_permitted(route, edges, index)
+            self.hop_permitted(route, edges, index, vehicle_profile)
                 && waiting_stop.is_none_or(|waiting| waiting.hop as usize != index)
         })?;
         let committed_index = usize::try_from(state.route_edge_index).ok()?;
@@ -442,7 +452,7 @@ impl TrafficWorld {
                 next.distance_from_hop_start
             };
             accumulated = true;
-            if self.gate_is_restrictive(next.gate) {
+            if self.gate_is_restrictive(next.gate, state.profile) {
                 return Some(from_cursor_start.saturating_sub(state.progress_mm));
             }
             let next_hop = usize::try_from(next.hop).ok()?.checked_add(1)?;
@@ -459,6 +469,7 @@ impl TrafficWorld {
         route: crate::RouteHandle,
         edges: &[LaneEdgeOrdinal],
         hop_index: usize,
+        profile: VehicleProfileOrdinal,
     ) -> bool {
         if hop_index + 1 >= edges.len() {
             return false;
@@ -467,7 +478,7 @@ impl TrafficWorld {
             return false;
         };
         match compiled.hop_gate.get(hop_index).copied().flatten() {
-            Some(gate) => !self.gate_is_restrictive(gate),
+            Some(gate) => !self.gate_is_restrictive(gate, profile),
             None => true,
         }
     }
@@ -475,21 +486,30 @@ impl TrafficWorld {
     pub(crate) fn gate_is_restrictive(
         &self,
         gate: laneflow_static_contract::ManeuverGateOrdinal,
+        profile: VehicleProfileOrdinal,
     ) -> bool {
-        self.revision
-            .traffic()
-            .relations()
-            .maneuver_gate(gate)
-            .and_then(|view| view.signal_group())
-            .is_some_and(|group| self.group_is_restrictive(group))
+        matches!(
+            self.gate_policy_decision(gate, profile),
+            crate::GatePolicyDecision::DenyAndStop
+        )
     }
 
-    fn group_is_restrictive(&self, group: laneflow_static_contract::SignalGroupOrdinal) -> bool {
-        match self.signal_aspects.get(group.index()).copied() {
-            Some(SignalAspect::Green) => false,
-            Some(SignalAspect::Red | SignalAspect::Yellow) => true,
-            Some(_) | None => true,
-        }
+    pub(crate) fn gate_policy_decision(
+        &self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+        profile: VehicleProfileOrdinal,
+    ) -> crate::GatePolicyDecision {
+        let gate_view = self.revision.traffic().relations().maneuver_gate(gate);
+        let Some(gate_view) = gate_view else {
+            return crate::GatePolicyDecision::DenyAndStop;
+        };
+        let Some(rule) = self.policy().and_then(|policy| policy.gate(gate, profile)) else {
+            return crate::GatePolicyDecision::DenyAndStop;
+        };
+        let signal_group = gate_view.signal_group();
+        let aspect = signal_group.and_then(|group| self.signal_aspects.get(group.index()).copied());
+        crate::conflict::interpret_gate_policy(*rule, signal_group.is_some(), aspect)
+            .unwrap_or(crate::GatePolicyDecision::DenyAndStop)
     }
 }
 
