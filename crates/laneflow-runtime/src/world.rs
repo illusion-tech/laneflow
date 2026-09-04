@@ -361,14 +361,7 @@ impl TrafficWorld {
                         return false;
                     }
                     if let Some(eligibility) = eligibility
-                        && (state.status != VehicleStatus::Active
-                            || self.conflict_reservation(state.handle).is_some()
-                            || eligibility.locator().route() != state.route
-                            || self.conflict_passage_occurrence_locator(
-                                state.route,
-                                eligibility.locator().conflict_occurrence_index(),
-                            ) != Some(eligibility.locator())
-                            || !self.conflict_eligibility_position_valid(state, eligibility))
+                        && !self.conflict_eligibility_authority_valid(state, eligibility)
                     {
                         return false;
                     }
@@ -534,6 +527,42 @@ impl TrafficWorld {
         state.route_edge_index == hop
             && state.progress_mm == self.revision.traffic().lane_lengths_millimetres()[edge.index()]
             && state.carry_um == 0
+    }
+
+    /// eligibility 的唯一 committed authority predicate。
+    ///
+    /// snapshot restore、cross-revision migration/expected projection 与 aggregate
+    /// 校验都必须复用本入口，避免“身份/位置成立但当前 Gate policy 已拒绝”的
+    /// 半份资格进入已发布世界。
+    pub(crate) fn conflict_eligibility_authority_valid(
+        &self,
+        state: &VehicleState,
+        eligibility: crate::ConflictEligibilityState,
+    ) -> bool {
+        let locator = eligibility.locator();
+        if state.status != VehicleStatus::Active
+            || self.conflict_reservation(state.handle).is_some()
+            || locator.route() != state.route
+            || self.conflict_passage_occurrence_locator(
+                state.route,
+                locator.conflict_occurrence_index(),
+            ) != Some(locator)
+            || !self.conflict_eligibility_position_valid(state, eligibility)
+        {
+            return false;
+        }
+        let Some(gate) = self
+            .compiled_route(state.route)
+            .and_then(|compiled| compiled.hop_gate.get(locator.admission_gate_hop() as usize))
+            .copied()
+            .flatten()
+        else {
+            return false;
+        };
+        matches!(
+            self.gate_policy_decision(gate, state.profile),
+            crate::GatePolicyDecision::Candidate(_)
+        )
     }
 
     /// 从 reservation 级 exact route/Gate/passage 证明重建 downstream 物理资源并集。

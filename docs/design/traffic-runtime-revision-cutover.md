@@ -156,6 +156,8 @@ runtime state 或 digest 版本，也不放宽目标不变量和 `ConflictRuntim
 Prepare 从来源完整权威迁移 reservation、eligibility 与 lag 一次，并保存需要在最终时刻
 写 `CutoverFloor` 的目标 cell address 列表。W7 生产 tick 接线前，含 live Conflict
 authority 的来源 `step` 原子失败，故 tick 日志不会出现无法独立解释的半份 `Clearing`；
+eligibility 在候选与独立期望投影中都复用完整 committed authority 谓词，除稳定
+occurrence/车辆 Gate 位置外还要求目标所选 policy 当前决策为 `Candidate`；
 Prepare 对 committed downstream ledger 只做一次线性分组与闭合校验，随后按 vehicle
 slot 直接读取各 reservation 的 claim slice，不能在逐车迁移中反复扫描全 ledger；
 只改变 binding 的 parking 更新保留候选已有 authority，带 authority 的 park/rebind 生命周期
