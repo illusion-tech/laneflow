@@ -601,6 +601,18 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
             1,
         ),
         (
+            RoadEditingTableKind::ParkingFacility,
+            3,
+            RoadEditingTableKind::ParkingLaneAnchor,
+            1,
+        ),
+        (
+            RoadEditingTableKind::ParkingFacility,
+            4,
+            RoadEditingTableKind::ParkingLaneAnchor,
+            1,
+        ),
+        (
             RoadEditingTableKind::ParkingSpace,
             2,
             RoadEditingTableKind::ParkingLaneAnchor,
@@ -982,6 +994,29 @@ mod tests {
                 paths.contains(&expected),
                 "missing nested path: {expected:?}"
             );
+        }
+    }
+
+    #[test]
+    fn closed_paths_cover_parking_facility_virtual_anchor_leaves() {
+        let paths = closed_property_paths();
+        for field_id in [3_u16, 4] {
+            for anchor_field_id in [0_u16, 1] {
+                let expected = RoadEditingPropertyPath::new(Box::new([
+                    RoadEditingPropertyStep::TableField {
+                        table: RoadEditingTableKind::ParkingFacility,
+                        field_id,
+                    },
+                    RoadEditingPropertyStep::TableField {
+                        table: RoadEditingTableKind::ParkingLaneAnchor,
+                        field_id: anchor_field_id,
+                    },
+                ]));
+                assert!(
+                    paths.contains(&expected),
+                    "missing nested path: {expected:?}"
+                );
+            }
         }
     }
 
