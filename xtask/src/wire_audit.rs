@@ -2,11 +2,12 @@
 //!
 //! 在两个 wire 家族的 codegen clean-regeneration 检查之外，独立审计工具链侧通道：
 //! Cargo.lock resolved graph 钉版（version/source/checksum）、wire manifest 显式
-//! target（含 TOML 点号键写法）不得逃逸 package 根目录且不得引入 build 脚本、
-//! Rust 源经 include 宏（含注释间隔形态；use 别名导入一律拒绝）与 `#[path]` 属性
-//! 引入的目标必须是 `.rs` 且 canonicalize 后仍在 workspace package 根目录内、仓库
-//! Cargo 配置与 workflow rustflags（含 TOML 多行数组 / 三引号字符串与 YAML 块标量）
-//! 不得削弱 workspace `unsafe_code = "forbid"` 边界。
+//! target（真 TOML 解析，点号键 / 引号键 / 转义键 / 内联表 / 跨行数组统一归一）
+//! 不得逃逸 package 根目录且不得引入 build 脚本、Rust 源经 include 宏（含注释间隔
+//! 形态；use 别名导入与 macro_rules 元变量宏名调用一律拒绝）与 `#[path]` 属性引入
+//! 的目标必须是 `.rs` 且 canonicalize 后仍在 workspace package 根目录内、仓库
+//! Cargo 配置（真 TOML 解析）与 workflow（真 YAML 解析）中的 rustflags 不得削弱
+//! workspace `unsafe_code = "forbid"` 边界。
 
 use std::ffi::OsStr;
 use std::fs;
@@ -141,12 +142,9 @@ fn check_wire_manifest_targets(repository_root: &Path) -> Result<(), String> {
 /// 审计单个 wire manifest：`[lib]` / `[[bin]]` / `[[test]]` / `[[bench]]` /
 /// `[[example]]` 的显式 `path` 必须以 `.rs` 结尾（Cargo 会把任意后缀的显式 target
 /// path 按 Rust 源编译），且 canonicalize 后仍在 package 根目录内；`[package]` 不得
-/// 出现 build 脚本键；package 根目录不得存在 build.rs。TOML 点号键
-/// （`package.build = "..."`、`lib.path = "..."`）、引号键（`["package"]`、
-/// `"build" = "..."`）与内联表（`package = { build = "..." }`、
-/// `lib = { path = "..." }`、`bin = [{ path = "..." }]`）均已用 cargo metadata 实测
-/// 确认会被 Cargo 接受，解析时按段归一化（去引号、拆点号）并下钻内联表后套用同一
-/// 检查。
+/// 出现 build 脚本键；package 根目录不得存在 build.rs。manifest 用真 TOML 解析：
+/// 点号键、引号键、转义键（如把字符写成 \u 转义形态的等价键）、内联表与跨行数组
+/// 统一由解析器归一化，审计面对解析结果做判定；解析失败一律拒绝（fail closed）。
 fn require_wire_manifest_targets(
     manifest_text: &str,
     package_root: &Path,
@@ -158,55 +156,37 @@ fn require_wire_manifest_targets(
             package_root.display()
         )
     })?;
-    let mut section = "";
-    for raw_line in manifest_text.lines() {
-        let line = raw_line.split('#').next().unwrap_or_default().trim();
-        if line.starts_with('[') && line.ends_with(']') {
-            section = line.trim_matches(&['[', ']'][..]).trim();
-            continue;
-        }
-        let Some((key, value)) = line.split_once('=') else {
+    let manifest: toml::Table = manifest_text
+        .parse()
+        .map_err(|error| format!("wire manifest `{label}` TOML 解析失败，无法静态审计: {error}"))?;
+    if let Some(package) = manifest.get("package").and_then(toml::Value::as_table)
+        && package.contains_key("build")
+    {
+        return Err(format!("wire manifest `{label}` 不得声明 build 脚本键"));
+    }
+    for name in WIRE_TARGET_SECTIONS {
+        let Some(value) = manifest.get(name) else {
             continue;
         };
-        let mut effective_section = section;
-        let mut effective_key = unquote_toml_key(key);
-        if section.is_empty() {
-            if let Some((table, leaf)) = split_dotted_key(key) {
-                effective_section = table;
-                effective_key = leaf;
-            } else {
-                // 内联表形态：`package = { build = "..." }` 与
-                // `lib = { path = "..." }` / `bin = [{ path = "..." }]`（内联表数组
-                // 与 [[bin]] 段在 Cargo 侧反序列化等价）。
-                let trimmed_value = value.trim();
-                if trimmed_value.starts_with('{') || trimmed_value.starts_with('[') {
-                    if effective_key == "package"
-                        && inline_table_value(trimmed_value, "build").is_some()
-                    {
-                        return Err(format!("wire manifest `{label}` 不得声明 build 脚本键"));
-                    }
-                    if WIRE_TARGET_SECTIONS.contains(&effective_key)
-                        && let Some(target_value) = inline_table_value(trimmed_value, "path")
-                    {
-                        require_manifest_target_contained(
-                            package_root,
-                            &canonical_root,
-                            unquote_toml_key(target_value),
-                            label,
-                        )?;
-                    }
-                }
+        // lib 是单表；bin/test/bench/example 是表数组。数组赋值形态
+        // （`bin = [{ ... }]`）虽被 Cargo 忽略（cargo metadata 实测），仍按同一
+        // 口径检查解析结果，保持审计保守性。
+        let tables: Vec<&toml::Table> = match value {
+            toml::Value::Table(table) => vec![table],
+            toml::Value::Array(entries) => {
+                entries.iter().filter_map(toml::Value::as_table).collect()
             }
-        }
-        if section_is(effective_section, "package") && effective_key == "build" {
-            return Err(format!("wire manifest `{label}` 不得声明 build 脚本键"));
-        }
-        if WIRE_TARGET_SECTIONS
-            .iter()
-            .any(|name| section_is(effective_section, name))
-            && effective_key == "path"
-        {
-            let relative = value.trim().trim_matches('"');
+            _ => Vec::new(),
+        };
+        for table in tables {
+            let Some(path_value) = table.get("path") else {
+                continue;
+            };
+            let Some(relative) = path_value.as_str() else {
+                return Err(format!(
+                    "wire manifest `{label}` 的 `{name}` target path 不是字符串，无法静态审计"
+                ));
+            };
             require_manifest_target_contained(package_root, &canonical_root, relative, label)?;
         }
     }
@@ -241,113 +221,6 @@ fn require_manifest_target_contained(
         ));
     }
     Ok(())
-}
-
-/// 在 TOML 内联表文本中查找 `key` 的值文本；键不存在返回 `None`。扫描以每个 `{`
-/// 起算深度 1，字符串内的 `,` / `=` 与嵌套括号不干扰键定位；`bin = [{ ... }, { ... }]`
-/// 这类内联表数组中的每个表都会参与（`,` 在深度 0 时不切分，下一个 `{` 重新开始
-/// 计段）。
-fn inline_table_value<'a>(value: &'a str, key: &str) -> Option<&'a str> {
-    let bytes = value.as_bytes();
-    let mut depth = 0i64;
-    let mut segment_start = 0usize;
-    let mut segments: Vec<&str> = Vec::new();
-    let mut i = 0usize;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'"' => {
-                i += 1;
-                while i < bytes.len() {
-                    match bytes[i] {
-                        b'\\' => i += 2,
-                        b'"' => {
-                            i += 1;
-                            break;
-                        }
-                        _ => i += 1,
-                    }
-                }
-            }
-            b'\'' => {
-                i += 1;
-                while i < bytes.len() {
-                    if bytes[i] == b'\'' {
-                        i += 1;
-                        break;
-                    }
-                    i += 1;
-                }
-            }
-            b'{' => {
-                depth += 1;
-                if depth == 1 {
-                    segment_start = i + 1;
-                }
-                i += 1;
-            }
-            b'}' => {
-                if depth == 1 {
-                    segments.push(&value[segment_start..i]);
-                }
-                depth -= 1;
-                i += 1;
-            }
-            b',' if depth == 1 => {
-                segments.push(&value[segment_start..i]);
-                segment_start = i + 1;
-                i += 1;
-            }
-            _ => i += 1,
-        }
-    }
-    for segment in segments {
-        let Some((entry_key, entry_value)) = segment.split_once('=') else {
-            continue;
-        };
-        if unquote_toml_key(entry_key) == key {
-            return Some(entry_value.trim());
-        }
-    }
-    None
-}
-
-/// 归一化 TOML 键 / 表单段：去首尾空白与一层配对引号（`"..."` 或 `'...'`）。
-fn unquote_toml_key(segment: &str) -> &str {
-    let segment = segment.trim();
-    segment
-        .strip_prefix('"')
-        .and_then(|inner| inner.strip_suffix('"'))
-        .or_else(|| {
-            segment
-                .strip_prefix('\'')
-                .and_then(|inner| inner.strip_suffix('\''))
-        })
-        .unwrap_or(segment)
-}
-
-/// 表头名是否等于目标名：只有单段表头参与（`[package.metadata]` 这类多段不匹配），
-/// 引号写法（`["package"]`）归一化后比较。
-fn section_is(section: &str, name: &str) -> bool {
-    let mut segments = section.split('.');
-    let Some(only) = segments.next() else {
-        return false;
-    };
-    if segments.next().is_some() {
-        return false;
-    }
-    unquote_toml_key(only) == name
-}
-
-/// 把 `package.build` / `lib . path` / `"package"."build"` 形态的 TOML 点号键归一化为
-/// （表名，叶子键）；非两段点号键返回 `None`。
-fn split_dotted_key(key: &str) -> Option<(&str, &str)> {
-    let mut segments = key.split('.').map(unquote_toml_key);
-    let table = segments.next()?;
-    let leaf = segments.next()?;
-    if segments.next().is_some() || table.is_empty() || leaf.is_empty() {
-        return None;
-    }
-    Some((table, leaf))
 }
 
 fn check_source_includes(repository_root: &Path) -> Result<(), String> {
@@ -407,6 +280,104 @@ fn require_audited_source_includes(
     let code = code_mask(text);
     audit_include_macros(text, source, &label, own_root, &code)?;
     audit_path_attributes(text, source, &label, own_root, &code)?;
+    audit_macro_rules_metavariable_invocations(text, &label, &code)?;
+    Ok(())
+}
+
+/// 审计 `macro_rules!` 定义：体内出现 `$ident!`（元变量直接作为宏名调用）即拒绝
+/// 整个源文件——`call_macro!(include, "../../outside.rs")` 这类调用在展开期生成
+/// 真实 `include!(...)`，目标完全由调用方决定，include 闭合与 unsafe 扫描都会被
+/// 绕过。matcher 侧的元变量（`$m:ident`）后随 `:`，重复展开 `$( ... )*` 的 `$`
+/// 后随 `(`，均不误判。
+fn audit_macro_rules_metavariable_invocations(
+    text: &str,
+    label: &str,
+    code: &[bool],
+) -> Result<(), String> {
+    let bytes = text.as_bytes();
+    let mut cursor = 0;
+    while let Some(relative) = text[cursor..].find("macro_rules") {
+        let start = cursor + relative;
+        cursor = start + "macro_rules".len();
+        let before_ok = text[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|ch| !schema_codegen::is_identifier_character(ch));
+        let after_ok = text[cursor..]
+            .chars()
+            .next()
+            .is_none_or(|ch| !schema_codegen::is_identifier_character(ch));
+        if !before_ok || !after_ok || !is_code(code, start, "macro_rules".len()) {
+            continue;
+        }
+        skip_trivia(bytes, &mut cursor);
+        if bytes.get(cursor) != Some(&b'!') {
+            // 非 `macro_rules!` 宏定义形态（如普通标识符），不在审计范围。
+            continue;
+        }
+        cursor += 1;
+        skip_trivia(bytes, &mut cursor);
+        // 宏名。
+        while bytes
+            .get(cursor)
+            .is_some_and(|byte| schema_codegen::is_identifier_character(*byte as char))
+        {
+            cursor += 1;
+        }
+        skip_trivia(bytes, &mut cursor);
+        if bytes.get(cursor) != Some(&b'{') {
+            return Err(format!(
+                "`{label}` 的 macro_rules! 定义体不是 `{{` 形态，无法静态审计"
+            ));
+        }
+        // 代码区括号配对取整个定义体（字符串 / 注释已被掩码排除）。
+        let body_start = cursor;
+        let mut depth = 0usize;
+        while cursor < bytes.len() {
+            if code[cursor] {
+                match bytes[cursor] {
+                    b'{' => depth += 1,
+                    b'}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            cursor += 1;
+        }
+        if depth != 0 {
+            return Err(format!(
+                "`{label}` 的 macro_rules! 定义体括号不闭合，无法静态审计"
+            ));
+        }
+        let body_end = cursor;
+        let mut scan = body_start;
+        while scan < body_end {
+            if code[scan] && bytes[scan] == b'$' {
+                let mut at = scan + 1;
+                let ident_start = at;
+                while at < body_end && schema_codegen::is_identifier_character(bytes[at] as char) {
+                    at += 1;
+                }
+                if at > ident_start {
+                    let mut after = at;
+                    skip_trivia(bytes, &mut after);
+                    if after < body_end && bytes[after] == b'!' {
+                        return Err(format!(
+                            "`{label}` 的 macro_rules! 模板以元变量作为宏名调用（`$ident!`），展开结果无法静态审计"
+                        ));
+                    }
+                }
+                scan = at.max(scan + 1);
+            } else {
+                scan += 1;
+            }
+        }
+        cursor = body_end + 1;
+    }
     Ok(())
 }
 
@@ -872,7 +843,7 @@ fn check_rustflags_configs(repository_root: &Path) -> Result<(), String> {
         if path.is_file() {
             let text = fs::read_to_string(&path)
                 .map_err(|error| format!("无法读取 `{relative}`: {error}"))?;
-            require_rustflags_respect_unsafe_forbid(&text, relative)?;
+            require_toml_config_respects_unsafe_forbid(&text, relative)?;
         }
     }
     let workflows_dir = repository_root.join(".github/workflows");
@@ -896,229 +867,144 @@ fn check_rustflags_configs(repository_root: &Path) -> Result<(), String> {
     for path in workflow_files {
         let text = fs::read_to_string(&path)
             .map_err(|error| format!("无法读取 `{}`: {error}", path.display()))?;
-        require_rustflags_respect_unsafe_forbid(&text, &path.display().to_string())?;
+        require_workflow_respects_unsafe_forbid(&text, &path.display().to_string())?;
     }
     Ok(())
 }
 
-/// 审计单份 Cargo 配置或 workflow 文本：任何 rustflags / RUSTFLAGS 赋值（含 TOML
-/// 多行数组与三引号字符串、YAML 块标量）不得包含削弱 `unsafe_code = "forbid"` 的
-/// token。YAML 块标量（`|` / `>` 及其 `±` 变体）的续行按缩进判定而非按行尾字符，
-/// 键行缩进更浅的行结束标量并作为普通行重新参与判定。激活与续行分析基于转义解码
-/// 后的行：TOML/YAML 双引号键的 \u 转义（把键名中的字符写成转义形态的等价键）会被
-/// Cargo / YAML 解析器解码为 rustflags（cargo config get 实测确认），未解码行
-/// 匹配不到键名会整体漏检。
-fn require_rustflags_respect_unsafe_forbid(text: &str, label: &str) -> Result<(), String> {
-    let mut continuation = RustflagsContinuation::None;
-    for (number, raw_line) in text.lines().enumerate() {
-        let lower = raw_line.to_lowercase();
-        // 必须先解码再小写：`\U0000002D` 若先小写会折叠成 `\u0000002d`，解码器只消费
-        // 4 位十六进制而把 8 位 `\U` 序列截断成不可匹配的内容。
-        let decoded = decode_flag_escapes(raw_line).to_lowercase();
-        if let RustflagsContinuation::BlockScalar(indent) = continuation {
-            let line_indent = raw_line.len() - raw_line.trim_start().len();
-            if raw_line.trim().is_empty() || line_indent > indent {
-                reject_weakening_token(&lower, &decoded, label, number)?;
-                continue;
-            }
-            continuation = RustflagsContinuation::None;
-        }
-        // 激活判定看解码行：转义编码的等价键名与直白写法同罪。
-        let opens = decoded.contains("rustflags");
-        let active = opens || !matches!(continuation, RustflagsContinuation::None);
-        if active {
-            reject_weakening_token(&lower, &decoded, label, number)?;
-        }
-        continuation = match continuation {
-            RustflagsContinuation::Brackets(balance) => {
-                let next = bracket_balance(raw_line, balance);
-                if next > 0 {
-                    RustflagsContinuation::Brackets(next)
-                } else {
-                    RustflagsContinuation::None
+/// 审计单份 Cargo 配置（TOML）：递归遍历解析树，任何层级出现 `rustflags` 键
+/// （大小写不敏感，覆盖 `[build]` / `[target.*]` / `[env]` 等所有 Cargo 接受的位置；
+/// 键的引号与 `\u` 转义、多行数组、三引号字符串及 `\` 续行均由解析器归一化）即对其
+/// 值套用统一检查。解析失败一律拒绝（fail closed）。
+fn require_toml_config_respects_unsafe_forbid(text: &str, label: &str) -> Result<(), String> {
+    let parsed: toml::Table = text
+        .parse()
+        .map_err(|error| format!("`{label}` TOML 解析失败，无法静态审计: {error}"))?;
+    audit_toml_tree_for_rustflags(&toml::Value::Table(parsed), label)
+}
+
+fn audit_toml_tree_for_rustflags(value: &toml::Value, label: &str) -> Result<(), String> {
+    match value {
+        toml::Value::Table(table) => {
+            for (key, child) in table {
+                if key.eq_ignore_ascii_case("rustflags") {
+                    require_audited_toml_flag_value(child, label)?;
                 }
+                audit_toml_tree_for_rustflags(child, label)?;
             }
-            RustflagsContinuation::TripleQuote => {
-                if raw_line.contains("\"\"\"") {
-                    RustflagsContinuation::None
-                } else {
-                    RustflagsContinuation::TripleQuote
-                }
+            Ok(())
+        }
+        toml::Value::Array(entries) => {
+            for entry in entries {
+                audit_toml_tree_for_rustflags(entry, label)?;
             }
-            // 续行形态同样从解码行分析：编码键的定位与值结构判定由此保持可用。
-            RustflagsContinuation::None if opens => rustflags_value_continuation(&decoded),
-            state => state,
-        };
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn require_audited_toml_flag_value(value: &toml::Value, label: &str) -> Result<(), String> {
+    match value {
+        toml::Value::String(text) => reject_weakening_flag_text(text, label),
+        toml::Value::Array(entries) => {
+            for entry in entries {
+                let toml::Value::String(text) = entry else {
+                    return Err(format!(
+                        "`{label}` 的 rustflags 数组含非字符串元素，无法静态审计"
+                    ));
+                };
+                reject_weakening_flag_text(text, label)?;
+            }
+            Ok(())
+        }
+        _ => Err(format!(
+            "`{label}` 的 rustflags 值不是字符串或字符串数组，无法静态审计"
+        )),
+    }
+}
+
+/// 审计单份 GitHub workflow（YAML）：递归遍历所有 document，任何层级出现
+/// `rustflags` 键（大小写不敏感，覆盖顶层 / job / step 级 env 等所有位置；键的引号
+/// 与转义、块标量（含显式缩进指示符）与多行标量折叠均由解析器归一化）即对其值
+/// 套用统一检查。解析失败一律拒绝（fail closed）。
+fn require_workflow_respects_unsafe_forbid(text: &str, label: &str) -> Result<(), String> {
+    let documents = yaml_rust2::YamlLoader::load_from_str(text)
+        .map_err(|error| format!("`{label}` YAML 解析失败，无法静态审计: {error}"))?;
+    for document in documents {
+        audit_yaml_tree_for_rustflags(&document, label)?;
     }
     Ok(())
 }
 
-/// rustflags 赋值的续行状态。
-enum RustflagsContinuation {
-    None,
-    /// TOML 数组 / 内联表未闭合的 `[` `{` 括号余额。
-    Brackets(i64),
-    /// YAML 块标量：键所在行的前导空白宽度。
-    BlockScalar(usize),
-    /// TOML `"""` 多行字符串未闭合。
-    TripleQuote,
-}
-
-/// 对含 rustflags 的解码行分析其值的续行形态：三引号字符串、YAML 块标量指示符、
-/// 未闭合括号；行内闭合则为 `None`。输入是转义解码并小写后的行——编码键名由此
-/// 可定位；解码只替换转义序列，括号 / 引号 / 缩进结构保持不变。
-fn rustflags_value_continuation(line: &str) -> RustflagsContinuation {
-    let lower = line.to_lowercase();
-    let Some(key_at) = lower.find("rustflags") else {
-        return RustflagsContinuation::None;
-    };
-    let after_key = &line[key_at + "rustflags".len()..];
-    let Some(separator_at) = after_key.find(['=', ':']) else {
-        return RustflagsContinuation::None;
-    };
-    let value = &after_key[separator_at + 1..];
-    if value.matches("\"\"\"").count() % 2 == 1 {
-        return RustflagsContinuation::TripleQuote;
-    }
-    // 去掉行尾注释后再判定块标量指示符（`RUSTFLAGS: >- # 注释`）。
-    let without_comment = value.split(" #").next().unwrap_or_default();
-    let tail = without_comment.trim_end();
-    for indicator in ["|-", "|+", ">-", ">+", "|", ">"] {
-        if tail.ends_with(indicator) {
-            return RustflagsContinuation::BlockScalar(line.len() - line.trim_start().len());
-        }
-    }
-    let balance = bracket_balance(value, 0);
-    if balance > 0 {
-        RustflagsContinuation::Brackets(balance)
-    } else {
-        RustflagsContinuation::None
-    }
-}
-
-/// 统计 `[` `{` 相对 `]` `}` 的净余额（从 `initial` 累加）。双引号（含 `\` 转义）与
-/// 单引号字符串字面量的内容不参与计数：`rustflags = ["]",` 中字符串内的 `]` 不会
-/// 抵消未闭合的 `[` 而导致后续续行漏检。
-fn bracket_balance(text: &str, initial: i64) -> i64 {
-    let bytes = text.as_bytes();
-    let mut balance = initial;
-    let mut i = 0usize;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'"' => {
-                i += 1;
-                while i < bytes.len() {
-                    match bytes[i] {
-                        b'\\' => i += 2,
-                        b'"' => {
-                            i += 1;
-                            break;
-                        }
-                        _ => i += 1,
-                    }
+fn audit_yaml_tree_for_rustflags(value: &yaml_rust2::Yaml, label: &str) -> Result<(), String> {
+    match value {
+        yaml_rust2::Yaml::Hash(hash) => {
+            for (key, child) in hash {
+                if key
+                    .as_str()
+                    .is_some_and(|name| name.eq_ignore_ascii_case("rustflags"))
+                {
+                    require_audited_yaml_flag_value(child, label)?;
                 }
+                audit_yaml_tree_for_rustflags(child, label)?;
             }
-            b'\'' => {
-                i += 1;
-                while i < bytes.len() {
-                    if bytes[i] == b'\'' {
-                        i += 1;
-                        break;
-                    }
-                    i += 1;
-                }
-            }
-            b'[' | b'{' => {
-                balance += 1;
-                i += 1;
-            }
-            b']' | b'}' => {
-                balance -= 1;
-                i += 1;
-            }
-            _ => i += 1,
+            Ok(())
         }
+        yaml_rust2::Yaml::Array(entries) => {
+            for entry in entries {
+                audit_yaml_tree_for_rustflags(entry, label)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
     }
-    balance
 }
 
-/// 对原始行与转义解码行各匹配一次弱化 token。TOML/YAML 双引号字符串会把
-/// `\u002d` 这类转义解码成 `-`（TOML/Cargo 侧按解码后的值生效），解码后匹配
-/// 使标准字符串转义无法绕过边界。解码值中的 `@` 一律拒绝：rustc 会把 `@file`
-/// 展开为响应文件参数（换行分隔），文件内容不在本审计覆盖范围内。
-fn reject_weakening_token(
-    lowered_line: &str,
-    decoded_line: &str,
-    label: &str,
-    number: usize,
-) -> Result<(), String> {
-    if decoded_line.contains('@') {
+fn require_audited_yaml_flag_value(value: &yaml_rust2::Yaml, label: &str) -> Result<(), String> {
+    match value {
+        yaml_rust2::Yaml::String(text) => reject_weakening_flag_text(text, label),
+        yaml_rust2::Yaml::Array(entries) => {
+            for entry in entries {
+                let yaml_rust2::Yaml::String(text) = entry else {
+                    return Err(format!(
+                        "`{label}` 的 rustflags 数组含非字符串元素，无法静态审计"
+                    ));
+                };
+                reject_weakening_flag_text(text, label)?;
+            }
+            Ok(())
+        }
+        _ => Err(format!("`{label}` 的 rustflags 值不是字符串，无法静态审计")),
+    }
+}
+
+/// 单条 rustflags 文本的弱化判定。TOML/YAML 解析器已完成转义解码、多行折叠与
+/// 续行拼接，此处直接对最终生效值匹配：弱化 token 小写包含即拒绝；`@` 一律拒绝
+/// （rustc 会把 `@file` 展开为换行分隔的响应文件参数，文件内容不在本审计覆盖
+/// 范围内）；`${{` 一律拒绝（GitHub Actions 表达式由 runner 在运行时解析，来源
+/// 值不受静态审计覆盖）。
+fn reject_weakening_flag_text(text: &str, label: &str) -> Result<(), String> {
+    let lower = text.to_lowercase();
+    if lower.contains('@') {
         return Err(format!(
-            "`{label}` 第 {} 行 rustflags 含 `@`，rustc `@file` 响应文件参数无法静态审计",
-            number + 1
+            "`{label}` 的 rustflags 值含 `@`，rustc `@file` 响应文件参数无法静态审计"
+        ));
+    }
+    if lower.contains("${{") {
+        return Err(format!(
+            "`{label}` 的 rustflags 值含 GitHub Actions 表达式，来源值在 runner 运行时解析，无法静态审计"
         ));
     }
     if let Some(token) = RUSTFLAGS_WEAKENING_TOKENS
         .iter()
-        .find(|token| lowered_line.contains(**token) || decoded_line.contains(**token))
+        .find(|token| lower.contains(**token))
     {
         return Err(format!(
-            "`{label}` 第 {} 行 rustflags 含 `{token}`，会削弱 workspace `unsafe_code = \"forbid\"` 边界",
-            number + 1
+            "`{label}` 的 rustflags 值含 `{token}`，会削弱 workspace `unsafe_code = \"forbid\"` 边界"
         ));
     }
     Ok(())
-}
-
-/// 单趟解码 TOML/YAML 双引号字符串中的常见转义：`\\`、`\"`、`\'`、`\x`、`\u`、
-/// `\U`。只做一趟（`\\u002d` 解成字面 `\u002d` 后不再二次解码）；未知转义原样保留。
-fn decode_flag_escapes(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let mut chars = line.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch != '\\' {
-            out.push(ch);
-            continue;
-        }
-        let Some(kind) = chars.next() else {
-            out.push('\\');
-            break;
-        };
-        let decode_hex = |chars: &mut std::iter::Peekable<std::str::Chars>, digits: usize| {
-            let mut value = String::with_capacity(digits);
-            for _ in 0..digits {
-                match chars.next_if(|c| c.is_ascii_hexdigit()) {
-                    Some(c) => value.push(c),
-                    None => return None,
-                }
-            }
-            u32::from_str_radix(&value, 16)
-                .ok()
-                .and_then(char::from_u32)
-        };
-        match kind {
-            '\\' => out.push('\\'),
-            '"' => out.push('"'),
-            '\'' => out.push('\''),
-            'x' => match decode_hex(&mut chars, 2) {
-                Some(decoded) => out.push(decoded),
-                None => out.push_str("\\x"),
-            },
-            'u' => match decode_hex(&mut chars, 4) {
-                Some(decoded) => out.push(decoded),
-                None => out.push_str("\\u"),
-            },
-            'U' => match decode_hex(&mut chars, 8) {
-                Some(decoded) => out.push(decoded),
-                None => out.push_str("\\U"),
-            },
-            _ => {
-                out.push('\\');
-                out.push(kind);
-            }
-        }
-    }
-    out
 }
 
 #[cfg(test)]
@@ -1450,18 +1336,18 @@ mod tests {
     #[test]
     fn rustflags_audit_accepts_absent_or_benign_flags() {
         assert_eq!(
-            require_rustflags_respect_unsafe_forbid("", "fixture"),
+            require_toml_config_respects_unsafe_forbid("", "fixture"),
             Ok(())
         );
         assert_eq!(
-            require_rustflags_respect_unsafe_forbid(
+            require_toml_config_respects_unsafe_forbid(
                 "[build]\nrustflags = [\"-C\", \"opt-level=3\"]\n",
                 "fixture"
             ),
             Ok(())
         );
         assert_eq!(
-            require_rustflags_respect_unsafe_forbid("env:\n  RUSTFLAGS: -Dwarnings\n", "workflow"),
+            require_workflow_respects_unsafe_forbid("env:\n  RUSTFLAGS: -Dwarnings\n", "workflow"),
             Ok(())
         );
     }
@@ -1469,28 +1355,28 @@ mod tests {
     #[test]
     fn rustflags_audit_rejects_unsafe_weakening() {
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_toml_config_respects_unsafe_forbid(
                 "[build]\nrustflags = [\"--cap-lints\", \"warn\"]\n",
                 "fixture"
             )
             .is_err()
         );
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_workflow_respects_unsafe_forbid(
                 "env:\n  RUSTFLAGS: -A unsafe-code\n",
                 "workflow"
             )
             .is_err()
         );
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_toml_config_respects_unsafe_forbid(
                 "rustflags = [\n  \"--cap-lints\",\n  \"allow\"\n]\n",
                 "fixture"
             )
             .is_err()
         );
         assert!(
-            require_rustflags_respect_unsafe_forbid("RUSTFLAGS: >-\n  -Aunsafe_code\n", "workflow")
+            require_workflow_respects_unsafe_forbid("RUSTFLAGS: >-\n  -Aunsafe_code\n", "workflow")
                 .is_err()
         );
     }
@@ -1500,14 +1386,14 @@ mod tests {
         // rustc 实测：`--force-warn unsafe_code` 使 `#![forbid(unsafe_code)]` 只产生
         // warning 并以零状态码退出，与 allow 类削弱同罪。
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_workflow_respects_unsafe_forbid(
                 "env:\n  RUSTFLAGS: --force-warn unsafe_code\n",
                 "workflow"
             )
             .is_err()
         );
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_toml_config_respects_unsafe_forbid(
                 "rustflags = [\"--force-warn=unsafe-code\"]\n",
                 "fixture"
             )
@@ -1519,14 +1405,14 @@ mod tests {
     fn rustflags_audit_rejects_escape_encoded_weakening() {
         // TOML 双引号字符串的 \u 转义在 Cargo 侧解码后生效，解码前匹配会漏检。
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_toml_config_respects_unsafe_forbid(
                 "rustflags = [\"--cap\\u002dlints\", \"allow\"]\n",
                 "fixture"
             )
             .is_err()
         );
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_workflow_respects_unsafe_forbid(
                 "env:\n  RUSTFLAGS: \"--force-warn=unsafe\\x2dcode\"\n",
                 "workflow"
             )
@@ -1535,7 +1421,7 @@ mod tests {
         // 双反斜杠转义单趟解码：字面 `\\u002d` 解成 `\u002d` 后不再二次解码，
         // 不构成弱化 token。
         assert_eq!(
-            require_rustflags_respect_unsafe_forbid(
+            require_toml_config_respects_unsafe_forbid(
                 "rustflags = [\"-C\", \"link-arg=\\\\u002d\"]\n",
                 "fixture"
             ),
@@ -1547,14 +1433,14 @@ mod tests {
     fn rustflags_audit_scans_entire_yaml_block_scalar() {
         // YAML 块标量按缩进续行：良性首行之后出现的削弱 token 必须仍被检查。
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_workflow_respects_unsafe_forbid(
                 "env:\n  RUSTFLAGS: >-\n    -C opt-level=2\n    --cap-lints allow\n",
                 "workflow"
             )
             .is_err()
         );
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_workflow_respects_unsafe_forbid(
                 "env:\n  RUSTFLAGS: | # 保留换行\n    --force-warn unsafe-code\n",
                 "workflow"
             )
@@ -1562,7 +1448,7 @@ mod tests {
         );
         // 缩进回到键级即结束标量；良性块标量整体放行。
         assert_eq!(
-            require_rustflags_respect_unsafe_forbid(
+            require_workflow_respects_unsafe_forbid(
                 "env:\n  RUSTFLAGS: >-\n    -C opt-level=2\n    -Dwarnings\n  OTHER: 1\n",
                 "workflow"
             ),
@@ -1573,14 +1459,14 @@ mod tests {
     #[test]
     fn rustflags_audit_scans_toml_triple_quote_string() {
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_toml_config_respects_unsafe_forbid(
                 "rustflags = \"\"\"\n--cap-lints allow\n\"\"\"\n",
                 "fixture"
             )
             .is_err()
         );
         assert_eq!(
-            require_rustflags_respect_unsafe_forbid(
+            require_toml_config_respects_unsafe_forbid(
                 "rustflags = \"\"\"\n-C opt-level=2\n\"\"\"\n",
                 "fixture"
             ),
@@ -1668,14 +1554,14 @@ mod tests {
     fn rustflags_audit_decodes_before_lowercasing() {
         // `\U` 八位转义若先小写会折叠成 `\u` 四位序列而被截断漏解，必须先解码再小写。
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_toml_config_respects_unsafe_forbid(
                 "rustflags = [\"--cap\\U0000002dlints\", \"allow\"]\n",
                 "fixture"
             )
             .is_err()
         );
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_workflow_respects_unsafe_forbid(
                 "env:\n  RUSTFLAGS: \"--force-warn=unsafe\\U0000002Dcode\"\n",
                 "workflow"
             )
@@ -1687,21 +1573,21 @@ mod tests {
     fn rustflags_audit_ignores_brackets_inside_strings() {
         // 字符串内的 `]` 不抵消未闭合的 `[`：数组实际跨行时续行必须仍被扫描。
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_toml_config_respects_unsafe_forbid(
                 "rustflags = [\"]\",\n  \"--cap-lints\", \"allow\"]\n",
                 "fixture"
             )
             .is_err()
         );
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_toml_config_respects_unsafe_forbid(
                 "rustflags = [']',\n  \"--cap-lints\", \"warn\"]\n",
                 "fixture"
             )
             .is_err()
         );
         assert_eq!(
-            require_rustflags_respect_unsafe_forbid("rustflags = [\"]\", \"-C\"]\n", "fixture"),
+            require_toml_config_respects_unsafe_forbid("rustflags = [\"]\", \"-C\"]\n", "fixture"),
             Ok(())
         );
     }
@@ -1710,14 +1596,14 @@ mod tests {
     fn rustflags_audit_rejects_response_file_argument() {
         // rustc 把 `@file` 展开为换行分隔的响应文件参数，文件内容不受本审计覆盖。
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_workflow_respects_unsafe_forbid(
                 "env:\n  RUSTFLAGS: @/tmp/flags.rsp\n",
                 "workflow"
             )
             .is_err()
         );
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_toml_config_respects_unsafe_forbid(
                 "rustflags = [\"\\u0040/tmp/flags.rsp\"]\n",
                 "fixture"
             )
@@ -1730,7 +1616,7 @@ mod tests {
         // TOML 双引号键的 \u 转义由 Cargo 解码后识别为 rustflags（cargo config get
         // 实测确认），激活判定与续行跟踪都必须基于解码行。
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_toml_config_respects_unsafe_forbid(
                 "[build]\n\"rust\\u0066lags\" = [\"--cap-lints\", \"allow\"]\n",
                 "fixture"
             )
@@ -1738,7 +1624,7 @@ mod tests {
         );
         // 编码键的多行数组：续行跟踪同样由解码行激活。
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_toml_config_respects_unsafe_forbid(
                 "\"rust\\u0066lags\" = [\n  \"-C\", \"opt-level=2\",\n  \"--cap-lints\", \"allow\"\n]\n",
                 "fixture"
             )
@@ -1746,7 +1632,7 @@ mod tests {
         );
         // YAML 双引号键同口径。
         assert!(
-            require_rustflags_respect_unsafe_forbid(
+            require_workflow_respects_unsafe_forbid(
                 "env:\n  \"RUST\\u0046LAGS\": --force-warn unsafe_code\n",
                 "workflow"
             )
@@ -1754,11 +1640,141 @@ mod tests {
         );
         // 编码键的良性值仍放行（不误伤）。
         assert_eq!(
-            require_rustflags_respect_unsafe_forbid(
+            require_toml_config_respects_unsafe_forbid(
                 "\"rust\\u0066lags\" = [\"-C\", \"opt-level=2\"]\n",
                 "fixture"
             ),
             Ok(())
         );
+    }
+
+    #[test]
+    fn wire_manifest_rejects_escape_encoded_keys_and_sections() {
+        // TOML 双引号键 / 表头的转义由解析器解码（cargo metadata 实测确认转义后的
+        // build 键生成 custom-build、lib section 改指 path），审计面对解析结果判定，
+        // 编码写法与直白写法同罪。
+        let root = temp_package_root("encoded-build");
+        let encoded_build = "[package]\nname = \"fixture\"\n\"bu\\u0069ld\" = \"build.rs\"\n";
+        assert!(require_wire_manifest_targets(encoded_build, &root, "fixture").is_err());
+        fs::remove_dir_all(&root).expect("remove temporary wire package");
+
+        let sandbox = std::env::temp_dir().join(format!(
+            "laneflow-wire-audit-encoded-escape-{}",
+            std::process::id()
+        ));
+        let root = sandbox.join("pkg");
+        fs::create_dir_all(root.join("src")).expect("temporary wire package src directory");
+        fs::write(root.join("src/lib.rs"), "pub fn placeholder() {}\n")
+            .expect("temporary wire lib target");
+        fs::write(sandbox.join("outside.rs"), "pub fn outside() {}\n")
+            .expect("temporary escaping target");
+        let encoded_lib = "[package]\nname = \"fixture\"\n\n[\"l\\u0069b\"]\n\"pa\\u0074h\" = \"../outside.rs\"\n";
+        let error = require_wire_manifest_targets(encoded_lib, &root, "fixture").unwrap_err();
+        assert!(error.contains("逃逸"));
+        fs::remove_dir_all(&sandbox).expect("remove temporary encoded escape sandbox");
+    }
+
+    #[test]
+    fn wire_manifest_rejects_multiline_target_array_escape() {
+        // 跨行数组赋值形态（`bin = [\n { ... } \n]`）：cargo metadata 实测确认 Cargo
+        // 忽略该形态，但审计按解析结果保守拒绝其中的逃逸 path。
+        let sandbox = std::env::temp_dir().join(format!(
+            "laneflow-wire-audit-multiline-array-{}",
+            std::process::id()
+        ));
+        let root = sandbox.join("pkg");
+        fs::create_dir_all(root.join("src")).expect("temporary wire package src directory");
+        fs::write(root.join("src/lib.rs"), "pub fn placeholder() {}\n")
+            .expect("temporary wire lib target");
+        fs::write(sandbox.join("outside.rs"), "pub fn outside() {}\n")
+            .expect("temporary escaping target");
+        // 键值对在 TOML 中归属最近的表头：顶层 bin 必须写在任何表头之前。
+        let multiline = "bin = [\n  { name = \"fixture-bin\", path = \"../outside.rs\" }\n]\n\n[package]\nname = \"fixture\"\n";
+        let error = require_wire_manifest_targets(multiline, &root, "fixture").unwrap_err();
+        assert!(error.contains("逃逸"));
+        fs::remove_dir_all(&sandbox).expect("remove temporary multiline array sandbox");
+    }
+
+    #[test]
+    fn rustflags_audit_toml_triple_quote_line_continuation() {
+        // TOML 多行基本字符串的行尾 `\` 删除换行与下一行缩进：token 跨物理行拆分
+        // 后解析值仍是完整弱化 flag，真解析按最终生效值检出。
+        assert!(
+            require_toml_config_respects_unsafe_forbid(
+                "rustflags = \"\"\"\n--cap-\\\n    lints allow\n\"\"\"\n",
+                "fixture"
+            )
+            .is_err()
+        );
+        assert_eq!(
+            require_toml_config_respects_unsafe_forbid(
+                "rustflags = \"\"\"\n-C opt-\\\n    level=2\n\"\"\"\n",
+                "fixture"
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn rustflags_audit_rejects_github_expression_values() {
+        // `${{ ... }}` 表达式由 runner 在运行时解析，来源值（matrix / env 等）不受
+        // 静态审计覆盖，rustflags 值含表达式一律拒绝。
+        assert!(
+            require_workflow_respects_unsafe_forbid(
+                "env:\n  RUSTFLAGS: ${{ matrix.flags }}\n",
+                "workflow"
+            )
+            .is_err()
+        );
+        assert!(
+            require_workflow_respects_unsafe_forbid(
+                "jobs:\n  build:\n    steps:\n      - env:\n          RUSTFLAGS: ${{ env.USER_FLAGS }}\n",
+                "workflow"
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn rustflags_audit_yaml_explicit_indent_indicator() {
+        // YAML 块标量显式缩进指示符（数字与 chomping 两顺序均合法）由解析器折叠，
+        // 真解析按最终生效值检出。
+        assert!(
+            require_workflow_respects_unsafe_forbid(
+                "env:\n  RUSTFLAGS: >2-\n    --cap-lints allow\n",
+                "workflow"
+            )
+            .is_err()
+        );
+        assert!(
+            require_workflow_respects_unsafe_forbid(
+                "env:\n  RUSTFLAGS: |2\n    --force-warn unsafe_code\n",
+                "workflow"
+            )
+            .is_err()
+        );
+        assert_eq!(
+            require_workflow_respects_unsafe_forbid(
+                "env:\n  RUSTFLAGS: >2-\n    -C opt-level=2\n",
+                "workflow"
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn source_includes_reject_macro_rules_metavariable_invocation() {
+        // 元变量作为宏名（`$m!`）在展开期生成任意宏调用，include 闭合与 unsafe
+        // 扫描都会被绕过，整个源文件拒绝。
+        let (sandbox, source, roots) = temp_source_fixture(
+            "macro-meta",
+            &[("pkg/src/payload.rs", "pub fn payload() {}\n")],
+        );
+        let evil = "macro_rules! call_macro { ($m:ident, $p:literal) => { $m!($p) } }\ncall_macro!(\"payload.rs\")\n";
+        assert_source_err(&sandbox, &source, &roots, evil);
+        // 正常 macro_rules（matcher 元变量、模板内具名宏调用、重复展开）不误伤。
+        let (sandbox, source, roots) = temp_source_fixture("macro-ok", &[]);
+        let benign = "macro_rules! twice { ($x:expr) => { $x + $x } }\nmacro_rules! with_vec { ($($x:expr),*) => { vec![$($x),*] } }\n";
+        assert_source_ok(&sandbox, &source, &roots, benign);
     }
 }
