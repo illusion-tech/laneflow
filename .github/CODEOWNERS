@@ -1,0 +1,8 @@
+# 门禁执行点由代码所有者审批兜底（#376）：
+# hermetic unsafe 编译步骤所在 workflow、xtask 审计源码（含 wire_pins 钉版副本）、
+# 依赖政策配置。这些文件本身无法被 xtask 自审（自指），信任终点是这里的人类 review。
+# 需在分支保护开启 "Require review from Code Owners" 后才实际生效（仓库管理员操作）。
+/.github/workflows/ @wangzishi
+/.github/CODEOWNERS @wangzishi
+/xtask/src/ @wangzishi
+/deny.toml @wangzishi
