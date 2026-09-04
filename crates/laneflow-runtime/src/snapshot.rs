@@ -937,6 +937,14 @@ impl TrafficWorld {
     /// 取 `1..=M`；`live_order` 保存实际更新顺序，与局部 ID 的自然序解耦。
     pub fn capture_snapshot(&self) -> Result<CapturedSnapshot, SnapshotCaptureError> {
         let identity = self.revision.identity();
+        let conflict_index_len = self.config.vehicle_capacity() as usize;
+        let mut conflict_index = Vec::new();
+        capture_try_reserve_exact(&mut conflict_index, conflict_index_len)?;
+        conflict_index.resize(conflict_index_len, None);
+        let conflict_view = self
+            .conflict_arbiter
+            .persistence_view(&mut conflict_index)
+            .ok_or(SnapshotCaptureError::ConflictInvariantViolation)?;
 
         // 路线：live 槽位序枚举，序号→稳定标识经 SharedIdentityIndex。
         let route_capacity = usize::try_from(self.live_route_count).unwrap_or(0);
@@ -1073,10 +1081,9 @@ impl TrafficWorld {
                     crate::ManeuverTraversalPhase::Waiting { release_gate_hop } => {
                         (CapturedManeuverTraversalPhase::Waiting, release_gate_hop)
                     }
-                    crate::ManeuverTraversalPhase::Clearing { reservation } => (
-                        CapturedManeuverTraversalPhase::Clearing,
-                        reservation.admission_gate_hop(),
-                    ),
+                    crate::ManeuverTraversalPhase::Clearing { admission_gate_hop } => {
+                        (CapturedManeuverTraversalPhase::Clearing, admission_gate_hop)
+                    }
                 };
                 let gate = compiled
                     .hop_gate
@@ -1171,9 +1178,10 @@ impl TrafficWorld {
                         first_eligible_tick: eligibility.first_eligible_tick(),
                     }
                 });
-            let conflict_reservation = match state.conflict_reservation() {
+            let conflict_reservation = match conflict_view.authority(state.handle) {
                 None => None,
-                Some(reservation) => {
+                Some(authority) => {
+                    let reservation = authority.reservation;
                     let compiled = self
                         .compiled_route(state.route)
                         .expect("reservation route exists");
@@ -1237,10 +1245,7 @@ impl TrafficWorld {
                         .vehicle_profile(state.profile)
                         .expect("committed vehicle profile resolves")
                         .min_gap_mm();
-                    for claim in self
-                        .conflict_arbiter
-                        .persisted_downstream_claims(reservation)
-                    {
+                    for claim in authority.downstream_claims() {
                         if claim.follower_min_gap_mm != follower_min_gap_mm {
                             return Err(SnapshotCaptureError::ConflictInvariantViolation);
                         }
@@ -1496,7 +1501,7 @@ mod tests {
         let baseline = world.capture_snapshot().expect("baseline capture");
         let baseline_bytes = encode_lfrs(&baseline);
         let before_cursor = world.command_cursor();
-        for fail_after in 0..9 {
+        for fail_after in 0..10 {
             let failed =
                 with_snapshot_allocation_failure_after(fail_after, || world.capture_snapshot());
             assert_eq!(

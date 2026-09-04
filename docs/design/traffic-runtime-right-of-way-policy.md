@@ -576,7 +576,8 @@ live reservation 还保存 `snapshot_vehicle_id`、`snapshot_route_id`、本次 
 occurrence 合并，因此单个合并区间没有唯一可保存的 route hop。reservation 级
 route/Gate/passages、车辆全长和当前根边长才是可复现证明：capture、restore 和
 cutover 均从该证明重新推导整个物理并集并精确比较，不能按 edge 搜索猜测 occurrence。
-owner 由所属车辆记录给出，跟车最小间隙由该车 profile 派生，不在每个区间重复持久化。
+wire owner 由所属车辆记录给出；恢复后 reservation 只由 `ConflictArbiter` 持有，车辆
+`Clearing` 只保存 Gate route anchor。跟车最小间隙由该车 profile 派生，不在每个区间重复持久化。
 grant 未发生 crossing 时不提交任何成员或 reservation；whole-vehicle lifecycle 释放
 必须同事务清理 Waiting、Conflict、downstream owner 与 route 引用。
 
@@ -606,7 +607,9 @@ restore 拒绝 future timestamp，并保留 CutoverFloor，不能把它降级为
 冲突 occupancy 从 reservation、车辆位置和 passages 重建，不能同时信任一份独立计数；
 downstream 物理并集也必须从同一 reservation 证明重建并与入档值逐项相等。wire 按 edge
 StableId/start/end 排序，lowering 后再按当前根 ordinal 规范化；两种顺序不能混作同一判据。
-已清 cell 必须同时有 `ActualClear`，缺行或 `CutoverFloor` 都不能证明真实 tail-clear。
+reservation passages 必须精确覆盖重编译所得 Gate range，vehicle front 必须已在 Gate
+crossed side。已清 cell 必须同时有 `ActualClear` 且时间不早于
+`acquiredTick × fixedDeltaTimeMs`；缺行、过早时间或 `CutoverFloor` 都不能证明真实 tail-clear。
 保存后捕获结构的语义字段全部参与 deterministic digest 7，派生内容不参与。
 普通 restore 重建规则/route/ledger，核对每个 owner、时间、full-body footprint 和 wait-for
 graph；存在两 owner 以上的 committed cycle、悬空 owner 或不合法历史即整体失败。
@@ -651,6 +654,12 @@ identity 映射，并要求它逐项等于目标 reservation 重建值；目标 
 导致集合或语义不等，就整次失败。还须验证无新增未持有的 incompatible coverage、
 空间不足或 committed cycle。没有 authority 的车辆若被目标新增冲突覆盖包在内部，
 同样拒绝，不补 grant。
+来源 reservation 与 downstream ledger 必须先由 `ConflictArbiter` 一次建立按 vehicle
+slot 寻址的 committed 批量视图，逐车迁移只读取对应的连续 claim slice；禁止为每个
+reservation 重扫完整 ledger。视图还须在线性扫描中核验 owner、内部 serial、连续性与
+claim count，故来源读取为
+`O(vehicleCapacity + liveReservations + downstreamClaims)`，且不增加正常 tick 的常驻索引
+或维护成本。
 删掉仍影响 lag check 的基准会丢失 gap 语义。无 live 引用的 cell 只有在 NoHistory，
 或从 ActualClear/CutoverFloor 到静默点的 elapsed 已不小于源/目标所选策略所有 gap profile 的
 `minimumLagGapMs + clearanceBufferMs` 最大值时才可删除；空 profile 集的最大值为 0，

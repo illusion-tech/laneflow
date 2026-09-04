@@ -296,11 +296,12 @@ pub(crate) fn vehicle_state_from_delta(
             3 => Some(ManeuverTraversalPhase::Waiting {
                 release_gate_hop: phase_hop,
             }),
-            // Clearing reservation 包含 owner 与组合资源，不能靠固定宽度
-            // VehicleDelta 拼造。Prepare 从完整来源状态原子重建；静默期
-            // 禁止带存量 Conflict 权限的 tick，停车绑定更新保留候选中的
-            // Clearing，despawn 则由生命周期日志显式释放。
-            4 => None,
+            // reservation 只属于 candidate ConflictArbiter；固定宽度 delta
+            // 只重建 traversal 的 Gate 锚点，因此不会把 Clearing 误当成
+            // “无 traversal”并触发 Waiting bootstrap。
+            4 => Some(ManeuverTraversalPhase::Clearing {
+                admission_gate_hop: phase_hop,
+            }),
             _ => return Err(invalid()),
         };
         if let Some(phase) = phase {
@@ -1338,6 +1339,15 @@ pub(crate) fn migrate_conflict_state(
         .map_err(|_| CutoverError::StagingAllocFailed)?;
     let mut eligibility =
         try_staging_slice::<Option<crate::ConflictEligibilityState>>(vehicle_capacity)?;
+    let source_vehicle_capacity = usize::try_from(source.config.vehicle_capacity())
+        .map_err(|_| CutoverError::StagingAllocFailed)?;
+    let mut source_conflict_index = try_staging_slice::<
+        Option<crate::conflict::CommittedConflictIndexEntry>,
+    >(source_vehicle_capacity)?;
+    let source_conflict_view = source
+        .conflict_arbiter
+        .persistence_view(&mut source_conflict_index)
+        .ok_or(CutoverError::ConflictRevalidationFailed)?;
     let mut restored_traversals: Vec<(VehicleHandle, ManeuverTraversalState)> =
         try_staging_vec(source.live_order.len())?;
 
@@ -1354,7 +1364,7 @@ pub(crate) fn migrate_conflict_state(
             .copied()
             .flatten()
         {
-            if source_state.conflict_reservation().is_some()
+            if source_conflict_view.authority(handle).is_some()
                 || target_state.status != VehicleStatus::Active
             {
                 return Err(CutoverError::ConflictRevalidationFailed);
@@ -1394,9 +1404,10 @@ pub(crate) fn migrate_conflict_state(
             });
         }
 
-        let Some(source_reservation) = source_state.conflict_reservation() else {
+        let Some(source_authority) = source_conflict_view.authority(handle) else {
             continue;
         };
+        let source_reservation = source_authority.reservation;
         if target_state.status != VehicleStatus::Active
             || target_state.waiting_membership.is_some()
             || source_reservation.acquired_tick() > source.tick_index
@@ -1517,10 +1528,7 @@ pub(crate) fn migrate_conflict_state(
             .map(|profile| profile.min_gap_mm())
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
         let mut source_downstream = try_staging_vec(claim_count)?;
-        for claim in source
-            .conflict_arbiter
-            .persisted_downstream_claims(source_reservation)
-        {
+        for claim in source_authority.downstream_claims() {
             if claim.follower_min_gap_mm != source_gap {
                 return Err(CutoverError::ConflictRevalidationFailed);
             }
@@ -1539,10 +1547,7 @@ pub(crate) fn migrate_conflict_state(
         }
 
         let mut mapped_source = try_staging_vec(claim_count)?;
-        for claim in source
-            .conflict_arbiter
-            .persisted_downstream_claims(source_reservation)
-        {
+        for claim in source_authority.downstream_claims() {
             let target_edge = rebinding
                 .lane_edge(claim.interval.edge())
                 .ok_or(CutoverError::ConflictRevalidationFailed)?;
@@ -1582,7 +1587,7 @@ pub(crate) fn migrate_conflict_state(
             .map(|profile| profile.min_gap_mm())
             .filter(|target_gap| *target_gap == source_gap)
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
-        let reservation = arbiter
+        arbiter
             .restore_reservation(
                 handle,
                 crate::conflict::RestoredConflictReservation {
@@ -1599,7 +1604,9 @@ pub(crate) fn migrate_conflict_state(
             ManeuverTraversalState {
                 route: target_state.route,
                 maneuver_occurrence_index: first_static.maneuver_index,
-                phase: ManeuverTraversalPhase::Clearing { reservation },
+                phase: ManeuverTraversalPhase::Clearing {
+                    admission_gate_hop: target_range.admission_gate_hop(),
+                },
             },
         ));
     }
@@ -1613,7 +1620,7 @@ pub(crate) fn migrate_conflict_state(
         .unwrap_or(0);
     let mut inherited_addresses: Vec<crate::ConflictPassageAddress> =
         try_staging_vec(source.conflict_arbiter.cell_count())?;
-    for source_address in source.conflict_arbiter.addresses() {
+    for (source_address, reference, live_reference) in source.conflict_arbiter.migration_rows() {
         let target_address = mapped_conflict_address(source, target, rebinding, source_address);
         let continuous = target_address.is_some_and(|target_address| {
             conflict_passage_semantics_continuous(
@@ -1624,10 +1631,6 @@ pub(crate) fn migrate_conflict_state(
                 target_address,
             )
         });
-        let reference = source
-            .conflict_arbiter
-            .lag_reference(source_address)
-            .ok_or(CutoverError::ConflictRevalidationFailed)?;
         if continuous {
             let target_address = target_address.expect("continuous locator has target address");
             inherited_addresses.push(target_address);
@@ -1638,14 +1641,6 @@ pub(crate) fn migrate_conflict_state(
             }
             continue;
         }
-        let live_reference = source.vehicles.iter().any(|slot| {
-            slot.state.is_some_and(|state| {
-                state.conflict_reservation().is_some()
-                    && source
-                        .conflict_arbiter
-                        .reservation_has_cell(state.handle, source_address)
-            })
-        });
         if live_reference {
             return Err(CutoverError::ConflictRevalidationFailed);
         }
@@ -1753,7 +1748,7 @@ pub(crate) fn project_expected_conflict(
         {
             None => None,
             Some(eligibility) => {
-                if source_state.conflict_reservation().is_some()
+                if source.conflict_reservation(source_state.handle).is_some()
                     || target_state.status != VehicleStatus::Active
                 {
                     return Err(CutoverError::ConflictRevalidationFailed);
@@ -1832,7 +1827,7 @@ pub(crate) fn project_expected_conflict(
             }
         };
 
-        let Some(source_reservation) = source_state.conflict_reservation() else {
+        let Some(source_reservation) = source.conflict_reservation(source_state.handle) else {
             vehicle.conflict_reservation = None;
             continue;
         };
@@ -2167,7 +2162,7 @@ pub(crate) fn revalidate_vehicle_on(
                 });
             }
             Err(crate::tables::ConflictCapabilityError::RuntimeUnavailable(_))
-                if state.conflict_reservation().is_some()
+                if candidate.conflict_reservation(handle).is_some()
                     || candidate
                         .conflict_eligibility
                         .get(handle.index() as usize)
@@ -2287,11 +2282,7 @@ pub(crate) mod tests {
             &rebinding,
         )
         .expect("live reservation migrates before 3A revalidation");
-        assert!(
-            candidate
-                .vehicle_state(vehicle)
-                .is_some_and(|state| state.conflict_reservation().is_some())
-        );
+        assert!(candidate.conflict_reservation(vehicle).is_some());
         assert_eq!(revalidate_vehicle_on(&candidate, vehicle), Ok(()));
         assert!(candidate.conflict_state_valid());
         let before = world.capture_snapshot().expect("source snapshot");
@@ -2603,9 +2594,9 @@ pub(crate) mod tests {
         let rebinding = CrossRevisionRebinding::build(world.revision.identity(), target.identity())
             .expect("rebinding");
         let before = world.capture_snapshot().expect("before");
-        // 首次为 signal；随后十次覆盖 Waiting 稠密状态与 scratch，最后三次
-        // 覆盖 Conflict eligibility、继承地址和目标地址 staging。
-        for fail_after in 1..=13 {
+        // 首次为 signal；随后十次覆盖 Waiting 稠密状态与 scratch，最后四次
+        // 覆盖 Conflict eligibility、批量 authority 索引、继承地址和目标地址 staging。
+        for fail_after in 1..=14 {
             let result = with_staging_allocation_failure_after(fail_after, || {
                 migrate_structural_clone(
                     &world,
@@ -2621,7 +2612,7 @@ pub(crate) mod tests {
             );
             assert_eq!(world.capture_snapshot().expect("unchanged"), before);
         }
-        let candidate = with_staging_allocation_failure_after(14, || {
+        let candidate = with_staging_allocation_failure_after(15, || {
             migrate_structural_clone(
                 &world,
                 target,
