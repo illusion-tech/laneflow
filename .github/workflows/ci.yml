@@ -100,9 +100,7 @@ jobs:
               - '.cargo/**'
               - 'rust-toolchain*'
               - 'deny.toml'
-              - '.github/workflows/ci.yml'
-              - '.github/workflows/codeql.yml'
-              - '.github/workflows/schema-codegen.yml'
+              - '.github/workflows/**'
               - 'docs/governance/github-workflow.md'
             bevy:
               - 'crates/laneflow-bevy/**'
