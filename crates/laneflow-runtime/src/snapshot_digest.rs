@@ -303,7 +303,7 @@ fn canonical_vehicle_record(vehicle: &CapturedVehicle) -> Result<Vec<u8>, Snapsh
                 + 8
                 + reservation.passages.len() * (4 + 32 + 4 + 4 + 4 + 4)
                 + 8
-                + reservation.downstream_intervals.len() * (16 + 4 + 4 + 4 + 4 + 4)
+                + reservation.downstream_intervals.len() * (16 + 4 + 4)
         });
     let record_len = 4
         + 4

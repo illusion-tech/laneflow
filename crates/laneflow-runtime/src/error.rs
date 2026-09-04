@@ -153,6 +153,10 @@ pub enum StepError {
     /// completion、traversal 或 ledger 的 Conflict authority 不闭合。
     #[error("Conflict runtime aggregate 不变量损坏")]
     ConflictInvariantViolation,
+    /// W7 生产 tick 尚未接通，已恢复/迁移的 Conflict authority 不能被
+    /// Waiting 提交路径覆盖；本拍在任何状态写回前失败关闭。
+    #[error("冲突运行时能力尚不可用: {0:?}")]
+    ConflictRuntimeUnavailable(ConflictRuntimeUnavailable),
 }
 
 /// 路线注册或移除失败。
@@ -363,7 +367,7 @@ pub enum ParkingError {
     NotArrived,
     #[error("车辆没有 exact Occupied binding")]
     NotOccupied,
-    #[error("active Conflict reservation 期间不能更换路线")]
+    #[error("active Conflict authority 期间不能完成该停车生命周期转换")]
     ConflictTraversalActive,
     #[error("rebind current occurrence 与车辆物理 LaneEdge 不匹配")]
     RebindCurrentOccurrenceMismatch,

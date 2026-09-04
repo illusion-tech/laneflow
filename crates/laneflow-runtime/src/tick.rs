@@ -74,6 +74,12 @@ impl TrafficWorld {
         if !self.conflict_state_valid() {
             return Err(StepError::ConflictInvariantViolation);
         }
+        if self.conflict_authority_pending() {
+            return Err(self.pending_conflict_runtime_unavailable().map_or(
+                StepError::ConflictInvariantViolation,
+                StepError::ConflictRuntimeUnavailable,
+            ));
+        }
         let tick_index = self.tick_index.checked_add(1).ok_or(StepError::Overflow)?;
         let time_ms = self
             .time_ms

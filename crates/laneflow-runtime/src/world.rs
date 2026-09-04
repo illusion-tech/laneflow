@@ -402,6 +402,65 @@ impl TrafficWorld {
             .authority_owners_valid(|owner| self.vehicle_state(owner).is_some())
     }
 
+    /// W5 已恢复/迁移但尚未由 W7 tick 推进的 Conflict authority。
+    ///
+    /// eligibility 表在无条目时规范化为空，因此稳态无权威路径为 O(1)；
+    /// arbiter 只扫描实际 owner authority 行，不按车辆容量扫描。
+    pub(crate) fn conflict_authority_pending(&self) -> bool {
+        !self.conflict_eligibility.is_empty() || self.conflict_arbiter.has_live_authority()
+    }
+
+    pub(crate) fn normalize_conflict_eligibility(&mut self) {
+        if self.conflict_eligibility.iter().all(Option::is_none) {
+            self.conflict_eligibility.clear();
+        }
+    }
+
+    pub(crate) fn clear_conflict_eligibility(&mut self, vehicle: VehicleHandle) {
+        if let Some(eligibility) = self.conflict_eligibility.get_mut(vehicle.index() as usize) {
+            *eligibility = None;
+        }
+        self.normalize_conflict_eligibility();
+    }
+
+    pub(crate) fn vehicle_has_conflict_authority(&self, vehicle: VehicleHandle) -> bool {
+        self.vehicle_state(vehicle)
+            .is_some_and(|state| state.conflict_reservation().is_some())
+            || self
+                .conflict_eligibility
+                .get(vehicle.index() as usize)
+                .is_some_and(Option::is_some)
+            || self.conflict_arbiter.has_authority(vehicle)
+    }
+
+    pub(crate) fn pending_conflict_runtime_unavailable(
+        &self,
+    ) -> Option<crate::ConflictRuntimeUnavailable> {
+        self.live_order.iter().copied().find_map(|handle| {
+            let state = self.vehicle_state(handle)?;
+            let eligibility = self
+                .conflict_eligibility
+                .get(handle.index() as usize)
+                .copied()
+                .flatten();
+            if state.conflict_reservation().is_none() && eligibility.is_none() {
+                return None;
+            }
+            match self.check_active_conflict_capability(
+                state.route,
+                usize::try_from(state.route_edge_index).ok()?,
+                state.progress_mm,
+                state.carry_um,
+                state.length_mm,
+            ) {
+                Err(crate::tables::ConflictCapabilityError::RuntimeUnavailable(error)) => {
+                    Some(error)
+                }
+                Ok(()) | Err(crate::tables::ConflictCapabilityError::InvalidCursor) => None,
+            }
+        })
+    }
+
     pub(crate) fn conflict_eligibility_position_valid(
         &self,
         state: &VehicleState,
