@@ -130,4 +130,45 @@ fn conflict_steady_tick_has_zero_heap_allocation_after_warmup() {
          reallocations={} allocated_bytes={}",
         stats.allocations, stats.reallocations, stats.bytes_allocated
     );
+
+    let mut current = vehicles;
+    for sample in 0..STEADY_TICKS + 4 {
+        for vehicle in current {
+            world.despawn_vehicle(vehicle).unwrap();
+        }
+        current = routes.map(|route| {
+            let edge = world.route_edges(route).unwrap()[0];
+            let boundary = world.traffic().lane_lengths_millimetres()[edge.index()];
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    boundary,
+                    8_000,
+                ))
+                .unwrap()
+        });
+        let region = Region::new(GLOBAL);
+        world.step(TickInput::new(DELTA_MS)).unwrap();
+        let stats = region.change();
+        if sample >= 4 {
+            assert_eq!(
+                (
+                    stats.allocations,
+                    stats.reallocations,
+                    stats.bytes_allocated
+                ),
+                (0, 0, 0)
+            );
+        }
+        assert!(
+            current
+                .iter()
+                .any(|vehicle| world.conflict_reservation(*vehicle).is_some())
+        );
+    }
+    println!(
+        "conflict-g2-allocation-evidence repeated_acquisition_ticks={STEADY_TICKS} allocations=0 reallocations=0 allocated_bytes=0"
+    );
 }
