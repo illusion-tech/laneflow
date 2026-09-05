@@ -100,7 +100,7 @@ cargo +1.98.0 run --locked -p xtask -- check-runtime-architecture
   拒绝，使用 `crate::` 表达当前 crate 路径，不为该形式扩展作用域解析。
   同名导入的规范化目标不同即报告别名歧义，不按源码顺序选择条件分支；相同目标
   可共用别名。这里不求解 feature 或平台配置组合。
-  宏调用和导入/转导出路径保留 `include` 名称，规范化末段为该名称时保守拒绝，
+  宏调用、导入/转导出和宏 token 路径保留 `include` 名称，规范化末段为该名称时保守拒绝，
   包含限定路径、显式别名和同名自定义对象；不额外解析宏命名空间。
   `include_str!` / `include_bytes!` 读取数据文件，继续允许。
   除唯一 `admin/format_admission.rs` 外，生产模块不得显式引用格式依赖；kernel
