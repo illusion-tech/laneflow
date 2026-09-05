@@ -4,6 +4,9 @@ mod test_policy;
 #[path = "support/conflict_review.rs"]
 mod conflict_review;
 
+#[path = "support/policy_acceptance.rs"]
+mod policy_acceptance;
+
 use std::hint::black_box;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -516,6 +519,7 @@ struct ConflictPolicyFixture {
     waiting: bool,
     next_gate: bool,
     clearance: Option<(u32, f64)>,
+    right_turn_signal: Option<laneflow_compiler::GateInterpretation>,
 }
 
 fn conflict_road_editing_module_with_shape_and_speed(
@@ -534,6 +538,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
         waiting,
         next_gate,
         clearance,
+        right_turn_signal,
     } = policy_fixture;
     assert!(stream_count <= 2);
     assert!(!multiplicity || (include_conflict && stream_count == 2));
@@ -552,6 +557,44 @@ fn conflict_road_editing_module_with_shape_and_speed(
         &limits,
     )
     .expect("Road Editing builder");
+
+    if right_turn_signal.is_some() {
+        let group = lfre::SignalGroupReference::local("right-turn-red").unwrap();
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::SignalGroup(
+                lfre::SignalGroupInput::try_new("right-turn-red").unwrap(),
+            ))
+            .unwrap()
+            .add_declaration(lfre::RoadEditingDeclaration::SignalController(
+                lfre::SignalControllerInput::try_new(
+                    "right-turn-controller",
+                    0,
+                    vec![group.clone()],
+                    vec![
+                        lfre::SignalPhaseReference::owner_scoped(
+                            vec!["right-turn-controller".into()],
+                            "red",
+                        )
+                        .unwrap(),
+                    ],
+                )
+                .unwrap(),
+            ))
+            .unwrap()
+            .add_declaration(lfre::RoadEditingDeclaration::SignalPhase(
+                lfre::SignalPhaseInput::try_new(
+                    "red",
+                    1_000,
+                    vec![
+                        lfre::RoadEditingSignalPhaseState::try_new(group, SignalAspect::Red)
+                            .unwrap(),
+                    ],
+                    lfre::SignalControllerReference::local("right-turn-controller").unwrap(),
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+    }
 
     let junction = lfre::JunctionReference::local("crossing").expect("junction reference");
     let zone =
@@ -704,11 +747,15 @@ fn conflict_road_editing_module_with_shape_and_speed(
                 .expect("exit anchor"),
             )
         };
+        let mut movement_input =
+            lfre::MovementInput::try_new(movement_key, junction.clone(), entry_edge, exit_edge)
+                .expect("movement");
+        if stream_index == 0 && right_turn_signal.is_some() {
+            movement_input =
+                movement_input.with_turn_direction(laneflow_compiler::ManeuverDirection::Right);
+        }
         module
-            .add_declaration(lfre::RoadEditingDeclaration::Movement(
-                lfre::MovementInput::try_new(movement_key, junction.clone(), entry_edge, exit_edge)
-                    .expect("movement"),
-            ))
+            .add_declaration(lfre::RoadEditingDeclaration::Movement(movement_input))
             .expect("add movement")
             .add_declaration(lfre::RoadEditingDeclaration::ManeuverPath(
                 lfre::ManeuverPathInput::try_new(
@@ -735,7 +782,13 @@ fn conflict_road_editing_module_with_shape_and_speed(
                     path.clone(),
                     0,
                     lfre::StopLineReference::local(stop_line_key).expect("stop line reference"),
-                    lfre::RoadEditingSignalControl::None,
+                    if stream_index == 0 && right_turn_signal.is_some() {
+                        lfre::RoadEditingSignalControl::SignalGroup(
+                            lfre::SignalGroupReference::local("right-turn-red").unwrap(),
+                        )
+                    } else {
+                        lfre::RoadEditingSignalControl::None
+                    },
                 )
                 .expect("maneuver gate"),
             ))
@@ -950,7 +1003,11 @@ fn conflict_road_editing_module_with_shape_and_speed(
             )
             .unwrap(),
             None,
-            laneflow_compiler::GateInterpretation::Uncontrolled,
+            if *movement == "east-west" {
+                right_turn_signal.unwrap_or(laneflow_compiler::GateInterpretation::Uncontrolled)
+            } else {
+                laneflow_compiler::GateInterpretation::Uncontrolled
+            },
             if deny {
                 laneflow_compiler::GateProhibition::Always
             } else {
