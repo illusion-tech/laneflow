@@ -161,6 +161,54 @@ fn legal_tree_compiles_and_accepts_method_calls_outside_the_checkers_contract() 
 }
 
 #[test]
+fn raw_identifiers_use_the_same_module_import_and_interface_rules() {
+    let fixture = SourceFixture::new(
+        "use crate::r#kernel::r#config as r#settings; fn ordinary(_: r#settings::WorldConfig) {}",
+        "",
+    );
+    fixture.directory.write(
+        "lib.rs",
+        "mod r#kernel; mod r#admin; mod r#facade; pub use r#facade::TrafficWorld;",
+    );
+    fixture.admission(
+        &ADMISSION
+            .replace("crate::admin", "crate::r#admin")
+            .replace("fn encode_lfrs", "fn r#encode_lfrs")
+            .replace("Vec<u8>", "r#Vec<r#u8>"),
+    );
+    fixture.compile();
+    fixture.check().unwrap();
+    for source in [
+        "fn bad() { let _ = crate::r#admin::r#snapshot::CapturedSnapshot; }",
+        "use crate::r#admin as r#control; fn bad() { let _ = r#control::snapshot::CapturedSnapshot; }",
+        "macro_rules! bad { () => { crate::r#admin::snapshot::CapturedSnapshot } } fn call() { let _ = bad!(); }",
+        "use crate::r#Captured;",
+    ] {
+        let fixture = SourceFixture::new(
+            source,
+            "pub use r#admin::snapshot::CapturedSnapshot as r#Captured;",
+        );
+        fixture.compile();
+        assert!(fixture.check().unwrap_err().contains("禁止依赖"));
+    }
+}
+
+#[test]
+fn extern_crate_self_is_rejected_at_module_and_block_scope() {
+    for source in [
+        "extern crate self as runtime; use runtime::admin::snapshot;",
+        "fn bad() { extern crate self as runtime; let _ = runtime::admin::snapshot::CapturedSnapshot; }",
+    ] {
+        let fixture = SourceFixture::new(source, "");
+        fixture.compile();
+        assert!(fixture.check().unwrap_err().contains("extern crate self"));
+    }
+    let fixture = SourceFixture::new("#[cfg(test)] extern crate self as runtime;", "");
+    fixture.compile();
+    fixture.check().unwrap();
+}
+
+#[test]
 fn extra_root_module_and_root_business_code_are_rejected() {
     for extra in [
         "mod legacy { use crate::admin::snapshot; }",
@@ -233,9 +281,11 @@ fn admission_checks_concrete_types_and_complete_function_inventory() {
         fixture.admission(&mutated);
         assert!(fixture.check().is_err());
     }
-    fixture.admission(&format!("{ADMISSION}\nstruct Vec<T>(T);"));
-    fixture.compile();
-    assert!(fixture.check().unwrap_err().contains("具体接口合同"));
+    for shadow in ["Vec", "r#Vec"] {
+        fixture.admission(&format!("{ADMISSION}\nstruct {shadow}<T>(T);"));
+        fixture.compile();
+        assert!(fixture.check().unwrap_err().contains("具体接口合同"));
+    }
 }
 
 #[test]
@@ -245,7 +295,9 @@ fn explicit_format_paths_and_management_reexports_are_rejected() {
         "use laneflow_format as format;",
         "fn bad() { ::laneflow_runtime_snapshot_wire::read(); }",
         "use renamed_format::Reader;",
+        "use r#renamed_format::Reader;",
         "macro_rules! bad { () => { laneflow_format::read() } }",
+        "macro_rules! bad { () => { r#laneflow_format::read() } }",
         "use crate::Captured;",
     ] {
         let fixture = SourceFixture::new(
