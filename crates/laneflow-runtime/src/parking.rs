@@ -485,6 +485,20 @@ pub(crate) struct ParkingRuntimeState {
     bindings: HashMap<VehicleHandle, ParkingBinding>,
 }
 
+#[cfg(test)]
+impl ParkingRuntimeState {
+    pub(crate) fn retained_logical_bytes(&self) -> u64 {
+        let Self {
+            explicit,
+            virtual_pools,
+            bindings,
+        } = self;
+        crate::state::slice_bytes(explicit)
+            + crate::state::slice_bytes(virtual_pools)
+            + (bindings.capacity() * core::mem::size_of::<(VehicleHandle, ParkingBinding)>()) as u64
+    }
+}
+
 impl ParkingRuntimeState {
     pub(crate) fn new(explicit_space_count: usize, facility_count: usize) -> Self {
         Self {
@@ -752,6 +766,7 @@ impl TrafficWorld {
                 entry_route_occurrence,
             } => {
                 let view = self
+                    .binding
                     .revision
                     .traffic()
                     .relations()
@@ -772,6 +787,7 @@ impl TrafficWorld {
                 entry_route_occurrence,
             } => {
                 let view = self
+                    .binding
                     .revision
                     .traffic()
                     .relations()
@@ -826,6 +842,7 @@ impl TrafficWorld {
         match input {
             LeaveParkingTarget::ExplicitSpace { space, .. } => {
                 let view = self
+                    .binding
                     .revision
                     .traffic()
                     .relations()
@@ -840,6 +857,7 @@ impl TrafficWorld {
                 ..
             } => {
                 let view = self
+                    .binding
                     .revision
                     .traffic()
                     .relations()
@@ -862,6 +880,7 @@ impl TrafficWorld {
     fn validate_target_exists(&self, target: ParkingTarget) -> Result<(), ParkingError> {
         match target {
             ParkingTarget::ExplicitSpace(space) => self
+                .binding
                 .revision
                 .traffic()
                 .relations()
@@ -869,6 +888,7 @@ impl TrafficWorld {
                 .map(|_| ())
                 .ok_or(ParkingError::UnknownSpace),
             ParkingTarget::VirtualPool(facility) => self
+                .binding
                 .revision
                 .traffic()
                 .relations()
@@ -884,17 +904,8 @@ impl TrafficWorld {
         occurrence: u32,
         anchor_edge: LaneEdgeOrdinal,
     ) -> Result<usize, ParkingError> {
-        let edges = self.route_edges(route).ok_or(ParkingError::UnknownRoute)?;
-        let index =
-            usize::try_from(occurrence).map_err(|_| ParkingError::RouteOccurrenceOutOfRange)?;
-        let edge = edges
-            .get(index)
-            .copied()
-            .ok_or(ParkingError::RouteOccurrenceOutOfRange)?;
-        if edge != anchor_edge {
-            return Err(ParkingError::RouteOccurrenceAnchorMismatch);
-        }
-        Ok(index)
+        self.read_view()
+            .validate_anchor_on_route(route, occurrence, anchor_edge)
     }
 
     fn validate_forward_reachable(
@@ -903,21 +914,14 @@ impl TrafficWorld {
         entry_occurrence: u32,
         entry_progress_mm: u32,
     ) -> Result<(), ParkingError> {
-        let reachable = parking_entry_forward_reachable(
-            state.route_edge_index,
-            state.progress_mm,
-            state.carry_um,
-            entry_occurrence,
-            entry_progress_mm,
-        );
-        reachable
-            .then_some(())
-            .ok_or(ParkingError::EntryNotForwardReachable)
+        self.read_view()
+            .validate_forward_reachable(state, entry_occurrence, entry_progress_mm)
     }
 
     fn validate_available_target(&self, target: ParkingTarget) -> Result<(), ParkingError> {
         match target {
             ParkingTarget::ExplicitSpace(space) => match self
+                .committed
                 .parking
                 .explicit_state(space)
                 .ok_or(ParkingError::UnknownSpace)?
@@ -929,12 +933,14 @@ impl TrafficWorld {
             },
             ParkingTarget::VirtualPool(facility) => {
                 let view = self
+                    .binding
                     .revision
                     .traffic()
                     .relations()
                     .parking_facility(facility)
                     .ok_or(ParkingError::UnknownFacility)?;
                 let state = self
+                    .committed
                     .parking
                     .virtual_state(facility)
                     .ok_or(ParkingError::UnknownFacility)?;
@@ -955,54 +961,18 @@ impl TrafficWorld {
         vehicle: VehicleHandle,
         binding: ParkingBinding,
     ) -> bool {
-        match binding {
-            ParkingBinding::Reserved(reservation) => match reservation.target() {
-                ParkingTarget::ExplicitSpace(space) => {
-                    self.parking.explicit_state(space) == Some(ParkingSpaceState::Reserved(vehicle))
-                }
-                ParkingTarget::VirtualPool(facility) => self
-                    .parking
-                    .virtual_state(facility)
-                    .is_some_and(|state| state.reserved_count > 0),
-            },
-            ParkingBinding::Occupied(target) => match target {
-                ParkingTarget::ExplicitSpace(space) => {
-                    self.parking.explicit_state(space) == Some(ParkingSpaceState::Occupied(vehicle))
-                }
-                ParkingTarget::VirtualPool(facility) => self
-                    .parking
-                    .virtual_state(facility)
-                    .is_some_and(|state| state.occupied_count > 0),
-            },
-        }
+        self.read_view().resource_matches_binding(vehicle, binding)
     }
 
     pub(crate) fn reservation_anchor(
         &self,
         reservation: ParkingReservation,
     ) -> Option<(LaneEdgeOrdinal, u32)> {
-        match reservation.target() {
-            ParkingTarget::ExplicitSpace(space) => self
-                .revision
-                .traffic()
-                .relations()
-                .parking_space(space)
-                .map(|view| view.entry()),
-            ParkingTarget::VirtualPool(facility) => {
-                let selector = reservation.virtual_entry_selector()?;
-                let view = self
-                    .revision
-                    .traffic()
-                    .relations()
-                    .parking_facility(facility)?;
-                let anchor = view.virtual_entries().get(selector.index())?;
-                Some((anchor.lane_edge(), anchor.progress_mm()))
-            }
-        }
+        self.read_view().reservation_anchor(reservation)
     }
 
     fn parking_binding_delta(&self, vehicle: VehicleHandle) -> ParkingBindingDelta {
-        let binding = self.parking.binding(vehicle);
+        let binding = self.committed.parking.binding(vehicle);
         let semantic_entry = match binding {
             Some(ParkingBinding::Reserved(reservation))
                 if matches!(reservation.target(), ParkingTarget::VirtualPool(_)) =>
@@ -1020,7 +990,7 @@ impl TrafficWorld {
             .expect("committed parking update keeps vehicle live");
         let delta = VehicleDelta::from_state(&state, self.compiled_route(state.route));
         let parking = self.parking_binding_delta(vehicle);
-        if let Some(journal) = self.migration_journal.as_mut() {
+        if let Some(journal) = self.admin.migration_journal.as_mut() {
             journal.record_vehicle_parking_updated(command_cursor, delta, parking);
         }
     }
@@ -1030,10 +1000,7 @@ impl TrafficWorld {
         state: VehicleState,
         reservation: ParkingReservation,
     ) -> bool {
-        let Some((_, entry_progress_mm)) = self.reservation_anchor(reservation) else {
-            return false;
-        };
-        exact_parking_arrival(state, reservation, entry_progress_mm)
+        self.read_view().parking_arrived_for(state, reservation)
     }
 
     /// 是否已按 exact occurrence/progress/zero-motion 提交 arrival。
@@ -1042,7 +1009,8 @@ impl TrafficWorld {
         let Some(state) = self.vehicle_state(vehicle).copied() else {
             return false;
         };
-        let Some(ParkingBinding::Reserved(reservation)) = self.parking.binding(vehicle) else {
+        let Some(ParkingBinding::Reserved(reservation)) = self.committed.parking.binding(vehicle)
+        else {
             return false;
         };
         reservation.target() == target && self.parking_arrived_for(state, reservation)
@@ -1050,56 +1018,7 @@ impl TrafficWorld {
 
     /// snapshot/cutover 共用的闭合状态矩阵与 reservation 语义复核。
     pub(crate) fn parking_state_valid(&self, vehicle: VehicleHandle) -> bool {
-        let Some(state) = self.vehicle_state(vehicle).copied() else {
-            return false;
-        };
-        let binding = self.parking.binding(vehicle);
-        if !matches!(
-            (state.status, binding),
-            (
-                VehicleStatus::Active,
-                None | Some(ParkingBinding::Reserved(_))
-            ) | (VehicleStatus::Parked, Some(ParkingBinding::Occupied(_)))
-                | (VehicleStatus::Completed, None)
-        ) {
-            return false;
-        }
-        let Some(binding) = binding else {
-            return true;
-        };
-        if !self.resource_matches_binding(vehicle, binding) {
-            return false;
-        }
-        let ParkingBinding::Reserved(reservation) = binding else {
-            return true;
-        };
-        if reservation.route() != state.route {
-            return false;
-        }
-        let Some((edge, progress_mm)) = self.reservation_anchor(reservation) else {
-            return false;
-        };
-        if self
-            .validate_anchor_on_route(
-                reservation.route(),
-                reservation.entry_route_occurrence(),
-                edge,
-            )
-            .is_err()
-        {
-            return false;
-        }
-        if self
-            .validate_waiting_parking_anchor(
-                reservation.route(),
-                reservation.entry_route_occurrence(),
-            )
-            .is_err()
-        {
-            return false;
-        }
-        self.validate_forward_reachable(state, reservation.entry_route_occurrence(), progress_mm)
-            .is_ok()
+        self.read_view().parking_state_valid(vehicle)
     }
 
     fn checked_parking_observation_commit(
@@ -1107,6 +1026,7 @@ impl TrafficWorld {
     ) -> Result<(u64, crate::ObservationStateSequence), ParkingError> {
         let command_cursor = self.checked_parking_command()?;
         let observation_state_sequence = self
+            .committed
             .observation_state_sequence
             .checked_next()
             .ok_or(ParkingError::ObservationStateSequenceExhausted)?;
@@ -1114,14 +1034,19 @@ impl TrafficWorld {
     }
 
     fn checked_parking_command(&self) -> Result<u64, ParkingError> {
-        self.command_cursor
+        self.committed
+            .command_cursor
             .checked_add(1)
             .ok_or(ParkingError::CommandCursorExhausted)
     }
 
     fn route_ref_increment(&self, route: RouteHandle) -> Result<u32, ParkingError> {
         let index = usize::try_from(route.index()).map_err(|_| ParkingError::UnknownRoute)?;
-        let slot = self.routes.get(index).ok_or(ParkingError::UnknownRoute)?;
+        let slot = self
+            .committed
+            .routes
+            .get(index)
+            .ok_or(ParkingError::UnknownRoute)?;
         if slot.generation != route.generation() || slot.compiled.is_none() {
             return Err(ParkingError::UnknownRoute);
         }
@@ -1132,7 +1057,7 @@ impl TrafficWorld {
 
     fn commit_route_ref_increment(&mut self, route: RouteHandle, value: u32) {
         let index = usize::try_from(route.index()).expect("validated route index");
-        self.routes[index].live_vehicles = value;
+        self.committed.routes[index].live_vehicles = value;
     }
 
     /// 原子预留显式泊位或虚拟池容量。
@@ -1176,24 +1101,25 @@ impl TrafficWorld {
             virtual_entry_selector: anchor.entry_selector,
             arrived: self.parking_arrived_for(state, reservation),
         };
-        if let Some(binding) = self.parking.binding(vehicle) {
+        if let Some(binding) = self.committed.parking.binding(vehicle) {
             if binding == ParkingBinding::Reserved(reservation)
                 && self.resource_matches_binding(vehicle, binding)
             {
                 let cursor = self.checked_parking_command()?;
-                self.command_cursor = cursor;
+                self.committed.command_cursor = cursor;
                 return Ok(ParkingCommandOutcome::NoChange(record));
             }
             return Err(ParkingError::VehicleAlreadyBound);
         }
         self.validate_available_target(anchor.target)?;
         let command_cursor = self.checked_parking_command()?;
-        self.parking
+        self.committed
+            .parking
             .try_reserve_binding()
             .map_err(|()| ParkingError::AllocationFailed)?;
 
-        self.parking.insert_reserved(vehicle, reservation);
-        self.command_cursor = command_cursor;
+        self.committed.parking.insert_reserved(vehicle, reservation);
+        self.committed.command_cursor = command_cursor;
         self.record_parking_update(vehicle, command_cursor);
         Ok(ParkingCommandOutcome::Committed(record))
     }
@@ -1213,6 +1139,7 @@ impl TrafficWorld {
             return Err(ParkingError::InvalidVehicleStatus);
         }
         let binding = self
+            .committed
             .parking
             .binding(vehicle)
             .ok_or(ParkingError::NotReserved)?;
@@ -1226,8 +1153,8 @@ impl TrafficWorld {
             return Err(ParkingError::InvariantViolation);
         }
         let command_cursor = self.checked_parking_command()?;
-        self.parking.cancel_reserved(vehicle);
-        self.command_cursor = command_cursor;
+        self.committed.parking.cancel_reserved(vehicle);
+        self.committed.command_cursor = command_cursor;
         self.record_parking_update(vehicle, command_cursor);
         Ok(ParkingCancelRecord { vehicle, target })
     }
@@ -1244,14 +1171,14 @@ impl TrafficWorld {
             .copied()
             .ok_or(ParkingError::StaleVehicle)?;
         let record = ParkingParkRecord { vehicle, target };
-        match self.parking.binding(vehicle) {
+        match self.committed.parking.binding(vehicle) {
             Some(binding @ ParkingBinding::Occupied(current))
                 if current == target
                     && state.status == VehicleStatus::Parked
                     && self.resource_matches_binding(vehicle, binding) =>
             {
                 let cursor = self.checked_parking_command()?;
-                self.command_cursor = cursor;
+                self.committed.command_cursor = cursor;
                 return Ok(ParkingCommandOutcome::NoChange(record));
             }
             Some(ParkingBinding::Reserved(reservation)) if reservation.target() == target => {
@@ -1277,9 +1204,9 @@ impl TrafficWorld {
             Some(_) | None => return Err(ParkingError::NotReserved),
         }
         let (command_cursor, sequence) = self.checked_parking_observation_commit()?;
-        self.parking.occupy_reserved(vehicle);
+        self.committed.parking.occupy_reserved(vehicle);
         let index = usize::try_from(vehicle.index()).expect("validated vehicle index");
-        let state = self.vehicles[index]
+        let state = self.committed.vehicles[index]
             .state
             .as_mut()
             .expect("validated live vehicle");
@@ -1287,8 +1214,8 @@ impl TrafficWorld {
         state.speed_mm_s = 0;
         state.carry_um = 0;
         self.rebuild_active_order();
-        self.command_cursor = command_cursor;
-        self.observation_state_sequence = sequence;
+        self.committed.command_cursor = command_cursor;
+        self.committed.observation_state_sequence = sequence;
         self.record_parking_update(vehicle, command_cursor);
         Ok(ParkingCommandOutcome::Committed(record))
     }
@@ -1298,14 +1225,14 @@ impl TrafficWorld {
         candidate: VehicleState,
         occupancy: &OccupancyIndex,
     ) -> Result<(), ParkingError> {
-        let lengths = self.revision.traffic().lane_lengths_millimetres();
+        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
         let candidate_edges = self
             .route_edges(candidate.route)
             .ok_or(ParkingError::UnknownRoute)?;
         let candidate_index = usize::try_from(candidate.route_edge_index)
             .map_err(|_| ParkingError::RouteOccurrenceOutOfRange)?;
-        let delta_s = self.config.fixed_delta_time_ms() as f32 / 1_000.0;
-        for handle in self.active_order.iter().copied() {
+        let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
+        for handle in self.derived.active_order.iter().copied() {
             if handle == candidate.handle {
                 continue;
             }
@@ -1347,6 +1274,7 @@ impl TrafficWorld {
                 continue;
             }
             let profile = self
+                .binding
                 .revision
                 .traffic()
                 .relations()
@@ -1405,6 +1333,7 @@ impl TrafficWorld {
         }
         let (target, exit_edge, exit_progress_mm) = self.resolve_leave_anchor(input)?;
         let binding = self
+            .committed
             .parking
             .binding(vehicle)
             .ok_or(ParkingError::NotOccupied)?;
@@ -1442,8 +1371,8 @@ impl TrafficWorld {
         {
             return Err(ParkingError::LeavePhysicalOverlap { blocker });
         }
-        let occupancy = self
-            .build_occupancy_index_for(self.revision.as_ref(), &[])
+        let (occupancy, _scratch) = self
+            .build_occupancy_index_for(self.binding.revision.as_ref(), &[])
             .map_err(|error| match error {
                 crate::StepError::OccupancyAllocFailed => ParkingError::AllocationFailed,
                 _ => ParkingError::InvariantViolation,
@@ -1469,16 +1398,16 @@ impl TrafficWorld {
             .transpose()?;
         let (command_cursor, sequence) = self.checked_parking_observation_commit()?;
 
-        self.parking.release_occupied(vehicle);
+        self.committed.parking.release_occupied(vehicle);
         if let Some(new_route_ref) = new_route_ref {
             self.release_route_ref(state.route);
             self.commit_route_ref_increment(route, new_route_ref);
         }
         let index = usize::try_from(vehicle.index()).expect("validated vehicle index");
-        self.vehicles[index].state = Some(candidate);
+        self.committed.vehicles[index].state = Some(candidate);
         self.rebuild_active_order();
-        self.command_cursor = command_cursor;
-        self.observation_state_sequence = sequence;
+        self.committed.command_cursor = command_cursor;
+        self.committed.observation_state_sequence = sequence;
         self.record_parking_update(vehicle, command_cursor);
         Ok(ParkingLeaveRecord {
             vehicle,
@@ -1507,6 +1436,7 @@ impl TrafficWorld {
         }
         let anchor = self.resolve_rebind_anchor(input)?;
         let binding = self
+            .committed
             .parking
             .binding(vehicle)
             .ok_or(ParkingError::NotReserved)?;
@@ -1543,7 +1473,7 @@ impl TrafficWorld {
         let old_edges = self
             .route_edges(state.route)
             .ok_or(ParkingError::InvariantViolation)?;
-        let lengths = self.revision.traffic().lane_lengths_millimetres();
+        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
         let footprints_equal = occupancy_footprints_equal(
             lengths,
             old_edges,
@@ -1611,7 +1541,7 @@ impl TrafficWorld {
             && old_reservation == reservation
         {
             let cursor = self.checked_parking_command()?;
-            self.command_cursor = cursor;
+            self.committed.command_cursor = cursor;
             return Ok(ParkingCommandOutcome::NoChange(record));
         }
         let new_route_ref = (new_route != state.route)
@@ -1624,10 +1554,12 @@ impl TrafficWorld {
             self.commit_route_ref_increment(new_route, new_route_ref);
         }
         let index = usize::try_from(vehicle.index()).expect("validated vehicle index");
-        self.vehicles[index].state = Some(candidate);
-        self.parking.replace_reservation(vehicle, reservation);
+        self.committed.vehicles[index].state = Some(candidate);
+        self.committed
+            .parking
+            .replace_reservation(vehicle, reservation);
         self.rebuild_waiting_member_rows();
-        self.command_cursor = command_cursor;
+        self.committed.command_cursor = command_cursor;
         self.record_parking_update(vehicle, command_cursor);
         let _ = entry_index;
         Ok(ParkingCommandOutcome::Committed(record))
@@ -1641,12 +1573,13 @@ impl TrafficWorld {
     ) -> Result<ParkedVehicleSpawnRecord, ParkingError> {
         self.validate_target_exists(target)?;
         self.validate_available_target(target)?;
-        let live = u32::try_from(self.live_order.len())
+        let live = u32::try_from(self.committed.live_order.len())
             .map_err(|_| ParkingError::VehicleCapacityExceeded)?;
-        if live >= self.config.vehicle_capacity() {
+        if live >= self.binding.config.vehicle_capacity() {
             return Err(ParkingError::VehicleCapacityExceeded);
         }
         let profile = self
+            .binding
             .revision
             .traffic()
             .relations()
@@ -1661,7 +1594,7 @@ impl TrafficWorld {
             .get(occurrence)
             .copied()
             .ok_or(ParkingError::RouteOccurrenceOutOfRange)?;
-        let edge_length = self.revision.traffic().lane_lengths_millimetres()[edge.index()];
+        let edge_length = self.binding.revision.traffic().lane_lengths_millimetres()[edge.index()];
         if input.progress_mm() > edge_length {
             return Err(ParkingError::InvalidProgress);
         }
@@ -1671,12 +1604,18 @@ impl TrafficWorld {
         // Parked retained cursor 不是道路 arrival；真正离场时再验证 Active 绑定。
         let route_ref = self.route_ref_increment(input.route())?;
         let command_cursor = self.checked_parking_command()?;
-        self.parking
+        self.committed
+            .parking
             .try_reserve_binding()
             .map_err(|()| ParkingError::AllocationFailed)?;
 
-        let slot_index = self.free_vehicles.pop().unwrap_or(self.vehicles.len());
+        let slot_index = self
+            .committed
+            .free_vehicles
+            .pop()
+            .unwrap_or(self.committed.vehicles.len());
         let generation = self
+            .committed
             .vehicles
             .get(slot_index)
             .map_or(0, |slot| slot.generation);
@@ -1702,18 +1641,18 @@ impl TrafficWorld {
             generation,
             state: Some(state),
         };
-        if slot_index == self.vehicles.len() {
-            self.vehicles.push(slot);
+        if slot_index == self.committed.vehicles.len() {
+            self.committed.vehicles.push(slot);
         } else {
-            self.vehicles[slot_index] = slot;
+            self.committed.vehicles[slot_index] = slot;
         }
-        self.live_order.push(vehicle);
+        self.committed.live_order.push(vehicle);
         self.commit_route_ref_increment(input.route(), route_ref);
-        self.parking.insert_occupied(vehicle, target);
-        self.command_cursor = command_cursor;
+        self.committed.parking.insert_occupied(vehicle, target);
+        self.committed.command_cursor = command_cursor;
         let delta = VehicleDelta::from_state(&state, self.compiled_route(state.route));
         let parking = self.parking_binding_delta(vehicle);
-        if let Some(journal) = self.migration_journal.as_mut() {
+        if let Some(journal) = self.admin.migration_journal.as_mut() {
             journal.record_vehicle_parking_spawned(command_cursor, delta, parking);
         }
         Ok(ParkedVehicleSpawnRecord { vehicle, target })
@@ -1728,7 +1667,7 @@ impl TrafficWorld {
             .vehicle_state(vehicle)
             .copied()
             .ok_or(ParkingError::StaleVehicle)?;
-        let binding = self.parking.binding(vehicle);
+        let binding = self.committed.parking.binding(vehicle);
         if !self.waiting_state_valid() || !self.conflict_state_valid() {
             return Err(ParkingError::InvariantViolation);
         }
@@ -1745,6 +1684,7 @@ impl TrafficWorld {
         }
         let conflict_release = self.conflict_reservation(vehicle);
         let order_index = self
+            .committed
             .live_order
             .iter()
             .position(|handle| *handle == vehicle)
@@ -1783,37 +1723,42 @@ impl TrafficWorld {
 
         match binding {
             Some(ParkingBinding::Reserved(_)) => {
-                self.parking.cancel_reserved(vehicle);
+                self.committed.parking.cancel_reserved(vehicle);
             }
             Some(ParkingBinding::Occupied(_)) => {
-                self.parking.release_occupied(vehicle);
+                self.committed.parking.release_occupied(vehicle);
             }
             None => {}
         }
-        self.conflict_arbiter.release_vehicle(vehicle, self.time_ms);
+        crate::conflict::ConflictWrite::new(
+            &mut self.committed.conflict,
+            &mut self.derived.conflict,
+            &mut self.workspace.conflict,
+        )
+        .release_vehicle(vehicle, self.committed.time_ms);
         self.clear_conflict_eligibility(vehicle);
         self.release_route_ref(state.route);
         if let Some(membership) = state.waiting_membership {
             self.unlink_waiting_member(vehicle, membership);
         }
-        self.live_order.remove(order_index);
+        self.committed.live_order.remove(order_index);
         let slot_index = usize::try_from(vehicle.index()).expect("validated vehicle index");
-        let slot = &mut self.vehicles[slot_index];
+        let slot = &mut self.committed.vehicles[slot_index];
         slot.state = None;
         let mut recyclable = false;
         if let Some(next_generation) = slot.generation.checked_add(1) {
             slot.generation = next_generation;
-            self.free_vehicles.push(slot_index);
+            self.committed.free_vehicles.push(slot_index);
             recyclable = true;
         }
         let generation_after = slot.generation;
         self.rebuild_active_order();
         self.rebuild_waiting_member_rows();
-        self.command_cursor = command_cursor;
+        self.committed.command_cursor = command_cursor;
         if let Some(sequence) = sequence {
-            self.observation_state_sequence = sequence;
+            self.committed.observation_state_sequence = sequence;
         }
-        if let Some(journal) = self.migration_journal.as_mut() {
+        if let Some(journal) = self.admin.migration_journal.as_mut() {
             journal.record_vehicle_despawned(
                 command_cursor,
                 vehicle,
@@ -1824,6 +1769,189 @@ impl TrafficWorld {
             );
         }
         Ok(record)
+    }
+}
+
+impl<'a> crate::phase::StepReadView<'a> {
+    pub(crate) fn validate_anchor_on_route(
+        self,
+        route: RouteHandle,
+        occurrence: u32,
+        anchor_edge: LaneEdgeOrdinal,
+    ) -> Result<usize, ParkingError> {
+        let edges = self.route_edges(route).ok_or(ParkingError::UnknownRoute)?;
+        let index =
+            usize::try_from(occurrence).map_err(|_| ParkingError::RouteOccurrenceOutOfRange)?;
+        let edge = edges
+            .get(index)
+            .copied()
+            .ok_or(ParkingError::RouteOccurrenceOutOfRange)?;
+        if edge != anchor_edge {
+            return Err(ParkingError::RouteOccurrenceAnchorMismatch);
+        }
+        Ok(index)
+    }
+
+    pub(crate) fn validate_forward_reachable(
+        self,
+        state: VehicleState,
+        entry_occurrence: u32,
+        entry_progress_mm: u32,
+    ) -> Result<(), ParkingError> {
+        let reachable = parking_entry_forward_reachable(
+            state.route_edge_index,
+            state.progress_mm,
+            state.carry_um,
+            entry_occurrence,
+            entry_progress_mm,
+        );
+        reachable
+            .then_some(())
+            .ok_or(ParkingError::EntryNotForwardReachable)
+    }
+
+    pub(crate) fn resource_matches_binding(
+        self,
+        vehicle: VehicleHandle,
+        binding: ParkingBinding,
+    ) -> bool {
+        match binding {
+            ParkingBinding::Reserved(reservation) => match reservation.target() {
+                ParkingTarget::ExplicitSpace(space) => {
+                    self.committed.parking.explicit_state(space)
+                        == Some(ParkingSpaceState::Reserved(vehicle))
+                }
+                ParkingTarget::VirtualPool(facility) => self
+                    .committed
+                    .parking
+                    .virtual_state(facility)
+                    .is_some_and(|state| state.reserved_count > 0),
+            },
+            ParkingBinding::Occupied(target) => match target {
+                ParkingTarget::ExplicitSpace(space) => {
+                    self.committed.parking.explicit_state(space)
+                        == Some(ParkingSpaceState::Occupied(vehicle))
+                }
+                ParkingTarget::VirtualPool(facility) => self
+                    .committed
+                    .parking
+                    .virtual_state(facility)
+                    .is_some_and(|state| state.occupied_count > 0),
+            },
+        }
+    }
+
+    pub(crate) fn reservation_anchor(
+        self,
+        reservation: ParkingReservation,
+    ) -> Option<(LaneEdgeOrdinal, u32)> {
+        match reservation.target() {
+            ParkingTarget::ExplicitSpace(space) => self
+                .binding
+                .revision
+                .traffic()
+                .relations()
+                .parking_space(space)
+                .map(|view| view.entry()),
+            ParkingTarget::VirtualPool(facility) => {
+                let selector = reservation.virtual_entry_selector()?;
+                let view = self
+                    .binding
+                    .revision
+                    .traffic()
+                    .relations()
+                    .parking_facility(facility)?;
+                let anchor = view.virtual_entries().get(selector.index())?;
+                Some((anchor.lane_edge(), anchor.progress_mm()))
+            }
+        }
+    }
+
+    pub(crate) fn parking_arrived_for(
+        self,
+        state: VehicleState,
+        reservation: ParkingReservation,
+    ) -> bool {
+        let Some((_, entry_progress_mm)) = self.reservation_anchor(reservation) else {
+            return false;
+        };
+        exact_parking_arrival(state, reservation, entry_progress_mm)
+    }
+
+    /// snapshot/cutover 共用的闭合状态矩阵与 reservation 语义复核。
+    pub(crate) fn parking_state_valid(self, vehicle: VehicleHandle) -> bool {
+        let Some(state) = self.vehicle_state(vehicle).copied() else {
+            return false;
+        };
+        let binding = self.committed.parking.binding(vehicle);
+        if !matches!(
+            (state.status, binding),
+            (
+                VehicleStatus::Active,
+                None | Some(ParkingBinding::Reserved(_))
+            ) | (VehicleStatus::Parked, Some(ParkingBinding::Occupied(_)))
+                | (VehicleStatus::Completed, None)
+        ) {
+            return false;
+        }
+        let Some(binding) = binding else {
+            return true;
+        };
+        if !self.resource_matches_binding(vehicle, binding) {
+            return false;
+        }
+        let ParkingBinding::Reserved(reservation) = binding else {
+            return true;
+        };
+        if reservation.route() != state.route {
+            return false;
+        }
+        let Some((edge, progress_mm)) = self.reservation_anchor(reservation) else {
+            return false;
+        };
+        if self
+            .validate_anchor_on_route(
+                reservation.route(),
+                reservation.entry_route_occurrence(),
+                edge,
+            )
+            .is_err()
+        {
+            return false;
+        }
+        if self
+            .validate_waiting_parking_anchor(
+                reservation.route(),
+                reservation.entry_route_occurrence(),
+            )
+            .is_err()
+        {
+            return false;
+        }
+        self.validate_forward_reachable(state, reservation.entry_route_occurrence(), progress_mm)
+            .is_ok()
+    }
+}
+
+impl crate::phase::StepWorkspace<'_> {
+    pub(crate) fn reservation_anchor(
+        &self,
+        reservation: ParkingReservation,
+    ) -> Option<(LaneEdgeOrdinal, u32)> {
+        self.read_view().reservation_anchor(reservation)
+    }
+
+    pub(crate) fn parking_arrived_for(
+        &self,
+        state: VehicleState,
+        reservation: ParkingReservation,
+    ) -> bool {
+        self.read_view().parking_arrived_for(state, reservation)
+    }
+
+    /// snapshot/cutover 共用的闭合状态矩阵与 reservation 语义复核。
+    pub(crate) fn parking_state_valid(&self, vehicle: VehicleHandle) -> bool {
+        self.read_view().parking_state_valid(vehicle)
     }
 }
 

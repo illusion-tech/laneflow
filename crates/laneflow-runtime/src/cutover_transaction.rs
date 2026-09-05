@@ -155,28 +155,28 @@ impl TrafficWorld {
         limits: &CutoverPreflightLimits,
         transaction_limits: &CutoverTransactionLimits,
     ) -> Result<CutoverTransaction, CutoverError> {
-        if self.migration_journal.is_some() {
+        if self.admin.migration_journal.is_some() {
             return Err(CutoverError::InFlightTransaction);
         }
         // 认证先于策略：描述符一致性（含 O(1) 预检）与 LFSD 字节级认证。
-        let base_origin = *self.revision.canonical_origin();
+        let base_origin = *self.binding.revision.canonical_origin();
         let target_origin = *target_revision.canonical_origin();
         descriptor.validate(base_origin, target_origin, limits)?;
-        if descriptor.world_binding().world_id() != self.world_id
-            || descriptor.world_binding().world_generation() != self.world_generation
+        if descriptor.world_binding().world_id() != self.binding.world_id
+            || descriptor.world_binding().world_generation() != self.binding.world_generation
         {
             return Err(CutoverError::WorldBindingMismatch);
         }
-        if descriptor.world_binding().baseline_command_cursor() != self.command_cursor {
+        if descriptor.world_binding().baseline_command_cursor() != self.committed.command_cursor {
             return Err(CutoverError::BaselineCommandCursorMismatch {
                 descriptor: descriptor.world_binding().baseline_command_cursor(),
-                world: self.command_cursor,
+                world: self.committed.command_cursor,
             });
         }
-        if descriptor.world_binding().baseline_event_cursor() != self.event_cursor {
+        if descriptor.world_binding().baseline_event_cursor() != self.committed.event_cursor {
             return Err(CutoverError::BaselineEventCursorMismatch {
                 descriptor: descriptor.world_binding().baseline_event_cursor(),
-                world: self.event_cursor,
+                world: self.committed.event_cursor,
             });
         }
         if descriptor.policy_kind() != MigrationPolicyKind::CrossRevisionDirect {
@@ -190,22 +190,23 @@ impl TrafficWorld {
         // `TrafficWorld::install` 构造，相位与步长的合同约束必须在此显式把关。
         crate::world::validate_signal_programs(
             target_revision.as_ref(),
-            self.config.fixed_delta_time_ms(),
+            self.binding.config.fixed_delta_time_ms(),
         )
         .map_err(|_| CutoverError::TargetSignalProgramInvalid)?;
         descriptor.verify_semantic_diff(lfsd_bytes, base_origin, target_origin)?;
         // 世代耗尽必须在任何候选暂存/分配之前失败关闭。
         let next_world_generation = self
+            .binding
             .world_generation
             .checked_next()
             .ok_or(CutoverError::WorldGenerationExhausted)?;
         // 武装日志：以当前命令游标为半开覆盖区间下界，字节上界一次预留。
         self.arm_migration_journal(transaction_limits.max_journal_bytes)
             .map_err(|_| CutoverError::StagingAllocFailed)?;
-        let armed_epoch = self.migration_epoch;
+        let armed_epoch = self.admin.migration_epoch;
         // 基准捕获（结构克隆）+ 直移构造候选；失败即解除武装。
         let rebinding = match CrossRevisionRebinding::build(
-            self.revision.identity(),
+            self.binding.revision.identity(),
             target_revision.identity(),
         ) {
             Ok(rebinding) => rebinding,
@@ -232,8 +233,8 @@ impl TrafficWorld {
             target_origin,
             limits: *transaction_limits,
             next_world_generation,
-            world_id: self.world_id,
-            prepare_world_generation: self.world_generation,
+            world_id: self.binding.world_id,
+            prepare_world_generation: self.binding.world_generation,
             armed_epoch,
             applied_records: 0,
             consumed_offset: 0,
@@ -271,9 +272,9 @@ impl CutoverTransaction {
     /// 事务与世界配对校验：身份、世代或日志武装轮次不符即失败关闭，
     /// 不触及任何一方（轮次比对覆盖世界级恢复后旧事务认领后继日志）。
     fn ensure_origin_world(&self, world: &TrafficWorld) -> Result<(), CutoverError> {
-        if world.world_id != self.world_id
-            || world.world_generation != self.prepare_world_generation
-            || world.migration_epoch != self.armed_epoch
+        if world.binding.world_id != self.world_id
+            || world.binding.world_generation != self.prepare_world_generation
+            || world.admin.migration_epoch != self.armed_epoch
         {
             return Err(CutoverError::TransactionWorldMismatch {
                 expected_world: self.world_id,
@@ -356,7 +357,7 @@ impl CutoverTransaction {
                 break;
             }
             apply_record(
-                &world.revision,
+                &world.binding.revision,
                 self.candidate
                     .as_mut()
                     .expect("live transaction owns a candidate"),
@@ -403,11 +404,15 @@ impl CutoverTransaction {
             return Err(CutoverError::ReplayInconsistent);
         }
         revalidate_waiting_routes(world, candidate, &self.rebinding)?;
-        finalize_conflict_cutover_floors(candidate, &self.conflict_finalization, world.time_ms)?;
+        finalize_conflict_cutover_floors(
+            candidate,
+            &self.conflict_finalization,
+            world.committed.time_ms,
+        )?;
         // 最终游标在同一原子边界取样（半开覆盖区间上界；幂等重占等无记录
         // 提交的归属由取样而非重放决定），先写入候选供摘要复核与晋升共用。
-        let final_command_cursor = world.command_cursor;
-        candidate.command_cursor = final_command_cursor;
+        let final_command_cursor = world.committed.command_cursor;
+        candidate.committed.command_cursor = final_command_cursor;
         // 可失败步骤全部前置：占用索引重建 + 终态全量重验证。
         candidate
             .rebuild_occupancy_index()
@@ -419,13 +424,13 @@ impl CutoverTransaction {
         // `StagingAllocFailed`（那是切换暂存预留的错误面）。
         let mut expected = world.capture_snapshot()?;
         expected.origin = self.target_origin;
-        initialize_expected_waiting_pre_gate(world, &candidate.revision, &mut expected)?;
+        initialize_expected_waiting_pre_gate(world, &candidate.binding.revision, &mut expected)?;
         project_expected_conflict(
             world,
             candidate,
             &self.rebinding,
             &mut expected,
-            world.time_ms,
+            world.committed.time_ms,
         )?;
         let expected_digest = deterministic_state_digest(&expected)?;
         let candidate_digest = deterministic_state_digest(&candidate.capture_snapshot()?)?;
@@ -440,82 +445,143 @@ impl CutoverTransaction {
         )?;
         let event_advance = events.len();
         world
+            .committed
             .event_cursor
             .checked_add(event_advance)
             .ok_or(CutoverError::EventCursorExhausted)?;
         // 不可失败原地晋升：逐字段交换（零分配），世代与观测序号同界写入。
-        std::mem::swap(&mut world.revision, &mut candidate.revision);
-        std::mem::swap(&mut world.policy_binding, &mut candidate.policy_binding);
-        std::mem::swap(&mut world.source, &mut candidate.source);
-        std::mem::swap(&mut world.conflict_arbiter, &mut candidate.conflict_arbiter);
+        std::mem::swap(&mut world.binding.revision, &mut candidate.binding.revision);
         std::mem::swap(
-            &mut world.conflict_eligibility,
-            &mut candidate.conflict_eligibility,
+            &mut world.binding.policy_binding,
+            &mut candidate.binding.policy_binding,
         );
-        std::mem::swap(&mut world.routes, &mut candidate.routes);
-        std::mem::swap(&mut world.free_routes, &mut candidate.free_routes);
-        std::mem::swap(&mut world.vehicles, &mut candidate.vehicles);
-        std::mem::swap(&mut world.free_vehicles, &mut candidate.free_vehicles);
-        std::mem::swap(&mut world.live_order, &mut candidate.live_order);
-        std::mem::swap(&mut world.active_order, &mut candidate.active_order);
-        std::mem::swap(&mut world.parking, &mut candidate.parking);
-        std::mem::swap(&mut world.waiting_zones, &mut candidate.waiting_zones);
-        std::mem::swap(&mut world.waiting_links, &mut candidate.waiting_links);
+        std::mem::swap(&mut world.binding.source, &mut candidate.binding.source);
         std::mem::swap(
-            &mut world.waiting_member_rows,
-            &mut candidate.waiting_member_rows,
+            &mut world.committed.conflict,
+            &mut candidate.committed.conflict,
         );
-        std::mem::swap(&mut world.waiting_claims, &mut candidate.waiting_claims);
-        std::mem::swap(&mut world.waiting_plans, &mut candidate.waiting_plans);
+        std::mem::swap(&mut world.derived.conflict, &mut candidate.derived.conflict);
         std::mem::swap(
-            &mut world.waiting_plan_by_vehicle,
-            &mut candidate.waiting_plan_by_vehicle,
+            &mut world.workspace.conflict,
+            &mut candidate.workspace.conflict,
         );
         std::mem::swap(
-            &mut world.next_state_by_vehicle,
-            &mut candidate.next_state_by_vehicle,
+            &mut world.committed.conflict_eligibility,
+            &mut candidate.committed.conflict_eligibility,
+        );
+        std::mem::swap(&mut world.committed.routes, &mut candidate.committed.routes);
+        std::mem::swap(
+            &mut world.committed.free_routes,
+            &mut candidate.committed.free_routes,
         );
         std::mem::swap(
-            &mut world.waiting_staged_decisions,
-            &mut candidate.waiting_staged_decisions,
+            &mut world.committed.vehicles,
+            &mut candidate.committed.vehicles,
         );
         std::mem::swap(
-            &mut world.staged_transition_events,
-            &mut candidate.staged_transition_events,
+            &mut world.committed.free_vehicles,
+            &mut candidate.committed.free_vehicles,
         );
         std::mem::swap(
-            &mut world.waiting_next_counters,
-            &mut candidate.waiting_next_counters,
+            &mut world.committed.live_order,
+            &mut candidate.committed.live_order,
         );
         std::mem::swap(
-            &mut world.waiting_staged_occupancy,
-            &mut candidate.waiting_staged_occupancy,
+            &mut world.derived.active_order,
+            &mut candidate.derived.active_order,
         );
         std::mem::swap(
-            &mut world.waiting_staged_storage_mm,
-            &mut candidate.waiting_staged_storage_mm,
+            &mut world.committed.parking,
+            &mut candidate.committed.parking,
+        );
+        std::mem::swap(
+            &mut world.committed.waiting_zones,
+            &mut candidate.committed.waiting_zones,
+        );
+        std::mem::swap(
+            &mut world.derived.waiting_queue_ends,
+            &mut candidate.derived.waiting_queue_ends,
+        );
+        std::mem::swap(
+            &mut world.derived.waiting_links,
+            &mut candidate.derived.waiting_links,
+        );
+        std::mem::swap(
+            &mut world.derived.waiting_member_rows,
+            &mut candidate.derived.waiting_member_rows,
+        );
+        std::mem::swap(
+            &mut world.workspace.waiting_claims,
+            &mut candidate.workspace.waiting_claims,
+        );
+        std::mem::swap(
+            &mut world.workspace.waiting_plans,
+            &mut candidate.workspace.waiting_plans,
+        );
+        std::mem::swap(
+            &mut world.workspace.waiting_plan_by_vehicle,
+            &mut candidate.workspace.waiting_plan_by_vehicle,
+        );
+        std::mem::swap(
+            &mut world.workspace.next_state_by_vehicle,
+            &mut candidate.workspace.next_state_by_vehicle,
+        );
+        std::mem::swap(
+            &mut world.workspace.waiting_staged_decisions,
+            &mut candidate.workspace.waiting_staged_decisions,
+        );
+        std::mem::swap(
+            &mut world.workspace.staged_transition_events,
+            &mut candidate.workspace.staged_transition_events,
+        );
+        std::mem::swap(
+            &mut world.workspace.waiting_next_counters,
+            &mut candidate.workspace.waiting_next_counters,
+        );
+        std::mem::swap(
+            &mut world.workspace.waiting_staged_occupancy,
+            &mut candidate.workspace.waiting_staged_occupancy,
+        );
+        std::mem::swap(
+            &mut world.workspace.waiting_staged_storage_mm,
+            &mut candidate.workspace.waiting_staged_storage_mm,
         );
         // 跨修订提交使旧 route/zone anchors 失效。历史 tick 输出不参与迁移，
         // 调用方在 commit 前消费；此处处于不可失败的原子发布段。
-        world.latest_waiting_decisions.clear();
-        world.latest_transition_events.clear();
-        world.latest_conflict_decisions.clear();
-        std::mem::swap(&mut world.signal_aspects, &mut candidate.signal_aspects);
+        world.committed.latest_waiting_decisions.clear();
+        world.committed.latest_transition_events.clear();
+        world.committed.latest_conflict_decisions.clear();
         std::mem::swap(
-            &mut world.next_signal_aspects,
-            &mut candidate.next_signal_aspects,
+            &mut world.committed.signal_aspects,
+            &mut candidate.committed.signal_aspects,
         );
-        std::mem::swap(&mut world.next_states, &mut candidate.next_states);
-        std::mem::swap(&mut world.occupancy, &mut candidate.occupancy);
-        world.live_route_count = candidate.live_route_count;
-        world.live_route_edge_occurrence_count = candidate.live_route_edge_occurrence_count;
-        world.live_route_conflict_occurrence_count = candidate.live_route_conflict_occurrence_count;
-        world.tick_index = candidate.tick_index;
-        world.time_ms = candidate.time_ms;
-        world.command_cursor = final_command_cursor;
-        world.world_generation = self.next_world_generation;
-        world.observation_state_sequence = ObservationStateSequence::INITIAL;
-        world.event_cursor += event_advance;
+        std::mem::swap(
+            &mut world.workspace.next_signal_aspects,
+            &mut candidate.workspace.next_signal_aspects,
+        );
+        std::mem::swap(
+            &mut world.workspace.next_states,
+            &mut candidate.workspace.next_states,
+        );
+        std::mem::swap(
+            &mut world.derived.occupancy,
+            &mut candidate.derived.occupancy,
+        );
+        std::mem::swap(
+            &mut world.workspace.occupancy_scratch,
+            &mut candidate.workspace.occupancy_scratch,
+        );
+        world.committed.live_route_count = candidate.committed.live_route_count;
+        world.committed.live_route_edge_occurrence_count =
+            candidate.committed.live_route_edge_occurrence_count;
+        world.committed.live_route_conflict_occurrence_count =
+            candidate.committed.live_route_conflict_occurrence_count;
+        world.committed.tick_index = candidate.committed.tick_index;
+        world.committed.time_ms = candidate.committed.time_ms;
+        world.committed.command_cursor = final_command_cursor;
+        world.binding.world_generation = self.next_world_generation;
+        world.committed.observation_state_sequence = ObservationStateSequence::INITIAL;
+        world.committed.event_cursor += event_advance;
         Ok(CutoverCommit {
             world_generation: self.next_world_generation,
             final_command_cursor,
@@ -600,6 +666,7 @@ fn rebind_parking_delta(
                                 base_edge: base_edge.raw(),
                             })?;
                     let facility_view = candidate
+                        .binding
                         .revision
                         .traffic()
                         .relations()
@@ -636,10 +703,10 @@ fn remove_candidate_parking_binding(
 ) {
     match binding {
         Some(ParkingBinding::Reserved(_)) => {
-            candidate.parking.cancel_reserved(vehicle);
+            candidate.committed.parking.cancel_reserved(vehicle);
         }
         Some(ParkingBinding::Occupied(_)) => {
-            candidate.parking.release_occupied(vehicle);
+            candidate.committed.parking.release_occupied(vehicle);
         }
         None => {}
     }
@@ -654,20 +721,22 @@ fn insert_candidate_parking_binding(
         return Ok(());
     };
     candidate
+        .committed
         .parking
         .try_reserve_binding()
         .map_err(|()| CutoverError::StagingAllocFailed)?;
     let target = binding.target();
     match target {
         ParkingTarget::ExplicitSpace(space) => {
-            if candidate.parking.explicit_state(space) != Some(ParkingSpaceState::Vacant) {
+            if candidate.committed.parking.explicit_state(space) != Some(ParkingSpaceState::Vacant)
+            {
                 return Err(CutoverError::ParkingRevalidationFailed {
                     vehicle: vehicle.index(),
                 });
             }
         }
         ParkingTarget::VirtualPool(facility) => {
-            let state = candidate.parking.virtual_state(facility).ok_or(
+            let state = candidate.committed.parking.virtual_state(facility).ok_or(
                 CutoverError::ParkingRevalidationFailed {
                     vehicle: vehicle.index(),
                 },
@@ -679,6 +748,7 @@ fn insert_candidate_parking_binding(
                     vehicle: vehicle.index(),
                 })?;
             let capacity = candidate
+                .binding
                 .revision
                 .traffic()
                 .relations()
@@ -696,10 +766,13 @@ fn insert_candidate_parking_binding(
     }
     match binding {
         ParkingBinding::Reserved(reservation) => {
-            candidate.parking.insert_reserved(vehicle, reservation);
+            candidate
+                .committed
+                .parking
+                .insert_reserved(vehicle, reservation);
         }
         ParkingBinding::Occupied(target) => {
-            candidate.parking.insert_occupied(vehicle, target);
+            candidate.committed.parking.insert_occupied(vehicle, target);
         }
     }
     Ok(())
@@ -712,6 +785,7 @@ fn checked_candidate_route_ref(
     let route_index =
         usize::try_from(route.index()).map_err(|_| CutoverError::ReplayInconsistent)?;
     let slot = candidate
+        .committed
         .routes
         .get(route_index)
         .ok_or(CutoverError::ReplayInconsistent)?;
@@ -725,7 +799,7 @@ fn checked_candidate_route_ref(
 
 fn commit_candidate_route_ref(candidate: &mut TrafficWorld, route: RouteHandle, value: u32) {
     let route_index = usize::try_from(route.index()).expect("validated route index fits usize");
-    candidate.routes[route_index].live_vehicles = value;
+    candidate.committed.routes[route_index].live_vehicles = value;
 }
 
 fn waiting_release_matches(
@@ -778,7 +852,11 @@ fn initialize_expected_waiting_pre_gate(
     expected: &mut crate::CapturedSnapshot,
 ) -> Result<(), CutoverError> {
     // capture_snapshot 按 live 槽位序分配局部车辆 ID，非 live_order 序。
-    let source_states = world.vehicles.iter().filter_map(|slot| slot.state.as_ref());
+    let source_states = world
+        .committed
+        .vehicles
+        .iter()
+        .filter_map(|slot| slot.state.as_ref());
     for (state, captured) in source_states.zip(&mut expected.vehicles) {
         if state.status != crate::VehicleStatus::Active
             || state.maneuver_traversal.is_some()
@@ -809,6 +887,7 @@ fn initialize_expected_waiting_pre_gate(
             continue;
         }
         let stable_path = world
+            .binding
             .revision
             .identity()
             .stable_id(occurrence.path)
@@ -879,7 +958,7 @@ fn mapped_journal_conflict_occurrence(
         .conflict_zone(source_zone_ordinal)
         .ok_or(CutoverError::ConflictRevalidationFailed)?;
     let target_address = candidate
-        .conflict_arbiter
+        .conflict_read()
         .unique_address(target_zone, target_stream)
         .ok_or(CutoverError::ConflictRevalidationFailed)?;
     let source_address = crate::ConflictPassageAddress::new(
@@ -889,7 +968,7 @@ fn mapped_journal_conflict_occurrence(
     );
     if !conflict_passage_semantics_continuous(
         base_revision,
-        &candidate.revision,
+        &candidate.binding.revision,
         rebinding,
         source_address,
         target_address,
@@ -941,7 +1020,9 @@ fn apply_conflict_tick_deltas(
         let value = match delta.value {
             None => None,
             Some((locator, first_eligible_tick)) => {
-                if locator.route != state.route || first_eligible_tick > candidate.tick_index {
+                if locator.route != state.route
+                    || first_eligible_tick > candidate.committed.tick_index
+                {
                     return Err(CutoverError::ConflictRevalidationFailed);
                 }
                 let (index, _) = mapped_journal_conflict_occurrence(
@@ -963,15 +1044,19 @@ fn apply_conflict_tick_deltas(
             }
         };
         let index = delta.owner.index() as usize;
-        if value.is_some() && index >= candidate.conflict_eligibility.len() {
-            let additional = index + 1 - candidate.conflict_eligibility.len();
+        if value.is_some() && index >= candidate.committed.conflict_eligibility.len() {
+            let additional = index + 1 - candidate.committed.conflict_eligibility.len();
             candidate
+                .committed
                 .conflict_eligibility
                 .try_reserve(additional)
                 .map_err(|_| CutoverError::StagingAllocFailed)?;
-            candidate.conflict_eligibility.resize(index + 1, None);
+            candidate
+                .committed
+                .conflict_eligibility
+                .resize(index + 1, None);
         }
-        if let Some(slot) = candidate.conflict_eligibility.get_mut(index) {
+        if let Some(slot) = candidate.committed.conflict_eligibility.get_mut(index) {
             *slot = value;
         }
     }
@@ -1012,10 +1097,13 @@ fn apply_conflict_tick_deltas(
             ));
         }
         mapped.sort_unstable_by_key(|(index, _)| *index);
-        candidate
-            .conflict_arbiter
-            .remove_authority_for_replay(delta.owner)
-            .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
+        crate::conflict::ConflictWrite::new(
+            &mut candidate.committed.conflict,
+            &mut candidate.derived.conflict,
+            &mut candidate.workspace.conflict,
+        )
+        .remove_authority_for_replay(delta.owner)
+        .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
         let Some(acquired_tick) = delta.acquired_tick else {
             if !mapped.is_empty() {
                 return Err(CutoverError::ConflictRevalidationFailed);
@@ -1026,7 +1114,7 @@ fn apply_conflict_tick_deltas(
             .first()
             .map(|(index, _)| *index)
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
-        if acquired_tick > candidate.tick_index
+        if acquired_tick > candidate.committed.tick_index
             || mapped
                 .iter()
                 .enumerate()
@@ -1068,6 +1156,7 @@ fn apply_conflict_tick_deltas(
             .derive_reservation_downstream_claims_from_plan(plan, &mut downstream)
             .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
         let follower_min_gap_mm = candidate
+            .binding
             .revision
             .traffic()
             .relations()
@@ -1080,19 +1169,22 @@ fn apply_conflict_tick_deltas(
             .map_err(|_| CutoverError::StagingAllocFailed)?;
         cells.extend(mapped.into_iter().map(|(_, cell)| cell));
         cells.sort_unstable_by_key(|cell| cell.address);
-        candidate
-            .conflict_arbiter
-            .restore_reservation(
-                delta.owner,
-                crate::conflict::RestoredConflictReservation {
-                    follower_min_gap_mm,
-                    acquired_tick,
-                    passage_range: range,
-                    cells: &cells,
-                    downstream: &downstream,
-                },
-            )
-            .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
+        crate::conflict::ConflictWrite::new(
+            &mut candidate.committed.conflict,
+            &mut candidate.derived.conflict,
+            &mut candidate.workspace.conflict,
+        )
+        .restore_reservation(
+            delta.owner,
+            crate::conflict::RestoredConflictReservation {
+                follower_min_gap_mm,
+                acquired_tick,
+                passage_range: range,
+                cells: &cells,
+                downstream: &downstream,
+            },
+        )
+        .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
     }
 
     for delta in conflict_lag_delta_stream(lag_bytes) {
@@ -1103,13 +1195,13 @@ fn apply_conflict_tick_deltas(
             .conflict_zone(delta.address.zone())
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
         let target_address = candidate
-            .conflict_arbiter
+            .conflict_read()
             .unique_address(target_zone, target_stream)
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
         if delta.reference == crate::ConflictLagReference::NoHistory
             || !conflict_passage_semantics_continuous(
                 base_revision,
-                &candidate.revision,
+                &candidate.binding.revision,
                 rebinding,
                 delta.address,
                 target_address,
@@ -1117,10 +1209,13 @@ fn apply_conflict_tick_deltas(
         {
             return Err(CutoverError::ConflictRevalidationFailed);
         }
-        candidate
-            .conflict_arbiter
-            .restore_lag_reference(target_address, delta.reference)
-            .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
+        crate::conflict::ConflictWrite::new(
+            &mut candidate.committed.conflict,
+            &mut candidate.derived.conflict,
+            &mut candidate.workspace.conflict,
+        )
+        .restore_lag_reference(target_address, delta.reference)
+        .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
     }
     Ok(())
 }
@@ -1144,8 +1239,8 @@ fn apply_record(
             conflict_authorities,
             conflict_lags,
         } => {
-            candidate.tick_index = *tick_index;
-            candidate.time_ms = *time_ms;
+            candidate.committed.tick_index = *tick_index;
+            candidate.committed.time_ms = *time_ms;
             candidate.refresh_signals();
             if entries.is_empty()
                 && waiting_zones.is_empty()
@@ -1166,6 +1261,7 @@ fn apply_record(
                 let slot_index =
                     usize::try_from(delta.slot).map_err(|_| CutoverError::ReplayInconsistent)?;
                 let slot = candidate
+                    .committed
                     .vehicles
                     .get_mut(slot_index)
                     .ok_or(CutoverError::ReplayInconsistent)?;
@@ -1185,6 +1281,7 @@ fn apply_record(
                     .waiting_zone(base_zone)
                     .ok_or(CutoverError::WaitingRevalidationFailed)?;
                 let state = candidate
+                    .committed
                     .waiting_zones
                     .get_mut(target_zone.index())
                     .ok_or(CutoverError::WaitingRevalidationFailed)?;
@@ -1234,20 +1331,23 @@ fn apply_record(
             // 计数加法在容量约束（u64 容量、注册路径先比容量）下结构性
             // 不可达溢出；按内部不变量处理，不用数据错误变体承载哨兵值。
             let next_count = candidate
+                .committed
                 .live_route_count
                 .checked_add(1)
                 .expect("route count preflight guarantees room");
             let next_occurrence = candidate
+                .committed
                 .live_route_edge_occurrence_count
                 .checked_add(u64::try_from(target_edges.len()).expect("edge count fits u64"))
                 .expect("occurrence preflight guarantees room");
-            if next_occurrence > candidate.config.route_edge_occurrence_capacity() {
+            if next_occurrence > candidate.binding.config.route_edge_occurrence_capacity() {
                 return Err(CutoverError::EdgeOccurrenceCapacityExceeded {
                     total: next_occurrence,
-                    capacity: candidate.config.route_edge_occurrence_capacity(),
+                    capacity: candidate.binding.config.route_edge_occurrence_capacity(),
                 });
             }
             let next_conflict_occurrence = candidate
+                .committed
                 .live_route_conflict_occurrence_count
                 .checked_add(
                     u64::try_from(compiled.conflicts.len())
@@ -1259,21 +1359,22 @@ fn apply_record(
                 compiled: Some(compiled),
                 live_vehicles: 0,
             };
-            if slot_index == candidate.routes.len() {
+            if slot_index == candidate.committed.routes.len() {
                 candidate
+                    .committed
                     .routes
                     .try_reserve_exact(1)
                     .map_err(|_| CutoverError::StagingAllocFailed)?;
-                candidate.routes.push(staged);
-            } else if slot_index < candidate.routes.len() {
+                candidate.committed.routes.push(staged);
+            } else if slot_index < candidate.committed.routes.len() {
                 // 复用槽只能来自空闲表栈顶（镜像 world 注册路径的 LIFO
                 // 弹出）；不消费空闲表会让晋升把含占用槽的表换回世界，
                 // 后续注册复用同一槽并覆盖存活路线。
-                if candidate.free_routes.last().copied() != Some(slot_index) {
+                if candidate.committed.free_routes.last().copied() != Some(slot_index) {
                     return Err(CutoverError::ReplayInconsistent);
                 }
-                candidate.free_routes.pop();
-                let existing = &mut candidate.routes[slot_index];
+                candidate.committed.free_routes.pop();
+                let existing = &mut candidate.committed.routes[slot_index];
                 if existing.compiled.is_some() {
                     return Err(CutoverError::ReplayInconsistent);
                 }
@@ -1281,9 +1382,9 @@ fn apply_record(
             } else {
                 return Err(CutoverError::ReplayInconsistent);
             }
-            candidate.live_route_count = next_count;
-            candidate.live_route_edge_occurrence_count = next_occurrence;
-            candidate.live_route_conflict_occurrence_count = next_conflict_occurrence;
+            candidate.committed.live_route_count = next_count;
+            candidate.committed.live_route_edge_occurrence_count = next_occurrence;
+            candidate.committed.live_route_conflict_occurrence_count = next_conflict_occurrence;
         }
         JournalRecord::RouteRemoved {
             slot,
@@ -1294,6 +1395,7 @@ fn apply_record(
             let slot_index =
                 usize::try_from(*slot).map_err(|_| CutoverError::ReplayInconsistent)?;
             let existing = candidate
+                .committed
                 .routes
                 .get_mut(slot_index)
                 .ok_or(CutoverError::ReplayInconsistent)?;
@@ -1304,21 +1406,24 @@ fn apply_record(
             let removed_conflicts =
                 u64::try_from(compiled.conflicts.len()).expect("conflict count fits u64");
             existing.compiled = None;
-            candidate.live_route_count = candidate
+            candidate.committed.live_route_count = candidate
+                .committed
                 .live_route_count
                 .checked_sub(1)
                 .ok_or(CutoverError::ReplayInconsistent)?;
-            candidate.live_route_edge_occurrence_count = candidate
+            candidate.committed.live_route_edge_occurrence_count = candidate
+                .committed
                 .live_route_edge_occurrence_count
                 .checked_sub(removed)
                 .ok_or(CutoverError::ReplayInconsistent)?;
-            candidate.live_route_conflict_occurrence_count = candidate
+            candidate.committed.live_route_conflict_occurrence_count = candidate
+                .committed
                 .live_route_conflict_occurrence_count
                 .checked_sub(removed_conflicts)
                 .ok_or(CutoverError::ReplayInconsistent)?;
             if *recyclable {
                 existing.generation = *generation_after;
-                candidate.free_routes.push(slot_index);
+                candidate.committed.free_routes.push(slot_index);
             }
         }
         JournalRecord::VehicleSpawned { vehicle, .. } => {
@@ -1331,33 +1436,35 @@ fn apply_record(
                 generation: vehicle.generation,
                 state: Some(state),
             };
-            if slot_index == candidate.vehicles.len() {
+            if slot_index == candidate.committed.vehicles.len() {
                 candidate
+                    .committed
                     .vehicles
                     .try_reserve_exact(1)
                     .map_err(|_| CutoverError::StagingAllocFailed)?;
-                candidate.vehicles.push(staged);
-            } else if let Some(existing) = candidate.vehicles.get_mut(slot_index) {
-                if candidate.free_vehicles.last().copied() != Some(slot_index) {
+                candidate.committed.vehicles.push(staged);
+            } else if let Some(existing) = candidate.committed.vehicles.get_mut(slot_index) {
+                if candidate.committed.free_vehicles.last().copied() != Some(slot_index) {
                     return Err(CutoverError::ReplayInconsistent);
                 }
                 if existing.state.is_some() {
                     return Err(CutoverError::ReplayInconsistent);
                 }
-                candidate.free_vehicles.pop();
+                candidate.committed.free_vehicles.pop();
                 *existing = staged;
             } else {
                 return Err(CutoverError::ReplayInconsistent);
             }
             candidate
+                .committed
                 .live_order
                 .try_reserve_exact(1)
                 .map_err(|_| CutoverError::StagingAllocFailed)?;
-            candidate.live_order.push(handle);
+            candidate.committed.live_order.push(handle);
             candidate.rebuild_active_order();
             let route_index =
                 usize::try_from(route.index()).map_err(|_| CutoverError::ReplayInconsistent)?;
-            if let Some(slot) = candidate.routes.get_mut(route_index) {
+            if let Some(slot) = candidate.committed.routes.get_mut(route_index) {
                 slot.live_vehicles += 1;
             }
             revalidate_vehicle_on(candidate, handle)?;
@@ -1376,6 +1483,7 @@ fn apply_record(
             let old_index =
                 usize::try_from(*old_slot).map_err(|_| CutoverError::ReplayInconsistent)?;
             let old_state = candidate
+                .committed
                 .vehicles
                 .get(old_index)
                 .and_then(|slot| slot.state.as_ref())
@@ -1389,8 +1497,8 @@ fn apply_record(
                 usize::try_from(vehicle.slot).map_err(|_| CutoverError::ReplayInconsistent)?;
             let order =
                 usize::try_from(*order_index).map_err(|_| CutoverError::ReplayInconsistent)?;
-            if candidate.live_order.get(order).copied() != Some(old_handle)
-                || candidate.parking.binding(old_handle).is_some()
+            if candidate.committed.live_order.get(order).copied() != Some(old_handle)
+                || candidate.committed.parking.binding(old_handle).is_some()
             {
                 return Err(CutoverError::ReplayInconsistent);
             }
@@ -1406,19 +1514,21 @@ fn apply_record(
                 if *old_generation != u32::MAX {
                     return Err(CutoverError::ReplayInconsistent);
                 }
-                if slot_index == candidate.vehicles.len() {
+                if slot_index == candidate.committed.vehicles.len() {
                     if vehicle.generation != 0 {
                         return Err(CutoverError::ReplayInconsistent);
                     }
                     candidate
+                        .committed
                         .vehicles
                         .try_reserve_exact(1)
                         .map_err(|_| CutoverError::StagingAllocFailed)?;
                 } else {
-                    if candidate.free_vehicles.last().copied() != Some(slot_index) {
+                    if candidate.committed.free_vehicles.last().copied() != Some(slot_index) {
                         return Err(CutoverError::ReplayInconsistent);
                     }
                     let existing = candidate
+                        .committed
                         .vehicles
                         .get(slot_index)
                         .ok_or(CutoverError::ReplayInconsistent)?;
@@ -1433,22 +1543,22 @@ fn apply_record(
                 state: Some(state),
             };
             if slot_index == old_index {
-                candidate.vehicles[old_index] = staged;
+                candidate.committed.vehicles[old_index] = staged;
             } else {
-                candidate.vehicles[old_index].state = None;
-                if slot_index == candidate.vehicles.len() {
-                    candidate.vehicles.push(staged);
+                candidate.committed.vehicles[old_index].state = None;
+                if slot_index == candidate.committed.vehicles.len() {
+                    candidate.committed.vehicles.push(staged);
                 } else {
-                    let popped = candidate.free_vehicles.pop();
+                    let popped = candidate.committed.free_vehicles.pop();
                     debug_assert_eq!(popped, Some(slot_index));
-                    candidate.vehicles[slot_index] = staged;
+                    candidate.committed.vehicles[slot_index] = staged;
                 }
             }
             if let Some(next_route_ref) = next_route_ref {
                 candidate.release_route_ref(released_route);
                 commit_candidate_route_ref(candidate, new_route, next_route_ref);
             }
-            candidate.live_order[order] = new_handle;
+            candidate.committed.live_order[order] = new_handle;
             candidate.rebuild_active_order();
             revalidate_vehicle_on(candidate, new_handle)?;
         }
@@ -1461,6 +1571,7 @@ fn apply_record(
             let slot_index =
                 usize::try_from(vehicle.slot).map_err(|_| CutoverError::ReplayInconsistent)?;
             let current = candidate
+                .committed
                 .vehicles
                 .get(slot_index)
                 .and_then(|slot| slot.state.as_ref())
@@ -1473,7 +1584,7 @@ fn apply_record(
                 return Err(CutoverError::ConflictRevalidationFailed);
             }
             let next_binding = rebind_parking_delta(candidate, rebinding, handle, *parking)?;
-            let current_binding = candidate.parking.binding(handle);
+            let current_binding = candidate.committed.parking.binding(handle);
             let next_route_ref = (current.route != next_state.route)
                 .then(|| checked_candidate_route_ref(candidate, next_state.route))
                 .transpose()?;
@@ -1484,7 +1595,7 @@ fn apply_record(
                 candidate.release_route_ref(current.route);
                 commit_candidate_route_ref(candidate, next_state.route, next_route_ref);
             }
-            candidate.vehicles[slot_index].state = Some(next_state);
+            candidate.committed.vehicles[slot_index].state = Some(next_state);
             candidate.rebuild_active_order();
             revalidate_vehicle_on(candidate, handle)?;
         }
@@ -1507,30 +1618,33 @@ fn apply_record(
                 state: Some(state),
             };
             candidate
+                .committed
                 .live_order
                 .try_reserve_exact(1)
                 .map_err(|_| CutoverError::StagingAllocFailed)?;
-            if slot_index == candidate.vehicles.len() {
+            if slot_index == candidate.committed.vehicles.len() {
                 candidate
+                    .committed
                     .vehicles
                     .try_reserve_exact(1)
                     .map_err(|_| CutoverError::StagingAllocFailed)?;
-                candidate.vehicles.push(staged);
+                candidate.committed.vehicles.push(staged);
             } else {
-                if candidate.free_vehicles.last().copied() != Some(slot_index) {
+                if candidate.committed.free_vehicles.last().copied() != Some(slot_index) {
                     return Err(CutoverError::ReplayInconsistent);
                 }
                 let existing = candidate
+                    .committed
                     .vehicles
                     .get_mut(slot_index)
                     .ok_or(CutoverError::ReplayInconsistent)?;
                 if existing.state.is_some() || existing.generation != vehicle.generation {
                     return Err(CutoverError::ReplayInconsistent);
                 }
-                candidate.free_vehicles.pop();
+                candidate.committed.free_vehicles.pop();
                 *existing = staged;
             }
-            candidate.live_order.push(handle);
+            candidate.committed.live_order.push(handle);
             commit_candidate_route_ref(candidate, state.route, route_ref);
             insert_candidate_parking_binding(candidate, handle, binding)?;
             revalidate_vehicle_on(candidate, handle)?;
@@ -1548,6 +1662,7 @@ fn apply_record(
             let slot_index =
                 usize::try_from(*slot).map_err(|_| CutoverError::ReplayInconsistent)?;
             let state = candidate
+                .committed
                 .vehicles
                 .get(slot_index)
                 .and_then(|slot| slot.state.as_ref())
@@ -1561,7 +1676,7 @@ fn apply_record(
             }
             let order_index =
                 usize::try_from(*order_index).map_err(|_| CutoverError::ReplayInconsistent)?;
-            if candidate.live_order.get(order_index).copied() != Some(handle) {
+            if candidate.committed.live_order.get(order_index).copied() != Some(handle) {
                 return Err(CutoverError::ReplayInconsistent);
             }
             if *recyclable {
@@ -1569,6 +1684,7 @@ fn apply_record(
                     return Err(CutoverError::ReplayInconsistent);
                 }
                 candidate
+                    .committed
                     .free_vehicles
                     .try_reserve_exact(1)
                     .map_err(|_| CutoverError::StagingAllocFailed)?;
@@ -1576,19 +1692,22 @@ fn apply_record(
                 return Err(CutoverError::ReplayInconsistent);
             }
 
-            let binding = candidate.parking.binding(handle);
+            let binding = candidate.committed.parking.binding(handle);
             remove_candidate_parking_binding(candidate, handle, binding);
-            candidate
-                .conflict_arbiter
-                .release_vehicle(handle, candidate.time_ms);
+            crate::conflict::ConflictWrite::new(
+                &mut candidate.committed.conflict,
+                &mut candidate.derived.conflict,
+                &mut candidate.workspace.conflict,
+            )
+            .release_vehicle(handle, candidate.committed.time_ms);
             candidate.clear_conflict_eligibility(handle);
             candidate.release_route_ref(state.route);
-            candidate.live_order.remove(order_index);
-            let slot = &mut candidate.vehicles[slot_index];
+            candidate.committed.live_order.remove(order_index);
+            let slot = &mut candidate.committed.vehicles[slot_index];
             slot.state = None;
             slot.generation = *generation_after;
             if *recyclable {
-                candidate.free_vehicles.push(slot_index);
+                candidate.committed.free_vehicles.push(slot_index);
             }
             candidate.rebuild_active_order();
         }
@@ -1615,10 +1734,13 @@ fn compile_candidate_route(
     edges: &[LaneEdgeOrdinal],
 ) -> Result<crate::tables::CompiledRoute, CutoverError> {
     crate::tables::compile_route(
-        candidate.revision.as_ref(),
+        candidate.binding.revision.as_ref(),
         edges,
-        candidate.live_route_conflict_occurrence_count,
-        candidate.config.route_conflict_occurrence_capacity(),
+        candidate.committed.live_route_conflict_occurrence_count,
+        candidate
+            .binding
+            .config
+            .route_conflict_occurrence_capacity(),
     )
     .map_err(|error| match error {
         crate::RouteError::AllocationFailed => CutoverError::StagingAllocFailed,
@@ -1661,7 +1783,7 @@ mod tests {
         let base = world.revision();
         let rebinding = CrossRevisionRebinding::build(base.identity(), base.identity()).unwrap();
         world.arm_migration_journal(4_096).unwrap();
-        let journal = world.migration_journal.as_mut().unwrap();
+        let journal = world.admin.migration_journal.as_mut().unwrap();
         journal.begin_tick(2, 200);
         journal.tick_conflict_eligibility(owner, None);
         journal.tick_conflict_authority_absent(owner);
@@ -1756,7 +1878,7 @@ mod tests {
     ) -> NetworkRevisionCutoverDescriptor {
         let digest: [u8; 32] = sha2::Sha256::digest(lfsd).into();
         NetworkRevisionCutoverDescriptor::new(
-            LfcaOriginBinding::from_canonical_origin(*world.revision.canonical_origin()),
+            LfcaOriginBinding::from_canonical_origin(*world.binding.revision.canonical_origin()),
             LfcaOriginBinding::from_canonical_origin(target_origin),
             Some(SemanticDiffOriginBinding::new(
                 SEMANTIC_DIFF_FORMAT_VERSION,
@@ -1860,9 +1982,11 @@ mod tests {
             crate::snapshot_restore::tests::world_with_conflict_reservation();
         let target_revision = crate::cutover::tests::transaction_tests::revision(true);
         let target_origin = *target_revision.canonical_origin();
-        let rebinding =
-            CrossRevisionRebinding::build(source.revision.identity(), target_revision.identity())
-                .expect("same semantics rebind");
+        let rebinding = CrossRevisionRebinding::build(
+            source.binding.revision.identity(),
+            target_revision.identity(),
+        )
+        .expect("same semantics rebind");
         let mut candidate = crate::cutover_migration::migrate_structural_clone(
             &source,
             target_revision,
@@ -1881,7 +2005,7 @@ mod tests {
             .maneuvers[traversal.maneuver_occurrence_index as usize]
             .exit_route_edge_index;
         for world in [&mut source, &mut candidate] {
-            let state = world.vehicles[vehicle.index() as usize]
+            let state = world.committed.vehicles[vehicle.index() as usize]
                 .state
                 .as_mut()
                 .expect("Clearing vehicle");
@@ -1901,7 +2025,7 @@ mod tests {
             parking: ParkingBindingDelta::new(None, None),
         };
         apply_record(
-            &source.revision,
+            &source.binding.revision,
             &mut candidate,
             &rebinding,
             &parking_update,
@@ -1919,10 +2043,15 @@ mod tests {
             .records_from(0)
             .next()
             .expect("despawn record");
-        apply_record(&source.revision, &mut candidate, &rebinding, &record)
-            .expect("despawn delta releases candidate Conflict authority");
-        assert!(!candidate.conflict_arbiter.has_authority(vehicle));
-        assert!(candidate.conflict_eligibility.is_empty());
+        apply_record(
+            &source.binding.revision,
+            &mut candidate,
+            &rebinding,
+            &record,
+        )
+        .expect("despawn delta releases candidate Conflict authority");
+        assert!(!candidate.conflict_read().has_authority(vehicle));
+        assert!(candidate.committed.conflict_eligibility.is_empty());
         assert!(candidate.conflict_state_valid());
         assert_eq!(
             source
@@ -1940,16 +2069,18 @@ mod tests {
     fn production_conflict_ticks_replay_acquire_stage_clear_and_lag_without_remigration() {
         let (mut source, vehicle) =
             crate::snapshot_restore::tests::world_with_conflict_eligibility();
-        source.vehicles[vehicle.index() as usize]
+        source.committed.vehicles[vehicle.index() as usize]
             .state
             .as_mut()
             .expect("source vehicle")
             .speed_mm_s = 1_000;
         let target_revision = crate::cutover::tests::transaction_tests::revision(false);
         let target_origin = *target_revision.canonical_origin();
-        let rebinding =
-            CrossRevisionRebinding::build(source.revision.identity(), target_revision.identity())
-                .expect("same semantic identities rebind");
+        let rebinding = CrossRevisionRebinding::build(
+            source.binding.revision.identity(),
+            target_revision.identity(),
+        )
+        .expect("same semantic identities rebind");
         let mut candidate = crate::cutover_migration::migrate_structural_clone(
             &source,
             target_revision,
@@ -1978,14 +2109,19 @@ mod tests {
                 records.next().is_none(),
                 "one source step emits one Tick record"
             );
-            apply_record(&source.revision, &mut candidate, &rebinding, &record)
-                .expect("candidate replays production Conflict delta");
+            apply_record(
+                &source.binding.revision,
+                &mut candidate,
+                &rebinding,
+                &record,
+            )
+            .expect("candidate replays production Conflict delta");
             assert_same_committed(&source, &candidate);
             assert!(candidate.conflict_state_valid());
             saw_reservation |= source.conflict_reservation(vehicle).is_some();
             saw_actual_clear |=
                 source
-                    .conflict_arbiter
+                    .conflict_read()
                     .persisted_lag_rows()
                     .any(|(_, reference)| {
                         matches!(reference, crate::ConflictLagReference::ActualClear(_))
@@ -2113,8 +2249,8 @@ mod tests {
             motion.maneuver_traversal = None;
             assert_eq!(motion, source_motion);
             assert_ne!(world.world_generation(), before_generation);
-            assert_eq!(world.waiting_zones[0].occupancy, 0);
-            assert_eq!(world.waiting_zones[0].next_admission_sequence, 0);
+            assert_eq!(world.committed.waiting_zones[0].occupancy, 0);
+            assert_eq!(world.committed.waiting_zones[0].next_admission_sequence, 0);
             let captured = world.capture_snapshot().expect("capture");
             let bytes = crate::encode_lfrs(&captured);
             let restored = crate::restore_lfrs(
@@ -2140,7 +2276,7 @@ mod tests {
                         .waiting_membership
                         .is_some()
                 );
-                assert_eq!(world.waiting_zones[0].next_admission_sequence, 1);
+                assert_eq!(world.committed.waiting_zones[0].next_admission_sequence, 1);
             }
         }
     }
@@ -2214,7 +2350,7 @@ mod tests {
         delta.route_edge_index = maneuver.exit_route_edge_index;
 
         let migrated = vehicle_state_from_delta(
-            world.revision.as_ref(),
+            world.binding.revision.as_ref(),
             tx.candidate.as_ref().expect("candidate"),
             &tx.rebinding,
             &delta,
@@ -2238,7 +2374,7 @@ mod tests {
             let (mut world, old_vehicle) = first_waiting_world(base, 100_000, 1_000);
             let path = laneflow_static_contract::ManeuverPathOrdinal::from_raw(0);
             assert_ne!(
-                world.revision.identity().stable_id(path),
+                world.binding.revision.identity().stable_id(path),
                 target.identity().stable_id(path),
                 "entry/exit edge identity is part of ManeuverPath identity"
             );
@@ -2327,7 +2463,7 @@ mod tests {
         tx.pump(&mut world).expect("pump");
         let before = world.capture_snapshot().expect("source");
         // 该偏移仍满足全部物理/PreGate 不变量，必须由独立期望摘要发现。
-        tx.candidate.as_mut().unwrap().vehicles[vehicle.index() as usize]
+        tx.candidate.as_mut().unwrap().committed.vehicles[vehicle.index() as usize]
             .state
             .as_mut()
             .unwrap()
@@ -2414,12 +2550,12 @@ mod tests {
             .expect("final two clock records drain during commit");
         assert_eq!(REPLAY_REBUILD_COUNTS.get(), (0, 0));
         assert_eq!(world.tick_index(), 8);
-        assert_eq!(world.time_ms, 800);
+        assert_eq!(world.committed.time_ms, 800);
         assert_eq!(
             world.vehicle_state(parked).unwrap().status,
             crate::VehicleStatus::Parked
         );
-        assert!(world.active_order.is_empty());
+        assert!(world.derived.active_order.is_empty());
     }
 
     #[test]
@@ -2430,11 +2566,13 @@ mod tests {
             ),
             "fixture://clock-signals",
         );
-        let rebinding =
-            CrossRevisionRebinding::build(world.revision.identity(), world.revision.identity())
-                .unwrap();
+        let rebinding = CrossRevisionRebinding::build(
+            world.binding.revision.identity(),
+            world.binding.revision.identity(),
+        )
+        .unwrap();
         let base_revision = world.revision();
-        let initial_aspects = world.signal_aspects.clone();
+        let initial_aspects = world.committed.signal_aspects.clone();
         assert!(!initial_aspects.is_empty());
         REPLAY_REBUILD_COUNTS.set((0, 0));
         let changed = (1..600).any(|tick| {
@@ -2453,7 +2591,7 @@ mod tests {
                 },
             )
             .unwrap();
-            world.signal_aspects != initial_aspects
+            world.committed.signal_aspects != initial_aspects
         });
         assert!(
             changed,
@@ -2463,9 +2601,11 @@ mod tests {
 
         let mut world = installed_world(ORACLE_BASE, "fixture://nonempty-tick");
         let base_revision = world.revision();
-        let rebinding =
-            CrossRevisionRebinding::build(world.revision.identity(), world.revision.identity())
-                .unwrap();
+        let rebinding = CrossRevisionRebinding::build(
+            world.binding.revision.identity(),
+            world.binding.revision.identity(),
+        )
+        .unwrap();
         let (entry, exit) = entry_exit(&world);
         let route = world
             .register_route(RouteRegisterInput::new(vec![entry, exit]))
@@ -2505,8 +2645,8 @@ mod tests {
         let mut counter = [0_u8; 12];
         counter[4..].copy_from_slice(&1_u64.to_le_bytes());
         let target_rebinding = CrossRevisionRebinding::build(
-            candidate.revision.identity(),
-            candidate.revision.identity(),
+            candidate.binding.revision.identity(),
+            candidate.binding.revision.identity(),
         )
         .unwrap();
         let revision = candidate.revision();
@@ -2520,7 +2660,10 @@ mod tests {
             conflict_lags: &[],
         };
         apply_record(&revision, candidate, &target_rebinding, &record).unwrap();
-        assert_eq!(candidate.waiting_zones[0].next_admission_sequence, 1);
+        assert_eq!(
+            candidate.committed.waiting_zones[0].next_admission_sequence,
+            1
+        );
         assert_eq!(
             apply_record(&revision, candidate, &target_rebinding, &record),
             Err(CutoverError::ReplayInconsistent)
@@ -2717,8 +2860,8 @@ mod tests {
 
         // 同步同修订入口同样被在途唯一拒绝。
         let same = NetworkRevisionCutoverDescriptor::new(
-            LfcaOriginBinding::from_canonical_origin(*cut.revision.canonical_origin()),
-            LfcaOriginBinding::from_canonical_origin(*cut.revision.canonical_origin()),
+            LfcaOriginBinding::from_canonical_origin(*cut.binding.revision.canonical_origin()),
+            LfcaOriginBinding::from_canonical_origin(*cut.binding.revision.canonical_origin()),
             None,
             crate::MigrationPolicyKind::SameRevisionRestore,
             cut.world_binding(),
@@ -2754,7 +2897,7 @@ mod tests {
         );
         cut.step(TickInput::new(100)).expect("step");
         tx.pump(&mut cut).expect("pump");
-        let before_revision = *cut.revision.canonical_origin();
+        let before_revision = *cut.binding.revision.canonical_origin();
         let before_generation = cut.world_generation();
         let before_state = cut.vehicle_state(vehicle).copied().expect("vehicle");
 
@@ -2764,6 +2907,7 @@ mod tests {
             .candidate
             .as_mut()
             .expect("live transaction owns a candidate")
+            .committed
             .vehicles[index]
             .state
             .as_mut()
@@ -2774,7 +2918,7 @@ mod tests {
             tx.commit(&mut cut).unwrap_err(),
             CutoverError::DigestMismatch
         );
-        assert_eq!(*cut.revision.canonical_origin(), before_revision);
+        assert_eq!(*cut.binding.revision.canonical_origin(), before_revision);
         assert_eq!(cut.world_generation(), before_generation);
         assert_eq!(cut.vehicle_state(vehicle).copied(), Some(before_state));
         cut.step(TickInput::new(100))
@@ -2806,7 +2950,7 @@ mod tests {
             );
             cut.step(TickInput::new(100)).expect("step");
             tx.pump(&mut cut).expect("pump");
-            let before_revision = *cut.revision.canonical_origin();
+            let before_revision = *cut.binding.revision.canonical_origin();
             let before_generation = cut.world_generation();
             let error = crate::snapshot::with_snapshot_allocation_failure_after(fail_after, || {
                 tx.commit(&mut cut)
@@ -2822,7 +2966,7 @@ mod tests {
                 ),
                 "fail_after={fail_after}: {error:?}"
             );
-            assert_eq!(*cut.revision.canonical_origin(), before_revision);
+            assert_eq!(*cut.binding.revision.canonical_origin(), before_revision);
             assert_eq!(cut.world_generation(), before_generation);
             assert_eq!(
                 cut.world_binding().baseline_event_cursor(),
@@ -2866,7 +3010,7 @@ mod tests {
         // 窗口内注册引用 doomed 边的路线（base 合法、target 无对应）。
         let target_probe = revision(TARGET);
         let rebinding_probe = crate::cutover_migration::CrossRevisionRebinding::build(
-            cut.revision.identity(),
+            cut.binding.revision.identity(),
             target_probe.identity(),
         )
         .unwrap();
@@ -2975,7 +3119,7 @@ mod tests {
         .expect("window reserve");
         cut.park_vehicle(vehicle, ParkingTarget::ExplicitSpace(space))
             .expect("window park");
-        assert!(cut.active_order.is_empty());
+        assert!(cut.derived.active_order.is_empty());
         cut.leave_parking(
             vehicle,
             LeaveParkingTarget::ExplicitSpace {
@@ -2985,7 +3129,7 @@ mod tests {
             },
         )
         .expect("window leave");
-        assert_eq!(cut.active_order, [vehicle]);
+        assert_eq!(cut.derived.active_order, [vehicle]);
 
         let transient = cut
             .spawn_parked_vehicle(
@@ -2994,14 +3138,14 @@ mod tests {
             )
             .expect("window parked spawn")
             .vehicle;
-        assert_eq!(cut.active_order, [vehicle]);
+        assert_eq!(cut.derived.active_order, [vehicle]);
         cut.despawn_vehicle(transient)
             .expect("window parked despawn");
 
         tx.pump(&mut cut).expect("replay parking window");
         let commit = tx.commit(&mut cut).expect("commit parking window");
         assert_eq!(commit.final_command_cursor, cut.command_cursor());
-        assert_eq!(cut.active_order, [vehicle]);
+        assert_eq!(cut.derived.active_order, [vehicle]);
         let state = cut.vehicle(vehicle).expect("migrated active vehicle");
         assert_eq!(state.status(), VehicleStatus::Active);
         assert_eq!(state.route(), route);
@@ -3163,7 +3307,7 @@ mod tests {
 
     // 只测试非持久输出通道的事务寿命；payload 不参与候选 authority/digest。
     fn seed_latest_waiting_output(world: &mut TrafficWorld) {
-        let vehicle = world.live_order[0];
+        let vehicle = world.committed.live_order[0];
         let state = world.vehicle_state(vehicle).expect("live vehicle");
         let anchor = crate::WaitingRouteAnchor {
             route: state.route,
@@ -3171,6 +3315,7 @@ mod tests {
             hop: state.route_edge_index,
         };
         world
+            .committed
             .latest_conflict_decisions
             .push(crate::ConflictDecision {
                 vehicle,
@@ -3183,14 +3328,18 @@ mod tests {
                 passage: None,
                 outcome: crate::ConflictDecisionOutcome::NotRequired,
             });
-        world.latest_waiting_decisions.push(crate::WaitingDecision {
-            vehicle,
-            vehicle_update_sequence: 0,
-            zone: None,
-            anchor,
-            outcome: crate::WaitingDecisionOutcome::NotRequired,
-        });
         world
+            .committed
+            .latest_waiting_decisions
+            .push(crate::WaitingDecision {
+                vehicle,
+                vehicle_update_sequence: 0,
+                zone: None,
+                anchor,
+                outcome: crate::WaitingDecisionOutcome::NotRequired,
+            });
+        world
+            .committed
             .latest_transition_events
             .push(crate::TrafficTransitionEvent {
                 tick: world.tick_index(),
@@ -3238,6 +3387,7 @@ mod tests {
         tx.candidate
             .as_mut()
             .expect("live transaction owns a candidate")
+            .committed
             .vehicles[index]
             .state
             .as_mut()
@@ -3577,7 +3727,7 @@ mod tests {
             .register_route(RouteRegisterInput::new(vec![entry, exit]))
             .expect("route");
         spawn_on(&mut cut, route, 10_000, 5_000);
-        let old_root = Arc::downgrade(&cut.revision);
+        let old_root = Arc::downgrade(&cut.binding.revision);
         let target_revision = revision(ORACLE_TARGET);
         let target_origin = *target_revision.canonical_origin();
         let descriptor = descriptor_for(&cut, target_origin, ORACLE_LFSD);
@@ -3636,7 +3786,7 @@ mod tests {
         let (entry, exit) = entry_exit(&cut);
         cut.register_route(RouteRegisterInput::new(vec![entry, exit]))
             .expect("route");
-        cut.live_route_edge_occurrence_count = 0;
+        cut.committed.live_route_edge_occurrence_count = 0;
         let mut tx = prepare(
             &mut cut,
             ORACLE_TARGET,
@@ -3715,7 +3865,7 @@ mod tests {
         // 窗口内两世界同序列：强制完成 + 原子替换。
         let force_complete = |world: &mut TrafficWorld, handle: crate::VehicleHandle| {
             let index = usize::try_from(handle.index()).expect("index");
-            world.vehicles[index]
+            world.committed.vehicles[index]
                 .state
                 .as_mut()
                 .expect("vehicle")
@@ -3762,22 +3912,23 @@ mod tests {
         cut.despawn_vehicle(free_slot_vehicle)
             .expect("create a recyclable free slot");
         let free_slot = usize::try_from(free_slot_vehicle.index()).expect("free slot index");
-        assert_eq!(cut.free_vehicles.last().copied(), Some(free_slot));
+        assert_eq!(cut.committed.free_vehicles.last().copied(), Some(free_slot));
 
         let old_index = usize::try_from(old.index()).expect("old slot index");
         let saturated_old = VehicleHandle::new(old.index(), u32::MAX);
-        let old_state = cut.vehicles[old_index]
+        let old_state = cut.committed.vehicles[old_index]
             .state
             .as_mut()
             .expect("old vehicle remains live");
         old_state.handle = saturated_old;
-        cut.vehicles[old_index].generation = u32::MAX;
+        cut.committed.vehicles[old_index].generation = u32::MAX;
         let order_index = cut
+            .committed
             .live_order
             .iter()
             .position(|handle| *handle == old)
             .expect("old vehicle is in stable live order");
-        cut.live_order[order_index] = saturated_old;
+        cut.committed.live_order[order_index] = saturated_old;
         cut.rebuild_active_order();
 
         let mut tx = prepare(
@@ -3786,7 +3937,7 @@ mod tests {
             ORACLE_LFSD,
             &CutoverTransactionLimits::default(),
         );
-        cut.vehicles[old_index]
+        cut.committed.vehicles[old_index]
             .state
             .as_mut()
             .expect("old vehicle remains live during the journal window")
@@ -3802,11 +3953,11 @@ mod tests {
             usize::try_from(replacement.new.index()).expect("replacement index"),
             free_slot
         );
-        assert!(cut.free_vehicles.is_empty());
+        assert!(cut.committed.free_vehicles.is_empty());
 
         tx.pump(&mut cut).expect("replay saturated replacement");
         let _ = tx.commit(&mut cut).expect("commit saturated replacement");
-        assert!(cut.free_vehicles.is_empty());
+        assert!(cut.committed.free_vehicles.is_empty());
         let committed_route = cut
             .vehicle(replacement.new)
             .expect("replacement survives cutover")
@@ -3882,8 +4033,11 @@ mod tests {
         assert_eq!(cut.event_cursor(), 0);
         // 清场：完成并替换到允许路线，移除受限路线。
         let index = usize::try_from(vehicle.index()).expect("index");
-        cut.vehicles[index].state.as_mut().expect("vehicle").status =
-            crate::VehicleStatus::Completed;
+        cut.committed.vehicles[index]
+            .state
+            .as_mut()
+            .expect("vehicle")
+            .status = crate::VehicleStatus::Completed;
         cut.replace_completed_vehicle(
             vehicle,
             VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), allowed, 0, 1_000, 0),
@@ -4021,7 +4175,7 @@ mod tests {
             .expect("route");
         spawn_on(&mut cut, route, 10_000, 5_000);
         cut.step(TickInput::new(100)).expect("step");
-        cut.event_cursor = u64::MAX;
+        cut.committed.event_cursor = u64::MAX;
         let before_generation = cut.world_generation();
         let mut tx = prepare(
             &mut cut,
@@ -4036,7 +4190,7 @@ mod tests {
             tx.commit(&mut cut).unwrap_err(),
             CutoverError::EventCursorExhausted
         );
-        assert_eq!(cut.event_cursor, u64::MAX);
+        assert_eq!(cut.committed.event_cursor, u64::MAX);
         assert_eq!(cut.world_generation(), before_generation);
         assert!(cut.migration_journal_stats().is_none(), "结算解除武装");
         cut.step(TickInput::new(100)).expect("world unaffected");
@@ -4051,7 +4205,7 @@ mod tests {
             .expect("route");
         spawn_on(&mut cut, route, 10_000, 5_000);
         cut.step(TickInput::new(100)).expect("step");
-        let retired = Arc::downgrade(&cut.revision);
+        let retired = Arc::downgrade(&cut.binding.revision);
         let mut tx = prepare(
             &mut cut,
             ORACLE_TARGET,

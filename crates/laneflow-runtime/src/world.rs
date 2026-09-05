@@ -17,9 +17,7 @@ use crate::tables::{
     CompiledRoute, ConflictCapabilityError, RouteSlot, VehicleSlot, bodies_overlap,
     check_conflict_capability, compile_route, occupancy_front_gap, route_access_denied,
 };
-use crate::waiting::{
-    WaitingAdmissionClaim, WaitingQueueLink, WaitingVehiclePlan, WaitingZoneState,
-};
+use crate::waiting::{WaitingQueueLink, WaitingZoneState};
 use crate::{
     CommittedNetworkSource, CommittedPoseSourceBatch, CommittedSignalGroupBatch, CutoverError,
     InstallError, ObservationStateSequence, ParkingBinding, ParkingFacilityCounts,
@@ -113,90 +111,11 @@ impl WorldGeneration {
 /// 生命周期命令（路线、车辆、parking lifecycle 与原子 replace/despawn）只在两次
 /// `step` 之间调用。
 pub struct TrafficWorld {
-    pub(crate) revision: Arc<SharedNetworkRevision>,
-    pub(crate) source: CommittedNetworkSource,
-    /// 宿主指定的世界身份；切换描述符 `worldBinding` 在事务启动时比对。
-    pub(crate) world_id: u64,
-    /// 活动聚合世代；成功切换/恢复的唯一失效轴。
-    pub(crate) world_generation: WorldGeneration,
-    pub(crate) config: WorldConfig,
-    pub(crate) policy_binding: crate::policy::WorldPolicyBinding,
-    /// W4 的单写者冲突/下游资源权威；生产 passage 入口仍由 3A 保护到完整接通。
-    pub(crate) conflict_arbiter: crate::conflict::ConflictArbiter,
-    /// 车辆槽位对应的 exact Gate occurrence 首次资格时钟；W5 负责持久化。
-    pub(crate) conflict_eligibility: Vec<Option<crate::ConflictEligibilityState>>,
-    /// W7 fixed-step scratch；所有增长走 checked reserve，warm-up 后不再分配。
-    pub(crate) conflict_candidates: Vec<crate::conflict_tick::ConflictCandidate>,
-    pub(crate) conflict_schedule: crate::conflict_tick::ConflictSchedule,
-    pub(crate) conflict_candidate_cells: Vec<crate::ConflictPassageAddress>,
-    pub(crate) conflict_candidate_downstream: Vec<crate::DownstreamInterval>,
-    pub(crate) conflict_cell_work: Vec<crate::ConflictPassageAddress>,
-    pub(crate) conflict_downstream_work: Vec<crate::DownstreamInterval>,
-    pub(crate) conflict_grants: Vec<crate::conflict_tick::PreparedConflictGrant>,
-    pub(crate) conflict_motion_by_vehicle: Box<[Option<crate::conflict_tick::ConflictMotionPlan>]>,
-    pub(crate) conflict_next_eligibility: Box<[Option<crate::ConflictEligibilityState>]>,
-    pub(crate) conflict_passage_transitions: Vec<crate::conflict_tick::ConflictPassageTransition>,
-    /// 本 tick reservation/stage/release 发生变化的稀疏 owner 集；迁移日志据此
-    /// 写 authority replacement，避免为在线切换额外扫描车辆容量。
-    pub(crate) conflict_changed_owners: Vec<VehicleHandle>,
-    pub(crate) waiting_dependencies: crate::waiting_dependencies::WaitingDependencies,
-    pub(crate) conflict_staged_decisions: Vec<crate::ConflictDecision>,
-    pub(crate) latest_conflict_decisions: Vec<crate::ConflictDecision>,
-    pub(crate) tick_index: u64,
-    pub(crate) time_ms: u64,
-    /// 已应用输入命令计数（快照合同 §3 双游标之一；切换 `worldBinding`
-    /// 基线在事务启动时与之逐项比对）。
-    pub(crate) command_cursor: u64,
-    /// 已提交切换事件游标（#513 切片 C-4）：每次成功切换原子递增一个
-    /// 事件批次；事件批次只随晋升恰一次交付。
-    pub(crate) event_cursor: u64,
-    /// 当前世界世代/观测 stream 内严格单调的已提交状态序号。
-    pub(crate) observation_state_sequence: ObservationStateSequence,
-    pub(crate) signal_aspects: Box<[SignalAspect]>,
-    /// 下一提交时刻的信号暂存；tick 失败时不影响已发布信号。
-    pub(crate) next_signal_aspects: Box<[SignalAspect]>,
-    pub(crate) routes: Vec<RouteSlot>,
-    pub(crate) free_routes: Vec<usize>,
-    pub(crate) live_route_count: u32,
-    pub(crate) live_route_edge_occurrence_count: u64,
-    pub(crate) live_route_conflict_occurrence_count: u64,
-    pub(crate) vehicles: Vec<VehicleSlot>,
-    pub(crate) free_vehicles: Vec<usize>,
-    pub(crate) live_order: Vec<VehicleHandle>,
-    /// 仅含 `Active` 的固定步进执行顺序；按 `live_order` 投影维护，Parked / Completed
-    /// 不进入 tick 或 lane occupancy 重建扫描。
-    pub(crate) active_order: Vec<VehicleHandle>,
-    pub(crate) parking: ParkingRuntimeState,
-    /// 每个静态 WaitingZone 的稠密本地动态状态。
-    pub(crate) waiting_zones: Box<[WaitingZoneState]>,
-    /// 车辆槽位下标对应的 intrusive queue link；长度固定为 `vehicle_capacity`。
-    pub(crate) waiting_links: Box<[WaitingQueueLink]>,
-    /// 只读 member batch，按 `(zone, admission_sequence)` 排列。
-    pub(crate) waiting_member_rows: Vec<crate::WaitingZoneMember>,
-    /// tick scratch：每车至多一个新 Waiting admission claim。
-    pub(crate) waiting_claims: Vec<WaitingAdmissionClaim>,
-    pub(crate) waiting_plans: Vec<WaitingVehiclePlan>,
-    pub(crate) waiting_plan_by_vehicle: Box<[Option<std::num::NonZeroU32>]>,
-    pub(crate) next_state_by_vehicle: Box<[u32]>,
-    pub(crate) waiting_staged_decisions: Vec<crate::WaitingDecision>,
-    pub(crate) staged_transition_events: Vec<crate::TrafficTransitionEvent>,
-    pub(crate) waiting_next_counters: Box<[u64]>,
-    pub(crate) waiting_staged_occupancy: Box<[u32]>,
-    pub(crate) waiting_staged_storage_mm: Box<[u64]>,
-    /// 刚完成 successful tick 的 latest decision batch。
-    pub(crate) latest_waiting_decisions: Vec<crate::WaitingDecision>,
-    /// 刚完成 successful tick 的 committed transition event batch。
-    pub(crate) latest_transition_events: Vec<crate::TrafficTransitionEvent>,
-    pub(crate) next_states: Vec<(usize, VehicleState)>,
-    pub(crate) occupancy: OccupancyIndex,
-    /// 武装中的迁移增量日志（#513 切片 C）：`Some` ⟺ 本世界存在在途切换事务。
-    /// 武装与解除都只发生在切换事务的原子边界；溢出粘性置位，从不影响本世界
-    /// 自身的提交路径。
-    pub(crate) migration_journal: Option<MigrationDeltaJournal>,
-    /// 日志武装轮次：每次成功武装递增（进程内守卫，不落盘）。事务绑定
-    /// 武装时的轮次，配对校验一并比对——世界级恢复后重新武装的新日志
-    /// 对旧事务按配对失配失败关闭，防止旧事务认领后继日志。
-    pub(crate) migration_epoch: u64,
+    pub(crate) binding: crate::state::WorldBindingState,
+    pub(crate) committed: crate::state::CommittedWorldState,
+    pub(crate) derived: crate::state::DerivedIndexes,
+    pub(crate) workspace: crate::state::TickWorkspace,
+    pub(crate) admin: crate::state::AdministrativeState,
 }
 
 struct UnparkedVehicleAuthority {
@@ -207,6 +126,14 @@ struct UnparkedVehicleAuthority {
 }
 
 impl TrafficWorld {
+    pub(crate) fn conflict_read(&self) -> crate::conflict::ConflictRead<'_> {
+        crate::conflict::ConflictRead::new(
+            &self.committed.conflict,
+            &self.derived.conflict,
+            &self.workspace.conflict,
+        )
+    }
+
     /// 安装完整共享根并指名已提交来源（#302 活动聚合）。失败不留下
     /// 可观察的半个 world。
     ///
@@ -273,64 +200,134 @@ impl TrafficWorld {
         let conflict_arbiter =
             crate::conflict::ConflictArbiter::install(&revision, vehicle_capacity)
                 .map_err(map_conflict_install_error)?;
+        let world_generation = WorldGeneration::INITIAL;
+        let (conflict, conflict_indexes, conflict_workspace) = conflict_arbiter.into_parts();
+        let conflict_eligibility = Vec::with_capacity(vehicle_capacity);
+        let conflict_candidates = Vec::with_capacity(vehicle_capacity);
+        let conflict_schedule = crate::conflict_tick::ConflictSchedule::default();
+        let conflict_candidate_cells = Vec::new();
+        let conflict_candidate_downstream = Vec::new();
+        let conflict_cell_work = Vec::new();
+        let conflict_downstream_work = Vec::new();
+        let conflict_grants = Vec::with_capacity(vehicle_capacity);
+        let conflict_motion_by_vehicle = vec![None; vehicle_capacity].into_boxed_slice();
+        let conflict_next_eligibility = vec![None; vehicle_capacity].into_boxed_slice();
+        let conflict_passage_transitions = Vec::new();
+        let conflict_changed_owners = Vec::with_capacity(vehicle_capacity);
+        let waiting_dependencies = crate::waiting_dependencies::WaitingDependencies::default();
+        let conflict_staged_decisions = Vec::with_capacity(vehicle_capacity);
+        let latest_conflict_decisions = Vec::with_capacity(vehicle_capacity);
+        let tick_index = 0;
+        let time_ms = 0;
+        let command_cursor = 0;
+        let event_cursor = 0;
+        let observation_state_sequence = ObservationStateSequence::INITIAL;
+        let signal_aspects = vec![SignalAspect::Red; group_count].into_boxed_slice();
+        let next_signal_aspects = vec![SignalAspect::Red; group_count].into_boxed_slice();
+        let routes = Vec::with_capacity(route_capacity);
+        let free_routes = Vec::with_capacity(route_capacity);
+        let live_route_count = 0;
+        let live_route_edge_occurrence_count = 0;
+        let live_route_conflict_occurrence_count = 0;
+        let vehicles = Vec::with_capacity(vehicle_capacity);
+        let free_vehicles = Vec::with_capacity(vehicle_capacity);
+        let live_order = Vec::with_capacity(vehicle_capacity);
+        let active_order = Vec::with_capacity(vehicle_capacity);
+        let parking = ParkingRuntimeState::new(space_count, facility_count);
+        let waiting_zones =
+            vec![WaitingZoneState::default(); waiting_zone_count].into_boxed_slice();
+        let waiting_queue_ends =
+            vec![crate::waiting::WaitingQueueEnds::default(); waiting_zone_count]
+                .into_boxed_slice();
+        let waiting_links = vec![WaitingQueueLink::default(); vehicle_capacity].into_boxed_slice();
+        let waiting_member_rows = Vec::with_capacity(vehicle_capacity);
+        let waiting_claims = Vec::with_capacity(vehicle_capacity);
+        let waiting_plans = Vec::with_capacity(vehicle_capacity);
+        let waiting_plan_by_vehicle = vec![None; vehicle_capacity].into_boxed_slice();
+        let next_state_by_vehicle = vec![0; vehicle_capacity].into_boxed_slice();
+        let waiting_staged_decisions = Vec::new();
+        let staged_transition_events = Vec::new();
+        let waiting_next_counters = vec![0; waiting_zone_count].into_boxed_slice();
+        let waiting_staged_occupancy = vec![0; waiting_zone_count].into_boxed_slice();
+        let waiting_staged_storage_mm = vec![0; waiting_zone_count].into_boxed_slice();
+        let latest_waiting_decisions = Vec::new();
+        let latest_transition_events = Vec::new();
+        let next_states = Vec::with_capacity(vehicle_capacity);
+        let (occupancy, occupancy_scratch) = OccupancyIndex::with_capacity(0, 0);
+        let migration_journal = None;
+        let migration_epoch = 0;
         let mut world = Self {
-            revision,
-            source,
-            world_id,
-            world_generation: WorldGeneration::INITIAL,
-            config,
-            policy_binding,
-            conflict_arbiter,
-            conflict_eligibility: Vec::with_capacity(vehicle_capacity),
-            conflict_candidates: Vec::with_capacity(vehicle_capacity),
-            conflict_schedule: crate::conflict_tick::ConflictSchedule::default(),
-            conflict_candidate_cells: Vec::new(),
-            conflict_candidate_downstream: Vec::new(),
-            conflict_cell_work: Vec::new(),
-            conflict_downstream_work: Vec::new(),
-            conflict_grants: Vec::with_capacity(vehicle_capacity),
-            conflict_motion_by_vehicle: vec![None; vehicle_capacity].into_boxed_slice(),
-            conflict_next_eligibility: vec![None; vehicle_capacity].into_boxed_slice(),
-            conflict_passage_transitions: Vec::new(),
-            conflict_changed_owners: Vec::with_capacity(vehicle_capacity),
-            waiting_dependencies: crate::waiting_dependencies::WaitingDependencies::default(),
-            conflict_staged_decisions: Vec::with_capacity(vehicle_capacity),
-            latest_conflict_decisions: Vec::with_capacity(vehicle_capacity),
-            tick_index: 0,
-            time_ms: 0,
-            command_cursor: 0,
-            event_cursor: 0,
-            observation_state_sequence: ObservationStateSequence::INITIAL,
-            signal_aspects: vec![SignalAspect::Red; group_count].into_boxed_slice(),
-            next_signal_aspects: vec![SignalAspect::Red; group_count].into_boxed_slice(),
-            routes: Vec::with_capacity(route_capacity),
-            free_routes: Vec::with_capacity(route_capacity),
-            live_route_count: 0,
-            live_route_edge_occurrence_count: 0,
-            live_route_conflict_occurrence_count: 0,
-            vehicles: Vec::with_capacity(vehicle_capacity),
-            free_vehicles: Vec::with_capacity(vehicle_capacity),
-            live_order: Vec::with_capacity(vehicle_capacity),
-            active_order: Vec::with_capacity(vehicle_capacity),
-            parking: ParkingRuntimeState::new(space_count, facility_count),
-            waiting_zones: vec![WaitingZoneState::default(); waiting_zone_count].into_boxed_slice(),
-            waiting_links: vec![WaitingQueueLink::default(); vehicle_capacity].into_boxed_slice(),
-            waiting_member_rows: Vec::with_capacity(vehicle_capacity),
-            waiting_claims: Vec::with_capacity(vehicle_capacity),
-            waiting_plans: Vec::with_capacity(vehicle_capacity),
-            waiting_plan_by_vehicle: vec![None; vehicle_capacity].into_boxed_slice(),
-            next_state_by_vehicle: vec![0; vehicle_capacity].into_boxed_slice(),
-            waiting_staged_decisions: Vec::new(),
-            staged_transition_events: Vec::new(),
-            waiting_next_counters: vec![0; waiting_zone_count].into_boxed_slice(),
-            waiting_staged_occupancy: vec![0; waiting_zone_count].into_boxed_slice(),
-            waiting_staged_storage_mm: vec![0; waiting_zone_count].into_boxed_slice(),
-            latest_waiting_decisions: Vec::new(),
-            latest_transition_events: Vec::new(),
-            next_states: Vec::with_capacity(vehicle_capacity),
-            occupancy: OccupancyIndex::with_capacity(0, 0),
-            migration_journal: None,
-            migration_epoch: 0,
+            binding: crate::state::WorldBindingState {
+                revision,
+                source,
+                world_id,
+                world_generation,
+                config,
+                policy_binding,
+            },
+            committed: crate::state::CommittedWorldState {
+                conflict,
+                conflict_eligibility,
+                latest_conflict_decisions,
+                tick_index,
+                time_ms,
+                command_cursor,
+                event_cursor,
+                observation_state_sequence,
+                signal_aspects,
+                routes,
+                free_routes,
+                live_route_count,
+                live_route_edge_occurrence_count,
+                live_route_conflict_occurrence_count,
+                vehicles,
+                free_vehicles,
+                live_order,
+                parking,
+                waiting_zones,
+                latest_waiting_decisions,
+                latest_transition_events,
+            },
+            derived: crate::state::DerivedIndexes {
+                conflict: conflict_indexes,
+                active_order,
+                waiting_queue_ends,
+                waiting_links,
+                waiting_member_rows,
+                occupancy,
+            },
+            workspace: crate::state::TickWorkspace {
+                conflict: conflict_workspace,
+                conflict_candidates,
+                conflict_schedule,
+                conflict_candidate_cells,
+                conflict_candidate_downstream,
+                conflict_cell_work,
+                conflict_downstream_work,
+                conflict_grants,
+                conflict_motion_by_vehicle,
+                conflict_next_eligibility,
+                conflict_passage_transitions,
+                conflict_changed_owners,
+                waiting_dependencies,
+                conflict_staged_decisions,
+                next_signal_aspects,
+                waiting_claims,
+                waiting_plans,
+                waiting_plan_by_vehicle,
+                next_state_by_vehicle,
+                waiting_staged_decisions,
+                staged_transition_events,
+                waiting_next_counters,
+                waiting_staged_occupancy,
+                waiting_staged_storage_mm,
+                occupancy_scratch,
+                next_states,
+            },
+            admin: crate::state::AdministrativeState {
+                migration_journal,
+                migration_epoch,
+            },
         };
         world.refresh_signals();
         Ok(world)
@@ -339,29 +336,29 @@ impl TrafficWorld {
     /// 已提交路网来源（#302 活动聚合的来源指名）。
     #[must_use]
     pub const fn committed_source(&self) -> &CommittedNetworkSource {
-        &self.source
+        &self.binding.source
     }
 
     /// 宿主指定的世界身份（切换描述符 `worldBinding` 的比对对象）。
     #[must_use]
     pub const fn world_id(&self) -> u64 {
-        self.world_id
+        self.binding.world_id
     }
 
     #[must_use]
     pub const fn policy_selection(&self) -> crate::WorldPolicySelection {
-        self.policy_binding.selection()
+        self.binding.policy_binding.selection()
     }
 
     /// 当前世界唯一所选策略，借用同一个共享根。
     #[must_use]
     pub fn policy(&self) -> Option<laneflow_static_network::PolicyView<'_>> {
-        self.policy_binding.policy(&self.revision)
+        self.read_view().policy()
     }
 
     #[must_use]
     pub fn policy_gap_profiles(&self) -> &[crate::DerivedPolicyGap] {
-        self.policy_binding.gaps()
+        self.binding.policy_binding.gaps()
     }
 
     /// 把当前根内的 passage 地址派生为可持久化的稳定 locator。
@@ -370,13 +367,7 @@ impl TrafficWorld {
         &self,
         address: crate::ConflictPassageAddress,
     ) -> Option<crate::ConflictPassageLocator> {
-        if !self.conflict_arbiter.contains_address(address) {
-            return None;
-        }
-        Some(crate::ConflictPassageLocator::new(
-            self.revision.identity().stable_id(address.stream())?,
-            self.revision.identity().stable_id(address.zone())?,
-        ))
+        self.read_view().conflict_passage_locator(address)
     }
 
     /// 返回已注册路线中的 exact conflict occurrence locator。
@@ -389,18 +380,14 @@ impl TrafficWorld {
         route: RouteHandle,
         conflict_occurrence_index: u32,
     ) -> Option<crate::ConflictPassageOccurrenceLocator> {
-        let compiled = self.compiled_route(route)?;
-        let occurrence = *compiled
-            .conflicts
-            .get(usize::try_from(conflict_occurrence_index).ok()?)?;
-        let stable_locator = self.conflict_passage_locator(occurrence.address())?;
-        compiled.conflict_occurrence_locator(route, conflict_occurrence_index, stable_locator)
+        self.read_view()
+            .conflict_passage_occurrence_locator(route, conflict_occurrence_index)
     }
 
     /// 当前共享根中的静态 conflict passage cell 数；动态路线及其重复 occurrence 不复制 cell。
     #[must_use]
     pub fn conflict_passage_cell_count(&self) -> usize {
-        self.conflict_arbiter.cell_count()
+        self.conflict_read().cell_count()
     }
 
     /// 返回该车辆当前由 Conflict arbiter 单独持有的 committed reservation。
@@ -409,24 +396,29 @@ impl TrafficWorld {
         &self,
         vehicle: VehicleHandle,
     ) -> Option<crate::ConflictReservation> {
-        self.conflict_arbiter.reservation(vehicle)
+        self.read_view().conflict_reservation(vehicle)
     }
 
     pub(crate) fn conflict_state_valid(&self) -> bool {
-        if !self.conflict_eligibility.is_empty()
-            && self.conflict_eligibility.len()
-                != usize::try_from(self.config.vehicle_capacity()).unwrap_or(usize::MAX)
+        if !self.committed.conflict_eligibility.is_empty()
+            && self.committed.conflict_eligibility.len()
+                != usize::try_from(self.binding.config.vehicle_capacity()).unwrap_or(usize::MAX)
         {
             return false;
         }
-        for (index, slot) in self.vehicles.iter().enumerate() {
+        for (index, slot) in self.committed.vehicles.iter().enumerate() {
             let state = slot.state.as_ref();
-            let eligibility = self.conflict_eligibility.get(index).copied().flatten();
+            let eligibility = self
+                .committed
+                .conflict_eligibility
+                .get(index)
+                .copied()
+                .flatten();
             match (state, eligibility) {
                 (None, None) => {}
                 (None, Some(_)) => return false,
                 (Some(state), eligibility) => {
-                    if !self.conflict_arbiter.state_valid(state) {
+                    if !self.conflict_read().state_valid(state) {
                         return false;
                     }
                     if let Some(eligibility) = eligibility
@@ -447,7 +439,7 @@ impl TrafficWorld {
                         };
                         if gate_range.start != range.first_conflict_occurrence_index()
                             || gate_range.len != range.passage_count()
-                            || reservation.acquired_tick() > self.tick_index
+                            || reservation.acquired_tick() > self.committed.tick_index
                         {
                             return false;
                         }
@@ -459,6 +451,7 @@ impl TrafficWorld {
                             return false;
                         };
                         let Some(gate_progress_mm) = self
+                            .binding
                             .revision
                             .traffic()
                             .lane_lengths_millimetres()
@@ -500,7 +493,7 @@ impl TrafficWorld {
                                 != range.maneuver_occurrence_index()
                                 || locator.admission_gate_hop() != range.admission_gate_hop()
                                 || !self
-                                    .conflict_arbiter
+                                    .conflict_read()
                                     .reservation_has_cell(state.handle, locator.address())
                             {
                                 return false;
@@ -511,26 +504,29 @@ impl TrafficWorld {
             }
         }
         if self
+            .committed
             .conflict_eligibility
-            .get(self.vehicles.len()..)
+            .get(self.committed.vehicles.len()..)
             .is_some_and(|tail| tail.iter().any(Option::is_some))
         {
             return false;
         }
-        self.conflict_arbiter.authority_owners_valid(
+        self.conflict_read().authority_owners_valid(
             |owner| self.vehicle_state(owner).is_some(),
-            self.config.fixed_delta_time_ms(),
+            self.binding.config.fixed_delta_time_ms(),
         )
     }
 
     pub(crate) fn normalize_conflict_eligibility(&mut self) {
-        if self.conflict_eligibility.iter().all(Option::is_none) {
-            self.conflict_eligibility.clear();
-        }
+        self.committed_mut().normalize_conflict_eligibility()
     }
 
     pub(crate) fn clear_conflict_eligibility(&mut self, vehicle: VehicleHandle) {
-        if let Some(eligibility) = self.conflict_eligibility.get_mut(vehicle.index() as usize) {
+        if let Some(eligibility) = self
+            .committed
+            .conflict_eligibility
+            .get_mut(vehicle.index() as usize)
+        {
             *eligibility = None;
         }
         self.normalize_conflict_eligibility();
@@ -539,35 +535,11 @@ impl TrafficWorld {
     pub(crate) fn vehicle_has_conflict_authority(&self, vehicle: VehicleHandle) -> bool {
         self.conflict_reservation(vehicle).is_some()
             || self
+                .committed
                 .conflict_eligibility
                 .get(vehicle.index() as usize)
                 .is_some_and(Option::is_some)
-            || self.conflict_arbiter.has_authority(vehicle)
-    }
-
-    pub(crate) fn conflict_eligibility_position_valid(
-        &self,
-        state: &VehicleState,
-        eligibility: crate::ConflictEligibilityState,
-    ) -> bool {
-        let hop = eligibility.locator().admission_gate_hop();
-        let Some(compiled) = self.compiled_route(state.route) else {
-            return false;
-        };
-        let Some(edge) = compiled.edges.get(hop as usize) else {
-            return false;
-        };
-        let at_upstream_edge_end = state.route_edge_index == hop
-            && state.progress_mm
-                == self.revision.traffic().lane_lengths_millimetres()[edge.index()]
-            && state.carry_um == 0;
-        let at_canonical_crossed_side = hop.checked_add(1).is_some_and(|crossed_hop| {
-            compiled.edges.get(crossed_hop as usize).is_some()
-                && state.route_edge_index == crossed_hop
-                && state.progress_mm == 0
-                && state.carry_um == 0
-        });
-        at_upstream_edge_end || at_canonical_crossed_side
+            || self.conflict_read().has_authority(vehicle)
     }
 
     /// eligibility 的唯一 committed authority predicate。
@@ -580,7 +552,11 @@ impl TrafficWorld {
         state: &VehicleState,
         eligibility: crate::ConflictEligibilityState,
     ) -> bool {
-        self.conflict_eligibility_valid_with_signals(state, eligibility, &self.signal_aspects)
+        self.conflict_eligibility_valid_with_signals(
+            state,
+            eligibility,
+            &self.committed.signal_aspects,
+        )
     }
 
     /// 同一资格谓词同时用于已发布状态与拍后暂存，信号时刻由调用方显式选择。
@@ -590,30 +566,8 @@ impl TrafficWorld {
         eligibility: crate::ConflictEligibilityState,
         signal_aspects: &[SignalAspect],
     ) -> bool {
-        let locator = eligibility.locator();
-        if state.status != VehicleStatus::Active
-            || self.conflict_reservation(state.handle).is_some()
-            || locator.route() != state.route
-            || self.conflict_passage_occurrence_locator(
-                state.route,
-                locator.conflict_occurrence_index(),
-            ) != Some(locator)
-            || !self.conflict_eligibility_position_valid(state, eligibility)
-        {
-            return false;
-        }
-        let Some(gate) = self
-            .compiled_route(state.route)
-            .and_then(|compiled| compiled.hop_gate.get(locator.admission_gate_hop() as usize))
-            .copied()
-            .flatten()
-        else {
-            return false;
-        };
-        matches!(
-            self.gate_policy_decision_with_signals(gate, state.profile, signal_aspects),
-            crate::GatePolicyDecision::Candidate(_)
-        )
+        self.read_view()
+            .conflict_eligibility_valid_with_signals(state, eligibility, signal_aspects)
     }
 
     /// 按 exact occurrence 或跨修订稳定的 entry route occurrence 解析 maneuver/Gate。
@@ -666,60 +620,8 @@ impl TrafficWorld {
         range: crate::ConflictPassageRange,
         vehicle_length_mm: u32,
     ) -> Result<ReservationDownstreamClaimPlan, ConflictAcquireError> {
-        let compiled = self
-            .compiled_route(range.route())
-            .ok_or(ConflictAcquireError::InvalidBundle)?;
-        let first = usize::try_from(range.first_conflict_occurrence_index())
-            .map_err(|_| ConflictAcquireError::InvalidBundle)?;
-        let end = range
-            .first_conflict_occurrence_index()
-            .checked_add(range.passage_count())
-            .and_then(|end| usize::try_from(end).ok())
-            .ok_or(ConflictAcquireError::InvalidBundle)?;
-        let occurrences = compiled
-            .conflicts
-            .get(first..end)
-            .filter(|occurrences| {
-                !occurrences.is_empty()
-                    && occurrences.iter().all(|occurrence| {
-                        occurrence.admission_hop == range.admission_gate_hop()
-                            && occurrence.maneuver_index == range.maneuver_occurrence_index()
-                    })
-            })
-            .ok_or(ConflictAcquireError::InvalidBundle)?;
-        let farthest = occurrences
-            .iter()
-            .map(|occurrence| occurrence.clearance)
-            .max()
-            .ok_or(ConflictAcquireError::InvalidBundle)?;
-        let gate_hop = usize::try_from(range.admission_gate_hop())
-            .map_err(|_| ConflictAcquireError::InvalidBundle)?;
-        let gate_edge = *compiled
-            .edges
-            .get(gate_hop)
-            .ok_or(ConflictAcquireError::InvalidBundle)?;
-        let gate_progress_mm = *self
-            .revision
-            .traffic()
-            .lane_lengths_millimetres()
-            .get(gate_edge.index())
-            .ok_or(ConflictAcquireError::InvalidBundle)?;
-        let gate =
-            crate::DownstreamRoutePoint::new(range.admission_gate_hop(), gate_progress_mm, 0)
-                .ok_or(ConflictAcquireError::InvalidBundle)?;
-        let farthest =
-            crate::DownstreamRoutePoint::new(farthest.route_edge_index, farthest.progress_mm, 0)
-                .ok_or(ConflictAcquireError::InvalidBundle)?;
-        let target = crate::conflict::downstream_claim_target(
-            &compiled.edges,
-            self.revision.traffic().lane_lengths_millimetres(),
-            farthest,
-            vehicle_length_mm,
-        )?;
-        Ok(ReservationDownstreamClaimPlan {
-            route: range.route(),
-            plan: crate::conflict::downstream_claim_plan(gate, target)?,
-        })
+        self.read_view()
+            .reservation_downstream_claim_plan(range, vehicle_length_mm)
     }
 
     /// 使用调用方已经按资源轴预留的 scratch 填充 downstream 物理资源并集。
@@ -733,7 +635,7 @@ impl TrafficWorld {
             .ok_or(ConflictAcquireError::InvalidBundle)?;
         crate::conflict::derive_downstream_claims_from_plan(
             &compiled.edges,
-            self.revision.traffic().lane_lengths_millimetres(),
+            self.binding.revision.traffic().lane_lengths_millimetres(),
             plan.plan,
             output,
         )
@@ -760,37 +662,37 @@ impl TrafficWorld {
 
     #[must_use]
     pub const fn frontier_proof_horizon_ms(&self) -> Option<u64> {
-        self.policy_binding.horizon()
+        self.read_view().frontier_proof_horizon_ms()
     }
 
     /// 当前活动世界世代。成功切换后递增；失败或放弃保持不变。
     #[must_use]
     pub const fn world_generation(&self) -> WorldGeneration {
-        self.world_generation
+        self.binding.world_generation
     }
 
     /// 共享根。
     #[must_use]
     pub fn revision(&self) -> Arc<SharedNetworkRevision> {
-        Arc::clone(&self.revision)
+        Arc::clone(&self.binding.revision)
     }
 
     /// 共享 Traffic component。
     #[must_use]
     pub fn traffic(&self) -> &laneflow_static_network::SharedTrafficNetwork {
-        self.revision.traffic()
+        self.binding.revision.traffic()
     }
 
     /// 已提交 `tick_index`。`install` 后为 0；成功 `step` 与 `StepOutcome` 一致；失败不变。
     #[must_use]
     pub const fn tick_index(&self) -> u64 {
-        self.tick_index
+        self.committed.tick_index
     }
 
     /// 已提交 `time_ms`。`install` 后为 0；成功 `step` 与 `StepOutcome` 一致；失败不变。
     #[must_use]
     pub const fn time_ms(&self) -> u64 {
-        self.time_ms
+        self.committed.time_ms
     }
 
     /// 已应用输入命令计数（快照合同 §3 双游标之一）。
@@ -800,7 +702,7 @@ impl TrafficWorld {
     /// 与切换事务不是输入命令，不推进本游标。安装后为零。
     #[must_use]
     pub const fn command_cursor(&self) -> u64 {
-        self.command_cursor
+        self.committed.command_cursor
     }
 
     /// 已提交切换事件游标（快照合同 §3 双游标之一；#513 切片 C 起
@@ -808,13 +710,13 @@ impl TrafficWorld {
     /// 重试成功）恰递增一个事件批次。
     #[must_use]
     pub const fn event_cursor(&self) -> u64 {
-        self.event_cursor
+        self.committed.event_cursor
     }
 
     /// 安装时冻结的 world 配置。
     #[must_use]
     pub const fn config(&self) -> WorldConfig {
-        self.config
+        self.binding.config
     }
 
     /// 武装迁移增量日志（#513 切片 C）。只在切换事务 Prepare 边界调用：以
@@ -824,21 +726,22 @@ impl TrafficWorld {
         &mut self,
         byte_bound: u64,
     ) -> Result<(), MigrationJournalError> {
-        if self.migration_journal.is_some() {
+        if self.admin.migration_journal.is_some() {
             return Err(MigrationJournalError::AlreadyArmed);
         }
-        let journal = MigrationDeltaJournal::arm(byte_bound, self.command_cursor)?;
-        self.migration_epoch = self
+        let journal = MigrationDeltaJournal::arm(byte_bound, self.committed.command_cursor)?;
+        self.admin.migration_epoch = self
+            .admin
             .migration_epoch
             .checked_add(1)
             .expect("migration epoch fits u64");
-        self.migration_journal = Some(journal);
+        self.admin.migration_journal = Some(journal);
         Ok(())
     }
 
     /// 解除并取回迁移增量日志（切换事务放弃或提交边界的收尾步骤）。
     pub(crate) fn disarm_migration_journal(&mut self) -> Option<MigrationDeltaJournal> {
-        self.migration_journal.take()
+        self.admin.migration_journal.take()
     }
 
     /// 世界级在途切换恢复入口：显式放弃武装中的迁移增量日志。
@@ -859,7 +762,7 @@ impl TrafficWorld {
 
     /// 武装中的日志只读视图（滞后、溢出与覆盖区间观测）。
     pub(crate) fn migration_journal(&self) -> Option<&MigrationDeltaJournal> {
-        self.migration_journal.as_ref()
+        self.admin.migration_journal.as_ref()
     }
 
     /// 武装中迁移增量日志的统计快照；`None` = 无在途切换事务。宿主据此
@@ -869,7 +772,8 @@ impl TrafficWorld {
     pub fn migration_journal_stats(
         &self,
     ) -> Option<crate::migration_journal::MigrationJournalStats> {
-        self.migration_journal
+        self.admin
+            .migration_journal
             .as_ref()
             .map(|journal| journal.stats())
     }
@@ -889,23 +793,30 @@ impl TrafficWorld {
     ) -> Result<RouteHandle, RouteError> {
         let next_occurrence_count = self.preflight_route_registration(edges.len())?;
         let next_command_cursor = self
+            .committed
             .command_cursor
             .checked_add(1)
             .expect("route preflight guarantees command cursor room");
         let compiled = compile_route(
-            self.revision.as_ref(),
+            self.binding.revision.as_ref(),
             edges,
-            self.live_route_conflict_occurrence_count,
-            self.config.route_conflict_occurrence_capacity(),
+            self.committed.live_route_conflict_occurrence_count,
+            self.binding.config.route_conflict_occurrence_capacity(),
         )?;
         let added_conflict_occurrences =
             u64::try_from(compiled.conflicts.len()).expect("conflict occurrence count fits u64");
         let next_conflict_occurrence_count = self
+            .committed
             .live_route_conflict_occurrence_count
             .checked_add(added_conflict_occurrences)
             .expect("route conflict capacity preflight guarantees room");
-        let slot_index = self.free_routes.pop().unwrap_or(self.routes.len());
+        let slot_index = self
+            .committed
+            .free_routes
+            .pop()
+            .unwrap_or(self.committed.routes.len());
         let generation = self
+            .committed
             .routes
             .get(slot_index)
             .map_or(0, |slot| slot.generation);
@@ -918,19 +829,20 @@ impl TrafficWorld {
             compiled: Some(compiled),
             live_vehicles: 0,
         };
-        if slot_index == self.routes.len() {
-            self.routes.push(slot);
+        if slot_index == self.committed.routes.len() {
+            self.committed.routes.push(slot);
         } else {
-            self.routes[slot_index] = slot;
+            self.committed.routes[slot_index] = slot;
         }
-        self.live_route_count = self
+        self.committed.live_route_count = self
+            .committed
             .live_route_count
             .checked_add(1)
             .expect("route count preflight guarantees room");
-        self.live_route_edge_occurrence_count = next_occurrence_count;
-        self.live_route_conflict_occurrence_count = next_conflict_occurrence_count;
-        self.command_cursor = next_command_cursor;
-        if let Some(journal) = self.migration_journal.as_mut() {
+        self.committed.live_route_edge_occurrence_count = next_occurrence_count;
+        self.committed.live_route_conflict_occurrence_count = next_conflict_occurrence_count;
+        self.committed.command_cursor = next_command_cursor;
+        if let Some(journal) = self.admin.migration_journal.as_mut() {
             journal.record_route_registered(next_command_cursor, handle, edges);
         }
         Ok(handle)
@@ -945,19 +857,21 @@ impl TrafficWorld {
         if edge_count == 0 {
             return Err(RouteError::EmptySequence);
         }
-        if self.live_route_count >= self.config.route_capacity() {
+        if self.committed.live_route_count >= self.binding.config.route_capacity() {
             return Err(RouteError::CapacityExceeded);
         }
         let added_occurrences =
             u64::try_from(edge_count).map_err(|_| RouteError::EdgeOccurrenceCapacityExceeded)?;
         let next_occurrence_count = self
+            .committed
             .live_route_edge_occurrence_count
             .checked_add(added_occurrences)
             .ok_or(RouteError::EdgeOccurrenceCapacityExceeded)?;
-        if next_occurrence_count > self.config.route_edge_occurrence_capacity() {
+        if next_occurrence_count > self.binding.config.route_edge_occurrence_capacity() {
             return Err(RouteError::EdgeOccurrenceCapacityExceeded);
         }
-        self.command_cursor
+        self.committed
+            .command_cursor
             .checked_add(1)
             .ok_or(RouteError::CommandCursorExhausted)?;
         Ok(next_occurrence_count)
@@ -966,7 +880,7 @@ impl TrafficWorld {
     /// 只移除本世界已注册路线。
     pub fn remove_route(&mut self, route: RouteHandle) -> Result<(), RouteError> {
         let index = usize::try_from(route.index()).expect("route index fits usize");
-        let Some(slot) = self.routes.get(index) else {
+        let Some(slot) = self.committed.routes.get(index) else {
             return Err(RouteError::StaleHandle);
         };
         if slot.generation != route.generation() || slot.compiled.is_none() {
@@ -974,6 +888,7 @@ impl TrafficWorld {
         }
         if slot.live_vehicles > 0 {
             let vehicle = self
+                .committed
                 .live_order
                 .iter()
                 .copied()
@@ -1001,44 +916,49 @@ impl TrafficWorld {
         )
         .expect("route conflict occurrence count fits u64");
         let next_route_count = self
+            .committed
             .live_route_count
             .checked_sub(1)
             .expect("live route count covers every compiled route");
         let next_occurrence_count = self
+            .committed
             .live_route_edge_occurrence_count
             .checked_sub(removed_occurrences)
             .expect("route occurrence count covers every compiled route");
         let next_conflict_occurrence_count = self
+            .committed
             .live_route_conflict_occurrence_count
             .checked_sub(removed_conflict_occurrences)
             .expect("route conflict occurrence count covers every compiled route");
         let next_command_cursor = self
+            .committed
             .command_cursor
             .checked_add(1)
             .ok_or(RouteError::CommandCursorExhausted)?;
 
         // 所有可失败预检完成后才取可变槽位并一次提交。
         let slot = self
+            .committed
             .routes
             .get_mut(index)
             .expect("immutable preflight proved route slot exists");
         slot.compiled = None;
-        self.live_route_count = next_route_count;
-        self.live_route_edge_occurrence_count = next_occurrence_count;
-        self.live_route_conflict_occurrence_count = next_conflict_occurrence_count;
+        self.committed.live_route_count = next_route_count;
+        self.committed.live_route_edge_occurrence_count = next_occurrence_count;
+        self.committed.live_route_conflict_occurrence_count = next_conflict_occurrence_count;
         let mut recyclable = false;
         if let Some(next_generation) = slot.generation.checked_add(1) {
             slot.generation = next_generation;
-            self.free_routes.push(index);
+            self.committed.free_routes.push(index);
             recyclable = true;
         }
-        self.command_cursor = next_command_cursor;
-        if let Some(journal) = self.migration_journal.as_mut() {
+        self.committed.command_cursor = next_command_cursor;
+        if let Some(journal) = self.admin.migration_journal.as_mut() {
             journal.record_route_removed(
                 next_command_cursor,
                 route.index(),
                 recyclable,
-                self.routes[index].generation,
+                self.committed.routes[index].generation,
             );
         }
         Ok(())
@@ -1049,10 +969,12 @@ impl TrafficWorld {
         let (class, length_mm, traversal) =
             self.validate_unparked_vehicle(input, 0, VehicleStatus::Active, None, false)?;
         let next_observation_state_sequence = self
+            .committed
             .observation_state_sequence
             .checked_next()
             .ok_or(SpawnError::ObservationStateSequenceExhausted)?;
         let next_command_cursor = self
+            .committed
             .command_cursor
             .checked_add(1)
             .ok_or(SpawnError::CommandCursorExhausted)?;
@@ -1065,10 +987,10 @@ impl TrafficWorld {
         };
         let (handle, state) =
             self.commit_unparked_vehicle(input, 0, VehicleStatus::Active, authority);
-        self.observation_state_sequence = next_observation_state_sequence;
-        self.command_cursor = next_command_cursor;
+        self.committed.observation_state_sequence = next_observation_state_sequence;
+        self.committed.command_cursor = next_command_cursor;
         let delta = VehicleDelta::from_state(&state, self.compiled_route(state.route));
-        if let Some(journal) = self.migration_journal.as_mut() {
+        if let Some(journal) = self.admin.migration_journal.as_mut() {
             journal.record_vehicle_spawned(next_command_cursor, delta);
         }
         Ok(handle)
@@ -1121,11 +1043,13 @@ impl TrafficWorld {
         ),
         SpawnError,
     > {
-        let live = u32::try_from(self.live_order.len()).expect("live vehicle count fits u32");
-        if live >= self.config.vehicle_capacity() {
+        let live =
+            u32::try_from(self.committed.live_order.len()).expect("live vehicle count fits u32");
+        if live >= self.binding.config.vehicle_capacity() {
             return Err(SpawnError::CapacityExceeded);
         }
         let profile = self
+            .binding
             .revision
             .traffic()
             .relations()
@@ -1138,11 +1062,12 @@ impl TrafficWorld {
                 .ok_or(SpawnError::UnknownRoute)?;
             *edges.get(cursor).ok_or(SpawnError::RouteIndexOutOfRange)?
         };
-        let length_mm = self.revision.traffic().lane_lengths_millimetres()[edge.index()];
+        let length_mm = self.binding.revision.traffic().lane_lengths_millimetres()[edge.index()];
         if input.progress_mm() > length_mm {
             return Err(SpawnError::InvalidProgress);
         }
         let speed_limit = self
+            .binding
             .revision
             .traffic()
             .lane_speed_limits_millimetres_per_second()[edge.index()];
@@ -1213,8 +1138,13 @@ impl TrafficWorld {
         status: VehicleStatus,
         authority: UnparkedVehicleAuthority,
     ) -> (VehicleHandle, VehicleState) {
-        let slot_index = self.free_vehicles.pop().unwrap_or(self.vehicles.len());
+        let slot_index = self
+            .committed
+            .free_vehicles
+            .pop()
+            .unwrap_or(self.committed.vehicles.len());
         let generation = self
+            .committed
             .vehicles
             .get(slot_index)
             .map_or(0, |slot| slot.generation);
@@ -1236,23 +1166,23 @@ impl TrafficWorld {
             maneuver_traversal: authority.maneuver_traversal,
             waiting_membership: authority.waiting_membership,
         };
-        if let Some(eligibility) = self.conflict_eligibility.get_mut(slot_index) {
+        if let Some(eligibility) = self.committed.conflict_eligibility.get_mut(slot_index) {
             *eligibility = None;
         }
         let slot = VehicleSlot {
             generation,
             state: Some(state),
         };
-        if slot_index == self.vehicles.len() {
-            self.vehicles.push(slot);
+        if slot_index == self.committed.vehicles.len() {
+            self.committed.vehicles.push(slot);
         } else {
-            self.vehicles[slot_index] = slot;
+            self.committed.vehicles[slot_index] = slot;
         }
         let route_index = usize::try_from(input.route().index()).expect("route index fits usize");
-        self.routes[route_index].live_vehicles += 1;
-        self.live_order.push(handle);
+        self.committed.routes[route_index].live_vehicles += 1;
+        self.committed.live_order.push(handle);
         if status == VehicleStatus::Active {
-            self.active_order.push(handle);
+            self.derived.active_order.push(handle);
         }
         (handle, state)
     }
@@ -1270,20 +1200,26 @@ impl TrafficWorld {
         if old_state.status != VehicleStatus::Completed {
             return Err(ReplaceError::NotCompleted);
         }
-        if self.parking.binding(old).is_some() {
+        if self.committed.parking.binding(old).is_some() {
             return Err(ReplaceError::ParkingOccupied);
         }
-        if self.conflict_reservation(old).is_some() || self.conflict_arbiter.has_authority(old) {
+        if self.conflict_reservation(old).is_some() || self.conflict_read().has_authority(old) {
             return Err(ReplaceError::ConflictInvariantViolation);
         }
         if old_state.maneuver_traversal.is_some() || old_state.waiting_membership.is_some() {
             return Err(ReplaceError::WaitingInvariantViolation);
         }
-        let Some(order_index) = self.live_order.iter().position(|handle| *handle == old) else {
+        let Some(order_index) = self
+            .committed
+            .live_order
+            .iter()
+            .position(|handle| *handle == old)
+        else {
             return Err(ReplaceError::StaleHandle);
         };
 
         let profile = self
+            .binding
             .revision
             .traffic()
             .relations()
@@ -1298,11 +1234,12 @@ impl TrafficWorld {
                 .get(cursor)
                 .ok_or(ReplaceError::RouteIndexOutOfRange)?
         };
-        let length_mm = self.revision.traffic().lane_lengths_millimetres()[edge.index()];
+        let length_mm = self.binding.revision.traffic().lane_lengths_millimetres()[edge.index()];
         if input.progress_mm() > length_mm {
             return Err(ReplaceError::InvalidProgress);
         }
         let speed_limit = self
+            .binding
             .revision
             .traffic()
             .lane_speed_limits_millimetres_per_second()[edge.index()];
@@ -1363,23 +1300,31 @@ impl TrafficWorld {
             }
         }
         let next_observation_state_sequence = self
+            .committed
             .observation_state_sequence
             .checked_next()
             .ok_or(ReplaceError::ObservationStateSequenceExhausted)?;
         let next_command_cursor = self
+            .committed
             .command_cursor
             .checked_add(1)
             .ok_or(ReplaceError::CommandCursorExhausted)?;
 
         let old_route = old_state.route;
         let old_index = usize::try_from(old.index()).expect("vehicle index fits usize");
-        let reusable_generation = self.vehicles[old_index].generation.checked_add(1);
+        let reusable_generation = self.committed.vehicles[old_index].generation.checked_add(1);
         let slot_index = reusable_generation.map_or_else(
-            || self.free_vehicles.pop().unwrap_or(self.vehicles.len()),
+            || {
+                self.committed
+                    .free_vehicles
+                    .pop()
+                    .unwrap_or(self.committed.vehicles.len())
+            },
             |_| old_index,
         );
         let generation = reusable_generation.unwrap_or_else(|| {
-            self.vehicles
+            self.committed
+                .vehicles
                 .get(slot_index)
                 .map_or(0, |slot| slot.generation)
         });
@@ -1401,40 +1346,40 @@ impl TrafficWorld {
             maneuver_traversal: traversal,
             waiting_membership: None,
         };
-        if let Some(eligibility) = self.conflict_eligibility.get_mut(slot_index) {
+        if let Some(eligibility) = self.committed.conflict_eligibility.get_mut(slot_index) {
             *eligibility = None;
         }
 
         if reusable_generation.is_some() {
-            self.vehicles[old_index] = VehicleSlot {
+            self.committed.vehicles[old_index] = VehicleSlot {
                 generation,
                 state: Some(state),
             };
         } else {
-            self.vehicles[old_index].state = None;
+            self.committed.vehicles[old_index].state = None;
             let slot = VehicleSlot {
                 generation,
                 state: Some(state),
             };
-            if slot_index == self.vehicles.len() {
-                self.vehicles.push(slot);
+            if slot_index == self.committed.vehicles.len() {
+                self.committed.vehicles.push(slot);
             } else {
-                self.vehicles[slot_index] = slot;
+                self.committed.vehicles[slot_index] = slot;
             }
         }
         self.release_route_ref(old_route);
         let route_index = usize::try_from(input.route().index()).expect("route index fits usize");
-        self.routes[route_index].live_vehicles += 1;
-        self.live_order[order_index] = new;
+        self.committed.routes[route_index].live_vehicles += 1;
+        self.committed.live_order[order_index] = new;
         self.rebuild_active_order();
-        self.observation_state_sequence = next_observation_state_sequence;
-        self.command_cursor = next_command_cursor;
+        self.committed.observation_state_sequence = next_observation_state_sequence;
+        self.committed.command_cursor = next_command_cursor;
         let new_state = self
             .vehicle_state(new)
             .copied()
             .expect("freshly committed replacement vehicle");
         let new_delta = VehicleDelta::from_state(&new_state, self.compiled_route(new_state.route));
-        if let Some(journal) = self.migration_journal.as_mut() {
+        if let Some(journal) = self.admin.migration_journal.as_mut() {
             journal.record_vehicle_replaced(
                 next_command_cursor,
                 old,
@@ -1458,6 +1403,7 @@ impl TrafficWorld {
     #[must_use]
     pub fn committed_pose_sources(&self) -> CommittedPoseSourceBatch {
         let items = self
+            .committed
             .live_order
             .iter()
             .copied()
@@ -1465,7 +1411,7 @@ impl TrafficWorld {
                 let state = self.vehicle_state(handle)?;
                 let source = match state.status {
                     VehicleStatus::Completed => return None,
-                    VehicleStatus::Parked => match self.parking.binding(handle) {
+                    VehicleStatus::Parked => match self.committed.parking.binding(handle) {
                         Some(ParkingBinding::Occupied(ParkingTarget::ExplicitSpace(space))) => {
                             PoseSource::Parking { space }
                         }
@@ -1492,7 +1438,7 @@ impl TrafficWorld {
     /// 按停车位序号读占用者。
     #[must_use]
     pub fn committed_parking_occupant(&self, space: ParkingSpaceOrdinal) -> Option<VehicleHandle> {
-        match self.parking.explicit_state(space)? {
+        match self.committed.parking.explicit_state(space)? {
             ParkingSpaceState::Occupied(vehicle) => Some(vehicle),
             ParkingSpaceState::Vacant | ParkingSpaceState::Reserved(_) => None,
         }
@@ -1502,14 +1448,18 @@ impl TrafficWorld {
     #[must_use]
     pub fn parking_binding(&self, vehicle: VehicleHandle) -> Option<ParkingBinding> {
         self.vehicle_state(vehicle)?;
-        self.parking.binding(vehicle)
+        self.committed.parking.binding(vehicle)
     }
 
     /// 显式泊位的排他资源状态。
     #[must_use]
     pub fn parking_space_state(&self, space: ParkingSpaceOrdinal) -> Option<ParkingSpaceState> {
-        self.revision.traffic().relations().parking_space(space)?;
-        self.parking.explicit_state(space)
+        self.binding
+            .revision
+            .traffic()
+            .relations()
+            .parking_space(space)?;
+        self.committed.parking.explicit_state(space)
     }
 
     /// 设施显式池、虚拟池和总量的守恒查询。
@@ -1519,6 +1469,7 @@ impl TrafficWorld {
         facility: laneflow_static_contract::ParkingFacilityOrdinal,
     ) -> Option<ParkingFacilityCounts> {
         let view = self
+            .binding
             .revision
             .traffic()
             .relations()
@@ -1526,13 +1477,13 @@ impl TrafficWorld {
         let mut explicit_reserved = 0_u64;
         let mut explicit_occupied = 0_u64;
         for &space in view.spaces() {
-            match self.parking.explicit_state(space)? {
+            match self.committed.parking.explicit_state(space)? {
                 ParkingSpaceState::Vacant => {}
                 ParkingSpaceState::Reserved(_) => explicit_reserved += 1,
                 ParkingSpaceState::Occupied(_) => explicit_occupied += 1,
             }
         }
-        let virtual_state = self.parking.virtual_state(facility)?;
+        let virtual_state = self.committed.parking.virtual_state(facility)?;
         let explicit = ParkingPoolCounts::checked(
             u64::try_from(view.spaces().len()).ok()?,
             explicit_reserved,
@@ -1559,6 +1510,7 @@ impl TrafficWorld {
     #[must_use]
     pub fn committed_signal_groups(&self) -> CommittedSignalGroupBatch {
         let items = self
+            .committed
             .signal_aspects
             .iter()
             .enumerate()
@@ -1586,8 +1538,9 @@ impl TrafficWorld {
         &self,
         zone: laneflow_static_contract::WaitingZoneOrdinal,
     ) -> Option<crate::WaitingZoneSnapshot> {
-        let state = *self.waiting_zones.get(zone.index())?;
+        let state = *self.committed.waiting_zones.get(zone.index())?;
         let max_occupancy = self
+            .binding
             .revision
             .traffic()
             .relations()
@@ -1604,7 +1557,7 @@ impl TrafficWorld {
     /// 按 `(zone ordinal, admission sequence)` 排列的全部 Waiting member。
     #[must_use]
     pub fn waiting_zone_members(&self) -> &[crate::WaitingZoneMember] {
-        &self.waiting_member_rows
+        &self.derived.waiting_member_rows
     }
 
     /// 刚完成 successful tick 的 Waiting admission decision batch。
@@ -1612,7 +1565,7 @@ impl TrafficWorld {
     /// 同修订切换、生命周期命令和失败操作保留原批次。
     #[must_use]
     pub fn latest_waiting_decisions(&self) -> &[crate::WaitingDecision] {
-        &self.latest_waiting_decisions
+        &self.committed.latest_waiting_decisions
     }
 
     /// 刚完成 successful tick 的 Waiting transition event batch。
@@ -1620,21 +1573,17 @@ impl TrafficWorld {
     /// 同修订切换、生命周期命令和失败操作保留原批次。
     #[must_use]
     pub fn latest_transition_events(&self) -> &[crate::TrafficTransitionEvent] {
-        &self.latest_transition_events
+        &self.committed.latest_transition_events
     }
 
     /// 稳定更新顺序，含 Active / Parked / Completed。
     #[must_use]
     pub fn live_vehicles(&self) -> &[VehicleHandle] {
-        &self.live_order
+        &self.committed.live_order
     }
 
     pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
-        let slot = self.vehicles.get(usize::try_from(handle.index()).ok()?)?;
-        if slot.generation != handle.generation() {
-            return None;
-        }
-        slot.state.as_ref()
+        self.read_view().vehicle_state(handle)
     }
 
     /// 本世界已注册路线的边序列。句柄无效时返回 `None`。
@@ -1643,27 +1592,27 @@ impl TrafficWorld {
         &self,
         route: RouteHandle,
     ) -> Option<&[laneflow_static_contract::LaneEdgeOrdinal]> {
-        Some(self.compiled_route(route)?.edges.as_slice())
+        self.read_view().route_edges(route)
     }
 
     /// 本世界当前有效路线句柄，按槽位下标。
     pub fn live_routes(&self) -> impl Iterator<Item = RouteHandle> + '_ {
-        self.routes.iter().enumerate().filter_map(|(index, slot)| {
-            slot.compiled.as_ref().map(|_| {
-                RouteHandle::new(
-                    u32::try_from(index).expect("route index fits u32"),
-                    slot.generation,
-                )
+        self.committed
+            .routes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, slot)| {
+                slot.compiled.as_ref().map(|_| {
+                    RouteHandle::new(
+                        u32::try_from(index).expect("route index fits u32"),
+                        slot.generation,
+                    )
+                })
             })
-        })
     }
 
     pub(crate) fn compiled_route(&self, route: RouteHandle) -> Option<&CompiledRoute> {
-        let slot = self.routes.get(usize::try_from(route.index()).ok()?)?;
-        if slot.generation != route.generation() {
-            return None;
-        }
-        slot.compiled.as_ref()
+        self.read_view().compiled_route(route)
     }
 
     pub(crate) fn check_active_conflict_capability(
@@ -1679,7 +1628,7 @@ impl TrafficWorld {
             .ok_or(ConflictCapabilityError::InvalidCursor)?;
         check_conflict_capability(
             compiled,
-            self.revision.traffic().lane_lengths_millimetres(),
+            self.binding.revision.traffic().lane_lengths_millimetres(),
             cursor,
             progress_mm,
             carry_um,
@@ -1700,7 +1649,7 @@ impl TrafficWorld {
             return true;
         };
         route_access_denied(
-            self.revision.traffic(),
+            self.binding.revision.traffic(),
             class,
             edges,
             cursor,
@@ -1719,8 +1668,8 @@ impl TrafficWorld {
         length: u32,
     ) -> Option<VehicleHandle> {
         let spawn_edges = self.route_edges(route)?;
-        let lengths = self.revision.traffic().lane_lengths_millimetres();
-        self.active_order.iter().copied().find(|&handle| {
+        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
+        self.derived.active_order.iter().copied().find(|&handle| {
             #[cfg(test)]
             OVERLAP_BLOCKER_INSPECTIONS.set(OVERLAP_BLOCKER_INSPECTIONS.get() + 1);
             let Some(state) = self.vehicle_state(handle) else {
@@ -1769,7 +1718,7 @@ impl TrafficWorld {
         let Ok(blocker_index) = usize::try_from(leader.route_edge_index) else {
             return (true, 0);
         };
-        let lengths = self.revision.traffic().lane_lengths_millimetres();
+        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
         if let Some(gap) = occupancy_front_gap(
             lengths,
             spawn_edges,
@@ -1801,7 +1750,7 @@ impl TrafficWorld {
         let Ok(index) = usize::try_from(route.index()) else {
             return;
         };
-        let Some(slot) = self.routes.get_mut(index) else {
+        let Some(slot) = self.committed.routes.get_mut(index) else {
             return;
         };
         if slot.generation != route.generation() || slot.compiled.is_none() {
@@ -1811,9 +1760,9 @@ impl TrafficWorld {
     }
 
     pub(crate) fn rebuild_active_order(&mut self) {
-        let vehicles = &self.vehicles;
-        self.active_order.clear();
-        for handle in self.live_order.iter().copied() {
+        let vehicles = &self.committed.vehicles;
+        self.derived.active_order.clear();
+        for handle in self.committed.live_order.iter().copied() {
             let index = usize::try_from(handle.index()).expect("vehicle index fits usize");
             if vehicles.get(index).is_some_and(|slot| {
                 slot.generation == handle.generation()
@@ -1822,17 +1771,307 @@ impl TrafficWorld {
                         .as_ref()
                         .is_some_and(|state| state.status == VehicleStatus::Active)
             }) {
-                self.active_order.push(handle);
+                self.derived.active_order.push(handle);
             }
         }
     }
 
     pub(crate) fn refresh_signals(&mut self) {
         fill_signal_aspects(
-            self.revision.as_ref(),
-            self.time_ms,
-            &mut self.signal_aspects,
+            self.binding.revision.as_ref(),
+            self.committed.time_ms,
+            &mut self.committed.signal_aspects,
         );
+    }
+}
+
+impl<'a> crate::phase::StepReadView<'a> {
+    /// 当前世界唯一所选策略，借用同一个共享根。
+    #[must_use]
+    pub(crate) fn policy(self) -> Option<laneflow_static_network::PolicyView<'a>> {
+        self.binding.policy_binding.policy(&self.binding.revision)
+    }
+
+    /// 把当前根内的 passage 地址派生为可持久化的稳定 locator。
+    #[must_use]
+    pub(crate) fn conflict_passage_locator(
+        self,
+        address: crate::ConflictPassageAddress,
+    ) -> Option<crate::ConflictPassageLocator> {
+        if !self.conflict_read().contains_address(address) {
+            return None;
+        }
+        Some(crate::ConflictPassageLocator::new(
+            self.binding
+                .revision
+                .identity()
+                .stable_id(address.stream())?,
+            self.binding.revision.identity().stable_id(address.zone())?,
+        ))
+    }
+
+    /// 返回已注册路线中的 exact conflict occurrence locator。
+    ///
+    /// 该只读派生不授予通行权；循环路线中的重复 passage 由 occurrence 下标区分，
+    /// 其 `stable_locator` 仍只包含跨修订所需的两个稳定 ID。
+    #[must_use]
+    pub(crate) fn conflict_passage_occurrence_locator(
+        self,
+        route: RouteHandle,
+        conflict_occurrence_index: u32,
+    ) -> Option<crate::ConflictPassageOccurrenceLocator> {
+        let compiled = self.compiled_route(route)?;
+        let occurrence = *compiled
+            .conflicts
+            .get(usize::try_from(conflict_occurrence_index).ok()?)?;
+        let stable_locator = self.conflict_passage_locator(occurrence.address())?;
+        compiled.conflict_occurrence_locator(route, conflict_occurrence_index, stable_locator)
+    }
+
+    /// 返回该车辆当前由 Conflict arbiter 单独持有的 committed reservation。
+    #[must_use]
+    pub(crate) fn conflict_reservation(
+        self,
+        vehicle: VehicleHandle,
+    ) -> Option<crate::ConflictReservation> {
+        self.conflict_read().reservation(vehicle)
+    }
+
+    pub(crate) fn conflict_eligibility_position_valid(
+        self,
+        state: &VehicleState,
+        eligibility: crate::ConflictEligibilityState,
+    ) -> bool {
+        let hop = eligibility.locator().admission_gate_hop();
+        let Some(compiled) = self.compiled_route(state.route) else {
+            return false;
+        };
+        let Some(edge) = compiled.edges.get(hop as usize) else {
+            return false;
+        };
+        let at_upstream_edge_end = state.route_edge_index == hop
+            && state.progress_mm
+                == self.binding.revision.traffic().lane_lengths_millimetres()[edge.index()]
+            && state.carry_um == 0;
+        let at_canonical_crossed_side = hop.checked_add(1).is_some_and(|crossed_hop| {
+            compiled.edges.get(crossed_hop as usize).is_some()
+                && state.route_edge_index == crossed_hop
+                && state.progress_mm == 0
+                && state.carry_um == 0
+        });
+        at_upstream_edge_end || at_canonical_crossed_side
+    }
+
+    /// 同一资格谓词同时用于已发布状态与拍后暂存，信号时刻由调用方显式选择。
+    pub(crate) fn conflict_eligibility_valid_with_signals(
+        self,
+        state: &VehicleState,
+        eligibility: crate::ConflictEligibilityState,
+        signal_aspects: &[SignalAspect],
+    ) -> bool {
+        let locator = eligibility.locator();
+        if state.status != VehicleStatus::Active
+            || self.conflict_reservation(state.handle).is_some()
+            || locator.route() != state.route
+            || self.conflict_passage_occurrence_locator(
+                state.route,
+                locator.conflict_occurrence_index(),
+            ) != Some(locator)
+            || !self.conflict_eligibility_position_valid(state, eligibility)
+        {
+            return false;
+        }
+        let Some(gate) = self
+            .compiled_route(state.route)
+            .and_then(|compiled| compiled.hop_gate.get(locator.admission_gate_hop() as usize))
+            .copied()
+            .flatten()
+        else {
+            return false;
+        };
+        matches!(
+            self.gate_policy_decision_with_signals(gate, state.profile, signal_aspects),
+            crate::GatePolicyDecision::Candidate(_)
+        )
+    }
+
+    /// 从 reservation 级 exact route/Gate/passage 证明构造 downstream 派生计划。
+    pub(crate) fn reservation_downstream_claim_plan(
+        self,
+        range: crate::ConflictPassageRange,
+        vehicle_length_mm: u32,
+    ) -> Result<ReservationDownstreamClaimPlan, ConflictAcquireError> {
+        let compiled = self
+            .compiled_route(range.route())
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let first = usize::try_from(range.first_conflict_occurrence_index())
+            .map_err(|_| ConflictAcquireError::InvalidBundle)?;
+        let end = range
+            .first_conflict_occurrence_index()
+            .checked_add(range.passage_count())
+            .and_then(|end| usize::try_from(end).ok())
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let occurrences = compiled
+            .conflicts
+            .get(first..end)
+            .filter(|occurrences| {
+                !occurrences.is_empty()
+                    && occurrences.iter().all(|occurrence| {
+                        occurrence.admission_hop == range.admission_gate_hop()
+                            && occurrence.maneuver_index == range.maneuver_occurrence_index()
+                    })
+            })
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let farthest = occurrences
+            .iter()
+            .map(|occurrence| occurrence.clearance)
+            .max()
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let gate_hop = usize::try_from(range.admission_gate_hop())
+            .map_err(|_| ConflictAcquireError::InvalidBundle)?;
+        let gate_edge = *compiled
+            .edges
+            .get(gate_hop)
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let gate_progress_mm = *self
+            .binding
+            .revision
+            .traffic()
+            .lane_lengths_millimetres()
+            .get(gate_edge.index())
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let gate =
+            crate::DownstreamRoutePoint::new(range.admission_gate_hop(), gate_progress_mm, 0)
+                .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let farthest =
+            crate::DownstreamRoutePoint::new(farthest.route_edge_index, farthest.progress_mm, 0)
+                .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let target = crate::conflict::downstream_claim_target(
+            &compiled.edges,
+            self.binding.revision.traffic().lane_lengths_millimetres(),
+            farthest,
+            vehicle_length_mm,
+        )?;
+        Ok(ReservationDownstreamClaimPlan {
+            route: range.route(),
+            plan: crate::conflict::downstream_claim_plan(gate, target)?,
+        })
+    }
+
+    #[must_use]
+    pub(crate) const fn frontier_proof_horizon_ms(self) -> Option<u64> {
+        self.binding.policy_binding.horizon()
+    }
+
+    pub(crate) fn vehicle_state(self, handle: VehicleHandle) -> Option<&'a VehicleState> {
+        let slot = self
+            .committed
+            .vehicles
+            .get(usize::try_from(handle.index()).ok()?)?;
+        if slot.generation != handle.generation() {
+            return None;
+        }
+        slot.state.as_ref()
+    }
+
+    /// 本世界已注册路线的边序列。句柄无效时返回 `None`。
+    #[must_use]
+    pub(crate) fn route_edges(
+        self,
+        route: RouteHandle,
+    ) -> Option<&'a [laneflow_static_contract::LaneEdgeOrdinal]> {
+        Some(self.compiled_route(route)?.edges.as_slice())
+    }
+
+    pub(crate) fn compiled_route(self, route: RouteHandle) -> Option<&'a CompiledRoute> {
+        let slot = self
+            .committed
+            .routes
+            .get(usize::try_from(route.index()).ok()?)?;
+        if slot.generation != route.generation() {
+            return None;
+        }
+        slot.compiled.as_ref()
+    }
+}
+
+impl crate::phase::StepWorkspace<'_> {
+    /// 返回已注册路线中的 exact conflict occurrence locator。
+    ///
+    /// 该只读派生不授予通行权；循环路线中的重复 passage 由 occurrence 下标区分，
+    /// 其 `stable_locator` 仍只包含跨修订所需的两个稳定 ID。
+    #[must_use]
+    pub(crate) fn conflict_passage_occurrence_locator(
+        &self,
+        route: RouteHandle,
+        conflict_occurrence_index: u32,
+    ) -> Option<crate::ConflictPassageOccurrenceLocator> {
+        self.read_view()
+            .conflict_passage_occurrence_locator(route, conflict_occurrence_index)
+    }
+
+    /// 返回该车辆当前由 Conflict arbiter 单独持有的 committed reservation。
+    #[must_use]
+    pub(crate) fn conflict_reservation(
+        &self,
+        vehicle: VehicleHandle,
+    ) -> Option<crate::ConflictReservation> {
+        self.read_view().conflict_reservation(vehicle)
+    }
+
+    /// 同一资格谓词同时用于已发布状态与拍后暂存，信号时刻由调用方显式选择。
+    pub(crate) fn conflict_eligibility_valid_with_signals(
+        &self,
+        state: &VehicleState,
+        eligibility: crate::ConflictEligibilityState,
+        signal_aspects: &[SignalAspect],
+    ) -> bool {
+        self.read_view()
+            .conflict_eligibility_valid_with_signals(state, eligibility, signal_aspects)
+    }
+
+    /// 从 reservation 级 exact route/Gate/passage 证明构造 downstream 派生计划。
+    pub(crate) fn reservation_downstream_claim_plan(
+        &self,
+        range: crate::ConflictPassageRange,
+        vehicle_length_mm: u32,
+    ) -> Result<ReservationDownstreamClaimPlan, ConflictAcquireError> {
+        self.read_view()
+            .reservation_downstream_claim_plan(range, vehicle_length_mm)
+    }
+
+    #[must_use]
+    pub(crate) fn frontier_proof_horizon_ms(&self) -> Option<u64> {
+        self.read_view().frontier_proof_horizon_ms()
+    }
+
+    pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
+        self.read_view().vehicle_state(handle)
+    }
+
+    pub(crate) fn compiled_route(&self, route: RouteHandle) -> Option<&CompiledRoute> {
+        self.read_view().compiled_route(route)
+    }
+}
+
+impl crate::phase::CommittedStateMut<'_> {
+    pub(crate) fn normalize_conflict_eligibility(&mut self) {
+        if self
+            .committed
+            .conflict_eligibility
+            .iter()
+            .all(Option::is_none)
+        {
+            self.committed.conflict_eligibility.clear();
+        }
+    }
+
+    pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
+        self.read_view().vehicle_state(handle)
+    }
+
+    pub(crate) fn compiled_route(&self, route: RouteHandle) -> Option<&CompiledRoute> {
+        self.read_view().compiled_route(route)
     }
 }
 
@@ -1992,23 +2231,23 @@ mod overflow_tests {
     #[test]
     fn step_rejects_tick_and_time_overflow() {
         let mut world = world();
-        world.tick_index = u64::MAX;
-        world.time_ms = 0;
+        world.committed.tick_index = u64::MAX;
+        world.committed.time_ms = 0;
         assert_eq!(
             world.step(TickInput::new(100)).unwrap_err(),
             StepError::Overflow
         );
-        assert_eq!(world.tick_index, u64::MAX);
-        assert_eq!(world.time_ms, 0);
+        assert_eq!(world.committed.tick_index, u64::MAX);
+        assert_eq!(world.committed.time_ms, 0);
 
-        world.tick_index = 0;
-        world.time_ms = u64::MAX;
+        world.committed.tick_index = 0;
+        world.committed.time_ms = u64::MAX;
         assert_eq!(
             world.step(TickInput::new(100)).unwrap_err(),
             StepError::Overflow
         );
-        assert_eq!(world.tick_index, 0);
-        assert_eq!(world.time_ms, u64::MAX);
+        assert_eq!(world.committed.tick_index, 0);
+        assert_eq!(world.committed.time_ms, u64::MAX);
     }
 
     #[test]
@@ -2046,7 +2285,10 @@ mod overflow_tests {
                 .expect("non-overlapping vehicle");
             if occurrence == 1 {
                 let index = usize::try_from(vehicle.index()).expect("vehicle index");
-                let state = world.vehicles[index].state.as_mut().expect("vehicle");
+                let state = world.committed.vehicles[index]
+                    .state
+                    .as_mut()
+                    .expect("vehicle");
                 state.route_edge_index = occurrence;
                 state.progress_mm = progress;
             }
@@ -2054,15 +2296,15 @@ mod overflow_tests {
         });
         for vehicle in vehicles.iter().take(3).copied() {
             let index = usize::try_from(vehicle.index()).expect("vehicle index");
-            world.vehicles[index]
+            world.committed.vehicles[index]
                 .state
                 .as_mut()
                 .expect("live vehicle")
                 .status = VehicleStatus::Parked;
         }
         world.rebuild_active_order();
-        assert_eq!(world.live_order.len(), 4);
-        assert_eq!(world.active_order.len(), 1);
+        assert_eq!(world.committed.live_order.len(), 4);
+        assert_eq!(world.derived.active_order.len(), 1);
 
         let vehicle_length = world
             .traffic()

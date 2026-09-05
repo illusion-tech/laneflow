@@ -936,23 +936,23 @@ impl TrafficWorld {
     /// 局部标识分配规范：路线按 live 槽位序取 `1..=N`，车辆按 live 槽位序
     /// 取 `1..=M`；`live_order` 保存实际更新顺序，与局部 ID 的自然序解耦。
     pub fn capture_snapshot(&self) -> Result<CapturedSnapshot, SnapshotCaptureError> {
-        let identity = self.revision.identity();
-        let conflict_index_len = self.config.vehicle_capacity() as usize;
+        let identity = self.binding.revision.identity();
+        let conflict_index_len = self.binding.config.vehicle_capacity() as usize;
         let mut conflict_index = Vec::new();
         capture_try_reserve_exact(&mut conflict_index, conflict_index_len)?;
         conflict_index.resize(conflict_index_len, None);
         let conflict_view = self
-            .conflict_arbiter
+            .conflict_read()
             .persistence_view(&mut conflict_index)
             .ok_or(SnapshotCaptureError::ConflictInvariantViolation)?;
 
         // 路线：live 槽位序枚举，序号→稳定标识经 SharedIdentityIndex。
-        let route_capacity = usize::try_from(self.live_route_count).unwrap_or(0);
+        let route_capacity = usize::try_from(self.committed.live_route_count).unwrap_or(0);
         let mut routes = Vec::new();
         let mut route_ids: Vec<(u32, u32, u64)> = Vec::new();
         capture_try_reserve_exact(&mut routes, route_capacity)?;
         capture_try_reserve_exact(&mut route_ids, route_capacity)?;
-        for (slot_index, slot) in self.routes.iter().enumerate() {
+        for (slot_index, slot) in self.committed.routes.iter().enumerate() {
             if slot.compiled.is_none() {
                 continue;
             }
@@ -995,9 +995,9 @@ impl TrafficWorld {
         // 车辆：live 槽位序枚举，profile/class/parking target 解析为稳定标识。
         let mut vehicles = Vec::new();
         let mut vehicle_ids: Vec<(u32, u32, u64)> = Vec::new();
-        capture_try_reserve_exact(&mut vehicles, self.live_order.len())?;
-        capture_try_reserve_exact(&mut vehicle_ids, self.live_order.len())?;
-        for (slot_index, slot) in self.vehicles.iter().enumerate() {
+        capture_try_reserve_exact(&mut vehicles, self.committed.live_order.len())?;
+        capture_try_reserve_exact(&mut vehicle_ids, self.committed.live_order.len())?;
+        for (slot_index, slot) in self.committed.vehicles.iter().enumerate() {
             let Some(state) = slot.state.as_ref() else {
                 continue;
             };
@@ -1007,7 +1007,7 @@ impl TrafficWorld {
                 u32::try_from(slot_index).expect("vehicle index fits u32"),
                 snapshot_vehicle_id,
             ));
-            let parking = self.parking.binding(state.handle).map(|binding| {
+            let parking = self.committed.parking.binding(state.handle).map(|binding| {
                 let captured_target = |target: ParkingTarget| match target {
                     ParkingTarget::ExplicitSpace(space) => CapturedParkingTarget::ExplicitSpace(
                         *identity
@@ -1031,6 +1031,7 @@ impl TrafficWorld {
                                     .virtual_entry_selector()
                                     .expect("virtual reservation has selector");
                                 let facility_view = self
+                                    .binding
                                     .revision
                                     .traffic()
                                     .relations()
@@ -1147,6 +1148,7 @@ impl TrafficWorld {
                     conflict_zone: *locator.conflict_zone_stable_id().as_untyped(),
                 };
             let conflict_eligibility = self
+                .committed
                 .conflict_eligibility
                 .get(slot_index)
                 .copied()
@@ -1239,6 +1241,7 @@ impl TrafficWorld {
                         reservation.downstream_claim_count() as usize,
                     )?;
                     let follower_min_gap_mm = self
+                        .binding
                         .revision
                         .traffic()
                         .relations()
@@ -1322,8 +1325,8 @@ impl TrafficWorld {
             vehicle_id_by_handle.insert((generation, index), snapshot_vehicle_id);
         }
         let mut live_order = Vec::new();
-        capture_try_reserve_exact(&mut live_order, self.live_order.len())?;
-        for handle in &self.live_order {
+        capture_try_reserve_exact(&mut live_order, self.committed.live_order.len())?;
+        for handle in &self.committed.live_order {
             live_order.push(
                 *vehicle_id_by_handle
                     .get(&(handle.generation(), handle.index()))
@@ -1332,13 +1335,14 @@ impl TrafficWorld {
         }
 
         let waiting_state_count = self
+            .committed
             .waiting_zones
             .iter()
             .filter(|state| state.occupancy != 0 || state.next_admission_sequence != 0)
             .count();
         let mut waiting_zones = Vec::new();
         capture_try_reserve_exact(&mut waiting_zones, waiting_state_count)?;
-        for (index, state) in self.waiting_zones.iter().copied().enumerate() {
+        for (index, state) in self.committed.waiting_zones.iter().copied().enumerate() {
             if state.occupancy == 0 && state.next_admission_sequence == 0 {
                 continue;
             }
@@ -1355,10 +1359,10 @@ impl TrafficWorld {
             });
         }
 
-        let conflict_lag_count = self.conflict_arbiter.persisted_lag_rows().count();
+        let conflict_lag_count = self.conflict_read().persisted_lag_rows().count();
         let mut conflict_lag_states = Vec::new();
         capture_try_reserve_exact(&mut conflict_lag_states, conflict_lag_count)?;
-        for (address, reference) in self.conflict_arbiter.persisted_lag_rows() {
+        for (address, reference) in self.conflict_read().persisted_lag_rows() {
             let locator = self
                 .conflict_passage_locator(address)
                 .expect("installed conflict address resolves stable locator");
@@ -1378,15 +1382,16 @@ impl TrafficWorld {
         });
 
         Ok(CapturedSnapshot {
-            world_id: self.world_id,
-            tick: self.tick_index,
-            time_ms: self.time_ms,
-            command_cursor: self.command_cursor,
-            event_cursor: self.event_cursor,
-            config: self.config,
+            world_id: self.binding.world_id,
+            tick: self.committed.tick_index,
+            time_ms: self.committed.time_ms,
+            command_cursor: self.committed.command_cursor,
+            event_cursor: self.committed.event_cursor,
+            config: self.binding.config,
             policy_selection: self.policy_selection(),
-            origin: *self.revision.canonical_origin(),
+            origin: *self.binding.revision.canonical_origin(),
             source: self
+                .binding
                 .source
                 .try_clone()
                 .map_err(|_| SnapshotCaptureError::ReservationFailed)?,

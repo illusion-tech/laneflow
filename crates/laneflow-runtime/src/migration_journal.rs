@@ -654,6 +654,32 @@ pub(crate) struct MigrationDeltaJournal {
     open_tick_conflict_lags: u32,
 }
 
+#[cfg(test)]
+impl MigrationDeltaJournal {
+    pub(crate) fn retained_logical_bytes(&self) -> u64 {
+        let Self {
+            bytes,
+            byte_bound: _,
+            overflowed: _,
+            record_count: _,
+            first_tick: _,
+            last_tick: _,
+            baseline_command_cursor: _,
+            open_tick_count_at: _,
+            open_tick_waiting_count_at: _,
+            open_tick_conflict_eligibility_count_at: _,
+            open_tick_conflict_authority_count_at: _,
+            open_tick_conflict_lag_count_at: _,
+            open_tick_entries: _,
+            open_tick_waiting_zones: _,
+            open_tick_conflict_eligibility: _,
+            open_tick_conflict_authorities: _,
+            open_tick_conflict_lags: _,
+        } = self;
+        crate::state::vec_bytes(bytes)
+    }
+}
+
 impl MigrationDeltaJournal {
     /// 武装日志：按字节上界一次预留 arena。基线命令游标只作覆盖区间下界的
     /// 登记与断言素材，不参与写入路径。
@@ -1828,7 +1854,11 @@ mod tests {
             .expect("idempotent re-occupy");
         // 强制完成 first 后原子替换。
         let index = usize::try_from(first.index()).expect("index");
-        world.vehicles[index].state.as_mut().expect("first").status = VehicleStatus::Completed;
+        world.committed.vehicles[index]
+            .state
+            .as_mut()
+            .expect("first")
+            .status = VehicleStatus::Completed;
         world
             .replace_completed_vehicle(
                 first,
