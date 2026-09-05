@@ -657,6 +657,10 @@ tick 同切片安装后原子移除 #559 临时错误；当前不存在单独绕
 
 ### 6.9 fixed step、观察、事件与 first-error
 
+上述领域算法在串行阶段协议中的读写集、内部所有权与提交计划细化见
+[`traffic-runtime-phase-protocol.md`](traffic-runtime-phase-protocol.md)。
+P0～P8 不改变本节候选、转移、输出和首错顺序。
+
 #284 扩展 staged step，但不改变“只收紧 motion”：
 
 1. 冻结 signal、vehicle、route、Waiting/Conflict/downstream committed state；

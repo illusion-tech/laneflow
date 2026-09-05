@@ -318,6 +318,10 @@ TrafficWorld::step(TickInput) -> Result<StepOutcome, StepError>
 
 ## 5. Tick
 
+串行阶段、内部状态分区与单次提交的细化设计见
+[`traffic-runtime-phase-protocol.md`](traffic-runtime-phase-protocol.md)。
+该设计保持本节公开行为和领域权威，不新增公开入口或生产并行执行能力。
+
 公开推进入口是 `TrafficWorld::step`（§4.4）。`TrafficWorld` 的 1-worker 车辆 tick
 读取：
 

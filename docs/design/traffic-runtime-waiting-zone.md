@@ -400,7 +400,10 @@ admissions 时整个 step 失败，禁止 rollover、饱和或重新编号既有
 ```
 
 步骤 0–11 不得修改已提交 Waiting authority。任一 allocation、算术、route invariant、
-counter、journal 或 motion 错误都使 world、最新 batch、tick/time 与失败前一致。
+counter 或 motion 错误都使 world、最新 batch、tick/time 与失败前一致。成功 step 的
+迁移日志字节上界溢出沿用切换合同：放弃切换候选，旧世界继续步进；它不是使 step
+失败的 journal 错误。阶段和日志提交边界见
+[`traffic-runtime-phase-protocol.md`](traffic-runtime-phase-protocol.md)。
 
 ### 6.2 约束只收紧
 
@@ -481,8 +484,9 @@ boundary 的结构一致性，不以恢复时或目标修订的当前 signal asp
 - `VehicleDespawnRecord::waiting_release`；不把 command transition 塞入历史 tick batch。
 
 Adapter、scenario 与 caller 不获得 claim、counter、queue 或 phase mutation authority。
-`StepOutcome` 继续只承担 tick/time；批量观察从 world 借用，避免让 `StepOutcome` 拥有
-分配型载荷。
+`StepOutcome` 保留既有 tick/time 与停车到达观察载荷；Waiting/Conflict 的批量观察
+从 world 借用，不往 `StepOutcome` 增加这些领域的分配型载荷。停车到达观察在提交前
+准备，返回时只移交已有结果。
 
 ### 8.2 latest decision
 
