@@ -501,6 +501,10 @@ impl CutoverTransaction {
         world.latest_transition_events.clear();
         world.latest_conflict_decisions.clear();
         std::mem::swap(&mut world.signal_aspects, &mut candidate.signal_aspects);
+        std::mem::swap(
+            &mut world.next_signal_aspects,
+            &mut candidate.next_signal_aspects,
+        );
         std::mem::swap(&mut world.next_states, &mut candidate.next_states);
         std::mem::swap(&mut world.occupancy, &mut candidate.occupancy);
         world.live_route_count = candidate.live_route_count;

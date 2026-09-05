@@ -48,6 +48,8 @@ impl ConflictRouteAnchor {
 /// successful tick 内一个候选没有取得完整组合资源的稳定归因。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConflictNoGrantReason {
+    WaitingCapacity,
+    WaitingPhysicalStorage,
     WaitingCycle,
     ConflictOccupied,
     LagGap,
@@ -114,6 +116,15 @@ pub(crate) struct ConflictCandidate {
     pub(crate) follower_min_gap_mm: u32,
     pub(crate) waiting_zone: Option<WaitingZoneOrdinal>,
     pub(crate) preflight_no_grant: Option<ConflictNoGrantReason>,
+}
+
+/// 已通过 Gate 法规与本地准入检查的资源请求入口。
+struct EvaluatedGate {
+    anchor: ConflictRouteAnchor,
+    passage: Option<ConflictPassageOccurrenceLocator>,
+    range: crate::tables::ConflictGateRange,
+    kind: GateCandidateKind,
+    waiting_zone: Option<WaitingZoneOrdinal>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -276,6 +287,7 @@ fn map_yield(outcome: ConflictYieldOutcome) -> Option<ConflictNoGrantReason> {
 
 const fn no_grant_rank(reason: ConflictNoGrantReason) -> u8 {
     match reason {
+        ConflictNoGrantReason::WaitingCapacity | ConflictNoGrantReason::WaitingPhysicalStorage => 0,
         ConflictNoGrantReason::WaitingCycle => 0,
         ConflictNoGrantReason::ConflictOccupied => 1,
         ConflictNoGrantReason::LagGap => 2,
@@ -408,7 +420,7 @@ impl TrafficWorld {
             {
                 continue;
             }
-            self.prepare_vehicle_conflict_candidate(
+            self.evaluate_vehicle_gates(
                 state,
                 u32::try_from(sequence).map_err(|_| StepError::ConflictInvariantViolation)?,
                 delta_s,
@@ -416,6 +428,10 @@ impl TrafficWorld {
             )?;
         }
 
+        reserve(
+            &mut self.conflict_staged_decisions,
+            self.conflict_candidates.len(),
+        )?;
         self.conflict_candidates
             .sort_unstable_by_key(|candidate| (candidate.key, candidate.vehicle_update_sequence));
         Ok(())
@@ -513,14 +529,14 @@ impl TrafficWorld {
         Ok(())
     }
 
-    fn prepare_vehicle_conflict_candidate(
+    fn evaluate_vehicle_gates(
         &mut self,
         state: VehicleState,
         update_sequence: u32,
         delta_s: f32,
         tick: u64,
     ) -> Result<(), StepError> {
-        let conflict_hop = self
+        let compiled = self
             .compiled_route(state.route)
             .ok_or(StepError::ConflictInvariantViolation)?;
         // Route cursor 将上一条边终点规范化为下一条边零点；该位置仍然位于
@@ -530,121 +546,185 @@ impl TrafficWorld {
         } else {
             state.route_edge_index
         };
-        let first_gate = conflict_hop
+        let first_gate = compiled
             .gate_hops
             .partition_point(|hop| *hop < first_possible_hop);
-        let conflict_hop = conflict_hop
-            .gate_hops
-            .iter()
-            .copied()
-            .skip(first_gate)
-            .find(|hop| {
-                conflict_hop
-                    .conflict_gate_ranges
-                    .get(*hop as usize)
-                    .is_some_and(|range| range.len != 0)
-            });
-        let waiting_hop = self
-            .waiting_plan_by_vehicle
-            .get(state.handle.index() as usize)
-            .copied()
-            .flatten()
-            .and_then(|index| self.waiting_plans.get(index.get() as usize - 1).copied())
-            .filter(|plan| {
-                plan.decision == crate::WaitingDecisionOutcome::Granted
-                    && plan.entry_hop >= first_possible_hop
-            })
-            .map(|plan| plan.entry_hop);
-        let Some(gate_hop) = (match (conflict_hop, waiting_hop) {
-            (Some(left), Some(right)) => Some(left.min(right)),
-            (Some(value), None) | (None, Some(value)) => Some(value),
-            (None, None) => None,
-        }) else {
+        let Some(first_hop) = compiled.gate_hops.get(first_gate).copied() else {
             return Ok(());
         };
-
-        let waiting_zone = self
+        let profile = self
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+            .ok_or(StepError::ConflictInvariantViolation)?;
+        let horizon = crate::tick::leader_query_horizon(state.speed_mm_s, profile, delta_s)
+            .ok_or(StepError::NonFiniteMotion)?;
+        let distance = crate::tables::distance_to_occurrence_start(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            state.route_edge_index as usize,
+            state.progress_mm,
+            first_hop as usize + 1,
+        )
+        .ok_or(StepError::ConflictInvariantViolation)?;
+        if !matches!(distance, BoundedDistance::Finite(mm) if mm <= horizon.front_query_mm) {
+            return Ok(());
+        }
+        let waiting_plan = self
             .waiting_plan_by_vehicle
             .get(state.handle.index() as usize)
             .copied()
             .flatten()
-            .and_then(|index| self.waiting_plans.get(index.get() as usize - 1).copied())
-            .filter(|plan| {
-                plan.decision == crate::WaitingDecisionOutcome::Granted
-                    && plan.entry_hop == gate_hop
-            })
-            .map(|plan| plan.zone);
-        let range = *self
-            .compiled_route(state.route)
-            .and_then(|compiled| compiled.conflict_gate_ranges.get(gate_hop as usize))
-            .ok_or(StepError::ConflictInvariantViolation)?;
-        let has_conflict = conflict_hop == Some(gate_hop) && range.len != 0;
-        if !has_conflict && waiting_zone.is_none() {
-            return Ok(());
-        }
-
-        let gate = self
-            .compiled_route(state.route)
-            .and_then(|compiled| compiled.hop_gate.get(gate_hop as usize))
-            .copied()
-            .flatten()
-            .ok_or(StepError::ConflictInvariantViolation)?;
-        let gate_decision = self.gate_policy_decision(gate, state.profile);
+            .and_then(|index| self.waiting_plans.get(index.get() as usize - 1).copied());
         let waiting_stop = self.waiting_stop_for(state)?;
         let preview = self
             .advance_active_vehicle_with_waiting_stop(state, delta_s, waiting_stop, None)
             .ok_or(StepError::NonFiniteMotion)?;
-        let gate_edge = *self
-            .compiled_route(state.route)
-            .and_then(|compiled| compiled.edges.get(gate_hop as usize))
-            .ok_or(StepError::ConflictInvariantViolation)?;
-        let gate_progress = self.revision.traffic().lane_lengths_millimetres()[gate_edge.index()];
-        let reaches_gate = preview.route_edge_index > gate_hop
-            || (preview.route_edge_index == gate_hop && preview.progress_mm == gate_progress)
-            || (state.route_edge_index == gate_hop && state.progress_mm == gate_progress);
-        if !reaches_gate {
-            return Ok(());
+        let gate_count = compiled.gate_hops.len();
+        for gate_index in first_gate..gate_count {
+            let compiled = self
+                .compiled_route(state.route)
+                .ok_or(StepError::ConflictInvariantViolation)?;
+            let gate_hop = compiled.gate_hops[gate_index];
+            let gate_edge = compiled.edges[gate_hop as usize];
+            let gate_progress =
+                self.revision.traffic().lane_lengths_millimetres()[gate_edge.index()];
+            let reaches_gate = preview.route_edge_index > gate_hop
+                || (preview.route_edge_index == gate_hop && preview.progress_mm == gate_progress)
+                || (state.route_edge_index == gate_hop && state.progress_mm == gate_progress);
+            if !reaches_gate {
+                break;
+            }
+            let waiting_index = compiled
+                .waiting
+                .partition_point(|entry| entry.entry_hop < gate_hop);
+            let waiting = compiled
+                .waiting
+                .get(waiting_index)
+                .copied()
+                .filter(|entry| entry.entry_hop == gate_hop);
+            if waiting.is_some_and(|entry| {
+                state.waiting_membership.is_some_and(|member| {
+                    member.waiting_zone == entry.zone && member.release_hop == entry.release_hop
+                })
+            }) {
+                continue;
+            }
+            let maneuver_index = compiled
+                .maneuvers
+                .partition_point(|entry| entry.exit_route_edge_index <= gate_hop);
+            compiled
+                .maneuvers
+                .get(maneuver_index)
+                .filter(|entry| entry.entry_route_edge_index <= gate_hop)
+                .ok_or(StepError::ConflictInvariantViolation)?;
+            let anchor = ConflictRouteAnchor {
+                route: state.route,
+                maneuver_occurrence_index: u32::try_from(maneuver_index)
+                    .map_err(|_| StepError::ConflictInvariantViolation)?,
+                hop: gate_hop,
+            };
+            let range = compiled.conflict_gate_ranges[gate_hop as usize];
+            let passage = if range.len != 0 {
+                Some(
+                    self.conflict_passage_occurrence_locator(state.route, range.start)
+                        .ok_or(StepError::ConflictInvariantViolation)?,
+                )
+            } else {
+                None
+            };
+            let gate = compiled.hop_gate[gate_hop as usize]
+                .ok_or(StepError::ConflictInvariantViolation)?;
+            let decision = self.gate_policy_decision(gate, state.profile);
+            let outcome = match decision {
+                GatePolicyDecision::DenyAndStop => Some(ConflictDecisionOutcome::NotEvaluated),
+                GatePolicyDecision::Candidate(_) => {
+                    match waiting
+                        .and_then(|_| waiting_plan.filter(|plan| plan.entry_hop == gate_hop))
+                    {
+                        Some(plan) => match plan.decision {
+                            crate::WaitingDecisionOutcome::Granted => None,
+                            crate::WaitingDecisionOutcome::NoGrant(
+                                crate::WaitingNoGrantReason::Capacity,
+                            ) => Some(ConflictDecisionOutcome::NoGrant(
+                                ConflictNoGrantReason::WaitingCapacity,
+                            )),
+                            crate::WaitingDecisionOutcome::NoGrant(
+                                crate::WaitingNoGrantReason::PhysicalStorage,
+                            ) => Some(ConflictDecisionOutcome::NoGrant(
+                                ConflictNoGrantReason::WaitingPhysicalStorage,
+                            )),
+                            _ => return Err(StepError::WaitingInvariantViolation),
+                        },
+                        None if waiting.is_some() => Some(ConflictDecisionOutcome::NoGrant(
+                            ConflictNoGrantReason::WaitingPhysicalStorage,
+                        )),
+                        None if range.len == 0 => Some(ConflictDecisionOutcome::NotRequired),
+                        None => None,
+                    }
+                }
+            };
+            if let Some(outcome) = outcome {
+                if waiting.is_none() && range.len == 0 {
+                    // 无资源决定按最终运动范围输出，避免前方资源拒绝后仍报告未到达的 Gate。
+                    if outcome == ConflictDecisionOutcome::NotRequired {
+                        continue;
+                    }
+                    return Ok(());
+                }
+                reserve(&mut self.conflict_staged_decisions, 1)?;
+                self.conflict_staged_decisions.push(ConflictDecision {
+                    vehicle: state.handle,
+                    vehicle_update_sequence: update_sequence,
+                    anchor,
+                    passage,
+                    outcome,
+                });
+                return Ok(());
+            }
+            let GatePolicyDecision::Candidate(kind) = decision else {
+                unreachable!("denied Gate already produced a decision");
+            };
+            return self.prepare_resource_candidate(
+                state,
+                update_sequence,
+                tick,
+                EvaluatedGate {
+                    anchor,
+                    passage,
+                    range,
+                    kind,
+                    waiting_zone: waiting.map(|entry| entry.zone),
+                },
+            );
         }
+        Ok(())
+    }
 
+    fn prepare_resource_candidate(
+        &mut self,
+        state: VehicleState,
+        update_sequence: u32,
+        tick: u64,
+        gate: EvaluatedGate,
+    ) -> Result<(), StepError> {
+        let EvaluatedGate {
+            anchor,
+            passage,
+            range,
+            kind,
+            waiting_zone,
+        } = gate;
+        let gate_hop = anchor.hop;
+        let maneuver_index = anchor.maneuver_occurrence_index;
         self.conflict_motion_by_vehicle[state.handle.index() as usize] = Some(ConflictMotionPlan {
             gate_hop,
             outcome: ConflictDecisionOutcome::NotEvaluated,
             grant_index: None,
         });
-
-        let maneuver_index = if has_conflict {
-            self.compiled_route(state.route)
-                .and_then(|compiled| compiled.conflicts.get(range.start as usize))
-                .ok_or(StepError::ConflictInvariantViolation)?
-                .maneuver_index
-        } else {
-            let index = self.waiting_plan_by_vehicle[state.handle.index() as usize]
-                .expect("waiting candidate has plan")
-                .get() as usize
-                - 1;
-            self.waiting_plans[index].maneuver_index
-        };
-        let anchor = ConflictRouteAnchor {
-            route: state.route,
-            maneuver_occurrence_index: maneuver_index,
-            hop: gate_hop,
-        };
-        let passage = has_conflict
-            .then(|| self.conflict_passage_occurrence_locator(state.route, range.start))
-            .flatten();
-
-        let GatePolicyDecision::Candidate(kind) = gate_decision else {
-            self.conflict_staged_decisions.push(ConflictDecision {
-                vehicle: state.handle,
-                vehicle_update_sequence: update_sequence,
-                anchor,
-                passage,
-                outcome: ConflictDecisionOutcome::NotEvaluated,
-            });
-            return Ok(());
-        };
-
-        let stable_passage = if has_conflict {
+        let stable_passage = if range.len != 0 {
             passage.ok_or(StepError::ConflictInvariantViolation)?
         } else {
             // pure Waiting 没有 passage；eligibility 不持久化空 Conflict identity。
@@ -1053,14 +1133,81 @@ impl TrafficWorld {
                 outcome,
             });
         }
-        self.conflict_staged_decisions
-            .sort_unstable_by_key(|decision| {
-                (
-                    decision.vehicle_update_sequence,
-                    decision.anchor.hop,
-                    decision.passage.map(|passage| passage.address()),
-                )
+        Ok(())
+    }
+
+    /// 资源仲裁完成后，以最终可达范围输出无资源 Gate 决定；同样覆盖本拍已有 reservation 的车辆。
+    fn stage_resource_free_gate_decisions(
+        &mut self,
+        next: &VehicleState,
+        update_sequence: u32,
+    ) -> Result<(), StepError> {
+        let previous = self
+            .vehicle_state(next.handle)
+            .ok_or(StepError::ConflictInvariantViolation)?;
+        let first_hop = if previous.progress_mm == 0 && previous.carry_um == 0 {
+            previous.route_edge_index.saturating_sub(1)
+        } else {
+            previous.route_edge_index
+        };
+        let compiled = self
+            .compiled_route(next.route)
+            .ok_or(StepError::ConflictInvariantViolation)?;
+        let first = compiled.gate_hops.partition_point(|hop| *hop < first_hop);
+        let last = compiled
+            .gate_hops
+            .partition_point(|hop| *hop <= next.route_edge_index);
+        for index in first..last {
+            let compiled = self
+                .compiled_route(next.route)
+                .ok_or(StepError::ConflictInvariantViolation)?;
+            let hop = compiled.gate_hops[index];
+            let edge = compiled.edges[hop as usize];
+            if next.route_edge_index == hop
+                && next.progress_mm
+                    < self.revision.traffic().lane_lengths_millimetres()[edge.index()]
+            {
+                break;
+            }
+            let waiting = compiled
+                .waiting
+                .partition_point(|entry| entry.entry_hop < hop);
+            if compiled.conflict_gate_ranges[hop as usize].len != 0
+                || compiled
+                    .waiting
+                    .get(waiting)
+                    .is_some_and(|entry| entry.entry_hop == hop)
+            {
+                continue;
+            }
+            let maneuver = compiled
+                .maneuvers
+                .partition_point(|entry| entry.exit_route_edge_index <= hop);
+            compiled
+                .maneuvers
+                .get(maneuver)
+                .filter(|entry| entry.entry_route_edge_index <= hop)
+                .ok_or(StepError::ConflictInvariantViolation)?;
+            let gate =
+                compiled.hop_gate[hop as usize].ok_or(StepError::ConflictInvariantViolation)?;
+            let outcome = match self.gate_policy_decision(gate, next.profile) {
+                GatePolicyDecision::DenyAndStop => ConflictDecisionOutcome::NotEvaluated,
+                GatePolicyDecision::Candidate(_) => ConflictDecisionOutcome::NotRequired,
+            };
+            reserve(&mut self.conflict_staged_decisions, 1)?;
+            self.conflict_staged_decisions.push(ConflictDecision {
+                vehicle: next.handle,
+                vehicle_update_sequence: update_sequence,
+                anchor: ConflictRouteAnchor {
+                    route: next.route,
+                    maneuver_occurrence_index: u32::try_from(maneuver)
+                        .map_err(|_| StepError::ConflictInvariantViolation)?,
+                    hop,
+                },
+                passage: None,
+                outcome,
             });
+        }
         Ok(())
     }
 
@@ -1093,7 +1240,20 @@ impl TrafficWorld {
             )?;
         }
 
+        // live_order 同时包含 parked/completed；双游标合并两份有序列表，保留正式更新序号。
+        let mut update_sequence = 0;
         for (_, next) in updates.iter_mut() {
+            while self.live_order.get(update_sequence) != Some(&next.handle) {
+                update_sequence += 1;
+                if update_sequence >= self.live_order.len() {
+                    return Err(StepError::ConflictInvariantViolation);
+                }
+            }
+            self.stage_resource_free_gate_decisions(
+                next,
+                u32::try_from(update_sequence)
+                    .map_err(|_| StepError::ConflictInvariantViolation)?,
+            )?;
             #[cfg(test)]
             crate::conflict::count_conflict_work(|counts| counts.vehicle_grant_lookups += 1);
             let grant_index = self.conflict_motion_by_vehicle[next.handle.index() as usize]
@@ -1133,6 +1293,16 @@ impl TrafficWorld {
                     && (next.maneuver_traversal.is_some() || next.waiting_membership.is_some()))
             {
                 return Err(StepError::ConflictInvariantViolation);
+            }
+            let slot = next.handle.index() as usize;
+            if let Some(eligibility) = self.conflict_next_eligibility[slot]
+                && !self.conflict_eligibility_valid_with_signals(
+                    next,
+                    eligibility,
+                    &self.next_signal_aspects,
+                )
+            {
+                self.conflict_next_eligibility[slot] = None;
             }
         }
 
@@ -1175,6 +1345,15 @@ impl TrafficWorld {
                 return Err(StepError::ConflictInvariantViolation);
             }
         }
+
+        self.conflict_staged_decisions
+            .sort_unstable_by_key(|decision| {
+                (
+                    decision.vehicle_update_sequence,
+                    decision.anchor.hop,
+                    decision.passage.map(|passage| passage.address()),
+                )
+            });
 
         Ok(())
     }

@@ -153,6 +153,8 @@ pub struct TrafficWorld {
     /// 当前世界世代/观测 stream 内严格单调的已提交状态序号。
     pub(crate) observation_state_sequence: ObservationStateSequence,
     pub(crate) signal_aspects: Box<[SignalAspect]>,
+    /// 下一提交时刻的信号暂存；tick 失败时不影响已发布信号。
+    pub(crate) next_signal_aspects: Box<[SignalAspect]>,
     pub(crate) routes: Vec<RouteSlot>,
     pub(crate) free_routes: Vec<usize>,
     pub(crate) live_route_count: u32,
@@ -300,6 +302,7 @@ impl TrafficWorld {
             event_cursor: 0,
             observation_state_sequence: ObservationStateSequence::INITIAL,
             signal_aspects: vec![SignalAspect::Red; group_count].into_boxed_slice(),
+            next_signal_aspects: vec![SignalAspect::Red; group_count].into_boxed_slice(),
             routes: Vec::with_capacity(route_capacity),
             free_routes: Vec::with_capacity(route_capacity),
             live_route_count: 0,
@@ -577,6 +580,16 @@ impl TrafficWorld {
         state: &VehicleState,
         eligibility: crate::ConflictEligibilityState,
     ) -> bool {
+        self.conflict_eligibility_valid_with_signals(state, eligibility, &self.signal_aspects)
+    }
+
+    /// 同一资格谓词同时用于已发布状态与拍后暂存，信号时刻由调用方显式选择。
+    pub(crate) fn conflict_eligibility_valid_with_signals(
+        &self,
+        state: &VehicleState,
+        eligibility: crate::ConflictEligibilityState,
+        signal_aspects: &[SignalAspect],
+    ) -> bool {
         let locator = eligibility.locator();
         if state.status != VehicleStatus::Active
             || self.conflict_reservation(state.handle).is_some()
@@ -598,7 +611,7 @@ impl TrafficWorld {
             return false;
         };
         matches!(
-            self.gate_policy_decision(gate, state.profile),
+            self.gate_policy_decision_with_signals(gate, state.profile, signal_aspects),
             crate::GatePolicyDecision::Candidate(_)
         )
     }

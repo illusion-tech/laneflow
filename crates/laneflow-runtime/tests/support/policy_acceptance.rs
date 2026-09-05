@@ -3,6 +3,424 @@ use super::*;
 use laneflow_compiler::GateInterpretation;
 use laneflow_runtime::{ConflictDecisionOutcome, ConflictNoGrantReason, TrafficTransitionKind};
 
+fn boundary_signal_module(
+    interpretation: GateInterpretation,
+    stop_aspect: SignalAspect,
+    speed: f64,
+) -> lfre::RoadEditingSourceModule {
+    conflict_road_editing_module_with_shape_and_speed(
+        2,
+        false,
+        true,
+        false,
+        speed,
+        ConflictPolicyFixture {
+            right_turn_signal: Some(interpretation),
+            signal_cycle_ms: Some([100, 300]),
+            signal_stop_aspect: Some(stop_aspect),
+            ..Default::default()
+        },
+    )
+}
+
+fn blocked_at_green(world: &mut TrafficWorld) -> VehicleHandle {
+    world.step(TickInput::new(100)).unwrap();
+    let [route, _] = right_turn_routes(world);
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            1,
+            10_501,
+            0,
+        ))
+        .unwrap();
+    at_gate(world, route)
+}
+
+fn eligibility_clocks(world: &TrafficWorld) -> Vec<u64> {
+    let bytes = encode_lfrs(&world.capture_snapshot().unwrap());
+    let wire = snapshot_wire::size_prefixed_root_as_runtime_snapshot(&bytes).unwrap();
+    wire.vehicles()
+        .iter()
+        .filter_map(|vehicle| {
+            vehicle
+                .conflict_eligibility()
+                .map(|value| value.first_eligible_tick())
+        })
+        .collect()
+}
+
+fn assert_snapshot_roundtrip(world: &TrafficWorld) {
+    let snapshot = world.capture_snapshot().unwrap();
+    let restored = restore_lfrs(
+        &encode_lfrs(&snapshot),
+        world.revision(),
+        world.committed_source().clone(),
+        world.config(),
+        SnapshotRestoreLimits::new(1_048_576, 1_024),
+    )
+    .unwrap()
+    .into_world();
+    assert_eq!(
+        deterministic_state_digest(&snapshot).unwrap(),
+        deterministic_state_digest(&restored.capture_snapshot().unwrap()).unwrap()
+    );
+    assert_eq!(
+        world.committed_signal_groups().as_slice(),
+        restored.committed_signal_groups().as_slice()
+    );
+}
+
+#[test]
+fn signal_boundary_publishes_valid_eligibility_and_preserves_continuous_waiting() {
+    for interpretation in [
+        GateInterpretation::ProtectedGroup,
+        GateInterpretation::PermissiveGroup,
+    ] {
+        for stop_aspect in [SignalAspect::Red, SignalAspect::Yellow] {
+            let revision = compile_road_editing_revision(boundary_signal_module(
+                interpretation,
+                stop_aspect,
+                13.0,
+            ));
+            let mut world =
+                install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 1, 100)).unwrap();
+            let subject = blocked_at_green(&mut world);
+            for expected_time in [200, 300, 400, 500, 600] {
+                world.step(TickInput::new(100)).unwrap();
+                assert_eq!(world.time_ms(), expected_time);
+                assert_eq!(
+                    calibration_outcome(&world, subject),
+                    if expected_time == 500 {
+                        ConflictDecisionOutcome::NotEvaluated
+                    } else {
+                        ConflictDecisionOutcome::NoGrant(
+                            ConflictNoGrantReason::DownstreamStorageBoundary,
+                        )
+                    }
+                );
+                let expected = match expected_time {
+                    200 | 300 => vec![2],
+                    400 | 500 => vec![],
+                    600 => vec![6],
+                    _ => unreachable!(),
+                };
+                assert_eq!(
+                    eligibility_clocks(&world),
+                    expected,
+                    "{interpretation:?} {stop_aspect:?}"
+                );
+                assert_snapshot_roundtrip(&world);
+            }
+        }
+    }
+}
+
+#[test]
+fn signal_boundary_journal_replays_normalized_eligibility_during_cutover() {
+    let module = |speed| {
+        boundary_signal_module(GateInterpretation::ProtectedGroup, SignalAspect::Red, speed)
+    };
+    let (base, target, diff, binding) = compile_conflict_cutover_pair(module(13.0), module(13.1));
+    let mut world =
+        install_fixture(Arc::clone(&base), WorldConfig::new(4, 4, 64, 4, 1, 100)).unwrap();
+    blocked_at_green(&mut world);
+    world.step(TickInput::new(100)).unwrap();
+    assert_eq!(eligibility_clocks(&world), vec![2]);
+    let descriptor = NetworkRevisionCutoverDescriptor::new(
+        LfcaOriginBinding::from_canonical_origin(*base.canonical_origin()),
+        LfcaOriginBinding::from_canonical_origin(*target.canonical_origin()),
+        Some(binding),
+        MigrationPolicyKind::CrossRevisionDirect,
+        world.world_binding(),
+    );
+    let transaction = world
+        .prepare_cross_revision_cutover(
+            Arc::clone(&target),
+            published_source(&target, "fixture://signal-boundary-cutover"),
+            &descriptor,
+            &diff,
+            &CutoverPreflightLimits::new(1_048_576),
+            &CutoverTransactionLimits::default(),
+        )
+        .unwrap();
+    world.step(TickInput::new(100)).unwrap();
+    world.step(TickInput::new(100)).unwrap();
+    assert_eq!(world.time_ms(), 400);
+    assert!(eligibility_clocks(&world).is_empty());
+    let commit = transaction.commit(&mut world).unwrap();
+    assert_eq!(commit.events.as_slice().len(), 1);
+    assert_eq!(world.time_ms(), 400);
+    assert!(eligibility_clocks(&world).is_empty());
+    assert_snapshot_roundtrip(&world);
+    world.step(TickInput::new(100)).unwrap();
+}
+
+#[test]
+fn resource_free_gate_emits_decision_for_red_and_green() {
+    for green in [false, true] {
+        let revision =
+            compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+                2,
+                false,
+                false,
+                false,
+                13.0,
+                ConflictPolicyFixture {
+                    right_turn_signal: Some(GateInterpretation::ProtectedGroup),
+                    signal_cycle_ms: Some([100, 10_000]),
+                    ..Default::default()
+                },
+            ));
+        let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 1, 100)).unwrap();
+        if green {
+            world.step(TickInput::new(100)).unwrap();
+        }
+        let [route, _] = right_turn_routes(&mut world);
+        let subject = at_gate(&mut world, route);
+        world.step(TickInput::new(100)).unwrap();
+        assert_eq!(
+            calibration_outcome(&world, subject),
+            if green {
+                ConflictDecisionOutcome::NotRequired
+            } else {
+                ConflictDecisionOutcome::NotEvaluated
+            }
+        );
+        assert_eq!(
+            world.vehicle(subject).unwrap().route_edge_index(),
+            u32::from(green)
+        );
+        assert!(world.conflict_reservation(subject).is_none());
+    }
+}
+
+#[test]
+fn resource_free_gate_keeps_following_resource_gate_in_the_same_tick() {
+    for blocked in [false, true] {
+        let revision =
+            compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+                2,
+                false,
+                true,
+                false,
+                13.0,
+                ConflictPolicyFixture {
+                    conflict_after_release: true,
+                    ..Default::default()
+                },
+            ));
+        let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 1, 1_000)).unwrap();
+        let [route, conflicting_route] = right_turn_routes(&mut world);
+        if blocked {
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    conflicting_route,
+                    1,
+                    13_000,
+                    10_000,
+                ))
+                .unwrap();
+        }
+        let subject = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                calibration_gate(&world, route),
+                13_000,
+            ))
+            .unwrap();
+        world.step(TickInput::new(1_000)).unwrap();
+        let decisions: Vec<_> = world
+            .latest_conflict_decisions()
+            .iter()
+            .filter(|decision| decision.vehicle() == subject)
+            .map(|decision| (decision.anchor().hop(), decision.outcome()))
+            .collect();
+        assert_eq!(
+            decisions,
+            vec![
+                (0, ConflictDecisionOutcome::NotRequired),
+                (
+                    1,
+                    if blocked {
+                        ConflictDecisionOutcome::NoGrant(ConflictNoGrantReason::ConflictOccupied)
+                    } else {
+                        ConflictDecisionOutcome::Granted
+                    }
+                ),
+            ]
+        );
+        assert_eq!(world.conflict_reservation(subject).is_some(), !blocked);
+    }
+}
+
+#[test]
+fn resource_free_decisions_follow_final_motion_after_new_or_held_reservation() {
+    for speed in [6_500, 13_000] {
+        let revision =
+            compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+                2,
+                false,
+                true,
+                false,
+                13.0,
+                ConflictPolicyFixture {
+                    resource_free_release: true,
+                    ..Default::default()
+                },
+            ));
+        let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 1, 1_000)).unwrap();
+        let [route, _] = right_turn_routes(&mut world);
+        let subject = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                calibration_gate(&world, route),
+                speed,
+            ))
+            .unwrap();
+        world.step(TickInput::new(1_000)).unwrap();
+        if speed == 6_500 {
+            assert!(world.conflict_reservation(subject).is_some());
+            assert_eq!(world.vehicle(subject).unwrap().route_edge_index(), 1);
+            world.step(TickInput::new(1_000)).unwrap();
+        }
+        assert!(
+            world
+                .latest_conflict_decisions()
+                .iter()
+                .any(|decision| decision.vehicle() == subject
+                    && decision.anchor().hop() == 1
+                    && decision.outcome() == ConflictDecisionOutcome::NotRequired),
+            "initial speed {speed}; state {:?}; decisions {:?}",
+            world.vehicle(subject),
+            world.latest_conflict_decisions()
+        );
+        assert_eq!(world.vehicle(subject).unwrap().route_edge_index(), 2);
+    }
+}
+
+#[test]
+fn rejected_resource_gate_does_not_report_unreached_resource_free_gate() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                resource_free_release: true,
+                ..Default::default()
+            },
+        ));
+    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 1, 1_000)).unwrap();
+    let [route, conflicting_route] = right_turn_routes(&mut world);
+    at_gate(&mut world, conflicting_route);
+    let subject = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            calibration_gate(&world, route),
+            13_000,
+        ))
+        .unwrap();
+    world.step(TickInput::new(1_000)).unwrap();
+    let decisions: Vec<_> = world
+        .latest_conflict_decisions()
+        .iter()
+        .filter(|decision| decision.vehicle() == subject)
+        .map(|decision| (decision.anchor().hop(), decision.outcome()))
+        .collect();
+    assert_eq!(
+        decisions,
+        vec![(
+            0,
+            ConflictDecisionOutcome::NoGrant(ConflictNoGrantReason::ConflictOccupied)
+        )]
+    );
+}
+
+#[test]
+fn waiting_capacity_denial_is_observable_without_claiming_following_conflict() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                waiting: true,
+                waiting_on_north_only: true,
+                conflict_after_release: true,
+                include_long_vehicle: true,
+                ..Default::default()
+            },
+        ));
+    let long = calibration_profile(&revision, "long-vehicle");
+    let short = calibration_profile(&revision, "car");
+    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 1, 100)).unwrap();
+    let [east, north] = right_turn_routes(&mut world);
+    let leader = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            short,
+            north,
+            0,
+            calibration_gate(&world, north),
+            10_000,
+        ))
+        .unwrap();
+    for _ in 0..20 {
+        world.step(TickInput::new(100)).unwrap();
+        if world.vehicle(leader).unwrap().route_edge_index() == 1
+            && world.vehicle(leader).unwrap().progress_mm() >= 8_000
+        {
+            break;
+        }
+    }
+    assert!(
+        world
+            .vehicle(leader)
+            .unwrap()
+            .waiting_membership()
+            .is_some()
+    );
+    assert!(world.conflict_reservation(leader).is_none());
+    let waiting = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            long,
+            north,
+            0,
+            calibration_gate(&world, north),
+            10_000,
+        ))
+        .unwrap();
+    let ready = world
+        .spawn_vehicle(VehicleSpawnInput::new(short, east, 1, 13_000, 10_000))
+        .unwrap();
+    for tick in 0..3 {
+        world.step(TickInput::new(100)).unwrap();
+        assert_eq!(
+            calibration_outcome(&world, waiting),
+            ConflictDecisionOutcome::NoGrant(ConflictNoGrantReason::WaitingCapacity)
+        );
+        assert!(world.conflict_reservation(waiting).is_none());
+        if tick == 0 {
+            assert_eq!(
+                calibration_outcome(&world, ready),
+                ConflictDecisionOutcome::Granted
+            );
+        }
+    }
+}
+
 fn right_turn_revision(
     interpretation: GateInterpretation,
     deny: bool,

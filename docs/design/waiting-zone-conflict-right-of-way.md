@@ -332,6 +332,14 @@ next Gate 已进入本 tick lookahead 的车辆都进入 Gate evaluation frontie
 - metadata/handle/状态不变量破坏：step error，整个 tick 不提交；
 - 只有完整 request 与稳定 `firstEligibleTick` 的车辆进入 arbitration candidate set。
 
+Gate 求值以已编译路线的有序 `gate_hops` 为入口，先定位本拍可达 Gate，再判断法规与
+资源需求；不能从非空 Conflict coverage 或已通过本地准入的 Waiting plan 反推求值范围。
+无资源 Gate 不截断同拍后续 Gate 的资源准备，其决定不进入资源候选排序；运动约束完成
+后按最终可达范围生成 `NotRequired` 或 `NotEvaluated`，避免报告被前方资源拒绝挡住的
+Gate，并覆盖车辆持有旧 reservation 或本拍新 grant 后实际经过的无资源 Gate。
+Waiting 本地拒绝分别以 `WaitingCapacity`、`WaitingPhysicalStorage` 进入
+Conflict/Gate 决定批次；只有取得本地 entitlement 的 Waiting 请求可构造资源候选。
+
 candidate 规范排序键为：
 
 ```text
@@ -371,8 +379,9 @@ eligibility token，不是第二套 Waiting authority：
 物理前驱仍由路线和 occupancy 确定，不能将不同汇入支路仅因 zone 相同视为同一车道。
 
 presence rank 不能用合法整数 sentinel 冒充 absent。`firstEligibleTick` 在车辆首次满足
-同一 Gate occurrence arrival predicate 时建立；离开 lookahead、换 route/occurrence 或
-crossing 后清除。raw vehicle/route/entity handle、worker、锁竞争、HashMap iteration 与
+同一 Gate occurrence arrival predicate 时建立；离开 lookahead、换 route/occurrence、
+crossing 或法规判定变为拒绝后清除，predicate 持续成立时保留原值。
+raw vehicle/route/entity handle、worker、锁竞争、HashMap iteration 与
 proposal 完成顺序都不得参与业务排序。
 
 ### 6.4 directed lower-bound ETA 与 top-two frontier
@@ -658,17 +667,25 @@ tick 同切片安装后原子移除 #559 临时错误；当前不存在单独绕
 5. stable-sort candidates，single-writer acquire all-or-nothing bundles；
 6. 把缺失 grant 加为 Gate hard stop，与 Parking/RouteEnd/leader/no-overlap 共同归约；
 7. stage motion、crossing、Waiting/Conflict/reservation/claim transitions；
-8. 原子提交 state、latest batches、events、tick/time。
+8. 在复用缓冲中计算下一提交时刻的信号，按拍后位置、资源转移与该信号规范化待提交
+   eligibility；迁移日志记录规范化后的值；
+9. 原子提交 state、latest batches、events、tick/time 与信号。
 
 grant 准备后的全部可恢复错误统一丢弃 tick-local staging，保留拍初 committed authority、
 latest batches、tick/time 与复用缓冲容量。所有资源转移、输出容量预留及校验完成后才
 进入不可失败的单写者提交段；不克隆 world，不用 snapshot 或通用 undo log 回滚。
+拍初运动与法规求值使用已发布信号，资格发布使用下一时刻信号，两者共用显式接收信号
+视图的 policy 判定内核。资格规范化、snapshot restore 与 migration/aggregate 校验共用
+完整资格谓词；成功 step 返回时即可捕获、恢复合法快照，不能依赖下一次 step 补清理。
+下一时刻信号每拍仅计算一次，提交时交换缓冲；资格检查合入已有车辆转移遍历。
 车辆到 grant、grant 到车辆更新、车辆到 Waiting plan 使用预建槽位索引连接，索引只在
 本 tick 有效且不参与 candidate 排序或 winner 选择。
 
 latest decision 至少区分 `NotEvaluated | NotRequired | Granted | NoGrant(reason)`，只描述
 刚完成 successful tick，不是下一 tick lease。normal no-grant 不 spam error/event；
 projection 只在首次 hard boundary contact transition 产生。
+因此信号在拍末切换时，latest decision 保留本拍按拍初信号作出的结果；已提交 eligibility
+则必须满足拍末信号下的资格条件，不以拍末信号重写已发生的决定或运动历史。
 
 统一 transition event batch 继续以
 `(vehicleUpdateSequence, routeAnchor, eventKindRank, staticCanonicalRank)` 总序。#284 在不

@@ -571,6 +571,8 @@ eligibility 的恢复还必须复算 exact admission Gate 在已恢复时刻、�
 profile 下的决策；只有 `Candidate` 可提交，`DenyAndStop` 即使 locator 与位置仍成立也
 必须以 `InvalidConflictAuthority` 失败关闭。aggregate 校验、restore、cross-revision
 migration 与独立 expected projection 复用同一完整谓词。
+正常 fixed step 在提交前也以拍后位置和下一时刻信号调用该谓词，先规范化暂存资格，
+再生成迁移增量并发布状态；信号切换不能在成功 step 返回后留下尚待清理的旧资格。
 
 live reservation 还保存 `snapshot_vehicle_id`、`snapshot_route_id`、本次 maneuver
 的 entry route edge index 和 Gate StableId，再携带所持有 passages 的 locator；
