@@ -205,9 +205,9 @@ jobs:
           set -euo pipefail
           mkdir -p target/road-editing-codegen/cpp target/road-editing-codegen/csharp
           "$FLATC" --cpp -o target/road-editing-codegen/cpp \
-            schemas/road-editing/v3/road-editing.fbs
+            schemas/road-editing/v4/road-editing.fbs
           "$FLATC" --csharp -o target/road-editing-codegen/csharp \
-            schemas/road-editing/v3/road-editing.fbs
+            schemas/road-editing/v4/road-editing.fbs
 
       - name: Build and run C++ writer
         shell: bash

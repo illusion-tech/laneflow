@@ -11,7 +11,8 @@
 固定模块内容（两个 writer 逐字段一致）：namespace `city`、文档键 `roads/crosslang-writer`、
 Direct provenance（冻结 digest 见 `crates/laneflow-compiler/src/road_editing/model.rs`）、
 Balanced5Cm / Balanced2Deg、一个 CanonicalFrame `frame`、一条限速 10 m/s、显式直线几何
-(0,0,0)→(10,0,0) 的 LaneEdge `edge-a`，其余向量均为空。`format_version = 3`。
+(0,0,0)→(10,0,0) 的 LaneEdge `edge-a`，其余向量（含必填路权策略集）均为空。
+`format_version = 4`。
 
 ## 钉版来源
 
@@ -41,8 +42,8 @@ C# 运行时不使用 NuGet `Google.FlatBuffers`（其上最新版落后于钉�
 3. 用钉版 argv 生成绑定：
 
    ```text
-   flatc --cpp -o target/road-editing-codegen/cpp schemas/road-editing/v3/road-editing.fbs
-   flatc --csharp -o target/road-editing-codegen/csharp schemas/road-editing/v3/road-editing.fbs
+   flatc --cpp -o target/road-editing-codegen/cpp schemas/road-editing/v4/road-editing.fbs
+   flatc --csharp -o target/road-editing-codegen/csharp schemas/road-editing/v4/road-editing.fbs
    ```
 
 4. 运行两个 writer，覆盖 golden fixture：

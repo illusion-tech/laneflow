@@ -1073,6 +1073,7 @@ mod tests {
         let conflict_zones = empty_table_vector::<wire::ConflictZone>(&mut fbb);
         let participant_streams = empty_table_vector::<wire::ParticipantStream>(&mut fbb);
         let conflict_zone_regions = empty_table_vector::<wire::ConflictZoneRegion>(&mut fbb);
+        let right_of_way_policy_sets = empty_table_vector::<wire::RightOfWayPolicySet>(&mut fbb);
         let root = wire::RoadEditingSource::create(
             &mut fbb,
             &wire::RoadEditingSourceArgs {
@@ -1105,6 +1106,7 @@ mod tests {
                 conflict_zones: Some(conflict_zones),
                 participant_streams: Some(participant_streams),
                 conflict_zone_regions: Some(conflict_zone_regions),
+                right_of_way_policy_sets: Some(right_of_way_policy_sets),
             },
         );
         wire::finish_size_prefixed_road_editing_source_buffer(&mut fbb, root);

@@ -158,9 +158,9 @@ const RUNTIME_SNAPSHOT_WIRE_LIB_RS_PIN: &str =
 /// 内闭合；schema+flatc → bytes 的语义对应另由 clean-regeneration 证明。
 /// 合法再生成（schema 或 flatc 钉版升级）需在同一 PR 更新本常量，diff 随评审可见。
 const ROAD_EDITING_GENERATED_RS_SHA256: &str =
-    "763a5419d93f46842152df2d5a71339a135cb207137a539e6266e8bdb970589d";
+    "b5937d7d8c7d2e17d88cd7d1c0800cdb7e8f9ba309d417c75a7c85c78580ddd7";
 const RUNTIME_SNAPSHOT_GENERATED_RS_SHA256: &str =
-    "4d40bdb2015771fa3ba3650b1eaa99ed52148f49d572dedb7e9a51ca65afe3ff";
+    "e35df27674ad75187ecb99a4e442a8c783b875da3fe9521bcb559466eeb52842";
 
 /// 分类断言：workspace 内唯一登记的手写 unsafe 例外 crate（平台私有临时文件
 /// staging + 只读映射）。它与两个 wire crate 构成 `allow` 登记名单；新增

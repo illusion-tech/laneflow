@@ -36,7 +36,7 @@ fn assert_fixed_module_semantics(fixture_name: &str, bytes: &[u8]) {
     let root = wire::size_prefixed_root_as_road_editing_source(bytes)
         .unwrap_or_else(|_| panic!("{fixture_name}: size-prefixed root 解码失败"));
 
-    assert_eq!(root.format_version(), 3, "{fixture_name}: format_version");
+    assert_eq!(root.format_version(), 4, "{fixture_name}: format_version");
     assert_eq!(
         root.geometry_accuracy_profile(),
         wire::GeometryAccuracyProfile::Balanced5Cm,
@@ -168,6 +168,7 @@ fn assert_fixed_module_semantics(fixture_name: &str, bytes: &[u8]) {
     }
     assert_eq!(root.participant_streams().len(), 0);
     assert_eq!(root.conflict_zone_regions().len(), 0);
+    assert_eq!(root.right_of_way_policy_sets().len(), 0);
 }
 
 fn assert_reader_accepts(fixture_name: &str) {
