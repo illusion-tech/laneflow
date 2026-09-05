@@ -115,4 +115,42 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
          reallocations={} allocated_bytes={}",
         stats.allocations, stats.reallocations, stats.bytes_allocated
     );
+
+    // 同一入门工作负载反复重建请求；重置在计时/计数窗外，两个事件缓冲都先暖机。
+    let mut current = vehicle;
+    for sample in 0..STEADY_TICKS + 4 {
+        world.despawn_vehicle(current).unwrap();
+        current = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                entry_length_mm - 1,
+                8_000,
+            ))
+            .unwrap();
+        let region = Region::new(GLOBAL);
+        world.step(TickInput::new(DELTA_MS)).unwrap();
+        let stats = region.change();
+        if sample >= 4 {
+            assert_eq!(
+                (
+                    stats.allocations,
+                    stats.reallocations,
+                    stats.bytes_allocated
+                ),
+                (0, 0, 0)
+            );
+        }
+        assert!(
+            world
+                .vehicle(current)
+                .unwrap()
+                .waiting_membership()
+                .is_some()
+        );
+    }
+    println!(
+        "waiting-g2-allocation-evidence repeated_admission_ticks={STEADY_TICKS} allocations=0 reallocations=0 allocated_bytes=0"
+    );
 }

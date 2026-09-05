@@ -722,20 +722,49 @@ compiler → LFCA → shared root → 正式 Runtime solver 使用；Runtime 没
 | 短车空冲突区       | 4.5 m / 2 m   | 无                             | 100 ms   | 100 ms   | 8/8  | 100/100 ms   | 无排队                                                       |
 | 长车空冲突区       | 12 m / 3 m    | 无                             | 100 ms   | 100 ms   | 8/8  | 100/100 ms   | 无排队；全车身 claim 通过                                    |
 | 让行汇入开放间隙   | 4.5 m / 2 m   | 无逼近车                       | 100 ms   | 100 ms   | 8/8  | 100/100 ms   | 无排队                                                       |
-| 无保护转向单车逼近 | 4.5 m / 2 m   | 每 trial 1 辆                  | 100 ms   | 3.4 s    | 8/8  | 3.4/3.4 s    | occupied 56、lag 200、lead 8；Gate 队列有界                  |
-| 饱和主路脉冲       | 4.5 m / 2 m   | 每 trial 3 辆、500 ms 车头间隔 | 100 ms   | 12 s     | 8/8  | 12/12 s      | occupied 488、lag 456、lead 8；Gate 队列有界且脉冲结束后放行 |
+| 无保护转向单车逼近 | 4.5 m / 2 m   | 每 trial 1 辆                  | 100 ms   | 3.4 s    | 8/8  | 3.4/3.4 s    | occupied 64、lag 200、lead 0；Gate 队列有界                  |
+| 饱和主路脉冲       | 4.5 m / 2 m   | 每 trial 3 辆、500 ms 车头间隔 | 100 ms   | 12 s     | 8/8  | 12/12 s      | occupied 512、lag 440、lead 0；Gate 队列有界且脉冲结束后放行 |
 | 下游堵塞           | 4.5 m / 2 m   | 静止下游 owner                 | 100 ms   | 100 ms   | 0/8  | 100/100 ms   | downstream-storage 8；全部稳定停在 Gate                      |
 
 保护性算法没有等待提权、同 tick release 复用或不可证明时放行。数值是当前受控机动车
 工程参考，不是法规数值、真实城市通行能力或专业交通工程校准结论；宿主可通过另一份
 具名版本化 policy source 显式选择不同参数。
 
-性能取证沿用当前产品基线的 workload/hardware 分类。本开发机的 release 证据为：
+性能取证沿用当前产品基线的 workload/hardware 分类。2026-09-05 的代码证据为
+`3db0d39906fb6937d61ea64f8ab14b484167d5ea`：Windows、AMD Ryzen 9 9955HX
+（16 核 / 32 线程）、约 64 GiB 内存、Rust 1.98.0 release。下表耗时为三轮串行运行
+的各轮 p50/p95 中位数；每轮 3 次暖机、21 个样本，不含世界构建与重置。
+retained 是 Conflict 组件逻辑容量账本，不是 whole-world 内存：
 
 | 档位 | full tick p50/p95 | Conflict 仲裁 p50/p95 | retained logical bytes | 结构计数                                                                                                                                                    |
 | ---- | ----------------- | --------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 10k  | 6.36/6.45 ms      | 2.31/2.36 ms          | 6,640,904 B            | 暖机后 16 tick allocation/reallocation/bytes 均为 0                                                                                                         |
-| 100k | 描述性正确性 tick | —                     | 66,400,904 B           | visited passages 100,001；frontier updates 1；top-two 2 cells/128 B；candidate/yield/cell/downstream query 各 1；collision 0；wait-for node/edge/visit 均 0 |
+| 10k  | 6.1798/6.2743 ms  | 2.2794/2.3381 ms      | 6,721,472 B            | 暖机后 16 tick allocation/reallocation/bytes 均为 0                                                                                                         |
+| 100k | 描述性正确性 tick | —                     | 67,201,472 B           | visited passages 100,001；frontier updates 1；top-two 2 cells/128 B；candidate/yield/cell/downstream query 各 1；collision 0；wait-for node/edge/visit 均 0 |
+
+上述稀疏 fixture 只有一个 Conflict 候选，不能代表大量同时请求。相同环境与采样方法下，
+将 `58c57dd596b12b4cd3a7df270bc12add072e6921` 从原始归档独立构建，与该代码版本
+按旧/新、新/旧、旧/新交替比较，100 ms fixed-step 的独立 Waiting Gate 请求结果为：
+
+| 同时请求数 | 旧 full tick p50/p95 (ms) | 新 full tick p50/p95 (ms) | 旧 Waiting + Conflict retained (B) | 新 Waiting + Conflict retained (B) |
+| ---------- | ------------------------- | ------------------------- | ---------------------------------- | ---------------------------------- |
+| 64         | 0.3821/0.4173             | 0.1030/0.1105             | 91,340                             | 132,288                            |
+| 256        | 6.9559/7.4488             | 0.5257/0.6167             | 365,132                            | 528,576                            |
+| 1024       | 120.7760/141.5329         | 2.5019/2.6985             | 1,460,300                          | 2,113,728                          |
+
+该 workload 每车 4.5 m、最小间距 2 m、初速 10 m/s；每轮入门后在测量窗外逐车
+despawn/spawn 回同一路线 Gate 前 1 mm。新增统一事件负载和图/调度索引使此组件
+合计 retained 增加约 44.7%，换取移除重复构图和扫描；不是总进程内存。
+同轮稀疏 10k 基线为 full tick 6.2202/6.3057 ms、仲裁 2.3124/2.3528 ms，范围重叠，
+只认为基本持平。重复入门/取得授权与持续持有两类正式 workload 均在暖机后连续
+16 tick 验证 allocation/reallocation/allocated bytes 为 0；重复请求的重置不计入测量窗。
+Waiting 独立 100k 组件账本仍为 19,200,060 B。
+
+复现入口：`multi_gate_comparison_evidence`、`conflict_10k_100k_scale_evidence` 与
+`waiting_10k_100k_scale_evidence` 使用 Runtime lib 的 release ignored 测试，
+`--test-threads=1 --nocapture`；零分配分别使用 `waiting_budget_evidence` 和
+`conflict_budget_evidence` integration binaries。实际同时请求 fixture 的依赖图为
+2N 个节点、N 条边、至多 2N 次访问；含容量阈值变化的图另用完整 SCC 差分验证。
+增量拓扑调整仍可能访问较大的受影响区域，不把整个 solver 或任意依赖图宣称为 O(N)。
 
 开发机墙钟只作本次实现证据，不替代尚待具名硬件执行的 P10 认证，也不在共享 CI 上硬编码
 4 ms 阈值。10k/100k 的近线性 retained、访问计数、正确性与零分配是可复现约束。最终
