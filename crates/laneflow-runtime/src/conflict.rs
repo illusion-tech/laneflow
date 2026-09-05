@@ -3461,6 +3461,44 @@ mod tests {
     }
 
     #[test]
+    fn cutover_floor_lag_uses_exact_elapsed_time() {
+        for floor in [0, 104] {
+            let reference = ConflictLagReference::CutoverFloor(floor);
+            assert_eq!(
+                check_gap(
+                    floor + 499,
+                    reference,
+                    500,
+                    ApproachEstimate::OutsideHorizon,
+                    1_000
+                ),
+                Some(ConflictGapOutcome::LagGap),
+            );
+            assert_eq!(
+                check_gap(
+                    floor + 500,
+                    reference,
+                    500,
+                    ApproachEstimate::OutsideHorizon,
+                    1_000
+                ),
+                Some(ConflictGapOutcome::Accepted),
+            );
+            assert_eq!(
+                check_gap(
+                    floor + 500,
+                    reference,
+                    500,
+                    ApproachEstimate::Finite(1_000),
+                    1_000
+                ),
+                Some(ConflictGapOutcome::LeadGap),
+                "satisfying the cutover lag does not bypass the independent lead proof",
+            );
+        }
+    }
+
+    #[test]
     fn exact_target_checks_occupied_lag_unprovable_and_lead_in_order() {
         let target = address(0, 0, 0);
         let mut arbiter = ConflictArbiter::new(vec![target], 3).unwrap();
