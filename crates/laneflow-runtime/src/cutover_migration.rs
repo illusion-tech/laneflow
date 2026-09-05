@@ -928,7 +928,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
         waiting_claims: try_staging_vec(vehicle_capacity)?,
         waiting_plans: try_staging_vec(vehicle_capacity)?,
         waiting_plan_by_vehicle: try_staging_slice(vehicle_capacity)?,
-        waiting_next_state_index: try_staging_slice(vehicle_capacity)?,
+        next_state_by_vehicle: try_staging_slice(vehicle_capacity)?,
         waiting_staged_decisions: Vec::new(),
         waiting_staged_events: Vec::new(),
         waiting_next_counters: try_staging_slice(waiting_zone_count)?,

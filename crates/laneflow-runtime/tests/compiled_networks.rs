@@ -1,6 +1,9 @@
 #[path = "support/policy.rs"]
 mod test_policy;
 
+#[path = "support/conflict_review.rs"]
+mod conflict_review;
+
 use std::hint::black_box;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -464,6 +467,7 @@ fn conflict_calibration_road_editing_module() -> lfre::RoadEditingSourceModule {
             yielding: true,
             gap_values_ms: Some((5_000, 2_000, 500)),
             include_long_vehicle: true,
+            ..ConflictPolicyFixture::default()
         },
     )
 }
@@ -508,6 +512,9 @@ struct ConflictPolicyFixture {
     yielding: bool,
     gap_values_ms: Option<(u64, u64, u64)>,
     include_long_vehicle: bool,
+    waiting: bool,
+    next_gate: bool,
+    clearance: Option<(u32, f64)>,
 }
 
 fn conflict_road_editing_module_with_shape_and_speed(
@@ -522,6 +529,9 @@ fn conflict_road_editing_module_with_shape_and_speed(
         yielding,
         gap_values_ms,
         include_long_vehicle,
+        waiting,
+        next_gate,
+        clearance,
     } = policy_fixture;
     assert!(stream_count <= 2);
     assert!(!multiplicity || (include_conflict && stream_count == 2));
@@ -679,13 +689,17 @@ fn conflict_road_editing_module_with_shape_and_speed(
         .expect("admission gate reference");
         let (entry_anchor, exit_anchor) = if terminal_clearance {
             (
-                lfre::PathAnchorInput::gate(admission_gate),
+                lfre::PathAnchorInput::gate(admission_gate.clone()),
                 lfre::PathAnchorInput::edge_boundary(3),
             )
         } else {
             (
                 lfre::PathAnchorInput::interior(1, entry_progress).expect("entry anchor"),
-                lfre::PathAnchorInput::interior(1, exit_progress).expect("exit anchor"),
+                lfre::PathAnchorInput::interior(
+                    clearance.map_or(1, |value| value.0),
+                    clearance.map_or(exit_progress, |value| value.1),
+                )
+                .expect("exit anchor"),
             )
         };
         module
@@ -724,6 +738,48 @@ fn conflict_road_editing_module_with_shape_and_speed(
                 .expect("maneuver gate"),
             ))
             .expect("add maneuver gate");
+        if waiting || next_gate {
+            let release_key = format!("{gate_key}-release");
+            let release_stop = format!("{stop_line_key}-release");
+            module
+                .add_declaration(lfre::RoadEditingDeclaration::StopLine(
+                    lfre::StopLineInput::try_new(
+                        &release_stop,
+                        lfre::LaneEdgeReference::local(internal_edge).unwrap(),
+                    )
+                    .unwrap(),
+                ))
+                .unwrap()
+                .add_declaration(lfre::RoadEditingDeclaration::ManeuverGate(
+                    lfre::ManeuverGateInput::try_new(
+                        &release_key,
+                        path.clone(),
+                        1,
+                        lfre::StopLineReference::local(&release_stop).unwrap(),
+                        lfre::RoadEditingSignalControl::None,
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+            if waiting {
+                module
+                    .add_declaration(lfre::RoadEditingDeclaration::WaitingZone(
+                        lfre::WaitingZoneInput::try_new(
+                            "waiting",
+                            path.clone(),
+                            admission_gate.clone(),
+                            lfre::ManeuverGateReference::owner_scoped(
+                                vec!["crossing".into(), movement_key.into(), path_key.into()],
+                                &release_key,
+                            )
+                            .unwrap(),
+                            1,
+                        )
+                        .unwrap(),
+                    ))
+                    .unwrap();
+            }
+        }
         if include_conflict && !multiplicity && stream_index < stream_count {
             module
                 .add_declaration(lfre::RoadEditingDeclaration::ParticipantStream(
@@ -873,7 +929,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
             ))
             .expect("add long vehicle profile");
     }
-    let policy_gates = [
+    let mut policy_gates: Vec<_> = [
         ("east-west", "east-west-path", "east-west-gate"),
         ("north-south", "north-south-path", "north-south-gate"),
     ]
@@ -894,6 +950,32 @@ fn conflict_road_editing_module_with_shape_and_speed(
         .unwrap()
     })
     .collect();
+    if waiting || next_gate {
+        for (movement, path, gate) in [
+            ("east-west", "east-west-path", "east-west-gate-release"),
+            (
+                "north-south",
+                "north-south-path",
+                "north-south-gate-release",
+            ),
+        ] {
+            policy_gates.push(
+                lfre::PolicyGateRuleInput::try_new(
+                    gate,
+                    lfre::ManeuverGateReference::owner_scoped(
+                        vec!["crossing".into(), movement.into(), path.into()],
+                        gate,
+                    )
+                    .unwrap(),
+                    None,
+                    laneflow_compiler::GateInterpretation::Uncontrolled,
+                    laneflow_compiler::GateProhibition::None,
+                    vec![],
+                )
+                .unwrap(),
+            );
+        }
+    }
     let mut stream_keys = Vec::new();
     if include_conflict {
         if multiplicity {

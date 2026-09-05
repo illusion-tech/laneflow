@@ -23,6 +23,13 @@ Prepare 只全量迁移 Conflict 一次，在线 tick journal 记录 eligibility
 这类调用以 `ConflictAuthorityRequired` 失败；restore/cutover 只接受可完整证明的既有
 authority。
 
+固定步进先暂存运动与资源转移，再推导一次最终 traversal 并形成只读输出，最后原子
+提交。grant 准备后的可恢复错误统一撤销暂存授权，保留已提交状态；车尾清空与路线
+完成可以在同一 tick 提交。Waiting 本地预选不直接发布 `Granted`，组合拒绝通过
+`NoGrant(CombinedResource(reason))` 表达，尚未进入组合求值的 entry 为 `Deferred`。
+跨修订成功切换清空 Waiting/Conflict 历史决策与 Waiting 事件批次，避免旧 ordinal 被
+误读为目标修订实体；同修订和失败切换保留批次。
+
 生命周期命令只在两次 `step` 之间调用。`replace_completed_vehicle` 把 Completed
 车辆一次提交为新的 Active 句柄；到终点保留 Completed，不进 pose、不占车道，占容量。
 `despawn_vehicle` 原子移除任意合法 live status 并释放 route/parking binding；人口政策仍

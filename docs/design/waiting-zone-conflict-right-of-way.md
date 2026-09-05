@@ -614,6 +614,17 @@ phase。route completion 前必须清空 reservation；despawn 原子释放 Wait
 downstream authority。active reservation 的 arbitrary route replace/rebind 除非完整证明
 同一 stable passages/claims/footprint，否则失败关闭；不能只迁移 enum。
 
+当前静态合同拒绝同一 ManeuverPath 上 passage 与 WaitingZone 内部重叠，并把 passage
+分配给 entry 之前最近的 Gate。因此 Waiting entry Gate 不拥有非空 Conflict coverage；
+此前 reservation 又必须在下一 Gate 边界前满足整车净空，合法提交不会同时保留 Waiting
+membership 与 `Clearing`。运行时保留该互斥校验，不通过延期提交 membership 或放宽
+静态重叠规则补偿非法组合。
+
+route completion 按拍后转移判断：同拍达到 RouteEnd 且车尾已清空全部 coverage 时，
+先暂存 passage clear/reservation release，再允许 Completed；不得按拍初 reservation
+阻断这一正常转移。Waiting 与 Conflict 先分别暂存资源变化，再唯一推导 traversal 和
+输出事件，禁止先生成 Waiting phase/events 后再覆盖为 Conflict phase。
+
 #284 已在本节 policy、arbiter、grant/reservation、组合 ledger、snapshot/cutover 与生产
 tick 同切片安装后原子移除 #559 临时错误；当前不存在单独绕过资源 owner 的生产入口。
 
@@ -630,6 +641,12 @@ tick 同切片安装后原子移除 #559 临时错误；当前不存在单独绕
 6. 把缺失 grant 加为 Gate hard stop，与 Parking/RouteEnd/leader/no-overlap 共同归约；
 7. stage motion、crossing、Waiting/Conflict/reservation/claim transitions；
 8. 原子提交 state、latest batches、events、tick/time。
+
+grant 准备后的全部可恢复错误统一丢弃 tick-local staging，保留拍初 committed authority、
+latest batches、tick/time 与复用缓冲容量。所有资源转移、输出容量预留及校验完成后才
+进入不可失败的单写者提交段；不克隆 world，不用 snapshot 或通用 undo log 回滚。
+车辆到 grant、grant 到车辆更新、车辆到 Waiting plan 使用预建槽位索引连接，索引只在
+本 tick 有效且不参与 candidate 排序或 winner 选择。
 
 latest decision 至少区分 `NotEvaluated | NotRequired | Granted | NoGrant(reason)`，只描述
 刚完成 successful tick，不是下一 tick lease。normal no-grant 不 spam error/event；
