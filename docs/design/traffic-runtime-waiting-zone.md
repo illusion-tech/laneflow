@@ -488,9 +488,11 @@ Waiting 相关 record 区分：
 ```text
 NotEvaluated              // signal/regulatory deny，未尝试资源
 NotRequired               // Gate coverage 无 Waiting admission
+Deferred                  // 本地预选可行，但 entry 尚未进入本 tick 的组合资源求值
 Granted                   // 本 tick Waiting claim 完整取得
 NoGrant(Capacity)
 NoGrant(PhysicalStorage)
+NoGrant(CombinedResource(reason)) // 本地预选可行，但组合资源被拒绝
 ```
 
 同一 Waiting entry occurrence 每车每 tick 至多一条 record，record 至少携带可审计的
@@ -499,6 +501,12 @@ NoGrant(PhysicalStorage)
 record 只描述刚完成的 successful tick，不是下一 tick 的 permission lease。#284 可以
 在同一 resource-outcome 面增加 Conflict/downstream reason，但不得改变 #282 Waiting
 reason 的含义或让历史 record 成为 authority。
+
+本地 reducer 的可准入结果是私有预选，只有组合单写者取得完整 bundle 并激活 claim 后
+才发布 `Granted`。组合拒绝直接复用 `ConflictNoGrantReason`，不改写为本地容量或储存
+不足；未选中的更晚 entry 使用 `Deferred`，不冒充法规未求值的 `NotEvaluated`。
+Waiting plan 在排序后建立车辆槽位到 plan 的紧凑索引，不复制整份可变 plan；最终输出
+在 motion、membership、Conflict tail-clear 与唯一 traversal 推导后形成。
 
 `NotRequired` 只覆盖正式 staged motion 实际 crossing 或接触的 Gate，不使用尚未施加
 Waiting capacity/storage/horizon 约束的预览位置。claim 的 `Granted` 仍表示本 tick 已取得

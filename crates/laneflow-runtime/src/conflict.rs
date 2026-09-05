@@ -23,6 +23,8 @@ thread_local! {
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ConflictWorkCounts {
+    pub(crate) vehicle_grant_lookups: usize,
+    pub(crate) grant_update_lookups: usize,
     pub(crate) visited_passages: usize,
     pub(crate) frontier_updates: usize,
     pub(crate) candidates: usize,
@@ -38,6 +40,8 @@ pub(crate) struct ConflictWorkCounts {
 #[cfg(test)]
 impl ConflictWorkCounts {
     const ZERO: Self = Self {
+        vehicle_grant_lookups: 0,
+        grant_update_lookups: 0,
         visited_passages: 0,
         frontier_updates: 0,
         candidates: 0,
