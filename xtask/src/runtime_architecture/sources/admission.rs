@@ -2,7 +2,7 @@
 
 use syn::{FnArg, GenericArgument, Item, PathArguments, ReturnType, Type, Visibility};
 
-use super::{BTreeSet, Imports, SourceModule, ident_name, path_is_ident, resolve_path};
+use super::{BTreeSet, Imports, SourceModule, attributes, ident_name, path_is_ident, resolve_path};
 
 const SIGNATURES: [&str; 3] = [
     "pub(super) fn verify_semantic_diff(binding: Option<&crate::admin::cutover::SemanticDiffOriginBinding>, bytes: &[u8], base: laneflow_static_network::CanonicalNetworkOrigin, target: laneflow_static_network::CanonicalNetworkOrigin) -> Result<(), crate::admin::cutover::CutoverDescriptorError> {}",
@@ -28,18 +28,16 @@ pub(super) fn check(
     for item in &module.items {
         if let Item::Impl(implementation) = item {
             if implementation.trait_.is_some()
-                || implementation.items.iter().any(|item| match item {
-                    syn::ImplItem::Fn(item) => {
-                        !super::test_only(&item.attrs) && !private(&item.vis)
+                || implementation.items.iter().any(|item| {
+                    if attributes::test_only(attributes::of_impl_item(item)) {
+                        return false;
                     }
-                    syn::ImplItem::Const(item) => {
-                        !super::test_only(&item.attrs) && !private(&item.vis)
+                    match item {
+                        syn::ImplItem::Fn(item) => !private(&item.vis),
+                        syn::ImplItem::Const(item) => !private(&item.vis),
+                        syn::ImplItem::Type(item) => !private(&item.vis),
+                        _ => true,
                     }
-                    syn::ImplItem::Type(item) => {
-                        !super::test_only(&item.attrs) && !private(&item.vis)
-                    }
-                    syn::ImplItem::Macro(item) => !super::test_only(&item.attrs),
-                    _ => true,
                 })
             {
                 return Err("格式入口不允许额外 trait 实现或可见关联项".into());
@@ -58,10 +56,7 @@ pub(super) fn check(
             Item::Static(item) => !private(&item.vis),
             Item::Union(item) => !private(&item.vis),
             Item::ExternCrate(item) => !private(&item.vis),
-            Item::Macro(item) => item
-                .attrs
-                .iter()
-                .any(|attr| path_is_ident(attr.path(), "macro_export")),
+            Item::Macro(item) => attributes::exports_macro(&item.attrs)?,
             // 子模块可见性在模块枚举时检查；foreign/verbatim 不属于这份有限接口。
             _ => return Err("格式入口包含未支持的声明形式".into()),
         };

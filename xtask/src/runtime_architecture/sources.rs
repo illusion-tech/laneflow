@@ -6,12 +6,13 @@ use std::path::{Path, PathBuf};
 
 use proc_macro2::{TokenStream, TokenTree};
 use syn::ext::IdentExt;
-use syn::parse::Parser;
 use syn::visit::{self, Visit};
-use syn::{Attribute, Item, Meta, Token, UseTree};
+use syn::{Item, UseTree};
 
 use super::SourceInputs;
 mod admission;
+mod attributes;
+use attributes::test_only;
 
 type ModulePath = Vec<String>;
 type Imports = BTreeMap<ModulePath, ModulePath>;
@@ -23,83 +24,6 @@ fn ident_name(ident: &syn::Ident) -> String {
 fn path_is_ident(path: &syn::Path, expected: &str) -> bool {
     path.get_ident()
         .is_some_and(|ident| ident_name(ident) == expected)
-}
-
-#[derive(Clone, Copy)]
-enum Truth {
-    Yes,
-    No,
-    Unknown,
-}
-
-fn non_test_cfg(meta: &Meta) -> Truth {
-    match meta {
-        Meta::Path(path) if path_is_ident(path, "test") => Truth::No,
-        Meta::List(list) => {
-            let Ok(parts) = syn::punctuated::Punctuated::<Meta, Token![,]>::parse_terminated
-                .parse2(list.tokens.clone())
-            else {
-                return Truth::Unknown;
-            };
-            let values: Vec<_> = parts.iter().map(non_test_cfg).collect();
-            if path_is_ident(&list.path, "not") && values.len() == 1 {
-                match values[0] {
-                    Truth::Yes => Truth::No,
-                    Truth::No => Truth::Yes,
-                    Truth::Unknown => Truth::Unknown,
-                }
-            } else if path_is_ident(&list.path, "all") {
-                if values.iter().any(|value| matches!(value, Truth::No)) {
-                    Truth::No
-                } else if values.iter().all(|value| matches!(value, Truth::Yes)) {
-                    Truth::Yes
-                } else {
-                    Truth::Unknown
-                }
-            } else if path_is_ident(&list.path, "any") {
-                if values.iter().any(|value| matches!(value, Truth::Yes)) {
-                    Truth::Yes
-                } else if values.iter().all(|value| matches!(value, Truth::No)) {
-                    Truth::No
-                } else {
-                    Truth::Unknown
-                }
-            } else {
-                Truth::Unknown
-            }
-        }
-        _ => Truth::Unknown,
-    }
-}
-
-fn test_only(attributes: &[Attribute]) -> bool {
-    attributes.iter().any(|attribute| {
-        path_is_ident(attribute.path(), "cfg")
-            && attribute
-                .parse_args::<Meta>()
-                .is_ok_and(|meta| matches!(non_test_cfg(&meta), Truth::No))
-    })
-}
-
-fn attributes(item: &Item) -> &[Attribute] {
-    match item {
-        Item::Const(item) => &item.attrs,
-        Item::Enum(item) => &item.attrs,
-        Item::ExternCrate(item) => &item.attrs,
-        Item::Fn(item) => &item.attrs,
-        Item::ForeignMod(item) => &item.attrs,
-        Item::Impl(item) => &item.attrs,
-        Item::Macro(item) => &item.attrs,
-        Item::Mod(item) => &item.attrs,
-        Item::Static(item) => &item.attrs,
-        Item::Struct(item) => &item.attrs,
-        Item::Trait(item) => &item.attrs,
-        Item::TraitAlias(item) => &item.attrs,
-        Item::Type(item) => &item.attrs,
-        Item::Union(item) => &item.attrs,
-        Item::Use(item) => &item.attrs,
-        _ => &[],
-    }
 }
 
 fn use_paths(
@@ -211,7 +135,7 @@ fn load_items(
     }
     let mut ordinary = Vec::new();
     for item in items {
-        if test_only(attributes(&item)) {
+        if test_only(attributes::of_item(&item)) {
             continue;
         }
         if let Item::Mod(module) = item {
@@ -313,7 +237,21 @@ pub(super) fn check(inputs: &SourceInputs) -> Result<(), String> {
                     } else {
                         absolute(&module.name, &target)
                     };
-                    imports.insert(key, target);
+                    match imports.entry(key) {
+                        std::collections::btree_map::Entry::Vacant(entry) => {
+                            entry.insert(target);
+                        }
+                        std::collections::btree_map::Entry::Occupied(entry) => {
+                            if entry.get() != &target {
+                                return Err(format!(
+                                    "生产导入存在别名歧义 {}：{} / {}",
+                                    entry.key().join("::"),
+                                    entry.get().join("::"),
+                                    target.join("::")
+                                ));
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -378,6 +316,17 @@ fn resolve_path(
 }
 
 impl SourceCheck<'_> {
+    fn reject_include(&mut self, original: &[String]) {
+        let resolved = resolve_path(&self.module.name, self.imports, self.externals, original);
+        // 保留 include 宏名，不解析宏命名空间；导入时也拒绝以覆盖块内别名。
+        if original.last().is_some_and(|name| name == "include")
+            || resolved.last().is_some_and(|name| name == "include")
+        {
+            self.error
+                .get_or_insert_with(|| "生产源码不得调用、导入或转导出 include 宏".into());
+        }
+    }
+
     fn path(&mut self, original: ModulePath) {
         if original.is_empty() {
             return;
@@ -414,12 +363,6 @@ impl SourceCheck<'_> {
         for (index, token) in tokens.iter().enumerate() {
             match token {
                 TokenTree::Ident(ident) => {
-                    if ident_name(ident) == "include"
-                        && matches!(tokens.get(index + 1), Some(TokenTree::Punct(punct)) if punct.as_char() == '!')
-                    {
-                        self.error
-                            .get_or_insert_with(|| "生产宏不得动态 include Rust 源码".to_string());
-                    }
                     let mut path = vec![ident_name(ident)];
                     let mut next = index + 1;
                     while let [
@@ -434,6 +377,10 @@ impl SourceCheck<'_> {
                         path.push(ident_name(segment));
                         next += 3;
                     }
+                    if matches!(tokens.get(next), Some(TokenTree::Punct(punct)) if punct.as_char() == '!')
+                    {
+                        self.reject_include(&path);
+                    }
                     self.path(path);
                 }
                 TokenTree::Group(group) => self.tokens(group.stream()),
@@ -445,7 +392,7 @@ impl SourceCheck<'_> {
 
 impl<'ast> Visit<'ast> for SourceCheck<'_> {
     fn visit_item(&mut self, item: &'ast Item) {
-        if !test_only(attributes(item)) {
+        if !test_only(attributes::of_item(item)) {
             // 模块层级的声明已由清单加载；这里出现的是函数块内的局部模块。
             if matches!(item, Item::Mod(_)) {
                 self.error
@@ -459,10 +406,29 @@ impl<'ast> Visit<'ast> for SourceCheck<'_> {
             visit::visit_item(self, item);
         }
     }
-    fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
-        if !test_only(&item.attrs) {
-            self.visit_signature(&item.sig);
-            self.visit_block(&item.block);
+    fn visit_impl_item(&mut self, item: &'ast syn::ImplItem) {
+        if !test_only(attributes::of_impl_item(item)) {
+            visit::visit_impl_item(self, item);
+        }
+    }
+    fn visit_trait_item(&mut self, item: &'ast syn::TraitItem) {
+        if !test_only(attributes::of_trait_item(item)) {
+            visit::visit_trait_item(self, item);
+        }
+    }
+    fn visit_foreign_item(&mut self, item: &'ast syn::ForeignItem) {
+        if !test_only(attributes::of_foreign_item(item)) {
+            visit::visit_foreign_item(self, item);
+        }
+    }
+    fn visit_field(&mut self, field: &'ast syn::Field) {
+        if !test_only(&field.attrs) {
+            visit::visit_field(self, field);
+        }
+    }
+    fn visit_variant(&mut self, variant: &'ast syn::Variant) {
+        if !test_only(&variant.attrs) {
+            visit::visit_variant(self, variant);
         }
     }
     fn visit_local(&mut self, local: &'ast syn::Local) {
@@ -475,6 +441,7 @@ impl<'ast> Visit<'ast> for SourceCheck<'_> {
         match use_paths(&item.tree, &mut Vec::new(), &mut paths) {
             Ok(()) => {
                 for (_, path) in paths {
+                    self.reject_include(&path);
                     self.path(path);
                 }
             }
@@ -502,10 +469,13 @@ impl<'ast> Visit<'ast> for SourceCheck<'_> {
         visit::visit_path(self, path);
     }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        if path_is_ident(&mac.path, "include") {
-            self.error
-                .get_or_insert_with(|| "生产模块不得动态 include Rust 源码".to_string());
-        }
+        let path: Vec<_> = mac
+            .path
+            .segments
+            .iter()
+            .map(|segment| ident_name(&segment.ident))
+            .collect();
+        self.reject_include(&path);
         self.visit_path(&mac.path);
         self.tokens(mac.tokens.clone());
     }
