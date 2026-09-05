@@ -509,6 +509,7 @@ fn conflict_road_editing_module_with_shape(
 
 #[derive(Clone, Copy, Default)]
 struct ConflictPolicyFixture {
+    deny: bool,
     yielding: bool,
     gap_values_ms: Option<(u64, u64, u64)>,
     include_long_vehicle: bool,
@@ -526,6 +527,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
     policy_fixture: ConflictPolicyFixture,
 ) -> lfre::RoadEditingSourceModule {
     let ConflictPolicyFixture {
+        deny,
         yielding,
         gap_values_ms,
         include_long_vehicle,
@@ -622,7 +624,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
                     .expect("conflict zone"),
             ))
             .expect("add conflict zone");
-        if multiplicity {
+        if multiplicity || next_gate {
             module
                 .add_declaration(lfre::RoadEditingDeclaration::ConflictZone(
                     lfre::ConflictZoneInput::try_new("secondary-zone", junction.clone())
@@ -783,16 +785,21 @@ fn conflict_road_editing_module_with_shape_and_speed(
         if include_conflict && !multiplicity && stream_index < stream_count {
             module
                 .add_declaration(lfre::RoadEditingDeclaration::ParticipantStream(
-                    lfre::ParticipantStreamInput::try_new(
-                        stream_key,
-                        junction.clone(),
-                        path,
-                        vec![lfre::ConflictPassageInput::new(
+                    lfre::ParticipantStreamInput::try_new(stream_key, junction.clone(), path, {
+                        let mut passages = vec![lfre::ConflictPassageInput::new(
                             zone.clone(),
                             entry_anchor,
                             exit_anchor,
-                        )],
-                    )
+                        )];
+                        if next_gate {
+                            passages.push(lfre::ConflictPassageInput::new(
+                                secondary_zone.clone(),
+                                lfre::PathAnchorInput::interior(2, 1.0).unwrap(),
+                                lfre::PathAnchorInput::interior(2, 4.0).unwrap(),
+                            ));
+                        }
+                        passages
+                    })
                     .expect("participant stream"),
                 ))
                 .expect("add participant stream");
@@ -944,7 +951,11 @@ fn conflict_road_editing_module_with_shape_and_speed(
             .unwrap(),
             None,
             laneflow_compiler::GateInterpretation::Uncontrolled,
-            laneflow_compiler::GateProhibition::None,
+            if deny {
+                laneflow_compiler::GateProhibition::Always
+            } else {
+                laneflow_compiler::GateProhibition::None
+            },
             vec![],
         )
         .unwrap()
@@ -1677,6 +1688,7 @@ fn conflict_tick_rejects_when_committed_downstream_storage_is_blocked() {
 
 #[test]
 fn permissive_conflict_uses_the_compiled_gap_profile_and_approach_frontier() {
+    use laneflow_runtime::ConflictNoGrantReason;
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
     let route_edges = [0_u32, 1].map(|raw| {
         let stream = revision
@@ -1691,54 +1703,58 @@ fn permissive_conflict_uses_the_compiled_gap_profile_and_approach_frontier() {
             .edges()
             .to_vec()
     });
-    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 1, 100))
-        .expect("world");
-    assert_eq!(world.policy_gap_profiles()[0].required_lead_ms(), 600);
-    assert_eq!(world.policy_gap_profiles()[0].required_lag_ms(), 500);
-    let routes = route_edges.map(|edges| {
-        world
-            .register_route(RouteRegisterInput::new(edges))
-            .expect("route")
-    });
-    let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
-    let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
-    let subject = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            world.traffic().lane_lengths_millimetres()[subject_edge.index()],
-            10_000,
-        ))
-        .expect("yielding subject");
-    let foe = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            world.traffic().lane_lengths_millimetres()[foe_edge.index()],
-            10_000,
-        ))
-        .expect("priority foe");
+    for (distance, reason) in [
+        (0, ConflictNoGrantReason::ConflictOccupied),
+        (2_000, ConflictNoGrantReason::LeadGap),
+    ] {
+        let mut world =
+            install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 1, 100))
+                .expect("world");
+        assert_eq!(world.policy_gap_profiles()[0].required_lead_ms(), 600);
+        assert_eq!(world.policy_gap_profiles()[0].required_lag_ms(), 500);
+        let routes = route_edges.clone().map(|edges| {
+            world
+                .register_route(RouteRegisterInput::new(edges))
+                .expect("route")
+        });
+        let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
+        let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
+        let subject = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                world.traffic().lane_lengths_millimetres()[subject_edge.index()],
+                10_000,
+            ))
+            .expect("yielding subject");
+        let foe = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                world.traffic().lane_lengths_millimetres()[foe_edge.index()] - distance,
+                10_000,
+            ))
+            .expect("priority foe");
 
-    world.step(TickInput::new(100)).expect("gap arbitration");
-    assert_eq!(
-        world
-            .latest_conflict_decisions()
-            .iter()
-            .find(|decision| decision.vehicle() == subject)
-            .expect("subject decision")
-            .outcome(),
-        laneflow_runtime::ConflictDecisionOutcome::NoGrant(
-            laneflow_runtime::ConflictNoGrantReason::LeadGap,
-        )
-    );
-    assert_eq!(
-        world.vehicle(subject).expect("subject").route_edge_index(),
-        0
-    );
-    assert!(world.conflict_reservation(subject).is_none());
-    assert!(world.conflict_reservation(foe).is_some());
+        world.step(TickInput::new(100)).expect("gap arbitration");
+        assert_eq!(
+            world
+                .latest_conflict_decisions()
+                .iter()
+                .find(|decision| decision.vehicle() == subject)
+                .expect("subject decision")
+                .outcome(),
+            laneflow_runtime::ConflictDecisionOutcome::NoGrant(reason)
+        );
+        assert_eq!(
+            world.vehicle(subject).expect("subject").route_edge_index(),
+            0
+        );
+        assert!(world.conflict_reservation(subject).is_none());
+        assert_eq!(world.conflict_reservation(foe).is_some(), distance == 0);
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -2001,10 +2017,10 @@ fn conservative_gap_profile_calibration_matrix_uses_the_formal_solver() {
 
     assert_eq!(downstream_rejects.downstream, TRIALS);
     assert_eq!(downstream_rejects.other, 0);
-    assert!(unprotected_rejects.lead_gap > 0);
+    assert!(unprotected_rejects.occupied > 0);
     assert!(unprotected_rejects.lag_gap > 0);
     assert_eq!(unprotected_rejects.other, 0);
-    assert!(saturated_rejects.lead_gap > 0);
+    assert!(saturated_rejects.occupied > 0);
     assert!(saturated_rejects.lag_gap > 0);
     assert_eq!(saturated_rejects.other, 0);
 

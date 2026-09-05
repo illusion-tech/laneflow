@@ -480,8 +480,8 @@ impl CutoverTransaction {
             &mut candidate.waiting_staged_decisions,
         );
         std::mem::swap(
-            &mut world.waiting_staged_events,
-            &mut candidate.waiting_staged_events,
+            &mut world.staged_transition_events,
+            &mut candidate.staged_transition_events,
         );
         std::mem::swap(
             &mut world.waiting_next_counters,
@@ -498,7 +498,7 @@ impl CutoverTransaction {
         // 跨修订提交使旧 route/zone anchors 失效。历史 tick 输出不参与迁移，
         // 调用方在 commit 前消费；此处处于不可失败的原子发布段。
         world.latest_waiting_decisions.clear();
-        world.latest_waiting_events.clear();
+        world.latest_transition_events.clear();
         world.latest_conflict_decisions.clear();
         std::mem::swap(&mut world.signal_aspects, &mut candidate.signal_aspects);
         std::mem::swap(&mut world.next_states, &mut candidate.next_states);
@@ -931,7 +931,7 @@ fn apply_conflict_tick_deltas(
             .vehicle_state(delta.owner)
             .copied()
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
-        if state.status != crate::VehicleStatus::Active {
+        if delta.value.is_some() && state.status != crate::VehicleStatus::Active {
             return Err(CutoverError::ConflictRevalidationFailed);
         }
         let value = match delta.value {
@@ -958,11 +958,18 @@ fn apply_conflict_tick_deltas(
                 Some(value)
             }
         };
-        let slot = candidate
-            .conflict_eligibility
-            .get_mut(delta.owner.index() as usize)
-            .ok_or(CutoverError::ConflictRevalidationFailed)?;
-        *slot = value;
+        let index = delta.owner.index() as usize;
+        if value.is_some() && index >= candidate.conflict_eligibility.len() {
+            let additional = index + 1 - candidate.conflict_eligibility.len();
+            candidate
+                .conflict_eligibility
+                .try_reserve(additional)
+                .map_err(|_| CutoverError::StagingAllocFailed)?;
+            candidate.conflict_eligibility.resize(index + 1, None);
+        }
+        if let Some(slot) = candidate.conflict_eligibility.get_mut(index) {
+            *slot = value;
+        }
     }
     candidate.normalize_conflict_eligibility();
 
@@ -971,7 +978,7 @@ fn apply_conflict_tick_deltas(
             .vehicle_state(delta.owner)
             .copied()
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
-        if state.status != crate::VehicleStatus::Active {
+        if delta.acquired_tick.is_some() && state.status != crate::VehicleStatus::Active {
             return Err(CutoverError::ConflictRevalidationFailed);
         }
         let mut mapped = Vec::new();
@@ -1625,6 +1632,53 @@ fn compile_candidate_route(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn absent_deltas_accept_completed_owner() {
+        let mut world = installed_world(ORACLE_BASE, "fixture://round2-replay");
+        let (entry, exit) = entry_exit(&world);
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .unwrap();
+        let length = world.traffic().lane_lengths_millimetres()[exit.index()];
+        let owner = world
+            .spawn_vehicle(crate::VehicleSpawnInput::new(
+                laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                route,
+                1,
+                length,
+                10_000,
+            ))
+            .unwrap();
+        world.step(TickInput::new(100)).unwrap();
+        assert_eq!(
+            world.vehicle(owner).unwrap().status(),
+            crate::VehicleStatus::Completed
+        );
+        let base = world.revision();
+        let rebinding = CrossRevisionRebinding::build(base.identity(), base.identity()).unwrap();
+        world.arm_migration_journal(4_096).unwrap();
+        let journal = world.migration_journal.as_mut().unwrap();
+        journal.begin_tick(2, 200);
+        journal.tick_conflict_eligibility(owner, None);
+        journal.tick_conflict_authority_absent(owner);
+        journal.finish_tick();
+        let JournalRecord::Tick {
+            conflict_eligibility,
+            conflict_authorities,
+            ..
+        } = journal.records_from(0).next().unwrap()
+        else {
+            panic!("tick record");
+        };
+        let eligibility = conflict_eligibility.to_vec();
+        let authority = conflict_authorities.to_vec();
+        let eligibility_result =
+            apply_conflict_tick_deltas(&base, &mut world, &rebinding, &eligibility, &[], &[]);
+        let authority_result =
+            apply_conflict_tick_deltas(&base, &mut world, &rebinding, &[], &authority, &[]);
+        assert_eq!((eligibility_result, authority_result), (Ok(()), Ok(())));
+    }
+
     use laneflow_format::{FormatLimits, check_canonical_network_input};
     use laneflow_static_contract::{
         ExactByteLength, ParkingSpaceOrdinal, SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest,
@@ -1908,7 +1962,7 @@ mod tests {
         let mut offset = 0;
         let mut saw_reservation = false;
         let mut saw_actual_clear = false;
-        for _ in 0..128 {
+        for _ in 0..2_048 {
             source
                 .step(TickInput::new(100))
                 .expect("production Conflict tick");
@@ -1932,7 +1986,9 @@ mod tests {
                     .any(|(_, reference)| {
                         matches!(reference, crate::ConflictLagReference::ActualClear(_))
                     });
-            if saw_reservation && saw_actual_clear && source.conflict_reservation(vehicle).is_none()
+            if saw_reservation
+                && saw_actual_clear
+                && source.vehicle(vehicle).unwrap().status() == VehicleStatus::Completed
             {
                 break;
             }
@@ -1946,6 +2002,14 @@ mod tests {
             "tail clear publishes an ActualClear lag reference"
         );
         assert!(source.conflict_reservation(vehicle).is_none());
+        assert_eq!(
+            source.vehicle(vehicle).unwrap().status(),
+            VehicleStatus::Completed
+        );
+        assert_eq!(
+            candidate.vehicle(vehicle).unwrap().status(),
+            VehicleStatus::Completed
+        );
         assert_eq!(
             source
                 .capture_snapshot()
@@ -3069,7 +3133,7 @@ mod tests {
         seed_latest_waiting_output(&mut cut);
         let _ = tx.commit(&mut cut).expect("commit");
         assert!(cut.latest_waiting_decisions().is_empty());
-        assert!(cut.latest_waiting_events().is_empty());
+        assert!(cut.latest_transition_events().is_empty());
         assert!(cut.latest_conflict_decisions().is_empty());
         assert_eq!(
             cut.observation_state_sequence(),
@@ -3123,13 +3187,13 @@ mod tests {
             outcome: crate::WaitingDecisionOutcome::NotRequired,
         });
         world
-            .latest_waiting_events
-            .push(crate::WaitingTransitionEvent {
+            .latest_transition_events
+            .push(crate::TrafficTransitionEvent {
                 tick: world.tick_index(),
                 vehicle,
                 vehicle_update_sequence: 0,
-                anchor,
-                kind: crate::WaitingTransitionKind::ManeuverTraversalCompleted {
+                anchor: crate::TrafficTransitionAnchor::at_gate(anchor),
+                kind: crate::TrafficTransitionKind::ManeuverTraversalCompleted {
                     maneuver_occurrence_index: 0,
                 },
             });
@@ -3179,14 +3243,14 @@ mod tests {
         let sequence_before = world.observation_state_sequence();
         seed_latest_waiting_output(&mut world);
         let decisions_before = world.latest_waiting_decisions().to_vec();
-        let events_before = world.latest_waiting_events().to_vec();
+        let events_before = world.latest_transition_events().to_vec();
         let conflict_before = world.latest_conflict_decisions().to_vec();
         assert_eq!(
             tx.commit(&mut world).unwrap_err(),
             CutoverError::DigestMismatch
         );
         assert_eq!(world.latest_waiting_decisions(), decisions_before);
-        assert_eq!(world.latest_waiting_events(), events_before);
+        assert_eq!(world.latest_transition_events(), events_before);
         assert_eq!(world.latest_conflict_decisions(), conflict_before);
         assert_eq!(world.world_generation(), generation_before);
         assert_eq!(world.observation_state_sequence(), sequence_before);
@@ -3208,11 +3272,11 @@ mod tests {
         let sequence_before = world.observation_state_sequence();
         seed_latest_waiting_output(&mut world);
         let decisions_before = world.latest_waiting_decisions().to_vec();
-        let events_before = world.latest_waiting_events().to_vec();
+        let events_before = world.latest_transition_events().to_vec();
         let conflict_before = world.latest_conflict_decisions().to_vec();
         tx.abandon(&mut world).expect("abandon");
         assert_eq!(world.latest_waiting_decisions(), decisions_before);
-        assert_eq!(world.latest_waiting_events(), events_before);
+        assert_eq!(world.latest_transition_events(), events_before);
         assert_eq!(world.latest_conflict_decisions(), conflict_before);
         assert_eq!(world.world_generation(), generation_before);
         assert_eq!(world.observation_state_sequence(), sequence_before);

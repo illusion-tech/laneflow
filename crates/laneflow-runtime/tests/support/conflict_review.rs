@@ -39,6 +39,26 @@ fn spawn(world: &mut TrafficWorld, route: RouteHandle) -> VehicleHandle {
 }
 
 #[test]
+fn regulatory_denial_keeps_resource_evaluation_absent_and_gate_closed() {
+    let revision = revision(ConflictPolicyFixture {
+        deny: true,
+        ..Default::default()
+    });
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1, 100)).unwrap();
+    let [route, _] = routes(&mut world, &revision);
+    let vehicle = spawn(&mut world, route);
+    world.step(TickInput::new(100)).unwrap();
+    assert_eq!(
+        calibration_outcome(&world, vehicle),
+        laneflow_runtime::ConflictDecisionOutcome::NotEvaluated
+    );
+    assert_eq!(world.vehicle(vehicle).unwrap().route_edge_index(), 0);
+    assert!(world.conflict_reservation(vehicle).is_none());
+    assert!(world.latest_transition_events().is_empty());
+}
+
+#[test]
 fn waiting_entry_cannot_share_conflict_coverage_in_a_compiled_network() {
     let module = conflict_road_editing_module_with_shape_and_speed(
         2,
@@ -143,5 +163,187 @@ fn clearance_target_equal_to_next_gate_is_admitted() {
     assert_eq!(
         calibration_outcome(&world, vehicle),
         laneflow_runtime::ConflictDecisionOutcome::Granted
+    );
+}
+
+#[test]
+fn reserved_vehicle_cannot_cross_later_conflict_gate_without_authority() {
+    let revision = revision(ConflictPolicyFixture {
+        next_gate: true,
+        clearance: Some((1, 8.5)),
+        ..Default::default()
+    });
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1, 100)).unwrap();
+    let [route, _] = routes(&mut world, &revision);
+    let vehicle = spawn(&mut world, route);
+    let mut old_released_at_boundary = false;
+    for _ in 0..80 {
+        world.step(TickInput::new(100)).unwrap();
+        let state = world.vehicle(vehicle).unwrap();
+        if state.route_edge_index() == 1 && world.conflict_reservation(vehicle).is_none() {
+            old_released_at_boundary = true;
+        }
+        if state.route_edge_index() > 1 {
+            assert!(
+                old_released_at_boundary,
+                "old clearance and a fresh next-tick arbitration are required"
+            );
+            assert_eq!(
+                world
+                    .conflict_reservation(vehicle)
+                    .unwrap()
+                    .admission_gate_hop(),
+                1,
+                "the old reservation cannot authorize the later Gate"
+            );
+            return;
+        }
+    }
+    panic!("later Gate was never reached");
+}
+
+#[test]
+fn maneuver_completion_waits_for_tail_clearance() {
+    let revision = revision(ConflictPolicyFixture {
+        clearance: Some((2, 8.5)),
+        ..Default::default()
+    });
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1, 100)).unwrap();
+    let [route, _] = routes(&mut world, &revision);
+    let vehicle = spawn(&mut world, route);
+    let mut completions = 0;
+    let mut saw_clearing_after_exit = false;
+    for _ in 0..80 {
+        world.step(TickInput::new(100)).unwrap();
+        saw_clearing_after_exit |= world.vehicle(vehicle).unwrap().route_edge_index() >= 2
+            && world.conflict_reservation(vehicle).is_some();
+        if world.latest_transition_events().iter().any(|event| {
+            matches!(
+                event.kind(),
+                laneflow_runtime::TrafficTransitionKind::ManeuverTraversalCompleted { .. }
+            )
+        }) {
+            assert!(
+                world.conflict_reservation(vehicle).is_none(),
+                "completion published before tail clearance"
+            );
+            completions += 1;
+            let events = world.latest_transition_events();
+            let release = events
+                .iter()
+                .position(|event| {
+                    matches!(
+                        event.kind(),
+                        laneflow_runtime::TrafficTransitionKind::ReservationReleased { .. }
+                    )
+                })
+                .unwrap();
+            let completion = events
+                .iter()
+                .position(|event| {
+                    matches!(
+                        event.kind(),
+                        laneflow_runtime::TrafficTransitionKind::ManeuverTraversalCompleted { .. }
+                    )
+                })
+                .unwrap();
+            assert!(release < completion);
+            assert!(events[release].anchor().position() <= events[completion].anchor().position());
+        }
+    }
+    assert!(saw_clearing_after_exit);
+    assert_eq!(
+        completions, 1,
+        "completion must occur exactly once, after the last clear"
+    );
+}
+
+#[test]
+fn fresh_grant_still_stops_at_the_following_gate_in_the_same_tick() {
+    let revision = revision(ConflictPolicyFixture {
+        next_gate: true,
+        clearance: Some((1, 8.5)),
+        ..Default::default()
+    });
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::new(4, 4, 64, 8, 1, 1_000),
+    )
+    .unwrap();
+    let [route, _] = routes(&mut world, &revision);
+    let boundary = calibration_gate(&world, route);
+    let vehicle = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            boundary,
+            13_000,
+        ))
+        .unwrap();
+    world.step(TickInput::new(1_000)).unwrap();
+    let state = world.vehicle(vehicle).unwrap();
+    assert_eq!(state.route_edge_index(), 1);
+    assert_eq!(state.progress_mm(), 13_000);
+    assert!(
+        world.conflict_reservation(vehicle).is_none(),
+        "old tail clears exactly at the next Gate"
+    );
+    assert_eq!(
+        world
+            .latest_transition_events()
+            .iter()
+            .filter(|event| matches!(
+                event.kind(),
+                laneflow_runtime::TrafficTransitionKind::GateCrossed { .. }
+            ))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn same_tick_acquire_enter_clear_release_and_complete_survive_empty_endpoints() {
+    use laneflow_runtime::TrafficTransitionKind as Kind;
+    let revision = revision(ConflictPolicyFixture::default());
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::new(4, 4, 64, 8, 1, 1_000),
+    )
+    .unwrap();
+    let [route, _] = routes(&mut world, &revision);
+    let boundary = calibration_gate(&world, route);
+    let vehicle = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            boundary,
+            13_000,
+        ))
+        .unwrap();
+    assert!(world.conflict_reservation(vehicle).is_none());
+    world.step(TickInput::new(1_000)).unwrap();
+    assert!(world.conflict_reservation(vehicle).is_none());
+    let kinds: Vec<_> = world
+        .latest_transition_events()
+        .iter()
+        .map(|event| event.kind())
+        .filter(|kind| !matches!(kind, Kind::GateCrossed { .. }))
+        .collect();
+    assert!(
+        matches!(
+            kinds.as_slice(),
+            [
+                Kind::ReservationAcquired { .. },
+                Kind::ConflictEntered { .. },
+                Kind::ConflictCleared { .. },
+                Kind::ReservationReleased { .. },
+                Kind::ManeuverTraversalCompleted { .. }
+            ]
+        ),
+        "{kinds:?}"
     );
 }

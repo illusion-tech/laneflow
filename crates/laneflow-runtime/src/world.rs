@@ -127,6 +127,7 @@ pub struct TrafficWorld {
     pub(crate) conflict_eligibility: Vec<Option<crate::ConflictEligibilityState>>,
     /// W7 fixed-step scratch；所有增长走 checked reserve，warm-up 后不再分配。
     pub(crate) conflict_candidates: Vec<crate::conflict_tick::ConflictCandidate>,
+    pub(crate) conflict_schedule: crate::conflict_tick::ConflictSchedule,
     pub(crate) conflict_candidate_cells: Vec<crate::ConflictPassageAddress>,
     pub(crate) conflict_candidate_downstream: Vec<crate::DownstreamInterval>,
     pub(crate) conflict_cell_work: Vec<crate::ConflictPassageAddress>,
@@ -138,10 +139,7 @@ pub struct TrafficWorld {
     /// 本 tick reservation/stage/release 发生变化的稀疏 owner 集；迁移日志据此
     /// 写 authority replacement，避免为在线切换额外扫描车辆容量。
     pub(crate) conflict_changed_owners: Vec<VehicleHandle>,
-    pub(crate) conflict_waiting_dependencies: Vec<(
-        crate::conflict::WaitingDependencyNode,
-        crate::conflict::WaitingDependencyNode,
-    )>,
+    pub(crate) waiting_dependencies: crate::waiting_dependencies::WaitingDependencies,
     pub(crate) conflict_staged_decisions: Vec<crate::ConflictDecision>,
     pub(crate) latest_conflict_decisions: Vec<crate::ConflictDecision>,
     pub(crate) tick_index: u64,
@@ -179,14 +177,14 @@ pub struct TrafficWorld {
     pub(crate) waiting_plan_by_vehicle: Box<[Option<std::num::NonZeroU32>]>,
     pub(crate) next_state_by_vehicle: Box<[u32]>,
     pub(crate) waiting_staged_decisions: Vec<crate::WaitingDecision>,
-    pub(crate) waiting_staged_events: Vec<crate::WaitingTransitionEvent>,
+    pub(crate) staged_transition_events: Vec<crate::TrafficTransitionEvent>,
     pub(crate) waiting_next_counters: Box<[u64]>,
     pub(crate) waiting_staged_occupancy: Box<[u32]>,
     pub(crate) waiting_staged_storage_mm: Box<[u64]>,
     /// 刚完成 successful tick 的 latest decision batch。
     pub(crate) latest_waiting_decisions: Vec<crate::WaitingDecision>,
     /// 刚完成 successful tick 的 committed transition event batch。
-    pub(crate) latest_waiting_events: Vec<crate::WaitingTransitionEvent>,
+    pub(crate) latest_transition_events: Vec<crate::TrafficTransitionEvent>,
     pub(crate) next_states: Vec<(usize, VehicleState)>,
     pub(crate) occupancy: OccupancyIndex,
     /// 武装中的迁移增量日志（#513 切片 C）：`Some` ⟺ 本世界存在在途切换事务。
@@ -283,6 +281,7 @@ impl TrafficWorld {
             conflict_arbiter,
             conflict_eligibility: Vec::with_capacity(vehicle_capacity),
             conflict_candidates: Vec::with_capacity(vehicle_capacity),
+            conflict_schedule: crate::conflict_tick::ConflictSchedule::default(),
             conflict_candidate_cells: Vec::new(),
             conflict_candidate_downstream: Vec::new(),
             conflict_cell_work: Vec::new(),
@@ -292,7 +291,7 @@ impl TrafficWorld {
             conflict_next_eligibility: vec![None; vehicle_capacity].into_boxed_slice(),
             conflict_passage_transitions: Vec::new(),
             conflict_changed_owners: Vec::with_capacity(vehicle_capacity),
-            conflict_waiting_dependencies: Vec::new(),
+            waiting_dependencies: crate::waiting_dependencies::WaitingDependencies::default(),
             conflict_staged_decisions: Vec::with_capacity(vehicle_capacity),
             latest_conflict_decisions: Vec::with_capacity(vehicle_capacity),
             tick_index: 0,
@@ -319,12 +318,12 @@ impl TrafficWorld {
             waiting_plan_by_vehicle: vec![None; vehicle_capacity].into_boxed_slice(),
             next_state_by_vehicle: vec![0; vehicle_capacity].into_boxed_slice(),
             waiting_staged_decisions: Vec::new(),
-            waiting_staged_events: Vec::new(),
+            staged_transition_events: Vec::new(),
             waiting_next_counters: vec![0; waiting_zone_count].into_boxed_slice(),
             waiting_staged_occupancy: vec![0; waiting_zone_count].into_boxed_slice(),
             waiting_staged_storage_mm: vec![0; waiting_zone_count].into_boxed_slice(),
             latest_waiting_decisions: Vec::new(),
-            latest_waiting_events: Vec::new(),
+            latest_transition_events: Vec::new(),
             next_states: Vec::with_capacity(vehicle_capacity),
             occupancy: OccupancyIndex::with_capacity(0, 0),
             migration_journal: None,
@@ -742,7 +741,7 @@ impl TrafficWorld {
         output.clear();
         output
             .try_reserve_exact(plan.raw_interval_capacity())
-            .map_err(|_| ConflictAcquireError::Capacity)?;
+            .map_err(|_| ConflictAcquireError::ScratchAllocFailed)?;
         self.derive_reservation_downstream_claims_from_plan(plan, output)
     }
 
@@ -1607,8 +1606,8 @@ impl TrafficWorld {
     /// 跨修订成功切换后置空；需要历史记录的调用方必须在切换前消费。
     /// 同修订切换、生命周期命令和失败操作保留原批次。
     #[must_use]
-    pub fn latest_waiting_events(&self) -> &[crate::WaitingTransitionEvent] {
-        &self.latest_waiting_events
+    pub fn latest_transition_events(&self) -> &[crate::TrafficTransitionEvent] {
+        &self.latest_transition_events
     }
 
     /// 稳定更新顺序，含 Active / Parked / Completed。

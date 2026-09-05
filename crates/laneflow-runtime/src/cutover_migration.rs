@@ -894,6 +894,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
         conflict_arbiter,
         conflict_eligibility: try_staging_vec(vehicle_capacity)?,
         conflict_candidates: try_staging_vec(vehicle_capacity)?,
+        conflict_schedule: crate::conflict_tick::ConflictSchedule::default(),
         conflict_candidate_cells: Vec::new(),
         conflict_candidate_downstream: Vec::new(),
         conflict_cell_work: Vec::new(),
@@ -902,8 +903,8 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
         conflict_motion_by_vehicle: try_staging_slice(vehicle_capacity)?,
         conflict_next_eligibility: try_staging_slice(vehicle_capacity)?,
         conflict_passage_transitions: Vec::new(),
-        conflict_changed_owners: Vec::with_capacity(vehicle_capacity),
-        conflict_waiting_dependencies: Vec::new(),
+        conflict_changed_owners: try_staging_vec(vehicle_capacity)?,
+        waiting_dependencies: crate::waiting_dependencies::WaitingDependencies::default(),
         conflict_staged_decisions: try_staging_vec(vehicle_capacity)?,
         latest_conflict_decisions: try_staging_vec(vehicle_capacity)?,
         tick_index: world.tick_index,
@@ -930,12 +931,12 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
         waiting_plan_by_vehicle: try_staging_slice(vehicle_capacity)?,
         next_state_by_vehicle: try_staging_slice(vehicle_capacity)?,
         waiting_staged_decisions: Vec::new(),
-        waiting_staged_events: Vec::new(),
+        staged_transition_events: Vec::new(),
         waiting_next_counters: try_staging_slice(waiting_zone_count)?,
         waiting_staged_occupancy: try_staging_slice(waiting_zone_count)?,
         waiting_staged_storage_mm: try_staging_slice(waiting_zone_count)?,
         latest_waiting_decisions: Vec::new(),
-        latest_waiting_events: Vec::new(),
+        latest_transition_events: Vec::new(),
         next_states,
         occupancy: crate::occupancy::OccupancyIndex::with_capacity(0, 0),
         migration_journal: None,
@@ -974,7 +975,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
     }
     let conflict_finalization =
         migrate_conflict_state(world, &mut candidate, rebinding, world.time_ms)?;
-    revalidate_migrated_vehicles(&candidate)?;
+    revalidate_migrated_vehicles(&mut candidate)?;
     Ok((candidate, conflict_finalization))
 }
 
@@ -1984,13 +1985,21 @@ pub(crate) fn project_expected_conflict(
 
 /// 重绑即重验证：对候选内每个 live 车辆按其生命周期状态复核 target
 /// 不变量（切换合同 §3 原则 2，等价重执行 spawn 检查）。
-pub(crate) fn revalidate_migrated_vehicles(candidate: &TrafficWorld) -> Result<(), CutoverError> {
+pub(crate) fn revalidate_migrated_vehicles(
+    candidate: &mut TrafficWorld,
+) -> Result<(), CutoverError> {
     if !candidate.waiting_state_valid() || !candidate.waiting_snapshot_storage_valid() {
         return Err(CutoverError::WaitingRevalidationFailed);
     }
     if !candidate.conflict_state_valid() {
         return Err(CutoverError::ConflictRevalidationFailed);
     }
+    candidate
+        .prepare_waiting_dependencies(false)
+        .map_err(|error| match error {
+            crate::StepError::ConflictScratchAllocFailed => CutoverError::StagingAllocFailed,
+            _ => CutoverError::WaitingRevalidationFailed,
+        })?;
     for handle in candidate.live_order.iter().copied() {
         revalidate_vehicle_on(candidate, handle)?;
     }
@@ -3660,7 +3669,7 @@ pub(crate) mod tests {
         let before = world.capture_snapshot().expect("before");
         // 首次为 signal；随后十次覆盖 Waiting 稠密状态与 scratch；W5/W7 的
         // Conflict eligibility、authority 与 fixed-step scratch 继续走同一受检分配轴。
-        for fail_after in 1..=21 {
+        for fail_after in 1..=22 {
             let result = with_staging_allocation_failure_after(fail_after, || {
                 migrate_structural_clone(
                     &world,
@@ -3676,7 +3685,7 @@ pub(crate) mod tests {
             );
             assert_eq!(world.capture_snapshot().expect("unchanged"), before);
         }
-        let candidate = with_staging_allocation_failure_after(22, || {
+        let candidate = with_staging_allocation_failure_after(23, || {
             migrate_structural_clone(
                 &world,
                 target,
