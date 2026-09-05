@@ -51,13 +51,22 @@
 //!    forbid 成员禁止 build 脚本（build.rs 可向 OUT_DIR 生成文本扫描不可见的
 //!    Rust 源码；metadata custom-build target 与 package 根 build.rs 文件双
 //!    通道断言），每个 target 的 src_path 必须是 .rs 扩展名（`[lib] path =
-//!    "src/lib.txt"` 形态的非 .rs 源逃逸本扫描，fail closed），且源码加载
-//!    指令同受限：`include!` 全面禁止，path 属性（含 cfg_attr 包裹形态）
-//!    目标必须是以 .rs 结尾的包内相对路径，且禁止元变量调用 `$m!`（宏调用
-//!    名间接化可把 include! 藏出文本扫描，payload 再经 cfg 门控避开单平台
-//!    hermetic 编译）——编译器可达源码全集即本扫描的 .rs 全集。proc-macro
-//!    target 一律 fail closed（宏展开期任意构造 token，文本扫描与单平台
-//!    check 编译都无法闭合）。
+//!    "src/lib.txt"` 形态的非 .rs 源逃逸本扫描，fail closed）且词法归一化后
+//!    落在 package 目录内（`[lib] path = "../../payload.rs"` 形态让 cargo
+//!    编译包外文件，逃逸本扫描的 package 目录树覆盖面，fail closed），且
+//!    源码加载指令同受限：裸 `include` 标识符全面禁绝——宏展开无法拼出新
+//!    标识符，故直接调用与元变量碎片拼装形态（宏体 `include $b ($p)`、
+//!    调用点 `load!(include, !, ...)` 传参）都必然在源码中留下该标识符；
+//!    `include_str!`/`include_bytes!` 是不同标识符，不受影响。path 属性
+//!    （含 cfg_attr 包裹形态）目标必须是以 .rs 结尾的包内相对路径，且禁止
+//!    元变量调用 `$m!`（宏调用名间接化可把源码加载指令藏出文本扫描，
+//!    payload 再经 cfg 门控避开单平台 hermetic 编译）。forbid 成员（及根
+//!    manifest `[workspace.dependencies]` 表）的 path 依赖只能指向
+//!    workspace 成员 package 目录：仓库内 workspace 外 package（如 exclude
+//!    的 fuzz/ 树）不经 `cargo metadata --no-deps` 显形，其
+//!    proc-macro/build.rs/源码完全逃逸本审计，fail closed——编译器可达
+//!    源码全集即本扫描的 .rs 全集。proc-macro target 一律 fail closed
+//!    （宏展开期任意构造 token，文本扫描与单平台 check 编译都无法闭合）。
 //! 7. laneflow-format-mmap 的例外边界在本审计内闭合：manifest 卫生（与 wire
 //!    同构——auto* 四键关闭、[target] 段与自动发现目录禁绝，[dependencies]
 //!    恰好 memmap2/tempfile 两条钉版，resolved source/checksum 由第 1 条闭合）；
@@ -89,6 +98,17 @@
 //! Unix 安全模型以 UID 为边界，同 UID 即同安全域，且此类内省对一切
 //! Rust 抽象（含 owned memory）同样成立，Rust 生态一致视其为模型外
 //! （详见 laneflow-format-mmap 模块文档的威胁模型节）。
+//!
+//! doctest 出界声明：rustdoc 不为 doctest crate 应用包级 lint
+//! （cargo/rustc 现行语义），doctest 中的 unsafe 不经第 4/6 条闭合。
+//! doctest 是测试/文档代码、不进发布产物，unsafe 边界保护的是上线代码
+//! 路径；且 forbid 成员现存大量合法 doctest，禁令在工程上不可行。该类
+//! 向量归人评审，不叠加扫描器。
+//!
+//! 冻结声明（第十六轮评审后封版）：宏展开组合学（元变量碎片拼装等）与
+//! 恶意 PR 载荷类向量至此封版。本门禁职能是防意外与防供应链漂移；防恶意
+//! PR 载荷由人评审与 CODEOWNERS 治理（#579）收口。后续同类发现引用本段
+//! 处置，不再逐轮叠加扫描器。
 
 use std::ffi::OsStr;
 use std::fs;
@@ -182,7 +202,7 @@ pub(crate) fn run() -> Result<(), String> {
     schema_codegen::check_audited_mmap_sources(&repository_root)?;
     check_workspace_unsafe_boundary(&repository_root)?;
     println!(
-        "wire 工具链审计已通过：仓库 cargo config 卫生闭合（禁 `[env]` 段、`runner` 键与 `[build]` 编译器替换/包装键，env 继承链与执行语义替换无从投毒门禁），flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include!/cfg_attr/macro_rules 加载与间接禁令、path 属性 walker 兜底），workspace unsafe 分类断言闭合（forbid/allow 两级，proc-macro target 一律 fail closed），forbid 成员禁 build 脚本且 target 源一律 .rs，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支）且源码加载指令收口（include! 禁绝、path 目标限包内相对 .rs、元变量调用 `$m!` 禁绝），forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
+        "wire 工具链审计已通过：仓库 cargo config 卫生闭合（禁 `[env]` 段、`runner` 键与 `[build]` 编译器替换/包装键，env 继承链与执行语义替换无从投毒门禁），flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include!/cfg_attr/macro_rules 加载与间接禁令、path 属性 walker 兜底），workspace unsafe 分类断言闭合（forbid/allow 两级，proc-macro target 一律 fail closed），forbid 成员禁 build 脚本且 target 源一律 .rs 且位于包根内，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支）且源码加载指令收口（裸 include 标识符禁绝、path 目标限包内相对 .rs、元变量调用 `$m!` 禁绝），forbid 成员与根 manifest [workspace.dependencies] 的 path 依赖限 workspace 成员，forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
     );
     Ok(())
 }
@@ -768,6 +788,28 @@ struct MemberPackage {
     has_build_script: bool,
 }
 
+/// 词法归一化路径（不触文件系统）：折叠 `.` 与 `..`，`..` 越过根 fail
+/// closed。用于把 cargo metadata 报告的绝对路径约束在 package 目录内；
+/// 符号链接逃逸不在此建模（需评审配合，属残余信任边界）。
+fn lexically_normalized(path: &Path, label: &str) -> Result<PathBuf, String> {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !normalized.pop() {
+                    return Err(format!(
+                        "{label} `{}` 的 `..` 越过根，fail closed",
+                        path.display()
+                    ));
+                }
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    Ok(normalized)
+}
+
 /// 从 workspace cargo metadata（--no-deps）解析全部成员的 name/manifest_path/
 /// 编译 target。每个 target 的 src_path 必须是 .rs 扩展名（非 .rs 源逃逸
 /// forbid 文本扫描，fail closed）；custom-build 不可单独编译，记录到
@@ -796,6 +838,12 @@ fn parse_workspace_members(metadata: &serde_json::Value) -> Result<Vec<MemberPac
             .ok_or_else(|| format!("workspace metadata package `{name}` 缺少 targets 数组"))?;
         let mut invocations = Vec::new();
         let mut has_build_script = false;
+        let package_dir = lexically_normalized(
+            Path::new(manifest_path).parent().ok_or_else(|| {
+                format!("workspace metadata package `{name}` 的 manifest 路径没有父目录")
+            })?,
+            "metadata manifest_path",
+        )?;
         for target in targets {
             let target_name = target
                 .get("name")
@@ -825,6 +873,15 @@ fn parse_workspace_members(metadata: &serde_json::Value) -> Result<Vec<MemberPac
             if Path::new(src_path).extension() != Some(OsStr::new("rs")) {
                 return Err(format!(
                     "workspace package `{name}` 的 target `{target_name}` 源文件 `{src_path}` 不是 .rs 扩展名，fail closed"
+                ));
+            }
+            // src_path 还必须落在 package 目录内：`[lib] path = "../../x.rs"`
+            // 形态让 cargo 编译包外文件，逃逸 forbid 文本扫描面（本扫描只覆盖
+            // package 目录树）。词法归一化后判定；符号链接逃逸不在此建模。
+            let canonical_src = lexically_normalized(Path::new(src_path), "metadata src_path")?;
+            if !canonical_src.starts_with(&package_dir) {
+                return Err(format!(
+                    "workspace package `{name}` 的 target `{target_name}` 源文件 `{src_path}` 逃逸 package 目录，fail closed"
                 ));
             }
             if kinds.contains(&"custom-build") {
@@ -944,6 +1001,7 @@ fn run_workspace_unsafe_boundary(repository_root: &Path, audit_root: &Path) -> R
     }
     require_expected_classification(&classified)?;
     check_forbid_textual_boundary(&members, &classified)?;
+    check_forbid_path_dependencies(&members, &classified, repository_root)?;
     let target_dir = repository_root.join("target");
     for (member, (_, level)) in members.iter().zip(classified.iter()) {
         let Some(flag) = level.tail_flag() else {
@@ -1040,9 +1098,9 @@ fn check_forbid_textual_boundary(
                     source.display()
                 ));
             }
-            if schema_codegen::contains_include_macro(&code) {
+            if schema_codegen::contains_include_identifier(&code) {
                 return Err(format!(
-                    "forbid 成员 `{}` 的源文件含 `include!` 宏（可加载文本扫描面之外的源码；workspace 内零合法用法，一律禁止）：`{}`",
+                    "forbid 成员 `{}` 的源文件含裸 `include` 标识符（直接调用与元变量碎片拼装形态一并禁绝；workspace 内零合法用法；`include_str!`/`include_bytes!` 是不同标识符，不受影响）：`{}`",
                     member.name,
                     source.display()
                 ));
@@ -1062,6 +1120,111 @@ fn check_forbid_textual_boundary(
                 &format!("forbid 成员 `{}`", member.name),
                 schema_codegen::PathAttributePolicy::PackageRelativeRs,
             )?;
+        }
+    }
+    Ok(())
+}
+
+/// forbid 成员（及 workspace 根 manifest 的 [workspace.dependencies]）的
+/// path 依赖只能指向 workspace 成员 package 目录：仓库内 workspace 外的
+/// package（如 exclude 的 fuzz/ 树）不经 `cargo metadata --no-deps` 显形，
+/// 其 proc-macro/build.rs/源码完全逃逸本审计，却会在 forbid 成员的编译中
+/// 参与展开。目标目录不存在的 path 依赖由 cargo 自身报错；此处只做词法
+/// 归一化后的成员集合比对。
+fn check_forbid_path_dependencies(
+    members: &[MemberPackage],
+    classified: &[(String, UnsafeLevel)],
+    repository_root: &Path,
+) -> Result<(), String> {
+    let mut member_dirs = Vec::with_capacity(members.len());
+    for member in members {
+        let dir = member
+            .manifest_path
+            .parent()
+            .ok_or_else(|| format!("成员 `{}` 的 manifest 路径没有父目录", member.name))?;
+        member_dirs.push(lexically_normalized(dir, "成员 manifest 路径")?);
+    }
+    for (member, (_, level)) in members.iter().zip(classified.iter()) {
+        if *level != UnsafeLevel::Forbid {
+            continue;
+        }
+        let package_dir = member
+            .manifest_path
+            .parent()
+            .expect("manifest 父目录已断言");
+        let manifest_text = fs::read_to_string(&member.manifest_path).map_err(|error| {
+            format!(
+                "无法读取成员 manifest `{}`: {error}",
+                member.manifest_path.display()
+            )
+        })?;
+        let manifest: toml::Table = manifest_text.parse().map_err(|error| {
+            format!(
+                "成员 `{}` 的 manifest TOML 解析失败（fail closed）: {error}",
+                member.name
+            )
+        })?;
+        check_dependency_tables(&manifest, &member.name, package_dir, &member_dirs)?;
+    }
+    let root_text = fs::read_to_string(repository_root.join("Cargo.toml"))
+        .map_err(|error| format!("无法读取 workspace 根 manifest: {error}"))?;
+    let root: toml::Table = root_text
+        .parse()
+        .map_err(|error| format!("workspace 根 manifest TOML 解析失败（fail closed）: {error}"))?;
+    if let Some(workspace) = root.get("workspace").and_then(toml::Value::as_table) {
+        check_dependency_tables(
+            workspace,
+            "workspace 根 manifest",
+            repository_root,
+            &member_dirs,
+        )?;
+    }
+    Ok(())
+}
+
+/// 检查依赖表（`[dependencies]` / `[dev-dependencies]` / `[build-dependencies]`
+/// 与 `[target.*]` 条件段内的同名单元）中的 path 依赖目标。
+fn check_dependency_tables(
+    table: &toml::Table,
+    owner: &str,
+    base_dir: &Path,
+    member_dirs: &[PathBuf],
+) -> Result<(), String> {
+    for section in ["dependencies", "dev-dependencies", "build-dependencies"] {
+        if let Some(deps) = table.get(section).and_then(toml::Value::as_table) {
+            check_path_entries(deps, section, owner, base_dir, member_dirs)?;
+        }
+    }
+    if let Some(targets) = table.get("target").and_then(toml::Value::as_table) {
+        for spec in targets.values() {
+            if let Some(spec_table) = spec.as_table() {
+                check_dependency_tables(spec_table, owner, base_dir, member_dirs)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn check_path_entries(
+    deps: &toml::Table,
+    section: &str,
+    owner: &str,
+    base_dir: &Path,
+    member_dirs: &[PathBuf],
+) -> Result<(), String> {
+    for (name, entry) in deps {
+        let Some(path) = entry
+            .as_table()
+            .and_then(|table| table.get("path"))
+            .and_then(toml::Value::as_str)
+        else {
+            continue;
+        };
+        let resolved = lexically_normalized(&base_dir.join(path), "path 依赖目标")?;
+        if !member_dirs.contains(&resolved) {
+            return Err(format!(
+                "`{owner}` 的 [{section}] 依赖 `{name}` 的 path `{path}` 指向非 workspace 成员目录：仓库内 workspace 外 package（如 exclude 的 fuzz/ 树）逃逸审计视野，fail closed"
+            ));
         }
     }
     Ok(())
@@ -1709,7 +1872,7 @@ mod tests {
         // （include_str!/include_bytes! 只加载数据，豁免）。
         fs::write(root.join("src/lib.rs"), "include!(\"payload.rs\");\n").unwrap();
         let error = check_forbid_textual_boundary(&members, &classified).unwrap_err();
-        assert!(error.contains("include!"), "{error}");
+        assert!(error.contains("裸 `include` 标识符"), "{error}");
         fs::write(
             root.join("src/lib.rs"),
             "const DATA: &[u8] = include_bytes!(\"data.bin\");\n",
@@ -1738,15 +1901,34 @@ mod tests {
         )
         .unwrap();
         check_forbid_textual_boundary(&members, &classified).unwrap();
-        // 元变量调用（`$m!`）可把 include! 间接化藏出文本扫描（payload 再经
-        // cfg 门控避开单平台 hermetic 编译）：拒绝。
+        // 元变量调用（`$m!`）可把宏调用名间接化藏出文本扫描（payload 再经
+        // cfg 门控避开单平台 hermetic 编译）：拒绝。固件用 `env` 占位，避免
+        // 与裸 include 标识符禁令的报错分支重叠。
         fs::write(
             root.join("src/lib.rs"),
-            "macro_rules! load { ($m:ident, $p:literal) => { #[cfg(windows)] $m!($p); } }\nload!(include, \"payload.txt\");\n",
+            "macro_rules! load { ($m:ident, $p:literal) => { #[cfg(windows)] $m!($p); } }\nload!(env, \"payload.txt\");\n",
         )
         .unwrap();
         let error = check_forbid_textual_boundary(&members, &classified).unwrap_err();
         assert!(error.contains("元变量"), "{error}");
+        // 标点元变量拼装逃逸 `$m!` 检测（`$b:tt` 承接 `!`），但宏体内的
+        // 裸 `include` 标识符必然以字面出现：被裸标识符禁令捕获。
+        fs::write(
+            root.join("src/lib.rs"),
+            "macro_rules! load { ($b:tt, $p:literal) => { include $b ($p) } }\nload!(!, \"payload.txt\");\n",
+        )
+        .unwrap();
+        let error = check_forbid_textual_boundary(&members, &classified).unwrap_err();
+        assert!(error.contains("裸 `include` 标识符"), "{error}");
+        // 调用点传参形态：宏体是纯元变量碎片 `$m $b ($p)`，`include` 标识符
+        // 在调用点字面出现，同样被裸标识符禁令捕获。
+        fs::write(
+            root.join("src/lib.rs"),
+            "macro_rules! load { ($m:ident, $b:tt, $p:literal) => { $m $b ($p) } }\nload!(include, !, \"payload.txt\");\n",
+        )
+        .unwrap();
+        let error = check_forbid_textual_boundary(&members, &classified).unwrap_err();
+        assert!(error.contains("裸 `include` 标识符"), "{error}");
         // 无元变量调用的普通宏定义是合法用法（$crate、$x:expr、重复结构均
         // 不匹配）：放行。
         fs::write(
@@ -1935,6 +2117,110 @@ mod tests {
         });
         let error = parse_workspace_members(&missing_src_path).unwrap_err();
         assert!(error.contains("src_path"), "{error}");
+    }
+
+    #[test]
+    fn parse_workspace_members_rejects_src_path_outside_package() {
+        // `[lib] path = "../../payload.rs"` 形态：扩展名合法但源文件逃逸
+        // package 目录，forbid 文本扫描面（只覆盖 package 目录树）够不到。
+        let escaping = serde_json::json!({
+            "packages": [{
+                "name": "demo",
+                "manifest_path": "/repo/crates/demo/Cargo.toml",
+                "targets": [{ "name": "demo", "kind": ["lib"], "src_path": "/repo/payload.rs" }]
+            }]
+        });
+        let error = parse_workspace_members(&escaping).unwrap_err();
+        assert!(error.contains("逃逸 package 目录"), "{error}");
+
+        // `..` 相对逃逸经词法归一化后同样拒绝。
+        let dotdot = serde_json::json!({
+            "packages": [{
+                "name": "demo",
+                "manifest_path": "/repo/crates/demo/Cargo.toml",
+                "targets": [{ "name": "demo", "kind": ["lib"], "src_path": "/repo/crates/demo/../payload.rs" }]
+            }]
+        });
+        let error = parse_workspace_members(&dotdot).unwrap_err();
+        assert!(error.contains("逃逸 package 目录"), "{error}");
+    }
+
+    #[test]
+    fn forbid_path_dependencies_must_target_workspace_members() {
+        let root = std::env::temp_dir().join(format!(
+            "laneflow-wire-audit-path-deps-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("crates/a")).unwrap();
+        fs::create_dir_all(root.join("crates/b")).unwrap();
+        fs::create_dir_all(root.join("outside")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n",
+        )
+        .unwrap();
+        let members = vec![
+            MemberPackage {
+                name: "a".to_string(),
+                manifest_path: root.join("crates/a/Cargo.toml"),
+                targets: Vec::new(),
+                has_build_script: false,
+            },
+            MemberPackage {
+                name: "b".to_string(),
+                manifest_path: root.join("crates/b/Cargo.toml"),
+                targets: Vec::new(),
+                has_build_script: false,
+            },
+        ];
+        let classified = vec![
+            ("a".to_string(), UnsafeLevel::Forbid),
+            ("b".to_string(), UnsafeLevel::Forbid),
+        ];
+        // 成员间 path 依赖 + 字符串版版本依赖：合法，放行。
+        fs::write(
+            root.join("crates/a/Cargo.toml"),
+            "[dependencies]\nb = { path = \"../b\" }\nserde = \"1\"\n",
+        )
+        .unwrap();
+        fs::write(root.join("crates/b/Cargo.toml"), "[dependencies]\n").unwrap();
+        check_forbid_path_dependencies(&members, &classified, &root).unwrap();
+        // path 依赖指向 workspace 外目录（如 exclude 的 fuzz/ 树）：拒绝。
+        fs::write(
+            root.join("crates/a/Cargo.toml"),
+            "[dependencies]\nevil = { path = \"../../outside\" }\n",
+        )
+        .unwrap();
+        let error = check_forbid_path_dependencies(&members, &classified, &root).unwrap_err();
+        assert!(error.contains("非 workspace 成员"), "{error}");
+        // 根 manifest [workspace.dependencies] 的 path 同样受限。
+        fs::write(
+            root.join("crates/a/Cargo.toml"),
+            "[dependencies]\nb = { path = \"../b\" }\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.dependencies]\nevil = { path = \"outside\" }\n",
+        )
+        .unwrap();
+        let error = check_forbid_path_dependencies(&members, &classified, &root).unwrap_err();
+        assert!(error.contains("非 workspace 成员"), "{error}");
+        // [target.'cfg()'] 条件段内的 path 依赖同样受限。
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("crates/a/Cargo.toml"),
+            "[target.'cfg(unix)'.dependencies]\nevil = { path = \"../../outside\" }\n",
+        )
+        .unwrap();
+        let error = check_forbid_path_dependencies(&members, &classified, &root).unwrap_err();
+        assert!(error.contains("非 workspace 成员"), "{error}");
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

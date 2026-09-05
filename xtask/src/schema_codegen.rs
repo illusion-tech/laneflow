@@ -583,6 +583,15 @@ pub(crate) fn contains_metavariable_invocation(code: &str) -> bool {
     false
 }
 
+/// 识别 strip 后代码中的裸 `include` 标识符（任意上下文）。forbid 成员内
+/// `include!` 已全面禁止；宏展开无法拼出新标识符，因此禁绝裸 `include`
+/// 标识符即闭合一切经元变量碎片拼装的间接形态——宏体内的
+/// `include $bang ($p)` 与调用点的 `load!(include, ...)` 都必然在源码中
+/// 留下该标识符。`include_str!` / `include_bytes!` 是不同标识符，不受影响。
+pub(crate) fn contains_include_identifier(code: &str) -> bool {
+    contains_bare_token(code, "include")
+}
+
 pub(crate) fn workspace_manifest_paths(repository_root: &Path) -> Result<Vec<PathBuf>, String> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let output = Command::new(cargo)
@@ -1462,5 +1471,29 @@ mod tests {
             "macro_rules! list { ($($x:expr),*) => { vec![$($x),*] } }"
         ));
         assert!(!contains_metavariable_invocation("fn f() { foo!(); }"));
+    }
+
+    #[test]
+    fn include_identifier_detection_covers_fragmented_forms() {
+        // 直接调用。
+        assert!(contains_include_identifier("include!(\"payload.rs\");"));
+        // 宏体内的标点元变量拼装形态：`include $b ($p)`。
+        assert!(contains_include_identifier(
+            "macro_rules! load { ($b:tt, $p:literal) => { include $b ($p) } }"
+        ));
+        // 调用点传参形态：`$m $b ($p)` 的 `include` 在调用点字面出现。
+        assert!(contains_include_identifier(
+            "macro_rules! load { ($m:ident, $b:tt, $p:literal) => { $m $b ($p) } }\nload!(include, !, \"p.txt\");"
+        ));
+        // 数据加载宏是不同标识符，不受影响。
+        assert!(!contains_include_identifier(
+            "const D: &[u8] = include_bytes!(\"d.bin\");"
+        ));
+        assert!(!contains_include_identifier(
+            "const S: &str = include_str!(\"s.txt\");"
+        ));
+        // 标识符边界：后缀/前缀粘连不匹配。
+        assert!(!contains_include_identifier("let my_include = 1;"));
+        assert!(!contains_include_identifier("fn include_data() {}"));
     }
 }
