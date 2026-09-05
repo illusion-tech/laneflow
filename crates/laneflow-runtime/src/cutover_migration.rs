@@ -864,6 +864,9 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
     let mut signal_aspects = Vec::new();
     try_reserve_staging_exact(&mut signal_aspects, group_count)?;
     signal_aspects.resize(group_count, SignalAspect::Red);
+    let mut next_signal_aspects = Vec::new();
+    try_reserve_staging_exact(&mut next_signal_aspects, group_count)?;
+    next_signal_aspects.resize(group_count, SignalAspect::Red);
     let waiting_zone_count = usize::try_from(
         target_revision
             .traffic()
@@ -913,6 +916,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
         event_cursor: world.event_cursor,
         observation_state_sequence: world.observation_state_sequence,
         signal_aspects: signal_aspects.into_boxed_slice(),
+        next_signal_aspects: next_signal_aspects.into_boxed_slice(),
         routes,
         free_routes,
         live_route_count: world.live_route_count,
@@ -3667,9 +3671,9 @@ pub(crate) mod tests {
         let rebinding = CrossRevisionRebinding::build(world.revision.identity(), target.identity())
             .expect("rebinding");
         let before = world.capture_snapshot().expect("before");
-        // 首次为 signal；随后十次覆盖 Waiting 稠密状态与 scratch；W5/W7 的
+        // 前两次为 committed/next signal；随后覆盖 Waiting 稠密状态与 scratch；W5/W7 的
         // Conflict eligibility、authority 与 fixed-step scratch 继续走同一受检分配轴。
-        for fail_after in 1..=22 {
+        for fail_after in 1..=23 {
             let result = with_staging_allocation_failure_after(fail_after, || {
                 migrate_structural_clone(
                     &world,
@@ -3685,7 +3689,7 @@ pub(crate) mod tests {
             );
             assert_eq!(world.capture_snapshot().expect("unchanged"), before);
         }
-        let candidate = with_staging_allocation_failure_after(23, || {
+        let candidate = with_staging_allocation_failure_after(24, || {
             migrate_structural_clone(
                 &world,
                 target,

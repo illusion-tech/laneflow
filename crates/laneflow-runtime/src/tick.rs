@@ -199,7 +199,7 @@ impl TrafficWorld {
         let mut updates = std::mem::take(&mut self.next_states);
         updates.clear();
         let parking_arrivals =
-            match self.stage_vehicle_transitions(delta_s, tick_index, &mut updates) {
+            match self.stage_vehicle_transitions(delta_s, tick_index, time_ms, &mut updates) {
                 Ok(arrivals) => arrivals,
                 Err(error) => {
                     self.rollback_waiting_step();
@@ -262,7 +262,7 @@ impl TrafficWorld {
         self.tick_index = tick_index;
         self.time_ms = time_ms;
         self.observation_state_sequence = observation_state_sequence;
-        self.refresh_signals();
+        core::mem::swap(&mut self.signal_aspects, &mut self.next_signal_aspects);
         Ok(StepOutcome::new(tick_index, time_ms, parking_arrivals))
     }
 
@@ -270,6 +270,7 @@ impl TrafficWorld {
         &mut self,
         delta_s: f32,
         tick_index: u64,
+        time_ms: u64,
         updates: &mut Vec<(usize, VehicleState)>,
     ) -> Result<Vec<ParkingArrivalObservation>, StepError> {
         self.prepare_conflict_step(delta_s, tick_index)?;
@@ -321,6 +322,8 @@ impl TrafficWorld {
             updates.push((slot, next));
         }
         self.finalize_waiting_step(updates)?;
+        // 决策和运动使用拍初信号；资格与日志必须描述下一提交时刻。
+        crate::world::fill_signal_aspects(&self.revision, time_ms, &mut self.next_signal_aspects);
         self.finalize_conflict_step(updates)?;
         self.finalize_waiting_outputs(updates, tick_index)?;
         #[cfg(test)]
@@ -650,6 +653,15 @@ impl TrafficWorld {
         gate: laneflow_static_contract::ManeuverGateOrdinal,
         profile: VehicleProfileOrdinal,
     ) -> crate::GatePolicyDecision {
+        self.gate_policy_decision_with_signals(gate, profile, &self.signal_aspects)
+    }
+
+    pub(crate) fn gate_policy_decision_with_signals(
+        &self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+        profile: VehicleProfileOrdinal,
+        signal_aspects: &[laneflow_static_contract::SignalAspect],
+    ) -> crate::GatePolicyDecision {
         let gate_view = self.revision.traffic().relations().maneuver_gate(gate);
         let Some(gate_view) = gate_view else {
             return crate::GatePolicyDecision::DenyAndStop;
@@ -658,7 +670,7 @@ impl TrafficWorld {
             return crate::GatePolicyDecision::DenyAndStop;
         };
         let signal_group = gate_view.signal_group();
-        let aspect = signal_group.and_then(|group| self.signal_aspects.get(group.index()).copied());
+        let aspect = signal_group.and_then(|group| signal_aspects.get(group.index()).copied());
         crate::conflict::interpret_gate_policy(*rule, signal_group.is_some(), aspect)
             .unwrap_or(crate::GatePolicyDecision::DenyAndStop)
     }
@@ -1279,6 +1291,41 @@ mod preview {
         )
         .unwrap();
         install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).unwrap()
+    }
+
+    #[test]
+    fn failed_signal_boundary_publication_preserves_committed_world_and_retries() {
+        let mut world = install_preview_world();
+        assert!(!world.signal_aspects.is_empty());
+        assert_eq!(world.next_signal_aspects.len(), world.signal_aspects.len());
+        let boundary = (1..6_000)
+            .find(|tick| {
+                world.time_ms = (tick - 1) * 100;
+                world.refresh_signals();
+                crate::world::fill_signal_aspects(
+                    &world.revision,
+                    tick * 100,
+                    &mut world.next_signal_aspects,
+                );
+                world.signal_aspects != world.next_signal_aspects
+            })
+            .expect("fixture crosses an ordinary signal phase");
+        world.tick_index = boundary - 1;
+        let before = world.capture_snapshot().unwrap();
+        let signals = world.signal_aspects.clone();
+        let next_signals = world.next_signal_aspects.clone();
+        STEP_FAILPOINT.with(|failpoint| failpoint.set(Some(StepFailpoint::AfterTransitions)));
+        assert_eq!(
+            world.step(TickInput::new(100)),
+            Err(StepError::ParkingObservationAllocFailed)
+        );
+        assert_eq!(world.capture_snapshot().unwrap(), before);
+        assert_eq!(world.signal_aspects, signals);
+        assert_eq!(world.next_signal_aspects, next_signals);
+        world.step(TickInput::new(100)).unwrap();
+        assert_eq!(world.signal_aspects, next_signals);
+        assert_eq!(world.time_ms(), boundary * 100);
+        assert!(world.conflict_state_valid());
     }
 
     #[test]

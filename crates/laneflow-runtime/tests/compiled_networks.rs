@@ -521,6 +521,10 @@ struct ConflictPolicyFixture {
     clearance: Option<(u32, f64)>,
     right_turn_signal: Option<laneflow_compiler::GateInterpretation>,
     signal_cycle_ms: Option<[u64; 2]>,
+    signal_stop_aspect: Option<SignalAspect>,
+    conflict_after_release: bool,
+    waiting_on_north_only: bool,
+    resource_free_release: bool,
 }
 
 fn conflict_road_editing_module_with_shape_and_speed(
@@ -541,6 +545,10 @@ fn conflict_road_editing_module_with_shape_and_speed(
         clearance,
         right_turn_signal,
         signal_cycle_ms,
+        signal_stop_aspect,
+        conflict_after_release,
+        waiting_on_north_only,
+        resource_free_release,
     } = policy_fixture;
     assert!(stream_count <= 2);
     assert!(!multiplicity || (include_conflict && stream_count == 2));
@@ -603,7 +611,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
                 lfre::RoadEditingSignalPhaseState::try_new(
                     group.clone(),
                     if index == 0 {
-                        SignalAspect::Red
+                        signal_stop_aspect.unwrap_or(SignalAspect::Red)
                     } else {
                         SignalAspect::Green
                     },
@@ -778,6 +786,11 @@ fn conflict_road_editing_module_with_shape_and_speed(
                 lfre::PathAnchorInput::gate(admission_gate.clone()),
                 lfre::PathAnchorInput::edge_boundary(3),
             )
+        } else if conflict_after_release {
+            (
+                lfre::PathAnchorInput::interior(2, 1.0).unwrap(),
+                lfre::PathAnchorInput::interior(2, 5.0).unwrap(),
+            )
         } else {
             (
                 lfre::PathAnchorInput::interior(1, entry_progress).expect("entry anchor"),
@@ -838,7 +851,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
                 .expect("maneuver gate"),
             ))
             .expect("add maneuver gate");
-        if waiting || next_gate {
+        if waiting || next_gate || conflict_after_release || resource_free_release {
             let release_key = format!("{gate_key}-release");
             let release_stop = format!("{stop_line_key}-release");
             module
@@ -861,7 +874,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
                     .unwrap(),
                 ))
                 .unwrap();
-            if waiting {
+            if waiting && (!waiting_on_north_only || stream_index == 1) {
                 module
                     .add_declaration(lfre::RoadEditingDeclaration::WaitingZone(
                         lfre::WaitingZoneInput::try_new(
@@ -1065,7 +1078,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
         .unwrap()
     })
     .collect();
-    if waiting || next_gate {
+    if waiting || next_gate || conflict_after_release || resource_free_release {
         for (movement, path, gate) in [
             ("east-west", "east-west-path", "east-west-gate-release"),
             (
