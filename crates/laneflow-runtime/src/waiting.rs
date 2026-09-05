@@ -191,16 +191,20 @@ impl WaitingZoneMember {
     }
 }
 
-/// Waiting admission 没有取得 claim 的本地原因。
+/// Waiting admission 没有取得 claim 的原因。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WaitingNoGrantReason {
     Capacity,
     PhysicalStorage,
+    /// 本地可准入，但组合资源未取得。
+    CombinedResource(crate::ConflictNoGrantReason),
 }
 
 /// 刚完成 successful tick 的 Waiting admission 决定。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WaitingDecisionOutcome {
+    /// 本地预选可行，但该 entry 未进入本 tick 的组合资源求值。
+    Deferred,
     NotEvaluated,
     NotRequired,
     Granted,
@@ -861,26 +865,20 @@ impl crate::TrafficWorld {
                         WaitingNoGrantReason::PhysicalStorage => {
                             WaitingProjectionReason::PhysicalStorage
                         }
+                        WaitingNoGrantReason::CombinedResource(_) => {
+                            unreachable!("local reducer only rejects local resources")
+                        }
                     });
                 }
                 WaitingDecisionOutcome::NotEvaluated | WaitingDecisionOutcome::NotRequired => {}
+                WaitingDecisionOutcome::Deferred => {
+                    unreachable!("local reducer has no combined outcome")
+                }
             }
             self.waiting_plans[index] = plan;
-            self.waiting_plan_by_vehicle[plan.vehicle.index() as usize] = Some(plan);
-            self.waiting_staged_decisions.push(WaitingDecision {
-                vehicle: plan.vehicle,
-                vehicle_update_sequence: plan.vehicle_update_sequence,
-                zone: Some(plan.zone),
-                anchor: WaitingRouteAnchor {
-                    route: self
-                        .vehicle_state(plan.vehicle)
-                        .ok_or(crate::StepError::WaitingInvariantViolation)?
-                        .route,
-                    maneuver_occurrence_index: plan.maneuver_index,
-                    hop: plan.entry_hop,
-                },
-                outcome: plan.decision,
-            });
+            self.waiting_plan_by_vehicle[plan.vehicle.index() as usize] = std::num::NonZeroU32::new(
+                u32::try_from(index).map_err(|_| crate::StepError::WaitingInvariantViolation)? + 1,
+            );
         }
         Ok(())
     }
@@ -897,6 +895,7 @@ impl crate::TrafficWorld {
             .get(vehicle.index() as usize)
             .copied()
             .flatten()
+            .and_then(|index| self.waiting_plans.get(index.get() as usize - 1).copied())
             .filter(|plan| {
                 plan.vehicle == vehicle
                     && plan.entry_hop == entry_hop
@@ -905,18 +904,10 @@ impl crate::TrafficWorld {
         let Some(plan) = plan else {
             return Ok(());
         };
-        if self
-            .waiting_claims
-            .iter()
-            .any(|claim| claim.vehicle == vehicle)
-        {
-            return Err(crate::StepError::WaitingInvariantViolation);
-        }
-        let plan_index = self
-            .waiting_plans
-            .iter()
-            .position(|candidate| *candidate == plan)
-            .ok_or(crate::StepError::WaitingInvariantViolation)?;
+        let plan_index = self.waiting_plan_by_vehicle[vehicle.index() as usize]
+            .ok_or(crate::StepError::WaitingInvariantViolation)?
+            .get()
+            - 1;
         reserve_waiting_exact(&mut self.waiting_claims, 1)?;
         self.waiting_claims.push(WaitingAdmissionClaim {
             vehicle: plan.vehicle,
@@ -926,8 +917,7 @@ impl crate::TrafficWorld {
             entry_hop: plan.entry_hop,
             release_hop: plan.release_hop,
             approach_distance_mm: plan.approach_distance_mm,
-            plan_index: u32::try_from(plan_index)
-                .map_err(|_| crate::StepError::WaitingInvariantViolation)?,
+            plan_index,
             post_step_group: 0,
             post_step_rank: 0,
         });
@@ -950,6 +940,7 @@ impl crate::TrafficWorld {
             .get(vehicle.index() as usize)
             .copied()
             .flatten()
+            .and_then(|index| self.waiting_plans.get(index.get() as usize - 1).copied())
             .filter(|plan| {
                 plan.vehicle == vehicle
                     && plan.entry_hop == entry_hop
@@ -1232,6 +1223,7 @@ impl crate::TrafficWorld {
             .get(state.handle.index() as usize)
             .copied()
             .flatten()
+            .and_then(|index| self.waiting_plans.get(index.get() as usize - 1).copied())
             .filter(|plan| plan.vehicle == state.handle)
         else {
             return Ok(None);
@@ -1264,15 +1256,14 @@ impl crate::TrafficWorld {
     pub(crate) fn finalize_waiting_step(
         &mut self,
         updates: &mut [(usize, crate::VehicleState)],
-        tick: u64,
     ) -> Result<(), crate::StepError> {
-        self.waiting_next_state_index.fill(0);
+        self.next_state_by_vehicle.fill(0);
         for (update_index, (slot, _)) in updates.iter().enumerate() {
             let encoded = u32::try_from(update_index)
                 .ok()
                 .and_then(|value| value.checked_add(1))
                 .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            self.waiting_next_state_index[*slot] = encoded;
+            self.next_state_by_vehicle[*slot] = encoded;
         }
 
         // 先 stage tick-start membership 的 successful release。
@@ -1291,7 +1282,7 @@ impl crate::TrafficWorld {
         // 先从 staged motion 计算物理 rank，再按 zone 内 post-step front-to-back 分配。
         for claim_index in 0..self.waiting_claims.len() {
             let mut claim = self.waiting_claims[claim_index];
-            let encoded = self.waiting_next_state_index[claim.vehicle.index() as usize];
+            let encoded = self.next_state_by_vehicle[claim.vehicle.index() as usize];
             let update_index = encoded
                 .checked_sub(1)
                 .map(|value| value as usize)
@@ -1327,7 +1318,7 @@ impl crate::TrafficWorld {
         for claim in self.waiting_claims.iter().copied() {
             let plan_index = claim.plan_index as usize;
             let mut plan = self.waiting_plans[plan_index];
-            let encoded = self.waiting_next_state_index[claim.vehicle.index() as usize];
+            let encoded = self.next_state_by_vehicle[claim.vehicle.index() as usize];
             let update_index = encoded
                 .checked_sub(1)
                 .map(|value| value as usize)
@@ -1349,24 +1340,32 @@ impl crate::TrafficWorld {
                 next.waiting_membership = None;
             }
             self.waiting_plans[plan_index] = plan;
-            self.waiting_plan_by_vehicle[plan.vehicle.index() as usize] = Some(plan);
         }
 
-        for (slot, next) in updates.iter_mut() {
-            let old = self.vehicles[*slot]
-                .state
-                .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            next.maneuver_traversal = self.derive_waiting_traversal(*next)?;
-            if next.status != crate::VehicleStatus::Active
-                && (next.maneuver_traversal.is_some() || next.waiting_membership.is_some())
-            {
-                return Err(crate::StepError::WaitingInvariantViolation);
-            }
-            if old.waiting_membership.is_some() && old.maneuver_traversal.is_none() {
-                return Err(crate::StepError::WaitingInvariantViolation);
-            }
-        }
+        Ok(())
+    }
 
+    pub(crate) fn finalize_waiting_outputs(
+        &mut self,
+        updates: &[(usize, crate::VehicleState)],
+        tick: u64,
+    ) -> Result<(), crate::StepError> {
+        for plan in self.waiting_plans.iter().copied() {
+            self.waiting_staged_decisions.push(WaitingDecision {
+                vehicle: plan.vehicle,
+                vehicle_update_sequence: plan.vehicle_update_sequence,
+                zone: Some(plan.zone),
+                anchor: WaitingRouteAnchor {
+                    route: self
+                        .vehicle_state(plan.vehicle)
+                        .ok_or(crate::StepError::WaitingInvariantViolation)?
+                        .route,
+                    maneuver_occurrence_index: plan.maneuver_index,
+                    hop: plan.entry_hop,
+                },
+                outcome: self.final_waiting_decision(plan),
+            });
+        }
         let non_entry_count = updates.iter().try_fold(0_usize, |total, (slot, next)| {
             let old = self.vehicles[*slot].state.expect("staged live vehicle");
             let compiled = self.compiled_route(old.route).expect("live route");
@@ -1397,7 +1396,7 @@ impl crate::TrafficWorld {
         for sequence in 0..self.live_order.len() {
             let vehicle = self.live_order[sequence];
             let slot = vehicle.index() as usize;
-            let Some(update_index) = self.waiting_next_state_index[slot].checked_sub(1) else {
+            let Some(update_index) = self.next_state_by_vehicle[slot].checked_sub(1) else {
                 continue;
             };
             let old = self.vehicles[slot].state.expect("staged live vehicle");
@@ -1454,6 +1453,25 @@ impl crate::TrafficWorld {
         Ok(())
     }
 
+    fn final_waiting_decision(&self, plan: WaitingVehiclePlan) -> WaitingDecisionOutcome {
+        if plan.decision != WaitingDecisionOutcome::Granted {
+            return plan.decision;
+        }
+        let Some(motion) = self.conflict_motion_by_vehicle[plan.vehicle.index() as usize]
+            .filter(|motion| motion.gate_hop == plan.entry_hop)
+        else {
+            return WaitingDecisionOutcome::Deferred;
+        };
+        match motion.outcome {
+            crate::ConflictDecisionOutcome::Granted => WaitingDecisionOutcome::Granted,
+            crate::ConflictDecisionOutcome::NoGrant(reason) => {
+                WaitingDecisionOutcome::NoGrant(WaitingNoGrantReason::CombinedResource(reason))
+            }
+            crate::ConflictDecisionOutcome::NotEvaluated => WaitingDecisionOutcome::NotEvaluated,
+            crate::ConflictDecisionOutcome::NotRequired => WaitingDecisionOutcome::NotRequired,
+        }
+    }
+
     pub(crate) fn commit_waiting_removals(&mut self, updates: &[(usize, crate::VehicleState)]) {
         for (slot, next) in updates {
             let old = self.vehicles[*slot]
@@ -1486,10 +1504,10 @@ impl crate::TrafficWorld {
             let Some(sequence) = plan.admission_sequence else {
                 continue;
             };
-            if plan.vehicle.index() as usize >= self.waiting_next_state_index.len() {
+            if plan.vehicle.index() as usize >= self.next_state_by_vehicle.len() {
                 continue;
             }
-            let Some(update_index) = self.waiting_next_state_index[plan.vehicle.index() as usize]
+            let Some(update_index) = self.next_state_by_vehicle[plan.vehicle.index() as usize]
                 .checked_sub(1)
                 .map(|value| value as usize)
             else {
@@ -1528,7 +1546,7 @@ impl crate::TrafficWorld {
         );
     }
 
-    fn derive_waiting_traversal(
+    pub(crate) fn derive_waiting_traversal(
         &self,
         state: crate::VehicleState,
     ) -> Result<Option<ManeuverTraversalState>, crate::StepError> {
@@ -1629,6 +1647,7 @@ impl crate::TrafficWorld {
             .get(old.handle.index() as usize)
             .copied()
             .flatten()
+            .and_then(|index| self.waiting_plans.get(index.get() as usize - 1).copied())
             .filter(|plan| plan.vehicle == old.handle);
         // 一个旧 membership、一个新 claim：projection + old leave + enter/leave + 两个 completion。
         let mut events = [None; 6];
@@ -2491,8 +2510,139 @@ pub(crate) mod tests {
         (world, route, occurrence)
     }
 
+    #[test]
+    #[ignore = "manual release comparison of simultaneous independent Gate requests"]
+    fn multi_gate_comparison_evidence() {
+        for count in [64, 256, 1_024] {
+            let mut world = multi_gate_world(count);
+            let mut samples = Vec::with_capacity(21);
+            for sample in 0..24 {
+                if sample != 0 {
+                    for handle in world.live_order.clone() {
+                        let route = world.vehicle(handle).unwrap().route();
+                        let edge = world.route_edges(route).unwrap()[0];
+                        let boundary = world.traffic().lane_lengths_millimetres()[edge.index()];
+                        world.despawn_vehicle(handle).unwrap();
+                        world
+                            .spawn_vehicle(VehicleSpawnInput::new(
+                                VehicleProfileOrdinal::from_raw(0),
+                                route,
+                                0,
+                                boundary - 1,
+                                10_000,
+                            ))
+                            .unwrap();
+                    }
+                }
+                let started = Instant::now();
+                world.step(TickInput::new(100)).unwrap();
+                let elapsed = started.elapsed().as_nanos();
+                if sample >= 3 {
+                    samples.push(elapsed);
+                }
+                assert_eq!(world.waiting_member_rows.len(), count);
+                assert_eq!(world.latest_waiting_decisions().len(), count);
+                assert!(
+                    world
+                        .latest_waiting_decisions()
+                        .iter()
+                        .all(|decision| decision.outcome() == WaitingDecisionOutcome::Granted)
+                );
+            }
+            samples.sort_unstable();
+            eprintln!(
+                "multi-gate-comparison candidates={count} tick_p50_ns={} tick_p95_ns={} waiting_retained_bytes={} conflict_retained_bytes={}",
+                samples[10],
+                samples[19],
+                waiting_retained_bytes(&world),
+                world.conflict_retained_logical_bytes()
+            );
+        }
+    }
+
     fn waiting_scale_revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
         waiting_scale_revision_with(8.0, 1)
+    }
+
+    pub(crate) fn multi_gate_world(count: usize) -> TrafficWorld {
+        let revision = waiting_scale_revision_with_layout(8.0, 1, ScaleLayout::IdleZones(count));
+        let origin = *revision.canonical_origin();
+        let count = u32::try_from(count).unwrap();
+        let mut world = TrafficWorld::install(
+            Arc::clone(&revision),
+            WorldConfig::new(count, count, u64::from(count) * 3, 1, 1, 100),
+            CommittedNetworkSource::Published {
+                reference: PublishedLfcaReference::new(
+                    "fixture://multi-gate",
+                    origin.canonical_artifact_digest(),
+                    origin.canonical_artifact_byte_length(),
+                    origin.network_revision(),
+                )
+                .unwrap(),
+            },
+            82,
+            crate::test_policy::selection(&revision),
+        )
+        .unwrap();
+        for raw in 0..revision.traffic().maneuvers().maneuver_path_count() {
+            let edges = revision
+                .traffic()
+                .maneuvers()
+                .maneuver_path(ManeuverPathOrdinal::from_raw(raw))
+                .unwrap()
+                .edges()
+                .to_vec();
+            if edges.len() != 3 {
+                continue;
+            }
+            let boundary = revision.traffic().lane_lengths_millimetres()[edges[0].index()];
+            let route = world
+                .register_route(RouteRegisterInput::new(edges))
+                .unwrap();
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    boundary - 1,
+                    10_000,
+                ))
+                .unwrap();
+        }
+        assert_eq!(world.live_order.len(), count as usize);
+        world
+    }
+
+    #[test]
+    fn simultaneous_gate_requests_use_linear_transition_links() {
+        use crate::conflict::{conflict_work_counts, reset_conflict_work_counts};
+        for count in [64, 256, 1_024] {
+            let mut world = multi_gate_world(count);
+            reset_conflict_work_counts();
+            let started = Instant::now();
+            world.step(TickInput::new(100)).unwrap();
+            let elapsed = started.elapsed();
+            let work = conflict_work_counts();
+            assert_eq!(work.candidates, count);
+            assert_eq!(work.vehicle_grant_lookups, count);
+            assert_eq!(work.grant_update_lookups, 2 * count);
+            assert_eq!(world.waiting_member_rows.len(), count);
+            assert!(
+                world
+                    .latest_waiting_decisions()
+                    .iter()
+                    .all(|decision| decision.outcome() == WaitingDecisionOutcome::Granted)
+            );
+            assert!(world.conflict_state_valid());
+            assert!(world.waiting_state_valid());
+            eprintln!(
+                "multi-gate candidates={count} tick_ns={} vehicle_grant_lookups={} grant_update_lookups={} waiting_retained={}",
+                elapsed.as_nanos(),
+                work.vehicle_grant_lookups,
+                work.grant_update_lookups,
+                waiting_retained_bytes(&world)
+            );
+        }
     }
 
     fn waiting_scale_revision_with(
@@ -3057,8 +3207,8 @@ pub(crate) mod tests {
             + world.waiting_member_rows.capacity() * size_of::<WaitingZoneMember>()
             + world.waiting_claims.capacity() * size_of::<WaitingAdmissionClaim>()
             + world.waiting_plans.capacity() * size_of::<WaitingVehiclePlan>()
-            + world.waiting_plan_by_vehicle.len() * size_of::<Option<WaitingVehiclePlan>>()
-            + world.waiting_next_state_index.len() * size_of::<u32>()
+            + world.waiting_plan_by_vehicle.len() * size_of::<Option<std::num::NonZeroU32>>()
+            + world.next_state_by_vehicle.len() * size_of::<u32>()
             + world.waiting_staged_decisions.capacity() * size_of::<WaitingDecision>()
             + world.waiting_staged_events.capacity() * size_of::<WaitingTransitionEvent>()
             + world.waiting_next_counters.len() * size_of::<u64>()
@@ -4398,9 +4548,17 @@ pub(crate) mod tests {
         projected.progress_mm = world.traffic().lane_lengths_millimetres()[edge.index()];
         projected.speed_mm_s = 0;
         projected.carry_um = 0;
+        world.prepare_conflict_step(1.0, 1).expect("formal grant");
+        let mut updates = [(vehicle.index() as usize, projected)];
         world
-            .finalize_waiting_step(&mut [(vehicle.index() as usize, projected)], 1)
+            .finalize_waiting_step(&mut updates)
             .expect("finalize projected motion");
+        world
+            .finalize_conflict_step(&mut updates)
+            .expect("finalize authority");
+        world
+            .finalize_waiting_outputs(&updates, 1)
+            .expect("finalize outputs");
         let decisions = &world.waiting_staged_decisions;
         assert_eq!(decisions.len(), 1);
         assert_eq!(decisions[0].vehicle(), vehicle);
@@ -4521,12 +4679,16 @@ pub(crate) mod tests {
                 last_crossed_gate_hop: first.entry_hop,
             },
         });
-        let mut plan = world.waiting_plan_by_vehicle[vehicle.index() as usize].expect("entry plan");
+        let plan_index = world.waiting_plan_by_vehicle[vehicle.index() as usize]
+            .expect("entry plan")
+            .get() as usize
+            - 1;
+        let mut plan = world.waiting_plans[plan_index];
         plan.maneuver_index = second.maneuver_index;
         plan.entry_hop = second.entry_hop;
         plan.release_hop = second.release_hop;
         plan.admission_sequence = Some(1);
-        world.waiting_plan_by_vehicle[vehicle.index() as usize] = Some(plan);
+        world.waiting_plans[plan_index] = plan;
         let mut next = old;
         next.route_edge_index = second.release_hop;
         next.maneuver_traversal = Some(ManeuverTraversalState {
@@ -4558,7 +4720,7 @@ pub(crate) mod tests {
         plan.stop_zone = Some(third.zone);
         plan.stop_maneuver_index = Some(third.maneuver_index);
         plan.projection = Some(WaitingProjectionReason::EvaluationHorizon);
-        world.waiting_plan_by_vehicle[vehicle.index() as usize] = Some(plan);
+        world.waiting_plans[plan_index] = plan;
         next.route_edge_index = third.entry_hop;
         next.progress_mm = world.traffic().lane_lengths_millimetres()
             [world.route_edges(route).expect("route")[third.entry_hop as usize].index()];

@@ -472,8 +472,8 @@ impl CutoverTransaction {
             &mut candidate.waiting_plan_by_vehicle,
         );
         std::mem::swap(
-            &mut world.waiting_next_state_index,
-            &mut candidate.waiting_next_state_index,
+            &mut world.next_state_by_vehicle,
+            &mut candidate.next_state_by_vehicle,
         );
         std::mem::swap(
             &mut world.waiting_staged_decisions,
@@ -499,6 +499,7 @@ impl CutoverTransaction {
         // 调用方在 commit 前消费；此处处于不可失败的原子发布段。
         world.latest_waiting_decisions.clear();
         world.latest_waiting_events.clear();
+        world.latest_conflict_decisions.clear();
         std::mem::swap(&mut world.signal_aspects, &mut candidate.signal_aspects);
         std::mem::swap(&mut world.next_states, &mut candidate.next_states);
         std::mem::swap(&mut world.occupancy, &mut candidate.occupancy);
@@ -3069,6 +3070,7 @@ mod tests {
         let _ = tx.commit(&mut cut).expect("commit");
         assert!(cut.latest_waiting_decisions().is_empty());
         assert!(cut.latest_waiting_events().is_empty());
+        assert!(cut.latest_conflict_decisions().is_empty());
         assert_eq!(
             cut.observation_state_sequence(),
             crate::ObservationStateSequence::INITIAL
@@ -3100,6 +3102,19 @@ mod tests {
             maneuver_occurrence_index: 0,
             hop: state.route_edge_index,
         };
+        world
+            .latest_conflict_decisions
+            .push(crate::ConflictDecision {
+                vehicle,
+                vehicle_update_sequence: 0,
+                anchor: crate::ConflictRouteAnchor {
+                    route: anchor.route,
+                    maneuver_occurrence_index: anchor.maneuver_occurrence_index,
+                    hop: anchor.hop,
+                },
+                passage: None,
+                outcome: crate::ConflictDecisionOutcome::NotRequired,
+            });
         world.latest_waiting_decisions.push(crate::WaitingDecision {
             vehicle,
             vehicle_update_sequence: 0,
@@ -3165,12 +3180,14 @@ mod tests {
         seed_latest_waiting_output(&mut world);
         let decisions_before = world.latest_waiting_decisions().to_vec();
         let events_before = world.latest_waiting_events().to_vec();
+        let conflict_before = world.latest_conflict_decisions().to_vec();
         assert_eq!(
             tx.commit(&mut world).unwrap_err(),
             CutoverError::DigestMismatch
         );
         assert_eq!(world.latest_waiting_decisions(), decisions_before);
         assert_eq!(world.latest_waiting_events(), events_before);
+        assert_eq!(world.latest_conflict_decisions(), conflict_before);
         assert_eq!(world.world_generation(), generation_before);
         assert_eq!(world.observation_state_sequence(), sequence_before);
         assert_eq!(world.event_cursor(), 0);
@@ -3192,9 +3209,11 @@ mod tests {
         seed_latest_waiting_output(&mut world);
         let decisions_before = world.latest_waiting_decisions().to_vec();
         let events_before = world.latest_waiting_events().to_vec();
+        let conflict_before = world.latest_conflict_decisions().to_vec();
         tx.abandon(&mut world).expect("abandon");
         assert_eq!(world.latest_waiting_decisions(), decisions_before);
         assert_eq!(world.latest_waiting_events(), events_before);
+        assert_eq!(world.latest_conflict_decisions(), conflict_before);
         assert_eq!(world.world_generation(), generation_before);
         assert_eq!(world.observation_state_sequence(), sequence_before);
         assert!(world.migration_journal_stats().is_none());

@@ -19,6 +19,72 @@ use crate::{
 /// `minimum_gap_tolerance`。
 const MINIMUM_GAP_TOLERANCE_MM: u32 = 1;
 
+#[cfg(test)]
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum StepFailpoint {
+    AfterGrants,
+    AfterTransitions,
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static STEP_FAILPOINT: std::cell::Cell<Option<StepFailpoint>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn injected_step_failure(point: StepFailpoint) -> Result<(), StepError> {
+    STEP_FAILPOINT.with(|failpoint| {
+        if failpoint.get() == Some(point) {
+            failpoint.set(None);
+            Err(StepError::ParkingObservationAllocFailed)
+        } else {
+            Ok(())
+        }
+    })
+}
+
+#[cfg(test)]
+mod transaction_tests {
+    use super::*;
+    use crate::cutover_migration::tests::{conflict_scale_revision, conflict_scale_world};
+
+    #[test]
+    fn failed_grant_and_transition_staging_preserves_world_and_can_retry() {
+        let revision = conflict_scale_revision();
+        for point in [StepFailpoint::AfterGrants, StepFailpoint::AfterTransitions] {
+            let mut world = conflict_scale_world(std::sync::Arc::clone(&revision), 2);
+            let before =
+                crate::deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap();
+            let tick = world.tick_index();
+            let time = world.time_ms();
+            let decisions = world.latest_conflict_decisions().to_vec();
+            STEP_FAILPOINT.with(|failpoint| failpoint.set(Some(point)));
+            assert_eq!(
+                world.step(TickInput::new(4)),
+                Err(StepError::ParkingObservationAllocFailed)
+            );
+            assert!(world.conflict_state_valid());
+            assert_eq!(world.tick_index(), tick);
+            assert_eq!(world.time_ms(), time);
+            assert_eq!(world.latest_conflict_decisions(), decisions);
+            assert_eq!(
+                crate::deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap(),
+                before
+            );
+            world
+                .step(TickInput::new(4))
+                .expect("failure must not poison the next tick");
+            assert!(world.conflict_state_valid());
+            assert!(
+                world
+                    .latest_conflict_decisions()
+                    .iter()
+                    .any(|decision| decision.outcome() == crate::ConflictDecisionOutcome::Granted)
+            );
+        }
+    }
+}
+
 /// §10.1 跟车查询窗：静止前车最坏情况，SI 有限后 `ceil` 到毫米。
 ///
 /// `bumper_gap_mm` 是后杠间隙接纳窗；`front_query_mm` 是出现项行走窗
@@ -86,78 +152,24 @@ impl TrafficWorld {
         let delta_s = expected as f32 / 1_000.0;
         self.rebuild_occupancy_index()?;
         self.prepare_waiting_step(delta_s)?;
-        if let Err(error) = self.prepare_conflict_step(delta_s, tick_index) {
-            self.conflict_arbiter.expire_unconsumed_grants();
-            return Err(error);
-        }
-        self.next_states.clear();
-        self.next_states.reserve(self.active_order.len());
-        let mut parking_arrivals = Vec::new();
-        for handle in self.active_order.iter().copied() {
-            let Some(state) = self.vehicle_state(handle).copied() else {
-                continue;
-            };
-            debug_assert_eq!(state.status, VehicleStatus::Active);
-            if !self.parking_state_valid(handle) {
-                return Err(StepError::ParkingInvariantViolation);
-            }
-            let reservation = match self.parking.binding(handle) {
-                Some(ParkingBinding::Reserved(reservation)) => Some(reservation),
-                Some(ParkingBinding::Occupied(_)) => {
-                    return Err(StepError::ParkingInvariantViolation);
-                }
-                None => None,
-            };
-            let arrived_before =
-                reservation.is_some_and(|reservation| self.parking_arrived_for(state, reservation));
-            let waiting_stop = self.waiting_stop_for(state)?;
-            let conflict_stop = self.conflict_stop_for(state)?;
-            let next = self
-                .advance_active_vehicle_with_waiting_stop(
-                    state,
-                    delta_s,
-                    waiting_stop,
-                    conflict_stop,
-                )
-                .ok_or(StepError::NonFiniteMotion)?;
-            if next.status == VehicleStatus::Completed
-                && (self.conflict_reservation(handle).is_some()
-                    || self.conflict_arbiter.has_authority(handle))
-            {
-                return Err(StepError::ConflictInvariantViolation);
-            }
-            if let Some(reservation) = reservation {
-                if next.status != VehicleStatus::Active {
-                    return Err(StepError::ParkingInvariantViolation);
-                }
-                if !arrived_before && self.parking_arrived_for(next, reservation) {
-                    parking_arrivals
-                        .try_reserve(1)
-                        .map_err(|_| StepError::ParkingObservationAllocFailed)?;
-                    parking_arrivals.push(ParkingArrivalObservation {
-                        vehicle: handle,
-                        target: reservation.target(),
-                    });
-                }
-            }
-            let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
-            self.next_states.push((slot, next));
-        }
         let mut updates = std::mem::take(&mut self.next_states);
-        if let Err(error) = self.finalize_waiting_step(&mut updates, tick_index) {
-            self.rollback_waiting_step();
-            self.conflict_arbiter.expire_unconsumed_grants();
-            updates.clear();
-            self.next_states = updates;
-            return Err(error);
-        }
-        if let Err(error) = self.finalize_conflict_step(&mut updates, time_ms) {
-            self.rollback_waiting_step();
-            self.conflict_arbiter.expire_unconsumed_grants();
-            updates.clear();
-            self.next_states = updates;
-            return Err(error);
-        }
+        updates.clear();
+        let parking_arrivals =
+            match self.stage_vehicle_transitions(delta_s, tick_index, &mut updates) {
+                Ok(arrivals) => arrivals,
+                Err(error) => {
+                    self.rollback_waiting_step();
+                    self.conflict_arbiter.expire_unconsumed_grants();
+                    self.conflict_grants.clear();
+                    self.conflict_staged_decisions.clear();
+                    self.conflict_passage_transitions.clear();
+                    updates.clear();
+                    self.next_states = updates;
+                    return Err(error);
+                }
+            };
+        // 以下提交仅消费已预留、已验证的转移；没有可恢复错误出口。
+        self.commit_conflict_transitions(&updates, time_ms);
         self.commit_waiting_removals(&updates);
         // 武装期 TICK 记录在状态写回前开帧、写回后闭帧；无变化条目被过滤，
         // 零变化步进仍保留空记录（tick/时间是候选时钟与摘要头部的收敛依据）。
@@ -208,6 +220,68 @@ impl TrafficWorld {
         self.observation_state_sequence = observation_state_sequence;
         self.refresh_signals();
         Ok(StepOutcome::new(tick_index, time_ms, parking_arrivals))
+    }
+
+    fn stage_vehicle_transitions(
+        &mut self,
+        delta_s: f32,
+        tick_index: u64,
+        updates: &mut Vec<(usize, VehicleState)>,
+    ) -> Result<Vec<ParkingArrivalObservation>, StepError> {
+        self.prepare_conflict_step(delta_s, tick_index)?;
+        #[cfg(test)]
+        injected_step_failure(StepFailpoint::AfterGrants)?;
+        let mut parking_arrivals = Vec::new();
+        for handle in self.active_order.iter().copied() {
+            let Some(state) = self.vehicle_state(handle).copied() else {
+                continue;
+            };
+            debug_assert_eq!(state.status, VehicleStatus::Active);
+            if !self.parking_state_valid(handle) {
+                return Err(StepError::ParkingInvariantViolation);
+            }
+            let reservation = match self.parking.binding(handle) {
+                Some(ParkingBinding::Reserved(reservation)) => Some(reservation),
+                Some(ParkingBinding::Occupied(_)) => {
+                    return Err(StepError::ParkingInvariantViolation);
+                }
+                None => None,
+            };
+            let arrived_before =
+                reservation.is_some_and(|reservation| self.parking_arrived_for(state, reservation));
+            let waiting_stop = self.waiting_stop_for(state)?;
+            let conflict_stop = self.conflict_stop_for(state)?;
+            let next = self
+                .advance_active_vehicle_with_waiting_stop(
+                    state,
+                    delta_s,
+                    waiting_stop,
+                    conflict_stop,
+                )
+                .ok_or(StepError::NonFiniteMotion)?;
+            if let Some(reservation) = reservation {
+                if next.status != VehicleStatus::Active {
+                    return Err(StepError::ParkingInvariantViolation);
+                }
+                if !arrived_before && self.parking_arrived_for(next, reservation) {
+                    parking_arrivals
+                        .try_reserve(1)
+                        .map_err(|_| StepError::ParkingObservationAllocFailed)?;
+                    parking_arrivals.push(ParkingArrivalObservation {
+                        vehicle: handle,
+                        target: reservation.target(),
+                    });
+                }
+            }
+            let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
+            updates.push((slot, next));
+        }
+        self.finalize_waiting_step(updates)?;
+        self.finalize_conflict_step(updates)?;
+        self.finalize_waiting_outputs(updates, tick_index)?;
+        #[cfg(test)]
+        injected_step_failure(StepFailpoint::AfterTransitions)?;
+        Ok(parking_arrivals)
     }
 
     pub(crate) fn advance_active_vehicle(
