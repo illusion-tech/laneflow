@@ -1,7 +1,7 @@
 use super::*;
 
 use laneflow_compiler::GateInterpretation;
-use laneflow_runtime::{ConflictDecisionOutcome, ConflictNoGrantReason};
+use laneflow_runtime::{ConflictDecisionOutcome, ConflictNoGrantReason, TrafficTransitionKind};
 
 fn right_turn_revision(
     interpretation: GateInterpretation,
@@ -128,6 +128,178 @@ fn formal_right_turn_red_uses_compiled_policy_and_still_yields() {
                     .all(|event| event.vehicle() != subject)
             );
         }
+    }
+}
+
+fn alternating_signal_world(interpretation: GateInterpretation) -> TrafficWorld {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                yielding: true,
+                right_turn_signal: Some(interpretation),
+                signal_cycle_ms: Some([100, 10_000]),
+                ..Default::default()
+            },
+        ));
+    install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 1, 100)).unwrap()
+}
+
+#[test]
+fn protected_green_skips_red_approach_gap_but_permissive_keeps_it() {
+    for (interpretation, expected) in [
+        (
+            GateInterpretation::ProtectedGroup,
+            ConflictDecisionOutcome::Granted,
+        ),
+        (
+            GateInterpretation::DirectionalRightProtected,
+            ConflictDecisionOutcome::Granted,
+        ),
+        (
+            GateInterpretation::PermissiveGroup,
+            ConflictDecisionOutcome::NoGrant(ConflictNoGrantReason::LeadGap),
+        ),
+    ] {
+        let mut world = alternating_signal_world(interpretation);
+        world.step(TickInput::new(100)).unwrap();
+        let [subject_route, priority_route] = right_turn_routes(&mut world);
+        let subject = at_gate(&mut world, subject_route);
+        let target = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                priority_route,
+                0,
+                calibration_gate(&world, priority_route) - 2_000,
+                10_000,
+            ))
+            .unwrap();
+        world.step(TickInput::new(100)).unwrap();
+        assert_eq!(
+            calibration_outcome(&world, subject),
+            expected,
+            "{interpretation:?}"
+        );
+        let granted = expected == ConflictDecisionOutcome::Granted;
+        assert_eq!(world.conflict_reservation(subject).is_some(), granted);
+        assert_eq!(
+            world.vehicle(subject).unwrap().route_edge_index(),
+            u32::from(granted)
+        );
+        assert!(world.conflict_reservation(target).is_none());
+        assert_eq!(world.vehicle(target).unwrap().route_edge_index(), 0);
+    }
+}
+
+#[test]
+fn protected_green_waits_for_reservation_and_occupancy_but_skips_clear_lag() {
+    for (interpretation, expected) in [
+        (
+            GateInterpretation::ProtectedGroup,
+            ConflictDecisionOutcome::Granted,
+        ),
+        (
+            GateInterpretation::DirectionalRightProtected,
+            ConflictDecisionOutcome::Granted,
+        ),
+        (
+            GateInterpretation::PermissiveGroup,
+            ConflictDecisionOutcome::NoGrant(ConflictNoGrantReason::LagGap),
+        ),
+    ] {
+        let mut world = alternating_signal_world(interpretation);
+        let [subject_route, priority_route] = right_turn_routes(&mut world);
+        let target = at_gate(&mut world, priority_route);
+        world.step(TickInput::new(100)).unwrap();
+        assert!(world.conflict_reservation(target).is_some());
+        assert!(
+            world.latest_transition_events().iter().all(|event| {
+                !matches!(event.kind(), TrafficTransitionKind::ConflictEntered { .. })
+            }),
+            "the first green tick reserves the passage before physical entry"
+        );
+        let subject = at_gate(&mut world, subject_route);
+        let mut entered = false;
+        let mut rejected_while_occupied = false;
+        for _ in 0..30 {
+            world.step(TickInput::new(100)).unwrap();
+            assert_eq!(
+                calibration_outcome(&world, subject),
+                ConflictDecisionOutcome::NoGrant(ConflictNoGrantReason::ConflictOccupied),
+                "{interpretation:?} must preserve reservation and occupancy exclusion",
+            );
+            assert!(world.conflict_reservation(subject).is_none());
+            rejected_while_occupied |= entered;
+            entered |= world.latest_transition_events().iter().any(|event| {
+                event.vehicle() == target
+                    && matches!(event.kind(), TrafficTransitionKind::ConflictEntered { .. })
+            });
+            if world.conflict_reservation(target).is_none() {
+                break;
+            }
+        }
+        assert!(entered && rejected_while_occupied);
+        assert!(world.conflict_reservation(target).is_none());
+        assert!(world.latest_transition_events().iter().any(|event| {
+            event.vehicle() == target
+                && matches!(event.kind(), TrafficTransitionKind::ConflictCleared { .. })
+        }));
+        let bytes = encode_lfrs(&world.capture_snapshot().unwrap());
+        let snapshot = snapshot_wire::size_prefixed_root_as_runtime_snapshot(&bytes).unwrap();
+        assert!(snapshot.conflict_lag_states().iter().any(|row| {
+            row.reference_kind() == snapshot_wire::ConflictLagReferenceKind::ActualClear
+                && row.reference_time_ms() == world.time_ms()
+        }));
+        world.step(TickInput::new(100)).unwrap();
+        assert_eq!(
+            calibration_outcome(&world, subject),
+            expected,
+            "{interpretation:?}"
+        );
+        assert_eq!(
+            world.conflict_reservation(subject).is_some(),
+            expected == ConflictDecisionOutcome::Granted,
+        );
+    }
+}
+
+#[test]
+fn protected_green_still_requires_downstream_storage() {
+    for interpretation in [
+        GateInterpretation::ProtectedGroup,
+        GateInterpretation::DirectionalRightProtected,
+    ] {
+        let mut world = alternating_signal_world(interpretation);
+        world.step(TickInput::new(100)).unwrap();
+        let [route, _] = right_turn_routes(&mut world);
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                1,
+                10_501,
+                0,
+            ))
+            .unwrap();
+        let subject = at_gate(&mut world, route);
+        world.step(TickInput::new(100)).unwrap();
+        assert_eq!(
+            calibration_outcome(&world, subject),
+            ConflictDecisionOutcome::NoGrant(ConflictNoGrantReason::DownstreamStorageBoundary),
+            "{interpretation:?}",
+        );
+        assert!(world.conflict_reservation(subject).is_none());
+        assert_eq!(world.vehicle(subject).unwrap().route_edge_index(), 0);
+        assert!(
+            world
+                .latest_transition_events()
+                .iter()
+                .all(|event| event.vehicle() != subject)
+        );
     }
 }
 
