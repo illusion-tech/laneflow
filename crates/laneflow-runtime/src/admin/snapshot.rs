@@ -7,8 +7,6 @@
 //! `WorldConfig`（含 edge/conflict 两项路线 occurrence 容量）、绑定集与逻辑状态
 //! 映射到 size-prefixed `LFRS`；不回读活动 world，也不推进游标。
 
-use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v5 as wire;
-use laneflow_runtime_snapshot_wire::runtime;
 use laneflow_static_contract::StableId128 as ContractStableId128;
 use laneflow_static_network::CanonicalNetworkOrigin;
 use thiserror::Error;
@@ -462,391 +460,7 @@ impl CapturedWaitingZoneState {
 /// 事实，不重新读取活动 world；输出始终携带 `LFRS` file identifier。
 #[must_use]
 pub fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
-    let mut fbb = runtime::FlatBufferBuilder::new();
-
-    let world_config = wire::WorldConfigBinding::create(
-        &mut fbb,
-        &wire::WorldConfigBindingArgs {
-            vehicle_capacity: snapshot.config.vehicle_capacity(),
-            route_capacity: snapshot.config.route_capacity(),
-            route_edge_occurrence_capacity: snapshot.config.route_edge_occurrence_capacity(),
-            route_conflict_occurrence_capacity: snapshot
-                .config
-                .route_conflict_occurrence_capacity(),
-            worker_count: snapshot.config.worker_count(),
-            fixed_delta_time_ms: snapshot.config.fixed_delta_time_ms(),
-        },
-    );
-
-    let route_offsets = snapshot
-        .routes
-        .iter()
-        .map(|route| {
-            let edges = route
-                .edges
-                .iter()
-                .map(|stable_id| wire::StableId128::new(stable_id.as_bytes()))
-                .collect::<Vec<_>>();
-            let edges = fbb.create_vector(&edges);
-            wire::SnapshotRoute::create(
-                &mut fbb,
-                &wire::SnapshotRouteArgs {
-                    snapshot_route_id: route.snapshot_route_id,
-                    edges: Some(edges),
-                },
-            )
-        })
-        .collect::<Vec<_>>();
-    let routes = fbb.create_vector(&route_offsets);
-
-    let vehicle_offsets = snapshot
-        .vehicles
-        .iter()
-        .map(|vehicle| {
-            let profile = wire::StableId128::new(vehicle.profile.as_bytes());
-            let class = wire::StableId128::new(vehicle.class.as_bytes());
-            let parking = vehicle.parking.map(|binding| {
-                let (state, target, target_kind, entry_occurrence, virtual_entry) = match binding {
-                    CapturedParkingBinding::Reserved {
-                        target,
-                        entry_route_occurrence,
-                        virtual_entry,
-                    } => (
-                        wire::ParkingBindingStateKind::Reserved,
-                        target,
-                        match target {
-                            CapturedParkingTarget::ExplicitSpace(_) => {
-                                wire::ParkingTargetKind::ExplicitSpace
-                            }
-                            CapturedParkingTarget::VirtualPool(_) => {
-                                wire::ParkingTargetKind::VirtualPool
-                            }
-                        },
-                        entry_route_occurrence,
-                        virtual_entry,
-                    ),
-                    CapturedParkingBinding::Occupied { target } => (
-                        wire::ParkingBindingStateKind::Occupied,
-                        target,
-                        match target {
-                            CapturedParkingTarget::ExplicitSpace(_) => {
-                                wire::ParkingTargetKind::ExplicitSpace
-                            }
-                            CapturedParkingTarget::VirtualPool(_) => {
-                                wire::ParkingTargetKind::VirtualPool
-                            }
-                        },
-                        0,
-                        None,
-                    ),
-                };
-                let target = match target {
-                    CapturedParkingTarget::ExplicitSpace(stable)
-                    | CapturedParkingTarget::VirtualPool(stable) => {
-                        wire::StableId128::new(stable.as_bytes())
-                    }
-                };
-                let virtual_entry_edge =
-                    virtual_entry.map(|entry| wire::StableId128::new(entry.lane_edge.as_bytes()));
-                wire::ParkingBinding::create(
-                    &mut fbb,
-                    &wire::ParkingBindingArgs {
-                        state,
-                        target_kind,
-                        target: Some(&target),
-                        entry_route_occurrence: entry_occurrence,
-                        virtual_entry_edge: virtual_entry_edge.as_ref(),
-                        virtual_entry_progress_mm: virtual_entry
-                            .map_or(0, |entry| entry.progress_mm),
-                    },
-                )
-            });
-            let maneuver_traversal = vehicle.maneuver_traversal.map(|traversal| {
-                let maneuver_path = wire::StableId128::new(traversal.maneuver_path.as_bytes());
-                let phase_gate = wire::StableId128::new(traversal.phase_gate.as_bytes());
-                wire::ManeuverTraversalBinding::create(
-                    &mut fbb,
-                    &wire::ManeuverTraversalBindingArgs {
-                        maneuver_occurrence_index: traversal.maneuver_occurrence_index,
-                        maneuver_path: Some(&maneuver_path),
-                        phase: match traversal.phase {
-                            CapturedManeuverTraversalPhase::PreGate => {
-                                wire::ManeuverTraversalPhaseKind::PreGate
-                            }
-                            CapturedManeuverTraversalPhase::Committed => {
-                                wire::ManeuverTraversalPhaseKind::Committed
-                            }
-                            CapturedManeuverTraversalPhase::Waiting => {
-                                wire::ManeuverTraversalPhaseKind::Waiting
-                            }
-                            CapturedManeuverTraversalPhase::Clearing => {
-                                wire::ManeuverTraversalPhaseKind::Clearing
-                            }
-                        },
-                        phase_gate: Some(&phase_gate),
-                    },
-                )
-            });
-            let waiting_membership = vehicle.waiting_membership.map(|membership| {
-                let waiting_zone = wire::StableId128::new(membership.waiting_zone.as_bytes());
-                let entry_gate = wire::StableId128::new(membership.entry_gate.as_bytes());
-                let release_gate = wire::StableId128::new(membership.release_gate.as_bytes());
-                wire::WaitingMembershipBinding::create(
-                    &mut fbb,
-                    &wire::WaitingMembershipBindingArgs {
-                        waiting_zone: Some(&waiting_zone),
-                        maneuver_occurrence_index: membership.maneuver_occurrence_index,
-                        entry_gate: Some(&entry_gate),
-                        release_gate: Some(&release_gate),
-                        admission_sequence: membership.admission_sequence,
-                    },
-                )
-            });
-            let conflict_eligibility = vehicle.conflict_eligibility.map(|eligibility| {
-                let participant_stream =
-                    wire::StableId128::new(eligibility.passage.participant_stream.as_bytes());
-                let conflict_zone =
-                    wire::StableId128::new(eligibility.passage.conflict_zone.as_bytes());
-                let passage = wire::ConflictPassageLocatorBinding::create(
-                    &mut fbb,
-                    &wire::ConflictPassageLocatorBindingArgs {
-                        participant_stream: Some(&participant_stream),
-                        conflict_zone: Some(&conflict_zone),
-                    },
-                );
-                let admission_gate = wire::StableId128::new(eligibility.admission_gate.as_bytes());
-                wire::ConflictEligibilityBinding::create(
-                    &mut fbb,
-                    &wire::ConflictEligibilityBindingArgs {
-                        maneuver_occurrence_index: eligibility.maneuver_occurrence_index,
-                        maneuver_entry_route_edge_index: eligibility
-                            .maneuver_entry_route_edge_index,
-                        admission_gate: Some(&admission_gate),
-                        conflict_occurrence_index: eligibility.conflict_occurrence_index,
-                        passage: Some(passage),
-                        first_eligible_tick: eligibility.first_eligible_tick,
-                    },
-                )
-            });
-            let conflict_reservation = vehicle.conflict_reservation.as_ref().map(|reservation| {
-                let passage_offsets = reservation
-                    .passages
-                    .iter()
-                    .map(|row| {
-                        let participant_stream =
-                            wire::StableId128::new(row.passage.participant_stream.as_bytes());
-                        let conflict_zone =
-                            wire::StableId128::new(row.passage.conflict_zone.as_bytes());
-                        let passage = wire::ConflictPassageLocatorBinding::create(
-                            &mut fbb,
-                            &wire::ConflictPassageLocatorBindingArgs {
-                                participant_stream: Some(&participant_stream),
-                                conflict_zone: Some(&conflict_zone),
-                            },
-                        );
-                        wire::ConflictPassageBinding::create(
-                            &mut fbb,
-                            &wire::ConflictPassageBindingArgs {
-                                conflict_occurrence_index: row.conflict_occurrence_index,
-                                passage: Some(passage),
-                                entry_route_edge_index: row.entry_route_edge_index,
-                                entry_progress_mm: row.entry_progress_mm,
-                                clearance_route_edge_index: row.clearance_route_edge_index,
-                                clearance_progress_mm: row.clearance_progress_mm,
-                            },
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                let passages = fbb.create_vector(&passage_offsets);
-                let downstream_offsets = reservation
-                    .downstream_intervals
-                    .iter()
-                    .map(|row| {
-                        let lane_edge = wire::StableId128::new(row.lane_edge.as_bytes());
-                        wire::ConflictDownstreamIntervalBinding::create(
-                            &mut fbb,
-                            &wire::ConflictDownstreamIntervalBindingArgs {
-                                lane_edge: Some(&lane_edge),
-                                start_mm: row.start_mm,
-                                end_mm: row.end_mm,
-                            },
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                let downstream_intervals = fbb.create_vector(&downstream_offsets);
-                let admission_gate = wire::StableId128::new(reservation.admission_gate.as_bytes());
-                wire::ConflictReservationBinding::create(
-                    &mut fbb,
-                    &wire::ConflictReservationBindingArgs {
-                        acquired_tick: reservation.acquired_tick,
-                        maneuver_occurrence_index: reservation.maneuver_occurrence_index,
-                        maneuver_entry_route_edge_index: reservation
-                            .maneuver_entry_route_edge_index,
-                        admission_gate: Some(&admission_gate),
-                        passages: Some(passages),
-                        downstream_intervals: Some(downstream_intervals),
-                    },
-                )
-            });
-            wire::SnapshotVehicle::create(
-                &mut fbb,
-                &wire::SnapshotVehicleArgs {
-                    snapshot_vehicle_id: vehicle.snapshot_vehicle_id,
-                    snapshot_route_id: vehicle.snapshot_route_id,
-                    route_edge_index: vehicle.route_edge_index,
-                    progress_mm: vehicle.progress_mm,
-                    carry_um: vehicle.carry_um,
-                    speed_mm_s: vehicle.speed_mm_s,
-                    status: encode_vehicle_status(vehicle.status),
-                    profile: Some(&profile),
-                    class: Some(&class),
-                    parking,
-                    maneuver_traversal,
-                    waiting_membership,
-                    conflict_eligibility,
-                    conflict_reservation,
-                },
-            )
-        })
-        .collect::<Vec<_>>();
-    let vehicles = fbb.create_vector(&vehicle_offsets);
-    let live_order = fbb.create_vector(&snapshot.live_order);
-    let waiting_zone_offsets = snapshot
-        .waiting_zones
-        .iter()
-        .map(|state| {
-            let waiting_zone = wire::StableId128::new(state.waiting_zone.as_bytes());
-            wire::WaitingZoneState::create(
-                &mut fbb,
-                &wire::WaitingZoneStateArgs {
-                    waiting_zone: Some(&waiting_zone),
-                    occupancy: state.occupancy,
-                    next_admission_sequence: state.next_admission_sequence,
-                },
-            )
-        })
-        .collect::<Vec<_>>();
-    let waiting_zones = fbb.create_vector(&waiting_zone_offsets);
-    let conflict_lag_offsets = snapshot
-        .conflict_lag_states
-        .iter()
-        .map(|state| {
-            let participant_stream =
-                wire::StableId128::new(state.passage.participant_stream.as_bytes());
-            let conflict_zone = wire::StableId128::new(state.passage.conflict_zone.as_bytes());
-            let passage = wire::ConflictPassageLocatorBinding::create(
-                &mut fbb,
-                &wire::ConflictPassageLocatorBindingArgs {
-                    participant_stream: Some(&participant_stream),
-                    conflict_zone: Some(&conflict_zone),
-                },
-            );
-            let (reference_kind, reference_time_ms) = match state.reference {
-                crate::ConflictLagReference::ActualClear(time) => {
-                    (wire::ConflictLagReferenceKind::ActualClear, time)
-                }
-                crate::ConflictLagReference::CutoverFloor(time) => {
-                    (wire::ConflictLagReferenceKind::CutoverFloor, time)
-                }
-                crate::ConflictLagReference::NoHistory => {
-                    unreachable!("NoHistory rows are omitted during capture")
-                }
-            };
-            wire::ConflictLagState::create(
-                &mut fbb,
-                &wire::ConflictLagStateArgs {
-                    passage: Some(passage),
-                    reference_kind,
-                    reference_time_ms,
-                },
-            )
-        })
-        .collect::<Vec<_>>();
-    let conflict_lag_states = fbb.create_vector(&conflict_lag_offsets);
-
-    let (source_kind, source_published) = match &snapshot.source {
-        CommittedNetworkSource::Published { reference } => {
-            let asset_key = fbb.create_string(reference.asset_key());
-            let artifact_digest =
-                wire::Digest256::new(reference.canonical_artifact_digest().as_bytes());
-            let network_revision =
-                wire::Digest256::new(reference.network_revision().as_digest().as_bytes());
-            let published = wire::PublishedSourceBinding::create(
-                &mut fbb,
-                &wire::PublishedSourceBindingArgs {
-                    asset_key: Some(asset_key),
-                    artifact_digest: Some(&artifact_digest),
-                    artifact_byte_length: reference.canonical_artifact_byte_length().get(),
-                    network_revision: Some(&network_revision),
-                },
-            );
-            (wire::SourceKind::Published, Some(published))
-        }
-    };
-
-    let origin = snapshot.origin;
-    let network_revision = wire::Digest256::new(origin.network_revision().as_digest().as_bytes());
-    let artifact_digest = wire::Digest256::new(origin.canonical_artifact_digest().as_bytes());
-    let contracts = origin.static_contract_versions();
-    let contract_versions = wire::StaticContractVersionSet::new(
-        contracts.canonical_format_version(),
-        contracts.identity_encoding_version(),
-        contracts.identity_registry_revision(),
-        contracts.network_revision_derivation_version(),
-        contracts.constraint_contract_version(),
-        contracts.static_execution_contract_version(),
-    );
-    let (selection, policy) = match snapshot.policy_selection {
-        crate::WorldPolicySelection::NotRequired => {
-            (wire::WorldPolicySelectionKind::NotRequired, None)
-        }
-        crate::WorldPolicySelection::Pinned(pin) => (
-            wire::WorldPolicySelectionKind::Pinned,
-            Some(wire::StableId128::new(pin.policy.as_untyped().as_bytes())),
-        ),
-    };
-    let world_policy = wire::WorldPolicyBinding::create(
-        &mut fbb,
-        &wire::WorldPolicyBindingArgs {
-            selection,
-            policy: policy.as_ref(),
-        },
-    );
-    let root = wire::RuntimeSnapshot::create(
-        &mut fbb,
-        &wire::RuntimeSnapshotArgs {
-            format_version: SNAPSHOT_FORMAT_VERSION,
-            runtime_state_version: RUNTIME_STATE_VERSION,
-            world_id: snapshot.world_id,
-            tick: snapshot.tick,
-            time_ms: snapshot.time_ms,
-            command_cursor: snapshot.command_cursor,
-            event_cursor: snapshot.event_cursor,
-            world_config: Some(world_config),
-            network_revision: Some(&network_revision),
-            lfca_artifact_digest: Some(&artifact_digest),
-            lfca_artifact_byte_length: origin.canonical_artifact_byte_length().get(),
-            static_contract_versions: Some(&contract_versions),
-            source_kind,
-            source_published,
-            routes: Some(routes),
-            vehicles: Some(vehicles),
-            live_order: Some(live_order),
-            waiting_zones: Some(waiting_zones),
-            world_policy: Some(world_policy),
-            conflict_lag_states: Some(conflict_lag_states),
-        },
-    );
-    wire::finish_size_prefixed_runtime_snapshot_buffer(&mut fbb, root);
-    fbb.finished_data().to_vec()
-}
-
-const fn encode_vehicle_status(status: VehicleStatus) -> wire::VehicleStatusKind {
-    match status {
-        VehicleStatus::Active => wire::VehicleStatusKind::Active,
-        VehicleStatus::Parked => wire::VehicleStatusKind::Parked,
-        VehicleStatus::Completed => wire::VehicleStatusKind::Completed,
-    }
+    super::format_admission::encode_lfrs(snapshot)
 }
 
 impl CapturedSnapshot {
@@ -1407,8 +1021,9 @@ impl TrafficWorld {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cutover::tests::transaction_tests::world_with_vehicle;
+    use crate::admin::cutover::tests::transaction_tests::world_with_vehicle;
     use crate::{ParkedVehicleSpawnInput, ParkingTarget, RouteRegisterInput, TickInput};
+    use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v5 as wire;
 
     #[test]
     fn capture_binds_cursors_config_and_origin() {
@@ -1528,7 +1143,7 @@ mod tests {
 
     #[test]
     fn conflict_capture_routes_every_scratch_reservation_through_capture_axis() {
-        let (world, _) = crate::snapshot_restore::tests::world_with_conflict_reservation();
+        let (world, _) = crate::admin::format_admission::tests::world_with_conflict_reservation();
         let baseline = world.capture_snapshot().expect("baseline Conflict capture");
         let baseline_bytes = encode_lfrs(&baseline);
         let mut fail_after = 0;
@@ -1690,7 +1305,12 @@ mod tests {
             assert_eq!(vehicle.progress_mm(), captured.progress_mm);
             assert_eq!(vehicle.carry_um(), captured.carry_um);
             assert_eq!(vehicle.speed_mm_s(), captured.speed_mm_s);
-            assert_eq!(vehicle.status(), encode_vehicle_status(captured.status));
+            let expected_status = match captured.status {
+                VehicleStatus::Active => wire::VehicleStatusKind::Active,
+                VehicleStatus::Parked => wire::VehicleStatusKind::Parked,
+                VehicleStatus::Completed => wire::VehicleStatusKind::Completed,
+            };
+            assert_eq!(vehicle.status(), expected_status);
             assert_eq!(
                 vehicle.profile().expect("profile stable id").0,
                 *captured.profile.as_bytes()
@@ -1737,12 +1357,12 @@ mod tests {
 
     #[test]
     fn encode_lfrs_keeps_required_empty_state_vectors() {
-        let root_revision = crate::cutover::tests::transaction_tests::revision(true);
+        let root_revision = crate::admin::cutover::tests::transaction_tests::revision(true);
         let origin = *root_revision.canonical_origin();
         let world = TrafficWorld::install(
             std::sync::Arc::clone(&root_revision),
             WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
-            crate::cutover::tests::transaction_tests::source_for(
+            crate::admin::cutover::tests::transaction_tests::source_for(
                 origin,
                 "fixture://empty-snapshot",
             ),

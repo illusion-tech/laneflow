@@ -1433,7 +1433,7 @@ pub(crate) struct ConflictDerivedIndexes {
     addresses: Box<[ConflictPassageAddress]>,
     owner_indexes: Vec<CommittedOwnerIndex>,
     owner_lookup: Vec<Option<std::num::NonZeroU32>>,
-    downstream_index: crate::downstream_index::DownstreamIndex,
+    downstream_index: crate::kernel::downstream_index::DownstreamIndex,
     downstream_index_dirty: bool,
     conflict_capacity: usize,
     vehicle_capacity: usize,
@@ -1467,7 +1467,7 @@ pub(crate) struct ConflictWorkspace {
     staged_owners: Vec<StagedConflictOwner>,
     staged_owner_count: usize,
     staged_owner_lookup: Vec<Option<std::num::NonZeroU32>>,
-    staged_downstream_index: crate::downstream_index::DownstreamIndex,
+    staged_downstream_index: crate::kernel::downstream_index::DownstreamIndex,
     next_serial: u64,
 }
 
@@ -1613,7 +1613,7 @@ impl ConflictArbiter {
                 addresses,
                 owner_indexes: Vec::new(),
                 owner_lookup: Vec::new(),
-                downstream_index: crate::downstream_index::DownstreamIndex::default(),
+                downstream_index: crate::kernel::downstream_index::DownstreamIndex::default(),
                 downstream_index_dirty: true,
                 conflict_capacity,
                 vehicle_capacity,
@@ -1627,7 +1627,8 @@ impl ConflictArbiter {
                 staged_owners: Vec::new(),
                 staged_owner_count: 0,
                 staged_owner_lookup: Vec::new(),
-                staged_downstream_index: crate::downstream_index::DownstreamIndex::default(),
+                staged_downstream_index: crate::kernel::downstream_index::DownstreamIndex::default(
+                ),
                 next_serial: 0,
             },
         }

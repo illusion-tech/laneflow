@@ -1,0 +1,24 @@
+//! 仿真内核：运行状态、固定步进与交通规则；不消费制品或快照 wire。
+
+pub(crate) mod config;
+pub(crate) mod conflict;
+pub(crate) mod conflict_tick;
+pub(crate) mod downstream_index;
+pub(crate) mod error;
+pub(crate) mod handle;
+pub(crate) mod input;
+pub(crate) mod occupancy;
+pub(crate) mod parking;
+pub(crate) mod phase;
+pub(crate) mod policy;
+pub(crate) mod pose;
+pub(crate) mod state;
+pub(crate) mod tables;
+pub(crate) mod tick;
+pub(crate) mod transitions;
+pub(crate) mod units;
+pub(crate) mod vehicle;
+pub(crate) mod waiting;
+pub(crate) mod waiting_dependencies;
+pub(crate) mod waiting_graph;
+pub(crate) mod world;

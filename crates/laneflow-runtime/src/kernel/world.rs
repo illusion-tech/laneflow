@@ -9,20 +9,20 @@ use laneflow_static_contract::{
 };
 use laneflow_static_network::SharedNetworkRevision;
 
-use crate::conflict::ConflictAcquireError;
-use crate::migration_journal::{MigrationDeltaJournal, MigrationJournalError, VehicleDelta};
-use crate::occupancy::OccupancyIndex;
-use crate::parking::ParkingRuntimeState;
-use crate::tables::{
+use crate::admin::migration_journal::VehicleDelta;
+use crate::kernel::conflict::ConflictAcquireError;
+use crate::kernel::occupancy::OccupancyIndex;
+use crate::kernel::parking::ParkingRuntimeState;
+use crate::kernel::tables::{
     CompiledRoute, ConflictCapabilityError, RouteSlot, VehicleSlot, bodies_overlap,
     check_conflict_capability, compile_route, occupancy_front_gap, route_access_denied,
 };
-use crate::waiting::{WaitingQueueLink, WaitingZoneState};
+use crate::kernel::waiting::{WaitingQueueLink, WaitingZoneState};
 use crate::{
-    CommittedNetworkSource, CommittedPoseSourceBatch, CommittedSignalGroupBatch, CutoverError,
-    InstallError, ObservationStateSequence, ParkingBinding, ParkingFacilityCounts,
-    ParkingPoolCounts, ParkingSpaceState, ParkingTarget, PoseSource, ReplaceError, RouteError,
-    RouteHandle, RouteRegisterInput, SpawnError, StepError, StepOutcome, TickInput, VehicleHandle,
+    CommittedNetworkSource, CommittedPoseSourceBatch, CommittedSignalGroupBatch, InstallError,
+    ObservationStateSequence, ParkingBinding, ParkingFacilityCounts, ParkingPoolCounts,
+    ParkingSpaceState, ParkingTarget, PoseSource, ReplaceError, RouteError, RouteHandle,
+    RouteRegisterInput, SpawnError, StepError, StepOutcome, TickInput, TrafficWorld, VehicleHandle,
     VehicleReplaceBlock, VehicleReplaceRecord, VehicleSpawnInput, VehicleState, VehicleStatus,
     WorldConfig,
 };
@@ -66,7 +66,7 @@ pub(crate) struct ResolvedManeuverAnchor {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ReservationDownstreamClaimPlan {
     pub(crate) route: RouteHandle,
-    pub(crate) plan: crate::conflict::DownstreamClaimPlan,
+    pub(crate) plan: crate::kernel::conflict::DownstreamClaimPlan,
 }
 
 impl ReservationDownstreamClaimPlan {
@@ -107,17 +107,6 @@ impl WorldGeneration {
     }
 }
 
-/// 1-worker 交通世界。只克隆根 `Arc`，不复制静态 component。
-/// 生命周期命令（路线、车辆、parking lifecycle 与原子 replace/despawn）只在两次
-/// `step` 之间调用。
-pub struct TrafficWorld {
-    pub(crate) binding: crate::state::WorldBindingState,
-    pub(crate) committed: crate::state::CommittedWorldState,
-    pub(crate) derived: crate::state::DerivedIndexes,
-    pub(crate) workspace: crate::state::TickWorkspace,
-    pub(crate) admin: crate::state::AdministrativeState,
-}
-
 struct UnparkedVehicleAuthority {
     class: ParticipantClassOrdinal,
     length_mm: u32,
@@ -126,8 +115,8 @@ struct UnparkedVehicleAuthority {
 }
 
 impl TrafficWorld {
-    pub(crate) fn conflict_read(&self) -> crate::conflict::ConflictRead<'_> {
-        crate::conflict::ConflictRead::new(
+    pub(crate) fn conflict_read(&self) -> crate::kernel::conflict::ConflictRead<'_> {
+        crate::kernel::conflict::ConflictRead::new(
             &self.committed.conflict,
             &self.derived.conflict,
             &self.workspace.conflict,
@@ -166,7 +155,7 @@ impl TrafficWorld {
         }
         validate_signal_programs(revision.as_ref(), config.fixed_delta_time_ms())?;
         let policy_binding =
-            crate::policy::WorldPolicyBinding::install(&revision, policy_selection, dt)?;
+            crate::kernel::policy::WorldPolicyBinding::install(&revision, policy_selection, dt)?;
         let group_count = usize::try_from(
             revision
                 .traffic()
@@ -198,13 +187,13 @@ impl TrafficWorld {
         let vehicle_capacity = usize::try_from(config.vehicle_capacity()).unwrap_or(0);
         let route_capacity = usize::try_from(config.route_capacity()).unwrap_or(0);
         let conflict_arbiter =
-            crate::conflict::ConflictArbiter::install(&revision, vehicle_capacity)
+            crate::kernel::conflict::ConflictArbiter::install(&revision, vehicle_capacity)
                 .map_err(map_conflict_install_error)?;
         let world_generation = WorldGeneration::INITIAL;
         let (conflict, conflict_indexes, conflict_workspace) = conflict_arbiter.into_parts();
         let conflict_eligibility = Vec::with_capacity(vehicle_capacity);
         let conflict_candidates = Vec::with_capacity(vehicle_capacity);
-        let conflict_schedule = crate::conflict_tick::ConflictSchedule::default();
+        let conflict_schedule = crate::kernel::conflict_tick::ConflictSchedule::default();
         let conflict_candidate_cells = Vec::new();
         let conflict_candidate_downstream = Vec::new();
         let conflict_cell_work = Vec::new();
@@ -214,7 +203,8 @@ impl TrafficWorld {
         let conflict_next_eligibility = vec![None; vehicle_capacity].into_boxed_slice();
         let conflict_passage_transitions = Vec::new();
         let conflict_changed_owners = Vec::with_capacity(vehicle_capacity);
-        let waiting_dependencies = crate::waiting_dependencies::WaitingDependencies::default();
+        let waiting_dependencies =
+            crate::kernel::waiting_dependencies::WaitingDependencies::default();
         let conflict_staged_decisions = Vec::with_capacity(vehicle_capacity);
         let latest_conflict_decisions = Vec::with_capacity(vehicle_capacity);
         let tick_index = 0;
@@ -237,7 +227,7 @@ impl TrafficWorld {
         let waiting_zones =
             vec![WaitingZoneState::default(); waiting_zone_count].into_boxed_slice();
         let waiting_queue_ends =
-            vec![crate::waiting::WaitingQueueEnds::default(); waiting_zone_count]
+            vec![crate::kernel::waiting::WaitingQueueEnds::default(); waiting_zone_count]
                 .into_boxed_slice();
         let waiting_links = vec![WaitingQueueLink::default(); vehicle_capacity].into_boxed_slice();
         let waiting_member_rows = Vec::with_capacity(vehicle_capacity);
@@ -257,7 +247,7 @@ impl TrafficWorld {
         let migration_journal = None;
         let migration_epoch = 0;
         let mut world = Self {
-            binding: crate::state::WorldBindingState {
+            binding: crate::kernel::state::WorldBindingState {
                 revision,
                 source,
                 world_id,
@@ -265,7 +255,7 @@ impl TrafficWorld {
                 config,
                 policy_binding,
             },
-            committed: crate::state::CommittedWorldState {
+            committed: crate::kernel::state::CommittedWorldState {
                 conflict,
                 conflict_eligibility,
                 latest_conflict_decisions,
@@ -288,7 +278,7 @@ impl TrafficWorld {
                 latest_waiting_decisions,
                 latest_transition_events,
             },
-            derived: crate::state::DerivedIndexes {
+            derived: crate::kernel::state::DerivedIndexes {
                 conflict: conflict_indexes,
                 active_order,
                 waiting_queue_ends,
@@ -296,7 +286,7 @@ impl TrafficWorld {
                 waiting_member_rows,
                 occupancy,
             },
-            workspace: crate::state::TickWorkspace {
+            workspace: crate::kernel::state::TickWorkspace {
                 conflict: conflict_workspace,
                 conflict_candidates,
                 conflict_schedule,
@@ -324,7 +314,7 @@ impl TrafficWorld {
                 occupancy_scratch,
                 next_states,
             },
-            admin: crate::state::AdministrativeState {
+            admin: crate::admin::state::AdministrativeState {
                 migration_journal,
                 migration_epoch,
             },
@@ -633,7 +623,7 @@ impl TrafficWorld {
         let compiled = self
             .compiled_route(plan.route)
             .ok_or(ConflictAcquireError::InvalidBundle)?;
-        crate::conflict::derive_downstream_claims_from_plan(
+        crate::kernel::conflict::derive_downstream_claims_from_plan(
             &compiled.edges,
             self.binding.revision.traffic().lane_lengths_millimetres(),
             plan.plan,
@@ -717,65 +707,6 @@ impl TrafficWorld {
     #[must_use]
     pub const fn config(&self) -> WorldConfig {
         self.binding.config
-    }
-
-    /// 武装迁移增量日志（#513 切片 C）。只在切换事务 Prepare 边界调用：以
-    /// 当前命令游标为覆盖区间下界，按字节上界一次预留 arena（此后武装期
-    /// 稳态 tick 写入预留空间、不新增分配）。已有在途日志时武装失败。
-    pub(crate) fn arm_migration_journal(
-        &mut self,
-        byte_bound: u64,
-    ) -> Result<(), MigrationJournalError> {
-        if self.admin.migration_journal.is_some() {
-            return Err(MigrationJournalError::AlreadyArmed);
-        }
-        let journal = MigrationDeltaJournal::arm(byte_bound, self.committed.command_cursor)?;
-        self.admin.migration_epoch = self
-            .admin
-            .migration_epoch
-            .checked_add(1)
-            .expect("migration epoch fits u64");
-        self.admin.migration_journal = Some(journal);
-        Ok(())
-    }
-
-    /// 解除并取回迁移增量日志（切换事务放弃或提交边界的收尾步骤）。
-    pub(crate) fn disarm_migration_journal(&mut self) -> Option<MigrationDeltaJournal> {
-        self.admin.migration_journal.take()
-    }
-
-    /// 世界级在途切换恢复入口：显式放弃武装中的迁移增量日志。
-    ///
-    /// 事务被静默丢弃、或以错世界结算（消耗形 `commit`/`abandon` 在
-    /// [`CutoverError::TransactionWorldMismatch`] 后丢弃事务对象）时，来源
-    /// 世界会保持在途锁定（`InFlightTransaction`）且不再存在可结算的事务
-    /// 对象——本入口即该状态下的唯一恢复手段：旧世界从当前状态继续步进，
-    /// 零事件、无候选晋升。无在途事务时按 [`CutoverError::NoInFlightTransaction`]
-    /// 失败关闭。
-    pub fn abandon_in_flight_cutover(&mut self) -> Result<(), CutoverError> {
-        if self.disarm_migration_journal().is_some() {
-            Ok(())
-        } else {
-            Err(CutoverError::NoInFlightTransaction)
-        }
-    }
-
-    /// 武装中的日志只读视图（滞后、溢出与覆盖区间观测）。
-    pub(crate) fn migration_journal(&self) -> Option<&MigrationDeltaJournal> {
-        self.admin.migration_journal.as_ref()
-    }
-
-    /// 武装中迁移增量日志的统计快照；`None` = 无在途切换事务。宿主据此
-    /// 观测追赶滞后（tick 距离）、字节占用与溢出，编排泵入节奏或在超限
-    /// 前显式改用维护暂停模式重试。
-    #[must_use]
-    pub fn migration_journal_stats(
-        &self,
-    ) -> Option<crate::migration_journal::MigrationJournalStats> {
-        self.admin
-            .migration_journal
-            .as_ref()
-            .map(|journal| journal.stats())
     }
 
     /// 注册本世界路线。失败不留下半条路线。
@@ -1083,15 +1014,15 @@ impl TrafficWorld {
             } else {
                 self.validate_waiting_bootstrap(input.route(), cursor, profile.length_mm())
                     .map_err(|error| match error {
-                        crate::waiting::WaitingBindingError::VehicleTooLong => {
+                        crate::kernel::waiting::WaitingBindingError::VehicleTooLong => {
                             SpawnError::WaitingVehicleTooLong
                         }
-                        crate::waiting::WaitingBindingError::StatefulManeuverInterior => {
+                        crate::kernel::waiting::WaitingBindingError::StatefulManeuverInterior => {
                             SpawnError::WaitingStatefulManeuverInterior
                         }
-                        crate::waiting::WaitingBindingError::InvalidRoute
-                        | crate::waiting::WaitingBindingError::AuthorityMismatch
-                        | crate::waiting::WaitingBindingError::ParkingConflict => {
+                        crate::kernel::waiting::WaitingBindingError::InvalidRoute
+                        | crate::kernel::waiting::WaitingBindingError::AuthorityMismatch
+                        | crate::kernel::waiting::WaitingBindingError::ParkingConflict => {
                             SpawnError::InvalidProgress
                         }
                     })?
@@ -1252,15 +1183,15 @@ impl TrafficWorld {
         let traversal = self
             .validate_waiting_bootstrap(input.route(), cursor, profile.length_mm())
             .map_err(|error| match error {
-                crate::waiting::WaitingBindingError::VehicleTooLong => {
+                crate::kernel::waiting::WaitingBindingError::VehicleTooLong => {
                     ReplaceError::WaitingVehicleTooLong
                 }
-                crate::waiting::WaitingBindingError::StatefulManeuverInterior => {
+                crate::kernel::waiting::WaitingBindingError::StatefulManeuverInterior => {
                     ReplaceError::WaitingStatefulManeuverInterior
                 }
-                crate::waiting::WaitingBindingError::InvalidRoute
-                | crate::waiting::WaitingBindingError::AuthorityMismatch
-                | crate::waiting::WaitingBindingError::ParkingConflict => {
+                crate::kernel::waiting::WaitingBindingError::InvalidRoute
+                | crate::kernel::waiting::WaitingBindingError::AuthorityMismatch
+                | crate::kernel::waiting::WaitingBindingError::ParkingConflict => {
                     ReplaceError::InvalidProgress
                 }
             })?;
@@ -1785,7 +1716,7 @@ impl TrafficWorld {
     }
 }
 
-impl<'a> crate::phase::StepReadView<'a> {
+impl<'a> crate::kernel::phase::StepReadView<'a> {
     /// 当前世界唯一所选策略，借用同一个共享根。
     #[must_use]
     pub(crate) fn policy(self) -> Option<laneflow_static_network::PolicyView<'a>> {
@@ -1946,7 +1877,7 @@ impl<'a> crate::phase::StepReadView<'a> {
         let farthest =
             crate::DownstreamRoutePoint::new(farthest.route_edge_index, farthest.progress_mm, 0)
                 .ok_or(ConflictAcquireError::InvalidBundle)?;
-        let target = crate::conflict::downstream_claim_target(
+        let target = crate::kernel::conflict::downstream_claim_target(
             &compiled.edges,
             self.binding.revision.traffic().lane_lengths_millimetres(),
             farthest,
@@ -1954,7 +1885,7 @@ impl<'a> crate::phase::StepReadView<'a> {
         )?;
         Ok(ReservationDownstreamClaimPlan {
             route: range.route(),
-            plan: crate::conflict::downstream_claim_plan(gate, target)?,
+            plan: crate::kernel::conflict::downstream_claim_plan(gate, target)?,
         })
     }
 
@@ -1995,7 +1926,7 @@ impl<'a> crate::phase::StepReadView<'a> {
     }
 }
 
-impl crate::phase::StepWorkspace<'_> {
+impl crate::kernel::phase::StepWorkspace<'_> {
     /// 返回已注册路线中的 exact conflict occurrence locator。
     ///
     /// 该只读派生不授予通行权；循环路线中的重复 passage 由 occurrence 下标区分，
@@ -2054,7 +1985,7 @@ impl crate::phase::StepWorkspace<'_> {
     }
 }
 
-impl crate::phase::CommittedStateMut<'_> {
+impl crate::kernel::phase::CommittedStateMut<'_> {
     pub(crate) fn normalize_conflict_eligibility(&mut self) {
         if self
             .committed
@@ -2075,15 +2006,17 @@ impl crate::phase::CommittedStateMut<'_> {
     }
 }
 
-fn map_conflict_install_error(error: crate::conflict::ConflictInstallError) -> InstallError {
+fn map_conflict_install_error(
+    error: crate::kernel::conflict::ConflictInstallError,
+) -> InstallError {
     match error {
-        crate::conflict::ConflictInstallError::InvalidNetwork => {
+        crate::kernel::conflict::ConflictInstallError::InvalidNetwork => {
             InstallError::ConflictArbiterInvalidNetwork
         }
-        crate::conflict::ConflictInstallError::CapacityOverflow => {
+        crate::kernel::conflict::ConflictInstallError::CapacityOverflow => {
             InstallError::ConflictArbiterCapacityOverflow
         }
-        crate::conflict::ConflictInstallError::AllocationFailed => {
+        crate::kernel::conflict::ConflictInstallError::AllocationFailed => {
             InstallError::ConflictArbiterAllocationFailed
         }
     }
@@ -2096,15 +2029,21 @@ mod conflict_install_error_tests {
     #[test]
     fn conflict_install_errors_keep_distinct_host_remediation_semantics() {
         assert_eq!(
-            map_conflict_install_error(crate::conflict::ConflictInstallError::InvalidNetwork),
+            map_conflict_install_error(
+                crate::kernel::conflict::ConflictInstallError::InvalidNetwork
+            ),
             InstallError::ConflictArbiterInvalidNetwork
         );
         assert_eq!(
-            map_conflict_install_error(crate::conflict::ConflictInstallError::CapacityOverflow),
+            map_conflict_install_error(
+                crate::kernel::conflict::ConflictInstallError::CapacityOverflow
+            ),
             InstallError::ConflictArbiterCapacityOverflow
         );
         assert_eq!(
-            map_conflict_install_error(crate::conflict::ConflictInstallError::AllocationFailed),
+            map_conflict_install_error(
+                crate::kernel::conflict::ConflictInstallError::AllocationFailed
+            ),
             InstallError::ConflictArbiterAllocationFailed
         );
     }
@@ -2195,7 +2134,7 @@ mod overflow_tests {
     };
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
     fn world() -> TrafficWorld {
@@ -2332,7 +2271,7 @@ mod source_tests {
     use crate::PublishedLfcaReference;
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
     fn revision() -> Arc<SharedNetworkRevision> {

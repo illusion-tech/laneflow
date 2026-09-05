@@ -28,7 +28,8 @@ P0～P8 表达逻辑依赖和访问权限，不要求九次遍历、九个模块
   [观测与 Routing 合同](traffic-observation-and-routing-integration.md)：各自的命令、
   序号、发布和生命周期边界。
 
-内部五分区和阶段视图由 `state.rs`、`phase.rs` 及各领域模块实现。不会新增公共 API、
+内部五分区和阶段视图由 `kernel/state.rs`、`admin/state.rs`、`kernel/phase.rs` 及各领域
+模块实现；私有目录和格式入口见[模块边界](traffic-runtime-module-boundary.md)。不会新增公共 API、
 wire 版本、crate、线程池、Rayon、锁或调度器，也不实现性能优化、第二交通执行域或
 通用事务框架。运行时内部实现不得继续保留一条供切换的旧路径；对照基线留在 git 历史。
 
@@ -393,8 +394,9 @@ downstream 索引容量，Waiting 首尾数组在安装/切换准备时独立分
 - #581 承接状态分区、嵌套聚合与借用边界的实现，按本协议证明外部行为等价。
   如需将阶段提取拆成独立实现 Issue，应显式列出剩余验收，不能把字段包装完成
   当成整个协议实现完成。
-- #582 承接仿真与管理模块边界、format/wire 入口和相应架构检查；本文只约束
-  phase 不获得解析文件、切换根或其他管理权限，不固定目录树或拆 crate。
+- 仿真与管理的私有目录、format/wire 唯一入口和架构检查见
+  [模块边界](traffic-runtime-module-boundary.md)；phase 不获得解析文件、切换根或其他
+  管理权限，不拆 crate。
 - #583 负责把现有性能研究输入重绑定到正式 `TrafficWorld`。#220 消费本协议，
   在其性能/工作负载输入就绪后设计 physical partition、halo、per-worker scratch、
   确定性合并与取消；本设计不是该并行设计的验收替代。

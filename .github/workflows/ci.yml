@@ -167,6 +167,13 @@ jobs:
           (cd "$bootstrap_dir" && cargo +1.98.0 build --locked --manifest-path "$GITHUB_WORKSPACE/Cargo.toml" -p xtask)
           "$GITHUB_WORKSPACE/target/debug/xtask" check-wire-audit
 
+      - name: Check runtime architecture
+        if: steps.filter.outputs.rust == 'true'
+        shell: bash
+        env:
+          RUSTUP_TOOLCHAIN: 1.98.0
+        run: '"$GITHUB_WORKSPACE/target/debug/xtask" check-runtime-architecture'
+
       - name: Compile Bevy native examples
         if: steps.filter.outputs.bevy == 'true'
         shell: bash

@@ -120,19 +120,19 @@ impl CompiledRoute {
             conflict_gate_ranges,
             final_conflict_clearance: _,
         } = self;
-        crate::state::vec_bytes(edges)
-            + crate::state::vec_bytes(maneuvers)
-            + crate::state::vec_bytes(hop_gate)
-            + crate::state::vec_bytes(gate_hops)
-            + crate::state::vec_bytes(remaining_to_end)
-            + crate::state::vec_bytes(occurrence_segments)
-            + crate::state::vec_bytes(occurrence_offsets)
-            + crate::state::vec_bytes(segment_totals)
-            + crate::state::vec_bytes(next_controlled)
-            + crate::state::vec_bytes(speed_limit_drop)
-            + crate::state::vec_bytes(waiting)
-            + crate::state::vec_bytes(conflicts)
-            + crate::state::vec_bytes(conflict_gate_ranges)
+        crate::kernel::state::vec_bytes(edges)
+            + crate::kernel::state::vec_bytes(maneuvers)
+            + crate::kernel::state::vec_bytes(hop_gate)
+            + crate::kernel::state::vec_bytes(gate_hops)
+            + crate::kernel::state::vec_bytes(remaining_to_end)
+            + crate::kernel::state::vec_bytes(occurrence_segments)
+            + crate::kernel::state::vec_bytes(occurrence_offsets)
+            + crate::kernel::state::vec_bytes(segment_totals)
+            + crate::kernel::state::vec_bytes(next_controlled)
+            + crate::kernel::state::vec_bytes(speed_limit_drop)
+            + crate::kernel::state::vec_bytes(waiting)
+            + crate::kernel::state::vec_bytes(conflicts)
+            + crate::kernel::state::vec_bytes(conflict_gate_ranges)
     }
 }
 
@@ -1717,7 +1717,7 @@ mod compile_route_tests {
     };
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
     fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {

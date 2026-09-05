@@ -13,7 +13,7 @@ use thiserror::Error;
 #[cfg(test)]
 use std::cell::Cell;
 
-use crate::tables::for_each_occupancy_interval;
+use crate::kernel::tables::for_each_occupancy_interval;
 use crate::{TrafficWorld, VehicleStatus, WorldGeneration};
 
 /// 观测进程内绑定契约版本。
@@ -805,7 +805,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::tables::with_route_allocation_failure_after;
+    use crate::kernel::tables::with_route_allocation_failure_after;
     use crate::{
         CommittedNetworkSource, CutoverError, CutoverPreflightLimits, LeaveParkingTarget,
         LfcaOriginBinding, MigrationPolicyKind, NetworkRevisionCutoverDescriptor,
@@ -817,7 +817,7 @@ mod tests {
     fn revision(retain_spatial: bool) -> Arc<SharedNetworkRevision> {
         let input = check_canonical_network_input(
             include_bytes!(
-                "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+                "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
             ),
             FormatLimits::HARD,
         )

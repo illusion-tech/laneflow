@@ -50,7 +50,7 @@ impl WorldPolicyBinding {
             gaps,
             frontier_proof_horizon_ms: _,
         } = self;
-        crate::state::slice_bytes(gaps)
+        crate::kernel::state::slice_bytes(gaps)
     }
 }
 
@@ -139,31 +139,6 @@ impl WorldPolicyBinding {
     }
     pub(crate) const fn horizon(&self) -> Option<u64> {
         self.frontier_proof_horizon_ms
-    }
-}
-
-impl crate::TrafficWorld {
-    /// 冷边界的策略身份与法规版本连续性；不接受描述符隐式换选。
-    pub(crate) fn validate_cutover_policy(
-        &self,
-        target: &SharedNetworkRevision,
-    ) -> Result<(), crate::CutoverError> {
-        if let WorldPolicySelection::Pinned(pin) = self.policy_selection() {
-            let before = self.policy().expect("installed policy exists");
-            let after = target
-                .identity()
-                .ordinal(pin.policy)
-                .and_then(|ordinal| target.policy().policy(ordinal))
-                .ok_or(crate::CutoverError::PolicyInstall(
-                    InstallError::UnknownPolicy { policy: pin.policy },
-                ))?;
-            if before.jurisdiction() != after.jurisdiction()
-                || before.regulation_version() != after.regulation_version()
-            {
-                return Err(crate::CutoverError::PolicyRegulationMismatch);
-            }
-        }
-        Ok(())
     }
 }
 

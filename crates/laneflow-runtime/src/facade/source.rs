@@ -87,16 +87,16 @@ impl PublishedLfcaReference {
     ///
     /// 语义与 [`Clone`] 一致，仅在分配压力下返回 `Err` 而不中止进程；
     /// 预留注入点与 capture 侧共用同一快照轴计数器。
-    pub fn try_clone(&self) -> Result<Self, crate::snapshot::SnapshotCaptureError> {
+    pub fn try_clone(&self) -> Result<Self, crate::admin::snapshot::SnapshotCaptureError> {
         let mut asset_key = String::new();
         if !self.asset_key.is_empty() {
             #[cfg(test)]
-            if crate::snapshot::snapshot_reservation_injected_failure() {
-                return Err(crate::snapshot::SnapshotCaptureError::ReservationFailed);
+            if crate::admin::snapshot::snapshot_reservation_injected_failure() {
+                return Err(crate::admin::snapshot::SnapshotCaptureError::ReservationFailed);
             }
             asset_key
                 .try_reserve(self.asset_key.len())
-                .map_err(|_| crate::snapshot::SnapshotCaptureError::ReservationFailed)?;
+                .map_err(|_| crate::admin::snapshot::SnapshotCaptureError::ReservationFailed)?;
         }
         asset_key.push_str(&self.asset_key);
         Ok(Self {
@@ -143,7 +143,7 @@ impl CommittedNetworkSource {
     }
 
     /// 可失败克隆（快照捕获消费，#532）；变体形状跟随本枚举演进。
-    pub fn try_clone(&self) -> Result<Self, crate::snapshot::SnapshotCaptureError> {
+    pub fn try_clone(&self) -> Result<Self, crate::admin::snapshot::SnapshotCaptureError> {
         match self {
             Self::Published { reference } => Ok(Self::Published {
                 reference: reference.try_clone()?,

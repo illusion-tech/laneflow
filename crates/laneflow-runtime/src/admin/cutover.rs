@@ -8,15 +8,11 @@ use laneflow_static_contract::{
 };
 use std::sync::Arc;
 
-use laneflow_format::{RegistryCheckedFieldValue, preflight_object_values};
-use laneflow_static_contract::PortableObjectKind;
-use sha2::Digest as _;
-
 use laneflow_static_network::{CanonicalNetworkOrigin, SharedNetworkRevision};
 use thiserror::Error;
 
-use crate::source::CommittedNetworkSource;
-use crate::tables::{
+use crate::facade::source::CommittedNetworkSource;
+use crate::kernel::tables::{
     CompiledRoute, ConflictCapabilityError, check_conflict_capability, compile_route,
 };
 use crate::{ObservationStateSequence, RouteError, StepError, TrafficWorld, WorldGeneration};
@@ -425,83 +421,12 @@ impl NetworkRevisionCutoverDescriptor {
         base_origin: CanonicalNetworkOrigin,
         target_origin: CanonicalNetworkOrigin,
     ) -> Result<(), CutoverDescriptorError> {
-        let Some(binding) = self.semantic_diff.as_ref() else {
-            return Err(CutoverDescriptorError::CrossRevisionRequiresSemanticDiff);
-        };
-        let declared_length = binding.semantic_diff_byte_length().get();
-        let actual_length = u64::try_from(lfsd_bytes.len()).map_err(|_| {
-            CutoverDescriptorError::SemanticDiffByteLengthMismatch {
-                declared: declared_length,
-                actual: u64::MAX,
-            }
-        })?;
-        if actual_length != declared_length {
-            return Err(CutoverDescriptorError::SemanticDiffByteLengthMismatch {
-                declared: declared_length,
-                actual: actual_length,
-            });
-        }
-        let digest: [u8; 32] = sha2::Sha256::digest(lfsd_bytes).into();
-        if Sha256Digest::from_bytes(digest) != binding.semantic_diff_digest() {
-            return Err(CutoverDescriptorError::SemanticDiffDigestMismatch);
-        }
-        let view = preflight_object_values(
+        super::format_admission::verify_semantic_diff(
+            self.semantic_diff.as_ref(),
             lfsd_bytes,
-            PortableObjectKind::SemanticDiff,
-            laneflow_format::FormatLimits::HARD,
+            base_origin,
+            target_origin,
         )
-        .map_err(|_| CutoverDescriptorError::SemanticDiffStructureInvalid)?
-        .registry_view();
-        let row = view
-            .section(0)
-            .and_then(|section| section.table(0))
-            .and_then(|table| table.row(0))
-            .ok_or(CutoverDescriptorError::SemanticDiffStructureInvalid)?;
-        let field = |tag: u16| {
-            row.field_by_tag(tag)
-                .expect("schema-required LFSD binding field")
-                .value()
-                .expect("registry-checked LFSD binding value")
-        };
-        let u8_of = |tag: u16| match field(tag) {
-            RegistryCheckedFieldValue::U8(value) => value,
-            _ => panic!("LFSD binding field type drift at tag {tag}"),
-        };
-        let u16_of = |tag: u16| match field(tag) {
-            RegistryCheckedFieldValue::U16(value) => value,
-            _ => panic!("LFSD binding field type drift at tag {tag}"),
-        };
-        let u64_of = |tag: u16| match field(tag) {
-            RegistryCheckedFieldValue::U64(value) => value,
-            _ => panic!("LFSD binding field type drift at tag {tag}"),
-        };
-        let sha_of = |tag: u16| match field(tag) {
-            RegistryCheckedFieldValue::Sha256(value) => value,
-            _ => panic!("LFSD binding field type drift at tag {tag}"),
-        };
-        // 绑定行种类：v1 只承认制品绑定（值 1，沿 lfsd-noop/change-set 冻结值）。
-        const SEMANTIC_DIFF_ARTIFACT_BINDING_KIND: u8 = 1;
-        let binding_kind = u8_of(1);
-        if binding_kind != SEMANTIC_DIFF_ARTIFACT_BINDING_KIND {
-            return Err(CutoverDescriptorError::SemanticDiffBindingKindUnsupported {
-                actual: binding_kind,
-            });
-        }
-        let base_matches = u16_of(2) == NETWORK_REVISION_DERIVATION_VERSION
-            && NetworkRevisionId::from_digest(sha_of(3)) == base_origin.network_revision()
-            && sha_of(4) == base_origin.canonical_artifact_digest()
-            && u64_of(5) == base_origin.canonical_artifact_byte_length().get();
-        if !base_matches {
-            return Err(CutoverDescriptorError::SemanticDiffBaseBindingMismatch);
-        }
-        let target_matches = u16_of(6) == NETWORK_REVISION_DERIVATION_VERSION
-            && NetworkRevisionId::from_digest(sha_of(7)) == target_origin.network_revision()
-            && sha_of(8) == target_origin.canonical_artifact_digest()
-            && u64_of(9) == target_origin.canonical_artifact_byte_length().get();
-        if !target_matches {
-            return Err(CutoverDescriptorError::SemanticDiffTargetBindingMismatch);
-        }
-        Ok(())
     }
 }
 
@@ -649,10 +574,10 @@ pub enum CutoverError {
     /// 静默期摘要构造的快照捕获预留失败（快照轴错误族，#532；语义为
     /// 分配压力下的可用性失败关闭，不是候选损坏）。
     #[error("静默期快照捕获预留失败")]
-    QuiescentCapture(#[from] crate::snapshot::SnapshotCaptureError),
+    QuiescentCapture(#[from] crate::admin::snapshot::SnapshotCaptureError),
     /// 静默期摘要规范化预留失败（快照轴错误族，#532；同上语义）。
     #[error("静默期状态摘要预留失败")]
-    QuiescentDigest(#[from] crate::snapshot_digest::SnapshotDigestError),
+    QuiescentDigest(#[from] crate::admin::snapshot_digest::SnapshotDigestError),
     /// 切换事务已结算（提交或放弃后不可继续泵入或提交）。
     #[error("切换事务已结算")]
     TransactionSettled,
@@ -1010,16 +935,16 @@ pub(crate) mod tests {
     use super::*;
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
     const MIN_HEADLESS: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/min-headless.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfca-variants/min-headless.lfca"
     );
     const PROVENANCE_BASE: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/provenance-base.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfca-variants/provenance-base.lfca"
     );
     const PROVENANCE_BUILD: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/provenance-build.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfca-variants/provenance-build.lfca"
     );
 
     fn origin(bytes: &'static [u8], retain: bool) -> CanonicalNetworkOrigin {
@@ -1289,7 +1214,7 @@ pub(crate) mod tests {
         };
 
         use super::*;
-        use crate::tables::with_route_allocation_failure_after;
+        use crate::kernel::tables::with_route_allocation_failure_after;
         use crate::{
             ParkingError, ReplaceError, RouteRegisterInput, SpawnError, TickInput,
             VehicleSpawnInput, VehicleStatus, WorldConfig,
@@ -1302,7 +1227,7 @@ pub(crate) mod tests {
         pub(crate) fn revision(retain: bool) -> Arc<SharedNetworkRevision> {
             let input = check_canonical_network_input(
                 include_bytes!(
-                    "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+                    "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
                 ),
                 FormatLimits::HARD,
             )
@@ -1587,7 +1512,7 @@ pub(crate) mod tests {
             let (mut cut, _, _) = world_with_vehicle(true);
             let (mut plain, _, _) = world_with_vehicle(true);
             let assert_committed_state_equal = |cut: &TrafficWorld, plain: &TrafficWorld| {
-                crate::cutover_migration::assert_committed_logical_state_equal(cut, plain);
+                crate::admin::cutover_migration::assert_committed_logical_state_equal(cut, plain);
             };
             for _ in 0..2 {
                 cut.step(TickInput::new(100)).expect("step cut");
@@ -1956,5 +1881,30 @@ pub(crate) mod tests {
             assert_eq!(world.event_cursor(), 1);
             assert_eq!(world.world_binding().baseline_event_cursor(), 1);
         }
+    }
+}
+
+impl crate::TrafficWorld {
+    /// 冷边界的策略身份与法规版本连续性；不接受描述符隐式换选。
+    pub(crate) fn validate_cutover_policy(
+        &self,
+        target: &SharedNetworkRevision,
+    ) -> Result<(), crate::CutoverError> {
+        if let crate::WorldPolicySelection::Pinned(pin) = self.policy_selection() {
+            let before = self.policy().expect("installed policy exists");
+            let after = target
+                .identity()
+                .ordinal(pin.policy)
+                .and_then(|ordinal| target.policy().policy(ordinal))
+                .ok_or(crate::CutoverError::PolicyInstall(
+                    crate::InstallError::UnknownPolicy { policy: pin.policy },
+                ))?;
+            if before.jurisdiction() != after.jurisdiction()
+                || before.regulation_version() != after.regulation_version()
+            {
+                return Err(crate::CutoverError::PolicyRegulationMismatch);
+            }
+        }
+        Ok(())
     }
 }

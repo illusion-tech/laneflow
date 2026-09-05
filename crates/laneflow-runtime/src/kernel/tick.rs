@@ -1,15 +1,15 @@
 use laneflow_static_contract::{LaneEdgeOrdinal, MAX_VEHICLE_LENGTH_MM, VehicleProfileOrdinal};
 use laneflow_static_network::{BoundedDistance, VehicleProfileView};
 
-use crate::migration_journal::VehicleDelta;
-use crate::occupancy::LeaderQueryHorizon;
+use crate::admin::migration_journal::VehicleDelta;
+use crate::kernel::occupancy::LeaderQueryHorizon;
 #[cfg(test)]
-use crate::tables::occupancy_front_gap;
-use crate::tables::{
+use crate::kernel::tables::occupancy_front_gap;
+use crate::kernel::tables::{
     CompiledRoute, distance_to_occurrence_progress, distance_to_occurrence_start,
     remaining_to_route_end,
 };
-use crate::units::{ceil_mm, round_mm, round_um};
+use crate::kernel::units::{ceil_mm, round_mm, round_um};
 use crate::{
     ParkingArrivalObservation, ParkingBinding, ParkingReservation, StepError, StepOutcome,
     TickInput, TrafficWorld, VehicleState, VehicleStatus,
@@ -46,7 +46,7 @@ fn injected_step_failure(point: StepFailpoint) -> Result<(), StepError> {
 #[cfg(test)]
 mod transaction_tests {
     use super::*;
-    use crate::cutover_migration::tests::{conflict_scale_revision, conflict_scale_world};
+    use crate::admin::cutover_migration::tests::{conflict_scale_revision, conflict_scale_world};
 
     #[test]
     fn every_new_conflict_scratch_allocation_failure_is_atomic_and_retryable() {
@@ -55,16 +55,16 @@ mod transaction_tests {
             let mut failures = 0;
             for allocation in 0..200 {
                 let mut world = if waiting {
-                    crate::waiting::tests::multi_gate_world(2)
+                    crate::kernel::waiting::tests::multi_gate_world(2)
                 } else {
                     conflict_scale_world(std::sync::Arc::clone(&revision), 2)
                 };
                 let before = world.capture_snapshot().unwrap();
                 let events = world.latest_transition_events().to_vec();
                 let delta = world.config().fixed_delta_time_ms();
-                crate::conflict::set_allocation_failpoint(Some(allocation));
+                crate::kernel::conflict::set_allocation_failpoint(Some(allocation));
                 let result = world.step(TickInput::new(delta));
-                crate::conflict::set_allocation_failpoint(None);
+                crate::kernel::conflict::set_allocation_failpoint(None);
                 if result.is_ok() {
                     break;
                 }
@@ -279,7 +279,7 @@ struct CommitPlan {
     observation_state_sequence: crate::ObservationStateSequence,
 }
 
-impl crate::phase::StepWorkspace<'_> {
+impl crate::kernel::phase::StepWorkspace<'_> {
     fn prepare_commit(
         &mut self,
         delta_s: f32,
@@ -316,7 +316,7 @@ impl crate::phase::StepWorkspace<'_> {
     }
 }
 
-impl crate::phase::CommittedStateMut<'_> {
+impl crate::kernel::phase::CommittedStateMut<'_> {
     /// P7 唯一入口：只消费已经完整校验的计划，不再返回 StepError。
     fn commit(mut self, plan: CommitPlan) -> StepOutcome {
         let CommitPlan {
@@ -352,7 +352,7 @@ impl crate::phase::CommittedStateMut<'_> {
                 .chunk_by(|left, right| left.zone == right.zone)
             {
                 #[cfg(test)]
-                crate::waiting::count_waiting_work(|counts| counts.journal_zones += 1);
+                crate::kernel::waiting::count_waiting_work(|counts| counts.journal_zones += 1);
                 let zone = claims[0].zone;
                 journal.tick_waiting_zone(zone, self.workspace.waiting_next_counters[zone.index()]);
             }
@@ -386,7 +386,7 @@ impl crate::phase::CommittedStateMut<'_> {
     }
 }
 
-impl<'a> crate::phase::StepReadView<'a> {
+impl<'a> crate::kernel::phase::StepReadView<'a> {
     pub(crate) fn advance_active_vehicle(
         self,
         state: VehicleState,
@@ -399,8 +399,8 @@ impl<'a> crate::phase::StepReadView<'a> {
         self,
         mut state: VehicleState,
         delta_s: f32,
-        waiting_stop: Option<crate::waiting::WaitingStopConstraint>,
-        conflict_stop: Option<crate::waiting::WaitingStopConstraint>,
+        waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
     ) -> Option<VehicleState> {
         let compiled = self.compiled_route(state.route)?;
         let edges = compiled.edges.as_slice();
@@ -737,12 +737,12 @@ impl<'a> crate::phase::StepReadView<'a> {
         };
         let signal_group = gate_view.signal_group();
         let aspect = signal_group.and_then(|group| signal_aspects.get(group.index()).copied());
-        crate::conflict::interpret_gate_policy(*rule, signal_group.is_some(), aspect)
+        crate::kernel::conflict::interpret_gate_policy(*rule, signal_group.is_some(), aspect)
             .unwrap_or(crate::GatePolicyDecision::DenyAndStop)
     }
 }
 
-impl crate::phase::StepWorkspace<'_> {
+impl crate::kernel::phase::StepWorkspace<'_> {
     pub(crate) fn stage_vehicle_transitions(
         &mut self,
         delta_s: f32,
@@ -800,7 +800,7 @@ impl crate::phase::StepWorkspace<'_> {
         }
         self.finalize_waiting_step(updates)?;
         // 决策和运动使用拍初信号；资格与日志必须描述下一提交时刻。
-        crate::world::fill_signal_aspects(
+        crate::kernel::world::fill_signal_aspects(
             &self.binding.revision,
             time_ms,
             &mut self.workspace.next_signal_aspects,
@@ -824,8 +824,8 @@ impl crate::phase::StepWorkspace<'_> {
         &self,
         state: VehicleState,
         delta_s: f32,
-        waiting_stop: Option<crate::waiting::WaitingStopConstraint>,
-        conflict_stop: Option<crate::waiting::WaitingStopConstraint>,
+        waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
     ) -> Option<VehicleState> {
         self.read_view().advance_active_vehicle_with_waiting_stop(
             state,
@@ -1405,7 +1405,7 @@ mod preview {
     }
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
     #[test]
@@ -1481,7 +1481,7 @@ mod preview {
             .find(|tick| {
                 world.committed.time_ms = (tick - 1) * 100;
                 world.refresh_signals();
-                crate::world::fill_signal_aspects(
+                crate::kernel::world::fill_signal_aspects(
                     &world.binding.revision,
                     tick * 100,
                     &mut world.workspace.next_signal_aspects,

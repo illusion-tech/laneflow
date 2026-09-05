@@ -3,6 +3,10 @@
 目标交通运行时。`TrafficWorld` 安装完整 `Arc<SharedNetworkRevision>`，只分配每世界
 可变状态与 1-worker 执行计划；热路径借用共享根静态 accessor，并读本世界已提交表。
 
+私有实现分为 `kernel/`、`admin/`、`facade/`；格式读取集中于
+`admin/format_admission.rs`，公开 re-export 保持现有入口。开发边界与检查命令见
+[`traffic-runtime-module-boundary.md`](../../docs/design/traffic-runtime-module-boundary.md)。
+
 安装的第五个必填参数为 `WorldPolicySelection`。宿主以 `Pinned(PolicyPin)` 指定策略
 稳定标识；仅当整个共享根没有门、冲突区或参与者流时可用 `NotRequired`。不推断默认
 策略、不读取业务日期，也没有安装后 setter。`policy()` 借用所选共享规则；
