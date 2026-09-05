@@ -1,6 +1,6 @@
 # 路权策略编译与 ConflictArbiter 实施合同
 
-**文档状态**: Accepted（#284 G1；W1–W7 已在集成分支闭合）<br>
+**文档状态**: Accepted（#284 路权策略与正式冲突仲裁合同）<br>
 **最后更新**: 2026-09-05<br>
 **适用范围**: 官方编制来源、LFCA、共享静态路网、策略绑定、信号解释、冲突资源、
 运行时快照与修订切换<br>
@@ -16,8 +16,8 @@
 
 已确认的产品范围是：中国机动车普通红灯条件右转，以及一套具名、显式选择的参考
 间隙参数。法规依据和机动车支持边界见联合设计 §6.2.1–§6.2.2。本文新增的输入形状、
-版本矩阵和迁移细节已经由 W1–W7 在集成分支闭合；正式发布仍须按 §8 将完整组合原子
-晋升，不能拆分发布其中一部分。
+版本矩阵和迁移细节与正式生产路径共同实现；§8 的完整版本组合必须原子交付，不能
+拆分发布其中一部分。合并与发布状态以 GitHub 为准。
 
 本次选择：
 
@@ -622,7 +622,7 @@ graph；存在两 owner 以上的 committed cycle、悬空 owner 或不合法历
 同一输入重建。无状态 batch 不能伪装为从档中复活的 grant；回放比较从一致 checkpoint
 继续，必须比较每个后续成功 tick 的 decision/event/state。
 
-W7 已在 W5 authority 保存、恢复和迁移之上接通生产 crossing/tail-clear tick。`step`
+生产 crossing/tail-clear tick 与 authority 保存、恢复和迁移共同实现。`step`
 先建立 approach frontier 与 Gate candidate，再由 single-writer 组合 Waiting、gap、
 Conflict 和 downstream 资源；只有实际 crossing 才提交 reservation/Clearing，车尾清空
 全部 coverage 后释放并写 `ActualClear`。tick journal 同拍记录 eligibility、reservation、
@@ -772,11 +772,10 @@ Waiting 独立 100k 组件账本仍为 19,200,060 B。
 
 ## 8. 原子版本矩阵
 
-下表记录实施前基线与完整 #284 的唯一切换组合。各切片在集成分支更新其负责的
-writer/reader；仅在完整 #284 闭合后发布整组版本，不能把切片格式登记当作运行时
-能力已交付。W1 的 LFCA/LFSM/LFSD 为 5/4/4；W3 完成消费闭合前，共享根在分配前
-拒绝非空策略实体、任一局部成员表或 Movement 方向属性，包含显式零。
-此拒绝不影响空策略且无方向属性的 LFCA 5 构建；W3 以完整语义闭合替换拒绝条件。
+下表记录实施前基线与完整 #284 的唯一切换组合。现行 writer/reader 共同实现右列
+版本；共享根完整校验和解析策略实体、局部成员表与 Movement 方向属性，正式世界
+安装、固定步进、快照和切换共同消费这些输入。不得拆分版本组合或恢复分阶段能力
+保护；普通生命周期命令仍须证明 interior authority，不能凭位置伪造 reservation。
 
 | 轴                             | 实施前 | #284  | 原因                                              |
 | ------------------------------ | ------ | ----- | ------------------------------------------------- |
@@ -850,4 +849,5 @@ writer/reader；仅在完整 #284 闭合后发布整组版本，不能把切片�
   可改变 LFSM 及来源摘要而不改变 LFCA 语义部分与 NetworkRevisionId，不伪造 LFSD 语义变化。
 
 文档验证运行 Markdown 表格与本地链接检查；生产实现还须满足仓库对应 Rust、codegen、
-制品和场景测试。设计候选的检查通过不等于 runtime 已实现、G2 已记录或 #284 已完成。
+制品和场景测试。文档检查不能替代正式路径的实现验收；Issue 完成与主干交付事实以
+GitHub 中对应的验收及合并证据为准。

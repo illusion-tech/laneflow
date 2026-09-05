@@ -54,7 +54,7 @@ ConflictPassageAddress =
 admission Gate 与 route position 可以缓存为执行操作数，但都不能成为第二套 passage
 身份。#284 必须复用这一地址，不能从几何或 `(zone, path)` 重新猜测 passage。
 
-#284 的快照与跨修订定位候选见
+#284 的快照与跨修订定位合同见
 [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §6
 （Accepted）：使用 stream/zone 的稳定引用定位已有唯一局部关系，核验 LFSD 与路径语义后
 重建本节地址；不把当前根 ordinal/local index 写成跨修订身份，也不新增 passage 实体。
@@ -188,7 +188,7 @@ accept iff next <= routeConflictOccurrenceCapacity
 
 一项容量恰对应一条 `ConflictPassageOccurrence`。本切片不保留第二个按该计数线性增长
 的 vector；Gate ranges、route coordinate 辅助列与既有 compiled-route 列均按 route
-edge/hop 数增长，继续由 `route_edge_occurrence_capacity` 约束。未来若 #284 需要新增
+edge/hop 数增长，继续由 `route_edge_occurrence_capacity` 约束。若后续需要新增
 每 passage 的并行 retained 列，必须返回 G1 明确其收费倍率或新容量，不能隐式扩大
 本容量代表的内存。
 
@@ -210,15 +210,15 @@ crossing/tick 接线。
 恢复容量错误新增 `RouteConflictOccurrences` dimension，与现行 routes、vehicles 和
 route-edge-occurrences 一样分别报告 snapshot 配置、target 配置与实际重建计数。
 
-## 6. 正式能力接管后的 3A 边界
+## 6. 正式 Conflict interior authority 边界
 
 ### 6.1 不变量与判定
 
 对没有可继承 Conflict authority 的普通生命周期命令，每辆成功提交的 `Active` 车辆必须
 满足：
 
-> 该车辆的 route-local 车尾位置已经到达或越过该路线全部
-> `ConflictPassageOccurrence.clearance` 的最大值。
+> 对每个覆盖冲突 passage 的 admission Gate，车辆前端仍在线上或上游，或者车辆
+> route-local 车尾已经清除该 Gate 完整 coverage 的最远 clearance。
 
 车尾位置由候选 front cursor、`carry_um` 与实际 `VehicleProfile.length_mm` 沿同一
 compiled route occurrence sequence 向后计算。跨边时使用共享根整数边长；重复
@@ -229,14 +229,15 @@ compiled route occurrence sequence 向后计算。跨边时使用共享根整数
 精确谓词为：
 
 ```text
-allowed = cursor is at-or-before next admission Gate
-       OR route.finalConflictClearance is None
-       OR routeRear(candidateCursor, profile.length_mm) >= finalClearance
+allowed = for every nonempty conflict Gate coverage:
+    front(candidateCursor) <= normalizedGateBoundary
+    OR routeRear(candidateCursor, profile.length_mm) >= coverage.farthestClearance
 ```
 
 等于 clearance 表示车尾已经清除；提前一微米仍拒绝。不能只看前保险杠、当前 route
-edge、第一处 passage 或“cursor 之后是否还有 entry”。这个判定自然覆盖当前、后续、
-车身仍占用、循环和重复出现项。
+edge、第一处 passage 或“cursor 之后是否还有 entry”。低频生命周期入口按 route-local
+Gate range 检查；没有 conflict coverage 时无需此 authority。这个判定覆盖当前、后续、
+车身仍占用、循环和重复出现项，允许在两段已清空/未进入的 coverage 之间合法绑定。
 
 ### 6.2 必须覆盖的入口
 
@@ -247,10 +248,10 @@ edge、第一处 passage 或“cursor 之后是否还有 entry”。这个判定
 | `spawn_vehicle`              | 候选 `Active` 车辆执行保护                                 |
 | `replace_completed_vehicle`  | 新 `Active` 车辆执行保护，失败保留旧 Completed             |
 | `leave_parking`              | `Parked -> Active` 的候选 exit cursor 执行保护             |
-| `rebind_parking_route`       | 对保持 `Active + Reserved` 的候选路线和完整车身执行保护    |
+| `rebind_parking_route`       | 拒绝已有 Conflict authority；检查候选路线与完整车身        |
 | `spawn_parked_vehicle`       | 允许；不创建 Active，离场时再检查                          |
-| snapshot restore             | 路线重编译后检查全部 Active；任一失败零发布                |
-| same/cross-revision cutover  | target 路线重编译后检查全部 Active；任一失败保留旧聚合     |
+| snapshot restore             | 路线重编译后重建并验证完整 authority；任一失败零发布       |
+| same/cross-revision cutover  | target 路线重编译后验证迁移 authority；任一失败保留旧聚合  |
 | fixed tick                   | 在 Gate lookahead 内正式求值并取得组合 grant 后才 crossing |
 
 `park_vehicle`、despawn 与 Completed 转换只减少 Active 集，不需要把已经安全的路线重新
@@ -269,16 +270,17 @@ edge、第一处 passage 或“cursor 之后是否还有 entry”。这个判定
 `SharedNetworkRevision` 确定，不进入 LFRS：
 
 - capture 仍只保存路线边稳定标识序列；
-- v4 保存 `WorldConfig` 容量并把它纳入 deterministic digest；
+- 现行 LFRS 5 保存 `WorldConfig` 容量并把它纳入 deterministic digest 7；
 - restore 使用目标根的唯一路线编译器重建出现项，先核对 edge 与 conflict 两个总容量，
-  再执行 Active 车辆 3A 保护，全部成功后才发布 world；
+  再重建并验证 Active 车辆的 reservation、Gate side、物理 footprint 和历史，全部成功后
+  才发布 world；
 - 恢复目标容量可以放大，但必须容纳快照内重建出的 exact 出现项总数；精确回放对拍
   仍要求两个语义容量与原配置一致；
 - cutover prepare 在 target 根上重编译全部路线并累计 exact conflict count；容量、
-  allocation 或任一 Active 车辆保护失败都放弃整个 target；
+  allocation 或任一 Active 车辆 authority 证明失败都放弃整个 target；
 - migration journal 和 cutover descriptor 继续记录稳定路线输入，不复制派生热表。
 
-## 8. 与后续运行时的边界
+## 8. 与正式仲裁运行时的边界
 
 - #282 只拥有 WaitingZone 本地 membership/admission/storage，不得借 #283 预置通用
   Conflict grant、reservation 或组合 ledger。
@@ -288,11 +290,11 @@ edge、第一处 passage 或“cursor 之后是否还有 entry”。这个判定
 - #542 可以生成场景路线或显式 conflict authoring，但路线最终仍进入同一 Runtime
   编译器；场景 catalog 不保存另一份 occurrence 权威。
 - Spatial 与 Adapter 只消费共享根的可选区域或只读 Runtime 结果，不参与路线
-  occurrence 编译和 3A 判定。
+  occurrence 编译和 Conflict authority 判定。
 
 ## 9. 验证与现实规模
 
-G2 必须覆盖：
+实现与后续回归必须覆盖：
 
 - Gate、路径起点、内部 boundary、路径终点和 Interior 的 exact route mapping；
 - 前一边末端与后一边零进度的规范等价，非规范 cursor 失败关闭；
@@ -333,12 +335,11 @@ cargo +1.98.0 test --release --locked -p laneflow-runtime --test compiled_networ
 - 旧 LFRS reader、迁移 shim 或旧 Core/JSON 路径。
 
 以下变化必须返回 G1：给 passage 全局身份；修改静态 anchor 或 owner-local 地址；让
-几何拥有行为；持久化派生 occurrence；在 #284 能力原子到位前放宽 3A；新增未收费的
+几何拥有行为；持久化派生 occurrence；放宽正式 Conflict authority 证明；新增未收费的
 按 conflict count 线性 retained 表；或 #284 不能无歧义消费本文操作数。
 
-## 11. G2 入口
+## 11. 交付完整性
 
-实现前必须把本文更新为 `Accepted`，把 #283 的 Project `Design gate` 更新为
-`Accepted`、Status 更新为 `Ready`，并相对届时 current main 再冻结版本与依赖。实现
-PR 是一个 Runtime completion slice：路线编译、容量、现行 LFRS、生命周期、恢复、切换、
-测试和 exact-current 文档必须闭合提交；不得把只有路线编译的部分结果称为 #283 完成。
+路线编译、容量、现行 LFRS、生命周期、恢复、切换、测试和当前权威文档共同构成
+Runtime completion slice；只交付路线编译不能满足该合同。后续变更按当前开发闸口
+与 PR 治理完成验收，不恢复已替换的临时能力保护。

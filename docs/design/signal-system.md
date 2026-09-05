@@ -1,7 +1,7 @@
 # Signal System 设计
 
 **文档状态**: Accepted（固定时制与 Gate 合规仍有效；相位时长必须是世界步长的正整数倍）<br>
-**最后更新**: 2026-08-24<br>
+**最后更新**: 2026-09-05<br>
 **适用范围**: Signals 静态领域、fixed-time runtime、车辆合规与性能边界。静态信号数据由编译器 / 共享静态路网承载，不再走 current JSON。<br>
 **实现状态**: #94-#97 已完成 v0.4 Signals 全链路与收口；#107 加入 Parking，
 #185 迁移到 v0.7；#229 以一等 ManeuverGate clean-break 替换 pair-based Gate 并迁移到
@@ -550,14 +550,16 @@ Signals 行为由 `TrafficWorld` 与编译器原生有类型模块覆盖。curre
 - #97 固化验证与性能证据。
 - #18 在所有子 Issue 完成后进行最终全面审阅和收口。
 
-## 16. 1.0 后中国场景扩展
+## 16. 中国场景组合边界
 
-未来扩展使用 `ManeuverPath + ManeuverGate + WaitingZone + ConflictZone + versioned rule policy`，而不是向 SignalController 增加国家/转向 if/else：
+中国场景使用 `ManeuverPath + ManeuverGate + WaitingZone + ConflictZone + versioned rule policy`
+组合，不向 SignalController 增加国家/转向 if/else。以下是领域表达与扩展方向；当前
+支持范围以路权策略实施合同为准，不表示所有场景均已交付：
 
 - 左转/直行待行区：`Gate A -> waiting edge/zone -> Gate B` 的多阶段准入；
 - 红灯右转：SignalAspect 输入 + jurisdiction policy + 冲突/让行判断；
 - 红灯掉头：在 StopLine 前的拓扑分叉，或由 policy 判断专用 ManeuverPath；
-- 右转专用通道：独立 edge/path，绑定独立 group、`none` 或 future yield policy；
+- 右转专用通道：独立 edge/path，绑定独立 group、`none` 或显式让行策略；
 - 无保护左转/让行绿灯：permissive indication + conflict set + gap acceptance；
 - 无信号优先级：独立 priority/sign/jurisdiction policy，不伪装成 SignalGroup；
 - 中段 StopLine：未来扩展 `edgeProgress`，或继续通过拆 edge authoring。
@@ -565,11 +567,12 @@ Signals 行为由 `TrafficWorld` 与编译器原生有类型模块覆盖。curre
 #235 的 Accepted 设计
 [`waiting-zone-conflict-right-of-way.md`](waiting-zone-conflict-right-of-way.md)
 已把上述组合细化为 registration-time Gate/Waiting/Conflict occurrence、车辆级
-Gate decision、Core ConflictArbiter 与 tick-local grant/reservation。该设计保持
+Gate decision、Traffic Runtime ConflictArbiter 与 tick-local grant/reservation。该设计保持
 本文 Controller -> indication -> policy -> conflict -> safety 顺序，并要求 pinned
 policy/profile 在初始化时拒绝同 phase simultaneous Protected 的 incompatible
-Gate coverage；runtime reservation 不是错误 signal authoring 的降级机制。在
-后续 implementation slices 完成前 current protected-only runtime 不变。
+Gate coverage；runtime reservation 不是错误 signal authoring 的降级机制。正式生产路径
+已共同实现 Waiting、策略绑定与 Conflict 组合仲裁；#285 的最终跨层场景和 Adapter
+debug surface 仍独立交付，不能由运行时实现替代。
 
 法规行为必须由明确版本、适用地区与可审计依据驱动。#284 的中国机动车红灯右转
 策略、法规来源与支持边界以
@@ -602,8 +605,8 @@ conflict 与 Core safety 分层，并实现：
 
 #281/Traffic v0.10 已允许 multi-stage Gate 在同一 ManeuverPath 的不同 transition
 上拥有独立 ManeuverGate identity，并在 Route 注册期按 transition 编译 occurrences。
-WaitingZone static identity/occurrence 已交付；其 capacity/queue runtime 以及
-Conflict/policy behavior 仍由 #282–#284 交付。本文前述 pair-based 内容只描述历史
+WaitingZone static identity/occurrence、capacity/queue runtime 与 Conflict/policy behavior
+已共同实现，现行版本组合见路权策略实施合同 §8。本文前述 pair-based 内容只描述历史
 v0.4-v0.8 contract，不再是 current public API。
 
 #196 已在
