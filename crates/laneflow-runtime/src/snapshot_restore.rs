@@ -374,6 +374,9 @@ pub enum SnapshotRestoreError {
     /// 最终占用索引重建失败。
     #[error("恢复后的占用索引重建失败: {0}")]
     Occupancy(StepError),
+    /// 从已恢复 membership 重建并验证 Waiting 依赖图失败。
+    #[error("恢复后的 Waiting 依赖图重建失败: {0}")]
+    WaitingDependencyRebuild(StepError),
 }
 
 /// 原子恢复成功结果：新 world 与快照局部 ID 到新句柄的映射。
@@ -1206,6 +1209,9 @@ fn restore_waiting_aggregate(
         return Err(SnapshotRestoreError::WaitingInvariantViolation);
     }
     world.rebuild_waiting_member_rows();
+    world
+        .prepare_waiting_dependencies(false)
+        .map_err(SnapshotRestoreError::WaitingDependencyRebuild)?;
     Ok(())
 }
 

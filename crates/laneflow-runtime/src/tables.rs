@@ -43,6 +43,8 @@ pub(crate) struct WaitingOccurrence {
     pub entry_hop: u32,
     pub release_hop: u32,
     pub storage_length_mm: u32,
+    /// 释放当前 membership 前可能请求的后继区间尾；注册时派生，不持久化。
+    pub dependency_end: u32,
 }
 
 /// 路线 occurrence 坐标；同一 `LaneEdgeOrdinal` 在循环路线中的不同下标不会折叠。
@@ -583,8 +585,14 @@ fn compile_waiting(
                 entry_hop,
                 release_hop,
                 storage_length_mm,
+                dependency_end: 0,
             });
         }
+    }
+    for index in 0..waiting.len() {
+        let end = waiting.partition_point(|item| item.entry_hop <= waiting[index].release_hop);
+        waiting[index].dependency_end =
+            u32::try_from(end).map_err(|_| RouteError::ManeuverMismatch)?;
     }
     Ok(waiting)
 }

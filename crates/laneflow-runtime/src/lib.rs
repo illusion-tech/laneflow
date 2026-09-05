@@ -12,6 +12,7 @@ mod conflict_tick;
 mod cutover;
 mod cutover_migration;
 mod cutover_transaction;
+mod downstream_index;
 mod error;
 mod handle;
 mod input;
@@ -28,9 +29,12 @@ mod snapshot_restore;
 mod source;
 mod tables;
 mod tick;
+mod transitions;
 mod units;
 mod vehicle;
 mod waiting;
+mod waiting_dependencies;
+mod waiting_graph;
 mod world;
 
 pub use config::{StepOutcome, TickInput, WorldConfig};
@@ -93,12 +97,12 @@ pub use snapshot_restore::{
     restore_lfrs,
 };
 pub use source::{CommittedNetworkSource, InvalidPublishedLfcaReference, PublishedLfcaReference};
+pub use transitions::{TrafficTransitionAnchor, TrafficTransitionEvent, TrafficTransitionKind};
 pub use vehicle::{VehicleReplaceBlock, VehicleReplaceRecord, VehicleState, VehicleStatus};
 pub use waiting::{
     ManeuverTraversalPhase, ManeuverTraversalState, WaitingDecision, WaitingDecisionOutcome,
     WaitingMembership, WaitingMembershipReleaseRecord, WaitingNoGrantReason,
-    WaitingProjectionReason, WaitingRouteAnchor, WaitingTransitionEvent, WaitingTransitionKind,
-    WaitingZoneMember, WaitingZoneSnapshot,
+    WaitingProjectionReason, WaitingRouteAnchor, WaitingZoneMember, WaitingZoneSnapshot,
 };
 pub use world::{TrafficWorld, WorldGeneration};
 

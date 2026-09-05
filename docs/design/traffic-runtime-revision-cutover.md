@@ -253,7 +253,7 @@ Prepare → Delta Catch-up → Quiescent Commit → Retire
 
 ## 7. 原子晋升与共存
 
-跨修订晋升同时清空 `latest_waiting_decisions`、`latest_waiting_events` 与
+跨修订晋升同时清空 `latest_waiting_decisions`、`latest_transition_events` 与
 `latest_conflict_decisions`，保留缓冲容量。批次中的 route/zone/stream ordinal 属于源
 修订，不迁移为目标引用；历史输出须由调用方在 commit 前消费。同修订切换及失败、
 放弃的跨修订事务保留原批次。

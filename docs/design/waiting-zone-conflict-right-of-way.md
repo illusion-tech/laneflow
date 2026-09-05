@@ -365,6 +365,11 @@ eligibility token，不是第二套 Waiting authority：
 不同 WaitingZone 的 `approachDistanceMm` 没有可比较的全局坐标，因此不得把它直接插入
 §6.3 全局 comparator。
 
+组合 reducer 以各 zone 的就绪游标保存上述局部先后关系，只在当前可处理的队首与
+无 Waiting 前驱的 request 之间比较全局键。一个 request 完成求值后才开放其后继；
+后继已有的冻结 entitlement 不因前驱失败而取消，也不得重新分配失败 request 的名额。
+物理前驱仍由路线和 occupancy 确定，不能将不同汇入支路仅因 zone 相同视为同一车道。
+
 presence rank 不能用合法整数 sentinel 冒充 absent。`firstEligibleTick` 在车辆首次满足
 同一 Gate occurrence arrival predicate 时建立；离开 lookahead、换 route/occurrence 或
 crossing 后清除。raw vehicle/route/entity handle、worker、锁竞争、HashMap iteration 与
@@ -526,15 +531,14 @@ Conflict catalog。
 
 ```text
 GrantResourceBundle
-  WaitingDependencyFootprint?
-    retainedMembership?
-    releaseOnCrossing?
-    newAdmissionEntitlement?
-    downstreamDependencies[]
   WaitingAdmissionClaim?
   ConflictZoneClaims[]
   DownstreamClearanceClaim?
 ```
+
+Waiting 依赖由同一组合 reducer 按候选的局部 plan 索引暂存到本 tick 共享依赖图，
+不在每份 bundle 中复制全图 footprint。资源拒绝时同步撤销候选图事务，只有 bundle
+和 Waiting claim 都准备成功才接受该图变化。
 
 reducer 按 §6.3 candidate order，对 tick-start committed authority 加 earlier successful
 staged claims 顺序执行一次 `tryAcquireGrantBundle`：
@@ -555,7 +559,7 @@ staged claims 顺序执行一次 `tryAcquireGrantBundle`：
 - proposal 可以并行，resource mutation 必须单 writer；Mutex/CAS/worker completion
   不得决定 winner。
 
-`WaitingDependencyFootprint` 让 #284 在提交新 membership 前证明不会形成 committed
+等待依赖视图让 #284 在提交新 membership 前证明不会形成 committed
 hold-and-wait cycle。route compiler 为每个 Waiting occurrence 编译车辆在释放该
 membership 之前必须取得的后继 Waiting occurrences；当前禁止 overlap/nesting 后，现实
 热路径主要是 shared release/next-entry，但算法不能按 LaneEdge 名称猜测。reducer 对
@@ -570,6 +574,13 @@ owner/resource wait-for graph：
   都不能创建 committed Waiting cycle；
 - SCC 的 node/edge、扫描与首个拒绝原因按 WaitingZone stable canonical rank、
   `vehicleUpdateSequence`、route occurrence/hop 总序，不能依赖容器顺序。
+
+基础依赖图每 tick 构建一次；候选暂存必须计入自己的 count/storage 占用，并更新因此
+受阻的既有 owner。zone 的反向依赖与实际容量阈值索引用于定位变化，不逐候选重建全图。
+owner 已持有的资源按完整 prospective hold set 排除自等待：二部图中的单 owner 环必然
+包含自等待边，因此此合同下任何环都含至少两个 owner，可等价使用增量 DAG 判环。
+候选失败同时撤销暂存边、阈值游标与拓扑变化；本拍资源释放不返还容量，并不意味着
+owner 取得其所等待资源时不能删除相应 wait edge。安装、restore、cutover 仍完整校验。
 
 cycle prevention 是提交前预防，不是把已经占位的车辆原子换位。same-tick staged release
 仍不返还 capacity，不把 committed membership 转给另一车辆，也不为同一车辆取得多个新
@@ -625,6 +636,13 @@ route completion 按拍后转移判断：同拍达到 RouteEnd 且车尾已清�
 阻断这一正常转移。Waiting 与 Conflict 先分别暂存资源变化，再唯一推导 traversal 和
 输出事件，禁止先生成 Waiting phase/events 后再覆盖为 Conflict phase。
 
+Gate 硬约束独立于申请资格：持有 reservation 的车辆仍保留后续未授权资源 Gate 屏障，
+本拍 grant 只解除其精确 Gate，不能解除下一资源 Gate。旧尾部在下一 Gate 边界等值净空
+时允许释放，下一 tick 再申请；距离使用规范坐标，跨 Gate 仍必须经过许可的 hop 转移。
+completion 来自已确认的 traversal 结束转移，车头先经过 exit 而尾部尚未净空时延期，
+之后清空的 tick 恰一次发布。journal 一帧中的 absent eligibility/authority 允许对应车辆
+已经 Completed；非空设置仍要求 Active，一帧末尾校验最终组合状态。
+
 #284 已在本节 policy、arbiter、grant/reservation、组合 ledger、snapshot/cutover 与生产
 tick 同切片安装后原子移除 #559 临时错误；当前不存在单独绕过资源 owner 的生产入口。
 
@@ -658,6 +676,24 @@ projection 只在首次 hard boundary contact transition 产生。
 Waiting leave、Waiting enter、reservation acquire、Conflict enter、Conflict clear、
 reservation release、maneuver completion。route anchor 使用 exact occurrence/hop/position；
 raw handle、producer 或 arbitration completion 不参与。
+
+正式观察接口使用统一 `TrafficTransitionEvent` 批次；排序锚点包含 exact route position，
+尾部触发的 clear/release 与延期 completion 使用实际触发位置，语义 payload 保留其
+passage/maneuver occurrence。事件从已验证的暂存转移派生；同拍 acquire 后 release
+即使拍初、拍后 authority 都为空也保留两种事件，未 crossing 的 grant 不发布 acquire。
+输出容量按实际转移数在提交前预留，不用固定 Waiting 事件槽数限制 Conflict passage。
+图、调度和 owner/zone/physical-edge 索引为可重建执行数据，不进入 snapshot 或 LFCA。
+
+单写者维护一份 owner authority。车辆槽位索引核对世代后定位紧凑 owner 行，行内保存
+自身 committed/staged cell 和 downstream 连续段、grant 位置与未净空 cell 计数；
+删除行时更新被移动 owner 的索引。zone 首个规范 cell 保存其 staged/committed owner
+摘要，不能把另一 passage 或 stream 的占用当作本 zone 空闲。
+downstream 使用按物理边分组的增广 AVL 区间树，每个区间只向前扩展自己的最小间距，
+因此两车间距始终来自实际后车；以宽整数保存扩展端点，精确等值允许相接。
+树、图及事件缓冲按实际工作量 fallible 增长并复用，空资源世界不预配理论笛卡尔积。
+所有 crossing 先按 owner 范围建立权威，再一次移动 staged 资源；最后净空只遍历本
+owner 的 cell 段，整拍释放结束后统一稳定压缩并更新剩余范围。拓扑序、紧凑行位置和
+树形状均不决定业务顺序、摘要或公开输出。
 
 下列是 normal outcome：regulatory deny、Waiting capacity/storage 不足、prospective
 Waiting cycle、Conflict occupied、lag/lead gap 不足、approach `Unprovable`、downstream

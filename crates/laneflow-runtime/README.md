@@ -27,8 +27,17 @@ authority。
 提交。grant 准备后的可恢复错误统一撤销暂存授权，保留已提交状态；车尾清空与路线
 完成可以在同一 tick 提交。Waiting 本地预选不直接发布 `Granted`，组合拒绝通过
 `NoGrant(CombinedResource(reason))` 表达，尚未进入组合求值的 entry 为 `Deferred`。
-跨修订成功切换清空 Waiting/Conflict 历史决策与 Waiting 事件批次，避免旧 ordinal 被
+`latest_transition_events()` 返回统一 `TrafficTransitionEvent` 批次，覆盖 Gate crossing、
+Waiting leave/enter、reservation acquire/release、Conflict enter/clear 和尾部净空后的
+恰一次 maneuver completion；`TrafficTransitionAnchor::position()` 是实际触发的规范路线
+位置。同拍取得又释放资源仍保留两类事件，未越门的暂存 grant 不发布取得事件。
+跨修订成功切换清空 Waiting/Conflict 历史决策与统一事件批次，避免旧 ordinal 被
 误读为目标修订实体；同修订和失败切换保留批次。
+
+组合仲裁每 tick 构建一次实际 Waiting 依赖图，通过增量拓扑检查和阈值索引处理候选；
+全局只比较各 zone 已冻结顺序的就绪队首。紧凑 owner 槽位索引、zone 所有权摘要与
+downstream AVL 区间索引定位资源；提交和释放按 owner 范围处理并批量压缩。派生索引
+不进入持久化，restore/cutover 从领域状态重建并完整验证。
 
 生命周期命令只在两次 `step` 之间调用。`replace_completed_vehicle` 把 Completed
 车辆一次提交为新的 Active 句柄；到终点保留 Completed，不进 pose、不占车道，占容量。
