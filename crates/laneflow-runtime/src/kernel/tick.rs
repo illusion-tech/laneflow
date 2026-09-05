@@ -1,0 +1,1792 @@
+use laneflow_static_contract::{LaneEdgeOrdinal, MAX_VEHICLE_LENGTH_MM, VehicleProfileOrdinal};
+use laneflow_static_network::{BoundedDistance, VehicleProfileView};
+
+use crate::admin::migration_journal::VehicleDelta;
+use crate::kernel::occupancy::LeaderQueryHorizon;
+#[cfg(test)]
+use crate::kernel::tables::occupancy_front_gap;
+use crate::kernel::tables::{
+    CompiledRoute, distance_to_occurrence_progress, distance_to_occurrence_start,
+    remaining_to_route_end,
+};
+use crate::kernel::units::{ceil_mm, round_mm, round_um};
+use crate::{
+    ParkingArrivalObservation, ParkingBinding, ParkingReservation, StepError, StepOutcome,
+    TickInput, TrafficWorld, VehicleState, VehicleStatus,
+};
+
+/// 整数毫米合同下覆盖 `s0` 边界舍入的专用容差。跟车前视公式里的
+/// `minimum_gap_tolerance`。
+const MINIMUM_GAP_TOLERANCE_MM: u32 = 1;
+
+#[cfg(test)]
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum StepFailpoint {
+    AfterGrants,
+    AfterTransitions,
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static STEP_FAILPOINT: std::cell::Cell<Option<StepFailpoint>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn injected_step_failure(point: StepFailpoint) -> Result<(), StepError> {
+    STEP_FAILPOINT.with(|failpoint| {
+        if failpoint.get() == Some(point) {
+            failpoint.set(None);
+            Err(StepError::ParkingObservationAllocFailed)
+        } else {
+            Ok(())
+        }
+    })
+}
+
+#[cfg(test)]
+mod transaction_tests {
+    use super::*;
+    use crate::admin::cutover_migration::tests::{conflict_scale_revision, conflict_scale_world};
+
+    #[test]
+    fn every_new_conflict_scratch_allocation_failure_is_atomic_and_retryable() {
+        let revision = conflict_scale_revision();
+        for waiting in [false, true] {
+            let mut failures = 0;
+            for allocation in 0..200 {
+                let mut world = if waiting {
+                    crate::kernel::waiting::tests::multi_gate_world(2)
+                } else {
+                    conflict_scale_world(std::sync::Arc::clone(&revision), 2)
+                };
+                let before = world.capture_snapshot().unwrap();
+                let events = world.latest_transition_events().to_vec();
+                let delta = world.config().fixed_delta_time_ms();
+                crate::kernel::conflict::set_allocation_failpoint(Some(allocation));
+                let result = world.step(TickInput::new(delta));
+                crate::kernel::conflict::set_allocation_failpoint(None);
+                if result.is_ok() {
+                    break;
+                }
+                assert_eq!(
+                    result,
+                    Err(StepError::ConflictScratchAllocFailed),
+                    "allocation {allocation}"
+                );
+                failures += 1;
+                assert_eq!(world.capture_snapshot().unwrap(), before);
+                assert_eq!(world.latest_transition_events(), events);
+                assert!(world.conflict_state_valid());
+                world
+                    .step(TickInput::new(delta))
+                    .expect("retry after allocation failure");
+            }
+            assert!(
+                failures >= 12,
+                "all actual index, graph and output allocation sites are visited"
+            );
+            assert!(
+                failures < 200,
+                "the successful end of the allocation sequence must be reached"
+            );
+        }
+    }
+
+    #[test]
+    fn failed_grant_and_transition_staging_preserves_world_and_can_retry() {
+        let revision = conflict_scale_revision();
+        for point in [StepFailpoint::AfterGrants, StepFailpoint::AfterTransitions] {
+            let mut world = conflict_scale_world(std::sync::Arc::clone(&revision), 2);
+            let before =
+                crate::deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap();
+            let tick = world.tick_index();
+            let time = world.time_ms();
+            let decisions = world.latest_conflict_decisions().to_vec();
+            STEP_FAILPOINT.with(|failpoint| failpoint.set(Some(point)));
+            assert_eq!(
+                world.step(TickInput::new(4)),
+                Err(StepError::ParkingObservationAllocFailed)
+            );
+            assert!(world.conflict_state_valid());
+            assert_eq!(world.tick_index(), tick);
+            assert_eq!(world.time_ms(), time);
+            assert_eq!(world.latest_conflict_decisions(), decisions);
+            assert_eq!(
+                crate::deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap(),
+                before
+            );
+            world
+                .step(TickInput::new(4))
+                .expect("failure must not poison the next tick");
+            assert!(world.conflict_state_valid());
+            assert!(
+                world
+                    .latest_conflict_decisions()
+                    .iter()
+                    .any(|decision| decision.outcome() == crate::ConflictDecisionOutcome::Granted)
+            );
+        }
+    }
+}
+
+/// §10.1 跟车查询窗：静止前车最坏情况，SI 有限后 `ceil` 到毫米。
+///
+/// `bumper_gap_mm` 是后杠间隙接纳窗；`front_query_mm` 是出现项行走窗
+///（`ceil(bumper) + MAX_VEHICLE_LENGTH_MM`）。溢出饱和，禁止缩短行走窗。
+/// 非有限输入失败关闭，不得当成「本拍无前车」。
+pub(crate) fn leader_query_horizon(
+    speed_mm_s: u32,
+    profile: VehicleProfileView,
+    delta_s: f32,
+) -> Option<LeaderQueryHorizon> {
+    if !delta_s.is_finite() || delta_s <= 0.0 {
+        return None;
+    }
+    let speed = si_speed(speed_mm_s);
+    let accel = profile.max_accel();
+    let emergency = profile.emergency_decel();
+    let min_gap = si_meters(profile.min_gap_mm());
+    let headway = profile.time_headway();
+    if ![speed, accel, emergency, min_gap, headway]
+        .into_iter()
+        .all(f32::is_finite)
+    {
+        return None;
+    }
+    if accel < 0.0 || emergency <= 0.0 || min_gap < 0.0 || headway < 0.0 {
+        return None;
+    }
+    let v_upper = speed + accel * delta_s;
+    let travel_upper = 0.5 * (speed + v_upper) * delta_s;
+    let hard_horizon = travel_upper + v_upper * v_upper / (2.0 * emergency);
+    let comfort_horizon = min_gap + speed * headway;
+    let minimum_gap_horizon = min_gap + travel_upper + si_meters(MINIMUM_GAP_TOLERANCE_MM);
+    let bumper = hard_horizon.max(comfort_horizon).max(minimum_gap_horizon);
+    if !bumper.is_finite() || bumper < 0.0 {
+        return None;
+    }
+    let bumper_gap_mm = ceil_mm(f64::from(bumper))?;
+    Some(LeaderQueryHorizon::new(
+        bumper_gap_mm,
+        bumper_gap_mm.saturating_add(MAX_VEHICLE_LENGTH_MM),
+    ))
+}
+
+impl TrafficWorld {
+    pub(crate) fn step_vehicles(&mut self, input: TickInput) -> Result<StepOutcome, StepError> {
+        let expected = self.binding.config.fixed_delta_time_ms();
+        if input.delta_time_ms != expected {
+            return Err(StepError::DeltaMismatch {
+                expected_delta_time_ms: expected,
+                actual_delta_time_ms: input.delta_time_ms,
+            });
+        }
+        if !self.conflict_state_valid() {
+            return Err(StepError::ConflictInvariantViolation);
+        }
+        let tick_index = self
+            .committed
+            .tick_index
+            .checked_add(1)
+            .ok_or(StepError::Overflow)?;
+        let time_ms = self
+            .committed
+            .time_ms
+            .checked_add(expected)
+            .ok_or(StepError::Overflow)?;
+        let observation_state_sequence = self
+            .committed
+            .observation_state_sequence
+            .checked_next()
+            .ok_or(StepError::ObservationStateSequenceExhausted)?;
+        let delta_s = expected as f32 / 1_000.0;
+        self.rebuild_occupancy_index()?;
+        let plan = self.step_workspace().prepare_commit(
+            delta_s,
+            tick_index,
+            time_ms,
+            observation_state_sequence,
+        )?;
+        Ok(self.committed_mut().commit(plan))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn advance_active_vehicle(
+        &self,
+        state: VehicleState,
+        delta_s: f32,
+    ) -> Option<VehicleState> {
+        self.read_view().advance_active_vehicle(state, delta_s)
+    }
+
+    /// 测试专用：读本拍占用索引上的前保险杠间隙。不是生产热路径。
+    ///
+    /// 使用与 `advance_active_vehicle` 相同的公式窗。公式非有限时 panic，
+    /// 不得把失败关闭写成「本拍无前车」。调用前必须已 `rebuild_occupancy_index`。
+    #[cfg(test)]
+    pub(crate) fn leader_bumper_gap(
+        &self,
+        follower: &VehicleState,
+        edges: &[LaneEdgeOrdinal],
+        lengths: &[u32],
+    ) -> Option<i64> {
+        self.read_view().leader_bumper_gap(follower, edges, lengths)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn leader_query_horizon_for(&self, follower: &VehicleState) -> LeaderQueryHorizon {
+        self.read_view().leader_query_horizon_for(follower)
+    }
+
+    /// `cfg(test)` 全扫描再按 `bumper_gap_horizon` 过滤，不是生产热路径。
+    #[cfg(test)]
+    pub(crate) fn leader_bumper_gap_scan(
+        &self,
+        follower: &VehicleState,
+        edges: &[LaneEdgeOrdinal],
+        lengths: &[u32],
+    ) -> Option<i64> {
+        self.read_view()
+            .leader_bumper_gap_scan(follower, edges, lengths)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn gate_is_restrictive(
+        &self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+        profile: VehicleProfileOrdinal,
+    ) -> bool {
+        self.read_view().gate_is_restrictive(gate, profile)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn gate_policy_decision(
+        &self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+        profile: VehicleProfileOrdinal,
+    ) -> crate::GatePolicyDecision {
+        self.read_view().gate_policy_decision(gate, profile)
+    }
+}
+
+/// 完整性证明仅在本模块创建；借用尚未释放便消费，不能跨 step 保存或重用。
+/// 其余已校验的转移、批次和信号留在同一世界的 Workspace，避免复制工作集。
+struct CommitPlan {
+    updates: Vec<(usize, VehicleState)>,
+    parking_arrivals: Vec<ParkingArrivalObservation>,
+    tick_index: u64,
+    time_ms: u64,
+    observation_state_sequence: crate::ObservationStateSequence,
+}
+
+impl crate::kernel::phase::StepWorkspace<'_> {
+    fn prepare_commit(
+        &mut self,
+        delta_s: f32,
+        tick_index: u64,
+        time_ms: u64,
+        observation_state_sequence: crate::ObservationStateSequence,
+    ) -> Result<CommitPlan, StepError> {
+        self.prepare_waiting_step(delta_s)?;
+        let mut updates = std::mem::take(&mut self.workspace.next_states);
+        updates.clear();
+        let parking_arrivals =
+            match self.stage_vehicle_transitions(delta_s, tick_index, time_ms, &mut updates) {
+                Ok(arrivals) => arrivals,
+                Err(error) => {
+                    self.rollback_waiting_step();
+                    self.committed
+                        .prepare_conflict(&mut self.derived, &mut self.workspace.conflict)
+                        .discard_staged();
+                    self.workspace.conflict_grants.clear();
+                    self.workspace.conflict_staged_decisions.clear();
+                    self.workspace.conflict_passage_transitions.clear();
+                    updates.clear();
+                    self.workspace.next_states = updates;
+                    return Err(error);
+                }
+            };
+        Ok(CommitPlan {
+            updates,
+            parking_arrivals,
+            tick_index,
+            time_ms,
+            observation_state_sequence,
+        })
+    }
+}
+
+impl crate::kernel::phase::CommittedStateMut<'_> {
+    /// P7 唯一入口：只消费已经完整校验的计划，不再返回 StepError。
+    fn commit(mut self, plan: CommitPlan) -> StepOutcome {
+        let CommitPlan {
+            mut updates,
+            parking_arrivals,
+            tick_index,
+            time_ms,
+            observation_state_sequence,
+        } = plan;
+        // 以下提交仅消费已预留、已验证的转移；没有可恢复错误出口。
+        self.commit_conflict_transitions(&updates, time_ms);
+        self.commit_waiting_removals(&updates);
+        // 武装期 TICK 记录在状态写回前开帧、写回后闭帧；无变化条目被过滤，
+        // 零变化步进仍保留空记录（tick/时间是候选时钟与摘要头部的收敛依据）。
+        let mut migration_journal = self.journal.take();
+        if let Some(journal) = migration_journal.as_mut() {
+            journal.begin_tick(tick_index, time_ms);
+        }
+        for (slot, next) in &updates {
+            let previous = self.committed.vehicles[*slot].state.replace(*next);
+            if !previous.as_ref().is_some_and(|old| *old == *next) {
+                let delta =
+                    VehicleDelta::from_state(next, self.read_view().compiled_route(next.route));
+                if let Some(journal) = migration_journal.as_mut() {
+                    journal.tick_entry(&delta);
+                }
+            }
+        }
+        if let Some(journal) = migration_journal.as_mut() {
+            for claims in self
+                .workspace
+                .waiting_claims
+                .chunk_by(|left, right| left.zone == right.zone)
+            {
+                #[cfg(test)]
+                crate::kernel::waiting::count_waiting_work(|counts| counts.journal_zones += 1);
+                let zone = claims[0].zone;
+                journal.tick_waiting_zone(zone, self.workspace.waiting_next_counters[zone.index()]);
+            }
+            self.write_conflict_tick_journal(journal, &updates);
+            journal.finish_tick();
+        }
+        *self.journal = migration_journal;
+        self.commit_waiting_additions(&updates);
+        self.commit_conflict_step();
+        updates.clear();
+        self.workspace.next_states = updates;
+        let vehicles = &self.committed.vehicles;
+        self.derived.active_order.retain(|handle| {
+            let index = usize::try_from(handle.index()).expect("vehicle index fits usize");
+            vehicles.get(index).is_some_and(|slot| {
+                slot.generation == handle.generation()
+                    && slot
+                        .state
+                        .as_ref()
+                        .is_some_and(|state| state.status == VehicleStatus::Active)
+            })
+        });
+        self.committed.tick_index = tick_index;
+        self.committed.time_ms = time_ms;
+        self.committed.observation_state_sequence = observation_state_sequence;
+        core::mem::swap(
+            &mut self.committed.signal_aspects,
+            &mut self.workspace.next_signal_aspects,
+        );
+        StepOutcome::new(tick_index, time_ms, parking_arrivals)
+    }
+}
+
+impl<'a> crate::kernel::phase::StepReadView<'a> {
+    pub(crate) fn advance_active_vehicle(
+        self,
+        state: VehicleState,
+        delta_s: f32,
+    ) -> Option<VehicleState> {
+        self.advance_active_vehicle_with_waiting_stop(state, delta_s, None, None)
+    }
+
+    pub(crate) fn advance_active_vehicle_with_waiting_stop(
+        self,
+        mut state: VehicleState,
+        delta_s: f32,
+        waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+    ) -> Option<VehicleState> {
+        let compiled = self.compiled_route(state.route)?;
+        let edges = compiled.edges.as_slice();
+        let cursor = usize::try_from(state.route_edge_index).ok()?;
+        let edge = *edges.get(cursor)?;
+        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
+        let speed_limits = self
+            .binding
+            .revision
+            .traffic()
+            .lane_speed_limits_millimetres_per_second();
+        let current_limit = *speed_limits.get(edge.index())?;
+        let profile = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)?;
+        let desired_mm_s = profile.desired_speed_mm_s().min(current_limit);
+        let horizon = leader_query_horizon(state.speed_mm_s, profile, delta_s)?;
+        let leader_gap = self.derived.occupancy.leader_gap(
+            state.handle,
+            edges,
+            cursor,
+            state.progress_mm,
+            lengths,
+            horizon,
+        );
+        let route_end =
+            remaining_to_route_end(*compiled.remaining_to_end.get(cursor)?, state.progress_mm);
+        let signal_stop = self.signal_stop_distance(compiled, &state, cursor);
+        let parking = self.parking_stop_distance(compiled, &state, cursor)?;
+        let parking_stop = parking.map(|(_, distance)| distance);
+        let selected_stop = select_movement_stop(signal_stop, parking_stop, route_end);
+        let mut movement_stop = (!matches!(selected_stop.attribution, StopAttribution::RouteEnd))
+            .then_some(selected_stop.distance);
+        if let Some(waiting) = waiting_stop {
+            movement_stop = match movement_stop {
+                Some(current) if !stop_is_nearer_or_equal(waiting.distance, current) => {
+                    Some(current)
+                }
+                Some(_) | None => Some(waiting.distance),
+            };
+        }
+        if let Some(conflict) = conflict_stop {
+            movement_stop = match movement_stop {
+                Some(current) if !stop_is_nearer_or_equal(conflict.distance, current) => {
+                    Some(current)
+                }
+                Some(_) | None => Some(conflict.distance),
+            };
+        }
+        let (mut travel_m, next_speed_m) = si_comfort_travel(
+            state.speed_mm_s,
+            desired_mm_s,
+            leader_gap,
+            profile,
+            route_end,
+            movement_stop,
+            compiled,
+            lengths,
+            speed_limits,
+            cursor,
+            state.progress_mm,
+            delta_s,
+        )?;
+        if travel_m < 0.0 {
+            travel_m = 0.0;
+        }
+        if !travel_m.is_finite() || !next_speed_m.is_finite() {
+            return None;
+        }
+
+        let hard_room = hard_room_mm(
+            leader_gap,
+            profile.min_gap_mm(),
+            movement_stop,
+            route_end,
+            lengths.get(edge.index()).copied()?,
+            state.progress_mm,
+            self.hop_permitted(state.route, edges, cursor, state.profile),
+        );
+        if hard_room == 0 {
+            state.speed_mm_s = 0;
+            state.carry_um = 0;
+            let arrived = parking
+                .is_some_and(|(reservation, _)| self.parking_arrived_for(state, reservation));
+            if matches!(route_end, BoundedDistance::Finite(0)) && !arrived {
+                state.status = VehicleStatus::Completed;
+            }
+            return Some(state);
+        }
+
+        let um = u64::from(state.carry_um).saturating_add(round_um(f64::from(travel_m))?);
+        let travel_mm = u32::try_from((um / 1_000).min(u64::from(hard_room))).ok()?;
+        let exhausted = travel_mm == hard_room;
+        if exhausted {
+            state.carry_um = 0;
+        } else {
+            state.carry_um = u16::try_from(um % 1_000).ok()?;
+        }
+        let route = state.route;
+        let vehicle_profile = state.profile;
+        apply_travel_mm(&mut state, edges, lengths, travel_mm, |index| {
+            self.hop_permitted(route, edges, index, vehicle_profile)
+                && waiting_stop.is_none_or(|waiting| waiting.hop as usize != index)
+                && conflict_stop.is_none_or(|conflict| conflict.hop as usize != index)
+        })?;
+        let committed_index = usize::try_from(state.route_edge_index).ok()?;
+        let committed_edge = *edges.get(committed_index)?;
+        let committed_limit = *speed_limits.get(committed_edge.index())?;
+        let remaining = remaining_to_route_end(
+            *compiled.remaining_to_end.get(committed_index)?,
+            state.progress_mm,
+        );
+        if exhausted || matches!(remaining, BoundedDistance::Finite(0)) {
+            state.speed_mm_s = 0;
+            state.carry_um = 0;
+            let arrived = parking
+                .is_some_and(|(reservation, _)| self.parking_arrived_for(state, reservation));
+            if matches!(remaining, BoundedDistance::Finite(0)) && !arrived {
+                state.status = VehicleStatus::Completed;
+            }
+            return Some(state);
+        }
+        let speed_mm_s = round_mm(f64::from(next_speed_m))?.min(committed_limit);
+        state.speed_mm_s = speed_mm_s;
+        Some(state)
+    }
+
+    pub(crate) fn parking_stop_distance(
+        self,
+        compiled: &CompiledRoute,
+        state: &VehicleState,
+        cursor: usize,
+    ) -> Option<Option<(ParkingReservation, BoundedDistance)>> {
+        let Some(ParkingBinding::Reserved(reservation)) =
+            self.committed.parking.binding(state.handle)
+        else {
+            return Some(None);
+        };
+        if reservation.route() != state.route {
+            return None;
+        }
+        let (edge, progress_mm) = self.reservation_anchor(reservation)?;
+        let entry_index = usize::try_from(reservation.entry_route_occurrence()).ok()?;
+        if compiled.edges.get(entry_index).copied()? != edge {
+            return None;
+        }
+        let distance = distance_to_occurrence_progress(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            cursor,
+            state.progress_mm,
+            entry_index,
+            progress_mm,
+        )?;
+        Some(Some((reservation, distance)))
+    }
+
+    /// 测试专用：读本拍占用索引上的前保险杠间隙。不是生产热路径。
+    ///
+    /// 使用与 `advance_active_vehicle` 相同的公式窗。公式非有限时 panic，
+    /// 不得把失败关闭写成「本拍无前车」。调用前必须已 `rebuild_occupancy_index`。
+    #[cfg(test)]
+    pub(crate) fn leader_bumper_gap(
+        self,
+        follower: &VehicleState,
+        edges: &[LaneEdgeOrdinal],
+        lengths: &[u32],
+    ) -> Option<i64> {
+        let cursor = usize::try_from(follower.route_edge_index).ok()?;
+        let horizon = self.leader_query_horizon_for(follower);
+        self.derived.occupancy.leader_gap(
+            follower.handle,
+            edges,
+            cursor,
+            follower.progress_mm,
+            lengths,
+            horizon,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn leader_query_horizon_for(self, follower: &VehicleState) -> LeaderQueryHorizon {
+        let profile = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(follower.profile)
+            .expect("test follower profile");
+        let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
+        leader_query_horizon(follower.speed_mm_s, profile, delta_s)
+            .expect("finite leader query horizon")
+    }
+
+    /// `cfg(test)` 全扫描再按 `bumper_gap_horizon` 过滤，不是生产热路径。
+    #[cfg(test)]
+    pub(crate) fn leader_bumper_gap_scan(
+        self,
+        follower: &VehicleState,
+        edges: &[LaneEdgeOrdinal],
+        lengths: &[u32],
+    ) -> Option<i64> {
+        let cursor = usize::try_from(follower.route_edge_index).ok()?;
+        let accept = i64::from(self.leader_query_horizon_for(follower).bumper_gap_mm);
+        let mut best: Option<i64> = None;
+        for handle in self.committed.live_order.iter().copied() {
+            if handle == follower.handle {
+                continue;
+            }
+            let Some(leader) = self.vehicle_state(handle) else {
+                continue;
+            };
+            if leader.status != VehicleStatus::Active {
+                continue;
+            }
+            let Some(leader_edges) = self.route_edges(leader.route) else {
+                continue;
+            };
+            let Ok(leader_index) = usize::try_from(leader.route_edge_index) else {
+                continue;
+            };
+            let Some(gap) = occupancy_front_gap(
+                lengths,
+                edges,
+                cursor,
+                follower.progress_mm,
+                leader_edges,
+                leader_index,
+                leader.progress_mm,
+                leader.length_mm,
+            ) else {
+                continue;
+            };
+            if gap > accept {
+                continue;
+            }
+            best = Some(best.map_or(gap, |current| current.min(gap)));
+        }
+        best
+    }
+
+    /// 下一受控门是拓扑链。绿灯则沿链继续，直到当前限制的门；不要在注册时冻红灯列。
+    ///
+    /// 停车距离读 hop 上已物化的 `distance_from_hop_start`，不靠两条「到路终」后缀相减。
+    /// 路终越界时近处有界门距仍是 `Finite`。
+    pub(crate) fn signal_stop_distance(
+        self,
+        compiled: &CompiledRoute,
+        state: &VehicleState,
+        cursor: usize,
+    ) -> Option<BoundedDistance> {
+        let mut hop = cursor;
+        let mut from_cursor_start = BoundedDistance::Finite(0);
+        let mut accumulated = false;
+        while hop < compiled.next_controlled.len() {
+            let next = compiled.next_controlled[hop]?;
+            from_cursor_start = if accumulated {
+                from_cursor_start.add_bounded(next.distance_from_hop_start)
+            } else {
+                next.distance_from_hop_start
+            };
+            accumulated = true;
+            if self.gate_is_restrictive(next.gate, state.profile) {
+                return Some(from_cursor_start.saturating_sub(state.progress_mm));
+            }
+            let next_hop = usize::try_from(next.hop).ok()?.checked_add(1)?;
+            if next_hop <= hop {
+                return None;
+            }
+            hop = next_hop;
+        }
+        None
+    }
+
+    pub(crate) fn hop_permitted(
+        self,
+        route: crate::RouteHandle,
+        edges: &[LaneEdgeOrdinal],
+        hop_index: usize,
+        profile: VehicleProfileOrdinal,
+    ) -> bool {
+        if hop_index + 1 >= edges.len() {
+            return false;
+        }
+        let Some(compiled) = self.compiled_route(route) else {
+            return false;
+        };
+        match compiled.hop_gate.get(hop_index).copied().flatten() {
+            Some(gate) => !self.gate_is_restrictive(gate, profile),
+            None => true,
+        }
+    }
+
+    pub(crate) fn gate_is_restrictive(
+        self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+        profile: VehicleProfileOrdinal,
+    ) -> bool {
+        matches!(
+            self.gate_policy_decision(gate, profile),
+            crate::GatePolicyDecision::DenyAndStop
+        )
+    }
+
+    pub(crate) fn gate_policy_decision(
+        self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+        profile: VehicleProfileOrdinal,
+    ) -> crate::GatePolicyDecision {
+        self.gate_policy_decision_with_signals(gate, profile, &self.committed.signal_aspects)
+    }
+
+    pub(crate) fn gate_policy_decision_with_signals(
+        self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+        profile: VehicleProfileOrdinal,
+        signal_aspects: &[laneflow_static_contract::SignalAspect],
+    ) -> crate::GatePolicyDecision {
+        let gate_view = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .maneuver_gate(gate);
+        let Some(gate_view) = gate_view else {
+            return crate::GatePolicyDecision::DenyAndStop;
+        };
+        let Some(rule) = self.policy().and_then(|policy| policy.gate(gate, profile)) else {
+            return crate::GatePolicyDecision::DenyAndStop;
+        };
+        let signal_group = gate_view.signal_group();
+        let aspect = signal_group.and_then(|group| signal_aspects.get(group.index()).copied());
+        crate::kernel::conflict::interpret_gate_policy(*rule, signal_group.is_some(), aspect)
+            .unwrap_or(crate::GatePolicyDecision::DenyAndStop)
+    }
+}
+
+impl crate::kernel::phase::StepWorkspace<'_> {
+    pub(crate) fn stage_vehicle_transitions(
+        &mut self,
+        delta_s: f32,
+        tick_index: u64,
+        time_ms: u64,
+        updates: &mut Vec<(usize, VehicleState)>,
+    ) -> Result<Vec<ParkingArrivalObservation>, StepError> {
+        self.prepare_conflict_step(delta_s, tick_index)?;
+        #[cfg(test)]
+        injected_step_failure(StepFailpoint::AfterGrants)?;
+        let mut parking_arrivals = Vec::new();
+        for handle in self.derived.active_order.iter().copied() {
+            let Some(state) = self.vehicle_state(handle).copied() else {
+                continue;
+            };
+            debug_assert_eq!(state.status, VehicleStatus::Active);
+            if !self.parking_state_valid(handle) {
+                return Err(StepError::ParkingInvariantViolation);
+            }
+            let reservation = match self.committed.parking.binding(handle) {
+                Some(ParkingBinding::Reserved(reservation)) => Some(reservation),
+                Some(ParkingBinding::Occupied(_)) => {
+                    return Err(StepError::ParkingInvariantViolation);
+                }
+                None => None,
+            };
+            let arrived_before =
+                reservation.is_some_and(|reservation| self.parking_arrived_for(state, reservation));
+            let waiting_stop = self.waiting_stop_for(state)?;
+            let conflict_stop = self.conflict_stop_for(state)?;
+            let next = self
+                .advance_active_vehicle_with_waiting_stop(
+                    state,
+                    delta_s,
+                    waiting_stop,
+                    conflict_stop,
+                )
+                .ok_or(StepError::NonFiniteMotion)?;
+            if let Some(reservation) = reservation {
+                if next.status != VehicleStatus::Active {
+                    return Err(StepError::ParkingInvariantViolation);
+                }
+                if !arrived_before && self.parking_arrived_for(next, reservation) {
+                    parking_arrivals
+                        .try_reserve(1)
+                        .map_err(|_| StepError::ParkingObservationAllocFailed)?;
+                    parking_arrivals.push(ParkingArrivalObservation {
+                        vehicle: handle,
+                        target: reservation.target(),
+                    });
+                }
+            }
+            let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
+            updates.push((slot, next));
+        }
+        self.finalize_waiting_step(updates)?;
+        // 决策和运动使用拍初信号；资格与日志必须描述下一提交时刻。
+        crate::kernel::world::fill_signal_aspects(
+            &self.binding.revision,
+            time_ms,
+            &mut self.workspace.next_signal_aspects,
+        );
+        self.finalize_conflict_step(updates)?;
+        self.finalize_waiting_outputs(updates, tick_index)?;
+        #[cfg(test)]
+        injected_step_failure(StepFailpoint::AfterTransitions)?;
+        Ok(parking_arrivals)
+    }
+
+    pub(crate) fn advance_active_vehicle(
+        &self,
+        state: VehicleState,
+        delta_s: f32,
+    ) -> Option<VehicleState> {
+        self.read_view().advance_active_vehicle(state, delta_s)
+    }
+
+    pub(crate) fn advance_active_vehicle_with_waiting_stop(
+        &self,
+        state: VehicleState,
+        delta_s: f32,
+        waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+    ) -> Option<VehicleState> {
+        self.read_view().advance_active_vehicle_with_waiting_stop(
+            state,
+            delta_s,
+            waiting_stop,
+            conflict_stop,
+        )
+    }
+
+    pub(crate) fn gate_is_restrictive(
+        &self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+        profile: VehicleProfileOrdinal,
+    ) -> bool {
+        self.read_view().gate_is_restrictive(gate, profile)
+    }
+
+    pub(crate) fn gate_policy_decision(
+        &self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+        profile: VehicleProfileOrdinal,
+    ) -> crate::GatePolicyDecision {
+        self.read_view().gate_policy_decision(gate, profile)
+    }
+}
+
+fn si_meters(mm: u32) -> f32 {
+    mm as f32 / 1_000.0
+}
+
+fn si_speed(mm_s: u32) -> f32 {
+    mm_s as f32 / 1_000.0
+}
+
+fn finite_meters(distance: BoundedDistance) -> Option<f32> {
+    match distance {
+        BoundedDistance::Finite(mm) => Some(si_meters(mm)),
+        BoundedDistance::BeyondFinite => None,
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StopAttribution {
+    SignalStop,
+    ParkingStop,
+    RouteEnd,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SelectedStop {
+    distance: BoundedDistance,
+    attribution: StopAttribution,
+}
+
+/// 数值更近者优先；完全同值时调用顺序编码
+/// `SignalStop -> ParkingStop -> RouteEnd` 的归因权威。
+fn select_movement_stop(
+    signal: Option<BoundedDistance>,
+    parking: Option<BoundedDistance>,
+    route_end: BoundedDistance,
+) -> SelectedStop {
+    let mut selected = SelectedStop {
+        distance: route_end,
+        attribution: StopAttribution::RouteEnd,
+    };
+    if let Some(distance) = parking {
+        let candidate = SelectedStop {
+            distance,
+            attribution: StopAttribution::ParkingStop,
+        };
+        if stop_is_nearer_or_equal(candidate.distance, selected.distance) {
+            selected = candidate;
+        }
+    }
+    if let Some(distance) = signal {
+        let candidate = SelectedStop {
+            distance,
+            attribution: StopAttribution::SignalStop,
+        };
+        if stop_is_nearer_or_equal(candidate.distance, selected.distance) {
+            selected = candidate;
+        }
+    }
+    selected
+}
+
+fn stop_is_nearer_or_equal(candidate: BoundedDistance, current: BoundedDistance) -> bool {
+    match (candidate, current) {
+        (BoundedDistance::Finite(candidate), BoundedDistance::Finite(current)) => {
+            candidate <= current
+        }
+        (BoundedDistance::Finite(_), BoundedDistance::BeyondFinite)
+        | (BoundedDistance::BeyondFinite, BoundedDistance::BeyondFinite) => true,
+        (BoundedDistance::BeyondFinite, BoundedDistance::Finite(_)) => false,
+    }
+}
+
+/// 本拍硬约束。`BeyondFinite` 路终/停车距离不参与包络；Finite 侧保持 `u32`，不上 `u64`。
+fn hard_room_mm(
+    leader_gap: Option<i64>,
+    min_gap_mm: u32,
+    signal_stop: Option<BoundedDistance>,
+    route_end: BoundedDistance,
+    edge_length_mm: u32,
+    progress_mm: u32,
+    hop_permitted: bool,
+) -> u32 {
+    let mut room = u32::MAX;
+    if let Some(gap) = leader_gap {
+        let leftover = gap.saturating_sub(i64::from(min_gap_mm));
+        let leader_room = if leftover <= 0 {
+            0
+        } else {
+            u32::try_from(leftover).unwrap_or(u32::MAX)
+        };
+        room = room.min(leader_room);
+    }
+    if let Some(BoundedDistance::Finite(stop)) = signal_stop {
+        room = room.min(stop);
+    }
+    if let BoundedDistance::Finite(remaining) = route_end {
+        room = room.min(remaining);
+    }
+    if !hop_permitted {
+        room = room.min(edge_length_mm.saturating_sub(progress_mm));
+    }
+    room
+}
+
+fn leader_gap_m(gap: Option<i64>) -> Option<f32> {
+    gap.map(|gap| if gap <= 0 { 0.0 } else { gap as f32 / 1_000.0 })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn si_comfort_travel(
+    speed_mm_s: u32,
+    desired_mm_s: u32,
+    leader_gap: Option<i64>,
+    profile: VehicleProfileView,
+    route_end: BoundedDistance,
+    signal_stop: Option<BoundedDistance>,
+    compiled: &CompiledRoute,
+    lengths: &[u32],
+    speed_limits: &[u32],
+    cursor: usize,
+    progress_mm: u32,
+    delta_s: f32,
+) -> Option<(f32, f32)> {
+    let speed = si_speed(speed_mm_s);
+    let desired = si_speed(desired_mm_s);
+    let leader_m = leader_gap_m(leader_gap);
+    let min_gap_m = si_meters(profile.min_gap_mm());
+    let envelope = speed_limit_path_envelope(
+        compiled.edges.as_slice(),
+        lengths,
+        speed_limits,
+        cursor,
+        progress_mm,
+        delta_s,
+    )?;
+    let (mut travel, mut next_speed) = iidm_travel(speed, desired, leader_m, profile, delta_s)?;
+    travel = clamp_si_travel(
+        travel,
+        leader_m,
+        min_gap_m,
+        signal_stop,
+        route_end,
+        envelope,
+    );
+    if !travel.is_finite() || !next_speed.is_finite() {
+        return None;
+    }
+    next_speed = constrain_upcoming_speed_limits(
+        speed,
+        next_speed,
+        delta_s,
+        compiled,
+        cursor,
+        progress_mm,
+        profile.comfort_decel(),
+        profile.emergency_decel(),
+    )?;
+    travel = ((speed + next_speed) * 0.5 * delta_s).max(0.0);
+    travel = clamp_si_travel(
+        travel,
+        leader_m,
+        min_gap_m,
+        signal_stop,
+        route_end,
+        envelope,
+    );
+    travel = clamp_travel_to_speed_down_boundary(
+        travel,
+        speed,
+        next_speed,
+        delta_s,
+        compiled,
+        cursor,
+        progress_mm,
+    )?;
+    Some((travel.max(0.0), next_speed.max(0.0)))
+}
+
+fn clamp_si_travel(
+    mut travel: f32,
+    leader_m: Option<f32>,
+    min_gap_m: f32,
+    signal_stop: Option<BoundedDistance>,
+    route_end: BoundedDistance,
+    envelope: f32,
+) -> f32 {
+    if let Some(gap) = leader_m {
+        travel = travel.min((gap - min_gap_m).max(0.0));
+    }
+    if let Some(stop) = signal_stop.and_then(finite_meters) {
+        travel = travel.min(stop.max(0.0));
+    }
+    if let Some(end) = finite_meters(route_end) {
+        travel = travel.min(end.max(0.0));
+    }
+    travel.min(envelope).max(0.0)
+}
+
+fn iidm_travel(
+    speed: f32,
+    desired: f32,
+    leader_gap: Option<f32>,
+    profile: VehicleProfileView,
+    delta_s: f32,
+) -> Option<(f32, f32)> {
+    iidm_step(
+        speed,
+        desired,
+        leader_gap,
+        si_meters(profile.min_gap_mm()),
+        profile.time_headway(),
+        profile.max_accel(),
+        profile.comfort_decel(),
+        profile.emergency_decel(),
+        delta_s,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn iidm_step(
+    speed: f32,
+    desired: f32,
+    leader_gap: Option<f32>,
+    min_gap_m: f32,
+    time_headway: f32,
+    accel_max: f32,
+    comfort: f32,
+    emergency: f32,
+    delta_s: f32,
+) -> Option<(f32, f32)> {
+    if !speed.is_finite() || !desired.is_finite() || delta_s <= 0.0 {
+        return None;
+    }
+    if accel_max <= 0.0 || comfort <= 0.0 || emergency <= 0.0 {
+        return None;
+    }
+    if leader_gap.is_some_and(|gap| gap <= 0.0) {
+        return Some((0.0, 0.0));
+    }
+    let speed_term = if desired <= 0.0 {
+        1.0
+    } else {
+        (speed / desired).max(0.0).powi(4)
+    };
+    let gap_term = if let Some(gap) = leader_gap {
+        let s_star = min_gap_m + speed * time_headway;
+        (s_star / gap).max(0.0).powi(2)
+    } else {
+        0.0
+    };
+    let accel = accel_max * (1.0 - speed_term - gap_term);
+    let next_speed = (speed + accel * delta_s).max(0.0).min(desired.max(0.0));
+    let travel = ((speed + next_speed) * 0.5 * delta_s).max(0.0);
+    (travel.is_finite() && next_speed.is_finite()).then_some((travel, next_speed))
+}
+
+fn speed_limit_path_envelope(
+    edges: &[LaneEdgeOrdinal],
+    lengths: &[u32],
+    speed_limits: &[u32],
+    mut index: usize,
+    mut progress_mm: u32,
+    delta_s: f32,
+) -> Option<f32> {
+    if delta_s <= 0.0 {
+        return None;
+    }
+    let mut remaining_t = delta_s;
+    let mut total = 0.0;
+    loop {
+        let edge = *edges.get(index)?;
+        let length = si_meters(*lengths.get(edge.index())?);
+        let limit = si_speed(*speed_limits.get(edge.index())?);
+        let leftover = (length - si_meters(progress_mm)).max(0.0);
+        if limit <= 0.0 {
+            break;
+        }
+        let cap = limit * remaining_t;
+        if cap <= leftover {
+            total += cap;
+            break;
+        }
+        total += leftover;
+        remaining_t -= leftover / limit;
+        if remaining_t <= 0.0 || index + 1 >= edges.len() {
+            break;
+        }
+        index += 1;
+        progress_mm = 0;
+    }
+    total.is_finite().then_some(total.max(0.0))
+}
+
+#[allow(clippy::too_many_arguments)]
+/// 本世界限速下降转换。不扫剩余边；限速值写在 drop 列，与共享根边热列同形。
+fn constrain_upcoming_speed_limits(
+    current_speed: f32,
+    mut next_speed: f32,
+    delta_s: f32,
+    compiled: &CompiledRoute,
+    cursor: usize,
+    progress_mm: u32,
+    comfort: f32,
+    emergency: f32,
+) -> Option<f32> {
+    for drop in compiled.speed_limit_drop.iter() {
+        let from = usize::try_from(drop.from_route_edge_index).ok()?;
+        if from < cursor {
+            continue;
+        }
+        let limit = si_speed(drop.target_mm_s);
+        if limit >= next_speed {
+            continue;
+        }
+        let to_index = from.checked_add(1)?;
+        match distance_to_occurrence_start(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            cursor,
+            progress_mm,
+            to_index,
+        )? {
+            BoundedDistance::BeyondFinite => continue,
+            BoundedDistance::Finite(0) => {
+                next_speed = next_speed.min(limit.max(0.0));
+            }
+            BoundedDistance::Finite(mm) => {
+                let distance = si_meters(mm);
+                next_speed = cap_next_speed_for_limit(
+                    current_speed,
+                    next_speed,
+                    delta_s,
+                    distance,
+                    limit,
+                    comfort,
+                    emergency,
+                )?;
+            }
+        }
+    }
+    Some(next_speed.max(0.0))
+}
+
+fn cap_next_speed_for_limit(
+    current_speed: f32,
+    next_speed: f32,
+    delta_s: f32,
+    distance: f32,
+    limit: f32,
+    comfort: f32,
+    emergency: f32,
+) -> Option<f32> {
+    if let Some(capped) =
+        max_next_speed_for_decel(current_speed, next_speed, delta_s, distance, limit, comfort)
+    {
+        return Some(capped);
+    }
+    max_next_speed_for_decel(
+        current_speed,
+        next_speed,
+        delta_s,
+        distance,
+        limit,
+        emergency,
+    )
+    .or(Some(0.0))
+}
+
+fn max_next_speed_for_decel(
+    current_speed: f32,
+    next_speed: f32,
+    delta_s: f32,
+    distance: f32,
+    limit: f32,
+    decel: f32,
+) -> Option<f32> {
+    if decel <= 0.0 || delta_s <= 0.0 {
+        return None;
+    }
+    let limit = limit.max(0.0);
+    if 0.5 * current_speed * delta_s > distance {
+        return None;
+    }
+    let linear = ((2.0 * distance / delta_s) - current_speed)
+        .min(limit)
+        .min(next_speed)
+        .max(0.0);
+    let b_dt = decel * delta_s;
+    let constant = decel * current_speed * delta_s - limit * limit - 2.0 * decel * distance;
+    let discriminant = b_dt * b_dt - 4.0 * constant;
+    let quadratic = if discriminant >= 0.0 {
+        ((-b_dt + discriminant.sqrt()) / 2.0).min(next_speed)
+    } else {
+        f32::NEG_INFINITY
+    };
+    let mut best = linear;
+    if quadratic > limit
+        && speed_down_constraint_holds(current_speed, quadratic, delta_s, distance, limit, decel)
+    {
+        best = best.max(quadratic);
+    }
+    speed_down_constraint_holds(current_speed, best, delta_s, distance, limit, decel)
+        .then_some(best.min(next_speed).max(0.0))
+}
+
+fn speed_down_constraint_holds(
+    current_speed: f32,
+    next_speed: f32,
+    delta_s: f32,
+    distance: f32,
+    limit: f32,
+    decel: f32,
+) -> bool {
+    let travel = 0.5 * (current_speed + next_speed) * delta_s;
+    let braking = (next_speed * next_speed - limit * limit).max(0.0) / (2.0 * decel);
+    travel + braking <= distance
+}
+
+#[allow(clippy::too_many_arguments)]
+fn clamp_travel_to_speed_down_boundary(
+    mut travel: f32,
+    current_speed: f32,
+    next_speed: f32,
+    delta_s: f32,
+    compiled: &CompiledRoute,
+    cursor: usize,
+    progress_mm: u32,
+) -> Option<f32> {
+    let min_travel = 0.5 * current_speed * delta_s;
+    for drop in compiled.speed_limit_drop.iter() {
+        let from = usize::try_from(drop.from_route_edge_index).ok()?;
+        if from < cursor {
+            continue;
+        }
+        let limit = si_speed(drop.target_mm_s);
+        if limit >= current_speed || limit >= next_speed {
+            continue;
+        }
+        let to_index = from.checked_add(1)?;
+        let BoundedDistance::Finite(mm) = distance_to_occurrence_start(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            cursor,
+            progress_mm,
+            to_index,
+        )?
+        else {
+            continue;
+        };
+        if mm == 0 {
+            continue;
+        }
+        let distance = si_meters(mm);
+        if min_travel <= distance && travel > distance {
+            travel = travel.min(distance);
+        }
+    }
+    Some(travel.max(0.0))
+}
+
+fn apply_travel_mm(
+    state: &mut VehicleState,
+    edges: &[LaneEdgeOrdinal],
+    lengths: &[u32],
+    mut remaining: u32,
+    hop_permitted: impl Fn(usize) -> bool,
+) -> Option<()> {
+    let mut index = usize::try_from(state.route_edge_index).ok()?;
+    while remaining > 0 {
+        let edge = *edges.get(index)?;
+        let edge_length = *lengths.get(edge.index())?;
+        let leftover = edge_length.saturating_sub(state.progress_mm);
+        if remaining < leftover {
+            state.progress_mm = state.progress_mm.saturating_add(remaining);
+            break;
+        }
+        remaining -= leftover;
+        if !hop_permitted(index) || index + 1 >= edges.len() {
+            state.progress_mm = edge_length;
+            break;
+        }
+        index += 1;
+        state.progress_mm = 0;
+    }
+    state.route_edge_index = u32::try_from(index).ok()?;
+    Some(())
+}
+
+#[cfg(test)]
+mod preview {
+    use super::*;
+
+    use laneflow_format::{FormatLimits, check_canonical_network_input};
+    use laneflow_static_contract::{
+        LaneEdgeOrdinal, ParticipantClassOrdinal, VehicleProfileOrdinal,
+    };
+    use laneflow_static_network::{
+        SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+        build_shared_network_revision,
+    };
+
+    use crate::{RouteHandle, RouteRegisterInput, VehicleHandle, VehicleSpawnInput, WorldConfig};
+    fn install_fixture(
+        revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
+        config: crate::WorldConfig,
+    ) -> Result<crate::TrafficWorld, crate::InstallError> {
+        let origin = *revision.canonical_origin();
+        crate::TrafficWorld::install(
+            std::sync::Arc::clone(&revision),
+            config,
+            crate::CommittedNetworkSource::Published {
+                reference: crate::PublishedLfcaReference::new(
+                    "fixture://in-process",
+                    origin.canonical_artifact_digest(),
+                    origin.canonical_artifact_byte_length(),
+                    origin.network_revision(),
+                )
+                .expect("non-empty fixture key"),
+            },
+            0,
+            crate::test_policy::selection(&revision),
+        )
+    }
+
+    fn preview_route(world: &mut TrafficWorld) -> RouteHandle {
+        let traffic = world.traffic();
+        let mut edges = Vec::new();
+        let count = traffic.lane_edge_count();
+        for raw in 0..count {
+            let edge = LaneEdgeOrdinal::from_raw(raw);
+            if traffic.relations().lane_edge_junction(edge).is_some() {
+                continue;
+            }
+            if traffic.relations().stop_line_for_edge(edge).is_some() {
+                continue;
+            }
+            edges.push(edge);
+            if let Some(succ) = traffic
+                .successors(edge)
+                .and_then(|items| items.first().copied())
+                && traffic.relations().stop_line_for_edge(succ).is_none()
+            {
+                edges.push(succ);
+            }
+            break;
+        }
+        world
+            .register_route(RouteRegisterInput::new(edges))
+            .expect("preview route")
+    }
+
+    const FULL_SPATIAL: &[u8] = include_bytes!(
+        "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+    );
+
+    #[test]
+    fn preview_follower_constraints() {
+        let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).unwrap();
+        let revision = build_shared_network_revision(
+            input,
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::RetainAvailable,
+                SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+            ),
+        )
+        .unwrap();
+        let mut world =
+            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).unwrap();
+        let route = preview_route(&mut world);
+        let profile = world
+            .traffic()
+            .relations()
+            .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
+            .unwrap();
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
+                0,
+            ))
+            .unwrap();
+        let follower = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .unwrap();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
+        let state = world.vehicle_state(follower).copied().unwrap();
+        let next = world.advance_active_vehicle(state, 0.1_f32).unwrap();
+        assert!(
+            next.progress_mm > state.progress_mm || next.carry_um > state.carry_um,
+            "follower should start moving, {} -> {}",
+            state.progress_mm,
+            next.progress_mm
+        );
+    }
+
+    fn install_preview_world() -> TrafficWorld {
+        let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).unwrap();
+        let revision = build_shared_network_revision(
+            input,
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::RetainAvailable,
+                SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+            ),
+        )
+        .unwrap();
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).unwrap()
+    }
+
+    #[test]
+    fn failed_signal_boundary_publication_preserves_committed_world_and_retries() {
+        let mut world = install_preview_world();
+        assert!(!world.committed.signal_aspects.is_empty());
+        assert_eq!(
+            world.workspace.next_signal_aspects.len(),
+            world.committed.signal_aspects.len()
+        );
+        let boundary = (1..6_000)
+            .find(|tick| {
+                world.committed.time_ms = (tick - 1) * 100;
+                world.refresh_signals();
+                crate::kernel::world::fill_signal_aspects(
+                    &world.binding.revision,
+                    tick * 100,
+                    &mut world.workspace.next_signal_aspects,
+                );
+                world.committed.signal_aspects != world.workspace.next_signal_aspects
+            })
+            .expect("fixture crosses an ordinary signal phase");
+        world.committed.tick_index = boundary - 1;
+        let before = world.capture_snapshot().unwrap();
+        let signals = world.committed.signal_aspects.clone();
+        let next_signals = world.workspace.next_signal_aspects.clone();
+        STEP_FAILPOINT.with(|failpoint| failpoint.set(Some(StepFailpoint::AfterTransitions)));
+        assert_eq!(
+            world.step(TickInput::new(100)),
+            Err(StepError::ParkingObservationAllocFailed)
+        );
+        assert_eq!(world.capture_snapshot().unwrap(), before);
+        assert_eq!(world.committed.signal_aspects, signals);
+        assert_eq!(world.workspace.next_signal_aspects, next_signals);
+        world.step(TickInput::new(100)).unwrap();
+        assert_eq!(world.committed.signal_aspects, next_signals);
+        assert_eq!(world.time_ms(), boundary * 100);
+        assert!(world.conflict_state_valid());
+    }
+
+    #[test]
+    fn successful_ticks_reuse_preallocated_scratch() {
+        let mut world = install_preview_world();
+        let route = preview_route(&mut world);
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .unwrap();
+        world.step(TickInput::new(100)).unwrap();
+        let next_cap = world.workspace.next_states.capacity();
+        let live_cap = world.committed.live_order.capacity();
+        let vehicle_cap = world.committed.vehicles.capacity();
+        let occupancy_records = world.derived.occupancy.records_capacity();
+        let occupancy_scratch = world.workspace.occupancy_scratch.capacity();
+        let occupancy_offsets = world.derived.occupancy.offsets_capacity();
+        let occupancy_suffix = world.derived.occupancy.suffix_min_lo_capacity();
+        let occupancy_second = world.derived.occupancy.suffix_second_lo_capacity();
+        for _ in 0..16 {
+            world.step(TickInput::new(100)).unwrap();
+            assert_eq!(world.workspace.next_states.capacity(), next_cap);
+            assert_eq!(world.committed.live_order.capacity(), live_cap);
+            assert_eq!(world.committed.vehicles.capacity(), vehicle_cap);
+            assert_eq!(
+                world.derived.occupancy.records_capacity(),
+                occupancy_records
+            );
+            assert_eq!(
+                world.workspace.occupancy_scratch.capacity(),
+                occupancy_scratch
+            );
+            assert_eq!(
+                world.derived.occupancy.offsets_capacity(),
+                occupancy_offsets
+            );
+            assert_eq!(
+                world.derived.occupancy.suffix_min_lo_capacity(),
+                occupancy_suffix
+            );
+            assert_eq!(
+                world.derived.occupancy.suffix_second_lo_capacity(),
+                occupancy_second
+            );
+        }
+    }
+
+    #[test]
+    fn step_error_is_copy_without_diagnostic_allocation() {
+        fn assert_copy<T: Copy>() {}
+        assert_copy::<StepError>();
+        assert!(
+            std::mem::size_of::<StepError>() <= 32,
+            "StepError must stay a small Copy code, size={}",
+            std::mem::size_of::<StepError>()
+        );
+    }
+
+    #[test]
+    fn overflow_step_leaves_committed_time_unchanged() {
+        let mut world = install_preview_world();
+        world.committed.tick_index = u64::MAX;
+        let time = world.committed.time_ms;
+        assert_eq!(world.step(TickInput::new(100)), Err(StepError::Overflow));
+        assert_eq!(world.committed.tick_index, u64::MAX);
+        assert_eq!(world.committed.time_ms, time);
+    }
+
+    #[test]
+    fn non_finite_motion_after_staging_does_not_commit_earlier_vehicles() {
+        let mut world = install_preview_world();
+        let route = preview_route(&mut world);
+        let profile = world
+            .traffic()
+            .relations()
+            .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
+            .unwrap();
+        let first = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
+                0,
+            ))
+            .unwrap();
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .unwrap();
+        let before_progress = world.vehicle_state(first).unwrap().progress_mm;
+        let before_tick = world.committed.tick_index;
+        assert_eq!(
+            world.step(TickInput::new(50)),
+            Err(StepError::DeltaMismatch {
+                expected_delta_time_ms: 100,
+                actual_delta_time_ms: 50,
+            })
+        );
+        assert_eq!(world.committed.tick_index, before_tick);
+        assert_eq!(
+            world.vehicle_state(first).unwrap().progress_mm,
+            before_progress
+        );
+        assert_eq!(world.committed.time_ms, 0);
+    }
+
+    fn travel_state(route_edge_index: u32, progress_mm: u32) -> VehicleState {
+        VehicleState {
+            handle: VehicleHandle::new(0, 0),
+            profile: VehicleProfileOrdinal::from_raw(0),
+            class: ParticipantClassOrdinal::from_raw(0),
+            route: RouteHandle::new(0, 0),
+            route_edge_index,
+            progress_mm,
+            carry_um: 0,
+            speed_mm_s: 0,
+            length_mm: 4_500,
+            status: VehicleStatus::Active,
+            maneuver_traversal: None,
+            waiting_membership: None,
+        }
+    }
+
+    #[test]
+    fn apply_travel_hops_when_remaining_equals_leftover_and_hop_is_permitted() {
+        let edges = [LaneEdgeOrdinal::from_raw(0), LaneEdgeOrdinal::from_raw(1)];
+        let lengths = [1_000, 2_000];
+        let mut state = travel_state(0, 500);
+        apply_travel_mm(&mut state, &edges, &lengths, 500, |index| {
+            index + 1 < edges.len()
+        })
+        .unwrap();
+        assert_eq!(state.route_edge_index, 1);
+        assert_eq!(state.progress_mm, 0);
+    }
+
+    #[test]
+    fn apply_travel_stays_at_length_when_remaining_equals_leftover_and_hop_is_denied() {
+        let edges = [LaneEdgeOrdinal::from_raw(0), LaneEdgeOrdinal::from_raw(1)];
+        let lengths = [1_000, 2_000];
+        let mut state = travel_state(0, 500);
+        apply_travel_mm(&mut state, &edges, &lengths, 500, |_| false).unwrap();
+        assert_eq!(state.route_edge_index, 0);
+        assert_eq!(state.progress_mm, 1_000);
+    }
+
+    #[test]
+    fn hard_stop_clears_carry_um() {
+        let mut world = install_preview_world();
+        let route = preview_route(&mut world);
+        let profile = world
+            .traffic()
+            .relations()
+            .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
+            .unwrap();
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000 + profile.length_mm() + profile.min_gap_mm(),
+                0,
+            ))
+            .unwrap();
+        let follower = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .unwrap();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
+        let mut state = world.vehicle_state(follower).copied().unwrap();
+        state.carry_um = 777;
+        let next = world.advance_active_vehicle(state, 0.1_f32).unwrap();
+        assert_eq!(next.carry_um, 0);
+        assert_eq!(next.speed_mm_s, 0);
+        assert_eq!(next.progress_mm, 1_000);
+        assert_eq!(next.status, VehicleStatus::Active);
+    }
+
+    #[test]
+    fn crawl_retains_sub_millimetre_carry() {
+        let mut world = install_preview_world();
+        let route = preview_route(&mut world);
+        let follower = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .unwrap();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
+        let state = world.vehicle_state(follower).copied().unwrap();
+        let next = world.advance_active_vehicle(state, 0.004_f32).unwrap();
+        assert_eq!(next.progress_mm, state.progress_mm);
+        assert!(next.carry_um > state.carry_um);
+        assert!(next.speed_mm_s > 0);
+        assert_eq!(next.status, VehicleStatus::Active);
+    }
+
+    #[test]
+    fn movement_stop_retains_exact_tie_attribution() {
+        let at = BoundedDistance::Finite(4_000);
+        assert_eq!(
+            select_movement_stop(Some(at), Some(at), BoundedDistance::Finite(5_000)),
+            SelectedStop {
+                distance: at,
+                attribution: StopAttribution::SignalStop,
+            }
+        );
+        assert_eq!(
+            select_movement_stop(None, Some(at), at),
+            SelectedStop {
+                distance: at,
+                attribution: StopAttribution::ParkingStop,
+            }
+        );
+        assert_eq!(
+            select_movement_stop(Some(at), Some(at), at),
+            SelectedStop {
+                distance: at,
+                attribution: StopAttribution::SignalStop,
+            }
+        );
+        assert_eq!(
+            select_movement_stop(
+                Some(BoundedDistance::Finite(6_000)),
+                Some(BoundedDistance::Finite(3_000)),
+                BoundedDistance::Finite(4_000),
+            ),
+            SelectedStop {
+                distance: BoundedDistance::Finite(3_000),
+                attribution: StopAttribution::ParkingStop,
+            }
+        );
+        assert_eq!(
+            select_movement_stop(
+                Some(BoundedDistance::Finite(6_000)),
+                Some(BoundedDistance::Finite(5_000)),
+                BoundedDistance::Finite(4_000),
+            ),
+            SelectedStop {
+                distance: BoundedDistance::Finite(4_000),
+                attribution: StopAttribution::RouteEnd,
+            }
+        );
+    }
+
+    #[test]
+    fn iidm_committed_speed_rounds_f32_si() {
+        let (_, next) = iidm_step(
+            si_speed(9_639),
+            si_speed(12_516),
+            Some(5_560.0_f32 / 1_000.0),
+            2.0,
+            1.4,
+            1.8,
+            2.0,
+            4.5,
+            8.0_f32 / 1_000.0,
+        )
+        .unwrap();
+        assert_eq!(round_mm(f64::from(next)), Some(9_536));
+    }
+}
+
+#[cfg(test)]
+#[path = "phase_equivalence.rs"]
+mod phase_equivalence;
