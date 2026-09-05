@@ -3,7 +3,7 @@
 use crate::StepError;
 
 fn reserve<T>(values: &mut Vec<T>, count: usize) -> Result<(), StepError> {
-    crate::conflict_tick::reserve(values, count)
+    crate::kernel::conflict_tick::reserve(values, count)
 }
 
 #[derive(Clone, Copy)]
@@ -118,7 +118,7 @@ impl WaitingGraph {
             }
         }
         #[cfg(test)]
-        crate::conflict::count_conflict_work(|work| {
+        crate::kernel::conflict::count_conflict_work(|work| {
             work.wait_for_nodes += count;
             work.wait_for_edges += self.edges.len();
         });
@@ -191,7 +191,7 @@ impl WaitingGraph {
             self.order[position] = node;
             self.rank[node] = position;
             #[cfg(test)]
-            crate::conflict::count_conflict_work(|work| work.wait_for_reorders += 1);
+            crate::kernel::conflict::count_conflict_work(|work| work.wait_for_reorders += 1);
         }
         Ok(true)
     }
@@ -206,7 +206,7 @@ impl WaitingGraph {
             self.order[position] = node;
             self.rank[node] = position;
             #[cfg(test)]
-            crate::conflict::count_conflict_work(|work| work.wait_for_rollbacks += 1);
+            crate::kernel::conflict::count_conflict_work(|work| work.wait_for_rollbacks += 1);
         }
         for (index, active) in self.edge_undo.drain(..).rev() {
             self.edges[index].active = active;
@@ -246,7 +246,7 @@ impl WaitingGraph {
 
 fn count_visit() {
     #[cfg(test)]
-    crate::conflict::count_conflict_work(|work| work.wait_for_visits += 1);
+    crate::kernel::conflict::count_conflict_work(|work| work.wait_for_visits += 1);
 }
 
 #[cfg(test)]

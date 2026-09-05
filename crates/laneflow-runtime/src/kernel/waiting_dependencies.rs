@@ -1,12 +1,12 @@
 //! Waiting 容量视图、反向依赖阈值与候选图事务。
 
-use crate::waiting_graph::WaitingGraph;
+use crate::kernel::waiting_graph::WaitingGraph;
 use crate::{StepError, TrafficWorld, VehicleHandle};
 use laneflow_static_contract::WaitingZoneOrdinal;
 use std::num::NonZeroU32;
 
 fn reserve<T>(values: &mut Vec<T>, count: usize) -> Result<(), StepError> {
-    crate::conflict_tick::reserve(values, count)
+    crate::kernel::conflict_tick::reserve(values, count)
 }
 fn encode(index: usize) -> Result<NonZeroU32, StepError> {
     u32::try_from(index)
@@ -379,7 +379,7 @@ impl WaitingDependencies {
             }
             pending.cursor += 1;
             #[cfg(test)]
-            crate::conflict::count_conflict_work(|work| work.wait_for_thresholds += 1);
+            crate::kernel::conflict::count_conflict_work(|work| work.wait_for_thresholds += 1);
             let dependent = self.holds[dependency.hold];
             self.change(
                 dependency.edge,
@@ -457,7 +457,7 @@ impl TrafficWorld {
     }
 }
 
-impl<'a> crate::phase::StepReadView<'a> {
+impl<'a> crate::kernel::phase::StepReadView<'a> {
     pub(crate) fn add_waiting_dependency_hold(
         self,
         ledger: &mut WaitingDependencies,
@@ -508,7 +508,7 @@ impl<'a> crate::phase::StepReadView<'a> {
     }
 }
 
-impl crate::phase::StepWorkspace<'_> {
+impl crate::kernel::phase::StepWorkspace<'_> {
     pub(crate) fn prepare_waiting_dependencies(
         &mut self,
         include_candidates: bool,
@@ -602,7 +602,7 @@ impl crate::phase::StepWorkspace<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::conflict::{WaitingDependencyNode, contains_multi_owner_waiting_cycle};
+    use crate::kernel::conflict::{WaitingDependencyNode, contains_multi_owner_waiting_cycle};
 
     fn owner(index: u32) -> VehicleHandle {
         VehicleHandle::new(index, 0)

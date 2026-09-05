@@ -145,7 +145,7 @@ impl TrafficTransitionEvent {
     }
 }
 
-impl crate::phase::StepWorkspace<'_> {
+impl crate::kernel::phase::StepWorkspace<'_> {
     pub(crate) fn stage_transition_events(
         &mut self,
         updates: &[(usize, VehicleState)],
@@ -158,7 +158,7 @@ impl crate::phase::StepWorkspace<'_> {
         if count == usize::MAX {
             return Err(StepError::ConflictInvariantViolation);
         }
-        crate::conflict_tick::reserve(&mut self.workspace.staged_transition_events, count)?;
+        crate::kernel::conflict_tick::reserve(&mut self.workspace.staged_transition_events, count)?;
         let mut events = std::mem::take(&mut self.workspace.staged_transition_events);
         let result = self.visit_transition_events(updates, tick, |event| events.push(event));
         if result.is_err() {
@@ -300,7 +300,7 @@ impl crate::phase::StepWorkspace<'_> {
                     push(anchor, TrafficTransitionKind::ConflictEntered { passage });
                 }
                 if transition.clear {
-                    let position = crate::conflict::downstream_claim_target(
+                    let position = crate::kernel::conflict::downstream_claim_target(
                         &compiled.edges,
                         self.binding.revision.traffic().lane_lengths_millimetres(),
                         DownstreamRoutePoint::new(

@@ -2,11 +2,10 @@
 //!
 //! 状态归属见 `traffic-runtime-phase-protocol.md`；这些类型不改变公开 facade。
 
-use crate::migration_journal::MigrationDeltaJournal;
-use crate::occupancy::OccupancyIndex;
-use crate::parking::ParkingRuntimeState;
-use crate::tables::{RouteSlot, VehicleSlot};
-use crate::waiting::{
+use crate::kernel::occupancy::OccupancyIndex;
+use crate::kernel::parking::ParkingRuntimeState;
+use crate::kernel::tables::{RouteSlot, VehicleSlot};
+use crate::kernel::waiting::{
     WaitingAdmissionClaim, WaitingQueueEnds, WaitingQueueLink, WaitingVehiclePlan, WaitingZoneState,
 };
 use crate::{
@@ -26,13 +25,13 @@ pub(crate) struct WorldBindingState {
     /// 活动聚合世代；成功切换/恢复的唯一失效轴。
     pub(crate) world_generation: WorldGeneration,
     pub(crate) config: WorldConfig,
-    pub(crate) policy_binding: crate::policy::WorldPolicyBinding,
+    pub(crate) policy_binding: crate::kernel::policy::WorldPolicyBinding,
 }
 
 /// 登记、资源权威、时钟游标及上次成功发布的批次。
 pub(crate) struct CommittedWorldState {
     /// 已提交的冲突/下游资源权威。
-    pub(crate) conflict: crate::conflict::ConflictCommittedState,
+    pub(crate) conflict: crate::kernel::conflict::ConflictCommittedState,
     /// 车辆槽位对应的 exact Gate occurrence 首次资格时钟。
     pub(crate) conflict_eligibility: Vec<Option<crate::ConflictEligibilityState>>,
     pub(crate) latest_conflict_decisions: Vec<crate::ConflictDecision>,
@@ -66,7 +65,7 @@ pub(crate) struct CommittedWorldState {
 
 /// 从已提交基线构建的查询索引；不拥有新的交通权威。
 pub(crate) struct DerivedIndexes {
-    pub(crate) conflict: crate::conflict::ConflictDerivedIndexes,
+    pub(crate) conflict: crate::kernel::conflict::ConflictDerivedIndexes,
     /// 仅含 `Active` 的固定步进执行顺序；按 `live_order` 投影维护，Parked / Completed
     /// 不进入 tick 或 lane occupancy 重建扫描。
     pub(crate) active_order: Vec<VehicleHandle>,
@@ -80,22 +79,24 @@ pub(crate) struct DerivedIndexes {
 
 /// 本拍候选与输出暂存；失败撤销逻辑结果并复用容量。
 pub(crate) struct TickWorkspace {
-    pub(crate) conflict: crate::conflict::ConflictWorkspace,
+    pub(crate) conflict: crate::kernel::conflict::ConflictWorkspace,
     /// 固定步进 scratch；所有增长走 checked reserve，warm-up 后不再分配。
-    pub(crate) conflict_candidates: Vec<crate::conflict_tick::ConflictCandidate>,
-    pub(crate) conflict_schedule: crate::conflict_tick::ConflictSchedule,
+    pub(crate) conflict_candidates: Vec<crate::kernel::conflict_tick::ConflictCandidate>,
+    pub(crate) conflict_schedule: crate::kernel::conflict_tick::ConflictSchedule,
     pub(crate) conflict_candidate_cells: Vec<crate::ConflictPassageAddress>,
     pub(crate) conflict_candidate_downstream: Vec<crate::DownstreamInterval>,
     pub(crate) conflict_cell_work: Vec<crate::ConflictPassageAddress>,
     pub(crate) conflict_downstream_work: Vec<crate::DownstreamInterval>,
-    pub(crate) conflict_grants: Vec<crate::conflict_tick::PreparedConflictGrant>,
-    pub(crate) conflict_motion_by_vehicle: Box<[Option<crate::conflict_tick::ConflictMotionPlan>]>,
+    pub(crate) conflict_grants: Vec<crate::kernel::conflict_tick::PreparedConflictGrant>,
+    pub(crate) conflict_motion_by_vehicle:
+        Box<[Option<crate::kernel::conflict_tick::ConflictMotionPlan>]>,
     pub(crate) conflict_next_eligibility: Box<[Option<crate::ConflictEligibilityState>]>,
-    pub(crate) conflict_passage_transitions: Vec<crate::conflict_tick::ConflictPassageTransition>,
+    pub(crate) conflict_passage_transitions:
+        Vec<crate::kernel::conflict_tick::ConflictPassageTransition>,
     /// 本 tick reservation/stage/release 发生变化的稀疏 owner 集；迁移日志据此
     /// 写 authority replacement，避免为在线切换额外扫描车辆容量。
     pub(crate) conflict_changed_owners: Vec<VehicleHandle>,
-    pub(crate) waiting_dependencies: crate::waiting_dependencies::WaitingDependencies,
+    pub(crate) waiting_dependencies: crate::kernel::waiting_dependencies::WaitingDependencies,
     pub(crate) conflict_staged_decisions: Vec<crate::ConflictDecision>,
     /// 下一提交时刻的信号暂存；tick 失败时不影响已发布信号。
     pub(crate) next_signal_aspects: Box<[SignalAspect]>,
@@ -109,20 +110,8 @@ pub(crate) struct TickWorkspace {
     pub(crate) waiting_next_counters: Box<[u64]>,
     pub(crate) waiting_staged_occupancy: Box<[u32]>,
     pub(crate) waiting_staged_storage_mm: Box<[u64]>,
-    pub(crate) occupancy_scratch: crate::occupancy::OccupancyScratch,
+    pub(crate) occupancy_scratch: crate::kernel::occupancy::OccupancyScratch,
     pub(crate) next_states: Vec<(usize, VehicleState)>,
-}
-
-/// 切换日志及配对世代；不授予步进任意管理权限。
-pub(crate) struct AdministrativeState {
-    /// 武装中的迁移增量日志（#513 切片 C）：`Some` ⟺ 本世界存在在途切换事务。
-    /// 武装与解除都只发生在切换事务的原子边界；溢出粘性置位，从不影响本世界
-    /// 自身的提交路径。
-    pub(crate) migration_journal: Option<MigrationDeltaJournal>,
-    /// 日志武装轮次：每次成功武装递增（进程内守卫，不落盘）。事务绑定
-    /// 武装时的轮次，配对校验一并比对——世界级恢复后重新武装的新日志
-    /// 对旧事务按配对失配失败关闭，防止旧事务认领后继日志。
-    pub(crate) migration_epoch: u64,
 }
 
 #[cfg(test)]
@@ -166,19 +155,19 @@ impl CommittedWorldState {
             latest_waiting_decisions,
             latest_transition_events,
         } = self;
-        crate::state::vec_bytes(conflict_eligibility)
-            + crate::state::vec_bytes(latest_conflict_decisions)
-            + crate::state::vec_bytes(free_routes)
-            + crate::state::vec_bytes(vehicles)
-            + crate::state::vec_bytes(free_vehicles)
-            + crate::state::vec_bytes(live_order)
-            + crate::state::vec_bytes(latest_waiting_decisions)
-            + crate::state::vec_bytes(latest_transition_events)
-            + crate::state::slice_bytes(signal_aspects)
-            + crate::state::slice_bytes(waiting_zones)
+        crate::kernel::state::vec_bytes(conflict_eligibility)
+            + crate::kernel::state::vec_bytes(latest_conflict_decisions)
+            + crate::kernel::state::vec_bytes(free_routes)
+            + crate::kernel::state::vec_bytes(vehicles)
+            + crate::kernel::state::vec_bytes(free_vehicles)
+            + crate::kernel::state::vec_bytes(live_order)
+            + crate::kernel::state::vec_bytes(latest_waiting_decisions)
+            + crate::kernel::state::vec_bytes(latest_transition_events)
+            + crate::kernel::state::slice_bytes(signal_aspects)
+            + crate::kernel::state::slice_bytes(waiting_zones)
             + conflict.retained_logical_bytes()
             + parking.retained_logical_bytes()
-            + crate::state::vec_bytes(routes)
+            + crate::kernel::state::vec_bytes(routes)
             + routes
                 .iter()
                 .map(RouteSlot::retained_logical_bytes)
@@ -197,10 +186,10 @@ impl DerivedIndexes {
             waiting_member_rows,
             occupancy,
         } = self;
-        crate::state::vec_bytes(active_order)
-            + crate::state::vec_bytes(waiting_member_rows)
-            + crate::state::slice_bytes(waiting_queue_ends)
-            + crate::state::slice_bytes(waiting_links)
+        crate::kernel::state::vec_bytes(active_order)
+            + crate::kernel::state::vec_bytes(waiting_member_rows)
+            + crate::kernel::state::slice_bytes(waiting_queue_ends)
+            + crate::kernel::state::slice_bytes(waiting_links)
             + conflict.retained_logical_bytes()
             + occupancy.retained_logical_bytes()
     }
@@ -237,45 +226,32 @@ impl TickWorkspace {
             occupancy_scratch,
             next_states,
         } = self;
-        crate::state::vec_bytes(conflict_candidates)
-            + crate::state::vec_bytes(conflict_candidate_cells)
-            + crate::state::vec_bytes(conflict_candidate_downstream)
-            + crate::state::vec_bytes(conflict_cell_work)
-            + crate::state::vec_bytes(conflict_downstream_work)
-            + crate::state::vec_bytes(conflict_grants)
-            + crate::state::vec_bytes(conflict_passage_transitions)
-            + crate::state::vec_bytes(conflict_changed_owners)
-            + crate::state::vec_bytes(conflict_staged_decisions)
-            + crate::state::vec_bytes(waiting_claims)
-            + crate::state::vec_bytes(waiting_plans)
-            + crate::state::vec_bytes(waiting_staged_decisions)
-            + crate::state::vec_bytes(staged_transition_events)
-            + crate::state::vec_bytes(next_states)
-            + crate::state::slice_bytes(conflict_motion_by_vehicle)
-            + crate::state::slice_bytes(conflict_next_eligibility)
-            + crate::state::slice_bytes(next_signal_aspects)
-            + crate::state::slice_bytes(waiting_plan_by_vehicle)
-            + crate::state::slice_bytes(next_state_by_vehicle)
-            + crate::state::slice_bytes(waiting_next_counters)
-            + crate::state::slice_bytes(waiting_staged_occupancy)
-            + crate::state::slice_bytes(waiting_staged_storage_mm)
+        crate::kernel::state::vec_bytes(conflict_candidates)
+            + crate::kernel::state::vec_bytes(conflict_candidate_cells)
+            + crate::kernel::state::vec_bytes(conflict_candidate_downstream)
+            + crate::kernel::state::vec_bytes(conflict_cell_work)
+            + crate::kernel::state::vec_bytes(conflict_downstream_work)
+            + crate::kernel::state::vec_bytes(conflict_grants)
+            + crate::kernel::state::vec_bytes(conflict_passage_transitions)
+            + crate::kernel::state::vec_bytes(conflict_changed_owners)
+            + crate::kernel::state::vec_bytes(conflict_staged_decisions)
+            + crate::kernel::state::vec_bytes(waiting_claims)
+            + crate::kernel::state::vec_bytes(waiting_plans)
+            + crate::kernel::state::vec_bytes(waiting_staged_decisions)
+            + crate::kernel::state::vec_bytes(staged_transition_events)
+            + crate::kernel::state::vec_bytes(next_states)
+            + crate::kernel::state::slice_bytes(conflict_motion_by_vehicle)
+            + crate::kernel::state::slice_bytes(conflict_next_eligibility)
+            + crate::kernel::state::slice_bytes(next_signal_aspects)
+            + crate::kernel::state::slice_bytes(waiting_plan_by_vehicle)
+            + crate::kernel::state::slice_bytes(next_state_by_vehicle)
+            + crate::kernel::state::slice_bytes(waiting_next_counters)
+            + crate::kernel::state::slice_bytes(waiting_staged_occupancy)
+            + crate::kernel::state::slice_bytes(waiting_staged_storage_mm)
             + conflict.retained_logical_bytes()
             + conflict_schedule.retained_logical_bytes() as u64
             + waiting_dependencies.retained_logical_bytes()
             + occupancy_scratch.retained_logical_bytes()
-    }
-}
-
-#[cfg(test)]
-impl AdministrativeState {
-    pub(crate) fn retained_logical_bytes(&self) -> u64 {
-        let Self {
-            migration_journal,
-            migration_epoch: _,
-        } = self;
-        migration_journal
-            .as_ref()
-            .map_or(0, MigrationDeltaJournal::retained_logical_bytes)
     }
 }
 
@@ -330,11 +306,11 @@ impl crate::TrafficWorld {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::admin::migration_journal::MigrationDeltaJournal;
 
     #[test]
     fn complete_retained_memory_covers_warm_partitions_and_armed_journal() {
-        let mut world = crate::waiting::tests::multi_gate_world(2);
+        let mut world = crate::kernel::waiting::tests::multi_gate_world(2);
         let initial = world.retained_memory();
         assert!(initial.shared_network > 0);
         assert!(initial.partitions[..4].iter().all(|bytes| *bytes > 0));

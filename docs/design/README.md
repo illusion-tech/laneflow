@@ -12,6 +12,8 @@
 - `traffic-runtime-phase-protocol.md`：串行 P0～P8、内部状态五分区、窄视图与
   `CommitPlan` 的设计；领域算法继续由 Waiting/Conflict 等合同定义，
   不表示内部重构或并行执行已实现。
+- `traffic-runtime-module-boundary.md`：仿真内核、管理平面与 facade 的私有模块边界、
+  LFSD/LFRS 唯一格式入口，以及 xtask 架构检查。
 - `retire-precompiled-static-route.md`：路网制品不声明路线；场景 catalog 0.4
   拥有示例边序列（ADR 0029）。
 - `traffic-runtime-revision-cutover.md`：在线修订切换事务、切换描述符、封闭迁移

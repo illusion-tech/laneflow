@@ -4,9 +4,11 @@ use laneflow_static_contract::{
     LaneEdgeOrdinal, ParkingFacilityOrdinal, ParkingSpaceOrdinal, VehicleProfileOrdinal,
 };
 
-use crate::migration_journal::{ParkingBindingDelta, VehicleDelta, WaitingMembershipReleaseDelta};
-use crate::occupancy::{LeaderQueryHorizon, OccupancyIndex};
-use crate::tables::{
+use crate::admin::migration_journal::{
+    ParkingBindingDelta, VehicleDelta, WaitingMembershipReleaseDelta,
+};
+use crate::kernel::occupancy::{LeaderQueryHorizon, OccupancyIndex};
+use crate::kernel::tables::{
     ConflictCapabilityError, VehicleSlot, occupancy_footprints_equal, occupancy_front_gap,
 };
 use crate::{ParkingError, RouteHandle, TrafficWorld, VehicleHandle, VehicleState, VehicleStatus};
@@ -493,8 +495,8 @@ impl ParkingRuntimeState {
             virtual_pools,
             bindings,
         } = self;
-        crate::state::slice_bytes(explicit)
-            + crate::state::slice_bytes(virtual_pools)
+        crate::kernel::state::slice_bytes(explicit)
+            + crate::kernel::state::slice_bytes(virtual_pools)
             + (bindings.capacity() * core::mem::size_of::<(VehicleHandle, ParkingBinding)>()) as u64
     }
 }
@@ -743,15 +745,19 @@ fn exact_parking_arrival(
         && state.carry_um == 0
 }
 
-fn map_waiting_parking_error(error: crate::waiting::WaitingBindingError) -> ParkingError {
+fn map_waiting_parking_error(error: crate::kernel::waiting::WaitingBindingError) -> ParkingError {
     match error {
-        crate::waiting::WaitingBindingError::VehicleTooLong => ParkingError::WaitingVehicleTooLong,
-        crate::waiting::WaitingBindingError::StatefulManeuverInterior
-        | crate::waiting::WaitingBindingError::AuthorityMismatch
-        | crate::waiting::WaitingBindingError::ParkingConflict => {
+        crate::kernel::waiting::WaitingBindingError::VehicleTooLong => {
+            ParkingError::WaitingVehicleTooLong
+        }
+        crate::kernel::waiting::WaitingBindingError::StatefulManeuverInterior
+        | crate::kernel::waiting::WaitingBindingError::AuthorityMismatch
+        | crate::kernel::waiting::WaitingBindingError::ParkingConflict => {
             ParkingError::WaitingTraversalConflict
         }
-        crate::waiting::WaitingBindingError::InvalidRoute => ParkingError::InvariantViolation,
+        crate::kernel::waiting::WaitingBindingError::InvalidRoute => {
+            ParkingError::InvariantViolation
+        }
     }
 }
 
@@ -1082,7 +1088,7 @@ impl TrafficWorld {
         self.validate_forward_reachable(state, anchor.route_occurrence, anchor.progress_mm)?;
         self.validate_waiting_parking_anchor(state.route, anchor.route_occurrence)
             .map_err(|error| match error {
-                crate::waiting::WaitingBindingError::ParkingConflict => {
+                crate::kernel::waiting::WaitingBindingError::ParkingConflict => {
                     ParkingError::WaitingTraversalConflict
                 }
                 _ => ParkingError::InvariantViolation,
@@ -1730,7 +1736,7 @@ impl TrafficWorld {
             }
             None => {}
         }
-        crate::conflict::ConflictWrite::new(
+        crate::kernel::conflict::ConflictWrite::new(
             &mut self.committed.conflict,
             &mut self.derived.conflict,
             &mut self.workspace.conflict,
@@ -1772,7 +1778,7 @@ impl TrafficWorld {
     }
 }
 
-impl<'a> crate::phase::StepReadView<'a> {
+impl<'a> crate::kernel::phase::StepReadView<'a> {
     pub(crate) fn validate_anchor_on_route(
         self,
         route: RouteHandle,
@@ -1933,7 +1939,7 @@ impl<'a> crate::phase::StepReadView<'a> {
     }
 }
 
-impl crate::phase::StepWorkspace<'_> {
+impl crate::kernel::phase::StepWorkspace<'_> {
     pub(crate) fn reservation_anchor(
         &self,
         reservation: ParkingReservation,

@@ -15,23 +15,23 @@ use std::sync::Arc;
 use laneflow_static_contract::{ConflictZoneOrdinal, LaneEdgeOrdinal, ParticipantStreamOrdinal};
 use laneflow_static_network::{CanonicalNetworkOrigin, SharedNetworkRevision};
 
-use crate::cutover::{
+use crate::admin::cutover::{
     CutoverError, CutoverEventBatch, CutoverPreflightLimits, MigrationPolicyKind,
     NetworkRevisionCutoverDescriptor,
 };
-use crate::cutover_migration::{
+use crate::admin::cutover_migration::{
     ConflictCutoverFinalizationPlan, CrossRevisionRebinding, conflict_passage_semantics_continuous,
     finalize_conflict_cutover_floors, migrate_structural_clone_with_conflict_plan,
     project_expected_conflict, revalidate_migrated_vehicles, revalidate_vehicle_on,
     revalidate_waiting_routes, vehicle_state_from_delta,
 };
-use crate::migration_journal::{
+use crate::admin::migration_journal::{
     DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES, JournalRecord, ParkingBindingDelta, VEHICLE_DELTA_BYTES,
     VehicleDelta, conflict_authority_cell_delta_stream, conflict_authority_delta_stream,
     conflict_eligibility_delta_stream, conflict_lag_delta_stream, raw_u32_stream,
     waiting_zone_delta_stream,
 };
-use crate::snapshot_digest::deterministic_state_digest;
+use crate::admin::snapshot_digest::deterministic_state_digest;
 use crate::{
     CommittedNetworkSource, ObservationStateSequence, ParkingBinding, ParkingReservation,
     ParkingSpaceState, ParkingTarget, RouteHandle, TrafficWorld, VehicleHandle,
@@ -188,7 +188,7 @@ impl TrafficWorld {
         }
         // 目标信号程序按本世界步长复验（install 路径的对等校验）：候选不经
         // `TrafficWorld::install` 构造，相位与步长的合同约束必须在此显式把关。
-        crate::world::validate_signal_programs(
+        crate::kernel::world::validate_signal_programs(
             target_revision.as_ref(),
             self.binding.config.fixed_delta_time_ms(),
         )
@@ -806,7 +806,7 @@ fn waiting_release_matches(
     candidate: &TrafficWorld,
     rebinding: &CrossRevisionRebinding,
     state: crate::VehicleState,
-    release: crate::migration_journal::WaitingMembershipReleaseDelta,
+    release: crate::admin::migration_journal::WaitingMembershipReleaseDelta,
 ) -> bool {
     if !release.present {
         return state.waiting_membership.is_none();
@@ -918,10 +918,10 @@ fn initialize_expected_waiting_pre_gate(
         if state.route_edge_index > hop {
             return Err(invalid());
         }
-        captured.maneuver_traversal = Some(crate::snapshot::CapturedManeuverTraversal {
+        captured.maneuver_traversal = Some(crate::admin::snapshot::CapturedManeuverTraversal {
             maneuver_occurrence_index: u32::try_from(index).map_err(|_| invalid())?,
             maneuver_path: *stable_path.as_untyped(),
-            phase: crate::snapshot::CapturedManeuverTraversalPhase::PreGate,
+            phase: crate::admin::snapshot::CapturedManeuverTraversalPhase::PreGate,
             phase_gate: *target
                 .identity()
                 .stable_id(gate)
@@ -936,7 +936,7 @@ fn mapped_journal_conflict_occurrence(
     base_revision: &SharedNetworkRevision,
     candidate: &TrafficWorld,
     rebinding: &CrossRevisionRebinding,
-    locator: crate::migration_journal::ConflictOccurrenceJournalLocator,
+    locator: crate::admin::migration_journal::ConflictOccurrenceJournalLocator,
 ) -> Result<(u32, crate::ConflictPassageAddress), CutoverError> {
     let source_stream_ordinal = ParticipantStreamOrdinal::from_raw(locator.stream);
     let source_zone_ordinal = ConflictZoneOrdinal::from_raw(locator.zone);
@@ -1085,19 +1085,19 @@ fn apply_conflict_tick_deltas(
                 rebinding,
                 cell.locator,
             )?;
-            let stage = crate::conflict::ConflictPassageStage::from_journal_tag(cell.stage)
+            let stage = crate::kernel::conflict::ConflictPassageStage::from_journal_tag(cell.stage)
                 .ok_or(CutoverError::ConflictRevalidationFailed)?;
             mapped.push((
                 index,
-                crate::conflict::RestoredConflictCell {
+                crate::kernel::conflict::RestoredConflictCell {
                     address,
-                    occupant: stage == crate::conflict::ConflictPassageStage::Occupied,
-                    cleared: stage == crate::conflict::ConflictPassageStage::Cleared,
+                    occupant: stage == crate::kernel::conflict::ConflictPassageStage::Occupied,
+                    cleared: stage == crate::kernel::conflict::ConflictPassageStage::Cleared,
                 },
             ));
         }
         mapped.sort_unstable_by_key(|(index, _)| *index);
-        crate::conflict::ConflictWrite::new(
+        crate::kernel::conflict::ConflictWrite::new(
             &mut candidate.committed.conflict,
             &mut candidate.derived.conflict,
             &mut candidate.workspace.conflict,
@@ -1169,14 +1169,14 @@ fn apply_conflict_tick_deltas(
             .map_err(|_| CutoverError::StagingAllocFailed)?;
         cells.extend(mapped.into_iter().map(|(_, cell)| cell));
         cells.sort_unstable_by_key(|cell| cell.address);
-        crate::conflict::ConflictWrite::new(
+        crate::kernel::conflict::ConflictWrite::new(
             &mut candidate.committed.conflict,
             &mut candidate.derived.conflict,
             &mut candidate.workspace.conflict,
         )
         .restore_reservation(
             delta.owner,
-            crate::conflict::RestoredConflictReservation {
+            crate::kernel::conflict::RestoredConflictReservation {
                 follower_min_gap_mm,
                 acquired_tick,
                 passage_range: range,
@@ -1209,7 +1209,7 @@ fn apply_conflict_tick_deltas(
         {
             return Err(CutoverError::ConflictRevalidationFailed);
         }
-        crate::conflict::ConflictWrite::new(
+        crate::kernel::conflict::ConflictWrite::new(
             &mut candidate.committed.conflict,
             &mut candidate.derived.conflict,
             &mut candidate.workspace.conflict,
@@ -1354,7 +1354,7 @@ fn apply_record(
                         .expect("conflict occurrence count fits u64"),
                 )
                 .expect("conflict occurrence preflight guarantees room");
-            let staged = crate::tables::RouteSlot {
+            let staged = crate::kernel::tables::RouteSlot {
                 generation: *generation,
                 compiled: Some(compiled),
                 live_vehicles: 0,
@@ -1432,7 +1432,7 @@ fn apply_record(
             let route = state.route;
             let slot_index =
                 usize::try_from(vehicle.slot).map_err(|_| CutoverError::ReplayInconsistent)?;
-            let staged = crate::tables::VehicleSlot {
+            let staged = crate::kernel::tables::VehicleSlot {
                 generation: vehicle.generation,
                 state: Some(state),
             };
@@ -1538,7 +1538,7 @@ fn apply_record(
                 }
             }
 
-            let staged = crate::tables::VehicleSlot {
+            let staged = crate::kernel::tables::VehicleSlot {
                 generation: vehicle.generation,
                 state: Some(state),
             };
@@ -1613,7 +1613,7 @@ fn apply_record(
             let route_ref = checked_candidate_route_ref(candidate, state.route)?;
             let slot_index =
                 usize::try_from(vehicle.slot).map_err(|_| CutoverError::ReplayInconsistent)?;
-            let staged = crate::tables::VehicleSlot {
+            let staged = crate::kernel::tables::VehicleSlot {
                 generation: vehicle.generation,
                 state: Some(state),
             };
@@ -1694,7 +1694,7 @@ fn apply_record(
 
             let binding = candidate.committed.parking.binding(handle);
             remove_candidate_parking_binding(candidate, handle, binding);
-            crate::conflict::ConflictWrite::new(
+            crate::kernel::conflict::ConflictWrite::new(
                 &mut candidate.committed.conflict,
                 &mut candidate.derived.conflict,
                 &mut candidate.workspace.conflict,
@@ -1732,8 +1732,8 @@ fn apply_record(
 fn compile_candidate_route(
     candidate: &TrafficWorld,
     edges: &[LaneEdgeOrdinal],
-) -> Result<crate::tables::CompiledRoute, CutoverError> {
-    crate::tables::compile_route(
+) -> Result<crate::kernel::tables::CompiledRoute, CutoverError> {
+    crate::kernel::tables::compile_route(
         candidate.binding.revision.as_ref(),
         edges,
         candidate.committed.live_route_conflict_occurrence_count,
@@ -1825,21 +1825,22 @@ mod tests {
     };
 
     const ORACLE_BASE: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-base.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-base.lfca"
     );
     const ORACLE_TARGET: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-target.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-target.lfca"
     );
     const ORACLE_LFSD: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-expected.lfsd"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-expected.lfsd"
     );
-    const BASE: &[u8] =
-        include_bytes!("../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/base.lfca");
+    const BASE: &[u8] = include_bytes!(
+        "../../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/base.lfca"
+    );
     const TARGET: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/target.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/target.lfca"
     );
     const LFSD_BYTES: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/expected.lfsd"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/expected.lfsd"
     );
 
     fn revision(bytes: &[u8]) -> Arc<SharedNetworkRevision> {
@@ -1957,7 +1958,7 @@ mod tests {
 
     #[test]
     fn quiescent_commit_does_not_rerun_full_conflict_migration() {
-        crate::cutover_migration::reset_conflict_migration_calls();
+        crate::admin::cutover_migration::reset_conflict_migration_calls();
         let mut world = installed_world(ORACLE_BASE, "fixture://conflict-plan-source");
         let transaction = prepare(
             &mut world,
@@ -1965,12 +1966,15 @@ mod tests {
             ORACLE_LFSD,
             &CutoverTransactionLimits::default(),
         );
-        assert_eq!(crate::cutover_migration::conflict_migration_calls(), 1);
+        assert_eq!(
+            crate::admin::cutover_migration::conflict_migration_calls(),
+            1
+        );
         let _commit = transaction
             .commit(&mut world)
             .expect("targeted Conflict floor finalization commits");
         assert_eq!(
-            crate::cutover_migration::conflict_migration_calls(),
+            crate::admin::cutover_migration::conflict_migration_calls(),
             1,
             "quiescent commit must not rerun full Conflict migration"
         );
@@ -1979,15 +1983,15 @@ mod tests {
     #[test]
     fn conflict_authority_journal_replay_preserves_updates_without_full_remigration() {
         let (mut source, vehicle) =
-            crate::snapshot_restore::tests::world_with_conflict_reservation();
-        let target_revision = crate::cutover::tests::transaction_tests::revision(true);
+            crate::admin::format_admission::tests::world_with_conflict_reservation();
+        let target_revision = crate::admin::cutover::tests::transaction_tests::revision(true);
         let target_origin = *target_revision.canonical_origin();
         let rebinding = CrossRevisionRebinding::build(
             source.binding.revision.identity(),
             target_revision.identity(),
         )
         .expect("same semantics rebind");
-        let mut candidate = crate::cutover_migration::migrate_structural_clone(
+        let mut candidate = crate::admin::cutover_migration::migrate_structural_clone(
             &source,
             target_revision,
             source_for(target_origin, "fixture://conflict-journal-target"),
@@ -2068,20 +2072,20 @@ mod tests {
     #[test]
     fn production_conflict_ticks_replay_acquire_stage_clear_and_lag_without_remigration() {
         let (mut source, vehicle) =
-            crate::snapshot_restore::tests::world_with_conflict_eligibility();
+            crate::admin::format_admission::tests::world_with_conflict_eligibility();
         source.committed.vehicles[vehicle.index() as usize]
             .state
             .as_mut()
             .expect("source vehicle")
             .speed_mm_s = 1_000;
-        let target_revision = crate::cutover::tests::transaction_tests::revision(false);
+        let target_revision = crate::admin::cutover::tests::transaction_tests::revision(false);
         let target_origin = *target_revision.canonical_origin();
         let rebinding = CrossRevisionRebinding::build(
             source.binding.revision.identity(),
             target_revision.identity(),
         )
         .expect("same semantic identities rebind");
-        let mut candidate = crate::cutover_migration::migrate_structural_clone(
+        let mut candidate = crate::admin::cutover_migration::migrate_structural_clone(
             &source,
             target_revision,
             source_for(
@@ -2163,7 +2167,7 @@ mod tests {
     }
 
     fn assert_same_committed(cut: &TrafficWorld, plain: &TrafficWorld) {
-        crate::cutover_migration::assert_committed_logical_state_equal(cut, plain);
+        crate::admin::cutover_migration::assert_committed_logical_state_equal(cut, plain);
     }
 
     fn first_waiting_world(
@@ -2221,7 +2225,7 @@ mod tests {
 
     #[test]
     fn first_waiting_coverage_initializes_pre_gate_through_prepare_pump_commit() {
-        let (base, target, lfsd) = crate::waiting::tests::first_waiting_cutover_pair();
+        let (base, target, lfsd) = crate::kernel::waiting::tests::first_waiting_cutover_pair();
         // 上游移动和恰好未 crossing 的 Gate boundary 都允许建立零历史 PreGate。
         for (distance, ticks) in [(100_000, 2), (0, 0)] {
             let (mut world, vehicle) = first_waiting_world(Arc::clone(&base), distance, 1_000);
@@ -2283,7 +2287,7 @@ mod tests {
 
     #[test]
     fn first_waiting_coverage_rejects_crossed_gate_and_preserves_source() {
-        let (base, target, lfsd) = crate::waiting::tests::first_waiting_cutover_pair();
+        let (base, target, lfsd) = crate::kernel::waiting::tests::first_waiting_cutover_pair();
         for prepare_before_crossing in [false, true] {
             let (mut world, vehicle) = first_waiting_world(Arc::clone(&base), 1, 1_000);
             let mut tx = prepare_before_crossing.then(|| {
@@ -2318,7 +2322,7 @@ mod tests {
 
     #[test]
     fn clearing_delta_keeps_conflict_phase_when_target_adds_waiting_coverage() {
-        let (base, target, lfsd) = crate::waiting::tests::first_waiting_cutover_pair();
+        let (base, target, lfsd) = crate::kernel::waiting::tests::first_waiting_cutover_pair();
         let (mut world, vehicle) = first_waiting_world(base, 1, 1_000);
         let tx = prepare_first_waiting(&mut world, target, &lfsd).expect("prepare upstream");
         world
@@ -2370,7 +2374,9 @@ mod tests {
     fn first_waiting_coverage_rejects_changed_path_identity() {
         for shift_entry in [false, true] {
             let (base, target, lfsd) =
-                crate::waiting::tests::first_waiting_changed_identity_cutover_pair(shift_entry);
+                crate::kernel::waiting::tests::first_waiting_changed_identity_cutover_pair(
+                    shift_entry,
+                );
             let (mut world, old_vehicle) = first_waiting_world(base, 100_000, 1_000);
             let path = laneflow_static_contract::ManeuverPathOrdinal::from_raw(0);
             assert_ne!(
@@ -2426,7 +2432,7 @@ mod tests {
 
     #[test]
     fn first_waiting_journal_uses_record_route_before_slot_reuse() {
-        let (base, target, lfsd) = crate::waiting::tests::first_waiting_cutover_pair();
+        let (base, target, lfsd) = crate::kernel::waiting::tests::first_waiting_cutover_pair();
         let (mut world, vehicle) = first_waiting_world(base, 100_000, 1_000);
         let route = world.vehicle_state(vehicle).unwrap().route;
         let edges = world.route_edges(route).unwrap().to_vec();
@@ -2457,7 +2463,7 @@ mod tests {
 
     #[test]
     fn first_waiting_expected_digest_remains_independent_of_candidate() {
-        let (base, target, lfsd) = crate::waiting::tests::first_waiting_cutover_pair();
+        let (base, target, lfsd) = crate::kernel::waiting::tests::first_waiting_cutover_pair();
         let (mut world, vehicle) = first_waiting_world(base, 100_000, 1_000);
         let mut tx = prepare_first_waiting(&mut world, target, &lfsd).expect("prepare");
         tx.pump(&mut world).expect("pump");
@@ -2478,7 +2484,7 @@ mod tests {
 
     #[test]
     fn first_waiting_coverage_does_not_bootstrap_parked_or_repair_snapshot() {
-        let (base, target, lfsd) = crate::waiting::tests::first_waiting_cutover_pair();
+        let (base, target, lfsd) = crate::kernel::waiting::tests::first_waiting_cutover_pair();
         let (mut world, active) = first_waiting_world(Arc::clone(&base), 100_000, 1_000);
         let route = world.vehicle_state(active).unwrap().route;
         world.despawn_vehicle(active).unwrap();
@@ -2562,7 +2568,7 @@ mod tests {
     fn clock_only_fast_path_keeps_signal_refresh_and_nonempty_validation() {
         let mut world = installed_world(
             include_bytes!(
-                "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+                "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
             ),
             "fixture://clock-signals",
         );
@@ -2638,7 +2644,7 @@ mod tests {
         assert_eq!(REPLAY_REBUILD_COUNTS.get(), (1, 1));
 
         // counter-only 也不属于空 Tick；重复 counter 必须照常失败关闭。
-        let (base, target, lfsd) = crate::waiting::tests::first_waiting_cutover_pair();
+        let (base, target, lfsd) = crate::kernel::waiting::tests::first_waiting_cutover_pair();
         let (mut source, _) = first_waiting_world(base, 100_000, 1_000);
         let mut tx = prepare_first_waiting(&mut source, target, &lfsd).unwrap();
         let candidate = tx.candidate.as_mut().unwrap();
@@ -2952,10 +2958,11 @@ mod tests {
             tx.pump(&mut cut).expect("pump");
             let before_revision = *cut.binding.revision.canonical_origin();
             let before_generation = cut.world_generation();
-            let error = crate::snapshot::with_snapshot_allocation_failure_after(fail_after, || {
-                tx.commit(&mut cut)
-            })
-            .unwrap_err();
+            let error =
+                crate::admin::snapshot::with_snapshot_allocation_failure_after(fail_after, || {
+                    tx.commit(&mut cut)
+                })
+                .unwrap_err();
             assert!(
                 matches!(
                     error,
@@ -3009,7 +3016,7 @@ mod tests {
         );
         // 窗口内注册引用 doomed 边的路线（base 合法、target 无对应）。
         let target_probe = revision(TARGET);
-        let rebinding_probe = crate::cutover_migration::CrossRevisionRebinding::build(
+        let rebinding_probe = crate::admin::cutover_migration::CrossRevisionRebinding::build(
             cut.binding.revision.identity(),
             target_probe.identity(),
         )
@@ -3576,16 +3583,17 @@ mod tests {
         let target_revision = revision(ORACLE_TARGET);
         let target_origin = *target_revision.canonical_origin();
         let descriptor = descriptor_for(&cut, target_origin, ORACLE_LFSD);
-        let result = crate::cutover_migration::with_staging_allocation_failure_after(0, || {
-            cut.prepare_cross_revision_cutover(
-                target_revision,
-                source_for(target_origin, "fixture://rebind-target"),
-                &descriptor,
-                ORACLE_LFSD,
-                &preflight_limits(),
-                &CutoverTransactionLimits::default(),
-            )
-        });
+        let result =
+            crate::admin::cutover_migration::with_staging_allocation_failure_after(0, || {
+                cut.prepare_cross_revision_cutover(
+                    target_revision,
+                    source_for(target_origin, "fixture://rebind-target"),
+                    &descriptor,
+                    ORACLE_LFSD,
+                    &preflight_limits(),
+                    &CutoverTransactionLimits::default(),
+                )
+            });
         assert_eq!(
             match result {
                 Err(error) => error,
@@ -4093,7 +4101,7 @@ mod tests {
     }
 
     const FULL_SPATIAL_LFCA: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
     fn installed_world_with_dt(bytes: &[u8], key: &str, dt: u64) -> TrafficWorld {

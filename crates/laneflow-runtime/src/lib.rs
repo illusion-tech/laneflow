@@ -5,69 +5,65 @@ extern crate self as laneflow_runtime;
 #[cfg(test)]
 mod test_policy;
 
-mod config;
-mod conflict;
-mod conflict_tick;
-mod cutover;
-mod cutover_migration;
-mod cutover_transaction;
-mod downstream_index;
-mod error;
-mod handle;
-mod input;
-mod migration_journal;
-mod observation;
-mod occupancy;
-mod parking;
-mod phase;
-mod policy;
-mod pose;
-mod routing;
-mod snapshot;
-mod snapshot_digest;
-mod snapshot_restore;
-mod source;
-mod state;
-mod tables;
-mod tick;
-mod transitions;
-mod units;
-mod vehicle;
-mod waiting;
-mod waiting_dependencies;
-mod waiting_graph;
-mod world;
+mod admin;
+mod facade;
+mod kernel;
 
-pub use config::{StepOutcome, TickInput, WorldConfig};
-pub use conflict::{
+pub use admin::cutover::{
+    CUTOVER_DESCRIPTOR_FORMAT_VERSION, CutoverDescriptorError, CutoverError, CutoverEvent,
+    CutoverEventBatch, CutoverPreflightLimits, LfcaOriginBinding, MigrationPolicyKind,
+    NetworkRevisionCutoverDescriptor, SemanticDiffOriginBinding, WorldBinding,
+};
+pub use admin::cutover_transaction::{
+    CutoverCommit, CutoverTransaction, CutoverTransactionLimits, DEFAULT_MAX_CATCH_UP_LAG_TICKS,
+    DEFAULT_MAX_RECORDS_PER_PUMP, PumpOutcome,
+};
+pub use admin::migration_journal::{DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES, MigrationJournalStats};
+pub use admin::snapshot::{
+    CapturedManeuverTraversal, CapturedManeuverTraversalPhase, CapturedParkingBinding,
+    CapturedParkingTarget, CapturedRoute, CapturedSnapshot, CapturedVehicle,
+    CapturedVirtualParkingEntry, CapturedWaitingMembership, CapturedWaitingZoneState,
+    RUNTIME_STATE_VERSION, SNAPSHOT_FORMAT_VERSION, SnapshotCaptureError, encode_lfrs,
+};
+pub use admin::snapshot_digest::{
+    RUNTIME_STATE_DIGEST_DOMAIN, RUNTIME_STATE_DIGEST_VERSION, SnapshotDigestError,
+    deterministic_state_digest,
+};
+pub use admin::snapshot_restore::{
+    RestoredSnapshot, SnapshotLimitDimension, SnapshotRestoreError, SnapshotRestoreLimits,
+    restore_lfrs,
+};
+pub use facade::TrafficWorld;
+pub use facade::observation::{
+    CommittedTrafficObservationBatch, CommittedTrafficObservationRow, OBSERVATION_BINDING_VERSION,
+    ObservationBatchBase, ObservationError, ObservationExportMode, ObservationExportSession,
+    ObservationSelection, ObservationStateSequence, ObservationStreamBinding,
+};
+pub use facade::routing::{
+    AdmittedRouteRegisterError, AdmittedRouteRegisterInput, CandidateRouteError,
+    CandidateRouteInput, CostModelKey, DYNAMIC_COST_BINDING_VERSION, DynamicCostBindingError,
+    DynamicCostSnapshotBinding, ObservationSetBinding, ObservationSetError,
+    RoutingAdmissionSession, bind_observation_set,
+};
+pub use facade::source::{
+    CommittedNetworkSource, InvalidPublishedLfcaReference, PublishedLfcaReference,
+};
+pub use kernel::config::{StepOutcome, TickInput, WorldConfig};
+pub use kernel::conflict::{
     ApproachEstimate, ConflictEligibilityState, ConflictGapOutcome, ConflictLagReference,
     ConflictPassageAddress, ConflictPassageLocator, ConflictPassageOccurrenceLocator,
     ConflictPassageRange, ConflictReservation, ConflictResourceNoGrant, ConflictYieldOutcome,
     DownstreamInterval, DownstreamRoutePoint, GateCandidateKind, GatePolicyDecision,
 };
-pub use conflict_tick::{
+pub use kernel::conflict_tick::{
     ConflictDecision, ConflictDecisionOutcome, ConflictNoGrantReason, ConflictRouteAnchor,
 };
-pub use cutover::{
-    CUTOVER_DESCRIPTOR_FORMAT_VERSION, CutoverDescriptorError, CutoverError, CutoverEvent,
-    CutoverEventBatch, CutoverPreflightLimits, LfcaOriginBinding, MigrationPolicyKind,
-    NetworkRevisionCutoverDescriptor, SemanticDiffOriginBinding, WorldBinding,
+pub use kernel::error::{
+    InstallError, ParkingError, ReplaceError, RouteError, SpawnError, StepError,
 };
-pub use cutover_transaction::{
-    CutoverCommit, CutoverTransaction, CutoverTransactionLimits, DEFAULT_MAX_CATCH_UP_LAG_TICKS,
-    DEFAULT_MAX_RECORDS_PER_PUMP, PumpOutcome,
-};
-pub use error::{InstallError, ParkingError, ReplaceError, RouteError, SpawnError, StepError};
-pub use handle::{RouteHandle, VehicleHandle};
-pub use input::{RouteRegisterInput, VehicleSpawnInput};
-pub use laneflow_static_contract::{ParkingFacilityOrdinal, ParkingSpaceOrdinal};
-pub use migration_journal::{DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES, MigrationJournalStats};
-pub use observation::{
-    CommittedTrafficObservationBatch, CommittedTrafficObservationRow, OBSERVATION_BINDING_VERSION,
-    ObservationBatchBase, ObservationError, ObservationExportMode, ObservationExportSession,
-    ObservationSelection, ObservationStateSequence, ObservationStreamBinding,
-};
-pub use parking::{
+pub use kernel::handle::{RouteHandle, VehicleHandle};
+pub use kernel::input::{RouteRegisterInput, VehicleSpawnInput};
+pub use kernel::parking::{
     LeaveParkingTarget, ParkedVehicleSpawnInput, ParkedVehicleSpawnRecord,
     ParkingArrivalObservation, ParkingBinding, ParkingCancelRecord, ParkingCommandOutcome,
     ParkingFacilityCounts, ParkingLeaveRecord, ParkingParkRecord, ParkingPoolCounts,
@@ -75,37 +71,19 @@ pub use parking::{
     ParkingTarget, RebindParkingTarget, ReserveParkingTarget, VehicleDespawnRecord,
     VirtualEntryAnchorSelector, VirtualExitAnchorSelector,
 };
-pub use policy::{DerivedPolicyGap, PolicyPin, WorldPolicySelection};
-pub use pose::{CommittedPoseSourceBatch, CommittedSignalGroupBatch, PoseSource};
-pub use routing::{
-    AdmittedRouteRegisterError, AdmittedRouteRegisterInput, CandidateRouteError,
-    CandidateRouteInput, CostModelKey, DYNAMIC_COST_BINDING_VERSION, DynamicCostBindingError,
-    DynamicCostSnapshotBinding, ObservationSetBinding, ObservationSetError,
-    RoutingAdmissionSession, bind_observation_set,
+pub use kernel::policy::{DerivedPolicyGap, PolicyPin, WorldPolicySelection};
+pub use kernel::pose::{CommittedPoseSourceBatch, CommittedSignalGroupBatch, PoseSource};
+pub use kernel::transitions::{
+    TrafficTransitionAnchor, TrafficTransitionEvent, TrafficTransitionKind,
 };
-pub use snapshot::{
-    CapturedManeuverTraversal, CapturedManeuverTraversalPhase, CapturedParkingBinding,
-    CapturedParkingTarget, CapturedRoute, CapturedSnapshot, CapturedVehicle,
-    CapturedVirtualParkingEntry, CapturedWaitingMembership, CapturedWaitingZoneState,
-    RUNTIME_STATE_VERSION, SNAPSHOT_FORMAT_VERSION, SnapshotCaptureError, encode_lfrs,
-};
-pub use snapshot_digest::{
-    RUNTIME_STATE_DIGEST_DOMAIN, RUNTIME_STATE_DIGEST_VERSION, SnapshotDigestError,
-    deterministic_state_digest,
-};
-pub use snapshot_restore::{
-    RestoredSnapshot, SnapshotLimitDimension, SnapshotRestoreError, SnapshotRestoreLimits,
-    restore_lfrs,
-};
-pub use source::{CommittedNetworkSource, InvalidPublishedLfcaReference, PublishedLfcaReference};
-pub use transitions::{TrafficTransitionAnchor, TrafficTransitionEvent, TrafficTransitionKind};
-pub use vehicle::{VehicleReplaceBlock, VehicleReplaceRecord, VehicleState, VehicleStatus};
-pub use waiting::{
+pub use kernel::vehicle::{VehicleReplaceBlock, VehicleReplaceRecord, VehicleState, VehicleStatus};
+pub use kernel::waiting::{
     ManeuverTraversalPhase, ManeuverTraversalState, WaitingDecision, WaitingDecisionOutcome,
     WaitingMembership, WaitingMembershipReleaseRecord, WaitingNoGrantReason,
     WaitingProjectionReason, WaitingRouteAnchor, WaitingZoneMember, WaitingZoneSnapshot,
 };
-pub use world::{TrafficWorld, WorldGeneration};
+pub use kernel::world::WorldGeneration;
+pub use laneflow_static_contract::{ParkingFacilityOrdinal, ParkingSpaceOrdinal};
 
 #[cfg(test)]
 mod tests {

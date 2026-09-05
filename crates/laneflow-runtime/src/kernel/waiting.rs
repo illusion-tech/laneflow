@@ -1,7 +1,7 @@
 use crate::{TrafficTransitionEvent, TrafficTransitionKind};
 use laneflow_static_contract::WaitingZoneOrdinal;
 
-use crate::tables::{CompiledRoute, distance_to_occurrence_start};
+use crate::kernel::tables::{CompiledRoute, distance_to_occurrence_start};
 use crate::{RouteHandle, VehicleHandle};
 use laneflow_static_network::BoundedDistance;
 
@@ -929,7 +929,7 @@ impl crate::TrafficWorld {
     }
 }
 
-impl<'a> crate::phase::StepReadView<'a> {
+impl<'a> crate::kernel::phase::StepReadView<'a> {
     pub(crate) fn validate_waiting_parking_anchor(
         self,
         route: RouteHandle,
@@ -1139,7 +1139,7 @@ impl<'a> crate::phase::StepReadView<'a> {
     }
 }
 
-impl crate::phase::StepWorkspace<'_> {
+impl crate::kernel::phase::StepWorkspace<'_> {
     pub(crate) fn prepare_waiting_step(&mut self, delta_s: f32) -> Result<(), crate::StepError> {
         if !self.waiting_member_rows_valid() {
             return Err(crate::StepError::WaitingInvariantViolation);
@@ -1187,8 +1187,9 @@ impl crate::phase::StepWorkspace<'_> {
                 .relations()
                 .vehicle_profile(state.profile)
                 .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            let horizon = crate::tick::leader_query_horizon(state.speed_mm_s, profile, delta_s)
-                .ok_or(crate::StepError::NonFiniteMotion)?;
+            let horizon =
+                crate::kernel::tick::leader_query_horizon(state.speed_mm_s, profile, delta_s)
+                    .ok_or(crate::StepError::NonFiniteMotion)?;
             let Some(BoundedDistance::Finite(gate_distance_mm)) = distance_to_occurrence_start(
                 &compiled.occurrence_segments,
                 &compiled.occurrence_offsets,
@@ -1919,7 +1920,7 @@ impl crate::phase::StepWorkspace<'_> {
     }
 }
 
-impl crate::phase::CommittedStateMut<'_> {
+impl crate::kernel::phase::CommittedStateMut<'_> {
     pub(crate) fn commit_waiting_removals(&mut self, updates: &[(usize, crate::VehicleState)]) {
         for (slot, next) in updates {
             let old = self.committed.vehicles[*slot]
@@ -2061,7 +2062,7 @@ impl crate::phase::CommittedStateMut<'_> {
 
 const fn waiting_membership_cursor_valid(
     route_edge_index: u32,
-    occurrence: &crate::tables::WaitingOccurrence,
+    occurrence: &crate::kernel::tables::WaitingOccurrence,
 ) -> bool {
     route_edge_index > occurrence.entry_hop && route_edge_index <= occurrence.release_hop
 }
@@ -2216,7 +2217,7 @@ fn front_strictly_upstream(
 
 fn first_gate_hop(
     compiled: &CompiledRoute,
-    maneuver: &crate::tables::ManeuverOccurrence,
+    maneuver: &crate::kernel::tables::ManeuverOccurrence,
 ) -> Option<u32> {
     let start = compiled
         .gate_hops
@@ -2350,7 +2351,7 @@ pub(crate) mod tests {
     };
 
     use super::*;
-    use crate::migration_journal::{
+    use crate::admin::migration_journal::{
         JournalRecord, VEHICLE_DELTA_BYTES, VehicleDelta, waiting_zone_delta_stream,
     };
     use crate::{
@@ -2361,16 +2362,24 @@ pub(crate) mod tests {
     };
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
-    fn waiting_world() -> (TrafficWorld, RouteHandle, crate::tables::WaitingOccurrence) {
+    fn waiting_world() -> (
+        TrafficWorld,
+        RouteHandle,
+        crate::kernel::tables::WaitingOccurrence,
+    ) {
         waiting_world_at_delta(100)
     }
 
     fn waiting_world_at_delta(
         delta_time_ms: u64,
-    ) -> (TrafficWorld, RouteHandle, crate::tables::WaitingOccurrence) {
+    ) -> (
+        TrafficWorld,
+        RouteHandle,
+        crate::kernel::tables::WaitingOccurrence,
+    ) {
         let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
             .expect("checked fixture");
         let revision = build_shared_network_revision(
@@ -2520,7 +2529,7 @@ pub(crate) mod tests {
 
     #[test]
     fn simultaneous_gate_requests_use_linear_transition_links() {
-        use crate::conflict::{conflict_work_counts, reset_conflict_work_counts};
+        use crate::kernel::conflict::{conflict_work_counts, reset_conflict_work_counts};
         for count in [64, 256, 1_024] {
             let mut world = multi_gate_world(count);
             reset_conflict_work_counts();
@@ -3100,23 +3109,26 @@ pub(crate) mod tests {
             let traversal = world
                 .validate_waiting_bootstrap(route, route_edge_index as usize, profile_length_mm)
                 .expect("bootstrap");
-            world.committed.vehicles.push(crate::tables::VehicleSlot {
-                generation: 0,
-                state: Some(crate::VehicleState {
-                    handle,
-                    profile,
-                    class: profile_class,
-                    route,
-                    route_edge_index,
-                    progress_mm,
-                    carry_um: 0,
-                    speed_mm_s: if update_sequence == 0 { 10_000 } else { 0 },
-                    length_mm: profile_length_mm,
-                    status: crate::VehicleStatus::Active,
-                    maneuver_traversal: traversal,
-                    waiting_membership: None,
-                }),
-            });
+            world
+                .committed
+                .vehicles
+                .push(crate::kernel::tables::VehicleSlot {
+                    generation: 0,
+                    state: Some(crate::VehicleState {
+                        handle,
+                        profile,
+                        class: profile_class,
+                        route,
+                        route_edge_index,
+                        progress_mm,
+                        carry_um: 0,
+                        speed_mm_s: if update_sequence == 0 { 10_000 } else { 0 },
+                        length_mm: profile_length_mm,
+                        status: crate::VehicleStatus::Active,
+                        maneuver_traversal: traversal,
+                        waiting_membership: None,
+                    }),
+                });
             world.committed.live_order.push(handle);
             world.derived.active_order.push(handle);
         }
@@ -3569,7 +3581,7 @@ pub(crate) mod tests {
                 .is_none()
         );
         roundtrip(&world);
-        crate::cutover_migration::revalidate_migrated_vehicles(&mut world)
+        crate::admin::cutover_migration::revalidate_migrated_vehicles(&mut world)
             .expect("Parked cutover validation");
         let entry = world.route_edges(route).expect("route")[occurrence.entry_hop as usize];
         let member = world
@@ -3753,7 +3765,7 @@ pub(crate) mod tests {
                         }
             }));
             let mut restored = roundtrip(&world);
-            crate::cutover_migration::revalidate_migrated_vehicles(&mut world)
+            crate::admin::cutover_migration::revalidate_migrated_vehicles(&mut world)
                 .expect("migration validates history");
             let target = world.revision();
             let origin = *target.canonical_origin();
@@ -3782,7 +3794,7 @@ pub(crate) mod tests {
 
     #[test]
     fn target_only_waiting_interval_rejects_active_cursor_without_membership() {
-        use crate::cutover_migration::{CrossRevisionRebinding, migrate_structural_clone};
+        use crate::admin::cutover_migration::{CrossRevisionRebinding, migrate_structural_clone};
 
         let base = waiting_scale_revision_with_layout(8.0, 1, ScaleLayout::AdditionalGate);
         let target = waiting_scale_revision_with_layout(8.0, 1, ScaleLayout::SecondZone);

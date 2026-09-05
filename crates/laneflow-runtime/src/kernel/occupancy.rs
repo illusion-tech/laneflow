@@ -1,7 +1,7 @@
 use laneflow_static_contract::{LaneEdgeOrdinal, MAX_VEHICLE_LENGTH_MM, MIN_LANE_EDGE_LENGTH_MM};
 use laneflow_static_network::SharedNetworkRevision;
 
-use crate::tables::{CompiledRoute, RouteSlot, VehicleSlot, for_each_occupancy_interval};
+use crate::kernel::tables::{CompiledRoute, RouteSlot, VehicleSlot, for_each_occupancy_interval};
 use crate::{RouteHandle, StepError, TrafficWorld, VehicleHandle, VehicleState, VehicleStatus};
 
 #[cfg(test)]
@@ -168,7 +168,7 @@ pub(crate) struct OccupancyScratch {
 impl OccupancyScratch {
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self { positions } = self;
-        crate::state::vec_bytes(positions)
+        crate::kernel::state::vec_bytes(positions)
     }
 }
 
@@ -194,10 +194,10 @@ impl OccupancyIndex {
             inspections: _,
             occurrence_walks: _,
         } = self;
-        crate::state::vec_bytes(offsets)
-            + crate::state::vec_bytes(records)
-            + crate::state::vec_bytes(suffix_min_lo)
-            + crate::state::vec_bytes(suffix_second_lo)
+        crate::kernel::state::vec_bytes(offsets)
+            + crate::kernel::state::vec_bytes(records)
+            + crate::kernel::state::vec_bytes(suffix_min_lo)
+            + crate::kernel::state::vec_bytes(suffix_second_lo)
     }
 }
 
@@ -630,8 +630,8 @@ fn visit_occupancy_records(
 }
 
 fn rebuild_occupancy_index(
-    binding: &crate::state::WorldBindingState,
-    committed: &crate::state::CommittedWorldState,
+    binding: &crate::kernel::state::WorldBindingState,
+    committed: &crate::kernel::state::CommittedWorldState,
     active_order: &[VehicleHandle],
     occupancy: &mut OccupancyIndex,
     scratch: &mut OccupancyScratch,
@@ -759,11 +759,11 @@ mod tests {
         SpatialBuildOption, build_shared_network_revision,
     };
 
-    use crate::tables::{
+    use crate::kernel::tables::{
         occupancy_front_gap, remaining_along_route_i64, with_route_allocation_failure_after,
     };
-    use crate::tick::leader_query_horizon;
-    use crate::units::ceil_mm;
+    use crate::kernel::tick::leader_query_horizon;
+    use crate::kernel::units::ceil_mm;
     use crate::{
         ParkedVehicleSpawnInput, ParkingTarget, RouteError, RouteRegisterInput, StepError,
         TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig,
@@ -792,7 +792,7 @@ mod tests {
     }
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
     fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {

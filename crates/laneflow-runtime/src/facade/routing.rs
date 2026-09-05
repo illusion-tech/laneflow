@@ -597,7 +597,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::tables::with_route_allocation_failure_after;
+    use crate::kernel::tables::with_route_allocation_failure_after;
     use crate::{
         CommittedNetworkSource, ObservationExportMode, ObservationSelection,
         PublishedLfcaReference, RouteRegisterInput, TickInput, VehicleSpawnInput, WorldConfig,
@@ -694,7 +694,7 @@ mod tests {
     fn revision() -> Arc<SharedNetworkRevision> {
         let input = check_canonical_network_input(
             include_bytes!(
-                "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+                "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
             ),
             FormatLimits::HARD,
         )

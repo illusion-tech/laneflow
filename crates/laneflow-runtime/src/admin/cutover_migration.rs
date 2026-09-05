@@ -1,6 +1,6 @@
 //! 跨修订直移核心（#302 切换合同 §3；#513 切片 C-2）。
 //!
-//! LFSD 认证消费见 [`crate::cutover`] 的描述符方法。本模块交付另外两件：
+//! LFSD 认证消费见 [`crate::admin::cutover`] 的描述符方法。本模块交付另外两件：
 //! base→target 稳定引用重绑表（两侧 `SharedIdentityIndex` 共同解析，LFSD
 //! 绑定行完成两侧制品交叉验证后，映射权威即身份索引对）与结构克隆迁移
 //! （候选与旧世界槽位布局一致——当期句柄恒等保持；逐实体重绑即重验证，
@@ -16,9 +16,11 @@ use laneflow_static_contract::{
 };
 use laneflow_static_network::{ConflictPathAnchor, SharedIdentityIndex, SharedNetworkRevision};
 
-use crate::migration_journal::VehicleDelta;
-use crate::parking::ParkingRuntimeState;
-use crate::tables::{RouteSlot, VehicleSlot, bodies_overlap, compile_route, route_access_denied};
+use crate::admin::migration_journal::VehicleDelta;
+use crate::kernel::parking::ParkingRuntimeState;
+use crate::kernel::tables::{
+    RouteSlot, VehicleSlot, bodies_overlap, compile_route, route_access_denied,
+};
 use crate::{
     CommittedNetworkSource, CutoverError, ManeuverTraversalPhase, ManeuverTraversalState,
     ParkingBinding, ParkingReservation, ParkingSpaceState, ParkingTarget, RouteHandle,
@@ -272,7 +274,7 @@ pub(crate) fn vehicle_state_from_delta(
         let anchor = candidate
             .resolve_maneuver_anchor(
                 route,
-                crate::world::ManeuverOccurrenceAnchor::EntryRouteEdgeIndex(
+                crate::kernel::world::ManeuverOccurrenceAnchor::EntryRouteEdgeIndex(
                     delta.maneuver_entry_route_edge_index,
                 ),
                 path,
@@ -425,8 +427,8 @@ fn try_clone<T: Clone>(source: &[T]) -> Result<Vec<T>, CutoverError> {
 }
 
 fn waiting_occurrences_rebind(
-    base: &crate::tables::CompiledRoute,
-    target: &crate::tables::CompiledRoute,
+    base: &crate::kernel::tables::CompiledRoute,
+    target: &crate::kernel::tables::CompiledRoute,
     rebinding: &CrossRevisionRebinding,
 ) -> bool {
     base.waiting.iter().all(|occurrence| {
@@ -529,7 +531,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
     rebinding: &CrossRevisionRebinding,
 ) -> Result<(TrafficWorld, ConflictCutoverFinalizationPlan), CutoverError> {
     world.validate_cutover_policy(&target_revision)?;
-    let policy_binding = crate::policy::WorldPolicyBinding::install(
+    let policy_binding = crate::kernel::policy::WorldPolicyBinding::install(
         &target_revision,
         world.policy_selection(),
         world.binding.config.fixed_delta_time_ms(),
@@ -877,7 +879,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
     )
     .expect("waiting zone count fits usize");
     let conflict_arbiter =
-        crate::conflict::ConflictArbiter::install(&target_revision, vehicle_capacity)
+        crate::kernel::conflict::ConflictArbiter::install(&target_revision, vehicle_capacity)
             .map_err(|_| CutoverError::StagingAllocFailed)?;
 
     // occurrence 总数重算（迁移不增减边数；防御性闭合后文校验容量）。
@@ -897,7 +899,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
     let (conflict, conflict_indexes, conflict_workspace) = conflict_arbiter.into_parts();
     let conflict_eligibility = try_staging_vec(vehicle_capacity)?;
     let conflict_candidates = try_staging_vec(vehicle_capacity)?;
-    let conflict_schedule = crate::conflict_tick::ConflictSchedule::default();
+    let conflict_schedule = crate::kernel::conflict_tick::ConflictSchedule::default();
     let conflict_candidate_cells = Vec::new();
     let conflict_candidate_downstream = Vec::new();
     let conflict_cell_work = Vec::new();
@@ -907,7 +909,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
     let conflict_next_eligibility = try_staging_slice(vehicle_capacity)?;
     let conflict_passage_transitions = Vec::new();
     let conflict_changed_owners = try_staging_vec(vehicle_capacity)?;
-    let waiting_dependencies = crate::waiting_dependencies::WaitingDependencies::default();
+    let waiting_dependencies = crate::kernel::waiting_dependencies::WaitingDependencies::default();
     let conflict_staged_decisions = try_staging_vec(vehicle_capacity)?;
     let latest_conflict_decisions = try_staging_vec(vehicle_capacity)?;
     let tick_index = world.committed.tick_index;
@@ -935,11 +937,12 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
     let waiting_staged_storage_mm = try_staging_slice(waiting_zone_count)?;
     let latest_waiting_decisions = Vec::new();
     let latest_transition_events = Vec::new();
-    let (occupancy, occupancy_scratch) = crate::occupancy::OccupancyIndex::with_capacity(0, 0);
+    let (occupancy, occupancy_scratch) =
+        crate::kernel::occupancy::OccupancyIndex::with_capacity(0, 0);
     let migration_journal = None;
     let migration_epoch = 0;
     let mut candidate = TrafficWorld {
-        binding: crate::state::WorldBindingState {
+        binding: crate::kernel::state::WorldBindingState {
             policy_binding,
             revision,
             source,
@@ -947,7 +950,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             world_generation,
             config,
         },
-        committed: crate::state::CommittedWorldState {
+        committed: crate::kernel::state::CommittedWorldState {
             conflict,
             conflict_eligibility,
             latest_conflict_decisions,
@@ -970,7 +973,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             latest_waiting_decisions,
             latest_transition_events,
         },
-        derived: crate::state::DerivedIndexes {
+        derived: crate::kernel::state::DerivedIndexes {
             conflict: conflict_indexes,
             active_order,
             waiting_queue_ends,
@@ -978,7 +981,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             waiting_member_rows,
             occupancy,
         },
-        workspace: crate::state::TickWorkspace {
+        workspace: crate::kernel::state::TickWorkspace {
             conflict: conflict_workspace,
             conflict_candidates,
             conflict_schedule,
@@ -1006,7 +1009,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             occupancy_scratch,
             next_states,
         },
-        admin: crate::state::AdministrativeState {
+        admin: crate::admin::state::AdministrativeState {
             migration_journal,
             migration_epoch,
         },
@@ -1385,15 +1388,17 @@ pub(crate) fn migrate_conflict_state(
     }
     let vehicle_capacity = usize::try_from(target.binding.config.vehicle_capacity())
         .map_err(|_| CutoverError::StagingAllocFailed)?;
-    let mut arbiter =
-        crate::conflict::ConflictArbiter::install(&target.binding.revision, vehicle_capacity)
-            .map_err(|_| CutoverError::StagingAllocFailed)?;
+    let mut arbiter = crate::kernel::conflict::ConflictArbiter::install(
+        &target.binding.revision,
+        vehicle_capacity,
+    )
+    .map_err(|_| CutoverError::StagingAllocFailed)?;
     let mut eligibility =
         try_staging_slice::<Option<crate::ConflictEligibilityState>>(vehicle_capacity)?;
     let source_vehicle_capacity = usize::try_from(source.binding.config.vehicle_capacity())
         .map_err(|_| CutoverError::StagingAllocFailed)?;
     let mut source_conflict_index = try_staging_slice::<
-        Option<crate::conflict::CommittedConflictIndexEntry>,
+        Option<crate::kernel::conflict::CommittedConflictIndexEntry>,
     >(source_vehicle_capacity)?;
     let source_conflict_view = source
         .conflict_read()
@@ -1554,7 +1559,7 @@ pub(crate) fn migrate_conflict_state(
             let cleared = tail_um
                 >= i128::try_from(clearance_um)
                     .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
-            cells.push(crate::conflict::RestoredConflictCell {
+            cells.push(crate::kernel::conflict::RestoredConflictCell {
                 address: *address,
                 occupant: front_um >= entry_um && !cleared,
                 cleared,
@@ -1637,7 +1642,7 @@ pub(crate) fn migrate_conflict_state(
             .write()
             .restore_reservation(
                 handle,
-                crate::conflict::RestoredConflictReservation {
+                crate::kernel::conflict::RestoredConflictReservation {
                     follower_min_gap_mm,
                     acquired_tick: source_reservation.acquired_tick(),
                     passage_range: target_range,
@@ -1772,7 +1777,7 @@ pub(crate) fn finalize_conflict_cutover_floors(
         ) {
             return Err(CutoverError::ConflictRevalidationFailed);
         }
-        crate::conflict::ConflictWrite::new(
+        crate::kernel::conflict::ConflictWrite::new(
             &mut target.committed.conflict,
             &mut target.derived.conflict,
             &mut target.workspace.conflict,
@@ -1866,7 +1871,7 @@ pub(crate) fn project_expected_conflict(
                                 .get(locator.maneuver_occurrence_index() as usize)
                                 .ok_or(CutoverError::ConflictRevalidationFailed)?;
                             let stable = locator.stable_locator();
-                            Some(crate::snapshot::CapturedConflictEligibility {
+                            Some(crate::admin::snapshot::CapturedConflictEligibility {
                                 maneuver_occurrence_index: locator.maneuver_occurrence_index(),
                                 maneuver_entry_route_edge_index: maneuver.entry_route_edge_index,
                                 admission_gate: *target
@@ -1877,7 +1882,7 @@ pub(crate) fn project_expected_conflict(
                                     .ok_or(CutoverError::ConflictRevalidationFailed)?
                                     .as_untyped(),
                                 conflict_occurrence_index: target_occurrence_index,
-                                passage: crate::snapshot::CapturedConflictPassageLocator {
+                                passage: crate::admin::snapshot::CapturedConflictPassageLocator {
                                     participant_stream: *stable
                                         .participant_stream_stable_id()
                                         .as_untyped(),
@@ -1960,9 +1965,9 @@ pub(crate) fn project_expected_conflict(
                 .conflict_passage_occurrence_locator(target_state.route, index)
                 .ok_or(CutoverError::ConflictRevalidationFailed)?
                 .stable_locator();
-            passages.push(crate::snapshot::CapturedConflictPassage {
+            passages.push(crate::admin::snapshot::CapturedConflictPassage {
                 conflict_occurrence_index: index,
-                passage: crate::snapshot::CapturedConflictPassageLocator {
+                passage: crate::admin::snapshot::CapturedConflictPassageLocator {
                     participant_stream: *locator.participant_stream_stable_id().as_untyped(),
                     conflict_zone: *locator.conflict_zone_stable_id().as_untyped(),
                 },
@@ -1993,7 +1998,7 @@ pub(crate) fn project_expected_conflict(
             .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
         let mut downstream_intervals = try_staging_vec(physical.len())?;
         for interval in physical {
-            downstream_intervals.push(crate::snapshot::CapturedConflictDownstreamInterval {
+            downstream_intervals.push(crate::admin::snapshot::CapturedConflictDownstreamInterval {
                 lane_edge: *target
                     .binding
                     .revision
@@ -2019,7 +2024,7 @@ pub(crate) fn project_expected_conflict(
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
         traversal.maneuver_occurrence_index = first_static.maneuver_index;
         traversal.maneuver_path = path_stable;
-        traversal.phase = crate::snapshot::CapturedManeuverTraversalPhase::Clearing;
+        traversal.phase = crate::admin::snapshot::CapturedManeuverTraversalPhase::Clearing;
         traversal.phase_gate = gate_stable;
     }
     if captured_index != captured.vehicles.len() {
@@ -2056,8 +2061,8 @@ pub(crate) fn project_expected_conflict(
         let locator = target
             .conflict_passage_locator(target_address)
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
-        lag_states.push(crate::snapshot::CapturedConflictLagState {
-            passage: crate::snapshot::CapturedConflictPassageLocator {
+        lag_states.push(crate::admin::snapshot::CapturedConflictLagState {
+            passage: crate::admin::snapshot::CapturedConflictPassageLocator {
                 participant_stream: *locator.participant_stream_stable_id().as_untyped(),
                 conflict_zone: *locator.conflict_zone_stable_id().as_untyped(),
             },
@@ -2230,19 +2235,19 @@ pub(crate) fn revalidate_vehicle_on(
             state.length_mm,
         ) {
             Ok(()) => {}
-            Err(crate::tables::ConflictCapabilityError::InvalidCursor) => {
+            Err(crate::kernel::tables::ConflictCapabilityError::InvalidCursor) => {
                 return Err(CutoverError::VehicleRevalidationFailed {
                     vehicle: handle.index(),
                 });
             }
-            Err(crate::tables::ConflictCapabilityError::AuthorityRequired)
+            Err(crate::kernel::tables::ConflictCapabilityError::AuthorityRequired)
                 if candidate.conflict_reservation(handle).is_some()
                     || candidate
                         .committed
                         .conflict_eligibility
                         .get(handle.index() as usize)
                         .is_some_and(Option::is_some) => {}
-            Err(crate::tables::ConflictCapabilityError::AuthorityRequired) => {
+            Err(crate::kernel::tables::ConflictCapabilityError::AuthorityRequired) => {
                 return Err(CutoverError::VehicleRevalidationFailed {
                     vehicle: handle.index(),
                 });
@@ -2315,8 +2320,8 @@ pub(crate) mod tests {
     use sha2::Digest as _;
 
     use super::*;
-    use crate::cutover::tests::transaction_tests::revision as conflict_revision;
-    use crate::snapshot_restore::tests::{
+    use crate::admin::cutover::tests::transaction_tests::revision as conflict_revision;
+    use crate::admin::format_admission::tests::{
         install_conflict_reservation, world_with_conflict_eligibility,
         world_with_conflict_reservation,
     };
@@ -2329,25 +2334,26 @@ pub(crate) mod tests {
         WorldGeneration, WorldPolicySelection,
     };
 
-    const BASE: &[u8] =
-        include_bytes!("../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/base.lfca");
+    const BASE: &[u8] = include_bytes!(
+        "../../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/base.lfca"
+    );
     const TARGET: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/target.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/target.lfca"
     );
     const LFSD_BYTES: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/expected.lfsd"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/expected.lfsd"
     );
     const ORACLE_BASE: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-base.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-base.lfca"
     );
     const ORACLE_TARGET: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-target.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-target.lfca"
     );
     const PROFILE_BASE: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/profile-base.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/profile-base.lfca"
     );
     const PROFILE_TARGET: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/profile-target.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/profile-target.lfca"
     );
 
     fn conflict_cutover_test_line(
@@ -3169,7 +3175,7 @@ pub(crate) mod tests {
         let mut world = TrafficWorld::install(
             Arc::clone(&revision),
             WorldConfig::new(4, 4, 64, 8, 1, 100),
-            crate::cutover::tests::transaction_tests::source_for(
+            crate::admin::cutover::tests::transaction_tests::source_for(
                 origin,
                 "fixture://live-conflict-cutover-base",
             ),
@@ -3270,7 +3276,7 @@ pub(crate) mod tests {
         let transaction = world
             .prepare_cross_revision_cutover(
                 Arc::clone(&target),
-                crate::cutover::tests::transaction_tests::source_for(
+                crate::admin::cutover::tests::transaction_tests::source_for(
                     *target.canonical_origin(),
                     "fixture://live-conflict-insertion-target",
                 ),
@@ -3343,7 +3349,7 @@ pub(crate) mod tests {
         );
         let error = match world.prepare_cross_revision_cutover(
             Arc::clone(&target),
-            crate::cutover::tests::transaction_tests::source_for(
+            crate::admin::cutover::tests::transaction_tests::source_for(
                 target_origin,
                 "fixture://live-conflict-anchor-target",
             ),
@@ -3367,7 +3373,7 @@ pub(crate) mod tests {
         assert!(world.migration_journal().is_none());
         let retry = match world.prepare_cross_revision_cutover(
             target,
-            crate::cutover::tests::transaction_tests::source_for(
+            crate::admin::cutover::tests::transaction_tests::source_for(
                 target_origin,
                 "fixture://live-conflict-anchor-retry",
             ),
@@ -3479,7 +3485,7 @@ pub(crate) mod tests {
             .addresses()
             .next()
             .expect("fixture conflict address");
-        crate::conflict::ConflictWrite::new(
+        crate::kernel::conflict::ConflictWrite::new(
             &mut target.committed.conflict,
             &mut target.derived.conflict,
             &mut target.workspace.conflict,
@@ -3511,7 +3517,7 @@ pub(crate) mod tests {
 
     #[test]
     fn conflict_migration_routes_every_scratch_reservation_through_staging_axis() {
-        let (source, _) = crate::snapshot_restore::tests::world_with_conflict_reservation();
+        let (source, _) = crate::admin::format_admission::tests::world_with_conflict_reservation();
         let target = conflict_revision(true);
         let target_origin = *target.canonical_origin();
         let rebinding =
@@ -3742,7 +3748,7 @@ pub(crate) mod tests {
     }
 
     const FULL_SPATIAL_LFCA: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
     #[test]

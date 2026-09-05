@@ -127,7 +127,7 @@ fn trace(mut world: TrafficWorld, ticks: usize, retry: bool, journal_bound: Opti
 fn signals_world() -> TrafficWorld {
     let input = laneflow_format::check_canonical_network_input(
         include_bytes!(
-            "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+            "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
         ),
         laneflow_format::FormatLimits::HARD,
     )
@@ -164,7 +164,7 @@ fn signals_world() -> TrafficWorld {
 
 #[test]
 fn exact_baseline_trace_and_retry_match() {
-    let revision = crate::cutover_migration::tests::conflict_scale_revision();
+    let revision = crate::admin::cutover_migration::tests::conflict_scale_revision();
     let mut actual = Vec::new();
     for (name, count, ticks, bound) in [
         ("waiting", 2, 160, None),
@@ -172,14 +172,14 @@ fn exact_baseline_trace_and_retry_match() {
         ("waiting-overflow", 2, 12, Some(32)),
     ] {
         let baseline = trace(
-            crate::waiting::tests::multi_gate_world(count),
+            crate::kernel::waiting::tests::multi_gate_world(count),
             ticks,
             false,
             bound,
         );
         assert_eq!(
             trace(
-                crate::waiting::tests::multi_gate_world(count),
+                crate::kernel::waiting::tests::multi_gate_world(count),
                 ticks,
                 true,
                 bound
@@ -193,14 +193,17 @@ fn exact_baseline_trace_and_retry_match() {
         ("conflict-journal", Some(1_024 * 1_024)),
     ] {
         let baseline = trace(
-            crate::cutover_migration::tests::conflict_scale_world(Arc::clone(&revision), 2),
+            crate::admin::cutover_migration::tests::conflict_scale_world(Arc::clone(&revision), 2),
             640,
             false,
             bound,
         );
         assert_eq!(
             trace(
-                crate::cutover_migration::tests::conflict_scale_world(Arc::clone(&revision), 2),
+                crate::admin::cutover_migration::tests::conflict_scale_world(
+                    Arc::clone(&revision),
+                    2
+                ),
                 640,
                 true,
                 bound
@@ -218,7 +221,7 @@ fn exact_baseline_trace_and_retry_match() {
     let actual = actual.join("\n");
     eprintln!("PHASE_BASELINE_BEGIN\n{actual}\nPHASE_BASELINE_END");
     // Filled from the fixed pre-refactor commit, never regenerated from the implementation under test.
-    const EXPECTED: &str = include_str!("../tests/fixtures/phase-protocol-e011745e.txt");
+    const EXPECTED: &str = include_str!("../../tests/fixtures/phase-protocol-e011745e.txt");
     assert_eq!(actual, EXPECTED.trim_end());
 }
 
@@ -226,10 +229,10 @@ fn exact_baseline_trace_and_retry_match() {
 fn input_and_preparation_errors_precede_staged_failure() {
     for waiting in [true, false] {
         let mut world = if waiting {
-            crate::waiting::tests::multi_gate_world(2)
+            crate::kernel::waiting::tests::multi_gate_world(2)
         } else {
-            crate::cutover_migration::tests::conflict_scale_world(
-                crate::cutover_migration::tests::conflict_scale_revision(),
+            crate::admin::cutover_migration::tests::conflict_scale_world(
+                crate::admin::cutover_migration::tests::conflict_scale_revision(),
                 2,
             )
         };
@@ -240,9 +243,9 @@ fn input_and_preparation_errors_precede_staged_failure() {
             world.step(TickInput::new(delta + 1)),
             Err(StepError::DeltaMismatch { .. })
         ));
-        crate::conflict::set_allocation_failpoint(Some(0));
+        crate::kernel::conflict::set_allocation_failpoint(Some(0));
         let result = world.step(TickInput::new(delta));
-        crate::conflict::set_allocation_failpoint(None);
+        crate::kernel::conflict::set_allocation_failpoint(None);
         STEP_FAILPOINT.with(|slot| slot.set(None));
         assert_eq!(result, Err(StepError::ConflictScratchAllocFailed));
         assert_eq!(checkpoint(&world), before);

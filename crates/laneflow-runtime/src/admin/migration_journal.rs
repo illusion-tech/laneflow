@@ -18,7 +18,7 @@ use laneflow_static_contract::{
 };
 use thiserror::Error;
 
-use crate::tables::CompiledRoute;
+use crate::kernel::tables::CompiledRoute;
 use crate::{
     ManeuverTraversalPhase, ParkingBinding, ParkingTarget, RouteHandle, VehicleHandle,
     VehicleState, VehicleStatus,
@@ -676,7 +676,7 @@ impl MigrationDeltaJournal {
             open_tick_conflict_authorities: _,
             open_tick_conflict_lags: _,
         } = self;
-        crate::state::vec_bytes(bytes)
+        crate::kernel::state::vec_bytes(bytes)
     }
 }
 
@@ -1518,7 +1518,7 @@ mod tests {
     };
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+        "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
     fn world() -> TrafficWorld {
@@ -2011,5 +2011,66 @@ mod tests {
         assert!(world.disarm_migration_journal().is_some());
         assert!(world.migration_journal().is_none());
         assert!(world.disarm_migration_journal().is_none());
+    }
+}
+
+impl crate::TrafficWorld {
+    /// 武装迁移增量日志（#513 切片 C）。只在切换事务 Prepare 边界调用：以
+    /// 当前命令游标为覆盖区间下界，按字节上界一次预留 arena（此后武装期
+    /// 稳态 tick 写入预留空间、不新增分配）。已有在途日志时武装失败。
+    pub(crate) fn arm_migration_journal(
+        &mut self,
+        byte_bound: u64,
+    ) -> Result<(), MigrationJournalError> {
+        if self.admin.migration_journal.is_some() {
+            return Err(MigrationJournalError::AlreadyArmed);
+        }
+        let journal = MigrationDeltaJournal::arm(byte_bound, self.committed.command_cursor)?;
+        self.admin.migration_epoch = self
+            .admin
+            .migration_epoch
+            .checked_add(1)
+            .expect("migration epoch fits u64");
+        self.admin.migration_journal = Some(journal);
+        Ok(())
+    }
+
+    /// 解除并取回迁移增量日志（切换事务放弃或提交边界的收尾步骤）。
+    pub(crate) fn disarm_migration_journal(&mut self) -> Option<MigrationDeltaJournal> {
+        self.admin.migration_journal.take()
+    }
+
+    /// 世界级在途切换恢复入口：显式放弃武装中的迁移增量日志。
+    ///
+    /// 事务被静默丢弃、或以错世界结算（消耗形 `commit`/`abandon` 在
+    /// [`crate::CutoverError::TransactionWorldMismatch`] 后丢弃事务对象）时，来源
+    /// 世界会保持在途锁定（`InFlightTransaction`）且不再存在可结算的事务
+    /// 对象——本入口即该状态下的唯一恢复手段：旧世界从当前状态继续步进，
+    /// 零事件、无候选晋升。无在途事务时按 [`crate::CutoverError::NoInFlightTransaction`]
+    /// 失败关闭。
+    pub fn abandon_in_flight_cutover(&mut self) -> Result<(), crate::CutoverError> {
+        if self.disarm_migration_journal().is_some() {
+            Ok(())
+        } else {
+            Err(crate::CutoverError::NoInFlightTransaction)
+        }
+    }
+
+    /// 武装中的日志只读视图（滞后、溢出与覆盖区间观测）。
+    pub(crate) fn migration_journal(&self) -> Option<&MigrationDeltaJournal> {
+        self.admin.migration_journal.as_ref()
+    }
+
+    /// 武装中迁移增量日志的统计快照；`None` = 无在途切换事务。宿主据此
+    /// 观测追赶滞后（tick 距离）、字节占用与溢出，编排泵入节奏或在超限
+    /// 前显式改用维护暂停模式重试。
+    #[must_use]
+    pub fn migration_journal_stats(
+        &self,
+    ) -> Option<crate::admin::migration_journal::MigrationJournalStats> {
+        self.admin
+            .migration_journal
+            .as_ref()
+            .map(|journal| journal.stats())
     }
 }

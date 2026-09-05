@@ -3,9 +3,9 @@
 use core::ops::Deref;
 
 use crate::TrafficWorld;
-use crate::conflict::{ConflictRead, ConflictResolution};
-use crate::migration_journal::MigrationDeltaJournal;
-use crate::state::{CommittedWorldState, DerivedIndexes, TickWorkspace, WorldBindingState};
+use crate::admin::migration_journal::MigrationDeltaJournal;
+use crate::kernel::conflict::{ConflictRead, ConflictResolution};
+use crate::kernel::state::{CommittedWorldState, DerivedIndexes, TickWorkspace, WorldBindingState};
 
 /// 同一拍初基线的只读投影，不含工作区或管理操作。
 #[derive(Clone, Copy)]
@@ -45,7 +45,7 @@ impl StepCommitted<'_> {
     pub(crate) fn prepare_conflict<'a>(
         &'a mut self,
         derived: &'a mut StepDerived<'_>,
-        workspace: &'a mut crate::conflict::ConflictWorkspace,
+        workspace: &'a mut crate::kernel::conflict::ConflictWorkspace,
     ) -> ConflictResolution<'a> {
         ConflictResolution::new(&mut self.0.conflict, &mut derived.0.conflict, workspace)
     }

@@ -1,6 +1,6 @@
 //! 按物理 edge 和实际后车间距索引的 AVL 区间树；节点来自可复用连续缓冲。
 
-use crate::conflict::ConflictAcquireError;
+use crate::kernel::conflict::ConflictAcquireError;
 use crate::{DownstreamInterval, VehicleHandle};
 use std::num::NonZeroU32;
 
@@ -55,7 +55,7 @@ impl DownstreamIndex {
         u32::try_from(count).map_err(|_| ConflictAcquireError::Capacity)?;
         #[cfg(test)]
         if additional > self.nodes.capacity() - self.nodes.len() {
-            crate::conflict::check_allocation_failpoint()?;
+            crate::kernel::conflict::check_allocation_failpoint()?;
         }
         self.nodes
             .try_reserve(additional)
@@ -164,7 +164,7 @@ impl DownstreamIndex {
             return false;
         };
         #[cfg(test)]
-        crate::conflict::count_conflict_work(|work| work.downstream_interval_visits += 1);
+        crate::kernel::conflict::count_conflict_work(|work| work.downstream_interval_visits += 1);
         let node = self.nodes[index(root)];
         if node.max_end <= u64::from(subject.start_mm()) {
             return false;
@@ -215,7 +215,9 @@ mod tests {
             let gap = (seed % 130) as u32;
             let expected = claims.iter().any(|(other, other_owner, other_gap)| {
                 owner != *other_owner
-                    && crate::conflict::intervals_conflict(interval, gap, *other, *other_gap)
+                    && crate::kernel::conflict::intervals_conflict(
+                        interval, gap, *other, *other_gap,
+                    )
             });
             assert_eq!(tree.conflicts(interval, owner, gap), expected);
             tree.insert(interval, owner, gap);
@@ -224,7 +226,9 @@ mod tests {
         for (interval, owner, gap) in &claims {
             let expected = claims.iter().any(|(other, other_owner, other_gap)| {
                 owner != other_owner
-                    && crate::conflict::intervals_conflict(*interval, *gap, *other, *other_gap)
+                    && crate::kernel::conflict::intervals_conflict(
+                        *interval, *gap, *other, *other_gap,
+                    )
             });
             assert_eq!(tree.conflicts(*interval, *owner, *gap), expected);
         }

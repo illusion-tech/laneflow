@@ -54,7 +54,7 @@ fn digest_try_reserve_exact<T>(
         return Ok(());
     }
     #[cfg(test)]
-    if crate::snapshot::snapshot_reservation_injected_failure() {
+    if crate::admin::snapshot::snapshot_reservation_injected_failure() {
         return Err(SnapshotDigestError::ReservationFailed);
     }
     values
@@ -441,7 +441,7 @@ fn canonical_vehicle_record(vehicle: &CapturedVehicle) -> Result<Vec<u8>, Snapsh
 
 fn push_conflict_locator(
     target: &mut Vec<u8>,
-    locator: crate::snapshot::CapturedConflictPassageLocator,
+    locator: crate::admin::snapshot::CapturedConflictPassageLocator,
 ) {
     target.extend_from_slice(locator.participant_stream.as_bytes());
     target.extend_from_slice(locator.conflict_zone.as_bytes());
@@ -486,7 +486,7 @@ fn push_u64(target: &mut Vec<u8>, value: u64) {
 mod tests {
     use super::*;
     use crate::CapturedRoute;
-    use crate::cutover::tests::transaction_tests::world_with_vehicle;
+    use crate::admin::cutover::tests::transaction_tests::world_with_vehicle;
     use crate::{
         ParkedVehicleSpawnInput, ParkingTarget, SnapshotRestoreLimits, TickInput, WorldConfig,
         encode_lfrs, restore_lfrs,
@@ -542,7 +542,7 @@ mod tests {
         let expected = deterministic_state_digest(&snapshot).expect("baseline digest");
         for fail_after in 0..14 {
             let failed =
-                crate::snapshot::with_snapshot_allocation_failure_after(fail_after, || {
+                crate::admin::snapshot::with_snapshot_allocation_failure_after(fail_after, || {
                     deterministic_state_digest(&snapshot)
                 });
             assert_eq!(

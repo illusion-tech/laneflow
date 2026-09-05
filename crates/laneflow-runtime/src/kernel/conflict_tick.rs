@@ -7,13 +7,13 @@
 use laneflow_static_contract::{VehicleProfileOrdinal, WaitingZoneOrdinal};
 use laneflow_static_network::BoundedDistance;
 
-use crate::conflict::{
+use crate::admin::migration_journal::{ConflictOccurrenceJournalLocator, MigrationDeltaJournal};
+use crate::kernel::conflict::{
     ConflictAcquireError, ConflictCandidateOrderKey, ConflictGrant, GrantResourceBundle,
     WaitingAdmissionEntitlement,
 };
-use crate::migration_journal::{ConflictOccurrenceJournalLocator, MigrationDeltaJournal};
-use crate::occupancy::LeaderQueryHorizon;
-use crate::tables::distance_to_occurrence_progress;
+use crate::kernel::occupancy::LeaderQueryHorizon;
+use crate::kernel::tables::distance_to_occurrence_progress;
 use crate::{
     ApproachEstimate, ConflictEligibilityState, ConflictPassageAddress,
     ConflictPassageOccurrenceLocator, ConflictPassageRange, ConflictResourceNoGrant,
@@ -122,7 +122,7 @@ pub(crate) struct ConflictCandidate {
 struct EvaluatedGate {
     anchor: ConflictRouteAnchor,
     passage: Option<ConflictPassageOccurrenceLocator>,
-    range: crate::tables::ConflictGateRange,
+    range: crate::kernel::tables::ConflictGateRange,
     kind: GateCandidateKind,
     waiting_zone: Option<WaitingZoneOrdinal>,
 }
@@ -152,7 +152,7 @@ impl ConflictSchedule {
         self.local.clear();
         #[cfg(test)]
         if candidates.len() > self.ready.capacity() {
-            crate::conflict::check_allocation_failpoint()
+            crate::kernel::conflict::check_allocation_failpoint()
                 .map_err(|_| StepError::ConflictScratchAllocFailed)?;
         }
         self.ready
@@ -238,7 +238,7 @@ pub(crate) struct ConflictPassageTransition {
 pub(crate) fn reserve<T>(values: &mut Vec<T>, additional: usize) -> Result<(), StepError> {
     #[cfg(test)]
     if additional > values.capacity() - values.len() {
-        crate::conflict::check_allocation_failpoint()
+        crate::kernel::conflict::check_allocation_failpoint()
             .map_err(|_| StepError::ConflictScratchAllocFailed)?;
     }
     values
@@ -360,7 +360,7 @@ impl TrafficWorld {
     }
 }
 
-impl<'a> crate::phase::StepReadView<'a> {
+impl<'a> crate::kernel::phase::StepReadView<'a> {
     pub(crate) fn conflict_journal_locator(
         self,
         route: RouteHandle,
@@ -383,11 +383,11 @@ impl<'a> crate::phase::StepReadView<'a> {
     }
 }
 
-impl crate::phase::StepWorkspace<'_> {
+impl crate::kernel::phase::StepWorkspace<'_> {
     pub(crate) fn conflict_stop_for(
         &self,
         state: VehicleState,
-    ) -> Result<Option<crate::waiting::WaitingStopConstraint>, StepError> {
+    ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
         let grant_hop = self
             .workspace
             .conflict_motion_by_vehicle
@@ -450,7 +450,7 @@ impl crate::phase::StepWorkspace<'_> {
         let Some(hop) = conflict.into_iter().chain(waiting).min() else {
             return Ok(None);
         };
-        let distance = crate::tables::distance_to_occurrence_start(
+        let distance = crate::kernel::tables::distance_to_occurrence_start(
             &compiled.occurrence_segments,
             &compiled.occurrence_offsets,
             &compiled.segment_totals,
@@ -459,7 +459,7 @@ impl crate::phase::StepWorkspace<'_> {
             hop as usize + 1,
         )
         .ok_or(StepError::ConflictInvariantViolation)?;
-        Ok(Some(crate::waiting::WaitingStopConstraint {
+        Ok(Some(crate::kernel::waiting::WaitingStopConstraint {
             distance,
             hop,
         }))
@@ -570,7 +570,7 @@ impl crate::phase::StepWorkspace<'_> {
                 .len();
             for occurrence_index in first_conflict..conflict_count {
                 #[cfg(test)]
-                crate::conflict::count_conflict_work(|counts| counts.visited_passages += 1);
+                crate::kernel::conflict::count_conflict_work(|counts| counts.visited_passages += 1);
                 let Some((occurrence, exact_distance_mm)) = (|| {
                     let compiled = self.compiled_route(state.route)?;
                     let occurrence = *compiled.conflicts.get(occurrence_index)?;
@@ -591,14 +591,15 @@ impl crate::phase::StepWorkspace<'_> {
                 })() else {
                     continue;
                 };
-                let estimate =
-                    crate::conflict::approach_eta_lower_bound(crate::conflict::ApproachEtaInput {
+                let estimate = crate::kernel::conflict::approach_eta_lower_bound(
+                    crate::kernel::conflict::ApproachEtaInput {
                         exact_distance_mm: u64::from(exact_distance_mm),
                         carry_um: state.carry_um,
                         speed_mm_s: state.speed_mm_s,
                         max_acceleration_m_s2: profile.max_accel(),
                         proof_horizon_ms: horizon_ms,
-                    });
+                    },
+                );
                 if estimate == ApproachEstimate::OutsideHorizon {
                     // `conflicts` 按 route position 排列；更远 occurrence 的 directed
                     // lower-bound ETA 也在 proof horizon 外，无需扫完整路线后缀。
@@ -620,7 +621,7 @@ impl crate::phase::StepWorkspace<'_> {
                         _ => StepError::ConflictInvariantViolation,
                     })?;
                 #[cfg(test)]
-                crate::conflict::count_conflict_work(|counts| counts.frontier_updates += 1);
+                crate::kernel::conflict::count_conflict_work(|counts| counts.frontier_updates += 1);
             }
         }
         Ok(())
@@ -656,9 +657,9 @@ impl crate::phase::StepWorkspace<'_> {
             .relations()
             .vehicle_profile(state.profile)
             .ok_or(StepError::ConflictInvariantViolation)?;
-        let horizon = crate::tick::leader_query_horizon(state.speed_mm_s, profile, delta_s)
+        let horizon = crate::kernel::tick::leader_query_horizon(state.speed_mm_s, profile, delta_s)
             .ok_or(StepError::NonFiniteMotion)?;
-        let distance = crate::tables::distance_to_occurrence_start(
+        let distance = crate::kernel::tables::distance_to_occurrence_start(
             &compiled.occurrence_segments,
             &compiled.occurrence_offsets,
             &compiled.segment_totals,
@@ -905,7 +906,7 @@ impl crate::phase::StepWorkspace<'_> {
         reserve(&mut self.workspace.conflict_cell_work, range.len as usize)?;
         for occurrence_index in range.start..passage_end {
             #[cfg(test)]
-            crate::conflict::count_conflict_work(|counts| counts.visited_passages += 1);
+            crate::kernel::conflict::count_conflict_work(|counts| counts.visited_passages += 1);
             let occurrence = *self
                 .compiled_route(state.route)
                 .and_then(|compiled| compiled.conflicts.get(occurrence_index as usize))
@@ -1150,7 +1151,7 @@ impl crate::phase::StepWorkspace<'_> {
             .filter(|slot| slot.generation == route.generation())
             .and_then(|slot| slot.compiled.as_ref())
             .ok_or(ConflictAcquireError::InvalidBundle)?;
-        crate::conflict::derive_downstream_claims_from_plan(
+        crate::kernel::conflict::derive_downstream_claims_from_plan(
             &compiled.edges,
             self.binding.revision.traffic().lane_lengths_millimetres(),
             plan.plan,
@@ -1165,7 +1166,7 @@ impl crate::phase::StepWorkspace<'_> {
         )?;
         self.prepare_waiting_dependencies(true)?;
         #[cfg(test)]
-        crate::conflict::count_conflict_work(|counts| {
+        crate::kernel::conflict::count_conflict_work(|counts| {
             counts.candidates += self.workspace.conflict_candidates.len();
         });
         while let Some(index) = self
@@ -1391,7 +1392,9 @@ impl crate::phase::StepWorkspace<'_> {
                     .map_err(|_| StepError::ConflictInvariantViolation)?,
             )?;
             #[cfg(test)]
-            crate::conflict::count_conflict_work(|counts| counts.vehicle_grant_lookups += 1);
+            crate::kernel::conflict::count_conflict_work(|counts| {
+                counts.vehicle_grant_lookups += 1
+            });
             let grant_index = self.workspace.conflict_motion_by_vehicle
                 [next.handle.index() as usize]
                 .and_then(|plan| plan.grant_index)
@@ -1447,7 +1450,7 @@ impl crate::phase::StepWorkspace<'_> {
         // 在 mutation boundary 前验证完整提交计划；失败仍只丢弃 tick-local staging。
         for prepared in &self.workspace.conflict_grants {
             #[cfg(test)]
-            crate::conflict::count_conflict_work(|counts| counts.grant_update_lookups += 1);
+            crate::kernel::conflict::count_conflict_work(|counts| counts.grant_update_lookups += 1);
             let index = self.workspace.next_state_by_vehicle[prepared.vehicle.index() as usize]
                 .checked_sub(1)
                 .ok_or(StepError::ConflictInvariantViolation)? as usize;
@@ -1520,7 +1523,7 @@ impl crate::phase::StepWorkspace<'_> {
                 occurrence.entry.route_edge_index,
                 occurrence.entry.progress_mm,
             );
-            let rear_cleared = crate::tables::vehicle_rear_at_or_beyond(
+            let rear_cleared = crate::kernel::tables::vehicle_rear_at_or_beyond(
                 self.binding.revision.traffic().lane_lengths_millimetres(),
                 &self
                     .compiled_route(range.route())
@@ -1533,9 +1536,14 @@ impl crate::phase::StepWorkspace<'_> {
                 occurrence.clearance,
             )
             .ok_or(StepError::ConflictInvariantViolation)?;
-            let already_cleared =
-                matches!(stage, Some(crate::conflict::ConflictPassageStage::Cleared));
-            let occupied = matches!(stage, Some(crate::conflict::ConflictPassageStage::Occupied));
+            let already_cleared = matches!(
+                stage,
+                Some(crate::kernel::conflict::ConflictPassageStage::Cleared)
+            );
+            let occupied = matches!(
+                stage,
+                Some(crate::kernel::conflict::ConflictPassageStage::Occupied)
+            );
             let enter = front_reached && !already_cleared && !occupied;
             let clear = rear_cleared && !already_cleared;
             if enter || clear {
@@ -1555,7 +1563,7 @@ impl crate::phase::StepWorkspace<'_> {
     }
 }
 
-impl crate::phase::CommittedStateMut<'_> {
+impl crate::kernel::phase::CommittedStateMut<'_> {
     pub(crate) fn commit_conflict_transitions(
         &mut self,
         updates: &[(usize, VehicleState)],
@@ -1565,7 +1573,7 @@ impl crate::phase::CommittedStateMut<'_> {
         // mutation boundary：下面只执行上方已经完整验证且已预留容量的操作。
         for prepared in self.workspace.conflict_grants.drain(..) {
             #[cfg(test)]
-            crate::conflict::count_conflict_work(|counts| counts.grant_update_lookups += 1);
+            crate::kernel::conflict::count_conflict_work(|counts| counts.grant_update_lookups += 1);
             let index = self.workspace.next_state_by_vehicle[prepared.vehicle.index() as usize]
                 as usize
                 - 1;
@@ -1581,7 +1589,7 @@ impl crate::phase::CommittedStateMut<'_> {
             }
             match prepared.passage_range {
                 Some(range) => {
-                    crate::conflict::ConflictWrite::new(
+                    crate::kernel::conflict::ConflictWrite::new(
                         &mut self.committed.conflict,
                         &mut self.derived.conflict,
                         &mut self.workspace.conflict,
@@ -1590,7 +1598,7 @@ impl crate::phase::CommittedStateMut<'_> {
                     .expect("prevalidated Conflict crossing commit");
                 }
                 None => {
-                    crate::conflict::ConflictWrite::new(
+                    crate::kernel::conflict::ConflictWrite::new(
                         &mut self.committed.conflict,
                         &mut self.derived.conflict,
                         &mut self.workspace.conflict,
@@ -1600,7 +1608,7 @@ impl crate::phase::CommittedStateMut<'_> {
                 }
             }
         }
-        crate::conflict::ConflictWrite::new(
+        crate::kernel::conflict::ConflictWrite::new(
             &mut self.committed.conflict,
             &mut self.derived.conflict,
             &mut self.workspace.conflict,
@@ -1615,7 +1623,7 @@ impl crate::phase::CommittedStateMut<'_> {
             }
             if transition.enter {
                 assert!(
-                    crate::conflict::ConflictWrite::new(
+                    crate::kernel::conflict::ConflictWrite::new(
                         &mut self.committed.conflict,
                         &mut self.derived.conflict,
                         &mut self.workspace.conflict
@@ -1625,18 +1633,18 @@ impl crate::phase::CommittedStateMut<'_> {
                 );
             }
             if transition.clear {
-                released |= crate::conflict::ConflictWrite::new(
+                released |= crate::kernel::conflict::ConflictWrite::new(
                     &mut self.committed.conflict,
                     &mut self.derived.conflict,
                     &mut self.workspace.conflict,
                 )
                 .clear_passage_deferred(transition.vehicle, transition.address, post_step_time_ms)
                 .expect("prevalidated Conflict passage clearance")
-                    == crate::conflict::ConflictClearOutcome::ReservationReleased;
+                    == crate::kernel::conflict::ConflictClearOutcome::ReservationReleased;
             }
         }
         if released {
-            crate::conflict::ConflictWrite::new(
+            crate::kernel::conflict::ConflictWrite::new(
                 &mut self.committed.conflict,
                 &mut self.derived.conflict,
                 &mut self.workspace.conflict,
@@ -1782,12 +1790,14 @@ mod tests {
 
     use super::*;
     use crate::TickInput;
-    use crate::conflict::{ApproachFrontierCell, conflict_work_counts, reset_conflict_work_counts};
-    use crate::cutover_migration::tests::{conflict_scale_revision, conflict_scale_world};
+    use crate::admin::cutover_migration::tests::{conflict_scale_revision, conflict_scale_world};
+    use crate::kernel::conflict::{
+        ApproachFrontierCell, conflict_work_counts, reset_conflict_work_counts,
+    };
 
     #[test]
     fn rejected_waiting_bundle_has_no_claim_counter_or_granted_output() {
-        let mut world = crate::waiting::tests::multi_gate_world(1);
+        let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
         assert_eq!(
             world.workspace.conflict_schedule.retained_logical_bytes(),
             0
