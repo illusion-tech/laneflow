@@ -520,6 +520,7 @@ struct ConflictPolicyFixture {
     next_gate: bool,
     clearance: Option<(u32, f64)>,
     right_turn_signal: Option<laneflow_compiler::GateInterpretation>,
+    signal_cycle_ms: Option<[u64; 2]>,
 }
 
 fn conflict_road_editing_module_with_shape_and_speed(
@@ -539,6 +540,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
         next_gate,
         clearance,
         right_turn_signal,
+        signal_cycle_ms,
     } = policy_fixture;
     assert!(stream_count <= 2);
     assert!(!multiplicity || (include_conflict && stream_count == 2));
@@ -560,6 +562,18 @@ fn conflict_road_editing_module_with_shape_and_speed(
 
     if right_turn_signal.is_some() {
         let group = lfre::SignalGroupReference::local("right-turn-red").unwrap();
+        let priority_group = lfre::SignalGroupReference::local("priority-signal").unwrap();
+        let mut groups = vec![group.clone()];
+        let mut phase_keys = vec!["red"];
+        if signal_cycle_ms.is_some() {
+            module
+                .add_declaration(lfre::RoadEditingDeclaration::SignalGroup(
+                    lfre::SignalGroupInput::try_new("priority-signal").unwrap(),
+                ))
+                .unwrap();
+            groups.push(priority_group.clone());
+            phase_keys.push("green");
+        }
         module
             .add_declaration(lfre::RoadEditingDeclaration::SignalGroup(
                 lfre::SignalGroupInput::try_new("right-turn-red").unwrap(),
@@ -569,31 +583,58 @@ fn conflict_road_editing_module_with_shape_and_speed(
                 lfre::SignalControllerInput::try_new(
                     "right-turn-controller",
                     0,
-                    vec![group.clone()],
-                    vec![
-                        lfre::SignalPhaseReference::owner_scoped(
-                            vec!["right-turn-controller".into()],
-                            "red",
-                        )
-                        .unwrap(),
-                    ],
-                )
-                .unwrap(),
-            ))
-            .unwrap()
-            .add_declaration(lfre::RoadEditingDeclaration::SignalPhase(
-                lfre::SignalPhaseInput::try_new(
-                    "red",
-                    1_000,
-                    vec![
-                        lfre::RoadEditingSignalPhaseState::try_new(group, SignalAspect::Red)
-                            .unwrap(),
-                    ],
-                    lfre::SignalControllerReference::local("right-turn-controller").unwrap(),
+                    groups,
+                    phase_keys
+                        .iter()
+                        .map(|key| {
+                            lfre::SignalPhaseReference::owner_scoped(
+                                vec!["right-turn-controller".into()],
+                                *key,
+                            )
+                            .unwrap()
+                        })
+                        .collect(),
                 )
                 .unwrap(),
             ))
             .unwrap();
+        for (index, key) in phase_keys.into_iter().enumerate() {
+            let mut states = vec![
+                lfre::RoadEditingSignalPhaseState::try_new(
+                    group.clone(),
+                    if index == 0 {
+                        SignalAspect::Red
+                    } else {
+                        SignalAspect::Green
+                    },
+                )
+                .unwrap(),
+            ];
+            if signal_cycle_ms.is_some() {
+                states.push(
+                    lfre::RoadEditingSignalPhaseState::try_new(
+                        priority_group.clone(),
+                        if index == 0 {
+                            SignalAspect::Green
+                        } else {
+                            SignalAspect::Red
+                        },
+                    )
+                    .unwrap(),
+                );
+            }
+            module
+                .add_declaration(lfre::RoadEditingDeclaration::SignalPhase(
+                    lfre::SignalPhaseInput::try_new(
+                        key,
+                        signal_cycle_ms.map_or(1_000, |durations| durations[index]),
+                        states,
+                        lfre::SignalControllerReference::local("right-turn-controller").unwrap(),
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+        }
     }
 
     let junction = lfre::JunctionReference::local("crossing").expect("junction reference");
@@ -785,6 +826,10 @@ fn conflict_road_editing_module_with_shape_and_speed(
                     if stream_index == 0 && right_turn_signal.is_some() {
                         lfre::RoadEditingSignalControl::SignalGroup(
                             lfre::SignalGroupReference::local("right-turn-red").unwrap(),
+                        )
+                    } else if signal_cycle_ms.is_some() {
+                        lfre::RoadEditingSignalControl::SignalGroup(
+                            lfre::SignalGroupReference::local("priority-signal").unwrap(),
                         )
                     } else {
                         lfre::RoadEditingSignalControl::None
@@ -1005,6 +1050,8 @@ fn conflict_road_editing_module_with_shape_and_speed(
             None,
             if *movement == "east-west" {
                 right_turn_signal.unwrap_or(laneflow_compiler::GateInterpretation::Uncontrolled)
+            } else if signal_cycle_ms.is_some() {
+                laneflow_compiler::GateInterpretation::ProtectedGroup
             } else {
                 laneflow_compiler::GateInterpretation::Uncontrolled
             },

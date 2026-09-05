@@ -17,9 +17,9 @@ use crate::tables::distance_to_occurrence_progress;
 use crate::{
     ApproachEstimate, ConflictEligibilityState, ConflictPassageAddress,
     ConflictPassageOccurrenceLocator, ConflictPassageRange, ConflictResourceNoGrant,
-    ConflictYieldOutcome, GatePolicyDecision, ManeuverTraversalPhase, ManeuverTraversalState,
-    ParkingBinding, RouteHandle, StepError, TrafficWorld, VehicleHandle, VehicleState,
-    VehicleStatus,
+    ConflictYieldOutcome, GateCandidateKind, GatePolicyDecision, ManeuverTraversalPhase,
+    ManeuverTraversalState, ParkingBinding, RouteHandle, StepError, TrafficWorld, VehicleHandle,
+    VehicleState, VehicleStatus,
 };
 
 /// Conflict 决定的稳定动态路线锚点。
@@ -733,6 +733,11 @@ impl TrafficWorld {
             priority = Some(priority.map_or(stream.priority(), |current: i32| {
                 current.min(stream.priority())
             }));
+            // 保护候选仍解析规则并收集全部冲突资源，只跳过让行间隙求值。
+            // 占用、预留、下游净空和运动安全继续走共同的仲裁路径。
+            if kind == GateCandidateKind::Protected {
+                continue;
+            }
             let (zone, targets) = policy
                 .yield_targets(
                     occurrence.stream,
