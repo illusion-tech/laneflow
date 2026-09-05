@@ -105,6 +105,9 @@ pub(crate) mod snapshot_restore { pub struct RestoredSnapshot; pub struct Snapsh
         self.directory.write("admin/format_admission.rs", source);
     }
     fn compile(&self) {
+        self.compile_with(&[]);
+    }
+    fn compile_with(&self, extra_args: &[&str]) {
         self.directory.write(
             "static.rs",
             "pub struct SharedNetworkRevision; pub struct CanonicalNetworkOrigin;",
@@ -114,22 +117,41 @@ pub(crate) mod snapshot_restore { pub struct RestoredSnapshot; pub struct Snapsh
             &self.directory.0.join("static.rs"),
             &["--crate-type=rlib", "--crate-name=laneflow_static_network"],
             &library,
-            None,
+            &[],
         );
+        self.directory.write("wire.rs", "pub struct Raw;");
+        let wire = self
+            .directory
+            .0
+            .join("liblaneflow_runtime_snapshot_wire.rlib");
+        rustc(
+            &self.directory.0.join("wire.rs"),
+            &[
+                "--crate-type=rlib",
+                "--crate-name=laneflow_runtime_snapshot_wire",
+            ],
+            &wire,
+            &[],
+        );
+        let mut args = vec![
+            "--crate-type=lib",
+            "--crate-name=fixture",
+            "--emit=metadata",
+        ];
+        args.extend_from_slice(extra_args);
         rustc(
             &self.inputs.entry,
-            &[
-                "--crate-type=lib",
-                "--crate-name=fixture",
-                "--emit=metadata",
-            ],
+            &args,
             &self.directory.0.join("fixture.rmeta"),
-            Some(&library),
+            &[
+                ("laneflow_static_network", &library),
+                ("laneflow_runtime_snapshot_wire", &wire),
+            ],
         );
     }
 }
 
-fn rustc(source: &Path, args: &[&str], output: &Path, external: Option<&Path>) {
+fn rustc(source: &Path, args: &[&str], output: &Path, externals: &[(&str, &Path)]) {
     let mut command = Command::new("rustc");
     command
         .args(["--edition=2024", "-A", "warnings"])
@@ -137,10 +159,10 @@ fn rustc(source: &Path, args: &[&str], output: &Path, external: Option<&Path>) {
         .arg(source)
         .arg("-o")
         .arg(output);
-    if let Some(path) = external {
+    for (name, path) in externals {
         command
             .arg("--extern")
-            .arg(format!("laneflow_static_network={}", path.display()));
+            .arg(format!("{name}={}", path.display()));
     }
     let result = command.output().unwrap();
     assert!(
@@ -343,6 +365,122 @@ fn incomplete_or_unsupported_source_inputs_fail() {
     ] {
         assert!(SourceFixture::new(source, "").check().is_err());
     }
+}
+
+#[test]
+fn include_macro_loading_is_rejected_through_qualified_paths_and_imports() {
+    for source in [
+        "std::include!(\"hidden.rs\");",
+        "::std::r#include!(\"hidden.rs\");",
+        "use std::include as load; load!(\"hidden.rs\");",
+        "use std as library; use library::include as load; load!(\"hidden.rs\");",
+        "fn outer() { use std::include as load; load!(\"hidden_expr.rs\"); }",
+        "macro_rules! load { () => { std::include!(\"hidden.rs\"); } } load!();",
+        // 合同保守保留该导入名，不扩展宏命名空间解析。
+        "mod util { pub fn include() {} } use self::util::include; fn call() { include(); }",
+    ] {
+        let fixture = SourceFixture::new(source, "");
+        fixture.directory.write(
+            "kernel/hidden.rs",
+            "fn bad() { let _ = crate::admin::snapshot::CapturedSnapshot; }",
+        );
+        fixture.directory.write(
+            "kernel/hidden_expr.rs",
+            "{ let _ = crate::admin::snapshot::CapturedSnapshot; }",
+        );
+        fixture.compile();
+        assert!(fixture.check().unwrap_err().contains("include"));
+    }
+    let fixture = SourceFixture::new(
+        "const TEXT: &str = std::include_str!(\"notes.txt\"); const BYTES: &[u8] = std::include_bytes!(\"notes.txt\");",
+        "",
+    );
+    fixture.directory.write("kernel/notes.txt", "fixture");
+    fixture.compile();
+    fixture.check().unwrap();
+}
+
+#[test]
+fn admission_rejects_possible_conditional_macro_exports() {
+    for attribute in [
+        "#[cfg_attr(not(test), macro_export)]",
+        "#[cfg_attr(not(test), cfg_attr(not(test), macro_export))]",
+        "#[cfg_attr(feature = \"exports\", macro_export)]",
+    ] {
+        let fixture = SourceFixture::new("", "");
+        fixture.admission(&format!(
+            "{ADMISSION}\n{attribute} macro_rules! extra {{ () => {{}} }}"
+        ));
+        fixture.directory.write("facade/mod.rs", "pub struct TrafficWorld; pub(crate) mod source { pub struct CommittedNetworkSource; } pub fn call_export() { crate::extra!(); }");
+        fixture.compile_with(&["--cfg", "feature=\"exports\""]);
+        assert!(fixture.check().unwrap_err().contains("可见声明"));
+    }
+    for attribute in [
+        "#[cfg_attr(test, macro_export)]",
+        "#[cfg_attr(not(test), allow(unused_macros))]",
+    ] {
+        let fixture = SourceFixture::new("", "");
+        fixture.admission(&format!(
+            "{ADMISSION}\n{attribute} macro_rules! helper {{ () => {{}} }}"
+        ));
+        fixture.compile();
+        fixture.check().unwrap();
+    }
+}
+
+#[test]
+fn conditional_imports_reject_distinct_targets_without_selecting_a_configuration() {
+    let original = "use crate::admin::snapshot::CapturedSnapshot;";
+    let raw = "#[cfg(not(feature = \"expected\"))] use laneflow_runtime_snapshot_wire::Raw as CapturedSnapshot;";
+    let expected = "#[cfg(feature = \"expected\")] use crate::admin::snapshot::CapturedSnapshot;";
+    for imports in [format!("{raw}\n{expected}"), format!("{expected}\n{raw}")] {
+        let fixture = SourceFixture::new("", "");
+        fixture.admission(&format!(
+            "{}\n#[cfg(not(feature = \"expected\"))] fn prove_raw_signature() {{ let _: fn(&laneflow_runtime_snapshot_wire::Raw) -> Vec<u8> = encode_lfrs; }}",
+            ADMISSION.replace(original, &imports)
+        ));
+        fixture.compile();
+        fixture.compile_with(&["--cfg", "feature=\"expected\""]);
+        assert!(fixture.check().unwrap_err().contains("别名歧义"));
+    }
+    let fixture = SourceFixture::new("", "");
+    fixture.admission(&ADMISSION.replace(
+        original,
+        &format!("#[cfg(not(feature = \"expected\"))] {original}\n{expected}"),
+    ));
+    fixture.compile();
+    fixture.compile_with(&["--cfg", "feature=\"expected\""]);
+    fixture.check().unwrap();
+}
+
+#[test]
+fn test_only_nested_declarations_are_excluded_consistently() {
+    let declarations = r#"
+struct Local;
+impl Local {
+    #[cfg(test)] const RAW: Option<laneflow_runtime_snapshot_wire::Raw> = None;
+    #[cfg(test)] fn helper(_: laneflow_runtime_snapshot_wire::Raw) {}
+}
+trait Fixture {
+    #[cfg(test)] const RAW: Option<laneflow_runtime_snapshot_wire::Raw> = None;
+    #[cfg(test)] type Raw: Into<laneflow_runtime_snapshot_wire::Raw>;
+    #[cfg(test)] fn helper(_: laneflow_runtime_snapshot_wire::Raw) {}
+}
+struct Fields { #[cfg(test)] raw: laneflow_runtime_snapshot_wire::Raw, live: u8 }
+enum Variants { Live, #[cfg(test)] Raw(laneflow_runtime_snapshot_wire::Raw) }
+unsafe extern "C" { #[cfg(test)] fn extra(raw: *const laneflow_runtime_snapshot_wire::Raw); }
+"#;
+    let fixture = SourceFixture::new(declarations, "");
+    fixture.compile();
+    fixture.compile_with(&["--cfg", "test"]);
+    fixture.check().unwrap();
+    // unknown feature 不能像 test-only 一样排除；启用后仍是可编译的生产声明。
+    let fixture = SourceFixture::new(
+        &declarations.replace("cfg(test)", "cfg(any(test, feature = \"extra\"))"),
+        "",
+    );
+    fixture.compile_with(&["--cfg", "feature=\"extra\""]);
+    assert!(fixture.check().unwrap_err().contains("禁止依赖"));
 }
 
 struct CargoFixture(Temporary);
