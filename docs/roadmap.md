@@ -1,7 +1,7 @@
 # 路线图
 
 **文档状态**: Accepted（长期路线；当前执行状态以 GitHub 为准）<br>
-**最后更新**: 2026-08-23
+**最后更新**: 2026-09-05
 **适用范围**: LaneFlow 版本路线图与中国特色城市模拟游戏交通基础的长期演进
 
 本文记录 LaneFlow 的稳定路线图和已接受长期目标。GitHub Project 负责当前执行
@@ -210,26 +210,25 @@ SSOT 见 [`cross-section-access.md`](design/cross-section-access.md)。该设计
 SSOT）→ #236 非机动车/步行产品范围。时变准入 runtime、横向几何与多法规版本
 共存各自独立 G1，不属于当前完成边界。
 
-## WaitingZone、ConflictZone 与通行权（G1 已接受，尚未生产化）
+## WaitingZone、ConflictZone 与通行权
 
 #235/ADR 0019 已冻结 multiple ManeuverGate occurrence、WaitingZone
 容量/队列、ConflictZone/ParticipantStream、versioned jurisdiction/right-of-way
-policy、Core ConflictArbiter 与 grant/reservation；SSOT 见
+policy、Traffic Runtime ConflictArbiter 与 grant/reservation；SSOT 见
 [`waiting-zone-conflict-right-of-way.md`](design/waiting-zone-conflict-right-of-way.md)。
 性能优先 v1 使用 current/upcoming approach frontier、directed lower-bound ETA 与
 mandatory downstream-clearance guard；每个 static zone-stream passage 的 top-two
 owner frontier 支持 subject self-exclusion，不随 dynamic Route 数复制 cell；stable
 single-writer claim ledger 防止 Waiting/Conflict/downstream 同 tick 重复分配。不能
 证明车尾可清空 coverage zone 时不放行。
-该设计属于 #227 的跨版本复杂路口演进，不自动进入任何产品 Milestone；当前
-Milestone 归属以 GitHub 为准。#281 已把 current
-Traffic source 从已发布且 immutable 的 v0.9 原子升级到 v0.10，交付 multi-Gate、
-WaitingZone static registry/Data/route occurrence 与绑定期 capability guards；
-protected-only runtime 仍未改变，Waiting runtime 由 #282 接续。v0.10 schema
-已按固定 `main` provenance 公开发布，并通过 live availability 与 byte-equality
-验证。
+该设计属于 #227 的复杂路口演进，不自动进入任何产品 Milestone；归属和合并状态
+以 GitHub 为准。当前唯一正式路径由两个官方编制前端经 compiler、LFCA 和
+`SharedNetworkRevision` 进入 `TrafficWorld`，不保留 current JSON 或旧 Core 入口。
+Waiting 本地 membership/admission/storage/queue、路线冲突出现项、显式策略绑定、
+组合仲裁、reservation/Clearing、快照与修订切换已共同实现；普通红灯条件右转仍受
+让行、间隙与下游物理存储约束，不表示支持未建模的交通执行域。
 
-生产化规划由 #280 回写，实施 DAG 已拆为：
+职责与稳定交付顺序为：
 
 ```text
 #281 multi-Gate/Waiting static
@@ -238,15 +237,12 @@ protected-only runtime 仍未改变，Waiting runtime 由 #282 接续。v0.10 sc
                                               └─> #285 cross-layer 一万/十万/closure
 ```
 
-#281–#285 都是 #227 的独立后续切片，不是 #235 的子任务；每个切片必须自行完成
-G0-G4 与元数据审计。#281 已交付 static/Data 0.10 并合入主干。#282–#285 的实现开工
-前置条件是 #292（compiler foundation + Synthetic DSL frontend）完成 G4；其验收
-必须包含用于等价验证的 integration-only LIR→current projection，就绪后拓扑密集
-验证场景才改由编译器生成承担。这是交付顺序调整而非取消，DAG 依赖关系与已完成 Gate
-记录继续有效。当前 Project 列、Milestone 和原生依赖关系以 GitHub 为准，不在路线图
-镜像。通行权 runtime 能力
-在本阶段停留 static 层，该代价登记于
-[`design/network-compiler.md` §15](design/network-compiler.md#15-风险登记) 风险表。
+#281–#285 是 #227 的职责切片，不是 #235 的子任务；各自依当前开发闸口和 PR 治理
+交付。#284 的唯一原子版本组合、参考参数、机动车校准和性能证据见
+[`traffic-runtime-right-of-way-policy.md`](design/traffic-runtime-right-of-way-policy.md)
+§7–§9。#285 继续拥有最终跨层一万/十万场景与 Adapter debug surface；运行时证据
+不能代替该跨层验收，也不能代替具名硬件上的 P10 认证。当前 Project、Milestone 与
+原生依赖关系以 GitHub 为准，不在路线图镜像。
 
 #264 对 #235 的设计输入已经满足；#235 G4 后移除该原生 blocker，但 #264 仍必须
 等待 #237 冻结后再拆 JunctionGroup、环岛、停车连接与互通组合。

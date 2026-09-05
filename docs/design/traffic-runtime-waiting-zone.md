@@ -56,7 +56,7 @@ WaitingZone 是 Gate 有界资源、行为 authority 属于交通运行时、Ada
 3. zone-local `WaitingAdmissionClaim`、确定性准入与同 tick 原子提交；
 4. Waiting 约束进入现有纵向 hard projection，但只收紧运动；
 5. 将 Waiting 可行性与现有 spawn、completed replacement、Parking 离场/路线重绑定、
-   conflict 3A 能力保护组合为同一失败关闭边界；
+   正式 Conflict interior authority 检查组合为同一失败关闭边界；
 6. 只读 latest decision、Waiting transition event 与失败原子性；
 7. 快照、恢复、摘要、切换和迁移日志中的完整 Waiting 逻辑状态；
 8. 一万道路机动车产品证据与十万道路机动车 scaling 证据。
@@ -70,8 +70,8 @@ WaitingZone 是 Gate 有界资源、行为 authority 属于交通运行时、Ada
 - 通用 `DownstreamClearanceClaim`，或把 Waiting/Conflict/downstream 组合起来的
   `GrantResourceBundle` / 通用组合 ledger；这些由 #284 拥有；
 - 跨多个 WaitingZone 的原子取得、未提交 bundle 选择或 prospective cycle prevention；
-  需要这些保证的场景在 #284 合入前保持 dependency-blocked，#282 不以本地 claim
-  声称网络级活性，也不承诺恢复已经形成的物理网格锁；
+  这些由 #284 组合 ledger 拥有，#282 不以本地 claim 声称网络级活性，也不承诺恢复
+  已经形成的物理网格锁；
 - Adapter mutation、debug UI、Spatial Waiting region 或从画面反推 Waiting 行为；
 - 除 #541 `rebind_parking_route` 外新增通用 active route reassignment，或从 stateful
   maneuver interior 创建车辆的 bootstrap transaction；现有 lifecycle 命令必须接入
@@ -146,8 +146,8 @@ vehicle.length_mm <= occurrence.storage_length_mm
 Conflict interior authority 检查；Waiting 检查成功不构成凭空创建 reservation 的授权。
 
 `rebind_parking_route` 不属于上述无 authority bootstrap。它只接受已有
-`Active + Reserved`，并先执行 #541 已冻结的 current occurrence、完整物理 footprint、
-前向可达与 route/access 检查。若车辆已有 `ManeuverTraversalState` 或 Waiting
+`Active + Reserved`，拒绝已有 Conflict authority，并执行 #541 已冻结的 current occurrence、
+完整物理 footprint、前向可达与 route/access 检查。若车辆已有 `ManeuverTraversalState` 或 Waiting
 membership，目标路线还必须按稳定 ManeuverPath、Gate、WaitingZone identity 与 crossing
 side 对当前状态建立一一对应：
 
@@ -157,7 +157,7 @@ side 对当前状态建立一一对应：
 - 当前 physical cursor/footprint 必须同时满足旧/新 route occurrence，不能从目标 cursor
   猜测一次历史 crossing，也不能创建或删除 membership；
 - 当前 state 映射成功后，才对目标路线中尚未持有的 future Waiting occurrences 执行车型
-  可行性检查，并继续执行 #559 3A 保护。
+  可行性检查，并执行正式 Conflict interior authority 检查。
 
 任一映射或后续检查失败都保留旧 route/cursor、Parking binding、traversal、membership、
 queue/occupancy/counter 与 command cursor。若车辆没有既有 traversal/membership，rebind
@@ -231,15 +231,18 @@ ManeuverTraversalState
     Waiting {
       releaseGateHop
     }
+    Clearing {
+      admissionGateHop
+    }
   activeWaitingMembership?
     waitingZone
     admissionSequence
     releaseHop
 ```
 
-当前 #282 不增加 `Clearing`。该 phase 必须与 #284 的真实
-`ConflictReservation` 同时设计、进入快照并可被恢复验证；在 #282 先放置一个永远
-不可进入的空变体会制造第二套不完整 authority。
+`Clearing` 由 #284 正式 `ConflictReservation` 支撑，进入快照并由恢复与切换验证；
+车辆已 crossing 且车尾尚未清空全部 coverage 时保留 admission Gate 锚点。它不持有
+Waiting membership，也不复制 reservation authority；完整转移见联合设计 §6.8。
 
 membership 与“车辆是否已经停住”正交：
 
@@ -250,8 +253,8 @@ membership 与“车辆是否已经停住”正交：
 - release 条件重新允许但尚未 crossing 时，`Waiting -> Committed`，membership 不变；
 - successful release crossing 才移除 membership；
 - shared release/next-entry boundary 以一次事务原子替换 membership；
-- maneuver exit 后清除 traversal state；Completed/Parked 车辆不得保留 traversal
-  state 或 membership。
+- maneuver exit 且全部 Conflict coverage 已 tail-clear 后清除 traversal state；
+  Completed/Parked 车辆不得保留 traversal state 或 membership。
 
 membership 与 `ParkingBinding` 也是正交状态轴：通过 §3.4 绑定检查的
 `Active + Reserved` 可以继续携带 Waiting membership；预约停车不释放队列 authority。
@@ -261,7 +264,7 @@ traversal/membership 已清空。
 retained route cursor 不是 arrival anchor，也不授予道路占用，不执行 Active parking-entry
 检查。恢复该状态使用同一规则；离场时才对新的 Active 候选执行完整绑定检查。
 `leave_parking` 创建的新 `Active` 候选从无 Waiting membership 开始，并同时经过
-Waiting 绑定与 conflict 3A 检查。
+Waiting 绑定与正式 Conflict interior authority 检查。
 
 ### 4.3 队列索引
 
@@ -299,8 +302,8 @@ tick-start 已持有旧 membership 时，shared release/next-entry 上的 next e
 这是保守的 per-vehicle Waiting evaluation horizon，不是多资源 ledger：#282 不形成
 all-or-nothing multi-zone claim set，也不在各 zone 独立归约后做重分配。两个车辆以相反
 route order 争用多个短 zone 时，#282 只保证每个本地决定确定且无部分 claim rollback；
-它不保证跨 zone cycle-free。需要进入前证明整条 downstream/组合资源可清空的产品场景
-必须等待 #284。
+它单独不保证跨 zone cycle-free。正式路径通过 #284 组合 ledger 在提交新 membership
+前证明 downstream/组合资源可清空并执行 prospective cycle prevention。
 
 claim 未伴随 successful entry crossing 时在本 tick 结束失效，不消费 admission
 sequence，也不留下 committed reservation。
@@ -420,9 +423,9 @@ zone 满或本地存储不足是正常 `NoGrant`，不是 `StepError`；hard pro
 
 ### 6.3 Waiting phase
 
-#282 下 release Gate 可由现有 signal/regulatory decision 阻止；#284 后续可在同一
-Gate 增加 Conflict no-grant。member 只有实际到达该 release boundary 且最终最严格
-约束归因为 release Gate 时才进入 `Waiting`。`speed_mm_s == 0`、leader jam 或任意低速
+release Gate 可由 signal/regulatory decision 或同一 Gate 的 Conflict no-grant 阻止。
+member 只有实际到达该 release boundary 且最终最严格约束归因为 release Gate 时才进入
+`Waiting`。`speed_mm_s == 0`、leader jam 或任意低速
 阈值都不能单独建立该 phase 或 membership。
 
 release Gate 与 leader/minimum-gap 给出的 normalized `finalTravelMm` 相等时（包括车辆
@@ -442,13 +445,13 @@ boundary 的结构一致性，不以恢复时或目标修订的当前 signal asp
 - `spawn_vehicle`：执行 §3.3 可行性与 interior guard，成功后从当前 cursor 之前没有
   伪造 traversal/membership；
 - `replace_completed_vehicle`：旧 Completed 必须没有 traversal/membership；新车执行
-  与 spawn 相同的 Waiting 绑定检查和 #559 3A 保护，失败保留旧车；
+  与 spawn 相同的 Waiting 绑定和正式 Conflict interior authority 检查，失败保留旧车；
 - `reserve_parking`：先执行 §3.4 route-specific parking-entry/traversal 检查，再只改变正交
   `ParkingBinding`；不得清除或重排 Waiting membership；
 - `park_vehicle`：只有 traversal/membership 已清空的 committed arrival 才能提交；不得
   以停车为由静默释放 Waiting authority；
 - `leave_parking`：从无 traversal/membership 的 Parked 车辆构造 `Active` 候选，执行
-  §3.3 Waiting 绑定检查与 #559 3A 保护后原子提交；
+  §3.3 Waiting 绑定和正式 Conflict interior authority 检查后原子提交；
 - `rebind_parking_route`：按 §3.3 保留并重绑既有 traversal/membership authority，目标
   parking entry 还必须通过 §3.4；任一条件失败都保留旧 route/cursor、Parking 与
   Waiting 状态；
@@ -498,9 +501,9 @@ NoGrant(CombinedResource(reason)) // 本地预选可行，但组合资源被拒�
 同一 Waiting entry occurrence 每车每 tick 至多一条 record，record 至少携带可审计的
 `entryHop`/route occurrence identity；batch 规范总序为
 `(vehicleUpdateSequence ASC, entryHop ASC)`，不得依赖 request/proposal 容器顺序。
-record 只描述刚完成的 successful tick，不是下一 tick 的 permission lease。#284 可以
-在同一 resource-outcome 面增加 Conflict/downstream reason，但不得改变 #282 Waiting
-reason 的含义或让历史 record 成为 authority。
+record 只描述刚完成的 successful tick，不是下一 tick 的 permission lease。
+Conflict/downstream reason 在同一 resource-outcome 面保留，不改变本地 Waiting reason
+的含义，也不让历史 record 成为 authority。
 
 本地 reducer 的可准入结果是私有预选，只有组合单写者取得完整 bundle 并激活 claim 后
 才发布 `Granted`。组合拒绝直接复用 `ConflictNoGrantReason`，不改写为本地容量或储存
@@ -771,8 +774,9 @@ leader/RouteEnd/no-overlap attribution。优先级只决定观察记录，不改
   reservation、traversal 或 membership；
 - 空 zone 但 `nextAdmissionSequence != 0` 时，target 删除其 identity 必须整体失败，
   不得以无 active member 为由丢弃 counter；
-- v3 snapshot 明确拒绝，v4 closed-shape extra fields 明确拒绝；
-- restore/cutover 同时覆盖 Waiting 4/4/6 状态与 #559 conflict occurrence 容量/3A 保护。
+- LFRS/runtime state 4 及更早版本明确拒绝，现行版本的 closed-shape extra fields 明确拒绝；
+- restore/cutover 同时覆盖现行 5/5/7 状态、路线 conflict occurrence 容量与正式
+  Conflict authority、history、Gate side 和物理 footprint 证明。
 
 ### 12.4 规模与观察
 
@@ -807,10 +811,9 @@ leader/RouteEnd/no-overlap attribution。优先级只决定观察记录，不改
 - #282 不创建 `DownstreamClearanceClaim`、Conflict claim、reservation 或通用
   `GrantResourceBundle`；
 - #282 不承诺跨 WaitingZone cycle-free；跨 zone 原子取得、未提交 bundle 选择与
-  prospective cycle prevention 必须由 #284 的通用组合 ledger 一并设计，依赖这些保证的
-  场景此前保持 blocked；
-- #284 组合资源时消费 #282 已提交的 Waiting state，并在自己的 G1 中扩展
+  prospective cycle prevention 由 #284 的通用组合 ledger 共同实现；
+- #284 组合资源时消费 #282 已提交的 Waiting state，并提供完整
   resource outcome/ledger；不得把 Waiting capacity、counter 或 queue mutation
   authority 搬出 `TrafficWorld`；
-- #282 完成不会声称无保护转向或完整 keep-clear 已生产化；这些仍受 #283/#284
-  原生依赖约束。
+- 无保护转向与 keep-clear 的运行时证明属于 #284；其实现不代表 #285 最终跨层场景
+  与 Adapter debug surface 已交付。

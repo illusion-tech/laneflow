@@ -9,7 +9,7 @@ Traffic Runtime 安全组合、持久化与引擎边界<br>
 
 - `../design/traffic-runtime-waiting-zone.md`
 - `../design/waiting-zone-conflict-right-of-way.md`
-- [`../design/traffic-runtime-right-of-way-policy.md`](../design/traffic-runtime-right-of-way-policy.md)（#284 实施细化，Review）
+- [`../design/traffic-runtime-right-of-way-policy.md`](../design/traffic-runtime-right-of-way-policy.md)（#284 正式实施合同，Accepted）
 - `../design/traffic-runtime-conflict-occurrence.md`
 - `../design/traffic-runtime-shared-consumption.md`
 - `../design/traffic-runtime-integer-geometry.md`
@@ -247,7 +247,7 @@ steady tick 不扫描全部静态 zone、不按 external ID 热查找、不分�
 
 正面后果：
 
-- Waiting 本地存储可以先独立生产化，不假装完整冲突仲裁已经存在；
+- Waiting 本地存储和完整冲突仲裁保留明确职责，由唯一组合 ledger 原子提交；
 - #282/#284 ownership 唯一，组合 ledger 不会出现两套竞争实现；
 - 物理队列顺序、snapshot/replay 与 cutover 具有统一确定性；
 - #284 全局法规 priority 不会覆盖 Waiting 物理 winner，prospective SCC 在提交前阻止
@@ -257,9 +257,9 @@ steady tick 不扫描全部静态 zone、不按 external ID 热查找、不分�
 
 代价：
 
-- #284 前依赖跨 zone 原子性、完整 downstream-clearance 或无保护转向的场景仍然
-  dependency-blocked；
-- 每辆车每 tick 只获取一个新 Waiting claim，可能比未来组合仲裁更保守；
+- 跨 zone 原子性、完整 downstream-clearance 与无保护转向必须使用完整组合资源
+  证明；本地 Waiting claim 不能单独提供这些保证；
+- 完整组合仲裁仍限制每辆车每 tick 只获取一个新 Waiting claim，保留保守的求值 horizon；
 - #284 只预防新 committed cycle，不通过车辆换位、同 tick capacity 复用或 teleport
   恢复已经形成的物理网格锁；
 - 持久化版本直接替换当前入口，开发期旧版本存档拒绝，不承担兼容转换成本；

@@ -141,8 +141,8 @@ PreGate -> Committed -> Waiting -> Committed -> ... -> completed traversal
 - successful release crossing 才移除 membership；
 - shared release/next-entry boundary 在一个事务内先 leave、后 enter。
 
-#282 不预置空的 `Clearing` 变体。W4/W5 已将 Conflict reservation、tail-clear phase 与
-对应快照、恢复和切换验证一并引入。
+`Clearing` 与正式 Conflict reservation、tail-clear、快照、恢复和切换验证共同实现；
+其 authority 与 Waiting membership 的边界见 §6.8。
 
 Waiting membership 与 `ParkingBinding` 正交：
 
@@ -192,8 +192,8 @@ admission sequence。
 ## 6. #284 的组合仲裁
 
 本节以当前权威保存 #235 已接受、由 #284 生产化的 right-of-way/policy/arbiter 语义；
-ownership 分离不重新打开这些算法选择，也不声称 #284 已实现。#282 只实现 §5，不能
-因此删除本节或用简化 ledger 取代它。
+ownership 分离不重新打开这些算法选择。#282 的本地 Waiting reducer 与本节组合仲裁
+共同运行，不能用本地 claim 或简化 ledger 取代完整资源证明。
 
 ### 6.1 authority、当前输入与交付边界
 
@@ -211,14 +211,14 @@ ownership 分离不重新打开这些算法选择，也不声称 #284 已实现�
 
 当前静态根仍是受检 LFCA / `SharedNetworkRevision`，route conflict operands 来自 #559
 已经交付的 `ConflictPassageOccurrence`、Gate ranges 与
-`route_conflict_occurrence_capacity`。#284 的 regulation/policy source 必须从届时 official
-source 经唯一 compiler/LFCA/shared-root 路径原子引入；不得恢复 current JSON 或让
-`TrafficWorld` 解析文件。具体来源、世界绑定与候选版本组合见
+`route_conflict_occurrence_capacity`。regulation/policy source 由两个官方前端经唯一
+compiler/LFCA/shared-root 路径引入；不得恢复 current JSON 或让 `TrafficWorld` 解析文件。
+具体来源、世界绑定与唯一原子版本组合见
 [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §2–§8；
-该合同已由 #284 G1 接受；实施时与正式 Runtime state/digest 同切片闭合。
+该合同与正式 Runtime state/digest 共同实现。
 
 #284 消费 #282 已提交的 Waiting membership、occupancy、counter 与 local admission
-outcome，但 mutation owner 仍留在各 zone reducer。#284 可以把 zone-local claim 纳入
+outcome，但 mutation owner 仍留在各 zone reducer。#284 将 zone-local claim 纳入
 组合事务，不能重新定义 Waiting queue、admission sequence 或释放语义。
 
 ### 6.2 policy normalization
@@ -703,14 +703,14 @@ occurrence、non-canonical/non-finite authoritative input、occupancy/membership
 不一致、duplicate/stale claim、partial bundle、no-grant Gate 被 crossing、completion 留下
 authority、counter/tick/time overflow。
 
-新增 policy/source normalization 的 first-error 必须追加在届时 current compiler/LFCA
+policy/source normalization 的 first-error 位于 compiler/LFCA
 既有规范 prefix 之后，不能重排无关现行错误。policy 内按 declaration phase，再按 wire
 order；derived pair/cycle 按 owner/member canonical tuple。Runtime 多错误候选按 logical
 phase、stable vehicle/route/entity key 选择首错，不能依赖 scan/worker 完成顺序。
 
 ### 6.10 snapshot、cutover、容量与验证矩阵
 
-#284 从届时 current snapshot/runtime/digest 版本一次性升级，不预占 #282 的 4/4/6：
+当前 snapshot/runtime/digest 唯一版本组合为 5/5/7，完整矩阵见实施合同 §8：
 
 - 持久化 pinned policy identity、`firstEligibleTick`、Clearing/reservation、committed
   downstream claims、Conflict 滞后基准与必要 semantic owner；occupancy 从 reservation
@@ -722,8 +722,8 @@ phase、stable vehicle/route/entity key 选择首错，不能依赖 scan/worker 
   wait-for SCC；reservation passage range 必须精确等于该 Gate 的完整编译区间，车辆 front
   必须已在 Gate crossed side，已 clear cell 的 `ActualClear` 不得早于
   `acquiredTick × fixedDeltaTimeMs`；任一失败零发布；
-- 不保留旧 reader、双写、迁移 shim 或 feature flag；W4/W5 的可恢复、可切换内部能力
-  与 W7 的生产接线、journal 增量和临时保护移除已经同界闭合。
+- 不保留旧 reader、双写、迁移 shim 或 feature flag；可恢复、可切换能力与生产接线、
+  journal 增量和临时保护移除共同实现。
 
 容量按现实 retained payload 收费：static frontier cell/top-two 按共享根 passage cell 数，
 route occurrences 继续由独立 route conflict capacity 约束；reservation/owner 由
@@ -750,13 +750,13 @@ frontier cells。warm-up 后 steady tick 零 heap allocation。
   tail-clear/despawn release；
 - proposal/worker/container/handle/static declaration permutation 下 winner、state、decision、
   event 与 digest 相同；allocation/counter/invariant failure 全事务回滚；
-- restore/replay、same/cross-revision cutover、policy/route drift、malformed owner 与 3A
-  原子接管；
+- restore/replay、same/cross-revision cutover、policy/route drift、malformed owner 与正式
+  Conflict authority 的失败关闭；
 - 10k 产品档报告 p50/p95、zero allocation 与 retained bytes；100k scaling 档报告
   contributions、visited passages、static cells、top-two bytes、claim/collision/query counts。
 
-这些是 #235 已接受的 #284 实现合同，不是 #282 的验收项；若不再保留上述行为，必须在
-#284 实现前显式重新打开 G1。
+这些是 #235 已接受的 #284 实现合同，不是 #282 的本地验收项；若变更上述行为，必须
+重新评估 G1 并同步修改权威设计。
 
 #282 不实现上述组合 ledger 的简化副本。#284 也不得重新定义 Waiting counter、queue
 或 membership。
@@ -816,17 +816,16 @@ decision，不重复产生 boundary projection event。
 不能把“每车最多一个新 claim”误用为 decision/transition/event 也必然每车一条：
 same-tick enter+leave、shared boundary 与 traversal completion 都可能增加条目。
 
-## 9. #559 保护与 #284 接管
+## 9. 正式 Conflict authority 边界
 
-#559 的临时 3A 保护要求每个 committed Active 车辆的 route-local rear 能清除路线中
-全部 `ConflictPassageOccurrence`。保护覆盖 spawn、completed replacement、Parking
-离场/路线重绑定、restore 和 same/cross-revision cutover。
+静态根与含冲突路线可以正常 build、install、register、保存和加载；正式 fixed tick
+通过 policy、gap 与组合资源证明取得 grant/reservation。`ConflictRuntimeUnavailable`
+临时失败保护已移除，不保留独立绕过入口。
 
-#282 实现阶段曾保持这套临时检查原样生效，不能因为车辆等待在某个 WaitingZone、signal
-当前为红灯或本地 claim 尚未取得而推断“暂时不会进入 conflict”并放宽能力检查。
-
-#284 已在正式 conflict grant/reservation 与组合 ledger 接通时原子移除临时失败保护；
-普通生命周期命令的 interior authority guard 与 restore/cutover 完整证明继续生效。
+普通 spawn、completed replacement 与 Parking 离场不能在已 crossing 而车尾尚未清空
+passage 的位置凭空创建 authority；Parking route rebind 拒绝已有 Conflict authority。
+restore 与 same/cross-revision cutover 则须重建并验证完整 reservation、Gate side、
+物理 footprint 与历史。Waiting claim 或信号允许都不能代替这些证明。
 
 ## 10. 快照、摘要与修订切换
 
@@ -869,18 +868,19 @@ producer/staging/container 顺序置换必须得到逐项相同 transition event
 
 ## 11. 只读观察
 
-#282 提供只读：
+当前 `TrafficWorld` 提供只读：
 
 - vehicle traversal state；
 - zone occupancy/`maxOccupancy` 与 admission order member batch；
-- successful tick 的 latest Waiting decision batch；
-- Waiting transition event batch。
+- successful tick 的 latest Waiting 与 Conflict decision batch；
+- 统一 `TrafficTransitionEvent` batch，Waiting transition 是其中的子集。
 
 Waiting outcome 至少区分 `NotEvaluated`、`NotRequired`、`Granted`、
 `NoGrant(Capacity)` 与 `NoGrant(PhysicalStorage)`。它们是刚完成 tick 的审计记录，
 不是下一 tick 的 lease。
 
-#284 后续可扩展 Conflict/downstream outcome，但不得改变上述 Waiting reason 的语义。
+组合拒绝通过 `NoGrant(CombinedResource(reason))` 保留 Conflict/downstream 原因，
+不改写为本地容量或存储不足；完整事件种类和顺序见 §6.9。
 Adapter 和 Scenario 不获得 claim、queue、counter 或 phase mutation API。
 
 ## 12. 容量与性能
@@ -910,11 +910,11 @@ occurrence 同 tick 笛卡尔积预留常驻内存。
 - stable candidate order、post-step admission order、release Gate tie；
 - Parking lifecycle、completion、replace、despawn 同步 release record 与 route guard；
 - 当前 snapshot 5/5、digest 7 中的 Waiting 状态、restore、journal 与 cutover；
-- #559 临时保护在 #284 正式能力接管前不回退；
+- 普通生命周期 interior authority 检查与正式组合资源证明共同生效；
 - checked exact-count scratch、失败原子性和 10k/100k 证据。
 
 #282 不交付 downstream-clearance、Conflict arbitration、组合 ledger 或 cycle
-prevention，也不记录完整冲突能力已经生产化。
+prevention；这些由 #284 的完整合同覆盖。
 
 ### #284
 

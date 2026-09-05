@@ -19,7 +19,7 @@
   宿主自有 Routing 成本绑定、候选路线注册与 #302 失效接缝（#303 G1 已接受；G2
   起实现）。
 - `traffic-runtime-conflict-occurrence.md`：#283 的路线冲突出现项、route-local
-  坐标、独立容量与 #284 前的全车身能力保护（#283 G1 已接受）。
+  坐标、独立容量与正式 Conflict authority 的活动车辆边界。
 - `traffic-runtime-waiting-zone.md`：#282 G1 Accepted 的 WaitingZone 本地
   membership/admission/storage/queue 设计，以及当前 LFRS 5、runtime state 5、
   deterministic digest 7 合同；#284 的组合 ledger 与持久化由下列路权文档管理。
@@ -49,10 +49,10 @@
 - `road-junction-model.md`：Junction / Movement / ManeuverPath / ManeuverGate。
 - `waiting-zone-conflict-right-of-way.md`：#282 G1 Accepted 的 Waiting 本地边界与 #284
   组合仲裁边界；冲突静态 exact shape 见 LFCA/共享根文档，正式仲裁、持久化、
-  修订迁移与生产 fixed tick 已落入集成实现。
+  修订迁移与生产 fixed tick 共同实现。
 - [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md)：#284
   已接受实施合同，细化策略来源、中国右转灯态解释、世界绑定、格式版本矩阵与
-  持久化验收；各能力的集成与生产接线状态以该文档和对应 W 切片为准。
+  持久化验收，以及具名参考参数和可复现校准口径；交付状态以 GitHub 为准。
 - `cross-section-access.md`：横断面与准入 overlay。
 - `numeric-representation.md`：数值分层；已提交一维几何为整数毫米，编制 `f64` 与 Spatial `f32` 仍在量化之前。
 - `traffic-runtime-integer-geometry.md`：#496 整数毫米 / 微米余数 / `mm/s` 实现合同（Accepted）；#500 编译器 IR 交通一维同一套整数毫米。
