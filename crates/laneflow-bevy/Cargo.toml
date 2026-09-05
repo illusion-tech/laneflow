@@ -54,5 +54,9 @@ required-features = ["native-example"]
 name = "signalized_corridor"
 required-features = ["native-example"]
 
+[[test]]
+name = "runtime_min_smoke"
+path = "examples/support/runtime_min_smoke.rs"
+
 [lints]
 workspace = true

@@ -1,4 +1,4 @@
-#[path = "../examples/support/runtime_min_scene.rs"]
+#[path = "runtime_min_scene.rs"]
 mod runtime_min_scene;
 
 use std::time::Duration;

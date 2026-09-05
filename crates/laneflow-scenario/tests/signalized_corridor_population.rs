@@ -1,7 +1,5 @@
 #[path = "support/population_policy.rs"]
 mod population_policy;
-#[path = "../../laneflow-runtime/tests/support/policy.rs"]
-mod test_policy;
 
 use std::sync::Arc;
 
@@ -27,8 +25,22 @@ fn install_fixture(
     revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
     config: laneflow_runtime::WorldConfig,
 ) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
-    let selection = test_policy::selection(&revision);
+    let selection = fixture_policy("laneflow/signalized-corridor", "protected-entry");
     install_with_policy(revision, config, selection)
+}
+
+fn fixture_policy(namespace: &str, key: &str) -> laneflow_runtime::WorldPolicySelection {
+    laneflow_runtime::WorldPolicySelection::Pinned(laneflow_runtime::PolicyPin {
+        policy: laneflow_static_contract::RightOfWayPolicySetId::from_untyped(
+            laneflow_compiler::derive_canonical_stable_id_v1(
+                laneflow_static_contract::EntityKind::RightOfWayPolicySet,
+                namespace,
+                key,
+                &laneflow_compiler::CompileLimits::p100_initial_v1(),
+            )
+            .expect("explicit fixture policy identity"),
+        ),
+    })
 }
 
 fn install_with_policy(
@@ -446,7 +458,12 @@ fn foreign_world() -> TrafficWorld {
         ),
     )
     .expect("foreign revision");
-    install_fixture(foreign, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install")
+    install_with_policy(
+        foreign,
+        WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+        fixture_policy("runtime-fixture-policy", "fixture-policy"),
+    )
+    .expect("install")
 }
 
 fn spawn_near_route_end(
