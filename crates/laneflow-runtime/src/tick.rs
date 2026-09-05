@@ -49,6 +49,50 @@ mod transaction_tests {
     use crate::cutover_migration::tests::{conflict_scale_revision, conflict_scale_world};
 
     #[test]
+    fn every_new_conflict_scratch_allocation_failure_is_atomic_and_retryable() {
+        let revision = conflict_scale_revision();
+        for waiting in [false, true] {
+            let mut failures = 0;
+            for allocation in 0..200 {
+                let mut world = if waiting {
+                    crate::waiting::tests::multi_gate_world(2)
+                } else {
+                    conflict_scale_world(std::sync::Arc::clone(&revision), 2)
+                };
+                let before = world.capture_snapshot().unwrap();
+                let events = world.latest_transition_events().to_vec();
+                let delta = world.config().fixed_delta_time_ms();
+                crate::conflict::set_allocation_failpoint(Some(allocation));
+                let result = world.step(TickInput::new(delta));
+                crate::conflict::set_allocation_failpoint(None);
+                if result.is_ok() {
+                    break;
+                }
+                assert_eq!(
+                    result,
+                    Err(StepError::ConflictScratchAllocFailed),
+                    "allocation {allocation}"
+                );
+                failures += 1;
+                assert_eq!(world.capture_snapshot().unwrap(), before);
+                assert_eq!(world.latest_transition_events(), events);
+                assert!(world.conflict_state_valid());
+                world
+                    .step(TickInput::new(delta))
+                    .expect("retry after allocation failure");
+            }
+            assert!(
+                failures >= 12,
+                "all actual index, graph and output allocation sites are visited"
+            );
+            assert!(
+                failures < 200,
+                "the successful end of the allocation sequence must be reached"
+            );
+        }
+    }
+
+    #[test]
     fn failed_grant_and_transition_staging_preserves_world_and_can_retry() {
         let revision = conflict_scale_revision();
         for point in [StepFailpoint::AfterGrants, StepFailpoint::AfterTransitions] {

@@ -474,7 +474,7 @@ boundary 的结构一致性，不以恢复时或目标修订的当前 signal asp
 - `VehicleState::maneuver_traversal` / `waiting_membership`；
 - `TrafficWorld::waiting_zone` 与 `waiting_zone_members`；
 - `TrafficWorld::latest_waiting_decisions`；
-- `TrafficWorld::latest_waiting_events`；
+- `TrafficWorld::latest_transition_events`；
 - `VehicleDespawnRecord::waiting_release`；不把 command transition 塞入历史 tick batch。
 
 Adapter、scenario 与 caller 不获得 claim、counter、queue 或 phase mutation authority。
@@ -516,6 +516,12 @@ claim，不等同于实际 successful entry。
 tick 结束时的信号刷新不改写该批次的历史决定。
 
 ### 8.3 事件
+
+当前 API 使用 `TrafficTransitionEvent` / `TrafficTransitionKind` 与
+`TrafficWorld::latest_transition_events()`。Waiting 事件是同一交通转移批次的子集；
+完整种类、排序和尾部完成语义由联合设计 §6.9 唯一规定，不再提供独立 Waiting 批次。
+`TrafficTransitionAnchor` 同时保存语义出现项与实际触发位置；延期完成按最后净空位置
+排序，不提前锚回机动出口。以下 Waiting 事件中文语义及相对顺序保持有效。
 
 #282 的 fixed-step committed transition event 至少包含：
 

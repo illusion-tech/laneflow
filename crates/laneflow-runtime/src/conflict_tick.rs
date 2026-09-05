@@ -48,7 +48,6 @@ impl ConflictRouteAnchor {
 /// successful tick 内一个候选没有取得完整组合资源的稳定归因。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConflictNoGrantReason {
-    Regulatory,
     WaitingCycle,
     ConflictOccupied,
     LagGap,
@@ -117,6 +116,91 @@ pub(crate) struct ConflictCandidate {
     pub(crate) preflight_no_grant: Option<ConflictNoGrantReason>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct ReadyCandidate {
+    key: ConflictCandidateOrderKey,
+    index: usize,
+}
+
+/// 全局只比较局部就绪队首。容器位置不改变 Waiting 冻结的前后顺序。
+#[derive(Default)]
+pub(crate) struct ConflictSchedule {
+    ready: std::collections::BinaryHeap<std::cmp::Reverse<ReadyCandidate>>,
+    successors: Vec<Option<usize>>,
+    local: Vec<(WaitingZoneOrdinal, u32, usize)>,
+}
+
+impl ConflictSchedule {
+    fn prepare(
+        &mut self,
+        candidates: &[ConflictCandidate],
+        plans: &[Option<std::num::NonZeroU32>],
+    ) -> Result<(), StepError> {
+        self.ready.clear();
+        self.successors.clear();
+        self.local.clear();
+        #[cfg(test)]
+        if candidates.len() > self.ready.capacity() {
+            crate::conflict::check_allocation_failpoint()
+                .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+        }
+        self.ready
+            .try_reserve(candidates.len())
+            .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+        reserve(&mut self.successors, candidates.len())?;
+        reserve(&mut self.local, candidates.len())?;
+        self.successors.resize(candidates.len(), None);
+        for (index, candidate) in candidates.iter().enumerate() {
+            if let Some(zone) = candidate.waiting_zone {
+                let order = plans[candidate.vehicle.index() as usize]
+                    .ok_or(StepError::WaitingInvariantViolation)?
+                    .get();
+                self.local.push((zone, order, index));
+            } else {
+                self.ready.push(std::cmp::Reverse(ReadyCandidate {
+                    key: candidate.key,
+                    index,
+                }));
+            }
+        }
+        self.local.sort_unstable();
+        for group in self.local.chunk_by(|left, right| left.0 == right.0) {
+            let index = group[0].2;
+            self.ready.push(std::cmp::Reverse(ReadyCandidate {
+                key: candidates[index].key,
+                index,
+            }));
+            for pair in group.windows(2) {
+                self.successors[pair[0].2] = Some(pair[1].2);
+            }
+        }
+        Ok(())
+    }
+
+    fn next(&mut self, candidates: &[ConflictCandidate]) -> Option<usize> {
+        let std::cmp::Reverse(item) = self.ready.pop()?;
+        if let Some(index) = self.successors[item.index] {
+            self.ready.push(std::cmp::Reverse(ReadyCandidate {
+                key: candidates[index].key,
+                index,
+            }));
+        }
+        Some(item.index)
+    }
+
+    #[cfg(test)]
+    fn retained_logical_bytes(&self) -> usize {
+        let Self {
+            ready,
+            successors,
+            local,
+        } = self;
+        ready.capacity() * std::mem::size_of::<std::cmp::Reverse<ReadyCandidate>>()
+            + successors.capacity() * std::mem::size_of::<Option<usize>>()
+            + local.capacity() * std::mem::size_of::<(WaitingZoneOrdinal, u32, usize)>()
+    }
+}
+
 pub(crate) struct PreparedConflictGrant {
     pub(crate) vehicle: VehicleHandle,
     pub(crate) gate_hop: u32,
@@ -134,12 +218,18 @@ pub(crate) struct ConflictMotionPlan {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ConflictPassageTransition {
     pub(crate) vehicle: VehicleHandle,
+    pub(crate) occurrence_index: u32,
     pub(crate) address: ConflictPassageAddress,
     pub(crate) enter: bool,
     pub(crate) clear: bool,
 }
 
-fn reserve<T>(values: &mut Vec<T>, additional: usize) -> Result<(), StepError> {
+pub(crate) fn reserve<T>(values: &mut Vec<T>, additional: usize) -> Result<(), StepError> {
+    #[cfg(test)]
+    if additional > values.capacity() - values.len() {
+        crate::conflict::check_allocation_failpoint()
+            .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+    }
     values
         .try_reserve(additional)
         .map_err(|_| StepError::ConflictScratchAllocFailed)
@@ -170,6 +260,7 @@ fn map_acquire_error(error: ConflictAcquireError) -> Result<ConflictNoGrantReaso
         ConflictAcquireError::InvalidBundle | ConflictAcquireError::Capacity => {
             Err(StepError::ConflictInvariantViolation)
         }
+        ConflictAcquireError::ScratchAllocFailed => Err(StepError::ConflictScratchAllocFailed),
     }
 }
 
@@ -180,6 +271,18 @@ fn map_yield(outcome: ConflictYieldOutcome) -> Option<ConflictNoGrantReason> {
         ConflictYieldOutcome::LagGap => Some(ConflictNoGrantReason::LagGap),
         ConflictYieldOutcome::LeadGap => Some(ConflictNoGrantReason::LeadGap),
         ConflictYieldOutcome::ApproachUnprovable => Some(ConflictNoGrantReason::ApproachUnprovable),
+    }
+}
+
+const fn no_grant_rank(reason: ConflictNoGrantReason) -> u8 {
+    match reason {
+        ConflictNoGrantReason::WaitingCycle => 0,
+        ConflictNoGrantReason::ConflictOccupied => 1,
+        ConflictNoGrantReason::LagGap => 2,
+        ConflictNoGrantReason::ApproachUnprovable => 3,
+        ConflictNoGrantReason::LeadGap => 4,
+        ConflictNoGrantReason::DownstreamStorageBoundary => 5,
+        ConflictNoGrantReason::DownstreamClaimConflict => 6,
     }
 }
 
@@ -194,30 +297,79 @@ impl TrafficWorld {
         &self,
         state: VehicleState,
     ) -> Result<Option<crate::waiting::WaitingStopConstraint>, StepError> {
-        let Some(plan) = self
+        let grant_hop = self
             .conflict_motion_by_vehicle
             .get(state.handle.index() as usize)
             .copied()
             .flatten()
-            .filter(|plan| plan.outcome != ConflictDecisionOutcome::Granted)
-        else {
-            return Ok(None);
-        };
+            .filter(|plan| plan.outcome == ConflictDecisionOutcome::Granted)
+            .map(|plan| plan.gate_hop);
         let compiled = self
             .compiled_route(state.route)
             .ok_or(StepError::ConflictInvariantViolation)?;
+        let owned_hop = self
+            .conflict_arbiter
+            .reservation(state.handle)
+            .map(|reservation| reservation.passage_range().admission_gate_hop());
+        let first_hop = if state.progress_mm == 0 && state.carry_um == 0 {
+            state.route_edge_index.saturating_sub(1)
+        } else {
+            state.route_edge_index
+        };
+        let held_waiting_hop = state.waiting_membership.and_then(|member| {
+            let index = compiled
+                .waiting
+                .partition_point(|entry| entry.release_hop < member.release_hop);
+            compiled
+                .waiting
+                .get(index)
+                .filter(|entry| {
+                    entry.release_hop == member.release_hop && entry.zone == member.waiting_zone
+                })
+                .map(|entry| entry.entry_hop)
+        });
+        let authorized = |hop| [grant_hop, owned_hop, held_waiting_hop].contains(&Some(hop));
+        // 直接查询有序资源出现项，不扫描不需要资源的普通 Gate。
+        // 同一 admission Gate 的多个 passage 用 partition_point 整段跳过。
+        let mut minimum = first_hop;
+        let conflict = loop {
+            let index = compiled
+                .conflicts
+                .partition_point(|entry| entry.admission_hop < minimum);
+            let Some(entry) = compiled.conflicts.get(index) else {
+                break None;
+            };
+            if !authorized(entry.admission_hop) {
+                break Some(entry.admission_hop);
+            }
+            minimum = entry
+                .admission_hop
+                .checked_add(1)
+                .ok_or(StepError::ConflictInvariantViolation)?;
+        };
+        let waiting = compiled
+            .waiting
+            .partition_point(|entry| entry.entry_hop < first_hop);
+        let waiting = compiled.waiting[waiting..]
+            .iter()
+            .find(|entry| !authorized(entry.entry_hop))
+            .map(|entry| entry.entry_hop);
+        // 申请资格不能决定运动屏障。既有权威和本拍 grant 只授权各自的 Gate。
+        let Some(hop) = conflict.into_iter().chain(waiting).min() else {
+            return Ok(None);
+        };
         let distance = crate::tables::distance_to_occurrence_start(
             &compiled.occurrence_segments,
             &compiled.occurrence_offsets,
             &compiled.segment_totals,
             state.route_edge_index as usize,
             state.progress_mm,
-            plan.gate_hop as usize + 1,
+            hop as usize + 1,
         )
         .ok_or(StepError::ConflictInvariantViolation)?;
         Ok(Some(crate::waiting::WaitingStopConstraint {
             distance,
-            hop: plan.gate_hop,
+            hop,
         }))
     }
 
@@ -348,7 +500,12 @@ impl TrafficWorld {
                             .map_err(|_| StepError::ConflictInvariantViolation)?,
                         estimate,
                     )
-                    .map_err(|_| StepError::ConflictInvariantViolation)?;
+                    .map_err(|error| match error {
+                        ConflictAcquireError::ScratchAllocFailed => {
+                            StepError::ConflictScratchAllocFailed
+                        }
+                        _ => StepError::ConflictInvariantViolation,
+                    })?;
                 #[cfg(test)]
                 crate::conflict::count_conflict_work(|counts| counts.frontier_updates += 1);
             }
@@ -482,7 +639,7 @@ impl TrafficWorld {
                 vehicle_update_sequence: update_sequence,
                 anchor,
                 passage,
-                outcome: ConflictDecisionOutcome::NoGrant(ConflictNoGrantReason::Regulatory),
+                outcome: ConflictDecisionOutcome::NotEvaluated,
             });
             return Ok(());
         };
@@ -613,8 +770,14 @@ impl TrafficWorld {
                         gap.required_lead_ms(),
                     )
                     .ok_or(StepError::ConflictInvariantViolation)?;
-                if preflight_no_grant.is_none() {
-                    preflight_no_grant = map_yield(outcome);
+                if let Some(reason) = map_yield(outcome) {
+                    preflight_no_grant = Some(preflight_no_grant.map_or(reason, |current| {
+                        if no_grant_rank(reason) < no_grant_rank(current) {
+                            reason
+                        } else {
+                            current
+                        }
+                    }));
                 }
             }
         }
@@ -638,6 +801,9 @@ impl TrafficWorld {
                 }
                 Err(ConflictAcquireError::InvalidBundle | ConflictAcquireError::Capacity) => {
                     return Err(StepError::ConflictInvariantViolation);
+                }
+                Err(ConflictAcquireError::ScratchAllocFailed) => {
+                    return Err(StepError::ConflictScratchAllocFailed);
                 }
             }
         }
@@ -770,9 +936,11 @@ impl TrafficWorld {
                 ));
             }
         }
-        self.conflict_downstream_work
-            .try_reserve(plan.raw_interval_capacity())
-            .map_err(|_| ConflictAcquireError::Capacity)?;
+        reserve(
+            &mut self.conflict_downstream_work,
+            plan.raw_interval_capacity(),
+        )
+        .map_err(|_| ConflictAcquireError::ScratchAllocFailed)?;
         let route = plan.route();
         let compiled = self
             .routes
@@ -789,26 +957,43 @@ impl TrafficWorld {
     }
 
     fn acquire_conflict_candidates(&mut self, tick: u64) -> Result<(), StepError> {
+        self.conflict_schedule
+            .prepare(&self.conflict_candidates, &self.waiting_plan_by_vehicle)?;
+        self.prepare_waiting_dependencies(true)?;
         #[cfg(test)]
         crate::conflict::count_conflict_work(|counts| {
             counts.candidates += self.conflict_candidates.len();
         });
-        for index in 0..self.conflict_candidates.len() {
+        while let Some(index) = self.conflict_schedule.next(&self.conflict_candidates) {
             let candidate = self.conflict_candidates[index];
-            let outcome = if let Some(reason) = candidate.preflight_no_grant {
+            let entitlement = candidate
+                .waiting_zone
+                .map(|zone| WaitingAdmissionEntitlement::new(candidate.vehicle, zone, tick));
+            let cycle_clear = if entitlement.is_some() {
+                let plan = self.waiting_plan_by_vehicle[candidate.vehicle.index() as usize]
+                    .ok_or(StepError::WaitingInvariantViolation)?
+                    .get() as usize
+                    - 1;
+                self.waiting_dependencies.stage(plan)?
+            } else {
+                true
+            };
+            // 本拍此前接受的候选也参与最高优先级 Occupied 判定。
+            // yield target 与申请 passage 共用 zone，zone 摘要覆盖两者。
+            let reason = if !cycle_clear {
+                Some(ConflictNoGrantReason::WaitingCycle)
+            } else if self.conflict_arbiter.cells_unavailable(
+                candidate.vehicle,
+                &self.conflict_candidate_cells[candidate.cells_start..candidate.cells_end],
+            ) {
+                Some(ConflictNoGrantReason::ConflictOccupied)
+            } else {
+                candidate.preflight_no_grant
+            };
+            let outcome = if let Some(reason) = reason {
+                self.waiting_dependencies.rollback();
                 ConflictDecisionOutcome::NoGrant(reason)
             } else {
-                let entitlement = candidate
-                    .waiting_zone
-                    .map(|zone| WaitingAdmissionEntitlement::new(candidate.vehicle, zone, tick));
-                if entitlement.is_some() {
-                    self.prepare_waiting_dependency_footprint(
-                        candidate.vehicle,
-                        candidate.anchor.hop,
-                    )?;
-                } else {
-                    self.conflict_waiting_dependencies.clear();
-                }
                 let result = self.conflict_arbiter.try_acquire(
                     tick,
                     GrantResourceBundle {
@@ -819,7 +1004,6 @@ impl TrafficWorld {
                         downstream: &self.conflict_candidate_downstream
                             [candidate.downstream_start..candidate.downstream_end],
                         waiting_entitlement: entitlement,
-                        waiting_dependencies: &self.conflict_waiting_dependencies,
                     },
                 );
                 match result {
@@ -835,6 +1019,9 @@ impl TrafficWorld {
                                 ),
                             });
                         self.activate_waiting_claim(candidate.vehicle, candidate.anchor.hop)?;
+                        if entitlement.is_some() {
+                            self.waiting_dependencies.accept();
+                        }
                         self.conflict_grants.push(PreparedConflictGrant {
                             vehicle: candidate.vehicle,
                             gate_hop: candidate.anchor.hop,
@@ -843,7 +1030,10 @@ impl TrafficWorld {
                         });
                         ConflictDecisionOutcome::Granted
                     }
-                    Err(error) => ConflictDecisionOutcome::NoGrant(map_acquire_error(error)?),
+                    Err(error) => {
+                        self.waiting_dependencies.rollback();
+                        ConflictDecisionOutcome::NoGrant(map_acquire_error(error)?)
+                    }
                 }
             };
             self.conflict_motion_by_vehicle[candidate.vehicle.index() as usize]
@@ -1006,7 +1196,7 @@ impl TrafficWorld {
             match prepared.passage_range {
                 Some(range) => {
                     self.conflict_arbiter
-                        .commit_gate_crossing(prepared.grant, range)
+                        .commit_gate_crossing_deferred(prepared.grant, range)
                         .expect("prevalidated Conflict crossing commit");
                 }
                 None => {
@@ -1017,6 +1207,7 @@ impl TrafficWorld {
             }
         }
         self.conflict_arbiter.expire_unconsumed_grants();
+        let mut released = false;
         for transition in self.conflict_passage_transitions.iter().copied() {
             if journal_armed && (transition.enter || transition.clear) {
                 self.conflict_changed_owners.push(transition.vehicle);
@@ -1029,10 +1220,19 @@ impl TrafficWorld {
                 );
             }
             if transition.clear {
-                self.conflict_arbiter
-                    .clear_passage(transition.vehicle, transition.address, post_step_time_ms)
-                    .expect("prevalidated Conflict passage clearance");
+                released |= self
+                    .conflict_arbiter
+                    .clear_passage_deferred(
+                        transition.vehicle,
+                        transition.address,
+                        post_step_time_ms,
+                    )
+                    .expect("prevalidated Conflict passage clearance")
+                    == crate::conflict::ConflictClearOutcome::ReservationReleased;
             }
+        }
+        if released {
+            self.conflict_arbiter.finish_releases();
         }
         if journal_armed {
             self.conflict_changed_owners
@@ -1086,6 +1286,7 @@ impl TrafficWorld {
                 self.conflict_passage_transitions
                     .push(ConflictPassageTransition {
                         vehicle: next.handle,
+                        occurrence_index: index,
                         address: occurrence.address(),
                         enter,
                         clear,
@@ -1217,6 +1418,7 @@ impl TrafficWorld {
             values.capacity().saturating_mul(core::mem::size_of::<T>())
         }
         let bytes = self.conflict_arbiter.retained_logical_bytes() as usize
+            + self.conflict_schedule.retained_logical_bytes()
             + vec_bytes(&self.conflict_eligibility)
             + vec_bytes(&self.conflict_candidates)
             + vec_bytes(&self.conflict_candidate_cells)
@@ -1230,7 +1432,7 @@ impl TrafficWorld {
                 * core::mem::size_of::<Option<ConflictEligibilityState>>()
             + vec_bytes(&self.conflict_passage_transitions)
             + vec_bytes(&self.conflict_changed_owners)
-            + vec_bytes(&self.conflict_waiting_dependencies)
+            + self.waiting_dependencies.retained_logical_bytes() as usize
             + vec_bytes(&self.conflict_staged_decisions)
             + vec_bytes(&self.latest_conflict_decisions);
         u64::try_from(bytes).expect("Conflict retained bytes fit u64")
@@ -1257,6 +1459,7 @@ mod tests {
     #[test]
     fn rejected_waiting_bundle_has_no_claim_counter_or_granted_output() {
         let mut world = crate::waiting::tests::multi_gate_world(1);
+        assert_eq!(world.conflict_schedule.retained_logical_bytes(), 0);
         world.rebuild_occupancy_index().unwrap();
         world.prepare_waiting_step(0.1).unwrap();
         world.prepare_conflict_candidates(0.1, 1).unwrap();
@@ -1264,6 +1467,7 @@ mod tests {
         // 单独验证组合仲裁拒绝与 Waiting 发布的接缝；SCC 本身由 arbiter 测试覆盖。
         world.conflict_candidates[0].preflight_no_grant = Some(ConflictNoGrantReason::WaitingCycle);
         world.acquire_conflict_candidates(1).unwrap();
+        assert!(world.conflict_schedule.retained_logical_bytes() > 0);
         assert!(world.waiting_claims.is_empty());
         let candidate = world.conflict_candidates[0];
         let old = world.vehicle(candidate.vehicle).unwrap();
@@ -1286,7 +1490,7 @@ mod tests {
             ))
         );
         assert!(updates[0].1.waiting_membership.is_none());
-        assert!(world.waiting_staged_events.is_empty());
+        assert!(world.staged_transition_events.is_empty());
         assert!(
             world
                 .waiting_zones
