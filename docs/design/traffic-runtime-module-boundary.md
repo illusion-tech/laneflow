@@ -75,15 +75,20 @@ src/
 运行：
 
 ```powershell
+cargo +1.98.0 fetch --locked
 cargo +1.98.0 run --locked -p xtask -- check-runtime-architecture
 ```
+
+依赖准备与检查分开：`fetch` 准备锁文件中的包，检查命令用 `--locked --offline`
+读取完整 metadata；本地缓存缺失时失败，不在规则执行过程中联网补数据。
 
 架构检查的交付合同由下面三组规则组成。检查器分别取得 Cargo 依赖图、生产模块
 清单和格式入口声明，再执行对应规则；不将语法路径当成已经解析的方法调用目标。
 
 ### 3.1 生产模块与显式路径
 
-- 业务模块采用显式 `mod` 声明组织。从 Cargo 声明的实际 Runtime 库入口递归建立
+- 业务模块采用模块层级的显式 `mod` 声明组织，函数块内的局部模块不属于受支持的
+  源码组织形式。从 Cargo 声明的实际 Runtime 库入口递归建立
   这些声明对应的完整生产源码清单；宏展开生成的模块不属于已验证清单，采用此类
   组织形式须先扩展合同和检查方式。crate 根仅承担模块声明与既有 re-export；
   业务实现归入 `kernel/`、`admin/`、`facade/`，不允许另增
