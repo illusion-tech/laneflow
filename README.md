@@ -1,6 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/brand/laneflow-mark-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/laneflow-mark.svg">
     <img src="assets/brand/laneflow-mark.svg" width="112" alt="LaneFlow 标记">
   </picture>
 </p>
