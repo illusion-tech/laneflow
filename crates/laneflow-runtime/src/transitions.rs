@@ -4,7 +4,7 @@ use laneflow_static_contract::{ManeuverGateOrdinal, WaitingZoneOrdinal};
 
 use crate::{
     ConflictPassageOccurrenceLocator, ConflictPassageRange, DownstreamRoutePoint,
-    ManeuverTraversalPhase, RouteHandle, StepError, TrafficWorld, VehicleHandle, VehicleState,
+    ManeuverTraversalPhase, RouteHandle, StepError, VehicleHandle, VehicleState,
     WaitingProjectionReason, WaitingRouteAnchor,
 };
 
@@ -145,7 +145,7 @@ impl TrafficTransitionEvent {
     }
 }
 
-impl TrafficWorld {
+impl crate::phase::StepWorkspace<'_> {
     pub(crate) fn stage_transition_events(
         &mut self,
         updates: &[(usize, VehicleState)],
@@ -158,8 +158,8 @@ impl TrafficWorld {
         if count == usize::MAX {
             return Err(StepError::ConflictInvariantViolation);
         }
-        crate::conflict_tick::reserve(&mut self.staged_transition_events, count)?;
-        let mut events = std::mem::take(&mut self.staged_transition_events);
+        crate::conflict_tick::reserve(&mut self.workspace.staged_transition_events, count)?;
+        let mut events = std::mem::take(&mut self.workspace.staged_transition_events);
         let result = self.visit_transition_events(updates, tick, |event| events.push(event));
         if result.is_err() {
             events.clear();
@@ -173,7 +173,7 @@ impl TrafficWorld {
                 event.anchor.hop,
             )
         });
-        self.staged_transition_events = events;
+        self.workspace.staged_transition_events = events;
         result
     }
 
@@ -184,8 +184,9 @@ impl TrafficWorld {
         mut emit: impl FnMut(TrafficTransitionEvent),
     ) -> Result<(), StepError> {
         let mut passage_cursor = 0;
-        for (sequence, vehicle) in self.live_order.iter().copied().enumerate() {
-            let Some(update) = self.next_state_by_vehicle[vehicle.index() as usize].checked_sub(1)
+        for (sequence, vehicle) in self.committed.live_order.iter().copied().enumerate() {
+            let Some(update) =
+                self.workspace.next_state_by_vehicle[vehicle.index() as usize].checked_sub(1)
             else {
                 continue;
             };
@@ -199,9 +200,9 @@ impl TrafficWorld {
                 .compiled_route(old.route)
                 .ok_or(StepError::ConflictInvariantViolation)?;
             self.visit_waiting_events(old, next, tick, sequence, &mut emit);
-            let prepared = self.conflict_motion_by_vehicle[vehicle.index() as usize]
+            let prepared = self.workspace.conflict_motion_by_vehicle[vehicle.index() as usize]
                 .and_then(|plan| plan.grant_index)
-                .and_then(|index| self.conflict_grants.get(index.get() as usize - 1))
+                .and_then(|index| self.workspace.conflict_grants.get(index.get() as usize - 1))
                 .filter(|grant| next.route_edge_index > grant.gate_hop);
             let mut push = |anchor, kind| {
                 emit(TrafficTransitionEvent {
@@ -236,7 +237,7 @@ impl TrafficWorld {
                 );
             }
             let range = prepared.and_then(|grant| grant.passage_range).or_else(|| {
-                self.conflict_arbiter
+                self.conflict_read()
                     .reservation(vehicle)
                     .map(|value| value.passage_range())
             });
@@ -274,6 +275,7 @@ impl TrafficWorld {
             }
             // passage staging 和 updates 均按 active_order（live_order 的投影）产生，线性合并。
             while let Some(transition) = self
+                .workspace
                 .conflict_passage_transitions
                 .get(passage_cursor)
                 .filter(|transition| transition.vehicle == vehicle)
@@ -300,7 +302,7 @@ impl TrafficWorld {
                 if transition.clear {
                     let position = crate::conflict::downstream_claim_target(
                         &compiled.edges,
-                        self.revision.traffic().lane_lengths_millimetres(),
+                        self.binding.revision.traffic().lane_lengths_millimetres(),
                         DownstreamRoutePoint::new(
                             occurrence.clearance.route_edge_index,
                             occurrence.clearance.progress_mm,
@@ -361,7 +363,7 @@ impl TrafficWorld {
                 }
             }
         }
-        if passage_cursor != self.conflict_passage_transitions.len() {
+        if passage_cursor != self.workspace.conflict_passage_transitions.len() {
             return Err(StepError::ConflictInvariantViolation);
         }
         Ok(())

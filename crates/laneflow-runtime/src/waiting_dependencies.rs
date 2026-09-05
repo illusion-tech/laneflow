@@ -452,79 +452,14 @@ impl TrafficWorld {
         &mut self,
         include_candidates: bool,
     ) -> Result<(), StepError> {
-        let mut ledger = std::mem::take(&mut self.waiting_dependencies);
-        ledger.reset();
-        let result = self.build_waiting_dependencies(&mut ledger, include_candidates);
-        if result.is_err() {
-            ledger.reset();
-            // 部分构图失败可能只创建了 owner node，尚未形成完整 hold。
-            ledger.owner_index.fill(OwnerIndex::default());
-            ledger.zone_index.fill(None);
-        }
-        self.waiting_dependencies = ledger;
-        result
+        self.step_workspace()
+            .prepare_waiting_dependencies(include_candidates)
     }
+}
 
-    fn build_waiting_dependencies(
-        &self,
-        ledger: &mut WaitingDependencies,
-        include_candidates: bool,
-    ) -> Result<(), StepError> {
-        if self.waiting_member_rows.is_empty()
-            && !(include_candidates
-                && self
-                    .conflict_candidates
-                    .iter()
-                    .any(|candidate| candidate.waiting_zone.is_some()))
-        {
-            return Ok(());
-        }
-        ledger.prepare_indices(
-            self.next_state_by_vehicle.len(),
-            self.waiting_zones.len(),
-            self.waiting_plans.len(),
-        )?;
-        for member in &self.waiting_member_rows {
-            let state = self
-                .vehicle_state(member.vehicle)
-                .ok_or(StepError::WaitingInvariantViolation)?;
-            let compiled = self
-                .compiled_route(state.route)
-                .ok_or(StepError::WaitingInvariantViolation)?;
-            let index = compiled
-                .waiting
-                .partition_point(|item| item.release_hop < member.release_hop);
-            let occurrence = compiled
-                .waiting
-                .get(index)
-                .ok_or(StepError::WaitingInvariantViolation)?;
-            if occurrence.zone != member.zone || occurrence.release_hop != member.release_hop {
-                return Err(StepError::WaitingInvariantViolation);
-            }
-            self.add_waiting_dependency_hold(ledger, member.vehicle, index, None)?;
-        }
-        if include_candidates {
-            for candidate in self
-                .conflict_candidates
-                .iter()
-                .filter(|candidate| candidate.waiting_zone.is_some())
-            {
-                let plan = self.waiting_plan_by_vehicle[candidate.vehicle.index() as usize]
-                    .map(decode)
-                    .ok_or(StepError::WaitingInvariantViolation)?;
-                self.add_waiting_dependency_hold(
-                    ledger,
-                    candidate.vehicle,
-                    self.waiting_plans[plan].occurrence_index as usize,
-                    Some(plan),
-                )?;
-            }
-        }
-        ledger.finish_prepare()
-    }
-
-    fn add_waiting_dependency_hold(
-        &self,
+impl<'a> crate::phase::StepReadView<'a> {
+    pub(crate) fn add_waiting_dependency_hold(
+        self,
         ledger: &mut WaitingDependencies,
         owner: VehicleHandle,
         occurrence_index: usize,
@@ -540,7 +475,7 @@ impl TrafficWorld {
             .waiting
             .get(occurrence_index)
             .ok_or(StepError::WaitingInvariantViolation)?;
-        let relations = self.revision.traffic().relations();
+        let relations = self.binding.revision.traffic().relations();
         let maximum = relations
             .waiting_zone(occurrence.zone)
             .ok_or(StepError::WaitingInvariantViolation)?
@@ -570,6 +505,97 @@ impl TrafficWorld {
             ledger.dependency(hold, zone, dependency.storage_length_mm)?;
         }
         Ok(())
+    }
+}
+
+impl crate::phase::StepWorkspace<'_> {
+    pub(crate) fn prepare_waiting_dependencies(
+        &mut self,
+        include_candidates: bool,
+    ) -> Result<(), StepError> {
+        let mut ledger = std::mem::take(&mut self.workspace.waiting_dependencies);
+        ledger.reset();
+        let result = self.build_waiting_dependencies(&mut ledger, include_candidates);
+        if result.is_err() {
+            ledger.reset();
+            // 部分构图失败可能只创建了 owner node，尚未形成完整 hold。
+            ledger.owner_index.fill(OwnerIndex::default());
+            ledger.zone_index.fill(None);
+        }
+        self.workspace.waiting_dependencies = ledger;
+        result
+    }
+
+    pub(crate) fn build_waiting_dependencies(
+        &self,
+        ledger: &mut WaitingDependencies,
+        include_candidates: bool,
+    ) -> Result<(), StepError> {
+        if self.derived.waiting_member_rows.is_empty()
+            && !(include_candidates
+                && self
+                    .workspace
+                    .conflict_candidates
+                    .iter()
+                    .any(|candidate| candidate.waiting_zone.is_some()))
+        {
+            return Ok(());
+        }
+        ledger.prepare_indices(
+            self.workspace.next_state_by_vehicle.len(),
+            self.committed.waiting_zones.len(),
+            self.workspace.waiting_plans.len(),
+        )?;
+        for member in &self.derived.waiting_member_rows {
+            let state = self
+                .vehicle_state(member.vehicle)
+                .ok_or(StepError::WaitingInvariantViolation)?;
+            let compiled = self
+                .compiled_route(state.route)
+                .ok_or(StepError::WaitingInvariantViolation)?;
+            let index = compiled
+                .waiting
+                .partition_point(|item| item.release_hop < member.release_hop);
+            let occurrence = compiled
+                .waiting
+                .get(index)
+                .ok_or(StepError::WaitingInvariantViolation)?;
+            if occurrence.zone != member.zone || occurrence.release_hop != member.release_hop {
+                return Err(StepError::WaitingInvariantViolation);
+            }
+            self.add_waiting_dependency_hold(ledger, member.vehicle, index, None)?;
+        }
+        if include_candidates {
+            for candidate in self
+                .workspace
+                .conflict_candidates
+                .iter()
+                .filter(|candidate| candidate.waiting_zone.is_some())
+            {
+                let plan = self.workspace.waiting_plan_by_vehicle
+                    [candidate.vehicle.index() as usize]
+                    .map(decode)
+                    .ok_or(StepError::WaitingInvariantViolation)?;
+                self.add_waiting_dependency_hold(
+                    ledger,
+                    candidate.vehicle,
+                    self.workspace.waiting_plans[plan].occurrence_index as usize,
+                    Some(plan),
+                )?;
+            }
+        }
+        ledger.finish_prepare()
+    }
+
+    pub(crate) fn add_waiting_dependency_hold(
+        &self,
+        ledger: &mut WaitingDependencies,
+        owner: VehicleHandle,
+        occurrence_index: usize,
+        plan: Option<usize>,
+    ) -> Result<(), StepError> {
+        self.read_view()
+            .add_waiting_dependency_hold(ledger, owner, occurrence_index, plan)
     }
 }
 

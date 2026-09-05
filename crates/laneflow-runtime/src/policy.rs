@@ -41,6 +41,19 @@ pub(crate) struct WorldPolicyBinding {
     frontier_proof_horizon_ms: Option<u64>,
 }
 
+#[cfg(test)]
+impl WorldPolicyBinding {
+    pub(crate) fn retained_logical_bytes(&self) -> u64 {
+        let Self {
+            selection: _,
+            ordinal: _,
+            gaps,
+            frontier_proof_horizon_ms: _,
+        } = self;
+        crate::state::slice_bytes(gaps)
+    }
+}
+
 impl WorldPolicyBinding {
     pub(crate) fn install(
         revision: &SharedNetworkRevision,

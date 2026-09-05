@@ -101,6 +101,41 @@ pub(crate) struct CompiledRoute {
     pub final_conflict_clearance: Option<(RoutePosition, u32)>,
 }
 
+#[cfg(test)]
+impl CompiledRoute {
+    pub(crate) fn retained_logical_bytes(&self) -> u64 {
+        let Self {
+            edges,
+            maneuvers,
+            hop_gate,
+            gate_hops,
+            remaining_to_end,
+            occurrence_segments,
+            occurrence_offsets,
+            segment_totals,
+            next_controlled,
+            speed_limit_drop,
+            waiting,
+            conflicts,
+            conflict_gate_ranges,
+            final_conflict_clearance: _,
+        } = self;
+        crate::state::vec_bytes(edges)
+            + crate::state::vec_bytes(maneuvers)
+            + crate::state::vec_bytes(hop_gate)
+            + crate::state::vec_bytes(gate_hops)
+            + crate::state::vec_bytes(remaining_to_end)
+            + crate::state::vec_bytes(occurrence_segments)
+            + crate::state::vec_bytes(occurrence_offsets)
+            + crate::state::vec_bytes(segment_totals)
+            + crate::state::vec_bytes(next_controlled)
+            + crate::state::vec_bytes(speed_limit_drop)
+            + crate::state::vec_bytes(waiting)
+            + crate::state::vec_bytes(conflicts)
+            + crate::state::vec_bytes(conflict_gate_ranges)
+    }
+}
+
 impl CompiledRoute {
     pub(crate) fn conflict_occurrence_locator(
         &self,
@@ -123,25 +158,6 @@ impl CompiledRoute {
 }
 
 #[cfg(test)]
-impl CompiledRoute {
-    fn retained_logical_bytes(&self) -> u64 {
-        logical_vec_bytes::<LaneEdgeOrdinal>(self.edges.len())
-            + logical_vec_bytes::<ManeuverOccurrence>(self.maneuvers.len())
-            + logical_vec_bytes::<Option<ManeuverGateOrdinal>>(self.hop_gate.len())
-            + logical_vec_bytes::<u32>(self.gate_hops.len())
-            + logical_vec_bytes::<BoundedDistance>(self.remaining_to_end.len())
-            + logical_vec_bytes::<u32>(self.occurrence_segments.len())
-            + logical_vec_bytes::<u32>(self.occurrence_offsets.len())
-            + logical_vec_bytes::<u32>(self.segment_totals.len())
-            + logical_vec_bytes::<Option<NextControlled>>(self.next_controlled.len())
-            + logical_vec_bytes::<SpeedLimitDrop>(self.speed_limit_drop.len())
-            + logical_vec_bytes::<WaitingOccurrence>(self.waiting.len())
-            + logical_vec_bytes::<ConflictPassageOccurrence>(self.conflicts.len())
-            + logical_vec_bytes::<ConflictGateRange>(self.conflict_gate_ranges.len())
-    }
-}
-
-#[cfg(test)]
 fn logical_vec_bytes<T>(len: usize) -> u64 {
     u64::try_from(len)
         .unwrap_or(u64::MAX)
@@ -153,6 +169,19 @@ pub(crate) struct RouteSlot {
     pub generation: u32,
     pub compiled: Option<CompiledRoute>,
     pub live_vehicles: u32,
+}
+#[cfg(test)]
+impl RouteSlot {
+    pub(crate) fn retained_logical_bytes(&self) -> u64 {
+        let Self {
+            generation: _,
+            compiled,
+            live_vehicles: _,
+        } = self;
+        compiled
+            .as_ref()
+            .map_or(0, CompiledRoute::retained_logical_bytes)
+    }
 }
 
 #[derive(Clone, Debug)]

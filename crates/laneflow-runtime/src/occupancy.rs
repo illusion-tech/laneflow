@@ -147,7 +147,6 @@ fn merge_suffix_pair(
 #[derive(Debug)]
 pub(crate) struct OccupancyIndex {
     offsets: Vec<usize>,
-    scratch: Vec<usize>,
     records: Vec<OccupancyRecord>,
     /// 与 `records` 对齐：`suffix_min_lo[i]` 是同桶 `[i, bucket_end)` 中 `lo_mm` 最小记录的下标。
     suffix_min_lo: Vec<u32>,
@@ -159,13 +158,55 @@ pub(crate) struct OccupancyIndex {
     occurrence_walks: Cell<u64>,
 }
 
+/// 每次重建的桶计数/写游标；成功查询不借用它。
+#[derive(Debug)]
+pub(crate) struct OccupancyScratch {
+    positions: Vec<usize>,
+}
+
+#[cfg(test)]
+impl OccupancyScratch {
+    pub(crate) fn retained_logical_bytes(&self) -> u64 {
+        let Self { positions } = self;
+        crate::state::vec_bytes(positions)
+    }
+}
+
+impl OccupancyScratch {
+    #[cfg(test)]
+    pub(crate) fn capacity(&self) -> usize {
+        self.positions.capacity()
+    }
+
+    fn record_total(&self, bucket_count: usize) -> usize {
+        self.positions.iter().take(bucket_count).copied().sum()
+    }
+}
+
+#[cfg(test)]
+impl OccupancyIndex {
+    pub(crate) fn retained_logical_bytes(&self) -> u64 {
+        let Self {
+            offsets,
+            records,
+            suffix_min_lo,
+            suffix_second_lo,
+            inspections: _,
+            occurrence_walks: _,
+        } = self;
+        crate::state::vec_bytes(offsets)
+            + crate::state::vec_bytes(records)
+            + crate::state::vec_bytes(suffix_min_lo)
+            + crate::state::vec_bytes(suffix_second_lo)
+    }
+}
+
 impl OccupancyIndex {
     /// 空构造（不预分配边级表）；全部增长走 try 路径，分配失败映射为
     /// `OccupancyAllocFailed` 而非中止进程。供切换事务暂存构造使用。
-    pub(crate) fn try_empty() -> Result<Self, StepError> {
+    pub(crate) fn try_empty() -> Result<(Self, OccupancyScratch), StepError> {
         let mut index = Self {
             offsets: Vec::new(),
-            scratch: Vec::new(),
             records: Vec::new(),
             suffix_min_lo: Vec::new(),
             suffix_second_lo: Vec::new(),
@@ -174,14 +215,23 @@ impl OccupancyIndex {
             #[cfg(test)]
             occurrence_walks: Cell::new(0),
         };
-        index.try_prepare_scratch(0)?;
-        Ok(index)
+        let mut scratch = OccupancyScratch {
+            positions: Vec::new(),
+        };
+        index.try_prepare_scratch(&mut scratch, 0)?;
+        Ok((index, scratch))
     }
 
-    pub(crate) fn with_capacity(bucket_count: usize, record_capacity: usize) -> Self {
-        Self {
-            offsets: vec![0; bucket_count.saturating_add(1)],
-            scratch: vec![0; bucket_count],
+    pub(crate) fn with_capacity(
+        bucket_count: usize,
+        record_capacity: usize,
+    ) -> (Self, OccupancyScratch) {
+        let offsets = vec![0; bucket_count.saturating_add(1)];
+        let scratch = OccupancyScratch {
+            positions: vec![0; bucket_count],
+        };
+        let index = Self {
+            offsets,
             records: Vec::with_capacity(record_capacity),
             suffix_min_lo: Vec::with_capacity(record_capacity),
             suffix_second_lo: Vec::with_capacity(record_capacity),
@@ -189,7 +239,8 @@ impl OccupancyIndex {
             inspections: Cell::new(0),
             #[cfg(test)]
             occurrence_walks: Cell::new(0),
-        }
+        };
+        (index, scratch)
     }
 
     #[cfg(test)]
@@ -210,11 +261,6 @@ impl OccupancyIndex {
     #[cfg(test)]
     pub(crate) fn records_len(&self) -> usize {
         self.records.len()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn scratch_capacity(&self) -> usize {
-        self.scratch.capacity()
     }
 
     #[cfg(test)]
@@ -251,34 +297,39 @@ impl OccupancyIndex {
     }
 
     #[cfg(test)]
-    fn rebuild_from_pending(&mut self, pending: &[OccupancyRecord], bucket_count: usize) {
+    fn rebuild_from_pending(
+        &mut self,
+        scratch: &mut OccupancyScratch,
+        pending: &[OccupancyRecord],
+        bucket_count: usize,
+    ) {
         self.reset_inspections();
-        self.try_prepare_scratch(bucket_count)
+        self.try_prepare_scratch(scratch, bucket_count)
             .expect("test occupancy scratch");
         for record in pending {
-            if let Some(count) = self.scratch.get_mut(record.bucket.index()) {
+            if let Some(count) = scratch.positions.get_mut(record.bucket.index()) {
                 *count += 1;
             }
         }
-        let total = self.record_total(bucket_count);
+        let total = scratch.record_total(bucket_count);
         self.try_reserve_records(total)
             .expect("test occupancy records");
-        self.finish_layout(bucket_count);
+        self.finish_layout(scratch, bucket_count);
         for record in pending {
-            self.write_record(*record);
+            self.write_record(scratch, *record);
         }
         self.sort_buckets(bucket_count);
     }
 
-    fn record_total(&self, bucket_count: usize) -> usize {
-        self.scratch.iter().take(bucket_count).copied().sum()
-    }
-
-    fn try_prepare_scratch(&mut self, bucket_count: usize) -> Result<(), StepError> {
+    fn try_prepare_scratch(
+        &mut self,
+        scratch: &mut OccupancyScratch,
+        bucket_count: usize,
+    ) -> Result<(), StepError> {
         try_reserve_len(&mut self.offsets, bucket_count.saturating_add(1))?;
-        try_reserve_len(&mut self.scratch, bucket_count)?;
-        self.scratch.clear();
-        self.scratch.resize(bucket_count, 0);
+        try_reserve_len(&mut scratch.positions, bucket_count)?;
+        scratch.positions.clear();
+        scratch.positions.resize(bucket_count, 0);
         Ok(())
     }
 
@@ -289,11 +340,11 @@ impl OccupancyIndex {
         Ok(())
     }
 
-    fn finish_layout(&mut self, bucket_count: usize) {
+    fn finish_layout(&mut self, scratch: &mut OccupancyScratch, bucket_count: usize) {
         self.offsets.clear();
         self.offsets.resize(bucket_count.saturating_add(1), 0);
         for index in 0..bucket_count {
-            self.offsets[index + 1] = self.offsets[index].saturating_add(self.scratch[index]);
+            self.offsets[index + 1] = self.offsets[index].saturating_add(scratch.positions[index]);
         }
         let total = self.offsets.get(bucket_count).copied().unwrap_or(0);
         debug_assert!(total <= self.records.capacity());
@@ -303,17 +354,18 @@ impl OccupancyIndex {
         self.suffix_min_lo.resize(total, 0);
         self.suffix_second_lo.clear();
         self.suffix_second_lo.resize(total, SUFFIX_NONE);
-        self.scratch.clear();
+        scratch.positions.clear();
         if bucket_count == 0 {
             return;
         }
-        self.scratch
+        scratch
+            .positions
             .extend_from_slice(&self.offsets[..bucket_count]);
     }
 
-    fn write_record(&mut self, record: OccupancyRecord) {
+    fn write_record(&mut self, scratch: &mut OccupancyScratch, record: OccupancyRecord) {
         let bucket = record.bucket.index();
-        let Some(head) = self.scratch.get_mut(bucket) else {
+        let Some(head) = scratch.positions.get_mut(bucket) else {
             return;
         };
         let slot = *head;
@@ -577,6 +629,47 @@ fn visit_occupancy_records(
     Ok(())
 }
 
+fn rebuild_occupancy_index(
+    binding: &crate::state::WorldBindingState,
+    committed: &crate::state::CommittedWorldState,
+    active_order: &[VehicleHandle],
+    occupancy: &mut OccupancyIndex,
+    scratch: &mut OccupancyScratch,
+) -> Result<(), StepError> {
+    let bucket_count = usize::try_from(binding.revision.traffic().lane_edge_count())
+        .expect("lane edge count fits usize");
+    let ceiling = occupancy_record_limit(binding.config.vehicle_capacity());
+    #[cfg(test)]
+    occupancy.reset_inspections();
+    occupancy.try_prepare_scratch(scratch, bucket_count)?;
+    visit_occupancy_records(
+        active_order,
+        &committed.vehicles,
+        &binding.revision,
+        &committed.routes,
+        |record| {
+            if let Some(count) = scratch.positions.get_mut(record.bucket.index()) {
+                *count += 1;
+            }
+        },
+    )?;
+    let total = scratch.record_total(bucket_count);
+    if total > ceiling {
+        return Err(StepError::OccupancyCapacityExceeded);
+    }
+    occupancy.try_reserve_records(total)?;
+    occupancy.finish_layout(scratch, bucket_count);
+    visit_occupancy_records(
+        active_order,
+        &committed.vehicles,
+        &binding.revision,
+        &committed.routes,
+        |record| occupancy.write_record(scratch, record),
+    )?;
+    occupancy.sort_buckets(bucket_count);
+    Ok(())
+}
+
 impl TrafficWorld {
     /// 针对给定根与 staged 路线纯构造一份占用索引（不触及活动状态）。
     ///
@@ -586,89 +679,63 @@ impl TrafficWorld {
         &self,
         revision: &SharedNetworkRevision,
         routes_staged: &[(usize, CompiledRoute)],
-    ) -> Result<OccupancyIndex, StepError> {
+    ) -> Result<(OccupancyIndex, OccupancyScratch), StepError> {
         let bucket_count = usize::try_from(revision.traffic().lane_edge_count())
             .expect("lane edge count fits usize");
-        let ceiling = occupancy_record_limit(self.config.vehicle_capacity());
-        let mut staged = OccupancyIndex::try_empty()?;
-        staged.try_prepare_scratch(bucket_count)?;
+        let ceiling = occupancy_record_limit(self.binding.config.vehicle_capacity());
+        let (mut staged, mut scratch) = OccupancyIndex::try_empty()?;
+        staged.try_prepare_scratch(&mut scratch, bucket_count)?;
         let mut staged_by_slot: Vec<Option<&CompiledRoute>> = Vec::new();
-        try_reserve_len(&mut staged_by_slot, self.routes.len())?;
-        staged_by_slot.resize(self.routes.len(), None);
+        try_reserve_len(&mut staged_by_slot, self.committed.routes.len())?;
+        staged_by_slot.resize(self.committed.routes.len(), None);
         for (index, compiled) in routes_staged {
             if let Some(slot) = staged_by_slot.get_mut(*index) {
                 *slot = Some(compiled);
             }
         }
         visit_occupancy_records_with(
-            &self.active_order,
-            &self.vehicles,
+            &self.derived.active_order,
+            &self.committed.vehicles,
             revision,
-            &self.routes,
+            &self.committed.routes,
             &staged_by_slot,
             |record| {
-                if let Some(count) = staged.scratch.get_mut(record.bucket.index()) {
+                if let Some(count) = scratch.positions.get_mut(record.bucket.index()) {
                     *count += 1;
                 }
             },
         )?;
-        let total = staged.record_total(bucket_count);
+        let total = scratch.record_total(bucket_count);
         if total > ceiling {
             return Err(StepError::OccupancyCapacityExceeded);
         }
         staged.try_reserve_records(total)?;
-        staged.finish_layout(bucket_count);
+        staged.finish_layout(&mut scratch, bucket_count);
         visit_occupancy_records_with(
-            &self.active_order,
-            &self.vehicles,
+            &self.derived.active_order,
+            &self.committed.vehicles,
             revision,
-            &self.routes,
+            &self.committed.routes,
             &staged_by_slot,
-            |record| staged.write_record(record),
+            |record| staged.write_record(&mut scratch, record),
         )?;
         staged.sort_buckets(bucket_count);
-        Ok(staged)
+        Ok((staged, scratch))
     }
 
     pub(crate) fn rebuild_occupancy_index(&mut self) -> Result<(), StepError> {
-        let bucket_count = usize::try_from(self.revision.traffic().lane_edge_count())
-            .expect("lane edge count fits usize");
-        let ceiling = occupancy_record_limit(self.config.vehicle_capacity());
-        let occupancy = &mut self.occupancy;
-        #[cfg(test)]
-        occupancy.reset_inspections();
-        occupancy.try_prepare_scratch(bucket_count)?;
-        visit_occupancy_records(
-            &self.active_order,
-            &self.vehicles,
-            &self.revision,
-            &self.routes,
-            |record| {
-                if let Some(count) = occupancy.scratch.get_mut(record.bucket.index()) {
-                    *count += 1;
-                }
-            },
-        )?;
-        let total = occupancy.record_total(bucket_count);
-        if total > ceiling {
-            return Err(StepError::OccupancyCapacityExceeded);
-        }
-        occupancy.try_reserve_records(total)?;
-        occupancy.finish_layout(bucket_count);
-        visit_occupancy_records(
-            &self.active_order,
-            &self.vehicles,
-            &self.revision,
-            &self.routes,
-            |record| occupancy.write_record(record),
-        )?;
-        occupancy.sort_buckets(bucket_count);
-        Ok(())
+        rebuild_occupancy_index(
+            &self.binding,
+            &self.committed,
+            &self.derived.active_order,
+            &mut self.derived.occupancy,
+            &mut self.workspace.occupancy_scratch,
+        )
     }
 
     #[cfg(test)]
     pub(crate) fn occupancy_inspections(&self) -> u64 {
-        self.occupancy.inspections()
+        self.derived.occupancy.inspections()
     }
 }
 
@@ -870,14 +937,14 @@ mod tests {
     }
 
     fn index_gap(world: &TrafficWorld, state: &VehicleState) -> Option<i64> {
-        let lengths = world.revision.traffic().lane_lengths_millimetres();
+        let lengths = world.binding.revision.traffic().lane_lengths_millimetres();
         let edges = world.route_edges(state.route).unwrap();
         world.leader_bumper_gap(state, edges, lengths)
     }
 
     fn assert_index_matches_scan(world: &TrafficWorld) {
-        let lengths = world.revision.traffic().lane_lengths_millimetres();
-        for handle in world.live_order.iter().copied() {
+        let lengths = world.binding.revision.traffic().lane_lengths_millimetres();
+        for handle in world.committed.live_order.iter().copied() {
             let Some(state) = world.vehicle_state(handle) else {
                 continue;
             };
@@ -889,7 +956,7 @@ mod tests {
             };
             let cursor = usize::try_from(state.route_edge_index).unwrap();
             let horizon = world.leader_query_horizon_for(state);
-            let indexed = world.occupancy.leader_gap(
+            let indexed = world.derived.occupancy.leader_gap(
                 state.handle,
                 edges,
                 cursor,
@@ -912,6 +979,7 @@ mod tests {
 
     fn active_count(world: &TrafficWorld) -> u64 {
         world
+            .committed
             .live_order
             .iter()
             .copied()
@@ -981,8 +1049,8 @@ mod tests {
                 update_sequence: index,
             });
         }
-        let mut occupancy = OccupancyIndex::with_capacity(2, 40);
-        occupancy.rebuild_from_pending(&pending, 2);
+        let (mut occupancy, mut scratch) = OccupancyIndex::with_capacity(2, 40);
+        occupancy.rebuild_from_pending(&mut scratch, &pending, 2);
         occupancy.reset_inspections();
         let lengths = [40_000, 10_000];
         let edges = [current, later, current];
@@ -1007,7 +1075,7 @@ mod tests {
         let edge = LaneEdgeOrdinal::from_raw(0);
         let follower = VehicleHandle::new(0, 0);
         let leader = VehicleHandle::new(1, 0);
-        let mut index = OccupancyIndex::with_capacity(1, 2);
+        let (mut index, mut scratch) = OccupancyIndex::with_capacity(1, 2);
         let pending = vec![
             OccupancyRecord {
                 vehicle: follower,
@@ -1024,7 +1092,7 @@ mod tests {
                 update_sequence: 1,
             },
         ];
-        index.rebuild_from_pending(&pending, 1);
+        index.rebuild_from_pending(&mut scratch, &pending, 1);
         let gap = index.leader_gap(
             follower,
             &[edge],
@@ -1043,7 +1111,7 @@ mod tests {
         let short = VehicleHandle::new(1, 0);
         let mid = VehicleHandle::new(2, 0);
         let long = VehicleHandle::new(3, 0);
-        let mut index = OccupancyIndex::with_capacity(1, 4);
+        let (mut index, mut scratch) = OccupancyIndex::with_capacity(1, 4);
         let pending = vec![
             OccupancyRecord {
                 vehicle: follower,
@@ -1074,7 +1142,7 @@ mod tests {
                 update_sequence: 3,
             },
         ];
-        index.rebuild_from_pending(&pending, 1);
+        index.rebuild_from_pending(&mut scratch, &pending, 1);
         let gap = index.leader_gap(
             follower,
             &[edge],
@@ -1093,7 +1161,7 @@ mod tests {
         let follower = VehicleHandle::new(0, 0);
         let short = VehicleHandle::new(1, 0);
         let long = VehicleHandle::new(2, 0);
-        let mut index = OccupancyIndex::with_capacity(2, 3);
+        let (mut index, mut scratch) = OccupancyIndex::with_capacity(2, 3);
         let pending = vec![
             OccupancyRecord {
                 vehicle: follower,
@@ -1117,7 +1185,7 @@ mod tests {
                 update_sequence: 2,
             },
         ];
-        index.rebuild_from_pending(&pending, 2);
+        index.rebuild_from_pending(&mut scratch, &pending, 2);
         let lengths = [10_000, 10_000];
         let edges = [first, second];
         let gap = index.leader_gap(
@@ -1140,7 +1208,7 @@ mod tests {
         let second = LaneEdgeOrdinal::from_raw(1);
         let follower = VehicleHandle::new(0, 0);
         let leader = VehicleHandle::new(1, 0);
-        let mut index = OccupancyIndex::with_capacity(2, 2);
+        let (mut index, mut scratch) = OccupancyIndex::with_capacity(2, 2);
         let pending = vec![
             OccupancyRecord {
                 vehicle: follower,
@@ -1157,7 +1225,7 @@ mod tests {
                 update_sequence: 1,
             },
         ];
-        index.rebuild_from_pending(&pending, 2);
+        index.rebuild_from_pending(&mut scratch, &pending, 2);
         let lengths = [10_000, 5_000];
         let edges = [first, second];
         let gap = index.leader_gap(
@@ -1189,6 +1257,7 @@ mod tests {
             install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).unwrap();
         let route = register_full_spatial_route(&mut world);
         let profile = world
+            .binding
             .revision
             .traffic()
             .relations()
@@ -1255,6 +1324,7 @@ mod tests {
             .register_route(RouteRegisterInput::new(vec![stem]))
             .expect("route");
         let profile = world
+            .binding
             .revision
             .traffic()
             .relations()
@@ -1295,6 +1365,7 @@ mod tests {
             .register_route(RouteRegisterInput::new(vec![stem, tail]))
             .expect("route");
         let profile = world
+            .binding
             .revision
             .traffic()
             .relations()
@@ -1309,7 +1380,7 @@ mod tests {
                 0,
             ))
             .expect("leader on tail");
-        let stem_len = world.revision.traffic().lane_lengths_millimetres()[stem.index()];
+        let stem_len = world.binding.revision.traffic().lane_lengths_millimetres()[stem.index()];
         let follower = world
             .spawn_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
@@ -1362,10 +1433,10 @@ mod tests {
             None,
             "wrap gap is tens of metres, beyond rest bumper_gap_horizon"
         );
-        let lengths = world.revision.traffic().lane_lengths_millimetres();
+        let lengths = world.binding.revision.traffic().lane_lengths_millimetres();
         let edges = world.route_edges(state.route).unwrap();
         let cursor = usize::try_from(state.route_edge_index).unwrap();
-        let unbounded = world.occupancy.leader_gap(
+        let unbounded = world.derived.occupancy.leader_gap(
             state.handle,
             edges,
             cursor,
@@ -1391,9 +1462,9 @@ mod tests {
         let route = world
             .register_route(RouteRegisterInput::new(vec![a, b, a]))
             .expect("three occurrences exactly fill capacity");
-        assert_eq!(world.live_route_count, 1);
-        assert_eq!(world.live_route_edge_occurrence_count, 3);
-        let route_slots = world.routes.len();
+        assert_eq!(world.committed.live_route_count, 1);
+        assert_eq!(world.committed.live_route_edge_occurrence_count, 3);
+        let route_slots = world.committed.routes.len();
 
         assert_eq!(
             world
@@ -1401,15 +1472,15 @@ mod tests {
                 .unwrap_err(),
             RouteError::EdgeOccurrenceCapacityExceeded
         );
-        assert_eq!(world.live_route_count, 1);
-        assert_eq!(world.live_route_edge_occurrence_count, 3);
-        assert_eq!(world.routes.len(), route_slots);
+        assert_eq!(world.committed.live_route_count, 1);
+        assert_eq!(world.committed.live_route_edge_occurrence_count, 3);
+        assert_eq!(world.committed.routes.len(), route_slots);
 
         world
             .remove_route(route)
             .expect("unused route releases all occurrences");
-        assert_eq!(world.live_route_count, 0);
-        assert_eq!(world.live_route_edge_occurrence_count, 0);
+        assert_eq!(world.committed.live_route_count, 0);
+        assert_eq!(world.committed.live_route_edge_occurrence_count, 0);
 
         let route = world
             .register_route(RouteRegisterInput::new(vec![a, b, a]))
@@ -1427,7 +1498,7 @@ mod tests {
             world.remove_route(route).unwrap_err(),
             RouteError::InUse { vehicle, route }
         );
-        assert_eq!(world.live_route_edge_occurrence_count, 3);
+        assert_eq!(world.committed.live_route_edge_occurrence_count, 3);
         assert_eq!(
             world
                 .register_route(RouteRegisterInput::new(vec![a]))
@@ -1449,18 +1520,18 @@ mod tests {
                 world.register_route(RouteRegisterInput::new(vec![a, b, a]))
             });
             assert_eq!(result.unwrap_err(), RouteError::AllocationFailed);
-            assert_eq!(world.live_route_count, 0);
-            assert_eq!(world.live_route_edge_occurrence_count, 0);
-            assert!(world.routes.is_empty());
-            assert!(world.free_routes.is_empty());
+            assert_eq!(world.committed.live_route_count, 0);
+            assert_eq!(world.committed.live_route_edge_occurrence_count, 0);
+            assert!(world.committed.routes.is_empty());
+            assert!(world.committed.free_routes.is_empty());
         }
 
         let route = world
             .register_route(RouteRegisterInput::new(vec![a, b, a]))
             .expect("failpoint reset leaves world reusable");
         assert_eq!(world.route_edges(route), Some([a, b, a].as_slice()));
-        assert_eq!(world.live_route_count, 1);
-        assert_eq!(world.live_route_edge_occurrence_count, 3);
+        assert_eq!(world.committed.live_route_count, 1);
+        assert_eq!(world.committed.live_route_edge_occurrence_count, 3);
     }
 
     #[test]
@@ -1492,25 +1563,28 @@ mod tests {
                 .unwrap_err(),
             RouteError::EdgeOccurrenceCapacityExceeded
         );
-        assert_eq!(no_occurrences.live_route_count, 0);
-        assert_eq!(no_occurrences.live_route_edge_occurrence_count, 0);
-        assert!(no_occurrences.routes.is_empty());
+        assert_eq!(no_occurrences.committed.live_route_count, 0);
+        assert_eq!(no_occurrences.committed.live_route_edge_occurrence_count, 0);
+        assert!(no_occurrences.committed.routes.is_empty());
 
         let mut overflow = install_fixture(
             loop_revision(),
             WorldConfig::new(8, 1, u64::MAX, u64::MAX, 1, 100),
         )
         .expect("install");
-        overflow.live_route_edge_occurrence_count = u64::MAX;
+        overflow.committed.live_route_edge_occurrence_count = u64::MAX;
         assert_eq!(
             overflow
                 .register_route(RouteRegisterInput::new(vec![a]))
                 .unwrap_err(),
             RouteError::EdgeOccurrenceCapacityExceeded
         );
-        assert_eq!(overflow.live_route_count, 0);
-        assert_eq!(overflow.live_route_edge_occurrence_count, u64::MAX);
-        assert!(overflow.routes.is_empty());
+        assert_eq!(overflow.committed.live_route_count, 0);
+        assert_eq!(
+            overflow.committed.live_route_edge_occurrence_count,
+            u64::MAX
+        );
+        assert!(overflow.committed.routes.is_empty());
     }
 
     #[test]
@@ -1527,13 +1601,14 @@ mod tests {
         let mut world =
             install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).unwrap();
         let route = register_full_spatial_route(&mut world);
-        world.routes[route.index() as usize]
+        world.committed.routes[route.index() as usize]
             .compiled
             .as_mut()
             .expect("route")
             .waiting
             .clear();
         let profile = world
+            .binding
             .revision
             .traffic()
             .relations()
@@ -1573,7 +1648,7 @@ mod tests {
         let route = world
             .register_route(RouteRegisterInput::new(vec![stem, tail]))
             .expect("route");
-        let tail_len = world.revision.traffic().lane_lengths_millimetres()[tail.index()];
+        let tail_len = world.binding.revision.traffic().lane_lengths_millimetres()[tail.index()];
         let finishing = world
             .spawn_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
@@ -1676,6 +1751,7 @@ mod tests {
         assert_index_matches_scan(&world);
         let follower_state = world.vehicle_state(follower).copied().unwrap();
         let leader_state = world
+            .committed
             .live_order
             .iter()
             .copied()
@@ -1684,11 +1760,11 @@ mod tests {
                 (handle != follower).then_some(*state)
             })
             .expect("leader state");
-        let lengths = world.revision.traffic().lane_lengths_millimetres();
+        let lengths = world.binding.revision.traffic().lane_lengths_millimetres();
         let follower_edges = world.route_edges(follower_state.route).unwrap();
         let leader_edges = world.route_edges(leader_state.route).unwrap();
         let horizon = world.leader_query_horizon_for(&follower_state);
-        let indexed = world.occupancy.leader_gap(
+        let indexed = world.derived.occupancy.leader_gap(
             follower_state.handle,
             follower_edges,
             usize::try_from(follower_state.route_edge_index).unwrap(),
@@ -1737,6 +1813,7 @@ mod tests {
             .register_route(RouteRegisterInput::new(vec![edge]))
             .expect("route");
         let profile = world
+            .binding
             .revision
             .traffic()
             .relations()
@@ -1881,8 +1958,8 @@ mod tests {
             .expect("spawn spanning five 1 m edges");
         world.step(TickInput::new(1_000)).unwrap();
         let ceiling = occupancy_record_limit(1);
-        let cap = world.occupancy.records_capacity();
-        let len = world.occupancy.records_len();
+        let cap = world.derived.occupancy.records_capacity();
+        let len = world.derived.occupancy.records_len();
         assert!(
             len > 4,
             "body on the 1 m chain must emit more than four occupancy records, got {len}"
@@ -1898,7 +1975,7 @@ mod tests {
         let mut high_water = cap;
         for _ in 0..8 {
             world.step(TickInput::new(1_000)).unwrap();
-            let next = world.occupancy.records_capacity();
+            let next = world.derived.occupancy.records_capacity();
             assert!(
                 next < ceiling,
                 "span growth must stay below the fail-closed ceiling, cap={next} ceiling={ceiling}"
@@ -1912,7 +1989,7 @@ mod tests {
         for _ in 0..8 {
             world.step(TickInput::new(1_000)).unwrap();
             assert_eq!(
-                world.occupancy.records_capacity(),
+                world.derived.occupancy.records_capacity(),
                 high_water,
                 "after body-span high-water, ticks must not grow occupancy record capacity"
             );
@@ -1939,7 +2016,7 @@ mod tests {
             ))
             .expect("solo");
         world.step(TickInput::new(100)).unwrap();
-        let cap = world.occupancy.records_capacity();
+        let cap = world.derived.occupancy.records_capacity();
         let ceiling = occupancy_record_limit(10_000);
         assert!(
             cap < 256,
@@ -1950,14 +2027,14 @@ mod tests {
             "retained occupancy capacity must stay below the fail-closed ceiling, cap={cap} ceiling={ceiling}"
         );
         assert!(
-            world.occupancy.suffix_min_lo_capacity() < 256,
+            world.derived.occupancy.suffix_min_lo_capacity() < 256,
             "suffix min table must follow actual records, cap={}",
-            world.occupancy.suffix_min_lo_capacity()
+            world.derived.occupancy.suffix_min_lo_capacity()
         );
         assert!(
-            world.occupancy.suffix_second_lo_capacity() < 256,
+            world.derived.occupancy.suffix_second_lo_capacity() < 256,
             "suffix second table must follow actual records, cap={}",
-            world.occupancy.suffix_second_lo_capacity()
+            world.derived.occupancy.suffix_second_lo_capacity()
         );
     }
 
@@ -2036,7 +2113,7 @@ mod tests {
         let edge = LaneEdgeOrdinal::from_raw(0);
         let follower = VehicleHandle::new(0, 0);
         let leader = VehicleHandle::new(1, 0);
-        let mut index = OccupancyIndex::with_capacity(1, 2);
+        let (mut index, mut scratch) = OccupancyIndex::with_capacity(1, 2);
         let bumper = 20_000_u32;
         let front = 150_000_u32;
         let pending = vec![
@@ -2055,7 +2132,7 @@ mod tests {
                 update_sequence: 1,
             },
         ];
-        index.rebuild_from_pending(&pending, 1);
+        index.rebuild_from_pending(&mut scratch, &pending, 1);
         let at_bumper = index.leader_gap(
             follower,
             &[edge],
@@ -2089,6 +2166,9 @@ mod tests {
         edge: LaneEdgeOrdinal,
         leader_lo: u32,
     ) {
+        let mut scratch = OccupancyScratch {
+            positions: Vec::new(),
+        };
         let pending = vec![
             OccupancyRecord {
                 vehicle: follower,
@@ -2105,7 +2185,7 @@ mod tests {
                 update_sequence: 1,
             },
         ];
-        index.rebuild_from_pending(&pending, 1);
+        index.rebuild_from_pending(&mut scratch, &pending, 1);
     }
 
     #[test]
@@ -2133,8 +2213,8 @@ mod tests {
                 update_sequence: 1,
             },
         ];
-        let mut occupancy = OccupancyIndex::with_capacity(2, pending.len());
-        occupancy.rebuild_from_pending(&pending, 2);
+        let (mut occupancy, mut scratch) = OccupancyIndex::with_capacity(2, pending.len());
+        occupancy.rebuild_from_pending(&mut scratch, &pending, 2);
         occupancy.reset_inspections();
         let accepted = occupancy.leader_gap(
             follower,
@@ -2204,8 +2284,8 @@ mod tests {
                 update_sequence: 1,
             },
         ];
-        let mut occupancy = OccupancyIndex::with_capacity(2, pending.len());
-        occupancy.rebuild_from_pending(&pending, 2);
+        let (mut occupancy, mut scratch) = OccupancyIndex::with_capacity(2, pending.len());
+        occupancy.rebuild_from_pending(&mut scratch, &pending, 2);
         occupancy.reset_inspections();
         let gap = occupancy.leader_gap(
             follower,
@@ -2248,8 +2328,8 @@ mod tests {
                 update_sequence: 1,
             },
         ];
-        let mut occupancy = OccupancyIndex::with_capacity(2, pending.len());
-        occupancy.rebuild_from_pending(&pending, 2);
+        let (mut occupancy, mut scratch) = OccupancyIndex::with_capacity(2, pending.len());
+        occupancy.rebuild_from_pending(&mut scratch, &pending, 2);
         occupancy.reset_inspections();
         let bounded = occupancy.leader_gap(
             follower,
@@ -2287,7 +2367,7 @@ mod tests {
         let edge = LaneEdgeOrdinal::from_raw(0);
         let follower = VehicleHandle::new(0, 0);
         let leader = VehicleHandle::new(1, 0);
-        let mut index = OccupancyIndex::with_capacity(1, 2);
+        let (mut index, mut scratch) = OccupancyIndex::with_capacity(1, 2);
         let pending = vec![
             OccupancyRecord {
                 vehicle: follower,
@@ -2304,7 +2384,7 @@ mod tests {
                 update_sequence: 1,
             },
         ];
-        index.rebuild_from_pending(&pending, 1);
+        index.rebuild_from_pending(&mut scratch, &pending, 1);
         let gap = index.leader_gap(
             follower,
             &[edge],
@@ -2344,8 +2424,8 @@ mod tests {
                 update_sequence: index,
             });
         }
-        let mut occupancy = OccupancyIndex::with_capacity(16, pending.len());
-        occupancy.rebuild_from_pending(&pending, 16);
+        let (mut occupancy, mut scratch) = OccupancyIndex::with_capacity(16, pending.len());
+        occupancy.rebuild_from_pending(&mut scratch, &pending, 16);
         occupancy.reset_inspections();
         let gap = occupancy.leader_gap(
             follower,
@@ -2369,6 +2449,7 @@ mod tests {
             .register_route(RouteRegisterInput::new(vec![edge]))
             .expect("route");
         let profile = world
+            .binding
             .revision
             .traffic()
             .relations()
@@ -2509,8 +2590,9 @@ mod tests {
                     update_sequence: last,
                 },
             ];
-            let mut occupancy = OccupancyIndex::with_capacity(edge_count, pending.len());
-            occupancy.rebuild_from_pending(&pending, edge_count);
+            let (mut occupancy, mut scratch) =
+                OccupancyIndex::with_capacity(edge_count, pending.len());
+            occupancy.rebuild_from_pending(&mut scratch, &pending, edge_count);
             occupancy.reset_inspections();
             let gap = occupancy.leader_gap(
                 follower,
@@ -2551,8 +2633,9 @@ mod tests {
                     update_sequence: last,
                 },
             ];
-            let mut occupancy = OccupancyIndex::with_capacity(edge_count, pending.len());
-            occupancy.rebuild_from_pending(&pending, edge_count);
+            let (mut occupancy, mut scratch) =
+                OccupancyIndex::with_capacity(edge_count, pending.len());
+            occupancy.rebuild_from_pending(&mut scratch, &pending, edge_count);
             occupancy.reset_inspections();
             let gap = occupancy.leader_gap(
                 follower,
@@ -2590,10 +2673,10 @@ mod tests {
             ))
             .expect("solo");
         world.step(TickInput::new(100)).unwrap();
-        let before_len = world.occupancy.records_len();
-        let before_time = world.time_ms;
+        let before_len = world.derived.occupancy.records_len();
+        let before_time = world.committed.time_ms;
         let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
-        world.vehicles[slot]
+        world.committed.vehicles[slot]
             .state
             .as_mut()
             .expect("spawned vehicle")
@@ -2602,9 +2685,9 @@ mod tests {
             world.step(TickInput::new(100)),
             Err(StepError::OccupancyIntervalIncomplete)
         );
-        assert_eq!(world.time_ms, before_time);
+        assert_eq!(world.committed.time_ms, before_time);
         assert_eq!(
-            world.occupancy.records_len(),
+            world.derived.occupancy.records_len(),
             before_len,
             "failed rebuild must not replace occupancy records"
         );

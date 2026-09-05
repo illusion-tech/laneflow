@@ -1,6 +1,6 @@
 # TrafficWorld 串行阶段协议与内部状态分区
 
-**状态**: Accepted（设计合入后生效；不表示内部重构已实现）<br>
+**状态**: Active（#581 实现五分区、嵌套聚合拆分与串行阶段借用边界）<br>
 **适用范围**: `laneflow-runtime` 的道路机动车固定步进、内部状态所有权与后续等价重构<br>
 **设计入口**: [#580](https://github.com/illusion-tech/laneflow/issues/580)<br>
 **关联决策**: [ADR 0003](../adr/0003-runtime-tick-and-determinism.md)、
@@ -28,7 +28,7 @@ P0～P8 表达逻辑依赖和访问权限，不要求九次遍历、九个模块
   [观测与 Routing 合同](traffic-observation-and-routing-integration.md)：各自的命令、
   序号、发布和生命周期边界。
 
-本文的内部类型名是后续实现的职责边界，不表示同名代码已落地。不会新增公共 API、
+内部五分区和阶段视图由 `state.rs`、`phase.rs` 及各领域模块实现。不会新增公共 API、
 wire 版本、crate、线程池、Rayon、锁或调度器，也不实现性能优化、第二交通执行域或
 通用事务框架。运行时内部实现不得继续保留一条供切换的旧路径；对照基线留在 git 历史。
 
@@ -244,6 +244,17 @@ fn prepare_commit<'w>(
 作为绕过边界的后门，也不提供内部可变的 committed resource accessor。需要读取
 earlier-staged claims 时显式增加 W 的资源视图，不把它伪装成拍初已提交状态。
 
+当前 `StepWorkspace` 通过只实现 `Deref` 的 `StepCommitted` / `StepDerived`
+借用守卫读取基线。唯一的受限准备操作产生 `ConflictResolution`，只提供 frontier、
+组合取得和丢弃暂存的方法，不提供 reservation 提交或释放方法。Conflict 的原有
+预留顺序同时准备 committed 容器容量及默认空 cell，因此允许这一不改变业务权威的
+存储准备；这不授予阶段任意 `&mut CommittedWorldState`，也不把可失败预留移入 P7。
+`StepReadView` 的 Conflict 查询省略 W；组合裁决的查询显式包含 W overlay。
+
+Waiting 的 occupancy/历史计数留在 C，队列首尾、link 和 member rows 位于 D；
+Occupancy 完成的查询索引位于 D，桶计数及构建游标位于 W。切换与恢复同步维护两者，
+保留原有不一致输入检查位置。
+
 局部意图批次（`LocalIntentBatch`）、裁决批次（`ResolutionBatch`）与确定性提交计划
 （`CommitPlan`）可以是复用数组的私有分段借用、索引范围或类型化 wrapper。逻辑阶段
 允许融合：无须全世界快照、每车堆对象、复制 request 或建立通用任务图。不能让多个
@@ -359,6 +370,19 @@ fresh replay 比较相同命令流产生的成功结果；经 snapshot 恢复的
 Waiting/Conflict allocation evidence，以及正式 compiled-network 行为覆盖。只补
 分区和借用改造实际新增的覆盖缺口；不建立镜像实现或只验证字段搬家的测试。
 保留内存账本必须随嵌套字段迁移更新，不能因更换外层结构漏记 buffer 或重复计量。
+
+#581 的固定对照提交为 `e011745e94986a17049c66e730d54ac9fccc59f9`。
+`tick::phase_equivalence` 在相同 fixture 上比较每拍状态摘要、实例句柄/顺序、决策、
+事件、信号、观测序号/世代/游标及迁移日志，并检查故障重试和恢复后的继续步进。
+六组对照结果保存于 `tests/fixtures/phase-protocol-e011745e.txt`；期望值来自上述
+提交，同一测试输入在两边执行，不能从待测实现生成期望值。
+
+`state::tests::complete_retained_memory_covers_warm_partitions_and_armed_journal`
+检查五分区的 owner-local 穷尽计账及唯一实例总账；共享静态根另列，跨世界汇总时
+去重。Conflict 分离 committed/staged 查询后，需要额外的暂存 owner lookup 和
+downstream 索引容量，Waiting 首尾数组在安装/切换准备时独立分配。既有
+`conflict_budget_evidence`、`waiting_budget_evidence` 继续验证暖机后的分配与重分配；
+不新增领域遍历或 retained 全世界副本。
 
 性能比较在相同构建配置和具名工作负载上进行，报告本次新增遍历、字节和分配；
 已有耗时阈值及硬件角色沿用原合同。本文不预设新的百分比门槛，不以结构拆分宣称

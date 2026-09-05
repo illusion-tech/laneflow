@@ -174,7 +174,7 @@ pub(crate) fn leader_query_horizon(
 
 impl TrafficWorld {
     pub(crate) fn step_vehicles(&mut self, input: TickInput) -> Result<StepOutcome, StepError> {
-        let expected = self.config.fixed_delta_time_ms();
+        let expected = self.binding.config.fixed_delta_time_ms();
         if input.delta_time_ms != expected {
             return Err(StepError::DeltaMismatch {
                 expected_delta_time_ms: expected,
@@ -184,47 +184,162 @@ impl TrafficWorld {
         if !self.conflict_state_valid() {
             return Err(StepError::ConflictInvariantViolation);
         }
-        let tick_index = self.tick_index.checked_add(1).ok_or(StepError::Overflow)?;
+        let tick_index = self
+            .committed
+            .tick_index
+            .checked_add(1)
+            .ok_or(StepError::Overflow)?;
         let time_ms = self
+            .committed
             .time_ms
             .checked_add(expected)
             .ok_or(StepError::Overflow)?;
         let observation_state_sequence = self
+            .committed
             .observation_state_sequence
             .checked_next()
             .ok_or(StepError::ObservationStateSequenceExhausted)?;
         let delta_s = expected as f32 / 1_000.0;
         self.rebuild_occupancy_index()?;
+        let plan = self.step_workspace().prepare_commit(
+            delta_s,
+            tick_index,
+            time_ms,
+            observation_state_sequence,
+        )?;
+        Ok(self.committed_mut().commit(plan))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn advance_active_vehicle(
+        &self,
+        state: VehicleState,
+        delta_s: f32,
+    ) -> Option<VehicleState> {
+        self.read_view().advance_active_vehicle(state, delta_s)
+    }
+
+    /// 测试专用：读本拍占用索引上的前保险杠间隙。不是生产热路径。
+    ///
+    /// 使用与 `advance_active_vehicle` 相同的公式窗。公式非有限时 panic，
+    /// 不得把失败关闭写成「本拍无前车」。调用前必须已 `rebuild_occupancy_index`。
+    #[cfg(test)]
+    pub(crate) fn leader_bumper_gap(
+        &self,
+        follower: &VehicleState,
+        edges: &[LaneEdgeOrdinal],
+        lengths: &[u32],
+    ) -> Option<i64> {
+        self.read_view().leader_bumper_gap(follower, edges, lengths)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn leader_query_horizon_for(&self, follower: &VehicleState) -> LeaderQueryHorizon {
+        self.read_view().leader_query_horizon_for(follower)
+    }
+
+    /// `cfg(test)` 全扫描再按 `bumper_gap_horizon` 过滤，不是生产热路径。
+    #[cfg(test)]
+    pub(crate) fn leader_bumper_gap_scan(
+        &self,
+        follower: &VehicleState,
+        edges: &[LaneEdgeOrdinal],
+        lengths: &[u32],
+    ) -> Option<i64> {
+        self.read_view()
+            .leader_bumper_gap_scan(follower, edges, lengths)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn gate_is_restrictive(
+        &self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+        profile: VehicleProfileOrdinal,
+    ) -> bool {
+        self.read_view().gate_is_restrictive(gate, profile)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn gate_policy_decision(
+        &self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+        profile: VehicleProfileOrdinal,
+    ) -> crate::GatePolicyDecision {
+        self.read_view().gate_policy_decision(gate, profile)
+    }
+}
+
+/// 完整性证明仅在本模块创建；借用尚未释放便消费，不能跨 step 保存或重用。
+/// 其余已校验的转移、批次和信号留在同一世界的 Workspace，避免复制工作集。
+struct CommitPlan {
+    updates: Vec<(usize, VehicleState)>,
+    parking_arrivals: Vec<ParkingArrivalObservation>,
+    tick_index: u64,
+    time_ms: u64,
+    observation_state_sequence: crate::ObservationStateSequence,
+}
+
+impl crate::phase::StepWorkspace<'_> {
+    fn prepare_commit(
+        &mut self,
+        delta_s: f32,
+        tick_index: u64,
+        time_ms: u64,
+        observation_state_sequence: crate::ObservationStateSequence,
+    ) -> Result<CommitPlan, StepError> {
         self.prepare_waiting_step(delta_s)?;
-        let mut updates = std::mem::take(&mut self.next_states);
+        let mut updates = std::mem::take(&mut self.workspace.next_states);
         updates.clear();
         let parking_arrivals =
             match self.stage_vehicle_transitions(delta_s, tick_index, time_ms, &mut updates) {
                 Ok(arrivals) => arrivals,
                 Err(error) => {
                     self.rollback_waiting_step();
-                    self.conflict_arbiter.expire_unconsumed_grants();
-                    self.conflict_grants.clear();
-                    self.conflict_staged_decisions.clear();
-                    self.conflict_passage_transitions.clear();
+                    self.committed
+                        .prepare_conflict(&mut self.derived, &mut self.workspace.conflict)
+                        .discard_staged();
+                    self.workspace.conflict_grants.clear();
+                    self.workspace.conflict_staged_decisions.clear();
+                    self.workspace.conflict_passage_transitions.clear();
                     updates.clear();
-                    self.next_states = updates;
+                    self.workspace.next_states = updates;
                     return Err(error);
                 }
             };
+        Ok(CommitPlan {
+            updates,
+            parking_arrivals,
+            tick_index,
+            time_ms,
+            observation_state_sequence,
+        })
+    }
+}
+
+impl crate::phase::CommittedStateMut<'_> {
+    /// P7 唯一入口：只消费已经完整校验的计划，不再返回 StepError。
+    fn commit(mut self, plan: CommitPlan) -> StepOutcome {
+        let CommitPlan {
+            mut updates,
+            parking_arrivals,
+            tick_index,
+            time_ms,
+            observation_state_sequence,
+        } = plan;
         // 以下提交仅消费已预留、已验证的转移；没有可恢复错误出口。
         self.commit_conflict_transitions(&updates, time_ms);
         self.commit_waiting_removals(&updates);
         // 武装期 TICK 记录在状态写回前开帧、写回后闭帧；无变化条目被过滤，
         // 零变化步进仍保留空记录（tick/时间是候选时钟与摘要头部的收敛依据）。
-        let mut migration_journal = self.migration_journal.take();
+        let mut migration_journal = self.journal.take();
         if let Some(journal) = migration_journal.as_mut() {
             journal.begin_tick(tick_index, time_ms);
         }
         for (slot, next) in &updates {
-            let previous = self.vehicles[*slot].state.replace(*next);
+            let previous = self.committed.vehicles[*slot].state.replace(*next);
             if !previous.as_ref().is_some_and(|old| *old == *next) {
-                let delta = VehicleDelta::from_state(next, self.compiled_route(next.route));
+                let delta =
+                    VehicleDelta::from_state(next, self.read_view().compiled_route(next.route));
                 if let Some(journal) = migration_journal.as_mut() {
                     journal.tick_entry(&delta);
                 }
@@ -232,24 +347,25 @@ impl TrafficWorld {
         }
         if let Some(journal) = migration_journal.as_mut() {
             for claims in self
+                .workspace
                 .waiting_claims
                 .chunk_by(|left, right| left.zone == right.zone)
             {
                 #[cfg(test)]
                 crate::waiting::count_waiting_work(|counts| counts.journal_zones += 1);
                 let zone = claims[0].zone;
-                journal.tick_waiting_zone(zone, self.waiting_next_counters[zone.index()]);
+                journal.tick_waiting_zone(zone, self.workspace.waiting_next_counters[zone.index()]);
             }
             self.write_conflict_tick_journal(journal, &updates);
             journal.finish_tick();
         }
-        self.migration_journal = migration_journal;
+        *self.journal = migration_journal;
         self.commit_waiting_additions(&updates);
         self.commit_conflict_step();
         updates.clear();
-        self.next_states = updates;
-        let vehicles = &self.vehicles;
-        self.active_order.retain(|handle| {
+        self.workspace.next_states = updates;
+        let vehicles = &self.committed.vehicles;
+        self.derived.active_order.retain(|handle| {
             let index = usize::try_from(handle.index()).expect("vehicle index fits usize");
             vehicles.get(index).is_some_and(|slot| {
                 slot.generation == handle.generation()
@@ -259,80 +375,20 @@ impl TrafficWorld {
                         .is_some_and(|state| state.status == VehicleStatus::Active)
             })
         });
-        self.tick_index = tick_index;
-        self.time_ms = time_ms;
-        self.observation_state_sequence = observation_state_sequence;
-        core::mem::swap(&mut self.signal_aspects, &mut self.next_signal_aspects);
-        Ok(StepOutcome::new(tick_index, time_ms, parking_arrivals))
+        self.committed.tick_index = tick_index;
+        self.committed.time_ms = time_ms;
+        self.committed.observation_state_sequence = observation_state_sequence;
+        core::mem::swap(
+            &mut self.committed.signal_aspects,
+            &mut self.workspace.next_signal_aspects,
+        );
+        StepOutcome::new(tick_index, time_ms, parking_arrivals)
     }
+}
 
-    fn stage_vehicle_transitions(
-        &mut self,
-        delta_s: f32,
-        tick_index: u64,
-        time_ms: u64,
-        updates: &mut Vec<(usize, VehicleState)>,
-    ) -> Result<Vec<ParkingArrivalObservation>, StepError> {
-        self.prepare_conflict_step(delta_s, tick_index)?;
-        #[cfg(test)]
-        injected_step_failure(StepFailpoint::AfterGrants)?;
-        let mut parking_arrivals = Vec::new();
-        for handle in self.active_order.iter().copied() {
-            let Some(state) = self.vehicle_state(handle).copied() else {
-                continue;
-            };
-            debug_assert_eq!(state.status, VehicleStatus::Active);
-            if !self.parking_state_valid(handle) {
-                return Err(StepError::ParkingInvariantViolation);
-            }
-            let reservation = match self.parking.binding(handle) {
-                Some(ParkingBinding::Reserved(reservation)) => Some(reservation),
-                Some(ParkingBinding::Occupied(_)) => {
-                    return Err(StepError::ParkingInvariantViolation);
-                }
-                None => None,
-            };
-            let arrived_before =
-                reservation.is_some_and(|reservation| self.parking_arrived_for(state, reservation));
-            let waiting_stop = self.waiting_stop_for(state)?;
-            let conflict_stop = self.conflict_stop_for(state)?;
-            let next = self
-                .advance_active_vehicle_with_waiting_stop(
-                    state,
-                    delta_s,
-                    waiting_stop,
-                    conflict_stop,
-                )
-                .ok_or(StepError::NonFiniteMotion)?;
-            if let Some(reservation) = reservation {
-                if next.status != VehicleStatus::Active {
-                    return Err(StepError::ParkingInvariantViolation);
-                }
-                if !arrived_before && self.parking_arrived_for(next, reservation) {
-                    parking_arrivals
-                        .try_reserve(1)
-                        .map_err(|_| StepError::ParkingObservationAllocFailed)?;
-                    parking_arrivals.push(ParkingArrivalObservation {
-                        vehicle: handle,
-                        target: reservation.target(),
-                    });
-                }
-            }
-            let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
-            updates.push((slot, next));
-        }
-        self.finalize_waiting_step(updates)?;
-        // 决策和运动使用拍初信号；资格与日志必须描述下一提交时刻。
-        crate::world::fill_signal_aspects(&self.revision, time_ms, &mut self.next_signal_aspects);
-        self.finalize_conflict_step(updates)?;
-        self.finalize_waiting_outputs(updates, tick_index)?;
-        #[cfg(test)]
-        injected_step_failure(StepFailpoint::AfterTransitions)?;
-        Ok(parking_arrivals)
-    }
-
+impl<'a> crate::phase::StepReadView<'a> {
     pub(crate) fn advance_active_vehicle(
-        &self,
+        self,
         state: VehicleState,
         delta_s: f32,
     ) -> Option<VehicleState> {
@@ -340,7 +396,7 @@ impl TrafficWorld {
     }
 
     pub(crate) fn advance_active_vehicle_with_waiting_stop(
-        &self,
+        self,
         mut state: VehicleState,
         delta_s: f32,
         waiting_stop: Option<crate::waiting::WaitingStopConstraint>,
@@ -350,20 +406,22 @@ impl TrafficWorld {
         let edges = compiled.edges.as_slice();
         let cursor = usize::try_from(state.route_edge_index).ok()?;
         let edge = *edges.get(cursor)?;
-        let lengths = self.revision.traffic().lane_lengths_millimetres();
+        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
         let speed_limits = self
+            .binding
             .revision
             .traffic()
             .lane_speed_limits_millimetres_per_second();
         let current_limit = *speed_limits.get(edge.index())?;
         let profile = self
+            .binding
             .revision
             .traffic()
             .relations()
             .vehicle_profile(state.profile)?;
         let desired_mm_s = profile.desired_speed_mm_s().min(current_limit);
         let horizon = leader_query_horizon(state.speed_mm_s, profile, delta_s)?;
-        let leader_gap = self.occupancy.leader_gap(
+        let leader_gap = self.derived.occupancy.leader_gap(
             state.handle,
             edges,
             cursor,
@@ -473,13 +531,15 @@ impl TrafficWorld {
         Some(state)
     }
 
-    fn parking_stop_distance(
-        &self,
+    pub(crate) fn parking_stop_distance(
+        self,
         compiled: &CompiledRoute,
         state: &VehicleState,
         cursor: usize,
     ) -> Option<Option<(ParkingReservation, BoundedDistance)>> {
-        let Some(ParkingBinding::Reserved(reservation)) = self.parking.binding(state.handle) else {
+        let Some(ParkingBinding::Reserved(reservation)) =
+            self.committed.parking.binding(state.handle)
+        else {
             return Some(None);
         };
         if reservation.route() != state.route {
@@ -508,14 +568,14 @@ impl TrafficWorld {
     /// 不得把失败关闭写成「本拍无前车」。调用前必须已 `rebuild_occupancy_index`。
     #[cfg(test)]
     pub(crate) fn leader_bumper_gap(
-        &self,
+        self,
         follower: &VehicleState,
         edges: &[LaneEdgeOrdinal],
         lengths: &[u32],
     ) -> Option<i64> {
         let cursor = usize::try_from(follower.route_edge_index).ok()?;
         let horizon = self.leader_query_horizon_for(follower);
-        self.occupancy.leader_gap(
+        self.derived.occupancy.leader_gap(
             follower.handle,
             edges,
             cursor,
@@ -526,14 +586,15 @@ impl TrafficWorld {
     }
 
     #[cfg(test)]
-    pub(crate) fn leader_query_horizon_for(&self, follower: &VehicleState) -> LeaderQueryHorizon {
+    pub(crate) fn leader_query_horizon_for(self, follower: &VehicleState) -> LeaderQueryHorizon {
         let profile = self
+            .binding
             .revision
             .traffic()
             .relations()
             .vehicle_profile(follower.profile)
             .expect("test follower profile");
-        let delta_s = self.config.fixed_delta_time_ms() as f32 / 1_000.0;
+        let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
         leader_query_horizon(follower.speed_mm_s, profile, delta_s)
             .expect("finite leader query horizon")
     }
@@ -541,7 +602,7 @@ impl TrafficWorld {
     /// `cfg(test)` 全扫描再按 `bumper_gap_horizon` 过滤，不是生产热路径。
     #[cfg(test)]
     pub(crate) fn leader_bumper_gap_scan(
-        &self,
+        self,
         follower: &VehicleState,
         edges: &[LaneEdgeOrdinal],
         lengths: &[u32],
@@ -549,7 +610,7 @@ impl TrafficWorld {
         let cursor = usize::try_from(follower.route_edge_index).ok()?;
         let accept = i64::from(self.leader_query_horizon_for(follower).bumper_gap_mm);
         let mut best: Option<i64> = None;
-        for handle in self.live_order.iter().copied() {
+        for handle in self.committed.live_order.iter().copied() {
             if handle == follower.handle {
                 continue;
             }
@@ -590,7 +651,7 @@ impl TrafficWorld {
     /// 停车距离读 hop 上已物化的 `distance_from_hop_start`，不靠两条「到路终」后缀相减。
     /// 路终越界时近处有界门距仍是 `Finite`。
     pub(crate) fn signal_stop_distance(
-        &self,
+        self,
         compiled: &CompiledRoute,
         state: &VehicleState,
         cursor: usize,
@@ -618,8 +679,8 @@ impl TrafficWorld {
         None
     }
 
-    fn hop_permitted(
-        &self,
+    pub(crate) fn hop_permitted(
+        self,
         route: crate::RouteHandle,
         edges: &[LaneEdgeOrdinal],
         hop_index: usize,
@@ -638,7 +699,7 @@ impl TrafficWorld {
     }
 
     pub(crate) fn gate_is_restrictive(
-        &self,
+        self,
         gate: laneflow_static_contract::ManeuverGateOrdinal,
         profile: VehicleProfileOrdinal,
     ) -> bool {
@@ -649,20 +710,25 @@ impl TrafficWorld {
     }
 
     pub(crate) fn gate_policy_decision(
-        &self,
+        self,
         gate: laneflow_static_contract::ManeuverGateOrdinal,
         profile: VehicleProfileOrdinal,
     ) -> crate::GatePolicyDecision {
-        self.gate_policy_decision_with_signals(gate, profile, &self.signal_aspects)
+        self.gate_policy_decision_with_signals(gate, profile, &self.committed.signal_aspects)
     }
 
     pub(crate) fn gate_policy_decision_with_signals(
-        &self,
+        self,
         gate: laneflow_static_contract::ManeuverGateOrdinal,
         profile: VehicleProfileOrdinal,
         signal_aspects: &[laneflow_static_contract::SignalAspect],
     ) -> crate::GatePolicyDecision {
-        let gate_view = self.revision.traffic().relations().maneuver_gate(gate);
+        let gate_view = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .maneuver_gate(gate);
         let Some(gate_view) = gate_view else {
             return crate::GatePolicyDecision::DenyAndStop;
         };
@@ -673,6 +739,116 @@ impl TrafficWorld {
         let aspect = signal_group.and_then(|group| signal_aspects.get(group.index()).copied());
         crate::conflict::interpret_gate_policy(*rule, signal_group.is_some(), aspect)
             .unwrap_or(crate::GatePolicyDecision::DenyAndStop)
+    }
+}
+
+impl crate::phase::StepWorkspace<'_> {
+    pub(crate) fn stage_vehicle_transitions(
+        &mut self,
+        delta_s: f32,
+        tick_index: u64,
+        time_ms: u64,
+        updates: &mut Vec<(usize, VehicleState)>,
+    ) -> Result<Vec<ParkingArrivalObservation>, StepError> {
+        self.prepare_conflict_step(delta_s, tick_index)?;
+        #[cfg(test)]
+        injected_step_failure(StepFailpoint::AfterGrants)?;
+        let mut parking_arrivals = Vec::new();
+        for handle in self.derived.active_order.iter().copied() {
+            let Some(state) = self.vehicle_state(handle).copied() else {
+                continue;
+            };
+            debug_assert_eq!(state.status, VehicleStatus::Active);
+            if !self.parking_state_valid(handle) {
+                return Err(StepError::ParkingInvariantViolation);
+            }
+            let reservation = match self.committed.parking.binding(handle) {
+                Some(ParkingBinding::Reserved(reservation)) => Some(reservation),
+                Some(ParkingBinding::Occupied(_)) => {
+                    return Err(StepError::ParkingInvariantViolation);
+                }
+                None => None,
+            };
+            let arrived_before =
+                reservation.is_some_and(|reservation| self.parking_arrived_for(state, reservation));
+            let waiting_stop = self.waiting_stop_for(state)?;
+            let conflict_stop = self.conflict_stop_for(state)?;
+            let next = self
+                .advance_active_vehicle_with_waiting_stop(
+                    state,
+                    delta_s,
+                    waiting_stop,
+                    conflict_stop,
+                )
+                .ok_or(StepError::NonFiniteMotion)?;
+            if let Some(reservation) = reservation {
+                if next.status != VehicleStatus::Active {
+                    return Err(StepError::ParkingInvariantViolation);
+                }
+                if !arrived_before && self.parking_arrived_for(next, reservation) {
+                    parking_arrivals
+                        .try_reserve(1)
+                        .map_err(|_| StepError::ParkingObservationAllocFailed)?;
+                    parking_arrivals.push(ParkingArrivalObservation {
+                        vehicle: handle,
+                        target: reservation.target(),
+                    });
+                }
+            }
+            let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
+            updates.push((slot, next));
+        }
+        self.finalize_waiting_step(updates)?;
+        // 决策和运动使用拍初信号；资格与日志必须描述下一提交时刻。
+        crate::world::fill_signal_aspects(
+            &self.binding.revision,
+            time_ms,
+            &mut self.workspace.next_signal_aspects,
+        );
+        self.finalize_conflict_step(updates)?;
+        self.finalize_waiting_outputs(updates, tick_index)?;
+        #[cfg(test)]
+        injected_step_failure(StepFailpoint::AfterTransitions)?;
+        Ok(parking_arrivals)
+    }
+
+    pub(crate) fn advance_active_vehicle(
+        &self,
+        state: VehicleState,
+        delta_s: f32,
+    ) -> Option<VehicleState> {
+        self.read_view().advance_active_vehicle(state, delta_s)
+    }
+
+    pub(crate) fn advance_active_vehicle_with_waiting_stop(
+        &self,
+        state: VehicleState,
+        delta_s: f32,
+        waiting_stop: Option<crate::waiting::WaitingStopConstraint>,
+        conflict_stop: Option<crate::waiting::WaitingStopConstraint>,
+    ) -> Option<VehicleState> {
+        self.read_view().advance_active_vehicle_with_waiting_stop(
+            state,
+            delta_s,
+            waiting_stop,
+            conflict_stop,
+        )
+    }
+
+    pub(crate) fn gate_is_restrictive(
+        &self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+        profile: VehicleProfileOrdinal,
+    ) -> bool {
+        self.read_view().gate_is_restrictive(gate, profile)
+    }
+
+    pub(crate) fn gate_policy_decision(
+        &self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+        profile: VehicleProfileOrdinal,
+    ) -> crate::GatePolicyDecision {
+        self.read_view().gate_policy_decision(gate, profile)
     }
 }
 
@@ -1296,34 +1472,37 @@ mod preview {
     #[test]
     fn failed_signal_boundary_publication_preserves_committed_world_and_retries() {
         let mut world = install_preview_world();
-        assert!(!world.signal_aspects.is_empty());
-        assert_eq!(world.next_signal_aspects.len(), world.signal_aspects.len());
+        assert!(!world.committed.signal_aspects.is_empty());
+        assert_eq!(
+            world.workspace.next_signal_aspects.len(),
+            world.committed.signal_aspects.len()
+        );
         let boundary = (1..6_000)
             .find(|tick| {
-                world.time_ms = (tick - 1) * 100;
+                world.committed.time_ms = (tick - 1) * 100;
                 world.refresh_signals();
                 crate::world::fill_signal_aspects(
-                    &world.revision,
+                    &world.binding.revision,
                     tick * 100,
-                    &mut world.next_signal_aspects,
+                    &mut world.workspace.next_signal_aspects,
                 );
-                world.signal_aspects != world.next_signal_aspects
+                world.committed.signal_aspects != world.workspace.next_signal_aspects
             })
             .expect("fixture crosses an ordinary signal phase");
-        world.tick_index = boundary - 1;
+        world.committed.tick_index = boundary - 1;
         let before = world.capture_snapshot().unwrap();
-        let signals = world.signal_aspects.clone();
-        let next_signals = world.next_signal_aspects.clone();
+        let signals = world.committed.signal_aspects.clone();
+        let next_signals = world.workspace.next_signal_aspects.clone();
         STEP_FAILPOINT.with(|failpoint| failpoint.set(Some(StepFailpoint::AfterTransitions)));
         assert_eq!(
             world.step(TickInput::new(100)),
             Err(StepError::ParkingObservationAllocFailed)
         );
         assert_eq!(world.capture_snapshot().unwrap(), before);
-        assert_eq!(world.signal_aspects, signals);
-        assert_eq!(world.next_signal_aspects, next_signals);
+        assert_eq!(world.committed.signal_aspects, signals);
+        assert_eq!(world.workspace.next_signal_aspects, next_signals);
         world.step(TickInput::new(100)).unwrap();
-        assert_eq!(world.signal_aspects, next_signals);
+        assert_eq!(world.committed.signal_aspects, next_signals);
         assert_eq!(world.time_ms(), boundary * 100);
         assert!(world.conflict_state_valid());
     }
@@ -1342,25 +1521,37 @@ mod preview {
             ))
             .unwrap();
         world.step(TickInput::new(100)).unwrap();
-        let next_cap = world.next_states.capacity();
-        let live_cap = world.live_order.capacity();
-        let vehicle_cap = world.vehicles.capacity();
-        let occupancy_records = world.occupancy.records_capacity();
-        let occupancy_scratch = world.occupancy.scratch_capacity();
-        let occupancy_offsets = world.occupancy.offsets_capacity();
-        let occupancy_suffix = world.occupancy.suffix_min_lo_capacity();
-        let occupancy_second = world.occupancy.suffix_second_lo_capacity();
+        let next_cap = world.workspace.next_states.capacity();
+        let live_cap = world.committed.live_order.capacity();
+        let vehicle_cap = world.committed.vehicles.capacity();
+        let occupancy_records = world.derived.occupancy.records_capacity();
+        let occupancy_scratch = world.workspace.occupancy_scratch.capacity();
+        let occupancy_offsets = world.derived.occupancy.offsets_capacity();
+        let occupancy_suffix = world.derived.occupancy.suffix_min_lo_capacity();
+        let occupancy_second = world.derived.occupancy.suffix_second_lo_capacity();
         for _ in 0..16 {
             world.step(TickInput::new(100)).unwrap();
-            assert_eq!(world.next_states.capacity(), next_cap);
-            assert_eq!(world.live_order.capacity(), live_cap);
-            assert_eq!(world.vehicles.capacity(), vehicle_cap);
-            assert_eq!(world.occupancy.records_capacity(), occupancy_records);
-            assert_eq!(world.occupancy.scratch_capacity(), occupancy_scratch);
-            assert_eq!(world.occupancy.offsets_capacity(), occupancy_offsets);
-            assert_eq!(world.occupancy.suffix_min_lo_capacity(), occupancy_suffix);
+            assert_eq!(world.workspace.next_states.capacity(), next_cap);
+            assert_eq!(world.committed.live_order.capacity(), live_cap);
+            assert_eq!(world.committed.vehicles.capacity(), vehicle_cap);
             assert_eq!(
-                world.occupancy.suffix_second_lo_capacity(),
+                world.derived.occupancy.records_capacity(),
+                occupancy_records
+            );
+            assert_eq!(
+                world.workspace.occupancy_scratch.capacity(),
+                occupancy_scratch
+            );
+            assert_eq!(
+                world.derived.occupancy.offsets_capacity(),
+                occupancy_offsets
+            );
+            assert_eq!(
+                world.derived.occupancy.suffix_min_lo_capacity(),
+                occupancy_suffix
+            );
+            assert_eq!(
+                world.derived.occupancy.suffix_second_lo_capacity(),
                 occupancy_second
             );
         }
@@ -1380,11 +1571,11 @@ mod preview {
     #[test]
     fn overflow_step_leaves_committed_time_unchanged() {
         let mut world = install_preview_world();
-        world.tick_index = u64::MAX;
-        let time = world.time_ms;
+        world.committed.tick_index = u64::MAX;
+        let time = world.committed.time_ms;
         assert_eq!(world.step(TickInput::new(100)), Err(StepError::Overflow));
-        assert_eq!(world.tick_index, u64::MAX);
-        assert_eq!(world.time_ms, time);
+        assert_eq!(world.committed.tick_index, u64::MAX);
+        assert_eq!(world.committed.time_ms, time);
     }
 
     #[test]
@@ -1415,7 +1606,7 @@ mod preview {
             ))
             .unwrap();
         let before_progress = world.vehicle_state(first).unwrap().progress_mm;
-        let before_tick = world.tick_index;
+        let before_tick = world.committed.tick_index;
         assert_eq!(
             world.step(TickInput::new(50)),
             Err(StepError::DeltaMismatch {
@@ -1423,12 +1614,12 @@ mod preview {
                 actual_delta_time_ms: 50,
             })
         );
-        assert_eq!(world.tick_index, before_tick);
+        assert_eq!(world.committed.tick_index, before_tick);
         assert_eq!(
             world.vehicle_state(first).unwrap().progress_mm,
             before_progress
         );
-        assert_eq!(world.time_ms, 0);
+        assert_eq!(world.committed.time_ms, 0);
     }
 
     fn travel_state(route_edge_index: u32, progress_mm: u32) -> VehicleState {
@@ -1595,3 +1786,7 @@ mod preview {
         assert_eq!(round_mm(f64::from(next)), Some(9_536));
     }
 }
+
+#[cfg(test)]
+#[path = "phase_equivalence.rs"]
+mod phase_equivalence;

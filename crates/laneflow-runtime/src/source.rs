@@ -25,6 +25,19 @@ pub struct PublishedLfcaReference {
     network_revision: NetworkRevisionId,
 }
 
+#[cfg(test)]
+impl PublishedLfcaReference {
+    pub(crate) fn retained_logical_bytes(&self) -> u64 {
+        let Self {
+            asset_key,
+            canonical_artifact_digest: _,
+            canonical_artifact_byte_length: _,
+            network_revision: _,
+        } = self;
+        asset_key.capacity() as u64
+    }
+}
+
 impl PublishedLfcaReference {
     /// 构造已发布引用。asset key 必须非空；三联值由发布链绑定，本类型
     /// 不重算、不验证其真实性。
@@ -109,6 +122,15 @@ pub enum CommittedNetworkSource {
         /// 宿主持久的发布引用。
         reference: PublishedLfcaReference,
     },
+}
+
+#[cfg(test)]
+impl CommittedNetworkSource {
+    pub(crate) fn retained_logical_bytes(&self) -> u64 {
+        match self {
+            Self::Published { reference } => reference.retained_logical_bytes(),
+        }
+    }
 }
 
 impl CommittedNetworkSource {

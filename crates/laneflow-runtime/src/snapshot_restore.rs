@@ -518,15 +518,15 @@ pub fn restore_lfrs(
     let snapshot_config = root.world_config();
     validate_state_count(
         SnapshotLimitDimension::RouteConflictOccurrences,
-        world.live_route_conflict_occurrence_count,
+        world.committed.live_route_conflict_occurrence_count,
         snapshot_config.route_conflict_occurrence_capacity(),
         target_config.route_conflict_occurrence_capacity(),
     )?;
-    world.config = target_config;
+    world.binding.config = target_config;
     // 在私有 staging 恢复已提交时钟；Waiting phase 保留历史归因，不按当前信号重解释。
-    world.tick_index = root.tick();
-    world.time_ms = root.time_ms();
-    world.event_cursor = root.event_cursor();
+    world.committed.tick_index = root.tick();
+    world.committed.time_ms = root.time_ms();
+    world.committed.event_cursor = root.event_cursor();
     world.refresh_signals();
 
     let vehicle_rows = root.vehicles();
@@ -562,14 +562,14 @@ pub fn restore_lfrs(
         return Err(SnapshotRestoreError::IncompleteLiveOrder);
     }
 
-    world.live_order = live_order;
+    world.committed.live_order = live_order;
     world.rebuild_active_order();
     restore_waiting_aggregate(&mut world, root)?;
     restore_conflict_aggregate(&mut world, root, &vehicle_map)?;
-    world.observation_state_sequence = ObservationStateSequence::INITIAL;
-    world.command_cursor = root.command_cursor();
-    world.event_cursor = root.event_cursor();
-    world.next_states.clear();
+    world.committed.observation_state_sequence = ObservationStateSequence::INITIAL;
+    world.committed.command_cursor = root.command_cursor();
+    world.committed.event_cursor = root.event_cursor();
+    world.workspace.next_states.clear();
     world.refresh_signals();
     world
         .rebuild_occupancy_index()
@@ -590,11 +590,11 @@ fn decode_conflict_locator(
     let zone_stable = binding.conflict_zone().ok_or(())?;
     let stream_id = ParticipantStreamId::from_untyped(StableId128::from_bytes(stream_stable.0));
     let zone_id = ConflictZoneId::from_untyped(StableId128::from_bytes(zone_stable.0));
-    let identity = world.revision.identity();
+    let identity = world.binding.revision.identity();
     let stream = identity.ordinal(stream_id).ok_or(())?;
     let zone = identity.ordinal(zone_id).ok_or(())?;
     let address = world
-        .conflict_arbiter
+        .conflict_read()
         .unique_address(zone, stream)
         .ok_or(())?;
     let locator = crate::ConflictPassageLocator::new(stream_id, zone_id);
@@ -613,7 +613,7 @@ fn route_position_um(
     let edges = world.route_edges(route)?;
     let index = usize::try_from(route_edge_index).ok()?;
     let edge = *edges.get(index)?;
-    let lengths = world.revision.traffic().lane_lengths_millimetres();
+    let lengths = world.binding.revision.traffic().lane_lengths_millimetres();
     if progress_mm > *lengths.get(edge.index())? || carry_um >= MICROMETRES_PER_MILLIMETRE {
         return None;
     }
@@ -631,14 +631,14 @@ fn restore_conflict_aggregate(
     root: wire::RuntimeSnapshot<'_>,
     vehicle_map: &BTreeMap<u64, VehicleHandle>,
 ) -> Result<(), SnapshotRestoreError> {
-    let capacity = usize::try_from(world.config.vehicle_capacity())
+    let capacity = usize::try_from(world.binding.config.vehicle_capacity())
         .map_err(|_| SnapshotRestoreError::InvalidConflictHistory)?;
     let mut eligibility = Vec::new();
     eligibility
         .try_reserve_exact(capacity)
         .map_err(|_| SnapshotRestoreError::InvalidConflictHistory)?;
     eligibility.resize(capacity, None);
-    world.conflict_eligibility = eligibility;
+    world.committed.conflict_eligibility = eligibility;
 
     for vehicle in root.vehicles() {
         let snapshot_vehicle_id = vehicle.snapshot_vehicle_id();
@@ -701,7 +701,7 @@ fn restore_conflict_aggregate(
                 .get(locator.admission_gate_hop() as usize)
                 .copied()
                 .flatten()
-                .and_then(|gate| world.revision.identity().stable_id(gate))
+                .and_then(|gate| world.binding.revision.identity().stable_id(gate))
                 .map(|gate| *gate.as_untyped());
             if maneuver.entry_route_edge_index != binding.maneuver_entry_route_edge_index()
                 || gate
@@ -725,7 +725,7 @@ fn restore_conflict_aggregate(
                     snapshot_vehicle_id,
                 });
             }
-            world.conflict_eligibility[handle.index() as usize] = Some(eligibility);
+            world.committed.conflict_eligibility[handle.index() as usize] = Some(eligibility);
         }
 
         let Some(binding) = vehicle.conflict_reservation() else {
@@ -767,6 +767,7 @@ fn restore_conflict_aggregate(
                 snapshot_vehicle_id,
             })?;
         let path_stable = world
+            .binding
             .revision
             .identity()
             .stable_id(maneuver.path)
@@ -785,7 +786,7 @@ fn restore_conflict_aggregate(
                     .get(*hop as usize)
                     .copied()
                     .flatten()
-                    .and_then(|gate| world.revision.identity().stable_id(gate))
+                    .and_then(|gate| world.binding.revision.identity().stable_id(gate))
                     .is_some_and(|gate| *gate.as_untyped() == admission_gate_stable)
             })
             .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
@@ -839,6 +840,7 @@ fn restore_conflict_aggregate(
             },
         )?;
         let gate_progress_mm = world
+            .binding
             .revision
             .traffic()
             .lane_lengths_millimetres()
@@ -990,6 +992,7 @@ fn restore_conflict_aggregate(
             }
             previous_wire_key = Some(wire_key);
             let edge = world
+                .binding
                 .revision
                 .identity()
                 .ordinal(LaneEdgeId::from_untyped(stable))
@@ -999,7 +1002,7 @@ fn restore_conflict_aggregate(
             let interval = crate::DownstreamInterval::new(edge, row.start_mm(), row.end_mm())
                 .filter(|interval| {
                     interval.end_mm()
-                        <= world.revision.traffic().lane_lengths_millimetres()[edge.index()]
+                        <= world.binding.revision.traffic().lane_lengths_millimetres()[edge.index()]
                 })
                 .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
                     snapshot_vehicle_id,
@@ -1037,6 +1040,7 @@ fn restore_conflict_aggregate(
             });
         }
         let follower_min_gap_mm = world
+            .binding
             .revision
             .traffic()
             .relations()
@@ -1045,22 +1049,25 @@ fn restore_conflict_aggregate(
             .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
                 snapshot_vehicle_id,
             })?;
-        world
-            .conflict_arbiter
-            .restore_reservation(
-                handle,
-                crate::conflict::RestoredConflictReservation {
-                    follower_min_gap_mm,
-                    acquired_tick: binding.acquired_tick(),
-                    passage_range,
-                    cells: &restored_cells,
-                    downstream: &downstream,
-                },
-            )
-            .map_err(|_| SnapshotRestoreError::InvalidConflictAuthority {
-                snapshot_vehicle_id,
-            })?;
-        world.vehicles[handle.index() as usize]
+        crate::conflict::ConflictWrite::new(
+            &mut world.committed.conflict,
+            &mut world.derived.conflict,
+            &mut world.workspace.conflict,
+        )
+        .restore_reservation(
+            handle,
+            crate::conflict::RestoredConflictReservation {
+                follower_min_gap_mm,
+                acquired_tick: binding.acquired_tick(),
+                passage_range,
+                cells: &restored_cells,
+                downstream: &downstream,
+            },
+        )
+        .map_err(|_| SnapshotRestoreError::InvalidConflictAuthority {
+            snapshot_vehicle_id,
+        })?;
+        world.committed.vehicles[handle.index() as usize]
             .state
             .as_mut()
             .expect("restored vehicle exists")
@@ -1096,10 +1103,13 @@ fn restore_conflict_aggregate(
         } else {
             return Err(SnapshotRestoreError::InvalidConflictHistory);
         };
-        world
-            .conflict_arbiter
-            .restore_lag_reference(address, reference)
-            .map_err(|_| SnapshotRestoreError::InvalidConflictHistory)?;
+        crate::conflict::ConflictWrite::new(
+            &mut world.committed.conflict,
+            &mut world.derived.conflict,
+            &mut world.workspace.conflict,
+        )
+        .restore_lag_reference(address, reference)
+        .map_err(|_| SnapshotRestoreError::InvalidConflictHistory)?;
     }
     world.normalize_conflict_eligibility();
     if !world.conflict_state_valid() {
@@ -1112,12 +1122,13 @@ fn restore_waiting_aggregate(
     world: &mut TrafficWorld,
     root: wire::RuntimeSnapshot<'_>,
 ) -> Result<(), SnapshotRestoreError> {
-    let mut rows = vec![None; world.waiting_zones.len()];
+    let mut rows = vec![None; world.committed.waiting_zones.len()];
     for row in root.waiting_zones() {
         let zone = row
             .waiting_zone()
             .and_then(|stable| {
                 world
+                    .binding
                     .revision
                     .identity()
                     .ordinal(WaitingZoneId::from_untyped(StableId128::from_bytes(
@@ -1136,9 +1147,9 @@ fn restore_waiting_aggregate(
 
     let mut members = Vec::new();
     members
-        .try_reserve_exact(world.live_order.len())
+        .try_reserve_exact(world.committed.live_order.len())
         .map_err(|_| SnapshotRestoreError::WaitingInvariantViolation)?;
-    for vehicle in world.live_order.iter().copied() {
+    for vehicle in world.committed.live_order.iter().copied() {
         if let Some(membership) = world
             .vehicle_state(vehicle)
             .and_then(|state| state.waiting_membership)
@@ -1163,7 +1174,7 @@ fn restore_waiting_aggregate(
 
     // 成员已经按 zone 排序；单调游标只消费当前组，计数总成本为 O(zones + members)。
     let mut member_cursor = 0;
-    for (zone_index, state) in world.waiting_zones.iter_mut().enumerate() {
+    for (zone_index, state) in world.committed.waiting_zones.iter_mut().enumerate() {
         let group_start = member_cursor;
         while members
             .get(member_cursor)
@@ -1183,6 +1194,7 @@ fn restore_waiting_aggregate(
                 .map_err(|_| SnapshotRestoreError::WaitingInvariantViolation)?,
         );
         let max_occupancy = world
+            .binding
             .revision
             .traffic()
             .relations()
@@ -1199,7 +1211,8 @@ fn restore_waiting_aggregate(
     }
 
     for (_, sequence, vehicle, membership) in members {
-        let next = world.waiting_zones[membership.waiting_zone.index()].next_admission_sequence;
+        let next =
+            world.committed.waiting_zones[membership.waiting_zone.index()].next_admission_sequence;
         if sequence >= next {
             return Err(SnapshotRestoreError::WaitingInvariantViolation);
         }
@@ -1627,6 +1640,7 @@ fn decode_waiting_authority(
         .maneuver_path()
         .and_then(|stable| {
             world
+                .binding
                 .revision
                 .identity()
                 .ordinal(ManeuverPathId::from_untyped(StableId128::from_bytes(
@@ -1640,6 +1654,7 @@ fn decode_waiting_authority(
         .phase_gate()
         .and_then(|stable| {
             world
+                .binding
                 .revision
                 .identity()
                 .ordinal(ManeuverGateId::from_untyped(StableId128::from_bytes(
@@ -1701,6 +1716,7 @@ fn decode_waiting_authority(
                 .waiting_zone()
                 .and_then(|stable| {
                     world
+                        .binding
                         .revision
                         .identity()
                         .ordinal(WaitingZoneId::from_untyped(StableId128::from_bytes(
@@ -1714,6 +1730,7 @@ fn decode_waiting_authority(
                 .entry_gate()
                 .and_then(|stable| {
                     world
+                        .binding
                         .revision
                         .identity()
                         .ordinal(ManeuverGateId::from_untyped(StableId128::from_bytes(
@@ -1727,6 +1744,7 @@ fn decode_waiting_authority(
                 .release_gate()
                 .and_then(|stable| {
                     world
+                        .binding
                         .revision
                         .identity()
                         .ordinal(ManeuverGateId::from_untyped(StableId128::from_bytes(
@@ -1799,7 +1817,7 @@ fn decode_parking_binding(
     let target_wire = binding.target().ok_or(SnapshotRestoreError::MissingField {
         field: "vehicles.parking.target",
     })?;
-    let identity = world.revision.identity();
+    let identity = world.binding.revision.identity();
     let target = if binding.target_kind() == wire::ParkingTargetKind::ExplicitSpace {
         ParkingTarget::ExplicitSpace(
             identity
@@ -1863,6 +1881,7 @@ fn decode_parking_binding(
                     snapshot_vehicle_id,
                 })?;
             let view = world
+                .binding
                 .revision
                 .traffic()
                 .relations()
@@ -1951,7 +1970,7 @@ fn restore_vehicle(
     let class = vehicle.class().ok_or(SnapshotRestoreError::MissingField {
         field: "vehicles.class",
     })?;
-    let identity = world.revision.identity();
+    let identity = world.binding.revision.identity();
     let profile = identity
         .ordinal(VehicleProfileId::from_untyped(StableId128::from_bytes(
             profile.0,
@@ -1967,6 +1986,7 @@ fn restore_vehicle(
             snapshot_vehicle_id,
         })?;
     let profile_view = world
+        .binding
         .revision
         .traffic()
         .relations()
@@ -1987,7 +2007,7 @@ fn restore_vehicle(
         let at_route_end = edges.get(index).is_some_and(|edge| {
             index + 1 == edges.len()
                 && vehicle.progress_mm()
-                    == world.revision.traffic().lane_lengths_millimetres()[edge.index()]
+                    == world.binding.revision.traffic().lane_lengths_millimetres()[edge.index()]
         });
         if !at_route_end {
             return Err(SnapshotRestoreError::InvalidCompletedState {
@@ -2210,7 +2230,7 @@ pub(crate) mod tests {
             (gate_range, first_occurrence)
         };
         {
-            let state = world.vehicles[vehicle.index() as usize]
+            let state = world.committed.vehicles[vehicle.index() as usize]
                 .state
                 .as_mut()
                 .expect("vehicle state");
@@ -2276,26 +2296,30 @@ pub(crate) mod tests {
             .expect("derive downstream physical union");
         assert!(!downstream.is_empty());
         let follower_min_gap_mm = world
+            .binding
             .revision
             .traffic()
             .relations()
             .vehicle_profile(world.vehicle_state(vehicle).expect("vehicle").profile)
             .expect("vehicle profile")
             .min_gap_mm();
-        let reservation = world
-            .conflict_arbiter
-            .restore_reservation(
-                vehicle,
-                crate::conflict::RestoredConflictReservation {
-                    follower_min_gap_mm,
-                    acquired_tick: 0,
-                    passage_range,
-                    cells: &cells,
-                    downstream: &downstream,
-                },
-            )
-            .expect("restore test reservation");
-        world.vehicles[vehicle.index() as usize]
+        let reservation = crate::conflict::ConflictWrite::new(
+            &mut world.committed.conflict,
+            &mut world.derived.conflict,
+            &mut world.workspace.conflict,
+        )
+        .restore_reservation(
+            vehicle,
+            crate::conflict::RestoredConflictReservation {
+                follower_min_gap_mm,
+                acquired_tick: 0,
+                passage_range,
+                cells: &cells,
+                downstream: &downstream,
+            },
+        )
+        .expect("restore test reservation");
+        world.committed.vehicles[vehicle.index() as usize]
             .state
             .as_mut()
             .expect("vehicle state")
@@ -2306,13 +2330,16 @@ pub(crate) mod tests {
                 admission_gate_hop: reservation.admission_gate_hop(),
             },
         });
-        world
-            .conflict_arbiter
-            .restore_lag_reference(
-                cells[0].address,
-                crate::ConflictLagReference::ActualClear(0),
-            )
-            .expect("tick-zero history");
+        crate::conflict::ConflictWrite::new(
+            &mut world.committed.conflict,
+            &mut world.derived.conflict,
+            &mut world.workspace.conflict,
+        )
+        .restore_lag_reference(
+            cells[0].address,
+            crate::ConflictLagReference::ActualClear(0),
+        )
+        .expect("tick-zero history");
         assert!(world.conflict_state_valid());
     }
 
@@ -2327,7 +2354,7 @@ pub(crate) mod tests {
             let edge = compiled.edges[hop as usize];
             (
                 hop,
-                world.revision.traffic().lane_lengths_millimetres()[edge.index()],
+                world.binding.revision.traffic().lane_lengths_millimetres()[edge.index()],
             )
         };
         let vehicle = world
@@ -2346,11 +2373,11 @@ pub(crate) mod tests {
                 true,
             )
             .expect("restore vehicle before conflict Gate");
-        world.conflict_eligibility.resize(
-            usize::try_from(world.config.vehicle_capacity()).expect("vehicle capacity"),
+        world.committed.conflict_eligibility.resize(
+            usize::try_from(world.binding.config.vehicle_capacity()).expect("vehicle capacity"),
             None,
         );
-        world.conflict_eligibility[vehicle.index() as usize] =
+        world.committed.conflict_eligibility[vehicle.index() as usize] =
             crate::ConflictEligibilityState::update(None, locator, true, 0);
         assert!(world.conflict_state_valid());
         (world, vehicle)
@@ -2585,7 +2612,8 @@ pub(crate) mod tests {
         let edge = world.route_edges(state.route).expect("route")
             [usize::try_from(state.route_edge_index).expect("route index")];
         let owner = &mut captured.vehicles[vehicle.index() as usize];
-        owner.progress_mm = world.revision.traffic().lane_lengths_millimetres()[edge.index()];
+        owner.progress_mm =
+            world.binding.revision.traffic().lane_lengths_millimetres()[edge.index()];
         owner.carry_um = 1;
         let snapshot_vehicle_id = owner.snapshot_vehicle_id;
         assert_eq!(
@@ -2771,11 +2799,11 @@ pub(crate) mod tests {
                 true,
             )
             .expect("restore Candidate vehicle");
-        world.conflict_eligibility.resize(
-            usize::try_from(world.config.vehicle_capacity()).expect("vehicle capacity"),
+        world.committed.conflict_eligibility.resize(
+            usize::try_from(world.binding.config.vehicle_capacity()).expect("vehicle capacity"),
             None,
         );
-        world.conflict_eligibility[vehicle.index() as usize] =
+        world.committed.conflict_eligibility[vehicle.index() as usize] =
             crate::ConflictEligibilityState::update(None, locator, true, 0);
         assert!(world.conflict_state_valid());
 
@@ -3027,7 +3055,7 @@ pub(crate) mod tests {
         );
         assert_eq!(world.committed_source(), snapshot.source());
 
-        let identity = world.revision.identity();
+        let identity = world.binding.revision.identity();
         for captured in &snapshot.routes {
             let handle = restored
                 .route_handle(captured.snapshot_route_id)
@@ -3087,7 +3115,7 @@ pub(crate) mod tests {
     #[test]
     fn exhausted_command_cursor_restores_parked_and_reserved_without_new_commands() {
         let (mut world, _, _) = virtual_parking_cutover_world();
-        world.command_cursor = u64::MAX;
+        world.committed.command_cursor = u64::MAX;
         let captured = world.capture_snapshot().expect("capture");
         assert!(captured.vehicles.iter().any(|vehicle| matches!(
             vehicle.parking,
@@ -3582,6 +3610,7 @@ pub(crate) mod tests {
 
         let facility = laneflow_static_contract::ParkingFacilityOrdinal::from_raw(0);
         let facility_stable = *world
+            .binding
             .revision
             .identity()
             .stable_id(facility)
