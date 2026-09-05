@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use proc_macro2::{TokenStream, TokenTree};
+use syn::ext::IdentExt;
 use syn::parse::Parser;
 use syn::visit::{self, Visit};
 use syn::{Attribute, Item, Meta, Token, UseTree};
@@ -15,6 +16,15 @@ mod admission;
 type ModulePath = Vec<String>;
 type Imports = BTreeMap<ModulePath, ModulePath>;
 
+fn ident_name(ident: &syn::Ident) -> String {
+    ident.unraw().to_string()
+}
+
+fn path_is_ident(path: &syn::Path, expected: &str) -> bool {
+    path.get_ident()
+        .is_some_and(|ident| ident_name(ident) == expected)
+}
+
 #[derive(Clone, Copy)]
 enum Truth {
     Yes,
@@ -24,7 +34,7 @@ enum Truth {
 
 fn non_test_cfg(meta: &Meta) -> Truth {
     match meta {
-        Meta::Path(path) if path.is_ident("test") => Truth::No,
+        Meta::Path(path) if path_is_ident(path, "test") => Truth::No,
         Meta::List(list) => {
             let Ok(parts) = syn::punctuated::Punctuated::<Meta, Token![,]>::parse_terminated
                 .parse2(list.tokens.clone())
@@ -32,13 +42,13 @@ fn non_test_cfg(meta: &Meta) -> Truth {
                 return Truth::Unknown;
             };
             let values: Vec<_> = parts.iter().map(non_test_cfg).collect();
-            if list.path.is_ident("not") && values.len() == 1 {
+            if path_is_ident(&list.path, "not") && values.len() == 1 {
                 match values[0] {
                     Truth::Yes => Truth::No,
                     Truth::No => Truth::Yes,
                     Truth::Unknown => Truth::Unknown,
                 }
-            } else if list.path.is_ident("all") {
+            } else if path_is_ident(&list.path, "all") {
                 if values.iter().any(|value| matches!(value, Truth::No)) {
                     Truth::No
                 } else if values.iter().all(|value| matches!(value, Truth::Yes)) {
@@ -46,7 +56,7 @@ fn non_test_cfg(meta: &Meta) -> Truth {
                 } else {
                     Truth::Unknown
                 }
-            } else if list.path.is_ident("any") {
+            } else if path_is_ident(&list.path, "any") {
                 if values.iter().any(|value| matches!(value, Truth::Yes)) {
                     Truth::Yes
                 } else if values.iter().all(|value| matches!(value, Truth::No)) {
@@ -64,7 +74,7 @@ fn non_test_cfg(meta: &Meta) -> Truth {
 
 fn test_only(attributes: &[Attribute]) -> bool {
     attributes.iter().any(|attribute| {
-        attribute.path().is_ident("cfg")
+        path_is_ident(attribute.path(), "cfg")
             && attribute
                 .parse_args::<Meta>()
                 .is_ok_and(|meta| matches!(non_test_cfg(&meta), Truth::No))
@@ -99,24 +109,24 @@ fn use_paths(
 ) -> Result<(), String> {
     match tree {
         UseTree::Path(path) => {
-            prefix.push(path.ident.to_string());
+            prefix.push(ident_name(&path.ident));
             use_paths(&path.tree, prefix, output)?;
             prefix.pop();
         }
         UseTree::Name(name) => {
             let mut target = prefix.clone();
-            if name.ident != "self" {
-                target.push(name.ident.to_string());
+            if ident_name(&name.ident) != "self" {
+                target.push(ident_name(&name.ident));
             }
             let alias = target.last().ok_or("空 use 路径")?.clone();
             output.push((alias, target));
         }
         UseTree::Rename(rename) => {
             let mut target = prefix.clone();
-            if rename.ident != "self" {
-                target.push(rename.ident.to_string());
+            if ident_name(&rename.ident) != "self" {
+                target.push(ident_name(&rename.ident));
             }
-            output.push((rename.rename.to_string(), target));
+            output.push((ident_name(&rename.rename), target));
         }
         UseTree::Group(group) => {
             for item in &group.items {
@@ -207,7 +217,7 @@ fn load_items(
         if let Item::Mod(module) = item {
             if name.is_empty()
                 && !matches!(
-                    module.ident.to_string().as_str(),
+                    ident_name(&module.ident).as_str(),
                     "kernel" | "admin" | "facade"
                 )
             {
@@ -219,19 +229,17 @@ fn load_items(
                 return Err("格式入口不允许额外可见模块".into());
             }
             // 动态 path 会让物理目录与逻辑内核不一致；边界中的模块使用固定文件。
-            if module
-                .attrs
-                .iter()
-                .any(|attr| attr.path().is_ident("path") || attr.path().is_ident("cfg_attr"))
-            {
+            if module.attrs.iter().any(|attr| {
+                path_is_ident(attr.path(), "path") || path_is_ident(attr.path(), "cfg_attr")
+            }) {
                 return Err(format!(
                     "模块 {} 使用条件或替代路径，无法证明架构边界",
                     module.ident
                 ));
             }
             let mut child = name.clone();
-            child.push(module.ident.to_string());
-            let child_directory = directory.join(module.ident.to_string());
+            child.push(ident_name(&module.ident));
+            let child_directory = directory.join(ident_name(&module.ident));
             if let Some((_, items)) = module.content {
                 load_items(root, file, &child_directory, child, items, modules)?;
             } else {
@@ -406,13 +414,13 @@ impl SourceCheck<'_> {
         for (index, token) in tokens.iter().enumerate() {
             match token {
                 TokenTree::Ident(ident) => {
-                    if ident == "include"
+                    if ident_name(ident) == "include"
                         && matches!(tokens.get(index + 1), Some(TokenTree::Punct(punct)) if punct.as_char() == '!')
                     {
                         self.error
                             .get_or_insert_with(|| "生产宏不得动态 include Rust 源码".to_string());
                     }
-                    let mut path = vec![ident.to_string()];
+                    let mut path = vec![ident_name(ident)];
                     let mut next = index + 1;
                     while let [
                         TokenTree::Punct(first),
@@ -423,7 +431,7 @@ impl SourceCheck<'_> {
                         if first.as_char() != ':' || second.as_char() != ':' {
                             break;
                         }
-                        path.push(segment.to_string());
+                        path.push(ident_name(segment));
                         next += 3;
                     }
                     self.path(path);
@@ -476,19 +484,25 @@ impl<'ast> Visit<'ast> for SourceCheck<'_> {
         }
     }
     fn visit_item_extern_crate(&mut self, item: &'ast syn::ItemExternCrate) {
-        self.path(vec![item.ident.to_string()]);
+        if ident_name(&item.ident) == "self" {
+            self.error.get_or_insert_with(|| {
+                "生产源码不支持 extern crate self 别名；请使用显式 crate:: 路径".into()
+            });
+        } else {
+            self.path(vec![ident_name(&item.ident)]);
+        }
     }
     fn visit_path(&mut self, path: &'ast syn::Path) {
         self.path(
             path.segments
                 .iter()
-                .map(|segment| segment.ident.to_string())
+                .map(|segment| ident_name(&segment.ident))
                 .collect(),
         );
         visit::visit_path(self, path);
     }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        if mac.path.is_ident("include") {
+        if path_is_ident(&mac.path, "include") {
             self.error
                 .get_or_insert_with(|| "生产模块不得动态 include Rust 源码".to_string());
         }

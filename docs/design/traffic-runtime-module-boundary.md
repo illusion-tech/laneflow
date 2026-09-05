@@ -94,6 +94,8 @@ cargo +1.98.0 run --locked -p xtask -- check-runtime-architecture
   业务实现归入 `kernel/`、`admin/`、`facade/`，不允许另增
   `legacy` 等根模块规避分区规则。逻辑模块及物理文件须落在对应目录内。
 - 检查显式 import、别名、re-export、类型/表达式路径及源码宏 token 中的路径。
+  标识符统一按去掉 `r#` 的名称比较；生产源码中的 `extern crate self` 别名直接
+  拒绝，使用 `crate::` 表达当前 crate 路径，不为该形式扩展作用域解析。
   除唯一 `admin/format_admission.rs` 外，生产模块不得显式引用格式依赖；kernel
   的显式路径也不得指向 §1 所列管理操作模块。对入口同时核对逻辑名和物理文件。
 - 按 §2 核对格式入口的三个具体函数及可见声明，不能只检查部分语法节点后推断

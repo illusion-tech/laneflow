@@ -2,7 +2,7 @@
 
 use syn::{FnArg, GenericArgument, Item, PathArguments, ReturnType, Type, Visibility};
 
-use super::{BTreeSet, Imports, SourceModule, resolve_path};
+use super::{BTreeSet, Imports, SourceModule, ident_name, path_is_ident, resolve_path};
 
 const SIGNATURES: [&str; 3] = [
     "pub(super) fn verify_semantic_diff(binding: Option<&crate::admin::cutover::SemanticDiffOriginBinding>, bytes: &[u8], base: laneflow_static_network::CanonicalNetworkOrigin, target: laneflow_static_network::CanonicalNetworkOrigin) -> Result<(), crate::admin::cutover::CutoverDescriptorError> {}",
@@ -61,7 +61,7 @@ pub(super) fn check(
             Item::Macro(item) => item
                 .attrs
                 .iter()
-                .any(|attr| attr.path().is_ident("macro_export")),
+                .any(|attr| path_is_ident(attr.path(), "macro_export")),
             // 子模块可见性在模块枚举时检查；foreign/verbatim 不属于这份有限接口。
             _ => return Err("格式入口包含未支持的声明形式".into()),
         };
@@ -73,12 +73,12 @@ pub(super) fn check(
         };
         let Some(contract) = expected
             .iter()
-            .find(|item| item.sig.ident == function.sig.ident)
+            .find(|item| ident_name(&item.sig.ident) == ident_name(&function.sig.ident))
         else {
             return Err(format!("格式入口出现未约定函数 {}", function.sig.ident));
         };
-        if !matches!(&function.vis, Visibility::Restricted(vis) if vis.in_token.is_none() && vis.path.is_ident("super"))
-            || !found.insert(function.sig.ident.to_string())
+        if !matches!(&function.vis, Visibility::Restricted(vis) if vis.in_token.is_none() && path_is_ident(&vis.path, "super"))
+            || !found.insert(ident_name(&function.sig.ident))
             || signature(&function.sig, module, imports, externals)?
                 != signature(&contract.sig, &empty, &Imports::new(), externals)?
         {
@@ -156,7 +156,7 @@ fn type_shape(
                 .path
                 .segments
                 .iter()
-                .map(|segment| segment.ident.to_string())
+                .map(|segment| ident_name(&segment.ident))
                 .collect();
             let mut resolved = resolve_path(&module.name, imports, externals, &names);
             if names.len() == 1 && !bound_here(module, imports, &names[0]) {
@@ -199,11 +199,11 @@ fn bound_here(module: &SourceModule, imports: &Imports, name: &str) -> bool {
     key.push(name.into());
     imports.contains_key(&key)
         || module.items.iter().any(|item| match item {
-            Item::Struct(item) => item.ident == name,
-            Item::Enum(item) => item.ident == name,
-            Item::Type(item) => item.ident == name,
-            Item::Trait(item) => item.ident == name,
-            Item::Union(item) => item.ident == name,
+            Item::Struct(item) => ident_name(&item.ident) == name,
+            Item::Enum(item) => ident_name(&item.ident) == name,
+            Item::Type(item) => ident_name(&item.ident) == name,
+            Item::Trait(item) => ident_name(&item.ident) == name,
+            Item::Union(item) => ident_name(&item.ident) == name,
             _ => false,
         })
 }
