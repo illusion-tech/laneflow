@@ -1,130 +1,103 @@
-# LaneFlow
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/laneflow-mark-dark.svg">
+    <img src="assets/brand/laneflow-mark.svg" width="144" alt="LaneFlow 标记">
+  </picture>
+</p>
 
-LaneFlow 当前是一个面向主流游戏引擎、可嵌入的轻量 NPC 交通运行时，用于在园区、
-厂区、校园、景区、停车场、道路片区和数字孪生等局部道路场景中生成可信的车辆流动
-效果。#291 G1 已接受编译器拥有的静态路网与交通运行时长期设计；Accepted ADR 0025 /
-#300 G1 已进一步冻结以受检 LFCA 构建进程内共享静态路网、且不交付独立静态镜像文件/
-ABI 的修订。共享静态路网与 `TrafficWorld` 已由 #300 / #301 交付为当前可运行路径。
-`laneflow-runtime` 是唯一可运行交通世界；current JSON 不再安装可运行入口。
-详见 `docs/design/traffic-runtime-shared-consumption.md`。
+<h1 align="center">LaneFlow</h1>
 
-Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通基础”定义为 LaneFlow
-的第一长期产品目标。该目标不是完整交通工程仿真器，也不拥有城市经济、市民出行
-需求或游戏规则，而是让这些上层系统通过显式命令、快照、事件和路径规划边界驱动
-一个引擎无关的交通运行时。当前 `TrafficWorld` 只实现道路机动车车辆特化，负责
-车辆逻辑、车道图、路线、红绿灯、前车避让和停车占用；已接受的目标态交通运行时
-（Target Traffic Runtime）以交通参与单元（Traffic Participant Unit）和交通执行域
-（Traffic Execution Domain）承载长期多模式扩展，当前车辆能力不排除未来的非机动车、
-行人或轨道交通。不同游戏引擎通过引擎适配器（Engine Adapter）接入，并负责已实现
-执行域的模型、道路/设施表现、动画、细节层次（LOD）、UI 和调试可视化。
+<p align="center">
+  可嵌入、引擎无关、确定性的道路交通运行时与工具链
+</p>
 
-## 项目定位
+LaneFlow 将静态路网编译、交通运行时、空间位姿采样和引擎表现分离。宿主负责交通
+需求、出发计划和路线选择策略；LaneFlow 负责验证静态路网与候选路线，并按固定步进
+推进当前道路机动车交通，适合嵌入游戏引擎或实时仿真宿主。
 
-LaneFlow 的当前能力与 #291 已接受长期目标共同关注：
+> **开发状态**
+>
+> LaneFlow 尚未发布 1.0。当前工作区中的包（crate）均为 `0.0.0` 且 `publish = false`，
+> 仅支持从源码集成；API 和格式仍可能直接调整，不承诺为开发中旧路径保留兼容层。
 
-- 长期目标：面向中国特色城市模拟游戏，提供可嵌入、确定性、可扩展的交通基础；
-- 支持局部路网中的 NPC 车辆流；
-- 支持园区、厂区、校园、景区、停车场等中小型场景；
-- 支持车辆生成、路线行驶、前车避让、红绿灯、路口规则和停车；
-- 核心逻辑不绑定具体游戏引擎；
-- 支持对接主流商业游戏引擎和开源游戏引擎；
-- 可用于桌面端、Web、移动端和数字孪生项目；
-- 商用可控，不把 SUMO / CARLA / libsumo 作为客户端核心依赖。
+## 当前能力
 
-#291 已接受目标态的一句话概括（对应实现尚未交付）：
+- 从受检编制来源确定性编译可移植规范制品（Portable Canonical Artifact，LFCA），
+  经格式检查后构建进程内不可变、可由多个世界共享的 `SharedNetworkRevision`。
+- 通过 `laneflow-runtime::TrafficWorld` 安装共享路网修订，在每个世界中注册路线，
+  以确定性固定步进执行车辆跟驰、信号约束和停车生命周期。
+- 提供运行时快照、路网修订切换、已提交交通观测和宿主路径规划（Routing）接入边界；
+  交通需求、动态成本与路线选择算法仍由宿主拥有。
+- 通过可选的 `laneflow-spatial::SpatialSession` 将规范进度采样为引擎无关位姿。
+- 提供 Bevy 0.19 参考适配器（Reference Adapter），以及无窗口端到端冒烟测试和
+  信号化走廊集成夹具。
+- 提供 reference scenario catalog 0.4 与 prepare 绑定；catalog 必须显式声明
+  `policy_selection`。
 
-> LaneFlow = Static Network Compiler + Engine-Agnostic Traffic Runtime + Game Engine Adapter
+### 当前限制
 
-## 适用场景
+- 可运行实现目前只覆盖道路机动车执行域，不表示已经支持非机动车、行人或轨道交通。
+- 当前只交付 Bevy Reference Adapter；其他引擎尚无可用引擎适配器（Adapter）。
+- 原生示例是用于验证 Runtime、Spatial 与 Adapter 接线的集成壳，不是完成的可视化演示。
+- LaneFlow 不内置交通需求生成或路线选择策略，也不是专业交通工程分析、自动驾驶
+  传感器仿真、高精度车辆动力学或完整 SUMO-like 系统。
 
-- 长期目标：中国特色城市模拟游戏中的交通基础
-- 园区内部道路车流
-- 厂区物流车 / 巡检车 / 服务车
-- 校园车辆和摆渡车
-- 景区观光车
-- 停车场进出车辆
-- 数字孪生局部道路展示
-- 游戏场景中的背景 NPC 车流
-- Web / 移动端轻量交通展示
+### 长期方向（非当前能力）
 
-## 非目标
+交通参与单元（Traffic Participant Unit）与交通执行域（Traffic Execution Domain）是
+已接受的长期抽象方向；当前道路机动车仍是唯一可运行特化，其他执行域是否和何时
+交付没有承诺。长期设计见[架构说明](docs/architecture.md)。
 
-下列能力不由 LaneFlow 交通基础自身拥有；未来城市模拟游戏、出行编排服务或独立专业产品可以在 LaneFlow 之上实现：
-
-- 城市经济模拟
-- 市民出行需求模拟
-- 专业交通工程仿真
-- 城市级 OD 矩阵
-- 自动驾驶传感器仿真
-- 完整 SUMO-like 系统
-- 高精度车辆动力学
-- 复杂行人 / 公交 / 轨道交通系统
-
-## 核心架构
+## 架构
 
 ```text
-┌─────────────────────────────────────┐
-│           Authoring Layer           │
-│   道路编辑、路线编辑、停车位配置    │
-└──────────────────┬──────────────────┘
-                   ↓
-┌─────────────────────────────────────┐
-│          Traffic Data Layer         │
-│ lane graph / route / signal / park  │
-└──────────────────┬──────────────────┘
-                   ↓
-┌─────────────────────────────────────┐
-│     LaneFlow Traffic Runtime        │
-│ TrafficWorld / route / signal / park│
-│ engine-agnostic runtime             │
-└──────────────────┬──────────────────┘
-                   ↓
-┌─────────────────────────────────────┐
-│          Engine Adapter Layer       │
-│ Unreal / Unity / Godot / O3DE / Web │
-└──────────────────┬──────────────────┘
-                   ↓
-┌─────────────────────────────────────┐
-│          Presentation Layer         │
-│ mesh / actor / entity / LOD / debug │
-└─────────────────────────────────────┘
+Authoring Sources
+  -> laneflow-compiler
+  -> LFCA / laneflow-format checks
+  -> SharedNetworkRevision
+       |-> laneflow-runtime -> TrafficWorld -----------------|
+       `-> laneflow-spatial -> SpatialSession (optional) ----|-> Engine Adapter / Presentation
 ```
 
-## Rust workspace
+`TrafficWorld` 与可选的 `SpatialSession` 消费同一份共享路网修订，Adapter 只负责宿主
+生命周期、变换和表现。路线不属于静态路网制品；宿主通过
+`TrafficWorld::register_route` 将候选边序列注册到具体世界。
 
-- `crates/laneflow-bevy`：Bevy 0.19 Reference Adapter；使用最小 modular dependency graph，提供单活动 `LaneFlowSession`、专用 fixed schedule，以及 `TrafficWorld` + 可选 `SpatialSession` 的最小示例。campus / 走廊 Core 入口已拆除。
-- `crates/laneflow-runtime`：引擎无关的交通运行时。`TrafficWorld` 安装 `Arc<SharedNetworkRevision>`，拥有 1-worker 固定步进、`register_route`、车辆、停车占用与信号 snapshot。
-- `crates/laneflow-scenario`：可选、引擎无关的 reference scenario catalog 0.4 与 prepare 绑定；必填 `policy_selection` 和 50–200 回流见[人口与策略绑定合同](docs/design/signalized-corridor-population.md)。
-- `crates/laneflow-spatial`：LaneFlow 自有的有界 `f32` canonical 点、向量、单位方向、稳定 frame ID，以及绑定共享根 `Arc` 的 `SpatialSession` 位姿采样；不依赖 Runtime。
-- `tools/laneflow-corridor-generator`：受保护转向走廊的离线生成工具；读取内部 TOML，经 compiler 写出 catalog 0.4 与 LFCA。
-- `research/issue-123-spatial-prototype`：#123 G1 使用的研究用工作区成员；不属于生产接口，第三方几何候选只作为开发依赖进行对照。
-- `xtask`：Markdown 表格格式化、提交消息和道路编辑代码生成检查等仓库治理工具。
+完整职责与依赖方向见[架构说明](docs/architecture.md)和
+[Traffic Runtime 共享静态路网消费契约](docs/design/traffic-runtime-shared-consumption.md)。
 
-可运行交通世界只从共享静态路网修订安装，不从 current JSON 创建。详细边界见 `docs/design/traffic-runtime-shared-consumption.md`。
+## Quick Start
+
+需要 Git、[rustup](https://rustup.rs/) 和 Rust 1.98。下面的无窗口 smoke test 会读取受检
+LFCA、构建 `SharedNetworkRevision`、安装 `TrafficWorld`、执行固定步进、采样位姿，
+并确认 Bevy `Transform` 发生变化：
+
+```powershell
+git clone https://github.com/illusion-tech/laneflow.git
+cd laneflow
+cargo +1.98.0 test --locked -p laneflow-bevy --test runtime_min_smoke
+```
+
+运行完整 workspace 检查：
+
+```powershell
+cargo +1.98.0 test --workspace --locked
+```
+
+Bevy 接入代码和另一个走廊 smoke 见
+[`laneflow-bevy` 使用说明](crates/laneflow-bevy/README.md)。
+
+## 文档与贡献
+
+- [文档索引](docs/README.md)
+- [架构说明](docs/architecture.md)
+- [设计文档索引](docs/design/README.md)
+- [贡献指南](CONTRIBUTING.md)
+- [品牌标记使用说明](assets/brand/README.md)
+- [Issue Tracker](https://github.com/illusion-tech/laneflow/issues)
 
 ## 许可证
 
-LaneFlow 公开仓库采用 [Apache License 2.0](LICENSE)。`laneflow-runtime` 与本仓库其他自有内容按 Apache-2.0-only 分发；第三方材料仍遵循其各自许可证。
-
-未来高级编辑器、城市级或分布式仿真、优化分析、企业 Adapter、云服务与商业支持可以在独立产品和独立许可证下交付。商业产品可以依赖开放 Core/Data，开放仓库不得依赖商业实现。详细边界与依赖审计规则见 `docs/adr/0002-dependency-and-licensing-constraints.md` 和 `docs/governance/dependency-security.md`。
-
-## 项目治理
-
-LaneFlow 采用 GitHub-first 治理：
-
-- GitHub Issue 负责当前任务、需求、验收标准和依赖。
-- GitHub Pull Request 负责合并证据、测试记录和风险说明。
-- GitHub Project 负责当前进度、优先级和版本看板。
-- 仓库文档负责长期设计事实、架构决策、治理规范和 AI Agent 开发规则。
-
-推荐阅读：
-
-- `docs/README.md`
-- `docs/architecture.md`
-- `docs/roadmap.md`
-- `docs/adr/0021-city-simulation-game-traffic-foundation.md`
-- `docs/governance/documentation-policy.md`
-- `docs/governance/github-workflow.md`
-- `docs/governance/development-gates.md`
-- `docs/governance/agent-development-guide.md`
-- `CONTRIBUTING.md`
+LaneFlow 采用 [Apache License 2.0](LICENSE)。仓库自有代码、文档和品牌 SVG 在没有
+另行声明时按 Apache-2.0-only 分发；品牌名称和标记的商标使用边界见
+[品牌标记使用说明](assets/brand/README.md)。
