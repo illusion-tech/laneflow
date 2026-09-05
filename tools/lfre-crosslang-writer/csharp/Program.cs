@@ -106,9 +106,10 @@ internal static class Program
         var conflictZones = EmptyVector<ConflictZone>(builder);
         var participantStreams = EmptyVector<ParticipantStream>(builder);
         var conflictZoneRegions = EmptyVector<ConflictZoneRegion>(builder);
+        var rightOfWayPolicySets = EmptyVector<RightOfWayPolicySet>(builder);
 
         RoadEditingSource.StartRoadEditingSource(builder);
-        RoadEditingSource.AddFormatVersion(builder, 3u);
+        RoadEditingSource.AddFormatVersion(builder, 4u);
         RoadEditingSource.AddModuleHeader(builder, header);
         RoadEditingSource.AddGeometryAccuracyProfile(builder, GeometryAccuracyProfile.Balanced5Cm);
         RoadEditingSource.AddGeometryDirectionProfile(builder, GeometryDirectionProfile.Balanced2Deg);
@@ -137,6 +138,7 @@ internal static class Program
         RoadEditingSource.AddConflictZones(builder, conflictZones);
         RoadEditingSource.AddParticipantStreams(builder, participantStreams);
         RoadEditingSource.AddConflictZoneRegions(builder, conflictZoneRegions);
+        RoadEditingSource.AddRightOfWayPolicySets(builder, rightOfWayPolicySets);
         var root = RoadEditingSource.EndRoadEditingSource(builder);
 
         RoadEditingSource.FinishSizePrefixedRoadEditingSourceBuffer(builder, root);

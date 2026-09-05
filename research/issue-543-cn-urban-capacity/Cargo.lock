@@ -153,9 +153,16 @@ dependencies = [
 name = "laneflow-format"
 version = "0.0.0"
 dependencies = [
+ "laneflow-format-mmap",
  "laneflow-static-contract",
- "memmap2",
  "sha2",
+]
+
+[[package]]
+name = "laneflow-format-mmap"
+version = "0.0.0"
+dependencies = [
+ "memmap2",
  "tempfile",
 ]
 

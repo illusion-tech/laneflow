@@ -72,7 +72,7 @@ int main(int argc, char **argv) {
 
   const auto root = v1::CreateRoadEditingSource(
       fbb,
-      /*format_version=*/3,
+      /*format_version=*/4,
       header,
       v1::GeometryAccuracyProfile_Balanced5Cm,
       v1::GeometryDirectionProfile_Balanced2Deg,
@@ -100,7 +100,8 @@ int main(int argc, char **argv) {
       fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::CanonicalFrame>>{frame}),
       EmptyVectorOf<v1::ConflictZone>(fbb),
       EmptyVectorOf<v1::ParticipantStream>(fbb),
-      EmptyVectorOf<v1::ConflictZoneRegion>(fbb));
+      EmptyVectorOf<v1::ConflictZoneRegion>(fbb),
+      EmptyVectorOf<v1::RightOfWayPolicySet>(fbb));
 
   v1::FinishSizePrefixedRoadEditingSourceBuffer(fbb, root);
 

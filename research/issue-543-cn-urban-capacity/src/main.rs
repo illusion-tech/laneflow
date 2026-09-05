@@ -16,7 +16,7 @@
 //!   probe-p100 conflict <tiles>   单冲突模块装 N tiles，P100 v2 下打印首个失败诊断
 //!   parts <cells>                 1M profile 分别编译 synthetic-only / conflict-only，
 //!                                 打印公开 LIR 锚点用于分解可加性验证
-//!   model <cells>                 只打印解析计数模型（不编译）
+//!   model <cells>                 只打印 #284 前的历史解析模型（不代表当前准入计数）
 
 use std::{
     alloc::System,
@@ -31,26 +31,32 @@ use laneflow_compiler::road_editing as editing;
 use laneflow_compiler::{
     AccessEffect, AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput, CanonicalFrameInput,
     CanonicalPoint3F32Input, CompilationUnit, CompilationUnitBuilder, CompileLimits, Compiler,
-    CorridorElementReference, DiagnosticBundle, DiagnosticPayload, GeometryAccuracyProfile,
-    GeometryDirectionProfile, IidmVehicleProfileInput, JunctionInput, JunctionReference,
-    LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference,
-    ManeuverGateInput, ManeuverGateReference, ManeuverPathInput, ManeuverPathReference,
-    MovementInput, MovementReference, ParkingFacilityInput, ParkingFacilityReference,
+    CorridorElementReference, DiagnosticBundle, DiagnosticPayload, EntityReference,
+    GateInterpretation, GateProhibition, GeometryAccuracyProfile, GeometryDirectionProfile,
+    IidmVehicleProfileInput, JunctionInput, JunctionReference, LaneEdgeGeometryInput,
+    LaneEdgeInput, LaneEdgeReference, ManeuverDirection, ManeuverGateInput, ManeuverGateReference,
+    ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
+    OwnerQualifiedReference, ParkingFacilityInput, ParkingFacilityReference,
     ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput,
-    ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance, RoadCorridorInput,
-    RoadSectionInput, RoadSectionReference, SignalAspect, SignalControlInput, SignalControllerInput,
-    SignalGroupInput, SignalGroupReference, SignalGroupStateInput, SignalPhaseInput,
-    SourceModuleHeader, SourceModuleHeaderInput, StopLineInput, StopLineReference,
-    SyntheticModule, SyntheticModuleBuilder, VehicleProfileInput, WaitingZoneInput,
-    check_portable_candidate, emit_portable_candidate_to_staging,
+    ParticipantClassReference, PolicyGateRuleInput, PolicyInputSource, PolicyStreamRuleInput,
+    PortableDiffBase, PortableEmissionProvenance, RegulationIdentity, RightOfWayPolicySetInput,
+    RoadCorridorInput, RoadSectionInput, RoadSectionReference, SignalAspect, SignalControlInput,
+    SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
+    SignalPhaseInput, SourceModuleHeader, SourceModuleHeaderInput, StopLineInput,
+    StopLineReference, SyntheticModule, SyntheticModuleBuilder, VehicleProfileInput,
+    WaitingZoneInput, check_portable_candidate, emit_portable_candidate_to_staging,
 };
 use laneflow_format::{
     CheckedCanonicalNetworkInput, FormatLimits, ImmutableObjectSource, RegistryCheckedFieldValue,
     RegistryCheckedRowView, ValueCheckedObjectView,
 };
-use laneflow_runtime::{CommittedNetworkSource, PublishedLfcaReference, TrafficWorld, WorldConfig};
+use laneflow_runtime::{
+    CommittedNetworkSource, PolicyPin, PublishedLfcaReference, TrafficWorld, WorldConfig,
+    WorldPolicySelection,
+};
 use laneflow_static_contract::{
-    EntityKind, PortableFieldType, PortableObjectKind, portable_object_schema,
+    EntityKind, PortableFieldType, PortableObjectKind, RightOfWayPolicySetId,
+    portable_object_schema,
 };
 use laneflow_static_network::{
     BuildError, BuildStructure, SharedNetworkBuildLimits, SharedNetworkBuildOptions,
@@ -79,6 +85,9 @@ const GARAGE_VIRTUAL_CAPACITY: u32 = 1_000;
 /// record 长度（`encoded_source_record_len`），改变长度会使既有证据的 source
 /// bytes 锚点漂移。
 const GENERATOR_BUILD_ID: &str = "laneflow-543-spikev1";
+const POLICY_NAMESPACE: &str = "city/lf-cn-urban-543/policy";
+const POLICY_KEY: &str = "capacity-install-policy";
+const CONFLICT_NAMESPACE: &str = "city/lf-cn-urban-543/conflicts";
 
 /// 一次规模运行的形状。
 #[derive(Clone, Copy, Debug)]
@@ -113,11 +122,11 @@ fn cell_origin_m(shape: Shape, cell: u32) -> (f64, f64) {
 }
 
 // ---------------------------------------------------------------------------
-// 解析计数模型：与 synthetic 前端 DeclarationResourceDelta 逐项同构。
+// #284 前的历史解析计数模型；尚未针对 turn_direction 和显式策略模块重新标定。
 // 冲突（道路编辑）侧计数由 probe/parts 经验锚点取得，不做手工解析假设。
 // ---------------------------------------------------------------------------
 
-/// 编译准入维度的解析计数（每 cell / 每 tile / 每 module 精确增量）。
+/// 历史编译准入维度的解析计数；不作为当前编译器预算或安装容量证据。
 #[derive(Clone, Copy, Debug, Default)]
 struct AdmissionCounts {
     declarations: u64,
@@ -144,8 +153,7 @@ impl AdmissionCounts {
         self.geometry_points += other.geometry_points;
     }
 
-    /// 单 cell 合成侧精确增量（公式来源：`crates/laneflow-compiler/src/module/synthetic.rs`
-    /// 各 `add_*` 的 `DeclarationResourceDelta`；逐项推导见报告附录）。
+    /// #284 前的单 cell 合成侧增量，逐项推导见历史报告附录。
     /// 配方：20 边（含 2 条 65m 待转专用出口边）/8 停止线/12 门/2 待转区/8 组/4 相位。
     fn synthetic_cell() -> Self {
         Self {
@@ -318,15 +326,24 @@ fn add_synthetic_cell(builder: &mut SyntheticModuleBuilder, shape: Shape, cell: 
     let geom = cell_geometry(shape, cell);
 
     // ---- 20 条车道图边 ----
-    let entry_keys: Vec<String> = (0..4).map(|a| keys.k(&format!("{}-entry", APPROACHES[a]))).collect();
-    let int_t_keys: Vec<String> = (0..4).map(|a| keys.k(&format!("{}-int-t", APPROACHES[a]))).collect();
-    let int_l1_keys: Vec<String> =
-        (0..4).map(|a| keys.k(&format!("{}-int-l1", APPROACHES[a]))).collect();
-    let int_l2_keys: Vec<String> =
-        (0..4).map(|a| keys.k(&format!("{}-int-l2", APPROACHES[a]))).collect();
-    let exit_keys: Vec<String> = (0..4).map(|x| keys.k(&format!("exit-{}", APPROACHES[x]))).collect();
-    let exit_waiting_keys: Vec<String> =
-        (0..4).map(|a| keys.k(&format!("exit-{}-lw", APPROACHES[a]))).collect();
+    let entry_keys: Vec<String> = (0..4)
+        .map(|a| keys.k(&format!("{}-entry", APPROACHES[a])))
+        .collect();
+    let int_t_keys: Vec<String> = (0..4)
+        .map(|a| keys.k(&format!("{}-int-t", APPROACHES[a])))
+        .collect();
+    let int_l1_keys: Vec<String> = (0..4)
+        .map(|a| keys.k(&format!("{}-int-l1", APPROACHES[a])))
+        .collect();
+    let int_l2_keys: Vec<String> = (0..4)
+        .map(|a| keys.k(&format!("{}-int-l2", APPROACHES[a])))
+        .collect();
+    let exit_keys: Vec<String> = (0..4)
+        .map(|x| keys.k(&format!("exit-{}", APPROACHES[x])))
+        .collect();
+    let exit_waiting_keys: Vec<String> = (0..4)
+        .map(|a| keys.k(&format!("exit-{}-lw", APPROACHES[a])))
+        .collect();
     for a in 0..4 {
         builder
             .add_lane_edge(LaneEdgeInput {
@@ -389,14 +406,18 @@ fn add_synthetic_cell(builder: &mut SyntheticModuleBuilder, shape: Shape, cell: 
     }
 
     // ---- 4 走廊 ×（1 区段 × 2 车道）：lane-in = [entry]，lane-out = [exit-a] ----
-    let section_keys: Vec<String> =
-        (0..4).map(|a| keys.k(&format!("section-{}", APPROACHES[a]))).collect();
-    let lane_in_keys: Vec<String> =
-        (0..4).map(|a| keys.k(&format!("lane-{}-in", APPROACHES[a]))).collect();
-    let lane_out_keys: Vec<String> =
-        (0..4).map(|a| keys.k(&format!("lane-{}-out", APPROACHES[a]))).collect();
-    let corridor_keys: Vec<String> =
-        (0..4).map(|a| keys.k(&format!("corridor-{}", APPROACHES[a]))).collect();
+    let section_keys: Vec<String> = (0..4)
+        .map(|a| keys.k(&format!("section-{}", APPROACHES[a])))
+        .collect();
+    let lane_in_keys: Vec<String> = (0..4)
+        .map(|a| keys.k(&format!("lane-{}-in", APPROACHES[a])))
+        .collect();
+    let lane_out_keys: Vec<String> = (0..4)
+        .map(|a| keys.k(&format!("lane-{}-out", APPROACHES[a])))
+        .collect();
+    let corridor_keys: Vec<String> = (0..4)
+        .map(|a| keys.k(&format!("corridor-{}", APPROACHES[a])))
+        .collect();
     for a in 0..4 {
         builder
             .add_road_section(RoadSectionInput {
@@ -450,8 +471,10 @@ fn add_synthetic_cell(builder: &mut SyntheticModuleBuilder, shape: Shape, cell: 
         })
         .collect();
     for a in 0..4 {
-        for (kind, exit_idx, slot) in [("t", THROUGH_EXIT[a], 2 * a), ("l", LEFT_EXIT[a], 2 * a + 1)]
-        {
+        for (kind, exit_idx, slot) in [
+            ("t", THROUGH_EXIT[a], 2 * a),
+            ("l", LEFT_EXIT[a], 2 * a + 1),
+        ] {
             let internals: Vec<LaneEdgeReference> = if kind == "t" {
                 vec![LaneEdgeReference::local(&int_t_keys[a])]
             } else if waiting_approach(a) {
@@ -474,6 +497,11 @@ fn add_synthetic_cell(builder: &mut SyntheticModuleBuilder, shape: Shape, cell: 
                     junction: JunctionReference::local(&junction_key),
                     directed_entry_approach_key: APPROACHES[a],
                     directed_exit_approach_key: APPROACHES[exit_idx],
+                    turn_direction: Some(if kind == "t" {
+                        ManeuverDirection::Straight
+                    } else {
+                        ManeuverDirection::Left
+                    }),
                 })
                 .unwrap()
                 .add_maneuver_path(ManeuverPathInput {
@@ -488,11 +516,15 @@ fn add_synthetic_cell(builder: &mut SyntheticModuleBuilder, shape: Shape, cell: 
     }
 
     // ---- 停止线：4 引道 + 每条待转 path 的 int-l1/int-l2 各一 ----
-    let stop_keys: Vec<String> = (0..4).map(|a| keys.k(&format!("sl-{}", APPROACHES[a]))).collect();
-    let zone_stop_in_keys: Vec<String> =
-        (0..4).map(|a| keys.k(&format!("slz-{}-in", APPROACHES[a]))).collect();
-    let zone_stop_out_keys: Vec<String> =
-        (0..4).map(|a| keys.k(&format!("slz-{}-out", APPROACHES[a]))).collect();
+    let stop_keys: Vec<String> = (0..4)
+        .map(|a| keys.k(&format!("sl-{}", APPROACHES[a])))
+        .collect();
+    let zone_stop_in_keys: Vec<String> = (0..4)
+        .map(|a| keys.k(&format!("slz-{}-in", APPROACHES[a])))
+        .collect();
+    let zone_stop_out_keys: Vec<String> = (0..4)
+        .map(|a| keys.k(&format!("slz-{}-out", APPROACHES[a])))
+        .collect();
     for a in 0..4 {
         builder
             .add_stop_line(StopLineInput {
@@ -534,11 +566,15 @@ fn add_synthetic_cell(builder: &mut SyntheticModuleBuilder, shape: Shape, cell: 
     }
 
     // ---- 12 门：8 准入（t=0，停止线在 entry）+ 待转 path 各 2（t=1 入区 / t=2 出区）----
-    let zone_gate_in_keys: Vec<String> =
-        (0..4).map(|a| keys.k(&format!("g-{}-lw-in", APPROACHES[a]))).collect();
-    let zone_gate_out_keys: Vec<String> =
-        (0..4).map(|a| keys.k(&format!("g-{}-lw-out", APPROACHES[a]))).collect();
-    let zone_keys: Vec<String> = (0..4).map(|a| keys.k(&format!("wz-{}", APPROACHES[a]))).collect();
+    let zone_gate_in_keys: Vec<String> = (0..4)
+        .map(|a| keys.k(&format!("g-{}-lw-in", APPROACHES[a])))
+        .collect();
+    let zone_gate_out_keys: Vec<String> = (0..4)
+        .map(|a| keys.k(&format!("g-{}-lw-out", APPROACHES[a])))
+        .collect();
+    let zone_keys: Vec<String> = (0..4)
+        .map(|a| keys.k(&format!("wz-{}", APPROACHES[a])))
+        .collect();
     for a in 0..4 {
         for (kind, slot) in [("t", 2 * a), ("l", 2 * a + 1)] {
             builder
@@ -633,8 +669,10 @@ fn add_synthetic_cell(builder: &mut SyntheticModuleBuilder, shape: Shape, cell: 
             states: &phase_states[i],
         })
         .collect();
-    let group_refs: Vec<SignalGroupReference> =
-        group_keys.iter().map(|k| SignalGroupReference::local(k)).collect();
+    let group_refs: Vec<SignalGroupReference> = group_keys
+        .iter()
+        .map(|k| SignalGroupReference::local(k))
+        .collect();
     builder
         .add_signal_controller(SignalControllerInput {
             signal_controller_key: &controller_key,
@@ -660,8 +698,9 @@ fn add_synthetic_cell(builder: &mut SyntheticModuleBuilder, shape: Shape, cell: 
             }],
         })
         .unwrap();
-    let space_keys: Vec<String> =
-        (0..4).map(|a| keys.k(&format!("space-{}", APPROACHES[a]))).collect();
+    let space_keys: Vec<String> = (0..4)
+        .map(|a| keys.k(&format!("space-{}", APPROACHES[a])))
+        .collect();
     for a in 0..4 {
         builder
             .add_parking_space(ParkingSpaceInput {
@@ -763,10 +802,8 @@ fn synthetic_module_header(limits: &CompileLimits, shape: Shape, tile: u32) -> S
         &GARAGE_VIRTUAL_CAPACITY.to_le_bytes(),
         &543_u64.to_le_bytes(),
     ]);
-    let frontend_options_digest = derive_provenance_digest(&[
-        b"synthetic".as_slice(),
-        limits.profile_id().as_bytes(),
-    ]);
+    let frontend_options_digest =
+        derive_provenance_digest(&[b"synthetic".as_slice(), limits.profile_id().as_bytes()]);
     SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: &format!("city/lf-cn-urban-543/t{tile:03}"),
@@ -1048,7 +1085,11 @@ fn build_conflict_module(
             )
             .unwrap();
             let admission_gate = editing::ManeuverGateReference::owner_scoped(
-                vec![junction_key.clone(), movement_key.clone(), "path".to_owned()],
+                vec![
+                    junction_key.clone(),
+                    movement_key.clone(),
+                    "path".to_owned(),
+                ],
                 "admission",
             )
             .unwrap();
@@ -1147,6 +1188,137 @@ fn add_conflict_to_unit(
     .unwrap();
 }
 
+/// 研究宿主的显式安装策略。按生成器已声明的键组装，不从已编译网络猜测规则。
+/// 这里只恢复空世界安装测量；不声称覆盖中国道路规则或运行层容量。
+fn build_install_policy(limits: &CompileLimits, shape: Shape) -> SyntheticModule {
+    let header = SourceModuleHeader::new(
+        SourceModuleHeaderInput {
+            authoring_namespace_id: POLICY_NAMESPACE,
+            source_document_key: "policy.document",
+            generator_build_id: "laneflow-543-policy-v1",
+            parameters_and_inputs_digest: derive_provenance_digest(&[&shape.cells.to_le_bytes()]),
+            frontend_options_digest: derive_provenance_digest(&[b"capacity-install-policy-v1"]),
+            random_seed: Some(543),
+            provenance: "repository:issue-543-capacity-install-policy",
+        },
+        limits,
+    )
+    .unwrap();
+    let mut builder = SyntheticModuleBuilder::new(header, limits).unwrap();
+    builder.add_import(CONFLICT_NAMESPACE).unwrap();
+    let namespaces: Vec<_> = (0..shape.tiles)
+        .map(|tile| format!("city/lf-cn-urban-543/t{tile:03}"))
+        .collect();
+    for namespace in &namespaces {
+        builder.add_import(namespace).unwrap();
+    }
+
+    let mut signal_gates = Vec::new();
+    let mut conflict_keys = Vec::new();
+    for cell in 0..shape.cells {
+        let keys = CellKeys::new(cell);
+        for (approach, name) in APPROACHES.iter().enumerate() {
+            for kind in ["t", "l"] {
+                signal_gates.push((cell / CELLS_PER_TILE, keys.k(&format!("g-{name}-{kind}"))));
+            }
+            if waiting_approach(approach) {
+                for kind in ["in", "out"] {
+                    signal_gates.push((
+                        cell / CELLS_PER_TILE,
+                        keys.k(&format!("g-{name}-lw-{kind}")),
+                    ));
+                }
+            }
+        }
+        for suffix in ["a", "b"] {
+            conflict_keys.push((
+                keys.k(&format!("x-rule-{suffix}")),
+                keys.k("x-junction"),
+                format!("movement-{suffix}"),
+                format!("stream-{suffix}"),
+            ));
+        }
+    }
+    let gate_owners: Vec<_> = conflict_keys
+        .iter()
+        .map(|(_, junction, movement, _)| [junction.as_str(), movement.as_str(), "path"])
+        .collect();
+    let stream_owners: Vec<_> = conflict_keys
+        .iter()
+        .map(|(_, junction, _, _)| [junction.as_str()])
+        .collect();
+    let span = builder.policy_source_span();
+    let source = PolicyInputSource {
+        primary: &span,
+        contributing: &[],
+    };
+    let mut gates: Vec<_> = signal_gates
+        .iter()
+        .map(|(tile, key)| PolicyGateRuleInput {
+            rule_key: key,
+            gate: OwnerQualifiedReference {
+                target: ManeuverGateReference::imported(&namespaces[*tile as usize], key),
+                owner_keys: &[],
+            },
+            participant_classes: None,
+            interpretation: GateInterpretation::ProtectedGroup,
+            prohibition: GateProhibition::None,
+            evidence_keys: &[],
+            source,
+        })
+        .collect();
+    gates.extend(
+        conflict_keys
+            .iter()
+            .zip(&gate_owners)
+            .map(|((key, _, _, _), owners)| PolicyGateRuleInput {
+                rule_key: key,
+                gate: OwnerQualifiedReference {
+                    target: ManeuverGateReference::imported(CONFLICT_NAMESPACE, "admission"),
+                    owner_keys: owners,
+                },
+                participant_classes: None,
+                interpretation: GateInterpretation::Uncontrolled,
+                prohibition: GateProhibition::None,
+                evidence_keys: &[],
+                source,
+            }),
+    );
+    let streams: Vec<_> = conflict_keys
+        .iter()
+        .zip(&stream_owners)
+        .map(|((key, _, _, stream), owners)| PolicyStreamRuleInput {
+            rule_key: key,
+            stream: OwnerQualifiedReference {
+                target: EntityReference::imported(CONFLICT_NAMESPACE, stream),
+                owner_keys: owners,
+            },
+            participant_classes: None,
+            priority: if stream == "stream-a" { 0 } else { 1 },
+            yield_to_streams: &[],
+            gap_profile_key: None,
+            evidence_keys: &[],
+            source,
+        })
+        .collect();
+    builder
+        .add_right_of_way_policy_set(RightOfWayPolicySetInput {
+            policy_set_key: POLICY_KEY,
+            regulation: RegulationIdentity {
+                jurisdiction: "engineering",
+                version: "capacity-install-v1",
+                source: Some("repository:issue-543-capacity-install-policy"),
+            },
+            evidence: &[],
+            gap_profiles: &[],
+            stream_rules: &streams,
+            gate_rules: &gates,
+            source,
+        })
+        .unwrap();
+    builder.finish().unwrap()
+}
+
 fn build_full_unit(limits: &CompileLimits, shape: Shape) -> CompilationUnit {
     let mut unit = CompilationUnitBuilder::new(limits.clone());
     for tile in 0..shape.tiles {
@@ -1155,6 +1327,8 @@ fn build_full_unit(limits: &CompileLimits, shape: Shape) -> CompilationUnit {
     }
     let conflicts = build_conflict_module(limits, shape);
     add_conflict_to_unit(&mut unit, &conflicts);
+    unit.add_synthetic_module(build_install_policy(limits, shape))
+        .unwrap();
     unit.build().unwrap()
 }
 
@@ -1299,31 +1473,131 @@ struct LimitRow {
 }
 
 const LIMIT_ROWS: &[LimitRow] = &[
-    LimitRow { dimension: "max_module_count", p100_v2: 522, net1m_v2: 65_536 },
-    LimitRow { dimension: "max_source_document_count", p100_v2: 1_566, net1m_v2: 196_608 },
-    LimitRow { dimension: "max_import_edge_count", p100_v2: 1_032, net1m_v2: 262_144 },
-    LimitRow { dimension: "max_source_bytes_per_module", p100_v2: 542_741, net1m_v2: 536_870_912 },
-    LimitRow { dimension: "max_source_bytes_total", p100_v2: 542_741, net1m_v2: 536_870_912 },
-    LimitRow { dimension: "max_declaration_count", p100_v2: 11_265, net1m_v2: 1_500_000 },
-    LimitRow { dimension: "max_stable_entity_count", p100_v2: 11_265, net1m_v2: 1_000_000 },
-    LimitRow { dimension: "max_typed_ast_record_count", p100_v2: 58_387, net1m_v2: 8_000_000 },
-    LimitRow { dimension: "max_hir_record_count", p100_v2: 58_387, net1m_v2: 8_000_000 },
-    LimitRow { dimension: "max_mir_record_count", p100_v2: 38_112, net1m_v2: 8_000_000 },
-    LimitRow { dimension: "max_lir_record_count", p100_v2: 38_112, net1m_v2: 8_000_000 },
-    LimitRow { dimension: "max_reference_count", p100_v2: 37_920, net1m_v2: 16_000_000 },
-    LimitRow { dimension: "max_relation_occurrence_count", p100_v2: 10_032, net1m_v2: 16_000_000 },
-    LimitRow { dimension: "max_identity_field_occurrence_count", p100_v2: 29_184, net1m_v2: 8_000_000 },
-    LimitRow { dimension: "max_maneuver_gate_count", p100_v2: 2_304, net1m_v2: 1_000_000 },
-    LimitRow { dimension: "max_waiting_zone_count", p100_v2: 1_536, net1m_v2: 1_000_000 },
-    LimitRow { dimension: "max_geometry_point_count", p100_v2: 22_368, net1m_v2: 16_000_000 },
-    LimitRow { dimension: "max_symbol_count", p100_v2: 11_265, net1m_v2: 2_000_000 },
-    LimitRow { dimension: "max_string_item_count", p100_v2: 36_894, net1m_v2: 8_000_000 },
-    LimitRow { dimension: "max_single_string_bytes", p100_v2: 53, net1m_v2: 4_096 },
-    LimitRow { dimension: "max_total_string_bytes", p100_v2: 991_537, net1m_v2: 536_870_912 },
-    LimitRow { dimension: "max_stage_scratch_bytes", p100_v2: 304_896, net1m_v2: 2_147_483_648 },
-    LimitRow { dimension: "max_output_bytes", p100_v2: 2_782_758, net1m_v2: 1_073_741_824 },
-    LimitRow { dimension: "max_compiler_controlled_live_bytes", p100_v2: 43_269_120, net1m_v2: 6_442_450_944 },
-    LimitRow { dimension: "max_retained_capacity_bytes", p100_v2: 36_925_688, net1m_v2: 536_870_912 },
+    LimitRow {
+        dimension: "max_module_count",
+        p100_v2: 522,
+        net1m_v2: 65_536,
+    },
+    LimitRow {
+        dimension: "max_source_document_count",
+        p100_v2: 1_566,
+        net1m_v2: 196_608,
+    },
+    LimitRow {
+        dimension: "max_import_edge_count",
+        p100_v2: 1_032,
+        net1m_v2: 262_144,
+    },
+    LimitRow {
+        dimension: "max_source_bytes_per_module",
+        p100_v2: 542_741,
+        net1m_v2: 536_870_912,
+    },
+    LimitRow {
+        dimension: "max_source_bytes_total",
+        p100_v2: 542_741,
+        net1m_v2: 536_870_912,
+    },
+    LimitRow {
+        dimension: "max_declaration_count",
+        p100_v2: 11_265,
+        net1m_v2: 1_500_000,
+    },
+    LimitRow {
+        dimension: "max_stable_entity_count",
+        p100_v2: 11_265,
+        net1m_v2: 1_000_000,
+    },
+    LimitRow {
+        dimension: "max_typed_ast_record_count",
+        p100_v2: 58_387,
+        net1m_v2: 8_000_000,
+    },
+    LimitRow {
+        dimension: "max_hir_record_count",
+        p100_v2: 58_387,
+        net1m_v2: 8_000_000,
+    },
+    LimitRow {
+        dimension: "max_mir_record_count",
+        p100_v2: 38_112,
+        net1m_v2: 8_000_000,
+    },
+    LimitRow {
+        dimension: "max_lir_record_count",
+        p100_v2: 38_112,
+        net1m_v2: 8_000_000,
+    },
+    LimitRow {
+        dimension: "max_reference_count",
+        p100_v2: 37_920,
+        net1m_v2: 16_000_000,
+    },
+    LimitRow {
+        dimension: "max_relation_occurrence_count",
+        p100_v2: 10_032,
+        net1m_v2: 16_000_000,
+    },
+    LimitRow {
+        dimension: "max_identity_field_occurrence_count",
+        p100_v2: 29_184,
+        net1m_v2: 8_000_000,
+    },
+    LimitRow {
+        dimension: "max_maneuver_gate_count",
+        p100_v2: 2_304,
+        net1m_v2: 1_000_000,
+    },
+    LimitRow {
+        dimension: "max_waiting_zone_count",
+        p100_v2: 1_536,
+        net1m_v2: 1_000_000,
+    },
+    LimitRow {
+        dimension: "max_geometry_point_count",
+        p100_v2: 22_368,
+        net1m_v2: 16_000_000,
+    },
+    LimitRow {
+        dimension: "max_symbol_count",
+        p100_v2: 11_265,
+        net1m_v2: 2_000_000,
+    },
+    LimitRow {
+        dimension: "max_string_item_count",
+        p100_v2: 36_894,
+        net1m_v2: 8_000_000,
+    },
+    LimitRow {
+        dimension: "max_single_string_bytes",
+        p100_v2: 53,
+        net1m_v2: 4_096,
+    },
+    LimitRow {
+        dimension: "max_total_string_bytes",
+        p100_v2: 991_537,
+        net1m_v2: 536_870_912,
+    },
+    LimitRow {
+        dimension: "max_stage_scratch_bytes",
+        p100_v2: 304_896,
+        net1m_v2: 2_147_483_648,
+    },
+    LimitRow {
+        dimension: "max_output_bytes",
+        p100_v2: 2_782_758,
+        net1m_v2: 1_073_741_824,
+    },
+    LimitRow {
+        dimension: "max_compiler_controlled_live_bytes",
+        p100_v2: 43_269_120,
+        net1m_v2: 6_442_450_944,
+    },
+    LimitRow {
+        dimension: "max_retained_capacity_bytes",
+        p100_v2: 36_925_688,
+        net1m_v2: 536_870_912,
+    },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1362,11 +1636,7 @@ fn print_diagnostics(stage: &str, bundle: &DiagnosticBundle) {
 // LIR 公开锚点（ValidatedCanonicalLir 的 ExactSizeIterator 视图）。
 // ---------------------------------------------------------------------------
 
-fn print_lir_anchors(
-    output: &laneflow_compiler::CompilationOutput,
-    cells: u32,
-    profile_id: &str,
-) {
+fn print_lir_anchors(output: &laneflow_compiler::CompilationOutput, cells: u32, profile_id: &str) {
     let lir = output.lir();
     let metrics = output.metrics();
     println!(
@@ -1374,7 +1644,11 @@ fn print_lir_anchors(
         metrics.lir_record_count(),
         metrics.output_logical_bytes(),
         metrics.compiler_controlled_peak_bytes(),
-        metrics.semantic_fingerprint().iter().map(|b| format!("{b:02x}")).collect::<String>(),
+        metrics
+            .semantic_fingerprint()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>(),
     );
     let successors_total: usize = lir.lane_edges().map(|e| e.successors().len()).sum();
     let lane_geometry_points_total: usize = lir
@@ -1395,17 +1669,24 @@ fn print_lir_anchors(
     let stop_line_gates_total: usize = lir.stop_lines().map(|s| s.maneuver_gates().len()).sum();
     let signal_group_gates_total: usize =
         lir.signal_groups().map(|g| g.maneuver_gates().len()).sum();
-    let controller_groups_total: usize =
-        lir.signal_controllers().map(|c| c.signal_groups().len()).sum();
-    let controller_phases_total: usize =
-        lir.signal_controllers().map(|c| c.phases().len()).sum();
+    let controller_groups_total: usize = lir
+        .signal_controllers()
+        .map(|c| c.signal_groups().len())
+        .sum();
+    let controller_phases_total: usize = lir.signal_controllers().map(|c| c.phases().len()).sum();
     let phase_states_total: usize = lir.signal_phases().map(|p| p.states().len()).sum();
-    let parking_entries_total: usize =
-        lir.parking_facilities().map(|f| f.virtual_entries().len()).sum();
-    let parking_exits_total: usize =
-        lir.parking_facilities().map(|f| f.virtual_exits().len()).sum();
-    let access_rule_classes_total: usize =
-        lir.access_rules().map(|r| r.participant_classes().len()).sum();
+    let parking_entries_total: usize = lir
+        .parking_facilities()
+        .map(|f| f.virtual_entries().len())
+        .sum();
+    let parking_exits_total: usize = lir
+        .parking_facilities()
+        .map(|f| f.virtual_exits().len())
+        .sum();
+    let access_rule_classes_total: usize = lir
+        .access_rules()
+        .map(|r| r.participant_classes().len())
+        .sum();
     println!(
         "lf543-lir cells={cells} lane_edges={} successors_total={} lane_geometry_points_total={} lane_geometry_segments_total={} road_corridors={} corridor_elements_total={} road_sections={} authoring_lanes={} lane_groups={} facility_bands={} junctions={} junction_movements_total={} movements={} movement_maneuver_paths_total={} maneuver_paths={} maneuver_path_edges_total={} maneuver_path_gates_total={} maneuver_path_waiting_zones_total={} stop_lines={} stop_line_maneuver_gates_total={} maneuver_gates={} waiting_zones={} signal_groups={} signal_group_maneuver_gates_total={} signal_controllers={} signal_controller_groups_total={} signal_controller_phases_total={} signal_phases={} signal_phase_states_total={} parking_facilities={} parking_virtual_entries_total={} parking_virtual_exits_total={} parking_spaces={} participant_classes={} vehicle_profiles={} canonical_frames={} access_rules={} access_rule_classes_total={} junction_internal_edges={}",
         lir.lane_edges().len(),
@@ -1488,8 +1769,11 @@ fn print_lfca_tables(view: ValueCheckedObjectView<'_>, cells: u32) {
             for chunk in 0..table_view.chunk_count() {
                 max_chunk_rows =
                     max_chunk_rows.max(table_view.chunk_row_count(chunk).expect("checked chunk"));
-                max_chunk_bytes = max_chunk_bytes
-                    .max(table_view.chunk_exact_byte_length(chunk).expect("checked chunk"));
+                max_chunk_bytes = max_chunk_bytes.max(
+                    table_view
+                        .chunk_exact_byte_length(chunk)
+                        .expect("checked chunk"),
+                );
             }
             let mut nested = String::new();
             for field in table_schema.row.fields {
@@ -1526,7 +1810,7 @@ fn print_model(shape: Shape) {
     let module = AdmissionCounts::module_shared();
     let _ = module;
     println!(
-        "lf543-model cells={} tiles={} synthetic_declarations={} synthetic_typed_ast={} synthetic_references={} synthetic_relations={} synthetic_identity_fields={} synthetic_symbols={} synthetic_gates={} synthetic_waiting_zones={} synthetic_geometry_points={}",
+        "lf543-historical-model cells={} tiles={} synthetic_declarations={} synthetic_typed_ast={} synthetic_references={} synthetic_relations={} synthetic_identity_fields={} synthetic_symbols={} synthetic_gates={} synthetic_waiting_zones={} synthetic_geometry_points={}",
         shape.cells,
         shape.tiles,
         synthetic.declarations,
@@ -1554,7 +1838,7 @@ fn print_model(shape: Shape) {
             _ => continue,
         };
         println!(
-            "lf543-model-limit cells={} dimension={} observed_synthetic_only={observed} p100_v2={} net1m_v2={}",
+            "lf543-historical-model-limit cells={} dimension={} observed_synthetic_only={observed} p100_v2={} net1m_v2={}",
             shape.cells, row.dimension, row.p100_v2, row.net1m_v2,
         );
     }
@@ -1713,8 +1997,10 @@ fn required_shared_network_scratch_bytes(
     retained_budget: u64,
 ) -> u64 {
     let limits = SharedNetworkBuildLimits::new(retained_budget, 0);
-    match build_shared_network_revision(input.clone(), SharedNetworkBuildOptions::new(spatial, limits))
-    {
+    match build_shared_network_revision(
+        input.clone(),
+        SharedNetworkBuildOptions::new(spatial, limits),
+    ) {
         Err(BuildError::BudgetExceeded {
             structure: BuildStructure::BuilderScratch,
             required,
@@ -1743,6 +2029,17 @@ fn install_world(revision: std::sync::Arc<SharedNetworkRevision>) -> TrafficWorl
             .expect("source"),
         },
         543,
+        WorldPolicySelection::Pinned(PolicyPin {
+            policy: RightOfWayPolicySetId::from_untyped(
+                laneflow_compiler::derive_canonical_stable_id_v1(
+                    EntityKind::RightOfWayPolicySet,
+                    POLICY_NAMESPACE,
+                    POLICY_KEY,
+                    &CompileLimits::single_network_1m_v2(),
+                )
+                .unwrap(),
+            ),
+        }),
     )
     .expect("install")
 }
@@ -1755,7 +2052,7 @@ fn run(shape: Shape) {
         shape.tiles,
         limits.profile_id()
     );
-    print_model(shape);
+    print_parking_summary(shape);
     let provenance = PortableEmissionProvenance::try_new("laneflow-issue-543-spike-v1").unwrap();
 
     let (unit, m) = measure_with_heap_peak(|| build_full_unit(&limits, shape));
@@ -1887,12 +2184,10 @@ fn main() {
         std::process::exit(2);
     };
     let parse_u32 = |value: Option<&String>| -> u32 {
-        value
-            .and_then(|v| v.parse().ok())
-            .unwrap_or_else(|| {
-                eprintln!("{usage}");
-                std::process::exit(2);
-            })
+        value.and_then(|v| v.parse().ok()).unwrap_or_else(|| {
+            eprintln!("{usage}");
+            std::process::exit(2);
+        })
     };
     match command {
         "run" => run(Shape::for_cells(parse_u32(args.get(2)))),
