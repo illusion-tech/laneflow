@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <title>LaneFlow</title>
+  <g fill="none" stroke="#111827" stroke-linecap="round" stroke-width="28">
+    <path d="M48 216V120a72 72 0 0 1 72-72h96"/>
+    <path d="M104 216v-80a32 32 0 0 1 32-32h80"/>
+    <path d="M160 216v-40a16 16 0 0 1 16-16h40"/>
+  </g>
+</svg>
