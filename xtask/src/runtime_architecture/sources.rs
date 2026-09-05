@@ -377,10 +377,8 @@ impl SourceCheck<'_> {
                         path.push(ident_name(segment));
                         next += 3;
                     }
-                    if matches!(tokens.get(next), Some(TokenTree::Punct(punct)) if punct.as_char() == '!')
-                    {
-                        self.reject_include(&path);
-                    }
+                    // 宏体中的显式导入也可能给 include 改名，不只检查后接 ! 的路径。
+                    self.reject_include(&path);
                     self.path(path);
                 }
                 TokenTree::Group(group) => self.tokens(group.stream()),

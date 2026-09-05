@@ -376,6 +376,7 @@ fn include_macro_loading_is_rejected_through_qualified_paths_and_imports() {
         "use std as library; use library::include as load; load!(\"hidden.rs\");",
         "fn outer() { use std::include as load; load!(\"hidden_expr.rs\"); }",
         "macro_rules! load { () => { std::include!(\"hidden.rs\"); } } load!();",
+        "macro_rules! load { () => { use std::include as hidden; hidden!(\"hidden.rs\"); } } load!();",
         // 合同保守保留该导入名，不扩展宏命名空间解析。
         "mod util { pub fn include() {} } use self::util::include; fn call() { include(); }",
     ] {
