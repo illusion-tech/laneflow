@@ -112,9 +112,9 @@ Conflict 的规则函数显式借用下列不同部分，而不是取得含全�
 | 现行内部内容                                                                                                                                                  | 逻辑归属与处理                                                                                                        |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `committed_cells`, `committed_downstream`，owner 的 `reservation`、已提交 cell/downstream 范围，cell 的 committed owner、occupant、clear/lag history          | Committed Conflict authority；实际资源集合只保留一个可变 owner                                                        |
-| `addresses`, `owner_lookup`、committed owner 范围的定位和统计、committed downstream 查询索引                                                                  | Derived；地址由 Binding 派生，其他部分按已提交 authority 重建；内部存储顺序不进入业务总序                             |
+| `addresses`、`owner_lookup` 的 committed 查询部分、committed owner 范围的定位和统计、committed downstream 查询索引                                            | Derived；地址由 Binding 派生，其他部分按已提交 authority 重建；内部存储顺序不进入业务总序                             |
 | `staged_cells`, `staged_downstream`, `staged_grants`, `scratch_cell_indices`，cell 的 `frontier`/staged owner，owner 的 staged serial/count/start/grant index | Workspace；只能描述当前候选和已成功暂存的较早 bundle                                                                  |
-| `downstream_index` 的 staged 查询部分及其 dirty 状态                                                                                                          | Workspace；若物理索引融合 committed 与 staged，必须分别借用只读基线和暂存 overlay，不能在失败后留下 staged 查询可见性 |
+| `owner_lookup` 与 `downstream_index` 的 staged 查询部分                                                                                                       | Workspace；若物理索引融合 committed 与 staged，必须分别借用只读基线和暂存 overlay，不能在失败后留下 staged 查询可见性 |
 | `pending_commit` 与 crossing 的延迟整理                                                                                                                       | P7 的已验证执行记录；提交前不能把 pending crossing 当成 committed reservation；提交返回时不得遗留待完成的资源权威     |
 | `next_serial`, `reservation_serial` 及其配对                                                                                                                  | 私有 capability 防陈旧 bookkeeping；保留现行生成、存活配对和耗尽语义，不参与赢家、事件或摘要排序，不加入快照          |
 | `conflict_capacity`, `vehicle_capacity`                                                                                                                       | Binding 的容量约束及派生分配尺寸；不新增可独立漂移的配置来源                                                          |
@@ -131,6 +131,12 @@ Conflict 的规则函数显式借用下列不同部分，而不是取得含全�
   owner 的提交一致更新；`staged_serial`、`staged_cell_count`、
   `staged_downstream_claim_count`、`staged_cell_start`、`staged_downstream_start`、
   `staged_grant_index` 属于 Workspace。
+- `owner_lookup` 的 committed 查询部分属于 Derived，staged 查询覆盖层属于 Workspace。
+  P4 只新增暂存映射；grant 校验和 crossing 提交定位 owner 时显式读取包含暂存映射的
+  查询视图，不得把它暴露为 committed 查询。P7 随 reservation 的提交/释放更新
+  committed 映射，并清除本拍暂存映射；失败清理撤销本拍暂存映射，保持 committed
+  查询对应原基线。物理融合时分别约束只读基线与覆盖层的借用和清理；owner 行移动
+  须修正对应定位，不要求复制整表或采用两张物理表。
 - `downstream_index_dirty` 跟随它标记的索引部分；不能用一次 staged index rebuild
   冒充 committed 查询已更新。`next_serial` 由工作区的私有 capability bookkeeping
   持有，保留跨调用的现行生成规则；`pending_commit` 只在 P7 消费。
