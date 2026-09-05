@@ -48,7 +48,7 @@ cargo +1.98.0 test --workspace --locked
 | 组件              | 已交付能力                                                  |
 | ----------------- | ----------------------------------------------------------- |
 | 静态路网工具链    | 编译并检查 LFCA，构建可跨世界共享的 `SharedNetworkRevision` |
-| Traffic Runtime   | 固定步进执行车辆跟驰、信号约束与停车生命周期                |
+| Traffic Runtime   | 固定步进推进跟驰与信号；停车状态转换由宿主命令驱动          |
 | Spatial           | 可选地将规范进度采样为引擎无关位姿                          |
 | Reference Adapter | 提供 Bevy 0.19 接入、无窗口测试与信号化走廊集成夹具         |
 | Reference Scenario | 提供 catalog 0.4 与 prepare 绑定；要求显式 `policy_selection` |
