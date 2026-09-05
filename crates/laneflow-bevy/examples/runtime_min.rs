@@ -1,6 +1,6 @@
 //! 最小 Bevy 示例：`LaneFlowPlugin` + `LaneFlowSession` 驱动车辆表现位移。
 //!
-//! GUI 不进 CI；`tests/runtime_min_smoke.rs` 复用初始化路径并运行无窗口 App。
+//! GUI 不进 CI；`support/runtime_min_smoke.rs` 测试目标复用初始化路径并运行无窗口 App。
 #[path = "support/runtime_min_scene.rs"]
 mod runtime_min_scene;
 

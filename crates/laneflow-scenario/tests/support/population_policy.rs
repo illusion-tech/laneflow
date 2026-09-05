@@ -92,8 +92,26 @@ pub fn fixture(
             }
         }
     }
+    let span = module.policy_source_span();
     for key in ["policy-a", "policy-b"] {
-        super::test_policy::add_gate_policy(&mut module, key, &[]);
+        module
+            .add_right_of_way_policy_set(RightOfWayPolicySetInput {
+                policy_set_key: key,
+                regulation: RegulationIdentity {
+                    jurisdiction: "engineering",
+                    version: "population-fixture-v1",
+                    source: Some("repository:population-policy-fixture"),
+                },
+                evidence: &[],
+                gap_profiles: &[],
+                stream_rules: &[],
+                gate_rules: &[],
+                source: PolicyInputSource {
+                    primary: &span,
+                    contributing: &[],
+                },
+            })
+            .unwrap();
     }
     let mut unit = CompilationUnitBuilder::new(limits);
     unit.add_synthetic_module(module.finish().unwrap()).unwrap();

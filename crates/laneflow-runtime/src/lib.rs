@@ -3,7 +3,6 @@
 #[cfg(test)]
 extern crate self as laneflow_runtime;
 #[cfg(test)]
-#[path = "../tests/support/policy.rs"]
 mod test_policy;
 
 mod config;

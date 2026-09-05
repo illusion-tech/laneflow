@@ -1,6 +1,3 @@
-#[path = "../../laneflow-runtime/tests/support/policy.rs"]
-mod test_policy;
-
 use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use bevy_app::App;
@@ -43,7 +40,17 @@ fn install_fixture(
             .expect("non-empty fixture key"),
         },
         0,
-        test_policy::selection(&revision),
+        laneflow_runtime::WorldPolicySelection::Pinned(laneflow_runtime::PolicyPin {
+            policy: laneflow_static_contract::RightOfWayPolicySetId::from_untyped(
+                laneflow_compiler::derive_canonical_stable_id_v1(
+                    laneflow_static_contract::EntityKind::RightOfWayPolicySet,
+                    "laneflow/signalized-corridor",
+                    "protected-entry",
+                    &laneflow_compiler::CompileLimits::p100_initial_v1(),
+                )
+                .expect("corridor fixture policy identity"),
+            ),
+        }),
     )
 }
 

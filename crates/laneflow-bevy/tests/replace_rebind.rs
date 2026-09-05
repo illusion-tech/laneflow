@@ -1,6 +1,3 @@
-#[path = "../../laneflow-runtime/tests/support/policy.rs"]
-mod test_policy;
-
 use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use bevy_app::App;
@@ -35,6 +32,28 @@ fn install_fixture(
     revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
     config: laneflow_runtime::WorldConfig,
 ) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
+    install_with_policy(
+        revision,
+        config,
+        laneflow_runtime::WorldPolicySelection::Pinned(laneflow_runtime::PolicyPin {
+            policy: laneflow_static_contract::RightOfWayPolicySetId::from_untyped(
+                laneflow_compiler::derive_canonical_stable_id_v1(
+                    laneflow_static_contract::EntityKind::RightOfWayPolicySet,
+                    "runtime-fixture-policy",
+                    "fixture-policy",
+                    &CompileLimits::p100_initial_v1(),
+                )
+                .expect("full-spatial fixture policy identity"),
+            ),
+        }),
+    )
+}
+
+fn install_with_policy(
+    revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
+    config: laneflow_runtime::WorldConfig,
+    policy_selection: laneflow_runtime::WorldPolicySelection,
+) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
     let origin = *revision.canonical_origin();
     laneflow_runtime::TrafficWorld::install(
         std::sync::Arc::clone(&revision),
@@ -49,7 +68,7 @@ fn install_fixture(
             .expect("non-empty fixture key"),
         },
         0,
-        test_policy::selection(&revision),
+        policy_selection,
     )
 }
 
@@ -334,9 +353,10 @@ fn unbound_replace_stays_unbound() {
 
 #[test]
 fn virtual_parking_echoes_typed_selectors_and_keeps_mapping_without_pose() {
-    let mut world = install_fixture(
+    let mut world = install_with_policy(
         virtual_parking_revision(),
         WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+        laneflow_runtime::WorldPolicySelection::NotRequired,
     )
     .expect("install virtual parking fixture");
     let route = world
