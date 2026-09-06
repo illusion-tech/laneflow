@@ -18,9 +18,7 @@ use laneflow_static_network::{ConflictPathAnchor, SharedIdentityIndex, SharedNet
 
 use crate::admin::migration_journal::VehicleDelta;
 use crate::kernel::parking::ParkingRuntimeState;
-use crate::kernel::tables::{
-    RouteSlot, VehicleSlot, bodies_overlap, compile_route, route_access_denied,
-};
+use crate::kernel::tables::{RouteSlot, VehicleSlot, compile_route, route_access_denied};
 use crate::{
     CommittedNetworkSource, CutoverError, ManeuverTraversalPhase, ManeuverTraversalState,
     ParkingBinding, ParkingReservation, ParkingSpaceState, ParkingTarget, RouteHandle,
@@ -2097,7 +2095,8 @@ pub(crate) fn revalidate_migrated_vehicles(
             crate::StepError::ConflictScratchAllocFailed => CutoverError::StagingAllocFailed,
             _ => CutoverError::WaitingRevalidationFailed,
         })?;
-    for handle in candidate.committed.live_order.iter().copied() {
+    for index in 0..candidate.committed.live_order.len() {
+        let handle = candidate.committed.live_order[index];
         revalidate_vehicle_on(candidate, handle)?;
     }
     Ok(())
@@ -2106,20 +2105,20 @@ pub(crate) fn revalidate_migrated_vehicles(
 /// 单个车辆在候选上的重验证（切片 C-3 的增量重放复用同一入口）。
 ///
 /// 复核面：路线解析、序列下标与进度对 target 边长、Active 的限速与后缀
-/// 访问、Active 与其它 Active 的重叠（按 live 序线性扫描）。
+/// 访问、Active 与其它 Active 的重叠（共享准入物理边索引，排除自身）。
 pub(crate) fn revalidate_vehicle_on(
-    candidate: &TrafficWorld,
+    candidate: &mut TrafficWorld,
     handle: VehicleHandle,
 ) -> Result<(), CutoverError> {
     let traffic = candidate.binding.revision.traffic();
     let lengths = traffic.lane_lengths_millimetres();
     let speed_limits = traffic.lane_speed_limits_millimetres_per_second();
-    let state = candidate
-        .vehicle_state(handle)
-        .ok_or(CutoverError::VehicleRevalidationFailed {
+    let state = candidate.vehicle_state(handle).copied().ok_or(
+        CutoverError::VehicleRevalidationFailed {
             vehicle: handle.index(),
-        })?;
-    if !candidate.restored_waiting_authority_valid(*state) {
+        },
+    )?;
+    if !candidate.restored_waiting_authority_valid(state) {
         return Err(CutoverError::WaitingRevalidationFailed);
     }
     if !candidate.parking_state_valid(handle) {
@@ -2196,37 +2195,22 @@ pub(crate) fn revalidate_vehicle_on(
         });
     }
     if state.status == VehicleStatus::Active {
-        for other in candidate.committed.live_order.iter().copied() {
-            if other == handle {
-                continue;
-            }
-            let Some(leader) = candidate.vehicle_state(other) else {
-                continue;
-            };
-            if leader.status != VehicleStatus::Active {
-                continue;
-            }
-            let Some(leader_edges) = candidate.route_edges(leader.route) else {
-                continue;
-            };
-            let Ok(leader_cursor) = usize::try_from(leader.route_edge_index) else {
-                continue;
-            };
-            if bodies_overlap(
-                lengths,
-                edges,
+        candidate
+            .try_refresh_overlap_index()
+            .map_err(|()| CutoverError::StagingAllocFailed)?;
+        if candidate
+            .indexed_overlap_blocker(
+                state.route,
                 cursor,
                 state.progress_mm,
                 state.length_mm,
-                leader_edges,
-                leader_cursor,
-                leader.progress_mm,
-                leader.length_mm,
-            ) {
-                return Err(CutoverError::VehicleRevalidationFailed {
-                    vehicle: handle.index(),
-                });
-            }
+                Some(handle),
+            )
+            .is_some()
+        {
+            return Err(CutoverError::VehicleRevalidationFailed {
+                vehicle: handle.index(),
+            });
         }
         match candidate.check_active_conflict_capability(
             state.route,
@@ -3226,7 +3210,7 @@ pub(crate) mod tests {
         let rebinding =
             CrossRevisionRebinding::build(world.binding.revision.identity(), target.identity())
                 .expect("same semantics rebind");
-        let candidate = migrate_structural_clone(
+        let mut candidate = migrate_structural_clone(
             &world,
             target,
             source_for(target_origin, "fixture://live-conflict-target"),
@@ -3234,7 +3218,7 @@ pub(crate) mod tests {
         )
         .expect("live reservation migrates before 3A revalidation");
         assert!(candidate.conflict_reservation(vehicle).is_some());
-        assert_eq!(revalidate_vehicle_on(&candidate, vehicle), Ok(()));
+        assert_eq!(revalidate_vehicle_on(&mut candidate, vehicle), Ok(()));
         assert!(candidate.conflict_state_valid());
         let before = world.capture_snapshot().expect("source snapshot");
         let after = candidate.capture_snapshot().expect("target snapshot");
@@ -4297,7 +4281,7 @@ pub(crate) mod tests {
             .expect("vehicle")
             .status = VehicleStatus::Completed;
         assert_eq!(
-            revalidate_vehicle_on(&candidate, handle),
+            revalidate_vehicle_on(&mut candidate, handle),
             Err(CutoverError::VehicleRevalidationFailed {
                 vehicle: handle.index()
             })
@@ -4308,7 +4292,7 @@ pub(crate) mod tests {
             .as_mut()
             .expect("vehicle")
             .progress_mm = 60_000;
-        assert_eq!(revalidate_vehicle_on(&candidate, handle), Ok(()));
+        assert_eq!(revalidate_vehicle_on(&mut candidate, handle), Ok(()));
     }
 
     #[test]

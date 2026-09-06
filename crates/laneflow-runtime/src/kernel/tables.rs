@@ -1297,6 +1297,7 @@ fn occupancy_intervals_stack(
     Some((intervals, count, overflow))
 }
 
+#[cfg(test)]
 fn occupancy_intervals_vec(
     lengths: &[u32],
     edges: &[LaneEdgeOrdinal],
@@ -1311,6 +1312,7 @@ fn occupancy_intervals_vec(
     Some(intervals)
 }
 
+#[cfg(test)]
 fn occupancy_slices_overlap(left: &[OccupancyInterval], right: &[OccupancyInterval]) -> bool {
     left.iter().any(|(edge, a_lo, a_hi)| {
         right
@@ -1375,6 +1377,7 @@ pub(crate) fn occupancy_footprints_equal(
     Ok(left_full == right_full)
 }
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn bodies_overlap(
     lengths: &[u32],
