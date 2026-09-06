@@ -331,7 +331,7 @@ Cutover Descriptor，`NetworkRevisionCutoverDescriptor`）绑定，不能自行�
 复核身份映射，不能替代语义兼容证据。每世界 identity、
 调用方拥有的 seed/随机流（Caller-owned Seed / Random Stream）、每世界路线、执行计划
 与运行时快照不进入共享静态路网。路径规划读取静态路网和已提交动态成本快照；出行需求
-与路线选择策略仍由城市游戏/出行编排层拥有。
+与路线选择策略仍由宿主应用/出行编排层拥有。
 
 现行生产路径由编译器原生有类型来源进入 Typed AST / HIR / MIR / Canonical LIR，发射
 LFCA/LFSM/LFSD，经后发射检查后构建共享静态路网，并由 `TrafficWorld` 与可选 Spatial
