@@ -37,7 +37,7 @@
 （Accepted）。当前已实现策略绑定、Conflict eligibility/reservation/Clearing、
 downstream authority 与 lag history 的持久化、同/跨修订迁移和生产 fixed-step 接线。
 
-城市游戏需要存档、恢复与回放。Runtime Snapshot 是每世界可变状态的独立版本化
+宿主应用需要存档、恢复与回放。Runtime Snapshot 是每世界可变状态的独立版本化
 制品：不进入 LFCP 发布链，真实性由宿主存档清单在对象外绑定（ADR 0021）。
 设计立场：
 
