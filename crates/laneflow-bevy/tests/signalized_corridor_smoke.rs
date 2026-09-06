@@ -9,13 +9,13 @@ use bevy_ecs::{
 use bevy_math::Vec3;
 use bevy_time::{TimePlugin, TimeUpdateStrategy};
 use bevy_transform::{TransformPlugin, components::Transform};
-use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig, pose_input};
+use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig};
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{TrafficWorld, VehicleSpawnInput, WorldConfig};
 use laneflow_scenario::signalized_corridor::{
     BoundCorridorCatalog, BoundSpawnSlot, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind,
 };
-use laneflow_spatial::{CanonicalPoseBatch, FramePlacementToken, PoseRecordId, SpatialSession};
+use laneflow_spatial::{FramePlacementToken, SpatialSession};
 use laneflow_static_contract::VehicleProfileOrdinal;
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
@@ -158,21 +158,10 @@ fn sync_proxy(
     proxy: Option<Res<Proxy>>,
     mut transforms: Query<&mut Transform>,
 ) {
-    let poses = session.world().committed_pose_sources();
-    let inputs: Vec<_> = poses
-        .as_slice()
-        .iter()
-        .enumerate()
-        .map(|(index, (_, source))| pose_input(PoseRecordId::new(index as u32), *source))
-        .collect();
-    let Some(spatial) = session.spatial_mut() else {
-        return;
-    };
-    let mut batch = CanonicalPoseBatch::new();
-    spatial
-        .extract_pose_batch(FramePlacementToken::new(1), &inputs, &mut batch)
+    let poses = session
+        .extract_committed_pose_batch(FramePlacementToken::new(1))
         .expect("extract");
-    let Some(record) = batch.records().first() else {
+    let Some(record) = poses.batch().records().first() else {
         return;
     };
     let Some(proxy) = proxy else {

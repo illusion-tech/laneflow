@@ -10,9 +10,13 @@ pub use lifecycle::{
     LaneFlowVehicleDespawnRecord, LaneFlowVehicleReplaceOutcome, LaneFlowVehicleReplaceRecord,
     despawn_vehicle, replace_completed_vehicle,
 };
-pub use plugin::{LaneFlowFixed, LaneFlowFixedSet, LaneFlowOuterFrame, LaneFlowPlugin};
+pub use plugin::{
+    LaneFlowFixed, LaneFlowFixedSet, LaneFlowOuterFrame, LaneFlowOuterFrameSet, LaneFlowPlugin,
+};
 pub use session::{
-    LaneFlowFrameReport, LaneFlowSession, LaneFlowSessionConfig, LaneFlowWorldMut, pose_input,
+    LaneFlowCommittedPoseBatch, LaneFlowConsumptionContext, LaneFlowCutoverRecord,
+    LaneFlowFrameReport, LaneFlowSession, LaneFlowSessionConfig, LaneFlowTargetSpatial,
+    LaneFlowWorldMut,
 };
 
 #[cfg(test)]

@@ -2885,6 +2885,7 @@ dependencies = [
  "laneflow-spatial",
  "laneflow-static-contract",
  "laneflow-static-network",
+ "sha2",
  "toml",
 ]
 

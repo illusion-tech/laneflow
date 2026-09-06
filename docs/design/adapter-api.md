@@ -230,3 +230,66 @@ facility、LaneEdge 或无 pose 状态反推被省略的 route/anchor，也不�
 跟车、信号或停车规则。
 
 Population 的 seed、portal/lane 抽样、pending/retry queue 仍是 engine-neutral caller-owned authority，不进入 Adapter 或 Bevy ECS；初始人口在 Session 创建前完成。
+
+## 9. 修订绑定生命周期与维护暂停式切换（#534）
+
+#534 交付 Adapter 侧的修订绑定生命周期闭合：Session 配对、消费资格与维护暂停式
+切换。Runtime / Spatial 公开 API 与世界绑定语义零变更。权威实现是
+`laneflow-bevy` 的 `LaneFlowSession`；端到端验收矩阵见
+`crates/laneflow-bevy/tests/revision_cutover.rs`。
+
+```rust
+LaneFlowSession::cross_revision_cutover(
+    target_revision: Arc<SharedNetworkRevision>,
+    target_source: CommittedNetworkSource,
+    semantic_diff: &[u8],
+    diff_binding: SemanticDiffOriginBinding,
+    target_spatial: LaneFlowTargetSpatial,
+    preflight_limits: &CutoverPreflightLimits,
+    transaction_limits: &CutoverTransactionLimits,
+) -> Result<LaneFlowCutoverRecord, LaneFlowAdapterError>
+
+LaneFlowSession::same_revision_restore(
+    target_revision: Arc<SharedNetworkRevision>,
+    target_source: CommittedNetworkSource,
+    target_spatial: LaneFlowTargetSpatial,
+    preflight_limits: &CutoverPreflightLimits,
+) -> Result<LaneFlowCutoverRecord, LaneFlowAdapterError>
+
+LaneFlowSession::extract_committed_pose_batch(
+    placement_token: FramePlacementToken,
+) -> Result<LaneFlowCommittedPoseBatch, LaneFlowAdapterError>
+
+LaneFlowSession::{consumption_context, consumption_context_is_current}
+```
+
+失效与消费资格语义（切换合同 §7 的 Adapter 承载面）：
+
+- `SpatialSession` 仅绑定不可变共享根，不持有世界身份或世界世代。Adapter 的当前
+  Spatial 配对必须与活动 `TrafficWorld` 使用同一根 `Arc`；封闭提取路径每批做一次
+  固定 O(1) 配对检查（与车辆数无关），失配失败关闭。Adapter 不提供绕过配对检查的
+  裸可变 Spatial 访问。
+- 成功修订切换后，先前的 Adapter 消费上下文过期；当前消费资格由世界身份、世界
+  世代与根配对检查共同保证。世代复用 Runtime 签发的 `(world_id, WorldGeneration)`，
+  不建立第二套切换计数器，也不挪用含双基线游标的完整切换描述符作长期位姿绑定
+  令牌。
+- 旧根借用可以继续完成（Arc 存活语义；换出的旧 `SpatialSession` 由
+  `LaneFlowCutoverRecord::retired_spatial` 交还宿主），但其输入或结果不得未经当前
+  消费上下文验证进入新世界的表现提交。
+- 世界相关有效性检查由 Adapter 承担，不下沉到 Spatial。
+
+维护暂停式切换（v1 同步形态）：
+
+- 切换在单次 `&mut self` 内完成 Runtime `prepare` → `commit`，无步进交错。这是
+  「维护暂停」，不是低停顿在线热切换——单帧停顿量由 cutover scale 证据单独计量。
+- 目标 Spatial 的全部可失败验证（根配对、显式 headless 选择）前置于 Runtime
+  `prepare`；Runtime `commit` 成功后只剩不可失败的配对替换——成功返回时已完成
+  新配对，不存在生产可见的「新世界 + 旧 Spatial」中间态。切换事务由入口独占
+  持有，任一失败路径都不遗留在途事务，合法重试可成功。
+- `LaneFlowTargetSpatial::Headless` 是宿主对「切换后无表现」的显式选择；枚举形态
+  保证不存在把 `Some(Spatial)` 静默降级为 `None` 的路径。headless Session 的提取
+  请求失败关闭。
+- v1 同步封闭路径：采集 committed pose sources、生成输入、配对校验与提取处于同一
+  次调用内，宿主不得缓存位姿输入跨过切换边界重放。`LaneFlowCommittedPoseBatch`
+  携带采集时的消费上下文；跨区间持有结果的宿主在应用前用
+  `consumption_context_is_current` 复核，过期整批拒绝。

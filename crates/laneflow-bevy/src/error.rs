@@ -4,7 +4,8 @@ use std::fmt;
 use std::time::Duration;
 
 use bevy_ecs::entity::Entity;
-use laneflow_runtime::{ParkingError, ReplaceError, StepError, VehicleHandle};
+use laneflow_runtime::{CutoverError, ParkingError, ReplaceError, StepError, VehicleHandle};
+use laneflow_spatial::SpatialError;
 
 /// LaneFlow Bevy Adapter 的结构化失败。
 #[derive(Clone, Debug, PartialEq)]
@@ -67,6 +68,20 @@ pub enum LaneFlowAdapterError {
         vehicle: VehicleHandle,
         source: ParkingError,
     },
+    /// 维护暂停式切换失败（Runtime prepare/commit 或同修订换根）；旧世界原样继续。
+    Cutover {
+        /// Runtime 切换错误。
+        source: CutoverError,
+    },
+    /// 目标 `SpatialSession` 与目标根不是同一 `Arc`。
+    TargetSpatialRevisionMismatch,
+    /// headless Session（无 Spatial 配对）不支持位姿提取。
+    PoseExtractionWithoutSpatial,
+    /// Spatial 批次提取失败。
+    SpatialPoseExtraction {
+        /// Spatial 错误。
+        source: SpatialError,
+    },
 }
 
 impl fmt::Display for LaneFlowAdapterError {
@@ -118,6 +133,17 @@ impl fmt::Display for LaneFlowAdapterError {
             Self::VehicleDespawn { vehicle, source } => {
                 write!(formatter, "车辆 {vehicle:?} despawn 失败：{source}")
             }
+            Self::Cutover { source } => {
+                write!(formatter, "维护暂停式切换失败：{source}")
+            }
+            Self::TargetSpatialRevisionMismatch => formatter
+                .write_str("目标 SpatialSession 必须与目标根绑定同一 SharedNetworkRevision Arc"),
+            Self::PoseExtractionWithoutSpatial => {
+                formatter.write_str("headless Session 不支持位姿提取")
+            }
+            Self::SpatialPoseExtraction { source } => {
+                write!(formatter, "Spatial 位姿批次提取失败：{source}")
+            }
         }
     }
 }
@@ -133,9 +159,13 @@ impl std::error::Error for LaneFlowAdapterError {
             | Self::UnknownVehicle { .. }
             | Self::DuplicateVehicleBinding { .. }
             | Self::DuplicateEntityBinding { .. }
-            | Self::StaleLifecycleEntity { .. } => None,
+            | Self::StaleLifecycleEntity { .. }
+            | Self::TargetSpatialRevisionMismatch
+            | Self::PoseExtractionWithoutSpatial => None,
             Self::VehicleReplace { source, .. } => Some(source),
             Self::VehicleDespawn { source, .. } => Some(source),
+            Self::Cutover { source } => Some(source),
+            Self::SpatialPoseExtraction { source } => Some(source),
         }
     }
 }
