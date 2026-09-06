@@ -878,6 +878,14 @@ fn admin_probe(mut _session: ResMut<LaneFlowSession>, mut ran: ResMut<AdminProbe
     ran.0 = true;
 }
 
+/// 挂入公开 `Drive` set 的宿主探针：同样必须在无 Session 态安全跳过。
+#[derive(Resource)]
+struct DriveProbeRan(bool);
+
+fn drive_probe(mut _session: ResMut<LaneFlowSession>, mut ran: ResMut<DriveProbeRan>) {
+    ran.0 = true;
+}
+
 #[test]
 fn administration_set_is_safe_without_session_and_runs_with_session() {
     let fixture = fixture();
@@ -888,17 +896,23 @@ fn administration_set_is_safe_without_session_and_runs_with_session() {
         16,
     )));
     app.insert_resource(AdminProbeRan(false));
+    app.insert_resource(DriveProbeRan(false));
     app.add_systems(
         laneflow_bevy::LaneFlowOuterFrame,
-        admin_probe.in_set(LaneFlowOuterFrameSet::Administration),
+        (
+            admin_probe.in_set(LaneFlowOuterFrameSet::Administration),
+            drive_probe.in_set(LaneFlowOuterFrameSet::Drive),
+        ),
     );
-    // 无 Session：行政系统按 resource_exists 门控跳过，不 panic。
+    // 无 Session：两个公开 set 的宿主系统都按 resource_exists 门控跳过，不 panic。
     app.update();
     assert!(!app.world().resource::<AdminProbeRan>().0);
+    assert!(!app.world().resource::<DriveProbeRan>().0);
     // 插入 Session 后恢复执行。
     app.insert_resource(session);
     app.update();
     assert!(app.world().resource::<AdminProbeRan>().0);
+    assert!(app.world().resource::<DriveProbeRan>().0);
 }
 
 /// 切换记录消费语义：事件批次恰一次交付，跨帧复用缓冲在稳态保持容量。

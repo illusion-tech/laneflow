@@ -22,16 +22,17 @@ pub struct LaneFlowOuterFrame;
 /// `LaneFlowFixed` 整个 schedule 受 `can_step()` 门控，零步进帧连
 /// `Lifecycle` 都不运行，行政操作不得依赖 fixed step 的存在）。
 ///
-/// 不变量：**所有公开 set 在无 `LaneFlowSession` 态安全**——`Administration`
-/// 以 `resource_exists` 条件门控，宿主系统在 Session 未插入或暂时移除的
-/// 帧被跳过而非 panic；核心循环的守卫只保护自身，公开 set 的安全性必须
-/// 由 schedule 配置保证。
+/// 不变量：**所有公开 set 在无 `LaneFlowSession` 态安全**——两个阶段都以
+/// `resource_exists` 条件门控，宿主系统在 Session 未插入或暂时移除的帧被
+/// 跳过而非 panic；核心循环的守卫只保护自身，公开 set 的安全性必须由
+/// schedule 配置保证。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, SystemSet)]
 pub enum LaneFlowOuterFrameSet {
     /// 行政边界：宿主驱动维护暂停式切换、显式 Spatial 重绑等行政操作；
     /// 位于本帧步进与位姿采集之前。无 Session 时整体跳过。
     Administration,
-    /// 本 crate 的 outer-frame 驱动（accumulator、fixed 循环、帧报告）。
+    /// 本 crate 的 outer-frame 驱动（accumulator、fixed 循环、帧报告），
+    /// 也向宿主开放挂载。无 Session 时整体跳过。
     Drive,
 }
 
@@ -60,9 +61,10 @@ impl Plugin for LaneFlowPlugin {
         outer_frame.set_executor(SingleThreadedExecutor::new());
         outer_frame.configure_sets(
             (
-                LaneFlowOuterFrameSet::Administration.run_if(resource_exists::<LaneFlowSession>),
+                LaneFlowOuterFrameSet::Administration,
                 LaneFlowOuterFrameSet::Drive,
             )
+                .run_if(resource_exists::<LaneFlowSession>)
                 .chain(),
         );
         outer_frame.add_systems(run_outer_frame.in_set(LaneFlowOuterFrameSet::Drive));
