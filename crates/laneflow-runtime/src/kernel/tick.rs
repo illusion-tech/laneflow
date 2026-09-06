@@ -174,6 +174,9 @@ pub(crate) fn leader_query_horizon(
 
 impl TrafficWorld {
     pub(crate) fn step_vehicles(&mut self, input: TickInput) -> Result<StepOutcome, StepError> {
+        #[cfg(test)]
+        let preflight_timer =
+            super::performance_profile::begin(super::performance_profile::Stage::Preflight);
         let expected = self.binding.config.fixed_delta_time_ms();
         if input.delta_time_ms != expected {
             return Err(StepError::DeltaMismatch {
@@ -200,7 +203,14 @@ impl TrafficWorld {
             .checked_next()
             .ok_or(StepError::ObservationStateSequenceExhausted)?;
         let delta_s = expected as f32 / 1_000.0;
+        #[cfg(test)]
+        drop(preflight_timer);
+        #[cfg(test)]
+        let occupancy_timer =
+            super::performance_profile::begin(super::performance_profile::Stage::Occupancy);
         self.rebuild_occupancy_index()?;
+        #[cfg(test)]
+        drop(occupancy_timer);
         let plan = self.step_workspace().prepare_commit(
             delta_s,
             tick_index,
@@ -287,7 +297,12 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         time_ms: u64,
         observation_state_sequence: crate::ObservationStateSequence,
     ) -> Result<CommitPlan, StepError> {
+        #[cfg(test)]
+        let waiting_timer =
+            super::performance_profile::begin(super::performance_profile::Stage::WaitingPrepare);
         self.prepare_waiting_step(delta_s)?;
+        #[cfg(test)]
+        drop(waiting_timer);
         let mut updates = std::mem::take(&mut self.workspace.next_states);
         updates.clear();
         let parking_arrivals =
@@ -319,6 +334,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
 impl crate::kernel::phase::CommittedStateMut<'_> {
     /// P7 唯一入口：只消费已经完整校验的计划，不再返回 StepError。
     fn commit(mut self, plan: CommitPlan) -> StepOutcome {
+        #[cfg(test)]
+        let _commit_timer =
+            super::performance_profile::begin(super::performance_profile::Stage::Commit);
         let CommitPlan {
             mut updates,
             parking_arrivals,
@@ -751,10 +769,18 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         time_ms: u64,
         updates: &mut Vec<(usize, VehicleState)>,
     ) -> Result<Vec<ParkingArrivalObservation>, StepError> {
+        #[cfg(test)]
+        let conflict_timer =
+            super::performance_profile::begin(super::performance_profile::Stage::ConflictPrepare);
         self.prepare_conflict_step(delta_s, tick_index)?;
+        #[cfg(test)]
+        drop(conflict_timer);
         #[cfg(test)]
         injected_step_failure(StepFailpoint::AfterGrants)?;
         let mut parking_arrivals = Vec::new();
+        #[cfg(test)]
+        let motion_timer =
+            super::performance_profile::begin(super::performance_profile::Stage::MotionLoop);
         for handle in self.derived.active_order.iter().copied() {
             let Some(state) = self.vehicle_state(handle).copied() else {
                 continue;
@@ -799,15 +825,37 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
             updates.push((slot, next));
         }
+        #[cfg(test)]
+        drop(motion_timer);
+        #[cfg(test)]
+        let waiting_timer =
+            super::performance_profile::begin(super::performance_profile::Stage::WaitingFinalize);
         self.finalize_waiting_step(updates)?;
+        #[cfg(test)]
+        drop(waiting_timer);
         // 决策和运动使用拍初信号；资格与日志必须描述下一提交时刻。
+        #[cfg(test)]
+        let signal_timer =
+            super::performance_profile::begin(super::performance_profile::Stage::Signals);
         crate::kernel::world::fill_signal_aspects(
             &self.binding.revision,
             time_ms,
             &mut self.workspace.next_signal_aspects,
         );
+        #[cfg(test)]
+        drop(signal_timer);
+        #[cfg(test)]
+        let conflict_timer =
+            super::performance_profile::begin(super::performance_profile::Stage::ConflictFinalize);
         self.finalize_conflict_step(updates)?;
+        #[cfg(test)]
+        drop(conflict_timer);
+        #[cfg(test)]
+        let output_timer =
+            super::performance_profile::begin(super::performance_profile::Stage::WaitingOutputs);
         self.finalize_waiting_outputs(updates, tick_index)?;
+        #[cfg(test)]
+        drop(output_timer);
         #[cfg(test)]
         injected_step_failure(StepFailpoint::AfterTransitions)?;
         Ok(parking_arrivals)

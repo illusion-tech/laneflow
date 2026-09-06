@@ -1,0 +1,17 @@
+{
+  "cpu": "AMD Ryzen 9 9955HX 16-Core Processor",
+  "cores": 16,
+  "logical_processors": 32,
+  "os": "Microsoft Windows 11 专业版 Insider Preview",
+  "version": "10.0.29648",
+  "build": "29648",
+  "memory_kib": 64680184,
+  "architecture": "AMD64",
+  "power_plan": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+  "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "base": "298da8a80a5c2edf6a1bbe521f59db77d1d8b76e",
+  "cargo_profile": "release (default)",
+  "cargo_incremental": "0",
+  "run_started": "2026-09-06T19:30:32.4459510+09:00",
+  "run_finished": "2026-09-06T19:30:50.6196989+09:00"
+}

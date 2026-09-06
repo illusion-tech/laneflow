@@ -1,0 +1,11 @@
+
+running 1 test
+test runtime_profile_allocation ... profile-allocation scene=lane-1000-256-journal-false steps=64 allocations=0 reallocations=0 allocated_bytes=0 deallocated_bytes=0 reallocated_bytes=0 journal_bytes=0 digest=31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b
+profile-allocation scene=lane-10000-256-journal-false steps=64 allocations=0 reallocations=0 allocated_bytes=0 deallocated_bytes=0 reallocated_bytes=0 journal_bytes=0 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+profile-allocation scene=lane-10000-16-journal-false steps=64 allocations=0 reallocations=0 allocated_bytes=0 deallocated_bytes=0 reallocated_bytes=0 journal_bytes=0 digest=dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa
+profile-allocation scene=lane-10000-256-journal-true steps=64 allocations=0 reallocations=0 allocated_bytes=0 deallocated_bytes=0 reallocated_bytes=0 journal_bytes=56162664 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+profile-allocation scene=waiting-membership-1 steps=16 allocations=0 reallocations=0 allocated_bytes=0 deallocated_bytes=0 reallocated_bytes=0 journal_bytes=0 digest=186c86852841789533f3a5cdd8cdbd474a5d60b613010a29f356a867138bd166
+profile-allocation scene=conflict-reservation-retry-2 steps=16 allocations=0 reallocations=0 allocated_bytes=0 deallocated_bytes=0 reallocated_bytes=0 journal_bytes=0 digest=39cf8c259608d71a9b8ef3c0ab9cb316644795a4efeae55535ae5d217269baa0
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.69s

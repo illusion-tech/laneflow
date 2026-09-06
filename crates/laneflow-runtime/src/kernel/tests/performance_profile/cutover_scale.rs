@@ -2,6 +2,10 @@
 
 use std::sync::Arc;
 
+use super::runtime_types::{
+    CommittedNetworkSource, PublishedLfcaReference, RouteRegisterInput, SemanticDiffOriginBinding,
+    TrafficWorld, VehicleSpawnInput, WorldConfig, WorldPolicySelection,
+};
 use laneflow_compiler::{
     CompilationUnitBuilder, CompileLimits, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
     ParticipantClassInput, ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance,
@@ -9,10 +13,6 @@ use laneflow_compiler::{
     emit_portable_candidate,
 };
 use laneflow_format::{FormatLimits, check_post_emission_bundle, preflight_object_values};
-use laneflow_runtime::{
-    CommittedNetworkSource, PublishedLfcaReference, RouteRegisterInput, SemanticDiffOriginBinding,
-    TrafficWorld, VehicleSpawnInput, WorldConfig, WorldPolicySelection,
-};
 use laneflow_static_contract::{
     ExactByteLength, LaneEdgeOrdinal, PortableObjectKind, SEMANTIC_DIFF_FORMAT_VERSION,
     Sha256Digest, VehicleProfileOrdinal,

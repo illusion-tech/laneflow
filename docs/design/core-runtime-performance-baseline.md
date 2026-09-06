@@ -1,7 +1,7 @@
 # Core Runtime 产品性能基线
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-08-02<br>
+**最后更新**: 2026-09-06<br>
 **适用范围**: 当前 LaneFlow Core 车辆特化、目标 Traffic Runtime 多执行域、
 Spatial、Engine Adapter 的一万/十万产品目标、一百万研究包络，以及性能、保真度、
 硬件和证据协议<br>
@@ -43,6 +43,11 @@ Accepted ADR 0021 把中国特色城市模拟游戏交通基础定义为 LaneFlo
 
 因此，本文合入只表示产品基线契约可供下游依赖，不表示一万/十万已完成产品
 certification，也不表示一百万 microscopic realtime 已成为产品目标。
+
+#583 的[当前 TrafficWorld 性能画像](../../research/issue-583-runtime-profile/README.md)
+提供正式 Conflict/Policy、#528/#531 合入后的有限研究输入。该报告分别记录生产整步
+墙钟、测试阶段归因、分配/保留内存和切换成本，不替代本文产品工作负载与通过条件；
+旧 CoreWorld 的 #212 比例不能直接用作当前 TrafficWorld 的成本事实。
 
 ## 2. 范围与非目标
 

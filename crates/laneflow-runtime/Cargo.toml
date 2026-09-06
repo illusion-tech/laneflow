@@ -12,6 +12,23 @@ publish = false
 name = "laneflow_runtime"
 path = "src/lib.rs"
 
+# 测量入口与共享夹具放在同一目录，单测和集成测试均无需上级源码引用。
+[[test]]
+name = "cutover_scale_evidence"
+path = "src/kernel/tests/performance_profile/cutover_scale_evidence.rs"
+
+[[test]]
+name = "cutover_scale_allocation"
+path = "src/kernel/tests/performance_profile/cutover_scale_allocation.rs"
+
+[[test]]
+name = "runtime_profile_evidence"
+path = "src/kernel/tests/performance_profile/runtime_profile_evidence.rs"
+
+[[test]]
+name = "runtime_profile_allocation"
+path = "src/kernel/tests/performance_profile/runtime_profile_allocation.rs"
+
 [dependencies]
 laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
 laneflow-runtime-snapshot-wire = { version = "0.0.0", path = "../laneflow-runtime-snapshot-wire" }

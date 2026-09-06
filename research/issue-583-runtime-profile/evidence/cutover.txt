@@ -1,0 +1,32 @@
+
+running 1 test
+test cutover_scale_evidence ... cutover count=1000 active=1000 edges=16 routes=16 mode=online sample=0 prepare_us=1383 pump_us=186 commit_us=5362 digest_us=1002 paused_us=0 journal_bytes=156074
+cutover count=1000 active=1000 edges=16 routes=16 mode=online sample=1 prepare_us=1332 pump_us=163 commit_us=3550 digest_us=936 paused_us=0 journal_bytes=156074
+cutover count=1000 active=1000 edges=16 routes=16 mode=online sample=2 prepare_us=1254 pump_us=156 commit_us=3263 digest_us=1057 paused_us=0 journal_bytes=156074
+cutover count=1000 active=1000 edges=256 routes=256 mode=online sample=0 prepare_us=1071 pump_us=157 commit_us=2692 digest_us=1105 paused_us=0 journal_bytes=156074
+cutover count=1000 active=1000 edges=256 routes=256 mode=online sample=1 prepare_us=1001 pump_us=189 commit_us=3033 digest_us=894 paused_us=0 journal_bytes=156074
+cutover count=1000 active=1000 edges=256 routes=256 mode=online sample=2 prepare_us=894 pump_us=168 commit_us=2695 digest_us=900 paused_us=0 journal_bytes=156074
+cutover count=4000 active=4000 edges=16 routes=16 mode=online sample=0 prepare_us=9762 pump_us=647 commit_us=18205 digest_us=3967 paused_us=0 journal_bytes=624074
+cutover count=4000 active=4000 edges=16 routes=16 mode=online sample=1 prepare_us=9060 pump_us=631 commit_us=18045 digest_us=4263 paused_us=0 journal_bytes=624074
+cutover count=4000 active=4000 edges=16 routes=16 mode=online sample=2 prepare_us=11616 pump_us=728 commit_us=17802 digest_us=5665 paused_us=0 journal_bytes=624074
+cutover count=4000 active=4000 edges=256 routes=256 mode=online sample=0 prepare_us=2398 pump_us=624 commit_us=12432 digest_us=4342 paused_us=0 journal_bytes=624074
+cutover count=4000 active=4000 edges=256 routes=256 mode=online sample=1 prepare_us=2512 pump_us=638 commit_us=11377 digest_us=4061 paused_us=0 journal_bytes=624074
+cutover count=4000 active=4000 edges=256 routes=256 mode=online sample=2 prepare_us=2674 pump_us=634 commit_us=10394 digest_us=4241 paused_us=0 journal_bytes=624074
+cutover count=10000 active=10000 edges=16 routes=16 mode=online sample=0 prepare_us=51445 pump_us=2596 commit_us=143760 digest_us=44564 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=16 routes=16 mode=online sample=1 prepare_us=54448 pump_us=1577 commit_us=140201 digest_us=42962 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=16 routes=16 mode=online sample=2 prepare_us=52228 pump_us=1601 commit_us=143502 digest_us=42406 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=256 mode=online sample=0 prepare_us=7256 pump_us=1590 commit_us=97293 digest_us=43474 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=256 mode=online sample=1 prepare_us=7910 pump_us=1708 commit_us=99266 digest_us=45581 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=256 mode=online sample=2 prepare_us=7338 pump_us=1618 commit_us=108010 digest_us=62345 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=10000 mode=online sample=0 prepare_us=17366 pump_us=2144 commit_us=184900 digest_us=82370 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=10000 mode=online sample=1 prepare_us=19497 pump_us=1769 commit_us=174983 digest_us=93818 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=10000 mode=online sample=2 prepare_us=17776 pump_us=1719 commit_us=183083 digest_us=80060 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=256 mode=drain sample=0 prepare_us=7425 pump_us=0 commit_us=99741 digest_us=45526 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=256 mode=drain sample=1 prepare_us=7508 pump_us=0 commit_us=97928 digest_us=42908 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=256 mode=drain sample=2 prepare_us=9350 pump_us=0 commit_us=101939 digest_us=46188 paused_us=0 journal_bytes=1560074
+cutover count=10000 active=10000 edges=256 routes=256 mode=paused sample=0 prepare_us=7085 pump_us=0 commit_us=102510 digest_us=42535 paused_us=109597 journal_bytes=0
+cutover count=10000 active=10000 edges=256 routes=256 mode=paused sample=1 prepare_us=7136 pump_us=0 commit_us=102874 digest_us=42578 paused_us=110011 journal_bytes=0
+cutover count=10000 active=10000 edges=256 routes=256 mode=paused sample=2 prepare_us=10948 pump_us=0 commit_us=97204 digest_us=44426 paused_us=108155 journal_bytes=0
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.58s
