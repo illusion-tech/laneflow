@@ -575,9 +575,10 @@ impl std::fmt::Debug for LaneFlowCutoverRecord {
 
 impl LaneFlowCutoverRecord {
     /// 换出的旧 Spatial session；调用方负责在途借用收尾与释放。
-    #[must_use]
-    pub fn retired_spatial(self) -> Option<SpatialSession> {
-        self.retired_spatial
+    /// 以 `&mut self` 取出而非消耗记录：取出后仍可继续读取
+    /// [`Self::events`] 与 [`Self::world_binding`]。
+    pub fn retired_spatial(&mut self) -> Option<SpatialSession> {
+        self.retired_spatial.take()
     }
 
     /// 切换后的世界绑定（身份、世代与双基线游标）。

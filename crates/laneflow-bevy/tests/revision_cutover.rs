@@ -303,7 +303,7 @@ fn live_session_cross_revision_cutover_preserves_identity_and_mappings() {
     let target_spatial = laneflow_spatial::SpatialSession::bind(Arc::clone(&fixture.r2.root))
         .expect("bind")
         .expect("spatial");
-    let record = session
+    let mut record = session
         .cross_revision_cutover(
             Arc::clone(&fixture.r2.root),
             source(&fixture.r2.root, "fixture://bevy-cutover/r2"),
@@ -336,6 +336,8 @@ fn live_session_cross_revision_cutover_preserves_identity_and_mappings() {
     assert!(Arc::ptr_eq(&retired.revision(), &fixture.r1.root));
 
     // 后续帧链路：app 驱动步进 + 封闭提取正常。
+    assert_eq!(record.events().as_slice().len(), 1, "恰一次事件交付");
+    drop(record);
     let mut app = App::new();
     app.add_plugins((TimePlugin, LaneFlowPlugin));
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
@@ -710,7 +712,7 @@ fn old_root_borrow_completes_after_cutover() {
     let target_spatial = laneflow_spatial::SpatialSession::bind(Arc::clone(&fixture.r2.root))
         .expect("bind")
         .expect("spatial");
-    let record = session
+    let mut record = session
         .cross_revision_cutover(
             Arc::clone(&fixture.r2.root),
             source(&fixture.r2.root, "fixture://bevy-cutover/old-borrow-r2"),
@@ -847,7 +849,7 @@ fn explicit_headless_cutover_retires_spatial_and_rejects_extraction() {
     let fixture = fixture();
     let Seeded { mut session, .. } = seeded(&fixture.r1, "fixture://bevy-cutover/headless");
 
-    let record = session
+    let mut record = session
         .cross_revision_cutover(
             Arc::clone(&fixture.r2.root),
             source(&fixture.r2.root, "fixture://bevy-cutover/headless-r2"),
