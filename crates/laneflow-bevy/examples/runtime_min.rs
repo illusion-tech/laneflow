@@ -7,7 +7,7 @@ mod runtime_min_scene;
 use std::error::Error;
 
 use bevy::prelude::*;
-use laneflow_bevy::LaneFlowSession;
+use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession};
 use laneflow_spatial::FramePlacementToken;
 
 fn main() -> Result<(), Box<dyn Error>> {
