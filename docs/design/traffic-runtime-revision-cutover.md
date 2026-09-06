@@ -278,9 +278,15 @@ Prepare → Delta Catch-up → Quiescent Commit → Retire
 以上两项不能在聚合晋升前后另行修改；成功提交后调用方不可能观察到“新 root +
 旧世代/stream”或“旧 root + 新世代/stream”。放弃保持两项原值。
 
-Spatial / Adapter 绑定沿 ADR 0029 §6 的 `(世界令牌, NetworkRevisionId)` 失效
-模式：提交后旧修订绑定失效，调用方按新修订重新 bind，首个切换后位姿提取不落
-在旧根上；旧会话在途借用可完成。
+Spatial / Adapter 绑定失效-重绑已随 #534 交付并验证。`SpatialSession` 仅绑定
+不可变共享根，不持有世界身份或世界世代；Adapter 的当前 Spatial 配对必须与活动
+`TrafficWorld` 使用同一根 `Arc`。成功修订切换后，此前 Adapter 消费上下文过期——
+当前消费资格由世界身份、世界世代与根配对检查共同保证（世代复用 Runtime 签发的
+`(world_id, WorldGeneration)`，不建立第二套切换计数器）。调用方按新修订重新
+bind，首个切换后位姿提取不落在旧根上（端到端以几何真值断言入 CI，非仅修订号
+stamp）；旧根借用可以继续完成（Arc 存活语义），但其输入或结果不得未经当前消费
+上下文验证进入新世界的表现提交。世界相关有效性检查由 Adapter 承担，不下沉到
+Spatial。
 
 迁移期共存内存：current root、retained base LFCA、target LFCA/LFSM/LFSD、
 candidate root、scratch、旧/候选动态双份、迁移增量日志与未提交事件批次；峰值
@@ -441,7 +447,9 @@ G2 回写（切片 A 落定，#511）：
   维护暂停 v1 形态 = 宿主停表使用模式（Prepare 与静默提交之间零步进，
   停顿单独计量，无独立运行时入口）。save/load 停顿已随切片 B（#512）按
   快照文档 §8 登记 published 初值（editable load 空缺不视为已满足）；
-  Spatial 重绑义务随 editable/Spatial 绑定切片回写。空缺不视为已满足。
+  Spatial 重绑义务已覆盖（#534）：Adapter 维护暂停式切换 + 消费上下文
+  失效-重绑端到端必测入 CI（`laneflow-bevy/tests/revision_cutover.rs`，
+  含同修订换根与 ABA 回旧根），空缺行就此回写。
 - Prepare 的 v1 形态（切片 C 登记）：候选构造（结构克隆 + 直移 + 全量
   重验证）在 `prepare_cross_revision_cutover` 调用内同步完成——宿主泵式
   单线程下其阻塞量与「首个泵内构造」等价，仅支付时点不同；失败关闭

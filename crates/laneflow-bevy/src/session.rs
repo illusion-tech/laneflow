@@ -1,23 +1,25 @@
 //! 单活动 LaneFlow Session：TrafficWorld + 可选 Spatial session。
 
-use std::{num::NonZeroU32, sync::Arc, time::Duration};
+use std::{mem, num::NonZeroU32, sync::Arc, time::Duration};
 
 use bevy_ecs::entity::Entity;
 use bevy_ecs::resource::Resource;
 use laneflow_runtime::{
-    LeaveParkingTarget, ParkedVehicleSpawnInput, ParkedVehicleSpawnRecord, ParkingCancelRecord,
-    ParkingCommandOutcome, ParkingError, ParkingLeaveRecord, ParkingParkRecord,
-    ParkingRebindRecord, ParkingReserveRecord, ParkingTarget, PoseSource as RuntimePoseSource,
-    RebindParkingTarget, ReserveParkingTarget, RouteError, RouteHandle, RouteRegisterInput,
-    SpawnError, StepOutcome, TickInput, TrafficWorld, VehicleHandle, VehicleSpawnInput,
+    CommittedNetworkSource, CutoverEventBatch, CutoverPreflightLimits, CutoverTransactionLimits,
+    LeaveParkingTarget, LfcaOriginBinding, MigrationPolicyKind, NetworkRevisionCutoverDescriptor,
+    ParkedVehicleSpawnInput, ParkedVehicleSpawnRecord, ParkingCancelRecord, ParkingCommandOutcome,
+    ParkingError, ParkingLeaveRecord, ParkingParkRecord, ParkingRebindRecord, ParkingReserveRecord,
+    ParkingTarget, PoseSource as RuntimePoseSource, RebindParkingTarget, ReserveParkingTarget,
+    RouteError, RouteHandle, RouteRegisterInput, SemanticDiffOriginBinding, SpawnError,
+    StepOutcome, TickInput, TrafficWorld, VehicleHandle, VehicleSpawnInput, WorldGeneration,
 };
-use laneflow_spatial::{PoseInput, PoseRecordId, SpatialSession};
+use laneflow_spatial::{CanonicalPoseBatch, PoseInput, PoseRecordId, SpatialSession};
+use laneflow_static_network::SharedNetworkRevision;
 
 use crate::LaneFlowAdapterError;
 
 /// 把 Runtime 已提交 pose 源映射为 Spatial 批次输入。
-#[must_use]
-pub fn pose_input(record: PoseRecordId, source: RuntimePoseSource) -> PoseInput {
+fn pose_input(record: PoseRecordId, source: RuntimePoseSource) -> PoseInput {
     match source {
         RuntimePoseSource::Lane { edge, progress_mm } => PoseInput::lane(record, edge, progress_mm),
         RuntimePoseSource::Parking { space } => PoseInput::parking(record, space),
@@ -133,14 +135,177 @@ impl LaneFlowSession {
         &mut self.world
     }
 
-    /// 可选 Spatial session。
+    /// 可选 Spatial session。只读检视；位姿提取必须走
+    /// [`Self::extract_committed_pose_batch`] 的受控区间。
     pub const fn spatial(&self) -> Option<&SpatialSession> {
         self.spatial.as_ref()
     }
 
-    /// 可变 Spatial session，用于复用 pose 批次 scratch。
-    pub const fn spatial_mut(&mut self) -> Option<&mut SpatialSession> {
-        self.spatial.as_mut()
+    /// 当前消费上下文（世界身份 + 世代）。
+    ///
+    /// 位姿批次仅在采集时的上下文仍为当前世代时可应用到本世界；任何成功
+    /// 切换（跨修订或同修订换根）都会使先前上下文过期。
+    #[must_use]
+    pub const fn consumption_context(&self) -> LaneFlowConsumptionContext {
+        LaneFlowConsumptionContext {
+            world_id: self.world.world_id(),
+            world_generation: self.world.world_generation(),
+        }
+    }
+
+    /// 校验一批结果的消费上下文是否仍为当前；过期结果整批拒绝。
+    #[must_use]
+    pub fn consumption_context_is_current(&self, context: LaneFlowConsumptionContext) -> bool {
+        self.consumption_context() == context
+    }
+
+    /// v1 同步封闭路径：同一调用内采集世界已提交位姿源、校验根配对并按
+    /// 当前配对 Spatial 提取批次（#534 G1 冻结形态）。
+    ///
+    /// 采集 → 校验 → 提取处于单次 `&mut self` 内，不存在插入切换的窗口；
+    /// 调用方不得缓存位姿输入跨过切换边界重放。返回的 `vehicles` 与
+    /// `batch().records()` 按序对齐（记录身份为序号）。
+    pub fn extract_committed_pose_batch(
+        &mut self,
+        placement_token: laneflow_spatial::FramePlacementToken,
+    ) -> Result<LaneFlowCommittedPoseBatch, LaneFlowAdapterError> {
+        let sources = self.world.committed_pose_sources();
+        let Some(spatial) = self.spatial.as_mut() else {
+            return Err(LaneFlowAdapterError::PoseExtractionWithoutSpatial);
+        };
+        // 每批固定 O(1) 配对检查（与车辆数无关）；`revision()` 各克隆一次 Arc。
+        if !Arc::ptr_eq(&self.world.revision(), &spatial.revision()) {
+            return Err(LaneFlowAdapterError::RevisionMismatch);
+        }
+        let inputs: Vec<PoseInput> = sources
+            .as_slice()
+            .iter()
+            .enumerate()
+            .map(|(index, (_, source))| pose_input(PoseRecordId::new(index as u32), *source))
+            .collect();
+        let mut batch = CanonicalPoseBatch::new();
+        spatial
+            .extract_pose_batch(placement_token, &inputs, &mut batch)
+            .map_err(|source| LaneFlowAdapterError::SpatialPoseExtraction { source })?;
+        let vehicles = sources
+            .as_slice()
+            .iter()
+            .map(|(vehicle, _)| *vehicle)
+            .collect();
+        Ok(LaneFlowCommittedPoseBatch {
+            batch,
+            context: self.consumption_context(),
+            vehicles,
+        })
+    }
+
+    /// 同步维护暂停式跨修订直移切换（切换合同 §4；#534 G1 冻结形态）。
+    ///
+    /// 单次 `&mut self` 内完成 Runtime `prepare` → `commit`，无步进交错。
+    /// 目标 Spatial 的全部可失败验证在 Runtime `prepare` 之前完成；
+    /// Runtime `commit` 成功后只剩不可失败的配对替换。成功返回时当前
+    /// 配对已指向目标根，不存在生产可见的「新世界 + 旧 Spatial」中间态。
+    /// 事务对象由本方法独占持有，任一失败路径都不会遗留在途事务
+    /// （`commit` 按值消耗并无条件解除武装）。
+    ///
+    /// 调用时机：任意不处于 fixed step 执行中的宿主系统；推荐
+    /// `LaneFlowOuterFrameSet::Administration`（零步进 outer frame 亦运行）。
+    #[allow(clippy::too_many_arguments)]
+    pub fn cross_revision_cutover(
+        &mut self,
+        target_revision: Arc<SharedNetworkRevision>,
+        target_source: CommittedNetworkSource,
+        semantic_diff: &[u8],
+        diff_binding: SemanticDiffOriginBinding,
+        target_spatial: LaneFlowTargetSpatial,
+        preflight_limits: &CutoverPreflightLimits,
+        transaction_limits: &CutoverTransactionLimits,
+    ) -> Result<LaneFlowCutoverRecord, LaneFlowAdapterError> {
+        let target_spatial = Self::validated_target_spatial(target_spatial, &target_revision)?;
+        let descriptor = NetworkRevisionCutoverDescriptor::new(
+            LfcaOriginBinding::from_canonical_origin(*self.world.revision().canonical_origin()),
+            LfcaOriginBinding::from_canonical_origin(*target_revision.canonical_origin()),
+            Some(diff_binding),
+            MigrationPolicyKind::CrossRevisionDirect,
+            self.world.world_binding(),
+        );
+        let transaction = self
+            .world
+            .prepare_cross_revision_cutover(
+                target_revision,
+                target_source,
+                &descriptor,
+                semantic_diff,
+                preflight_limits,
+                transaction_limits,
+            )
+            .map_err(|source| LaneFlowAdapterError::Cutover { source })?;
+        let commit = transaction
+            .commit(&mut self.world)
+            .map_err(|source| LaneFlowAdapterError::Cutover { source })?;
+        Ok(self.swap_spatial(target_spatial, commit.events))
+    }
+
+    /// 同步维护暂停式同修订换根（`same_revision_restore`；#534 G1 冻结形态）。
+    ///
+    /// 修订号不变、根 `Arc` 换新、世代递增；配对语义与跨修订入口一致：
+    /// 成功返回时已完成新配对。目标根必须与当前根修订号相同，否则由
+    /// Runtime 描述符认证失败关闭。
+    pub fn same_revision_restore(
+        &mut self,
+        target_revision: Arc<SharedNetworkRevision>,
+        target_source: CommittedNetworkSource,
+        target_spatial: LaneFlowTargetSpatial,
+        preflight_limits: &CutoverPreflightLimits,
+    ) -> Result<LaneFlowCutoverRecord, LaneFlowAdapterError> {
+        let target_spatial = Self::validated_target_spatial(target_spatial, &target_revision)?;
+        let descriptor = NetworkRevisionCutoverDescriptor::new(
+            LfcaOriginBinding::from_canonical_origin(*self.world.revision().canonical_origin()),
+            LfcaOriginBinding::from_canonical_origin(*target_revision.canonical_origin()),
+            None,
+            MigrationPolicyKind::SameRevisionRestore,
+            self.world.world_binding(),
+        );
+        let events = self
+            .world
+            .cutover_same_revision(
+                target_revision,
+                target_source,
+                &descriptor,
+                preflight_limits,
+            )
+            .map_err(|source| LaneFlowAdapterError::Cutover { source })?;
+        Ok(self.swap_spatial(target_spatial, events))
+    }
+
+    /// 目标 Spatial 的可失败验证全部前置于 Runtime 事务之前（G1 冻结）。
+    fn validated_target_spatial(
+        target_spatial: LaneFlowTargetSpatial,
+        target_revision: &Arc<SharedNetworkRevision>,
+    ) -> Result<Option<SpatialSession>, LaneFlowAdapterError> {
+        match target_spatial {
+            LaneFlowTargetSpatial::Rebind(session) => {
+                if !Arc::ptr_eq(&session.revision(), target_revision) {
+                    return Err(LaneFlowAdapterError::TargetSpatialRevisionMismatch);
+                }
+                Ok(Some(session))
+            }
+            // 宿主显式选择转 headless；不存在静默降级路径。
+            LaneFlowTargetSpatial::Headless => Ok(None),
+        }
+    }
+
+    /// Runtime 切换成功后的不可失败配对替换；返回换出的旧 Spatial。
+    fn swap_spatial(
+        &mut self,
+        target: Option<SpatialSession>,
+        events: CutoverEventBatch,
+    ) -> LaneFlowCutoverRecord {
+        LaneFlowCutoverRecord {
+            retired_spatial: mem::replace(&mut self.spatial, target),
+            world_binding: self.world.world_binding(),
+            events,
+        }
     }
 
     /// Session 配置。
@@ -361,6 +526,124 @@ impl LaneFlowWorldMut<'_> {
         target: ParkingTarget,
     ) -> Result<ParkedVehicleSpawnRecord, ParkingError> {
         self.world.spawn_parked_vehicle(input, target)
+    }
+}
+
+/// 切换目标的 Spatial 配对方式（#534 G1 冻结）。
+///
+/// `Rebind` 携带已绑定目标根的 `SpatialSession`，入口校验其与目标根
+/// `Arc::ptr_eq`；`Headless` 是宿主对「切换后无表现」的显式选择——枚举
+/// 形态保证不存在把 `Some(Spatial)` 静默降级为 `None` 的路径。
+pub enum LaneFlowTargetSpatial {
+    /// 按目标根重绑表现；`SpatialSession::bind(target_root)` 的产物。
+    Rebind(SpatialSession),
+    /// 宿主显式选择切换后 headless。
+    Headless,
+}
+
+/// 一次成功切换的结果。
+///
+/// `retired_spatial` 是换出的旧 `SpatialSession`：它对旧根的历史读取仍
+/// 合法（在途借用可完成），但其结果不得作为当前世界的表现提交。
+pub struct LaneFlowCutoverRecord {
+    retired_spatial: Option<SpatialSession>,
+    world_binding: laneflow_runtime::WorldBinding,
+    events: CutoverEventBatch,
+}
+
+impl std::fmt::Debug for LaneFlowCutoverRecord {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LaneFlowCutoverRecord")
+            .field(
+                "retired_spatial",
+                &self.retired_spatial.as_ref().map(|_| "SpatialSession"),
+            )
+            .field("world_binding", &self.world_binding)
+            .field("events", &self.events.as_slice())
+            .finish()
+    }
+}
+
+impl LaneFlowCutoverRecord {
+    /// 换出的旧 Spatial session；调用方负责在途借用收尾与释放。
+    #[must_use]
+    pub fn retired_spatial(self) -> Option<SpatialSession> {
+        self.retired_spatial
+    }
+
+    /// 切换后的世界绑定（身份、世代与双基线游标）。
+    #[must_use]
+    pub const fn world_binding(&self) -> laneflow_runtime::WorldBinding {
+        self.world_binding
+    }
+
+    /// 恰一次交付的切换事件批次（#302 切换合同 §6）。
+    pub const fn events(&self) -> &CutoverEventBatch {
+        &self.events
+    }
+}
+
+/// 位姿结果的消费上下文：世界身份 + 世界世代。
+///
+/// 任何成功切换（跨修订或同修订换根）都使先前上下文过期；世代是
+/// Runtime 签发的权威轴，Adapter 只消费不重建。
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct LaneFlowConsumptionContext {
+    world_id: u64,
+    world_generation: WorldGeneration,
+}
+
+impl LaneFlowConsumptionContext {
+    /// 世界身份（宿主指定的 `world_id`）。
+    #[must_use]
+    pub const fn world_id(&self) -> u64 {
+        self.world_id
+    }
+
+    /// 采集批次时的世界世代。
+    #[must_use]
+    pub const fn world_generation(&self) -> WorldGeneration {
+        self.world_generation
+    }
+}
+
+/// 受控提取区间产出：位姿批次 + 消费上下文 + 与记录对齐的车辆句柄。
+pub struct LaneFlowCommittedPoseBatch {
+    batch: CanonicalPoseBatch,
+    context: LaneFlowConsumptionContext,
+    vehicles: Vec<VehicleHandle>,
+}
+
+impl std::fmt::Debug for LaneFlowCommittedPoseBatch {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LaneFlowCommittedPoseBatch")
+            .field("batch", &self.batch)
+            .field("context", &self.context)
+            .field("vehicles", &self.vehicles)
+            .finish()
+    }
+}
+
+impl LaneFlowCommittedPoseBatch {
+    /// 提取出的共享根位姿批次。
+    #[must_use]
+    pub const fn batch(&self) -> &CanonicalPoseBatch {
+        &self.batch
+    }
+
+    /// 采集时的消费上下文；应用前用
+    /// [`LaneFlowSession::consumption_context_is_current`] 复核。
+    #[must_use]
+    pub const fn context(&self) -> LaneFlowConsumptionContext {
+        self.context
+    }
+
+    /// 与 `batch().records()` 按序对齐的车辆句柄（记录身份为序号）。
+    #[must_use]
+    pub fn vehicles(&self) -> &[VehicleHandle] {
+        &self.vehicles
     }
 }
 

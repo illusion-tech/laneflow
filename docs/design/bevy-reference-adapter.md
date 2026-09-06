@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-08-31（#541 typed parking lifecycle）
+**最后更新**: 2026-09-06（#534 修订绑定生命周期与维护暂停式切换）
 
 **适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -74,6 +74,7 @@ Bevy 拥有 outer frame 与宿主 schedule。LaneFlow 不修改宿主全局 `Tim
 
 - `LaneFlowPlugin` 安装 `LaneFlowOuterFrame` 与 `LaneFlowFixed` 两个单线程 schedule。
 - `LaneFlowFixedSet::{Lifecycle, Step, Observe}` 在每个 fixed step 内按该顺序执行；同一 outer frame 的每个 catch-up step 都重复完整链。调用方把 replacement policy system 放入 `Lifecycle`，把 committed result/event 消费放入 `Observe`。
+- `LaneFlowOuterFrameSet::{Administration, Drive}` 在每个 outer frame 内按该顺序执行（#534）。`Administration` 每 outer frame 必运行、与 accumulator/fixed step 无关：维护暂停式切换等行政操作放在这里在结构上零步进可达——`LaneFlowFixed` 整个 schedule 受 `can_step()` 门控，零步进帧连 `Lifecycle` 都不运行，行政操作不得依赖 fixed step 的存在。
 - `LaneFlowOuterFrame` 插入宿主 `First` 之后，因此读取的是本帧已经由 `TimePlugin` 更新的 `Time::delta()`；调用方负责安装 `TimePlugin` 或包含它的宿主 plugin group。
 - `LaneFlowPlugin` 不重复安装 `TimePlugin` 或 `TransformPlugin`。缺少 Session 时 schedule 无操作；存在 Session 但缺少 `Time` resource 时记录结构化错误。
 - `LaneFlowSessionConfig` 要求调用方显式提供非零 `max_catch_up_steps`，不定义隐藏默认值。
@@ -113,6 +114,14 @@ Presentation 可以自行创建或回收模型 Entity。用于接收 LaneFlow po
 
 具体 API 使用 `LaneFlowFramePlacement::new(root, token)` 与 `LaneFlowSession::set_frame_placement`。完全相同的 placement 可幂等重设；token 不变但 root 变化会被拒绝。`clear_frame_placement` 只清除 placement，不隐式清空 Vehicle/Entity 映射；存在映射而没有 placement 时，presentation 返回结构化错误。
 
+> **实现状态（#534 核对）**：本段的 placement 管理 API 与下节的 presentation
+> 提交系统是 v0.7 历史冻结的规范目标，不是当前 baseline 的已交付能力——
+> `LaneFlowFramePlacement` / `set_frame_placement` / `clear_frame_placement`
+> 与 exclusive `PostUpdate` 提交系统均不在当前导出面。现行已交付的位姿消费路径
+> 是 §16 的 `extract_committed_pose_batch` 受控提取（宿主自持
+> `FramePlacementToken`）。恢复完整 placement/presentation 系统需要独立 Issue，
+> 不由 #534 承载。
+
 frame-root 和 proxy 的 local `Transform` 必须有限，frame-root 必须为单位缩放，proxy 必须是当前 root 的直接 `ChildOf`。root 可以通过自身 local/global transform 放置到宿主世界，proxy local transform 始终保留 canonical meter 语义。
 
 v0.7 不支持一个 `App` 中的多活动 Session、多活动 canonical frame 或车辆跨 frame 迁移。这些能力需要独立设计和生命周期协议。
@@ -148,6 +157,10 @@ Bevy Transform 写入系统运行在 `PostUpdate`，并位于 `TransformSystems:
 Presentation 从 committed `TrafficWorld::committed_pose_sources()` 重建 pose inputs：Active vehicle 使用当前 route edge 与 progress；explicit Parked 使用已提交 `ParkingSpace` pose；virtual Parked 与 Completed 不进入 presentation batch。batch 同时包含已映射和未绑定 vehicle，映射查询不会改变 record 顺序。无 pose 不能被解释为 removal。
 
 `LaneFlowPlugin` 安装 exclusive `PostUpdate` 系统并显式排序在 `TransformSystems::Propagate` 前。实现先完成 Spatial batch、frame/token、root、所有 mapped Entity/parent/Transform 与转换结果校验，再统一写入 ECS；exclusive system 内两阶段之间没有其他 system 可以修改 Entity。`LaneFlowPresentationReport` 暴露 `pose_records`、`mapped_records`、`unbound_records` 与 `applied_records`，失败时 `applied_records` 恒为零，具体失败保存在 Session 的最近错误中。
+
+上两段同属 v0.7 历史冻结的 presentation 规范目标（见 §6 实现状态说明），不是当前
+baseline 的已交付能力；`runtime_min` / `signalized_corridor` 现行示例由宿主系统
+在 `Observe` 后调用受控提取并自行写入 Transform。
 
 ## 8. 可选调试可视化
 
@@ -314,3 +327,34 @@ matching 或 geometry inference。共享 StopLine 的多个 Gate 只生成一个
 共享 entry queue、有限 Adapter pose 和 same-Entity recycle identity。#190 G3 前仍
 要求 Windows 默认 100 车/seed 0 GUI smoke 与截图；50/100/200、stress seeds、
 clearance/performance 的扩大验证由 #191 拥有，独立收口由 #192 拥有。
+
+
+## 16. 修订绑定生命周期与维护暂停式切换（#534）
+
+Session 组合 `TrafficWorld` 与可选 `SpatialSession`，配对不变量（同一根
+`Arc`）由 Adapter 承担：构造时校验一次，且封闭提取路径每批复核——公开面不存在
+绕过配对检查的裸可变 Spatial 访问（`spatial_mut` 已收口移除）。
+
+- `LaneFlowSession::{cross_revision_cutover, same_revision_restore}`：同步维护暂停式
+  切换。目标 Spatial 的可失败验证前置于 Runtime 事务；`commit` 成功后不可失败地
+  换绑——成功返回时已完成新配对，无生产可见「新世界 + 旧 Spatial」中间态；事务
+  不外泄，失败路径无在途残留、合法重试可成功。`LaneFlowTargetSpatial::Headless`
+  是显式转 headless 的唯一形态。
+- `LaneFlowSession::extract_committed_pose_batch`：v1 同步封闭路径——同一调用内
+  采集 committed pose sources → 配对校验（每批固定 O(1)）→ 按当前配对 Spatial
+  提取。返回批次携带消费上下文 `(world_id, WorldGeneration)` 与对齐的车辆句柄；
+  任何成功切换使先前上下文过期，宿主持有结果跨区间时用
+  `consumption_context_is_current` 复核，过期整批拒绝。
+- `LaneFlowCutoverRecord`：换出的旧 `SpatialSession`（在途借用可完成，结果不得
+  作为当前世界表现提交）、切换后世界绑定与恰一次事件批次。
+- 调度边界：切换入口可在任意不处于 fixed step 执行中的宿主系统调用；结构性
+  推荐位是 `LaneFlowOuterFrameSet::Administration`（每 outer frame 必运行、先于
+  本帧步进与位姿采集、零步进帧可达）。切换是「维护暂停」，不是低停顿在线热
+  切换；维护期间墙钟进入 `Time`/accumulator 由宿主停表政策定义，禁止静默清
+  backlog。
+
+端到端验收矩阵（存活 Session 跨修订与同修订换根、几何真值、旧输入/旧结果拒绝、
+配错根失败关闭、ABA 回旧根、失败原子性与重试、旧根借用完成与回收、零步进与
+catch-up 调度、显式 headless）见 `crates/laneflow-bevy/tests/revision_cutover.rs`；
+夹具为同键同长、中心线平移的两条边，几何真值按平移量精确判别。语义权威见
+`adapter-api.md` §9 与切换合同 §7。
