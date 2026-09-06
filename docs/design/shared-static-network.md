@@ -108,7 +108,8 @@ object kind 精确为 LFCA，chunk directory、chunk digest、连续逻辑范围
 
 #284 W3 的共享构建以策略跨表闭合替换格式升级期间的策略/方向拒绝条件。必需的
 `SharedPolicyNetwork` 由根独占，通过 `policy()` 返回借用；按策略、实际获 Access
-准入的 owner、车型建立 CSR，保留稳定规则归因、逐流优先级、依据、原始间隙参数与
+准入的 owner、实际被车辆配置引用的参与者类别建立 CSR，同类不同物理配置共享规则。
+查询接受类别 ordinal，Runtime 从既有车辆配置关系取类别；保留稳定规则归因、逐流优先级、依据、原始间隙参数与
 逐 subject passage 的精确让行目标。缺规则、规则歧义、目标优先级、法规相容性、
 信号绑定、明确右转方向、跨策略灯型和保护冲突均由 builder 独立检查；`Omit` 与
 `RetainAvailable` 使用同一套策略闭合。世界固定步长和间隙派生值不进入共享根。

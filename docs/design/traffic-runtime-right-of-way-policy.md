@@ -147,9 +147,11 @@ UTurn=3`；缺字段表示未声明，不能推断为直行或右转。方向是
 
 ### 3.2 解析与候选合成
 
-对每份 policy 分别解析：静态 Access 允许到达的 `(Gate, VehicleProfile)` 恰好选择
-一条门合规规则，可能进入 Conflict passage 的 `(stream, VehicleProfile)` 恰好选择
-一条通行流规则；不能用另一份策略的规则补齐缺项。
+对每份 policy 分别解析：静态 Access 允许到达的 `(Gate, ParticipantClass)` 恰好选择
+一条门合规规则，可能进入 Conflict passage 的 `(stream, ParticipantClass)` 恰好选择
+一条通行流规则；类别集合只包含至少被一个 `VehicleProfile` 引用的实际类别，并按
+typed ordinal 稳定去重。未使用类别及仅作为继承祖先的类别不因此新增规则覆盖要求。
+不能用另一份策略的规则补齐缺项。
 两类规则先执行 nearest-ancestor specificity；通行流规则随后按 priority 选择，最高
 优先级仍有多重匹配则拒绝。门规则没有 priority，同 specificity 多重匹配即拒绝。
 不按声明顺序挑选；其余规则合法性、coverage-min 和 protected coherence 继续执行
@@ -158,6 +160,11 @@ UTurn=3`；缺字段表示未声明，不能推断为直行或右转。方向是
 编译得到 `ResolvedGatePolicyCell` 与 `ResolvedStreamRule`：每个 cell 回指稳定规则
 地址，并只含 typed ordinal、封闭枚举、整数和 flat ranges。pure Waiting 的门合规
 求值仍有效，但没有 Conflict stream row 就没有法规 priority，不能伪造 0 priority。
+
+准入和路权选择只依赖参与者类别。同类别的不同车辆配置共享解析结果，但各配置的
+身份、车长、速度、加减速度和跟车安全参数仍独立保留，供运动、占用、ETA 与清空判断
+使用。不同类别分别解析，不能仅因继承同一父类或当前结果相同就合并。外观差异由宿主
+表现层处理，不增加路权解析维度。
 
 运行时先用解释类型和 committed aspect 产生 signal/regulatory result，再组合 Access
 及其他有效 deny。原有 `group_is_restrictive` 的红灯布尔结果不能先成为无法撤销的停止
@@ -209,29 +216,39 @@ tuple 填入假 StableId。LFSD 4 的局部成员变更使用 §4.3 的专用表
 
 1. 来源准入：检查 closed shape、局部 key、值域与声明预算，失败不修改 builder。
 2. HIR：绑定跨模块静态引用、法规来源和 class 层次，闭合所有局部引用。
-3. MIR：计算可准入 profile 集，选择门规则/stream 规则；验证 totality、specificity、
+3. MIR：收集实际使用类别并计算可准入集合，选择门规则/stream 规则；验证 totality、specificity、
    yield、priority cycle、protected coherence 和法规来源相容性。
 4. LIR：冻结规范表、稳定排序和来源映射；发射 LFCA/LFSM/LFSD，并执行完整后发射检查。
 5. 共享根构建：从受检 LFCA 重建只读解析表和 exact passage target ranges，完成当前
    builder 的语义闭合后一次 seal。Runtime 不读 compiler IR 或源码。
 
-解析结果以 `(policy ordinal, owner ordinal, profile ordinal)` 唯一定位，owner 在门表
-中是 Gate、在流表中是 stream；CSR 先按 policy 划分，再按 owner 划分 profile 行。
-每个流规则的 exact yield-target-cell ranges 归属同一 policy/stream/profile 行，目标
-车型的 effective priority 也只取该 policy 的解析结果。世界安装时绑定所选 policy 的
+解析结果以 `(policy ordinal, owner ordinal, class ordinal)` 唯一定位，owner 在门表
+中是 Gate、在流表中是 stream；CSR 先按 policy 划分，再按 owner 划分 class 行。
+每个流规则的 exact yield-target-cell ranges 归属同一 policy/stream/class 行，目标
+类别的 effective priority 也只取该 policy 的解析结果。世界安装时绑定所选 policy 的
 只读范围；规则归因和派生阈值使用同一 policy，不存在跨策略 fallback。
 
-仅保存各策略下 Access 允许的实际组合；不能预分配全局 policy × owner × profile ×
+仅保存各策略下 Access 允许的实际使用类别组合；不能预分配全局 policy × owner × class ×
 route 数组。循环生成、内存预留、来源和派生计数均 checked，按实际解析行、CSR 和
 target ranges 计入既有 CompileLimits/BuildLimits，超限失败，不随意提高一百万静态
 实体基线的格式上限。不同世界不复制这些静态表。LFCA 保存声明语义，builder 只派生
 当前根的执行表，不存在同时持久化一份可与声明不一致的 resolved 副本。
+
+共享根的 `PolicyView` 查询、规则归因及让行目标查询接受 `ParticipantClassOrdinal`；
+`gate_classes` / `stream_classes` 返回按类别排序的解析行，行的 `class()` 返回所属
+类别。Runtime 从现有 `VehicleProfileParticipantClass` 关系取得类别，不新增每世界
+策略表或逐配置展开副本。车辆配置与快照仍保存原有身份，LFCA 声明格式不变。
 
 编译器对临时行/索引分配继续按实际大小预检；候选查询、类别匹配、目标区查询和
 实际关系遍历另以 `RelationOccurrenceCount` 的现有上限累计工作量，未命中的查询也
 计入，达到上限后失败。不得只按输出行计数来约束笛卡尔查询。原始 LFRE 的策略键
 无分配查重同样先检查比较次数上界。目标 passage 按流/冲突区索引，保护一致性按
 每区/相位的绿灯成员求交，不要求枚举所有门对。
+
+实际类别收集只遍历一次车辆配置关系，收集、排序和去重工作及临时存储计入既有预算；
+门/流准入与规则匹配不得再次按全部车辆配置展开。增加同类别配置仍有配置本身的编译
+和存储成本，但不增加对应门/流的解析行。验收用有限的同类多配置、不同类别及未使用
+类别夹具验证这一边界，并复跑已发现问题的容量样本，不新增任意输入组合穷举。
 
 coverage-min 是后续候选仲裁的排序值，不是与 Gate 声明作优先级比较的静态合法性
 规则。编译器证明各实际准入流的规则唯一、让行优先级合法，并发射声明；共享根
