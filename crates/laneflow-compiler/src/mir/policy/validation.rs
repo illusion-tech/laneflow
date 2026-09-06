@@ -107,13 +107,13 @@ fn fail(
 #[derive(Clone, Copy)]
 struct GateCell {
     gate: MirManeuverGateKey,
-    profile: u32,
+    class: MirParticipantClassKey,
     rule: u32,
 }
 #[derive(Clone, Copy)]
 struct StreamCell {
     stream: MirParticipantStreamKey,
-    profile: u32,
+    class: MirParticipantClassKey,
     rule: u32,
 }
 #[derive(Clone, Copy)]
@@ -225,7 +225,47 @@ pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<(), 
         mir.conflict_passages.len() as u64,
         &mut work,
     )?;
-    // 只计实际可进入行；不预分配 policy × gate/stream × profile 上界。
+    // 只收集实际配置使用的类别；线性标记后按 ordinal 顺序输出，避免重复解析同类配置。
+    let (classes, class_peak) = {
+        let flags_count = mir.participant_classes.len() as u64;
+        work.charge(flags_count.saturating_mul(2) + mir.vehicle_profiles.len() as u64)?;
+        let prior_bytes = passages.bytes().saturating_add(access.bytes());
+        let prior_records = (mir.conflict_passages.len() as u64).saturating_add(access.records());
+        budget(
+            unit,
+            mir,
+            prior_bytes.saturating_add(flags_count),
+            prior_records.saturating_add(flags_count),
+        )?;
+        let mut used = vec![false; mir.participant_classes.len()];
+        let mut count = 0;
+        for profile in &mir.vehicle_profiles {
+            let flag = &mut used[profile.participant_class.index()];
+            if !*flag {
+                *flag = true;
+                count += 1;
+            }
+        }
+        let peak = prior_bytes.saturating_add(flags_count).saturating_add(
+            (count as u64).saturating_mul(size_of::<MirParticipantClassKey>() as u64),
+        );
+        budget(
+            unit,
+            mir,
+            peak,
+            prior_records
+                .saturating_add(flags_count)
+                .saturating_add(count as u64),
+        )?;
+        let mut classes = Vec::with_capacity(count);
+        for (index, used) in used.into_iter().enumerate() {
+            if used {
+                classes.push(MirParticipantClassKey::from_raw(index as u32));
+            }
+        }
+        (classes, peak)
+    };
+    // 只计实际可进入行；不预分配 policy × gate/stream × class 上界。
     let mut gate_count = 0_u64;
     let mut stream_count = 0_u64;
     let coverage_bytes = (mir.conflict_passages.len() as u64)
@@ -237,9 +277,13 @@ pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<(), 
     let fixed_bytes = passages
         .bytes()
         .saturating_add(access.bytes())
+        .saturating_add(
+            (classes.len() as u64).saturating_mul(size_of::<MirParticipantClassKey>() as u64),
+        )
         .saturating_add(coverage_bytes);
     let fixed_records = (mir.conflict_passages.len() as u64)
         .saturating_mul(2)
+        .saturating_add(classes.len() as u64)
         .saturating_add(access.records());
     let mut protected = ProtectedIndex::build(unit, mir, fixed_bytes, fixed_records)?;
     let fixed_bytes = fixed_bytes.saturating_add(protected.bytes());
@@ -256,26 +300,16 @@ pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<(), 
     };
     check_rows(0, 0)?;
     for gate in &mir.maneuver_gates {
-        for profile in &mir.vehicle_profiles {
-            if access.path_allows(
-                mir,
-                gate.maneuver_path,
-                profile.participant_class,
-                &mut work,
-            )? {
+        for &class in &classes {
+            if access.path_allows(mir, gate.maneuver_path, class, &mut work)? {
                 gate_count = gate_count.saturating_add(1);
                 check_rows(gate_count, stream_count)?;
             }
         }
     }
     for stream in &mir.participant_streams {
-        for profile in &mir.vehicle_profiles {
-            if access.path_allows(
-                mir,
-                stream.maneuver_path,
-                profile.participant_class,
-                &mut work,
-            )? {
+        for &class in &classes {
+            if access.path_allows(mir, stream.maneuver_path, class, &mut work)? {
                 stream_count = stream_count.saturating_add(1);
                 check_rows(gate_count, stream_count)?;
             }
@@ -305,38 +339,28 @@ pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<(), 
     let mut gates = Vec::with_capacity(gate_count as usize);
     let mut streams = Vec::with_capacity(stream_count as usize);
     for (g, gate) in mir.maneuver_gates.iter().enumerate() {
-        for (v, profile) in mir.vehicle_profiles.iter().enumerate() {
-            if access.path_allows(
-                mir,
-                gate.maneuver_path,
-                profile.participant_class,
-                &mut work,
-            )? {
+        for &class in &classes {
+            if access.path_allows(mir, gate.maneuver_path, class, &mut work)? {
                 gates.push(GateCell {
                     gate: MirManeuverGateKey::from_raw(g as u32),
-                    profile: v as u32,
+                    class,
                     rule: 0,
                 });
             }
         }
     }
     for (s, stream) in mir.participant_streams.iter().enumerate() {
-        for (v, profile) in mir.vehicle_profiles.iter().enumerate() {
-            if access.path_allows(
-                mir,
-                stream.maneuver_path,
-                profile.participant_class,
-                &mut work,
-            )? {
+        for &class in &classes {
+            if access.path_allows(mir, stream.maneuver_path, class, &mut work)? {
                 streams.push(StreamCell {
                     stream: MirParticipantStreamKey::from_raw(s as u32),
-                    profile: v as u32,
+                    class,
                     rule: 0,
                 });
             }
         }
     }
-    let mut peak = base_bytes.max(lamp_bytes);
+    let mut peak = base_bytes.max(lamp_bytes).max(class_peak);
     for (policy_index, p) in mir.policies.iter().enumerate() {
         // 无实际准入行时仍需清空逐门/流工作表；这部分也不能绕过工作上限。
         work.charge(1 + mir.maneuver_gates.len() as u64 + mir.participant_streams.len() as u64)?;
@@ -372,13 +396,13 @@ pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<(), 
             .collect();
         stream_rules.sort_unstable_by_key(|r| (r.owner, r.rule));
         for cell in &mut gates {
-            let class = mir.vehicle_profiles[cell.profile as usize].participant_class;
+            let class = cell.class;
             cell.rule = select(unit, p, owner_rules(&gate_rules, cell.gate.raw()), |i| {
                 Ok(specificity(mir, &p.value.gates[i].classes, class, &mut work)?.map(|d| (d, 0)))
             })?;
         }
         for cell in &mut streams {
-            let class = mir.vehicle_profiles[cell.profile as usize].participant_class;
+            let class = cell.class;
             cell.rule = select(
                 unit,
                 p,

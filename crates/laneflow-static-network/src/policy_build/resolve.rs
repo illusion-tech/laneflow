@@ -15,7 +15,7 @@ pub(super) struct Resolved {
 #[derive(Clone, Copy)]
 struct Allowed {
     owner: u32,
-    profile: VehicleProfileOrdinal,
+    class: ParticipantClassOrdinal,
 }
 #[derive(Clone, Copy)]
 struct RuleIndex {
@@ -35,15 +35,45 @@ struct Coverage {
     gate: ManeuverGateOrdinal,
 }
 
+fn used_classes(
+    traffic: &SharedTrafficNetwork,
+    budget: &mut Budget<'_>,
+) -> Result<Vec<ParticipantClassOrdinal>, BuildError> {
+    let class_count = traffic.entity_counts().count(EntityKind::ParticipantClass);
+    let profile_count = traffic.entity_counts().count(EntityKind::VehicleProfile);
+    budget.charge_work(u64::from(class_count) * 2 + u64::from(profile_count))?;
+    let mut used = budget.allocate(u64::from(class_count), true)?;
+    used.resize(class_count as usize, false);
+    let mut count = 0_u64;
+    for p in 0..profile_count {
+        let class = traffic
+            .relations()
+            .vehicle_profile(VehicleProfileOrdinal::from_raw(p))
+            .ok_or(INVALID)?
+            .class();
+        let flag = used.get_mut(class.index()).ok_or(INVALID)?;
+        if !*flag {
+            *flag = true;
+            count += 1;
+        }
+    }
+    let mut classes = budget.allocate(count, true)?;
+    for (index, used) in used.into_iter().enumerate() {
+        if used {
+            classes.push(ParticipantClassOrdinal::from_raw(raw(index)?));
+        }
+    }
+    Ok(classes)
+}
+
 fn allowed(
     traffic: &SharedTrafficNetwork,
     path: ManeuverPathOrdinal,
-    profile: VehicleProfileOrdinal,
+    class: ParticipantClassOrdinal,
     budget: &mut Budget<'_>,
 ) -> Result<bool, BuildError> {
     budget.charge_work(1)?;
     let relations = traffic.relations();
-    let class = relations.vehicle_profile(profile).ok_or(INVALID)?.class();
     let deny = |cell| {
         matches!(
             cell,
@@ -72,6 +102,7 @@ fn allowed(
 fn visit_allowed(
     traffic: &SharedTrafficNetwork,
     conflict: &SharedConflictNetwork,
+    classes: &[ParticipantClassOrdinal],
     gate: bool,
     budget: &mut Budget<'_>,
     mut emit: impl FnMut(Allowed) -> Result<(), BuildError>,
@@ -95,10 +126,9 @@ fn visit_allowed(
                 .ok_or(INVALID)?
                 .maneuver_path()
         };
-        for p in 0..traffic.entity_counts().count(EntityKind::VehicleProfile) {
-            let profile = VehicleProfileOrdinal::from_raw(p);
-            if allowed(traffic, path, profile, budget)? {
-                emit(Allowed { owner, profile })?;
+        for &class in classes {
+            if allowed(traffic, path, class, budget)? {
+                emit(Allowed { owner, class })?;
             }
         }
     }
@@ -107,16 +137,17 @@ fn visit_allowed(
 fn access_rows(
     traffic: &SharedTrafficNetwork,
     conflict: &SharedConflictNetwork,
+    classes: &[ParticipantClassOrdinal],
     gate: bool,
     budget: &mut Budget<'_>,
 ) -> Result<Vec<Allowed>, BuildError> {
     let mut count = 0_u64;
-    visit_allowed(traffic, conflict, gate, budget, |_| {
+    visit_allowed(traffic, conflict, classes, gate, budget, |_| {
         count = count.checked_add(1).ok_or(OVERFLOW)?;
         Ok(())
     })?;
     let mut rows = budget.allocate(count, true)?;
-    visit_allowed(traffic, conflict, gate, budget, |v| {
+    visit_allowed(traffic, conflict, classes, gate, budget, |v| {
         rows.push(v);
         Ok(())
     })?;
@@ -155,12 +186,7 @@ fn select(
     budget.charge_work(1)?;
     let class = traffic
         .relations()
-        .vehicle_profile(cell.profile)
-        .ok_or(INVALID)?
-        .class();
-    let class = traffic
-        .relations()
-        .participant_class(class)
+        .participant_class(cell.class)
         .ok_or(INVALID)?;
     let position = class.subtree_range().0;
     let start = index.partition_point(|r| (r.policy, r.owner) < (policy, cell.owner));
@@ -399,15 +425,20 @@ pub(super) fn build(
         last.targets = range(last.targets.start() as usize, targets.len())?;
     }
     // 空策略仍允许构建旧内容；安装必须通过 NotRequired 的严格结构检查。
+    let classes = if policies.is_empty() {
+        Vec::new()
+    } else {
+        used_classes(traffic, budget)?
+    };
     let gate_rows = if policies.is_empty() {
         Vec::new()
     } else {
-        access_rows(traffic, conflict, true, budget)?
+        access_rows(traffic, conflict, &classes, true, budget)?
     };
     let stream_rows = if policies.is_empty() {
         Vec::new()
     } else {
-        access_rows(traffic, conflict, false, budget)?
+        access_rows(traffic, conflict, &classes, false, budget)?
     };
     let owner_count = |rows: &[Allowed]| {
         rows.iter()
@@ -466,7 +497,7 @@ pub(super) fn build(
                 GateInterpretation::ProtectedGroup | GateInterpretation::DirectionalRightProtected
             ) && prohibition != GateProhibition::Always;
             result.gates.push(ResolvedGatePolicy {
-                profile: cell.profile,
+                class: cell.class,
                 rule: raw(stream_rules.len())?.checked_add(rule).ok_or(OVERFLOW)?,
                 interpretation,
                 prohibition,
@@ -488,7 +519,7 @@ pub(super) fn build(
                 result.streams.len(),
             )?;
             result.streams.push(ResolvedStreamPolicy {
-                profile: cell.profile,
+                class: cell.class,
                 rule,
                 priority,
                 gap: rule_gaps[rule as usize].map(|i| i - policy.gaps.start()),

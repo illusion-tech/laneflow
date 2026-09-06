@@ -1,8 +1,8 @@
 //! 世界无关的路权解析表。局部下标只在保留本根时有效。
 use laneflow_static_contract::{
     ConflictZoneOrdinal, GateInterpretation, GateProhibition, ManeuverGateOrdinal,
-    ParticipantStreamOrdinal, PolicyLocalMemberKind, RightOfWayPolicySetId,
-    RightOfWayPolicySetOrdinal, VehicleProfileOrdinal,
+    ParticipantClassOrdinal, ParticipantStreamOrdinal, PolicyLocalMemberKind,
+    RightOfWayPolicySetId, RightOfWayPolicySetOrdinal,
 };
 
 use crate::RangeU32;
@@ -92,10 +92,10 @@ pub(crate) struct PolicyOwner {
     pub(crate) cells: RangeU32,
 }
 
-/// 实际 Access 准入车型的门规则；不产生最终通行授权。
+/// 实际 Access 准入类别的门规则；不产生最终通行授权。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ResolvedGatePolicy {
-    pub(crate) profile: VehicleProfileOrdinal,
+    pub(crate) class: ParticipantClassOrdinal,
     pub(crate) rule: u32,
     pub(crate) interpretation: GateInterpretation,
     pub(crate) prohibition: GateProhibition,
@@ -103,8 +103,8 @@ pub struct ResolvedGatePolicy {
 
 impl ResolvedGatePolicy {
     #[must_use]
-    pub const fn profile(self) -> VehicleProfileOrdinal {
-        self.profile
+    pub const fn class(self) -> ParticipantClassOrdinal {
+        self.class
     }
     #[must_use]
     pub const fn interpretation(self) -> GateInterpretation {
@@ -116,10 +116,10 @@ impl ResolvedGatePolicy {
     }
 }
 
-/// 实际 Access 准入车型的流规则。保留逐流 priority，覆盖最小值由仲裁候选求取。
+/// 实际 Access 准入类别的流规则。保留逐流 priority，覆盖最小值由仲裁候选求取。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ResolvedStreamPolicy {
-    pub(crate) profile: VehicleProfileOrdinal,
+    pub(crate) class: ParticipantClassOrdinal,
     pub(crate) rule: u32,
     pub(crate) priority: i32,
     pub(crate) gap: Option<u32>,
@@ -128,8 +128,8 @@ pub struct ResolvedStreamPolicy {
 
 impl ResolvedStreamPolicy {
     #[must_use]
-    pub const fn profile(self) -> VehicleProfileOrdinal {
-        self.profile
+    pub const fn class(self) -> ParticipantClassOrdinal {
+        self.class
     }
     #[must_use]
     pub const fn priority(self) -> i32 {
@@ -165,7 +165,7 @@ pub(crate) struct TargetRange {
     pub(crate) targets: RangeU32,
 }
 
-/// 策略 → 实际 owner → 实际 profile 的连续 CSR。唯一所有者是共享根。
+/// 策略 → 实际 owner → 实际 class 的连续 CSR。唯一所有者是共享根。
 pub struct SharedPolicyNetwork {
     pub(crate) policies: Box<[PolicyRecord]>,
     pub(crate) rules: Box<[RuleRecord]>,
@@ -273,7 +273,7 @@ impl<'a> PolicyView<'a> {
     }
 
     #[must_use]
-    pub fn gate_profiles(self, gate: ManeuverGateOrdinal) -> &'a [ResolvedGatePolicy] {
+    pub fn gate_classes(self, gate: ManeuverGateOrdinal) -> &'a [ResolvedGatePolicy] {
         owner_cells(
             self.record.gates.slice(&self.network.gate_owners),
             gate.raw(),
@@ -281,7 +281,7 @@ impl<'a> PolicyView<'a> {
         )
     }
     #[must_use]
-    pub fn stream_profiles(self, stream: ParticipantStreamOrdinal) -> &'a [ResolvedStreamPolicy] {
+    pub fn stream_classes(self, stream: ParticipantStreamOrdinal) -> &'a [ResolvedStreamPolicy] {
         owner_cells(
             self.record.streams.slice(&self.network.stream_owners),
             stream.raw(),
@@ -292,11 +292,11 @@ impl<'a> PolicyView<'a> {
     pub fn gate(
         self,
         gate: ManeuverGateOrdinal,
-        profile: VehicleProfileOrdinal,
+        class: ParticipantClassOrdinal,
     ) -> Option<&'a ResolvedGatePolicy> {
-        let cells = self.gate_profiles(gate);
+        let cells = self.gate_classes(gate);
         cells
-            .binary_search_by_key(&profile, |c| c.profile)
+            .binary_search_by_key(&class, |c| c.class)
             .ok()
             .map(|i| &cells[i])
     }
@@ -304,11 +304,11 @@ impl<'a> PolicyView<'a> {
     pub fn stream(
         self,
         stream: ParticipantStreamOrdinal,
-        profile: VehicleProfileOrdinal,
+        class: ParticipantClassOrdinal,
     ) -> Option<&'a ResolvedStreamPolicy> {
-        let cells = self.stream_profiles(stream);
+        let cells = self.stream_classes(stream);
         cells
-            .binary_search_by_key(&profile, |c| c.profile)
+            .binary_search_by_key(&class, |c| c.class)
             .ok()
             .map(|i| &cells[i])
     }
@@ -324,27 +324,27 @@ impl<'a> PolicyView<'a> {
     pub fn gate_attribution(
         self,
         gate: ManeuverGateOrdinal,
-        profile: VehicleProfileOrdinal,
+        class: ParticipantClassOrdinal,
     ) -> Option<PolicyRuleAttribution<'a>> {
-        Some(self.attribution(self.gate(gate, profile)?.rule))
+        Some(self.attribution(self.gate(gate, class)?.rule))
     }
     #[must_use]
     pub fn stream_attribution(
         self,
         stream: ParticipantStreamOrdinal,
-        profile: VehicleProfileOrdinal,
+        class: ParticipantClassOrdinal,
     ) -> Option<PolicyRuleAttribution<'a>> {
-        Some(self.attribution(self.stream(stream, profile)?.rule))
+        Some(self.attribution(self.stream(stream, class)?.rule))
     }
-    /// 用 owner/profile 查询，避免把另一共享根的解析 cell 混入此根。
+    /// 用 owner/class 查询，避免把另一共享根的解析 cell 混入此根。
     #[must_use]
     pub fn yield_targets(
         self,
         stream: ParticipantStreamOrdinal,
-        profile: VehicleProfileOrdinal,
+        class: ParticipantClassOrdinal,
         passage_local_index: u32,
     ) -> Option<(ConflictZoneOrdinal, &'a [YieldTargetCell])> {
-        let cell = self.stream(stream, profile)?;
+        let cell = self.stream(stream, class)?;
         let range = cell
             .target_ranges
             .slice(&self.network.target_ranges)
@@ -354,17 +354,17 @@ impl<'a> PolicyView<'a> {
     pub fn gate_evidence(
         self,
         gate: ManeuverGateOrdinal,
-        profile: VehicleProfileOrdinal,
+        class: ParticipantClassOrdinal,
     ) -> Option<impl Iterator<Item = &'a PolicyEvidence>> {
-        let rule = self.gate(gate, profile)?.rule;
+        let rule = self.gate(gate, class)?.rule;
         Some(self.rule_evidence(rule))
     }
     pub fn stream_evidence(
         self,
         stream: ParticipantStreamOrdinal,
-        profile: VehicleProfileOrdinal,
+        class: ParticipantClassOrdinal,
     ) -> Option<impl Iterator<Item = &'a PolicyEvidence>> {
-        let rule = self.stream(stream, profile)?.rule;
+        let rule = self.stream(stream, class)?.rule;
         Some(self.rule_evidence(rule))
     }
     fn rule_evidence(self, rule: u32) -> impl Iterator<Item = &'a PolicyEvidence> {

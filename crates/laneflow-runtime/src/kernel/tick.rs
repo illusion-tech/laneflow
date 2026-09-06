@@ -751,7 +751,17 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let Some(gate_view) = gate_view else {
             return crate::GatePolicyDecision::DenyAndStop;
         };
-        let Some(rule) = self.policy().and_then(|policy| policy.gate(gate, profile)) else {
+        let Some(class) = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(profile)
+            .map(|p| p.class())
+        else {
+            return crate::GatePolicyDecision::DenyAndStop;
+        };
+        let Some(rule) = self.policy().and_then(|policy| policy.gate(gate, class)) else {
             return crate::GatePolicyDecision::DenyAndStop;
         };
         let signal_group = gate_view.signal_group();

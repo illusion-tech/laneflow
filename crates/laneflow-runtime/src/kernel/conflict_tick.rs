@@ -902,6 +902,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         .ok_or(StepError::ConflictInvariantViolation)?;
         let mut priority = None;
         let mut preflight_no_grant = None;
+        let class = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+            .ok_or(StepError::ConflictInvariantViolation)?
+            .class();
         self.workspace.conflict_cell_work.clear();
         reserve(&mut self.workspace.conflict_cell_work, range.len as usize)?;
         for occurrence_index in range.start..passage_end {
@@ -918,7 +926,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .policy(&self.binding.revision)
                 .ok_or(StepError::ConflictInvariantViolation)?;
             let stream = policy
-                .stream(occurrence.stream, state.profile)
+                .stream(occurrence.stream, class)
                 .ok_or(StepError::ConflictInvariantViolation)?;
             priority = Some(priority.map_or(stream.priority(), |current: i32| {
                 current.min(stream.priority())
@@ -929,11 +937,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 continue;
             }
             let (zone, targets) = policy
-                .yield_targets(
-                    occurrence.stream,
-                    state.profile,
-                    occurrence.passage_local_index,
-                )
+                .yield_targets(occurrence.stream, class, occurrence.passage_local_index)
                 .ok_or(StepError::ConflictInvariantViolation)?;
             if zone != occurrence.zone {
                 return Err(StepError::ConflictInvariantViolation);

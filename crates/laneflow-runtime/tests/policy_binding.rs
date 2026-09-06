@@ -76,6 +76,12 @@ fn same_root_worlds_isolate_selection_attribution_targets_and_step_derivation() 
         assert!(Arc::ptr_eq(&a.revision(), &b.revision()));
         assert_ne!(a.policy_selection(), b.policy_selection());
         let profile = VehicleProfileOrdinal::from_raw(0);
+        let class = root
+            .traffic()
+            .relations()
+            .vehicle_profile(profile)
+            .unwrap()
+            .class();
         let mut priority_difference = false;
         let mut gate_difference = false;
         let mut target_difference = false;
@@ -83,10 +89,10 @@ fn same_root_worlds_isolate_selection_attribution_targets_and_step_derivation() 
             let stream = ParticipantStreamOrdinal::from_raw(s);
             let pa = a.policy().unwrap();
             let pb = b.policy().unwrap();
-            priority_difference |= pa.stream(stream, profile).unwrap().priority()
-                != pb.stream(stream, profile).unwrap().priority();
-            let aa = pa.stream_attribution(stream, profile).unwrap();
-            let ab = pb.stream_attribution(stream, profile).unwrap();
+            priority_difference |= pa.stream(stream, class).unwrap().priority()
+                != pb.stream(stream, class).unwrap().priority();
+            let aa = pa.stream_attribution(stream, class).unwrap();
+            let ab = pb.stream_attribution(stream, class).unwrap();
             assert_ne!(aa.policy, ab.policy);
             assert_eq!(aa.policy, pa.id());
             assert_eq!(ab.policy, pb.id());
@@ -98,8 +104,8 @@ fn same_root_worlds_isolate_selection_attribution_targets_and_step_derivation() 
                 .iter()
                 .enumerate()
             {
-                let (zone, at) = pa.yield_targets(stream, profile, i as u32).unwrap();
-                let (_, bt) = pb.yield_targets(stream, profile, i as u32).unwrap();
+                let (zone, at) = pa.yield_targets(stream, class, i as u32).unwrap();
+                let (_, bt) = pb.yield_targets(stream, class, i as u32).unwrap();
                 assert_eq!(zone, passage.conflict_zone());
                 target_difference |= at != bt;
                 for t in at {
@@ -112,25 +118,16 @@ fn same_root_worlds_isolate_selection_attribution_targets_and_step_derivation() 
                         zone
                     );
                     assert!(
-                        pa.stream(t.stream(), profile).unwrap().priority()
-                            > pa.stream(stream, profile).unwrap().priority()
+                        pa.stream(t.stream(), class).unwrap().priority()
+                            > pa.stream(stream, class).unwrap().priority()
                     );
                 }
             }
         }
         for g in 0..root.identity().entity_count(EntityKind::ManeuverGate) {
             let gate = ManeuverGateOrdinal::from_raw(g);
-            gate_difference |= a
-                .policy()
-                .unwrap()
-                .gate(gate, profile)
-                .unwrap()
-                .prohibition()
-                != b.policy()
-                    .unwrap()
-                    .gate(gate, profile)
-                    .unwrap()
-                    .prohibition();
+            gate_difference |= a.policy().unwrap().gate(gate, class).unwrap().prohibition()
+                != b.policy().unwrap().gate(gate, class).unwrap().prohibition();
         }
         assert!(priority_difference && gate_difference && target_difference);
         // 同一策略换步长：lead 覆盖的未来 interval 增长，已清空后的 lag 阈值不变。
