@@ -9,8 +9,8 @@ use bevy_app::App;
 use bevy_ecs::{resource::Resource, schedule::IntoScheduleConfigs, system::ResMut};
 use bevy_time::{TimePlugin, TimeUpdateStrategy};
 use laneflow_bevy::{
-    LaneFlowAdapterError, LaneFlowOuterFrameSet, LaneFlowPlugin, LaneFlowSession,
-    LaneFlowSessionConfig, LaneFlowTargetSpatial,
+    LaneFlowAdapterError, LaneFlowCommittedPoseBatch, LaneFlowOuterFrameSet, LaneFlowPlugin,
+    LaneFlowSession, LaneFlowSessionConfig, LaneFlowTargetSpatial,
 };
 use laneflow_compiler::{
     CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder, CompileLimits, Compiler,
@@ -263,8 +263,17 @@ fn old_root_consumer(artifact: &Fixture) -> laneflow_spatial::SpatialSession {
         .expect("spatial")
 }
 
+/// 单次提取便捷封装；跨帧复用场景由调用方持有 `LaneFlowCommittedPoseBatch`。
+fn extract_once(session: &mut LaneFlowSession) -> LaneFlowCommittedPoseBatch {
+    let mut poses = LaneFlowCommittedPoseBatch::new();
+    session
+        .extract_committed_pose_batch(FramePlacementToken::new(1), &mut poses)
+        .expect("extract");
+    poses
+}
+
 fn pose_of_vehicle(
-    result: &laneflow_bevy::LaneFlowCommittedPoseBatch,
+    result: &LaneFlowCommittedPoseBatch,
     vehicle: VehicleHandle,
 ) -> laneflow_spatial::CanonicalPoseF32 {
     let index = result
@@ -341,9 +350,7 @@ fn live_session_cross_revision_cutover_preserves_identity_and_mappings() {
         .get_resource_mut::<LaneFlowSession>()
         .expect("session");
     assert!(session.frame_report().steps_run() > 0);
-    let extracted = session
-        .extract_committed_pose_batch(FramePlacementToken::new(1))
-        .expect("extract after cutover");
+    let extracted = extract_once(&mut session);
     assert_eq!(
         extracted.batch().network_revision(),
         Some(fixture.r2.root.canonical_origin().network_revision())
@@ -361,16 +368,14 @@ fn post_cutover_pose_lands_on_target_geometry() {
         ..
     } = seeded(&fixture.r1, "fixture://bevy-cutover/geometry");
 
-    let before = session
-        .extract_committed_pose_batch(FramePlacementToken::new(1))
-        .expect("extract R1");
+    let before = extract_once(&mut session);
     let pose_before = pose_of_vehicle(&before, vehicle);
     assert_eq!(pose_before.position().y(), 0.0);
 
     let target_spatial = laneflow_spatial::SpatialSession::bind(Arc::clone(&fixture.r2.root))
         .expect("bind")
         .expect("spatial");
-    session
+    let record = session
         .cross_revision_cutover(
             Arc::clone(&fixture.r2.root),
             source(&fixture.r2.root, "fixture://bevy-cutover/geometry-r2"),
@@ -381,10 +386,9 @@ fn post_cutover_pose_lands_on_target_geometry() {
             &CutoverTransactionLimits::default(),
         )
         .expect("cutover");
+    assert!(!record.events().is_empty());
 
-    let after = session
-        .extract_committed_pose_batch(FramePlacementToken::new(1))
-        .expect("extract R2");
+    let after = extract_once(&mut session);
     let pose_after = pose_of_vehicle(&after, vehicle);
     assert_eq!(
         pose_after.position().y(),
@@ -407,7 +411,7 @@ fn closed_path_collects_current_sources_only() {
     let target_spatial = laneflow_spatial::SpatialSession::bind(Arc::clone(&fixture.r2.root))
         .expect("bind")
         .expect("spatial");
-    session
+    let record = session
         .cross_revision_cutover(
             Arc::clone(&fixture.r2.root),
             source(
@@ -421,10 +425,9 @@ fn closed_path_collects_current_sources_only() {
             &CutoverTransactionLimits::default(),
         )
         .expect("cutover");
+    assert!(!record.events().is_empty());
 
-    let extracted = session
-        .extract_committed_pose_batch(FramePlacementToken::new(1))
-        .expect("extract");
+    let extracted = extract_once(&mut session);
     let current: Vec<VehicleHandle> = session
         .world()
         .committed_pose_sources()
@@ -450,15 +453,13 @@ fn stale_consumption_context_rejected_after_cutover() {
         ..
     } = seeded(&fixture.r1, "fixture://bevy-cutover/stale-context");
 
-    let stale = session
-        .extract_committed_pose_batch(FramePlacementToken::new(1))
-        .expect("extract");
+    let stale = extract_once(&mut session);
     assert!(session.consumption_context_is_current(stale.context()));
 
     let target_spatial = laneflow_spatial::SpatialSession::bind(Arc::clone(&fixture.r2.root))
         .expect("bind")
         .expect("spatial");
-    session
+    let record = session
         .cross_revision_cutover(
             Arc::clone(&fixture.r2.root),
             source(&fixture.r2.root, "fixture://bevy-cutover/stale-context-r2"),
@@ -469,14 +470,13 @@ fn stale_consumption_context_rejected_after_cutover() {
             &CutoverTransactionLimits::default(),
         )
         .expect("cutover");
+    assert!(!record.events().is_empty());
 
     assert!(
         !session.consumption_context_is_current(stale.context()),
         "旧世代批次不得作为当前世界结果应用"
     );
-    let fresh = session
-        .extract_committed_pose_batch(FramePlacementToken::new(1))
-        .expect("extract");
+    let fresh = extract_once(&mut session);
     assert!(session.consumption_context_is_current(fresh.context()));
     assert_eq!(pose_of_vehicle(&fresh, vehicle).position().y(), OFFSET_R2_Y);
 }
@@ -514,9 +514,7 @@ fn target_spatial_mismatch_fails_closed_leaving_session_intact() {
     assert_eq!(session.world().world_generation(), generation);
     assert!(session.world().migration_journal_stats().is_none());
     assert!(session.world().vehicle(vehicle).is_some());
-    session
-        .extract_committed_pose_batch(FramePlacementToken::new(1))
-        .expect("extract still paired");
+    extract_once(&mut session);
 }
 
 /// 同修订换根：修订号不变、根 Arc 换新、世代递增，配对随世代过期。
@@ -534,9 +532,7 @@ fn same_revision_restore_rebinds_root_and_advances_generation() {
         .canonical_origin()
         .network_revision();
     let generation = session.world().world_generation();
-    let before = session
-        .extract_committed_pose_batch(FramePlacementToken::new(1))
-        .expect("extract");
+    let before = extract_once(&mut session);
 
     // 字节相同的重发布制品：同修订、新 Arc 分配。
     let republish = emit(&compile(0.0), None);
@@ -575,9 +571,7 @@ fn same_revision_restore_rebinds_root_and_advances_generation() {
         !session.consumption_context_is_current(before.context()),
         "旧世代结果在同修订换根后同样过期"
     );
-    let after = session
-        .extract_committed_pose_batch(FramePlacementToken::new(1))
-        .expect("extract");
+    let after = extract_once(&mut session);
     assert_eq!(pose_of_vehicle(&after, vehicle).position().y(), 0.0);
 }
 
@@ -591,15 +585,12 @@ fn aba_return_to_first_root_rejects_stale_contexts() {
         ..
     } = seeded(&fixture.r1, "fixture://bevy-cutover/aba");
 
-    let context_r1 = session
-        .extract_committed_pose_batch(FramePlacementToken::new(1))
-        .expect("extract g0")
-        .context();
+    let context_r1 = extract_once(&mut session).context();
 
     let to_r2 = laneflow_spatial::SpatialSession::bind(Arc::clone(&fixture.r2.root))
         .expect("bind")
         .expect("spatial");
-    session
+    let record = session
         .cross_revision_cutover(
             Arc::clone(&fixture.r2.root),
             source(&fixture.r2.root, "fixture://bevy-cutover/aba-r2"),
@@ -610,16 +601,14 @@ fn aba_return_to_first_root_rejects_stale_contexts() {
             &CutoverTransactionLimits::default(),
         )
         .expect("cutover to R2");
-    let context_r2 = session
-        .extract_committed_pose_batch(FramePlacementToken::new(1))
-        .expect("extract g1")
-        .context();
+    assert!(!record.events().is_empty());
+    let context_r2 = extract_once(&mut session).context();
 
     // 回切到 R1 内容（以 R2 为 diff base 的制品；目标根 Arc 是新分配）。
     let back = laneflow_spatial::SpatialSession::bind(Arc::clone(&fixture.r1_again.root))
         .expect("bind")
         .expect("spatial");
-    session
+    let record = session
         .cross_revision_cutover(
             Arc::clone(&fixture.r1_again.root),
             source(&fixture.r1_again.root, "fixture://bevy-cutover/aba-back"),
@@ -630,6 +619,7 @@ fn aba_return_to_first_root_rejects_stale_contexts() {
             &CutoverTransactionLimits::default(),
         )
         .expect("cutover back to R1");
+    assert!(!record.events().is_empty());
 
     assert_eq!(
         session
@@ -642,9 +632,7 @@ fn aba_return_to_first_root_rejects_stale_contexts() {
     );
     assert!(!session.consumption_context_is_current(context_r1));
     assert!(!session.consumption_context_is_current(context_r2));
-    let current = session
-        .extract_committed_pose_batch(FramePlacementToken::new(1))
-        .expect("extract g2");
+    let current = extract_once(&mut session);
     assert!(session.consumption_context_is_current(current.context()));
     assert_eq!(pose_of_vehicle(&current, vehicle).position().y(), 0.0);
 }
@@ -694,7 +682,7 @@ fn failed_prepare_settles_and_retry_succeeds() {
     let target_spatial = laneflow_spatial::SpatialSession::bind(Arc::clone(&fixture.r2.root))
         .expect("bind")
         .expect("spatial");
-    session
+    let record = session
         .cross_revision_cutover(
             Arc::clone(&fixture.r2.root),
             source(&fixture.r2.root, "fixture://bevy-cutover/retry-r2"),
@@ -705,6 +693,7 @@ fn failed_prepare_settles_and_retry_succeeds() {
             &CutoverTransactionLimits::default(),
         )
         .expect("retry succeeds");
+    assert!(!record.events().is_empty());
     assert_eq!(
         session.world().world_generation().get(),
         generation.get() + 1
@@ -779,7 +768,7 @@ fn admin_cutover(mut session: ResMut<LaneFlowSession>, mut request: ResMut<Admin
         .target_spatial
         .take()
         .expect("行政切换请求只执行一次");
-    session
+    let record = session
         .cross_revision_cutover(
             Arc::clone(&request.target),
             request.source.clone(),
@@ -790,6 +779,7 @@ fn admin_cutover(mut session: ResMut<LaneFlowSession>, mut request: ResMut<Admin
             &CutoverTransactionLimits::default(),
         )
         .expect("administrative cutover");
+    assert!(!record.events().is_empty());
     request.executed = true;
 }
 
@@ -870,8 +860,81 @@ fn explicit_headless_cutover_retires_spatial_and_rejects_extraction() {
         .expect("explicit headless cutover");
     assert!(record.retired_spatial().is_some());
     assert!(session.spatial().is_none());
+    let mut poses = LaneFlowCommittedPoseBatch::new();
     assert!(matches!(
-        session.extract_committed_pose_batch(FramePlacementToken::new(1)),
+        session.extract_committed_pose_batch(FramePlacementToken::new(1), &mut poses),
         Err(LaneFlowAdapterError::PoseExtractionWithoutSpatial)
     ));
+}
+
+/// 公开 set 不变量（adapter-api §9 / bevy 文档 §4）：无 Session 时 Administration
+/// 安全跳过、schedule 无操作不 panic；插入 Session 后恢复执行。
+#[derive(Resource)]
+struct AdminProbeRan(bool);
+
+fn admin_probe(mut _session: ResMut<LaneFlowSession>, mut ran: ResMut<AdminProbeRan>) {
+    ran.0 = true;
+}
+
+#[test]
+fn administration_set_is_safe_without_session_and_runs_with_session() {
+    let fixture = fixture();
+    let Seeded { session, .. } = seeded(&fixture.r1, "fixture://bevy-cutover/no-session-guard");
+    let mut app = App::new();
+    app.add_plugins((TimePlugin, LaneFlowPlugin));
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+        16,
+    )));
+    app.insert_resource(AdminProbeRan(false));
+    app.add_systems(
+        laneflow_bevy::LaneFlowOuterFrame,
+        admin_probe.in_set(LaneFlowOuterFrameSet::Administration),
+    );
+    // 无 Session：行政系统按 resource_exists 门控跳过，不 panic。
+    app.update();
+    assert!(!app.world().resource::<AdminProbeRan>().0);
+    // 插入 Session 后恢复执行。
+    app.insert_resource(session);
+    app.update();
+    assert!(app.world().resource::<AdminProbeRan>().0);
+}
+
+/// 切换记录消费语义：事件批次恰一次交付，跨帧复用缓冲在稳态保持容量。
+#[test]
+fn cutover_events_are_delivered_once_and_buffer_capacity_is_retained() {
+    let fixture = fixture();
+    let Seeded { mut session, .. } = seeded(&fixture.r1, "fixture://bevy-cutover/events-once");
+
+    let target_spatial = laneflow_spatial::SpatialSession::bind(Arc::clone(&fixture.r2.root))
+        .expect("bind")
+        .expect("spatial");
+    let record = session
+        .cross_revision_cutover(
+            Arc::clone(&fixture.r2.root),
+            source(&fixture.r2.root, "fixture://bevy-cutover/events-once-r2"),
+            &fixture.r2.diff,
+            fixture.r2.binding,
+            LaneFlowTargetSpatial::Rebind(target_spatial),
+            &PREFLIGHT,
+            &CutoverTransactionLimits::default(),
+        )
+        .expect("cutover");
+    let events = record.events();
+    assert_eq!(
+        events.as_slice().len(),
+        1,
+        "v1 恰一次 RevisionCutoverCommitted"
+    );
+
+    // 同一缓冲两次提取：容量不缩减（稳定容量合同的最小断言）。
+    let mut poses = LaneFlowCommittedPoseBatch::new();
+    session
+        .extract_committed_pose_batch(FramePlacementToken::new(1), &mut poses)
+        .expect("first extract");
+    let capacity = poses.vehicles().len();
+    assert!(capacity > 0);
+    session
+        .extract_committed_pose_batch(FramePlacementToken::new(1), &mut poses)
+        .expect("second extract");
+    assert_eq!(poses.vehicles().len(), capacity);
 }

@@ -86,6 +86,7 @@ pub struct LaneFlowSession {
     frame_step_results: Vec<StepOutcome>,
     pub(crate) last_error: Option<LaneFlowAdapterError>,
     vehicle_entities: VehicleEntityMap,
+    pose_scratch: Vec<PoseInput>,
 }
 
 impl LaneFlowSession {
@@ -112,6 +113,7 @@ impl LaneFlowSession {
             frame_step_results: Vec::new(),
             last_error: None,
             vehicle_entities,
+            pose_scratch: Vec::new(),
         })
     }
 
@@ -163,12 +165,17 @@ impl LaneFlowSession {
     /// 当前配对 Spatial 提取批次（#534 G1 冻结形态）。
     ///
     /// 采集 → 校验 → 提取处于单次 `&mut self` 内，不存在插入切换的窗口；
-    /// 调用方不得缓存位姿输入跨过切换边界重放。返回的 `vehicles` 与
-    /// `batch().records()` 按序对齐（记录身份为序号）。
+    /// 调用方不得缓存位姿输入跨过切换边界重放。`output.vehicles()` 与
+    /// `output.batch().records()` 按序对齐（记录身份为序号）。
+    ///
+    /// 稳定容量复用（adapter-api §6）：调用方持有 `output` 跨帧复用，
+    /// 稳态除 Runtime `committed_pose_sources` 自身的按值返回外零新增
+    /// 分配；任一失败路径 `output` 原样保持。
     pub fn extract_committed_pose_batch(
         &mut self,
         placement_token: laneflow_spatial::FramePlacementToken,
-    ) -> Result<LaneFlowCommittedPoseBatch, LaneFlowAdapterError> {
+        output: &mut LaneFlowCommittedPoseBatch,
+    ) -> Result<(), LaneFlowAdapterError> {
         let sources = self.world.committed_pose_sources();
         let Some(spatial) = self.spatial.as_mut() else {
             return Err(LaneFlowAdapterError::PoseExtractionWithoutSpatial);
@@ -177,26 +184,23 @@ impl LaneFlowSession {
         if !Arc::ptr_eq(&self.world.revision(), &spatial.revision()) {
             return Err(LaneFlowAdapterError::RevisionMismatch);
         }
-        let inputs: Vec<PoseInput> = sources
-            .as_slice()
-            .iter()
-            .enumerate()
-            .map(|(index, (_, source))| pose_input(PoseRecordId::new(index as u32), *source))
-            .collect();
-        let mut batch = CanonicalPoseBatch::new();
+        self.pose_scratch.clear();
+        self.pose_scratch.extend(
+            sources
+                .as_slice()
+                .iter()
+                .enumerate()
+                .map(|(index, (_, source))| pose_input(PoseRecordId::new(index as u32), *source)),
+        );
         spatial
-            .extract_pose_batch(placement_token, &inputs, &mut batch)
+            .extract_pose_batch(placement_token, &self.pose_scratch, &mut output.batch)
             .map_err(|source| LaneFlowAdapterError::SpatialPoseExtraction { source })?;
-        let vehicles = sources
-            .as_slice()
-            .iter()
-            .map(|(vehicle, _)| *vehicle)
-            .collect();
-        Ok(LaneFlowCommittedPoseBatch {
-            batch,
-            context: self.consumption_context(),
-            vehicles,
-        })
+        output.vehicles.clear();
+        output
+            .vehicles
+            .extend(sources.as_slice().iter().map(|(vehicle, _)| *vehicle));
+        output.context = self.consumption_context();
+        Ok(())
     }
 
     /// 同步维护暂停式跨修订直移切换（切换合同 §4；#534 G1 冻结形态）。
@@ -545,6 +549,10 @@ pub enum LaneFlowTargetSpatial {
 ///
 /// `retired_spatial` 是换出的旧 `SpatialSession`：它对旧根的历史读取仍
 /// 合法（在途借用可完成），但其结果不得作为当前世界的表现提交。
+///
+/// `#[must_use]` 继承 Runtime 对 `CutoverCommit` / `CutoverEventBatch` 的
+/// 恰一次交付义务（切换合同 §10）：语句位丢弃本记录即丢弃事件交付。
+#[must_use = "切换事件批次恰一次交付；丢弃记录会静默丢弃交付"]
 pub struct LaneFlowCutoverRecord {
     retired_spatial: Option<SpatialSession>,
     world_binding: laneflow_runtime::WorldBinding,
@@ -609,24 +617,36 @@ impl LaneFlowConsumptionContext {
 }
 
 /// 受控提取区间产出：位姿批次 + 消费上下文 + 与记录对齐的车辆句柄。
+///
+/// 调用方持有一份跨帧复用（adapter-api §6 稳定容量合同）：稳态提取
+/// 原地重填本结构，容量保持；首次成功提取前 `context` 为占位值。
+#[derive(Debug)]
 pub struct LaneFlowCommittedPoseBatch {
     batch: CanonicalPoseBatch,
     context: LaneFlowConsumptionContext,
     vehicles: Vec<VehicleHandle>,
 }
 
-impl std::fmt::Debug for LaneFlowCommittedPoseBatch {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("LaneFlowCommittedPoseBatch")
-            .field("batch", &self.batch)
-            .field("context", &self.context)
-            .field("vehicles", &self.vehicles)
-            .finish()
+impl Default for LaneFlowCommittedPoseBatch {
+    fn default() -> Self {
+        Self {
+            batch: CanonicalPoseBatch::new(),
+            context: LaneFlowConsumptionContext {
+                world_id: 0,
+                world_generation: WorldGeneration::INITIAL,
+            },
+            vehicles: Vec::new(),
+        }
     }
 }
 
 impl LaneFlowCommittedPoseBatch {
+    /// 空批次缓冲；跨帧复用时仅需构造一次。
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// 提取出的共享根位姿批次。
     #[must_use]
     pub const fn batch(&self) -> &CanonicalPoseBatch {
