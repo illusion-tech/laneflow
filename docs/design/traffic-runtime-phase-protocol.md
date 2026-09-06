@@ -398,7 +398,8 @@ downstream 索引容量，Waiting 首尾数组在安装/切换准备时独立分
 - 仿真与管理的私有目录、format/wire 唯一入口和架构检查见
   [模块边界](traffic-runtime-module-boundary.md)；phase 不获得解析文件、切换根或其他
   管理权限，不拆 crate。
-- #583 负责把现有性能研究输入重绑定到正式 `TrafficWorld`。#220 消费本协议，
+- #583 的[有限性能画像](../../research/issue-583-runtime-profile/README.md)把研究输入
+  重绑定到正式 `TrafficWorld`；测试计时边界不另定义 P0～P8。#220 消费本协议，
   在其性能/工作负载输入就绪后设计 physical partition、halo、per-worker scratch、
   确定性合并与取消；本设计不是该并行设计的验收替代。
 - 当前仅冻结道路机动车的内部边界。将来其他交通执行域可以使用不同局部状态和

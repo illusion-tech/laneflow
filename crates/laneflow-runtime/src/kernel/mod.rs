@@ -27,3 +27,6 @@ pub(crate) mod world;
 #[cfg(test)]
 #[path = "tests/spawn_overlap.rs"]
 mod spawn_overlap_tests;
+
+#[cfg(test)]
+pub(crate) mod performance_profile;

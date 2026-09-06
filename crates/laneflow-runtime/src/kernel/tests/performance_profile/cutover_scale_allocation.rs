@@ -1,7 +1,9 @@
 //! #531 分配证据，与未插桩的墙钟二进制分开。
 //! `cargo test --release --locked -p laneflow-runtime --test cutover_scale_allocation -- --ignored --nocapture`
 
-#[path = "support/cutover_scale.rs"]
+use laneflow_runtime as runtime_types;
+
+#[path = "cutover_scale.rs"]
 mod support;
 
 use laneflow_runtime::{

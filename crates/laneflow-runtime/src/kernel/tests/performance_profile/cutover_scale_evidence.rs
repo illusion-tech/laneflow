@@ -1,7 +1,9 @@
 //! #531 同机规模墙钟证据；无计数分配器，不设置跨机器耗时门禁。
 //! `cargo test --release --locked -p laneflow-runtime --test cutover_scale_evidence -- --ignored --nocapture`
 
-#[path = "support/cutover_scale.rs"]
+use laneflow_runtime as runtime_types;
+
+#[path = "cutover_scale.rs"]
 mod support;
 
 use laneflow_runtime::{

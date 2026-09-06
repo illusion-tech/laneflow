@@ -1,0 +1,651 @@
+{
+  "tick": [
+    {
+      "scene": "lane-1000-256-journal-false",
+      "steps_per_round": 64,
+      "delta_ms": 100,
+      "counts": {
+        "individual": 1000,
+        "active": 1000,
+        "intent": 1000,
+        "presented": 0,
+        "aggregate": 0
+      },
+      "median_round_ms": {
+        "p50": 0.3723,
+        "p95": 0.4789,
+        "p99": 0.542
+      },
+      "max_ms": 0.5907,
+      "stage_median": {
+        "whole_step": {
+          "mean_ms_per_tick": 0.4026328125,
+          "whole_percent": 100.0
+        },
+        "preflight": {
+          "mean_ms_per_tick": 0.0125375,
+          "whole_percent": 3.1217302364222763
+        },
+        "occupancy": {
+          "mean_ms_per_tick": 0.0303,
+          "whole_percent": 7.48006286745445
+        },
+        "waiting_prepare": {
+          "mean_ms_per_tick": 0.008559375,
+          "whole_percent": 2.1248329804706794
+        },
+        "conflict_prepare": {
+          "mean_ms_per_tick": 0.01533125,
+          "whole_percent": 3.80774977200846
+        },
+        "motion_loop": {
+          "mean_ms_per_tick": 0.2104609375,
+          "whole_percent": 52.26527261255824
+        },
+        "waiting_finalize": {
+          "mean_ms_per_tick": 0.0030953125,
+          "whole_percent": 0.7599627867088826
+        },
+        "signals": {
+          "mean_ms_per_tick": 7.8125e-05,
+          "whole_percent": 0.019403535324136058
+        },
+        "conflict_finalize": {
+          "mean_ms_per_tick": 0.0300390625,
+          "whole_percent": 7.372213310260072
+        },
+        "waiting_outputs": {
+          "mean_ms_per_tick": 0.0625890625,
+          "whole_percent": 15.561051620041578
+        },
+        "commit": {
+          "mean_ms_per_tick": 0.0286859375,
+          "whole_percent": 7.0287943582812975
+        }
+      },
+      "residual_percent_median": 0.25845509051749227,
+      "retained_bytes": {
+        "source_world_owned": 1220671,
+        "shared_root": 29564,
+        "binding": 23,
+        "committed": 386208,
+        "derived": 104392,
+        "workspace": 730048,
+        "administrative": 0,
+        "journal_bytes": 0
+      },
+      "allocation": {
+        "steps": 64,
+        "allocations": 0,
+        "reallocations": 0,
+        "allocated_bytes": 0,
+        "deallocated_bytes": 0,
+        "reallocated_bytes": 0,
+        "journal_bytes": 0
+      },
+      "digest": "31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b"
+    },
+    {
+      "scene": "lane-10000-256-journal-false",
+      "steps_per_round": 64,
+      "delta_ms": 100,
+      "counts": {
+        "individual": 10000,
+        "active": 10000,
+        "intent": 10000,
+        "presented": 0,
+        "aggregate": 0
+      },
+      "median_round_ms": {
+        "p50": 4.1084,
+        "p95": 4.707,
+        "p99": 5.0986
+      },
+      "max_ms": 7.0234,
+      "stage_median": {
+        "whole_step": {
+          "mean_ms_per_tick": 4.4168453125,
+          "whole_percent": 100.0
+        },
+        "preflight": {
+          "mean_ms_per_tick": 0.120434375,
+          "whole_percent": 2.5264815432037193
+        },
+        "occupancy": {
+          "mean_ms_per_tick": 0.3011828125,
+          "whole_percent": 6.790306777788832
+        },
+        "waiting_prepare": {
+          "mean_ms_per_tick": 0.0911703125,
+          "whole_percent": 2.1124493362735213
+        },
+        "conflict_prepare": {
+          "mean_ms_per_tick": 0.157146875,
+          "whole_percent": 3.6170624381215153
+        },
+        "motion_loop": {
+          "mean_ms_per_tick": 2.420509375,
+          "whole_percent": 54.37597670267014
+        },
+        "waiting_finalize": {
+          "mean_ms_per_tick": 0.0511828125,
+          "whole_percent": 1.1944672185986314
+        },
+        "signals": {
+          "mean_ms_per_tick": 0.0001671875,
+          "whole_percent": 0.0037852242533114523
+        },
+        "conflict_finalize": {
+          "mean_ms_per_tick": 0.3194265625,
+          "whole_percent": 7.34902357672349
+        },
+        "waiting_outputs": {
+          "mean_ms_per_tick": 0.647790625,
+          "whole_percent": 14.514577166898732
+        },
+        "commit": {
+          "mean_ms_per_tick": 0.3146890625,
+          "whole_percent": 7.330854461803561
+        }
+      },
+      "residual_percent_median": 0.04298175203526555,
+      "retained_bytes": {
+        "source_world_owned": 11315551,
+        "shared_root": 29564,
+        "binding": 23,
+        "committed": 3014208,
+        "derived": 1019272,
+        "workspace": 7282048,
+        "administrative": 0,
+        "journal_bytes": 0
+      },
+      "allocation": {
+        "steps": 64,
+        "allocations": 0,
+        "reallocations": 0,
+        "allocated_bytes": 0,
+        "deallocated_bytes": 0,
+        "reallocated_bytes": 0,
+        "journal_bytes": 0
+      },
+      "digest": "81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb"
+    },
+    {
+      "scene": "lane-10000-16-journal-false",
+      "steps_per_round": 64,
+      "delta_ms": 100,
+      "counts": {
+        "individual": 10000,
+        "active": 10000,
+        "intent": 10000,
+        "presented": 0,
+        "aggregate": 0
+      },
+      "median_round_ms": {
+        "p50": 4.3936,
+        "p95": 4.8044,
+        "p99": 5.5614
+      },
+      "max_ms": 5.5627,
+      "stage_median": {
+        "whole_step": {
+          "mean_ms_per_tick": 4.583178125,
+          "whole_percent": 100.0
+        },
+        "preflight": {
+          "mean_ms_per_tick": 0.113296875,
+          "whole_percent": 2.4610219401242968
+        },
+        "occupancy": {
+          "mean_ms_per_tick": 0.2763328125,
+          "whole_percent": 6.053656058112656
+        },
+        "waiting_prepare": {
+          "mean_ms_per_tick": 0.0897734375,
+          "whole_percent": 1.9500484839310643
+        },
+        "conflict_prepare": {
+          "mean_ms_per_tick": 0.1582375,
+          "whole_percent": 3.4866683614264082
+        },
+        "motion_loop": {
+          "mean_ms_per_tick": 2.595209375,
+          "whole_percent": 56.624667517150016
+        },
+        "waiting_finalize": {
+          "mean_ms_per_tick": 0.0501640625,
+          "whole_percent": 1.1005599962362362
+        },
+        "signals": {
+          "mean_ms_per_tick": 0.00018125,
+          "whole_percent": 0.004023077203198346
+        },
+        "conflict_finalize": {
+          "mean_ms_per_tick": 0.3148296875,
+          "whole_percent": 6.886016858774384
+        },
+        "waiting_outputs": {
+          "mean_ms_per_tick": 0.652771875,
+          "whole_percent": 14.179437043352475
+        },
+        "commit": {
+          "mean_ms_per_tick": 0.3304109375,
+          "whole_percent": 7.209210039158144
+        }
+      },
+      "residual_percent_median": 0.045883889136477694,
+      "retained_bytes": {
+        "source_world_owned": 11227231,
+        "shared_root": 29564,
+        "binding": 23,
+        "committed": 2925888,
+        "derived": 1019272,
+        "workspace": 7282048,
+        "administrative": 0,
+        "journal_bytes": 0
+      },
+      "allocation": {
+        "steps": 64,
+        "allocations": 0,
+        "reallocations": 0,
+        "allocated_bytes": 0,
+        "deallocated_bytes": 0,
+        "reallocated_bytes": 0,
+        "journal_bytes": 0
+      },
+      "digest": "dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa"
+    },
+    {
+      "scene": "lane-10000-256-journal-true",
+      "steps_per_round": 64,
+      "delta_ms": 100,
+      "counts": {
+        "individual": 10000,
+        "active": 10000,
+        "intent": 10000,
+        "presented": 0,
+        "aggregate": 0
+      },
+      "median_round_ms": {
+        "p50": 5.5286,
+        "p95": 6.4871,
+        "p99": 6.7223
+      },
+      "max_ms": 9.489,
+      "stage_median": {
+        "whole_step": {
+          "mean_ms_per_tick": 5.0683859375,
+          "whole_percent": 100.0
+        },
+        "preflight": {
+          "mean_ms_per_tick": 0.1253296875,
+          "whole_percent": 2.4894685403193595
+        },
+        "occupancy": {
+          "mean_ms_per_tick": 0.3135515625,
+          "whole_percent": 6.169329615144021
+        },
+        "waiting_prepare": {
+          "mean_ms_per_tick": 0.1026109375,
+          "whole_percent": 1.95464100843248
+        },
+        "conflict_prepare": {
+          "mean_ms_per_tick": 0.1689796875,
+          "whole_percent": 3.320098336040233
+        },
+        "motion_loop": {
+          "mean_ms_per_tick": 2.5344234375,
+          "whole_percent": 50.00454718233461
+        },
+        "waiting_finalize": {
+          "mean_ms_per_tick": 0.0484765625,
+          "whole_percent": 0.955768955618739
+        },
+        "signals": {
+          "mean_ms_per_tick": 0.000184375,
+          "whole_percent": 0.0036623067628839484
+        },
+        "conflict_finalize": {
+          "mean_ms_per_tick": 0.3276859375,
+          "whole_percent": 6.508943322078465
+        },
+        "waiting_outputs": {
+          "mean_ms_per_tick": 0.6659890625,
+          "whole_percent": 13.117606912200541
+        },
+        "commit": {
+          "mean_ms_per_tick": 0.796484375,
+          "whole_percent": 15.487924654050547
+        }
+      },
+      "residual_percent_median": 0.04830803198873409,
+      "retained_bytes": {
+        "source_world_owned": 78424415,
+        "shared_root": 29564,
+        "binding": 23,
+        "committed": 3014208,
+        "derived": 1019272,
+        "workspace": 7282048,
+        "administrative": 67108864,
+        "journal_bytes": 56162664
+      },
+      "allocation": {
+        "steps": 64,
+        "allocations": 0,
+        "reallocations": 0,
+        "allocated_bytes": 0,
+        "deallocated_bytes": 0,
+        "reallocated_bytes": 0,
+        "journal_bytes": 56162664
+      },
+      "digest": "81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb"
+    },
+    {
+      "scene": "waiting-membership-1",
+      "steps_per_round": 16,
+      "delta_ms": 4,
+      "counts": {
+        "individual": 1,
+        "active": 1,
+        "intent": 1,
+        "presented": 0,
+        "aggregate": 0
+      },
+      "median_round_ms": {
+        "p50": 0.0021,
+        "p95": 0.0028,
+        "p99": 0.0028
+      },
+      "max_ms": 0.0071,
+      "stage_median": {
+        "whole_step": {
+          "mean_ms_per_tick": 0.0035125,
+          "whole_percent": 100.0
+        },
+        "preflight": {
+          "mean_ms_per_tick": 0.00016875,
+          "whole_percent": 4.769475357710652
+        },
+        "occupancy": {
+          "mean_ms_per_tick": 0.00021875,
+          "whole_percent": 6.227758007117438
+        },
+        "waiting_prepare": {
+          "mean_ms_per_tick": 0.00051875,
+          "whole_percent": 14.954954954954955
+        },
+        "conflict_prepare": {
+          "mean_ms_per_tick": 0.0006375,
+          "whole_percent": 18.37837837837838
+        },
+        "motion_loop": {
+          "mean_ms_per_tick": 0.00036875,
+          "whole_percent": 9.72972972972973
+        },
+        "waiting_finalize": {
+          "mean_ms_per_tick": 8.125e-05,
+          "whole_percent": 2.3423423423423424
+        },
+        "signals": {
+          "mean_ms_per_tick": 0.0001,
+          "whole_percent": 2.5437201907790143
+        },
+        "conflict_finalize": {
+          "mean_ms_per_tick": 0.00011875,
+          "whole_percent": 3.0206677265500796
+        },
+        "waiting_outputs": {
+          "mean_ms_per_tick": 0.00021875,
+          "whole_percent": 6.227758007117438
+        },
+        "commit": {
+          "mean_ms_per_tick": 0.00019375,
+          "whole_percent": 5.405405405405405
+        }
+      },
+      "residual_percent_median": 25.97864768683274,
+      "retained_bytes": {
+        "source_world_owned": 13067,
+        "shared_root": 7827,
+        "binding": 23,
+        "committed": 4550,
+        "derived": 1024,
+        "workspace": 7470,
+        "administrative": 0,
+        "journal_bytes": 0
+      },
+      "allocation": {
+        "steps": 16,
+        "allocations": 0,
+        "reallocations": 0,
+        "allocated_bytes": 0,
+        "deallocated_bytes": 0,
+        "reallocated_bytes": 0,
+        "journal_bytes": 0
+      },
+      "digest": "186c86852841789533f3a5cdd8cdbd474a5d60b613010a29f356a867138bd166"
+    },
+    {
+      "scene": "conflict-reservation-retry-2",
+      "steps_per_round": 16,
+      "delta_ms": 4,
+      "counts": {
+        "individual": 2,
+        "active": 2,
+        "intent": 2,
+        "presented": 0,
+        "aggregate": 0
+      },
+      "median_round_ms": {
+        "p50": 0.0031,
+        "p95": 0.0033,
+        "p99": 0.0033
+      },
+      "max_ms": 0.0034,
+      "stage_median": {
+        "whole_step": {
+          "mean_ms_per_tick": 0.00445625,
+          "whole_percent": 100.0
+        },
+        "preflight": {
+          "mean_ms_per_tick": 0.00053125,
+          "whole_percent": 11.888111888111888
+        },
+        "occupancy": {
+          "mean_ms_per_tick": 0.0002375,
+          "whole_percent": 5.344585091420535
+        },
+        "waiting_prepare": {
+          "mean_ms_per_tick": 0.0004,
+          "whole_percent": 9.0014064697609
+        },
+        "conflict_prepare": {
+          "mean_ms_per_tick": 0.00084375,
+          "whole_percent": 18.93408134642356
+        },
+        "motion_loop": {
+          "mean_ms_per_tick": 0.0005,
+          "whole_percent": 11.251758087201125
+        },
+        "waiting_finalize": {
+          "mean_ms_per_tick": 7.5e-05,
+          "whole_percent": 1.6783216783216783
+        },
+        "signals": {
+          "mean_ms_per_tick": 8.75e-05,
+          "whole_percent": 1.9635343618513323
+        },
+        "conflict_finalize": {
+          "mean_ms_per_tick": 0.0003,
+          "whole_percent": 6.732117812061711
+        },
+        "waiting_outputs": {
+          "mean_ms_per_tick": 0.00035625,
+          "whole_percent": 8.016877637130802
+        },
+        "commit": {
+          "mean_ms_per_tick": 0.0001875,
+          "whole_percent": 4.207573632538569
+        }
+      },
+      "residual_percent_median": 21.1781206171108,
+      "retained_bytes": {
+        "source_world_owned": 13483,
+        "shared_root": 7827,
+        "binding": 23,
+        "committed": 5054,
+        "derived": 1248,
+        "workspace": 7158,
+        "administrative": 0,
+        "journal_bytes": 0
+      },
+      "allocation": {
+        "steps": 16,
+        "allocations": 0,
+        "reallocations": 0,
+        "allocated_bytes": 0,
+        "deallocated_bytes": 0,
+        "reallocated_bytes": 0,
+        "journal_bytes": 0
+      },
+      "digest": "39cf8c259608d71a9b8ef3c0ab9cb316644795a4efeae55535ae5d217269baa0"
+    }
+  ],
+  "cutover": [
+    {
+      "count": 1000,
+      "active": 1000,
+      "edges": 16,
+      "routes": 16,
+      "mode": "online",
+      "median_ms": {
+        "prepare": 1.332,
+        "pump": 0.163,
+        "commit": 3.55,
+        "digest": 1.002,
+        "paused": 0.0
+      },
+      "journal_bytes": 156074
+    },
+    {
+      "count": 1000,
+      "active": 1000,
+      "edges": 256,
+      "routes": 256,
+      "mode": "online",
+      "median_ms": {
+        "prepare": 1.001,
+        "pump": 0.168,
+        "commit": 2.695,
+        "digest": 0.9,
+        "paused": 0.0
+      },
+      "journal_bytes": 156074
+    },
+    {
+      "count": 4000,
+      "active": 4000,
+      "edges": 16,
+      "routes": 16,
+      "mode": "online",
+      "median_ms": {
+        "prepare": 9.762,
+        "pump": 0.647,
+        "commit": 18.045,
+        "digest": 4.263,
+        "paused": 0.0
+      },
+      "journal_bytes": 624074
+    },
+    {
+      "count": 4000,
+      "active": 4000,
+      "edges": 256,
+      "routes": 256,
+      "mode": "online",
+      "median_ms": {
+        "prepare": 2.512,
+        "pump": 0.634,
+        "commit": 11.377,
+        "digest": 4.241,
+        "paused": 0.0
+      },
+      "journal_bytes": 624074
+    },
+    {
+      "count": 10000,
+      "active": 10000,
+      "edges": 16,
+      "routes": 16,
+      "mode": "online",
+      "median_ms": {
+        "prepare": 52.228,
+        "pump": 1.601,
+        "commit": 143.502,
+        "digest": 42.962,
+        "paused": 0.0
+      },
+      "journal_bytes": 1560074
+    },
+    {
+      "count": 10000,
+      "active": 10000,
+      "edges": 256,
+      "routes": 256,
+      "mode": "online",
+      "median_ms": {
+        "prepare": 7.338,
+        "pump": 1.618,
+        "commit": 99.266,
+        "digest": 45.581,
+        "paused": 0.0
+      },
+      "journal_bytes": 1560074
+    },
+    {
+      "count": 10000,
+      "active": 10000,
+      "edges": 256,
+      "routes": 10000,
+      "mode": "online",
+      "median_ms": {
+        "prepare": 17.776,
+        "pump": 1.769,
+        "commit": 183.083,
+        "digest": 82.37,
+        "paused": 0.0
+      },
+      "journal_bytes": 1560074
+    },
+    {
+      "count": 10000,
+      "active": 10000,
+      "edges": 256,
+      "routes": 256,
+      "mode": "drain",
+      "median_ms": {
+        "prepare": 7.508,
+        "pump": 0.0,
+        "commit": 99.741,
+        "digest": 45.526,
+        "paused": 0.0
+      },
+      "journal_bytes": 1560074
+    },
+    {
+      "count": 10000,
+      "active": 10000,
+      "edges": 256,
+      "routes": 256,
+      "mode": "paused",
+      "median_ms": {
+        "prepare": 7.136,
+        "pump": 0.0,
+        "commit": 102.51,
+        "digest": 42.578,
+        "paused": 109.597
+      },
+      "journal_bytes": 0
+    }
+  ]
+}
