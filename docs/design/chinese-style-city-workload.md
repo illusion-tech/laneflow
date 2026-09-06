@@ -95,6 +95,7 @@ Runtime slot 或 presented entity。
 | `N_individual[road_motor_vehicle]` 名义规模 | 10,000 | 100,000 |
 | 250 m 布局单元（cell）                      |    100 |   1,000 |
 | 每块含 `2 × 5` cells 的布局块（macro-tile） |     10 |     100 |
+| 可分配停车容量下限                          |  7,500 |  75,000 |
 | 主运行 fixed step                           |  16 ms |   33 ms |
 
 两档只改变规模参数，复用同一套道路模板、需求规则和行为精度。cell 是编制网格，
@@ -114,6 +115,11 @@ Runtime 取整。这样每个相位均是两档 fixed step 的正整数倍；完
 边界和整数毫米交通长度合同。布局块列数取不小于 `sqrt(2 × tile_count)` 的最小整数，
 逐行填充实际 tile；不物化末行空余 tile。边界端口、相邻 tile 的连接规则与模板
 参数写入版本化生成配置，不为 100k 添加特殊拓扑分支。
+
+两档每份制品只生成一个 `CanonicalFrame`，全部道路、停车与路口规范几何引用该框架。
+所有坐标分量遵守 [Spatial 几何合同](spatial-geometry.md) 的 `[-16,384 m, +16,384 m]`
+边界，并通过既有几何检查；不沿用 #543 研究样本按 cell 分帧的编制。该输入约束使
+§6 的全量位姿提取可直接使用现有单框架批次入口，不引入多框架提取 API。
 
 每个完整 tile 至少包含：受保护多阶段信号及左转待转区、信号无保护左转、主支路
 让行 T 形路口、错位双 T、混合停车设施、地下多门车库及真实可见泊位。各模板通过
@@ -147,9 +153,16 @@ Runtime 取整。这样每个相位均是两档 fixed step 的正整数倍；完
 同一工具链上 clean-regenerate 两次，逐字节比较制品，并核对摘要与 `NetworkRevisionId`。
 小型规范夹具可入库，大型制品通过生成命令和摘要复核；远端发布由发布任务另行执行。
 
+每个 tile 至少提供 750 个可分配停车位置，使两档分别具备不少于 7,500 / 75,000 个
+初始停车 binding 的容量，覆盖 `GARAGE-EGRESS` 的 75% parked 初态。按 tile 分别核算
+`S_explicit + sum(C_virtual)`：只计入接入路线目录、且可被计划车型合法使用的显式泊位
+与设施虚拟池；多门共用一个虚拟池，设施总容量不与其显式泊位、虚拟容量重复相加。
+#542 报告逐 tile / admission pool 的位置数量、容量与目标身份，#544 据此分配初态；
+声明容量和空世界安装仍不能代替实际 parked 车辆取证。
+
 报告至少列出：来源声明/引用与导入边、公开 LIR 计数、逐 LFCA 表/关系行数及分块、
 道路和车道总长度、设施/泊位/锚点/容量、Gate/Waiting/Conflict/Policy 数量、车型目录
-大小、路线数、坐标边界、制品字节、构建/检查/安装结果与内存。
+大小、路线数、规范框架数量与坐标边界、制品字节、构建/检查/安装结果与内存。
 未暴露的 HIR/MIR 内部计数明确记为未测量，以既有准入结果说明是否通过对应上限；
 不为报表新增公共编译器 API，不把推导数写成实测数。
 
@@ -289,6 +302,11 @@ retained 与单 binding 每世界分配形状不变；它没有构造 #304 exact
 计划出发方向比例，二者不是同一口径。完成车辆由调用方明确移除/原子替换；因安全
 准入而未成功的出发请求保留为待提交队列，不能静默丢弃或强行生成重叠车辆。
 
+#544 使用 #542 的逐 tile / admission pool 报告，固定初始 parked 个体到合法停车目标的
+分配。显式泊位保持排他，虚拟池分别满足 `Reserved + Occupied <= virtual_capacity`；
+不能只检查全图容量总和，再把初态集中分配到容量不足的设施。七个 case 的实际初始
+parked 数必须达到表中比例，不能以待提交队列或空容量替代。
+
 #544 将每个 case 的 seed、profile mix、起终点、路线选择、初态、命令排序、最大
 重试次数和观察长度写成可审阅的版本化计划。具体序列与正向触发计数在正式取证前
 固定，不根据一次运行结果反向调整期望；未达到必需的触发不能标为通过。所有规模
@@ -321,8 +339,9 @@ retained 与单 binding 每世界分配形状不变；它没有构造 #304 exact
 | 保存、恢复与切换  | `MIXED-PEAK` 加一个停车转换窗口；同修订恢复及本节固定的增容修订对      | #545；协议专项归 #538      |
 
 Headless 行必须执行全部道路活动个体的相同精度求解。两档 Adapter 都通过现有
-`LaneFlowSession::extract_committed_pose_batch` 提取全部可表现个体；virtual Parked 与
-Completed 不进入该集合。10k 对全部结果应用 Transform；100k 按 #544 计划中的稳定
+`LaneFlowSession::extract_committed_pose_batch` 提取全部可表现个体；输入使用 §3.2 的
+单框架规范拓扑。virtual Parked 与 Completed 不进入该集合。10k 对全部结果应用
+Transform；100k 按 #544 计划中的稳定
 个体编号升序，从每帧成功批次中取前 `floor(可表现数量 / 10)` 个应用，报告实际分母、
 数量和比例。选择应用不降低 Runtime 精度，也不省去其他个体的位姿提取。
 
@@ -355,8 +374,9 @@ Snapshot restore 比较同一已提交状态恢复后继续执行的事件/状�
 1. base 为 #542 对应规模的规范 LFCA。按 base 的 `ParkingFacility StableId128` 字节序，
    选择首个 virtual-only 且 `0 < virtual_capacity < u32::MAX` 的设施；正式输入须有该设施。
 2. #545 复用 #542 的来源生成器，仅把该设施 `virtual_capacity` 增加 1，其他来源语义、
-   实体稳定身份、道路/路线、停车锚点、车辆配置和策略保持不变。由既有编译/差分入口生成
-   target LFCA 与 base→target LFSD；#545 拥有该验证变体，#542 的规范制品仍为 base。
+   实体稳定身份、单框架几何布局、道路/路线、停车锚点、车辆配置和策略保持不变。由既有
+   编译/差分入口生成 target LFCA 与 base→target LFSD；#545 拥有该验证变体，#542 的规范
+   制品仍为 base。
 3. 描述符沿用 `traffic-runtime-revision-cutover.md` 的当前 v2 合同：
    `migrationPolicyKind=cross_revision_direct`，base/target LFCA origin 四联和 LFSD
    origin 来自实际制品，`worldBinding` 来自事务启动时的基线世界身份、世代及双游标。

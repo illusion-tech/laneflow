@@ -1,7 +1,7 @@
 # 停车系统设计
 
 **文档状态**: Accepted（#540 G1）<br>
-**最后更新**: 2026-09-06<br>
+**最后更新**: 2026-09-07<br>
 **适用范围**: `ParkingFacility` / `ParkingSpace` 静态模型、显式与虚拟停车资源、
 Traffic Runtime 生命周期、快照/修订切换、Spatial/Adapter 和复杂度边界<br>
 **实现状态**: 当前实现已以 `ParkingFacility + ParkingSpace`、tagged
@@ -762,9 +762,11 @@ build/load 峰值；本设计不复制或改写其格式容量上限，所有判
 - **#541 / G2+**：当前 clean-break 实现消费静态制品权威，并同步
   Runtime/snapshot/cutover/Spatial/Adapter/API/fixtures/docs；定向证据按上节闭合。
 - **#543 / research**：只做 exact capacity report；格式容量裁决留在对应独立权威。
-- **#304**：消费已接受的停车切片，并继续分别登记信号、干支路、小区出口、公交/出租/
-  路侧摩擦等其他域的支持状态；不能因为停车切片冻结就宣称整个 workload G1 完成。
+- **#304**：消费已接受的停车切片；首版场景、其他域的支持/依赖/延期状态及整体 G1
+  合同以[城市工作负载设计](chinese-style-city-workload.md)为准。该设计独立接受七项
+  场景的有限矩阵；公交运营、出租派单、上下客与动态路侧摩擦明确延后，不由本停车
+  设计追加为首版前置。停车切片自身的冻结不能代替整体 workload 的 G1 判断。
 
 当前实现报告仍必须区分已满足、依赖绑定和明确延后的验收项。#541 的停车切片不完成
-#543 的 exact topology/容量核算，也不使 #304 的其他城市 workload 域自动达到 G1 或
-Product Pass。
+#542 的正式拓扑生成、#544 的车辆运行或 #545 的跨层取证；#543 的研究容量报告也不
+代替这些交付。#304 整体 G1 接受不等于工作负载已经交付或达到 Product Pass。
