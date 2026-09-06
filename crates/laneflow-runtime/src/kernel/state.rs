@@ -75,6 +75,7 @@ pub(crate) struct DerivedIndexes {
     /// 只读 member batch，按 `(zone, admission_sequence)` 排列。
     pub(crate) waiting_member_rows: Vec<crate::WaitingZoneMember>,
     pub(crate) occupancy: OccupancyIndex,
+    pub(crate) spawn_overlap: crate::kernel::spawn_overlap::SpawnOverlapIndex,
 }
 
 /// 本拍候选与输出暂存；失败撤销逻辑结果并复用容量。
@@ -185,6 +186,7 @@ impl DerivedIndexes {
             waiting_links,
             waiting_member_rows,
             occupancy,
+            spawn_overlap,
         } = self;
         crate::kernel::state::vec_bytes(active_order)
             + crate::kernel::state::vec_bytes(waiting_member_rows)
@@ -192,6 +194,7 @@ impl DerivedIndexes {
             + crate::kernel::state::slice_bytes(waiting_links)
             + conflict.retained_logical_bytes()
             + occupancy.retained_logical_bytes()
+            + spawn_overlap.retained_logical_bytes()
     }
 }
 

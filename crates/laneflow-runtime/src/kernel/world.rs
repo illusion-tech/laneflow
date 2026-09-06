@@ -14,8 +14,8 @@ use crate::kernel::conflict::ConflictAcquireError;
 use crate::kernel::occupancy::OccupancyIndex;
 use crate::kernel::parking::ParkingRuntimeState;
 use crate::kernel::tables::{
-    CompiledRoute, ConflictCapabilityError, RouteSlot, VehicleSlot, bodies_overlap,
-    check_conflict_capability, compile_route, occupancy_front_gap, route_access_denied,
+    CompiledRoute, ConflictCapabilityError, RouteSlot, VehicleSlot, check_conflict_capability,
+    compile_route, occupancy_front_gap, route_access_denied,
 };
 use crate::kernel::waiting::{WaitingQueueLink, WaitingZoneState};
 use crate::{
@@ -33,13 +33,18 @@ thread_local! {
 }
 
 #[cfg(test)]
-fn reset_overlap_blocker_inspections() {
+pub(super) fn reset_overlap_blocker_inspections() {
     OVERLAP_BLOCKER_INSPECTIONS.set(0);
 }
 
 #[cfg(test)]
-fn overlap_blocker_inspections() -> usize {
+pub(super) fn overlap_blocker_inspections() -> usize {
     OVERLAP_BLOCKER_INSPECTIONS.get()
+}
+
+#[cfg(test)]
+pub(super) fn count_overlap_blocker_inspection() {
+    OVERLAP_BLOCKER_INSPECTIONS.set(OVERLAP_BLOCKER_INSPECTIONS.get() + 1);
 }
 
 /// 活动世界世代。安装时从 [`Self::INITIAL`] 开始，每次成功换绑活动聚合时递增。
@@ -285,6 +290,7 @@ impl TrafficWorld {
                 waiting_links,
                 waiting_member_rows,
                 occupancy,
+                spawn_overlap: Default::default(),
             },
             workspace: crate::kernel::state::TickWorkspace {
                 conflict: conflict_workspace,
@@ -960,7 +966,7 @@ impl TrafficWorld {
     }
 
     fn validate_unparked_vehicle(
-        &self,
+        &mut self,
         input: VehicleSpawnInput,
         carry_um: u16,
         status: VehicleStatus,
@@ -986,6 +992,8 @@ impl TrafficWorld {
             .relations()
             .vehicle_profile(input.profile())
             .ok_or(SpawnError::UnknownProfile)?;
+        let class = profile.class();
+        let vehicle_length = profile.length_mm();
         let cursor = usize::try_from(input.route_edge_index()).expect("route index fits usize");
         let edge = {
             let edges = self
@@ -1005,14 +1013,14 @@ impl TrafficWorld {
         if input.initial_speed_mm_s() > speed_limit {
             return Err(SpawnError::SpeedExceedsLimit);
         }
-        if self.route_suffix_denied(input.route(), profile.class(), cursor) {
+        if self.route_suffix_denied(input.route(), class, cursor) {
             return Err(SpawnError::AccessDenied);
         }
         let traversal = if status == VehicleStatus::Active {
             if let Some(traversal) = restored_traversal {
                 traversal
             } else {
-                self.validate_waiting_bootstrap(input.route(), cursor, profile.length_mm())
+                self.validate_waiting_bootstrap(input.route(), cursor, vehicle_length)
                     .map_err(|error| match error {
                         crate::kernel::waiting::WaitingBindingError::VehicleTooLong => {
                             SpawnError::WaitingVehicleTooLong
@@ -1032,12 +1040,7 @@ impl TrafficWorld {
         };
         if status == VehicleStatus::Active {
             if self
-                .overlap_blocker(
-                    input.route(),
-                    cursor,
-                    input.progress_mm(),
-                    profile.length_mm(),
-                )
+                .overlap_blocker(input.route(), cursor, input.progress_mm(), vehicle_length)
                 .is_some()
             {
                 return Err(SpawnError::Overlap);
@@ -1047,7 +1050,7 @@ impl TrafficWorld {
                 cursor,
                 input.progress_mm(),
                 carry_um,
-                profile.length_mm(),
+                vehicle_length,
             ) {
                 Ok(()) => {}
                 Err(ConflictCapabilityError::InvalidCursor) => {
@@ -1059,7 +1062,7 @@ impl TrafficWorld {
                 }
             }
         }
-        Ok((profile.class(), profile.length_mm(), traversal))
+        Ok((class, vehicle_length, traversal))
     }
 
     fn commit_unparked_vehicle(
@@ -1114,6 +1117,7 @@ impl TrafficWorld {
         self.committed.live_order.push(handle);
         if status == VehicleStatus::Active {
             self.derived.active_order.push(handle);
+            self.register_overlap_vehicle(state);
         }
         (handle, state)
     }
@@ -1127,7 +1131,10 @@ impl TrafficWorld {
         old: VehicleHandle,
         input: VehicleSpawnInput,
     ) -> Result<VehicleReplaceRecord, ReplaceError> {
-        let old_state = self.vehicle_state(old).ok_or(ReplaceError::StaleHandle)?;
+        let old_state = self
+            .vehicle_state(old)
+            .copied()
+            .ok_or(ReplaceError::StaleHandle)?;
         if old_state.status != VehicleStatus::Completed {
             return Err(ReplaceError::NotCompleted);
         }
@@ -1156,6 +1163,8 @@ impl TrafficWorld {
             .relations()
             .vehicle_profile(input.profile())
             .ok_or(ReplaceError::UnknownProfile)?;
+        let class = profile.class();
+        let vehicle_length = profile.length_mm();
         let cursor = usize::try_from(input.route_edge_index()).expect("route index fits usize");
         let edge = {
             let edges = self
@@ -1177,11 +1186,11 @@ impl TrafficWorld {
         if input.initial_speed_mm_s() > speed_limit {
             return Err(ReplaceError::SpeedExceedsLimit);
         }
-        if self.route_suffix_denied(input.route(), profile.class(), cursor) {
+        if self.route_suffix_denied(input.route(), class, cursor) {
             return Err(ReplaceError::AccessDenied);
         }
         let traversal = self
-            .validate_waiting_bootstrap(input.route(), cursor, profile.length_mm())
+            .validate_waiting_bootstrap(input.route(), cursor, vehicle_length)
             .map_err(|error| match error {
                 crate::kernel::waiting::WaitingBindingError::VehicleTooLong => {
                     ReplaceError::WaitingVehicleTooLong
@@ -1195,17 +1204,14 @@ impl TrafficWorld {
                     ReplaceError::InvalidProgress
                 }
             })?;
-        if let Some(blocker) = self.overlap_blocker(
-            input.route(),
-            cursor,
-            input.progress_mm(),
-            profile.length_mm(),
-        ) {
+        if let Some(blocker) =
+            self.overlap_blocker(input.route(), cursor, input.progress_mm(), vehicle_length)
+        {
             let (blocker_ahead, bumper_gap) = self.overlap_relation(
                 input.route(),
                 cursor,
                 input.progress_mm(),
-                profile.length_mm(),
+                vehicle_length,
                 blocker,
             );
             return Err(ReplaceError::Blocked(VehicleReplaceBlock {
@@ -1220,7 +1226,7 @@ impl TrafficWorld {
             cursor,
             input.progress_mm(),
             0,
-            profile.length_mm(),
+            vehicle_length,
         ) {
             Ok(()) => {}
             Err(ConflictCapabilityError::InvalidCursor) => {
@@ -1266,13 +1272,13 @@ impl TrafficWorld {
         let state = VehicleState {
             handle: new,
             profile: input.profile(),
-            class: profile.class(),
+            class,
             route: input.route(),
             route_edge_index: input.route_edge_index(),
             progress_mm: input.progress_mm(),
             carry_um: 0,
             speed_mm_s: input.initial_speed_mm_s(),
-            length_mm: profile.length_mm(),
+            length_mm: vehicle_length,
             status: VehicleStatus::Active,
             maneuver_traversal: traversal,
             waiting_membership: None,
@@ -1303,6 +1309,7 @@ impl TrafficWorld {
         self.committed.routes[route_index].live_vehicles += 1;
         self.committed.live_order[order_index] = new;
         self.rebuild_active_order();
+        self.register_overlap_vehicle(state);
         self.committed.observation_state_sequence = next_observation_state_sequence;
         self.committed.command_cursor = next_command_cursor;
         let new_state = self
@@ -1589,44 +1596,6 @@ impl TrafficWorld {
                 .iter()
                 .map(|occurrence| (occurrence.path, occurrence.exit_route_edge_index)),
         )
-    }
-
-    pub(crate) fn overlap_blocker(
-        &self,
-        route: RouteHandle,
-        cursor: usize,
-        progress: u32,
-        length: u32,
-    ) -> Option<VehicleHandle> {
-        let spawn_edges = self.route_edges(route)?;
-        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
-        self.derived.active_order.iter().copied().find(|&handle| {
-            #[cfg(test)]
-            OVERLAP_BLOCKER_INSPECTIONS.set(OVERLAP_BLOCKER_INSPECTIONS.get() + 1);
-            let Some(state) = self.vehicle_state(handle) else {
-                return false;
-            };
-            if state.status != VehicleStatus::Active {
-                return false;
-            }
-            let Some(edges) = self.route_edges(state.route) else {
-                return false;
-            };
-            let Ok(index) = usize::try_from(state.route_edge_index) else {
-                return false;
-            };
-            bodies_overlap(
-                lengths,
-                spawn_edges,
-                cursor,
-                progress,
-                length,
-                edges,
-                index,
-                state.progress_mm,
-                state.length_mm,
-            )
-        })
     }
 
     fn overlap_relation(
@@ -2190,7 +2159,7 @@ mod overflow_tests {
     }
 
     #[test]
-    fn overlap_blocker_inspects_only_active_order() {
+    fn overlap_blocker_skips_inactive_and_unrelated_edges() {
         let mut world = world();
         let edge_for_length = |world: &TrafficWorld, length: u32| {
             let index = world
@@ -2242,6 +2211,7 @@ mod overflow_tests {
                 .status = VehicleStatus::Parked;
         }
         world.rebuild_active_order();
+        world.derived.spawn_overlap.mark_stale();
         assert_eq!(world.committed.live_order.len(), 4);
         assert_eq!(world.derived.active_order.len(), 1);
 
@@ -2252,8 +2222,8 @@ mod overflow_tests {
             .expect("profile")
             .length_mm();
         reset_overlap_blocker_inspections();
-        assert_eq!(world.overlap_blocker(route, 0, 0, vehicle_length), None);
-        assert_eq!(overlap_blocker_inspections(), 1);
+        assert_eq!(world.overlap_blocker(route, 0, 1, vehicle_length), None);
+        assert_eq!(overlap_blocker_inspections(), 0);
     }
 }
 

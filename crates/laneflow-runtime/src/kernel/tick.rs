@@ -375,6 +375,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
                         .is_some_and(|state| state.status == VehicleStatus::Active)
             })
         });
+        self.derived.spawn_overlap.mark_stale();
         self.committed.tick_index = tick_index;
         self.committed.time_ms = time_ms;
         self.committed.observation_state_sequence = observation_state_sequence;

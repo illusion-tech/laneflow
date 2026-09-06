@@ -1229,6 +1229,8 @@ fn apply_record(
     rebinding: &CrossRevisionRebinding,
     record: &JournalRecord<'_>,
 ) -> Result<(), CutoverError> {
+    // 日志直接改写候选的整值状态；晋升后的首次准入从最终车辆表重建。
+    candidate.derived.spawn_overlap.mark_stale();
     match record {
         JournalRecord::Tick {
             tick_index,
@@ -3938,6 +3940,7 @@ mod tests {
             .expect("old vehicle is in stable live order");
         cut.committed.live_order[order_index] = saturated_old;
         cut.rebuild_active_order();
+        cut.derived.spawn_overlap.mark_stale();
 
         let mut tx = prepare(
             &mut cut,
@@ -3951,6 +3954,7 @@ mod tests {
             .expect("old vehicle remains live during the journal window")
             .status = VehicleStatus::Completed;
         cut.rebuild_active_order();
+        cut.derived.spawn_overlap.mark_stale();
         let replacement = cut
             .replace_completed_vehicle(
                 saturated_old,
@@ -3997,8 +4001,10 @@ mod tests {
                 ..CutoverTransactionLimits::default()
             },
         );
+        let candidate = tx.candidate.as_mut().expect("prepared candidate");
+        assert_eq!(candidate.overlap_blocker(route, 0, 2_000, 4_500), None);
         cut.step(TickInput::new(100)).expect("step");
-        spawn_on(&mut cut, route, 2_000, 0);
+        let added = spawn_on(&mut cut, route, 2_000, 0);
         // 两条记录（TICK + SPAWNED）按预算分段应用。
         let first = tx.pump(&mut cut).expect("first pump");
         assert_eq!(first.applied_records, 1);
@@ -4008,7 +4014,15 @@ mod tests {
         assert_eq!(second.applied_records, 1);
         assert!(second.caught_up);
         assert_eq!(tx.applied_records(), 2);
+        assert_eq!(
+            tx.candidate
+                .as_mut()
+                .unwrap()
+                .overlap_blocker(route, 0, 2_000, 4_500),
+            Some(added)
+        );
         let _ = tx.commit(&mut cut).expect("commit after segmented pumps");
+        assert_eq!(cut.overlap_blocker(route, 0, 2_000, 4_500), Some(added));
     }
 
     #[test]
@@ -4046,6 +4060,8 @@ mod tests {
             .as_mut()
             .expect("vehicle")
             .status = crate::VehicleStatus::Completed;
+        cut.rebuild_active_order();
+        cut.derived.spawn_overlap.mark_stale();
         cut.replace_completed_vehicle(
             vehicle,
             VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), allowed, 0, 1_000, 0),

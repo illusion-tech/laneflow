@@ -1,7 +1,7 @@
 # 运行时快照
 
 **文档状态**: Accepted（#302 G1；停车 #540；路线冲突出现项 #283；Waiting #282）<br>
-**最后更新**: 2026-09-03<br>
+**最后更新**: 2026-09-06<br>
 **适用范围**: 版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)（§12；static image / receipt 条款已被 ADR 0025 §8 取代，origin 以 LFCA 为准）、
@@ -178,6 +178,9 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   总数并核对快照与目标容量，再以保存的 `carry_um` 直接提交最终车辆状态。每个
   `Active` 都必须满足冲突仲裁能力缺席期的 3A 车尾清除谓词；`Parked/Completed`
   不经过瞬时 `Active`。任一失败不发布 world。
+- 重叠准入复用命令路径的物理边候选索引，比较路线起点截断后的非空车身并拒绝
+  重合的零进度前杠入口点（`vehicle-following.md` §7.4）。索引从恢复结果建立，
+  不写入快照；Completed / Parked 不登记为道路占用。
 - 普通恢复严格核对已保存的 Waiting traversal/membership；缺失状态不得自动补成
   `PreGate`。首次 Waiting 覆盖的零历史初始化只属于显式跨修订切换（切换文档 §3.3）。
 - Conflict eligibility 的 committed authority 谓词由 aggregate 校验、普通恢复、跨修订

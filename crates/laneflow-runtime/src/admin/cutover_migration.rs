@@ -980,6 +980,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             waiting_links,
             waiting_member_rows,
             occupancy,
+            spawn_overlap: Default::default(),
         },
         workspace: crate::kernel::state::TickWorkspace {
             conflict: conflict_workspace,

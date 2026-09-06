@@ -1,7 +1,7 @@
 # 停车系统设计
 
 **文档状态**: Accepted（#540 G1）<br>
-**最后更新**: 2026-08-31（#541 clean-break 实现）<br>
+**最后更新**: 2026-09-06<br>
 **适用范围**: `ParkingFacility` / `ParkingSpace` 静态模型、显式与虚拟停车资源、
 Traffic Runtime 生命周期、快照/修订切换、Spatial/Adapter 和复杂度边界<br>
 **实现状态**: 当前实现已以 `ParkingFacility + ParkingSpace`、tagged
@@ -474,7 +474,9 @@ follower 只剩物理几何要求；`g0_mm <= min_gap_mm` 且 `v > 0` 时 availa
 拒绝。
 
 生产查询可以用 edge-local/route-aware index 缩小候选，但必须保留 full-scan reference
-oracle 对拍。多个 blocker 以稳定 live/update order 选择；物理 overlap 与
+oracle 对拍。多个物理 overlap blocker 按当前世界内部 `(slot index, generation)`
+字典序选择最小值，区间及缓存规则见 `vehicle-following.md` §7.4；多个 unsafe-follower
+仍按稳定 live/update order 选择。物理 overlap 与
 unsafe-follower 必须是两个可区分错误，不能统一为含糊的 `unsafe exit`。
 
 ### 5.6 Cancel、rebind、despawn 与 parked spawn
