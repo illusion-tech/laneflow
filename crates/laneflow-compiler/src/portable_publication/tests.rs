@@ -338,6 +338,95 @@ fn lfcp_v2_contains_only_artifact_source_and_publication_bindings() {
 }
 
 #[test]
+fn lfcp_bindings_and_both_checked_inputs_reach_the_same_shared_origin() {
+    use laneflow_format::check_canonical_network_input;
+    use laneflow_static_network::{
+        SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+        build_shared_network_revision,
+    };
+
+    let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
+    let checked = check_portable_candidate(candidate.clone(), FormatLimits::HARD).unwrap();
+    let descriptor = build_portable_publication_descriptor(
+        candidate.clone(),
+        &provenance(PortablePublisherKind::ReleaseService),
+        FormatLimits::HARD,
+    )
+    .unwrap();
+    let bytes = descriptor.bytes();
+
+    // 宿主必须先认证描述符，再将这些 binding 与收到的 exact bytes 比较。
+    // 本测试只闭合仓库提供的 binding；格式预检和共享根不证明发布真实性。
+    let loaded =
+        check_canonical_network_input(candidate.canonical_artifact().bytes(), FormatLimits::HARD)
+            .unwrap();
+    assert_eq!(
+        field_bytes(bytes, 0, 3),
+        loaded.network_revision().into_digest().into_bytes()
+    );
+    assert_eq!(
+        field_bytes(bytes, 0, 4),
+        loaded.canonical_artifact_digest().into_bytes()
+    );
+    assert_eq!(
+        field_bytes(bytes, 0, 5),
+        loaded.canonical_artifact_byte_length().get().to_le_bytes()
+    );
+    assert_eq!(
+        field_bytes(bytes, 1, 2),
+        checked.source_map_digest().into_bytes()
+    );
+    assert_eq!(
+        field_bytes(bytes, 1, 3),
+        checked.source_map_byte_length().get().to_le_bytes()
+    );
+    assert_eq!(field_utf8(bytes, 1, 4), checked.compiler_build_id());
+    assert_eq!(
+        field_bytes(bytes, 1, 5),
+        checked.source_collection_digest_version().to_le_bytes()
+    );
+    assert_eq!(
+        field_bytes(bytes, 1, 6),
+        checked.source_collection_digest().into_bytes()
+    );
+
+    let options = SharedNetworkBuildOptions::new(
+        SpatialBuildOption::RetainAvailable,
+        SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+    );
+    let loaded_root = build_shared_network_revision(loaded, options).unwrap();
+    let edited_root =
+        build_shared_network_revision(checked.canonical_network_input(), options).unwrap();
+    assert_eq!(
+        loaded_root.canonical_origin(),
+        edited_root.canonical_origin()
+    );
+    assert_eq!(
+        field_bytes(bytes, 0, 4),
+        loaded_root
+            .canonical_origin()
+            .canonical_artifact_digest()
+            .into_bytes()
+    );
+    assert_eq!(
+        field_bytes(bytes, 0, 5),
+        loaded_root
+            .canonical_origin()
+            .canonical_artifact_byte_length()
+            .get()
+            .to_le_bytes()
+    );
+    assert_eq!(loaded_root.network_revision(), candidate.network_revision());
+    assert_eq!(
+        loaded_root.traffic().lane_lengths_millimetres(),
+        edited_root.traffic().lane_lengths_millimetres()
+    );
+    assert!(loaded_root.traffic().lane_edge_count() > 0);
+    assert!(loaded_root.spatial().unwrap().lane_pose().is_some());
+    assert!(edited_root.spatial().unwrap().lane_pose().is_some());
+}
+
+#[test]
 fn descriptor_construction_stops_at_candidate_check_failure() {
     let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
     let largest = [
