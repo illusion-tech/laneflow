@@ -72,8 +72,8 @@
 - `real-road-workloads.md`：LuST 真实路网契约。
 - `lust-bevy-population-control.md`：LuST / Bevy 示例层人口调节。
 - `core-runtime-scalability-audit.md`：城市级可扩展性前置约束；不实现生产分区。
-- `chinese-style-city-workload.md`：#304 的 topology/demand/runtime 分层草案；其中 #540
-  停车切片已 Accepted，其他城市工作负载切片仍待各自冻结。
+- `chinese-style-city-workload.md`：#304 的连通路网、七套需求计划、10k/100k 运行与有限
+  跨层验证合同；停车复用 #540 Accepted 合同，产品认证独立执行。
 
 ## 已退役（只保留结论）
 
