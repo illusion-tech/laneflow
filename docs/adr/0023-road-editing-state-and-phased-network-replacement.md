@@ -25,7 +25,7 @@
 **关联文档**:
 
 - `0020-compiler-owned-static-network-and-static-image.md`
-- `0021-city-simulation-game-traffic-foundation.md`
+- `0021-traffic-infrastructure-and-host-boundary.md`
 - `0022-authoring-curve-and-canonical-polyline-error-budgets.md`
 - `0025-checked-canonical-network-and-shared-static-network.md`
 - `0029-retire-precompiled-static-route.md`

@@ -20,8 +20,8 @@ description: 处理 LaneFlow 引擎适配器（Engine Adapter）工作。适用�
 8. 涉及 #301 目标 Runtime/Spatial 绑定、最小 Bevy 或 Adapter 目标接线时，读取
    `docs/design/traffic-runtime-shared-consumption.md`。Spatial 只 bind 根 `Arc`，
    不依赖 Runtime；pose 使用 `PoseRecordId`。
-9. 涉及城市模拟游戏集成、存档/回放、路网切换或 fidelity 时，读取
-   `docs/adr/0021-city-simulation-game-traffic-foundation.md`
+9. 涉及宿主应用集成、存档/回放、路网切换或 fidelity 时，读取
+   `docs/adr/0021-traffic-infrastructure-and-host-boundary.md`
 
 若 Adapter API 设计尚不存在，且任务会改变当前 Core / 目标 Traffic Runtime 与
 Adapter 的契约，应先提出 G1 设计缺口或创建最小设计基线。

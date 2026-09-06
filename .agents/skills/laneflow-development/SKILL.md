@@ -38,8 +38,8 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
     规范发布描述符、逐字节确定性或原子发布时，额外读取
     `docs/design/portable-canonical-artifact.md` 与
     `docs/design/compiler-post-emission-check-and-minimal-publication-closure.md`
-12. 涉及城市模拟游戏范围、Routing、路网修订、存档/回放、并行或 fidelity 时读取
-   `docs/adr/0021-city-simulation-game-traffic-foundation.md`
+12. 涉及公开组件定位与宿主边界、Routing、路网修订、存档/回放、并行或 fidelity 时读取
+   `docs/adr/0021-traffic-infrastructure-and-host-boundary.md`
 
 若任务涉及当前态 Core API、目标态 Traffic Runtime API、数据格式或 Adapter API，
 但缺少相关设计输入，应先停止实现并提出 G1 设计缺口。

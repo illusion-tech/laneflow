@@ -5,7 +5,7 @@
 **适用范围**: 版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)（§12；static image / receipt 条款已被 ADR 0025 §8 取代，origin 以 LFCA 为准）、
-[`../adr/0021-city-simulation-game-traffic-foundation.md`](../adr/0021-city-simulation-game-traffic-foundation.md)、
+[`../adr/0021-traffic-infrastructure-and-host-boundary.md`](../adr/0021-traffic-infrastructure-and-host-boundary.md)、
 [`../adr/0028-integer-millimeter-traffic-geometry.md`](../adr/0028-integer-millimeter-traffic-geometry.md)、
 [`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)、
 [`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md)、

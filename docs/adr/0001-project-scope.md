@@ -1,16 +1,17 @@
 # 0001 Project Scope
 
-> 后继扩展：Accepted ADR 0021 将“面向中国特色城市模拟游戏的交通基础”定义为
-> LaneFlow 第一长期产品目标，同时保留本文对城市经济、市民出行需求和专业交通
-> 工程仿真的职责排除。该扩展已经由 #291 G1 接受，但不表示目标态实现已经交付。
+> 后继扩展：[ADR 0021](0021-traffic-infrastructure-and-host-boundary.md) 定义公开
+> 组件定位、宿主职责和单世界规模演进边界，保留本文对城市经济、市民出行需求和
+> 专业交通工程仿真的职责排除。长期方向需要独立证据，不表示实现已经交付。
 
 **状态**: Accepted  
 **日期**: 2026-06-17  
+**最后更新**: 2026-09-06<br>
 **适用范围**: LaneFlow 项目定位、非目标和核心边界
 
 ## 背景
 
-LaneFlow 需要在主流游戏引擎和数字孪生场景中生成可信的 NPC 车辆流动效果。
+LaneFlow 为游戏引擎、数字孪生等宿主提供可嵌入的道路交通执行能力。
 
 项目目标不是替代专业交通工程仿真器，也不是实现完整城市经济或出行需求模拟，而是提供一个轻量、可嵌入、引擎无关的交通 runtime。
 
@@ -18,13 +19,16 @@ LaneFlow 需要在主流游戏引擎和数字孪生场景中生成可信的 NPC 
 
 LaneFlow 定位为：
 
-> Engine-Agnostic Traffic Core + Game Engine Adapter + NPC Vehicle Runtime
+> 可嵌入、引擎无关、确定性的道路交通运行时与工具链。
 
-LaneFlow Core 负责：
+编译器负责静态路网编制与检查，共享静态路网提供不可变拓扑、几何和规则；具体
+边界由 ADR 0020 / 0024 / 0025 定义。
+
+LaneFlow Traffic Runtime 负责：
 
 - 车辆逻辑
-- 车道图
-- 路线
+- 基于共享车道图的交通推进
+- 每世界路线注册与执行
 - 红绿灯
 - 前车避让
 - 停车系统
@@ -56,7 +60,7 @@ LaneFlow 暂不追求：
 
 ## 后果
 
-- Core 设计应优先保持轻量和可嵌入。
-- Adapter 不应反向污染 Core 的抽象。
-- 与 SUMO、CARLA、libsumo 等系统的集成可以作为工具链或离线数据来源讨论，但不作为客户端 Core 依赖。
+- Traffic Runtime 设计应优先保持轻量和可嵌入。
+- Adapter 不应反向污染 Traffic Runtime 的抽象。
+- 与 SUMO、CARLA、libsumo 等系统的集成可以作为工具链或离线数据来源讨论，但不作为客户端 Traffic Runtime 依赖。
 - GitHub Issue 和 PR 应围绕这个范围判断是否属于 LaneFlow 当前目标。

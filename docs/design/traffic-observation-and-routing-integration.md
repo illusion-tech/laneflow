@@ -5,7 +5,7 @@
 **适用范围**: 已提交交通观测的 full/delta/partition 导出、动态成本绑定、候选路线注册、过期语义、#302 切换/快照交互与独立性能门禁<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)、
-[`../adr/0021-city-simulation-game-traffic-foundation.md`](../adr/0021-city-simulation-game-traffic-foundation.md)、
+[`../adr/0021-traffic-infrastructure-and-host-boundary.md`](../adr/0021-traffic-infrastructure-and-host-boundary.md)、
 [`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)、
 [`traffic-runtime-shared-consumption.md`](traffic-runtime-shared-consumption.md)、
 [`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md)、

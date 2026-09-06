@@ -18,7 +18,7 @@
   交通运行时（Traffic Runtime）、当前道路机动车的车道图（Lane Graph）/路线
   （Route）/信号（Signal）/停车（Parking），目标交通参与单元（Traffic
   Participant Unit）与交通执行域（Traffic Execution Domain）、确定性并行、路网
-  修订、快照/回放、路径规划接入与城市模拟游戏上层边界。
+  修订、快照/回放、路径规划接入与宿主应用边界。
 - `skills/laneflow-adapter/SKILL.md`：Unity、Unreal、Godot、O3DE、Web 等引擎适配器
   （Engine Adapter）开发及当前态核心（Current Core）→目标态交通运行时（Target
   Traffic Runtime）迁移边界。
@@ -37,9 +37,9 @@ Agent 应选择与当前任务最相关、范围最小的 Skill。若任务跨�
 理解；双语映射遵循 `docs/reference/glossary.md`。技术标识符（切片类型、闸口
 （Gate）、提交字段名、包（crate）、类型与协议常量）保留精确原文。
 
-Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通基础”定义为 LaneFlow
-的第一长期产品目标。涉及城市级范围、出行编排、路径规划（Routing）、路网修订、
-存档/回放、并行或保真度（Fidelity）的任务必须读取该 ADR。#291 G1 已接受目标
-边界，但不得把它写成当前已实现能力；该边界不得把城市经济/出行需求塞入交通运行时
-（Traffic Runtime），也不得用引擎适配器细节层次（Adapter LOD）或多世界
-（Multi-world）吞吐替代单个大型交通世界的正确性与性能。
+ADR 0021 定义 LaneFlow 的公开组件定位与宿主边界：可嵌入、引擎无关、确定性的
+道路交通运行时与工具链。涉及地区交通场景、城市级范围、出行编排、路径规划
+（Routing）、路网修订、存档/回放、并行或保真度（Fidelity）的任务必须读取该 ADR。
+地区规则与城市工作负载用于通用技术验证，不指定具体产品或第一消费者；长期方向
+不得写成当前已实现能力。城市经济与出行需求由宿主拥有，也不得用引擎适配器细节
+层次（Adapter LOD）或多世界（Multi-world）吞吐替代单个大型交通世界的正确性与性能。

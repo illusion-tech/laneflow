@@ -17,8 +17,8 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 8. `docs/adr/0027-retire-external-review-check.md`
 9. 涉及安全设置、扫描或公开发布时，额外阅读 `docs/governance/security-scanning.md`
 10. 涉及许可证、Cargo 依赖、RustSec、cargo-deny 或 Dependabot 时，额外阅读 `docs/governance/dependency-security.md`
-11. 涉及产品定位、城市级范围、出行编排、Routing、路网修订、存档/回放、并行或
-    fidelity 时，额外阅读 `docs/adr/0021-city-simulation-game-traffic-foundation.md`
+11. 涉及公开组件定位、城市级范围、出行编排、Routing、路网修订、存档/回放、并行或
+    fidelity 时，额外阅读 `docs/adr/0021-traffic-infrastructure-and-host-boundary.md`
 12. 1.0 正式发布前阅读 `.agents/skills/laneflow-pre-1-0/SKILL.md`。
 
 ## 工作流

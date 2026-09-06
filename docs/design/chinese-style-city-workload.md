@@ -16,12 +16,13 @@ Product Pass。#540 冻结停车输入，#541 已实现 Runtime/Snapshot/Cutover
 - `signalized-corridor-protected-turning.md`
 - `real-road-workloads.md`
 - `../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`
-- `../adr/0021-city-simulation-game-traffic-foundation.md`
+- `../adr/0021-traffic-infrastructure-and-host-boundary.md`
 
 ## 1. 目的和边界
 
-`LF-CN-URBAN-v1` 用于证明 LaneFlow 能支撑中国特色城市模拟游戏中真实会发生的首批
-交通闭环，而不是用一个抽象车辆数或全国法规口号替代可复核场景。
+`LF-CN-URBAN-v1` 将中国城市常见的交通规则和工作负载组织为可复核的通用技术
+验证场景，用于检验交通闭环、规模口径和边界成本。场景选择不指定具体产品，
+也不代表完整行为域或规模目标已经交付。
 
 工作负载分三层：
 
@@ -76,7 +77,7 @@ Runtime slot 或 presented entity。
 
 ## 3. 两档产品规模
 
-`LF-CN-URBAN-v1` 保留 10k 与 100k 两档声明规模，用于现实的城市游戏预算和稀疏/高占用
+`LF-CN-URBAN-v1` 保留 10k 与 100k 两档声明规模，用于城市交通工作负载预算和稀疏/高占用
 行为验证。这里的数字首先描述 runtime 个体/停车容量目标，不提前决定 topology 的道路、
 泊位或 relation 行数。
 

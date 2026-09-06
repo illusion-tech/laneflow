@@ -5,7 +5,7 @@
 **适用范围**: `laneflow-runtime` / `TrafficWorld`、`laneflow-spatial` 目标 session、
 1-worker 车辆 tick、#301 端到端证据，以及 current `laneflow-core` / JSON 运行时入口拆除<br>
 **关联文档**: `../adr/0020-compiler-owned-static-network-and-static-image.md`、
-`../adr/0021-city-simulation-game-traffic-foundation.md`、
+`../adr/0021-traffic-infrastructure-and-host-boundary.md`、
 `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
 `../adr/0029-retire-precompiled-static-route.md`、
 `../adr/0026-merge-governance-rebuild.md`、

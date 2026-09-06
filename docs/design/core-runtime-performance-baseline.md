@@ -14,7 +14,7 @@ Spatial、Engine Adapter 的一万/十万产品目标、一百万研究包络，
 - [`bevy-reference-adapter.md`](bevy-reference-adapter.md)
 - [`../adr/0001-project-scope.md`](../adr/0001-project-scope.md)
 - [`../adr/0003-runtime-tick-and-determinism.md`](../adr/0003-runtime-tick-and-determinism.md)
-- [`../adr/0021-city-simulation-game-traffic-foundation.md`](../adr/0021-city-simulation-game-traffic-foundation.md)
+- [`../adr/0021-traffic-infrastructure-and-host-boundary.md`](../adr/0021-traffic-infrastructure-and-host-boundary.md)
 - [`../reference/validation-matrix.md`](../reference/validation-matrix.md)
 - [#215 G1 冻结判断](https://github.com/illusion-tech/laneflow/issues/215#issuecomment-5060652396)
 
@@ -24,9 +24,9 @@ Spatial、Engine Adapter 的一万/十万产品目标、一百万研究包络，
 contract），用于让单线程优化、多频率候选、单机并行和未来聚合研究使用相同
 workload、fidelity、hardware 与 frame-budget 口径。
 
-Accepted ADR 0021 把中国特色城市模拟游戏交通基础定义为 LaneFlow 的第一长期产品
-目标，但不改变本文当前道路机动车工作负载（Workload）的一万/十万/一百万证据
-等级：目标被接受不是既有硬件认证，也不能用多世界集合（Multi-world Ensemble）
+ADR 0021 将单世界规模演进保留为交通基础设施的技术方向，不改变本文当前道路
+机动车工作负载（Workload）的一万/十万/一百万证据等级：长期方向不等于既有
+硬件认证，也不能用多世界集合（Multi-world Ensemble）
 吞吐代替单个大型城市世界的固定步进、屏障、边界交换和负载偏斜测量，更不能把车辆
 证据解释为非机动车、行人或轨道交通认证。
 

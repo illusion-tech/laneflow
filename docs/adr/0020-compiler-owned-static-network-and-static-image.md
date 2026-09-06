@@ -43,7 +43,7 @@ descriptor/完整性清单、mmap/chunk 和镜像摘要/长度决定；该设计
   - `0025-checked-canonical-network-and-shared-static-network.md`
   - `0017-static-road-junction-maneuver-and-gate-identity.md`
 - 配套决策:
-  - `0021-city-simulation-game-traffic-foundation.md`
+  - `0021-traffic-infrastructure-and-host-boundary.md`
   - `0024-compiler-post-emission-check-and-minimal-publication-closure.md`
 - 详细设计:
   - `../design/network-compiler.md`
@@ -95,10 +95,9 @@ LaneFlow 当前以 Traffic JSON、Spatial JSON 和 Scenario Manifest 为运行�
 离线编译期，并让 target Traffic Runtime 只从具有外部信任锚的派生静态镜像建立
 只读 view。
 
-Accepted ADR 0021 进一步确认：LaneFlow 的第一长期产品目标是为未来的中国特色城市
-模拟游戏提供交通基础。#291 的已接受设计因此不仅要优化加载，还必须保留单个大型
-城市世界的并行扩展、玩家修改道路、存档/回放、路径规划接入与每世界唯一性演进
-空间，同时不把城市经济和出行需求塞入交通运行时。
+ADR 0021 定义交通基础设施与宿主边界。静态编译设计既要优化加载，也要保留单个
+大型交通世界的并行扩展、交互式道路编辑、存档/回放、路径规划接入与每世界唯一性
+演进空间；城市经济和出行需求继续由宿主拥有。
 
 ## 决策
 
@@ -867,7 +866,7 @@ fast path 必须有认证的 image 外部 trust anchor；拒绝 header self-atte
 7. 所有 `LaneEdge` 均以独立稳定边键进入身份闭包；道路区段 / 路口角色变化不改写
    既有边身份，current 合法未覆盖边无需伪造所有者即可迁移；
 8. 未把具体 archive library、并行框架或增量数据库当作未经基准的既定事实。
-9. 城市模拟游戏上层、路径规划、不可变路网修订、运行时快照和每世界唯一性边界
+9. 宿主应用层、路径规划、不可变路网修订、运行时快照和每世界唯一性边界
    已同步到 architecture、roadmap、glossary 与 Agent Skills。
 10. 跨修订状态迁移必须有受信任 semantic diff 与独立验证证据；稳定身份索引只复核
     映射，缺失证据时 index-only 路径失败关闭。

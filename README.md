@@ -89,6 +89,7 @@ SharedNetworkRevision
 
 [文档索引](docs/README.md) ·
 [架构说明](docs/architecture.md) ·
+[定位与宿主边界](docs/adr/0021-traffic-infrastructure-and-host-boundary.md) ·
 [`laneflow-bevy` 接入](crates/laneflow-bevy/README.md) ·
 [贡献指南](CONTRIBUTING.md) ·
 [品牌标记](assets/brand/README.md) ·
