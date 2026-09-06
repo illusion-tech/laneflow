@@ -817,15 +817,15 @@ p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up 
 TBD 是显式停止条件，不是可以用开发机推测值填补的空白。每项必须记录未决原因、
 禁止声明、解除触发和 owner。
 
-| TBD                                                          | 未决原因                                       | 当前禁止的声明                                           | 解除触发                                         | Owner / 后续承载                      |
-| ------------------------------------------------------------ | ---------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------ | ------------------------------------- |
-| P10 具体设备/SKU、release OS、内存与数值内存上限             | 尚未选定最低产品设备                           | 一万 Product Pass / SLA                                  | 设备确定并完成第 4–8 节 integrated certification | `wangzishi`；后续 certification Issue |
-| P100 支持的 release OS、固件基线与数值内存上限               | 推荐硬件已选定，认证运行环境和数值上限尚未冻结 | 十万 Product Pass / SLA                                  | 在 P100 完成第 4–8 节 integrated certification   | `wangzishi`；后续 certification Issue |
-| Presentation interpolation/extrapolation 与 visual tolerance | 当前只冻结 committed sample exact              | 视觉平滑度 SLA、插值误差承诺                             | 独立 G1 冻结算法、authority 与容差               | `wangzishi`；独立 design Issue        |
-| Aggregate model 与非守恒数值 tolerance                       | Aggregate 尚未触发，也未选择模型               | aggregate fidelity、一百万 realtime 或无损 identity 声明 | 第 10 节 trigger 满足并完成独立 G1/ADR           | `wangzishi`；未来 aggregate Issue     |
-| Linux/macOS/Web/mobile 平台基线                              | 当前只有 Windows x86-64 的 R0/P100             | 对这些平台外推一万/十万 SLA                              | 每个平台分别确定硬件/runtime 并运行完整适用协议  | `wangzishi`；平台专用 Issue           |
-| 真实路网 converter、Release 制品、harness 与结果             | #224 已冻结设计，但尚未交付可执行链路          | real-road Product Pass、真实城市 workload SLA            | #224 G4 后的 A–C 完成制品、harness 与对应证据    | `wangzishi`；#224 与下游 A–C          |
-| 中国特色城市拓扑/需求/运行时工作负载                         | 尚未完成独立 G1 与工作负载 ID                  | 中国特色城市代表性或 Product Pass                        | 冻结场景、来源、规模、摘要、harness 与硬件证据   | `wangzishi`；后继城市工作负载 Issue   |
+| TBD                                                          | 未决原因                                           | 当前禁止的声明                                           | 解除触发                                                      | Owner / 后续承载                      |
+| ------------------------------------------------------------ | -------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------- |
+| P10 具体设备/SKU、release OS、内存与数值内存上限             | 尚未选定最低产品设备                               | 一万 Product Pass / SLA                                  | 设备确定并完成第 4–8 节 integrated certification              | `wangzishi`；后续 certification Issue |
+| P100 支持的 release OS、固件基线与数值内存上限               | 推荐硬件已选定，认证运行环境和数值上限尚未冻结     | 十万 Product Pass / SLA                                  | 在 P100 完成第 4–8 节 integrated certification                | `wangzishi`；后续 certification Issue |
+| Presentation interpolation/extrapolation 与 visual tolerance | 当前只冻结 committed sample exact                  | 视觉平滑度 SLA、插值误差承诺                             | 独立 G1 冻结算法、authority 与容差                            | `wangzishi`；独立 design Issue        |
+| Aggregate model 与非守恒数值 tolerance                       | Aggregate 尚未触发，也未选择模型                   | aggregate fidelity、一百万 realtime 或无损 identity 声明 | 第 10 节 trigger 满足并完成独立 G1/ADR                        | `wangzishi`；未来 aggregate Issue     |
+| Linux/macOS/Web/mobile 平台基线                              | 当前只有 Windows x86-64 的 R0/P100                 | 对这些平台外推一万/十万 SLA                              | 每个平台分别确定硬件/runtime 并运行完整适用协议               | `wangzishi`；平台专用 Issue           |
+| 真实路网 converter、Release 制品、harness 与结果             | #224 已冻结设计，但尚未交付可执行链路              | real-road Product Pass、真实城市 workload SLA            | #224 G4 后的 A–C 完成制品、harness 与对应证据                 | `wangzishi`；#224 与下游 A–C          |
+| 城市拓扑/需求/运行时工作负载 `LF-CN-URBAN-v1`                | #304 G1 已定义首版，生成器、运行及认证证据仍待交付 | 城市代表性、法规合规或 Product Pass                      | 按城市工作负载设计完成 #542/#544/#545；产品认证另完成本文协议 | `wangzishi`；#304、#539/#305          |
 
 后续 Issue 可以接管某个 TBD，但在长期文档更新前，原 claim restriction 继续有效。
 
