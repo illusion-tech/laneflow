@@ -568,6 +568,10 @@ impl CutoverTransaction {
             &mut candidate.derived.occupancy,
         );
         std::mem::swap(
+            &mut world.derived.spawn_overlap,
+            &mut candidate.derived.spawn_overlap,
+        );
+        std::mem::swap(
             &mut world.workspace.occupancy_scratch,
             &mut candidate.workspace.occupancy_scratch,
         );
@@ -1229,8 +1233,8 @@ fn apply_record(
     rebinding: &CrossRevisionRebinding,
     record: &JournalRecord<'_>,
 ) -> Result<(), CutoverError> {
-    // 日志直接改写候选的整值状态；晋升后的首次准入从最终车辆表重建。
-    candidate.derived.spawn_overlap.mark_stale();
+    // 冷查询会把新状态一并重建；只有重放前已热的索引需要在校验后增量登记。
+    let overlap_was_current = candidate.derived.spawn_overlap.is_current();
     match record {
         JournalRecord::Tick {
             tick_index,
@@ -1241,6 +1245,9 @@ fn apply_record(
             conflict_authorities,
             conflict_lags,
         } => {
+            if !entries.is_empty() {
+                candidate.derived.spawn_overlap.mark_stale();
+            }
             candidate.committed.tick_index = *tick_index;
             candidate.committed.time_ms = *time_ms;
             candidate.refresh_signals();
@@ -1470,6 +1477,11 @@ fn apply_record(
                 slot.live_vehicles += 1;
             }
             revalidate_vehicle_on(candidate, handle)?;
+            if overlap_was_current {
+                candidate
+                    .try_register_overlap_vehicle(state)
+                    .map_err(|()| CutoverError::StagingAllocFailed)?;
+            }
         }
         JournalRecord::VehicleReplaced {
             old_slot,
@@ -1540,6 +1552,7 @@ fn apply_record(
                 }
             }
 
+            candidate.unregister_overlap_vehicle(old_state);
             let staged = crate::kernel::tables::VehicleSlot {
                 generation: vehicle.generation,
                 state: Some(state),
@@ -1563,6 +1576,11 @@ fn apply_record(
             candidate.committed.live_order[order] = new_handle;
             candidate.rebuild_active_order();
             revalidate_vehicle_on(candidate, new_handle)?;
+            if overlap_was_current {
+                candidate
+                    .try_register_overlap_vehicle(state)
+                    .map_err(|()| CutoverError::StagingAllocFailed)?;
+            }
         }
         JournalRecord::VehicleParkingUpdated {
             vehicle, parking, ..
@@ -1591,6 +1609,7 @@ fn apply_record(
                 .then(|| checked_candidate_route_ref(candidate, next_state.route))
                 .transpose()?;
 
+            candidate.unregister_overlap_vehicle(current);
             remove_candidate_parking_binding(candidate, handle, current_binding);
             insert_candidate_parking_binding(candidate, handle, next_binding)?;
             if let Some(next_route_ref) = next_route_ref {
@@ -1600,6 +1619,11 @@ fn apply_record(
             candidate.committed.vehicles[slot_index].state = Some(next_state);
             candidate.rebuild_active_order();
             revalidate_vehicle_on(candidate, handle)?;
+            if overlap_was_current {
+                candidate
+                    .try_register_overlap_vehicle(next_state)
+                    .map_err(|()| CutoverError::StagingAllocFailed)?;
+            }
         }
         JournalRecord::VehicleParkingSpawned {
             vehicle, parking, ..
@@ -1694,6 +1718,7 @@ fn apply_record(
                 return Err(CutoverError::ReplayInconsistent);
             }
 
+            candidate.unregister_overlap_vehicle(state);
             let binding = candidate.committed.parking.binding(handle);
             remove_candidate_parking_binding(candidate, handle, binding);
             crate::kernel::conflict::ConflictWrite::new(
@@ -1980,6 +2005,102 @@ mod tests {
             1,
             "quiescent commit must not rerun full Conflict migration"
         );
+    }
+
+    #[test]
+    fn lifecycle_replay_keeps_overlap_index_current_without_per_record_rebuild() {
+        use crate::kernel::spawn_overlap::overlap_rebuilds;
+        let mut world = installed_world(ORACLE_BASE, "fixture://overlap-replay");
+        let (entry, exit) = entry_exit(&world);
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .unwrap();
+        spawn_on(&mut world, route, 10_000, 0);
+        let mut tx = prepare(
+            &mut world,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        let before = overlap_rebuilds();
+        let transient = spawn_on(&mut world, route, 20_000, 0);
+        spawn_on(&mut world, route, 30_000, 0);
+        tx.pump(&mut world).unwrap();
+        assert_eq!(overlap_rebuilds(), before);
+        world.despawn_vehicle(transient).unwrap();
+        let reused = spawn_on(&mut world, route, 20_000, 0);
+        tx.pump(&mut world).unwrap();
+        assert_eq!(overlap_rebuilds(), before);
+        let candidate = tx.candidate.as_ref().unwrap();
+        let state = candidate.vehicle_state(reused).unwrap();
+        assert_eq!(
+            candidate.indexed_overlap_blocker(state.route, 0, 20_000, state.length_mm, None),
+            Some(reused)
+        );
+        // 一批位置变化后只冷重建一次；后续生命周期记录继续增量维护。
+        world.step(TickInput::new(100)).unwrap();
+        spawn_on(&mut world, route, 40_000, 0);
+        spawn_on(&mut world, route, 50_000, 0);
+        tx.pump(&mut world).unwrap();
+        assert_eq!(overlap_rebuilds(), before + 1);
+        world.derived.spawn_overlap = Default::default();
+        let _commit = tx.commit(&mut world).unwrap();
+        assert_eq!(overlap_rebuilds(), before + 1);
+        assert!(world.derived.spawn_overlap.is_current());
+    }
+
+    #[test]
+    fn overlap_staging_failure_preserves_source_and_can_retry() {
+        use crate::kernel::spawn_overlap::with_overlap_allocation_failure_after;
+        let mut world = installed_world(ORACLE_BASE, "fixture://overlap-allocation");
+        let (entry, exit) = entry_exit(&world);
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .unwrap();
+        spawn_on(&mut world, route, 10_000, 0);
+        let before = deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap();
+        let target = revision(ORACLE_TARGET);
+        let origin = *target.canonical_origin();
+        let descriptor = descriptor_for(&world, origin, ORACLE_LFSD);
+        let result = with_overlap_allocation_failure_after(0, || {
+            world.prepare_cross_revision_cutover(
+                target,
+                source_for(origin, "fixture://overlap-target"),
+                &descriptor,
+                ORACLE_LFSD,
+                &preflight_limits(),
+                &CutoverTransactionLimits::default(),
+            )
+        });
+        assert!(matches!(result, Err(CutoverError::StagingAllocFailed)));
+        assert!(world.migration_journal_stats().is_none());
+        assert_eq!(
+            deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap(),
+            before
+        );
+        let mut tx = prepare(
+            &mut world,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        // 静默点也走同一错误结算；丢弃候选冷缓存使实际预留失败可注入。
+        tx.candidate.as_mut().unwrap().derived.spawn_overlap = Default::default();
+        let result = with_overlap_allocation_failure_after(1, || tx.commit(&mut world));
+        assert!(matches!(result, Err(CutoverError::StagingAllocFailed)));
+        assert!(world.migration_journal_stats().is_none());
+        assert_eq!(
+            deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap(),
+            before
+        );
+        let _commit = prepare(
+            &mut world,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        )
+        .commit(&mut world)
+        .unwrap();
     }
 
     #[test]

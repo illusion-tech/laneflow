@@ -103,40 +103,7 @@ pub fn deterministic_state_digest(
             .expect("captured vehicle route closes over captured routes")
     };
 
-    // 路线实例分组：路线内容 + 绑定其上的车辆记录多重集。内容相同但绑定
-    // 不同的实例因此可区分（remove 语义不同）；内容与绑定均相同的实例
-    // 可交换（全部后续命令行为一致），保持摘要相等。
-    let mut route_groups: Vec<Vec<u8>> = Vec::new();
-    digest_try_reserve_exact(&mut route_groups, snapshot.routes.len())?;
-    for route in &snapshot.routes {
-        let bound_count = snapshot
-            .vehicles
-            .iter()
-            .filter(|vehicle| vehicle.snapshot_route_id == route.snapshot_route_id)
-            .count();
-        let mut bound: Vec<&[u8]> = Vec::new();
-        digest_try_reserve_exact(&mut bound, bound_count)?;
-        for vehicle in &snapshot.vehicles {
-            if vehicle.snapshot_route_id == route.snapshot_route_id {
-                let index = vehicle_index(vehicle.snapshot_vehicle_id);
-                bound.push(vehicle_records[index].1.as_slice());
-            }
-        }
-        bound.sort_unstable();
-        let route_bytes = &route_records[route_index(route.snapshot_route_id)].1;
-        let mut group = Vec::new();
-        digest_try_reserve_exact(&mut group, route_bytes.len() + 8)?;
-        group.extend_from_slice(route_bytes);
-        push_u64(
-            &mut group,
-            u64::try_from(bound.len()).expect("vehicle count fits u64"),
-        );
-        for record in bound {
-            try_push_record(&mut group, record)?;
-        }
-        route_groups.push(group);
-    }
-    route_groups.sort_unstable();
+    let route_groups = canonical_route_groups(&vehicle_records, &route_records)?;
 
     let mut canonical = Vec::new();
     digest_try_reserve_exact(&mut canonical, canonical_prefix_len())?;
@@ -252,6 +219,57 @@ pub fn deterministic_state_digest(
     let mut hasher = Sha256::new();
     hasher.update(&canonical);
     Ok(Sha256Digest::from_bytes(hasher.finalize().into()))
+}
+
+fn canonical_route_groups(
+    vehicle_records: &[(u64, Vec<u8>, u64)],
+    route_records: &[(u64, Vec<u8>)],
+) -> Result<Vec<Vec<u8>>, SnapshotDigestError> {
+    // 路线实例分组：路线内容 + 绑定其上的车辆记录多重集。内容相同但绑定
+    // 不同的实例因此可区分（remove 语义不同）；内容与绑定均相同的实例
+    // 可交换（全部后续命令行为一致），保持摘要相等。
+    // 一次按路线实例与车辆记录字节排序；不对每条路线重扫整个车辆表。
+    let mut members: Vec<(u64, usize)> = Vec::new();
+    digest_try_reserve_exact(&mut members, vehicle_records.len())?;
+    for (index, (_, _, route_id)) in vehicle_records.iter().enumerate() {
+        members.push((*route_id, index));
+    }
+    members.sort_unstable_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| vehicle_records[left.1].1.cmp(&vehicle_records[right.1].1))
+    });
+    let mut route_groups: Vec<Vec<u8>> = Vec::new();
+    digest_try_reserve_exact(&mut route_groups, route_records.len())?;
+    let mut start = 0;
+    for (route_id, route_bytes) in route_records {
+        while members
+            .get(start)
+            .is_some_and(|member| member.0 < *route_id)
+        {
+            start += 1;
+        }
+        let mut end = start;
+        while members.get(end).is_some_and(|member| member.0 == *route_id) {
+            end += 1;
+        }
+        let bound = &members[start..end];
+        let mut group = Vec::new();
+        digest_try_reserve_exact(&mut group, route_bytes.len() + 8)?;
+        group.extend_from_slice(route_bytes);
+        push_u64(
+            &mut group,
+            u64::try_from(bound.len()).expect("vehicle count fits u64"),
+        );
+        for (_, index) in bound {
+            try_push_record(&mut group, &vehicle_records[*index].1)?;
+        }
+        route_groups.push(group);
+        start = end;
+    }
+    route_groups.sort_unstable();
+
+    Ok(route_groups)
 }
 
 fn canonical_route_record(route: &CapturedRoute) -> Result<Vec<u8>, SnapshotDigestError> {
@@ -491,6 +509,56 @@ mod tests {
         ParkedVehicleSpawnInput, ParkingTarget, SnapshotRestoreLimits, TickInput, WorldConfig,
         encode_lfrs, restore_lfrs,
     };
+
+    #[test]
+    fn pregrouped_route_bytes_match_linear_reference() {
+        let (world, _, _) = world_with_vehicle(true);
+        let snapshot = world.capture_snapshot().unwrap();
+        for vehicle_count in [0, 1, 4, 24] {
+            let mut route_records = Vec::new();
+            for id in [17, 3, 29, 11] {
+                let mut route = snapshot.routes[0].clone();
+                route.snapshot_route_id = id;
+                if id == 3 {
+                    route.edges.push(route.edges[0]);
+                }
+                route_records.push((id, canonical_route_record(&route).unwrap()));
+            }
+            let mut vehicle_records = Vec::new();
+            for index in 0..vehicle_count {
+                let mut vehicle = snapshot.vehicles[0].clone();
+                vehicle.progress_mm = index * 7;
+                vehicle_records.push((
+                    u64::from(index * 5 + 1),
+                    canonical_vehicle_record(&vehicle).unwrap(),
+                    [17, 3, 29][index as usize % 3],
+                ));
+            }
+            // 保留基线的逐路线全扫，仅作小夹具字节参考；第四条路线保持空置。
+            let mut expected = Vec::new();
+            for (route_id, bytes) in &route_records {
+                let mut bound: Vec<_> = vehicle_records
+                    .iter()
+                    .filter(|record| record.2 == *route_id)
+                    .map(|record| record.1.as_slice())
+                    .collect();
+                bound.sort_unstable();
+                let mut group = bytes.clone();
+                push_u64(&mut group, bound.len() as u64);
+                for record in bound {
+                    push_record(&mut group, record);
+                }
+                expected.push(group);
+            }
+            expected.sort_unstable();
+            route_records.sort_unstable_by_key(|record| record.0);
+            vehicle_records.reverse();
+            assert_eq!(
+                canonical_route_groups(&vehicle_records, &route_records).unwrap(),
+                expected
+            );
+        }
+    }
 
     #[test]
     fn digest_is_stable_across_restore_handle_and_local_id_reassignment() {

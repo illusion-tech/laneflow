@@ -259,10 +259,158 @@ fn indexed_admission_matches_linear_cross_edge_and_repeated_occurrences() {
                         expected,
                         "rebuild={rebuild}, occurrence={occurrence}, progress={progress}"
                     );
+                    world.derived.spawn_overlap.mark_stale();
+                    world.try_refresh_overlap_index().unwrap();
+                    assert_eq!(
+                        world.indexed_overlap_blocker(route, occurrence, progress, 4_500, None),
+                        expected,
+                        "fallible rebuild, occurrence={occurrence}, progress={progress}"
+                    );
                 }
             }
         }
     }
+}
+
+#[test]
+fn cutover_revalidation_reuses_one_index_and_excludes_self() {
+    use crate::admin::cutover_migration::revalidate_migrated_vehicles;
+    use crate::kernel::spawn_overlap::overlap_rebuilds;
+
+    let mut world = empty_world(lane_revision(256), 64);
+    let routes = lane_routes(&mut world, 16);
+    for vehicle in 0..64 {
+        world
+            .spawn_vehicle(input(
+                routes[vehicle % 16],
+                0,
+                (vehicle / 16 + 1) as u32 * 10_000,
+            ))
+            .unwrap();
+    }
+    world.derived.spawn_overlap = Default::default();
+    let before = overlap_rebuilds();
+    reset_overlap_blocker_inspections();
+    revalidate_migrated_vehicles(&mut world).unwrap();
+    assert_eq!(overlap_rebuilds() - before, 1);
+    assert_eq!(overlap_blocker_inspections(), 64 * 3);
+    revalidate_migrated_vehicles(&mut world).unwrap();
+    assert_eq!(overlap_rebuilds() - before, 1);
+    assert_eq!(overlap_blocker_inspections(), 2 * 64 * 3);
+    assert!(world.derived.spawn_overlap.retained_logical_bytes() > 0);
+}
+
+#[test]
+#[ignore = "manual release cutover candidate count and retained index evidence"]
+fn cutover_overlap_scale_evidence() {
+    let revision = lane_revision(256);
+    for count in [1_000u32, 4_000, 10_000] {
+        for used_edges in [16u32, 256] {
+            let mut world = empty_world(Arc::clone(&revision), count);
+            let routes = lane_routes(&mut world, used_edges);
+            for vehicle in 0..count {
+                world
+                    .spawn_vehicle(input(
+                        routes[(vehicle % used_edges) as usize],
+                        0,
+                        (vehicle / used_edges + 1) * 10_000,
+                    ))
+                    .unwrap();
+            }
+            world.derived.spawn_overlap = Default::default();
+            reset_overlap_blocker_inspections();
+            crate::admin::cutover_migration::revalidate_migrated_vehicles(&mut world).unwrap();
+            let candidates = overlap_blocker_inspections();
+            let expected: u64 = (0..used_edges)
+                .map(|edge| {
+                    let n = u64::from(count / used_edges + u32::from(edge < count % used_edges));
+                    n * (n - 1)
+                })
+                .sum();
+            assert_eq!(candidates as u64, expected);
+            println!(
+                "revalidation count={count} edges={used_edges} candidates={candidates} baseline_candidates={} index_bytes={}",
+                u64::from(count) * u64::from(count - 1),
+                world.derived.spawn_overlap.retained_logical_bytes()
+            );
+        }
+    }
+}
+
+#[test]
+fn fallible_overlap_rebuild_retries_after_partial_allocation() {
+    use crate::kernel::spawn_overlap::with_overlap_allocation_failure_after;
+    let mut world = empty_world(lane_revision(4), 4);
+    for route in lane_routes(&mut world, 4) {
+        world.spawn_vehicle(input(route, 0, 0)).unwrap();
+    }
+    let before = world.capture_snapshot().unwrap();
+    let digest = crate::deterministic_state_digest(&before).unwrap();
+    for fail_after in 0..3 {
+        world.derived.spawn_overlap = Default::default();
+        assert_eq!(
+            with_overlap_allocation_failure_after(fail_after, || world.try_refresh_overlap_index()),
+            Err(())
+        );
+        assert!(!world.derived.spawn_overlap.is_current());
+        world.try_refresh_overlap_index().unwrap();
+        for handle in world.live_vehicles() {
+            let state = world.vehicle_state(*handle).unwrap();
+            assert_eq!(
+                world.indexed_overlap_blocker(state.route, 0, 0, state.length_mm, Some(*handle)),
+                None
+            );
+            assert_eq!(
+                world.indexed_overlap_blocker(state.route, 0, 0, state.length_mm, None),
+                Some(*handle)
+            );
+        }
+        assert_eq!(
+            crate::deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap(),
+            digest
+        );
+    }
+}
+
+#[test]
+fn cutover_overlap_keeps_live_order_and_entity_error_priority() {
+    use crate::admin::cutover_migration::revalidate_migrated_vehicles;
+    let mut world = empty_world(lane_revision(1), 2);
+    let route = lane_routes(&mut world, 1)[0];
+    let first = world.spawn_vehicle(input(route, 0, 0)).unwrap();
+    let second = world.spawn_vehicle(input(route, 0, 10_000)).unwrap();
+    world.committed.vehicles[second.index() as usize]
+        .state
+        .as_mut()
+        .unwrap()
+        .progress_mm = 0;
+    world.derived.spawn_overlap.mark_stale();
+    assert_eq!(
+        revalidate_migrated_vehicles(&mut world),
+        Err(crate::CutoverError::VehicleRevalidationFailed {
+            vehicle: first.index()
+        })
+    );
+    world.committed.live_order.reverse();
+    world.rebuild_active_order();
+    assert_eq!(
+        revalidate_migrated_vehicles(&mut world),
+        Err(crate::CutoverError::VehicleRevalidationFailed {
+            vehicle: second.index()
+        })
+    );
+    world.committed.vehicles[second.index() as usize]
+        .state
+        .as_mut()
+        .unwrap()
+        .length_mm = 4_499;
+    world.derived.spawn_overlap.mark_stale();
+    assert_eq!(
+        revalidate_migrated_vehicles(&mut world),
+        Err(crate::CutoverError::ProfileDerivationMismatch {
+            vehicle: second.index()
+        })
+    );
 }
 
 #[test]
