@@ -7,8 +7,12 @@ mod runtime_min_scene;
 use std::error::Error;
 
 use bevy::prelude::*;
-use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession};
+use laneflow_bevy::{LaneFlowCommittedPoseBatch, LaneFlowPlugin, LaneFlowSession};
 use laneflow_spatial::FramePlacementToken;
+
+/// 跨帧复用的提取缓冲（adapter-api §6 稳定容量合同）。
+#[derive(Resource, Default)]
+struct PoseBuffer(LaneFlowCommittedPoseBatch);
 
 fn main() -> Result<(), Box<dyn Error>> {
     let session = runtime_min_scene::session()?;
@@ -16,6 +20,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     App::new()
         .add_plugins((DefaultPlugins, LaneFlowPlugin))
         .insert_resource(session)
+        .init_resource::<PoseBuffer>()
         .add_systems(Startup, spawn_proxy)
         .add_systems(Update, sync_proxy)
         .run();
@@ -32,16 +37,20 @@ fn spawn_proxy(mut commands: Commands) {
 
 fn sync_proxy(
     mut session: ResMut<LaneFlowSession>,
+    mut poses: ResMut<PoseBuffer>,
     proxy: Option<Res<Proxy>>,
     mut transforms: Query<&mut Transform>,
 ) {
     let Some(proxy) = proxy else {
         return;
     };
-    let Ok(poses) = session.extract_committed_pose_batch(FramePlacementToken::new(1)) else {
+    if session
+        .extract_committed_pose_batch(FramePlacementToken::new(1), &mut poses.0)
+        .is_err()
+    {
         return;
-    };
-    let Some(record) = poses.batch().records().first() else {
+    }
+    let Some(record) = poses.0.batch().records().first() else {
         return;
     };
     if let Ok(mut transform) = transforms.get_mut(proxy.0) {

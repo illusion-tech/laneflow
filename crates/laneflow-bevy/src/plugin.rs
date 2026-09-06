@@ -2,6 +2,7 @@
 
 use bevy_app::{App, First, MainScheduleOrder, Plugin};
 use bevy_ecs::{
+    prelude::resource_exists,
     schedule::{IntoScheduleConfigs, Schedule, ScheduleLabel, SingleThreadedExecutor, SystemSet},
     system::{Res, ResMut},
     world::World,
@@ -20,10 +21,15 @@ pub struct LaneFlowOuterFrame;
 /// 维护暂停式切换等行政操作放在这里在结构上零步进可达（#534 G1 冻结；
 /// `LaneFlowFixed` 整个 schedule 受 `can_step()` 门控，零步进帧连
 /// `Lifecycle` 都不运行，行政操作不得依赖 fixed step 的存在）。
+///
+/// 不变量：**所有公开 set 在无 `LaneFlowSession` 态安全**——`Administration`
+/// 以 `resource_exists` 条件门控，宿主系统在 Session 未插入或暂时移除的
+/// 帧被跳过而非 panic；核心循环的守卫只保护自身，公开 set 的安全性必须
+/// 由 schedule 配置保证。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, SystemSet)]
 pub enum LaneFlowOuterFrameSet {
     /// 行政边界：宿主驱动维护暂停式切换、显式 Spatial 重绑等行政操作；
-    /// 位于本帧步进与位姿采集之前。
+    /// 位于本帧步进与位姿采集之前。无 Session 时整体跳过。
     Administration,
     /// 本 crate 的 outer-frame 驱动（accumulator、fixed 循环、帧报告）。
     Drive,
@@ -54,7 +60,7 @@ impl Plugin for LaneFlowPlugin {
         outer_frame.set_executor(SingleThreadedExecutor::new());
         outer_frame.configure_sets(
             (
-                LaneFlowOuterFrameSet::Administration,
+                LaneFlowOuterFrameSet::Administration.run_if(resource_exists::<LaneFlowSession>),
                 LaneFlowOuterFrameSet::Drive,
             )
                 .chain(),

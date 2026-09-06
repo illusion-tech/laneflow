@@ -75,6 +75,7 @@ Bevy 拥有 outer frame 与宿主 schedule。LaneFlow 不修改宿主全局 `Tim
 - `LaneFlowPlugin` 安装 `LaneFlowOuterFrame` 与 `LaneFlowFixed` 两个单线程 schedule。
 - `LaneFlowFixedSet::{Lifecycle, Step, Observe}` 在每个 fixed step 内按该顺序执行；同一 outer frame 的每个 catch-up step 都重复完整链。调用方把 replacement policy system 放入 `Lifecycle`，把 committed result/event 消费放入 `Observe`。
 - `LaneFlowOuterFrameSet::{Administration, Drive}` 在每个 outer frame 内按该顺序执行（#534）。`Administration` 每 outer frame 必运行、与 accumulator/fixed step 无关：维护暂停式切换等行政操作放在这里在结构上零步进可达——`LaneFlowFixed` 整个 schedule 受 `can_step()` 门控，零步进帧连 `Lifecycle` 都不运行，行政操作不得依赖 fixed step 的存在。
+- **公开 set 无 Session 安全不变量**：`Administration` 以 `resource_exists::<LaneFlowSession>` 条件门控；Session 未插入或暂时移除的帧，宿主行政系统被跳过而非 panic。今后任何加入 `LaneFlowOuterFrame` 的公开 set 都必须维持该不变量（配套回归测试见 `revision_cutover.rs`）。
 - `LaneFlowOuterFrame` 插入宿主 `First` 之后，因此读取的是本帧已经由 `TimePlugin` 更新的 `Time::delta()`；调用方负责安装 `TimePlugin` 或包含它的宿主 plugin group。
 - `LaneFlowPlugin` 不重复安装 `TimePlugin` 或 `TransformPlugin`。缺少 Session 时 schedule 无操作；存在 Session 但缺少 `Time` resource 时记录结构化错误。
 - `LaneFlowSessionConfig` 要求调用方显式提供非零 `max_catch_up_steps`，不定义隐藏默认值。
@@ -342,11 +343,14 @@ Session 组合 `TrafficWorld` 与可选 `SpatialSession`，配对不变量（同
   是显式转 headless 的唯一形态。
 - `LaneFlowSession::extract_committed_pose_batch`：v1 同步封闭路径——同一调用内
   采集 committed pose sources → 配对校验（每批固定 O(1)）→ 按当前配对 Spatial
-  提取。返回批次携带消费上下文 `(world_id, WorldGeneration)` 与对齐的车辆句柄；
-  任何成功切换使先前上下文过期，宿主持有结果跨区间时用
-  `consumption_context_is_current` 复核，过期整批拒绝。
-- `LaneFlowCutoverRecord`：换出的旧 `SpatialSession`（在途借用可完成，结果不得
-  作为当前世界表现提交）、切换后世界绑定与恰一次事件批次。
+  提取，产出原地重填调用方持有的 `LaneFlowCommittedPoseBatch`（稳定容量复用；
+  失败时输出原样保持）。批次携带消费上下文 `(world_id, WorldGeneration)` 与
+  对齐的车辆句柄；任何成功切换使先前上下文过期，宿主持有结果跨区间时用
+  `consumption_context_is_current` 复核，过期整批拒绝。稳态唯一已知分配成本是
+  Runtime `committed_pose_sources` 的按值返回（已登记，#545 证据决策）。
+- `LaneFlowCutoverRecord`（`#[must_use]`）：换出的旧 `SpatialSession`（在途借用
+  可完成，结果不得作为当前世界表现提交）、切换后世界绑定与恰一次事件批次——
+  语句位丢弃记录即丢弃事件交付。
 - 调度边界：切换入口可在任意不处于 fixed step 执行中的宿主系统调用；结构性
   推荐位是 `LaneFlowOuterFrameSet::Administration`（每 outer frame 必运行、先于
   本帧步进与位姿采集、零步进帧可达）。切换是「维护暂停」，不是低停顿在线热

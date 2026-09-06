@@ -9,7 +9,9 @@ use bevy_ecs::{
 use bevy_math::Vec3;
 use bevy_time::{TimePlugin, TimeUpdateStrategy};
 use bevy_transform::{TransformPlugin, components::Transform};
-use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig};
+use laneflow_bevy::{
+    LaneFlowCommittedPoseBatch, LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig,
+};
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{TrafficWorld, VehicleSpawnInput, WorldConfig};
 use laneflow_scenario::signalized_corridor::{
@@ -57,6 +59,10 @@ fn install_fixture(
 const CORRIDOR_LFCA: &[u8] = include_bytes!("../../../examples/data/v0.2-signalized-corridor.lfca");
 const CORRIDOR_CATALOG: &str =
     include_str!("../../../examples/data/v0.2-signalized-corridor.catalog.toml");
+
+/// 跨帧复用的提取缓冲（adapter-api §6 稳定容量合同）。
+#[derive(Resource, Default)]
+struct PoseBuffer(LaneFlowCommittedPoseBatch);
 
 #[derive(Resource)]
 struct Proxy(Entity);
@@ -155,13 +161,14 @@ fn setup_proxy(mut commands: Commands) {
 
 fn sync_proxy(
     mut session: ResMut<LaneFlowSession>,
+    mut poses: ResMut<PoseBuffer>,
     proxy: Option<Res<Proxy>>,
     mut transforms: Query<&mut Transform>,
 ) {
-    let poses = session
-        .extract_committed_pose_batch(FramePlacementToken::new(1))
+    session
+        .extract_committed_pose_batch(FramePlacementToken::new(1), &mut poses.0)
         .expect("extract");
-    let Some(record) = poses.batch().records().first() else {
+    let Some(record) = poses.0.batch().records().first() else {
         return;
     };
     let Some(proxy) = proxy else {
@@ -196,6 +203,7 @@ fn headless_app_steps_corridor_runtime_and_moves_proxy_transform() {
         16,
     )));
     app.insert_resource(session);
+    app.init_resource::<PoseBuffer>();
     app.add_systems(bevy_app::Startup, setup_proxy);
     app.add_systems(bevy_app::Update, sync_proxy);
     app.update();

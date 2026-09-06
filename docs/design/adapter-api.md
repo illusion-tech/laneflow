@@ -72,8 +72,7 @@ current 路径：
   -> 建立 PoseRecordId 与宿主实体的绑定
   -> 在 LaneFlowFixedSet::Lifecycle 经 world_mut 提交生命周期命令
   -> TrafficWorld::step
-  -> 读取 committed_pose_sources，映射 PoseRecordId
-  -> SpatialSession::extract_pose_batch
+  -> LaneFlowSession::extract_committed_pose_batch（受控封闭提取，§9）
   -> 提交宿主生命周期、变换和表现结果
 ```
 
@@ -94,7 +93,10 @@ Bevy Reference Adapter 把上述 world 与可选 Spatial 收进唯一活动的 `
 Adapter 从 `TrafficWorld::committed_pose_sources()` 读取稳定顺序的
 `(VehicleHandle, PoseSource)`，再映射为不透明 `PoseRecordId`（`u32`）。Spatial
 不接收 `VehicleHandle`，不遍历宿主实体组件系统（ECS），也不重新判断车辆生命周期。
-Bevy 用 `pose_input` 完成 Runtime `PoseSource` 到 Spatial `PoseInput` 的映射。
+#534 起 Bevy 侧的 Runtime `PoseSource` → Spatial `PoseInput` 映射内化在
+`LaneFlowSession::extract_committed_pose_batch` 受控封闭路径内（记录身份 = 批内
+序号，与返回的车辆句柄序列对齐）；Adapter 不再公开独立的 `pose_input` 映射函数，
+宿主不得自行拼装位姿输入（语义与合同见 §9）。
 
 ```text
 PoseInput {
@@ -258,7 +260,8 @@ LaneFlowSession::same_revision_restore(
 
 LaneFlowSession::extract_committed_pose_batch(
     placement_token: FramePlacementToken,
-) -> Result<LaneFlowCommittedPoseBatch, LaneFlowAdapterError>
+    output: &mut LaneFlowCommittedPoseBatch,
+) -> Result<(), LaneFlowAdapterError>
 
 LaneFlowSession::{consumption_context, consumption_context_is_current}
 ```
@@ -293,3 +296,18 @@ LaneFlowSession::{consumption_context, consumption_context_is_current}
   次调用内，宿主不得缓存位姿输入跨过切换边界重放。`LaneFlowCommittedPoseBatch`
   携带采集时的消费上下文；跨区间持有结果的宿主在应用前用
   `consumption_context_is_current` 复核，过期整批拒绝。
+- 稳定容量复用（§6 合同在封闭路径上的落点）：`output` 由调用方持有并跨帧复用，
+  Session 持输入 scratch，成功提取原地重填、失败时 `output` 原样保持；稳态除下述
+  已知成本外零新增分配。
+- **已知成本登记**：`TrafficWorld::committed_pose_sources()` 为 Runtime 按值读取
+  API，adapter 稳态每帧固定发生一条 N 尺寸分配（10 万辆量级约每帧 2 MiB 量级的
+  分配与拷贝）。本件受「Runtime API 零变更」约束不处理；是否立项零分配读取面
+  （调用方缓冲或访问器形态）由 #545 的 10k/100k presentation 证据决定。
+- **`#[must_use]` 继承规则**：包装携带交付义务的类型时，包装层继承
+  `#[must_use]`——`LaneFlowCutoverRecord` 标记 must_use，语句位丢弃记录即丢弃
+  恰一次事件交付（与 Runtime 对 `CutoverCommit` / `CutoverEventBatch` 的登记
+  同义）。
+- **公开 set 无 Session 安全不变量**：`LaneFlowOuterFrameSet` 的所有公开阶段在
+  `LaneFlowSession` 未插入或暂时移除时安全跳过（`Administration` 以
+  `resource_exists` 条件门控），不得 panic；核心循环的守卫只保护自身，公开 set
+  的安全性由 schedule 配置保证。

@@ -9,8 +9,8 @@ LaneFlow 的 Bevy 0.19 Reference Adapter crate。
 - `LaneFlowFixed`：按 Session accumulator 运行零次或多次 `TrafficWorld` 固定步进；
 - `LaneFlowFixedSet::{Lifecycle, Step, Observe}`：每个 fixed/catch-up step 内稳定重复的公共阶段链；
 - `LaneFlowSession`：单活动 Bevy Resource，组合 `TrafficWorld`、可选 `SpatialSession`、catch-up 配置、Vehicle/Entity 映射与最近一帧结果；
-- `LaneFlowSession::{cross_revision_cutover, same_revision_restore}`：同步维护暂停式修订切换（#534）。成功返回时已完成新 Spatial 配对；换出的旧 session 经 `LaneFlowCutoverRecord::retired_spatial` 交还宿主完成在途借用；`LaneFlowTargetSpatial::Headless` 是显式转 headless 的唯一形态；
-- `LaneFlowSession::extract_committed_pose_batch`：v1 同步封闭提取路径——同一调用内采集 committed pose sources、校验根配对（每批固定 O(1)）并提取；批次携带 `(world_id, WorldGeneration)` 消费上下文，任何成功切换使先前上下文过期（`consumption_context_is_current` 复核，过期整批拒绝）；
+- `LaneFlowSession::{cross_revision_cutover, same_revision_restore}`：同步维护暂停式修订切换（#534）。成功返回时已完成新 Spatial 配对；`#[must_use]` 的 `LaneFlowCutoverRecord` 携带恰一次事件批次与换出的旧 session（`retired_spatial` 交还宿主完成在途借用）；`LaneFlowTargetSpatial::Headless` 是显式转 headless 的唯一形态；
+- `LaneFlowSession::extract_committed_pose_batch`：v1 同步封闭提取路径——同一调用内采集 committed pose sources、校验根配对（每批固定 O(1)）并提取，产出原地重填调用方持有的 `LaneFlowCommittedPoseBatch`（稳定容量复用，失败时输出原样保持）；批次携带 `(world_id, WorldGeneration)` 消费上下文，任何成功切换使先前上下文过期（`consumption_context_is_current` 复核，过期整批拒绝）；
 - `LaneFlowOuterFrameSet::{Administration, Drive}`：outer frame 行政阶段；维护暂停式切换的推荐位，每 outer frame 必运行、零步进帧可达；
 - `replace_completed_vehicle`：Lifecycle 边界的 typed 原子替换；已绑定车辆复用同一 Entity，`Blocked` 时映射与 Transform 不变；
 - `LaneFlowWorldMut::{reserve_parking,cancel_parking,park_vehicle,leave_parking,rebind_parking_route,spawn_parked_vehicle}`：由 `LaneFlowSession::world_mut()` 返回的薄包装转发 Runtime typed parking lifecycle；virtual Parked 无 pose 但映射仍 live；
