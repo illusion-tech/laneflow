@@ -52,6 +52,61 @@ fn rejects_input(input: &[u8], mutate: impl FnOnce(&mut OwnedObject), expected: 
 }
 
 #[test]
+fn shared_root_rejects_dangling_successor_after_revision_rebinding() {
+    build(VALID, SpatialBuildOption::Omit, LIMITS).unwrap();
+    let mut object = own_object(VALID, PortableObjectKind::CanonicalArtifact);
+    let lanes = &mut object.sections[2].tables[3];
+    let lane_count = u32::try_from(lanes.rows.len()).unwrap();
+    assert!(lane_count > 0);
+    *value(&mut lanes.rows[0], 5) = OwnedValue::OrdinalVectorU32(vec![lane_count].into());
+    // 重编码 chunk 摘要并重算 revision，确保损坏到达 builder，而非被完整性检查挡住。
+    let mutated = artifact(object);
+    for spatial in [
+        SpatialBuildOption::Omit,
+        SpatialBuildOption::RetainAvailable,
+    ] {
+        let error = build(&mutated, spatial, LIMITS)
+            .err()
+            .expect("dangling successor must not produce a shared root");
+        assert_eq!(
+            error,
+            BuildError::ReferenceOutOfBounds {
+                structure: BuildStructure::LaneSuccessors,
+                ordinal: lane_count,
+                limit: lane_count,
+            }
+        );
+    }
+}
+
+#[test]
+fn shared_root_rejects_entity_identity_mismatch_after_revision_rebinding() {
+    build(VALID, SpatialBuildOption::Omit, LIMITS).unwrap();
+    let mut object = own_object(VALID, PortableObjectKind::CanonicalArtifact);
+    let OwnedValue::StableId128(stable_id) = value(&mut object.sections[2].tables[3].rows[0], 2)
+    else {
+        panic!("lane stable id");
+    };
+    stable_id[0] ^= 1;
+    let mutated = artifact(object);
+    for spatial in [
+        SpatialBuildOption::Omit,
+        SpatialBuildOption::RetainAvailable,
+    ] {
+        let error = build(&mutated, spatial, LIMITS)
+            .err()
+            .expect("identity mismatch must not produce a shared root");
+        assert_eq!(
+            error,
+            BuildError::StableIdMismatch {
+                entity_kind: EntityKind::LaneEdge,
+                ordinal: 0,
+            }
+        );
+    }
+}
+
+#[test]
 fn shared_root_independently_closes_signal_direction_lamp_and_protected_rules() {
     const SIGNAL: &[u8] =
         include_bytes!("../../../../tests/fixtures/portable/lfca-world-policies/signal.lfca");
