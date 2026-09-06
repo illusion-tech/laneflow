@@ -13,7 +13,7 @@ Traffic Runtime 的多执行域身份（Identity）、批处理（Batch）、命
 - `../adr/0005-core-identity-and-handle-model.md`
 - `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`
-- `../adr/0021-city-simulation-game-traffic-foundation.md`
+- `../adr/0021-traffic-infrastructure-and-host-boundary.md`
 - `core-runtime.md`
 - `core-runtime-performance-baseline.md`
 - `core-id-handles.md`
@@ -24,9 +24,9 @@ Traffic Runtime 的多执行域身份（Identity）、批处理（Batch）、命
 
 LaneFlow 现在应冻结一组不依赖具体 partition、线程池或内存布局的可扩展性约束，但不应立即实现城市级生产架构。
 
-Accepted ADR 0021 把“面向中国特色城市模拟游戏的交通基础”定义为第一长期产品
-目标；因此“不立即实现城市级生产架构”只描述当前交付时序，不表示
-城市级单世界交通执行是非目标。多世界吞吐不能替代一个大型城市世界的扩展证据。
+ADR 0021 将城市级单世界交通执行保留为交通基础设施的规模演进方向；当前无需
+立即实现城市级生产架构，后续选择须由独立研究与证据支持。多世界吞吐不能替代
+一个大型城市世界的扩展证据。
 
 > #215 已在 [`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md)
 > 冻结当前道路机动车的一万/十万产品目标、一百万研究包络、五项计数、workload、
@@ -828,7 +828,7 @@ Stable Runtime API G1 前的待决项：
 
 本审计最初未新增 ADR，因为当时只保护既有 ADR 0003/0005/0016 的可扩展性，没有
 选择 production partition、scheduler、identity encoding 或 multi-rate model。
-#291 后续通过 ADR 0020/0021 补充了静态执行约束/每世界执行计划、产品北极星、
+#291 后续通过 ADR 0020/0021 补充了静态执行约束/每世界执行计划、组件与宿主边界、
 不可变路网修订和快照边界；它们仍未选择具体 partition 算法或任务运行库。
 
 以下任一决策进入 production 前必须重新判断 ADR：

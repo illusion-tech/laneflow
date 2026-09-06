@@ -4,9 +4,10 @@
 
 GitHub 用于管理当前任务、协作状态和合并证据；仓库文档用于保存可版本化、可审查、可被 AI Agent 稳定读取的长期事实。
 
-Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通基础”定义为
-LaneFlow 的第一长期产品目标，并让城市经济、市民出行需求和游戏规则继续由上层
-拥有。该目标边界已经由 #291 G1 接受；出行编排、Routing 与多执行域尚未交付。
+ADR 0021 将 LaneFlow 定位为可嵌入、引擎无关、确定性的道路交通运行时与工具链。
+应用业务、出行需求和路线选择策略由宿主拥有；地区交通规则与城市工作负载用于
+通用技术验证。当前唯一可运行特化是道路机动车，更多执行域与城市级扩展是需要
+独立证据的长期方向，不构成交付时间承诺。
 `laneflow-runtime` / `TrafficWorld` 是唯一可运行交通世界。current Core 与 JSON
 运行时入口已拆除。契约见 `docs/design/traffic-runtime-shared-consumption.md`。
 已提交一维几何合同见 ADR 0028（#496；整数毫米 / `mm/s`）。
@@ -48,7 +49,7 @@ docs/
 1. `README.md`
 2. `docs/architecture.md`
 3. `docs/roadmap.md`
-4. `docs/adr/0021-city-simulation-game-traffic-foundation.md`
+4. `docs/adr/0021-traffic-infrastructure-and-host-boundary.md`
 5. `AGENTS.md`
 6. `.agents/README.md`
 7. `docs/governance/documentation-policy.md`

@@ -24,7 +24,7 @@ Artifact）、共享静态路网（Shared Static Network）、源映射（Source
 - `../adr/0015-bounded-f32-canonical-spatial-frames.md`
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`
-- `../adr/0021-city-simulation-game-traffic-foundation.md`
+- `../adr/0021-traffic-infrastructure-and-host-boundary.md`
 - `../adr/0024-compiler-post-emission-check-and-minimal-publication-closure.md`
 - `../adr/0025-checked-canonical-network-and-shared-static-network.md`
 - `core-id-handles.md`
@@ -117,8 +117,8 @@ SharedNetworkRevision ─┬─> Traffic Runtime: SharedTrafficNetwork + per-wor
   partition/worker assignment 不进入稳定标识、可移植制品语义或共享静态路网。
 - 共享静态路网是一个不可变路网修订，而非城市永久不变；拖动/预览不编译，确认建造
   后构建候选，并由 #302 通过失败关闭修订切换事务进入运行世界。
-- Accepted ADR 0021 把服务中国特色城市模拟游戏交通基础定义为 LaneFlow 第一长期
-  产品目标，并让城市经济、出行需求、路线选择策略和游戏规则继续由上层拥有。
+- ADR 0021 定义交通基础设施与宿主边界，城市经济、出行需求、路线选择策略和
+  游戏规则继续由宿主拥有。
 
 `laneflow-runtime` 是唯一可运行交通世界；旧 JSON/Data/Core 入口不属于当前合同。
 精确消费边界见 `traffic-runtime-shared-consumption.md`。
@@ -256,9 +256,9 @@ LFCA 不发射分区提示 payload。可丢弃、可重建且不拥有行为权�
 - Adapter：宿主 entity、Transform、frame placement、presentation lifecycle；
 - shared static network：只读静态事实，不持有可变 authority。
 
-### 4.4 城市游戏、出行编排与路径规划权威
+### 4.4 宿主应用、出行编排与路径规划权威
 
-- 城市模拟游戏层拥有人口、经济、土地利用、建筑、任务与游戏规则；
+- 宿主应用层拥有应用业务，例如人口、经济、土地利用、建筑、任务与游戏规则；
 - 出行与交通编排层拥有出行需求、出发时刻、参与单元生成、目的地、人口生命周期和
   路线选择策略；
 - Traffic Runtime 从已提交状态导出交通观测快照，不拥有全局路径成本政策；

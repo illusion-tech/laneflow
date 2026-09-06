@@ -19,7 +19,7 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 
 - `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`
-- `../adr/0021-city-simulation-game-traffic-foundation.md`
+- `../adr/0021-traffic-infrastructure-and-host-boundary.md`
 - `../adr/0023-road-editing-state-and-phased-network-replacement.md`
 - `../adr/0025-checked-canonical-network-and-shared-static-network.md`
 - `network-compiler.md`

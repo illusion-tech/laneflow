@@ -5,7 +5,7 @@
 **设计入口**: [#580](https://github.com/illusion-tech/laneflow/issues/580)<br>
 **关联决策**: [ADR 0003](../adr/0003-runtime-tick-and-determinism.md)、
 [ADR 0020](../adr/0020-compiler-owned-static-network-and-static-image.md)、
-[ADR 0021](../adr/0021-city-simulation-game-traffic-foundation.md)、
+[ADR 0021](../adr/0021-traffic-infrastructure-and-host-boundary.md)、
 [ADR 0025](../adr/0025-checked-canonical-network-and-shared-static-network.md)
 
 ## 1. 决策与权威边界

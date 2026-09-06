@@ -68,7 +68,7 @@ blocker 时，Project 才能进入 `Ready`。
 - 会影响多个引擎适配器的设计。
 
 证据可以是 ADR、`docs/design/` 文档，或 Issue 中链接到正式文档的说明。不需要 G1
-时，在 Issue 里写一句不适用原因即可。产品北极星或城市游戏/交通职责边界发生实质
+时，在 Issue 里写一句不适用原因即可。公开组件定位或宿主应用/交通职责边界发生实质
 变化时，必须回写 ADR、architecture、roadmap、glossary 和相关 Skills，并对当前
 exact head 重新取得审阅；不得沿用旧 head 的设计结论。
 

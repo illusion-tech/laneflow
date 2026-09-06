@@ -1,15 +1,16 @@
 # 架构
 
 **文档状态**: Accepted（current + #291 target design + ADR 0025 / #300 G1 修订；#301 后 Runtime 为当前可运行世界；ADR 0028 / #496 已落地整数毫米一维几何）<br>
-**最后更新**: 2026-08-31（#541 停车生命周期 clean break）<br>
-**适用范围**: LaneFlow 当前分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Runtime/Adapter 边界，以及 #291/ADR 0020/0021 和 Accepted ADR 0025 的城市模拟游戏交通基础与目标静态编译架构
+**最后更新**: 2026-09-06<br>
+**适用范围**: LaneFlow 当前分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Runtime/Adapter 边界，以及 #291/ADR 0020/0021 和 Accepted ADR 0025 的交通基础设施、宿主边界与静态编译架构
 
 ## 1. 架构目标
 
-LaneFlow 当前是一个引擎无关、可嵌入的交通运行时。Accepted ADR 0021 把“为未来的
-中国特色城市模拟游戏提供交通基础”定义为第一长期产品目标；#291 G1 已接受该目标
-和下述目标态分层。#300 / #301 已交付共享静态路网与 `TrafficWorld` 当前可运行路径；
-出行编排、Routing 与多执行域尚未交付。
+LaneFlow 是可嵌入、引擎无关、确定性的道路交通运行时与工具链。ADR 0021 定义
+组件与宿主的职责边界；地区交通规则和城市工作负载作为通用技术验证场景。
+#300 / #301 已交付共享静态路网与 `TrafficWorld` 当前可运行路径。当前只实现道路
+机动车；出行编排和 Routing 算法由宿主拥有，更多执行域与城市级扩展需要独立的
+设计和实现证据。
 
 当前架构与 #291 已接受目标态设计共同关注：
 
@@ -22,10 +23,10 @@ LaneFlow 当前是一个引擎无关、可嵌入的交通运行时。Accepted AD
 - 城市级目标必须同时保持确定性、可诊断、可存档、可修改路网和可扩展性，不能用
   多世界吞吐或表现层细节层次替代单个大型交通世界的正确性。
 
-#291 已接受的长期权威目标分层为：
+ADR 0021 定义的长期权威分层为：
 
 ```text
-城市模拟游戏层
+宿主应用层
   -> 出行与交通编排层
   -> 路径规划服务
   -> LaneFlow 编译器 / 共享静态路网 + LaneFlow 交通运行时
@@ -37,7 +38,7 @@ LaneFlow 当前是一个引擎无关、可嵌入的交通运行时。Accepted AD
 路径；交通运行时只验证/注册由候选路径构成的动态通行定义，并负责交通参与单元如何
 在所属执行域安全推进。当前 `TrafficWorld` 只实现道路机动车车辆特化；长期通用抽象不把
 非机动车、行人或轨道交通排除在目标交通运行时（Target Traffic Runtime）之外。
-目标产品边界见 Accepted ADR 0021。#301 已使 `TrafficWorld` 成为唯一可运行交通世界。
+组件与宿主边界见 ADR 0021。#301 已使 `TrafficWorld` 成为唯一可运行交通世界。
 
 ## 2. 分层
 

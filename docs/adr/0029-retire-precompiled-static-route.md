@@ -22,7 +22,7 @@ route external ID resolver、`remove_route` 必须返回 external route ID」对
 
 - `0017-static-road-junction-maneuver-and-gate-identity.md`
 - `0020-compiler-owned-static-network-and-static-image.md`
-- `0021-city-simulation-game-traffic-foundation.md`
+- `0021-traffic-infrastructure-and-host-boundary.md`
 - `0023-road-editing-state-and-phased-network-replacement.md`
 - `0025-checked-canonical-network-and-shared-static-network.md`
 - `0028-integer-millimeter-traffic-geometry.md`
@@ -35,9 +35,9 @@ route external ID resolver、`remove_route` 必须返回 external route ID」对
 
 ## 背景
 
-LaneFlow 的第一长期消费者是上层类 Cities: Skylines 2 的城市模拟游戏。市民出行、
-玩家新画的公交线、临时货运，都是运行时才决定走哪条边序列。`TrafficWorld::register_route`
-已能在本世界编译出现项并生成车辆。
+宿主在运行时决定出行需求和路线，例如新增公交线路或临时货运任务所需的边序列。
+`TrafficWorld::register_route` 已能在本世界编译出现项并生成车辆；路线的来源和
+选择策略由宿主拥有，不要求绑定某一类产品。
 
 当时 LFCA / 共享根里的 `StaticRoute` 把边序列和灯/门/待行出现项冻进不可变路网修订。
 走廊、Bevy smoke 和 `runtime_min` 曾靠 `static_route(ordinal)` 在没有 #303 规划器时立刻放车。
@@ -60,7 +60,7 @@ LaneFlow 的第一长期消费者是上层类 Cities: Skylines 2 的城市模拟
 路网拥有车道边、路口、机动路径、门、等待区、信号、停车、准入和车辆配置。
 **通行计划属于每世界可变状态**，由调用方在 `register_route` 提交有序边序列。
 
-城市游戏主入口是规划器或出行编排产出边序列，再 `register_route`。Traffic Runtime
+宿主通过规划器或出行编排产出边序列，再调用 `register_route`。Traffic Runtime
 不拥有出行选择策略，也不在不可变修订里保存行程目录。
 
 ### 2. `TrafficWorld` 只留动态注册
@@ -145,7 +145,7 @@ bind 把键解析为共享根边序号，对每条 catalog 路线 `register_rout
 静态序号。现行 catalog 已由 [路权策略合同](../design/traffic-runtime-right-of-way-policy.md)
 升级为 `0.4`，新增必填 `policy_selection`；边序列权威保持本 ADR 的决定。
 
-城市游戏与 #303 不使用本 catalog；规划器直接提交边序列。不得为示例另发明第三类
+宿主自有 Routing 与 #303 不使用本 catalog；规划器直接提交边序列。不得为示例另发明第三类
 路网 sidecar。不得在 bind 时从机动路径「反推」边序列——那会变成第二套路线编译器。
 
 ### 5. 容量

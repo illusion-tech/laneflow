@@ -33,8 +33,8 @@ Skill 标识符（Skill ID）`laneflow-core-design` 可在 `laneflow-core` crate
    `docs/design/road-editing-source-and-geometry-frontend.md`；
    复核生产编译性能时读取
    `docs/reference/v0.10-compiler-production-baseline.md`
-10. 涉及城市模拟游戏范围、出行编排、Routing、路网修订、存档/回放、并行或
-   fidelity 时，读取 `docs/adr/0021-city-simulation-game-traffic-foundation.md`
+10. 涉及公开组件定位与宿主边界、出行编排、Routing、路网修订、存档/回放、并行或
+   fidelity 时，读取 `docs/adr/0021-traffic-infrastructure-and-host-boundary.md`
 
 若所需 design 文档尚不存在，在对当前 Core 或目标 Traffic Runtime 做高影响变更
 前，应先创建或提出最小设计基线。1.0 前同时阅读

@@ -13,7 +13,7 @@ Traffic/Spatial/每世界可变状态分层、稳定身份索引和失败关闭�
 **关联文档**:
 
 - `0020-compiler-owned-static-network-and-static-image.md`
-- `0021-city-simulation-game-traffic-foundation.md`
+- `0021-traffic-infrastructure-and-host-boundary.md`
 - `0023-road-editing-state-and-phased-network-replacement.md`
 - `0024-compiler-post-emission-check-and-minimal-publication-closure.md`
 - `0028-integer-millimeter-traffic-geometry.md`
