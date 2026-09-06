@@ -1210,6 +1210,7 @@ impl TrafficWorld {
             Some(_) | None => return Err(ParkingError::NotReserved),
         }
         let (command_cursor, sequence) = self.checked_parking_observation_commit()?;
+        self.unregister_overlap_vehicle(state);
         self.committed.parking.occupy_reserved(vehicle);
         let index = usize::try_from(vehicle.index()).expect("validated vehicle index");
         let state = self.committed.vehicles[index]
@@ -1412,6 +1413,7 @@ impl TrafficWorld {
         let index = usize::try_from(vehicle.index()).expect("validated vehicle index");
         self.committed.vehicles[index].state = Some(candidate);
         self.rebuild_active_order();
+        self.register_overlap_vehicle(candidate);
         self.committed.command_cursor = command_cursor;
         self.committed.observation_state_sequence = sequence;
         self.record_parking_update(vehicle, command_cursor);
@@ -1727,6 +1729,7 @@ impl TrafficWorld {
             conflict_release,
         };
 
+        self.unregister_overlap_vehicle(state);
         match binding {
             Some(ParkingBinding::Reserved(_)) => {
                 self.committed.parking.cancel_reserved(vehicle);

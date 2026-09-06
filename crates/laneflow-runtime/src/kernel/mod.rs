@@ -12,6 +12,7 @@ pub(crate) mod parking;
 pub(crate) mod phase;
 pub(crate) mod policy;
 pub(crate) mod pose;
+pub(crate) mod spawn_overlap;
 pub(crate) mod state;
 pub(crate) mod tables;
 pub(crate) mod tick;
@@ -22,3 +23,7 @@ pub(crate) mod waiting;
 pub(crate) mod waiting_dependencies;
 pub(crate) mod waiting_graph;
 pub(crate) mod world;
+
+#[cfg(test)]
+#[path = "tests/spawn_overlap.rs"]
+mod spawn_overlap_tests;

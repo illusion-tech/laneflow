@@ -1,7 +1,7 @@
 # 交通运行时整数毫米几何
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-08-30<br>
+**最后更新**: 2026-09-06<br>
 **适用范围**: `TrafficWorld` 已提交一维几何与速度、`WorldConfig` 步长、
 `laneflow-static-network` 热列、LFCA 长度/速度字段、compiler Typed AST / HIR /
 MIR / LIR 交通一维存储、公开 `Canonical*View`、compiler 边长派生、
@@ -152,7 +152,10 @@ G2 决定访问器名字。
    整数行程落地后，已提交速度不得超过**所在边**限速（`carry_um` 可能比 SI 包络
    多送 1 mm 跨边）。如何夹紧属 G2。
 
-占用循环：边上 `remaining_mm == 0` 结束（`u32`）。重叠：有符号整数区间。跨 hop
+占用循环：边上 `remaining_mm == 0` 结束（`u32`）。物理重叠比较路线起点截断后的
+非空 `u32` 毫米区间，不比较路线外的负坐标车尾；首 occurrence 进度为零时没有
+路线内车身区间。准入额外拒绝同一物理边重合的零进度前杠入口点，防止下一拍
+共同进入同一车身区间（`vehicle-following.md` §7.4）。跨 hop
 间隙用 checked `i64`。生产路径删除米制 `1e-9` / `1e-12` 比较。
 
 舍入一律 IEEE 754 **round-ties-to-even**，缩放在 `f64` 中做（`f32 × 1e6` 在

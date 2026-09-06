@@ -1,7 +1,7 @@
 # Vehicle Following 设计
 
 **文档状态**: Accepted（纵向分层与 IIDM/安全投影仍有效；已提交一维几何为整数毫米，IIDM 仍为瞬时 SI）<br>
-**最后更新**: 2026-08-27
+**最后更新**: 2026-09-06
 
 **适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
 
@@ -346,7 +346,38 @@ OccupancyRecord
 
 占用索引不进入 public API、不允许 Adapter 缓存。测试可保留全扫描预言机，仅 `cfg(test)` 对拍，并按 `bumper_gap_horizon` 过滤，不进生产热路径。
 
-spawn / replace 的重叠检查读已提交 `VehicleState`，仍对 `live_order` 做命令路径扫描，不用本拍占用索引。占用索引只在 `step` 内从 T 重建，生命周期命令之间不增量修补。
+### 7.4 道路准入候选索引
+
+`spawn_vehicle`、`replace_completed_vehicle` 与 `leave_parking` 使用独立的
+`SpawnOverlapIndex`，归属 `DerivedIndexes`。它按共享根物理边 ordinal 保存有车身
+或零进度前杠入口点的 Active 句柄；查询只访问候选覆盖的桶，再用已提交车辆的完整车身区间
+验证。路线起点截断、非空区间和端点相接规则统一来自 `for_each_occupancy_interval`，
+不使用未截断的同边保险杠捷径。查询不复制路线、不分配临时区间容器。
+
+`for_each_admission_interval` 在实际车身之外登记零进度前杠的退化入口点 `[0, 0]`。
+两个这样的点在同一物理边上不能重合，包括不同路线或不同 occurrence 的前杠。
+这保留入口唯一性，防止两辆零进度车在下一拍同时进入同一非空区间；不把路线外
+负坐标车尾重新当成道路占用。该约束同样属于重叠准入错误，恢复和切换复核也执行。
+
+缓存首次查询才建立。成功生成、替换及离场增量登记，停车与移除在清除旧状态前
+删除登记；保持完整物理 footprint 的停车路线重绑可保留登记。成功 tick、切换候选
+整值改写或迁移增量重放使缓存失效，下一次查询从已提交活动车辆重建。失败操作
+可以刷新缓存，但不能改变已提交状态、错误优先级或后续合法查询的结果。
+
+多个物理 blocker 按当前世界内部 `(slot index, generation)` 字典序选择最小值，
+不依赖桶插入顺序或 `live_order`。这是诊断选择规则，不为 opaque handle 增加公共
+排序 API；恢复后的句柄按新世界计算。快照、摘要和共享静态根不保存这个缓存。
+
+设物理边数为 `E`、活动车辆数为 `A`、全部车身片段及入口点数为 `K`。冷重建为
+`O(E + A + K)`，保留内存为外层边桶加各桶句柄容量的高水位。热查询成本由所访问桶
+的候选数及其车身展开长度决定；重复边可以使同一句柄被访问多次。固定边集上的
+密集热点仍可能随批量准入呈二次增长，不承诺任意负载线性。替换命令的 live 顺序
+定位/更新、离场 follower 安全校验、切换的全对重叠复核和摘要分组保留各自成本。
+
+有限验证包括同边、跨边、重复边、路线起点、状态生命周期与失败重试，并与完整
+扫描参考路径对拍。`kernel::spawn_overlap_tests::admission_scale_evidence` 提供
+release 下千车、四千车、万车在 16/256 条边上的生成/恢复耗时、候选访问数和索引
+保留字节；同机前后数据记录在对应 PR，不用跨机器耗时阈值充当 CI 门禁。
 
 ## 8. Longitudinal constraints
 

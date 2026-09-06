@@ -1730,6 +1730,8 @@ pub(crate) mod tests {
                 .expect("vehicle")
                 .status = VehicleStatus::Completed;
             let before_completed = *world.vehicle_state(vehicle).expect("completed vehicle");
+            world.rebuild_active_order();
+            world.derived.spawn_overlap.mark_stale();
             assert_eq!(
                 world.spawn_vehicle(spawn).unwrap_err(),
                 SpawnError::CommandCursorExhausted
@@ -1747,6 +1749,8 @@ pub(crate) mod tests {
                 .expect("vehicle")
                 .status = VehicleStatus::Active;
             let before_active = *world.vehicle_state(vehicle).expect("active vehicle");
+            world.rebuild_active_order();
+            world.derived.spawn_overlap.mark_stale();
             let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
             assert_eq!(
                 world.despawn_vehicle(vehicle).unwrap_err(),

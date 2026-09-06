@@ -4038,6 +4038,17 @@ fn leave_failures_are_atomic_and_follow_the_one_millimetre_emergency_boundary() 
         )
         .expect("stationary follower needs only physical non-overlap");
     assert_eq!(
+        stationary_world.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            80_000,
+            0,
+        )),
+        Err(laneflow_runtime::SpawnError::Overlap),
+        "successful leave registers the new road footprint immediately",
+    );
+    assert_eq!(
         stationary_world
             .vehicle(parked)
             .expect("left from second selector")
@@ -4227,6 +4238,15 @@ fn rebind_compares_the_complete_cross_edge_body_footprint() {
         world.parking_binding(contained),
         Some(ParkingBinding::Reserved(reservation)) if reservation.route() == new_route
     ));
+    assert_eq!(
+        world.spawn_vehicle(VehicleSpawnInput::new(profile, old_route, 1, 5_000, 0)),
+        Err(laneflow_runtime::SpawnError::Overlap),
+        "rebind preserves physical registration"
+    );
+    world.despawn_vehicle(contained).unwrap();
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(profile, old_route, 1, 5_000, 0))
+        .expect("despawn removes the rebound vehicle footprint");
 }
 
 #[test]

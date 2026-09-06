@@ -5,7 +5,7 @@
 > 下文 v0.2 `CoreWorld` / `RouteInput` 只作历史导航，不是现行 API。
 
 **文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）<br>
-**最后更新**: 2026-08-26<br>
+**最后更新**: 2026-09-06<br>
 **适用范围**: v0.2 Lane Graph + Route 的 Core identity、typed handle、registry / resolver、动态 vehicle / route 生命周期和事件 payload 边界，以及 compiler target 的静态 image handle 边界<br>
 **关联文档**:
 
@@ -600,6 +600,10 @@ replace_completed_vehicle(
 成功返回 `VehicleReplaceRecord { old, new }`，old 立即 stale，new handle 必须不同；public contract 不保证相同 slot index。到达路线终点写成 `Completed`，保留槽位与句柄，直到 replace；不进 pose、不占车道，占车辆容量。公开契约不恢复独立 `despawn`，也不得用退役后再 `spawn` 充当回流。
 
 只有物理 overlap 返回可恢复的 typed `ReplaceError::Blocked`，payload 含 old/blocker handle、前后关系和 bumper gap。stale、非 Completed、Parking 占用、profile、route、`route_edge_index`、progress、speed、限速、准入和容量错误均为致命 `ReplaceError`。任一 blocked/fatal 结果都保持 committed world 不变。
+
+重叠准入使用路线起点截断后的非空车身区间，并拒绝重合的零进度前杠入口点；多个 blocker 取当前世界内部
+`(slot index, generation)` 字典序最小值，不按 `live_order` 选第一个。该规则不增加
+handle 公共排序能力，详见 `vehicle-following.md` §7.4。
 
 replace 尽量保留 old 的 `live_order` 位置，不产生 tombstone。TrafficWorld 不选择回流 portal、lane 或 route，不拥有目标人口、seed、PRNG、pending retry 或车辆数量上限，也不接触 Entity。走廊 / 城市游戏等调用方拥有 lifecycle policy；成功 record 足以让 Adapter transaction 原子切换 binding。详细职责见 `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md` 与 `example-scenarios.md`。
 

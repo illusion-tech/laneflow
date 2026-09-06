@@ -1224,12 +1224,6 @@ pub(crate) fn check_conflict_capability(
     Ok(())
 }
 
-pub(crate) fn bumpers_overlap(a_front: u32, a_length: u32, b_front: u32, b_length: u32) -> bool {
-    let a_rear = i64::from(a_front) - i64::from(a_length);
-    let b_rear = i64::from(b_front) - i64::from(b_length);
-    a_rear < i64::from(b_front) && b_rear < i64::from(a_front)
-}
-
 const OCCUPANCY_INTERVAL_CAP: usize = 16;
 type OccupancyInterval = (LaneEdgeOrdinal, u32, u32);
 type OccupancyStack = ([OccupancyInterval; OCCUPANCY_INTERVAL_CAP], usize, bool);
@@ -1258,6 +1252,28 @@ pub(crate) fn for_each_occupancy_interval(
         end = *lengths.get(edges.get(index)?.index())?;
     }
     Some(())
+}
+
+/// 准入使用实际车身，加上零进度前杠的退化入口点。
+/// 同一点不能同时生成两辆车，否则它们在下一拍会一起进入同一非空区间。
+pub(crate) fn for_each_admission_interval(
+    lengths: &[u32],
+    edges: &[LaneEdgeOrdinal],
+    index: usize,
+    progress: u32,
+    length: u32,
+    mut visit: impl FnMut(LaneEdgeOrdinal, u32, u32),
+) -> Option<()> {
+    if progress == 0 && length > 0 {
+        let edge = *edges.get(index)?;
+        lengths.get(edge.index())?;
+        visit(edge, 0, 0);
+    }
+    for_each_occupancy_interval(lengths, edges, index, progress, length, visit)
+}
+
+pub(crate) fn admission_intervals_overlap(a_lo: u32, a_hi: u32, b_lo: u32, b_hi: u32) -> bool {
+    (a_lo == a_hi && b_lo == b_hi && a_lo == b_lo) || (a_lo < b_hi && b_lo < a_hi)
 }
 
 fn occupancy_intervals_stack(
@@ -1371,8 +1387,14 @@ pub(crate) fn bodies_overlap(
     b_progress: u32,
     b_length: u32,
 ) -> bool {
-    if a_edges.get(a_index) == b_edges.get(b_index)
-        && bumpers_overlap(a_progress, a_length, b_progress, b_length)
+    // 空车身不制造路线外的负坐标，但重合的零进度前杠仍共享同一入口点。
+    if a_progress == 0
+        && b_progress == 0
+        && a_length > 0
+        && b_length > 0
+        && a_edges
+            .get(a_index)
+            .is_some_and(|edge| Some(edge) == b_edges.get(b_index))
     {
         return true;
     }

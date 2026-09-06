@@ -1,7 +1,7 @@
 # 交通运行时共享静态路网消费
 
 **文档状态**: Accepted（#301 G1；#469 合入后收口）<br>
-**最后更新**: 2026-08-31（#541 停车生命周期 clean break）<br>
+**最后更新**: 2026-09-06<br>
 **适用范围**: `laneflow-runtime` / `TrafficWorld`、`laneflow-spatial` 目标 session、
 1-worker 车辆 tick、#301 端到端证据，以及 current `laneflow-core` / JSON 运行时入口拆除<br>
 **关联文档**: `../adr/0020-compiler-owned-static-network-and-static-image.md`、
@@ -268,6 +268,13 @@ checked 预计算 → 暂存（逐路线对 target 根重编译 +
   `(class, Route)` 绑定期准入（只查当前 cursor / 序列下标起的可达后缀）。初速可以
   等于该 occurrence 当前边的基础限速，超过则拒绝。重叠、非法路线/下标/进度、未知
   profile、超容量、准入 deny、超限速失败时不得留下半辆车。
+- 道路准入比较 `for_each_occupancy_interval` 展开的非空物理区间，车尾在路线起点
+  截断；首 occurrence 的 `progress_mm = 0` 没有路线内车身，不因路线外的负坐标车尾
+  拒绝另一辆车。但同一物理边零进度的前杠入口点不能重合，否则下一拍两车会共同
+  进入同一非空区间；该约束也返回 `Overlap`。跨边车尾和重复物理边 occurrence 都
+  参与判断，非空区间端点相接不重叠。
+  `spawn_vehicle`、`replace_completed_vehicle`、`leave_parking`、快照恢复与切换复核
+  使用相同区间语义。准入缓存与复杂度见 [vehicle-following.md §7.4](vehicle-following.md#74-道路准入候选索引)。
 - #475 交付 `replace_completed_vehicle`；到达终点写成
   `Completed`，保留句柄、容量与路线引用，不进 pose、不占车道；replace 成功时再迁移
   路线引用。真正移除走 `despawn_vehicle`，但不把它反写成 #301 当时已有入口。
