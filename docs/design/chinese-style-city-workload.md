@@ -50,7 +50,8 @@ ConflictArbiter 与停车合同。生产组件不得识别工作负载名称、c
 - `N_individual[d]`：仍保留完整 identity 和 committed state 的个体；
 - `N_active[d]`：当前 tick 参与该执行域运动/约束的个体；
 - `N_intent[d]`：该固定步进实际重新计算昂贵行为或控制意图的个体数；
-- `N_presented[d]`：当前交给引擎表现的个体；
+- `N_presented[d]`：该 outer frame 被 Adapter/Presentation 按个体身份物化、提取或应用
+  的个体数，按身份并集计数；不只统计应用了 Transform 的个体；
 - `N_aggregate_records[d]`：真实存在的聚合记录；
 - `N_aggregate_equivalent[d]`：聚合记录代表的等价规模，仅在定义了转换口径时报告。
 
@@ -246,9 +247,10 @@ B_parking_virtual_occupied += 1
 ```
 
 成功 virtual leave 后 `N_individual` 不变、`N_active += 1`；只有新的 committed lane pose
-被 Adapter presentation/LOD 策略实际纳入 presented set 时，`N_presented` 才增加 1，否则
-保持不变。unsafe exit 时以上计数和表现都不变。验收必须比较提交前后真实集合成员关系和
-完整状态分解，不能把 park/leave 当成无条件 `N_presented -1/+1`。
+被 Adapter/Presentation 实际物化、提取或应用时，才计入对应观测的 `N_presented`。
+Transform 的实际应用数另报，不能用是否选中应用代替是否提取。unsafe exit 时以上计数和
+表现都不变。验收必须比较提交前后真实集合成员关系和完整状态分解，不能把 park/leave
+当成无条件 `N_presented -1/+1`。
 
 成功 `despawn_vehicle` 才使 `N_individual` 减一，并在同一提交释放 parking binding 与
 route reference；virtual Parked 无 pose 或 Adapter 隐藏不改变 `N_individual`，也不能
@@ -315,13 +317,20 @@ retained 与单 binding 每世界分配形状不变；它没有构造 #304 exact
 | 静态制品          | 10k/100k 两档各完整生成、检查、构建、安装；每档两次 clean regeneration | #542                       |
 | 无界面行为        | 七个 case × 两档规模；每行两个独立同输入运行，比较状态、事件和输入摘要 | #544                       |
 | 10k Adapter 观测  | `MIXED-PEAK` 及五个停车/Waiting/Conflict case                          | #545，消费 #285 的领域观测 |
-| 100k Adapter 观测 | `MIXED-PEAK`，选择可表现集合的 10%                                     | #545                       |
-| 保存、恢复与切换  | `MIXED-PEAK` 加一个停车转换窗口；复用已有公开来源恢复与受支持切换路径  | #545；协议专项归 #538      |
+| 100k Adapter 观测 | `MIXED-PEAK`，全量提取可表现集合，对其中 10% 应用 Transform            | #545                       |
+| 保存、恢复与切换  | `MIXED-PEAK` 加一个停车转换窗口；同修订恢复及本节固定的增容修订对      | #545；协议专项归 #538      |
 
-Headless 行必须执行全部道路活动个体的相同精度求解；Adapter 减少呈现不降低
-交通精度。10k 观测选择全部可表现个体，100k 混合行选择其中 10%，按稳定身份
-确定集合并报告实际分母、数量和比例；virtual Parked 与 Completed 不进入该集合。
-这不是把 `N_presented` 写成 `N_individual` 的固定百分比。
+Headless 行必须执行全部道路活动个体的相同精度求解。两档 Adapter 都通过现有
+`LaneFlowSession::extract_committed_pose_batch` 提取全部可表现个体；virtual Parked 与
+Completed 不进入该集合。10k 对全部结果应用 Transform；100k 按 #544 计划中的稳定
+个体编号升序，从每帧成功批次中取前 `floor(可表现数量 / 10)` 个应用，报告实际分母、
+数量和比例。选择应用不降低 Runtime 精度，也不省去其他个体的位姿提取。
+
+每个 outer frame 分别报告位姿提取数、Transform 实际应用数与 `N_presented`；本路径
+的 `N_presented` 包含全量提取集合，不能记成应用的 10%。计时包含全量 source
+materialization、Spatial 提取、选择/映射和实际 apply。此行是全量提取、部分应用的
+工作负载观测，不满足性能合同的 `N_presented=10%` 产品认证行。真正按选集提取的
+能力若用于后续认证，另行设计交付；本体不新增选择提取 API，也不改变该产品目标。
 
 首轮正确性窗口由计划声明，至少覆盖一个完整暖机信号周期、两个完整观察周期和
 本 case 的必需转换；信号周期按 §3.1 已生成并合法安装的整数相位时长求和。无信号时按有限
@@ -329,10 +338,10 @@ tick 窗口及转换完成条件声明。有限输入耗尽、
 持续受阻或重试用尽均如实报告，不能通过无限等待使样本变成成功。`BOUNDARY-BURST`
 单列触发前后边界与安全拒绝后的重试结果，不照搬普通窗口的平均值。
 
-正常性能行使用 release binary。正式性能基线采用
+正常性能行使用 release binary。工作负载性能测量采用
 `core-runtime-performance-baseline.md` §8 的暖机/观察长度、三个独立进程轮次与
-分位统计方法，工具链采用受检提交的仓库固定版本；先对 `MIXED-PEAK` 记录两档
-headless 与 Adapter 主行。短正确性窗口、带断言或诊断计时不能冒充该性能基线。
+分位统计方法，并遵守其中的工具链固定和重测规则；先对 `MIXED-PEAK` 记录两档
+headless 与上述 Adapter 观测行。短正确性窗口、带断言或诊断计时不能冒充该性能测量。
 额外呈现比例、更多 seeds 和完整平台矩阵不属于本体关闭条件，由具体性能问题或
 #539 的正式认证合同决定，不能在审阅期间自动做笛卡尔积扩展。
 
@@ -340,6 +349,24 @@ Snapshot restore 比较同一已提交状态恢复后继续执行的事件/状�
 比较相同切换输入的重复运行和合同规定的迁移结果，不要求不同修订 ID 的前后摘要
 相等。Runtime 在线日志/追赶与 Adapter 维护暂停式切换分别使用各自已交付入口；
 不向 Bevy 增加在线调度器，也不依赖尚未交付的 Editable 存档入口。
+
+首版跨修订切换只使用一个增容变体，两档使用同一生成规则：
+
+1. base 为 #542 对应规模的规范 LFCA。按 base 的 `ParkingFacility StableId128` 字节序，
+   选择首个 virtual-only 且 `0 < virtual_capacity < u32::MAX` 的设施；正式输入须有该设施。
+2. #545 复用 #542 的来源生成器，仅把该设施 `virtual_capacity` 增加 1，其他来源语义、
+   实体稳定身份、道路/路线、停车锚点、车辆配置和策略保持不变。由既有编译/差分入口生成
+   target LFCA 与 base→target LFSD；#545 拥有该验证变体，#542 的规范制品仍为 base。
+3. 描述符沿用 `traffic-runtime-revision-cutover.md` 的当前 v2 合同：
+   `migrationPolicyKind=cross_revision_direct`，base/target LFCA origin 四联和 LFSD
+   origin 来自实际制品，`worldBinding` 来自事务启动时的基线世界身份、世代及双游标。
+   同修订恢复使用 base→base 和 `same_revision_restore`，不附 LFSD。
+4. #545 在取证前固定变体配置、所选设施、制品摘要和描述符输入；停车转换窗口覆盖
+   该设施已有的 virtual binding。增容预期成功直移，保留车辆/路线句柄、停车目标与
+   Reserved/Occupied 数量，更新修订并按既有合同交付切换事件；后续状态及事件比较
+   使用独立同输入切换运行。实体重绑与目标规范化仍执行既有合同。
+
+更广的变更与失败组合由 #538 按自身验收范围裁决，不作为本体新增条件。
 
 ### 6.2 可复核输出与通过状态
 

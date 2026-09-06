@@ -1,7 +1,7 @@
 # Core Runtime 产品性能基线
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-09-06<br>
+**最后更新**: 2026-09-07<br>
 **适用范围**: 当前 LaneFlow Core 车辆特化、目标 Traffic Runtime 多执行域、
 Spatial、Engine Adapter 的一万/十万产品目标、一百万研究包络，以及性能、保真度、
 硬件和证据协议<br>
@@ -686,8 +686,8 @@ Aggregate 不是当前 production candidate。若第 10 节触发独立 G1，必
 - `H = 1024 ticks`；W1–W3 的 H/2H/4H 是正式 observation 内的强制 fidelity
   checkpoint。W4 使用冻结的两 tick event window，不适用 H/2H/4H。
 - 每个 case 先按实际 fixed step 和离散 phase 推进语义，计算其中最长完整 Signal
-  controller cycle 的 `C_signal_ticks`；没有 Signal controller 时取 `0`。不得只用
-  名义毫秒总和忽略逐 phase 的 tick 取整。
+  controller cycle 的 `C_signal_ticks`；没有 Signal controller 时取 `0`。每个已安装
+  phase 的时长必须是 fixed step 的正整数倍，周期按这些合法时长求和，不由 Runtime 取整。
 - W1–W3 的运行长度使用：
 
   ```text
@@ -701,8 +701,13 @@ Aggregate 不是当前 production candidate。若第 10 节触发独立 G1，必
   和各 workload 预声明的 transitions；W1/W2 的 caller transition 集为空。为覆盖
   Signal cycles 而增加的 ticks 同样进入正式 latency/tail 统计，不能在报告时丢弃。
 - 每个 case 运行 3 个独立 fresh-process rounds；candidate 顺序跨 round 轮换。
-- 固定 commit、release binary、Rust 1.96、seed、workload configuration 与
-  deterministic outer-frame input sequence。
+- 固定 commit、release binary、seed、workload configuration 与 deterministic
+  outer-frame input sequence。Rust 工具链采用受检提交 `.github/workflows/ci.yml` 中
+  `Rust checks` 固定的完整版本（当前 `1.98.0`），并满足 workspace MSRV；结果记录
+  `rustc -Vv`、`cargo -V` 与 target triple。
+- 同一次性能比较的 baseline/candidate 使用相同工具链与构建参数。工具链变更后，
+  用于该次比较或产品判定的行须在新工具链上重跑全部三个轮次；旧测量保留实际版本，
+  只作历史证据，不改写版本后复用为当前认证结果。§5 的 R0 历史环境记录保持原值。
 - W1–W4 正常 latency/tail rows 必须使用非 instrumented release binary。W3/W4
   failed-step/retry 是单独的 test-only semantic guardrail：使用同一 commit、
   topology/state/input digest 和 release optimization，通过
