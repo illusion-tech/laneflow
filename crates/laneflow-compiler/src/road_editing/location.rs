@@ -18,6 +18,7 @@ pub(crate) struct RoadEditingLocationFactory {
 }
 
 impl RoadEditingLocationFactory {
+    /// 构造输入文档（未验证）模块头部的来源位置。
     pub(crate) fn input_module_header(expected_source_document_key: &str) -> SourceLocation {
         Self {
             context: empty_context(),
@@ -28,6 +29,7 @@ impl RoadEditingLocationFactory {
         .module_header()
     }
 
+    /// 构造输入文档 wire 记录（根向量物理序号 + 表类别 + 字节范围）的来源位置。
     pub(crate) fn input_wire(
         expected_source_document_key: &str,
         root_vector: RoadEditingRootVectorKind,
@@ -49,6 +51,7 @@ impl RoadEditingLocationFactory {
         ))
     }
 
+    /// 构造已验证模块头部的来源位置。
     pub(crate) fn verified_module_header(
         module_namespace: &str,
         source_document_key: &str,
@@ -63,6 +66,7 @@ impl RoadEditingLocationFactory {
         .module_header()
     }
 
+    /// 从已验证的 wire 根收集去重后的字符串、属性路径与画布选择，构建来源位置工厂。
     pub(crate) fn from_verified_root(root: wire::RoadEditingSource<'_>) -> Self {
         let header = root.module_header();
         let mut strings = Vec::with_capacity(location_string_occurrence_count(root));
@@ -137,6 +141,7 @@ impl RoadEditingLocationFactory {
         }
     }
 
+    /// 构造某条声明整体的来源位置。
     pub(crate) fn declaration(
         &self,
         entity_kind: EntityKind,
@@ -157,6 +162,7 @@ impl RoadEditingLocationFactory {
         )
     }
 
+    /// 构造某条道路对齐整体的来源位置。
     pub(crate) fn road_alignment(
         &self,
         road_alignment_key: &str,
@@ -175,6 +181,7 @@ impl RoadEditingLocationFactory {
         )
     }
 
+    /// 构造道路对齐上某属性路径的来源位置。
     pub(crate) fn road_alignment_property(
         &self,
         road_alignment_key: &str,
@@ -194,6 +201,7 @@ impl RoadEditingLocationFactory {
         )
     }
 
+    /// 构造道路对齐作为所有者时某关系出现的来源位置。
     pub(crate) fn road_alignment_owner_local(
         &self,
         road_alignment_key: &str,
@@ -213,6 +221,7 @@ impl RoadEditingLocationFactory {
         )
     }
 
+    /// 构造声明上某属性路径的来源位置。
     pub(crate) fn property(
         &self,
         entity_kind: EntityKind,
@@ -234,6 +243,7 @@ impl RoadEditingLocationFactory {
         )
     }
 
+    /// 构造声明作为所有者时某关系出现的来源位置。
     #[allow(
         clippy::too_many_arguments,
         reason = "closed typed location fields remain explicit at relation call sites"
@@ -288,6 +298,7 @@ impl RoadEditingLocationFactory {
         )
     }
 
+    /// 构造模块头部作为所有者时某关系出现的来源位置。
     pub(crate) fn module_owner_local(
         &self,
         relation: RoadEditingRelationKind,
@@ -305,10 +316,12 @@ impl RoadEditingLocationFactory {
         )
     }
 
+    /// 构造模块头部自身的来源位置。
     pub(crate) fn module_header(&self) -> SourceLocation {
         self.location(RoadEditingSubject::ModuleHeader, None, None)
     }
 
+    /// 返回该工厂持有的来源位置上下文的受控 live 字节数。
     pub(crate) fn controlled_live_bytes(&self) -> u64 {
         self.context.controlled_live_bytes()
     }

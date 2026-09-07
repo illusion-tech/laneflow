@@ -1,6 +1,11 @@
 use super::*;
 mod policy;
 
+/// 从冻结 LIR、显式发射 provenance 与声明的网络修订构造 LFCA 可移植规范制品的
+/// 拥有型 object 投影。
+///
+/// 覆盖格式版本、规范身份、实体、关系、空间几何、执行契约、provenance 与网络修订各
+/// section；字节编码由 wire 层完成。
 pub(super) fn build_lfca(
     output: &CompilationOutput,
     provenance: &PortableEmissionProvenance,

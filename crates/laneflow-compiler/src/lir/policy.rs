@@ -3,12 +3,14 @@ use super::*;
 use crate::policy::model::PolicySet;
 use laneflow_static_contract::RightOfWayPolicySetOrdinal;
 
+/// 路权策略集的 Canonical LIR 记录：规则引用已重映射为规范序号的冻结 `PolicySet` 值。
 pub(crate) struct LirPolicy {
     pub ordinal: RightOfWayPolicySetOrdinal,
     pub identity_fields: TableRange<LirIdentityField>,
     pub value: PolicySet<ManeuverGateOrdinal, ParticipantStreamOrdinal, ParticipantClassOrdinal>,
 }
 
+/// 按 HIR 已有的 Identity 前像顺序冻结全部路权策略集；规则内类别与让行目标重映射为 LIR 序号并按稳定标识排序。
 pub(super) fn freeze(env: &mut FreezeEnv<'_>) -> Result<Box<[LirPolicy]>, DiagnosticBundle> {
     let mut policies = Vec::with_capacity(env.mir.policies.len());
     // HIR 已按完整 Identity 前像排序，且没有策略间引用，不再建立第二张排列索引。
@@ -70,6 +72,7 @@ pub(super) fn bytes(mir: &MirUnit) -> u64 {
     })
 }
 
+/// 把冻结后的路权策略集逐字段写入 LIR 语义摘要的 BLAKE3 哈希。
 pub(super) fn hash(hasher: &mut blake3::Hasher, policies: &[LirPolicy]) {
     hash_u32(hasher, EntityKind::RightOfWayPolicySet.code().into());
     hash_u32(hasher, policies.len() as u32);

@@ -1,6 +1,7 @@
 use super::policy_change::{Scratch, reserved};
 use super::*;
 
+/// 一份已索引实体的行视图及其规范身份字段前像。
 #[derive(Clone, Copy, Debug)]
 pub(super) struct EntityRecord<'a> {
     pub(super) row: RegistryCheckedRowView<'a>,
@@ -9,6 +10,9 @@ pub(super) struct EntityRecord<'a> {
 
 type IndexedEntity<'a> = ((EntityKind, [u8; 16]), EntityRecord<'a>);
 
+/// 一份受检规范制品的实体索引。
+///
+/// 按实体种类与有类型序号顺序保存全部实体记录，另存稳定标识排序索引以支持二分查找。
 pub(super) struct ArtifactIndex<'a> {
     pub(super) view: RegistryCheckedObjectView<'a>,
     // 原始 kind/ordinal 顺序支持 O(1) 引用；StableId 查询仅另存 u32 排序索引。
@@ -18,6 +22,9 @@ pub(super) struct ArtifactIndex<'a> {
 }
 
 impl<'a> ArtifactIndex<'a> {
+    /// 从受检制品视图建立实体索引。
+    ///
+    /// 逐实体核对身份表与实体表的种类、有类型序号和稳定标识一致性，并拒绝重复稳定标识。
     pub(super) fn build(
         view: RegistryCheckedObjectView<'a>,
         mismatch: PortableEmissionError,
@@ -87,6 +94,7 @@ impl<'a> ArtifactIndex<'a> {
         })
     }
 
+    /// 按实体种类与有类型序号顺序遍历全部已索引实体。
     pub(super) fn entities(
         &self,
     ) -> impl Iterator<Item = (&(EntityKind, [u8; 16]), &EntityRecord<'a>)> {
@@ -100,6 +108,7 @@ impl<'a> ArtifactIndex<'a> {
             .map(|i| &self.entities[self.by_stable_id[i] as usize])
     }
 
+    /// 按实体种类与稳定标识精确查找实体记录。
     pub(super) fn entity(&self, key: &(EntityKind, [u8; 16])) -> Option<&EntityRecord<'a>> {
         self.find(key.1)
             .filter(|(actual, _)| actual == key)
@@ -111,6 +120,7 @@ impl<'a> ArtifactIndex<'a> {
         self.entities[start..end].get(ordinal as usize)
     }
 
+    /// 把实体种类与有类型序号解析为稳定标识；序号越界时返回给定的错误。
     pub(super) fn stable_id(
         &self,
         entity_kind: EntityKind,
@@ -122,6 +132,7 @@ impl<'a> ArtifactIndex<'a> {
             .ok_or(mismatch)
     }
 
+    /// 把实体种类与有类型序号解析为实体行视图；序号越界时返回给定的错误。
     pub(super) fn entity_row(
         &self,
         entity_kind: EntityKind,
@@ -134,6 +145,7 @@ impl<'a> ArtifactIndex<'a> {
     }
 }
 
+/// 读取指定标签的 `U8` 字段；字段缺失或类型不符时返回给定的错误。
 pub(super) fn checked_u8_with(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
@@ -145,6 +157,7 @@ pub(super) fn checked_u8_with(
     }
 }
 
+/// 读取指定标签的 `U16` 字段；字段缺失或类型不符时返回给定的错误。
 pub(super) fn checked_u16_with(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
@@ -156,6 +169,7 @@ pub(super) fn checked_u16_with(
     }
 }
 
+/// 读取指定标签的 `U32` 字段；字段缺失或类型不符时返回给定的错误。
 pub(in crate::portable_emitter) fn checked_u32_with(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
@@ -167,6 +181,7 @@ pub(in crate::portable_emitter) fn checked_u32_with(
     }
 }
 
+/// 读取指定标签的 `StableId128` 字段；字段缺失或类型不符时返回给定的错误。
 pub(in crate::portable_emitter) fn checked_stable_id_with(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
@@ -178,6 +193,7 @@ pub(in crate::portable_emitter) fn checked_stable_id_with(
     }
 }
 
+/// 读取指定标签的有类型序号向量字段；字段缺失或类型不符时返回给定的错误。
 pub(super) fn checked_ordinal_vector_with(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
@@ -189,6 +205,7 @@ pub(super) fn checked_ordinal_vector_with(
     }
 }
 
+/// 读取指定标签的记录向量字段；字段缺失或类型不符时返回给定的错误。
 pub(super) fn checked_record_vector_with(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
@@ -200,6 +217,7 @@ pub(super) fn checked_record_vector_with(
     }
 }
 
+/// 读取指定节唯一表的首行；节、表或行缺失时返回给定的错误。
 pub(super) fn singleton_row(
     view: RegistryCheckedObjectView<'_>,
     section_ordinal: u32,
@@ -211,6 +229,10 @@ pub(super) fn singleton_row(
         .ok_or(mismatch)
 }
 
+/// 核对基线与目标制品之间可以生成语义差异。
+///
+/// 两侧的静态契约版本与执行契约行必须逐字节相同；同一稳定标识跨修订不得改变
+/// 实体种类或规范身份字段。
 pub(super) fn verify_artifact_diff_compatibility(
     base: RegistryCheckedObjectView<'_>,
     target: RegistryCheckedObjectView<'_>,

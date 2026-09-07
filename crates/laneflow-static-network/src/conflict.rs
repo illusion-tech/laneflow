@@ -10,6 +10,7 @@ use crate::builder::{allocate_vec, checked_record_vector, checked_u8, checked_u3
 use crate::traffic::logical_bytes;
 use crate::{BuildError, BuildStructure, RangeU32, SharedIdentityIndex, SharedTrafficNetwork};
 
+/// 冲突通行段 entry/exit 在机动路径上的锚点：机动门、边边界或路径内部进度点。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConflictPathAnchor {
     Gate(ManeuverGateOrdinal),
@@ -20,6 +21,7 @@ pub enum ConflictPathAnchor {
     },
 }
 
+/// 某参与者流穿过一个冲突区的所有者局部 entry/exit 路径区间；不具有独立稳定身份。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ConflictPassage {
     conflict_zone: ConflictZoneOrdinal,
@@ -29,27 +31,32 @@ pub struct ConflictPassage {
 }
 
 impl ConflictPassage {
+    /// 返回本通行段所属冲突区的 ordinal。
     #[must_use]
     pub const fn conflict_zone(self) -> ConflictZoneOrdinal {
         self.conflict_zone
     }
 
+    /// 返回本通行段的入口锚点。
     #[must_use]
     pub const fn entry(self) -> ConflictPathAnchor {
         self.entry
     }
 
+    /// 返回本通行段的出口锚点。
     #[must_use]
     pub const fn exit(self) -> ConflictPathAnchor {
         self.exit
     }
 
+    /// 返回本通行段准入判定时使用的机动门 ordinal。
     #[must_use]
     pub const fn admission_gate(self) -> ManeuverGateOrdinal {
         self.admission_gate
     }
 }
 
+/// 单个冲突区的只读视图：所属路口与穿越它的参与者流。
 #[derive(Clone, Copy, Debug)]
 pub struct ConflictZoneView<'a> {
     junction: JunctionOrdinal,
@@ -57,17 +64,20 @@ pub struct ConflictZoneView<'a> {
 }
 
 impl<'a> ConflictZoneView<'a> {
+    /// 返回该冲突区所属路口的 ordinal。
     #[must_use]
     pub const fn junction(self) -> JunctionOrdinal {
         self.junction
     }
 
+    /// 返回穿越该冲突区的参与者流 ordinal 切片。
     #[must_use]
     pub const fn participant_streams(self) -> &'a [ParticipantStreamOrdinal] {
         self.participant_streams
     }
 }
 
+/// 单个参与者流的只读视图：所属路口、机动路径与全部冲突通行段。
 #[derive(Clone, Copy, Debug)]
 pub struct ParticipantStreamView<'a> {
     junction: JunctionOrdinal,
@@ -76,16 +86,19 @@ pub struct ParticipantStreamView<'a> {
 }
 
 impl<'a> ParticipantStreamView<'a> {
+    /// 返回该参与者流所属路口的 ordinal。
     #[must_use]
     pub const fn junction(self) -> JunctionOrdinal {
         self.junction
     }
 
+    /// 返回该参与者流所属机动路径的 ordinal。
     #[must_use]
     pub const fn maneuver_path(self) -> ManeuverPathOrdinal {
         self.maneuver_path
     }
 
+    /// 返回该参与者流的全部冲突通行段切片。
     #[must_use]
     pub const fn passages(self) -> &'a [ConflictPassage] {
         self.passages
@@ -110,6 +123,7 @@ pub struct SharedConflictNetwork {
 }
 
 impl SharedConflictNetwork {
+    /// 按冲突区 ordinal 查询其只读视图；越界时返回 None。
     #[must_use]
     pub fn conflict_zone(&self, zone: ConflictZoneOrdinal) -> Option<ConflictZoneView<'_>> {
         Some(ConflictZoneView {
@@ -121,6 +135,7 @@ impl SharedConflictNetwork {
         })
     }
 
+    /// 返回某路口下全部冲突区的 ordinal 切片；越界时返回 None。
     #[must_use]
     pub fn junction_conflict_zones(
         &self,
@@ -133,6 +148,7 @@ impl SharedConflictNetwork {
         )
     }
 
+    /// 返回某路口下全部参与者流的 ordinal 切片；越界时返回 None。
     #[must_use]
     pub fn junction_participant_streams(
         &self,
@@ -145,6 +161,7 @@ impl SharedConflictNetwork {
         )
     }
 
+    /// 返回穿越某机动路径的全部参与者流 ordinal 切片；越界时返回 None。
     #[must_use]
     pub fn maneuver_path_participant_streams(
         &self,
@@ -157,6 +174,7 @@ impl SharedConflictNetwork {
         )
     }
 
+    /// 按参与者流 ordinal 查询其只读视图；越界时返回 None。
     #[must_use]
     pub fn participant_stream(
         &self,
@@ -172,6 +190,7 @@ impl SharedConflictNetwork {
         })
     }
 
+    /// 返回本 component 全部保留内存的逻辑字节数。
     #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         logical_bytes::<JunctionOrdinal>(self.zone_junctions.len())
@@ -196,6 +215,7 @@ struct PathPosition {
     progress_mm: u32,
 }
 
+/// 从受检规范路网输入构建 Conflict component：冲突区、参与者流与派生索引。
 pub(crate) fn build_conflict(
     view: ValueCheckedObjectView<'_>,
     traffic: &SharedTrafficNetwork,

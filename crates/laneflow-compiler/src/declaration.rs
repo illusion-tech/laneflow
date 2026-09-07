@@ -142,6 +142,7 @@ pub enum FacilityKindViolation {
     },
 }
 
+/// 返回设施类别 token 的结构类别；未知或非法 token 返回 `None`。
 pub(crate) fn facility_kind_category(kind_id: &str) -> Option<FacilityKindCategory> {
     let seed_category = match kind_id {
         "motorLane" | "nonMotorLane" => Some(FacilityKindCategory::LaneBearing),
@@ -605,6 +606,7 @@ pub(crate) struct TypedAstEntityAddress {
 }
 
 impl TypedAstEntityAddress {
+    /// 构造模块级地址（owner 链为空）。
     pub(crate) fn module_scoped(local_key: Arc<str>) -> Self {
         Self {
             owner_local_keys: None,
@@ -612,6 +614,7 @@ impl TypedAstEntityAddress {
         }
     }
 
+    /// 构造 owner-scoped 地址；owner 链按父先子后顺序且不得为空。
     pub(crate) fn owner_scoped(owner_local_keys: Arc<[Arc<str>]>, local_key: Arc<str>) -> Self {
         debug_assert!(!owner_local_keys.is_empty());
         Self {
@@ -620,16 +623,19 @@ impl TypedAstEntityAddress {
         }
     }
 
+    /// 返回完整 owner local-key 链；模块级地址返回空切片。
     pub(crate) fn owner_local_keys(&self) -> &[Arc<str>] {
         self.owner_local_keys.as_deref().unwrap_or(&[])
     }
 
+    /// 返回 sibling-local key。
     pub(crate) fn local_key(&self) -> &Arc<str> {
         &self.local_key
     }
 }
 
 impl<K: EntityKindMarker> OwnedEntityReference<K> {
+    /// 构造指向模块级声明的有类型引用。
     pub(crate) fn new(
         module_namespace: Arc<str>,
         declaration_key: Arc<str>,
@@ -643,6 +649,7 @@ impl<K: EntityKindMarker> OwnedEntityReference<K> {
         }
     }
 
+    /// 构造指向完整来源地址（可含 owner 链）的有类型引用。
     pub(crate) fn with_target_address(
         module_namespace: Arc<str>,
         target_address: TypedAstEntityAddress,
@@ -656,6 +663,7 @@ impl<K: EntityKindMarker> OwnedEntityReference<K> {
         }
     }
 
+    /// 返回目标声明的 sibling-local key。
     pub(crate) fn declaration_key(&self) -> &Arc<str> {
         self.target_address.local_key()
     }
@@ -666,6 +674,7 @@ impl<K: EntityKindMarker> OwnedEntityReference<K> {
 pub(crate) struct EdgeLength(u32);
 
 impl EdgeLength {
+    /// 把编制 `f64` 米受检量化为交通权威毫米长度。
     pub(crate) fn try_new(value: f64) -> Result<Self, ScalarViolation> {
         closed_millimetres(value, MIN_LANE_EDGE_LENGTH_MM, MAX_LANE_EDGE_LENGTH_MM).map(Self)
     }
@@ -675,10 +684,12 @@ impl EdgeLength {
         closed_millimetres(value, MIN_LANE_EDGE_LENGTH_MM, u32::MAX).map(Self)
     }
 
+    /// 返回毫米值。
     pub(crate) const fn millimetres(self) -> u32 {
         self.0
     }
 
+    /// 返回以米表示的观测值。
     pub(crate) fn observation_metres(self) -> f64 {
         f64::from(self.0) / 1_000.0
     }
@@ -689,15 +700,18 @@ impl EdgeLength {
 pub(crate) struct SpeedLimit(u32);
 
 impl SpeedLimit {
+    /// 把编制 `f64` 米每秒受检量化为毫米每秒限速。
     pub(crate) fn try_new(value: f64) -> Result<Self, ScalarViolation> {
         closed_millimetres(value, MIN_SPEED_MM_S, MAX_SPEED_MM_S).map(Self)
     }
 
+    /// 返回毫米每秒值。
     pub(crate) const fn millimetres_per_second(self) -> u32 {
         self.0
     }
 }
 
+/// 把 `f64` 米量化为整数毫米并校验闭区间。
 pub(crate) fn closed_millimetres(
     value: f64,
     min_mm: u32,
@@ -777,6 +791,7 @@ pub(crate) struct DeclarationHeader {
 }
 
 impl DeclarationHeader {
+    /// 构造模块级声明头：来源地址即稳定键。
     pub(crate) fn module_scoped(
         entity_kind: EntityKind,
         stable_key: Arc<str>,
@@ -790,6 +805,7 @@ impl DeclarationHeader {
         }
     }
 
+    /// 构造带显式来源地址的声明头；地址末段必须与身份 local key 一致。
     pub(crate) fn with_source_address(
         entity_kind: EntityKind,
         source_address: TypedAstEntityAddress,
@@ -906,6 +922,7 @@ pub(crate) struct RoadAlignmentDeclaration {
 }
 
 impl RoadAlignmentDeclaration {
+    /// 以声明内规范结构顺序访问该道路走向的全部来源位置。
     pub(crate) fn try_visit_source_locations<E>(
         &self,
         mut visit: impl FnMut(&SourceLocation) -> Result<(), E>,
@@ -1006,6 +1023,7 @@ pub(crate) enum LaneEdgeGeometryAuthority {
 }
 
 impl LaneEdgeGeometryAuthority {
+    /// 返回已确定的交通权威长度；`Authoring` 变体尚未冻结长度时返回 `None`。
     pub(crate) const fn direct_length(&self) -> Option<EdgeLength> {
         match self {
             Self::DirectLength(length) => Some(*length),
@@ -1128,15 +1146,18 @@ pub(crate) enum OwnedSignalControl {
     None,
 }
 
+/// 已通过字段级检查的信号组 Typed AST 记录。
 pub(crate) struct SignalGroupDeclaration {
     pub(crate) header: DeclarationHeader,
 }
 
+/// Typed AST 中一个信号相位内的信号组灯态。
 pub(crate) struct SignalGroupStateDeclaration {
     pub(crate) signal_group: OwnedEntityReference<SignalGroupKind>,
     pub(crate) aspect: SignalAspect,
 }
 
+/// 已通过字段级检查的信号相位 Typed AST 记录。
 pub(crate) struct SignalPhaseDeclaration {
     pub(crate) header: DeclarationHeader,
     /// 该相位在所属控制器有序 `signal_phases` 关系中的来源位置。
@@ -1147,6 +1168,7 @@ pub(crate) struct SignalPhaseDeclaration {
     pub(crate) states: Box<[SignalGroupStateDeclaration]>,
 }
 
+/// 已通过字段级检查的信号控制器 Typed AST 记录。
 pub(crate) struct SignalControllerDeclaration {
     pub(crate) header: DeclarationHeader,
     pub(crate) offset_ms: u64,
@@ -1284,6 +1306,7 @@ pub(crate) enum PathAnchorDeclaration {
 }
 
 impl PathAnchorDeclaration {
+    /// 返回该锚点的来源位置。
     pub(crate) const fn span(&self) -> &SourceLocation {
         match self {
             Self::Gate { span, .. }
@@ -1330,6 +1353,7 @@ pub(crate) struct ConflictZoneRegionDeclaration {
 }
 
 impl ConflictZoneRegionDeclaration {
+    /// 以声明内规范结构顺序访问该区域声明的全部来源位置。
     pub(crate) fn try_visit_source_locations<E>(
         &self,
         mut visit: impl FnMut(&SourceLocation) -> Result<(), E>,

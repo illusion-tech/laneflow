@@ -3,6 +3,7 @@
 //! 本 package 不属于 LaneFlow 产品 API，也不提供未经验证的读取入口。手写运行时只从
 //! `laneflow-runtime` 的受检快照入口使用这些类型，且不得重导出 generated table。
 
+/// 运行时快照（`LFRS`，Runtime Snapshot v5）的 FlatBuffers 生成绑定模块；固定 flatc 产物，经 `#[path]` 引入。
 #[rustfmt::skip]
 #[allow(
     clippy::derivable_impls,

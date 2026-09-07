@@ -10,11 +10,13 @@ use crate::arena::TableRange;
 
 use super::LirIdentityField;
 
+/// 道路走廊成员的闭合联合：道路区段或设施带。
 pub(crate) enum LirCorridorElement {
     RoadSection(RoadSectionOrdinal),
     FacilityBand(FacilityBandOrdinal),
 }
 
+/// 道路走廊的 Canonical LIR 记录：组织方向性道路区段与非遍历设施带的横断面所有者。
 pub(crate) struct LirRoadCorridor {
     pub(crate) ordinal: RoadCorridorOrdinal,
     pub(crate) stable_id: RoadCorridorId,
@@ -23,6 +25,7 @@ pub(crate) struct LirRoadCorridor {
     pub(crate) elements: TableRange<LirCorridorElement>,
 }
 
+/// 道路区段的 Canonical LIR 记录：道路走廊内具有方向和横断面成员关系的区段。
 pub(crate) struct LirRoadSection {
     pub(crate) ordinal: RoadSectionOrdinal,
     pub(crate) stable_id: RoadSectionId,
@@ -32,6 +35,7 @@ pub(crate) struct LirRoadSection {
     pub(crate) lanes: TableRange<AuthoringLaneOrdinal>,
 }
 
+/// 编制车道的 Canonical LIR 记录：来源侧车道声明，展开为车道边链并可归属于车道组。
 pub(crate) struct LirAuthoringLane {
     pub(crate) ordinal: AuthoringLaneOrdinal,
     pub(crate) stable_id: AuthoringLaneId,
@@ -41,6 +45,7 @@ pub(crate) struct LirAuthoringLane {
     pub(crate) lane_group: Option<LaneGroupOrdinal>,
 }
 
+/// 车道组的 Canonical LIR 记录：道路区段内组织车道成员的静态分组。
 pub(crate) struct LirLaneGroup {
     pub(crate) ordinal: LaneGroupOrdinal,
     pub(crate) stable_id: LaneGroupId,
@@ -49,6 +54,7 @@ pub(crate) struct LirLaneGroup {
     pub(crate) members: TableRange<AuthoringLaneOrdinal>,
 }
 
+/// 设施带的 Canonical LIR 记录：道路走廊内不直接承担机动车遍历拓扑的设施横带。
 pub(crate) struct LirFacilityBand {
     pub(crate) ordinal: FacilityBandOrdinal,
     pub(crate) stable_id: FacilityBandId,
@@ -62,6 +68,7 @@ use crate::DiagnosticBundle;
 use crate::mir::{MirAuthoringLaneKey, MirCorridorElement};
 use laneflow_static_contract::FieldTag;
 
+/// 横断面领域各表及走廊成员、区段车道、车道边链、组成员等关系辅表的领域冻结产物。
 pub(super) struct CrossSectionParts {
     pub road_corridors: Vec<LirRoadCorridor>,
     pub corridor_elements: Vec<LirCorridorElement>,
@@ -74,6 +81,7 @@ pub(super) struct CrossSectionParts {
     pub facility_bands: Vec<LirFacilityBand>,
 }
 
+/// 按规范排列冻结道路走廊、道路区段、编制车道、车道组与设施带表及各自关系辅表。
 pub(super) fn freeze(
     env: &mut FreezeEnv<'_>,
     counts: &LirCrossSectionCounts,

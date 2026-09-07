@@ -193,6 +193,7 @@ fn load_items(
     Ok(())
 }
 
+/// 校验 Runtime 生产源码边界：加载显式模块树并断言 kernel/admin/facade 与唯一格式入口存在，收集导入别名后逐模块检查禁止依赖与 `include` 禁令。
 pub(super) fn check(inputs: &SourceInputs) -> Result<(), String> {
     let entry = inputs
         .entry

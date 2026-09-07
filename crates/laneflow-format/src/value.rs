@@ -54,6 +54,7 @@ pub(crate) struct ValueCheckProof {
 }
 
 impl<'a> ValueCheckedObjectView<'a> {
+    /// 提取可对同一 backing 做 O(1) 重借用的值域预检证明。
     pub(crate) const fn proof(self) -> ValueCheckProof {
         ValueCheckProof {
             registry: self.registry.proof(),
@@ -80,6 +81,7 @@ impl<'a> ValueCheckedObjectView<'a> {
 }
 
 impl ValueCheckProof {
+    /// 长度与预检时一致时，对同一不可变 backing 重借出值域受检视图。
     pub(crate) fn reborrow(self, bytes: &[u8]) -> Option<ValueCheckedObjectView<'_>> {
         Some(ValueCheckedObjectView {
             registry: self.registry.reborrow(bytes)?,

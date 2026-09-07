@@ -20,11 +20,13 @@ pub struct OwnedRoadEditingSourceBuffer {
 }
 
 impl OwnedRoadEditingSourceBuffer {
+    /// 返回有效的 size-prefixed `LFRE` 字节切片。
     #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         &self.storage[self.start..]
     }
 
+    /// 返回底层存储的保留容量字节数。
     #[must_use]
     pub fn retained_capacity_bytes(&self) -> usize {
         self.storage.capacity()
@@ -37,11 +39,13 @@ pub struct RoadEditingSourceWriter<'limits> {
 }
 
 impl<'limits> RoadEditingSourceWriter<'limits> {
+    /// 以给定编译资源上限创建 writer。
     #[must_use]
     pub const fn new(limits: &'limits CompileLimits) -> Self {
         Self { limits }
     }
 
+    /// 把来源模块确定性编码为 `LFRE` size-prefixed 缓冲区；超出每模块来源字节上限时失败关闭。
     pub fn write(
         self,
         module: RoadEditingSourceModule,
@@ -1193,6 +1197,7 @@ fn encode_conflict_zone_region<'fbb>(
     )
 }
 
+/// writer 编码行为的单元测试与共享夹具。
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
@@ -1289,6 +1294,7 @@ pub(super) mod tests {
         .expect("curve")
     }
 
+    /// 构造覆盖全部声明种类的来源模块测试夹具。
     pub(crate) fn module_with_every_declaration(limits: &CompileLimits) -> RoadEditingSourceModule {
         let mut builder = RoadEditingSourceModuleBuilder::new(
             RoadEditingModuleHeader::try_new(

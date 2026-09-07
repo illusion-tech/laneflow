@@ -18,6 +18,7 @@ pub struct CanonicalLaneEdgeGeometryView<'a> {
 }
 
 impl<'a> CanonicalLaneEdgeGeometryView<'a> {
+    /// 由 LIR 单元、车道图边序号与几何记录构造借用视图；仅限 `compiler` 模块内部调用。
     pub(in crate::compiler) const fn from_lir(
         lir: &'a LirUnit,
         lane_edge: LaneEdgeOrdinal,
@@ -32,21 +33,25 @@ impl<'a> CanonicalLaneEdgeGeometryView<'a> {
 }
 
 impl CanonicalLaneEdgeGeometryView<'_> {
+    /// 返回本几何所属的车道图边序号。
     #[must_use]
     pub const fn lane_edge(&self) -> LaneEdgeOrdinal {
         self.lane_edge
     }
 
+    /// 返回该几何量化时所属的 canonical frame 序号。
     #[must_use]
     pub const fn canonical_frame(&self) -> CanonicalFrameOrdinal {
         self.geometry.canonical_frame
     }
 
+    /// 返回中心线的总弧长，单位为米。
     #[must_use]
     pub const fn arc_length_meters(&self) -> f32 {
         self.geometry.arc_length_meters
     }
 
+    /// 按采样顺序遍历中心线的规范三维点。
     pub fn points(&self) -> impl ExactSizeIterator<Item = CanonicalPoint3F32> + '_ {
         self.lir.canonical_points[self.geometry.points.as_usize_range()]
             .iter()
@@ -54,6 +59,7 @@ impl CanonicalLaneEdgeGeometryView<'_> {
             .map(CanonicalPoint3F32::from)
     }
 
+    /// 按采样顺序遍历中心线的预计算采样段。
     pub fn segments(&self) -> impl ExactSizeIterator<Item = CanonicalSpatialSegment> + '_ {
         self.lir.spatial_segments[self.geometry.segments.as_usize_range()]
             .iter()
@@ -108,6 +114,7 @@ pub struct CanonicalFacilityBandGeometryView<'a> {
 }
 
 impl<'a> CanonicalFacilityBandGeometryView<'a> {
+    /// 由 LIR 单元与 `FacilityBand` 几何记录构造借用视图；仅限 `compiler` 模块内部调用。
     pub(in crate::compiler) const fn from_lir(
         lir: &'a LirUnit,
         geometry: &'a LirFacilityBandGeometry,
@@ -117,16 +124,19 @@ impl<'a> CanonicalFacilityBandGeometryView<'a> {
 }
 
 impl CanonicalFacilityBandGeometryView<'_> {
+    /// 返回本几何所属的 `FacilityBand` 序号。
     #[must_use]
     pub const fn facility_band(&self) -> FacilityBandOrdinal {
         self.geometry.facility_band
     }
 
+    /// 返回该几何量化时所属的 canonical frame 序号。
     #[must_use]
     pub const fn canonical_frame(&self) -> CanonicalFrameOrdinal {
         self.geometry.canonical_frame
     }
 
+    /// 按采样顺序遍历中心线的规范三维点。
     pub fn points(&self) -> impl ExactSizeIterator<Item = CanonicalPoint3F32> + '_ {
         self.lir.canonical_points[self.geometry.points.as_usize_range()]
             .iter()

@@ -608,6 +608,7 @@ impl SyntheticModuleBuilder {
         self.add_lane_edge_at(input, span)
     }
 
+    /// 以显式来源位置声明车道图边、基础道路限速和无序显式下游连接。
     pub(super) fn add_lane_edge_at(
         &mut self,
         input: LaneEdgeInput<'_>,
@@ -3001,6 +3002,7 @@ impl SyntheticModuleBuilder {
     }
 }
 
+/// 已由 `SyntheticModuleBuilder` 冻结、可直接加入编译单元的官方合成来源模块。
 pub struct SyntheticModule {
     pub(super) admitted: AdmittedOfficialModule,
 }
@@ -3044,6 +3046,7 @@ fn header_controlled_string_bytes(header: &SourceModuleHeader) -> u64 {
     .unwrap_or(u64::MAX)
 }
 
+/// 观测值超过配置档限额时返回对应维度的超限诊断。
 pub(super) fn limit_diagnostic(
     limits: &CompileLimits,
     dimension: CompileLimitDimension,

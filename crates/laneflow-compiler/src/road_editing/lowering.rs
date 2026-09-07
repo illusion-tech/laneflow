@@ -43,6 +43,7 @@ const MAX_OWNER_QUALIFIED_COMPONENTS: usize = 4;
 mod policy;
 pub(super) use policy::lower as lower_policy_declarations;
 
+/// 将受检 wire 中的全部道路对齐按键排序后降阶为共同 Typed AST 声明。
 pub(super) fn lower_road_alignments(
     root: wire::RoadEditingSource<'_>,
     locations: &RoadEditingLocationFactory,

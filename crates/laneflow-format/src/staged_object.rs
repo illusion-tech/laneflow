@@ -104,6 +104,7 @@ pub struct ClosedStagedObjectSource {
 }
 
 impl ClosedStagedObjectSource {
+    /// 返回 finish 时固定的精确字节长度。
     #[must_use]
     pub fn exact_byte_length(&self) -> ExactByteLength {
         ExactByteLength::new(self.inner.backing.exact_byte_length())
@@ -179,25 +180,30 @@ pub enum ImmutableObjectSource {
 }
 
 impl ImmutableObjectSource {
+    /// 由一份调用方拥有的字节构造内存 backing 来源。
     #[must_use]
     pub fn from_boxed_bytes(bytes: Box<[u8]>) -> Self {
         Self::Owned(Arc::from(bytes))
     }
 
+    /// 由已关闭的 staged 对象来源构造 file-backed 来源。
     #[must_use]
     pub fn from_staged(source: ClosedStagedObjectSource) -> Self {
         Self::Staged(source)
     }
 
+    /// 返回只读 exact bytes；file-backed 来源在首次调用时惰性建立只读映射。
     pub fn as_bytes(&self) -> Result<&[u8], ObjectSourceError> {
         SealedImmutableBacking::contiguous_bytes(self)
     }
 
+    /// 返回对象的精确字节长度。
     #[must_use]
     pub fn exact_byte_length(&self) -> ExactByteLength {
         BoundedReReadableObjectSource::exact_byte_length(self)
     }
 
+    /// 是否为 file-backed 的 staged 来源。
     #[must_use]
     pub const fn is_file_backed(&self) -> bool {
         matches!(self, Self::Staged(_))

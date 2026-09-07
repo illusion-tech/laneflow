@@ -8,6 +8,7 @@ use crate::arena::TableRange;
 
 use super::LirIdentityField;
 
+/// 停车设施的 Canonical LIR 记录：同时组织显式停车位与虚拟停车容量，并可拥有多个虚拟入口/出口。
 pub(crate) struct LirParkingFacility {
     pub(crate) ordinal: ParkingFacilityOrdinal,
     pub(crate) stable_id: ParkingFacilityId,
@@ -18,12 +19,14 @@ pub(crate) struct LirParkingFacility {
     pub(crate) virtual_exits: TableRange<LirParkingLaneAnchor>,
 }
 
+/// 车道边上的停车锚点：以车道边序号与边内整数毫米进度定位。
 #[derive(Clone, Copy)]
 pub(crate) struct LirParkingLaneAnchor {
     pub(crate) lane_edge: LaneEdgeOrdinal,
     pub(crate) progress_mm: u32,
 }
 
+/// 停车位的静态几何：横向偏移、朝向偏移与长宽。
 #[derive(Clone, Copy)]
 pub(crate) struct LirParkingSpaceGeometry {
     pub(crate) lateral_offset_mm: i32,
@@ -32,6 +35,7 @@ pub(crate) struct LirParkingSpaceGeometry {
     pub(crate) width_mm: u32,
 }
 
+/// 停车位的 Canonical LIR 记录：有排他占用、静态几何和 parked pose 的具体位置；可选归属于停车设施。
 pub(crate) struct LirParkingSpace {
     pub(crate) ordinal: ParkingSpaceOrdinal,
     pub(crate) stable_id: ParkingSpaceId,
@@ -46,6 +50,7 @@ use super::{FreezeEnv, LirParkingCounts, push_lir_identity, relation_range};
 use crate::DiagnosticBundle;
 use laneflow_static_contract::FieldTag;
 
+/// 停车领域各表及设施成员、虚拟入口/出口锚点辅表的领域冻结产物。
 pub(super) struct ParkingParts {
     pub parking_facilities: Vec<LirParkingFacility>,
     pub parking_facility_spaces: Vec<ParkingSpaceOrdinal>,
@@ -54,6 +59,7 @@ pub(super) struct ParkingParts {
     pub parking_facility_virtual_exits: Vec<LirParkingLaneAnchor>,
 }
 
+/// 按规范排列冻结停车设施与停车位表；设施成员按停车位规范序号排序冻结。
 pub(super) fn freeze(
     env: &mut FreezeEnv<'_>,
     counts: &LirParkingCounts,

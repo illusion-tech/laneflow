@@ -77,6 +77,7 @@ fn classes(
     })
 }
 
+/// 将受检 wire 中的通行权策略集合降阶为 Typed AST 声明并追加到输出列表。
 pub(in crate::road_editing) fn lower(
     root: wire::RoadEditingSource<'_>,
     factory: &RoadEditingLocationFactory,

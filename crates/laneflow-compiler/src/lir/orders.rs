@@ -37,10 +37,12 @@ pub(crate) struct LirEntityOrder<K, O> {
 }
 
 impl<K: Copy, O: Copy> LirEntityOrder<K, O> {
+    /// 返回按 LIR 规范序号顺序排列的 MIR 阶段键切片。
     pub(crate) fn stage_keys_in_lir_order(&self) -> &[K] {
         &self.stage_keys_in_lir_order
     }
 
+    /// 返回该双向排列两张映射表的请求字节数。
     pub(crate) fn mapping_bytes(&self) -> u64 {
         mapping_pair_bytes::<K, O>(
             self.stage_keys_in_lir_order.len(),
@@ -50,6 +52,7 @@ impl<K: Copy, O: Copy> LirEntityOrder<K, O> {
 }
 
 impl<Tag, O: Copy + Into<u32>> LirEntityOrder<ArenaKey<Tag>, O> {
+    /// 由两个方向的表构造双向排列；调试构建中断言两表描述同一实体集合且互为精确逆映射。
     pub(crate) fn from_parts(
         stage_keys_in_lir_order: Vec<ArenaKey<Tag>>,
         ordinal_by_stage_key: Vec<O>,
@@ -77,10 +80,12 @@ impl<Tag, O: Copy + Into<u32>> LirEntityOrder<ArenaKey<Tag>, O> {
         }
     }
 
+    /// 按 LIR 序号下标返回对应的 MIR 阶段键。
     pub(crate) fn stage_key_at_lir_index(&self, index: usize) -> ArenaKey<Tag> {
         self.stage_keys_in_lir_order[index]
     }
 
+    /// 返回指定 MIR 阶段键对应的 LIR 规范序号。
     pub(crate) fn ordinal(&self, stage_key: ArenaKey<Tag>) -> O {
         self.ordinal_by_stage_key[stage_key.index()]
     }
@@ -94,16 +99,19 @@ pub(crate) struct OwnerLocalPermutation<Row> {
 }
 
 impl<Row> OwnerLocalPermutation<Row> {
+    /// 由已按 LIR owner-local 行序冻结的 MIR 关系行地址构造排列。
     pub(crate) fn from_rows(mir_rows_in_lir_order: Vec<ArenaKey<Row>>) -> Self {
         Self {
             mir_rows_in_lir_order: mir_rows_in_lir_order.into_boxed_slice(),
         }
     }
 
+    /// 返回按 LIR 行序排列的 MIR 关系行地址切片。
     pub(crate) fn mir_rows_in_lir_order(&self) -> &[ArenaKey<Row>] {
         &self.mir_rows_in_lir_order
     }
 
+    /// 返回该 MIR 关系行排列表的请求字节数。
     pub(crate) fn mapping_bytes(&self) -> u64 {
         requested_bytes::<ArenaKey<Row>>(
             u64::try_from(self.mir_rows_in_lir_order.len()).unwrap_or(u64::MAX),
@@ -143,6 +151,7 @@ pub(crate) struct CanonicalOrders {
 }
 
 impl CanonicalOrders {
+    /// 只读 MIR 按 Identity v1 前像逐类排序，构建全部稳定实体的 MIR→LIR 双向排列；实体数超过有类型 `u32` 边界时返回资源诊断。
     pub(crate) fn build(
         mir: &MirUnit,
         plan: &LirFreezePlan,

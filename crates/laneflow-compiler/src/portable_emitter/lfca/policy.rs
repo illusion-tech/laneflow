@@ -2,6 +2,7 @@ use super::*;
 use crate::lir::{LirPolicy, LirUnit};
 use std::sync::Arc;
 
+/// 为每份 LIR 路权策略集生成 LFCA 规范身份行。
 pub(super) fn identities(lir: &LirUnit) -> impl Iterator<Item = OwnedRow> + '_ {
     lir.policies.iter().map(|p| {
         row([
@@ -12,6 +13,7 @@ pub(super) fn identities(lir: &LirUnit) -> impl Iterator<Item = OwnedRow> + '_ {
         ])
     })
 }
+/// 为每份 LIR 路权策略集生成 LFCA 声明行，含法规管辖、版本与可选来源。
 pub(super) fn declarations(lir: &LirUnit) -> impl Iterator<Item = OwnedRow> + '_ {
     lir.policies.iter().map(|p| {
         let mut fields = vec![
@@ -45,6 +47,7 @@ fn evidence(v: &[Arc<str>]) -> OwnedValue {
     OwnedValue::RecordVector(v.iter().map(|s| row([field(1, text(s))])).collect())
 }
 
+/// 把每份策略集的依据（evidence）逐条展开为 LFCA 关系行，含 key、locator 与可选描述。
 pub(super) fn evidence_rows(lir: &LirUnit) -> impl Iterator<Item = OwnedRow> + '_ {
     lir.policies.iter().flat_map(|p| {
         p.value.evidence.iter().map(move |v| {
@@ -57,6 +60,7 @@ pub(super) fn evidence_rows(lir: &LirUnit) -> impl Iterator<Item = OwnedRow> + '
         })
     })
 }
+/// 把每份策略集的间隙接受参数逐条展开为 LFCA 关系行，含参数版本与领先/滞后/清空毫秒。
 pub(super) fn gap_rows(lir: &LirUnit) -> impl Iterator<Item = OwnedRow> + '_ {
     lir.policies.iter().flat_map(|p| {
         p.value.gaps.iter().map(move |v| {
@@ -71,6 +75,8 @@ pub(super) fn gap_rows(lir: &LirUnit) -> impl Iterator<Item = OwnedRow> + '_ {
         })
     })
 }
+/// 把每份策略集的通行流路权规则逐条展开为 LFCA 关系行，含目标参与者流、可选参与者
+/// 类别、优先级、让行集合、可选间隙参数引用与依据。
 pub(super) fn stream_rows(lir: &LirUnit) -> impl Iterator<Item = OwnedRow> + '_ {
     lir.policies.iter().flat_map(|p| {
         p.value.streams.iter().map(move |v| {
@@ -91,6 +97,8 @@ pub(super) fn stream_rows(lir: &LirUnit) -> impl Iterator<Item = OwnedRow> + '_ 
         })
     })
 }
+/// 把每份策略集的门合规规则逐条展开为 LFCA 关系行，含目标机动门、可选参与者类别、
+/// 解释与禁止代码及依据。
 pub(super) fn gate_rows(lir: &LirUnit) -> impl Iterator<Item = OwnedRow> + '_ {
     lir.policies.iter().flat_map(|p| {
         p.value.gates.iter().map(move |v| {

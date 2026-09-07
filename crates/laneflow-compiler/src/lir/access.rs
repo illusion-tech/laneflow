@@ -10,6 +10,7 @@ use crate::arena::TableRange;
 
 use super::LirIdentityField;
 
+/// 参与者类别的 Canonical LIR 记录：数据声明、可继承的准入分类；携带父引用与按 LIR 序号重建的深度、子树区间。
 pub(crate) struct LirParticipantClass {
     pub(crate) ordinal: ParticipantClassOrdinal,
     pub(crate) stable_id: ParticipantClassId,
@@ -20,6 +21,7 @@ pub(crate) struct LirParticipantClass {
     pub(crate) subtree_exit: u32,
 }
 
+/// 车辆配置的 Canonical LIR 记录：冻结车辆运动与安全参数，并指向所属参与者类别。
 pub(crate) struct LirVehicleProfile {
     pub(crate) ordinal: VehicleProfileOrdinal,
     pub(crate) stable_id: VehicleProfileId,
@@ -34,6 +36,7 @@ pub(crate) struct LirVehicleProfile {
     pub(crate) emergency_deceleration_meters_per_second_squared: f32,
 }
 
+/// 准入规则作用目标的闭合联合：车道边、车道组、道路区段或机动路径。
 #[derive(Clone, Copy)]
 pub(crate) enum LirAccessTarget {
     LaneEdge(LaneEdgeOrdinal),
@@ -42,8 +45,10 @@ pub(crate) enum LirAccessTarget {
     ManeuverPath(ManeuverPathOrdinal),
 }
 
+/// 准入规则可选携带的法规身份；与来源侧声明共用同一 `RegulationIdentity`。
 pub(crate) type LirAccessRegulation = crate::RegulationIdentity;
 
+/// 准入规则的 Canonical LIR 记录：对参与者类别与目标施加允许、拒绝或约束效果的静态规则。
 pub(crate) struct LirAccessRule {
     pub(crate) ordinal: AccessRuleOrdinal,
     pub(crate) stable_id: AccessRuleId,
@@ -60,16 +65,19 @@ use crate::DiagnosticBundle;
 use crate::mir::MirAccessTarget;
 use laneflow_static_contract::FieldTag;
 
+/// 参与者类别与车辆配置两张表的领域冻结产物。
 pub(super) struct AccessClassParts {
     pub participant_classes: Vec<LirParticipantClass>,
     pub vehicle_profiles: Vec<LirVehicleProfile>,
 }
 
+/// 准入规则表及其参与者类别引用辅表的领域冻结产物。
 pub(super) struct AccessRuleParts {
     pub access_rules: Vec<LirAccessRule>,
     pub access_rule_participant_classes: Vec<ParticipantClassOrdinal>,
 }
 
+/// 按规范排列冻结参与者类别与车辆配置表，并在最终 LIR 序号上重建分类森林的深度与子树区间。
 pub(super) fn freeze_classes(
     env: &mut FreezeEnv<'_>,
     counts: &LirAccessCounts,
@@ -202,6 +210,7 @@ fn close_class_intervals_in_lir_order(classes: &mut [LirParticipantClass]) {
     }
 }
 
+/// 按规范排列冻结准入规则表；目标与参与者类别引用重映射为 LIR 序号，每条规则的类别引用按序号排序。
 pub(super) fn freeze_rules(
     env: &mut FreezeEnv<'_>,
     counts: &LirAccessCounts,

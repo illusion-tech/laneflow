@@ -55,6 +55,7 @@ pub struct SharedNetworkBuildLimits {
 }
 
 impl SharedNetworkBuildLimits {
+    /// 创建构建资源上限；策略工作预算取默认值。
     #[must_use]
     pub const fn new(max_retained_bytes: u64, max_scratch_bytes: u64) -> Self {
         Self {
@@ -64,11 +65,13 @@ impl SharedNetworkBuildLimits {
         }
     }
 
+    /// 返回构建完成后允许持有的保留内存字节上限。
     #[must_use]
     pub const fn max_retained_bytes(self) -> u64 {
         self.max_retained_bytes
     }
 
+    /// 返回构建过程中允许使用的暂存内存字节上限。
     #[must_use]
     pub const fn max_scratch_bytes(self) -> u64 {
         self.max_scratch_bytes
@@ -97,6 +100,7 @@ pub struct SharedNetworkBuildOptions<'a> {
 }
 
 impl<'a> SharedNetworkBuildOptions<'a> {
+    /// 创建一次构建的调用选项；默认不绑定取消标志。
     #[must_use]
     pub const fn new(spatial: SpatialBuildOption, limits: SharedNetworkBuildLimits) -> Self {
         Self {
@@ -106,17 +110,20 @@ impl<'a> SharedNetworkBuildOptions<'a> {
         }
     }
 
+    /// 绑定外部取消标志；构建过程中周期性轮询该标志。
     #[must_use]
     pub const fn with_cancellation(mut self, cancellation: &'a AtomicBool) -> Self {
         self.cancellation = Some(cancellation);
         self
     }
 
+    /// 返回 Spatial retained-data 构建选择。
     #[must_use]
     pub const fn spatial(self) -> SpatialBuildOption {
         self.spatial
     }
 
+    /// 返回本次构建的资源上限。
     #[must_use]
     pub const fn limits(self) -> SharedNetworkBuildLimits {
         self.limits
@@ -3522,6 +3529,7 @@ fn singleton_row(
         .ok_or(BuildError::InputInvariant { structure })
 }
 
+/// 读取受检行的指定字段并要求其为 U8 值，否则报输入不变量错误。
 pub(crate) fn checked_u8(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
@@ -3544,6 +3552,7 @@ fn checked_u16(
     }
 }
 
+/// 读取受检行的指定字段并要求其为 U32 值，否则报输入不变量错误。
 pub(crate) fn checked_u32(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
@@ -3555,6 +3564,7 @@ pub(crate) fn checked_u32(
     }
 }
 
+/// 读取受检行的指定字段并要求其为 I32 值，否则报输入不变量错误。
 pub(crate) fn checked_i32(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
@@ -3566,6 +3576,7 @@ pub(crate) fn checked_i32(
     }
 }
 
+/// 校验计数值落在闭区间 [min, max] 内，否则报输入不变量错误。
 pub(crate) fn u32_in_closed_range(
     value: u32,
     min: u32,
@@ -3578,6 +3589,7 @@ pub(crate) fn u32_in_closed_range(
     Ok(value)
 }
 
+/// 校验存储的 heading f32 为有限值且落在 [-π, +π) 区间，否则报输入不变量错误。
 pub(crate) fn heading_f32_stored(value: f32, structure: BuildStructure) -> Result<f32, BuildError> {
     use laneflow_static_contract::{HEADING_MINUS_PI_F32_BITS, HEADING_PLUS_PI_F32_BITS};
 
@@ -3592,6 +3604,7 @@ pub(crate) fn heading_f32_stored(value: f32, structure: BuildStructure) -> Resul
     Ok(value)
 }
 
+/// 读取受检行的指定字段并要求其为 F32 值，否则报输入不变量错误。
 pub(crate) fn checked_f32(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
@@ -3603,6 +3616,7 @@ pub(crate) fn checked_f32(
     }
 }
 
+/// 读取受检行的指定字段并要求其为 StableId128 值，否则报输入不变量错误。
 pub(crate) fn checked_stable_id(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
@@ -3614,6 +3628,7 @@ pub(crate) fn checked_stable_id(
     }
 }
 
+/// 读取受检行的指定字段并要求其为 ordinal 向量，否则报输入不变量错误。
 pub(crate) fn checked_ordinal_vector(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
@@ -3625,6 +3640,7 @@ pub(crate) fn checked_ordinal_vector(
     }
 }
 
+/// 读取受检行的指定字段并要求其为 record 向量，否则报输入不变量错误。
 pub(crate) fn checked_record_vector(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
@@ -3636,6 +3652,7 @@ pub(crate) fn checked_record_vector(
     }
 }
 
+/// 按 tag 读取受检行字段并取出其值；缺字段或值解码失败均报输入不变量错误。
 pub(crate) fn checked_field<'a>(
     row: RegistryCheckedRowView<'a>,
     tag: u16,
@@ -3647,6 +3664,7 @@ pub(crate) fn checked_field<'a>(
         .map_err(|_| BuildError::InputInvariant { structure })
 }
 
+/// 按格式计数精确预分配 Vec；容量不足时报 AllocationFailure。
 pub(crate) fn allocate_vec<T>(count: u32, structure: BuildStructure) -> Result<Vec<T>, BuildError> {
     let capacity = usize::try_from(count).expect("u32 format count fits usize");
     let mut values = Vec::new();
@@ -3668,6 +3686,7 @@ fn allocate_if_retained<T>(
     }
 }
 
+/// 两个 u32 计数的受检加法；溢出时报 ArithmeticOverflow。
 pub(crate) fn checked_add_count(
     left: u32,
     right: u32,
@@ -3707,6 +3726,7 @@ fn add_retained_bytes(total: u64, bytes: u32) -> Result<u64, BuildError> {
         })
 }
 
+/// 立即检查取消标志；已置位时返回 Cancelled。
 pub(crate) fn check_cancelled(options: SharedNetworkBuildOptions<'_>) -> Result<(), BuildError> {
     if options
         .cancellation
@@ -3718,6 +3738,7 @@ pub(crate) fn check_cancelled(options: SharedNetworkBuildOptions<'_>) -> Result<
     }
 }
 
+/// 按序号的低位掩码周期性轮询取消标志，降低每步检查开销。
 pub(crate) fn poll_cancelled(
     options: SharedNetworkBuildOptions<'_>,
     ordinal: u32,

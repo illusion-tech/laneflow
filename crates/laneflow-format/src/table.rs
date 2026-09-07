@@ -36,41 +36,49 @@ pub struct TableStructureSummary {
 }
 
 impl TableStructureSummary {
+    /// 已完成预检的 table kind。
     #[must_use]
     pub const fn table_kind(self) -> u16 {
         self.table_kind
     }
 
+    /// 表顶层行数。
     #[must_use]
     pub const fn top_level_rows(self) -> u32 {
         self.top_level_rows
     }
 
+    /// 含内嵌 RecordVector 行在内的累计行数。
     #[must_use]
     pub const fn total_rows(self) -> u64 {
         self.total_rows
     }
 
+    /// 含内嵌行字段在内的累计字段数。
     #[must_use]
     pub const fn total_fields(self) -> u64 {
         self.total_fields
     }
 
+    /// 全部 UTF-8 字段值的累计字节数。
     #[must_use]
     pub const fn total_utf8_bytes(self) -> u64 {
         self.total_utf8_bytes
     }
 
+    /// 全部向量字段值的累计字节数。
     #[must_use]
     pub const fn total_vector_bytes(self) -> u64 {
         self.total_vector_bytes
     }
 
+    /// 预检中观测到的最大 RecordVector 嵌套深度。
     #[must_use]
     pub const fn maximum_record_vector_depth(self) -> u8 {
         self.maximum_record_vector_depth
     }
 
+    /// 首行的规范度量，供 chunk 限额试算。
     pub(crate) const fn first_row_metrics(self) -> CanonicalRowMetrics {
         CanonicalRowMetrics {
             exact_byte_length: self.first_row_exact_byte_length,
@@ -80,6 +88,7 @@ impl TableStructureSummary {
     }
 }
 
+/// 一次对象/表预检过程中跨 chunk 累计的预算计数。
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct PreflightBudget {
     total_rows: u64,
@@ -89,6 +98,7 @@ pub(crate) struct PreflightBudget {
     maximum_record_vector_depth: u8,
 }
 
+/// 对一段 Bytes 内嵌的完整 RowV1 按给定 schema 预检并计入预算；行尾存在多余字节时报错。
 pub(crate) fn preflight_embedded_row(
     bytes: &[u8],
     schema: &'static PortableRowSchema,
@@ -117,6 +127,7 @@ pub(crate) fn preflight_embedded_row(
     Ok(())
 }
 
+/// 把一段稳定引用向量值按 OrdinalVectorU32 维度计入预算并核对限额。
 pub(crate) fn charge_stable_vector(
     bytes: u64,
     limits: FormatLimits,
@@ -141,6 +152,7 @@ pub fn preflight_table_structure(
     preflight_table_structure_with_registry(bytes, expected_table_kind, None, limits, &mut budget)
 }
 
+/// 携带附录 A table schema 对一张 exact TableV1 预检，并把结果计入共享预算。
 pub(crate) fn preflight_table_with_registry(
     bytes: &[u8],
     schema: &'static PortableTableSchema,

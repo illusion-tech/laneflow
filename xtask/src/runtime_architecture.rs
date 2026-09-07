@@ -22,6 +22,7 @@ struct SourceInputs {
     formats: BTreeSet<String>,
 }
 
+/// Runtime 架构检查入口：默认特性集与全特性集各加载一次 Cargo 依赖图校验生产依赖方向，默认特性集下另校验生产源码的显式模块与有限格式接口。
 pub(crate) fn run() -> Result<(), String> {
     let manifest = std::env::current_dir()
         .map_err(|error| error.to_string())?

@@ -23,11 +23,14 @@ use super::rules::{
 use crate::declaration::MAX_PORTABLE_SIGNAL_TIME_MS;
 use crate::{DiagnosticBundle, FacilityKindCategory, RoadEditingInputViolation};
 
+/// 直接编制来源沿袭使用的冻结生成器构建标识。
 pub(super) const DIRECT_GENERATOR_BUILD_ID: &str = "laneflow-road-editing-direct-v1";
+/// 直接编制来源沿袭的冻结参数与输入摘要。
 pub(super) const DIRECT_INPUTS_DIGEST: [u8; 32] = [
     0x6b, 0x27, 0xd0, 0xf7, 0x66, 0x93, 0xbc, 0xd3, 0x86, 0xac, 0x13, 0xdf, 0x72, 0x4e, 0x30, 0xf5,
     0xfb, 0x5a, 0xd3, 0xb9, 0xa1, 0x52, 0xa5, 0xe1, 0xf8, 0x8d, 0xe1, 0xa6, 0x24, 0xce, 0xa8, 0xaa,
 ];
+/// 直接编制来源沿袭的冻结前端选项摘要。
 pub(super) const DIRECT_FRONTEND_OPTIONS_DIGEST: [u8; 32] = [
     0xb1, 0x62, 0x1e, 0x4a, 0x2d, 0xb8, 0xd7, 0x17, 0xb6, 0x50, 0x6b, 0x0a, 0xfb, 0x6f, 0xef, 0x5b,
     0xd4, 0xd5, 0x15, 0x6e, 0xcf, 0xe8, 0x87, 0xc5, 0xab, 0xf3, 0x6d, 0x08, 0x86, 0x9c, 0x78, 0x92,
@@ -115,10 +118,12 @@ impl<K: EntityKindMarker> RoadEditingReference<K> {
         &self.local_key
     }
 
+    /// 依次返回 owner key 链各组成部分与 local key。
     pub(super) fn components(&self) -> impl Iterator<Item = &str> {
         self.owner_keys().chain(std::iter::once(self.local_key()))
     }
 
+    /// 拼出引用在来源缓冲区 wire 编码中的完整字符串形式。
     pub(super) fn wire_spelling(&self) -> String {
         let mut spelling = String::with_capacity(self.wire_len());
         if let Some(namespace) = &self.module_namespace {
@@ -134,6 +139,7 @@ impl<K: EntityKindMarker> RoadEditingReference<K> {
         spelling
     }
 
+    /// 返回 wire 拼写的字节长度。
     pub(super) fn wire_len(&self) -> usize {
         self.components()
             .map(str::len)
@@ -146,6 +152,7 @@ impl<K: EntityKindMarker> RoadEditingReference<K> {
             )
     }
 
+    /// 按规范顺序比较两个引用目标；未限定 namespace 时按当前模块 namespace 比较。
     pub(super) fn canonical_target_cmp(&self, other: &Self, current_namespace: &str) -> Ordering {
         self.module_namespace()
             .unwrap_or(current_namespace)
@@ -191,28 +198,51 @@ const fn owner_depth(kind: EntityKind) -> u8 {
     }
 }
 
+/// 指向道路走廊声明的有类型引用。
 pub type RoadCorridorReference = RoadEditingReference<RoadCorridorKind>;
+/// 指向道路区段声明的有类型引用。
 pub type RoadSectionReference = RoadEditingReference<RoadSectionKind>;
+/// 指向编制车道声明的有类型引用。
 pub type AuthoringLaneReference = RoadEditingReference<AuthoringLaneKind>;
+/// 指向车道图边声明的有类型引用。
 pub type LaneEdgeReference = RoadEditingReference<LaneEdgeKind>;
+/// 指向路口声明的有类型引用。
 pub type JunctionReference = RoadEditingReference<JunctionKind>;
+/// 指向通行流向声明的有类型引用。
 pub type MovementReference = RoadEditingReference<MovementKind>;
+/// 指向机动路径声明的有类型引用。
 pub type ManeuverPathReference = RoadEditingReference<ManeuverPathKind>;
+/// 指向机动门声明的有类型引用。
 pub type ManeuverGateReference = RoadEditingReference<ManeuverGateKind>;
+/// 指向等待区声明的有类型引用。
 pub type WaitingZoneReference = RoadEditingReference<WaitingZoneKind>;
+/// 指向停止线声明的有类型引用。
 pub type StopLineReference = RoadEditingReference<StopLineKind>;
+/// 指向信号组声明的有类型引用。
 pub type SignalGroupReference = RoadEditingReference<SignalGroupKind>;
+/// 指向信号控制器声明的有类型引用。
 pub type SignalControllerReference = RoadEditingReference<SignalControllerKind>;
+/// 指向信号相位声明的有类型引用。
 pub type SignalPhaseReference = RoadEditingReference<SignalPhaseKind>;
+/// 指向停车设施声明的有类型引用。
 pub type ParkingFacilityReference = RoadEditingReference<ParkingFacilityKind>;
+/// 指向停车位声明的有类型引用。
 pub type ParkingSpaceReference = RoadEditingReference<ParkingSpaceKind>;
+/// 指向车道组声明的有类型引用。
 pub type LaneGroupReference = RoadEditingReference<LaneGroupKind>;
+/// 指向设施带声明的有类型引用。
 pub type FacilityBandReference = RoadEditingReference<FacilityBandKind>;
+/// 指向参与者类别声明的有类型引用。
 pub type ParticipantClassReference = RoadEditingReference<ParticipantClassKind>;
+/// 指向准入规则声明的有类型引用。
 pub type AccessRuleReference = RoadEditingReference<AccessRuleKind>;
+/// 指向车辆配置声明的有类型引用。
 pub type VehicleProfileReference = RoadEditingReference<VehicleProfileKind>;
+/// 指向规范坐标框架声明的有类型引用。
 pub type CanonicalFrameReference = RoadEditingReference<CanonicalFrameKind>;
+/// 指向冲突区声明的有类型引用。
 pub type ConflictZoneReference = RoadEditingReference<ConflictZoneKind>;
+/// 指向参与者流声明的有类型引用。
 pub type ParticipantStreamReference = RoadEditingReference<ParticipantStreamKind>;
 
 /// 当前模块内、不进入 Identity v1 的道路走向键引用。
@@ -220,12 +250,14 @@ pub type ParticipantStreamReference = RoadEditingReference<ParticipantStreamKind
 pub struct RoadAlignmentReference(Box<str>);
 
 impl RoadAlignmentReference {
+    /// 构造道路走向键引用并校验键合法性。
     pub fn try_new(key: impl Into<String>) -> Result<Self, DiagnosticBundle> {
         let key = key.into();
         validate_token(&key, "roadAlignmentReference")?;
         Ok(Self(key.into_boxed_str()))
     }
 
+    /// 返回道路走向键。
     #[must_use]
     pub fn key(&self) -> &str {
         &self.0
@@ -251,6 +283,7 @@ pub struct RoadEditingProvenance {
 }
 
 impl RoadEditingProvenance {
+    /// 构造直接编制来源沿袭，使用冻结的构建标识与摘要。
     pub fn direct(description: impl Into<String>) -> Result<Self, DiagnosticBundle> {
         let description = description.into();
         validate_visible_ascii(&description, "provenance.description")?;
@@ -264,6 +297,7 @@ impl RoadEditingProvenance {
         })
     }
 
+    /// 构造程序化生成来源沿袭，记录生成器构建标识、摘要与可选随机种子。
     pub fn generated(
         generator_build_id: impl Into<String>,
         parameters_and_inputs_digest: [u8; 32],
@@ -285,31 +319,37 @@ impl RoadEditingProvenance {
         })
     }
 
+    /// 返回来源沿袭类别。
     #[must_use]
     pub const fn kind(&self) -> RoadEditingProvenanceKind {
         self.kind
     }
 
+    /// 返回生成器构建标识。
     #[must_use]
     pub fn generator_build_id(&self) -> &str {
         &self.generator_build_id
     }
 
+    /// 返回生成参数与输入摘要。
     #[must_use]
     pub const fn parameters_and_inputs_digest(&self) -> &[u8; 32] {
         &self.parameters_and_inputs_digest
     }
 
+    /// 返回前端选项摘要。
     #[must_use]
     pub const fn frontend_options_digest(&self) -> &[u8; 32] {
         &self.frontend_options_digest
     }
 
+    /// 返回可选随机种子。
     #[must_use]
     pub const fn random_seed(&self) -> Option<u64> {
         self.random_seed
     }
 
+    /// 返回来源描述文本。
     #[must_use]
     pub fn description(&self) -> &str {
         &self.description
@@ -326,6 +366,7 @@ pub struct RoadEditingModuleHeader {
 }
 
 impl RoadEditingModuleHeader {
+    /// 构造模块头并校验编制命名空间、来源文档键与导入列表。
     pub fn try_new(
         authoring_namespace_id: impl Into<String>,
         source_document_key: impl Into<String>,
@@ -354,21 +395,25 @@ impl RoadEditingModuleHeader {
         })
     }
 
+    /// 返回编制命名空间标识。
     #[must_use]
     pub fn authoring_namespace_id(&self) -> &str {
         &self.authoring_namespace_id
     }
 
+    /// 返回来源文档键。
     #[must_use]
     pub fn source_document_key(&self) -> &str {
         &self.source_document_key
     }
 
+    /// 按声明顺序返回显式导入的模块命名空间。
     #[must_use]
     pub fn imports(&self) -> impl ExactSizeIterator<Item = &str> {
         self.imports.iter().map(AsRef::as_ref)
     }
 
+    /// 返回模块来源沿袭。
     #[must_use]
     pub const fn provenance(&self) -> &RoadEditingProvenance {
         &self.provenance
@@ -384,6 +429,7 @@ pub struct RoadEditingPoint3 {
 }
 
 impl RoadEditingPoint3 {
+    /// 构造三维点并校验各分量均在允许范围内。
     pub fn try_new(x: f64, y: f64, z: f64) -> Result<Self, DiagnosticBundle> {
         let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
         let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
@@ -394,16 +440,19 @@ impl RoadEditingPoint3 {
         })
     }
 
+    /// 返回 x 分量。
     #[must_use]
     pub const fn x(self) -> f64 {
         self.x
     }
 
+    /// 返回 y 分量。
     #[must_use]
     pub const fn y(self) -> f64 {
         self.y
     }
 
+    /// 返回 z 分量。
     #[must_use]
     pub const fn z(self) -> f64 {
         self.z
@@ -418,6 +467,7 @@ pub struct RoadEditingPoint2 {
 }
 
 impl RoadEditingPoint2 {
+    /// 构造 XZ 平面点并校验各分量均在允许范围内。
     pub fn try_new(x: f64, z: f64) -> Result<Self, DiagnosticBundle> {
         let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
         let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
@@ -427,11 +477,13 @@ impl RoadEditingPoint2 {
         })
     }
 
+    /// 返回 x 分量。
     #[must_use]
     pub const fn x(self) -> f64 {
         self.x
     }
 
+    /// 返回 z 分量。
     #[must_use]
     pub const fn z(self) -> f64 {
         self.z
@@ -446,6 +498,7 @@ pub struct LinearWidthProfile {
 }
 
 impl LinearWidthProfile {
+    /// 构造线性宽度配置；起止宽度必须非负且不同时为零。
     pub fn try_new(
         start_width_meters: f64,
         end_width_meters: f64,
@@ -466,11 +519,13 @@ impl LinearWidthProfile {
         })
     }
 
+    /// 返回区间起点宽度（米）。
     #[must_use]
     pub const fn start_width_meters(self) -> f64 {
         self.start_width_meters
     }
 
+    /// 返回区间终点宽度（米）。
     #[must_use]
     pub const fn end_width_meters(self) -> f64 {
         self.end_width_meters
@@ -498,6 +553,7 @@ pub struct RoadEditingCurveSegment {
 }
 
 impl RoadEditingCurveSegment {
+    /// 构造直线段。
     #[must_use]
     pub const fn line(end: RoadEditingPoint3) -> Self {
         Self {
@@ -506,6 +562,7 @@ impl RoadEditingCurveSegment {
         }
     }
 
+    /// 构造三次贝塞尔曲线段。
     #[must_use]
     pub const fn cubic_bezier(
         control_1: RoadEditingPoint3,
@@ -522,6 +579,7 @@ impl RoadEditingCurveSegment {
         }
     }
 
+    /// 设置画布选择键。
     pub fn with_canvas_selection(
         mut self,
         canvas_selection: impl Into<String>,
@@ -530,11 +588,13 @@ impl RoadEditingCurveSegment {
         Ok(self)
     }
 
+    /// 返回曲线段几何。
     #[must_use]
     pub const fn geometry(&self) -> RoadEditingCurveSegmentGeometry {
         self.geometry
     }
 
+    /// 返回可选画布选择键。
     #[must_use]
     pub fn canvas_selection(&self) -> Option<&str> {
         self.canvas_selection.as_deref()
@@ -549,6 +609,7 @@ pub struct RoadEditingCurveProgram {
 }
 
 impl RoadEditingCurveProgram {
+    /// 构造编制曲线；segments 必须非空。
     pub fn try_new(
         start: RoadEditingPoint3,
         segments: Vec<RoadEditingCurveSegment>,
@@ -560,11 +621,13 @@ impl RoadEditingCurveProgram {
         })
     }
 
+    /// 返回曲线起点。
     #[must_use]
     pub const fn start(&self) -> RoadEditingPoint3 {
         self.start
     }
 
+    /// 返回有序曲线段序列。
     #[must_use]
     pub fn segments(&self) -> &[RoadEditingCurveSegment] {
         &self.segments
@@ -581,6 +644,7 @@ pub struct RoadAlignmentInput {
 }
 
 impl RoadAlignmentInput {
+    /// 构造道路走向定义并校验走向键。
     pub fn try_new(
         road_alignment_key: impl Into<String>,
         canonical_frame: CanonicalFrameReference,
@@ -596,6 +660,7 @@ impl RoadAlignmentInput {
         })
     }
 
+    /// 设置画布选择键。
     pub fn with_canvas_selection(
         mut self,
         canvas_selection: impl Into<String>,
@@ -604,21 +669,25 @@ impl RoadAlignmentInput {
         Ok(self)
     }
 
+    /// 返回道路走向键。
     #[must_use]
     pub fn road_alignment_key(&self) -> &str {
         &self.road_alignment_key
     }
 
+    /// 返回走向几何所在的规范坐标框架引用。
     #[must_use]
     pub const fn canonical_frame(&self) -> &CanonicalFrameReference {
         &self.canonical_frame
     }
 
+    /// 返回参考线曲线。
     #[must_use]
     pub const fn reference_line(&self) -> &RoadEditingCurveProgram {
         &self.reference_line
     }
 
+    /// 返回可选画布选择键。
     #[must_use]
     pub fn canvas_selection(&self) -> Option<&str> {
         self.canvas_selection.as_deref()
@@ -633,6 +702,7 @@ fn validated_canvas(value: String) -> Result<Box<str>, DiagnosticBundle> {
 macro_rules! impl_canvas {
     ($type:ident) => {
         impl $type {
+            /// 设置画布选择键。
             pub fn with_canvas_selection(
                 mut self,
                 canvas_selection: impl Into<String>,
@@ -641,6 +711,7 @@ macro_rules! impl_canvas {
                 Ok(self)
             }
 
+            /// 返回可选画布选择键。
             #[must_use]
             pub fn canvas_selection(&self) -> Option<&str> {
                 self.canvas_selection.as_deref()
@@ -684,6 +755,7 @@ pub struct RoadCorridorInput {
 }
 
 impl RoadCorridorInput {
+    /// 构造道路走廊声明并校验 station 区间、参考成员与元素序列。
     #[allow(clippy::too_many_arguments)]
     pub fn try_new(
         road_corridor_key: impl Into<String>,
@@ -735,36 +807,43 @@ impl RoadCorridorInput {
         })
     }
 
+    /// 返回道路走廊稳定键。
     #[must_use]
     pub fn road_corridor_key(&self) -> &str {
         &self.road_corridor_key
     }
 
+    /// 返回走廊所沿的道路走向引用。
     #[must_use]
     pub const fn road_alignment(&self) -> &RoadAlignmentReference {
         &self.road_alignment
     }
 
+    /// 返回起点 station（米）。
     #[must_use]
     pub const fn start_station_meters(&self) -> f64 {
         self.start_station_meters
     }
 
+    /// 返回终点 station 形式。
     #[must_use]
     pub const fn end_station(&self) -> RoadEditingStationEnd {
         self.end_station
     }
 
+    /// 返回参考道路区段引用。
     #[must_use]
     pub const fn reference_section(&self) -> &RoadSectionReference {
         &self.reference_section
     }
 
+    /// 返回参考编制车道引用。
     #[must_use]
     pub const fn reference_lane(&self) -> &AuthoringLaneReference {
         &self.reference_lane
     }
 
+    /// 返回横断面有序成员序列。
     #[must_use]
     pub fn elements(&self) -> &[RoadEditingCorridorElement] {
         &self.elements
@@ -798,6 +877,7 @@ pub struct RoadSectionInput {
 }
 
 impl RoadSectionInput {
+    /// 构造道路区段声明并校验键、设施类别与编制车道成员。
     pub fn try_new(
         road_section_key: impl Into<String>,
         kind_id: impl Into<String>,
@@ -824,21 +904,25 @@ impl RoadSectionInput {
         })
     }
 
+    /// 返回道路区段稳定键。
     #[must_use]
     pub fn road_section_key(&self) -> &str {
         &self.road_section_key
     }
 
+    /// 返回区段设施类别标识。
     #[must_use]
     pub fn kind_id(&self) -> &str {
         &self.kind_id
     }
 
+    /// 返回区段的编制车道成员序列。
     #[must_use]
     pub fn authoring_lanes(&self) -> &[AuthoringLaneReference] {
         &self.authoring_lanes
     }
 
+    /// 返回所属道路走廊引用。
     #[must_use]
     pub const fn road_corridor(&self) -> &RoadCorridorReference {
         &self.road_corridor
@@ -859,6 +943,7 @@ pub struct AuthoringLaneInput {
 }
 
 impl AuthoringLaneInput {
+    /// 构造编制车道声明并校验车道键。
     pub fn try_new(
         authoring_lane_key: impl Into<String>,
         lane_edge: LaneEdgeReference,
@@ -880,31 +965,37 @@ impl AuthoringLaneInput {
         })
     }
 
+    /// 返回编制车道稳定键。
     #[must_use]
     pub fn authoring_lane_key(&self) -> &str {
         &self.authoring_lane_key
     }
 
+    /// 返回车道展开到的车道图边引用。
     #[must_use]
     pub const fn lane_edge(&self) -> &LaneEdgeReference {
         &self.lane_edge
     }
 
+    /// 返回相对 alignment 参考方向的行驶方向。
     #[must_use]
     pub const fn direction(&self) -> RoadEditingLaneDirection {
         self.direction
     }
 
+    /// 返回线性宽度配置。
     #[must_use]
     pub const fn width_profile(&self) -> LinearWidthProfile {
         self.width_profile
     }
 
+    /// 返回可选车道组成员引用。
     #[must_use]
     pub const fn lane_group(&self) -> Option<&LaneGroupReference> {
         self.lane_group.as_ref()
     }
 
+    /// 返回所属道路区段引用。
     #[must_use]
     pub const fn road_section(&self) -> &RoadSectionReference {
         &self.road_section
@@ -923,6 +1014,7 @@ pub struct LaneEdgeInput {
 }
 
 impl LaneEdgeInput {
+    /// 构造车道图边声明并校验限速与后继序列。
     pub fn try_new(
         lane_edge_key: impl Into<String>,
         speed_limit_meters_per_second: f64,
@@ -947,21 +1039,25 @@ impl LaneEdgeInput {
         })
     }
 
+    /// 返回车道图边稳定键。
     #[must_use]
     pub fn lane_edge_key(&self) -> &str {
         &self.lane_edge_key
     }
 
+    /// 返回限速（米每秒）。
     #[must_use]
     pub const fn speed_limit_meters_per_second(&self) -> f64 {
         self.speed_limit_meters_per_second
     }
 
+    /// 返回后继车道图边引用序列。
     #[must_use]
     pub fn successors(&self) -> &[LaneEdgeReference] {
         &self.successors
     }
 
+    /// 返回可选显式几何曲线。
     #[must_use]
     pub const fn explicit_geometry(&self) -> Option<&RoadEditingCurveProgram> {
         self.explicit_geometry.as_ref()
@@ -979,6 +1075,7 @@ pub struct JunctionInput {
 }
 
 impl JunctionInput {
+    /// 构造路口声明；接近边必须非空且与内部边集合不相交。
     pub fn try_new(
         junction_key: impl Into<String>,
         approach_edges: Vec<LaneEdgeReference>,
@@ -1006,16 +1103,19 @@ impl JunctionInput {
         })
     }
 
+    /// 返回路口稳定键。
     #[must_use]
     pub fn junction_key(&self) -> &str {
         &self.junction_key
     }
 
+    /// 返回接近边引用序列。
     #[must_use]
     pub fn approach_edges(&self) -> &[LaneEdgeReference] {
         &self.approach_edges
     }
 
+    /// 返回内部边引用序列。
     #[must_use]
     pub fn internal_edges(&self) -> &[LaneEdgeReference] {
         &self.internal_edges
@@ -1035,6 +1135,7 @@ pub struct MovementInput {
 }
 
 impl MovementInput {
+    /// 构造通行流向声明并校验键与有向接近臂键。
     pub fn try_new(
         movement_key: impl Into<String>,
         junction: JunctionReference,
@@ -1063,21 +1164,25 @@ impl MovementInput {
         })
     }
 
+    /// 返回通行流向稳定键。
     #[must_use]
     pub fn movement_key(&self) -> &str {
         &self.movement_key
     }
 
+    /// 返回所属路口引用。
     #[must_use]
     pub const fn junction(&self) -> &JunctionReference {
         &self.junction
     }
 
+    /// 返回有向入口接近臂键。
     #[must_use]
     pub fn directed_entry_approach_key(&self) -> &str {
         &self.directed_entry_approach_key
     }
 
+    /// 返回有向出口接近臂键。
     #[must_use]
     pub fn directed_exit_approach_key(&self) -> &str {
         &self.directed_exit_approach_key
@@ -1093,6 +1198,7 @@ impl MovementInput {
         self
     }
 
+    /// 返回可选显式机动方向。
     #[must_use]
     pub const fn turn_direction(&self) -> Option<crate::ManeuverDirection> {
         self.turn_direction
@@ -1111,6 +1217,7 @@ pub struct ManeuverPathInput {
 }
 
 impl ManeuverPathInput {
+    /// 构造机动路径声明并校验键与内部边序列。
     pub fn try_new(
         maneuver_path_key: impl Into<String>,
         movement: MovementReference,
@@ -1131,26 +1238,31 @@ impl ManeuverPathInput {
         })
     }
 
+    /// 返回机动路径稳定键。
     #[must_use]
     pub fn maneuver_path_key(&self) -> &str {
         &self.maneuver_path_key
     }
 
+    /// 返回所属通行流向引用。
     #[must_use]
     pub const fn movement(&self) -> &MovementReference {
         &self.movement
     }
 
+    /// 返回入口边引用。
     #[must_use]
     pub const fn entry_edge(&self) -> &LaneEdgeReference {
         &self.entry_edge
     }
 
+    /// 返回内部边引用序列。
     #[must_use]
     pub fn internal_edges(&self) -> &[LaneEdgeReference] {
         &self.internal_edges
     }
 
+    /// 返回出口边引用。
     #[must_use]
     pub const fn exit_edge(&self) -> &LaneEdgeReference {
         &self.exit_edge
@@ -1177,6 +1289,7 @@ pub struct ManeuverGateInput {
 }
 
 impl ManeuverGateInput {
+    /// 构造机动门声明并校验门键。
     pub fn try_new(
         maneuver_gate_key: impl Into<String>,
         maneuver_path: ManeuverPathReference,
@@ -1196,26 +1309,31 @@ impl ManeuverGateInput {
         })
     }
 
+    /// 返回机动门稳定键。
     #[must_use]
     pub fn maneuver_gate_key(&self) -> &str {
         &self.maneuver_gate_key
     }
 
+    /// 返回绑定的机动路径引用。
     #[must_use]
     pub const fn maneuver_path(&self) -> &ManeuverPathReference {
         &self.maneuver_path
     }
 
+    /// 返回门所在的路径转换下标。
     #[must_use]
     pub const fn transition_index(&self) -> u32 {
         self.transition_index
     }
 
+    /// 返回关联停止线引用。
     #[must_use]
     pub const fn stop_line(&self) -> &StopLineReference {
         &self.stop_line
     }
 
+    /// 返回固定时制信号绑定。
     #[must_use]
     pub const fn signal_control(&self) -> &RoadEditingSignalControl {
         &self.signal_control
@@ -1235,6 +1353,7 @@ pub struct WaitingZoneInput {
 }
 
 impl WaitingZoneInput {
+    /// 构造等待区声明；等待容量必须大于零。
     pub fn try_new(
         waiting_zone_key: impl Into<String>,
         maneuver_path: ManeuverPathReference,
@@ -1260,26 +1379,31 @@ impl WaitingZoneInput {
         })
     }
 
+    /// 返回等待区稳定键。
     #[must_use]
     pub fn waiting_zone_key(&self) -> &str {
         &self.waiting_zone_key
     }
 
+    /// 返回绑定的机动路径引用。
     #[must_use]
     pub const fn maneuver_path(&self) -> &ManeuverPathReference {
         &self.maneuver_path
     }
 
+    /// 返回入口机动门引用。
     #[must_use]
     pub const fn entry_gate(&self) -> &ManeuverGateReference {
         &self.entry_gate
     }
 
+    /// 返回放行机动门引用。
     #[must_use]
     pub const fn release_gate(&self) -> &ManeuverGateReference {
         &self.release_gate
     }
 
+    /// 返回最大同时等待容量。
     #[must_use]
     pub const fn max_occupancy(&self) -> u32 {
         self.max_occupancy
@@ -1296,6 +1420,7 @@ pub struct StopLineInput {
 }
 
 impl StopLineInput {
+    /// 构造停止线声明并校验键。
     pub fn try_new(
         stop_line_key: impl Into<String>,
         lane_edge: LaneEdgeReference,
@@ -1309,11 +1434,13 @@ impl StopLineInput {
         })
     }
 
+    /// 返回停止线稳定键。
     #[must_use]
     pub fn stop_line_key(&self) -> &str {
         &self.stop_line_key
     }
 
+    /// 返回停止线所在车道图边引用。
     #[must_use]
     pub const fn lane_edge(&self) -> &LaneEdgeReference {
         &self.lane_edge
@@ -1329,6 +1456,7 @@ pub struct SignalGroupInput {
 }
 
 impl SignalGroupInput {
+    /// 构造信号组声明并校验组键。
     pub fn try_new(signal_group_key: impl Into<String>) -> Result<Self, DiagnosticBundle> {
         let signal_group_key = signal_group_key.into();
         validate_token(&signal_group_key, "signalGroup.signalGroupKey")?;
@@ -1338,6 +1466,7 @@ impl SignalGroupInput {
         })
     }
 
+    /// 返回信号组稳定键。
     #[must_use]
     pub fn signal_group_key(&self) -> &str {
         &self.signal_group_key
@@ -1353,6 +1482,7 @@ pub struct RoadEditingSignalPhaseState {
 }
 
 impl RoadEditingSignalPhaseState {
+    /// 构造相位状态；指示只允许红、黄、绿。
     pub fn try_new(
         signal_group: SignalGroupReference,
         aspect: SignalAspect,
@@ -1372,11 +1502,13 @@ impl RoadEditingSignalPhaseState {
         })
     }
 
+    /// 返回信号组引用。
     #[must_use]
     pub const fn signal_group(&self) -> &SignalGroupReference {
         &self.signal_group
     }
 
+    /// 返回该相位中信号组的指示。
     #[must_use]
     pub const fn aspect(&self) -> SignalAspect {
         self.aspect
@@ -1394,6 +1526,7 @@ pub struct SignalControllerInput {
 }
 
 impl SignalControllerInput {
+    /// 构造信号控制器声明并校验键、周期偏移与信号组、相位序列。
     pub fn try_new(
         signal_controller_key: impl Into<String>,
         offset_milliseconds: u64,
@@ -1424,21 +1557,25 @@ impl SignalControllerInput {
         })
     }
 
+    /// 返回信号控制器稳定键。
     #[must_use]
     pub fn signal_controller_key(&self) -> &str {
         &self.signal_controller_key
     }
 
+    /// 返回控制器周期偏移（毫秒）。
     #[must_use]
     pub const fn offset_milliseconds(&self) -> u64 {
         self.offset_milliseconds
     }
 
+    /// 返回受控信号组序列。
     #[must_use]
     pub fn signal_groups(&self) -> &[SignalGroupReference] {
         &self.signal_groups
     }
 
+    /// 返回有序信号相位序列。
     #[must_use]
     pub fn signal_phases(&self) -> &[SignalPhaseReference] {
         &self.signal_phases
@@ -1457,6 +1594,7 @@ pub struct SignalPhaseInput {
 }
 
 impl SignalPhaseInput {
+    /// 构造信号相位声明并校验键、时长与各信号组状态。
     pub fn try_new(
         signal_phase_key: impl Into<String>,
         duration_milliseconds: u64,
@@ -1486,21 +1624,25 @@ impl SignalPhaseInput {
         })
     }
 
+    /// 返回信号相位稳定键。
     #[must_use]
     pub fn signal_phase_key(&self) -> &str {
         &self.signal_phase_key
     }
 
+    /// 返回相位时长（毫秒）。
     #[must_use]
     pub const fn duration_milliseconds(&self) -> u64 {
         self.duration_milliseconds
     }
 
+    /// 返回相位内各信号组的状态序列。
     #[must_use]
     pub fn states(&self) -> &[RoadEditingSignalPhaseState] {
         &self.states
     }
 
+    /// 返回所属信号控制器引用。
     #[must_use]
     pub const fn signal_controller(&self) -> &SignalControllerReference {
         &self.signal_controller
@@ -1519,6 +1661,7 @@ pub struct ParkingFacilityInput {
 }
 
 impl ParkingFacilityInput {
+    /// 构造停车设施声明并校验设施键。
     pub fn try_new(parking_facility_key: impl Into<String>) -> Result<Self, DiagnosticBundle> {
         let parking_facility_key = parking_facility_key.into();
         validate_token(&parking_facility_key, "parkingFacility.parkingFacilityKey")?;
@@ -1545,21 +1688,25 @@ impl ParkingFacilityInput {
         self
     }
 
+    /// 返回停车设施稳定键。
     #[must_use]
     pub fn parking_facility_key(&self) -> &str {
         &self.parking_facility_key
     }
 
+    /// 返回虚拟停车容量。
     #[must_use]
     pub const fn virtual_capacity(&self) -> u32 {
         self.virtual_capacity
     }
 
+    /// 返回虚拟容量入口锚点序列。
     #[must_use]
     pub fn virtual_entries(&self) -> &[ParkingLaneAnchor] {
         &self.virtual_entries
     }
 
+    /// 返回虚拟容量出口锚点序列。
     #[must_use]
     pub fn virtual_exits(&self) -> &[ParkingLaneAnchor] {
         &self.virtual_exits
@@ -1575,6 +1722,7 @@ pub struct ParkingLaneAnchor {
 }
 
 impl ParkingLaneAnchor {
+    /// 构造停车锚点并校验边内进度范围。
     pub fn try_new(
         lane_edge: LaneEdgeReference,
         progress_meters: f64,
@@ -1591,11 +1739,13 @@ impl ParkingLaneAnchor {
         })
     }
 
+    /// 返回锚点所在车道图边引用。
     #[must_use]
     pub const fn lane_edge(&self) -> &LaneEdgeReference {
         &self.lane_edge
     }
 
+    /// 返回沿边进度（米）。
     #[must_use]
     pub const fn progress_meters(&self) -> f64 {
         self.progress_meters
@@ -1612,6 +1762,7 @@ pub struct ParkingSpaceGeometry {
 }
 
 impl ParkingSpaceGeometry {
+    /// 构造停车位矩形几何并校验横向偏移、朝向与尺寸范围。
     pub fn try_new(
         lateral_offset_meters: f64,
         heading_offset_radians: f64,
@@ -1648,21 +1799,25 @@ impl ParkingSpaceGeometry {
         })
     }
 
+    /// 返回相对入口边切线的横向偏移（米）。
     #[must_use]
     pub const fn lateral_offset_meters(self) -> f64 {
         self.lateral_offset_meters
     }
 
+    /// 返回朝向偏移（弧度）。
     #[must_use]
     pub const fn heading_offset_radians(self) -> f64 {
         self.heading_offset_radians
     }
 
+    /// 返回停车位长度（米）。
     #[must_use]
     pub const fn length_meters(self) -> f64 {
         self.length_meters
     }
 
+    /// 返回停车位宽度（米）。
     #[must_use]
     pub const fn width_meters(self) -> f64 {
         self.width_meters
@@ -1681,6 +1836,7 @@ pub struct ParkingSpaceInput {
 }
 
 impl ParkingSpaceInput {
+    /// 构造停车位声明并校验键。
     pub fn try_new(
         parking_space_key: impl Into<String>,
         entry: ParkingLaneAnchor,
@@ -1699,32 +1855,38 @@ impl ParkingSpaceInput {
         })
     }
 
+    /// 设置所属停车设施引用。
     #[must_use]
     pub fn with_parking_facility(mut self, parking_facility: ParkingFacilityReference) -> Self {
         self.parking_facility = Some(parking_facility);
         self
     }
 
+    /// 返回停车位稳定键。
     #[must_use]
     pub fn parking_space_key(&self) -> &str {
         &self.parking_space_key
     }
 
+    /// 返回可选所属停车设施引用。
     #[must_use]
     pub const fn parking_facility(&self) -> Option<&ParkingFacilityReference> {
         self.parking_facility.as_ref()
     }
 
+    /// 返回入口锚点。
     #[must_use]
     pub const fn entry(&self) -> &ParkingLaneAnchor {
         &self.entry
     }
 
+    /// 返回出口锚点。
     #[must_use]
     pub const fn exit(&self) -> &ParkingLaneAnchor {
         &self.exit
     }
 
+    /// 返回停车位几何。
     #[must_use]
     pub const fn geometry(&self) -> ParkingSpaceGeometry {
         self.geometry
@@ -1741,6 +1903,7 @@ pub struct LaneGroupInput {
 }
 
 impl LaneGroupInput {
+    /// 构造车道组声明并校验组键。
     pub fn try_new(
         lane_group_key: impl Into<String>,
         road_section: RoadSectionReference,
@@ -1754,11 +1917,13 @@ impl LaneGroupInput {
         })
     }
 
+    /// 返回车道组稳定键。
     #[must_use]
     pub fn lane_group_key(&self) -> &str {
         &self.lane_group_key
     }
 
+    /// 返回所属道路区段引用。
     #[must_use]
     pub const fn road_section(&self) -> &RoadSectionReference {
         &self.road_section
@@ -1777,6 +1942,7 @@ pub struct FacilityBandInput {
 }
 
 impl FacilityBandInput {
+    /// 构造设施带声明并校验键与设施类别。
     pub fn try_new(
         facility_band_key: impl Into<String>,
         kind_id: impl Into<String>,
@@ -1801,21 +1967,25 @@ impl FacilityBandInput {
         })
     }
 
+    /// 返回设施带稳定键。
     #[must_use]
     pub fn facility_band_key(&self) -> &str {
         &self.facility_band_key
     }
 
+    /// 返回设施带类别标识。
     #[must_use]
     pub fn kind_id(&self) -> &str {
         &self.kind_id
     }
 
+    /// 返回线性宽度配置。
     #[must_use]
     pub const fn width_profile(&self) -> LinearWidthProfile {
         self.width_profile
     }
 
+    /// 返回所属道路走廊引用。
     #[must_use]
     pub const fn road_corridor(&self) -> &RoadCorridorReference {
         &self.road_corridor
@@ -1832,6 +2002,7 @@ pub struct ParticipantClassInput {
 }
 
 impl ParticipantClassInput {
+    /// 构造参与者类别声明并校验类别键。
     pub fn try_new(participant_class_key: impl Into<String>) -> Result<Self, DiagnosticBundle> {
         let participant_class_key = participant_class_key.into();
         validate_token(
@@ -1845,17 +2016,20 @@ impl ParticipantClassInput {
         })
     }
 
+    /// 设置继承的父参与者类别。
     #[must_use]
     pub fn with_extends(mut self, extends: ParticipantClassReference) -> Self {
         self.extends = Some(extends);
         self
     }
 
+    /// 返回参与者类别稳定键。
     #[must_use]
     pub fn participant_class_key(&self) -> &str {
         &self.participant_class_key
     }
 
+    /// 返回可选继承的父参与者类别引用。
     #[must_use]
     pub const fn extends(&self) -> Option<&ParticipantClassReference> {
         self.extends.as_ref()
@@ -1887,6 +2061,7 @@ pub struct AccessRuleInput {
 }
 
 impl AccessRuleInput {
+    /// 构造准入规则声明；效果只允许允许或拒绝，参与者类别必须非空且不重复。
     pub fn try_new(
         access_rule_key: impl Into<String>,
         target: RoadEditingAccessTarget,
@@ -1918,37 +2093,44 @@ impl AccessRuleInput {
         })
     }
 
+    /// 设置关联的法规标识。
     #[must_use]
     pub fn with_regulation(mut self, regulation: RegulationIdentity) -> Self {
         self.regulation = Some(regulation);
         self
     }
 
+    /// 返回准入规则稳定键。
     #[must_use]
     pub fn access_rule_key(&self) -> &str {
         &self.access_rule_key
     }
 
+    /// 返回规则作用目标。
     #[must_use]
     pub const fn target(&self) -> &RoadEditingAccessTarget {
         &self.target
     }
 
+    /// 返回规则效果。
     #[must_use]
     pub const fn effect(&self) -> AccessEffect {
         self.effect
     }
 
+    /// 返回规则适用的参与者类别序列。
     #[must_use]
     pub fn participant_classes(&self) -> &[ParticipantClassReference] {
         &self.participant_classes
     }
 
+    /// 返回可选关联法规标识。
     #[must_use]
     pub const fn regulation(&self) -> Option<&RegulationIdentity> {
         self.regulation.as_ref()
     }
 
+    /// 返回规则优先级。
     #[must_use]
     pub const fn priority(&self) -> i32 {
         self.priority
@@ -1969,6 +2151,7 @@ pub struct IidmVehicleProfileInput {
 }
 
 impl IidmVehicleProfileInput {
+    /// 构造 IIDM 车辆参数并校验各字段范围与减速次序。
     #[allow(clippy::too_many_arguments)]
     pub fn try_new(
         length_meters: f64,
@@ -2032,30 +2215,37 @@ impl IidmVehicleProfileInput {
         })
     }
 
+    /// 返回车长（米）。
     #[must_use]
     pub const fn length_meters(self) -> f64 {
         self.length_meters
     }
+    /// 返回期望速度（米每秒）。
     #[must_use]
     pub const fn desired_speed_meters_per_second(self) -> f64 {
         self.desired_speed_meters_per_second
     }
+    /// 返回最小间距（米）。
     #[must_use]
     pub const fn min_gap_meters(self) -> f64 {
         self.min_gap_meters
     }
+    /// 返回车头时距（秒）。
     #[must_use]
     pub const fn time_headway_seconds(self) -> f64 {
         self.time_headway_seconds
     }
+    /// 返回最大加速度（米每二次方秒）。
     #[must_use]
     pub const fn max_acceleration_meters_per_second_squared(self) -> f64 {
         self.max_acceleration_meters_per_second_squared
     }
+    /// 返回舒适减速度（米每二次方秒）。
     #[must_use]
     pub const fn comfortable_deceleration_meters_per_second_squared(self) -> f64 {
         self.comfortable_deceleration_meters_per_second_squared
     }
+    /// 返回紧急减速度（米每二次方秒）。
     #[must_use]
     pub const fn emergency_deceleration_meters_per_second_squared(self) -> f64 {
         self.emergency_deceleration_meters_per_second_squared
@@ -2072,6 +2262,7 @@ pub struct VehicleProfileInput {
 }
 
 impl VehicleProfileInput {
+    /// 构造车辆配置声明并校验配置键。
     pub fn try_new(
         vehicle_profile_key: impl Into<String>,
         participant_class: ParticipantClassReference,
@@ -2087,14 +2278,17 @@ impl VehicleProfileInput {
         })
     }
 
+    /// 返回车辆配置稳定键。
     #[must_use]
     pub fn vehicle_profile_key(&self) -> &str {
         &self.vehicle_profile_key
     }
+    /// 返回绑定的参与者类别引用。
     #[must_use]
     pub const fn participant_class(&self) -> &ParticipantClassReference {
         &self.participant_class
     }
+    /// 返回 IIDM 静态参数。
     #[must_use]
     pub const fn iidm(&self) -> IidmVehicleProfileInput {
         self.iidm
@@ -2111,6 +2305,7 @@ pub struct ConflictZoneInput {
 }
 
 impl ConflictZoneInput {
+    /// 构造冲突区声明并校验键。
     pub fn try_new(
         conflict_zone_key: impl Into<String>,
         junction: JunctionReference,
@@ -2124,11 +2319,13 @@ impl ConflictZoneInput {
         })
     }
 
+    /// 返回冲突区稳定键。
     #[must_use]
     pub fn conflict_zone_key(&self) -> &str {
         &self.conflict_zone_key
     }
 
+    /// 返回绑定的路口引用。
     #[must_use]
     pub const fn junction(&self) -> &JunctionReference {
         &self.junction
@@ -2150,16 +2347,19 @@ pub enum PathAnchorInput {
 }
 
 impl PathAnchorInput {
+    /// 构造位于机动门的路径锚点。
     #[must_use]
     pub fn gate(gate: ManeuverGateReference) -> Self {
         Self::Gate(gate)
     }
 
+    /// 构造位于路径边边界的路径锚点。
     #[must_use]
     pub const fn edge_boundary(boundary_index: u32) -> Self {
         Self::EdgeBoundary { boundary_index }
     }
 
+    /// 构造位于路径边内部进度处的锚点并校验进度范围。
     pub fn interior(path_edge_index: u32, progress_meters: f64) -> Result<Self, DiagnosticBundle> {
         let progress_meters = require_closed_mm(
             progress_meters,
@@ -2183,6 +2383,7 @@ pub struct ConflictPassageInput {
 }
 
 impl ConflictPassageInput {
+    /// 构造一条冲突区通行记录。
     #[must_use]
     pub const fn new(
         conflict_zone: ConflictZoneReference,
@@ -2196,16 +2397,19 @@ impl ConflictPassageInput {
         }
     }
 
+    /// 返回穿越的冲突区引用。
     #[must_use]
     pub const fn conflict_zone(&self) -> &ConflictZoneReference {
         &self.conflict_zone
     }
 
+    /// 返回进入锚点。
     #[must_use]
     pub const fn entry(&self) -> &PathAnchorInput {
         &self.entry
     }
 
+    /// 返回离开锚点。
     #[must_use]
     pub const fn exit(&self) -> &PathAnchorInput {
         &self.exit
@@ -2223,6 +2427,7 @@ pub struct ParticipantStreamInput {
 }
 
 impl ParticipantStreamInput {
+    /// 构造参与者流声明并校验键与通行序列。
     pub fn try_new(
         participant_stream_key: impl Into<String>,
         junction: JunctionReference,
@@ -2244,21 +2449,25 @@ impl ParticipantStreamInput {
         })
     }
 
+    /// 返回参与者流稳定键。
     #[must_use]
     pub fn participant_stream_key(&self) -> &str {
         &self.participant_stream_key
     }
 
+    /// 返回绑定的路口引用。
     #[must_use]
     pub const fn junction(&self) -> &JunctionReference {
         &self.junction
     }
 
+    /// 返回绑定的机动路径引用。
     #[must_use]
     pub const fn maneuver_path(&self) -> &ManeuverPathReference {
         &self.maneuver_path
     }
 
+    /// 返回穿越各冲突区的通行序列。
     #[must_use]
     pub const fn passages(&self) -> &[ConflictPassageInput] {
         &self.passages
@@ -2278,6 +2487,7 @@ pub struct ConflictZoneRegionInput {
 }
 
 impl ConflictZoneRegionInput {
+    /// 构造冲突区空间区域并校验高度范围与环点数量。
     pub fn try_new(
         conflict_zone: ConflictZoneReference,
         canonical_frame: CanonicalFrameReference,
@@ -2315,26 +2525,31 @@ impl ConflictZoneRegionInput {
         })
     }
 
+    /// 返回所属冲突区引用。
     #[must_use]
     pub const fn conflict_zone(&self) -> &ConflictZoneReference {
         &self.conflict_zone
     }
 
+    /// 返回区域所在的规范坐标框架引用。
     #[must_use]
     pub const fn canonical_frame(&self) -> &CanonicalFrameReference {
         &self.canonical_frame
     }
 
+    /// 返回区域最小高度（米）。
     #[must_use]
     pub const fn min_y(&self) -> f64 {
         self.min_y
     }
 
+    /// 返回区域最大高度（米）。
     #[must_use]
     pub const fn max_y(&self) -> f64 {
         self.max_y
     }
 
+    /// 返回 XZ 平面环点序列。
     #[must_use]
     pub const fn ring_xz(&self) -> &[RoadEditingPoint2] {
         &self.ring_xz
@@ -2350,6 +2565,7 @@ pub struct CanonicalFrameInput {
 }
 
 impl CanonicalFrameInput {
+    /// 构造规范坐标框架声明并校验框架键。
     pub fn try_new(canonical_frame_key: impl Into<String>) -> Result<Self, DiagnosticBundle> {
         let canonical_frame_key = canonical_frame_key.into();
         validate_token(&canonical_frame_key, "canonicalFrame.canonicalFrameKey")?;
@@ -2359,6 +2575,7 @@ impl CanonicalFrameInput {
         })
     }
 
+    /// 返回规范坐标框架稳定键。
     #[must_use]
     pub fn canonical_frame_key(&self) -> &str {
         &self.canonical_frame_key
@@ -2461,6 +2678,7 @@ impl RoadEditingDeclaration {
         }
     }
 
+    /// 返回声明从模块根 owner 到直接 parent 的 key 链；module-scoped 声明返回空链。
     pub(super) fn owner_key_components(&self) -> Box<[&str]> {
         match self {
             Self::RoadSection(value) => value.road_corridor().components().collect(),
@@ -2490,6 +2708,7 @@ impl RoadEditingDeclaration {
         }
     }
 
+    /// 按实体类别、owner key 链与 local key 的规范地址顺序比较两个声明。
     pub(super) fn canonical_address_cmp(&self, other: &Self) -> Ordering {
         self.entity_kind()
             .cmp(&other.entity_kind())

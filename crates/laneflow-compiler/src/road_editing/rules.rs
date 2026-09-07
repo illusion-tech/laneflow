@@ -10,9 +10,12 @@ use crate::declaration::{FacilityKindCategory, facility_kind_category};
 use crate::source::external_token_violation;
 use crate::{Diagnostic, DiagnosticBundle, RoadEditingInputViolation, SourceTextViolation};
 
+/// 单个引用组件（编制命名空间或键路径段）的最大字节数。
 pub(super) const MAX_COMPONENT_BYTES: u64 = 53;
+/// 完整 wire 引用文本的最大字节数。
 pub(super) const MAX_REFERENCE_BYTES: u64 = 270;
 
+/// 已通过校验的借用型 wire 引用：可选编制命名空间前缀加 owner 键路径。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct ValidatedReference<'a> {
     namespace: Option<&'a str>,
@@ -20,19 +23,23 @@ pub(super) struct ValidatedReference<'a> {
 }
 
 impl<'a> ValidatedReference<'a> {
+    /// 返回可选的编制命名空间前缀。
     pub(super) const fn namespace(self) -> Option<&'a str> {
         self.namespace
     }
 
+    /// 按 `>` 分隔迭代 owner 键路径的各组件。
     pub(super) fn key_components(self) -> impl Iterator<Item = &'a str> {
         self.key_path.split('>')
     }
 }
 
+/// 生成指定字段的道路编辑输入违规诊断。
 pub(super) fn input_error(field: &str, violation: RoadEditingInputViolation) -> DiagnosticBundle {
     DiagnosticBundle::single(Diagnostic::invalid_road_editing_input(field, violation))
 }
 
+/// 校验标识 token 文本（含保留分隔符禁令）；违规时返回输入诊断。
 pub(super) fn validate_token(value: &str, field: &str) -> Result<(), DiagnosticBundle> {
     if let Some(violation) = token_violation(value, u64::MAX, true) {
         return Err(input_error(field, violation));
@@ -40,6 +47,7 @@ pub(super) fn validate_token(value: &str, field: &str) -> Result<(), DiagnosticB
     Ok(())
 }
 
+/// 校验设施种类字符串属于期望的设施种类类别。
 pub(super) fn validate_facility_kind(
     value: &str,
     expected: FacilityKindCategory,
@@ -54,6 +62,7 @@ pub(super) fn validate_facility_kind(
     Ok(())
 }
 
+/// 返回 token 文本的违规项，可按需禁止保留分隔符 `::`；无违规时返回 `None`。
 pub(super) fn token_violation(
     value: &str,
     limit: u64,
@@ -74,6 +83,7 @@ pub(super) fn token_violation(
     None
 }
 
+/// 校验 wire 引用的字节上限、可选命名空间限定与精确键深，返回借用型已校验引用。
 pub(super) fn validate_wire_reference(
     value: &str,
     expected_key_component_count: u8,
@@ -132,6 +142,7 @@ pub(super) fn validate_wire_reference(
     })
 }
 
+/// 校验文本为非空可见 ASCII；违规时返回输入诊断。
 pub(super) fn validate_visible_ascii(value: &str, field: &str) -> Result<(), DiagnosticBundle> {
     if let Some(violation) = visible_ascii_violation(value, u64::MAX) {
         return Err(input_error(field, violation));
@@ -139,6 +150,7 @@ pub(super) fn validate_visible_ascii(value: &str, field: &str) -> Result<(), Dia
     Ok(())
 }
 
+/// 返回可见 ASCII 文本的违规项（空、超长、控制字节或非 ASCII）；无违规时返回 `None`。
 pub(super) fn visible_ascii_violation(
     value: &str,
     limit: u64,
@@ -172,12 +184,14 @@ pub(super) fn visible_ascii_violation(
         })
 }
 
+/// 值非有限时返回相应违规项，有限时返回 `None`。
 pub(super) fn finite_violation(value: f64) -> Option<RoadEditingInputViolation> {
     (!value.is_finite()).then_some(RoadEditingInputViolation::NonFinite {
         value_bits: value.to_bits(),
     })
 }
 
+/// 值非有限或不大于零时返回相应违规项，正值返回 `None`。
 pub(super) fn positive_violation(value: f64) -> Option<RoadEditingInputViolation> {
     finite_violation(value).or_else(|| {
         (value <= 0.0).then_some(RoadEditingInputViolation::NotGreaterThanZero {
@@ -186,6 +200,7 @@ pub(super) fn positive_violation(value: f64) -> Option<RoadEditingInputViolation
     })
 }
 
+/// 值非有限或为负时返回相应违规项，非负值返回 `None`。
 pub(super) fn non_negative_violation(value: f64) -> Option<RoadEditingInputViolation> {
     finite_violation(value).or_else(|| {
         (value < 0.0).then_some(RoadEditingInputViolation::LessThanZero {
@@ -194,6 +209,7 @@ pub(super) fn non_negative_violation(value: f64) -> Option<RoadEditingInputViola
     })
 }
 
+/// 校验文本非空；为空时返回输入诊断。
 pub(super) fn validate_non_empty_text(value: &str, field: &str) -> Result<(), DiagnosticBundle> {
     if value.is_empty() {
         return Err(input_error(
@@ -204,6 +220,7 @@ pub(super) fn validate_non_empty_text(value: &str, field: &str) -> Result<(), Di
     Ok(())
 }
 
+/// 值非有限或落在闭区间外时返回相应违规项，区间内值返回 `None`。
 pub(super) fn inclusive_range_violation(
     value: f64,
     minimum: f64,
@@ -220,6 +237,7 @@ pub(super) fn inclusive_range_violation(
     })
 }
 
+/// 把 SI 米量化为整数毫米并校验闭区间；返回相应违规项或 `None`。
 pub(super) fn millimetre_range_violation(
     value: f64,
     min_mm: u32,
@@ -232,6 +250,7 @@ pub(super) fn millimetre_range_violation(
     }
 }
 
+/// 把 SI 米量化为 `i32` 毫米并按绝对值校验闭区间；返回相应违规项或 `None`。
 pub(super) fn millimetre_i32_abs_range_violation(
     value: f64,
     min_abs_mm: u32,
@@ -248,6 +267,7 @@ pub(super) fn millimetre_i32_abs_range_violation(
     }
 }
 
+/// 把 SI 弧度量化为 `f32` 航向并校验其合法闭包；返回相应违规项或 `None`。
 pub(super) fn heading_violation(value: f64) -> Option<RoadEditingInputViolation> {
     match heading_f32_from_si(value) {
         Some(heading) if heading_f32_in_legal_closure(heading) => None,
@@ -256,6 +276,7 @@ pub(super) fn heading_violation(value: f64) -> Option<RoadEditingInputViolation>
     }
 }
 
+/// 校验时间车头时距量化为 `f32` 后为正且不超过契约上限；返回相应违规项或 `None`。
 pub(super) fn time_headway_violation(value: f64) -> Option<RoadEditingInputViolation> {
     finite_violation(value).or_else(|| {
         let quantized = value as f32;
@@ -275,6 +296,7 @@ pub(super) fn time_headway_violation(value: f64) -> Option<RoadEditingInputViola
     })
 }
 
+/// 校验加速度值量化为 `f32` 后落在契约闭区间内；返回相应违规项或 `None`。
 pub(super) fn accel_violation(value: f64) -> Option<RoadEditingInputViolation> {
     finite_violation(value).or_else(|| {
         let quantized = value as f32;
@@ -293,6 +315,7 @@ pub(super) fn accel_violation(value: f64) -> Option<RoadEditingInputViolation> {
     })
 }
 
+/// 校验 `f64` 有限并把负零归一化为正零；违规时返回输入诊断。
 pub(super) fn validate_finite(value: f64, field: &str) -> Result<f64, DiagnosticBundle> {
     if !value.is_finite() {
         return Err(input_error(
@@ -305,6 +328,7 @@ pub(super) fn validate_finite(value: f64, field: &str) -> Result<f64, Diagnostic
     Ok(if value == 0.0 { 0.0 } else { value })
 }
 
+/// 校验 `f64` 有限且大于零；违规时返回输入诊断。
 pub(super) fn validate_positive(value: f64, field: &str) -> Result<f64, DiagnosticBundle> {
     let value = validate_finite(value, field)?;
     if value <= 0.0 {
@@ -318,6 +342,7 @@ pub(super) fn validate_positive(value: f64, field: &str) -> Result<f64, Diagnost
     Ok(value)
 }
 
+/// 校验 `f64` 有限且非负；违规时返回输入诊断。
 pub(super) fn validate_non_negative(value: f64, field: &str) -> Result<f64, DiagnosticBundle> {
     let value = validate_finite(value, field)?;
     if value < 0.0 {
@@ -331,6 +356,7 @@ pub(super) fn validate_non_negative(value: f64, field: &str) -> Result<f64, Diag
     Ok(value)
 }
 
+/// 校验 `f64` 有限且落在闭区间内；违规时返回输入诊断。
 pub(super) fn validate_inclusive_range(
     value: f64,
     minimum: f64,
@@ -344,6 +370,7 @@ pub(super) fn validate_inclusive_range(
     Ok(value)
 }
 
+/// 要求集合非空；为空时返回输入诊断。
 pub(super) fn require_non_empty<T>(values: &[T], field: &str) -> Result<(), DiagnosticBundle> {
     if values.is_empty() {
         return Err(input_error(
@@ -354,6 +381,7 @@ pub(super) fn require_non_empty<T>(values: &[T], field: &str) -> Result<(), Diag
     Ok(())
 }
 
+/// 要求集合元素唯一；存在重复时返回输入诊断。
 pub(super) fn require_unique<T: Ord>(values: &[T], field: &str) -> Result<(), DiagnosticBundle> {
     let mut seen = BTreeSet::new();
     if values.iter().any(|value| !seen.insert(value)) {

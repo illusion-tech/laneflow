@@ -8,6 +8,7 @@ use crate::arena::TableRange;
 
 use super::LirIdentityField;
 
+/// 规范坐标框架的 Canonical LIR 记录：空间几何和位姿共享的稳定局部坐标框架。
 pub(crate) struct LirCanonicalFrame {
     pub(crate) ordinal: CanonicalFrameOrdinal,
     pub(crate) stable_id: CanonicalFrameId,
@@ -38,12 +39,14 @@ pub(crate) struct LirConflictZoneRegion {
     pub(crate) ring_xz: TableRange<LirCanonicalPoint2F32>,
 }
 
+/// 规范坐标框架内的 XZ 平面二维点（`f32` 坐标）。
 #[derive(Clone, Copy)]
 pub(crate) struct LirCanonicalPoint2F32 {
     pub(crate) x: f32,
     pub(crate) z: f32,
 }
 
+/// 规范坐标框架内的三维点（`f32` 坐标）。
 #[derive(Clone, Copy)]
 pub(crate) struct LirCanonicalPoint3F32 {
     pub(crate) x: f32,
@@ -51,6 +54,7 @@ pub(crate) struct LirCanonicalPoint3F32 {
     pub(crate) z: f32,
 }
 
+/// 中心线采样线段：长度、累计终点里程与切向、上向向量。
 #[derive(Clone, Copy)]
 pub(crate) struct LirSpatialSegment {
     pub(crate) length_meters: f32,
@@ -63,6 +67,7 @@ use super::{FreezeEnv, LirSpatialCounts, push_lir_identity, table_overflow};
 use crate::DiagnosticBundle;
 use laneflow_static_contract::FieldTag;
 
+/// 空间几何领域各表及共享点、线段辅表的领域冻结产物。
 pub(super) struct SpatialParts {
     pub canonical_frames: Vec<LirCanonicalFrame>,
     pub lane_edge_geometries: Vec<LirLaneEdgeGeometry>,
@@ -73,6 +78,7 @@ pub(super) struct SpatialParts {
     pub spatial_segments: Vec<LirSpatialSegment>,
 }
 
+/// 按规范排列冻结规范坐标框架与车道边、设施带、冲突区几何表，保持每条几何内部的点与线段顺序。
 pub(super) fn freeze(
     env: &mut FreezeEnv<'_>,
     counts: &LirSpatialCounts,

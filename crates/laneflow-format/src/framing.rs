@@ -27,6 +27,7 @@ pub(crate) struct ObjectFramingProof {
 }
 
 impl<'a> ObjectFramingView<'a> {
+    /// 提取可对同一 backing 做 O(1) 重借用的 framing 证明。
     pub(crate) const fn proof(self) -> ObjectFramingProof {
         ObjectFramingProof {
             kind: self.kind,
@@ -90,6 +91,7 @@ impl<'a> ObjectFramingView<'a> {
 }
 
 impl ObjectFramingProof {
+    /// 长度与预检时一致时，对同一不可变 backing 重借出 framing 视图。
     pub(crate) fn reborrow(self, bytes: &[u8]) -> Option<ObjectFramingView<'_>> {
         (bytes.len() == self.exact_len).then_some(ObjectFramingView {
             bytes,
@@ -128,6 +130,7 @@ pub fn preflight_object_framing(
     preflight_object_framing_at(bytes, expected_kind, expected_kind.format_version(), limits)
 }
 
+/// 按显式指定的格式版本执行前导、目录、exact length 与连续范围预检。
 pub(crate) fn preflight_object_framing_at(
     bytes: &[u8],
     expected_kind: PortableObjectKind,

@@ -76,6 +76,7 @@ pub(crate) struct HirParkingSpace {
     pub(crate) source_span: SourceLocation,
 }
 
+/// 停车领域 HIR 部件：停车设施、停车位、设施成员与虚拟入口/出口锚点表。
 #[derive(Default)]
 pub(crate) struct ParkingHir {
     pub(crate) parking_facilities: Box<[HirParkingFacility]>,
@@ -85,6 +86,7 @@ pub(crate) struct ParkingHir {
     pub(crate) parking_facility_virtual_exits: Box<[HirParkingLaneAnchor]>,
 }
 
+/// 构建停车领域 HIR：登记停车设施与停车位，并闭合可选归属及入口/出口锚点。
 #[allow(clippy::too_many_lines)]
 pub(crate) fn build_parking_hir(
     unit: &CompilationUnit,

@@ -176,6 +176,7 @@ fn local_range(values: &[Local<'_>], policy: u32) -> Result<RangeU32, BuildError
     )
 }
 
+/// 从受检规范路网输入构建 Policy component；预算自既有 retained 字节起累计。
 pub(crate) fn build(
     view: ValueCheckedObjectView<'_>,
     traffic: &SharedTrafficNetwork,

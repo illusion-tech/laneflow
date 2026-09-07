@@ -30,6 +30,7 @@ pub struct CompilationMetrics {
 }
 
 impl CompilationMetrics {
+    /// 由编译管线实测值组装资源与确定性观测值；仅限成功编译路径调用。
     pub(super) const fn from_pipeline(
         lir_record_count: u64,
         output_logical_bytes: u64,
@@ -76,14 +77,17 @@ impl CompilationMetrics {
 }
 
 impl CompilationOutput {
+    /// 测试专用：返回来源伴随数据的可变借用。
     #[cfg(test)]
     pub(crate) fn test_source_map_mut(&mut self) -> &mut ValidatedSourceMapInput {
         &mut self.source_map_input
     }
+    /// 测试专用：覆写输出记录的编译上限配置。
     #[cfg(test)]
     pub(crate) fn set_test_compile_limits(&mut self, limits: CompileLimits) {
         self.limits = limits;
     }
+    /// 由一次成功编译的原子结果组装输出；仅限 `compiler` 模块的成功路径调用。
     pub(super) fn from_success(
         lir: ValidatedCanonicalLir,
         source_map_input: ValidatedSourceMapInput,
@@ -100,10 +104,12 @@ impl CompilationOutput {
         }
     }
 
+    /// 返回本次编译实际采用的编译上限配置；仅供编译器内部后端读取。
     pub(crate) const fn compile_limits(&self) -> &CompileLimits {
         &self.limits
     }
 
+    /// 测试专用：覆写输出记录中的可移植对象与捆包字节上限。
     #[cfg(test)]
     pub(crate) fn set_test_portable_limits(&mut self, object_bytes: u64, bundle_bytes: u64) {
         self.limits = self

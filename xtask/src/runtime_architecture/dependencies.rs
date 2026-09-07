@@ -8,6 +8,7 @@ use serde::Deserialize;
 
 use super::{ADAPTER, FORMAT, RUNTIME, SPATIAL, SourceInputs, WIRE};
 
+/// `cargo metadata` 的反序列化结果：workspace 成员清单、包信息与已解析依赖图。
 #[derive(Deserialize)]
 pub(super) struct Metadata {
     workspace_members: BTreeSet<String>,
@@ -67,6 +68,7 @@ struct EdgeKind {
     kind: Option<Kind>,
 }
 
+/// 运行 `cargo metadata --locked --offline`（可选 `--all-features`）读取 Cargo 解析图并反序列化；缺失 resolve 等字段视为不完整图而报错。
 pub(super) fn load(manifest: &Path, all_features: bool) -> Result<Metadata, String> {
     let mut command = Command::new("cargo");
     command
@@ -104,6 +106,7 @@ impl Metadata {
             .ok_or_else(|| format!("架构依赖图缺少必需 workspace 包 {name}"))
     }
 
+    /// 从解析图推导 Runtime 生产源码检查输入：唯一库入口、包根目录、外部 crate 名单（含 rename 别名）与 wire 格式 crate 集合。
     pub(super) fn source_inputs(&self) -> Result<SourceInputs, String> {
         let runtime = self.workspace_package(RUNTIME)?;
         let libraries: Vec<_> = runtime
@@ -145,6 +148,7 @@ impl Metadata {
         Ok(inputs)
     }
 
+    /// 校验生产依赖方向：从 Runtime 与 Spatial 出发沿解析图和 manifest 声明遍历非 dev 依赖，拒绝指向 Adapter、Compiler、bevy 及 Runtime/Spatial 互依的链。
     pub(super) fn check(&self) -> Result<(), String> {
         for required in [RUNTIME, SPATIAL, ADAPTER] {
             self.workspace_package(required)?;

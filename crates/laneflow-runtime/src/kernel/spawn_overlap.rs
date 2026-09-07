@@ -13,6 +13,7 @@ thread_local! {
     static REBUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
+/// 测试用：令索引在第 `count` 次成功预留之后注入分配失败。
 #[cfg(test)]
 pub(crate) fn with_overlap_allocation_failure_after<T>(count: usize, run: impl FnOnce() -> T) -> T {
     struct Reset(Option<usize>);
@@ -27,6 +28,7 @@ pub(crate) fn with_overlap_allocation_failure_after<T>(count: usize, run: impl F
     })
 }
 
+/// 测试用：返回索引重建次数。
 #[cfg(test)]
 pub(crate) fn overlap_rebuilds() -> usize {
     REBUILDS.with(core::cell::Cell::get)
@@ -66,10 +68,12 @@ impl Default for SpawnOverlapIndex {
 }
 
 impl SpawnOverlapIndex {
+    /// 索引是否与当前已提交状态一致。
     pub(crate) fn is_current(&self) -> bool {
         !self.stale
     }
 
+    /// 标记索引失效；下次查询前重建。
     pub(crate) fn mark_stale(&mut self) {
         self.stale = true;
     }
@@ -221,6 +225,7 @@ impl SpawnOverlapIndex {
         .expect("active vehicle has a valid footprint");
     }
 
+    /// 测试用：索引持有的逻辑字节数。
     #[cfg(test)]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self { buckets, stale: _ } = self;
@@ -251,6 +256,7 @@ impl TrafficWorld {
         self.indexed_overlap_blocker(route, cursor, progress, length, None)
     }
 
+    /// 索引失效时可失败重建；失败时保持失效，首错仍由实体校验报告。
     pub(crate) fn try_refresh_overlap_index(&mut self) -> Result<(), ()> {
         self.derived.spawn_overlap.try_refresh(
             self.binding.revision.traffic().lane_lengths_millimetres(),
@@ -260,6 +266,7 @@ impl TrafficWorld {
         )
     }
 
+    /// 在已刷新索引上查询候选准入 footprint 的阻挡车辆；多个阻挡取槽位/世代最小者。
     pub(crate) fn indexed_overlap_blocker(
         &self,
         route: RouteHandle,
@@ -317,6 +324,7 @@ impl TrafficWorld {
         blocker
     }
 
+    /// 把单车的实际占用边登记进当前索引。
     pub(crate) fn register_overlap_vehicle(&mut self, state: VehicleState) {
         self.derived.spawn_overlap.insert(
             self.binding.revision.traffic().lane_lengths_millimetres(),

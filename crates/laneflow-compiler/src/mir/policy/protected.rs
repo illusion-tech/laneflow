@@ -8,12 +8,14 @@ struct GreenPhase {
     phase: u32,
 }
 
+/// 保护冲突判定索引：缓存各信号组的绿灯相位成员，并记录逐相位查重标记。
 pub(super) struct ProtectedIndex {
     green: Vec<GreenPhase>,
     seen: Vec<Option<(u32, MirConflictZoneKey)>>,
 }
 
 impl ProtectedIndex {
+    /// 收集全部绿灯相位状态并按（信号组, 相位）排序构建索引；先校验临时内存与记录数上限。
     pub(super) fn build(
         unit: &CompilationUnit,
         mir: &MirUnit,
@@ -57,6 +59,7 @@ impl ProtectedIndex {
         })
     }
 
+    /// 返回索引占用的字节数。
     pub(super) fn bytes(&self) -> u64 {
         (self.green.len() as u64)
             .saturating_mul(size_of::<GreenPhase>() as u64)
@@ -66,10 +69,12 @@ impl ProtectedIndex {
             )
     }
 
+    /// 返回索引记录数。
     pub(super) fn records(&self) -> u64 {
         (self.green.len() as u64).saturating_add(self.seen.len() as u64)
     }
 
+    /// 判定同一冲突区内受保护门的信号是否相容：同区保护门须属同一信号控制器，且任一相位不得同时放行两组。
     pub(super) fn coherent(
         &mut self,
         mir: &MirUnit,

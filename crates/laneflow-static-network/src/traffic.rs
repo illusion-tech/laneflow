@@ -17,25 +17,30 @@ pub struct RangeU32 {
 }
 
 impl RangeU32 {
+    /// 由起始下标与长度构造区间。
     pub(crate) const fn new(start: u32, len: u32) -> Self {
         Self { start, len }
     }
 
+    /// 区间起始下标。
     #[must_use]
     pub const fn start(self) -> u32 {
         self.start
     }
 
+    /// 区间包含的元素个数。
     #[must_use]
     pub const fn len(self) -> u32 {
         self.len
     }
 
+    /// 区间是否不含任何元素。
     #[must_use]
     pub const fn is_empty(self) -> bool {
         self.len == 0
     }
 
+    /// 按本区间从连续切片中借用对应子切片。
     pub(crate) fn slice<T>(self, values: &[T]) -> &[T] {
         let start = usize::try_from(self.start).expect("checked u32 range start");
         let end = usize::try_from(
@@ -64,6 +69,7 @@ pub struct ManeuverTransitionCandidate {
 }
 
 impl ManeuverTransitionCandidate {
+    /// 组装一条 transition candidate 的全部上下文字段。
     pub(crate) const fn new(
         successor: LaneEdgeOrdinal,
         maneuver_path: ManeuverPathOrdinal,
@@ -78,21 +84,25 @@ impl ManeuverTransitionCandidate {
         }
     }
 
+    /// transition 指向的后继 LaneEdge。
     #[must_use]
     pub const fn successor(self) -> LaneEdgeOrdinal {
         self.successor
     }
 
+    /// 该 transition 所属的机动路径。
     #[must_use]
     pub const fn maneuver_path(self) -> ManeuverPathOrdinal {
         self.maneuver_path
     }
 
+    /// 该 transition 在机动路径内的下标。
     #[must_use]
     pub const fn transition_index(self) -> u32 {
         self.transition_index
     }
 
+    /// 关联的机动门（若该 transition 受门约束）。
     #[must_use]
     pub const fn maneuver_gate(self) -> Option<ManeuverGateOrdinal> {
         self.maneuver_gate
@@ -109,21 +119,25 @@ pub struct ManeuverPathView<'a> {
 }
 
 impl<'a> ManeuverPathView<'a> {
+    /// 该机动路径所属的通行流向。
     #[must_use]
     pub const fn movement(self) -> MovementOrdinal {
         self.movement
     }
 
+    /// 路径依次遍历的 LaneEdge 序列。
     #[must_use]
     pub const fn edges(self) -> &'a [LaneEdgeOrdinal] {
         self.edges
     }
 
+    /// 路径上绑定的机动门序列。
     #[must_use]
     pub const fn maneuver_gates(self) -> &'a [ManeuverGateOrdinal] {
         self.maneuver_gates
     }
 
+    /// 路径上绑定的等待区序列。
     #[must_use]
     pub const fn waiting_zones(self) -> &'a [WaitingZoneOrdinal] {
         self.waiting_zones
@@ -144,6 +158,7 @@ pub struct SharedManeuverNetwork {
 }
 
 impl SharedManeuverNetwork {
+    /// 由预构建的各连续 payload 组装共享机动数据。
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         movements: Box<[MovementOrdinal]>,
@@ -169,11 +184,13 @@ impl SharedManeuverNetwork {
         }
     }
 
+    /// 机动路径总数。
     #[must_use]
     pub fn maneuver_path_count(&self) -> u32 {
         u32::try_from(self.movements.len()).expect("format-bounded maneuver path count fits u32")
     }
 
+    /// 按 ordinal 借用一条机动路径的只读视图。
     #[must_use]
     pub fn maneuver_path(&self, path: ManeuverPathOrdinal) -> Option<ManeuverPathView<'_>> {
         let index = path.index();
@@ -191,22 +208,27 @@ impl SharedManeuverNetwork {
         })
     }
 
+    /// 各机动路径的机动门区间表。
     pub(crate) fn path_gate_ranges(&self) -> &[RangeU32] {
         &self.maneuver_gate_ranges
     }
 
+    /// 全部机动路径共享的机动门 flat payload。
     pub(crate) fn path_gates(&self) -> &[ManeuverGateOrdinal] {
         &self.maneuver_gates
     }
 
+    /// 各机动路径的等待区区间表。
     pub(crate) fn path_waiting_ranges(&self) -> &[RangeU32] {
         &self.waiting_zone_ranges
     }
 
+    /// 全部机动路径共享的等待区 flat payload。
     pub(crate) fn path_waiting_zones(&self) -> &[WaitingZoneOrdinal] {
         &self.waiting_zones
     }
 
+    /// 查询一条前驱 LaneEdge 的全部可执行 transition candidate。
     #[must_use]
     pub fn transition_candidates(
         &self,
@@ -216,6 +238,7 @@ impl SharedManeuverNetwork {
         Some(range.slice(&self.candidates))
     }
 
+    /// 本结构保留的逻辑字节数（含全部连续 payload）。
     #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         logical_bytes::<MovementOrdinal>(self.movements.len())
@@ -231,20 +254,24 @@ impl SharedManeuverNetwork {
 }
 
 impl EntityCounts {
+    /// 由按实体种类排列的基数数组构造。
     pub(crate) const fn new(counts: [u32; ENTITY_KIND_COUNT]) -> Self {
         Self { counts }
     }
 
+    /// 指定实体种类的实例基数。
     #[must_use]
     pub const fn count(self, entity_kind: EntityKind) -> u32 {
         self.counts[(entity_kind.code() - 1) as usize]
     }
 
+    /// 按标记类型查询对应实体种类的实例基数。
     #[must_use]
     pub fn typed_count<K: laneflow_static_contract::EntityKindMarker>(&self) -> u32 {
         self.count(K::KIND)
     }
 
+    /// 以数组形式借用全部实体种类基数。
     #[must_use]
     pub const fn as_array(&self) -> &[u32; ENTITY_KIND_COUNT] {
         &self.counts
@@ -269,6 +296,7 @@ pub struct SharedTrafficNetwork {
 }
 
 impl SharedTrafficNetwork {
+    /// 由预构建的实体基数、车道列与机动/关系数据组装共享根。
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         entity_counts: EntityCounts,
@@ -294,48 +322,57 @@ impl SharedTrafficNetwork {
         }
     }
 
+    /// 全部实体种类的基数表。
     #[must_use]
     pub const fn entity_counts(&self) -> &EntityCounts {
         &self.entity_counts
     }
 
+    /// LaneEdge 总数。
     #[must_use]
     pub fn lane_edge_count(&self) -> u32 {
         self.entity_counts.count(EntityKind::LaneEdge)
     }
 
+    /// 各 LaneEdge 的长度列（整数毫米）。
     #[must_use]
     pub fn lane_lengths_millimetres(&self) -> &[u32] {
         &self.lane_lengths_millimetres
     }
 
+    /// 各 LaneEdge 的速度上限列（整数毫米/秒）。
     #[must_use]
     pub fn lane_speed_limits_millimetres_per_second(&self) -> &[u32] {
         &self.lane_speed_limits_millimetres_per_second
     }
 
+    /// 一条 LaneEdge 的全部后继 LaneEdge。
     #[must_use]
     pub fn successors(&self, lane_edge: LaneEdgeOrdinal) -> Option<&[LaneEdgeOrdinal]> {
         let range = *self.successor_ranges.get(lane_edge.index())?;
         Some(range.slice(&self.successors))
     }
 
+    /// 一条 LaneEdge 的全部前驱 LaneEdge。
     #[must_use]
     pub fn predecessors(&self, lane_edge: LaneEdgeOrdinal) -> Option<&[LaneEdgeOrdinal]> {
         let range = *self.predecessor_ranges.get(lane_edge.index())?;
         Some(range.slice(&self.predecessors))
     }
 
+    /// 路口机动路径与 transition candidate 的共享数据。
     #[must_use]
     pub const fn maneuvers(&self) -> &SharedManeuverNetwork {
         &self.maneuvers
     }
 
+    /// 共享关系闭包。
     #[must_use]
     pub const fn relations(&self) -> &crate::SharedRelationClosure {
         &self.relations
     }
 
+    /// 本共享根保留的逻辑字节数（含机动与关系数据）。
     #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         logical_bytes::<u32>(self.lane_lengths_millimetres.len())
@@ -355,6 +392,7 @@ pub struct PartitionPlanningHints {
 }
 
 impl PartitionPlanningHints {
+    /// 从 `SharedTrafficNetwork` 确定性派生边界权重，可经取消回调中断。
     pub(crate) fn from_traffic(
         traffic: &SharedTrafficNetwork,
         mut poll_cancelled: impl FnMut(u32) -> Result<(), BuildError>,
@@ -387,17 +425,20 @@ impl PartitionPlanningHints {
         })
     }
 
+    /// 各 LaneEdge 的边界权重（前驱与后继度数之和）。
     #[must_use]
     pub fn edge_boundary_weights(&self) -> &[u32] {
         &self.edge_boundary_weights
     }
 
+    /// 本提示保留的逻辑字节数。
     #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         logical_bytes::<u32>(self.edge_boundary_weights.len())
     }
 }
 
+/// 计算 `len` 个 `T` 元素占用的逻辑字节数。
 pub(crate) fn logical_bytes<T>(len: usize) -> u64 {
     let bytes = len
         .checked_mul(size_of::<T>())

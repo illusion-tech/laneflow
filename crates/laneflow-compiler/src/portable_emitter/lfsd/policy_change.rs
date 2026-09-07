@@ -20,15 +20,18 @@ impl Member<'_> {
     }
 }
 
+/// LFSD 构建暂存区的字节计量器，按编译资源上限记账。
 pub(in crate::portable_emitter) struct Scratch {
     used: u64,
     limit: u64,
 }
 
 impl Scratch {
+    /// 创建用量为零、上限为 `limit` 的暂存计量器。
     pub(in crate::portable_emitter) const fn new(limit: u64) -> Self {
         Self { used: 0, limit }
     }
+    /// 计入 `bytes` 字节暂存用量；超过上限时返回 `CompileLimitExceeded` 错误。
     pub(in crate::portable_emitter) fn charge(
         &mut self,
         bytes: u64,
@@ -47,10 +50,12 @@ impl Scratch {
         self.used = actual;
         Ok(())
     }
+    /// 释放 `bytes` 字节暂存用量。
     pub(in crate::portable_emitter) fn release(&mut self, bytes: u64) {
         self.used -= bytes;
     }
 
+    /// 返回当前已计入的暂存字节用量。
     #[cfg(test)]
     pub(in crate::portable_emitter) const fn used(&self) -> u64 {
         self.used
@@ -91,6 +96,9 @@ fn members<'a>(
     Ok(members)
 }
 
+/// 在暂存预算内创建预留 `count` 个元素容量的空 `Vec`。
+///
+/// 先按元素大小折算字节并记账，再执行精确预留；分配失败返回 `AllocationFailure`。
 pub(in crate::portable_emitter) fn reserved<T>(
     count: usize,
     scratch: &mut Scratch,
@@ -106,6 +114,10 @@ pub(in crate::portable_emitter) fn reserved<T>(
     Ok(values)
 }
 
+/// 生成两版制品之间的路权策略局部成员变更行（LFSD 第 7 节）。
+///
+/// 按策略稳定标识、成员种类与原始 key 配对成员并投影完整载荷；`base` 为 `None`
+/// 时全部成员按新增输出。
 pub(super) fn policy_changes(
     base: Option<&ArtifactIndex<'_>>,
     target: &ArtifactIndex<'_>,

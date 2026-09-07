@@ -42,6 +42,7 @@ impl ObservationStateSequence {
         self.0
     }
 
+    /// checked 递增到下一观测状态序号；`u64` 耗尽时返回 `None`。
     pub(crate) const fn checked_next(self) -> Option<Self> {
         match self.0.checked_add(1) {
             Some(value) => Some(Self(value)),
@@ -49,6 +50,7 @@ impl ObservationStateSequence {
         }
     }
 
+    /// 测试专用：从原始 `u64` 直接构造状态序号。
     #[cfg(test)]
     pub(crate) const fn from_raw_for_test(value: u64) -> Self {
         Self(value)

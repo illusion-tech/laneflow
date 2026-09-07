@@ -465,6 +465,8 @@ fn expected_owner_local_source_keys(
     keys
 }
 
+/// 从受检来源映射输入、发射 provenance、来源集合摘要与已关闭的 LFCA 候选构造 LFSM
+/// 源映射封套的拥有型 object 投影。
 pub(super) fn build_lfsm(
     output: &CompilationOutput,
     provenance: &PortableEmissionProvenance,

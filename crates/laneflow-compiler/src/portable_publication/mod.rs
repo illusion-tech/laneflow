@@ -58,21 +58,25 @@ impl PortablePublicationProvenance {
         }
     }
 
+    /// 返回发布者种类。
     #[must_use]
     pub const fn publisher_kind(&self) -> PortablePublisherKind {
         self.publisher_kind
     }
 
+    /// 返回进入 LFCP v2 exact bytes 的发布方 build ID。
     #[must_use]
     pub fn publisher_build_id(&self) -> &str {
         &self.publisher_build_id
     }
 
+    /// 返回可选的受控构建 provenance 文本。
     #[must_use]
     pub fn controlled_build_provenance(&self) -> Option<&str> {
         self.controlled_build_provenance.as_deref()
     }
 
+    /// 返回可选的受控时间戳文本。
     #[must_use]
     pub fn controlled_timestamp(&self) -> Option<&str> {
         self.controlled_timestamp.as_deref()

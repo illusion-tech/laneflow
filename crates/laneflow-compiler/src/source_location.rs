@@ -124,6 +124,7 @@ impl RoadEditingDocumentIdentity {
         }
     }
 
+    /// 测试辅助：返回受检模块命名空间的共享引用；输入级身份为 `None`。
     #[cfg(test)]
     pub(crate) fn module_namespace_arc(&self) -> Option<Arc<str>> {
         match self {
@@ -132,12 +133,14 @@ impl RoadEditingDocumentIdentity {
         }
     }
 
+    /// 构造输入级文档身份（仅携带调用方提供的预期文档键）。
     pub(crate) fn input(expected_source_document_key: Arc<str>) -> Self {
         Self::Input(RoadEditingInputDocumentIdentity {
             expected_source_document_key,
         })
     }
 
+    /// 构造已验证文档身份（模块命名空间与文档键均已受检）。
     pub(crate) fn verified(module_namespace: Arc<str>, source_document_key: Arc<str>) -> Self {
         Self::Verified(RoadEditingVerifiedDocumentIdentity {
             module_namespace,
@@ -366,6 +369,7 @@ impl RoadEditingSourceAddress {
         context.resolve_string(self.local_key)
     }
 
+    /// 构造完整来源地址；owner 链按父先子后顺序内联保存。
     #[allow(
         dead_code,
         reason = "consumed by the staged road-editing location-context builder"
@@ -413,6 +417,7 @@ impl RoadEditingPropertyPath {
         &self.steps
     }
 
+    /// 构造闭合叶属性路径；深度必须为一至四步。
     #[allow(
         dead_code,
         reason = "consumed by the staged road-editing location-context builder"
@@ -463,6 +468,7 @@ impl RoadEditingByteRange {
         self.length
     }
 
+    /// 构造已证明完全位于输入 buffer 内的字节范围；越界时返回 `None`。
     #[allow(
         dead_code,
         reason = "consumed by the staged verifier trace diagnostic integration"
@@ -607,6 +613,7 @@ impl RoadEditingLocationContext {
             .saturating_add(path_step_bytes)
     }
 
+    /// 返回已驻留字符串的 ordinal；调用前必须由 location factory 完成驻留。
     pub(crate) fn string_ordinal_for(&self, value: &str) -> RoadEditingStringOrdinal {
         let index = self
             .strings
@@ -615,6 +622,7 @@ impl RoadEditingLocationContext {
         self.string_ordinal(index)
     }
 
+    /// 返回已冻结属性路径的 ordinal；调用前必须完成冻结。
     pub(crate) fn property_path_ordinal_for(
         &self,
         value: &RoadEditingPropertyPath,
@@ -626,6 +634,7 @@ impl RoadEditingLocationContext {
         self.property_path_ordinal(index)
     }
 
+    /// 返回已驻留画布选择键的 ordinal；调用前必须完成驻留。
     pub(crate) fn canvas_selection_ordinal_for(
         &self,
         value: &str,
@@ -637,6 +646,7 @@ impl RoadEditingLocationContext {
         self.canvas_selection_ordinal(index)
     }
 
+    /// 由已排序的字符串、属性路径与画布选择键表构造共享 context。
     pub(crate) fn new(
         strings: Box<[Arc<str>]>,
         property_paths: Box<[RoadEditingPropertyPath]>,
@@ -649,6 +659,7 @@ impl RoadEditingLocationContext {
         }
     }
 
+    /// 把字符串表下标转换为 ordinal；越界时 panic。
     pub(crate) fn string_ordinal(&self, index: usize) -> RoadEditingStringOrdinal {
         assert!(
             index < self.strings.len(),
@@ -657,6 +668,7 @@ impl RoadEditingLocationContext {
         RoadEditingStringOrdinal(u32::try_from(index).expect("compile limits bound ordinals"))
     }
 
+    /// 把属性路径表下标转换为 ordinal；越界时 panic。
     pub(crate) fn property_path_ordinal(&self, index: usize) -> RoadEditingPropertyPathOrdinal {
         assert!(
             index < self.property_paths.len(),
@@ -665,6 +677,7 @@ impl RoadEditingLocationContext {
         RoadEditingPropertyPathOrdinal(u32::try_from(index).expect("compile limits bound ordinals"))
     }
 
+    /// 把画布选择键表下标转换为 ordinal；越界时 panic。
     pub(crate) fn canvas_selection_ordinal(
         &self,
         index: usize,
@@ -729,6 +742,7 @@ impl RoadEditingSourceLocation {
         self.byte_range
     }
 
+    /// 组装一条道路编辑来源位置；ordinal 必须由同一个冻结 context 解析。
     pub(crate) fn new(
         context: Arc<RoadEditingLocationContext>,
         document_identity: RoadEditingDocumentIdentity,

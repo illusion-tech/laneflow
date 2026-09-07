@@ -17,6 +17,7 @@ mod location;
 mod lowering;
 mod model;
 mod preflight;
+/// 受检 RoadEditingSource 的原子 reader 与 admission 入口。
 pub(crate) mod reader;
 mod rules;
 mod writer;

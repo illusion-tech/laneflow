@@ -7,6 +7,7 @@ use crate::{
 };
 use laneflow_static_contract::{EntityKind, policy_local_value_schema};
 
+/// 按 RowV1 线格式逐字段遍历一行，向回调提供字段标签与值字节。
 pub(crate) fn visit_fields<'a>(
     row: &'a [u8],
     mut visit: impl FnMut(u16, &'a [u8]) -> Result<(), FormatError>,
@@ -28,6 +29,7 @@ pub(crate) fn visit_fields<'a>(
     Ok(())
 }
 
+/// 预检 LFSD 策略变更行的 Bytes 成员值，并把完整策略成员计入同一 chunk 预算。
 pub(crate) fn preflight_change_values(
     row: &[u8],
     limits: FormatLimits,
@@ -45,6 +47,7 @@ pub(crate) fn preflight_change_values(
     })
 }
 
+/// 按成员 kind 对应的策略局部 RowV1 schema 预检单个成员值，并核对稳定引用向量。
 pub(crate) fn preflight_member_value(
     kind: u8,
     bytes: &[u8],

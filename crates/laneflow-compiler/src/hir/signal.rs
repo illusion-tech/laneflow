@@ -21,6 +21,7 @@ use super::{
     declaration_header, derive_identity, resolve_reference,
 };
 
+/// 机动门的信号层绑定：`Group` 绑定到已解析信号组，`None` 表示无信号约束。
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum HirSignalControl {
     Group {
@@ -89,6 +90,7 @@ pub(crate) struct HirSignalPhaseState {
     pub(crate) source_location: ResolvedSourceLocation,
 }
 
+/// 信号领域 HIR 部件：信号组、信号控制器、相位、相位状态及门绑定关系表。
 #[derive(Default)]
 pub(crate) struct SignalHir {
     pub(crate) signal_groups: Box<[HirSignalGroup]>,
@@ -99,6 +101,7 @@ pub(crate) struct SignalHir {
     pub(crate) signal_group_maneuver_gates: Box<[HirSignalGroupManeuverGate]>,
 }
 
+/// 构建信号领域 HIR：登记信号组、控制器与相位，并回写机动门的信号绑定。
 #[allow(clippy::too_many_lines)]
 pub(crate) fn build_signal_hir(
     unit: &CompilationUnit,

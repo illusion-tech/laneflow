@@ -15,6 +15,7 @@ pub struct PolicyRuleAttribution<'a> {
     pub key: &'a str,
 }
 
+/// 单份路权策略集的内部记录；区间字段指向共享根的连续 payload。
 pub(crate) struct PolicyRecord {
     pub(crate) id: RightOfWayPolicySetId,
     pub(crate) jurisdiction: Box<str>,
@@ -25,6 +26,7 @@ pub(crate) struct PolicyRecord {
     pub(crate) gaps: RangeU32,
 }
 
+/// 单条策略成员规则的内部记录。
 pub(crate) struct RuleRecord {
     pub(crate) policy: RightOfWayPolicySetOrdinal,
     pub(crate) kind: PolicyLocalMemberKind,
@@ -40,14 +42,17 @@ pub struct PolicyEvidence {
 }
 
 impl PolicyEvidence {
+    /// 依据的标识键。
     #[must_use]
     pub fn key(&self) -> &str {
         &self.key
     }
+    /// 依据在来源中的定位值。
     #[must_use]
     pub fn locator(&self) -> &str {
         &self.locator
     }
+    /// 依据的可选可读描述。
     #[must_use]
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
@@ -64,28 +69,34 @@ pub struct PolicyGapProfile {
 }
 
 impl PolicyGapProfile {
+    /// 间隙参数的标识键。
     #[must_use]
     pub fn key(&self) -> &str {
         &self.key
     }
+    /// 间隙参数的版本标识。
     #[must_use]
     pub fn parameter_version(&self) -> &str {
         &self.parameter_version
     }
+    /// 最小领先间隙（毫秒）。
     #[must_use]
     pub const fn minimum_lead_ms(&self) -> u64 {
         self.minimum_lead_ms
     }
+    /// 最小滞后间隙（毫秒）。
     #[must_use]
     pub const fn minimum_lag_ms(&self) -> u64 {
         self.minimum_lag_ms
     }
+    /// 清空缓冲（毫秒）。
     #[must_use]
     pub const fn clearance_ms(&self) -> u64 {
         self.clearance_ms
     }
 }
 
+/// 规则 owner 到其连续 cell 区间的内部映射记录。
 #[derive(Clone, Copy)]
 pub(crate) struct PolicyOwner {
     pub(crate) owner: u32,
@@ -102,14 +113,17 @@ pub struct ResolvedGatePolicy {
 }
 
 impl ResolvedGatePolicy {
+    /// 规则实际适用的参与者类别。
     #[must_use]
     pub const fn class(self) -> ParticipantClassOrdinal {
         self.class
     }
+    /// 门规则的合规解释。
     #[must_use]
     pub const fn interpretation(self) -> GateInterpretation {
         self.interpretation
     }
+    /// 门规则的禁令语义。
     #[must_use]
     pub const fn prohibition(self) -> GateProhibition {
         self.prohibition
@@ -127,10 +141,12 @@ pub struct ResolvedStreamPolicy {
 }
 
 impl ResolvedStreamPolicy {
+    /// 规则实际适用的参与者类别。
     #[must_use]
     pub const fn class(self) -> ParticipantClassOrdinal {
         self.class
     }
+    /// 该流的法规优先级。
     #[must_use]
     pub const fn priority(self) -> i32 {
         self.priority
@@ -149,16 +165,19 @@ pub struct YieldTargetCell {
     pub(crate) passage_local_index: u32,
 }
 impl YieldTargetCell {
+    /// 让行目标所属的参与者流。
     #[must_use]
     pub const fn stream(self) -> ParticipantStreamOrdinal {
         self.stream
     }
+    /// 让行目标通行段在其所有者流内的局部下标。
     #[must_use]
     pub const fn passage_local_index(self) -> u32 {
         self.passage_local_index
     }
 }
 
+/// 冲突区到其让行目标区间的内部记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct TargetRange {
     pub(crate) zone: ConflictZoneOrdinal,
@@ -188,6 +207,7 @@ pub struct PolicyView<'a> {
 }
 
 impl SharedPolicyNetwork {
+    /// 构造不含任何策略的空共享根。
     pub(crate) fn empty() -> Self {
         Self {
             policies: Box::new([]),
@@ -204,6 +224,7 @@ impl SharedPolicyNetwork {
         }
     }
 
+    /// 按 ordinal 借用单份策略的视图。
     #[must_use]
     pub fn policy(&self, policy: RightOfWayPolicySetOrdinal) -> Option<PolicyView<'_>> {
         Some(PolicyView {
@@ -212,6 +233,7 @@ impl SharedPolicyNetwork {
         })
     }
 
+    /// 本共享根保留的逻辑字节数（含字符串冷数据）。
     #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         fn bytes<T>(v: &[T]) -> u64 {
@@ -251,27 +273,33 @@ impl SharedPolicyNetwork {
 }
 
 impl<'a> PolicyView<'a> {
+    /// 该路权策略集的稳定身份。
     #[must_use]
     pub const fn id(self) -> RightOfWayPolicySetId {
         self.record.id
     }
+    /// 法规身份的法域。
     #[must_use]
     pub fn jurisdiction(self) -> &'a str {
         &self.record.jurisdiction
     }
+    /// 法规身份的法规版本。
     #[must_use]
     pub fn regulation_version(self) -> &'a str {
         &self.record.version
     }
+    /// 法规身份的可选来源。
     #[must_use]
     pub fn source(self) -> Option<&'a str> {
         self.record.source.as_deref()
     }
+    /// 该策略集局部的间隙接受参数表。
     #[must_use]
     pub fn gap_profiles(self) -> &'a [PolicyGapProfile] {
         self.record.gaps.slice(&self.network.gaps)
     }
 
+    /// 指定机动门在各参与者类别下解析出的门规则单元。
     #[must_use]
     pub fn gate_classes(self, gate: ManeuverGateOrdinal) -> &'a [ResolvedGatePolicy] {
         owner_cells(
@@ -280,6 +308,7 @@ impl<'a> PolicyView<'a> {
             &self.network.gates,
         )
     }
+    /// 指定参与者流在各参与者类别下解析出的流规则。
     #[must_use]
     pub fn stream_classes(self, stream: ParticipantStreamOrdinal) -> &'a [ResolvedStreamPolicy] {
         owner_cells(
@@ -288,6 +317,7 @@ impl<'a> PolicyView<'a> {
             &self.network.streams,
         )
     }
+    /// 按机动门与参与者类别查询唯一解析的门规则单元。
     #[must_use]
     pub fn gate(
         self,
@@ -300,6 +330,7 @@ impl<'a> PolicyView<'a> {
             .ok()
             .map(|i| &cells[i])
     }
+    /// 按参与者流与参与者类别查询唯一解析的流规则。
     #[must_use]
     pub fn stream(
         self,
@@ -320,6 +351,7 @@ impl<'a> PolicyView<'a> {
             key: &r.key,
         }
     }
+    /// 门规则命中的可追溯规则身份。
     #[must_use]
     pub fn gate_attribution(
         self,
@@ -328,6 +360,7 @@ impl<'a> PolicyView<'a> {
     ) -> Option<PolicyRuleAttribution<'a>> {
         Some(self.attribution(self.gate(gate, class)?.rule))
     }
+    /// 流规则命中的可追溯规则身份。
     #[must_use]
     pub fn stream_attribution(
         self,
@@ -351,6 +384,7 @@ impl<'a> PolicyView<'a> {
             .get(passage_local_index as usize)?;
         Some((range.zone, range.targets.slice(&self.network.targets)))
     }
+    /// 门规则关联的依据迭代器。
     pub fn gate_evidence(
         self,
         gate: ManeuverGateOrdinal,
@@ -359,6 +393,7 @@ impl<'a> PolicyView<'a> {
         let rule = self.gate(gate, class)?.rule;
         Some(self.rule_evidence(rule))
     }
+    /// 流规则关联的依据迭代器。
     pub fn stream_evidence(
         self,
         stream: ParticipantStreamOrdinal,

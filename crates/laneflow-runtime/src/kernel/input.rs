@@ -17,6 +17,7 @@ impl RouteRegisterInput {
         }
     }
 
+    /// 路线的共享根边序号序列。
     #[must_use]
     pub fn edges(&self) -> &[LaneEdgeOrdinal] {
         &self.edges
@@ -52,26 +53,31 @@ impl VehicleSpawnInput {
         }
     }
 
+    /// 车辆档案（Vehicle Profile）序号。
     #[must_use]
     pub const fn profile(self) -> VehicleProfileOrdinal {
         self.profile
     }
 
+    /// 目标路线句柄。
     #[must_use]
     pub const fn route(self) -> RouteHandle {
         self.route
     }
 
+    /// 起始边在路线边序列中的出现项下标。
     #[must_use]
     pub const fn route_edge_index(self) -> u32 {
         self.route_edge_index
     }
 
+    /// 起始边上的毫米进度。
     #[must_use]
     pub const fn progress_mm(self) -> u32 {
         self.progress_mm
     }
 
+    /// 初始速度（毫米/秒）。
     #[must_use]
     pub const fn initial_speed_mm_s(self) -> u32 {
         self.initial_speed_mm_s

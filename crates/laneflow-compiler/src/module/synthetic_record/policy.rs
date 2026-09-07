@@ -137,11 +137,13 @@ fn write(value: &RightOfWayPolicySetDeclaration, output: &mut impl Sink) {
         output.source(&v.source);
     }
 }
+/// 以计数汇流复用同一遍历，计算路权策略集声明的编码字节长度。
 pub(super) fn length(value: &RightOfWayPolicySetDeclaration) -> u64 {
     let mut count = Count(0);
     write(value, &mut count);
     count.0
 }
+/// 把路权策略集声明按同一遍历编码写入输出字节缓冲。
 pub(super) fn encode(value: &RightOfWayPolicySetDeclaration, output: &mut Vec<u8>) {
     write(value, output);
 }

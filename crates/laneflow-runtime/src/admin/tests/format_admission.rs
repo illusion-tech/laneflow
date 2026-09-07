@@ -45,6 +45,7 @@ fn conflict_world_with_route_config(config: WorldConfig) -> (TrafficWorld, Route
     (world, route)
 }
 
+/// 构造持有一条冲突预约的车辆测试世界。
 pub(crate) fn world_with_conflict_reservation() -> (TrafficWorld, VehicleHandle) {
     world_with_conflict_reservation_config(WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
 }
@@ -71,6 +72,7 @@ fn world_with_conflict_reservation_config(config: WorldConfig) -> (TrafficWorld,
     (world, vehicle)
 }
 
+/// 为指定车辆直接装配一条冲突预约（对齐路线位置并写入权威单元）。
 pub(crate) fn install_conflict_reservation(
     world: &mut TrafficWorld,
     route: RouteHandle,
@@ -196,6 +198,7 @@ pub(crate) fn install_conflict_reservation(
     assert!(world.conflict_state_valid());
 }
 
+/// 构造持有一条冲突准入资格的车辆测试世界。
 pub(crate) fn world_with_conflict_eligibility() -> (TrafficWorld, VehicleHandle) {
     let (mut world, route) = conflict_world_with_route();
     let locator = world

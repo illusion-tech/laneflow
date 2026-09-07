@@ -117,6 +117,7 @@ pub(crate) struct TickWorkspace {
 
 #[cfg(test)]
 impl WorldBindingState {
+    /// 测试用：绑定状态持有的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             revision: _,
@@ -132,6 +133,7 @@ impl WorldBindingState {
 
 #[cfg(test)]
 impl CommittedWorldState {
+    /// 测试用：已提交状态持有的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             conflict,
@@ -178,6 +180,7 @@ impl CommittedWorldState {
 
 #[cfg(test)]
 impl DerivedIndexes {
+    /// 测试用：派生索引持有的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             conflict,
@@ -200,6 +203,7 @@ impl DerivedIndexes {
 
 #[cfg(test)]
 impl TickWorkspace {
+    /// 测试用：步进工作区持有的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             conflict,
@@ -258,11 +262,13 @@ impl TickWorkspace {
     }
 }
 
+/// 测试用：`Vec` 逻辑字节数（capacity × 元素大小）。
 #[cfg(test)]
 pub(crate) fn vec_bytes<T>(values: &Vec<T>) -> u64 {
     (values.capacity() * core::mem::size_of::<T>()) as u64
 }
 
+/// 测试用：切片逻辑字节数。
 #[cfg(test)]
 pub(crate) fn slice_bytes<T>(values: &[T]) -> u64 {
     core::mem::size_of_val(values) as u64
@@ -279,6 +285,7 @@ pub(crate) struct WorldMemoryLedger {
 
 #[cfg(test)]
 impl WorldMemoryLedger {
+    /// 五个分区自有字节合计（不含共享根）。
     pub(crate) fn world_owned_bytes(&self) -> u64 {
         self.partitions.iter().sum()
     }
@@ -286,6 +293,7 @@ impl WorldMemoryLedger {
 
 #[cfg(test)]
 impl crate::TrafficWorld {
+    /// 汇总世界五类私有状态与共享根的存续内存总账。
     pub(crate) fn retained_memory(&self) -> WorldMemoryLedger {
         let Self {
             binding,

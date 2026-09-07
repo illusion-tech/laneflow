@@ -4,6 +4,8 @@ use super::super::lfsd::policy_change::{Scratch, reserved};
 use super::*;
 use crate::PolicySourceTarget;
 
+/// 把受检来源中的策略来源按 target 排序、查重后追加为 LFSM 的稳定来源与所有者局部
+/// 来源投影；target 重复或成员来源不闭合时返回 `PolicySourceMismatch`。
 pub(super) fn append_policy_sources(
     source_map: &crate::ValidatedSourceMapInput,
     documents: &DocumentOrdinals<'_>,

@@ -2,6 +2,7 @@
 use super::work::WorkBudget;
 use super::*;
 
+/// 冲突通行段索引行：定位某参与者流在某冲突区内的一段冲突通行段。
 #[derive(Clone, Copy)]
 pub(super) struct Entry {
     stream: MirParticipantStreamKey,
@@ -9,11 +10,13 @@ pub(super) struct Entry {
     pub passage: u32,
 }
 
+/// 冲突通行段索引：按（参与者流, 冲突区, 通行段）排序，支持区间二分查询。
 pub(super) struct PassageIndex {
     entries: Vec<Entry>,
 }
 
 impl PassageIndex {
+    /// 收集全部冲突通行段并排序构建索引；先校验临时内存与记录数上限。
     pub(super) fn build(unit: &CompilationUnit, mir: &MirUnit) -> Result<Self, DiagnosticBundle> {
         let count = mir.conflict_passages.len() as u64;
         super::validation::budget(
@@ -36,10 +39,12 @@ impl PassageIndex {
         Ok(Self { entries })
     }
 
+    /// 返回索引占用的字节数。
     pub(super) fn bytes(&self) -> u64 {
         (self.entries.capacity() as u64).saturating_mul(size_of::<Entry>() as u64)
     }
 
+    /// 返回指定参与者流在指定冲突区内的通行段条目。
     pub(super) fn in_zone(
         &self,
         stream: MirParticipantStreamKey,
@@ -55,6 +60,7 @@ impl PassageIndex {
             ..self.entries.partition_point(|v| v.stream <= stream)]
     }
 
+    /// 归并扫描判定两个参与者流是否共享任一冲突区；每步比较计入工作预算。
     pub(super) fn shares_zone(
         &self,
         a: MirParticipantStreamKey,

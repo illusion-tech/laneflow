@@ -119,6 +119,7 @@ pub struct CanonicalJunctionInternalEdgeView<'a> {
 }
 
 impl<'a> CanonicalJunctionInternalEdgeView<'a> {
+    /// 由 LIR 记录构造路口内部边借用视图；仅限 `compiler` 模块内部调用。
     pub(in crate::compiler) const fn from_record(record: &'a LirJunctionInternalEdge) -> Self {
         Self { record }
     }

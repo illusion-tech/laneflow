@@ -19,6 +19,7 @@ use crate::{
     ConflictZoneRegionViolation, GeometryDirectionProfile, SpatialAxis, SpatialGeometryViolation,
 };
 
+/// 已冻结的规范折线在共享点/segment 表中的范围与弧长。
 pub(crate) struct FrozenSpatialPolyline {
     pub(crate) point_start: usize,
     pub(crate) point_count: usize,
@@ -27,12 +28,14 @@ pub(crate) struct FrozenSpatialPolyline {
     pub(crate) arc_length_meters: f32,
 }
 
+/// 已冻结的规范点列在共享点表中的范围与弧长。
 pub(crate) struct FrozenCanonicalPolyline {
     pub(crate) point_start: usize,
     pub(crate) point_count: usize,
     pub(crate) arc_length_meters: f32,
 }
 
+/// 已冻结的冲突区环在共享点表中的范围与 Y 向区间。
 pub(crate) struct FrozenConflictZoneRegion {
     pub(crate) point_start: usize,
     pub(crate) point_count: usize,
@@ -40,6 +43,7 @@ pub(crate) struct FrozenConflictZoneRegion {
     pub(crate) max_y: f32,
 }
 
+/// 折线方向连续性检查的结果及诊断证据位型。
 #[derive(Clone, Copy)]
 pub(crate) struct SpatialDirectionCheck {
     pub(crate) accepted: bool,

@@ -94,6 +94,7 @@ pub(crate) struct HirParticipantStream {
     pub(crate) source_span: SourceLocation,
 }
 
+/// 冲突领域 HIR 部件：冲突区、参与者流、穿越记录与冲突区-流关系表。
 #[derive(Default)]
 pub(crate) struct ConflictHir {
     pub(crate) conflict_zones: Box<[HirConflictZone]>,
@@ -102,6 +103,7 @@ pub(crate) struct ConflictHir {
     pub(crate) conflict_zone_streams: Box<[HirConflictZoneStream]>,
 }
 
+/// 构建冲突领域 HIR：登记冲突区与参与者流，闭合穿越路径锚点并派生准入机动门。
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub(crate) fn build_conflict_hir(
     unit: &CompilationUnit,

@@ -31,14 +31,17 @@ pub struct ConflictRouteAnchor {
 }
 
 impl ConflictRouteAnchor {
+    /// 锚点所属的动态路线句柄。
     #[must_use]
     pub const fn route(self) -> RouteHandle {
         self.route
     }
+    /// 路线内的机动路径出现项下标。
     #[must_use]
     pub const fn maneuver_occurrence_index(self) -> u32 {
         self.maneuver_occurrence_index
     }
+    /// 决定发生的路线 hop（准入 Gate 所在边下标）。
     #[must_use]
     pub const fn hop(self) -> u32 {
         self.hop
@@ -79,28 +82,34 @@ pub struct ConflictDecision {
 }
 
 impl ConflictDecision {
+    /// 决定针对的车辆句柄。
     #[must_use]
     pub const fn vehicle(self) -> VehicleHandle {
         self.vehicle
     }
+    /// 车辆在稳定更新顺序中的下标。
     #[must_use]
     pub const fn vehicle_update_sequence(self) -> u32 {
         self.vehicle_update_sequence
     }
+    /// 决定的稳定动态路线锚点。
     #[must_use]
     pub const fn anchor(self) -> ConflictRouteAnchor {
         self.anchor
     }
+    /// 涉及的冲突通行段出现项 locator；无 passage 资源时为 `None`。
     #[must_use]
     pub const fn passage(self) -> Option<ConflictPassageOccurrenceLocator> {
         self.passage
     }
+    /// 本拍决定结果（授予、未要求或拒绝归因）。
     #[must_use]
     pub const fn outcome(self) -> ConflictDecisionOutcome {
         self.outcome
     }
 }
 
+/// 等待组合仲裁的单车 Conflict 候选及其工作区切片。
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ConflictCandidate {
     pub(crate) vehicle: VehicleHandle,
@@ -199,6 +208,7 @@ impl ConflictSchedule {
         Some(item.index)
     }
 
+    /// 测试专用：调度暂存按容量计的存续逻辑字节数。
     #[cfg(test)]
     pub(crate) fn retained_logical_bytes(&self) -> usize {
         let Self {
@@ -212,6 +222,7 @@ impl ConflictSchedule {
     }
 }
 
+/// 已通过组合仲裁、等待车辆位置验证后提交的 Conflict grant。
 pub(crate) struct PreparedConflictGrant {
     pub(crate) vehicle: VehicleHandle,
     pub(crate) gate_hop: u32,
@@ -219,6 +230,7 @@ pub(crate) struct PreparedConflictGrant {
     pub(crate) grant: ConflictGrant,
 }
 
+/// 单车本拍的 Conflict 运动决定：Gate hop、结果与 grant 下标。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ConflictMotionPlan {
     pub(crate) gate_hop: u32,
@@ -226,6 +238,7 @@ pub(crate) struct ConflictMotionPlan {
     pub(crate) grant_index: Option<std::num::NonZeroU32>,
 }
 
+/// 单个冲突通行段出现项的进入/清空转移记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ConflictPassageTransition {
     pub(crate) vehicle: VehicleHandle,
@@ -235,6 +248,7 @@ pub(crate) struct ConflictPassageTransition {
     pub(crate) clear: bool,
 }
 
+/// 以 `try_reserve` 扩容暂存向量；失败映射为 `StepError::ConflictScratchAllocFailed`。
 pub(crate) fn reserve<T>(values: &mut Vec<T>, additional: usize) -> Result<(), StepError> {
     #[cfg(test)]
     if additional > values.capacity() - values.len() {
@@ -305,6 +319,7 @@ impl TrafficWorld {
         &self.committed.latest_conflict_decisions
     }
 
+    /// 测试专用：执行本拍 Conflict 准备（候选求值与组合仲裁）。
     #[cfg(test)]
     pub(crate) fn prepare_conflict_step(
         &mut self,
@@ -325,6 +340,7 @@ impl TrafficWorld {
         self.step_workspace().acquire_conflict_candidates(tick)
     }
 
+    /// 测试专用：验证并定稿本拍 Conflict 提交计划。
     #[cfg(test)]
     pub(crate) fn finalize_conflict_step(
         &mut self,
@@ -333,6 +349,7 @@ impl TrafficWorld {
         self.step_workspace().finalize_conflict_step(updates)
     }
 
+    /// 测试专用：Conflict 相关 committed 与暂存容量的存续逻辑字节总数。
     #[cfg(test)]
     pub(crate) fn conflict_retained_logical_bytes(&self) -> u64 {
         fn vec_bytes<T>(values: &Vec<T>) -> usize {
@@ -361,6 +378,7 @@ impl TrafficWorld {
 }
 
 impl<'a> crate::kernel::phase::StepReadView<'a> {
+    /// 把路线内的冲突出现项编码为迁移日志的稳定 locator。
     pub(crate) fn conflict_journal_locator(
         self,
         route: RouteHandle,
@@ -384,6 +402,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 }
 
 impl crate::kernel::phase::StepWorkspace<'_> {
+    /// 计算车辆因未授权 Conflict/Waiting 资源而必须停车的最近约束。
     pub(crate) fn conflict_stop_for(
         &self,
         state: VehicleState,
@@ -465,6 +484,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         }))
     }
 
+    /// 执行本拍 Conflict 准备：候选求值后接组合仲裁。
     pub(crate) fn prepare_conflict_step(
         &mut self,
         delta_s: f32,
@@ -474,6 +494,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         self.acquire_conflict_candidates(tick)
     }
 
+    /// 清空暂存、重建求值前沿，并求值全部活动车辆的 Gate 候选。
     pub(crate) fn prepare_conflict_candidates(
         &mut self,
         delta_s: f32,
@@ -532,6 +553,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         Ok(())
     }
 
+    /// 按证明时长为活动车辆重建 approach frontier 所有者表。
     pub(crate) fn rebuild_conflict_frontier(&mut self) -> Result<(), StepError> {
         let Some(horizon_ms) = self.frontier_proof_horizon_ms() else {
             // 没有任何 gap profile 时不存在 lead frontier 查询；静态 Conflict cell
@@ -627,6 +649,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         Ok(())
     }
 
+    /// 求值单车在前视窗内到达的各 Gate，生成候选或记录无资源决定。
     pub(crate) fn evaluate_vehicle_gates(
         &mut self,
         state: VehicleState,
@@ -1051,6 +1074,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         Ok(())
     }
 
+    /// 为候选派生下游物理资源声明，并检查存储边界、前车间隙与停车锚点。
     pub(crate) fn prepare_candidate_downstream(
         &mut self,
         state: VehicleState,
@@ -1163,6 +1187,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         )
     }
 
+    /// 按稳定顺序仲裁候选：授予组合资源并暂存本拍决定。
     pub(crate) fn acquire_conflict_candidates(&mut self, tick: u64) -> Result<(), StepError> {
         self.workspace.conflict_schedule.prepare(
             &self.workspace.conflict_candidates,
@@ -1348,6 +1373,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         Ok(())
     }
 
+    /// 在 mutation boundary 前验证并定稿本拍 Conflict 提交计划。
     pub(crate) fn finalize_conflict_step(
         &mut self,
         updates: &mut [(usize, VehicleState)],
@@ -1504,6 +1530,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         Ok(())
     }
 
+    /// 按车辆新位置暂存冲突通行段的进入/清空转移；返回是否全部清空。
     pub(crate) fn stage_passage_transitions(
         &mut self,
         next: VehicleState,
@@ -1568,6 +1595,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
 }
 
 impl crate::kernel::phase::CommittedStateMut<'_> {
+    /// mutation boundary：提交已验证的 grant 与冲突通行段转移。
     pub(crate) fn commit_conflict_transitions(
         &mut self,
         updates: &[(usize, VehicleState)],
@@ -1663,6 +1691,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         }
     }
 
+    /// 提交本拍 Conflict 资格表与决定批次到已发布状态。
     pub(crate) fn commit_conflict_step(&mut self) {
         self.committed.conflict_eligibility.clear();
         self.committed
@@ -1675,6 +1704,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         );
     }
 
+    /// 把本拍 Conflict 资格、权威与清空记录写入迁移日志。
     pub(crate) fn write_conflict_tick_journal(
         &self,
         journal: &mut MigrationDeltaJournal,
@@ -1770,6 +1800,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         }
     }
 
+    /// 把路线内的冲突出现项编码为迁移日志的稳定 locator。
     pub(crate) fn conflict_journal_locator(
         &self,
         route: RouteHandle,

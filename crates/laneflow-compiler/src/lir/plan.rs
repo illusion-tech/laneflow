@@ -67,6 +67,7 @@ pub(crate) struct LirFreezePlan {
     pub(crate) controlled_live_bytes: u64,
 }
 
+/// 横断面领域各 LIR 表与关系辅表的记录计数。
 pub(crate) struct LirCrossSectionCounts {
     pub(crate) road_corridors: u64,
     pub(crate) corridor_elements: u64,
@@ -79,6 +80,7 @@ pub(crate) struct LirCrossSectionCounts {
     pub(crate) facility_bands: u64,
 }
 
+/// 路口领域各 LIR 表与关系辅表的记录计数。
 pub(crate) struct LirJunctionCounts {
     pub(crate) junctions: u64,
     pub(crate) junction_movements: u64,
@@ -91,6 +93,7 @@ pub(crate) struct LirJunctionCounts {
     pub(crate) junction_internal_edges: u64,
 }
 
+/// 控制领域各 LIR 表与关系辅表的记录计数。
 pub(crate) struct LirControlCounts {
     pub(crate) stop_lines: u64,
     pub(crate) stop_line_maneuver_gates: u64,
@@ -98,6 +101,7 @@ pub(crate) struct LirControlCounts {
     pub(crate) waiting_zones: u64,
 }
 
+/// 信号领域各 LIR 表与关系辅表的记录计数。
 pub(crate) struct LirSignalCounts {
     pub(crate) groups: u64,
     pub(crate) controllers: u64,
@@ -107,6 +111,7 @@ pub(crate) struct LirSignalCounts {
     pub(crate) controlled_gates: u64,
 }
 
+/// 停车领域各 LIR 表与关系辅表的记录计数。
 pub(crate) struct LirParkingCounts {
     pub(crate) areas: u64,
     pub(crate) spaces: u64,
@@ -115,6 +120,7 @@ pub(crate) struct LirParkingCounts {
     pub(crate) virtual_exits: u64,
 }
 
+/// 冲突领域各 LIR 表与关系辅表的记录计数。
 pub(crate) struct LirConflictCounts {
     pub(crate) zones: u64,
     pub(crate) streams: u64,
@@ -123,6 +129,7 @@ pub(crate) struct LirConflictCounts {
     pub(crate) max_zone_streams: u64,
 }
 
+/// 空间几何领域各 LIR 表的记录计数。
 pub(crate) struct LirSpatialCounts {
     pub(crate) canonical_frames: u64,
     pub(crate) lane_edge_geometries: u64,
@@ -133,6 +140,7 @@ pub(crate) struct LirSpatialCounts {
     pub(crate) spatial_segments: u64,
 }
 
+/// 准入领域各 LIR 表与规则类别引用辅表的记录计数。
 pub(crate) struct LirAccessCounts {
     pub(crate) participant_classes: u64,
     pub(crate) vehicle_profiles: u64,
@@ -141,6 +149,7 @@ pub(crate) struct LirAccessCounts {
 }
 
 impl LirFreezePlan {
+    /// 把记录计数换算为可分配容量；计数超出目标平台 `usize` 范围时返回序号溢出诊断。
     pub(crate) fn capacity(
         count: u64,
         limits: &crate::CompileLimits,
@@ -799,6 +808,7 @@ impl LirFreezePlan {
         }
     }
 
+    /// 对照编译资源上限预检 LIR 记录数、阶段暂存字节、输出字节与编译器控制存续字节；任一维度超限即聚合返回资源诊断。
     pub(crate) fn check_limits(
         &self,
         unit: &CompilationUnit,

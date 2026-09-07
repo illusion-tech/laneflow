@@ -3,22 +3,26 @@ use super::*;
 use super::{passages::PassageIndex, work::WorkBudget};
 use crate::arena::TableRange;
 
+/// 让行目标单元：一条让行规则在共享冲突区内指向的目标参与者流及其冲突通行段。
 #[derive(Clone, Copy)]
 pub(super) struct TargetCell {
     pub stream: MirParticipantStreamKey,
     pub passage: u32,
 }
+/// 一条让行规则在某个主体冲突通行段下覆盖的目标单元区间。
 pub(super) struct TargetRange {
     pub rule: u32,
     pub subject_passage: u32,
     pub targets: TableRange<TargetCell>,
 }
+/// 让行目标表：全部规则的目标区间、扁平化的目标单元存储及其字节数。
 pub(super) struct TargetTable {
     pub ranges: Vec<TargetRange>,
     pub cells: Vec<TargetCell>,
     pub bytes: u64,
 }
 
+/// 为每条通行流路权规则的每个主体通行段展开让行目标，按规范身份排序；全程校验上限并计入工作预算。
 pub(super) fn build(
     unit: &CompilationUnit,
     mir: &MirUnit,

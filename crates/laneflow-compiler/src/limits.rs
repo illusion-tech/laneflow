@@ -160,10 +160,12 @@ pub struct CompileLimits {
 }
 
 impl CompileLimits {
+    /// 返回可移植对象字节上限；所选配置档未定义该维度时为 `None`。
     pub(crate) const fn max_portable_object_bytes(&self) -> Option<u64> {
         self.max_portable_object_bytes
     }
 
+    /// 返回可移植 bundle 字节上限；所选配置档未定义该维度时为 `None`。
     pub(crate) const fn max_portable_bundle_bytes(&self) -> Option<u64> {
         self.max_portable_bundle_bytes
     }
@@ -352,6 +354,7 @@ impl CompileLimits {
         }
     }
 
+    /// 测试辅助：覆盖总字符串字节与编译器控制存续字节上限。
     #[cfg(test)]
     pub(crate) fn with_test_string_limits(
         mut self,
@@ -363,6 +366,7 @@ impl CompileLimits {
         self
     }
 
+    /// 测试辅助：设置可移植对象与可移植 bundle 字节上限。
     #[cfg(test)]
     pub(crate) fn with_test_portable_limits(
         mut self,
@@ -374,12 +378,14 @@ impl CompileLimits {
         self
     }
 
+    /// 测试辅助：覆盖单字符串字节上限。
     #[cfg(test)]
     pub(crate) fn with_test_single_string_limit(mut self, single_string_bytes: u32) -> Self {
         self.max_single_string_bytes = single_string_bytes.into();
         self
     }
 
+    /// 测试辅助：覆盖 HIR/MIR 记录数、阶段暂存字节与存续字节上限。
     #[cfg(test)]
     pub(crate) fn with_test_pipeline_limits(
         mut self,
@@ -395,6 +401,7 @@ impl CompileLimits {
         self
     }
 
+    /// 测试辅助：覆盖 LIR 记录数、阶段暂存字节、输出字节与存续字节上限。
     #[cfg(test)]
     pub(crate) fn with_test_lir_limits(
         mut self,
@@ -410,6 +417,7 @@ impl CompileLimits {
         self
     }
 
+    /// 测试辅助：覆盖每模块来源字节与总来源字节上限。
     #[cfg(test)]
     pub(crate) fn with_test_source_byte_limits(mut self, per_module: u32, total: u32) -> Self {
         self.max_source_bytes_per_module = per_module.into();
@@ -417,6 +425,7 @@ impl CompileLimits {
         self
     }
 
+    /// 测试辅助：按维度覆盖单条接入检查上限。
     #[cfg(test)]
     pub(crate) fn with_test_admission_limit(
         mut self,

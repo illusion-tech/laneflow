@@ -102,16 +102,19 @@ where
     M: BoundedReReadableObjectSource,
     D: BoundedReReadableObjectSource,
 {
+    /// 返回 bundle 内 LFCA 的值域受检视图。
     #[must_use]
     pub fn canonical_artifact_view(&self) -> ValueCheckedObjectView<'_> {
         checked_view(&self.canonical_artifact)
     }
 
+    /// 返回 LFCA 精确字节内容的 SHA-256 摘要。
     #[must_use]
     pub const fn canonical_artifact_digest(&self) -> Sha256Digest {
         self.canonical_artifact.digest
     }
 
+    /// 返回 LFCA 的精确字节长度。
     #[must_use]
     pub const fn canonical_artifact_byte_length(&self) -> ExactByteLength {
         self.canonical_artifact.byte_length
@@ -135,41 +138,49 @@ where
         )
     }
 
+    /// 返回 bundle 内 LFSM 的值域受检视图。
     #[must_use]
     pub fn source_map_view(&self) -> ValueCheckedObjectView<'_> {
         checked_view(&self.source_map)
     }
 
+    /// 返回 LFSM 精确字节内容的 SHA-256 摘要。
     #[must_use]
     pub const fn source_map_digest(&self) -> Sha256Digest {
         self.source_map.digest
     }
 
+    /// 返回 LFSM 的精确字节长度。
     #[must_use]
     pub const fn source_map_byte_length(&self) -> ExactByteLength {
         self.source_map.byte_length
     }
 
+    /// 返回 bundle 内 LFSD 的值域受检视图。
     #[must_use]
     pub fn semantic_diff_view(&self) -> ValueCheckedObjectView<'_> {
         checked_view(&self.semantic_diff)
     }
 
+    /// 返回 LFSD 精确字节内容的 SHA-256 摘要。
     #[must_use]
     pub const fn semantic_diff_digest(&self) -> Sha256Digest {
         self.semantic_diff.digest
     }
 
+    /// 返回 LFSD 的精确字节长度。
     #[must_use]
     pub const fn semantic_diff_byte_length(&self) -> ExactByteLength {
         self.semantic_diff.byte_length
     }
 
+    /// 返回重算并闭合一致的路网修订标识。
     #[must_use]
     pub const fn network_revision(&self) -> NetworkRevisionId {
         self.canonical_network_proof.network_revision()
     }
 
+    /// 返回 LFCA provenance 行中登记的 compiler build ID。
     #[must_use]
     pub fn compiler_build_id(&self) -> &str {
         let provenance = singleton_row(self.canonical_artifact_view(), 6)
@@ -178,11 +189,13 @@ where
             .expect("checked immutable LFCA must retain compiler build ID")
     }
 
+    /// 返回来源集合摘要的版本号。
     #[must_use]
     pub const fn source_collection_digest_version(&self) -> u16 {
         self.source_collection_digest_version
     }
 
+    /// 返回与 LFCA provenance 绑定的来源集合摘要。
     #[must_use]
     pub const fn source_collection_digest(&self) -> Sha256Digest {
         self.source_collection_digest

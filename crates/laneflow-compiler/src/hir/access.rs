@@ -92,6 +92,7 @@ pub(crate) struct HirAccessRule {
     pub(crate) source_span: SourceLocation,
 }
 
+/// 准入领域 HIR 部件：参与者类别、车辆配置、准入规则与规则引用的类别成员表。
 #[derive(Default)]
 pub(crate) struct AccessHir {
     pub(crate) participant_classes: Box<[HirParticipantClass]>,
@@ -100,6 +101,7 @@ pub(crate) struct AccessHir {
     pub(crate) access_rule_participant_classes: Box<[HirAccessRuleParticipantClass]>,
 }
 
+/// 准入组合歧义验证用的单条（目标，参与者类别）候选记录。
 #[derive(Clone, Copy)]
 pub(crate) struct AccessCandidate {
     plane: AccessPlane,
@@ -119,6 +121,7 @@ struct FirstAccessRegulation {
     source_span: SourceLocation,
 }
 
+/// 构建准入领域 HIR：登记参与者类别与车辆配置，解析准入规则目标引用并完成组合歧义验证。
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub(crate) fn build_access_hir(
     unit: &CompilationUnit,

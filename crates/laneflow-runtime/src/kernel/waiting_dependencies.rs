@@ -67,6 +67,7 @@ struct Pending {
     cursor: usize,
 }
 
+/// 本 tick 的 Waiting 容量视图、反向依赖阈值与候选图事务工作区。
 #[derive(Default)]
 pub(crate) struct WaitingDependencies {
     graph: WaitingGraph,
@@ -82,6 +83,7 @@ pub(crate) struct WaitingDependencies {
 }
 
 impl WaitingDependencies {
+    /// 中止本次准备并复位全部内容；容量保留复用。
     pub(crate) fn abort(&mut self) {
         self.reset();
     }
@@ -305,6 +307,7 @@ impl WaitingDependencies {
         Ok(())
     }
 
+    /// 暂存一个 Waiting 准入计划的效果；未通过则自动回滚，返回是否可接受。
     pub(crate) fn stage(&mut self, plan: usize) -> Result<bool, StepError> {
         debug_assert!(self.pending.is_none());
         self.changes.clear();
@@ -398,6 +401,7 @@ impl WaitingDependencies {
         Ok(true)
     }
 
+    /// 提交上一次 `stage` 成功的暂存效果。
     pub(crate) fn accept(&mut self) {
         let pending = self.pending.take().expect("prepared Waiting admission");
         let zone = &mut self.zones[self.holds[pending.hold].zone];
@@ -412,12 +416,14 @@ impl WaitingDependencies {
         self.changes.clear();
     }
 
+    /// 回滚上一次 `stage` 的全部暂存效果。
     pub(crate) fn rollback(&mut self) {
         self.graph.rollback();
         self.pending = None;
         self.changes.clear();
     }
 
+    /// 测试用：台账持有的逻辑字节数。
     #[cfg(test)]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
@@ -448,6 +454,7 @@ impl WaitingDependencies {
 }
 
 impl TrafficWorld {
+    /// 在本世界步进工作区上重建等待依赖台账。
     pub(crate) fn prepare_waiting_dependencies(
         &mut self,
         include_candidates: bool,
@@ -458,6 +465,7 @@ impl TrafficWorld {
 }
 
 impl<'a> crate::kernel::phase::StepReadView<'a> {
+    /// 把一辆车在一个等待区出现项上的持有及其反向依赖登记进台账。
     pub(crate) fn add_waiting_dependency_hold(
         self,
         ledger: &mut WaitingDependencies,
@@ -509,6 +517,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 }
 
 impl crate::kernel::phase::StepWorkspace<'_> {
+    /// 复位并重建本拍等待依赖台账；失败时清空为可用空台账。
     pub(crate) fn prepare_waiting_dependencies(
         &mut self,
         include_candidates: bool,
@@ -526,6 +535,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         result
     }
 
+    /// 从已提交 membership 与（可选）本拍候选构建台账内容。
     pub(crate) fn build_waiting_dependencies(
         &self,
         ledger: &mut WaitingDependencies,
@@ -587,6 +597,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         ledger.finish_prepare()
     }
 
+    /// 经只读视图把一辆车的等待区持有与反向依赖登记进台账。
     pub(crate) fn add_waiting_dependency_hold(
         &self,
         ledger: &mut WaitingDependencies,

@@ -640,6 +640,7 @@ pub struct CutoverEventBatch {
 }
 
 impl CutoverEventBatch {
+    /// 构造恰含一条 [`CutoverEvent::RevisionCutoverCommitted`] 事件的成功切换批次。
     pub(crate) fn revision_cutover_committed(
         world_generation: WorldGeneration,
         network_revision: NetworkRevisionId,
@@ -667,6 +668,7 @@ impl CutoverEventBatch {
         self.events.is_empty()
     }
 
+    /// 批次内事件计数（`u64` 轴口径）。
     pub(crate) fn len(&self) -> u64 {
         u64::try_from(self.events.len()).expect("event count fits u64")
     }
@@ -924,6 +926,7 @@ impl TrafficWorld {
     }
 }
 
+/// 切换描述符与同修订同步换根验证的测试模块。
 #[cfg(test)]
 pub(crate) mod tests {
     use laneflow_format::{FormatLimits, check_canonical_network_input};
@@ -1204,6 +1207,7 @@ pub(crate) mod tests {
         assert_eq!(nonzero.world_binding().baseline_command_cursor(), 5);
     }
 
+    /// 切换事务（同修订换根与跨修订切换）的测试模块。
     #[cfg(test)]
     pub(crate) mod transaction_tests {
         use crate::PublishedLfcaReference;
@@ -1246,6 +1250,7 @@ pub(crate) mod tests {
             .expect("shared network revision")
         }
 
+        /// 由规范来源与发布键构造 `CommittedNetworkSource::Published` 测试源。
         pub(crate) fn source_for(
             origin: CanonicalNetworkOrigin,
             key: &str,
@@ -1261,6 +1266,7 @@ pub(crate) mod tests {
             }
         }
 
+        /// 构造带一条已注册路线与一辆已生成车辆的 `TrafficWorld` 测试世界。
         pub(crate) fn world_with_vehicle(
             retain: bool,
         ) -> (TrafficWorld, crate::RouteHandle, crate::VehicleHandle) {

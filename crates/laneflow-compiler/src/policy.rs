@@ -1,8 +1,10 @@
 //! 路权策略阶段的共同诊断与有界计量。
 
 use crate::{CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceLocation};
+/// 路权策略在各编译阶段共用的只读数据模型。
 pub(crate) mod model;
 
+/// 身份文本的确定性比较：先按长度、再按字节序。
 pub(crate) fn compare_identity_text(a: &str, b: &str) -> core::cmp::Ordering {
     (a.len() as u32)
         .to_le_bytes()
@@ -35,6 +37,7 @@ pub enum PolicyViolation {
     ProtectedConflict,
 }
 
+/// 构造单条结构化策略违规诊断。
 pub(crate) fn error(
     key: &str,
     member: Option<&str>,
@@ -49,6 +52,7 @@ pub(crate) fn error(
     ))
 }
 
+/// 核对策略阶段的暂存与存续字节是否超出所选编译上限。
 pub(crate) fn check_budget(
     limits: &CompileLimits,
     scratch: u64,
@@ -68,6 +72,7 @@ pub(crate) fn check_budget(
     Ok(())
 }
 
+/// 校验单个路权策略声明的模块内局部约束：成员唯一、引用齐备、证据绑定完整。
 pub(crate) fn validate_local_declaration(
     policy: &crate::declaration::RightOfWayPolicySetDeclaration,
 ) -> Result<(), DiagnosticBundle> {
@@ -159,6 +164,7 @@ pub(crate) fn validate_local_declaration(
     Ok(())
 }
 
+/// 按模块命名空间与目标地址把有类型引用排成规范顺序。
 pub(crate) fn sort_references<K: laneflow_static_contract::EntityKindMarker>(
     values: &mut [crate::declaration::OwnedEntityReference<K>],
 ) {

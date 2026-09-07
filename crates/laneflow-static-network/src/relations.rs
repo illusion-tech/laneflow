@@ -34,6 +34,7 @@ pub enum FacilityKind {
 }
 
 impl FacilityKind {
+    /// 该设施类型是否承担车道遍历。
     #[must_use]
     pub const fn is_lane_bearing(self) -> bool {
         matches!(
@@ -82,6 +83,7 @@ pub enum BoundedDistance {
 }
 
 impl BoundedDistance {
+    /// 把 `u32` 值累加到本有界距离上。溢出则为 `BeyondFinite`，不上 `u64`。
     #[must_use]
     pub fn add_u32(self, value: u32) -> Self {
         match self {
@@ -134,11 +136,13 @@ pub struct StopLineView<'a> {
 }
 
 impl<'a> StopLineView<'a> {
+    /// 该停止线所在的车道图边。
     #[must_use]
     pub const fn edge(self) -> LaneEdgeOrdinal {
         self.edge
     }
 
+    /// 绑定到该停止线的机动门序列。
     #[must_use]
     pub const fn gates(self) -> &'a [ManeuverGateOrdinal] {
         self.gates
@@ -155,21 +159,25 @@ pub struct ManeuverGateView {
 }
 
 impl ManeuverGateView {
+    /// 该机动门绑定的机动路径。
     #[must_use]
     pub const fn path(self) -> ManeuverPathOrdinal {
         self.path
     }
 
+    /// 该机动门在机动路径内对应的 transition 下标。
     #[must_use]
     pub const fn transition_index(self) -> u32 {
         self.transition_index
     }
 
+    /// 该机动门关联的停止线。
     #[must_use]
     pub const fn stop_line(self) -> StopLineOrdinal {
         self.stop_line
     }
 
+    /// 约束该机动门的信号组；未挂接信号时为 `None`。
     #[must_use]
     pub const fn signal_group(self) -> Option<SignalGroupOrdinal> {
         self.signal_group
@@ -186,21 +194,25 @@ pub struct WaitingZoneView {
 }
 
 impl WaitingZoneView {
+    /// 该等待区绑定的机动路径。
     #[must_use]
     pub const fn path(self) -> ManeuverPathOrdinal {
         self.path
     }
 
+    /// 进入该等待区的机动门。
     #[must_use]
     pub const fn entry_gate(self) -> ManeuverGateOrdinal {
         self.entry_gate
     }
 
+    /// 放行离开该等待区的机动门。
     #[must_use]
     pub const fn release_gate(self) -> ManeuverGateOrdinal {
         self.release_gate
     }
 
+    /// 该等待区的最大同时占用数。
     #[must_use]
     pub const fn max_occupancy(self) -> u32 {
         self.max_occupancy
@@ -217,21 +229,25 @@ pub struct SignalControllerView<'a> {
 }
 
 impl<'a> SignalControllerView<'a> {
+    /// 控制器周期程序的起始偏移（毫秒）。
     #[must_use]
     pub const fn offset_ms(self) -> u64 {
         self.offset_ms
     }
 
+    /// 控制器周期时长（毫秒）。
     #[must_use]
     pub const fn cycle_ms(self) -> u64 {
         self.cycle_ms
     }
 
+    /// 该控制器辖下的信号组序列。
     #[must_use]
     pub const fn groups(self) -> &'a [SignalGroupOrdinal] {
         self.groups
     }
 
+    /// 该控制器按序执行的信号相位序列。
     #[must_use]
     pub const fn phases(self) -> &'a [SignalPhaseOrdinal] {
         self.phases
@@ -249,21 +265,25 @@ pub struct SignalPhaseView<'a> {
 }
 
 impl<'a> SignalPhaseView<'a> {
+    /// 该相位所属的信号控制器。
     #[must_use]
     pub const fn controller(self) -> SignalControllerOrdinal {
         self.controller
     }
 
+    /// 该相位的持续时长（毫秒）。
     #[must_use]
     pub const fn duration_ms(self) -> u64 {
         self.duration_ms
     }
 
+    /// 该相位结束时刻相对周期起点的累计偏移（毫秒）。
     #[must_use]
     pub const fn end_offset_ms(self) -> u64 {
         self.end_offset_ms
     }
 
+    /// 迭代该相位内各信号组及其对应灯态。
     pub fn states(self) -> impl Iterator<Item = (SignalGroupOrdinal, SignalAspect)> + 'a {
         self.groups
             .iter()
@@ -280,11 +300,13 @@ pub struct SignalGroupView<'a> {
 }
 
 impl<'a> SignalGroupView<'a> {
+    /// 该信号组所属的信号控制器。
     #[must_use]
     pub const fn controller(self) -> SignalControllerOrdinal {
         self.controller
     }
 
+    /// 该信号组反向覆盖的机动门序列。
     #[must_use]
     pub const fn gates(self) -> &'a [ManeuverGateOrdinal] {
         self.gates
@@ -306,21 +328,25 @@ pub struct ParkingSpaceView {
 }
 
 impl ParkingSpaceView {
+    /// 该停车位归属的停车设施；独立停车位为 `None`。
     #[must_use]
     pub const fn area(self) -> Option<ParkingFacilityOrdinal> {
         self.area
     }
 
+    /// 停车位入口锚点：入口车道图边及边内进度（毫米）。
     #[must_use]
     pub const fn entry(self) -> (LaneEdgeOrdinal, u32) {
         (self.entry_edge, self.entry_progress_mm)
     }
 
+    /// 停车位出口锚点：出口车道图边及边内进度（毫米）。
     #[must_use]
     pub const fn exit(self) -> (LaneEdgeOrdinal, u32) {
         (self.exit_edge, self.exit_progress_mm)
     }
 
+    /// 停车位几何：横向偏移（毫米）、朝向、长度与宽度（毫米）。
     #[must_use]
     pub const fn geometry(self) -> (i32, f32, u32, u32) {
         (self.lateral_mm, self.heading, self.length_mm, self.width_mm)
@@ -335,11 +361,13 @@ pub struct ParkingLaneAnchor {
 }
 
 impl ParkingLaneAnchor {
+    /// 锚点所在的车道图边。
     #[must_use]
     pub const fn lane_edge(self) -> LaneEdgeOrdinal {
         self.lane_edge
     }
 
+    /// 锚点的边内进度（毫米）。
     #[must_use]
     pub const fn progress_mm(self) -> u32 {
         self.progress_mm
@@ -356,27 +384,32 @@ pub struct ParkingFacilityView<'a> {
 }
 
 impl<'a> ParkingFacilityView<'a> {
+    /// 该设施组织的显式停车位序列。
     #[must_use]
     pub const fn spaces(self) -> &'a [ParkingSpaceOrdinal] {
         self.spaces
     }
 
+    /// 不展开为具体泊位的虚拟停车容量计数。
     #[must_use]
     pub const fn virtual_capacity(self) -> u32 {
         self.virtual_capacity
     }
 
+    /// 总容量：显式停车位数加虚拟停车容量。
     #[must_use]
     pub fn total_capacity(self) -> u64 {
         u64::try_from(self.spaces.len()).expect("validated LFCA count fits u64")
             + u64::from(self.virtual_capacity)
     }
 
+    /// 虚拟停车容量的入口锚点序列。
     #[must_use]
     pub const fn virtual_entries(self) -> &'a [ParkingLaneAnchor] {
         self.virtual_entries
     }
 
+    /// 虚拟停车容量的出口锚点序列。
     #[must_use]
     pub const fn virtual_exits(self) -> &'a [ParkingLaneAnchor] {
         self.virtual_exits
@@ -393,16 +426,19 @@ pub struct ParticipantClassView {
 }
 
 impl ParticipantClassView {
+    /// 父参与者类别；根类别为 `None`。
     #[must_use]
     pub const fn parent(self) -> Option<ParticipantClassOrdinal> {
         self.parent
     }
 
+    /// 该类别在继承树中的深度。
     #[must_use]
     pub const fn depth(self) -> u32 {
         self.depth
     }
 
+    /// 该类别的子树区间编码 `(enter, exit)`。
     #[must_use]
     pub const fn subtree_range(self) -> (u32, u32) {
         (self.subtree_enter, self.subtree_exit)
@@ -419,21 +455,25 @@ pub struct AccessRuleView<'a> {
 }
 
 impl<'a> AccessRuleView<'a> {
+    /// 该准入规则作用的有类型目标。
     #[must_use]
     pub const fn target(self) -> AccessTarget {
         self.target
     }
 
+    /// 该规则施加的准入效果。
     #[must_use]
     pub const fn effect(self) -> AccessEffect {
         self.effect
     }
 
+    /// 该规则适用的参与者类别序列。
     #[must_use]
     pub const fn classes(self) -> &'a [ParticipantClassOrdinal] {
         self.classes
     }
 
+    /// 该规则的裁决优先级。
     #[must_use]
     pub const fn priority(self) -> i32 {
         self.priority
@@ -454,41 +494,49 @@ pub struct VehicleProfileView {
 }
 
 impl VehicleProfileView {
+    /// 该车辆配置归属的参与者类别。
     #[must_use]
     pub const fn class(self) -> ParticipantClassOrdinal {
         self.class
     }
 
+    /// 车长（毫米）。
     #[must_use]
     pub const fn length_mm(self) -> u32 {
         self.length_mm
     }
 
+    /// 期望速度（毫米/秒）。
     #[must_use]
     pub const fn desired_speed_mm_s(self) -> u32 {
         self.desired_speed_mm_s
     }
 
+    /// 最小跟车间距（毫米）。
     #[must_use]
     pub const fn min_gap_mm(self) -> u32 {
         self.min_gap_mm
     }
 
+    /// 车头时距（秒）。
     #[must_use]
     pub const fn time_headway(self) -> f32 {
         self.time_headway
     }
 
+    /// 最大加速度。
     #[must_use]
     pub const fn max_accel(self) -> f32 {
         self.max_accel
     }
 
+    /// 舒适减速度。
     #[must_use]
     pub const fn comfort_decel(self) -> f32 {
         self.comfort_decel
     }
 
+    /// 紧急减速度。
     #[must_use]
     pub const fn emergency_decel(self) -> f32 {
         self.emergency_decel
@@ -635,12 +683,14 @@ pub struct SharedRelationClosure {
 }
 
 impl SharedRelationClosure {
+    /// 按 intern 序号取回冷 intern 表中的自定义 token。
     pub(crate) fn intern_token(&self, intern: u32) -> Option<&str> {
         self.intern
             .get(usize::try_from(intern).ok()?)
             .map(|token| token.as_ref())
     }
 
+    /// 取回该设施类型对应的 LFCA token 文本。
     #[must_use]
     pub fn facility_kind_token(&self, kind: FacilityKind) -> Option<&str> {
         match kind {
@@ -655,6 +705,7 @@ impl SharedRelationClosure {
         }
     }
 
+    /// 查询道路走廊横断面的有类型成员序列。
     #[must_use]
     pub fn corridor_elements(&self, corridor: RoadCorridorOrdinal) -> Option<&[CorridorElement]> {
         Some(
@@ -664,6 +715,7 @@ impl SharedRelationClosure {
         )
     }
 
+    /// 查询道路走廊的参考道路区段。
     #[must_use]
     pub fn corridor_reference_section(
         &self,
@@ -674,16 +726,19 @@ impl SharedRelationClosure {
             .copied()
     }
 
+    /// 查询道路区段的设施类型。
     #[must_use]
     pub fn section_kind(&self, section: RoadSectionOrdinal) -> Option<FacilityKind> {
         self.section_kind.get(section.index()).copied()
     }
 
+    /// 查询道路区段所属的道路走廊。
     #[must_use]
     pub fn section_corridor(&self, section: RoadSectionOrdinal) -> Option<RoadCorridorOrdinal> {
         self.section_corridor.get(section.index()).copied()
     }
 
+    /// 查询道路区段包含的编制车道序列。
     #[must_use]
     pub fn section_lanes(&self, section: RoadSectionOrdinal) -> Option<&[AuthoringLaneOrdinal]> {
         Some(
@@ -693,6 +748,7 @@ impl SharedRelationClosure {
         )
     }
 
+    /// 查询编制车道展开得到的车道图边链。
     #[must_use]
     pub fn authoring_edge_chain(&self, lane: AuthoringLaneOrdinal) -> Option<&[LaneEdgeOrdinal]> {
         Some(
@@ -702,31 +758,37 @@ impl SharedRelationClosure {
         )
     }
 
+    /// 查询编制车道所属的道路区段。
     #[must_use]
     pub fn authoring_section(&self, lane: AuthoringLaneOrdinal) -> Option<RoadSectionOrdinal> {
         self.authoring_section.get(lane.index()).copied()
     }
 
+    /// 查询编制车道所属的车道组；未分组时为 `None`。
     #[must_use]
     pub fn authoring_lane_group(&self, lane: AuthoringLaneOrdinal) -> Option<LaneGroupOrdinal> {
         self.authoring_group.get(lane.index())
     }
 
+    /// 查询车道图边来源的编制车道；无编制来源时为 `None`。
     #[must_use]
     pub fn lane_edge_authoring_lane(&self, edge: LaneEdgeOrdinal) -> Option<AuthoringLaneOrdinal> {
         self.edge_authoring_lane.get(edge.index())
     }
 
+    /// 查询车道图边归属的路口；不属于路口内部时为 `None`。
     #[must_use]
     pub fn lane_edge_junction(&self, edge: LaneEdgeOrdinal) -> Option<JunctionOrdinal> {
         self.edge_junction.get(edge.index())
     }
 
+    /// 查询绑定到该车道图边的停止线；无停止线时为 `None`。
     #[must_use]
     pub fn stop_line_for_edge(&self, edge: LaneEdgeOrdinal) -> Option<StopLineOrdinal> {
         self.edge_stop_line.get(edge.index())
     }
 
+    /// 查询路口组织的通行流向序列。
     #[must_use]
     pub fn junction_movements(&self, junction: JunctionOrdinal) -> Option<&[MovementOrdinal]> {
         Some(
@@ -736,6 +798,7 @@ impl SharedRelationClosure {
         )
     }
 
+    /// 查询通行流向包含的机动路径序列。
     #[must_use]
     pub fn movement_paths(&self, movement: MovementOrdinal) -> Option<&[ManeuverPathOrdinal]> {
         Some(
@@ -745,11 +808,13 @@ impl SharedRelationClosure {
         )
     }
 
+    /// 查询通行流向所属的路口。
     #[must_use]
     pub fn movement_junction(&self, movement: MovementOrdinal) -> Option<JunctionOrdinal> {
         self.movement_junction.get(movement.index()).copied()
     }
 
+    /// 查询停止线视图：所在车道图边与绑定的机动门。
     #[must_use]
     pub fn stop_line(&self, stop: StopLineOrdinal) -> Option<StopLineView<'_>> {
         Some(StopLineView {
@@ -761,6 +826,7 @@ impl SharedRelationClosure {
         })
     }
 
+    /// 查询机动门拓扑视图：机动路径、transition、停止线与可选信号组。
     #[must_use]
     pub fn maneuver_gate(&self, gate: ManeuverGateOrdinal) -> Option<ManeuverGateView> {
         Some(ManeuverGateView {
@@ -771,6 +837,7 @@ impl SharedRelationClosure {
         })
     }
 
+    /// 查询等待区拓扑视图。
     #[must_use]
     pub fn waiting_zone(&self, zone: WaitingZoneOrdinal) -> Option<WaitingZoneView> {
         Some(WaitingZoneView {
@@ -781,6 +848,7 @@ impl SharedRelationClosure {
         })
     }
 
+    /// 查询信号组视图：属主控制器与反向门。
     #[must_use]
     pub fn signal_group(&self, group: SignalGroupOrdinal) -> Option<SignalGroupView<'_>> {
         Some(SignalGroupView {
@@ -792,6 +860,7 @@ impl SharedRelationClosure {
         })
     }
 
+    /// 查询信号控制器的固定时制程序视图。
     #[must_use]
     pub fn signal_controller(
         &self,
@@ -811,6 +880,7 @@ impl SharedRelationClosure {
         })
     }
 
+    /// 查询信号相位视图：属主控制器、时长与累计互斥边界。
     #[must_use]
     pub fn signal_phase(&self, phase: SignalPhaseOrdinal) -> Option<SignalPhaseView<'_>> {
         let range = *self.phase_state_ranges.get(phase.index())?;
@@ -823,12 +893,14 @@ impl SharedRelationClosure {
         })
     }
 
+    /// 查询信号控制器的周期时长（毫秒）。
     #[must_use]
     pub fn controller_cycle_ms(&self, controller: SignalControllerOrdinal) -> Option<u64> {
         self.signal_controller(controller)
             .map(|view| view.cycle_ms())
     }
 
+    /// 查询信号控制器的相位序列。
     #[must_use]
     pub fn controller_phases(
         &self,
@@ -837,16 +909,19 @@ impl SharedRelationClosure {
         self.signal_controller(controller).map(|view| view.phases())
     }
 
+    /// 查询信号相位的持续时长（毫秒）。
     #[must_use]
     pub fn phase_duration_ms(&self, phase: SignalPhaseOrdinal) -> Option<u64> {
         self.signal_phase(phase).map(|view| view.duration_ms())
     }
 
+    /// 查询信号相位结束时刻相对周期起点的累计偏移（毫秒）。
     #[must_use]
     pub fn phase_end_offset_ms(&self, phase: SignalPhaseOrdinal) -> Option<u64> {
         self.phase_end_offset_ms.get(phase.index()).copied()
     }
 
+    /// 查询信号相位内各信号组与对应灯态的成对切片。
     #[must_use]
     pub fn phase_states(
         &self,
@@ -859,6 +934,7 @@ impl SharedRelationClosure {
         ))
     }
 
+    /// 查询停车设施视图：显式泊位与虚拟停车容量闭包。
     #[must_use]
     pub fn parking_facility(
         &self,
@@ -881,6 +957,7 @@ impl SharedRelationClosure {
         })
     }
 
+    /// 查询停车设施组织的显式停车位序列。
     #[must_use]
     pub fn parking_facility_spaces(
         &self,
@@ -890,6 +967,7 @@ impl SharedRelationClosure {
             .map(ParkingFacilityView::spaces)
     }
 
+    /// 查询停车位视图：归属设施、入口/出口锚点与几何。
     #[must_use]
     pub fn parking_space(&self, space: ParkingSpaceOrdinal) -> Option<ParkingSpaceView> {
         Some(ParkingSpaceView {
@@ -905,6 +983,7 @@ impl SharedRelationClosure {
         })
     }
 
+    /// 查询停车位的入口锚点（车道图边与边内进度）。
     #[must_use]
     pub fn parking_space_entry(
         &self,
@@ -913,6 +992,7 @@ impl SharedRelationClosure {
         self.parking_space(space).map(|view| view.entry())
     }
 
+    /// 查询停车位几何（横向偏移、朝向、长度与宽度）。
     #[must_use]
     pub fn parking_space_geometry(
         &self,
@@ -921,6 +1001,7 @@ impl SharedRelationClosure {
         self.parking_space(space).map(|view| view.geometry())
     }
 
+    /// 查询参与者类别视图：父类别、深度与子树区间编码。
     #[must_use]
     pub fn participant_class(
         &self,
@@ -934,6 +1015,7 @@ impl SharedRelationClosure {
         })
     }
 
+    /// 查询准入规则审计视图：目标、效果、适用类别与优先级。
     #[must_use]
     pub fn access_rule(&self, rule: AccessRuleOrdinal) -> Option<AccessRuleView<'_>> {
         Some(AccessRuleView {
@@ -947,6 +1029,7 @@ impl SharedRelationClosure {
         })
     }
 
+    /// 查询车辆配置视图：归属类别与跟车参数。
     #[must_use]
     pub fn vehicle_profile(&self, profile: VehicleProfileOrdinal) -> Option<VehicleProfileView> {
         Some(VehicleProfileView {
@@ -961,6 +1044,7 @@ impl SharedRelationClosure {
         })
     }
 
+    /// 查询车道图边对指定参与者类别的准入裁决单元。
     #[must_use]
     pub fn edge_access(
         &self,
@@ -976,6 +1060,7 @@ impl SharedRelationClosure {
         )
     }
 
+    /// 查询机动路径对指定参与者类别的准入裁决单元。
     #[must_use]
     pub fn path_access(
         &self,
@@ -991,6 +1076,7 @@ impl SharedRelationClosure {
         )
     }
 
+    /// 查询车道组内的编制车道成员序列。
     #[must_use]
     pub fn lane_group_members(&self, group: LaneGroupOrdinal) -> Option<&[AuthoringLaneOrdinal]> {
         Some(
@@ -1000,26 +1086,31 @@ impl SharedRelationClosure {
         )
     }
 
+    /// 查询车道组所属的道路区段。
     #[must_use]
     pub fn lane_group_section(&self, group: LaneGroupOrdinal) -> Option<RoadSectionOrdinal> {
         self.lane_group_section.get(group.index()).copied()
     }
 
+    /// 查询设施带的设施类型。
     #[must_use]
     pub fn band_kind(&self, band: FacilityBandOrdinal) -> Option<FacilityKind> {
         self.band_kind.get(band.index()).copied()
     }
 
+    /// 查询设施带所属的道路走廊。
     #[must_use]
     pub fn band_corridor(&self, band: FacilityBandOrdinal) -> Option<RoadCorridorOrdinal> {
         self.band_corridor.get(band.index()).copied()
     }
 
+    /// 查询约束该机动门的信号组；未挂接信号时为 `None`。
     #[must_use]
     pub fn gate_signal_group(&self, gate: ManeuverGateOrdinal) -> Option<SignalGroupOrdinal> {
         self.maneuver_gate(gate)?.signal_group()
     }
 
+    /// 统计本关系闭合当前全部列的保留内存逻辑字节数。
     #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         logical_bytes::<Box<str>>(self.intern.len())
@@ -1136,6 +1227,7 @@ fn floor_add_bytes(total: u64, bytes: u32) -> Result<u64, BuildError> {
         })
 }
 
+/// 构建期统计的各关系载荷条目计数，供保留内存下界估算使用。
 #[derive(Clone, Copy, Default)]
 pub(crate) struct RelationPayloads {
     pub corridor_elements: u32,
@@ -1160,6 +1252,7 @@ pub(crate) struct RelationPayloads {
     pub pass_a_scratch: u64,
 }
 
+/// 按实体计数与载荷计数计算关系闭合保留内存的逻辑字节下界。
 pub(crate) fn relation_retained_floor(
     counts: &EntityCounts,
     payloads: RelationPayloads,
@@ -1301,10 +1394,12 @@ mod builder_support {
     use super::*;
     use crate::BuildError;
 
+    /// 构造指定长度、全为 `None` 的可选一对一反向列。
     pub(crate) fn empty_optional<T: Copy>(len: u32) -> Result<OptionalColumn<T>, BuildError> {
         OptionalColumn::empty(usize::try_from(len).expect("u32 fits usize"))
     }
 
+    /// 在可选列指定下标写入值；越界或重复写入返回 `BuildError`。
     pub(crate) fn set_optional<T: Copy>(
         column: &mut OptionalColumn<T>,
         index: u32,
@@ -1313,12 +1408,15 @@ mod builder_support {
         column.set(usize::try_from(index).expect("u32 fits usize"), value)
     }
 
+    /// 读取可选列指定下标的值；越界或未写入返回 `None`。
     pub(crate) fn get_optional<T: Copy>(column: &OptionalColumn<T>, index: u32) -> Option<T> {
         column.get(usize::try_from(index).expect("u32 fits usize"))
     }
 
+    /// 准入平面行起始的哨兵值：该行整体无约束（`Unconstrained`）。
     pub(crate) const ACCESS_UNCONSTRAINED_ROW: u32 = UNCONSTRAINED_ROW;
 
+    /// 把全部已构建列组装为 `SharedRelationClosure`。
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn assemble(
         intern: Box<[Box<str>]>,
@@ -1504,6 +1602,7 @@ mod builder_support {
         }
     }
 
+    /// 构造仅含指定车道图边数、其余关系全空的测试用闭合。
     #[cfg(test)]
     pub(crate) fn empty_for_tests(lane_count: u32) -> SharedRelationClosure {
         let lane = usize::try_from(lane_count).expect("u32 fits");

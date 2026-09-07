@@ -2,6 +2,7 @@
 
 use crate::{FormatError, FormatStructure};
 
+/// 在指定 offset 读取一个 u8；越界或截断时按结构类别报错。
 pub(crate) fn read_u8(
     bytes: &[u8],
     offset: u64,
@@ -10,6 +11,7 @@ pub(crate) fn read_u8(
     Ok(read_array::<1>(bytes, offset, structure)?[0])
 }
 
+/// 在指定 offset 以小端序读取一个 u16；越界或截断时按结构类别报错。
 pub(crate) fn read_u16(
     bytes: &[u8],
     offset: u64,
@@ -18,6 +20,7 @@ pub(crate) fn read_u16(
     Ok(u16::from_le_bytes(read_array(bytes, offset, structure)?))
 }
 
+/// 在指定 offset 以小端序读取一个 u32；越界或截断时按结构类别报错。
 pub(crate) fn read_u32(
     bytes: &[u8],
     offset: u64,
@@ -26,6 +29,7 @@ pub(crate) fn read_u32(
     Ok(u32::from_le_bytes(read_array(bytes, offset, structure)?))
 }
 
+/// 在指定 offset 以小端序读取一个 u64；越界或截断时按结构类别报错。
 pub(crate) fn read_u64(
     bytes: &[u8],
     offset: u64,
@@ -34,6 +38,7 @@ pub(crate) fn read_u64(
     Ok(u64::from_le_bytes(read_array(bytes, offset, structure)?))
 }
 
+/// 在指定 offset 读取定长字节数组；越界或截断时按结构类别报错。
 pub(crate) fn read_array<const N: usize>(
     bytes: &[u8],
     offset: u64,
@@ -45,6 +50,7 @@ pub(crate) fn read_array<const N: usize>(
     Ok(result)
 }
 
+/// 取出 `[offset, offset + length)` 范围的 slice；算术溢出或越出可用字节时报错。
 pub(crate) fn checked_slice(
     bytes: &[u8],
     offset: u64,

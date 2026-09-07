@@ -55,6 +55,7 @@ impl<S> CheckedCanonicalNetworkInput<S>
 where
     S: BoundedReReadableObjectSource,
 {
+    /// 汇集受检来源、值域 proof、制品摘要与修订绑定证明，构造受检输入能力。
     pub(crate) fn from_parts(
         source: S,
         proof: ValueCheckProof,
@@ -81,16 +82,19 @@ where
             .expect("checked immutable canonical source length cannot drift")
     }
 
+    /// 返回受检 LFCA 精确字节内容的 SHA-256 摘要。
     #[must_use]
     pub const fn canonical_artifact_digest(&self) -> Sha256Digest {
         self.canonical_artifact_digest
     }
 
+    /// 返回受检 LFCA 的精确字节长度。
     #[must_use]
     pub const fn canonical_artifact_byte_length(&self) -> ExactByteLength {
         self.canonical_artifact_byte_length
     }
 
+    /// 返回重算并与制品声明核对一致的路网修订标识。
     #[must_use]
     pub const fn network_revision(&self) -> NetworkRevisionId {
         self.network_revision
@@ -98,11 +102,13 @@ where
 }
 
 impl CanonicalNetworkInputProof {
+    /// 返回修订绑定检查确认的路网修订标识。
     pub(crate) const fn network_revision(self) -> NetworkRevisionId {
         self.network_revision
     }
 }
 
+/// 对已完成值域检查的 LFCA 视图重算路网修订标识，并与制品内声明的修订摘要比对。
 pub(crate) fn check_canonical_network_input_binding(
     view: ValueCheckedObjectView<'_>,
 ) -> Result<CanonicalNetworkInputProof, CanonicalNetworkInputError> {

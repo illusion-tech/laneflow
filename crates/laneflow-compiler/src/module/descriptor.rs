@@ -45,6 +45,7 @@ impl SourceDocumentOrigin {
         self.display_source.as_deref()
     }
 
+    /// 构造 Synthetic 来源的文档来源记录（无显示/审计来源）。
     pub(super) const fn synthetic() -> Self {
         Self {
             display_source: None,
@@ -55,6 +56,7 @@ impl SourceDocumentOrigin {
     pub(crate) const fn road_editing(display_source: Option<Arc<str>>) -> Self {
         Self { display_source }
     }
+    /// 以测试字符串构造文档来源记录。
     #[cfg(test)]
     pub(super) fn test(display_source: Option<&str>) -> Self {
         Self {
@@ -117,10 +119,12 @@ impl SourceDocumentDescriptor {
         &self.origin
     }
 
+    /// 返回共享所有权的文档键。
     pub(crate) fn source_document_key_arc(&self) -> Arc<str> {
         Arc::clone(&self.source_document_key)
     }
 
+    /// 返回该文档描述符在源映射伴随数据中的布局中立逻辑字节数。
     pub(crate) fn source_map_logical_bytes(&self) -> u64 {
         32_u64
             .saturating_add(4)
@@ -223,6 +227,7 @@ impl SourceModuleDescriptor {
         self.imports.iter().map(AsRef::as_ref)
     }
 
+    /// 返回共享所有权的 authoring namespace。
     pub(crate) fn authoring_namespace_arc(&self) -> Arc<str> {
         Arc::clone(&self.authoring_namespace_id)
     }
@@ -253,6 +258,7 @@ impl SourceModuleDescriptor {
     }
 }
 
+/// 对已按文档键排序的文档描述符集合计算首版文档集摘要 SHA-256。
 pub(super) fn source_document_set_digest_v1(documents: &[SourceDocumentDescriptor]) -> [u8; 32] {
     assert!(
         !documents.is_empty(),
@@ -287,12 +293,14 @@ pub(super) fn source_document_set_digest_v1(documents: &[SourceDocumentDescripto
     hasher.finalize().into()
 }
 
+/// 计算单份规范来源记录的 SHA-256 文档摘要。
 pub(crate) fn source_document_digest(source_record: &[u8]) -> [u8; 32] {
     #[cfg(test)]
     SOURCE_DOCUMENT_DIGEST_CALL_COUNT.with(|count| count.set(count.get().saturating_add(1)));
     Sha256::digest(source_record).into()
 }
 
+/// 统一文档的模块归属、按文档键排序冻结文档集合并计算其集合摘要。
 pub(crate) fn freeze_source_documents(
     authoring_namespace_id: &Arc<str>,
     mut first: SourceDocumentDescriptor,
@@ -315,6 +323,7 @@ pub(crate) fn freeze_source_documents(
 
 #[cfg(test)]
 thread_local! {
+    /// 测试期统计文档摘要计算次数的线程局部计数器。
     pub(super) static SOURCE_DOCUMENT_DIGEST_CALL_COUNT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 

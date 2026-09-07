@@ -18,6 +18,7 @@ pub struct TrafficTransitionAnchor {
 }
 
 impl TrafficTransitionAnchor {
+    /// 由 Waiting 路线锚点构造转移锚点；触发位置取该 Gate 之后下一 hop 起点。
     pub(crate) fn at_gate(anchor: WaitingRouteAnchor) -> Self {
         Self {
             route: anchor.route,
@@ -32,18 +33,22 @@ impl TrafficTransitionAnchor {
         }
     }
 
+    /// 锚点所属路线句柄。
     #[must_use]
     pub const fn route(self) -> RouteHandle {
         self.route
     }
+    /// 语义机动出现项下标。
     #[must_use]
     pub const fn maneuver_occurrence_index(self) -> u32 {
         self.maneuver_occurrence_index
     }
+    /// 语义 hop 下标。
     #[must_use]
     pub const fn hop(self) -> u32 {
         self.hop
     }
+    /// 实际触发位置。
     #[must_use]
     pub const fn position(self) -> DownstreamRoutePoint {
         self.position
@@ -123,22 +128,27 @@ pub struct TrafficTransitionEvent {
 }
 
 impl TrafficTransitionEvent {
+    /// 提交本事件的成功固定步进序号。
     #[must_use]
     pub const fn tick(self) -> u64 {
         self.tick
     }
+    /// 触发事件的车辆句柄。
     #[must_use]
     pub const fn vehicle(self) -> VehicleHandle {
         self.vehicle
     }
+    /// 该车在本拍 live-order 中的更新序号。
     #[must_use]
     pub const fn vehicle_update_sequence(self) -> u32 {
         self.vehicle_update_sequence
     }
+    /// 转移锚点。
     #[must_use]
     pub const fn anchor(self) -> TrafficTransitionAnchor {
         self.anchor
     }
+    /// 转移类别。
     #[must_use]
     pub const fn kind(self) -> TrafficTransitionKind {
         self.kind
@@ -146,6 +156,7 @@ impl TrafficTransitionEvent {
 }
 
 impl crate::kernel::phase::StepWorkspace<'_> {
+    /// 把本拍已验证转移暂存为规范排序的事件批次；失败时清空暂存，已发布批次不受影响。
     pub(crate) fn stage_transition_events(
         &mut self,
         updates: &[(usize, VehicleState)],
@@ -177,6 +188,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         result
     }
 
+    /// 按 live-order 逐车发射本拍转移事件；不负责排序或暂存。
     pub(crate) fn visit_transition_events(
         &self,
         updates: &[(usize, VehicleState)],

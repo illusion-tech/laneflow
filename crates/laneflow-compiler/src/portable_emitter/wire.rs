@@ -1,5 +1,6 @@
 use super::*;
 
+/// emitter 内部持有的拥有型字段值：标量、字符串、字节、ordinal 向量或一层记录向量。
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum OwnedValue {
     U8(u8),
@@ -18,45 +19,53 @@ pub(super) enum OwnedValue {
     I32(i32),
 }
 
+/// 带 tag 的拥有型字段。
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct OwnedField {
     pub(super) tag: u16,
     pub(super) value: OwnedValue,
 }
 
+/// 拥有型行：一组有序字段。
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct OwnedRow {
     pub(super) fields: Box<[OwnedField]>,
 }
 
+/// 拥有型表：表 kind 与有序行。
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct OwnedTable {
     pub(super) kind: u16,
     pub(super) rows: Box<[OwnedRow]>,
 }
 
+/// 拥有型 section：section kind 与有序表。
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct OwnedSection {
     pub(super) kind: u16,
     pub(super) tables: Box<[OwnedTable]>,
 }
 
+/// 拥有型 object：可移植对象 kind 与有序 section，是编码前的完整 emitter 投影。
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct OwnedObject {
     pub(super) kind: PortableObjectKind,
     pub(super) sections: Box<[OwnedSection]>,
 }
 
+/// 构造一个拥有型字段。
 pub(super) fn field(tag: u16, value: OwnedValue) -> OwnedField {
     OwnedField { tag, value }
 }
 
+/// 从字段迭代器构造拥有型行。
 pub(super) fn row(fields: impl IntoIterator<Item = OwnedField>) -> OwnedRow {
     OwnedRow {
         fields: fields.into_iter().collect(),
     }
 }
 
+/// 从行迭代器构造拥有型表。
 pub(super) fn table(kind: u16, rows: impl IntoIterator<Item = OwnedRow>) -> OwnedTable {
     OwnedTable {
         kind,
@@ -64,6 +73,7 @@ pub(super) fn table(kind: u16, rows: impl IntoIterator<Item = OwnedRow>) -> Owne
     }
 }
 
+/// 从表迭代器构造拥有型 section。
 pub(super) fn section(kind: u16, tables: impl IntoIterator<Item = OwnedTable>) -> OwnedSection {
     OwnedSection {
         kind,
@@ -176,6 +186,8 @@ pub(super) fn encode_owned_object(
     })
 }
 
+/// 把拥有型 object 经 staged writer 写入指定目录并关闭，返回可供 file-backed 候选使用的
+/// 已关闭 staged 对象来源。
 pub(super) fn stage_owned_object(
     object: &OwnedObject,
     limits: FormatLimits,

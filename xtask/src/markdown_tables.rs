@@ -16,6 +16,7 @@ struct Fence {
     length: usize,
 }
 
+/// format-md-tables 命令入口：收集目标路径下的全部 Markdown 文件并格式化其中表格；`--check` 模式只校验不写回。
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let (check, targets) = parse_args(args)?;
     let mut files = BTreeSet::new();

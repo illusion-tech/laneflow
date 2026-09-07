@@ -2,6 +2,7 @@
 use super::*;
 use laneflow_road_editing_wire::runtime::Table;
 
+/// 封闭性检查：拒绝 wire table 中超出预期字段数的已填充未知字段。
 pub(super) fn closed(table: Table<'_>, fields: usize, key: &str) -> Result<(), DiagnosticBundle> {
     let vtable = table.vtable();
     if (fields..vtable.num_fields()).any(|index| vtable.get_field(index) != 0) {
@@ -33,6 +34,7 @@ fn text(
     Ok(())
 }
 
+/// 预检全部路权策略集：封闭 schema、法规文本、成员键唯一性与必填标量，并把字符串和引用计入用量。
 pub(super) fn validate(
     usage: &mut RoadEditingPreflightCounts,
     root: wire::RoadEditingSource<'_>,

@@ -9,6 +9,7 @@ mod support;
 
 const STAGE_COUNT: usize = 11;
 
+/// 单次固定步进内各批次阶段的计时标识。
 #[derive(Clone, Copy)]
 pub(crate) enum Stage {
     WholeStep,
@@ -44,8 +45,10 @@ thread_local! {
     static CALLS: Cell<[u64; STAGE_COUNT]> = const { Cell::new([0; STAGE_COUNT]) };
 }
 
+/// 阶段计时 span；Drop 时把耗时与调用次数累计到线程局部表。
 pub(crate) struct Span(Option<(Stage, Instant)>);
 
+/// 开始一个阶段计时；未启用时返回空 span。
 pub(crate) fn begin(stage: Stage) -> Span {
     Span(ENABLED.with(|enabled| enabled.get().then(|| (stage, Instant::now()))))
 }

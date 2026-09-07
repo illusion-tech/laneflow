@@ -1,7 +1,9 @@
 //! 唯一世界聚合与宿主会话；组合仿真内核和管理操作。
 
 pub(crate) mod observation;
+/// 宿主 Routing 与 Traffic Runtime 的纯契约边界。
 pub(crate) mod routing;
+/// 已提交路网来源：活动聚合的来源指名。
 pub(crate) mod source;
 
 /// 1-worker 交通世界。只克隆根 `Arc`，不复制静态 component。

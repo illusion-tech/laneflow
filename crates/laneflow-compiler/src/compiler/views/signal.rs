@@ -106,6 +106,7 @@ pub struct CanonicalSignalPhaseStateView<'a> {
 }
 
 impl<'a> CanonicalSignalPhaseStateView<'a> {
+    /// 由 LIR 记录构造相位状态借用视图；仅限 `compiler` 模块内部调用。
     pub(in crate::compiler) const fn from_record(record: &'a LirSignalPhaseState) -> Self {
         Self { record }
     }

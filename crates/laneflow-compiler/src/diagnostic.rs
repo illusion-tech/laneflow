@@ -1308,6 +1308,7 @@ pub struct Diagnostic {
     related_spans: Box<[SourceLocation]>,
 }
 
+/// 将可选的可转换来源位置归一为 `Option<SourceLocation>` 的包内辅助转换。
 pub(crate) trait IntoSourceLocationOption {
     fn into_source_location_option(self) -> Option<SourceLocation>;
 }
@@ -1319,6 +1320,7 @@ impl<T: Into<SourceLocation>> IntoSourceLocationOption for Option<T> {
 }
 
 impl Diagnostic {
+    /// 构造路权策略未通过输入、绑定或静态语义闭合的诊断。
     pub(crate) fn invalid_policy(
         key: &str,
         member: Option<&str>,
@@ -1337,6 +1339,7 @@ impl Diagnostic {
             Some(key.into()),
         )
     }
+    /// 构造第一方道路编辑编制模型字段值或闭合构造非法的诊断；来源 buffer 尚未建立，不带来源位置。
     pub(crate) fn invalid_road_editing_input(
         field: &str,
         violation: RoadEditingInputViolation,
@@ -1354,6 +1357,7 @@ impl Diagnostic {
             related_spans: Box::default(),
         }
     }
+    /// 构造 size-prefixed 道路编辑来源的 framing、wire、版本或外部身份绑定非法的诊断，不带来源位置。
     #[allow(
         dead_code,
         reason = "called by the staged road-editing reader before public admission lands"
@@ -1373,6 +1377,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造 size-prefixed 道路编辑来源非法的诊断，可附带主要来源位置。
     pub(crate) fn invalid_road_editing_source_at(
         violation: RoadEditingSourceViolation,
         field: Option<&str>,
@@ -1396,6 +1401,7 @@ impl Diagnostic {
         }
     }
 
+    /// 构造来源模块头字段违反文本或资源约束的诊断。
     pub(crate) fn invalid_source_header_field(
         field: SourceHeaderField,
         violation: SourceTextViolation,
@@ -1411,6 +1417,7 @@ impl Diagnostic {
         }
     }
 
+    /// 构造候选输入或阶段工作集超过显式编译资源配置档的诊断，不带来源位置。
     pub(crate) fn compile_limit_exceeded(
         dimension: CompileLimitDimension,
         limit: u64,
@@ -1431,6 +1438,7 @@ impl Diagnostic {
         }
     }
 
+    /// 构造所选编译资源配置档不支持候选官方模块必需维度的诊断。
     pub(crate) fn compile_profile_incompatible(
         profile_id: &str,
         required_dimension: CompileLimitDimension,
@@ -1449,6 +1457,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造导入命名空间不是合法外部 token 的诊断。
     pub(crate) fn invalid_import_namespace(
         violation: SourceTextViolation,
         primary_span: impl Into<SourceLocation>,
@@ -1462,6 +1471,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造同一来源模块重复声明相同导入的诊断，并关联首次声明位置。
     pub(crate) fn duplicate_import(
         namespace: &str,
         primary_span: impl Into<SourceLocation>,
@@ -1478,6 +1488,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造编译单元包含两个相同 authoring namespace 的模块的诊断。
     pub(crate) fn duplicate_module_namespace(
         namespace: &str,
         primary_span: impl Into<SourceLocation>,
@@ -1494,6 +1505,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造编译单元内两个模块或同一模块内两份文档声明相同 `sourceDocumentKey` 的诊断。
     pub(crate) fn duplicate_source_document_key(
         source_document_key: &str,
         primary_span: impl Into<SourceLocation>,
@@ -1510,6 +1522,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造来源位置引用的文档未登记在拥有该语义记录的逻辑模块中的诊断。
     pub(crate) fn source_document_ownership_mismatch(
         source_document_key: &str,
         expected_authoring_namespace_id: &str,
@@ -1529,6 +1542,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造显式导入在完整编译单元中没有目标模块的诊断。
     pub(crate) fn unknown_import(namespace: &str, primary_span: impl Into<SourceLocation>) -> Self {
         Self::error_with_context(
             DiagnosticCode::UnknownImport,
@@ -1541,6 +1555,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造一个或多个显式导入边形成循环的诊断；首个位置作为主要位置，其余作为关联位置。
     pub(crate) fn import_cycle<T: Into<SourceLocation>>(
         namespaces: &[&str],
         spans: Box<[T]>,
@@ -1567,6 +1582,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造声明稳定键不是合法外部 token 的诊断。
     pub(crate) fn invalid_declaration_key(
         entity_kind: EntityKind,
         violation: SourceTextViolation,
@@ -1584,6 +1600,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造同一模块、同一实体种类重复声明稳定键的诊断。
     pub(crate) fn duplicate_declaration(
         entity_kind: EntityKind,
         stable_key: &str,
@@ -1602,6 +1619,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造引用的目标声明键不是合法外部 token 的诊断。
     pub(crate) fn invalid_reference_key(
         entity_kind: EntityKind,
         violation: SourceTextViolation,
@@ -1619,6 +1637,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造引用中显式模块命名空间不是合法外部 token 的诊断。
     pub(crate) fn invalid_reference_namespace(
         violation: SourceTextViolation,
         primary_span: impl Into<SourceLocation>,
@@ -1632,6 +1651,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造跨模块引用没有对应显式导入的诊断。
     pub(crate) fn unimported_reference_module(
         namespace: &str,
         primary_span: impl Into<SourceLocation>,
@@ -1647,6 +1667,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造导入闭合后仍找不到引用目标声明的诊断；目标不带 owner 限定路径。
     pub(crate) fn unknown_reference_target(
         entity_kind: EntityKind,
         source_key: &str,
@@ -1666,6 +1687,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造导入闭合后仍找不到 owner 限定引用目标声明的诊断。
     pub(crate) fn unknown_owner_qualified_reference_target(
         entity_kind: EntityKind,
         source_key: &str,
@@ -1693,6 +1715,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造 Identity v1 显式 ASCII 领域字段违反来源 token 规则的诊断。
     pub(crate) fn invalid_identity_ascii_field(
         entity_kind: EntityKind,
         stable_key: &str,
@@ -1714,6 +1737,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造车道图边长度不是满足当前契约的有限 `f64` 米值的诊断。
     pub(crate) fn invalid_lane_edge_length(
         stable_key: &str,
         value: f64,
@@ -1733,6 +1757,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造基础道路限速不是严格为正的有限 `f64` 米每秒值的诊断。
     pub(crate) fn invalid_lane_edge_speed_limit(
         stable_key: &str,
         value: f64,
@@ -1752,6 +1777,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造车辆配置的 IIDM 数值违反 current Core 约束的诊断。
     pub(crate) fn invalid_vehicle_profile_value(
         vehicle_profile_key: &str,
         field: &'static str,
@@ -1773,6 +1799,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造车辆配置紧急减速度小于舒适减速度的诊断。
     pub(crate) fn invalid_vehicle_profile_deceleration_order(
         vehicle_profile_key: &str,
         comfortable_deceleration: f64,
@@ -1792,6 +1819,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造规范空间几何违反点、线段、长度绑定或覆盖完整性约束的诊断。
     pub(crate) fn invalid_spatial_geometry(
         canonical_frame_key: Option<&str>,
         lane_edge_key: &str,
@@ -1817,6 +1845,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造不可遍历设施带规范中心线违反点、长度或 frame 约束的诊断。
     pub(crate) fn invalid_facility_band_geometry(
         canonical_frame_key: Option<&str>,
         facility_band_key: &str,
@@ -1836,6 +1865,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造同一车道图边重复列出相同下游目标的诊断。
     pub(crate) fn duplicate_lane_edge_successor(
         stable_key: &str,
         target_namespace: &str,
@@ -1855,6 +1885,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造道路区段或设施带使用未知或类别不匹配物理设施 token 的诊断。
     pub(crate) fn invalid_facility_kind(
         entity_kind: EntityKind,
         stable_key: &str,
@@ -1878,6 +1909,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造道路区段没有声明任何编制车道的诊断。
     pub(crate) fn empty_road_section_lanes(
         stable_key: &str,
         primary_span: impl Into<SourceLocation>,
@@ -1893,6 +1925,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造编制车道没有声明任何车道图边覆盖的诊断。
     pub(crate) fn empty_authoring_lane_edge_chain(
         stable_key: &str,
         primary_span: impl Into<SourceLocation>,
@@ -1908,6 +1941,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造同一编制车道覆盖链重复引用同一车道图边的诊断。
     pub(crate) fn duplicate_authoring_lane_edge(
         stable_key: &str,
         target_namespace: &str,
@@ -1927,6 +1961,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造道路走廊没有声明任何横断面成员的诊断。
     pub(crate) fn empty_road_corridor_elements(
         stable_key: &str,
         primary_span: impl Into<SourceLocation>,
@@ -1942,6 +1977,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造同一道路走廊的有序横断面重复引用同一成员的诊断。
     pub(crate) fn duplicate_road_corridor_element(
         stable_key: &str,
         target_kind: EntityKind,
@@ -1963,6 +1999,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造必须进入横断面所有者树的实体没有任何道路走廊父项的诊断。
     pub(crate) fn missing_cross_section_owner(
         entity_kind: EntityKind,
         stable_key: &str,
@@ -1980,6 +2017,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造横断面实体被多个道路走廊拥有的诊断。
     pub(crate) fn multiple_cross_section_owners(
         entity_kind: EntityKind,
         stable_key: &str,
@@ -2002,6 +2040,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造道路走廊的参考道路区段不属于自身有序成员的诊断。
     pub(crate) fn invalid_corridor_reference_section(
         corridor_key: &str,
         target_namespace: &str,
@@ -2022,6 +2061,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造编制车道覆盖链中相邻车道图边没有直接连接的诊断。
     pub(crate) fn disconnected_authoring_lane_edge_chain(
         lane_key: &str,
         predecessor_key: &str,
@@ -2042,6 +2082,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造同一车道图边被多个编制车道覆盖的诊断。
     pub(crate) fn multiple_authoring_lane_owners(
         edge_key: &str,
         first_lane_key: &str,
@@ -2062,6 +2103,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造编制车道引用的车道组不属于同一道路区段的诊断。
     pub(crate) fn lane_group_parent_mismatch(
         lane_key: &str,
         lane_group_key: &str,
@@ -2084,6 +2126,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造车道组没有任何编制车道成员的诊断。
     pub(crate) fn empty_lane_group(
         stable_key: &str,
         primary_span: impl Into<SourceLocation>,
@@ -2099,6 +2142,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造路口没有任何通行流向成员的诊断。
     pub(crate) fn empty_junction(
         junction_key: &str,
         primary_span: impl Into<SourceLocation>,
@@ -2114,6 +2158,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造通行流向没有任何机动路径成员的诊断。
     pub(crate) fn empty_movement(
         movement_key: &str,
         primary_span: impl Into<SourceLocation>,
@@ -2129,6 +2174,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造机动路径完整边序列中相邻边没有直接连接的诊断。
     pub(crate) fn disconnected_maneuver_path(
         path_key: &str,
         predecessor_key: &str,
@@ -2149,6 +2195,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造两条机动路径声明相同完整遍历序列的诊断。
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn duplicate_maneuver_path_sequence(
         first_path_key: &str,
@@ -2172,6 +2219,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造同一内部边被不同路口排他声明的诊断。
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn internal_edge_junction_conflict(
         edge_key: &str,
@@ -2197,6 +2245,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造同一边同时被声明为路口内部边和任一路口边界边的诊断。
     pub(crate) fn internal_boundary_role_conflict(
         edge_key: &str,
         internal_path_key: &str,
@@ -2217,6 +2266,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造路口显式 approach/internal 集与路径角色或 section-derived 边界不闭合的诊断。
     pub(crate) fn junction_edge_set_mismatch(
         junction_key: &str,
         edge_key: &str,
@@ -2239,6 +2289,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造机动门引用的转换下标不在拥有路径合法范围内的诊断。
     pub(crate) fn maneuver_gate_transition_out_of_range(
         maneuver_gate_key: &str,
         maneuver_path_key: &str,
@@ -2261,6 +2312,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造同一机动路径转换重复声明机动门的诊断。
     pub(crate) fn duplicate_maneuver_gate_path_transition(
         maneuver_path_key: &str,
         transition_index: u32,
@@ -2283,6 +2335,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造机动门停止线不位于转换起始边末端的诊断。
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn maneuver_gate_stop_line_mismatch(
         maneuver_gate_key: &str,
@@ -2306,6 +2359,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造同一车道图边重复声明停止线的诊断。
     pub(crate) fn duplicate_stop_line_edge(
         edge_key: &str,
         first_stop_line_key: &str,
@@ -2326,6 +2380,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造停止线位于无法形成路径转换的终止边的诊断。
     pub(crate) fn orphan_stop_line(
         stop_line_key: &str,
         edge_key: &str,
@@ -2343,6 +2398,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造非终止边上的停止线未被任何机动门引用的诊断。
     pub(crate) fn unreferenced_stop_line(
         stop_line_key: &str,
         edge_key: &str,
@@ -2360,6 +2416,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造启用入口门的停止线存在没有机动路径覆盖的下游转换的诊断。
     pub(crate) fn missing_maneuver_path_coverage(
         stop_line_key: &str,
         from_edge_key: &str,
@@ -2380,6 +2437,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造启用入口门的停止线存在没有入口机动门覆盖的候选路径的诊断。
     pub(crate) fn missing_maneuver_gate_coverage(
         stop_line_key: &str,
         edge_key: &str,
@@ -2400,6 +2458,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造等待区容量为零的诊断。
     pub(crate) fn invalid_waiting_zone_capacity(
         waiting_zone_key: &str,
         primary_span: impl Into<SourceLocation>,
@@ -2415,6 +2474,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造等待区引用的入口门或释放门不属于其声明路径的诊断。
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn waiting_zone_gate_path_mismatch(
         waiting_zone_key: &str,
@@ -2440,6 +2500,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造等待区入口门没有严格早于释放门的诊断。
     pub(crate) fn invalid_waiting_zone_gate_order(
         waiting_zone_key: &str,
         entry_transition_index: u32,
@@ -2459,6 +2520,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造同一机动路径上两个等待区内部重叠或嵌套的诊断。
     pub(crate) fn overlapping_waiting_zones(
         maneuver_path_key: &str,
         first_waiting_zone_key: &str,
@@ -2479,6 +2541,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造信号控制器没有任何信号组成员的诊断。
     pub(crate) fn empty_signal_controller_groups(
         controller_key: &str,
         primary_span: impl Into<SourceLocation>,
@@ -2494,6 +2557,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造信号控制器没有任何程序相位的诊断。
     pub(crate) fn empty_signal_controller_phases(
         controller_key: &str,
         primary_span: impl Into<SourceLocation>,
@@ -2509,6 +2573,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造信号控制器重复列出同一信号组的诊断。
     pub(crate) fn duplicate_signal_controller_group(
         controller_key: &str,
         group_key: &str,
@@ -2527,6 +2592,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造同一信号组被多个控制器拥有的诊断。
     pub(crate) fn signal_group_multiple_controllers(
         group_key: &str,
         first_controller_key: &str,
@@ -2547,6 +2613,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造信号组没有控制器所有者的诊断。
     pub(crate) fn unowned_signal_group(
         group_key: &str,
         primary_span: impl Into<SourceLocation>,
@@ -2562,6 +2629,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造信号组没有被任何机动门使用的诊断。
     pub(crate) fn unused_signal_group(
         group_key: &str,
         primary_span: impl Into<SourceLocation>,
@@ -2577,6 +2645,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造同一控制器内重复声明相位键的诊断。
     pub(crate) fn duplicate_signal_phase_key(
         controller_key: &str,
         phase_key: &str,
@@ -2595,6 +2664,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造信号相位持续时间不在可移植正整数范围内的诊断。
     pub(crate) fn invalid_signal_phase_duration(
         controller_key: &str,
         phase_key: &str,
@@ -2616,6 +2686,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造相位重复定义同一信号组状态的诊断。
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn duplicate_signal_phase_group(
         controller_key: &str,
@@ -2637,6 +2708,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造相位状态引用不属于所属控制器的信号组的诊断。
     pub(crate) fn unknown_signal_phase_group(
         controller_key: &str,
         phase_key: &str,
@@ -2657,6 +2729,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造相位缺少所属控制器信号组状态的诊断。
     pub(crate) fn missing_signal_phase_group(
         controller_key: &str,
         phase_key: &str,
@@ -2677,6 +2750,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造控制器相位周期累计值超过可移植范围的诊断。
     pub(crate) fn signal_cycle_duration_overflow(
         controller_key: &str,
         max_inclusive: u64,
@@ -2694,6 +2768,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造控制器时间偏移不在可移植且小于周期的规范范围内的诊断。
     pub(crate) fn invalid_signal_controller_offset(
         controller_key: &str,
         offset_ms: u64,
@@ -2715,6 +2790,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造停车位入口或出口锚点不位于车道图边严格内部的诊断。
     // The diagnostic preserves both source values and the closed millimetre interval; grouping
     // them into an ad-hoc context would hide the payload contract from call sites.
     #[allow(clippy::too_many_arguments)]
@@ -2745,6 +2821,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造停车位矩形几何字段违反有限性、范围或最小尺寸约束的诊断。
     pub(crate) fn invalid_parking_space_geometry(
         parking_space_key: &str,
         field: ParkingGeometryField,
@@ -2766,6 +2843,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造停车设施既没有显式泊位成员也没有虚拟容量的诊断。
     pub(crate) fn orphan_parking_facility(
         parking_facility_key: &str,
         primary_span: impl Into<SourceLocation>,
@@ -2781,6 +2859,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造停车设施虚拟容量与入口/出口集合不匹配的诊断。
     pub(crate) fn invalid_parking_facility_virtual_pool(
         parking_facility_key: &str,
         virtual_capacity: u32,
@@ -2802,6 +2881,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造同一停车设施的同一虚拟锚点角色包含重复规范车道位置的诊断。
     pub(crate) fn duplicate_parking_facility_virtual_anchor(
         parking_facility_key: &str,
         role: ParkingAnchorRole,
@@ -2823,6 +2903,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造参与者类别单继承链形成循环的诊断。
     pub(crate) fn participant_class_inheritance_cycle(
         participant_class_key: &str,
         primary_span: impl Into<SourceLocation>,
@@ -2843,6 +2924,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造准入规则没有声明任何参与者类别的诊断。
     pub(crate) fn empty_access_rule_participant_classes(
         access_rule_key: &str,
         primary_span: impl Into<SourceLocation>,
@@ -2858,6 +2940,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造准入规则请求首版尚未实现能力的诊断。
     pub(crate) fn access_capability_unavailable(
         access_rule_key: &str,
         capability: AccessCapability,
@@ -2875,6 +2958,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造准入规则法规来源字段违反长度约束的诊断。
     pub(crate) fn invalid_access_regulation_string(
         access_rule_key: &str,
         field: AccessRegulationField,
@@ -2894,6 +2978,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造同一编译单元中法规来源法域或版本不一致的诊断。
     #[expect(clippy::too_many_arguments, reason = "诊断必须保留两份完整法规来源")]
     pub(crate) fn access_regulation_mismatch(
         first_rule_key: &str,
@@ -2921,6 +3006,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造规范裁决后仍存在效果相反且完全并列的准入规则的诊断。
     #[expect(clippy::too_many_arguments, reason = "诊断必须保留完整裁决冲突键")]
     pub(crate) fn access_rule_ambiguity(
         plane: AccessPlane,
@@ -2948,6 +3034,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造规范身份字段不满足 Identity v1 登记表的诊断。
     pub(crate) fn invalid_canonical_identity(
         entity_kind: EntityKind,
         stable_key: &str,
@@ -2967,6 +3054,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造同一完整规范身份在编译单元中出现多次的诊断。
     pub(crate) fn duplicate_canonical_identity(
         entity_kind: EntityKind,
         stable_key: &str,
@@ -2986,6 +3074,7 @@ impl Diagnostic {
         )
     }
 
+    /// 构造不同完整规范身份派生出相同 StableId128 的诊断。
     pub(crate) fn identity_digest_collision(
         entity_kind: EntityKind,
         stable_key: &str,
@@ -3005,10 +3094,12 @@ impl Diagnostic {
         )
     }
 
+    /// 设置诊断在规范排序中使用的模块顺序。
     pub(crate) const fn set_canonical_module_order(&mut self, order: u32) {
         self.canonical_module_order = order;
     }
 
+    /// 构造候选输入或阶段工作集超过显式编译资源配置档的诊断，可附带来源位置与稳定键。
     pub(crate) fn compile_limit_exceeded_at(
         dimension: CompileLimitDimension,
         limit: u64,
@@ -4268,6 +4359,7 @@ pub struct DiagnosticBundle {
 }
 
 impl DiagnosticBundle {
+    /// 构造只含一条诊断且未截断的集合。
     pub(crate) fn single(diagnostic: Diagnostic) -> Self {
         Self {
             diagnostics: Box::new([diagnostic]),
@@ -4275,6 +4367,7 @@ impl DiagnosticBundle {
         }
     }
 
+    /// 为缺少主要位置的诊断补入兜底主要来源位置。
     pub(crate) fn with_fallback_primary_location(mut self, location: SourceLocation) -> Self {
         for diagnostic in &mut self.diagnostics {
             if diagnostic.primary_span.is_none() {
@@ -4336,6 +4429,7 @@ pub(crate) struct DiagnosticCollector {
 }
 
 impl DiagnosticCollector {
+    /// 建立最多保留 limit 条诊断的空收集器。
     pub(crate) fn new(limit: u64) -> Self {
         let limit = usize::try_from(limit).unwrap_or(0);
         Self {
@@ -4345,6 +4439,7 @@ impl DiagnosticCollector {
         }
     }
 
+    /// 纳入一条候选诊断；超过保留上限时替换当前规范顺序最大项并标记截断。
     pub(crate) fn push(&mut self, diagnostic: Diagnostic) {
         if self.retained.len() < self.limit {
             self.retained.push(diagnostic);
@@ -4365,10 +4460,12 @@ impl DiagnosticCollector {
         }
     }
 
+    /// 判断收集器是否既没有保留诊断也未发生截断。
     pub(crate) fn is_empty(&self) -> bool {
         self.retained.is_empty() && !self.diagnostics_truncated
     }
 
+    /// 按规范顺序排序保留的诊断并生成最终 `DiagnosticBundle`。
     pub(crate) fn finish(mut self) -> DiagnosticBundle {
         self.retained.sort_unstable();
         DiagnosticBundle {

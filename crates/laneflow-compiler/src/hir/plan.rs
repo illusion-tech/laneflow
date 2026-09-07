@@ -849,6 +849,7 @@ fn access_budget(unit: &CompilationUnit, module_count: u64, counts: &AccessCount
     }
 }
 
+/// 横断面领域记录计数：道路走廊、走廊成员、道路区段、编制车道及边链、车道组与设施带。
 #[derive(Default)]
 pub(super) struct CrossSectionCounts {
     pub(super) road_corridors: u64,
@@ -861,6 +862,7 @@ pub(super) struct CrossSectionCounts {
 }
 
 impl CrossSectionCounts {
+    /// 需要符号登记与身份派生的横断面实体总数（不含成员行）。
     pub(super) fn entity_count(&self) -> u64 {
         self.road_corridors
             .saturating_add(self.road_sections)
@@ -870,6 +872,7 @@ impl CrossSectionCounts {
     }
 }
 
+/// 路口领域记录计数：路口、通行流向、机动路径、路径边与声明的接近臂/内部边。
 #[derive(Default)]
 pub(super) struct JunctionCounts {
     pub(super) junctions: u64,
@@ -881,6 +884,7 @@ pub(super) struct JunctionCounts {
 }
 
 impl JunctionCounts {
+    /// 路口领域实体总数（路口 + 通行流向 + 机动路径）。
     pub(super) fn entity_count(&self) -> u64 {
         self.junctions
             .saturating_add(self.movements)
@@ -888,6 +892,7 @@ impl JunctionCounts {
     }
 }
 
+/// 通行权控制领域记录计数：停止线、机动门与等待区。
 #[derive(Default)]
 pub(super) struct ControlCounts {
     pub(super) stop_lines: u64,
@@ -896,6 +901,7 @@ pub(super) struct ControlCounts {
 }
 
 impl ControlCounts {
+    /// 控制领域实体总数（停止线 + 机动门 + 等待区）。
     pub(super) fn entity_count(&self) -> u64 {
         self.stop_lines
             .saturating_add(self.maneuver_gates)
@@ -903,6 +909,7 @@ impl ControlCounts {
     }
 }
 
+/// 信号领域记录计数：信号组、控制器、控制器-组成员、相位、相位状态与受控门。
 #[derive(Default)]
 pub(super) struct SignalCounts {
     pub(super) groups: u64,
@@ -914,6 +921,7 @@ pub(super) struct SignalCounts {
 }
 
 impl SignalCounts {
+    /// 信号领域实体总数（信号组 + 控制器 + 相位）。
     pub(super) fn entity_count(&self) -> u64 {
         self.groups
             .saturating_add(self.controllers)
@@ -921,6 +929,7 @@ impl SignalCounts {
     }
 }
 
+/// 停车领域记录计数：停车设施、停车位、成员关系与虚拟入口/出口。
 #[derive(Default)]
 pub(super) struct ParkingCounts {
     pub(super) areas: u64,
@@ -930,6 +939,7 @@ pub(super) struct ParkingCounts {
     pub(super) virtual_exits: u64,
 }
 
+/// 冲突领域记录计数：冲突区、参与者流、穿越记录与冲突区-流关系。
 #[derive(Default)]
 pub(super) struct ConflictCounts {
     pub(super) zones: u64,
@@ -939,17 +949,20 @@ pub(super) struct ConflictCounts {
 }
 
 impl ConflictCounts {
+    /// 冲突领域实体总数（冲突区 + 参与者流）。
     pub(super) fn entity_count(&self) -> u64 {
         self.zones.saturating_add(self.streams)
     }
 }
 
 impl ParkingCounts {
+    /// 停车领域实体总数（停车设施 + 停车位）。
     pub(super) fn entity_count(&self) -> u64 {
         self.areas.saturating_add(self.spaces)
     }
 }
 
+/// 空间领域记录计数：规范坐标框架、车道边/设施带几何、来源区间、规范点、线段与冲突区空间区域。
 #[derive(Default)]
 pub(super) struct SpatialCounts {
     pub(super) canonical_frames: u64,
@@ -962,6 +975,7 @@ pub(super) struct SpatialCounts {
     pub(super) conflict_region_points: u64,
 }
 
+/// 准入领域记录计数：参与者类别、车辆配置、准入规则与规则-类别引用。
 #[derive(Default)]
 pub(super) struct AccessCounts {
     pub(super) participant_classes: u64,
@@ -971,6 +985,7 @@ pub(super) struct AccessCounts {
 }
 
 impl AccessCounts {
+    /// 准入领域实体总数（参与者类别 + 准入规则 + 车辆配置）。
     pub(super) fn entity_count(&self) -> u64 {
         self.participant_classes
             .saturating_add(self.access_rules)
@@ -998,6 +1013,7 @@ fn lane_edge_reference_count(unit: &CompilationUnit) -> u64 {
         })
 }
 
+/// 统计编译单元的横断面领域实体与成员计数。
 pub(super) fn cross_section_counts(unit: &CompilationUnit) -> CrossSectionCounts {
     let mut counts = CrossSectionCounts::default();
     for declaration in unit
@@ -1055,6 +1071,7 @@ pub(super) fn cross_section_counts(unit: &CompilationUnit) -> CrossSectionCounts
     counts
 }
 
+/// 统计编译单元的路口领域实体、路径边与声明边集合计数。
 pub(super) fn junction_counts(unit: &CompilationUnit) -> JunctionCounts {
     let mut counts = JunctionCounts::default();
     for declaration in unit
@@ -1089,6 +1106,7 @@ pub(super) fn junction_counts(unit: &CompilationUnit) -> JunctionCounts {
     counts
 }
 
+/// 统计编译单元的通行权控制领域实体计数。
 pub(super) fn control_counts(unit: &CompilationUnit) -> ControlCounts {
     let mut counts = ControlCounts {
         maneuver_gates: unit.maneuver_gate_count,
@@ -1111,6 +1129,7 @@ pub(super) fn control_counts(unit: &CompilationUnit) -> ControlCounts {
     counts
 }
 
+/// 统计编译单元的信号领域实体与成员计数。
 pub(super) fn signal_counts(unit: &CompilationUnit) -> SignalCounts {
     let mut counts = SignalCounts::default();
     for declaration in unit
@@ -1150,6 +1169,7 @@ pub(super) fn signal_counts(unit: &CompilationUnit) -> SignalCounts {
     counts
 }
 
+/// 统计编译单元的停车领域实体、成员与虚拟锚点计数。
 pub(super) fn parking_counts(unit: &CompilationUnit) -> ParkingCounts {
     let mut counts = ParkingCounts::default();
     for declaration in unit
@@ -1179,6 +1199,7 @@ pub(super) fn parking_counts(unit: &CompilationUnit) -> ParkingCounts {
     counts
 }
 
+/// 统计编译单元的冲突领域实体与穿越记录计数。
 pub(super) fn conflict_counts(unit: &CompilationUnit) -> ConflictCounts {
     let mut counts = ConflictCounts::default();
     for declaration in unit
@@ -1202,6 +1223,7 @@ pub(super) fn conflict_counts(unit: &CompilationUnit) -> ConflictCounts {
     counts
 }
 
+/// 统计编译单元的准入领域实体与规则-类别引用计数。
 pub(super) fn access_counts(unit: &CompilationUnit) -> AccessCounts {
     let mut counts = AccessCounts::default();
     for declaration in unit
@@ -1228,6 +1250,7 @@ pub(super) fn access_counts(unit: &CompilationUnit) -> AccessCounts {
     counts
 }
 
+/// 统计编译单元的空间领域几何、来源区间与点/线段计数。
 pub(super) fn spatial_counts(unit: &CompilationUnit) -> SpatialCounts {
     let mut counts = SpatialCounts::default();
     for declaration in unit

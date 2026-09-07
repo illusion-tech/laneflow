@@ -110,53 +110,96 @@ use std::sync::Arc;
 pub(crate) enum HirModuleTag {}
 /// 区分 HIR 车道图边表键的零尺寸阶段标记。
 pub(crate) enum HirLaneEdgeTag {}
+/// 区分 HIR 道路走廊表键的零尺寸阶段标记。
 pub(crate) enum HirRoadCorridorTag {}
+/// 区分 HIR 道路区段表键的零尺寸阶段标记。
 pub(crate) enum HirRoadSectionTag {}
+/// 区分 HIR 编制车道表键的零尺寸阶段标记。
 pub(crate) enum HirAuthoringLaneTag {}
+/// 区分 HIR 车道组表键的零尺寸阶段标记。
 pub(crate) enum HirLaneGroupTag {}
+/// 区分 HIR 设施带表键的零尺寸阶段标记。
 pub(crate) enum HirFacilityBandTag {}
+/// 区分 HIR 路口表键的零尺寸阶段标记。
 pub(crate) enum HirJunctionTag {}
+/// 区分 HIR 通行流向表键的零尺寸阶段标记。
 pub(crate) enum HirMovementTag {}
+/// 区分 HIR 机动路径表键的零尺寸阶段标记。
 pub(crate) enum HirManeuverPathTag {}
+/// 区分 HIR 停止线表键的零尺寸阶段标记。
 pub(crate) enum HirStopLineTag {}
+/// 区分 HIR 机动门表键的零尺寸阶段标记。
 pub(crate) enum HirManeuverGateTag {}
+/// 区分 HIR 等待区表键的零尺寸阶段标记。
 pub(crate) enum HirWaitingZoneTag {}
+/// 区分 HIR 信号组表键的零尺寸阶段标记。
 pub(crate) enum HirSignalGroupTag {}
+/// 区分 HIR 信号控制器表键的零尺寸阶段标记。
 pub(crate) enum HirSignalControllerTag {}
+/// 区分 HIR 信号相位表键的零尺寸阶段标记。
 pub(crate) enum HirSignalPhaseTag {}
+/// 区分 HIR 停车设施表键的零尺寸阶段标记。
 pub(crate) enum HirParkingFacilityTag {}
+/// 区分 HIR 停车位表键的零尺寸阶段标记。
 pub(crate) enum HirParkingSpaceTag {}
+/// 区分 HIR 参与者类别表键的零尺寸阶段标记。
 pub(crate) enum HirParticipantClassTag {}
+/// 区分 HIR 车辆配置表键的零尺寸阶段标记。
 pub(crate) enum HirVehicleProfileTag {}
+/// 区分 HIR 规范坐标框架表键的零尺寸阶段标记。
 pub(crate) enum HirCanonicalFrameTag {}
+/// 区分 HIR 准入规则表键的零尺寸阶段标记。
 pub(crate) enum HirAccessRuleTag {}
+/// 区分 HIR 冲突区表键的零尺寸阶段标记。
 pub(crate) enum HirConflictZoneTag {}
+/// 区分 HIR 参与者流表键的零尺寸阶段标记。
 pub(crate) enum HirParticipantStreamTag {}
 
 /// 仅在当前 `HirUnit` 模块表内有效的致密键。
 pub(crate) type HirModuleKey = ArenaKey<HirModuleTag>;
 /// 仅在当前 `HirUnit` 车道图边表内有效的致密键。
 pub(crate) type HirLaneEdgeKey = ArenaKey<HirLaneEdgeTag>;
+/// 仅在当前 `HirUnit` 道路走廊表内有效的致密键。
 pub(crate) type HirRoadCorridorKey = ArenaKey<HirRoadCorridorTag>;
+/// 仅在当前 `HirUnit` 道路区段表内有效的致密键。
 pub(crate) type HirRoadSectionKey = ArenaKey<HirRoadSectionTag>;
+/// 仅在当前 `HirUnit` 编制车道表内有效的致密键。
 pub(crate) type HirAuthoringLaneKey = ArenaKey<HirAuthoringLaneTag>;
+/// 仅在当前 `HirUnit` 车道组表内有效的致密键。
 pub(crate) type HirLaneGroupKey = ArenaKey<HirLaneGroupTag>;
+/// 仅在当前 `HirUnit` 设施带表内有效的致密键。
 pub(crate) type HirFacilityBandKey = ArenaKey<HirFacilityBandTag>;
+/// 仅在当前 `HirUnit` 路口表内有效的致密键。
 pub(crate) type HirJunctionKey = ArenaKey<HirJunctionTag>;
+/// 仅在当前 `HirUnit` 通行流向表内有效的致密键。
 pub(crate) type HirMovementKey = ArenaKey<HirMovementTag>;
+/// 仅在当前 `HirUnit` 机动路径表内有效的致密键。
 pub(crate) type HirManeuverPathKey = ArenaKey<HirManeuverPathTag>;
+/// 仅在当前 `HirUnit` 停止线表内有效的致密键。
 pub(crate) type HirStopLineKey = ArenaKey<HirStopLineTag>;
+/// 仅在当前 `HirUnit` 机动门表内有效的致密键。
 pub(crate) type HirManeuverGateKey = ArenaKey<HirManeuverGateTag>;
+/// 仅在当前 `HirUnit` 等待区表内有效的致密键。
 pub(crate) type HirWaitingZoneKey = ArenaKey<HirWaitingZoneTag>;
+/// 仅在当前 `HirUnit` 信号组表内有效的致密键。
 pub(crate) type HirSignalGroupKey = ArenaKey<HirSignalGroupTag>;
+/// 仅在当前 `HirUnit` 信号控制器表内有效的致密键。
 pub(crate) type HirSignalControllerKey = ArenaKey<HirSignalControllerTag>;
+/// 仅在当前 `HirUnit` 停车设施表内有效的致密键。
 pub(crate) type HirParkingFacilityKey = ArenaKey<HirParkingFacilityTag>;
+/// 仅在当前 `HirUnit` 停车位表内有效的致密键。
 pub(crate) type HirParkingSpaceKey = ArenaKey<HirParkingSpaceTag>;
+/// 仅在当前 `HirUnit` 参与者类别表内有效的致密键。
 pub(crate) type HirParticipantClassKey = ArenaKey<HirParticipantClassTag>;
+/// 仅在当前 `HirUnit` 车辆配置表内有效的致密键。
 pub(crate) type HirVehicleProfileKey = ArenaKey<HirVehicleProfileTag>;
+/// 仅在当前 `HirUnit` 规范坐标框架表内有效的致密键。
 pub(crate) type HirCanonicalFrameKey = ArenaKey<HirCanonicalFrameTag>;
+/// 仅在当前 `HirUnit` 准入规则表内有效的致密键。
 pub(crate) type HirAccessRuleKey = ArenaKey<HirAccessRuleTag>;
+/// 仅在当前 `HirUnit` 冲突区表内有效的致密键。
 pub(crate) type HirConflictZoneKey = ArenaKey<HirConflictZoneTag>;
+/// 仅在当前 `HirUnit` 参与者流表内有效的致密键。
 pub(crate) type HirParticipantStreamKey = ArenaKey<HirParticipantStreamTag>;
 
 /// HIR 阶段成功后一次性冻结的连续只读表集合。

@@ -24,16 +24,19 @@ pub struct DerivedPolicyGap {
     required_lag_ms: u64,
 }
 impl DerivedPolicyGap {
+    /// 所需前导间隙（毫秒）。
     #[must_use]
     pub const fn required_lead_ms(self) -> u64 {
         self.required_lead_ms
     }
+    /// 所需后随间隙（毫秒）。
     #[must_use]
     pub const fn required_lag_ms(self) -> u64 {
         self.required_lag_ms
     }
 }
 
+/// 安装时确定的世界策略绑定：选择、序号、按步长派生的间隙表与 frontier 证明时窗。
 pub(crate) struct WorldPolicyBinding {
     selection: WorldPolicySelection,
     ordinal: Option<RightOfWayPolicySetOrdinal>,
@@ -43,6 +46,7 @@ pub(crate) struct WorldPolicyBinding {
 
 #[cfg(test)]
 impl WorldPolicyBinding {
+    /// 测试用：策略绑定持有的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             selection: _,
@@ -55,6 +59,7 @@ impl WorldPolicyBinding {
 }
 
 impl WorldPolicyBinding {
+    /// 安装策略绑定：校验选择与共享根，按步长派生保守间隙表。
     pub(crate) fn install(
         revision: &SharedNetworkRevision,
         selection: WorldPolicySelection,
@@ -128,15 +133,19 @@ impl WorldPolicyBinding {
         })
     }
 
+    /// 安装时的策略选择。
     pub(crate) const fn selection(&self) -> WorldPolicySelection {
         self.selection
     }
+    /// 在所给共享修订上解析所选策略视图；未绑定时返回 `None`。
     pub(crate) fn policy<'a>(&self, revision: &'a SharedNetworkRevision) -> Option<PolicyView<'a>> {
         revision.policy().policy(self.ordinal?)
     }
+    /// 与所选策略 `gap_profiles` 同序的步长派生间隙表。
     pub(crate) fn gaps(&self) -> &[DerivedPolicyGap] {
         &self.gaps
     }
+    /// frontier 证明时窗（毫秒）；无策略时为 `None`。
     pub(crate) const fn horizon(&self) -> Option<u64> {
         self.frontier_proof_horizon_ms
     }

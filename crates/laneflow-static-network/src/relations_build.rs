@@ -30,6 +30,7 @@ use crate::{BuildError, BuildStructure, EntityCounts, RangeU32, SharedManeuverNe
 const STRUCTURE: BuildStructure = BuildStructure::RelationClosure;
 const MAX_PORTABLE_SIGNAL_TIME_MS: u64 = 9_007_199_254_740_991;
 
+/// 从受检规范路网输入构建全部实体关系闭包与派生索引。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_relations(
     view: ValueCheckedObjectView<'_>,
@@ -405,6 +406,7 @@ fn unique_stamp_bytes(limit: u32) -> Result<u64, BuildError> {
         })
 }
 
+/// 在实体 section 中按实体种类定位对应表；缺失时报输入不变量错误。
 pub(crate) fn entity_table<'a>(
     view: ValueCheckedObjectView<'a>,
     kind: EntityKind,
@@ -449,6 +451,7 @@ fn dest_len(len: usize) -> Result<u32, BuildError> {
     })
 }
 
+/// 预扫描各关系载荷的数量，供后续精确预算与分配。
 pub(crate) fn count_relation_payloads(
     view: ValueCheckedObjectView<'_>,
     entity_counts: &EntityCounts,
@@ -495,6 +498,7 @@ pub(crate) fn count_relation_payloads(
     })
 }
 
+/// 在已计数的载荷上补记 Access 单元数量，完成载荷预算。
 pub(crate) fn finish_relation_payloads(
     view: ValueCheckedObjectView<'_>,
     entity_counts: &EntityCounts,

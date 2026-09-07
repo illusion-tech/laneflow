@@ -53,6 +53,7 @@ pub(super) struct AdmissionTotals {
 }
 
 impl AdmissionTotals {
+    /// 返回叠加候选模块计数后的准入累计状态。
     #[inline]
     pub(super) fn candidate_after(
         self,
@@ -112,6 +113,7 @@ impl AdmissionTotals {
         }
     }
 
+    /// 汇总需对照限额配置档校验的各维度观测值。
     #[inline]
     pub(super) fn limit_observations(
         self,
@@ -181,10 +183,12 @@ fn planned_module_slot_capacity(current: u64, required: u64) -> u64 {
     required.next_power_of_two().max(4)
 }
 
+/// 按类型布局估算 `count` 个元素占用的字节数（饱和计算）。
 pub(crate) fn size_bytes<T>(count: u64) -> u64 {
     count.saturating_mul(u64::try_from(size_of::<T>()).unwrap_or(u64::MAX))
 }
 
+/// 按保守桶模型估算给定项数的哈希表请求字节预算。
 pub(super) fn requested_hash_table_bytes<K, V>(entry_count: u64) -> u64 {
     if entry_count == 0 {
         return 0;

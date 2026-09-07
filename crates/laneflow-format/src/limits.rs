@@ -11,6 +11,7 @@ use laneflow_static_contract::{
 
 use crate::{FormatError, LimitDimension};
 
+/// 单行 Row 的规范字节与 UTF-8/向量累计度量，用于限额记账。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct CanonicalRowMetrics {
     pub(crate) exact_byte_length: u64,
@@ -18,6 +19,7 @@ pub(crate) struct CanonicalRowMetrics {
     pub(crate) total_vector_bytes: u64,
 }
 
+/// 单个 Table chunk 的行数与字节/UTF-8/向量累计度量，用于限额记账。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct CanonicalChunkMetrics {
     pub(crate) row_count: u32,
@@ -27,6 +29,7 @@ pub(crate) struct CanonicalChunkMetrics {
 }
 
 impl CanonicalChunkMetrics {
+    /// 构造只含表头、尚无数据行的空 chunk 度量。
     pub(crate) const fn empty(table_header_byte_length: u64) -> Self {
         Self {
             row_count: 0,
@@ -37,6 +40,7 @@ impl CanonicalChunkMetrics {
     }
 }
 
+/// 试算向 chunk 追加一行后的累计度量；任一维度溢出或超出格式硬上限时返回 `None`。
 pub(crate) fn canonical_chunk_with_appended_row(
     object_kind: PortableObjectKind,
     section_kind: u16,
@@ -237,6 +241,7 @@ impl FormatLimits {
         self.0.max_staged_chunk_bytes
     }
 
+    /// 返回已校验未扩大格式天花板的调用方配置。
     pub(crate) const fn config(self) -> FormatLimitConfig {
         self.0
     }

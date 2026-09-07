@@ -22,6 +22,7 @@ use super::geometry::{
 
 const MAX_SOURCE_JOIN_GAP_METERS: f32 = 0.005;
 
+/// 参考线一站区间行：记录某源 segment 参数区间及其累计里程范围。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ReferenceStationRow {
     pub(super) segment_ordinal: u32,
@@ -31,6 +32,7 @@ pub(super) struct ReferenceStationRow {
     pub(super) cumulative_end_meters: f64,
 }
 
+/// 站点定位结果：命中行号、源 segment 序号与段内参数。
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ReferenceStationPosition {
@@ -39,6 +41,7 @@ pub(super) struct ReferenceStationPosition {
     pub(super) parameter: f64,
 }
 
+/// 按累计里程在站区间表中定位参考站点，越界时返回数值冻结错误。
 #[cfg(test)]
 pub(super) fn locate_reference_station(
     rows: &[ReferenceStationRow],
@@ -64,12 +67,14 @@ pub(super) fn locate_reference_station(
     })
 }
 
+/// 已编译完成的曲线：长度、规范点列与逐段来源范围。
 pub(super) struct CompiledCurve {
     pub(super) length: EdgeLength,
     pub(super) points: Box<[CanonicalPoint3F32Input]>,
     pub(super) source_ranges: Box<[CompiledGeometrySourceRange]>,
 }
 
+/// 已编译的对齐参考：站区间表与各 segment 的水平正则性证明访问记录。
 pub(super) struct CompiledAlignmentReference {
     pub(super) station_rows: Box<[ReferenceStationRow]>,
     pub(super) horizontal_regularity_visits: Box<[u32]>,
@@ -81,6 +86,7 @@ struct AlignmentReferenceSizing {
     horizontal_regularity_visits: Box<[u32]>,
 }
 
+/// 成员车道相对参考线的起止横向偏移（米）。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct MemberOffsetEndpoints {
     pub(super) start_meters: f64,
@@ -91,6 +97,7 @@ fn canonicalize_zero(value: f64) -> f64 {
     if value == 0.0 { 0.0 } else { value }
 }
 
+/// 由宽度剖面推导各成员车道的起止横向偏移；宽度非法或参考序号越界时失败。
 pub(super) fn derive_member_offset_endpoints(
     width_profiles: &[AuthoringWidthProfile],
     reference_ordinal: usize,
@@ -323,6 +330,7 @@ fn alignment_input_scratch_bytes(alignments: &[RoadAlignmentDeclaration]) -> Opt
     )
 }
 
+/// 几何编译的资源用量：输出点数、来源范围数与 scratch/live 峰值。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct GeometryCompilationUsage {
     pub(super) output_point_count: u64,
@@ -332,6 +340,7 @@ pub(super) struct GeometryCompilationUsage {
     pub(super) peak_output_and_scratch_bytes: u64,
 }
 
+/// 几何编译的封闭预算：站行字节、点数、scratch 与 live 余量上限。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct GeometryCompilationBudget {
     pub(super) station_row_byte_limit: u64,
@@ -346,6 +355,7 @@ struct CurveSizing {
     source_range_count: usize,
 }
 
+/// 几何编译失败原因：数值冻结错误、scratch 超限或 live 字节超限。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum GeometryCompilationError {
     Numeric {
@@ -513,6 +523,7 @@ struct PendingFacilityGeometry {
     value: Option<CompiledFacilityBandGeometry>,
 }
 
+/// 将全部道路对齐的编辑曲线编译为共同规范几何，并把结果写回对应声明。
 #[allow(
     clippy::too_many_arguments,
     clippy::too_many_lines,
@@ -1497,6 +1508,7 @@ fn check_live_limit(
     Ok(observed)
 }
 
+/// 先测量后精确编译一条显式曲线程序（测试专用）。
 #[cfg(test)]
 pub(super) fn compile_explicit_curve(
     program: &AuthoringCurveProgramDeclaration,
@@ -1587,6 +1599,7 @@ fn closed_traffic_lane_edge_length(length: EdgeLength) -> Result<EdgeLength, Num
     Ok(length)
 }
 
+/// 编译对齐参考的站区间表与水平正则性记录（测试专用）。
 #[cfg(test)]
 pub(super) fn compile_alignment_reference(
     program: &AuthoringCurveProgramDeclaration,
@@ -1681,6 +1694,7 @@ fn compile_measured_alignment_reference(
     })
 }
 
+/// 按起止偏移沿对齐参考编译一条横向偏移曲线（测试专用）。
 #[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn compile_offset_curve(
