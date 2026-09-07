@@ -17,7 +17,8 @@ use laneflow_format::{
 };
 use laneflow_static_contract::{
     EntityKind, GateInterpretation, GateProhibition, ManeuverDirection, ManeuverGateOrdinal,
-    MovementOrdinal, PolicyLocalMemberKind, RightOfWayPolicySetOrdinal,
+    MovementOrdinal, ParticipantClassOrdinal, PolicyLocalMemberKind, RightOfWayPolicySetOrdinal,
+    StableId128,
 };
 
 const S: BuildStructure = BuildStructure::Policy;
@@ -304,11 +305,16 @@ pub(crate) fn build(
                 if selectors.is_empty() {
                     return Err(fail(r.policy, V::Reference));
                 }
-                validate_ordinals(
+                validate_stable_references(
                     ordinals(selectors),
                     identity.entity_count(EntityKind::ParticipantClass),
                     r.policy,
                     &mut budget,
+                    |raw| {
+                        identity
+                            .stable_id(ParticipantClassOrdinal::from_raw(raw))
+                            .map(|id| id.into_untyped())
+                    },
                 )?;
             }
         }
@@ -317,6 +323,7 @@ pub(crate) fn build(
     let resolved = resolve::build(
         traffic,
         conflict,
+        identity,
         &streams,
         &gates,
         &gaps,
@@ -338,19 +345,25 @@ pub(crate) fn build(
     })
 }
 
-fn validate_ordinals(
+// LFCA policy sets use referenced StableId byte order, independently of typed ordinal order.
+fn validate_stable_references(
     values: impl Iterator<Item = u32>,
     limit: u32,
     policy: u32,
     budget: &mut Budget<'_>,
+    stable_id: impl Fn(u32) -> Option<StableId128>,
 ) -> Result<(), BuildError> {
     let mut previous = None;
     for v in values {
         budget.charge_work(1)?;
-        if v >= limit || previous.is_some_and(|p| p >= v) {
+        if v >= limit {
             return Err(fail(policy, V::Reference));
         }
-        previous = Some(v);
+        let id = stable_id(v).ok_or_else(|| fail(policy, V::Reference))?;
+        if previous.is_some_and(|p| p >= id) {
+            return Err(fail(policy, V::Reference));
+        }
+        previous = Some(id);
     }
     Ok(())
 }
@@ -428,4 +441,38 @@ fn validate_gates(
 
 fn ordinals(v: laneflow_format::RegistryCheckedOrdinalVectorView<'_>) -> impl Iterator<Item = u32> {
     (0..v.len()).map(move |i| v.get(i).expect("checked ordinal vector"))
+}
+
+#[cfg(test)]
+mod reference_order_tests {
+    use super::*;
+
+    #[test]
+    fn policy_sets_follow_stable_identity_order_and_still_reject_invalid_sets() {
+        let ids = [
+            StableId128::from_bytes([2; 16]),
+            StableId128::from_bytes([1; 16]),
+        ];
+        for (values, valid) in [
+            (vec![1, 0], true),
+            (vec![0, 1], false),
+            (vec![1, 1], false),
+            (vec![2], false),
+        ] {
+            let mut budget = Budget {
+                options: SharedNetworkBuildOptions::new(
+                    crate::SpatialBuildOption::Omit,
+                    crate::SharedNetworkBuildLimits::new(1_024, 1_024),
+                ),
+                retained: 0,
+                scratch: 0,
+                work: 0,
+            };
+            let result =
+                validate_stable_references(values.iter().copied(), 2, 0, &mut budget, |ordinal| {
+                    ids.get(ordinal as usize).copied()
+                });
+            assert_eq!(result.is_ok(), valid, "{values:?}");
+        }
+    }
 }

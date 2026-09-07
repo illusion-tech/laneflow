@@ -1,0 +1,769 @@
+manifest_version = 1
+generator = "laneflow-urban-generator-v1"
+scale = "100k"
+cells = 1000
+tiles = 100
+tile_columns = 15
+nominal_individuals = 100000
+fixed_step_ms = 33
+compile_limits = "LF-COMP-SINGLE-NETWORK-1M-v2"
+format_limits = "FormatLimits::HARD"
+network_revision = "cd9cbe68dd9686216a9303ab95aef5ad26b5a819158fa507f8c46d0f238e58ee"
+source_import_edges = ["workload/lf-cn-urban/v1 -> workload/lf-cn-urban/common/v1"]
+lir_logical_records = 1454546
+compiler_output_logical_bytes = 40388602
+compiler_controlled_peak_bytes = 1259346154
+shared_headless_retained_bytes = 13488124
+shared_spatial_retained_bytes = 35900620
+resolved_policy_gate_rows = 11000
+resolved_policy_stream_rows = 10200
+hir_mir_counts = "unmeasured: private IR; accepted under the unchanged compiler profile"
+lane_length_mm = 1218879200
+road_alignment_length_mm = 703000000
+bounds_min_meters = [
+    0.0,
+    -1.0,
+    0.0,
+]
+bounds_max_meters = [
+    7500.0,
+    1.0,
+    8750.0,
+]
+route_edge_occurrences = 72390
+route_conflict_occurrences = 102048
+appearance_catalog = "host-owned; no appearance definitions emitted"
+
+[shared_build_limits]
+max_policy_work = 16777216
+max_retained_bytes = 2147483648
+max_scratch_bytes = 2147483648
+
+[files."common.lfre"]
+bytes = 1024
+sha256 = "dfe55ed30c9ebac121adb63417df2e9995b4c4e903cf9b948f74879d8cf0720a"
+
+[files."config.toml"]
+bytes = 1301
+sha256 = "5b426d8b92e7d7ea0f4bf219f473f065c9c2af8cf2978a84b195dc7df702b0d8"
+
+[files."genesis.lfsd"]
+bytes = 171296210
+sha256 = "82c07851c7b446fccafd5d5002884146d3a1e3ab64ecd18b9be0a8ee608d6a54"
+
+[files."network.lfca"]
+bytes = 162397835
+sha256 = "1eb85b67fbb0fa192e207be3f7816d3a010a7ae2d34d7ed8391033c296ddaf84"
+
+[files."routes.toml"]
+bytes = 9390023
+sha256 = "dec048420766dad39ae82fe4e812e43ef389c8f12f0f024db6d0d182234f74f3"
+
+[files."source-map.lfsm"]
+bytes = 213077371
+sha256 = "c5014524bd4d7a28507566e79859af1466626f725c52d9cb543ccf7acb4504af"
+
+[files."topology.lfre"]
+bytes = 24870952
+sha256 = "fc8040e846bc8eb9343d9fb2698a72e9f964fb48eb41319bab7ab21fbd695eae"
+
+[source_declarations]
+canonical-frame = 1
+conflict-zone = 21400
+conflict-zone-region = 21400
+corridor = 7400
+gate = 11000
+junction = 1000
+lane = 7400
+lane-edge = 18400
+movement = 10200
+parking-facility = 1100
+parking-space = 2000
+participant-class = 1
+participant-stream = 10200
+path = 10200
+right-of-way-policy-set = 1
+road-alignment = 7400
+section = 7400
+signal-controller = 700
+signal-group = 2600
+signal-phase = 7800
+stop-line = 4500
+vehicle-profile = 3
+waiting-zone = 400
+
+[source_references]
+canonical-frame = 0
+conflict-zone = 21400
+conflict-zone-region = 42800
+corridor = 22200
+gate = 31200
+junction = 18400
+lane = 14800
+lane-edge = 3270
+movement = 10200
+parking-facility = 2400
+parking-space = 6000
+participant-class = 0
+participant-stream = 106000
+path = 41600
+right-of-way-policy-set = 24200
+road-alignment = 7400
+section = 14800
+signal-controller = 10400
+signal-group = 0
+signal-phase = 37800
+stop-line = 4500
+vehicle-profile = 3
+waiting-zone = 1200
+
+[lir_counts]
+access_rules = 0
+authoring_lanes = 7400
+canonical_frames = 1
+facility_bands = 0
+junction_internal_edges = 11000
+junctions = 1000
+lane_edges = 18400
+lane_groups = 0
+lane_successors = 3270
+maneuver_gates = 11000
+maneuver_paths = 10200
+movements = 10200
+parking_facilities = 1100
+parking_spaces = 2000
+participant_classes = 1
+path_edge_occurrences = 31400
+road_corridors = 7400
+road_sections = 7400
+signal_controllers = 700
+signal_groups = 2600
+signal_phases = 7800
+stop_lines = 4500
+vehicle_profiles = 3
+waiting_zones = 400
+
+[[lfca_tables]]
+section = "ContractVersions"
+table = "ContractVersions"
+rows = 1
+chunks = 1
+max_chunk_rows = 1
+max_chunk_bytes = 116
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalIdentityTable"
+table = "CanonicalIdentity"
+rows = 123706
+chunks = 3
+max_chunk_rows = 50985
+max_chunk_bytes = 12773256
+
+[lfca_tables.nested_rows]
+identityFields = 374212
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "RoadCorridor"
+rows = 7400
+chunks = 1
+max_chunk_rows = 7400
+max_chunk_bytes = 1013816
+
+[lfca_tables.nested_rows]
+elements = 7400
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "RoadSection"
+rows = 7400
+chunks = 1
+max_chunk_rows = 7400
+max_chunk_bytes = 865816
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "AuthoringLane"
+rows = 7400
+chunks = 1
+max_chunk_rows = 7400
+max_chunk_bytes = 710416
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "LaneEdge"
+rows = 18400
+chunks = 1
+max_chunk_rows = 18400
+max_chunk_bytes = 2000296
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "Junction"
+rows = 1000
+chunks = 1
+max_chunk_rows = 1000
+max_chunk_bytes = 116816
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "Movement"
+rows = 10200
+chunks = 1
+max_chunk_rows = 10200
+max_chunk_bytes = 1377016
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "ManeuverPath"
+rows = 10200
+chunks = 1
+max_chunk_rows = 10200
+max_chunk_bytes = 1436016
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "ManeuverGate"
+rows = 11000
+chunks = 1
+max_chunk_rows = 11000
+max_chunk_bytes = 1478216
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "WaitingZone"
+rows = 400
+chunks = 1
+max_chunk_rows = 400
+max_chunk_bytes = 49616
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "StopLine"
+rows = 4500
+chunks = 1
+max_chunk_rows = 4500
+max_chunk_bytes = 458016
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "SignalGroup"
+rows = 2600
+chunks = 1
+max_chunk_rows = 2600
+max_chunk_bytes = 276016
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "SignalController"
+rows = 700
+chunks = 1
+max_chunk_rows = 700
+max_chunk_bytes = 134016
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "SignalPhase"
+rows = 7800
+chunks = 1
+max_chunk_rows = 7800
+max_chunk_bytes = 2223616
+
+[lfca_tables.nested_rows]
+states = 30000
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "ParkingFacility"
+rows = 1100
+chunks = 1
+max_chunk_rows = 1100
+max_chunk_bytes = 259616
+
+[lfca_tables.nested_rows]
+virtualEntries = 1200
+virtualExits = 1200
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "ParkingSpace"
+rows = 2000
+chunks = 1
+max_chunk_rows = 2000
+max_chunk_bytes = 408016
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "LaneGroup"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "FacilityBand"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "ParticipantClass"
+rows = 1
+chunks = 1
+max_chunk_rows = 1
+max_chunk_bytes = 124
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "AccessRule"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+regulation = 0
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "VehicleProfile"
+rows = 3
+chunks = 1
+max_chunk_rows = 3
+max_chunk_bytes = 580
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "ConflictZone"
+rows = 21400
+chunks = 1
+max_chunk_rows = 21400
+max_chunk_bytes = 1626416
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "CanonicalFrame"
+rows = 1
+chunks = 1
+max_chunk_rows = 1
+max_chunk_bytes = 76
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "ParticipantStream"
+rows = 10200
+chunks = 1
+max_chunk_rows = 10200
+max_chunk_bytes = 4953616
+
+[lfca_tables.nested_rows]
+passages = 42800
+
+[[lfca_tables]]
+section = "CanonicalEntityTables"
+table = "RightOfWayPolicySet"
+rows = 1
+chunks = 1
+max_chunk_rows = 1
+max_chunk_bytes = 140
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalRelationTables"
+table = "JunctionInternalEdge"
+rows = 11000
+chunks = 1
+max_chunk_rows = 11000
+max_chunk_bytes = 528016
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalRelationTables"
+table = "PolicyEvidence"
+rows = 1
+chunks = 1
+max_chunk_rows = 1
+max_chunk_bytes = 222
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalRelationTables"
+table = "PolicyGapProfile"
+rows = 1
+chunks = 1
+max_chunk_rows = 1
+max_chunk_bytes = 162
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalRelationTables"
+table = "PolicyStreamRule"
+rows = 10200
+chunks = 1
+max_chunk_rows = 10200
+max_chunk_bytes = 1665316
+
+[lfca_tables.nested_rows]
+evidenceKeys = 10200
+
+[[lfca_tables]]
+section = "CanonicalRelationTables"
+table = "PolicyGateRule"
+rows = 11000
+chunks = 1
+max_chunk_rows = 11000
+max_chunk_bytes = 1793816
+
+[lfca_tables.nested_rows]
+evidenceKeys = 11000
+
+[[lfca_tables]]
+section = "CanonicalSpatialTables"
+table = "SpatialPresence"
+rows = 1
+chunks = 1
+max_chunk_rows = 1
+max_chunk_bytes = 58
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CanonicalSpatialTables"
+table = "LaneEdgeGeometry"
+rows = 18400
+chunks = 12
+max_chunk_rows = 8122
+max_chunk_bytes = 9205122
+
+[lfca_tables.nested_rows]
+points = 485484
+segments = 467084
+
+[[lfca_tables]]
+section = "CanonicalSpatialTables"
+table = "FacilityBandGeometry"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+points = 0
+
+[[lfca_tables]]
+section = "CanonicalSpatialTables"
+table = "ConflictZoneRegion"
+rows = 21400
+chunks = 1
+max_chunk_rows = 21400
+max_chunk_bytes = 6163216
+
+[lfca_tables.nested_rows]
+ringXZ = 85600
+
+[[lfca_tables]]
+section = "StaticExecutionConstraints"
+table = "ExecutionContract"
+rows = 1
+chunks = 1
+max_chunk_rows = 1
+max_chunk_bytes = 60
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CompilerProvenance"
+table = "CompilerProvenance"
+rows = 1
+chunks = 1
+max_chunk_rows = 1
+max_chunk_bytes = 200
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "ArtifactClaims"
+table = "ArtifactClaims"
+rows = 1
+chunks = 1
+max_chunk_rows = 1
+max_chunk_bytes = 76
+
+[lfca_tables.nested_rows]
+
+[[lfsm_tables]]
+section = "SourceMapBindings"
+table = "SourceMapBindings"
+rows = 1
+chunks = 1
+max_chunk_rows = 1
+max_chunk_bytes = 265
+
+[lfsm_tables.nested_rows]
+
+[[lfsm_tables]]
+section = "SourceModules"
+table = "SourceModule"
+rows = 2
+chunks = 1
+max_chunk_rows = 2
+max_chunk_bytes = 819
+
+[lfsm_tables.nested_rows]
+imports = 1
+
+[[lfsm_tables]]
+section = "SourceModules"
+table = "SourceDocument"
+rows = 2
+chunks = 1
+max_chunk_rows = 2
+max_chunk_bytes = 297
+
+[lfsm_tables.nested_rows]
+
+[[lfsm_tables]]
+section = "SourceModules"
+table = "SourceLocation"
+rows = 558694
+chunks = 10
+max_chunk_rows = 65536
+max_chunk_bytes = 16777162
+
+[lfsm_tables.nested_rows]
+propertySteps = 629096
+
+[[lfsm_tables]]
+section = "StableEntitySources"
+table = "StableEntitySource"
+rows = 123706
+chunks = 2
+max_chunk_rows = 65536
+max_chunk_bytes = 6987632
+
+[lfsm_tables.nested_rows]
+
+[[lfsm_tables]]
+section = "OwnerLocalSources"
+table = "OwnerLocalSource"
+rows = 314275
+chunks = 5
+max_chunk_rows = 65536
+max_chunk_bytes = 7958000
+
+[lfsm_tables.nested_rows]
+
+[[lfsm_tables]]
+section = "OwnerLocalSources"
+table = "SpatialGeometrySourceRange"
+rows = 39800
+chunks = 1
+max_chunk_rows = 39800
+max_chunk_bytes = 6009816
+
+[lfsm_tables.nested_rows]
+
+[[lfsm_tables]]
+section = "DerivedRelationSources"
+table = "DerivedRelationSource"
+rows = 11000
+chunks = 1
+max_chunk_rows = 11000
+max_chunk_bytes = 1485016
+
+[lfsm_tables.nested_rows]
+
+[installed_entities]
+access-rule = 0
+canonical-frame = 1
+conflict-zone = 21400
+corridor = 7400
+facility-band = 0
+gate = 11000
+junction = 1000
+lane = 7400
+lane-edge = 18400
+lane-group = 0
+movement = 10200
+parking-facility = 1100
+parking-space = 2000
+participant-class = 1
+participant-stream = 10200
+path = 10200
+right-of-way-policy-set = 1
+section = 7400
+signal-controller = 700
+signal-group = 2600
+signal-phase = 7800
+stop-line = 4500
+vehicle-profile = 3
+waiting-zone = 400
+
+[route_categories]
+cross-cell = 2000
+cross-tile = 1270
+junction = 10200
+parking-arrival = 3200
+parking-departure = 3200
+
+[parking_capacity_by_tile]
+t000 = 2020
+t001 = 2020
+t002 = 2020
+t003 = 2020
+t004 = 2020
+t005 = 2020
+t006 = 2020
+t007 = 2020
+t008 = 2020
+t009 = 2020
+t010 = 2020
+t011 = 2020
+t012 = 2020
+t013 = 2020
+t014 = 2020
+t015 = 2020
+t016 = 2020
+t017 = 2020
+t018 = 2020
+t019 = 2020
+t020 = 2020
+t021 = 2020
+t022 = 2020
+t023 = 2020
+t024 = 2020
+t025 = 2020
+t026 = 2020
+t027 = 2020
+t028 = 2020
+t029 = 2020
+t030 = 2020
+t031 = 2020
+t032 = 2020
+t033 = 2020
+t034 = 2020
+t035 = 2020
+t036 = 2020
+t037 = 2020
+t038 = 2020
+t039 = 2020
+t040 = 2020
+t041 = 2020
+t042 = 2020
+t043 = 2020
+t044 = 2020
+t045 = 2020
+t046 = 2020
+t047 = 2020
+t048 = 2020
+t049 = 2020
+t050 = 2020
+t051 = 2020
+t052 = 2020
+t053 = 2020
+t054 = 2020
+t055 = 2020
+t056 = 2020
+t057 = 2020
+t058 = 2020
+t059 = 2020
+t060 = 2020
+t061 = 2020
+t062 = 2020
+t063 = 2020
+t064 = 2020
+t065 = 2020
+t066 = 2020
+t067 = 2020
+t068 = 2020
+t069 = 2020
+t070 = 2020
+t071 = 2020
+t072 = 2020
+t073 = 2020
+t074 = 2020
+t075 = 2020
+t076 = 2020
+t077 = 2020
+t078 = 2020
+t079 = 2020
+t080 = 2020
+t081 = 2020
+t082 = 2020
+t083 = 2020
+t084 = 2020
+t085 = 2020
+t086 = 2020
+t087 = 2020
+t088 = 2020
+t089 = 2020
+t090 = 2020
+t091 = 2020
+t092 = 2020
+t093 = 2020
+t094 = 2020
+t095 = 2020
+t096 = 2020
+t097 = 2020
+t098 = 2020
+t099 = 2020
+
+[checks]
+active-individual-runtime = "not run; owned by #544"
+compile = "pass"
+directed-successors = "pass"
+empty-world-headless = "pass"
+empty-world-spatial = "pass"
+explicit-parking-spatial-geometry = "pass"
+geometry-continuity = "pass"
+parking-route-coverage = "pass"
+post-emission = "pass"
+route-registration = "pass"
+shared-headless = "pass"
+shared-spatial = "pass"
+single-weak-component = "pass"

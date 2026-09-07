@@ -325,9 +325,11 @@ fn visit_targets(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn build(
     traffic: &SharedTrafficNetwork,
     conflict: &SharedConflictNetwork,
+    identity: &SharedIdentityIndex,
     stream_rules: &[Local<'_>],
     gate_rules: &[Local<'_>],
     gaps: &[Local<'_>],
@@ -352,11 +354,16 @@ pub(super) fn build(
         budget.charge_work(1)?;
         let owner = checked_u32(r.row, 3, S)?;
         let targets = checked_ordinal_vector(r.row, 6, S)?;
-        validate_ordinals(
+        validate_stable_references(
             ordinals(targets),
             traffic.entity_counts().count(EntityKind::ParticipantStream),
             r.policy,
             budget,
+            |raw| {
+                identity
+                    .stable_id(ParticipantStreamOrdinal::from_raw(raw))
+                    .map(|id| id.into_untyped())
+            },
         )?;
         let gap = optional_text(r.row, 7)?;
         if targets.is_empty() != gap.is_none() {
