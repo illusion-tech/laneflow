@@ -144,7 +144,7 @@ handle 前记录为 `role-held` 并按共同有限预算重试；因此相邻 de
 | `MIXED-PEAK`         | 背景跨块行程、20 条车库离场，以及 bay1 和未满虚拟池各一个到达角色                                  | 至少一个真实跨 tile 完成行程、受信号约束的等待及随后通行、一次停车转换；统计方向、准入、完成和积压  |
 | `GARAGE-EGRESS`      | 车库 20 个已停个体，交替使用两个已编译出口；其中一个出口安排有限占用脉冲                           | 两个出口各至少一次成功离场；至少一次安全拒绝及同一请求的成功重试，身份与原绑定在拒绝后保留          |
 | `GARAGE-INGRESS`     | bay1 到达、未满 mixed 虚拟池到达、向 bay0 和已满 c09 池的预留请求                                  | 显式和虚拟各一次实际 reserve→arrival→park，以及各一次真实满位/排他拒绝                              |
-| `WAITING-RELEASE`    | c00 的同一待转方向三个 FIFO 个体，配合有限下游占用脉冲                                             | entry、容量拒绝、下游 storage 拒绝、后继相位 release 各至少一次；入队者按权威队列顺序释放           |
+| `WAITING-RELEASE`    | c00 的同一待转方向三个 FIFO 个体，配合按信号周期重放至观测窗结束的有限下游占用脉冲                 | entry、容量拒绝、下游 storage 拒绝、后继相位 release 各至少一次；入队者按权威队列顺序释放           |
 | `PERMISSIVE-LEFT`    | c01 左转角色和同绿对向直行脉冲，脉冲结束后保留可用间隙                                             | 与对向流相关的 no-grant 和后续 grant/通过各至少一次                                                 |
 | `UNCONTROLLED-YIELD` | c04 主路脉冲、支路转入角色及相邻车库出口请求，主路脉冲有限终止                                     | 主路通过、支路因真实让行关系等待、空窗后的支路通过各至少一次                                        |
 | `BOUNDARY-BURST`     | 在已选相位边界的前/后相邻提交边界编排 leave、reserve、park、Completed replace 和显式 despawn/spawn | 实际相位变化、至少一次 lifecycle 成功、一次安全拒绝及有限重试成功；分别记录两个边界，不用平均值代替 |

@@ -166,6 +166,46 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
             }
         }
     }
+    let cycle_ticks = ResolvedPlan::for_case(
+        &artifacts,
+        UrbanCase::WaitingRelease,
+        Window::probe(128).unwrap(),
+    )
+    .unwrap()
+    .cycle_ticks;
+    let waiting_plan = ResolvedPlan::for_case(
+        &artifacts,
+        UrbanCase::WaitingRelease,
+        Window {
+            purpose: "probe".into(),
+            warm_up_ticks: cycle_ticks,
+            observation_ticks: cycle_ticks * 3,
+        },
+    )
+    .unwrap();
+    for tile in 0..waiting_plan.tiles {
+        let pulses: Vec<_> = waiting_plan
+            .role_departures
+            .iter()
+            .filter(|departure| {
+                departure.slot / 1_000 == tile && departure.role == "waiting-storage-pulse"
+            })
+            .collect();
+        assert_eq!(pulses.len(), 3, "tile {tile} waiting pulse count");
+        assert!(
+            pulses
+                .windows(2)
+                .all(|pair| pair[1].due_tick - pair[0].due_tick == cycle_ticks),
+            "tile {tile} waiting pulse cadence"
+        );
+        let unique_sequences: std::collections::BTreeSet<_> =
+            pulses.iter().map(|pulse| pulse.sequence).collect();
+        assert_eq!(
+            unique_sequences.len(),
+            pulses.len(),
+            "tile {tile} waiting pulse sequence identity"
+        );
+    }
     assert!(
         Window::correctness(&artifacts)
             .unwrap_err()
