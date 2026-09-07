@@ -13,9 +13,9 @@
 其他六套 case、全部 100k 正确性行、正式性能协议仍未交付，#544 保持开放。
 不增加 Traffic Runtime、共享静态路网、Adapter 的公共接口。
 
-10k 展开计划摘要保存在 [输入冻结记录](fixtures/v1/mixed-10k-plan.json)。当前城市试跑
-在 tick 172 被 [#609](https://github.com/illusion-tech/laneflow/issues/609) 的 Runtime
-边界起步缺陷阻塞，尚未取得正式 Mixed 通过证据。
+10k 展开计划摘要保存在 [输入冻结记录](fixtures/v2/mixed-10k-plan.json)。
+`urban-demand-v2` 将停车角色从入口竞争改为预先安排的既有 Active 个体；旧 v1
+结果保留为失败诊断，不能作为当前计划的通过证据。
 
 ## 运行
 
@@ -40,16 +40,17 @@ Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是�
 `(tile, slot, incarnation)`，profile 比例为 30:60:10。离场、入场保持身份，Completed
 原子替换使用请求序号派生的新 incarnation。
 
-背景按设计的道路臂、位置层和路线优先级展开。两名入场角色使用 slot 741/743：
-其初态位于 `c00.e.out` / `c00.n.out` 的 92000 mm，初始路线取在该臂结束的 junction
-路线，以便作为 Completed 等待预先指定的观察窗口请求。角色占用普通 slot 和位置，
-不额外生成个体。角色不会提前接受背景替换请求；这些请求如实记录 `role-held`。
+两名入场角色使用 slot 741/743，对应 `c08.bay1` 与 `c09.mixed`。先在实际入口臂上
+取小于停车锚点的最大候选位置，分别为 `c08.e.out` 的 66500 mm 与 `c09.w.out`
+的 32500 mm，路线使用该入口目录中的实际 occurrence。角色前方在同一臂上的候选
+位置留空，其余 748 个 Active 按 `(位置层, edge key)` 补齐，保持每 tile 750 Active。
 
-每 tile 的组 74 在观察窗口第一次到期时，组内 i=1/i=3 分别选择
-`c08.bay1` 显式入场和 `c09.mixed` 虚拟入场路线；其余请求保持七东三西。
-替换成功后在同一边界 reserve，公共 arrival observation 后的下一边界 park。
-两名角色入场后保持 Parked。车库 slot 880..899 在观察窗口起始的两个固定边界请求
-离场。上述位置、身份、路线、目标和 due tick 全部写进展开计划，不根据运行结果选角色。
+角色在边界 0 reserve；实际 arrival 后，park 在下一边界与预定最早边界两者的较晚者
+执行。最早边界为观察窗口起点后 1/3 个量子，分别写入 `arrivals` 计划。暖机到达后
+仍按真实 Active/Reserved 占用道路，直到观察期 park 成功；暖机到达不计作观察期事件。
+两名角色保持原 incarnation，入场后保持 Parked；背景替换请求如实记录 `role-held`。
+车库 slot 880..899 仍在观察窗口起始的两个固定边界请求离场。
+位置、身份、路线、目标和计划边界均从目录展开，不使用运行结果挑选输入。
 
 每条离场/替换请求最多八次，间隔四个 528 ms 量子。未完成、入口受阻或角色保留均不
 强制插车；耗尽请求继续记录。逐 tick 分开记录未来请求、可重试 pending 和 exhausted，
@@ -67,7 +68,8 @@ Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是�
   摘要覆盖公共 Waiting/Conflict 决定的全部顺序、身份、锚点和结果，包括 NotEvaluated。
   typed ordinal 由同一份受检 LFCA 绑定，摘要不包含随机句柄或 Debug 文本。
 - `result.json` 记录窗口、实际提交、逐 tile 触发和完整快照摘要；初态、暖机结束、
-  每观察周期末捕获完整快照。Failed 行不能通过 compare。
+  每观察周期末捕获完整快照。计划与结果均携带 `required_per_tile` 的冻结下限，
+  对照逐 tile 的实际计数；Failed 行不能通过 compare。
 - `diagnostics.json` 仅记录诊断耗时；step 范围只包围公共 step 调用，不含命令、oracle
   或快照。它不是正式三轮性能协议，未测量的内存不填零。运行失败另留 `failure.json`。
 
@@ -80,7 +82,8 @@ reservation release 的公开事件记录剩余 claim，核对资源区互斥和
 快照；未触发的原子性样本不宣称已测量。
 
 Mixed 正式行要求每 tile 在观察窗口中实际完成跨 tile 行程、红灯前停车后过门、
-离场、显式入场、虚拟入场。小试发现输入错误必须更新冻结输入和原因后重新取证，
+至少一次 park 或 leave，离场与两类入场分别报告。完整观察期入场链由 Ingress 行验证。
+小试发现输入错误必须更新冻结输入和原因后重新取证，
 不以缩小必要触发数或无限增加重试换取通过。
 
 `examples/boundary_probe.rs` 是从城市试跑缩小得到的单车诊断入口：在固定相位的边界

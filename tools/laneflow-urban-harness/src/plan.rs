@@ -77,8 +77,16 @@ pub struct DepartureBatch {
     pub sequence: u32,
     /// Exactly ten routes: seven eastbound and three westbound.
     pub routes: Vec<String>,
-    /// Optional arrival target for each of the ten requests.
-    pub parking: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ParkingArrival {
+    pub slot: u32,
+    pub sequence: u32,
+    pub target: String,
+    pub reserve_tick: u64,
+    /// An actual arrival is also required before the derived park command can run.
+    pub park_not_before_tick: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -104,11 +112,13 @@ pub struct ResolvedPlan {
     pub manifest_digest: String,
     pub files: BTreeMap<String, FileDigest>,
     pub window: Window,
+    pub required_per_tile: BTreeMap<String, u64>,
     pub max_attempts: u32,
     pub retry_ticks: u64,
     pub initial: Vec<InitialVehicle>,
     pub departures: Vec<DepartureBatch>,
     pub leaves: Vec<ParkingDeparture>,
+    pub arrivals: Vec<ParkingArrival>,
 }
 
 impl ResolvedPlan {
@@ -129,6 +139,7 @@ impl ResolvedPlan {
         let mut initial = Vec::new();
         let mut departures = Vec::new();
         let mut leaves = Vec::new();
+        let mut arrivals = Vec::new();
         let mut route_choices: BTreeMap<&str, Vec<_>> = BTreeMap::new();
         let rank = |kind: &str| match kind {
             "cross-tile" => 0,
@@ -156,27 +167,75 @@ impl ResolvedPlan {
             if arms.len() != 74 {
                 return Err(invalid(format!("tile {tile}: expected 74 arms")));
             }
+            let mut roles = BTreeMap::new();
+            let mut arrival_fronts = BTreeMap::new();
+            for (slot, suffix, role) in [
+                (741, "c08.bay1", "explicit-arrival"),
+                (743, "c09.mixed", "virtual-arrival"),
+            ] {
+                let target = format!("{prefix}{suffix}");
+                let parking = catalog
+                    .parking
+                    .iter()
+                    .find(|p| p.key == target)
+                    .ok_or_else(|| invalid("missing arrival role target"))?;
+                let anchor = parking
+                    .entries
+                    .first()
+                    .ok_or_else(|| invalid("missing entry"))?;
+                if !arms.contains(&&anchor.edge) {
+                    return Err(invalid("arrival role must start on an external arm"));
+                }
+                let progress_mm = (0..11)
+                    .map(|layer| 7_000 + 8_500 * layer)
+                    .rfind(|position| *position < anchor.progress_mm)
+                    .ok_or_else(|| invalid("no initial position before parking entry"))?;
+                arrival_fronts.insert(anchor.edge.as_str(), progress_mm);
+                roles.insert(
+                    slot,
+                    InitialVehicle {
+                        tile,
+                        slot,
+                        profile: profile(slot).into(),
+                        route: anchor.route.clone(),
+                        occurrence: anchor.route_edge_index,
+                        progress_mm,
+                        parking: None,
+                        role: Some(role.into()),
+                    },
+                );
+                arrivals.push(ParkingArrival {
+                    slot: tile * 1_000 + slot,
+                    sequence: 11_000_000 + tile * 1_000 + slot,
+                    target,
+                    reserve_tick: 0,
+                    park_not_before_tick: window.warm_up_ticks + u64::from(slot - 740) * quantum,
+                });
+            }
+            // Roles own their initial slot and the finite forward space on their entry arm.
+            // Fill all remaining individuals from the same ordered 814-position table.
+            let mut positions = (0..11).flat_map(|layer| {
+                let fronts = &arrival_fronts;
+                arms.iter().filter_map(move |edge| {
+                    let position = 7_000 + 8_500 * layer;
+                    fronts
+                        .get(edge.as_str())
+                        .is_none_or(|front| position < *front)
+                        .then_some((*edge, position))
+                })
+            });
             for slot in 0..750_u32 {
-                let edge = arms[slot as usize % 74];
+                if let Some(role) = roles.remove(&slot) {
+                    initial.push(role);
+                    continue;
+                }
+                let (edge, position) = positions
+                    .next()
+                    .ok_or_else(|| invalid("not enough initial arm positions"))?;
                 let choices = route_choices
                     .get(edge.as_str())
                     .ok_or_else(|| invalid("unrouted arm"))?;
-                let role = match slot {
-                    741 => Some("explicit-arrival"),
-                    743 => Some("virtual-arrival"),
-                    _ => None,
-                };
-                let (route, occurrence) = if role.is_some() {
-                    *choices
-                        .iter()
-                        .find(|(r, i)| r.category == "junction" && *i + 1 == r.edge_keys.len())
-                        .ok_or_else(|| {
-                            invalid("arrival role initial route must finish on an outgoing arm")
-                        })?
-                } else {
-                    choices[0]
-                };
-                let position = 7_000 + (slot / 74) * 8_500;
+                let (route, occurrence) = choices[0];
                 if artifacts.revision.traffic().lane_lengths_millimetres()
                     [artifacts.edges[edge].index()]
                     != 95_000
@@ -192,7 +251,7 @@ impl ResolvedPlan {
                     occurrence: occurrence as u32,
                     progress_mm: position,
                     parking: None,
-                    role: role.map(str::to_owned),
+                    role: None,
                 });
             }
             let mut targets: Vec<_> = catalog.parking.iter().filter(|p| p.tile == tile).collect();
@@ -260,40 +319,20 @@ impl ResolvedPlan {
             for group in 0..75_u32 {
                 let mut due = u64::from((tile * 75 + group + 544) % 64) * quantum;
                 let mut period = 0;
-                let mut role_assigned = false;
                 while due < window.end() {
-                    let role_batch = group == 74 && !role_assigned && due >= window.warm_up_ticks;
                     let mut routes = Vec::new();
-                    let mut parking = vec![String::new(); 10];
-                    for (i, target) in parking.iter_mut().enumerate() {
+                    for i in 0..10 {
                         let list = if i < 7 { &east } else { &west };
-                        let mut route = list[(group as usize * 10 + i + period) % list.len()]
+                        let route = list[(group as usize * 10 + i + period) % list.len()]
                             .key
                             .clone();
-                        if role_batch && matches!(i, 1 | 3) {
-                            let key = if i == 1 {
-                                format!("{prefix}c08.bay1")
-                            } else {
-                                format!("{prefix}c09.mixed")
-                            };
-                            let p = targets
-                                .iter()
-                                .find(|p| p.key == key)
-                                .ok_or_else(|| invalid("missing arrival role target"))?;
-                            route = p.entries[0].route.clone();
-                            *target = key;
-                        }
                         routes.push(route);
-                    }
-                    if role_batch {
-                        role_assigned = true;
                     }
                     departures.push(DepartureBatch {
                         due_tick: due,
                         first_slot: tile * 1_000 + group * 10,
                         sequence: (period as u32 * artifacts.tiles * 75 + tile * 75 + group) * 10,
                         routes,
-                        parking,
                     });
                     due += 64 * quantum;
                     period += 1;
@@ -326,7 +365,7 @@ impl ResolvedPlan {
         departures.sort_by_key(|b| (b.due_tick, b.first_slot, b.sequence));
         leaves.sort_by_key(|b| (b.due_tick, b.slot, b.sequence));
         Ok(Self {
-            version: "urban-demand-v1".into(),
+            version: "urban-demand-v2".into(),
             case: "MIXED-PEAK".into(),
             seed: 544,
             scale: catalog.scale.clone(),
@@ -337,11 +376,18 @@ impl ResolvedPlan {
             manifest_digest: artifacts.manifest_digest.clone(),
             files: artifacts.files.clone(),
             window,
+            required_per_tile: [
+                ("crossed_tile_completed".into(), 1),
+                ("red_wait_then_crossed".into(), 1),
+                ("park_or_leave".into(), 1),
+            ]
+            .into(),
             max_attempts: 8,
             retry_ticks: 4 * quantum,
             initial,
             departures,
             leaves,
+            arrivals,
         })
     }
 
