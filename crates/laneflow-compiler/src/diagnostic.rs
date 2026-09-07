@@ -1777,7 +1777,7 @@ impl Diagnostic {
         )
     }
 
-    /// 构造车辆配置的 IIDM 数值违反 current Core 约束的诊断。
+    /// 构造车辆配置的 IIDM 数值违反编译器车辆配置契约的诊断。
     pub(crate) fn invalid_vehicle_profile_value(
         vehicle_profile_key: &str,
         field: &'static str,
