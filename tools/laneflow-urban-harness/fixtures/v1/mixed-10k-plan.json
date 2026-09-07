@@ -1,0 +1,18 @@
+{
+  "version": "urban-plan-freeze-v1",
+  "case": "MIXED-PEAK",
+  "scale": "10k",
+  "plan_version": "urban-demand-v1",
+  "plan_sha256": "a1de2d08b87a7171f6afd87057a5e7e7a5cc03cf6d959f206664fbb223203165",
+  "plan_bytes": 4615982,
+  "probe_ticks": 3000,
+  "probe_plan_sha256": "a150a2dbe965ab30e1e0fc8f01b2e47b611ba991a6c6de931b58ad81f94110be",
+  "source_generator_manifest_sha256": "e79e75a58c48da85fbe8a5dc2ddb6dba3af82129ca095d7a6b7cf60270ead43d",
+  "warm_up_ticks": 7656,
+  "observation_ticks": 15312,
+  "initial_active": 7500,
+  "initial_parked": 2500,
+  "world_id": 544,
+  "seed": 544,
+  "fixed_step_ms": 16
+}
