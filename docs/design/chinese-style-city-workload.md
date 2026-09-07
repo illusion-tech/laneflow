@@ -17,6 +17,7 @@ G1 判断、交付进度与本次测量结果保存在 GitHub Issue / PR。
 - `traffic-runtime-right-of-way-policy.md`
 - `traffic-runtime-snapshot.md`
 - `traffic-runtime-revision-cutover.md`
+- `urban-demand-harness.md`（#544 G1 评审稿，细化需求与无界面验证）
 - `../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`
 - `../adr/0021-traffic-infrastructure-and-host-boundary.md`
 
