@@ -56,7 +56,6 @@ pub struct TileEvidence {
 enum Command {
     Replace {
         route: String,
-        parking: String,
         east: bool,
     },
     Leave {
@@ -275,7 +274,6 @@ impl<'a> Harness<'a> {
                     attempt: 1,
                     command: Command::Replace {
                         route: b.routes[i].clone(),
-                        parking: b.parking[i].clone(),
                         east: i < 7,
                     },
                 });
@@ -292,6 +290,18 @@ impl<'a> Harness<'a> {
                     target: l.target.clone(),
                     exit: l.exit,
                     east: l.direction == "east",
+                },
+            });
+        }
+        for arrival in &plan.arrivals {
+            harness.enqueue(Request {
+                due: arrival.reserve_tick,
+                original_due: arrival.reserve_tick,
+                slot: arrival.slot as usize,
+                sequence: arrival.sequence,
+                attempt: 1,
+                command: Command::Reserve {
+                    target: arrival.target.clone(),
                 },
             });
         }
@@ -352,7 +362,7 @@ impl<'a> Harness<'a> {
                 }
             }
         }
-        let role_hold = matches!(&request.command, Command::Replace {parking, ..} if parking.is_empty())
+        let role_hold = matches!(&request.command, Command::Replace { .. })
             && self.plan.initial[request.slot].role.is_some();
         let caller_deferred = matches!(request.command, Command::Replace { .. })
             && (before.status() != VehicleStatus::Completed || role_hold);
@@ -384,7 +394,7 @@ impl<'a> Harness<'a> {
             ));
         } else {
             match &request.command {
-                Command::Replace { route, parking, .. } => {
+                Command::Replace { route, .. } => {
                     let input =
                         VehicleSpawnInput::new(before.profile(), self.routes[route], 0, 7_000, 0);
                     match self.world.replace_completed_vehicle(handle, input) {
@@ -401,14 +411,6 @@ impl<'a> Harness<'a> {
                             };
                             self.replacements += 1;
                             extra = json!({"new_individual": self.individuals[request.slot].id, "route": route});
-                            if !parking.is_empty() {
-                                self.enqueue(Request {
-                                    command: Command::Reserve {
-                                        target: parking.clone(),
-                                    },
-                                    ..request.clone()
-                                });
-                            }
                         }
                         Err(ReplaceError::Blocked(block)) => {
                             rejection = Some(("entry-blocked", Some(block.blocker)));
@@ -588,16 +590,22 @@ impl<'a> Harness<'a> {
             self.world.step(TickInput::new(self.plan.dt)),
         )?;
         self.last_step_ns = started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
-        for (i, arrival) in outcome.parking_arrivals().iter().enumerate() {
+        for arrival in outcome.parking_arrivals() {
             let slot = *self
                 .slots
                 .get(&arrival.vehicle)
                 .ok_or_else(|| invalid("unknown arrival individual"))?;
+            let due = self
+                .plan
+                .arrivals
+                .iter()
+                .find(|a| a.slot as usize == slot)
+                .map_or(boundary + 1, |a| (boundary + 1).max(a.park_not_before_tick));
             self.enqueue(Request {
-                due: boundary + 1,
-                original_due: boundary + 1,
+                due,
+                original_due: due,
                 slot,
-                sequence: 20_000_000 + i as u32,
+                sequence: 20_000_000 + slot as u32,
                 attempt: 1,
                 command: Command::Park {
                     target: self.target_keys[&arrival.target].clone(),

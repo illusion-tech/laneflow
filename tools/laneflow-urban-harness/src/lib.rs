@@ -7,7 +7,9 @@ mod report;
 mod runner;
 
 pub use artifacts::Artifacts;
-pub use plan::{DepartureBatch, InitialVehicle, ParkingDeparture, ResolvedPlan, Window};
+pub use plan::{
+    DepartureBatch, InitialVehicle, ParkingArrival, ParkingDeparture, ResolvedPlan, Window,
+};
 pub use report::{RunResult, compare_runs, run_to_directory};
 pub use runner::{Harness, IndividualId, TickRecord};
 

@@ -26,6 +26,7 @@ pub struct RunResult {
     pub world_id: u64,
     pub fixed_step_ms: u64,
     pub window: crate::Window,
+    pub required_per_tile: BTreeMap<String, u64>,
     pub plan_digest: String,
     pub expected_ticks: u64,
     pub completed_ticks: u64,
@@ -71,7 +72,7 @@ pub fn run_to_directory(
     let mut harness = Harness::install(artifacts, plan)?;
     let initial_counts = observe::counts(&harness)?;
     let mut result = RunResult {
-        version: "urban-result-v1".into(),
+        version: "urban-result-v2".into(),
         status: "failed".into(),
         purpose: plan.window.purpose.clone(),
         case: plan.case.clone(),
@@ -81,6 +82,7 @@ pub fn run_to_directory(
         world_id: harness.world.world_id(),
         fixed_step_ms: plan.dt,
         window: plan.window.clone(),
+        required_per_tile: plan.required_per_tile.clone(),
         plan_digest,
         expected_ticks: plan.window.end(),
         completed_ticks: 0,
@@ -140,11 +142,10 @@ pub fn run_to_directory(
         }
         if plan.window.purpose == "correctness" {
             for (tile, e) in harness.evidence.iter().enumerate() {
-                if e.crossed_tile_completed == 0
-                    || e.red_wait_then_crossed == 0
-                    || e.leaves == 0
-                    || e.explicit_parks == 0
-                    || e.virtual_parks == 0
+                if e.crossed_tile_completed < plan.required_per_tile["crossed_tile_completed"]
+                    || e.red_wait_then_crossed < plan.required_per_tile["red_wait_then_crossed"]
+                    || e.leaves + e.explicit_parks + e.virtual_parks
+                        < plan.required_per_tile["park_or_leave"]
                 {
                     return Err(invalid(format!(
                         "tile {tile}: missing required MIXED-PEAK observation"
@@ -238,7 +239,7 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<String> {
     }
     let read = |dir: &Path| -> Result<RunResult> {
         let result: RunResult = serde_json::from_slice(&fs::read(dir.join("result.json"))?)?;
-        if result.version != "urban-result-v1"
+        if result.version != "urban-result-v2"
             || result.error.is_some()
             || result.completed_ticks != result.expected_ticks
             || !matches!(

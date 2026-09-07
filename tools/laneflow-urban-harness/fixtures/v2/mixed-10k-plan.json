@@ -1,0 +1,39 @@
+{
+  "version": "urban-plan-freeze-v2",
+  "case": "MIXED-PEAK",
+  "scale": "10k",
+  "plan_version": "urban-demand-v2",
+  "plan_sha256": "ba84e5cb777ec52995ddad096d865d931012e3cb829188ff029fd4f81346fa84",
+  "plan_bytes": 3851676,
+  "probe_ticks": 3000,
+  "probe_plan_sha256": "54cf42943f2e2941e683b346661d838b323910707d2657b6d6a96c45086c0493",
+  "source_generator_manifest_sha256": "e79e75a58c48da85fbe8a5dc2ddb6dba3af82129ca095d7a6b7cf60270ead43d",
+  "warm_up_ticks": 7656,
+  "observation_ticks": 15312,
+  "initial_active": 7500,
+  "initial_parked": 2500,
+  "world_id": 544,
+  "seed": 544,
+  "fixed_step_ms": 16,
+  "required_per_tile": {
+    "crossed_tile_completed": 1,
+    "park_or_leave": 1,
+    "red_wait_then_crossed": 1
+  },
+  "arrival_roles_in_tile_zero": [
+    {
+      "slot": 741,
+      "sequence": 11000741,
+      "target": "t000.c08.bay1",
+      "reserve_tick": 0,
+      "park_not_before_tick": 7689
+    },
+    {
+      "slot": 743,
+      "sequence": 11000743,
+      "target": "t000.c09.mixed",
+      "reserve_tick": 0,
+      "park_not_before_tick": 7755
+    }
+  ]
+}
