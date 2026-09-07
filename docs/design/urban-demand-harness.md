@@ -127,7 +127,10 @@ Mixed 的到达角色在初态中预先占用目标入口臂上的合法候选�
 最后调用一次 `step`。同类按 `(due_tick, tile, stable_id, request_sequence, attempt)`
 排序。Step 返回的 arrivals 和领域事件在本边界记录，派生的 park 最早在下个边界提交。
 `BOUNDARY-BURST` 的显式 despawn/spawn 作为独立命令组放在原子替换位置，不将两条命令
-包装成 Runtime 原子事务。每次命令都保留结果、提交游标和映射变化。
+包装成 Runtime 原子事务。背景替换请求若命中角色拥有的 slot，由 caller 在读取 live
+handle 前记录为 `role-held` 并按共同有限预算重试；因此相邻 despawn/spawn 边界之间的
+暂时 absent 不会向 Runtime 下发命令，也不改变角色所有权。每次命令都保留结果、提交
+游标和映射变化。
 
 ### 4.2 场景角色与必要观测
 
