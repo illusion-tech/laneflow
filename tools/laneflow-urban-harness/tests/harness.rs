@@ -87,6 +87,84 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
             assert_eq!(case_plan.arrivals.len(), 4);
             assert_eq!(case_plan.reservation_rejections.len(), 4);
         }
+        if matches!(case, UrbanCase::GarageEgress | UrbanCase::BoundaryBurst) {
+            let garages: Vec<_> = artifacts
+                .catalog()
+                .parking
+                .iter()
+                .filter(|target| target.kind == "virtual" && target.capacity == 1_000)
+                .collect();
+            assert_eq!(
+                case_plan
+                    .initial
+                    .iter()
+                    .filter(|vehicle| vehicle.role.as_deref() == Some("garage-exit-blocker"))
+                    .count(),
+                garages.len()
+            );
+            for garage in garages {
+                let exit_edges: std::collections::BTreeSet<_> =
+                    garage.exits.iter().map(|anchor| &anchor.edge).collect();
+                for vehicle in case_plan.initial.iter().filter(|vehicle| {
+                    vehicle.tile == garage.tile
+                        && vehicle.parking.is_none()
+                        && vehicle.role.is_none()
+                }) {
+                    let route = artifacts
+                        .catalog()
+                        .routes
+                        .iter()
+                        .find(|route| route.key == vehicle.route)
+                        .unwrap();
+                    assert!(
+                        route.edge_keys[vehicle.occurrence as usize + 1..]
+                            .iter()
+                            .all(|edge| !exit_edges.contains(edge)),
+                        "{} tile {} background initial route crosses a reserved garage exit",
+                        case.as_str(),
+                        garage.tile
+                    );
+                }
+                for route_key in case_plan
+                    .departures
+                    .iter()
+                    .filter(|batch| batch.first_slot / 1_000 == garage.tile)
+                    .flat_map(|batch| &batch.routes)
+                {
+                    let route = artifacts
+                        .catalog()
+                        .routes
+                        .iter()
+                        .find(|route| route.key == *route_key)
+                        .unwrap();
+                    assert!(
+                        route
+                            .edge_keys
+                            .iter()
+                            .all(|edge| !exit_edges.contains(edge)),
+                        "{} tile {} background departure crosses a reserved garage exit",
+                        case.as_str(),
+                        garage.tile
+                    );
+                }
+                if case == UrbanCase::BoundaryBurst {
+                    let boundary = case_plan
+                        .boundary_windows
+                        .iter()
+                        .find(|window| window.tile == garage.tile)
+                        .unwrap();
+                    let pulse = case_plan
+                        .role_departures
+                        .iter()
+                        .find(|departure| {
+                            departure.slot / 1_000 == garage.tile
+                                && departure.role == "garage-exit-blocker"
+                        })
+                        .unwrap();
+                    assert_eq!(pulse.due_tick + 1, boundary.before_tick);
+                }
+            }
+        }
     }
     assert!(
         Window::correctness(&artifacts)
