@@ -1380,7 +1380,8 @@ fn apply_travel_mm(
     hop_permitted: impl Fn(usize) -> bool,
 ) -> Option<()> {
     let mut index = usize::try_from(state.route_edge_index).ok()?;
-    while remaining > 0 {
+    // 亚毫米余量也表示前进：已在边界时必须过门，余量才能归属下一条边。
+    while remaining > 0 || state.carry_um > 0 {
         let edge = *edges.get(index)?;
         let edge_length = *lengths.get(edge.index())?;
         let leftover = edge_length.saturating_sub(state.progress_mm);
