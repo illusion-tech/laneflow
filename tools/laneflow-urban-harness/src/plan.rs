@@ -12,6 +12,11 @@ pub struct Window {
 
 impl Window {
     pub fn correctness(artifacts: &Artifacts) -> Result<Self> {
+        if !matches!(artifacts.catalog.scale.as_str(), "10k" | "100k") {
+            return Err(invalid(
+                "correctness requires 10k or 100k artifacts; use probe for fixtures",
+            ));
+        }
         let cycle = cycle_ticks(artifacts)?;
         Ok(Self {
             purpose: "correctness".into(),
