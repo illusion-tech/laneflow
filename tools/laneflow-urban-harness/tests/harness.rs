@@ -3,8 +3,16 @@ use std::{fs, process::Command};
 use laneflow_runtime::VehicleStatus;
 use laneflow_urban_generator::{Scale, UrbanConfig, generate};
 use laneflow_urban_harness::{
-    Artifacts, Harness, ResolvedPlan, Window, compare_runs, run_to_directory,
+    Artifacts, ComparisonReport, Harness, ResolvedPlan, Window, compare_runs, run_to_directory,
 };
+use sha2::{Digest, Sha256};
+
+fn sha256(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
 
 #[test]
 fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
@@ -13,6 +21,46 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
     let config =
         UrbanConfig::parse(include_str!("../../../examples/config/cn-urban.toml")).unwrap();
     generate(&config, Scale::Fixture, &source, None).unwrap();
+    let manifest_text = fs::read_to_string(source.join("manifest.toml")).unwrap();
+    let catalog_text = fs::read_to_string(source.join("routes.toml")).unwrap();
+    for scale in ["10k", "100k"] {
+        let mut manifest: toml::Value = toml::from_str(&manifest_text).unwrap();
+        let mut catalog: toml::Value = toml::from_str(&catalog_text).unwrap();
+        manifest["scale"] = scale.into();
+        catalog["scale"] = scale.into();
+        let catalog_bytes = toml::to_string(&catalog).unwrap().into_bytes();
+        manifest["files"]["routes.toml"]["bytes"] = (catalog_bytes.len() as i64).into();
+        manifest["files"]["routes.toml"]["sha256"] = sha256(&catalog_bytes).into();
+        fs::write(source.join("routes.toml"), catalog_bytes).unwrap();
+        fs::write(
+            source.join("manifest.toml"),
+            toml::to_string(&manifest).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            Artifacts::load(&source)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("fixed scale")
+        );
+    }
+    fs::write(source.join("routes.toml"), &catalog_text).unwrap();
+    let mut wrong_step: toml::Value = toml::from_str(&manifest_text).unwrap();
+    wrong_step["fixed_step_ms"] = 33.into();
+    fs::write(
+        source.join("manifest.toml"),
+        toml::to_string(&wrong_step).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        Artifacts::load(&source)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("fixed scale")
+    );
+    fs::write(source.join("manifest.toml"), manifest_text).unwrap();
     let artifacts = Artifacts::load(&source).unwrap();
     assert!(
         Window::correctness(&artifacts)
@@ -94,6 +142,22 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
     assert_eq!(first.status, "probe-complete", "{:?}", first.error);
     assert_eq!(first, second);
     assert_eq!(first.completed_ticks, 1_024);
+    for line in fs::read_to_string(a.join("ticks.jsonl")).unwrap().lines() {
+        let tick: serde_json::Value = serde_json::from_str(line).unwrap();
+        assert_eq!(tick["domain"], "road_motor_vehicle");
+        assert_eq!(tick["N_individual"], 2_000);
+        assert_eq!(tick["N_presented"], 0);
+        assert_eq!(tick["N_aggregate_records"], 0);
+        assert_eq!(tick["N_aggregate_equivalent"], 0);
+        assert_eq!(tick["intent_basis"], "exact_active_before_step");
+        assert!(tick["N_intent"].as_u64().unwrap() <= 2_000);
+        assert_eq!(
+            tick["N_active"].as_u64().unwrap()
+                + tick["parked"].as_u64().unwrap()
+                + tick["completed"].as_u64().unwrap(),
+            2_000
+        );
+    }
     assert!(
         first
             .tile_evidence
@@ -131,6 +195,51 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
         .iter()
         .filter(|e| e["kind"] == "parking-arrival")
         .collect();
+    for command in commands.iter().filter(|c| {
+        c["committed"] == true
+            && matches!(c["command"].as_str(), Some("park" | "leave" | "replace"))
+    }) {
+        let matching: Vec<_> = events
+            .iter()
+            .filter(|e| {
+                e["kind"] == "lifecycle"
+                    && e["phase"] == "command"
+                    && e["tick"] == command["boundary"]
+                    && e["sequence"] == command["sequence"]
+                    && e["attempt"] == command["attempt"]
+                    && e["command"] == command["command"]
+            })
+            .collect();
+        assert_eq!(
+            matching.len(),
+            1,
+            "missing or duplicate command lifecycle: {command}"
+        );
+        let event = matching[0];
+        assert_eq!(event["individual"], command["individual"]);
+        let (before, after) = match command["command"].as_str().unwrap() {
+            "park" => (0, 1),
+            "leave" => (1, 0),
+            "replace" => (2, 0),
+            _ => unreachable!(),
+        };
+        assert_eq!(event["before"], before);
+        assert_eq!(event["after"], after);
+        assert_eq!(
+            event["after_individual"],
+            if command["command"] == "replace" {
+                &command["details"]["new_individual"]
+            } else {
+                &command["individual"]
+            }
+            .clone()
+        );
+    }
+    assert!(
+        !events
+            .iter()
+            .any(|e| e["phase"] == "command" && e["command"] == "reserve")
+    );
     assert_eq!(arrivals.len(), 4);
     assert!(
         arrivals
@@ -154,12 +263,41 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
             > 0
     );
     assert!(first.atomic_rejections.contains_key("leave"));
-    assert!(compare_runs(&a, &b).unwrap().contains("not formal"));
+    let comparison = compare_runs(&a, &b).unwrap();
+    assert_eq!(comparison.status, "probe-match");
+    assert_eq!(comparison.version, "urban-comparison-v1");
+    assert_eq!(comparison.plan_digest, first.plan_digest);
+    for (dir, receipt) in [(&a, &comparison.left), (&b, &comparison.right)] {
+        let bytes = fs::read(dir.join("result.json")).unwrap();
+        assert_eq!(receipt.result.sha256, sha256(&bytes));
+        assert_eq!(receipt.result.bytes, bytes.len() as u64);
+    }
+    let comparison_file = temp.path().join("comparison.json");
+    let compared = Command::new(env!("CARGO_BIN_EXE_laneflow-urban-harness"))
+        .arg("compare")
+        .arg(&a)
+        .arg(&b)
+        .arg(&comparison_file)
+        .output()
+        .unwrap();
+    assert!(compared.status.success(), "{:?}", compared.stderr);
+    let retained: ComparisonReport =
+        serde_json::from_slice(&fs::read(&comparison_file).unwrap()).unwrap();
+    assert_eq!(retained, comparison);
+    assert!(comparison.write(&comparison_file).is_err());
     let diagnostics = |dir: &std::path::Path| -> serde_json::Value {
         serde_json::from_slice(&fs::read(dir.join("diagnostics.json")).unwrap()).unwrap()
     };
     assert_ne!(
         diagnostics(&a)["execution_id"],
+        diagnostics(&b)["execution_id"]
+    );
+    assert_eq!(
+        comparison.left.execution_id,
+        diagnostics(&a)["execution_id"]
+    );
+    assert_eq!(
+        comparison.right.execution_id,
         diagnostics(&b)["execution_id"]
     );
     let copied = temp.path().join("copied-a");
@@ -174,6 +312,16 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
             .to_string()
             .contains("distinct execution identities")
     );
+    let failed_comparison = temp.path().join("failed-comparison.json");
+    let rejected = Command::new(env!("CARGO_BIN_EXE_laneflow-urban-harness"))
+        .arg("compare")
+        .arg(&a)
+        .arg(&copied)
+        .arg(&failed_comparison)
+        .output()
+        .unwrap();
+    assert!(!rejected.status.success());
+    assert!(!failed_comparison.exists());
     fs::remove_file(copied.join("diagnostics.json")).unwrap();
     assert!(compare_runs(&a, &copied).is_err());
     assert!(compare_runs(&a, &a).is_err());

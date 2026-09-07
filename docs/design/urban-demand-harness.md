@@ -30,7 +30,8 @@
 
 G1 接受不关闭 #544。小型试跑只用于检验计划可实施性；#544 关闭需要上述三项。
 正式 correctness 计划只允许 10k/100k 制品；fixture 只允许 probe，CLI 与运行库共用
-该准入规则。
+该准入规则。制品载入复用生成器 `Scale` 的固定 tile 数、个体数与步长定义，校验
+标签和实际 manifest 数量一致。
 #545 拥有 Adapter、保存/恢复和固定增容切换证据；#539/#305 拥有产品预算认证。
 
 ## 2. 共同输入与稳定身份
@@ -169,6 +170,7 @@ Mixed 的“一次停车转换”是至少一次成功 park 或 leave，三种�
 2. Active 车身在实际 route occurrence 上投影到一维物理边区间，同边区间不得重叠；
    这是几何区间核对，不实现跟车、信号、Waiting 或冲突求解器。
 3. 显式停车排他，虚拟池 Reserved + Occupied 不超容量，Parked 与 Occupied 对应；
+   按静态设施归属汇总显式/虚拟绑定，与设施分池 reserved/occupied 和 total 对账；
    Waiting membership/容量/FIFO 和 grant/no-grant 的实际后果符合所选角色合同。
    按已提交 Conflict reservation 的资源身份核对互斥 claim，不另算间隙或决定 grant。
 4. 每种必需拒绝选一个代表请求，比较拒绝前后完整 deterministic state digest；
@@ -176,6 +178,10 @@ Mixed 的“一次停车转换”是至少一次成功 park 或 leave，三种�
 5. 每个成功 tick 按稳定顺序摘要车辆状态、命令结果、决策和事件；在初态、暖机末及每个
    完整观察周期末，另用 `capture_snapshot` / `deterministic_state_digest` 核对完整状态。
    不把 Debug 文本、内存地址、计时或运行目录写进语义摘要。
+
+命令成功引发的 park/leave/replace 生命周期变化在命令边界记录前后状态、稳定身份及
+命令序号；step 引发的变化在 step 提交时记录，以 phase 区分。命令后仍独立采集
+`step_before`，供意图计数、红灯等待和路线跨越观测使用，不能将它移到命令前。
 
 两个独立运行从同一 LFCA 和同一展开计划各自创建新世界，不用首轮快照启动第二轮。
 比较输入摘要、逐 tick 状态/事件序列与完整状态检查点；首个差异保留 tick、稳定个体和
@@ -215,7 +221,10 @@ Burst 仍保留共同有限窗口，但重点另列两个提交边界的 raw 结
 - `resolved-plan.toml`：上述实际输入和预期触发；其摘要与来源制品四联进入结果。
 - `commands`、`events`、`ticks`：实际顺序、结果和逐域计数，及用于重复比较的摘要。
 - `result.json`：工作负载/计划/结果版本、case/scale、LFCA/config/catalog
-  摘要、world/policy identity、实际窗口、逐 tile 触发、检查点及比较结论。
+  摘要、world/policy identity、实际窗口、逐 tile 触发、检查点及本次运行结论。
+- `comparison.json`：比较结论、case/scale、计划摘要、完成 tick 数、两个执行编号和
+  两份 result 的 SHA256/字节数。CLI 必须指定新报告路径，成功比较才写入；两份原始
+  result 保持不可变。当前载荷为 `urban-result-v3` / `urban-comparison-v1`，不转换旧记录。
 - 正式性能阶段的 `measurements.toml`：git commit、`rustc -Vv`、`cargo -V`、target、构建参数、硬件/OS/电源角色、
   命令行、phase 耗时、计时范围、实际 Active/intent 分布、内存值及测量方法。
 

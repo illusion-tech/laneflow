@@ -12,7 +12,7 @@ use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
     build_shared_network_revision,
 };
-use laneflow_urban_generator::Catalog;
+use laneflow_urban_generator::{Catalog, Scale};
 use serde::{Deserialize, Serialize};
 
 use crate::{Result, checked, invalid, sha256};
@@ -52,12 +52,13 @@ impl Artifacts {
         let manifest: Manifest = toml::from_str(
             std::str::from_utf8(&manifest_bytes).map_err(|e| invalid(e.to_string()))?,
         )?;
+        let scale = checked("artifact scale", Scale::parse(&manifest.scale))?;
         if manifest.manifest_version != 1
-            || !matches!(manifest.scale.as_str(), "fixture" | "10k" | "100k")
-            || manifest.nominal_individuals != manifest.tiles * 1_000
-            || manifest.tiles == 0
+            || manifest.tiles != scale.tile_count()
+            || manifest.nominal_individuals != scale.nominal_individual_count()
+            || manifest.fixed_step_ms != scale.fixed_step_ms()
         {
-            return Err(invalid("unsupported urban artifact manifest"));
+            return Err(invalid("artifact shape differs from its fixed scale"));
         }
         let mut consumed = BTreeMap::new();
         let mut read = |name: &str| -> Result<Vec<u8>> {

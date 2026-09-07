@@ -10,7 +10,7 @@ pub use artifacts::Artifacts;
 pub use plan::{
     DepartureBatch, InitialVehicle, ParkingArrival, ParkingDeparture, ResolvedPlan, Window,
 };
-pub use report::{RunResult, compare_runs, run_to_directory};
+pub use report::{ComparedRun, ComparisonReport, RunResult, compare_runs, run_to_directory};
 pub use runner::{Harness, IndividualId, TickRecord};
 
 pub type Result<T> = std::result::Result<T, Error>;
