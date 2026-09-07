@@ -473,10 +473,16 @@ impl<'a> Harness<'a> {
         if matches!(&request.command, Command::Despawn | Command::Spawn { .. }) {
             return self.execute_lifecycle_boundary(request, tick);
         }
+        let id = self.individuals[request.slot].id;
+        let role_hold = matches!(&request.command, Command::Replace { role: false, .. })
+            && self.plan.initial[request.slot].role.is_some();
+        if role_hold {
+            self.defer_role_owned_replace(request, tick, id);
+            return Ok(());
+        }
         let handle = self.individuals[request.slot]
             .handle
             .ok_or_else(|| invalid("command targets an absent individual"))?;
-        let id = self.individuals[request.slot].id;
         let before = self
             .world
             .vehicle(handle)
@@ -498,10 +504,8 @@ impl<'a> Harness<'a> {
                 self.evidence[id.tile as usize].planned_west += 1;
             }
         }
-        let role_hold = matches!(&request.command, Command::Replace { role: false, .. })
-            && self.plan.initial[request.slot].role.is_some();
         let caller_deferred = matches!(&request.command, Command::Replace { .. })
-            && (before.status() != VehicleStatus::Completed || role_hold);
+            && before.status() != VehicleStatus::Completed;
         // Bound whole-world snapshots to eight candidate calls per command kind until one rejects.
         let watch_count = self.watched.get(name).copied().unwrap_or(0);
         let watch = !caller_deferred
@@ -525,14 +529,7 @@ impl<'a> Harness<'a> {
         let mut rejection: Option<(&str, Option<VehicleHandle>)> = None;
         let mut extra = Value::Null;
         if caller_deferred {
-            rejection = Some((
-                if role_hold {
-                    "role-held"
-                } else {
-                    "not-completed"
-                },
-                None,
-            ));
+            rejection = Some(("not-completed", None));
         } else {
             match &request.command {
                 Command::Replace {
@@ -807,6 +804,61 @@ impl<'a> Harness<'a> {
         Ok(())
     }
 
+    fn defer_role_owned_replace(&mut self, request: Request, tick: u64, id: IndividualId) {
+        debug_assert!(matches!(
+            &request.command,
+            Command::Replace { role: false, .. }
+        ));
+        if request.attempt == 1 {
+            self.pending.insert(request.sequence);
+            if let Some(east) = request.command.departure()
+                && self.in_observation(request.original_due)
+            {
+                if east {
+                    self.evidence[id.tile as usize].planned_east += 1;
+                } else {
+                    self.evidence[id.tile as usize].planned_west += 1;
+                }
+            }
+        }
+        *self.error_counts.entry("role-held".into()).or_default() += 1;
+        let next_tick = tick + self.plan.retry_ticks;
+        if request.attempt < self.plan.max_attempts && next_tick < self.plan.window.end() {
+            self.enqueue(Request {
+                due: next_tick,
+                attempt: request.attempt + 1,
+                ..request.clone()
+            });
+        } else {
+            self.exhausted.insert(request.sequence);
+        }
+        let cursor = self.world.command_cursor();
+        self.commands
+            .push(json!({"boundary":tick,"due":request.original_due,
+            "sequence":request.sequence,"attempt":request.attempt,"individual":id,
+            "command":"replace","committed":false,"cursor_before":cursor,
+            "cursor_after":cursor,"details":{"reason":"role-held","blocker":null}}));
+        if self.in_observation(tick) {
+            let evidence = &mut self.evidence[id.tile as usize];
+            if self
+                .plan
+                .boundary_windows
+                .iter()
+                .any(|window| window.tile == id.tile && window.before_tick == tick)
+            {
+                evidence.before_boundary_commands += 1;
+            }
+            if self
+                .plan
+                .boundary_windows
+                .iter()
+                .any(|window| window.tile == id.tile && window.after_tick == tick)
+            {
+                evidence.after_boundary_commands += 1;
+            }
+        }
+    }
+
     fn execute_lifecycle_boundary(&mut self, request: Request, tick: u64) -> Result<()> {
         let before_id = self.individuals[request.slot].id;
         let cursor_before = self.world.command_cursor();
@@ -1051,4 +1103,63 @@ fn signal_groups_changed(
         changed |= before != after;
     }
     Ok(changed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use laneflow_urban_generator::{Scale, UrbanConfig, generate};
+
+    #[test]
+    fn role_owned_background_replace_defers_across_an_absent_lifecycle_boundary() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let config =
+            UrbanConfig::parse(include_str!("../../../examples/config/cn-urban.toml")).unwrap();
+        generate(&config, Scale::Fixture, &source, None).unwrap();
+        let artifacts = Artifacts::load(&source).unwrap();
+        let plan = ResolvedPlan::for_case(
+            &artifacts,
+            crate::UrbanCase::MixedPeak,
+            crate::Window::probe(256).unwrap(),
+        )
+        .unwrap();
+        let mut harness = Harness::install(&artifacts, &plan).unwrap();
+        let slot = 741;
+        let handle = harness.individuals[slot].handle.unwrap();
+        let id = harness.individuals[slot].id;
+        harness.world.despawn_vehicle(handle).unwrap();
+        harness.slots.remove(&handle);
+        harness.individuals[slot].handle = None;
+        let cursor = harness.world.command_cursor();
+
+        harness
+            .execute(
+                Request {
+                    due: 0,
+                    original_due: 0,
+                    slot,
+                    sequence: 544,
+                    attempt: 1,
+                    command: Command::Replace {
+                        route: "must-not-resolve".into(),
+                        occurrence: 0,
+                        progress_mm: 7_000,
+                        east: Some(true),
+                        role: false,
+                    },
+                },
+                0,
+            )
+            .unwrap();
+
+        assert_eq!(harness.world.command_cursor(), cursor);
+        assert!(harness.individuals[slot].handle.is_none());
+        assert!(harness.pending.contains(&544));
+        assert!(harness.schedule.contains_key(&plan.retry_ticks));
+        assert_eq!(harness.commands.len(), 1);
+        assert_eq!(harness.commands[0]["individual"], serde_json::json!(id));
+        assert_eq!(harness.commands[0]["committed"], false);
+        assert_eq!(harness.commands[0]["details"]["reason"], "role-held");
+    }
 }

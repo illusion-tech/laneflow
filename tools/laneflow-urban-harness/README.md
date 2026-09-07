@@ -85,6 +85,8 @@ target/release/laneflow-urban-harness compare <performance-a> <performance-b> <p
 执行。最早边界为观察窗口起点后 1/3 个量子，分别写入 `arrivals` 计划。暖机到达后
 仍按真实 Active/Reserved 占用道路，直到观察期 park 成功；暖机到达不计作观察期事件。
 两名角色保持原 incarnation，入场后保持 Parked；背景替换请求如实记录 `role-held`。
+角色 slot 在显式 despawn/spawn 的相邻边界之间暂时 absent 时仍先按计划所有权记录
+`role-held`，不会把 caller 推迟误报为 Runtime 命令失败。
 车库 slot 880..899 仍在观察窗口起始的两个固定边界请求离场。
 位置、身份、路线、目标和计划边界均从目录展开，不使用运行结果挑选输入。
 
