@@ -316,6 +316,17 @@ impl ResolvedPlan {
             let mut roles = BTreeMap::new();
             let mut arrival_fronts = BTreeMap::new();
             let mut traffic_role_edges = BTreeSet::new();
+            let mut background_route_exclusions = BTreeSet::new();
+            let garage = catalog
+                .parking
+                .iter()
+                .find(|p| p.tile == tile && p.kind == "virtual" && p.capacity == 1_000)
+                .ok_or_else(|| invalid("missing garage"))?;
+            if matches!(case, UrbanCase::GarageEgress | UrbanCase::BoundaryBurst) {
+                for anchor in &garage.exits {
+                    background_route_exclusions.insert(anchor.edge.as_str());
+                }
+            }
             let arrival_roles: Vec<_> = match case {
                 UrbanCase::MixedPeak | UrbanCase::BoundaryBurst => vec![
                     (741, "c08.bay1", "explicit-arrival"),
@@ -661,6 +672,89 @@ impl ResolvedPlan {
                     });
                 }
             }
+            if matches!(case, UrbanCase::GarageEgress | UrbanCase::BoundaryBurst) {
+                let slot = if case == UrbanCase::GarageEgress {
+                    active_per_tile - 1
+                } else {
+                    744
+                };
+                let anchor = garage
+                    .exits
+                    .first()
+                    .ok_or_else(|| invalid("garage lacks departure route"))?;
+                let departure_route = catalog
+                    .routes
+                    .iter()
+                    .find(|route| route.key == anchor.route)
+                    .ok_or_else(|| invalid("missing garage departure route"))?;
+                let due_tick = if case == UrbanCase::BoundaryBurst {
+                    boundary_before.saturating_sub(1)
+                } else {
+                    window.warm_up_ticks.saturating_sub(1)
+                };
+                let initial_route = if due_tick > 0 && case == UrbanCase::BoundaryBurst {
+                    catalog
+                        .routes
+                        .iter()
+                        .find(|route| route.key == format!("{prefix}c04.w-e"))
+                        .ok_or_else(|| invalid("missing boundary blocker staging route"))?
+                } else {
+                    departure_route
+                };
+                let (initial_occurrence, initial_progress_mm) = if due_tick == 0 {
+                    (anchor.route_edge_index, anchor.progress_mm)
+                } else if case == UrbanCase::BoundaryBurst {
+                    (
+                        initial_route.edge_keys.len().saturating_sub(1) as u32,
+                        75_000,
+                    )
+                } else {
+                    (
+                        initial_route.edge_keys.len().saturating_sub(1) as u32,
+                        92_000,
+                    )
+                };
+                let initial_edge = initial_route
+                    .edge_keys
+                    .get(initial_occurrence as usize)
+                    .ok_or_else(|| invalid("garage blocker route occurrence is missing"))?;
+                if !arms.contains(&initial_edge) || !(7_000..=92_000).contains(&initial_progress_mm)
+                {
+                    return Err(invalid(
+                        "garage blocker must use a fixed external-arm position",
+                    ));
+                }
+                traffic_role_edges.insert(initial_edge.as_str());
+                if roles
+                    .insert(
+                        slot,
+                        InitialVehicle {
+                            tile,
+                            slot,
+                            profile: profile(slot).into(),
+                            route: initial_route.key.clone(),
+                            occurrence: initial_occurrence,
+                            progress_mm: initial_progress_mm,
+                            parking: None,
+                            role: Some("garage-exit-blocker".into()),
+                        },
+                    )
+                    .is_some()
+                {
+                    return Err(invalid("garage blocker slot is already assigned"));
+                }
+                if due_tick > 0 {
+                    role_departures.push(RoleDeparture {
+                        due_tick,
+                        slot: tile * 1_000 + slot,
+                        sequence: 15_000_000 + tile * 1_000 + slot,
+                        route: departure_route.key.clone(),
+                        occurrence: anchor.route_edge_index,
+                        progress_mm: anchor.progress_mm,
+                        role: "garage-exit-blocker".into(),
+                    });
+                }
+            }
             if case == UrbanCase::BoundaryBurst {
                 let controller_key = format!("{prefix}c00.controller");
                 let controller = catalog
@@ -723,20 +817,19 @@ impl ResolvedPlan {
                 let choices = route_choices
                     .get(edge.as_str())
                     .ok_or_else(|| invalid("unrouted arm"))?;
-                let (route, occurrence) = if let Some(cell) = isolated_cell {
-                    let marker = format!(".{cell}.");
-                    choices
-                        .iter()
-                        .copied()
-                        .find(|(route, occurrence)| {
-                            route.edge_keys[*occurrence + 1..]
-                                .iter()
-                                .all(|edge| !edge.contains(&marker))
+                let isolated_marker = isolated_cell.map(|cell| format!(".{cell}."));
+                let (route, occurrence) = choices
+                    .iter()
+                    .copied()
+                    .find(|(route, occurrence)| {
+                        route.edge_keys[*occurrence + 1..].iter().all(|edge| {
+                            !background_route_exclusions.contains(edge.as_str())
+                                && isolated_marker
+                                    .as_ref()
+                                    .is_none_or(|marker| !edge.contains(marker))
                         })
-                        .ok_or_else(|| invalid("no background route avoids the isolated cell"))?
-                } else {
-                    choices[0]
-                };
+                    })
+                    .ok_or_else(|| invalid("no background route avoids reserved role edges"))?;
                 if artifacts.revision.traffic().lane_lengths_millimetres()
                     [artifacts.edges[edge].index()]
                     != 95_000
@@ -816,6 +909,9 @@ impl ResolvedPlan {
                 .filter(|r| {
                     r.key.starts_with(&prefix)
                         && r.key.ends_with(".cross.e")
+                        && r.edge_keys
+                            .iter()
+                            .all(|edge| !background_route_exclusions.contains(edge.as_str()))
                         && isolated_cell.is_none_or(|cell| {
                             let marker = format!(".{cell}.");
                             r.edge_keys.iter().all(|edge| !edge.contains(&marker))
@@ -828,6 +924,9 @@ impl ResolvedPlan {
                 .filter(|r| {
                     r.key.starts_with(&prefix)
                         && r.key.ends_with(".cross.w")
+                        && r.edge_keys
+                            .iter()
+                            .all(|edge| !background_route_exclusions.contains(edge.as_str()))
                         && isolated_cell.is_none_or(|cell| {
                             let marker = format!(".{cell}.");
                             r.edge_keys.iter().all(|edge| !edge.contains(&marker))
@@ -863,10 +962,6 @@ impl ResolvedPlan {
                     period += 1;
                 }
             }
-            let garage = targets
-                .iter()
-                .find(|p| p.kind == "virtual" && p.capacity == 1_000)
-                .ok_or_else(|| invalid("missing garage"))?;
             let garage_first_slot = active_per_tile
                 + 10
                 + if case == UrbanCase::GarageEgress {
