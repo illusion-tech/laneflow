@@ -57,25 +57,36 @@ pub(crate) fn transition_gates(a: &Artifacts) -> HashMap<(u32, u32), (u32, u32)>
 }
 
 pub(crate) fn counts(h: &Harness<'_>) -> Result<(usize, usize, usize)> {
-    if h.world.live_vehicles().len() != h.individuals.len() || h.slots.len() != h.individuals.len()
-    {
+    let live = h
+        .individuals
+        .iter()
+        .filter(|individual| individual.handle.is_some())
+        .count();
+    if h.world.live_vehicles().len() != live || h.slots.len() != live {
         return Err(invalid("live identity conservation failed"));
+    }
+    let expected_live = i64::from(h.plan.individuals) + h.births as i64 - h.removals as i64;
+    if expected_live < 0 || live != expected_live as usize {
+        return Err(invalid("birth/removal identity conservation failed"));
     }
     let mut counts = (0, 0, 0);
     for (index, individual) in h.individuals.iter().enumerate() {
-        if h.slots.get(&individual.handle) != Some(&index) {
+        let Some(handle) = individual.handle else {
+            continue;
+        };
+        if h.slots.get(&handle) != Some(&index) {
             return Err(invalid("handle identity map differs"));
         }
         let state = h
             .world
-            .vehicle(individual.handle)
+            .vehicle(handle)
             .ok_or_else(|| invalid("missing live state"))?;
         match state.status() {
             VehicleStatus::Active => counts.0 += 1,
             VehicleStatus::Parked => counts.1 += 1,
             VehicleStatus::Completed => counts.2 += 1,
         }
-        match (state.status(), h.world.parking_binding(individual.handle)) {
+        match (state.status(), h.world.parking_binding(handle)) {
             (VehicleStatus::Parked, Some(ParkingBinding::Occupied(_)))
             | (VehicleStatus::Active, Some(ParkingBinding::Reserved(_)))
             | (VehicleStatus::Active | VehicleStatus::Completed, None) => {}
@@ -88,7 +99,10 @@ pub(crate) fn counts(h: &Harness<'_>) -> Result<(usize, usize, usize)> {
 pub(crate) fn parking_invariants(h: &Harness<'_>) -> Result<()> {
     let mut bindings: HashMap<ParkingTarget, (u64, u64)> = HashMap::new();
     for individual in &h.individuals {
-        if let Some(binding) = h.world.parking_binding(individual.handle) {
+        let Some(handle) = individual.handle else {
+            continue;
+        };
+        if let Some(binding) = h.world.parking_binding(handle) {
             let (target, reserved) = match binding {
                 ParkingBinding::Reserved(r) => (r.target(), true),
                 ParkingBinding::Occupied(t) => (t, false),
@@ -101,9 +115,9 @@ pub(crate) fn parking_invariants(h: &Harness<'_>) -> Result<()> {
             }
             if let ParkingTarget::ExplicitSpace(space) = target {
                 let expected = if reserved {
-                    ParkingSpaceState::Reserved(individual.handle)
+                    ParkingSpaceState::Reserved(handle)
                 } else {
-                    ParkingSpaceState::Occupied(individual.handle)
+                    ParkingSpaceState::Occupied(handle)
                 };
                 if h.world.parking_space_state(space) != Some(expected) {
                     return Err(invalid("space owner differs from binding"));
@@ -194,6 +208,9 @@ pub(crate) fn red_waiters(h: &mut Harness<'_>) {
         .collect();
     let lengths = h.artifacts.revision.traffic().lane_lengths_millimetres();
     for (i, state) in h.step_before.iter().enumerate() {
+        let Some(state) = state else {
+            continue;
+        };
         if state.status() != VehicleStatus::Active || state.speed_mm_s() != 0 {
             continue;
         }
@@ -228,6 +245,20 @@ fn conflict_reason(reason: ConflictNoGrantReason) -> u32 {
     }
 }
 
+fn conflict_reason_name(reason: ConflictNoGrantReason) -> &'static str {
+    match reason {
+        ConflictNoGrantReason::WaitingCapacity => "waiting-capacity",
+        ConflictNoGrantReason::WaitingPhysicalStorage => "waiting-storage",
+        ConflictNoGrantReason::WaitingCycle => "waiting-cycle",
+        ConflictNoGrantReason::ConflictOccupied => "conflict-occupied",
+        ConflictNoGrantReason::LagGap => "lag-gap",
+        ConflictNoGrantReason::ApproachUnprovable => "approach-unprovable",
+        ConflictNoGrantReason::LeadGap => "lead-gap",
+        ConflictNoGrantReason::DownstreamStorageBoundary => "downstream-storage",
+        ConflictNoGrantReason::DownstreamClaimConflict => "downstream-claim",
+    }
+}
+
 fn passage(h: &Harness<'_>, p: ConflictPassageOccurrenceLocator) -> Value {
     json!([
         h.route_keys[&p.route()],
@@ -255,9 +286,10 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
     let mut decisions = Hash::default();
     decisions.text("waiting");
     for d in h.world.latest_waiting_decisions() {
-        decisions.id(h
+        let id = h
             .stable_individual(d.vehicle())
-            .ok_or_else(|| invalid("unknown decision owner"))?);
+            .ok_or_else(|| invalid("unknown decision owner"))?;
+        decisions.id(id);
         decisions.n(d.vehicle_update_sequence());
         decisions.text(&h.route_keys[&d.anchor().route()]);
         decisions.n(d.anchor().maneuver_occurrence_index());
@@ -274,14 +306,43 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                 (4, 2 + conflict_reason(r))
             }
         };
+        if h.in_observation(h.world.tick_index())
+            && h.plan.case == "WAITING-RELEASE"
+            && h.plan.initial[id.tile as usize * 1_000 + id.slot as usize]
+                .role
+                .as_deref()
+                .is_some_and(|role| role.starts_with("waiting-fifo-"))
+        {
+            match d.outcome() {
+                WaitingDecisionOutcome::NoGrant(WaitingNoGrantReason::Capacity) => {
+                    h.evidence[id.tile as usize].waiting_capacity_rejections += 1;
+                }
+                WaitingDecisionOutcome::NoGrant(WaitingNoGrantReason::PhysicalStorage) => {
+                    h.evidence[id.tile as usize].waiting_storage_rejections += 1;
+                }
+                WaitingDecisionOutcome::NoGrant(WaitingNoGrantReason::CombinedResource(
+                    ConflictNoGrantReason::WaitingCapacity,
+                )) => {
+                    h.evidence[id.tile as usize].waiting_capacity_rejections += 1;
+                }
+                WaitingDecisionOutcome::NoGrant(WaitingNoGrantReason::CombinedResource(
+                    ConflictNoGrantReason::WaitingPhysicalStorage
+                    | ConflictNoGrantReason::DownstreamStorageBoundary,
+                )) => {
+                    h.evidence[id.tile as usize].waiting_storage_rejections += 1;
+                }
+                _ => {}
+            }
+        }
         decisions.n(tag);
         decisions.n(reason);
     }
     decisions.text("conflict");
     for d in h.world.latest_conflict_decisions() {
-        decisions.id(h
+        let id = h
             .stable_individual(d.vehicle())
-            .ok_or_else(|| invalid("unknown decision owner"))?);
+            .ok_or_else(|| invalid("unknown decision owner"))?;
+        decisions.id(id);
         decisions.n(d.vehicle_update_sequence());
         decisions.text(&h.route_keys[&d.anchor().route()]);
         decisions.n(d.anchor().maneuver_occurrence_index());
@@ -293,6 +354,52 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
             ConflictDecisionOutcome::Granted => (2, 0),
             ConflictDecisionOutcome::NoGrant(r) => (3, conflict_reason(r)),
         };
+        let role = h.plan.initial[id.tile as usize * 1_000 + id.slot as usize]
+            .role
+            .as_deref();
+        if h.in_observation(h.world.tick_index())
+            && h.plan.case == "PERMISSIVE-LEFT"
+            && role == Some("permissive-left")
+        {
+            match d.outcome() {
+                ConflictDecisionOutcome::Granted => {
+                    h.evidence[id.tile as usize].permissive_grants += 1;
+                }
+                ConflictDecisionOutcome::NoGrant(_) => {
+                    h.evidence[id.tile as usize].permissive_no_grants += 1;
+                    if let ConflictDecisionOutcome::NoGrant(reason) = d.outcome() {
+                        *h.evidence[id.tile as usize]
+                            .role_no_grant_reasons
+                            .entry(conflict_reason_name(reason).into())
+                            .or_default() += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if h.in_observation(h.world.tick_index())
+            && h.plan.case == "UNCONTROLLED-YIELD"
+            && role == Some("yield-role")
+            && matches!(d.outcome(), ConflictDecisionOutcome::NoGrant(_))
+        {
+            h.evidence[id.tile as usize].yield_waits += 1;
+            if let ConflictDecisionOutcome::NoGrant(reason) = d.outcome() {
+                *h.evidence[id.tile as usize]
+                    .role_no_grant_reasons
+                    .entry(conflict_reason_name(reason).into())
+                    .or_default() += 1;
+            }
+        }
+        if h.in_observation(h.world.tick_index())
+            && h.plan.case == "WAITING-RELEASE"
+            && role.is_some_and(|role| role.starts_with("waiting-fifo-"))
+            && matches!(
+                d.outcome(),
+                ConflictDecisionOutcome::NoGrant(ConflictNoGrantReason::DownstreamStorageBoundary)
+            )
+        {
+            h.evidence[id.tile as usize].waiting_storage_rejections += 1;
+        }
         decisions.n(tag);
         decisions.n(reason);
     }
@@ -360,11 +467,37 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
             TrafficTransitionKind::WaitingLeft {
                 zone,
                 admission_sequence,
-            } => json!(["waiting-left", zone.raw(), admission_sequence]),
+            } => {
+                if h.in_observation(e.tick())
+                    && h.plan.case == "WAITING-RELEASE"
+                    && h.plan.initial[id.tile as usize * 1_000 + id.slot as usize]
+                        .role
+                        .as_deref()
+                        .is_some_and(|role| role.starts_with("waiting-fifo-"))
+                {
+                    let evidence = &mut h.evidence[id.tile as usize];
+                    evidence.waiting_releases += 1;
+                    evidence.waiting_release_order.push(id.slot);
+                }
+                json!(["waiting-left", zone.raw(), admission_sequence])
+            }
             TrafficTransitionKind::WaitingEntered {
                 zone,
                 admission_sequence,
-            } => json!(["waiting-entered", zone.raw(), admission_sequence]),
+            } => {
+                if h.in_observation(e.tick())
+                    && h.plan.case == "WAITING-RELEASE"
+                    && h.plan.initial[id.tile as usize * 1_000 + id.slot as usize]
+                        .role
+                        .as_deref()
+                        .is_some_and(|role| role.starts_with("waiting-fifo-"))
+                {
+                    let evidence = &mut h.evidence[id.tile as usize];
+                    evidence.waiting_entries += 1;
+                    evidence.waiting_entry_order.push(id.slot);
+                }
+                json!(["waiting-entered", zone.raw(), admission_sequence])
+            }
             TrafficTransitionKind::ReservationAcquired { passage_range } => {
                 json!(["reservation-acquired", range(h, passage_range)])
             }
@@ -379,7 +512,25 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
             }
             TrafficTransitionKind::ManeuverTraversalCompleted {
                 maneuver_occurrence_index,
-            } => json!(["maneuver-completed", maneuver_occurrence_index]),
+            } => {
+                let role = h.plan.initial[id.tile as usize * 1_000 + id.slot as usize]
+                    .role
+                    .as_deref();
+                let in_observation = h.in_observation(e.tick());
+                let case = h.plan.case.as_str();
+                let evidence = &mut h.evidence[id.tile as usize];
+                if in_observation && case == "PERMISSIVE-LEFT" && role == Some("permissive-left") {
+                    evidence.permissive_passes += 1;
+                }
+                if in_observation && case == "UNCONTROLLED-YIELD" {
+                    if role.is_some_and(|role| role.starts_with("mainline-pulse-")) {
+                        evidence.mainline_passes += 1;
+                    } else if role == Some("yield-role") {
+                        evidence.yield_passes += 1;
+                    }
+                }
+                json!(["maneuver-completed", maneuver_occurrence_index])
+            }
         };
         let a = e.anchor();
         let p = a.position();
@@ -388,8 +539,18 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
             "position":[p.route_edge_index(),p.progress_mm(),p.carry_um()], "detail":detail}));
     }
     for (i, before) in h.step_before.iter().enumerate() {
+        let Some(before) = before else {
+            continue;
+        };
         let individual = &mut h.individuals[i];
-        let after = h.world.vehicle(individual.handle).expect("live individual");
+        let after = h
+            .world
+            .vehicle(
+                individual
+                    .handle
+                    .expect("step cannot create an absent slot"),
+            )
+            .expect("live individual");
         let route = &h.route_edges[&after.route()];
         let first = before.route_edge_index() as usize;
         let last = after.route_edge_index() as usize;
@@ -424,7 +585,7 @@ pub(crate) fn status(value: VehicleStatus) -> u32 {
 
 pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
     let mut hash = Hash::default();
-    hash.text("urban-observation-v1");
+    hash.text("urban-observation-v2");
     hash.n(h.world.tick_index());
     hash.n(h.world.time_ms());
     hash.n(h.world.command_cursor());
@@ -437,17 +598,27 @@ pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
             return Err(invalid("committed conflict claims are not exclusive"));
         }
         let individual = &h.individuals[id.tile as usize * 1_000 + id.slot as usize];
-        if individual.id != *id || h.world.conflict_reservation(individual.handle).is_none() {
+        if individual.id != *id
+            || individual
+                .handle
+                .and_then(|handle| h.world.conflict_reservation(handle))
+                .is_none()
+        {
             return Err(invalid("claim has no current reservation owner"));
         }
     }
     let mut waiting = BTreeMap::<u32, u32>::new();
     for individual in &h.individuals {
+        hash.id(individual.id);
+        let Some(handle) = individual.handle else {
+            hash.n(0_u32);
+            continue;
+        };
+        hash.n(1_u32);
         let v = h
             .world
-            .vehicle(individual.handle)
+            .vehicle(handle)
             .ok_or_else(|| invalid("missing vehicle"))?;
-        hash.id(individual.id);
         hash.n(v.profile().raw());
         hash.n(v.class().raw());
         hash.text(&h.route_keys[&v.route()]);
@@ -487,7 +658,7 @@ pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
         } else {
             hash.n(0_u32);
         }
-        match h.world.parking_binding(individual.handle) {
+        match h.world.parking_binding(handle) {
             None => hash.n(0_u32),
             Some(ParkingBinding::Occupied(target)) => {
                 hash.n(1_u32);
@@ -501,7 +672,7 @@ pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
                 hash.n(r.virtual_entry_selector().map_or(u32::MAX, |s| s.raw()));
             }
         }
-        if let Some(r) = h.world.conflict_reservation(individual.handle) {
+        if let Some(r) = h.world.conflict_reservation(handle) {
             hash.n(1_u32);
             hash.text(&serde_json::to_string(&range(h, r.passage_range()))?);
             hash.id(h

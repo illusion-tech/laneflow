@@ -8,9 +8,14 @@ mod runner;
 
 pub use artifacts::Artifacts;
 pub use plan::{
-    DepartureBatch, InitialVehicle, ParkingArrival, ParkingDeparture, ResolvedPlan, Window,
+    BoundaryWindow, DepartureBatch, InitialVehicle, LifecycleBurst, LifecycleCounts,
+    ParkingArrival, ParkingDeparture, ReservationRejection, ResolvedPlan, RoleDeparture, UrbanCase,
+    Window,
 };
-pub use report::{ComparedRun, ComparisonReport, RunResult, compare_runs, run_to_directory};
+pub use report::{
+    ComparedRun, ComparisonReport, PerformanceComparisonReport, PerformanceRound, RunResult,
+    compare_performance_runs, compare_runs, run_to_directory,
+};
 pub use runner::{Harness, IndividualId, TickRecord};
 
 pub type Result<T> = std::result::Result<T, Error>;

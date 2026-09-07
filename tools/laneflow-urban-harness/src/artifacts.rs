@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, fs, path::Path, sync::Arc};
 
+use laneflow_compiler::{CompileLimits, derive_canonical_stable_id_v1};
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     CommittedNetworkSource, PolicyPin, PublishedLfcaReference, TrafficWorld, WorldConfig,
@@ -7,6 +8,7 @@ use laneflow_runtime::{
 };
 use laneflow_static_contract::{
     EntityKind, LaneEdgeId, LaneEdgeOrdinal, ParticipantStreamOrdinal, RightOfWayPolicySetId,
+    SignalGroupId, SignalGroupOrdinal,
 };
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
@@ -209,5 +211,19 @@ impl Artifacts {
             return Err(invalid("urban-conservative-v1 gap differs"));
         }
         Ok(world)
+    }
+
+    pub(crate) fn signal_group(&self, key: &str) -> Result<SignalGroupOrdinal> {
+        let id = derive_canonical_stable_id_v1(
+            EntityKind::SignalGroup,
+            &self.catalog.namespace,
+            key,
+            &CompileLimits::single_network_1m_v2(),
+        )
+        .map_err(|error| invalid(format!("signal group identity: {error:?}")))?;
+        self.revision
+            .identity()
+            .ordinal(SignalGroupId::from_untyped(id))
+            .ok_or_else(|| invalid(format!("unknown signal group {key}")))
     }
 }

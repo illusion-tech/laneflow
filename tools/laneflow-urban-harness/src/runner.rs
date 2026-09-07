@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use laneflow_runtime::*;
-use laneflow_static_contract::{ParkingFacilityId, ParkingSpaceId, VehicleProfileId};
+use laneflow_static_contract::{
+    ParkingFacilityId, ParkingSpaceId, VehicleProfileId, VehicleProfileOrdinal,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -16,7 +18,7 @@ pub struct IndividualId {
 
 pub(crate) struct Individual {
     pub id: IndividualId,
-    pub handle: VehicleHandle,
+    pub handle: Option<VehicleHandle>,
     pub crossed_tile: bool,
 }
 
@@ -61,13 +63,39 @@ pub struct TileEvidence {
     pub planned_west: u64,
     pub admitted_east: u64,
     pub admitted_west: u64,
+    pub garage_exit_0: u64,
+    pub garage_exit_1: u64,
+    pub safe_leave_rejections: u64,
+    pub retried_leave_successes: u64,
+    pub exclusive_rejections: u64,
+    pub full_rejections: u64,
+    pub waiting_entries: u64,
+    pub waiting_capacity_rejections: u64,
+    pub waiting_storage_rejections: u64,
+    pub waiting_releases: u64,
+    pub waiting_entry_order: Vec<u32>,
+    pub waiting_release_order: Vec<u32>,
+    pub permissive_no_grants: u64,
+    pub permissive_grants: u64,
+    pub permissive_passes: u64,
+    pub mainline_passes: u64,
+    pub yield_waits: u64,
+    pub yield_passes: u64,
+    pub role_no_grant_reasons: BTreeMap<String, u64>,
+    pub phase_changes: u64,
+    pub lifecycle_successes: u64,
+    pub before_boundary_commands: u64,
+    pub after_boundary_commands: u64,
 }
 
 #[derive(Clone)]
 enum Command {
     Replace {
         route: String,
-        east: bool,
+        occurrence: u32,
+        progress_mm: u32,
+        east: Option<bool>,
+        role: bool,
     },
     Leave {
         target: String,
@@ -76,9 +104,17 @@ enum Command {
     },
     Reserve {
         target: String,
+        expected_rejection: Option<String>,
     },
     Park {
         target: String,
+    },
+    Despawn,
+    Spawn {
+        profile: String,
+        route: String,
+        occurrence: u32,
+        progress_mm: u32,
     },
 }
 
@@ -87,7 +123,7 @@ impl Command {
         match self {
             Self::Park { .. } => 0,
             Self::Leave { .. } => 1,
-            Self::Replace { .. } => 2,
+            Self::Replace { .. } | Self::Despawn | Self::Spawn { .. } => 2,
             Self::Reserve { .. } => 3,
         }
     }
@@ -97,13 +133,27 @@ impl Command {
             Self::Leave { .. } => "leave",
             Self::Replace { .. } => "replace",
             Self::Reserve { .. } => "reserve",
+            Self::Despawn => "despawn",
+            Self::Spawn { .. } => "spawn",
         }
     }
     fn departure(&self) -> Option<bool> {
         match self {
-            Self::Leave { east, .. } | Self::Replace { east, .. } => Some(*east),
+            Self::Leave { east, .. } => Some(*east),
+            Self::Replace { east, .. } => *east,
             _ => None,
         }
+    }
+    fn retryable(&self) -> bool {
+        matches!(
+            self,
+            Self::Replace { .. }
+                | Self::Leave { .. }
+                | Self::Reserve {
+                    expected_rejection: Some(_),
+                    ..
+                }
+        )
     }
 }
 
@@ -124,6 +174,7 @@ pub struct Harness<'a> {
     pub(crate) individuals: Vec<Individual>,
     pub(crate) slots: HashMap<VehicleHandle, usize>,
     pub(crate) routes: BTreeMap<String, RouteHandle>,
+    profiles: BTreeMap<String, VehicleProfileOrdinal>,
     pub(crate) route_keys: HashMap<RouteHandle, String>,
     pub(crate) route_edges: HashMap<RouteHandle, Vec<String>>,
     targets: BTreeMap<String, ParkingTarget>,
@@ -135,14 +186,19 @@ pub struct Harness<'a> {
     pub(crate) red_waiters: BTreeSet<(IndividualId, u32)>,
     pub(crate) claims: BTreeMap<(IndividualId, String, u32), u32>,
     pub(crate) transition_gates: HashMap<(u32, u32), (u32, u32)>,
-    pub(crate) step_before: Vec<VehicleState>,
+    pub(crate) step_before: Vec<Option<VehicleState>>,
     pub(crate) commands: Vec<Value>,
     pub(crate) events: Vec<Value>,
     pub(crate) error_counts: BTreeMap<String, u64>,
     pub(crate) atomic_rejections: BTreeMap<String, u32>,
     watched: BTreeMap<String, u32>,
     pub(crate) replacements: u64,
+    pub(crate) births: u64,
+    pub(crate) removals: u64,
+    last_signals: BTreeMap<u32, u8>,
     pub(crate) last_step_ns: u64,
+    pub(crate) last_command_ns: u64,
+    pub(crate) last_observation_ns: u64,
 }
 
 impl<'a> Harness<'a> {
@@ -244,10 +300,11 @@ impl<'a> Harness<'a> {
             slots.insert(handle, individuals.len());
             individuals.push(Individual {
                 id,
-                handle,
+                handle: Some(handle),
                 crossed_tile: false,
             });
         }
+        let last_signals = signal_signature(&world)?;
         let mut harness = Self {
             artifacts,
             plan,
@@ -255,6 +312,7 @@ impl<'a> Harness<'a> {
             individuals,
             slots,
             routes,
+            profiles,
             route_keys,
             route_edges,
             targets,
@@ -273,7 +331,12 @@ impl<'a> Harness<'a> {
             atomic_rejections: BTreeMap::new(),
             watched: BTreeMap::new(),
             replacements: 0,
+            births: 0,
+            removals: 0,
+            last_signals,
             last_step_ns: 0,
+            last_command_ns: 0,
+            last_observation_ns: 0,
         };
         for b in &plan.departures {
             for i in 0..10 {
@@ -285,7 +348,10 @@ impl<'a> Harness<'a> {
                     attempt: 1,
                     command: Command::Replace {
                         route: b.routes[i].clone(),
-                        east: i < 7,
+                        occurrence: 0,
+                        progress_mm: 7_000,
+                        east: Some(i < 7),
+                        role: false,
                     },
                 });
             }
@@ -313,15 +379,68 @@ impl<'a> Harness<'a> {
                 attempt: 1,
                 command: Command::Reserve {
                     target: arrival.target.clone(),
+                    expected_rejection: None,
+                },
+            });
+        }
+        for rejection in &plan.reservation_rejections {
+            harness.enqueue(Request {
+                due: rejection.due_tick,
+                original_due: rejection.due_tick,
+                slot: rejection.slot as usize,
+                sequence: rejection.sequence,
+                attempt: 1,
+                command: Command::Reserve {
+                    target: rejection.target.clone(),
+                    expected_rejection: Some(rejection.expected.clone()),
+                },
+            });
+        }
+        for role in &plan.role_departures {
+            harness.enqueue(Request {
+                due: role.due_tick,
+                original_due: role.due_tick,
+                slot: role.slot as usize,
+                sequence: role.sequence,
+                attempt: 1,
+                command: Command::Replace {
+                    route: role.route.clone(),
+                    occurrence: role.occurrence,
+                    progress_mm: role.progress_mm,
+                    east: None,
+                    role: true,
+                },
+            });
+        }
+        for burst in &plan.lifecycle_bursts {
+            harness.enqueue(Request {
+                due: burst.despawn_tick,
+                original_due: burst.despawn_tick,
+                slot: burst.slot as usize,
+                sequence: burst.sequence,
+                attempt: 1,
+                command: Command::Despawn,
+            });
+            harness.enqueue(Request {
+                due: burst.spawn_tick,
+                original_due: burst.spawn_tick,
+                slot: burst.slot as usize,
+                sequence: burst.sequence + 1,
+                attempt: 1,
+                command: Command::Spawn {
+                    profile: burst.profile.clone(),
+                    route: burst.route.clone(),
+                    occurrence: burst.occurrence,
+                    progress_mm: burst.progress_mm,
                 },
             });
         }
         let counts = observe::counts(&harness)?;
         if counts
             != (
-                plan.individuals as usize * 3 / 4,
-                plan.individuals as usize / 4,
-                0,
+                plan.initial_counts.active as usize,
+                plan.initial_counts.parked as usize,
+                plan.initial_counts.completed as usize,
             )
         {
             return Err(invalid("initial lifecycle counts differ"));
@@ -346,12 +465,17 @@ impl<'a> Harness<'a> {
     fn enqueue(&mut self, request: Request) {
         self.schedule.entry(request.due).or_default().push(request);
     }
-    fn in_observation(&self, tick: u64) -> bool {
+    pub(crate) fn in_observation(&self, tick: u64) -> bool {
         tick >= self.plan.window.warm_up_ticks && tick < self.plan.window.end()
     }
 
     fn execute(&mut self, request: Request, tick: u64) -> Result<()> {
-        let handle = self.individuals[request.slot].handle;
+        if matches!(&request.command, Command::Despawn | Command::Spawn { .. }) {
+            return self.execute_lifecycle_boundary(request, tick);
+        }
+        let handle = self.individuals[request.slot]
+            .handle
+            .ok_or_else(|| invalid("command targets an absent individual"))?;
         let id = self.individuals[request.slot].id;
         let before = self
             .world
@@ -361,21 +485,22 @@ impl<'a> Harness<'a> {
         let cursor_before = self.world.command_cursor();
         let event_before = self.world.event_cursor();
         let name = request.command.name();
+        if request.command.retryable() && request.attempt == 1 {
+            self.pending.insert(request.sequence);
+        }
         if let Some(east) = request.command.departure()
             && request.attempt == 1
+            && self.in_observation(request.original_due)
         {
-            self.pending.insert(request.sequence);
-            if self.in_observation(request.original_due) {
-                if east {
-                    self.evidence[id.tile as usize].planned_east += 1;
-                } else {
-                    self.evidence[id.tile as usize].planned_west += 1;
-                }
+            if east {
+                self.evidence[id.tile as usize].planned_east += 1;
+            } else {
+                self.evidence[id.tile as usize].planned_west += 1;
             }
         }
-        let role_hold = matches!(&request.command, Command::Replace { .. })
+        let role_hold = matches!(&request.command, Command::Replace { role: false, .. })
             && self.plan.initial[request.slot].role.is_some();
-        let caller_deferred = matches!(request.command, Command::Replace { .. })
+        let caller_deferred = matches!(&request.command, Command::Replace { .. })
             && (before.status() != VehicleStatus::Completed || role_hold);
         // Bound whole-world snapshots to eight candidate calls per command kind until one rejects.
         let watch_count = self.watched.get(name).copied().unwrap_or(0);
@@ -384,7 +509,12 @@ impl<'a> Harness<'a> {
             && watch_count < 8
             && matches!(
                 request.command,
-                Command::Replace { .. } | Command::Leave { .. }
+                Command::Replace { .. }
+                    | Command::Leave { .. }
+                    | Command::Reserve {
+                        expected_rejection: Some(_),
+                        ..
+                    }
             );
         let digest_before = if watch {
             self.watched.insert(name.into(), watch_count + 1);
@@ -405,9 +535,19 @@ impl<'a> Harness<'a> {
             ));
         } else {
             match &request.command {
-                Command::Replace { route, .. } => {
-                    let input =
-                        VehicleSpawnInput::new(before.profile(), self.routes[route], 0, 7_000, 0);
+                Command::Replace {
+                    route,
+                    occurrence,
+                    progress_mm,
+                    ..
+                } => {
+                    let input = VehicleSpawnInput::new(
+                        before.profile(),
+                        self.routes[route],
+                        *occurrence,
+                        *progress_mm,
+                        0,
+                    );
                     match self.world.replace_completed_vehicle(handle, input) {
                         Ok(record) => {
                             self.slots.remove(&handle);
@@ -417,7 +557,7 @@ impl<'a> Harness<'a> {
                                     incarnation: request.sequence + 1,
                                     ..id
                                 },
-                                handle: record.new,
+                                handle: Some(record.new),
                                 crossed_tile: false,
                             };
                             self.replacements += 1;
@@ -461,13 +601,27 @@ impl<'a> Harness<'a> {
                         Ok(_) => {
                             if self.in_observation(tick) {
                                 self.evidence[id.tile as usize].leaves += 1;
+                                if *exit == 0 {
+                                    self.evidence[id.tile as usize].garage_exit_0 += 1;
+                                } else if *exit == 1 {
+                                    self.evidence[id.tile as usize].garage_exit_1 += 1;
+                                }
+                                if request.attempt > 1 {
+                                    self.evidence[id.tile as usize].retried_leave_successes += 1;
+                                }
                             }
                             extra = json!({"target":target,"exit":exit});
                         }
                         Err(ParkingError::LeavePhysicalOverlap { blocker }) => {
+                            if self.in_observation(tick) {
+                                self.evidence[id.tile as usize].safe_leave_rejections += 1;
+                            }
                             rejection = Some(("leave-overlap", Some(blocker)));
                         }
                         Err(ParkingError::LeaveUnsafeFollower { follower }) => {
+                            if self.in_observation(tick) {
+                                self.evidence[id.tile as usize].safe_leave_rejections += 1;
+                            }
                             rejection = Some(("leave-unsafe-follower", Some(follower)));
                         }
                         Err(error) => {
@@ -477,7 +631,10 @@ impl<'a> Harness<'a> {
                         }
                     }
                 }
-                Command::Reserve { target } => {
+                Command::Reserve {
+                    target,
+                    expected_rejection,
+                } => {
                     let spec = self
                         .artifacts
                         .catalog
@@ -501,11 +658,40 @@ impl<'a> Harness<'a> {
                             entry_route_occurrence: anchor.route_edge_index,
                         },
                     };
-                    checked(
-                        "reserve arrival role",
-                        self.world.reserve_parking(handle, input),
-                    )?;
-                    extra = json!({"target":target});
+                    match self.world.reserve_parking(handle, input) {
+                        Ok(_) if expected_rejection.is_none() => {
+                            extra = json!({"target":target});
+                        }
+                        Ok(_) => {
+                            return Err(invalid(format!(
+                                "expected reservation rejection committed at tick {tick}"
+                            )));
+                        }
+                        Err(ParkingError::TargetBoundByOther)
+                            if expected_rejection.as_deref() == Some("exclusive-occupied") =>
+                        {
+                            if self.in_observation(tick) {
+                                self.evidence[id.tile as usize].exclusive_rejections += 1;
+                            }
+                            rejection = Some(("exclusive-occupied", None));
+                        }
+                        Err(ParkingError::VirtualCapacityExhausted)
+                            if expected_rejection.as_deref() == Some("virtual-full") =>
+                        {
+                            if self.in_observation(tick) {
+                                self.evidence[id.tile as usize].full_rejections += 1;
+                            }
+                            rejection = Some(("virtual-full", None));
+                        }
+                        Err(ParkingError::InvalidVehicleStatus) if expected_rejection.is_some() => {
+                            rejection = Some(("role-not-active", None));
+                        }
+                        Err(error) => {
+                            return Err(invalid(format!(
+                                "unexpected reserve error at tick {tick}: {error}"
+                            )));
+                        }
+                    }
                 }
                 Command::Park { target } => {
                     checked(
@@ -524,6 +710,7 @@ impl<'a> Harness<'a> {
                     }
                     extra = json!({"target":target});
                 }
+                Command::Despawn | Command::Spawn { .. } => unreachable!(),
             }
         }
         if let Some((reason, blocker)) = rejection {
@@ -542,21 +729,36 @@ impl<'a> Harness<'a> {
             }
             *self.error_counts.entry(reason.into()).or_default() += 1;
             extra = json!({"reason": reason, "blocker": blocker.and_then(|v| self.stable_individual(v))});
-            if request.command.departure().is_some() {
-                let next_tick = tick + self.plan.retry_ticks;
-                if request.attempt < self.plan.max_attempts && next_tick < self.plan.window.end() {
-                    self.enqueue(Request {
-                        due: next_tick,
-                        attempt: request.attempt + 1,
-                        ..request.clone()
-                    });
+            if request.command.retryable() {
+                let expected_reservation = matches!(
+                    request.command,
+                    Command::Reserve {
+                        expected_rejection: Some(_),
+                        ..
+                    }
+                );
+                if expected_reservation && reason != "role-not-active" {
+                    self.pending.remove(&request.sequence);
                 } else {
-                    self.exhausted.insert(request.sequence);
+                    let next_tick = tick + self.plan.retry_ticks;
+                    if request.attempt < self.plan.max_attempts
+                        && next_tick < self.plan.window.end()
+                    {
+                        self.enqueue(Request {
+                            due: next_tick,
+                            attempt: request.attempt + 1,
+                            ..request.clone()
+                        });
+                    } else {
+                        self.exhausted.insert(request.sequence);
+                    }
                 }
             }
-        } else if let Some(east) = request.command.departure() {
+        } else if request.command.retryable() {
             self.pending.remove(&request.sequence);
-            if self.in_observation(tick) {
+            if let Some(east) = request.command.departure()
+                && self.in_observation(tick)
+            {
                 if east {
                     self.evidence[id.tile as usize].admitted_east += 1;
                 } else {
@@ -568,9 +770,12 @@ impl<'a> Harness<'a> {
             let individual = &self.individuals[request.slot];
             let after = self
                 .world
-                .vehicle(individual.handle)
+                .vehicle(individual.handle.expect("committed command remains live"))
                 .expect("live individual");
             if id != individual.id || before.status() != after.status() {
+                if self.in_observation(tick) {
+                    self.evidence[id.tile as usize].lifecycle_successes += 1;
+                }
                 self.events.push(json!({"kind":"lifecycle", "phase":"command", "tick":tick,
                     "sequence":request.sequence, "attempt":request.attempt, "command":name,
                     "individual":id, "after_individual":individual.id,
@@ -580,6 +785,117 @@ impl<'a> Harness<'a> {
         self.commands.push(json!({"boundary":tick,"due":request.original_due,"sequence":request.sequence,
             "attempt":request.attempt,"individual":id,"command":name,"committed":rejection.is_none(),
             "cursor_before":cursor_before,"cursor_after":self.world.command_cursor(),"details":extra}));
+        if self.in_observation(tick) {
+            let evidence = &mut self.evidence[id.tile as usize];
+            if self
+                .plan
+                .boundary_windows
+                .iter()
+                .any(|window| window.tile == id.tile && window.before_tick == tick)
+            {
+                evidence.before_boundary_commands += 1;
+            }
+            if self
+                .plan
+                .boundary_windows
+                .iter()
+                .any(|window| window.tile == id.tile && window.after_tick == tick)
+            {
+                evidence.after_boundary_commands += 1;
+            }
+        }
+        Ok(())
+    }
+
+    fn execute_lifecycle_boundary(&mut self, request: Request, tick: u64) -> Result<()> {
+        let before_id = self.individuals[request.slot].id;
+        let cursor_before = self.world.command_cursor();
+        let name = request.command.name();
+        let (before, after, after_id, details) = match &request.command {
+            Command::Despawn => {
+                let handle = self.individuals[request.slot]
+                    .handle
+                    .ok_or_else(|| invalid("despawn targets an absent individual"))?;
+                let before = self
+                    .world
+                    .vehicle(handle)
+                    .ok_or_else(|| invalid("despawn lost its live individual"))?;
+                checked("boundary despawn", self.world.despawn_vehicle(handle))?;
+                self.slots.remove(&handle);
+                self.individuals[request.slot].handle = None;
+                self.removals += 1;
+                (
+                    Some(observe::status(before.status())),
+                    None,
+                    before_id,
+                    Value::Null,
+                )
+            }
+            Command::Spawn {
+                profile,
+                route,
+                occurrence,
+                progress_mm,
+            } => {
+                if self.individuals[request.slot].handle.is_some() {
+                    return Err(invalid("spawn targets a live individual"));
+                }
+                let handle = checked(
+                    "boundary spawn",
+                    self.world.spawn_vehicle(VehicleSpawnInput::new(
+                        self.profiles[profile],
+                        self.routes[route],
+                        *occurrence,
+                        *progress_mm,
+                        0,
+                    )),
+                )?;
+                let after_id = IndividualId {
+                    incarnation: request.sequence + 1,
+                    ..before_id
+                };
+                self.individuals[request.slot].id = after_id;
+                self.individuals[request.slot].handle = Some(handle);
+                self.individuals[request.slot].crossed_tile = false;
+                self.slots.insert(handle, request.slot);
+                self.births += 1;
+                (
+                    None,
+                    Some(observe::status(VehicleStatus::Active)),
+                    after_id,
+                    json!({"route":route,"occurrence":occurrence,"progress_mm":progress_mm}),
+                )
+            }
+            _ => unreachable!(),
+        };
+        if self.in_observation(tick) {
+            let evidence = &mut self.evidence[before_id.tile as usize];
+            evidence.lifecycle_successes += 1;
+            if self
+                .plan
+                .boundary_windows
+                .iter()
+                .any(|window| window.tile == before_id.tile && window.before_tick == tick)
+            {
+                evidence.before_boundary_commands += 1;
+            }
+            if self
+                .plan
+                .boundary_windows
+                .iter()
+                .any(|window| window.tile == before_id.tile && window.after_tick == tick)
+            {
+                evidence.after_boundary_commands += 1;
+            }
+        }
+        self.events
+            .push(json!({"kind":"lifecycle", "phase":"command", "tick":tick,
+            "sequence":request.sequence,"attempt":1,"command":name,"individual":before_id,
+            "after_individual":after_id,"before":before,"after":after}));
+        self.commands.push(json!({"boundary":tick,"due":request.original_due,
+            "sequence":request.sequence,"attempt":1,"individual":before_id,"command":name,
+            "committed":true,"cursor_before":cursor_before,"cursor_after":self.world.command_cursor(),
+            "details":details}));
         Ok(())
     }
 
@@ -591,20 +907,26 @@ impl<'a> Harness<'a> {
         }
         self.commands.clear();
         self.events.clear();
+        let command_started = std::time::Instant::now();
         while let Some(mut commands) = self.schedule.remove(&boundary) {
             commands.sort_by_key(|r| (r.command.rank(), r.due, r.slot, r.sequence, r.attempt));
             for request in commands {
                 self.execute(request, boundary)?;
             }
         }
+        self.last_command_ns = command_started
+            .elapsed()
+            .as_nanos()
+            .min(u128::from(u64::MAX)) as u64;
         self.step_before = self
             .individuals
             .iter()
-            .map(|i| self.world.vehicle(i.handle).expect("live handle"))
+            .map(|i| i.handle.and_then(|handle| self.world.vehicle(handle)))
             .collect();
         let intent = self
             .step_before
             .iter()
+            .flatten()
             .filter(|s| s.status() == VehicleStatus::Active)
             .count();
         observe::red_waiters(self);
@@ -613,7 +935,19 @@ impl<'a> Harness<'a> {
             "TrafficWorld step",
             self.world.step(TickInput::new(self.plan.dt)),
         )?;
+        let signals = signal_signature(&self.world)?;
+        if signals != self.last_signals {
+            for window in &self.plan.boundary_windows {
+                if window.after_tick == outcome.tick_index()
+                    && signal_groups_changed(&self.last_signals, &signals, &window.groups)?
+                {
+                    self.evidence[window.tile as usize].phase_changes += 1;
+                }
+            }
+            self.last_signals = signals;
+        }
         self.last_step_ns = started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
+        let observation_started = std::time::Instant::now();
         for arrival in outcome.parking_arrivals() {
             let slot = *self
                 .slots
@@ -642,11 +976,19 @@ impl<'a> Harness<'a> {
         let state_digest = observe::state(self)?;
         let (active, parked, completed) = observe::counts(self)?;
         observe::parking_invariants(self)?;
+        self.last_observation_ns = observation_started
+            .elapsed()
+            .as_nanos()
+            .min(u128::from(u64::MAX)) as u64;
         Ok(TickRecord {
             tick: outcome.tick_index(),
             time_ms: outcome.time_ms(),
             domain: "road_motor_vehicle".into(),
-            live: self.individuals.len(),
+            live: self
+                .individuals
+                .iter()
+                .filter(|i| i.handle.is_some())
+                .count(),
             active,
             parked,
             completed,
@@ -672,4 +1014,41 @@ impl<'a> Harness<'a> {
             commands_digest: sha256(&serde_json::to_vec(&self.commands)?),
         })
     }
+}
+
+fn signal_signature(world: &TrafficWorld) -> Result<BTreeMap<u32, u8>> {
+    world
+        .committed_signal_groups()
+        .as_slice()
+        .iter()
+        .map(|(group, aspect)| {
+            Ok((
+                group.raw(),
+                match aspect {
+                    laneflow_static_contract::SignalAspect::Red => 0,
+                    laneflow_static_contract::SignalAspect::Yellow => 1,
+                    laneflow_static_contract::SignalAspect::Green => 2,
+                    _ => return Err(invalid("unsupported signal aspect")),
+                },
+            ))
+        })
+        .collect()
+}
+
+fn signal_groups_changed(
+    before: &BTreeMap<u32, u8>,
+    after: &BTreeMap<u32, u8>,
+    groups: &[u32],
+) -> Result<bool> {
+    let mut changed = false;
+    for group in groups {
+        let before = before
+            .get(group)
+            .ok_or_else(|| invalid("boundary signal group missing before step"))?;
+        let after = after
+            .get(group)
+            .ok_or_else(|| invalid("boundary signal group missing after step"))?;
+        changed |= before != after;
+    }
+    Ok(changed)
 }

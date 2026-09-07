@@ -1,17 +1,21 @@
 # LF-CN-URBAN 无界面运行程序
 
-#544 的第一段实现，消费 #542 的正式制品目录，经 `TrafficWorld` 公共 API 运行
-`MIXED-PEAK`。库和命令行共用 `Artifacts`、`ResolvedPlan`、`Harness`，供 #545 后续复用。
+#544 的无界面实现消费 #542 的正式制品目录，经 `TrafficWorld` 公共 API 运行七套封闭
+case。库和命令行共用 `Artifacts`、`ResolvedPlan`、`Harness`，供 #545 后续复用。
 设计依据为 [需求计划与无界面验证](../../docs/design/urban-demand-harness.md)。
 
 ## 本段验收
 
-本段提供 Mixed 展开、实际初态、有限命令调度、逐 tick 校验和独立运行比较。
+当前实现提供七套计划展开、实际初态、有限命令调度、逐 tick 校验和独立运行比较。
 10k 正确性窗口是暖机 7656、观察 15312，共 22968 ticks。两次运行使用同一份预先
 冻结的计划。fixture/短 probe 只验证实现；不提供正式 case 通过结论。
 
-其他六套 case、全部 100k 正确性行、正式性能协议仍未交付，#544 保持开放。
-不增加 Traffic Runtime、共享静态路网、Adapter 的公共接口。
+`GARAGE-EGRESS` 使用 25% Active/75% Parked；`GARAGE-INGRESS` 固定满池和显式排他
+拒绝；三类交通 case 使用目标 cell 的有限角色脉冲并直接聚合 Waiting/Conflict 决策；
+`BOUNDARY-BURST` 在相邻提交边界执行 park/leave/replace 及独立 despawn/spawn。
+所有路径都不增加 Traffic Runtime、共享静态路网或 Adapter 的公共接口。
+实现和 fixture probe 不替代当前提交上的十四行正式正确性及六轮性能取证；完整证据完成前
+#544 保持开放。
 
 10k 展开计划摘要保存在 [输入冻结记录](fixtures/v2/mixed-10k-plan.json)。
 `urban-demand-v2` 将停车角色从入口竞争改为预先安排的既有 Active 个体；旧 v1
@@ -25,13 +29,19 @@
 ```text
 cargo +1.98.0 build -p laneflow-urban-harness --release --locked
 target/release/laneflow-urban-harness plan <artifact-directory> <plan.toml>
+target/release/laneflow-urban-harness plan <artifact-directory> <plan.toml> --case GARAGE-EGRESS
 target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-a>
 target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-b>
 target/release/laneflow-urban-harness compare <run-a> <run-b> <comparison.json>
 ```
 
+`--case` 只接受 `MIXED-PEAK`、`GARAGE-EGRESS`、`GARAGE-INGRESS`、
+`WAITING-RELEASE`、`PERMISSIVE-LEFT`、`UNCONTROLLED-YIELD` 和
+`BOUNDARY-BURST`。省略时为 `MIXED-PEAK`。
+
 Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是新路径，避免覆盖证据。
-`plan ... --probe-ticks 128` 生成短试跑；probe 不得冒充正式验收。
+`plan ... --probe-ticks 128` 生成短试跑；`--probe-warm-up N` 可在 fixture 上覆盖
+“暖机后重新提交角色”的诊断路径。probe 不得冒充正式验收。
 默认的 correctness 计划只接受 10k/100k 制品；fixture 必须显式使用 `--probe-ticks`。
 库入口遵守同一准入规则，手工构造 correctness 窗口也不能为 fixture 创建正式计划。
 载入时复用生成器 `Scale` 核对规模、tile 数、个体数和步长：fixture/2/2000/16 ms、
@@ -39,6 +49,26 @@ Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是�
 计划经读取后重新核对固定展开规则及来源文件摘要，不接受手工删减事件或车辆。
 已加载的目录和共享路网通过 `Artifacts::catalog()` / `revision()` 只读借用；
 改变源输入需要重新载入并展开计划，调用方不能替换已绑定来源摘要的内部字段。
+
+正式性能计划只允许 Mixed 的 10k/100k 制品：
+
+```text
+target/release/laneflow-urban-harness plan <artifact-directory> <plan.toml> --performance
+```
+
+运行前必须设置 `LANEFLOW_HARDWARE_ROLE` 和 `LANEFLOW_POWER_ROLE`。每轮只统计观察
+窗口，分别记录调用方命令、`TrafficWorld::step` 和观测开销的 p50/p95/p99/max，实际
+Active/intent 分布及进程 peak resident bytes 写入 `measurements.toml`。每档仍须按治理
+流程启动三个新进程；单轮文件不代表三轮合并结论或产品预算认证。
+三轮完成后仍通过 `compare` 入口做文件摘要、计划摘要和独立执行编号校验，并精确合并
+三轮保存的观察窗口样本：
+
+```text
+target/release/laneflow-urban-harness compare <performance-a> <performance-b> <performance-c> <performance-comparison.toml>
+```
+
+合并状态 `performance-three-rounds-complete` 只表示协议完整，不表示达到 #539/#305 的
+产品预算。
 
 ## Mixed 的具体输入
 
@@ -102,7 +132,7 @@ compare 要求两份诊断记录中的编号存在且不同，用于拦截误复
 按静态设施归属汇总显式绑定，与虚拟绑定一起核对每个设施的 reserved/occupied/total；
 按路线向后展开的 Active 车身区间不重叠。通过 reservation acquire、passage clear 与
 reservation release 的公开事件记录剩余 claim，核对资源区互斥和当前 reservation owner。
-状态摘要包含车辆、遍历、Waiting、停车、
+`urban-observation-v2` 状态摘要包含 live/absent 稳定 slot、车辆、遍历、Waiting、停车、
 公开 Conflict reservation 和灯色，周期性完整快照补充隐藏权威状态。
 失败命令逐次检查主体和游标，并对每类前八个候选调用中的第一次实际拒绝比较完整
 快照；未触发的原子性样本不宣称已测量。
