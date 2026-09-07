@@ -7,6 +7,7 @@ use crate::{
     GateInterpretation as I, GateProhibition as P, ManeuverDirection, PolicyViolation as V,
 };
 
+/// 校验策略校验阶段的临时字节数与记录数是否超出编译上限。
 pub(super) fn budget(
     unit: &CompilationUnit,
     mir: &MirUnit,
@@ -34,6 +35,7 @@ pub(super) fn budget(
     }
     Ok(())
 }
+/// 若 `class` 属于 `ancestor` 的继承子树则返回 `ancestor` 的深度，否则返回 `None`。
 pub(super) fn class_depth(
     mir: &MirUnit,
     ancestor: MirParticipantClassKey,
@@ -121,6 +123,7 @@ struct RuleIndex {
     owner: u32,
     rule: u32,
 }
+/// 冲突区覆盖记录：某冲突通行段的准入机动门及其所在冲突区。
 #[derive(Clone, Copy)]
 pub(super) struct Coverage {
     pub(super) gate: MirManeuverGateKey,
@@ -130,6 +133,7 @@ fn owner_rules(entries: &[RuleIndex], owner: u32) -> &[RuleIndex] {
     &entries[entries.partition_point(|v| v.owner < owner)
         ..entries.partition_point(|v| v.owner <= owner)]
 }
+/// 静态校验全部路权策略集（法规一致性、信号绑定、让行拓扑、让行优先级与保护冲突），并更新峰值受控内存。
 pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<(), DiagnosticBundle> {
     if mir.policies.is_empty() {
         return Ok(());

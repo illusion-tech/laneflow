@@ -148,6 +148,7 @@ pub enum BuildError {
 }
 
 impl BuildError {
+    /// 返回该构建错误的类别，供宿主按类归并诊断。
     #[must_use]
     pub const fn class(self) -> BuildErrorClass {
         match self {

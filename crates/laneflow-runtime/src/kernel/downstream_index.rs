@@ -30,6 +30,7 @@ impl Node {
     }
 }
 
+/// 按物理边排序的下游区间 AVL 索引；供方向性间距冲突查询，节点存于可复用连续缓冲。
 #[derive(Default)]
 pub(crate) struct DownstreamIndex {
     root: Option<NonZeroU32>,
@@ -41,11 +42,13 @@ fn index(id: NonZeroU32) -> usize {
 }
 
 impl DownstreamIndex {
+    /// 清空全部节点并保留容量。
     pub(crate) fn clear(&mut self) {
         self.root = None;
         self.nodes.clear();
     }
 
+    /// 为 `additional` 个节点可失败预留容量；超限或分配失败返回错误。
     pub(crate) fn reserve(&mut self, additional: usize) -> Result<(), ConflictAcquireError> {
         let count = self
             .nodes
@@ -62,6 +65,7 @@ impl DownstreamIndex {
             .map_err(|_| ConflictAcquireError::ScratchAllocFailed)
     }
 
+    /// 插入一条下游区间记录；调用前须由 `reserve` 预检容量。
     pub(crate) fn insert(&mut self, interval: DownstreamInterval, owner: VehicleHandle, gap: u32) {
         let id =
             NonZeroU32::new(u32::try_from(self.nodes.len() + 1).expect("preflight node count"))
@@ -142,6 +146,7 @@ impl DownstreamIndex {
         }
     }
 
+    /// 查询候选区间是否与其他车辆的既有记录按方向性最小间距冲突。
     pub(crate) fn conflicts(
         &self,
         interval: DownstreamInterval,
@@ -186,6 +191,7 @@ impl DownstreamIndex {
                 && self.query(node.right, subject, owner, end))
     }
 
+    /// 测试用：索引持有的逻辑字节数。
     #[cfg(test)]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self { root: _, nodes } = self;

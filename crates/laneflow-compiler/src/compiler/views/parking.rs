@@ -26,11 +26,13 @@ impl CanonicalParkingFacilityView<'_> {
         &self.lir.parking_facility_spaces[self.record.parking_spaces.as_usize_range()]
     }
 
+    /// 返回虚拟停车池的车位容量；纯显式成员设施为 0。
     #[must_use]
     pub const fn virtual_capacity(&self) -> u32 {
         self.record.virtual_capacity
     }
 
+    /// 返回显式停车位数与虚拟停车池容量之和的总容量。
     #[must_use]
     pub fn total_capacity(&self) -> u64 {
         u64::try_from(self.parking_spaces().len())
@@ -38,6 +40,7 @@ impl CanonicalParkingFacilityView<'_> {
             .saturating_add(u64::from(self.record.virtual_capacity))
     }
 
+    /// 遍历虚拟停车池驶入侧的车道图锚点。
     pub fn virtual_entries(
         &self,
     ) -> impl ExactSizeIterator<Item = CanonicalParkingLaneAnchor> + '_ {
@@ -49,6 +52,7 @@ impl CanonicalParkingFacilityView<'_> {
             })
     }
 
+    /// 遍历虚拟停车池驶出侧的车道图锚点。
     pub fn virtual_exits(&self) -> impl ExactSizeIterator<Item = CanonicalParkingLaneAnchor> + '_ {
         self.lir.parking_facility_virtual_exits[self.record.virtual_exits.as_usize_range()]
             .iter()

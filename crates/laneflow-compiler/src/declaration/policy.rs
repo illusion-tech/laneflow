@@ -26,6 +26,7 @@ pub struct PolicyInputSource<'a> {
     pub contributing: &'a [SourceSpan],
 }
 
+/// Synthetic 前端的策略证据条目输入。
 #[derive(Clone, Copy, Debug)]
 pub struct PolicyEvidenceInput<'a> {
     pub evidence_key: &'a str,
@@ -34,6 +35,7 @@ pub struct PolicyEvidenceInput<'a> {
     pub source: PolicyInputSource<'a>,
 }
 
+/// Synthetic 前端的冲突间隙参数档输入。
 #[derive(Clone, Copy, Debug)]
 pub struct PolicyGapProfileInput<'a> {
     pub profile_key: &'a str,
@@ -44,6 +46,7 @@ pub struct PolicyGapProfileInput<'a> {
     pub source: PolicyInputSource<'a>,
 }
 
+/// Synthetic 前端的参与者流让行规则输入。
 #[derive(Clone, Copy, Debug)]
 pub struct PolicyStreamRuleInput<'a> {
     pub rule_key: &'a str,
@@ -56,6 +59,7 @@ pub struct PolicyStreamRuleInput<'a> {
     pub source: PolicyInputSource<'a>,
 }
 
+/// Synthetic 前端的机动门通行规则输入。
 #[derive(Clone, Copy, Debug)]
 pub struct PolicyGateRuleInput<'a> {
     pub rule_key: &'a str,
@@ -79,18 +83,21 @@ pub struct RightOfWayPolicySetInput<'a> {
     pub source: PolicyInputSource<'a>,
 }
 
+/// 策略成员声明的主来源位置与伴随来源位置。
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct PolicyDeclarationSource {
     pub primary: SourceLocation,
     pub contributing: Box<[SourceLocation]>,
 }
 
+/// Typed AST 中已拥有的策略证据条目声明。
 pub(crate) struct PolicyEvidenceDeclaration {
     pub key: Arc<str>,
     pub locator: Arc<str>,
     pub description: Option<Arc<str>>,
     pub source: PolicyDeclarationSource,
 }
+/// Typed AST 中已拥有的间隙参数档声明。
 pub(crate) struct PolicyGapProfileDeclaration {
     pub key: Arc<str>,
     pub parameter_version: Arc<str>,
@@ -99,6 +106,7 @@ pub(crate) struct PolicyGapProfileDeclaration {
     pub clearance_buffer_ms: u64,
     pub source: PolicyDeclarationSource,
 }
+/// Typed AST 中已拥有的参与者流让行规则声明。
 pub(crate) struct PolicyStreamRuleDeclaration {
     pub key: Arc<str>,
     pub stream: OwnedEntityReference<ParticipantStreamKind>,
@@ -109,6 +117,7 @@ pub(crate) struct PolicyStreamRuleDeclaration {
     pub evidence: Box<[Arc<str>]>,
     pub source: PolicyDeclarationSource,
 }
+/// Typed AST 中已拥有的机动门通行规则声明。
 pub(crate) struct PolicyGateRuleDeclaration {
     pub key: Arc<str>,
     pub gate: OwnedEntityReference<ManeuverGateKind>,
@@ -118,6 +127,7 @@ pub(crate) struct PolicyGateRuleDeclaration {
     pub evidence: Box<[Arc<str>]>,
     pub source: PolicyDeclarationSource,
 }
+/// 已通过字段级检查的路权策略集 Typed AST 声明。
 pub(crate) struct RightOfWayPolicySetDeclaration {
     pub header: DeclarationHeader,
     pub regulation: RegulationIdentity<Arc<str>>,
@@ -129,6 +139,7 @@ pub(crate) struct RightOfWayPolicySetDeclaration {
 }
 
 impl RightOfWayPolicySetDeclaration {
+    /// 按声明顺序迭代全部具名成员的来源记录。
     pub(crate) fn sources(&self) -> impl Iterator<Item = &PolicyDeclarationSource> {
         self.evidence
             .iter()
@@ -138,6 +149,7 @@ impl RightOfWayPolicySetDeclaration {
             .chain(self.gate_rules.iter().map(|v| &v.source))
     }
 
+    /// 以声明内规范结构顺序访问全部来源位置。
     pub(crate) fn try_visit_source_locations<E>(
         &self,
         mut visit: impl FnMut(&SourceLocation) -> Result<(), E>,

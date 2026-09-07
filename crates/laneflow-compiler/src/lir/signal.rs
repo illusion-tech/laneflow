@@ -9,12 +9,14 @@ use crate::arena::TableRange;
 
 use super::LirIdentityField;
 
+/// 机动门信号约束的闭合联合：绑定信号组，或无信号控制。
 #[derive(Clone, Copy)]
 pub(crate) enum LirSignalControl {
     Group(SignalGroupOrdinal),
     None,
 }
 
+/// 信号组的 Canonical LIR 记录：面向一组机动门输出信号指示的静态组。
 pub(crate) struct LirSignalGroup {
     pub(crate) ordinal: SignalGroupOrdinal,
     pub(crate) stable_id: SignalGroupId,
@@ -23,6 +25,7 @@ pub(crate) struct LirSignalGroup {
     pub(crate) maneuver_gates: TableRange<ManeuverGateOrdinal>,
 }
 
+/// 信号控制器的 Canonical LIR 记录：产生信号相位和指示时间序列的静态控制程序。
 pub(crate) struct LirSignalController {
     pub(crate) ordinal: SignalControllerOrdinal,
     pub(crate) stable_id: SignalControllerId,
@@ -33,6 +36,7 @@ pub(crate) struct LirSignalController {
     pub(crate) phases: TableRange<SignalPhaseOrdinal>,
 }
 
+/// 信号相位的 Canonical LIR 记录：信号控制器内具有稳定键与时长的阶段声明。
 pub(crate) struct LirSignalPhase {
     pub(crate) ordinal: SignalPhaseOrdinal,
     pub(crate) stable_id: SignalPhaseId,
@@ -42,6 +46,7 @@ pub(crate) struct LirSignalPhase {
     pub(crate) states: TableRange<LirSignalPhaseState>,
 }
 
+/// 相位状态行：一个相位内某信号组的信号指示。
 pub(crate) struct LirSignalPhaseState {
     pub(crate) signal_group: SignalGroupOrdinal,
     pub(crate) aspect: SignalAspect,
@@ -53,6 +58,7 @@ use crate::arena::ArenaKey;
 use crate::mir::{MirSignalControllerGroup, MirSignalPhaseKey, MirSignalPhaseState};
 use laneflow_static_contract::FieldTag;
 
+/// 信号领域各表、关系辅表及控制器组、相位状态 MIR 行排列的领域冻结产物。
 pub(super) struct SignalParts {
     pub signal_groups: Vec<LirSignalGroup>,
     pub signal_group_maneuver_gates: Vec<ManeuverGateOrdinal>,
@@ -65,6 +71,7 @@ pub(super) struct SignalParts {
     pub signal_phase_state_mir_rows: Vec<ArenaKey<MirSignalPhaseState>>,
 }
 
+/// 按规范排列冻结信号组、信号控制器与信号相位表；控制器的相位保持固定时制程序顺序。
 pub(super) fn freeze(
     env: &mut FreezeEnv<'_>,
     counts: &LirSignalCounts,

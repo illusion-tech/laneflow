@@ -13,6 +13,7 @@ pub struct RegulationIdentity<S = Box<str>> {
 }
 
 impl RegulationIdentity {
+    /// 受检构造仅含法域与版本的法规身份。
     pub fn try_new(
         jurisdiction: impl Into<String>,
         version: impl Into<String>,
@@ -28,6 +29,7 @@ impl RegulationIdentity {
         })
     }
 
+    /// 为法规身份附加可选来源，同样受检。
     pub fn with_source(mut self, source: impl Into<String>) -> Result<Self, DiagnosticBundle> {
         let source = source.into();
         validate_text(&source, "regulation.source")?;
@@ -37,19 +39,23 @@ impl RegulationIdentity {
 }
 
 impl<S: AsRef<str>> RegulationIdentity<S> {
+    /// 返回法域。
     #[must_use]
     pub fn jurisdiction(&self) -> &str {
         self.jurisdiction.as_ref()
     }
+    /// 返回规则含义的版本。
     #[must_use]
     pub fn version(&self) -> &str {
         self.version.as_ref()
     }
+    /// 返回可选法规来源。
     #[must_use]
     pub fn source(&self) -> Option<&str> {
         self.source.as_ref().map(AsRef::as_ref)
     }
 
+    /// 校验法域、版本与可选来源的文本约束。
     pub(crate) fn validate(&self) -> Result<(), DiagnosticBundle> {
         validate_text(self.jurisdiction(), "regulation.jurisdiction")?;
         validate_text(self.version(), "regulation.version")?;
@@ -60,6 +66,7 @@ impl<S: AsRef<str>> RegulationIdentity<S> {
     }
 }
 
+/// 判断文本是否满足法规字段的长度约束（1 至 128 字符）。
 pub(crate) fn valid_text(value: &str) -> bool {
     (1..=128).contains(&value.chars().count())
 }

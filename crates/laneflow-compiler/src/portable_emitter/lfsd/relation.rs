@@ -62,6 +62,9 @@ fn push_vector_relations(
     Ok(())
 }
 
+/// 把已索引制品的全部所有者局部关系投影为规范关系元组。
+///
+/// 逐实体按冻结角色展开关系字段，主体的有类型序号经索引解析为稳定标识。
 pub(super) fn artifact_relation_tuples(
     index: &ArtifactIndex<'_>,
     mismatch: PortableEmissionError,
@@ -735,6 +738,10 @@ fn relation_change_row(change: RelationChangeProjection) -> OwnedRow {
     row(fields)
 }
 
+/// 生成两版制品之间的关系差异行（LFSD 第 3 节）。
+///
+/// 元组按所有者、角色与主体种类分组，依各角色冻结的配对方式配对后输出增删、
+/// 移动与重连变更，并按规范顺序排序。
 pub(super) fn artifact_relation_changes(
     base: &ArtifactIndex<'_>,
     target: &ArtifactIndex<'_>,
@@ -774,6 +781,7 @@ pub(super) fn artifact_relation_changes(
     Ok(changes.into_iter().map(relation_change_row).collect())
 }
 
+/// 把 LIR 的规范关系元组全部投影为 Genesis 新增差异行。
 pub(super) fn genesis_relation_changes(lir: &crate::lir::LirUnit) -> Vec<OwnedRow> {
     canonical_relation_tuples(lir)
         .into_iter()

@@ -3952,6 +3952,7 @@ pub(crate) mod tests {
         }
     }
 
+    /// 构造停车切换测试世界：一辆虚拟池预约车辆加一辆虚拟池占用停放车辆。
     pub(crate) fn virtual_parking_cutover_world() -> (TrafficWorld, VehicleHandle, VehicleHandle) {
         let revision = compiled_parking_revision(ParkingRevisionShape::Facility {
             capacity: 3,

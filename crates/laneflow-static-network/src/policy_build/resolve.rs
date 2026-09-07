@@ -4,6 +4,7 @@ use laneflow_static_contract::{
     ParticipantStreamOrdinal, SignalAspect, SignalPhaseOrdinal, VehicleProfileOrdinal,
 };
 
+/// 策略规则解析的输出：机动门与参与者流的已解析策略及其让行目标范围。
 pub(super) struct Resolved {
     pub(super) gate_owners: Vec<PolicyOwner>,
     pub(super) stream_owners: Vec<PolicyOwner>,
@@ -325,6 +326,7 @@ fn visit_targets(
     Ok(())
 }
 
+/// 解析并校验策略规则，生成机动门与参与者流的已解析策略及让行目标单元。
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build(
     traffic: &SharedTrafficNetwork,

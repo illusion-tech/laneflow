@@ -1097,6 +1097,7 @@ fn write_value<S: ObjectWriteSink>(
     Ok(())
 }
 
+/// 对象编码目标的顺序写入与定偏移回填能力；错误类型由实现定义。
 pub(crate) trait ObjectWriteSink {
     type Error;
 
@@ -1145,16 +1146,19 @@ impl ObjectWriteSink for SliceSink<'_> {
     }
 }
 
+/// 包装 ObjectWriteSink 的写入游标；按写入顺序累计可选的 chunk 摘要。
 pub(crate) struct WriteCursor<S> {
     sink: S,
     digest: Option<Sha256>,
 }
 
 impl<S: ObjectWriteSink> WriteCursor<S> {
+    /// 在指定 sink 上建立尚未开始摘要累计的写入游标。
     pub(crate) const fn new(sink: S) -> Self {
         Self { sink, digest: None }
     }
 
+    /// 返回当前已写入的字节位置。
     pub(crate) fn position(&self) -> u64 {
         self.sink.position()
     }
@@ -1227,6 +1231,7 @@ impl<S: ObjectWriteSink> WriteCursor<S> {
     }
 }
 
+/// 把已完成全对象预检的 PreparedObject 顺序编码到给定 sink，并在完成后排空收尾。
 #[cfg(feature = "std")]
 pub(crate) fn encode_prepared_object_to_sink<S: ObjectWriteSink>(
     prepared: PreparedObject<'_>,

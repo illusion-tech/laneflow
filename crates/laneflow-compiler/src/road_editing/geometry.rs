@@ -15,6 +15,7 @@ const MAX_SUBDIVISION_DEPTH: u8 = 20;
 const MAX_REGULARITY_NODE_VISITS: u32 = 4095;
 const REGULARITY_STACK_CAPACITY: usize = 21;
 
+/// 数值内核显式栈所需的 scratch 字节上界（取细分与正则性 walk 两者的较大值）。
 pub(super) const fn numeric_stack_scratch_bytes() -> u64 {
     let approximation =
         core::mem::size_of::<Option<ApproximationNode>>().saturating_mul(REGULARITY_STACK_CAPACITY);
@@ -64,14 +65,17 @@ pub(super) struct NumericFreezeError {
 }
 
 impl NumericFreezeError {
+    /// 返回数值冻结类别。
     pub(super) fn kind(&self) -> NumericFreezeKind {
         self.kind
     }
 
+    /// 返回出错位置归因。
     pub(super) fn site(&self) -> NumericErrorSite {
         self.site
     }
 
+    /// 在尚未归因时为错误补充 segment 序号。
     pub(super) fn at_segment(mut self, segment_ordinal: u32) -> Self {
         if self.site.segment_ordinal.is_none() {
             self.site.segment_ordinal = Some(segment_ordinal);
@@ -79,6 +83,7 @@ impl NumericFreezeError {
         self
     }
 
+    /// 在尚未归因时为错误补充曲线点角色。
     pub(super) fn at_point_role(mut self, point_role: CurvePointRole) -> Self {
         if self.site.point_role.is_none() {
             self.site.point_role = Some(point_role);
@@ -96,6 +101,7 @@ impl From<NumericFreezeKind> for NumericFreezeError {
     }
 }
 
+/// 内核使用的 f64 三维点。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Point3 {
     pub(super) x: f64,
@@ -104,6 +110,7 @@ pub(super) struct Point3 {
 }
 
 impl Point3 {
+    /// 构造点，要求三个分量均为有限值。
     pub(super) fn try_new(x: f64, y: f64, z: f64) -> Result<Self, NumericFreezeError> {
         Ok(Self {
             x: finite(x)?,
@@ -113,6 +120,7 @@ impl Point3 {
     }
 }
 
+/// 曲线 segment：直线段或三次 Bézier 段。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum CurveSegment {
     Line {
@@ -127,14 +135,17 @@ pub(super) enum CurveSegment {
     },
 }
 
+/// 曲线采样结果：位置点与一阶导数。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct CurveSample {
     pub(super) point: Point3,
     pub(super) first: Point3,
 }
 
+/// 细分输出的规范近似点（f32 三分量）。
 pub(super) type ApproximationPoint = CanonicalPoint3F32Input;
 
+/// 将 f64 点量化为规范 f32 近似点，分量越界时返回数值冻结错误。
 pub(super) fn quantize_point(value: Point3) -> Result<ApproximationPoint, NumericFreezeError> {
     let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
     let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
@@ -159,16 +170,19 @@ fn promote_point(value: ApproximationPoint) -> Point3 {
     }
 }
 
+/// 细分顶点：曲线参数与对应的规范近似点。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ApproximationVertex {
     pub(super) parameter: f64,
     pub(super) point: ApproximationPoint,
 }
 
+/// 近似点输出汇：接收细分产生的顶点，内核不拥有点表容器。
 pub(super) trait ApproximationPointSink {
     fn push(&mut self, vertex: ApproximationVertex) -> Result<(), NumericFreezeError>;
 }
 
+/// segment 求值器：直接求参考线，或按站区间与偏移区间求横向偏移曲线。
 #[derive(Clone, Copy)]
 pub(super) enum SegmentEvaluator {
     Reference(CurveSegment),
@@ -180,6 +194,7 @@ pub(super) enum SegmentEvaluator {
 }
 
 impl SegmentEvaluator {
+    /// 在给定参数处求值，返回位置与一阶导数。
     pub(super) fn evaluate(self, parameter: f64) -> Result<CurveSample, NumericFreezeError> {
         match self {
             Self::Reference(segment) => segment.evaluate(parameter),
@@ -217,6 +232,7 @@ struct ApproximationNode {
     depth: u8,
 }
 
+/// 待细分的参数区间：含起终点参数、焊接起点与是否输出起点标记。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ApproximationInterval {
     pub(super) parameter_start: f64,
@@ -225,6 +241,7 @@ pub(super) struct ApproximationInterval {
     pub(super) emit_start: bool,
 }
 
+/// 对参数区间做自适应细分近似，满足精度与方向档位后把顶点推入输出汇，返回末点。
 pub(super) fn approximate_interval(
     evaluator: SegmentEvaluator,
     interval: ApproximationInterval,
@@ -370,6 +387,7 @@ fn half_angle_cosine_squared(profile: GeometryDirectionProfile) -> f64 {
     })
 }
 
+/// 判断两个方向向量的夹角是否满足给定余弦平方阈值（方向连续性判据）。
 pub(super) fn direction_accepts(
     left: Point3,
     right: Point3,
@@ -468,11 +486,13 @@ fn point_sub(left: Point3, right: Point3) -> Result<Point3, NumericFreezeError> 
     )
 }
 
+/// 计算两个 f64 点的欧氏距离。
 pub(super) fn point_distance(left: Point3, right: Point3) -> Result<f64, NumericFreezeError> {
     let delta = point_sub(left, right)?;
     finite(norm_squared(delta)?.sqrt())
 }
 
+/// 计算两个规范近似点的 f32 欧氏距离。
 pub(super) fn canonical_point_distance(left: ApproximationPoint, right: ApproximationPoint) -> f32 {
     (right.x - left.x)
         .hypot(right.y - left.y)
@@ -628,6 +648,7 @@ impl DualPoint3 {
 }
 
 impl CurveSegment {
+    /// 在给定参数处求曲线位置与一阶导数。
     pub(super) fn evaluate(self, parameter: f64) -> Result<CurveSample, NumericFreezeError> {
         self.evaluate_dual(Dual::parameter(parameter)?)?.sample()
     }
@@ -660,6 +681,7 @@ impl CurveSegment {
         }
     }
 
+    /// 求横向偏移曲线：按站区间插值里程、按偏移区间插值横向偏移后沿水平左法向平移。
     pub(super) fn evaluate_offset(
         self,
         parameter: f64,
@@ -724,6 +746,7 @@ impl CurveSegment {
         }
     }
 
+    /// 证明 segment 水平导数处处非零（水平正则性），返回证明过程的节点访问数。
     pub(super) fn prove_horizontal_regularity(self) -> Result<u32, NumericFreezeError> {
         match self {
             Self::Line { start, end } => {
@@ -754,6 +777,7 @@ impl CurveSegment {
     }
 }
 
+/// 站区间：segment 参数范围及其对应的累计里程范围。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct StationInterval {
     pub(super) parameter_start: f64,
@@ -762,6 +786,7 @@ pub(super) struct StationInterval {
     pub(super) cumulative_end_meters: f64,
 }
 
+/// 偏移区间：里程范围及其对应的横向偏移范围（米）。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct OffsetInterval {
     pub(super) station_start_meters: f64,

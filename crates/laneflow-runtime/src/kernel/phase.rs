@@ -16,6 +16,7 @@ pub(crate) struct StepReadView<'a> {
 }
 
 impl<'a> StepReadView<'a> {
+    /// 由拍初基线派生 Conflict 只读视图。
     pub(crate) fn conflict_read(self) -> ConflictRead<'a> {
         ConflictRead::committed(&self.committed.conflict, &self.derived.conflict)
     }
@@ -42,6 +43,7 @@ impl Deref for StepDerived<'_> {
 }
 
 impl StepCommitted<'_> {
+    /// 对 Conflict 容器做受限容量准备，返回本拍裁决接口。
     pub(crate) fn prepare_conflict<'a>(
         &'a mut self,
         derived: &'a mut StepDerived<'_>,
@@ -61,6 +63,7 @@ pub(crate) struct StepWorkspace<'a> {
 }
 
 impl StepWorkspace<'_> {
+    /// 借用本工作区的拍初基线只读投影。
     pub(crate) fn read_view(&self) -> StepReadView<'_> {
         StepReadView {
             binding: self.binding,
@@ -69,6 +72,7 @@ impl StepWorkspace<'_> {
         }
     }
 
+    /// 含本拍工作区暂存的 Conflict 只读视图。
     pub(crate) fn conflict_read(&self) -> ConflictRead<'_> {
         ConflictRead::new(
             &self.committed.conflict,
@@ -88,6 +92,7 @@ pub(crate) struct CommittedStateMut<'a> {
 }
 
 impl CommittedStateMut<'_> {
+    /// 该写视图的拍初基线只读投影。
     pub(crate) fn read_view(&self) -> StepReadView<'_> {
         StepReadView {
             binding: self.binding,
@@ -95,6 +100,7 @@ impl CommittedStateMut<'_> {
             derived: self.derived,
         }
     }
+    /// 由该写视图派生、含工作区暂存的 Conflict 只读视图。
     pub(crate) fn conflict_read(&self) -> ConflictRead<'_> {
         ConflictRead::new(
             &self.committed.conflict,
@@ -105,6 +111,7 @@ impl CommittedStateMut<'_> {
 }
 
 impl TrafficWorld {
+    /// 世界的拍初基线只读投影。
     pub(crate) const fn read_view(&self) -> StepReadView<'_> {
         StepReadView {
             binding: &self.binding,
@@ -113,6 +120,7 @@ impl TrafficWorld {
         }
     }
 
+    /// 进入本拍步进工作区视图；P2～P6 只产生暂存结果。
     pub(crate) fn step_workspace(&mut self) -> StepWorkspace<'_> {
         StepWorkspace {
             binding: &self.binding,
@@ -123,6 +131,7 @@ impl TrafficWorld {
         }
     }
 
+    /// 进入已提交状态写视图；仅 P7 或两次 step 之间的生命周期/恢复边界使用。
     pub(crate) fn committed_mut(&mut self) -> CommittedStateMut<'_> {
         CommittedStateMut {
             binding: &self.binding,

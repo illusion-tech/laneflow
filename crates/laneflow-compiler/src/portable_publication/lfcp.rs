@@ -12,6 +12,8 @@ use crate::portable_emitter::{PortableObjectCandidate, close_object, object_key}
 
 use super::{PortablePublicationError, PortablePublicationProvenance};
 
+/// 从后发射受检 bundle 与显式发布 provenance 构造 LFCP v2 规范发布描述符的 exact
+/// bytes，完成格式值域预检后关闭为 `PortableObjectCandidate`。
 pub(crate) fn build_lfcp<L, M, D>(
     checked: &PostEmissionCheckedBundle<L, M, D>,
     provenance: &PortablePublicationProvenance,

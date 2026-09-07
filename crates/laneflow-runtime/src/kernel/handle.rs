@@ -9,15 +9,18 @@ pub struct RouteHandle {
 }
 
 impl RouteHandle {
+    /// 构造路线句柄；仅由所属 world 按槽位下标与代际签发。
     pub(crate) const fn new(index: u32, generation: u32) -> Self {
         Self { index, generation }
     }
 
+    /// 槽位下标。
     #[must_use]
     pub(crate) const fn index(self) -> u32 {
         self.index
     }
 
+    /// 代际号。
     #[must_use]
     pub(crate) const fn generation(self) -> u32 {
         self.generation
@@ -32,15 +35,18 @@ pub struct VehicleHandle {
 }
 
 impl VehicleHandle {
+    /// 构造车辆句柄；仅由所属 world 按槽位下标与代际签发。
     pub(crate) const fn new(index: u32, generation: u32) -> Self {
         Self { index, generation }
     }
 
+    /// 槽位下标。
     #[must_use]
     pub(crate) const fn index(self) -> u32 {
         self.index
     }
 
+    /// 代际号。
     #[must_use]
     pub(crate) const fn generation(self) -> u32 {
         self.generation

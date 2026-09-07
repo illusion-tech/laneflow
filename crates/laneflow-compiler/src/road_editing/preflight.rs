@@ -28,6 +28,7 @@ use crate::{
 type StringVector<'a> = Vector<'a, ForwardsUOffset<&'a str>>;
 mod policy;
 
+/// 道路编辑来源语义预检的用量计数；在任何领域分配前累计记录、引用与字符串负载。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct RoadEditingPreflightCounts {
     declaration_count: u64,
@@ -46,50 +47,62 @@ pub(crate) struct RoadEditingPreflightCounts {
 }
 
 impl RoadEditingPreflightCounts {
+    /// 返回声明计数。
     pub(crate) const fn declaration_count(self) -> u64 {
         self.declaration_count
     }
 
+    /// 返回 Typed AST 来源记录计数。
     pub(crate) const fn typed_ast_record_count(self) -> u64 {
         self.typed_ast_record_count
     }
 
+    /// 返回引用计数。
     pub(crate) const fn reference_count(self) -> u64 {
         self.reference_count
     }
 
+    /// 返回指向外部编制命名空间的引用计数。
     pub(crate) const fn external_namespace_reference_count(self) -> u64 {
         self.external_namespace_reference_count
     }
 
+    /// 返回关系出现项计数。
     pub(crate) const fn relation_occurrence_count(self) -> u64 {
         self.relation_occurrence_count
     }
 
+    /// 返回身份字段出现项计数。
     pub(crate) const fn identity_field_occurrence_count(self) -> u64 {
         self.identity_field_occurrence_count
     }
 
+    /// 返回机动门计数。
     pub(crate) const fn maneuver_gate_count(self) -> u64 {
         self.maneuver_gate_count
     }
 
+    /// 返回等待区计数。
     pub(crate) const fn waiting_zone_count(self) -> u64 {
         self.waiting_zone_count
     }
 
+    /// 返回冲突区空间区域的点计数。
     pub(crate) const fn conflict_region_point_count(self) -> u64 {
         self.conflict_region_point_count
     }
 
+    /// 返回符号计数。
     pub(crate) const fn symbol_count(self) -> u64 {
         self.symbol_count
     }
 
+    /// 返回字符串条目计数。
     pub(crate) const fn string_item_count(self) -> u64 {
         self.string_item_count
     }
 
+    /// 返回字符串总字节数。
     pub(crate) const fn total_string_bytes(self) -> u64 {
         self.total_string_bytes
     }
@@ -285,6 +298,7 @@ impl RoadEditingPreflightCounts {
     }
 }
 
+/// 对已验证根表执行完整语义预检：校验各字段取值并累计用量计数，在任何领域分配前失败关闭。
 pub(crate) fn preflight_source(
     root: wire::RoadEditingSource<'_>,
     limits: &CompileLimits,
@@ -2752,6 +2766,7 @@ fn semantic_error(
     ))
 }
 
+/// 生成字段取值组合无效的来源语义诊断。
 pub(super) fn invalid_combination(field: &'static str, expected_key: &str) -> DiagnosticBundle {
     semantic_error(
         field,

@@ -85,6 +85,7 @@ pub(crate) struct HirWaitingZone {
     pub(crate) source_span: SourceLocation,
 }
 
+/// 通行权控制领域 HIR 部件：停止线、机动门、等待区及其成员关系表。
 #[derive(Default)]
 pub(crate) struct ControlHir {
     pub(crate) stop_lines: Box<[HirStopLine]>,
@@ -95,6 +96,7 @@ pub(crate) struct ControlHir {
     pub(crate) stop_line_maneuver_gates: Box<[HirStopLineManeuverGate]>,
 }
 
+/// 构建通行权控制领域 HIR：登记停止线、机动门与等待区，并回写机动路径的成员区间。
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub(crate) fn build_control_hir(
     unit: &CompilationUnit,

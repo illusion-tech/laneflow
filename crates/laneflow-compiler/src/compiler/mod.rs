@@ -25,6 +25,7 @@ use crate::Diagnostic;
 use laneflow_static_contract::{AccessEffect, FieldTag, SignalAspect};
 
 mod output;
+/// W2 通行权策略正式输入到受检三件套的集成测试模块。
 #[cfg(test)]
 pub(crate) mod policy_tests;
 mod views;
@@ -54,6 +55,7 @@ pub struct ValidatedCanonicalLir {
 }
 
 impl ValidatedCanonicalLir {
+    /// 借用内部已冻结的 LIR 单元；仅限编译器管线内部阶段使用。
     pub(crate) const fn unit(&self) -> &LirUnit {
         &self.inner
     }
@@ -568,6 +570,7 @@ impl Compiler {
     }
 }
 
+/// 可移植制品端到端夹具与精确字节对照测试模块。
 #[cfg(test)]
 pub(crate) mod portable_fixture_tests;
 

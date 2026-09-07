@@ -52,6 +52,7 @@ fn non_test_cfg(meta: &Meta) -> Truth {
     }
 }
 
+/// 判定属性列表是否含可证明仅测试配置生效的 `cfg`（如 `cfg(test)`）；无法确定的配置保守按生产代码处理。
 pub(super) fn test_only(attributes: &[Attribute]) -> bool {
     attributes.iter().any(|attribute| {
         path_is_ident(attribute.path(), "cfg")
@@ -61,6 +62,7 @@ pub(super) fn test_only(attributes: &[Attribute]) -> bool {
     })
 }
 
+/// 取模块层级 item 的属性切片；不带属性的 item 形态返回空切片。
 pub(super) fn of_item(item: &Item) -> &[Attribute] {
     match item {
         Item::Const(item) => &item.attrs,
@@ -82,6 +84,7 @@ pub(super) fn of_item(item: &Item) -> &[Attribute] {
     }
 }
 
+/// 取 impl 块内关联项的属性切片；不带属性的形态返回空切片。
 pub(super) fn of_impl_item(item: &syn::ImplItem) -> &[Attribute] {
     match item {
         syn::ImplItem::Const(item) => &item.attrs,
@@ -92,6 +95,7 @@ pub(super) fn of_impl_item(item: &syn::ImplItem) -> &[Attribute] {
     }
 }
 
+/// 取 trait 内关联项的属性切片；不带属性的形态返回空切片。
 pub(super) fn of_trait_item(item: &syn::TraitItem) -> &[Attribute] {
     match item {
         syn::TraitItem::Const(item) => &item.attrs,
@@ -102,6 +106,7 @@ pub(super) fn of_trait_item(item: &syn::TraitItem) -> &[Attribute] {
     }
 }
 
+/// 取 extern 块内 foreign item 的属性切片；不带属性的形态返回空切片。
 pub(super) fn of_foreign_item(item: &syn::ForeignItem) -> &[Attribute] {
     match item {
         syn::ForeignItem::Fn(item) => &item.attrs,
@@ -112,6 +117,7 @@ pub(super) fn of_foreign_item(item: &syn::ForeignItem) -> &[Attribute] {
     }
 }
 
+/// 判定宏声明是否可能经 `macro_export` 导出（含非测试条件下 `cfg_attr` 包裹的形态）；`cfg_attr` 无法解析时报错。
 pub(super) fn exports_macro(attributes: &[Attribute]) -> Result<bool, String> {
     for attribute in attributes {
         if may_export_macro(&attribute.meta)? {

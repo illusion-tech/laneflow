@@ -42,6 +42,7 @@ pub(crate) struct RegistryCheckProof {
 }
 
 impl<'a> RegistryCheckedObjectView<'a> {
+    /// 提取可对同一 backing 做 O(1) 重借用的 registry 预检证明。
     pub(crate) const fn proof(self) -> RegistryCheckProof {
         RegistryCheckProof {
             framing: self.framing.proof(),
@@ -62,10 +63,12 @@ impl<'a> RegistryCheckedObjectView<'a> {
         self.framing.bytes()
     }
 
+    /// 返回本次预检使用的调用方运行上限。
     pub(crate) const fn limits(self) -> FormatLimits {
         self.limits
     }
 
+    /// 返回附录 A 为该对象种类冻结的静态 registry schema。
     pub(crate) const fn schema(self) -> &'static PortableObjectSchema {
         self.schema
     }
@@ -99,6 +102,7 @@ impl<'a> RegistryCheckedObjectView<'a> {
 }
 
 impl RegistryCheckProof {
+    /// 长度与预检时一致时，对同一不可变 backing 重借出 registry 受检视图。
     pub(crate) fn reborrow(self, bytes: &[u8]) -> Option<RegistryCheckedObjectView<'_>> {
         Some(RegistryCheckedObjectView {
             framing: self.framing.reborrow(bytes)?,
@@ -117,11 +121,13 @@ pub struct RegistryCheckedSectionView<'a> {
 }
 
 impl<'a> RegistryCheckedSectionView<'a> {
+    /// 已与附录 A wire 顺序核对的 section kind。
     #[must_use]
     pub const fn kind(self) -> u16 {
         self.framing.kind()
     }
 
+    /// 该节已完成 registry 结构预检的 exact bytes。
     #[must_use]
     pub const fn bytes(self) -> &'a [u8] {
         self.framing.bytes()
@@ -214,11 +220,13 @@ pub struct RegistryCheckedTableView<'a> {
 }
 
 impl<'a> RegistryCheckedTableView<'a> {
+    /// 附录 A 为该 table 冻结的 table kind。
     #[must_use]
     pub const fn kind(self) -> u16 {
         self.schema.kind
     }
 
+    /// 该逻辑表跨全部物理 chunk 的累计行数。
     #[must_use]
     pub const fn row_count(self) -> u32 {
         self.row_count
@@ -366,11 +374,13 @@ pub struct RegistryCheckedRowView<'a> {
 }
 
 impl<'a> RegistryCheckedRowView<'a> {
+    /// 该行已完成 registry 结构预检的 exact bytes。
     #[must_use]
     pub const fn bytes(self) -> &'a [u8] {
         self.bytes
     }
 
+    /// 该行已登记并通过预检的字段数。
     #[must_use]
     pub const fn field_count(self) -> u32 {
         self.field_count
@@ -441,16 +451,19 @@ pub struct RegistryCheckedFieldView<'a> {
 }
 
 impl<'a> RegistryCheckedFieldView<'a> {
+    /// 附录 A 登记的字段标签。
     #[must_use]
     pub const fn tag(self) -> u16 {
         self.schema.tag
     }
 
+    /// 附录 A 登记的字段类型。
     #[must_use]
     pub const fn field_type(self) -> PortableFieldType {
         self.schema.field_type
     }
 
+    /// 字段值的原始字节；已通过通用编码预检，尚未按登记类型解码。
     #[must_use]
     pub const fn value_bytes(self) -> &'a [u8] {
         self.value
@@ -548,16 +561,19 @@ pub struct RegistryCheckedOrdinalVectorView<'a> {
 }
 
 impl RegistryCheckedOrdinalVectorView<'_> {
+    /// 向量中的元素个数。
     #[must_use]
     pub const fn len(self) -> u32 {
         self.count
     }
 
+    /// 向量是否不含任何元素。
     #[must_use]
     pub fn is_empty(self) -> bool {
         self.len() == 0
     }
 
+    /// 按零基序号读取元素；越界时返回 `None`。
     #[must_use]
     pub fn get(self, index: u32) -> Option<u32> {
         if index >= self.len() {
@@ -577,11 +593,13 @@ pub struct RegistryCheckedRecordVectorView<'a> {
 }
 
 impl<'a> RegistryCheckedRecordVectorView<'a> {
+    /// 向量中的 nested row 行数。
     #[must_use]
     pub const fn len(self) -> u32 {
         self.count
     }
 
+    /// 向量是否不含任何 nested row。
     #[must_use]
     pub fn is_empty(self) -> bool {
         self.len() == 0

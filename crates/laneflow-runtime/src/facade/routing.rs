@@ -28,6 +28,7 @@ pub struct CostModelKey {
 }
 
 impl CostModelKey {
+    /// 构造宿主成本模型身份与封闭版本。
     #[must_use]
     pub const fn new(model_id: Sha256Digest, model_version: u32) -> Self {
         Self {
@@ -36,11 +37,13 @@ impl CostModelKey {
         }
     }
 
+    /// 不透明成本模型标识。
     #[must_use]
     pub const fn model_id(self) -> Sha256Digest {
         self.model_id
     }
 
+    /// 成本模型封闭版本。
     #[must_use]
     pub const fn model_version(self) -> u32 {
         self.model_version
@@ -63,36 +66,43 @@ pub struct ObservationSetBinding {
 }
 
 impl ObservationSetBinding {
+    /// 输入批次共同的观测 stream 绑定。
     #[must_use]
     pub const fn stream_binding(self) -> ObservationStreamBinding {
         self.stream
     }
 
+    /// 输入批次共同的路网修订标识。
     #[must_use]
     pub const fn network_revision(self) -> NetworkRevisionId {
         self.network_revision
     }
 
+    /// 输入批次共同的路网修订派生版本。
     #[must_use]
     pub const fn network_revision_derivation_version(self) -> u16 {
         self.network_revision_derivation_version
     }
 
+    /// 输入批次共同的已提交观测 tick。
     #[must_use]
     pub const fn observation_tick(self) -> u64 {
         self.observation_tick
     }
 
+    /// 输入批次共同的已提交观测状态序号。
     #[must_use]
     pub const fn observation_state_sequence(self) -> ObservationStateSequence {
         self.observation_state_sequence
     }
 
+    /// 参与本集合摘要的输入批次数。
     #[must_use]
     pub const fn input_count(self) -> u64 {
         self.input_count
     }
 
+    /// 规范化输入集合的摘要。
     #[must_use]
     pub const fn digest(self) -> Sha256Digest {
         self.digest
@@ -245,26 +255,31 @@ impl DynamicCostSnapshotBinding {
         })
     }
 
+    /// 动态成本绑定的封闭版本。
     #[must_use]
     pub const fn binding_version(self) -> u16 {
         self.binding_version
     }
 
+    /// 成本快照来源的观测输入集合绑定。
     #[must_use]
     pub const fn observation_set(self) -> ObservationSetBinding {
         self.observation_set
     }
 
+    /// 产出快照的宿主成本模型身份与版本。
     #[must_use]
     pub const fn cost_model(self) -> CostModelKey {
         self.cost_model
     }
 
+    /// 快照有效窗的最末已提交 tick（含）。
     #[must_use]
     pub const fn valid_through_tick(self) -> u64 {
         self.valid_through_tick
     }
 
+    /// 快照声明的成本条目数。
     #[must_use]
     pub const fn entry_count(self) -> u64 {
         self.entry_count
@@ -276,6 +291,7 @@ impl DynamicCostSnapshotBinding {
         self.exact_byte_length
     }
 
+    /// 宿主成本 payload 的 SHA-256 摘要。
     #[must_use]
     pub const fn snapshot_sha256(self) -> Sha256Digest {
         self.snapshot_sha256
@@ -300,26 +316,31 @@ pub struct RoutingAdmissionSession {
 }
 
 impl RoutingAdmissionSession {
+    /// 宿主指定的世界身份。
     #[must_use]
     pub const fn world_id(&self) -> u64 {
         self.world_id
     }
 
+    /// Runtime 拥有的活动世界世代。
     #[must_use]
     pub const fn world_generation(&self) -> WorldGeneration {
         self.world_generation
     }
 
+    /// 准入会话打开时绑定的路网修订标识。
     #[must_use]
     pub const fn network_revision(&self) -> NetworkRevisionId {
         self.network_revision
     }
 
+    /// 准入会话打开时绑定的路网修订派生版本。
     #[must_use]
     pub const fn network_revision_derivation_version(&self) -> u16 {
         self.network_revision_derivation_version
     }
 
+    /// 本准入会话精确绑定的成本模型。
     #[must_use]
     pub const fn cost_model(&self) -> CostModelKey {
         self.cost_model
@@ -334,6 +355,7 @@ pub struct CandidateRouteInput {
 }
 
 impl CandidateRouteInput {
+    /// 构造候选路线输入；lane_edges 为按行进顺序的 LaneEdge 稳定标识序列。
     #[must_use]
     pub fn new(
         cost_snapshot: DynamicCostSnapshotBinding,
@@ -345,11 +367,13 @@ impl CandidateRouteInput {
         }
     }
 
+    /// 候选复制的动态成本快照来源绑定。
     #[must_use]
     pub const fn cost_snapshot(&self) -> DynamicCostSnapshotBinding {
         self.cost_snapshot
     }
 
+    /// 候选路线的 LaneEdge 稳定标识序列。
     #[must_use]
     pub const fn lane_edges(&self) -> &[StableId128] {
         &self.lane_edges
@@ -397,6 +421,7 @@ pub struct AdmittedRouteRegisterInput {
 }
 
 impl AdmittedRouteRegisterInput {
+    /// 构造规范化已准入路线注册输入。
     #[must_use]
     pub fn new(
         network_revision: NetworkRevisionId,
@@ -410,16 +435,19 @@ impl AdmittedRouteRegisterInput {
         }
     }
 
+    /// 准入时验证过的路网修订标识。
     #[must_use]
     pub const fn network_revision(&self) -> NetworkRevisionId {
         self.network_revision
     }
 
+    /// 准入时验证过的路网修订派生版本。
     #[must_use]
     pub const fn network_revision_derivation_version(&self) -> u16 {
         self.network_revision_derivation_version
     }
 
+    /// 已准入路线的 LaneEdge 稳定标识序列。
     #[must_use]
     pub const fn lane_edges(&self) -> &[StableId128] {
         &self.lane_edges

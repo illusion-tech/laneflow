@@ -25,23 +25,28 @@ pub(crate) struct VerifiedRoadEditingSource<'a> {
 }
 
 impl<'a> VerifiedRoadEditingSource<'a> {
+    /// 返回借用的道路编辑来源输入。
     pub(crate) const fn input(&self) -> RoadEditingModuleInput<'a> {
         self.input
     }
 
+    /// 返回已验证的 `RoadEditingSource` 借用根表。
     pub(crate) const fn root(&self) -> wire::RoadEditingSource<'a> {
         self.root
     }
 
+    /// 返回 wire 文档的物理 table 计数（仅测试使用）。
     #[cfg(test)]
     pub(crate) fn table_count(&self) -> u64 {
         table_count(self.root)
     }
 
+    /// 返回预检得到的 Typed AST 来源记录计数。
     pub(crate) const fn typed_ast_record_count(&self) -> u64 {
         self.preflight_counts.typed_ast_record_count()
     }
 
+    /// 返回完整的语义预检用量计数。
     pub(crate) const fn preflight_counts(&self) -> RoadEditingPreflightCounts {
         self.preflight_counts
     }

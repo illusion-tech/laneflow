@@ -32,16 +32,19 @@ thread_local! {
     static OVERLAP_BLOCKER_INSPECTIONS: Cell<usize> = const { Cell::new(0) };
 }
 
+/// 测试专用：重置生成重叠阻塞检查计数。
 #[cfg(test)]
 pub(super) fn reset_overlap_blocker_inspections() {
     OVERLAP_BLOCKER_INSPECTIONS.set(0);
 }
 
+/// 测试专用：读取生成重叠阻塞检查的累计次数。
 #[cfg(test)]
 pub(super) fn overlap_blocker_inspections() -> usize {
     OVERLAP_BLOCKER_INSPECTIONS.get()
 }
 
+/// 测试专用：记录一次生成重叠阻塞检查。
 #[cfg(test)]
 pub(super) fn count_overlap_blocker_inspection() {
     OVERLAP_BLOCKER_INSPECTIONS.set(OVERLAP_BLOCKER_INSPECTIONS.get() + 1);
@@ -54,12 +57,14 @@ pub(super) fn count_overlap_blocker_inspection() {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct WorldGeneration(u64);
 
+/// 机动路径出现项的定位锚点：精确出现项下标或入口路线边下标。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ManeuverOccurrenceAnchor {
     OccurrenceIndex(u32),
     EntryRouteEdgeIndex(u32),
 }
 
+/// 已解析的机动路径锚点：出现项下标、出/入口路线边下标与门所在 hop。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedManeuverAnchor {
     pub(crate) occurrence_index: u32,
@@ -68,6 +73,7 @@ pub(crate) struct ResolvedManeuverAnchor {
     pub(crate) gate_hop: u32,
 }
 
+/// 由 reservation 级证明派生的下游资源声明计划：绑定路线与声明目标。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ReservationDownstreamClaimPlan {
     pub(crate) route: RouteHandle,
@@ -75,15 +81,18 @@ pub(crate) struct ReservationDownstreamClaimPlan {
 }
 
 impl ReservationDownstreamClaimPlan {
+    /// 计划所属的路线句柄。
     pub(crate) const fn route(self) -> RouteHandle {
         self.route
     }
 
+    /// 派生物理区间所需的原始容量。
     #[must_use]
     pub(crate) const fn raw_interval_capacity(self) -> usize {
         self.plan.raw_interval_capacity()
     }
 
+    /// 下游声明必须覆盖到的路线目标点。
     pub(crate) const fn target(self) -> crate::DownstreamRoutePoint {
         self.plan.target()
     }
@@ -99,6 +108,7 @@ impl WorldGeneration {
         self.0
     }
 
+    /// 以 checked arithmetic 派生下一世代；`u64` 耗尽时返回 `None`。
     pub(crate) const fn checked_next(self) -> Option<Self> {
         match self.0.checked_add(1) {
             Some(value) => Some(Self(value)),
@@ -106,6 +116,7 @@ impl WorldGeneration {
         }
     }
 
+    /// 测试专用：从原始 `u64` 构造世代值。
     #[cfg(test)]
     pub(crate) const fn from_raw_for_test(value: u64) -> Self {
         Self(value)
@@ -120,6 +131,7 @@ struct UnparkedVehicleAuthority {
 }
 
 impl TrafficWorld {
+    /// 构造覆盖 committed、derived 与 workspace 三段的 Conflict 只读视图。
     pub(crate) fn conflict_read(&self) -> crate::kernel::conflict::ConflictRead<'_> {
         crate::kernel::conflict::ConflictRead::new(
             &self.committed.conflict,
@@ -341,6 +353,7 @@ impl TrafficWorld {
         self.binding.world_id
     }
 
+    /// 安装时由宿主选定的世界策略选择。
     #[must_use]
     pub const fn policy_selection(&self) -> crate::WorldPolicySelection {
         self.binding.policy_binding.selection()
@@ -352,6 +365,7 @@ impl TrafficWorld {
         self.read_view().policy()
     }
 
+    /// 当前世界策略的间隙接受参数派生表。
     #[must_use]
     pub fn policy_gap_profiles(&self) -> &[crate::DerivedPolicyGap] {
         self.binding.policy_binding.gaps()
@@ -395,6 +409,7 @@ impl TrafficWorld {
         self.read_view().conflict_reservation(vehicle)
     }
 
+    /// 校验已提交 Conflict 状态（资格、reservation 与权威持有者）内部一致。
     pub(crate) fn conflict_state_valid(&self) -> bool {
         if !self.committed.conflict_eligibility.is_empty()
             && self.committed.conflict_eligibility.len()
@@ -513,10 +528,12 @@ impl TrafficWorld {
         )
     }
 
+    /// 全空时清空 Conflict 资格表，恢复紧凑表示。
     pub(crate) fn normalize_conflict_eligibility(&mut self) {
         self.committed_mut().normalize_conflict_eligibility()
     }
 
+    /// 清除指定车辆的 Conflict 资格并规范化资格表。
     pub(crate) fn clear_conflict_eligibility(&mut self, vehicle: VehicleHandle) {
         if let Some(eligibility) = self
             .committed
@@ -528,6 +545,7 @@ impl TrafficWorld {
         self.normalize_conflict_eligibility();
     }
 
+    /// 判断车辆当前是否持有任何 Conflict 权威（reservation、资格或既有占有）。
     pub(crate) fn vehicle_has_conflict_authority(&self, vehicle: VehicleHandle) -> bool {
         self.conflict_reservation(vehicle).is_some()
             || self
@@ -656,6 +674,7 @@ impl TrafficWorld {
         self.derive_reservation_downstream_claims_from_plan(plan, output)
     }
 
+    /// 策略派生的求值前沿证明时长（毫秒）；无间隙接受参数时为 `None`。
     #[must_use]
     pub const fn frontier_proof_horizon_ms(&self) -> Option<u64> {
         self.read_view().frontier_proof_horizon_ms()
@@ -1520,6 +1539,7 @@ impl TrafficWorld {
         &self.committed.live_order
     }
 
+    /// 按代际感知句柄读取已提交车辆状态；句柄失效返回 `None`。
     pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
         self.read_view().vehicle_state(handle)
     }
@@ -1549,10 +1569,12 @@ impl TrafficWorld {
             })
     }
 
+    /// 按路线句柄读取已编译路线；句柄失效返回 `None`。
     pub(crate) fn compiled_route(&self, route: RouteHandle) -> Option<&CompiledRoute> {
         self.read_view().compiled_route(route)
     }
 
+    /// 校验活动车辆在给定路线位置具备通行冲突区所需的静态能力。
     pub(crate) fn check_active_conflict_capability(
         &self,
         route: RouteHandle,
@@ -1574,6 +1596,7 @@ impl TrafficWorld {
         )
     }
 
+    /// 判断路线自游标起的后缀对该参与者类别是否存在准入拒绝。
     pub(crate) fn route_suffix_denied(
         &self,
         route: RouteHandle,
@@ -1646,6 +1669,7 @@ impl TrafficWorld {
         (true, 0)
     }
 
+    /// 释放一次路线引用计数；句柄失效或路线已移除时忽略。
     pub(crate) fn release_route_ref(&mut self, route: RouteHandle) {
         let Ok(index) = usize::try_from(route.index()) else {
             return;
@@ -1659,6 +1683,7 @@ impl TrafficWorld {
         slot.live_vehicles = slot.live_vehicles.saturating_sub(1);
     }
 
+    /// 按稳定更新顺序重建 Active 车辆派生顺序表。
     pub(crate) fn rebuild_active_order(&mut self) {
         let vehicles = &self.committed.vehicles;
         self.derived.active_order.clear();
@@ -1676,6 +1701,7 @@ impl TrafficWorld {
         }
     }
 
+    /// 按当前已提交时刻重算全部信号组指示。
     pub(crate) fn refresh_signals(&mut self) {
         fill_signal_aspects(
             self.binding.revision.as_ref(),
@@ -1737,6 +1763,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         self.conflict_read().reservation(vehicle)
     }
 
+    /// 校验车辆位置是否仍停留在资格授予的 admission Gate 边界（上游边终点或规范跨过侧）。
     pub(crate) fn conflict_eligibility_position_valid(
         self,
         state: &VehicleState,
@@ -1858,11 +1885,13 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         })
     }
 
+    /// 策略派生的求值前沿证明时长（毫秒）。
     #[must_use]
     pub(crate) const fn frontier_proof_horizon_ms(self) -> Option<u64> {
         self.binding.policy_binding.horizon()
     }
 
+    /// 按代际感知句柄读取已提交车辆状态；句柄失效返回 `None`。
     pub(crate) fn vehicle_state(self, handle: VehicleHandle) -> Option<&'a VehicleState> {
         let slot = self
             .committed
@@ -1883,6 +1912,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         Some(self.compiled_route(route)?.edges.as_slice())
     }
 
+    /// 按路线句柄读取已编译路线；句柄失效返回 `None`。
     pub(crate) fn compiled_route(self, route: RouteHandle) -> Option<&'a CompiledRoute> {
         let slot = self
             .committed
@@ -1940,21 +1970,25 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .reservation_downstream_claim_plan(range, vehicle_length_mm)
     }
 
+    /// 策略派生的求值前沿证明时长（毫秒）。
     #[must_use]
     pub(crate) fn frontier_proof_horizon_ms(&self) -> Option<u64> {
         self.read_view().frontier_proof_horizon_ms()
     }
 
+    /// 按代际感知句柄读取已提交车辆状态；句柄失效返回 `None`。
     pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
         self.read_view().vehicle_state(handle)
     }
 
+    /// 按路线句柄读取已编译路线；句柄失效返回 `None`。
     pub(crate) fn compiled_route(&self, route: RouteHandle) -> Option<&CompiledRoute> {
         self.read_view().compiled_route(route)
     }
 }
 
 impl crate::kernel::phase::CommittedStateMut<'_> {
+    /// 全空时清空 Conflict 资格表，恢复紧凑表示。
     pub(crate) fn normalize_conflict_eligibility(&mut self) {
         if self
             .committed
@@ -1966,10 +2000,12 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         }
     }
 
+    /// 按代际感知句柄读取已提交车辆状态；句柄失效返回 `None`。
     pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
         self.read_view().vehicle_state(handle)
     }
 
+    /// 按路线句柄读取已编译路线；句柄失效返回 `None`。
     pub(crate) fn compiled_route(&self, route: RouteHandle) -> Option<&CompiledRoute> {
         self.read_view().compiled_route(route)
     }
@@ -2018,6 +2054,7 @@ mod conflict_install_error_tests {
     }
 }
 
+/// 按给定时刻重算全部信号组指示：先填 Red，再由有效相位覆盖所属信号组的灯态。
 pub(crate) fn fill_signal_aspects(
     revision: &SharedNetworkRevision,
     time_ms: u64,
@@ -2060,6 +2097,7 @@ pub(crate) fn fill_signal_aspects(
     }
 }
 
+/// 校验信号控制器程序：周期与相位非空，相位时长不短于固定步长且为其整数倍。
 pub(crate) fn validate_signal_programs(
     revision: &SharedNetworkRevision,
     fixed_delta_time_ms: u64,

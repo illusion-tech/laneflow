@@ -189,6 +189,7 @@ fn is_hermetic_scrubbed_env_key(key: &str) -> bool {
         || (key.starts_with("CARGO_TARGET_") && key.ends_with("_RUSTFLAGS"))
 }
 
+/// wire / 工具链审计入口：依次闭合仓库 cargo config 卫生、Cargo.lock 钉版、wire 与 mmap 例外 manifest 卫生、包装器与生成物钉版比对、workspace unsafe 边界（文本扫描与 hermetic 编译）。
 pub(crate) fn run() -> Result<(), String> {
     let repository_root =
         std::env::current_dir().map_err(|error| format!("无法解析仓库根目录: {error}"))?;

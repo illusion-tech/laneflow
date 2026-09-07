@@ -22,6 +22,7 @@ pub use regulation::RegulationIdentity;
 mod portable_emitter;
 mod portable_publication;
 mod portable_transport;
+/// 第一方道路编辑编制模型与 FlatBuffers writer；编译输入只经受检 reader/admission 路径。
 pub mod road_editing;
 mod source;
 mod source_location;

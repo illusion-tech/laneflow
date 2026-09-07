@@ -173,6 +173,7 @@ pub(crate) fn leader_query_horizon(
 }
 
 impl TrafficWorld {
+    /// 固定步进唯一入口：预检、重建占用索引、准备并原子提交一拍。
     pub(crate) fn step_vehicles(&mut self, input: TickInput) -> Result<StepOutcome, StepError> {
         #[cfg(test)]
         let preflight_timer =
@@ -220,6 +221,7 @@ impl TrafficWorld {
         Ok(self.committed_mut().commit(plan))
     }
 
+    /// 测试专用：无 Waiting/Conflict 停车约束地推进一步活动车辆。
     #[cfg(test)]
     pub(crate) fn advance_active_vehicle(
         &self,
@@ -243,6 +245,7 @@ impl TrafficWorld {
         self.read_view().leader_bumper_gap(follower, edges, lengths)
     }
 
+    /// 测试专用：计算该跟车车辆本拍的跟车前视查询窗。
     #[cfg(test)]
     pub(crate) fn leader_query_horizon_for(&self, follower: &VehicleState) -> LeaderQueryHorizon {
         self.read_view().leader_query_horizon_for(follower)
@@ -260,6 +263,7 @@ impl TrafficWorld {
             .leader_bumper_gap_scan(follower, edges, lengths)
     }
 
+    /// 测试专用：判断该机动门对指定车辆配置是否拒绝并停车。
     #[cfg(test)]
     pub(crate) fn gate_is_restrictive(
         &self,
@@ -269,6 +273,7 @@ impl TrafficWorld {
         self.read_view().gate_is_restrictive(gate, profile)
     }
 
+    /// 测试专用：按当前已提交信号求值机动门的策略决定。
     #[cfg(test)]
     pub(crate) fn gate_policy_decision(
         &self,
@@ -406,6 +411,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
 }
 
 impl<'a> crate::kernel::phase::StepReadView<'a> {
+    /// 无 Waiting/Conflict 停车约束地推进一步活动车辆。
     pub(crate) fn advance_active_vehicle(
         self,
         state: VehicleState,
@@ -414,6 +420,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         self.advance_active_vehicle_with_waiting_stop(state, delta_s, None, None)
     }
 
+    /// 在跟车、信号、停车与 Waiting/Conflict 停车约束下推进一步活动车辆。
     pub(crate) fn advance_active_vehicle_with_waiting_stop(
         self,
         mut state: VehicleState,
@@ -550,6 +557,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         Some(state)
     }
 
+    /// 读取当前预约对应的停车入口距离；外层 `None` 表示绑定不一致的失败关闭。
     pub(crate) fn parking_stop_distance(
         self,
         compiled: &CompiledRoute,
@@ -604,6 +612,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         )
     }
 
+    /// 测试专用：计算该跟车车辆本拍的跟车前视查询窗。
     #[cfg(test)]
     pub(crate) fn leader_query_horizon_for(self, follower: &VehicleState) -> LeaderQueryHorizon {
         let profile = self
@@ -698,6 +707,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         None
     }
 
+    /// 判断该 hop 允许越过：不是路线末边，且其 Gate 对该车辆配置不拒绝。
     pub(crate) fn hop_permitted(
         self,
         route: crate::RouteHandle,
@@ -717,6 +727,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         }
     }
 
+    /// 判断该机动门对指定车辆配置是否拒绝并停车。
     pub(crate) fn gate_is_restrictive(
         self,
         gate: laneflow_static_contract::ManeuverGateOrdinal,
@@ -728,6 +739,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         )
     }
 
+    /// 按当前已提交信号求值机动门的策略决定。
     pub(crate) fn gate_policy_decision(
         self,
         gate: laneflow_static_contract::ManeuverGateOrdinal,
@@ -736,6 +748,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         self.gate_policy_decision_with_signals(gate, profile, &self.committed.signal_aspects)
     }
 
+    /// 按调用方给定的信号时刻求值机动门的策略决定；未知门、未知配置或无适用规则失败关闭为 `DenyAndStop`。
     pub(crate) fn gate_policy_decision_with_signals(
         self,
         gate: laneflow_static_contract::ManeuverGateOrdinal,
@@ -772,6 +785,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 }
 
 impl crate::kernel::phase::StepWorkspace<'_> {
+    /// 编排一拍的转移暂存：Conflict 准备、逐车运动、Waiting 定稿、下一拍信号与输出。
     pub(crate) fn stage_vehicle_transitions(
         &mut self,
         delta_s: f32,
@@ -871,6 +885,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         Ok(parking_arrivals)
     }
 
+    /// 无 Waiting/Conflict 停车约束地推进一步活动车辆。
     pub(crate) fn advance_active_vehicle(
         &self,
         state: VehicleState,
@@ -879,6 +894,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         self.read_view().advance_active_vehicle(state, delta_s)
     }
 
+    /// 在 Waiting/Conflict 停车约束下推进一步活动车辆。
     pub(crate) fn advance_active_vehicle_with_waiting_stop(
         &self,
         state: VehicleState,
@@ -894,6 +910,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         )
     }
 
+    /// 判断该机动门对指定车辆配置是否拒绝并停车。
     pub(crate) fn gate_is_restrictive(
         &self,
         gate: laneflow_static_contract::ManeuverGateOrdinal,
@@ -902,6 +919,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         self.read_view().gate_is_restrictive(gate, profile)
     }
 
+    /// 按当前已提交信号求值机动门的策略决定。
     pub(crate) fn gate_policy_decision(
         &self,
         gate: laneflow_static_contract::ManeuverGateOrdinal,

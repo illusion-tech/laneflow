@@ -50,6 +50,7 @@ macro_rules! impl_stable_entity_view {
         }
 
         impl<'a> $view<'a> {
+            /// 由 LIR 单元与实体记录构造借用视图；仅限 `compiler` 模块内部调用。
             pub(in crate::compiler) const fn from_lir(
                 lir: &'a LirUnit,
                 record: &'a $record,
@@ -95,6 +96,7 @@ pub struct CanonicalLaneEdgeView<'a> {
 }
 
 impl<'a> CanonicalLaneEdgeView<'a> {
+    /// 由 LIR 单元与车道图边记录构造借用视图；仅限 `compiler` 模块内部调用。
     pub(in crate::compiler) const fn from_lir(lir: &'a LirUnit, edge: &'a LirLaneEdge) -> Self {
         Self { lir, edge }
     }
@@ -160,6 +162,7 @@ pub struct CanonicalIdentityFieldView<'a> {
 }
 
 impl<'a> CanonicalIdentityFieldView<'a> {
+    /// 由共享身份字段字节池与字段记录构造借用视图；仅限 `compiler` 模块内部调用。
     pub(in crate::compiler) const fn from_lir(
         identity_field_bytes: &'a [u8],
         field: &'a LirIdentityField,

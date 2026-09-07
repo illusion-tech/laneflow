@@ -24,6 +24,7 @@ use super::synthetic::SYNTHETIC_FRONTEND_VERSION;
 const SOURCE_RECORD_MAGIC: [u8; 8] = *b"LFSOURCE";
 mod policy;
 
+/// 计算完整 `LFSOURCE` 来源记录的编码字节长度。
 #[inline]
 pub(super) fn encoded_source_record_len(
     header: &SourceModuleHeader,
@@ -54,6 +55,7 @@ pub(super) fn encoded_source_record_len(
     Some(length)
 }
 
+/// 把模块头、导入与声明确定性编码为完整 `LFSOURCE` 来源记录字节。
 pub(super) fn encode_source_record(
     header: &SourceModuleHeader,
     imports: &[ImportRecord],
@@ -114,6 +116,7 @@ pub(super) fn encode_source_record(
     Ok(bytes)
 }
 
+/// 计算单条声明在来源记录中的编码字节长度。
 pub(super) fn encoded_declaration_len(declaration: &TypedAstDeclaration) -> Option<u64> {
     match declaration {
         TypedAstDeclaration::RightOfWayPolicySet(value) => Some(policy::length(value)),
@@ -216,6 +219,7 @@ pub(super) fn encoded_declaration_len(declaration: &TypedAstDeclaration) -> Opti
     }
 }
 
+/// 计算声明头（实体类别、稳定键、来源位置）的编码字节长度。
 #[inline]
 pub(super) fn declaration_header_len(stable_key: &str) -> u64 {
     2_u64
@@ -224,6 +228,7 @@ pub(super) fn declaration_header_len(stable_key: &str) -> u64 {
         .saturating_add(16)
 }
 
+/// 计算车辆配置声明的编码字节长度。
 #[inline]
 pub(super) fn vehicle_profile_declaration_len(
     stable_key: &str,
@@ -237,6 +242,7 @@ pub(super) fn vehicle_profile_declaration_len(
         .saturating_add(7 * 4)
 }
 
+/// 按构建输入计算规范坐标框架声明的编码字节长度。
 #[inline]
 pub(super) fn canonical_frame_input_len(
     stable_key: &str,
@@ -264,6 +270,7 @@ pub(super) fn canonical_frame_input_len(
     )
 }
 
+/// 按已准入声明计算规范坐标框架声明的编码字节长度。
 pub(super) fn canonical_frame_declaration_len(declaration: &CanonicalFrameDeclaration) -> u64 {
     declaration.lane_edge_geometries.iter().fold(
         declaration_header_len(&declaration.header.stable_key).saturating_add(4),
@@ -283,11 +290,13 @@ pub(super) fn canonical_frame_declaration_len(declaration: &CanonicalFrameDeclar
     )
 }
 
+/// 计算车道边声明的基础编码字节长度（不含后继引用）。
 #[inline]
 pub(super) fn lane_edge_declaration_base_len(stable_key: &str) -> u64 {
     declaration_header_len(stable_key).saturating_add(4 + 4 + 4)
 }
 
+/// 计算设施带声明的编码字节长度。
 #[inline]
 pub(super) fn facility_band_declaration_len(stable_key: &str, kind_id: &str) -> u64 {
     declaration_header_len(stable_key)
@@ -295,6 +304,7 @@ pub(super) fn facility_band_declaration_len(stable_key: &str, kind_id: &str) -> 
         .saturating_add(u64::try_from(kind_id.len()).unwrap_or(u64::MAX))
 }
 
+/// 计算通行流向声明的编码字节长度。
 #[inline]
 pub(super) fn movement_declaration_len(
     stable_key: &str,
@@ -315,6 +325,7 @@ pub(super) fn movement_declaration_len(
         .saturating_add(1 + u64::from(turn_direction.is_some()))
 }
 
+/// 计算机动路径声明的编码字节长度。
 #[inline]
 pub(super) fn maneuver_path_declaration_len(
     stable_key: &str,
@@ -345,6 +356,7 @@ pub(super) fn maneuver_path_declaration_len(
     ))
 }
 
+/// 计算停止线声明的编码字节长度。
 #[inline]
 pub(super) fn stop_line_declaration_len(
     stable_key: &str,
@@ -356,6 +368,7 @@ pub(super) fn stop_line_declaration_len(
     ))
 }
 
+/// 计算机动门声明的编码字节长度。
 #[inline]
 pub(super) fn maneuver_gate_declaration_len(
     stable_key: &str,
@@ -383,6 +396,7 @@ pub(super) fn maneuver_gate_declaration_len(
         })
 }
 
+/// 按构建输入计算信号控制器声明的编码字节长度。
 #[inline]
 pub(super) fn signal_controller_input_len(
     stable_key: &str,
@@ -419,6 +433,7 @@ pub(super) fn signal_controller_input_len(
     length
 }
 
+/// 按已准入声明计算信号控制器声明的编码字节长度。
 pub(super) fn signal_controller_declaration_len(declaration: &SignalControllerDeclaration) -> u64 {
     let mut length =
         declaration_header_len(&declaration.header.stable_key).saturating_add(8 + 4 + 4);
@@ -444,6 +459,7 @@ pub(super) fn signal_controller_declaration_len(declaration: &SignalControllerDe
     length
 }
 
+/// 按构建输入计算停车位声明的编码字节长度。
 #[inline]
 pub(super) fn parking_space_input_len(input: &ParkingSpaceInput<'_>, local_namespace: &str) -> u64 {
     let mut length = declaration_header_len(input.parking_space_key).saturating_add(1 + 4 * 6);
@@ -462,6 +478,7 @@ pub(super) fn parking_space_input_len(input: &ParkingSpaceInput<'_>, local_names
     length
 }
 
+/// 按构建输入计算停车设施声明的编码字节长度。
 #[inline]
 pub(super) fn parking_facility_input_len(
     input: &crate::declaration::ParkingFacilityInput<'_>,
@@ -486,6 +503,7 @@ pub(super) fn parking_facility_input_len(
     length
 }
 
+/// 按已准入声明计算停车设施声明的编码字节长度。
 pub(super) fn parking_facility_declaration_len(
     declaration: &crate::declaration::ParkingFacilityDeclaration,
 ) -> u64 {
@@ -505,6 +523,7 @@ pub(super) fn parking_facility_declaration_len(
     length
 }
 
+/// 按已准入声明计算停车位声明的编码字节长度。
 pub(super) fn parking_space_declaration_len(declaration: &ParkingSpaceDeclaration) -> u64 {
     let mut length =
         declaration_header_len(&declaration.header.stable_key).saturating_add(1 + 4 * 6);
@@ -523,6 +542,7 @@ pub(super) fn parking_space_declaration_len(declaration: &ParkingSpaceDeclaratio
     length
 }
 
+/// 计算参与者类别声明的编码字节长度。
 #[inline]
 pub(super) fn participant_class_declaration_len(
     stable_key: &str,
@@ -535,6 +555,7 @@ pub(super) fn participant_class_declaration_len(
         }))
 }
 
+/// 把准入规则目标输入拆解为实体类别与命名空间、声明键部分。
 #[inline]
 pub(super) fn access_target_input_parts(
     target: AccessRuleTargetInput<'_>,
@@ -568,6 +589,7 @@ pub(super) fn access_target_input_parts(
     }
 }
 
+/// 按构建输入计算准入规则声明的编码字节长度。
 #[inline]
 pub(super) fn access_rule_input_len(
     stable_key: &str,
@@ -608,6 +630,7 @@ pub(super) fn access_rule_input_len(
     length
 }
 
+/// 按已准入声明计算准入规则声明的编码字节长度。
 pub(super) fn access_rule_declaration_len(
     stable_key: &str,
     target: &OwnedAccessRuleTarget,
@@ -642,6 +665,7 @@ pub(super) fn access_rule_declaration_len(
     length
 }
 
+/// 计算准入规则目标按编码引用计的字节长度。
 pub(super) fn access_target_encoded_reference_len(target: &OwnedAccessRuleTarget) -> u64 {
     match target {
         OwnedAccessRuleTarget::LaneEdge(reference) => {
@@ -662,6 +686,7 @@ pub(super) fn access_target_encoded_reference_len(target: &OwnedAccessRuleTarget
     }
 }
 
+/// 计算等待区声明的编码字节长度。
 #[inline]
 pub(super) fn waiting_zone_declaration_len(
     stable_key: &str,
@@ -685,6 +710,7 @@ pub(super) fn waiting_zone_declaration_len(
         .saturating_add(4)
 }
 
+/// 计算车道组声明的编码字节长度。
 #[inline]
 pub(super) fn lane_group_declaration_len(
     stable_key: &str,
@@ -696,6 +722,7 @@ pub(super) fn lane_group_declaration_len(
     ))
 }
 
+/// 计算道路区段声明的编码字节长度。
 #[inline]
 pub(super) fn road_section_declaration_len(
     stable_key: &str,
@@ -727,6 +754,7 @@ pub(super) fn road_section_declaration_len(
     length
 }
 
+/// 计算道路走廊声明的编码字节长度。
 #[inline]
 pub(super) fn road_corridor_declaration_len(
     stable_key: &str,
@@ -753,6 +781,7 @@ pub(super) fn road_corridor_declaration_len(
     length
 }
 
+/// 计算一条编码引用（模块命名空间、声明键、来源位置）的字节长度。
 #[inline]
 pub(super) fn encoded_reference_len(module_namespace: &str, declaration_key: &str) -> u64 {
     4_u64
@@ -762,6 +791,7 @@ pub(super) fn encoded_reference_len(module_namespace: &str, declaration_key: &st
         .saturating_add(16)
 }
 
+/// 按声明类别把单条声明确定性写入来源记录输出。
 pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclaration) {
     match declaration {
         TypedAstDeclaration::RightOfWayPolicySet(value) => policy::encode(value, output),
@@ -1031,6 +1061,7 @@ pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclar
     }
 }
 
+/// 返回信号灯态在来源记录中的数值编码。
 #[allow(unreachable_patterns)]
 pub(super) fn signal_aspect_source_code(aspect: SignalAspect) -> u8 {
     match aspect {
@@ -1041,6 +1072,7 @@ pub(super) fn signal_aspect_source_code(aspect: SignalAspect) -> u8 {
     }
 }
 
+/// 返回准入效果在来源记录中的数值编码。
 #[allow(unreachable_patterns)]
 pub(super) fn access_effect_source_code(effect: AccessEffect) -> u8 {
     match effect {
@@ -1050,12 +1082,14 @@ pub(super) fn access_effect_source_code(effect: AccessEffect) -> u8 {
     }
 }
 
+/// 写入声明头（实体类别、稳定键、来源位置）。
 pub(super) fn put_declaration_header(output: &mut Vec<u8>, header: &DeclarationHeader) {
     output.extend_from_slice(&(header.entity_kind as u16).to_le_bytes());
     put_bytes(output, &header.stable_key);
     put_source_location(output, &header.span);
 }
 
+/// 写入一条拥有的实体引用（模块命名空间、声明键、来源位置）。
 pub(super) fn put_owned_reference<K: laneflow_static_contract::EntityKindMarker>(
     output: &mut Vec<u8>,
     reference: &OwnedEntityReference<K>,
@@ -1065,6 +1099,7 @@ pub(super) fn put_owned_reference<K: laneflow_static_contract::EntityKindMarker>
     put_source_location(output, &reference.span);
 }
 
+/// 写入准入规则目标的实体类别标记与编码引用。
 pub(super) fn put_access_target(output: &mut Vec<u8>, target: &OwnedAccessRuleTarget) {
     match target {
         OwnedAccessRuleTarget::LaneEdge(reference) => {
@@ -1090,6 +1125,7 @@ pub(super) fn put_access_target(output: &mut Vec<u8>, target: &OwnedAccessRuleTa
     }
 }
 
+/// 写入带存在标记的可选字符串。
 pub(super) fn put_optional_bytes(output: &mut Vec<u8>, value: Option<&str>) {
     output.push(u8::from(value.is_some()));
     if let Some(value) = value {
@@ -1097,11 +1133,13 @@ pub(super) fn put_optional_bytes(output: &mut Vec<u8>, value: Option<&str>) {
     }
 }
 
+/// 写入带 u32 长度前缀的字符串。
 pub(super) fn put_bytes(output: &mut Vec<u8>, value: &str) {
     output.extend_from_slice(&u32::try_from(value.len()).unwrap_or(u32::MAX).to_le_bytes());
     output.extend_from_slice(value.as_bytes());
 }
 
+/// 写入文本来源跨度的起止行列位置。
 pub(super) fn put_span(output: &mut Vec<u8>, span: &SourceSpan) {
     output.extend_from_slice(&span.start().line().to_le_bytes());
     output.extend_from_slice(&span.start().column().to_le_bytes());

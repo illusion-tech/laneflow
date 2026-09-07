@@ -9,6 +9,7 @@ use crate::arena::TableRange;
 
 use super::{LirIdentityField, LirSignalControl};
 
+/// 停止线的 Canonical LIR 记录：表达车辆必须在其前满足通行约束的静态线。
 pub(crate) struct LirStopLine {
     pub(crate) ordinal: StopLineOrdinal,
     pub(crate) stable_id: StopLineId,
@@ -17,6 +18,7 @@ pub(crate) struct LirStopLine {
     pub(crate) maneuver_gates: TableRange<ManeuverGateOrdinal>,
 }
 
+/// 机动门的 Canonical LIR 记录：绑定机动路径、用于空间准入和信号约束的静态门。
 pub(crate) struct LirManeuverGate {
     pub(crate) ordinal: ManeuverGateOrdinal,
     pub(crate) stable_id: ManeuverGateId,
@@ -27,6 +29,7 @@ pub(crate) struct LirManeuverGate {
     pub(crate) signal_control: LirSignalControl,
 }
 
+/// 等待区的 Canonical LIR 记录：绑定机动路径并表达等待容量与入口、放行门。
 pub(crate) struct LirWaitingZone {
     pub(crate) ordinal: WaitingZoneOrdinal,
     pub(crate) stable_id: WaitingZoneId,
@@ -42,6 +45,7 @@ use crate::DiagnosticBundle;
 use crate::mir::MirSignalControl;
 use laneflow_static_contract::FieldTag;
 
+/// 停止线、机动门与等待区各表及停止线门成员辅表的领域冻结产物。
 pub(super) struct ControlParts {
     pub stop_lines: Vec<LirStopLine>,
     pub stop_line_maneuver_gates: Vec<ManeuverGateOrdinal>,
@@ -49,6 +53,7 @@ pub(super) struct ControlParts {
     pub waiting_zones: Vec<LirWaitingZone>,
 }
 
+/// 按规范排列冻结停止线、机动门与等待区表；同一停止线的门成员按 LIR 序号严格递增冻结。
 pub(super) fn freeze(
     env: &mut FreezeEnv<'_>,
     counts: &LirControlCounts,

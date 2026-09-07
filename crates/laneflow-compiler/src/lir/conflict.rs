@@ -11,6 +11,7 @@ use crate::mir::{MirConflictPassage, MirPathAnchorReference};
 
 use super::{FreezeEnv, LirConflictCounts, LirIdentityField, push_lir_identity, relation_range};
 
+/// 冲突区的 Canonical LIR 记录：多个参与者流可能发生空间冲突、需要运行时裁决的区域。
 pub(crate) struct LirConflictZone {
     pub(crate) ordinal: ConflictZoneOrdinal,
     pub(crate) stable_id: ConflictZoneId,
@@ -18,6 +19,7 @@ pub(crate) struct LirConflictZone {
     pub(crate) junction: JunctionOrdinal,
 }
 
+/// 路径锚点引用的闭合联合：以机动门、路径边边界或路径内边下标定位。
 #[derive(Clone, Copy)]
 pub(crate) enum LirPathAnchorReference {
     Gate(ManeuverGateOrdinal),
@@ -25,12 +27,14 @@ pub(crate) enum LirPathAnchorReference {
     Interior { path_edge_index: u32 },
 }
 
+/// 路径锚点：引用与可选的边内整数毫米进度共同精确标识机动路径位置。
 #[derive(Clone, Copy)]
 pub(crate) struct LirPathAnchor {
     pub(crate) reference: LirPathAnchorReference,
     pub(crate) progress_mm: Option<u32>,
 }
 
+/// 冲突通行段：某参与者流穿过一个冲突区的所有者局部 entry/exit 路径区间；不具有独立稳定身份。
 pub(crate) struct LirConflictPassage {
     pub(crate) conflict_zone: ConflictZoneOrdinal,
     pub(crate) entry: LirPathAnchor,
@@ -39,6 +43,7 @@ pub(crate) struct LirConflictPassage {
     pub(crate) admission_gate: ManeuverGateOrdinal,
 }
 
+/// 参与者流的 Canonical LIR 记录：进入冲突裁决的有向参与者流，携带其全部冲突通行段。
 pub(crate) struct LirParticipantStream {
     pub(crate) ordinal: ParticipantStreamOrdinal,
     pub(crate) stable_id: ParticipantStreamId,
@@ -48,6 +53,7 @@ pub(crate) struct LirParticipantStream {
     pub(crate) passages: TableRange<LirConflictPassage>,
 }
 
+/// 冲突领域各表及冲突通行段 MIR 行排列的领域冻结产物。
 pub(super) struct ConflictParts {
     pub conflict_zones: Vec<LirConflictZone>,
     pub participant_streams: Vec<LirParticipantStream>,
@@ -55,6 +61,7 @@ pub(super) struct ConflictParts {
     pub conflict_passage_mir_rows: Vec<ArenaKey<MirConflictPassage>>,
 }
 
+/// 按规范排列冻结参与者流、冲突通行段与冲突区表，并校验 MIR 反向闭包与通行段展开一致。
 pub(super) fn freeze(
     env: &mut FreezeEnv<'_>,
     counts: &LirConflictCounts,

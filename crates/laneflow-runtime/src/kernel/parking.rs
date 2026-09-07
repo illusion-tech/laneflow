@@ -27,16 +27,19 @@ pub enum ParkingTarget {
 pub struct VirtualEntryAnchorSelector(u32);
 
 impl VirtualEntryAnchorSelector {
+    /// 从原始 u32 值构造虚拟入口 selector。
     #[must_use]
     pub const fn from_raw(raw: u32) -> Self {
         Self(raw)
     }
 
+    /// 返回 selector 的原始 u32 值。
     #[must_use]
     pub const fn raw(self) -> u32 {
         self.0
     }
 
+    /// 返回 selector 在设施虚拟入口数组中的下标。
     pub(crate) fn index(self) -> usize {
         usize::try_from(self.0).expect("virtual entry selector fits usize")
     }
@@ -47,16 +50,19 @@ impl VirtualEntryAnchorSelector {
 pub struct VirtualExitAnchorSelector(u32);
 
 impl VirtualExitAnchorSelector {
+    /// 从原始 u32 值构造虚拟出口 selector。
     #[must_use]
     pub const fn from_raw(raw: u32) -> Self {
         Self(raw)
     }
 
+    /// 返回 selector 的原始 u32 值。
     #[must_use]
     pub const fn raw(self) -> u32 {
         self.0
     }
 
+    /// 返回 selector 在设施虚拟出口数组中的下标。
     pub(crate) fn index(self) -> usize {
         usize::try_from(self.0).expect("virtual exit selector fits usize")
     }
@@ -72,6 +78,7 @@ pub struct ParkingReservation {
 }
 
 impl ParkingReservation {
+    /// 构造一条已提交 reservation 的完整 payload。
     pub(crate) const fn new(
         target: ParkingTarget,
         route: RouteHandle,
@@ -86,21 +93,25 @@ impl ParkingReservation {
         }
     }
 
+    /// 返回 reservation 指向的精确停车目标。
     #[must_use]
     pub const fn target(self) -> ParkingTarget {
         self.target
     }
 
+    /// 返回 reservation 绑定的路线句柄。
     #[must_use]
     pub const fn route(self) -> RouteHandle {
         self.route
     }
 
+    /// 返回入口锚点的路线出现项下标。
     #[must_use]
     pub const fn entry_route_occurrence(self) -> u32 {
         self.entry_route_occurrence
     }
 
+    /// 返回虚拟池入口 selector；显式泊位为 `None`。
     #[must_use]
     pub const fn virtual_entry_selector(self) -> Option<VirtualEntryAnchorSelector> {
         self.virtual_entry_selector
@@ -117,6 +128,7 @@ pub enum ParkingBinding {
 }
 
 impl ParkingBinding {
+    /// 返回 binding 持有的精确停车目标。
     #[must_use]
     pub const fn target(self) -> ParkingTarget {
         match self {
@@ -141,6 +153,7 @@ pub enum ReserveParkingTarget {
 }
 
 impl ReserveParkingTarget {
+    /// 返回请求预留的精确停车目标。
     #[must_use]
     pub const fn target(self) -> ParkingTarget {
         match self {
@@ -149,6 +162,7 @@ impl ReserveParkingTarget {
         }
     }
 
+    /// 返回入口锚点的路线出现项下标。
     #[must_use]
     pub const fn entry_route_occurrence(self) -> u32 {
         match self {
@@ -163,6 +177,7 @@ impl ReserveParkingTarget {
         }
     }
 
+    /// 返回虚拟池入口 selector；显式泊位为 `None`。
     #[must_use]
     pub const fn virtual_entry_selector(self) -> Option<VirtualEntryAnchorSelector> {
         match self {
@@ -189,6 +204,7 @@ pub enum LeaveParkingTarget {
 }
 
 impl LeaveParkingTarget {
+    /// 返回请求离开的精确停车目标。
     #[must_use]
     pub const fn target(self) -> ParkingTarget {
         match self {
@@ -197,6 +213,7 @@ impl LeaveParkingTarget {
         }
     }
 
+    /// 返回离场后行驶的路线句柄。
     #[must_use]
     pub const fn route(self) -> RouteHandle {
         match self {
@@ -204,6 +221,7 @@ impl LeaveParkingTarget {
         }
     }
 
+    /// 返回出口锚点的路线出现项下标。
     #[must_use]
     pub const fn exit_route_occurrence(self) -> u32 {
         match self {
@@ -218,6 +236,7 @@ impl LeaveParkingTarget {
         }
     }
 
+    /// 返回虚拟池出口 selector；显式泊位为 `None`。
     #[must_use]
     pub const fn virtual_exit_selector(self) -> Option<VirtualExitAnchorSelector> {
         match self {
@@ -246,6 +265,7 @@ pub enum RebindParkingTarget {
 }
 
 impl RebindParkingTarget {
+    /// 返回 rebind 保持不变的精确停车目标。
     #[must_use]
     pub const fn target(self) -> ParkingTarget {
         match self {
@@ -254,6 +274,7 @@ impl RebindParkingTarget {
         }
     }
 
+    /// 返回 rebind 后的新路线句柄。
     #[must_use]
     pub const fn new_route(self) -> RouteHandle {
         match self {
@@ -263,6 +284,7 @@ impl RebindParkingTarget {
         }
     }
 
+    /// 返回新路线上的当前出现项下标。
     #[must_use]
     pub const fn new_current_route_occurrence(self) -> u32 {
         match self {
@@ -277,6 +299,7 @@ impl RebindParkingTarget {
         }
     }
 
+    /// 返回新路线上的入口出现项下标。
     #[must_use]
     pub const fn new_entry_route_occurrence(self) -> u32 {
         match self {
@@ -291,6 +314,7 @@ impl RebindParkingTarget {
         }
     }
 
+    /// 返回新入口的虚拟池 selector；显式泊位为 `None`。
     #[must_use]
     pub const fn virtual_entry_selector(self) -> Option<VirtualEntryAnchorSelector> {
         match self {
@@ -312,6 +336,7 @@ pub struct ParkedVehicleSpawnInput {
 }
 
 impl ParkedVehicleSpawnInput {
+    /// 构造 `Parked + Occupied` 直接生成的输入。
     #[must_use]
     pub const fn new(
         profile: VehicleProfileOrdinal,
@@ -327,21 +352,25 @@ impl ParkedVehicleSpawnInput {
         }
     }
 
+    /// 返回车辆 Profile。
     #[must_use]
     pub const fn profile(self) -> VehicleProfileOrdinal {
         self.profile
     }
 
+    /// 返回保留的路线句柄。
     #[must_use]
     pub const fn route(self) -> RouteHandle {
         self.route
     }
 
+    /// 返回路线出现项下标。
     #[must_use]
     pub const fn route_occurrence(self) -> u32 {
         self.route_occurrence
     }
 
+    /// 返回边内进度（整数毫米）。
     #[must_use]
     pub const fn progress_mm(self) -> u32 {
         self.progress_mm
@@ -356,11 +385,13 @@ pub enum ParkingCommandOutcome<T> {
 }
 
 impl<T> ParkingCommandOutcome<T> {
+    /// 是否为无实际变化的窄幂等结果。
     #[must_use]
     pub const fn is_no_change(&self) -> bool {
         matches!(self, Self::NoChange(_))
     }
 
+    /// 取出结果携带的记录 payload。
     #[must_use]
     pub fn into_record(self) -> T {
         match self {
@@ -369,6 +400,7 @@ impl<T> ParkingCommandOutcome<T> {
     }
 }
 
+/// `reserve_parking` 提交的变更记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParkingReserveRecord {
     pub vehicle: VehicleHandle,
@@ -379,18 +411,21 @@ pub struct ParkingReserveRecord {
     pub arrived: bool,
 }
 
+/// `cancel_parking` 提交的变更记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParkingCancelRecord {
     pub vehicle: VehicleHandle,
     pub target: ParkingTarget,
 }
 
+/// `park_vehicle` 提交的变更记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParkingParkRecord {
     pub vehicle: VehicleHandle,
     pub target: ParkingTarget,
 }
 
+/// `leave_parking` 提交的变更记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParkingLeaveRecord {
     pub vehicle: VehicleHandle,
@@ -400,6 +435,7 @@ pub struct ParkingLeaveRecord {
     pub virtual_exit_selector: Option<VirtualExitAnchorSelector>,
 }
 
+/// `rebind_parking_route` 提交的变更记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParkingRebindRecord {
     pub vehicle: VehicleHandle,
@@ -413,12 +449,14 @@ pub struct ParkingRebindRecord {
     pub arrived: bool,
 }
 
+/// `spawn_parked_vehicle` 提交的变更记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParkedVehicleSpawnRecord {
     pub vehicle: VehicleHandle,
     pub target: ParkingTarget,
 }
 
+/// `despawn_vehicle` 提交的变更记录；附带释放的停车、Waiting 与 Conflict 持有。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VehicleDespawnRecord {
     pub vehicle: VehicleHandle,
@@ -445,6 +483,7 @@ pub struct ParkingPoolCounts {
 }
 
 impl ParkingPoolCounts {
+    /// 由 capacity/reserved/occupied 校验守恒并构造计数；不守恒时返回 `None`。
     pub(crate) fn checked(capacity: u64, reserved: u64, occupied: u64) -> Option<Self> {
         let used = reserved.checked_add(occupied)?;
         let vacant = capacity.checked_sub(used)?;
@@ -473,6 +512,7 @@ pub enum ParkingSpaceState {
     Occupied(VehicleHandle),
 }
 
+/// 单个设施虚拟池的稀疏 reserved/occupied 计数。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct VirtualParkingState {
     pub(crate) reserved_count: u32,
@@ -489,6 +529,7 @@ pub(crate) struct ParkingRuntimeState {
 
 #[cfg(test)]
 impl ParkingRuntimeState {
+    /// 估算停车运行时状态保留的逻辑字节数（测试专用）。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             explicit,
@@ -502,6 +543,7 @@ impl ParkingRuntimeState {
 }
 
 impl ParkingRuntimeState {
+    /// 构造全部空置的停车运行时状态。
     pub(crate) fn new(explicit_space_count: usize, facility_count: usize) -> Self {
         Self {
             explicit: vec![ParkingSpaceState::Vacant; explicit_space_count].into_boxed_slice(),
@@ -510,6 +552,7 @@ impl ParkingRuntimeState {
         }
     }
 
+    /// 带分配失败检查的 `new`。
     pub(crate) fn try_new(explicit_space_count: usize, facility_count: usize) -> Result<Self, ()> {
         let mut explicit = Vec::new();
         explicit
@@ -528,14 +571,17 @@ impl ParkingRuntimeState {
         })
     }
 
+    /// 查询车辆当前的停车 binding。
     pub(crate) fn binding(&self, vehicle: VehicleHandle) -> Option<ParkingBinding> {
         self.bindings.get(&vehicle).copied()
     }
 
+    /// 查询显式泊位的排他状态。
     pub(crate) fn explicit_state(&self, space: ParkingSpaceOrdinal) -> Option<ParkingSpaceState> {
         self.explicit.get(space.index()).copied()
     }
 
+    /// 查询设施虚拟池的计数状态。
     pub(crate) fn virtual_state(
         &self,
         facility: ParkingFacilityOrdinal,
@@ -543,10 +589,12 @@ impl ParkingRuntimeState {
         self.virtual_pools.get(facility.index()).copied()
     }
 
+    /// 尝试为 bindings 表预留一个条目的容量。
     pub(crate) fn try_reserve_binding(&mut self) -> Result<(), ()> {
         self.bindings.try_reserve(1).map_err(|_| ())
     }
 
+    /// 写入 `Reserved` binding 并消耗目标资源计数。
     pub(crate) fn insert_reserved(
         &mut self,
         vehicle: VehicleHandle,
@@ -579,6 +627,7 @@ impl ParkingRuntimeState {
         debug_assert!(replaced.is_none());
     }
 
+    /// 移除 `Reserved` binding、归还资源计数并返回原 reservation。
     pub(crate) fn cancel_reserved(&mut self, vehicle: VehicleHandle) -> ParkingReservation {
         let Some(ParkingBinding::Reserved(reservation)) = self.bindings.remove(&vehicle) else {
             unreachable!("validated reservation remains present")
@@ -606,6 +655,7 @@ impl ParkingRuntimeState {
         reservation
     }
 
+    /// 把 `Reserved` binding 推进为 `Occupied` 并返回目标。
     pub(crate) fn occupy_reserved(&mut self, vehicle: VehicleHandle) -> ParkingTarget {
         let Some(ParkingBinding::Reserved(reservation)) = self.bindings.get(&vehicle).copied()
         else {
@@ -643,6 +693,7 @@ impl ParkingRuntimeState {
         target
     }
 
+    /// 直接写入 `Occupied` binding 并消耗目标资源计数。
     pub(crate) fn insert_occupied(&mut self, vehicle: VehicleHandle, target: ParkingTarget) {
         debug_assert!(!self.bindings.contains_key(&vehicle));
         match target {
@@ -671,6 +722,7 @@ impl ParkingRuntimeState {
         debug_assert!(old.is_none());
     }
 
+    /// 移除 `Occupied` binding、归还资源计数并返回目标。
     pub(crate) fn release_occupied(&mut self, vehicle: VehicleHandle) -> ParkingTarget {
         let Some(ParkingBinding::Occupied(target)) = self.bindings.remove(&vehicle) else {
             unreachable!("validated occupied binding remains present")
@@ -698,6 +750,7 @@ impl ParkingRuntimeState {
         target
     }
 
+    /// 用新 reservation 原位替换既有 `Reserved` binding。
     pub(crate) fn replace_reservation(
         &mut self,
         vehicle: VehicleHandle,
@@ -962,6 +1015,7 @@ impl TrafficWorld {
         }
     }
 
+    /// 核对 committed 资源计数与车辆 binding 一致。
     pub(crate) fn resource_matches_binding(
         &self,
         vehicle: VehicleHandle,
@@ -970,6 +1024,7 @@ impl TrafficWorld {
         self.read_view().resource_matches_binding(vehicle, binding)
     }
 
+    /// 解析 reservation 的入口锚点（边与 progress_mm）。
     pub(crate) fn reservation_anchor(
         &self,
         reservation: ParkingReservation,
@@ -1001,6 +1056,7 @@ impl TrafficWorld {
         }
     }
 
+    /// 判定该状态是否已满足 exact 停车到达。
     pub(crate) fn parking_arrived_for(
         &self,
         state: VehicleState,
@@ -1782,6 +1838,7 @@ impl TrafficWorld {
 }
 
 impl<'a> crate::kernel::phase::StepReadView<'a> {
+    /// 校验锚点边位于路线的指定出现项位置。
     pub(crate) fn validate_anchor_on_route(
         self,
         route: RouteHandle,
@@ -1801,6 +1858,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         Ok(index)
     }
 
+    /// 校验入口锚点相对当前 cursor 前向可达。
     pub(crate) fn validate_forward_reachable(
         self,
         state: VehicleState,
@@ -1819,6 +1877,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             .ok_or(ParkingError::EntryNotForwardReachable)
     }
 
+    /// 核对 committed 资源计数与车辆 binding 一致。
     pub(crate) fn resource_matches_binding(
         self,
         vehicle: VehicleHandle,
@@ -1850,6 +1909,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         }
     }
 
+    /// 解析 reservation 的入口锚点（边与 progress_mm）。
     pub(crate) fn reservation_anchor(
         self,
         reservation: ParkingReservation,
@@ -1876,6 +1936,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         }
     }
 
+    /// 判定该状态是否已满足 exact 停车到达。
     pub(crate) fn parking_arrived_for(
         self,
         state: VehicleState,
@@ -1943,6 +2004,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 }
 
 impl crate::kernel::phase::StepWorkspace<'_> {
+    /// 解析 reservation 的入口锚点（边与 progress_mm）。
     pub(crate) fn reservation_anchor(
         &self,
         reservation: ParkingReservation,
@@ -1950,6 +2012,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         self.read_view().reservation_anchor(reservation)
     }
 
+    /// 判定该状态是否已满足 exact 停车到达。
     pub(crate) fn parking_arrived_for(
         &self,
         state: VehicleState,

@@ -16,6 +16,7 @@ pub(crate) struct AdministrativeState {
 
 #[cfg(test)]
 impl AdministrativeState {
+    /// 返回管理数据保留的逻辑字节数（仅测试用）。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             migration_journal,

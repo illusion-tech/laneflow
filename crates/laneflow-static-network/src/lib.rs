@@ -64,46 +64,55 @@ pub struct SharedNetworkRevision {
 }
 
 impl SharedNetworkRevision {
+    /// 返回本修订绑定的 NetworkRevisionId。
     #[must_use]
     pub const fn network_revision(&self) -> laneflow_static_contract::NetworkRevisionId {
         self.origin.network_revision()
     }
 
+    /// 返回规范路网来源绑定。
     #[must_use]
     pub const fn canonical_origin(&self) -> &CanonicalNetworkOrigin {
         &self.origin
     }
 
+    /// 返回 Traffic component。
     #[must_use]
     pub const fn traffic(&self) -> &SharedTrafficNetwork {
         &self.traffic
     }
 
+    /// 返回稳定身份索引。
     #[must_use]
     pub const fn identity(&self) -> &SharedIdentityIndex {
         &self.identity
     }
 
+    /// 返回分区规划提示。
     #[must_use]
     pub const fn planning_hints(&self) -> &PartitionPlanningHints {
         &self.planning_hints
     }
 
+    /// 返回 Conflict component。
     #[must_use]
     pub const fn conflict(&self) -> &SharedConflictNetwork {
         &self.conflict
     }
 
+    /// 返回 Policy component。
     #[must_use]
     pub const fn policy(&self) -> &SharedPolicyNetwork {
         &self.policy
     }
 
+    /// 返回可选的 Spatial component。
     #[must_use]
     pub const fn spatial(&self) -> Option<&SharedSpatialNetwork> {
         self.spatial.as_ref()
     }
 
+    /// 返回共享根及全部 component 的保留内存逻辑字节总数。
     #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         u64::try_from(core::mem::size_of::<Self>()).expect("root type size fits u64")

@@ -2989,6 +2989,7 @@ pub(crate) mod tests {
         waiting_scale_world_at_delta(revision, vehicle_count, 4)
     }
 
+    /// 测试夹具：构造首对 Waiting cutover 修订与语义 diff。
     pub(crate) fn first_waiting_cutover_pair() -> (
         Arc<laneflow_static_network::SharedNetworkRevision>,
         Arc<laneflow_static_network::SharedNetworkRevision>,
@@ -2997,6 +2998,7 @@ pub(crate) mod tests {
         first_waiting_cutover_pair_with_layout(ScaleLayout::NoWaiting)
     }
 
+    /// 测试夹具：构造入口/出口平移后身份变化的 cutover 修订对。
     pub(crate) fn first_waiting_changed_identity_cutover_pair(
         shift_entry: bool,
     ) -> (

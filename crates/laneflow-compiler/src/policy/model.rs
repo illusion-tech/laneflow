@@ -3,12 +3,14 @@ use crate::{GateInterpretation, GateProhibition, RegulationIdentity};
 use laneflow_static_contract::RightOfWayPolicySetId;
 use std::sync::Arc;
 
+/// 策略证据条目：键、定位符与可选描述。
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Evidence {
     pub key: Arc<str>,
     pub locator: Arc<str>,
     pub description: Option<Arc<str>>,
 }
+/// 冲突通行的间隙参数档；时长均为毫秒。
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Gap {
     pub key: Arc<str>,
@@ -17,6 +19,7 @@ pub(crate) struct Gap {
     pub lag_ms: u64,
     pub clearance_ms: u64,
 }
+/// 参与者流让行规则；`stream`、`yield_to`、`classes` 的类型随编译阶段改写。
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct StreamRule<S, C> {
     pub key: Arc<str>,
@@ -27,6 +30,7 @@ pub(crate) struct StreamRule<S, C> {
     pub gap: Option<Arc<str>>,
     pub evidence: Box<[Arc<str>]>,
 }
+/// 机动门通行规则；`gate`、`classes` 的类型随编译阶段改写。
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GateRule<G, C> {
     pub key: Arc<str>,
@@ -36,6 +40,7 @@ pub(crate) struct GateRule<G, C> {
     pub prohibition: GateProhibition,
     pub evidence: Box<[Arc<str>]>,
 }
+/// 一份完整的路权策略集；`G`/`S`/`C` 引用类型随编译阶段改写。
 #[derive(Debug, PartialEq)]
 pub(crate) struct PolicySet<G, S, C> {
     pub id: RightOfWayPolicySetId,
@@ -47,11 +52,13 @@ pub(crate) struct PolicySet<G, S, C> {
     pub streams: Box<[StreamRule<S, C>]>,
     pub gates: Box<[GateRule<G, C>]>,
 }
+/// 策略在编译单元内的来源序号（模块与声明下标）。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct PolicyOrigin {
     pub module: u32,
     pub declaration: u32,
 }
+/// 策略集与其来源序号的绑定记录。
 #[derive(Debug, PartialEq)]
 pub(crate) struct PolicyRecord<G, S, C> {
     pub value: PolicySet<G, S, C>,
@@ -59,6 +66,7 @@ pub(crate) struct PolicyRecord<G, S, C> {
 }
 
 impl<G: Copy, S: Copy, C: Copy> PolicySet<G, S, C> {
+    /// 按封闭规则估算策略的规范逻辑字节数（饱和算术）。
     pub(crate) fn logical_bytes(&self) -> u64 {
         let text = |s: &str| 4_u64.saturating_add(s.len() as u64);
         let strings = |v: &[Arc<str>]| v.iter().fold(4_u64, |n, s| n.saturating_add(text(s)));
@@ -105,6 +113,7 @@ impl<G: Copy, S: Copy, C: Copy> PolicySet<G, S, C> {
         }
         n
     }
+    /// 估算策略持有的字符串负载与驻留槽开销总字节数（饱和算术）。
     pub(crate) fn text_bytes(&self) -> u64 {
         let mut n = self.namespace.len() as u64 + self.key.len() as u64;
         let mut add = |s: &str| {
@@ -145,6 +154,7 @@ impl<G: Copy, S: Copy, C: Copy> PolicySet<G, S, C> {
         }
         n
     }
+    /// 把 `gate`/`stream`/`class` 引用逐类映射到新类型，返回改写后的策略集。
     pub(crate) fn map<G2, S2, C2>(
         &self,
         gate: impl Fn(G) -> G2,
@@ -191,6 +201,7 @@ impl<G: Copy, S: Copy, C: Copy> PolicySet<G, S, C> {
                 .collect(),
         }
     }
+    /// 统计策略的记录数：声明、成员及逐条引用明细（饱和算术）。
     pub(crate) fn records(&self) -> u64 {
         let mut count = 1_u64
             .saturating_add(self.evidence.len() as u64)
@@ -210,6 +221,7 @@ impl<G: Copy, S: Copy, C: Copy> PolicySet<G, S, C> {
         }
         count
     }
+    /// 估算策略占用的存续堆字节数（饱和算术）。
     pub(crate) fn owned_bytes(&self) -> u64 {
         let mut count = size_of::<Self>() as u64;
         count = count

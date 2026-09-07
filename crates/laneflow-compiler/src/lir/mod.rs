@@ -304,6 +304,7 @@ impl LirFreezeOutput {
     }
 }
 
+/// 各领域冻结共享的环境：只读 MIR 与规范排列、可变的身份字段暂存，以及编译资源上限和主来源位置。
 pub(super) struct FreezeEnv<'a> {
     pub mir: &'a MirUnit,
     pub orders: &'a CanonicalOrders,
@@ -314,6 +315,7 @@ pub(super) struct FreezeEnv<'a> {
 }
 
 impl FreezeEnv<'_> {
+    /// 把冻结计划计数换算为可分配容量；计数超出目标平台 `usize` 范围时返回序号溢出诊断。
     pub(super) fn capacity(&self, count: u64) -> Result<usize, DiagnosticBundle> {
         LirFreezePlan::capacity(count, self.limits, self.primary_span.clone())
     }

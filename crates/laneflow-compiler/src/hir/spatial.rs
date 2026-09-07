@@ -94,6 +94,7 @@ pub(crate) struct HirGeometrySourceRange {
     pub(crate) source: SourceLocation,
 }
 
+/// 规范坐标框架中的三维点坐标。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HirCanonicalPoint3F32 {
     pub(crate) x: f32,
@@ -101,12 +102,14 @@ pub(crate) struct HirCanonicalPoint3F32 {
     pub(crate) z: f32,
 }
 
+/// 规范坐标框架 XZ 平面上的二维点坐标，用于冲突区空间区域环线。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HirCanonicalPoint2F32 {
     pub(crate) x: f32,
     pub(crate) z: f32,
 }
 
+/// 中心线上一个线段的派生量：长度、累计终点弧长、切向与上向。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HirSpatialSegment {
     pub(crate) length_meters: f32,
@@ -115,6 +118,7 @@ pub(crate) struct HirSpatialSegment {
     pub(crate) up: [f32; 3],
 }
 
+/// 空间领域 HIR 部件：规范坐标框架、车道边与设施带几何、冲突区空间区域及共享点/线段表。
 #[derive(Default)]
 pub(crate) struct SpatialHir {
     pub(crate) geometry_profiles: Option<GeometryCompilationProfiles>,
@@ -128,6 +132,7 @@ pub(crate) struct SpatialHir {
     pub(crate) spatial_segments: Box<[HirSpatialSegment]>,
 }
 
+/// 待冻结的车道边中心线几何输入及其来源区间。
 pub(crate) struct PendingSpatialGeometry<'a> {
     source_module: HirModuleKey,
     centerline_points: &'a [CanonicalPoint3F32Input],
@@ -136,12 +141,14 @@ pub(crate) struct PendingSpatialGeometry<'a> {
     source_span: SourceLocation,
 }
 
+/// 车道图边到规范坐标框架的分配结果及声明位置。
 #[derive(Clone)]
 pub(crate) struct SpatialFrameAssignment {
     frame: HirCanonicalFrameKey,
     source_span: SourceLocation,
 }
 
+/// 空间子阶段的跨领域借用上下文：车道边表可写，其余上游领域表只读。
 pub(crate) struct SpatialHirContext<'a> {
     pub(crate) lane_edges: &'a mut TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     pub(crate) lane_edge_references: &'a [HirLaneEdgeReference],
@@ -152,6 +159,7 @@ pub(crate) struct SpatialHirContext<'a> {
     pub(crate) junction_internal_edges: &'a [HirJunctionInternalEdge],
 }
 
+/// 待与已登记冲突区、规范坐标框架配对冻结的冲突区空间区域声明。
 pub(crate) struct PendingConflictZoneRegion<'a> {
     module_order: u32,
     source: &'a ConflictZoneRegionDeclaration,
@@ -159,6 +167,7 @@ pub(crate) struct PendingConflictZoneRegion<'a> {
     canonical_frame: HirCanonicalFrameKey,
 }
 
+/// 构建空间领域 HIR：登记规范坐标框架，冻结车道边与设施带中心线几何并回写车道边弧长。
 pub(crate) fn build_spatial_hir(
     unit: &CompilationUnit,
     counts: &SpatialCounts,
@@ -1242,6 +1251,7 @@ fn validate_spatial_connection(
     }
 }
 
+/// 两个规范三维点之间的欧氏距离（米）。
 pub(crate) fn canonical_point_distance(a: HirCanonicalPoint3F32, b: HirCanonicalPoint3F32) -> f32 {
     (b.x - a.x).hypot(b.y - a.y).hypot(b.z - a.z)
 }

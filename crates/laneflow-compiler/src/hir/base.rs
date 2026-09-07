@@ -84,6 +84,7 @@ pub(super) struct SymbolTable<K> {
 }
 
 impl<K: Copy> SymbolTable<K> {
+    /// 按各模块声明计数预留容量创建空符号表。
     pub(super) fn new(module_declaration_counts: impl IntoIterator<Item = usize>) -> Self {
         Self {
             by_module: module_declaration_counts
@@ -93,6 +94,7 @@ impl<K: Copy> SymbolTable<K> {
         }
     }
 
+    /// 在指定模块内登记一条源地址到键的映射。
     pub(super) fn insert(
         &mut self,
         module: HirModuleKey,
@@ -106,6 +108,7 @@ impl<K: Copy> SymbolTable<K> {
         );
     }
 
+    /// 查找指定模块内源地址对应的键。
     pub(super) fn get(
         &self,
         module: HirModuleKey,
@@ -437,6 +440,7 @@ pub(super) fn derive_identity(
     Ok(identity.stable_id())
 }
 
+/// 登记横断面声明的唯一所有者；同一目标出现第二所有者时推送多重所有者诊断。
 #[allow(clippy::too_many_arguments)]
 pub(super) fn register_owner(
     entity_kind: EntityKind,
@@ -465,6 +469,7 @@ pub(super) fn register_owner(
     }
 }
 
+/// 把模块限定的所有者限定引用解析为目标实体键；未命中时推送未知目标诊断并返回 `None`。
 #[allow(clippy::too_many_arguments)]
 pub(super) fn resolve_reference<M, K: Copy>(
     module_lookup: &HashMap<Arc<str>, HirModuleKey>,

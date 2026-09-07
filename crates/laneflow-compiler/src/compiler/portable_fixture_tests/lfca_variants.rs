@@ -486,6 +486,7 @@ fn portable_claim_mismatch_is_structurally_valid_but_not_the_frozen_revision() {
 
 // Keep shared factories below the fixture-producing call sites: SyntheticModuleBuilder captures
 // caller locations, so inserting lines above those sites would intentionally change exact bytes.
+/// 发射最小 headless 夹具的可移植发布候选。
 pub(super) fn min_headless_portable_fixture_candidate() -> crate::PortablePublicationCandidate {
     emit(&empty_output(), MIN_HEADLESS_BUILD_ID)
 }

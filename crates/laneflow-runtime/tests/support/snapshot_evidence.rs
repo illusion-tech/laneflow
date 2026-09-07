@@ -17,15 +17,19 @@ use laneflow_static_network::{
     build_shared_network_revision,
 };
 
+/// 信号化走廊 LFCA 夹具字节。
 pub const CORRIDOR: &[u8] =
     include_bytes!("../../../../examples/data/v0.2-signalized-corridor.lfca");
 const CORRIDOR_CATALOG: &str =
     include_str!("../../../../examples/data/v0.2-signalized-corridor.catalog.toml");
 const BUILD_LIMITS: SharedNetworkBuildLimits =
     SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024);
+/// 固定步长（毫秒）。
 pub const DELTA_MS: u64 = 4;
+/// 快照取证前的预热 tick 数。
 pub const SNAPSHOT_WARMUP_TICKS: u32 = 64;
 
+/// 构建走廊共享路网修订。
 pub fn build() -> Arc<SharedNetworkRevision> {
     let input = check_canonical_network_input(CORRIDOR, FormatLimits::HARD).expect("checked");
     build_shared_network_revision(
@@ -35,6 +39,7 @@ pub fn build() -> Arc<SharedNetworkRevision> {
     .expect("build")
 }
 
+/// 以给定 asset key 构造走廊夹具的已提交路网来源。
 pub fn source_for(key: &str) -> CommittedNetworkSource {
     let input = check_canonical_network_input(CORRIDOR, FormatLimits::HARD).expect("checked");
     CommittedNetworkSource::Published {
@@ -48,6 +53,7 @@ pub fn source_for(key: &str) -> CommittedNetworkSource {
     }
 }
 
+/// 安装走廊世界：注册目录路线并按槽位生成跟车两车。
 pub fn install_corridor_world(revision: &Arc<SharedNetworkRevision>) -> TrafficWorld {
     let mut world = TrafficWorld::install(
         Arc::clone(revision),
@@ -74,10 +80,12 @@ pub fn install_corridor_world(revision: &Arc<SharedNetworkRevision>) -> TrafficW
     world
 }
 
+/// 测试固定的快照恢复上限。
 pub const fn limits() -> SnapshotRestoreLimits {
     SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 8 * 1_024)
 }
 
+/// 断言两车均已提交 Lane 位姿来源。
 pub fn assert_two_lane_poses(world: &TrafficWorld) {
     let poses = world.committed_pose_sources();
     assert_eq!(poses.as_slice().len(), 2);

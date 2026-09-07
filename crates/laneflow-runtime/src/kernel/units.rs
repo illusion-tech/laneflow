@@ -24,6 +24,7 @@ pub(crate) fn ceil_mm(meters: f64) -> Option<u32> {
     Some(mm as u32)
 }
 
+/// SI 米四舍五入（ties-even）到微米；非有限或超出 `u64` 范围返回 `None`。
 pub(crate) fn round_um(meters: f64) -> Option<u64> {
     if !meters.is_finite() {
         return None;

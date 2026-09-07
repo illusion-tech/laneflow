@@ -20,11 +20,13 @@ thread_local! {
     static CONFLICT_ALLOCATION_FAILPOINT: core::cell::Cell<Option<usize>> = const { core::cell::Cell::new(None) };
 }
 
+/// 测试专用：设置 scratch 分配 failpoint 的剩余放行次数。
 #[cfg(test)]
 pub(crate) fn set_allocation_failpoint(remaining: Option<usize>) {
     CONFLICT_ALLOCATION_FAILPOINT.with(|slot| slot.set(remaining));
 }
 
+/// 测试专用：消耗一次 failpoint 放行额度，归零时注入 `ScratchAllocFailed`。
 #[cfg(test)]
 pub(crate) fn check_allocation_failpoint() -> Result<(), ConflictAcquireError> {
     CONFLICT_ALLOCATION_FAILPOINT.with(|slot| match slot.get() {
@@ -88,6 +90,7 @@ impl ConflictWorkCounts {
     };
 }
 
+/// 测试专用：对当前线程的访问计数应用一次更新。
 #[cfg(test)]
 pub(crate) fn count_conflict_work(update: impl FnOnce(&mut ConflictWorkCounts)) {
     CONFLICT_WORK_COUNTS.with(|counts| {
@@ -97,11 +100,13 @@ pub(crate) fn count_conflict_work(update: impl FnOnce(&mut ConflictWorkCounts)) 
     });
 }
 
+/// 测试专用：清零当前线程的访问计数。
 #[cfg(test)]
 pub(crate) fn reset_conflict_work_counts() {
     CONFLICT_WORK_COUNTS.with(|counts| counts.set(ConflictWorkCounts::ZERO));
 }
 
+/// 测试专用：读取当前线程的访问计数快照。
 #[cfg(test)]
 pub(crate) fn conflict_work_counts() -> ConflictWorkCounts {
     CONFLICT_WORK_COUNTS.with(core::cell::Cell::get)
@@ -116,6 +121,7 @@ pub struct ConflictPassageAddress {
 }
 
 impl ConflictPassageAddress {
+    /// 由冲突区、参与者流与流内 passage 下标构造规范地址。
     pub(crate) const fn new(
         zone: ConflictZoneOrdinal,
         stream: ParticipantStreamOrdinal,
@@ -128,16 +134,19 @@ impl ConflictPassageAddress {
         }
     }
 
+    /// 返回地址所属的 ConflictZone ordinal。
     #[must_use]
     pub const fn zone(self) -> ConflictZoneOrdinal {
         self.zone
     }
 
+    /// 返回地址所属的 ParticipantStream ordinal。
     #[must_use]
     pub const fn stream(self) -> ParticipantStreamOrdinal {
         self.stream
     }
 
+    /// 返回流内的 owner-local passage 下标。
     #[must_use]
     pub const fn passage_local_index(self) -> u32 {
         self.passage_local_index
@@ -155,6 +164,7 @@ pub struct ConflictPassageLocator {
 }
 
 impl ConflictPassageLocator {
+    /// 由参与者流与冲突区的稳定 ID 构造持久定位值。
     pub(crate) const fn new(
         participant_stream_stable_id: ParticipantStreamId,
         conflict_zone_stable_id: ConflictZoneId,
@@ -165,11 +175,13 @@ impl ConflictPassageLocator {
         }
     }
 
+    /// 返回参与者流的稳定 ID。
     #[must_use]
     pub const fn participant_stream_stable_id(self) -> ParticipantStreamId {
         self.participant_stream_stable_id
     }
 
+    /// 返回冲突区的稳定 ID。
     #[must_use]
     pub const fn conflict_zone_stable_id(self) -> ConflictZoneId {
         self.conflict_zone_stable_id
@@ -190,6 +202,7 @@ pub struct ConflictPassageOccurrenceLocator {
 }
 
 impl ConflictPassageOccurrenceLocator {
+    /// 组装动态 Route 中一次 passage occurrence 的完整运行时定位。
     pub(crate) const fn new(
         route: RouteHandle,
         maneuver_occurrence_index: u32,
@@ -208,31 +221,37 @@ impl ConflictPassageOccurrenceLocator {
         }
     }
 
+    /// 返回所属的 Route 句柄。
     #[must_use]
     pub const fn route(self) -> RouteHandle {
         self.route
     }
 
+    /// 返回机动出现项下标。
     #[must_use]
     pub const fn maneuver_occurrence_index(self) -> u32 {
         self.maneuver_occurrence_index
     }
 
+    /// 返回准入 Gate 的 hop 下标。
     #[must_use]
     pub const fn admission_gate_hop(self) -> u32 {
         self.admission_gate_hop
     }
 
+    /// 返回冲突出现项下标；区分循环路线中同一稳定 locator 的重复出现项。
     #[must_use]
     pub const fn conflict_occurrence_index(self) -> u32 {
         self.conflict_occurrence_index
     }
 
+    /// 回指共享静态路网中的规范 passage 地址。
     #[must_use]
     pub const fn address(self) -> ConflictPassageAddress {
         self.address
     }
 
+    /// 返回可持久化、可跨修订重绑定的稳定定位值。
     #[must_use]
     pub const fn stable_locator(self) -> ConflictPassageLocator {
         self.stable_locator
@@ -322,6 +341,7 @@ pub(crate) struct ConflictCandidateOrderKey {
 }
 
 impl ConflictCandidateOrderKey {
+    /// 构造 §6.3 稳定候选键；各 presence 由 `Option` 单独编码。
     pub(crate) const fn new(
         kind: GateCandidateKind,
         priority: Option<i32>,
@@ -376,16 +396,19 @@ pub struct ConflictEligibilityState {
 }
 
 impl ConflictEligibilityState {
+    /// 返回该资格记录对应的 passage occurrence 定位。
     #[must_use]
     pub const fn locator(self) -> ConflictPassageOccurrenceLocator {
         self.locator
     }
 
+    /// 返回首次取得资格的 tick。
     #[must_use]
     pub const fn first_eligible_tick(self) -> u64 {
         self.first_eligible_tick
     }
 
+    /// 按最新资格与 locator 更新首次资格时钟；失去资格时清除记录，occurrence 变化时重新计时。
     pub(crate) fn update(
         current: Option<Self>,
         locator: ConflictPassageOccurrenceLocator,
@@ -480,6 +503,7 @@ impl ApproachFrontierCell {
         self.second = reduced.get(1).copied().flatten();
     }
 
+    /// 返回排除 subject 自身后的最优接近估计；无其他 owner 时视为 `OutsideHorizon`。
     pub(crate) fn value_excluding(self, subject: VehicleHandle) -> ApproachEstimate {
         self.first
             .filter(|owner| owner.vehicle != subject)
@@ -624,6 +648,7 @@ pub enum ConflictYieldOutcome {
     ApproachUnprovable,
 }
 
+/// 组合滞后基准与接近估计执行间隙检查；时钟无法相减等不可证明情形返回 `None`。
 pub(crate) fn check_gap(
     now_ms: u64,
     reference: ConflictLagReference,
@@ -678,17 +703,20 @@ pub(crate) struct DownstreamClaimPlan {
 }
 
 impl DownstreamClaimPlan {
+    /// 返回合并重复物理边之前的 route occurrence 数，供调用方预留容量。
     #[must_use]
     pub(crate) const fn raw_interval_capacity(self) -> usize {
         self.raw_interval_capacity
     }
 
+    /// 返回 downstream claim 的终点位置。
     pub(crate) const fn target(self) -> DownstreamRoutePoint {
         self.target
     }
 }
 
 impl DownstreamRoutePoint {
+    /// 构造带微米余数的路线点；`carry_um` 达到 1000 时返回 `None`（须先归一进位）。
     pub(crate) const fn new(
         route_edge_index: u32,
         progress_mm: u32,
@@ -704,14 +732,17 @@ impl DownstreamRoutePoint {
         })
     }
 
+    /// 返回路线边下标。
     #[must_use]
     pub const fn route_edge_index(self) -> u32 {
         self.route_edge_index
     }
+    /// 返回边上进度（毫米）。
     #[must_use]
     pub const fn progress_mm(self) -> u32 {
         self.progress_mm
     }
+    /// 返回毫米以下的微米余数。
     #[must_use]
     pub const fn carry_um(self) -> u16 {
         self.carry_um
@@ -768,6 +799,7 @@ pub(crate) fn derive_downstream_claims(
     derive_downstream_claims_from_plan(route_edges, edge_lengths_mm, plan, output)
 }
 
+/// 校验起终点并生成已验证的派生计划；carry 未归一或顺序倒置时失败关闭。
 pub(crate) fn downstream_claim_plan(
     gate_crossed_side: DownstreamRoutePoint,
     target: DownstreamRoutePoint,
@@ -852,6 +884,7 @@ pub(crate) fn derive_downstream_claims_from_plan(
     Ok(())
 }
 
+/// 由最远 passage clearance 加实际车长推出 claim 终点；越出路线时按存储边界拒绝。
 pub(crate) fn downstream_claim_target(
     route_edges: &[LaneEdgeOrdinal],
     edge_lengths_mm: &[u32],
@@ -905,6 +938,7 @@ fn advance_route_point(
 }
 
 impl DownstreamInterval {
+    /// 构造半开区间；`start_mm >= end_mm` 时返回 `None`。
     pub(crate) const fn new(edge: LaneEdgeOrdinal, start_mm: u32, end_mm: u32) -> Option<Self> {
         if start_mm >= end_mm {
             return None;
@@ -916,14 +950,17 @@ impl DownstreamInterval {
         })
     }
 
+    /// 返回区间所在的 LaneEdge ordinal。
     #[must_use]
     pub const fn edge(self) -> LaneEdgeOrdinal {
         self.edge
     }
+    /// 返回区间起点（毫米）。
     #[must_use]
     pub const fn start_mm(self) -> u32 {
         self.start_mm
     }
+    /// 返回区间终点（毫米，开区间端点）。
     #[must_use]
     pub const fn end_mm(self) -> u32 {
         self.end_mm
@@ -965,6 +1002,7 @@ pub(crate) struct PersistedConflictAuthority<'a> {
 }
 
 impl PersistedConflictAuthority<'_> {
+    /// 以剥离内部 serial 的持久化形式逐个返回已提交 downstream claim。
     pub(crate) fn downstream_claims(
         &self,
     ) -> impl ExactSizeIterator<Item = PersistedDownstreamClaim> + '_ {
@@ -987,6 +1025,7 @@ pub(crate) struct ConflictPersistenceView<'a> {
 }
 
 impl ConflictPersistenceView<'_> {
+    /// 按 owner 读取其已提交 reservation 与连续 downstream claims 的只读视图。
     pub(crate) fn authority(&self, owner: VehicleHandle) -> Option<PersistedConflictAuthority<'_>> {
         let entry = self.index.get(owner.index() as usize).copied().flatten()?;
         if entry.reservation.owner != owner {
@@ -1134,6 +1173,7 @@ pub struct ConflictPassageRange {
 }
 
 impl ConflictPassageRange {
+    /// 构造 passage 范围；`passage_count` 为零或下标溢出时返回 `None`。
     pub(crate) const fn new(
         route: RouteHandle,
         maneuver_occurrence_index: u32,
@@ -1157,22 +1197,27 @@ impl ConflictPassageRange {
         })
     }
 
+    /// 返回所属的 Route 句柄。
     #[must_use]
     pub const fn route(self) -> RouteHandle {
         self.route
     }
+    /// 返回机动出现项下标。
     #[must_use]
     pub const fn maneuver_occurrence_index(self) -> u32 {
         self.maneuver_occurrence_index
     }
+    /// 返回准入 Gate 的 hop 下标。
     #[must_use]
     pub const fn admission_gate_hop(self) -> u32 {
         self.admission_gate_hop
     }
+    /// 返回范围内首个冲突出现项下标。
     #[must_use]
     pub const fn first_conflict_occurrence_index(self) -> u32 {
         self.first_conflict_occurrence_index
     }
+    /// 返回范围内的 passage 数量。
     #[must_use]
     pub const fn passage_count(self) -> u32 {
         self.passage_count
@@ -1191,40 +1236,49 @@ pub struct ConflictReservation {
 }
 
 impl ConflictReservation {
+    /// 返回持有该 reservation 的车辆。
     #[must_use]
     pub const fn owner(self) -> VehicleHandle {
         self.owner
     }
+    /// 返回 reservation 所属的 Route 句柄。
     #[must_use]
     pub const fn route(self) -> RouteHandle {
         self.passage_range.route()
     }
+    /// 返回机动出现项下标。
     #[must_use]
     pub const fn maneuver_occurrence_index(self) -> u32 {
         self.passage_range.maneuver_occurrence_index()
     }
+    /// 返回准入 Gate 的 hop 下标。
     #[must_use]
     pub const fn admission_gate_hop(self) -> u32 {
         self.passage_range.admission_gate_hop()
     }
+    /// 返回完整 passage 范围。
     #[must_use]
     pub const fn passage_range(self) -> ConflictPassageRange {
         self.passage_range
     }
+    /// 返回 downstream claims 的持有车辆。
     #[must_use]
     pub const fn downstream_owner(self) -> VehicleHandle {
         self.downstream_owner
     }
+    /// 返回 downstream claim 数量。
     #[must_use]
     pub const fn downstream_claim_count(self) -> u32 {
         self.downstream_claim_count
     }
+    /// 返回取得授权时的 tick。
     #[must_use]
     pub const fn acquired_tick(self) -> u64 {
         self.acquired_tick
     }
 }
 
+/// 一次成功 `try_acquire` 签发的本拍授权凭证；须由实际 crossing 或等待入场消费。
 pub(crate) struct ConflictGrant {
     owner: VehicleHandle,
     serial: u64,
@@ -1331,6 +1385,7 @@ impl ConflictOwnerAuthority {
     }
 }
 
+/// crossing 提交结果：新建的 reservation 与可选的等待区准入去向。
 pub(crate) struct ConflictCrossingCommit {
     pub(crate) reservation: ConflictReservation,
     pub(crate) waiting_admission: Option<WaitingZoneOrdinal>,
@@ -1350,6 +1405,7 @@ struct PureWaitingGrantPreflight {
     authority_index: usize,
 }
 
+/// cell 在 reservation 生命周期内的阶段：已预约、已占用或已清空。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ConflictPassageStage {
     Reserved,
@@ -1358,6 +1414,7 @@ pub(crate) enum ConflictPassageStage {
 }
 
 impl ConflictPassageStage {
+    /// 返回阶段在 journal 中的紧凑编码。
     pub(crate) const fn journal_tag(self) -> u8 {
         match self {
             Self::Reserved => 0,
@@ -1366,6 +1423,7 @@ impl ConflictPassageStage {
         }
     }
 
+    /// 从 journal 编码还原阶段；未知编码返回 `None`。
     pub(crate) const fn from_journal_tag(tag: u8) -> Option<Self> {
         match tag {
             0 => Some(Self::Reserved),
@@ -1376,6 +1434,7 @@ impl ConflictPassageStage {
     }
 }
 
+/// 单次 passage 清空的结果：reservation 保留，或随最后净空释放。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ConflictClearOutcome {
     Retained,
@@ -1391,6 +1450,7 @@ pub(crate) struct WaitingAdmissionEntitlement {
 }
 
 impl WaitingAdmissionEntitlement {
+    /// 构造 tick-local 的等待区准入资格。
     pub(crate) const fn new(owner: VehicleHandle, zone: WaitingZoneOrdinal, tick: u64) -> Self {
         Self { owner, zone, tick }
     }
@@ -1415,6 +1475,7 @@ pub(crate) struct ConflictCommittedState {
 
 #[cfg(test)]
 impl ConflictCommittedState {
+    /// 测试专用：统计已提交分区保留的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             cells,
@@ -1429,6 +1490,7 @@ impl ConflictCommittedState {
     }
 }
 
+/// 由已提交状态派生的规范地址表、owner 索引与 downstream 索引；downstream 索引按脏标记懒重建。
 pub(crate) struct ConflictDerivedIndexes {
     addresses: Box<[ConflictPassageAddress]>,
     owner_indexes: Vec<CommittedOwnerIndex>,
@@ -1441,6 +1503,7 @@ pub(crate) struct ConflictDerivedIndexes {
 
 #[cfg(test)]
 impl ConflictDerivedIndexes {
+    /// 测试专用：统计派生索引保留的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             addresses,
@@ -1458,6 +1521,7 @@ impl ConflictDerivedIndexes {
     }
 }
 
+/// 单写者事务的暂存工作区：本拍 staged 资源、grant 与 scratch 缓冲。
 pub(crate) struct ConflictWorkspace {
     cell_workspace: Vec<ConflictCellWorkspace>,
     staged_cells: Vec<(usize, VehicleHandle, u64)>,
@@ -1473,6 +1537,7 @@ pub(crate) struct ConflictWorkspace {
 
 #[cfg(test)]
 impl ConflictWorkspace {
+    /// 测试专用：统计暂存工作区保留的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             cell_workspace,
@@ -1523,6 +1588,7 @@ pub(crate) struct ConflictWrite<'a> {
 pub(crate) struct ConflictResolution<'a>(ConflictWrite<'a>);
 
 impl ConflictArbiter {
+    /// 从共享静态路网修订冷安装仲裁器，枚举全部流的 passage 地址并校验唯一性。
     pub(crate) fn install(
         revision: &laneflow_static_network::SharedNetworkRevision,
         vehicle_capacity: usize,
@@ -1575,6 +1641,7 @@ impl ConflictArbiter {
         ))
     }
 
+    /// 由调用方提供的地址表构造仲裁器；排序后发现重复地址时返回 `InvalidBundle`。
     pub(crate) fn new(
         mut addresses: Vec<ConflictPassageAddress>,
         vehicle_capacity: usize,
@@ -1634,6 +1701,7 @@ impl ConflictArbiter {
         }
     }
 
+    /// 拆出 committed、derived 与 workspace 三个所有者分区。
     pub(crate) fn into_parts(
         self,
     ) -> (
@@ -1644,14 +1712,17 @@ impl ConflictArbiter {
         (self.committed, self.derived, self.workspace)
     }
 
+    /// 借用带暂存覆盖层的只读视图。
     pub(crate) fn read(&self) -> ConflictRead<'_> {
         ConflictRead::new(&self.committed, &self.derived, &self.workspace)
     }
 
+    /// 借用三个分区的可变写视图。
     pub(crate) fn write(&mut self) -> ConflictWrite<'_> {
         ConflictWrite::new(&mut self.committed, &mut self.derived, &mut self.workspace)
     }
 
+    /// 测试专用：读取指定 cell 的滞后基准。
     #[cfg(test)]
     pub(crate) fn lag_reference(
         &self,
@@ -1694,21 +1765,25 @@ impl ConflictArbiter {
         self.read().unique_address(zone, stream)
     }
 
+    /// 测试专用：仲裁器是否完全无任何资源权威、暂存与历史。
     #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.read().is_empty()
     }
 
+    /// 测试专用：指定 owner 是否持有任何 staged 或 committed 权威。
     #[cfg(test)]
     pub(crate) fn has_authority(&self, owner: VehicleHandle) -> bool {
         self.read().has_authority(owner)
     }
 
+    /// 测试专用：校验车辆状态与冲突权威的一致性。
     #[cfg(test)]
     pub(crate) fn state_valid(&self, state: &crate::VehicleState) -> bool {
         self.read().state_valid(state)
     }
 
+    /// 测试专用：校验全部 owner 权威的行计数、serial 与 cell 归属不变量。
     #[cfg(test)]
     pub(crate) fn authority_owners_valid(
         &self,
@@ -1719,6 +1794,7 @@ impl ConflictArbiter {
             .authority_owners_valid(owner_valid, fixed_delta_time_ms)
     }
 
+    /// 测试专用：对 exact yield-target cell 求值占用与间隙结果。
     #[cfg(test)]
     pub(crate) fn evaluate_yield_target(
         &self,
@@ -1747,6 +1823,7 @@ impl ConflictArbiter {
         self.read().owners()
     }
 
+    /// 测试专用：统计仲裁器三个分区保留的逻辑字节总数。
     #[cfg(test)]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         self.read().retained_logical_bytes()
@@ -1764,6 +1841,7 @@ impl ConflictArbiter {
         self.write().restore_reservation(owner, restored)
     }
 
+    /// 测试专用：恢复指定 cell 的滞后基准；`NoHistory` 被拒绝。
     #[cfg(test)]
     pub(crate) fn restore_lag_reference(
         &mut self,
@@ -1773,11 +1851,13 @@ impl ConflictArbiter {
         self.write().restore_lag_reference(address, reference)
     }
 
+    /// 测试专用：清空全部 cell 的接近 frontier。
     #[cfg(test)]
     pub(crate) fn clear_approach_frontier(&mut self) {
         self.write().clear_approach_frontier()
     }
 
+    /// 测试专用：向指定 cell 的 frontier 插入已归约的接近 owner。
     #[cfg(test)]
     pub(crate) fn insert_approach_owner_reduced(
         &mut self,
@@ -1794,6 +1874,7 @@ impl ConflictArbiter {
         )
     }
 
+    /// 测试专用：尝试为候选签发组合资源授权。
     #[cfg(test)]
     pub(crate) fn try_acquire(
         &mut self,
@@ -1803,6 +1884,7 @@ impl ConflictArbiter {
         self.write().try_acquire(tick, bundle)
     }
 
+    /// 测试专用：消费 grant 建立 reservation，并记录首个已进入 passage 的占用。
     #[cfg(test)]
     pub(crate) fn commit_crossing(
         &mut self,
@@ -1825,6 +1907,7 @@ impl ConflictArbiter {
         self.write().commit_gate_crossing_deferred(grant, range)
     }
 
+    /// 测试专用：消费纯等待 grant，返回其等待区。
     #[cfg(test)]
     pub(crate) fn consume_pure_waiting_grant(
         &mut self,
@@ -1833,11 +1916,13 @@ impl ConflictArbiter {
         self.write().consume_pure_waiting_grant(grant)
     }
 
+    /// 测试专用：提交已完成的 crossing 并丢弃本拍未消费的 staged 资源。
     #[cfg(test)]
     pub(crate) fn expire_unconsumed_grants(&mut self) {
         self.write().expire_unconsumed_grants()
     }
 
+    /// 测试专用：把 owner 已预约的 cell 标记为占用。
     #[cfg(test)]
     pub(crate) fn enter_passage(
         &mut self,
@@ -1847,6 +1932,7 @@ impl ConflictArbiter {
         self.write().enter_passage(owner, address)
     }
 
+    /// 测试专用：清空一个已占用 passage，最后净空时立即完成释放压缩。
     #[cfg(test)]
     pub(crate) fn clear_passage(
         &mut self,
@@ -1858,6 +1944,7 @@ impl ConflictArbiter {
             .clear_passage(owner, address, post_step_time_ms)
     }
 
+    /// 测试专用：清空一个已占用 passage，释放压缩推迟到统一收尾。
     #[cfg(test)]
     pub(crate) fn clear_passage_deferred(
         &mut self,
@@ -1875,6 +1962,7 @@ impl ConflictArbiter {
         self.write().finish_releases()
     }
 
+    /// 测试专用：释放车辆持有的全部冲突与 downstream 权威。
     #[cfg(test)]
     pub(crate) fn release_vehicle(&mut self, owner: VehicleHandle, post_step_time_ms: u64) {
         self.write().release_vehicle(owner, post_step_time_ms)
@@ -1882,6 +1970,7 @@ impl ConflictArbiter {
 }
 
 impl<'a> ConflictRead<'a> {
+    /// 构造带暂存覆盖层的只读视图。
     pub(crate) fn new(
         committed: &'a ConflictCommittedState,
         derived: &'a ConflictDerivedIndexes,
@@ -1893,6 +1982,7 @@ impl<'a> ConflictRead<'a> {
             workspace: Some(workspace),
         }
     }
+    /// 构造仅覆盖已提交状态的只读视图。
     pub(crate) fn committed(
         committed: &'a ConflictCommittedState,
         derived: &'a ConflictDerivedIndexes,
@@ -1904,6 +1994,7 @@ impl<'a> ConflictRead<'a> {
         }
     }
 
+    /// 读取指定 cell 的滞后基准；未知地址返回 `None`。
     pub(crate) fn lag_reference(
         self,
         address: ConflictPassageAddress,
@@ -2008,14 +2099,17 @@ impl<'a> ConflictRead<'a> {
         })
     }
 
+    /// 返回规范地址表中的 cell 总数。
     pub(crate) fn cell_count(self) -> usize {
         self.derived.addresses.len()
     }
 
+    /// 按规范顺序迭代全部 passage 地址。
     pub(crate) fn addresses(self) -> impl Iterator<Item = ConflictPassageAddress> + 'a {
         self.derived.addresses.iter().copied()
     }
 
+    /// 判断地址是否存在于规范地址表。
     pub(crate) fn contains_address(self, address: ConflictPassageAddress) -> bool {
         self.cell_index(address).is_ok()
     }
@@ -2047,6 +2141,7 @@ impl<'a> ConflictRead<'a> {
         Some(address)
     }
 
+    /// 仲裁器是否完全无任何资源权威、暂存与历史。
     pub(crate) fn is_empty(self) -> bool {
         self.cell_workspace()
             .iter()
@@ -2067,11 +2162,13 @@ impl<'a> ConflictRead<'a> {
             })
     }
 
+    /// 指定 owner 是否持有任何 staged 或 committed 权威。
     pub(crate) fn has_authority(self, owner: VehicleHandle) -> bool {
         self.owner_authority(owner)
             .is_some_and(|authority| authority.has_authority())
     }
 
+    /// 判断指定 cell 的 reservation 是否归属该 owner。
     pub(crate) fn reservation_has_cell(
         self,
         owner: VehicleHandle,
@@ -2083,6 +2180,7 @@ impl<'a> ConflictRead<'a> {
             .is_some_and(|cell| cell.reservation == Some(owner))
     }
 
+    /// 查询 owner 在指定 cell 上的阶段；无 reservation 时返回 `None`。
     pub(crate) fn passage_stage(
         self,
         owner: VehicleHandle,
@@ -2101,10 +2199,12 @@ impl<'a> ConflictRead<'a> {
         })
     }
 
+    /// 返回 owner 的已提交 reservation。
     pub(crate) fn reservation(self, owner: VehicleHandle) -> Option<ConflictReservation> {
         self.owner_authority(owner)?.reservation
     }
 
+    /// 校验处于 Clearing 相位的车辆状态与 reservation 权威逐项一致。
     pub(crate) fn state_valid(self, state: &crate::VehicleState) -> bool {
         let Some(traversal) = state.maneuver_traversal else {
             return !self.has_authority(state.handle);
@@ -2139,6 +2239,7 @@ impl<'a> ConflictRead<'a> {
                 == Some(reservation.downstream_claim_count)
     }
 
+    /// 校验全部 owner 权威的计数、serial、范围与 cell 归属不变量。
     pub(crate) fn authority_owners_valid(
         self,
         mut owner_valid: impl FnMut(VehicleHandle) -> bool,
@@ -2317,6 +2418,7 @@ impl<'a> ConflictRead<'a> {
         true
     }
 
+    /// 对 exact yield-target cell 求值占用与滞后/领先间隙结果。
     pub(crate) fn evaluate_yield_target(
         self,
         subject: VehicleHandle,
@@ -2353,6 +2455,7 @@ impl<'a> ConflictRead<'a> {
         )
     }
 
+    /// 校验 grant 与 passage 范围能否提交 crossing，不产生任何变更。
     pub(crate) fn validate_gate_crossing(
         self,
         grant: &ConflictGrant,
@@ -2425,6 +2528,7 @@ impl<'a> ConflictRead<'a> {
         })
     }
 
+    /// 校验 grant 是否为可消费的纯等待授权，不产生任何变更。
     pub(crate) fn validate_pure_waiting_grant(
         self,
         grant: &ConflictGrant,
@@ -2465,6 +2569,7 @@ impl<'a> ConflictRead<'a> {
         })
     }
 
+    /// 判定在 staged 提交生效后，指定的 enter/clear 转移是否合法。
     pub(crate) fn passage_transition_valid_after_staged_commits(
         self,
         owner: VehicleHandle,
@@ -2610,6 +2715,7 @@ impl<'a> ConflictRead<'a> {
             .is_some_and(|cell| cell.zone_staged_owner.is_some_and(|other| other != owner))
     }
 
+    /// 判断候选 cells 中是否存在已被其他 owner 持有的冲突区。
     pub(crate) fn cells_unavailable(
         self,
         owner: VehicleHandle,
@@ -2620,6 +2726,7 @@ impl<'a> ConflictRead<'a> {
             .any(|cell| self.zone_owned_by_other(cell.zone, owner))
     }
 
+    /// 测试专用：统计三个分区保留的逻辑字节总数。
     #[cfg(test)]
     pub(crate) fn retained_logical_bytes(self) -> u64 {
         self.committed.retained_logical_bytes()
@@ -2659,6 +2766,7 @@ impl<'a> ConflictRead<'a> {
 }
 
 impl<'world> ConflictWrite<'world> {
+    /// 构造对三个分区的可变写视图。
     pub(crate) fn new(
         committed: &'world mut ConflictCommittedState,
         derived: &'world mut ConflictDerivedIndexes,
@@ -2790,6 +2898,7 @@ impl<'world> ConflictWrite<'world> {
         Ok(reservation)
     }
 
+    /// 恢复指定 cell 的滞后基准；`NoHistory` 被拒绝。
     pub(crate) fn restore_lag_reference(
         &mut self,
         address: ConflictPassageAddress,
@@ -2804,12 +2913,14 @@ impl<'world> ConflictWrite<'world> {
         Ok(())
     }
 
+    /// 清空全部 cell 的接近 frontier。
     pub(crate) fn clear_approach_frontier(&mut self) {
         for cell in &mut self.workspace.cell_workspace {
             cell.frontier = ApproachFrontierCell::default();
         }
     }
 
+    /// 向指定 cell 的 frontier 插入已归约的接近 owner。
     pub(crate) fn insert_approach_owner_reduced(
         &mut self,
         address: ConflictPassageAddress,
@@ -2825,6 +2936,7 @@ impl<'world> ConflictWrite<'world> {
         Ok(())
     }
 
+    /// 校验并暂存候选所需的全部组合资源，成功时签发本拍 grant。
     pub(crate) fn try_acquire(
         &mut self,
         tick: u64,
@@ -3034,6 +3146,7 @@ impl<'world> ConflictWrite<'world> {
         })
     }
 
+    /// 消费 grant 建立 reservation，记录已进入 passage 的占用，并统一移动已提交资源行。
     pub(crate) fn commit_crossing(
         &mut self,
         grant: ConflictGrant,
@@ -3101,6 +3214,7 @@ impl<'world> ConflictWrite<'world> {
         })
     }
 
+    /// 消费纯等待 grant 并释放其 staged 权威，返回等待区。
     pub(crate) fn consume_pure_waiting_grant(
         &mut self,
         grant: ConflictGrant,
@@ -3114,6 +3228,7 @@ impl<'world> ConflictWrite<'world> {
         Ok(preflight.waiting_zone)
     }
 
+    /// 把 pending commit 的 staged cells 与 downstream claims 移入已提交行，并重排保留者的范围起点。
     pub(crate) fn flush_crossings(&mut self) {
         let mut write = 0;
         for read in 0..self.workspace.staged_cells.len() {
@@ -3190,6 +3305,7 @@ impl<'world> ConflictWrite<'world> {
         }
     }
 
+    /// 提交已完成 crossing 后丢弃全部未消费的 staged 资源与 grant。
     pub(crate) fn expire_unconsumed_grants(&mut self) {
         self.flush_crossings();
         self.discard_staged();
@@ -3214,6 +3330,7 @@ impl<'world> ConflictWrite<'world> {
         self.derived.downstream_index_dirty = true;
     }
 
+    /// 把 owner 已预约的 cell 标记为占用；状态不符时返回 `false`。
     pub(crate) fn enter_passage(
         &mut self,
         owner: VehicleHandle,
@@ -3233,6 +3350,7 @@ impl<'world> ConflictWrite<'world> {
         true
     }
 
+    /// 测试专用：清空一个已占用 passage，最后净空时立即完成释放压缩。
     #[cfg(test)]
     pub(crate) fn clear_passage(
         &mut self,
@@ -3247,6 +3365,7 @@ impl<'world> ConflictWrite<'world> {
         Some(outcome)
     }
 
+    /// 清空一个已占用 passage 并记录实际清空时间；最后净空时释放 reservation，压缩推迟到 `finish_releases`。
     pub(crate) fn clear_passage_deferred(
         &mut self,
         owner: VehicleHandle,
@@ -3337,6 +3456,7 @@ impl<'world> ConflictWrite<'world> {
         self.committed.committed_downstream.truncate(write);
     }
 
+    /// 释放车辆持有的全部 staged 与 committed 冲突权威，并为未清 cell 补记清空时间。
     pub(crate) fn release_vehicle(&mut self, owner: VehicleHandle, post_step_time_ms: u64) {
         self.flush_crossings();
         if let Ok(index) = self.owner_authority_index(owner) {
@@ -3525,6 +3645,7 @@ impl<'world> ConflictWrite<'world> {
 }
 
 impl<'a> ConflictResolution<'a> {
+    /// 构造准备阶段写视图（仅暂存与容量准备）。
     pub(crate) fn new(
         committed: &'a mut ConflictCommittedState,
         derived: &'a mut ConflictDerivedIndexes,
@@ -3533,10 +3654,12 @@ impl<'a> ConflictResolution<'a> {
         Self(ConflictWrite::new(committed, derived, workspace))
     }
 
+    /// 清空全部 cell 的接近 frontier。
     pub(crate) fn clear_approach_frontier(&mut self) {
         self.0.clear_approach_frontier()
     }
 
+    /// 向指定 cell 的 frontier 插入已归约的接近 owner。
     pub(crate) fn insert_approach_owner_reduced(
         &mut self,
         address: ConflictPassageAddress,
@@ -3548,6 +3671,7 @@ impl<'a> ConflictResolution<'a> {
             .insert_approach_owner_reduced(address, vehicle, vehicle_update_sequence, estimate)
     }
 
+    /// 校验并暂存候选组合资源，成功时签发本拍 grant。
     pub(crate) fn try_acquire(
         &mut self,
         tick: u64,
@@ -3556,11 +3680,13 @@ impl<'a> ConflictResolution<'a> {
         self.0.try_acquire(tick, bundle)
     }
 
+    /// 丢弃全部 staged 资源、grant 与 owner 暂存记录。
     pub(crate) fn discard_staged(&mut self) {
         self.0.discard_staged();
     }
 }
 
+/// 判断两个 downstream 区间是否在同一边上重叠，或间距小于各自的最小跟车间隙。
 pub(crate) fn intervals_conflict(
     left: DownstreamInterval,
     left_min_gap: u32,
@@ -3733,6 +3859,7 @@ impl WaitingCycleScratch {
         Ok(false)
     }
 
+    /// 测试专用：统计 wait-for 图 scratch 保留的逻辑字节数。
     #[cfg(test)]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {

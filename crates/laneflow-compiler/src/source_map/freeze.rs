@@ -87,6 +87,7 @@ impl SourceLocationResolver<'_> {
     }
 }
 
+/// 把同次成功编译的编译单元、MIR 与已冻结 LIR 绑定为 `ValidatedSourceMapInput`；全程计入编译上限。
 pub(crate) fn freeze_source_map(
     unit: CompilationUnit,
     mir: &MirUnit,

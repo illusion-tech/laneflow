@@ -1,5 +1,6 @@
 use super::*;
 
+/// 为一套通行权策略集合输入向模块用量计费，并在校验失败时返回诊断。
 pub(super) fn charge(
     usage: &mut ModuleUsage,
     value: &RightOfWayPolicySetInput,

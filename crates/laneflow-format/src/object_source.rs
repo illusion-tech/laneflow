@@ -2,9 +2,11 @@
 
 use laneflow_static_contract::ExactByteLength;
 
+/// 封印 trait 所在的私有模块；阻止 safe downstream 自行实现 backing 能力。
 pub(crate) mod private {
     use super::ObjectSourceError;
 
+    /// 提供完整连续不可变字节 backing 的封印能力。
     pub trait SealedImmutableBacking {
         fn contiguous_bytes(&self) -> Result<&[u8], ObjectSourceError>;
     }
@@ -92,6 +94,7 @@ where
     }
 }
 
+/// 从对象来源取得完整连续字节；backing 漂移或不可读时失败。
 pub(crate) fn contiguous_bytes<S>(source: &S) -> Result<&[u8], ObjectSourceError>
 where
     S: BoundedReReadableObjectSource + ?Sized,

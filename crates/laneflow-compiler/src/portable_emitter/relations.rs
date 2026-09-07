@@ -1,5 +1,8 @@
 use super::*;
 
+/// 按实体种类与 typed ordinal 从冻结 LIR 取回 16 字节稳定标识。
+///
+/// 策略集不能作为拓扑或空间关系端点，遇到 `RightOfWayPolicySet` 时不可达。
 pub(super) fn entity_stable_id(
     lir: &crate::lir::LirUnit,
     kind: EntityKind,
@@ -63,6 +66,7 @@ fn push_relation_tuple(
     });
 }
 
+/// 从冻结 LIR 投影全部规范关系元组并按规范顺序排序；路口内部边不参与 successor 关系。
 pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<RelationTuple> {
     let mut relations = Vec::new();
     let internal_edges: Vec<bool> = (0..lir.lane_edges.len())

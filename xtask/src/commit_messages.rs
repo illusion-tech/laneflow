@@ -12,6 +12,7 @@ const ALLOWED_TYPES: &[&str] = &[
 const DEPENDABOT_AUTHOR_NAME: &str = "dependabot[bot]";
 const DEPENDABOT_AUTHOR_EMAIL: &str = "49699333+dependabot[bot]@users.noreply.github.com";
 
+/// 读取并校验单个 commit message 文件（commit-msg 钩子入口）：归一化换行、剥离 Git 注释行后按合同校验。
 pub(crate) fn check_commit_message_file(path: &str) -> Result<(), String> {
     let message = std::fs::read_to_string(path)
         .map_err(|err| format!("无法读取 commit message 文件 `{path}`: {err}"))?;
@@ -43,6 +44,7 @@ fn strip_commit_message_comments(message: &str) -> String {
         .join("\n")
 }
 
+/// 校验提交范围内全部非 merge commit 的 message；范围取显式 rev-range，缺省时从 CI 的 GitHub event 环境变量推导。
 pub(crate) fn check_commit_messages(explicit_range: Option<&str>) -> Result<(), String> {
     let commit_range = match explicit_range {
         Some(commit_range) => commit_range.to_string(),

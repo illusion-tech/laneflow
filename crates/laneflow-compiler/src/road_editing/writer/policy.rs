@@ -1,4 +1,5 @@
 use super::*;
+/// 把路权策略集输入确定性编码为 wire `RightOfWayPolicySet` 表。
 pub(super) fn encode<'a>(
     fbb: &mut runtime::FlatBufferBuilder<'a>,
     value: &RightOfWayPolicySetInput,

@@ -30,11 +30,13 @@ impl WorldConfig {
         }
     }
 
+    /// 车辆槽位容量上限。
     #[must_use]
     pub const fn vehicle_capacity(self) -> u32 {
         self.vehicle_capacity
     }
 
+    /// 路线槽位容量上限。
     #[must_use]
     pub const fn route_capacity(self) -> u32 {
         self.route_capacity
@@ -52,11 +54,13 @@ impl WorldConfig {
         self.route_conflict_occurrence_capacity
     }
 
+    /// 每拍使用的工作线程数；数量不改变精确结果。
     #[must_use]
     pub const fn worker_count(self) -> u32 {
         self.worker_count
     }
 
+    /// 固定步长（毫秒）。
     #[must_use]
     pub const fn fixed_delta_time_ms(self) -> u64 {
         self.fixed_delta_time_ms
@@ -87,6 +91,7 @@ pub struct StepOutcome {
 }
 
 impl StepOutcome {
+    /// 构造成功步进结果；仅供 world 提交路径使用。
     pub(crate) const fn new(
         tick_index: u64,
         time_ms: u64,

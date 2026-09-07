@@ -2253,6 +2253,7 @@ const fn limit_error(
     }
 }
 
+/// 格式准入的测试模块（独立文件）。
 #[cfg(test)]
 #[path = "tests/format_admission.rs"]
 pub(crate) mod tests;

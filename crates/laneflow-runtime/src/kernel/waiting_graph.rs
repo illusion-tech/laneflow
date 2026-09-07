@@ -31,6 +31,7 @@ pub(crate) struct WaitingGraph {
 }
 
 impl WaitingGraph {
+    /// 清空图内容并保留容量。
     pub(crate) fn clear(&mut self) {
         self.heads.clear();
         self.edges.clear();
@@ -45,6 +46,7 @@ impl WaitingGraph {
         self.epoch = 0;
     }
 
+    /// 新增节点并返回其下标。
     pub(crate) fn node(&mut self) -> Result<usize, StepError> {
         reserve(&mut self.heads, 1)?;
         let index = self.heads.len();
@@ -52,6 +54,7 @@ impl WaitingGraph {
         Ok(index)
     }
 
+    /// 新增一条 `from`→`to` 边并返回其下标；下标越界返回错误。
     pub(crate) fn edge(
         &mut self,
         from: usize,
@@ -79,6 +82,7 @@ impl WaitingGraph {
         self.edges[index].active = active;
     }
 
+    /// 拍初封口：构建拓扑序并校验无环；有环返回 `Ok(false)`。
     pub(crate) fn seal(&mut self) -> Result<bool, StepError> {
         let count = self.heads.len();
         reserve(&mut self.indegree, count)?;
@@ -125,10 +129,12 @@ impl WaitingGraph {
         Ok(self.order.len() == count)
     }
 
+    /// 开始一次候选批次的边切换；undo 栈必须为空。
     pub(crate) fn begin(&mut self) {
         debug_assert!(self.edge_undo.is_empty() && self.order_undo.is_empty());
     }
 
+    /// 切换一条边的激活状态并增量维护拓扑序；会导致环时返回 `Ok(false)`。
     pub(crate) fn set(&mut self, index: usize, active: bool) -> Result<bool, StepError> {
         let edge = *self
             .edges
@@ -196,11 +202,13 @@ impl WaitingGraph {
         Ok(true)
     }
 
+    /// 接受候选批次的全部切换，丢弃 undo 记录。
     pub(crate) fn accept(&mut self) {
         self.edge_undo.clear();
         self.order_undo.clear();
     }
 
+    /// 按 undo 记录逆序回滚候选批次的全部切换与重排。
     pub(crate) fn rollback(&mut self) {
         for (position, node) in self.order_undo.drain(..).rev() {
             self.order[position] = node;
@@ -213,6 +221,7 @@ impl WaitingGraph {
         }
     }
 
+    /// 测试用：图持有的逻辑字节数。
     #[cfg(test)]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {

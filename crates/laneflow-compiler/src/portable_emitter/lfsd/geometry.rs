@@ -39,6 +39,9 @@ fn artifact_geometry_values(
     Ok(geometries)
 }
 
+/// 生成两版制品之间的几何差异行（LFSD 第 4 节）。
+///
+/// 以主体实体的稳定标识配对几何投影值，输出新增、删除与修改变更并按规范键排序。
 pub(super) fn artifact_geometry_changes(
     base: &ArtifactIndex<'_>,
     target: &ArtifactIndex<'_>,
@@ -97,6 +100,9 @@ pub(super) fn artifact_geometry_changes(
     Ok(changes.into_iter().map(|(_, _, _, row)| row).collect())
 }
 
+/// 生成两版制品之间的空间配置差异行（LFSD 第 6 节）。
+///
+/// 空间配置唯一行逐字节相同则不产生差异；不同则输出一行携带前后完整字节。
 pub(super) fn artifact_spatial_configuration_changes(
     base: &ArtifactIndex<'_>,
     target: &ArtifactIndex<'_>,
@@ -156,6 +162,7 @@ fn canonical_geometry_value(
     Ok(bytes.into_boxed_slice())
 }
 
+/// 把目标制品的全部几何记录投影为 Genesis 新增差异行，按主体种类与稳定标识规范排序。
 pub(super) fn genesis_geometry_changes(
     lir: &crate::lir::LirUnit,
     target: RegistryCheckedObjectView<'_>,

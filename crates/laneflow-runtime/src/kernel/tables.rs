@@ -12,6 +12,7 @@ use std::cell::Cell;
 
 use crate::{RouteError, RouteHandle, VehicleState};
 
+/// 机动路径在编译后路线中的一次出现项。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ManeuverOccurrence {
     pub path: ManeuverPathOrdinal,
@@ -67,6 +68,7 @@ pub(crate) struct ConflictPassageOccurrence {
 }
 
 impl ConflictPassageOccurrence {
+    /// 该出现项的规范 passage 地址。
     pub(crate) const fn address(self) -> crate::ConflictPassageAddress {
         crate::ConflictPassageAddress::new(self.zone, self.stream, self.passage_local_index)
     }
@@ -103,6 +105,7 @@ pub(crate) struct CompiledRoute {
 
 #[cfg(test)]
 impl CompiledRoute {
+    /// 测试用：编译路线持有的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             edges,
@@ -137,6 +140,7 @@ impl CompiledRoute {
 }
 
 impl CompiledRoute {
+    /// 把路线内 conflict occurrence 下标定位成对外 locator；越界返回 `None`。
     pub(crate) fn conflict_occurrence_locator(
         &self,
         route: RouteHandle,
@@ -164,6 +168,7 @@ fn logical_vec_bytes<T>(len: usize) -> u64 {
         .saturating_mul(u64::try_from(std::mem::size_of::<T>()).expect("type size fits u64"))
 }
 
+/// 路线登记表槽位：代际、可选编译路线与存活车辆计数。
 #[derive(Clone, Debug)]
 pub(crate) struct RouteSlot {
     pub generation: u32,
@@ -172,6 +177,7 @@ pub(crate) struct RouteSlot {
 }
 #[cfg(test)]
 impl RouteSlot {
+    /// 测试用：槽位内编译路线持有的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             generation: _,
@@ -184,6 +190,7 @@ impl RouteSlot {
     }
 }
 
+/// 车辆登记表槽位：代际与可选车辆状态。
 #[derive(Clone, Debug)]
 pub(crate) struct VehicleSlot {
     pub generation: u32,
@@ -1002,6 +1009,7 @@ fn access_cell_denied(cell: Option<AccessCell>) -> bool {
     }
 }
 
+/// 检查该参与类在 `cursor` 之后的余下边与机动是否被通行规则拒绝。
 pub(crate) fn route_access_denied(
     traffic: &SharedTrafficNetwork,
     class: ParticipantClassOrdinal,
@@ -1039,6 +1047,7 @@ enum RouteRearPosition {
     Position(RouteCursorPosition),
 }
 
+/// 车尾路线坐标是否到达或超过 `target`；无法定位时返回 `None`。
 pub(crate) fn vehicle_rear_at_or_beyond(
     lengths: &[u32],
     edges: &[LaneEdgeOrdinal],
@@ -1228,6 +1237,7 @@ const OCCUPANCY_INTERVAL_CAP: usize = 16;
 type OccupancyInterval = (LaneEdgeOrdinal, u32, u32);
 type OccupancyStack = ([OccupancyInterval; OCCUPANCY_INTERVAL_CAP], usize, bool);
 
+/// 从前杠位置沿路线向车尾逐边展开车身占用区间并回调；下标或长度缺失返回 `None`。
 pub(crate) fn for_each_occupancy_interval(
     lengths: &[u32],
     edges: &[LaneEdgeOrdinal],
@@ -1272,6 +1282,7 @@ pub(crate) fn for_each_admission_interval(
     for_each_occupancy_interval(lengths, edges, index, progress, length, visit)
 }
 
+/// 两个准入区间是否重叠；同为一点的零进度退化入口视为重叠。
 pub(crate) fn admission_intervals_overlap(a_lo: u32, a_hi: u32, b_lo: u32, b_hi: u32) -> bool {
     (a_lo == a_hi && b_lo == b_hi && a_lo == b_lo) || (a_lo < b_hi && b_lo < a_hi)
 }
@@ -1377,6 +1388,7 @@ pub(crate) fn occupancy_footprints_equal(
     Ok(left_full == right_full)
 }
 
+/// 测试用：两个 route cursor 展开的车身物理 footprint 是否重叠。
 #[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn bodies_overlap(

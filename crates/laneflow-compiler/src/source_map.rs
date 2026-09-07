@@ -6,6 +6,7 @@
 //! [`crate::CompilationOutput`] 中的 [`crate::ValidatedCanonicalLir`]。
 
 mod freeze;
+/// 路权来源绑定的受检投影接缝。
 pub(crate) mod policy;
 pub use policy::{PolicySourceTarget, PolicySourceView};
 
@@ -385,6 +386,7 @@ pub struct ValidatedSourceMapInput {
 }
 
 impl ValidatedSourceMapInput {
+    /// 测试辅助：以给定输入重建并替换策略来源记录。
     #[cfg(test)]
     pub(crate) fn set_test_policy_sources(
         &mut self,
@@ -1328,6 +1330,7 @@ impl ParkingRelationSourceView<'_> {
     }
 }
 
+/// 一条停车区域 owner-local 关系来源记录的只读视图。
 #[derive(Clone, Copy)]
 pub struct ParkingFacilityRelationSourceView<'a> {
     source_map: &'a ValidatedSourceMapInput,
@@ -1335,31 +1338,37 @@ pub struct ParkingFacilityRelationSourceView<'a> {
 }
 
 impl ParkingFacilityRelationSourceView<'_> {
+    /// 返回 owner 停车区域的 LIR 序号。
     #[must_use]
     pub const fn owner_ordinal(&self) -> ParkingFacilityOrdinal {
         self.record.owner_ordinal
     }
 
+    /// 返回 owner 停车区域的稳定标识。
     #[must_use]
     pub const fn owner_stable_id(&self) -> ParkingFacilityId {
         self.record.owner_stable_id
     }
 
+    /// 返回 owner-local 关系的有类型角色。
     #[must_use]
     pub const fn role(&self) -> SourceRelationRole {
         self.record.role
     }
 
+    /// 返回同一 owner 与角色内的零基序号。
     #[must_use]
     pub const fn local_index(&self) -> u32 {
         self.record.local_index
     }
 
+    /// 返回该关系的规范主要来源位置。
     #[must_use]
     pub fn primary_source(&self) -> SourceLocationView<'_> {
         self.source_map.location(&self.record.primary)
     }
 
+    /// 当前关系没有额外贡献来源。
     pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
         core::iter::empty()
     }
@@ -1373,31 +1382,37 @@ pub struct ConflictRelationSourceView<'a> {
 }
 
 impl ConflictRelationSourceView<'_> {
+    /// 返回 owner 参与者流的 LIR 序号。
     #[must_use]
     pub const fn owner_ordinal(&self) -> ParticipantStreamOrdinal {
         self.record.owner_ordinal
     }
 
+    /// 返回 owner 参与者流的稳定标识。
     #[must_use]
     pub const fn owner_stable_id(&self) -> ParticipantStreamId {
         self.record.owner_stable_id
     }
 
+    /// 返回 owner-local 关系的有类型角色。
     #[must_use]
     pub const fn role(&self) -> SourceRelationRole {
         self.record.role
     }
 
+    /// 返回同一 owner 与角色内的零基序号。
     #[must_use]
     pub const fn local_index(&self) -> u32 {
         self.record.local_index
     }
 
+    /// 返回该关系的规范主要来源位置。
     #[must_use]
     pub fn primary_source(&self) -> SourceLocationView<'_> {
         self.source_map.location(&self.record.primary)
     }
 
+    /// 当前关系没有额外贡献来源。
     pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
         core::iter::empty()
     }
@@ -1418,31 +1433,37 @@ pub struct SpatialGeometrySourceRangeView<'a> {
 }
 
 impl SpatialRelationSourceView<'_> {
+    /// 返回 owner 规范坐标框架的 LIR 序号。
     #[must_use]
     pub const fn owner_ordinal(&self) -> CanonicalFrameOrdinal {
         self.record.owner_ordinal
     }
 
+    /// 返回 owner 规范坐标框架的稳定标识。
     #[must_use]
     pub const fn owner_stable_id(&self) -> CanonicalFrameId {
         self.record.owner_stable_id
     }
 
+    /// 返回 owner-local 关系的有类型角色。
     #[must_use]
     pub const fn role(&self) -> SourceRelationRole {
         self.record.role
     }
 
+    /// 返回同一 owner 与角色内的零基序号。
     #[must_use]
     pub const fn local_index(&self) -> u32 {
         self.record.local_index
     }
 
+    /// 返回该关系的规范主要来源位置。
     #[must_use]
     pub fn primary_source(&self) -> SourceLocationView<'_> {
         self.source_map.location(&self.record.primary)
     }
 
+    /// 返回逐几何来源范围的伴随来源位置。
     pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
         self.record
             .source_ranges
@@ -1471,11 +1492,13 @@ impl SpatialGeometrySourceRangeView<'_> {
         self.record.point_start..self.record.point_end_exclusive
     }
 
+    /// 返回该范围对应的 authoring source segment 序号。
     #[must_use]
     pub const fn source_segment_ordinal(&self) -> u32 {
         self.record.source_segment_ordinal
     }
 
+    /// 返回该范围映射的来源位置。
     #[must_use]
     pub fn source(&self) -> SourceLocationView<'_> {
         self.source_map.location(&self.record.source)

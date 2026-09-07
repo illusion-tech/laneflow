@@ -9,6 +9,7 @@ use crate::arena::TableRange;
 
 use super::LirIdentityField;
 
+/// 路口的 Canonical LIR 记录：组织通行流向和机动路径的静态路口声明。
 pub(crate) struct LirJunction {
     pub(crate) ordinal: JunctionOrdinal,
     pub(crate) stable_id: JunctionId,
@@ -16,6 +17,7 @@ pub(crate) struct LirJunction {
     pub(crate) movements: TableRange<MovementOrdinal>,
 }
 
+/// 通行流向的 Canonical LIR 记录：从有向入口接近臂到有向出口接近臂的静态通行意图；转向类别只是元数据。
 pub(crate) struct LirMovement {
     pub(crate) ordinal: MovementOrdinal,
     pub(crate) stable_id: MovementId,
@@ -27,6 +29,7 @@ pub(crate) struct LirMovement {
     pub(crate) maneuver_paths: TableRange<ManeuverPathOrdinal>,
 }
 
+/// 机动路径的 Canonical LIR 记录：某通行流向内连接入口边、内部边和出口边的可遍历路径。
 pub(crate) struct LirManeuverPath {
     pub(crate) ordinal: ManeuverPathOrdinal,
     pub(crate) stable_id: ManeuverPathId,
@@ -38,6 +41,7 @@ pub(crate) struct LirManeuverPath {
     pub(crate) waiting_zones: TableRange<WaitingZoneOrdinal>,
 }
 
+/// 路口内部边归属关系行：把一条车道边标记为属于某路口的内部边。
 pub(crate) struct LirJunctionInternalEdge {
     pub(crate) edge: LaneEdgeOrdinal,
     pub(crate) junction: JunctionOrdinal,
@@ -47,6 +51,7 @@ use super::{FreezeEnv, LirJunctionCounts, push_identity_field, push_lir_identity
 use crate::DiagnosticBundle;
 use laneflow_static_contract::FieldTag;
 
+/// 路口领域各表、关系辅表及内部边规范 MIR 行序的领域冻结产物。
 pub(super) struct JunctionParts {
     pub junctions: Vec<LirJunction>,
     pub junction_movements: Vec<MovementOrdinal>,
@@ -60,6 +65,7 @@ pub(super) struct JunctionParts {
     pub canonical_mir_internal_edge_order: Vec<u32>,
 }
 
+/// 按规范排列冻结路口、通行流向、机动路径与路口内部边表；所有者成员关系按子实体规范序号排序。
 pub(super) fn freeze(
     env: &mut FreezeEnv<'_>,
     counts: &LirJunctionCounts,

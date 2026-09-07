@@ -14,6 +14,7 @@ pub struct CanonicalPoint {
     pub z: f32,
 }
 
+/// 规范 `f32` XZ 平面点。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CanonicalPointXZ {
     pub x: f32,
@@ -39,21 +40,25 @@ pub struct LaneGeometryView<'a> {
 }
 
 impl<'a> LaneGeometryView<'a> {
+    /// 几何所属的规范坐标框架。
     #[must_use]
     pub const fn canonical_frame(self) -> CanonicalFrameOrdinal {
         self.canonical_frame
     }
 
+    /// 该 LaneEdge 的总弧长（米）。
     #[must_use]
     pub const fn arc_length_meters(self) -> f32 {
         self.arc_length_meters
     }
 
+    /// 采样点序列。
     #[must_use]
     pub const fn points(self) -> &'a [CanonicalPoint] {
         self.points
     }
 
+    /// 预计算的段几何序列。
     #[must_use]
     pub const fn segments(self) -> &'a [SegmentGeometry] {
         self.segments
@@ -71,6 +76,7 @@ pub struct LanePoseNetwork {
 }
 
 impl LanePoseNetwork {
+    /// 由预构建的各连续 payload 组装位姿采样数据。
     pub(crate) fn new(
         canonical_frames: Box<[CanonicalFrameOrdinal]>,
         arc_lengths_meters: Box<[f32]>,
@@ -89,6 +95,7 @@ impl LanePoseNetwork {
         }
     }
 
+    /// 按 LaneEdge ordinal 借用其只读几何视图。
     #[must_use]
     pub fn lane_geometry(&self, lane_edge: LaneEdgeOrdinal) -> Option<LaneGeometryView<'_>> {
         let index = lane_edge.index();
@@ -100,11 +107,13 @@ impl LanePoseNetwork {
         })
     }
 
+    /// 覆盖的 LaneEdge 总数。
     #[must_use]
     pub fn lane_edge_count(&self) -> u32 {
         u32::try_from(self.canonical_frames.len()).expect("format-bounded lane count fits u32")
     }
 
+    /// 本网络保留的逻辑字节数。
     #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         logical_bytes::<CanonicalFrameOrdinal>(self.canonical_frames.len())
@@ -116,6 +125,7 @@ impl LanePoseNetwork {
     }
 }
 
+/// 单条设施带几何的内部索引记录。
 #[derive(Clone, Copy)]
 pub(crate) struct FacilityGeometryEntry {
     pub(crate) facility_band: FacilityBandOrdinal,
@@ -130,6 +140,7 @@ pub struct FacilityGeometryView<'a> {
     points: &'a [CanonicalPoint],
 }
 
+/// 单个冲突区空间区域的内部索引记录。
 #[derive(Clone, Copy)]
 pub(crate) struct ConflictZoneRegionEntry {
     pub(crate) conflict_zone: ConflictZoneOrdinal,
@@ -139,6 +150,7 @@ pub(crate) struct ConflictZoneRegionEntry {
     pub(crate) ring_range: RangeU32,
 }
 
+/// 单个冲突区空间区域的只读几何借用。
 #[derive(Clone, Copy, Debug)]
 pub struct ConflictZoneRegionView<'a> {
     canonical_frame: CanonicalFrameOrdinal,
@@ -148,16 +160,19 @@ pub struct ConflictZoneRegionView<'a> {
 }
 
 impl<'a> ConflictZoneRegionView<'a> {
+    /// 区域所属的规范坐标框架。
     #[must_use]
     pub const fn canonical_frame(self) -> CanonicalFrameOrdinal {
         self.canonical_frame
     }
 
+    /// 区域的最低与最高高度。
     #[must_use]
     pub const fn height_range(self) -> (f32, f32) {
         (self.min_y, self.max_y)
     }
 
+    /// 区域边界的 XZ 环点序列。
     #[must_use]
     pub const fn ring_xz(self) -> &'a [CanonicalPointXZ] {
         self.ring_xz
@@ -165,11 +180,13 @@ impl<'a> ConflictZoneRegionView<'a> {
 }
 
 impl<'a> FacilityGeometryView<'a> {
+    /// 几何所属的规范坐标框架。
     #[must_use]
     pub const fn canonical_frame(self) -> CanonicalFrameOrdinal {
         self.canonical_frame
     }
 
+    /// 设施带的采样点序列。
     #[must_use]
     pub const fn points(self) -> &'a [CanonicalPoint] {
         self.points
@@ -187,6 +204,7 @@ pub struct SharedSpatialNetwork {
 }
 
 impl SharedSpatialNetwork {
+    /// 由预构建的方向 profile 与各连续 payload 组装共享空间数据。
     pub(crate) fn new(
         direction_profile: u8,
         lane_pose: Option<LanePoseNetwork>,
@@ -205,16 +223,19 @@ impl SharedSpatialNetwork {
         }
     }
 
+    /// 构建时选定的方向 profile 标识。
     #[must_use]
     pub const fn direction_profile(&self) -> u8 {
         self.direction_profile
     }
 
+    /// 可选的车道位姿采样数据。
     #[must_use]
     pub const fn lane_pose(&self) -> Option<&LanePoseNetwork> {
         self.lane_pose.as_ref()
     }
 
+    /// 按设施带 ordinal 查询其只读几何视图。
     #[must_use]
     pub fn facility_geometry(
         &self,
@@ -231,12 +252,14 @@ impl SharedSpatialNetwork {
         })
     }
 
+    /// 携带几何的设施带总数。
     #[must_use]
     pub fn facility_geometry_count(&self) -> u32 {
         u32::try_from(self.facility_entries.len())
             .expect("format-bounded facility geometry count fits u32")
     }
 
+    /// 按冲突区 ordinal 查询其空间区域视图。
     #[must_use]
     pub fn conflict_zone_region(
         &self,
@@ -255,6 +278,7 @@ impl SharedSpatialNetwork {
         })
     }
 
+    /// 本网络保留的逻辑字节数（含可选 lane-pose 数据）。
     #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         self.lane_pose

@@ -290,6 +290,7 @@ pub(crate) struct IdentityRegistry {
     by_stable_id: HashMap<StableId128, RegisteredCanonicalIdentity>,
 }
 
+/// 稳定标识登记失败的原因：完整前像相同的重复登记，或摘要相同但前像不同的摘要冲突。
 #[derive(Debug)]
 pub(crate) enum IdentityRegistrationError {
     Duplicate { existing_span: SourceLocation },
@@ -297,6 +298,7 @@ pub(crate) enum IdentityRegistrationError {
 }
 
 impl IdentityRegistry {
+    /// 构造预分配容量的空登记表。
     pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             by_stable_id: HashMap::with_capacity(capacity),

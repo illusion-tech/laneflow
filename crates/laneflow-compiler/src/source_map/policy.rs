@@ -31,6 +31,7 @@ pub(crate) struct PolicySourceInput<'a> {
     pub contributing: &'a [SourceLocation],
 }
 
+/// 已冻结的路权来源记录：语义目标加主/伴随来源位置。
 pub(super) struct PolicySourceRecord {
     target: PolicySourceTarget,
     primary: SourceLocationRecord,
@@ -45,11 +46,13 @@ pub struct PolicySourceView<'a> {
 }
 
 impl PolicySourceView<'_> {
+    /// 返回该记录绑定的语义目标。
     #[must_use]
     pub const fn target(&self) -> &PolicySourceTarget {
         &self.record.target
     }
 
+    /// 返回规范主要来源位置。
     #[must_use]
     pub fn primary_source(&self) -> SourceLocationView<'_> {
         self.source_map.location(&self.record.primary)

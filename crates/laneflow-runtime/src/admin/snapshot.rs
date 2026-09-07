@@ -193,6 +193,7 @@ pub struct CapturedVehicle {
     pub(crate) conflict_reservation: Option<CapturedConflictReservation>,
 }
 
+/// 快照中的机动遍历阶段。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CapturedManeuverTraversalPhase {
     PreGate,
@@ -201,6 +202,7 @@ pub enum CapturedManeuverTraversalPhase {
     Clearing,
 }
 
+/// 快照中的 stateful 机动遍历：occurrence、路径与当前阶段门。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CapturedManeuverTraversal {
     pub(crate) maneuver_occurrence_index: u32,
@@ -209,6 +211,7 @@ pub struct CapturedManeuverTraversal {
     pub(crate) phase_gate: ContractStableId128,
 }
 
+/// 快照中的 WaitingZone 语义隶属。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CapturedWaitingMembership {
     pub(crate) waiting_zone: ContractStableId128,
@@ -218,6 +221,7 @@ pub struct CapturedWaitingMembership {
     pub(crate) admission_sequence: u64,
 }
 
+/// 快照中的等待区状态：占用数与下一准入序号。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CapturedWaitingZoneState {
     pub(crate) waiting_zone: ContractStableId128,
@@ -225,12 +229,14 @@ pub struct CapturedWaitingZoneState {
     pub(crate) next_admission_sequence: u64,
 }
 
+/// 快照中的冲突通行段持久定位值（参与者流与冲突区稳定引用对）。
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct CapturedConflictPassageLocator {
     pub(crate) participant_stream: ContractStableId128,
     pub(crate) conflict_zone: ContractStableId128,
 }
 
+/// 快照中的冲突准入资格：机动锚点、occurrence 定位与首次资格刻度。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CapturedConflictEligibility {
     pub(crate) maneuver_occurrence_index: u32,
@@ -241,6 +247,8 @@ pub struct CapturedConflictEligibility {
     pub(crate) first_eligible_tick: u64,
 }
 
+/// 快照中的路线冲突出现项：occurrence 下标、通行段定位值与
+/// entry/clearance 位置。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CapturedConflictPassage {
     pub(crate) conflict_occurrence_index: u32,
@@ -251,6 +259,7 @@ pub struct CapturedConflictPassage {
     pub(crate) clearance_progress_mm: u32,
 }
 
+/// 快照中的冲突下游区间：车道边上的毫米区间。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CapturedConflictDownstreamInterval {
     pub(crate) lane_edge: ContractStableId128,
@@ -258,6 +267,7 @@ pub struct CapturedConflictDownstreamInterval {
     pub(crate) end_mm: u32,
 }
 
+/// 快照中的冲突预约：获得刻度、机动锚点、通行段与下游区间集合。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CapturedConflictReservation {
     pub(crate) acquired_tick: u64,
@@ -268,6 +278,7 @@ pub struct CapturedConflictReservation {
     pub(crate) downstream_intervals: Vec<CapturedConflictDownstreamInterval>,
 }
 
+/// 快照中的冲突滞后状态：通行段定位值与滞后基准。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CapturedConflictLagState {
     pub(crate) passage: CapturedConflictPassageLocator,
@@ -376,11 +387,13 @@ impl CapturedVehicle {
         self.parking
     }
 
+    /// 机动遍历状态；无时为 `None`。
     #[must_use]
     pub const fn maneuver_traversal(&self) -> Option<CapturedManeuverTraversal> {
         self.maneuver_traversal
     }
 
+    /// WaitingZone 语义隶属；无时为 `None`。
     #[must_use]
     pub const fn waiting_membership(&self) -> Option<CapturedWaitingMembership> {
         self.waiting_membership
@@ -388,21 +401,25 @@ impl CapturedVehicle {
 }
 
 impl CapturedManeuverTraversal {
+    /// 机动 occurrence 下标。
     #[must_use]
     pub const fn maneuver_occurrence_index(self) -> u32 {
         self.maneuver_occurrence_index
     }
 
+    /// 机动路径稳定标识。
     #[must_use]
     pub const fn maneuver_path(self) -> ContractStableId128 {
         self.maneuver_path
     }
 
+    /// 当前遍历阶段。
     #[must_use]
     pub const fn phase(self) -> CapturedManeuverTraversalPhase {
         self.phase
     }
 
+    /// 当前阶段门稳定标识。
     #[must_use]
     pub const fn phase_gate(self) -> ContractStableId128 {
         self.phase_gate
@@ -410,26 +427,31 @@ impl CapturedManeuverTraversal {
 }
 
 impl CapturedWaitingMembership {
+    /// 等待区稳定标识。
     #[must_use]
     pub const fn waiting_zone(self) -> ContractStableId128 {
         self.waiting_zone
     }
 
+    /// 机动 occurrence 下标。
     #[must_use]
     pub const fn maneuver_occurrence_index(self) -> u32 {
         self.maneuver_occurrence_index
     }
 
+    /// 准入机动门稳定标识。
     #[must_use]
     pub const fn entry_gate(self) -> ContractStableId128 {
         self.entry_gate
     }
 
+    /// 放行机动门稳定标识。
     #[must_use]
     pub const fn release_gate(self) -> ContractStableId128 {
         self.release_gate
     }
 
+    /// 准入序号。
     #[must_use]
     pub const fn admission_sequence(self) -> u64 {
         self.admission_sequence
@@ -437,16 +459,19 @@ impl CapturedWaitingMembership {
 }
 
 impl CapturedWaitingZoneState {
+    /// 等待区稳定标识。
     #[must_use]
     pub const fn waiting_zone(self) -> ContractStableId128 {
         self.waiting_zone
     }
 
+    /// 当前占用数。
     #[must_use]
     pub const fn occupancy(self) -> u32 {
         self.occupancy
     }
 
+    /// 下一准入序号。
     #[must_use]
     pub const fn next_admission_sequence(self) -> u64 {
         self.next_admission_sequence
@@ -536,6 +561,7 @@ impl CapturedSnapshot {
         &self.live_order
     }
 
+    /// 快照等待区状态表。
     #[must_use]
     pub fn waiting_zones(&self) -> &[CapturedWaitingZoneState] {
         &self.waiting_zones

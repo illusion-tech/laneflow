@@ -81,6 +81,7 @@ impl PortableObjectCandidate {
         self.source.is_file_backed()
     }
 
+    /// 消耗候选并返回其不可变对象来源。
     pub(crate) fn into_source(self) -> ImmutableObjectSource {
         self.source
     }
@@ -114,21 +115,25 @@ pub enum PortableDiffBase<'a> {
 }
 
 impl PortablePublicationCandidate {
+    /// 返回 LFCA 可移植规范制品候选。
     #[must_use]
     pub const fn canonical_artifact(&self) -> &PortableObjectCandidate {
         &self.canonical_artifact
     }
 
+    /// 返回 LFSM 源映射封套候选。
     #[must_use]
     pub const fn source_map(&self) -> &PortableObjectCandidate {
         &self.source_map
     }
 
+    /// 返回 LFSD 语义差异封套候选。
     #[must_use]
     pub const fn semantic_diff(&self) -> &PortableObjectCandidate {
         &self.semantic_diff
     }
 
+    /// 返回与三份 exact bytes 共同绑定的网络修订标识。
     #[must_use]
     pub const fn network_revision(&self) -> NetworkRevisionId {
         self.network_revision
@@ -158,6 +163,7 @@ impl PortablePublicationCandidate {
         self.expected_semantic_diff_base
     }
 
+    /// 消耗候选并拆解为后发射检查的输入：三份不可变对象来源与显式 diff base binding。
     pub(crate) fn into_check_inputs(
         self,
     ) -> (
@@ -222,10 +228,12 @@ impl From<ObjectSourceError> for PortableEmissionError {
     }
 }
 
+/// 计算 exact bytes 的 SHA-256 摘要。
 pub(crate) fn sha256(bytes: &[u8]) -> Sha256Digest {
     Sha256Digest::from_bytes(Sha256::digest(bytes).into())
 }
 
+/// 从摘要派生唯一的 `sha256/<64 lowercase hex>` object key。
 pub(crate) fn object_key(digest: Sha256Digest) -> Box<str> {
     let mut key = String::with_capacity(71);
     key.push_str("sha256/");
@@ -233,6 +241,7 @@ pub(crate) fn object_key(digest: Sha256Digest) -> Box<str> {
     key.into_boxed_str()
 }
 
+/// 关闭一份内存 exact bytes：计算摘要与 object key，绑定为 `PortableObjectCandidate`。
 pub(crate) fn close_object(bytes: Box<[u8]>) -> PortableObjectCandidate {
     let digest = sha256(&bytes);
     PortableObjectCandidate {
@@ -242,6 +251,7 @@ pub(crate) fn close_object(bytes: Box<[u8]>) -> PortableObjectCandidate {
     }
 }
 
+/// 关闭一份已 staged 的对象来源：从其 exact bytes 计算摘要与 object key 并绑定为候选。
 pub(crate) fn close_staged_object(
     source: ClosedStagedObjectSource,
 ) -> Result<PortableObjectCandidate, PortableEmissionError> {

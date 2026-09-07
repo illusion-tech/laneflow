@@ -3,6 +3,7 @@ use super::super::*;
 use super::work::WorkBudget;
 use crate::AccessEffect;
 
+/// 展开后的准入规则索引行：记录准入平面、目标、规则序号与特化度。
 #[derive(Clone, Copy)]
 pub(super) struct Entry {
     plane: u8,
@@ -10,11 +11,13 @@ pub(super) struct Entry {
     rule: u32,
     specificity: u8,
 }
+/// 准入规则索引：按（准入平面, 目标, 规则）排序的展开行集合，支持二分定位。
 pub(super) struct AccessIndex {
     entries: Vec<Entry>,
 }
 
 impl AccessIndex {
+    /// 两遍展开全部准入规则的目标行并排序构建索引；分配前校验临时内存与记录数上限。
     pub(super) fn build(
         unit: &CompilationUnit,
         mir: &MirUnit,
@@ -49,9 +52,11 @@ impl AccessIndex {
         entries.sort_unstable_by_key(|e| (e.plane, e.target, e.rule));
         Ok(Self { entries })
     }
+    /// 返回索引占用的字节数。
     pub(super) fn bytes(&self) -> u64 {
         (self.entries.len() as u64).saturating_mul(size_of::<Entry>() as u64)
     }
+    /// 返回索引记录数。
     pub(super) fn records(&self) -> u64 {
         self.entries.len() as u64
     }
@@ -94,6 +99,7 @@ impl AccessIndex {
         }
         Ok(winner.is_none_or(|(_, allow)| allow))
     }
+    /// 判定指定参与者类别是否获准沿机动路径通行：路径本身与其全部边都须通过准入。
     pub(super) fn path_allows(
         &self,
         mir: &MirUnit,

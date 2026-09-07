@@ -85,11 +85,16 @@ const STATUS_COMPLETED: u8 = 3;
 // TICK 记录头：tag + tick/time + vehicle/waiting/conflict 三类增量计数。
 const TICK_HEADER_BYTES: usize = 1 + 8 + 8 + 4 + 4 + 4 + 4 + 4;
 const WAITING_ZONE_DELTA_BYTES: usize = 4 + 8;
+/// journal 内单个 Conflict occurrence 定位值的固定字节宽度。
 pub(crate) const CONFLICT_OCCURRENCE_JOURNAL_BYTES: usize = 9 * 4;
+/// 单条 Conflict eligibility 增量的固定字节宽度。
 pub(crate) const CONFLICT_ELIGIBILITY_DELTA_BYTES: usize =
     4 + 4 + 1 + CONFLICT_OCCURRENCE_JOURNAL_BYTES + 8;
+/// 单条 Conflict authority 增量记录头的固定字节宽度。
 pub(crate) const CONFLICT_AUTHORITY_HEADER_BYTES: usize = 4 + 4 + 1 + 8 + 4;
+/// 单个 Conflict authority 单元增量的固定字节宽度。
 pub(crate) const CONFLICT_AUTHORITY_CELL_BYTES: usize = CONFLICT_OCCURRENCE_JOURNAL_BYTES + 1;
+/// 单条 Conflict lag 增量的固定字节宽度。
 pub(crate) const CONFLICT_LAG_DELTA_BYTES: usize = 4 + 4 + 4 + 1 + 8;
 
 /// journal 内的 source-route exact Conflict occurrence；消费侧经 LFSD 重绑静态地址，
@@ -106,12 +111,15 @@ pub(crate) struct ConflictOccurrenceJournalLocator {
     pub(crate) clearance_progress_mm: u32,
 }
 
+/// 单条 Conflict eligibility 增量：owner 车辆及其最新资格值（occurrence
+/// 定位值与首次获得刻度）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ConflictEligibilityJournalDelta {
     pub(crate) owner: VehicleHandle,
     pub(crate) value: Option<(ConflictOccurrenceJournalLocator, u64)>,
 }
 
+/// 单条 Conflict authority 增量：owner 车辆、权威获得刻度及变长单元字节段。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ConflictAuthorityJournalDelta<'a> {
     pub(crate) owner: VehicleHandle,
@@ -119,12 +127,14 @@ pub(crate) struct ConflictAuthorityJournalDelta<'a> {
     pub(crate) cells: &'a [u8],
 }
 
+/// 单个 Conflict authority 单元增量：occurrence 定位值及其阶段。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ConflictAuthorityCellJournalDelta {
     pub(crate) locator: ConflictOccurrenceJournalLocator,
     pub(crate) stage: u8,
 }
 
+/// 单条 Conflict lag 增量：冲突通行段地址及其滞后基准。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ConflictLagJournalDelta {
     pub(crate) address: crate::ConflictPassageAddress,
@@ -144,6 +154,7 @@ impl ConflictOccurrenceJournalLocator {
         put_u32(out, self.clearance_progress_mm);
     }
 
+    /// 从固定宽度小端字节解码 occurrence 定位值。
     pub(crate) fn decode(bytes: &[u8]) -> Self {
         Self {
             route: RouteHandle::new(read_u32(bytes, 0), read_u32(bytes, 4)),
@@ -301,6 +312,7 @@ impl VehicleDelta {
         put_u64(out, self.admission_sequence);
     }
 
+    /// 从固定宽度小端字节解码车辆增量；入参不足全宽时 panic（内部不变量）。
     pub(crate) fn decode(bytes: &[u8]) -> Self {
         assert!(
             bytes.len() >= VEHICLE_DELTA_BYTES,
@@ -348,6 +360,8 @@ pub(crate) struct WaitingMembershipReleaseDelta {
 }
 
 impl WaitingMembershipReleaseDelta {
+    /// 从已提交车辆状态提取 Waiting release 增量；无等待隶属时返回缺省
+    /// 值（`present = false`）。
     pub(crate) fn from_state(state: &VehicleState, compiled: Option<&CompiledRoute>) -> Self {
         let Some(membership) = state.waiting_membership else {
             return Self::default();
@@ -400,14 +414,17 @@ impl WaitingMembershipReleaseDelta {
         }
     }
 
+    /// 返回等待区序数。
     pub(crate) const fn waiting_zone(self) -> WaitingZoneOrdinal {
         WaitingZoneOrdinal::from_raw(self.waiting_zone)
     }
 
+    /// 返回机动路径序数。
     pub(crate) const fn maneuver_path(self) -> ManeuverPathOrdinal {
         ManeuverPathOrdinal::from_raw(self.maneuver_path)
     }
 
+    /// 返回放行机动门序数。
     pub(crate) const fn release_gate(self) -> ManeuverGateOrdinal {
         ManeuverGateOrdinal::from_raw(self.release_gate)
     }
@@ -427,6 +444,7 @@ pub(crate) struct ParkingBindingDelta {
 }
 
 impl ParkingBindingDelta {
+    /// 由 parking binding 与语义入口锚点构造固定宽度增量。
     pub(crate) const fn new(
         binding: Option<ParkingBinding>,
         semantic_entry: Option<(LaneEdgeOrdinal, u32)>,
@@ -656,6 +674,7 @@ pub(crate) struct MigrationDeltaJournal {
 
 #[cfg(test)]
 impl MigrationDeltaJournal {
+    /// 返回日志保留的逻辑字节数（仅测试用）。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             bytes,
@@ -864,6 +883,7 @@ impl MigrationDeltaJournal {
         self.open_tick_waiting_zones = self.open_tick_waiting_zones.saturating_add(1);
     }
 
+    /// 向打开的 TICK 记录追加一条 Conflict eligibility 增量。
     pub(crate) fn tick_conflict_eligibility(
         &mut self,
         owner: VehicleHandle,
@@ -893,6 +913,7 @@ impl MigrationDeltaJournal {
         self.open_tick_conflict_eligibility = self.open_tick_conflict_eligibility.saturating_add(1);
     }
 
+    /// 向打开的 TICK 记录追加一条 owner 车辆无 Conflict authority 的增量。
     pub(crate) fn tick_conflict_authority_absent(&mut self, owner: VehicleHandle) {
         if self.open_tick_count_at.is_none() || !self.ensure(CONFLICT_AUTHORITY_HEADER_BYTES) {
             return;
@@ -905,6 +926,7 @@ impl MigrationDeltaJournal {
         self.open_tick_conflict_authorities = self.open_tick_conflict_authorities.saturating_add(1);
     }
 
+    /// 向打开的 TICK 记录追加一条 Conflict authority 增量（含逐单元阶段）。
     pub(crate) fn tick_conflict_authority<I>(
         &mut self,
         owner: VehicleHandle,
@@ -939,6 +961,7 @@ impl MigrationDeltaJournal {
         self.open_tick_conflict_authorities = self.open_tick_conflict_authorities.saturating_add(1);
     }
 
+    /// 向打开的 TICK 记录追加一条 Conflict lag 增量。
     pub(crate) fn tick_conflict_lag(
         &mut self,
         address: crate::ConflictPassageAddress,
@@ -1149,6 +1172,7 @@ pub(crate) fn raw_u32_stream(bytes: &[u8]) -> impl Iterator<Item = u32> + '_ {
         .map(|chunk| read_u32_chunk(chunk))
 }
 
+/// 等待区增量段（固定宽度步长）的流迭代。
 pub(crate) fn waiting_zone_delta_stream(
     bytes: &[u8],
 ) -> impl Iterator<Item = (WaitingZoneOrdinal, u64)> + '_ {
@@ -1164,6 +1188,7 @@ pub(crate) fn waiting_zone_delta_stream(
         })
 }
 
+/// Conflict eligibility 增量段（固定宽度步长）的流迭代。
 pub(crate) fn conflict_eligibility_delta_stream(
     bytes: &[u8],
 ) -> impl Iterator<Item = ConflictEligibilityJournalDelta> + '_ {
@@ -1181,10 +1206,12 @@ pub(crate) fn conflict_eligibility_delta_stream(
     })
 }
 
+/// 构造变长 Conflict authority 增量段的迭代器。
 pub(crate) fn conflict_authority_delta_stream(bytes: &[u8]) -> ConflictAuthorityJournalIter<'_> {
     ConflictAuthorityJournalIter { bytes, at: 0 }
 }
 
+/// 变长 Conflict authority 增量段迭代器：按头 + 单元段逐条前移。
 pub(crate) struct ConflictAuthorityJournalIter<'a> {
     bytes: &'a [u8],
     at: usize,
@@ -1223,6 +1250,7 @@ impl<'a> Iterator for ConflictAuthorityJournalIter<'a> {
     }
 }
 
+/// Conflict authority 单元增量段（固定宽度步长）的流迭代。
 pub(crate) fn conflict_authority_cell_delta_stream(
     bytes: &[u8],
 ) -> impl ExactSizeIterator<Item = ConflictAuthorityCellJournalDelta> + '_ {
@@ -1236,6 +1264,7 @@ pub(crate) fn conflict_authority_cell_delta_stream(
         })
 }
 
+/// Conflict lag 增量段（固定宽度步长）的流迭代。
 pub(crate) fn conflict_lag_delta_stream(
     bytes: &[u8],
 ) -> impl Iterator<Item = ConflictLagJournalDelta> + '_ {

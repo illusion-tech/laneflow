@@ -49,11 +49,13 @@ pub(crate) struct HirMovement {
     pub(crate) source_span: SourceLocation,
 }
 
+/// 路口有序通行流向列表中的一项。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HirJunctionMovement {
     pub(crate) movement: HirMovementKey,
 }
 
+/// 通行流向有序机动路径列表中的一项。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HirMovementManeuverPath {
     pub(crate) maneuver_path: HirManeuverPathKey,
@@ -94,6 +96,7 @@ pub(crate) struct HirJunctionInternalEdge {
     pub(crate) source_span: SourceLocation,
 }
 
+/// 路口领域 HIR 部件：路口、通行流向、机动路径、路口内部边及成员关系表。
 #[derive(Default)]
 pub(crate) struct JunctionHir {
     pub(crate) junctions: Box<[HirJunction]>,
@@ -105,6 +108,7 @@ pub(crate) struct JunctionHir {
     pub(crate) junction_internal_edges: Box<[HirJunctionInternalEdge]>,
 }
 
+/// 声明的路口-边归属对，供二分查找核对路口边集合。
 #[derive(Clone)]
 pub(crate) struct HirDeclaredJunctionEdge {
     junction: HirJunctionKey,
@@ -146,6 +150,7 @@ impl Hash for ManeuverPathSequence<'_> {
     }
 }
 
+/// 构建路口领域 HIR：登记路口与通行流向，闭合机动路径遍历序列并派生路口内部边。
 #[allow(clippy::too_many_lines)]
 // Every parameter is one explicit HIR stage dependency; an aggregate context would broaden
 // access and make the stage boundary less reviewable.

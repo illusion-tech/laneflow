@@ -26,6 +26,7 @@ pub(crate) enum SourceDocumentTag {}
 /// 仅在同一次编译的来源模块描述符表内有效的致密序号。
 pub(crate) type SourceDocumentOrdinal = ArenaKey<SourceDocumentTag>;
 
+/// 一次显式模块导入的命名空间及其声明来源位置。
 pub(crate) struct ImportRecord {
     pub(crate) namespace: Arc<str>,
     pub(crate) span: SourceLocation,
@@ -46,14 +47,17 @@ pub(crate) struct TypedAstModule {
 }
 
 impl TypedAstModule {
+    /// 返回本模块的来源模块描述符。
     pub(crate) const fn descriptor(&self) -> &SourceModuleDescriptor {
         &self.descriptor
     }
 
+    /// 返回模块声明的来源位置。
     pub(crate) const fn declaration_span(&self) -> &SourceLocation {
         &self.declaration_span
     }
 
+    /// 按声明顺序遍历导入命名空间及其来源位置。
     pub(crate) fn import_records(&self) -> impl ExactSizeIterator<Item = (&str, &SourceLocation)> {
         self.imports
             .iter()
@@ -68,6 +72,7 @@ pub(crate) struct AdmittedOfficialModule {
 }
 
 impl AdmittedOfficialModule {
+    /// 组装准入模块载荷；要求来源文档已按文档键字节序规范排序。
     pub(crate) fn new(typed_ast: TypedAstModule, resource_counts: ModuleResourceCounts) -> Self {
         assert!(
             typed_ast.source_documents.windows(2).all(|pair| {
@@ -81,6 +86,7 @@ impl AdmittedOfficialModule {
         }
     }
 
+    /// 返回准入的 Typed AST 模块。
     pub(crate) const fn typed_ast(&self) -> &TypedAstModule {
         &self.typed_ast
     }
@@ -100,6 +106,7 @@ pub(super) struct TestOfficialModule {
     pub(super) admitted: AdmittedOfficialModule,
 }
 
+/// 测试封装使用的单份来源文档输入。
 #[cfg(test)]
 pub(super) struct TestSourceDocument<'a> {
     pub(super) source_document_key: &'a str,
@@ -109,6 +116,7 @@ pub(super) struct TestSourceDocument<'a> {
 
 #[cfg(test)]
 impl TestOfficialModule {
+    /// 以追加来源文档的 Synthetic 模块构造测试官方模块。
     pub(super) fn from_synthetic_with_documents(
         module: SyntheticModule,
         documents: &[(&str, &[u8])],
@@ -124,6 +132,7 @@ impl TestOfficialModule {
         Self::from_synthetic_with_document_records(module, &documents)
     }
 
+    /// 以文档记录构造测试官方模块，并同步累计追加文档的资源计数。
     pub(super) fn from_synthetic_with_document_records(
         module: SyntheticModule,
         documents: &[TestSourceDocument<'_>],
@@ -197,6 +206,7 @@ impl TestOfficialModule {
         }
     }
 
+    /// 把首个车道边声明的来源位置改指到指定文档。
     pub(super) fn move_first_lane_edge_span_to(&mut self, source_document_key: &str) {
         let TypedAstDeclaration::LaneEdge(declaration) =
             &mut self.admitted.typed_ast.declarations[0]
@@ -206,11 +216,13 @@ impl TestOfficialModule {
         declaration.header.span = SourceSpan::point(Arc::from(source_document_key), 41, 7).into();
     }
 
+    /// 把模块声明的来源位置改指到指定文档。
     pub(super) fn move_module_declaration_span_to(&mut self, source_document_key: &str) {
         self.admitted.typed_ast.declaration_span =
             SourceSpan::point(Arc::from(source_document_key), 37, 5).into();
     }
 
+    /// 构造来源文档未按文档键字节序排序的测试官方模块。
     pub(super) fn from_synthetic_with_unsorted_documents(
         module: SyntheticModule,
         documents: &[(&str, &[u8])],
@@ -226,6 +238,7 @@ impl TestOfficialModule {
         }
     }
 
+    /// 把首个车道边第一条后继引用的来源位置改指到指定文档。
     pub(super) fn move_first_lane_edge_successor_span_to(&mut self, source_document_key: &str) {
         let TypedAstDeclaration::LaneEdge(declaration) =
             &mut self.admitted.typed_ast.declarations[0]
@@ -236,6 +249,7 @@ impl TestOfficialModule {
             SourceSpan::point(Arc::from(source_document_key), 43, 9).into();
     }
 
+    /// 把首个车道边各后继引用的来源位置逐一改指到指定文档。
     pub(super) fn move_first_lane_edge_successor_spans_to(
         &mut self,
         source_document_keys: &[&str],
@@ -261,6 +275,7 @@ impl TestOfficialModule {
         }
     }
 
+    /// 把首个停车设施声明的虚拟入口锚点来源位置改指到指定文档。
     pub(super) fn move_first_parking_virtual_anchor_span_to(&mut self, source_document_key: &str) {
         let declaration = self
             .admitted
@@ -276,6 +291,7 @@ impl TestOfficialModule {
             SourceSpan::point(Arc::from(source_document_key), 47, 11).into();
     }
 
+    /// 把信号控制器、相位状态与机动门信号控制引用的来源位置改指到指定文档。
     pub(super) fn move_signal_relation_spans_to(
         &mut self,
         controller_group_document: &str,
@@ -335,6 +351,7 @@ impl TestOfficialModule {
         assert_eq!(gate_signal_count, 2, "test module signal-controlled gates");
     }
 
+    /// 把测试模块全部已声明关系引用的来源位置统一改指到指定文档。
     pub(super) fn move_authored_relation_spans_to(&mut self, source_document_key: &str) {
         self.move_signal_relation_spans_to(
             source_document_key,
@@ -414,6 +431,7 @@ impl TestOfficialModule {
         );
     }
 
+    /// 强制覆盖指定维度的准入资源计数观测值。
     pub(super) fn force_resource_count(&mut self, dimension: CompileLimitDimension, observed: u64) {
         let counts = &mut self.admitted.resource_counts;
         match dimension {
@@ -553,10 +571,12 @@ pub(crate) struct ResolvedSourceDocument {
 }
 
 impl ResolvedSourceDocument {
+    /// 返回拥有该文档的模块序号。
     pub(crate) const fn owner_module_ordinal(self) -> u32 {
         self.owner_module_ordinal
     }
 
+    /// 返回编译单元内的全局来源文档序号。
     pub(crate) const fn source_document_ordinal(self) -> SourceDocumentOrdinal {
         self.source_document_ordinal
     }
@@ -578,6 +598,7 @@ pub(crate) enum ResolvedSourceLocation {
     },
 }
 
+/// 估算来源文档索引对给定文档数的请求字节预算。
 #[inline]
 pub(super) fn source_document_index_requested_bytes(source_document_count: u64) -> u64 {
     requested_hash_table_bytes::<Arc<str>, SourceDocumentBinding>(source_document_count)
@@ -595,6 +616,7 @@ fn ordered_ready_set_requested_bytes(module_count: u64) -> u64 {
     requested_hash_table_bytes::<(Arc<str>, usize), ()>(module_count)
 }
 
+/// 汇总构建器存续期的受控内存请求字节预算。
 #[inline]
 pub(super) fn builder_live_requested_bytes(totals: AdmissionTotals) -> u64 {
     totals
@@ -621,6 +643,7 @@ pub(super) struct AdmissionSizing {
 }
 
 impl AdmissionSizing {
+    /// 由准入计数与诊断上限推导构建器存续、结果存续与构建峰值三层账本。
     pub(super) fn from_totals(totals: AdmissionTotals, diagnostic_limit: u64) -> Self {
         let module_count = totals.module_count;
         let import_edge_count = totals.import_edge_count;
@@ -753,11 +776,13 @@ impl CompilationUnitBuilder {
         }
     }
 
+    /// 判断构建期来源文档索引是否为空。
     #[cfg(test)]
     pub(super) fn source_document_index_is_empty(&self) -> bool {
         self.source_document_index.is_empty()
     }
 
+    /// 替换构建器使用的限额配置档。
     #[cfg(test)]
     pub(super) fn set_test_limits(&mut self, limits: CompileLimits) {
         self.limits = limits;
@@ -778,6 +803,7 @@ impl CompilationUnitBuilder {
         self.admit_official_module(module.admitted)
     }
 
+    /// 测试入口：原子加入一个测试官方模块。
     #[cfg(test)]
     pub(super) fn add_test_official_module(
         &mut self,
@@ -786,6 +812,7 @@ impl CompilationUnitBuilder {
         self.admit_official_module(module.admitted)
     }
 
+    /// 校验并原子准入一个官方模块；失败不改变构建器索引与计数。
     #[inline]
     pub(crate) fn admit_official_module(
         &mut self,
@@ -796,24 +823,29 @@ impl CompilationUnitBuilder {
         Ok(self)
     }
 
+    /// 返回构建器使用的限额配置档。
     pub(crate) const fn road_editing_limits(&self) -> &CompileLimits {
         &self.limits
     }
 
+    /// 返回已准入的来源字节累计量。
     pub(crate) const fn road_editing_source_bytes_already_admitted(&self) -> u64 {
         self.totals.source_bytes_total
     }
 
+    /// 返回已准入的 Typed AST 记录累计数。
     pub(crate) const fn road_editing_typed_ast_records_already_admitted(&self) -> u64 {
         self.totals.typed_ast_record_count
     }
 
+    /// 返回几何点维度剩余可用的限额额度。
     pub(crate) fn road_editing_remaining_geometry_points(&self) -> u64 {
         self.limits
             .value(CompileLimitDimension::GeometryPointCount)
             .saturating_sub(self.totals.geometry_point_count)
     }
 
+    /// 返回指定限额维度已准入的累计观测值。
     pub(crate) fn already_admitted(&self, dimension: CompileLimitDimension) -> u64 {
         match dimension {
             CompileLimitDimension::ModuleCount => self.totals.module_count,

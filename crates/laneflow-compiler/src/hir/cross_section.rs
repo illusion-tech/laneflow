@@ -112,6 +112,7 @@ pub(crate) struct HirFacilityBand {
     pub(crate) source_span: SourceLocation,
 }
 
+/// 把规范编制车道 HIR 键映回 Typed AST 物理位置的阶段暂存记录。
 #[derive(Clone, Copy)]
 pub(crate) struct CanonicalAuthoringLaneSource {
     source_module_index: u32,
@@ -120,6 +121,7 @@ pub(crate) struct CanonicalAuthoringLaneSource {
     hir_key: HirAuthoringLaneKey,
 }
 
+/// 横断面领域 HIR 部件：道路走廊、道路区段、编制车道、车道组与设施带表。
 #[derive(Default)]
 pub(crate) struct CrossSectionHir {
     pub(crate) road_corridors: Box<[HirRoadCorridor]>,
@@ -132,6 +134,7 @@ pub(crate) struct CrossSectionHir {
     pub(crate) facility_bands: Box<[HirFacilityBand]>,
 }
 
+/// 构建横断面领域 HIR：登记走廊、区段、编制车道、车道组与设施带，并证明唯一所有者树。
 #[allow(clippy::too_many_lines)]
 pub(crate) fn build_cross_section_hir(
     unit: &CompilationUnit,

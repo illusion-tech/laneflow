@@ -6,6 +6,7 @@ use crate::policy::model::*;
 use laneflow_static_contract::{EntityKind, EntityKindMarker, FieldTag, RightOfWayPolicySetId};
 use std::sync::Arc;
 
+/// 绑定到 HIR 阶段致密键的通行权策略集记录。
 pub(crate) type HirPolicy =
     PolicyRecord<HirManeuverGateKey, HirParticipantStreamKey, HirParticipantClassKey>;
 struct Lookup<'a, K> {
@@ -85,6 +86,7 @@ fn declaration_size(v: &RightOfWayPolicySetDeclaration) -> (u64, u64) {
     (bytes, records)
 }
 
+/// 在既有静态语义诊断之后，把全部通行权策略集声明绑定进 `HirUnit` 并闭合其跨模块引用。
 pub(super) fn bind(
     unit: &CompilationUnit,
     hir: &mut HirUnit,

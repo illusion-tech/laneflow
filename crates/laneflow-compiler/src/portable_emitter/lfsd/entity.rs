@@ -235,6 +235,10 @@ fn retained_field_changes(
     Ok(changes)
 }
 
+/// 生成两版制品之间的实体增删改差异行（LFSD 第 2 节）。
+///
+/// 以稳定标识配对实体并投影可修改字段的前后值；结果按变更种类、实体种类、
+/// 稳定标识与字段标签规范排序。
 pub(super) fn artifact_entity_changes(
     base: &ArtifactIndex<'_>,
     target: &ArtifactIndex<'_>,
@@ -305,6 +309,9 @@ pub(super) fn artifact_entity_changes(
     Ok(changes.into_iter().map(|(_, _, _, _, row)| row).collect())
 }
 
+/// 生成两版制品之间的静态规则字段修改差异行（LFSD 第 5 节）。
+///
+/// 只覆盖划分给静态规则的字段，与第 2 节实体字段的分工互不重叠。
 pub(super) fn artifact_static_rule_changes(
     base: &ArtifactIndex<'_>,
     target: &ArtifactIndex<'_>,
@@ -329,6 +336,7 @@ pub(super) fn artifact_static_rule_changes(
         .collect()
 }
 
+/// 读取目标制品行指定标签的 `U32` 字段；字段缺失或类型不符即报内部绑定错误。
 pub(super) fn checked_u32(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
@@ -357,6 +365,7 @@ fn checked_stable_id(
     }
 }
 
+/// 把目标制品的全部实体投影为 Genesis 新增差异行，按实体种类与稳定标识规范排序。
 pub(super) fn genesis_entity_changes(
     target: RegistryCheckedObjectView<'_>,
 ) -> Result<Vec<OwnedRow>, PortableEmissionError> {

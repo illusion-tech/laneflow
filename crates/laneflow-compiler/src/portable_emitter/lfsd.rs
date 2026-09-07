@@ -1,7 +1,9 @@
+/// 实体索引、受检行字段读取与跨修订差异兼容核对等 LFSD 构建共用基础。
 pub(super) mod base;
 mod entity;
 mod geometry;
 mod policy;
+/// 路权策略局部成员变更的配对投影与暂存区字节计量。
 pub(super) mod policy_change;
 mod policy_check;
 pub use policy_check::check_portable_policy_diff;
@@ -96,6 +98,10 @@ fn build_genesis_lfsd(
     })
 }
 
+/// 按显式 base 选择构建 LFSD 语义差异封套对象。
+///
+/// `Genesis` 输出相对空基线的全量新增差异；`Artifact` 输出相对基线制品的增量差异，
+/// 并返回调用方必须核对的期望 base 绑定。
 pub(super) fn build_lfsd(
     output: &CompilationOutput,
     base: PortableDiffBase<'_>,
@@ -120,6 +126,9 @@ pub(super) fn build_lfsd(
     }
 }
 
+/// 核对目标 LFCA 投影出的关系元组与 LIR 规范关系完全一致。
+///
+/// 重建目标制品索引并校验路权策略引用后比较两侧关系元组；不一致即报内部绑定错误。
 pub(super) fn verify_target_relation_projection(
     output: &CompilationOutput,
     target: RegistryCheckedObjectView<'_>,

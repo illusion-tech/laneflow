@@ -8,6 +8,7 @@ use crate::{BuildError, BuildStructure, EntityCounts};
 
 const ENTITY_KIND_COUNT: usize = EntityKind::ALL.len();
 
+/// StableId128 → typed ordinal 反向索引条目。
 #[derive(Clone, Copy)]
 pub(crate) struct IdentityReverseEntry {
     pub(crate) entity_kind: EntityKind,
@@ -30,6 +31,7 @@ pub struct SharedIdentityIndex {
 }
 
 impl SharedIdentityIndex {
+    /// 由已就序的正向表与反向条目组装索引；仅供 builder 调用。
     pub(crate) fn from_parts(
         forward: [Box<[StableId128]>; ENTITY_KIND_COUNT],
         reverse: Box<[IdentityReverseEntry]>,
@@ -37,6 +39,7 @@ impl SharedIdentityIndex {
         Self { forward, reverse }
     }
 
+    /// 按 typed ordinal 查询稳定标识；越界时返回 None。
     #[must_use]
     pub fn stable_id<K>(&self, ordinal: Ordinal<K>) -> Option<StableId<K>>
     where
@@ -46,6 +49,7 @@ impl SharedIdentityIndex {
         Some(StableId::from_untyped(raw))
     }
 
+    /// 按稳定标识查询 typed ordinal；未收录时返回 None。
     #[must_use]
     pub fn ordinal<K>(&self, stable_id: StableId<K>) -> Option<Ordinal<K>>
     where
@@ -59,12 +63,14 @@ impl SharedIdentityIndex {
         Some(Ordinal::from_raw(self.reverse[index].ordinal))
     }
 
+    /// 返回指定实体种类的稳定实体数量。
     #[must_use]
     pub fn entity_count(&self, entity_kind: EntityKind) -> u32 {
         u32::try_from(self.forward[kind_index(entity_kind)].len())
             .expect("format-bounded identity count fits u32")
     }
 
+    /// 返回本索引全部保留内存的逻辑字节数。
     #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         let forward_count = self.forward.iter().map(|items| items.len()).sum::<usize>();
@@ -73,6 +79,7 @@ impl SharedIdentityIndex {
     }
 }
 
+/// 按实体计数为各类正向身份表精确预分配容量。
 pub(crate) fn allocate_forward_identity(
     counts: &EntityCounts,
 ) -> Result<[Vec<StableId128>; ENTITY_KIND_COUNT], BuildError> {
@@ -94,6 +101,7 @@ pub(crate) fn allocate_forward_identity(
     Ok(result)
 }
 
+/// 对反向身份条目按 (StableId128, EntityKind) 做 LSD 基数排序，并检测重复稳定标识。
 pub(crate) fn radix_sort_reverse_identity(
     entries: Vec<IdentityReverseEntry>,
     mut check_cancelled: impl FnMut() -> Result<(), BuildError>,
@@ -144,16 +152,19 @@ pub(crate) fn radix_sort_reverse_identity(
     Ok(source)
 }
 
+/// 把各类正向身份 Vec 封存为 Box 切片。
 pub(crate) fn seal_forward_identity(
     forward: [Vec<StableId128>; ENTITY_KIND_COUNT],
 ) -> [Box<[StableId128]>; ENTITY_KIND_COUNT] {
     forward.map(Vec::into_boxed_slice)
 }
 
+/// 返回实体种类在 ALL 数组中的下标。
 pub(crate) const fn kind_index(entity_kind: EntityKind) -> usize {
     (entity_kind.code() - 1) as usize
 }
 
+/// 返回单条反向身份条目的字节大小。
 #[allow(dead_code)]
 pub(crate) const fn reverse_entry_bytes() -> usize {
     size_of::<IdentityReverseEntry>()

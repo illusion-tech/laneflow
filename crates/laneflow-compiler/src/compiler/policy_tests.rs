@@ -146,6 +146,7 @@ fn synthetic_policy(
 fn editing_policy(limits: &CompileLimits) -> re::OwnedRoadEditingSourceBuffer {
     editing_policy_custom(limits, |_, _| {})
 }
+/// 构造携带通行权策略集的 road editing 来源夹具；`customize` 可在写入前调整模块构建器与策略输入。
 pub(crate) fn editing_policy_custom(
     limits: &CompileLimits,
     customize: impl FnOnce(
@@ -259,12 +260,14 @@ pub(crate) fn editing_policy_custom(
         .write(builder.finish().unwrap())
         .unwrap()
 }
+/// 构造挂接策略模块的编译单元，并在构建前对流规则与门规则列表应用 `mutate`。
 pub(crate) fn unit_with_policy(
     editing: bool,
     mutate: impl FnOnce(&mut Vec<PolicyStreamRuleInput<'_>>, &mut Vec<PolicyGateRuleInput<'_>>),
 ) -> Result<CompilationUnit, DiagnosticBundle> {
     unit_with_control(editing, None, None, mutate)
 }
+/// 构造包含拓扑变体与策略模块的编译单元；`editing` 为真时策略来自 road editing 来源，否则来自合成模块。
 pub(crate) fn unit_with_control(
     editing: bool,
     direction: Option<ManeuverDirection>,
