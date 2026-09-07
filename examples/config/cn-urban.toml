@@ -1,0 +1,51 @@
+config_version = 1
+topology_template = "connected-cn-urban-v1"
+template_slots = [
+    "protected_waiting", "permissive", "staggered_south_t", "staggered_north_t",
+    "priority_t", "protected", "protected", "protected", "protected", "protected",
+]
+connection_rule = "reciprocal-cardinal-ports-v1"
+boundary_rule = "unmatched-ports-open-v1"
+arterial_speed_mps = 14.0
+secondary_speed_mps = 10.0
+turn_speed_mps = 6.0
+cell_virtual_capacity = 100
+garage_virtual_capacity = 1000
+parking_space_length_meters = 6.5
+
+[signals]
+through_quanta = 60
+left_quanta = 40
+yellow_quanta = 6
+all_red_quanta = 2
+offset_step_quanta = 8
+
+[[profiles]]
+key = "compact"
+length_meters = 4.0
+desired_speed_mps = 16.0
+min_gap_meters = 2.0
+time_headway_seconds = 1.5
+max_acceleration_mps2 = 2.5
+comfortable_deceleration_mps2 = 2.0
+emergency_deceleration_mps2 = 8.0
+
+[[profiles]]
+key = "car"
+length_meters = 4.5
+desired_speed_mps = 15.0
+min_gap_meters = 2.0
+time_headway_seconds = 1.5
+max_acceleration_mps2 = 2.0
+comfortable_deceleration_mps2 = 2.0
+emergency_deceleration_mps2 = 8.0
+
+[[profiles]]
+key = "van"
+length_meters = 6.0
+desired_speed_mps = 13.0
+min_gap_meters = 2.5
+time_headway_seconds = 1.8
+max_acceleration_mps2 = 1.5
+comfortable_deceleration_mps2 = 2.0
+emergency_deceleration_mps2 = 8.0

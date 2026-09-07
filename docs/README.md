@@ -14,6 +14,8 @@ ADR 0021 将 LaneFlow 定位为可嵌入、引擎无关、确定性的道路交�
 编译器 IR 交通一维收口见 ADR 0028 / #500（准入后 Typed AST / HIR / MIR / LIR 存整数毫米）。
 路网产品不声明路线。`TrafficWorld` 路线入口是 `register_route`，见 ADR 0029
 （对象 `formatVersion = 5`）。
+LF-CN-URBAN 的正式静态输入、路线目录与两档重建命令见
+[`laneflow-urban-generator`](../tools/laneflow-urban-generator/README.md)。
 
 ## 目录结构
 
