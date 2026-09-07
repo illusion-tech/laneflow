@@ -35,8 +35,8 @@ struct Manifest {
 }
 
 pub struct Artifacts {
-    pub catalog: Catalog,
-    pub revision: Arc<SharedNetworkRevision>,
+    pub(crate) catalog: Catalog,
+    pub(crate) revision: Arc<SharedNetworkRevision>,
     pub(crate) files: BTreeMap<String, FileDigest>,
     pub(crate) manifest_digest: String,
     pub(crate) individuals: u32,
@@ -46,6 +46,16 @@ pub struct Artifacts {
 }
 
 impl Artifacts {
+    /// Borrows the catalog bound to the loaded source digests.
+    pub fn catalog(&self) -> &Catalog {
+        &self.catalog
+    }
+
+    /// Borrows the shared network bound to the loaded source digests.
+    pub fn revision(&self) -> &Arc<SharedNetworkRevision> {
+        &self.revision
+    }
+
     /// Loads the generator's real checked LFCA. No topology is synthesized by the runner.
     pub fn load(directory: &Path) -> Result<Self> {
         let manifest_bytes = fs::read(directory.join("manifest.toml"))?;

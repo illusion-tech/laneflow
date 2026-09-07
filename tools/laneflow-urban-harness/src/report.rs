@@ -93,7 +93,8 @@ fn line(file: &mut impl Write, value: &impl Serialize) -> Result<()> {
     Ok(())
 }
 
-/// Runs one fresh world. A failed run still leaves result.json with the last committed tick.
+/// Runs one fresh world. Controlled execution or validation failures retain the last committed tick.
+/// Initialization errors return Err and may leave preparation files without a failed-run package.
 /// Step timing is diagnostic only; this slice does not implement the performance protocol.
 pub fn run_to_directory(
     artifacts: &Artifacts,

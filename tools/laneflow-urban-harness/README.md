@@ -37,6 +37,8 @@ Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是�
 载入时复用生成器 `Scale` 核对规模、tile 数、个体数和步长：fixture/2/2000/16 ms、
 10k/10/10000/16 ms、100k/100/100000/33 ms；改写标签不能改变实际规模要求。
 计划经读取后重新核对固定展开规则及来源文件摘要，不接受手工删减事件或车辆。
+已加载的目录和共享路网通过 `Artifacts::catalog()` / `revision()` 只读借用；
+改变源输入需要重新载入并展开计划，调用方不能替换已绑定来源摘要的内部字段。
 
 ## Mixed 的具体输入
 
@@ -84,7 +86,11 @@ Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是�
   库的 `compare_runs` 返回同一结构，可用 `ComparisonReport::write` 保存。
 - `diagnostics.json` 保存执行编号、环境和诊断耗时；step 范围只包围公共 step 调用，
   不含命令、oracle 或快照。它不是正式三轮性能协议，未测量的内存不填零。
-  运行失败另留 `failure.json`。
+  初始化完成后的受控执行或校验失败另留 `failure.json`。
+
+结果包以完成初始化（世界安装、路线注册、初态校验和初始检查点）为起点。
+初始化失败由库返回错误，CLI 输出错误并非零退出；本段接受目录只留下计划等部分
+准备文件，不提供结构化初始化失败报告或半成品世界状态。缺少结果的目录不能通过 compare。
 
 每次 `run` 根据进程号、执行开始时间和进程内序号生成非语义 `execution_id`。
 compare 要求两份诊断记录中的编号存在且不同，用于拦截误复制同一次运行的结果目录。
@@ -108,7 +114,7 @@ Mixed 正式行要求每 tile 在观察窗口中实际完成跨 tile 行程、�
 
 `examples/boundary_probe.rs` 是从城市试跑缩小得到的单车诊断入口：在固定相位的边界
 静止起步，核对下一次提交的位置和该次快照的恢复结果。它不调用 harness 调度或 oracle，
-可供 Runtime 修复直接复用：
+可供 Runtime 修复直接复用；step、恢复错误或游标越界均使程序非零退出：
 
 ```text
 cargo +1.98.0 run -p laneflow-urban-harness --release --example boundary_probe -- <10k-artifact-directory>
