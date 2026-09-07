@@ -24,11 +24,22 @@ pub(crate) struct Individual {
 pub struct TickRecord {
     pub tick: u64,
     pub time_ms: u64,
+    pub domain: String,
+    #[serde(rename = "N_individual")]
     pub live: usize,
+    #[serde(rename = "N_active")]
     pub active: usize,
     pub parked: usize,
     pub completed: usize,
+    #[serde(rename = "N_intent")]
     pub intent: usize,
+    pub intent_basis: String,
+    #[serde(rename = "N_presented")]
+    pub presented: usize,
+    #[serde(rename = "N_aggregate_records")]
+    pub aggregate_records: usize,
+    #[serde(rename = "N_aggregate_equivalent")]
+    pub aggregate_equivalent: usize,
     pub future_departures: usize,
     pub pending_departures: usize,
     pub exhausted_departures: usize,
@@ -553,6 +564,19 @@ impl<'a> Harness<'a> {
                 }
             }
         }
+        if rejection.is_none() {
+            let individual = &self.individuals[request.slot];
+            let after = self
+                .world
+                .vehicle(individual.handle)
+                .expect("live individual");
+            if id != individual.id || before.status() != after.status() {
+                self.events.push(json!({"kind":"lifecycle", "phase":"command", "tick":tick,
+                    "sequence":request.sequence, "attempt":request.attempt, "command":name,
+                    "individual":id, "after_individual":individual.id,
+                    "before":observe::status(before.status()), "after":observe::status(after.status())}));
+            }
+        }
         self.commands.push(json!({"boundary":tick,"due":request.original_due,"sequence":request.sequence,
             "attempt":request.attempt,"individual":id,"command":name,"committed":rejection.is_none(),
             "cursor_before":cursor_before,"cursor_after":self.world.command_cursor(),"details":extra}));
@@ -621,11 +645,16 @@ impl<'a> Harness<'a> {
         Ok(TickRecord {
             tick: outcome.tick_index(),
             time_ms: outcome.time_ms(),
+            domain: "road_motor_vehicle".into(),
             live: self.individuals.len(),
             active,
             parked,
             completed,
             intent,
+            intent_basis: "exact_active_before_step".into(),
+            presented: 0,
+            aggregate_records: 0,
+            aggregate_equivalent: 0,
             future_departures: (self.plan.departures.len()
                 - self
                     .plan

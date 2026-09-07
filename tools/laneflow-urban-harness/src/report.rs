@@ -45,6 +45,40 @@ pub struct RunResult {
     pub files: BTreeMap<String, crate::artifacts::FileDigest>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ComparedRun {
+    pub execution_id: String,
+    pub result: crate::artifacts::FileDigest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ComparisonReport {
+    pub version: String,
+    pub status: String,
+    pub purpose: String,
+    pub case: String,
+    pub scale: String,
+    pub plan_digest: String,
+    pub completed_ticks: u64,
+    pub left: ComparedRun,
+    pub right: ComparedRun,
+}
+
+impl ComparisonReport {
+    /// Writes the comparison separately from the immutable per-run evidence.
+    pub fn write(&self, path: &Path) -> Result<()> {
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
+        let mut file = BufWriter::new(file);
+        serde_json::to_writer_pretty(&mut file, self)?;
+        file.write_all(b"\n")?;
+        file.flush()?;
+        Ok(())
+    }
+}
+
 fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
     let mut file = BufWriter::new(File::create(path)?);
     serde_json::to_writer_pretty(&mut file, value)?;
@@ -74,7 +108,7 @@ pub fn run_to_directory(
     let mut harness = Harness::install(artifacts, plan)?;
     let initial_counts = observe::counts(&harness)?;
     let mut result = RunResult {
-        version: "urban-result-v2".into(),
+        version: "urban-result-v3".into(),
         status: "failed".into(),
         purpose: plan.window.purpose.clone(),
         case: plan.case.clone(),
@@ -234,17 +268,20 @@ fn digest_file(path: &Path) -> Result<crate::artifacts::FileDigest> {
     })
 }
 
-/// Verifies retained files and semantic results, returning the verified completion kind.
-pub fn compare_runs(left: &Path, right: &Path) -> Result<String> {
+/// Verifies retained files and returns a report binding both executions to the comparison.
+pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
     if fs::canonicalize(left)? == fs::canonicalize(right)? {
         return Err(invalid("replay requires two distinct run directories"));
     }
-    if read_execution_id(left)? == read_execution_id(right)? {
+    let left_execution = read_execution_id(left)?;
+    let right_execution = read_execution_id(right)?;
+    if left_execution == right_execution {
         return Err(invalid("replay requires distinct execution identities"));
     }
-    let read = |dir: &Path| -> Result<RunResult> {
-        let result: RunResult = serde_json::from_slice(&fs::read(dir.join("result.json"))?)?;
-        if result.version != "urban-result-v2"
+    let read = |dir: &Path| -> Result<(RunResult, crate::artifacts::FileDigest)> {
+        let bytes = fs::read(dir.join("result.json"))?;
+        let result: RunResult = serde_json::from_slice(&bytes)?;
+        if result.version != "urban-result-v3"
             || result.error.is_some()
             || result.completed_ticks != result.expected_ticks
             || !matches!(
@@ -278,10 +315,16 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<String> {
         if count != result.completed_ticks {
             return Err(invalid("tick log is incomplete"));
         }
-        Ok(result)
+        Ok((
+            result,
+            crate::artifacts::FileDigest {
+                bytes: bytes.len() as u64,
+                sha256: sha256(&bytes),
+            },
+        ))
     };
-    let a = read(left)?;
-    let b = read(right)?;
+    let (a, left_digest) = read(left)?;
+    let (b, right_digest) = read(right)?;
     if a.plan_digest != b.plan_digest {
         return Err(invalid("different resolved plans"));
     }
@@ -304,12 +347,28 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<String> {
             "independent runs differ; compare ticks and semantic logs",
         ));
     }
-    Ok(if a.purpose == "correctness" {
-        "MIXED-PEAK replay passed; #544 full matrix remains open"
-    } else {
-        "probe replay matched; not formal case acceptance"
-    }
-    .into())
+    Ok(ComparisonReport {
+        version: "urban-comparison-v1".into(),
+        status: if a.purpose == "correctness" {
+            "case-pass"
+        } else {
+            "probe-match"
+        }
+        .into(),
+        purpose: a.purpose,
+        case: a.case,
+        scale: a.scale,
+        plan_digest: a.plan_digest,
+        completed_ticks: a.completed_ticks,
+        left: ComparedRun {
+            execution_id: left_execution,
+            result: left_digest,
+        },
+        right: ComparedRun {
+            execution_id: right_execution,
+            result: right_digest,
+        },
+    })
 }
 
 // Local copy/mix-up detection only; this metadata does not attest execution or enter semantic hashes.

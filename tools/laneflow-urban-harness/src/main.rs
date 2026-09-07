@@ -24,8 +24,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}: {}/{} ticks", result.status, result.completed_ticks, result.expected_ticks);
             if let Some(error) = result.error {return Err(error.into());}
         }
-        Some("compare") if args.len() == 3 => println!("{}", compare_runs(Path::new(&args[1]), Path::new(&args[2]))?),
-        _ => return Err("usage: laneflow-urban-harness plan <artifacts> <plan.toml> [--probe-ticks N] | run <artifacts> <plan.toml> <new-output> | compare <run-a> <run-b>".into()),
+        Some("compare") if args.len() == 4 => {
+            let report = compare_runs(Path::new(&args[1]), Path::new(&args[2]))?;
+            report.write(Path::new(&args[3]))?;
+            println!("{}/{}: {}; report={}", report.case, report.scale, report.status, args[3]);
+        }
+        _ => return Err("usage: laneflow-urban-harness plan <artifacts> <plan.toml> [--probe-ticks N] | run <artifacts> <plan.toml> <new-output> | compare <run-a> <run-b> <new-comparison.json>".into()),
     }
     Ok(())
 }

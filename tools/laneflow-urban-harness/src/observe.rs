@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
 
 use laneflow_runtime::*;
-use laneflow_static_contract::{EntityKind, ManeuverGateOrdinal, SignalAspect, WaitingZoneOrdinal};
+use laneflow_static_contract::{
+    EntityKind, ManeuverGateOrdinal, ParkingFacilityOrdinal, SignalAspect, WaitingZoneOrdinal,
+};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -111,33 +113,70 @@ pub(crate) fn parking_invariants(h: &Harness<'_>) -> Result<()> {
     }
     for (target, key) in &h.target_keys {
         let (reserved, occupied) = bindings.get(target).copied().unwrap_or_default();
-        match target {
-            ParkingTarget::ExplicitSpace(space) => {
-                if reserved + occupied > 1
-                    || (reserved + occupied == 0
-                        && h.world.parking_space_state(*space) != Some(ParkingSpaceState::Vacant))
-                {
-                    return Err(invalid(format!(
-                        "explicit capacity or ownership differs: {key}"
-                    )));
-                }
-            }
-            ParkingTarget::VirtualPool(facility) => {
-                let counts = h
-                    .world
-                    .parking_facility_counts(*facility)
-                    .ok_or_else(|| invalid("missing facility counts"))?;
-                if counts.virtual_pool.reserved != reserved
-                    || counts.virtual_pool.occupied != occupied
-                {
-                    return Err(invalid(format!("virtual binding count differs: {key}")));
-                }
-                for pool in [counts.explicit, counts.virtual_pool, counts.total] {
-                    if pool.reserved + pool.occupied + pool.vacant != pool.capacity {
-                        return Err(invalid("parking capacity conservation failed"));
-                    }
-                }
-            }
+        if let ParkingTarget::ExplicitSpace(space) = target
+            && (reserved + occupied > 1
+                || (reserved + occupied == 0
+                    && h.world.parking_space_state(*space) != Some(ParkingSpaceState::Vacant)))
+        {
+            return Err(invalid(format!(
+                "explicit capacity or ownership differs: {key}"
+            )));
+        }
+    }
+    for raw in 0..h
+        .artifacts
+        .revision
+        .identity()
+        .entity_count(EntityKind::ParkingFacility)
+    {
+        let facility = ParkingFacilityOrdinal::from_raw(raw);
+        let definition = h
+            .artifacts
+            .revision
+            .traffic()
+            .relations()
+            .parking_facility(facility)
+            .ok_or_else(|| invalid("missing facility definition"))?;
+        let explicit = definition
+            .spaces()
+            .iter()
+            .fold((0, 0), |(reserved, occupied), space| {
+                let count = bindings
+                    .get(&ParkingTarget::ExplicitSpace(*space))
+                    .copied()
+                    .unwrap_or_default();
+                (reserved + count.0, occupied + count.1)
+            });
+        let virtual_pool = bindings
+            .get(&ParkingTarget::VirtualPool(facility))
+            .copied()
+            .unwrap_or_default();
+        let counts = h
+            .world
+            .parking_facility_counts(facility)
+            .ok_or_else(|| invalid("missing facility counts"))?;
+        validate_facility_counts(counts, explicit, virtual_pool)?;
+    }
+    Ok(())
+}
+
+fn validate_facility_counts(
+    counts: ParkingFacilityCounts,
+    explicit: (u64, u64),
+    virtual_pool: (u64, u64),
+) -> Result<()> {
+    if (counts.explicit.reserved, counts.explicit.occupied) != explicit {
+        return Err(invalid("explicit facility binding count differs"));
+    }
+    if (counts.virtual_pool.reserved, counts.virtual_pool.occupied) != virtual_pool
+        || (counts.total.reserved, counts.total.occupied)
+            != (explicit.0 + virtual_pool.0, explicit.1 + virtual_pool.1)
+    {
+        return Err(invalid("facility binding count differs"));
+    }
+    for pool in [counts.explicit, counts.virtual_pool, counts.total] {
+        if pool.reserved + pool.occupied + pool.vacant != pool.capacity {
+            return Err(invalid("parking capacity conservation failed"));
         }
     }
     Ok(())
@@ -362,7 +401,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
             }
         }
         if before.status() != after.status() {
-            h.events.push(json!({"kind":"lifecycle", "tick":h.world.tick_index(), "individual":individual.id,
+            h.events.push(json!({"kind":"lifecycle", "phase":"step", "tick":h.world.tick_index(), "individual":individual.id,
                 "before":status(before.status()), "after":status(after.status()), "crossed_tile":individual.crossed_tile}));
             if after.status() == VehicleStatus::Completed
                 && individual.crossed_tile
@@ -375,7 +414,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
     Ok(())
 }
 
-fn status(value: VehicleStatus) -> u32 {
+pub(crate) fn status(value: VehicleStatus) -> u32 {
     match value {
         VehicleStatus::Active => 0,
         VehicleStatus::Parked => 1,
@@ -554,4 +593,44 @@ pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
         hash.n(*zone);
     }
     Ok(hash.finish())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_wrong_explicit_totals_even_when_capacity_is_conserved() {
+        let mut counts = ParkingFacilityCounts {
+            explicit: ParkingPoolCounts {
+                capacity: 2,
+                reserved: 1,
+                occupied: 1,
+                vacant: 0,
+            },
+            virtual_pool: ParkingPoolCounts {
+                capacity: 3,
+                reserved: 0,
+                occupied: 1,
+                vacant: 2,
+            },
+            total: ParkingPoolCounts {
+                capacity: 5,
+                reserved: 1,
+                occupied: 2,
+                vacant: 2,
+            },
+        };
+        assert!(validate_facility_counts(counts, (1, 1), (0, 1)).is_ok());
+        counts.explicit.reserved = 0;
+        counts.explicit.occupied = 2;
+        counts.total.reserved = 0;
+        counts.total.occupied = 3;
+        assert!(
+            validate_facility_counts(counts, (1, 1), (0, 1))
+                .unwrap_err()
+                .to_string()
+                .contains("explicit facility binding count differs")
+        );
+    }
 }
