@@ -1,7 +1,7 @@
 # LF-CN-URBAN 需求计划与无界面验证
 
 **文档状态**: Accepted（#544 G1；#608 合入后在 Issue 记录接受）<br>
-**最后更新**: 2026-09-07<br>
+**最后更新**: 2026-09-08<br>
 **适用范围**: `LF-CN-URBAN-v1` 的调用方需求、无界面运行程序、有限行为校验和结果包<br>
 **关联文档**: [工作负载合同](chinese-style-city-workload.md)、
 [停车](parking-system.md)、[Waiting](traffic-runtime-waiting-zone.md)、
@@ -103,8 +103,11 @@ bay1 保留给实际到达；Ingress 的 c09 mixed 虚拟池从初态就真实�
 
 `MIXED-PEAK` 每组十条计划出发使用七条向东、三条向西路线，依次取本 tile 目录的
 `.cross.e` / `.cross.w` 路线并按 key 循环。起点使用首边 7000 mm、初速 0；终点为
-目录路线的末端。其他 case 使用同一背景序列。跨 tile 的流量由真实跨 tile 路线提供，
-不创建独立世界，也不因 tile 边界切断 Runtime 更新。
+目录路线的末端。其他 case 保持相同的分组、周期、profile 和方向比例。三类
+Waiting/Conflict 行及 Burst 的背景路线从同一有序目录中排除“剩余后缀会穿过角色
+cell”的候选，避免有限角色脉冲被持续背景流替代；这只是调用方输入选择，不改变
+Runtime 规则。其余跨 tile 流量仍由真实跨 tile 路线提供，不创建独立世界，也不因
+tile 边界切断 Runtime 更新。
 
 Mixed 另在第一个观察周期提交每 tile 20 条车库离场请求，同样按七东三西的十条组编排。
 入场从既有 Active 个体选择并预留前向可达目标；不额外生成车辆。70:30 的分母是观察
@@ -151,9 +154,10 @@ Mixed 的“一次停车转换”是至少一次成功 park 或 leave，三种�
 要求该行同时成功离场、显式入场和虚拟入场。观察期内完整 reserve→arrival→park 与
 两类拒绝由 `GARAGE-INGRESS` 对应行证明，不能用 Mixed 的分阶段角色代替。
 
-#542 的待转区容量为 1，城市 FIFO 观测比较三个个体先后 admission/release 的顺序，
-不声称验证多成员同时在区内的排列；多成员 FIFO 的精确断言复用 owner 测试。
-本体不为增加这类组合而改写共同 LFCA。
+#542 的待转区容量为 1，城市行固定三个候选并记录其 admission 顺序；在有限两周期
+窗口内，实际 release 序列必须是 admission 序列的有序前缀，且至少有一次 release。
+不声称验证多成员同时在区内的排列；完整多成员 FIFO 精确断言复用 owner 测试。本体
+不为增加这类组合而改写共同 LFCA。
 
 安装必须读取 `urban-conservative-v1` 的实际 policy pin 和派生间隙：16 ms 的 lead/lag
 为 5516/2500 ms，33 ms 为 5533/2500 ms。不能使用 #543 的空让行关系策略。

@@ -3,7 +3,8 @@ use std::{fs, process::Command};
 use laneflow_runtime::VehicleStatus;
 use laneflow_urban_generator::{Scale, UrbanConfig, generate};
 use laneflow_urban_harness::{
-    Artifacts, ComparisonReport, Harness, ResolvedPlan, Window, compare_runs, run_to_directory,
+    Artifacts, ComparisonReport, Harness, ResolvedPlan, UrbanCase, Window, compare_runs,
+    run_to_directory,
 };
 use sha2::{Digest, Sha256};
 
@@ -62,6 +63,31 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
     );
     fs::write(source.join("manifest.toml"), manifest_text).unwrap();
     let artifacts = Artifacts::load(&source).unwrap();
+    for case in UrbanCase::ALL {
+        let case_plan =
+            ResolvedPlan::for_case(&artifacts, case, Window::probe(128).unwrap()).unwrap();
+        assert_eq!(case_plan.case, case.as_str());
+        assert_eq!(case_plan.initial.len(), 2_000);
+        let case_harness = Harness::install(&artifacts, &case_plan).unwrap();
+        let mut counts = [0; 3];
+        for handle in case_harness.world().live_vehicles() {
+            counts[match case_harness.world().vehicle(*handle).unwrap().status() {
+                VehicleStatus::Active => 0,
+                VehicleStatus::Parked => 1,
+                VehicleStatus::Completed => 2,
+            }] += 1;
+        }
+        let expected = if case == UrbanCase::GarageEgress {
+            [500, 1_500, 0]
+        } else {
+            [1_500, 500, 0]
+        };
+        assert_eq!(counts, expected, "{} initial shape", case.as_str());
+        if case == UrbanCase::GarageIngress {
+            assert_eq!(case_plan.arrivals.len(), 4);
+            assert_eq!(case_plan.reservation_rejections.len(), 4);
+        }
+    }
     assert!(
         Window::correctness(&artifacts)
             .unwrap_err()
