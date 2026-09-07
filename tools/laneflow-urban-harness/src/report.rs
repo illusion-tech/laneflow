@@ -3,7 +3,8 @@ use std::{
     fs::{self, File},
     io::{BufRead, BufReader, BufWriter, Write},
     path::Path,
-    time::Instant,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
@@ -67,6 +68,7 @@ pub fn run_to_directory(
 ) -> Result<RunResult> {
     plan.validate(artifacts)?;
     fs::create_dir(output)?;
+    let execution_id = new_execution_id()?;
     let plan_digest = plan.write(&output.join("resolved-plan.toml"))?;
     let started = Instant::now();
     let mut harness = Harness::install(artifacts, plan)?;
@@ -201,7 +203,7 @@ pub fn run_to_directory(
     };
     write_json(
         &output.join("diagnostics.json"),
-        &json!({"purpose":"diagnostic-only-not-performance-certification", "elapsed_seconds":started.elapsed().as_secs_f64(),
+        &json!({"purpose":"diagnostic-only-not-performance-certification", "execution_id":execution_id, "elapsed_seconds":started.elapsed().as_secs_f64(),
         "verified_steps":times.len(), "step_ns_p50":percentile(50), "step_ns_p95":percentile(95), "step_ns_p99":percentile(99),
         "os":std::env::consts::OS, "architecture":std::env::consts::ARCH, "workers":1,
         "cpu":std::env::var("PROCESSOR_IDENTIFIER").ok(), "logical_cpus":std::thread::available_parallelism().map(|n| n.get()).ok(),
@@ -236,6 +238,9 @@ fn digest_file(path: &Path) -> Result<crate::artifacts::FileDigest> {
 pub fn compare_runs(left: &Path, right: &Path) -> Result<String> {
     if fs::canonicalize(left)? == fs::canonicalize(right)? {
         return Err(invalid("replay requires two distinct run directories"));
+    }
+    if read_execution_id(left)? == read_execution_id(right)? {
+        return Err(invalid("replay requires distinct execution identities"));
     }
     let read = |dir: &Path| -> Result<RunResult> {
         let result: RunResult = serde_json::from_slice(&fs::read(dir.join("result.json"))?)?;
@@ -305,6 +310,30 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<String> {
         "probe replay matched; not formal case acceptance"
     }
     .into())
+}
+
+// Local copy/mix-up detection only; this metadata does not attest execution or enter semantic hashes.
+fn new_execution_id() -> Result<String> {
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let started = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| invalid(format!("execution start time unavailable: {error}")))?;
+    Ok(format!(
+        "{}-{}-{}",
+        std::process::id(),
+        started.as_nanos(),
+        SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ))
+}
+
+fn read_execution_id(directory: &Path) -> Result<String> {
+    let diagnostics: serde_json::Value =
+        serde_json::from_slice(&fs::read(directory.join("diagnostics.json"))?)?;
+    diagnostics["execution_id"]
+        .as_str()
+        .filter(|id| !id.trim().is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| invalid("missing execution identity; rerun to produce current evidence"))
 }
 
 fn command_output(program: &str, args: &[&str]) -> Option<String> {

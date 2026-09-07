@@ -32,6 +32,8 @@ target/release/laneflow-urban-harness compare <run-a> <run-b>
 
 Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是新路径，避免覆盖证据。
 `plan ... --probe-ticks 128` 生成短试跑；probe 不得冒充正式验收。
+默认的 correctness 计划只接受 10k/100k 制品；fixture 必须显式使用 `--probe-ticks`。
+库入口遵守同一准入规则，手工构造 correctness 窗口也不能为 fixture 创建正式计划。
 计划经读取后重新核对固定展开规则及来源文件摘要，不接受手工删减事件或车辆。
 
 ## Mixed 的具体输入
@@ -70,8 +72,15 @@ Windows 可为可执行文件加 `.exe`。计划文件与结果目录必须是�
 - `result.json` 记录窗口、实际提交、逐 tile 触发和完整快照摘要；初态、暖机结束、
   每观察周期末捕获完整快照。计划与结果均携带 `required_per_tile` 的冻结下限，
   对照逐 tile 的实际计数；Failed 行不能通过 compare。
-- `diagnostics.json` 仅记录诊断耗时；step 范围只包围公共 step 调用，不含命令、oracle
-  或快照。它不是正式三轮性能协议，未测量的内存不填零。运行失败另留 `failure.json`。
+- `diagnostics.json` 保存执行编号、环境和诊断耗时；step 范围只包围公共 step 调用，
+  不含命令、oracle 或快照。它不是正式三轮性能协议，未测量的内存不填零。
+  运行失败另留 `failure.json`。
+
+每次 `run` 根据进程号、执行开始时间和进程内序号生成非语义 `execution_id`。
+compare 要求两份诊断记录中的编号存在且不同，用于拦截误复制同一次运行的结果目录。
+编号不进入计划、`result.json` 或确定性摘要；缺少编号的旧记录需重新运行，不补号迁移。
+不同编号只是防误用检查，不证明执行独立或抵御人为改写；两次各自创建新世界仍是
+取证流程的责任，compare 的结果以此为前提。
 
 每 tick 核对身份/生命周期守恒、实际停车 binding 和容量、Waiting membership 和容量、
 按路线向后展开的 Active 车身区间不重叠。通过 reservation acquire、passage clear 与

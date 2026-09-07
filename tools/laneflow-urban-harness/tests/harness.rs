@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, process::Command};
 
 use laneflow_runtime::VehicleStatus;
 use laneflow_urban_generator::{Scale, UrbanConfig, generate};
@@ -14,6 +14,34 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
         UrbanConfig::parse(include_str!("../../../examples/config/cn-urban.toml")).unwrap();
     generate(&config, Scale::Fixture, &source, None).unwrap();
     let artifacts = Artifacts::load(&source).unwrap();
+    assert!(
+        Window::correctness(&artifacts)
+            .unwrap_err()
+            .to_string()
+            .contains("10k or 100k")
+    );
+    let cli_plan = temp.path().join("cli-plan.toml");
+    let rejected = Command::new(env!("CARGO_BIN_EXE_laneflow-urban-harness"))
+        .arg("plan")
+        .arg(&source)
+        .arg(&cli_plan)
+        .output()
+        .unwrap();
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("10k or 100k"));
+    assert!(!cli_plan.exists());
+    let probe = Command::new(env!("CARGO_BIN_EXE_laneflow-urban-harness"))
+        .arg("plan")
+        .arg(&source)
+        .arg(&cli_plan)
+        .args(["--probe-ticks", "128"])
+        .output()
+        .unwrap();
+    assert!(probe.status.success(), "{:?}", probe.stderr);
+    assert_eq!(
+        ResolvedPlan::read(&cli_plan).unwrap().window.purpose,
+        "probe"
+    );
     let plan = ResolvedPlan::mixed(
         &artifacts,
         Window {
@@ -23,6 +51,19 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
         },
     )
     .unwrap();
+    assert!(
+        ResolvedPlan::mixed(
+            &artifacts,
+            Window {
+                purpose: "correctness".into(),
+                warm_up_ticks: plan.cycle_ticks,
+                observation_ticks: 2 * plan.cycle_ticks,
+            },
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("10k or 100k")
+    );
     let plan_path = temp.path().join("plan.toml");
     plan.write(&plan_path).unwrap();
     assert_eq!(ResolvedPlan::read(&plan_path).unwrap(), plan);
@@ -114,6 +155,27 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
     );
     assert!(first.atomic_rejections.contains_key("leave"));
     assert!(compare_runs(&a, &b).unwrap().contains("not formal"));
+    let diagnostics = |dir: &std::path::Path| -> serde_json::Value {
+        serde_json::from_slice(&fs::read(dir.join("diagnostics.json")).unwrap()).unwrap()
+    };
+    assert_ne!(
+        diagnostics(&a)["execution_id"],
+        diagnostics(&b)["execution_id"]
+    );
+    let copied = temp.path().join("copied-a");
+    fs::create_dir(&copied).unwrap();
+    for entry in fs::read_dir(&a).unwrap() {
+        let entry = entry.unwrap();
+        fs::copy(entry.path(), copied.join(entry.file_name())).unwrap();
+    }
+    assert!(
+        compare_runs(&a, &copied)
+            .unwrap_err()
+            .to_string()
+            .contains("distinct execution identities")
+    );
+    fs::remove_file(copied.join("diagnostics.json")).unwrap();
+    assert!(compare_runs(&a, &copied).is_err());
     assert!(compare_runs(&a, &a).is_err());
     assert!(run_to_directory(&artifacts, &plan, &a).is_err());
     let mut changed = plan.clone();
