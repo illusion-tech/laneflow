@@ -493,7 +493,15 @@ impl ResolvedPlan {
             } else {
                 0
             };
-            let waiting_release_delta = waiting_left_start;
+            let waiting_cycle_ticks = c00.cycle_ms / artifacts.dt;
+            if waiting_cycle_ticks == 0 {
+                return Err(invalid("waiting controller cycle is shorter than one tick"));
+            }
+            let waiting_release_delta = if waiting_left_start == 0 {
+                waiting_cycle_ticks
+            } else {
+                waiting_left_start
+            };
             let boundary_delta = phase_delta("c00", "p0.yellow")?;
             let boundary_tick = window.warm_up_ticks
                 + if boundary_delta == 0 {
@@ -648,15 +656,36 @@ impl ResolvedPlan {
                     },
                 );
                 if window.warm_up_ticks > 0 && role != "boundary-respawn" {
-                    role_departures.push(RoleDeparture {
-                        due_tick: window.warm_up_ticks + due_offset,
-                        slot: tile * 1_000 + slot,
-                        sequence: 13_000_000 + tile * 1_000 + slot,
-                        route: route_key.clone(),
-                        occurrence: departure_occurrence,
-                        progress_mm: departure_progress_mm,
-                        role: role.into(),
-                    });
+                    let first_due = window.warm_up_ticks + due_offset;
+                    if role == "waiting-storage-pulse" {
+                        let mut due_tick = first_due;
+                        let mut pulse = 0;
+                        while due_tick < window.end() {
+                            role_departures.push(RoleDeparture {
+                                due_tick,
+                                slot: tile * 1_000 + slot,
+                                sequence: 13_500_000 + pulse * artifacts.tiles + tile,
+                                route: route_key.clone(),
+                                occurrence: departure_occurrence,
+                                progress_mm: departure_progress_mm,
+                                role: role.into(),
+                            });
+                            due_tick = due_tick
+                                .checked_add(waiting_cycle_ticks)
+                                .ok_or_else(|| invalid("waiting pulse schedule overflow"))?;
+                            pulse += 1;
+                        }
+                    } else {
+                        role_departures.push(RoleDeparture {
+                            due_tick: first_due,
+                            slot: tile * 1_000 + slot,
+                            sequence: 13_000_000 + tile * 1_000 + slot,
+                            route: route_key.clone(),
+                            occurrence: departure_occurrence,
+                            progress_mm: departure_progress_mm,
+                            role: role.into(),
+                        });
+                    }
                 }
                 if case == UrbanCase::BoundaryBurst && role == "boundary-respawn" {
                     lifecycle_bursts.push(LifecycleBurst {
