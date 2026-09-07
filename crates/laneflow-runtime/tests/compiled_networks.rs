@@ -4593,11 +4593,15 @@ fn already_below_downstream_limit_does_not_stop_at_boundary() {
     );
 }
 
-fn add_signalized_corridor(module: &mut SyntheticModuleBuilder, phase_ms: u64) {
+fn add_signalized_corridor(
+    module: &mut SyntheticModuleBuilder,
+    phase_ms: u64,
+    aspect: SignalAspect,
+) {
     let groups = [SignalGroupReference::local("group-entry")];
     let go_states = [SignalGroupStateInput {
         signal_group: SignalGroupReference::local("group-entry"),
-        aspect: SignalAspect::Green,
+        aspect,
     }];
     module
         .add_lane_edge(LaneEdgeInput {
@@ -4683,7 +4687,7 @@ fn add_signalized_corridor(module: &mut SyntheticModuleBuilder, phase_ms: u64) {
 fn install_rejects_phase_shorter_than_tick() {
     let revision = compile_revision(|module| {
         add_standard_profiles(module);
-        add_signalized_corridor(module, 8);
+        add_signalized_corridor(module, 8, SignalAspect::Green);
     });
     assert_eq!(
         install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 16))
@@ -4735,4 +4739,173 @@ fn hop_preserves_active_state_and_does_not_force_zero_carry() {
         0,
         "permitted hop must keep sub-millimetre remainder"
     );
+}
+
+#[test]
+fn sub_millimetre_boundary_restart_respects_signal_and_restores() {
+    for aspect in [SignalAspect::Green, SignalAspect::Red] {
+        let revision = compile_revision(|module| {
+            module
+                .add_participant_class(ParticipantClassInput {
+                    participant_class_key: "road-user",
+                    extends: None,
+                })
+                .expect("class")
+                .add_vehicle_profile(VehicleProfileInput {
+                    vehicle_profile_key: "car",
+                    participant_class: ParticipantClassReference::local("road-user"),
+                    iidm: IidmVehicleProfileInput {
+                        max_acceleration_meters_per_second_squared: 2.5,
+                        ..iidm()
+                    },
+                })
+                .expect("profile");
+            add_signalized_corridor(module, 1_024, aspect);
+        });
+        let config = WorldConfig::new(1, 1, 3, 0, 1, 16);
+        let mut world = install_fixture(Arc::clone(&revision), config).expect("install");
+        let route = register_named(&mut world, &["entry", "middle", "exit"]);
+        let vehicle = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                10_000,
+                0,
+            ))
+            .expect("spawn stopped at Gate boundary");
+        world.step(TickInput::new(16)).expect("restart at boundary");
+
+        let state = world.vehicle(vehicle).expect("state");
+        let permitted = aspect == SignalAspect::Green;
+        // 0.5 * 2.5 m/s² * (16 ms)² = 320 um; no whole millimetre is available.
+        assert_eq!(
+            (
+                state.route_edge_index(),
+                state.progress_mm(),
+                state.carry_um(),
+                state.speed_mm_s(),
+            ),
+            if permitted {
+                (1, 0, 320, 40)
+            } else {
+                (0, 10_000, 0, 0)
+            },
+            "{aspect:?} must commit a valid cursor"
+        );
+        assert_eq!(state.status(), VehicleStatus::Active);
+        assert_eq!(
+            world
+                .latest_transition_events()
+                .iter()
+                .filter(|event| matches!(
+                    event.kind(),
+                    laneflow_runtime::TrafficTransitionKind::GateCrossed { .. }
+                ))
+                .count(),
+            usize::from(permitted)
+        );
+
+        let snapshot = world.capture_snapshot().expect("capture boundary tick");
+        let mut restored = restore_lfrs(
+            &encode_lfrs(&snapshot),
+            revision,
+            world.committed_source().clone(),
+            config,
+            SnapshotRestoreLimits::new(1_048_576, 1_024),
+        )
+        .expect("the boundary tick must restore")
+        .into_world();
+        assert_eq!(
+            deterministic_state_digest(&restored.capture_snapshot().expect("recapture"))
+                .expect("restored digest"),
+            deterministic_state_digest(&snapshot).expect("original digest")
+        );
+        world.step(TickInput::new(16)).expect("continue original");
+        restored
+            .step(TickInput::new(16))
+            .expect("continue restored");
+        assert_eq!(
+            deterministic_state_digest(&restored.capture_snapshot().expect("restored next tick"))
+                .expect("restored digest"),
+            deterministic_state_digest(&world.capture_snapshot().expect("original next tick"))
+                .expect("original digest")
+        );
+        assert!(
+            world.latest_transition_events().is_empty(),
+            "no repeated Gate crossing"
+        );
+        assert!(restored.latest_transition_events().is_empty());
+    }
+}
+
+#[test]
+fn sub_millimetre_boundary_restart_commits_only_the_conflict_winner() {
+    let revision = compile_road_editing_revision(conflict_road_editing_module_with_stream_count(2));
+    let config = WorldConfig::new(2, 2, 64, 2, 1, 16);
+    let mut world = install_fixture(Arc::clone(&revision), config).expect("install");
+    let vehicles = [0_u32, 1].map(|raw| {
+        let stream = revision
+            .conflict()
+            .participant_stream(ParticipantStreamOrdinal::from_raw(raw))
+            .expect("stream");
+        let edges = revision
+            .traffic()
+            .maneuvers()
+            .maneuver_path(stream.maneuver_path())
+            .expect("path")
+            .edges()
+            .to_vec();
+        let boundary = revision.traffic().lane_lengths_millimetres()[edges[0].index()];
+        let route = world
+            .register_route(RouteRegisterInput::new(edges))
+            .expect("route");
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                boundary,
+                0,
+            ))
+            .expect("spawn at conflict Gate")
+    });
+    world
+        .step(TickInput::new(16))
+        .expect("arbitrate boundary restart");
+    let winner = world.vehicle(vehicles[1]).expect("winner");
+    assert_eq!(winner.route_edge_index(), 1);
+    assert_eq!(winner.progress_mm(), 0);
+    assert!(winner.carry_um() > 0);
+    assert!(winner.speed_mm_s() > 0);
+    assert!(world.conflict_reservation(vehicles[1]).is_some());
+    let loser = world.vehicle(vehicles[0]).expect("loser");
+    assert_eq!(loser.route_edge_index(), 0);
+    assert_eq!(loser.carry_um(), 0);
+    assert_eq!(loser.speed_mm_s(), 0);
+    assert!(world.conflict_reservation(vehicles[0]).is_none());
+    let crossing_vehicles: Vec<_> = world
+        .latest_transition_events()
+        .iter()
+        .filter(|event| {
+            matches!(
+                event.kind(),
+                laneflow_runtime::TrafficTransitionKind::GateCrossed { .. }
+            )
+        })
+        .map(|event| event.vehicle())
+        .collect();
+    assert_eq!(crossing_vehicles, vec![vehicles[1]]);
+    restore_lfrs(
+        &encode_lfrs(
+            &world
+                .capture_snapshot()
+                .expect("capture conflict boundary tick"),
+        ),
+        revision,
+        world.committed_source().clone(),
+        config,
+        SnapshotRestoreLimits::new(1_048_576, 1_024),
+    )
+    .expect("restore acquired conflict authority at the sub-millimetre cursor");
 }
