@@ -1,6 +1,6 @@
 # LF-CN-URBAN 需求计划与无界面验证
 
-**文档状态**: Review（#544 G1）<br>
+**文档状态**: Accepted（#544 G1；#608 合入后在 Issue 记录接受）<br>
 **最后更新**: 2026-09-07<br>
 **适用范围**: `LF-CN-URBAN-v1` 的调用方需求、无界面运行程序、有限行为校验和结果包<br>
 **关联文档**: [工作负载合同](chinese-style-city-workload.md)、
@@ -199,10 +199,14 @@ Burst 仍保留共同有限窗口，但重点另列两个提交边界的 raw 结
 
 - `resolved-plan.toml`：上述实际输入和预期触发；其摘要与来源制品四联进入结果。
 - `commands`、`events`、`ticks`：实际顺序、结果和逐域计数，及用于重复比较的摘要。
-- `result.toml`：工作负载/计划/结果版本、case/scale、git commit、LFCA/config/catalog
+- `result.json`：工作负载/计划/结果版本、case/scale、LFCA/config/catalog
   摘要、world/policy identity、实际窗口、逐 tile 触发、检查点及比较结论。
-- `measurements.toml`：`rustc -Vv`、`cargo -V`、target、构建参数、硬件/OS/电源角色、
+- 正式性能阶段的 `measurements.toml`：git commit、`rustc -Vv`、`cargo -V`、target、构建参数、硬件/OS/电源角色、
   命令行、phase 耗时、计时范围、实际 Active/intent 分布、内存值及测量方法。
+
+首段 Mixed 实现的具体角色、命令与摘要口径见
+[运行程序说明](../../tools/laneflow-urban-harness/README.md)。短试跑和正确性运行的
+`diagnostics.json` 只提供诊断计时，不替代正式性能结果；其他 case 与 100k 仍需各自取证。
 
 性能使用 CI 固定 Rust 版本的正常 release binary；正确性摘要、完整快照捕获和诊断
 断言耗时不混入正常 tick latency。分别记录 TrafficWorld step、调用方命令与观测开销。

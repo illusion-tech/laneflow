@@ -74,7 +74,7 @@
 - `core-runtime-scalability-audit.md`：城市级可扩展性前置约束；不实现生产分区。
 - `chinese-style-city-workload.md`：#304 的连通路网、七套需求计划、10k/100k 运行与有限
   跨层验证合同；停车复用 #540 Accepted 合同，产品认证独立执行。
-- [`urban-demand-harness.md`](urban-demand-harness.md)：#544 G1 评审稿，细化初态分配、
+- [`urban-demand-harness.md`](urban-demand-harness.md)：#544 G1 Accepted，细化初态分配、
   七套调用方计划、稳定个体编号、有限校验、计数与 headless 结果包。
 
 ## 已退役（只保留结论）

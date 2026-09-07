@@ -3031,6 +3031,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-urban-harness"
+version = "0.0.0"
+dependencies = [
+ "laneflow-format",
+ "laneflow-runtime",
+ "laneflow-static-contract",
+ "laneflow-static-network",
+ "laneflow-urban-generator",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.20",
+ "toml",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

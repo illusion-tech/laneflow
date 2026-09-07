@@ -14,6 +14,7 @@ members = [
     "research/issue-123-spatial-prototype",
     "tools/laneflow-corridor-generator",
     "tools/laneflow-urban-generator",
+    "tools/laneflow-urban-harness",
     "xtask",
 ]
 # cargo-fuzz 标准布局：独立 package + 独立 lockfile，需要 nightly 与 libFuzzer
