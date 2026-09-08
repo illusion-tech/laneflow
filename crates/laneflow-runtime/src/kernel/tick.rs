@@ -921,7 +921,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let motion_timer =
             super::performance_profile::begin(super::performance_profile::Stage::MotionLoop);
         for handle in self.derived.active_order.iter().copied() {
-            let Some(state) = self.vehicle_state(handle).copied() else {
+            let Some(state) = self.vehicle_state(handle) else {
                 continue;
             };
             debug_assert_eq!(state.status, VehicleStatus::Active);
@@ -935,13 +935,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 }
                 None => None,
             };
-            let arrived_before =
-                reservation.is_some_and(|reservation| self.parking_arrived_for(state, reservation));
+            let arrived_before = reservation
+                .is_some_and(|reservation| self.parking_arrived_for(*state, reservation));
             let waiting_stop = self.waiting_stop_for(state)?;
             let conflict_stop = self.conflict_stop_for(state)?;
             let next = self
                 .advance_active_vehicle_with_waiting_stop(
-                    state,
+                    *state,
                     delta_s,
                     waiting_stop,
                     conflict_stop,
