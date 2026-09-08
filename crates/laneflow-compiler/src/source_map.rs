@@ -137,7 +137,7 @@ pub enum SourceRelationRole {
     SignalPhaseState = 19,
     /// 机动门到固定时制信号组的控制绑定。
     ManeuverGateSignalGroup = 20,
-    /// 停车位到可选停车区域的组织归属。
+    /// 停车位到可选停车设施的组织归属。
     ParkingSpaceFacility = 21,
     /// 停车位入口到车道图边严格内部位置的锚定。
     ParkingSpaceEntry = 22,
@@ -671,7 +671,7 @@ impl ValidatedSourceMapInput {
             })
     }
 
-    /// 按 `ParkingFacilityOrdinal` 递增顺序遍历停车区域来源记录。
+    /// 按 `ParkingFacilityOrdinal` 递增顺序遍历停车设施来源记录。
     pub fn parking_facility_sources(
         &self,
     ) -> impl ExactSizeIterator<Item = ParkingFacilitySourceView<'_>> {
@@ -1330,7 +1330,7 @@ impl ParkingRelationSourceView<'_> {
     }
 }
 
-/// 一条停车区域 owner-local 关系来源记录的只读视图。
+/// 一条停车设施 owner-local 关系来源记录的只读视图。
 #[derive(Clone, Copy)]
 pub struct ParkingFacilityRelationSourceView<'a> {
     source_map: &'a ValidatedSourceMapInput,
@@ -1338,13 +1338,13 @@ pub struct ParkingFacilityRelationSourceView<'a> {
 }
 
 impl ParkingFacilityRelationSourceView<'_> {
-    /// 返回 owner 停车区域的 LIR 序号。
+    /// 返回 owner 停车设施的 LIR 序号。
     #[must_use]
     pub const fn owner_ordinal(&self) -> ParkingFacilityOrdinal {
         self.record.owner_ordinal
     }
 
-    /// 返回 owner 停车区域的稳定标识。
+    /// 返回 owner 停车设施的稳定标识。
     #[must_use]
     pub const fn owner_stable_id(&self) -> ParkingFacilityId {
         self.record.owner_stable_id

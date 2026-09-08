@@ -1722,7 +1722,8 @@ pub struct ParkingLaneAnchor {
 }
 
 impl ParkingLaneAnchor {
-    /// 构造停车锚点并校验边内进度范围。
+    /// 构造停车锚点；此处只校验进度落在全局闭区间 `[1 mm, MAX_LANE_EDGE_LENGTH_MM - 1 mm]`。
+    /// 相对所引车道图边实际长度的边内范围检查在 HIR 绑定阶段进行。
     pub fn try_new(
         lane_edge: LaneEdgeReference,
         progress_meters: f64,
@@ -2359,7 +2360,8 @@ impl PathAnchorInput {
         Self::EdgeBoundary { boundary_index }
     }
 
-    /// 构造位于路径边内部进度处的锚点并校验进度范围。
+    /// 构造位于路径边内部进度处的锚点；此处只校验进度落在全局闭区间
+    /// `[1 mm, MAX_LANE_EDGE_LENGTH_MM - 1 mm]`，相对边实际长度的检查在 HIR 绑定阶段进行。
     pub fn interior(path_edge_index: u32, progress_meters: f64) -> Result<Self, DiagnosticBundle> {
         let progress_meters = require_closed_mm(
             progress_meters,

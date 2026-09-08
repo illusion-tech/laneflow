@@ -101,7 +101,8 @@ pub(crate) fn allocate_forward_identity(
     Ok(result)
 }
 
-/// 对反向身份条目按 (StableId128, EntityKind) 做 LSD 基数排序，并检测重复稳定标识。
+/// 对反向身份条目做 LSD 基数排序：第 0-15 趟按稳定标识字节、第 16-17 趟按实体类别字节，
+/// 最终按 (EntityKind, StableId128) 有序；第 15 趟后检测重复稳定标识。
 pub(crate) fn radix_sort_reverse_identity(
     entries: Vec<IdentityReverseEntry>,
     mut check_cancelled: impl FnMut() -> Result<(), BuildError>,
