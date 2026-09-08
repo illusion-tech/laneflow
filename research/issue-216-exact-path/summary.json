@@ -143,6 +143,12 @@
           }
         }
       },
+      "isolated_query_replay_ns_per_query": {
+        "route_profile": 10.80625,
+        "horizon": 14.1171875,
+        "leader_gap": 16.5296875,
+        "route_stop": 8.6890625
+      },
       "paired_change_percent": {
         "p50": {
           "median": 3.1392727319912384,
@@ -311,6 +317,12 @@
             }
           }
         }
+      },
+      "isolated_query_replay_ns_per_query": {
+        "route_profile": 10.0634375,
+        "horizon": 12.5953125,
+        "leader_gap": 27.83578125,
+        "route_stop": 8.0275
       },
       "paired_change_percent": {
         "p50": {
@@ -481,6 +493,12 @@
           }
         }
       },
+      "isolated_query_replay_ns_per_query": {
+        "route_profile": 10.1628125,
+        "horizon": 14.21890625,
+        "leader_gap": 38.16953125,
+        "route_stop": 8.01921875
+      },
       "paired_change_percent": {
         "p50": {
           "median": 3.227973680050089,
@@ -641,6 +659,12 @@
             }
           }
         }
+      },
+      "isolated_query_replay_ns_per_query": {
+        "route_profile": 10.73125,
+        "horizon": 12.953125,
+        "leader_gap": 43.4578125,
+        "route_stop": 10.0875
       },
       "paired_change_percent": {
         "p50": {
