@@ -20,7 +20,7 @@ permissions:
 jobs:
   lfre-fuzz:
     name: LFRE fuzz bounded smoke (${{ matrix.target }})
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux]
     timeout-minutes: 30
     strategy:
       # 一个 target 出 crash 时另一个仍要跑完并各自上传 artifact。

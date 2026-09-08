@@ -20,7 +20,7 @@ permissions:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.language == 'rust' && fromJSON('["self-hosted", "Linux"]') || fromJSON('["ubuntu-latest"]') }}
     timeout-minutes: 45
     permissions:
       actions: read
