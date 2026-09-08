@@ -5,8 +5,11 @@
 生产基线冻结为 `6fefd582364685c07ed83af79b2bec80f5223fc5`；
 [当前 G2](https://github.com/illusion-tech/laneflow/issues/216#issuecomment-5581912546)
 限定测试专用归因和一个有依据的精确候选。生产算法、公开 API、数据格式、线程模型、
-车辆更新频率均不改变。研究补丁的逐文件 Git blob 与二进制 SHA-256 位于
-[`environment.json`](evidence/environment.json)。
+车辆更新频率均不改变。批次 / 配对 / 等价数据的研究补丁冻结在
+`406813daaaf0703ab08019432bb4c349253215a0`，逐文件 Git blob 与二进制 SHA-256 位于
+[`environment.json`](evidence/environment.json)。后续只补充同输入的批量查询回放，
+其独立源码与二进制记录见
+[`查询回放环境`](evidence-query-replay/environment.json)；没有重新选择既有配对轮次。
 
 ## 1. 结论
 
@@ -48,6 +51,7 @@ Cargo/rustc/link 或其他已知 Runtime 测量进程；没有绑定 CPU、锁�
 | `occupancy_exact_attribution`         | 重建四段批次计时、每 67 次查询采样一次 | 查询读时钟成本不可忽略，不可外推为整步占比                              |
 | `occupancy_exact_paired_windows`      | 同一测试二进制的候选 / 基线六轮配对    | 内部计时关闭；保留测试 hook 和 `StatsAlloc<System>`，不是未插桩生产候选 |
 | `occupancy_exact_equivalence_windows` | 四组输入逐拍状态、事件和索引比较       | 快照、校验和输出均不计入上述整步计时                                    |
+| `occupancy_exact_query_replay`        | 同输入按查询族分批回放                 | 输入预收集、缓存顺序改变；不等于真实整步的独占成本                      |
 
 配对每轮重建两个相同世界，偶数轮基线先运行、奇数轮候选先运行。
 每拍只把 `step` 调用计入延迟；样本整理、查询工作量读取、摘要、内存账本和日志输出在计时外。
@@ -90,6 +94,28 @@ Cargo/rustc/link 或其他已知 Runtime 测量进程；没有绑定 CPU、锁�
 leader/horizon/route-distance 独占耗时排序或占比**。原始值完整保留，不扣除时钟后制造
 “净耗时”，也不把 `motion_loop` 减去这些估计值来定义 #217 的成本。
 
+为得到可分辨的查询成本量级，另对同一窗口做三轮**批量查询回放**：每拍重建相同的
+occupancy、预收集输入，再分别批量执行路线 / 配置定位、前视窗计算、leader 查询、
+路线终点 / 信号 / 停车距离查询。每批只有一对时钟，以 `black_box` 消费输入和输出。
+预收集与重建不计入查询批次；真实 `step` 随后推进同样命令流。
+所有记录数、后缀检查数、出现项行走数和最终摘要与前述窗口一致。
+
+下表是批次总时间除以实际查询次数后的三轮中位数，单位 ns / 查询；
+这是**回放口径**，不是逐车计时，也不是生产运动循环中的独占成本。
+
+| 输入         | 路线 / 配置定位 | 前视窗 | leader gap | 路线终点 / 停车 / 信号距离 |
+| ------------ | --------------: | -----: | ---------: | -------------------------: |
+| 1k / 256 边  |           10.81 |  14.12 |      16.53 |                       8.69 |
+| 10k / 256 边 |           10.06 |  12.60 |      27.84 |                       8.03 |
+| 10k / 16 边  |           10.16 |  14.22 |      38.17 |                       8.02 |
+| 1k / 多边    |           10.73 |  12.95 |      43.46 |                      10.09 |
+
+在这个回放口径内，leader 查询随桶集中和多边行走增加，值得保留为 workload 相关的
+成本项；不能仅因为 occupancy rebuild 约 6% 就把 #216 全部成本当成 6%。
+这里预热了输入与查询缓存、改变了真实循环的交错顺序，且路线距离组没有活动停车预约或
+信号 stop，因此不把表中数字换算成整步占比，也不泛化到资源密集城市输入。
+原始批次总量见 [`query-replay.txt`](evidence-query-replay/query-replay.txt)。
+
 ## 4. 配对整步、尾部与内存
 
 变化为每轮 `candidate / baseline - 1` 后取六轮中位数；正数表示变慢。
@@ -114,7 +140,7 @@ leader/horizon/route-distance 独占耗时排序或占比**。原始值完整保
 未插桩生产基线的 p50 三轮中位数分别为 0.1873 / 2.1055 / 2.4426 ms，
 只作为当前绝对成本锚点；它们不能与上表测试构建候选直接相除。
 较早探索运行也有明显轮间波动，保留在本地 `target/issue-216-baseline/`；
-本报告固定使用最终测试源码对应的 `evidence/`，没有据此选择更好看的轮次。
+本报告固定使用 `406813da` 对应的 `evidence/`，没有据此选择更好看的轮次。
 
 ## 5. 精确性与失败边界
 
@@ -140,13 +166,22 @@ leader/horizon/route-distance 独占耗时排序或占比**。原始值完整保
 cargo +1.98.0 test --release --locked -p laneflow-runtime --lib --test runtime_profile_evidence --no-run
 ./research/issue-216-exact-path/run.ps1 -TestBinary <unit-test-exe> -ProductionBinary <runtime-profile-evidence-exe>
 python research/issue-216-exact-path/analyze.py <new-evidence-directory>
-cargo +1.98.0 test --release --locked -p laneflow-runtime --lib
+cargo +1.98.0 test --release --locked -p laneflow-runtime
 cargo +1.98.0 check --release --locked -p laneflow-runtime
 cargo +1.98.0 run --release --locked -p xtask -- check-runtime-architecture
 ```
 
+脚本默认运行全部六个入口；如只复现补充查询回放，可增加 `-QueryReplayOnly`，
+并使用新的输出目录。分析仓库内已存记录时省略分析器的目录参数，它会读取两份独立证据。
+
+本地已运行 Runtime 完整 package 测试（445 通过、0 失败、22 个手动入口默认忽略），
+并单独成功运行上表六个手动研究入口；`cargo check`、`cargo fmt --check`、Runtime 架构检查、
+Markdown 表格检查及两份测量源码清单核对均通过。全 workspace / CodeQL 由 PR CI 验证，
+不把本地 package 测试冒充这些门禁。
+
 [`analyze.py`](analyze.py) 只读取固定原始记录，验证数量、采样次数、精确工作量、
-各入口摘要、配对顺序、分配与内存账本，再输出汇总。它不运行基准，也不设置 CI 延迟门禁。
+各入口摘要、配对顺序、分配与内存账本，再输出汇总。批量查询回放也核对工作量与摘要，
+不与不同口径的计时相加。它不运行基准，也不设置 CI 延迟门禁。
 
 给后继的结论：#217 应继续拆分 controller / 约束 / advance / store，但本报告没有
 给出可直接相减的 leader 独占占比；#220 可以消费多边查询的实际工作量与此候选的负结果，

@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory)][string]$TestBinary,
     [Parameter(Mandatory)][string]$ProductionBinary,
-    [string]$OutputDirectory = ('target/issue-216-results-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    [string]$OutputDirectory = ('target/issue-216-results-' + (Get-Date -Format 'yyyyMMdd-HHmmss')),
+    [switch]$QueryReplayOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -36,6 +37,7 @@ try {
         'crates/laneflow-runtime/src/kernel/performance_profile.rs',
         'crates/laneflow-runtime/src/kernel/tests/exact_path.rs',
         'crates/laneflow-runtime/src/kernel/tests/occupancy_exact_candidate.rs',
+        'crates/laneflow-runtime/src/kernel/tests/performance_profile/exact_query_replay.rs',
         'crates/laneflow-runtime/src/kernel/tests/performance_profile/runtime_profile.rs',
         'crates/laneflow-runtime/src/kernel/tests/performance_profile/cutover_scale.rs',
         'crates/laneflow-runtime/src/kernel/tests/performance_profile/runtime_profile_evidence.rs'
@@ -70,6 +72,8 @@ try {
         @($unit, 'occupancy_exact_paired_windows', 'pairs.txt'),
         @($unit, 'occupancy_exact_equivalence_windows', 'equivalence.txt')
     )
+    if ($QueryReplayOnly) { $runs = @() }
+    $runs += ,@($unit, 'occupancy_exact_query_replay', 'query-replay.txt')
     foreach ($run in $runs) {
         Assert-NoHeavyProcess
         $arguments = @($run[1], '--ignored', '--nocapture', '--test-threads=1')

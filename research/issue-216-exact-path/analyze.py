@@ -6,7 +6,7 @@ from statistics import median
 import sys
 
 
-ROOT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent / "evidence"
+ROOT = (Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent / "evidence").resolve()
 
 
 def records(filename, prefix):
@@ -29,6 +29,11 @@ def summarize():
     production = records("wall-clock.txt", "profile-tick")
     broad = records("stages.txt", "profile-stage")
     memories = records("stages.txt", "profile-memory")
+    replay_file = ROOT / "query-replay.txt"
+    if not replay_file.is_file():
+        replay_file = ROOT.parent / "evidence-query-replay" / "query-replay.txt"
+    replay = records(replay_file, "exact-replay")
+    assert len(replay) == 12
     assert [len(rows) for rows in [pairs, work, stages, clocks, equivalence, production, broad, memories]] == [48, 24, 192, 1, 4, 18, 198, 18]
     scenes = list(dict.fromkeys(row["scene"] for row in pairs))
     assert len(scenes) == 4
@@ -51,8 +56,11 @@ def summarize():
         exact, = [row for row in equivalence if row["scene"] == scene]
         wall = [row for row in production if row["scene"] == scene]
         memory = [row for row in memories if row["scene"] == scene]
-        assert len({row["digest"] for row in [*paired, *actual_work, exact, *wall, *memory]}) == 1
-        assert len({(row["records"], row["inspections"], row["occurrence_walks"]) for row in [*paired, *actual_work]}) == 1
+        replayed = [row for row in replay if row["scene"] == scene]
+        assert len(replayed) == 3 and {row["round"] for row in replayed} == {0, 1, 2}
+        assert all(row["batches"] == 64 and row["queries"] == paired[0]["active"] * 64 for row in replayed)
+        assert len({row["digest"] for row in [*paired, *actual_work, exact, *wall, *memory, *replayed]}) == 1
+        assert len({(row["records"], row["inspections"], row["occurrence_walks"]) for row in [*paired, *actual_work, *replayed]}) == 1
         assert all(row["steps"] == 64 for row in [*paired, *actual_work, exact])
         assert all(sum(row[key] for key in owners) == row["source_world_owned"] for row in paired)
         assert all(row[key] == 0 for row in paired for key in allocation)
@@ -103,6 +111,10 @@ def summarize():
                 for name in ["occupancy", "motion_loop"]
             } if wall else None,
             "variants": variants,
+            "isolated_query_replay_ns_per_query": {
+                key[:-3]: median(row[key] / row["queries"] for row in replayed)
+                for key in ["route_profile_ns", "horizon_ns", "leader_gap_ns", "route_stop_ns"]
+            },
             "paired_change_percent": {key[:-3]: {"median": median(values), "min": min(values), "max": max(values), "candidate_faster_rounds": sum(value < 0 for value in values)} for key, values in changes.items()},
         })
     return summary

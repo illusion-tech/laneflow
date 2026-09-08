@@ -15,6 +15,9 @@ use crate as runtime_types;
 #[path = "performance_profile/runtime_profile.rs"]
 mod support;
 
+#[path = "performance_profile/exact_query_replay.rs"]
+mod query_replay;
+
 use crate::kernel::occupancy::exact_candidate;
 
 #[derive(Clone, Copy)]
