@@ -155,6 +155,11 @@ impl TrafficTransitionEvent {
     }
 }
 
+#[cfg(test)]
+std::thread_local! {
+    static TRANSITION_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl crate::kernel::phase::StepWorkspace<'_> {
     /// 把本拍已验证转移暂存为规范排序的事件批次；失败时清空暂存，已发布批次不受影响。
     pub(crate) fn stage_transition_events(
@@ -170,6 +175,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             return Err(StepError::ConflictInvariantViolation);
         }
         crate::kernel::conflict_tick::reserve(&mut self.workspace.staged_transition_events, count)?;
+        // prepare_waiting_step 已清空暂存；首遍完整验证后，零事件无需再次生成。
+        // 提交阶段仍发布空批次，替换上一拍的事件。
+        if count == 0 {
+            return Ok(());
+        }
         let mut events = std::mem::take(&mut self.workspace.staged_transition_events);
         let result = self.visit_transition_events(updates, tick, |event| events.push(event));
         if result.is_err() {
@@ -195,6 +205,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         tick: u64,
         mut emit: impl FnMut(TrafficTransitionEvent),
     ) -> Result<(), StepError> {
+        #[cfg(test)]
+        TRANSITION_VISITS.set(TRANSITION_VISITS.get() + 1);
         let mut passage_cursor = 0;
         for (sequence, vehicle) in self.committed.live_order.iter().copied().enumerate() {
             let Some(update) =
@@ -379,5 +391,51 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             return Err(StepError::ConflictInvariantViolation);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::TickInput;
+    use crate::kernel::waiting::tests::multi_gate_world;
+
+    #[test]
+    fn empty_transition_batch_skips_only_generation_visit() {
+        let mut world = multi_gate_world(2);
+        let mut previous_nonempty = false;
+        let mut saw_event_to_empty = false;
+        for _ in 0..64 {
+            TRANSITION_VISITS.set(0);
+            world.step(TickInput::new(100)).unwrap();
+            let empty = world.latest_transition_events().is_empty();
+            assert_eq!(TRANSITION_VISITS.get(), if empty { 1 } else { 2 });
+            saw_event_to_empty |= previous_nonempty && empty;
+            previous_nonempty = !empty;
+        }
+        assert!(
+            saw_event_to_empty,
+            "previous events must be replaced by an empty batch"
+        );
+    }
+
+    #[test]
+    fn zero_event_fast_path_does_not_skip_first_visit_validation() {
+        let mut world = multi_gate_world(2);
+        let vehicle = world.live_vehicles()[0];
+        let state = *world.vehicle_state(vehicle).unwrap();
+        let slot = vehicle.index() as usize;
+        world.workspace.next_state_by_vehicle.fill(0);
+        world.workspace.next_state_by_vehicle[slot] = 1;
+        world.committed.routes[state.route().index() as usize].compiled = None;
+        TRANSITION_VISITS.set(0);
+        assert_eq!(
+            world
+                .step_workspace()
+                .stage_transition_events(&[(slot, state)], 1),
+            Err(StepError::ConflictInvariantViolation)
+        );
+        assert_eq!(TRANSITION_VISITS.get(), 1);
+        assert!(world.latest_transition_events().is_empty());
     }
 }

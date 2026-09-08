@@ -127,6 +127,48 @@ mod transaction_tests {
             );
         }
     }
+
+    #[test]
+    fn failed_empty_event_tick_preserves_previous_batch_and_retries_like_fresh() {
+        let mut world = crate::kernel::waiting::tests::multi_gate_world(2);
+        let mut fresh = crate::kernel::waiting::tests::multi_gate_world(2);
+        for _ in 0..64 {
+            fresh.step(TickInput::new(100)).unwrap();
+            if !world.latest_transition_events().is_empty()
+                && fresh.latest_transition_events().is_empty()
+            {
+                let before = world.capture_snapshot().unwrap();
+                let events = world.latest_transition_events().to_vec();
+                STEP_FAILPOINT.set(Some(StepFailpoint::AfterTransitions));
+                assert_eq!(
+                    world.step(TickInput::new(100)),
+                    Err(StepError::ParkingObservationAllocFailed)
+                );
+                assert_eq!(world.capture_snapshot().unwrap(), before);
+                assert_eq!(world.latest_transition_events(), events);
+                world.step(TickInput::new(100)).unwrap();
+                assert_eq!(
+                    world.capture_snapshot().unwrap(),
+                    fresh.capture_snapshot().unwrap()
+                );
+                assert_eq!(
+                    world.latest_transition_events(),
+                    fresh.latest_transition_events()
+                );
+                assert_eq!(
+                    world.latest_waiting_decisions(),
+                    fresh.latest_waiting_decisions()
+                );
+                assert_eq!(
+                    world.latest_conflict_decisions(),
+                    fresh.latest_conflict_decisions()
+                );
+                return;
+            }
+            world.step(TickInput::new(100)).unwrap();
+        }
+        panic!("fixture must transition from a nonempty event batch to an empty one");
+    }
 }
 
 /// §10.1 跟车查询窗：静止前车最坏情况，SI 有限后 `ceil` 到毫米。
