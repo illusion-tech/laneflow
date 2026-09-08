@@ -7,6 +7,9 @@ mod support;
 #[path = "runtime_cpu_sampling.rs"]
 mod cpu_sampling;
 
+#[path = "runtime_journal_ab.rs"]
+mod journal_ab;
+
 use std::time::Instant;
 use support::{CASES, Fixtures, Scene};
 
