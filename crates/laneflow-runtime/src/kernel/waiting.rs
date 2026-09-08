@@ -9,6 +9,8 @@ use laneflow_static_network::BoundedDistance;
 thread_local! {
     static WAITING_RESERVATIONS_BEFORE_FAILURE: core::cell::Cell<Option<usize>> =
         const { core::cell::Cell::new(None) };
+    static NON_ENTRY_GENERATION_VISITS: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
     static WAITING_WORK_COUNTS: core::cell::Cell<WaitingWorkCounts> =
         const { core::cell::Cell::new(WaitingWorkCounts {
             checked_zones: 0, staged_zones: 0, journal_zones: 0,
@@ -1701,49 +1703,54 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             &mut self.workspace.waiting_staged_decisions,
             non_entry_count,
         )?;
-        for sequence in 0..self.committed.live_order.len() {
-            let vehicle = self.committed.live_order[sequence];
-            let slot = vehicle.index() as usize;
-            let Some(update_index) = self.workspace.next_state_by_vehicle[slot].checked_sub(1)
-            else {
-                continue;
-            };
-            let old = self.committed.vehicles[slot]
-                .state
-                .expect("staged live vehicle");
-            let next = updates[update_index as usize].1;
-            let vehicle_update_sequence =
-                u32::try_from(sequence).map_err(|_| crate::StepError::WaitingInvariantViolation)?;
-            let compiled = self.committed.routes[old.route.index() as usize]
-                .compiled
-                .as_ref()
-                .expect("live route");
-            for (maneuver_occurrence_index, hop) in non_entry_gate_anchors(
-                compiled,
-                old,
-                next,
-                self.binding.revision.traffic().lane_lengths_millimetres(),
-            ) {
-                let gate = compiled.hop_gate[hop as usize].expect("indexed Gate");
-                // finalize 仍使用本 tick 的起始灯色；发布后刷新信号不改写这批决策。
-                let outcome = if self.gate_is_restrictive(gate, old.profile) {
-                    WaitingDecisionOutcome::NotEvaluated
-                } else {
-                    WaitingDecisionOutcome::NotRequired
+        // 零非入口 Gate 只省略重复生成；已有 Waiting 决策及事件仍须排序、暂存。
+        if non_entry_count != 0 {
+            for sequence in 0..self.committed.live_order.len() {
+                #[cfg(test)]
+                NON_ENTRY_GENERATION_VISITS.set(NON_ENTRY_GENERATION_VISITS.get() + 1);
+                let vehicle = self.committed.live_order[sequence];
+                let slot = vehicle.index() as usize;
+                let Some(update_index) = self.workspace.next_state_by_vehicle[slot].checked_sub(1)
+                else {
+                    continue;
                 };
-                self.workspace
-                    .waiting_staged_decisions
-                    .push(WaitingDecision {
-                        vehicle,
-                        vehicle_update_sequence,
-                        zone: None,
-                        anchor: WaitingRouteAnchor {
-                            route: old.route,
-                            maneuver_occurrence_index,
-                            hop,
-                        },
-                        outcome,
-                    });
+                let old = self.committed.vehicles[slot]
+                    .state
+                    .expect("staged live vehicle");
+                let next = updates[update_index as usize].1;
+                let vehicle_update_sequence = u32::try_from(sequence)
+                    .map_err(|_| crate::StepError::WaitingInvariantViolation)?;
+                let compiled = self.committed.routes[old.route.index() as usize]
+                    .compiled
+                    .as_ref()
+                    .expect("live route");
+                for (maneuver_occurrence_index, hop) in non_entry_gate_anchors(
+                    compiled,
+                    old,
+                    next,
+                    self.binding.revision.traffic().lane_lengths_millimetres(),
+                ) {
+                    let gate = compiled.hop_gate[hop as usize].expect("indexed Gate");
+                    // finalize 仍使用本 tick 的起始灯色；发布后刷新信号不改写这批决策。
+                    let outcome = if self.gate_is_restrictive(gate, old.profile) {
+                        WaitingDecisionOutcome::NotEvaluated
+                    } else {
+                        WaitingDecisionOutcome::NotRequired
+                    };
+                    self.workspace
+                        .waiting_staged_decisions
+                        .push(WaitingDecision {
+                            vehicle,
+                            vehicle_update_sequence,
+                            zone: None,
+                            anchor: WaitingRouteAnchor {
+                                route: old.route,
+                                maneuver_occurrence_index,
+                                hop,
+                            },
+                            outcome,
+                        });
+                }
             }
         }
         self.workspace
@@ -2231,6 +2238,73 @@ fn first_gate_hop(
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[test]
+    fn zero_non_entry_count_skips_only_generation_scan() {
+        let mut world = multi_gate_world(2);
+        let mut saw_non_entry = false;
+        let mut saw_waiting_without_non_entry = false;
+        let mut saw_events_without_non_entry = false;
+        let mut previous_non_entry = false;
+        let mut saw_non_entry_to_empty = false;
+        for _ in 0..64 {
+            NON_ENTRY_GENERATION_VISITS.set(0);
+            world.step(TickInput::new(100)).unwrap();
+            let decisions = world.latest_waiting_decisions();
+            let has_non_entry = decisions.iter().any(|decision| decision.zone().is_none());
+            assert_eq!(
+                NON_ENTRY_GENERATION_VISITS.get(),
+                if has_non_entry {
+                    world.committed.live_order.len()
+                } else {
+                    0
+                }
+            );
+            assert!(decisions.windows(2).all(|pair| {
+                (pair[0].vehicle_update_sequence(), pair[0].anchor().hop())
+                    <= (pair[1].vehicle_update_sequence(), pair[1].anchor().hop())
+            }));
+            saw_non_entry |= has_non_entry;
+            saw_waiting_without_non_entry |= !has_non_entry && !decisions.is_empty();
+            saw_events_without_non_entry |=
+                !has_non_entry && !world.latest_transition_events().is_empty();
+            saw_non_entry_to_empty |= previous_non_entry && decisions.is_empty();
+            previous_non_entry = has_non_entry;
+        }
+        assert!(saw_non_entry);
+        assert!(saw_waiting_without_non_entry);
+        assert!(saw_events_without_non_entry);
+        assert!(saw_non_entry_to_empty);
+    }
+
+    #[test]
+    fn zero_non_entry_count_keeps_transition_validation() {
+        use crate::kernel::conflict_tick::ConflictPassageTransition;
+        use laneflow_static_contract::{ConflictZoneOrdinal, ParticipantStreamOrdinal};
+
+        let mut world = multi_gate_world(1);
+        world
+            .workspace
+            .conflict_passage_transitions
+            .push(ConflictPassageTransition {
+                vehicle: world.live_vehicles()[0],
+                occurrence_index: 0,
+                address: crate::ConflictPassageAddress::new(
+                    ConflictZoneOrdinal::from_raw(0),
+                    ParticipantStreamOrdinal::from_raw(0),
+                    0,
+                ),
+                enter: true,
+                clear: false,
+            });
+        // 没有车辆更新，却残留通行段转移：必须到达后续事件访问器并报告不变量错误。
+        assert_eq!(
+            world.finalize_waiting_outputs(&[], 1),
+            Err(crate::StepError::ConflictInvariantViolation)
+        );
+        assert!(world.latest_waiting_decisions().is_empty());
+        assert!(world.latest_transition_events().is_empty());
+    }
+
     #[test]
     fn combined_scheduler_preserves_same_zone_physical_order() {
         let revision = waiting_scale_revision_with_layout(8.0, 1, ScaleLayout::MergingApproaches);
