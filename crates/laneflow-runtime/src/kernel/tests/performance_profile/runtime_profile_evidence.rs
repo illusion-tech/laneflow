@@ -4,6 +4,9 @@ use laneflow_runtime as runtime_types;
 #[path = "runtime_profile.rs"]
 mod support;
 
+#[path = "runtime_cpu_sampling.rs"]
+mod cpu_sampling;
+
 use std::time::Instant;
 use support::{CASES, Fixtures, Scene};
 
