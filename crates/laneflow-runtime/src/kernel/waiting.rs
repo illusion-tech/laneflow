@@ -1524,7 +1524,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
 
     pub(crate) fn waiting_stop_for(
         &self,
-        state: crate::VehicleState,
+        state: &crate::VehicleState,
     ) -> Result<Option<WaitingStopConstraint>, crate::StepError> {
         let Some(plan) = self
             .workspace

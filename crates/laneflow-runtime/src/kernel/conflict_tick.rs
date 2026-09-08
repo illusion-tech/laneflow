@@ -405,7 +405,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     /// 计算车辆因未授权 Conflict/Waiting 资源而必须停车的最近约束。
     pub(crate) fn conflict_stop_for(
         &self,
-        state: VehicleState,
+        state: &VehicleState,
     ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
         let grant_hop = self
             .workspace
@@ -706,7 +706,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     .get(index.get() as usize - 1)
                     .copied()
             });
-        let waiting_stop = self.waiting_stop_for(state)?;
+        let waiting_stop = self.waiting_stop_for(&state)?;
         let preview = self
             .advance_active_vehicle_with_waiting_stop(state, delta_s, waiting_stop, None)
             .ok_or(StepError::NonFiniteMotion)?;
@@ -1136,7 +1136,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             ));
         }
         if let Some(waiting) = self
-            .waiting_stop_for(state)
+            .waiting_stop_for(&state)
             .map_err(|_| ConflictAcquireError::InvalidBundle)?
             && waiting.hop > gate_hop
             && target > gate_boundary(waiting.hop)?
@@ -1854,8 +1854,8 @@ mod tests {
             .advance_active_vehicle_with_waiting_stop(
                 old,
                 0.1,
-                phase.waiting_stop_for(old).unwrap(),
-                phase.conflict_stop_for(old).unwrap(),
+                phase.waiting_stop_for(&old).unwrap(),
+                phase.conflict_stop_for(&old).unwrap(),
             )
             .unwrap();
         let mut updates = [(candidate.vehicle.index() as usize, next)];
