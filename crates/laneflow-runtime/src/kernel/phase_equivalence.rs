@@ -252,3 +252,11 @@ fn input_and_preparation_errors_precede_staged_failure() {
         world.step(TickInput::new(delta)).unwrap();
     }
 }
+
+#[test]
+fn occupancy_candidate_preserves_exact_trace_and_first_error_priority() {
+    crate::kernel::exact_path_research::with_candidate(true, || {
+        exact_baseline_trace_and_retry_match();
+        input_and_preparation_errors_precede_staged_failure();
+    });
+}

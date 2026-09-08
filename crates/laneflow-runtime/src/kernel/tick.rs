@@ -428,6 +428,10 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
         conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
     ) -> Option<VehicleState> {
+        #[cfg(test)]
+        let inputs_timer = super::exact_path_research::begin(
+            super::exact_path_research::Stage::RouteProfileInputs,
+        );
         let compiled = self.compiled_route(state.route)?;
         let edges = compiled.edges.as_slice();
         let cursor = usize::try_from(state.route_edge_index).ok()?;
@@ -446,7 +450,17 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             .relations()
             .vehicle_profile(state.profile)?;
         let desired_mm_s = profile.desired_speed_mm_s().min(current_limit);
+        #[cfg(test)]
+        drop(inputs_timer);
+        #[cfg(test)]
+        let horizon_timer =
+            super::exact_path_research::begin(super::exact_path_research::Stage::LeaderHorizon);
         let horizon = leader_query_horizon(state.speed_mm_s, profile, delta_s)?;
+        #[cfg(test)]
+        drop(horizon_timer);
+        #[cfg(test)]
+        let gap_timer =
+            super::exact_path_research::begin(super::exact_path_research::Stage::LeaderGap);
         let leader_gap = self.derived.occupancy.leader_gap(
             state.handle,
             edges,
@@ -455,10 +469,17 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             lengths,
             horizon,
         );
+        #[cfg(test)]
+        drop(gap_timer);
+        #[cfg(test)]
+        let stop_timer =
+            super::exact_path_research::begin(super::exact_path_research::Stage::RouteStopQueries);
         let route_end =
             remaining_to_route_end(*compiled.remaining_to_end.get(cursor)?, state.progress_mm);
         let signal_stop = self.signal_stop_distance(compiled, &state, cursor);
         let parking = self.parking_stop_distance(compiled, &state, cursor)?;
+        #[cfg(test)]
+        drop(stop_timer);
         let parking_stop = parking.map(|(_, distance)| distance);
         let selected_stop = select_movement_stop(signal_stop, parking_stop, route_end);
         let mut movement_stop = (!matches!(selected_stop.attribution, StopAttribution::RouteEnd))

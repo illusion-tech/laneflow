@@ -162,13 +162,18 @@ pub(crate) struct OccupancyIndex {
 #[derive(Debug)]
 pub(crate) struct OccupancyScratch {
     positions: Vec<usize>,
+    #[cfg(test)]
+    exact_pending: Vec<OccupancyRecord>,
 }
 
 #[cfg(test)]
 impl OccupancyScratch {
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
-        let Self { positions } = self;
-        crate::kernel::state::vec_bytes(positions)
+        let Self {
+            positions,
+            exact_pending,
+        } = self;
+        crate::kernel::state::vec_bytes(positions) + crate::kernel::state::vec_bytes(exact_pending)
     }
 }
 
@@ -217,6 +222,8 @@ impl OccupancyIndex {
         };
         let mut scratch = OccupancyScratch {
             positions: Vec::new(),
+            #[cfg(test)]
+            exact_pending: Vec::new(),
         };
         index.try_prepare_scratch(&mut scratch, 0)?;
         Ok((index, scratch))
@@ -229,6 +236,8 @@ impl OccupancyIndex {
         let offsets = vec![0; bucket_count.saturating_add(1)];
         let scratch = OccupancyScratch {
             positions: vec![0; bucket_count],
+            #[cfg(test)]
+            exact_pending: Vec::new(),
         };
         let index = Self {
             offsets,
@@ -636,6 +645,13 @@ fn rebuild_occupancy_index(
     occupancy: &mut OccupancyIndex,
     scratch: &mut OccupancyScratch,
 ) -> Result<(), StepError> {
+    #[cfg(test)]
+    if super::exact_path_research::candidate_enabled() {
+        return exact_candidate::rebuild(binding, committed, active_order, occupancy, scratch);
+    }
+    #[cfg(test)]
+    let count_timer =
+        super::exact_path_research::begin(super::exact_path_research::Stage::OccupancyCount);
     let bucket_count = usize::try_from(binding.revision.traffic().lane_edge_count())
         .expect("lane edge count fits usize");
     let ceiling = occupancy_record_limit(binding.config.vehicle_capacity());
@@ -657,8 +673,18 @@ fn rebuild_occupancy_index(
     if total > ceiling {
         return Err(StepError::OccupancyCapacityExceeded);
     }
+    #[cfg(test)]
+    drop(count_timer);
+    #[cfg(test)]
+    let layout_timer =
+        super::exact_path_research::begin(super::exact_path_research::Stage::OccupancyLayout);
     occupancy.try_reserve_records(total)?;
     occupancy.finish_layout(scratch, bucket_count);
+    #[cfg(test)]
+    drop(layout_timer);
+    #[cfg(test)]
+    let fill_timer =
+        super::exact_path_research::begin(super::exact_path_research::Stage::OccupancyFill);
     visit_occupancy_records(
         active_order,
         &committed.vehicles,
@@ -666,9 +692,18 @@ fn rebuild_occupancy_index(
         &committed.routes,
         |record| occupancy.write_record(scratch, record),
     )?;
+    #[cfg(test)]
+    drop(fill_timer);
+    #[cfg(test)]
+    let _sort_timer =
+        super::exact_path_research::begin(super::exact_path_research::Stage::OccupancySortSuffix);
     occupancy.sort_buckets(bucket_count);
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "tests/occupancy_exact_candidate.rs"]
+pub(crate) mod exact_candidate;
 
 impl TrafficWorld {
     /// 针对给定根与 staged 路线纯构造一份占用索引（不触及活动状态）。
@@ -827,7 +862,7 @@ mod tests {
         }
     }
 
-    fn compile_revision(
+    pub(super) fn compile_revision(
         configure: impl FnOnce(&mut SyntheticModuleBuilder),
     ) -> Arc<SharedNetworkRevision> {
         let limits = CompileLimits::p100_initial_v1();
@@ -879,7 +914,7 @@ mod tests {
         .expect("shared network revision")
     }
 
-    fn add_car_profile(module: &mut SyntheticModuleBuilder) {
+    pub(super) fn add_car_profile(module: &mut SyntheticModuleBuilder) {
         module
             .add_participant_class(ParticipantClassInput {
                 participant_class_key: "road-user",
@@ -2168,6 +2203,7 @@ mod tests {
     ) {
         let mut scratch = OccupancyScratch {
             positions: Vec::new(),
+            exact_pending: Vec::new(),
         };
         let pending = vec![
             OccupancyRecord {
@@ -2691,5 +2727,18 @@ mod tests {
             before_len,
             "failed rebuild must not replace occupancy records"
         );
+    }
+
+    #[test]
+    fn candidate_preserves_existing_occupancy_oracles_and_boundaries() {
+        crate::kernel::exact_path_research::with_candidate(true, || {
+            full_spatial_follower_matches_scan_oracle();
+            leader_fully_on_next_edge_matches_scan();
+            cycle_wrap_uses_later_occurrence_of_vehicle_behind();
+            parked_and_completed_are_not_leaders();
+            diverge_overhang_matches_scan_and_occupancy_front_gap();
+            formula_horizon_hides_leader_beyond_and_matches_filtered_scan();
+            corrupt_route_index_fails_closed_occupancy_rebuild();
+        });
     }
 }

@@ -1,0 +1,9 @@
+
+running 1 test
+test kernel::exact_path_research::occupancy_exact_equivalence_windows ... exact-equivalence scene=lane-1000-256-journal-false steps=64 digest=31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b
+exact-equivalence scene=lane-10000-256-journal-false steps=64 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+exact-equivalence scene=lane-10000-16-journal-false steps=64 digest=dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa
+exact-equivalence scene=multi-edge-1000-64-rings-32-edges steps=64 digest=c939c964bec56a58516dde39ce09601bbaba79f626dc73c4133100306efb9a6c
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 333 filtered out; finished in 1.90s
