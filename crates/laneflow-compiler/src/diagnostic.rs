@@ -2790,7 +2790,8 @@ impl Diagnostic {
         )
     }
 
-    /// 构造停车位入口或出口锚点不位于车道图边严格内部的诊断。
+    /// 构造停车锚点不位于车道图边严格内部的诊断；覆盖停车位入口/出口锚点与停车设施
+    /// 虚拟入口/出口锚点两类场景。
     // The diagnostic preserves both source values and the closed millimetre interval; grouping
     // them into an ad-hoc context would hide the payload contract from call sites.
     #[allow(clippy::too_many_arguments)]
