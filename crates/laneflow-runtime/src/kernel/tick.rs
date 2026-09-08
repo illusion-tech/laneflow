@@ -360,12 +360,12 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         }
         for (slot, next) in &updates {
             let previous = self.committed.vehicles[*slot].state.replace(*next);
-            if !previous.as_ref().is_some_and(|old| *old == *next) {
+            if let Some(journal) = migration_journal.as_mut()
+                && !previous.as_ref().is_some_and(|old| *old == *next)
+            {
                 let delta =
                     VehicleDelta::from_state(next, self.read_view().compiled_route(next.route));
-                if let Some(journal) = migration_journal.as_mut() {
-                    journal.tick_entry(&delta);
-                }
+                journal.tick_entry(&delta);
             }
         }
         if let Some(journal) = migration_journal.as_mut() {
