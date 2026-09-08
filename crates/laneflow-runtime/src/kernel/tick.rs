@@ -169,6 +169,58 @@ mod transaction_tests {
         }
         panic!("fixture must transition from a nonempty event batch to an empty one");
     }
+
+    #[test]
+    fn failed_zero_non_entry_tick_preserves_outputs_and_retries_like_fresh() {
+        let mut world = crate::kernel::waiting::tests::multi_gate_world(2);
+        let mut fresh = crate::kernel::waiting::tests::multi_gate_world(2);
+        for _ in 0..64 {
+            fresh.step(TickInput::new(100)).unwrap();
+            let previous_non_entry = world
+                .latest_waiting_decisions()
+                .iter()
+                .any(|decision| decision.zone().is_none());
+            let next_has_no_non_entry = fresh
+                .latest_waiting_decisions()
+                .iter()
+                .all(|decision| decision.zone().is_some());
+            if previous_non_entry && next_has_no_non_entry {
+                let before = world.capture_snapshot().unwrap();
+                let waiting = world.latest_waiting_decisions().to_vec();
+                let conflict = world.latest_conflict_decisions().to_vec();
+                let events = world.latest_transition_events().to_vec();
+                STEP_FAILPOINT.set(Some(StepFailpoint::AfterTransitions));
+                assert_eq!(
+                    world.step(TickInput::new(100)),
+                    Err(StepError::ParkingObservationAllocFailed)
+                );
+                assert_eq!(world.capture_snapshot().unwrap(), before);
+                assert_eq!(world.latest_waiting_decisions(), waiting);
+                assert_eq!(world.latest_conflict_decisions(), conflict);
+                assert_eq!(world.latest_transition_events(), events);
+                world.step(TickInput::new(100)).unwrap();
+                assert_eq!(
+                    world.capture_snapshot().unwrap(),
+                    fresh.capture_snapshot().unwrap()
+                );
+                assert_eq!(
+                    world.latest_waiting_decisions(),
+                    fresh.latest_waiting_decisions()
+                );
+                assert_eq!(
+                    world.latest_conflict_decisions(),
+                    fresh.latest_conflict_decisions()
+                );
+                assert_eq!(
+                    world.latest_transition_events(),
+                    fresh.latest_transition_events()
+                );
+                return;
+            }
+            world.step(TickInput::new(100)).unwrap();
+        }
+        panic!("fixture must transition from non-entry Gate decisions to none");
+    }
 }
 
 /// §10.1 跟车查询窗：静止前车最坏情况，SI 有限后 `ceil` 到毫米。
