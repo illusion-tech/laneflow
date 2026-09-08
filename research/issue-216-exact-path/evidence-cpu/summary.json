@@ -1,0 +1,1619 @@
+[
+  {
+    "case": "1k-256",
+    "workload_pid": 67944,
+    "csv_sha256": "34133276a103b11c17a3826d2e4a0b9e759ceba811b22572ab7778a96934c44e",
+    "rounds": 1024,
+    "steps": 65536,
+    "observed_wall_ms": 13172.9303,
+    "digest": "31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b",
+    "process_samples": 22489,
+    "process_sample_weight_ms": 22318.517,
+    "process_no_stack_samples": 0,
+    "anchor_samples": 12662,
+    "anchor_sample_weight_ms": 12570.6982,
+    "step_samples": 12662,
+    "step_sample_weight_ms": 12570.6982,
+    "step_thread_samples": {
+      "67160": 12662
+    },
+    "step_unknown_function_samples": 154,
+    "step_missing_application_pdb_samples": 0,
+    "lost_events": 0,
+    "lost_buffers": 0,
+    "self_functions": [
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::stage_vehicle_transitions",
+        "samples": 2727,
+        "weight_ms": 2706.7262,
+        "percent": 21.53202755277348
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::advance_active_vehicle_with_waiting_stop",
+        "samples": 2077,
+        "weight_ms": 2060.2769,
+        "percent": 16.389518443772676
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::finalize_waiting_outputs",
+        "samples": 1746,
+        "weight_ms": 1731.3372,
+        "percent": 13.77280062295983
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::si_comfort_travel",
+        "samples": 1246,
+        "weight_ms": 1233.4131,
+        "percent": 9.81181061207881
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::CommittedStateMut::commit",
+        "samples": 544,
+        "weight_ms": 541.1525,
+        "percent": 4.304872262385553
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::owner_at",
+        "samples": 538,
+        "weight_ms": 534.9075,
+        "percent": 4.25519323978361
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::leader_gap",
+        "samples": 441,
+        "weight_ms": 439.7226,
+        "percent": 3.4979966347453955
+      },
+      {
+        "function": "laneflow_runtime::kernel::tables::for_each_occupancy_interval<laneflow_runtime::kernel::occupancy::visit_occupancy_records::closure_env$0<laneflow_runtime::kernel::occupancy::rebuild_occupancy_index::closure_env$1> >",
+        "samples": 423,
+        "weight_ms": 420.6143,
+        "percent": 3.345989962594122
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::leader_query_horizon",
+        "samples": 316,
+        "weight_ms": 314.6669,
+        "percent": 2.503177588019733
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::rebuild_occupancy_index",
+        "samples": 302,
+        "weight_ms": 302.2077,
+        "percent": 2.404064557050618
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::derive_waiting_traversal_with_signals",
+        "samples": 249,
+        "weight_ms": 247.0223,
+        "percent": 1.965064279404942
+      },
+      {
+        "function": "laneflow_runtime::admin::migration_journal::VehicleDelta::from_state",
+        "samples": 245,
+        "weight_ms": 243.2673,
+        "percent": 1.935193225782797
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::prepare_commit",
+        "samples": 216,
+        "weight_ms": 214.4159,
+        "percent": 1.7056801188656332
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::sort_buckets",
+        "samples": 175,
+        "weight_ms": 173.6678,
+        "percent": 1.381528672766959
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::reservation",
+        "samples": 143,
+        "weight_ms": 142.2227,
+        "percent": 1.1313826625795536
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::apply_travel_mm<laneflow_runtime::kernel::tick::impl$3::advance_active_vehicle_with_waiting_stop::closure_env$2>",
+        "samples": 143,
+        "weight_ms": 141.4293,
+        "percent": 1.1250711595319343
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::parking_stop_distance",
+        "samples": 126,
+        "weight_ms": 125.0468,
+        "percent": 0.994748247157823
+      },
+      {
+        "function": "laneflow_runtime::facade::TrafficWorld::conflict_state_valid",
+        "samples": 111,
+        "weight_ms": 110.1502,
+        "percent": 0.8762456806098488
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::state_valid",
+        "samples": 107,
+        "weight_ms": 105.9089,
+        "percent": 0.8425061067809264
+      },
+      {
+        "function": "vcruntime140.dll!<PDB not found>",
+        "samples": 84,
+        "weight_ms": 83.9728,
+        "percent": 0.6680042640750058
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::signal_stop_distance",
+        "samples": 79,
+        "weight_ms": 79.0554,
+        "percent": 0.628886309592573
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::parking_state_valid",
+        "samples": 73,
+        "weight_ms": 73.019,
+        "percent": 0.5808667015806648
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::CommittedStateMut::rebuild_waiting_member_rows",
+        "samples": 70,
+        "weight_ms": 69.3083,
+        "percent": 0.5513480547961926
+      },
+      {
+        "function": "laneflow_static_network::relations::SharedRelationClosure::vehicle_profile",
+        "samples": 67,
+        "weight_ms": 65.9903,
+        "percent": 0.5249533395050404
+      },
+      {
+        "function": "hashbrown::map::HashMap<laneflow_runtime::kernel::handle::VehicleHandle,enum2$<laneflow_runtime::kernel::parking::ParkingBinding>,std::hash::random::RandomState,alloc::alloc::Global>::get<laneflow_runtime::kernel::handle::VehicleHandle,enum2$<laneflow_runtime::kernel::parking::ParkingBinding>,std::hash::random::RandomState,alloc::alloc::Global,laneflow_runtime::kernel::handle::VehicleHandle>",
+        "samples": 66,
+        "weight_ms": 65.4196,
+        "percent": 0.5204134166549317
+      },
+      {
+        "function": "core::slice::sort::shared::smallsort::insertion_sort_shift_left<laneflow_runtime::kernel::occupancy::OccupancyRecord,core::slice::impl$0::sort_unstable_by_key::closure_env$0<laneflow_runtime::kernel::occupancy::OccupancyRecord,tuple$<u32,u32,u32,u32>,laneflow_runtime::kernel::occupancy::impl$4::sort_buckets::closure_env$0> >",
+        "samples": 60,
+        "weight_ms": 58.8879,
+        "percent": 0.4684536933676445
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::waiting_semantic_member_count",
+        "samples": 55,
+        "weight_ms": 54.6636,
+        "percent": 0.43484935466830316
+      },
+      {
+        "function": "ucrtbase.dll!<PDB not found>",
+        "samples": 43,
+        "weight_ms": 42.5619,
+        "percent": 0.33858023892419914
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::waiting_stop_for",
+        "samples": 39,
+        "weight_ms": 39.5458,
+        "percent": 0.31458714043425207
+      },
+      {
+        "function": "core::iter::adapters::chain::impl$1::fold<core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<laneflow_runtime::kernel::conflict_tick::PreparedConflictGrant>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$0>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$1>,core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<tuple$<usize,laneflow_runtime::kernel::vehicle::VehicleState> >,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$2>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$3>,usize,core::iter::traits::accum::impl$48::sum::closure_env$0<core::iter::adapters::chain::Chain<core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<laneflow_runtime::kernel::conflict_tick::PreparedConflictGrant>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$0>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$1>,core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<tuple$<usize,laneflow_runtime::kernel::vehicle::VehicleState> >,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$2>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$3> > > >",
+        "samples": 38,
+        "weight_ms": 37.5685,
+        "percent": 0.29885770386246324
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::finish_layout",
+        "samples": 35,
+        "weight_ms": 34.9534,
+        "percent": 0.2780545634291021
+      },
+      {
+        "function": "ntoskrnl.exe!<PDB not found>",
+        "samples": 26,
+        "weight_ms": 26.0743,
+        "percent": 0.20742125524897256
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::ManeuverOccurrence,laneflow_runtime::kernel::transitions::impl$3::visit_transition_events::closure_env$8<laneflow_runtime::kernel::transitions::impl$3::stage_transition_events::closure_env$0> >",
+        "samples": 13,
+        "weight_ms": 13.1799,
+        "percent": 0.10484620496258514
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::hop_permitted",
+        "samples": 9,
+        "weight_ms": 8.6619,
+        "percent": 0.06890548052454239
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::WaitingOccurrence,laneflow_runtime::kernel::conflict_tick::impl$5::conflict_stop_for::closure_env$6>",
+        "samples": 7,
+        "weight_ms": 7.1112,
+        "percent": 0.05656965020447313
+      },
+      {
+        "function": "rint",
+        "samples": 7,
+        "weight_ms": 6.825,
+        "percent": 0.054292927022939745
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::authority_owners_valid<laneflow_runtime::kernel::world::impl$2::conflict_state_valid::closure_env$1>",
+        "samples": 4,
+        "weight_ms": 3.909,
+        "percent": 0.031096124795995817
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::ConflictPassageOccurrence,laneflow_runtime::kernel::conflict_tick::impl$5::conflict_stop_for::closure_env$5>",
+        "samples": 4,
+        "weight_ms": 3.8574,
+        "percent": 0.030685646402679526
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::prepare_waiting_dependencies",
+        "samples": 2,
+        "weight_ms": 2.0071,
+        "percent": 0.01596649579893661
+      },
+      {
+        "function": "core::slice::iter::impl$171::all<laneflow_runtime::kernel::conflict::OwnedDownstreamClaim,laneflow_runtime::kernel::conflict::impl$23::authority_owners_valid::closure_env$9<laneflow_runtime::kernel::world::impl$2::conflict_state_valid::closure_env$1> >",
+        "samples": 1,
+        "weight_ms": 1.0006,
+        "percent": 0.007959780626982198
+      },
+      {
+        "function": "core::slice::iter::impl$171::all<tuple$<usize,laneflow_runtime::kernel::handle::VehicleHandle,u64>,laneflow_runtime::kernel::conflict::impl$23::authority_owners_valid::closure_env$7<laneflow_runtime::kernel::world::impl$2::conflict_state_valid::closure_env$1> >",
+        "samples": 1,
+        "weight_ms": 1.0,
+        "percent": 0.007955007622408753
+      },
+      {
+        "function": "core::ptr::drop_glue<laneflow_runtime::kernel::waiting_dependencies::WaitingDependencies>",
+        "samples": 1,
+        "weight_ms": 1.0,
+        "percent": 0.007955007622408753
+      },
+      {
+        "function": "laneflow_runtime::facade::TrafficWorld::step",
+        "samples": 1,
+        "weight_ms": 1.0,
+        "percent": 0.007955007622408753
+      },
+      {
+        "function": "nvlddmkm.sys!<PDB not found>",
+        "samples": 1,
+        "weight_ms": 1.0,
+        "percent": 0.007955007622408753
+      },
+      {
+        "function": "core::iter::adapters::chain::impl$1::fold<core::iter::adapters::map::Map<core::slice::iter::Iter<laneflow_runtime::kernel::conflict::ConflictReservation>,laneflow_runtime::kernel::conflict::impl$23::owners::closure_env$0>,core::iter::adapters::map::Map<core::iter::adapters::filter::Filter<core::slice::iter::Iter<laneflow_runtime::kernel::conflict::StagedConflictOwner>,laneflow_runtime::kernel::conflict::impl$23::owners::closure_env$1>,laneflow_runtime::kernel::conflict::impl$23::owners::closure_env$2>,usize,core::iter::adapters::map::map_fold::closure_env$0<laneflow_runtime::kernel::conflict::ConflictOwnerAuthority,usize,usize,core::iter::adapters::filter::impl$3::count::to_usize::closure_env$0<laneflow_runtime::kernel::conflict::ConflictOwnerAuthority,laneflow_runtime::kernel::conflict::impl$23::authority_owners_valid::closure_env$4<laneflow_runtime::kernel::world::impl$2::conflict_state_valid::closure_env$1> >,core::iter::traits::accum::impl$48::sum::closure_env$0<core::iter::adapters::map::Map<core::iter::adapters::chain::Chain<core::iter::adapters::map::Map<core::slice::iter::Iter<laneflow_runtime::kernel::conflict::ConflictReservation>,laneflow_runtime::kernel::conflict::impl$23::owners::closure_env$0>,core::iter::adapters::map::Map<core::iter::adapters::filter::Filter<core::slice::iter::Iter<laneflow_runtime::kernel::conflict::StagedConflictOwner>,laneflow_runtime::kernel::conflict::impl$23::owners::closure_env$1>,laneflow_runtime::kernel::conflict::impl$23::owners::closure_env$2> >,core::iter::adapters::filter::impl$3::count::to_usize::closure_env$0<laneflow_runtime::kernel::conflict::ConflictOwnerAuthority,laneflow_runtime::kernel::conflict::impl$23::authority_owners_valid::closure_env$4<laneflow_runtime::kernel::world::impl$2::conflict_state_valid::closure_env$1> > > > > >",
+        "samples": 1,
+        "weight_ms": 0.9692,
+        "percent": 0.0077099933876385645
+      }
+    ],
+    "inclusive_functions": [
+      {
+        "function": "laneflow_runtime::facade::TrafficWorld::step",
+        "samples": 12662,
+        "weight_ms": 12570.6982,
+        "percent": 100.0
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::prepare_commit",
+        "samples": 10342,
+        "weight_ms": 10263.8941,
+        "percent": 81.64935580109623
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::stage_vehicle_transitions",
+        "samples": 10070,
+        "weight_ms": 9993.8396,
+        "percent": 79.50107019513045
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::advance_active_vehicle_with_waiting_stop",
+        "samples": 4603,
+        "weight_ms": 4566.9003,
+        "percent": 36.329726697280826
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::finalize_waiting_outputs",
+        "samples": 1970,
+        "weight_ms": 1953.9371,
+        "percent": 15.543584524207255
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::si_comfort_travel",
+        "samples": 1248,
+        "weight_ms": 1235.3987,
+        "percent": 9.827606075213865
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::rebuild_occupancy_index",
+        "samples": 1003,
+        "weight_ms": 998.3792,
+        "percent": 7.942114146054354
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::CommittedStateMut::commit",
+        "samples": 933,
+        "weight_ms": 927.7335,
+        "percent": 7.380127064063951
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::owner_at",
+        "samples": 538,
+        "weight_ms": 534.9075,
+        "percent": 4.25519323978361
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::leader_gap",
+        "samples": 442,
+        "weight_ms": 440.704,
+        "percent": 3.505803679226027
+      },
+      {
+        "function": "laneflow_runtime::kernel::tables::for_each_occupancy_interval<laneflow_runtime::kernel::occupancy::visit_occupancy_records::closure_env$0<laneflow_runtime::kernel::occupancy::rebuild_occupancy_index::closure_env$1> >",
+        "samples": 423,
+        "weight_ms": 420.6143,
+        "percent": 3.345989962594122
+      },
+      {
+        "function": "laneflow_runtime::facade::TrafficWorld::conflict_state_valid",
+        "samples": 383,
+        "weight_ms": 379.6914,
+        "percent": 3.020447981163051
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::leader_query_horizon",
+        "samples": 330,
+        "weight_ms": 328.7347,
+        "percent": 2.615087044250255
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::reservation",
+        "samples": 296,
+        "weight_ms": 293.6512,
+        "percent": 2.3359975343294774
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::derive_waiting_traversal_with_signals",
+        "samples": 251,
+        "weight_ms": 249.0417,
+        "percent": 1.981128621797634
+      },
+      {
+        "function": "laneflow_runtime::admin::migration_journal::VehicleDelta::from_state",
+        "samples": 245,
+        "weight_ms": 243.2673,
+        "percent": 1.935193225782797
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::sort_buckets",
+        "samples": 235,
+        "weight_ms": 232.5557,
+        "percent": 1.8499823661346033
+      },
+      {
+        "function": "core::iter::adapters::chain::impl$1::fold<core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<laneflow_runtime::kernel::conflict_tick::PreparedConflictGrant>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$0>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$1>,core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<tuple$<usize,laneflow_runtime::kernel::vehicle::VehicleState> >,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$2>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$3>,usize,core::iter::traits::accum::impl$48::sum::closure_env$0<core::iter::adapters::chain::Chain<core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<laneflow_runtime::kernel::conflict_tick::PreparedConflictGrant>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$0>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$1>,core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<tuple$<usize,laneflow_runtime::kernel::vehicle::VehicleState> >,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$2>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$3> > > >",
+        "samples": 174,
+        "weight_ms": 172.8193,
+        "percent": 1.374778848799345
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::state_valid",
+        "samples": 166,
+        "weight_ms": 164.3605,
+        "percent": 1.3074890303229139
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::parking_stop_distance",
+        "samples": 162,
+        "weight_ms": 161.3085,
+        "percent": 1.2832103470593224
+      },
+      {
+        "function": "<PDB not found>",
+        "samples": 154,
+        "weight_ms": 153.609,
+        "percent": 1.2219607658705862
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::apply_travel_mm<laneflow_runtime::kernel::tick::impl$3::advance_active_vehicle_with_waiting_stop::closure_env$2>",
+        "samples": 143,
+        "weight_ms": 141.4293,
+        "percent": 1.1250711595319343
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::parking_state_valid",
+        "samples": 84,
+        "weight_ms": 83.7053,
+        "percent": 0.6658762995360115
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::signal_stop_distance",
+        "samples": 79,
+        "weight_ms": 79.0554,
+        "percent": 0.628886309592573
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::CommittedStateMut::rebuild_waiting_member_rows",
+        "samples": 70,
+        "weight_ms": 69.3083,
+        "percent": 0.5513480547961926
+      },
+      {
+        "function": "laneflow_static_network::relations::SharedRelationClosure::vehicle_profile",
+        "samples": 69,
+        "weight_ms": 67.9903,
+        "percent": 0.5408633547498579
+      },
+      {
+        "function": "hashbrown::map::HashMap<laneflow_runtime::kernel::handle::VehicleHandle,enum2$<laneflow_runtime::kernel::parking::ParkingBinding>,std::hash::random::RandomState,alloc::alloc::Global>::get<laneflow_runtime::kernel::handle::VehicleHandle,enum2$<laneflow_runtime::kernel::parking::ParkingBinding>,std::hash::random::RandomState,alloc::alloc::Global,laneflow_runtime::kernel::handle::VehicleHandle>",
+        "samples": 67,
+        "weight_ms": 66.4196,
+        "percent": 0.5283684242773404
+      },
+      {
+        "function": "core::slice::sort::shared::smallsort::insertion_sort_shift_left<laneflow_runtime::kernel::occupancy::OccupancyRecord,core::slice::impl$0::sort_unstable_by_key::closure_env$0<laneflow_runtime::kernel::occupancy::OccupancyRecord,tuple$<u32,u32,u32,u32>,laneflow_runtime::kernel::occupancy::impl$4::sort_buckets::closure_env$0> >",
+        "samples": 60,
+        "weight_ms": 58.8879,
+        "percent": 0.4684536933676445
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::waiting_semantic_member_count",
+        "samples": 55,
+        "weight_ms": 54.6636,
+        "percent": 0.43484935466830316
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::finish_layout",
+        "samples": 41,
+        "weight_ms": 41.0078,
+        "percent": 0.3262173615782137
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::waiting_stop_for",
+        "samples": 39,
+        "weight_ms": 39.5458,
+        "percent": 0.31458714043425207
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::ManeuverOccurrence,laneflow_runtime::kernel::transitions::impl$3::visit_transition_events::closure_env$8<laneflow_runtime::kernel::transitions::impl$3::stage_transition_events::closure_env$0> >",
+        "samples": 13,
+        "weight_ms": 13.1799,
+        "percent": 0.10484620496258514
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::hop_permitted",
+        "samples": 9,
+        "weight_ms": 8.6619,
+        "percent": 0.06890548052454239
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::WaitingOccurrence,laneflow_runtime::kernel::conflict_tick::impl$5::conflict_stop_for::closure_env$6>",
+        "samples": 7,
+        "weight_ms": 7.1112,
+        "percent": 0.05656965020447313
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::authority_owners_valid<laneflow_runtime::kernel::world::impl$2::conflict_state_valid::closure_env$1>",
+        "samples": 7,
+        "weight_ms": 6.8788,
+        "percent": 0.05472090643302534
+      },
+      {
+        "function": "rint",
+        "samples": 7,
+        "weight_ms": 6.825,
+        "percent": 0.054292927022939745
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::prepare_waiting_dependencies",
+        "samples": 5,
+        "weight_ms": 5.0178,
+        "percent": 0.039916637247722646
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::ConflictPassageOccurrence,laneflow_runtime::kernel::conflict_tick::impl$5::conflict_stop_for::closure_env$5>",
+        "samples": 4,
+        "weight_ms": 3.8574,
+        "percent": 0.030685646402679526
+      },
+      {
+        "function": "core::slice::iter::impl$171::all<laneflow_runtime::kernel::conflict::OwnedDownstreamClaim,laneflow_runtime::kernel::conflict::impl$23::authority_owners_valid::closure_env$9<laneflow_runtime::kernel::world::impl$2::conflict_state_valid::closure_env$1> >",
+        "samples": 1,
+        "weight_ms": 1.0006,
+        "percent": 0.007959780626982198
+      },
+      {
+        "function": "core::slice::iter::impl$171::all<tuple$<usize,laneflow_runtime::kernel::handle::VehicleHandle,u64>,laneflow_runtime::kernel::conflict::impl$23::authority_owners_valid::closure_env$7<laneflow_runtime::kernel::world::impl$2::conflict_state_valid::closure_env$1> >",
+        "samples": 1,
+        "weight_ms": 1.0,
+        "percent": 0.007955007622408753
+      },
+      {
+        "function": "core::ptr::drop_glue<laneflow_runtime::kernel::waiting_dependencies::WaitingDependencies>",
+        "samples": 1,
+        "weight_ms": 1.0,
+        "percent": 0.007955007622408753
+      },
+      {
+        "function": "core::iter::adapters::chain::impl$1::fold<core::iter::adapters::map::Map<core::slice::iter::Iter<laneflow_runtime::kernel::conflict::ConflictReservation>,laneflow_runtime::kernel::conflict::impl$23::owners::closure_env$0>,core::iter::adapters::map::Map<core::iter::adapters::filter::Filter<core::slice::iter::Iter<laneflow_runtime::kernel::conflict::StagedConflictOwner>,laneflow_runtime::kernel::conflict::impl$23::owners::closure_env$1>,laneflow_runtime::kernel::conflict::impl$23::owners::closure_env$2>,usize,core::iter::adapters::map::map_fold::closure_env$0<laneflow_runtime::kernel::conflict::ConflictOwnerAuthority,usize,usize,core::iter::adapters::filter::impl$3::count::to_usize::closure_env$0<laneflow_runtime::kernel::conflict::ConflictOwnerAuthority,laneflow_runtime::kernel::conflict::impl$23::authority_owners_valid::closure_env$4<laneflow_runtime::kernel::world::impl$2::conflict_state_valid::closure_env$1> >,core::iter::traits::accum::impl$48::sum::closure_env$0<core::iter::adapters::map::Map<core::iter::adapters::chain::Chain<core::iter::adapters::map::Map<core::slice::iter::Iter<laneflow_runtime::kernel::conflict::ConflictReservation>,laneflow_runtime::kernel::conflict::impl$23::owners::closure_env$0>,core::iter::adapters::map::Map<core::iter::adapters::filter::Filter<core::slice::iter::Iter<laneflow_runtime::kernel::conflict::StagedConflictOwner>,laneflow_runtime::kernel::conflict::impl$23::owners::closure_env$1>,laneflow_runtime::kernel::conflict::impl$23::owners::closure_env$2> >,core::iter::adapters::filter::impl$3::count::to_usize::closure_env$0<laneflow_runtime::kernel::conflict::ConflictOwnerAuthority,laneflow_runtime::kernel::conflict::impl$23::authority_owners_valid::closure_env$4<laneflow_runtime::kernel::world::impl$2::conflict_state_valid::closure_env$1> > > > > >",
+        "samples": 1,
+        "weight_ms": 0.9692,
+        "percent": 0.0077099933876385645
+      }
+    ],
+    "disjoint_exact_path_percent": {
+      "leader_gap": 3.505803679226027,
+      "occupancy_rebuild": 7.942114146054354,
+      "leader_horizon": 2.615087044250255,
+      "sum": 14.063004869530635
+    }
+  },
+  {
+    "case": "10k-256",
+    "workload_pid": 80128,
+    "csv_sha256": "677d39b26ab4d87d3d95a8e86d0c8a382a41c622ba7b71cbeb1966c7966f2358",
+    "rounds": 128,
+    "steps": 8192,
+    "observed_wall_ms": 18003.0794,
+    "digest": "81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb",
+    "process_samples": 34064,
+    "process_sample_weight_ms": 33795.4947,
+    "process_no_stack_samples": 0,
+    "anchor_samples": 17310,
+    "anchor_sample_weight_ms": 17184.1105,
+    "step_samples": 17310,
+    "step_sample_weight_ms": 17184.1105,
+    "step_thread_samples": {
+      "25800": 17310
+    },
+    "step_unknown_function_samples": 230,
+    "step_missing_application_pdb_samples": 0,
+    "lost_events": 0,
+    "lost_buffers": 0,
+    "self_functions": [
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::stage_vehicle_transitions",
+        "samples": 3966,
+        "weight_ms": 3937.3012,
+        "percent": 22.91245275686513
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::advance_active_vehicle_with_waiting_stop",
+        "samples": 2766,
+        "weight_ms": 2754.4544,
+        "percent": 16.029077559760804
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::finalize_waiting_outputs",
+        "samples": 2240,
+        "weight_ms": 2220.075,
+        "percent": 12.919347789342952
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::leader_gap",
+        "samples": 1597,
+        "weight_ms": 1587.0357,
+        "percent": 9.235483559070456
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::si_comfort_travel",
+        "samples": 1399,
+        "weight_ms": 1385.2584,
+        "percent": 8.061274978416835
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::CommittedStateMut::commit",
+        "samples": 870,
+        "weight_ms": 860.7533,
+        "percent": 5.009007012612029
+      },
+      {
+        "function": "laneflow_runtime::kernel::tables::for_each_occupancy_interval<laneflow_runtime::kernel::occupancy::visit_occupancy_records::closure_env$0<laneflow_runtime::kernel::occupancy::rebuild_occupancy_index::closure_env$1> >",
+        "samples": 594,
+        "weight_ms": 588.9792,
+        "percent": 3.4274639935538125
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::owner_at",
+        "samples": 452,
+        "weight_ms": 449.0937,
+        "percent": 2.613424186256251
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::rebuild_occupancy_index",
+        "samples": 377,
+        "weight_ms": 372.6294,
+        "percent": 2.1684532347484615
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::leader_query_horizon",
+        "samples": 302,
+        "weight_ms": 302.6847,
+        "percent": 1.7614219834072877
+      },
+      {
+        "function": "laneflow_runtime::admin::migration_journal::VehicleDelta::from_state",
+        "samples": 264,
+        "weight_ms": 260.6633,
+        "percent": 1.5168856136021704
+      },
+      {
+        "function": "laneflow_runtime::facade::TrafficWorld::conflict_state_valid",
+        "samples": 262,
+        "weight_ms": 258.957,
+        "percent": 1.5069560917918912
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::apply_travel_mm<laneflow_runtime::kernel::tick::impl$3::advance_active_vehicle_with_waiting_stop::closure_env$2>",
+        "samples": 258,
+        "weight_ms": 255.34,
+        "percent": 1.485907577235377
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::derive_waiting_traversal_with_signals",
+        "samples": 255,
+        "weight_ms": 253.9018,
+        "percent": 1.4775382176458887
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::prepare_commit",
+        "samples": 248,
+        "weight_ms": 246.2758,
+        "percent": 1.4331600113954108
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::sort_buckets",
+        "samples": 219,
+        "weight_ms": 217.0303,
+        "percent": 1.2629708124840096
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::reservation",
+        "samples": 164,
+        "weight_ms": 161.9903,
+        "percent": 0.9426749205319647
+      },
+      {
+        "function": "vcruntime140.dll!<PDB not found>",
+        "samples": 156,
+        "weight_ms": 154.5987,
+        "percent": 0.8996607651004106
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::parking_stop_distance",
+        "samples": 138,
+        "weight_ms": 137.2884,
+        "percent": 0.7989264268290174
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::state_valid",
+        "samples": 93,
+        "weight_ms": 92.2897,
+        "percent": 0.5370641675052078
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::CommittedStateMut::rebuild_waiting_member_rows",
+        "samples": 86,
+        "weight_ms": 85.6675,
+        "percent": 0.49852740413884095
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::waiting_semantic_member_count",
+        "samples": 71,
+        "weight_ms": 70.1832,
+        "percent": 0.40841916141076956
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::signal_stop_distance",
+        "samples": 70,
+        "weight_ms": 69.7641,
+        "percent": 0.40598028044570594
+      },
+      {
+        "function": "core::slice::sort::unstable::ipnsort<laneflow_runtime::kernel::occupancy::OccupancyRecord,core::slice::impl$0::sort_unstable_by_key::closure_env$0<laneflow_runtime::kernel::occupancy::OccupancyRecord,tuple$<u32,u32,u32,u32>,laneflow_runtime::kernel::occupancy::impl$4::sort_buckets::closure_env$0> >",
+        "samples": 62,
+        "weight_ms": 61.8986,
+        "percent": 0.36020834479619995
+      },
+      {
+        "function": "laneflow_static_network::relations::SharedRelationClosure::vehicle_profile",
+        "samples": 57,
+        "weight_ms": 56.3175,
+        "percent": 0.32773008530176756
+      },
+      {
+        "function": "hashbrown::map::HashMap<laneflow_runtime::kernel::handle::VehicleHandle,enum2$<laneflow_runtime::kernel::parking::ParkingBinding>,std::hash::random::RandomState,alloc::alloc::Global>::get<laneflow_runtime::kernel::handle::VehicleHandle,enum2$<laneflow_runtime::kernel::parking::ParkingBinding>,std::hash::random::RandomState,alloc::alloc::Global,laneflow_runtime::kernel::handle::VehicleHandle>",
+        "samples": 53,
+        "weight_ms": 52.742,
+        "percent": 0.3069230729166924
+      },
+      {
+        "function": "core::iter::adapters::chain::impl$1::fold<core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<laneflow_runtime::kernel::conflict_tick::PreparedConflictGrant>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$0>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$1>,core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<tuple$<usize,laneflow_runtime::kernel::vehicle::VehicleState> >,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$2>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$3>,usize,core::iter::traits::accum::impl$48::sum::closure_env$0<core::iter::adapters::chain::Chain<core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<laneflow_runtime::kernel::conflict_tick::PreparedConflictGrant>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$0>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$1>,core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<tuple$<usize,laneflow_runtime::kernel::vehicle::VehicleState> >,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$2>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$3> > > >",
+        "samples": 49,
+        "weight_ms": 48.728,
+        "percent": 0.28356428457556765
+      },
+      {
+        "function": "ntoskrnl.exe!<PDB not found>",
+        "samples": 48,
+        "weight_ms": 47.588,
+        "percent": 0.27693024902278185
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::parking_state_valid",
+        "samples": 44,
+        "weight_ms": 44.2161,
+        "percent": 0.2573080521101165
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::waiting_stop_for",
+        "samples": 34,
+        "weight_ms": 34.7121,
+        "percent": 0.20200114518583898
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::finish_layout",
+        "samples": 34,
+        "weight_ms": 33.6957,
+        "percent": 0.19608637875088153
+      },
+      {
+        "function": "ucrtbase.dll!<PDB not found>",
+        "samples": 25,
+        "weight_ms": 24.9124,
+        "percent": 0.14497346254843974
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::ManeuverOccurrence,laneflow_runtime::kernel::transitions::impl$3::visit_transition_events::closure_env$8<laneflow_runtime::kernel::transitions::impl$3::stage_transition_events::closure_env$0> >",
+        "samples": 22,
+        "weight_ms": 21.9394,
+        "percent": 0.12767259614630622
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::hop_permitted",
+        "samples": 13,
+        "weight_ms": 13.3176,
+        "percent": 0.07749950164717574
+      },
+      {
+        "function": "rint",
+        "samples": 8,
+        "weight_ms": 8.0615,
+        "percent": 0.046912524218230556
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::ConflictPassageOccurrence,laneflow_runtime::kernel::conflict_tick::impl$5::conflict_stop_for::closure_env$5>",
+        "samples": 3,
+        "weight_ms": 2.9465,
+        "percent": 0.01714665417217842
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::WaitingOccurrence,laneflow_runtime::kernel::conflict_tick::impl$5::conflict_stop_for::closure_env$6>",
+        "samples": 2,
+        "weight_ms": 2.061,
+        "percent": 0.01199363795990488
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::prepare_waiting_dependencies",
+        "samples": 2,
+        "weight_ms": 2.0305,
+        "percent": 0.011816148412220697
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::authority_owners_valid<laneflow_runtime::kernel::world::impl$2::conflict_state_valid::closure_env$1>",
+        "samples": 2,
+        "weight_ms": 1.9201,
+        "percent": 0.01117369444289828
+      },
+      {
+        "function": "nvlddmkm.sys!<PDB not found>",
+        "samples": 1,
+        "weight_ms": 1.0,
+        "percent": 0.0058193294322682575
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict_tick::ConflictSchedule::prepare",
+        "samples": 1,
+        "weight_ms": 0.9755,
+        "percent": 0.005676755861177685
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictWrite::flush_crossings",
+        "samples": 1,
+        "weight_ms": 0.9591,
+        "percent": 0.005581318858488485
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictWrite::discard_staged",
+        "samples": 1,
+        "weight_ms": 0.9445,
+        "percent": 0.0054963566487773695
+      },
+      {
+        "function": "core::slice::iter::impl$171::all<tuple$<usize,laneflow_runtime::kernel::handle::VehicleHandle,u64>,laneflow_runtime::kernel::conflict::impl$23::authority_owners_valid::closure_env$7<laneflow_runtime::kernel::world::impl$2::conflict_state_valid::closure_env$1> >",
+        "samples": 1,
+        "weight_ms": 0.9293,
+        "percent": 0.005407902841406891
+      }
+    ],
+    "inclusive_functions": [
+      {
+        "function": "laneflow_runtime::facade::TrafficWorld::step",
+        "samples": 17310,
+        "weight_ms": 17184.1105,
+        "percent": 100.0
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::prepare_commit",
+        "samples": 14169,
+        "weight_ms": 14074.7826,
+        "percent": 81.90579663695715
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::stage_vehicle_transitions",
+        "samples": 13844,
+        "weight_ms": 13752.4826,
+        "percent": 80.03022676093708
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::advance_active_vehicle_with_waiting_stop",
+        "samples": 6681,
+        "weight_ms": 6642.0798,
+        "percent": 38.65245047161446
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::finalize_waiting_outputs",
+        "samples": 2505,
+        "weight_ms": 2482.6288,
+        "percent": 14.447234845236824
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::leader_gap",
+        "samples": 1598,
+        "weight_ms": 1588.0357,
+        "percent": 9.241302888502725
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::si_comfort_travel",
+        "samples": 1405,
+        "weight_ms": 1391.2572,
+        "percent": 8.096183971815126
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::CommittedStateMut::commit",
+        "samples": 1365,
+        "weight_ms": 1350.8103,
+        "percent": 7.860810136201114
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::rebuild_occupancy_index",
+        "samples": 1295,
+        "weight_ms": 1282.9135,
+        "percent": 7.465696289604283
+      },
+      {
+        "function": "laneflow_runtime::kernel::tables::for_each_occupancy_interval<laneflow_runtime::kernel::occupancy::visit_occupancy_records::closure_env$0<laneflow_runtime::kernel::occupancy::rebuild_occupancy_index::closure_env$1> >",
+        "samples": 596,
+        "weight_ms": 590.9792,
+        "percent": 3.439102652418349
+      },
+      {
+        "function": "laneflow_runtime::facade::TrafficWorld::conflict_state_valid",
+        "samples": 481,
+        "weight_ms": 475.6041,
+        "percent": 2.7676969372374556
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::owner_at",
+        "samples": 455,
+        "weight_ms": 452.0937,
+        "percent": 2.6308821745530557
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::leader_query_horizon",
+        "samples": 311,
+        "weight_ms": 311.6845,
+        "percent": 1.8137947844318156
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::reservation",
+        "samples": 282,
+        "weight_ms": 279.8783,
+        "percent": 1.628704028643205
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::sort_buckets",
+        "samples": 281,
+        "weight_ms": 278.9289,
+        "percent": 1.6231791572802095
+      },
+      {
+        "function": "laneflow_runtime::admin::migration_journal::VehicleDelta::from_state",
+        "samples": 264,
+        "weight_ms": 260.6633,
+        "percent": 1.5168856136021704
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::apply_travel_mm<laneflow_runtime::kernel::tick::impl$3::advance_active_vehicle_with_waiting_stop::closure_env$2>",
+        "samples": 258,
+        "weight_ms": 255.34,
+        "percent": 1.485907577235377
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::derive_waiting_traversal_with_signals",
+        "samples": 255,
+        "weight_ms": 253.9018,
+        "percent": 1.4775382176458887
+      },
+      {
+        "function": "<PDB not found>",
+        "samples": 230,
+        "weight_ms": 228.0991,
+        "percent": 1.3273838061039005
+      },
+      {
+        "function": "core::iter::adapters::chain::impl$1::fold<core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<laneflow_runtime::kernel::conflict_tick::PreparedConflictGrant>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$0>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$1>,core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<tuple$<usize,laneflow_runtime::kernel::vehicle::VehicleState> >,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$2>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$3>,usize,core::iter::traits::accum::impl$48::sum::closure_env$0<core::iter::adapters::chain::Chain<core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<laneflow_runtime::kernel::conflict_tick::PreparedConflictGrant>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$0>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$1>,core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<tuple$<usize,laneflow_runtime::kernel::vehicle::VehicleState> >,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$2>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$3> > > >",
+        "samples": 198,
+        "weight_ms": 196.6747,
+        "percent": 1.1445148702925299
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::state_valid",
+        "samples": 164,
+        "weight_ms": 162.6869,
+        "percent": 0.9467286654144828
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::parking_stop_distance",
+        "samples": 163,
+        "weight_ms": 162.1459,
+        "percent": 0.9435804081916256
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::CommittedStateMut::rebuild_waiting_member_rows",
+        "samples": 87,
+        "weight_ms": 86.6675,
+        "percent": 0.5043467335711092
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::waiting_semantic_member_count",
+        "samples": 71,
+        "weight_ms": 70.1832,
+        "percent": 0.40841916141076956
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::signal_stop_distance",
+        "samples": 70,
+        "weight_ms": 69.7641,
+        "percent": 0.40598028044570594
+      },
+      {
+        "function": "core::slice::sort::unstable::ipnsort<laneflow_runtime::kernel::occupancy::OccupancyRecord,core::slice::impl$0::sort_unstable_by_key::closure_env$0<laneflow_runtime::kernel::occupancy::OccupancyRecord,tuple$<u32,u32,u32,u32>,laneflow_runtime::kernel::occupancy::impl$4::sort_buckets::closure_env$0> >",
+        "samples": 62,
+        "weight_ms": 61.8986,
+        "percent": 0.36020834479619995
+      },
+      {
+        "function": "laneflow_static_network::relations::SharedRelationClosure::vehicle_profile",
+        "samples": 59,
+        "weight_ms": 58.3175,
+        "percent": 0.3393687441663041
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::parking_state_valid",
+        "samples": 54,
+        "weight_ms": 53.9289,
+        "percent": 0.3138300350198516
+      },
+      {
+        "function": "hashbrown::map::HashMap<laneflow_runtime::kernel::handle::VehicleHandle,enum2$<laneflow_runtime::kernel::parking::ParkingBinding>,std::hash::random::RandomState,alloc::alloc::Global>::get<laneflow_runtime::kernel::handle::VehicleHandle,enum2$<laneflow_runtime::kernel::parking::ParkingBinding>,std::hash::random::RandomState,alloc::alloc::Global,laneflow_runtime::kernel::handle::VehicleHandle>",
+        "samples": 54,
+        "weight_ms": 53.742,
+        "percent": 0.31274240234896067
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::finish_layout",
+        "samples": 39,
+        "weight_ms": 38.6239,
+        "percent": 0.22476519805898595
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::waiting_stop_for",
+        "samples": 34,
+        "weight_ms": 34.7121,
+        "percent": 0.20200114518583898
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::ManeuverOccurrence,laneflow_runtime::kernel::transitions::impl$3::visit_transition_events::closure_env$8<laneflow_runtime::kernel::transitions::impl$3::stage_transition_events::closure_env$0> >",
+        "samples": 22,
+        "weight_ms": 21.9394,
+        "percent": 0.12767259614630622
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::hop_permitted",
+        "samples": 13,
+        "weight_ms": 13.3176,
+        "percent": 0.07749950164717574
+      },
+      {
+        "function": "rint",
+        "samples": 8,
+        "weight_ms": 8.0615,
+        "percent": 0.046912524218230556
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::prepare_waiting_dependencies",
+        "samples": 4,
+        "weight_ms": 4.047,
+        "percent": 0.023550826212389638
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::ConflictPassageOccurrence,laneflow_runtime::kernel::conflict_tick::impl$5::conflict_stop_for::closure_env$5>",
+        "samples": 3,
+        "weight_ms": 2.9465,
+        "percent": 0.01714665417217842
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::authority_owners_valid<laneflow_runtime::kernel::world::impl$2::conflict_state_valid::closure_env$1>",
+        "samples": 3,
+        "weight_ms": 2.8494,
+        "percent": 0.016581597284305173
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::WaitingOccurrence,laneflow_runtime::kernel::conflict_tick::impl$5::conflict_stop_for::closure_env$6>",
+        "samples": 2,
+        "weight_ms": 2.061,
+        "percent": 0.01199363795990488
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict_tick::ConflictSchedule::prepare",
+        "samples": 1,
+        "weight_ms": 0.9755,
+        "percent": 0.005676755861177685
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictWrite::flush_crossings",
+        "samples": 1,
+        "weight_ms": 0.9591,
+        "percent": 0.005581318858488485
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictWrite::discard_staged",
+        "samples": 1,
+        "weight_ms": 0.9445,
+        "percent": 0.0054963566487773695
+      },
+      {
+        "function": "core::slice::iter::impl$171::all<tuple$<usize,laneflow_runtime::kernel::handle::VehicleHandle,u64>,laneflow_runtime::kernel::conflict::impl$23::authority_owners_valid::closure_env$7<laneflow_runtime::kernel::world::impl$2::conflict_state_valid::closure_env$1> >",
+        "samples": 1,
+        "weight_ms": 0.9293,
+        "percent": 0.005407902841406891
+      }
+    ],
+    "disjoint_exact_path_percent": {
+      "leader_gap": 9.241302888502725,
+      "occupancy_rebuild": 7.465696289604283,
+      "leader_horizon": 1.8137947844318156,
+      "sum": 18.520793962538825
+    }
+  },
+  {
+    "case": "10k-16",
+    "workload_pid": 75536,
+    "csv_sha256": "813eb3f9d223ef893242b7d644d377821e4232bfb0d15d110b0dfbe1a8105332",
+    "rounds": 128,
+    "steps": 8192,
+    "observed_wall_ms": 18499.1553,
+    "digest": "dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa",
+    "process_samples": 36465,
+    "process_sample_weight_ms": 36183.9371,
+    "process_no_stack_samples": 0,
+    "anchor_samples": 17803,
+    "anchor_sample_weight_ms": 17668.5105,
+    "step_samples": 17803,
+    "step_sample_weight_ms": 17668.5105,
+    "step_thread_samples": {
+      "74400": 17803
+    },
+    "step_unknown_function_samples": 238,
+    "step_missing_application_pdb_samples": 0,
+    "lost_events": 0,
+    "lost_buffers": 0,
+    "self_functions": [
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::stage_vehicle_transitions",
+        "samples": 3787,
+        "weight_ms": 3756.8192,
+        "percent": 21.262795185819428
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::advance_active_vehicle_with_waiting_stop",
+        "samples": 2881,
+        "weight_ms": 2861.767,
+        "percent": 16.196990685773994
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::finalize_waiting_outputs",
+        "samples": 2246,
+        "weight_ms": 2225.4066,
+        "percent": 12.595326583981146
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::leader_gap",
+        "samples": 2183,
+        "weight_ms": 2172.4935,
+        "percent": 12.295849726551653
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::si_comfort_travel",
+        "samples": 1386,
+        "weight_ms": 1376.2605,
+        "percent": 7.78934081625047
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::CommittedStateMut::commit",
+        "samples": 749,
+        "weight_ms": 741.1534,
+        "percent": 4.194770125076475
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::owner_at",
+        "samples": 577,
+        "weight_ms": 573.1463,
+        "percent": 3.2438857819961675
+      },
+      {
+        "function": "laneflow_runtime::kernel::tables::for_each_occupancy_interval<laneflow_runtime::kernel::occupancy::visit_occupancy_records::closure_env$0<laneflow_runtime::kernel::occupancy::rebuild_occupancy_index::closure_env$1> >",
+        "samples": 565,
+        "weight_ms": 557.9382,
+        "percent": 3.157811180518018
+      },
+      {
+        "function": "laneflow_runtime::admin::migration_journal::VehicleDelta::from_state",
+        "samples": 386,
+        "weight_ms": 380.4506,
+        "percent": 2.1532692300236627
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::rebuild_occupancy_index",
+        "samples": 358,
+        "weight_ms": 354.8085,
+        "percent": 2.0081404145527717
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::leader_query_horizon",
+        "samples": 355,
+        "weight_ms": 354.2356,
+        "percent": 2.0048979227762294
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::prepare_commit",
+        "samples": 274,
+        "weight_ms": 271.4987,
+        "percent": 1.5366247200068166
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::apply_travel_mm<laneflow_runtime::kernel::tick::impl$3::advance_active_vehicle_with_waiting_stop::closure_env$2>",
+        "samples": 253,
+        "weight_ms": 251.125,
+        "percent": 1.4213139245665332
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::sort_buckets",
+        "samples": 211,
+        "weight_ms": 209.3378,
+        "percent": 1.1848072875186622
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::derive_waiting_traversal_with_signals",
+        "samples": 200,
+        "weight_ms": 199.0871,
+        "percent": 1.1267905124203876
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::reservation",
+        "samples": 169,
+        "weight_ms": 167.5624,
+        "percent": 0.9483674359533589
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::state_valid",
+        "samples": 165,
+        "weight_ms": 163.8679,
+        "percent": 0.9274573541442557
+      },
+      {
+        "function": "vcruntime140.dll!<PDB not found>",
+        "samples": 145,
+        "weight_ms": 143.8879,
+        "percent": 0.8143748167113465
+      },
+      {
+        "function": "laneflow_runtime::facade::TrafficWorld::conflict_state_valid",
+        "samples": 126,
+        "weight_ms": 125.2032,
+        "percent": 0.7086234009369381
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::CommittedStateMut::rebuild_waiting_member_rows",
+        "samples": 87,
+        "weight_ms": 86.0313,
+        "percent": 0.48691880393652875
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::parking_stop_distance",
+        "samples": 82,
+        "weight_ms": 81.0221,
+        "percent": 0.45856780060775354
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::waiting_semantic_member_count",
+        "samples": 73,
+        "weight_ms": 72.7314,
+        "percent": 0.41164420735975454
+      },
+      {
+        "function": "core::slice::sort::unstable::ipnsort<laneflow_runtime::kernel::occupancy::OccupancyRecord,core::slice::impl$0::sort_unstable_by_key::closure_env$0<laneflow_runtime::kernel::occupancy::OccupancyRecord,tuple$<u32,u32,u32,u32>,laneflow_runtime::kernel::occupancy::impl$4::sort_buckets::closure_env$0> >",
+        "samples": 70,
+        "weight_ms": 69.5693,
+        "percent": 0.39374739596753217
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::parking_state_valid",
+        "samples": 60,
+        "weight_ms": 60.0325,
+        "percent": 0.3397711425646208
+      },
+      {
+        "function": "laneflow_static_network::relations::SharedRelationClosure::vehicle_profile",
+        "samples": 59,
+        "weight_ms": 58.061,
+        "percent": 0.32861287316777493
+      },
+      {
+        "function": "ntoskrnl.exe!<PDB not found>",
+        "samples": 55,
+        "weight_ms": 55.0117,
+        "percent": 0.31135448571060925
+      },
+      {
+        "function": "hashbrown::map::HashMap<laneflow_runtime::kernel::handle::VehicleHandle,enum2$<laneflow_runtime::kernel::parking::ParkingBinding>,std::hash::random::RandomState,alloc::alloc::Global>::get<laneflow_runtime::kernel::handle::VehicleHandle,enum2$<laneflow_runtime::kernel::parking::ParkingBinding>,std::hash::random::RandomState,alloc::alloc::Global,laneflow_runtime::kernel::handle::VehicleHandle>",
+        "samples": 55,
+        "weight_ms": 54.3731,
+        "percent": 0.3077401459506165
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::signal_stop_distance",
+        "samples": 49,
+        "weight_ms": 49.3564,
+        "percent": 0.279346694221904
+      },
+      {
+        "function": "core::iter::adapters::chain::impl$1::fold<core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<laneflow_runtime::kernel::conflict_tick::PreparedConflictGrant>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$0>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$1>,core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<tuple$<usize,laneflow_runtime::kernel::vehicle::VehicleState> >,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$2>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$3>,usize,core::iter::traits::accum::impl$48::sum::closure_env$0<core::iter::adapters::chain::Chain<core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<laneflow_runtime::kernel::conflict_tick::PreparedConflictGrant>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$0>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$1>,core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<tuple$<usize,laneflow_runtime::kernel::vehicle::VehicleState> >,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$2>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$3> > > >",
+        "samples": 42,
+        "weight_ms": 41.7428,
+        "percent": 0.23625534252024244
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::waiting_stop_for",
+        "samples": 39,
+        "weight_ms": 39.1096,
+        "percent": 0.22135199229159697
+      },
+      {
+        "function": "ucrtbase.dll!<PDB not found>",
+        "samples": 38,
+        "weight_ms": 37.9453,
+        "percent": 0.2147623026853339
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::finish_layout",
+        "samples": 28,
+        "weight_ms": 27.8209,
+        "percent": 0.15746035864200325
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::hop_permitted",
+        "samples": 17,
+        "weight_ms": 17.1912,
+        "percent": 0.0972985244002317
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::ManeuverOccurrence,laneflow_runtime::kernel::transitions::impl$3::visit_transition_events::closure_env$8<laneflow_runtime::kernel::transitions::impl$3::stage_transition_events::closure_env$0> >",
+        "samples": 16,
+        "weight_ms": 15.7477,
+        "percent": 0.08912862235897022
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::WaitingOccurrence,laneflow_runtime::kernel::conflict_tick::impl$5::conflict_stop_for::closure_env$6>",
+        "samples": 5,
+        "weight_ms": 4.9503,
+        "percent": 0.028017641894601132
+      },
+      {
+        "function": "rint",
+        "samples": 4,
+        "weight_ms": 4.0482,
+        "percent": 0.022911948350145307
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::ConflictPassageOccurrence,laneflow_runtime::kernel::conflict_tick::impl$5::conflict_stop_for::closure_env$5>",
+        "samples": 4,
+        "weight_ms": 4.0223,
+        "percent": 0.022765359875695237
+      },
+      {
+        "function": "laneflow_runtime::facade::TrafficWorld::step",
+        "samples": 2,
+        "weight_ms": 1.8429,
+        "percent": 0.01043042083258801
+      },
+      {
+        "function": "core::slice::iter::impl$171::all<tuple$<usize,laneflow_runtime::kernel::handle::VehicleHandle,u64>,laneflow_runtime::kernel::conflict::impl$23::authority_owners_valid::closure_env$8<laneflow_runtime::kernel::world::impl$2::conflict_state_valid::closure_env$1> >",
+        "samples": 1,
+        "weight_ms": 1.0,
+        "percent": 0.005659786658303766
+      },
+      {
+        "function": "core::ptr::drop_glue<laneflow_runtime::kernel::waiting_dependencies::WaitingDependencies>",
+        "samples": 1,
+        "weight_ms": 0.8511,
+        "percent": 0.004817044424882335
+      }
+    ],
+    "inclusive_functions": [
+      {
+        "function": "laneflow_runtime::facade::TrafficWorld::step",
+        "samples": 17803,
+        "weight_ms": 17668.5105,
+        "percent": 100.0
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::prepare_commit",
+        "samples": 14683,
+        "weight_ms": 14580.4045,
+        "percent": 82.5219788617722
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::stage_vehicle_transitions",
+        "samples": 14330,
+        "weight_ms": 14230.3468,
+        "percent": 80.54072696167569
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::advance_active_vehicle_with_waiting_stop",
+        "samples": 7353,
+        "weight_ms": 7309.5587,
+        "percent": 41.37054280834822
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::finalize_waiting_outputs",
+        "samples": 2511,
+        "weight_ms": 2489.0994,
+        "percent": 14.087771575311908
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::leader_gap",
+        "samples": 2187,
+        "weight_ms": 2176.4935,
+        "percent": 12.318488873184867
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::si_comfort_travel",
+        "samples": 1391,
+        "weight_ms": 1381.2605,
+        "percent": 7.817639749541989
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::CommittedStateMut::commit",
+        "samples": 1346,
+        "weight_ms": 1330.8293,
+        "percent": 7.53220991661974
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::rebuild_occupancy_index",
+        "samples": 1247,
+        "weight_ms": 1234.2454,
+        "percent": 6.985565647992795
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::owner_at",
+        "samples": 579,
+        "weight_ms": 575.1463,
+        "percent": 3.2552053553127753
+      },
+      {
+        "function": "laneflow_runtime::kernel::tables::for_each_occupancy_interval<laneflow_runtime::kernel::occupancy::visit_occupancy_records::closure_env$0<laneflow_runtime::kernel::occupancy::rebuild_occupancy_index::closure_env$1> >",
+        "samples": 565,
+        "weight_ms": 557.9382,
+        "percent": 3.157811180518018
+      },
+      {
+        "function": "laneflow_runtime::facade::TrafficWorld::conflict_state_valid",
+        "samples": 525,
+        "weight_ms": 521.1884,
+        "percent": 2.9498151527826866
+      },
+      {
+        "function": "laneflow_runtime::admin::migration_journal::VehicleDelta::from_state",
+        "samples": 388,
+        "weight_ms": 382.3734,
+        "percent": 2.1641518678102494
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::leader_query_horizon",
+        "samples": 377,
+        "weight_ms": 376.2373,
+        "percent": 2.1294228508962316
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::reservation",
+        "samples": 300,
+        "weight_ms": 297.3191,
+        "percent": 1.6827626754388831
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::sort_buckets",
+        "samples": 281,
+        "weight_ms": 278.9071,
+        "percent": 1.5785546834861943
+      },
+      {
+        "function": "laneflow_runtime::kernel::tick::apply_travel_mm<laneflow_runtime::kernel::tick::impl$3::advance_active_vehicle_with_waiting_stop::closure_env$2>",
+        "samples": 254,
+        "weight_ms": 252.125,
+        "percent": 1.426973711224837
+      },
+      {
+        "function": "<PDB not found>",
+        "samples": 238,
+        "weight_ms": 236.8449,
+        "percent": 1.3404916051072897
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::state_valid",
+        "samples": 232,
+        "weight_ms": 230.5569,
+        "percent": 1.3049028665998754
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::derive_waiting_traversal_with_signals",
+        "samples": 200,
+        "weight_ms": 199.0871,
+        "percent": 1.1267905124203876
+      },
+      {
+        "function": "core::iter::adapters::chain::impl$1::fold<core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<laneflow_runtime::kernel::conflict_tick::PreparedConflictGrant>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$0>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$1>,core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<tuple$<usize,laneflow_runtime::kernel::vehicle::VehicleState> >,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$2>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$3>,usize,core::iter::traits::accum::impl$48::sum::closure_env$0<core::iter::adapters::chain::Chain<core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<laneflow_runtime::kernel::conflict_tick::PreparedConflictGrant>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$0>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$1>,core::iter::adapters::map::Map<core::iter::adapters::filter_map::FilterMap<core::slice::iter::Iter<tuple$<usize,laneflow_runtime::kernel::vehicle::VehicleState> >,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$2>,laneflow_runtime::kernel::conflict_tick::impl$5::finalize_conflict_step::closure_env$3> > > >",
+        "samples": 187,
+        "weight_ms": 185.7618,
+        "percent": 1.0513721572624926
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::parking_stop_distance",
+        "samples": 103,
+        "weight_ms": 102.0542,
+        "percent": 0.5776049995838641
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::CommittedStateMut::rebuild_waiting_member_rows",
+        "samples": 87,
+        "weight_ms": 86.0313,
+        "percent": 0.48691880393652875
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::waiting_semantic_member_count",
+        "samples": 73,
+        "weight_ms": 72.7314,
+        "percent": 0.41164420735975454
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::parking_state_valid",
+        "samples": 70,
+        "weight_ms": 69.8955,
+        "percent": 0.39559361837547086
+      },
+      {
+        "function": "core::slice::sort::unstable::ipnsort<laneflow_runtime::kernel::occupancy::OccupancyRecord,core::slice::impl$0::sort_unstable_by_key::closure_env$0<laneflow_runtime::kernel::occupancy::OccupancyRecord,tuple$<u32,u32,u32,u32>,laneflow_runtime::kernel::occupancy::impl$4::sort_buckets::closure_env$0> >",
+        "samples": 70,
+        "weight_ms": 69.5693,
+        "percent": 0.39374739596753217
+      },
+      {
+        "function": "laneflow_static_network::relations::SharedRelationClosure::vehicle_profile",
+        "samples": 59,
+        "weight_ms": 58.061,
+        "percent": 0.32861287316777493
+      },
+      {
+        "function": "hashbrown::map::HashMap<laneflow_runtime::kernel::handle::VehicleHandle,enum2$<laneflow_runtime::kernel::parking::ParkingBinding>,std::hash::random::RandomState,alloc::alloc::Global>::get<laneflow_runtime::kernel::handle::VehicleHandle,enum2$<laneflow_runtime::kernel::parking::ParkingBinding>,std::hash::random::RandomState,alloc::alloc::Global,laneflow_runtime::kernel::handle::VehicleHandle>",
+        "samples": 55,
+        "weight_ms": 54.3731,
+        "percent": 0.3077401459506165
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::signal_stop_distance",
+        "samples": 49,
+        "weight_ms": 49.3564,
+        "percent": 0.279346694221904
+      },
+      {
+        "function": "laneflow_runtime::kernel::occupancy::OccupancyIndex::finish_layout",
+        "samples": 42,
+        "weight_ms": 41.5916,
+        "percent": 0.23539958277750692
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::waiting_stop_for",
+        "samples": 39,
+        "weight_ms": 39.1096,
+        "percent": 0.22135199229159697
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepReadView::hop_permitted",
+        "samples": 17,
+        "weight_ms": 17.1912,
+        "percent": 0.0972985244002317
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::ManeuverOccurrence,laneflow_runtime::kernel::transitions::impl$3::visit_transition_events::closure_env$8<laneflow_runtime::kernel::transitions::impl$3::stage_transition_events::closure_env$0> >",
+        "samples": 16,
+        "weight_ms": 15.7477,
+        "percent": 0.08912862235897022
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::WaitingOccurrence,laneflow_runtime::kernel::conflict_tick::impl$5::conflict_stop_for::closure_env$6>",
+        "samples": 5,
+        "weight_ms": 4.9503,
+        "percent": 0.028017641894601132
+      },
+      {
+        "function": "rint",
+        "samples": 4,
+        "weight_ms": 4.0482,
+        "percent": 0.022911948350145307
+      },
+      {
+        "function": "core::slice::impl$0::partition_point<laneflow_runtime::kernel::tables::ConflictPassageOccurrence,laneflow_runtime::kernel::conflict_tick::impl$5::conflict_stop_for::closure_env$5>",
+        "samples": 4,
+        "weight_ms": 4.0223,
+        "percent": 0.022765359875695237
+      },
+      {
+        "function": "laneflow_runtime::kernel::phase::StepWorkspace::prepare_waiting_dependencies",
+        "samples": 3,
+        "weight_ms": 2.8418,
+        "percent": 0.01608398172556764
+      },
+      {
+        "function": "core::slice::iter::impl$171::all<tuple$<usize,laneflow_runtime::kernel::handle::VehicleHandle,u64>,laneflow_runtime::kernel::conflict::impl$23::authority_owners_valid::closure_env$8<laneflow_runtime::kernel::world::impl$2::conflict_state_valid::closure_env$1> >",
+        "samples": 1,
+        "weight_ms": 1.0,
+        "percent": 0.005659786658303766
+      },
+      {
+        "function": "laneflow_runtime::kernel::conflict::ConflictRead::authority_owners_valid<laneflow_runtime::kernel::world::impl$2::conflict_state_valid::closure_env$1>",
+        "samples": 1,
+        "weight_ms": 1.0,
+        "percent": 0.005659786658303766
+      },
+      {
+        "function": "core::ptr::drop_glue<laneflow_runtime::kernel::waiting_dependencies::WaitingDependencies>",
+        "samples": 1,
+        "weight_ms": 0.8511,
+        "percent": 0.004817044424882335
+      }
+    ],
+    "disjoint_exact_path_percent": {
+      "leader_gap": 12.318488873184867,
+      "occupancy_rebuild": 6.985565647992795,
+      "leader_horizon": 2.1294228508962316,
+      "sum": 21.433477372073895
+    }
+  }
+]

@@ -1,0 +1,81 @@
+{
+  "base": "6fefd582364685c07ed83af79b2bec80f5223fc5",
+  "head": "2806ce4ab83c4084a1b610854d7b31d6ae50e2fd",
+  "source_blobs": {
+    "Cargo.lock": "73b32e47896d96fc1bcecc3f93f988cb7e64f816",
+    "Cargo.toml": "7e0f072c8fcd6cdb9e53438eeb5bf8981dc15866",
+    "crates/laneflow-runtime/Cargo.toml": "58776866b13eb6361feb698a53e0728ed01bec7b",
+    "crates/laneflow-runtime/src/kernel/tick.rs": "c0a2163a1750adfd2ac46028941bbad63ff403c9",
+    "crates/laneflow-runtime/src/kernel/occupancy.rs": "2c1189ffc9b6101815391ec6a05439b2d2b5bed5",
+    "crates/laneflow-runtime/src/kernel/tests/performance_profile/runtime_profile.rs": "862a9d7cf5edd84f213cd35c4af5266c12d6495d",
+    "crates/laneflow-runtime/src/kernel/tests/performance_profile/runtime_profile_evidence.rs": "aaef77e905eb6c3d5349ca5935c8ddf9432010c8",
+    "crates/laneflow-runtime/src/kernel/tests/performance_profile/runtime_cpu_sampling.rs": "b9f5fb805483ca8267d6a1395ac0abc42ae7badf",
+    "crates/laneflow-runtime/src/kernel/tests/performance_profile/cutover_scale.rs": "0a65575b03800575c2d8cfd334c0e9177a0840f3",
+    "research/issue-216-exact-path/record-cpu.ps1": "bd289c35ba1e3858d52007934550f14bdd566bf9",
+    "research/issue-216-exact-path/capture-cpu-window.ps1": "25a3a63042541a6900113f447f931f77a60a0b8d"
+  },
+  "binary_sha256": "FBCFE4D072DBBA65396AF93CCB51B9C8FA742C1BB2E8E6593D55747551C780E8",
+  "pdb_sha256": "8233290848C0D4AA92CC32240FEEF364D5754AA295EE135A31E74FB3D0DF2180",
+  "pdb_guid": "086956D3-E7E7-4EE2-A2AC-CA5EEEDB72BE",
+  "pdb_age": 1,
+  "profile": "release optimized; CARGO_PROFILE_RELEASE_DEBUG=2; CARGO_PROFILE_RELEASE_STRIP=none; production library without cfg(test)",
+  "rustc": [
+    "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+    "binary: rustc",
+    "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+    "commit-date: 2026-08-18",
+    "host: x86_64-pc-windows-msvc",
+    "release: 1.98.0",
+    "LLVM version: 22.1.8"
+  ],
+  "cpu": {
+    "Name": "AMD Ryzen 9 9955HX 16-Core Processor           ",
+    "NumberOfCores": 16,
+    "NumberOfLogicalProcessors": 32
+  },
+  "os": {
+    "Caption": "Microsoft Windows 11 专业版 Insider Preview",
+    "Version": "10.0.29648",
+    "BuildNumber": "29648"
+  },
+  "power_scheme": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+  "battery": {
+    "BatteryStatus": 2,
+    "EstimatedChargeRemaining": 100
+  },
+  "workload_elevated": false,
+  "local_capture": "target/issue-216-cpu-profile/capture-20260908-193114",
+  "cases": [
+    {
+      "case": "1k-256",
+      "etl_sha256": "c9ffc034bc598e60720ebf854fe9fab73112a249536e125c0b9e6f8f09268dbe",
+      "etl_bytes": 209652356,
+      "csv_sha256": "34133276a103b11c17a3826d2e4a0b9e759ceba811b22572ab7778a96934c44e",
+      "started_utc": "2026-09-08T10:43:12.4226068Z",
+      "completed_utc": "2026-09-08T10:43:35.6478255Z",
+      "workload_pid": 67944,
+      "exit_code": 0
+    },
+    {
+      "case": "10k-256",
+      "etl_sha256": "ccaecf47cf1a97bbc1b5f54342ca0b8f02dc593fd6bf0c7f75dd8b1b0bda7c73",
+      "etl_bytes": 276604708,
+      "csv_sha256": "677d39b26ab4d87d3d95a8e86d0c8a382a41c622ba7b71cbeb1966c7966f2358",
+      "started_utc": "2026-09-08T10:39:51.8004040Z",
+      "completed_utc": "2026-09-08T10:40:26.7701603Z",
+      "workload_pid": 80128,
+      "exit_code": 0
+    },
+    {
+      "case": "10k-16",
+      "etl_sha256": "89700ba9de63e3575e8c1a6e763c1196d6e69a323ac3e4c3bb565a5fbf24048d",
+      "etl_bytes": 292497443,
+      "csv_sha256": "813eb3f9d223ef893242b7d644d377821e4232bfb0d15d110b0dfbe1a8105332",
+      "started_utc": "2026-09-08T10:41:30.9605915Z",
+      "completed_utc": "2026-09-08T10:42:08.2649285Z",
+      "workload_pid": 75536,
+      "exit_code": 0
+    }
+  ],
+  "note": "Only fixed observed step subtrees are published. Original ETLs contain machine-wide events and stay local."
+}
