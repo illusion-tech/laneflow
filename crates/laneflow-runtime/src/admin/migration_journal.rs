@@ -211,9 +211,16 @@ pub(crate) struct VehicleDelta {
     pub(crate) admission_sequence: u64,
 }
 
+#[cfg(test)]
+std::thread_local! {
+    static VEHICLE_DELTA_MATERIALIZATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl VehicleDelta {
     /// 从已提交车辆状态提取增量。
     pub(crate) fn from_state(state: &VehicleState, compiled: Option<&CompiledRoute>) -> Self {
+        #[cfg(test)]
+        VEHICLE_DELTA_MATERIALIZATIONS.with(|count| count.set(count.get() + 1));
         let authority = state.maneuver_traversal.map(|traversal| {
             let compiled = compiled.expect("Waiting traversal route is compiled");
             let maneuver = compiled
@@ -1953,6 +1960,113 @@ mod tests {
     }
 
     #[test]
+    fn tick_materializes_vehicle_delta_only_while_journal_is_armed() {
+        let mut world = world();
+        let route = preview_route(&mut world);
+        let vehicle = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .unwrap();
+        VEHICLE_DELTA_MATERIALIZATIONS.set(0);
+        world.step(TickInput::new(100)).unwrap();
+        assert!(world.vehicle_state(vehicle).unwrap().progress_mm() > 1_000);
+        assert_eq!(VEHICLE_DELTA_MATERIALIZATIONS.get(), 0, "unarmed tick");
+
+        world.arm_migration_journal(4_096).unwrap();
+        VEHICLE_DELTA_MATERIALIZATIONS.set(0);
+        world.step(TickInput::new(100)).unwrap();
+        assert_eq!(VEHICLE_DELTA_MATERIALIZATIONS.get(), 1, "armed tick");
+        let records = decoded(&world);
+        assert_eq!(records.len(), 1);
+        let JournalRecord::Tick {
+            entries,
+            tick_index: 2,
+            time_ms: 200,
+            ..
+        } = records[0]
+        else {
+            panic!("expected second tick frame");
+        };
+        assert_eq!(entries.len(), VEHICLE_DELTA_BYTES);
+        let delta = VehicleDelta::decode(entries);
+        let state = world.vehicle_state(vehicle).unwrap();
+        assert_eq!(delta.slot, vehicle.index());
+        assert_eq!(delta.generation, vehicle.generation());
+        assert_eq!(delta.progress_mm, state.progress_mm());
+        assert_eq!(delta.speed_mm_s, state.speed_mm_s());
+        assert_eq!(delta.route_index, route.index());
+
+        assert!(world.disarm_migration_journal().is_some());
+        let before = *world.vehicle_state(vehicle).unwrap();
+        VEHICLE_DELTA_MATERIALIZATIONS.set(0);
+        world.step(TickInput::new(100)).unwrap();
+        assert_ne!(*world.vehicle_state(vehicle).unwrap(), before);
+        assert_eq!(VEHICLE_DELTA_MATERIALIZATIONS.get(), 0, "disarmed tick");
+    }
+
+    #[test]
+    fn armed_and_unarmed_resource_ticks_preserve_state_and_outputs() {
+        use crate::admin::cutover_migration::tests::{
+            conflict_scale_revision, conflict_scale_world,
+        };
+        use crate::kernel::waiting::tests::multi_gate_world;
+
+        let revision = conflict_scale_revision();
+        for (mut unarmed, mut armed, delta_ms, waiting) in [
+            (multi_gate_world(2), multi_gate_world(2), 100, true),
+            (
+                conflict_scale_world(std::sync::Arc::clone(&revision), 2),
+                conflict_scale_world(std::sync::Arc::clone(&revision), 2),
+                4,
+                false,
+            ),
+        ] {
+            armed.arm_migration_journal(1_024 * 1_024).unwrap();
+            let mut saw_resource = false;
+            for _ in 0..64 {
+                VEHICLE_DELTA_MATERIALIZATIONS.set(0);
+                unarmed.step(TickInput::new(delta_ms)).unwrap();
+                assert_eq!(VEHICLE_DELTA_MATERIALIZATIONS.get(), 0);
+                armed.step(TickInput::new(delta_ms)).unwrap();
+                assert_eq!(
+                    unarmed.capture_snapshot().unwrap(),
+                    armed.capture_snapshot().unwrap()
+                );
+                assert_eq!(
+                    unarmed.latest_waiting_decisions(),
+                    armed.latest_waiting_decisions()
+                );
+                assert_eq!(
+                    unarmed.latest_conflict_decisions(),
+                    armed.latest_conflict_decisions()
+                );
+                assert_eq!(
+                    unarmed.latest_transition_events(),
+                    armed.latest_transition_events()
+                );
+                saw_resource |= unarmed.live_vehicles().iter().any(|handle| {
+                    if waiting {
+                        unarmed
+                            .vehicle(*handle)
+                            .unwrap()
+                            .waiting_membership()
+                            .is_some()
+                    } else {
+                        unarmed.conflict_reservation(*handle).is_some()
+                    }
+                });
+                assert!(!armed.migration_journal().unwrap().overflowed());
+            }
+            assert!(saw_resource, "fixture must exercise the resource path");
+        }
+    }
+
+    #[test]
     fn zero_change_step_still_emits_empty_tick() {
         let mut world = world();
         let route = preview_route(&mut world);
@@ -1968,7 +2082,9 @@ mod tests {
             )
             .expect("parked vehicle");
         world.arm_migration_journal(4_096).expect("arm");
+        VEHICLE_DELTA_MATERIALIZATIONS.set(0);
         world.step(TickInput::new(100)).expect("step");
+        assert_eq!(VEHICLE_DELTA_MATERIALIZATIONS.get(), 0);
         let records = decoded(&world);
         assert_eq!(records.len(), 1);
         assert!(matches!(
@@ -2020,9 +2136,11 @@ mod tests {
         assert!(world.migration_journal().expect("armed").overflowed());
         let after_first = world.vehicle_state(vehicle).expect("vehicle").progress_mm();
         for _ in 0..4 {
+            VEHICLE_DELTA_MATERIALIZATIONS.set(0);
             world
                 .step(TickInput::new(100))
                 .expect("world keeps stepping");
+            assert_eq!(VEHICLE_DELTA_MATERIALIZATIONS.get(), 1);
         }
         assert!(world.migration_journal().expect("armed").overflowed());
         assert!(world.vehicle_state(vehicle).expect("vehicle").progress_mm() > after_first);
