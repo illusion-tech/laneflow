@@ -1,0 +1,47 @@
+{
+  "started_utc": "2026-09-08T09:11:31.4493246Z",
+  "git_head": "6fefd582364685c07ed83af79b2bec80f5223fc5",
+  "source_blobs": {
+    "Cargo.lock": "73b32e47896d96fc1bcecc3f93f988cb7e64f816",
+    "crates/laneflow-runtime/Cargo.toml": "58776866b13eb6361feb698a53e0728ed01bec7b",
+    "crates/laneflow-runtime/src/kernel/mod.rs": "a6985f317d4f2b9b10788f40f79a029b28427fab",
+    "crates/laneflow-runtime/src/kernel/occupancy.rs": "2c1189ffc9b6101815391ec6a05439b2d2b5bed5",
+    "crates/laneflow-runtime/src/kernel/tick.rs": "c0a2163a1750adfd2ac46028941bbad63ff403c9",
+    "crates/laneflow-runtime/src/kernel/phase_equivalence.rs": "a7896827f3942c6b9e84931b0f2e4acc1c694ea7",
+    "crates/laneflow-runtime/src/kernel/performance_profile.rs": "66e2089e653e2ad493067b9f35cb177477dab880",
+    "crates/laneflow-runtime/src/kernel/tests/exact_path.rs": "8accd407ed1be1eab2c0acabbf3ca17db502e371",
+    "crates/laneflow-runtime/src/kernel/tests/occupancy_exact_candidate.rs": "d464aef265763b746c442578c1d0b10f5c22d1d1",
+    "crates/laneflow-runtime/src/kernel/tests/performance_profile/runtime_profile.rs": "862a9d7cf5edd84f213cd35c4af5266c12d6495d",
+    "crates/laneflow-runtime/src/kernel/tests/performance_profile/cutover_scale.rs": "0a65575b03800575c2d8cfd334c0e9177a0840f3",
+    "crates/laneflow-runtime/src/kernel/tests/performance_profile/runtime_profile_evidence.rs": "a3086b9a266b13f70f94206a5f4e7994cc28ef9f"
+  },
+  "rustc": [
+    "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+    "binary: rustc",
+    "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+    "commit-date: 2026-08-18",
+    "host: x86_64-pc-windows-msvc",
+    "release: 1.98.0",
+    "LLVM version: 22.1.8"
+  ],
+  "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+  "cpu": {
+    "Name": "AMD Ryzen 9 9955HX 16-Core Processor           ",
+    "NumberOfCores": 16,
+    "NumberOfLogicalProcessors": 32
+  },
+  "os": {
+    "Caption": "Microsoft Windows 11 专业版 Insider Preview",
+    "Version": "10.0.29648",
+    "BuildNumber": "29648"
+  },
+  "power_scheme": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+  "battery": {
+    "BatteryStatus": 2,
+    "EstimatedChargeRemaining": 100
+  },
+  "unit_sha256": "D2E9CED99FB19D0E0F873A85C708CF2BA7F86652CA2D61EF0D6129D1227BB02E",
+  "production_sha256": "6270660F4DC3DF5CA588B44E73BE2420BDFA2B6E8C20C6ED1A8C42E6DB9E4CD1",
+  "profile": "release default; no CPU affinity or frequency lock; test-build A/B retains disabled timing hooks and StatsAlloc<System>",
+  "completed_utc": "2026-09-08T09:11:53.9076299Z"
+}

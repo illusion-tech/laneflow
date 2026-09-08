@@ -1,0 +1,222 @@
+
+running 1 test
+test kernel::exact_path_research::occupancy_exact_attribution ... exact-clock calls=10000 ns=540900 zero_samples=4625
+exact-stage scene=lane-1000-256-journal-false candidate=false round=0 stage=occupancy_count calls=64 samples=64 ns=230400
+exact-stage scene=lane-1000-256-journal-false candidate=false round=0 stage=occupancy_layout calls=64 samples=64 ns=41900
+exact-stage scene=lane-1000-256-journal-false candidate=false round=0 stage=occupancy_fill calls=64 samples=64 ns=303500
+exact-stage scene=lane-1000-256-journal-false candidate=false round=0 stage=occupancy_sort_suffix calls=64 samples=64 ns=199600
+exact-stage scene=lane-1000-256-journal-false candidate=false round=0 stage=route_profile_inputs calls=64000 samples=956 ns=40100
+exact-stage scene=lane-1000-256-journal-false candidate=false round=0 stage=leader_horizon calls=64000 samples=956 ns=35100
+exact-stage scene=lane-1000-256-journal-false candidate=false round=0 stage=leader_gap calls=64000 samples=956 ns=33800
+exact-stage scene=lane-1000-256-journal-false candidate=false round=0 stage=route_stop_queries calls=64000 samples=956 ns=33300
+exact-work scene=lane-1000-256-journal-false candidate=false round=0 steps=64 active=1000 records=64000 inspections=47616 occurrence_walks=0 instrumented_ns=13153900 digest=31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b
+exact-stage scene=lane-1000-256-journal-false candidate=true round=0 stage=occupancy_count calls=64 samples=64 ns=469600
+exact-stage scene=lane-1000-256-journal-false candidate=true round=0 stage=occupancy_layout calls=64 samples=64 ns=43800
+exact-stage scene=lane-1000-256-journal-false candidate=true round=0 stage=occupancy_fill calls=64 samples=64 ns=88900
+exact-stage scene=lane-1000-256-journal-false candidate=true round=0 stage=occupancy_sort_suffix calls=64 samples=64 ns=202700
+exact-stage scene=lane-1000-256-journal-false candidate=true round=0 stage=route_profile_inputs calls=64000 samples=956 ns=39000
+exact-stage scene=lane-1000-256-journal-false candidate=true round=0 stage=leader_horizon calls=64000 samples=956 ns=39700
+exact-stage scene=lane-1000-256-journal-false candidate=true round=0 stage=leader_gap calls=64000 samples=956 ns=38700
+exact-stage scene=lane-1000-256-journal-false candidate=true round=0 stage=route_stop_queries calls=64000 samples=956 ns=33800
+exact-work scene=lane-1000-256-journal-false candidate=true round=0 steps=64 active=1000 records=64000 inspections=47616 occurrence_walks=0 instrumented_ns=13381100 digest=31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b
+exact-stage scene=lane-1000-256-journal-false candidate=false round=1 stage=occupancy_count calls=64 samples=64 ns=235500
+exact-stage scene=lane-1000-256-journal-false candidate=false round=1 stage=occupancy_layout calls=64 samples=64 ns=41500
+exact-stage scene=lane-1000-256-journal-false candidate=false round=1 stage=occupancy_fill calls=64 samples=64 ns=333900
+exact-stage scene=lane-1000-256-journal-false candidate=false round=1 stage=occupancy_sort_suffix calls=64 samples=64 ns=200900
+exact-stage scene=lane-1000-256-journal-false candidate=false round=1 stage=route_profile_inputs calls=64000 samples=955 ns=35500
+exact-stage scene=lane-1000-256-journal-false candidate=false round=1 stage=leader_horizon calls=64000 samples=955 ns=36500
+exact-stage scene=lane-1000-256-journal-false candidate=false round=1 stage=leader_gap calls=64000 samples=955 ns=40500
+exact-stage scene=lane-1000-256-journal-false candidate=false round=1 stage=route_stop_queries calls=64000 samples=955 ns=58400
+exact-work scene=lane-1000-256-journal-false candidate=false round=1 steps=64 active=1000 records=64000 inspections=47616 occurrence_walks=0 instrumented_ns=13423300 digest=31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b
+exact-stage scene=lane-1000-256-journal-false candidate=true round=1 stage=occupancy_count calls=64 samples=64 ns=509100
+exact-stage scene=lane-1000-256-journal-false candidate=true round=1 stage=occupancy_layout calls=64 samples=64 ns=45000
+exact-stage scene=lane-1000-256-journal-false candidate=true round=1 stage=occupancy_fill calls=64 samples=64 ns=91700
+exact-stage scene=lane-1000-256-journal-false candidate=true round=1 stage=occupancy_sort_suffix calls=64 samples=64 ns=216300
+exact-stage scene=lane-1000-256-journal-false candidate=true round=1 stage=route_profile_inputs calls=64000 samples=955 ns=38600
+exact-stage scene=lane-1000-256-journal-false candidate=true round=1 stage=leader_horizon calls=64000 samples=955 ns=40800
+exact-stage scene=lane-1000-256-journal-false candidate=true round=1 stage=leader_gap calls=64000 samples=955 ns=41400
+exact-stage scene=lane-1000-256-journal-false candidate=true round=1 stage=route_stop_queries calls=64000 samples=955 ns=37400
+exact-work scene=lane-1000-256-journal-false candidate=true round=1 steps=64 active=1000 records=64000 inspections=47616 occurrence_walks=0 instrumented_ns=14915800 digest=31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b
+exact-stage scene=lane-1000-256-journal-false candidate=false round=2 stage=occupancy_count calls=64 samples=64 ns=275100
+exact-stage scene=lane-1000-256-journal-false candidate=false round=2 stage=occupancy_layout calls=64 samples=64 ns=48400
+exact-stage scene=lane-1000-256-journal-false candidate=false round=2 stage=occupancy_fill calls=64 samples=64 ns=361500
+exact-stage scene=lane-1000-256-journal-false candidate=false round=2 stage=occupancy_sort_suffix calls=64 samples=64 ns=231500
+exact-stage scene=lane-1000-256-journal-false candidate=false round=2 stage=route_profile_inputs calls=64000 samples=955 ns=42900
+exact-stage scene=lane-1000-256-journal-false candidate=false round=2 stage=leader_horizon calls=64000 samples=955 ns=45500
+exact-stage scene=lane-1000-256-journal-false candidate=false round=2 stage=leader_gap calls=64000 samples=955 ns=43000
+exact-stage scene=lane-1000-256-journal-false candidate=false round=2 stage=route_stop_queries calls=64000 samples=955 ns=35600
+exact-work scene=lane-1000-256-journal-false candidate=false round=2 steps=64 active=1000 records=64000 inspections=47616 occurrence_walks=0 instrumented_ns=15253600 digest=31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b
+exact-stage scene=lane-1000-256-journal-false candidate=true round=2 stage=occupancy_count calls=64 samples=64 ns=536500
+exact-stage scene=lane-1000-256-journal-false candidate=true round=2 stage=occupancy_layout calls=64 samples=64 ns=48800
+exact-stage scene=lane-1000-256-journal-false candidate=true round=2 stage=occupancy_fill calls=64 samples=64 ns=99900
+exact-stage scene=lane-1000-256-journal-false candidate=true round=2 stage=occupancy_sort_suffix calls=64 samples=64 ns=232600
+exact-stage scene=lane-1000-256-journal-false candidate=true round=2 stage=route_profile_inputs calls=64000 samples=955 ns=41700
+exact-stage scene=lane-1000-256-journal-false candidate=true round=2 stage=leader_horizon calls=64000 samples=955 ns=43700
+exact-stage scene=lane-1000-256-journal-false candidate=true round=2 stage=leader_gap calls=64000 samples=955 ns=40100
+exact-stage scene=lane-1000-256-journal-false candidate=true round=2 stage=route_stop_queries calls=64000 samples=955 ns=36200
+exact-work scene=lane-1000-256-journal-false candidate=true round=2 steps=64 active=1000 records=64000 inspections=47616 occurrence_walks=0 instrumented_ns=15124800 digest=31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b
+exact-stage scene=lane-10000-256-journal-false candidate=false round=0 stage=occupancy_count calls=64 samples=64 ns=2572200
+exact-stage scene=lane-10000-256-journal-false candidate=false round=0 stage=occupancy_layout calls=64 samples=64 ns=298100
+exact-stage scene=lane-10000-256-journal-false candidate=false round=0 stage=occupancy_fill calls=64 samples=64 ns=3529600
+exact-stage scene=lane-10000-256-journal-false candidate=false round=0 stage=occupancy_sort_suffix calls=64 samples=64 ns=2264000
+exact-stage scene=lane-10000-256-journal-false candidate=false round=0 stage=route_profile_inputs calls=640000 samples=9553 ns=404700
+exact-stage scene=lane-10000-256-journal-false candidate=false round=0 stage=leader_horizon calls=640000 samples=9553 ns=421200
+exact-stage scene=lane-10000-256-journal-false candidate=false round=0 stage=leader_gap calls=640000 samples=9553 ns=567200
+exact-stage scene=lane-10000-256-journal-false candidate=false round=0 stage=route_stop_queries calls=640000 samples=9553 ns=352300
+exact-work scene=lane-10000-256-journal-false candidate=false round=0 steps=64 active=10000 records=640000 inspections=623616 occurrence_walks=0 instrumented_ns=153872400 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+exact-stage scene=lane-10000-256-journal-false candidate=true round=0 stage=occupancy_count calls=64 samples=64 ns=5906100
+exact-stage scene=lane-10000-256-journal-false candidate=true round=0 stage=occupancy_layout calls=64 samples=64 ns=314500
+exact-stage scene=lane-10000-256-journal-false candidate=true round=0 stage=occupancy_fill calls=64 samples=64 ns=1203500
+exact-stage scene=lane-10000-256-journal-false candidate=true round=0 stage=occupancy_sort_suffix calls=64 samples=64 ns=2451300
+exact-stage scene=lane-10000-256-journal-false candidate=true round=0 stage=route_profile_inputs calls=640000 samples=9553 ns=428100
+exact-stage scene=lane-10000-256-journal-false candidate=true round=0 stage=leader_horizon calls=640000 samples=9553 ns=455000
+exact-stage scene=lane-10000-256-journal-false candidate=true round=0 stage=leader_gap calls=640000 samples=9553 ns=606700
+exact-stage scene=lane-10000-256-journal-false candidate=true round=0 stage=route_stop_queries calls=640000 samples=9553 ns=369500
+exact-work scene=lane-10000-256-journal-false candidate=true round=0 steps=64 active=10000 records=640000 inspections=623616 occurrence_walks=0 instrumented_ns=167063800 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+exact-stage scene=lane-10000-256-journal-false candidate=false round=1 stage=occupancy_count calls=64 samples=64 ns=2807700
+exact-stage scene=lane-10000-256-journal-false candidate=false round=1 stage=occupancy_layout calls=64 samples=64 ns=289700
+exact-stage scene=lane-10000-256-journal-false candidate=false round=1 stage=occupancy_fill calls=64 samples=64 ns=3843700
+exact-stage scene=lane-10000-256-journal-false candidate=false round=1 stage=occupancy_sort_suffix calls=64 samples=64 ns=2243700
+exact-stage scene=lane-10000-256-journal-false candidate=false round=1 stage=route_profile_inputs calls=640000 samples=9552 ns=387800
+exact-stage scene=lane-10000-256-journal-false candidate=false round=1 stage=leader_horizon calls=640000 samples=9552 ns=406300
+exact-stage scene=lane-10000-256-journal-false candidate=false round=1 stage=leader_gap calls=640000 samples=9552 ns=546200
+exact-stage scene=lane-10000-256-journal-false candidate=false round=1 stage=route_stop_queries calls=640000 samples=9552 ns=344500
+exact-work scene=lane-10000-256-journal-false candidate=false round=1 steps=64 active=10000 records=640000 inspections=623616 occurrence_walks=0 instrumented_ns=154304200 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+exact-stage scene=lane-10000-256-journal-false candidate=true round=1 stage=occupancy_count calls=64 samples=64 ns=5151200
+exact-stage scene=lane-10000-256-journal-false candidate=true round=1 stage=occupancy_layout calls=64 samples=64 ns=288000
+exact-stage scene=lane-10000-256-journal-false candidate=true round=1 stage=occupancy_fill calls=64 samples=64 ns=988200
+exact-stage scene=lane-10000-256-journal-false candidate=true round=1 stage=occupancy_sort_suffix calls=64 samples=64 ns=2193200
+exact-stage scene=lane-10000-256-journal-false candidate=true round=1 stage=route_profile_inputs calls=640000 samples=9552 ns=418800
+exact-stage scene=lane-10000-256-journal-false candidate=true round=1 stage=leader_horizon calls=640000 samples=9552 ns=557700
+exact-stage scene=lane-10000-256-journal-false candidate=true round=1 stage=leader_gap calls=640000 samples=9552 ns=543300
+exact-stage scene=lane-10000-256-journal-false candidate=true round=1 stage=route_stop_queries calls=640000 samples=9552 ns=343200
+exact-work scene=lane-10000-256-journal-false candidate=true round=1 steps=64 active=10000 records=640000 inspections=623616 occurrence_walks=0 instrumented_ns=149686000 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+exact-stage scene=lane-10000-256-journal-false candidate=false round=2 stage=occupancy_count calls=64 samples=64 ns=2372200
+exact-stage scene=lane-10000-256-journal-false candidate=false round=2 stage=occupancy_layout calls=64 samples=64 ns=261000
+exact-stage scene=lane-10000-256-journal-false candidate=false round=2 stage=occupancy_fill calls=64 samples=64 ns=3223900
+exact-stage scene=lane-10000-256-journal-false candidate=false round=2 stage=occupancy_sort_suffix calls=64 samples=64 ns=2052300
+exact-stage scene=lane-10000-256-journal-false candidate=false round=2 stage=route_profile_inputs calls=640000 samples=9552 ns=356800
+exact-stage scene=lane-10000-256-journal-false candidate=false round=2 stage=leader_horizon calls=640000 samples=9552 ns=376100
+exact-stage scene=lane-10000-256-journal-false candidate=false round=2 stage=leader_gap calls=640000 samples=9552 ns=515900
+exact-stage scene=lane-10000-256-journal-false candidate=false round=2 stage=route_stop_queries calls=640000 samples=9552 ns=324000
+exact-work scene=lane-10000-256-journal-false candidate=false round=2 steps=64 active=10000 records=640000 inspections=623616 occurrence_walks=0 instrumented_ns=137468100 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+exact-stage scene=lane-10000-256-journal-false candidate=true round=2 stage=occupancy_count calls=64 samples=64 ns=5431300
+exact-stage scene=lane-10000-256-journal-false candidate=true round=2 stage=occupancy_layout calls=64 samples=64 ns=302800
+exact-stage scene=lane-10000-256-journal-false candidate=true round=2 stage=occupancy_fill calls=64 samples=64 ns=1079600
+exact-stage scene=lane-10000-256-journal-false candidate=true round=2 stage=occupancy_sort_suffix calls=64 samples=64 ns=2475000
+exact-stage scene=lane-10000-256-journal-false candidate=true round=2 stage=route_profile_inputs calls=640000 samples=9552 ns=410000
+exact-stage scene=lane-10000-256-journal-false candidate=true round=2 stage=leader_horizon calls=640000 samples=9552 ns=432700
+exact-stage scene=lane-10000-256-journal-false candidate=true round=2 stage=leader_gap calls=640000 samples=9552 ns=586000
+exact-stage scene=lane-10000-256-journal-false candidate=true round=2 stage=route_stop_queries calls=640000 samples=9552 ns=434100
+exact-work scene=lane-10000-256-journal-false candidate=true round=2 steps=64 active=10000 records=640000 inspections=623616 occurrence_walks=0 instrumented_ns=157447400 digest=81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb
+exact-stage scene=lane-10000-16-journal-false candidate=false round=0 stage=occupancy_count calls=64 samples=64 ns=2237800
+exact-stage scene=lane-10000-16-journal-false candidate=false round=0 stage=occupancy_layout calls=64 samples=64 ns=265600
+exact-stage scene=lane-10000-16-journal-false candidate=false round=0 stage=occupancy_fill calls=64 samples=64 ns=2984400
+exact-stage scene=lane-10000-16-journal-false candidate=false round=0 stage=occupancy_sort_suffix calls=64 samples=64 ns=2069800
+exact-stage scene=lane-10000-16-journal-false candidate=false round=0 stage=route_profile_inputs calls=640000 samples=9553 ns=395800
+exact-stage scene=lane-10000-16-journal-false candidate=false round=0 stage=leader_horizon calls=640000 samples=9553 ns=410300
+exact-stage scene=lane-10000-16-journal-false candidate=false round=0 stage=leader_gap calls=640000 samples=9553 ns=602800
+exact-stage scene=lane-10000-16-journal-false candidate=false round=0 stage=route_stop_queries calls=640000 samples=9553 ns=343700
+exact-work scene=lane-10000-16-journal-false candidate=false round=0 steps=64 active=10000 records=640000 inspections=638976 occurrence_walks=0 instrumented_ns=149751300 digest=dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa
+exact-stage scene=lane-10000-16-journal-false candidate=true round=0 stage=occupancy_count calls=64 samples=64 ns=4864000
+exact-stage scene=lane-10000-16-journal-false candidate=true round=0 stage=occupancy_layout calls=64 samples=64 ns=290000
+exact-stage scene=lane-10000-16-journal-false candidate=true round=0 stage=occupancy_fill calls=64 samples=64 ns=1025700
+exact-stage scene=lane-10000-16-journal-false candidate=true round=0 stage=occupancy_sort_suffix calls=64 samples=64 ns=2132300
+exact-stage scene=lane-10000-16-journal-false candidate=true round=0 stage=route_profile_inputs calls=640000 samples=9553 ns=401900
+exact-stage scene=lane-10000-16-journal-false candidate=true round=0 stage=leader_horizon calls=640000 samples=9553 ns=417100
+exact-stage scene=lane-10000-16-journal-false candidate=true round=0 stage=leader_gap calls=640000 samples=9553 ns=649900
+exact-stage scene=lane-10000-16-journal-false candidate=true round=0 stage=route_stop_queries calls=640000 samples=9553 ns=345400
+exact-work scene=lane-10000-16-journal-false candidate=true round=0 steps=64 active=10000 records=640000 inspections=638976 occurrence_walks=0 instrumented_ns=155934000 digest=dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa
+exact-stage scene=lane-10000-16-journal-false candidate=false round=1 stage=occupancy_count calls=64 samples=64 ns=2269100
+exact-stage scene=lane-10000-16-journal-false candidate=false round=1 stage=occupancy_layout calls=64 samples=64 ns=292100
+exact-stage scene=lane-10000-16-journal-false candidate=false round=1 stage=occupancy_fill calls=64 samples=64 ns=3007000
+exact-stage scene=lane-10000-16-journal-false candidate=false round=1 stage=occupancy_sort_suffix calls=64 samples=64 ns=2087900
+exact-stage scene=lane-10000-16-journal-false candidate=false round=1 stage=route_profile_inputs calls=640000 samples=9552 ns=378800
+exact-stage scene=lane-10000-16-journal-false candidate=false round=1 stage=leader_horizon calls=640000 samples=9552 ns=401600
+exact-stage scene=lane-10000-16-journal-false candidate=false round=1 stage=leader_gap calls=640000 samples=9552 ns=600700
+exact-stage scene=lane-10000-16-journal-false candidate=false round=1 stage=route_stop_queries calls=640000 samples=9552 ns=326800
+exact-work scene=lane-10000-16-journal-false candidate=false round=1 steps=64 active=10000 records=640000 inspections=638976 occurrence_walks=0 instrumented_ns=152824300 digest=dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa
+exact-stage scene=lane-10000-16-journal-false candidate=true round=1 stage=occupancy_count calls=64 samples=64 ns=5060400
+exact-stage scene=lane-10000-16-journal-false candidate=true round=1 stage=occupancy_layout calls=64 samples=64 ns=310100
+exact-stage scene=lane-10000-16-journal-false candidate=true round=1 stage=occupancy_fill calls=64 samples=64 ns=1051800
+exact-stage scene=lane-10000-16-journal-false candidate=true round=1 stage=occupancy_sort_suffix calls=64 samples=64 ns=2237200
+exact-stage scene=lane-10000-16-journal-false candidate=true round=1 stage=route_profile_inputs calls=640000 samples=9552 ns=403600
+exact-stage scene=lane-10000-16-journal-false candidate=true round=1 stage=leader_horizon calls=640000 samples=9552 ns=436300
+exact-stage scene=lane-10000-16-journal-false candidate=true round=1 stage=leader_gap calls=640000 samples=9552 ns=649700
+exact-stage scene=lane-10000-16-journal-false candidate=true round=1 stage=route_stop_queries calls=640000 samples=9552 ns=362300
+exact-work scene=lane-10000-16-journal-false candidate=true round=1 steps=64 active=10000 records=640000 inspections=638976 occurrence_walks=0 instrumented_ns=160191400 digest=dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa
+exact-stage scene=lane-10000-16-journal-false candidate=false round=2 stage=occupancy_count calls=64 samples=64 ns=2948300
+exact-stage scene=lane-10000-16-journal-false candidate=false round=2 stage=occupancy_layout calls=64 samples=64 ns=445200
+exact-stage scene=lane-10000-16-journal-false candidate=false round=2 stage=occupancy_fill calls=64 samples=64 ns=4022400
+exact-stage scene=lane-10000-16-journal-false candidate=false round=2 stage=occupancy_sort_suffix calls=64 samples=64 ns=2918600
+exact-stage scene=lane-10000-16-journal-false candidate=false round=2 stage=route_profile_inputs calls=640000 samples=9552 ns=468300
+exact-stage scene=lane-10000-16-journal-false candidate=false round=2 stage=leader_horizon calls=640000 samples=9552 ns=506800
+exact-stage scene=lane-10000-16-journal-false candidate=false round=2 stage=leader_gap calls=640000 samples=9552 ns=786600
+exact-stage scene=lane-10000-16-journal-false candidate=false round=2 stage=route_stop_queries calls=640000 samples=9552 ns=421500
+exact-work scene=lane-10000-16-journal-false candidate=false round=2 steps=64 active=10000 records=640000 inspections=638976 occurrence_walks=0 instrumented_ns=203590200 digest=dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa
+exact-stage scene=lane-10000-16-journal-false candidate=true round=2 stage=occupancy_count calls=64 samples=64 ns=7204200
+exact-stage scene=lane-10000-16-journal-false candidate=true round=2 stage=occupancy_layout calls=64 samples=64 ns=494600
+exact-stage scene=lane-10000-16-journal-false candidate=true round=2 stage=occupancy_fill calls=64 samples=64 ns=1503300
+exact-stage scene=lane-10000-16-journal-false candidate=true round=2 stage=occupancy_sort_suffix calls=64 samples=64 ns=3362600
+exact-stage scene=lane-10000-16-journal-false candidate=true round=2 stage=route_profile_inputs calls=640000 samples=9552 ns=591200
+exact-stage scene=lane-10000-16-journal-false candidate=true round=2 stage=leader_horizon calls=640000 samples=9552 ns=587600
+exact-stage scene=lane-10000-16-journal-false candidate=true round=2 stage=leader_gap calls=640000 samples=9552 ns=908400
+exact-stage scene=lane-10000-16-journal-false candidate=true round=2 stage=route_stop_queries calls=640000 samples=9552 ns=497300
+exact-work scene=lane-10000-16-journal-false candidate=true round=2 steps=64 active=10000 records=640000 inspections=638976 occurrence_walks=0 instrumented_ns=230884400 digest=dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=0 stage=occupancy_count calls=64 samples=64 ns=431800
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=0 stage=occupancy_layout calls=64 samples=64 ns=230300
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=0 stage=occupancy_fill calls=64 samples=64 ns=531200
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=0 stage=occupancy_sort_suffix calls=64 samples=64 ns=297600
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=0 stage=route_profile_inputs calls=64000 samples=956 ns=45100
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=0 stage=leader_horizon calls=64000 samples=956 ns=47300
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=0 stage=leader_gap calls=64000 samples=956 ns=67400
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=0 stage=route_stop_queries calls=64000 samples=956 ns=44100
+exact-work scene=multi-edge-1000-64-rings-32-edges candidate=false round=0 steps=64 active=1000 records=93024 inspections=345096 occurrence_walks=496288 instrumented_ns=19801500 digest=c939c964bec56a58516dde39ce09601bbaba79f626dc73c4133100306efb9a6c
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=0 stage=occupancy_count calls=64 samples=64 ns=681400
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=0 stage=occupancy_layout calls=64 samples=64 ns=231800
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=0 stage=occupancy_fill calls=64 samples=64 ns=157700
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=0 stage=occupancy_sort_suffix calls=64 samples=64 ns=269100
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=0 stage=route_profile_inputs calls=64000 samples=956 ns=42800
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=0 stage=leader_horizon calls=64000 samples=956 ns=45400
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=0 stage=leader_gap calls=64000 samples=956 ns=62700
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=0 stage=route_stop_queries calls=64000 samples=956 ns=41900
+exact-work scene=multi-edge-1000-64-rings-32-edges candidate=true round=0 steps=64 active=1000 records=93024 inspections=345096 occurrence_walks=496288 instrumented_ns=17434200 digest=c939c964bec56a58516dde39ce09601bbaba79f626dc73c4133100306efb9a6c
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=1 stage=occupancy_count calls=64 samples=64 ns=372800
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=1 stage=occupancy_layout calls=64 samples=64 ns=201300
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=1 stage=occupancy_fill calls=64 samples=64 ns=448000
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=1 stage=occupancy_sort_suffix calls=64 samples=64 ns=248700
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=1 stage=route_profile_inputs calls=64000 samples=955 ns=39900
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=1 stage=leader_horizon calls=64000 samples=955 ns=43000
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=1 stage=leader_gap calls=64000 samples=955 ns=58000
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=1 stage=route_stop_queries calls=64000 samples=955 ns=37400
+exact-work scene=multi-edge-1000-64-rings-32-edges candidate=false round=1 steps=64 active=1000 records=93024 inspections=345096 occurrence_walks=496288 instrumented_ns=16492400 digest=c939c964bec56a58516dde39ce09601bbaba79f626dc73c4133100306efb9a6c
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=1 stage=occupancy_count calls=64 samples=64 ns=589000
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=1 stage=occupancy_layout calls=64 samples=64 ns=175200
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=1 stage=occupancy_fill calls=64 samples=64 ns=141800
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=1 stage=occupancy_sort_suffix calls=64 samples=64 ns=220900
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=1 stage=route_profile_inputs calls=64000 samples=955 ns=35800
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=1 stage=leader_horizon calls=64000 samples=955 ns=38700
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=1 stage=leader_gap calls=64000 samples=955 ns=52500
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=1 stage=route_stop_queries calls=64000 samples=955 ns=32900
+exact-work scene=multi-edge-1000-64-rings-32-edges candidate=true round=1 steps=64 active=1000 records=93024 inspections=345096 occurrence_walks=496288 instrumented_ns=14564800 digest=c939c964bec56a58516dde39ce09601bbaba79f626dc73c4133100306efb9a6c
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=2 stage=occupancy_count calls=64 samples=64 ns=319800
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=2 stage=occupancy_layout calls=64 samples=64 ns=176400
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=2 stage=occupancy_fill calls=64 samples=64 ns=407100
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=2 stage=occupancy_sort_suffix calls=64 samples=64 ns=221900
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=2 stage=route_profile_inputs calls=64000 samples=955 ns=37400
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=2 stage=leader_horizon calls=64000 samples=955 ns=35700
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=2 stage=leader_gap calls=64000 samples=955 ns=50800
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=false round=2 stage=route_stop_queries calls=64000 samples=955 ns=35100
+exact-work scene=multi-edge-1000-64-rings-32-edges candidate=false round=2 steps=64 active=1000 records=93024 inspections=345096 occurrence_walks=496288 instrumented_ns=14478100 digest=c939c964bec56a58516dde39ce09601bbaba79f626dc73c4133100306efb9a6c
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=2 stage=occupancy_count calls=64 samples=64 ns=616500
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=2 stage=occupancy_layout calls=64 samples=64 ns=179300
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=2 stage=occupancy_fill calls=64 samples=64 ns=136800
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=2 stage=occupancy_sort_suffix calls=64 samples=64 ns=227600
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=2 stage=route_profile_inputs calls=64000 samples=955 ns=37800
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=2 stage=leader_horizon calls=64000 samples=955 ns=38300
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=2 stage=leader_gap calls=64000 samples=955 ns=57000
+exact-stage scene=multi-edge-1000-64-rings-32-edges candidate=true round=2 stage=route_stop_queries calls=64000 samples=955 ns=35900
+exact-work scene=multi-edge-1000-64-rings-32-edges candidate=true round=2 steps=64 active=1000 records=93024 inspections=345096 occurrence_walks=496288 instrumented_ns=15116300 digest=c939c964bec56a58516dde39ce09601bbaba79f626dc73c4133100306efb9a6c
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 333 filtered out; finished in 4.17s

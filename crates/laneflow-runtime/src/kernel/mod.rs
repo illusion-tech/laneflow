@@ -53,3 +53,8 @@ mod spawn_overlap_tests;
 /// 测试构建中的批次阶段墙钟剖析；无生产 feature、API 或状态字段。
 #[cfg(test)]
 pub(crate) mod performance_profile;
+
+/// #216 测试专用 exact 路径归因和有限候选；不进入生产构建。
+#[cfg(test)]
+#[path = "tests/exact_path.rs"]
+pub(crate) mod exact_path_research;

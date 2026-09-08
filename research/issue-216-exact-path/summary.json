@@ -1,0 +1,673 @@
+{
+  "clock_read_mean_ns": 54.09,
+  "scenes": [
+    {
+      "scene": "lane-1000-256-journal-false",
+      "digest": "31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b",
+      "work_per_window": {
+        "active": 1000,
+        "steps": 64,
+        "records": 64000,
+        "inspections": 47616,
+        "occurrence_walks": 0
+      },
+      "unmodified_production_median_ms": {
+        "p50": 0.1873,
+        "p95": 0.3337,
+        "p99": 0.441,
+        "sum": 13.1769
+      },
+      "baseline_batch_stage_percent": {
+        "occupancy": 6.046650675132215,
+        "motion_loop": 56.36841845476918
+      },
+      "variants": {
+        "false": {
+          "median_round_ms": {
+            "p50": 0.2091,
+            "p95": 0.2723,
+            "p99": 0.384,
+            "sum": 14.51685
+          },
+          "max_ms": 1.0456,
+          "retained_bytes": {
+            "source_world_owned": 1220671,
+            "shared_root": 29564,
+            "binding": 23,
+            "committed": 386208,
+            "derived": 104392,
+            "workspace": 730048,
+            "administrative": 0,
+            "pending_bytes": 0
+          },
+          "allocation": {
+            "allocations": 0,
+            "reallocations": 0,
+            "allocated_bytes": 0,
+            "deallocated_bytes": 0,
+            "reallocated_bytes": 0
+          },
+          "stages": {
+            "occupancy_count": {
+              "sampled_mean_ns": 3679.6875,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_layout": {
+              "sampled_mean_ns": 654.6875,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_fill": {
+              "sampled_mean_ns": 5217.1875,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_sort_suffix": {
+              "sampled_mean_ns": 3139.0625,
+              "calls_per_tick": 1.0
+            },
+            "route_profile_inputs": {
+              "sampled_mean_ns": 41.94560669456067,
+              "calls_per_tick": 1000.0
+            },
+            "leader_horizon": {
+              "sampled_mean_ns": 38.21989528795812,
+              "calls_per_tick": 1000.0
+            },
+            "leader_gap": {
+              "sampled_mean_ns": 42.40837696335078,
+              "calls_per_tick": 1000.0
+            },
+            "route_stop_queries": {
+              "sampled_mean_ns": 37.27748691099477,
+              "calls_per_tick": 1000.0
+            }
+          }
+        },
+        "true": {
+          "median_round_ms": {
+            "p50": 0.20675,
+            "p95": 0.2998,
+            "p99": 0.4381,
+            "sum": 14.12125
+          },
+          "max_ms": 0.5595,
+          "retained_bytes": {
+            "source_world_owned": 1245247,
+            "shared_root": 29564,
+            "binding": 23,
+            "committed": 386208,
+            "derived": 104392,
+            "workspace": 754624,
+            "administrative": 0,
+            "pending_bytes": 24576
+          },
+          "allocation": {
+            "allocations": 0,
+            "reallocations": 0,
+            "allocated_bytes": 0,
+            "deallocated_bytes": 0,
+            "reallocated_bytes": 0
+          },
+          "stages": {
+            "occupancy_count": {
+              "sampled_mean_ns": 7954.6875,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_layout": {
+              "sampled_mean_ns": 703.125,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_fill": {
+              "sampled_mean_ns": 1432.8125,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_sort_suffix": {
+              "sampled_mean_ns": 3379.6875,
+              "calls_per_tick": 1.0
+            },
+            "route_profile_inputs": {
+              "sampled_mean_ns": 40.79497907949791,
+              "calls_per_tick": 1000.0
+            },
+            "leader_horizon": {
+              "sampled_mean_ns": 42.72251308900523,
+              "calls_per_tick": 1000.0
+            },
+            "leader_gap": {
+              "sampled_mean_ns": 41.989528795811516,
+              "calls_per_tick": 1000.0
+            },
+            "route_stop_queries": {
+              "sampled_mean_ns": 37.90575916230367,
+              "calls_per_tick": 1000.0
+            }
+          }
+        }
+      },
+      "paired_change_percent": {
+        "p50": {
+          "median": 3.1392727319912384,
+          "min": -7.533632286995518,
+          "max": 32.71461716937354,
+          "candidate_faster_rounds": 2
+        },
+        "p95": {
+          "median": 3.9369229230665543,
+          "min": -21.806223121679736,
+          "max": 31.723278279837963,
+          "candidate_faster_rounds": 3
+        },
+        "p99": {
+          "median": -9.69252558479532,
+          "min": -63.59028309104819,
+          "max": 70.68334350213546,
+          "candidate_faster_rounds": 4
+        },
+        "sum": {
+          "median": -0.0753272707434971,
+          "min": -8.656037996475252,
+          "max": 24.930663186230518,
+          "candidate_faster_rounds": 3
+        }
+      }
+    },
+    {
+      "scene": "lane-10000-256-journal-false",
+      "digest": "81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb",
+      "work_per_window": {
+        "active": 10000,
+        "steps": 64,
+        "records": 640000,
+        "inspections": 623616,
+        "occurrence_walks": 0
+      },
+      "unmodified_production_median_ms": {
+        "p50": 2.1055,
+        "p95": 2.9449,
+        "p99": 3.4122,
+        "sum": 143.4257
+      },
+      "baseline_batch_stage_percent": {
+        "occupancy": 6.011693527120394,
+        "motion_loop": 56.71986015988186
+      },
+      "variants": {
+        "false": {
+          "median_round_ms": {
+            "p50": 2.22235,
+            "p95": 2.88905,
+            "p99": 3.4446,
+            "sum": 145.16375
+          },
+          "max_ms": 4.3452,
+          "retained_bytes": {
+            "source_world_owned": 11315551,
+            "shared_root": 29564,
+            "binding": 23,
+            "committed": 3014208,
+            "derived": 1019272,
+            "workspace": 7282048,
+            "administrative": 0,
+            "pending_bytes": 0
+          },
+          "allocation": {
+            "allocations": 0,
+            "reallocations": 0,
+            "allocated_bytes": 0,
+            "deallocated_bytes": 0,
+            "reallocated_bytes": 0
+          },
+          "stages": {
+            "occupancy_count": {
+              "sampled_mean_ns": 40190.625,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_layout": {
+              "sampled_mean_ns": 4526.5625,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_fill": {
+              "sampled_mean_ns": 55150.0,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_sort_suffix": {
+              "sampled_mean_ns": 35057.8125,
+              "calls_per_tick": 1.0
+            },
+            "route_profile_inputs": {
+              "sampled_mean_ns": 40.598827470686764,
+              "calls_per_tick": 10000.0
+            },
+            "leader_horizon": {
+              "sampled_mean_ns": 42.535594639866,
+              "calls_per_tick": 10000.0
+            },
+            "leader_gap": {
+              "sampled_mean_ns": 57.18174204355109,
+              "calls_per_tick": 10000.0
+            },
+            "route_stop_queries": {
+              "sampled_mean_ns": 36.06574539363484,
+              "calls_per_tick": 10000.0
+            }
+          }
+        },
+        "true": {
+          "median_round_ms": {
+            "p50": 2.16285,
+            "p95": 2.5854,
+            "p99": 3.4315,
+            "sum": 143.9259
+          },
+          "max_ms": 3.8355,
+          "retained_bytes": {
+            "source_world_owned": 11708767,
+            "shared_root": 29564,
+            "binding": 23,
+            "committed": 3014208,
+            "derived": 1019272,
+            "workspace": 7675264,
+            "administrative": 0,
+            "pending_bytes": 393216
+          },
+          "allocation": {
+            "allocations": 0,
+            "reallocations": 0,
+            "allocated_bytes": 0,
+            "deallocated_bytes": 0,
+            "reallocated_bytes": 0
+          },
+          "stages": {
+            "occupancy_count": {
+              "sampled_mean_ns": 84864.0625,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_layout": {
+              "sampled_mean_ns": 4731.25,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_fill": {
+              "sampled_mean_ns": 16868.75,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_sort_suffix": {
+              "sampled_mean_ns": 38301.5625,
+              "calls_per_tick": 1.0
+            },
+            "route_profile_inputs": {
+              "sampled_mean_ns": 43.84422110552764,
+              "calls_per_tick": 10000.0
+            },
+            "leader_horizon": {
+              "sampled_mean_ns": 47.629017062702815,
+              "calls_per_tick": 10000.0
+            },
+            "leader_gap": {
+              "sampled_mean_ns": 61.348408710217754,
+              "calls_per_tick": 10000.0
+            },
+            "route_stop_queries": {
+              "sampled_mean_ns": 38.67894902124987,
+              "calls_per_tick": 10000.0
+            }
+          }
+        }
+      },
+      "paired_change_percent": {
+        "p50": {
+          "median": -2.438529156502156,
+          "min": -23.359260188537224,
+          "max": 11.684061560233495,
+          "candidate_faster_rounds": 4
+        },
+        "p95": {
+          "median": -10.711899806538822,
+          "min": -29.011993146773275,
+          "max": 16.460419601721043,
+          "candidate_faster_rounds": 4
+        },
+        "p99": {
+          "median": -2.7618406524644366,
+          "min": -25.861468847894187,
+          "max": 8.73721524872153,
+          "candidate_faster_rounds": 4
+        },
+        "sum": {
+          "median": -4.938231483492844,
+          "min": -22.052833160518624,
+          "max": 11.23528165348806,
+          "candidate_faster_rounds": 4
+        }
+      }
+    },
+    {
+      "scene": "lane-10000-16-journal-false",
+      "digest": "dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa",
+      "work_per_window": {
+        "active": 10000,
+        "steps": 64,
+        "records": 640000,
+        "inspections": 638976,
+        "occurrence_walks": 0
+      },
+      "unmodified_production_median_ms": {
+        "p50": 2.4426,
+        "p95": 4.082,
+        "p99": 5.2666,
+        "sum": 169.9711
+      },
+      "baseline_batch_stage_percent": {
+        "occupancy": 5.2684302279510815,
+        "motion_loop": 58.81659578964051
+      },
+      "variants": {
+        "false": {
+          "median_round_ms": {
+            "p50": 2.1564,
+            "p95": 2.693,
+            "p99": 3.11275,
+            "sum": 143.5124
+          },
+          "max_ms": 7.2497,
+          "retained_bytes": {
+            "source_world_owned": 11227231,
+            "shared_root": 29564,
+            "binding": 23,
+            "committed": 2925888,
+            "derived": 1019272,
+            "workspace": 7282048,
+            "administrative": 0,
+            "pending_bytes": 0
+          },
+          "allocation": {
+            "allocations": 0,
+            "reallocations": 0,
+            "allocated_bytes": 0,
+            "deallocated_bytes": 0,
+            "reallocated_bytes": 0
+          },
+          "stages": {
+            "occupancy_count": {
+              "sampled_mean_ns": 35454.6875,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_layout": {
+              "sampled_mean_ns": 4564.0625,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_fill": {
+              "sampled_mean_ns": 46984.375,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_sort_suffix": {
+              "sampled_mean_ns": 32623.4375,
+              "calls_per_tick": 1.0
+            },
+            "route_profile_inputs": {
+              "sampled_mean_ns": 41.43201088663247,
+              "calls_per_tick": 10000.0
+            },
+            "leader_horizon": {
+              "sampled_mean_ns": 42.949858683136185,
+              "calls_per_tick": 10000.0
+            },
+            "leader_gap": {
+              "sampled_mean_ns": 63.100596671202766,
+              "calls_per_tick": 10000.0
+            },
+            "route_stop_queries": {
+              "sampled_mean_ns": 35.97822673505705,
+              "calls_per_tick": 10000.0
+            }
+          }
+        },
+        "true": {
+          "median_round_ms": {
+            "p50": 2.20215,
+            "p95": 2.5509,
+            "p99": 3.1159,
+            "sum": 142.9265
+          },
+          "max_ms": 6.2254,
+          "retained_bytes": {
+            "source_world_owned": 11620447,
+            "shared_root": 29564,
+            "binding": 23,
+            "committed": 2925888,
+            "derived": 1019272,
+            "workspace": 7675264,
+            "administrative": 0,
+            "pending_bytes": 393216
+          },
+          "allocation": {
+            "allocations": 0,
+            "reallocations": 0,
+            "allocated_bytes": 0,
+            "deallocated_bytes": 0,
+            "reallocated_bytes": 0
+          },
+          "stages": {
+            "occupancy_count": {
+              "sampled_mean_ns": 79068.75,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_layout": {
+              "sampled_mean_ns": 4845.3125,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_fill": {
+              "sampled_mean_ns": 16434.375,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_sort_suffix": {
+              "sampled_mean_ns": 34956.25,
+              "calls_per_tick": 1.0
+            },
+            "route_profile_inputs": {
+              "sampled_mean_ns": 42.25293132328308,
+              "calls_per_tick": 10000.0
+            },
+            "leader_horizon": {
+              "sampled_mean_ns": 45.676298157453935,
+              "calls_per_tick": 10000.0
+            },
+            "leader_gap": {
+              "sampled_mean_ns": 68.03098503088034,
+              "calls_per_tick": 10000.0
+            },
+            "route_stop_queries": {
+              "sampled_mean_ns": 37.92922948073702,
+              "calls_per_tick": 10000.0
+            }
+          }
+        }
+      },
+      "paired_change_percent": {
+        "p50": {
+          "median": 3.227973680050089,
+          "min": -9.162775456705175,
+          "max": 8.089177073326926,
+          "candidate_faster_rounds": 2
+        },
+        "p95": {
+          "median": 0.9064676080851819,
+          "min": -30.408367086500586,
+          "max": 96.61938859818231,
+          "candidate_faster_rounds": 2
+        },
+        "p99": {
+          "median": -5.4900788036426285,
+          "min": -54.66571030525401,
+          "max": 111.92129629629628,
+          "candidate_faster_rounds": 4
+        },
+        "sum": {
+          "median": 2.147165947392349,
+          "min": -15.719002790276026,
+          "max": 22.266430741857015,
+          "candidate_faster_rounds": 2
+        }
+      }
+    },
+    {
+      "scene": "multi-edge-1000-64-rings-32-edges",
+      "digest": "c939c964bec56a58516dde39ce09601bbaba79f626dc73c4133100306efb9a6c",
+      "work_per_window": {
+        "active": 1000,
+        "steps": 64,
+        "records": 93024,
+        "inspections": 345096,
+        "occurrence_walks": 496288
+      },
+      "unmodified_production_median_ms": null,
+      "baseline_batch_stage_percent": null,
+      "variants": {
+        "false": {
+          "median_round_ms": {
+            "p50": 0.27375,
+            "p95": 0.3661,
+            "p99": 0.47065,
+            "sum": 18.26235
+          },
+          "max_ms": 0.6825,
+          "retained_bytes": {
+            "source_world_owned": 1600070,
+            "shared_root": 232316,
+            "binding": 30,
+            "committed": 638112,
+            "derived": 217544,
+            "workspace": 744384,
+            "administrative": 0,
+            "pending_bytes": 0
+          },
+          "allocation": {
+            "allocations": 0,
+            "reallocations": 0,
+            "allocated_bytes": 0,
+            "deallocated_bytes": 0,
+            "reallocated_bytes": 0
+          },
+          "stages": {
+            "occupancy_count": {
+              "sampled_mean_ns": 5825.0,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_layout": {
+              "sampled_mean_ns": 3145.3125,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_fill": {
+              "sampled_mean_ns": 7000.0,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_sort_suffix": {
+              "sampled_mean_ns": 3885.9375,
+              "calls_per_tick": 1.0
+            },
+            "route_profile_inputs": {
+              "sampled_mean_ns": 41.78010471204188,
+              "calls_per_tick": 1000.0
+            },
+            "leader_horizon": {
+              "sampled_mean_ns": 45.026178010471206,
+              "calls_per_tick": 1000.0
+            },
+            "leader_gap": {
+              "sampled_mean_ns": 60.73298429319372,
+              "calls_per_tick": 1000.0
+            },
+            "route_stop_queries": {
+              "sampled_mean_ns": 39.16230366492147,
+              "calls_per_tick": 1000.0
+            }
+          }
+        },
+        "true": {
+          "median_round_ms": {
+            "p50": 0.25885,
+            "p95": 0.31485,
+            "p99": 0.44565,
+            "sum": 17.1181
+          },
+          "max_ms": 1.2726,
+          "retained_bytes": {
+            "source_world_owned": 1649222,
+            "shared_root": 232316,
+            "binding": 30,
+            "committed": 638112,
+            "derived": 217544,
+            "workspace": 793536,
+            "administrative": 0,
+            "pending_bytes": 49152
+          },
+          "allocation": {
+            "allocations": 0,
+            "reallocations": 0,
+            "allocated_bytes": 0,
+            "deallocated_bytes": 0,
+            "reallocated_bytes": 0
+          },
+          "stages": {
+            "occupancy_count": {
+              "sampled_mean_ns": 9632.8125,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_layout": {
+              "sampled_mean_ns": 2801.5625,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_fill": {
+              "sampled_mean_ns": 2215.625,
+              "calls_per_tick": 1.0
+            },
+            "occupancy_sort_suffix": {
+              "sampled_mean_ns": 3556.25,
+              "calls_per_tick": 1.0
+            },
+            "route_profile_inputs": {
+              "sampled_mean_ns": 39.58115183246073,
+              "calls_per_tick": 1000.0
+            },
+            "leader_horizon": {
+              "sampled_mean_ns": 40.52356020942408,
+              "calls_per_tick": 1000.0
+            },
+            "leader_gap": {
+              "sampled_mean_ns": 59.68586387434555,
+              "calls_per_tick": 1000.0
+            },
+            "route_stop_queries": {
+              "sampled_mean_ns": 37.59162303664922,
+              "calls_per_tick": 1000.0
+            }
+          }
+        }
+      },
+      "paired_change_percent": {
+        "p50": {
+          "median": 3.0220926577915086,
+          "min": -22.704339051463172,
+          "max": 9.395207303157104,
+          "candidate_faster_rounds": 2
+        },
+        "p95": {
+          "median": 2.0524441380458116,
+          "min": -48.7758945386064,
+          "max": 59.52486678507994,
+          "candidate_faster_rounds": 3
+        },
+        "p99": {
+          "median": 7.52686319269476,
+          "min": -58.65201465201465,
+          "max": 116.31820499745027,
+          "candidate_faster_rounds": 3
+        },
+        "sum": {
+          "median": 3.45564037281767,
+          "min": -27.310914179556956,
+          "max": 21.877754989242693,
+          "candidate_faster_rounds": 2
+        }
+      }
+    }
+  ]
+}
