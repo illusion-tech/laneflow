@@ -25,10 +25,8 @@ pub enum SnapshotDigestError {
     ReservationFailed,
 }
 
-/// 固定前缀的总字节数（一次预留）。计数字段与记录统一走可失败写入
-/// （`try_push_u64` / `try_push_record`）——`try_reserve_exact` 只保证当次
-/// len + additional，前缀预留的冗余会被后续精确重预留冲销，动态写入不能
-/// 依赖前缀预算。
+/// 固定前缀的最大字节数（一次预留）。后续计数字段与记录各自走
+/// 可失败的摊销增长，不依赖可选前缀留下的剩余容量。
 const fn canonical_prefix_len() -> usize {
     RUNTIME_STATE_DIGEST_DOMAIN.len()
         + 2
@@ -59,6 +57,21 @@ fn digest_try_reserve_exact<T>(
     }
     values
         .try_reserve_exact(additional)
+        .map_err(|_| SnapshotDigestError::ReservationFailed)
+}
+
+/// 连续追加字节采用可失败的摊销增长，避免每条记录都精确扩容。
+/// 保留与精确预留相同的失败注入边界；实际写入只发生在成功之后。
+fn digest_try_reserve(values: &mut Vec<u8>, additional: usize) -> Result<(), SnapshotDigestError> {
+    if additional == 0 {
+        return Ok(());
+    }
+    #[cfg(test)]
+    if crate::admin::snapshot::snapshot_reservation_injected_failure() {
+        return Err(SnapshotDigestError::ReservationFailed);
+    }
+    values
+        .try_reserve(additional)
         .map_err(|_| SnapshotDigestError::ReservationFailed)
 }
 
@@ -467,15 +480,14 @@ fn push_conflict_locator(
 
 /// 预留后写入长度前缀记录（预留成功则本次写入不再分配）。
 fn try_push_record(target: &mut Vec<u8>, record: &[u8]) -> Result<(), SnapshotDigestError> {
-    digest_try_reserve_exact(target, 8 + record.len())?;
+    digest_try_reserve(target, 8 + record.len())?;
     push_record(target, record);
     Ok(())
 }
 
-/// 预留后写入 `u64` 小字段（计数字段；前缀预留的冗余会被精确重预留
-/// 冲销，不能依赖前缀预算）。
+/// 可失败预留后写入 `u64` 计数字段。
 fn try_push_u64(target: &mut Vec<u8>, value: u64) -> Result<(), SnapshotDigestError> {
-    digest_try_reserve_exact(target, 8)?;
+    digest_try_reserve(target, 8)?;
     push_u64(target, value);
     Ok(())
 }
@@ -509,6 +521,76 @@ mod tests {
         ParkedVehicleSpawnInput, ParkingTarget, SnapshotRestoreLimits, TickInput, WorldConfig,
         encode_lfrs, restore_lfrs,
     };
+
+    #[test]
+    fn dynamic_record_appends_amortize_growth_and_preserve_bytes() {
+        let mut actual = Vec::new();
+        let mut expected = Vec::new();
+        let mut growths = 0;
+        for index in 0..4_096_u64 {
+            let capacity = actual.capacity();
+            try_push_u64(&mut actual, index).unwrap();
+            try_push_record(&mut actual, &index.to_le_bytes()).unwrap();
+            growths += usize::from(actual.capacity() != capacity);
+            push_u64(&mut expected, index);
+            push_record(&mut expected, &index.to_le_bytes());
+        }
+        assert_eq!(actual, expected);
+        // 只约束摊销增长，不绑定分配器的精确容量或某个墙钟阈值。
+        assert!(growths <= 32, "unexpected per-record growth: {growths}");
+    }
+
+    #[test]
+    fn dynamic_append_failure_preserves_bytes_and_is_retryable() {
+        let mut bytes = vec![1, 2, 3];
+        let before = bytes.clone();
+        let failed = crate::admin::snapshot::with_snapshot_allocation_failure_after(0, || {
+            try_push_record(&mut bytes, &[4, 5])
+        });
+        assert_eq!(failed, Err(SnapshotDigestError::ReservationFailed));
+        assert_eq!(bytes, before);
+        assert_eq!(
+            digest_try_reserve(&mut bytes, usize::MAX),
+            Err(SnapshotDigestError::ReservationFailed)
+        );
+        assert_eq!(bytes, before);
+        try_push_record(&mut bytes, &[4, 5]).unwrap();
+        let mut expected = before;
+        push_record(&mut expected, &[4, 5]);
+        assert_eq!(bytes, expected);
+    }
+
+    #[test]
+    #[ignore = "同机 release 摘要字节负载取证；不是城市世界或墙钟 CI 门槛"]
+    fn digest_scale_wall_clock_evidence() {
+        use std::{hint::black_box, time::Instant};
+
+        let (world, _, _) = world_with_vehicle(true);
+        let base = world.capture_snapshot().unwrap();
+        // 仅放大规范记录负载，不伪装为已验证的十万辆运行时世界。
+        // 一个大路线分组同时覆盖组内追加与顶层 live 序追加。
+        for count in [10_000_u32, 100_000] {
+            let mut snapshot = base.clone();
+            snapshot.vehicles.clear();
+            snapshot.live_order.clear();
+            for index in 0..count {
+                let mut vehicle = base.vehicles[0].clone();
+                vehicle.snapshot_vehicle_id = u64::from(index) + 1;
+                vehicle.progress_mm = index;
+                snapshot.live_order.push(vehicle.snapshot_vehicle_id);
+                snapshot.vehicles.push(vehicle);
+            }
+            let expected = deterministic_state_digest(&snapshot).unwrap();
+            let mut samples = Vec::new();
+            for _ in 0..3 {
+                let started = Instant::now();
+                let digest = black_box(deterministic_state_digest(black_box(&snapshot)).unwrap());
+                samples.push(started.elapsed().as_nanos());
+                assert_eq!(digest, expected);
+            }
+            println!("digest-records={count} samples_ns={samples:?} digest={expected:?}");
+        }
+    }
 
     #[test]
     fn pregrouped_route_bytes_match_linear_reference() {
