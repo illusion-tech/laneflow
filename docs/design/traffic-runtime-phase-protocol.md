@@ -130,8 +130,10 @@ Conflict 的规则函数显式借用下列不同部分，而不是取得含全�
   两条 backing 属于 Derived，非空根按 `4 × (streamCount + 1 + passageCount)`
   字节计账；空根不保留 backing。共享根已经要求每流 passage 非空、全部 passage
   可由 `u32` range 表达，安装仍以 checked 计数和可失败分配构造索引；它不依据查询
-  中的最大键扩张，也不改变世界的语义容量。恢复和修订切换为目标根重新安装此索引，
-  不持久化、不跨根复用槽位，不在每辆车或每条路线复制表，也不新增 passage 身份。
+  中的最大键扩张，也不改变世界的语义容量。普通恢复和跨修订候选为目标根重新安装
+  此索引；同修订同步换根在认证修订相同、校验路线出现项等价后，依照实体集合与
+  规范排序不变的约束保留现有索引，不额外重建。索引不持久化；不得跨修订或在未经
+  上述等价认证时直接复用旧槽位，不在每辆车或每条路线复制表，也不新增 passage 身份。
 - `cells` 中的 `zone_committed_owner`、`reservation`、`occupant`、`cleared` 和 `lag`
   属于 committed 资源表示；`zone_staged_owner` 与 `frontier` 属于 Workspace。
   `reservation_serial` 是已提交 reservation 的私有配对信息，不可作为新的权威副本。
