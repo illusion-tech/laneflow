@@ -313,6 +313,27 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
+    let committed = |name| {
+        commands
+            .iter()
+            .filter(|command| command["command"] == name && command["committed"] == true)
+            .count() as u64
+    };
+    assert!(
+        committed("replace") > 0,
+        "replacement counting needs a real commit"
+    );
+    assert_eq!(first.replacements, committed("replace"));
+    assert_eq!(first.births, committed("replace") + committed("spawn"));
+    assert_eq!(first.removals, committed("replace") + committed("despawn"));
+    assert_eq!(
+        first.initial_counts.0
+            + first.initial_counts.1
+            + first.initial_counts.2
+            + first.births as usize
+            - first.removals as usize,
+        first.final_counts.0 + first.final_counts.1 + first.final_counts.2
+    );
     let parks: Vec<_> = commands.iter().filter(|c| c["command"] == "park").collect();
     assert_eq!(parks.len(), 4);
     for park in parks {

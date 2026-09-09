@@ -558,6 +558,8 @@ impl<'a> Harness<'a> {
                                 crossed_tile: false,
                             };
                             self.replacements += 1;
+                            self.births += 1;
+                            self.removals += 1;
                             extra = json!({"new_individual": self.individuals[request.slot].id, "route": route});
                         }
                         Err(ReplaceError::Blocked(block)) => {
@@ -983,10 +985,10 @@ impl<'a> Harness<'a> {
             .count();
         observe::red_waiters(self);
         let started = std::time::Instant::now();
-        let outcome = checked(
-            "TrafficWorld step",
-            self.world.step(TickInput::new(self.plan.dt)),
-        )?;
+        let outcome = self.world.step(TickInput::new(self.plan.dt));
+        self.last_step_ns = started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
+        let observation_started = std::time::Instant::now();
+        let outcome = checked("TrafficWorld step", outcome)?;
         let signals = signal_signature(&self.world)?;
         if signals != self.last_signals {
             for window in &self.plan.boundary_windows {
@@ -998,8 +1000,6 @@ impl<'a> Harness<'a> {
             }
             self.last_signals = signals;
         }
-        self.last_step_ns = started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
-        let observation_started = std::time::Instant::now();
         for arrival in outcome.parking_arrivals() {
             let slot = *self
                 .slots
@@ -1161,5 +1161,9 @@ mod tests {
         assert_eq!(harness.commands[0]["individual"], serde_json::json!(id));
         assert_eq!(harness.commands[0]["committed"], false);
         assert_eq!(harness.commands[0]["details"]["reason"], "role-held");
+        assert_eq!(
+            (harness.replacements, harness.births, harness.removals),
+            (0, 0, 0)
+        );
     }
 }
