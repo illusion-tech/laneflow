@@ -75,8 +75,9 @@ target/release/laneflow-urban-harness compare <performance-a> <performance-b> <p
 当前测量载荷为 `urban-performance-measurements-v2`，旧计时载荷拒绝合并，不补写或转换。
 `command_ns` 是该 tick 内六类公共生命周期调用（spawn/despawn/replace/leave/reserve/park）
 的耗时之和，含实际调用后的拒绝，不含调用方延期；无调用时为 0。输入准备、排队、
-完整快照、诊断断言及日志记账均在此计时外。`observation_ns` 记录 step 后信号采集、
-事件/状态摘要和校验，step 前观测不在其中；这三项不相加冒充整轮墙钟成本。
+完整快照、诊断断言及日志记账均在此计时外。`observation_ns` 累计 step 前的
+`step_before` 采集、Active/intent 计数、红灯等待扫描，以及 step 后的信号采集、
+事件/状态摘要和校验，两段均不包含 step 调用；三项仍不相加冒充整轮墙钟成本。
 来源校验用于防止错用/混合记录，不证明保存的描述等于二进制的真实构建来源；正式取证
 仍须冻结构建及输入，不能在运行中更改工作树。
 

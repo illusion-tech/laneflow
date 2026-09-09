@@ -250,7 +250,8 @@ CLI 输出错误并非零退出；本段接受部分准备文件，不提供结�
 断言耗时不混入正常 tick latency。分别记录 TrafficWorld step、调用方命令与观测开销。
 其中 command 只累计六类公共生命周期调用自身耗时，实际 Runtime 拒绝也计入，无调用
 则为零；输入准备、延期/重试调度、快照、断言及调用方记账不在该计时范围内。
-observation 记录 step 后的信号采集、事件/状态摘要和校验，不包含 step 前观测；三项
+observation 累计 step 前的 `step_before` 采集、Active/intent 计数、红灯等待扫描，
+以及 step 后的信号采集、事件/状态摘要和校验；两段均不含 step 调用。三项
 不覆盖全部调用方工作，不能相加冒充整轮墙钟。该计时范围绑定
 `urban-performance-measurements-v2`，不转换或合并旧口径载荷。
 按性能合同合并三轮 p50/p95/p99 和最坏 max，不能把两个正确性运行当性能轮次；工具链
