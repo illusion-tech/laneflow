@@ -517,10 +517,29 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     /// 在跟车、信号、停车与 Waiting/Conflict 停车约束下推进一步活动车辆。
     pub(crate) fn advance_active_vehicle_with_waiting_stop(
         self,
+        state: VehicleState,
+        delta_s: f32,
+        waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+    ) -> Option<VehicleState> {
+        let parking_binding = self.committed.parking.binding(state.handle);
+        self.advance_active_vehicle_with_parking_binding(
+            state,
+            delta_s,
+            waiting_stop,
+            conflict_stop,
+            parking_binding,
+        )
+    }
+
+    /// 正式推进复用同一拍初状态的 binding；独立预览仍从自身读取入口取得当前值。
+    pub(crate) fn advance_active_vehicle_with_parking_binding(
+        self,
         mut state: VehicleState,
         delta_s: f32,
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
         conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        parking_binding: Option<ParkingBinding>,
     ) -> Option<VehicleState> {
         #[cfg(test)]
         let inputs_timer = super::exact_path_research::begin(
@@ -571,7 +590,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let route_end =
             remaining_to_route_end(*compiled.remaining_to_end.get(cursor)?, state.progress_mm);
         let signal_stop = self.signal_stop_distance(compiled, &state, cursor);
-        let parking = self.parking_stop_distance(compiled, &state, cursor)?;
+        let parking = self.parking_stop_distance(compiled, &state, cursor, parking_binding)?;
         #[cfg(test)]
         drop(stop_timer);
         let parking_stop = parking.map(|(_, distance)| distance);
@@ -672,16 +691,15 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         Some(state)
     }
 
-    /// 读取当前预约对应的停车入口距离；外层 `None` 表示绑定不一致的失败关闭。
+    /// 按同一拍初 binding 计算停车入口距离；外层 `None` 表示绑定不一致的失败关闭。
     pub(crate) fn parking_stop_distance(
         self,
         compiled: &CompiledRoute,
         state: &VehicleState,
         cursor: usize,
+        parking_binding: Option<ParkingBinding>,
     ) -> Option<Option<(ParkingReservation, BoundedDistance)>> {
-        let Some(ParkingBinding::Reserved(reservation)) =
-            self.committed.parking.binding(state.handle)
-        else {
+        let Some(ParkingBinding::Reserved(reservation)) = parking_binding else {
             return Some(None);
         };
         if reservation.route() != state.route {
@@ -925,10 +943,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 continue;
             };
             debug_assert_eq!(state.status, VehicleStatus::Active);
-            if !self.parking_state_valid(handle) {
+            let parking_binding = self.committed.parking.binding(handle);
+            if !self
+                .read_view()
+                .parking_state_valid_with_binding(handle, *state, parking_binding)
+            {
                 return Err(StepError::ParkingInvariantViolation);
             }
-            let reservation = match self.committed.parking.binding(handle) {
+            let reservation = match parking_binding {
                 Some(ParkingBinding::Reserved(reservation)) => Some(reservation),
                 Some(ParkingBinding::Occupied(_)) => {
                     return Err(StepError::ParkingInvariantViolation);
@@ -940,11 +962,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             let waiting_stop = self.waiting_stop_for(state)?;
             let conflict_stop = self.conflict_stop_for(state)?;
             let next = self
-                .advance_active_vehicle_with_waiting_stop(
+                .read_view()
+                .advance_active_vehicle_with_parking_binding(
                     *state,
                     delta_s,
                     waiting_stop,
                     conflict_stop,
+                    parking_binding,
                 )
                 .ok_or(StepError::NonFiniteMotion)?;
             if let Some(reservation) = reservation {

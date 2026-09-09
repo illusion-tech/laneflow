@@ -1,7 +1,7 @@
 # 停车系统设计
 
 **文档状态**: Accepted（#540 G1）<br>
-**最后更新**: 2026-09-07<br>
+**最后更新**: 2026-09-10<br>
 **适用范围**: `ParkingFacility` / `ParkingSpace` 静态模型、显式与虚拟停车资源、
 Traffic Runtime 生命周期、快照/修订切换、Spatial/Adapter 和复杂度边界<br>
 **实现状态**: 当前实现已以 `ParkingFacility + ParkingSpace`、tagged
@@ -554,6 +554,9 @@ reserve/rebind 的成功 record、输入命令日志与 replay payload 都保存
   committed pair，命令 result 回显该事实，但不补造延迟 step observation；后续 step 也不
   重复发送。
 - command 在 step 边界线性化；step 内只读一个 tick-start committed snapshot，并一次提交。
+- 单次车辆推进可复用从该拍初视图读取的 parking binding，供状态校验、预约与停车距离
+  计算共同消费；全部校验及其先后保持不变。该值只在本次调用内传递，不跨车辆或跨
+  tick 缓存，不新增可独立修改的 binding 权威。
 - 合法 `NoChange` 仍是成功消费的一条输入命令，input command cursor checked `+1`；它不改变
   parking/vehicle authority、`observationStateSequence`、tick/time 或事件游标。cursor 耗尽
   时连 no-op 也必须零副作用失败，不能返回未计数成功。
