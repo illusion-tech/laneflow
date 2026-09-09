@@ -57,11 +57,13 @@ target/release/laneflow-urban-harness plan <artifact-directory> <plan.toml> --pe
 ```
 
 运行前必须设置 `LANEFLOW_HARDWARE_ROLE` 和 `LANEFLOW_POWER_ROLE`。每轮只统计观察
-窗口，分别记录调用方命令、`TrafficWorld::step` 和观测开销的 p50/p95/p99/max，实际
+窗口，分别记录公共生命周期命令调用、`TrafficWorld::step` 和观测开销的 p50/p95/p99/max，实际
 Active/intent 分布及进程 peak resident bytes 写入 `measurements.toml`。每档仍须按治理
 流程启动三个新进程；单轮文件不代表三轮合并结论或产品预算认证。
 三轮完成后仍通过 `compare` 入口做文件摘要、计划摘要和独立执行编号校验，并精确合并
-三轮保存的观察窗口样本：
+三轮保存的观察窗口样本。每轮提交、干净状态、Rust/Cargo/target、构建参数、OS/架构、
+硬件/电源角色、worker 与计时口径必须可用且一致；缺字段、脏工作树、样本数与窗口不符
+均拒绝。正式运行在初始化前和窗口结束后核对来源，变化或无法读取时不产出性能通过包：
 
 ```text
 target/release/laneflow-urban-harness compare <performance-a> <performance-b> <performance-c> <performance-comparison.toml>
@@ -69,6 +71,14 @@ target/release/laneflow-urban-harness compare <performance-a> <performance-b> <p
 
 合并状态 `performance-three-rounds-complete` 只表示协议完整，不表示达到 #539/#305 的
 产品预算。
+
+当前测量载荷为 `urban-performance-measurements-v2`，旧计时载荷拒绝合并，不补写或转换。
+`command_ns` 是该 tick 内六类公共生命周期调用（spawn/despawn/replace/leave/reserve/park）
+的耗时之和，含实际调用后的拒绝，不含调用方延期；无调用时为 0。输入准备、排队、
+完整快照、诊断断言及日志记账均在此计时外。`observation_ns` 记录 step 后信号采集、
+事件/状态摘要和校验，step 前观测不在其中；这三项不相加冒充整轮墙钟成本。
+来源校验用于防止错用/混合记录，不证明保存的描述等于二进制的真实构建来源；正式取证
+仍须冻结构建及输入，不能在运行中更改工作树。
 
 ## Mixed 的具体输入
 
@@ -110,6 +120,8 @@ target/release/laneflow-urban-harness compare <performance-a> <performance-b> <p
   在命令提交时记录 before/after 状态及前后稳定身份；拒绝和 reserve 不产生生命周期
   变化事件。成功原子替换各累计一次出生和移除；拒绝及延期不增加这两项。
   `step_before` 仍在命令后采集，保持意图计数、红灯与跨 tile 观测的语义。
+  命令观察边界为 `[warm_up,end)`；step 完成后的决策/事件用 `(warm_up,end]`，
+  不计入最后一个暖机 step，但包含最后一个观察 step。
 - `result.json` 记录窗口、实际提交、逐 tile 触发和完整快照摘要；初态、暖机结束、
   每观察周期末捕获完整快照。计划与结果均携带 `required_per_tile` 的冻结下限，
   对照逐 tile 的实际计数；载荷版本为 `urban-result-v3`，Failed 行不能通过 compare。

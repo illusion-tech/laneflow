@@ -306,7 +306,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                 (4, 2 + conflict_reason(r))
             }
         };
-        if h.in_observation(h.world.tick_index())
+        if h.in_step_observation(h.world.tick_index())
             && h.plan.case == "WAITING-RELEASE"
             && h.plan.initial[id.tile as usize * 1_000 + id.slot as usize]
                 .role
@@ -357,7 +357,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
         let role = h.plan.initial[id.tile as usize * 1_000 + id.slot as usize]
             .role
             .as_deref();
-        if h.in_observation(h.world.tick_index())
+        if h.in_step_observation(h.world.tick_index())
             && h.plan.case == "PERMISSIVE-LEFT"
             && role == Some("permissive-left")
         {
@@ -377,7 +377,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                 _ => {}
             }
         }
-        if h.in_observation(h.world.tick_index())
+        if h.in_step_observation(h.world.tick_index())
             && h.plan.case == "UNCONTROLLED-YIELD"
             && role == Some("yield-role")
             && matches!(d.outcome(), ConflictDecisionOutcome::NoGrant(_))
@@ -390,7 +390,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                     .or_default() += 1;
             }
         }
-        if h.in_observation(h.world.tick_index())
+        if h.in_step_observation(h.world.tick_index())
             && h.plan.case == "WAITING-RELEASE"
             && role.is_some_and(|role| role.starts_with("waiting-fifo-"))
             && matches!(
@@ -468,7 +468,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                 zone,
                 admission_sequence,
             } => {
-                if h.in_observation(e.tick())
+                if h.in_step_observation(e.tick())
                     && h.plan.case == "WAITING-RELEASE"
                     && h.plan.initial[id.tile as usize * 1_000 + id.slot as usize]
                         .role
@@ -485,7 +485,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                 zone,
                 admission_sequence,
             } => {
-                if h.in_observation(e.tick())
+                if h.in_step_observation(e.tick())
                     && h.plan.case == "WAITING-RELEASE"
                     && h.plan.initial[id.tile as usize * 1_000 + id.slot as usize]
                         .role
@@ -516,7 +516,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                 let role = h.plan.initial[id.tile as usize * 1_000 + id.slot as usize]
                     .role
                     .as_deref();
-                let in_observation = h.in_observation(e.tick());
+                let in_observation = h.in_step_observation(e.tick());
                 let case = h.plan.case.as_str();
                 let evidence = &mut h.evidence[id.tile as usize];
                 if in_observation && case == "PERMISSIVE-LEFT" && role == Some("permissive-left") {
@@ -566,7 +566,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                 "before":status(before.status()), "after":status(after.status()), "crossed_tile":individual.crossed_tile}));
             if after.status() == VehicleStatus::Completed
                 && individual.crossed_tile
-                && h.world.tick_index() > h.plan.window.warm_up_ticks
+                && h.plan.window.contains_completed_step(h.world.tick_index())
             {
                 h.evidence[individual.id.tile as usize].crossed_tile_completed += 1;
             }

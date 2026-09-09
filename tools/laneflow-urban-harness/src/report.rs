@@ -15,6 +15,10 @@ use crate::{
     runner::TileEvidence, sha256,
 };
 
+const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v2";
+const BUILD_PARAMETERS: &str = "cargo +1.98.0 build -p laneflow-urban-harness --release --locked";
+const TIMING_RANGE: &str = "observation-window-only; command=sum-of-public-lifecycle-calls; step=public-call-only; observation=post-step-inspection; caller-preparation-bookkeeping-snapshots-excluded";
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RunResult {
     pub version: String,
@@ -88,19 +92,9 @@ struct MemoryMeasurement {
 struct Measurements {
     version: &'static str,
     execution_id: String,
-    git_commit: String,
-    git_status: String,
-    rustc: String,
-    cargo: String,
-    target: String,
-    build_parameters: &'static str,
+    #[serde(flatten)]
+    provenance: MeasurementProvenance,
     invocation: Vec<String>,
-    os: &'static str,
-    architecture: &'static str,
-    hardware_role: String,
-    power_role: String,
-    workers: u32,
-    timing_range: &'static str,
     command_ns: SampleSummary,
     traffic_world_step_ns: SampleSummary,
     observation_ns: SampleSummary,
@@ -118,11 +112,100 @@ struct Measurements {
 struct RetainedMeasurements {
     version: String,
     execution_id: String,
+    #[serde(flatten)]
+    provenance: MeasurementProvenance,
     command_samples_ns: Vec<u64>,
     traffic_world_step_samples_ns: Vec<u64>,
     observation_samples_ns: Vec<u64>,
     active_samples: Vec<u64>,
     intent_samples: Vec<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct MeasurementProvenance {
+    git_commit: String,
+    git_status: String,
+    rustc: String,
+    cargo: String,
+    target: String,
+    build_parameters: String,
+    os: String,
+    architecture: String,
+    hardware_role: String,
+    power_role: String,
+    workers: u32,
+    timing_range: String,
+}
+
+impl MeasurementProvenance {
+    fn capture(hardware_role: String, power_role: String) -> Result<Self> {
+        let read = |program, args: &[&str]| {
+            command_output(program, args)
+                .ok_or_else(|| invalid(format!("unavailable provenance: {program}")))
+        };
+        let rustc = read("rustc", &["+1.98.0", "-Vv"])?;
+        let target = rustc
+            .lines()
+            .find_map(|line| line.strip_prefix("host: "))
+            .ok_or_else(|| invalid("unavailable target provenance"))?
+            .to_owned();
+        let provenance = Self {
+            git_commit: read("git", &["rev-parse", "HEAD"])?,
+            git_status: read("git", &["status", "--porcelain"])?,
+            rustc,
+            cargo: read("cargo", &["+1.98.0", "-V"])?,
+            target,
+            build_parameters: BUILD_PARAMETERS.into(),
+            os: std::env::consts::OS.into(),
+            architecture: std::env::consts::ARCH.into(),
+            hardware_role,
+            power_role,
+            workers: 1,
+            timing_range: TIMING_RANGE.into(),
+        };
+        provenance.validate()?;
+        Ok(provenance)
+    }
+
+    fn validate(&self) -> Result<()> {
+        for value in [
+            &self.git_commit,
+            &self.rustc,
+            &self.cargo,
+            &self.target,
+            &self.build_parameters,
+            &self.os,
+            &self.architecture,
+            &self.hardware_role,
+            &self.power_role,
+            &self.timing_range,
+        ] {
+            if value.trim().is_empty() || value.trim().eq_ignore_ascii_case("unavailable") {
+                return Err(invalid("missing or unavailable performance provenance"));
+            }
+        }
+        if !self.git_status.is_empty() {
+            return Err(invalid("formal performance requires a clean checkout"));
+        }
+        if self.git_commit.len() != 40
+            || !self.git_commit.bytes().all(|b| b.is_ascii_hexdigit())
+            || !self.rustc.starts_with("rustc 1.98.0 ")
+            || !self.cargo.starts_with("cargo 1.98.0 ")
+            || self
+                .rustc
+                .lines()
+                .find_map(|line| line.strip_prefix("host: "))
+                != Some(self.target.as_str())
+            || self.build_parameters != BUILD_PARAMETERS
+            || self.workers != 1
+            || self.timing_range != TIMING_RANGE
+        {
+            return Err(invalid(
+                "performance provenance does not match the fixed protocol",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -200,12 +283,12 @@ pub fn run_to_directory(
 ) -> Result<RunResult> {
     plan.validate(artifacts)?;
     let performance_context = if plan.window.purpose == "performance" {
-        Some((
+        Some(MeasurementProvenance::capture(
             std::env::var("LANEFLOW_HARDWARE_ROLE")
                 .map_err(|_| invalid("performance requires LANEFLOW_HARDWARE_ROLE"))?,
             std::env::var("LANEFLOW_POWER_ROLE")
                 .map_err(|_| invalid("performance requires LANEFLOW_POWER_ROLE"))?,
-        ))
+        )?)
     } else {
         None
     };
@@ -375,6 +458,20 @@ pub fn run_to_directory(
     if let Err(error) = run {
         result.error = Some(error.to_string());
     }
+    if let Some(provenance) = &performance_context
+        && result.error.is_none()
+        && MeasurementProvenance::capture(
+            provenance.hardware_role.clone(),
+            provenance.power_role.clone(),
+        )
+        .as_ref()
+        .ok()
+            != Some(provenance)
+    {
+        result.status = "failed".into();
+        result.error =
+            Some("performance provenance changed or became unavailable during the run".into());
+    }
     // Keep committed observations from a failed advance visible, without marking that tick passed.
     if result.error.is_some() {
         write_json(
@@ -403,7 +500,7 @@ pub fn run_to_directory(
             .files
             .insert(name.into(), digest_file(&output.join(name))?);
     }
-    if let Some((hardware_role, power_role)) = performance_context
+    if let Some(provenance) = performance_context
         && result.error.is_none()
     {
         let mut measured_steps = times
@@ -413,30 +510,10 @@ pub fn run_to_directory(
             .collect::<Vec<_>>();
         let memory = peak_resident_bytes();
         let measurements = Measurements {
-            version: "urban-performance-measurements-v1",
+            version: MEASUREMENTS_VERSION,
             execution_id: execution_id.clone(),
-            git_commit: command_output("git", &["rev-parse", "HEAD"])
-                .unwrap_or_else(|| "unavailable".into()),
-            git_status: command_output("git", &["status", "--porcelain"])
-                .unwrap_or_else(|| "unavailable".into()),
-            rustc: command_output("rustc", &["+1.98.0", "-Vv"])
-                .unwrap_or_else(|| "unavailable".into()),
-            cargo: command_output("cargo", &["+1.98.0", "-V"])
-                .unwrap_or_else(|| "unavailable".into()),
-            target: command_output("rustc", &["+1.98.0", "-vV"])
-                .and_then(|text| {
-                    text.lines()
-                        .find_map(|line| line.strip_prefix("host: ").map(str::to_owned))
-                })
-                .unwrap_or_else(|| "unavailable".into()),
-            build_parameters: "cargo +1.98.0 build -p laneflow-urban-harness --release --locked",
+            provenance,
             invocation: std::env::args().collect(),
-            os: std::env::consts::OS,
-            architecture: std::env::consts::ARCH,
-            hardware_role,
-            power_role,
-            workers: 1,
-            timing_range: "observation-window-only; command, TrafficWorld::step, and observation measured separately",
             command_ns: sample_summary(&mut command_times)?,
             traffic_world_step_ns: sample_summary(&mut measured_steps)?,
             observation_ns: sample_summary(&mut observation_times)?,
@@ -676,6 +753,7 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
     let mut combined_active = Vec::new();
     let mut combined_intent = Vec::new();
     let mut identity: Option<(String, String, String)> = None;
+    let mut provenance = None;
     for directory in directories {
         let result_bytes = fs::read(directory.join("result.json"))?;
         let result: RunResult = serde_json::from_slice(&result_bytes)?;
@@ -718,13 +796,36 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
             std::str::from_utf8(&measurement_bytes).map_err(|e| invalid(e.to_string()))?,
         )?;
         let execution_id = read_execution_id(directory)?;
-        if measurement.version != "urban-performance-measurements-v1"
-            || measurement.execution_id != execution_id
-            || !execution_ids.insert(execution_id.clone())
-        {
+        if measurement.version != MEASUREMENTS_VERSION {
+            return Err(invalid(
+                "unsupported performance measurement version; rerun with the current timing protocol",
+            ));
+        }
+        if measurement.execution_id != execution_id || !execution_ids.insert(execution_id.clone()) {
             return Err(invalid(
                 "performance execution identity differs or is duplicated",
             ));
+        }
+        measurement.provenance.validate()?;
+        if provenance
+            .as_ref()
+            .is_some_and(|expected| *expected != measurement.provenance)
+        {
+            return Err(invalid("performance rounds use different provenance"));
+        }
+        provenance.get_or_insert(measurement.provenance);
+        for samples in [
+            &measurement.command_samples_ns,
+            &measurement.traffic_world_step_samples_ns,
+            &measurement.observation_samples_ns,
+            &measurement.active_samples,
+            &measurement.intent_samples,
+        ] {
+            if samples.len() as u64 != result.window.observation_ticks {
+                return Err(invalid(
+                    "performance sample count differs from the observation window",
+                ));
+            }
         }
         let current = (
             result.case.clone(),
@@ -821,6 +922,250 @@ fn command_output(program: &str, args: &[&str]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn measurement_fixture() -> serde_json::Value {
+        json!({
+            "version":MEASUREMENTS_VERSION, "execution_id":"fixture",
+            "git_commit":"a".repeat(40), "git_status":"",
+            "rustc":"rustc 1.98.0 (fixture)\nhost: x86_64-pc-windows-msvc\nLLVM version: 22.1.8",
+            "cargo":"cargo 1.98.0 (fixture)", "target":"x86_64-pc-windows-msvc",
+            "build_parameters":BUILD_PARAMETERS, "os":"windows", "architecture":"x86_64",
+            "hardware_role":"fixture-machine", "power_role":"balanced", "workers":1,
+            "timing_range":TIMING_RANGE,
+            "command_samples_ns":[1,2], "traffic_world_step_samples_ns":[3,4],
+            "observation_samples_ns":[5,6], "active_samples":[1,1], "intent_samples":[1,1]
+        })
+    }
+
+    #[test]
+    fn measurement_writer_preserves_flat_provenance_for_comparison() {
+        let retained: RetainedMeasurements = serde_json::from_value(measurement_fixture()).unwrap();
+        let summary = || sample_summary(&mut [1, 2]).unwrap();
+        let written = Measurements {
+            version: MEASUREMENTS_VERSION,
+            execution_id: retained.execution_id.clone(),
+            provenance: retained.provenance.clone(),
+            invocation: vec!["test-writer".into()],
+            command_ns: summary(),
+            traffic_world_step_ns: summary(),
+            observation_ns: summary(),
+            active: summary(),
+            intent: summary(),
+            memory: MemoryMeasurement {
+                status: "unmeasured",
+                method: "test",
+                peak_resident_bytes: None,
+            },
+            command_samples_ns: retained.command_samples_ns.clone(),
+            traffic_world_step_samples_ns: retained.traffic_world_step_samples_ns.clone(),
+            observation_samples_ns: retained.observation_samples_ns.clone(),
+            active_samples: retained.active_samples.clone(),
+            intent_samples: retained.intent_samples.clone(),
+        };
+        let bytes = toml::to_string(&written).unwrap();
+        let recovered: RetainedMeasurements = toml::from_str(&bytes).unwrap();
+        assert_eq!(recovered.provenance, retained.provenance);
+        assert_eq!(recovered.version, MEASUREMENTS_VERSION);
+        assert_eq!(recovered.command_samples_ns, retained.command_samples_ns);
+        assert_eq!(
+            recovered.traffic_world_step_samples_ns,
+            retained.traffic_world_step_samples_ns
+        );
+    }
+
+    // Synthetic file-envelope test only: no simulation or formal performance evidence.
+    fn write_round(directory: &Path, execution: &str, mut measurement: serde_json::Value) {
+        fs::create_dir_all(directory).unwrap();
+        measurement["execution_id"] = json!(execution);
+        fs::write(
+            directory.join("measurements.toml"),
+            toml::to_string(&measurement).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            directory.join("resolved-plan.toml"),
+            "synthetic-envelope-test",
+        )
+        .unwrap();
+        fs::write(directory.join("commands.jsonl"), "").unwrap();
+        fs::write(directory.join("events.jsonl"), "").unwrap();
+        write_json(
+            &directory.join("diagnostics.json"),
+            &json!({"execution_id":execution}),
+        )
+        .unwrap();
+        let mut ticks = File::create(directory.join("ticks.jsonl")).unwrap();
+        for tick in 1..=2 {
+            line(
+                &mut ticks,
+                &TickRecord {
+                    tick,
+                    time_ms: tick * 16,
+                    domain: "road_motor_vehicle".into(),
+                    live: 1,
+                    active: 1,
+                    parked: 0,
+                    completed: 0,
+                    intent: 1,
+                    intent_basis: "exact_active_before_step".into(),
+                    presented: 0,
+                    aggregate_records: 0,
+                    aggregate_equivalent: 0,
+                    future_departures: 0,
+                    pending_departures: 0,
+                    exhausted_departures: 0,
+                    command_cursor: 0,
+                    event_cursor: 0,
+                    state_digest: "fixture".into(),
+                    event_digest: "fixture".into(),
+                    commands_digest: "fixture".into(),
+                },
+            )
+            .unwrap();
+        }
+        drop(ticks);
+        let files = [
+            "resolved-plan.toml",
+            "ticks.jsonl",
+            "commands.jsonl",
+            "events.jsonl",
+            "measurements.toml",
+        ]
+        .into_iter()
+        .map(|name| (name.into(), digest_file(&directory.join(name)).unwrap()))
+        .collect();
+        write_json(
+            &directory.join("result.json"),
+            &RunResult {
+                version: "urban-result-v3".into(),
+                status: "performance-round-complete".into(),
+                purpose: "performance".into(),
+                case: "MIXED-PEAK".into(),
+                scale: "10k".into(),
+                network_revision: "fixture".into(),
+                policy_id: "fixture".into(),
+                world_id: 1,
+                fixed_step_ms: 16,
+                window: crate::Window {
+                    purpose: "performance".into(),
+                    warm_up_ticks: 0,
+                    observation_ticks: 2,
+                },
+                required_per_tile: BTreeMap::new(),
+                plan_digest: sha256(b"synthetic-envelope-test"),
+                expected_ticks: 2,
+                completed_ticks: 2,
+                committed_world_tick: 2,
+                error: None,
+                checkpoints: BTreeMap::new(),
+                initial_counts: (1, 0, 0),
+                final_counts: (1, 0, 0),
+                tile_evidence: vec![],
+                retry_reasons: BTreeMap::new(),
+                atomic_rejections: BTreeMap::new(),
+                replacements: 0,
+                births: 0,
+                removals: 0,
+                pending_departures: 0,
+                exhausted_departures: 0,
+                files,
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn performance_comparison_rejects_mixed_dirty_missing_and_old_provenance() {
+        let temp = tempfile::tempdir().unwrap();
+        let a = temp.path().join("a");
+        let b = temp.path().join("b");
+        let c = temp.path().join("c");
+        for (path, id) in [(&a, "a"), (&b, "b"), (&c, "c")] {
+            write_round(path, id, measurement_fixture());
+        }
+        let result = compare_performance_runs([&a, &b, &c]).unwrap();
+        assert_eq!(result.command_ns["samples"], 6);
+        assert_eq!(result.rounds.len(), 3);
+        for (field, value) in [
+            ("git_commit", json!("b".repeat(40))),
+            ("git_status", json!(" M source.rs")),
+            (
+                "rustc",
+                json!("rustc 1.98.0 (different)\nhost: x86_64-pc-windows-msvc"),
+            ),
+            ("cargo", json!("cargo 1.98.0 (different)")),
+            ("target", json!("aarch64-unknown-linux-gnu")),
+            ("build_parameters", json!("debug build")),
+            ("os", json!("linux")),
+            ("architecture", json!("aarch64")),
+            ("hardware_role", json!("other-machine")),
+            ("power_role", json!("power-saver")),
+            ("workers", json!(2)),
+            ("timing_range", json!("whole-command-phase")),
+            ("version", json!("urban-performance-measurements-v1")),
+            ("command_samples_ns", json!([1])),
+        ] {
+            let mut changed = measurement_fixture();
+            changed[field] = value;
+            // Recompute the enclosing hashes: rejection must be semantic, not a stale digest.
+            write_round(&b, "b", changed);
+            assert!(
+                compare_performance_runs([&a, &b, &c]).is_err(),
+                "accepted changed {field}"
+            );
+        }
+        for field in [
+            "git_commit",
+            "git_status",
+            "rustc",
+            "cargo",
+            "target",
+            "build_parameters",
+            "os",
+            "architecture",
+            "hardware_role",
+            "power_role",
+            "workers",
+            "timing_range",
+        ] {
+            let mut changed = measurement_fixture();
+            changed.as_object_mut().unwrap().remove(field);
+            write_round(&b, "b", changed);
+            assert!(
+                compare_performance_runs([&a, &b, &c]).is_err(),
+                "accepted missing {field}"
+            );
+        }
+        for field in [
+            "git_commit",
+            "git_status",
+            "rustc",
+            "cargo",
+            "target",
+            "build_parameters",
+            "os",
+            "architecture",
+            "hardware_role",
+            "power_role",
+            "timing_range",
+        ] {
+            for unavailable in ["", "unavailable"] {
+                if field == "git_status" && unavailable.is_empty() {
+                    continue;
+                }
+                let mut changed = measurement_fixture();
+                changed[field] = json!(unavailable);
+                // All three rounds share the invalid value; equality alone must not accept it.
+                for (path, id) in [(&a, "a"), (&b, "b"), (&c, "c")] {
+                    write_round(path, id, changed.clone());
+                }
+                assert!(
+                    compare_performance_runs([&a, &b, &c]).is_err(),
+                    "accepted unavailable {field}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn sample_summary_uses_nearest_rank_percentiles() {
