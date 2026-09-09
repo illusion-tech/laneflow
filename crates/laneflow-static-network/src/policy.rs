@@ -412,8 +412,76 @@ impl<'a> PolicyView<'a> {
 }
 
 fn owner_cells<'a, T>(owners: &[PolicyOwner], owner: u32, cells: &'a [T]) -> &'a [T] {
+    // 未被 Access 过滤的连续前缀可直接定位；仍核对 owner，保留稀疏表语义。
+    if let Some(record) = owners.get(owner as usize)
+        && record.owner == owner
+    {
+        return record.cells.slice(cells);
+    }
     owners
         .binary_search_by_key(&owner, |o| o.owner)
         .ok()
         .map_or(&[], |i| owners[i].cells.slice(cells))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn owner_lookup_preserves_dense_sparse_and_missing_ranges() {
+        let cells: Vec<_> = (0..12).collect();
+        for keys in [&[][..], &[0, 1, 2, 3], &[0, 2, 3, 7], &[4, 5, 9]] {
+            let owners: Vec<_> = keys
+                .iter()
+                .enumerate()
+                .map(|(i, &owner)| PolicyOwner {
+                    owner,
+                    cells: RangeU32::new(1 + 2 * i as u32, 2),
+                })
+                .collect();
+            for owner in (0..=10).chain([u32::MAX]) {
+                let expected = owners
+                    .iter()
+                    .find(|record| record.owner == owner)
+                    .map_or(&[][..], |record| record.cells.slice(&cells));
+                let actual = owner_cells(&owners, owner, &cells);
+                assert_eq!(actual, expected, "keys={keys:?}, owner={owner}");
+                if !expected.is_empty() {
+                    assert!(core::ptr::eq(actual, expected));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn owner_lookup_stays_inside_selected_policy_range() {
+        let cells = [10, 11, 20, 21, 30, 31, 40, 41];
+        let owners = [
+            PolicyOwner {
+                owner: 0,
+                cells: RangeU32::new(0, 2),
+            },
+            PolicyOwner {
+                owner: 1,
+                cells: RangeU32::new(2, 2),
+            },
+            PolicyOwner {
+                owner: 0,
+                cells: RangeU32::new(4, 2),
+            },
+            PolicyOwner {
+                owner: 2,
+                cells: RangeU32::new(6, 2),
+            },
+        ];
+        let first = &owners[..2];
+        let second = &owners[2..];
+        assert_eq!(owner_cells(first, 0, &cells), &[10, 11]);
+        assert_eq!(owner_cells(first, 1, &cells), &[20, 21]);
+        assert!(owner_cells(first, 2, &cells).is_empty());
+        assert_eq!(owner_cells(second, 0, &cells), &[30, 31]);
+        assert!(owner_cells(second, 1, &cells).is_empty());
+        assert_eq!(owner_cells(second, 2, &cells), &[40, 41]);
+    }
 }

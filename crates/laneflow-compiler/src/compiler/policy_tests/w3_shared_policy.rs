@@ -191,7 +191,7 @@ fn shared_policy_fixture_closes_and_is_declaration_order_invariant() {
             laneflow_format::FormatLimits::HARD,
         )
         .unwrap();
-        build_shared_network_revision(
+        let root = build_shared_network_revision(
             checked,
             SharedNetworkBuildOptions::new(
                 SpatialBuildOption::Omit,
@@ -199,6 +199,54 @@ fn shared_policy_fixture_closes_and_is_declaration_order_invariant() {
             ),
         )
         .unwrap();
+        // 正式编译的多策略范围必须各自返回原行与归因，不能按全局 owner 下标串表。
+        use laneflow_static_contract::{
+            EntityKind, ManeuverGateOrdinal, ParticipantClassOrdinal, ParticipantStreamOrdinal,
+            RightOfWayPolicySetOrdinal,
+        };
+        assert_eq!(
+            root.identity()
+                .entity_count(EntityKind::RightOfWayPolicySet),
+            2
+        );
+        let missing = ParticipantClassOrdinal::from_raw(u32::MAX);
+        for p in 0..2 {
+            let policy = root
+                .policy()
+                .policy(RightOfWayPolicySetOrdinal::from_raw(p))
+                .unwrap();
+            for g in 0..root.identity().entity_count(EntityKind::ManeuverGate) {
+                let gate = ManeuverGateOrdinal::from_raw(g);
+                for cell in policy.gate_classes(gate) {
+                    assert!(core::ptr::eq(
+                        policy.gate(gate, cell.class()).unwrap(),
+                        cell
+                    ));
+                    assert_eq!(
+                        policy.gate_attribution(gate, cell.class()).unwrap().policy,
+                        policy.id()
+                    );
+                }
+                assert!(policy.gate(gate, missing).is_none());
+            }
+            for s in 0..root.identity().entity_count(EntityKind::ParticipantStream) {
+                let stream = ParticipantStreamOrdinal::from_raw(s);
+                for cell in policy.stream_classes(stream) {
+                    assert!(core::ptr::eq(
+                        policy.stream(stream, cell.class()).unwrap(),
+                        cell
+                    ));
+                    assert_eq!(
+                        policy
+                            .stream_attribution(stream, cell.class())
+                            .unwrap()
+                            .policy,
+                        policy.id()
+                    );
+                }
+                assert!(policy.stream(stream, missing).is_none());
+            }
+        }
         if !permuted && std::env::var_os("DUMP_W3_POLICY").is_some() {
             let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("tests/fixtures/portable/lfca-world-policies");
