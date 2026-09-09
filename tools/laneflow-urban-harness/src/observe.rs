@@ -10,23 +10,59 @@ use sha2::{Digest, Sha256};
 use crate::{Artifacts, Harness, IndividualId, Result, invalid};
 
 // This encoding belongs to the harness v1 observation, not a Runtime wire format.
-#[derive(Default)]
-struct Hash(Sha256);
+struct Hash {
+    digest: Sha256,
+    pending: [u8; 256],
+    used: usize,
+}
+
+impl Default for Hash {
+    fn default() -> Self {
+        Self {
+            digest: Sha256::new(),
+            pending: [0; 256],
+            used: 0,
+        }
+    }
+}
+
 impl Hash {
+    // 只合批送入相同字节，不改变观测编码、摘要域或检查频率。
+    fn bytes(&mut self, bytes: &[u8]) {
+        if bytes.len() >= self.pending.len() {
+            self.flush();
+            self.digest.update(bytes);
+            return;
+        }
+        if self.used + bytes.len() > self.pending.len() {
+            self.flush();
+        }
+        self.pending[self.used..self.used + bytes.len()].copy_from_slice(bytes);
+        self.used += bytes.len();
+    }
+
+    fn flush(&mut self) {
+        if self.used != 0 {
+            self.digest.update(&self.pending[..self.used]);
+            self.used = 0;
+        }
+    }
+
     fn n(&mut self, value: impl Into<u64>) {
-        self.0.update(value.into().to_le_bytes());
+        self.bytes(&value.into().to_le_bytes());
     }
     fn text(&mut self, text: &str) {
         self.n(text.len() as u64);
-        self.0.update(text.as_bytes());
+        self.bytes(text.as_bytes());
     }
     fn id(&mut self, id: IndividualId) {
         self.n(id.tile);
         self.n(id.slot);
         self.n(id.incarnation);
     }
-    fn finish(self) -> String {
-        crate::hex(&self.0.finalize())
+    fn finish(mut self) -> String {
+        self.flush();
+        crate::hex(&self.digest.finalize())
     }
 }
 
@@ -769,6 +805,89 @@ pub(crate) fn state(h: &Harness<'_>) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batched_observation_hash_preserves_the_exact_encoding() {
+        assert_eq!(Hash::default().finish(), crate::sha256(&[]));
+        for (numbers, text) in [
+            (1, String::new()),
+            (31, "短文本".into()),
+            (32, "x".into()),
+            (33, "y".repeat(255)),
+            (64, "z".repeat(256)),
+            (65, "a".repeat(257)),
+            (3, "b".repeat(1_000)),
+        ] {
+            let mut hash = Hash::default();
+            let mut bytes = Vec::new();
+            for number in 0..numbers {
+                hash.n(number as u64);
+                bytes.extend_from_slice(&(number as u64).to_le_bytes());
+            }
+            hash.text(&text);
+            bytes.extend_from_slice(&(text.len() as u64).to_le_bytes());
+            bytes.extend_from_slice(text.as_bytes());
+            let id = IndividualId {
+                tile: 12,
+                slot: 34,
+                incarnation: 56,
+            };
+            hash.id(id);
+            for number in [id.tile, id.slot, id.incarnation] {
+                bytes.extend_from_slice(&u64::from(number).to_le_bytes());
+            }
+            hash.n(u64::MAX);
+            bytes.extend_from_slice(&u64::MAX.to_le_bytes());
+            assert_eq!(hash.finish(), crate::sha256(&bytes));
+        }
+    }
+
+    #[test]
+    #[ignore = "有界 release 编码对照，不代表城市运行耗时"]
+    fn observation_hash_encoding_wall_clock() {
+        fn scalar() -> String {
+            let mut hash = Sha256::new();
+            for index in 0..100_000_u64 {
+                for value in [index, 1, 2, 3, 4, 5, 6, 7] {
+                    hash.update(std::hint::black_box(value).to_le_bytes());
+                }
+                let text = "tile-0001.route.urban-crossing";
+                hash.update((text.len() as u64).to_le_bytes());
+                hash.update(text.as_bytes());
+            }
+            crate::hex(&hash.finalize())
+        }
+        fn batched() -> String {
+            let mut hash = Hash::default();
+            for index in 0..100_000_u64 {
+                for value in [index, 1, 2, 3, 4, 5, 6, 7] {
+                    hash.n(std::hint::black_box(value));
+                }
+                hash.text("tile-0001.route.urban-crossing");
+            }
+            hash.finish()
+        }
+        let expected = scalar();
+        assert_eq!(batched(), expected);
+        type HashRun = fn() -> String;
+        for round in 0..6 {
+            let candidates: [(&str, HashRun); 2] = if round % 2 == 0 {
+                [("scalar", scalar), ("batched", batched)]
+            } else {
+                [("batched", batched), ("scalar", scalar)]
+            };
+            for (name, run) in candidates {
+                let start = std::time::Instant::now();
+                let digest = run();
+                let elapsed = start.elapsed();
+                assert_eq!(digest, expected);
+                eprintln!(
+                    "observation-encoding {round} {name}: {} ns {digest}",
+                    elapsed.as_nanos()
+                );
+            }
+        }
+    }
 
     #[test]
     fn rejects_wrong_explicit_totals_even_when_capacity_is_conserved() {
