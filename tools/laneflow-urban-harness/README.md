@@ -108,7 +108,8 @@ target/release/laneflow-urban-harness compare <performance-a> <performance-b> <p
   typed ordinal 由同一份受检 LFCA 绑定，摘要不包含随机句柄或 Debug 文本。
   生命周期以 `phase=command/step` 区分命令边界和 step 提交。成功 park/leave/replace
   在命令提交时记录 before/after 状态及前后稳定身份；拒绝和 reserve 不产生生命周期
-  变化事件。`step_before` 仍在命令后采集，保持意图计数、红灯与跨 tile 观测的语义。
+  变化事件。成功原子替换各累计一次出生和移除；拒绝及延期不增加这两项。
+  `step_before` 仍在命令后采集，保持意图计数、红灯与跨 tile 观测的语义。
 - `result.json` 记录窗口、实际提交、逐 tile 触发和完整快照摘要；初态、暖机结束、
   每观察周期末捕获完整快照。计划与结果均携带 `required_per_tile` 的冻结下限，
   对照逐 tile 的实际计数；载荷版本为 `urban-result-v3`，Failed 行不能通过 compare。
@@ -117,7 +118,8 @@ target/release/laneflow-urban-harness compare <performance-a> <performance-b> <p
   两份 `result.json` 的 SHA256/字节数。原始运行文件保持不变；失败比较不生成通过报告。
   库的 `compare_runs` 返回同一结构，可用 `ComparisonReport::write` 保存。
 - `diagnostics.json` 保存执行编号、环境和诊断耗时；step 范围只包围公共 step 调用，
-  不含命令、oracle 或快照。它不是正式三轮性能协议，未测量的内存不填零。
+  调用返回即停止计时，随后信号组采集与相位比较计入 observation，不含在 step 中。
+  step 不含命令、oracle 或快照。它不是正式三轮性能协议，未测量的内存不填零。
   初始化完成后的受控执行或校验失败另留 `failure.json`。
 
 结果包以完成初始化（世界安装、路线注册、初态校验和初始检查点）为起点。
