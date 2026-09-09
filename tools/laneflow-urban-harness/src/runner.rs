@@ -989,6 +989,7 @@ impl<'a> Harness<'a> {
                 self.execute(request, boundary)?;
             }
         }
+        let pre_observation_started = std::time::Instant::now();
         self.step_before = self
             .individuals
             .iter()
@@ -1001,6 +1002,7 @@ impl<'a> Harness<'a> {
             .filter(|s| s.status() == VehicleStatus::Active)
             .count();
         observe::red_waiters(self);
+        let pre_observation_elapsed = pre_observation_started.elapsed();
         let started = std::time::Instant::now();
         let outcome = self.world.step(TickInput::new(self.plan.dt));
         self.last_step_ns = started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
@@ -1045,8 +1047,8 @@ impl<'a> Harness<'a> {
         let state_digest = observe::state(self)?;
         let (active, parked, completed) = observe::counts(self)?;
         observe::parking_invariants(self)?;
-        self.last_observation_ns = observation_started
-            .elapsed()
+        self.last_observation_ns = pre_observation_elapsed
+            .saturating_add(observation_started.elapsed())
             .as_nanos()
             .min(u128::from(u64::MAX)) as u64;
         Ok(TickRecord {
