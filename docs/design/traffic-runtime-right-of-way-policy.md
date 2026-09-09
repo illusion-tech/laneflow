@@ -1,7 +1,7 @@
 # 路权策略编译与 ConflictArbiter 实施合同
 
 **文档状态**: Accepted（#284 路权策略与正式冲突仲裁合同）<br>
-**最后更新**: 2026-09-05<br>
+**最后更新**: 2026-09-09<br>
 **适用范围**: 官方编制来源、LFCA、共享静态路网、策略绑定、信号解释、冲突资源、
 运行时快照与修订切换<br>
 **设计依据**: ADR 0009、0019、0025、0028、0029；
@@ -223,7 +223,11 @@ tuple 填入假 StableId。LFSD 4 的局部成员变更使用 §4.3 的专用表
    builder 的语义闭合后一次 seal。Runtime 不读 compiler IR 或源码。
 
 解析结果以 `(policy ordinal, owner ordinal, class ordinal)` 唯一定位，owner 在门表
-中是 Gate、在流表中是 stream；CSR 先按 policy 划分，再按 owner 划分 class 行。
+中是 Gate、在流表中是 stream；规则 payload 先按 policy 划分，再按 owner 划分 class 行。
+各策略的 owner/class 排列相同，因此共享根对门、流各保存一份策略内相对定位，
+不复制每策略 owner 范围表。密集/适度稀疏域使用直接 CSR 偏移，极稀疏域使用排序
+范围；按实际 backing 字节成本选择，详见共享静态路网设计 §3。此表示不增加未准入
+类别的规则单元，不改变 `PolicyView` 的类别查询与借用边界。
 每个流规则的 exact yield-target-cell ranges 归属同一 policy/stream/class 行，目标
 类别的 effective priority 也只取该 policy 的解析结果。世界安装时绑定所选 policy 的
 只读范围；规则归因和派生阈值使用同一 policy，不存在跨策略 fallback。

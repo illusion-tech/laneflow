@@ -6,8 +6,8 @@ use laneflow_static_contract::{
 
 /// 策略规则解析的输出：机动门与参与者流的已解析策略及其让行目标范围。
 pub(super) struct Resolved {
-    pub(super) gate_owners: Vec<PolicyOwner>,
-    pub(super) stream_owners: Vec<PolicyOwner>,
+    pub(super) gate_owners: PolicyOwnerIndex,
+    pub(super) stream_owners: PolicyOwnerIndex,
     pub(super) gates: Vec<ResolvedGatePolicy>,
     pub(super) streams: Vec<ResolvedStreamPolicy>,
     pub(super) ranges: Vec<TargetRange>,
@@ -449,16 +449,18 @@ pub(super) fn build(
     } else {
         access_rows(traffic, conflict, &classes, false, budget)?
     };
-    let owner_count = |rows: &[Allowed]| {
-        rows.iter()
-            .enumerate()
-            .filter(|(i, r)| *i == 0 || rows[i - 1].owner != r.owner)
-            .count() as u64
-    };
     let multiplied = |n: u64| n.checked_mul(policies.len() as u64).ok_or(OVERFLOW);
     let mut result = Resolved {
-        gate_owners: budget.allocate(multiplied(owner_count(&gate_rows))?, false)?,
-        stream_owners: budget.allocate(multiplied(owner_count(&stream_rows))?, false)?,
+        gate_owners: owner_index(
+            &gate_rows,
+            traffic.entity_counts().count(EntityKind::ManeuverGate),
+            budget,
+        )?,
+        stream_owners: owner_index(
+            &stream_rows,
+            traffic.entity_counts().count(EntityKind::ParticipantStream),
+            budget,
+        )?,
         gates: budget.allocate(multiplied(gate_rows.len() as u64)?, false)?,
         streams: budget.allocate(multiplied(stream_rows.len() as u64)?, false)?,
         ranges,
@@ -492,11 +494,10 @@ pub(super) fn build(
         budget.charge_work(1 + minimum.len() as u64 + protected_gates.len() as u64)?;
         minimum.fill(None);
         protected_gates.fill(false);
-        let gs = result.gate_owners.len();
+        let gs = result.gates.len();
         for cell in &gate_rows {
             let rule = select(traffic, gate_rules, &gate_index, p, *cell, false, budget)?;
             let r = gate_rules[rule as usize];
-            push_owner(&mut result.gate_owners, gs, cell.owner, result.gates.len())?;
             let interpretation =
                 GateInterpretation::from_code(checked_u8(r.row, 5, S)?).ok_or(INVALID)?;
             let prohibition =
@@ -512,21 +513,13 @@ pub(super) fn build(
                 prohibition,
             });
         }
-        finish_owner(&mut result.gate_owners, gs, result.gates.len())?;
-        policy.gates = range(gs, result.gate_owners.len())?;
-        let ss = result.stream_owners.len();
+        policy.gates = range(gs, result.gates.len())?;
         let cells_start = result.streams.len();
         for cell in &stream_rows {
             let rule = select(traffic, stream_rules, &stream_index, p, *cell, true, budget)?;
             let priority = crate::builder::checked_i32(stream_rules[rule as usize].row, 5, S)?;
             let m = &mut minimum[cell.owner as usize];
             *m = Some(m.map_or(priority, |old| old.min(priority)));
-            push_owner(
-                &mut result.stream_owners,
-                ss,
-                cell.owner,
-                result.streams.len(),
-            )?;
             result.streams.push(ResolvedStreamPolicy {
                 class: cell.class,
                 rule,
@@ -535,8 +528,7 @@ pub(super) fn build(
                 target_ranges: rule_ranges[rule as usize],
             });
         }
-        finish_owner(&mut result.stream_owners, ss, result.streams.len())?;
-        policy.streams = range(ss, result.stream_owners.len())?;
+        policy.streams = range(cells_start, result.streams.len())?;
         for cell in &result.streams[cells_start..] {
             for r in cell.target_ranges.slice(&result.ranges) {
                 budget.charge_work(1)?;
@@ -553,32 +545,64 @@ pub(super) fn build(
     Ok(result)
 }
 
-fn push_owner(
-    owners: &mut Vec<PolicyOwner>,
-    policy_start: usize,
-    owner: u32,
-    cells: usize,
-) -> Result<(), BuildError> {
-    if owners.len() == policy_start || owners.last().is_none_or(|r| r.owner != owner) {
-        finish_owner(owners, policy_start, cells)?;
-        owners.push(PolicyOwner {
-            owner,
-            cells: range(cells, cells)?,
-        });
+/// Access 行按 owner/class 排序且各策略共用；只构建一份策略内相对定位。
+fn owner_index(
+    rows: &[Allowed],
+    domain: u32,
+    budget: &mut Budget<'_>,
+) -> Result<PolicyOwnerIndex, BuildError> {
+    if rows.is_empty() {
+        return Ok(PolicyOwnerIndex::empty());
     }
-    Ok(())
-}
-fn finish_owner(
-    owners: &mut [PolicyOwner],
-    policy_start: usize,
-    cells: usize,
-) -> Result<(), BuildError> {
-    if owners.len() > policy_start {
-        let last = owners.last_mut().ok_or(INVALID)?;
-        last.cells = range(last.cells.start() as usize, cells)?;
+    if rows.last().is_some_and(|row| row.owner >= domain) {
+        return Err(INVALID);
     }
-    Ok(())
+    budget.charge_work(rows.len() as u64)?;
+    let owners = rows
+        .iter()
+        .enumerate()
+        .filter(|(i, row)| *i == 0 || rows[i - 1].owner != row.owner)
+        .count() as u64;
+    let slots = u64::from(domain).checked_add(1).ok_or(OVERFLOW)?;
+    let direct_bytes = slots.checked_mul(size_of::<u32>() as u64).ok_or(OVERFLOW)?;
+    let sparse_bytes = owners
+        .checked_mul(size_of::<PolicyOwner>() as u64)
+        .ok_or(OVERFLOW)?;
+    if slots <= u64::from(u32::MAX) && direct_bytes <= sparse_bytes {
+        budget.charge_work(slots.checked_add(rows.len() as u64).ok_or(OVERFLOW)?)?;
+        let mut offsets = budget.allocate(slots, false)?;
+        offsets.push(0);
+        let mut next = 0;
+        for owner in 0..domain {
+            while next < rows.len() && rows[next].owner == owner {
+                next += 1;
+            }
+            offsets.push(raw(next)?);
+        }
+        return Ok(PolicyOwnerIndex::Dense(offsets.into_boxed_slice()));
+    }
+    budget.charge_work(rows.len() as u64)?;
+    let mut records: Vec<PolicyOwner> = budget.allocate(owners, false)?;
+    for (i, row) in rows.iter().enumerate() {
+        if records.last().is_none_or(|last| last.owner != row.owner) {
+            if let Some(last) = records.last_mut() {
+                last.cells = range(last.cells.start() as usize, i)?;
+            }
+            records.push(PolicyOwner {
+                owner: row.owner,
+                cells: range(i, i)?,
+            });
+        }
+    }
+    if let Some(last) = records.last_mut() {
+        last.cells = range(last.cells.start() as usize, rows.len())?;
+    }
+    Ok(PolicyOwnerIndex::Sparse(records.into_boxed_slice()))
 }
+
+#[cfg(test)]
+#[path = "owner_index_tests.rs"]
+mod owner_index_tests;
 
 struct Protected {
     coverage: Vec<Coverage>,
