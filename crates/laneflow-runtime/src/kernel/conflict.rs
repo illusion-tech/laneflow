@@ -1490,9 +1490,111 @@ impl ConflictCommittedState {
     }
 }
 
-/// 由已提交状态派生的规范地址表、owner 索引与 downstream 索引；downstream 索引按脏标记懒重建。
+/// 当前根内 stream/local 地址到规范 cell 槽位的置换；不拥有静态 passage 语义。
+#[derive(Default)]
+struct ConflictCellLookup {
+    stream_offsets: Box<[u32]>,
+    cell_indices: Box<[u32]>,
+}
+
+impl ConflictCellLookup {
+    fn build(
+        addresses: &[ConflictPassageAddress],
+        stream_count: usize,
+    ) -> Result<Self, ConflictInstallError> {
+        let offset_count = stream_count
+            .checked_add(1)
+            .ok_or(ConflictInstallError::CapacityOverflow)?;
+        // 受检共享根的每个 stream 至少有一条 passage；不用地址最大键扩张分配。
+        if stream_count > addresses.len() {
+            return Err(ConflictInstallError::InvalidNetwork);
+        }
+        if addresses.is_empty() {
+            return Ok(Self::default());
+        }
+        // 共享根的 passage backing 已采用 u32 range，沿用同一可表示范围。
+        u32::try_from(addresses.len()).map_err(|_| ConflictInstallError::CapacityOverflow)?;
+        let mut offsets = Self::allocate_column(offset_count, 0)?;
+        for address in addresses {
+            let end_index = address
+                .stream
+                .index()
+                .checked_add(1)
+                .ok_or(ConflictInstallError::CapacityOverflow)?;
+            let count = offsets
+                .get_mut(end_index)
+                .ok_or(ConflictInstallError::InvalidNetwork)?;
+            *count = count
+                .checked_add(1)
+                .ok_or(ConflictInstallError::CapacityOverflow)?;
+        }
+        for stream in 0..stream_count {
+            offsets[stream + 1] = offsets[stream + 1]
+                .checked_add(offsets[stream])
+                .ok_or(ConflictInstallError::CapacityOverflow)?;
+        }
+        let mut cells = Self::allocate_column(addresses.len(), u32::MAX)?;
+        for (cell, address) in addresses.iter().enumerate() {
+            let start = offsets[address.stream.index()];
+            let end = offsets[address.stream.index() + 1];
+            if address.passage_local_index >= end - start {
+                return Err(ConflictInstallError::InvalidNetwork);
+            }
+            let target = &mut cells[(start + address.passage_local_index) as usize];
+            if *target != u32::MAX {
+                return Err(ConflictInstallError::InvalidNetwork);
+            }
+            *target = u32::try_from(cell).map_err(|_| ConflictInstallError::CapacityOverflow)?;
+        }
+        Ok(Self {
+            stream_offsets: offsets.into_boxed_slice(),
+            cell_indices: cells.into_boxed_slice(),
+        })
+    }
+
+    fn allocate_column(len: usize, value: u32) -> Result<Vec<u32>, ConflictInstallError> {
+        #[cfg(test)]
+        check_allocation_failpoint().map_err(|_| ConflictInstallError::AllocationFailed)?;
+        let mut column = Vec::new();
+        column
+            .try_reserve_exact(len)
+            .map_err(|_| ConflictInstallError::AllocationFailed)?;
+        column.resize(len, value);
+        Ok(column)
+    }
+
+    fn get(
+        &self,
+        addresses: &[ConflictPassageAddress],
+        address: ConflictPassageAddress,
+    ) -> Option<usize> {
+        let stream = address.stream.index();
+        let start = *self.stream_offsets.get(stream)?;
+        let end = *self.stream_offsets.get(stream.checked_add(1)?)?;
+        // 必须先限定在本流内，不能让越界 local index 落到下一流的合法槽位。
+        if address.passage_local_index >= end - start {
+            return None;
+        }
+        let index = *self
+            .cell_indices
+            .get((start + address.passage_local_index) as usize)? as usize;
+        (addresses.get(index) == Some(&address)).then_some(index)
+    }
+
+    #[cfg(test)]
+    fn retained_logical_bytes(&self) -> u64 {
+        let Self {
+            stream_offsets,
+            cell_indices,
+        } = self;
+        retained_slice_bytes(stream_offsets) + retained_slice_bytes(cell_indices)
+    }
+}
+
+/// 由绑定与已提交状态派生的 cell/owner/downstream 索引；downstream 按脏标记懒重建。
 pub(crate) struct ConflictDerivedIndexes {
     addresses: Box<[ConflictPassageAddress]>,
+    cell_lookup: ConflictCellLookup,
     owner_indexes: Vec<CommittedOwnerIndex>,
     owner_lookup: Vec<Option<std::num::NonZeroU32>>,
     downstream_index: crate::kernel::downstream_index::DownstreamIndex,
@@ -1507,6 +1609,7 @@ impl ConflictDerivedIndexes {
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             addresses,
+            cell_lookup,
             owner_indexes,
             owner_lookup,
             downstream_index,
@@ -1515,6 +1618,7 @@ impl ConflictDerivedIndexes {
             vehicle_capacity: _,
         } = self;
         retained_slice_bytes(addresses)
+            + cell_lookup.retained_logical_bytes()
             + retained_vec_bytes(owner_indexes)
             + retained_vec_bytes(owner_lookup)
             + downstream_index.retained_logical_bytes()
@@ -1635,13 +1739,11 @@ impl ConflictArbiter {
         if addresses.windows(2).any(|pair| pair[0] == pair[1]) {
             return Err(ConflictInstallError::InvalidNetwork);
         }
-        Ok(Self::from_sorted_unique_addresses(
-            addresses,
-            vehicle_capacity,
-        ))
+        Self::from_sorted_unique_addresses(addresses, vehicle_capacity, stream_count as usize)
     }
 
-    /// 由调用方提供的地址表构造仲裁器；排序后发现重复地址时返回 `InvalidBundle`。
+    /// 测试夹具沿用共享根的密集 stream/local 形状；不提供第二个生产安装入口。
+    #[cfg(test)]
     pub(crate) fn new(
         mut addresses: Vec<ConflictPassageAddress>,
         vehicle_capacity: usize,
@@ -1650,17 +1752,28 @@ impl ConflictArbiter {
         if addresses.windows(2).any(|pair| pair[0] == pair[1]) {
             return Err(ConflictAcquireError::InvalidBundle);
         }
-        Ok(Self::from_sorted_unique_addresses(
-            addresses,
-            vehicle_capacity,
-        ))
+        let stream_count = addresses
+            .iter()
+            .map(|address| address.stream.index())
+            .max()
+            .map_or(Some(0), |last| last.checked_add(1))
+            .ok_or(ConflictAcquireError::Capacity)?;
+        Self::from_sorted_unique_addresses(addresses, vehicle_capacity, stream_count).map_err(
+            |error| match error {
+                ConflictInstallError::InvalidNetwork => ConflictAcquireError::InvalidBundle,
+                ConflictInstallError::CapacityOverflow => ConflictAcquireError::Capacity,
+                ConflictInstallError::AllocationFailed => ConflictAcquireError::ScratchAllocFailed,
+            },
+        )
     }
 
     fn from_sorted_unique_addresses(
         addresses: Vec<ConflictPassageAddress>,
         vehicle_capacity: usize,
-    ) -> Self {
+        stream_count: usize,
+    ) -> Result<Self, ConflictInstallError> {
         let conflict_capacity = addresses.len();
+        let cell_lookup = ConflictCellLookup::build(&addresses, stream_count)?;
         let addresses = addresses.into_boxed_slice();
         let cells = Vec::new();
         let staged_cells = Vec::new();
@@ -1669,7 +1782,7 @@ impl ConflictArbiter {
         let staged_downstream = Vec::new();
         let committed_downstream = Vec::new();
         let staged_grants = Vec::new();
-        Self {
+        Ok(Self {
             committed: ConflictCommittedState {
                 cells,
                 committed_cells,
@@ -1678,6 +1791,7 @@ impl ConflictArbiter {
             },
             derived: ConflictDerivedIndexes {
                 addresses,
+                cell_lookup,
                 owner_indexes: Vec::new(),
                 owner_lookup: Vec::new(),
                 downstream_index: crate::kernel::downstream_index::DownstreamIndex::default(),
@@ -1698,7 +1812,7 @@ impl ConflictArbiter {
                 ),
                 next_serial: 0,
             },
-        }
+        })
     }
 
     /// 拆出 committed、derived 与 workspace 三个所有者分区。
@@ -2693,9 +2807,9 @@ impl<'a> ConflictRead<'a> {
 
     fn cell_index(self, address: ConflictPassageAddress) -> Result<usize, ConflictAcquireError> {
         self.derived
-            .addresses
-            .binary_search(&address)
-            .map_err(|_| ConflictAcquireError::InvalidBundle)
+            .cell_lookup
+            .get(&self.derived.addresses, address)
+            .ok_or(ConflictAcquireError::InvalidBundle)
     }
 
     fn zone_index(self, zone: ConflictZoneOrdinal) -> usize {
@@ -3956,6 +4070,107 @@ mod tests {
             passage,
         )
     }
+
+    #[test]
+    fn cell_lookup_preserves_canonical_slots_and_rejects_wrong_addresses() {
+        // 同一流的路线局部顺序不同于 zone 顺序，且相邻流有相同 zone。
+        let input = vec![
+            address(3, 0, 0),
+            address(1, 0, 1),
+            address(2, 1, 0),
+            address(0, 1, 1),
+            address(4, 1, 2),
+            address(0, 2, 0),
+        ];
+        let mut expected = input.clone();
+        expected.sort_unstable();
+        let arbiter = ConflictArbiter::new(input, 3).expect("arbiter");
+        assert_eq!(&*arbiter.derived.addresses, expected.as_slice());
+        for zone in 0..6 {
+            for stream in 0..4 {
+                for local in 0..4 {
+                    let query = address(zone, stream, local);
+                    assert_eq!(
+                        arbiter.read().cell_index(query).ok(),
+                        expected.binary_search(&query).ok(),
+                        "{query:?}"
+                    );
+                }
+            }
+        }
+        for query in [
+            address(u32::MAX, 0, 0),
+            address(0, u32::MAX, 0),
+            address(0, 0, u32::MAX),
+        ] {
+            assert_eq!(
+                arbiter.read().cell_index(query),
+                Err(ConflictAcquireError::InvalidBundle)
+            );
+        }
+        assert_eq!(&*arbiter.derived.cell_lookup.stream_offsets, &[0, 2, 5, 6]);
+        let lookup_bytes = 4 * (3 + 1 + 6);
+        assert_eq!(
+            arbiter.derived.cell_lookup.retained_logical_bytes(),
+            lookup_bytes
+        );
+        assert_eq!(
+            arbiter.derived.retained_logical_bytes(),
+            retained_slice_bytes(&arbiter.derived.addresses) + lookup_bytes
+        );
+    }
+
+    #[test]
+    fn cell_lookup_empty_root_keeps_no_backing() {
+        let arbiter = ConflictArbiter::new(Vec::new(), 0).expect("empty arbiter");
+        assert_eq!(arbiter.derived.retained_logical_bytes(), 0);
+        assert_eq!(
+            arbiter.read().cell_index(address(0, 0, 0)),
+            Err(ConflictAcquireError::InvalidBundle)
+        );
+    }
+
+    #[test]
+    fn cell_lookup_rejects_incomplete_local_rows_before_publication() {
+        for input in [
+            vec![address(0, 0, 1)],
+            vec![address(0, 0, 0), address(1, 0, 0)],
+            vec![address(0, u32::MAX, 0)],
+        ] {
+            assert!(matches!(
+                ConflictCellLookup::build(&input, 1),
+                Err(ConflictInstallError::InvalidNetwork)
+                    | Err(ConflictInstallError::CapacityOverflow)
+            ));
+        }
+        assert!(matches!(
+            ConflictCellLookup::build(&[], usize::MAX),
+            Err(ConflictInstallError::CapacityOverflow)
+        ));
+        assert!(matches!(
+            ConflictCellLookup::build(&[], 1),
+            Err(ConflictInstallError::InvalidNetwork)
+        ));
+    }
+
+    #[test]
+    fn cell_lookup_allocation_failure_can_retry() {
+        let addresses = [address(1, 0, 0), address(2, 1, 0)];
+        for remaining in 0..2 {
+            set_allocation_failpoint(Some(remaining));
+            let failed = ConflictCellLookup::build(&addresses, 2);
+            set_allocation_failpoint(None);
+            assert!(matches!(
+                failed,
+                Err(ConflictInstallError::AllocationFailed)
+            ));
+            let retry = ConflictCellLookup::build(&addresses, 2).expect("retry");
+            for (slot, address) in addresses.iter().enumerate() {
+                assert_eq!(retry.get(&addresses, *address), Some(slot));
+            }
+        }
+    }
+
     fn stable_locator(zone: u8, stream: u8) -> ConflictPassageLocator {
         ConflictPassageLocator::new(
             ParticipantStreamId::from_untyped(laneflow_static_contract::StableId128::from_bytes(

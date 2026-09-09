@@ -123,6 +123,15 @@ Conflict 的规则函数显式借用下列不同部分，而不是取得含全�
 
 具体嵌套字段也必须有明确归属：
 
+- Conflict 的规范 `addresses` 按 zone/stream/local 顺序对应本世界 cell 存储；冷安装
+  从当前根的密集 stream 与连续局部 passage 建立 `cell_lookup`。它用一条 `u32`
+  stream 偏移表和一条 `u32` cell 槽位置换直接定位，不改变规范地址或 cell 顺序。
+  查询先检查 local 下标位于本流范围，再核验完整地址（包括 zone），不能越入相邻流。
+  两条 backing 属于 Derived，非空根按 `4 × (streamCount + 1 + passageCount)`
+  字节计账；空根不保留 backing。共享根已经要求每流 passage 非空、全部 passage
+  可由 `u32` range 表达，安装仍以 checked 计数和可失败分配构造索引；它不依据查询
+  中的最大键扩张，也不改变世界的语义容量。恢复和修订切换为目标根重新安装此索引，
+  不持久化、不跨根复用槽位，不在每辆车或每条路线复制表，也不新增 passage 身份。
 - `cells` 中的 `zone_committed_owner`、`reservation`、`occupant`、`cleared` 和 `lag`
   属于 committed 资源表示；`zone_staged_owner` 与 `frontier` 属于 Workspace。
   `reservation_serial` 是已提交 reservation 的私有配对信息，不可作为新的权威副本。
