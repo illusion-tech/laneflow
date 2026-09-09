@@ -1954,6 +1954,16 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             return false;
         };
         let binding = self.committed.parking.binding(vehicle);
+        self.parking_state_valid_with_binding(vehicle, state, binding)
+    }
+
+    /// 校验同一拍初视图已读取的车辆与 binding；不缓存或省略资源、路线和可达性检查。
+    pub(crate) fn parking_state_valid_with_binding(
+        self,
+        vehicle: VehicleHandle,
+        state: VehicleState,
+        binding: Option<ParkingBinding>,
+    ) -> bool {
         if !matches!(
             (state.status, binding),
             (
@@ -2020,11 +2030,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     ) -> bool {
         self.read_view().parking_arrived_for(state, reservation)
     }
-
-    /// snapshot/cutover 共用的闭合状态矩阵与 reservation 语义复核。
-    pub(crate) fn parking_state_valid(&self, vehicle: VehicleHandle) -> bool {
-        self.read_view().parking_state_valid(vehicle)
-    }
 }
 
 #[cfg(test)]
@@ -2032,6 +2037,137 @@ mod tests {
     use laneflow_static_contract::{ParticipantClassOrdinal, VehicleProfileOrdinal};
 
     use super::*;
+
+    fn binding_reuse_world(
+        virtual_pool: bool,
+    ) -> (TrafficWorld, VehicleHandle, ReserveParkingTarget) {
+        use crate::admin::cutover_migration::tests::{
+            ParkingRevisionShape, compiled_parking_revision,
+        };
+        let shape = if virtual_pool {
+            ParkingRevisionShape::Facility {
+                capacity: 2,
+                entry_progress_m: 20.0,
+            }
+        } else {
+            // 既有夹具中的 WrongKind 是相同单边上的显式泊位。
+            ParkingRevisionShape::WrongKind
+        };
+        let revision = compiled_parking_revision(shape);
+        let origin = *revision.canonical_origin();
+        let mut world = TrafficWorld::install(
+            std::sync::Arc::clone(&revision),
+            crate::WorldConfig::new(4, 4, 1_024, 1_024, 1, 100),
+            crate::CommittedNetworkSource::Published {
+                reference: crate::PublishedLfcaReference::new(
+                    "fixture://parking-binding-reuse",
+                    origin.canonical_artifact_digest(),
+                    origin.canonical_artifact_byte_length(),
+                    origin.network_revision(),
+                )
+                .unwrap(),
+            },
+            0,
+            crate::test_policy::selection(&revision),
+        )
+        .unwrap();
+        let route = world
+            .register_route(crate::RouteRegisterInput::new(vec![
+                LaneEdgeOrdinal::from_raw(0),
+            ]))
+            .unwrap();
+        let vehicle = world
+            .spawn_vehicle(crate::VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                19_000,
+                0,
+            ))
+            .unwrap();
+        let target = if virtual_pool {
+            ReserveParkingTarget::VirtualPool {
+                facility: ParkingFacilityOrdinal::from_raw(0),
+                entry_anchor: VirtualEntryAnchorSelector::from_raw(0),
+                entry_route_occurrence: 0,
+            }
+        } else {
+            ReserveParkingTarget::ExplicitSpace {
+                space: ParkingSpaceOrdinal::from_raw(0),
+                entry_route_occurrence: 0,
+            }
+        };
+        (world, vehicle, target)
+    }
+
+    #[test]
+    fn binding_reuse_observes_reserve_and_cancel_between_ticks() {
+        for virtual_pool in [false, true] {
+            let (mut world, vehicle, target) = binding_reuse_world(virtual_pool);
+            for tick in 0..72 {
+                if tick == 2 {
+                    world.reserve_parking(vehicle, target).unwrap();
+                } else if tick == 62 {
+                    assert!(world.parking_arrived(vehicle, target.target()));
+                    world.cancel_parking(vehicle, target.target()).unwrap();
+                }
+                world.rebuild_occupancy_index().unwrap();
+                let state = world.vehicle(vehicle).unwrap();
+                // 独立预览自行读取当前 binding，正式 step 则在校验后复用拍初读取。
+                let expected = world
+                    .read_view()
+                    .advance_active_vehicle_with_waiting_stop(state, 0.1, None, None)
+                    .unwrap();
+                world.step(crate::TickInput::new(100)).unwrap();
+                assert_eq!(world.vehicle(vehicle), Some(expected));
+            }
+            assert_eq!(world.parking_binding(vehicle), None);
+            assert!(world.vehicle(vehicle).unwrap().progress_mm > 20_000);
+        }
+    }
+
+    #[test]
+    fn binding_reuse_preserves_parking_validation_and_atomic_failure() {
+        for virtual_pool in [false, true] {
+            let (mut world, vehicle, target) = binding_reuse_world(virtual_pool);
+            world.reserve_parking(vehicle, target).unwrap();
+            let original = world.committed.parking.binding(vehicle).unwrap();
+            let ParkingBinding::Reserved(reservation) = original else {
+                panic!("reserved fixture");
+            };
+            let before = world.capture_snapshot().unwrap();
+            let invalid = [
+                ParkingBinding::Occupied(target.target()),
+                ParkingBinding::Reserved(ParkingReservation::new(
+                    target.target(),
+                    RouteHandle::new(3, 17),
+                    reservation.entry_route_occurrence(),
+                    reservation.virtual_entry_selector(),
+                )),
+                ParkingBinding::Reserved(ParkingReservation::new(
+                    target.target(),
+                    reservation.route(),
+                    1,
+                    reservation.virtual_entry_selector(),
+                )),
+            ];
+            for binding in invalid {
+                world.committed.parking.bindings.insert(vehicle, binding);
+                assert!(!world.parking_state_valid(vehicle));
+                assert_eq!(
+                    world.step(crate::TickInput::new(100)),
+                    Err(crate::StepError::ParkingInvariantViolation)
+                );
+                assert_eq!(world.committed.parking.binding(vehicle), Some(binding));
+                world.committed.parking.bindings.insert(vehicle, original);
+                assert_eq!(world.capture_snapshot().unwrap(), before);
+                assert!(world.latest_transition_events().is_empty());
+            }
+            // 修复损坏输入后，失败工作区不污染下一次正常提交。
+            world.step(crate::TickInput::new(100)).unwrap();
+            assert!(world.parking_state_valid(vehicle));
+        }
+    }
 
     fn arrival_fixture() -> (VehicleState, ParkingReservation) {
         let vehicle = VehicleHandle::new(3, 7);

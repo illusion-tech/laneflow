@@ -98,7 +98,13 @@ fn occupancy_exact_query_replay() {
                                     state.progress_mm,
                                 ),
                                 read.signal_stop_distance(compiled, state, cursor),
-                                read.parking_stop_distance(compiled, state, cursor).unwrap(),
+                                read.parking_stop_distance(
+                                    compiled,
+                                    state,
+                                    cursor,
+                                    read.committed.parking.binding(state.handle),
+                                )
+                                .unwrap(),
                             ));
                         }
                         nanos[3] += started.elapsed().as_nanos();
