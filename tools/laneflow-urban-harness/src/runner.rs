@@ -469,6 +469,20 @@ impl<'a> Harness<'a> {
         tick >= self.plan.window.warm_up_ticks && tick < self.plan.window.end()
     }
 
+    pub(crate) fn in_step_observation(&self, tick: u64) -> bool {
+        self.plan.window.contains_completed_step(tick)
+    }
+
+    // Only the public call is measured: input preparation, diagnostics and bookkeeping
+    // stay outside. Rejected Runtime calls count; caller-only deferrals do not.
+    fn measure_command<T>(&mut self, call: impl FnOnce(&mut TrafficWorld) -> T) -> T {
+        let started = std::time::Instant::now();
+        let result = call(&mut self.world);
+        let elapsed = started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
+        self.last_command_ns = self.last_command_ns.saturating_add(elapsed);
+        result
+    }
+
     fn execute(&mut self, request: Request, tick: u64) -> Result<()> {
         if matches!(&request.command, Command::Despawn | Command::Spawn { .. }) {
             return self.execute_lifecycle_boundary(request, tick);
@@ -545,7 +559,9 @@ impl<'a> Harness<'a> {
                         *progress_mm,
                         0,
                     );
-                    match self.world.replace_completed_vehicle(handle, input) {
+                    match self
+                        .measure_command(|world| world.replace_completed_vehicle(handle, input))
+                    {
                         Ok(record) => {
                             self.slots.remove(&handle);
                             self.slots.insert(record.new, request.slot);
@@ -596,7 +612,7 @@ impl<'a> Harness<'a> {
                             exit_route_occurrence: anchor.route_edge_index,
                         },
                     };
-                    match self.world.leave_parking(handle, input) {
+                    match self.measure_command(|world| world.leave_parking(handle, input)) {
                         Ok(_) => {
                             if self.in_observation(tick) {
                                 self.evidence[id.tile as usize].leaves += 1;
@@ -657,7 +673,7 @@ impl<'a> Harness<'a> {
                             entry_route_occurrence: anchor.route_edge_index,
                         },
                     };
-                    match self.world.reserve_parking(handle, input) {
+                    match self.measure_command(|world| world.reserve_parking(handle, input)) {
                         Ok(_) if expected_rejection.is_none() => {
                             extra = json!({"target":target});
                         }
@@ -693,9 +709,10 @@ impl<'a> Harness<'a> {
                     }
                 }
                 Command::Park { target } => {
+                    let parking_target = self.targets[target];
                     checked(
                         "park at committed arrival",
-                        self.world.park_vehicle(handle, self.targets[target]),
+                        self.measure_command(|world| world.park_vehicle(handle, parking_target)),
                     )?;
                     if self.in_observation(tick) {
                         match self.targets[target] {
@@ -874,7 +891,10 @@ impl<'a> Harness<'a> {
                     .world
                     .vehicle(handle)
                     .ok_or_else(|| invalid("despawn lost its live individual"))?;
-                checked("boundary despawn", self.world.despawn_vehicle(handle))?;
+                checked(
+                    "boundary despawn",
+                    self.measure_command(|world| world.despawn_vehicle(handle)),
+                )?;
                 self.slots.remove(&handle);
                 self.individuals[request.slot].handle = None;
                 self.removals += 1;
@@ -894,15 +914,16 @@ impl<'a> Harness<'a> {
                 if self.individuals[request.slot].handle.is_some() {
                     return Err(invalid("spawn targets a live individual"));
                 }
+                let input = VehicleSpawnInput::new(
+                    self.profiles[profile],
+                    self.routes[route],
+                    *occurrence,
+                    *progress_mm,
+                    0,
+                );
                 let handle = checked(
                     "boundary spawn",
-                    self.world.spawn_vehicle(VehicleSpawnInput::new(
-                        self.profiles[profile],
-                        self.routes[route],
-                        *occurrence,
-                        *progress_mm,
-                        0,
-                    )),
+                    self.measure_command(|world| world.spawn_vehicle(input)),
                 )?;
                 let after_id = IndividualId {
                     incarnation: request.sequence + 1,
@@ -961,17 +982,13 @@ impl<'a> Harness<'a> {
         }
         self.commands.clear();
         self.events.clear();
-        let command_started = std::time::Instant::now();
+        self.last_command_ns = 0;
         while let Some(mut commands) = self.schedule.remove(&boundary) {
             commands.sort_by_key(|r| (r.command.rank(), r.due, r.slot, r.sequence, r.attempt));
             for request in commands {
                 self.execute(request, boundary)?;
             }
         }
-        self.last_command_ns = command_started
-            .elapsed()
-            .as_nanos()
-            .min(u128::from(u64::MAX)) as u64;
         self.step_before = self
             .individuals
             .iter()
@@ -1111,6 +1128,53 @@ mod tests {
     use laneflow_urban_generator::{Scale, UrbanConfig, generate};
 
     #[test]
+    fn completed_steps_exclude_warmup_and_include_the_final_observation() {
+        let window = crate::Window::probe_after(3, 2).unwrap();
+        for (tick, expected) in [
+            (0, false),
+            (2, false),
+            (3, false),
+            (4, true),
+            (5, true),
+            (6, false),
+        ] {
+            assert_eq!(
+                window.contains_completed_step(tick),
+                expected,
+                "tick={tick}"
+            );
+        }
+        let zero_warmup = crate::Window::probe(1).unwrap();
+        assert!(!zero_warmup.contains_completed_step(0));
+        assert!(zero_warmup.contains_completed_step(1));
+        assert!(!zero_warmup.contains_completed_step(2));
+    }
+
+    #[test]
+    fn observation_and_snapshots_do_not_enter_command_samples() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let config =
+            UrbanConfig::parse(include_str!("../../../examples/config/cn-urban.toml")).unwrap();
+        generate(&config, Scale::Fixture, &source, None).unwrap();
+        let artifacts = Artifacts::load(&source).unwrap();
+        let plan = ResolvedPlan::mixed(&artifacts, crate::Window::probe(2).unwrap()).unwrap();
+        let mut harness = Harness::install(&artifacts, &plan).unwrap();
+        harness.schedule.clear();
+        harness.last_command_ns = 123;
+        harness.advance().unwrap();
+        assert_eq!(
+            harness.last_command_ns, 0,
+            "no Runtime lifecycle calls this tick"
+        );
+        let before = harness.checkpoint().unwrap();
+        observe::counts(&harness).unwrap();
+        observe::parking_invariants(&harness).unwrap();
+        assert_eq!(harness.checkpoint().unwrap(), before);
+        assert_eq!(harness.last_command_ns, 0, "diagnostic work is excluded");
+    }
+
+    #[test]
     fn role_owned_background_replace_defers_across_an_absent_lifecycle_boundary() {
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("source");
@@ -1132,6 +1196,7 @@ mod tests {
         harness.slots.remove(&handle);
         harness.individuals[slot].handle = None;
         let cursor = harness.world.command_cursor();
+        harness.last_command_ns = 123;
 
         harness
             .execute(
@@ -1161,6 +1226,10 @@ mod tests {
         assert_eq!(harness.commands[0]["individual"], serde_json::json!(id));
         assert_eq!(harness.commands[0]["committed"], false);
         assert_eq!(harness.commands[0]["details"]["reason"], "role-held");
+        assert_eq!(
+            harness.last_command_ns, 123,
+            "caller-only work is not a Runtime call"
+        );
         assert_eq!(
             (harness.replacements, harness.births, harness.removals),
             (0, 0, 0)

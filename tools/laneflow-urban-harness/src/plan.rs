@@ -108,6 +108,10 @@ impl Window {
     pub fn end(&self) -> u64 {
         self.warm_up_ticks + self.observation_ticks
     }
+
+    pub(crate) fn contains_completed_step(&self, tick: u64) -> bool {
+        tick > self.warm_up_ticks && tick <= self.end()
+    }
 }
 
 fn cycle_ticks(artifacts: &Artifacts) -> Result<u64> {
