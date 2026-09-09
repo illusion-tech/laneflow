@@ -116,6 +116,166 @@ fn same_class_physical_profiles_share_policy_rows_and_unused_classes_need_no_rul
     }
 }
 
+#[test]
+fn shared_owner_index_preserves_access_holes_classes_and_distinct_policies() {
+    use laneflow_static_contract::{
+        EntityKind, ManeuverGateOrdinal, ParticipantClassOrdinal, ParticipantStreamOrdinal,
+        RightOfWayPolicySetOrdinal,
+    };
+
+    // 两次分别去掉一个 owner，覆盖前部/尾部空缺；保留 owner 有两个实际类别。
+    for denied in ["a", "b"] {
+        let mut unit = unit_editing_custom(None, None, |builder, policy| {
+            builder
+                .add_declaration(re::RoadEditingDeclaration::ParticipantClass(
+                    re::ParticipantClassInput::try_new("other-class").unwrap(),
+                ))
+                .unwrap();
+            builder
+                .add_declaration(re::RoadEditingDeclaration::VehicleProfile(
+                    re::VehicleProfileInput::try_new(
+                        "other-profile",
+                        re::ParticipantClassReference::local("other-class").unwrap(),
+                        re::IidmVehicleProfileInput::try_new(5., 12., 2., 1.4, 1.8, 2., 4.5)
+                            .unwrap(),
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+            builder
+                .add_declaration(re::RoadEditingDeclaration::AccessRule(
+                    re::AccessRuleInput::try_new(
+                        "deny-path",
+                        re::RoadEditingAccessTarget::ManeuverPath(
+                            re::ManeuverPathReference::imported(
+                                TOPOLOGY,
+                                vec![JUNCTION.into(), format!("conflict-movement-{denied}")],
+                                "path",
+                            )
+                            .unwrap(),
+                        ),
+                        AccessEffect::Deny,
+                        ["vehicle", "other-class"]
+                            .into_iter()
+                            .map(|key| re::ParticipantClassReference::local(key).unwrap())
+                            .collect::<Vec<_>>(),
+                        0,
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+            let mut other = policy.clone();
+            other.key = "other-policy".into();
+            for rule in &mut other.streams {
+                rule.priority += 10;
+            }
+            for rule in &mut other.gates {
+                rule.prohibition = GateProhibition::Always;
+            }
+            builder
+                .add_declaration(re::RoadEditingDeclaration::RightOfWayPolicySet(other))
+                .unwrap();
+        })
+        .unwrap();
+        unit.limits = CompileLimits::single_network_1m_v2();
+        let output = Compiler::new().compile(unit).unwrap();
+        let candidate = emit_portable_candidate(
+            &output,
+            &PortableEmissionProvenance::try_new("shared-owner-holes").unwrap(),
+            laneflow_format::FormatLimits::HARD,
+            PortableDiffBase::Genesis,
+        )
+        .unwrap();
+        let checked = laneflow_format::check_canonical_network_input(
+            candidate.canonical_artifact().bytes(),
+            laneflow_format::FormatLimits::HARD,
+        )
+        .unwrap();
+        let root = build_shared_network_revision(
+            checked,
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::Omit,
+                SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            root.identity()
+                .entity_count(EntityKind::RightOfWayPolicySet),
+            2
+        );
+        let first = root
+            .policy()
+            .policy(RightOfWayPolicySetOrdinal::from_raw(0))
+            .unwrap();
+        let second = root
+            .policy()
+            .policy(RightOfWayPolicySetOrdinal::from_raw(1))
+            .unwrap();
+        let missing = ParticipantClassOrdinal::from_raw(u32::MAX);
+        let mut gate_lengths = Vec::new();
+        let mut stream_lengths = Vec::new();
+        for g in 0..root.identity().entity_count(EntityKind::ManeuverGate) {
+            let gate = ManeuverGateOrdinal::from_raw(g);
+            let a = first.gate_classes(gate);
+            let b = second.gate_classes(gate);
+            gate_lengths.push(a.len());
+            assert_eq!(a.len(), b.len());
+            for (a, b) in a.iter().zip(b) {
+                assert_eq!(a.class(), b.class());
+                assert_ne!(a.prohibition(), b.prohibition());
+                assert!(core::ptr::eq(first.gate(gate, a.class()).unwrap(), a));
+                assert!(core::ptr::eq(second.gate(gate, b.class()).unwrap(), b));
+                assert_eq!(
+                    first.gate_attribution(gate, a.class()).unwrap().policy,
+                    first.id()
+                );
+                assert_eq!(
+                    second.gate_attribution(gate, b.class()).unwrap().policy,
+                    second.id()
+                );
+            }
+            assert!(first.gate(gate, missing).is_none());
+        }
+        for s in 0..root.identity().entity_count(EntityKind::ParticipantStream) {
+            let stream = ParticipantStreamOrdinal::from_raw(s);
+            let a = first.stream_classes(stream);
+            let b = second.stream_classes(stream);
+            stream_lengths.push(a.len());
+            assert_eq!(a.len(), b.len());
+            for (a, b) in a.iter().zip(b) {
+                assert_eq!(a.class(), b.class());
+                assert_ne!(a.priority(), b.priority());
+                assert!(core::ptr::eq(first.stream(stream, a.class()).unwrap(), a));
+                assert!(core::ptr::eq(second.stream(stream, b.class()).unwrap(), b));
+                assert_eq!(
+                    first.stream_attribution(stream, a.class()).unwrap().policy,
+                    first.id()
+                );
+                assert_eq!(
+                    second.stream_attribution(stream, b.class()).unwrap().policy,
+                    second.id()
+                );
+            }
+            assert!(first.stream(stream, missing).is_none());
+        }
+        gate_lengths.sort_unstable();
+        stream_lengths.sort_unstable();
+        assert_eq!(gate_lengths, [0, 2]);
+        assert_eq!(stream_lengths, [0, 2]);
+        assert!(
+            first
+                .gate_classes(ManeuverGateOrdinal::from_raw(u32::MAX))
+                .is_empty()
+        );
+        assert!(
+            second
+                .stream_classes(ParticipantStreamOrdinal::from_raw(u32::MAX))
+                .is_empty()
+        );
+    }
+}
+
 fn output(permuted: bool, signals: bool, overflow: bool) -> CompilationOutput {
     let mut unit = unit_editing_custom(
         signals.then_some(ManeuverDirection::Right),

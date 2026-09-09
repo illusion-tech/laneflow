@@ -103,6 +103,40 @@ pub(crate) struct PolicyOwner {
     pub(crate) cells: RangeU32,
 }
 
+/// 各策略共用的 owner → 策略内 class 行范围；不持有规则或世界状态。
+pub(crate) enum PolicyOwnerIndex {
+    /// 相邻偏移直接给出 owner 的范围，未准入 owner 的两个偏移相等。
+    Dense(Box<[u32]>),
+    /// ordinal 域远大于实际 owner 集合时，只保存非空范围。
+    Sparse(Box<[PolicyOwner]>),
+}
+
+impl PolicyOwnerIndex {
+    pub(crate) fn empty() -> Self {
+        Self::Sparse(Box::new([]))
+    }
+
+    pub(crate) fn cells<'a, T>(&self, owner: u32, cells: &'a [T]) -> &'a [T] {
+        match self {
+            Self::Dense(offsets) => {
+                // 先取尾切片，避免越界 ordinal 在 32 位目标上做 owner + 1 溢出。
+                let Some(bounds) = offsets.get(owner as usize..).and_then(|v| v.get(..2)) else {
+                    return &[];
+                };
+                &cells[bounds[0] as usize..bounds[1] as usize]
+            }
+            Self::Sparse(owners) => owner_cells(owners, owner, cells),
+        }
+    }
+
+    pub(crate) fn retained_logical_bytes(&self) -> u64 {
+        match self {
+            Self::Dense(offsets) => core::mem::size_of_val(offsets.as_ref()) as u64,
+            Self::Sparse(owners) => core::mem::size_of_val(owners.as_ref()) as u64,
+        }
+    }
+}
+
 /// 实际 Access 准入类别的门规则；不产生最终通行授权。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ResolvedGatePolicy {
@@ -184,15 +218,15 @@ pub(crate) struct TargetRange {
     pub(crate) targets: RangeU32,
 }
 
-/// 策略 → 实际 owner → 实际 class 的连续 CSR。唯一所有者是共享根。
+/// 按策略分隔规则、跨策略共用 owner 定位的连续 CSR。唯一所有者是共享根。
 pub struct SharedPolicyNetwork {
     pub(crate) policies: Box<[PolicyRecord]>,
     pub(crate) rules: Box<[RuleRecord]>,
     pub(crate) evidence: Box<[PolicyEvidence]>,
     pub(crate) evidence_refs: Box<[u32]>,
     pub(crate) gaps: Box<[PolicyGapProfile]>,
-    pub(crate) gate_owners: Box<[PolicyOwner]>,
-    pub(crate) stream_owners: Box<[PolicyOwner]>,
+    pub(crate) gate_owners: PolicyOwnerIndex,
+    pub(crate) stream_owners: PolicyOwnerIndex,
     pub(crate) gates: Box<[ResolvedGatePolicy]>,
     pub(crate) streams: Box<[ResolvedStreamPolicy]>,
     pub(crate) target_ranges: Box<[TargetRange]>,
@@ -215,8 +249,8 @@ impl SharedPolicyNetwork {
             evidence: Box::new([]),
             evidence_refs: Box::new([]),
             gaps: Box::new([]),
-            gate_owners: Box::new([]),
-            stream_owners: Box::new([]),
+            gate_owners: PolicyOwnerIndex::empty(),
+            stream_owners: PolicyOwnerIndex::empty(),
             gates: Box::new([]),
             streams: Box::new([]),
             target_ranges: Box::new([]),
@@ -247,8 +281,8 @@ impl SharedPolicyNetwork {
             + bytes(&self.evidence)
             + bytes(&self.evidence_refs)
             + bytes(&self.gaps)
-            + bytes(&self.gate_owners)
-            + bytes(&self.stream_owners)
+            + self.gate_owners.retained_logical_bytes()
+            + self.stream_owners.retained_logical_bytes()
             + bytes(&self.gates)
             + bytes(&self.streams)
             + bytes(&self.target_ranges)
@@ -302,19 +336,16 @@ impl<'a> PolicyView<'a> {
     /// 指定机动门在各参与者类别下解析出的门规则单元。
     #[must_use]
     pub fn gate_classes(self, gate: ManeuverGateOrdinal) -> &'a [ResolvedGatePolicy] {
-        owner_cells(
-            self.record.gates.slice(&self.network.gate_owners),
-            gate.raw(),
-            &self.network.gates,
-        )
+        self.network
+            .gate_owners
+            .cells(gate.raw(), self.record.gates.slice(&self.network.gates))
     }
     /// 指定参与者流在各参与者类别下解析出的流规则。
     #[must_use]
     pub fn stream_classes(self, stream: ParticipantStreamOrdinal) -> &'a [ResolvedStreamPolicy] {
-        owner_cells(
-            self.record.streams.slice(&self.network.stream_owners),
+        self.network.stream_owners.cells(
             stream.raw(),
-            &self.network.streams,
+            self.record.streams.slice(&self.network.streams),
         )
     }
     /// 按机动门与参与者类别查询唯一解析的门规则单元。

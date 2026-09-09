@@ -1,7 +1,7 @@
 # 共享静态路网
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-09-03<br>
+**最后更新**: 2026-09-09<br>
 **适用范围**: `laneflow-static-network`、受检 LFCA admission、共享静态路网构建、
 Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验收<br>
 **关联文档**: `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
@@ -113,6 +113,14 @@ object kind 精确为 LFCA，chunk directory、chunk digest、连续逻辑范围
 逐 subject passage 的精确让行目标。缺规则、规则歧义、目标优先级、法规相容性、
 信号绑定、明确右转方向、跨策略灯型和保护冲突均由 builder 独立检查；`Omit` 与
 `RetainAvailable` 使用同一套策略闭合。世界固定步长和间隙派生值不进入共享根。
+
+各策略共用 Access 与实际类别产生的 owner/class 排列，门与流各只保留一份所有者
+定位索引（owner index）；范围使用策略内部相对偏移，规则单元仍按策略分别保存。
+当 `4 × (owner ordinal 域大小 + 1)` 不大于单份非空 owner 紧凑记录的实际字节数、
+且槽位数适配现有分配计数时，使用 `u32` CSR 偏移表直接定位，空缺 owner 的相邻
+偏移相等；否则保留按 owner 排序的非空范围。空表不分配。选择只影响内部表示，
+不改变类别顺序、缺失语义、规则归因或公开借用接口，也不按策略/世界重复建立索引。
+索引 backing、构建扫描和偏移初始化接入既有 retained/work 预算，不新增预算上限。
 
 策略构建的 owned 表和冷字符串计入既有 retained 上限，借用声明与索引工作表计入
 既有 scratch 上限；计数、乘积、范围和预留失败不发布根。`max_policy_work` 默认
