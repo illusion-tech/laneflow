@@ -68,6 +68,16 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
             ResolvedPlan::for_case(&artifacts, case, Window::probe(128).unwrap()).unwrap();
         assert_eq!(case_plan.case, case.as_str());
         assert_eq!(case_plan.initial.len(), 2_000);
+        for route in &artifacts.catalog().routes {
+            assert_eq!(case_plan.route_edges[&route.key], route.edge_keys);
+        }
+        for role in &case_plan.role_departures {
+            assert!(
+                case_plan.route_edges[&role.route]
+                    .get(role.occurrence as usize)
+                    .is_some()
+            );
+        }
         let case_harness = Harness::install(&artifacts, &case_plan).unwrap();
         let mut counts = [0; 3];
         for handle in case_harness.world().live_vehicles() {
@@ -191,7 +201,12 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
                 departure.slot / 1_000 == tile && departure.role == "waiting-storage-pulse"
             })
             .collect();
-        assert_eq!(pulses.len(), 3, "tile {tile} waiting pulse count");
+        assert_eq!(pulses.len(), 2, "tile {tile} waiting pulse count");
+        assert!(
+            pulses
+                .iter()
+                .all(|pulse| pulse.due_tick + cycle_ticks <= waiting_plan.window.end())
+        );
         assert!(
             pulses
                 .windows(2)

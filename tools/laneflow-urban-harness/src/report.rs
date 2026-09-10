@@ -218,6 +218,7 @@ pub struct PerformanceRound {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PerformanceComparisonReport {
     pub version: String,
+    pub aggregation: String,
     pub status: String,
     pub case: String,
     pub scale: String,
@@ -283,6 +284,9 @@ pub fn run_to_directory(
 ) -> Result<RunResult> {
     plan.validate(artifacts)?;
     let performance_context = if plan.window.purpose == "performance" {
+        let checkout = command_output("git", &["rev-parse", "--show-toplevel"])
+            .ok_or_else(|| invalid("unavailable checkout for performance output validation"))?;
+        validate_performance_output(&std::path::absolute(output)?, Path::new(&checkout))?;
         Some(MeasurementProvenance::capture(
             std::env::var("LANEFLOW_HARDWARE_ROLE")
                 .map_err(|_| invalid("performance requires LANEFLOW_HARDWARE_ROLE"))?,
@@ -299,7 +303,7 @@ pub fn run_to_directory(
     let mut harness = Harness::install(artifacts, plan)?;
     let initial_counts = observe::counts(&harness)?;
     let mut result = RunResult {
-        version: "urban-result-v3".into(),
+        version: "urban-result-v4".into(),
         status: "failed".into(),
         purpose: plan.window.purpose.clone(),
         case: plan.case.clone(),
@@ -380,73 +384,7 @@ pub fn run_to_directory(
             }
         }
         if plan.window.purpose == "correctness" {
-            let case: UrbanCase = plan.case.parse()?;
-            for (tile, e) in harness.evidence.iter().enumerate() {
-                let missing = match case {
-                    UrbanCase::MixedPeak => {
-                        e.crossed_tile_completed < plan.required_per_tile["crossed_tile_completed"]
-                            || e.red_wait_then_crossed
-                                < plan.required_per_tile["red_wait_then_crossed"]
-                            || e.leaves + e.explicit_parks + e.virtual_parks
-                                < plan.required_per_tile["park_or_leave"]
-                    }
-                    UrbanCase::GarageEgress => {
-                        e.garage_exit_0 < plan.required_per_tile["garage_exit_0"]
-                            || e.garage_exit_1 < plan.required_per_tile["garage_exit_1"]
-                            || e.safe_leave_rejections
-                                < plan.required_per_tile["safe_leave_rejection"]
-                            || e.retried_leave_successes
-                                < plan.required_per_tile["retried_leave_success"]
-                    }
-                    UrbanCase::GarageIngress => {
-                        e.explicit_parks < plan.required_per_tile["explicit_park"]
-                            || e.virtual_parks < plan.required_per_tile["virtual_park"]
-                            || e.exclusive_rejections
-                                < plan.required_per_tile["exclusive_rejection"]
-                            || e.full_rejections < plan.required_per_tile["full_rejection"]
-                    }
-                    UrbanCase::WaitingRelease => {
-                        e.waiting_entries < plan.required_per_tile["waiting_entry"]
-                            || e.waiting_capacity_rejections
-                                < plan.required_per_tile["waiting_capacity_rejection"]
-                            || e.waiting_storage_rejections
-                                < plan.required_per_tile["waiting_storage_rejection"]
-                            || e.waiting_releases < plan.required_per_tile["waiting_release"]
-                            || !e.waiting_entry_order.starts_with(&e.waiting_release_order)
-                    }
-                    UrbanCase::PermissiveLeft => {
-                        e.permissive_no_grants < plan.required_per_tile["permissive_no_grant"]
-                            || e.permissive_grants < plan.required_per_tile["permissive_grant"]
-                            || e.permissive_passes < plan.required_per_tile["permissive_pass"]
-                    }
-                    UrbanCase::UncontrolledYield => {
-                        e.mainline_passes < plan.required_per_tile["mainline_pass"]
-                            || e.yield_waits < plan.required_per_tile["yield_wait"]
-                            || e.yield_passes < plan.required_per_tile["yield_pass"]
-                    }
-                    UrbanCase::BoundaryBurst => {
-                        e.phase_changes < plan.required_per_tile["phase_change"]
-                            || e.lifecycle_successes < plan.required_per_tile["lifecycle_success"]
-                            || e.safe_leave_rejections < plan.required_per_tile["safe_rejection"]
-                            || e.retried_leave_successes < plan.required_per_tile["retry_success"]
-                            || e.before_boundary_commands
-                                < plan.required_per_tile["before_boundary_command"]
-                            || e.after_boundary_commands
-                                < plan.required_per_tile["after_boundary_command"]
-                    }
-                };
-                if missing {
-                    return Err(invalid(format!(
-                        "tile {tile}: missing required {} observation",
-                        case.as_str()
-                    )));
-                }
-                if case == UrbanCase::MixedPeak && e.planned_east * 3 != e.planned_west * 7 {
-                    return Err(invalid(format!(
-                        "tile {tile}: departure input is not 70:30"
-                    )));
-                }
-            }
+            validate_case(&harness)?;
             result.status = "case-pass-replay-required".into();
         } else if plan.window.purpose == "performance" {
             result.status = "performance-round-complete".into();
@@ -563,6 +501,104 @@ pub fn run_to_directory(
     Ok(result)
 }
 
+// Reject a future untracked evidence directory before installing or advancing the world.
+// Ignored output (for example target/) is safe without excluding any source from git status.
+fn validate_performance_output(output: &Path, checkout: &Path) -> Result<()> {
+    let parent = fs::canonicalize(
+        output
+            .parent()
+            .ok_or_else(|| invalid("performance output requires a parent directory"))?,
+    )?;
+    let checkout = fs::canonicalize(checkout)?;
+    if let Ok(relative) = parent.strip_prefix(&checkout) {
+        let relative = relative.join(
+            output
+                .file_name()
+                .ok_or_else(|| invalid("performance output requires a new directory name"))?,
+        );
+        let ignored = std::process::Command::new("git")
+            .current_dir(&checkout)
+            .args(["check-ignore", "--quiet", "--"])
+            .arg(relative)
+            .status()?;
+        if !ignored.success() {
+            return Err(invalid(
+                "formal performance output must be outside the checkout or git-ignored (for example target/)",
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_case(harness: &Harness<'_>) -> Result<()> {
+    let plan = harness.plan;
+    harness.validate_required_role_evidence()?;
+    let case: UrbanCase = plan.case.parse()?;
+    for (tile, e) in harness.evidence.iter().enumerate() {
+        let missing = match case {
+            UrbanCase::MixedPeak => {
+                e.crossed_tile_completed < plan.required_per_tile["crossed_tile_completed"]
+                    || e.red_wait_then_crossed < plan.required_per_tile["red_wait_then_crossed"]
+                    || e.leaves + e.explicit_parks + e.virtual_parks
+                        < plan.required_per_tile["park_or_leave"]
+            }
+            UrbanCase::GarageEgress => {
+                e.garage_exit_0 < plan.required_per_tile["garage_exit_0"]
+                    || e.garage_exit_1 < plan.required_per_tile["garage_exit_1"]
+                    || e.safe_leave_rejections < plan.required_per_tile["safe_leave_rejection"]
+                    || e.retried_leave_successes < plan.required_per_tile["retried_leave_success"]
+            }
+            UrbanCase::GarageIngress => {
+                e.explicit_parks < plan.required_per_tile["explicit_park"]
+                    || e.virtual_parks < plan.required_per_tile["virtual_park"]
+                    || e.exclusive_rejections < plan.required_per_tile["exclusive_rejection"]
+                    || e.full_rejections < plan.required_per_tile["full_rejection"]
+            }
+            UrbanCase::WaitingRelease => {
+                e.waiting_entries < plan.required_per_tile["waiting_entry"]
+                    || e.waiting_capacity_rejections
+                        < plan.required_per_tile["waiting_capacity_rejection"]
+                    || e.waiting_storage_rejections
+                        < plan.required_per_tile["waiting_storage_rejection"]
+                    || e.waiting_releases < plan.required_per_tile["waiting_release"]
+                    || !e.waiting_entry_order.starts_with(&e.waiting_release_order)
+            }
+            UrbanCase::PermissiveLeft => {
+                e.permissive_no_grants < plan.required_per_tile["permissive_no_grant"]
+                    || e.permissive_grants < plan.required_per_tile["permissive_grant"]
+                    || e.permissive_passes < plan.required_per_tile["permissive_pass"]
+            }
+            UrbanCase::UncontrolledYield => {
+                e.mainline_passes < plan.required_per_tile["mainline_pass"]
+                    || e.yield_waits < plan.required_per_tile["yield_wait"]
+                    || e.yield_passes < plan.required_per_tile["yield_pass"]
+                    || e.leaves < plan.required_per_tile["garage_leave"]
+            }
+            UrbanCase::BoundaryBurst => {
+                e.phase_changes < plan.required_per_tile["phase_change"]
+                    || e.lifecycle_successes < plan.required_per_tile["lifecycle_success"]
+                    || e.safe_leave_rejections < plan.required_per_tile["safe_rejection"]
+                    || e.retried_leave_successes < plan.required_per_tile["retry_success"]
+                    || e.before_boundary_commands
+                        < plan.required_per_tile["before_boundary_command"]
+                    || e.after_boundary_commands < plan.required_per_tile["after_boundary_command"]
+            }
+        };
+        if missing {
+            return Err(invalid(format!(
+                "tile {tile}: missing required {} observation",
+                case.as_str()
+            )));
+        }
+        if case == UrbanCase::MixedPeak && e.planned_east * 3 != e.planned_west * 7 {
+            return Err(invalid(format!(
+                "tile {tile}: departure input is not 70:30"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn sample_summary(values: &mut [u64]) -> Result<SampleSummary> {
     if values.is_empty() {
         return Err(invalid("measurement window produced no samples"));
@@ -643,7 +679,7 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
     let read = |dir: &Path| -> Result<(RunResult, crate::artifacts::FileDigest)> {
         let bytes = fs::read(dir.join("result.json"))?;
         let result: RunResult = serde_json::from_slice(&bytes)?;
-        if result.version != "urban-result-v3"
+        if result.version != "urban-result-v4"
             || result.error.is_some()
             || result.completed_ticks != result.expected_ticks
             || !matches!(
@@ -754,10 +790,11 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
     let mut combined_intent = Vec::new();
     let mut identity: Option<(String, String, String)> = None;
     let mut provenance = None;
+    let mut semantic_result = None;
     for directory in directories {
         let result_bytes = fs::read(directory.join("result.json"))?;
         let result: RunResult = serde_json::from_slice(&result_bytes)?;
-        if result.version != "urban-result-v3"
+        if result.version != "urban-result-v4"
             || result.purpose != "performance"
             || result.case != "MIXED-PEAK"
             || result.status != "performance-round-complete"
@@ -792,7 +829,7 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
             return Err(invalid("performance tick log is incomplete"));
         }
         let measurement_bytes = fs::read(directory.join("measurements.toml"))?;
-        let measurement: RetainedMeasurements = toml::from_str(
+        let mut measurement: RetainedMeasurements = toml::from_str(
             std::str::from_utf8(&measurement_bytes).map_err(|e| invalid(e.to_string()))?,
         )?;
         let execution_id = read_execution_id(directory)?;
@@ -839,11 +876,26 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
             return Err(invalid("performance rounds use different plans"));
         }
         identity.get_or_insert(current);
-        combined_command.extend(measurement.command_samples_ns);
-        combined_step.extend(measurement.traffic_world_step_samples_ns);
-        combined_observation.extend(measurement.observation_samples_ns);
-        combined_active.extend(measurement.active_samples);
-        combined_intent.extend(measurement.intent_samples);
+        // Only the measurement envelope is non-semantic. Retained log digests, complete
+        // checkpoints, counts and all other result fields must match across the three worlds.
+        let mut semantic = result.clone();
+        semantic.files.remove("measurements.toml");
+        if semantic_result
+            .as_ref()
+            .is_some_and(|expected| *expected != semantic)
+        {
+            return Err(invalid(
+                "performance rounds use different semantic traces or results; inspect ticks, commands, events and checkpoints",
+            ));
+        }
+        semantic_result.get_or_insert(semantic);
+        combined_command.push(sample_summary(&mut measurement.command_samples_ns)?);
+        combined_step.push(sample_summary(
+            &mut measurement.traffic_world_step_samples_ns,
+        )?);
+        combined_observation.push(sample_summary(&mut measurement.observation_samples_ns)?);
+        combined_active.push(sample_summary(&mut measurement.active_samples)?);
+        combined_intent.push(sample_summary(&mut measurement.intent_samples)?);
         rounds.push(PerformanceRound {
             execution_id,
             result: crate::artifacts::FileDigest {
@@ -858,30 +910,57 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
     }
     let (case, scale, plan_digest) = identity.expect("three retained rounds");
     Ok(PerformanceComparisonReport {
-        version: "urban-performance-comparison-v1".into(),
+        version: "urban-performance-comparison-v2".into(),
+        aggregation: "median-of-three-round-percentiles; worst-round-max; total-sample-count"
+            .into(),
         status: "performance-three-rounds-complete".into(),
         case,
         scale,
         plan_digest,
         rounds,
-        command_ns: summary_map(sample_summary(&mut combined_command)?),
-        traffic_world_step_ns: summary_map(sample_summary(&mut combined_step)?),
-        observation_ns: summary_map(sample_summary(&mut combined_observation)?),
-        active: summary_map(sample_summary(&mut combined_active)?),
-        intent: summary_map(sample_summary(&mut combined_intent)?),
+        command_ns: three_round_summary(&combined_command)?,
+        traffic_world_step_ns: three_round_summary(&combined_step)?,
+        observation_ns: three_round_summary(&combined_observation)?,
+        active: three_round_summary(&combined_active)?,
+        intent: three_round_summary(&combined_intent)?,
     })
 }
 
-fn summary_map(summary: SampleSummary) -> BTreeMap<String, u64> {
-    [
-        ("samples".into(), summary.samples as u64),
-        ("min".into(), summary.min),
-        ("p50".into(), summary.p50),
-        ("p95".into(), summary.p95),
-        ("p99".into(), summary.p99),
-        ("max".into(), summary.max),
+fn three_round_summary(rounds: &[SampleSummary]) -> Result<BTreeMap<String, u64>> {
+    if rounds.len() != 3 {
+        return Err(invalid("summary requires exactly three rounds"));
+    }
+    let median = |pick: fn(&SampleSummary) -> u64| {
+        let mut values = [pick(&rounds[0]), pick(&rounds[1]), pick(&rounds[2])];
+        values.sort_unstable();
+        values[1]
+    };
+    Ok([
+        (
+            "samples".into(),
+            rounds.iter().map(|round| round.samples as u64).sum(),
+        ),
+        (
+            "min".into(),
+            rounds
+                .iter()
+                .map(|round| round.min)
+                .min()
+                .expect("three rounds"),
+        ),
+        ("p50".into(), median(|round| round.p50)),
+        ("p95".into(), median(|round| round.p95)),
+        ("p99".into(), median(|round| round.p99)),
+        (
+            "max".into(),
+            rounds
+                .iter()
+                .map(|round| round.max)
+                .max()
+                .expect("three rounds"),
+        ),
     ]
-    .into()
+    .into())
 }
 
 // Local copy/mix-up detection only; this metadata does not attest execution or enter semantic hashes.
@@ -922,6 +1001,32 @@ fn command_output(program: &str, args: &[&str]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn performance_output_rejects_future_untracked_directories_before_creation() {
+        let temp = tempfile::tempdir().unwrap();
+        let checkout = temp.path().join("checkout");
+        fs::create_dir(&checkout).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "--quiet"])
+                .arg(&checkout)
+                .status()
+                .unwrap()
+                .success()
+        );
+        fs::write(checkout.join(".gitignore"), "target/\n").unwrap();
+        fs::create_dir(checkout.join("target")).unwrap();
+        let untracked = checkout.join("run-output");
+        assert!(validate_performance_output(&untracked, &checkout).is_err());
+        assert!(!untracked.exists());
+        let ignored = checkout.join("target/run-output");
+        validate_performance_output(&ignored, &checkout).unwrap();
+        assert!(!ignored.exists());
+        let outside = temp.path().join("outside-output");
+        validate_performance_output(&outside, &checkout).unwrap();
+        assert!(!outside.exists());
+    }
 
     fn measurement_fixture() -> serde_json::Value {
         json!({
@@ -1037,7 +1142,7 @@ mod tests {
         write_json(
             &directory.join("result.json"),
             &RunResult {
-                version: "urban-result-v3".into(),
+                version: "urban-result-v4".into(),
                 status: "performance-round-complete".into(),
                 purpose: "performance".into(),
                 case: "MIXED-PEAK".into(),
@@ -1168,6 +1273,58 @@ mod tests {
     }
 
     #[test]
+    fn performance_comparison_requires_same_semantics_but_allows_different_timings() {
+        let temp = tempfile::tempdir().unwrap();
+        let a = temp.path().join("a");
+        let b = temp.path().join("b");
+        let c = temp.path().join("c");
+        write_round(&a, "a", measurement_fixture());
+        write_round(&c, "c", measurement_fixture());
+        let mut slower = measurement_fixture();
+        slower["traffic_world_step_samples_ns"] = json!([30, 40]);
+        write_round(&b, "b", slower);
+        assert_eq!(
+            compare_performance_runs([&a, &b, &c])
+                .unwrap()
+                .traffic_world_step_ns["max"],
+            40
+        );
+        for filename in [
+            "ticks.jsonl",
+            "commands.jsonl",
+            "events.jsonl",
+            "checkpoint",
+        ] {
+            write_round(&b, "b", measurement_fixture());
+            let result_path = b.join("result.json");
+            let mut result: RunResult =
+                serde_json::from_slice(&fs::read(&result_path).unwrap()).unwrap();
+            if filename == "checkpoint" {
+                result.checkpoints.insert(2, "different-world-state".into());
+            } else {
+                let path = b.join(filename);
+                let changed = if filename == "ticks.jsonl" {
+                    fs::read_to_string(&path)
+                        .unwrap()
+                        .replace("fixture", "different-state")
+                } else {
+                    "{\"different\":true}\n".into()
+                };
+                fs::write(&path, changed).unwrap();
+                // Keep each round's own hashes valid; cross-round semantics must still reject it.
+                result
+                    .files
+                    .insert(filename.into(), digest_file(&path).unwrap());
+            }
+            write_json(&result_path, &result).unwrap();
+            let error = compare_performance_runs([&a, &b, &c])
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("different semantic"), "{filename}: {error}");
+        }
+    }
+
+    #[test]
     fn sample_summary_uses_nearest_rank_percentiles() {
         let mut values = (1..=100).rev().collect::<Vec<_>>();
         let summary = sample_summary(&mut values).unwrap();
@@ -1182,5 +1339,24 @@ mod tests {
     #[test]
     fn sample_summary_rejects_an_empty_window() {
         assert!(sample_summary(&mut []).is_err());
+    }
+
+    #[test]
+    fn three_round_percentiles_use_the_round_median_not_pooled_samples() {
+        let rounds = (0..3)
+            .map(|round| {
+                let mut samples = vec![round; 99];
+                samples.push(1_000 + round);
+                sample_summary(&mut samples).unwrap()
+            })
+            .collect::<Vec<_>>();
+        let combined = three_round_summary(&rounds).unwrap();
+        assert_eq!(combined["samples"], 300);
+        assert_eq!(combined["min"], 0);
+        assert_eq!(combined["p50"], 1);
+        assert_eq!(combined["p95"], 1); // Pooling would report 2.
+        assert_eq!(combined["p99"], 1); // Pooling would report 2.
+        assert_eq!(combined["max"], 1_002);
+        assert!(three_round_summary(&rounds[..2]).is_err());
     }
 }

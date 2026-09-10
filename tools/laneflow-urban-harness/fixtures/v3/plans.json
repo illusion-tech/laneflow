@@ -1,0 +1,80 @@
+{
+  "version": "urban-plan-freeze-v3",
+  "plan_version": "urban-demand-v3",
+  "plans": {
+    "10k-mixed-peak": {
+      "bytes": 4057834,
+      "sha256": "d0e58a7c9515ca22bfbee4352e9685279709d43b488e7b34dc0c6b7b389998c9"
+    },
+    "10k-garage-egress": {
+      "bytes": 2517752,
+      "sha256": "2ceea860c2640b72041d387257fe347b4dbcff9940ef1aaa8f2c46869b855851"
+    },
+    "10k-garage-ingress": {
+      "bytes": 4040232,
+      "sha256": "72f8e869a5ecded4dcdce05b32287ee0b563618876c05b03c434d5aa415f782c"
+    },
+    "10k-waiting-release": {
+      "bytes": 4039758,
+      "sha256": "3a3dfc6837bac41b7661f1bcee3b96ce9ed7d11fdca71ebfc55caf2df17a1d75"
+    },
+    "10k-permissive-left": {
+      "bytes": 4038734,
+      "sha256": "20e0cbbff890a07fa56b38e44628fbc670755f9d396d8805725b0ae3440ec66a"
+    },
+    "10k-uncontrolled-yield": {
+      "bytes": 4037589,
+      "sha256": "bf9471a26921eb320d507fd3a41bd0045c764cd0b689d0e8eddbb725bb55e7dd"
+    },
+    "10k-boundary-burst": {
+      "bytes": 4065245,
+      "sha256": "cfee43e479f6af8658c071791845edf4ef2e78854edead645a98e6caf92bdf26"
+    },
+    "10k-mixed-peak-performance": {
+      "bytes": 11930181,
+      "sha256": "10795510d2af9520f543828514bd2c3d1a5d2765551dd6e3351c91e14afe5c27"
+    },
+    "100k-mixed-peak": {
+      "bytes": 40845093,
+      "sha256": "4f2dddc266b9f1a0dfd0c60c707ad0de56d1112b489df687eba22a3904e8fd49"
+    },
+    "100k-garage-egress": {
+      "bytes": 25364919,
+      "sha256": "fd8ea8141eac7fee40a96ea7222dca848d86eaaccd96313205822a5513f569cd"
+    },
+    "100k-garage-ingress": {
+      "bytes": 40666521,
+      "sha256": "2897611c16f4ab1408976d4ae01bc7994a622ca5ce1d9f223cd280591bd954f0"
+    },
+    "100k-waiting-release": {
+      "bytes": 40658241,
+      "sha256": "5b0238bcce1cdf00687ee808a13dc0d52c72466cfa17cab6d1423258c31a3a4d"
+    },
+    "100k-permissive-left": {
+      "bytes": 40648983,
+      "sha256": "9ff1eb4eb010c61f73e60e21cd043976026e6072e37b94b66e880884ac22cca0"
+    },
+    "100k-uncontrolled-yield": {
+      "bytes": 40642518,
+      "sha256": "f9bfd33c78b7eaa1b3a3089b122eb32af02b6e51c7769ccdf957efcc58fcea26"
+    },
+    "100k-boundary-burst": {
+      "bytes": 40917936,
+      "sha256": "4fd3a62f9679a7c0c8909670eb2722f2c629744c45c87ecd6a175eeffe887d6f"
+    },
+    "100k-mixed-peak-performance": {
+      "bytes": 120077925,
+      "sha256": "792d8d11a9e69d5f5f5ddb6596f71811417ca6246d88d8a58fe5d65020c56ee7"
+    }
+  },
+  "artifacts": {
+    "10k": {
+      "bytes": 12563,
+      "sha256": "e79e75a58c48da85fbe8a5dc2ddb6dba3af82129ca095d7a6b7cf60270ead43d"
+    },
+    "100k": {
+      "bytes": 13832,
+      "sha256": "694808d79940d5e9457c19280c56e3ad30cc1f609e863f3f761dfefe911f79f7"
+    }
+  }
+}

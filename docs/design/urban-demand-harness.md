@@ -1,7 +1,7 @@
 # LF-CN-URBAN 需求计划与无界面验证
 
 **文档状态**: Accepted（#544 G1；#608 合入后在 Issue 记录接受）<br>
-**最后更新**: 2026-09-08<br>
+**最后更新**: 2026-09-10<br>
 **适用范围**: `LF-CN-URBAN-v1` 的调用方需求、无界面运行程序、有限行为校验和结果包<br>
 **关联文档**: [工作负载合同](chinese-style-city-workload.md)、
 [停车](parking-system.md)、[Waiting](traffic-runtime-waiting-zone.md)、
@@ -36,7 +36,8 @@ G1 接受不关闭 #544。小型试跑只用于检验计划可实施性；#544 �
 
 ## 2. 共同输入与稳定身份
 
-计划版本使用 `urban-demand-v2`，固定 `seed=544`、单 worker、`world_id=544`。
+计划版本使用 `urban-demand-v3`，固定 `seed=544`、单 worker、`world_id=544`。
+完整展开计划携带实际 `route_edges`；包括角色使用的局部目录路线，不只依赖路线名称。
 seed 属于调用方；不改 LFCA 或 TrafficWorld 的规则。所有选择使用目录 key 的 UTF-8
 字节序，禁止依赖哈希表迭代、墙钟或平台随机数。实体绑定使用目录 StableId，安装后
 通过共享根得到 typed ordinal；虚拟入口/出口使用目录中的实际 anchor selector。
@@ -144,14 +145,40 @@ handle 前记录为 `role-held` 并按共同有限预算重试；因此相邻 de
 | `MIXED-PEAK`         | 背景跨块行程、20 条车库离场，以及 bay1 和未满虚拟池各一个到达角色                                  | 至少一个真实跨 tile 完成行程、受信号约束的等待及随后通行、一次停车转换；统计方向、准入、完成和积压  |
 | `GARAGE-EGRESS`      | 车库 20 个已停个体，交替使用两个已编译出口；其中一个出口安排有限占用脉冲                           | 两个出口各至少一次成功离场；至少一次安全拒绝及同一请求的成功重试，身份与原绑定在拒绝后保留          |
 | `GARAGE-INGRESS`     | bay1 到达、未满 mixed 虚拟池到达、向 bay0 和已满 c09 池的预留请求                                  | 显式和虚拟各一次实际 reserve→arrival→park，以及各一次真实满位/排他拒绝                              |
-| `WAITING-RELEASE`    | c00 的同一待转方向三个 FIFO 个体，配合按信号周期重放至观测窗结束的有限下游占用脉冲                 | entry、容量拒绝、下游 storage 拒绝、后继相位 release 各至少一次；入队者按权威队列顺序释放           |
+| `WAITING-RELEASE`    | c00 的同一待转方向三个 FIFO 个体，配合按信号周期重放、最后保留完整周期清空的有限下游占用脉冲       | entry、容量拒绝、下游 storage 拒绝、后继相位 release 各至少一次；入队者按权威队列顺序释放           |
 | `PERMISSIVE-LEFT`    | c01 左转角色和同绿对向直行脉冲，脉冲结束后保留可用间隙                                             | 与对向流相关的 no-grant 和后续 grant/通过各至少一次                                                 |
-| `UNCONTROLLED-YIELD` | c04 主路脉冲、支路转入角色及相邻车库出口请求，主路脉冲有限终止                                     | 主路通过、支路因真实让行关系等待、空窗后的支路通过各至少一次                                        |
+| `UNCONTROLLED-YIELD` | c04 主路脉冲、支路转入角色及相邻车库出口请求，主路脉冲有限终止                                     | 主路通过、支路因真实让行关系等待、空窗后的支路通过、车库成功离场各至少一次                          |
 | `BOUNDARY-BURST`     | 在已选相位边界的前/后相邻提交边界编排 leave、reserve、park、Completed replace 和显式 despawn/spawn | 实际相位变化、至少一次 lifecycle 成功、一次安全拒绝及有限重试成功；分别记录两个边界，不用平均值代替 |
 
 每个城市行按 tile 给出 required/observed 表，只有对应实例的实际观测可以满足该行；
 不能由另一个 tile 的成功或 owner 小型测试补足。角色准入失败、脉冲未清空、窗口结束时
 必要事件缺失都判失败，不延长窗口直到碰巧通过。背景个体仍逐 tick 执行同精度道路求解。
+
+角色准入逐条核对成功 replace 的请求序号、提交边界和新 incarnation；未来请求计数同时
+覆盖背景、车库离场和角色再出发，不将尚未到期的角色遗漏。Waiting/允许左转/无控制
+让行的有限交通脉冲在固定窗口末必须实际 Completed，且无 Waiting、机动遍历、
+Conflict reservation 或残留 claim。车库出口占用脉冲按具体阻塞者、离场主体及请求序号
+关联实际安全拒绝与随后成功重试，证明出口阻塞已解除；阻塞者可以继续行驶，不强制
+它在有限窗口内完成解除出口占用之后的道路行程。
+
+`GARAGE-INGRESS` 的成功入场角色先以未预留初态走完暖机行程，在观察期起点重新
+准入并 reserve；背景后续路线避开这些受测入口臂，保留初始活动车辆总数。按同一
+incarnation 关联观察窗口内实际 reserve、step arrival 和 park，不能用暖机 arrival
+补足。显式排他与虚拟满池分别保留一次完整拒绝前后快照等价见证；角色尚未 Active
+时的 `InvalidVehicleStatus` 不消耗这两类见证的候选预算，也不算所需拒绝已验证。
+
+两种让行行从主体的实际 `ConflictOccupied` 决定出发，将所涉 passage 的 Policy
+让行目标与同 tile 指定主路/对向脉冲持有的真实 claim 对齐，记录主体与脉冲的稳定
+身份、冲突区和机动出现项。随后必须观测该脉冲清空、同一主体/机动获准及通过，
+形成有序见证。其他 no-grant 原因仅作诊断，不能替代真实让行关系。这里验证固定
+城市输入，不重实现 Runtime 的间隙求值器。
+
+`BOUNDARY-BURST` 按具体命令核对实际提交边界：显式角色在前边界 park，虚拟角色在
+前边界准入到已编译停车入口前 1 mm，初速度 1000 mm/s 并 reserve，经真实下一 step
+arrival 后在后边界 park；该初速度与位置显式写入角色请求，不依赖零速起步瞬移。
+指定 Completed replace 在前边界成功，两个相邻边界内至少一次 leave 成功，指定
+despawn/spawn 各在其固定边界提交。其他生命周期成功或调用方延期均不能代替。
+Yield 的背景后续路线避开受测车库出口臂，保留初始活动车辆总数和共同观察窗口。
 
 Mixed 的“一次停车转换”是至少一次成功 park 或 leave，三种计数仍分别报告；不额外
 要求该行同时成功离场、显式入场和虚拟入场。观察期内完整 reserve→arrival→park 与
@@ -237,7 +264,7 @@ CLI 输出错误并非零退出；本段接受部分准备文件，不提供结�
   摘要、world/policy identity、实际窗口、逐 tile 触发、检查点及本次运行结论。
 - `comparison.json`：比较结论、case/scale、计划摘要、完成 tick 数、两个执行编号和
   两份 result 的 SHA256/字节数。CLI 必须指定新报告路径，成功比较才写入；两份原始
-  result 保持不可变。当前载荷为 `urban-result-v3` / `urban-comparison-v1`，不转换旧记录。
+  result 保持不可变。当前载荷为 `urban-result-v4` / `urban-comparison-v1`，不转换旧记录。
 - 正式性能阶段的 `measurements.toml`：git commit、`rustc -Vv`、`cargo -V`、target、构建参数、硬件/OS/电源角色、
   命令行、phase 耗时、计时范围、实际 Active/intent 分布、内存值及测量方法。
 
@@ -254,11 +281,17 @@ observation 累计 step 前的 `step_before` 采集、Active/intent 计数、红
 以及 step 后的信号采集、事件/状态摘要和校验；两段均不含 step 调用。三项
 不覆盖全部调用方工作，不能相加冒充整轮墙钟。该计时范围绑定
 `urban-performance-measurements-v2`，不转换或合并旧口径载荷。
-按性能合同合并三轮 p50/p95/p99 和最坏 max，不能把两个正确性运行当性能轮次；工具链
+按性能合同逐轮计算 p50/p95/p99 后取三轮中位数，max 取三轮最坏值，不池化样本求分位；
+合并报告 `urban-performance-comparison-v2` 显式记录该口径，样本数仍报告三轮总数。
+不能把两个正确性运行当性能轮次；工具链
 变化须重跑用于当前判断的三个轮次。未测内存项写明未测量，不填 0。
 正式运行在初始化前与窗口结束后核对来源；提交、干净状态、Rust/Cargo/target、构建参数、
 OS/架构、硬件/电源角色、worker 和计时范围必须可用且不变。三轮合并逐项比较这些字段，
 并核对各列样本数等于观察窗口长度；缺失、不可用、脏工作树或混合来源均拒绝。
+三轮除计时/环境测量文件外的完整语义结果也必须相同：逐 tick、命令和事件文件摘要、
+检查点、计数、角色见证及最终世界状态均逐项比较，不能只核对每个包自身文件摘要。
+正式结果目录必须在 checkout 外或被 Git 忽略；初始化前验证未来目录不会使干净工作树
+变脏，仍在窗口后复查全部来源，不排除任何源文件来绕过检查。
 这些记录只作错用检测，不构成二进制构建来源或执行环境真实性的证明。
 
 每项证据显式记录通过、失败、未测量、依赖未交付或不适用，只有通过项参与整体通过。
