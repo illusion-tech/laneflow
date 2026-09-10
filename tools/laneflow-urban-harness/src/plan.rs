@@ -693,9 +693,10 @@ impl ResolvedPlan {
                     if role == "waiting-storage-pulse" {
                         let mut due_tick = first_due;
                         let mut pulse = 0;
-                        // Keep a full final cycle free of new storage pulses so the finite
-                        // owner can actually clear; an end-of-window enqueue is not release.
-                        while due_tick.saturating_add(waiting_cycle_ticks) <= window.end() {
+                        // Retain the complete release phase after this pulse's admission.
+                        // Dropping the entire last cycle misses late admissions.
+                        // The oracle still requires the actual final pulse to be Completed.
+                        while due_tick.saturating_add(waiting_left_duration) < window.end() {
                             role_departures.push(RoleDeparture {
                                 due_tick,
                                 slot: tile * 1_000 + slot,

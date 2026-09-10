@@ -15,8 +15,8 @@
       "sha256": "72f8e869a5ecded4dcdce05b32287ee0b563618876c05b03c434d5aa415f782c"
     },
     "10k-waiting-release": {
-      "bytes": 4039758,
-      "sha256": "3a3dfc6837bac41b7661f1bcee3b96ce9ed7d11fdca71ebfc55caf2df17a1d75"
+      "bytes": 4040968,
+      "sha256": "1f8e91c9fabd4443c17a90faeb0db835ccf596b1160eb620fb59f4fec7764c0d"
     },
     "10k-permissive-left": {
       "bytes": 4038734,
@@ -47,8 +47,8 @@
       "sha256": "2897611c16f4ab1408976d4ae01bc7994a622ca5ce1d9f223cd280591bd954f0"
     },
     "100k-waiting-release": {
-      "bytes": 40658241,
-      "sha256": "5b0238bcce1cdf00687ee808a13dc0d52c72466cfa17cab6d1423258c31a3a4d"
+      "bytes": 40672258,
+      "sha256": "c61d48a35b06662c652dd9014cae4bf53e0a9f6ccb8a00b875bb70550c40febd"
     },
     "100k-permissive-left": {
       "bytes": 40648983,

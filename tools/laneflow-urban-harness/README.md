@@ -13,6 +13,8 @@ case。库和命令行共用 `Artifacts`、`ResolvedPlan`、`Harness`，供 #545
 `GARAGE-EGRESS` 使用 25% Active/75% Parked；`GARAGE-INGRESS` 固定满池和显式排他
 拒绝；三类交通 case 使用目标 cell 的有限角色脉冲并直接聚合 Waiting/Conflict 决策；
 `BOUNDARY-BURST` 在相邻提交边界执行 park/leave/replace 及独立 despawn/spawn。
+Waiting 的周期占用脉冲只在末端仍保留完整释放相位时重放，既覆盖迟入队后的下游
+storage 拒绝，也要求终点脉冲实际 Completed 且无残留占用；时间余量本身不是通过证据。
 所有路径都不增加 Traffic Runtime、共享静态路网或 Adapter 的公共接口。
 实现和 fixture probe 不替代当前提交上的十四行正式正确性及六轮性能取证；完整证据完成前
 #544 保持开放。

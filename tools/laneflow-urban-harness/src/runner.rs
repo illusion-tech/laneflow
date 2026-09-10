@@ -1655,6 +1655,64 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "真实小路网复现十万行的迟入队相位；release 手动运行，不作正式规模证据"]
+    fn waiting_pulses_cover_late_admission_and_clear_at_the_fixed_end() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let config =
+            UrbanConfig::parse(include_str!("../../../examples/config/cn-urban.toml")).unwrap();
+        generate(&config, Scale::Fixture, &source, None).unwrap();
+        for (step_ms, offset_quanta) in [
+            (33, 56),
+            (33, 64),
+            (16, 56),
+            (16, 64),
+            (33, 104),
+            (33, 112),
+            (16, 104),
+            (16, 112),
+        ] {
+            let mut artifacts = Artifacts::load(&source).unwrap();
+            // This private probe uses the real fixture network at both step lengths. Shifting
+            // warm-up reproduces t021/t024's phase position without relabeling a small artifact
+            // as a formal 100k result or changing any compiled signal program.
+            artifacts.dt = step_ms;
+            let cycle = artifacts
+                .catalog
+                .signals
+                .iter()
+                .map(|s| s.cycle_ms)
+                .max()
+                .unwrap()
+                / step_ms;
+            let warm_up = offset_quanta * 528 / step_ms;
+            let plan = ResolvedPlan::for_case(
+                &artifacts,
+                crate::UrbanCase::WaitingRelease,
+                crate::Window::probe_after(warm_up, 2 * cycle).unwrap(),
+            )
+            .unwrap();
+            let mut harness = Harness::install(&artifacts, &plan).unwrap();
+            for _ in 0..plan.window.end() {
+                harness.advance().unwrap();
+            }
+            eprintln!("waiting late admission: step_ms={step_ms} offset_quanta={offset_quanta}");
+            for (tile, evidence) in harness.evidence.iter().enumerate() {
+                eprintln!(
+                    "tile={tile} entry={} capacity={} storage={} release={}",
+                    evidence.waiting_entries,
+                    evidence.waiting_capacity_rejections,
+                    evidence.waiting_storage_rejections,
+                    evidence.waiting_releases
+                );
+            }
+            crate::report::validate_case(&harness).unwrap_or_else(|error| {
+                panic!("step_ms={step_ms} offset_quanta={offset_quanta}: {error}")
+            });
+        }
+    }
+
+    #[test]
     fn completed_steps_exclude_warmup_and_include_the_final_observation() {
         let window = crate::Window::probe_after(3, 2).unwrap();
         for (tick, expected) in [
