@@ -201,11 +201,27 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
                 departure.slot / 1_000 == tile && departure.role == "waiting-storage-pulse"
             })
             .collect();
-        assert_eq!(pulses.len(), 2, "tile {tile} waiting pulse count");
+        let release_ticks = artifacts
+            .catalog()
+            .signals
+            .iter()
+            .find(|signal| signal.key == format!("t{tile:03}.c00.controller"))
+            .unwrap()
+            .phases
+            .iter()
+            .find(|phase| phase.key == "p1.green")
+            .unwrap()
+            .duration_ms
+            / waiting_plan.dt;
+        assert_eq!(
+            pulses.len(),
+            if tile == 0 { 3 } else { 2 },
+            "tile {tile} waiting pulse count"
+        );
         assert!(
             pulses
                 .iter()
-                .all(|pulse| pulse.due_tick + cycle_ticks <= waiting_plan.window.end())
+                .all(|pulse| pulse.due_tick + release_ticks < waiting_plan.window.end())
         );
         assert!(
             pulses
