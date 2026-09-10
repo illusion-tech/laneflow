@@ -316,6 +316,85 @@ fn range(h: &Harness<'_>, r: ConflictPassageRange) -> Value {
     ])
 }
 
+// Match an actual tick-start claim to this subject's declared yield target. Generic
+// resource rejection, an active pulse elsewhere, or a downstream blockage is not proof.
+fn occupied_yield_pulse(
+    h: &Harness<'_>,
+    decision: ConflictDecision,
+    subject: IndividualId,
+    pulse_prefix: &str,
+) -> Option<crate::runner::RightOfWayWitness> {
+    if decision.outcome()
+        != ConflictDecisionOutcome::NoGrant(ConflictNoGrantReason::ConflictOccupied)
+    {
+        return None;
+    }
+    let first = decision.passage()?;
+    let class = h.world.vehicle(decision.vehicle())?.class();
+    let policy = h.world.policy()?;
+    // The decision anchors the first passage of the whole admission bundle, not the
+    // particular passage that rejected it. Inspect only that same maneuver/gate bundle.
+    let passages = (first.conflict_occurrence_index()..)
+        .map_while(|index| {
+            h.world
+                .conflict_passage_occurrence_locator(first.route(), index)
+        })
+        .take_while(|passage| {
+            passage.maneuver_occurrence_index() == first.maneuver_occurrence_index()
+                && passage.admission_gate_hop() == first.admission_gate_hop()
+        });
+    for passage in passages {
+        let address = passage.address();
+        let (zone, targets) =
+            policy.yield_targets(address.stream(), class, address.passage_local_index())?;
+        if zone != address.zone() {
+            return None;
+        }
+        let pulse = h
+            .claims
+            .iter()
+            .find_map(|((owner, route, index), claimed)| {
+                if owner.tile != subject.tile || *claimed != zone.raw() {
+                    return None;
+                }
+                let slot = owner.tile as usize * 1_000 + owner.slot as usize;
+                if h.individuals[slot].id != *owner
+                    || !h.plan.initial[slot]
+                        .role
+                        .as_deref()
+                        .is_some_and(|role| role.starts_with(pulse_prefix))
+                {
+                    return None;
+                }
+                let target = h
+                    .world
+                    .conflict_passage_occurrence_locator(h.routes[route], *index)?
+                    .address();
+                targets
+                    .iter()
+                    .any(|cell| {
+                        cell.stream() == target.stream()
+                            && cell.passage_local_index() == target.passage_local_index()
+                    })
+                    .then_some(*owner)
+            });
+        let Some(pulse) = pulse else {
+            continue;
+        };
+        return Some(crate::runner::RightOfWayWitness {
+            subject,
+            pulse,
+            zone: zone.raw(),
+            maneuver_occurrence: decision.anchor().maneuver_occurrence_index(),
+            occupied_wait: (h.world.tick_index(), decision.vehicle_update_sequence()),
+            pulse_cleared: None,
+            granted: None,
+            passed: None,
+        });
+    }
+    None
+}
+
 pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
     // Every decision, including NotEvaluated/NotRequired, contributes in public batch order.
     // Store its digest once per tick instead of millions of repetitive diagnostic rows.
@@ -393,37 +472,49 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
         let role = h.plan.initial[id.tile as usize * 1_000 + id.slot as usize]
             .role
             .as_deref();
+        let pulse_prefix = match (h.plan.case.as_str(), role) {
+            ("PERMISSIVE-LEFT", Some("permissive-left")) => Some("opposing-pulse-"),
+            ("UNCONTROLLED-YIELD", Some("yield-role")) => Some("mainline-pulse-"),
+            _ => None,
+        };
         if h.in_step_observation(h.world.tick_index())
-            && h.plan.case == "PERMISSIVE-LEFT"
-            && role == Some("permissive-left")
+            && let Some(prefix) = pulse_prefix
         {
+            let witness = h.evidence[id.tile as usize]
+                .right_of_way
+                .is_none()
+                .then(|| occupied_yield_pulse(h, *d, id, prefix))
+                .flatten();
+            let evidence = &mut h.evidence[id.tile as usize];
+            if let Some(witness) = witness {
+                if h.plan.case == "PERMISSIVE-LEFT" {
+                    evidence.permissive_no_grants += 1;
+                } else {
+                    evidence.yield_waits += 1;
+                }
+                evidence.right_of_way = Some(witness);
+            }
             match d.outcome() {
                 ConflictDecisionOutcome::Granted => {
-                    h.evidence[id.tile as usize].permissive_grants += 1;
-                }
-                ConflictDecisionOutcome::NoGrant(_) => {
-                    h.evidence[id.tile as usize].permissive_no_grants += 1;
-                    if let ConflictDecisionOutcome::NoGrant(reason) = d.outcome() {
-                        *h.evidence[id.tile as usize]
-                            .role_no_grant_reasons
-                            .entry(conflict_reason_name(reason).into())
-                            .or_default() += 1;
+                    if h.plan.case == "PERMISSIVE-LEFT" {
+                        evidence.permissive_grants += 1;
+                    }
+                    if let Some(witness) = &mut evidence.right_of_way
+                        && witness.subject == id
+                        && witness.maneuver_occurrence == d.anchor().maneuver_occurrence_index()
+                    {
+                        witness
+                            .granted
+                            .get_or_insert((h.world.tick_index(), d.vehicle_update_sequence()));
                     }
                 }
+                ConflictDecisionOutcome::NoGrant(reason) => {
+                    *evidence
+                        .role_no_grant_reasons
+                        .entry(conflict_reason_name(reason).into())
+                        .or_default() += 1;
+                }
                 _ => {}
-            }
-        }
-        if h.in_step_observation(h.world.tick_index())
-            && h.plan.case == "UNCONTROLLED-YIELD"
-            && role == Some("yield-role")
-            && matches!(d.outcome(), ConflictDecisionOutcome::NoGrant(_))
-        {
-            h.evidence[id.tile as usize].yield_waits += 1;
-            if let ConflictDecisionOutcome::NoGrant(reason) = d.outcome() {
-                *h.evidence[id.tile as usize]
-                    .role_no_grant_reasons
-                    .entry(conflict_reason_name(reason).into())
-                    .or_default() += 1;
             }
         }
         if h.in_step_observation(h.world.tick_index())
@@ -466,6 +557,15 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                 }
             }
             TrafficTransitionKind::ConflictCleared { passage: p } => {
+                if h.in_step_observation(e.tick())
+                    && let Some(witness) = &mut h.evidence[id.tile as usize].right_of_way
+                    && witness.pulse == id
+                    && witness.zone == p.address().zone().raw()
+                {
+                    witness
+                        .pulse_cleared
+                        .get_or_insert((e.tick(), e.vehicle_update_sequence()));
+                }
                 if h.claims
                     .remove(&(
                         id,
@@ -555,6 +655,15 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                 let in_observation = h.in_step_observation(e.tick());
                 let case = h.plan.case.as_str();
                 let evidence = &mut h.evidence[id.tile as usize];
+                if in_observation
+                    && let Some(witness) = &mut evidence.right_of_way
+                    && witness.subject == id
+                    && witness.maneuver_occurrence == maneuver_occurrence_index
+                {
+                    witness
+                        .passed
+                        .get_or_insert((e.tick(), e.vehicle_update_sequence()));
+                }
                 if in_observation && case == "PERMISSIVE-LEFT" && role == Some("permissive-left") {
                     evidence.permissive_passes += 1;
                 }

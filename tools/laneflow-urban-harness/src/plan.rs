@@ -197,6 +197,7 @@ pub struct RoleDeparture {
     pub route: String,
     pub occurrence: u32,
     pub progress_mm: u32,
+    pub speed_mm_s: u32,
     pub role: String,
 }
 
@@ -246,6 +247,8 @@ pub struct ResolvedPlan {
     pub initial_counts: LifecycleCounts,
     pub max_attempts: u32,
     pub retry_ticks: u64,
+    /// Exact catalog edge sequences, shared by every initial state and finite request.
+    pub route_edges: BTreeMap<String, Vec<String>>,
     pub initial: Vec<InitialVehicle>,
     pub departures: Vec<DepartureBatch>,
     pub leaves: Vec<ParkingDeparture>,
@@ -326,7 +329,10 @@ impl ResolvedPlan {
                 .iter()
                 .find(|p| p.tile == tile && p.kind == "virtual" && p.capacity == 1_000)
                 .ok_or_else(|| invalid("missing garage"))?;
-            if matches!(case, UrbanCase::GarageEgress | UrbanCase::BoundaryBurst) {
+            if matches!(
+                case,
+                UrbanCase::GarageEgress | UrbanCase::BoundaryBurst | UrbanCase::UncontrolledYield
+            ) {
                 for anchor in &garage.exits {
                     background_route_exclusions.insert(anchor.edge.as_str());
                 }
@@ -361,6 +367,11 @@ impl ResolvedPlan {
                     .rfind(|position| *position < anchor.progress_mm)
                     .ok_or_else(|| invalid("no initial position before parking entry"))?;
                 arrival_fronts.insert(anchor.edge.as_str(), progress_mm);
+                if case == UrbanCase::GarageIngress
+                    || (case == UrbanCase::BoundaryBurst && role == "virtual-arrival")
+                {
+                    background_route_exclusions.insert(anchor.edge.as_str());
+                }
                 roles.insert(
                     slot,
                     InitialVehicle {
@@ -378,9 +389,25 @@ impl ResolvedPlan {
                     slot: tile * 1_000 + slot,
                     sequence: 11_000_000 + tile * 1_000 + slot,
                     target,
-                    reserve_tick: 0,
+                    reserve_tick: if case == UrbanCase::GarageIngress {
+                        window.warm_up_ticks
+                    } else {
+                        0
+                    },
                     park_not_before_tick: window.warm_up_ticks + u64::from(slot - 740) * quantum,
                 });
+                if case == UrbanCase::GarageIngress && window.warm_up_ticks > 0 {
+                    role_departures.push(RoleDeparture {
+                        due_tick: window.warm_up_ticks,
+                        slot: tile * 1_000 + slot,
+                        sequence: 13_000_000 + tile * 1_000 + slot,
+                        route: anchor.route.clone(),
+                        occurrence: anchor.route_edge_index,
+                        progress_mm,
+                        speed_mm_s: 0,
+                        role: role.into(),
+                    });
+                }
             }
             if case == UrbanCase::GarageIngress {
                 for (slot, suffix, role, expected) in [
@@ -397,6 +424,7 @@ impl ResolvedPlan {
                         .entries
                         .first()
                         .ok_or_else(|| invalid("missing entry"))?;
+                    background_route_exclusions.insert(anchor.edge.as_str());
                     let progress_mm = (0..11)
                         .map(|layer| 7_000 + 8_500 * layer)
                         .rfind(|position| {
@@ -438,6 +466,7 @@ impl ResolvedPlan {
                             route: anchor.route.clone(),
                             occurrence: anchor.route_edge_index,
                             progress_mm,
+                            speed_mm_s: 0,
                             role: role.into(),
                         });
                     }
@@ -664,7 +693,9 @@ impl ResolvedPlan {
                     if role == "waiting-storage-pulse" {
                         let mut due_tick = first_due;
                         let mut pulse = 0;
-                        while due_tick < window.end() {
+                        // Keep a full final cycle free of new storage pulses so the finite
+                        // owner can actually clear; an end-of-window enqueue is not release.
+                        while due_tick.saturating_add(waiting_cycle_ticks) <= window.end() {
                             role_departures.push(RoleDeparture {
                                 due_tick,
                                 slot: tile * 1_000 + slot,
@@ -672,6 +703,7 @@ impl ResolvedPlan {
                                 route: route_key.clone(),
                                 occurrence: departure_occurrence,
                                 progress_mm: departure_progress_mm,
+                                speed_mm_s: 0,
                                 role: role.into(),
                             });
                             due_tick = due_tick
@@ -687,6 +719,7 @@ impl ResolvedPlan {
                             route: route_key.clone(),
                             occurrence: departure_occurrence,
                             progress_mm: departure_progress_mm,
+                            speed_mm_s: 0,
                             role: role.into(),
                         });
                     }
@@ -784,6 +817,7 @@ impl ResolvedPlan {
                         route: departure_route.key.clone(),
                         occurrence: anchor.route_edge_index,
                         progress_mm: anchor.progress_mm,
+                        speed_mm_s: 0,
                         role: "garage-exit-blocker".into(),
                     });
                 }
@@ -820,6 +854,31 @@ impl ResolvedPlan {
                     } else {
                         boundary_tick
                     };
+                    if arrival.slot % 1_000 == 743 {
+                        // The explicit role already waits at its reserved target for the before
+                        // boundary park. Relaunch the virtual role just before its compiled entry:
+                        // reserve before the phase change, observe a real arrival in the next
+                        // step, then park at the adjacent after boundary.
+                        arrival.reserve_tick = boundary_before;
+                        let anchor = &catalog
+                            .parking
+                            .iter()
+                            .find(|target| target.key == arrival.target)
+                            .expect("validated arrival target")
+                            .entries[0];
+                        role_departures.push(RoleDeparture {
+                            due_tick: boundary_before,
+                            slot: arrival.slot,
+                            sequence: 13_000_000 + arrival.slot,
+                            route: anchor.route.clone(),
+                            occurrence: anchor.route_edge_index,
+                            progress_mm: anchor.progress_mm.checked_sub(1).ok_or_else(|| {
+                                invalid("parking entry has no approach millimetre")
+                            })?,
+                            speed_mm_s: 1_000,
+                            role: "virtual-arrival".into(),
+                        });
+                    }
                 }
             }
             // Roles own their initial slot and the finite forward space on their entry arm.
@@ -1004,7 +1063,9 @@ impl ResolvedPlan {
                 } else {
                     120
                 };
-            let leave_count = if matches!(
+            let leave_count = if case == UrbanCase::UncontrolledYield {
+                1
+            } else if matches!(
                 case,
                 UrbanCase::MixedPeak | UrbanCase::GarageEgress | UrbanCase::BoundaryBurst
             ) {
@@ -1084,6 +1145,7 @@ impl ResolvedPlan {
                 ("mainline_pass".into(), 1),
                 ("yield_wait".into(), 1),
                 ("yield_pass".into(), 1),
+                ("garage_leave".into(), 1),
             ]
             .into(),
             UrbanCase::BoundaryBurst => [
@@ -1097,7 +1159,7 @@ impl ResolvedPlan {
             .into(),
         };
         Ok(Self {
-            version: "urban-demand-v2".into(),
+            version: "urban-demand-v3".into(),
             case: case.as_str().into(),
             seed: 544,
             scale: catalog.scale.clone(),
@@ -1116,6 +1178,11 @@ impl ResolvedPlan {
             },
             max_attempts: 8,
             retry_ticks: 4 * quantum,
+            route_edges: catalog
+                .routes
+                .iter()
+                .map(|route| (route.key.clone(), route.edge_keys.clone()))
+                .collect(),
             initial,
             departures,
             leaves,

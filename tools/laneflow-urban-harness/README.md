@@ -17,9 +17,9 @@ case。库和命令行共用 `Artifacts`、`ResolvedPlan`、`Harness`，供 #545
 实现和 fixture probe 不替代当前提交上的十四行正式正确性及六轮性能取证；完整证据完成前
 #544 保持开放。
 
-10k 展开计划摘要保存在 [输入冻结记录](fixtures/v2/mixed-10k-plan.json)。
-`urban-demand-v2` 将停车角色从入口竞争改为预先安排的既有 Active 个体；旧 v1
-结果保留为失败诊断，不能作为当前计划的通过证据。
+两档七场景正确性与两档 Mixed 性能计划摘要保存在 [输入冻结记录](fixtures/v3/plans.json)。
+当前 `urban-demand-v3` 固定全部路线的实际 edge 序列、观察期入场链及边界角色命令；
+旧记录保留为历史诊断，不能作为当前计划的通过证据，不提供兼容转换。
 
 ## 运行
 
@@ -61,7 +61,8 @@ target/release/laneflow-urban-harness plan <artifact-directory> <plan.toml> --pe
 Active/intent 分布及进程 peak resident bytes 写入 `measurements.toml`。每档仍须按治理
 流程启动三个新进程；单轮文件不代表三轮合并结论或产品预算认证。
 三轮完成后仍通过 `compare` 入口做文件摘要、计划摘要和独立执行编号校验，并精确合并
-三轮保存的观察窗口样本。每轮提交、干净状态、Rust/Cargo/target、构建参数、OS/架构、
+三轮保存的观察窗口样本：p50/p95/p99 先逐轮计算，再取三个轮次值的中位数，max 取
+三个轮次的最坏值；不将样本池化后求分位。每轮提交、干净状态、Rust/Cargo/target、构建参数、OS/架构、
 硬件/电源角色、worker 与计时口径必须可用且一致；缺字段、脏工作树、样本数与窗口不符
 均拒绝。正式运行在初始化前和窗口结束后核对来源，变化或无法读取时不产出性能通过包：
 
@@ -69,8 +70,13 @@ Active/intent 分布及进程 peak resident bytes 写入 `measurements.toml`。�
 target/release/laneflow-urban-harness compare <performance-a> <performance-b> <performance-c> <performance-comparison.toml>
 ```
 
+三轮还须保持相同完整语义轨迹：除 `measurements.toml` 外的结果字段、文件摘要、
+检查点、角色见证及状态/计数均精确相等。各包重新计算了自身摘要但彼此轨迹不同，
+仍拒绝合并。运行目录应使用 Git 忽略的 `target/` 或 checkout 外目录；未来输出目录
+若会使工作树变脏，在世界初始化前拒绝，不到长测结束才发现。
+
 合并状态 `performance-three-rounds-complete` 只表示协议完整，不表示达到 #539/#305 的
-产品预算。
+产品预算。当前合并报告为 `urban-performance-comparison-v2`，显式记录统计合并口径。
 
 当前测量载荷为 `urban-performance-measurements-v2`，旧计时载荷拒绝合并，不补写或转换。
 `command_ns` 是该 tick 内六类公共生命周期调用（spawn/despawn/replace/leave/reserve/park）
@@ -128,7 +134,9 @@ target/release/laneflow-urban-harness compare <performance-a> <performance-b> <p
   不计入最后一个暖机 step，但包含最后一个观察 step。
 - `result.json` 记录窗口、实际提交、逐 tile 触发和完整快照摘要；初态、暖机结束、
   每观察周期末捕获完整快照。计划与结果均携带 `required_per_tile` 的冻结下限，
-  对照逐 tile 的实际计数；载荷版本为 `urban-result-v3`，Failed 行不能通过 compare。
+  对照逐 tile 的实际计数；载荷版本为 `urban-result-v4`，Failed 行不能通过 compare。
+  `committed_role_commands`、`parking_arrivals`、`right_of_way` 和 `garage_exit_clearance` 保存具体身份及提交
+  时序；计数不能替代缺失的角色准入、观察期入场链、让行因果或指定边界命令。
 - `comparison.json` 由 compare 写到指定新路径，使用 `urban-comparison-v1`，记录
   `case-pass` 或 `probe-match`、case/scale、计划摘要、完成 tick 数，以及两个执行编号和
   两份 `result.json` 的 SHA256/字节数。原始运行文件保持不变；失败比较不生成通过报告。
@@ -155,7 +163,8 @@ reservation release 的公开事件记录剩余 claim，核对资源区互斥和
 `urban-observation-v2` 状态摘要包含 live/absent 稳定 slot、车辆、遍历、Waiting、停车、
 公开 Conflict reservation 和灯色，周期性完整快照补充隐藏权威状态。
 失败命令逐次检查主体和游标，并对每类前八个候选调用中的第一次实际拒绝比较完整
-快照；未触发的原子性样本不宣称已测量。
+快照；Ingress 的 `exclusive-occupied` / `virtual-full` 各自取证，预先的非 Active
+拒绝不消耗这两类候选预算。未触发的原子性样本不宣称已测量。
 
 Mixed 正式行要求每 tile 在观察窗口中实际完成跨 tile 行程、红灯前停车后过门、
 至少一次 park 或 leave，离场与两类入场分别报告。完整观察期入场链由 Ingress 行验证。

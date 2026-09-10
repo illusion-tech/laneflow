@@ -86,6 +86,50 @@ pub struct TileEvidence {
     pub lifecycle_successes: u64,
     pub before_boundary_commands: u64,
     pub after_boundary_commands: u64,
+    pub committed_role_commands: BTreeMap<u32, CommandWitness>,
+    pub parking_arrivals: BTreeMap<u32, (u64, IndividualId)>,
+    pub right_of_way: Option<RightOfWayWitness>,
+    pub garage_exit_clearance: Option<GarageExitClearance>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GarageExitClearance {
+    pub blocker: IndividualId,
+    pub subject: IndividualId,
+    pub request_sequence: u32,
+    pub rejected_boundary: u64,
+    pub retried_leave_boundary: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CommandWitness {
+    pub boundary: u64,
+    pub command: String,
+    pub individual: IndividualId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RightOfWayWitness {
+    pub subject: IndividualId,
+    pub pulse: IndividualId,
+    pub zone: u32,
+    pub maneuver_occurrence: u32,
+    /// Successful-step tick and stable vehicle update sequence within that step.
+    pub occupied_wait: (u64, u32),
+    pub pulse_cleared: Option<(u64, u32)>,
+    pub granted: Option<(u64, u32)>,
+    pub passed: Option<(u64, u32)>,
+}
+
+impl RightOfWayWitness {
+    pub(crate) fn complete(&self) -> bool {
+        match (self.pulse_cleared, self.granted, self.passed) {
+            (Some(clear), Some(grant), Some(pass)) => {
+                self.occupied_wait <= clear && clear <= grant && grant <= pass
+            }
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -94,6 +138,7 @@ enum Command {
         route: String,
         occurrence: u32,
         progress_mm: u32,
+        speed_mm_s: u32,
         east: Option<bool>,
         role: bool,
     },
@@ -350,6 +395,7 @@ impl<'a> Harness<'a> {
                         route: b.routes[i].clone(),
                         occurrence: 0,
                         progress_mm: 7_000,
+                        speed_mm_s: 0,
                         east: Some(i < 7),
                         role: false,
                     },
@@ -407,6 +453,7 @@ impl<'a> Harness<'a> {
                     route: role.route.clone(),
                     occurrence: role.occurrence,
                     progress_mm: role.progress_mm,
+                    speed_mm_s: role.speed_mm_s,
                     east: None,
                     role: true,
                 },
@@ -520,10 +567,20 @@ impl<'a> Harness<'a> {
         }
         let caller_deferred = matches!(&request.command, Command::Replace { .. })
             && before.status() != VehicleStatus::Completed;
-        // Bound whole-world snapshots to eight candidate calls per command kind until one rejects.
-        let watch_count = self.watched.get(name).copied().unwrap_or(0);
+        // Required reservation reasons need independent witnesses. A preliminary invalid-status
+        // rejection neither consumes their candidate budget nor satisfies either witness.
+        let watch_key = match &request.command {
+            Command::Reserve {
+                expected_rejection: Some(reason),
+                ..
+            } => reason.as_str(),
+            _ => name,
+        };
+        let watch_count = self.watched.get(watch_key).copied().unwrap_or(0);
         let watch = !caller_deferred
-            && !self.atomic_rejections.contains_key(name)
+            && (!matches!(request.command, Command::Reserve { .. })
+                || before.status() == VehicleStatus::Active)
+            && !self.atomic_rejections.contains_key(watch_key)
             && watch_count < 8
             && matches!(
                 request.command,
@@ -535,7 +592,7 @@ impl<'a> Harness<'a> {
                     }
             );
         let digest_before = if watch {
-            self.watched.insert(name.into(), watch_count + 1);
+            self.watched.insert(watch_key.into(), watch_count + 1);
             Some(self.checkpoint()?)
         } else {
             None
@@ -550,6 +607,7 @@ impl<'a> Harness<'a> {
                     route,
                     occurrence,
                     progress_mm,
+                    speed_mm_s,
                     ..
                 } => {
                     let input = VehicleSpawnInput::new(
@@ -557,7 +615,7 @@ impl<'a> Harness<'a> {
                         self.routes[route],
                         *occurrence,
                         *progress_mm,
-                        0,
+                        *speed_mm_s,
                     );
                     match self
                         .measure_command(|world| world.replace_completed_vehicle(handle, input))
@@ -623,6 +681,13 @@ impl<'a> Harness<'a> {
                                 }
                                 if request.attempt > 1 {
                                     self.evidence[id.tile as usize].retried_leave_successes += 1;
+                                    if let Some(witness) =
+                                        &mut self.evidence[id.tile as usize].garage_exit_clearance
+                                        && witness.subject == id
+                                        && witness.request_sequence == request.sequence
+                                    {
+                                        witness.retried_leave_boundary = Some(tick);
+                                    }
                                 }
                             }
                             extra = json!({"target":target,"exit":exit});
@@ -730,6 +795,24 @@ impl<'a> Harness<'a> {
             }
         }
         if let Some((reason, blocker)) = rejection {
+            if matches!(request.command, Command::Leave { .. })
+                && self.in_observation(tick)
+                && let Some(blocker) = blocker.and_then(|handle| self.stable_individual(handle))
+                && self.plan.initial[blocker.tile as usize * 1_000 + blocker.slot as usize]
+                    .role
+                    .as_deref()
+                    == Some("garage-exit-blocker")
+            {
+                self.evidence[id.tile as usize]
+                    .garage_exit_clearance
+                    .get_or_insert(GarageExitClearance {
+                        blocker,
+                        subject: id,
+                        request_sequence: request.sequence,
+                        rejected_boundary: tick,
+                        retried_leave_boundary: None,
+                    });
+            }
             if self.world.vehicle(handle) != Some(before)
                 || self.world.parking_binding(handle) != binding_before
                 || self.world.command_cursor() != cursor_before
@@ -741,7 +824,7 @@ impl<'a> Harness<'a> {
                 if before_digest != self.checkpoint()? {
                     return Err(invalid("rejected command changed complete state"));
                 }
-                *self.atomic_rejections.entry(name.into()).or_default() += 1;
+                *self.atomic_rejections.entry(watch_key.into()).or_default() += 1;
             }
             *self.error_counts.entry(reason.into()).or_default() += 1;
             extra = json!({"reason": reason, "blocker": blocker.and_then(|v| self.stable_individual(v))});
@@ -797,6 +880,7 @@ impl<'a> Harness<'a> {
                     "individual":id, "after_individual":individual.id,
                     "before":observe::status(before.status()), "after":observe::status(after.status())}));
             }
+            self.record_role_command(&request, tick, self.individuals[request.slot].id);
         }
         self.commands.push(json!({"boundary":tick,"due":request.original_due,"sequence":request.sequence,
             "attempt":request.attempt,"individual":id,"command":name,"committed":rejection.is_none(),
@@ -971,6 +1055,220 @@ impl<'a> Harness<'a> {
             "sequence":request.sequence,"attempt":1,"individual":before_id,"command":name,
             "committed":true,"cursor_before":cursor_before,"cursor_after":self.world.command_cursor(),
             "details":details}));
+        self.record_role_command(&request, tick, after_id);
+        Ok(())
+    }
+
+    fn record_role_command(&mut self, request: &Request, boundary: u64, individual: IndividualId) {
+        if self.plan.initial[request.slot].role.is_some()
+            || matches!(request.command, Command::Leave { .. })
+        {
+            self.evidence[individual.tile as usize]
+                .committed_role_commands
+                .insert(
+                    request.sequence,
+                    CommandWitness {
+                        boundary,
+                        command: request.command.name().into(),
+                        individual,
+                    },
+                );
+        }
+    }
+
+    fn role_command(&self, slot: u32, sequence: u32, kind: &str) -> Result<&CommandWitness> {
+        self.evidence[(slot / 1_000) as usize]
+            .committed_role_commands
+            .get(&sequence)
+            .filter(|witness| {
+                witness.command == kind
+                    && witness.individual.tile == slot / 1_000
+                    && witness.individual.slot == slot % 1_000
+            })
+            .ok_or_else(|| {
+                invalid(format!(
+                    "missing committed {kind}: slot={slot} sequence={sequence}"
+                ))
+            })
+    }
+
+    pub(crate) fn validate_required_role_evidence(&self) -> Result<()> {
+        // Every scheduled role must actually enter its requested incarnation; a caller-side
+        // deferral or a different successful lifecycle command is not a substitute.
+        for role in &self.plan.role_departures {
+            if role.due_tick < self.plan.window.end() {
+                let command = self.role_command(role.slot, role.sequence, "replace")?;
+                if command.individual.incarnation != role.sequence + 1
+                    || command.boundary < role.due_tick
+                    || command.boundary >= self.plan.window.end()
+                {
+                    return Err(invalid(format!(
+                        "role departure witness differs: {}",
+                        role.sequence
+                    )));
+                }
+            }
+        }
+        for (slot, initial) in self.plan.initial.iter().enumerate() {
+            if initial.role.as_deref().is_some_and(|role| {
+                role == "waiting-storage-pulse"
+                    || role.starts_with("mainline-pulse-")
+                    || role.starts_with("opposing-pulse-")
+            }) {
+                let individual = &self.individuals[slot];
+                let cleared = individual
+                    .handle
+                    .and_then(|handle| self.world.vehicle(handle))
+                    .is_some_and(|state| {
+                        state.status() == VehicleStatus::Completed
+                            && state.waiting_membership().is_none()
+                            && state.maneuver_traversal().is_none()
+                    });
+                if !cleared
+                    || individual
+                        .handle
+                        .is_some_and(|handle| self.world.conflict_reservation(handle).is_some())
+                    || self
+                        .claims
+                        .keys()
+                        .any(|(owner, _, _)| *owner == individual.id)
+                {
+                    return Err(invalid(format!(
+                        "role pulse is not clear at the fixed end: slot={slot}"
+                    )));
+                }
+            }
+        }
+        if matches!(self.plan.case.as_str(), "GARAGE-EGRESS" | "BOUNDARY-BURST") {
+            for (tile, evidence) in self.evidence.iter().enumerate() {
+                if !evidence
+                    .garage_exit_clearance
+                    .as_ref()
+                    .is_some_and(|witness| {
+                        witness
+                            .retried_leave_boundary
+                            .is_some_and(|boundary| boundary > witness.rejected_boundary)
+                    })
+                {
+                    return Err(invalid(format!(
+                        "tile {tile}: missing garage blocker rejection/clearance/retry witness"
+                    )));
+                }
+            }
+        }
+        if self.plan.case == "GARAGE-INGRESS" {
+            for reason in ["exclusive-occupied", "virtual-full"] {
+                if self.atomic_rejections.get(reason).copied().unwrap_or(0) == 0 {
+                    return Err(invalid(format!(
+                        "missing complete atomicity witness: {reason}"
+                    )));
+                }
+            }
+            for arrival in &self.plan.arrivals {
+                let reserve = self.role_command(arrival.slot, arrival.sequence, "reserve")?;
+                let park = self.role_command(arrival.slot, 20_000_000 + arrival.slot, "park")?;
+                let observed = self.evidence[(arrival.slot / 1_000) as usize]
+                    .parking_arrivals
+                    .get(&arrival.slot);
+                if !observed.is_some_and(|(tick, id)| {
+                    self.in_observation(reserve.boundary)
+                        && self.in_step_observation(*tick)
+                        && self.in_observation(park.boundary)
+                        && reserve.boundary < *tick
+                        && *tick <= park.boundary
+                        && reserve.individual == *id
+                        && park.individual == *id
+                }) {
+                    return Err(invalid(format!(
+                        "missing observation-window reserve/arrival/park chain: slot={}",
+                        arrival.slot
+                    )));
+                }
+            }
+        }
+        if matches!(
+            self.plan.case.as_str(),
+            "PERMISSIVE-LEFT" | "UNCONTROLLED-YIELD"
+        ) {
+            for (tile, evidence) in self.evidence.iter().enumerate() {
+                if !evidence
+                    .right_of_way
+                    .as_ref()
+                    .is_some_and(RightOfWayWitness::complete)
+                {
+                    return Err(invalid(format!(
+                        "tile {tile}: missing pulse-related wait/clear/grant/pass sequence"
+                    )));
+                }
+            }
+        }
+        if self.plan.case == "BOUNDARY-BURST" {
+            for window in &self.plan.boundary_windows {
+                let at_boundary = |slot, sequence, kind: &str, expected| -> Result<()> {
+                    let command = self.role_command(slot, sequence, kind)?;
+                    if command.boundary != expected {
+                        return Err(invalid(format!(
+                            "{kind} did not commit at its required boundary: sequence={sequence}"
+                        )));
+                    }
+                    Ok(())
+                };
+                let slot = window.tile * 1_000;
+                at_boundary(
+                    slot + 742,
+                    13_000_000 + slot + 742,
+                    "replace",
+                    window.before_tick,
+                )?;
+                at_boundary(
+                    slot + 743,
+                    11_000_000 + slot + 743,
+                    "reserve",
+                    window.before_tick,
+                )?;
+                at_boundary(
+                    slot + 741,
+                    20_000_000 + slot + 741,
+                    "park",
+                    window.before_tick,
+                )?;
+                at_boundary(
+                    slot + 743,
+                    20_000_000 + slot + 743,
+                    "park",
+                    window.after_tick,
+                )?;
+                for burst in self
+                    .plan
+                    .lifecycle_bursts
+                    .iter()
+                    .filter(|burst| burst.tile == window.tile)
+                {
+                    at_boundary(burst.slot, burst.sequence, "despawn", burst.despawn_tick)?;
+                    at_boundary(burst.slot, burst.sequence + 1, "spawn", burst.spawn_tick)?;
+                }
+                if ![window.before_tick, window.after_tick]
+                    .into_iter()
+                    .any(|boundary| {
+                        self.plan
+                            .leaves
+                            .iter()
+                            .filter(|leave| {
+                                leave.slot / 1_000 == window.tile && leave.due_tick == boundary
+                            })
+                            .any(|leave| {
+                                self.role_command(leave.slot, leave.sequence, "leave")
+                                    .is_ok_and(|command| command.boundary == boundary)
+                            })
+                    })
+                {
+                    return Err(invalid(format!(
+                        "tile {}: no leave committed at either adjacent boundary",
+                        window.tile
+                    )));
+                }
+            }
+        }
         Ok(())
     }
 
@@ -1024,6 +1322,10 @@ impl<'a> Harness<'a> {
                 .slots
                 .get(&arrival.vehicle)
                 .ok_or_else(|| invalid("unknown arrival individual"))?;
+            self.evidence[slot / 1_000].parking_arrivals.insert(
+                slot as u32,
+                (outcome.tick_index(), self.individuals[slot].id),
+            );
             let due = self
                 .plan
                 .arrivals
@@ -1075,7 +1377,12 @@ impl<'a> Harness<'a> {
                     .partition_point(|b| b.due_tick <= boundary))
                 * 10
                 + self.plan.leaves.len()
-                - self.plan.leaves.partition_point(|l| l.due_tick <= boundary),
+                - self.plan.leaves.partition_point(|l| l.due_tick <= boundary)
+                + self.plan.role_departures.len()
+                - self
+                    .plan
+                    .role_departures
+                    .partition_point(|r| r.due_tick <= boundary),
             pending_departures: self.pending.len() - self.exhausted.len(),
             exhausted_departures: self.exhausted.len(),
             command_cursor: self.world.command_cursor(),
@@ -1130,6 +1437,224 @@ mod tests {
     use laneflow_urban_generator::{Scale, UrbanConfig, generate};
 
     #[test]
+    fn right_of_way_requires_the_complete_ordered_sequence() {
+        let witness = RightOfWayWitness {
+            subject: IndividualId {
+                tile: 0,
+                slot: 740,
+                incarnation: 1,
+            },
+            pulse: IndividualId {
+                tile: 0,
+                slot: 741,
+                incarnation: 1,
+            },
+            zone: 0,
+            maneuver_occurrence: 0,
+            occupied_wait: (10, 2),
+            pulse_cleared: Some((11, 1)),
+            granted: Some((12, 2)),
+            passed: Some((13, 2)),
+        };
+        assert!(witness.complete());
+        for altered in [
+            RightOfWayWitness {
+                pulse_cleared: None,
+                ..witness.clone()
+            },
+            RightOfWayWitness {
+                granted: None,
+                ..witness.clone()
+            },
+            RightOfWayWitness {
+                passed: None,
+                ..witness.clone()
+            },
+            RightOfWayWitness {
+                pulse_cleared: Some((9, 1)),
+                ..witness.clone()
+            },
+            RightOfWayWitness {
+                granted: Some((10, 2)),
+                ..witness.clone()
+            },
+            RightOfWayWitness {
+                passed: Some((11, 2)),
+                ..witness.clone()
+            },
+        ] {
+            assert!(!altered.complete());
+        }
+    }
+
+    #[test]
+    #[ignore = "真实小路网完整专项窗口，release 手动验证；不替代两档正式矩阵"]
+    fn fixture_case_role_witnesses() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let config =
+            UrbanConfig::parse(include_str!("../../../examples/config/cn-urban.toml")).unwrap();
+        generate(&config, Scale::Fixture, &source, None).unwrap();
+        let artifacts = Artifacts::load(&source).unwrap();
+        let cycle = artifacts
+            .catalog
+            .signals
+            .iter()
+            .map(|s| s.cycle_ms)
+            .max()
+            .unwrap()
+            / artifacts.dt;
+        let cases = std::env::var("LANEFLOW_TEST_CASE").ok().map_or_else(
+            || crate::UrbanCase::ALL.to_vec(),
+            |case| vec![case.parse().unwrap()],
+        );
+        let mut failures = Vec::new();
+        for case in cases {
+            let plan = ResolvedPlan::for_case(
+                &artifacts,
+                case,
+                crate::Window::probe_after(cycle, 2 * cycle).unwrap(),
+            )
+            .unwrap();
+            let mut harness = Harness::install(&artifacts, &plan).unwrap();
+            for tick in 0..plan.window.end() {
+                let record = harness
+                    .advance()
+                    .unwrap_or_else(|error| panic!("{} tick={tick}: {error}", case.as_str()));
+                let future = plan.departures.iter().filter(|r| r.due_tick > tick).count() * 10
+                    + plan.leaves.iter().filter(|r| r.due_tick > tick).count()
+                    + plan
+                        .role_departures
+                        .iter()
+                        .filter(|r| r.due_tick > tick)
+                        .count();
+                assert_eq!(record.future_departures, future, "all future request kinds");
+            }
+            eprintln!(
+                "{} evidence={}",
+                case.as_str(),
+                serde_json::to_string(&harness.evidence).unwrap()
+            );
+            if let Err(error) = crate::report::validate_case(&harness) {
+                failures.push(format!("{}: {error}", case.as_str()));
+                eprintln!("VALIDATION FAILURE {}: {error}", case.as_str());
+                for (slot, initial) in plan
+                    .initial
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, initial)| initial.role.is_some())
+                {
+                    let individual = &harness.individuals[slot];
+                    let state = individual
+                        .handle
+                        .and_then(|handle| harness.world.vehicle(handle));
+                    eprintln!(
+                        "role-end slot={slot} role={:?} state={state:?}",
+                        initial.role
+                    );
+                    if initial.role.as_deref() == Some("garage-exit-blocker")
+                        && let Some(state) = state
+                    {
+                        let route = &harness.route_edges[&state.route()];
+                        eprintln!("blocker route {route:?}");
+                        for (other_slot, other) in harness.individuals.iter().enumerate() {
+                            let Some(other) = other
+                                .handle
+                                .and_then(|handle| harness.world.vehicle(handle))
+                            else {
+                                continue;
+                            };
+                            let edge = &harness.route_edges[&other.route()]
+                                [other.route_edge_index() as usize];
+                            if other.status() == VehicleStatus::Active && route.contains(edge) {
+                                eprintln!(
+                                    "corridor slot={other_slot} edge={edge} route={} state={other:?}",
+                                    harness.route_keys[&other.route()]
+                                );
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+            if let Some(role) = plan.role_departures.first() {
+                let tile = (role.slot / 1_000) as usize;
+                let saved = harness.evidence[tile]
+                    .committed_role_commands
+                    .remove(&role.sequence)
+                    .unwrap();
+                assert!(
+                    crate::report::validate_case(&harness).is_err(),
+                    "every scheduled role must commit"
+                );
+                harness.evidence[tile]
+                    .committed_role_commands
+                    .insert(role.sequence, saved);
+            }
+            if let Some(slot) = plan
+                .initial
+                .iter()
+                .position(|initial| initial.role.as_deref() == Some("waiting-storage-pulse"))
+            {
+                let handle = harness.individuals[slot].handle.take();
+                assert!(
+                    crate::report::validate_case(&harness).is_err(),
+                    "a missing final pulse state is not clear"
+                );
+                harness.individuals[slot].handle = handle;
+            }
+            if case == crate::UrbanCase::BoundaryBurst {
+                for sequence in [
+                    13_000_742, 11_000_743, 20_000_741, 20_000_743, 14_000_740, 14_000_741,
+                ] {
+                    let boundary = harness.evidence[0].committed_role_commands[&sequence].boundary;
+                    harness.evidence[0]
+                        .committed_role_commands
+                        .get_mut(&sequence)
+                        .unwrap()
+                        .boundary += 1;
+                    assert!(
+                        crate::report::validate_case(&harness).is_err(),
+                        "sequence {sequence} must commit at its own boundary"
+                    );
+                    harness.evidence[0]
+                        .committed_role_commands
+                        .get_mut(&sequence)
+                        .unwrap()
+                        .boundary = boundary;
+                }
+            }
+            if matches!(
+                case,
+                crate::UrbanCase::PermissiveLeft | crate::UrbanCase::UncontrolledYield
+            ) {
+                harness.evidence[0].right_of_way = None;
+                assert!(
+                    crate::report::validate_case(&harness).is_err(),
+                    "generic counters cannot replace the role witness"
+                );
+            }
+            if case == crate::UrbanCase::GarageIngress {
+                let arrival = harness.evidence[0].parking_arrivals[&741];
+                harness.evidence[0]
+                    .parking_arrivals
+                    .insert(741, (plan.window.warm_up_ticks, arrival.1));
+                assert!(
+                    crate::report::validate_case(&harness).is_err(),
+                    "warmup arrival is not observation evidence"
+                );
+                harness.evidence[0].parking_arrivals.insert(741, arrival);
+                for reason in ["exclusive-occupied", "virtual-full"] {
+                    let saved = harness.atomic_rejections.remove(reason).unwrap();
+                    assert!(crate::report::validate_case(&harness).is_err());
+                    harness.atomic_rejections.insert(reason.into(), saved);
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("; "));
+    }
+
+    #[test]
     fn completed_steps_exclude_warmup_and_include_the_final_observation() {
         let window = crate::Window::probe_after(3, 2).unwrap();
         for (tick, expected) in [
@@ -1150,6 +1675,59 @@ mod tests {
         assert!(!zero_warmup.contains_completed_step(0));
         assert!(zero_warmup.contains_completed_step(1));
         assert!(!zero_warmup.contains_completed_step(2));
+    }
+
+    #[test]
+    fn reservation_atomicity_witnesses_are_reason_specific_and_skip_invalid_status() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let config =
+            UrbanConfig::parse(include_str!("../../../examples/config/cn-urban.toml")).unwrap();
+        generate(&config, Scale::Fixture, &source, None).unwrap();
+        let artifacts = Artifacts::load(&source).unwrap();
+        let plan = ResolvedPlan::for_case(
+            &artifacts,
+            crate::UrbanCase::GarageIngress,
+            crate::Window::probe(128).unwrap(),
+        )
+        .unwrap();
+        let mut harness = Harness::install(&artifacts, &plan).unwrap();
+        for rejection in plan
+            .reservation_rejections
+            .iter()
+            .filter(|r| r.slot < 1_000)
+        {
+            let request = Request {
+                due: 0,
+                original_due: 0,
+                slot: rejection.slot as usize,
+                sequence: rejection.sequence,
+                attempt: 1,
+                command: Command::Reserve {
+                    target: rejection.target.clone(),
+                    expected_rejection: Some(rejection.expected.clone()),
+                },
+            };
+            for attempt in 1..=8 {
+                harness
+                    .execute(
+                        Request {
+                            slot: 880,
+                            attempt,
+                            ..request.clone()
+                        },
+                        0,
+                    )
+                    .unwrap();
+            }
+            assert!(!harness.watched.contains_key(&rejection.expected));
+            assert!(!harness.atomic_rejections.contains_key(&rejection.expected));
+            harness.execute(request, 0).unwrap();
+            assert_eq!(harness.watched[&rejection.expected], 1);
+            assert_eq!(harness.atomic_rejections[&rejection.expected], 1);
+        }
+        assert_eq!(harness.atomic_rejections.len(), 2);
+        assert_eq!(harness.error_counts["role-not-active"], 16);
     }
 
     #[test]
@@ -1212,6 +1790,7 @@ mod tests {
                         route: "must-not-resolve".into(),
                         occurrence: 0,
                         progress_mm: 7_000,
+                        speed_mm_s: 0,
                         east: Some(true),
                         role: false,
                     },
