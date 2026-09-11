@@ -9,7 +9,10 @@
 **关联文档**:
 
 - [`junction-observation-and-validation.md`](junction-observation-and-validation.md)：#285
-  领域观测与跨层验证提案；Review，不改变本文已接受的现行入口。
+  领域观测与跨层验证；Accepted。阶段一新增两个只读补充入口：Runtime
+  `TrafficWorld::route_gate`（精确机动门定位）与 Bevy
+  `LaneFlowSession::junction_observation`（复杂路口领域观测借用视图），不改变
+  本文已接受的现行入口。
 - `../architecture.md`
 - `../adr/0001-project-scope.md`
 - `../adr/0012-core-numeric-authority-and-presentation-precision.md`

@@ -60,5 +60,9 @@ required-features = ["native-example"]
 name = "runtime_min_smoke"
 path = "examples/support/runtime_min_smoke.rs"
 
+[[test]]
+name = "junction_observation"
+path = "examples/support/junction_observation.rs"
+
 [lints]
 workspace = true

@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-09-06（#534 修订绑定生命周期与维护暂停式切换）
+**最后更新**: 2026-09-11（#285 阶段一 `junction_observation` 观测视图）
 
 **适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -81,6 +81,7 @@ Bevy 拥有 outer frame 与宿主 schedule。LaneFlow 不修改宿主全局 `Tim
 - `LaneFlowSessionConfig` 要求调用方显式提供非零 `max_catch_up_steps`，不定义隐藏默认值。
 - accumulator 保存完整 `Duration`，不按 outer frame 截断亚毫秒余量；只有 Core step 成功后才扣除一个 quantum。达到上限或 step 失败时，当帧停止并保留全部 backlog。
 - `LaneFlowFrameReport` 公开 frame delta、成功 step 数、backlog 与 catch-up-limit 状态；Session 保留当帧全部成功 `StepResult` 和最近 `LaneFlowAdapterError`。
+- #285 阶段一新增 `LaneFlowSession::junction_observation` 只读借用视图（设计见 `junction-observation-and-validation.md` §3）：在 `Observe` 阶段逐拍读取复杂路口领域的边界上下文（世界身份/世代/修订/三游标）、live 车辆行、Waiting 计数/member/决策、Conflict 决策/预约与 transition event，并转调 `TrafficWorld::route_gate` 机动门定位。视图创建为 O(1)、无堆分配，headless Session 同样可读；信号组仍经 `committed_signal_groups()` 取得并单独计账。
 
 ## 5. Vehicle 与 Entity 映射
 
