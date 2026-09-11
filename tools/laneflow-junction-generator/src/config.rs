@@ -92,8 +92,11 @@ impl JunctionConfig {
                 "junction_config_version must be {CONFIG_VERSION:?}"
             )));
         }
-        if self.fixed_delta_ms == 0 {
-            return Err(config_error("fixed_delta_ms must be greater than zero"));
+        // 与 TrafficWorld::install 的 DeltaOutOfRange 对齐，生成前拒绝不可安装的 tick。
+        if !(4..=1_000).contains(&self.fixed_delta_ms) {
+            return Err(config_error(
+                "fixed_delta_ms must be within the runtime-supported 4..=1000 range",
+            ));
         }
         laneflow_spatial::CanonicalFrameId::try_new(self.frame_id.clone())
             .map_err(|error| config_error(format!("frame_id is invalid: {error}")))?;
@@ -187,6 +190,25 @@ impl JunctionConfig {
                 "junction_radius_meters must exceed pocket_length_meters + curve_control_meters",
             ));
         }
+        // 待转 pocket 横向净距：入口 lane0 中心线偏移 a = center − width/2，
+        // pocket 中心线 z = a − pocket_offset；车辆半宽不进入对向 lane0
+        // （中心线 −a、半宽 w/2）要求 pocket_offset < 2·(center − width)。
+        let pocket_offset_limit =
+            2.0 * (geometry.center_offset_meters - geometry.lane_width_meters);
+        if geometry.pocket_offset_meters >= pocket_offset_limit {
+            return Err(config_error(format!(
+                "pocket_offset_meters must be below {pocket_offset_limit} m so the waiting \
+                 pocket stays clear of the opposing through lanes",
+            )));
+        }
+        // 待转区容量 1 的存储长度即 pocket 长度；车长超限会让 route-w-left-waiting
+        // 的每次 spawn 都以 VehicleTooLong 失败。
+        if self.profile.length_meters > geometry.pocket_length_meters {
+            return Err(config_error(
+                "profile.length_meters must not exceed pocket_length_meters so the waiting \
+                 route remains spawnable",
+            ));
+        }
         if geometry.arm_length_meters <= geometry.junction_radius_meters * 2.0 {
             return Err(config_error(
                 "arm_length_meters must exceed twice junction_radius_meters to leave a loop corner",
@@ -209,6 +231,14 @@ impl JunctionConfig {
                 "spawn_slot_pitch_meters must be at least {} m",
                 self.endpoint_clearance_meters()
             )));
+        }
+        // 同 portal 配对环路的槽位交错 pitch/2；交错量必须不小于车长，
+        // 否则两条边重合段上的车辆物理重叠。pitch/2 ≥ length ⟺ pitch ≥ 2·length。
+        if geometry.spawn_slot_pitch_meters < self.profile.length_meters * 2.0 {
+            return Err(config_error(
+                "spawn_slot_pitch_meters must be at least twice profile.length_meters so the \
+                 half-pitch stagger keeps paired loop slots one vehicle length apart",
+            ));
         }
 
         self.signal_cycle_ms()?;

@@ -84,6 +84,7 @@ pub enum BindError {
     SlotEdgeNotEntry { slot_id: String, route_id: String },
     InvalidProgress { slot_id: String },
     DuplicateSlotPosition { slot_id: String },
+    FocusRouteNotRepeating { route_id: String },
     RouteRegister(RouteError),
 }
 
@@ -133,6 +134,12 @@ impl fmt::Display for BindError {
                 write!(
                     formatter,
                     "slot {slot_id:?} collides with another slot at millimetre resolution"
+                )
+            }
+            Self::FocusRouteNotRepeating { route_id } => {
+                write!(
+                    formatter,
+                    "focus route {route_id:?} does not repeat any gated maneuver path"
                 )
             }
             Self::RouteRegister(error) => write!(formatter, "register_route failed: {error}"),
@@ -253,6 +260,36 @@ pub fn bind(
             edges,
             exit_portal_index,
         });
+    }
+    // 焦点路线的合同是成环重复过门：绑定期验证每条焦点路线的边序里
+    // 至少一条带门机动路径出现两次以上，否则下游观测场景拿不到重复
+    // Gate occurrence。
+    let path_count = revision
+        .traffic()
+        .entity_counts()
+        .count(EntityKind::ManeuverPath);
+    for &focus_index in &focus_route_indices {
+        let route_edges = &route_exits[focus_index].edges;
+        let repeats_gated_path = (0..path_count).any(|raw| {
+            let Some(path) = revision
+                .traffic()
+                .maneuvers()
+                .maneuver_path(laneflow_static_contract::ManeuverPathOrdinal::from_raw(raw))
+            else {
+                return false;
+            };
+            !path.maneuver_gates().is_empty()
+                && route_edges
+                    .windows(path.edges().len())
+                    .filter(|window| *window == path.edges())
+                    .count()
+                    >= 2
+        });
+        if !repeats_gated_path {
+            return Err(BindError::FocusRouteNotRepeating {
+                route_id: catalog.routes[focus_index].route_id.clone(),
+            });
+        }
     }
     let mut portal_lanes = Vec::new();
     let mut portal_lane_indices = [(); PORTAL_IDS.len()].map(|_| Vec::new());

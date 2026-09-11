@@ -188,6 +188,49 @@ fn config_rejects_phase_durations_not_multiple_of_tick() {
 }
 
 #[test]
+fn config_rejects_out_of_range_tick() {
+    let bad = CONFIG.replace("fixed_delta_ms = 16", "fixed_delta_ms = 2");
+    assert_ne!(bad, CONFIG, "config must contain the replaced field");
+    let error = JunctionConfig::parse(&bad).expect_err("out-of-range tick must fail");
+    assert!(error.to_string().contains("4..=1000"));
+}
+
+#[test]
+fn config_rejects_pocket_offset_entering_opposing_lanes() {
+    let bad = CONFIG.replace("pocket_offset_meters = 4.0", "pocket_offset_meters = 12.0");
+    assert_ne!(bad, CONFIG, "config must contain the replaced field");
+    let error = JunctionConfig::parse(&bad).expect_err("pocket in opposing lanes must fail");
+    assert!(error.to_string().contains("opposing through lanes"));
+}
+
+#[test]
+fn config_rejects_vehicle_longer_than_waiting_pocket() {
+    let bad = CONFIG
+        .replace("length_meters = 4.5", "length_meters = 13.0")
+        .replace(
+            "spawn_slot_pitch_meters = 10.0",
+            "spawn_slot_pitch_meters = 30.0",
+        );
+    assert_ne!(bad, CONFIG, "config must contain the replaced fields");
+    let error = JunctionConfig::parse(&bad).expect_err("vehicle longer than pocket must fail");
+    assert!(error.to_string().contains("pocket_length_meters"));
+}
+
+#[test]
+fn config_rejects_slot_pitch_below_two_vehicle_lengths() {
+    let bad = CONFIG
+        .replace("length_meters = 4.5", "length_meters = 6.0")
+        .replace("min_gap_meters = 2.0", "min_gap_meters = 1.0")
+        .replace(
+            "spawn_slot_pitch_meters = 10.0",
+            "spawn_slot_pitch_meters = 7.0",
+        );
+    assert_ne!(bad, CONFIG, "config must contain the replaced fields");
+    let error = JunctionConfig::parse(&bad).expect_err("unsafe stagger must fail");
+    assert!(error.to_string().contains("twice"));
+}
+
+#[test]
 fn catalog_rejects_exit_portal_not_owning_final_edge() {
     use laneflow_scenario::complex_junction::CatalogError;
 
@@ -359,6 +402,45 @@ fn bind_rejects_slots_colliding_at_millimetre_resolution() {
     assert!(
         matches!(error, BindError::DuplicateSlotPosition { .. }),
         "expected DuplicateSlotPosition, got {error}"
+    );
+}
+
+#[test]
+fn bind_rejects_focus_route_without_repeated_gate() {
+    use laneflow_format::{FormatLimits, check_canonical_network_input};
+    use laneflow_scenario::complex_junction::{BindError, bind};
+    use laneflow_static_network::{
+        SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+        build_shared_network_revision,
+    };
+
+    let generated = default_generated();
+    let mut catalog = default_catalog();
+    // 替换成合法但不重复过门的边序：validate 通过，bind 必须拒绝。
+    let route = catalog
+        .routes
+        .iter_mut()
+        .find(|route| route.route_id == "route-w-through-circuit")
+        .expect("focus route exists");
+    route.edge_ids = ["loop-sw-i0", "w-in-i0", "w-e.i0", "e-out-i0", "loop-es-i0"]
+        .iter()
+        .map(|edge| (*edge).to_owned())
+        .collect();
+    laneflow_scenario::complex_junction::validate(&catalog).expect("edited catalog still valid");
+    let input = check_canonical_network_input(generated.lfca_bytes(), FormatLimits::HARD)
+        .expect("checked LFCA");
+    let revision = build_shared_network_revision(
+        input,
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::RetainAvailable,
+            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+        ),
+    )
+    .expect("shared network revision");
+    let error = bind(&catalog, &revision).expect_err("non-repeating focus route must be rejected");
+    assert!(
+        matches!(error, BindError::FocusRouteNotRepeating { .. }),
+        "expected FocusRouteNotRepeating, got {error}"
     );
 }
 
