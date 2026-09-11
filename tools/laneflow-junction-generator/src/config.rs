@@ -234,6 +234,14 @@ impl JunctionConfig {
                     self.fixed_delta_ms
                 )));
             }
+            // TrafficWorld::install 要求每个相位时长是 fixed_delta 的整数倍；
+            // 在 config 校验期就拒绝，避免生成无法安装的 LFCA。
+            if duration % self.fixed_delta_ms != 0 {
+                return Err(config_error(format!(
+                    "{name} must be a whole multiple of fixed_delta_ms ({})",
+                    self.fixed_delta_ms
+                )));
+            }
         }
 
         if self.output.directory.trim().is_empty() {

@@ -26,7 +26,11 @@ pub(crate) fn build_catalog(
                 .enumerate()
                 .map(|(lane_index, lane)| {
                     let length = topology.edge_length(&lane.edge);
-                    let minimum_length = clearance * 2.0;
+                    // 同一 portal 的两条环路共享出口/入口焊接点（分叉/汇合段几何
+                    // 重合）：lane 1 的槽位错开半个间距，保证任意两个槽位的物理
+                    // 间距不小于车长。
+                    let phase = lane_index as f64 * config.geometry.spawn_slot_pitch_meters / 2.0;
+                    let minimum_length = clearance * 2.0 + phase;
                     if length < minimum_length {
                         return Err(Error::Config(format!(
                             "portal {:?} lane {lane_index} loop edge {:?} is {length} m long; \
@@ -35,7 +39,7 @@ pub(crate) fn build_catalog(
                         )));
                     }
                     let mut local_index = 0_u32;
-                    let mut progress = clearance;
+                    let mut progress = clearance + phase;
                     while progress <= length - clearance {
                         slots.push(SpawnSlotCatalogEntry {
                             slot_id: format!("slot-{}-{local_index:03}", lane.edge),
