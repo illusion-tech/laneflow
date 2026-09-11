@@ -72,7 +72,7 @@ fn default_junction_locks_scope_counts_and_deterministic_bytes() {
     assert_eq!(counts.signal_groups, 4);
     assert_eq!(counts.controllers, 1);
     assert_eq!(counts.phases, 9);
-    assert_eq!(counts.routes, 10);
+    assert_eq!(counts.routes, 11);
     assert_eq!(counts.portals, 4);
     assert!(counts.spawn_slots >= MIN_SPAWN_SLOT_COUNT);
     assert_eq!(first.catalog_bytes(), second.catalog_bytes());
@@ -130,10 +130,20 @@ fn catalog_round_trips_validates_and_marks_two_focus_routes() {
         decoded, catalog,
         "TOML round trip changed catalog semantics"
     );
-    assert_eq!(catalog.routes.len(), 10);
+    assert_eq!(catalog.routes.len(), 11);
     assert_eq!(catalog.portals.len(), 4);
     for (portal, expected_lanes) in catalog.portals.iter().zip(PORTAL_LANE_COUNTS) {
         assert_eq!(portal.lanes.len(), expected_lanes, "portal {:?}", portal.id);
+    }
+    // 两条东→西直行车道都必须有路线经过（第二条车道承载许可左转的冲突流）。
+    for entry_edge in ["e-in-i0", "e-in-i1"] {
+        assert!(
+            catalog
+                .routes
+                .iter()
+                .any(|route| route.edge_ids.iter().any(|edge| edge == entry_edge)),
+            "no catalog route passes through {entry_edge}"
+        );
     }
     let focus: Vec<&str> = catalog
         .routes
@@ -233,7 +243,7 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
     let bound = bind(&catalog, &revision).expect("prepare bind");
     assert_eq!(bound.network_revision, revision.network_revision());
     assert_eq!(bound.spawn_slots.len(), generated.counts().spawn_slots);
-    assert_eq!(bound.routes.len(), 10);
+    assert_eq!(bound.routes.len(), 11);
     assert_eq!(bound.focus_route_indices.len(), 2);
     let profile = *bound
         .profiles
@@ -266,6 +276,45 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
     }
     world.step(TickInput::new(16)).expect("step");
     assert!(!world.committed_pose_sources().as_slice().is_empty());
+}
+
+#[test]
+fn bind_rejects_slots_colliding_at_millimetre_resolution() {
+    use laneflow_format::{FormatLimits, check_canonical_network_input};
+    use laneflow_scenario::complex_junction::{BindError, SpawnSlotCatalogEntry, bind};
+    use laneflow_static_network::{
+        SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+        build_shared_network_revision,
+    };
+
+    let generated = default_generated();
+    let mut catalog = default_catalog();
+    let reference = catalog.spawn_slots[0].clone();
+    // 与 reference 同边、米值差小于半毫米：catalog 的 f64 bit 去重放行，
+    // bind 的 (edge, progress_mm) 去重必须拒绝。
+    catalog.spawn_slots.push(SpawnSlotCatalogEntry {
+        slot_id: "slot-millimetre-collision".to_owned(),
+        portal_id: reference.portal_id.clone(),
+        lane_index: reference.lane_index,
+        edge_id: reference.edge_id.clone(),
+        progress: reference.progress + 0.000_4,
+    });
+    laneflow_scenario::complex_junction::validate(&catalog).expect("edited catalog still valid");
+    let input = check_canonical_network_input(generated.lfca_bytes(), FormatLimits::HARD)
+        .expect("checked LFCA");
+    let revision = build_shared_network_revision(
+        input,
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::RetainAvailable,
+            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+        ),
+    )
+    .expect("shared network revision");
+    let error = bind(&catalog, &revision).expect_err("millimetre collision must be rejected");
+    assert!(
+        matches!(error, BindError::DuplicateSlotPosition { .. }),
+        "expected DuplicateSlotPosition, got {error}"
+    );
 }
 
 #[test]

@@ -16,7 +16,7 @@ pub const AUTHORING_NAMESPACE: &str = "laneflow/complex-junction";
 pub const VEHICLE_PROFILE_KEY: &str = "standard-car";
 
 /// 本封闭 catalog 的 Traffic Route 数。
-pub const ROUTE_COUNT: usize = 10;
+pub const ROUTE_COUNT: usize = 11;
 
 /// 本封闭 catalog 要求的最少 physical spawn slot 数。
 pub const MIN_SPAWN_SLOT_COUNT: usize = 48;
@@ -491,6 +491,8 @@ pub fn validate(catalog: &JunctionCatalog) -> Result<(), CatalogError> {
                 slot_id: slot.slot_id.clone(),
             });
         }
+        // 米制 f64 bit 级去重只是 catalog 静态层；绑定四舍五入到毫米后的
+        // (edge, progress_mm) 去重由 `bind` 兜底。
         let progress_bits = if slot.progress == 0.0 {
             0.0_f64.to_bits()
         } else {

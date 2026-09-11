@@ -706,14 +706,16 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
         );
     }
 
-    // 主路右转 E→S（外侧车道）。
+    // 主路保护左转 E→S（外侧车道）：东进口朝西行驶转入南出口是左转动作，
+    // 挂主路左转组与 W→N 对向保护左转同相位放行（两条对向左转几何不交叉），
+    // 并让南出口在环行中可达（支撑焦点路线成环）。
     {
         let movement = add_movement(
             &mut topology,
             "e-s",
             Arm::East,
             Arm::South,
-            ManeuverDirection::Right,
+            ManeuverDirection::Left,
             false,
             false,
         );
@@ -741,7 +743,7 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
                 ),
             )],
             turn_speed,
-            &[("admission", 0, GROUP_MAIN_THROUGH_RIGHT)],
+            &[("admission", 0, GROUP_MAIN_LEFT)],
         );
     }
 
@@ -1093,9 +1095,15 @@ fn routes() -> Vec<RouteBuild> {
             false,
         ),
         route(
-            "route-e-right",
+            "route-e-left",
             "portal-loop-to-w",
             &["loop-ne-i1", "e-in-i1", "e-s.i0", "s-out", "loop-sw-i0"],
+            false,
+        ),
+        route(
+            "route-e-through-lane1",
+            "portal-loop-to-n",
+            &["loop-ne-i1", "e-in-i1", "e-w.i1", "w-out-i1", "loop-wn-i1"],
             false,
         ),
         route(
@@ -1196,7 +1204,10 @@ fn portals() -> Vec<PortalBuild> {
             id: "portal-loop-to-e",
             lanes: vec![
                 lane("loop-ne-i0", &[("route-e-through", 100)]),
-                lane("loop-ne-i1", &[("route-e-right", 100)]),
+                lane(
+                    "loop-ne-i1",
+                    &[("route-e-left", 50), ("route-e-through-lane1", 50)],
+                ),
             ],
         },
         PortalBuild {
