@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::cell::Cell;
 
 use laneflow_static_contract::{
-    EntityKind, ManeuverGateOrdinal, ManeuverPathOrdinal, ParkingSpaceOrdinal,
+    EntityKind, LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal, ParkingSpaceOrdinal,
     ParticipantClassOrdinal, SignalAspect, SignalControllerOrdinal, SignalGroupOrdinal,
 };
 use laneflow_static_network::SharedNetworkRevision;
@@ -120,6 +120,54 @@ impl WorldGeneration {
     #[cfg(test)]
     pub(crate) const fn from_raw_for_test(value: u64) -> Self {
         Self(value)
+    }
+}
+
+/// 路线某 hop 处机动门的只读定位（#285 复杂路口观测 G1 §2）。
+///
+/// 这是位置观察，不是通行许可、停止原因或下一步预测；当前 pose 仍通过
+/// Session 的封闭提取入口获得，Gate 几何只能用于静态调试标记。`route` 与
+/// `hop` 一起标识本世界中的路线出现位置；`gate` 是当前共享根内的静态
+/// 序号。它们不得跨世界、世代或修订直接复用；跨独立运行的比较使用调用方
+/// 路线身份、hop 和从相应根解析的静态稳定身份，不比较 raw handle 字面值。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RouteGateObservation {
+    route: RouteHandle,
+    hop: u32,
+    gate: ManeuverGateOrdinal,
+    edge: LaneEdgeOrdinal,
+    progress_mm: u32,
+}
+
+impl RouteGateObservation {
+    /// 定位所属的本世界路线句柄。
+    #[must_use]
+    pub const fn route(self) -> RouteHandle {
+        self.route
+    }
+
+    /// 路线出现位置的 hop 下标；Gate 位于该 hop 的 from-edge 末端。
+    #[must_use]
+    pub const fn hop(self) -> u32 {
+        self.hop
+    }
+
+    /// 当前共享根内的静态机动门序号。
+    #[must_use]
+    pub const fn gate(self) -> ManeuverGateOrdinal {
+        self.gate
+    }
+
+    /// 该 hop 的 from-edge。
+    #[must_use]
+    pub const fn edge(self) -> LaneEdgeOrdinal {
+        self.edge
+    }
+
+    /// Gate 在 from-edge 上的整数毫米进度（即该边的共享根全长）。
+    #[must_use]
+    pub const fn progress_mm(self) -> u32 {
+        self.progress_mm
     }
 }
 
@@ -1569,6 +1617,32 @@ impl TrafficWorld {
             })
     }
 
+    /// 本世界已注册路线在 `hop` 处的机动门只读定位（#285 复杂路口观测 G1 §2）。
+    ///
+    /// 只查询本世界已注册 `CompiledRoute.hop_gate`、相应边与共享根整数毫米
+    /// 边长；Gate 在该 hop 的 from-edge 末端，不在调用方重跑 route
+    /// normalization。stale route、越界 hop 或该 hop 没有 Gate 时返回
+    /// `None`，不就近选择另一道 Gate。读取为 O(1)、无堆分配，不改变世界或
+    /// 摘要；同一静态 Gate 的重复经过按各自 hop 分别返回，不折叠。
+    #[must_use]
+    pub fn route_gate(&self, route: RouteHandle, hop: u32) -> Option<RouteGateObservation> {
+        let compiled = self.compiled_route(route)?;
+        let hop_index = hop as usize;
+        let gate = (*compiled.hop_gate.get(hop_index)?)?;
+        let edge = *compiled.edges.get(hop_index)?;
+        let progress_mm = *self
+            .traffic()
+            .lane_lengths_millimetres()
+            .get(edge.index())?;
+        Some(RouteGateObservation {
+            route,
+            hop,
+            gate,
+            edge,
+            progress_mm,
+        })
+    }
+
     /// 按路线句柄读取已编译路线；句柄失效返回 `None`。
     pub(crate) fn compiled_route(&self, route: RouteHandle) -> Option<&CompiledRoute> {
         self.read_view().compiled_route(route)
@@ -2262,6 +2336,131 @@ mod overflow_tests {
         reset_overlap_blocker_inspections();
         assert_eq!(world.overlap_blocker(route, 0, 1, vehicle_length), None);
         assert_eq!(overlap_blocker_inspections(), 0);
+    }
+}
+
+#[cfg(test)]
+mod route_gate_tests {
+    use laneflow_format::{FormatLimits, check_canonical_network_input};
+    use laneflow_static_contract::ManeuverPathOrdinal;
+    use laneflow_static_network::{
+        SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+        build_shared_network_revision,
+    };
+
+    use super::*;
+
+    const FULL_SPATIAL: &[u8] = include_bytes!(
+        "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+    );
+
+    /// 沿夹具机动路径注册路线，使路线携带 Gate 出现项。
+    fn world_with_path_route() -> (TrafficWorld, RouteHandle) {
+        let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
+            .expect("checked canonical network input");
+        let revision = build_shared_network_revision(
+            input,
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::RetainAvailable,
+                SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+            ),
+        )
+        .expect("shared network revision");
+        let origin = *revision.canonical_origin();
+        let mut world = TrafficWorld::install(
+            Arc::clone(&revision),
+            WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+            CommittedNetworkSource::Published {
+                reference: crate::PublishedLfcaReference::new(
+                    "fixture://route-gate-tests",
+                    origin.canonical_artifact_digest(),
+                    origin.canonical_artifact_byte_length(),
+                    origin.network_revision(),
+                )
+                .expect("non-empty fixture key"),
+            },
+            0,
+            crate::test_policy::selection(&revision),
+        )
+        .expect("install");
+        let edges = world
+            .traffic()
+            .maneuvers()
+            .maneuver_path(ManeuverPathOrdinal::from_raw(0))
+            .expect("fixture maneuver path")
+            .edges()
+            .to_vec();
+        let route = world
+            .register_route(RouteRegisterInput::new(edges))
+            .expect("route along fixture maneuver path");
+        (world, route)
+    }
+
+    #[test]
+    fn route_gate_matches_compiled_hop_gate_per_hop() {
+        let (world, route) = world_with_path_route();
+        let compiled = world.compiled_route(route).expect("compiled route");
+        assert!(
+            compiled.hop_gate.iter().any(Option::is_some),
+            "fixture route must carry at least one Gate"
+        );
+        for (hop, expected) in compiled.hop_gate.iter().enumerate() {
+            let hop = u32::try_from(hop).expect("hop index fits u32");
+            let observation = world.route_gate(route, hop);
+            match expected {
+                Some(gate) => {
+                    let observation = observation.expect("hop with Gate must locate");
+                    assert_eq!(observation.route(), route);
+                    assert_eq!(observation.hop(), hop);
+                    assert_eq!(observation.gate(), *gate);
+                    let edge = compiled.edges[hop as usize];
+                    assert_eq!(observation.edge(), edge);
+                    assert_eq!(
+                        observation.progress_mm(),
+                        world.traffic().lane_lengths_millimetres()[edge.index()],
+                        "Gate 位于该 hop 的 from-edge 末端"
+                    );
+                }
+                None => assert_eq!(observation, None, "hop without Gate must not locate"),
+            }
+        }
+    }
+
+    #[test]
+    fn route_gate_rejects_out_of_range_hop_and_stale_route() {
+        let (mut world, route) = world_with_path_route();
+        let hop_count = u32::try_from(
+            world
+                .compiled_route(route)
+                .expect("compiled route")
+                .edges
+                .len(),
+        )
+        .expect("hop count fits u32");
+        assert_eq!(world.route_gate(route, hop_count), None);
+        assert_eq!(world.route_gate(route, u32::MAX), None);
+
+        let stale = RouteHandle::new(route.index(), route.generation() + 1);
+        assert_eq!(world.route_gate(stale, 0), None);
+
+        world.remove_route(route).expect("remove unused route");
+        assert_eq!(world.route_gate(route, 0), None, "removed route is stale");
+    }
+
+    #[test]
+    fn route_gate_read_does_not_change_state_or_digest() {
+        let (world, route) = world_with_path_route();
+        let before =
+            crate::deterministic_state_digest(&world.capture_snapshot().expect("snapshot before"))
+                .expect("digest before");
+        for hop in 0..8 {
+            let _ = world.route_gate(route, hop);
+        }
+        let after =
+            crate::deterministic_state_digest(&world.capture_snapshot().expect("snapshot after"))
+                .expect("digest after");
+        assert_eq!(before, after);
+        assert_eq!(world.command_cursor(), 1);
     }
 }
 
