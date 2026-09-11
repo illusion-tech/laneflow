@@ -1,0 +1,46 @@
+use std::path::PathBuf;
+
+/// Junction authoring and validation failure.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("failed to read or write {path}: {source}")]
+    Io {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("invalid junction TOML: {0}")]
+    Toml(#[from] toml::de::Error),
+
+    #[error("could not serialize junction catalog TOML: {0}")]
+    TomlSerialize(#[from] toml::ser::Error),
+
+    #[error("invalid junction configuration: {0}")]
+    Config(String),
+
+    #[error("{stage} validation failed: {message}")]
+    Validation {
+        stage: &'static str,
+        message: String,
+    },
+
+    #[error("catalog validation failed: {0}")]
+    Catalog(String),
+
+    #[error("generated output differs from checked-in file {path}: {detail}")]
+    OutputMismatch { path: PathBuf, detail: String },
+}
+
+pub(crate) trait IoResultExt<T> {
+    fn at(self, path: impl Into<PathBuf>) -> Result<T, Error>;
+}
+
+impl<T> IoResultExt<T> for Result<T, std::io::Error> {
+    fn at(self, path: impl Into<PathBuf>) -> Result<T, Error> {
+        self.map_err(|source| Error::Io {
+            path: path.into(),
+            source,
+        })
+    }
+}

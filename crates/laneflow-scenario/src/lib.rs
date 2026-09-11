@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 
+pub mod complex_junction;
 pub mod signalized_corridor;
 
 #[cfg(test)]

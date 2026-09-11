@@ -13,6 +13,7 @@ members = [
     "crates/laneflow-static-network",
     "research/issue-123-spatial-prototype",
     "tools/laneflow-corridor-generator",
+    "tools/laneflow-junction-generator",
     "tools/laneflow-urban-generator",
     "tools/laneflow-urban-harness",
     "xtask",
