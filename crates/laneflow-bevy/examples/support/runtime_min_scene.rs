@@ -20,7 +20,8 @@ const FULL_SPATIAL: &[u8] = include_bytes!(
     "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
 );
 
-pub fn session() -> Result<LaneFlowSession, Box<dyn Error>> {
+/// 安装夹具修订、注册沿机动路径的路线并生成两辆车的世界。
+pub fn world() -> Result<TrafficWorld, Box<dyn Error>> {
     let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .map_err(|error| format!("{error:?}"))?;
     let revision = build_shared_network_revision(
@@ -92,12 +93,21 @@ pub fn session() -> Result<LaneFlowSession, Box<dyn Error>> {
         1_000,
         0,
     ))?;
-    let spatial = SpatialSession::bind(revision)
+    Ok(world)
+}
+
+pub fn session_config() -> LaneFlowSessionConfig {
+    LaneFlowSessionConfig::new(NonZeroU32::new(8).expect("non-zero"))
+}
+
+pub fn session() -> Result<LaneFlowSession, Box<dyn Error>> {
+    let world = world()?;
+    let spatial = SpatialSession::bind(world.revision())
         .map_err(|error| format!("{error:?}"))?
         .ok_or("missing spatial session")?;
     Ok(LaneFlowSession::new(
         world,
         Some(spatial),
-        LaneFlowSessionConfig::new(NonZeroU32::new(8).expect("non-zero")),
+        session_config(),
     )?)
 }

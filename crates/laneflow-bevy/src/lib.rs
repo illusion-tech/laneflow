@@ -2,6 +2,7 @@
 
 mod error;
 mod lifecycle;
+mod observation;
 mod plugin;
 mod session;
 
@@ -9,6 +10,9 @@ pub use error::LaneFlowAdapterError;
 pub use lifecycle::{
     LaneFlowVehicleDespawnRecord, LaneFlowVehicleReplaceOutcome, LaneFlowVehicleReplaceRecord,
     despawn_vehicle, replace_completed_vehicle,
+};
+pub use observation::{
+    LaneFlowJunctionObservation, LaneFlowJunctionObservationContext, LaneFlowJunctionVehicleRow,
 };
 pub use plugin::{
     LaneFlowFixed, LaneFlowFixedSet, LaneFlowOuterFrame, LaneFlowOuterFrameSet, LaneFlowPlugin,

@@ -17,6 +17,7 @@ use laneflow_spatial::{CanonicalPoseBatch, PoseInput, PoseRecordId, SpatialSessi
 use laneflow_static_network::SharedNetworkRevision;
 
 use crate::LaneFlowAdapterError;
+use crate::observation::LaneFlowJunctionObservation;
 
 /// 把 Runtime 已提交 pose 源映射为 Spatial 批次输入。
 fn pose_input(record: PoseRecordId, source: RuntimePoseSource) -> PoseInput {
@@ -120,6 +121,17 @@ impl LaneFlowSession {
     /// 已提交交通世界。
     pub const fn world(&self) -> &TrafficWorld {
         &self.world
+    }
+
+    /// 借用活动 Session 的复杂路口领域只读观测视图（#285 复杂路口观测
+    /// G1 §3）。
+    ///
+    /// 创建为 O(1) 且无堆分配；视图借用期间借用规则禁止对同一 Session
+    /// 推进或提交生命周期命令。headless Session 也能读取领域观察；几何
+    /// 绘制另外要求有效 Spatial 配对。
+    #[must_use]
+    pub const fn junction_observation(&self) -> LaneFlowJunctionObservation<'_> {
+        LaneFlowJunctionObservation::new(&self.world)
     }
 
     /// 两次 `step` 之间提交 route、spawn 与 parking lifecycle 命令。
