@@ -152,6 +152,24 @@ fn catalog_round_trips_validates_and_marks_two_focus_routes() {
         .map(|route| route.route_id.as_str())
         .collect();
     assert_eq!(focus, FOCUS_ROUTE_IDS);
+    // 同 portal 两条环路共享出口/入口焊接点：lane 1 槽位相位错开半个 pitch，
+    // 默认配置下 lane 0 首槽 6.5 m、lane 1 首槽 11.5 m。
+    for portal in &catalog.portals {
+        for lane in &portal.lanes {
+            let first = catalog
+                .spawn_slots
+                .iter()
+                .filter(|slot| slot.portal_id == portal.id && slot.lane_index == lane.lane_index)
+                .map(|slot| slot.progress)
+                .fold(f64::INFINITY, f64::min);
+            let expected = 6.5 + lane.lane_index as f64 * 5.0;
+            assert_eq!(
+                first, expected,
+                "portal {:?} lane {} first slot progress",
+                portal.id, lane.lane_index
+            );
+        }
+    }
 }
 
 #[test]
@@ -159,6 +177,33 @@ fn config_rejects_unknown_fields() {
     let unknown = format!("{CONFIG}\n[geometry.bogus]\n");
     let error = JunctionConfig::parse(&unknown).expect_err("unknown field must fail");
     assert!(error.to_string().contains("bogus"));
+}
+
+#[test]
+fn config_rejects_phase_durations_not_multiple_of_tick() {
+    let bad = CONFIG.replace("yellow_ms = 3008", "yellow_ms = 3009");
+    assert_ne!(bad, CONFIG, "config must contain the replaced field");
+    let error = JunctionConfig::parse(&bad).expect_err("non-multiple phase must fail");
+    assert!(error.to_string().contains("whole multiple"));
+}
+
+#[test]
+fn catalog_rejects_exit_portal_not_owning_final_edge() {
+    use laneflow_scenario::complex_junction::CatalogError;
+
+    let mut catalog = default_catalog();
+    let route = catalog
+        .routes
+        .iter_mut()
+        .find(|route| route.route_id == "route-w-through")
+        .expect("route exists");
+    route.exit_portal_id = "portal-loop-to-n".to_owned();
+    let error = laneflow_scenario::complex_junction::validate(&catalog)
+        .expect_err("tampered exit portal must fail");
+    assert!(
+        matches!(error, CatalogError::ExitPortalMismatch { .. }),
+        "expected ExitPortalMismatch, got {error}"
+    );
 }
 
 #[test]

@@ -38,8 +38,10 @@ cargo +1.98.0 run --locked -p laneflow-junction-generator -- check --config exam
   一对一接到顺时针下一条入口车道（三段 90 度圆弧绕角 + 直线段），让 11 条 catalog
   路线中的两条焦点路线成环并多次穿过同一机动门（重复 Gate occurrence）。
 - catalog 0.1 由 Portal 拥有 ordered PortalLane（每 portal 2 条回连边车道），
-  PortalLane 拥有共享 entry SpawnSlot 与 weighted RouteChoice；280 个 spawn slot
-  只放在环路回连边上，端点净距 = 车长 + min_gap。
+  PortalLane 拥有共享 entry SpawnSlot 与 weighted RouteChoice；spawn slot
+  只放在环路回连边上，端点净距 = 车长 + min_gap；同一 portal 的两条环路共享
+  出口/入口焊接点（分叉/汇合段几何重合），lane 1 的槽位相位错开半个
+  pitch，保证任意两个槽位的物理间距不小于车长。
 - 策略：单一 RightOfWayPolicySet，regulation `engineering` / `complex-junction-1`，
   依据 `repository:tools/laneflow-junction-generator`；示例声明是工程验证场景模板，
   不宣称覆盖现实法域法规全集。

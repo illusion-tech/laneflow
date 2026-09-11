@@ -182,6 +182,9 @@ pub enum CatalogError {
     SameEntryExit {
         route_id: String,
     },
+    ExitPortalMismatch {
+        route_id: String,
+    },
     UnreferencedRoute(String),
     FocusRouteSet,
     InsufficientSlots(usize),
@@ -279,6 +282,12 @@ impl fmt::Display for CatalogError {
                 write!(
                     formatter,
                     "route {route_id:?} has the same entry and exit portal"
+                )
+            }
+            Self::ExitPortalMismatch { route_id } => {
+                write!(
+                    formatter,
+                    "route {route_id:?} exit_portal_id does not own its final loop edge"
                 )
             }
             Self::UnreferencedRoute(id) => {
@@ -512,6 +521,22 @@ pub fn validate(catalog: &JunctionCatalog) -> Result<(), CatalogError> {
             });
         }
         slot_by_id.insert(slot.slot_id.as_str(), slot);
+    }
+
+    // exit_portal_id 交叉核对：路线的末边必须是该 portal 某条车道的环路回连边。
+    // 环路回连边与 portal lane 的归属由 slot 表（portal_id + edge_id）唯一表达。
+    let mut loop_edge_portal: HashMap<&str, &str> = HashMap::new();
+    for slot in &catalog.spawn_slots {
+        loop_edge_portal.insert(slot.edge_id.as_str(), slot.portal_id.as_str());
+    }
+    for route in &catalog.routes {
+        let last_edge = route.edge_ids.last().expect("non-empty route checked");
+        if loop_edge_portal.get(last_edge.as_str()).copied() != Some(route.exit_portal_id.as_str())
+        {
+            return Err(CatalogError::ExitPortalMismatch {
+                route_id: route.route_id.clone(),
+            });
+        }
     }
 
     for portal in &catalog.portals {
