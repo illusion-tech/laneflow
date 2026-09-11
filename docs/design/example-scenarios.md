@@ -3,7 +3,7 @@
 **文档状态**: Accepted（#184 G1；#196 v0.9 增量）<br>
 **最后更新**: 2026-09-04<br>
 **适用范围**: 信号化走廊几何、受保护转向 profile、catalog 0.4、人口和车辆回流策略。
-JSON 制品与 production loader 已删除。
+JSON 制品与 production loader 已删除。§12 另行登记 #285 阶段二的复杂路口参考场景。
 
 **关联 ADR**:
 
@@ -366,7 +366,30 @@ current v0.10 至少验证：
 | 可视     | 左/直/右可识别、灯具状态一致、Adapter pose 和 same-Entity recycle 正常               |
 | 性能     | 200 车持续运行无 unbounded queue/retained growth；稳态 lifecycle 不做全人口临时分配  |
 
-## 12. 治理与完成边界
+## 12. 复杂路口参考场景登记（#285 阶段二）
+
+#285 阶段二交付独立的复杂路口参考场景，与走廊场景并列登记，不修改上文走廊
+合同的任何条款：
+
+- authoring SSOT：`examples/config/v0.1-complex-junction.toml`（exact config
+  `0.1`）；
+- 制品：`v0.1-complex-junction.catalog.toml`（catalog 0.1）与
+  `v0.1-complex-junction.lfca`（含 Spatial），由 `laneflow-junction-generator`
+  byte-deterministically 生成；
+- 拓扑：单四岔信号路口，主路东西 2+2 车道、次路南北 1+1 车道；保护左转待转区
+  （1 个 WaitingZone）、次路许可左转、3 个 ConflictZone、4 条 ParticipantStream；
+  8 条环路回连边一对一连接出口/入口车道，两条焦点路线成环并拥有重复 Gate
+  occurrence；
+- 信号：单 controller 9 phase 固定时制；主路直行与次路许可左转同相位，许可左转
+  在主路直行车流中找间隙；
+- 场景合同、复现命令与边界由 `tools/laneflow-junction-generator/README.md`
+  唯一拥有，本文件不复制第二份。
+
+catalog 0.1 的 portal/lane/slot/route 语义与走廊 catalog 0.4 同构；
+`policy_selection` 同样必填，`pinned` 指向生成器声明的 engineering 策略
+`complex-junction-1`。
+
+## 13. 治理与完成边界
 
 - 设计来源：#184，G1 冻结记录见 <https://github.com/illusion-tech/laneflow/issues/184#issuecomment-5041612599>；
 - #185、#186–#189 与 #203 分别按自身 Gate Ledger 推进；各 Issue 的当前状态以 GitHub 为准，任一设计 Issue 或上游 G1 都不自动授权下游开工；

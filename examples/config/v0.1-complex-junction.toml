@@ -1,0 +1,41 @@
+junction_config_version = "0.1"
+frame_id = "complex-junction-local"
+fixed_delta_ms = 16
+
+[geometry]
+arm_length_meters = 150.0
+junction_radius_meters = 30.0
+lane_width_meters = 3.5
+center_offset_meters = 6.0
+pocket_length_meters = 12.0
+pocket_offset_meters = 4.0
+curve_control_meters = 12.0
+loop_corner_radius_meters = 20.0
+loop_outer_widen_meters = 12.0
+spawn_slot_pitch_meters = 10.0
+
+[speeds]
+main_meters_per_second = 16.0
+secondary_meters_per_second = 11.0
+turn_meters_per_second = 7.0
+
+[signals]
+main_left_green_ms = 10000
+main_through_green_ms = 30000
+secondary_through_green_ms = 20000
+yellow_ms = 3008
+all_red_ms = 1008
+
+[profile]
+length_meters = 4.5
+desired_speed_meters_per_second = 16.0
+min_gap_meters = 2.0
+time_headway_seconds = 1.5
+max_acceleration_meters_per_second_squared = 1.5
+comfortable_deceleration_meters_per_second_squared = 2.0
+emergency_deceleration_meters_per_second_squared = 6.0
+
+[output]
+directory = "../data"
+catalog_file_name = "v0.1-complex-junction.catalog.toml"
+lfca_file_name = "v0.1-complex-junction.lfca"
