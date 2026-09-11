@@ -43,8 +43,12 @@ lane_index = 1
 entry_spawn_slot_id = "slot-loop-ne-i1-000"
 
 [[portals.lanes.route_choices]]
-route_id = "route-e-right"
-weight = 100
+route_id = "route-e-left"
+weight = 50
+
+[[portals.lanes.route_choices]]
+route_id = "route-e-through-lane1"
+weight = 50
 
 [[portals]]
 id = "portal-loop-to-n"
@@ -151,7 +155,7 @@ edge_ids = [
 focus = false
 
 [[routes]]
-route_id = "route-e-right"
+route_id = "route-e-left"
 exit_portal_id = "portal-loop-to-w"
 edge_ids = [
     "loop-ne-i1",
@@ -159,6 +163,18 @@ edge_ids = [
     "e-s.i0",
     "s-out",
     "loop-sw-i0",
+]
+focus = false
+
+[[routes]]
+route_id = "route-e-through-lane1"
+exit_portal_id = "portal-loop-to-n"
+edge_ids = [
+    "loop-ne-i1",
+    "e-in-i1",
+    "e-w.i1",
+    "w-out-i1",
+    "loop-wn-i1",
 ]
 focus = false
 

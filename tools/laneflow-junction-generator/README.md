@@ -24,9 +24,10 @@ cargo +1.98.0 run --locked -p laneflow-junction-generator -- check --config exam
 
 - 单四岔信号路口：主路东西向 2+2 车道，次路南北向 1+1 车道；臂长、路口半径、车道
   宽度等几何参数全部来自配置文件。
-- 7 条 Movement / 9 条 ManeuverPath：主路直行每车道一条车道级路径、主路西进口保护
-  左转（带 12 m 待转 pocket，三门：admission / waiting-entry / release）、次路北进口
-  许可左转、次路南进口直行、两条右转。
+- 7 条 Movement / 9 条 ManeuverPath：主路东西双向直行（每车道一条车道级路径）、
+  两条对向主路保护左转（西进口带 12 m 待转 pocket，三门 admission /
+  waiting-entry / release；东进口单 admission 门，二者同相位且几何不交叉）、
+  次路北进口许可左转、次路南进口直行、次路北进口右转。
 - 固定时制信号程序 9 相位 4 组：主路左转独占保护；主路直行与次路许可左转同相位
   （许可左转必须在主路直行车流中找间隙）；次路直行独占。相位时长来自配置。
 - 冲突区只为「许可门路径 × 同相位并发直行路径」的几何交叉对编制：同入口边跳过，
@@ -34,7 +35,7 @@ cargo +1.98.0 run --locked -p laneflow-junction-generator -- check --config exam
   ConflictZone（许可左转 × 两条东→西直行车道的交叉区、许可左转 × 西→东 lane0 的
   合流区）与 4 条 ParticipantStream（许可流 priority 0 + 三条直行流 priority 100）。
 - 1 个 WaitingZone（容量 1，挂在保护左转路径上），8 条环路回连边把每条出口车道
-  一对一接到顺时针下一条入口车道（三段 90 度圆弧绕角 + 直线段），让 10 条 catalog
+  一对一接到顺时针下一条入口车道（三段 90 度圆弧绕角 + 直线段），让 11 条 catalog
   路线中的两条焦点路线成环并多次穿过同一机动门（重复 Gate occurrence）。
 - catalog 0.1 由 Portal 拥有 ordered PortalLane（每 portal 2 条回连边车道），
   PortalLane 拥有共享 entry SpawnSlot 与 weighted RouteChoice；280 个 spawn slot

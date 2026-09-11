@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 
 use laneflow_compiler::{CanonicalIdentityViolation, CompileLimits, derive_canonical_stable_id_v1};
@@ -83,6 +83,7 @@ pub enum BindError {
     UnknownProfile(String),
     SlotEdgeNotEntry { slot_id: String, route_id: String },
     InvalidProgress { slot_id: String },
+    DuplicateSlotPosition { slot_id: String },
     RouteRegister(RouteError),
 }
 
@@ -126,6 +127,12 @@ impl fmt::Display for BindError {
                 write!(
                     formatter,
                     "slot {slot_id:?} progress is outside the bound edge"
+                )
+            }
+            Self::DuplicateSlotPosition { slot_id } => {
+                write!(
+                    formatter,
+                    "slot {slot_id:?} collides with another slot at millimetre resolution"
                 )
             }
             Self::RouteRegister(error) => write!(formatter, "register_route failed: {error}"),
@@ -206,6 +213,16 @@ pub fn bind(
         .iter()
         .map(|slot| bind_slot(catalog, slot, revision, &routes, &edges))
         .collect::<Result<Vec<_>, _>>()?;
+    // catalog 校验按 f64 米制 bit 去重；绑定四舍五入到毫米后两个不同米值可能
+    // 落在同一运行位置，这里按 (edge, progress_mm) 再去重一次。
+    let mut bound_positions = HashSet::new();
+    for slot in &spawn_slots {
+        if !bound_positions.insert((slot.edge, slot.progress_mm)) {
+            return Err(BindError::DuplicateSlotPosition {
+                slot_id: slot.slot_id.clone(),
+            });
+        }
+    }
     spawn_slots.sort_by(|left, right| {
         portal_rank(&left.portal_id)
             .cmp(&portal_rank(&right.portal_id))
