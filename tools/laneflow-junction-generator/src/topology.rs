@@ -134,27 +134,38 @@ impl Curve {
     /// 保证 LaneEdge 后继焊接。控制腿等长（`CIRCLE_CUBIC_FACTOR·radius`），
     /// 编译器自适应细分在良态控制多边形上不会产生退化弦。
     ///
-    /// `widen > 0` 时把折返矩形外扩，用于同角第二条环路（避免两条环路
-    /// 几何重叠）；此时末尾多出一段长为 widen 的直线。
-    pub fn corner_loop(start: Point, from: Arm, end: Point, radius: f64, widen: f64) -> Self {
+    /// `outset > 0`（同角第二条环路，取一个车道宽）把第一段圆弧半径加大
+    /// outset，使出发直腿与内侧环路横向分离；`widen > 0` 再把折返矩形外扩
+    /// widen 并延伸末尾直线段，使远端直腿也分离。起止焊接点不变。
+    pub fn corner_loop(
+        start: Point,
+        from: Arm,
+        end: Point,
+        radius: f64,
+        outset: f64,
+        widen: f64,
+    ) -> Self {
         let h0 = from.delta();
         // xz 平面（z 指南）里行进方向右侧的单位向量。
         let right = [-h0[1], h0[0]];
         let along = (start[0] - end[0]) * h0[0] + (start[1] - end[1]) * h0[1];
         let across = (start[0] - end[0]) * right[0] + (start[1] - end[1]) * right[1];
-        let l1 = -(across + radius) + widen;
-        let l2 = along - radius;
+        let r1 = radius + outset;
+        let l3 = widen;
+        let l1 = -across - r1 + l3;
+        let l2 = along + r1 - 2.0 * radius;
         assert!(l1 > 0.0 && l2 > 0.0, "loop straights must be positive");
+        let k1 = CIRCLE_CUBIC_FACTOR * r1;
         let k = CIRCLE_CUBIC_FACTOR * radius;
         let mut segments = Vec::with_capacity(6);
-        // 圆弧 1：h0 右转 90 度到 right。
+        // 圆弧 1（半径 r1）：h0 右转 90 度到 right。
         let end1 = [
-            start[0] + radius * right[0] + radius * h0[0],
-            start[1] + radius * right[1] + radius * h0[1],
+            start[0] + r1 * right[0] + r1 * h0[0],
+            start[1] + r1 * right[1] + r1 * h0[1],
         ];
         segments.push(Segment::Bezier {
-            c1: [start[0] + k * h0[0], start[1] + k * h0[1]],
-            c2: [end1[0] - k * right[0], end1[1] - k * right[1]],
+            c1: [start[0] + k1 * h0[0], start[1] + k1 * h0[1]],
+            c2: [end1[0] - k1 * right[0], end1[1] - k1 * right[1]],
             end: end1,
         });
         // 直线 1：沿 right 推进 l1。
@@ -183,7 +194,7 @@ impl Curve {
             c2: [end3[0] + k * right[0], end3[1] + k * right[1]],
             end: end3,
         });
-        if widen > 0.0 {
+        if l3 > 0.0 {
             segments.push(Segment::Line { end });
         }
         Self { start, segments }
@@ -250,6 +261,32 @@ impl Curve {
             }
         }
         total
+    }
+
+    /// 弦长 progress 处的折线近似位置与单位切向（与 `chord_length` 同采样约定），
+    /// 供 spawn slot 的跨边物理重叠守卫使用。
+    pub fn point_at_chord(&self, progress: f64) -> Option<(Point, Point)> {
+        let mut points = Vec::new();
+        self.sample_into(64, &mut points);
+        let mut remaining = progress;
+        for pair in points.windows(2) {
+            let length = segment_length(pair[0], pair[1]);
+            if length > 0.0 && remaining <= length {
+                let tangent = [
+                    (pair[1][0] - pair[0][0]) / length,
+                    (pair[1][1] - pair[0][1]) / length,
+                ];
+                return Some((
+                    [
+                        pair[0][0] + remaining * tangent[0],
+                        pair[0][1] + remaining * tangent[1],
+                    ],
+                    tangent,
+                ));
+            }
+            remaining -= length;
+        }
+        None
     }
 }
 
@@ -481,11 +518,18 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
         let to_offsets = to.lane_offsets(config);
         let start = port(from, false, from_offsets[from_lane], arm_length);
         let end = port(to, true, to_offsets[to_lane], arm_length);
+        // 同角第二条环路：首段圆弧半径加大一个车道宽（outset），折返矩形再
+        // 外扩 widen，两条环路全段横向分离。
         let curve = Curve::corner_loop(
             start,
             from,
             end,
             corner_radius,
+            if wide {
+                geometry.lane_width_meters
+            } else {
+                0.0
+            },
             if wide { widen } else { 0.0 },
         );
         let entry_key = road_edge_key(to, true, to_lane, to_offsets.len());

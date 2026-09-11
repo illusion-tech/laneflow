@@ -152,8 +152,9 @@ fn catalog_round_trips_validates_and_marks_two_focus_routes() {
         .map(|route| route.route_id.as_str())
         .collect();
     assert_eq!(focus, FOCUS_ROUTE_IDS);
-    // 同 portal 两条环路共享出口/入口焊接点：lane 1 槽位相位错开半个 pitch，
-    // 默认配置下 lane 0 首槽 6.5 m、lane 1 首槽 11.5 m。
+    // 同 portal 两条环路在分叉/汇合段几何收敛：lane 1 槽位按半 pitch 相位
+    // 起错（6.5 + 5 = 11.5 起），靠近焊接点的不安全候选被贪心过滤丢弃，
+    // 因此只锁定相位网格（≡ 11.5 mod pitch），不锁定具体首个存活槽位。
     for portal in &catalog.portals {
         for lane in &portal.lanes {
             let first = catalog
@@ -162,11 +163,12 @@ fn catalog_round_trips_validates_and_marks_two_focus_routes() {
                 .filter(|slot| slot.portal_id == portal.id && slot.lane_index == lane.lane_index)
                 .map(|slot| slot.progress)
                 .fold(f64::INFINITY, f64::min);
-            let expected = 6.5 + lane.lane_index as f64 * 5.0;
-            assert_eq!(
-                first, expected,
-                "portal {:?} lane {} first slot progress",
-                portal.id, lane.lane_index
+            let base = 6.5 + lane.lane_index as f64 * 5.0;
+            assert!(
+                first >= base && (first - base) % 10.0 == 0.0,
+                "portal {:?} lane {} first slot progress {first} is off the phase grid {base}",
+                portal.id,
+                lane.lane_index
             );
         }
     }
@@ -228,6 +230,57 @@ fn config_rejects_slot_pitch_below_two_vehicle_lengths() {
     assert_ne!(bad, CONFIG, "config must contain the replaced fields");
     let error = JunctionConfig::parse(&bad).expect_err("unsafe stagger must fail");
     assert!(error.to_string().contains("twice"));
+}
+
+#[test]
+fn config_rejects_shallow_pocket_offset() {
+    let bad = CONFIG.replace("pocket_offset_meters = 4.0", "pocket_offset_meters = 0.5");
+    assert_ne!(bad, CONFIG, "config must contain the replaced field");
+    let error = JunctionConfig::parse(&bad).expect_err("shallow pocket must fail");
+    assert!(error.to_string().contains("approach through lane"));
+}
+
+#[test]
+fn generate_rejects_output_aliasing_config() {
+    let directory = std::env::temp_dir().join(format!(
+        "laneflow-junction-alias-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&directory).expect("create temp dir");
+    let config_path = directory.join("junction.toml");
+    let aliased = CONFIG
+        .replace("directory = \"../data\"", "directory = \".\"")
+        .replace(
+            "catalog_file_name = \"v0.1-complex-junction.catalog.toml\"",
+            "catalog_file_name = \"junction.toml\"",
+        );
+    assert_ne!(aliased, CONFIG, "config must contain the replaced fields");
+    std::fs::write(&config_path, aliased).expect("write temp config");
+    let error = laneflow_junction_generator::generate_files(&config_path)
+        .expect_err("aliased output must fail");
+    assert!(error.to_string().contains("overwrite the source config"));
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+#[test]
+fn generate_rejects_excessive_slot_count() {
+    let bad = CONFIG
+        .replace("length_meters = 4.5", "length_meters = 0.1")
+        .replace("min_gap_meters = 2.0", "min_gap_meters = 0.1")
+        .replace(
+            "spawn_slot_pitch_meters = 10.0",
+            "spawn_slot_pitch_meters = 0.2",
+        );
+    assert_ne!(bad, CONFIG, "config must contain the replaced fields");
+    let config = JunctionConfig::parse(&bad).expect("raw config remains valid");
+    let Err(error) = generate(&config) else {
+        panic!("excessive slot count must fail");
+    };
+    assert!(error.to_string().contains("spawn"));
 }
 
 #[test]

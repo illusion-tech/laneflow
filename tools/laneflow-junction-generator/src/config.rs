@@ -201,6 +201,14 @@ impl JunctionConfig {
                  pocket stays clear of the opposing through lanes",
             )));
         }
+        // 下限：pocket 也不得退回本向 lane0 的车道带（中心线 a、半宽 w/2），
+        // 否则 w-n.i1 与 W→E lane0 在同相位门下物理重叠。
+        if geometry.pocket_offset_meters < geometry.lane_width_meters {
+            return Err(config_error(
+                "pocket_offset_meters must be at least lane_width_meters so the waiting pocket \
+                 stays clear of the approach through lane",
+            ));
+        }
         // 待转区容量 1 的存储长度即 pocket 长度；车长超限会让 route-w-left-waiting
         // 的每次 spawn 都以 VehicleTooLong 失败。
         if self.profile.length_meters > geometry.pocket_length_meters {
@@ -214,11 +222,12 @@ impl JunctionConfig {
                 "arm_length_meters must exceed twice junction_radius_meters to leave a loop corner",
             ));
         }
-        // 环路三段圆弧的直线腿长度 = arm_length − 车道偏移 − corner_radius（+ widen），
-        // 最外车道偏移为 center_offset + lane_width / 2；直线腿必须为正且不小于转角半径。
+        // 环路三段圆弧的直线腿长度 = arm_length − 车道偏移 − corner_radius（外侧环路
+        // 首段圆弧半径再加大一个车道宽，且远端外扩 widen）；直线腿必须为正且不小于
+        // 转角半径。
         let shortest_leg = geometry.arm_length_meters
             - (geometry.center_offset_meters + geometry.lane_width_meters / 2.0)
-            - geometry.loop_corner_radius_meters;
+            - (geometry.loop_corner_radius_meters + geometry.lane_width_meters);
         if shortest_leg < geometry.loop_corner_radius_meters {
             return Err(config_error(
                 "arm_length_meters too short for loop_corner_radius_meters: loop straight legs \
