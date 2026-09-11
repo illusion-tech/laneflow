@@ -35,13 +35,16 @@ cargo +1.98.0 run --locked -p laneflow-junction-generator -- check --config exam
   ConflictZone（许可左转 × 两条东→西直行车道的交叉区、许可左转 × 西→东 lane0 的
   合流区）与 4 条 ParticipantStream（许可流 priority 0 + 三条直行流 priority 100）。
 - 1 个 WaitingZone（容量 1，挂在保护左转路径上），8 条环路回连边把每条出口车道
-  一对一接到顺时针下一条入口车道（三段 90 度圆弧绕角 + 直线段），让 11 条 catalog
-  路线中的两条焦点路线成环并多次穿过同一机动门（重复 Gate occurrence）。
+  一对一接到顺时针下一条入口车道（三段 90 度圆弧绕角 + 直线段）；同角第二条环路
+  首段圆弧半径加大一个车道宽、折返矩形再外扩 `loop_outer_widen_meters`，两条环路
+  全段横向分离。11 条 catalog 路线中两条焦点路线成环并多次穿过同一机动门
+  （重复 Gate occurrence）。
 - catalog 0.1 由 Portal 拥有 ordered PortalLane（每 portal 2 条回连边车道），
   PortalLane 拥有共享 entry SpawnSlot 与 weighted RouteChoice；spawn slot
-  只放在环路回连边上，端点净距 = 车长 + min_gap；同一 portal 的两条环路共享
-  出口/入口焊接点（分叉/汇合段几何重合），lane 1 的槽位相位错开半个
-  pitch，保证任意两个槽位的物理间距不小于车长。
+  只放在环路回连边上，端点净距 = 车长 + min_gap；同一 portal 内 lane 1 的候选
+  按半 pitch 相位起错，再按折线采样位置与切向对所有已放置槽位做跨边重叠
+  过滤（横向 < 2 m 且纵向 < 车长即跳过该候选），某条 lane 无存活槽位时
+  拒绝配置；槽位总量上限 4_096，超出在编译前拒绝。
 - 策略：单一 RightOfWayPolicySet，regulation `engineering` / `complex-junction-1`，
   依据 `repository:tools/laneflow-junction-generator`；示例声明是工程验证场景模板，
   不宣称覆盖现实法域法规全集。
