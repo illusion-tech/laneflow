@@ -68,6 +68,8 @@
 - `example-scenarios.md`、`signalized-corridor-protected-turning.md`、
   `signalized-corridor-population.md`：信号化走廊几何、转向 profile 与人口策略。
 - `bevy-reference-adapter.md`：Bevy 0.19 Reference Adapter。
+- [`junction-observation-and-validation.md`](junction-observation-and-validation.md)：#285 G1
+  提案，复杂路口精确机动门定位、借用式领域观测、参考场景和跨层验证；尚未接受或实现。
 - `core-runtime-performance-baseline.md`：一万 / 十万产品目标与一百万研究包络。
 - `real-road-workloads.md`：LuST 真实路网契约。
 - `lust-bevy-population-control.md`：LuST / Bevy 示例层人口调节。

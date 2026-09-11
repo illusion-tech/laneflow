@@ -8,6 +8,8 @@
 
 **关联文档**:
 
+- [`junction-observation-and-validation.md`](junction-observation-and-validation.md)：#285
+  领域观测与跨层验证提案；Review，不改变本文已接受的现行入口。
 - `../architecture.md`
 - `../adr/0001-project-scope.md`
 - `../adr/0012-core-numeric-authority-and-presentation-precision.md`
