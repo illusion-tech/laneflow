@@ -2328,6 +2328,58 @@ fn conflict_multiplicity_preserves_owner_local_and_repeated_occurrences() {
 }
 
 #[test]
+fn route_gate_preserves_repeated_gate_occurrences() {
+    let revision = compile_road_editing_revision(conflict_multiplicity_road_editing_module());
+    let first_stream = revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("first stream");
+    let route_edges = revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(first_stream.maneuver_path())
+        .expect("shared maneuver path")
+        .edges()
+        .to_vec();
+    let mut repeated_edges = route_edges.clone();
+    repeated_edges.extend_from_slice(&route_edges);
+    let mut world = install_fixture(revision, WorldConfig::new(0, 1, 6, 8, 1, 100))
+        .expect("install repeated fixture");
+    let route = world
+        .register_route(RouteRegisterInput::new(repeated_edges))
+        .expect("doubled route registers two maneuver occurrences");
+    let half = u32::try_from(route_edges.len()).expect("hop count fits u32");
+    let hop_count = 2 * half;
+
+    let located = (0..hop_count)
+        .filter(|hop| world.route_gate(route, *hop).is_some())
+        .count();
+    assert!(located >= 2, "multiplicity fixture route must carry Gates");
+    for hop in 0..half {
+        let first_pass = world.route_gate(route, hop);
+        let second_pass = world.route_gate(route, half + hop);
+        assert_eq!(
+            first_pass.is_some(),
+            second_pass.is_some(),
+            "重复经过的同一静态 Gate 在两个 hop 上同有同无"
+        );
+        if let (Some(first_pass), Some(second_pass)) = (first_pass, second_pass) {
+            assert_eq!(first_pass.gate(), second_pass.gate());
+            assert_eq!(first_pass.edge(), second_pass.edge());
+            assert_eq!(first_pass.progress_mm(), second_pass.progress_mm());
+            assert_eq!(first_pass.route(), route);
+            assert_eq!(second_pass.route(), route);
+            assert_eq!(first_pass.hop(), hop);
+            assert_eq!(second_pass.hop(), half + hop);
+            assert_ne!(
+                first_pass, second_pass,
+                "同一静态 Gate 的重复 occurrence 不得折叠"
+            );
+        }
+    }
+}
+
+#[test]
 fn direct_candidate_and_admitted_routes_share_conflict_capacity() {
     let revision = compile_road_editing_revision(conflict_road_editing_module());
     let stream = revision

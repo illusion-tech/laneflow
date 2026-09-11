@@ -82,8 +82,11 @@ pub use kernel::waiting::{
     WaitingMembership, WaitingMembershipReleaseRecord, WaitingNoGrantReason,
     WaitingProjectionReason, WaitingRouteAnchor, WaitingZoneMember, WaitingZoneSnapshot,
 };
-pub use kernel::world::WorldGeneration;
-pub use laneflow_static_contract::{ParkingFacilityOrdinal, ParkingSpaceOrdinal};
+pub use kernel::world::{RouteGateObservation, WorldGeneration};
+pub use laneflow_static_contract::{
+    EntityKind, LaneEdgeOrdinal, ManeuverGateOrdinal, NetworkRevisionId, ParkingFacilityOrdinal,
+    ParkingSpaceOrdinal, WaitingZoneOrdinal,
+};
 
 #[cfg(test)]
 mod tests {
