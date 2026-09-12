@@ -8,53 +8,11 @@ use laneflow_scenario::complex_junction::{
 
 use crate::Error;
 use crate::config::{JunctionConfig, VEHICLE_WIDTH_ENVELOPE_METERS};
-use crate::topology::{Point, TopologyBuild};
+use crate::topology::{Point, TopologyBuild, envelopes_overlap};
 
 /// catalog 槽位总量上限：超出即配置错误，防止畸形配置（过长臂长 × 过小
 /// pitch/车长）在编译限制介入前产出无界 catalog。
 const TOTAL_SPAWN_SLOT_LIMIT: usize = 4_096;
-
-/// 车辆占据的有向矩形（前保险杠位于 point、沿 −tangent 向后 length、
-/// 半宽 half_width）在 2D 的分离轴重叠测试；全部四轴投影重叠才算碰撞。
-fn envelopes_overlap(a: (Point, Point), b: (Point, Point), length: f64, half_width: f64) -> bool {
-    let corners = |&(point, tangent): &(Point, Point)| {
-        let normal = [tangent[1], -tangent[0]];
-        [
-            [
-                point[0] + normal[0] * half_width,
-                point[1] + normal[1] * half_width,
-            ],
-            [
-                point[0] - normal[0] * half_width,
-                point[1] - normal[1] * half_width,
-            ],
-            [
-                point[0] - tangent[0] * length + normal[0] * half_width,
-                point[1] - tangent[1] * length + normal[1] * half_width,
-            ],
-            [
-                point[0] - tangent[0] * length - normal[0] * half_width,
-                point[1] - tangent[1] * length - normal[1] * half_width,
-            ],
-        ]
-    };
-    let corners_a = corners(&a);
-    let corners_b = corners(&b);
-    let axes = [a.1, [a.1[1], -a.1[0]], b.1, [b.1[1], -b.1[0]]];
-    axes.into_iter().all(|axis| {
-        let project = |corners: &[Point; 4]| {
-            corners
-                .iter()
-                .map(|corner| corner[0] * axis[0] + corner[1] * axis[1])
-                .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| {
-                    (min.min(value), max.max(value))
-                })
-        };
-        let (min_a, max_a) = project(&corners_a);
-        let (min_b, max_b) = project(&corners_b);
-        min_a <= max_b && min_b <= max_a
-    })
-}
 
 pub(crate) fn build_catalog(
     config: &JunctionConfig,
