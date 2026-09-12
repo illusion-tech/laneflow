@@ -183,3 +183,25 @@ pub fn build() -> Result<JunctionDebugScene, Box<dyn Error>> {
         spawned: spawned.into_boxed_slice(),
     })
 }
+
+/// 全部编制边名（catalog 路线 edge_ids，含臂道/内部/环路）到共享根序号的映射。
+///
+/// `bind` 的序号表只覆盖 spawn slot 引用的边；臂道与内部边经
+/// `catalog.routes` 的 edge_ids 顺序与 `bound.routes` 边序号逐一对齐取得。
+pub fn edge_ordinals(
+    revision: &laneflow_static_network::SharedNetworkRevision,
+) -> std::collections::BTreeMap<String, laneflow_static_contract::LaneEdgeOrdinal> {
+    let catalog: JunctionCatalog = toml::from_str(JUNCTION_CATALOG).expect("checked-in catalog");
+    let bound = bind(&catalog, revision).expect("checked-in catalog binds");
+    let mut ordinals = std::collections::BTreeMap::new();
+    for route in &catalog.routes {
+        let bound_edges = bound
+            .routes
+            .get(&route.route_id)
+            .unwrap_or_else(|| panic!("route {} bound", route.route_id));
+        for (name, ordinal) in route.edge_ids.iter().zip(bound_edges.iter()) {
+            ordinals.entry(name.clone()).or_insert(*ordinal);
+        }
+    }
+    ordinals
+}
