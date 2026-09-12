@@ -56,6 +56,10 @@ required-features = ["native-example"]
 name = "signalized_corridor"
 required-features = ["native-example"]
 
+[[example]]
+name = "junction_debug"
+required-features = ["native-example"]
+
 [[test]]
 name = "runtime_min_smoke"
 path = "examples/support/runtime_min_smoke.rs"
@@ -63,6 +67,10 @@ path = "examples/support/runtime_min_smoke.rs"
 [[test]]
 name = "junction_observation"
 path = "examples/support/junction_observation.rs"
+
+[[test]]
+name = "junction_debug_smoke"
+path = "examples/support/junction_debug_smoke.rs"
 
 [lints]
 workspace = true

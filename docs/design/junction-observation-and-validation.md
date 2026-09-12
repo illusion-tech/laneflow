@@ -1,7 +1,8 @@
 # 复杂路口只读观测与跨层验证
 
-**文档状态**: Accepted（#285 G1；§2/§3 已随阶段一实现落地，§4–§6 由后续阶段交付）<br>
-**最后更新**: 2026-09-11（#285 阶段一：§2 `route_gate` 与 §3 `junction_observation` 实现）<br>
+**文档状态**: Accepted（#285 G1；§2–§4 已随阶段一/阶段二实现落地，§5–§6 由后续阶段交付）<br>
+**最后更新**: 2026-09-13（#285 阶段二：§4 Bevy 参考场景与调试以 `junction_debug`
+示例 + `junction_debug_smoke` 无窗口 smoke 落地）<br>
 **适用范围**: 道路机动车复杂路口的 Runtime 只读定位、Bevy 观测与参考场景、
 正确性和一万／十万规模验证
 
@@ -142,6 +143,18 @@ mesh／文本能力，不为了恢复历史 Gizmos API 增加兼容层。
   `adapter-api.md`。静态绘制缓存换根后重建；旧世代的动态标记不得覆盖当前状态。
 - 默认调试关闭。打开／关闭和改变呈现比例，在相同命令输入下必须保持 Runtime
   状态与事件摘要相同；渲染、文本、模型的耗时不能混作 Runtime 性能。
+
+### 4.1 当前状态与交付证据
+
+阶段二已交付（`junction_debug` native example + `junction_debug_smoke` 无窗口
+smoke，均基于检入 catalog 0.1 + LFCA 与固定四车 spawn 计划）：道路 ribbon 与车辆
+box 表现、F3 默认关闭的调试 overlay（静态 Gate 标记、Waiting 区间 ribbon、Conflict
+区域 ring 描边／无区域文字标记、选定车辆面板、信号状态点）、静态缓存按
+（修订、世代）重建。硬不变量由 smoke 对拍：overlay 开/关两跑同输入的
+`deterministic_state_digest` 与每拍 transition／决策摘要一致；同测覆盖车辆
+Transform 推进与足够拍数后的非空决策批次。面板与标注的可见文本受 bevy 内嵌
+ASCII 字体限制使用精确英文标识符；实现与纪律见
+[Bevy Reference Adapter §8](bevy-reference-adapter.md)。
 
 ## 5. 有限正确性矩阵
 
