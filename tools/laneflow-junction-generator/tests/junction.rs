@@ -766,3 +766,263 @@ fn focus_routes_repeat_gate_occurrences() {
         );
     }
 }
+
+/// 同角两条环路中心线采样与端点检查的共享准备。
+struct LoopGeometry {
+    /// (loop key) -> (first, last, points)。
+    loops: std::collections::BTreeMap<
+        String,
+        (
+            laneflow_static_network::CanonicalPoint,
+            laneflow_static_network::CanonicalPoint,
+            Vec<laneflow_static_network::CanonicalPoint>,
+        ),
+    >,
+}
+
+fn loop_geometry() -> LoopGeometry {
+    use laneflow_format::{FormatLimits, check_canonical_network_input};
+    use laneflow_scenario::complex_junction::bind;
+    use laneflow_static_network::{
+        SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+        build_shared_network_revision,
+    };
+
+    let generated = default_generated();
+    let catalog = default_catalog();
+    let input = check_canonical_network_input(generated.lfca_bytes(), FormatLimits::HARD)
+        .expect("checked LFCA");
+    let revision = build_shared_network_revision(
+        input,
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::RetainAvailable,
+            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+        ),
+    )
+    .expect("shared network revision");
+    let bound = bind(&catalog, &revision).expect("prepare bind");
+    let lane_pose = revision
+        .spatial()
+        .and_then(|spatial| spatial.lane_pose())
+        .expect("lane pose network");
+    let mut loops = std::collections::BTreeMap::new();
+    for (name, ordinal) in bound.edges.iter() {
+        if !name.starts_with("loop-") {
+            continue;
+        }
+        let geometry = lane_pose
+            .lane_geometry(*ordinal)
+            .unwrap_or_else(|| panic!("loop edge {name} must carry geometry"));
+        let points: Vec<_> = geometry.points().to_vec();
+        loops.insert(
+            name.clone(),
+            (
+                *points.first().expect("loop has points"),
+                *points.last().expect("loop has points"),
+                points,
+            ),
+        );
+    }
+    assert_eq!(loops.len(), 8, "四个 portal 各两条环路");
+    LoopGeometry { loops }
+}
+
+/// 折线弧长（米，f64 重算；采样点 y 恒为 0）。
+fn arc_lengths(points: &[laneflow_static_network::CanonicalPoint]) -> Vec<f64> {
+    let mut lengths = Vec::with_capacity(points.len());
+    lengths.push(0.0_f64);
+    for pair in points.windows(2) {
+        let dx = f64::from(pair[1].x) - f64::from(pair[0].x);
+        let dz = f64::from(pair[1].z) - f64::from(pair[0].z);
+        lengths.push(lengths.last().expect("length seed") + (dx * dx + dz * dz).sqrt());
+    }
+    lengths
+}
+
+fn point_distance(
+    a: laneflow_static_network::CanonicalPoint,
+    b: laneflow_static_network::CanonicalPoint,
+) -> f64 {
+    let dx = f64::from(a.x) - f64::from(b.x);
+    let dz = f64::from(a.z) - f64::from(b.z);
+    (dx * dx + dz * dz).sqrt()
+}
+
+/// 线段对真交（不含端点相触）；共点端的焊接接触不算交叉。
+fn segments_cross(
+    a0: laneflow_static_network::CanonicalPoint,
+    a1: laneflow_static_network::CanonicalPoint,
+    b0: laneflow_static_network::CanonicalPoint,
+    b1: laneflow_static_network::CanonicalPoint,
+) -> bool {
+    fn cross(o: (f64, f64), p: (f64, f64), q: (f64, f64)) -> f64 {
+        (p.0 - o.0) * (q.1 - o.1) - (p.1 - o.1) * (q.0 - o.0)
+    }
+    let a = (
+        (f64::from(a0.x), f64::from(a0.z)),
+        (f64::from(a1.x), f64::from(a1.z)),
+    );
+    let b = (
+        (f64::from(b0.x), f64::from(b0.z)),
+        (f64::from(b1.x), f64::from(b1.z)),
+    );
+    let d1 = cross(b.0, b.1, a.0);
+    let d2 = cross(b.0, b.1, a.1);
+    let d3 = cross(a.0, a.1, b.0);
+    let d4 = cross(a.0, a.1, b.1);
+    ((d1 > 0.0) != (d2 > 0.0)) && ((d3 > 0.0) != (d4 > 0.0))
+}
+
+#[test]
+fn loop_pairs_stay_separated_outside_taper_and_never_cross() {
+    // 回归 #285 环路几何缺陷：同角两条环路必须全段横向分离（平行偏移一个
+    // 车道宽），且任何位置不相交。单车道臂强制 2↔1 汇合/分流的共点端
+    // 30 m 锥形区（`topology::LOOP_TAPER_METERS`）内允许单调收敛，区外
+    // 最小间距必须 ≥ 3.4 m（平行偏移实测恰为车道宽 3.5 m，留采样余量）。
+    const TAPER_METERS: f64 = 30.0;
+    const SEPARATION_FLOOR: f64 = 3.4;
+
+    let prepared = loop_geometry();
+    for portal in ["es", "wn", "ne", "sw"] {
+        let inner = prepared
+            .loops
+            .get(&format!("loop-{portal}-i0"))
+            .unwrap_or_else(|| panic!("loop-{portal}-i0"));
+        let wide = prepared
+            .loops
+            .get(&format!("loop-{portal}-i1"))
+            .unwrap_or_else(|| panic!("loop-{portal}-i1"));
+        let shared_start = point_distance(inner.0, wide.0) == 0.0;
+        let shared_end = point_distance(inner.1, wide.1) == 0.0;
+        assert!(
+            shared_start != shared_end,
+            "loop-{portal} 恰有一端共点（2↔1 汇合/分流）"
+        );
+        let inner_lengths = arc_lengths(&inner.2);
+        let wide_lengths = arc_lengths(&wide.2);
+        let mut minimum = f64::MAX;
+        for (index, point) in inner.2.iter().enumerate() {
+            let head = inner_lengths[index];
+            let tail = inner_lengths[inner.2.len() - 1] - head;
+            if (shared_start && head < TAPER_METERS) || (shared_end && tail < TAPER_METERS) {
+                continue;
+            }
+            for (other_index, other) in wide.2.iter().enumerate() {
+                let other_head = wide_lengths[other_index];
+                let other_tail = wide_lengths[wide.2.len() - 1] - other_head;
+                if (shared_start && other_head < TAPER_METERS)
+                    || (shared_end && other_tail < TAPER_METERS)
+                {
+                    continue;
+                }
+                minimum = minimum.min(point_distance(*point, *other));
+            }
+        }
+        assert!(
+            minimum >= SEPARATION_FLOOR,
+            "loop-{portal} 锥形区外最小间距 {minimum:.3} m 必须 ≥ {SEPARATION_FLOOR} m"
+        );
+        for a in inner.2.windows(2) {
+            for b in wide.2.windows(2) {
+                assert!(
+                    !segments_cross(a[0], a[1], b[0], b[1]),
+                    "loop-{portal} 两环中心线不得交叉"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn loop_endpoints_weld_to_arm_lane_ports() {
+    // 每条环路端点逐位等于其臂道车道端口（LaneEdge 焊接约束）：
+    // 出发端 = 本环出口车道外端，到达端 = 到达入口车道外端；同角两条环路在
+    // 分离侧端点不共点（间距恰为一个车道宽 3.5 m），共点侧端点重合。
+    let prepared = loop_geometry();
+    let config = JunctionConfig::parse(CONFIG).expect("default config must parse");
+    let geometry = &config.geometry;
+    let lane_width = geometry.lane_width_meters;
+
+    // 与生成器 `topology::port` 同式的右侧通行端口（米制 f64）。
+    fn arm_delta(arm: &str) -> [f64; 2] {
+        match arm {
+            "e" => [1.0, 0.0],
+            "w" => [-1.0, 0.0],
+            "n" => [0.0, -1.0],
+            "s" => [0.0, 1.0],
+            _ => panic!("unknown arm {arm}"),
+        }
+    }
+    fn lane_offsets(config: &JunctionConfig, arm: &str) -> Vec<f64> {
+        let center = config.geometry.center_offset_meters;
+        let half = config.geometry.lane_width_meters / 2.0;
+        if arm == "e" || arm == "w" {
+            vec![center - half, center + half]
+        } else {
+            vec![center]
+        }
+    }
+    fn port(config: &JunctionConfig, arm: &str, entering: bool, offset: f64) -> [f64; 2] {
+        let [dx, dz] = arm_delta(arm);
+        let sign = if entering { -1.0 } else { 1.0 };
+        let radius = config.geometry.arm_length_meters;
+        [
+            dx * radius - dz * sign * offset,
+            dz * radius + dx * sign * offset,
+        ]
+    }
+    fn canonical(x: f64, z: f64) -> laneflow_static_network::CanonicalPoint {
+        laneflow_static_network::CanonicalPoint {
+            x: x as f32,
+            y: 0.0,
+            z: z as f32,
+        }
+    }
+
+    // (loop key, 出口臂, 出口车道, 入口臂, 入口车道)
+    let welds: [(&str, &str, usize, &str, usize); 8] = [
+        ("loop-es-i0", "e", 0, "s", 0),
+        ("loop-es-i1", "e", 1, "s", 0),
+        ("loop-wn-i0", "w", 0, "n", 0),
+        ("loop-wn-i1", "w", 1, "n", 0),
+        ("loop-sw-i0", "s", 0, "w", 0),
+        ("loop-sw-i1", "s", 0, "w", 1),
+        ("loop-ne-i0", "n", 0, "e", 0),
+        ("loop-ne-i1", "n", 0, "e", 1),
+    ];
+    for (key, from, from_lane, to, to_lane) in welds {
+        let (first, last, _) = prepared.loops.get(key).unwrap_or_else(|| panic!("{key}"));
+        let from_offset = lane_offsets(&config, from)[from_lane];
+        let to_offset = lane_offsets(&config, to)[to_lane];
+        let expected_start = port(&config, from, false, from_offset);
+        let expected_end = port(&config, to, true, to_offset);
+        assert_eq!(
+            *first,
+            canonical(expected_start[0], expected_start[1]),
+            "{key} 出发端必须逐位焊接 {from} 出口车道 {from_lane} 外端"
+        );
+        assert_eq!(
+            *last,
+            canonical(expected_end[0], expected_end[1]),
+            "{key} 到达端必须逐位焊接 {to} 入口车道 {to_lane} 外端"
+        );
+    }
+    for portal in ["es", "wn"] {
+        let first0 = prepared.loops[&format!("loop-{portal}-i0")].0;
+        let first1 = prepared.loops[&format!("loop-{portal}-i1")].0;
+        assert_eq!(
+            point_distance(first0, first1),
+            lane_width,
+            "loop-{portal} 分离侧（出发）端点间距必须恰为一个车道宽（2↔1 汇合的对端）"
+        );
+    }
+    for portal in ["sw", "ne"] {
+        let last0 = prepared.loops[&format!("loop-{portal}-i0")].1;
+        let last1 = prepared.loops[&format!("loop-{portal}-i1")].1;
+        assert_eq!(
+            point_distance(last0, last1),
+            lane_width,
+            "loop-{portal} 分离侧（到达）端点间距必须恰为一个车道宽（2↔1 分流的对端）"
+        );
+    }
+}

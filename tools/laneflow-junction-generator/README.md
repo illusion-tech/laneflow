@@ -35,10 +35,11 @@ cargo +1.98.0 run --locked -p laneflow-junction-generator -- check --config exam
   ConflictZone（许可左转 × 两条东→西直行车道的交叉区、许可左转 × 西→东 lane0 的
   合流区）与 4 条 ParticipantStream（许可流 priority 0 + 三条直行流 priority 100）。
 - 1 个 WaitingZone（容量 1，挂在保护左转路径上），8 条环路回连边把每条出口车道
-  一对一接到顺时针下一条入口车道（三段 90 度圆弧绕角 + 直线段）；同角第二条环路
-  首段圆弧半径加大一个车道宽、折返矩形再外扩 `loop_outer_widen_meters`，两条环路
-  全段横向分离。11 条 catalog 路线中两条焦点路线成环并多次穿过同一机动门
-  （重复 Gate occurrence）。
+  接到顺时针下一条入口车道（三段 90 度圆弧绕角 + 直线段）；单车道臂强制 2↔1
+  汇合/分流，共点端在 30 m 锥形段内平滑收敛、焊接端口不变。同角第二条环路以
+  内侧环路为基准向转弯中心侧平行偏移一个车道宽（三段圆弧等半径收缩 + 直线腿
+  横向平移），两轨全段横向分离、任何位置不交叉。11 条 catalog 路线中两条焦点
+  路线成环并多次穿过同一机动门（重复 Gate occurrence）。
 - catalog 0.1 由 Portal 拥有 ordered PortalLane（每 portal 2 条回连边车道），
   PortalLane 拥有共享 entry SpawnSlot 与 weighted RouteChoice；spawn slot
   只放在环路回连边上，端点净距 = 车长 + min_gap；同一 portal 内 lane 1 的候选
