@@ -167,7 +167,7 @@ baseline 的已交付能力；`runtime_min` / `signalized_corridor` 现行示例
 ## 8. 可选调试可视化
 
 #285 阶段二以 `junction_debug` native example 交付了可见诊断（[#285](https://github.com/illusion-tech/laneflow/issues/285)）：
-默认关闭的 F3 调试 overlay 全部用 Bevy mesh 与文本落地，不恢复 Gizmos 公共 API，也不
+默认关闭的 F2 调试 overlay 全部用 Bevy mesh 与文本落地，不恢复 Gizmos 公共 API，也不
 为恢复历史 Gizmos API 增加兼容层。v0.7 / #172 的预算受控 gizmos 与 campus /
 `debug_gizmos_smoke` 只存在于 git 历史。
 
@@ -207,7 +207,7 @@ cargo +1.98.0 test --locked -p laneflow-bevy --test runtime_min_smoke
 
 #285 阶段二的复杂路口调试示例是 `junction_debug`（同样 `native-example` opt-in）：
 检入 catalog 0.1 + LFCA 的固定四车 spawn 计划（直行、保护左转待转、许可左转、环路
-重复过门），F3 调试 overlay 见 §8；无窗口 smoke 是 `junction_debug_smoke`。
+重复过门），F2 调试 overlay 见 §8；无窗口 smoke 是 `junction_debug_smoke`。
 
 ```powershell
 cargo +1.98.0 check --locked -p laneflow-bevy --example junction_debug --features native-example
