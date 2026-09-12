@@ -296,6 +296,74 @@ fn segment_length(a: Point, b: Point) -> f64 {
     (dx * dx + dz * dz).sqrt()
 }
 
+/// 折线点列 → (位置, 单位切向)：点 i 的切向取相邻弦方向（首点取首弦、
+/// 末点取末弦，其余取前后弦之和方向）。
+pub(crate) fn with_tangents(points: &[Point]) -> Vec<(Point, Point)> {
+    let count = points.len();
+    (0..count)
+        .map(|index| {
+            let from = index.saturating_sub(1);
+            let to = (index + 1).min(count - 1);
+            let dx = points[to][0] - points[from][0];
+            let dz = points[to][1] - points[from][1];
+            let length = (dx * dx + dz * dz).sqrt();
+            let tangent = if length > 0.0 {
+                [dx / length, dz / length]
+            } else {
+                [1.0, 0.0]
+            };
+            (points[index], tangent)
+        })
+        .collect()
+}
+
+/// 车辆占据的有向矩形（前保险杠位于 point、沿 −tangent 向后 length、
+/// 半宽 half_width）在 2D 的分离轴重叠测试；全部四轴投影重叠才算碰撞。
+pub(crate) fn envelopes_overlap(
+    a: (Point, Point),
+    b: (Point, Point),
+    length: f64,
+    half_width: f64,
+) -> bool {
+    let corners = |&(point, tangent): &(Point, Point)| {
+        let normal = [tangent[1], -tangent[0]];
+        [
+            [
+                point[0] + normal[0] * half_width,
+                point[1] + normal[1] * half_width,
+            ],
+            [
+                point[0] - normal[0] * half_width,
+                point[1] - normal[1] * half_width,
+            ],
+            [
+                point[0] - tangent[0] * length + normal[0] * half_width,
+                point[1] - tangent[1] * length + normal[1] * half_width,
+            ],
+            [
+                point[0] - tangent[0] * length - normal[0] * half_width,
+                point[1] - tangent[1] * length - normal[1] * half_width,
+            ],
+        ]
+    };
+    let corners_a = corners(&a);
+    let corners_b = corners(&b);
+    let axes = [a.1, [a.1[1], -a.1[0]], b.1, [b.1[1], -b.1[0]]];
+    axes.into_iter().all(|axis| {
+        let project = |corners: &[Point; 4]| {
+            corners
+                .iter()
+                .map(|corner| corner[0] * axis[0] + corner[1] * axis[1])
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| {
+                    (min.min(value), max.max(value))
+                })
+        };
+        let (min_a, max_a) = project(&corners_a);
+        let (min_b, max_b) = project(&corners_b);
+        min_a <= max_b && min_b <= max_a
+    })
+}
+
 #[derive(Clone, Debug)]
 pub struct EdgeBuild {
     pub key: String,
@@ -831,7 +899,7 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
     }
 
     topology.phases = signal_phases(config);
-    add_zones_and_streams(&mut topology)?;
+    add_zones_and_streams(&mut topology, config)?;
     topology.routes = routes();
     topology.portals = portals();
     validate_routes(&topology)?;
@@ -968,15 +1036,22 @@ fn groups_concurrent(phases: &[PhaseBuild], first: &str, second: &str) -> bool {
     })
 }
 
-/// 冲突区为「许可门路径 × 同相位并发路径」的几何交叉对编制；同入口边由上游
-/// 车道占用负责（分流），同出口边取许可路径末点作合流区；信号分离或几何
-/// 不相交的方向对不占冲突区。多门路径（待转）按门辖段参与：只有与许可门
-/// 并发的辖段才检查几何交叉（待转释放段与许可左转相位分离，不占区）。
+/// 冲突区为「许可门路径 × 同相位并发路径」的几何冲突对编制；同入口边由上游
+/// 车道占用负责（分流），同出口边取许可路径末点作合流区；信号分离或车辆
+/// 包络（车长 × 车宽包络）不重叠的方向对不占冲突区。多门路径（待转）按门
+/// 辖段参与：只有与许可门并发的辖段才检查冲突（待转释放段与许可左转相位
+/// 分离，不占区）。冲突判定先看中心线交叉，再看有向矩形包络重叠。
 ///
-/// 另按门分段拒绝并发保护路径交叉：门在 transition t 管辖内部边 [t, 下一门
+/// 另按门分段拒绝并发保护路径冲突：门在 transition t 管辖内部边 [t, 下一门
 /// transition)（最后一门到路径末），两条非许可路径各取并发门的辖段几何，
-/// 交叉即编制错误——保护路径靠信号分离，本场景不给它们编制冲突区。
-fn add_zones_and_streams(topology: &mut TopologyBuild) -> Result<(), Error> {
+/// 中心线交叉或包络重叠即编制错误——保护路径靠信号分离，本场景不给它们
+/// 编制冲突区。
+fn add_zones_and_streams(
+    topology: &mut TopologyBuild,
+    config: &JunctionConfig,
+) -> Result<(), Error> {
+    let vehicle_length = config.profile.length_meters;
+    let half_width = crate::config::VEHICLE_WIDTH_ENVELOPE_METERS / 2.0;
     // 门按 transition 分段：transition 为 t 的门管辖内部边 [t, 下一门 t)。
     let mut path_gates: Vec<Vec<&GateBuild>> = vec![Vec::new(); topology.paths.len()];
     for gate in &topology.gates {
@@ -991,7 +1066,13 @@ fn add_zones_and_streams(topology: &mut TopologyBuild) -> Result<(), Error> {
             .map_or(path.segment_samples.len(), |next| next.transition as usize);
         path.segment_samples[start..end].concat()
     };
-    reject_concurrent_protected_crossings(topology, &path_gates, &span_samples)?;
+    reject_concurrent_protected_crossings(
+        topology,
+        &path_gates,
+        &span_samples,
+        vehicle_length,
+        half_width,
+    )?;
     let path_count = topology.paths.len();
     for i in 0..path_count {
         for j in (i + 1)..path_count {
@@ -1020,15 +1101,22 @@ fn add_zones_and_streams(topology: &mut TopologyBuild) -> Result<(), Error> {
                 }
                 *permissive_samples.last().expect("merge path has samples")
             } else {
-                // 交叉区：逐门辖段检查，只在与许可门并发的辖段上求交。
+                // 交叉区：逐门辖段检查，只在与许可门并发的辖段上求交；中心线
+                // 不相交但车辆包络重叠同样构成冲突（区中心取重叠对中点）。
                 let mut found = None;
                 for (gate_index, gate) in path_gates[other_index].iter().enumerate() {
                     if !groups_concurrent(&topology.phases, permissive.group, gate.group) {
                         continue;
                     }
-                    if let Some(center) =
-                        crossing(&permissive_samples, &span_samples(other_index, gate_index))
-                    {
+                    let span = span_samples(other_index, gate_index);
+                    if let Some(center) = crossing(&permissive_samples, &span).or_else(|| {
+                        envelope_overlap_center(
+                            &permissive_samples,
+                            &span,
+                            vehicle_length,
+                            half_width,
+                        )
+                    }) {
                         found = Some(center);
                         break;
                     }
@@ -1101,11 +1189,36 @@ fn add_zones_and_streams(topology: &mut TopologyBuild) -> Result<(), Error> {
     Ok(())
 }
 
+/// 两条折线采样序列上的首对车辆包络重叠：返回重叠对中点。中心线不交叉
+/// 但包络重叠同样算冲突。
+fn envelope_overlap_center(
+    a: &[Point],
+    b: &[Point],
+    length: f64,
+    half_width: f64,
+) -> Option<Point> {
+    let a = with_tangents(a);
+    let b = with_tangents(b);
+    for &sample_a in &a {
+        for &sample_b in &b {
+            if envelopes_overlap(sample_a, sample_b, length, half_width) {
+                return Some([
+                    (sample_a.0[0] + sample_b.0[0]) / 2.0,
+                    (sample_a.0[1] + sample_b.0[1]) / 2.0,
+                ]);
+            }
+        }
+    }
+    None
+}
+
 /// 见 add_zones_and_streams 头注释：并发保护（非许可）路径按门辖段逐对检查。
 fn reject_concurrent_protected_crossings(
     topology: &TopologyBuild,
     path_gates: &[Vec<&GateBuild>],
     span_samples: &dyn Fn(usize, usize) -> Vec<Point>,
+    vehicle_length: f64,
+    half_width: f64,
 ) -> Result<(), Error> {
     for i in 0..topology.paths.len() {
         for j in (i + 1)..topology.paths.len() {
@@ -1113,7 +1226,7 @@ fn reject_concurrent_protected_crossings(
             if a.permissive || b.permissive {
                 continue;
             }
-            // 同入口边是分流、同出口边汇流由车道图占用串行化，均非交叉冲突。
+            // 同入口边是分流、同出口边汇流由车道图占用串行化，均非冲突。
             if a.edges.first() == b.edges.first() || a.edges.last() == b.edges.last() {
                 continue;
             }
@@ -1128,11 +1241,14 @@ fn reject_concurrent_protected_crossings(
                     }
                     let span_a = span_samples(i, gate_a);
                     let span_b = span_samples(j, gate_b);
-                    if crossing(&span_a, &span_b).is_some() {
+                    if crossing(&span_a, &span_b).is_some()
+                        || envelope_overlap_center(&span_a, &span_b, vehicle_length, half_width)
+                            .is_some()
+                    {
                         return Err(Error::Config(format!(
-                            "protected paths of movements {:?} and {:?} intersect while \
-                             concurrently signaled (gates {:?} x {:?}); adjust junction \
-                             geometry (radius/center offset/pocket/control)",
+                            "protected paths of movements {:?} and {:?} come within vehicle \
+                             envelopes while concurrently signaled (gates {:?} x {:?}); adjust \
+                             junction geometry (radius/center offset/pocket/control)",
                             topology.movements[a.movement].key,
                             topology.movements[b.movement].key,
                             path_gates[i][gate_a].key,

@@ -286,6 +286,42 @@ fn generate_rejects_intersecting_protected_lefts() {
 }
 
 #[test]
+fn generate_rejects_overlapping_protected_envelopes() {
+    // 中心线不相交（最近约 1.78 m）但 4.5 m × 2 m 车辆包络重叠的几何也必须拒绝。
+    let bad = CONFIG
+        .replace(
+            "junction_radius_meters = 30.0",
+            "junction_radius_meters = 29.894093101044234",
+        )
+        .replace(
+            "lane_width_meters = 3.5",
+            "lane_width_meters = 2.6822985306365767",
+        )
+        .replace(
+            "center_offset_meters = 6.0",
+            "center_offset_meters = 8.48945246471647",
+        )
+        .replace(
+            "pocket_length_meters = 12.0",
+            "pocket_length_meters = 4.650269531115553",
+        )
+        .replace(
+            "pocket_offset_meters = 4.0",
+            "pocket_offset_meters = 4.422093313119901",
+        )
+        .replace(
+            "curve_control_meters = 12.0",
+            "curve_control_meters = 18.7507062702305",
+        );
+    assert_ne!(bad, CONFIG, "config must contain the replaced fields");
+    let config = JunctionConfig::parse(&bad).expect("raw config remains valid");
+    let Err(error) = generate(&config) else {
+        panic!("overlapping protected envelopes must fail");
+    };
+    assert!(error.to_string().contains("vehicle envelopes"));
+}
+
+#[test]
 fn generate_rejects_output_aliasing_config() {
     for directory_override in [".", "missing/.."] {
         let directory = std::env::temp_dir().join(format!(
@@ -317,6 +353,44 @@ fn generate_rejects_output_aliasing_config() {
         );
         let _ = std::fs::remove_dir_all(&directory);
     }
+}
+
+#[test]
+fn generate_rejects_output_alias_through_symlink_parent() {
+    let root = std::env::temp_dir().join(format!(
+        "laneflow-junction-symlink-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    let source = root.join("source");
+    let child = source.join("child");
+    std::fs::create_dir_all(&child).expect("create temp dirs");
+    #[cfg(windows)]
+    let link_result = std::os::windows::fs::symlink_dir(&child, root.join("link"));
+    #[cfg(unix)]
+    let link_result = std::os::unix::fs::symlink(&child, root.join("link"));
+    if link_result.is_err() {
+        // 无符号链接权限的环境（部分 Windows 开发机）跳过本用例。
+        let _ = std::fs::remove_dir_all(&root);
+        return;
+    }
+    // config 在 source/ 下；输出目录 "../link/.." 经符号链接解析回 source/。
+    let config_path = source.join("junction.toml");
+    let aliased = CONFIG
+        .replace("directory = \"../data\"", "directory = \"../link/..\"")
+        .replace(
+            "catalog_file_name = \"v0.1-complex-junction.catalog.toml\"",
+            "catalog_file_name = \"junction.toml\"",
+        );
+    assert_ne!(aliased, CONFIG, "config must contain the replaced fields");
+    std::fs::write(&config_path, aliased).expect("write temp config");
+    let error = laneflow_junction_generator::generate_files(&config_path)
+        .expect_err("symlink-parent alias must fail");
+    assert!(error.to_string().contains("overwrite the source config"));
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]

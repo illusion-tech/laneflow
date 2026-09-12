@@ -65,46 +65,77 @@ fn reject_config_alias(config_path: &Path, paths: &OutputPaths) -> Result<(), Er
     Ok(())
 }
 
-/// 与文件系统存在性无关的路径解析：先做词法归一（折叠 `.` / `..`，`..`
-/// 不得越过根），再从最近存在的祖先 canonicalize（解析符号链接）并拼接
-/// 剩余组件。`missing/..` 之类写法因此不能绕过别名检查。
+/// 按文件系统遍历顺序解析路径：逐组件推进，已存在的组件立即 canonicalize
+/// （符号链接在随后的 `..` 之前解析）。`std::path::absolute` 与
+/// `Path::components()` 都会词法折叠 `..`、Windows canonicalize 对已存在
+/// 路径上的 `..` 也做词法折叠，都掩盖符号链接先序解析，因此盘符/根切分与
+/// 分隔符切分必须手写（`..` 不得越过根）。非 UTF-8 路径超出本内部工具的
+/// 支持范围，按 config 错误处理。
 fn resolve_for_compare(path: &Path) -> Result<PathBuf, Error> {
-    let absolute = std::path::absolute(path).at(path)?;
-    let mut lexical = PathBuf::new();
-    for component in absolute.components() {
-        match component {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                if !lexical.pop() {
-                    return Err(Error::Config(format!(
-                        "path {path:?} escapes its filesystem root"
-                    )));
-                }
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().at(path)?.join(path)
+    };
+    let text = absolute
+        .to_str()
+        .ok_or_else(|| Error::Config(format!("path {path:?} is not valid Unicode")))?
+        .to_owned();
+    let (mut resolved, rest) = split_off_root(&text).map_err(Error::Config)?;
+    for part in rest.split(['/', '\\']) {
+        if part.is_empty() || part == "." {
+            continue;
+        }
+        if part == ".." {
+            if !resolved.pop() {
+                return Err(Error::Config(format!(
+                    "path {path:?} escapes its filesystem root"
+                )));
             }
-            other => lexical.push(other.as_os_str()),
+            continue;
+        }
+        resolved.push(part);
+        if resolved.exists() {
+            resolved = std::fs::canonicalize(&resolved).at(&resolved)?;
         }
     }
-    let mut probe = lexical.clone();
-    let mut tail = Vec::new();
-    loop {
-        if let Ok(canonical) = std::fs::canonicalize(&probe) {
-            let mut resolved = canonical;
-            for part in tail.iter().rev() {
-                resolved.push(part);
-            }
-            return Ok(resolved);
-        }
-        let name = probe
-            .file_name()
-            .ok_or_else(|| Error::Config(format!("path {path:?} has no resolvable ancestor")))?
-            .to_os_string();
-        tail.push(name);
-        if !probe.pop() {
-            return Err(Error::Config(format!(
-                "path {path:?} has no existing ancestor"
-            )));
-        }
+    Ok(resolved)
+}
+
+/// 切出路径的根部分（Unix `/`、Windows 盘符、UNC、`\\?\` verbatim）并返回
+/// 余下文本；其余根形式不支持。
+fn split_off_root(text: &str) -> Result<(PathBuf, &str), String> {
+    if let Some(stripped) = text.strip_prefix('/') {
+        return Ok((PathBuf::from("/"), stripped));
     }
+    if let Some(stripped) = text.strip_prefix("\\\\?\\") {
+        let bytes = stripped.as_bytes();
+        if bytes.len() >= 3 && bytes[1] == b':' && (bytes[2] == b'\\' || bytes[2] == b'/') {
+            return Ok((PathBuf::from(&text[..7]), &text[7..]));
+        }
+        return Err(format!("unsupported verbatim root: {text}"));
+    }
+    if let Some(stripped) = text.strip_prefix("\\\\") {
+        // \\server\share\rest
+        let mut ends = stripped.match_indices(['\\', '/']).map(|(index, _)| index);
+        let Some(_server_end) = ends.next() else {
+            return Err(format!("UNC path needs server and share: {text}"));
+        };
+        let Some(share_end) = ends.next() else {
+            return Err(format!("UNC path needs server and share: {text}"));
+        };
+        let root_end = 2 + share_end + 1;
+        return Ok((PathBuf::from(&text[..root_end]), &text[root_end..]));
+    }
+    let bytes = text.as_bytes();
+    if bytes.len() >= 3
+        && bytes[1] == b':'
+        && bytes[0].is_ascii_alphabetic()
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
+    {
+        return Ok((PathBuf::from(&text[..3]), &text[3..]));
+    }
+    Err(format!("unsupported root form: {text}"))
 }
 
 pub fn check_files(config_path: &Path) -> Result<ScenarioCounts, Error> {
