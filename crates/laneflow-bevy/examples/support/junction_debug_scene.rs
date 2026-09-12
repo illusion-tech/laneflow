@@ -18,8 +18,9 @@ use laneflow_static_network::{
     build_shared_network_revision,
 };
 
-const JUNCTION_LFCA: &[u8] = include_bytes!("../../../../examples/data/v0.1-complex-junction.lfca");
-const JUNCTION_CATALOG: &str =
+pub const JUNCTION_LFCA: &[u8] =
+    include_bytes!("../../../../examples/data/v0.1-complex-junction.lfca");
+pub const JUNCTION_CATALOG: &str =
     include_str!("../../../../examples/data/v0.1-complex-junction.catalog.toml");
 
 /// 固定 dt（毫秒），与场景合同 `examples/config/v0.1-complex-junction.toml` 的
