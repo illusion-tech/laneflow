@@ -61,8 +61,9 @@ struct TickObservation {
     tick: u64,
     waiting_decisions: usize,
     conflict_decisions: usize,
-    waiting_outcomes: Vec<String>,
-    conflict_outcomes: Vec<String>,
+    /// (车辆身份, outcome) 行；保留身份以便按 spawn 角色限定断言。
+    waiting_rows: Vec<(String, String)>,
+    conflict_rows: Vec<(String, String)>,
     transitions: Vec<String>,
 }
 
@@ -111,15 +112,25 @@ fn collect_tick_observations(
     mut observed: ResMut<TickObservations>,
 ) {
     let view = session.junction_observation();
-    let waiting_outcomes: Vec<String> = view
+    let waiting_rows: Vec<(String, String)> = view
         .latest_waiting_decisions()
         .iter()
-        .map(|decision| format!("{:?}", decision.outcome()))
+        .map(|decision| {
+            (
+                format!("{:?}", decision.vehicle()),
+                format!("{:?}", decision.outcome()),
+            )
+        })
         .collect();
-    let conflict_outcomes: Vec<String> = view
+    let conflict_rows: Vec<(String, String)> = view
         .latest_conflict_decisions()
         .iter()
-        .map(|decision| format!("{:?}", decision.outcome()))
+        .map(|decision| {
+            (
+                format!("{:?}", decision.vehicle()),
+                format!("{:?}", decision.outcome()),
+            )
+        })
         .collect();
     let transitions: Vec<String> = view
         .latest_transition_events()
@@ -128,10 +139,10 @@ fn collect_tick_observations(
         .collect();
     observed.0.push(TickObservation {
         tick: view.context().tick_index(),
-        waiting_decisions: waiting_outcomes.len(),
-        conflict_decisions: conflict_outcomes.len(),
-        waiting_outcomes,
-        conflict_outcomes,
+        waiting_decisions: waiting_rows.len(),
+        conflict_decisions: conflict_rows.len(),
+        waiting_rows,
+        conflict_rows,
         transitions,
     });
 }
@@ -215,6 +226,8 @@ struct RunOutcome {
     last_transform: [f32; 3],
     steps: u32,
     marker_count: usize,
+    /// 许可左转 spawn 车的句柄文本（观测行按此限定车辆身份）。
+    permissive_handle: String,
 }
 
 /// 每帧 8 个 fixed step（8 × 16 ms）；约 3_300 tick 后车辆到达机动门，
@@ -233,6 +246,12 @@ fn proxy_translation(app: &App, proxy: Entity) -> [f32; 3] {
 
 fn run(overlay: bool) -> RunOutcome {
     let scene = junction_debug_scene::build().expect("native example initialization");
+    let permissive_handle = scene
+        .spawned
+        .iter()
+        .find(|spawned| spawned.role == junction_debug_scene::VehicleRole::PermissiveLeft)
+        .map(|spawned| format!("{:?}", spawned.vehicle))
+        .expect("permissive-left in spawn plan");
     let mut app = App::new();
     app.add_plugins((TimePlugin, TransformPlugin, LaneFlowPlugin));
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
@@ -290,6 +309,7 @@ fn run(overlay: bool) -> RunOutcome {
         last_transform,
         steps,
         marker_count,
+        permissive_handle,
     }
 }
 
@@ -362,8 +382,8 @@ fn overlay_toggle_preserves_runtime_digest_and_event_summary() {
 
 #[test]
 fn fixed_plan_vehicles_reach_gates_and_evaluate_decisions() {
-    // 许可左转车是 spawn 计划第三辆：到达许可门后先 NoGrant、后在间隙中通过；
-    // 直行车在主干道绿灯窗内过门；保护左转车进待转区等待放行。
+    // 许可左转车是 spawn 计划第三辆：其许可门对向的东→西直行车与它在观察窗内
+    // 相遇，先 NoGrant 后通过；保护左转车进待转区等待放行。
     let outcome = run(true);
     let gate_crossed = outcome
         .observations
@@ -381,15 +401,17 @@ fn fixed_plan_vehicles_reach_gates_and_evaluate_decisions() {
         .iter()
         .map(|observation| observation.waiting_decisions)
         .sum();
-    // 先 NoGrant 后通过：许可门评估先出现 NoGrant，之后出现 Granted。
+    // 先 NoGrant 后通过：同一辆 PermissiveLeft spawn 车（按句柄身份限定，不接受
+    // 任意车辆凑出的顺序）先收到 NoGrant，之后收到 Granted。
+    let permissive = &outcome.permissive_handle;
     let no_grant_ticks: Vec<u64> = outcome
         .observations
         .iter()
         .filter(|observation| {
             observation
-                .conflict_outcomes
+                .conflict_rows
                 .iter()
-                .any(|outcome| outcome.starts_with("NoGrant"))
+                .any(|(vehicle, outcome)| vehicle == permissive && outcome.starts_with("NoGrant"))
         })
         .map(|observation| observation.tick)
         .collect();
@@ -398,9 +420,9 @@ fn fixed_plan_vehicles_reach_gates_and_evaluate_decisions() {
         .iter()
         .filter(|observation| {
             observation
-                .conflict_outcomes
+                .conflict_rows
                 .iter()
-                .any(|outcome| outcome == "Granted")
+                .any(|(vehicle, outcome)| vehicle == permissive && outcome == "Granted")
         })
         .map(|observation| observation.tick)
         .collect();
