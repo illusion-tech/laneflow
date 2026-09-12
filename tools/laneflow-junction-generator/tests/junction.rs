@@ -394,6 +394,74 @@ fn generate_rejects_output_alias_through_symlink_parent() {
 }
 
 #[test]
+fn generate_rejects_output_files_aliased_through_symlink() {
+    let root = std::env::temp_dir().join(format!(
+        "laneflow-junction-out-alias-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    let out = root.join("out");
+    std::fs::create_dir_all(&out).expect("create temp dirs");
+    // b.out 是指向尚不存在的 a.out 的悬空符号链接：两个输出落到同一文件。
+    #[cfg(windows)]
+    let link_result = std::os::windows::fs::symlink_file("a.out", out.join("b.out"));
+    #[cfg(unix)]
+    let link_result = std::os::unix::fs::symlink("a.out", out.join("b.out"));
+    if link_result.is_err() {
+        // 无符号链接权限的环境跳过本用例。
+        let _ = std::fs::remove_dir_all(&root);
+        return;
+    }
+    let config_path = root.join("junction.toml");
+    let aliased = CONFIG
+        .replace("directory = \"../data\"", "directory = \"out\"")
+        .replace(
+            "catalog_file_name = \"v0.1-complex-junction.catalog.toml\"",
+            "catalog_file_name = \"a.out\"",
+        )
+        .replace(
+            "lfca_file_name = \"v0.1-complex-junction.lfca\"",
+            "lfca_file_name = \"b.out\"",
+        );
+    assert_ne!(aliased, CONFIG, "config must contain the replaced fields");
+    std::fs::write(&config_path, aliased).expect("write temp config");
+    let error = laneflow_junction_generator::generate_files(&config_path)
+        .expect_err("aliased outputs must fail");
+    assert!(error.to_string().contains("resolve to the same file"));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+#[test]
+fn generate_rejects_output_alias_differing_only_by_case() {
+    let root = std::env::temp_dir().join(format!(
+        "laneflow-junction-case-alias-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).expect("create temp dir");
+    let config_path = root.join("junction.toml");
+    let aliased = CONFIG
+        .replace("directory = \"../data\"", "directory = \".\"")
+        .replace(
+            "catalog_file_name = \"v0.1-complex-junction.catalog.toml\"",
+            "catalog_file_name = \"JUNCTION.TOML\"",
+        );
+    assert_ne!(aliased, CONFIG, "config must contain the replaced fields");
+    std::fs::write(&config_path, aliased).expect("write temp config");
+    let error = laneflow_junction_generator::generate_files(&config_path)
+        .expect_err("case-only alias must fail");
+    assert!(error.to_string().contains("overwrite the source config"));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn generate_rejects_excessive_slot_count() {
     let bad = CONFIG
         .replace("length_meters = 4.5", "length_meters = 0.1")
