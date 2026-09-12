@@ -241,29 +241,82 @@ fn config_rejects_shallow_pocket_offset() {
 }
 
 #[test]
-fn generate_rejects_output_aliasing_config() {
-    let directory = std::env::temp_dir().join(format!(
-        "laneflow-junction-alias-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&directory).expect("create temp dir");
-    let config_path = directory.join("junction.toml");
-    let aliased = CONFIG
-        .replace("directory = \"../data\"", "directory = \".\"")
+fn config_rejects_lane_width_below_vehicle_envelope() {
+    let bad = CONFIG.replace("lane_width_meters = 3.5", "lane_width_meters = 1.0");
+    assert_ne!(bad, CONFIG, "config must contain the replaced field");
+    let error = JunctionConfig::parse(&bad).expect_err("sub-envelope lane width must fail");
+    assert!(error.to_string().contains("vehicle width envelope"));
+}
+
+#[test]
+fn generate_rejects_non_finite_slot_candidates() {
+    let bad = CONFIG
+        .replace("arm_length_meters = 150.0", "arm_length_meters = 1e308")
         .replace(
-            "catalog_file_name = \"v0.1-complex-junction.catalog.toml\"",
-            "catalog_file_name = \"junction.toml\"",
+            "spawn_slot_pitch_meters = 10.0",
+            "spawn_slot_pitch_meters = 1e308",
         );
-    assert_ne!(aliased, CONFIG, "config must contain the replaced fields");
-    std::fs::write(&config_path, aliased).expect("write temp config");
-    let error = laneflow_junction_generator::generate_files(&config_path)
-        .expect_err("aliased output must fail");
-    assert!(error.to_string().contains("overwrite the source config"));
-    let _ = std::fs::remove_dir_all(&directory);
+    assert_ne!(bad, CONFIG, "config must contain the replaced fields");
+    let config = JunctionConfig::parse(&bad).expect("raw config remains valid");
+    let Err(error) = generate(&config) else {
+        panic!("non-finite slot candidates must fail");
+    };
+    assert!(error.to_string().contains("candidate count"));
+}
+
+#[test]
+fn generate_rejects_intersecting_protected_lefts() {
+    let bad = CONFIG
+        .replace(
+            "junction_radius_meters = 30.0",
+            "junction_radius_meters = 33.4",
+        )
+        .replace("center_offset_meters = 6.0", "center_offset_meters = 14.72")
+        .replace("pocket_offset_meters = 4.0", "pocket_offset_meters = 8.18")
+        .replace(
+            "curve_control_meters = 12.0",
+            "curve_control_meters = 16.65",
+        );
+    assert_ne!(bad, CONFIG, "config must contain the replaced fields");
+    let config = JunctionConfig::parse(&bad).expect("raw config remains valid");
+    let Err(error) = generate(&config) else {
+        panic!("intersecting protected lefts must fail");
+    };
+    assert!(error.to_string().contains("protected paths"));
+}
+
+#[test]
+fn generate_rejects_output_aliasing_config() {
+    for directory_override in [".", "missing/.."] {
+        let directory = std::env::temp_dir().join(format!(
+            "laneflow-junction-alias-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&directory).expect("create temp dir");
+        let config_path = directory.join("junction.toml");
+        let aliased = CONFIG
+            .replace(
+                "directory = \"../data\"",
+                &format!("directory = \"{directory_override}\""),
+            )
+            .replace(
+                "catalog_file_name = \"v0.1-complex-junction.catalog.toml\"",
+                "catalog_file_name = \"junction.toml\"",
+            );
+        assert_ne!(aliased, CONFIG, "config must contain the replaced fields");
+        std::fs::write(&config_path, aliased).expect("write temp config");
+        let error = laneflow_junction_generator::generate_files(&config_path)
+            .expect_err("aliased output must fail");
+        assert!(
+            error.to_string().contains("overwrite the source config"),
+            "directory override {directory_override:?}: {error}"
+        );
+        let _ = std::fs::remove_dir_all(&directory);
+    }
 }
 
 #[test]

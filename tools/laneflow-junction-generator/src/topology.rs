@@ -324,9 +324,9 @@ pub struct PathBuild {
     pub movement: usize,
     pub key: String,
     pub edges: Vec<String>,
-    pub samples: Vec<Point>,
+    /// 逐内部边的冲突几何采样（与 edges[1..len-1] 同序同长）。
+    pub segment_samples: Vec<Vec<Point>>,
     pub permissive: bool,
-    pub turn: ManeuverDirection,
     pub group: &'static str,
 }
 
@@ -854,7 +854,6 @@ fn add_path(
 ) {
     let movement_build = &topology.movements[movement];
     let permissive = movement_build.permissive;
-    let turn = movement_build.turn;
     let waiting = movement_build.waiting;
     let group = gates
         .first()
@@ -862,12 +861,11 @@ fn add_path(
         .expect("every path declares at least one gate");
 
     let mut path_edges = vec![entry_edge.to_owned()];
-    let mut samples = Vec::new();
-    let internal_count = internals.len();
-    for (index, (internal_key, curve)) in internals.into_iter().enumerate() {
-        if !waiting || index + 1 == internal_count {
-            samples.extend(curve.conflict_samples());
-        }
+    // 逐内部边采样冲突几何：许可路径的冲突区用全量；并发保护路径的交叉
+    // 拒绝按门 transition 分段（见 reject_concurrent_protected_crossings）。
+    let mut segment_samples = Vec::with_capacity(internals.len());
+    for (internal_key, curve) in internals {
+        segment_samples.push(curve.conflict_samples());
         edge_index.insert(internal_key.clone(), topology.edges.len());
         topology.edges.push(EdgeBuild {
             key: internal_key.clone(),
@@ -908,9 +906,8 @@ fn add_path(
         movement,
         key: path_key.to_owned(),
         edges: path_edges,
-        samples,
+        segment_samples,
         permissive,
-        turn,
         group,
     });
 }
@@ -971,34 +968,72 @@ fn groups_concurrent(phases: &[PhaseBuild], first: &str, second: &str) -> bool {
     })
 }
 
-/// 冲突区只为「许可门路径 × 同相位并发直行路径」的几何交叉对编制；
-/// 信号分离的直行对（次路直行）与转向对不占冲突区。
+/// 冲突区为「许可门路径 × 同相位并发路径」的几何交叉对编制；同入口边由上游
+/// 车道占用负责（分流），同出口边取许可路径末点作合流区；信号分离或几何
+/// 不相交的方向对不占冲突区。多门路径（待转）按门辖段参与：只有与许可门
+/// 并发的辖段才检查几何交叉（待转释放段与许可左转相位分离，不占区）。
+///
+/// 另按门分段拒绝并发保护路径交叉：门在 transition t 管辖内部边 [t, 下一门
+/// transition)（最后一门到路径末），两条非许可路径各取并发门的辖段几何，
+/// 交叉即编制错误——保护路径靠信号分离，本场景不给它们编制冲突区。
 fn add_zones_and_streams(topology: &mut TopologyBuild) -> Result<(), Error> {
+    // 门按 transition 分段：transition 为 t 的门管辖内部边 [t, 下一门 t)。
+    let mut path_gates: Vec<Vec<&GateBuild>> = vec![Vec::new(); topology.paths.len()];
+    for gate in &topology.gates {
+        path_gates[gate.path].push(gate);
+    }
+    let span_samples = |path_index: usize, gate_index: usize| -> Vec<Point> {
+        let path = &topology.paths[path_index];
+        let gates = &path_gates[path_index];
+        let start = gates[gate_index].transition as usize;
+        let end = gates
+            .get(gate_index + 1)
+            .map_or(path.segment_samples.len(), |next| next.transition as usize);
+        path.segment_samples[start..end].concat()
+    };
+    reject_concurrent_protected_crossings(topology, &path_gates, &span_samples)?;
     let path_count = topology.paths.len();
     for i in 0..path_count {
         for j in (i + 1)..path_count {
-            let (permissive, other) = {
+            let (permissive_index, other_index) = {
                 let a = &topology.paths[i];
                 let b = &topology.paths[j];
                 match (a.permissive, b.permissive) {
-                    (true, false) => (a, b),
-                    (false, true) => (b, a),
+                    (true, false) => (i, j),
+                    (false, true) => (j, i),
                     _ => continue,
                 }
             };
-            if other.turn != ManeuverDirection::Straight {
-                continue;
-            }
-            if !groups_concurrent(&topology.phases, permissive.group, other.group) {
-                continue;
-            }
+            let permissive = &topology.paths[permissive_index];
+            let other = &topology.paths[other_index];
             if permissive.edges.first() == other.edges.first() {
                 continue;
             }
+            let permissive_samples = permissive.segment_samples.concat();
             let center = if permissive.edges.last() == other.edges.last() {
-                *permissive.samples.last().expect("merge path has samples")
+                // 合流区：要求对方至少一个门与许可门并发。
+                let any_concurrent = path_gates[other_index]
+                    .iter()
+                    .any(|gate| groups_concurrent(&topology.phases, permissive.group, gate.group));
+                if !any_concurrent {
+                    continue;
+                }
+                *permissive_samples.last().expect("merge path has samples")
             } else {
-                let Some(center) = crossing(&permissive.samples, &other.samples) else {
+                // 交叉区：逐门辖段检查，只在与许可门并发的辖段上求交。
+                let mut found = None;
+                for (gate_index, gate) in path_gates[other_index].iter().enumerate() {
+                    if !groups_concurrent(&topology.phases, permissive.group, gate.group) {
+                        continue;
+                    }
+                    if let Some(center) =
+                        crossing(&permissive_samples, &span_samples(other_index, gate_index))
+                    {
+                        found = Some(center);
+                        break;
+                    }
+                }
+                let Some(center) = found else {
                     continue;
                 };
                 center
@@ -1007,7 +1042,7 @@ fn add_zones_and_streams(topology: &mut TopologyBuild) -> Result<(), Error> {
             topology.zones.push(ZoneBuild {
                 key,
                 center,
-                paths: [i, j],
+                paths: [permissive_index, other_index],
             });
         }
     }
@@ -1062,6 +1097,51 @@ fn add_zones_and_streams(topology: &mut TopologyBuild) -> Result<(), Error> {
             "conflict zone count mismatch: {} zones",
             topology.zones.len()
         )));
+    }
+    Ok(())
+}
+
+/// 见 add_zones_and_streams 头注释：并发保护（非许可）路径按门辖段逐对检查。
+fn reject_concurrent_protected_crossings(
+    topology: &TopologyBuild,
+    path_gates: &[Vec<&GateBuild>],
+    span_samples: &dyn Fn(usize, usize) -> Vec<Point>,
+) -> Result<(), Error> {
+    for i in 0..topology.paths.len() {
+        for j in (i + 1)..topology.paths.len() {
+            let (a, b) = (&topology.paths[i], &topology.paths[j]);
+            if a.permissive || b.permissive {
+                continue;
+            }
+            // 同入口边是分流、同出口边汇流由车道图占用串行化，均非交叉冲突。
+            if a.edges.first() == b.edges.first() || a.edges.last() == b.edges.last() {
+                continue;
+            }
+            for gate_a in 0..path_gates[i].len() {
+                for gate_b in 0..path_gates[j].len() {
+                    if !groups_concurrent(
+                        &topology.phases,
+                        path_gates[i][gate_a].group,
+                        path_gates[j][gate_b].group,
+                    ) {
+                        continue;
+                    }
+                    let span_a = span_samples(i, gate_a);
+                    let span_b = span_samples(j, gate_b);
+                    if crossing(&span_a, &span_b).is_some() {
+                        return Err(Error::Config(format!(
+                            "protected paths of movements {:?} and {:?} intersect while \
+                             concurrently signaled (gates {:?} x {:?}); adjust junction \
+                             geometry (radius/center offset/pocket/control)",
+                            topology.movements[a.movement].key,
+                            topology.movements[b.movement].key,
+                            path_gates[i][gate_a].key,
+                            path_gates[j][gate_b].key
+                        )));
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }

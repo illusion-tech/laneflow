@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 use crate::Error;
 
 pub const CONFIG_VERSION: &str = "0.1";
+/// 车辆横向包络的工程假定（profile 无 width 字段）：槽位跨边重叠过滤与
+/// lane_width 下限共用这一个权威值。
+pub const VEHICLE_WIDTH_ENVELOPE_METERS: f64 = 2.0;
 const MAX_PORTABLE_SIGNAL_TIME_MS: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -182,6 +185,14 @@ impl JunctionConfig {
             return Err(config_error(
                 "center_offset_meters must exceed lane_width_meters so the median gap stays open",
             ));
+        }
+        // 主路同向两条车道中心线相距 lane_width；小于车辆宽度包络时两条独立
+        // LaneEdge 上的车辆横向重叠而运行时无法检测。
+        if geometry.lane_width_meters < VEHICLE_WIDTH_ENVELOPE_METERS {
+            return Err(config_error(format!(
+                "lane_width_meters must be at least the {VEHICLE_WIDTH_ENVELOPE_METERS} m \
+                 vehicle width envelope",
+            )));
         }
         if geometry.junction_radius_meters
             <= geometry.pocket_length_meters + geometry.curve_control_meters
