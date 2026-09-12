@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-09-11（#285 阶段一 `junction_observation` 观测视图）
+**最后更新**: 2026-09-13（#285 阶段二：`junction_debug` 示例以 mesh/文本落地可见诊断）
 
 **适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -166,9 +166,33 @@ baseline 的已交付能力；`runtime_min` / `signalized_corridor` 现行示例
 
 ## 8. 可选调试可视化
 
-#301 后仓库不再导出占位 `debug-gizmos` feature 或空 plugin。v0.7 / #172 曾交付过预算受控 gizmos；#301 拆除 Core 表现层时一并删除。campus / `debug_gizmos_smoke` 与 JSON 入口只存在于 git 历史。
+#285 阶段二以 `junction_debug` native example 交付了可见诊断（[#285](https://github.com/illusion-tech/laneflow/issues/285)）：
+默认关闭的 F3 调试 overlay 全部用 Bevy mesh 与文本落地，不恢复 Gizmos 公共 API，也不
+为恢复历史 Gizmos API 增加兼容层。v0.7 / #172 的预算受控 gizmos 与 campus /
+`debug_gizmos_smoke` 只存在于 git 历史。
 
-该能力不是现行交付。[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭：当前最小 Bevy 证据是 `runtime_min` 与无窗口 smoke，不恢复 gizmos 公共 API。真正有可见诊断场景时再开新 Issue；默认 production graph 仍不得包含 Gizmos/render/window。
+overlay 内容与纪律（设计 §4，`junction-observation-and-validation.md`）：
+
+- 静态 Gate 标记来自 `route_gate` / `ManeuverGateView` + 停止线定位；多次经过同一
+  Gate 的画面去重仅限标记，不合并各自 route/hop 的决策与预约。
+- Waiting 区间用 entry→release Gate 之间的规范路径边子段 ribbon 表示，不新造
+  Waiting polygon authority；Conflict 区域用 `ConflictZoneRegion` 的 `ring_xz`
+  描边 mesh，缺少区域几何时显示带身份的文字标记，不计算几何相交补冲突事实。
+- 选定车辆面板（bevy_ui 文本）每拍在 `LaneFlowFixedSet::Observe` 消费
+  `junction_observation`：机动遍历阶段、最近 Waiting/Conflict 决策 outcome 与
+  NoGrant 归因、当前 `ConflictReservation` 摘要、未来 Gate route/hop 列表；按车
+  聚合时对每拍决策批次建一次索引。bevy 内嵌字体仅覆盖 ASCII，面板文本使用精确
+  英文标识符。
+- 信号状态点用 `committed_signal_groups()`，其拥有式 materialization 的分配与
+  耗时单独计账，不因观测视图零分配就声称整个观测链零分配。
+- 静态绘制缓存以（路网修订、世界世代）为键，换根或换世代后重建；旧世代的动态
+  标记不覆盖当前状态。overlay 全部只读 `LaneFlowSession` 并写独立 ECS 实体；
+  默认调试关闭，开/关与呈现比例在相同命令输入下不改变 Runtime 状态与事件摘要
+  （无窗口 smoke 以 `deterministic_state_digest` + 每拍 transition/决策摘要
+  对拍把关，见 `examples/support/junction_debug_smoke.rs`）。
+
+默认 production graph 仍不得包含 Gizmos/render/window；`native-example` 仍是非默认
+opt-in。渲染、文本与模型的耗时不得混作 Runtime 性能。
 
 ## 9. 最小 native example
 
@@ -180,6 +204,15 @@ cargo +1.98.0 test --locked -p laneflow-bevy --test runtime_min_smoke
 ```
 
 `native-example` 仍是非默认 opt-in，完整 `DefaultPlugins` / window / renderer 留在示例边界。v0.7 `native_reference`、campus JSON 与 `laneflow_data::from_scenario_json_slice` 已删除。现行走廊 native example 使用检入 catalog 0.4 与 LFCA，prepare 绑到已安装共享路网修订并 `register_route`；50–200 回流见 [#475](https://github.com/illusion-tech/laneflow/issues/475)。
+
+#285 阶段二的复杂路口调试示例是 `junction_debug`（同样 `native-example` opt-in）：
+检入 catalog 0.1 + LFCA 的固定四车 spawn 计划（直行、保护左转待转、许可左转、环路
+重复过门），F3 调试 overlay 见 §8；无窗口 smoke 是 `junction_debug_smoke`。
+
+```powershell
+cargo +1.98.0 check --locked -p laneflow-bevy --example junction_debug --features native-example
+cargo +1.98.0 test --locked -p laneflow-bevy --test junction_debug_smoke
+```
 
 ## 10. 验证与性能 Gate
 
