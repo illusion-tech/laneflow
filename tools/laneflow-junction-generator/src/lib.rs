@@ -54,22 +54,57 @@ pub fn generate_files(config_path: &Path) -> Result<ScenarioCounts, Error> {
 /// 输出文件不得解析回源 config 自身（例如 `directory = "."` 加同名文件），
 /// 否则 `generate` 会静默覆写编制输入。
 fn reject_config_alias(config_path: &Path, paths: &OutputPaths) -> Result<(), Error> {
-    let config_canonical = std::fs::canonicalize(config_path).at(config_path)?;
+    let config_resolved = resolve_for_compare(config_path)?;
     for output in [&paths.catalog, &paths.lfca] {
-        // 输出文件可能尚不存在：canonicalize 其父目录后拼接文件名再比较。
-        let parent = output
-            .parent()
-            .expect("joined output file always has a parent");
-        let resolved = std::fs::canonicalize(parent)
-            .unwrap_or_else(|_| parent.to_path_buf())
-            .join(output.file_name().expect("output file name"));
-        if resolved == config_canonical {
+        if resolve_for_compare(output)? == config_resolved {
             return Err(Error::Config(format!(
                 "output path {output:?} would overwrite the source config {config_path:?}"
             )));
         }
     }
     Ok(())
+}
+
+/// 与文件系统存在性无关的路径解析：先做词法归一（折叠 `.` / `..`，`..`
+/// 不得越过根），再从最近存在的祖先 canonicalize（解析符号链接）并拼接
+/// 剩余组件。`missing/..` 之类写法因此不能绕过别名检查。
+fn resolve_for_compare(path: &Path) -> Result<PathBuf, Error> {
+    let absolute = std::path::absolute(path).at(path)?;
+    let mut lexical = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !lexical.pop() {
+                    return Err(Error::Config(format!(
+                        "path {path:?} escapes its filesystem root"
+                    )));
+                }
+            }
+            other => lexical.push(other.as_os_str()),
+        }
+    }
+    let mut probe = lexical.clone();
+    let mut tail = Vec::new();
+    loop {
+        if let Ok(canonical) = std::fs::canonicalize(&probe) {
+            let mut resolved = canonical;
+            for part in tail.iter().rev() {
+                resolved.push(part);
+            }
+            return Ok(resolved);
+        }
+        let name = probe
+            .file_name()
+            .ok_or_else(|| Error::Config(format!("path {path:?} has no resolvable ancestor")))?
+            .to_os_string();
+        tail.push(name);
+        if !probe.pop() {
+            return Err(Error::Config(format!(
+                "path {path:?} has no existing ancestor"
+            )));
+        }
+    }
 }
 
 pub fn check_files(config_path: &Path) -> Result<ScenarioCounts, Error> {
