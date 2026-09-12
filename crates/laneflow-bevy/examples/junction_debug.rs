@@ -14,7 +14,7 @@ use bevy::{mesh::Indices, prelude::*};
 use laneflow_bevy::{
     LaneFlowCommittedPoseBatch, LaneFlowFixed, LaneFlowFixedSet, LaneFlowPlugin, LaneFlowSession,
 };
-use laneflow_runtime::{VehicleHandle, WorldGeneration};
+use laneflow_runtime::{VehicleHandle, VehicleStatus, WorldGeneration};
 use laneflow_spatial::{CanonicalPoseF32, FramePlacementToken};
 use laneflow_static_contract::{
     ConflictZoneOrdinal, EntityKind, NetworkRevisionId, SignalAspect, SignalGroupOrdinal,
@@ -37,7 +37,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         .init_resource::<JunctionDebugConfig>()
         .init_resource::<PoseBuffer>()
         .init_resource::<JunctionDebugPanel>()
-        .init_resource::<OverlaySignalStates>()
         .init_resource::<StaticOverlayCache>()
         .add_systems(Startup, setup_scene)
         .add_systems(
@@ -69,16 +68,20 @@ struct SpawnedPlan(Box<[junction_debug_scene::SpawnedVehicle]>);
 #[derive(Resource, Default)]
 struct PoseBuffer(LaneFlowCommittedPoseBatch);
 
-/// 每拍由 `observe_overlay` 重写的面板内容；`selected` 供高亮标记定位。
+/// 每拍由 `observe_overlay` 重写的面板内容；`selected` 供高亮标记定位，
+/// `signals` 是最近一拍信号组指示（group raw + aspect）。
 #[derive(Resource, Default)]
 struct JunctionDebugPanel {
     content: String,
     selected: Option<VehicleHandle>,
+    signals: Vec<(u32, SignalAspect)>,
 }
 
-/// 最近一拍信号组指示（group raw + aspect），由 GUI 映射为标记点颜色。
-#[derive(Resource, Default)]
-struct OverlaySignalStates(Vec<(u32, SignalAspect)>);
+/// 车辆表现几何：Runtime pose 是前保险杠位置，表现中心沿切向后移半个车长。
+#[derive(Resource)]
+struct VehicleMetrics {
+    half_length: f32,
+}
 
 /// 静态绘制缓存键：换根或换世代后重建；`None` 表示当前无静态标记。
 #[derive(Resource, Default)]
@@ -95,6 +98,10 @@ struct DebugStaticRoot;
 #[derive(Component)]
 struct SignalDotMarker {
     group: u32,
+    red: Handle<StandardMaterial>,
+    yellow: Handle<StandardMaterial>,
+    green: Handle<StandardMaterial>,
+    unknown: Handle<StandardMaterial>,
 }
 
 #[derive(Component)]
@@ -151,6 +158,9 @@ fn setup_scene(
         .relations()
         .vehicle_profile(laneflow_static_contract::VehicleProfileOrdinal::from_raw(0))
         .map_or(4_500, |profile| profile.length_mm());
+    commands.insert_resource(VehicleMetrics {
+        half_length: (profile_length_mm as f32) / 1_000.0 / 2.0,
+    });
     let vehicle_mesh = meshes.add(Cuboid::new(
         VEHICLE_WIDTH_METERS,
         VEHICLE_HEIGHT_METERS,
@@ -245,6 +255,7 @@ fn toggle_overlay(keys: Res<ButtonInput<KeyCode>>, mut config: ResMut<JunctionDe
 fn sync_vehicle_transforms(
     mut session: ResMut<LaneFlowSession>,
     mut buffer: ResMut<PoseBuffer>,
+    metrics: Res<VehicleMetrics>,
     mut transforms: Query<&mut Transform, With<VehicleBox>>,
 ) {
     if session
@@ -266,7 +277,12 @@ fn sync_vehicle_transforms(
             continue;
         };
         if let Ok(mut transform) = transforms.get_mut(entity) {
-            *transform = pose_transform(record.pose());
+            let mut target = pose_transform(record.pose());
+            let tangent = record.pose().tangent();
+            let forward = Vec3::new(tangent.x(), tangent.y(), tangent.z());
+            // Runtime pose 是前保险杠位置；表现中心沿切向后移半个车长。
+            target.translation -= forward * metrics.half_length;
+            *transform = target;
         }
     }
 }
@@ -321,7 +337,6 @@ fn maintain_static_overlay(
         double_sided: true,
         ..default()
     });
-    let signal_material = materials.add(StandardMaterial::from_color(Color::srgb(0.9, 0.1, 0.1)));
 
     let mut identity_lines: Vec<String> = Vec::new();
     let Some(spatial) = revision.spatial() else {
@@ -403,9 +418,11 @@ fn maintain_static_overlay(
         ) else {
             continue;
         };
-        if start > end {
+        // transition i 的门边界位于 edges i 与 i+1 之间：待转区间从 entry 边界后
+        // 一条边开始，到 release 边界所在的前一条边为止。
+        let Some(start) = start.checked_add(1).filter(|index| *index <= end) else {
             continue;
-        }
+        };
         let mut points = Vec::new();
         for edge in &edges[start..=end] {
             if let Some(geometry) = lane_pose.lane_geometry(*edge) {
@@ -451,9 +468,14 @@ fn maintain_static_overlay(
         spawn_identity_text(&mut commands, identity_lines);
     }
 
-    // 信号状态点：每组的动态颜色在 `apply_overlay_visuals` 中按 committed aspect 更新。
+    // 信号状态点：预建红/黄/绿/未知共享材质，逐点按 committed aspect 选派句柄
+    // （不改写共享 asset，避免所有点显示同一颜色）。
     let group_count = traffic.entity_counts().count(EntityKind::SignalGroup);
     let dot_mesh = meshes.add(Sphere::new(1.1).mesh().build());
+    let red = materials.add(StandardMaterial::from_color(Color::srgb(0.9, 0.1, 0.1)));
+    let yellow = materials.add(StandardMaterial::from_color(Color::srgb(0.95, 0.85, 0.1)));
+    let green = materials.add(StandardMaterial::from_color(Color::srgb(0.1, 0.9, 0.2)));
+    let unknown = materials.add(StandardMaterial::from_color(Color::srgb(0.35, 0.35, 0.38)));
     for raw in 0..group_count {
         let group = SignalGroupOrdinal::from_raw(raw);
         let Some(group_view) = relations.signal_group(group) else {
@@ -476,9 +498,15 @@ fn maintain_static_overlay(
         };
         commands.spawn((
             Mesh3d(dot_mesh.clone()),
-            MeshMaterial3d(signal_material.clone()),
+            MeshMaterial3d(red.clone()),
             Transform::from_translation(point_to_vec3(point) + Vec3::Y * 3.5),
-            SignalDotMarker { group: raw },
+            SignalDotMarker {
+                group: raw,
+                red: red.clone(),
+                yellow: yellow.clone(),
+                green: green.clone(),
+                unknown: unknown.clone(),
+            },
             DebugStaticRoot,
         ));
     }
@@ -525,12 +553,11 @@ fn observe_overlay(
     session: Res<LaneFlowSession>,
     plan: Res<SpawnedPlan>,
     mut panel: ResMut<JunctionDebugPanel>,
-    mut signals: ResMut<OverlaySignalStates>,
 ) {
     if !config.enabled {
         panel.content.clear();
         panel.selected = None;
-        signals.0.clear();
+        panel.signals.clear();
         return;
     }
     let view = session.junction_observation();
@@ -568,12 +595,17 @@ fn observe_overlay(
             ));
     }
 
-    // 选定车辆：本拍有决策的首辆 live 车，否则首辆 live 车。
+    // 选定车辆：只在 Active（有当前 committed pose）的车里选——本拍有决策的首辆，
+    // 否则首辆；Completed 车不再停留，避免高亮/面板锁在已完成车辆上。
     let rows: Vec<_> = view.vehicles().collect();
-    let selected = rows
+    let active: Vec<_> = rows
+        .iter()
+        .filter(|row| row.state().status() == VehicleStatus::Active)
+        .collect();
+    let selected = active
         .iter()
         .find(|row| by_vehicle.contains_key(&row.vehicle()))
-        .or_else(|| rows.first())
+        .or_else(|| active.first())
         .map(|row| row.vehicle());
     panel.selected = selected;
 
@@ -663,15 +695,15 @@ fn observe_overlay(
         let _ = writeln!(content, "selected=none");
     }
 
-    signals.0 = session
+    panel.signals = session
         .world()
         .committed_signal_groups()
         .as_slice()
         .iter()
         .map(|(group, aspect)| (group.raw(), *aspect))
         .collect();
-    let signal_text: Vec<String> = signals
-        .0
+    let signal_text: Vec<String> = panel
+        .signals
         .iter()
         .map(|(group, aspect)| format!("g{group}:{aspect:?}"))
         .collect();
@@ -680,16 +712,14 @@ fn observe_overlay(
     panel.content = content;
 }
 
-#[allow(clippy::too_many_arguments)]
 fn apply_overlay_visuals(
     config: Res<JunctionDebugConfig>,
     buffer: Res<PoseBuffer>,
     panel: Res<JunctionDebugPanel>,
-    signals: Res<OverlaySignalStates>,
+    metrics: Res<VehicleMetrics>,
     mut panel_text: Query<&mut Text, With<PanelText>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut dots: Query<(&SignalDotMarker, &MeshMaterial3d<StandardMaterial>)>,
-    mut highlight: Query<&mut Transform, With<SelectedVehicleMarker>>,
+    mut dots: Query<(&SignalDotMarker, &mut MeshMaterial3d<StandardMaterial>)>,
+    mut highlight: Query<(&mut Transform, &mut Visibility), With<SelectedVehicleMarker>>,
 ) {
     if let Ok(mut text) = panel_text.single_mut() {
         text.0 = if config.enabled {
@@ -701,21 +731,23 @@ fn apply_overlay_visuals(
     if !config.enabled {
         return;
     }
-    for (marker, material) in &mut dots {
-        let aspect = signals
-            .0
+    // 逐点选派预建共享材质句柄；不就地改写共享 asset。
+    for (marker, mut material) in &mut dots {
+        let aspect = panel
+            .signals
             .iter()
             .find(|(group, _)| *group == marker.group)
             .map(|(_, aspect)| *aspect);
-        let color = match aspect {
-            Some(SignalAspect::Green) => Color::srgb(0.1, 0.9, 0.2),
-            Some(SignalAspect::Yellow) => Color::srgb(0.95, 0.85, 0.1),
-            _ => Color::srgb(0.9, 0.1, 0.1),
+        let handle = match aspect {
+            Some(SignalAspect::Green) => marker.green.clone(),
+            Some(SignalAspect::Yellow) => marker.yellow.clone(),
+            Some(SignalAspect::Red) => marker.red.clone(),
+            _ => marker.unknown.clone(),
         };
-        if let Some(mut material) = materials.get_mut(&material.0) {
-            material.base_color = color;
-        }
+        *material = MeshMaterial3d(handle);
     }
+    // 选中车无当前 pose（如 Completed 车不在 committed 批次里）时隐藏高亮，
+    // 而不是把它挪到世界原点。
     let selected_position = panel.selected.and_then(|vehicle| {
         buffer
             .0
@@ -723,16 +755,22 @@ fn apply_overlay_visuals(
             .iter()
             .position(|candidate| *candidate == vehicle)
             .and_then(|index| buffer.0.batch().records().get(index))
-            .map(|record| record.pose())
-            .map(pose_transform)
+            .map(|record| {
+                let mut target = pose_transform(record.pose());
+                let tangent = record.pose().tangent();
+                let forward = Vec3::new(tangent.x(), tangent.y(), tangent.z());
+                target.translation -= forward * metrics.half_length;
+                target
+            })
     });
-    if let Ok(mut transform) = highlight.single_mut() {
+    if let Ok((mut transform, mut visibility)) = highlight.single_mut() {
         match selected_position {
             Some(target) => {
                 *transform = target;
+                *visibility = Visibility::Visible;
             }
             None => {
-                *transform = Transform::IDENTITY;
+                *visibility = Visibility::Hidden;
             }
         }
     }
