@@ -134,30 +134,21 @@ impl Curve {
     /// 保证 LaneEdge 后继焊接。控制腿等长（`CIRCLE_CUBIC_FACTOR·radius`），
     /// 编译器自适应细分在良态控制多边形上不会产生退化弦。
     ///
-    /// `outset > 0`（同角第二条环路，取一个车道宽）把第一段圆弧半径加大
-    /// outset，使出发直腿与内侧环路横向分离；`widen > 0` 再把折返矩形外扩
-    /// widen 并延伸末尾直线段，使远端直腿也分离。起止焊接点不变。
-    pub fn corner_loop(
-        start: Point,
-        from: Arm,
-        end: Point,
-        radius: f64,
-        outset: f64,
-        widen: f64,
-    ) -> Self {
+    /// 同角第二条环路不加大半径（半径加大会与内侧环路在弯角交叉），
+    /// 改用 `corner_loop_wide` 的平行偏移方案；本函数只做几何一致的内侧环路。
+    pub fn corner_loop(start: Point, from: Arm, end: Point, radius: f64) -> Self {
         let h0 = from.delta();
         // xz 平面（z 指南）里行进方向右侧的单位向量。
         let right = [-h0[1], h0[0]];
         let along = (start[0] - end[0]) * h0[0] + (start[1] - end[1]) * h0[1];
         let across = (start[0] - end[0]) * right[0] + (start[1] - end[1]) * right[1];
-        let r1 = radius + outset;
-        let l3 = widen;
-        let l1 = -across - r1 + l3;
+        let r1 = radius;
+        let l1 = -across - r1;
         let l2 = along + r1 - 2.0 * radius;
         assert!(l1 > 0.0 && l2 > 0.0, "loop straights must be positive");
         let k1 = CIRCLE_CUBIC_FACTOR * r1;
         let k = CIRCLE_CUBIC_FACTOR * radius;
-        let mut segments = Vec::with_capacity(6);
+        let mut segments = Vec::with_capacity(5);
         // 圆弧 1（半径 r1）：h0 右转 90 度到 right。
         let end1 = [
             start[0] + r1 * right[0] + r1 * h0[0],
@@ -194,10 +185,102 @@ impl Curve {
             c2: [end3[0] + k * right[0], end3[1] + k * right[1]],
             end: end3,
         });
-        if l3 > 0.0 {
-            segments.push(Segment::Line { end });
-        }
         Self { start, segments }
+    }
+
+    /// 同角第二条环路：把内侧环路（`base`）沿行进方向左侧（三段圆弧的转弯
+    /// 中心侧，即 `rot90(tangent)` 方向）平行偏移 `offset`（取一个车道宽）。
+    /// 三段圆弧等半径收缩、直线腿横向平移，两轨全段等距不交叉。
+    ///
+    /// 单车道臂强制 2↔1 汇合/分流的共点端（出发端同点或到达端同点）按
+    /// `taper_meters` 长度把偏移量平滑收敛到零（三次 smoothstep，纯四则
+    /// 运算保持跨平台字节一致），收敛端精确落在 `exact_end`（调用方给该环
+    /// 路自己的车道端口），焊接位置与切向不变。`exact_end` 必须是偏移侧
+    /// 端点：到达端共点时取本环出发车道端口，`taper_at_start` 时取本环
+    /// 到达车道端口。
+    pub fn corner_loop_wide(
+        base: &Curve,
+        offset: f64,
+        taper_meters: f64,
+        taper_at_start: bool,
+        exact_end: Point,
+    ) -> Self {
+        // 128 等分：弧弦约 0.20 m——低于 0.5 m 量级满足内部弦向容差，
+        // 同时显著高于 0.1 m 的最小弦长下限（256 等分出现过 0.09 m 退化弦）。
+        let mut points = Vec::new();
+        base.sample_into(128, &mut points);
+        let mut tangents = with_tangents(&points);
+        // 端点切向用曲线一阶导数的精确值替代首末弦近似：焊接方向检查要求
+        // 末弦与后继边首弦夹角 ≤ 2°，弦近似在端点处会引入额外 kink。
+        let unit = |vector: Point| {
+            let length = (vector[0] * vector[0] + vector[1] * vector[1]).sqrt();
+            if length > 0.0 {
+                [vector[0] / length, vector[1] / length]
+            } else {
+                [1.0, 0.0]
+            }
+        };
+        let first = &base.segments[0];
+        tangents[0].1 = match *first {
+            Segment::Line { end } => unit([end[0] - base.start[0], end[1] - base.start[1]]),
+            Segment::Bezier { c1, .. } => unit([c1[0] - base.start[0], c1[1] - base.start[1]]),
+        };
+        let last_index = points.len() - 1;
+        let last = base.segments.last().expect("loop curve has segments");
+        tangents[last_index].1 = match *last {
+            Segment::Line { end } => unit([
+                end[0] - points[last_index - 1][0],
+                end[1] - points[last_index - 1][1],
+            ]),
+            Segment::Bezier { c2, end, .. } => unit([end[0] - c2[0], end[1] - c2[1]]),
+        };
+        let mut lengths = Vec::with_capacity(points.len());
+        lengths.push(0.0_f64);
+        for pair in points.windows(2) {
+            lengths.push(lengths.last().expect("length seed") + segment_length(pair[0], pair[1]));
+        }
+        let total = *lengths.last().expect("sampled curve has points");
+        assert!(
+            taper_meters < total * 0.5,
+            "loop taper must be shorter than half the loop"
+        );
+        let mut framed: Vec<Point> = Vec::with_capacity(points.len());
+        for index in 0..points.len() {
+            let point = points[index];
+            let tangent = tangents[index].1;
+            let length = lengths[index];
+            let remain = total - length;
+            let blend = if taper_at_start {
+                if length < taper_meters {
+                    smoothstep(length / taper_meters)
+                } else {
+                    1.0
+                }
+            } else if remain < taper_meters {
+                smoothstep(remain / taper_meters)
+            } else {
+                1.0
+            };
+            // rot90(tangent)：与 `corner_loop` 的 right 向量同构，指向
+            // 转弯中心侧（三段圆弧同向转弯，单一符号全段一致）。
+            framed.push([
+                point[0] + blend * offset * -tangent[1],
+                point[1] + blend * offset * tangent[0],
+            ]);
+        }
+        // 采样切向在端点处只是首末弦近似；偏移侧端点（锥形的另一侧）必须
+        // 逐位等于本环自己的车道端口，由调用方给出的 `exact_end` 钉住
+        // （锥形端 blend 已为 0，天然等于共点端口）。
+        let pinned = if taper_at_start { framed.len() - 1 } else { 0 };
+        framed[pinned] = exact_end;
+        let mut segments = Vec::with_capacity(framed.len() - 1);
+        for pair in framed.windows(2) {
+            segments.push(Segment::Line { end: pair[1] });
+        }
+        Self {
+            start: framed[0],
+            segments,
+        }
     }
 
     /// 把曲线采样为折线点列（含起点）；bezier 段用 `divisions` 等分参数求值。
@@ -295,6 +378,18 @@ fn segment_length(a: Point, b: Point) -> f64 {
     let dz = b[1] - a[1];
     (dx * dx + dz * dz).sqrt()
 }
+
+/// 三次 smoothstep（3u²−2u³，纯四则运算，保证跨平台字节一致）；
+/// u 越界时钳到 [0, 1]。
+fn smoothstep(u: f64) -> f64 {
+    let u = u.clamp(0.0, 1.0);
+    u * u * (3.0 - 2.0 * u)
+}
+
+/// 环路共点端（单车道臂强制 2↔1 汇合/分流）的锥形段长度（米）：
+/// 偏移量在该长度内从全量平滑收敛到零，汇合一侧保持 ≥ 一个车道宽量级
+/// 的横向间距，避免两轨在近端重叠。
+pub(crate) const LOOP_TAPER_METERS: f64 = 30.0;
 
 /// 折线点列 → (位置, 单位切向)：点 i 的切向取相邻弦方向（首点取首弦、
 /// 末点取末弦，其余取前后弦之和方向）。
@@ -566,11 +661,12 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
         }
     }
 
-    // 环路回连边：每条出口车道顺时针绕角接到下一条入口车道（一对一，不起
-    // 分流合流），提供车辆存储与成环路线。几何见 `Curve::corner_loop`。
+    // 环路回连边：每条出口车道顺时针绕角接到下一条入口车道（单车道臂处
+    // 强制 2↔1 汇合/分流，共点端锥形处理），提供车辆存储与成环路线。
+    // 内侧环路几何见 `Curve::corner_loop`；同角第二条环路用
+    // `Curve::corner_loop_wide` 平行偏移，全段横向分离、不交叉。
     let turn_speed = config.speeds.turn_meters_per_second;
     let corner_radius = geometry.loop_corner_radius_meters;
-    let widen = geometry.loop_outer_widen_meters;
     let loops: [(&str, Arm, usize, Arm, usize, bool); 8] = [
         ("loop-es-i0", Arm::East, 0, Arm::South, 0, false),
         ("loop-es-i1", Arm::East, 1, Arm::South, 0, true),
@@ -581,25 +677,36 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
         ("loop-ne-i0", Arm::North, 0, Arm::East, 0, false),
         ("loop-ne-i1", Arm::North, 0, Arm::East, 1, true),
     ];
+    let mut base_curves: BTreeMap<String, Curve> = BTreeMap::new();
     for &(key, from, from_lane, to, to_lane, wide) in &loops {
         let from_offsets = from.lane_offsets(config);
         let to_offsets = to.lane_offsets(config);
         let start = port(from, false, from_offsets[from_lane], arm_length);
         let end = port(to, true, to_offsets[to_lane], arm_length);
-        // 同角第二条环路：首段圆弧半径加大一个车道宽（outset），折返矩形再
-        // 外扩 widen，两条环路全段横向分离。
-        let curve = Curve::corner_loop(
-            start,
-            from,
-            end,
-            corner_radius,
-            if wide {
-                geometry.lane_width_meters
-            } else {
-                0.0
-            },
-            if wide { widen } else { 0.0 },
-        );
+        let curve = if wide {
+            // 同角第二条环路：以内侧环路为基准向转弯中心侧平行偏移一个车道宽。
+            // 出发端同点（同臂同车道出发，单车道臂分流）时锥形在出发端、
+            // 精确端点取本环到达端口；否则锥形在到达端（2→1 汇合）、精确端点
+            // 取本环出发端口。
+            let i0_start = port(from, false, from_offsets[0], arm_length);
+            let taper_at_start = start == i0_start;
+            let exact_end = if taper_at_start { end } else { start };
+            let base = base_curves
+                .get(&format!("loop-{}{}-i0", from.key(), to.key()))
+                .expect("inner loop registered before wide loop");
+            Curve::corner_loop_wide(
+                base,
+                geometry.lane_width_meters,
+                LOOP_TAPER_METERS,
+                taper_at_start,
+                exact_end,
+            )
+        } else {
+            Curve::corner_loop(start, from, end, corner_radius)
+        };
+        if !wide {
+            base_curves.insert(key.to_owned(), curve.clone());
+        }
         let entry_key = road_edge_key(to, true, to_lane, to_offsets.len());
         add_edge(
             &mut topology,

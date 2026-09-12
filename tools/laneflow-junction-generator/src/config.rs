@@ -35,7 +35,6 @@ pub struct GeometryConfig {
     pub pocket_offset_meters: f64,
     pub curve_control_meters: f64,
     pub loop_corner_radius_meters: f64,
-    pub loop_outer_widen_meters: f64,
     pub spawn_slot_pitch_meters: f64,
 }
 
@@ -131,10 +130,6 @@ impl JunctionConfig {
             (
                 "geometry.loop_corner_radius_meters",
                 geometry.loop_corner_radius_meters,
-            ),
-            (
-                "geometry.loop_outer_widen_meters",
-                geometry.loop_outer_widen_meters,
             ),
             (
                 "geometry.spawn_slot_pitch_meters",
@@ -233,9 +228,9 @@ impl JunctionConfig {
                 "arm_length_meters must exceed twice junction_radius_meters to leave a loop corner",
             ));
         }
-        // 环路三段圆弧的直线腿长度 = arm_length − 车道偏移 − corner_radius（外侧环路
-        // 首段圆弧半径再加大一个车道宽，且远端外扩 widen）；直线腿必须为正且不小于
-        // 转角半径。
+        // 环路三段圆弧的直线腿长度 = arm_length − 车道偏移 − corner_radius
+        // （同角第二条环路向内平行偏移一个车道宽，不加大半径）；直线腿必须为正
+        // 且不小于转角半径。
         let shortest_leg = geometry.arm_length_meters
             - (geometry.center_offset_meters + geometry.lane_width_meters / 2.0)
             - (geometry.loop_corner_radius_meters + geometry.lane_width_meters);
