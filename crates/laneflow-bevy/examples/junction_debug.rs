@@ -1,5 +1,5 @@
 //! 复杂路口 Bevy 调试示例（#285 阶段二 §4）：检入 catalog 0.1 + LFCA 的四车
-//! 确定性场景 + 默认关闭的 F3 调试 overlay（mesh/文本，无 Gizmos）。
+//! 确定性场景 + 默认关闭的 F2 调试 overlay（mesh/文本，无 Gizmos）。
 //!
 //! overlay 全部只读 `LaneFlowSession` 并写独立 ECS 实体，不触碰 Runtime 状态；
 //! 开/关 overlay 在相同输入下的 Runtime 摘要一致性由无窗口 smoke 对拍把关。
@@ -8,9 +8,10 @@
 #[path = "support/junction_debug_scene.rs"]
 mod junction_debug_scene;
 
-use std::{collections::HashMap, error::Error, fmt::Write as _};
+use std::{collections::HashMap, error::Error, fmt::Write as _, path::PathBuf};
 
-use bevy::{mesh::Indices, prelude::*};
+use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
+use bevy::{asset::AssetApp, camera::ScalingMode, mesh::Indices, prelude::*};
 use laneflow_bevy::{
     LaneFlowCommittedPoseBatch, LaneFlowFixed, LaneFlowFixedSet, LaneFlowPlugin, LaneFlowSession,
 };
@@ -22,18 +23,54 @@ use laneflow_static_contract::{
 };
 use laneflow_static_network::{CanonicalPoint, SharedNetworkRevision};
 
-/// 调试 ribbon 的车道宽度近似（米）；精确车道宽不在 catalog 线格式内。
+/// 车道宽度（米），与场景合同 `examples/config/v0.1-complex-junction.toml` 的
+/// `lane_width_meters` 一致。
 const LANE_WIDTH_METERS: f32 = 3.5;
 /// 车辆 box 宽度近似（米）；车型线格式只有车长。
 const VEHICLE_WIDTH_METERS: f32 = 1.8;
 const VEHICLE_HEIGHT_METERS: f32 = 1.5;
+/// 地平面边长（米）；覆盖环路最外缘（±182 m）并留透视余量。
+const GROUND_SIZE_METERS: f32 = 600.0;
+/// 路口内部沥青铺装 patch 边长（米）；junction_radius 30 m 量级外扩。
+const JUNCTION_PATCH_METERS: f32 = 64.0;
+/// 道路/标线/铺装的错层高度（米），避免共面 z-fight。
+const ROAD_Y: f32 = 0.03;
+const MARKING_Y: f32 = 0.06;
+const MARKING_ALT_Y: f32 = 0.065;
+const PATCH_Y: f32 = 0.015;
+/// screenshot 模式的出图帧（等 Startup、渲染管线与首帧呈现稳定后落盘）。
+const SCREENSHOT_FRAME: u32 = 150;
+/// screenshot 模式窗口分辨率（宽, 高）。
+const SCREENSHOT_RESOLUTION: (u32, u32) = (1_600, 1_000);
 
 fn main() -> Result<(), Box<dyn Error>> {
     let scene = junction_debug_scene::build()?;
-    App::new()
-        .add_plugins((DefaultPlugins, LaneFlowPlugin))
-        .insert_resource(scene.session)
+    let cli = CliArgs::parse();
+    let mut app = App::new();
+    app.add_plugins(LaneFlowPlugin);
+    if let Some(path) = cli.screenshot.clone() {
+        // screenshot 模式：固定分辨率窗口，第 SCREENSHOT_FRAME 帧落盘后自动退出。
+        app.add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                resolution: SCREENSHOT_RESOLUTION.into(),
+                ..default()
+            }),
+            ..default()
+        }))
+        .insert_resource(ScreenshotJob {
+            frame: 0,
+            fired: false,
+            path,
+        });
+    } else {
+        app.add_plugins(DefaultPlugins);
+    }
+    // ScatteringMedium 资产集合由示例自行注册（bevy_pbr 不代注册）；
+    // 必须在 AssetPlugin（DefaultPlugins）之后。
+    app.init_asset::<bevy::light::atmosphere::ScatteringMedium>();
+    app.insert_resource(scene.session)
         .insert_resource(SpawnedPlan(scene.spawned))
+        .insert_resource(CameraPresetChoice(cli.camera))
         .init_resource::<JunctionDebugConfig>()
         .init_resource::<PoseBuffer>()
         .init_resource::<JunctionDebugPanel>()
@@ -44,6 +81,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             (
                 toggle_overlay,
                 sync_vehicle_transforms,
+                update_traffic_lights,
                 maintain_static_overlay,
                 apply_overlay_visuals.after(sync_vehicle_transforms),
             ),
@@ -51,9 +89,113 @@ fn main() -> Result<(), Box<dyn Error>> {
         .add_systems(
             LaneFlowFixed,
             observe_overlay.in_set(LaneFlowFixedSet::Observe),
-        )
-        .run();
+        );
+    if cli.screenshot.is_some() {
+        app.add_systems(Update, screenshot_at_frame);
+    }
+    app.run();
     Ok(())
+}
+
+/// 相机预设：`persp` 低机位透视（常规画面）；`topdown` 正交垂直向下看全路口
+/// （车道几何核查用）。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CameraPreset {
+    Persp,
+    Topdown,
+}
+
+impl CameraPreset {
+    fn tag(self) -> &'static str {
+        match self {
+            Self::Persp => "persp",
+            Self::Topdown => "topdown",
+        }
+    }
+}
+
+#[derive(Resource)]
+struct CameraPresetChoice(CameraPreset);
+
+struct CliArgs {
+    screenshot: Option<PathBuf>,
+    camera: CameraPreset,
+}
+
+impl CliArgs {
+    /// `--screenshot <路径> [--camera persp|topdown]`；路径为目录时写
+    /// `<目录>/junction_debug_<preset>.png`。env 回退：
+    /// `JUNCTION_DEBUG_SCREENSHOT` / `JUNCTION_DEBUG_CAMERA`。
+    fn parse() -> Self {
+        let mut screenshot = None;
+        let mut camera = None;
+        let mut tokens = std::env::args().skip(1);
+        while let Some(token) = tokens.next() {
+            match token.as_str() {
+                "--screenshot" => screenshot = tokens.next().map(PathBuf::from),
+                "--camera" => {
+                    camera = match tokens.next().as_deref() {
+                        Some("topdown") => Some(CameraPreset::Topdown),
+                        _ => Some(CameraPreset::Persp),
+                    };
+                }
+                _ => {}
+            }
+        }
+        if screenshot.is_none() {
+            screenshot = std::env::var("JUNCTION_DEBUG_SCREENSHOT")
+                .ok()
+                .map(PathBuf::from);
+        }
+        if camera.is_none() {
+            camera = match std::env::var("JUNCTION_DEBUG_CAMERA").as_deref() {
+                Ok("topdown") => Some(CameraPreset::Topdown),
+                Ok(_) => Some(CameraPreset::Persp),
+                Err(_) => None,
+            };
+        }
+        let camera = camera.unwrap_or(CameraPreset::Persp);
+        let screenshot = screenshot.map(|path| {
+            let is_dir =
+                path.is_dir() || path.to_string_lossy().ends_with(std::path::MAIN_SEPARATOR);
+            if is_dir {
+                path.join(format!("junction_debug_{}.png", camera.tag()))
+            } else {
+                path
+            }
+        });
+        Self { screenshot, camera }
+    }
+}
+
+/// screenshot 任务状态：第 `SCREENSHOT_FRAME` 帧 spawn `Screenshot`，
+/// 观察 `ScreenshotCaptured` 落盘后写 `AppExit`。
+#[derive(Resource)]
+struct ScreenshotJob {
+    frame: u32,
+    fired: bool,
+    path: PathBuf,
+}
+
+fn screenshot_at_frame(mut commands: Commands, mut job: ResMut<ScreenshotJob>) {
+    job.frame = job.frame.saturating_add(1);
+    if job.frame != SCREENSHOT_FRAME || job.fired {
+        return;
+    }
+    job.fired = true;
+    let path = job.path.clone();
+    commands.spawn(Screenshot::primary_window()).observe(
+        move |captured: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
+            match captured.image.clone().try_into_dynamic() {
+                Ok(dynamic) => match dynamic.to_rgb8().save(&path) {
+                    Ok(()) => info!("screenshot saved to {}", path.display()),
+                    Err(error) => error!("screenshot 保存失败: {error}"),
+                },
+                Err(error) => error!("screenshot 转换失败: {error:?}"),
+            }
+            exit.write(AppExit::Success);
+        },
+    );
 }
 
 #[derive(Resource, Default)]
@@ -107,6 +249,22 @@ struct SignalDotMarker {
 #[derive(Component)]
 struct SelectedVehicleMarker;
 
+/// 常规场景交通灯的一枚灯盘（红/黄/绿之一）；`lit` 变化时才重写独立材质。
+#[derive(Component)]
+struct TrafficLamp {
+    group: u32,
+    kind: LampKind,
+    material: Handle<StandardMaterial>,
+    lit: bool,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum LampKind {
+    Red,
+    Yellow,
+    Green,
+}
+
 #[derive(Component)]
 struct PanelText;
 
@@ -114,87 +272,357 @@ fn setup_scene(
     mut commands: Commands,
     mut session: ResMut<LaneFlowSession>,
     plan: Res<SpawnedPlan>,
+    preset: Res<CameraPresetChoice>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut scattering_mediums: ResMut<Assets<bevy::light::atmosphere::ScatteringMedium>>,
 ) {
-    commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(0.0, 330.0, 330.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
-    commands.spawn((
-        PointLight {
-            intensity: 2_000_000.0,
-            range: 1_200.0,
-            ..default()
-        },
-        Transform::from_xyz(80.0, 260.0, 120.0),
-    ));
-    let road_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.22, 0.23, 0.25),
-        double_sided: true,
-        ..default()
-    });
-    let revision = session.world().revision();
-    if let Some(lane_pose) = revision.spatial().and_then(|spatial| spatial.lane_pose()) {
-        for index in 0..lane_pose.lane_edge_count() {
-            let Some(geometry) =
-                lane_pose.lane_geometry(laneflow_static_contract::LaneEdgeOrdinal::from_raw(index))
-            else {
-                continue;
-            };
-            let points: Vec<Vec3> = geometry.points().iter().map(point_to_vec3).collect();
-            let Some(mesh) = ribbon_mesh(&points, LANE_WIDTH_METERS, 0.05, false) else {
-                continue;
-            };
+    // 天空大气（地球散射介质 + 相机设置）与太阳（平行光，投影，约 40° 俯角）。
+    let medium = scattering_mediums.add(bevy::light::atmosphere::ScatteringMedium::earth(256, 256));
+    commands.spawn(bevy::light::Atmosphere::earth(medium));
+    match preset.0 {
+        CameraPreset::Persp => {
             commands.spawn((
-                Mesh3d(meshes.add(mesh)),
-                MeshMaterial3d(road_material.clone()),
+                Camera3d::default(),
+                // fov 62° + ~26° 俯角：画面上方露出地平线/天空，路口核心占主体。
+                Projection::Perspective(PerspectiveProjection {
+                    fov: 1.0821,
+                    ..default()
+                }),
+                bevy::pbr::AtmosphereSettings::default(),
+                // 0.19 起 AmbientLight / DistanceFog 是相机组件；全局环境光用
+                // GlobalAmbientLight 资源做弱补光。
+                AmbientLight {
+                    color: Color::srgb(0.85, 0.9, 1.0),
+                    brightness: 120.0,
+                    ..default()
+                },
+                bevy::pbr::DistanceFog {
+                    color: Color::srgb(0.82, 0.88, 0.97),
+                    falloff: bevy::pbr::FogFalloff::Linear {
+                        start: 400.0,
+                        end: 1_200.0,
+                    },
+                    ..default()
+                },
+                Transform::from_xyz(55.0, 38.0, 55.0).looking_at(Vec3::ZERO, Vec3::Y),
+            ));
+        }
+        CameraPreset::Topdown => {
+            // 正交垂直向下：覆盖含环路的全场景（±182 m），方像素便于量几何。
+            commands.spawn((
+                Camera3d::default(),
+                Projection::Orthographic(OrthographicProjection {
+                    scaling_mode: ScalingMode::Fixed {
+                        width: 608.0,
+                        height: 380.0,
+                    },
+                    ..OrthographicProjection::default_3d()
+                }),
+                Transform::from_xyz(0.0, 300.0, 0.0).looking_at(Vec3::ZERO, Vec3::Z),
             ));
         }
     }
+    commands.spawn((
+        DirectionalLight {
+            illuminance: 100_000.0,
+            shadow_maps_enabled: true,
+            ..default()
+        },
+        Transform::from_rotation(Quat::from_euler(EulerRot::YXZ, -0.8, -0.7, 0.0)),
+    ));
+    commands.insert_resource(bevy::light::GlobalAmbientLight {
+        color: Color::srgb(0.85, 0.9, 1.0),
+        brightness: 40.0,
+        ..default()
+    });
+    // 地面：大薄板，顶面在 y=0。深草绿压低明度，与沥青拉开对比。
+    let ground_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.24, 0.38, 0.22),
+        ..default()
+    });
+    commands.spawn((
+        Mesh3d(meshes.add(Cuboid::new(GROUND_SIZE_METERS, 0.2, GROUND_SIZE_METERS))),
+        MeshMaterial3d(ground_material),
+        Transform::from_xyz(0.0, -0.1, 0.0),
+    ));
+    // 路口内部沥青铺装 patch，与臂道 ribbon 错层避免 z-fight。
+    let asphalt_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.11, 0.11, 0.12),
+        double_sided: true,
+        ..default()
+    });
+    commands.spawn((
+        Mesh3d(meshes.add(Cuboid::new(
+            JUNCTION_PATCH_METERS,
+            0.02,
+            JUNCTION_PATCH_METERS,
+        ))),
+        MeshMaterial3d(asphalt_material.clone()),
+        Transform::from_xyz(0.0, PATCH_Y - 0.01, 0.0),
+    ));
+    // 道路：每条 lane edge 一条沥青 ribbon + 两侧车道边白线。
+    let revision = session.world().revision();
+    let marking_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.9, 0.9, 0.88),
+        double_sided: true,
+        ..default()
+    });
+    let mut edge_count = 0_u32;
+    let mut loops = 0_u32;
+    let mut arms = 0_u32;
+    let mut internal = 0_u32;
+    let mut bounds_min = Vec3::splat(f32::MAX);
+    let mut bounds_max = Vec3::splat(f32::MIN);
+    if let Some(lane_pose) = revision.spatial().and_then(|spatial| spatial.lane_pose()) {
+        for index in 0..lane_pose.lane_edge_count() {
+            let ordinal = laneflow_static_contract::LaneEdgeOrdinal::from_raw(index);
+            let Some(geometry) = lane_pose.lane_geometry(ordinal) else {
+                continue;
+            };
+            edge_count += 1;
+            let arc = geometry.arc_length_meters();
+            if arc > 300.0 {
+                loops += 1;
+            } else if arc >= 100.0 {
+                arms += 1;
+            } else {
+                internal += 1;
+            }
+            let points: Vec<Vec3> = geometry.points().iter().map(point_to_vec3).collect();
+            for point in &points {
+                bounds_min = bounds_min.min(*point);
+                bounds_max = bounds_max.max(*point);
+            }
+            if let Some(mesh) = ribbon_mesh(&points, LANE_WIDTH_METERS, ROAD_Y, 0.0, false) {
+                commands.spawn((
+                    Mesh3d(meshes.add(mesh)),
+                    MeshMaterial3d(asphalt_material.clone()),
+                ));
+            }
+            // 车道边白线：两侧各一条；两侧 y 微差，使相邻车道共线白线不 z-fight。
+            // lane_geometry 无对向归属信息，按设计约定全部白线。环路（弧长 > 300 m）
+            // 只画沥青不画线，整圈标线视觉上太乱。
+            let half = LANE_WIDTH_METERS * 0.5;
+            if arc <= 300.0 {
+                if let Some(mesh) = ribbon_mesh(&points, 0.12, MARKING_Y, half, false) {
+                    commands.spawn((
+                        Mesh3d(meshes.add(mesh)),
+                        MeshMaterial3d(marking_material.clone()),
+                    ));
+                }
+                if let Some(mesh) = ribbon_mesh(&points, 0.12, MARKING_ALT_Y, -half, false) {
+                    commands.spawn((
+                        Mesh3d(meshes.add(mesh)),
+                        MeshMaterial3d(marking_material.clone()),
+                    ));
+                }
+            }
+        }
+    }
+    info!(
+        "junction_debug 场景: lane_geometry {edge_count} 条（环路 {loops} / 臂道 {arms} / 内部 {internal}），bounds x[{:.1}, {:.1}] z[{:.1}, {:.1}]",
+        bounds_min.x, bounds_max.x, bounds_min.z, bounds_max.z
+    );
+    // 车辆：按角色着色，车体 + 深色 cabin 子实体，中心落在前保险杠后方半个车长。
     let profile_length_mm = session
         .world()
         .traffic()
         .relations()
         .vehicle_profile(laneflow_static_contract::VehicleProfileOrdinal::from_raw(0))
         .map_or(4_500, |profile| profile.length_mm());
+    let length = (profile_length_mm as f32) / 1_000.0;
     commands.insert_resource(VehicleMetrics {
-        half_length: (profile_length_mm as f32) / 1_000.0 / 2.0,
+        half_length: length / 2.0,
     });
     let vehicle_mesh = meshes.add(Cuboid::new(
         VEHICLE_WIDTH_METERS,
         VEHICLE_HEIGHT_METERS,
-        (profile_length_mm as f32) / 1_000.0,
+        length,
     ));
-    let vehicle_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.85, 0.85, 0.9),
+    let cabin_mesh = meshes.add(Cuboid::new(VEHICLE_WIDTH_METERS * 0.85, 0.55, length * 0.5));
+    let cabin_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.08, 0.09, 0.12),
         ..default()
     });
     for spawned in plan.0.iter() {
+        let body = materials.add(StandardMaterial {
+            base_color: role_color(spawned.role),
+            perceptual_roughness: 0.5,
+            ..default()
+        });
         let entity = commands
             .spawn((
                 Mesh3d(vehicle_mesh.clone()),
-                MeshMaterial3d(vehicle_material.clone()),
+                MeshMaterial3d(body),
                 Transform::IDENTITY,
                 VehicleBox,
             ))
             .id();
+        commands.spawn((
+            Mesh3d(cabin_mesh.clone()),
+            MeshMaterial3d(cabin_material.clone()),
+            Transform::from_xyz(0.0, VEHICLE_HEIGHT_METERS * 0.5 + 0.1, -0.3),
+            ChildOf(entity),
+        ));
         if let Err(error) = session.bind_vehicle_entity(spawned.vehicle, entity) {
             warn!("bind_vehicle_entity 失败: {error:?}");
         }
     }
+    // 交通灯（常规场景）：每组在 stop line 旁立杆 + 灯头 + 红/黄/绿三枚灯盘，
+    // 每拍按 committed_signal_groups() 点亮（亮 = 同色自发光，灭 = 深灰）。
+    let pole_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.12, 0.12, 0.13),
+        ..default()
+    });
+    let head_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.08, 0.08, 0.09),
+        ..default()
+    });
+    let pole_mesh = meshes.add(Cuboid::new(0.22, 5.5, 0.22));
+    let head_mesh = meshes.add(Cuboid::new(0.8, 1.8, 0.45));
+    let lamp_mesh = meshes.add(Sphere::new(0.27).mesh().build());
+    let group_count = revision
+        .traffic()
+        .entity_counts()
+        .count(EntityKind::SignalGroup);
+    for raw in 0..group_count {
+        let group = SignalGroupOrdinal::from_raw(raw);
+        let Some((position, direction)) = signal_anchor(&revision, group) else {
+            continue;
+        };
+        let right = direction.cross(Vec3::Y).normalize_or_zero();
+        let pole_base = position + right * (LANE_WIDTH_METERS * 0.5 + 1.2);
+        commands.spawn((
+            Mesh3d(pole_mesh.clone()),
+            MeshMaterial3d(pole_material.clone()),
+            Transform::from_translation(pole_base + Vec3::Y * 2.75),
+        ));
+        let head_center = pole_base + Vec3::Y * 5.1;
+        commands.spawn((
+            Mesh3d(head_mesh.clone()),
+            MeshMaterial3d(head_material.clone()),
+            Transform::from_translation(head_center).looking_to(direction, Vec3::Y),
+        ));
+        for (kind, lift) in [
+            (LampKind::Red, 0.55_f32),
+            (LampKind::Yellow, 0.0),
+            (LampKind::Green, -0.55),
+        ] {
+            let material = materials.add(lamp_material(false, kind));
+            commands.spawn((
+                Mesh3d(lamp_mesh.clone()),
+                MeshMaterial3d(material.clone()),
+                Transform::from_translation(head_center + Vec3::Y * lift - direction * 0.28),
+                TrafficLamp {
+                    group: raw,
+                    kind,
+                    material,
+                    lit: false,
+                },
+            ));
+        }
+    }
     commands.spawn((
         Text::new(String::new()),
-        TextFont::from_font_size(14.0),
-        TextColor(Color::srgb(0.92, 0.92, 0.95)),
+        TextFont::from_font_size(18.0),
+        TextColor(Color::srgb(0.95, 0.95, 0.98)),
         Node {
             position_type: PositionType::Absolute,
             left: Val::Px(12.0),
             top: Val::Px(12.0),
+            padding: UiRect::all(Val::Px(8.0)),
             ..default()
         },
+        // 深色半透明底衬，保证浅色天空背景下面板可读。
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
         PanelText,
     ));
+}
+
+fn role_color(role: junction_debug_scene::VehicleRole) -> Color {
+    match role {
+        junction_debug_scene::VehicleRole::Through => Color::srgb(0.15, 0.35, 0.95),
+        junction_debug_scene::VehicleRole::WaitingLeft => Color::srgb(0.9, 0.15, 0.12),
+        junction_debug_scene::VehicleRole::PermissiveLeft => Color::srgb(0.95, 0.8, 0.1),
+        junction_debug_scene::VehicleRole::Circuit => Color::srgb(0.15, 0.75, 0.3),
+    }
+}
+
+/// 信号组定位：组内首道门的停止线端点 + 该边末段切向（朝向来车方向）。
+fn signal_anchor(
+    revision: &SharedNetworkRevision,
+    group: SignalGroupOrdinal,
+) -> Option<(Vec3, Vec3)> {
+    let relations = revision.traffic().relations();
+    let gate = *relations.signal_group(group)?.gates().first()?;
+    let stop = relations.stop_line(relations.maneuver_gate(gate)?.stop_line())?;
+    let geometry = revision
+        .spatial()?
+        .lane_pose()?
+        .lane_geometry(stop.edge())?;
+    let points = geometry.points();
+    let last = *points.last()?;
+    let previous = points
+        .get(points.len().saturating_sub(2))
+        .copied()
+        .unwrap_or(last);
+    let direction = (point_to_vec3(&last) - point_to_vec3(&previous)).normalize_or_zero();
+    let direction = if direction.length_squared() < 0.5 {
+        Vec3::X
+    } else {
+        direction
+    };
+    Some((point_to_vec3(&last), direction))
+}
+
+/// 灯盘材质：亮 = 同色自发光，灭 = 深灰。
+fn lamp_material(lit: bool, kind: LampKind) -> StandardMaterial {
+    let color = match kind {
+        LampKind::Red => Color::srgb(0.95, 0.1, 0.08),
+        LampKind::Yellow => Color::srgb(0.95, 0.8, 0.1),
+        LampKind::Green => Color::srgb(0.1, 0.85, 0.25),
+    };
+    if lit {
+        StandardMaterial {
+            base_color: color,
+            emissive: LinearRgba::from(color) * 6.0,
+            ..default()
+        }
+    } else {
+        StandardMaterial {
+            base_color: Color::srgb(0.1, 0.1, 0.1),
+            ..default()
+        }
+    }
+}
+
+/// 每拍按 committed_signal_groups() 更新灯盘点亮状态（仅状态翻转时重写材质）。
+fn update_traffic_lights(
+    session: Res<LaneFlowSession>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut lamps: Query<&mut TrafficLamp>,
+) {
+    let signals = session.world().committed_signal_groups();
+    for mut lamp in &mut lamps {
+        let aspect = signals
+            .as_slice()
+            .iter()
+            .find(|(group, _)| group.raw() == lamp.group)
+            .map(|(_, aspect)| *aspect);
+        let lit = matches!(
+            (aspect, lamp.kind),
+            (Some(SignalAspect::Red), LampKind::Red)
+                | (Some(SignalAspect::Yellow), LampKind::Yellow)
+                | (Some(SignalAspect::Green), LampKind::Green)
+        );
+        if lit != lamp.lit {
+            lamp.lit = lit;
+            if let Some(mut material) = materials.get_mut(&lamp.material) {
+                *material = lamp_material(lit, lamp.kind);
+            }
+        }
+    }
 }
 
 fn point_to_vec3(point: &CanonicalPoint) -> Vec3 {
@@ -211,8 +639,16 @@ fn pose_transform(pose: CanonicalPoseF32) -> Transform {
     )
 }
 
-/// 采样点折线的三角带 ribbon；`closed` 时把首点追加到尾部闭合。
-fn ribbon_mesh(points: &[Vec3], width: f32, y_lift: f32, closed: bool) -> Option<Mesh> {
+/// 采样点折线的三角带 ribbon；`lateral_offset` 沿横向单位偏移（车道边线用），
+/// `closed` 时把首点追加到尾部闭合。平面 ribbon 法线一律手工朝上，
+/// 避免 winding 误差导致背光面全黑。
+fn ribbon_mesh(
+    points: &[Vec3],
+    width: f32,
+    y_lift: f32,
+    lateral_offset: f32,
+    closed: bool,
+) -> Option<Mesh> {
     if points.len() < 2 {
         return None;
     }
@@ -226,10 +662,10 @@ fn ribbon_mesh(points: &[Vec3], width: f32, y_lift: f32, closed: bool) -> Option
         let previous = line[index.saturating_sub(1)];
         let next = line[(index + 1).min(line.len() - 1)];
         let direction = (next - previous).normalize_or_zero();
-        let lateral = Vec3::new(-direction.z, 0.0, direction.x) * half;
-        let base = *point + Vec3::Y * y_lift;
-        positions.push((base - lateral).to_array());
-        positions.push((base + lateral).to_array());
+        let lateral_unit = Vec3::new(-direction.z, 0.0, direction.x);
+        let base = *point + Vec3::Y * y_lift + lateral_unit * lateral_offset;
+        positions.push((base - lateral_unit * half).to_array());
+        positions.push((base + lateral_unit * half).to_array());
     }
     let mut indices = Vec::with_capacity((line.len() - 1) * 6);
     for index in 0..line.len() - 1 {
@@ -242,13 +678,18 @@ fn ribbon_mesh(points: &[Vec3], width: f32, y_lift: f32, closed: bool) -> Option
     );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh.insert_indices(Indices::U32(indices));
-    mesh.compute_normals();
+    let normals = vec![[0.0_f32, 1.0, 0.0]; line.len() * 2];
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
     Some(mesh)
 }
 
 fn toggle_overlay(keys: Res<ButtonInput<KeyCode>>, mut config: ResMut<JunctionDebugConfig>) {
-    if keys.just_pressed(KeyCode::F3) {
+    if keys.just_pressed(KeyCode::F2) {
         config.enabled = !config.enabled;
+        info!(
+            "junction debug overlay: {}",
+            if config.enabled { "on" } else { "off" }
+        );
     }
 }
 
@@ -280,8 +721,10 @@ fn sync_vehicle_transforms(
             let mut target = pose_transform(record.pose());
             let tangent = record.pose().tangent();
             let forward = Vec3::new(tangent.x(), tangent.y(), tangent.z());
-            // Runtime pose 是前保险杠位置；表现中心沿切向后移半个车长。
+            // Runtime pose 是前保险杠位置；表现中心沿切向后移半个车长、
+            // 抬升半个车高，让车底落在路面上。
             target.translation -= forward * metrics.half_length;
+            target.translation += Vec3::Y * (VEHICLE_HEIGHT_METERS * 0.5 + 0.02);
             *transform = target;
         }
     }
@@ -369,15 +812,15 @@ fn maintain_static_overlay(
             let Some(point) = geometry.points().last() else {
                 continue;
             };
-            placed_gates.insert(gate, point_to_vec3(point) + Vec3::Y * 1.2);
+            placed_gates.insert(gate, point_to_vec3(point));
         }
     }
-    let gate_mesh = meshes.add(Cuboid::new(0.8, 2.4, 0.8));
+    let gate_mesh = meshes.add(Cuboid::new(1.2, 3.5, 1.2));
     for position in placed_gates.values() {
         commands.spawn((
             Mesh3d(gate_mesh.clone()),
             MeshMaterial3d(gate_material.clone()),
-            Transform::from_translation(*position),
+            Transform::from_translation(*position + Vec3::Y * 1.75),
             DebugStaticRoot,
         ));
     }
@@ -429,7 +872,7 @@ fn maintain_static_overlay(
                 points.extend(geometry.points().iter().map(point_to_vec3));
             }
         }
-        if let Some(mesh) = ribbon_mesh(&points, 1.5, 0.25, false) {
+        if let Some(mesh) = ribbon_mesh(&points, 1.5, 0.25, 0.0, false) {
             commands.spawn((
                 Mesh3d(meshes.add(mesh)),
                 MeshMaterial3d(waiting_material.clone()),
@@ -451,7 +894,7 @@ fn maintain_static_overlay(
                     .iter()
                     .map(|point| Vec3::new(point.x, base_y, point.z))
                     .collect();
-                if let Some(mesh) = ribbon_mesh(&points, 0.8, 0.4, true) {
+                if let Some(mesh) = ribbon_mesh(&points, 0.8, 0.4, 0.0, true) {
                     commands.spawn((
                         Mesh3d(meshes.add(mesh)),
                         MeshMaterial3d(conflict_material.clone()),
@@ -565,7 +1008,7 @@ fn observe_overlay(
     let mut content = String::new();
     let _ = writeln!(
         content,
-        "#285 junction debug | F3 overlay | tick={} gen={}",
+        "#285 junction debug | F2 overlay | tick={} gen={}",
         context.tick_index(),
         context.world_generation().get()
     );
@@ -760,6 +1203,8 @@ fn apply_overlay_visuals(
                 let tangent = record.pose().tangent();
                 let forward = Vec3::new(tangent.x(), tangent.y(), tangent.z());
                 target.translation -= forward * metrics.half_length;
+                // 高亮框贴地（不随车体抬升）。
+                target.translation -= Vec3::Y * (VEHICLE_HEIGHT_METERS * 0.5 + 0.02);
                 target
             })
     });
