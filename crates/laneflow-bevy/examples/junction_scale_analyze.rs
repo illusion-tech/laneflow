@@ -115,6 +115,17 @@ fn timing_groups(rows: [&Value; 3]) -> Result<Value> {
     Ok(Value::Object(output))
 }
 
+fn budget_comparison(timing: &Value, p95: u64, quantum: Option<u64>) -> Result<Value> {
+    let p99 = p95 * 3 / 2;
+    let maximum = quantum.map_or(p95 * 2, |quantum| (p95 * 2).min(quantum));
+    Ok(
+        json!({"p95_budget_ns": p95, "p99_budget_ns": p99, "max_budget_ns": maximum,
+        "p95_within_budget": number(&timing["p95"])? <= p95,
+        "p99_within_budget": number(&timing["p99"])? <= p99,
+        "max_within_budget": number(&timing["max"])? <= maximum}),
+    )
+}
+
 fn ledger(directory: &Path, count: u64, expected: &Value) -> Result<Value> {
     let log = fs::read_to_string(directory.join(format!("ledger-{count}.stderr.log")))?;
     let mut checkpoints = BTreeMap::new();
@@ -196,6 +207,11 @@ fn analyze(directory: &Path) -> Result<Value> {
     let freeze_path = directory.join("freeze.json");
     let freeze = load(&freeze_path)?;
     let freeze_hash = digest(&freeze_path)?;
+    require(
+        freeze["protocol"]["maxCatchUpSteps"] == 2
+            && freeze["protocol"]["frameInputQuanta"] == json!([0, 1, 2, 4, 0]),
+        "noncanonical catch-up protocol",
+    )?;
     let mut output = json!({"source_commit": text(&freeze["sourceCommit"])?, "freeze_sha256": freeze_hash,
         "certification": text(&freeze["environment"]["certification"])?, "scales": {}});
     let cases = freeze["inputs"].as_array().ok_or("missing input cases")?;
@@ -321,7 +337,7 @@ fn analyze(directory: &Path) -> Result<Value> {
             &rows[2]["nanoseconds"],
         ])?;
         let mut frame_classes = serde_json::Map::new();
-        for group in ["zero_step", "one_step", "two_step", "eight_step"] {
+        for group in ["zero_step", "one_step", "two_step"] {
             frame_classes.insert(
                 group.into(),
                 timing_groups([
@@ -336,10 +352,17 @@ fn analyze(directory: &Path) -> Result<Value> {
         } else {
             16_000_000
         };
+        let integrated = &frame_classes["one_step"]["laneflow_frame_without_evidence"];
         output["scales"][count.to_string()] = json!({
             "runtime_p95_budget_ns": tick_budget,
             "runtime_p95_within_budget": number(&timings["tick_and_driver"]["p95"])? <= tick_budget,
             "spatial_adapter_one_step_p95_within_4ms": number(&frame_classes["one_step"]["spatial_adapter"]["p95"])? <= 4_000_000,
+            "budget_comparisons": {
+                "scope": "reference workload comparison, not product certification; 100k uses 16ms stretch quantum",
+                "runtime": budget_comparison(&timings["tick_and_driver"], tick_budget, Some(16_000_000))?,
+                "spatial_adapter_one_step": budget_comparison(&frame_classes["one_step"]["spatial_adapter"], 4_000_000, None)?,
+                "laneflow_one_step": if count == 10000 { budget_comparison(integrated, 6_000_000, None)? } else { json!({"observation_threshold_ns": 16_667_000, "p95_exceeds_observation_threshold": number(&integrated["p95"])? > 16_667_000, "product_tail_budget": null}) }
+            },
             "nanoseconds": timings, "frame_classes": frame_classes,
             "counts_by_round": rows.iter().map(|row| &row["counts"]).collect::<Vec<_>>(),
             "resource_loads_by_round": rows.iter().map(|row| &row["resource_loads"]).collect::<Vec<_>>(),

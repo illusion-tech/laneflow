@@ -317,7 +317,7 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
     }
     let chunks: &[u64] = match args[5].as_str() {
         "normal" | "prepare" => &[1],
-        "catchup" => &[0, 1, 2, 10, 0],
+        "catchup" => &[0, 1, 2, 4, 0],
         _ => return Err("frame mode must be normal, catchup or prepare".into()),
     };
     let output = PathBuf::from(&args[6]);
@@ -446,7 +446,7 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
     let session = LaneFlowSession::new(
         world,
         Some(spatial),
-        LaneFlowSessionConfig::new(NonZeroU32::new(8).unwrap()),
+        LaneFlowSessionConfig::new(NonZeroU32::new(2).unwrap()),
     )?;
     let initial_digest = state_digest(&session);
     let frozen_input = json!({"lfca_sha256":hex(Sha256::digest(&lfca)),"catalog_sha256":hex(Sha256::digest(catalog_text.as_bytes())),
@@ -607,7 +607,7 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
             .checked_sub(backlog)
             .ok_or("backlog crosses a frozen boundary")?;
         let input_quanta = chunks[frame % chunks.len()].min(available_input);
-        let steps = (backlog + input_quanta).min(8);
+        let steps = (backlog + input_quanta).min(2);
         let started_frame = Instant::now();
         app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
             input_quanta * 16,
@@ -700,6 +700,23 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
         .zip(apply_ns)
         .map(|(pose, apply)| pose + apply)
         .collect();
+    // 同一帧墙钟扣除该帧实际 renderer 和取证子区间；保留领域观测和 ECS 驱动。
+    let mut tick_cursor = 0;
+    let mut laneflow_frame_ns = Vec::with_capacity(frame_ns.len());
+    for (index, (&elapsed, &steps)) in frame_ns.iter().zip(&frame_steps).enumerate() {
+        let next_tick = tick_cursor + steps as usize;
+        let evidence: u64 = samples.evidence_ns[tick_cursor..next_tick].iter().sum();
+        let render = if rendering { renderer_ns[index] } else { 0 };
+        laneflow_frame_ns.push(
+            elapsed
+                .checked_sub(evidence + render)
+                .ok_or("frame subintervals exceed wall clock")?,
+        );
+        tick_cursor = next_tick;
+    }
+    if tick_cursor != samples.observed_ticks {
+        return Err("frame/tick sample alignment mismatch".into());
+    }
     let frame_class = |steps: u64| {
         let select = |values: &[u64]| -> Vec<u64> {
             values
@@ -708,7 +725,7 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
                 .filter_map(|(&value, &count)| (count == steps).then_some(value))
                 .collect()
         };
-        json!({"integrated_frame_with_evidence":percentiles(&select(&frame_ns)),"spatial_adapter":percentiles(&select(&spatial_adapter_ns)),
+        json!({"integrated_frame_with_evidence":percentiles(&select(&frame_ns)),"laneflow_frame_without_evidence":percentiles(&select(&laneflow_frame_ns)),"spatial_adapter":percentiles(&select(&spatial_adapter_ns)),
             "renderer_submit_and_gpu_wait":if rendering { percentiles(&select(&renderer_ns)) } else { Value::Null }})
     };
     let mut missing =
@@ -741,15 +758,15 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
             "waiting_zones_with_repeated_requests":samples.waiting_zone_requests.values().filter(|&&n|n>1).count(),
             "waiting_zone_request_counts":samples.waiting_zone_requests,
             "vehicles_with_repeated_conflict_requests":samples.conflict_requests.iter().filter(|&&n|n>1).count()},
-        "frame_classes":{"zero_step":frame_class(0),"one_step":frame_class(1),"two_step":frame_class(2),"eight_step":frame_class(8)},
+        "frame_classes":{"zero_step":frame_class(0),"one_step":frame_class(1),"two_step":frame_class(2)},
         "nanoseconds":{"tick_and_driver":percentiles(&samples.tick_ns),"domain_observation":percentiles(&samples.observation_ns),
-            "pose_extraction":percentiles(pose_ns),"mapping_transform_apply":percentiles(apply_ns),"spatial_adapter":percentiles(&spatial_adapter_ns),"integrated_frame_with_evidence":percentiles(&frame_ns),"renderer_submit_and_gpu_wait":percentiles(&renderer_ns),"evidence_collection":percentiles(&samples.evidence_ns)},
+            "pose_extraction":percentiles(pose_ns),"mapping_transform_apply":percentiles(apply_ns),"spatial_adapter":percentiles(&spatial_adapter_ns),"laneflow_frame_without_evidence":percentiles(&laneflow_frame_ns),"integrated_frame_with_evidence":percentiles(&frame_ns),"renderer_submit_and_gpu_wait":percentiles(&renderer_ns),"evidence_collection":percentiles(&samples.evidence_ns)},
         "allocation":{"tick_allocations":allocation.then_some(samples.tick_allocations),"tick_reallocations":allocation.then_some(samples.tick_reallocations)},
         "snapshot_payload_bytes":encode_lfrs(&session.world().capture_snapshot()?).len(),
         "pose_output_initialized_bytes":std::mem::size_of_val(poses.batch().records())+std::mem::size_of_val(poses.vehicles()),
         "shared_root_retained_logical_bytes":session.world().revision().retained_logical_bytes(),
         "missing_measurements":missing,"process_memory":"see runner metadata; not a component ledger",
-        "samples_ns":{"tick_and_driver":samples.tick_ns,"domain_observation":samples.observation_ns,"pose_extraction":pose_ns,"mapping_transform_apply":apply_ns,"integrated_frame_with_evidence":frame_ns,"frame_step_counts":frame_steps,"frame_input_quanta":frame_input_quanta,"frame_backlog_quanta":frame_backlog_quanta,"renderer_submit_and_gpu_wait":renderer_ns,"evidence_collection":samples.evidence_ns}
+        "samples_ns":{"tick_and_driver":samples.tick_ns,"domain_observation":samples.observation_ns,"pose_extraction":pose_ns,"mapping_transform_apply":apply_ns,"laneflow_frame_without_evidence":laneflow_frame_ns,"integrated_frame_with_evidence":frame_ns,"frame_step_counts":frame_steps,"frame_input_quanta":frame_input_quanta,"frame_backlog_quanta":frame_backlog_quanta,"renderer_submit_and_gpu_wait":renderer_ns,"evidence_collection":samples.evidence_ns}
     });
     std::fs::write(&output, serde_json::to_vec(&result)?)?;
     if rendering && minimum_visible != apply_count {
