@@ -214,6 +214,21 @@ cargo +1.98.0 check --locked -p laneflow-bevy --example junction_debug --feature
 cargo +1.98.0 test --locked -p laneflow-bevy --test junction_debug_smoke
 ```
 
+道路表面由 `examples/support/junction_road.rs` 消费同根车道几何生成：路口为连续
+铺装，四角路缘与人行道相切；外围成对同向车道共用一幅路面，足宽处画分隔虚线，
+直线汇合/分流处连续收窄，人行道跨端口连续衔接。道路分隔带设圆头，过街区域保留连续铺装。臂道边界按
+世界横坐标去重，车道导向按同次穿越的进口与出口方向显示；表现不更改规范轨迹。
+
+原生出图固定物理分辨率，并在明确的模拟 tick 暂停后捕获，避免不同 GPU 帧率
+对应不同交通状态。预设为 `persp`、`topdown`、`close`、`merge`；至少等待 150 个
+渲染帧让管线就绪。`--at-tick` 默认为 6_100，出图与每帧耗时不属于性能证据。
+
+```powershell
+cargo +1.98.0 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-close.png --camera close --at-tick 3500
+cargo +1.98.0 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-merge.png --camera merge --at-tick 0
+cargo +1.98.0 test --locked -p laneflow-bevy --features native-example --example junction_debug
+```
+
 ## 10. 验证与性能 Gate
 
 默认 headless tests 直接构造 Bevy `App` 并驱动 update，不依赖 window、renderer 或 OS event loop。必须覆盖：

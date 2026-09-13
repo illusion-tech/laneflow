@@ -147,8 +147,9 @@ mesh／文本能力，不为了恢复历史 Gizmos API 增加兼容层。
 ### 4.1 当前状态与交付证据
 
 阶段二已交付（`junction_debug` native example + `junction_debug_smoke` 无窗口
-smoke，均基于检入 catalog 0.1 + LFCA 与固定四车 spawn 计划）：道路 ribbon 与车辆
-box 表现、F2 默认关闭的调试 overlay（静态 Gate 标记、Waiting 区间 ribbon、Conflict
+smoke，均基于检入 catalog 0.1 + LFCA 与固定四车 spawn 计划）：同根几何生成的连续
+道路、相切路缘、同向双车道回流与车辆 box 表现；四车从环路末段的固定槽位出发。
+F2 默认关闭的调试 overlay（静态 Gate 标记、Waiting 区间 ribbon、Conflict
 区域 ring 描边／无区域文字标记、选定车辆面板、信号状态点）、静态缓存按
 （修订、世代）重建。硬不变量由 smoke 对拍：overlay 开/关两跑同输入的
 `deterministic_state_digest` 与每拍 transition／决策摘要一致；同测覆盖车辆
