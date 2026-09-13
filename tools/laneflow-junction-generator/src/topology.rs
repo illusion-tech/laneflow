@@ -131,8 +131,8 @@ impl Curve {
         }
     }
 
-    /// 正交右转：相切直线与四分之一圆弧，避免单个任意控制柄形成斜切街角。
-    pub fn right_turn(start: Point, incoming: Point, end: Point, outgoing: Point) -> Self {
+    /// 正交转弯：相切直线与四分之一圆弧，避免单个任意控制柄形成斜切街角。
+    pub fn orthogonal_turn(start: Point, incoming: Point, end: Point, outgoing: Point) -> Self {
         let delta = [end[0] - start[0], end[1] - start[1]];
         let before = delta[0] * incoming[0] + delta[1] * incoming[1];
         let after = delta[0] * outgoing[0] + delta[1] * outgoing[1];
@@ -450,6 +450,79 @@ fn segment_length(a: Point, b: Point) -> f64 {
     let dx = b[0] - a[0];
     let dz = b[1] - a[1];
     (dx * dx + dz * dz).sqrt()
+}
+
+/// 把同一条左转圆弧按沿程距离切为连接、储车、驶出三段；不另造横移 pocket。
+fn waiting_turn(config: &JunctionConfig, start: Point, end: Point) -> Result<[Curve; 3], Error> {
+    let turn = Curve::orthogonal_turn(start, [1.0, 0.0], end, [0.0, -1.0]);
+    let mut points = Vec::new();
+    turn.sample_into(128, &mut points);
+    let crossing_x =
+        -Arm::North.lane_offsets(config)[0] - config.geometry.lane_width_meters * 0.5 - 0.5;
+    let waiting_z = start[1] - config.geometry.pocket_offset_meters;
+    let mut release = 0.0;
+    for pair in points.windows(2) {
+        let [a, b] = [pair[0], pair[1]];
+        let mut fraction = 1.0_f64;
+        if b[0] > crossing_x {
+            fraction = fraction.min((crossing_x - a[0]) / (b[0] - a[0]));
+        }
+        if b[1] < waiting_z {
+            fraction = fraction.min((waiting_z - a[1]) / (b[1] - a[1]));
+        }
+        release += segment_length(a, b) * fraction;
+        if fraction < 1.0 {
+            break;
+        }
+    }
+    let entry = release - config.geometry.pocket_length_meters;
+    if entry <= 0.5 {
+        return Err(Error::Config(
+            "pocket_length_meters leaves no approach connection before the curved waiting zone"
+                .into(),
+        ));
+    }
+    let total: f64 = points.windows(2).map(|p| segment_length(p[0], p[1])).sum();
+    Ok([
+        curve_interval(&points, 0.0, entry),
+        curve_interval(&points, entry, release),
+        curve_interval(&points, release, total),
+    ])
+}
+
+/// 同一折线上的精确区间端点。省略距切点不足 0.1 m 的内部点，避免退化短弦。
+fn curve_interval(points: &[Point], from: f64, to: f64) -> Curve {
+    let mut result = Vec::new();
+    let mut station = 0.0;
+    for pair in points.windows(2) {
+        let length = segment_length(pair[0], pair[1]);
+        let end = station + length;
+        let interpolate = |s: f64| {
+            let t = ((s - station) / length).clamp(0.0, 1.0);
+            [
+                pair[0][0] + (pair[1][0] - pair[0][0]) * t,
+                pair[0][1] + (pair[1][1] - pair[0][1]) * t,
+            ]
+        };
+        if result.is_empty() && from <= end {
+            result.push(interpolate(from));
+        }
+        if to <= end {
+            result.push(interpolate(to));
+            break;
+        }
+        if end > from + 0.1 && end < to - 0.1 {
+            result.push(pair[1]);
+        }
+        station = end;
+    }
+    Curve {
+        start: result[0],
+        segments: result[1..]
+            .iter()
+            .map(|&end| Segment::Line { end })
+            .collect(),
+    }
 }
 
 /// 三次 smoothstep（3u²−2u³，纯四则运算，保证跨平台字节一致）；
@@ -883,20 +956,7 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
         let exit_offset = Arm::North.lane_offsets(config)[0];
         let start = port(Arm::West, true, entry_offset, radius);
         let end = port(Arm::North, false, exit_offset, radius);
-        let d = [1.0, 0.0];
-        let out = [0.0, -1.0];
-        let pocket = geometry.pocket_length_meters;
-        let offset = geometry.pocket_offset_meters;
-        // 即使车辆晚到而错过 release，也必须能停在南北车行道之外。
-        let crossing_edge =
-            -Arm::North.lane_offsets(config)[0] - geometry.lane_width_meters * 0.5 - 0.5;
-        let pocket_end = (start[0] + control + pocket).min(crossing_edge);
-        let p1 = [
-            pocket_end - pocket,
-            start[1] + d[1] * control - d[0] * offset,
-        ];
-        let p2 = [p1[0] + d[0] * pocket, p1[1] + d[1] * pocket];
-        let half = (p1[0] - start[0]) / 2.0;
+        let [connection, storage, departure] = waiting_turn(config, start, end)?;
         add_path(
             &mut topology,
             &mut edge_index,
@@ -906,25 +966,9 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
             &road_edge_key(Arm::West, true, 0, 2),
             &road_edge_key(Arm::North, false, 0, 1),
             vec![
-                (
-                    "w-n.i0".to_owned(),
-                    Curve::bezier(
-                        start,
-                        [start[0] + d[0] * half, start[1] + d[1] * half],
-                        [p1[0] - d[0] * half, p1[1] - d[1] * half],
-                        p1,
-                    ),
-                ),
-                ("w-n.i1".to_owned(), Curve::line(p1, p2)),
-                (
-                    "w-n.i2".to_owned(),
-                    Curve::bezier(
-                        p2,
-                        [p2[0] + d[0] * control, p2[1] + d[1] * control],
-                        [end[0] - out[0] * control, end[1] - out[1] * control],
-                        end,
-                    ),
-                ),
+                ("w-n.i0".to_owned(), connection),
+                ("w-n.i1".to_owned(), storage),
+                ("w-n.i2".to_owned(), departure),
             ],
             turn_speed,
             &[
@@ -1068,7 +1112,10 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
             "path",
             &road_edge_key(Arm::North, true, 0, 1),
             &road_edge_key(Arm::West, false, 1, 2),
-            vec![("n-w.i0".to_owned(), Curve::right_turn(start, d, end, out))],
+            vec![(
+                "n-w.i0".to_owned(),
+                Curve::orthogonal_turn(start, d, end, out),
+            )],
             turn_speed,
             &[("admission", 0, GROUP_SECONDARY_THROUGH_RIGHT)],
         );
@@ -1689,4 +1736,35 @@ fn validate_routes(topology: &TopologyBuild) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn concurrent_protected_crossings_are_rejected() {
+        let config = JunctionConfig::parse(include_str!(
+            "../../../examples/config/v0.1-complex-junction.toml"
+        ))
+        .unwrap();
+        let mut topology = build_topology(&config).unwrap();
+        let west = topology.waiting_zone_path;
+        let east = topology
+            .paths
+            .iter()
+            .position(|path| topology.movements[path.movement].key == "e-s")
+            .unwrap();
+        // 注入同相位保护左转的真实交叉辖段，直接覆盖生成器的生产几何守卫。
+        topology.paths[west].segment_samples[2] = vec![[0.0, 40.0], [0.0, -30.0]];
+        assert!(
+            crossing(
+                &topology.paths[west].segment_samples[2],
+                &topology.paths[east].segment_samples[0],
+            )
+            .is_some()
+        );
+        let error = add_zones_and_streams(&mut topology, &config).unwrap_err();
+        assert!(error.to_string().contains("protected paths"));
+    }
 }

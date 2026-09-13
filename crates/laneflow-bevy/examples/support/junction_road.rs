@@ -139,7 +139,7 @@ fn slice(line: &[Vec3], stations: &[f32], from: f32, to: f32) -> Vec<Vec3> {
 }
 
 fn dashed(surface: &mut Surface, line: &[Vec3], from: f32, to: f32) {
-    dashed_pattern(surface, line, from, to, 3.0, 8.0);
+    dashed_pattern(surface, line, from, to, (3.0, 8.0, 0.12));
 }
 
 fn dashed_pattern(
@@ -147,14 +147,13 @@ fn dashed_pattern(
     line: &[Vec3],
     from: f32,
     to: f32,
-    paint: f32,
-    pitch: f32,
+    (paint, pitch, width): (f32, f32, f32),
 ) {
     let stations = lengths(line);
     let mut cursor = from;
     while cursor + 0.1 < to {
         let segment = slice(line, &stations, cursor, (cursor + paint).min(to));
-        surface.band(&segment, 0.12, PAINT_Y);
+        surface.band(&segment, width, PAINT_Y);
         cursor += pitch;
     }
 }
@@ -360,7 +359,13 @@ fn waiting_markings(revision: &SharedNetworkRevision, white: &mut Surface) {
             .unwrap()
             .transition_index() as usize;
         let mut line = Vec::new();
-        for edge in &path.edges()[entry + 1..=release] {
+        let mut storage_start = 0.0;
+        // 从进口末端沿全部转入边连续引导，不能只画 entry→release 储车段。
+        // 每个实际 WaitingZone 各画一组，车道用途与路径数量仍由共享路网决定。
+        for (index, edge) in path.edges().iter().enumerate().take(release + 1).skip(1) {
+            if index == entry + 1 && line.len() > 1 {
+                storage_start = *lengths(&line).last().unwrap();
+            }
             for point in pose.lane_geometry(*edge).unwrap().points() {
                 let point = Vec3::new(point.x, point.y, point.z);
                 if line.last() != Some(&point) {
@@ -371,18 +376,20 @@ fn waiting_markings(revision: &SharedNetworkRevision, white: &mut Surface) {
         let stations = lengths(&line);
         let total = *stations.last().unwrap();
         for side in [-1.0, 1.0] {
+            let boundary = offset(&line, side * WIDTH * 0.5, PAINT_Y);
             dashed_pattern(
                 white,
-                &offset(&line, side * WIDTH * 0.48, PAINT_Y),
+                &boundary,
                 0.0,
-                total,
-                1.5,
-                3.0,
+                *lengths(&boundary).last().unwrap(),
+                (0.5, 1.0, 0.15),
             );
         }
-        let center = sample(&line, &stations, total * 0.5);
-        let forward = (sample(&line, &stations, total * 0.5 + 0.5)
-            - sample(&line, &stations, total * 0.5 - 0.5))
+        // 箭头仍落在可储车区间中，连接段的长度不增加等待容量。
+        let middle = (storage_start + total) * 0.5;
+        let center = sample(&line, &stations, middle);
+        let forward = (sample(&line, &stations, middle + 0.5)
+            - sample(&line, &stations, middle - 0.5))
         .normalize();
         let outgoing = pose
             .lane_geometry(*path.edges().last().unwrap())
@@ -609,6 +616,93 @@ mod tests {
         match mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap() {
             bevy::mesh::VertexAttributeValues::Float32x3(points) => points,
             _ => panic!("position format"),
+        }
+    }
+
+    #[test]
+    fn waiting_guides_join_the_approach_and_follow_one_left_arc() {
+        let scene = junction_debug_scene::build().expect("reference scene");
+        let revision = scene.session.world().revision();
+        let pose = revision.spatial().unwrap().lane_pose().unwrap();
+        let edges = junction_debug_scene::edge_ordinals(&revision);
+        let mut turn = Vec::new();
+        for name in ["w-n.i0", "w-n.i1", "w-n.i2"] {
+            for p in pose.lane_geometry(edges[name]).unwrap().points() {
+                let p = Vec3::new(p.x, PAINT_Y, p.z);
+                if turn.last() != Some(&p) {
+                    turn.push(p);
+                }
+            }
+        }
+        for three in turn.windows(3) {
+            let incoming = (three[1] - three[0]).normalize();
+            let outgoing = (three[2] - three[1]).normalize();
+            assert!(incoming.dot(outgoing) > 0.999, "left arc must stay smooth");
+            assert!(
+                incoming.cross(outgoing).y >= -0.000_1,
+                "left arc must not reverse curvature into an S bend"
+            );
+        }
+        let storage = pose.lane_geometry(edges["w-n.i1"]).unwrap().points();
+        let direction = |a: usize, b: usize| {
+            Vec3::new(
+                storage[b].x - storage[a].x,
+                0.0,
+                storage[b].z - storage[a].z,
+            )
+            .normalize()
+        };
+        assert!(
+            direction(0, 1)
+                .cross(direction(storage.len() - 2, storage.len() - 1))
+                .y
+                > 0.2,
+            "the storage section itself must follow the left-turn arc"
+        );
+        assert_eq!(
+            revision.traffic().lane_lengths_millimetres()[edges["w-n.i1"].raw() as usize],
+            12_000
+        );
+        let approach = pose.lane_geometry(edges["w-in-i0"]).unwrap().points();
+        let end = approach.last().unwrap();
+        let end = Vec3::new(end.x, PAINT_Y, end.z);
+        let mut paint = Surface::default();
+        waiting_markings(&revision, &mut paint);
+        let mesh = paint.finish();
+        let points = vertices(&mesh);
+        let distance = |target: Vec3| {
+            points
+                .iter()
+                .map(|p| Vec3::from_array(*p).distance(target))
+                .fold(f32::INFINITY, f32::min)
+        };
+        for side in [-1.0, 1.0] {
+            assert!(
+                distance(end + Vec3::Z * side * WIDTH * 0.5) < 0.15,
+                "waiting guides must begin at both approach lane boundaries"
+            );
+        }
+        let lead_in: Vec<_> = pose
+            .lane_geometry(edges["w-n.i0"])
+            .unwrap()
+            .points()
+            .iter()
+            .map(|p| Vec3::new(p.x, PAINT_Y, p.z))
+            .collect();
+        let stations = lengths(&lead_in);
+        for station in 1..stations.last().unwrap().floor() as usize {
+            let s = station as f32;
+            let center = sample(&lead_in, &stations, s);
+            let forward = (sample(&lead_in, &stations, s + 0.1)
+                - sample(&lead_in, &stations, s - 0.1))
+            .normalize();
+            let normal = Vec3::new(-forward.z, 0.0, forward.x);
+            for side in [-1.0, 1.0] {
+                assert!(
+                    distance(center + normal * side * WIDTH * 0.5) < 0.65,
+                    "missing connected waiting guide at {s} m, side {side}"
+                );
+            }
         }
     }
 
