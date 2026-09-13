@@ -1,6 +1,6 @@
 //! 单活动 LaneFlow Session：TrafficWorld + 可选 Spatial session。
 
-use std::{mem, num::NonZeroU32, sync::Arc, time::Duration};
+use std::{collections::HashMap, mem, num::NonZeroU32, sync::Arc, time::Duration};
 
 use bevy_ecs::entity::Entity;
 use bevy_ecs::resource::Resource;
@@ -682,12 +682,13 @@ impl LaneFlowCommittedPoseBatch {
 
 #[derive(Clone, Debug, Default)]
 struct VehicleEntityMap {
-    pairs: Vec<(VehicleHandle, Entity)>,
+    // 只作完整代际句柄的查找，不以 HashMap 迭代顺序决定提取、应用或求解顺序。
+    by_vehicle: HashMap<VehicleHandle, Entity>,
+    by_entity: HashMap<Entity, VehicleHandle>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PreparedVehicleEntityRemoval {
-    index: usize,
     vehicle: VehicleHandle,
     entity: Entity,
 }
@@ -701,66 +702,65 @@ impl PreparedVehicleEntityRemoval {
 impl VehicleEntityMap {
     fn with_capacity(capacity: usize) -> Self {
         Self {
-            pairs: Vec::with_capacity(capacity),
+            by_vehicle: HashMap::with_capacity(capacity),
+            by_entity: HashMap::with_capacity(capacity),
         }
     }
 
     fn entity(&self, vehicle: VehicleHandle) -> Option<Entity> {
-        self.pairs
-            .iter()
-            .find_map(|(handle, entity)| (*handle == vehicle).then_some(*entity))
+        self.by_vehicle.get(&vehicle).copied()
     }
 
     fn bind(&mut self, vehicle: VehicleHandle, entity: Entity) -> Result<(), LaneFlowAdapterError> {
-        if let Some((_, existing)) = self.pairs.iter().find(|(handle, _)| *handle == vehicle) {
+        if let Some(existing) = self.entity(vehicle) {
             return Err(LaneFlowAdapterError::DuplicateVehicleBinding {
                 vehicle,
-                existing: *existing,
+                existing,
                 requested: entity,
             });
         }
-        if let Some((existing, _)) = self.pairs.iter().find(|(_, bound)| *bound == entity) {
+        if let Some(&existing) = self.by_entity.get(&entity) {
             return Err(LaneFlowAdapterError::DuplicateEntityBinding {
                 entity,
-                existing: *existing,
+                existing,
                 requested: vehicle,
             });
         }
-        self.pairs.push((vehicle, entity));
+        self.by_vehicle.insert(vehicle, entity);
+        self.by_entity.insert(entity, vehicle);
         Ok(())
     }
 
     fn unbind_vehicle(&mut self, vehicle: VehicleHandle) -> Result<Entity, LaneFlowAdapterError> {
-        let Some(index) = self.pairs.iter().position(|(handle, _)| *handle == vehicle) else {
-            return Err(LaneFlowAdapterError::UnknownVehicle { vehicle });
-        };
-        Ok(self.pairs.swap_remove(index).1)
+        let prepared = self
+            .prepare_remove(vehicle)
+            .ok_or(LaneFlowAdapterError::UnknownVehicle { vehicle })?;
+        Ok(self.commit_remove(prepared))
     }
 
     fn rotate(&mut self, old: VehicleHandle, new: VehicleHandle, entity: Option<Entity>) {
         let Some(entity) = entity else {
             return;
         };
-        if let Some(pair) = self.pairs.iter_mut().find(|(handle, _)| *handle == old) {
-            *pair = (new, entity);
-        }
+        debug_assert_eq!(self.entity(old), Some(entity));
+        self.by_vehicle.remove(&old);
+        debug_assert!(!self.by_vehicle.contains_key(&new));
+        self.by_vehicle.insert(new, entity);
+        self.by_entity.insert(entity, new);
     }
 
     fn prepare_remove(&self, vehicle: VehicleHandle) -> Option<PreparedVehicleEntityRemoval> {
-        let index = self
-            .pairs
-            .iter()
-            .position(|(handle, _)| *handle == vehicle)?;
-        Some(PreparedVehicleEntityRemoval {
-            index,
-            vehicle,
-            entity: self.pairs[index].1,
-        })
+        let entity = self.entity(vehicle)?;
+        Some(PreparedVehicleEntityRemoval { vehicle, entity })
     }
 
     fn commit_remove(&mut self, prepared: PreparedVehicleEntityRemoval) -> Entity {
-        let removed = self.pairs.swap_remove(prepared.index);
-        debug_assert_eq!(removed, (prepared.vehicle, prepared.entity));
-        removed.1
+        let removed = self
+            .by_vehicle
+            .remove(&prepared.vehicle)
+            .expect("prepared binding remains live");
+        debug_assert_eq!(removed, prepared.entity);
+        self.by_entity.remove(&removed);
+        removed
     }
 }
