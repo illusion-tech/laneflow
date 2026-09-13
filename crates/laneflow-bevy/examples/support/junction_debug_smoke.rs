@@ -326,9 +326,9 @@ fn scene_spawns_fixed_plan_on_pinned_policy() {
     for spawned in scene.spawned.iter() {
         assert!(slots.insert((spawned.route_id, spawned.slot_id)));
     }
-    // 边名映射覆盖 catalog 路线的全部 31 条边（视觉标线与调试按名取边）。
+    // 边名映射覆盖 catalog 路线的全部 39 条边（含外环准入与锥形边）。
     let ordinals = junction_debug_scene::edge_ordinals(&scene.session.world().revision());
-    assert_eq!(ordinals.len(), 31);
+    assert_eq!(ordinals.len(), 39);
     assert!(ordinals.contains_key("loop-es-i0"));
     assert!(ordinals.contains_key("e-in-i0"));
     assert!(ordinals.contains_key("s-out"));

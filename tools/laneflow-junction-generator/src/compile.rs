@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use crate::Error;
 use crate::config::JunctionConfig;
 use crate::topology::{
-    COMPILER_BUILD_ID, Curve, DOCUMENT_KEY, GENERATOR_BUILD_ID, JUNCTION_KEY,
+    COMPILER_BUILD_ID, Curve, DOCUMENT_KEY, GENERATOR_BUILD_ID, JUNCTION_KEY, MergeBuild,
     PARTICIPANT_CLASS_KEY, PROVENANCE, Segment, TopologyBuild,
 };
 
@@ -91,6 +91,7 @@ pub(crate) fn compile_cells(
         add_junction(&mut builder, config, topology)?;
         add_conflicts(&mut builder, config, topology)?;
         add_streams(&mut builder, topology)?;
+        add_merges(&mut builder, config, topology)?;
     }
     add_policy(&mut builder, cells)?;
 
@@ -499,6 +500,145 @@ fn add_streams(
     Ok(())
 }
 
+fn merge_path(merge: &MergeBuild, lane: usize) -> Result<re::ManeuverPathReference, Error> {
+    Ok(re::ManeuverPathReference::owner_scoped(
+        vec![merge.junction_key.clone(), format!("branch-{lane}")],
+        "path",
+    )?)
+}
+
+fn merge_gate(merge: &MergeBuild, lane: usize) -> Result<re::ManeuverGateReference, Error> {
+    Ok(re::ManeuverGateReference::owner_scoped(
+        vec![
+            merge.junction_key.clone(),
+            format!("branch-{lane}"),
+            "path".into(),
+        ],
+        "admission",
+    )?)
+}
+
+fn add_merges(
+    builder: &mut re::RoadEditingSourceModuleBuilder<'_>,
+    config: &JunctionConfig,
+    topology: &TopologyBuild,
+) -> Result<(), Error> {
+    for merge in &topology.merges {
+        builder.add_declaration(re::RoadEditingDeclaration::Junction(
+            re::JunctionInput::try_new(
+                &merge.junction_key,
+                merge
+                    .approaches
+                    .iter()
+                    .chain(std::iter::once(&merge.exit))
+                    .map(|key| edge_ref(key))
+                    .collect::<Result<Vec<_>, _>>()?,
+                merge
+                    .tapers
+                    .iter()
+                    .map(|key| edge_ref(key))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )?,
+        ))?;
+        builder.add_declaration(re::RoadEditingDeclaration::ConflictZone(
+            re::ConflictZoneInput::try_new(
+                "merge",
+                re::JunctionReference::local(&merge.junction_key)?,
+            )?,
+        ))?;
+        let mut minimum = [f64::INFINITY; 2];
+        let mut maximum = [f64::NEG_INFINITY; 2];
+        for key in &merge.tapers {
+            let curve = &topology.edge(key).expect("merge taper").curve;
+            for point in
+                std::iter::once(curve.start).chain(curve.segments.iter().flat_map(|segment| {
+                    match *segment {
+                        Segment::Line { end } => [end, end, end],
+                        Segment::Bezier { c1, c2, end } => [c1, c2, end],
+                    }
+                }))
+            {
+                for axis in 0..2 {
+                    minimum[axis] =
+                        minimum[axis].min(point[axis] - config.geometry.lane_width_meters / 2.0);
+                    maximum[axis] =
+                        maximum[axis].max(point[axis] + config.geometry.lane_width_meters / 2.0);
+                }
+            }
+        }
+        builder.add_conflict_zone_region(re::ConflictZoneRegionInput::try_new(
+            re::ConflictZoneReference::owner_scoped(vec![merge.junction_key.clone()], "merge")?,
+            re::CanonicalFrameReference::local(&config.frame_id)?,
+            -1.0,
+            1.0,
+            [
+                [minimum[0], minimum[1]],
+                [maximum[0], minimum[1]],
+                [maximum[0], maximum[1]],
+                [minimum[0], maximum[1]],
+            ]
+            .into_iter()
+            .map(|p| re::RoadEditingPoint2::try_new(p[0], p[1]))
+            .collect::<Result<Vec<_>, _>>()?,
+        )?)?;
+        for lane in 0..2 {
+            let movement = format!("branch-{lane}");
+            builder.add_declaration(re::RoadEditingDeclaration::Movement(
+                re::MovementInput::try_new(
+                    &movement,
+                    re::JunctionReference::local(&merge.junction_key)?,
+                    format!("incoming-{lane}"),
+                    "outgoing",
+                )?
+                .with_turn_direction(laneflow_compiler::ManeuverDirection::Straight),
+            ))?;
+            builder.add_declaration(re::RoadEditingDeclaration::ManeuverPath(
+                re::ManeuverPathInput::try_new(
+                    "path",
+                    re::MovementReference::owner_scoped(
+                        vec![merge.junction_key.clone()],
+                        &movement,
+                    )?,
+                    edge_ref(&merge.approaches[lane])?,
+                    vec![edge_ref(&merge.tapers[lane])?],
+                    edge_ref(&merge.exit)?,
+                )?,
+            ))?;
+            let stop = format!("{}.merge-stop", merge.approaches[lane]);
+            builder.add_declaration(re::RoadEditingDeclaration::StopLine(
+                re::StopLineInput::try_new(&stop, edge_ref(&merge.approaches[lane])?)?,
+            ))?;
+            builder.add_declaration(re::RoadEditingDeclaration::ManeuverGate(
+                re::ManeuverGateInput::try_new(
+                    "admission",
+                    merge_path(merge, lane)?,
+                    0,
+                    re::StopLineReference::local(&stop)?,
+                    re::RoadEditingSignalControl::None,
+                )?,
+            ))?;
+            // Hold the shared resource until the rear has also cleared the
+            // configured bumper gap beyond the common lane entry.
+            builder.add_declaration(re::RoadEditingDeclaration::ParticipantStream(
+                re::ParticipantStreamInput::try_new(
+                    &movement,
+                    re::JunctionReference::local(&merge.junction_key)?,
+                    merge_path(merge, lane)?,
+                    vec![re::ConflictPassageInput::new(
+                        re::ConflictZoneReference::owner_scoped(
+                            vec![merge.junction_key.clone()],
+                            "merge",
+                        )?,
+                        re::PathAnchorInput::gate(merge_gate(merge, lane)?),
+                        re::PathAnchorInput::interior(2, config.profile.min_gap_meters)?,
+                    )],
+                )?,
+            ))?;
+        }
+    }
+    Ok(())
+}
+
 /// 工程示例策略，明确声明版本与依据，不冒充现实法域的法规全集。
 fn add_policy(
     builder: &mut re::RoadEditingSourceModuleBuilder<'_>,
@@ -506,7 +646,7 @@ fn add_policy(
 ) -> Result<(), Error> {
     const EVIDENCE: &str = "junction-v1";
     const GAP: &str = "permissive-gap";
-    let gates = cells
+    let mut gates = cells
         .iter()
         .flat_map(|topology| {
             topology.gates.iter().map(move |gate| {
@@ -537,7 +677,7 @@ fn add_policy(
             })
         })
         .collect::<Result<Vec<_>, Error>>()?;
-    let streams = cells
+    let mut streams = cells
         .iter()
         .flat_map(|topology| {
             topology.streams.iter().map(move |stream| {
@@ -572,6 +712,31 @@ fn add_policy(
             })
         })
         .collect::<Result<Vec<_>, Error>>()?;
+    for merge in cells.iter().flat_map(|cell| &cell.merges) {
+        for lane in 0..2 {
+            let key = format!("{}.branch-{lane}", merge.junction_key);
+            gates.push(re::PolicyGateRuleInput::try_new(
+                &key,
+                merge_gate(merge, lane)?,
+                None,
+                laneflow_compiler::GateInterpretation::Uncontrolled,
+                laneflow_compiler::GateProhibition::None,
+                vec![EVIDENCE.to_owned()],
+            )?);
+            streams.push(re::PolicyStreamRuleInput::try_new(
+                &key,
+                re::ParticipantStreamReference::owner_scoped(
+                    vec![merge.junction_key.clone()],
+                    format!("branch-{lane}"),
+                )?,
+                None,
+                0,
+                Vec::new(),
+                None,
+                vec![EVIDENCE.to_owned()],
+            )?);
+        }
+    }
     builder.add_declaration(re::RoadEditingDeclaration::RightOfWayPolicySet(
         re::RightOfWayPolicySetInput::try_new(
             laneflow_scenario::complex_junction::POLICY_KEY,

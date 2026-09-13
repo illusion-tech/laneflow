@@ -58,7 +58,7 @@ pub struct SpawnPlanEntry {
 }
 
 /// 确定性 spawn 计划（无 PRNG）：进度与车型全部取自 catalog spawn slot 与
-/// catalog 唯一车型 profile。槽位取环路末段（进度约 486.5 m），让四辆车在
+/// catalog 唯一车型 profile。槽位取门户存储边末段；WN 两车从汇合准入门上游出发，让四辆车在
 /// 一个信号周期内到达机动门与冲突区，调试 overlay 与 smoke 不必空转整圈环路。
 /// 直行车取东→西 `route-e-through`：它是许可左转冲突区合同里的对向直行流，
 /// 与许可左转车在观察窗内相遇，先 NoGrant 后通过才成立。
@@ -76,12 +76,12 @@ pub const SPAWN_PLAN: [SpawnPlanEntry; 4] = [
     SpawnPlanEntry {
         role: VehicleRole::PermissiveLeft,
         route_id: "route-n-permissive-left",
-        slot_id: "slot-loop-wn-i0-048",
+        slot_id: "slot-loop-wn-i0-043",
     },
     SpawnPlanEntry {
         role: VehicleRole::Circuit,
         route_id: "route-n-left-circuit",
-        slot_id: "slot-loop-wn-i1-047",
+        slot_id: "slot-loop-wn-i1-044",
     },
 ];
 
