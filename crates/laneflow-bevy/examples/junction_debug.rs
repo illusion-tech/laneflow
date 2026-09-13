@@ -9,6 +9,8 @@
 mod junction_debug_scene;
 #[path = "support/junction_road.rs"]
 mod junction_road;
+#[path = "support/junction_signals.rs"]
+mod junction_signals;
 use junction_road::RoadLayout;
 
 use std::{collections::HashMap, error::Error, fmt::Write as _, path::PathBuf};
@@ -127,6 +129,8 @@ enum CameraPreset {
     Topdown,
     Close,
     Merge,
+    Waiting,
+    Signals,
 }
 
 impl CameraPreset {
@@ -136,6 +140,8 @@ impl CameraPreset {
             Self::Topdown => "topdown",
             Self::Close => "close",
             Self::Merge => "merge",
+            Self::Waiting => "waiting",
+            Self::Signals => "signals",
         }
     }
 }
@@ -150,7 +156,7 @@ struct CliArgs {
 }
 
 impl CliArgs {
-    /// `--screenshot <路径> [--camera persp|topdown|close|merge] [--at-tick <tick>]`；目录写
+    /// `--screenshot <路径> [--camera <preset>] [--at-tick <tick>]`；目录写
     /// `<目录>/junction_debug_<preset>.png`。env 回退：
     /// `JUNCTION_DEBUG_SCREENSHOT` / `JUNCTION_DEBUG_CAMERA`。
     fn parse() -> Self {
@@ -172,6 +178,8 @@ impl CliArgs {
                         Some("topdown") => Some(CameraPreset::Topdown),
                         Some("close") => Some(CameraPreset::Close),
                         Some("merge") => Some(CameraPreset::Merge),
+                        Some("waiting") => Some(CameraPreset::Waiting),
+                        Some("signals") => Some(CameraPreset::Signals),
                         _ => Some(CameraPreset::Persp),
                     };
                 }
@@ -188,6 +196,8 @@ impl CliArgs {
                 Ok("topdown") => Some(CameraPreset::Topdown),
                 Ok("close") => Some(CameraPreset::Close),
                 Ok("merge") => Some(CameraPreset::Merge),
+                Ok("waiting") => Some(CameraPreset::Waiting),
+                Ok("signals") => Some(CameraPreset::Signals),
                 Ok(_) => Some(CameraPreset::Persp),
                 Err(_) => None,
             };
@@ -340,7 +350,6 @@ fn setup_scene(
 ) {
     let revision = session.world().revision();
     let roads = junction_road::build(&revision);
-    let road_layout = Some(roads.layout);
     let view_height = roads.extent * 2.0 + 28.0;
     // 天空大气（地球散射介质 + 相机设置）与太阳（平行光，投影，约 40° 俯角）。
     let medium = scattering_mediums.add(bevy::light::atmosphere::ScatteringMedium::earth(256, 256));
@@ -389,7 +398,10 @@ fn setup_scene(
                 Transform::from_xyz(0.0, 300.0, 0.0).looking_at(Vec3::ZERO, Vec3::Z),
             ));
         }
-        CameraPreset::Close | CameraPreset::Merge => {
+        CameraPreset::Close
+        | CameraPreset::Merge
+        | CameraPreset::Waiting
+        | CameraPreset::Signals => {
             // 低位近景：看路口东南一角，读标线线型与停止线。
             commands.spawn((
                 Camera3d::default(),
@@ -408,12 +420,15 @@ fn setup_scene(
                     },
                     ..default()
                 },
-                if matches!(preset.0, CameraPreset::Merge) {
-                    Transform::from_xyz(58.0, 70.0, -160.0)
-                        .looking_at(Vec3::new(0.0, 0.0, -176.0), Vec3::Y)
-                } else {
-                    Transform::from_xyz(46.0, 17.0, 26.0)
-                        .looking_at(Vec3::new(18.0, 0.0, 3.0), Vec3::Y)
+                match preset.0 {
+                    CameraPreset::Merge => Transform::from_xyz(58.0, 70.0, -160.0)
+                        .looking_at(Vec3::new(0.0, 0.0, -176.0), Vec3::Y),
+                    CameraPreset::Waiting => Transform::from_xyz(-48.0, 19.0, 14.0)
+                        .looking_at(Vec3::new(-4.0, 0.0, 0.0), Vec3::Y),
+                    CameraPreset::Signals => Transform::from_xyz(9.0, 8.0, 17.0)
+                        .looking_at(Vec3::new(34.5, 7.25, 6.0), Vec3::Y),
+                    _ => Transform::from_xyz(46.0, 17.0, 26.0)
+                        .looking_at(Vec3::new(18.0, 0.0, 3.0), Vec3::Y),
                 },
             ));
         }
@@ -540,83 +555,13 @@ fn setup_scene(
             warn!("bind_vehicle_entity 失败: {error:?}");
         }
     }
-    // 交通灯（常规场景）：每组在 stop line 旁立杆 + 灯头 + 红/黄/绿三枚灯盘，
-    // 每拍按 committed_signal_groups() 点亮（亮 = 同色自发光，灭 = 深灰）。
-    let pole_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.12, 0.12, 0.13),
-        ..default()
-    });
-    let head_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.08, 0.08, 0.09),
-        ..default()
-    });
-    let pole_mesh = meshes.add(Cuboid::new(0.22, 5.5, 0.22));
-    let head_mesh = meshes.add(Cuboid::new(0.8, 1.8, 0.45));
-    let lamp_mesh = meshes.add(Sphere::new(0.27).mesh().build());
-    let group_count = revision
-        .traffic()
-        .entity_counts()
-        .count(EntityKind::SignalGroup);
-    for raw in 0..group_count {
-        let group = SignalGroupOrdinal::from_raw(raw);
-        let Some((position, direction)) = signal_anchor(&revision, group) else {
-            continue;
-        };
-        // 灯杆立在人行道内：右侧通行，进口车道的右侧即路缘侧（有几何反例则翻转），
-        // 横向推到车行道外缘以外 1.2 m，避免压在车道上。
-        let right_raw = direction.cross(Vec3::Y).normalize_or_zero();
-        let pole_base = match road_layout {
-            Some(layout) => {
-                let main_axis = direction.x.abs() >= direction.z.abs();
-                let half_width = if main_axis {
-                    layout.main_half_width
-                } else {
-                    layout.secondary_half_width
-                };
-                let lateral = if main_axis { position.z } else { position.x };
-                let right = {
-                    let axis_lateral = if main_axis { right_raw.z } else { right_raw.x };
-                    if axis_lateral.signum() == lateral.signum() {
-                        right_raw
-                    } else {
-                        -right_raw
-                    }
-                };
-                let distance = (half_width - lateral.abs()).max(0.0) + 1.2;
-                position + right * distance
-            }
-            None => position + right_raw * (LANE_WIDTH_METERS * 0.5 + 1.2),
-        };
-        commands.spawn((
-            Mesh3d(pole_mesh.clone()),
-            MeshMaterial3d(pole_material.clone()),
-            Transform::from_translation(pole_base + Vec3::Y * 2.75),
-        ));
-        let head_center = pole_base + Vec3::Y * 5.1;
-        commands.spawn((
-            Mesh3d(head_mesh.clone()),
-            MeshMaterial3d(head_material.clone()),
-            Transform::from_translation(head_center).looking_to(direction, Vec3::Y),
-        ));
-        for (kind, lift) in [
-            (LampKind::Red, 0.55_f32),
-            (LampKind::Yellow, 0.0),
-            (LampKind::Green, -0.55),
-        ] {
-            let material = materials.add(lamp_material(false, kind));
-            commands.spawn((
-                Mesh3d(lamp_mesh.clone()),
-                MeshMaterial3d(material.clone()),
-                Transform::from_translation(head_center + Vec3::Y * lift - direction * 0.28),
-                TrafficLamp {
-                    group: raw,
-                    kind,
-                    material,
-                    lit: false,
-                },
-            ));
-        }
-    }
+    junction_signals::spawn(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        &revision,
+        roads.layout,
+    );
     commands.spawn((
         Text::new(String::new()),
         TextFont::from_font_size(18.0),
@@ -641,33 +586,6 @@ fn role_color(role: junction_debug_scene::VehicleRole) -> Color {
         junction_debug_scene::VehicleRole::PermissiveLeft => Color::srgb(0.95, 0.8, 0.1),
         junction_debug_scene::VehicleRole::Circuit => Color::srgb(0.15, 0.75, 0.3),
     }
-}
-
-/// 信号组定位：组内首道门的停止线端点 + 该边末段切向（朝向来车方向）。
-fn signal_anchor(
-    revision: &SharedNetworkRevision,
-    group: SignalGroupOrdinal,
-) -> Option<(Vec3, Vec3)> {
-    let relations = revision.traffic().relations();
-    let gate = *relations.signal_group(group)?.gates().first()?;
-    let stop = relations.stop_line(relations.maneuver_gate(gate)?.stop_line())?;
-    let geometry = revision
-        .spatial()?
-        .lane_pose()?
-        .lane_geometry(stop.edge())?;
-    let points = geometry.points();
-    let last = *points.last()?;
-    let previous = points
-        .get(points.len().saturating_sub(2))
-        .copied()
-        .unwrap_or(last);
-    let direction = (point_to_vec3(&last) - point_to_vec3(&previous)).normalize_or_zero();
-    let direction = if direction.length_squared() < 0.5 {
-        Vec3::X
-    } else {
-        direction
-    };
-    Some((point_to_vec3(&last), direction))
 }
 
 /// 灯盘材质：亮 = 同色自发光，灭 = 深灰。
@@ -723,8 +641,7 @@ fn point_to_vec3(point: &CanonicalPoint) -> Vec3 {
     Vec3::new(point.x, point.y, point.z)
 }
 
-/// 停止线：每条绑定了信号门的 stop line 在其边终点处画一条横跨车道的
-/// 白色实线带（沿车道 0.4 m × 车道宽），垂直于车道切向。
+/// 进口停止线及待转区前端的停车线；内部 Waiting entry 准入门不再画成停车线。
 fn spawn_stop_lines(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
@@ -740,6 +657,15 @@ fn spawn_stop_lines(
             .count(EntityKind::StopLine),
     )
     .unwrap_or(0);
+    // Waiting entry 是区间准入门，不额外画成路口中的第二道停车横线。
+    let waiting_entries: std::collections::BTreeSet<_> = (0..revision
+        .traffic()
+        .entity_counts()
+        .count(EntityKind::WaitingZone))
+        .filter_map(|raw| relations.waiting_zone(WaitingZoneOrdinal::from_raw(raw)))
+        .filter_map(|zone| relations.maneuver_gate(zone.entry_gate()))
+        .map(|gate| gate.stop_line().raw())
+        .collect();
     let mut drawn = std::collections::BTreeSet::new();
     for raw in 0..stop_count {
         let stop = StopLineOrdinal::from_raw(u32::try_from(raw).unwrap_or(0));
@@ -753,7 +679,7 @@ fn spawn_stop_lines(
                 .and_then(|gate_view| gate_view.signal_group())
                 .is_some()
         });
-        if !signal_gated || !drawn.insert(raw) {
+        if !signal_gated || waiting_entries.contains(&stop.raw()) || !drawn.insert(raw) {
             continue;
         }
         let Some(geometry) = lane_pose.lane_geometry(view.edge()) else {

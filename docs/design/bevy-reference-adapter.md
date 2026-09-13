@@ -216,16 +216,30 @@ cargo +1.98.0 test --locked -p laneflow-bevy --test junction_debug_smoke
 
 道路表面由 `examples/support/junction_road.rs` 消费同根车道几何生成：路口为连续
 铺装，四角路缘与人行道相切；外围成对同向车道共用一幅路面，足宽处画分隔虚线，
-直线汇合/分流处连续收窄，人行道跨端口连续衔接。道路分隔带设圆头，过街区域保留连续铺装。臂道边界按
+直线汇合/分流处连续收窄，环路两侧均铺设人行道。内侧接臂道人行道，外侧经
+中央分隔带末端的步行连接面衔接；主路端外侧步道收至 2 m，避免相邻两条步道重叠。
+道路分隔带设圆头，过街区域保留连续铺装。臂道边界按
 世界横坐标去重，车道导向按同次穿越的进口与出口方向显示；表现不更改规范轨迹。
 
+西进口为左转待转区，白色短虚线标出同根 entry→release 区间并施画左转箭头。
+进口停止线和待转区前端停车线保留；内部 entry 准入门不再画成额外停车横线。
+入区信号允许主路直行/左转绿灯通行，出区只在左转放行时通过；容量仍为 1 辆。
+时序与几何编制详见生成器 README，Adapter 不自行放行车辆。
+
+`examples/support/junction_signals.rs` 为每个进口生成一套路口对侧悬臂灯架，共四套、
+七组实体灯头，灯头朝向对应来车方向，包含立柱、基础、横臂、背板和遮光罩。
+实体灯头由该进口各机动路径的最终放行信号绑定，待转路径取 release；共享相位
+可驱动多个进口的实体灯，禁止取信号组首门作为唯一灯具位置。保护左转使用箭头灯，
+带冲突通行段的许可左转使用圆灯配固定左转方向牌，避免误画为保护放行。
+
 原生出图固定物理分辨率，并在明确的模拟 tick 暂停后捕获，避免不同 GPU 帧率
-对应不同交通状态。预设为 `persp`、`topdown`、`close`、`merge`；至少等待 150 个
+对应不同交通状态。预设为 `persp`、`topdown`、`close`、`merge`、`waiting`、`signals`；至少等待 150 个
 渲染帧让管线就绪。`--at-tick` 默认为 6_100，出图与每帧耗时不属于性能证据。
 
 ```powershell
 cargo +1.98.0 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-close.png --camera close --at-tick 3500
 cargo +1.98.0 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-merge.png --camera merge --at-tick 0
+cargo +1.98.0 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-waiting.png --camera waiting --at-tick 1600
 cargo +1.98.0 test --locked -p laneflow-bevy --features native-example --example junction_debug
 ```
 

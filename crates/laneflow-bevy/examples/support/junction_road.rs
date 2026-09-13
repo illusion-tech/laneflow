@@ -139,12 +139,23 @@ fn slice(line: &[Vec3], stations: &[f32], from: f32, to: f32) -> Vec<Vec3> {
 }
 
 fn dashed(surface: &mut Surface, line: &[Vec3], from: f32, to: f32) {
+    dashed_pattern(surface, line, from, to, 3.0, 8.0);
+}
+
+fn dashed_pattern(
+    surface: &mut Surface,
+    line: &[Vec3],
+    from: f32,
+    to: f32,
+    paint: f32,
+    pitch: f32,
+) {
     let stations = lengths(line);
     let mut cursor = from;
     while cursor + 0.1 < to {
-        let segment = slice(line, &stations, cursor, (cursor + 3.0).min(to));
+        let segment = slice(line, &stations, cursor, (cursor + paint).min(to));
         surface.band(&segment, 0.12, PAINT_Y);
-        cursor += 8.0;
+        cursor += pitch;
     }
 }
 
@@ -232,6 +243,28 @@ fn loop_surface(
         &offset(&right, WALK_WIDTH, WALK_Y),
     );
     curb(edging, &right, 1.0);
+    // 环路外侧同样有人行道；主路端中央间距仅 5 m，两侧各收至 2 m，
+    // 过弯后恢复 3 m，避免对向两条环路的步道重叠。
+    let end_width = |index: usize| {
+        (points[index].dot(lateral(&points, index)).abs() - WIDTH * 0.5 - 0.5)
+            .clamp(0.5, WALK_WIDTH)
+    };
+    let start_width = end_width(0);
+    let finish_width = end_width(points.len() - 1);
+    let outer: Vec<_> = left
+        .iter()
+        .enumerate()
+        .map(|(index, point)| {
+            let station = total * index as f32 / divisions as f32;
+            let from_start = ((station - 45.0) / 20.0).clamp(0.0, 1.0);
+            let from_end = ((total - station - 45.0) / 20.0).clamp(0.0, 1.0);
+            let width = (start_width + (WALK_WIDTH - start_width) * from_start)
+                .min(finish_width + (WALK_WIDTH - finish_width) * from_end);
+            at_height(*point - lateral(&left, index) * width, WALK_Y)
+        })
+        .collect();
+    sidewalk.strip(&offset(&left, -0.16, WALK_Y), &outer);
+    curb(edging, &left, -1.0);
     white.band(&offset(&left, 0.18, PAINT_Y), 0.12, PAINT_Y);
     white.band(&offset(&right, -0.18, PAINT_Y), 0.12, PAINT_Y);
     let middle_stations = lengths(&middle);
@@ -306,6 +339,72 @@ fn median(
     curb(edging, &closed, -1.0);
     // 整条道路的铺装已有连续底面，过街口不会跨到裸草地上。
     asphalt.band(&[along * (from - 4.0), along * (to + 4.0)], width, ROAD_Y);
+}
+
+fn waiting_markings(revision: &SharedNetworkRevision, white: &mut Surface) {
+    use laneflow_static_contract::{EntityKind, WaitingZoneOrdinal};
+    let traffic = revision.traffic();
+    let relations = traffic.relations();
+    let pose = revision.spatial().unwrap().lane_pose().unwrap();
+    for raw in 0..traffic.entity_counts().count(EntityKind::WaitingZone) {
+        let zone = relations
+            .waiting_zone(WaitingZoneOrdinal::from_raw(raw))
+            .unwrap();
+        let path = traffic.maneuvers().maneuver_path(zone.path()).unwrap();
+        let entry = relations
+            .maneuver_gate(zone.entry_gate())
+            .unwrap()
+            .transition_index() as usize;
+        let release = relations
+            .maneuver_gate(zone.release_gate())
+            .unwrap()
+            .transition_index() as usize;
+        let mut line = Vec::new();
+        for edge in &path.edges()[entry + 1..=release] {
+            for point in pose.lane_geometry(*edge).unwrap().points() {
+                let point = Vec3::new(point.x, point.y, point.z);
+                if line.last() != Some(&point) {
+                    line.push(point);
+                }
+            }
+        }
+        let stations = lengths(&line);
+        let total = *stations.last().unwrap();
+        for side in [-1.0, 1.0] {
+            dashed_pattern(
+                white,
+                &offset(&line, side * WIDTH * 0.48, PAINT_Y),
+                0.0,
+                total,
+                1.5,
+                3.0,
+            );
+        }
+        let center = sample(&line, &stations, total * 0.5);
+        let forward = (sample(&line, &stations, total * 0.5 + 0.5)
+            - sample(&line, &stations, total * 0.5 - 0.5))
+        .normalize();
+        let outgoing = pose
+            .lane_geometry(*path.edges().last().unwrap())
+            .unwrap()
+            .points();
+        let turn = Vec3::new(
+            outgoing[1].x - outgoing[0].x,
+            0.0,
+            outgoing[1].z - outgoing[0].z,
+        )
+        .normalize();
+        let elbow = center + forward * 0.8;
+        let tip = elbow + turn * 1.2;
+        white.band(&[center - forward * 1.8, elbow, tip], 0.20, PAINT_Y);
+        for side in [-1.0, 1.0] {
+            white.band(
+                &[tip - turn * 0.6 + forward * side * 0.45, tip],
+                0.18,
+                PAINT_Y,
+            );
+        }
+    }
 }
 
 pub fn build(revision: &SharedNetworkRevision) -> RoadMeshes {
@@ -467,6 +566,17 @@ pub fn build(revision: &SharedNetworkRevision) -> RoadMeshes {
             from + 4.0,
             to - 4.0,
         );
+        // 中央分隔带末端的步行连接面，把相邻两条环路的外侧步道接成网络。
+        let gap = (half_width - WIDTH * lanes) * 2.0;
+        sidewalk.band(&[along * (to - 4.0), along * (to + 2.0)], gap, WALK_Y);
+        let cross = Vec3::new(-along.z, 0.0, along.x);
+        for side in [-1.0, 1.0] {
+            let line = [
+                along * (to - 4.0) + cross * side * gap * 0.5,
+                along * to + cross * side * gap * 0.5,
+            ];
+            curb(&mut edging, &line, -side);
+        }
     }
     for portal in ["ne", "es", "sw", "wn"] {
         loop_surface(
@@ -478,6 +588,7 @@ pub fn build(revision: &SharedNetworkRevision) -> RoadMeshes {
             &edges[&format!("loop-{portal}-i1")],
         );
     }
+    waiting_markings(revision, &mut white);
     RoadMeshes {
         asphalt: asphalt.finish(),
         sidewalk: sidewalk.finish(),
