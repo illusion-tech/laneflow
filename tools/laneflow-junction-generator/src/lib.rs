@@ -11,6 +11,8 @@ pub use config::JunctionConfig;
 pub use error::Error;
 use error::IoResultExt;
 pub use generator::{GeneratedScenario, ScenarioCounts, generate};
+mod grid;
+pub use grid::{GeneratedGrid, GridCatalog, generate_grid};
 pub use laneflow_scenario::complex_junction::{
     JunctionCatalog, PortalCatalogEntry, PortalLaneCatalogEntry, RouteCatalogEntry,
     SpawnSlotCatalogEntry, WeightedRouteChoiceCatalogEntry,

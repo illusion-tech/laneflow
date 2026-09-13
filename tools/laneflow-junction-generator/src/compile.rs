@@ -12,20 +12,34 @@ use sha2::{Digest, Sha256};
 use crate::Error;
 use crate::config::JunctionConfig;
 use crate::topology::{
-    COMPILER_BUILD_ID, CONTROLLER_KEY, Curve, DOCUMENT_KEY, GENERATOR_BUILD_ID, JUNCTION_KEY,
-    PARTICIPANT_CLASS_KEY, PROVENANCE, SIGNAL_GROUPS, Segment, TopologyBuild,
+    COMPILER_BUILD_ID, Curve, DOCUMENT_KEY, GENERATOR_BUILD_ID, JUNCTION_KEY,
+    PARTICIPANT_CLASS_KEY, PROVENANCE, Segment, TopologyBuild,
 };
 
 pub(crate) fn compile_junction(
     config: &JunctionConfig,
     topology: &TopologyBuild,
 ) -> Result<CompilationOutput, Error> {
+    compile_cells(config, std::slice::from_ref(topology))
+}
+
+/// 一个正式编制模块、一个策略集合和一个共享根内的路口实例。
+pub(crate) fn compile_cells(
+    config: &JunctionConfig,
+    cells: &[TopologyBuild],
+) -> Result<CompilationOutput, Error> {
     // 编译/发射用 single_network_1m_v2：p100 的 StageScratchBytes 上限按走廊级
     // 场景标定，本场景 20 条 corridor 链 + 24 段圆弧的声明规模超出其暂存上限
     // 约 1.5%。限制只门禁不改字节；StableId 按内容派生，与限制档位无关，
     // 因此 catalog pin 与 binder 侧的 p100 身份派生结果与这里完全一致。
     let limits = CompileLimits::single_network_1m_v2();
-    let config_text = toml::to_string(config)?;
+    let mut config_text = toml::to_string(config)?;
+    if cells.len() != 1 || cells[0].junction_key != JUNCTION_KEY {
+        config_text.push_str(&format!(
+            "\nscale_cells={}\nlayout=junction-grid-v1\n",
+            cells.len()
+        ));
+    }
     let header = re::RoadEditingModuleHeader::try_new(
         laneflow_scenario::complex_junction::AUTHORING_NAMESPACE,
         DOCUMENT_KEY,
@@ -71,12 +85,14 @@ pub(crate) fn compile_junction(
         re::CanonicalFrameInput::try_new(&config.frame_id)?,
     ))?;
 
-    add_signals(&mut builder, topology)?;
-    add_edges(&mut builder, config, topology)?;
-    add_junction(&mut builder, config, topology)?;
-    add_conflicts(&mut builder, config, topology)?;
-    add_streams(&mut builder, topology)?;
-    add_policy(&mut builder, topology)?;
+    for topology in cells {
+        add_signals(&mut builder, topology)?;
+        add_edges(&mut builder, config, topology)?;
+        add_junction(&mut builder, config, topology)?;
+        add_conflicts(&mut builder, config, topology)?;
+        add_streams(&mut builder, topology)?;
+    }
+    add_policy(&mut builder, cells)?;
 
     let model = builder.finish()?;
     let buffer = re::RoadEditingSourceWriter::new(&limits).write(model)?;
@@ -159,7 +175,7 @@ fn path_ref(topology: &TopologyBuild, path: usize) -> Result<re::ManeuverPathRef
     let path_build = &topology.paths[path];
     let movement_key = &topology.movements[path_build.movement].key;
     Ok(re::ManeuverPathReference::owner_scoped(
-        vec![JUNCTION_KEY.to_owned(), movement_key.clone()],
+        vec![topology.junction_key.clone(), movement_key.clone()],
         &path_build.key,
     )?)
 }
@@ -173,7 +189,7 @@ fn gate_ref(
     let movement_key = &topology.movements[path_build.movement].key;
     Ok(re::ManeuverGateReference::owner_scoped(
         vec![
-            JUNCTION_KEY.to_owned(),
+            topology.junction_key.clone(),
             movement_key.clone(),
             path_build.key.clone(),
         ],
@@ -185,18 +201,19 @@ fn add_signals(
     builder: &mut re::RoadEditingSourceModuleBuilder<'_>,
     topology: &TopologyBuild,
 ) -> Result<(), Error> {
-    for group in SIGNAL_GROUPS {
+    for group in &topology.signal_groups {
         builder.add_declaration(re::RoadEditingDeclaration::SignalGroup(
             re::SignalGroupInput::try_new(group)?,
         ))?;
     }
     for phase in &topology.phases {
-        let states = SIGNAL_GROUPS
+        let states = topology
+            .signal_groups
             .iter()
             .zip(phase.aspects)
             .map(|(group, aspect)| {
                 Ok(re::RoadEditingSignalPhaseState::try_new(
-                    re::SignalGroupReference::local(*group)?,
+                    re::SignalGroupReference::local(group)?,
                     aspect,
                 )?)
             })
@@ -206,24 +223,25 @@ fn add_signals(
                 &phase.key,
                 phase.duration_ms,
                 states,
-                re::SignalControllerReference::local(CONTROLLER_KEY)?,
+                re::SignalControllerReference::local(&topology.controller_key)?,
             )?,
         ))?;
     }
     builder.add_declaration(re::RoadEditingDeclaration::SignalController(
         re::SignalControllerInput::try_new(
-            CONTROLLER_KEY,
+            &topology.controller_key,
             0,
-            SIGNAL_GROUPS
+            topology
+                .signal_groups
                 .iter()
-                .map(|group| re::SignalGroupReference::local(*group))
+                .map(re::SignalGroupReference::local)
                 .collect::<Result<Vec<_>, _>>()?,
             topology
                 .phases
                 .iter()
                 .map(|phase| {
                     re::SignalPhaseReference::owner_scoped(
-                        vec![CONTROLLER_KEY.to_owned()],
+                        vec![topology.controller_key.clone()],
                         &phase.key,
                     )
                 })
@@ -317,7 +335,7 @@ fn add_junction(
         builder.add_declaration(re::RoadEditingDeclaration::Movement(
             re::MovementInput::try_new(
                 &movement.key,
-                re::JunctionReference::local(JUNCTION_KEY)?,
+                re::JunctionReference::local(&topology.junction_key)?,
                 movement.entry.key(),
                 movement.exit.key(),
             )?
@@ -329,7 +347,10 @@ fn add_junction(
         builder.add_declaration(re::RoadEditingDeclaration::ManeuverPath(
             re::ManeuverPathInput::try_new(
                 &path.key,
-                re::MovementReference::owner_scoped(vec![JUNCTION_KEY.to_owned()], movement_key)?,
+                re::MovementReference::owner_scoped(
+                    vec![topology.junction_key.clone()],
+                    movement_key,
+                )?,
                 edge_ref(path.edges.first().expect("path entry edge"))?,
                 path.edges[1..path.edges.len() - 1]
                     .iter()
@@ -352,7 +373,7 @@ fn add_junction(
                 gate.transition,
                 re::StopLineReference::local(&gate.stop_key)?,
                 re::RoadEditingSignalControl::SignalGroup(re::SignalGroupReference::local(
-                    gate.group,
+                    topology.signal_group(gate.group),
                 )?),
             )?,
         ))?;
@@ -369,7 +390,7 @@ fn add_junction(
     ))?;
     builder.add_declaration(re::RoadEditingDeclaration::Junction(
         re::JunctionInput::try_new(
-            JUNCTION_KEY,
+            &topology.junction_key,
             topology
                 .junction_approaches
                 .iter()
@@ -412,10 +433,15 @@ fn add_conflicts(
     topology: &TopologyBuild,
 ) -> Result<(), Error> {
     for zone in &topology.zones {
-        let reference =
-            re::ConflictZoneReference::owner_scoped(vec![JUNCTION_KEY.to_owned()], &zone.key)?;
+        let reference = re::ConflictZoneReference::owner_scoped(
+            vec![topology.junction_key.clone()],
+            &zone.key,
+        )?;
         builder.add_declaration(re::RoadEditingDeclaration::ConflictZone(
-            re::ConflictZoneInput::try_new(&zone.key, re::JunctionReference::local(JUNCTION_KEY)?)?,
+            re::ConflictZoneInput::try_new(
+                &zone.key,
+                re::JunctionReference::local(&topology.junction_key)?,
+            )?,
         ))?;
         builder.add_conflict_zone_region(re::ConflictZoneRegionInput::try_new(
             reference,
@@ -449,7 +475,7 @@ fn add_streams(
             .map(|&zone| {
                 Ok(re::ConflictPassageInput::new(
                     re::ConflictZoneReference::owner_scoped(
-                        vec![JUNCTION_KEY.to_owned()],
+                        vec![topology.junction_key.clone()],
                         &topology.zones[zone].key,
                     )?,
                     re::PathAnchorInput::gate(gate_ref(
@@ -464,7 +490,7 @@ fn add_streams(
         builder.add_declaration(re::RoadEditingDeclaration::ParticipantStream(
             re::ParticipantStreamInput::try_new(
                 &stream.key,
-                re::JunctionReference::local(JUNCTION_KEY)?,
+                re::JunctionReference::local(&topology.junction_key)?,
                 path_ref(topology, stream.path)?,
                 passages,
             )?,
@@ -476,56 +502,74 @@ fn add_streams(
 /// 工程示例策略，明确声明版本与依据，不冒充现实法域的法规全集。
 fn add_policy(
     builder: &mut re::RoadEditingSourceModuleBuilder<'_>,
-    topology: &TopologyBuild,
+    cells: &[TopologyBuild],
 ) -> Result<(), Error> {
     const EVIDENCE: &str = "junction-v1";
     const GAP: &str = "permissive-gap";
-    let gates = topology
-        .gates
+    let gates = cells
         .iter()
-        .map(|gate| {
-            let path_build = &topology.paths[gate.path];
-            let movement_key = &topology.movements[path_build.movement].key;
-            let interpretation = if path_build.permissive {
-                laneflow_compiler::GateInterpretation::PermissiveGroup
-            } else {
-                laneflow_compiler::GateInterpretation::ProtectedGroup
-            };
-            Ok(re::PolicyGateRuleInput::try_new(
-                format!("{}.{}.{}", movement_key, path_build.key, gate.key),
-                gate_ref(topology, gate.path, gate.key)?,
-                None,
-                interpretation,
-                laneflow_compiler::GateProhibition::None,
-                vec![EVIDENCE.to_owned()],
-            )?)
+        .flat_map(|topology| {
+            topology.gates.iter().map(move |gate| {
+                let path_build = &topology.paths[gate.path];
+                let movement_key = &topology.movements[path_build.movement].key;
+                let interpretation = if path_build.permissive {
+                    laneflow_compiler::GateInterpretation::PermissiveGroup
+                } else {
+                    laneflow_compiler::GateInterpretation::ProtectedGroup
+                };
+                Ok(re::PolicyGateRuleInput::try_new(
+                    format!(
+                        "{}{}.{}.{}",
+                        topology
+                            .junction_key
+                            .strip_suffix(JUNCTION_KEY)
+                            .expect("instance prefix"),
+                        movement_key,
+                        path_build.key,
+                        gate.key
+                    ),
+                    gate_ref(topology, gate.path, gate.key)?,
+                    None,
+                    interpretation,
+                    laneflow_compiler::GateProhibition::None,
+                    vec![EVIDENCE.to_owned()],
+                )?)
+            })
         })
         .collect::<Result<Vec<_>, Error>>()?;
-    let streams = topology
-        .streams
+    let streams = cells
         .iter()
-        .map(|stream| {
-            Ok(re::PolicyStreamRuleInput::try_new(
-                &stream.key,
-                re::ParticipantStreamReference::owner_scoped(
-                    vec![JUNCTION_KEY.to_owned()],
-                    &stream.key,
-                )?,
-                None,
-                stream.priority,
-                stream
-                    .yield_to
-                    .iter()
-                    .map(|key| {
-                        Ok(re::ParticipantStreamReference::owner_scoped(
-                            vec![JUNCTION_KEY.to_owned()],
-                            key,
-                        )?)
-                    })
-                    .collect::<Result<Vec<_>, Error>>()?,
-                stream.gap.then(|| GAP.to_owned()),
-                vec![EVIDENCE.to_owned()],
-            )?)
+        .flat_map(|topology| {
+            topology.streams.iter().map(move |stream| {
+                Ok(re::PolicyStreamRuleInput::try_new(
+                    format!(
+                        "{}{}",
+                        topology
+                            .junction_key
+                            .strip_suffix(JUNCTION_KEY)
+                            .expect("instance prefix"),
+                        stream.key
+                    ),
+                    re::ParticipantStreamReference::owner_scoped(
+                        vec![topology.junction_key.clone()],
+                        &stream.key,
+                    )?,
+                    None,
+                    stream.priority,
+                    stream
+                        .yield_to
+                        .iter()
+                        .map(|key| {
+                            Ok(re::ParticipantStreamReference::owner_scoped(
+                                vec![topology.junction_key.clone()],
+                                key,
+                            )?)
+                        })
+                        .collect::<Result<Vec<_>, Error>>()?,
+                    stream.gap.then(|| GAP.to_owned()),
+                    vec![EVIDENCE.to_owned()],
+                )?)
+            })
         })
         .collect::<Result<Vec<_>, Error>>()?;
     builder.add_declaration(re::RoadEditingDeclaration::RightOfWayPolicySet(
