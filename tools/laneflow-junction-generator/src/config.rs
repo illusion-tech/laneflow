@@ -196,8 +196,8 @@ impl JunctionConfig {
                 "junction_radius_meters must exceed pocket_length_meters + curve_control_meters",
             ));
         }
-        // 待转 pocket 横向净距：入口 lane0 中心线偏移 a = center − width/2，
-        // pocket 中心线 z = a − pocket_offset；车辆半宽不进入对向 lane0
+        // 待转区前端的横向净距：入口 lane0 中心线偏移 a = center − width/2，
+        // 前端中心线 z 不低于 a − pocket_offset；车辆半宽不进入对向 lane0
         // （中心线 −a、半宽 w/2）要求 pocket_offset < 2·(center − width)。
         let pocket_offset_limit =
             2.0 * (geometry.center_offset_meters - geometry.lane_width_meters);
@@ -207,15 +207,14 @@ impl JunctionConfig {
                  pocket stays clear of the opposing through lanes",
             )));
         }
-        // 下限：pocket 也不得退回本向 lane0 的车道带（中心线 a、半宽 w/2），
-        // 否则 w-n.i1 与 W→E lane0 在同相位门下物理重叠。
+        // 前端至少偏离本向 lane0 一个车道宽；后续仍按真实转弯包络复核并发路径。
         if geometry.pocket_offset_meters < geometry.lane_width_meters {
             return Err(config_error(
                 "pocket_offset_meters must be at least lane_width_meters so the waiting pocket \
                  stays clear of the approach through lane",
             ));
         }
-        // 待转区容量 1 的存储长度即 pocket 长度；车长超限会让 route-w-left-waiting
+        // 待转区必须至少容纳一辆配置车型；车长超限会让 route-w-left-waiting
         // 的每次 spawn 都以 VehicleTooLong 失败。
         if self.profile.length_meters > geometry.pocket_length_meters {
             return Err(config_error(

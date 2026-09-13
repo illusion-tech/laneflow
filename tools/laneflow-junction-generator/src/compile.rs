@@ -73,7 +73,7 @@ pub(crate) fn compile_junction(
 
     add_signals(&mut builder, topology)?;
     add_edges(&mut builder, config, topology)?;
-    add_junction(&mut builder, topology)?;
+    add_junction(&mut builder, config, topology)?;
     add_conflicts(&mut builder, config, topology)?;
     add_streams(&mut builder, topology)?;
     add_policy(&mut builder, topology)?;
@@ -310,6 +310,7 @@ fn add_edges(
 
 fn add_junction(
     builder: &mut re::RoadEditingSourceModuleBuilder<'_>,
+    config: &JunctionConfig,
     topology: &TopologyBuild,
 ) -> Result<(), Error> {
     for movement in &topology.movements {
@@ -363,7 +364,7 @@ fn add_junction(
             path_ref(topology, waiting_path)?,
             gate_ref(topology, waiting_path, "waiting-entry")?,
             gate_ref(topology, waiting_path, "release")?,
-            1,
+            waiting_capacity(config)?,
         )?,
     ))?;
     builder.add_declaration(re::RoadEditingDeclaration::Junction(
@@ -382,6 +383,27 @@ fn add_junction(
         )?,
     ))?;
     Ok(())
+}
+
+/// 本场景只有一种车型；名义容量按储车段长度推导，不把转入连接段计入。
+/// 与编译器使用相同的整数毫米量化；Runtime 仍独立检查实际物理占用。
+fn waiting_capacity(config: &JunctionConfig) -> Result<u32, Error> {
+    let mm = |meters| {
+        laneflow_static_contract::millimetres_from_si(meters)
+            .filter(|value| *value > 0)
+            .map(u64::from)
+            .ok_or_else(|| {
+                Error::Config(
+                    "waiting storage, vehicle length and gap must fit positive integer millimetres"
+                        .into(),
+                )
+            })
+    };
+    let storage = mm(config.geometry.pocket_length_meters)?;
+    let length = mm(config.profile.length_meters)?;
+    let gap = mm(config.profile.min_gap_meters)?;
+    // n * length + (n - 1) * gap <= storage。u64 求和避免 u32 中间溢出。
+    Ok(((storage + gap) / (length + gap)) as u32)
 }
 
 fn add_conflicts(

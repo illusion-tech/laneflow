@@ -121,6 +121,30 @@ fn checked_in_artifacts_are_exact_generator_outputs() {
 }
 
 #[test]
+fn waiting_capacity_follows_storage_length_vehicle_length_and_gap() {
+    for (storage, length, gap, capacity) in [
+        (12.0, 4.5, 2.0, 2),
+        (10.0, 4.5, 2.0, 1),
+        // 同为 10 m 储车段，较短车型恢复两车容量，并保留合法车辆包络。
+        (10.0, 4.0, 2.0, 2),
+        (12.0, 4.5, 4.0, 1),
+        (11.0, 4.5, 2.0, 2),
+        (10.999, 4.5, 2.0, 1),
+    ] {
+        let mut config = JunctionConfig::parse(CONFIG).unwrap();
+        config.geometry.pocket_length_meters = storage;
+        config.profile.length_meters = length;
+        config.profile.min_gap_meters = gap;
+        let generated = generate(&config).unwrap_or_else(|error| {
+            panic!("waiting configuration {storage}/{length}/{gap}: {error}")
+        });
+        let lir = generated.lir();
+        let zone = lir.waiting_zones().next().unwrap();
+        assert_eq!(zone.max_occupancy(), capacity, "{storage}/{length}/{gap}");
+    }
+}
+
+#[test]
 fn catalog_round_trips_validates_and_marks_two_focus_routes() {
     let catalog = default_catalog();
     laneflow_scenario::complex_junction::validate(&catalog).expect("catalog must validate");
@@ -265,54 +289,22 @@ fn generate_rejects_non_finite_slot_candidates() {
 }
 
 #[test]
-fn generate_rejects_intersecting_protected_lefts() {
+fn generate_rejects_waiting_storage_without_room_for_connection() {
     let bad = CONFIG
-        .replace(
-            "junction_radius_meters = 30.0",
-            "junction_radius_meters = 33.4",
-        )
-        .replace("center_offset_meters = 6.0", "center_offset_meters = 14.72")
-        .replace("pocket_offset_meters = 4.0", "pocket_offset_meters = 8.18")
-        .replace(
-            "curve_control_meters = 12.0",
-            "curve_control_meters = 16.65",
-        );
+        .replace("pocket_length_meters = 12.0", "pocket_length_meters = 19.0")
+        .replace("curve_control_meters = 12.0", "curve_control_meters = 10.0");
     assert_ne!(bad, CONFIG, "config must contain the replaced fields");
     let config = JunctionConfig::parse(&bad).expect("raw config remains valid");
     let Err(error) = generate(&config) else {
-        panic!("intersecting protected lefts must fail");
+        panic!("storage must leave a connection before waiting entry");
     };
-    assert!(error.to_string().contains("protected paths"));
+    assert!(error.to_string().contains("approach connection"));
 }
 
 #[test]
 fn generate_rejects_overlapping_protected_envelopes() {
-    // 中心线不相交（最近约 1.78 m）但 4.5 m × 2 m 车辆包络重叠的几何也必须拒绝。
-    let bad = CONFIG
-        .replace(
-            "junction_radius_meters = 30.0",
-            "junction_radius_meters = 29.894093101044234",
-        )
-        .replace(
-            "lane_width_meters = 3.5",
-            "lane_width_meters = 2.6822985306365767",
-        )
-        .replace(
-            "center_offset_meters = 6.0",
-            "center_offset_meters = 8.48945246471647",
-        )
-        .replace(
-            "pocket_length_meters = 12.0",
-            "pocket_length_meters = 4.650269531115553",
-        )
-        .replace(
-            "pocket_offset_meters = 4.0",
-            "pocket_offset_meters = 4.422093313119901",
-        )
-        .replace(
-            "curve_control_meters = 12.0",
-            "curve_control_meters = 18.7507062702305",
-        );
+    // 中心线不相交，但转弯车尾扫入相邻直行车道的车辆包络仍必须拒绝。
+    let bad = CONFIG.replace("lane_width_meters = 3.5", "lane_width_meters = 2.1");
     assert_ne!(bad, CONFIG, "config must contain the replaced fields");
     let config = JunctionConfig::parse(&bad).expect("raw config remains valid");
     let Err(error) = generate(&config) else {
@@ -612,6 +604,137 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
     }
     world.step(TickInput::new(16)).expect("step");
     assert!(!world.committed_pose_sources().as_slice().is_empty());
+}
+
+#[test]
+fn waiting_pocket_holds_two_cars_and_admits_the_third_after_release() {
+    use laneflow_format::{FormatLimits, check_canonical_network_input};
+    use laneflow_runtime::{TickInput, VehicleSpawnInput, WaitingDecisionOutcome, WorldConfig};
+    use laneflow_scenario::complex_junction::bind;
+    use laneflow_static_contract::{SignalAspect, WaitingZoneOrdinal};
+    use laneflow_static_network::{
+        SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+        build_shared_network_revision,
+    };
+    use std::sync::Arc;
+
+    let generated = default_generated();
+    let catalog: JunctionCatalog =
+        toml::from_str(std::str::from_utf8(generated.catalog_bytes()).unwrap()).unwrap();
+    let revision = build_shared_network_revision(
+        check_canonical_network_input(generated.lfca_bytes(), FormatLimits::HARD).unwrap(),
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::RetainAvailable,
+            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+        ),
+    )
+    .unwrap();
+    let bound = bind(&catalog, &revision).unwrap();
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::new(8, 32, 1_024, 1_024, 1, 16),
+    )
+    .unwrap();
+    let routes = bound.install_routes(&mut world).unwrap();
+    let route_index = catalog
+        .routes
+        .iter()
+        .position(|r| r.route_id == "route-w-left-waiting")
+        .unwrap();
+    let profile = bound.profiles[VEHICLE_PROFILE_KEY];
+    let lead_in_edge = world.route_edges(routes[route_index]).unwrap()[2];
+    let lead_in_length = revision.traffic().lane_lengths_millimetres()[lead_in_edge.raw() as usize];
+    // 三辆车从同一进口上游依次驶入，不直接 spawn 在待转区内绕过准入。
+    let vehicles: Vec<_> = [115_000, 105_000, 95_000]
+        .into_iter()
+        .map(|progress| {
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(
+                    profile,
+                    routes[route_index],
+                    1,
+                    progress,
+                    0,
+                ))
+                .unwrap()
+        })
+        .collect();
+    let zone_id = WaitingZoneOrdinal::from_raw(0);
+    let relations = revision.traffic().relations();
+    let zone = relations.waiting_zone(zone_id).unwrap();
+    let release_group = relations
+        .maneuver_gate(zone.release_gate())
+        .unwrap()
+        .signal_group()
+        .unwrap();
+    assert_eq!(zone.max_occupancy(), 2);
+    let mut held_two = false;
+    let mut stopped_full_ticks = 0;
+    let mut admitted_third = false;
+    for _ in 0..2_750 {
+        world.step(TickInput::new(16)).unwrap();
+        assert!(world.waiting_zone(zone_id).unwrap().occupancy() <= 2);
+        let signals = world.committed_signal_groups();
+        let release = signals
+            .as_slice()
+            .iter()
+            .find(|(id, _)| *id == release_group)
+            .unwrap()
+            .1;
+        let front = world.vehicle(vehicles[0]).unwrap();
+        let second = world.vehicle(vehicles[1]).unwrap();
+        let third = world.vehicle(vehicles[2]).unwrap();
+        if release == SignalAspect::Red
+            && front.route_edge_index() == 3
+            && second.route_edge_index() == 3
+        {
+            // 两辆车最终整车停进 12 m 储车段，至少留 2 m 车间距。
+            if front.speed_mm_s() == 0 && second.speed_mm_s() == 0 {
+                assert!(front.progress_mm() <= 12_000);
+                assert!(second.progress_mm() >= second.length_mm());
+                assert!(front.progress_mm() >= second.progress_mm() + front.length_mm() + 2_000);
+                assert_eq!(world.waiting_zone(zone_id).unwrap().occupancy(), 2);
+                assert_eq!(front.waiting_membership().unwrap().waiting_zone(), zone_id);
+                assert_eq!(second.waiting_membership().unwrap().waiting_zone(), zone_id);
+                assert!(third.waiting_membership().is_none());
+                assert!(third.route_edge_index() < 3);
+                held_two = true;
+                if third.speed_mm_s() == 0 {
+                    // 跟驰已在 entry 前挡住第三辆，无需产生 Capacity 决策。
+                    // 按连接段剩余距离加第二辆车尾位置，检查跨边净距。
+                    assert_eq!(third.route_edge_index(), 2);
+                    assert!(third.progress_mm() < lead_in_length);
+                    let gap = lead_in_length - third.progress_mm() + second.progress_mm()
+                        - second.length_mm();
+                    assert!(gap >= 2_000);
+                    stopped_full_ticks += 1;
+                }
+            }
+        }
+        for decision in world.latest_waiting_decisions() {
+            if decision.vehicle() == vehicles[2]
+                && decision.outcome() == WaitingDecisionOutcome::Granted
+            {
+                assert!(stopped_full_ticks >= 100);
+                assert_eq!(release, SignalAspect::Green);
+                assert!(front.waiting_membership().is_none());
+                assert_eq!(third.waiting_membership().unwrap().waiting_zone(), zone_id);
+                admitted_third = true;
+            }
+        }
+    }
+    assert!(
+        held_two,
+        "two full cars must fit while the left-turn light is red"
+    );
+    assert!(
+        stopped_full_ticks >= 100,
+        "the third car must remain stopped outside a full pocket"
+    );
+    assert!(
+        admitted_third,
+        "the third car must enter when release frees space"
+    );
 }
 
 #[test]
