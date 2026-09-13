@@ -242,6 +242,7 @@ entry→release 储车区间。连接、储车与驶出由同一条左转圆弧�
 原生出图固定物理分辨率，并在明确的模拟 tick 暂停后捕获，避免不同 GPU 帧率
 对应不同交通状态。预设为 `persp`、`topdown`、`close`、`merge`、`waiting`、`signals`；至少等待 150 个
 渲染帧让管线就绪。`--at-tick` 默认为 6_100，出图与每帧耗时不属于性能证据。
+图像转换或保存失败时返回非零进程退出码；成功退出才表示截图已保存。
 
 ```powershell
 cargo +1.98.0 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-close.png --camera close --at-tick 3500

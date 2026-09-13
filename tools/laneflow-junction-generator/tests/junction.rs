@@ -1057,6 +1057,28 @@ fn loop_pairs_stay_separated_outside_taper_and_never_cross() {
 }
 
 #[test]
+fn smaller_loop_radius_keeps_straight_tapers_compilable() {
+    let mut config = JunctionConfig::parse(CONFIG).unwrap();
+    config.geometry.loop_corner_radius_meters = 15.0;
+    let generated = generate(&config).expect("15 m radius must preserve taper tangents");
+    assert_eq!(generated.counts().edges, 31);
+}
+
+#[test]
+fn compact_loop_configuration_returns_error_without_panicking() {
+    let mut config = JunctionConfig::parse(CONFIG).unwrap();
+    config.geometry.arm_length_meters = 10.0;
+    config.geometry.junction_radius_meters = 3.0;
+    config.geometry.lane_width_meters = 2.0;
+    config.geometry.center_offset_meters = 4.0;
+    config.geometry.pocket_length_meters = 1.0;
+    config.geometry.pocket_offset_meters = 2.0;
+    config.geometry.curve_control_meters = 1.0;
+    config.geometry.loop_corner_radius_meters = 1.0;
+    assert!(generate(&config).is_err());
+}
+
+#[test]
 fn loop_lane_tapers_finish_before_the_first_bend() {
     let prepared = loop_geometry();
     for portal in ["ne", "es", "sw", "wn"] {

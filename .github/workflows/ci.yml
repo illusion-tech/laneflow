@@ -181,7 +181,7 @@ jobs:
         shell: bash
         run: >-
           cargo +1.98.0 check --locked -p laneflow-bevy
-          --example runtime_min --example signalized_corridor
+          --example runtime_min --example signalized_corridor --example junction_debug
           --features native-example
 
       - name: Skip heavy Rust checks for non-Rust paths
