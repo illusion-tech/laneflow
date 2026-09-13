@@ -1,7 +1,7 @@
 use laneflow_static_contract::{LaneEdgeOrdinal, MAX_VEHICLE_LENGTH_MM, MIN_LANE_EDGE_LENGTH_MM};
 use laneflow_static_network::SharedNetworkRevision;
 
-use crate::kernel::tables::{CompiledRoute, RouteSlot, VehicleSlot, for_each_occupancy_interval};
+use crate::kernel::tables::{CompiledRoute, RouteSlot, VehicleSlot, for_each_admission_interval};
 use crate::{RouteHandle, StepError, TrafficWorld, VehicleHandle, VehicleState, VehicleStatus};
 
 #[cfg(test)]
@@ -21,7 +21,7 @@ impl OccupancyBucketOrdinal {
     }
 }
 
-/// 一条物理边上的占用片段，不是资源声明。
+/// 一条物理边上的占用片段，含已进入该边的零进度前杠；不是资源声明。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct OccupancyRecord {
     vehicle: VehicleHandle,
@@ -572,7 +572,7 @@ fn visit_occupancy_records_with(
         let Ok(update_sequence) = u32::try_from(sequence) else {
             return Err(StepError::OccupancyIntervalIncomplete);
         };
-        for_each_occupancy_interval(
+        for_each_admission_interval(
             lengths,
             edges,
             index,
@@ -617,7 +617,7 @@ fn visit_occupancy_records(
         let Ok(update_sequence) = u32::try_from(sequence) else {
             return Err(StepError::OccupancyIntervalIncomplete);
         };
-        for_each_occupancy_interval(
+        for_each_admission_interval(
             lengths,
             edges,
             index,
@@ -1024,6 +1024,80 @@ mod tests {
                     .is_some_and(|state| state.status == VehicleStatus::Active)
             })
             .count() as u64
+    }
+
+    fn zero_progress_merge_fixture() -> (TrafficWorld, VehicleHandle, VehicleHandle) {
+        let revision = compile_revision(|module| {
+            add_car_profile(module);
+            for (key, length) in [("left", 10.0), ("right", 11.0)] {
+                module
+                    .add_lane_edge(LaneEdgeInput {
+                        lane_edge_key: key,
+                        length_meters: length,
+                        speed_limit_meters_per_second: 10.0,
+                        successors: &[laneflow_compiler::LaneEdgeReference::local("shared")],
+                    })
+                    .unwrap();
+            }
+            module
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "shared",
+                    length_meters: 12.0,
+                    speed_limit_meters_per_second: 10.0,
+                    successors: &[],
+                })
+                .unwrap();
+        });
+        let mut world =
+            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 16)).unwrap();
+        let left = edge_for_length(&world, 10_000);
+        let right = edge_for_length(&world, 11_000);
+        let shared = edge_for_length(&world, 12_000);
+        let follower_route = world
+            .register_route(RouteRegisterInput::new(vec![left, shared]))
+            .unwrap();
+        let leader_route = world
+            .register_route(RouteRegisterInput::new(vec![right, shared]))
+            .unwrap();
+        let profile = VehicleProfileOrdinal::from_raw(0);
+        let follower = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                profile,
+                follower_route,
+                0,
+                9_998,
+                3_000,
+            ))
+            .unwrap();
+        let leader = world
+            .spawn_vehicle(VehicleSpawnInput::new(profile, leader_route, 1, 0, 4_000))
+            .unwrap();
+        world.rebuild_occupancy_index().unwrap();
+        (world, follower, leader)
+    }
+
+    #[test]
+    fn merged_zero_progress_front_is_visible_to_the_other_incoming_branch() {
+        let (world, follower, _) = zero_progress_merge_fixture();
+        let state = world.vehicle_state(follower).unwrap();
+        let lengths = world.traffic().lane_lengths_millimetres();
+        let edges = world.route_edges(state.route()).unwrap();
+        assert_eq!(index_gap(&world, state), Some(2));
+        assert_eq!(world.leader_bumper_gap_scan(state, edges, lengths), Some(2));
+    }
+
+    #[test]
+    fn merged_zero_progress_front_prevents_next_tick_shared_edge_overlap() {
+        let (mut world, follower, leader) = zero_progress_merge_fixture();
+        world.step(TickInput::new(16)).unwrap();
+        let follower = world.vehicle_state(follower).unwrap();
+        let leader = world.vehicle_state(leader).unwrap();
+        assert_eq!(
+            follower.route_edge_index(),
+            0,
+            "follower entered the occupied shared edge: {follower:?}; leader={leader:?}"
+        );
+        assert_index_matches_scan(&world);
     }
 
     #[test]
