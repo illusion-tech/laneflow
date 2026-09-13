@@ -36,10 +36,15 @@ cargo +1.98.0 run --locked -p laneflow-junction-generator -- check --config exam
   合流区）与 4 条 ParticipantStream（许可流 priority 0 + 三条直行流 priority 100）。
 - 1 个 WaitingZone（容量 1，挂在保护左转路径上），8 条环路回连边把每条出口车道
   接到顺时针下一条入口车道（三段 90 度圆弧绕角 + 直线段）；单车道臂强制 2↔1
-  汇合/分流，共点端在 30 m 锥形段内平滑收敛、焊接端口不变。同角第二条环路以
+  汇合/分流。首末各保留 45 m 相切直线，共点端在这条直线内平滑收敛，弯道
+  全程保持两个平行车道，焊接端口不变。只对固定长度渐变段加密，长直线不按米
+  扩张点列。同角第二条环路以
   内侧环路为基准向转弯中心侧平行偏移一个车道宽（三段圆弧等半径收缩 + 直线腿
   横向平移），两轨全段横向分离、任何位置不交叉。11 条 catalog 路线中两条焦点
   路线成环并多次穿过同一机动门（重复 Gate occurrence）。
+- 北进口右转由相切直线和四分之一圆弧编制，圆弧转换为同一三次 Bé塞尔来源；
+  起止切向与臂道对齐，避免任意控制柄让轨迹斜切街角。其他机动门、Waiting、
+  信号相位与冲突关系保持原场景合同。
 - catalog 0.1 由 Portal 拥有 ordered PortalLane（每 portal 2 条回连边车道），
   PortalLane 拥有共享 entry SpawnSlot 与 weighted RouteChoice；spawn slot
   只放在环路回连边上，端点净距 = 车长 + min_gap；同一 portal 内 lane 1 的候选

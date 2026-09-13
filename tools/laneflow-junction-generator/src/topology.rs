@@ -129,6 +129,42 @@ impl Curve {
         }
     }
 
+    /// 正交右转：相切直线与四分之一圆弧，避免单个任意控制柄形成斜切街角。
+    pub fn right_turn(start: Point, incoming: Point, end: Point, outgoing: Point) -> Self {
+        let delta = [end[0] - start[0], end[1] - start[1]];
+        let before = delta[0] * incoming[0] + delta[1] * incoming[1];
+        let after = delta[0] * outgoing[0] + delta[1] * outgoing[1];
+        let radius = before.min(after);
+        let arc_start = [
+            start[0] + incoming[0] * (before - radius),
+            start[1] + incoming[1] * (before - radius),
+        ];
+        let arc_end = [
+            end[0] - outgoing[0] * (after - radius),
+            end[1] - outgoing[1] * (after - radius),
+        ];
+        let mut segments = Vec::with_capacity(3);
+        if before > radius {
+            segments.push(Segment::Line { end: arc_start });
+        }
+        let control = CIRCLE_CUBIC_FACTOR * radius;
+        segments.push(Segment::Bezier {
+            c1: [
+                arc_start[0] + incoming[0] * control,
+                arc_start[1] + incoming[1] * control,
+            ],
+            c2: [
+                arc_end[0] - outgoing[0] * control,
+                arc_end[1] - outgoing[1] * control,
+            ],
+            end: arc_end,
+        });
+        if after > radius {
+            segments.push(Segment::Line { end });
+        }
+        Self { start, segments }
+    }
+
     /// 环路回连曲线：三段 90 度圆弧绕角 + 直线段。起止切向分别对齐
     /// `from` 臂驶离方向与到达臂驶入方向，起止点与道路边端口逐位一致，
     /// 保证 LaneEdge 后继焊接。控制腿等长（`CIRCLE_CUBIC_FACTOR·radius`），
@@ -137,9 +173,20 @@ impl Curve {
     /// 同角第二条环路不加大半径（半径加大会与内侧环路在弯角交叉），
     /// 改用 `corner_loop_wide` 的平行偏移方案；本函数只做几何一致的内侧环路。
     pub fn corner_loop(start: Point, from: Arm, end: Point, radius: f64) -> Self {
+        let port_start = start;
+        let port_end = end;
         let h0 = from.delta();
         // xz 平面（z 指南）里行进方向右侧的单位向量。
         let right = [-h0[1], h0[0]];
+        // 车道展开/收窄独立放在直线上；弯道全程保留两个平行车道。
+        let start = [
+            start[0] + h0[0] * LOOP_TAPER_METERS,
+            start[1] + h0[1] * LOOP_TAPER_METERS,
+        ];
+        let end = [
+            end[0] + right[0] * LOOP_TAPER_METERS,
+            end[1] + right[1] * LOOP_TAPER_METERS,
+        ];
         let along = (start[0] - end[0]) * h0[0] + (start[1] - end[1]) * h0[1];
         let across = (start[0] - end[0]) * right[0] + (start[1] - end[1]) * right[1];
         let r1 = radius;
@@ -148,7 +195,8 @@ impl Curve {
         assert!(l1 > 0.0 && l2 > 0.0, "loop straights must be positive");
         let k1 = CIRCLE_CUBIC_FACTOR * r1;
         let k = CIRCLE_CUBIC_FACTOR * radius;
-        let mut segments = Vec::with_capacity(5);
+        let mut segments = Vec::with_capacity(7);
+        segments.push(Segment::Line { end: start });
         // 圆弧 1（半径 r1）：h0 右转 90 度到 right。
         let end1 = [
             start[0] + r1 * right[0] + r1 * h0[0],
@@ -185,10 +233,14 @@ impl Curve {
             c2: [end3[0] + k * right[0], end3[1] + k * right[1]],
             end: end3,
         });
-        Self { start, segments }
+        segments.push(Segment::Line { end: port_end });
+        Self {
+            start: port_start,
+            segments,
+        }
     }
 
-    /// 同角第二条环路：把内侧环路（`base`）沿行进方向左侧（三段圆弧的转弯
+    /// 同角第二条环路：把基准环路（`base`）沿三段圆弧的转弯
     /// 中心侧，即 `rot90(tangent)` 方向）平行偏移 `offset`（取一个车道宽）。
     /// 三段圆弧等半径收缩、直线腿横向平移，两轨全段等距不交叉。
     ///
@@ -207,8 +259,27 @@ impl Curve {
     ) -> Self {
         // 128 等分：弧弦约 0.20 m——低于 0.5 m 量级满足内部弦向容差，
         // 同时显著高于 0.1 m 的最小弦长下限（256 等分出现过 0.09 m 退化弦）。
-        let mut points = Vec::new();
-        base.sample_into(128, &mut points);
+        let mut sampled = Vec::new();
+        base.sample_into(128, &mut sampled);
+        // 直线也采样，才能把渐变曲线写进制品，而不是仅连接渐变两端。
+        let mut points = vec![sampled[0]];
+        for (index, pair) in sampled.windows(2).enumerate() {
+            // 只有首末 45 m 直线需要渐变采样；中间长直线保持两个端点。
+            // 大臂长错误配置也不能在槽位数量检查前按米申请无界点列。
+            let divisions = if index == 0 || index + 2 == sampled.len() {
+                segment_length(pair[0], pair[1]).floor().max(1.0) as usize
+            } else {
+                1
+            };
+            for index in 1..divisions {
+                let t = index as f64 / divisions as f64;
+                points.push([
+                    pair[0][0] + (pair[1][0] - pair[0][0]) * t,
+                    pair[0][1] + (pair[1][1] - pair[0][1]) * t,
+                ]);
+            }
+            points.push(pair[1]);
+        }
         let mut tangents = with_tangents(&points);
         // 端点切向用曲线一阶导数的精确值替代首末弦近似：焊接方向检查要求
         // 末弦与后继边首弦夹角 ≤ 2°，弦近似在端点处会引入额外 kink。
@@ -389,7 +460,7 @@ fn smoothstep(u: f64) -> f64 {
 /// 环路共点端（单车道臂强制 2↔1 汇合/分流）的锥形段长度（米）：
 /// 偏移量在该长度内从全量平滑收敛到零，汇合一侧保持 ≥ 一个车道宽量级
 /// 的横向间距，避免两轨在近端重叠。
-pub(crate) const LOOP_TAPER_METERS: f64 = 30.0;
+pub(crate) const LOOP_TAPER_METERS: f64 = 45.0;
 
 /// 折线点列 → (位置, 单位切向)：点 i 的切向取相邻弦方向（首点取首弦、
 /// 末点取末弦，其余取前后弦之和方向）。
@@ -991,15 +1062,7 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
             "path",
             &road_edge_key(Arm::North, true, 0, 1),
             &road_edge_key(Arm::West, false, 1, 2),
-            vec![(
-                "n-w.i0".to_owned(),
-                Curve::bezier(
-                    start,
-                    [start[0] + d[0] * control, start[1] + d[1] * control],
-                    [end[0] - out[0] * control, end[1] - out[1] * control],
-                    end,
-                ),
-            )],
+            vec![("n-w.i0".to_owned(), Curve::right_turn(start, d, end, out))],
             turn_speed,
             &[("admission", 0, GROUP_SECONDARY_THROUGH_RIGHT)],
         );

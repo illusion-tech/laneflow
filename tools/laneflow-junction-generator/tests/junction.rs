@@ -877,9 +877,9 @@ fn segments_cross(
 fn loop_pairs_stay_separated_outside_taper_and_never_cross() {
     // 回归 #285 环路几何缺陷：同角两条环路必须全段横向分离（平行偏移一个
     // 车道宽），且任何位置不相交。单车道臂强制 2↔1 汇合/分流的共点端
-    // 30 m 锥形区（`topology::LOOP_TAPER_METERS`）内允许单调收敛，区外
+    // 45 m 直线锥形区内允许单调收敛，区外
     // 最小间距必须 ≥ 3.4 m（平行偏移实测恰为车道宽 3.5 m，留采样余量）。
-    const TAPER_METERS: f64 = 30.0;
+    const TAPER_METERS: f64 = 45.0;
     const SEPARATION_FLOOR: f64 = 3.4;
 
     let prepared = loop_geometry();
@@ -929,6 +929,74 @@ fn loop_pairs_stay_separated_outside_taper_and_never_cross() {
                     "loop-{portal} 两环中心线不得交叉"
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn loop_lane_tapers_finish_before_the_first_bend() {
+    let prepared = loop_geometry();
+    for portal in ["ne", "es", "sw", "wn"] {
+        let base = &prepared.loops[&format!("loop-{portal}-i0")];
+        let other = &prepared.loops[&format!("loop-{portal}-i1")];
+        let shared_start = base.0 == other.0;
+        let mut points = base.2.clone();
+        let mut second = other.2.clone();
+        if !shared_start {
+            points.reverse();
+            second.reverse();
+        }
+        let origin = points[0];
+        let dx = f64::from(points[1].x - origin.x);
+        let dz = f64::from(points[1].z - origin.z);
+        let length = (dx * dx + dz * dz).sqrt();
+        let tangent = [dx / length, dz / length];
+        let project = |point: laneflow_static_network::CanonicalPoint| {
+            let x = f64::from(point.x - origin.x);
+            let z = f64::from(point.z - origin.z);
+            (
+                x * tangent[0] + z * tangent[1],
+                (x * tangent[1] - z * tangent[0]).abs(),
+            )
+        };
+        let first_bend = points
+            .iter()
+            .copied()
+            .find(|point| project(*point).1 > 0.01)
+            .expect("loop turns");
+        assert!(
+            project(first_bend).0 >= 45.0,
+            "{portal}: taper must occupy a straight"
+        );
+        let taper: Vec<_> = second
+            .iter()
+            .copied()
+            .take_while(|point| project(*point).0 <= 45.01)
+            .collect();
+        assert!(
+            taper.len() >= 20,
+            "{portal}: smooth taper must survive emission"
+        );
+        let mut previous = 0.0;
+        for point in &taper {
+            let (_, lateral) = project(*point);
+            assert!(
+                lateral + 0.001 >= previous && lateral <= 3.501,
+                "{portal}: monotone lane transition"
+            );
+            previous = lateral;
+        }
+        assert!(
+            previous > 3.49,
+            "{portal}: full lane separation before turning"
+        );
+        for pair in taper.windows(2) {
+            let a = project(pair[0]);
+            let b = project(pair[1]);
+            assert!(
+                (b.1 - a.1).abs() <= (b.0 - a.0).abs() * 0.13 + 0.001,
+                "{portal}: taper steering angle must stay gentle"
+            );
         }
     }
 }
