@@ -21,9 +21,11 @@ use laneflow_bevy::{
     LaneFlowSession, LaneFlowTargetSpatial, despawn_vehicle,
 };
 use laneflow_runtime::{
-    ConflictDecision, CutoverPreflightLimits, RouteRegisterInput, SnapshotRestoreLimits, TickInput,
-    TrafficTransitionEvent, VehicleSpawnInput, WaitingDecision, WaitingZoneMember,
-    WaitingZoneSnapshot, deterministic_state_digest, encode_lfrs, restore_lfrs,
+    CapturedSnapshot, ConflictDecision, ConflictPassageOccurrenceLocator, ConflictPassageRange,
+    CutoverPreflightLimits, RouteHandle, RouteRegisterInput, SnapshotRestoreLimits, TickInput,
+    TrafficTransitionEvent, TrafficTransitionKind, TrafficWorld, VehicleHandle, VehicleSpawnInput,
+    WaitingDecision, WaitingZoneMember, WaitingZoneSnapshot, deterministic_state_digest,
+    encode_lfrs, restore_lfrs,
 };
 use laneflow_spatial::{FramePlacementToken, SpatialSession};
 
@@ -184,7 +186,189 @@ fn despawn_and_slot_reuse_do_not_turn_historical_grants_into_current_ownership()
             .unwrap();
         assert!(current.conflict_reservation().is_none());
         assert!(current.state().waiting_membership().is_none());
-        assert_eq!(observation(&session).conflict, before.conflict);
+        let final_observation = observation(&session);
+        assert_eq!(final_observation.waiting, before.waiting);
+        assert_eq!(final_observation.conflict, before.conflict);
+        assert_eq!(final_observation.transitions, before.transitions);
+    }
+}
+
+/// 只在本参考场景使用：每条边序列唯一，且每条路线恰有一辆车。
+/// 用逻辑内容关联保存侧身份，不从句柄值或槽位顺序推导快照 ID。
+struct SnapshotIdentities {
+    routes: Vec<(u64, RouteHandle)>,
+    vehicles: Vec<(u64, VehicleHandle)>,
+}
+
+impl SnapshotIdentities {
+    fn captured(world: &TrafficWorld, snapshot: &CapturedSnapshot) -> Self {
+        let root = world.revision();
+        let routes: Vec<_> = snapshot
+            .routes()
+            .iter()
+            .map(|saved| {
+                let matches: Vec<_> = world
+                    .live_routes()
+                    .filter(|&handle| {
+                        let stable: Vec<_> = world
+                            .route_edges(handle)
+                            .unwrap()
+                            .iter()
+                            .map(|&edge| *root.identity().stable_id(edge).unwrap().as_untyped())
+                            .collect();
+                        stable == saved.edges()
+                    })
+                    .collect();
+                assert_eq!(matches.len(), 1, "fixture route must be unique");
+                (saved.snapshot_route_id(), matches[0])
+            })
+            .collect();
+        let vehicles = snapshot
+            .vehicles()
+            .iter()
+            .map(|saved| {
+                let route = routes
+                    .iter()
+                    .find(|(id, _)| *id == saved.snapshot_route_id())
+                    .unwrap()
+                    .1;
+                let matches: Vec<_> = world
+                    .live_vehicles()
+                    .iter()
+                    .copied()
+                    .filter(|&handle| world.vehicle(handle).unwrap().route() == route)
+                    .collect();
+                assert_eq!(matches.len(), 1, "fixture has one vehicle per route");
+                (saved.snapshot_vehicle_id(), matches[0])
+            })
+            .collect();
+        Self { routes, vehicles }
+    }
+
+    fn route(&self, handle: RouteHandle) -> u64 {
+        self.routes
+            .iter()
+            .find(|(_, value)| *value == handle)
+            .unwrap()
+            .0
+    }
+
+    fn vehicle(&self, handle: VehicleHandle) -> u64 {
+        self.vehicles
+            .iter()
+            .find(|(_, value)| *value == handle)
+            .unwrap()
+            .0
+    }
+
+    fn passage(&self, value: ConflictPassageOccurrenceLocator) -> String {
+        format!(
+            "{:?}",
+            (
+                self.route(value.route()),
+                value.maneuver_occurrence_index(),
+                value.admission_gate_hop(),
+                value.conflict_occurrence_index(),
+                value.address(),
+                value.stable_locator()
+            )
+        )
+    }
+
+    fn range(&self, value: ConflictPassageRange) -> (u64, u32, u32, u32, u32) {
+        (
+            self.route(value.route()),
+            value.maneuver_occurrence_index(),
+            value.admission_gate_hop(),
+            value.first_conflict_occurrence_index(),
+            value.passage_count(),
+        )
+    }
+
+    fn kind(&self, value: TrafficTransitionKind) -> String {
+        match value {
+            TrafficTransitionKind::ReservationAcquired { passage_range } => {
+                format!("ReservationAcquired {:?}", self.range(passage_range))
+            }
+            TrafficTransitionKind::ReservationReleased { passage_range } => {
+                format!("ReservationReleased {:?}", self.range(passage_range))
+            }
+            TrafficTransitionKind::ConflictEntered { passage } => {
+                format!("ConflictEntered {}", self.passage(passage))
+            }
+            TrafficTransitionKind::ConflictCleared { passage } => {
+                format!("ConflictCleared {}", self.passage(passage))
+            }
+            TrafficTransitionKind::ProjectionApplied { .. }
+            | TrafficTransitionKind::GateCrossed { .. }
+            | TrafficTransitionKind::WaitingLeft { .. }
+            | TrafficTransitionKind::WaitingEntered { .. }
+            | TrafficTransitionKind::ManeuverTraversalCompleted { .. } => format!("{value:?}"),
+        }
+    }
+
+    /// 格式化的全部字段均已消除进程句柄；嵌套 passage/range 也必须经过映射。
+    fn outputs(&self, world: &TrafficWorld) -> [Vec<String>; 3] {
+        [
+            world
+                .latest_waiting_decisions()
+                .iter()
+                .map(|value| {
+                    let anchor = value.anchor();
+                    format!(
+                        "{:?}",
+                        (
+                            self.vehicle(value.vehicle()),
+                            value.vehicle_update_sequence(),
+                            value.zone(),
+                            self.route(anchor.route()),
+                            anchor.maneuver_occurrence_index(),
+                            anchor.hop(),
+                            value.outcome()
+                        )
+                    )
+                })
+                .collect(),
+            world
+                .latest_conflict_decisions()
+                .iter()
+                .map(|value| {
+                    let anchor = value.anchor();
+                    format!(
+                        "{:?}",
+                        (
+                            self.vehicle(value.vehicle()),
+                            value.vehicle_update_sequence(),
+                            self.route(anchor.route()),
+                            anchor.maneuver_occurrence_index(),
+                            anchor.hop(),
+                            value.passage().map(|passage| self.passage(passage)),
+                            value.outcome()
+                        )
+                    )
+                })
+                .collect(),
+            world
+                .latest_transition_events()
+                .iter()
+                .map(|value| {
+                    let anchor = value.anchor();
+                    format!(
+                        "{:?}",
+                        (
+                            value.tick(),
+                            self.vehicle(value.vehicle()),
+                            value.vehicle_update_sequence(),
+                            self.route(anchor.route()),
+                            anchor.maneuver_occurrence_index(),
+                            anchor.hop(),
+                            anchor.position(),
+                            self.kind(value.kind())
+                        )
+                    )
+                })
+                .collect(),
+        ]
     }
 }
 
@@ -192,6 +376,25 @@ fn despawn_and_slot_reuse_do_not_turn_historical_grants_into_current_ownership()
 fn held_resources_survive_snapshot_restore_and_replay_exactly() {
     for waiting in [true, false] {
         let mut app = app();
+        // 先制造真实代际变化，确保本测试不能碰巧依赖恢复前后的原始句柄相等。
+        {
+            let session = app.world().resource::<LaneFlowSession>();
+            let old = session.world().live_vehicles()[0];
+            let state = session.world().vehicle(old).unwrap();
+            despawn_vehicle(app.world_mut(), old).unwrap();
+            let mut session = app.world_mut().resource_mut::<LaneFlowSession>();
+            let new = session
+                .world_mut()
+                .spawn_vehicle(VehicleSpawnInput::new(
+                    state.profile(),
+                    state.route(),
+                    state.route_edge_index(),
+                    state.progress_mm(),
+                    state.speed_mm_s(),
+                ))
+                .unwrap();
+            assert_ne!(new, old);
+        }
         until(&mut app, |session| {
             session.junction_observation().vehicles().any(|row| {
                 if waiting {
@@ -203,48 +406,43 @@ fn held_resources_survive_snapshot_restore_and_replay_exactly() {
         });
         let session = app.world().resource::<LaneFlowSession>();
         let world = session.world();
-        let bytes = encode_lfrs(&world.capture_snapshot().unwrap());
-        let restore = || {
-            restore_lfrs(
-                &bytes,
-                world.revision(),
-                world.committed_source().clone(),
-                world.config(),
-                SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
-            )
-            .unwrap()
-            .into_world()
-        };
-        let mut first = restore();
-        assert_eq!(digest(&first), digest(world));
-        for row in session.junction_observation().vehicles() {
-            assert_eq!(first.vehicle(row.vehicle()), Some(row.state()));
-            assert_eq!(
-                first.conflict_reservation(row.vehicle()),
-                row.conflict_reservation()
-            );
-        }
+        let snapshot = world.capture_snapshot().unwrap();
+        let identities = SnapshotIdentities::captured(world, &snapshot);
+        let bytes = encode_lfrs(&snapshot);
+        let root = world.revision();
+        let source = world.committed_source().clone();
+        let config = world.config();
+        let initial_digest = digest(world);
+        let mut expected = Vec::new();
         for _ in 0..2_000 {
-            first.step(TickInput::new(16)).unwrap();
             app.update();
-            let second = app.world().resource::<LaneFlowSession>().world();
-            assert_eq!(
-                first.latest_transition_events(),
-                second.latest_transition_events()
-            );
-            assert_eq!(
-                first.latest_waiting_decisions(),
-                second.latest_waiting_decisions()
-            );
-            assert_eq!(
-                first.latest_conflict_decisions(),
-                second.latest_conflict_decisions()
-            );
+            let session = app.world().resource::<LaneFlowSession>();
+            assert!(session.last_error().is_none());
+            expected.push(identities.outputs(session.world()));
         }
-        assert_eq!(
-            digest(&first),
-            digest(app.world().resource::<LaneFlowSession>().world())
-        );
+        let final_digest = digest(app.world().resource::<LaneFlowSession>().world());
+        // fresh restore 接管相同 world_id 前，必须销毁原 world/session。
+        drop(app);
+        let restored = restore_lfrs(
+            &bytes,
+            root,
+            source,
+            config,
+            SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
+        )
+        .unwrap();
+        let restored_identities = SnapshotIdentities {
+            routes: restored.route_mappings().to_vec(),
+            vehicles: restored.vehicle_mappings().to_vec(),
+        };
+        assert_ne!(identities.vehicles, restored_identities.vehicles);
+        assert_eq!(digest(restored.world()), initial_digest);
+        let mut first = restored.into_world();
+        for outputs in expected {
+            first.step(TickInput::new(16)).unwrap();
+            assert_eq!(restored_identities.outputs(&first), outputs);
+        }
+        assert_eq!(digest(&first), final_digest);
         let before = digest(&first);
         let transitions = first.latest_transition_events().to_vec();
         let waiting_decisions = first.latest_waiting_decisions().to_vec();
@@ -317,6 +515,7 @@ fn same_revision_root_replacement_preserves_resources_and_rejects_mismatched_spa
         assert_eq!(after.members, before.members);
         assert_eq!(after.waiting, before.waiting);
         assert_eq!(after.conflict, before.conflict);
+        assert_eq!(after.transitions, before.transitions);
         assert!(Arc::ptr_eq(
             &session.junction_observation().revision(),
             &target
@@ -356,6 +555,7 @@ fn replay(chunks: &[u64]) -> (String, Vec<Observation>) {
     );
     let mut frame = 0;
     loop {
+        assert!(frame < 22_400, "replay exceeded the bounded frame budget");
         let tick = app
             .world()
             .resource::<LaneFlowSession>()
@@ -369,6 +569,12 @@ fn replay(chunks: &[u64]) -> (String, Vec<Observation>) {
             ticks * 16,
         )));
         app.update();
+        assert!(
+            app.world()
+                .resource::<LaneFlowSession>()
+                .last_error()
+                .is_none()
+        );
         frame += 1;
     }
     let trace = std::mem::take(&mut app.world_mut().resource_mut::<Trace>().0);
