@@ -60,9 +60,13 @@ Projection 原因须匹配同车的准入决定及首次等待入口接触；本
 资源门 crossing 必须有其精确 occurrence 的 reservation 或 Waiting entry/member
 authority；Waiting 事件还核对静态 entry/release、物理顺序、连续准入 counter、
 逐区 occupancy/capacity。reservation 的 `acquired_tick` 与实际取得事件一致且不漂移，
-completion 须恰好发生在车尾清空 coverage 的拍。运动另受固定步长的自由加速上界约束。
-Conflict entry/clear 比较完整 passage locator，clear 必须跨过该 passage 的车尾清空点，
-每份拍末 reservation 必须仍有未清空的 claim。
+完整静态路径（含无门路径）推导每拍应有的 completion 集合，并与事件批次精确比较，
+不能漏报。全部事件核对实际路线中的机动出现项、语义 hop 和规范触发位置；车尾事件
+使用静态 passage 出口加实际车长推导的位置。运动另受固定步长的自由加速上界约束。
+Conflict entry/clear 比较完整 passage locator，且必须是实际车头/车尾的首次跨越；
+拍末 claim 的 entered 标志和保留状态也须匹配位置，漏报 entry/clear 同样失败。
+每份拍末 reservation 必须仍有未清空的 claim。Waiting membership 从入口保存精确的
+`release_hop`，离开事件、公开状态和拍末位置均须匹配，不能拖到更晚的重复出现项。
 `carry_um` 是待落地余数，硬停清零不视为已提交位置倒退。检查器只读取公开状态，
 不生成通行决定；失败立即使候选进程失败，保留 `.validation-failure.json` 和可捕获的
 失败快照。成功 JSON 记录完整检查计数和各类零违规值，分析器拒绝缺失、少查或有

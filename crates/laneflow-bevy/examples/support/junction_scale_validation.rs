@@ -22,6 +22,10 @@ use sha2::{Digest, Sha256};
 #[path = "junction_debug_scene.rs"]
 pub(super) mod scene;
 
+#[path = "junction_scale_geometry.rs"]
+mod geometry;
+use geometry::{RouteGeometry, crossed, point, waiting_release_hop};
+
 type Check<T = ()> = Result<T, (&'static str, String)>;
 type Body = (u32, u64, u64, usize);
 
@@ -29,7 +33,7 @@ fn ensure(ok: bool, kind: &'static str, message: impl FnOnce() -> String) -> Che
     if ok { Ok(()) } else { Err((kind, message())) }
 }
 
-#[derive(Resource)]
+#[derive(Clone, Resource)]
 pub struct Validation {
     previous: Vec<VehicleState>,
     current: Vec<VehicleState>,
@@ -39,8 +43,12 @@ pub struct Validation {
     trajectory: Sha256,
     expected_gates: Vec<(u32, u32, u32)>,
     actual_gates: Vec<(u32, u32, u32)>,
+    geometries: Vec<RouteGeometry>,
+    geometry_by_vehicle: Vec<usize>,
+    expected_completions: Vec<(usize, u32)>,
+    actual_completions: Vec<(usize, u32)>,
     signals: Vec<SignalAspect>,
-    waiting: BTreeMap<usize, (u32, u64)>,
+    waiting: BTreeMap<usize, (u32, u64, u32)>,
     reservations: BTreeMap<usize, (ConflictPassageRange, u64)>,
     waiting_counters: BTreeMap<u32, u64>,
     claims: BTreeMap<(usize, u32), (ConflictPassageOccurrenceLocator, bool)>,
@@ -69,6 +77,19 @@ impl Validation {
                 })
             })
             .collect::<Check<Vec<_>>>()?;
+        let mut geometries = Vec::new();
+        let mut geometry_by_vehicle = Vec::with_capacity(previous.len());
+        let mut geometry_keys = std::collections::HashMap::new();
+        for &state in &previous {
+            let index = *geometry_keys
+                .entry((state.route(), state.length_mm()))
+                .or_insert_with(|| {
+                    let index = geometries.len();
+                    geometries.push(RouteGeometry::new(world, state));
+                    index
+                });
+            geometry_by_vehicle.push(index);
+        }
         let mut result = Self {
             current: Vec::with_capacity(previous.len()),
             bodies: Vec::with_capacity(previous.len() * 2),
@@ -77,6 +98,10 @@ impl Validation {
             trajectory: Sha256::new(),
             expected_gates: Vec::new(),
             actual_gates: Vec::new(),
+            geometries: geometries.into_iter().collect::<Check<Vec<_>>>()?,
+            geometry_by_vehicle,
+            expected_completions: Vec::new(),
+            actual_completions: Vec::new(),
             signals: vec![
                 SignalAspect::Red;
                 world
@@ -164,6 +189,7 @@ impl Validation {
         self.current.clear();
         self.bodies.clear();
         self.expected_gates.clear();
+        self.expected_completions.clear();
         let traffic = world.traffic();
         let lengths = traffic.lane_lengths_millimetres();
         for (index, (&handle, &before)) in
@@ -210,6 +236,12 @@ impl Validation {
                 || format!("speed/progress outside current edge for {handle:?}"),
             )?;
             if stepped {
+                self.geometries[self.geometry_by_vehicle[index]].crossed_completions(
+                    point(before),
+                    point(state),
+                    index,
+                    &mut self.expected_completions,
+                );
                 ensure(
                     (state.route_edge_index(), front)
                         >= (
@@ -407,8 +439,17 @@ impl Validation {
     }
 
     fn check_events(&mut self, world: &TrafficWorld) -> Check {
+        self.check_event_batch(world, world.latest_transition_events())
+    }
+
+    fn check_event_batch(
+        &mut self,
+        world: &TrafficWorld,
+        events: &[TrafficTransitionEvent],
+    ) -> Check {
         self.check_decisions(world)?;
         self.actual_gates.clear();
+        self.actual_completions.clear();
         let mut previous_key = None;
         // Keep tick-start and newly acquired owners even after release events:
         // committed resources cannot be reused by another owner in this tick.
@@ -418,7 +459,7 @@ impl Validation {
         }
         let mut acquisitions = BTreeMap::new();
         let mut entered = std::collections::BTreeSet::new();
-        for event in world.latest_transition_events() {
+        for event in events {
             let owner = event.vehicle_update_sequence() as usize;
             match event.kind() {
                 TrafficTransitionKind::ReservationAcquired { passage_range } => {
@@ -438,10 +479,10 @@ impl Validation {
         }
         let mut admissions: BTreeMap<u32, Vec<(AdmissionRank, u64)>> = BTreeMap::new();
         let mut waiting_held = BTreeMap::<u32, u32>::new();
-        for &(zone, _) in self.waiting.values() {
+        for &(zone, _, _) in self.waiting.values() {
             *waiting_held.entry(zone).or_default() += 1;
         }
-        for &event in world.latest_transition_events() {
+        for &event in events {
             let index = event.vehicle_update_sequence() as usize;
             let state = self
                 .current
@@ -460,6 +501,7 @@ impl Validation {
                 "event_causality",
                 || format!("event identity/time/route mismatch: {event:?}"),
             )?;
+            self.geometries[self.geometry_by_vehicle[index]].check_anchor(world, *state, event)?;
             let key = event_key(event);
             ensure(
                 previous_key.as_ref().is_none_or(|previous| previous < &key),
@@ -490,7 +532,7 @@ impl Validation {
                         |zone| {
                             self.waiting
                                 .get(&index)
-                                .is_some_and(|(held, _)| *held == zone.raw())
+                                .is_some_and(|(held, _, _)| *held == zone.raw())
                         },
                     )?;
                     self.actual_gates
@@ -536,7 +578,14 @@ impl Validation {
                     )?;
                     ensure(
                         self.waiting
-                            .insert(handle, (zone.raw(), admission_sequence))
+                            .insert(
+                                handle,
+                                (
+                                    zone.raw(),
+                                    admission_sequence,
+                                    waiting_release_hop(world, zone, anchor.hop())?,
+                                ),
+                            )
                             .is_none(),
                         "event_causality",
                         || "waiting entered twice without leaving".into(),
@@ -561,7 +610,8 @@ impl Validation {
                         || "WaitingLeft is not its actual release crossing".into(),
                     )?;
                     ensure(
-                        self.waiting.remove(&handle) == Some((zone.raw(), admission_sequence)),
+                        self.waiting.remove(&handle)
+                            == Some((zone.raw(), admission_sequence, anchor.hop())),
                         "event_causality",
                         || "waiting left without matching membership".into(),
                     )?;
@@ -612,6 +662,13 @@ impl Validation {
                     }
                 }
                 TrafficTransitionKind::ConflictEntered { passage } => {
+                    let (entry, _) = self.geometries[self.geometry_by_vehicle[index]]
+                        .passage_points(world, *state, passage)?;
+                    ensure(
+                        crossed(point(self.previous[index]), point(*state), entry),
+                        "event_causality",
+                        || "conflict entry is not its first physical front crossing".into(),
+                    )?;
                     let claim = self
                         .claims
                         .get_mut(&(handle, passage.conflict_occurrence_index()))
@@ -624,7 +681,13 @@ impl Validation {
                     claim.1 = true;
                 }
                 TrafficTransitionKind::ConflictCleared { passage } => {
-                    check_passage_clearance(world, self.previous[index], *state, passage)?;
+                    let (_, clearance) = self.geometries[self.geometry_by_vehicle[index]]
+                        .passage_points(world, *state, passage)?;
+                    ensure(
+                        crossed(point(self.previous[index]), point(*state), clearance),
+                        "event_causality",
+                        || "conflict clearance is not its first physical rear crossing".into(),
+                    )?;
                     ensure(
                         self.claims
                             .remove(&(handle, passage.conflict_occurrence_index()))
@@ -653,20 +716,27 @@ impl Validation {
                         "event_causality",
                         || "completed occurrence differs from anchor".into(),
                     )?;
-                    check_completion_clearance(world, self.previous[index], *state, event)?;
+                    self.actual_completions
+                        .push((index, maneuver_occurrence_index));
                 }
             }
         }
         ensure(
-            self.actual_gates == self.expected_gates,
+            self.actual_gates == self.expected_gates
+                && self.actual_completions == self.expected_completions,
             "event_causality",
-            || "gate event batch differs from actual route crossings".into(),
+            || "gate/completion event batch differs from actual route crossings".into(),
         )?;
-        for &(owner, _) in self.claims.keys() {
+        for (&(owner, _), &(passage, entered)) in &self.claims {
+            let state = self.current[owner];
+            let (entry, clearance) = self.geometries[self.geometry_by_vehicle[owner]]
+                .passage_points(world, state, passage)?;
             ensure(
-                self.reservations.contains_key(&owner),
+                self.reservations.contains_key(&owner)
+                    && entered == (point(state) >= entry)
+                    && point(state) < clearance,
                 "event_causality",
-                || "claim has no reservation owner".into(),
+                || "claim has no owner or omitted a physical entry/clearance event".into(),
             )?;
         }
         for &owner in self.reservations.keys() {
@@ -683,10 +753,12 @@ impl Validation {
                 (
                     membership.waiting_zone().raw(),
                     membership.admission_sequence(),
+                    membership.release_hop(),
                 )
             });
             ensure(
                 self.waiting.get(&index).copied() == waiting
+                    && waiting.is_none_or(|(_, _, release)| state.route_edge_index() <= release)
                     && self.reservations.get(&index).copied()
                         == world
                             .conflict_reservation(state.handle())
@@ -703,7 +775,7 @@ impl Validation {
             )?;
         }
         let mut occupancy = BTreeMap::<u32, u32>::new();
-        for &(zone, _) in self.waiting.values() {
+        for &(zone, _, _) in self.waiting.values() {
             *occupancy.entry(zone).or_default() += 1;
         }
         for (&raw, counter) in &mut self.waiting_counters {
@@ -732,7 +804,7 @@ impl Validation {
             )?;
         }
         self.checked_gate_crossings += self.actual_gates.len() as u64;
-        self.checked_events += world.latest_transition_events().len() as u64;
+        self.checked_events += events.len() as u64;
         Ok(())
     }
 
@@ -751,6 +823,10 @@ impl Validation {
             ensure(
                 state.handle() == decision.vehicle()
                     && state.route() == anchor.route()
+                    && self.geometries
+                        [self.geometry_by_vehicle[decision.vehicle_update_sequence() as usize]]
+                        .gate_occurrence(anchor.hop())?
+                        == anchor.maneuver_occurrence_index()
                     && previous_key.is_none_or(|previous| previous < key),
                 "event_causality",
                 || "waiting decision owner/route/order mismatch".into(),
@@ -802,6 +878,10 @@ impl Validation {
             ensure(
                 state.handle() == decision.vehicle()
                     && state.route() == anchor.route()
+                    && self.geometries
+                        [self.geometry_by_vehicle[decision.vehicle_update_sequence() as usize]]
+                        .gate_occurrence(anchor.hop())?
+                        == anchor.maneuver_occurrence_index()
                     && world.route_gate(anchor.route(), anchor.hop()).is_some()
                     && previous_key.is_none_or(|previous| previous < key),
                 "event_causality",
@@ -957,187 +1037,6 @@ fn free_acceleration_bound_mm(speed: u32, acceleration: f64, delta: f64) -> u64 
     // The observer checks a physical upper bound, not another IIDM solution.
     // One millimetre covers prior fractional carry and the f32 motion conversion.
     (f64::from(speed) * delta + 0.5 * acceleration * 1000.0 * delta * delta).ceil() as u64 + 1
-}
-
-fn check_completion_clearance(
-    world: &TrafficWorld,
-    before: VehicleState,
-    after: VehicleState,
-    event: TrafficTransitionEvent,
-) -> Check {
-    let anchor = event.anchor();
-    let relations = world.traffic().relations();
-    let (start, path_id) = (0..=anchor.hop())
-        .rev()
-        .find_map(|hop| {
-            let gate = world.route_gate(after.route(), hop)?;
-            let declaration = relations.maneuver_gate(gate.gate())?;
-            let path = world
-                .traffic()
-                .maneuvers()
-                .maneuver_path(declaration.path())?;
-            let start = hop.checked_sub(declaration.transition_index())?;
-            (start + path.edges().len() as u32 - 1 == anchor.hop() + 1)
-                .then_some((start as usize, declaration.path()))
-        })
-        .ok_or_else(|| {
-            (
-                "event_causality",
-                "completion is not at a declared maneuver exit".into(),
-            )
-        })?;
-    let route = world.route_edges(after.route()).unwrap();
-    let lengths = world.traffic().lane_lengths_millimetres();
-    let path = world.traffic().maneuvers().maneuver_path(path_id).unwrap();
-    let mut required = path.edges()[..path.edges().len() - 1]
-        .iter()
-        .map(|edge| u64::from(lengths[edge.index()]) * 1000)
-        .sum::<u64>();
-    let revision = world.revision();
-    for &stream in revision
-        .conflict()
-        .maneuver_path_participant_streams(path_id)
-        .unwrap()
-    {
-        for passage in revision
-            .conflict()
-            .participant_stream(stream)
-            .unwrap()
-            .passages()
-        {
-            use laneflow_static_network::ConflictPathAnchor;
-            let (edge_index, progress) = match passage.exit() {
-                ConflictPathAnchor::Gate(gate) => (
-                    relations.maneuver_gate(gate).unwrap().transition_index() as usize + 1,
-                    0,
-                ),
-                ConflictPathAnchor::EdgeBoundary(index) => (index as usize, 0),
-                ConflictPathAnchor::Interior {
-                    path_edge_index,
-                    progress_millimetres,
-                } => (path_edge_index as usize, progress_millimetres),
-            };
-            let clearance = path.edges()[..edge_index]
-                .iter()
-                .map(|edge| u64::from(lengths[edge.index()]) * 1000)
-                .sum::<u64>()
-                + u64::from(progress) * 1000
-                + u64::from(after.length_mm()) * 1000;
-            required = required.max(clearance);
-        }
-    }
-    let front = |state: VehicleState| {
-        let cursor = state.route_edge_index() as usize;
-        if cursor < start {
-            return 0;
-        }
-        route[start..cursor]
-            .iter()
-            .map(|edge| u64::from(lengths[edge.index()]) * 1000)
-            .sum::<u64>()
-            + u64::from(state.progress_mm()) * 1000
-            + u64::from(state.carry_um())
-    };
-    ensure(
-        first_clearance_crossing(front(before), front(after), required),
-        "event_causality",
-        || {
-            format!(
-                "completion does not coincide with tail clearance: before={}, after={}, required={required} um",
-                front(before),
-                front(after)
-            )
-        },
-    )
-}
-
-fn first_clearance_crossing(before: u64, after: u64, required: u64) -> bool {
-    before < required && after >= required
-}
-
-fn check_passage_clearance(
-    world: &TrafficWorld,
-    before: VehicleState,
-    after: VehicleState,
-    locator: ConflictPassageOccurrenceLocator,
-) -> Check {
-    let revision = world.revision();
-    let stream = revision
-        .conflict()
-        .participant_stream(locator.address().stream())
-        .ok_or_else(|| ("event_causality", "clearance stream missing".into()))?;
-    let passage = stream
-        .passages()
-        .get(locator.address().passage_local_index() as usize)
-        .ok_or_else(|| ("event_causality", "clearance passage missing".into()))?;
-    let gate = world
-        .traffic()
-        .relations()
-        .maneuver_gate(passage.admission_gate())
-        .unwrap();
-    let start = locator
-        .admission_gate_hop()
-        .checked_sub(gate.transition_index())
-        .ok_or_else(|| {
-            (
-                "event_causality",
-                "clearance path occurrence invalid".into(),
-            )
-        })? as usize;
-    let route = world.route_edges(after.route()).unwrap();
-    let path = world
-        .traffic()
-        .maneuvers()
-        .maneuver_path(stream.maneuver_path())
-        .unwrap();
-    let lengths = world.traffic().lane_lengths_millimetres();
-    use laneflow_static_network::ConflictPathAnchor;
-    let (edge_index, progress) = match passage.exit() {
-        ConflictPathAnchor::Gate(gate) => (
-            world
-                .traffic()
-                .relations()
-                .maneuver_gate(gate)
-                .unwrap()
-                .transition_index() as usize
-                + 1,
-            0,
-        ),
-        ConflictPathAnchor::EdgeBoundary(index) => (index as usize, 0),
-        ConflictPathAnchor::Interior {
-            path_edge_index,
-            progress_millimetres,
-        } => (path_edge_index as usize, progress_millimetres),
-    };
-    let required = path.edges()[..edge_index]
-        .iter()
-        .map(|edge| u64::from(lengths[edge.index()]) * 1000)
-        .sum::<u64>()
-        + u64::from(progress) * 1000
-        + u64::from(after.length_mm()) * 1000;
-    let front = |state: VehicleState| {
-        let cursor = state.route_edge_index() as usize;
-        if cursor < start {
-            return 0;
-        }
-        route[start..cursor]
-            .iter()
-            .map(|edge| u64::from(lengths[edge.index()]) * 1000)
-            .sum::<u64>()
-            + u64::from(state.progress_mm()) * 1000
-            + u64::from(state.carry_um())
-    };
-    ensure(
-        first_clearance_crossing(front(before), front(after), required),
-        "event_causality",
-        || {
-            format!(
-                "passage cleared without first rear crossing: before={}, after={}, required={required} um",
-                front(before),
-                front(after)
-            )
-        },
-    )
 }
 
 fn waiting_counts_match(members: u32, occupancy: u32, capacity: u32) -> bool {
@@ -1476,13 +1375,83 @@ mod tests {
     use super::*;
 
     #[test]
+    fn live_batch_rejects_omitted_completion_entry_and_changed_waiting_release_occurrence() {
+        use bevy_app::App;
+        use bevy_time::{TimePlugin, TimeUpdateStrategy};
+        use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession};
+        use std::time::Duration;
+        let mut app = App::new();
+        app.add_plugins((TimePlugin, LaneFlowPlugin))
+            .insert_resource(scene::build().unwrap().session)
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
+        app.update();
+        let mut validation =
+            Validation::new(app.world().resource::<LaneFlowSession>().world()).unwrap();
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+            16,
+        )));
+        let mut rejected = [false; 3];
+        for _ in 0..6000 {
+            app.update();
+            let world = app.world().resource::<LaneFlowSession>().world();
+            validation.check_states(world, true).unwrap();
+            for (case, slot) in rejected.iter_mut().enumerate().take(2) {
+                if *slot {
+                    continue;
+                }
+                let filtered = world
+                    .latest_transition_events()
+                    .iter()
+                    .copied()
+                    .filter(|event| {
+                        !matches!(
+                            (case, event.kind()),
+                            (0, TrafficTransitionKind::ManeuverTraversalCompleted { .. })
+                                | (1, TrafficTransitionKind::ConflictEntered { .. })
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                if filtered.len() != world.latest_transition_events().len() {
+                    assert_eq!(
+                        validation
+                            .clone()
+                            .check_event_batch(world, &filtered)
+                            .unwrap_err()
+                            .0,
+                        "event_causality"
+                    );
+                    *slot = true;
+                }
+            }
+            if !rejected[2]
+                && world.latest_transition_events().is_empty()
+                && !validation.waiting.is_empty()
+            {
+                let mut corrupted = validation.clone();
+                // Same zone and sequence, but a later repeated release occurrence.
+                corrupted.waiting.values_mut().next().unwrap().2 += 100;
+                assert_eq!(
+                    corrupted.check_events(world).unwrap_err().0,
+                    "event_causality"
+                );
+                rejected[2] = true;
+            }
+            validation.check(world).unwrap();
+            if rejected.iter().all(|value| *value) {
+                return;
+            }
+        }
+        panic!("reference workload did not exercise all event cases: {rejected:?}");
+    }
+
+    #[test]
     fn waiting_counts_and_completion_boundary_reject_invalid_transients() {
         assert!(waiting_counts_match(2, 2, 2));
         assert!(!waiting_counts_match(1, 2, 2));
         assert!(!waiting_counts_match(3, 3, 2));
-        assert!(first_clearance_crossing(9_999, 10_000, 10_000));
-        assert!(!first_clearance_crossing(9_998, 9_999, 10_000));
-        assert!(!first_clearance_crossing(10_000, 10_001, 10_000));
+        assert!(crossed(9_999, 10_000, 10_000));
+        assert!(!crossed(9_998, 9_999, 10_000));
+        assert!(!crossed(10_000, 10_001, 10_000));
         assert_eq!(free_acceleration_bound_mm(1_000, 1.5, 0.016), 18);
         assert!(100 > free_acceleration_bound_mm(1_000, 1.5, 0.016));
     }
