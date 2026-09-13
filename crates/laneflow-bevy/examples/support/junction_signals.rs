@@ -321,6 +321,7 @@ mod tests {
         for fixture in &fixtures {
             assert!(fixture.approach.dot(fixture.direction) < 0.0);
             assert!(fixture.pole.dot(fixture.direction) > 30.0);
+            assert!(fixture.pole.dot(fixture.direction) < 40.0);
             let half_width = if fixture.direction.x.abs() > 0.5 {
                 layout.main_half_width
             } else {

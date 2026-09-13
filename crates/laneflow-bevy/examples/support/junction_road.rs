@@ -441,10 +441,15 @@ pub fn build(revision: &SharedNetworkRevision) -> RoadMeshes {
             .collect();
         for point in &points {
             extent = extent.max(point.x.abs()).max(point.z.abs());
+            // Outer-loop admission and taper segments also have dotted names;
+            // they affect the scene extent, not the central-junction layout.
+            if name.starts_with("loop-") {
+                continue;
+            }
             if name.contains('.') {
                 layout.junction_half_x = layout.junction_half_x.max(point.x.abs());
                 layout.junction_half_z = layout.junction_half_z.max(point.z.abs());
-            } else if !name.starts_with("loop-") {
+            } else {
                 if name.starts_with('e') || name.starts_with('w') {
                     layout.main_half_width =
                         layout.main_half_width.max(point.z.abs() + WIDTH * 0.5);
@@ -721,6 +726,11 @@ mod tests {
         let scene = junction_debug_scene::build().expect("reference scene");
         let revision = scene.session.world().revision();
         let road = build(&revision);
+        // The 30 m central junction keeps its 0.5 m apron even when outer-loop
+        // admission/taper edges have dotted names and extend to the arm ends.
+        assert_eq!(road.layout.junction_half_x, 30.5);
+        assert_eq!(road.layout.junction_half_z, 30.5);
+        assert!(road.extent >= 150.0);
         let asphalt = vertices(&road.asphalt);
         let islands = vertices(&road.islands);
         let contains = |positions: &[[f32; 3]], point: Vec3| {
