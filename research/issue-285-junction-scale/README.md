@@ -6,20 +6,18 @@ policy、车型、几何和 catalog 绑定入口。32/320 个独立路口分别�
 64 段有限路线接续保留真实机动门和 Waiting/Conflict 资源。该负载不命名为
 `LF-SYNTH-v1` 或 `LF-CN-URBAN-v1`。
 
-计时之前提交来源，构建固定 release 二进制，生成两档制品，再运行 `freeze.ps1`。
-它将二进制和输入制品复制到结果包，冻结编制配置、车辆/路线命令摘要、完整初态
-快照、seed、二进制摘要及环境；每个进程启动前重新核对二进制摘要。
+计时之前提交来源，再运行 `freeze.ps1`。它对该干净提交执行受控 release 构建，
+从 Cargo 的编译制品记录取得二进制并复制到结果包，再用所复制的生成器从同一份
+检入配置生成两档输入；不接收外部网格或预先构建的测试程序。
+冻结前核对实际 cells/车辆数/固定步长、两档配置摘要以及构建前后的来源提交。
+结果包保留构建日志、编制配置、车辆/路线命令摘要、完整初态快照、seed、二进制
+摘要及环境；每个进程启动前重新核对二进制摘要。
 正式运行期间不得重建二进制、修改输入或并行运行其他重负载测量。
 
 ```powershell
-cargo +1.98.0 build --release --locked -p laneflow-bevy --examples --features native-example
-cargo +1.98.0 build --release --locked -p laneflow-junction-generator --example generate_grid
-cargo +1.98.0 test --release --locked -p laneflow-runtime --lib --no-run
-target/release/examples/generate_grid.exe examples/config/v0.1-complex-junction.toml 32 <new-grid32-dir>
-target/release/examples/generate_grid.exe examples/config/v0.1-complex-junction.toml 320 <new-grid320-dir>
-./research/issue-285-junction-scale/freeze.ps1 -OutputDirectory <new-evidence-dir> -Grid32Directory <grid32-dir> -Grid320Directory <grid320-dir> -LedgerExecutable <runtime-test-exe>
+./research/issue-285-junction-scale/freeze.ps1 -OutputDirectory <new-evidence-dir>
 ./research/issue-285-junction-scale/run.ps1 -EvidenceDirectory <evidence-dir>
-python research/issue-285-junction-scale/analyze.py <evidence-dir>
+<evidence-dir>/bin/junction_scale_analyze.exe <evidence-dir>
 ```
 
 最长信号周期为 4,503 个 16 ms tick。每进程预热 18,012 tick，观察 36,024 tick，
@@ -53,7 +51,9 @@ cargo +1.98.0 test --release --locked -p laneflow-runtime --lib junction_referen
 自有存储、scratch、Conflict retained、top-two frontier 和候选/访问/claims/碰撞计数。
 子账本有交集，不再与总账相加。它只报告接续 4,096 tick 中的逻辑容量，不是完整窗口
 的进程内存或延迟证据。runner 另记工作集峰值、采样 private bytes 峰值和进程 commit
-峰值；snapshot payload 与 pose 已初始化输出字节另列。
+峰值，退出后通过保留句柄再读取 OS 生命周期峰值，覆盖末尾序列化和短进程；
+snapshot payload 与 pose 已初始化输出字节另列。Rust 分析程序用显式错误检查校验
+全部输入和进程记录，release 构建同样拒绝失败证据，再写入新的 `summary.json`。
 
 按现行设计保留一万 Runtime p95 ≤ 2 ms、十万 ≤ 16 ms，以及 Spatial+Adapter
 p95 ≤ 4 ms 的比较。硬件角色、支持的 release OS、产品内存上限或实际预算未满足时

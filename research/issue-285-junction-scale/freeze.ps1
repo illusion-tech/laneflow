@@ -1,9 +1,4 @@
-param(
-    [Parameter(Mandatory)][string]$OutputDirectory,
-    [Parameter(Mandatory)][string]$Grid32Directory,
-    [Parameter(Mandatory)][string]$Grid320Directory,
-    [Parameter(Mandatory)][string]$LedgerExecutable
-)
+param([Parameter(Mandatory)][string]$OutputDirectory)
 $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 if (Test-Path -LiteralPath $OutputDirectory) { throw 'Freeze directory must be new' }
@@ -14,31 +9,49 @@ $evidenceDirectory = (Resolve-Path -LiteralPath $OutputDirectory).Path
 $binaryDirectory = Join-Path $evidenceDirectory 'bin'
 New-Item -ItemType Directory -Path $binaryDirectory | Out-Null
 $executables = @{}
-foreach ($name in @('junction_scale', 'junction_scale_allocation', 'junction_scale_render')) {
-    $sourcePath = Join-Path $repository "target/release/examples/$name.exe"
-    $path = Join-Path $binaryDirectory "$name.exe"
-    Copy-Item -LiteralPath $sourcePath -Destination $path
-    $executables[$name] = @{ path = $path; sourcePath = $sourcePath; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
+function Build-FrozenExecutables([string]$Name, [string[]]$CargoArguments, [hashtable]$Targets) {
+    $buildLog = Join-Path $evidenceDirectory "$Name.build.jsonl"
+    Push-Location -LiteralPath $repository
+    try {
+        & cargo +1.98.0 @CargoArguments --message-format=json 1> $buildLog 2> (Join-Path $evidenceDirectory "$Name.build.log")
+        if ($LASTEXITCODE -ne 0) { throw "Controlled build failed: $Name" }
+    } finally { Pop-Location }
+    $artifacts = @(Get-Content -LiteralPath $buildLog | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.reason -eq 'compiler-artifact' -and $_.executable })
+    foreach ($targetName in $Targets.Keys) {
+        $artifact = @($artifacts | Where-Object { $_.target.name -eq $targetName })
+        if ($artifact.Count -ne 1) { throw "Expected one built executable: $targetName" }
+        $sourcePath = $artifact[0].executable
+        $name = $Targets[$targetName]
+        $path = Join-Path $binaryDirectory "$name.exe"
+        Copy-Item -LiteralPath $sourcePath -Destination $path
+        $executables[$name] = @{ path = $path; sourcePath = $sourcePath; buildLog = $buildLog; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
+    }
 }
-$ledgerSource = (Resolve-Path -LiteralPath $LedgerExecutable).Path
-$ledgerPath = Join-Path $binaryDirectory 'junction_ledger.exe'
-Copy-Item -LiteralPath $ledgerSource -Destination $ledgerPath
-$executables['junction_ledger'] = @{ path = $ledgerPath; sourcePath = $ledgerSource; sha256 = (Get-FileHash -LiteralPath $ledgerPath -Algorithm SHA256).Hash.ToLowerInvariant() }
+Build-FrozenExecutables 'bevy' @('build', '--release', '--locked', '-p', 'laneflow-bevy', '--example', 'junction_scale', '--example', 'junction_scale_allocation', '--example', 'junction_scale_render', '--example', 'junction_scale_analyze', '--features', 'native-example') @{ junction_scale = 'junction_scale'; junction_scale_allocation = 'junction_scale_allocation'; junction_scale_render = 'junction_scale_render'; junction_scale_analyze = 'junction_scale_analyze' }
+Build-FrozenExecutables 'generator' @('build', '--release', '--locked', '-p', 'laneflow-junction-generator', '--example', 'generate_grid') @{ generate_grid = 'generate_grid' }
+Build-FrozenExecutables 'ledger' @('test', '--release', '--locked', '-p', 'laneflow-runtime', '--lib', '--no-run') @{ laneflow_runtime = 'junction_ledger' }
+if ((& git -C $repository rev-parse HEAD).Trim() -ne $sourceCommit -or (& git -C $repository status --porcelain)) { throw 'Sources changed during controlled build' }
+$configPath = Join-Path $evidenceDirectory 'source-config.toml'
+Copy-Item -LiteralPath (Join-Path $repository 'examples/config/v0.1-complex-junction.toml') -Destination $configPath
+$configHash = (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $inputs = @()
-foreach ($inputCase in @(@{ vehicles = 10000; cells = 32; directory = $Grid32Directory }, @{ vehicles = 100000; cells = 320; directory = $Grid320Directory })) {
+foreach ($inputCase in @(@{ vehicles = 10000; cells = 32 }, @{ vehicles = 100000; cells = 320 })) {
     $destination = Join-Path $evidenceDirectory "input-$($inputCase.vehicles)"
-    New-Item -ItemType Directory -Path $destination | Out-Null
+    & $executables['generate_grid']['path'] $configPath $inputCase.cells $destination 2> (Join-Path $evidenceDirectory "generate-$($inputCase.vehicles).log")
+    if ($LASTEXITCODE -ne 0) { throw 'Grid generation failed' }
     $files = @{}
     foreach ($file in @('network.lfca', 'grid.catalog.toml', 'source-config.toml')) {
-        Copy-Item -LiteralPath (Join-Path $inputCase.directory $file) -Destination (Join-Path $destination $file)
         $files[$file] = (Get-FileHash -LiteralPath (Join-Path $destination $file) -Algorithm SHA256).Hash.ToLowerInvariant()
     }
+    if ($files['source-config.toml'] -ne $configHash) { throw 'Grid configuration differs from frozen source configuration' }
     $preparedPath = Join-Path $destination 'prepared.json'
     & $executables['junction_scale']['path'] (Join-Path $destination 'network.lfca') (Join-Path $destination 'grid.catalog.toml') $inputCase.vehicles 18012 36024 prepare $preparedPath
     if ($LASTEXITCODE -ne 0) { throw 'Input preparation failed' }
     $prepared = Get-Content -LiteralPath $preparedPath -Raw | ConvertFrom-Json
+    if ($prepared.input.cells -ne $inputCase.cells -or $prepared.input.vehicles -ne $inputCase.vehicles -or $prepared.input.fixed_delta_ms -ne 16) { throw 'Prepared workload differs from declared scale' }
     $inputs += @{ vehicles = $inputCase.vehicles; cells = $inputCase.cells; directory = $destination; files = $files; prepared = $prepared }
 }
+if ((& git -C $repository rev-parse HEAD).Trim() -ne $sourceCommit -or (& git -C $repository status --porcelain)) { throw 'Sources changed during input freeze' }
 # 原始 SMBIOS 值只在内存用于计算，不写入结果或终端。
 $identityParts = @(
     (Get-CimInstance Win32_ComputerSystemProduct).UUID,
