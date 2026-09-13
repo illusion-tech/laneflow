@@ -22,12 +22,14 @@ pub const GROUP_MAIN_THROUGH_RIGHT: &str = "main-through-right";
 pub const GROUP_MAIN_LEFT: &str = "main-left";
 pub const GROUP_SECONDARY_THROUGH_RIGHT: &str = "secondary-through-right";
 pub const GROUP_SECONDARY_LEFT: &str = "secondary-left";
+pub const GROUP_MAIN_WAITING_ENTRY: &str = "main-waiting-entry";
 /// 信号组编制顺序；phase state 表按此下标。
-pub const SIGNAL_GROUPS: [&str; 4] = [
+pub const SIGNAL_GROUPS: [&str; 5] = [
     GROUP_MAIN_THROUGH_RIGHT,
     GROUP_MAIN_LEFT,
     GROUP_SECONDARY_THROUGH_RIGHT,
     GROUP_SECONDARY_LEFT,
+    GROUP_MAIN_WAITING_ENTRY,
 ];
 pub const CONTROLLER_KEY: &str = "j0-controller";
 
@@ -600,7 +602,7 @@ pub struct StreamBuild {
 pub struct PhaseBuild {
     pub key: String,
     pub duration_ms: u64,
-    pub aspects: [SignalAspect; 4],
+    pub aspects: [SignalAspect; 5],
 }
 
 #[derive(Clone, Debug)]
@@ -885,12 +887,16 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
         let out = [0.0, -1.0];
         let pocket = geometry.pocket_length_meters;
         let offset = geometry.pocket_offset_meters;
+        // 即使车辆晚到而错过 release，也必须能停在南北车行道之外。
+        let crossing_edge =
+            -Arm::North.lane_offsets(config)[0] - geometry.lane_width_meters * 0.5 - 0.5;
+        let pocket_end = (start[0] + control + pocket).min(crossing_edge);
         let p1 = [
-            start[0] + d[0] * control + d[1] * offset,
+            pocket_end - pocket,
             start[1] + d[1] * control - d[0] * offset,
         ];
         let p2 = [p1[0] + d[0] * pocket, p1[1] + d[1] * pocket];
-        let half = control / 2.0;
+        let half = (p1[0] - start[0]) / 2.0;
         add_path(
             &mut topology,
             &mut edge_index,
@@ -922,8 +928,8 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
             ],
             turn_speed,
             &[
-                ("admission", 0, GROUP_MAIN_THROUGH_RIGHT),
-                ("waiting-entry", 1, GROUP_MAIN_THROUGH_RIGHT),
+                ("admission", 0, GROUP_MAIN_WAITING_ENTRY),
+                ("waiting-entry", 1, GROUP_MAIN_WAITING_ENTRY),
                 ("release", 2, GROUP_MAIN_LEFT),
             ],
         );
@@ -1150,37 +1156,37 @@ fn add_path(
     });
 }
 
-/// 固定时制相位程序：主路左转独占保护；主路直行与次路许可左转同相位
-/// （许可左转必须在主路直行车流中找间隙）；次路直行独占。
+/// 主路直行（进入待转区）→主路保护左转（清空待转区）→次路直行。
+/// 主路直行与次路许可左转同相位；待转入口在主路直行/左转绿灯均可通行。
 fn signal_phases(config: &JunctionConfig) -> Vec<PhaseBuild> {
     let signals = &config.signals;
     use SignalAspect::{Green as G, Red as R, Yellow as Y};
     [
         (
-            "p0.main-left-green",
-            signals.main_left_green_ms,
-            [R, G, R, R],
-        ),
-        ("p1.main-left-yellow", signals.yellow_ms, [R, Y, R, R]),
-        ("p2.all-red-0", signals.all_red_ms, [R, R, R, R]),
-        (
-            "p3.main-through-green",
+            "p0.main-through-green",
             signals.main_through_green_ms,
-            [G, R, R, G],
+            [G, R, R, G, G],
         ),
-        ("p4.main-through-yellow", signals.yellow_ms, [Y, R, R, Y]),
-        ("p5.all-red-1", signals.all_red_ms, [R, R, R, R]),
+        ("p1.main-through-yellow", signals.yellow_ms, [Y, R, R, Y, Y]),
+        ("p2.all-red-0", signals.all_red_ms, [R, R, R, R, R]),
+        (
+            "p3.main-left-green",
+            signals.main_left_green_ms,
+            [R, G, R, R, G],
+        ),
+        ("p4.main-left-yellow", signals.yellow_ms, [R, Y, R, R, Y]),
+        ("p5.all-red-1", signals.all_red_ms, [R, R, R, R, R]),
         (
             "p6.secondary-through-green",
             signals.secondary_through_green_ms,
-            [R, R, G, R],
+            [R, R, G, R, R],
         ),
         (
             "p7.secondary-through-yellow",
             signals.yellow_ms,
-            [R, R, Y, R],
+            [R, R, Y, R, R],
         ),
-        ("p8.all-red-2", signals.all_red_ms, [R, R, R, R]),
+        ("p8.all-red-2", signals.all_red_ms, [R, R, R, R, R]),
     ]
     .into_iter()
     .map(|(key, duration_ms, aspects)| PhaseBuild {

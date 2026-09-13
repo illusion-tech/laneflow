@@ -455,3 +455,89 @@ fn fixed_plan_vehicles_reach_gates_and_evaluate_decisions() {
         "NoGrant 评估必须先于 Granted 出现（no_grant={no_grant_ticks:?} granted={granted_ticks:?}）"
     );
 }
+
+#[test]
+fn waiting_left_enters_on_through_and_clears_before_secondary_green() {
+    use laneflow_static_contract::{ManeuverPathOrdinal, SignalAspect, WaitingZoneOrdinal};
+    let scene = junction_debug_scene::build().expect("reference scene");
+    let revision = scene.session.world().revision();
+    let relations = revision.traffic().relations();
+    let zone_id = WaitingZoneOrdinal::from_raw(0);
+    let zone = relations.waiting_zone(zone_id).unwrap();
+    let entry = relations.maneuver_gate(zone.entry_gate()).unwrap();
+    let release = relations.maneuver_gate(zone.release_gate()).unwrap();
+    let entry_group = entry.signal_group().unwrap();
+    let release_group = release.signal_group().unwrap();
+    assert_ne!(entry_group, release_group);
+    let edges = junction_debug_scene::edge_ordinals(&revision);
+    let secondary_group = (0..revision.traffic().maneuvers().maneuver_path_count())
+        .find_map(|raw| {
+            let path = revision
+                .traffic()
+                .maneuvers()
+                .maneuver_path(ManeuverPathOrdinal::from_raw(raw))?;
+            if path.edges()[0] != edges["s-in"] {
+                return None;
+            }
+            relations
+                .maneuver_gate(path.maneuver_gates()[0])?
+                .signal_group()
+        })
+        .unwrap();
+    // 待转停车线留在南北车行道外，迟到车辆跨周期等待也不会占住横向车道。
+    let pose = revision.spatial().unwrap().lane_pose().unwrap();
+    let release_edge = relations.stop_line(release.stop_line()).unwrap().edge();
+    let waiting_front_x = pose
+        .lane_geometry(release_edge)
+        .unwrap()
+        .points()
+        .last()
+        .unwrap()
+        .x;
+    let north_x = pose.lane_geometry(edges["n-in"]).unwrap().points()[0].x;
+    assert!(waiting_front_x <= north_x - 1.75 - 0.49);
+    let mut app = App::new();
+    app.add_plugins((TimePlugin, LaneFlowPlugin));
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+        16,
+    )));
+    app.insert_resource(scene.session);
+    let mut saw_waiting_on_red = false;
+    let mut saw_green_release = false;
+    let mut saw_secondary = false;
+    let mut previous = 0;
+    for _ in 0..5_600 {
+        app.update();
+        let world = app.world().resource::<LaneFlowSession>().world();
+        let signals = world.committed_signal_groups();
+        let aspect = |group| {
+            signals
+                .as_slice()
+                .iter()
+                .find(|(id, _)| *id == group)
+                .unwrap()
+                .1
+        };
+        let occupancy = world.waiting_zone(zone_id).unwrap().occupancy();
+        if aspect(release_group) == SignalAspect::Green {
+            assert_eq!(
+                aspect(entry_group),
+                SignalAspect::Green,
+                "左转绿灯也必须允许区外车辆进入"
+            );
+            if previous > 0 && occupancy == 0 {
+                saw_green_release = true;
+            }
+        } else if occupancy > 0 && aspect(entry_group) == SignalAspect::Green {
+            saw_waiting_on_red = true;
+        }
+        if aspect(secondary_group) == SignalAspect::Green {
+            assert!(saw_green_release, "次路放行前应先完成保护左转相位");
+            assert_eq!(occupancy, 0, "固定四车计划应先清空待转区");
+            assert_eq!(aspect(entry_group), SignalAspect::Red);
+            saw_secondary = true;
+        }
+        previous = occupancy;
+    }
+    assert!(saw_waiting_on_red && saw_green_release && saw_secondary);
+}

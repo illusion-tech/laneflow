@@ -69,7 +69,7 @@ fn default_junction_locks_scope_counts_and_deterministic_bytes() {
     assert_eq!(counts.waiting_zones, 1);
     assert_eq!(counts.conflict_zones, 3);
     assert_eq!(counts.streams, 4);
-    assert_eq!(counts.signal_groups, 4);
+    assert_eq!(counts.signal_groups, 5);
     assert_eq!(counts.controllers, 1);
     assert_eq!(counts.phases, 9);
     assert_eq!(counts.routes, 11);
@@ -90,7 +90,7 @@ fn default_junction_locks_scope_counts_and_deterministic_bytes() {
     assert_eq!(lir.maneuver_paths().len(), 9);
     assert_eq!(lir.stop_lines().len(), 8);
     assert_eq!(lir.maneuver_gates().len(), 11);
-    assert_eq!(lir.signal_groups().len(), 4);
+    assert_eq!(lir.signal_groups().len(), 5);
     assert_eq!(lir.signal_controllers().len(), 1);
     assert_eq!(lir.signal_phases().len(), 9);
     assert_eq!(lir.waiting_zones().len(), 1);
