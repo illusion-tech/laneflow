@@ -2,6 +2,8 @@ param([Parameter(Mandatory)][string]$OutputDirectory)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'environment.ps1')
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
+$OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory, (Get-Location).Path)
+if ($OutputDirectory.Equals($repository, [StringComparison]::OrdinalIgnoreCase) -or $OutputDirectory.StartsWith($repository + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Evidence directory must be outside the worktree' }
 if (Test-Path -LiteralPath $OutputDirectory) { throw 'Freeze directory must be new' }
 $sourceCommit = (& git -C $repository rev-parse HEAD).Trim()
 if (& git -C $repository status --porcelain) { throw 'Commit the measured sources before freezing' }
