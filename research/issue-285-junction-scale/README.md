@@ -21,8 +21,8 @@ policy、车型、几何和 catalog 绑定入口。32/320 个独立路口分别�
 ```
 
 最长信号周期为 4,503 个 16 ms tick。每进程预热 18,012 tick，观察 36,024 tick，
-保留 H/2H/4H 摘要。三个独立非插桩进程使用 `[0,1,2,10,0]` 外层输入量子序列：
-上限为 8 步，10 量子的输入留下 2 量子 backlog，由下一帧补完。按实际步数分类
+保留 H/2H/4H 摘要。三个独立非插桩进程使用 `[0,1,2,4,0]` 外层输入量子序列：
+采用性能基线的 canonical 2 步上限，4 量子的输入留下 2 量子 backlog，由下一帧补完。按实际步数分类
 统计，逐帧核对 backlog，报告恢复帧数；边界处截短帧保留在原始数据中。
 十万全量提取后，按稳定调用方车辆身份
 选取前 10,000 辆应用 Transform；一万全部应用。offscreen renderer 用 1600×1000
@@ -32,6 +32,8 @@ policy、车型、几何和 catalog 绑定入口。32/320 个独立路口分别�
 各组件 percentile 来自同一 integrated run。`spatial_adapter` 由同一帧的 pose 与
 Transform 样本相加后统计；领域观测另列。完整帧明确含证据收集开销，不把不同运行
 的 percentile 相加。tick 计时包围正式 LaneFlow Step，包含其驱动开销。
+`laneflow_frame_without_evidence` 从同一帧原始墙钟扣除该帧实测 renderer 和取证子
+区间，保留领域观测、ECS 调度及帧驱动；全部原始项均保留，可重新计算。
 另跑完整观察窗口的 allocation 程序，只校验 allocation/reallocation，不引用其延迟。
 持续 Waiting membership/Conflict reservation 的车辆 tick、持有时长，以及每车反复
 申请次数用于限定实际负载。申请计数仅纳入 `Granted`/`NoGrant`，多次取得资源另列；
@@ -56,6 +58,10 @@ snapshot payload 与 pose 已初始化输出字节另列。Rust 分析程序用�
 全部输入和进程记录，release 构建同样拒绝失败证据，再写入新的 `summary.json`。
 
 按现行设计保留一万 Runtime p95 ≤ 2 ms、十万 ≤ 16 ms，以及 Spatial+Adapter
-p95 ≤ 4 ms 的比较。硬件角色、支持的 release OS、产品内存上限或实际预算未满足时
+p95 ≤ 4 ms 的比较，并按性能基线报告 p99 ≤ 1.5×p95、max ≤ 2×p95、Core max
+不超过实际 fixed quantum 的尾延迟比较。一万普通单步 LaneFlow 帧比较 6 ms p95；
+十万同帧只比较 16.667 ms observation 阈值，无 Product p99/max 门槛。
+两档复用参考场景的 16 ms quantum；十万是 stretch observation，不能冒充 33 ms
+scale 产品认证。硬件角色、支持的 release OS、产品内存上限或实际预算未满足时
 必须逐项标明；不得由这些参考路口研究行宣称产品认证。原始失败记录与未测量项也
 必须随结果保留，最终验收取决于独立审阅，不由此程序自行关闭 #285。

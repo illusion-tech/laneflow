@@ -77,7 +77,7 @@ $environment = @{
 $freeze = @{
     schema = 'junction-scale-freeze-v1'; createdUtc = [DateTime]::UtcNow.ToString('o'); sourceCommit = $sourceCommit
     executables = $executables; inputs = $inputs; environment = $environment
-    protocol = @{ rounds = 3; frameInputQuanta = @(0,1,2,10,0); maxCatchUpSteps = 8; warmupTicks = 18012; observationTicks = 36024; signalCycleTicks = 4503; fixedDeltaMs = 16; routeLegs = 64
+    protocol = @{ rounds = 3; frameInputQuanta = @(0,1,2,4,0); maxCatchUpSteps = 2; warmupTicks = 18012; observationTicks = 36024; signalCycleTicks = 4503; fixedDeltaMs = 16; routeLegs = 64
         workload = 'independent complex-junction reference grid in one TrafficWorld'; seed = 0
         resourceLoad = 'mixed persistent membership/reservation and repeated requests; actual counts are mandatory outputs'
         renderer = '1600x1000 offscreen unlit vehicle cuboids; all presented entities in view; synchronous GPU completion'
