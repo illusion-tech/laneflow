@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$OutputDirectory)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'environment.ps1')
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 if (Test-Path -LiteralPath $OutputDirectory) { throw 'Freeze directory must be new' }
 $sourceCommit = (& git -C $repository rev-parse HEAD).Trim()
@@ -52,28 +53,7 @@ foreach ($inputCase in @(@{ vehicles = 10000; cells = 32 }, @{ vehicles = 100000
     $inputs += @{ vehicles = $inputCase.vehicles; cells = $inputCase.cells; directory = $destination; files = $files; prepared = $prepared }
 }
 if ((& git -C $repository rev-parse HEAD).Trim() -ne $sourceCommit -or (& git -C $repository status --porcelain)) { throw 'Sources changed during input freeze' }
-# 原始 SMBIOS 值只在内存用于计算，不写入结果或终端。
-$identityParts = @(
-    (Get-CimInstance Win32_ComputerSystemProduct).UUID,
-    (Get-CimInstance Win32_BIOS).SerialNumber,
-    (Get-CimInstance Win32_BaseBoard).SerialNumber
-) | ForEach-Object { ($_ -replace '\s', '').ToUpperInvariant() }
-$identityBytes = [Text.Encoding]::UTF8.GetBytes($identityParts -join "`n")
-$hardwareDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($identityBytes)).ToLowerInvariant()
-$environment = @{
-    hardwareIdentityScheme = 'laneflow-p100-hardware-identity-v2'; hardwareIdentitySha256 = $hardwareDigest
-    expectedReferenceMachine = 'LF-P100-REF-01'; hardwareIdentityMatches = $hardwareDigest -eq 'be3637be955f6c2c9e9e55b80419794adfac64b709d573602a37da9a8672fd20'
-    os = Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber,TotalVisibleMemorySize
-    cpu = Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors
-    memory = @(Get-CimInstance Win32_PhysicalMemory | Select-Object Capacity,Speed,ConfiguredClockSpeed)
-    bios = Get-CimInstance Win32_BIOS | Select-Object Manufacturer,SMBIOSBIOSVersion,ReleaseDate
-    gpu = @(Get-CimInstance Win32_VideoController | Select-Object Name,DriverVersion)
-    battery = @(Get-CimInstance -Namespace root/wmi -ClassName BatteryStatus -ErrorAction SilentlyContinue | Select-Object PowerOnline,Charging,Discharging)
-    powerPlan = @(& powercfg /getactivescheme); vendorPerformanceMode = 'not programmatically measured'
-    rustc = @(& rustc +1.98.0 -Vv); cargo = @(& cargo +1.98.0 -V)
-    backgroundProcesses = @(Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 30 ProcessName,Id,CPU,WorkingSet64)
-    certification = 'Uncertified: P10 unspecified; release OS and product memory ceilings not frozen'
-}
+$environment = Get-JunctionEnvironment
 $freeze = @{
     schema = 'junction-scale-freeze-v1'; createdUtc = [DateTime]::UtcNow.ToString('o'); sourceCommit = $sourceCommit
     executables = $executables; inputs = $inputs; environment = $environment
