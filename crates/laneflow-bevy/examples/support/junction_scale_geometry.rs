@@ -2,8 +2,8 @@
 
 use super::{Check, ensure};
 use laneflow_runtime::{
-    ConflictPassageOccurrenceLocator, TrafficTransitionEvent, TrafficTransitionKind, TrafficWorld,
-    VehicleState,
+    ConflictPassageOccurrenceLocator, ManeuverTraversalPhase, TrafficTransitionEvent,
+    TrafficTransitionKind, TrafficWorld, VehicleState,
 };
 use laneflow_static_contract::{ManeuverPathOrdinal, WaitingZoneOrdinal};
 use laneflow_static_network::ConflictPathAnchor;
@@ -28,6 +28,8 @@ struct Maneuver {
     exit: u32,
     path: ManeuverPathOrdinal,
     completion: Point,
+    waiting: bool,
+    gates: Vec<u32>,
 }
 
 #[derive(Clone)]
@@ -86,6 +88,20 @@ impl RouteGeometry {
                     exit,
                     path: candidate.maneuver_path(),
                     completion,
+                    waiting: !path.waiting_zones().is_empty(),
+                    gates: path
+                        .maneuver_gates()
+                        .iter()
+                        .map(|&gate| {
+                            start as u32
+                                + world
+                                    .traffic()
+                                    .relations()
+                                    .maneuver_gate(gate)
+                                    .unwrap()
+                                    .transition_index()
+                        })
+                        .collect(),
                 });
             }
         }
@@ -98,6 +114,50 @@ impl RouteGeometry {
             || "frozen route completion positions are not ordered".into(),
         )?;
         Ok(result)
+    }
+
+    pub(super) fn expected_traversal(
+        &self,
+        world: &TrafficWorld,
+        state: VehicleState,
+        release_restrictive: bool,
+    ) -> Option<(u32, ManeuverTraversalPhase)> {
+        if let Some(reservation) = world.conflict_reservation(state.handle()) {
+            let range = reservation.passage_range();
+            return Some((
+                range.maneuver_occurrence_index(),
+                ManeuverTraversalPhase::Clearing {
+                    admission_gate_hop: range.admission_gate_hop(),
+                },
+            ));
+        }
+        let cursor = state.route_edge_index();
+        let occurrence = self.maneuvers.partition_point(|item| item.exit <= cursor);
+        let item = self.maneuvers.get(occurrence)?;
+        if !item.waiting || cursor < item.start {
+            return None;
+        }
+        // Only Waiting-bearing paths have persistent pre-gate/committed state;
+        // Conflict-only paths retain a traversal while a reservation owns it.
+        let next = item.gates.partition_point(|&hop| hop < cursor);
+        let phase = if let Some(member) = state.waiting_membership()
+            && cursor == member.release_hop()
+            && state.progress_mm() == self.lengths[cursor as usize]
+            && release_restrictive
+        {
+            ManeuverTraversalPhase::Waiting {
+                release_gate_hop: member.release_hop(),
+            }
+        } else if next > 0 {
+            ManeuverTraversalPhase::Committed {
+                last_crossed_gate_hop: item.gates[next - 1],
+            }
+        } else {
+            ManeuverTraversalPhase::PreGate {
+                next_gate_hop: *item.gates.first()?,
+            }
+        };
+        Some((occurrence as u32, phase))
     }
 
     pub(super) fn crossed_completions(

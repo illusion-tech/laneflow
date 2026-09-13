@@ -248,11 +248,7 @@ fn observe(
         .then(|| stats_alloc::INSTRUMENTED_SYSTEM.stats());
     let tick = session.world().tick_index();
     if tick <= samples.warmup {
-        validate_tick(
-            &mut validation,
-            session.world(),
-            &samples.validation_failure_path,
-        );
+        validate_tick(&mut validation, &session, &samples.validation_failure_path);
         return;
     }
     if let Some(stats) = stats {
@@ -287,11 +283,7 @@ fn observe(
     }
     let observation_ns = started.elapsed().as_nanos() as u64;
     let evidence_started = Instant::now();
-    validate_tick(
-        &mut validation,
-        session.world(),
-        &samples.validation_failure_path,
-    );
+    validate_tick(&mut validation, &session, &samples.validation_failure_path);
     for decision in view.latest_waiting_decisions() {
         if matches!(
             decision.outcome(),
@@ -374,10 +366,11 @@ fn observe(
 
 fn validate_tick(
     validation: &mut Validation,
-    world: &TrafficWorld,
+    session: &LaneFlowSession,
     failure_path: &std::path::Path,
 ) {
-    if let Err((kind, detail)) = validation.check(world) {
+    let world = session.world();
+    if let Err((kind, detail)) = validation.check_session(session) {
         let report = json!({"pid":std::process::id(),"tick":world.tick_index(),"validation":validation.report()});
         std::fs::write(
             failure_path,

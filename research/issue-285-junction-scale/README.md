@@ -69,6 +69,9 @@ Conflict entry/clear 比较完整 passage locator，且必须是实际车头/车
 拍末 claim 的 entered 标志和保留状态也须匹配位置，漏报 entry/clear 同样失败。
 每份拍末 reservation 必须仍有未清空的 claim。Waiting membership 从入口保存精确的
 `release_hop`，离开事件、公开状态和拍末位置均须匹配，不能拖到更晚的重复出现项。
+traversal 的路线、出现项和阶段由静态路径、过门位置、当前资源及该拍信号归因推导，
+逐车比较；已完成出现项不能继续保留，Waiting 与 Clearing 的资源/静止条件也须成立。
+当前状态的内嵌句柄与 live 身份、上一拍身份同时核对。
 `carry_um` 是待落地余数，硬停清零不视为已提交位置倒退。检查器只读取公开状态，
 不生成通行决定；失败立即使候选进程失败，保留 `.validation-failure.json` 和可捕获的
 失败快照。成功 JSON 记录完整检查计数和各类零违规值，分析器拒绝缺失、少查或有
@@ -81,6 +84,10 @@ Conflict entry/clear 比较完整 passage locator，且必须是实际车头/车
 数值理由的独立期望值复用 §5 的有限领域专项和 #645 已登记矩阵；不在此重写第二套
 求解器。当前测量对象是唯一 exact 生产实现；后续性能候选须与冻结 exact 来源的逐拍
 轨迹和决定对拍，不能把重复性单独当成正确性证明。
+每拍还将 Adapter 领域观测与同一已提交世界逐项对照：完整上下文、共享根、稳定顺序
+中的车辆/预约、所有 Waiting zone/member 和完整 decision/event 切片；当前位置、
+持有资源和本拍决定/事件使用的 route/hop 定位结果也须一致。记录
+`checked_observation_ticks`，分析器要求预热与观察的每一拍均覆盖。
 每帧另外由已提交 VehicleState 构造直接 Spatial 输入，对照现有 exact Spatial
 基线的完整 pose 批次，再检查冻结的 vehicle/entity 映射与实际 Transform 的位置、
 旋转及缩放。全量 pose 和被应用的 Transform 均记录覆盖行数，分析器拒绝缺失或
