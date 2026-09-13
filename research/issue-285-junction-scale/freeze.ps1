@@ -11,13 +11,19 @@ $sourceCommit = (& git -C $repository rev-parse HEAD).Trim()
 if (& git -C $repository status --porcelain) { throw 'Commit the measured sources before freezing' }
 New-Item -ItemType Directory -Path $OutputDirectory | Out-Null
 $evidenceDirectory = (Resolve-Path -LiteralPath $OutputDirectory).Path
+$binaryDirectory = Join-Path $evidenceDirectory 'bin'
+New-Item -ItemType Directory -Path $binaryDirectory | Out-Null
 $executables = @{}
 foreach ($name in @('junction_scale', 'junction_scale_allocation', 'junction_scale_render')) {
-    $path = Join-Path $repository "target/release/examples/$name.exe"
-    $executables[$name] = @{ path = $path; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
+    $sourcePath = Join-Path $repository "target/release/examples/$name.exe"
+    $path = Join-Path $binaryDirectory "$name.exe"
+    Copy-Item -LiteralPath $sourcePath -Destination $path
+    $executables[$name] = @{ path = $path; sourcePath = $sourcePath; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
 }
-$ledgerPath = (Resolve-Path -LiteralPath $LedgerExecutable).Path
-$executables['junction_ledger'] = @{ path = $ledgerPath; sha256 = (Get-FileHash -LiteralPath $ledgerPath -Algorithm SHA256).Hash.ToLowerInvariant() }
+$ledgerSource = (Resolve-Path -LiteralPath $LedgerExecutable).Path
+$ledgerPath = Join-Path $binaryDirectory 'junction_ledger.exe'
+Copy-Item -LiteralPath $ledgerSource -Destination $ledgerPath
+$executables['junction_ledger'] = @{ path = $ledgerPath; sourcePath = $ledgerSource; sha256 = (Get-FileHash -LiteralPath $ledgerPath -Algorithm SHA256).Hash.ToLowerInvariant() }
 $inputs = @()
 foreach ($inputCase in @(@{ vehicles = 10000; cells = 32; directory = $Grid32Directory }, @{ vehicles = 100000; cells = 320; directory = $Grid320Directory })) {
     $destination = Join-Path $evidenceDirectory "input-$($inputCase.vehicles)"

@@ -13,6 +13,8 @@ foreach ($inputCase in $freeze.inputs) {
 }
 
 function Invoke-EvidenceProcess([string]$Name, [string]$Executable, [string[]]$Arguments, [hashtable]$Environment = @{}) {
+    $expectedBinary = @($freeze.executables.Values | Where-Object { $_.path -eq $Executable })
+    if ($expectedBinary.Count -ne 1 -or (Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedBinary[0].sha256) { throw 'Frozen binary changed before process launch' }
     $metadataPath = Join-Path $EvidenceDirectory "$Name.process.json"
     if (Test-Path -LiteralPath $metadataPath) { throw "Run already recorded: $Name" }
     foreach ($suffix in @('stdout.log', 'stderr.log', 'json', 'csv', 'png', 'warm.lfrs')) {
@@ -50,8 +52,8 @@ function Invoke-EvidenceProcess([string]$Name, [string]$Executable, [string[]]$A
             $lastStatus = [DateTime]::UtcNow
         }
     }
-    $stdout.GetAwaiter().GetResult()
-    $stderr.GetAwaiter().GetResult()
+    [void]$stdout.GetAwaiter().GetResult()
+    [void]$stderr.GetAwaiter().GetResult()
     $stdoutFile.Dispose()
     $stderrFile.Dispose()
     $metadata = @{ schema = 'junction-scale-process-v1'; name = $Name; pid = $process.Id; sourceCommit = $freeze.sourceCommit; freezeSha256 = $freezeHash
