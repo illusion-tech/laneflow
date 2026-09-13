@@ -7,11 +7,19 @@
 
 #[path = "support/junction_debug_scene.rs"]
 mod junction_debug_scene;
+#[path = "support/junction_road.rs"]
+mod junction_road;
+use junction_road::RoadLayout;
 
 use std::{collections::HashMap, error::Error, fmt::Write as _, path::PathBuf};
 
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
-use bevy::{asset::AssetApp, camera::ScalingMode, mesh::Indices, prelude::*};
+use bevy::{
+    asset::AssetApp,
+    camera::{Exposure, ScalingMode},
+    mesh::Indices,
+    prelude::*,
+};
 use laneflow_bevy::{
     LaneFlowCommittedPoseBatch, LaneFlowFixed, LaneFlowFixedSet, LaneFlowPlugin, LaneFlowSession,
 };
@@ -29,15 +37,10 @@ const LANE_WIDTH_METERS: f32 = 3.5;
 /// 车辆 box 宽度近似（米）；车型线格式只有车长。
 const VEHICLE_WIDTH_METERS: f32 = 1.8;
 const VEHICLE_HEIGHT_METERS: f32 = 1.5;
-/// 地平面边长（米）；覆盖环路最外缘（±182 m）并留透视余量。
-const GROUND_SIZE_METERS: f32 = 600.0;
+/// 地平面边长（米）；覆盖环路并留透视余量。
+const GROUND_SIZE_METERS: f32 = 1_000.0;
 /// 道路/标线/铺装的错层高度（米），避免共面 z-fight。
-const ROAD_Y: f32 = 0.03;
 const MARKING_Y: f32 = 0.06;
-const PATCH_Y: f32 = 0.015;
-/// 人行道顶面高度与宽度（米）。
-const SIDEWALK_Y: f32 = 0.10;
-const SIDEWALK_WIDTH_METERS: f32 = 3.0;
 /// 斑马线：条纹长（沿车道方向）/条纹宽/净间隔/与停止线的净距（米）。
 const CROSSWALK_LENGTH_METERS: f32 = 3.0;
 const CROSSWALK_STRIPE_WIDTH_METERS: f32 = 0.45;
@@ -45,15 +48,9 @@ const CROSSWALK_STRIPE_GAP_METERS: f32 = 0.45;
 const CROSSWALK_SETBACK_METERS: f32 = 0.3;
 /// 车道导向箭头的施画位置：进口车道终点（停止线）前（米）。
 const ARROW_SETBACK_METERS: f32 = 8.0;
-/// 同向车道分界虚线：3 m 画 / 6 m 空（米）。
-const DASH_ON_METERS: f32 = 3.0;
-const DASH_OFF_METERS: f32 = 6.0;
-/// 车道线线宽与对向双黄的分缝间距（米）。
-const LINE_WIDTH_METERS: f32 = 0.12;
-const DOUBLE_YELLOW_GAP_METERS: f32 = 0.15;
 /// 停止线带：沿车道方向 0.4 m、横跨整条车道宽（米）。
 const STOP_LINE_BAND_METERS: f32 = 0.4;
-/// screenshot 模式的出图帧（等 Startup、渲染管线与首帧呈现稳定后落盘）。
+/// 出图前至少渲染这些帧，等待管线就绪；交通状态另由 --at-tick 指定。
 const SCREENSHOT_FRAME: u32 = 150;
 /// screenshot 模式窗口分辨率（宽, 高）。
 const SCREENSHOT_RESOLUTION: (u32, u32) = (1_600, 1_000);
@@ -64,16 +61,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut app = App::new();
     app.add_plugins(LaneFlowPlugin);
     if let Some(path) = cli.screenshot.clone() {
-        // screenshot 模式：固定分辨率窗口，第 SCREENSHOT_FRAME 帧落盘后自动退出。
-        app.add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                resolution: SCREENSHOT_RESOLUTION.into(),
+        // screenshot 模式：固定物理分辨率，在目标交通 tick 落盘后自动退出。
+        app.add_plugins(
+            DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(Window {
+                    resolution: bevy::window::WindowResolution::new(
+                        SCREENSHOT_RESOLUTION.0,
+                        SCREENSHOT_RESOLUTION.1,
+                    )
+                    .with_scale_factor_override(1.0),
+                    ..default()
+                }),
                 ..default()
             }),
-            ..default()
-        }))
+        )
         .insert_resource(ScreenshotJob {
             frame: 0,
+            tick: cli.tick,
             fired: false,
             path,
         });
@@ -106,6 +110,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             observe_overlay.in_set(LaneFlowFixedSet::Observe),
         );
     if cli.screenshot.is_some() {
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_millis(128),
+        ));
         app.add_systems(Update, screenshot_at_frame);
     }
     app.run();
@@ -113,12 +120,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 /// 相机预设：`persp` 低机位透视（常规画面）；`topdown` 正交垂直向下看全路口
-/// （车道几何核查用）；`close` 低位近景看路口一角（标线/停止线读型用）。
+/// （车道几何核查用）；`close` 看路口转角；`merge` 看外围双车道的汇合/分流。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CameraPreset {
     Persp,
     Topdown,
     Close,
+    Merge,
 }
 
 impl CameraPreset {
@@ -127,6 +135,7 @@ impl CameraPreset {
             Self::Persp => "persp",
             Self::Topdown => "topdown",
             Self::Close => "close",
+            Self::Merge => "merge",
         }
     }
 }
@@ -137,23 +146,32 @@ struct CameraPresetChoice(CameraPreset);
 struct CliArgs {
     screenshot: Option<PathBuf>,
     camera: CameraPreset,
+    tick: u64,
 }
 
 impl CliArgs {
-    /// `--screenshot <路径> [--camera persp|topdown]`；路径为目录时写
+    /// `--screenshot <路径> [--camera persp|topdown|close|merge] [--at-tick <tick>]`；目录写
     /// `<目录>/junction_debug_<preset>.png`。env 回退：
     /// `JUNCTION_DEBUG_SCREENSHOT` / `JUNCTION_DEBUG_CAMERA`。
     fn parse() -> Self {
         let mut screenshot = None;
         let mut camera = None;
+        let mut tick = 6_100;
         let mut tokens = std::env::args().skip(1);
         while let Some(token) = tokens.next() {
             match token.as_str() {
+                "--at-tick" => {
+                    tick = tokens
+                        .next()
+                        .and_then(|value| value.parse().ok())
+                        .expect("--at-tick requires a nonnegative integer");
+                }
                 "--screenshot" => screenshot = tokens.next().map(PathBuf::from),
                 "--camera" => {
                     camera = match tokens.next().as_deref() {
                         Some("topdown") => Some(CameraPreset::Topdown),
                         Some("close") => Some(CameraPreset::Close),
+                        Some("merge") => Some(CameraPreset::Merge),
                         _ => Some(CameraPreset::Persp),
                     };
                 }
@@ -169,6 +187,7 @@ impl CliArgs {
             camera = match std::env::var("JUNCTION_DEBUG_CAMERA").as_deref() {
                 Ok("topdown") => Some(CameraPreset::Topdown),
                 Ok("close") => Some(CameraPreset::Close),
+                Ok("merge") => Some(CameraPreset::Merge),
                 Ok(_) => Some(CameraPreset::Persp),
                 Err(_) => None,
             };
@@ -183,25 +202,48 @@ impl CliArgs {
                 path
             }
         });
-        Self { screenshot, camera }
+        Self {
+            screenshot,
+            camera,
+            tick,
+        }
     }
 }
 
-/// screenshot 任务状态：第 `SCREENSHOT_FRAME` 帧 spawn `Screenshot`，
+/// screenshot 任务状态：至少预热 `SCREENSHOT_FRAME` 帧，在目标 tick spawn `Screenshot`，
 /// 观察 `ScreenshotCaptured` 落盘后写 `AppExit`。
 #[derive(Resource)]
 struct ScreenshotJob {
     frame: u32,
+    tick: u64,
     fired: bool,
     path: PathBuf,
 }
 
-fn screenshot_at_frame(mut commands: Commands, mut job: ResMut<ScreenshotJob>) {
+fn screenshot_at_frame(
+    mut commands: Commands,
+    mut job: ResMut<ScreenshotJob>,
+    session: Res<LaneFlowSession>,
+) {
     job.frame = job.frame.saturating_add(1);
-    if job.frame != SCREENSHOT_FRAME || job.fired {
+    if job.fired {
+        return;
+    }
+    let remaining = job.tick.saturating_sub(session.world().tick_index());
+    commands.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+        std::time::Duration::from_millis(remaining.min(8) * 16),
+    ));
+    if job.frame < SCREENSHOT_FRAME || remaining > 0 {
         return;
     }
     job.fired = true;
+    println!(
+        "junction_debug capture tick={}",
+        session.world().tick_index()
+    );
+    commands.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+        std::time::Duration::ZERO,
+    ));
     let path = job.path.clone();
     commands.spawn(Screenshot::primary_window()).observe(
         move |captured: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
@@ -296,6 +338,10 @@ fn setup_scene(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut scattering_mediums: ResMut<Assets<bevy::light::atmosphere::ScatteringMedium>>,
 ) {
+    let revision = session.world().revision();
+    let roads = junction_road::build(&revision);
+    let road_layout = Some(roads.layout);
+    let view_height = roads.extent * 2.0 + 28.0;
     // 天空大气（地球散射介质 + 相机设置）与太阳（平行光，投影，约 40° 俯角）。
     let medium = scattering_mediums.add(bevy::light::atmosphere::ScatteringMedium::earth(256, 256));
     commands.spawn(bevy::light::Atmosphere::earth(medium));
@@ -303,6 +349,7 @@ fn setup_scene(
         CameraPreset::Persp => {
             commands.spawn((
                 Camera3d::default(),
+                Exposure { ev100: 13.0 },
                 // fov 62° + ~26° 俯角：画面上方露出地平线/天空，路口核心占主体。
                 Projection::Perspective(PerspectiveProjection {
                     fov: 1.0821,
@@ -313,7 +360,7 @@ fn setup_scene(
                 // GlobalAmbientLight 资源做弱补光。
                 AmbientLight {
                     color: Color::srgb(0.85, 0.9, 1.0),
-                    brightness: 50.0,
+                    brightness: 2500.0,
                     ..default()
                 },
                 bevy::pbr::DistanceFog {
@@ -328,27 +375,29 @@ fn setup_scene(
             ));
         }
         CameraPreset::Topdown => {
-            // 正交垂直向下：覆盖含环路的全场景（±182 m），方像素便于量几何。
+            // 正交垂直向下：按当前环路范围覆盖全场景，方像素便于量几何。
             commands.spawn((
                 Camera3d::default(),
+                Exposure { ev100: 13.0 },
                 Projection::Orthographic(OrthographicProjection {
                     scaling_mode: ScalingMode::Fixed {
-                        width: 608.0,
-                        height: 380.0,
+                        width: view_height * 1.6,
+                        height: view_height,
                     },
                     ..OrthographicProjection::default_3d()
                 }),
                 Transform::from_xyz(0.0, 300.0, 0.0).looking_at(Vec3::ZERO, Vec3::Z),
             ));
         }
-        CameraPreset::Close => {
+        CameraPreset::Close | CameraPreset::Merge => {
             // 低位近景：看路口东南一角，读标线线型与停止线。
             commands.spawn((
                 Camera3d::default(),
+                Exposure { ev100: 13.0 },
                 bevy::pbr::AtmosphereSettings::default(),
                 AmbientLight {
                     color: Color::srgb(0.85, 0.9, 1.0),
-                    brightness: 50.0,
+                    brightness: 2500.0,
                     ..default()
                 },
                 bevy::pbr::DistanceFog {
@@ -359,8 +408,13 @@ fn setup_scene(
                     },
                     ..default()
                 },
-                Transform::from_xyz(46.0, 17.0, 26.0)
-                    .looking_at(Vec3::new(18.0, 0.0, 3.0), Vec3::Y),
+                if matches!(preset.0, CameraPreset::Merge) {
+                    Transform::from_xyz(58.0, 70.0, -160.0)
+                        .looking_at(Vec3::new(0.0, 0.0, -176.0), Vec3::Y)
+                } else {
+                    Transform::from_xyz(46.0, 17.0, 26.0)
+                        .looking_at(Vec3::new(18.0, 0.0, 3.0), Vec3::Y)
+                },
             ));
         }
     }
@@ -374,12 +428,12 @@ fn setup_scene(
     ));
     commands.insert_resource(bevy::light::GlobalAmbientLight {
         color: Color::srgb(0.85, 0.9, 1.0),
-        brightness: 15.0,
+        brightness: 2500.0,
         ..default()
     });
     // 地面：大薄板，顶面在 y=0。灰绿压暗，与沥青拉开对比。
     let ground_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.26, 0.32, 0.22),
+        base_color: Color::srgb(0.27, 0.36, 0.23),
         ..default()
     });
     commands.spawn((
@@ -389,7 +443,7 @@ fn setup_scene(
     ));
     // 沥青材质：车行道 ribbon、路口铺装、环路共用。
     let asphalt_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.03, 0.032, 0.038),
+        base_color: Color::srgb(0.16, 0.19, 0.22),
         perceptual_roughness: 0.95,
         double_sided: true,
         ..default()
@@ -401,120 +455,22 @@ fn setup_scene(
         double_sided: true,
         ..default()
     });
-    // 道路：每条 lane edge 一条沥青 ribbon；臂道按几何边界去重画标线，
-    // 内部机动边与环路不画标线（真实路口内部不画线）。
-    let revision = session.world().revision();
-    let white_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.88, 0.88, 0.85),
-        double_sided: true,
-        ..default()
-    });
-    let yellow_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.58, 0.4, 0.02),
-        double_sided: true,
-        ..default()
-    });
-    let mut edge_count = 0_u32;
-    let mut loops = 0_u32;
-    let mut arms = 0_u32;
-    let mut internal = 0_u32;
-    let mut bounds_min = Vec3::splat(f32::MAX);
-    let mut bounds_max = Vec3::splat(f32::MIN);
-    let mut road_layout = None;
+    let white_material = materials.add(StandardMaterial::from_color(Color::srgb(0.88, 0.9, 0.87)));
+    let yellow_material = materials.add(StandardMaterial::from_color(Color::srgb(0.9, 0.64, 0.08)));
+    let curb_material = materials.add(StandardMaterial::from_color(Color::srgb(0.64, 0.67, 0.64)));
+    let island_material =
+        materials.add(StandardMaterial::from_color(Color::srgb(0.16, 0.27, 0.13)));
+    for (mesh, material) in [
+        (roads.asphalt, asphalt_material),
+        (roads.sidewalk, sidewalk_material),
+        (roads.curb, curb_material),
+        (roads.white, white_material.clone()),
+        (roads.yellow, yellow_material),
+        (roads.islands, island_material),
+    ] {
+        commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material)));
+    }
     if let Some(lane_pose) = revision.spatial().and_then(|spatial| spatial.lane_pose()) {
-        for index in 0..lane_pose.lane_edge_count() {
-            let ordinal = laneflow_static_contract::LaneEdgeOrdinal::from_raw(index);
-            let Some(geometry) = lane_pose.lane_geometry(ordinal) else {
-                continue;
-            };
-            edge_count += 1;
-            let arc = geometry.arc_length_meters();
-            if arc > 300.0 {
-                loops += 1;
-            } else if arc >= 100.0 {
-                arms += 1;
-            } else {
-                internal += 1;
-            }
-            let points: Vec<Vec3> = geometry.points().iter().map(point_to_vec3).collect();
-            for point in &points {
-                bounds_min = bounds_min.min(*point);
-                bounds_max = bounds_max.max(*point);
-            }
-            if let Some(mesh) = ribbon_mesh(&points, LANE_WIDTH_METERS, ROAD_Y, 0.0, false) {
-                commands.spawn((
-                    Mesh3d(meshes.add(mesh)),
-                    MeshMaterial3d(asphalt_material.clone()),
-                ));
-            }
-        }
-        let layout = build_road_layout(&revision, lane_pose);
-        road_layout = Some(layout);
-        info!(
-            "道路布置: 主路半宽 {:.2} 次路半宽 {:.2} 路口 x±{:.1} z±{:.1} 臂道末端 x={:.1} z={:.1} 街角半径 NE/NW/SW/SE = {:.1}/{:.1}/{:.1}/{:.1}",
-            layout.main_half_width,
-            layout.secondary_half_width,
-            layout.junction_half_x,
-            layout.junction_half_z,
-            layout.main_arm_end,
-            layout.secondary_arm_end,
-            layout.corner_radii[0],
-            layout.corner_radii[1],
-            layout.corner_radii[2],
-            layout.corner_radii[3]
-        );
-        // 路口铺装：主/次路两条矩形带 + 四个街角四分之一圆盘，各自微错层
-        // 防共面 z-fight（不用单一多边形扇形三角化——外凸半径不对称时轮廓
-        // 相对原点非星形，扇面会折叠出伪影）。
-        commands.spawn((
-            Mesh3d(meshes.add(Cuboid::new(
-                layout.junction_half_x * 2.0,
-                0.02,
-                layout.main_half_width * 2.0,
-            ))),
-            MeshMaterial3d(asphalt_material.clone()),
-            Transform::from_xyz(0.0, PATCH_Y - 0.010, 0.0),
-        ));
-        commands.spawn((
-            Mesh3d(meshes.add(Cuboid::new(
-                layout.secondary_half_width * 2.0,
-                0.02,
-                layout.junction_half_z * 2.0,
-            ))),
-            MeshMaterial3d(asphalt_material.clone()),
-            Transform::from_xyz(0.0, PATCH_Y - 0.008, 0.0),
-        ));
-        for (index, (sx, sz)) in [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)]
-            .into_iter()
-            .enumerate()
-        {
-            let mesh = corner_disc_mesh(
-                sx * layout.secondary_half_width,
-                sz * layout.main_half_width,
-                layout.corner_radii[index],
-                sx,
-                sz,
-                PATCH_Y - 0.006,
-            );
-            commands.spawn((
-                Mesh3d(meshes.add(mesh)),
-                MeshMaterial3d(asphalt_material.clone()),
-            ));
-        }
-        spawn_sidewalks(
-            &mut commands,
-            &mut meshes,
-            &layout,
-            sidewalk_material.clone(),
-        );
-        spawn_arm_markings(
-            &mut commands,
-            &mut meshes,
-            &revision,
-            lane_pose,
-            white_material.clone(),
-            yellow_material.clone(),
-        );
         spawn_stop_lines(
             &mut commands,
             &mut meshes,
@@ -527,7 +483,7 @@ fn setup_scene(
             &mut meshes,
             &revision,
             lane_pose,
-            &layout,
+            &roads.layout,
             white_material.clone(),
         );
         spawn_lane_arrows(
@@ -536,21 +492,9 @@ fn setup_scene(
             session.world(),
             &revision,
             lane_pose,
-            white_material.clone(),
-        );
-        spawn_loop_furniture(
-            &mut commands,
-            &mut meshes,
-            &revision,
-            lane_pose,
-            white_material.clone(),
-            sidewalk_material.clone(),
+            white_material,
         );
     }
-    info!(
-        "junction_debug 场景: lane_geometry {edge_count} 条（环路 {loops} / 臂道 {arms} / 内部 {internal}），bounds x[{:.1}, {:.1}] z[{:.1}, {:.1}]",
-        bounds_min.x, bounds_max.x, bounds_min.z, bounds_max.z
-    );
     // 车辆：按角色着色，车体 + 深色 cabin 子实体，中心落在前保险杠后方半个车长。
     let profile_length_mm = session
         .world()
@@ -779,126 +723,6 @@ fn point_to_vec3(point: &CanonicalPoint) -> Vec3 {
     Vec3::new(point.x, point.y, point.z)
 }
 
-/// 臂道车道标线分类：对向中央双黄 / 同向车道虚线 / 外缘实线。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ArmMarkingKind {
-    CenterDoubleYellow,
-    LaneSeparator,
-    OuterSolid,
-}
-
-/// 臂道标线：按臂道分组、按几何边界去重（同一边界只画一次），内部机动边
-/// 与环路不画。边界横向偏移从 lane_geometry 采样点聚类推导，不硬编码车道值。
-fn spawn_arm_markings(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    revision: &SharedNetworkRevision,
-    lane_pose: &laneflow_static_network::LanePoseNetwork,
-    white: Handle<StandardMaterial>,
-    yellow: Handle<StandardMaterial>,
-) {
-    // (臂, 量化横向偏移 mm) -> (偏移, 边界世界折线)。同一边界由相邻两条车道
-    // 各贡献一次，去重后只画一条。
-    let mut boundaries: HashMap<(String, i64), (f64, Vec<Vec3>)> = HashMap::new();
-    for (name, ordinal) in junction_debug_scene::edge_ordinals(revision).iter() {
-        // 臂道边命名形如 e-in-i0 / s-out；内部边含 '.'；环路 loop-* 不画标线。
-        if name.contains('.') || name.starts_with("loop-") {
-            continue;
-        }
-        let arm = name.split('-').next().unwrap_or_default().to_owned();
-        let Some(geometry) = lane_pose.lane_geometry(*ordinal) else {
-            continue;
-        };
-        let points: Vec<Vec3> = geometry.points().iter().map(point_to_vec3).collect();
-        let (Some(first), Some(last)) = (points.first(), points.last()) else {
-            continue;
-        };
-        let chord = *last - *first;
-        let tangent = Vec3::new(chord.x, 0.0, chord.z).normalize_or_zero();
-        if tangent.length_squared() < 0.5 {
-            continue;
-        }
-        // 定向法向与臂轴横向偏移；同臂各车道边切向共线，偏移可直接比较、去重。
-        let normal = Vec3::new(-tangent.z, 0.0, tangent.x);
-        let center_offset = f64::from(normal.dot(*first));
-        let half = LANE_WIDTH_METERS * 0.5;
-        for side in [1.0_f32, -1.0] {
-            let offset = center_offset + f64::from(side * half);
-            let key = (arm.clone(), (offset * 1_000.0).round() as i64);
-            let shifted: Vec<Vec3> = points
-                .iter()
-                .map(|point| *point + normal * (side * half))
-                .collect();
-            boundaries.entry(key).or_insert((offset, shifted));
-        }
-    }
-    let mut by_arm: HashMap<String, Vec<(f64, Vec<Vec3>)>> = HashMap::new();
-    for ((arm, _), boundary) in boundaries {
-        by_arm.entry(arm).or_default().push(boundary);
-    }
-    for (_arm, list) in by_arm {
-        // 每侧（偏移符号）：|offset| 最小 = 对向中央双黄，最大 = 外缘实线，
-        // 其余 = 同向相邻车道之间的白色虚线。
-        for side in [1.0_f64, -1.0_f64] {
-            let mut group: Vec<(f64, Vec<Vec3>)> = list
-                .iter()
-                .filter(|(offset, _)| offset.signum() == side)
-                .cloned()
-                .collect();
-            group.sort_by(|left, right| left.0.abs().total_cmp(&right.0.abs()));
-            let last_rank = group.len().saturating_sub(1);
-            for (rank, (_, line)) in group.into_iter().enumerate() {
-                let kind = if rank == 0 {
-                    ArmMarkingKind::CenterDoubleYellow
-                } else if rank == last_rank {
-                    ArmMarkingKind::OuterSolid
-                } else {
-                    ArmMarkingKind::LaneSeparator
-                };
-                match kind {
-                    ArmMarkingKind::CenterDoubleYellow => {
-                        // 双黄：以边界为中心 ±gap/2 各一条黄实线。
-                        for shift in [
-                            DOUBLE_YELLOW_GAP_METERS * 0.5,
-                            -DOUBLE_YELLOW_GAP_METERS * 0.5,
-                        ] {
-                            if let Some(mesh) =
-                                ribbon_mesh(&line, LINE_WIDTH_METERS, MARKING_Y, shift, false)
-                            {
-                                commands.spawn((
-                                    Mesh3d(meshes.add(mesh)),
-                                    MeshMaterial3d(yellow.clone()),
-                                ));
-                            }
-                        }
-                    }
-                    ArmMarkingKind::LaneSeparator => {
-                        // 白虚线 3 m 画 / 6 m 空。
-                        for mesh in dash_ribbons(
-                            &line,
-                            DASH_ON_METERS,
-                            DASH_OFF_METERS,
-                            LINE_WIDTH_METERS,
-                            MARKING_Y,
-                        ) {
-                            commands
-                                .spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(white.clone())));
-                        }
-                    }
-                    ArmMarkingKind::OuterSolid => {
-                        if let Some(mesh) =
-                            ribbon_mesh(&line, LINE_WIDTH_METERS, MARKING_Y, 0.0, false)
-                        {
-                            commands
-                                .spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(white.clone())));
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// 停止线：每条绑定了信号门的 stop line 在其边终点处画一条横跨车道的
 /// 白色实线带（沿车道 0.4 m × 车道宽），垂直于车道切向。
 fn spawn_stop_lines(
@@ -956,224 +780,6 @@ fn spawn_stop_lines(
             commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(white.clone())));
         }
     }
-}
-
-/// 从 lane_geometry 推导的道路布置：车行道半宽、路口铺装范围、臂道末端坐标。
-/// 全部由采样点推导，不硬编码场景合同数值。
-#[derive(Clone, Copy)]
-struct RoadLayout {
-    /// 主路（东西向，e/w 臂）车行道半宽（米）。
-    main_half_width: f32,
-    /// 次路（南北向，n/s 臂）车行道半宽（米）。
-    secondary_half_width: f32,
-    /// 路口铺装沿主路/次路轴向的半范围（米），含与臂道 ribbon 的 0.5 m 搭接。
-    junction_half_x: f32,
-    junction_half_z: f32,
-    /// 主路/次路臂道末端坐标（米），人行道直线段的终点。
-    main_arm_end: f32,
-    secondary_arm_end: f32,
-    /// 四个街角（NE/NW/SW/SE）的铺装外凸半径（米）：以「路缘带角点」为圆心的
-    /// 四分之一圆盘，半径 = 该象限内部机动路径到角点的最大距离 + 2 m 余量，
-    /// 保证转向路径全部落在铺装内（人行道具此贴着铺装外缘走）。
-    corner_radii: [f32; 4],
-}
-
-fn build_road_layout(
-    revision: &SharedNetworkRevision,
-    lane_pose: &laneflow_static_network::LanePoseNetwork,
-) -> RoadLayout {
-    let mut main_lateral = 0.0_f32;
-    let mut secondary_lateral = 0.0_f32;
-    let mut main_arm_end = 0.0_f32;
-    let mut secondary_arm_end = 0.0_f32;
-    let mut junction_half_x = 0.0_f32;
-    let mut junction_half_z = 0.0_f32;
-    for (name, ordinal) in junction_debug_scene::edge_ordinals(revision) {
-        let Some(geometry) = lane_pose.lane_geometry(ordinal) else {
-            continue;
-        };
-        if name.starts_with("loop-") {
-            continue;
-        }
-        if name.contains('.') {
-            // 内部机动边：决定路口铺装范围。
-            for point in geometry.points() {
-                junction_half_x = junction_half_x.max(point.x.abs());
-                junction_half_z = junction_half_z.max(point.z.abs());
-            }
-            continue;
-        }
-        // 臂道边：e/w 沿 x 轴（主路），n/s 沿 z 轴（次路）。
-        match name.as_bytes().first() {
-            Some(b'e') | Some(b'w') => {
-                for point in geometry.points() {
-                    main_lateral = main_lateral.max(point.z.abs());
-                    main_arm_end = main_arm_end.max(point.x.abs());
-                }
-            }
-            Some(b'n') | Some(b's') => {
-                for point in geometry.points() {
-                    secondary_lateral = secondary_lateral.max(point.x.abs());
-                    secondary_arm_end = secondary_arm_end.max(point.z.abs());
-                }
-            }
-            _ => {}
-        }
-    }
-    let main_half_width = main_lateral + LANE_WIDTH_METERS * 0.5;
-    let secondary_half_width = secondary_lateral + LANE_WIDTH_METERS * 0.5;
-    let junction_half_x = junction_half_x + 0.5;
-    let junction_half_z = junction_half_z + 0.5;
-    // 第二遍：按象限量取内部路径探入街角的深度，推出各角铺装外凸半径。
-    // 注意必须遍历 lane_pose 的全部边——部分内部转向边不在任何 catalog 路线里，
-    // edge_ordinals 覆盖不到；这些边按「无编制名且弧长 < 100 m」归入内部边。
-    let mut corner_radii = [4.0_f32; 4];
-    let radius_cap = (junction_half_x - secondary_half_width)
-        .min(junction_half_z - main_half_width)
-        .max(4.0);
-    let named: HashMap<u32, String> = junction_debug_scene::edge_ordinals(revision)
-        .into_iter()
-        .map(|(name, ordinal)| (ordinal.raw(), name))
-        .collect();
-    for raw in 0..lane_pose.lane_edge_count() {
-        let is_internal = match named.get(&raw) {
-            Some(name) => name.contains('.'),
-            None => lane_pose
-                .lane_geometry(laneflow_static_contract::LaneEdgeOrdinal::from_raw(raw))
-                .is_some_and(|geometry| geometry.arc_length_meters() < 100.0),
-        };
-        if !is_internal {
-            continue;
-        }
-        let Some(geometry) =
-            lane_pose.lane_geometry(laneflow_static_contract::LaneEdgeOrdinal::from_raw(raw))
-        else {
-            continue;
-        };
-        for point in geometry.points() {
-            let (Some(corner_x), Some(corner_z)) = (
-                (point.x.abs() > secondary_half_width).then_some(secondary_half_width),
-                (point.z.abs() > main_half_width).then_some(main_half_width),
-            ) else {
-                continue;
-            };
-            let corner = match (point.x >= 0.0, point.z >= 0.0) {
-                (true, true) => 0,
-                (false, true) => 1,
-                (false, false) => 2,
-                (true, false) => 3,
-            };
-            let reach = (point.x.abs() - corner_x).hypot(point.z.abs() - corner_z) + 2.0;
-            corner_radii[corner] = corner_radii[corner].max(reach).min(radius_cap);
-        }
-    }
-    RoadLayout {
-        main_half_width,
-        secondary_half_width,
-        junction_half_x,
-        junction_half_z,
-        main_arm_end: main_arm_end + 2.0,
-        secondary_arm_end: secondary_arm_end + 2.0,
-        corner_radii,
-    }
-}
-
-/// 人行道：四个街角各由「主路侧直线带 + 街角环带扇形 + 次路侧直线带」组成，
-/// 贴着铺装外缘走（环带与铺装圆盘同心，内径即铺装半径）。路口四个口部是
-/// 车行道连续区，不画人行道。
-fn spawn_sidewalks(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    layout: &RoadLayout,
-    material: Handle<StandardMaterial>,
-) {
-    let half_band = SIDEWALK_WIDTH_METERS * 0.5;
-    let m = layout.main_half_width;
-    let s = layout.secondary_half_width;
-    for (sx, sz, radius) in [
-        (1.0_f32, 1.0_f32, layout.corner_radii[0]),
-        (-1.0, 1.0, layout.corner_radii[1]),
-        (-1.0, -1.0, layout.corner_radii[2]),
-        (1.0, -1.0, layout.corner_radii[3]),
-    ] {
-        // 主路侧直线带：从臂道末端到街角环带（探入 1.5 m 搭接，避免接缝露草）。
-        let main_leg = [
-            Vec3::new(sx * layout.main_arm_end, 0.0, sz * (m + half_band)),
-            Vec3::new(sx * (s + radius + half_band), 0.0, sz * (m + half_band)),
-        ];
-        // 次路侧直线带同理。
-        let secondary_leg = [
-            Vec3::new(sx * (s + half_band), 0.0, sz * (m + radius + half_band)),
-            Vec3::new(sx * (s + half_band), 0.0, sz * layout.secondary_arm_end),
-        ];
-        for leg in [main_leg, secondary_leg] {
-            if let Some(mesh) = ribbon_mesh(&leg, SIDEWALK_WIDTH_METERS, SIDEWALK_Y, 0.0, false) {
-                commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material.clone())));
-            }
-        }
-        let mesh = annulus_sector_mesh(
-            sx * s,
-            sz * m,
-            radius,
-            radius + SIDEWALK_WIDTH_METERS,
-            sx,
-            sz,
-            SIDEWALK_Y + 0.004,
-        );
-        commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material.clone())));
-    }
-}
-
-/// 街角四分之一圆盘铺装：NE 象限生成后按 (sx, sz) 镜像；法线一律朝上。
-fn corner_disc_mesh(cx: f32, cz: f32, radius: f32, sx: f32, sz: f32, y: f32) -> Mesh {
-    const STEPS: u32 = 12;
-    let mut positions = Vec::with_capacity(STEPS as usize + 2);
-    positions.push([cx, y, cz]);
-    for index in 0..=STEPS {
-        let theta = (index as f32 / STEPS as f32) * std::f32::consts::FRAC_PI_2;
-        let (sin, cos) = theta.sin_cos();
-        positions.push([cx + sx * radius * cos, y, cz + sz * radius * sin]);
-    }
-    let mut indices = Vec::with_capacity(STEPS as usize * 3);
-    for index in 0..STEPS {
-        indices.extend_from_slice(&[0, index + 1, index + 2]);
-    }
-    let mut mesh = Mesh::new(
-        bevy::mesh::PrimitiveTopology::TriangleList,
-        bevy::asset::RenderAssetUsages::default(),
-    );
-    let count = positions.len();
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0_f32, 1.0, 0.0]; count]);
-    mesh.insert_indices(Indices::U32(indices));
-    mesh
-}
-
-/// 街角环带扇形（人行道转角）：NE 象限的 90° 环带按 (sx, sz) 镜像；
-/// 法线一律朝上。
-fn annulus_sector_mesh(cx: f32, cz: f32, inner: f32, outer: f32, sx: f32, sz: f32, y: f32) -> Mesh {
-    const STEPS: u32 = 12;
-    let mut positions = Vec::with_capacity((STEPS as usize + 1) * 2);
-    for index in 0..=STEPS {
-        let theta = (index as f32 / STEPS as f32) * std::f32::consts::FRAC_PI_2;
-        let (sin, cos) = theta.sin_cos();
-        positions.push([cx + sx * inner * cos, y, cz + sz * inner * sin]);
-        positions.push([cx + sx * outer * cos, y, cz + sz * outer * sin]);
-    }
-    let mut indices = Vec::with_capacity(STEPS as usize * 6);
-    for index in 0..STEPS {
-        let base = index * 2;
-        indices.extend_from_slice(&[base, base + 1, base + 2, base + 1, base + 3, base + 2]);
-    }
-    let mut mesh = Mesh::new(
-        bevy::mesh::PrimitiveTopology::TriangleList,
-        bevy::asset::RenderAssetUsages::default(),
-    );
-    let count = positions.len();
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0_f32, 1.0, 0.0]; count]);
-    mesh.insert_indices(Indices::U32(indices));
-    mesh
 }
 
 /// 斑马线：只在臂道进口车道（`-in` 边）的信号停止线处画，向路口一侧 2 m、
@@ -1296,7 +902,7 @@ fn spawn_lane_arrows(
     }
     // 每条进口车道边的机动方向集合：bit0 直行、bit1 左转、bit2 右转。
     // 路线边序是 环路→进口臂→内部→出口臂→环路（环路车还会多次过路口），
-    // 进口臂边可在任意位置：逐位置找 `-in` 边，用其后一条边的切向判转向。
+    // 相切转向在入口处与直行同向，须比较本次穿越的进口/出口切向。
     let mut moves: HashMap<u32, u8> = HashMap::new();
     for route in world.live_routes() {
         let Some(edges) = world.route_edges(route) else {
@@ -1309,7 +915,20 @@ fn spawn_lane_arrows(
             if !name.contains("-in") {
                 continue;
             }
-            let Some(second) = edges.get(index + 1) else {
+            let Some(second) = edges
+                .iter()
+                .skip(index + 1)
+                .take_while(|edge| {
+                    !name_by_ordinal
+                        .get(&edge.raw())
+                        .is_some_and(|name| name.starts_with("loop-"))
+                })
+                .find(|edge| {
+                    name_by_ordinal
+                        .get(&edge.raw())
+                        .is_some_and(|name| name.contains("-out"))
+                })
+            else {
                 continue;
             };
             let (Some(g0), Some(g1)) = (
@@ -1404,133 +1023,6 @@ fn start_tangent(points: &[CanonicalPoint]) -> Option<Vec3> {
     let next = points.get(1).unwrap_or(first);
     let tangent = (point_to_vec3(next) - point_to_vec3(first)).normalize_or_zero();
     (tangent.length_squared() >= 0.5).then_some(tangent)
-}
-
-/// 环路道路化：每轨两侧白色路缘实线（读作单车道匝道），每角外轨
-/// （离路口中心更远的一轨）外侧再压一条 3 m 人行道。
-fn spawn_loop_furniture(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    revision: &SharedNetworkRevision,
-    lane_pose: &laneflow_static_network::LanePoseNetwork,
-    white: Handle<StandardMaterial>,
-    sidewalk: Handle<StandardMaterial>,
-) {
-    let mut loops: Vec<(String, Vec<Vec3>)> = Vec::new();
-    for (name, ordinal) in junction_debug_scene::edge_ordinals(revision) {
-        if !name.starts_with("loop-") {
-            continue;
-        }
-        let Some(geometry) = lane_pose.lane_geometry(ordinal) else {
-            continue;
-        };
-        loops.push((name, geometry.points().iter().map(point_to_vec3).collect()));
-    }
-    let half = LANE_WIDTH_METERS * 0.5;
-    for (_, points) in &loops {
-        for side in [half, -half] {
-            if let Some(mesh) = ribbon_mesh(points, LINE_WIDTH_METERS, MARKING_Y, side, false) {
-                commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(white.clone())));
-            }
-        }
-    }
-    let mut by_corner: HashMap<String, Vec<usize>> = HashMap::new();
-    for (index, (name, _)) in loops.iter().enumerate() {
-        if let Some(corner) = name.split('-').nth(1) {
-            by_corner.entry(corner.to_owned()).or_default().push(index);
-        }
-    }
-    for (_, indices) in by_corner {
-        // 外轨：采样点离路口中心的平均平方距离更大者。
-        let outer = indices
-            .iter()
-            .max_by(|left, right| {
-                let score = |index: usize| {
-                    let points = &loops[index].1;
-                    points
-                        .iter()
-                        .map(|point| point.length_squared())
-                        .sum::<f32>()
-                        / points.len().max(1) as f32
-                };
-                score(**left).total_cmp(&score(**right))
-            })
-            .copied();
-        let Some(outer_index) = outer else {
-            continue;
-        };
-        let points = &loops[outer_index].1;
-        if points.len() < 2 {
-            continue;
-        }
-        // 外侧方向：中点法向两候选里离路口中心更远的一侧。
-        let middle = points.len() / 2;
-        let direction = (points[(middle + 1).min(points.len() - 1)]
-            - points[middle.saturating_sub(1)])
-        .normalize_or_zero();
-        let normal = Vec3::new(-direction.z, 0.0, direction.x);
-        let side = if (points[middle] + normal).length_squared()
-            >= (points[middle] - normal).length_squared()
-        {
-            1.0
-        } else {
-            -1.0
-        };
-        let offset = side * (half + SIDEWALK_WIDTH_METERS * 0.5);
-        if let Some(mesh) = ribbon_mesh(points, SIDEWALK_WIDTH_METERS, SIDEWALK_Y, offset, false) {
-            commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(sidewalk.clone())));
-        }
-    }
-}
-
-/// 3 m 画 / 6 m 空的虚线折线：按弧长切窗口，每个画段出一条 ribbon。
-fn dash_ribbons(points: &[Vec3], on: f32, off: f32, width: f32, y: f32) -> Vec<Mesh> {
-    let mut lengths = Vec::with_capacity(points.len());
-    lengths.push(0.0_f32);
-    for pair in points.windows(2) {
-        lengths.push(lengths.last().expect("length seed") + (pair[1] - pair[0]).length());
-    }
-    let total = *lengths.last().expect("sampled line has points");
-    let cycle = on + off;
-    let mut out = Vec::new();
-    let mut start = 0.0_f32;
-    while start < total {
-        let end = (start + on).min(total);
-        let slice = slice_polyline(points, &lengths, start, end);
-        if let Some(mesh) = ribbon_mesh(&slice, width, y, 0.0, false) {
-            out.push(mesh);
-        }
-        start += cycle;
-    }
-    out
-}
-
-/// 折线 [s0, s1] 弧长子段（端点插值 + 内部顶点）。
-fn slice_polyline(points: &[Vec3], lengths: &[f32], s0: f32, s1: f32) -> Vec<Vec3> {
-    let mut out = Vec::new();
-    out.push(sample_polyline(points, lengths, s0));
-    for index in 1..points.len() {
-        if lengths[index] > s0 && lengths[index] < s1 {
-            out.push(points[index]);
-        }
-    }
-    out.push(sample_polyline(points, lengths, s1));
-    out
-}
-
-fn sample_polyline(points: &[Vec3], lengths: &[f32], s: f32) -> Vec3 {
-    for index in 1..lengths.len() {
-        if s <= lengths[index] {
-            let span = lengths[index] - lengths[index - 1];
-            let t = if span > 0.0 {
-                (s - lengths[index - 1]) / span
-            } else {
-                0.0
-            };
-            return points[index - 1].lerp(points[index], t);
-        }
-    }
-    *points.last().expect("sampled line has points")
 }
 
 fn pose_transform(pose: CanonicalPoseF32) -> Transform {
@@ -2064,11 +1556,16 @@ fn apply_overlay_visuals(
     buffer: Res<PoseBuffer>,
     panel: Res<JunctionDebugPanel>,
     metrics: Res<VehicleMetrics>,
-    mut panel_text: Query<&mut Text, With<PanelText>>,
+    mut panel_text: Query<(&mut Text, &mut BackgroundColor), With<PanelText>>,
     mut dots: Query<(&SignalDotMarker, &mut MeshMaterial3d<StandardMaterial>)>,
     mut highlight: Query<(&mut Transform, &mut Visibility), With<SelectedVehicleMarker>>,
 ) {
-    if let Ok(mut text) = panel_text.single_mut() {
+    if let Ok((mut text, mut background)) = panel_text.single_mut() {
+        background.0 = if config.enabled {
+            Color::srgba(0.0, 0.0, 0.0, 0.7)
+        } else {
+            Color::NONE
+        };
         text.0 = if config.enabled {
             panel.content.clone()
         } else {
