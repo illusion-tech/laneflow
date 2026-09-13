@@ -44,6 +44,7 @@ impl OccupancyRecord {
 /// 一辆车在合法最短边上最多覆盖的占用记录数。
 ///
 /// 车身长度 `L`、边长 `E`、前杠不在格点时两端各有残段，最多触达 `L/E + 1` 条边。
+/// 当前上界 `L=128_000`、`E=100`；零进度车身最多 1_280 条，加入入口点仍在此上界内。
 const fn max_records_per_vehicle() -> usize {
     (MAX_VEHICLE_LENGTH_MM / MIN_LANE_EDGE_LENGTH_MM) as usize + 1
 }
