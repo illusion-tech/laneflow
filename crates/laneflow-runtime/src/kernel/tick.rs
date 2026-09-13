@@ -1372,15 +1372,19 @@ fn constrain_upcoming_speed_limits(
     comfort: f32,
     emergency: f32,
 ) -> Option<f32> {
-    for drop in compiled.speed_limit_drop.iter() {
+    // Twice the candidate's full-stop distance at comfortable deceleration is a
+    // conservative window even for a zero-speed target. Keep the original
+    // solver inside it: merely testing feasibility at the candidate can change
+    // its f32 result by one ULP near a binding limit.
+    let constraint_window =
+        delta_s * (current_speed + next_speed) + next_speed * next_speed / comfort;
+    let cursor_hop = u32::try_from(cursor).ok()?;
+    let first = compiled
+        .speed_limit_drop
+        .partition_point(|drop| drop.from_route_edge_index < cursor_hop);
+    for drop in &compiled.speed_limit_drop[first..] {
         let from = usize::try_from(drop.from_route_edge_index).ok()?;
-        if from < cursor {
-            continue;
-        }
         let limit = si_speed(drop.target_mm_s);
-        if limit >= next_speed {
-            continue;
-        }
         let to_index = from.checked_add(1)?;
         match distance_to_occurrence_start(
             &compiled.occurrence_segments,
@@ -1390,12 +1394,21 @@ fn constrain_upcoming_speed_limits(
             progress_mm,
             to_index,
         )? {
-            BoundedDistance::BeyondFinite => continue,
+            BoundedDistance::BeyondFinite => break,
             BoundedDistance::Finite(0) => {
                 next_speed = next_speed.min(limit.max(0.0));
             }
             BoundedDistance::Finite(mm) => {
                 let distance = si_meters(mm);
+                // Drops are in route order, so every later target is farther.
+                // next_speed only decreases; this initial window remains an
+                // upper bound after a nearer target has constrained it.
+                if distance > constraint_window {
+                    break;
+                }
+                if limit >= next_speed {
+                    continue;
+                }
                 next_speed = cap_next_speed_for_limit(
                     current_speed,
                     next_speed,
@@ -1497,15 +1510,13 @@ fn clamp_travel_to_speed_down_boundary(
     progress_mm: u32,
 ) -> Option<f32> {
     let min_travel = 0.5 * current_speed * delta_s;
-    for drop in compiled.speed_limit_drop.iter() {
+    let cursor_hop = u32::try_from(cursor).ok()?;
+    let first = compiled
+        .speed_limit_drop
+        .partition_point(|drop| drop.from_route_edge_index < cursor_hop);
+    for drop in &compiled.speed_limit_drop[first..] {
         let from = usize::try_from(drop.from_route_edge_index).ok()?;
-        if from < cursor {
-            continue;
-        }
         let limit = si_speed(drop.target_mm_s);
-        if limit >= current_speed || limit >= next_speed {
-            continue;
-        }
         let to_index = from.checked_add(1)?;
         let BoundedDistance::Finite(mm) = distance_to_occurrence_start(
             &compiled.occurrence_segments,
@@ -1516,12 +1527,20 @@ fn clamp_travel_to_speed_down_boundary(
             to_index,
         )?
         else {
-            continue;
+            break;
         };
         if mm == 0 {
             continue;
         }
         let distance = si_meters(mm);
+        // A later route occurrence cannot clamp a travel that already ends
+        // before this boundary. Preserve the existing boundary calculation.
+        if distance >= travel {
+            break;
+        }
+        if limit >= current_speed || limit >= next_speed {
+            continue;
+        }
         if min_travel <= distance && travel > distance {
             travel = travel.min(distance);
         }
@@ -1624,6 +1643,48 @@ mod preview {
     const FULL_SPATIAL: &[u8] = include_bytes!(
         "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
+
+    #[test]
+    fn distant_speed_drop_preserves_candidate_but_near_drop_keeps_solver_rounding() {
+        let mut route = CompiledRoute {
+            edges: vec![LaneEdgeOrdinal::from_raw(0), LaneEdgeOrdinal::from_raw(1)],
+            maneuvers: Vec::new(),
+            hop_gate: vec![None, None],
+            gate_hops: Vec::new(),
+            remaining_to_end: vec![
+                BoundedDistance::Finite(75_266),
+                BoundedDistance::Finite(1_000),
+            ],
+            occurrence_segments: vec![0, 0],
+            occurrence_offsets: vec![0, 74_266],
+            segment_totals: vec![75_266],
+            next_controlled: vec![None, None],
+            speed_limit_drop: vec![crate::kernel::tables::SpeedLimitDrop {
+                from_route_edge_index: 0,
+                to_edge: LaneEdgeOrdinal::from_raw(1),
+                target_mm_s: 42_074,
+            }],
+            waiting: Vec::new(),
+            conflicts: Vec::new(),
+            conflict_gate_ranges: Vec::new(),
+            final_conflict_clearance: None,
+        };
+        // A direct feasibility shortcut changes this real f32 boundary by one ULP.
+        let candidate = 66.89_f32;
+        let near =
+            constrain_upcoming_speed_limits(65.761, candidate, 0.033, &route, 0, 0, 18.758, 20.0)
+                .unwrap();
+        assert_eq!(near.to_bits(), candidate.to_bits() - 1);
+
+        // The same drop beyond twice the full-stop distance cannot bind.
+        route.occurrence_offsets[1] = 300_000;
+        route.segment_totals[0] = 301_000;
+        route.remaining_to_end[0] = BoundedDistance::Finite(301_000);
+        let far =
+            constrain_upcoming_speed_limits(65.761, candidate, 0.033, &route, 0, 0, 18.758, 20.0)
+                .unwrap();
+        assert_eq!(far.to_bits(), candidate.to_bits());
+    }
 
     #[test]
     fn preview_follower_constraints() {
