@@ -1,7 +1,7 @@
 # Vehicle Following 设计
 
 **文档状态**: Accepted（纵向分层与 IIDM/安全投影仍有效；已提交一维几何为整数毫米，IIDM 仍为瞬时 SI）<br>
-**最后更新**: 2026-09-06
+**最后更新**: 2026-09-14
 
 **适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
 
@@ -313,12 +313,12 @@ OccupancyRecord
 
 坐标为整数毫米。`hi_mm` 是该占用记录在本桶上的占用上沿（主记录为前保险杠进度；车身溢出占用为该边上车身片段上沿）。`lo_mm` 是同一片段下沿（后保险杠或该边上车尾起点）。同边间隙为 `i64`：`leader.lo_mm - follower_front_mm`；跨出现项沿 follower 路线累计到该 `lo_mm`。禁止 `u32` 回绕。
 
-每辆 Active 车辆按车身 `for_each_occupancy_interval` 写入：
+每辆 Active 车辆通过 `for_each_admission_interval` 展开实际车身和零进度入口点：
 
-- 主记录：前保险杠所在物理边；
-- 稀疏车身溢出占用：车身仍覆盖的更早边。
+- 实际车身片段仍由 `for_each_occupancy_interval` 生成，包括前保险杠所在边上的非空片段和车身仍覆盖的更早边。
+- 正车长且 `progress_mm == 0` 时，另写入当前物理边的退化入口点 `[0, 0]`；此时该边没有非空主片段，车身可以仍在更早的 incoming branch，也可以在路线起点被截断。
 
-一辆车可以在多个桶各有一条占用记录，否则分叉共享茎上车尾不可见。
+一辆车可以向多个桶贡献占用记录，否则分叉共享茎上车尾不可见。入口点让其他 incoming branch 上的 follower 在后续共享边桶中看见已到达该边入口的车辆，并以 `lo_mm = 0` 计算后杠间隙；它不把路线外负坐标车尾恢复为道路占用。
 
 `Parked` / `Completed` 不进入索引。
 
@@ -332,7 +332,11 @@ OccupancyRecord
 4. 写入连续占用记录 buffer。
 5. 每个 bucket 原地 unstable sort。
 
-排序键为 `(hi_mm, lo_mm, update_sequence, vehicle.index)`。`update_sequence` 只做稳定 tie-break，不得把同边相同前缘的物理重叠合法化。安装不预留按边展开的峰值。首次重建把 bucket 表扩到边数。占用记录上限为车辆容量 × (`MAX_VEHICLE_LENGTH_MM` / `MIN_LANE_EDGE_LENGTH_MM` + 1)；`+ 1` 计入未对齐车身两端残段。该上限再与后缀下标 `u32` 可编码范围（不含哨兵 `u32::MAX`）取较小值，只作失败关闭天花板，不作为预留目标。重建先按已提交状态计数实际占用记录数 `K`：`K` 超过上限则失败关闭；否则 `try_reserve` 到 `K` 与已有高水位的较大者。分配失败失败关闭。车身跨边数上升允许一次增长；高水位内稳态 tick 不因占用索引新分配。占用区间遍历失败失败关闭，不得静默漏记。
+排序键为 `(hi_mm, lo_mm, update_sequence, vehicle.index)`。`update_sequence` 只做稳定 tie-break，不得把同边相同前缘的物理重叠合法化。安装不预留按边展开的峰值。首次重建把 bucket 表扩到边数。
+
+占用记录上限为车辆容量 × (`MAX_VEHICLE_LENGTH_MM` / `MIN_LANE_EDGE_LENGTH_MM` + 1)。按当前 128,000 mm 最大车长和 100 mm 最短边，正进度车身含两端残段最多 1,281 条；零进度时实际车身最多 1,280 条，另加一个入口点，同样不超过 1,281 条。路线起点截断只会减少片段。该上限再与后缀下标 `u32` 可编码范围（不含哨兵 `u32::MAX`）取较小值，只作失败关闭天花板，不作为预留目标。
+
+普通步进和切换重建、计数与写入两遍、测试扫描预言机均使用同一实际车身加入口点的记录集合。重建先按已提交状态计数全部记录数 `K`（包括入口点）：`K` 超过上限则失败关闭；否则 `try_reserve` 到 `K` 与已有高水位的较大者。分配失败失败关闭。车身跨边数上升允许一次增长；高水位内稳态 tick 不因占用索引新分配。占用区间遍历失败失败关闭，不得静默漏记。
 
 ### 7.3 Query 与复杂度
 
@@ -354,7 +358,8 @@ OccupancyRecord
 验证。路线起点截断、非空区间和端点相接规则统一来自 `for_each_occupancy_interval`，
 不使用未截断的同边保险杠捷径。查询不复制路线、不分配临时区间容器。
 
-`for_each_admission_interval` 在实际车身之外登记零进度前杠的退化入口点 `[0, 0]`。
+`for_each_admission_interval` 在实际车身之外登记零进度前杠的退化入口点 `[0, 0]`；
+§7.1 的 tick 跟车索引复用同一展开，两个索引的生命周期与查询职责分别保留。
 两个这样的点在同一物理边上不能重合，包括不同路线或不同 occurrence 的前杠。
 这保留入口唯一性，防止两辆零进度车在下一拍同时进入同一非空区间；不把路线外
 负坐标车尾重新当成道路占用。该约束同样属于重叠准入错误，恢复和切换复核也执行。
