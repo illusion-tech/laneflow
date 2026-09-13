@@ -698,6 +698,16 @@ pub struct PortalBuild {
     pub lanes: Vec<PortalLaneBuild>,
 }
 
+/// 外环两车道汇合；准入门在原有 45 m 锥形段之前。
+#[derive(Clone, Debug)]
+pub struct MergeBuild {
+    pub junction_key: String,
+    pub feeds: [String; 2],
+    pub approaches: [String; 2],
+    pub tapers: [String; 2],
+    pub exit: String,
+}
+
 #[derive(Clone, Default)]
 pub struct TopologyBuild {
     pub junction_key: String,
@@ -716,6 +726,7 @@ pub struct TopologyBuild {
     pub phases: Vec<PhaseBuild>,
     pub routes: Vec<RouteBuild>,
     pub portals: Vec<PortalBuild>,
+    pub merges: Vec<MergeBuild>,
 }
 
 impl TopologyBuild {
@@ -869,12 +880,72 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
             base_curves.insert(key.to_owned(), curve.clone());
         }
         let entry_key = road_edge_key(to, true, to_lane, to_offsets.len());
+        let (curve, successors) = if !to.main() {
+            let end = match *curve.segments.last().expect("loop segments") {
+                Segment::Line { end } | Segment::Bezier { end, .. } => end,
+            };
+            let direction = to.delta();
+            let split = curve
+                .segments
+                .iter()
+                .rposition(|segment| {
+                    let point = match *segment {
+                        Segment::Line { end } | Segment::Bezier { end, .. } => end,
+                    };
+                    (point[0] - end[0]) * direction[0] + (point[1] - end[1]) * direction[1]
+                        >= LOOP_TAPER_METERS - 1e-8
+                })
+                .ok_or_else(|| Error::Config("merge taper boundary missing".into()))?;
+            let start = match curve.segments[split] {
+                Segment::Line { end } | Segment::Bezier { end, .. } => end,
+            };
+            let taper = Curve {
+                start,
+                segments: curve.segments[split + 1..].to_vec(),
+            };
+            let approach_start = split
+                .checked_sub(1)
+                .ok_or_else(|| Error::Config("merge approach boundary missing".into()))?;
+            let approach = Curve {
+                start: match curve.segments[approach_start] {
+                    Segment::Line { end } | Segment::Bezier { end, .. } => end,
+                },
+                segments: vec![curve.segments[split]],
+            };
+            let feed = Curve {
+                start: curve.start,
+                segments: curve.segments[..split].to_vec(),
+            };
+            add_edge(
+                &mut topology,
+                format!("{key}.admission"),
+                approach,
+                turn_speed,
+                Vec::new(),
+                true,
+                &mut edge_index,
+            );
+            add_edge(
+                &mut topology,
+                format!("{key}.merge"),
+                taper,
+                turn_speed,
+                Vec::new(),
+                false,
+                &mut edge_index,
+            );
+            // Portal routes may end on the feed. Keep its endpoint free of a
+            // StopLine; only the separate approach owns merge admission.
+            (feed, vec![format!("{key}.admission")])
+        } else {
+            (curve, vec![entry_key])
+        };
         add_edge(
             &mut topology,
             key.to_owned(),
             curve,
             turn_speed,
-            vec![entry_key],
+            successors,
             true,
             &mut edge_index,
         );
@@ -882,6 +953,15 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
         let exit_key = road_edge_key(from, false, from_lane, from_offsets.len());
         let exit_index = edge_index[&exit_key];
         topology.edges[exit_index].successors.push(key.to_owned());
+    }
+    for (corner, exit) in [("es", "s-in"), ("wn", "n-in")] {
+        topology.merges.push(MergeBuild {
+            junction_key: format!("merge-{corner}"),
+            feeds: std::array::from_fn(|lane| format!("loop-{corner}-i{lane}")),
+            approaches: std::array::from_fn(|lane| format!("loop-{corner}-i{lane}.admission")),
+            tapers: std::array::from_fn(|lane| format!("loop-{corner}-i{lane}.merge")),
+            exit: exit.to_owned(),
+        });
     }
 
     // 路口机动：主路直行（每车道一条路径）、主路保护左转（带待转区）、
@@ -1139,6 +1219,21 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
     topology.phases = signal_phases(config);
     add_zones_and_streams(&mut topology, config)?;
     topology.routes = routes();
+    for route in &mut topology.routes {
+        let mut edges = Vec::new();
+        for (index, edge) in route.edges.iter().enumerate() {
+            edges.push(edge.clone());
+            if index + 1 < route.edges.len() {
+                for merge in &topology.merges {
+                    if let Some(lane) = merge.feeds.iter().position(|key| key == edge) {
+                        edges.push(merge.approaches[lane].clone());
+                        edges.push(merge.tapers[lane].clone());
+                    }
+                }
+            }
+        }
+        route.edges = edges;
+    }
     topology.portals = portals();
     validate_routes(&topology)?;
     Ok(topology)
@@ -1716,7 +1811,7 @@ fn validate_routes(topology: &TopologyBuild) -> Result<(), Error> {
         .iter()
         .flat_map(|portal| portal.lanes.iter().map(|lane| lane.edge.as_str()))
         .collect();
-    let path_transitions: BTreeSet<(&str, &str)> = topology
+    let mut path_transitions: BTreeSet<(&str, &str)> = topology
         .paths
         .iter()
         .flat_map(|path| {
@@ -1725,6 +1820,12 @@ fn validate_routes(topology: &TopologyBuild) -> Result<(), Error> {
                 .map(|pair| (pair[0].as_str(), pair[1].as_str()))
         })
         .collect();
+    for merge in &topology.merges {
+        for lane in 0..2 {
+            path_transitions.insert((&merge.approaches[lane], &merge.tapers[lane]));
+            path_transitions.insert((&merge.tapers[lane], &merge.exit));
+        }
+    }
     for route in &topology.routes {
         let entry_edge = route.edges.first().expect("non-empty route");
         if !portal_edges.contains(entry_edge.as_str()) {

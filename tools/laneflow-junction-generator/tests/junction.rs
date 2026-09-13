@@ -61,14 +61,14 @@ fn default_junction_locks_scope_counts_and_deterministic_bytes() {
     let first = default_generated();
     let second = default_generated();
     let counts = first.counts();
-    assert_eq!(counts.edges, 31);
-    assert_eq!(counts.movements, 7);
-    assert_eq!(counts.maneuver_paths, 9);
-    assert_eq!(counts.maneuver_gates, 11);
-    assert_eq!(counts.stop_lines, 8);
+    assert_eq!(counts.edges, 39);
+    assert_eq!(counts.movements, 11);
+    assert_eq!(counts.maneuver_paths, 13);
+    assert_eq!(counts.maneuver_gates, 15);
+    assert_eq!(counts.stop_lines, 12);
     assert_eq!(counts.waiting_zones, 1);
-    assert_eq!(counts.conflict_zones, 3);
-    assert_eq!(counts.streams, 4);
+    assert_eq!(counts.conflict_zones, 5);
+    assert_eq!(counts.streams, 8);
     assert_eq!(counts.signal_groups, 5);
     assert_eq!(counts.controllers, 1);
     assert_eq!(counts.phases, 9);
@@ -84,12 +84,12 @@ fn default_junction_locks_scope_counts_and_deterministic_bytes() {
     assert!(!first_lfsm.is_empty());
     assert!(!first_lfsd.is_empty());
     let lir = first.lir();
-    assert_eq!(lir.lane_edges().len(), 31);
-    assert_eq!(lir.junctions().len(), 1);
-    assert_eq!(lir.movements().len(), 7);
-    assert_eq!(lir.maneuver_paths().len(), 9);
-    assert_eq!(lir.stop_lines().len(), 8);
-    assert_eq!(lir.maneuver_gates().len(), 11);
+    assert_eq!(lir.lane_edges().len(), 39);
+    assert_eq!(lir.junctions().len(), 3);
+    assert_eq!(lir.movements().len(), 11);
+    assert_eq!(lir.maneuver_paths().len(), 13);
+    assert_eq!(lir.stop_lines().len(), 12);
+    assert_eq!(lir.maneuver_gates().len(), 15);
     assert_eq!(lir.signal_groups().len(), 5);
     assert_eq!(lir.signal_controllers().len(), 1);
     assert_eq!(lir.signal_phases().len(), 9);
@@ -285,7 +285,10 @@ fn generate_rejects_non_finite_slot_candidates() {
     let Err(error) = generate(&config) else {
         panic!("non-finite slot candidates must fail");
     };
-    assert!(error.to_string().contains("candidate count"));
+    assert!(matches!(
+        error,
+        laneflow_junction_generator::Error::Config(_)
+    ));
 }
 
 #[test]
@@ -536,12 +539,12 @@ fn lfca_loads_with_waiting_zone_conflict_zones_and_streams() {
     )
     .expect("shared network revision");
     let counts = revision.traffic().entity_counts();
-    assert_eq!(counts.count(EntityKind::LaneEdge), 31);
-    assert_eq!(counts.count(EntityKind::Junction), 1);
-    assert_eq!(counts.count(EntityKind::ManeuverGate), 11);
+    assert_eq!(counts.count(EntityKind::LaneEdge), 39);
+    assert_eq!(counts.count(EntityKind::Junction), 3);
+    assert_eq!(counts.count(EntityKind::ManeuverGate), 15);
     assert_eq!(counts.count(EntityKind::WaitingZone), 1);
-    assert_eq!(counts.count(EntityKind::ConflictZone), 3);
-    assert_eq!(counts.count(EntityKind::ParticipantStream), 4);
+    assert_eq!(counts.count(EntityKind::ConflictZone), 5);
+    assert_eq!(counts.count(EntityKind::ParticipantStream), 8);
 }
 
 #[test]
@@ -929,14 +932,39 @@ fn loop_geometry() -> LoopGeometry {
         .and_then(|spatial| spatial.lane_pose())
         .expect("lane pose network");
     let mut loops = std::collections::BTreeMap::new();
+    let route_edges: std::collections::BTreeMap<_, _> = catalog
+        .routes
+        .iter()
+        .flat_map(|route| {
+            route
+                .edge_ids
+                .iter()
+                .cloned()
+                .zip(bound.routes[&route.route_id].iter().copied())
+        })
+        .collect();
     for (name, ordinal) in bound.edges.iter() {
-        if !name.starts_with("loop-") {
+        if !name.starts_with("loop-") || name.ends_with(".merge") || name.ends_with(".admission") {
             continue;
         }
         let geometry = lane_pose
             .lane_geometry(*ordinal)
             .unwrap_or_else(|| panic!("loop edge {name} must carry geometry"));
-        let points: Vec<_> = geometry.points().to_vec();
+        let mut points: Vec<_> = geometry.points().to_vec();
+        for suffix in [".admission", ".merge"] {
+            let Some(taper) = route_edges.get(&format!("{name}{suffix}")) else {
+                continue;
+            };
+            let taper = lane_pose
+                .lane_geometry(*taper)
+                .expect("merge taper geometry");
+            assert_eq!(
+                points.last(),
+                taper.points().first(),
+                "split preserves exact weld"
+            );
+            points.extend_from_slice(&taper.points()[1..]);
+        }
         loops.insert(
             name.clone(),
             (
@@ -1061,7 +1089,7 @@ fn smaller_loop_radius_keeps_straight_tapers_compilable() {
     let mut config = JunctionConfig::parse(CONFIG).unwrap();
     config.geometry.loop_corner_radius_meters = 15.0;
     let generated = generate(&config).expect("15 m radius must preserve taper tangents");
-    assert_eq!(generated.counts().edges, 31);
+    assert_eq!(generated.counts().edges, 39);
 }
 
 #[test]

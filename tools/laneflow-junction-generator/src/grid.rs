@@ -142,6 +142,18 @@ fn place(topology: &mut TopologyBuild, prefix: &str, offset: Point) {
             rename(edge);
         }
     }
+    for merge in &mut topology.merges {
+        rename(&mut merge.junction_key);
+        rename(&mut merge.exit);
+        for key in merge
+            .feeds
+            .iter_mut()
+            .chain(&mut merge.approaches)
+            .chain(&mut merge.tapers)
+        {
+            rename(key);
+        }
+    }
     for lane in topology
         .portals
         .iter_mut()

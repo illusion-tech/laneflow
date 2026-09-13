@@ -24,7 +24,7 @@ cargo +1.98.0 run --locked -p laneflow-junction-generator -- check --config exam
 
 - 单四岔信号路口：主路东西向 2+2 车道，次路南北向 1+1 车道；臂长、路口半径、车道
   宽度等几何参数全部来自配置文件。
-- 7 条 Movement / 9 条 ManeuverPath：主路东西双向直行（每车道一条车道级路径）、
+- 中心信号路口有 7 条 Movement / 9 条 ManeuverPath：主路东西双向直行（每车道一条车道级路径）、
   两条对向主路保护左转（西进口带沿左转弧线的 12 m 待转区，三门 admission /
   waiting-entry / release；东进口单 admission 门，二者同相位且几何不交叉）、
   次路北进口许可左转、次路南进口直行、次路北进口右转。
@@ -39,7 +39,7 @@ cargo +1.98.0 run --locked -p laneflow-junction-generator -- check --config exam
   确定性的三次 Bé塞尔逼近后 128 等分，按沿程距离分段，不通过横移再拉直形成
   S 弯。`pocket_length_meters` 是弧形储车段的沿程长度；`pocket_offset_meters`
   限制前端横向偏移，前端还受南北车行道净空约束。空间不足时拒绝配置。
-- 冲突区只为「许可门路径 × 同相位并发直行路径」的几何交叉对编制：同入口边跳过，
+- 中心路口冲突区为「许可门路径 × 同相位并发直行路径」的几何交叉对编制：同入口边跳过，
   同出口边取许可路径末点作合流区；信号分离的方向对不占冲突区。默认配置产出 3 个
   ConflictZone（许可左转 × 两条东→西直行车道的交叉区、许可左转 × 西→东 lane0 的
   合流区）与 4 条 ParticipantStream（许可流 priority 0 + 三条直行流 priority 100）。
@@ -48,7 +48,7 @@ cargo +1.98.0 run --locked -p laneflow-junction-generator -- check --config exam
   默认沿弧线 12 m 储车段容纳两辆 4.5 m 车，中间留 2 m，总占长 11 m；第三辆需等释放
   空间后再入区。转入连接段不计入储车长度，Runtime 的实际车长、间距与占用检查
   仍是准入约束。每条采用待转组织的左转路径独立拥有待转区，不为直行车道施画。
-- 8 条环路回连边把每条出口车道
+- 8 条环路把每条出口车道
   接到顺时针下一条入口车道（三段 90 度圆弧绕角 + 直线段）；单车道臂强制 2↔1
   汇合/分流。首末各保留 45 m 相切直线，共点端在这条直线内平滑收敛，弯道
   全程保持两个平行车道，焊接端口不变。只对固定长度渐变段加密，长直线不按米
@@ -56,6 +56,14 @@ cargo +1.98.0 run --locked -p laneflow-junction-generator -- check --config exam
   内侧环路为基准向转弯中心侧平行偏移一个车道宽（三段圆弧等半径收缩 + 直线腿
   横向平移），两轨全段横向分离、任何位置不交叉。11 条 catalog 路线中两条焦点
   路线成环并多次穿过同一机动门（重复 Gate occurrence）。
+- ES/WN 外环各有一处正式两支路汇合。保持原曲线段和端点，将门户存储边、独立
+  接近边、45 m 锥形边分开，准入 Gate 位于锥形段之前；门户边可作为有限路线终点。
+  两支路共用一个 ConflictZone，各声明一条无信号、同优先级的 ParticipantStream，
+  复用现有独占仲裁与下游存储检查。passage 从准入门到共享边内 `min_gap` 位置，
+  车尾越过后才能释放，保证后车进入时有完整车长和净距。
+  两处汇合共增加 4 条 Movement/Path/Gate/Stream 和 2 个 ConflictZone；完整单元为
+  39 条边、11 条 Movement、13 条 ManeuverPath、15 条 Gate、5 个 ConflictZone、
+  8 条 ParticipantStream。默认 380 个门户槽位支持每单元 312/313 辆的规模计划。
 - 北进口右转由相切直线和四分之一圆弧编制，圆弧转换为同一三次 Bé塞尔来源；
   起止切向与臂道对齐，避免任意控制柄让轨迹斜切街角。其他机动门、Waiting、
   信号相位与冲突关系保持原场景合同。

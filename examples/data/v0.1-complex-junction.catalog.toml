@@ -127,6 +127,8 @@ edge_ids = [
     "w-e.i0",
     "e-out-i0",
     "loop-es-i0",
+    "loop-es-i0.admission",
+    "loop-es-i0.merge",
     "s-in",
     "s-n.i0",
     "n-out",
@@ -183,6 +185,8 @@ route_id = "route-n-permissive-left"
 exit_portal_id = "portal-loop-to-s"
 edge_ids = [
     "loop-wn-i0",
+    "loop-wn-i0.admission",
+    "loop-wn-i0.merge",
     "n-in",
     "n-e.i0",
     "e-out-i0",
@@ -195,10 +199,14 @@ route_id = "route-n-left-circuit"
 exit_portal_id = "portal-loop-to-s"
 edge_ids = [
     "loop-wn-i1",
+    "loop-wn-i1.admission",
+    "loop-wn-i1.merge",
     "n-in",
     "n-e.i0",
     "e-out-i0",
     "loop-es-i0",
+    "loop-es-i0.admission",
+    "loop-es-i0.merge",
     "s-in",
     "s-n.i0",
     "n-out",
@@ -207,6 +215,8 @@ edge_ids = [
     "e-w.i0",
     "w-out-i0",
     "loop-wn-i0",
+    "loop-wn-i0.admission",
+    "loop-wn-i0.merge",
     "n-in",
     "n-e.i0",
     "e-out-i0",
@@ -219,6 +229,8 @@ route_id = "route-s-through"
 exit_portal_id = "portal-loop-to-e"
 edge_ids = [
     "loop-es-i0",
+    "loop-es-i0.admission",
+    "loop-es-i0.merge",
     "s-in",
     "s-n.i0",
     "n-out",
@@ -231,6 +243,8 @@ route_id = "route-s-mix"
 exit_portal_id = "portal-loop-to-w"
 edge_ids = [
     "loop-es-i1",
+    "loop-es-i1.admission",
+    "loop-es-i1.merge",
     "s-in",
     "s-n.i0",
     "n-out",
@@ -247,6 +261,8 @@ route_id = "route-s-n-w-circuit"
 exit_portal_id = "portal-loop-to-n"
 edge_ids = [
     "loop-es-i1",
+    "loop-es-i1.admission",
+    "loop-es-i1.merge",
     "s-in",
     "s-n.i0",
     "n-out",
@@ -255,6 +271,8 @@ edge_ids = [
     "e-w.i0",
     "w-out-i0",
     "loop-wn-i0",
+    "loop-wn-i0.admission",
+    "loop-wn-i0.merge",
     "n-in",
     "n-w.i0",
     "w-out-i1",
@@ -1985,62 +2003,6 @@ edge_id = "loop-wn-i0"
 progress = 436.5
 
 [[spawn_slots]]
-slot_id = "slot-loop-wn-i0-044"
-portal_id = "portal-loop-to-n"
-lane_index = 0
-edge_id = "loop-wn-i0"
-progress = 446.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-wn-i0-045"
-portal_id = "portal-loop-to-n"
-lane_index = 0
-edge_id = "loop-wn-i0"
-progress = 456.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-wn-i0-046"
-portal_id = "portal-loop-to-n"
-lane_index = 0
-edge_id = "loop-wn-i0"
-progress = 466.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-wn-i0-047"
-portal_id = "portal-loop-to-n"
-lane_index = 0
-edge_id = "loop-wn-i0"
-progress = 476.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-wn-i0-048"
-portal_id = "portal-loop-to-n"
-lane_index = 0
-edge_id = "loop-wn-i0"
-progress = 486.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-wn-i0-049"
-portal_id = "portal-loop-to-n"
-lane_index = 0
-edge_id = "loop-wn-i0"
-progress = 496.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-wn-i0-050"
-portal_id = "portal-loop-to-n"
-lane_index = 0
-edge_id = "loop-wn-i0"
-progress = 506.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-wn-i0-051"
-portal_id = "portal-loop-to-n"
-lane_index = 0
-edge_id = "loop-wn-i0"
-progress = 516.5
-
-[[spawn_slots]]
 slot_id = "slot-loop-wn-i1-000"
 portal_id = "portal-loop-to-n"
 lane_index = 1
@@ -2356,27 +2318,6 @@ edge_id = "loop-wn-i1"
 progress = 451.5
 
 [[spawn_slots]]
-slot_id = "slot-loop-wn-i1-045"
-portal_id = "portal-loop-to-n"
-lane_index = 1
-edge_id = "loop-wn-i1"
-progress = 461.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-wn-i1-046"
-portal_id = "portal-loop-to-n"
-lane_index = 1
-edge_id = "loop-wn-i1"
-progress = 471.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-wn-i1-047"
-portal_id = "portal-loop-to-n"
-lane_index = 1
-edge_id = "loop-wn-i1"
-progress = 481.5
-
-[[spawn_slots]]
 slot_id = "slot-loop-es-i0-000"
 portal_id = "portal-loop-to-s"
 lane_index = 0
@@ -2683,62 +2624,6 @@ portal_id = "portal-loop-to-s"
 lane_index = 0
 edge_id = "loop-es-i0"
 progress = 436.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-es-i0-044"
-portal_id = "portal-loop-to-s"
-lane_index = 0
-edge_id = "loop-es-i0"
-progress = 446.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-es-i0-045"
-portal_id = "portal-loop-to-s"
-lane_index = 0
-edge_id = "loop-es-i0"
-progress = 456.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-es-i0-046"
-portal_id = "portal-loop-to-s"
-lane_index = 0
-edge_id = "loop-es-i0"
-progress = 466.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-es-i0-047"
-portal_id = "portal-loop-to-s"
-lane_index = 0
-edge_id = "loop-es-i0"
-progress = 476.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-es-i0-048"
-portal_id = "portal-loop-to-s"
-lane_index = 0
-edge_id = "loop-es-i0"
-progress = 486.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-es-i0-049"
-portal_id = "portal-loop-to-s"
-lane_index = 0
-edge_id = "loop-es-i0"
-progress = 496.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-es-i0-050"
-portal_id = "portal-loop-to-s"
-lane_index = 0
-edge_id = "loop-es-i0"
-progress = 506.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-es-i0-051"
-portal_id = "portal-loop-to-s"
-lane_index = 0
-edge_id = "loop-es-i0"
-progress = 516.5
 
 [[spawn_slots]]
 slot_id = "slot-loop-es-i1-000"
@@ -3054,24 +2939,3 @@ portal_id = "portal-loop-to-s"
 lane_index = 1
 edge_id = "loop-es-i1"
 progress = 451.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-es-i1-045"
-portal_id = "portal-loop-to-s"
-lane_index = 1
-edge_id = "loop-es-i1"
-progress = 461.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-es-i1-046"
-portal_id = "portal-loop-to-s"
-lane_index = 1
-edge_id = "loop-es-i1"
-progress = 471.5
-
-[[spawn_slots]]
-slot_id = "slot-loop-es-i1-047"
-portal_id = "portal-loop-to-s"
-lane_index = 1
-edge_id = "loop-es-i1"
-progress = 481.5
