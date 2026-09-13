@@ -57,16 +57,14 @@ fn fixtures(revision: &SharedNetworkRevision, layout: RoadLayout) -> Vec<Fixture
             Turn::Through
         };
         // 待转路径的实体左转灯绑定 release；admission/entry 是区内准入约束。
-        let group = path
-            .maneuver_gates()
-            .iter()
-            .rev()
-            .find_map(|gate| {
-                relations
-                    .maneuver_gate(*gate)
-                    .and_then(|view| view.signal_group())
-            })
-            .expect("signalized reference path");
+        let Some(group) = path.maneuver_gates().iter().rev().find_map(|gate| {
+            relations
+                .maneuver_gate(*gate)
+                .and_then(|view| view.signal_group())
+        }) else {
+            // 外环汇合通过无信号准入资源控制，不布置虚构灯具。
+            continue;
+        };
         let main = direction.x.abs() > 0.5;
         let longitudinal = if main {
             layout.junction_half_x
