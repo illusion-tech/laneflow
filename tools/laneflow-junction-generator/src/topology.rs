@@ -698,8 +698,11 @@ pub struct PortalBuild {
     pub lanes: Vec<PortalLaneBuild>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct TopologyBuild {
+    pub junction_key: String,
+    pub controller_key: String,
+    pub signal_groups: [String; 5],
     pub edges: Vec<EdgeBuild>,
     pub movements: Vec<MovementBuild>,
     pub paths: Vec<PathBuild>,
@@ -716,6 +719,13 @@ pub struct TopologyBuild {
 }
 
 impl TopologyBuild {
+    pub fn signal_group(&self, key: &str) -> &str {
+        &self.signal_groups[SIGNAL_GROUPS
+            .iter()
+            .position(|candidate| *candidate == key)
+            .expect("known group")]
+    }
+
     pub fn edge(&self, key: &str) -> Option<&EdgeBuild> {
         self.edges.iter().find(|edge| edge.key == key)
     }
@@ -751,7 +761,12 @@ pub fn build_topology(config: &JunctionConfig) -> Result<TopologyBuild, Error> {
     let geometry = &config.geometry;
     let radius = geometry.junction_radius_meters;
     let arm_length = geometry.arm_length_meters;
-    let mut topology = TopologyBuild::default();
+    let mut topology = TopologyBuild {
+        junction_key: JUNCTION_KEY.to_owned(),
+        controller_key: CONTROLLER_KEY.to_owned(),
+        signal_groups: SIGNAL_GROUPS.map(str::to_owned),
+        ..TopologyBuild::default()
+    };
     let mut edge_index: BTreeMap<String, usize> = BTreeMap::new();
 
     let add_edge = |topology: &mut TopologyBuild,
