@@ -52,6 +52,10 @@ foreach ($inputCase in @(@{ vehicles = 10000; cells = 32 }, @{ vehicles = 100000
     if ($LASTEXITCODE -ne 0) { throw 'Input preparation failed' }
     $prepared = Get-Content -LiteralPath $preparedPath -Raw | ConvertFrom-Json
     if ($prepared.input.cells -ne $inputCase.cells -or $prepared.input.vehicles -ne $inputCase.vehicles -or $prepared.input.fixed_delta_ms -ne 16) { throw 'Prepared workload differs from declared scale' }
+    foreach ($file in @('prepared.json', 'prepared.initial.lfrs')) {
+        $files[$file] = (Get-FileHash -LiteralPath (Join-Path $destination $file) -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    if ($files['prepared.initial.lfrs'] -ne $prepared.snapshot_sha256) { throw 'Prepared initial snapshot digest mismatch' }
     $inputs += @{ vehicles = $inputCase.vehicles; cells = $inputCase.cells; directory = $destination; files = $files; prepared = $prepared }
 }
 if ((& git -C $repository rev-parse HEAD).Trim() -ne $sourceCommit -or (& git -C $repository status --porcelain)) { throw 'Sources changed during input freeze' }
