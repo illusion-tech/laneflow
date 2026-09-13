@@ -317,7 +317,7 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
     }
     let chunks: &[u64] = match args[5].as_str() {
         "normal" | "prepare" => &[1],
-        "catchup" => &[0, 1, 2, 8],
+        "catchup" => &[0, 1, 2, 10, 0],
         _ => return Err("frame mode must be normal, catchup or prepare".into()),
     };
     let output = PathBuf::from(&args[6]);
@@ -560,6 +560,10 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
     }
     let mut frame_ns = Vec::with_capacity(observation + 1);
     let mut frame_steps = Vec::with_capacity(observation + 1);
+    let mut frame_input_quanta = Vec::with_capacity(observation + 1);
+    let mut frame_backlog_quanta = Vec::with_capacity(observation + 1);
+    let mut backlog_since = None;
+    let mut max_backlog_recovery_frames = 0;
     #[allow(unused_mut)]
     let mut renderer_ns: Vec<u64> = Vec::with_capacity(observation + 1);
     let mut checkpoints = Vec::new();
@@ -592,10 +596,21 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
                 .unwrap_or(total_ticks)
                 .min(total_ticks)
         };
-        let steps = chunks[frame % chunks.len()].min(next_boundary - before);
+        let backlog = app
+            .world()
+            .resource::<LaneFlowSession>()
+            .frame_report()
+            .backlog()
+            .as_millis() as u64
+            / 16;
+        let available_input = (next_boundary - before)
+            .checked_sub(backlog)
+            .ok_or("backlog crosses a frozen boundary")?;
+        let input_quanta = chunks[frame % chunks.len()].min(available_input);
+        let steps = (backlog + input_quanta).min(8);
         let started_frame = Instant::now();
         app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
-            steps * 16,
+            input_quanta * 16,
         )));
         app.world_mut().resource_mut::<Presentation>().record_frame = before >= warmup;
         app.sub_apps_mut().main.run_default_schedule();
@@ -604,8 +619,15 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
             return Err(format!("{error:?}").into());
         }
         let after = session.world().tick_index();
+        let report = session.frame_report();
+        let remaining_backlog = backlog + input_quanta - steps;
         if after != before + steps {
             return Err("fixed-step count mismatch".into());
+        }
+        if u64::from(report.steps_run()) != steps
+            || report.backlog() != Duration::from_millis(remaining_backlog * 16)
+        {
+            return Err("frame report discarded or invented backlog".into());
         }
         if let Some(error) = &app.world().resource::<Presentation>().last_error {
             return Err(error.clone().into());
@@ -622,6 +644,13 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
         if before >= warmup {
             frame_ns.push(started_frame.elapsed().as_nanos() as u64);
             frame_steps.push(steps);
+            frame_input_quanta.push(input_quanta);
+            frame_backlog_quanta.push(remaining_backlog);
+            if remaining_backlog > 0 {
+                backlog_since.get_or_insert(frame);
+            } else if let Some(start) = backlog_since.take() {
+                max_backlog_recovery_frames = max_backlog_recovery_frames.max(frame - start);
+            }
             #[cfg(feature = "native-example")]
             if rendering {
                 minimum_visible = minimum_visible.min(native::visible_count(&app, &entities));
@@ -698,7 +727,10 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
             "max_waiting_members":samples.max_waiting_members,"max_conflict_reservations":samples.max_reservations,
             "waiting_decisions":samples.waiting_decisions,"conflict_decisions":samples.conflict_decisions,
             "max_waiting_decision_rows_per_tick":samples.max_waiting_candidates,"max_conflict_decision_rows_per_tick":samples.max_conflict_candidates,"transitions":samples.transitions,
-            "minimum_renderer_visible_proxies":rendering.then_some(minimum_visible)},
+            "minimum_renderer_visible_proxies":rendering.then_some(minimum_visible),
+            "maximum_backlog_quanta":frame_backlog_quanta.iter().max(),
+            "two_quantum_backlog_frames":frame_backlog_quanta.iter().filter(|&&n|n==2).count(),
+            "max_backlog_recovery_frames":max_backlog_recovery_frames},
         "resource_loads":{"waiting_vehicle_ticks":samples.waiting_vehicle_ticks,"reservation_vehicle_ticks":samples.reservation_vehicle_ticks,
             "longest_observed_waiting_hold_ticks":samples.longest_waiting_hold,"longest_reservation_age_ticks":samples.longest_reservation_age,
             "vehicles_with_repeated_waiting_entries":samples.waiting_entries.iter().filter(|&&n|n>1).count(),
@@ -717,7 +749,7 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
         "pose_output_initialized_bytes":std::mem::size_of_val(poses.batch().records())+std::mem::size_of_val(poses.vehicles()),
         "shared_root_retained_logical_bytes":session.world().revision().retained_logical_bytes(),
         "missing_measurements":missing,"process_memory":"see runner metadata; not a component ledger",
-        "samples_ns":{"tick_and_driver":samples.tick_ns,"domain_observation":samples.observation_ns,"pose_extraction":pose_ns,"mapping_transform_apply":apply_ns,"integrated_frame_with_evidence":frame_ns,"frame_step_counts":frame_steps,"renderer_submit_and_gpu_wait":renderer_ns,"evidence_collection":samples.evidence_ns}
+        "samples_ns":{"tick_and_driver":samples.tick_ns,"domain_observation":samples.observation_ns,"pose_extraction":pose_ns,"mapping_transform_apply":apply_ns,"integrated_frame_with_evidence":frame_ns,"frame_step_counts":frame_steps,"frame_input_quanta":frame_input_quanta,"frame_backlog_quanta":frame_backlog_quanta,"renderer_submit_and_gpu_wait":renderer_ns,"evidence_collection":samples.evidence_ns}
     });
     std::fs::write(&output, serde_json::to_vec(&result)?)?;
     if rendering && minimum_visible != apply_count {
