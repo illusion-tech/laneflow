@@ -1266,6 +1266,7 @@ pub(crate) fn for_each_occupancy_interval(
 
 /// 准入使用实际车身，加上零进度前杠的退化入口点。
 /// 同一点不能同时生成两辆车，否则它们在下一拍会一起进入同一非空区间。
+/// 跟车候选也保留此点，使其他 incoming branch 看见已经进入共享边的车辆。
 pub(crate) fn for_each_admission_interval(
     lengths: &[u32],
     edges: &[LaneEdgeOrdinal],
@@ -1451,7 +1452,7 @@ pub(crate) fn occupancy_front_gap(
     leader_length: u32,
 ) -> Option<i64> {
     let mut gap: Option<i64> = None;
-    for_each_occupancy_interval(
+    for_each_admission_interval(
         lengths,
         leader_edges,
         leader_index,
