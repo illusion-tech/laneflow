@@ -47,6 +47,8 @@ pub struct Validation {
     geometry_by_vehicle: Vec<usize>,
     expected_completions: Vec<(usize, u32)>,
     actual_completions: Vec<(usize, u32)>,
+    expected_projections: Vec<(usize, u32, WaitingZoneOrdinal, WaitingProjectionReason)>,
+    actual_projections: Vec<(usize, u32, WaitingZoneOrdinal, WaitingProjectionReason)>,
     signals: Vec<SignalAspect>,
     waiting: BTreeMap<usize, (u32, u64, u32)>,
     reservations: BTreeMap<usize, (ConflictPassageRange, u64)>,
@@ -102,6 +104,8 @@ impl Validation {
             geometry_by_vehicle,
             expected_completions: Vec::new(),
             actual_completions: Vec::new(),
+            expected_projections: Vec::new(),
+            actual_projections: Vec::new(),
             signals: vec![
                 SignalAspect::Red;
                 world
@@ -190,6 +194,7 @@ impl Validation {
         self.bodies.clear();
         self.expected_gates.clear();
         self.expected_completions.clear();
+        self.expected_projections.clear();
         let traffic = world.traffic();
         let lengths = traffic.lane_lengths_millimetres();
         for (index, (&handle, &before)) in
@@ -236,6 +241,9 @@ impl Validation {
                 || format!("speed/progress outside current edge for {handle:?}"),
             )?;
             if stepped {
+                if let Some((hop, zone, reason)) = expected_projection(world, before, state) {
+                    self.expected_projections.push((index, hop, zone, reason));
+                }
                 self.geometries[self.geometry_by_vehicle[index]].crossed_completions(
                     point(before),
                     point(state),
@@ -255,15 +263,24 @@ impl Validation {
                         )
                     },
                 )?;
-                let acceleration = (f64::from(state.speed_mm_s()) - f64::from(before.speed_mm_s()))
-                    / delta_seconds(world);
-                ensure(acceleration.is_finite(), "numeric_geometry", || {
-                    "nonfinite derived acceleration".into()
-                })?;
                 let profile = traffic
                     .relations()
                     .vehicle_profile(state.profile())
                     .ok_or_else(|| ("numeric_geometry", "motion profile missing".into()))?;
+                ensure(
+                    speed_gain_allowed(
+                        before.speed_mm_s(),
+                        state.speed_mm_s(),
+                        f64::from(profile.max_accel()),
+                        delta_seconds(world),
+                    ),
+                    "numeric_geometry",
+                    || {
+                        format!(
+                            "vehicle {index} speed gain exceeds its fixed-step acceleration limit"
+                        )
+                    },
+                )?;
                 let displacement = travelled_mm(route, lengths, before, state);
                 ensure(
                     displacement
@@ -450,6 +467,7 @@ impl Validation {
         self.check_decisions(world)?;
         self.actual_gates.clear();
         self.actual_completions.clear();
+        self.actual_projections.clear();
         let mut previous_key = None;
         // Keep tick-start and newly acquired owners even after release events:
         // committed resources cannot be reused by another owner in this tick.
@@ -707,6 +725,8 @@ impl Validation {
                 }
                 TrafficTransitionKind::ProjectionApplied { zone, reason } => {
                     self.check_projection(world, event, zone, reason)?;
+                    self.actual_projections
+                        .push((index, anchor.hop(), zone, reason));
                 }
                 TrafficTransitionKind::ManeuverTraversalCompleted {
                     maneuver_occurrence_index,
@@ -723,9 +743,13 @@ impl Validation {
         }
         ensure(
             self.actual_gates == self.expected_gates
-                && self.actual_completions == self.expected_completions,
+                && self.actual_completions == self.expected_completions
+                && self.actual_projections == self.expected_projections,
             "event_causality",
-            || "gate/completion event batch differs from actual route crossings".into(),
+            || {
+                "gate/completion/projection event batch differs from actual state transitions"
+                    .into()
+            },
         )?;
         for (&(owner, _), &(passage, entered)) in &self.claims {
             let state = self.current[owner];
@@ -914,47 +938,16 @@ impl Validation {
         reason: WaitingProjectionReason,
     ) -> Check {
         let index = event.vehicle_update_sequence() as usize;
-        let before = self.previous[index];
-        let after = self.current[index];
-        let anchor = event.anchor();
-        let boundary = world
-            .route_gate(anchor.route(), anchor.hop())
-            .ok_or_else(|| ("event_causality", "projection has no gate".into()))?;
-        let waiting = world
-            .traffic()
-            .relations()
-            .waiting_zone(zone)
-            .ok_or_else(|| ("event_causality", "projection has no waiting zone".into()))?;
         ensure(
-            waiting.entry_gate() == boundary.gate()
-                && (before.route_edge_index(), before.progress_mm())
-                    < (anchor.hop(), boundary.progress_mm())
-                && (after.route_edge_index(), after.progress_mm())
-                    == (anchor.hop(), boundary.progress_mm())
-                && after.speed_mm_s() == 0
-                && after.carry_um() == 0,
+            expected_projection(world, self.previous[index], self.current[index])
+                == Some((event.anchor().hop(), zone, reason)),
             "event_causality",
-            || "projection is not the first hard contact with its waiting entry".into(),
-        )?;
-        let expected = world
-            .latest_waiting_decisions()
-            .iter()
-            .find_map(|decision| {
-                if decision.vehicle() != event.vehicle()
-                    || decision.anchor().route() != anchor.route()
-                    || (decision.anchor().hop() == anchor.hop() && decision.zone() != Some(zone))
-                {
-                    return None;
-                }
-                projection_reason(decision.outcome(), decision.anchor().hop(), anchor.hop())
-            });
-        ensure(expected == Some(reason), "event_causality", || {
-            format!(
-                "projection reason {reason:?} differs from committed admission/route boundary {expected:?}"
-            )
-        })
+            || {
+                "projection differs from the first hard contact and matching Waiting decision"
+                    .into()
+            },
+        )
     }
-
     pub fn report(&self) -> Value {
         let mut violations = json!({"overlap":0,"minimum_gap":0,"signal_stop_line":0,"numeric_geometry":0,
             "identity_route_lifecycle":0,"parking_binding":0,"signal_authority":0,"tick_time":0,
@@ -1037,6 +1030,51 @@ fn free_acceleration_bound_mm(speed: u32, acceleration: f64, delta: f64) -> u64 
     // The observer checks a physical upper bound, not another IIDM solution.
     // One millimetre covers prior fractional carry and the f32 motion conversion.
     (f64::from(speed) * delta + 0.5 * acceleration * 1000.0 * delta * delta).ceil() as u64 + 1
+}
+
+fn speed_gain_allowed(before: u32, after: u32, acceleration: f64, delta: f64) -> bool {
+    // Public speeds are integer mm/s; allow one mm/s at the f32 conversion boundary.
+    u64::from(after.saturating_sub(before)) <= (acceleration * delta * 1_000.0).ceil() as u64 + 1
+}
+
+fn expected_projection(
+    world: &TrafficWorld,
+    before: VehicleState,
+    after: VehicleState,
+) -> Option<(u32, WaitingZoneOrdinal, WaitingProjectionReason)> {
+    let hop = after.route_edge_index();
+    if after.speed_mm_s() != 0
+        || after.carry_um() != 0
+        || (before.route_edge_index(), before.progress_mm()) >= (hop, after.progress_mm())
+    {
+        return None;
+    }
+    let boundary = world.route_gate(after.route(), hop)?;
+    if after.progress_mm() != boundary.progress_mm() {
+        return None;
+    }
+    let traffic = world.traffic();
+    let relations = traffic.relations();
+    let gate = relations.maneuver_gate(boundary.gate())?;
+    let path = traffic.maneuvers().maneuver_path(gate.path())?;
+    let zone = path.waiting_zones().iter().copied().find(|zone| {
+        relations
+            .waiting_zone(*zone)
+            .is_some_and(|zone| zone.entry_gate() == boundary.gate())
+    })?;
+    world
+        .latest_waiting_decisions()
+        .iter()
+        .find_map(|decision| {
+            if decision.vehicle() != after.handle()
+                || decision.anchor().route() != after.route()
+                || (decision.anchor().hop() == hop && decision.zone() != Some(zone))
+            {
+                return None;
+            }
+            projection_reason(decision.outcome(), decision.anchor().hop(), hop)
+                .map(|reason| (hop, zone, reason))
+        })
 }
 
 fn waiting_counts_match(members: u32, occupancy: u32, capacity: u32) -> bool {
@@ -1373,6 +1411,17 @@ fn event_key(event: TrafficTransitionEvent) -> EventKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn speed_gain_is_bounded_even_when_displacement_is_small_and_hard_stops_remain_legal() {
+        // 1.5 m/s² for 16 ms permits 24 mm/s, plus one integer rounding unit.
+        assert!(speed_gain_allowed(1_000, 1_024, 1.5, 0.016));
+        assert!(speed_gain_allowed(1_000, 1_025, 1.5, 0.016));
+        assert!(!speed_gain_allowed(1_000, 1_026, 1.5, 0.016));
+        assert!(speed_gain_allowed(20_000, 0, 1.5, 0.016));
+        assert!(10 < free_acceleration_bound_mm(1_000, 1.5, 0.016));
+        assert!(!speed_gain_allowed(1_000, 2_000, 1.5, 0.016));
+    }
 
     #[test]
     fn live_batch_rejects_omitted_completion_entry_and_changed_waiting_release_occurrence() {

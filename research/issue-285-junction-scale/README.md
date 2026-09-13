@@ -55,14 +55,16 @@ Waiting 队列中的多次申请可以来自不同车辆，因此分别列出每
 follower 最小净距（对合法但不足配置净距的旧状态保持其原有净距，不继续缩小）、
 固定身份/路线/生命周期、无停车命令条件下的 binding、tick/time、冻结相位程序与
 snapshot(T) 下的实际过门指示、事件顺序/过门数量/资源因果及 Conflict 排他性。
-Projection 原因须匹配同车的准入决定及首次等待入口接触；本拍开始时持有或本拍新取
+首次等待入口硬停接触与同车的准入决定共同推导应有的 Projection 集合，须与实际事件
+精确相等，原因一并核对；漏报也使运行失败。本拍开始时持有或本拍新取
 得的 Conflict zone 都保留其 owner 到整拍检查结束，释放事件不能让另一 owner 当拍复用。
 资源门 crossing 必须有其精确 occurrence 的 reservation 或 Waiting entry/member
 authority；Waiting 事件还核对静态 entry/release、物理顺序、连续准入 counter、
 逐区 occupancy/capacity。reservation 的 `acquired_tick` 与实际取得事件一致且不漂移，
 完整静态路径（含无门路径）推导每拍应有的 completion 集合，并与事件批次精确比较，
 不能漏报。全部事件核对实际路线中的机动出现项、语义 hop 和规范触发位置；车尾事件
-使用静态 passage 出口加实际车长推导的位置。运动另受固定步长的自由加速上界约束。
+使用静态 passage 出口加实际车长推导的位置。运动同时检查固定步长的位移与正速度
+增量上界；速度允许一个 mm/s 的转换舍入差，硬停减速仍合法。
 Conflict entry/clear 比较完整 passage locator，且必须是实际车头/车尾的首次跨越；
 拍末 claim 的 entered 标志和保留状态也须匹配位置，漏报 entry/clear 同样失败。
 每份拍末 reservation 必须仍有未清空的 claim。Waiting membership 从入口保存精确的
