@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$EvidenceDirectory)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'process-memory.ps1')
 $freezePath = Join-Path $EvidenceDirectory 'freeze.json'
 $freeze = Get-Content -LiteralPath $freezePath -Raw | ConvertFrom-Json -AsHashtable
 $freezeHash = (Get-FileHash -LiteralPath $freezePath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -33,6 +34,7 @@ function Invoke-EvidenceProcess([string]$Name, [string]$Executable, [string[]]$A
     $started = [DateTime]::UtcNow
     $background = @(Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 30 ProcessName,Id,CPU,WorkingSet64)
     if (-not $process.Start()) { throw "Unable to start $Name" }
+    $processHandle = $process.SafeHandle
     $stdoutFile = [IO.File]::Open((Join-Path $EvidenceDirectory "$Name.stdout.log"), [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite)
     $stderrFile = [IO.File]::Open((Join-Path $EvidenceDirectory "$Name.stderr.log"), [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite)
     $stdout = $process.StandardOutput.BaseStream.CopyToAsync($stdoutFile)
@@ -42,16 +44,21 @@ function Invoke-EvidenceProcess([string]$Name, [string]$Executable, [string[]]$A
     $peakPaged = 0L
     $lastStatus = [DateTime]::MinValue
     while (-not $process.WaitForExit(500)) {
-        $process.Refresh()
-        $peakWorkingSet = [Math]::Max($peakWorkingSet, $process.PeakWorkingSet64)
-        $peakPrivateSampled = [Math]::Max($peakPrivateSampled, $process.PrivateMemorySize64)
-        $peakPaged = [Math]::Max($peakPaged, $process.PeakPagedMemorySize64)
+        $memory = [JunctionProcessMemory]::Read($processHandle)
+        $peakWorkingSet = [Math]::Max($peakWorkingSet, [long]$memory.PeakWorkingSetSize.ToUInt64())
+        $peakPrivateSampled = [Math]::Max($peakPrivateSampled, [long]$memory.PrivateUsage.ToUInt64())
+        $peakPaged = [Math]::Max($peakPaged, [long]$memory.PeakPagefileUsage.ToUInt64())
         if (([DateTime]::UtcNow - $lastStatus).TotalSeconds -ge 10) {
             @{ run = $Name; pid = $process.Id; startedUtc = $started.ToString('o'); elapsedSeconds = ([DateTime]::UtcNow - $started).TotalSeconds; peakWorkingSetBytes = $peakWorkingSet; privateBytesSampledPeak = $peakPrivateSampled } |
                 ConvertTo-Json | Set-Content -LiteralPath (Join-Path $EvidenceDirectory 'running.json') -Encoding utf8NoBOM
             $lastStatus = [DateTime]::UtcNow
         }
     }
+    # Includes short processes and allocations during final result serialization.
+    $memory = [JunctionProcessMemory]::Read($processHandle)
+    $peakWorkingSet = [Math]::Max($peakWorkingSet, [long]$memory.PeakWorkingSetSize.ToUInt64())
+    $peakPrivateSampled = [Math]::Max($peakPrivateSampled, [long]$memory.PrivateUsage.ToUInt64())
+    $peakPaged = [Math]::Max($peakPaged, [long]$memory.PeakPagefileUsage.ToUInt64())
     [void]$stdout.GetAwaiter().GetResult()
     [void]$stderr.GetAwaiter().GetResult()
     $stdoutFile.Dispose()
@@ -60,12 +67,14 @@ function Invoke-EvidenceProcess([string]$Name, [string]$Executable, [string[]]$A
         executable = $Executable; binarySha256 = (Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash.ToLowerInvariant(); arguments = $Arguments; environmentOverrides = $Environment
         startedUtc = $started.ToString('o'); finishedUtc = [DateTime]::UtcNow.ToString('o'); elapsedSeconds = ([DateTime]::UtcNow - $started).TotalSeconds; exitCode = $process.ExitCode
         peakWorkingSetBytes = $peakWorkingSet; privateBytesSampledPeak = $peakPrivateSampled; processCommitPeakBytes = $peakPaged
-        memorySampling = '500ms private bytes; OS lifetime peak working set and peak pagefile-backed commit; component ledger is separate'
+        memorySampling = '500ms private bytes; final retained-handle read of OS lifetime peak working set and peak pagefile-backed commit after exit; component ledger is separate'
         backgroundProcessesBefore = $background
     }
     $metadata | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $metadataPath -Encoding utf8NoBOM
     Write-Output "$Name exit=$($process.ExitCode) elapsed=$([Math]::Round($metadata.elapsedSeconds,1))s"
-    if ($process.ExitCode -ne 0) { throw "Execution failed; artifacts preserved: $Name" }
+    $exitCode = $process.ExitCode
+    $process.Dispose()
+    if ($exitCode -ne 0) { throw "Execution failed; artifacts preserved: $Name" }
 }
 
 for ($round = 1; $round -le 3; $round++) {
