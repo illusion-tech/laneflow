@@ -57,7 +57,7 @@ const SCREENSHOT_FRAME: u32 = 150;
 /// screenshot 模式窗口分辨率（宽, 高）。
 const SCREENSHOT_RESOLUTION: (u32, u32) = (1_600, 1_000);
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<AppExit, Box<dyn Error>> {
     let scene = junction_debug_scene::build()?;
     let cli = CliArgs::parse();
     let mut app = App::new();
@@ -117,8 +117,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ));
         app.add_systems(Update, screenshot_at_frame);
     }
-    app.run();
-    Ok(())
+    Ok(app.run())
 }
 
 /// 相机预设：`persp` 低机位透视（常规画面）；`topdown` 正交垂直向下看全路口
@@ -257,14 +256,23 @@ fn screenshot_at_frame(
     let path = job.path.clone();
     commands.spawn(Screenshot::primary_window()).observe(
         move |captured: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-            match captured.image.clone().try_into_dynamic() {
+            let result = match captured.image.clone().try_into_dynamic() {
                 Ok(dynamic) => match dynamic.to_rgb8().save(&path) {
-                    Ok(()) => info!("screenshot saved to {}", path.display()),
-                    Err(error) => error!("screenshot 保存失败: {error}"),
+                    Ok(()) => {
+                        info!("screenshot saved to {}", path.display());
+                        AppExit::Success
+                    }
+                    Err(error) => {
+                        error!("screenshot 保存失败: {error}");
+                        AppExit::error()
+                    }
                 },
-                Err(error) => error!("screenshot 转换失败: {error:?}"),
-            }
-            exit.write(AppExit::Success);
+                Err(error) => {
+                    error!("screenshot 转换失败: {error:?}");
+                    AppExit::error()
+                }
+            };
+            exit.write(result);
         },
     );
 }
@@ -905,6 +913,11 @@ fn spawn_lane_arrows(
             strips.push(([Vec3::new(0.45, 0.0, 0.75), Vec3::new(0.0, 0.0, 1.5)], 0.22));
         }
         if bits & 0b010 != 0 {
+            strips.push(([Vec3::new(0.0, 0.0, 0.55), Vec3::new(1.05, 0.0, 0.55)], 0.3));
+            strips.push(([Vec3::new(0.8, 0.0, 0.95), Vec3::new(1.6, 0.0, 0.55)], 0.22));
+            strips.push(([Vec3::new(0.8, 0.0, 0.15), Vec3::new(1.6, 0.0, 0.55)], 0.22));
+        }
+        if bits & 0b100 != 0 {
             strips.push((
                 [Vec3::new(0.0, 0.0, 0.55), Vec3::new(-1.05, 0.0, 0.55)],
                 0.3,
@@ -917,11 +930,6 @@ fn spawn_lane_arrows(
                 [Vec3::new(-0.8, 0.0, 0.15), Vec3::new(-1.6, 0.0, 0.55)],
                 0.22,
             ));
-        }
-        if bits & 0b100 != 0 {
-            strips.push(([Vec3::new(0.0, 0.0, 0.55), Vec3::new(1.05, 0.0, 0.55)], 0.3));
-            strips.push(([Vec3::new(0.8, 0.0, 0.95), Vec3::new(1.6, 0.0, 0.55)], 0.22));
-            strips.push(([Vec3::new(0.8, 0.0, 0.15), Vec3::new(1.6, 0.0, 0.55)], 0.22));
         }
         for (points, width) in strips {
             let Some(mesh) = ribbon_mesh(&points, width, MARKING_Y, 0.0, false) else {
@@ -1530,8 +1538,8 @@ fn apply_overlay_visuals(
                 let tangent = record.pose().tangent();
                 let forward = Vec3::new(tangent.x(), tangent.y(), tangent.z());
                 target.translation -= forward * metrics.half_length;
-                // 高亮框贴地（不随车体抬升）。
-                target.translation -= Vec3::Y * (VEHICLE_HEIGHT_METERS * 0.5 + 0.02);
+                // pose 在路面上；0.12 m 高的框底面放在标线高度。
+                target.translation += Vec3::Y * (MARKING_Y + 0.06);
                 target
             })
     });
@@ -1545,5 +1553,108 @@ fn apply_overlay_visuals(
                 *visibility = Visibility::Hidden;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selected_marker_tracks_vehicle_center_above_lane_surface() {
+        let mut scene = junction_debug_scene::build().unwrap();
+        let selected = scene.spawned[0].vehicle;
+        let mut buffer = PoseBuffer::default();
+        scene
+            .session
+            .extract_committed_pose_batch(FramePlacementToken::new(1), &mut buffer.0)
+            .unwrap();
+        let record = &buffer.0.batch().records()[0];
+        let position = record.pose().position();
+        let tangent = record.pose().tangent();
+        let expected_center = Vec3::new(position.x(), position.y(), position.z())
+            - Vec3::new(tangent.x(), tangent.y(), tangent.z()) * 2.25;
+        let mut app = App::new();
+        app.insert_resource(JunctionDebugConfig { enabled: true })
+            .insert_resource(buffer)
+            .insert_resource(VehicleMetrics { half_length: 2.25 })
+            .insert_resource(JunctionDebugPanel {
+                selected: Some(selected),
+                ..default()
+            })
+            .add_systems(Update, apply_overlay_visuals);
+        let marker = app
+            .world_mut()
+            .spawn((
+                SelectedVehicleMarker,
+                Transform::IDENTITY,
+                Visibility::Hidden,
+            ))
+            .id();
+        app.update();
+        let transform = app.world().get::<Transform>(marker).unwrap();
+        assert!((transform.translation.x - expected_center.x).abs() < 0.001);
+        assert!((transform.translation.z - expected_center.z).abs() < 0.001);
+        assert!(transform.translation.y - 0.06 >= expected_center.y + MARKING_Y - 0.001);
+        assert_eq!(
+            *app.world().get::<Visibility>(marker).unwrap(),
+            Visibility::Visible
+        );
+        app.world_mut()
+            .resource_mut::<JunctionDebugPanel>()
+            .selected = None;
+        app.update();
+        assert_eq!(
+            *app.world().get::<Visibility>(marker).unwrap(),
+            Visibility::Hidden
+        );
+    }
+
+    #[test]
+    fn east_inbound_left_turn_arrow_points_toward_its_exit() {
+        use bevy::mesh::VertexAttributeValues;
+
+        let scene = junction_debug_scene::build().unwrap();
+        let revision = scene.session.world().revision();
+        let lane_pose = revision.spatial().unwrap().lane_pose().unwrap();
+        let edges = junction_debug_scene::edge_ordinals(&revision);
+        let points = lane_pose.lane_geometry(edges["e-in-i1"]).unwrap().points();
+        let center = point_to_vec3(points.last().unwrap())
+            - end_tangent(points).unwrap() * ARROW_SETBACK_METERS;
+        let mut world = World::new();
+        let mut meshes = Assets::<Mesh>::default();
+        spawn_lane_arrows(
+            &mut world.commands(),
+            &mut meshes,
+            scene.session.world(),
+            &revision,
+            lane_pose,
+            Handle::default(),
+        );
+        world.flush();
+        let mut extents = (f32::INFINITY, f32::NEG_INFINITY);
+        for (mesh, transform) in world.query::<(&Mesh3d, &Transform)>().iter(&world) {
+            if transform.translation.distance(center) > 0.001 {
+                continue;
+            }
+            let Some(VertexAttributeValues::Float32x3(positions)) = meshes
+                .get(&mesh.0)
+                .unwrap()
+                .attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("arrow mesh positions");
+            };
+            for point in positions {
+                let lateral = transform.transform_point(Vec3::from_array(*point)).z - center.z;
+                extents.0 = extents.0.min(lateral);
+                extents.1 = extents.1.max(lateral);
+            }
+        }
+        // 东进口向西行驶，左转出口在南侧（+Z）；直行箭头只占中央窄带。
+        assert!(extents.1 > 1.5, "missing southward turn head: {extents:?}");
+        assert!(
+            extents.0 > -0.8,
+            "unexpected northward turn head: {extents:?}"
+        );
     }
 }
