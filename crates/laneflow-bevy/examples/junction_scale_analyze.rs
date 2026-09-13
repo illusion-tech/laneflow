@@ -44,6 +44,11 @@ fn same_state(left: &Value, right: &Value) -> Result<()> {
             == text(&right["validation"]["trajectory_sha256"])?,
         "per-identity per-tick trajectory mismatch",
     )?;
+    require(
+        text(&left["validation"]["domain_batches_sha256"])?
+            == text(&right["validation"]["domain_batches_sha256"])?,
+        "warmup/observation decision and event mismatch",
+    )?;
     for key in [
         "initial_state_digest",
         "final_state_digest",
@@ -201,6 +206,10 @@ fn fidelity(result: &Value) -> Result<()> {
     require(
         text(&validation["trajectory_sha256"])?.len() == 64,
         "missing per-tick trajectory digest",
+    )?;
+    require(
+        text(&validation["domain_batches_sha256"])?.len() == 64,
+        "missing all-tick decision/event digest",
     )?;
     let ticks =
         number(&result["input"]["warmup_ticks"])? + number(&result["input"]["observation_ticks"])?;
@@ -589,6 +598,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn warmup_batch_differences_are_rejected_after_state_convergence() {
+        let baseline = json!({
+            "initial_state_digest":"initial", "final_state_digest":"converged",
+            "domain_event_digest":"same-observation", "checkpoints":[1,2,3],
+            "validation":{"trajectory_sha256":"a".repeat(64), "domain_batches_sha256":"b".repeat(64)}
+        });
+        same_state(&baseline, &baseline).unwrap();
+        let mut changed_warmup = baseline.clone();
+        changed_warmup["validation"]["domain_batches_sha256"] = json!("c".repeat(64));
+        assert!(same_state(&baseline, &changed_warmup).is_err());
+    }
+
+    #[test]
     fn failed_or_mismatched_process_evidence_is_rejected_in_release_too() -> Result<()> {
         let directory =
             std::env::temp_dir().join(format!("junction-analysis-test-{}", std::process::id()));
@@ -725,7 +747,7 @@ mod tests {
         let original = json!({"input":{"warmup_ticks":8,"observation_ticks":16,"vehicles":10},
             "counts":{"frames":12,"pose_rows_per_frame":10,"transform_rows_per_frame":10},
             "presentation_validation":{"checked_pose_rows":120,"checked_transform_rows":120,"violations":0},
-            "validation":{"schema":"junction-scale-validation-v1","trajectory_sha256":"a".repeat(64),"checked_ticks":24,"checked_vehicle_rows":240,
+            "validation":{"schema":"junction-scale-validation-v1","trajectory_sha256":"a".repeat(64),"domain_batches_sha256":"b".repeat(64),"checked_ticks":24,"checked_vehicle_rows":240,
                 "checked_gate_crossings":1,"checked_events":1,"checked_observation_ticks":24,"failure":null,"violations":{
                     "overlap":0,"minimum_gap":0,"signal_stop_line":0,"numeric_geometry":0,"identity_route_lifecycle":0,
                     "parking_binding":0,"signal_authority":0,"tick_time":0,"event_order":0,"event_causality":0,"conflict_exclusivity":0,"observation_projection":0}}});

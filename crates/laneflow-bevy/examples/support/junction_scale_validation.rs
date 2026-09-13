@@ -41,6 +41,7 @@ pub struct Validation {
     previous_bodies: Vec<Body>,
     trajectory_bytes: Vec<u8>,
     trajectory: Sha256,
+    domain_batches: Sha256,
     expected_gates: Vec<(u32, u32, u32)>,
     actual_gates: Vec<(u32, u32, u32)>,
     geometries: Vec<RouteGeometry>,
@@ -99,6 +100,7 @@ impl Validation {
             previous_bodies: Vec::with_capacity(previous.len() * 2),
             trajectory_bytes: Vec::with_capacity(previous.len() * 40 + 16),
             trajectory: Sha256::new(),
+            domain_batches: Sha256::new(),
             expected_gates: Vec::new(),
             actual_gates: Vec::new(),
             geometries: geometries.into_iter().collect::<Check<Vec<_>>>()?,
@@ -186,6 +188,16 @@ impl Validation {
             append_trajectory(&mut self.trajectory_bytes, state);
         }
         self.trajectory.update(&self.trajectory_bytes);
+        self.domain_batches.update(world.tick_index().to_le_bytes());
+        for batch in [
+            format!("{:?}", world.latest_waiting_decisions()),
+            format!("{:?}", world.latest_conflict_decisions()),
+            format!("{:?}", world.latest_transition_events()),
+        ] {
+            self.domain_batches
+                .update((batch.len() as u64).to_le_bytes());
+            self.domain_batches.update(batch.as_bytes());
+        }
         self.previous.clone_from(&self.current);
         self.previous_bodies.clone_from(&self.bodies);
         self.tick = world.tick_index();
@@ -700,6 +712,10 @@ impl Validation {
                 }
                 TrafficTransitionKind::ReservationAcquired { passage_range } => {
                     check_reservation_range(world, passage_range)?;
+                    let first_passage = world.conflict_passage_occurrence_locator(
+                        passage_range.route(),
+                        passage_range.first_conflict_occurrence_index(),
+                    );
                     ensure(
                         passage_range.route() == state.route()
                             && passage_range.admission_gate_hop() == anchor.hop()
@@ -710,6 +726,7 @@ impl Validation {
                                     && decision.anchor().route() == state.route()
                                     && decision.anchor().hop() == anchor.hop()
                                     && decision.outcome() == ConflictDecisionOutcome::Granted
+                                    && decision.passage() == first_passage
                             }),
                         "event_causality",
                         || {
@@ -976,6 +993,9 @@ impl Validation {
                 || "conflict decision owner/route/order mismatch".into(),
             )?;
             previous_key = Some(key);
+            if decision.outcome() == ConflictDecisionOutcome::Granted {
+                check_granted_passage(world, anchor.route(), anchor.hop(), decision.passage())?;
+            }
             if let Some(passage) = decision.passage() {
                 ensure(
                     passage.route() == anchor.route()
@@ -1021,6 +1041,7 @@ impl Validation {
         }
         json!({"schema":"junction-scale-validation-v1", "checked_ticks":self.checked_ticks,
             "trajectory_sha256":self.trajectory.clone().finalize().iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
+            "domain_batches_sha256":self.domain_batches.clone().finalize().iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
             "checked_vehicle_rows":self.checked_vehicle_rows,"checked_gate_crossings":self.checked_gate_crossings,
             "checked_events":self.checked_events,"checked_observation_ticks":self.checked_observation_ticks,
             "violations":violations,"failure":self.failure,
@@ -1269,6 +1290,59 @@ fn check_reservation_range(world: &TrafficWorld, range: ConflictPassageRange) ->
     )
 }
 
+fn gate_requires_conflict(world: &TrafficWorld, gate: ManeuverGateOrdinal) -> Check<bool> {
+    let declaration = world
+        .traffic()
+        .relations()
+        .maneuver_gate(gate)
+        .ok_or_else(|| ("event_causality", "resource gate missing".into()))?;
+    let revision = world.revision();
+    let streams = revision
+        .conflict()
+        .maneuver_path_participant_streams(declaration.path())
+        .ok_or_else(|| ("event_causality", "gate path missing".into()))?;
+    Ok(streams.iter().any(|&stream| {
+        revision
+            .conflict()
+            .participant_stream(stream)
+            .is_some_and(|stream| {
+                stream
+                    .passages()
+                    .iter()
+                    .any(|passage| passage.admission_gate() == gate)
+            })
+    }))
+}
+
+fn check_granted_passage(
+    world: &TrafficWorld,
+    route: laneflow_runtime::RouteHandle,
+    hop: u32,
+    passage: Option<ConflictPassageOccurrenceLocator>,
+) -> Check {
+    let gate = world
+        .route_gate(route, hop)
+        .ok_or_else(|| ("event_causality", "granted gate missing".into()))?;
+    let first_matches = passage.is_none_or(|value| {
+        value.route() == route
+            && value.admission_gate_hop() == hop
+            && world.conflict_passage_occurrence_locator(route, value.conflict_occurrence_index())
+                == Some(value)
+            && (value.conflict_occurrence_index() == 0
+                || world
+                    .conflict_passage_occurrence_locator(
+                        route,
+                        value.conflict_occurrence_index() - 1,
+                    )
+                    .is_none_or(|previous| previous.admission_gate_hop() != hop))
+    });
+    ensure(
+        passage.is_some() == gate_requires_conflict(world, gate.gate())? && first_matches,
+        "event_causality",
+        || "Granted passage is not the canonical first occurrence of its resource gate".into(),
+    )
+}
+
 fn check_gate_resources(
     world: &TrafficWorld,
     state: VehicleState,
@@ -1283,23 +1357,7 @@ fn check_gate_resources(
         .relations()
         .maneuver_gate(gate)
         .ok_or_else(|| ("event_causality", "crossed gate missing".into()))?;
-    let revision = world.revision();
-    let streams = revision
-        .conflict()
-        .maneuver_path_participant_streams(declaration.path())
-        .ok_or_else(|| ("event_causality", "gate path missing".into()))?;
-    let requires_conflict = streams.iter().any(|&stream| {
-        revision
-            .conflict()
-            .participant_stream(stream)
-            .is_some_and(|stream| {
-                stream
-                    .passages()
-                    .iter()
-                    .any(|passage| passage.admission_gate() == gate)
-            })
-    });
-    if requires_conflict {
+    if gate_requires_conflict(world, gate)? {
         let range = authority.ok_or_else(|| {
             (
                 "event_causality",
@@ -1578,6 +1636,38 @@ fn event_key(event: TrafficTransitionEvent) -> EventKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn multi_passage_grant_requires_the_first_locator_not_none_or_a_later_passage() {
+        let scene = scene::build().unwrap();
+        let world = scene.session.world();
+        for &vehicle in world.live_vehicles() {
+            let route = world.vehicle(vehicle).unwrap().route();
+            let mut index = 0;
+            while let Some(first) = world.conflict_passage_occurrence_locator(route, index) {
+                let Some(second) = world.conflict_passage_occurrence_locator(route, index + 1)
+                else {
+                    break;
+                };
+                if first.admission_gate_hop() == second.admission_gate_hop()
+                    && (index == 0
+                        || world
+                            .conflict_passage_occurrence_locator(route, index - 1)
+                            .unwrap()
+                            .admission_gate_hop()
+                            != first.admission_gate_hop())
+                {
+                    let hop = first.admission_gate_hop();
+                    check_granted_passage(world, route, hop, Some(first)).unwrap();
+                    assert!(check_granted_passage(world, route, hop, None).is_err());
+                    assert!(check_granted_passage(world, route, hop, Some(second)).is_err());
+                    return;
+                }
+                index += 1;
+            }
+        }
+        panic!("fixture must exercise a multi-passage gate");
+    }
 
     #[test]
     fn speed_gain_is_bounded_even_when_displacement_is_small_and_hard_stops_remain_legal() {
