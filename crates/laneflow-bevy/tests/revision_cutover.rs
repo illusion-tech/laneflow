@@ -299,6 +299,7 @@ fn live_session_cross_revision_cutover_preserves_identity_and_mappings() {
     session.bind_vehicle_entity(vehicle, entity).expect("bind");
     let world_id = session.world().world_id();
     let generation = session.world().world_generation();
+    let old_observation_context = session.junction_observation().context();
 
     let target_spatial = laneflow_spatial::SpatialSession::bind(Arc::clone(&fixture.r2.root))
         .expect("bind")
@@ -330,6 +331,25 @@ fn live_session_cross_revision_cutover_preserves_identity_and_mappings() {
         "RouteHandle 跨切换保持有效"
     );
     assert_eq!(session.vehicle_entity(vehicle), Some(entity));
+    let view = session.junction_observation();
+    assert_ne!(view.context(), old_observation_context);
+    assert_eq!(
+        view.context().world_id(),
+        old_observation_context.world_id()
+    );
+    assert_eq!(
+        view.context().world_generation().get(),
+        generation.get() + 1
+    );
+    assert_eq!(
+        view.context().network_revision(),
+        fixture.r2.root.canonical_origin().network_revision()
+    );
+    assert!(Arc::ptr_eq(&view.revision(), &fixture.r2.root));
+    assert!(
+        view.vehicles()
+            .any(|row| row.vehicle() == vehicle && row.state().route() == route)
+    );
     // 恰一次事件交付；换出的旧 Spatial 与根同源。
     assert!(!record.events().is_empty());
     let retired = record.retired_spatial().expect("retired spatial");
