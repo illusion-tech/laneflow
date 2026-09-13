@@ -2,7 +2,7 @@
 //! 领域求解边界复用 Runtime 专项；这里检查 Session 消费链不丢失或误归属已提交事实。
 
 #[allow(dead_code)]
-#[path = "../examples/support/junction_debug_scene.rs"]
+#[path = "junction_debug_scene.rs"]
 mod scene;
 
 use std::{sync::Arc, time::Duration};

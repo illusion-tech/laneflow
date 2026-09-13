@@ -72,5 +72,9 @@ path = "examples/support/junction_observation.rs"
 name = "junction_debug_smoke"
 path = "examples/support/junction_debug_smoke.rs"
 
+[[test]]
+name = "junction_acceptance"
+path = "examples/support/junction_acceptance.rs"
+
 [lints]
 workspace = true
