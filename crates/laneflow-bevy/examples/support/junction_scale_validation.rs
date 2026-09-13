@@ -7,11 +7,12 @@ use std::collections::BTreeMap;
 use bevy_ecs::resource::Resource;
 use laneflow_runtime::{
     ConflictPassageRange, TrafficTransitionEvent, TrafficTransitionKind, TrafficWorld,
-    VehicleState, VehicleStatus, WorldGeneration,
+    VehicleState, VehicleStatus, WaitingDecisionOutcome, WaitingNoGrantReason,
+    WaitingProjectionReason, WorldGeneration,
 };
 use laneflow_static_contract::{
     EntityKind, GateInterpretation, GateProhibition, ManeuverGateOrdinal, SignalAspect,
-    SignalControllerOrdinal,
+    SignalControllerOrdinal, WaitingZoneOrdinal,
 };
 use serde_json::{Value, json};
 
@@ -32,6 +33,7 @@ pub struct Validation {
     previous: Vec<VehicleState>,
     current: Vec<VehicleState>,
     bodies: Vec<Body>,
+    previous_bodies: Vec<Body>,
     expected_gates: Vec<(u32, u32, u32)>,
     actual_gates: Vec<(u32, u32, u32)>,
     signals: Vec<SignalAspect>,
@@ -66,6 +68,7 @@ impl Validation {
         let mut result = Self {
             current: Vec::with_capacity(previous.len()),
             bodies: Vec::with_capacity(previous.len() * 2),
+            previous_bodies: Vec::with_capacity(previous.len() * 2),
             expected_gates: Vec::new(),
             actual_gates: Vec::new(),
             signals: vec![
@@ -91,6 +94,7 @@ impl Validation {
         };
         result.check_signals(world)?;
         result.check_states(world, false)?;
+        result.previous_bodies.clone_from(&result.bodies);
         Ok(result)
     }
 
@@ -113,6 +117,7 @@ impl Validation {
         self.check_events(world)?;
         self.check_signals(world)?;
         self.previous.clone_from(&self.current);
+        self.previous_bodies.clone_from(&self.bodies);
         self.tick = world.tick_index();
         self.time = world.time_ms();
         self.checked_ticks += 1;
@@ -226,6 +231,47 @@ impl Validation {
                 ),
             ));
         }
+        if stepped {
+            for (index, (&before, &after)) in self.previous.iter().zip(&self.current).enumerate() {
+                let minimum = u64::from(
+                    traffic
+                        .relations()
+                        .vehicle_profile(after.profile())
+                        .ok_or_else(|| ("minimum_gap", "profile missing".into()))?
+                        .min_gap_mm(),
+                ) * 1000;
+                let route = world
+                    .route_edges(after.route())
+                    .ok_or_else(|| ("minimum_gap", "route missing".into()))?;
+                let before_gap = body_gap(
+                    &self.previous_bodies,
+                    route,
+                    lengths,
+                    before.route_edge_index() as usize,
+                    u64::from(before.progress_mm()) * 1000,
+                    index,
+                    minimum,
+                );
+                let after_gap = body_gap(
+                    &self.bodies,
+                    route,
+                    lengths,
+                    after.route_edge_index() as usize,
+                    u64::from(after.progress_mm()) * 1000,
+                    index,
+                    minimum,
+                );
+                ensure(
+                    minimum_gap_preserved(before_gap, after_gap, minimum),
+                    "minimum_gap",
+                    || {
+                        format!(
+                            "vehicle {index}: previous gap={before_gap}, current gap={after_gap}, profile minimum={minimum} (um); before={before:?}, after={after:?}"
+                        )
+                    },
+                )?;
+            }
+        }
         Ok(())
     }
 
@@ -316,6 +362,12 @@ impl Validation {
     fn check_events(&mut self, world: &TrafficWorld) -> Check {
         self.actual_gates.clear();
         let mut previous_key = None;
+        // Keep tick-start and newly acquired owners even after release events:
+        // committed resources cannot be reused by another owner in this tick.
+        let mut held_this_tick = BTreeMap::new();
+        for (&(owner, _), &(zone, _)) in &self.claims {
+            hold_zone(&mut held_this_tick, zone, owner)?;
+        }
         for &event in world.latest_transition_events() {
             let index = event.vehicle_update_sequence() as usize;
             let state = self
@@ -385,6 +437,7 @@ impl Validation {
                             .ok_or_else(|| {
                                 ("event_causality", "reservation passage missing".into())
                             })?;
+                        hold_zone(&mut held_this_tick, passage.address().zone().raw(), handle)?;
                         ensure(
                             self.claims
                                 .insert(
@@ -428,12 +481,8 @@ impl Validation {
                         || "reservation released before claims cleared".into(),
                     )?;
                 }
-                TrafficTransitionKind::ProjectionApplied { zone, .. } => {
-                    ensure(
-                        world.waiting_zone(zone).is_some(),
-                        "event_causality",
-                        || "projection references missing waiting zone".into(),
-                    )?;
+                TrafficTransitionKind::ProjectionApplied { zone, reason } => {
+                    self.check_projection(world, event, zone, reason)?;
                 }
                 TrafficTransitionKind::ManeuverTraversalCompleted {
                     maneuver_occurrence_index,
@@ -451,19 +500,11 @@ impl Validation {
             "event_causality",
             || "gate event batch differs from actual route crossings".into(),
         )?;
-        let mut zone_owners = BTreeMap::new();
-        for (&(owner, _), &(zone, _)) in &self.claims {
+        for &(owner, _) in self.claims.keys() {
             ensure(
                 self.reservations.contains_key(&owner),
                 "event_causality",
                 || "claim has no reservation owner".into(),
-            )?;
-            ensure(
-                zone_owners
-                    .insert(zone, owner)
-                    .is_none_or(|old| old == owner),
-                "conflict_exclusivity",
-                || format!("conflict zone {zone} has multiple reservation owners"),
             )?;
         }
         for (index, state) in self.current.iter().enumerate() {
@@ -493,8 +534,57 @@ impl Validation {
         Ok(())
     }
 
+    fn check_projection(
+        &self,
+        world: &TrafficWorld,
+        event: TrafficTransitionEvent,
+        zone: WaitingZoneOrdinal,
+        reason: WaitingProjectionReason,
+    ) -> Check {
+        let index = event.vehicle_update_sequence() as usize;
+        let before = self.previous[index];
+        let after = self.current[index];
+        let anchor = event.anchor();
+        let boundary = world
+            .route_gate(anchor.route(), anchor.hop())
+            .ok_or_else(|| ("event_causality", "projection has no gate".into()))?;
+        let waiting = world
+            .traffic()
+            .relations()
+            .waiting_zone(zone)
+            .ok_or_else(|| ("event_causality", "projection has no waiting zone".into()))?;
+        ensure(
+            waiting.entry_gate() == boundary.gate()
+                && (before.route_edge_index(), before.progress_mm())
+                    < (anchor.hop(), boundary.progress_mm())
+                && (after.route_edge_index(), after.progress_mm())
+                    == (anchor.hop(), boundary.progress_mm())
+                && after.speed_mm_s() == 0
+                && after.carry_um() == 0,
+            "event_causality",
+            || "projection is not the first hard contact with its waiting entry".into(),
+        )?;
+        let expected = world
+            .latest_waiting_decisions()
+            .iter()
+            .find_map(|decision| {
+                if decision.vehicle() != event.vehicle()
+                    || decision.anchor().route() != anchor.route()
+                    || (decision.anchor().hop() == anchor.hop() && decision.zone() != Some(zone))
+                {
+                    return None;
+                }
+                projection_reason(decision.outcome(), decision.anchor().hop(), anchor.hop())
+            });
+        ensure(expected == Some(reason), "event_causality", || {
+            format!(
+                "projection reason {reason:?} differs from committed admission/route boundary {expected:?}"
+            )
+        })
+    }
+
     pub fn report(&self) -> Value {
-        let mut violations = json!({"overlap":0,"signal_stop_line":0,"numeric_geometry":0,
+        let mut violations = json!({"overlap":0,"minimum_gap":0,"signal_stop_line":0,"numeric_geometry":0,
             "identity_route_lifecycle":0,"parking_binding":0,"signal_authority":0,"tick_time":0,
             "event_order":0,"event_causality":0,"conflict_exclusivity":0});
         if let Some((kind, _)) = &self.failure {
@@ -510,6 +600,94 @@ impl Validation {
 
 fn delta_seconds(world: &TrafficWorld) -> f64 {
     world.config().fixed_delta_time_ms() as f64 / 1000.0
+}
+
+fn projection_reason(
+    outcome: WaitingDecisionOutcome,
+    decision_hop: u32,
+    contact_hop: u32,
+) -> Option<WaitingProjectionReason> {
+    match outcome {
+        WaitingDecisionOutcome::NoGrant(WaitingNoGrantReason::Capacity)
+            if decision_hop == contact_hop =>
+        {
+            Some(WaitingProjectionReason::Capacity)
+        }
+        WaitingDecisionOutcome::NoGrant(WaitingNoGrantReason::PhysicalStorage)
+            if decision_hop == contact_hop =>
+        {
+            Some(WaitingProjectionReason::PhysicalStorage)
+        }
+        WaitingDecisionOutcome::Granted if decision_hop < contact_hop => {
+            Some(WaitingProjectionReason::EvaluationHorizon)
+        }
+        _ => None,
+    }
+}
+
+fn hold_zone(held: &mut BTreeMap<u32, usize>, zone: u32, owner: usize) -> Check {
+    ensure(
+        held.get(&zone).is_none_or(|previous| *previous == owner),
+        "conflict_exclusivity",
+        || format!("conflict zone {zone} reused by owner {owner} within one tick"),
+    )?;
+    held.insert(zone, owner);
+    Ok(())
+}
+
+fn minimum_gap_preserved(before: u64, after: u64, minimum: u64) -> bool {
+    after >= before.min(minimum)
+}
+
+// Observe only the short route interval in which the profile minimum can be
+// violated. Body buckets are sorted physical intervals; no motion is predicted.
+#[allow(clippy::too_many_arguments)]
+fn body_gap(
+    bodies: &[Body],
+    route: &[laneflow_static_contract::LaneEdgeOrdinal],
+    lengths: &[u32],
+    cursor: usize,
+    front: u64,
+    owner: usize,
+    maximum: u64,
+) -> u64 {
+    let mut best = maximum;
+    let mut base = 0;
+    for (index, edge) in route.iter().enumerate().skip(cursor) {
+        if base > best {
+            break;
+        }
+        let lower = if index == cursor {
+            front.saturating_sub(u64::from(laneflow_static_contract::MAX_VEHICLE_LENGTH_MM) * 1000)
+        } else {
+            0
+        };
+        let first = bodies.partition_point(|body| (body.0, body.1) < (edge.raw(), lower));
+        for body in &bodies[first..] {
+            if body.0 != edge.raw() {
+                break;
+            }
+            let gap = if index == cursor {
+                body.1.saturating_sub(front)
+            } else {
+                base + body.1
+            };
+            if gap > best {
+                break;
+            }
+            if body.3 == owner || (index == cursor && body.2 <= front) {
+                continue;
+            }
+            best = best.min(gap);
+        }
+        let length = u64::from(lengths[edge.index()]) * 1000;
+        base += if index == cursor {
+            length - front
+        } else {
+            length
+        };
+    }
+    best
 }
 
 fn append_body(
@@ -618,6 +796,73 @@ fn event_key(event: TrafficTransitionEvent) -> EventKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn minimum_gap_rejects_contraction_without_overlap_but_preserves_initial_short_gap() {
+        use laneflow_static_contract::LaneEdgeOrdinal;
+        let route = [LaneEdgeOrdinal::from_raw(0), LaneEdgeOrdinal::from_raw(1)];
+        let lengths = [10_000, 10_000];
+        let before = body_gap(
+            &[(1, 1_000_000, 5_500_000, 1)],
+            &route,
+            &lengths,
+            0,
+            9_000_000,
+            0,
+            2_000_000,
+        );
+        let after = body_gap(
+            &[(1, 999_000, 5_499_000, 1)],
+            &route,
+            &lengths,
+            0,
+            9_000_000,
+            0,
+            2_000_000,
+        );
+        assert_eq!(before, 2_000_000);
+        assert_eq!(after, 1_999_000);
+        assert!(!minimum_gap_preserved(before, after, 2_000_000));
+        assert!(minimum_gap_preserved(1_000_000, 1_000_000, 2_000_000));
+        assert!(!minimum_gap_preserved(1_000_000, 999_000, 2_000_000));
+    }
+
+    #[test]
+    fn projection_reason_requires_the_matching_decision_and_contact_hop() {
+        let capacity = WaitingDecisionOutcome::NoGrant(WaitingNoGrantReason::Capacity);
+        let storage = WaitingDecisionOutcome::NoGrant(WaitingNoGrantReason::PhysicalStorage);
+        assert_eq!(
+            projection_reason(capacity, 2, 2),
+            Some(WaitingProjectionReason::Capacity)
+        );
+        assert_ne!(
+            projection_reason(storage, 2, 2),
+            Some(WaitingProjectionReason::Capacity)
+        );
+        assert_eq!(projection_reason(capacity, 2, 3), None);
+        assert_eq!(
+            projection_reason(WaitingDecisionOutcome::Granted, 2, 3),
+            Some(WaitingProjectionReason::EvaluationHorizon)
+        );
+        assert_eq!(
+            projection_reason(WaitingDecisionOutcome::Granted, 2, 2),
+            None
+        );
+    }
+
+    #[test]
+    fn a_released_claim_still_blocks_another_owner_during_the_same_tick() {
+        let mut held = BTreeMap::new();
+        hold_zone(&mut held, 4, 10).unwrap();
+        // A release removes the persistent claim, not this per-tick history.
+        hold_zone(&mut held, 4, 10).unwrap();
+        assert_eq!(
+            hold_zone(&mut held, 4, 11).unwrap_err().0,
+            "conflict_exclusivity"
+        );
+        held.clear();
+        hold_zone(&mut held, 4, 11).unwrap();
+    }
 
     #[test]
     fn overlap_check_rejects_intersection_and_accepts_exact_body_boundary() {

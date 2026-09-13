@@ -201,6 +201,7 @@ fn fidelity(result: &Value) -> Result<()> {
     )?;
     for kind in [
         "overlap",
+        "minimum_gap",
         "signal_stop_line",
         "numeric_geometry",
         "identity_route_lifecycle",
@@ -702,7 +703,7 @@ mod tests {
         let original = json!({"input":{"warmup_ticks":8,"observation_ticks":16,"vehicles":10},
             "validation":{"schema":"junction-scale-validation-v1","checked_ticks":24,"checked_vehicle_rows":240,
                 "checked_gate_crossings":1,"checked_events":1,"failure":null,"violations":{
-                    "overlap":0,"signal_stop_line":0,"numeric_geometry":0,"identity_route_lifecycle":0,
+                    "overlap":0,"minimum_gap":0,"signal_stop_line":0,"numeric_geometry":0,"identity_route_lifecycle":0,
                     "parking_binding":0,"signal_authority":0,"tick_time":0,"event_order":0,"event_causality":0,"conflict_exclusivity":0}}});
         fidelity(&original)?;
         for kind in original["validation"]["violations"]
