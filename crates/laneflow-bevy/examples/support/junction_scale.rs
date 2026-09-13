@@ -45,8 +45,13 @@ use sha2::{Digest, Sha256};
 #[path = "junction_scale_native.rs"]
 mod native;
 
+#[path = "junction_scale_validation.rs"]
+mod validation;
+use validation::Validation;
+
 #[derive(Resource)]
 struct Measurements {
+    validation_failure_path: PathBuf,
     warmup: u64,
     allocation: bool,
     started: Instant,
@@ -158,13 +163,22 @@ fn begin_tick(mut samples: ResMut<Measurements>) {
     samples.started = Instant::now();
 }
 
-fn observe(session: Res<LaneFlowSession>, mut samples: ResMut<Measurements>) {
+fn observe(
+    session: Res<LaneFlowSession>,
+    mut samples: ResMut<Measurements>,
+    mut validation: ResMut<Validation>,
+) {
     let tick_ns = samples.started.elapsed().as_nanos() as u64;
     let stats = samples
         .allocation
         .then(|| stats_alloc::INSTRUMENTED_SYSTEM.stats());
     let tick = session.world().tick_index();
     if tick <= samples.warmup {
+        validate_tick(
+            &mut validation,
+            session.world(),
+            &samples.validation_failure_path,
+        );
         return;
     }
     if let Some(stats) = stats {
@@ -199,6 +213,11 @@ fn observe(session: Res<LaneFlowSession>, mut samples: ResMut<Measurements>) {
     }
     let observation_ns = started.elapsed().as_nanos() as u64;
     let evidence_started = Instant::now();
+    validate_tick(
+        &mut validation,
+        session.world(),
+        &samples.validation_failure_path,
+    );
     for decision in view.latest_waiting_decisions() {
         if matches!(
             decision.outcome(),
@@ -277,6 +296,32 @@ fn observe(session: Res<LaneFlowSession>, mut samples: ResMut<Measurements>) {
     samples
         .evidence_ns
         .push(evidence_started.elapsed().as_nanos() as u64);
+}
+
+fn validate_tick(
+    validation: &mut Validation,
+    world: &TrafficWorld,
+    failure_path: &std::path::Path,
+) {
+    if let Err((kind, detail)) = validation.check(world) {
+        let report = json!({"pid":std::process::id(),"tick":world.tick_index(),"validation":validation.report()});
+        std::fs::write(
+            failure_path,
+            serde_json::to_vec_pretty(&report).expect("validation report is JSON"),
+        )
+        .expect("preserve fidelity failure report");
+        match world.capture_snapshot() {
+            Ok(snapshot) => {
+                std::fs::write(failure_path.with_extension("lfrs"), encode_lfrs(&snapshot))
+                    .expect("preserve failed candidate state")
+            }
+            Err(error) => eprintln!("failed candidate snapshot could not be captured: {error:?}"),
+        }
+        panic!(
+            "scale fidelity violation at tick {}: {kind}: {detail}",
+            world.tick_index()
+        );
+    }
 }
 
 fn percentiles(samples: &[u64]) -> Value {
@@ -464,6 +509,8 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     let mut app = App::new();
+    let validation = Validation::new(session.world())
+        .map_err(|(kind, detail)| format!("initial validation: {kind}: {detail}"))?;
     if rendering {
         #[cfg(feature = "native-example")]
         native::plugins(&mut app);
@@ -473,9 +520,11 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
         app.add_plugins(TimePlugin);
     }
     app.add_plugins(LaneFlowPlugin)
+        .insert_resource(validation)
         .insert_resource(session)
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO))
         .insert_resource(Measurements {
+            validation_failure_path: output.with_extension("validation-failure.json"),
             warmup,
             allocation,
             started: Instant::now(),
@@ -736,6 +785,7 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
     let result = json!({
         "schema":"junction-scale-evidence-v1", "pid":std::process::id(), "allocation_instrumented":allocation,"renderer":renderer_info,
         "input":frozen_input,"frame_mode":args[5],
+        "validation":app.world().resource::<Validation>().report(),
         "initial_state_digest":initial_digest,"final_state_digest":state_digest(session),"checkpoints":checkpoints,
         "domain_event_digest":hex(samples.event_digest.clone().finalize()),
         "counts":{"worlds":1,"presentable":poses.vehicles().len(),"domain_vehicle_rows_per_tick":vehicle_count,

@@ -11,6 +11,7 @@ foreach ($binary in $freeze.executables.Values) {
     if ((Get-FileHash -LiteralPath $binary.path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $binary.sha256) { throw 'Frozen binary changed' }
 }
 foreach ($inputCase in $freeze.inputs) {
+    if (-not $inputCase.files['prepared.initial.lfrs'] -or $inputCase.files['prepared.initial.lfrs'] -ne $inputCase.prepared.snapshot_sha256 -or -not $inputCase.files['prepared.json']) { throw 'Prepared snapshot or preparation record is not authenticated; refreeze' }
     foreach ($file in $inputCase.files.Keys) {
         if ((Get-FileHash -LiteralPath (Join-Path $inputCase.directory $file) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $inputCase.files[$file]) { throw 'Frozen input changed' }
     }

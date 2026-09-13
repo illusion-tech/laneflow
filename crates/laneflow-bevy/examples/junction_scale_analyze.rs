@@ -66,6 +66,12 @@ fn process(
     binary: &str,
 ) -> Result<Value> {
     let row = load(&directory.join(format!("{name}.process.json")))?;
+    require(text(&row["name"])? == name, "process record name mismatch")?;
+    require(
+        text(&row["executable"])? == text(&freeze["executables"][binary]["path"])?,
+        "process executable mismatch",
+    )?;
+    require(number(&row["pid"])? > 0, "missing process identity")?;
     require(row["exitCode"] == 0, &format!("failed process: {name}"))?;
     require(
         text(&row["sourceCommit"])? == text(&freeze["sourceCommit"])?,
@@ -95,6 +101,156 @@ fn process(
         )?;
     }
     Ok(row)
+}
+
+fn same_file(recorded: &Value, expected: &Path) -> Result<()> {
+    require(
+        fs::canonicalize(text(recorded)?)? == fs::canonicalize(expected)?,
+        "process argument path mismatch",
+    )
+}
+
+fn bind_integrated_result(
+    process: &Value,
+    result: &Value,
+    case: &Value,
+    output: &Path,
+) -> Result<()> {
+    require(
+        number(&process["pid"])? == number(&result["pid"])?,
+        "result and process PID mismatch",
+    )?;
+    let arguments = process["arguments"].as_array().ok_or("missing arguments")?;
+    require(arguments.len() == 7, "invalid integrated arguments")?;
+    let input = Path::new(text(&case["directory"])?);
+    same_file(&arguments[0], &input.join("network.lfca"))?;
+    same_file(&arguments[1], &input.join("grid.catalog.toml"))?;
+    same_file(&arguments[6], output)?;
+    for (index, key) in [
+        (2, "vehicles"),
+        (3, "warmup_ticks"),
+        (4, "observation_ticks"),
+    ] {
+        require(
+            text(&arguments[index])? == number(&case["prepared"]["input"][key])?.to_string(),
+            "process argument/input mismatch",
+        )?;
+    }
+    require(arguments[5] == "catchup", "process frame mode mismatch")?;
+    require(
+        process["environmentOverrides"] == json!({}),
+        "unexpected integrated environment overrides",
+    )
+}
+
+fn bind_ledger_process(process: &Value, directory: &Path, case: &Value) -> Result<()> {
+    require(
+        process["arguments"]
+            == json!([
+                "kernel::junction_ledger::junction_reference_ledger",
+                "--ignored",
+                "--exact",
+                "--nocapture",
+                "--test-threads=1"
+            ]),
+        "ledger command mismatch",
+    )?;
+    let count = number(&case["vehicles"])?;
+    let environment = &process["environmentOverrides"];
+    same_file(
+        &environment["JUNCTION_LEDGER_LFCA"],
+        &Path::new(text(&case["directory"])?).join("network.lfca"),
+    )?;
+    same_file(
+        &environment["JUNCTION_LEDGER_SNAPSHOT"],
+        &directory.join(format!("render-{count}-round-1.warm.lfrs")),
+    )?;
+    same_file(
+        &environment["JUNCTION_LEDGER_OUTPUT"],
+        &directory.join(format!("ledger-{count}.csv")),
+    )?;
+    require(
+        text(&environment["JUNCTION_LEDGER_VEHICLES"])? == count.to_string()
+            && text(&environment["JUNCTION_LEDGER_CELLS"])? == number(&case["cells"])?.to_string(),
+        "ledger scale mismatch",
+    )
+}
+
+fn fidelity(result: &Value) -> Result<()> {
+    let validation = &result["validation"];
+    require(
+        validation["schema"] == "junction-scale-validation-v1",
+        "missing fidelity validation",
+    )?;
+    let ticks =
+        number(&result["input"]["warmup_ticks"])? + number(&result["input"]["observation_ticks"])?;
+    require(
+        number(&validation["checked_ticks"])? == ticks
+            && number(&validation["checked_vehicle_rows"])?
+                == ticks * number(&result["input"]["vehicles"])?,
+        "incomplete per-tick fidelity validation",
+    )?;
+    require(
+        number(&validation["checked_gate_crossings"])? > 0
+            && number(&validation["checked_events"])? > 0,
+        "fidelity validation never observed transitions",
+    )?;
+    require(
+        validation.get("failure").is_some_and(Value::is_null),
+        "fidelity validation failed or incomplete",
+    )?;
+    for kind in [
+        "overlap",
+        "signal_stop_line",
+        "numeric_geometry",
+        "identity_route_lifecycle",
+        "parking_binding",
+        "signal_authority",
+        "tick_time",
+        "event_order",
+        "event_causality",
+        "conflict_exclusivity",
+    ] {
+        require(number(&validation["violations"][kind])? == 0, kind)?;
+    }
+    Ok(())
+}
+
+fn resource_loads(row: &Value) -> Result<()> {
+    for field in [
+        "waiting_vehicle_ticks",
+        "reservation_vehicle_ticks",
+        "waiting_zones_with_repeated_requests",
+        "vehicles_with_repeated_conflict_requests",
+    ] {
+        require(number(&row["resource_loads"][field])? > 0, field)?;
+    }
+    for field in [
+        "longest_observed_waiting_hold_ticks",
+        "longest_reservation_age_ticks",
+    ] {
+        require(number(&row["resource_loads"][field])? > 1, field)?;
+    }
+    Ok(())
+}
+
+fn authenticate_case(case: &Value) -> Result<()> {
+    let files = case["files"]
+        .as_object()
+        .ok_or("missing frozen input hashes")?;
+    require(
+        text(&case["files"]["prepared.initial.lfrs"])?
+            == text(&case["prepared"]["snapshot_sha256"])?,
+        "initial snapshot is not authenticated",
+    )?;
+    text(&case["files"]["prepared.json"])?;
+    for (file, hash) in files {
+        require(
+            digest(&Path::new(text(&case["directory"])?).join(file))? == text(hash)?,
+            "frozen input changed",
+        )?;
+    }
+    Ok(())
 }
 
 fn aggregate(rows: [&Value; 3]) -> Result<Value> {
@@ -240,15 +396,7 @@ fn analyze(directory: &Path) -> Result<Value> {
             case["cells"] == expected_cells && case["prepared"]["input"]["cells"] == expected_cells,
             "incorrect cell count",
         )?;
-        let files = case["files"]
-            .as_object()
-            .ok_or("missing frozen input hashes")?;
-        for (file, hash) in files {
-            require(
-                digest(&Path::new(text(&case["directory"])?).join(file))? == text(hash)?,
-                "frozen input changed",
-            )?;
-        }
+        authenticate_case(case)?;
         let mut rows = Vec::new();
         let mut processes = Vec::new();
         for round in 1..=3 {
@@ -261,6 +409,13 @@ fn analyze(directory: &Path) -> Result<Value> {
                 "junction_scale_render",
             )?);
             let row = load(&directory.join(format!("{name}.json")))?;
+            bind_integrated_result(
+                processes.last().ok_or("missing process")?,
+                &row,
+                case,
+                &directory.join(format!("{name}.json")),
+            )?;
+            fidelity(&row)?;
             require(
                 row["input"] == case["prepared"]["input"] && row["input"]["vehicles"] == count,
                 "input mismatch",
@@ -297,14 +452,7 @@ fn analyze(directory: &Path) -> Result<Value> {
                     && actual["minimum_renderer_visible_proxies"] == presented,
                 "incomplete presentation",
             )?;
-            for field in [
-                "waiting_vehicle_ticks",
-                "reservation_vehicle_ticks",
-                "waiting_zones_with_repeated_requests",
-                "vehicles_with_repeated_conflict_requests",
-            ] {
-                require(number(&row["resource_loads"][field])? > 0, field)?;
-            }
+            resource_loads(&row)?;
             rows.push(row);
         }
         let identities = processes
@@ -315,13 +463,20 @@ fn analyze(directory: &Path) -> Result<Value> {
         same_state(&rows[0], &rows[1])?;
         same_state(&rows[0], &rows[2])?;
         let allocation = load(&directory.join(format!("allocation-{count}.json")))?;
-        process(
+        let allocation_process = process(
             directory,
             &freeze,
             &freeze_hash,
             &format!("allocation-{count}"),
             "junction_scale_allocation",
         )?;
+        bind_integrated_result(
+            &allocation_process,
+            &allocation,
+            case,
+            &directory.join(format!("allocation-{count}.json")),
+        )?;
+        fidelity(&allocation)?;
         require(
             allocation["allocation_instrumented"] == true
                 && allocation["input"] == rows[0]["input"],
@@ -332,13 +487,14 @@ fn analyze(directory: &Path) -> Result<Value> {
             "allocation after warmup",
         )?;
         same_state(&allocation, &rows[0])?;
-        process(
+        let ledger_process = process(
             directory,
             &freeze,
             &freeze_hash,
             &format!("ledger-{count}"),
             "junction_ledger",
         )?;
+        bind_ledger_process(&ledger_process, directory, case)?;
         let ledger = ledger(directory, count, &rows[0]["checkpoints"])?;
         let timings = timing_groups([
             &rows[0]["nanoseconds"],
@@ -375,6 +531,7 @@ fn analyze(directory: &Path) -> Result<Value> {
             "nanoseconds": timings, "frame_classes": frame_classes,
             "counts_by_round": rows.iter().map(|row| &row["counts"]).collect::<Vec<_>>(),
             "resource_loads_by_round": rows.iter().map(|row| &row["resource_loads"]).collect::<Vec<_>>(),
+            "validation_by_round": rows.iter().map(|row| &row["validation"]).collect::<Vec<_>>(),
             "final_state_digest": rows[0]["final_state_digest"], "domain_event_digest": rows[0]["domain_event_digest"],
             "ledger_high_water_over_4096_tick_replay": ledger,
             "process_memory_by_round": processes.iter().map(|row| json!({"peakWorkingSetBytes": row["peakWorkingSetBytes"], "privateBytesSampledPeak": row["privateBytesSampledPeak"], "processCommitPeakBytes": row["processCommitPeakBytes"]})).collect::<Vec<_>>(),
@@ -414,10 +571,14 @@ mod tests {
             std::env::temp_dir().join(format!("junction-analysis-test-{}", std::process::id()));
         fs::create_dir(&directory)?;
         let path = directory.join("sample.process.json");
-        let freeze = json!({"sourceCommit": "commit", "environment": {"stableEnvironmentSha256": "machine-hash"}, "executables": {"binary": {"sha256": "binary-hash"}}});
-        let mut row = json!({"exitCode": 0, "sourceCommit": "commit", "freezeSha256": "freeze-hash", "binarySha256": "binary-hash", "stableEnvironmentSha256": "machine-hash", "powerMatchesFreeze": true, "peakWorkingSetBytes": 100, "processCommitPeakBytes": 200});
+        let freeze = json!({"sourceCommit": "commit", "environment": {"stableEnvironmentSha256": "machine-hash"}, "executables": {"binary": {"sha256": "binary-hash", "path": "frozen.exe"}}});
+        let mut row = json!({"name": "sample", "executable": "frozen.exe", "pid": 123, "exitCode": 0, "sourceCommit": "commit", "freezeSha256": "freeze-hash", "binarySha256": "binary-hash", "stableEnvironmentSha256": "machine-hash", "powerMatchesFreeze": true, "peakWorkingSetBytes": 100, "processCommitPeakBytes": 200});
         fs::write(&path, serde_json::to_vec(&row)?)?;
         assert!(process(&directory, &freeze, "freeze-hash", "sample", "binary").is_ok());
+        row["name"] = json!("another-scale");
+        fs::write(&path, serde_json::to_vec(&row)?)?;
+        assert!(process(&directory, &freeze, "freeze-hash", "sample", "binary").is_err());
+        row["name"] = json!("sample");
         row["exitCode"] = json!(1);
         fs::write(&path, serde_json::to_vec(&row)?)?;
         assert!(process(&directory, &freeze, "freeze-hash", "sample", "binary").is_err());
@@ -439,6 +600,46 @@ mod tests {
     }
 
     #[test]
+    fn result_pid_and_recorded_input_output_must_belong_to_the_same_run() -> Result<()> {
+        let directory =
+            std::env::temp_dir().join(format!("junction-binding-test-{}", std::process::id()));
+        fs::create_dir(&directory)?;
+        for name in [
+            "network.lfca",
+            "grid.catalog.toml",
+            "result.json",
+            "other.json",
+        ] {
+            fs::write(directory.join(name), [])?;
+        }
+        let output = directory.join("result.json");
+        let case = json!({"directory": directory, "prepared": {"input": {"vehicles": 10000, "warmup_ticks": 18012, "observation_ticks": 36024}}});
+        let row = json!({"pid": 10});
+        let original = json!({"pid": 10, "environmentOverrides": {}, "arguments": [directory.join("network.lfca"), directory.join("grid.catalog.toml"), "10000", "18012", "36024", "catchup", output]});
+        assert!(bind_integrated_result(&original, &row, &case, &output).is_ok());
+        for (index, replacement) in [
+            (2, json!("100000")),
+            (5, json!("normal")),
+            (6, json!(directory.join("other.json"))),
+        ] {
+            let mut altered = original.clone();
+            altered["arguments"][index] = replacement;
+            assert!(bind_integrated_result(&altered, &row, &case, &output).is_err());
+        }
+        assert!(bind_integrated_result(&original, &json!({"pid": 11}), &case, &output).is_err());
+        for name in [
+            "network.lfca",
+            "grid.catalog.toml",
+            "result.json",
+            "other.json",
+        ] {
+            fs::remove_file(directory.join(name))?;
+        }
+        fs::remove_dir(directory)?;
+        Ok(())
+    }
+
+    #[test]
     fn aggregate_uses_median_percentiles_and_highest_maximum() -> Result<()> {
         let rows = [
             json!({"p50": 1, "p95": 10, "p99": 11, "max": 100}),
@@ -449,6 +650,75 @@ mod tests {
             aggregate([&rows[0], &rows[1], &rows[2]])?,
             json!({"p50": 2, "p95": 20, "p99": 21, "max": 100})
         );
+        Ok(())
+    }
+
+    #[test]
+    fn prepared_snapshot_must_exist_and_match_its_frozen_digest() -> Result<()> {
+        let directory =
+            std::env::temp_dir().join(format!("junction-snapshot-test-{}", std::process::id()));
+        fs::create_dir(&directory)?;
+        let snapshot = directory.join("prepared.initial.lfrs");
+        let prepared = directory.join("prepared.json");
+        fs::write(&snapshot, b"snapshot fixture")?;
+        fs::write(&prepared, b"preparation fixture")?;
+        let original = json!({"directory":directory,"prepared":{"snapshot_sha256":digest(&snapshot)?},
+            "files":{"prepared.initial.lfrs":digest(&snapshot)?,"prepared.json":digest(&prepared)?}});
+        authenticate_case(&original)?;
+        let mut missing_manifest_entry = original.clone();
+        missing_manifest_entry["files"]
+            .as_object_mut()
+            .unwrap()
+            .remove("prepared.initial.lfrs");
+        assert!(authenticate_case(&missing_manifest_entry).is_err());
+        fs::write(&snapshot, b"corrupted snapshot")?;
+        assert!(authenticate_case(&original).is_err());
+        fs::remove_file(snapshot)?;
+        assert!(authenticate_case(&original).is_err());
+        fs::remove_file(prepared)?;
+        fs::remove_dir(directory)?;
+        Ok(())
+    }
+
+    #[test]
+    fn transient_resource_acquisitions_do_not_prove_sustained_holds() -> Result<()> {
+        let original = json!({"resource_loads":{"waiting_vehicle_ticks":100,"reservation_vehicle_ticks":100,
+            "waiting_zones_with_repeated_requests":1,"vehicles_with_repeated_conflict_requests":1,
+            "longest_observed_waiting_hold_ticks":2,"longest_reservation_age_ticks":2}});
+        resource_loads(&original)?;
+        for key in [
+            "longest_observed_waiting_hold_ticks",
+            "longest_reservation_age_ticks",
+        ] {
+            let mut transient = original.clone();
+            transient["resource_loads"][key] = json!(1);
+            assert!(resource_loads(&transient).is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn fidelity_rejects_missing_incomplete_or_violating_observations() -> Result<()> {
+        let original = json!({"input":{"warmup_ticks":8,"observation_ticks":16,"vehicles":10},
+            "validation":{"schema":"junction-scale-validation-v1","checked_ticks":24,"checked_vehicle_rows":240,
+                "checked_gate_crossings":1,"checked_events":1,"failure":null,"violations":{
+                    "overlap":0,"signal_stop_line":0,"numeric_geometry":0,"identity_route_lifecycle":0,
+                    "parking_binding":0,"signal_authority":0,"tick_time":0,"event_order":0,"event_causality":0,"conflict_exclusivity":0}}});
+        fidelity(&original)?;
+        for kind in original["validation"]["violations"]
+            .as_object()
+            .unwrap()
+            .keys()
+        {
+            let mut invalid = original.clone();
+            invalid["validation"]["violations"][kind] = json!(1);
+            assert!(fidelity(&invalid).is_err());
+        }
+        let mut incomplete = original.clone();
+        incomplete["validation"]["checked_ticks"] = json!(23);
+        assert!(fidelity(&incomplete).is_err());
+        incomplete["validation"] = Value::Null;
+        assert!(fidelity(&incomplete).is_err());
         Ok(())
     }
 }
