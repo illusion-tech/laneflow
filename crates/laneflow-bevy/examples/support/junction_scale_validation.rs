@@ -62,6 +62,7 @@ pub struct Validation {
     checked_vehicle_rows: u64,
     checked_gate_crossings: u64,
     checked_events: u64,
+    checked_observation_ticks: u64,
     failure: Option<(&'static str, String)>,
 }
 
@@ -126,6 +127,7 @@ impl Validation {
             checked_vehicle_rows: 0,
             checked_gate_crossings: 0,
             checked_events: 0,
+            checked_observation_ticks: 0,
             failure: None,
         };
         for raw in 0..world
@@ -150,6 +152,17 @@ impl Validation {
         let result = self.check_step(world);
         if let Err(error) = &result {
             self.failure = Some(error.clone());
+        }
+        result
+    }
+
+    pub fn check_session(&mut self, session: &laneflow_bevy::LaneFlowSession) -> Check {
+        let result = self
+            .check(session.world())
+            .and_then(|()| check_observation(session.world(), &session.junction_observation()));
+        match &result {
+            Ok(()) => self.checked_observation_ticks += 1,
+            Err(error) => self.failure = Some(error.clone()),
         }
         result
     }
@@ -205,6 +218,7 @@ impl Validation {
                 .ok_or_else(|| ("identity_route_lifecycle", "missing current vehicle".into()))?;
             ensure(
                 handle == before.handle()
+                    && state.handle() == handle
                     && state.route() == before.route()
                     && state.profile() == before.profile()
                     && state.class() == before.class()
@@ -229,6 +243,7 @@ impl Validation {
                     "route occurrence out of range".into(),
                 )
             })?;
+            self.check_traversal(world, index, state)?;
             // Committed geometry is integer millimetres. carry_um is an
             // uncommitted remainder and is legitimately cleared by a hard stop.
             let front = u64::from(state.progress_mm()) * 1000;
@@ -377,6 +392,25 @@ impl Validation {
         gate: ManeuverGateOrdinal,
         state: VehicleState,
     ) -> Check {
+        ensure(
+            self.gate_permits(world, gate, state)?,
+            "signal_stop_line",
+            || {
+                format!(
+                    "vehicle {:?} crossed gate {} against snapshot(T) indication",
+                    state.handle(),
+                    gate.raw()
+                )
+            },
+        )
+    }
+
+    fn gate_permits(
+        &self,
+        world: &TrafficWorld,
+        gate: ManeuverGateOrdinal,
+        state: VehicleState,
+    ) -> Check<bool> {
         let declaration = world
             .traffic()
             .relations()
@@ -400,14 +434,44 @@ impl Validation {
         let aspect = declaration
             .signal_group()
             .map(|group| self.signals[group.index()]);
+        Ok(gate_allows_crossing(
+            rule.interpretation(),
+            rule.prohibition(),
+            aspect,
+        ))
+    }
+
+    fn check_traversal(&self, world: &TrafficWorld, index: usize, state: VehicleState) -> Check {
+        let restrictive = if let Some(member) = state.waiting_membership() {
+            let gate = world
+                .route_gate(state.route(), member.release_hop())
+                .ok_or_else(|| ("event_causality", "traversal release gate missing".into()))?;
+            !self.gate_permits(world, gate.gate(), state)?
+        } else {
+            false
+        };
+        let expected = self.geometries[self.geometry_by_vehicle[index]].expected_traversal(
+            world,
+            state,
+            restrictive,
+        );
+        let actual = state.maneuver_traversal();
         ensure(
-            gate_allows_crossing(rule.interpretation(), rule.prohibition(), aspect),
-            "signal_stop_line",
+            actual.is_none_or(|value| value.route() == state.route())
+                && actual.map(|value| (value.maneuver_occurrence_index(), value.phase()))
+                    == expected
+                && !(state.waiting_membership().is_some()
+                    && world.conflict_reservation(state.handle()).is_some())
+                && actual.is_none_or(|value| {
+                    !matches!(
+                        value.phase(),
+                        laneflow_runtime::ManeuverTraversalPhase::Waiting { .. }
+                    ) || (state.speed_mm_s() == 0 && state.carry_um() == 0)
+                }),
+            "event_causality",
             || {
                 format!(
-                    "vehicle {:?} crossed gate {} against snapshot(T) indication {aspect:?}",
-                    state.handle(),
-                    gate.raw()
+                    "vehicle {index} traversal differs from current geometry/resources: actual={actual:?}, expected={expected:?}"
                 )
             },
         )
@@ -951,18 +1015,121 @@ impl Validation {
     pub fn report(&self) -> Value {
         let mut violations = json!({"overlap":0,"minimum_gap":0,"signal_stop_line":0,"numeric_geometry":0,
             "identity_route_lifecycle":0,"parking_binding":0,"signal_authority":0,"tick_time":0,
-            "event_order":0,"event_causality":0,"conflict_exclusivity":0});
+            "event_order":0,"event_causality":0,"conflict_exclusivity":0,"observation_projection":0});
         if let Some((kind, _)) = &self.failure {
             violations[*kind] = json!(1);
         }
         json!({"schema":"junction-scale-validation-v1", "checked_ticks":self.checked_ticks,
             "trajectory_sha256":self.trajectory.clone().finalize().iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
             "checked_vehicle_rows":self.checked_vehicle_rows,"checked_gate_crossings":self.checked_gate_crossings,
-            "checked_events":self.checked_events,"violations":violations,"failure":self.failure,
+            "checked_events":self.checked_events,"checked_observation_ticks":self.checked_observation_ticks,
+            "violations":violations,"failure":self.failure,
             "scope":"every warmup and observation tick of the frozen Active-only, no-parking-command plan",
             "failure_retry_and_lifecycle_commands":"not exercised by this plan; separate finite acceptance matrix",
             "solver_oracle_scope":"exact production Runtime; IIDM/ETA/priority/NoGrant numerical semantics use the existing finite matrix, not a second solver in the scale observer"})
     }
+}
+
+fn check_observation(
+    world: &TrafficWorld,
+    view: &laneflow_bevy::LaneFlowJunctionObservation<'_>,
+) -> Check {
+    let context = view.context();
+    ensure(
+        context.world_id() == world.world_id()
+            && context.world_generation() == world.world_generation()
+            && context.network_revision() == world.committed_source().network_revision()
+            && context.tick_index() == world.tick_index()
+            && context.command_cursor() == world.command_cursor()
+            && context.event_cursor() == world.event_cursor()
+            && std::sync::Arc::ptr_eq(&view.revision(), &world.revision())
+            && std::ptr::eq(view.traffic(), world.traffic()),
+        "observation_projection",
+        || "observation context or shared root differs from the committed world".into(),
+    )?;
+    let mut rows = view.vehicles();
+    for &handle in world.live_vehicles() {
+        let row = rows
+            .next()
+            .ok_or_else(|| ("observation_projection", "missing vehicle row".into()))?;
+        let state = world.vehicle(handle).unwrap();
+        let reservation = world.conflict_reservation(handle);
+        ensure(
+            row.vehicle() == handle
+                && row.state() == state
+                && row.conflict_reservation() == reservation,
+            "observation_projection",
+            || format!("observation vehicle/state/reservation/route-gate differs for {handle:?}"),
+        )?;
+        for hop in std::iter::once(state.route_edge_index())
+            .chain(
+                state
+                    .waiting_membership()
+                    .map(|member| member.release_hop()),
+            )
+            .chain(reservation.map(|value| value.passage_range().admission_gate_hop()))
+        {
+            ensure(
+                view.route_gate(state.route(), hop) == world.route_gate(state.route(), hop),
+                "observation_projection",
+                || {
+                    format!(
+                        "observation current/resource route-gate differs for {handle:?} at {hop}"
+                    )
+                },
+            )?;
+        }
+    }
+    ensure(rows.next().is_none(), "observation_projection", || {
+        "extra vehicle row".into()
+    })?;
+    let mut zones = view.waiting_zones();
+    for raw in 0..world
+        .traffic()
+        .entity_counts()
+        .count(EntityKind::WaitingZone)
+    {
+        ensure(
+            zones.next() == world.waiting_zone(WaitingZoneOrdinal::from_raw(raw)),
+            "observation_projection",
+            || format!("observation Waiting zone {raw} differs"),
+        )?;
+    }
+    ensure(zones.next().is_none(), "observation_projection", || {
+        "extra Waiting zone row".into()
+    })?;
+    ensure(
+        view.waiting_zone_members() == world.waiting_zone_members()
+            && view.latest_waiting_decisions() == world.latest_waiting_decisions()
+            && view.latest_conflict_decisions() == world.latest_conflict_decisions()
+            && view.latest_transition_events() == world.latest_transition_events(),
+        "observation_projection",
+        || "observation member/decision/transition slices differ in contents or order".into(),
+    )?;
+    for (route, hop) in world
+        .latest_waiting_decisions()
+        .iter()
+        .map(|row| (row.anchor().route(), row.anchor().hop()))
+        .chain(
+            world
+                .latest_conflict_decisions()
+                .iter()
+                .map(|row| (row.anchor().route(), row.anchor().hop())),
+        )
+        .chain(
+            world
+                .latest_transition_events()
+                .iter()
+                .map(|row| (row.anchor().route(), row.anchor().hop())),
+        )
+    {
+        ensure(
+            view.route_gate(route, hop) == world.route_gate(route, hop),
+            "observation_projection",
+            || "observation decision/event route-gate locator differs".into(),
+        )?;
+    }
+    Ok(())
 }
 
 fn delta_seconds(world: &TrafficWorld) -> f64 {
@@ -1692,8 +1859,16 @@ mod tests {
         )));
         app.update();
         let session = app.world().resource::<LaneFlowSession>();
-        validation.check(session.world()).unwrap();
+        validation.check_session(session).unwrap();
         assert_eq!(validation.report()["checked_ticks"], 1);
+        assert_eq!(validation.report()["checked_observation_ticks"], 1);
+        let other = scene::build().unwrap().session;
+        assert_eq!(
+            check_observation(session.world(), &other.junction_observation())
+                .unwrap_err()
+                .0,
+            "observation_projection"
+        );
         validation.expected_gates.push((0, 0, 0));
         assert_eq!(
             validation.check_events(session.world()).unwrap_err().0,

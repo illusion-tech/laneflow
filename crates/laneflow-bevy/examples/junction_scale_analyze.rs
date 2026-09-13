@@ -206,6 +206,7 @@ fn fidelity(result: &Value) -> Result<()> {
         number(&result["input"]["warmup_ticks"])? + number(&result["input"]["observation_ticks"])?;
     require(
         number(&validation["checked_ticks"])? == ticks
+            && number(&validation["checked_observation_ticks"])? == ticks
             && number(&validation["checked_vehicle_rows"])?
                 == ticks * number(&result["input"]["vehicles"])?,
         "incomplete per-tick fidelity validation",
@@ -231,6 +232,7 @@ fn fidelity(result: &Value) -> Result<()> {
         "event_order",
         "event_causality",
         "conflict_exclusivity",
+        "observation_projection",
     ] {
         require(number(&validation["violations"][kind])? == 0, kind)?;
     }
@@ -724,9 +726,9 @@ mod tests {
             "counts":{"frames":12,"pose_rows_per_frame":10,"transform_rows_per_frame":10},
             "presentation_validation":{"checked_pose_rows":120,"checked_transform_rows":120,"violations":0},
             "validation":{"schema":"junction-scale-validation-v1","trajectory_sha256":"a".repeat(64),"checked_ticks":24,"checked_vehicle_rows":240,
-                "checked_gate_crossings":1,"checked_events":1,"failure":null,"violations":{
+                "checked_gate_crossings":1,"checked_events":1,"checked_observation_ticks":24,"failure":null,"violations":{
                     "overlap":0,"minimum_gap":0,"signal_stop_line":0,"numeric_geometry":0,"identity_route_lifecycle":0,
-                    "parking_binding":0,"signal_authority":0,"tick_time":0,"event_order":0,"event_causality":0,"conflict_exclusivity":0}}});
+                    "parking_binding":0,"signal_authority":0,"tick_time":0,"event_order":0,"event_causality":0,"conflict_exclusivity":0,"observation_projection":0}}});
         fidelity(&original)?;
         for key in ["checked_pose_rows", "checked_transform_rows", "violations"] {
             let mut invalid = original.clone();
@@ -744,6 +746,9 @@ mod tests {
         }
         let mut incomplete = original.clone();
         incomplete["validation"]["checked_ticks"] = json!(23);
+        assert!(fidelity(&incomplete).is_err());
+        incomplete = original.clone();
+        incomplete["validation"]["checked_observation_ticks"] = json!(23);
         assert!(fidelity(&incomplete).is_err());
         incomplete["validation"] = Value::Null;
         assert!(fidelity(&incomplete).is_err());
