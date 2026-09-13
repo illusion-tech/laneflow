@@ -57,11 +57,29 @@ follower 最小净距（对合法但不足配置净距的旧状态保持其原�
 snapshot(T) 下的实际过门指示、事件顺序/过门数量/资源因果及 Conflict 排他性。
 Projection 原因须匹配同车的准入决定及首次等待入口接触；本拍开始时持有或本拍新取
 得的 Conflict zone 都保留其 owner 到整拍检查结束，释放事件不能让另一 owner 当拍复用。
+资源门 crossing 必须有其精确 occurrence 的 reservation 或 Waiting entry/member
+authority；Waiting 事件还核对静态 entry/release、物理顺序、连续准入 counter、
+逐区 occupancy/capacity。reservation 的 `acquired_tick` 与实际取得事件一致且不漂移，
+completion 须恰好发生在车尾清空 coverage 的拍。运动另受固定步长的自由加速上界约束。
+Conflict entry/clear 比较完整 passage locator，clear 必须跨过该 passage 的车尾清空点，
+每份拍末 reservation 必须仍有未清空的 claim。
 `carry_um` 是待落地余数，硬停清零不视为已提交位置倒退。检查器只读取公开状态，
 不生成通行决定；失败立即使候选进程失败，保留 `.validation-failure.json` 和可捕获的
 失败快照。成功 JSON 记录完整检查计数和各类零违规值，分析器拒绝缺失、少查或有
 违规的运行。该冻结计划不执行停车/替换/销毁/失败重试命令；这些适用条件由独立
 有限验收矩阵覆盖，不声称本规模窗口再次测试了它们。
+每拍每辆车的位置、速度、traversal 和 membership 进入完整轨迹摘要，三轮和分配运行
+必须逐拍轨迹一致；领域决定与事件继续按每拍完整批次散列。该编码仅属于取证程序。
+准入决定在规模进程中核对身份、路线、Gate/zone/passage、顺序、组合拒绝的一致归因
+及 grant 与实际资源取得的因果。IIDM、ETA、lead/lag、候选优先顺序与全部 NoGrant
+数值理由的独立期望值复用 §5 的有限领域专项和 #645 已登记矩阵；不在此重写第二套
+求解器。当前测量对象是唯一 exact 生产实现；后续性能候选须与冻结 exact 来源的逐拍
+轨迹和决定对拍，不能把重复性单独当成正确性证明。
+每帧另外由已提交 VehicleState 构造直接 Spatial 输入，对照现有 exact Spatial
+基线的完整 pose 批次，再检查冻结的 vehicle/entity 映射与实际 Transform 的位置、
+旋转及缩放。全量 pose 和被应用的 Transform 均记录覆盖行数，分析器拒绝缺失或
+少查；Spatial 几何公式本身的独立 oracle 仍复用有限矩阵。该核对耗时单列为
+`presentation_validation`，从同帧 LaneFlow 成本中扣除，内存保留在进程峰值。
 
 逐拍校验耗时归入取证子区间，从同帧 LaneFlow 成本中扣除；检查器内存计入进程峰值，
 不冒充 Runtime 组件账本。结果 PID 必须匹配对应进程记录，记录名称、二进制路径、

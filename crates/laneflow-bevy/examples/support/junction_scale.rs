@@ -33,7 +33,9 @@ use laneflow_runtime::{
     WaitingDecisionOutcome, WorldConfig, deterministic_state_digest, encode_lfrs,
 };
 use laneflow_scenario::complex_junction::{VEHICLE_PROFILE_KEY, bind};
-use laneflow_spatial::{FramePlacementToken, SpatialSession};
+use laneflow_spatial::{
+    CanonicalPoseBatch, FramePlacementToken, PoseInput, PoseRecordId, SpatialSession,
+};
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
     build_shared_network_revision,
@@ -88,10 +90,78 @@ struct Presentation {
     record_frame: bool,
     apply_count: usize,
     identities: Vec<VehicleHandle>,
+    entities: Vec<Entity>,
     poses: LaneFlowCommittedPoseBatch,
+    reference_spatial: SpatialSession,
+    reference_inputs: Vec<PoseInput>,
+    reference_poses: CanonicalPoseBatch,
+    checked_pose_rows: u64,
+    checked_transform_rows: u64,
+    evidence_ns: Vec<u64>,
     pose_ns: Vec<u64>,
     apply_ns: Vec<u64>,
     last_error: Option<String>,
+}
+
+fn check_presentation(
+    world: &World,
+    session: &LaneFlowSession,
+    p: &mut Presentation,
+) -> Result<(), String> {
+    p.reference_inputs.clear();
+    for (index, &vehicle) in p.identities.iter().enumerate() {
+        let state = session
+            .world()
+            .vehicle(vehicle)
+            .ok_or("presentation identity absent")?;
+        let route = session
+            .world()
+            .route_edges(state.route())
+            .ok_or("presentation route absent")?;
+        p.reference_inputs.push(PoseInput::lane(
+            PoseRecordId::new(index as u32),
+            route[state.route_edge_index() as usize],
+            state.progress_mm(),
+        ));
+    }
+    // Compare the adapter's mapping with direct committed-state inputs to the
+    // existing exact Spatial baseline; its geometric oracle remains the finite matrix.
+    p.reference_spatial
+        .extract_pose_batch(
+            FramePlacementToken::new(1),
+            &p.reference_inputs,
+            &mut p.reference_poses,
+        )
+        .map_err(|error| format!("reference pose failed: {error:?}"))?;
+    if p.poses.vehicles() != p.identities || p.poses.batch() != &p.reference_poses {
+        return Err("committed state to pose mismatch".into());
+    }
+    for ((&vehicle, &entity), record) in p
+        .identities
+        .iter()
+        .zip(&p.entities)
+        .zip(p.reference_poses.records())
+    {
+        if session.vehicle_entity(vehicle) != Some(entity) {
+            return Err("stable vehicle to entity mapping changed".into());
+        }
+        let pose = record.pose();
+        let position = pose.position();
+        let forward = pose.tangent();
+        let up = pose.up();
+        let expected = Transform::from_xyz(position.x(), position.y(), position.z()).looking_to(
+            Vec3::new(forward.x(), forward.y(), forward.z()),
+            Vec3::new(up.x(), up.y(), up.z()),
+        );
+        if world.get::<Transform>(entity) != Some(&expected) {
+            return Err("pose to Transform mismatch".into());
+        }
+    }
+    if p.record_frame {
+        p.checked_pose_rows += p.identities.len() as u64;
+        p.checked_transform_rows += p.entities.len() as u64;
+    }
+    Ok(())
 }
 
 fn present(world: &mut World) {
@@ -142,9 +212,13 @@ fn present(world: &mut World) {
                                 );
                     }
                     let apply_elapsed = started.elapsed().as_nanos() as u64;
+                    let started = Instant::now();
+                    check_presentation(world, &session, &mut presentation)?;
+                    let evidence_elapsed = started.elapsed().as_nanos() as u64;
                     if presentation.record_frame {
                         presentation.pose_ns.push(pose_elapsed);
                         presentation.apply_ns.push(apply_elapsed);
+                        presentation.evidence_ns.push(evidence_elapsed);
                     }
                     Ok(())
                 },
@@ -511,6 +585,9 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
     let mut app = App::new();
     let validation = Validation::new(session.world())
         .map_err(|(kind, detail)| format!("initial validation: {kind}: {detail}"))?;
+    let reference_spatial = SpatialSession::bind(session.world().revision())
+        .map_err(|error| format!("{error:?}"))?
+        .ok_or("reference spatial missing")?;
     if rendering {
         #[cfg(feature = "native-example")]
         native::plugins(&mut app);
@@ -588,7 +665,14 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
         record_frame: false,
         apply_count,
         identities,
+        entities: entities.clone(),
         poses: LaneFlowCommittedPoseBatch::new(),
+        reference_spatial,
+        reference_inputs: Vec::with_capacity(vehicle_count),
+        reference_poses: CanonicalPoseBatch::new(),
+        checked_pose_rows: 0,
+        checked_transform_rows: 0,
+        evidence_ns: Vec::with_capacity(observation + 1),
         pose_ns: Vec::with_capacity(observation + 1),
         apply_ns: Vec::with_capacity(observation + 1),
         last_error: None,
@@ -741,7 +825,10 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
     if samples.min_active != vehicle_count {
         return Err("active population exhausted during observation".into());
     }
-    if pose_ns.len() != frame_ns.len() || apply_ns.len() != frame_ns.len() {
+    if pose_ns.len() != frame_ns.len()
+        || apply_ns.len() != frame_ns.len()
+        || presentation.evidence_ns.len() != frame_ns.len()
+    {
         return Err("presentation frame samples are incomplete".into());
     }
     let spatial_adapter_ns: Vec<_> = pose_ns
@@ -754,7 +841,10 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
     let mut laneflow_frame_ns = Vec::with_capacity(frame_ns.len());
     for (index, (&elapsed, &steps)) in frame_ns.iter().zip(&frame_steps).enumerate() {
         let next_tick = tick_cursor + steps as usize;
-        let evidence: u64 = samples.evidence_ns[tick_cursor..next_tick].iter().sum();
+        let evidence: u64 = samples.evidence_ns[tick_cursor..next_tick]
+            .iter()
+            .sum::<u64>()
+            + presentation.evidence_ns[index];
         let render = if rendering { renderer_ns[index] } else { 0 };
         laneflow_frame_ns.push(
             elapsed
@@ -786,6 +876,9 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
         "schema":"junction-scale-evidence-v1", "pid":std::process::id(), "allocation_instrumented":allocation,"renderer":renderer_info,
         "input":frozen_input,"frame_mode":args[5],
         "validation":app.world().resource::<Validation>().report(),
+        "presentation_validation":{"checked_pose_rows":presentation.checked_pose_rows,
+            "checked_transform_rows":presentation.checked_transform_rows,"violations":0,
+            "oracle_scope":"direct committed-state inputs to existing exact Spatial baseline; finite geometry oracle matrix"},
         "initial_state_digest":initial_digest,"final_state_digest":state_digest(session),"checkpoints":checkpoints,
         "domain_event_digest":hex(samples.event_digest.clone().finalize()),
         "counts":{"worlds":1,"presentable":poses.vehicles().len(),"domain_vehicle_rows_per_tick":vehicle_count,
@@ -816,7 +909,7 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
         "pose_output_initialized_bytes":std::mem::size_of_val(poses.batch().records())+std::mem::size_of_val(poses.vehicles()),
         "shared_root_retained_logical_bytes":session.world().revision().retained_logical_bytes(),
         "missing_measurements":missing,"process_memory":"see runner metadata; not a component ledger",
-        "samples_ns":{"tick_and_driver":samples.tick_ns,"domain_observation":samples.observation_ns,"pose_extraction":pose_ns,"mapping_transform_apply":apply_ns,"laneflow_frame_without_evidence":laneflow_frame_ns,"integrated_frame_with_evidence":frame_ns,"frame_step_counts":frame_steps,"frame_input_quanta":frame_input_quanta,"frame_backlog_quanta":frame_backlog_quanta,"renderer_submit_and_gpu_wait":renderer_ns,"evidence_collection":samples.evidence_ns}
+        "samples_ns":{"tick_and_driver":samples.tick_ns,"domain_observation":samples.observation_ns,"pose_extraction":pose_ns,"mapping_transform_apply":apply_ns,"laneflow_frame_without_evidence":laneflow_frame_ns,"integrated_frame_with_evidence":frame_ns,"frame_step_counts":frame_steps,"frame_input_quanta":frame_input_quanta,"frame_backlog_quanta":frame_backlog_quanta,"renderer_submit_and_gpu_wait":renderer_ns,"evidence_collection":samples.evidence_ns,"presentation_validation":presentation.evidence_ns}
     });
     std::fs::write(&output, serde_json::to_vec(&result)?)?;
     if rendering && minimum_visible != apply_count {
