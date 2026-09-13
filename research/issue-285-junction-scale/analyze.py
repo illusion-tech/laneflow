@@ -40,6 +40,8 @@ def analyze(directory):
             actual = row["counts"]
             assert actual["worlds"] == 1 and actual["minimum_active"] == count, name
             assert actual["observed_ticks"] == 36024, name
+            assert actual["maximum_backlog_quanta"] == 2 and actual["two_quantum_backlog_frames"] > 0, name
+            assert actual["max_backlog_recovery_frames"] == 1, name
             assert actual["pose_rows_per_frame"] == count, name
             expected_presented = count if count == 10000 else count // 10
             assert actual["transform_rows_per_frame"] == expected_presented, name
