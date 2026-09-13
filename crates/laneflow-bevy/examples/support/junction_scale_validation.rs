@@ -521,6 +521,11 @@ fn append_body(
     mut remaining: u64,
     identity: usize,
 ) {
+    // Two positive-length vehicles may not share the same zero-progress
+    // front bumper, even when their bodies remain on different incoming edges.
+    if front == 0 && remaining > 0 {
+        bodies.push((route[cursor].raw(), 0, 0, identity));
+    }
     loop {
         let back = front.saturating_sub(remaining);
         if front > back {
@@ -539,7 +544,9 @@ fn overlapping_bodies(bodies: &mut [Body]) -> Option<(Body, Body)> {
     bodies.sort_unstable();
     let mut farthest = bodies.first().copied()?;
     for &body in bodies.iter().skip(1) {
-        if farthest.0 == body.0 && farthest.2 > body.1 && farthest.3 != body.3 {
+        let same_entry_point = farthest.1 == farthest.2 && body.1 == body.2 && farthest.1 == body.1;
+        if farthest.0 == body.0 && (farthest.2 > body.1 || same_entry_point) && farthest.3 != body.3
+        {
             return Some((farthest, body));
         }
         if farthest.0 != body.0 || body.2 > farthest.2 {
@@ -616,6 +623,8 @@ mod tests {
     fn overlap_check_rejects_intersection_and_accepts_exact_body_boundary() {
         assert!(overlapping_bodies(&mut [(0, 0, 4500, 0), (0, 4500, 9000, 1)]).is_none());
         assert!(overlapping_bodies(&mut [(0, 0, 4500, 0), (0, 4499, 9000, 1)]).is_some());
+        assert!(overlapping_bodies(&mut [(0, 0, 0, 0), (0, 0, 0, 1)]).is_some());
+        assert!(overlapping_bodies(&mut [(0, 0, 0, 0), (0, 0, 4500, 1)]).is_none());
     }
 
     #[test]
