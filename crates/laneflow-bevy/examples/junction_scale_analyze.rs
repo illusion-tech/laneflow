@@ -76,6 +76,15 @@ fn process(
         "freeze hash mismatch",
     )?;
     require(
+        text(&row["stableEnvironmentSha256"])?
+            == text(&freeze["environment"]["stableEnvironmentSha256"])?,
+        "execution environment differs from freeze",
+    )?;
+    require(
+        row["powerMatchesFreeze"] == true,
+        "execution power state changed",
+    )?;
+    require(
         text(&row["binarySha256"])? == text(&freeze["executables"][binary]["sha256"])?,
         "binary hash mismatch",
     )?;
@@ -405,15 +414,22 @@ mod tests {
             std::env::temp_dir().join(format!("junction-analysis-test-{}", std::process::id()));
         fs::create_dir(&directory)?;
         let path = directory.join("sample.process.json");
-        let freeze =
-            json!({"sourceCommit": "commit", "executables": {"binary": {"sha256": "binary-hash"}}});
-        let mut row = json!({"exitCode": 0, "sourceCommit": "commit", "freezeSha256": "freeze-hash", "binarySha256": "binary-hash", "peakWorkingSetBytes": 100, "processCommitPeakBytes": 200});
+        let freeze = json!({"sourceCommit": "commit", "environment": {"stableEnvironmentSha256": "machine-hash"}, "executables": {"binary": {"sha256": "binary-hash"}}});
+        let mut row = json!({"exitCode": 0, "sourceCommit": "commit", "freezeSha256": "freeze-hash", "binarySha256": "binary-hash", "stableEnvironmentSha256": "machine-hash", "powerMatchesFreeze": true, "peakWorkingSetBytes": 100, "processCommitPeakBytes": 200});
         fs::write(&path, serde_json::to_vec(&row)?)?;
         assert!(process(&directory, &freeze, "freeze-hash", "sample", "binary").is_ok());
         row["exitCode"] = json!(1);
         fs::write(&path, serde_json::to_vec(&row)?)?;
         assert!(process(&directory, &freeze, "freeze-hash", "sample", "binary").is_err());
         row["exitCode"] = json!(0);
+        row["powerMatchesFreeze"] = json!(false);
+        fs::write(&path, serde_json::to_vec(&row)?)?;
+        assert!(process(&directory, &freeze, "freeze-hash", "sample", "binary").is_err());
+        row["powerMatchesFreeze"] = json!(true);
+        row["stableEnvironmentSha256"] = json!("different-machine");
+        fs::write(&path, serde_json::to_vec(&row)?)?;
+        assert!(process(&directory, &freeze, "freeze-hash", "sample", "binary").is_err());
+        row["stableEnvironmentSha256"] = json!("machine-hash");
         row["binarySha256"] = json!("stale-binary");
         fs::write(&path, serde_json::to_vec(&row)?)?;
         assert!(process(&directory, &freeze, "freeze-hash", "sample", "binary").is_err());

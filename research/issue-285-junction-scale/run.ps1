@@ -1,9 +1,12 @@
 param([Parameter(Mandatory)][string]$EvidenceDirectory)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'process-memory.ps1')
+. (Join-Path $PSScriptRoot 'environment.ps1')
 $freezePath = Join-Path $EvidenceDirectory 'freeze.json'
 $freeze = Get-Content -LiteralPath $freezePath -Raw | ConvertFrom-Json -AsHashtable
 $freezeHash = (Get-FileHash -LiteralPath $freezePath -Algorithm SHA256).Hash.ToLowerInvariant()
+$runEnvironment = Get-JunctionEnvironment
+if (-not $freeze.environment.stableEnvironmentSha256 -or $runEnvironment.stableEnvironmentSha256 -ne $freeze.environment.stableEnvironmentSha256) { throw 'Machine, OS, firmware or drivers differ from frozen environment; refreeze before timing' }
 foreach ($binary in $freeze.executables.Values) {
     if ((Get-FileHash -LiteralPath $binary.path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $binary.sha256) { throw 'Frozen binary changed' }
 }
@@ -14,6 +17,9 @@ foreach ($inputCase in $freeze.inputs) {
 }
 
 function Invoke-EvidenceProcess([string]$Name, [string]$Executable, [string[]]$Arguments, [hashtable]$Environment = @{}) {
+    $powerBefore = Get-JunctionPowerState
+    $frozenPowerKey = (Get-JunctionPowerKey $freeze.environment) -join "`n"
+    if (((Get-JunctionPowerKey $powerBefore) -join "`n") -ne $frozenPowerKey) { throw 'Power plan or AC state differs from freeze before process launch' }
     $expectedBinary = @($freeze.executables.Values | Where-Object { $_.path -eq $Executable })
     if ($expectedBinary.Count -ne 1 -or (Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedBinary[0].sha256) { throw 'Frozen binary changed before process launch' }
     $metadataPath = Join-Path $EvidenceDirectory "$Name.process.json"
@@ -63,7 +69,10 @@ function Invoke-EvidenceProcess([string]$Name, [string]$Executable, [string[]]$A
     [void]$stderr.GetAwaiter().GetResult()
     $stdoutFile.Dispose()
     $stderrFile.Dispose()
+    $powerAfter = Get-JunctionPowerState
+    $powerMatches = ((Get-JunctionPowerKey $powerAfter) -join "`n") -eq $frozenPowerKey
     $metadata = @{ schema = 'junction-scale-process-v1'; name = $Name; pid = $process.Id; sourceCommit = $freeze.sourceCommit; freezeSha256 = $freezeHash
+        stableEnvironmentSha256 = $runEnvironment.stableEnvironmentSha256; powerBefore = $powerBefore; powerAfter = $powerAfter; powerMatchesFreeze = $powerMatches
         executable = $Executable; binarySha256 = (Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash.ToLowerInvariant(); arguments = $Arguments; environmentOverrides = $Environment
         startedUtc = $started.ToString('o'); finishedUtc = [DateTime]::UtcNow.ToString('o'); elapsedSeconds = ([DateTime]::UtcNow - $started).TotalSeconds; exitCode = $process.ExitCode
         peakWorkingSetBytes = $peakWorkingSet; privateBytesSampledPeak = $peakPrivateSampled; processCommitPeakBytes = $peakPaged
@@ -75,6 +84,7 @@ function Invoke-EvidenceProcess([string]$Name, [string]$Executable, [string[]]$A
     $exitCode = $process.ExitCode
     $process.Dispose()
     if ($exitCode -ne 0) { throw "Execution failed; artifacts preserved: $Name" }
+    if (-not $powerMatches) { throw "Power state changed; artifacts preserved but round invalid: $Name" }
 }
 
 for ($round = 1; $round -le 3; $round++) {
