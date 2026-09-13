@@ -586,13 +586,23 @@ pub fn build(revision: &SharedNetworkRevision) -> RoadMeshes {
         }
     }
     for portal in ["ne", "es", "sw", "wn"] {
+        let joined = |lane| {
+            let name = format!("loop-{portal}-i{lane}");
+            let mut line = edges[&name].clone();
+            for suffix in [".admission", ".merge"] {
+                if let Some(part) = edges.get(&format!("{name}{suffix}")) {
+                    line.extend_from_slice(&part[1..]);
+                }
+            }
+            line
+        };
         loop_surface(
             &mut asphalt,
             &mut white,
             &mut sidewalk,
             &mut edging,
-            &edges[&format!("loop-{portal}-i0")],
-            &edges[&format!("loop-{portal}-i1")],
+            &joined(0),
+            &joined(1),
         );
     }
     waiting_markings(revision, &mut white);
