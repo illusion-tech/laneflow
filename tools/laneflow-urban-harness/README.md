@@ -233,3 +233,15 @@ pwsh -NoProfile -File tools/laneflow-urban-harness/run-bounded.ps1 -Artifacts10k
 只限制一行，不能单独宣称整批达标。`batch.json` 和每行 `evidence.json` 记录实际范围、
 停止原因、工具链、二进制/来源摘要、峰值驻留内存和各段分位数。此观测无三轮要求，也不
 替代 #544 原性能记录或 #539 产品认证。运行前设置两项硬件/电源角色，并保持源工作树干净。
+
+对同一份计划做固定前缀的性能对照时，可在单行有界调用中加 `--ticks N`：
+
+```text
+target/release/laneflow-urban-harness evidence <artifacts> <frozen-plan.toml> <new-output> headless --wall-ms 300000 --ticks 512
+```
+
+前缀只限制执行到哪个提交边界，不重新展开或改写需求计划；报告保留原始 `window`
+和 `plan_digest`，另外记录 `prefix_ticks` 与实际 `target_ticks`。前缀必须在计划内，
+且仅接受有墙钟上限的 Mixed probe，不能用来缩短 correctness 窗口。前后对照应预先
+冻结同一前缀，并确认各轮均因 `tick-limit` 完成目标拍数；提前墙钟停止不能参与等长
+样本比较。该入口本身不执行多轮合并，也不提供产品认证结论。

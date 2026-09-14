@@ -33,26 +33,28 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             println!("capacity variant: {}", report["facility_key"]);
         }
         #[cfg(feature = "adapter")]
-        Some("evidence") if args.len() == 5 || args.len() == 7 => {
+        Some("evidence") if matches!(args.len(), 5 | 7 | 9) => {
             let adapter = match args[4].as_str() {
                 "adapter" => true,
                 "headless" => false,
                 _ => return Err("evidence mode must be headless or adapter".into()),
             };
-            let wall = if args.len() == 7 {
-                if args[5] != "--wall-ms" {
-                    return Err(usage().into());
+            let mut wall = None;
+            let mut prefix = None;
+            for option in args[5..].chunks_exact(2) {
+                match option[0].as_str() {
+                    "--wall-ms" if wall.is_none() => wall = Some(option[1].parse()?),
+                    "--ticks" if prefix.is_none() => prefix = Some(option[1].parse()?),
+                    _ => return Err(usage().into()),
                 }
-                Some(args[6].parse()?)
-            } else {
-                None
-            };
+            }
             let result = laneflow_urban_harness::run_evidence(
                 Path::new(&args[1]),
                 Path::new(&args[2]),
                 Path::new(&args[3]),
                 adapter,
                 wall,
+                prefix,
             )?;
             println!("{}: {} ticks", result["status"], result["completed_ticks"]);
         }
@@ -136,5 +138,5 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn usage() -> &'static str {
-    "usage: laneflow-urban-harness plan <artifacts> <plan.toml> [--case CASE] [--probe-warm-up N --probe-ticks N | --performance] | run <artifacts> <plan.toml> <new-output> | compare <run-a> <run-b> <new-comparison.json> | compare <performance-a> <performance-b> <performance-c> <new-performance-comparison.toml> | (feature adapter) evidence <artifacts> <plan.toml> <new-output> headless|adapter [--wall-ms N] | variant <artifacts> <new-output> | transitions <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output>"
+    "usage: laneflow-urban-harness plan <artifacts> <plan.toml> [--case CASE] [--probe-warm-up N --probe-ticks N | --performance] | run <artifacts> <plan.toml> <new-output> | compare <run-a> <run-b> <new-comparison.json> | compare <performance-a> <performance-b> <performance-c> <new-performance-comparison.toml> | (feature adapter) evidence <artifacts> <plan.toml> <new-output> headless|adapter [--wall-ms N [--ticks N]] | variant <artifacts> <new-output> | transitions <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output>"
 }
