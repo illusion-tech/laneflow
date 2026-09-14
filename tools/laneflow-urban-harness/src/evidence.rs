@@ -36,6 +36,16 @@ fn stop_reason(
     }
 }
 
+fn target_ticks(planned: u64, wall_ms: Option<u64>, prefix: Option<u64>) -> Result<u64> {
+    match prefix {
+        Some(ticks) if wall_ms.is_some() && (1..=planned).contains(&ticks) => Ok(ticks),
+        Some(_) => Err(invalid(
+            "a tick prefix requires bounded evidence and must be within the unchanged plan",
+        )),
+        None => Ok(planned),
+    }
+}
+
 pub(crate) fn source() -> Result<Value> {
     let read = |program, args: &[&str]| {
         command_output(program, args)
@@ -64,6 +74,7 @@ pub fn run_evidence(
     output: &Path,
     adapter: bool,
     wall_ms: Option<u64>,
+    prefix_ticks: Option<u64>,
 ) -> Result<Value> {
     let started = Instant::now();
     let soft = wall_ms
@@ -100,6 +111,7 @@ pub fn run_evidence(
             "correctness evidence requires the complete accepted correctness window",
         ));
     }
+    let target = target_ticks(plan.window.end(), wall_ms, prefix_ticks)?;
     fs::create_dir(output)?;
     let plan_digest = plan.write(&output.join("resolved-plan.toml"))?;
     let mut harness = Harness::install(&artifacts, &plan)?;
@@ -129,7 +141,7 @@ pub fn run_evidence(
     let mut reason = "failure";
     let run: Result<()> = (|| {
         loop {
-            if let Some(stop) = stop_reason(completed, plan.window.end(), started.elapsed(), soft) {
+            if let Some(stop) = stop_reason(completed, target, started.elapsed(), soft) {
                 reason = stop;
                 break;
             }
@@ -173,7 +185,7 @@ pub fn run_evidence(
                     plan.scale,
                     if adapter { "Adapter" } else { "headless" },
                     completed,
-                    plan.window.end(),
+                    target,
                     record.active,
                     record.presented,
                     started.elapsed().as_secs_f64()
@@ -266,7 +278,7 @@ pub fn run_evidence(
         "mode":if adapter {"adapter"} else {"headless"},"window":plan.window,
         "plan_digest":plan_digest,"artifact_files":artifacts.files,"manifest_sha256":artifacts.manifest_digest,
         "network_revision":artifacts.catalog.network_revision,"policy_id":artifacts.catalog.policy_id,
-        "target_ticks":plan.window.end(),"completed_ticks":completed,"committed_world_tick":harness.world().tick_index(),
+        "target_ticks":target,"prefix_ticks":prefix_ticks,"completed_ticks":completed,"committed_world_tick":harness.world().tick_index(),
         "wall_limit_ms":wall_ms,"soft_limit_ms":soft.map(|v|v.as_millis()),"stop_reason":reason,
         "initialized_ms":initialized_ms,"elapsed_ms_before_result_write":started.elapsed().as_millis(),
         "initial_counts":initial_counts,"final_counts":observe::counts(&harness)?,"last_presentation":last_presentation,
@@ -294,6 +306,15 @@ pub fn run_evidence(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_prefix_cannot_shorten_correctness_or_run_past_the_frozen_plan() {
+        assert!(target_ticks(4_096, None, Some(512)).is_err());
+        assert!(target_ticks(4_096, Some(120_000), Some(0)).is_err());
+        assert!(target_ticks(4_096, Some(120_000), Some(4_097)).is_err());
+        assert_eq!(target_ticks(4_096, Some(120_000), Some(512)).unwrap(), 512);
+        assert_eq!(target_ticks(4_096, None, None).unwrap(), 4_096);
+    }
 
     #[test]
     fn deadline_includes_initialization_and_wins_at_the_final_tick() {
