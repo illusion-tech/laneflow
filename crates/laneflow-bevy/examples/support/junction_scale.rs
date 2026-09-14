@@ -51,6 +51,40 @@ mod native;
 mod validation;
 use validation::Validation;
 
+struct RunLimits {
+    ticks: u64,
+    wall_ms: u64,
+    measurement_ms: u64,
+}
+
+impl RunLimits {
+    fn new(warmup: u64, observation: usize, wall_ms: u64) -> Result<Self, Box<dyn Error>> {
+        let ticks = warmup
+            .checked_add(u64::try_from(observation)?)
+            .ok_or("tick limit overflow")?;
+        if ticks == 0 || ticks > 4_096 || observation == 0 || !(1..=600_000).contains(&wall_ms) {
+            return Err("total ticks must be 1..=4096 and wall limit must be 1..=600000 ms".into());
+        }
+        // 墙钟包含初始化和零步渲染准备；给截图、摘要与结果写出留出时间。
+        let reserve_ms = 10_000.min(wall_ms / 10);
+        Ok(Self {
+            ticks,
+            wall_ms,
+            measurement_ms: wall_ms - reserve_ms,
+        })
+    }
+
+    fn stop_reason(&self, ticks: u64, elapsed: Duration) -> Option<&'static str> {
+        if ticks >= self.ticks {
+            Some("tick-limit")
+        } else if elapsed >= Duration::from_millis(self.measurement_ms) {
+            Some("time-limit")
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Resource)]
 struct Measurements {
     validation_failure_path: PathBuf,
@@ -417,13 +451,20 @@ fn hex(bytes: impl AsRef<[u8]>) -> String {
 }
 
 pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
+    let execution_started = Instant::now();
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() != 7 {
-        return Err("usage: junction_scale <lfca> <catalog> <vehicles> <warmup-ticks> <observation-ticks> <normal|catchup> <output.json>".into());
+    if !(7..=8).contains(&args.len()) {
+        return Err("usage: junction_scale <lfca> <catalog> <vehicles> <warmup-ticks> <observation-ticks> <normal|catchup|prepare> <output.json> [wall-limit-ms] (total ticks <= 4096, wall limit <= 600000 ms)".into());
     }
     let vehicle_count: usize = args[2].parse()?;
     let warmup: u64 = args[3].parse()?;
     let observation: usize = args[4].parse()?;
+    let wall_ms = args
+        .get(7)
+        .map(|arg| arg.parse())
+        .transpose()?
+        .unwrap_or(600_000);
+    let limits = RunLimits::new(warmup, observation, wall_ms)?;
     if vehicle_count == 0 || vehicle_count > 100_000 || observation == 0 {
         return Err("vehicles must be 1..=100000 and observation must be positive".into());
     }
@@ -677,6 +718,9 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
         renderer_info["adapter"] = native::adapter_info(&app);
     }
     for _ in 0..if rendering { 150 } else { 1 } {
+        if limits.stop_reason(0, execution_started.elapsed()).is_some() {
+            break;
+        }
         app.sub_apps_mut().main.run_default_schedule();
         #[cfg(feature = "native-example")]
         if rendering {
@@ -696,22 +740,21 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
     let mut frame = 0;
     #[allow(unused_mut)]
     let mut minimum_visible = entities.len();
-    let total_ticks = warmup + observation as u64;
+    let total_ticks = limits.ticks;
     eprintln!(
         "prepared {vehicle_count} vehicles in one world; warmup={warmup} observation={observation}"
     );
-    while app
-        .world()
-        .resource::<LaneFlowSession>()
-        .world()
-        .tick_index()
-        < total_ticks
-    {
+    let stop_reason;
+    loop {
         let before = app
             .world()
             .resource::<LaneFlowSession>()
             .world()
             .tick_index();
+        if let Some(reason) = limits.stop_reason(before, execution_started.elapsed()) {
+            stop_reason = reason;
+            break;
+        }
         let next_boundary = if before < warmup {
             warmup
         } else {
@@ -793,17 +836,42 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
         if after > warmup && [1_024, 2_048, 4_096].contains(&(after - warmup)) && steps != 0 {
             checkpoints.push(json!({"observation_tick":after-warmup, "state_digest":state_digest(app.world().resource::<LaneFlowSession>())}));
         }
-        if after.is_multiple_of(4_096) && steps != 0 {
+        if after.is_multiple_of(256) && steps != 0 {
             eprintln!("tick={after}/{total_ticks}");
         }
         frame += 1;
     }
+    let measurement_elapsed_ms = execution_started.elapsed().as_millis() as u64;
+    let completed_ticks = app
+        .world()
+        .resource::<LaneFlowSession>()
+        .world()
+        .tick_index();
+    if completed_ticks <= warmup {
+        return Err(
+            "time budget expired before a measured successful tick; no runnable evidence".into(),
+        );
+    }
     #[cfg(feature = "native-example")]
     if rendering {
         let preview = output.with_extension("png");
+        // 时间边界可能留下 backlog；截图帧只呈现最终状态，不再推进它。
+        app.configure_sets(
+            laneflow_bevy::LaneFlowOuterFrame,
+            laneflow_bevy::LaneFlowOuterFrameSet::Drive.run_if(|| false),
+        );
         app.world_mut().resource_mut::<Presentation>().record_frame = false;
         app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
         native::preview(&mut app, &preview)?;
+        if app
+            .world()
+            .resource::<LaneFlowSession>()
+            .world()
+            .tick_index()
+            != completed_ticks
+        {
+            return Err("preview advanced beyond the measured window".into());
+        }
         renderer_info["preview"] = json!(preview);
     }
     let session = app.world().resource::<LaneFlowSession>();
@@ -812,7 +880,7 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
     let pose_ns = &presentation.pose_ns;
     let apply_ns = &presentation.apply_ns;
     let samples = app.world().resource::<Measurements>();
-    if samples.observed_ticks != observation {
+    if samples.observed_ticks as u64 != completed_ticks - warmup {
         return Err("missing successful-tick observation".into());
     }
     if samples.min_active != vehicle_count {
@@ -860,13 +928,19 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
         json!({"integrated_frame_with_evidence":percentiles(&select(&frame_ns)),"laneflow_frame_without_evidence":percentiles(&select(&laneflow_frame_ns)),"spatial_adapter":percentiles(&select(&spatial_adapter_ns)),
             "renderer_submit_and_gpu_wait":if rendering { percentiles(&select(&renderer_ns)) } else { Value::Null }})
     };
-    let mut missing =
-        vec!["dynamic component logical retained/scratch bytes (separate Runtime ledger replay)"];
+    let mut missing = vec![
+        "component retained/scratch ledgers are not measured by this bounded run",
+        "no steady-state allocation, long-run repeatability or product certification claim",
+    ];
     if !rendering {
         missing.push("renderer (headless run)");
     }
     let result = json!({
-        "schema":"junction-scale-evidence-v1", "pid":std::process::id(), "allocation_instrumented":allocation,"renderer":renderer_info,
+        "schema":"junction-scale-evidence-v2", "pid":std::process::id(), "allocation_instrumented":allocation,"renderer":renderer_info,
+        "run":{"stop_reason":stop_reason,"requested_ticks":total_ticks,"completed_ticks":completed_ticks,
+            "simulated_milliseconds":completed_ticks * 16,"wall_limit_ms":limits.wall_ms,
+            "measurement_limit_ms":limits.measurement_ms,"measurement_elapsed_ms":measurement_elapsed_ms,
+            "sampling":"bounded cold-start run; timing limits include initialization and renderer preparation"},
         "input":frozen_input,"frame_mode":args[5],
         "validation":app.world().resource::<Validation>().report(),
         "presentation_validation":{"checked_pose_rows":presentation.checked_pose_rows,
@@ -882,6 +956,7 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
             "max_waiting_decision_rows_per_tick":samples.max_waiting_candidates,"max_conflict_decision_rows_per_tick":samples.max_conflict_candidates,"transitions":samples.transitions,
             "minimum_renderer_visible_proxies":rendering.then_some(minimum_visible),
             "maximum_backlog_quanta":frame_backlog_quanta.iter().max(),
+            "remaining_backlog_quanta":frame_backlog_quanta.last().copied().unwrap_or(0),
             "two_quantum_backlog_frames":frame_backlog_quanta.iter().filter(|&&n|n==2).count(),
             "max_backlog_recovery_frames":max_backlog_recovery_frames},
         "resource_loads":{"waiting_vehicle_ticks":samples.waiting_vehicle_ticks,"reservation_vehicle_ticks":samples.reservation_vehicle_ticks,
@@ -915,4 +990,36 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
     }
     eprintln!("wrote {}", output.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod bounded_run_tests {
+    use super::*;
+
+    #[test]
+    fn total_tick_cap_includes_any_warmup() {
+        assert!(RunLimits::new(0, 4_096, 600_000).is_ok());
+        assert!(RunLimits::new(512, 4_096, 600_000).is_err());
+        assert!(RunLimits::new(u64::MAX, 1, 600_000).is_err());
+        assert!(RunLimits::new(0, 1, 600_001).is_err());
+        assert!(RunLimits::new(0, 1, 0).is_err());
+    }
+
+    #[test]
+    fn time_limit_preserves_partial_scope_and_reserves_finalization() {
+        let limits = RunLimits::new(0, 4_096, 600_000).unwrap();
+        assert_eq!(limits.stop_reason(1_024, Duration::from_secs(589)), None);
+        assert_eq!(
+            limits.stop_reason(1_024, Duration::from_secs(590)),
+            Some("time-limit")
+        );
+        assert_eq!(
+            limits.stop_reason(4_096, Duration::from_secs(100)),
+            Some("tick-limit")
+        );
+        assert_eq!(
+            limits.stop_reason(4_096, Duration::from_secs(590)),
+            Some("tick-limit")
+        );
+    }
 }
