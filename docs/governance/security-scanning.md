@@ -1,7 +1,7 @@
 # 安全扫描基线
 
 **文档状态**: Active  
-**最后更新**: 2026-08-24  
+**最后更新**: 2026-09-14  
 **适用范围**: LaneFlow 仓库的 Code Scanning、Secret Scanning、Dependabot 状态审计与公开发布阻断  
 **关联 Issue**: `#88`、`#56`、`#451`
 
@@ -33,18 +33,22 @@ setup identity。冻结配置为：
 - `actions/checkout` 与 `github/codeql-action` 使用完整 commit SHA pin，并由 Dependabot
   GitHub Actions updates 跟踪；更新后仍须完成安全与 Merge Group 验证。
 - `github/codeql-action` 是只在 GitHub-hosted CI runner 执行的工具依赖，不进入 LaneFlow runtime、
-  library 或发布分发物。#553 于 2026-09-01 核验当前 pin
-  `cdf488f595d80d6e07e03d4674febd5ab45fa938`（`v4.37.9`）来源为
+  library 或发布分发物。#660 于 2026-09-14 核验当前 pin
+  `b96794f015dfd88f77b49b1c93e0fa7110f94c63`（`v4.38.0`）：official repository 的 annotated tag
+  `v4.38.0` peel 至该 commit，来源为
   [GitHub 官方仓库](https://github.com/github/codeql-action)，该 revision 的
-  [许可证为 MIT](https://github.com/github/codeql-action/blob/cdf488f595d80d6e07e03d4674febd5ab45fa938/LICENSE)。
+  [许可证为 MIT](https://github.com/github/codeql-action/blob/b96794f015dfd88f77b49b1c93e0fa7110f94c63/LICENSE)。
   当日 upstream published repository advisories 仍为
   [GHSA-vqf5-2xx6-9wfm](https://github.com/github/codeql-action/security/advisories/GHSA-vqf5-2xx6-9wfm)
   与 [GHSA-g36v-2xff-pv5m](https://github.com/github/codeql-action/security/advisories/GHSA-g36v-2xff-pv5m)，
-  公布的受影响范围分别止于旧 `v3.28.2` / `v2` 和旧 CodeQL runner；不包含当前 `v4.37.9`。
-  `v4.37.9` 的 [release notes](https://github.com/github/codeql-action/releases/tag/v4.37.9) 只更新
-  默认 CodeQL bundle 至 `2.26.4`。这是有日期的 upstream metadata 审计，不等于永久零漏洞；pin 更新仍须
-  重新核验来源、许可证、advisory 与分发边界。#485 于 2026-08-24 核验的前一 pin
-  `db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28`（`v4.37.8`）只保留为历史审计，不再表示当前 pin。
+  公布的受影响范围分别止于旧 `v3.28.2` / `v2` 和旧 CodeQL runner；不包含当前 `v4.38.0`。
+  `v4.38.0` 的 [release notes](https://github.com/github/codeql-action/releases/tag/v4.38.0) 为
+  GitHub-hosted runner toolcache 清理、Linux Arm64 bundle 支持与默认 CodeQL bundle 升级至
+  `2.27.0`，不改变本仓库 `none` build mode 与 Ubuntu x64 runner 的适用性。这是有日期的 upstream
+  metadata 审计，不等于永久零漏洞；pin 更新仍须重新核验来源、许可证、advisory 与分发边界。#553 于
+  2026-09-01 核验的前一 pin `cdf488f595d80d6e07e03d4674febd5ab45fa938`（`v4.37.9`）与 #485 于
+  2026-08-24 核验的 `db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28`（`v4.37.8`）只保留为历史审计，
+  不再表示当前 pin。
 - `main` ruleset 的原生 `code_scanning` rule 继续约束普通 PR：分析未配置、仍在运行或发现
   `high` / `critical` security alert 时阻断合并。
 - GitHub 明确说明原生 code-scanning merge protection **不适用于 Merge Queue groups**；
