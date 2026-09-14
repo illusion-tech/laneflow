@@ -1,7 +1,8 @@
 # LF-CN-URBAN 无界面运行程序
 
 #544 的无界面实现消费 #542 的正式制品目录，经 `TrafficWorld` 公共 API 运行七套封闭
-case。库和命令行共用 `Artifacts`、`ResolvedPlan`、`Harness`，供 #545 后续复用。
+case。库和命令行共用 `Artifacts`、`ResolvedPlan`、`Harness`；`adapter` feature
+复用同一需求调度和提交态校验，提供 #545 的跨层观测。
 设计依据为 [需求计划与无界面验证](../../docs/design/urban-demand-harness.md)。
 
 ## 本段验收
@@ -16,8 +17,8 @@ case。库和命令行共用 `Artifacts`、`ResolvedPlan`、`Harness`，供 #545
 Waiting 的周期占用脉冲只在末端仍保留完整释放相位时重放，既覆盖迟入队后的下游
 storage 拒绝，也要求终点脉冲实际 Completed 且无残留占用；时间余量本身不是通过证据。
 所有路径都不增加 Traffic Runtime、共享静态路网或 Adapter 的公共接口。
-实现和 fixture probe 不替代当前提交上的十四行正式正确性及六轮性能取证；完整证据完成前
-#544 保持开放。
+实现和 fixture probe 不替代正式正确性及性能取证；后续跨层验证引用已交付的
+[#544 结果](https://github.com/illusion-tech/laneflow/pull/614)，保留原始提交和范围。
 
 两档七场景正确性与两档 Mixed 性能计划摘要保存在 [输入冻结记录](fixtures/v3/plans.json)。
 当前 `urban-demand-v3` 固定全部路线的实际 edge 序列、观察期入场链及边界角色命令；
@@ -180,3 +181,54 @@ Mixed 正式行要求每 tile 在观察窗口中实际完成跨 tile 行程、�
 ```text
 cargo +1.98.0 run -p laneflow-urban-harness --release --example boundary_probe -- <10k-artifact-directory>
 ```
+
+## 跨层有限证据
+
+`adapter` feature 使用真实 `LaneFlowPlugin`、`LaneFlowSession` 和同根 `SpatialSession`。
+每次 Bevy update 必须恰好提交一个固定步进且无积压。性能中的 Adapter `step` 是 Bevy
+Step 阶段（含调度边界），headless `step` 是公共 `TrafficWorld::step` 调用，报告分别标明。
+全量位姿提取、稳定身份排序与实体绑定、Transform 写入分别计时；逐帧校验和日志开销单列，
+分位数不相加冒充帧时间。此入口未启动 GPU 渲染器，Transform 应用数不是实际绘制数。
+
+```text
+cargo +1.98.0 build -p laneflow-urban-harness --features adapter --release --locked
+target/release/laneflow-urban-harness evidence <artifacts> <correctness-plan.toml> <new-output> adapter
+target/release/laneflow-urban-harness variant <artifacts> <new-variant-directory>
+target/release/laneflow-urban-harness transitions <artifacts> <variant-directory> MIXED-PEAK <new-output>
+target/release/laneflow-urban-harness transitions <artifacts> <variant-directory> GARAGE-EGRESS <new-output>
+```
+
+功能矩阵是 10k 的 Mixed、Egress、Ingress、Waiting、Permissive、Uncontrolled 六行以及
+100k Mixed 一行，消费已有完整 correctness 窗口。100k 是暖机 3712、观察 7424，共
+11136 ticks。每帧全量提取 Active 和显式 Parked，排除虚拟 Parked 和 Completed。
+10k 应用全量；100k 按 `(tile, slot, incarnation)` 升序取前 `floor(可表现数/10)` 个。
+`N_presented` 包含完整提取集合；`applied` 单独表示实际写入 Transform 的数量。
+失去表现资格的实体移除 Transform，停车期间保留身份和 Session 绑定；失败命令不创建
+虚假位姿。`preview.json` 保存最终选集的真实 Transform 位置及数量口径，用于带标注预览。
+
+增容变体按 base 的 ParkingFacility StableId128 字节序选择第一个 virtual-only 且容量
+在 `(0,u32::MAX)` 内的设施，重用来源生成器，仅将其容量加 1，重新编译并生成 LFSD。
+基线来源必须可逐字节重建，变体目录保存所选身份、两端容量、修订和所有输入摘要。
+基线 #542 制品不被改写。
+
+恢复与切换见证使用独立的 160-tick 固定 probe，两档各运行 Mixed 和 Egress。第 32 tick
+保存实际 LFRS，以快照局部身份重绑调用方身份、队列和路线，并重建 Bevy 宿主。两次恢复
+续跑与未中断运行的逐 tick 摘要和最终检查点相等。它验证保存点后的有限后缀，不替代完整
+correctness 行。在线路径在边界 0 命令前 Prepare，真实步进并 pump 至边界 8 后提交；
+必须实际增加命令游标。日志上限固定 128 MiB、滞后上限 8 ticks、每泵 4096 条记录，
+报告实际日志占用。Adapter 在边界 8 维护暂停，先执行同修订换根，再拒绝错误
+Spatial 配对，最后执行增容直移。两条路径分别重复两次，检查事件、世代、旧消费上下文
+失效、句柄和停车 Reserved/Occupied 保留，并验证后续提交。协议全面专项复用 #538。
+
+新增性能观测先冻结两个 `--probe-ticks 4096` 的 Mixed 计划，再执行四行串行整批：
+
+```powershell
+pwsh -NoProfile -File tools/laneflow-urban-harness/run-bounded.ps1 -Artifacts10k <10k-artifacts> -Artifacts100k <100k-artifacts> -Plan10k <10k-probe.toml> -Plan100k <100k-probe.toml> -Output <new-batch-directory>
+```
+
+构建和静态生成单独记录。脚本把启动、安装、运行、退出、日志和结果写出计入 600 秒
+整批，按剩余时间和剩余行数分配进程预算，每行预留 10 秒写出，在完整提交边界停止。
+每行最多 4096 ticks；硬终止、空样本、缺失结果或超时均失败。直接 `evidence ... --wall-ms N`
+只限制一行，不能单独宣称整批达标。`batch.json` 和每行 `evidence.json` 记录实际范围、
+停止原因、工具链、二进制/来源摘要、峰值驻留内存和各段分位数。此观测无三轮要求，也不
+替代 #544 原性能记录或 #539 产品认证。运行前设置两项硬件/电源角色，并保持源工作树干净。

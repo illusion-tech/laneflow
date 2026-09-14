@@ -148,6 +148,11 @@ jobs:
         shell: bash
         run: cargo +1.98.0 test --workspace --locked
 
+      - name: Run urban Adapter harness tests
+        if: steps.filter.outputs.rust == 'true'
+        shell: bash
+        run: cargo +1.98.0 test --locked -p laneflow-urban-harness --features adapter
+
       - name: Check wire toolchain audit
         if: steps.filter.outputs.rust == 'true'
         shell: bash

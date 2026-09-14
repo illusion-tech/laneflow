@@ -3054,9 +3054,16 @@ dependencies = [
 name = "laneflow-urban-harness"
 version = "0.0.0"
 dependencies = [
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_math",
+ "bevy_time",
+ "bevy_transform",
+ "laneflow-bevy",
  "laneflow-compiler",
  "laneflow-format",
  "laneflow-runtime",
+ "laneflow-spatial",
  "laneflow-static-contract",
  "laneflow-static-network",
  "laneflow-urban-generator",

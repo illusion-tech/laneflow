@@ -15,6 +15,7 @@ pub(super) fn add(
     builder: &mut Builder<'_>,
     config: &UrbanConfig,
     layout: &Layout,
+    increment: Option<&str>,
 ) -> Result<Vec<ParkingPool>> {
     let mut pools = Vec::new();
     for cell in &layout.cells {
@@ -76,6 +77,7 @@ pub(super) fn add(
     }
     for tile in 0..layout.scale.tile_count() {
         let key = format!("t{tile:03}.underground");
+        let capacity = config.garage_virtual_capacity + u32::from(increment == Some(key.as_str()));
         let mut entries = Vec::new();
         let mut exits = Vec::new();
         for (slot, arm) in [(8, Direction::East), (9, Direction::West)] {
@@ -85,7 +87,7 @@ pub(super) fn add(
         }
         builder.add_declaration(re::RoadEditingDeclaration::ParkingFacility(
             re::ParkingFacilityInput::try_new(&key)?.with_virtual_capacity(
-                config.garage_virtual_capacity,
+                capacity,
                 entries.iter().map(input).collect::<Result<_>>()?,
                 exits.iter().map(input).collect::<Result<_>>()?,
             ),
@@ -95,7 +97,7 @@ pub(super) fn add(
             facility: key,
             tile,
             virtual_pool: true,
-            capacity: config.garage_virtual_capacity,
+            capacity,
             entries,
             exits,
         });

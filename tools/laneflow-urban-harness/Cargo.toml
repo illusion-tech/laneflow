@@ -7,7 +7,17 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+adapter = ["dep:bevy_app", "dep:bevy_ecs", "dep:bevy_math", "dep:bevy_time", "dep:bevy_transform", "dep:laneflow-bevy", "dep:laneflow-spatial"]
+
 [dependencies]
+bevy_app = { version = "0.19", default-features = false, features = ["std"], optional = true }
+bevy_ecs = { version = "0.19", default-features = false, features = ["std"], optional = true }
+bevy_math = { version = "0.19", default-features = false, optional = true }
+bevy_time = { version = "0.19", default-features = false, features = ["std"], optional = true }
+bevy_transform = { version = "0.19", default-features = false, features = ["bevy-support", "std"], optional = true }
+laneflow-bevy = { version = "0.0.0", path = "../../crates/laneflow-bevy", optional = true }
+laneflow-spatial = { version = "0.0.0", path = "../../crates/laneflow-spatial", optional = true }
 laneflow-compiler = { version = "0.0.0", path = "../../crates/laneflow-compiler" }
 laneflow-format = { version = "0.0.0", path = "../../crates/laneflow-format", features = ["std"] }
 laneflow-runtime = { version = "0.0.0", path = "../../crates/laneflow-runtime" }
