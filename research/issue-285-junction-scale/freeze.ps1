@@ -30,9 +30,8 @@ function Build-FrozenExecutables([string]$Name, [string[]]$CargoArguments, [hash
         $executables[$name] = @{ path = $path; sourcePath = $sourcePath; buildLog = $buildLog; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
     }
 }
-Build-FrozenExecutables 'bevy' @('build', '--release', '--locked', '-p', 'laneflow-bevy', '--example', 'junction_scale', '--example', 'junction_scale_allocation', '--example', 'junction_scale_render', '--example', 'junction_scale_analyze', '--features', 'native-example') @{ junction_scale = 'junction_scale'; junction_scale_allocation = 'junction_scale_allocation'; junction_scale_render = 'junction_scale_render'; junction_scale_analyze = 'junction_scale_analyze' }
+Build-FrozenExecutables 'bevy' @('build', '--release', '--locked', '-p', 'laneflow-bevy', '--example', 'junction_scale', '--example', 'junction_scale_render', '--example', 'junction_scale_analyze', '--features', 'native-example') @{ junction_scale = 'junction_scale'; junction_scale_render = 'junction_scale_render'; junction_scale_analyze = 'junction_scale_analyze' }
 Build-FrozenExecutables 'generator' @('build', '--release', '--locked', '-p', 'laneflow-junction-generator', '--example', 'generate_grid') @{ generate_grid = 'generate_grid' }
-Build-FrozenExecutables 'ledger' @('test', '--release', '--locked', '-p', 'laneflow-runtime', '--lib', '--no-run') @{ laneflow_runtime = 'junction_ledger' }
 if ((& git -C $repository rev-parse HEAD).Trim() -ne $sourceCommit -or (& git -C $repository status --porcelain)) { throw 'Sources changed during controlled build' }
 $configPath = Join-Path $evidenceDirectory 'source-config.toml'
 Copy-Item -LiteralPath (Join-Path $repository 'examples/config/v0.1-complex-junction.toml') -Destination $configPath
@@ -48,7 +47,7 @@ foreach ($inputCase in @(@{ vehicles = 10000; cells = 32 }, @{ vehicles = 100000
     }
     if ($files['source-config.toml'] -ne $configHash) { throw 'Grid configuration differs from frozen source configuration' }
     $preparedPath = Join-Path $destination 'prepared.json'
-    & $executables['junction_scale']['path'] (Join-Path $destination 'network.lfca') (Join-Path $destination 'grid.catalog.toml') $inputCase.vehicles 18012 36024 prepare $preparedPath
+    & $executables['junction_scale']['path'] (Join-Path $destination 'network.lfca') (Join-Path $destination 'grid.catalog.toml') $inputCase.vehicles 0 4096 prepare $preparedPath
     if ($LASTEXITCODE -ne 0) { throw 'Input preparation failed' }
     $prepared = Get-Content -LiteralPath $preparedPath -Raw | ConvertFrom-Json
     if ($prepared.input.cells -ne $inputCase.cells -or $prepared.input.vehicles -ne $inputCase.vehicles -or $prepared.input.fixed_delta_ms -ne 16) { throw 'Prepared workload differs from declared scale' }
@@ -61,16 +60,17 @@ foreach ($inputCase in @(@{ vehicles = 10000; cells = 32 }, @{ vehicles = 100000
 if ((& git -C $repository rev-parse HEAD).Trim() -ne $sourceCommit -or (& git -C $repository status --porcelain)) { throw 'Sources changed during input freeze' }
 $environment = Get-JunctionEnvironment
 $freeze = @{
-    schema = 'junction-scale-freeze-v1'; createdUtc = [DateTime]::UtcNow.ToString('o'); sourceCommit = $sourceCommit
+    schema = 'junction-scale-freeze-v2'; createdUtc = [DateTime]::UtcNow.ToString('o'); sourceCommit = $sourceCommit
     executables = $executables; inputs = $inputs; environment = $environment
-    protocol = @{ rounds = 3; frameInputQuanta = @(0,1,2,4,0); maxCatchUpSteps = 2; warmupTicks = 18012; observationTicks = 36024; signalCycleTicks = 4503; fixedDeltaMs = 16; routeLegs = 64
+    protocol = @{ rounds = 1; batchWallLimitMilliseconds = 600000; maxTicks = 4096; frameInputQuanta = @(0,1,2,4,0); maxCatchUpSteps = 2; warmupTicks = 0; observationTicks = 4096; fixedDeltaMs = 16; routeLegs = 64
         workload = 'independent complex-junction reference grid in one TrafficWorld'; seed = 0
-        resourceLoad = 'mixed persistent membership/reservation and repeated requests; actual counts are mandatory outputs'
+        resourceLoad = 'report actual observed membership, reservations and requests; no minimum long-window coverage claim'
         renderer = '1600x1000 offscreen unlit vehicle cuboids; all presented entities in view; synchronous GPU completion'
-        timing = 'three fresh non-instrumented integrated processes per scale; frame classes reported separately'
-        allocation = 'separate instrumented full-window process per scale; never used as latency evidence'
-        ledger = 'separate optimized test process replays warm snapshot through H/2H/4H; does not time product latency'
+        timing = 'one bounded cold-start integrated process per scale; at most 4096 ticks each, at most 600 seconds for the whole batch'
+        acceptance = 'runnable and report actual performance; budget compliance and product certification are not required'
+        allocation = 'not measured by this protocol'
+        ledger = 'not measured by this protocol; process memory peaks are reported'
     }
 }
 $freeze | ConvertTo-Json -Depth 15 | Set-Content -LiteralPath (Join-Path $evidenceDirectory 'freeze.json') -Encoding utf8NoBOM
-Write-Output "Frozen before formal timing: $evidenceDirectory"
+Write-Output "Frozen before bounded timing: $evidenceDirectory"
