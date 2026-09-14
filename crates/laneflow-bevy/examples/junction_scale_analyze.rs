@@ -171,8 +171,8 @@ fn bounded_window(result: &Value, process: &Value) -> Result<u64> {
     )?;
     require(
         match text(&run["stop_reason"])? {
-            "tick-limit" => ticks == 4096,
-            "time-limit" => ticks < 4096 && elapsed >= measurement_limit,
+            "tick-limit" => ticks == 4096 && elapsed < measurement_limit,
+            "time-limit" => elapsed >= measurement_limit,
             _ => false,
         },
         "stop reason does not match actual window",
@@ -533,7 +533,10 @@ mod tests {
         complete["run"]["completed_ticks"] = json!(4096);
         complete["run"]["simulated_milliseconds"] = json!(65536);
         complete["counts"]["observed_ticks"] = json!(4096);
+        assert_eq!(bounded_window(&complete, &process)?, 4096);
         complete["run"]["stop_reason"] = json!("tick-limit");
+        assert!(bounded_window(&complete, &process).is_err());
+        complete["run"]["measurement_elapsed_ms"] = json!(289999);
         assert_eq!(bounded_window(&complete, &process)?, 4096);
         Ok(())
     }
