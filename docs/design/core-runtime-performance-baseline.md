@@ -830,7 +830,7 @@ TBD 是显式停止条件，不是可以用开发机推测值填补的空白。�
 | Aggregate model 与非守恒数值 tolerance                       | Aggregate 尚未触发，也未选择模型                   | aggregate fidelity、一百万 realtime 或无损 identity 声明 | 第 10 节 trigger 满足并完成独立 G1/ADR                        | `wangzishi`；未来 aggregate Issue     |
 | Linux/macOS/Web/mobile 平台基线                              | 当前只有 Windows x86-64 的 R0/P100                 | 对这些平台外推一万/十万 SLA                              | 每个平台分别确定硬件/runtime 并运行完整适用协议               | `wangzishi`；平台专用 Issue           |
 | 真实路网 converter、Release 制品、harness 与结果             | #224 已冻结设计，但尚未交付可执行链路              | real-road Product Pass、真实城市 workload SLA            | #224 G4 后的 A–C 完成制品、harness 与对应证据                 | `wangzishi`；#224 与下游 A–C          |
-| 城市拓扑/需求/运行时工作负载 `LF-CN-URBAN-v1`                | #304 G1 已定义首版，生成器、运行及认证证据仍待交付 | 城市代表性、法规合规或 Product Pass                      | 按城市工作负载设计完成 #542/#544/#545；产品认证另完成本文协议 | `wangzishi`；#304、#539/#305          |
+| 城市工作负载 `LF-CN-URBAN-v1` 的代表性与产品认证             | 规范生成、需求运行与有限跨层观测已有独立入口；代表性和完整产品协议仍需专门验证 | 城市代表性、法规合规或 Product Pass                      | 复用 #542/#544/#545 的固定输入与有限证据，另行完成本文产品协议 | `wangzishi`；#304、#539/#305          |
 
 后续 Issue 可以接管某个 TBD，但在长期文档更新前，原 claim restriction 继续有效。
 
