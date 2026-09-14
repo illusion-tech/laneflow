@@ -512,7 +512,7 @@ fn witness(
         json!({"status":"transition-witness-pass","case":case.as_str(),"scale":artifacts.catalog().scale,
         "save_tick":SAVE_TICK,"online_window":[0,COMMIT_TICK],"end_tick":END_TICK,"trials":reports,
         "transaction_limits":{"journal_bytes":TRANSACTION.max_journal_bytes,"lag_ticks":TRANSACTION.max_catch_up_lag_ticks,"records_per_pump":TRANSACTION.max_records_per_pump},
-        "scope":"finite existing demand prefix; replay compares uninterrupted committed results; repeated migrations compare within the same path; complete protocol coverage is reused from #538"}),
+        "scope":"finite existing demand prefix; replay compares uninterrupted committed results; repeated migrations compare within the same path; broader protocol and failure combinations belong to #538 and are not certified by this witness"}),
     )
 }
 
