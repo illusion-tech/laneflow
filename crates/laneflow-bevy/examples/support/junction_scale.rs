@@ -75,10 +75,10 @@ impl RunLimits {
     }
 
     fn stop_reason(&self, ticks: u64, elapsed: Duration) -> Option<&'static str> {
-        if ticks >= self.ticks {
-            Some("tick-limit")
-        } else if elapsed >= Duration::from_millis(self.measurement_ms) {
+        if elapsed >= Duration::from_millis(self.measurement_ms) {
             Some("time-limit")
+        } else if ticks >= self.ticks {
+            Some("tick-limit")
         } else {
             None
         }
@@ -745,14 +745,17 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
         "prepared {vehicle_count} vehicles in one world; warmup={warmup} observation={observation}"
     );
     let stop_reason;
+    let stopped_elapsed;
     loop {
         let before = app
             .world()
             .resource::<LaneFlowSession>()
             .world()
             .tick_index();
-        if let Some(reason) = limits.stop_reason(before, execution_started.elapsed()) {
+        let elapsed = execution_started.elapsed();
+        if let Some(reason) = limits.stop_reason(before, elapsed) {
             stop_reason = reason;
+            stopped_elapsed = elapsed;
             break;
         }
         let next_boundary = if before < warmup {
@@ -841,7 +844,7 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
         }
         frame += 1;
     }
-    let measurement_elapsed_ms = execution_started.elapsed().as_millis() as u64;
+    let measurement_elapsed_ms = stopped_elapsed.as_millis() as u64;
     let completed_ticks = app
         .world()
         .resource::<LaneFlowSession>()
@@ -1019,7 +1022,7 @@ mod bounded_run_tests {
         );
         assert_eq!(
             limits.stop_reason(4_096, Duration::from_secs(590)),
-            Some("tick-limit")
+            Some("time-limit")
         );
     }
 }
