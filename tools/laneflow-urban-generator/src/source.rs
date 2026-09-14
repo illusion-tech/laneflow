@@ -91,6 +91,33 @@ pub struct GeneratedSource {
 }
 
 pub fn generate_source(config: &UrbanConfig, scale: Scale) -> Result<GeneratedSource> {
+    generate_source_inner(config, scale, None)
+}
+
+/// #545 verification input: increase one named virtual-only garage by exactly one.
+/// Stable identity anchors, geometry, routes, profiles, and policy remain unchanged.
+pub fn generate_capacity_increment_source(
+    config: &UrbanConfig,
+    scale: Scale,
+    facility: &str,
+) -> Result<GeneratedSource> {
+    if !(0..scale.tile_count()).any(|tile| facility == format!("t{tile:03}.underground")) {
+        return Err(crate::Error::Config(
+            "capacity variant requires an existing virtual-only garage".into(),
+        ));
+    }
+    config
+        .garage_virtual_capacity
+        .checked_add(1)
+        .ok_or_else(|| crate::Error::Config("garage capacity cannot increase".into()))?;
+    generate_source_inner(config, scale, Some(facility))
+}
+
+fn generate_source_inner(
+    config: &UrbanConfig,
+    scale: Scale,
+    increment: Option<&str>,
+) -> Result<GeneratedSource> {
     config.validate()?;
     let limits = CompileLimits::single_network_1m_v2();
     let config_text = toml::to_string(config)?;
@@ -98,6 +125,10 @@ pub fn generate_source(config: &UrbanConfig, scale: Scale) -> Result<GeneratedSo
     let mut topology_digest = Sha256::new();
     topology_digest.update(config_digest);
     topology_digest.update(scale.name().as_bytes());
+    if let Some(facility) = increment {
+        topology_digest.update(b"\0capacity-increment\0");
+        topology_digest.update(facility.as_bytes());
+    }
     let mut common = builder(
         COMMON_NAMESPACE,
         COMMON_DOCUMENT_KEY,
@@ -164,7 +195,7 @@ pub fn generate_source(config: &UrbanConfig, scale: Scale) -> Result<GeneratedSo
     }
     policy_references += gates.len() as u64;
     junction::add_policy(&mut source, streams, gates)?;
-    let parking = parking::add(&mut source, config, &layout)?;
+    let parking = parking::add(&mut source, config, &layout, increment)?;
     let topology = finish(
         source,
         &limits,

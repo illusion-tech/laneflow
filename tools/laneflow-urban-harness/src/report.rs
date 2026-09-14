@@ -71,7 +71,7 @@ pub struct ComparisonReport {
 }
 
 #[derive(Serialize)]
-struct SampleSummary {
+pub(crate) struct SampleSummary {
     samples: usize,
     min: u64,
     p50: u64,
@@ -260,7 +260,7 @@ impl PerformanceComparisonReport {
     }
 }
 
-fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
+pub(crate) fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
     let mut file = BufWriter::new(File::create(path)?);
     serde_json::to_writer_pretty(&mut file, value)?;
     file.write_all(b"\n")?;
@@ -599,7 +599,7 @@ pub(crate) fn validate_case(harness: &Harness<'_>) -> Result<()> {
     Ok(())
 }
 
-fn sample_summary(values: &mut [u64]) -> Result<SampleSummary> {
+pub(crate) fn sample_summary(values: &mut [u64]) -> Result<SampleSummary> {
     if values.is_empty() {
         return Err(invalid("measurement window produced no samples"));
     }
@@ -621,7 +621,7 @@ fn sample_summary(values: &mut [u64]) -> Result<SampleSummary> {
 }
 
 #[cfg(windows)]
-fn peak_resident_bytes() -> Option<u64> {
+pub(crate) fn peak_resident_bytes() -> Option<u64> {
     let process_id = std::process::id().to_string();
     let script = format!("(Get-Process -Id {process_id}).PeakWorkingSet64");
     command_output(
@@ -633,21 +633,21 @@ fn peak_resident_bytes() -> Option<u64> {
 }
 
 #[cfg(windows)]
-fn peak_resident_method() -> &'static str {
+pub(crate) fn peak_resident_method() -> &'static str {
     "PowerShell Get-Process.PeakWorkingSet64"
 }
 
 #[cfg(not(windows))]
-fn peak_resident_bytes() -> Option<u64> {
+pub(crate) fn peak_resident_bytes() -> Option<u64> {
     None
 }
 
 #[cfg(not(windows))]
-fn peak_resident_method() -> &'static str {
+pub(crate) fn peak_resident_method() -> &'static str {
     "unavailable-on-this-platform"
 }
 
-fn digest_file(path: &Path) -> Result<crate::artifacts::FileDigest> {
+pub(crate) fn digest_file(path: &Path) -> Result<crate::artifacts::FileDigest> {
     use sha2::{Digest, Sha256};
     let mut reader = BufReader::new(File::open(path)?);
     let mut hash = Sha256::new();
@@ -964,7 +964,7 @@ fn three_round_summary(rounds: &[SampleSummary]) -> Result<BTreeMap<String, u64>
 }
 
 // Local copy/mix-up detection only; this metadata does not attest execution or enter semantic hashes.
-fn new_execution_id() -> Result<String> {
+pub(crate) fn new_execution_id() -> Result<String> {
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     let started = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -987,7 +987,7 @@ fn read_execution_id(directory: &Path) -> Result<String> {
         .ok_or_else(|| invalid("missing execution identity; rerun to produce current evidence"))
 }
 
-fn command_output(program: &str, args: &[&str]) -> Option<String> {
+pub(crate) fn command_output(program: &str, args: &[&str]) -> Option<String> {
     let output = std::process::Command::new(program)
         .args(args)
         .output()

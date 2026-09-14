@@ -10,7 +10,7 @@ pub use compare::compare_artifacts;
 pub use config::{ProfileConfig, Scale, SignalConfig, UrbanConfig};
 pub use delivery::{Manifest, generate};
 pub use layout::{Cell, Direction, Layout, Template};
-pub use source::{GeneratedSource, generate_source};
+pub use source::{GeneratedSource, generate_capacity_increment_source, generate_source};
 
 pub fn compile_source(source: &GeneratedSource) -> Result<laneflow_compiler::CompilationOutput> {
     use laneflow_compiler::road_editing::RoadEditingModuleInput;

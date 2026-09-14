@@ -1,22 +1,39 @@
 //! Caller-owned, finite LF-CN-URBAN demand and replay. Road authority stays in TrafficWorld.
 
 mod artifacts;
+#[cfg(feature = "adapter")]
+mod evidence;
+mod host;
 mod observe;
 mod plan;
+#[cfg(feature = "adapter")]
+mod presentation;
 mod report;
 mod runner;
+#[cfg(feature = "adapter")]
+mod transitions;
+#[cfg(feature = "adapter")]
+pub use transitions::run_transition_evidence;
+#[cfg(feature = "adapter")]
+mod variant;
 
 pub use artifacts::Artifacts;
+#[cfg(feature = "adapter")]
+pub use evidence::run_evidence;
 pub use plan::{
     BoundaryWindow, DepartureBatch, InitialVehicle, LifecycleBurst, LifecycleCounts,
     ParkingArrival, ParkingDeparture, ReservationRejection, ResolvedPlan, RoleDeparture, UrbanCase,
     Window,
 };
+#[cfg(feature = "adapter")]
+pub use presentation::{Presentation, PresentationSample};
 pub use report::{
     ComparedRun, ComparisonReport, PerformanceComparisonReport, PerformanceRound, RunResult,
     compare_performance_runs, compare_runs, run_to_directory,
 };
 pub use runner::{Harness, IndividualId, TickRecord};
+#[cfg(feature = "adapter")]
+pub use variant::prepare_capacity_variant;
 
 pub type Result<T> = std::result::Result<T, Error>;
 

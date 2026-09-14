@@ -60,6 +60,16 @@ impl Artifacts {
 
     /// Loads the generator's real checked LFCA. No topology is synthesized by the runner.
     pub fn load(directory: &Path) -> Result<Self> {
+        Self::load_with_spatial_option(directory, SpatialBuildOption::Omit)
+    }
+
+    /// Load the same checked inputs with canonical geometry for Adapter observation.
+    #[cfg(feature = "adapter")]
+    pub fn load_spatial(directory: &Path) -> Result<Self> {
+        Self::load_with_spatial_option(directory, SpatialBuildOption::RetainAvailable)
+    }
+
+    fn load_with_spatial_option(directory: &Path, spatial: SpatialBuildOption) -> Result<Self> {
         let manifest_bytes = fs::read(directory.join("manifest.toml"))?;
         let manifest: Manifest = toml::from_str(
             std::str::from_utf8(&manifest_bytes).map_err(|e| invalid(e.to_string()))?,
@@ -102,7 +112,7 @@ impl Artifacts {
             build_shared_network_revision(
                 input,
                 SharedNetworkBuildOptions::new(
-                    SpatialBuildOption::Omit,
+                    spatial,
                     SharedNetworkBuildLimits::new(2_147_483_648, 2_147_483_648),
                 ),
             ),

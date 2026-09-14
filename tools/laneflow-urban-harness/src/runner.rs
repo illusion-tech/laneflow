@@ -215,7 +215,7 @@ struct Request {
 pub struct Harness<'a> {
     pub(crate) artifacts: &'a Artifacts,
     pub(crate) plan: &'a ResolvedPlan,
-    pub(crate) world: TrafficWorld,
+    pub(crate) world: crate::host::Host,
     pub(crate) individuals: Vec<Individual>,
     pub(crate) slots: HashMap<VehicleHandle, usize>,
     pub(crate) routes: BTreeMap<String, RouteHandle>,
@@ -353,7 +353,7 @@ impl<'a> Harness<'a> {
         let mut harness = Self {
             artifacts,
             plan,
-            world,
+            world: crate::host::Host::Headless(Box::new(world)),
             individuals,
             slots,
             routes,
@@ -499,6 +499,20 @@ impl<'a> Harness<'a> {
     pub fn world(&self) -> &TrafficWorld {
         &self.world
     }
+
+    /// Move the already installed world into the existing Bevy Session, retaining
+    /// the exact demand queues, stable identities, and committed-state oracle.
+    #[cfg(feature = "adapter")]
+    pub fn into_adapter(self, spatial: laneflow_spatial::SpatialSession) -> Result<Self> {
+        let world = self.world.into_adapter(spatial)?;
+        Ok(Self { world, ..self })
+    }
+
+    /// Caller-owned verification host; production Session access remains controlled.
+    #[cfg(feature = "adapter")]
+    pub fn adapter_world(&mut self) -> Result<&mut bevy_ecs::world::World> {
+        self.world.adapter_world()
+    }
     pub fn stable_individual(&self, handle: VehicleHandle) -> Option<IndividualId> {
         self.slots.get(&handle).map(|i| self.individuals[*i].id)
     }
@@ -522,7 +536,7 @@ impl<'a> Harness<'a> {
 
     // Only the public call is measured: input preparation, diagnostics and bookkeeping
     // stay outside. Rejected Runtime calls count; caller-only deferrals do not.
-    fn measure_command<T>(&mut self, call: impl FnOnce(&mut TrafficWorld) -> T) -> T {
+    fn measure_command<T>(&mut self, call: impl FnOnce(&mut crate::host::Host) -> T) -> T {
         let started = std::time::Instant::now();
         let result = call(&mut self.world);
         let elapsed = started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
@@ -618,7 +632,7 @@ impl<'a> Harness<'a> {
                         *speed_mm_s,
                     );
                     match self
-                        .measure_command(|world| world.replace_completed_vehicle(handle, input))
+                        .measure_command(|world| world.replace_completed_vehicle(handle, input))?
                     {
                         Ok(record) => {
                             self.slots.remove(&handle);
@@ -977,7 +991,7 @@ impl<'a> Harness<'a> {
                     .ok_or_else(|| invalid("despawn lost its live individual"))?;
                 checked(
                     "boundary despawn",
-                    self.measure_command(|world| world.despawn_vehicle(handle)),
+                    self.measure_command(|world| world.despawn_vehicle(handle))?,
                 )?;
                 self.slots.remove(&handle);
                 self.individuals[request.slot].handle = None;
@@ -1301,11 +1315,9 @@ impl<'a> Harness<'a> {
             .count();
         observe::red_waiters(self);
         let pre_observation_elapsed = pre_observation_started.elapsed();
-        let started = std::time::Instant::now();
-        let outcome = self.world.step(TickInput::new(self.plan.dt));
-        self.last_step_ns = started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
+        let (outcome, step_ns) = self.world.step(TickInput::new(self.plan.dt))?;
+        self.last_step_ns = step_ns;
         let observation_started = std::time::Instant::now();
-        let outcome = checked("TrafficWorld step", outcome)?;
         let signals = signal_signature(&self.world)?;
         if signals != self.last_signals {
             for window in &self.plan.boundary_windows {
@@ -1830,7 +1842,7 @@ mod tests {
         let slot = 741;
         let handle = harness.individuals[slot].handle.unwrap();
         let id = harness.individuals[slot].id;
-        harness.world.despawn_vehicle(handle).unwrap();
+        harness.world.despawn_vehicle(handle).unwrap().unwrap();
         harness.slots.remove(&handle);
         harness.individuals[slot].handle = None;
         let cursor = harness.world.command_cursor();
