@@ -31,6 +31,11 @@ pub struct CorridorVehiclePlan {
 
 impl CorridorVehiclePlan {
     /// 把计划变成 `TrafficWorld::spawn_vehicle` 输入。
+    ///
+    /// # Errors
+    ///
+    /// 计划的网络修订、策略选择、route 下标或已注册路线与给定 `TrafficWorld`
+    /// 不一致时返回 [`CorridorPopulationError::BoundWorldCatalogMismatch`]。
     pub fn spawn_input(
         &self,
         world: &TrafficWorld,
@@ -295,6 +300,11 @@ impl Default for CorridorPopulationConfig {
 
 impl CorridorPopulationConfig {
     /// 创建经过 `50..=200` 校验的配置。
+    ///
+    /// # Errors
+    ///
+    /// 目标车辆数不在 `50..=200` 时返回
+    /// [`CorridorPopulationError::InvalidTargetVehicleCount`]。
     pub fn try_new(
         target_vehicle_count: usize,
         seed: u64,
@@ -325,6 +335,13 @@ impl CorridorPopulationConfig {
 
 impl CorridorPopulationPrepare {
     /// 规划初始人口，不创建 `TrafficWorld`。
+    ///
+    /// # Errors
+    ///
+    /// catalog 与共享根绑定不一致（[`CorridorPopulationError::BoundWorldCatalogMismatch`]）、
+    /// 车辆 profile 不在共享根、catalog 路线缺少入口边或生成槽位不足
+    /// （[`CorridorPopulationError::InsufficientSpawnSlots`]）时返回相应
+    /// [`CorridorPopulationError`]；失败不创建 `TrafficWorld`。
     pub fn prepare(
         config: CorridorPopulationConfig,
         catalog: BoundCorridorCatalog,
@@ -420,6 +437,11 @@ impl CorridorPopulationPrepare {
     }
 
     /// 对本世界每条 catalog 路线恰好 `register_route` 一次。
+    ///
+    /// # Errors
+    ///
+    /// 由 catalog `install_routes` 承接：世界策略不匹配或 `register_route` 失败
+    /// 包装为 [`CorridorPopulationError`] 相应变体。
     pub fn install_routes(
         &self,
         world: &mut TrafficWorld,
@@ -432,6 +454,12 @@ impl CorridorPopulationPrepare {
     }
 
     /// 在 tick-0 world 上回查 identity 并进入 Running。
+    ///
+    /// # Errors
+    ///
+    /// 世界已步进（[`CorridorPopulationError::WorldAlreadyStepped`]）、绑定上下文
+    /// 或初始车辆数/车辆状态与计划不一致时返回相应 [`CorridorPopulationError`]；
+    /// 失败不进入 Running。
     pub fn bind(
         self,
         world: &mut TrafficWorld,
@@ -595,6 +623,12 @@ impl CorridorPopulationController {
     }
 
     /// 构造指定 pending slot 的替换输入。
+    ///
+    /// # Errors
+    ///
+    /// 绑定上下文与给定世界不一致、旧句柄没有对应 pending slot（
+    /// [`CorridorPopulationError::UnknownCompletionVehicle`]）或替换输入构造失败时
+    /// 返回相应 [`CorridorPopulationError`]。
     pub fn pending_spawn_input(
         &self,
         world: &TrafficWorld,
@@ -612,6 +646,12 @@ impl CorridorPopulationController {
     /// host callback 仍是 transport-neutral，可把同一输入交给 `TrafficWorld`
     /// 或 Adapter typed replace。宿主负责把 controller、上下文与 callback
     /// 绑定到同一个世界；这些可复制值不表示世界实例身份。
+    ///
+    /// # Errors
+    ///
+    /// 校验失败返回 [`CorridorReplaceApplyError::Policy`]，不调用 callback、不修改
+    /// pending 状态；host callback 致命失败返回 [`CorridorReplaceApplyError::Host`]，
+    /// 当前 plan 回到 pending 队首。
     pub fn apply_pending<F, E>(
         &mut self,
         network_revision: NetworkRevisionId,
@@ -696,6 +736,12 @@ impl CorridorPopulationController {
     }
 
     /// 消费 world 中新出现的 Completed Running 车辆并入队回流计划。
+    ///
+    /// # Errors
+    ///
+    /// 世界步进非单调（[`CorridorPopulationError::NonMonotonicStep`]）、已完成车辆
+    /// 消失、重复出现、不在跟踪集合或路线/边出现项与跟踪状态不一致时返回相应
+    /// [`CorridorPopulationError`]；失败不修改跟踪状态。
     pub fn consume_world(
         &mut self,
         world: &TrafficWorld,
@@ -907,6 +953,11 @@ impl CorridorPopulationController {
 
 impl CorridorReplaceAttemptOutcome {
     /// 把 Runtime replace 结果映射为 policy outcome；致命错误原样返回。
+    ///
+    /// # Errors
+    ///
+    /// Runtime 替换的致命错误原样返回（`Err`）；[`ReplaceError::Blocked`] 映射为
+    /// 可重试 outcome 而不是错误。
     pub fn from_replace(
         result: Result<VehicleReplaceRecord, laneflow_runtime::ReplaceError>,
     ) -> Result<Self, laneflow_runtime::ReplaceError> {
