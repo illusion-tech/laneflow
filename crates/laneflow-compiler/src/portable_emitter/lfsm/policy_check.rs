@@ -237,6 +237,11 @@ struct Member<'a> {
 ///
 /// source 必须来自同次 CompilationOutput。以实际 LFCA/文档描述符重建全集，不接受
 /// LFSM 自报地址作为来源权威；既有角色的来源语义仍由原有编译流水线拥有。
+///
+/// # Errors
+///
+/// LFSM 策略来源与实际 LFCA/文档描述符重建的全集不一致（mismatch），或
+/// 算术溢出时返回相应 [`PortableEmissionError`]。
 pub fn check_portable_policy_sources(
     artifact: &[u8],
     source: &ValidatedSourceMapInput,

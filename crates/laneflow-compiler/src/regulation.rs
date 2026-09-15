@@ -14,6 +14,11 @@ pub struct RegulationIdentity<S = Box<str>> {
 
 impl RegulationIdentity {
     /// 受检构造仅含法域与版本的法规身份。
+    ///
+    /// # Errors
+    ///
+    /// `jurisdiction` 或 `version` 文本为空、超过上限或违反 token 规则时返回相应
+    /// [`DiagnosticBundle`]。
     pub fn try_new(
         jurisdiction: impl Into<String>,
         version: impl Into<String>,
@@ -30,6 +35,10 @@ impl RegulationIdentity {
     }
 
     /// 为法规身份附加可选来源，同样受检。
+    ///
+    /// # Errors
+    ///
+    /// `source` 文本为空、超过上限或违反 token 规则时返回相应 [`DiagnosticBundle`]。
     pub fn with_source(mut self, source: impl Into<String>) -> Result<Self, DiagnosticBundle> {
         let source = source.into();
         validate_text(&source, "regulation.source")?;

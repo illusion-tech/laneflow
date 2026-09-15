@@ -117,6 +117,11 @@ fn geometry_direction_profile_code(value: crate::GeometryDirectionProfile) -> u8
 
 /// 从同一个成功编译结果原子发射 LFCA/LFSM/LFSD 候选。
 ///
+///
+/// # Errors
+///
+/// 来源摘要派生、对象构建/编码、网络修订派生、格式预检或对象/bundle 预算
+/// 超限时返回相应 [`PortableEmissionError`]；失败不返回部分候选。
 pub fn emit_portable_candidate(
     output: &CompilationOutput,
     provenance: &PortableEmissionProvenance,
@@ -134,6 +139,12 @@ pub fn emit_portable_candidate(
 
 /// 把三份百万级候选直接发射到调用方选择的临时目录，并在返回前关闭 LaneFlow 的全部
 /// 写能力。返回候选、checker 与共享静态构建复用同一 file backing。
+///
+/// # Errors
+///
+/// 来源摘要派生、对象构建/编码、网络修订派生、格式预检、对象/bundle 预算
+/// 超限或临时目录 I/O 失败时返回相应 [`PortableEmissionError`]；失败不返回
+/// 部分候选。
 pub fn emit_portable_candidate_to_staging(
     output: &CompilationOutput,
     provenance: &PortableEmissionProvenance,

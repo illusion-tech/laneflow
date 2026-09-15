@@ -46,6 +46,11 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
     }
 
     /// 把来源模块确定性编码为 `LFRE` size-prefixed 缓冲区；超出每模块来源字节上限时失败关闭。
+    ///
+    /// # Errors
+    ///
+    /// 来源字节超出单模块上限或缓冲容量换算溢出时返回相应 [`DiagnosticBundle`]；
+    /// 失败不写出部分缓冲。
     pub fn write(
         self,
         module: RoadEditingSourceModule,

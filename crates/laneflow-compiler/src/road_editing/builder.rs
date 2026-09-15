@@ -327,6 +327,10 @@ pub struct RoadEditingSourceModuleBuilder<'limits> {
 
 impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
     /// 以模块头部、几何档位与编译限额创建构建器，并对头部预先计费校验。
+    ///
+    /// # Errors
+    ///
+    /// 头部字段非法或预先计费超限额时返回 [`DiagnosticBundle`]，不建立构建器。
     pub fn new(
         header: RoadEditingModuleHeader,
         geometry_accuracy_profile: GeometryAccuracyProfile,
@@ -383,6 +387,10 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
     }
 
     /// 追加一条道路对齐输入；键重复或超出限额时失败关闭。
+    ///
+    /// # Errors
+    ///
+    /// 对齐键重复或超出限额时返回相应 [`DiagnosticBundle`]；失败不修改构建器。
     pub fn add_alignment(
         &mut self,
         value: RoadAlignmentInput,
@@ -416,6 +424,11 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
     }
 
     /// 追加一条道路编辑声明；地址重复、所有者非法或超出限额时失败关闭。
+    ///
+    /// # Errors
+    ///
+    /// 声明地址重复、所有者非法或超出限额时返回相应 [`DiagnosticBundle`]；
+    /// 失败不修改构建器。
     pub fn add_declaration(
         &mut self,
         value: RoadEditingDeclaration,
@@ -446,6 +459,10 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
     }
 
     /// 追加一条冲突区区域输入；冲突区重复或超出限额时失败关闭。
+    ///
+    /// # Errors
+    ///
+    /// 冲突区重复或超出限额时返回相应 [`DiagnosticBundle`]；失败不修改构建器。
     pub fn add_conflict_zone_region(
         &mut self,
         value: ConflictZoneRegionInput,
@@ -484,6 +501,10 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
     }
 
     /// 校验所有者树并按规范顺序排序后，结束构建并产出 `RoadEditingSourceModule`。
+    ///
+    /// # Errors
+    ///
+    /// 所有者树校验失败或资源限额超限时返回相应 [`DiagnosticBundle`]，不产出模块。
     pub fn finish(mut self) -> Result<RoadEditingSourceModule, DiagnosticBundle> {
         validate_owner_tree(&self.declarations, &self.declaration_addresses)?;
         self.road_alignments.sort_unstable_by(|left, right| {
