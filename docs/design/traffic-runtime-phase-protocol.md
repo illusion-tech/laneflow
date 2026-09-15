@@ -78,31 +78,31 @@ TrafficWorld
 隐藏权限，或在两个分区维护可独立修改的同一份权威。分区不改变既有稀疏、稠密和
 容量策略，也不要求把与路线条目共寿命的只读编译结果再复制到一张全局表。
 
-| 现行字段                                                                                                                | 归属                                     | 约束                                                                                                                               |
-| ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `revision`, `source`, `world_id`, `world_generation`, `config`, `policy_binding`                                        | Binding                                  | 同一活动绑定；step 不替换根、策略或世界世代                                                                                        |
-| `tick_index`, `time_ms`, `command_cursor`, `event_cursor`, `observation_state_sequence`                                 | Committed                                | 逐操作沿用原有递增规则，见 §5.3                                                                                                    |
-| `routes`, `free_routes`, `live_route_count`, `live_route_edge_occurrence_count`, `live_route_conflict_occurrence_count` | Committed route store                    | 登记、槽位世代、空闲顺序与准入计数一起维护；条目内编译出现项是只读执行表示，不是共享静态根的一部分                                 |
-| `vehicles`, `free_vehicles`, `live_order`                                                                               | Committed vehicle store                  | `live_order` 决定正式更新序号，不能由槽位顺序重新生成；空闲表顺序不能任意改变后续 handle                                           |
-| `active_order`                                                                                                          | Derived                                  | 从 `live_order` 保序投影；成功提交后移除非 Active，失败不改变公开遍历和后续业务顺序                                                |
-| `spawn_overlap`                                                                                                         | Derived                                  | 道路准入/切换重验证候选缓存；命令与生命周期增量维护，车辆 tick/候选整值改写后失效，查询时重建；晋升随候选交换，不进入快照与摘要    |
-| `parking`                                                                                                               | Committed resources                      | 显式/虚拟占用和 bindings 的唯一停车聚合；step 只检查预约和产生到达观察，不暗中执行 park/unpark 命令                                |
-| `waiting_zones`                                                                                                         | Committed resources + Derived queue view | `next_admission_sequence` 是历史权威；occupancy 是随 membership 原子维护的已提交计数；`head`/`tail` 与 queue link 是可重建定位表示 |
-| `waiting_links`, `waiting_member_rows`                                                                                  | Derived                                  | 由已提交 membership、admission sequence 和 zone 得到；缓存公开查询结果时仍受同一提交边界保护                                       |
-| `conflict_eligibility`                                                                                                  | Committed resources                      | 保存首次资格时钟；用拍后状态和下一时刻信号规范化后提交                                                                             |
-| `conflict_arbiter`                                                                                                      | 按 §2.2 拆开                             | 禁止把整个混合聚合直接放入 Committed 后继续在 prepare 中修改                                                                       |
-| `signal_aspects`                                                                                                        | Committed resources 的信号只读表示       | 可从绑定和已提交时钟导出，但成功 step 返回前必须与该时钟一致；不是独立于时钟的第二权威                                             |
-| `latest_waiting_decisions`, `latest_conflict_decisions`, `latest_transition_events`                                     | Committed published batches              | 保留上次成功结果；失败不清空，生命周期命令不把自己的 record 塞入历史 tick 批次                                                     |
-| `occupancy`                                                                                                             | Derived，构建暂存属 Workspace            | step 按拍初车辆状态重建；命令间复用须匹配世界世代和状态序号，失败重建清除来源；构建 scratch 与查询分开借用                         |
-| `next_states`, `next_state_by_vehicle`, `next_signal_aspects`                                                           | Workspace                                | 预览可复用 `next_states`，正式 next state 仍从拍初状态计算；槽位索引只定位，不排序                                                 |
-| `motion_previews`                                                                                                       | Workspace                                | 同拍 Conflict 运动预览，按 live order 的 Active 投影顺序保存；P5 核对约束后消费，成功/失败清空逻辑结果，容量只计入 Workspace 一次  |
-| `waiting_claims`, `waiting_plans`, `waiting_plan_by_vehicle`                                                            | Workspace                                | Waiting 预选、组合 claim 与车辆定位；本地可行不等于完整 grant                                                                      |
-| `waiting_staged_decisions`, `staged_transition_events`                                                                  | Workspace                                | 输出暂存；实际 crossing 和最终 traversal 明确后才形成完整批次                                                                      |
-| `waiting_next_counters`, `waiting_staged_occupancy`, `waiting_staged_storage_mm`, `waiting_dependencies`                | Workspace                                | 本拍计数、存储与候选依赖图事务；失败撤销暂存，不修改已提交 admission sequence                                                      |
-| `conflict_candidates`, `conflict_schedule`, `conflict_candidate_cells`, `conflict_candidate_downstream`                 | Workspace                                | 候选、顺序和候选资源输入                                                                                                           |
-| `conflict_cell_work`, `conflict_downstream_work`, `conflict_grants`, `conflict_motion_by_vehicle`                       | Workspace                                | 组合 reducer 工作集、grant 与 motion 定位                                                                                          |
-| `conflict_next_eligibility`, `conflict_passage_transitions`, `conflict_changed_owners`, `conflict_staged_decisions`     | Workspace                                | 拍后资格、实际资源转移、日志 owner 变化集与决策暂存                                                                                |
-| `migration_journal`, `migration_epoch`                                                                                  | Admin                                    | 日志内容随成功提交推进；epoch 只在武装事务时变化，不是 tick 序号                                                                   |
+| 现行字段                                                                                                                | 归属                                     | 约束                                                                                                                                                               |
+| ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `revision`, `source`, `world_id`, `world_generation`, `config`, `policy_binding`                                        | Binding                                  | 同一活动绑定；step 不替换根、策略或世界世代                                                                                                                        |
+| `tick_index`, `time_ms`, `command_cursor`, `event_cursor`, `observation_state_sequence`                                 | Committed                                | 逐操作沿用原有递增规则，见 §5.3                                                                                                                                    |
+| `routes`, `free_routes`, `live_route_count`, `live_route_edge_occurrence_count`, `live_route_conflict_occurrence_count` | Committed route store                    | 登记、槽位世代、空闲顺序与准入计数一起维护；条目内编译出现项是只读执行表示，不是共享静态根的一部分                                                                 |
+| `vehicles`, `free_vehicles`, `live_order`                                                                               | Committed vehicle store                  | `live_order` 决定正式更新序号，不能由槽位顺序重新生成；空闲表顺序不能任意改变后续 handle                                                                           |
+| `active_order`                                                                                                          | Derived                                  | 从 `live_order` 保序投影；成功提交后移除非 Active，失败不改变公开遍历和后续业务顺序                                                                                |
+| `spawn_overlap`                                                                                                         | Derived                                  | 道路准入/切换重验证候选缓存；命令与生命周期增量维护，车辆 tick/候选整值改写后失效，查询时重建；晋升随候选交换，不进入快照与摘要                                    |
+| `parking`                                                                                                               | Committed resources                      | 显式/虚拟占用和 bindings 的唯一停车聚合；step 只检查预约和产生到达观察，不暗中执行 park/unpark 命令                                                                |
+| `waiting_zones`                                                                                                         | Committed resources + Derived queue view | `next_admission_sequence` 是历史权威；occupancy 是随 membership 原子维护的已提交计数；`head`/`tail` 与 queue link 是可重建定位表示                                 |
+| `waiting_links`, `waiting_member_rows`                                                                                  | Derived                                  | 由已提交 membership、admission sequence 和 zone 得到；缓存公开查询结果时仍受同一提交边界保护                                                                       |
+| `conflict_eligibility`                                                                                                  | Committed resources                      | 保存首次资格时钟；用拍后状态和下一时刻信号规范化后提交                                                                                                             |
+| `conflict_arbiter`                                                                                                      | 按 §2.2 拆开                             | 禁止把整个混合聚合直接放入 Committed 后继续在 prepare 中修改                                                                                                       |
+| `signal_aspects`                                                                                                        | Committed resources 的信号只读表示       | 可从绑定和已提交时钟导出，但成功 step 返回前必须与该时钟一致；不是独立于时钟的第二权威                                                                             |
+| `latest_waiting_decisions`, `latest_conflict_decisions`, `latest_transition_events`                                     | Committed published batches              | 保留上次成功结果；失败不清空，生命周期命令不把自己的 record 塞入历史 tick 批次                                                                                     |
+| `occupancy`                                                                                                             | Derived，构建暂存属 Workspace            | step 按拍初车辆状态重建；命令间复用须匹配世界世代和状态序号，失败重建清除来源；构建 scratch 与查询分开借用                                                         |
+| `next_states`, `next_state_by_vehicle`, `next_signal_aspects`                                                           | Workspace                                | 预览可复用 `next_states`，正式 next state 仍从拍初状态计算；槽位索引只定位，不排序                                                                                 |
+| `motion_cache`                                                                                                          | Workspace                                | 同拍前视窗和 Waiting/Conflict 运动预览，按 live order 的 Active 投影顺序保存并核对完整句柄；P4/P5 核对约束后消费，成功/失败清空逻辑结果，容量只计入 Workspace 一次 |
+| `waiting_claims`, `waiting_plans`, `waiting_plan_by_vehicle`                                                            | Workspace                                | Waiting 预选、组合 claim 与车辆定位；本地可行不等于完整 grant                                                                                                      |
+| `waiting_staged_decisions`, `staged_transition_events`                                                                  | Workspace                                | 输出暂存；实际 crossing 和最终 traversal 明确后才形成完整批次                                                                                                      |
+| `waiting_next_counters`, `waiting_staged_occupancy`, `waiting_staged_storage_mm`, `waiting_dependencies`                | Workspace                                | 本拍计数、存储与候选依赖图事务；失败撤销暂存，不修改已提交 admission sequence                                                                                      |
+| `conflict_candidates`, `conflict_schedule`, `conflict_candidate_cells`, `conflict_candidate_downstream`                 | Workspace                                | 候选、顺序和候选资源输入                                                                                                                                           |
+| `conflict_cell_work`, `conflict_downstream_work`, `conflict_grants`, `conflict_motion_by_vehicle`                       | Workspace                                | 组合 reducer 工作集、grant 与 motion 定位                                                                                                                          |
+| `conflict_next_eligibility`, `conflict_passage_transitions`, `conflict_changed_owners`, `conflict_staged_decisions`     | Workspace                                | 拍后资格、实际资源转移、日志 owner 变化集与决策暂存                                                                                                                |
+| `migration_journal`, `migration_epoch`                                                                                  | Admin                                    | 日志内容随成功提交推进；epoch 只在武装事务时变化，不是 tick 序号                                                                                                   |
 
 原任务描述中的 `waiting_staged_events` 对应的现行统一字段是
 `staged_transition_events`；不恢复独立 Waiting 事件缓冲或兼容别名。
@@ -220,10 +220,14 @@ Workspace、`A` 为 Admin。对外命令不能插入一次 step；世界的独�
    计算一次，拍后资格按 C(T+Δ) 的候选状态及 `signal_aspects(T+Δ)` 规范化。
    最新决策保存本拍历史判断，不按拍末信号重写；成功返回时快照已经合法。
 
-同拍运动预览仅缓存 Conflict 求值已经完整计算的结果、当时的 Waiting 约束和共同
-运动内核产生的位移证明。P5 必须先确认 Waiting 约束完全相同。新增 Conflict 约束
-为空或与已有 Waiting 约束完全相同时可以复用。原 `hard_room` 为零时，新增停止
-约束仍走相同的零位移提前返回，也可以复用；不能仅从整数位置相同推断这个条件。
+同拍缓存保留 P2 已计算的前视窗，以及 Waiting/Conflict 求值已经完整计算的结果、
+当时的 Waiting 约束和共同运动内核产生的位移证明。P4/P5 以活动车辆序号定位，
+核对完整车辆句柄后才可读取。前视窗的速度、配置与步长均来自同一 C(T)，可直接
+复用；未缓存时仍在原求值位置计算。Waiting 约束相同时可复用预览；从无约束新增
+Waiting 约束时，必须通过下述位移证明。移除或替换既有 Waiting 约束必须完整重算。
+新增 Conflict 约束为空或与已有 Waiting 约束完全相同时可以复用。原 `hard_room`
+为零时，新增停止约束仍走相同的零位移提前返回，也可以复用；不能仅从整数位置
+相同推断这个条件。
 其余车辆保留内核已算出的最终 SI 位移，以及加入输入 carry、按微米舍入后、尚未
 截到整数硬边界的 `u64` 毫米提案。有限屏障的整数毫米须严格大于该提案，且按现有
 SI 转换后的值不小于缓存的 SI 位移，才能证明新约束不改变 SI clamp、整数
@@ -233,9 +237,10 @@ exhausted、余量与速度。停止距离不参与下一速度求解；其后�
 整数提案保持 `u64`，不因缩窄或饱和而错误证明有限屏障可忽略。
 任何条件不满足均调用原完整运动内核，未改变运动公式或引入新的运动容差。
 
-该缓存容量按本拍 Active 数量尝试预留，扩容失败只使用已有容量，其余车辆照常
-计算，不新增错误或改变首错。逻辑条目在本拍消费后、失败清理以及下一次候选准备时
-清空；恢复/迁移新世界从空缓存构造。保留容量归 `TickWorkspace`，不进入快照或
+该缓存容量在 P2 按本拍 Active 数量尝试预留，扩容失败只缓存已有容量可容纳的
+活动顺序前缀，其余车辆照常计算，不新增错误或改变首错。逻辑条目在本拍消费后、
+失败清理以及每次公开 step 入口和下一次候选准备时清空；恢复/迁移新世界从空
+缓存构造。保留容量归 `TickWorkspace`，不进入快照或
 摘要；资源授予、完整计划校验、实际 crossing 与输出发布仍走共同流程。
 
 ### 3.2 现行函数到逻辑阶段
