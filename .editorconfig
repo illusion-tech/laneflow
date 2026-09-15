@@ -18,5 +18,5 @@ indent_style = space
 indent_size = 2
 
 # Generated flatc output preserves its own trailing spaces and final blank line.
-[crates/laneflow-road-editing-wire/src/generated/road-editing_generated.rs]
+[*_generated.rs]
 trim_trailing_whitespace = false
