@@ -1,7 +1,7 @@
 # Rust 代码风格
 
 **文档状态**: Active<br>
-**最后更新**: 2026-08-28<br>
+**最后更新**: 2026-09-16<br>
 **适用范围**: LaneFlow workspace 中的 Rust 源码、测试、基准和治理工具
 
 ## 1. 目标
@@ -66,7 +66,55 @@ let color = 0xFF00_FF00;
 
 本规则只约束 Rust 数字字面量，不要求修改字符串、日志、错误信息、JSON、Schema、文档示例或其他序列化数据。格式清理不得改变用户可见文本、持久化内容或测试所验证的运行时输出。
 
-## 5. Retained-memory 计账
+## 5. 注释与 rustdoc 契约段落
+
+注释语言遵循 `docs/governance/documentation-policy.md` §6（中文优先）；本节规定注释的
+**功能分层**与形态。核心原则：注释只写代码无法自表达的内容。可被类型系统或属性承载的
+契约（`#[must_use]`、newtype、常量）不得降级为注释；注释承载类型表达不了的契约：
+不变量、失败语义、成本契约与治理出处。
+
+### 5.1 按受众分类
+
+- **API 契约文档**（`///` 条目文档、`//!` 模块文档）：面向宿主与调用方，写规范语义、
+  失败语义、性能契约与治理锚点。
+- **实现约束注释**（`//` 行内注释）：面向维护者，写不变量、非显然的决策理由与成本
+  注记；不写"下一行在做什么"的叙述。
+- **诊断字符串**（错误 `Display`、`assert!` 消息、`#[must_use]` 文案）：见 5.3，
+  三类受众不同，规则不同。
+
+公共边界密、纯逻辑内部稀。crate 级文档可用 `#![doc = include_str!("../README.md")]`
+让 README 兼作 rustdoc 首页。
+
+### 5.2 rustdoc 契约段落
+
+- 公开可失败 API（rustdoc 可见的 `pub fn` 返回 `Result`）必须有 `# Errors` 段落，
+  逐条对应实际失败路径；写不出准确条件时先读实现再写，宁缺毋错。
+- 存在 panic 路径的公开 API 必须有 `# Panics` 段落；`debug_assert!` 不进入发布构建，
+  不属于 panic 契约，不要求登记。
+- 段落标题保持 rustdoc 标准英文（属政策 §6"工具字段明确需要英文"例外），段落正文
+  中文。
+- 既有散文描述的失败语义应收敛进段落，不保留重复表述。
+
+### 5.3 诊断字符串
+
+- 错误 `Display` 消息：中文、面向人。enum 变体名是稳定机器身份，宿主按变体匹配，
+  不按字符串匹配。消息语言与日志编码的最终裁决保留给政策 §6 预留的专门 ADR。
+- `assert!` 消息：短英文诊断标签是显式例外——它们与编译器、CI 输出混排，ASCII
+  最可检索。
+- `#[must_use = "..."]`：中文祈使句，写后果不写事实（如"丢弃记录会静默丢弃交付"）。
+  公开返回类型的 `#[must_use]` 义务随包装类型继承，包装层不得丢失。
+
+### 5.4 治理锚点与反模式
+
+- 注释可锚定治理出处（如"（#534 G1 冻结）"）；契约被改写时，注释必须在同一变更内
+  改写。代码中不留"原先如何"的考古注释，历史归 git。
+- 注释使用 glossary 权威中文术语，精确标识符用反引号保留原文。
+- 禁止：无 Issue 锚点的 TODO/FIXME（需要跟踪就开 Issue）；变更日志式注释
+  （"改自 #x"）；注释掉的代码。
+- 与数字字面量规则相同：本节只约束本次触及范围，历史欠账通过有界治理 Issue 清理，
+  不在无关功能 PR 中顺带制造大范围注释 diff。
+
+## 6. Retained-memory 计账
 
 Core 的 retained-memory 测试账本按 Rust storage ownership 统计，不沿 handle 或
 borrowed reference 重复统计目标对象。拥有 `Vec`、`String`、`IndexMap`、`Box`、
@@ -84,17 +132,18 @@ borrowed reference 重复统计目标对象。拥有 `Vec`、`String`、`IndexMa
 owner 的场景应在可稳定判断时断言为零。常规 PR 运行 complete retained-memory
 smoke，一万/十万 matrix 继续作为对应 Delivery/G3 的显式验证。
 
-## 6. 工具与执行
+## 7. 工具与执行
 
 - `rustfmt` 不负责统一数字分组，不能把 `cargo fmt` 通过解释为本规则已经满足。
 - Clippy 的 `clippy::unreadable_literal` 可以发现部分较长字面量，但不覆盖本规则关注的四位数 `1000`，只能作为补充检查。
 - 当前不使用全仓库正则 CI 强制本规则，避免把字符串、年份、端口和外部 token 误报为数字字面量问题。
-- 新增或修改 Rust 代码时，由作者在本次变更范围内遵守本规则；审阅者只对触及区域提出一致性要求。
+- 注释规范同样无自动门禁：`missing_docs` 等 lint 不启用，`# Errors`/`# Panics` 完整性由审阅按 5.2 核对。
+- 新增或修改 Rust 代码时，由作者在本次变更范围内遵守本文件；审阅者只对触及区域提出一致性要求。
 - 历史不一致通过有界治理 Issue 清理，不应在无关功能 PR 中顺带制造大范围格式 diff。
 
 Rust 对数字字面量下划线的语言语义见 [Rust Reference: Literal expressions](https://doc.rust-lang.org/reference/expressions/literal-expr.html)；Clippy 补充检查见 [`unreadable_literal`](https://rust-lang.github.io/rust-clippy/stable/index.html#unreadable_literal)。
 
-## 7. Review 检查
+## 8. Review 检查
 
 Review Rust 变更时：
 
@@ -105,3 +154,5 @@ Review Rust 变更时：
 5. 不得把等价字面量格式评论提升为运行时、API 或数据格式缺陷。
 6. Core owning struct 新增 heap-backed 字段时，确认 owner-local 穷尽计账、world
    component ledger 与零/非零 smoke fixture 已同步。
+7. 对新增公开可失败 API 核对 `# Errors`/`# Panics` 段落（见 5.2）；对新增
+   `#[must_use]` 公开返回类型核对其义务在包装层未丢失（见 5.3）。
