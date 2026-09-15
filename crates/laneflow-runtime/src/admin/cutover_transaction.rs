@@ -151,7 +151,9 @@ impl TrafficWorld {
     /// 已存在在途事务（[`CutoverError::InFlightTransaction`]）、base 世界绑定/基线
     /// 游标/策略选择与当前世界不一致、target 来源修订不匹配或信号程序无效、
     /// 描述符一致性预检失败（缺语义差异、修订相等、派生版本不受支持或 origin 与
-    /// 实际制品不符，[`CutoverError::Descriptor`]，先于 LFSD 读取）、LFSD 字节认证
+    /// 实际制品不符，[`CutoverError::Descriptor`]，先于 LFSD 读取）、目标修订策略
+    /// 连续性失败（目标缺当前固定策略或其法规身份变化，`PolicyInstall` /
+    /// `PolicyRegulationMismatch`，先于 LFSD 认证）、LFSD 字节认证
     /// 失败（长度/摘要/结构或 base/target 绑定不符，同为 `Descriptor`）、世界世代
     /// 耗尽、暂存分配失败，或候选构造
     /// （含路线重验证）失败时返回相应 [`CutoverError`]。已存在在途事务时

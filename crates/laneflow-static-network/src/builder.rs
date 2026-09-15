@@ -234,7 +234,8 @@ impl TopologyPlan {
 ///
 /// # Errors
 ///
-/// 受检 LFCA 的表格引用、实体种类或跨段引用违反输入不变量、路权策略闭合/
+/// 受检 LFCA 携带的静态契约版本不受支持或与 ExecutionContract 行不一致（
+/// `ContractMismatch`）、表格引用、实体种类或跨段引用违反输入不变量、路权策略闭合/
 /// 身份排序或稳定 ID 匹配失败、Spatial presence 标记与实际 payload 不一致
 /// （`SpatialPresenceMismatch`；无 Spatial payload 的 headless LFCA 是合法输入）
 /// 或几何非法、构建预算超限、算术溢出、容量预留失败或构建被取消时返回相应

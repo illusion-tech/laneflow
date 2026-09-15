@@ -1226,7 +1226,9 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 句柄失效或车辆未 `Completed`、停车占用未释放、冲突/等待不变量破坏、输入
-    /// 校验失败（profile/路线/进度/初速/准入）、观测状态序号或命令游标耗尽（
+    /// 校验失败（profile/路线/进度/初速/准入，含新候选的等待区存储与冲突权威
+    /// 校验：`WaitingVehicleTooLong` / `WaitingStatefulManeuverInterior` /
+    /// `ConflictAuthorityRequired`）、观测状态序号或命令游标耗尽（
     /// `ObservationStateSequenceExhausted` / `CommandCursorExhausted`）或入口占用
     /// 被占时返回相应 [`ReplaceError`]；[`ReplaceError::Blocked`] 可重试，其余为
     /// 致命错误；任一失败保持已提交世界不变。
