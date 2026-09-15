@@ -302,13 +302,15 @@ pub fn bind(
 }
 
 impl BoundCorridorCatalog {
-    /// 对本世界每条 catalog 路线恰好 `register_route` 一次。失败撤回本次注册的句柄。
+    /// 对本世界每条 catalog 路线恰好 `register_route` 一次。失败时尝试撤回本次注册
+    /// 的句柄。
     ///
     /// # Errors
     ///
     /// 世界策略选择与 catalog 绑定不一致（[`BindError::WorldPolicyMismatch`]）、
     /// 路线 ID 未解析或 `register_route` 失败（包装为 [`BindError::RouteRegister`]）
-    /// 时返回；失败撤回本次已注册的句柄。
+    /// 时返回；失败时尝试撤回本次已注册的句柄——命令游标耗尽时撤回同样失败，
+    /// 已注册路线可能残留在世界中。
     pub fn install_routes(&self, world: &mut TrafficWorld) -> Result<Vec<RouteHandle>, BindError> {
         if world.policy_selection() != self.policy_selection {
             return Err(BindError::WorldPolicyMismatch);

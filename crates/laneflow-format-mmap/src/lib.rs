@@ -110,7 +110,9 @@ impl PrivateStagedFile {
     ///
     /// # Errors
     ///
-    /// 定点覆写的底层写失败时返回相应 [`std::io::Error`]。
+    /// 定位、覆写或恢复写位置的任一 I/O 失败时返回相应 [`std::io::Error`]；
+    /// 失败时内核写位置可能停留在任意位置，且部分字节可能已被覆写——
+    /// 调用方应将 backing 视为已损坏。
     pub fn patch_exact_at(&mut self, offset: u64, bytes: &[u8], resume: u64) -> io::Result<()> {
         self.file.seek(SeekFrom::Start(offset))?;
         self.file.write_all(bytes)?;

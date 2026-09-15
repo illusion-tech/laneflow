@@ -135,9 +135,10 @@ pub(crate) fn check_canonical_network_input_binding(
 ///
 /// # Errors
 ///
-/// 输入长度超过格式上限（[`CanonicalNetworkInputError::LimitExceeded`]）或
-/// LFCA 对象源访问失败（[`CanonicalNetworkInputError::ObjectSource`]）时返回
-/// 相应 [`CanonicalNetworkInputError`]。
+/// 输入长度超过格式上限（[`CanonicalNetworkInputError::LimitExceeded`]）、
+/// LFCA 对象源访问失败（`ObjectSource`）、LFCA 结构/registry/值域预检失败
+/// （`Format`）、声明修订与重算摘要不一致（`NetworkRevisionMismatch`）或
+/// 换算溢出（`ArithmeticOverflow`）时返回相应 [`CanonicalNetworkInputError`]。
 pub fn check_canonical_network_input<S>(
     lfca: S,
     limits: FormatLimits,

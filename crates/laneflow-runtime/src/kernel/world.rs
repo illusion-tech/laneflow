@@ -196,8 +196,13 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 来源修订号与共享根 origin 不一致、增量区间越界、worker 计数非一，或
-    /// 冲突体系安装失败时返回相应 [`InstallError`]；失败不留下可观察的半个 world。
+    /// 来源修订号与共享根 origin 不一致、增量区间越界、worker 计数非一、
+    /// `fixed_delta_time_ms` 落在 `4..=1_000` 之外或信号程序与步长不兼容、共享根
+    /// 需要显式路权策略而未固定/策略未知/策略派生溢出或分配失败（
+    /// `PolicyRequired` / `UnknownPolicy` / `PolicyGapOverflow` /
+    /// `PolicyCapacityOverflow` / `PolicyAllocationFailed`），或冲突仲裁器容量、
+    /// 分配与网络不变量安装失败时返回相应 [`InstallError`]；失败不留下可观察的
+    /// 半个 world。
     pub fn install(
         revision: Arc<SharedNetworkRevision>,
         config: WorldConfig,
