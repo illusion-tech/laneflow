@@ -717,7 +717,9 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 已存在在途事务（[`CutoverError::InFlightTransaction`]）、base 世界绑定/基线
+    /// 描述符认证失败（origin 摘要、修订派生版本、策略携带或两侧静态契约不一致，
+    /// [`CutoverError::Descriptor`]）、已存在在途事务（
+    /// [`CutoverError::InFlightTransaction`]）、base 世界绑定/基线
     /// 游标/策略选择与当前世界不一致、target 来源修订不匹配、路线或等待区/冲突
     /// 重验证失败、在途车辆的游标/停车状态校验失败、占用索引重建失败、世界
     /// 世代或事件游标耗尽、暂存或事件分配失败时返回相应 [`CutoverError`]；任一

@@ -336,8 +336,8 @@ impl std::error::Error for CatalogError {}
 ///
 /// catalog 版本不受支持、portal 集合数量或 ID 序列与封闭集合不符、成员
 /// StableId 重复或非法、车道数量/下标非法、路线数量不符、路线无入口边、
-/// 出口 portal 未知或不一致、入口出口相同、路线未被引用或 slot 不足、路线选项
-/// 为空、权重为零或权重和溢出、选项重复或 slot 交叉引用非法时返回相应
+/// 出口 portal 未知、入口出口相同、路线未被引用或 slot 不足、路线选项为空、
+/// 权重为零或权重和溢出、选项重复或 slot 交叉引用非法时返回相应
 /// [`CatalogError`]。
 pub fn validate(catalog: &CorridorCatalog) -> Result<(), CatalogError> {
     catalog.policy_selection.resolve()?;

@@ -800,7 +800,9 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 边序列为空、序号越出共享根、相邻边不连通、命令游标耗尽（
+    /// 边序列为空、序号越出共享根、相邻边不连通或机动转移无法唯一匹配（
+    /// `ManeuverMismatch` / `AmbiguousManeuver`）、等待区本地存储跨度无法表示
+    /// （`WaitingStorageSpanUnbounded`）、命令游标耗尽（
     /// `RouteError::CommandCursorExhausted`）、路线/边出现项/冲突出现项容量不足
     /// 或编译缓冲预留失败时返回相应 [`RouteError`]；失败不留下半条路线。
     pub fn register_route(&mut self, input: RouteRegisterInput) -> Result<RouteHandle, RouteError> {
