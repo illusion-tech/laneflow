@@ -148,8 +148,10 @@ impl From<CatalogError> for BindError {
 /// # Errors
 ///
 /// 世界没有显式策略选择（[`BindError::PolicyRequired`]）、策略身份未在 catalog
-/// 登记（[`BindError::UnknownPolicy`]）、catalog 路线 ID 在共享根中不存在时返回
-/// 相应 [`BindError`]；失败不产生部分绑定。
+/// 登记（[`BindError::UnknownPolicy`]）、catalog 自身校验失败（
+/// [`BindError::Catalog`]）、稳定身份或 profile 解析失败（`Identity` /
+/// `UnknownEdge` / `UnknownProfile`）、slot 绑定非法或 catalog 路线引用未声明
+/// （[`BindError::UnknownRoute`]）时返回相应 [`BindError`]；失败不产生部分绑定。
 pub fn bind(
     catalog: &CorridorCatalog,
     revision: &SharedNetworkRevision,

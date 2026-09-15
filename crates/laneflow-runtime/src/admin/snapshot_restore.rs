@@ -405,9 +405,9 @@ impl RestoredSnapshot {
 ///
 /// 输入命中读取/配置/verifier 上限、LFRS framing 截断或 size prefix 不一致、
 /// file identifier 或格式/状态版本不匹配、FlatBuffers verifier 拒绝结构、
-/// 必需字段缺席、来源/修订/静态契约版本/时钟/配置与目标根不一致，或确定性
-/// 摘要复核失败时返回相应 [`SnapshotRestoreError`]；任一失败只丢弃局部
-/// staging，不返回半恢复 world。
+/// 必需字段缺席、来源/修订/静态契约版本/时钟/配置与目标根不一致、结构合法但
+/// 逻辑内容非法（路线/车辆/权威重建失败），或确定性摘要复核失败时返回相应
+/// [`SnapshotRestoreError`]；任一失败只丢弃局部 staging，不返回半恢复 world。
 pub fn restore_lfrs(
     bytes: &[u8],
     revision: Arc<SharedNetworkRevision>,

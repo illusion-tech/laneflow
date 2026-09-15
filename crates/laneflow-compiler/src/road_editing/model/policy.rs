@@ -234,7 +234,7 @@ impl RightOfWayPolicySetInput {
     ///
     /// # Errors
     ///
-    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
+    /// 本方法不校验、当前恒返回 `Ok`；保留 `Result` 形态以与同族构造器一致。
     pub fn with_canvas_selection(
         mut self,
         value: impl Into<String>,

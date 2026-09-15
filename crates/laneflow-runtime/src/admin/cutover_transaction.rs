@@ -149,10 +149,12 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 已存在在途事务（[`CutoverError::InFlightTransaction`]）、base 世界绑定/基线
-    /// 游标/策略选择与当前世界不一致、target 来源修订不匹配或信号程序无效、世界
-    /// 世代耗尽、暂存分配失败，或候选构造（含路线重验证）失败时返回相应
-    /// [`CutoverError`]。已存在在途事务时（`InFlightTransaction`）立即返回，既有
-    /// 武装事务保持不变；其余构造失败即丢弃候选并解除本次日志武装，旧世界无感知。
+    /// 游标/策略选择与当前世界不一致、target 来源修订不匹配或信号程序无效、LFSD
+    /// 字节认证失败（长度/摘要/结构或 base/target 绑定不符，
+    /// [`CutoverError::Descriptor`]）、世界世代耗尽、暂存分配失败，或候选构造
+    /// （含路线重验证）失败时返回相应 [`CutoverError`]。已存在在途事务时
+    /// （`InFlightTransaction`）立即返回，既有武装事务保持不变；其余构造失败即
+    /// 丢弃候选并解除本次日志武装，旧世界无感知。
     #[allow(clippy::too_many_arguments)]
     pub fn prepare_cross_revision_cutover(
         &mut self,
@@ -333,9 +335,10 @@ impl CutoverTransaction {
     ///
     /// # Errors
     ///
-    /// 事务已结算、世界不匹配或健康检查失败时直接返回；日志缺失（
-    /// [`CutoverError::JournalMissing`]）或迁移记录应用失败时先按失败结算事务再
-    /// 返回相应 [`CutoverError`]。
+    /// 事务已结算、世界不匹配时直接返回；健康检查失败（日志溢出
+    /// `JournalOverflow` 或候选落后超过 `max_catch_up_lag_ticks`）与日志缺失（
+    /// [`CutoverError::JournalMissing`]）、迁移记录应用失败一样先按失败结算事务
+    /// （丢弃候选、解除武装）再返回相应 [`CutoverError`]。
     pub fn pump(&mut self, world: &mut TrafficWorld) -> Result<PumpOutcome, CutoverError> {
         self.ensure_live()?;
         self.ensure_origin_world(world)?;

@@ -240,8 +240,9 @@ struct Member<'a> {
 ///
 /// # Errors
 ///
-/// LFSM 策略来源与实际 LFCA/文档描述符重建的全集不一致（mismatch），或
-/// 算术溢出时返回相应 [`PortableEmissionError`]。
+/// LFSM 策略来源与实际 LFCA/文档描述符重建的全集不一致（mismatch）、LFCA 或
+/// LFSM 字节格式预检失败（`Format`）、scratch 投影预留失败（`AllocationFailure`）
+/// 或对象/预算上限超限（`LimitExceeded`）时返回相应 [`PortableEmissionError`]。
 pub fn check_portable_policy_sources(
     artifact: &[u8],
     source: &ValidatedSourceMapInput,

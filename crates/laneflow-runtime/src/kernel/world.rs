@@ -800,8 +800,9 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 边序列为空、序号越出共享根、相邻边不连通、路线/边出现项/冲突出现项容量
-    /// 不足或编译缓冲预留失败时返回相应 [`RouteError`]；失败不留下半条路线。
+    /// 边序列为空、序号越出共享根、相邻边不连通、命令游标耗尽（
+    /// `RouteError::CommandCursorExhausted`）、路线/边出现项/冲突出现项容量不足
+    /// 或编译缓冲预留失败时返回相应 [`RouteError`]；失败不留下半条路线。
     pub fn register_route(&mut self, input: RouteRegisterInput) -> Result<RouteHandle, RouteError> {
         self.register_route_edges(input.edges())
     }
@@ -1223,9 +1224,10 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 句柄失效或车辆未 `Completed`、停车占用未释放、冲突/等待不变量破坏、输入
-    /// 校验失败（profile/路线/进度/初速/准入）或入口占用被占时返回相应
-    /// [`ReplaceError`]；[`ReplaceError::Blocked`] 可重试，其余为致命错误；任一
-    /// 失败保持已提交世界不变。
+    /// 校验失败（profile/路线/进度/初速/准入）、观测状态序号或命令游标耗尽（
+    /// `ObservationStateSequenceExhausted` / `CommandCursorExhausted`）或入口占用
+    /// 被占时返回相应 [`ReplaceError`]；[`ReplaceError::Blocked`] 可重试，其余为
+    /// 致命错误；任一失败保持已提交世界不变。
     pub fn replace_completed_vehicle(
         &mut self,
         old: VehicleHandle,

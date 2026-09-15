@@ -719,8 +719,9 @@ impl TrafficWorld {
     ///
     /// 已存在在途事务（[`CutoverError::InFlightTransaction`]）、base 世界绑定/基线
     /// 游标/策略选择与当前世界不一致、target 来源修订不匹配、路线或等待区/冲突
-    /// 重验证失败、世界世代耗尽、暂存或事件分配失败时返回相应 [`CutoverError`]；
-    /// 任一失败均失败关闭，旧世界原样继续、零可观察变化。
+    /// 重验证失败、在途车辆的游标/停车状态校验失败、占用索引重建失败、世界
+    /// 世代或事件游标耗尽、暂存或事件分配失败时返回相应 [`CutoverError`]；任一
+    /// 失败均失败关闭，旧世界原样继续、零可观察变化。
     pub fn cutover_same_revision(
         &mut self,
         target_revision: Arc<SharedNetworkRevision>,

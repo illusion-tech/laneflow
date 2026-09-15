@@ -1199,7 +1199,8 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 车辆句柄失效或状态不允许、车辆没有 exact reservation（
-    /// [`ParkingError::NotReserved`]）、或内部不变量破坏时返回相应
+    /// [`ParkingError::NotReserved`]）、命令游标耗尽（
+    /// [`ParkingError::CommandCursorExhausted`]）或内部不变量破坏时返回相应
     /// [`ParkingError`]。
     pub fn cancel_parking(
         &mut self,
@@ -1242,8 +1243,9 @@ impl TrafficWorld {
     /// 车辆句柄失效、reservation 不是 exact arrived（[`ParkingError::NotArrived`] /
     /// [`ParkingError::NotReserved`]）、冲突遍历仍在途（
     /// [`ParkingError::ConflictTraversalActive`]）、等待区存在遍历冲突（
-    /// [`ParkingError::WaitingTraversalConflict`]）或内部不变量破坏时返回相应
-    /// [`ParkingError`]。
+    /// [`ParkingError::WaitingTraversalConflict`]）、命令游标或观测状态序号
+    /// 耗尽（`CommandCursorExhausted` / `ObservationStateSequenceExhausted`）或
+    /// 内部不变量破坏时返回相应 [`ParkingError`]。
     pub fn park_vehicle(
         &mut self,
         vehicle: VehicleHandle,
@@ -1408,9 +1410,12 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 车辆句柄失效或状态不允许、车辆未 `Parked + Occupied`（
-    /// [`ParkingError::NotOccupied`]）、准入策略拒绝、出口 anchor 插入失败、
-    /// 出口物理范围与其它占用重叠（[`ParkingError::LeavePhysicalOverlap`]）或内部
-    /// 不变量破坏时返回相应 [`ParkingError`]。
+    /// [`ParkingError::NotOccupied`]）、准入策略拒绝、出口安全条件不满足
+    /// （`LeaveUnsafeFollower` / `ConflictAuthorityRequired`）、出口 anchor
+    /// 插入或路线引用容量失败（`AllocationFailed` /
+    /// `RouteReferenceCapacityExceeded`）、出口物理范围与其它占用重叠（
+    /// [`ParkingError::LeavePhysicalOverlap`]）、命令游标或观测状态序号耗尽或
+    /// 内部不变量破坏时返回相应 [`ParkingError`]。
     pub fn leave_parking(
         &mut self,
         vehicle: VehicleHandle,
@@ -1515,9 +1520,13 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 车辆句柄失效或状态不允许、仍有冲突遍历在途、没有 exact reservation（
-    /// [`ParkingError::NotReserved`]）、路线句柄或出现项越界、当前出现项与已提交
-    /// 状态不一致（[`ParkingError::RebindCurrentOccurrenceMismatch`]）或内部不变量
-    /// 破坏时返回相应 [`ParkingError`]；失败保持完整物理 footprint 不变。
+    /// [`ParkingError::NotReserved`]）、路线句柄或出现项越界、新路线车身 footprint
+    /// 与既有占用不一致（`RebindBodyFootprintMismatch`）、准入策略拒绝或冲突
+    /// 权威缺失（`AccessDenied` / `ConflictAuthorityRequired`）、出现项容量或
+    /// 分配失败（`RouteReferenceCapacityExceeded` / `AllocationFailed`）、当前
+    /// 出现项与已提交状态不一致（`RebindCurrentOccurrenceMismatch`）、命令游标
+    /// 耗尽或内部不变量破坏时返回相应 [`ParkingError`]；失败保持完整物理
+    /// footprint 不变。
     pub fn rebind_parking_route(
         &mut self,
         vehicle: VehicleHandle,
@@ -1669,7 +1678,9 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 车辆容量已满、车辆 profile 或路线句柄无效、路线出现项或进度越界、准入
-    /// 策略拒绝或容量分配失败时返回相应 [`ParkingError`]；失败不构造任何状态。
+    /// 策略拒绝、容量分配失败或命令游标耗尽（
+    /// [`ParkingError::CommandCursorExhausted`]）时返回相应 [`ParkingError`]；
+    /// 失败不构造任何状态。
     pub fn spawn_parked_vehicle(
         &mut self,
         input: ParkedVehicleSpawnInput,
@@ -1766,8 +1777,10 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 车辆句柄失效，或路线/停车绑定释放违反内部不变量（
-    /// [`ParkingError::InvariantViolation`]）时返回相应 [`ParkingError`]。
+    /// 车辆句柄失效、Active 车辆的命令游标或观测状态序号耗尽（
+    /// `CommandCursorExhausted` / `ObservationStateSequenceExhausted`），或路线/
+    /// 停车绑定释放违反内部不变量（[`ParkingError::InvariantViolation`]）时返回
+    /// 相应 [`ParkingError`]。
     pub fn despawn_vehicle(
         &mut self,
         vehicle: VehicleHandle,
