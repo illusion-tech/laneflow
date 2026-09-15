@@ -19,7 +19,15 @@ use crate::{
 /// `minimum_gap_tolerance`。
 const MINIMUM_GAP_TOLERANCE_MM: u32 = 1;
 
-/// 同一拍初状态上的完整运动预览；只由本拍 Conflict 求值产生并在正式运动前复核。
+/// 按本拍拍初 Active 顺序保存的私有输入与预览；完整句柄防止错配槽位。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct MotionCacheEntry {
+    pub(crate) vehicle: crate::VehicleHandle,
+    pub(crate) horizon: Option<LeaderQueryHorizon>,
+    pub(crate) preview: Option<MotionPreview>,
+}
+
+/// 同一拍初状态上的完整运动预览；在新增停止约束后消费前复核。
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MotionPreview {
     pub(crate) next: VehicleState,
@@ -36,24 +44,45 @@ enum MotionBounds {
 }
 
 impl MotionPreview {
+    pub(crate) fn with_waiting_stop(
+        mut self,
+        waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+    ) -> Option<Self> {
+        if self.waiting_stop == waiting_stop {
+            return Some(self);
+        }
+        // 只能证明新增约束不改变结果；移除或替换已经参与计算的约束必须重算。
+        if self.waiting_stop.is_some() {
+            return None;
+        }
+        let stop = waiting_stop?;
+        if !self.unaffected_by(stop) {
+            return None;
+        }
+        self.waiting_stop = waiting_stop;
+        Some(self)
+    }
+
     fn reuse(
         self,
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
         conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
     ) -> Option<VehicleState> {
-        if self.waiting_stop != waiting_stop {
-            return None;
-        }
+        let preview = self.with_waiting_stop(waiting_stop)?;
         let Some(stop) = conflict_stop else {
-            return Some(self.next);
+            return Some(preview.next);
         };
         if Some(stop) == waiting_stop {
-            return Some(self.next);
+            return Some(preview.next);
         }
+        preview.unaffected_by(stop).then_some(preview.next)
+    }
+
+    fn unaffected_by(self, stop: crate::kernel::waiting::WaitingStopConstraint) -> bool {
         let beyond_motion = match self.bounds {
             MotionBounds::Unknown => false,
             // 原 hard_room 已为零；额外停止约束仍走相同的零位移提前返回。
-            MotionBounds::HardStopped => return Some(self.next),
+            MotionBounds::HardStopped => return true,
             MotionBounds::Travel {
                 meters,
                 proposed_mm,
@@ -66,7 +95,7 @@ impl MotionPreview {
                 BoundedDistance::BeyondFinite => true,
             },
         };
-        (beyond_motion && self.next.route_edge_index <= stop.hop).then_some(self.next)
+        beyond_motion && self.next.route_edge_index <= stop.hop
     }
 }
 
@@ -80,6 +109,14 @@ enum StepFailpoint {
 #[cfg(test)]
 std::thread_local! {
     static STEP_FAILPOINT: std::cell::Cell<Option<StepFailpoint>> = const { std::cell::Cell::new(None) };
+    static MOTION_CACHE_LIMIT: std::cell::Cell<usize> = const { std::cell::Cell::new(usize::MAX) };
+    static HORIZON_CALCULATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static MOTION_CALCULATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn motion_cache_limit() -> usize {
+    MOTION_CACHE_LIMIT.get()
 }
 
 #[cfg(test)]
@@ -99,22 +136,137 @@ mod transaction_tests {
     use super::*;
     use crate::admin::cutover_migration::tests::{conflict_scale_revision, conflict_scale_world};
 
+    struct CacheLimitGuard(usize);
+
+    impl CacheLimitGuard {
+        fn set(limit: usize) -> Self {
+            Self(MOTION_CACHE_LIMIT.replace(limit))
+        }
+    }
+
+    impl Drop for CacheLimitGuard {
+        fn drop(&mut self) {
+            MOTION_CACHE_LIMIT.set(self.0);
+        }
+    }
+
+    #[test]
+    fn same_tick_cache_matches_full_calculation_with_zero_partial_and_full_capacity() {
+        let mut cached = crate::kernel::waiting::tests::multi_gate_world(8);
+        let mut partial = crate::kernel::waiting::tests::multi_gate_world(8);
+        let mut uncached = crate::kernel::waiting::tests::multi_gate_world(8);
+        let mut work = [(0, 0); 3];
+        for _ in 0..64 {
+            for (index, (world, limit)) in [
+                (&mut cached, usize::MAX),
+                (&mut partial, 3),
+                (&mut uncached, 0),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let _guard = CacheLimitGuard::set(limit);
+                HORIZON_CALCULATIONS.set(0);
+                MOTION_CALCULATIONS.set(0);
+                world.step(TickInput::new(100)).unwrap();
+                work[index].0 += HORIZON_CALCULATIONS.get();
+                work[index].1 += MOTION_CALCULATIONS.get();
+                assert!(world.workspace.motion_cache.is_empty());
+            }
+            for world in [&cached, &partial] {
+                assert_eq!(
+                    world.capture_snapshot().unwrap(),
+                    uncached.capture_snapshot().unwrap()
+                );
+                assert_eq!(
+                    world.latest_transition_events(),
+                    uncached.latest_transition_events()
+                );
+                assert_eq!(
+                    world.latest_waiting_decisions(),
+                    uncached.latest_waiting_decisions()
+                );
+                assert_eq!(
+                    world.latest_conflict_decisions(),
+                    uncached.latest_conflict_decisions()
+                );
+            }
+        }
+        assert!(
+            work[0].0 < work[1].0 && work[1].0 < work[2].0,
+            "horizon work: {work:?}"
+        );
+        assert!(
+            work[0].1 < work[1].1 && work[1].1 < work[2].1,
+            "motion work: {work:?}"
+        );
+        eprintln!(
+            "same-tick work (horizon, motion), full/partial/none: {work:?}; entry_bytes={} preview_bytes={}",
+            std::mem::size_of::<MotionCacheEntry>(),
+            std::mem::size_of::<MotionPreview>()
+        );
+    }
+
+    #[test]
+    fn wrong_generation_cache_entries_cannot_supply_horizon_or_motion() {
+        let mut world = crate::kernel::waiting::tests::multi_gate_world(2);
+        let mut reference = crate::kernel::waiting::tests::multi_gate_world(2);
+        for world in [&mut world, &mut reference] {
+            world.rebuild_occupancy_index().unwrap();
+            world.prepare_waiting_step(0.1).unwrap();
+        }
+        reference.workspace.motion_cache.clear();
+        for entry in &mut world.workspace.motion_cache {
+            entry.vehicle =
+                crate::VehicleHandle::new(entry.vehicle.index(), entry.vehicle.generation() + 1);
+            entry.horizon = Some(LeaderQueryHorizon::new(0, 0));
+            let preview = entry.preview.as_mut().expect("near Gate preview");
+            preview.next.progress_mm = u32::MAX;
+            preview.bounds = MotionBounds::HardStopped;
+        }
+        let mut actual = Vec::new();
+        let mut expected = Vec::new();
+        assert_eq!(
+            world
+                .step_workspace()
+                .stage_vehicle_transitions(0.1, 1, 100, &mut actual),
+            reference
+                .step_workspace()
+                .stage_vehicle_transitions(0.1, 1, 100, &mut expected)
+        );
+        assert_eq!(actual, expected);
+        assert!(world.workspace.motion_cache.is_empty());
+    }
+
     #[test]
     fn motion_preview_storage_is_counted_consumed_and_discarded_on_failure() {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(2);
         let mut fresh = crate::kernel::waiting::tests::multi_gate_world(2);
-        assert_eq!(world.workspace.motion_previews.capacity(), 0);
+        assert_eq!(world.workspace.motion_cache.capacity(), 0);
         world.rebuild_occupancy_index().unwrap();
         world.prepare_waiting_step(0.1).unwrap();
         world.prepare_conflict_step(0.1, 1).unwrap();
-        assert!(!world.workspace.motion_previews.is_empty());
+        assert!(!world.workspace.motion_cache.is_empty());
         let with_previews = world.workspace.retained_logical_bytes();
-        let previews = std::mem::take(&mut world.workspace.motion_previews);
+        let previews = std::mem::take(&mut world.workspace.motion_cache);
         assert_eq!(
             with_previews - world.workspace.retained_logical_bytes(),
-            (previews.capacity() * std::mem::size_of::<MotionPreview>()) as u64
+            (previews.capacity() * std::mem::size_of::<MotionCacheEntry>()) as u64
         );
-        world.workspace.motion_previews = previews;
+        world.workspace.motion_cache = previews;
+        let empty_workspace = {
+            world.workspace.motion_cache = Vec::new();
+            world.workspace.retained_logical_bytes()
+        };
+        for capacity in [10_000, 100_000] {
+            world.workspace.motion_cache = Vec::with_capacity(capacity);
+            let bytes = world.workspace.retained_logical_bytes() - empty_workspace;
+            assert_eq!(
+                bytes,
+                (capacity * std::mem::size_of::<MotionCacheEntry>()) as u64
+            );
+            eprintln!("motion-cache retained capacity={capacity} bytes={bytes}");
+        }
         // 上面停在内部准备阶段，不能把尚未丢弃的 grant 当成公开 step 的输入。
         world = crate::kernel::waiting::tests::multi_gate_world(2);
         let before = world.capture_snapshot().unwrap();
@@ -123,12 +275,12 @@ mod transaction_tests {
             world.step(TickInput::new(100)),
             Err(StepError::ParkingObservationAllocFailed)
         );
-        assert!(world.workspace.motion_previews.is_empty());
+        assert!(world.workspace.motion_cache.is_empty());
         assert_eq!(world.capture_snapshot().unwrap(), before);
         for _ in 0..24 {
             world.step(TickInput::new(100)).unwrap();
             fresh.step(TickInput::new(100)).unwrap();
-            assert!(world.workspace.motion_previews.is_empty());
+            assert!(world.workspace.motion_cache.is_empty());
             assert_eq!(
                 world.capture_snapshot().unwrap(),
                 fresh.capture_snapshot().unwrap()
@@ -333,6 +485,8 @@ pub(crate) fn leader_query_horizon(
     profile: VehicleProfileView,
     delta_s: f32,
 ) -> Option<LeaderQueryHorizon> {
+    #[cfg(test)]
+    HORIZON_CALCULATIONS.set(HORIZON_CALCULATIONS.get() + 1);
     if !delta_s.is_finite() || delta_s <= 0.0 {
         return None;
     }
@@ -369,6 +523,7 @@ pub(crate) fn leader_query_horizon(
 impl TrafficWorld {
     /// 固定步进唯一入口：预检、重建占用索引、准备并原子提交一拍。
     pub(crate) fn step_vehicles(&mut self, input: TickInput) -> Result<StepOutcome, StepError> {
+        self.workspace.motion_cache.clear();
         #[cfg(test)]
         let preflight_timer =
             super::performance_profile::begin(super::performance_profile::Stage::Preflight);
@@ -411,8 +566,10 @@ impl TrafficWorld {
             tick_index,
             time_ms,
             observation_state_sequence,
-        )?;
-        Ok(self.committed_mut().commit(plan))
+        );
+        // prepare 的任一首错（包括 Waiting 预选失败）都丢弃本拍输入与证明。
+        self.workspace.motion_cache.clear();
+        Ok(self.committed_mut().commit(plan?))
     }
 
     /// 测试专用：无 Waiting/Conflict 停车约束地推进一步活动车辆。
@@ -515,7 +672,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     self.workspace.conflict_grants.clear();
                     self.workspace.conflict_staged_decisions.clear();
                     self.workspace.conflict_passage_transitions.clear();
-                    self.workspace.motion_previews.clear();
+                    self.workspace.motion_cache.clear();
                     updates.clear();
                     self.workspace.next_states = updates;
                     return Err(error);
@@ -607,6 +764,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
 
 impl<'a> crate::kernel::phase::StepReadView<'a> {
     /// 无 Waiting/Conflict 停车约束地推进一步活动车辆。
+    #[cfg(test)]
     pub(crate) fn advance_active_vehicle(
         self,
         state: VehicleState,
@@ -616,6 +774,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 
     /// 在跟车、信号、停车与 Waiting/Conflict 停车约束下推进一步活动车辆。
+    #[cfg(test)]
     pub(crate) fn advance_active_vehicle_with_waiting_stop(
         self,
         state: VehicleState,
@@ -630,6 +789,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             waiting_stop,
             conflict_stop,
             parking_binding,
+            None,
         )
     }
 
@@ -641,6 +801,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
         conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
         parking_binding: Option<ParkingBinding>,
+        horizon: Option<LeaderQueryHorizon>,
     ) -> Option<VehicleState> {
         self.calculate_active_vehicle_motion(
             state,
@@ -648,6 +809,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             waiting_stop,
             conflict_stop,
             parking_binding,
+            horizon,
             None,
         )
     }
@@ -657,6 +819,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         state: VehicleState,
         delta_s: f32,
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        horizon: Option<LeaderQueryHorizon>,
     ) -> Option<MotionPreview> {
         let mut bounds = MotionBounds::Unknown;
         let next = self.calculate_active_vehicle_motion(
@@ -665,6 +828,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             waiting_stop,
             None,
             self.committed.parking.binding(state.handle),
+            horizon,
             Some(&mut bounds),
         )?;
         Some(MotionPreview {
@@ -682,8 +846,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
         conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
         parking_binding: Option<ParkingBinding>,
+        horizon: Option<LeaderQueryHorizon>,
         motion_bounds: Option<&mut MotionBounds>,
     ) -> Option<VehicleState> {
+        #[cfg(test)]
+        MOTION_CALCULATIONS.set(MOTION_CALCULATIONS.get() + 1);
         #[cfg(test)]
         let inputs_timer = super::exact_path_research::begin(
             super::exact_path_research::Stage::RouteProfileInputs,
@@ -711,7 +878,10 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         #[cfg(test)]
         let horizon_timer =
             super::exact_path_research::begin(super::exact_path_research::Stage::LeaderHorizon);
-        let horizon = leader_query_horizon(state.speed_mm_s, profile, delta_s)?;
+        let horizon = match horizon {
+            Some(horizon) => horizon,
+            None => leader_query_horizon(state.speed_mm_s, profile, delta_s)?,
+        };
         #[cfg(test)]
         drop(horizon_timer);
         #[cfg(test)]
@@ -1087,11 +1257,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         injected_step_failure(StepFailpoint::AfterGrants)?;
         let mut parking_arrivals = Vec::new();
-        let mut preview_index = 0;
         #[cfg(test)]
         let motion_timer =
             super::performance_profile::begin(super::performance_profile::Stage::MotionLoop);
-        for handle in self.derived.active_order.iter().copied() {
+        for (active_index, handle) in self.derived.active_order.iter().copied().enumerate() {
             let Some(state) = self.vehicle_state(handle) else {
                 continue;
             };
@@ -1114,16 +1283,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .is_some_and(|reservation| self.parking_arrived_for(*state, reservation));
             let waiting_stop = self.waiting_stop_for(state)?;
             let conflict_stop = self.conflict_stop_for(state)?;
-            let preview = self
+            let cached = self
                 .workspace
-                .motion_previews
-                .get(preview_index)
-                .copied()
-                .filter(|preview| preview.next.handle == handle);
-            if preview.is_some() {
-                preview_index += 1;
-            }
-            let next = preview
+                .motion_cache
+                .get(active_index)
+                .filter(|entry| entry.vehicle == handle);
+            let next = cached
+                .and_then(|entry| entry.preview)
                 .and_then(|preview| preview.reuse(waiting_stop, conflict_stop))
                 .or_else(|| {
                     self.read_view()
@@ -1133,6 +1299,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                             waiting_stop,
                             conflict_stop,
                             parking_binding,
+                            cached.and_then(|entry| entry.horizon),
                         )
                 })
                 .ok_or(StepError::NonFiniteMotion)?;
@@ -1153,7 +1320,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
             updates.push((slot, next));
         }
-        self.workspace.motion_previews.clear();
+        self.workspace.motion_cache.clear();
         #[cfg(test)]
         drop(motion_timer);
         #[cfg(test)]
@@ -1188,15 +1355,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         injected_step_failure(StepFailpoint::AfterTransitions)?;
         Ok(parking_arrivals)
-    }
-
-    /// 无 Waiting/Conflict 停车约束地推进一步活动车辆。
-    pub(crate) fn advance_active_vehicle(
-        &self,
-        state: VehicleState,
-        delta_s: f32,
-    ) -> Option<VehicleState> {
-        self.read_view().advance_active_vehicle(state, delta_s)
     }
 
     /// 判断该机动门对指定车辆配置是否拒绝并停车。
@@ -1754,7 +1912,7 @@ mod motion_reuse_tests {
         let horizon = leader_query_horizon(0, profile, 0.016).unwrap();
         let view = world.read_view();
         let preview = view
-            .preview_active_vehicle_with_waiting_stop(state, 0.016, None)
+            .preview_active_vehicle_with_waiting_stop(state, 0.016, None, None)
             .unwrap();
         assert_eq!(preview.next, state);
         assert!(matches!(preview.bounds, MotionBounds::HardStopped));
@@ -1763,7 +1921,10 @@ mod motion_reuse_tests {
             preview.reuse(None, Some(stop)),
             view.advance_active_vehicle_with_waiting_stop(state, 0.016, None, Some(stop))
         );
-        assert!(preview.reuse(Some(stop), None).is_none());
+        assert_eq!(
+            preview.reuse(Some(stop), None),
+            view.advance_active_vehicle_with_waiting_stop(state, 0.016, Some(stop), None)
+        );
 
         world.despawn_vehicle(leader).unwrap();
         world.ensure_current_occupancy().unwrap();
@@ -1773,7 +1934,7 @@ mod motion_reuse_tests {
         };
         let view = world.read_view();
         let preview = view
-            .preview_active_vehicle_with_waiting_stop(state, 0.001, None)
+            .preview_active_vehicle_with_waiting_stop(state, 0.001, None, None)
             .unwrap();
         let next = preview.next;
         assert_eq!(next.route_edge_index, state.route_edge_index);
@@ -1792,7 +1953,7 @@ mod motion_reuse_tests {
         );
 
         let crossing = view
-            .preview_active_vehicle_with_waiting_stop(state, 0.1, None)
+            .preview_active_vehicle_with_waiting_stop(state, 0.1, None, None)
             .unwrap();
         let stopped = view
             .advance_active_vehicle_with_waiting_stop(state, 0.1, None, Some(stop))
@@ -1851,6 +2012,7 @@ mod motion_reuse_tests {
                                     state,
                                     delta_s,
                                     waiting_stop,
+                                    None,
                                 )
                                 .unwrap();
                             let next = preview.next;
@@ -1879,13 +2041,27 @@ mod motion_reuse_tests {
                                     constrained_fallbacks += 1;
                                 }
                             }
-                            if let Some(stop) = stops.first().copied() {
-                                let changed = if waiting_stop.is_some() {
-                                    None
-                                } else {
-                                    Some(stop)
-                                };
-                                assert!(preview.reuse(changed, None).is_none());
+                            for changed in
+                                std::iter::once(None).chain(stops.iter().copied().map(Some))
+                            {
+                                if changed == waiting_stop {
+                                    continue;
+                                }
+                                for conflict in
+                                    std::iter::once(None).chain(stops.iter().copied().map(Some))
+                                {
+                                    let actual = preview.reuse(changed, conflict);
+                                    if waiting_stop.is_some() {
+                                        assert!(actual.is_none());
+                                    } else if let Some(actual) = actual {
+                                        assert_eq!(
+                                            Some(actual),
+                                            view.advance_active_vehicle_with_waiting_stop(
+                                                state, delta_s, changed, conflict
+                                            )
+                                        );
+                                    }
+                                }
                             }
                         }
                     }
@@ -1922,6 +2098,7 @@ mod motion_reuse_tests {
                 distance: BoundedDistance::Finite(distance),
             };
             assert!(preview.reuse(None, Some(stop)).is_none());
+            assert!(preview.reuse(Some(stop), None).is_none());
         }
         let preview = MotionPreview {
             next,

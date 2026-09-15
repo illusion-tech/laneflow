@@ -372,7 +372,7 @@ impl TrafficWorld {
             + vec_bytes(&self.workspace.conflict_changed_owners)
             + self.workspace.waiting_dependencies.retained_logical_bytes() as usize
             + vec_bytes(&self.workspace.conflict_staged_decisions)
-            + vec_bytes(&self.workspace.motion_previews)
+            + vec_bytes(&self.workspace.motion_cache)
             + vec_bytes(&self.committed.latest_conflict_decisions);
         u64::try_from(bytes).expect("Conflict retained bytes fit u64")
     }
@@ -515,13 +515,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         self.workspace.conflict_staged_decisions.clear();
         self.workspace.conflict_motion_by_vehicle.fill(None);
         self.workspace.conflict_next_eligibility.fill(None);
-        self.workspace.motion_previews.clear();
-        // 预览复用只是优化。扩容失败时仅使用已有容量，不新增 StepError，
-        // 也不改变后续领域检查的首错；未缓存车辆仍从同一拍初状态完整求值。
-        let _ = self
-            .workspace
-            .motion_previews
-            .try_reserve(self.derived.active_order.len());
 
         self.rebuild_conflict_frontier()?;
         reserve(
@@ -533,19 +526,24 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             self.derived.active_order.len(),
         )?;
 
+        let mut active_index = 0;
         for sequence in 0..self.committed.live_order.len() {
             let vehicle = self.committed.live_order[sequence];
             let Some(state) = self.vehicle_state(vehicle).copied() else {
                 continue;
             };
-            if state.status != VehicleStatus::Active
-                || self.conflict_read().reservation(vehicle).is_some()
-            {
+            if state.status != VehicleStatus::Active {
+                continue;
+            }
+            let cache_index = active_index;
+            active_index += 1;
+            if self.conflict_read().reservation(vehicle).is_some() {
                 continue;
             }
             self.evaluate_vehicle_gates(
                 state,
                 u32::try_from(sequence).map_err(|_| StepError::ConflictInvariantViolation)?,
+                cache_index,
                 delta_s,
                 tick,
             )?;
@@ -662,6 +660,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         &mut self,
         state: VehicleState,
         update_sequence: u32,
+        active_index: usize,
         delta_s: f32,
         tick: u64,
     ) -> Result<(), StepError> {
@@ -688,8 +687,17 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .relations()
             .vehicle_profile(state.profile)
             .ok_or(StepError::ConflictInvariantViolation)?;
-        let horizon = crate::kernel::tick::leader_query_horizon(state.speed_mm_s, profile, delta_s)
-            .ok_or(StepError::NonFiniteMotion)?;
+        let cached = self
+            .workspace
+            .motion_cache
+            .get(active_index)
+            .copied()
+            .filter(|entry| entry.vehicle == state.handle);
+        let horizon = match cached.and_then(|entry| entry.horizon) {
+            Some(horizon) => horizon,
+            None => crate::kernel::tick::leader_query_horizon(state.speed_mm_s, profile, delta_s)
+                .ok_or(StepError::NonFiniteMotion)?,
+        };
         let distance = crate::kernel::tables::distance_to_occurrence_start(
             &compiled.occurrence_segments,
             &compiled.occurrence_offsets,
@@ -699,6 +707,15 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             first_hop as usize + 1,
         )
         .ok_or(StepError::ConflictInvariantViolation)?;
+        let gate_count = compiled.gate_hops.len();
+        if let Some(entry) = self
+            .workspace
+            .motion_cache
+            .get_mut(active_index)
+            .filter(|entry| entry.vehicle == state.handle)
+        {
+            entry.horizon = Some(horizon);
+        }
         if !matches!(distance, BoundedDistance::Finite(mm) if mm <= horizon.front_query_mm) {
             return Ok(());
         }
@@ -715,14 +732,26 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     .copied()
             });
         let waiting_stop = self.waiting_stop_for(&state)?;
-        let motion = self
-            .read_view()
-            .preview_active_vehicle_with_waiting_stop(state, delta_s, waiting_stop)
+        let motion = cached
+            .and_then(|entry| entry.preview)
+            .and_then(|preview| preview.with_waiting_stop(waiting_stop))
+            .or_else(|| {
+                self.read_view().preview_active_vehicle_with_waiting_stop(
+                    state,
+                    delta_s,
+                    waiting_stop,
+                    Some(horizon),
+                )
+            })
             .ok_or(StepError::NonFiniteMotion)?;
         let preview = motion.next;
-        let gate_count = compiled.gate_hops.len();
-        if self.workspace.motion_previews.len() < self.workspace.motion_previews.capacity() {
-            self.workspace.motion_previews.push(motion);
+        if let Some(entry) = self
+            .workspace
+            .motion_cache
+            .get_mut(active_index)
+            .filter(|entry| entry.vehicle == state.handle)
+        {
+            entry.preview = Some(motion);
         }
         for gate_index in first_gate..gate_count {
             let compiled = self

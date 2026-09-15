@@ -1156,14 +1156,22 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             self.derived.active_order.len(),
         )?;
 
-        // 无 Waiting stop 的运动预览只供候选收集；非入口 Gate 决策使用正式 staged motion。
-        // `next_states` 已按 vehicle_capacity 预分配；正式 motion staging 会在本阶段后
-        // 清空并复用它，避免对每辆车重复三次相同的 leader / signal / route 计算。
+        // 同拍缓存按活动车辆顺序保留；非入口 Gate 决策仍使用正式 staged motion。
+        // 扩容失败只缩短可复用的前缀，不新增错误，也不改变领域检查的首错。
+        self.workspace.motion_cache.clear();
+        let _ = self
+            .workspace
+            .motion_cache
+            .try_reserve(self.derived.active_order.len());
+        let cache_limit = self.workspace.motion_cache.capacity();
+        #[cfg(test)]
+        let cache_limit = cache_limit.min(crate::kernel::tick::motion_cache_limit());
         self.workspace.next_states.clear();
         reserve_waiting_exact(
             &mut self.workspace.next_states,
             self.derived.active_order.len(),
         )?;
+        let mut active_index = 0;
         for sequence in 0..self.committed.live_order.len() {
             let vehicle = self.committed.live_order[sequence];
             let state = *self
@@ -1171,6 +1179,17 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .ok_or(crate::StepError::WaitingInvariantViolation)?;
             if state.status != crate::VehicleStatus::Active {
                 continue;
+            }
+            let cache_index = active_index;
+            active_index += 1;
+            if cache_index < cache_limit {
+                self.workspace
+                    .motion_cache
+                    .push(crate::kernel::tick::MotionCacheEntry {
+                        vehicle,
+                        horizon: None,
+                        preview: None,
+                    });
             }
             let compiled = self
                 .compiled_route(state.route)
@@ -1192,7 +1211,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             let horizon =
                 crate::kernel::tick::leader_query_horizon(state.speed_mm_s, profile, delta_s)
                     .ok_or(crate::StepError::NonFiniteMotion)?;
-            let Some(BoundedDistance::Finite(gate_distance_mm)) = distance_to_occurrence_start(
+            let gate_distance = distance_to_occurrence_start(
                 &compiled.occurrence_segments,
                 &compiled.occurrence_offsets,
                 &compiled.segment_totals,
@@ -1201,16 +1220,24 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 (gate_hop as usize)
                     .checked_add(1)
                     .ok_or(crate::StepError::WaitingInvariantViolation)?,
-            ) else {
+            );
+            if let Some(entry) = self.workspace.motion_cache.get_mut(cache_index) {
+                entry.horizon = Some(horizon);
+            }
+            let Some(BoundedDistance::Finite(gate_distance_mm)) = gate_distance else {
                 continue;
             };
             if gate_distance_mm > horizon.front_query_mm {
                 continue;
             }
             let preview = self
-                .advance_active_vehicle(state, delta_s)
+                .read_view()
+                .preview_active_vehicle_with_waiting_stop(state, delta_s, None, Some(horizon))
                 .ok_or(crate::StepError::NonFiniteMotion)?;
-            self.workspace.next_states.push((sequence, preview));
+            if let Some(entry) = self.workspace.motion_cache.get_mut(cache_index) {
+                entry.preview = Some(preview);
+            }
+            self.workspace.next_states.push((sequence, preview.next));
         }
 
         for preview_index in 0..self.workspace.next_states.len() {
