@@ -1522,6 +1522,8 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
+    /// 重绑目标引用的泊位/设施在当前修订不存在（`UnknownSpace` /
+    /// `UnknownFacility`）或虚拟池入口锚不属于该设施（`EntrySelectorNotOwned`）、
     /// 车辆句柄失效或状态不允许、仍有冲突遍历在途、没有 exact reservation（
     /// [`ParkingError::NotReserved`]）、路线句柄或出现项越界、新路线车身 footprint
     /// 与既有占用不一致（`RebindBodyFootprintMismatch`）、准入策略拒绝或冲突
