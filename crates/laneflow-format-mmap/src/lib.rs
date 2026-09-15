@@ -95,6 +95,10 @@ impl fmt::Debug for PrivateStagedFile {
 impl PrivateStagedFile {
     /// 在调用方选择的目录中创建平台私有临时 backing（Unix 匿名/unlink，
     /// Windows `share_mode(0)` + delete-on-close）。
+    ///
+    /// # Errors
+    ///
+    /// 平台临时 backing 创建失败时返回 [`BackingError::Io`]。
     pub fn create_in(directory: &Path) -> Result<Self, BackingError> {
         Ok(Self {
             file: tempfile::tempfile_in(directory)?,
@@ -103,6 +107,10 @@ impl PrivateStagedFile {
 
     /// 在 `offset` 处定点覆写已 staged 的字节，随后把内核写位置恢复到
     /// `resume`（调用方跟踪的顺序写末尾）。覆写直达句柄，不经用户态缓冲。
+    ///
+    /// # Errors
+    ///
+    /// 定点覆写的底层写失败时返回相应 [`std::io::Error`]。
     pub fn patch_exact_at(&mut self, offset: u64, bytes: &[u8], resume: u64) -> io::Result<()> {
         self.file.seek(SeekFrom::Start(offset))?;
         self.file.write_all(bytes)?;
@@ -111,6 +119,11 @@ impl PrivateStagedFile {
     }
 
     /// 核对 backing 当前长度与登记的 exact length 一致后消费本值，关闭写窗口。
+    ///
+    /// # Errors
+    ///
+    /// backing 当前长度与登记的 exact length 不一致时返回
+    /// [`BackingError::BackingChanged`]。
     pub fn seal(self, exact_byte_length: u64) -> Result<SealedPrivateFile, BackingError> {
         if self.file.metadata()?.len() != exact_byte_length {
             return Err(BackingError::BackingChanged);
@@ -164,6 +177,12 @@ impl SealedPrivateFile {
     }
 
     /// 建立只读映射。可重复调用；每次调用前重新核对 backing 长度。
+    ///
+    /// # Errors
+    ///
+    /// backing 长度核对失败（[`BackingError::BackingChanged`]）或 exact length 无法
+    /// 装入本平台 `usize`（[`BackingError::LengthOverflow`]）时返回相应
+    /// [`BackingError`]。
     pub fn map_read_only(&self) -> Result<ReadOnlyMap, BackingError> {
         if self.file.metadata()?.len() != self.exact_byte_length {
             return Err(BackingError::BackingChanged);

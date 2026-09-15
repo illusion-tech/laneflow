@@ -122,6 +122,11 @@ impl<'a> SectionFramingView<'a> {
 }
 
 /// 对当前对象格式版本执行前导、目录、exact length 与连续范围预检。
+///
+/// # Errors
+///
+/// 前导、目录、exact length 或连续范围预检失败时返回相应 [`FormatError`]；
+/// 输入不被修改。
 pub fn preflight_object_framing(
     bytes: &[u8],
     expected_kind: PortableObjectKind,

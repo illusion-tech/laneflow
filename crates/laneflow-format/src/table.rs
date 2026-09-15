@@ -143,6 +143,10 @@ pub(crate) fn charge_stable_vector(
 }
 
 /// 对一张 exact TableV1 执行冗余长度、计数、字段和通用值结构预检。
+///
+/// # Errors
+///
+/// 冗余长度、计数、字段或通用值结构预检失败时返回相应 [`FormatError`]。
 pub fn preflight_table_structure(
     bytes: &[u8],
     expected_table_kind: u16,

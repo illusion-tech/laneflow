@@ -87,6 +87,11 @@ pub struct SpatialSession {
 
 impl SpatialSession {
     /// 绑定根 `Arc`。无 Spatial 时返回 `Ok(None)`。有 Spatial 但无 lane-pose 时失败。
+    ///
+    /// # Errors
+    ///
+    /// 共享根没有 lane-pose 空间数据时返回 [`SpatialBindError::MissingLanePose`]；
+    /// 无空间数据（根不含 lane-pose 表）时返回 `Ok(None)`，不是错误。
     pub fn bind(revision: Arc<SharedNetworkRevision>) -> Result<Option<Self>, SpatialBindError> {
         match revision.spatial() {
             None => Ok(None),
@@ -114,6 +119,12 @@ impl SpatialSession {
 
     /// 按调用方顺序提取 pose 批次。
     /// `placement_token` 原样回显。混 frame 或任一条记录失败则整批失败，且不改 `output`。
+    ///
+    /// # Errors
+    ///
+    /// 任一记录共享位姿提取失败（包装为 [`SpatialError::SharedPoseRecordFailed`]）
+    /// 或同一批混用多个 canonical frame（[`SpatialError::BatchFrameMismatch`]）时返回；
+    /// 整批失败且不改 `output`。
     pub fn extract_pose_batch(
         &mut self,
         placement_token: FramePlacementToken,

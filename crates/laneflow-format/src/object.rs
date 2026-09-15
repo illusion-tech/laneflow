@@ -470,6 +470,12 @@ impl<'a> RegistryCheckedFieldView<'a> {
     }
 
     /// 按 registry 中已经证明的 field type 解码零拷贝值。
+    ///
+    /// # Errors
+    ///
+    /// 按 registry 已证明的字段类型解码失败：UTF-8 字段非法（
+    /// [`FormatError::NonCanonicalValue`]）或嵌套行 schema 缺失（
+    /// [`FormatError::BindingMismatch`]）时返回相应 [`FormatError`]。
     pub fn value(self) -> Result<RegistryCheckedFieldValue<'a>, FormatError> {
         let value = self.value_bytes();
         Ok(match self.field_type() {
@@ -880,6 +886,10 @@ fn read_array_value<const N: usize>(value: &[u8]) -> Result<[u8; N], FormatError
 }
 
 /// 对完整对象执行前导、目录与静态 registry 的 fail-closed 结构预检。
+///
+/// # Errors
+///
+/// 前导、目录或静态 registry 结构预检失败时返回相应 [`FormatError`]。
 pub fn preflight_object_registry(
     bytes: &[u8],
     expected_kind: PortableObjectKind,

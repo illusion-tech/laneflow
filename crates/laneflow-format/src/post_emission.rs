@@ -203,6 +203,11 @@ where
 }
 
 /// 对 LFCA/LFSM/LFSD 最终不可变来源做后发射闭合检查。
+///
+/// # Errors
+///
+/// LFCA/LFSM/LFSD 来源读取、长度或摘要校验、语义差异基线核对或上限检查
+/// 失败时返回相应 [`PostEmissionCheckError`]；来源不被修改。
 pub fn check_post_emission_bundle<L, M, D>(
     lfca: L,
     lfsm: M,
