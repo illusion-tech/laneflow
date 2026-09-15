@@ -1126,9 +1126,11 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 泊位目标解析或可用性（不存在、已被其它车辆绑定、虚拟池已满）、车辆状态
-    /// 或准入策略、容量分配或命令游标耗尽等任一失败族命中时返回相应
-    /// [`ParkingError`]（逐变体权威清单见该枚举文档）；失败不改变占用状态。
+    /// 泊位目标解析或可用性（不存在、已被其它车辆绑定、虚拟池已满）、车辆句柄
+    /// 或既有停车绑定（`StaleVehicle` / `VehicleAlreadyBound`）、入口 occurrence
+    /// 锚点匹配与前向可达、等待区遍历冲突、准入策略、容量分配或命令游标耗尽等
+    /// 任一失败族命中时返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）；
+    /// 失败不改变占用状态。
     pub fn reserve_parking(
         &mut self,
         vehicle: VehicleHandle,
