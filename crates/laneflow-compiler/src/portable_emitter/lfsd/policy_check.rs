@@ -31,9 +31,11 @@ struct Actual<'a> {
 /// # Errors
 ///
 /// LFSD 4 增量与实际 LFCA、文档描述符或 Entity/StaticRule 表的排他分工校验
-/// 不一致（mismatch）、target/diff/base 字节格式预检失败（`Format`）、scratch
-/// 预留失败（`AllocationFailure`）或编译预算上限超限（`CompileLimitExceeded`）
-/// 时返回相应 [`PortableEmissionError`]。
+/// 不一致（mismatch）、基线兼容性失败（非 Genesis base 的静态/执行契约跨修订
+/// 不一致 `UnsupportedSemanticContractTransition`，或 StableId 跨修订改变种类/
+/// 身份 `CrossRevisionStableIdCollision`）、target/diff/base 字节格式预检失败
+/// （`Format`）、scratch 预留失败（`AllocationFailure`）或编译预算上限超限
+/// （`CompileLimitExceeded`）时返回相应 [`PortableEmissionError`]。
 pub fn check_portable_policy_diff(
     base: PortableDiffBase<'_>,
     target: &[u8],

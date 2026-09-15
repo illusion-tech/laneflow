@@ -359,7 +359,8 @@ impl std::error::Error for CatalogError {}
 /// StableId 重复或非法、车道数量/下标非法、路线数量不符、路线无入口边、
 /// 出口 portal 未知或不一致、入口出口相同、路线未被引用、focus 集合非法或
 /// 路线选项为空、权重为零或权重和溢出（[`CatalogError::WeightOverflow`]）、选项
-/// 重复或 slot 交叉引用非法时返回相应 [`CatalogError`]。
+/// 重复或 slot 交叉引用非法、slot 进度非法（负数/非有限）或位置重复
+/// （`InvalidProgress` / `DuplicatePosition`）时返回相应 [`CatalogError`]。
 pub fn validate(catalog: &JunctionCatalog) -> Result<(), CatalogError> {
     catalog.policy_selection.resolve()?;
     if catalog.catalog_version != CATALOG_VERSION {
