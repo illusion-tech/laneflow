@@ -152,6 +152,11 @@ pub enum ObservationSetError {
 /// `(worldId, worldGeneration, deliverySequence, selectionDigest)` 升序逐项写入
 /// `worldId:u64-le || worldGeneration:u64-le || deliverySequence:u64-le ||
 /// selectionDigest:32-bytes`。
+///
+/// # Errors
+///
+/// 批次为空、跨 stream/网络修订/tick/状态序号不一致、输入重复，或资源预留
+/// 失败时返回相应 [`ObservationSetError`]。
 pub fn bind_observation_set(
     batches: &[&CommittedTrafficObservationBatch],
 ) -> Result<ObservationSetBinding, ObservationSetError> {
@@ -233,6 +238,11 @@ pub struct DynamicCostSnapshotBinding {
 impl DynamicCostSnapshotBinding {
     /// 从宿主 receiver 已验证的计数、exact bytes 与摘要构造绑定。
     /// Runtime 不重复接收或解释 payload。
+    ///
+    /// # Errors
+    ///
+    /// 有效窗口配置非法时返回
+    /// [`DynamicCostBindingError::InvalidValidityWindow`]。
     pub fn new(
         observation_set: ObservationSetBinding,
         cost_model: CostModelKey,
@@ -490,6 +500,12 @@ impl TrafficWorld {
     }
 
     /// 验证动态成本来源与候选稳定引用，并注册为普通本世界路线。
+    ///
+    /// # Errors
+    ///
+    /// 动态成本绑定版本、准入 session、世界绑定、网络修订、成本模型不匹配，或
+    /// 观测 tick/状态序号/时效校验失败时返回相应 [`CandidateRouteError`]；通过
+    /// 校验后由路线边注册路径（[`RouteError`] 族）承接剩余失败，失败不留下半条路线。
     pub fn register_candidate_route(
         &mut self,
         admission: &RoutingAdmissionSession,
@@ -560,6 +576,12 @@ impl TrafficWorld {
     }
 
     /// 重放/恢复规范化的已准入路线命令；不调用 Routing、不接收旧成本绑定。
+    ///
+    /// # Errors
+    ///
+    /// 网络修订与当前世界不匹配时返回
+    /// [`AdmittedRouteRegisterError::NetworkRevisionMismatch`]；其余失败由路线边
+    /// 注册路径（[`RouteError`] 族）承接，失败不留下半条路线。
     pub fn register_admitted_route(
         &mut self,
         input: AdmittedRouteRegisterInput,

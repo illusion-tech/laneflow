@@ -1123,6 +1123,12 @@ impl TrafficWorld {
     }
 
     /// 原子预留显式泊位或虚拟池容量。
+    ///
+    /// # Errors
+    ///
+    /// 车辆句柄失效（[`ParkingError::StaleVehicle`]）或当前状态不允许、准入策略
+    /// 拒绝（[`ParkingError::AccessDenied`]）、泊位目标解析失败、显式泊位已被其它
+    /// 车辆绑定或虚拟池容量分配失败时返回相应 [`ParkingError`]；失败不改变占用状态。
     pub fn reserve_parking(
         &mut self,
         vehicle: VehicleHandle,
@@ -1187,6 +1193,12 @@ impl TrafficWorld {
     }
 
     /// 取消 exact reservation；重复取消是 `NotReserved`，不是 no-op。
+    ///
+    /// # Errors
+    ///
+    /// 车辆句柄失效或状态不允许、车辆没有 exact reservation（
+    /// [`ParkingError::NotReserved`]）、或内部不变量破坏时返回相应
+    /// [`ParkingError`]。
     pub fn cancel_parking(
         &mut self,
         vehicle: VehicleHandle,
@@ -1222,6 +1234,14 @@ impl TrafficWorld {
     }
 
     /// 把 exact arrived reservation 原子提交为 `Parked + Occupied`。
+    ///
+    /// # Errors
+    ///
+    /// 车辆句柄失效、reservation 不是 exact arrived（[`ParkingError::NotArrived`] /
+    /// [`ParkingError::NotReserved`]）、冲突遍历仍在途（
+    /// [`ParkingError::ConflictTraversalActive`]）、等待区存在遍历冲突（
+    /// [`ParkingError::WaitingTraversalConflict`]）或内部不变量破坏时返回相应
+    /// [`ParkingError`]。
     pub fn park_vehicle(
         &mut self,
         vehicle: VehicleHandle,
@@ -1382,6 +1402,13 @@ impl TrafficWorld {
     }
 
     /// 从 `Parked + Occupied` 安全插入 exact exit anchor，并原子释放资源。
+    ///
+    /// # Errors
+    ///
+    /// 车辆句柄失效或状态不允许、车辆未 `Parked + Occupied`（
+    /// [`ParkingError::NotOccupied`]）、准入策略拒绝、出口 anchor 插入失败、
+    /// 出口物理范围与其它占用重叠（[`ParkingError::LeavePhysicalOverlap`]）或内部
+    /// 不变量破坏时返回相应 [`ParkingError`]。
     pub fn leave_parking(
         &mut self,
         vehicle: VehicleHandle,
@@ -1482,6 +1509,13 @@ impl TrafficWorld {
     }
 
     /// 在保持完整物理 footprint 的前提下更换 Reserved route/entry payload。
+    ///
+    /// # Errors
+    ///
+    /// 车辆句柄失效或状态不允许、仍有冲突遍历在途、没有 exact reservation（
+    /// [`ParkingError::NotReserved`]）、路线句柄或出现项越界、当前出现项与已提交
+    /// 状态不一致（[`ParkingError::RebindCurrentOccurrenceMismatch`]）或内部不变量
+    /// 破坏时返回相应 [`ParkingError`]；失败保持完整物理 footprint 不变。
     pub fn rebind_parking_route(
         &mut self,
         vehicle: VehicleHandle,
@@ -1629,6 +1663,11 @@ impl TrafficWorld {
     }
 
     /// 直接构造 `Parked + Occupied`；不伪造 reservation 或入口 arrival。
+    ///
+    /// # Errors
+    ///
+    /// 车辆容量已满、车辆 profile 或路线句柄无效、路线出现项或进度越界、准入
+    /// 策略拒绝或容量分配失败时返回相应 [`ParkingError`]；失败不构造任何状态。
     pub fn spawn_parked_vehicle(
         &mut self,
         input: ParkedVehicleSpawnInput,
@@ -1722,6 +1761,11 @@ impl TrafficWorld {
     }
 
     /// 真正移除任意 live lifecycle 状态，同时释放 route 与可选停车 binding。
+    ///
+    /// # Errors
+    ///
+    /// 车辆句柄失效，或路线/停车绑定释放违反内部不变量（
+    /// [`ParkingError::InvariantViolation`]）时返回相应 [`ParkingError`]。
     pub fn despawn_vehicle(
         &mut self,
         vehicle: VehicleHandle,

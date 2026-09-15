@@ -42,6 +42,10 @@ impl PublishedLfcaReference {
 impl PublishedLfcaReference {
     /// 构造已发布引用。asset key 必须非空；三联值由发布链绑定，本类型
     /// 不重算、不验证其真实性。
+    ///
+    /// # Errors
+    ///
+    /// asset key 为空时返回 [`InvalidPublishedLfcaReference::EmptyAssetKey`]。
     pub fn new(
         asset_key: impl Into<String>,
         canonical_artifact_digest: Sha256Digest,
@@ -88,6 +92,11 @@ impl PublishedLfcaReference {
     ///
     /// 语义与 [`Clone`] 一致，仅在分配压力下返回 `Err` 而不中止进程；
     /// 预留注入点与 capture 侧共用同一快照轴计数器。
+    ///
+    /// # Errors
+    ///
+    /// asset key 按长度预留失败时返回
+    /// [`SnapshotCaptureError::ReservationFailed`]；语义与 [`Clone`] 一致。
     pub fn try_clone(&self) -> Result<Self, crate::admin::snapshot::SnapshotCaptureError> {
         let mut asset_key = String::new();
         if !self.asset_key.is_empty() {
@@ -145,6 +154,11 @@ impl CommittedNetworkSource {
     }
 
     /// 可失败克隆（快照捕获消费，#532）；变体形状跟随本枚举演进。
+    ///
+    /// # Errors
+    ///
+    /// 成员内容按长度预留失败时返回
+    /// [`SnapshotCaptureError::ReservationFailed`]；语义与 [`Clone`] 一致。
     pub fn try_clone(&self) -> Result<Self, crate::admin::snapshot::SnapshotCaptureError> {
         match self {
             Self::Published { reference } => Ok(Self::Published {

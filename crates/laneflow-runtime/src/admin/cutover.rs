@@ -334,6 +334,14 @@ impl NetworkRevisionCutoverDescriptor {
     ///
     /// 只验证「输入与两侧已认证制品、策略语义是否精确一致」；LFSD 长度
     /// 预检先于一切。事务启动时的基线游标比对由后续状态机步骤承接。
+    ///
+    /// # Errors
+    ///
+    /// 以下任一验证失败时返回相应 [`CutoverDescriptorError`]：base 或 target 的
+    /// 修订派生版本不受支持；origin 四联与已认证制品不匹配（`BaseOriginMismatch` /
+    /// `TargetOriginMismatch`）；同修订策略携带语义差异、修订号不相等或静态契约版本
+    /// 不相等；跨修订策略缺语义差异、修订号相等、语义差异格式版本不受支持或字节
+    /// 长度超过 `limits.max_semantic_diff_bytes`。本方法只读，不改变世界。
     pub fn validate(
         &self,
         base_origin: CanonicalNetworkOrigin,
@@ -706,6 +714,13 @@ impl TrafficWorld {
     /// 在途唯一性由同步入口保证（不存在并发候选）；世代复核由入口处对
     /// base 绑定的认证承担。旧修订回收由 `Arc` 引用计数自然承担（最后
     /// 借用退出即回收）。
+    ///
+    /// # Errors
+    ///
+    /// 已存在在途事务（[`CutoverError::InFlightTransaction`]）、base 世界绑定/基线
+    /// 游标/策略选择与当前世界不一致、target 来源修订不匹配、路线或等待区/冲突
+    /// 重验证失败、世界世代耗尽、暂存或事件分配失败时返回相应 [`CutoverError`]；
+    /// 任一失败均失败关闭，旧世界原样继续、零可观察变化。
     pub fn cutover_same_revision(
         &mut self,
         target_revision: Arc<SharedNetworkRevision>,

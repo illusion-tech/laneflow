@@ -145,6 +145,13 @@ impl TrafficWorld {
     /// 无窗口），随后从该基准构造候选并返回事务对象；旧世界恢复步进。
     /// 构造失败即丢弃候选、解除武装，旧世界无感知。在途唯一：本世界已
     /// 有武装日志（在途事务）时失败关闭。
+    ///
+    /// # Errors
+    ///
+    /// 已存在在途事务（[`CutoverError::InFlightTransaction`]）、base 世界绑定/基线
+    /// 游标/策略选择与当前世界不一致、target 来源修订不匹配或信号程序无效、世界
+    /// 世代耗尽、暂存分配失败，或候选构造（含路线重验证）失败时返回相应
+    /// [`CutoverError`]；失败即丢弃候选并解除日志武装，旧世界无感知。
     #[allow(clippy::too_many_arguments)]
     pub fn prepare_cross_revision_cutover(
         &mut self,
@@ -322,6 +329,12 @@ impl CutoverTransaction {
 
     /// Delta Catch-up 泵：按规范顺序应用至多 `max_records_per_pump` 条
     /// 迁移增量。宿主在旧世界步进间隙调用；不模拟未来、不重执行输入。
+    ///
+    /// # Errors
+    ///
+    /// 事务已结算、世界不匹配或健康检查失败时直接返回；日志缺失（
+    /// [`CutoverError::JournalMissing`]）或迁移记录应用失败时先按失败结算事务再
+    /// 返回相应 [`CutoverError`]。
     pub fn pump(&mut self, world: &mut TrafficWorld) -> Result<PumpOutcome, CutoverError> {
         self.ensure_live()?;
         self.ensure_origin_world(world)?;
@@ -382,6 +395,15 @@ impl CutoverTransaction {
     ///
     /// 消耗事务：换出的旧世界（候选槽内）随事务析构同步释放，Retire
     /// 不依赖宿主后续丢弃；结算态在类型层不可重入。
+    ///
+    /// # Errors
+    ///
+    /// 事务已结算、世界不匹配或健康检查失败、日志尾排空或重放不一致（
+    /// [`CutoverError::ReplayInconsistent`]）、等待区/冲突重验证失败、占用索引重建
+    /// 失败、迁移车辆重验证失败、快照捕获或摘要预留失败、确定性摘要不匹配（
+    /// [`CutoverError::DigestMismatch`]）、事件批次分配失败或事件游标耗尽时返回相应
+    /// [`CutoverError`]；任一失败整体放弃，旧世界从暂停点恢复步进。无论成败，本
+    /// 方法按值消耗事务并无条件解除日志武装。
     pub fn commit(mut self, world: &mut TrafficWorld) -> Result<CutoverCommit, CutoverError> {
         self.ensure_live()?;
         self.ensure_origin_world(world)?;
@@ -595,6 +617,11 @@ impl CutoverTransaction {
 
     /// 显式放弃：丢弃候选并解除日志武装；旧世界从暂停点恢复步进。
     /// 已结算事务或错误世界按失败关闭返回，不解除任何日志。
+    ///
+    /// # Errors
+    ///
+    /// 事务已结算（[`CutoverError::TransactionSettled`]）或世界不匹配时返回，且
+    /// 不解除任何日志。
     pub fn abandon(self, world: &mut TrafficWorld) -> Result<(), CutoverError> {
         if self.settled {
             return Err(CutoverError::TransactionSettled);

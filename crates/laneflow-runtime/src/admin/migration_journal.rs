@@ -2195,6 +2195,10 @@ impl crate::TrafficWorld {
     /// 对象——本入口即该状态下的唯一恢复手段：旧世界从当前状态继续步进，
     /// 零事件、无候选晋升。无在途事务时按 [`crate::CutoverError::NoInFlightTransaction`]
     /// 失败关闭。
+    ///
+    /// # Errors
+    ///
+    /// 无在途切换时返回 [`crate::CutoverError::NoInFlightTransaction`]。
     pub fn abandon_in_flight_cutover(&mut self) -> Result<(), crate::CutoverError> {
         if self.disarm_migration_journal().is_some() {
             Ok(())

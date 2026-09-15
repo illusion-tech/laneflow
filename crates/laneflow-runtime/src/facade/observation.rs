@@ -322,6 +322,11 @@ impl ObservationExportSession {
     }
 
     /// 当前实现中 session 结构加已初始化 selection/map/baseline 元素的精确字节数。
+    ///
+    /// # Errors
+    ///
+    /// 元素计数乘以单元尺寸超出 `u64` 时返回
+    /// [`ObservationError::ArithmeticOverflow`]。
     pub fn logical_bytes(&self) -> Result<u64, ObservationError> {
         observation_session_bytes(
             self.selected.len(),
@@ -331,6 +336,11 @@ impl ObservationExportSession {
     }
 
     /// 当前实现中 session 结构加三组缓冲实际容量的精确字节数。
+    ///
+    /// # Errors
+    ///
+    /// 实际容量乘以单元尺寸超出 `u64` 时返回
+    /// [`ObservationError::ArithmeticOverflow`]。
     pub fn retained_bytes(&self) -> Result<u64, ObservationError> {
         observation_session_bytes(
             self.selected.capacity(),
@@ -399,6 +409,11 @@ impl TrafficWorld {
     }
 
     /// 打开调用方持有的观测导出 session；失败不留下 Runtime 隐式状态。
+    ///
+    /// # Errors
+    ///
+    /// 选择为空、超过上限、未按严格升序去重排序，或包含共享根未知的 lane edge
+    /// 稳定 ID 时返回相应 [`ObservationError`]；失败不留下任何隐式状态。
     pub fn open_observation_export(
         &self,
         selection: ObservationSelection,
@@ -468,6 +483,12 @@ impl TrafficWorld {
     }
 
     /// 从一个精确已提交边界导出 full 或 delta；失败不推进 session。
+    ///
+    /// # Errors
+    ///
+    /// session 与世界流绑定不匹配、网络修订不匹配、首次导出非 full、交付序号
+    /// 耗尽、导出边界早于基线，或行数换算溢出时返回相应 [`ObservationError`]；
+    /// 失败不推进 session。
     pub fn export_observation(
         &self,
         session: &mut ObservationExportSession,
