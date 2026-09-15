@@ -158,6 +158,12 @@ impl From<CatalogError> for BindError {
 /// 用 Identity v1 把 catalog 字符串绑到已安装共享路网修订的类型化序号。
 ///
 /// 热路径不得再查这些字符串。调用方随后 `install_routes` 再 `spawn_vehicle`。
+///
+/// # Errors
+///
+/// 世界没有显式策略选择（[`BindError::PolicyRequired`]）、策略身份未在 catalog
+/// 登记（[`BindError::UnknownPolicy`]）、catalog 路线 ID 在共享根中不存在或重复
+/// 出现、slot 位置重复时返回相应 [`BindError`]；失败不产生部分绑定。
 pub fn bind(
     catalog: &JunctionCatalog,
     revision: &SharedNetworkRevision,
@@ -354,6 +360,12 @@ pub fn bind(
 
 impl BoundJunctionCatalog {
     /// 对本世界每条 catalog 路线恰好 `register_route` 一次。失败撤回本次注册的句柄。
+    ///
+    /// # Errors
+    ///
+    /// 世界策略选择与 catalog 绑定不一致（[`BindError::WorldPolicyMismatch`]）、
+    /// 路线 ID 未解析或 `register_route` 失败（包装为 [`BindError::RouteRegister`]）
+    /// 时返回；失败撤回本次已注册的句柄。
     pub fn install_routes(&self, world: &mut TrafficWorld) -> Result<Vec<RouteHandle>, BindError> {
         if world.policy_selection() != self.policy_selection {
             return Err(BindError::WorldPolicyMismatch);
