@@ -221,7 +221,10 @@ Workspace、`A` 为 Admin。对外命令不能插入一次 step；世界的独�
    最新决策保存本拍历史判断，不按拍末信号重写；成功返回时快照已经合法。
 
 同拍运动预览仅缓存 Conflict 求值已经完整计算的结果及当时的 Waiting 约束、
-`bumper_gap_mm`。P5 必须先确认 Waiting 约束完全相同。新增 Conflict 约束为空，或
+`bumper_gap_mm`。P5 必须先确认 Waiting 约束完全相同。预览与输入的完整
+`VehicleState` 相等且 speed/carry 都为零时，可直接复用：原整数运动和余量均为零，
+或原硬边界已为零；额外停止约束不能增加运动、生成余量或越过 hop。只比较位置
+相同不足以证明复用，Waiting 约束改变时仍必须重新计算。其余车辆的新增 Conflict 约束为空，或
 与已有 Waiting 约束完全相同时可以复用；否则必须证明其屏障位于本拍运动之外：
 `BeyondFinite` 不缩短本拍有限位移；有限距离须严格大于
 `bumper_gap_mm.saturating_add(1)`，且按现有 SI 转换后的值也严格更大。缓存结果还
