@@ -3935,6 +3935,74 @@ fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v5() {
 }
 
 #[test]
+fn repeated_leave_rejections_do_not_reuse_an_occupant_from_a_retired_incarnation() {
+    let (mut world, route, facility, parked) = parked_virtual_world();
+    let leave = LeaveParkingTarget::VirtualPool {
+        facility,
+        route,
+        exit_anchor: VirtualExitAnchorSelector::from_raw(0),
+        exit_route_occurrence: 0,
+    };
+    let first = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            63_499,
+            1,
+        ))
+        .unwrap();
+    let before = world.capture_snapshot().unwrap();
+    for _ in 0..3 {
+        assert_eq!(
+            world.leave_parking(parked, leave),
+            Err(ParkingError::LeaveUnsafeFollower { follower: first })
+        );
+        assert_eq!(world.capture_snapshot().unwrap(), before);
+    }
+    assert_eq!(
+        world.leave_parking(
+            parked,
+            LeaveParkingTarget::VirtualPool {
+                facility,
+                route,
+                exit_anchor: VirtualExitAnchorSelector::from_raw(99),
+                exit_route_occurrence: 0,
+            }
+        ),
+        Err(ParkingError::ExitSelectorNotOwned)
+    );
+    world.despawn_vehicle(first).unwrap();
+    let replacement = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            61_000,
+            10_000,
+        ))
+        .unwrap();
+    assert_ne!(replacement, first);
+    assert!(world.vehicle(first).is_none());
+    let before = world.capture_snapshot().unwrap();
+    // 旧 incarnation 的 footprint 在新 follower 前方。若沿用旧索引，它会被
+    // 错认成遮住停车 candidate 的前车，从而跳过这次本应失败的安全检查。
+    assert_eq!(
+        world.leave_parking(parked, leave),
+        Err(ParkingError::LeaveUnsafeFollower {
+            follower: replacement
+        })
+    );
+    assert_eq!(world.capture_snapshot().unwrap(), before);
+    world.despawn_vehicle(replacement).unwrap();
+    world.leave_parking(parked, leave).unwrap();
+    assert_eq!(
+        world.vehicle(parked).unwrap().status(),
+        VehicleStatus::Active
+    );
+}
+
+#[test]
 fn leave_failures_are_atomic_and_follow_the_one_millimetre_emergency_boundary() {
     let (mut overlap_world, route, facility, parked) = parked_virtual_world();
     let before_state = overlap_world.vehicle(parked);

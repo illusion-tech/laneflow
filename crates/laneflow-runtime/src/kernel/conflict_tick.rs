@@ -372,6 +372,7 @@ impl TrafficWorld {
             + vec_bytes(&self.workspace.conflict_changed_owners)
             + self.workspace.waiting_dependencies.retained_logical_bytes() as usize
             + vec_bytes(&self.workspace.conflict_staged_decisions)
+            + vec_bytes(&self.workspace.motion_previews)
             + vec_bytes(&self.committed.latest_conflict_decisions);
         u64::try_from(bytes).expect("Conflict retained bytes fit u64")
     }
@@ -514,6 +515,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         self.workspace.conflict_staged_decisions.clear();
         self.workspace.conflict_motion_by_vehicle.fill(None);
         self.workspace.conflict_next_eligibility.fill(None);
+        self.workspace.motion_previews.clear();
+        // 预览复用只是优化。扩容失败时仅使用已有容量，不新增 StepError，
+        // 也不改变后续领域检查的首错；未缓存车辆仍从同一拍初状态完整求值。
+        let _ = self
+            .workspace
+            .motion_previews
+            .try_reserve(self.derived.active_order.len());
 
         self.rebuild_conflict_frontier()?;
         reserve(
@@ -711,6 +719,15 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .advance_active_vehicle_with_waiting_stop(state, delta_s, waiting_stop, None)
             .ok_or(StepError::NonFiniteMotion)?;
         let gate_count = compiled.gate_hops.len();
+        if self.workspace.motion_previews.len() < self.workspace.motion_previews.capacity() {
+            self.workspace
+                .motion_previews
+                .push(crate::kernel::tick::MotionPreview {
+                    next: preview,
+                    waiting_stop,
+                    bumper_gap_horizon_mm: horizon.bumper_gap_mm,
+                });
+        }
         for gate_index in first_gate..gate_count {
             let compiled = self
                 .compiled_route(state.route)
