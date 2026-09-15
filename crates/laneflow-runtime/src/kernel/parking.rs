@@ -1198,7 +1198,8 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 车辆句柄失效或状态不允许、车辆没有 exact reservation（
+    /// 泊位目标在当前修订不存在（`UnknownSpace` / `UnknownFacility`）、车辆句柄
+    /// 失效或状态不允许、车辆没有 exact reservation（
     /// [`ParkingError::NotReserved`]）、命令游标耗尽（
     /// [`ParkingError::CommandCursorExhausted`]）或内部不变量破坏时返回相应
     /// [`ParkingError`]。
@@ -1240,7 +1241,8 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 车辆句柄失效、reservation 不是 exact arrived（[`ParkingError::NotArrived`] /
+    /// 泊位目标在当前修订不存在（`UnknownSpace` / `UnknownFacility`）、车辆句柄
+    /// 失效、reservation 不是 exact arrived（[`ParkingError::NotArrived`] /
     /// [`ParkingError::NotReserved`]）、冲突遍历仍在途（
     /// [`ParkingError::ConflictTraversalActive`]）、等待区存在遍历冲突（
     /// [`ParkingError::WaitingTraversalConflict`]）、命令游标或观测状态序号
@@ -1409,7 +1411,8 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 车辆句柄失效或状态不允许、车辆未 `Parked + Occupied`（
+    /// 泊位目标在当前修订不存在（`UnknownSpace` / `UnknownFacility`）、车辆句柄
+    /// 失效或状态不允许、车辆未 `Parked + Occupied`（
     /// [`ParkingError::NotOccupied`]）、准入策略拒绝、出口安全条件不满足
     /// （`LeaveUnsafeFollower` / `ConflictAuthorityRequired`）、出口 anchor
     /// 插入或路线引用容量失败（`AllocationFailed` /
@@ -1677,8 +1680,9 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 车辆容量已满、车辆 profile 或路线句柄无效、路线出现项或进度越界、准入
-    /// 策略拒绝、容量分配失败或命令游标耗尽（
+    /// 泊位目标在当前修订不存在（`UnknownSpace` / `UnknownFacility`）、车辆容量
+    /// 已满、车辆 profile 或路线句柄无效、路线出现项或进度越界、准入策略拒绝、
+    /// 容量分配失败或命令游标耗尽（
     /// [`ParkingError::CommandCursorExhausted`]）时返回相应 [`ParkingError`]；
     /// 失败不构造任何状态。
     pub fn spawn_parked_vehicle(
@@ -1777,10 +1781,11 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 车辆句柄失效、Active 车辆的命令游标或观测状态序号耗尽（
-    /// `CommandCursorExhausted` / `ObservationStateSequenceExhausted`），或路线/
-    /// 停车绑定释放违反内部不变量（[`ParkingError::InvariantViolation`]）时返回
-    /// 相应 [`ParkingError`]。
+    /// 车辆句柄失效、命令游标耗尽（任何生命周期状态，
+    /// [`ParkingError::CommandCursorExhausted`]；观测状态序号耗尽
+    /// `ObservationStateSequenceExhausted` 仅限 Active），或路线/停车绑定释放违反
+    /// 内部不变量（[`ParkingError::InvariantViolation`]）时返回相应
+    /// [`ParkingError`]。
     pub fn despawn_vehicle(
         &mut self,
         vehicle: VehicleHandle,

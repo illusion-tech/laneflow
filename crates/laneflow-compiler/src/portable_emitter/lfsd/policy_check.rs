@@ -32,8 +32,8 @@ struct Actual<'a> {
 ///
 /// LFSD 4 增量与实际 LFCA、文档描述符或 Entity/StaticRule 表的排他分工校验
 /// 不一致（mismatch）、target/diff/base 字节格式预检失败（`Format`）、scratch
-/// 预留失败（`AllocationFailure`）或对象/预算上限超限（`LimitExceeded`）时返回
-/// 相应 [`PortableEmissionError`]。
+/// 预留失败（`AllocationFailure`）或编译预算上限超限（`CompileLimitExceeded`）
+/// 时返回相应 [`PortableEmissionError`]。
 pub fn check_portable_policy_diff(
     base: PortableDiffBase<'_>,
     target: &[u8],
