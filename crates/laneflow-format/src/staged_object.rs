@@ -47,6 +47,11 @@ pub struct StagedObjectWriter {
 
 impl StagedObjectWriter {
     /// 在调用方选择的临时目录中顺序编码一份对象。
+    ///
+    /// # Errors
+    ///
+    /// 临时 backing 创建或对象编码 I/O 失败时返回 [`StagedObjectError::Io`]；
+    /// exact length 溢出返回 [`StagedObjectError::ArithmeticOverflow`]。
     pub fn create_in(
         directory: &Path,
         prepared: PreparedObject<'_>,
@@ -64,6 +69,10 @@ impl StagedObjectWriter {
 
     /// 排空用户态写缓冲、固定 exact length、关闭全部 LaneFlow 写能力，并返回只保留
     /// 私有 backing 的来源。
+    ///
+    /// # Errors
+    ///
+    /// 写缓冲排空或 exact length 固定失败时返回相应 [`StagedObjectError`]。
     pub fn finish(mut self) -> Result<ClosedStagedObjectSource, StagedObjectError> {
         let mut staged = self
             .staged
@@ -111,6 +120,11 @@ impl ClosedStagedObjectSource {
     }
 
     /// 返回只读 exact bytes；首次调用惰性建立 read-only mapping。
+    ///
+    /// # Errors
+    ///
+    /// 惰性建立只读映射失败（backing 变更、长度溢出或映射 I/O 失败）时返回相应
+    /// [`ObjectSourceError`]。
     pub fn as_bytes(&self) -> Result<&[u8], ObjectSourceError> {
         SealedImmutableBacking::contiguous_bytes(self)
     }
@@ -193,6 +207,11 @@ impl ImmutableObjectSource {
     }
 
     /// 返回只读 exact bytes；file-backed 来源在首次调用时惰性建立只读映射。
+    ///
+    /// # Errors
+    ///
+    /// 惰性建立只读映射失败（backing 变更、长度溢出或映射 I/O 失败）时返回相应
+    /// [`ObjectSourceError`]。
     pub fn as_bytes(&self) -> Result<&[u8], ObjectSourceError> {
         SealedImmutableBacking::contiguous_bytes(self)
     }

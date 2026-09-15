@@ -132,6 +132,12 @@ pub(crate) fn check_canonical_network_input_binding(
 }
 
 /// 对一份 exact LFCA 建立共享静态路网构建所需的受检输入能力。
+///
+/// # Errors
+///
+/// 输入长度超过格式上限（[`CanonicalNetworkInputError::LimitExceeded`]）或
+/// LFCA 对象源访问失败（[`CanonicalNetworkInputError::ObjectSource`]）时返回
+/// 相应 [`CanonicalNetworkInputError`]。
 pub fn check_canonical_network_input<S>(
     lfca: S,
     limits: FormatLimits,

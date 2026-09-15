@@ -94,6 +94,11 @@ pub struct CanonicalPoint3F32 {
 
 impl CanonicalPoint3F32 {
     /// 创建有限且每轴位于 `[-16_384, 16_384] m` 的点，并规范化带符号零。
+    ///
+    /// # Errors
+    ///
+    /// 任一分量非有限或超出 `[-16_384, 16_384] m` 时返回相应 [`SpatialError`]；
+    /// 带符号零被规范化后构造。
     pub fn try_new(x: f32, y: f32, z: f32) -> Result<Self, SpatialError> {
         let [x, y, z] = checked_point_components(x, y, z)?;
         Ok(Self { x, y, z })
@@ -115,16 +120,28 @@ impl CanonicalPoint3F32 {
     }
 
     /// 受检地把标准向量加到本点。
+    ///
+    /// # Errors
+    ///
+    /// 结果点任一分量非有限或超出 `[-16_384, 16_384] m` 时返回相应 [`SpatialError`]。
     pub fn checked_add_vector(self, vector: CanonicalVector3F32) -> Result<Self, SpatialError> {
         Self::try_new(self.x + vector.x, self.y + vector.y, self.z + vector.z)
     }
 
     /// 受检地从本点减去标准向量。
+    ///
+    /// # Errors
+    ///
+    /// 结果点任一分量非有限或超出 `[-16_384, 16_384] m` 时返回相应 [`SpatialError`]。
     pub fn checked_sub_vector(self, vector: CanonicalVector3F32) -> Result<Self, SpatialError> {
         Self::try_new(self.x - vector.x, self.y - vector.y, self.z - vector.z)
     }
 
     /// 受检地计算从本点指向目标点的标准向量。
+    ///
+    /// # Errors
+    ///
+    /// 结果向量任一分量非有限时返回 [`SpatialError`]。
     pub fn checked_vector_to(self, target: Self) -> Result<CanonicalVector3F32, SpatialError> {
         CanonicalVector3F32::try_new(target.x - self.x, target.y - self.y, target.z - self.z)
     }
@@ -142,6 +159,10 @@ pub struct CanonicalVector3F32 {
 
 impl CanonicalVector3F32 {
     /// 创建有限的标准向量，并把所有 `-0.0` 规范化为 `+0.0`。
+    ///
+    /// # Errors
+    ///
+    /// 任一分量非有限时返回 [`SpatialError`]；`-0.0` 规范化为 `+0.0` 后构造。
     pub fn try_new(x: f32, y: f32, z: f32) -> Result<Self, SpatialError> {
         let [x, y, z] = checked_components(VECTOR_VALUE_KIND, x, y, z)?;
         Ok(Self { x, y, z })
@@ -163,21 +184,37 @@ impl CanonicalVector3F32 {
     }
 
     /// 受检地计算向量和。
+    ///
+    /// # Errors
+    ///
+    /// 结果任一分量非有限时返回 [`SpatialError`]。
     pub fn checked_add(self, other: Self) -> Result<Self, SpatialError> {
         Self::try_new(self.x + other.x, self.y + other.y, self.z + other.z)
     }
 
     /// 受检地计算向量差。
+    ///
+    /// # Errors
+    ///
+    /// 结果任一分量非有限时返回 [`SpatialError`]。
     pub fn checked_sub(self, other: Self) -> Result<Self, SpatialError> {
         Self::try_new(self.x - other.x, self.y - other.y, self.z - other.z)
     }
 
     /// 受检地按标量缩放向量。
+    ///
+    /// # Errors
+    ///
+    /// 结果任一分量非有限时返回 [`SpatialError`]。
     pub fn checked_scale(self, scale: f32) -> Result<Self, SpatialError> {
         Self::try_new(self.x * scale, self.y * scale, self.z * scale)
     }
 
     /// 受检地把非零向量归一化为单位方向。
+    ///
+    /// # Errors
+    ///
+    /// 向量为零向量时返回 [`SpatialError::ZeroLengthDirection`]。
     pub fn try_normalize(self) -> Result<CanonicalUnitVector3F32, SpatialError> {
         CanonicalUnitVector3F32::try_from_vector(self)
     }
@@ -191,6 +228,10 @@ impl CanonicalUnitVector3F32 {
     /// 从有限非零向量创建单位方向。
     ///
     /// 归一化先按最大绝对分量缩放，避免有限大分量在平方求和时溢出。
+    ///
+    /// # Errors
+    ///
+    /// 输入向量为零向量时返回 [`SpatialError::ZeroLengthDirection`]。
     pub fn try_from_vector(vector: CanonicalVector3F32) -> Result<Self, SpatialError> {
         let scale = vector.x.abs().max(vector.y.abs()).max(vector.z.abs());
         if scale == 0.0 {

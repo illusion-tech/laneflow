@@ -91,6 +91,10 @@ impl ValueCheckProof {
 
 impl<'a> RegistryCheckedObjectView<'a> {
     /// 在既有完整 registry 结构证明之上检查对象种类专用的直接值域。
+    ///
+    /// # Errors
+    ///
+    /// 对象种类专用的直接值域检查失败时返回相应 [`FormatError`]。
     pub fn check_value_domains(self) -> Result<ValueCheckedObjectView<'a>, FormatError> {
         validate_object_values(self, self.limits())?;
         Ok(ValueCheckedObjectView { registry: self })
@@ -98,6 +102,10 @@ impl<'a> RegistryCheckedObjectView<'a> {
 }
 
 /// 对完整对象执行 registry 结构预检与直接值域预检。
+///
+/// # Errors
+///
+/// registry 结构预检或直接值域预检失败时返回相应 [`FormatError`]。
 pub fn preflight_object_values(
     bytes: &[u8],
     expected_kind: PortableObjectKind,

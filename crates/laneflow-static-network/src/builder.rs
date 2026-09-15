@@ -231,6 +231,12 @@ impl TopologyPlan {
 }
 
 /// 从受检 LFCA 构建完全拥有、不可变的共享静态路网根。
+///
+/// # Errors
+///
+/// 受检 LFCA 的表格引用、实体种类或跨段引用违反输入不变量、构建预算超限、
+/// 算术溢出、容量预留失败或构建被取消时返回相应 [`BuildError`]；失败不产出
+/// 共享根。
 pub fn build_shared_network_revision<S>(
     input: CheckedCanonicalNetworkInput<S>,
     options: SharedNetworkBuildOptions<'_>,

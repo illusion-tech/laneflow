@@ -255,6 +255,10 @@ impl<K: OrdinalKind> Ordinal<K> {
     }
 
     /// 把切片下标转换为有类型序号，并拒绝超出 `u32` 表示范围的值。
+    ///
+    /// # Errors
+    ///
+    /// 下标超出 `u32` 表示范围时返回 [`core::num::TryFromIntError`]。
     pub fn try_from_usize(index: usize) -> Result<Self, core::num::TryFromIntError> {
         u32::try_from(index).map(Self::from_raw)
     }

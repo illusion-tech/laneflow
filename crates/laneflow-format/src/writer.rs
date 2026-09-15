@@ -148,6 +148,11 @@ struct MeasuredObject {
 /// 校验完整输入并返回唯一的 exact object byte length。
 ///
 /// 本函数不分配、不写入，也不执行编译器语义或跨对象绑定验证。
+///
+/// # Errors
+///
+/// 完整输入校验（registry、规范值或资源限制）失败时返回相应 [`FormatError`]；
+/// 本函数不分配、不写入。
 pub fn measure_object(
     input: ObjectWriteInput<'_>,
     limits: FormatLimits,
@@ -200,6 +205,10 @@ fn measure_object_with_schema(
 }
 
 /// 完成一次全对象预检，并返回可重复使用的 exact-length 编码 capability。
+///
+/// # Errors
+///
+/// 与 [`measure_object`] 相同的全对象预检失败时返回相应 [`FormatError`]。
 pub fn prepare_object<'a>(
     input: ObjectWriteInput<'a>,
     limits: FormatLimits,
@@ -230,6 +239,11 @@ fn prepare_object_with_schema<'a>(
 /// 把已经预检的输入精确编码到调用方提供的缓冲区。
 ///
 /// 缓冲区长度不精确时在写入前失败；成功时不重复执行 registry、规范值或资源限制预检。
+///
+/// # Errors
+///
+/// 缓冲区长度与预检得到的 exact length 不一致（[`FormatError::LengthMismatch`]）
+/// 时在写入前失败；成功时不重复执行预检。
 pub fn encode_prepared_object(
     prepared: PreparedObject<'_>,
     output: &mut [u8],
@@ -261,9 +275,12 @@ pub fn encode_prepared_object(
 
 /// 把完整输入精确编码到调用方提供的缓冲区。
 ///
-/// 编码器先完成与 [`measure_object`] 相同的全对象预检，并在缓冲区长度不精确时直接
-/// 失败。任何返回的错误都发生在写入开始前，因此 `output` 保持逐字节不变。成功时整个
-/// `output` 恰好是一份无 padding、无尾字节的对象。
+/// 成功时整个 `output` 恰好是一份无 padding、无尾字节的对象。
+///
+/// # Errors
+///
+/// 先执行与 [`measure_object`] 相同的全对象预检，缓冲区长度不精确时直接
+/// 失败；任何错误都发生在写入开始前，`output` 保持逐字节不变。
 pub fn encode_object(
     input: ObjectWriteInput<'_>,
     limits: FormatLimits,

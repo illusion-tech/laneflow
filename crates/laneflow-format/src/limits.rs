@@ -124,6 +124,11 @@ impl FormatLimits {
     pub const HARD: Self = Self(FormatLimitConfig::HARD);
 
     /// 校验调用方配置；原语维度高于格式天花板时失败，而不是静默 clamp。
+    ///
+    /// # Errors
+    ///
+    /// 配置任一维度非法或高于对应格式天花板时返回
+    /// [`FormatError::InvalidLimitConfiguration`]；不做静默 clamp。
     pub fn try_new(config: FormatLimitConfig) -> Result<Self, FormatError> {
         if config.max_object_bytes == 0 {
             return Err(FormatError::InvalidLimitConfiguration {
