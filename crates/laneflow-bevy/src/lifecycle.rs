@@ -101,7 +101,9 @@ pub fn replace_completed_vehicle(
 /// # Errors
 ///
 /// Session 资源缺席时返回 [`LaneFlowAdapterError::MissingSessionForLifecycleCommand`]；
-/// 世界移除失败记录到 `last_error` 并返回。
+/// session 存在未消费的 `last_error` 时原样返回；被映射 Entity 已消失时返回
+/// [`LaneFlowAdapterError::StaleLifecycleEntity`]；世界移除失败记录到 `last_error`
+/// 并返回。
 pub fn despawn_vehicle(
     world: &mut World,
     vehicle: VehicleHandle,

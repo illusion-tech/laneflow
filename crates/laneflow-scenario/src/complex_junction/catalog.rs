@@ -67,8 +67,8 @@ impl CatalogPolicySelection {
     ///
     /// # Errors
     ///
-    /// 策略身份文本不符合规范 StableId 语法或缺少实体种类时返回
-    /// [`CatalogError::InvalidPolicyIdentity`]。
+    /// 策略身份文本不符合规范 StableId 语法、缺少实体种类或种类不是路权策略集
+    /// （如 LaneEdge ID）时返回 [`CatalogError::InvalidPolicyIdentity`]。
     pub fn resolve(&self) -> Result<laneflow_runtime::WorldPolicySelection, CatalogError> {
         match self {
             Self::NotRequired {} => Ok(laneflow_runtime::WorldPolicySelection::NotRequired),
@@ -356,9 +356,10 @@ impl std::error::Error for CatalogError {}
 /// # Errors
 ///
 /// catalog 版本不受支持、portal 集合数量或 ID 序列与封闭集合不符、成员
-/// StableId 重复或非法、车道数量/下标非法、路线选项为空、权重为零或权重和
-/// 溢出（[`CatalogError::WeightOverflow`]）、选项重复或 slot 交叉引用非法时返回
-/// 相应 [`CatalogError`]。
+/// StableId 重复或非法、车道数量/下标非法、路线数量不符、路线无入口边、
+/// 出口 portal 未知或不一致、入口出口相同、路线未被引用、focus 集合非法或
+/// 路线选项为空、权重为零或权重和溢出（[`CatalogError::WeightOverflow`]）、选项
+/// 重复或 slot 交叉引用非法时返回相应 [`CatalogError`]。
 pub fn validate(catalog: &JunctionCatalog) -> Result<(), CatalogError> {
     catalog.policy_selection.resolve()?;
     if catalog.catalog_version != CATALOG_VERSION {

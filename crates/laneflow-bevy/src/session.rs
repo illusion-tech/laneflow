@@ -374,8 +374,9 @@ impl LaneFlowSession {
     ///
     /// # Errors
     ///
-    /// 车辆不在当前世界（[`LaneFlowAdapterError::UnknownVehicle`]）或已绑定其它
-    /// Entity（[`LaneFlowAdapterError::DuplicateVehicleBinding`]）时返回相应
+    /// 车辆不在当前世界（[`LaneFlowAdapterError::UnknownVehicle`]）、已绑定其它
+    /// Entity（[`LaneFlowAdapterError::DuplicateVehicleBinding`]）或目标 Entity 已被
+    /// 其它车辆映射（[`LaneFlowAdapterError::DuplicateEntityBinding`]）时返回相应
     /// [`LaneFlowAdapterError`]。
     pub fn bind_vehicle_entity(
         &mut self,

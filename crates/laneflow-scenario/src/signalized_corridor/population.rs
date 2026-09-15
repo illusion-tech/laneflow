@@ -649,9 +649,11 @@ impl CorridorPopulationController {
     ///
     /// # Errors
     ///
-    /// 校验失败返回 [`CorridorReplaceApplyError::Policy`]，不调用 callback、不修改
-    /// pending 状态；host callback 致命失败返回 [`CorridorReplaceApplyError::Host`]，
-    /// 当前 plan 回到 pending 队首。
+    /// 前置校验失败返回 [`CorridorReplaceApplyError::Policy`]，不调用 callback、
+    /// 不修改 pending 状态；callback 返回的替换记录与计划不符（`old` 句柄不一致
+    /// 或新句柄已被跟踪）同样以 `Policy` 返回，但发生在 callback 之后、同界先前的
+    /// 替换保持有效；host callback 致命失败返回
+    /// [`CorridorReplaceApplyError::Host`]，当前 plan 回到 pending 队首。
     pub fn apply_pending<F, E>(
         &mut self,
         network_revision: NetworkRevisionId,
@@ -739,8 +741,10 @@ impl CorridorPopulationController {
     ///
     /// # Errors
     ///
-    /// 世界步进非单调（[`CorridorPopulationError::NonMonotonicStep`]）、已完成车辆
-    /// 消失、重复出现、不在跟踪集合或路线/边出现项与跟踪状态不一致时返回相应
+    /// 绑定上下文与给定世界不一致（
+    /// [`CorridorPopulationError::BoundWorldCatalogMismatch`]）、世界步进非单调（
+    /// [`CorridorPopulationError::NonMonotonicStep`]）、已完成车辆消失、重复出现、
+    /// 不在跟踪集合或路线/边出现项与跟踪状态不一致时返回相应
     /// [`CorridorPopulationError`]；失败不修改跟踪状态。
     pub fn consume_world(
         &mut self,

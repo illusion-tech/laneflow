@@ -110,10 +110,11 @@ impl EncodedCanonicalIdentity {
 /// # Errors
 ///
 /// 实体种类不可构造（[`CanonicalIdentityViolation::UnconstructibleKind`]）、
-/// 组成字段的规范化编码非法（[`CanonicalIdentityViolation::InvalidAsciiField`]，
-/// 如空、非 ASCII 或超限文本）、字段数与登记表不符（`FieldCountMismatch`）或
-/// 出现未登记字段 tag（`UnexpectedFieldTag`）时返回相应
-/// [`CanonicalIdentityViolation`]。
+/// 组成字段超过 `u32` 字节长度上限（
+/// [`CanonicalIdentityViolation::FieldByteLengthOverflow`]）、规范化编码非法（
+/// [`CanonicalIdentityViolation::InvalidAsciiField`]，如空、非 ASCII 或超限文本）、
+/// 字段数与登记表不符（`FieldCountMismatch`）或出现未登记字段 tag
+/// （`UnexpectedFieldTag`）时返回相应 [`CanonicalIdentityViolation`]。
 pub fn derive_canonical_stable_id_v1(
     kind: EntityKind,
     authoring_namespace_id: &str,

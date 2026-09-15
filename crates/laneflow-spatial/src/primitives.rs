@@ -141,7 +141,8 @@ impl CanonicalPoint3F32 {
     ///
     /// # Errors
     ///
-    /// 结果向量任一分量非有限时返回 [`SpatialError`]。
+    /// 两个端点均由 [`CanonicalPoint3F32::try_new`] 保证有限且在规范范围内，差
+    /// 向量必然有限，本方法当前不返回 `Err`；保留 `Result` 形态以与受检家族一致。
     pub fn checked_vector_to(self, target: Self) -> Result<CanonicalVector3F32, SpatialError> {
         CanonicalVector3F32::try_new(target.x - self.x, target.y - self.y, target.z - self.z)
     }
