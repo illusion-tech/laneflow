@@ -722,11 +722,12 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         if self.workspace.motion_previews.len() < self.workspace.motion_previews.capacity() {
             self.workspace
                 .motion_previews
-                .push(crate::kernel::tick::MotionPreview {
-                    next: preview,
+                .push(crate::kernel::tick::MotionPreview::new(
+                    state,
+                    preview,
                     waiting_stop,
-                    bumper_gap_horizon_mm: horizon.bumper_gap_mm,
-                });
+                    horizon.bumper_gap_mm,
+                ));
         }
         for gate_index in first_gate..gate_count {
             let compiled = self

@@ -802,7 +802,7 @@ impl TrafficWorld {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::sync::Arc;
 
@@ -1053,7 +1053,7 @@ mod tests {
             .count() as u64
     }
 
-    fn zero_progress_merge_fixture() -> (TrafficWorld, VehicleHandle, VehicleHandle) {
+    pub(crate) fn zero_progress_merge_fixture() -> (TrafficWorld, VehicleHandle, VehicleHandle) {
         let revision = compile_revision(|module| {
             add_car_profile(module);
             for (key, length) in [("left", 10.0), ("right", 11.0)] {

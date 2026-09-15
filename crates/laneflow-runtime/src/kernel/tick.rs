@@ -23,11 +23,26 @@ const MINIMUM_GAP_TOLERANCE_MM: u32 = 1;
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MotionPreview {
     pub(crate) next: VehicleState,
-    pub(crate) waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
-    pub(crate) bumper_gap_horizon_mm: u32,
+    waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+    bumper_gap_horizon_mm: u32,
+    stationary: bool,
 }
 
 impl MotionPreview {
+    pub(crate) fn new(
+        from: VehicleState,
+        next: VehicleState,
+        waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        bumper_gap_horizon_mm: u32,
+    ) -> Self {
+        Self {
+            next,
+            waiting_stop,
+            bumper_gap_horizon_mm,
+            stationary: from == next && next.speed_mm_s == 0 && next.carry_um == 0,
+        }
+    }
+
     fn reuse(
         self,
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
@@ -35,6 +50,12 @@ impl MotionPreview {
     ) -> Option<VehicleState> {
         if self.waiting_stop != waiting_stop {
             return None;
+        }
+        // 完整状态不变且 speed/carry 都为零：原整数运动和余量为零，或原
+        // hard_room 已为零。增加停止约束不能增加运动、产生余量或越过 hop。
+        // 仅位置相同并不足够；Waiting 改变也必须先回退到完整计算。
+        if self.stationary {
+            return Some(self.next);
         }
         let Some(stop) = conflict_stop else {
             return Some(self.next);
@@ -1684,6 +1705,58 @@ mod motion_reuse_tests {
     use crate::kernel::waiting::WaitingStopConstraint;
 
     #[test]
+    fn stationary_follower_reuses_a_near_stop_but_submillimetre_motion_does_not() {
+        let (mut world, follower, leader) =
+            crate::kernel::occupancy::tests::zero_progress_merge_fixture();
+        let state = VehicleState {
+            speed_mm_s: 0,
+            carry_um: 0,
+            ..world.vehicle(follower).unwrap()
+        };
+        // 合流前车把 follower 挡在距真实 hop 边界 2 mm 处，远小于跟车窗。
+        let stop = WaitingStopConstraint {
+            hop: 0,
+            distance: BoundedDistance::Finite(2),
+        };
+        let profile = world
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+            .unwrap();
+        let horizon = leader_query_horizon(0, profile, 0.016).unwrap();
+        let view = world.read_view();
+        let next = view
+            .advance_active_vehicle_with_waiting_stop(state, 0.016, None, None)
+            .unwrap();
+        assert_eq!(next, state);
+        let preview = MotionPreview::new(state, next, None, horizon.bumper_gap_mm);
+        assert!(horizon.bumper_gap_mm > 2);
+        assert_eq!(
+            preview.reuse(None, Some(stop)),
+            view.advance_active_vehicle_with_waiting_stop(state, 0.016, None, Some(stop))
+        );
+        assert!(preview.reuse(Some(stop), None).is_none());
+
+        world.despawn_vehicle(leader).unwrap();
+        world.ensure_current_occupancy().unwrap();
+        let state = VehicleState {
+            carry_um: 1,
+            ..state
+        };
+        let view = world.read_view();
+        let next = view
+            .advance_active_vehicle_with_waiting_stop(state, 0.001, None, None)
+            .unwrap();
+        assert_eq!(next.route_edge_index, state.route_edge_index);
+        assert_eq!(next.progress_mm, state.progress_mm);
+        assert!(next.carry_um > 0);
+        assert_ne!(next, state);
+        // 整数位置相同仍有亚毫米运动，不能套用完全静止的证明。
+        let preview = MotionPreview::new(state, next, None, horizon.bumper_gap_mm);
+        assert!(preview.reuse(None, Some(stop)).is_none());
+    }
+
+    #[test]
     fn reused_motion_matches_full_calculation_across_integer_and_carry_boundaries() {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
         world.rebuild_occupancy_index().unwrap();
@@ -1698,6 +1771,7 @@ mod motion_reuse_tests {
             .vehicle_profile(base.profile)
             .unwrap();
         let mut reused = 0;
+        let mut stationary_reused = 0;
         let mut constrained_fallbacks = 0;
         for cursor in 0..compiled.edges.len() {
             let edge = compiled.edges[cursor];
@@ -1737,11 +1811,12 @@ mod motion_reuse_tests {
                                     None,
                                 )
                                 .unwrap();
-                            let preview = MotionPreview {
+                            let preview = MotionPreview::new(
+                                state,
                                 next,
                                 waiting_stop,
-                                bumper_gap_horizon_mm: horizon.bumper_gap_mm,
-                            };
+                                horizon.bumper_gap_mm,
+                            );
                             for conflict_stop in
                                 std::iter::once(None).chain(stops.iter().copied().map(Some))
                             {
@@ -1759,6 +1834,7 @@ mod motion_reuse_tests {
                                         "state={state:?}, stop={conflict_stop:?}"
                                     );
                                     reused += 1;
+                                    stationary_reused += usize::from(preview.stationary);
                                 } else if expected != next {
                                     constrained_fallbacks += 1;
                                 }
@@ -1777,6 +1853,7 @@ mod motion_reuse_tests {
             }
         }
         assert!(reused > 100);
+        assert!(stationary_reused > 0);
         assert!(
             constrained_fallbacks > 0,
             "near barriers must exercise an actual change in motion"
@@ -1792,6 +1869,7 @@ mod motion_reuse_tests {
                 next,
                 waiting_stop: None,
                 bumper_gap_horizon_mm: horizon,
+                stationary: false,
             };
             let stop = WaitingStopConstraint {
                 hop: next.route_edge_index + 1,
