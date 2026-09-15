@@ -400,6 +400,14 @@ impl RestoredSnapshot {
 /// fresh restore 从 [`crate::WorldGeneration::INITIAL`] 建立新观测 stream；调用方不得让
 /// 同一 `world_id` 的旧 world 或旧 session 与返回值并存。任一失败只丢弃局部 staging，
 /// 不返回半恢复 world。
+///
+/// # Errors
+///
+/// 输入命中读取/配置/verifier 上限、LFRS framing 截断或 size prefix 不一致、
+/// file identifier 或格式/状态版本不匹配、FlatBuffers verifier 拒绝结构、
+/// 必需字段缺席、来源/修订/静态契约版本/时钟/配置与目标根不一致，或确定性
+/// 摘要复核失败时返回相应 [`SnapshotRestoreError`]；任一失败只丢弃局部
+/// staging，不返回半恢复 world。
 pub fn restore_lfrs(
     bytes: &[u8],
     revision: Arc<SharedNetworkRevision>,

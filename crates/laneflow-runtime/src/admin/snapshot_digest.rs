@@ -83,6 +83,11 @@ fn digest_try_reserve(values: &mut Vec<u8>, additional: usize) -> Result<(), Sna
 /// 车辆绑定）与 live 更新顺序（条目绑定所属路线记录）。LFCA exact-byte
 /// digest/length、Published asset 审计来源、worker 计划、`WorldGeneration` 与观测
 /// session 不进入逻辑摘要。全部缓冲按计数可失败预留（#532）。
+///
+/// # Errors
+///
+/// 规范化缓冲或分组表容量预留失败时返回
+/// [`SnapshotDigestError::ReservationFailed`]；输入快照不被修改。
 pub fn deterministic_state_digest(
     snapshot: &CapturedSnapshot,
 ) -> Result<Sha256Digest, SnapshotDigestError> {

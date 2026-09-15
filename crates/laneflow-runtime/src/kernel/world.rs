@@ -193,6 +193,11 @@ impl TrafficWorld {
     ///
     /// 来源的 `NetworkRevisionId` 必须与共享根 origin 精确相等；digest /
     /// length 差异（同修订重发布）按合同只承担来源审计，不构成拒绝条件。
+    ///
+    /// # Errors
+    ///
+    /// 来源修订号与共享根 origin 不一致、增量区间越界、worker 计数非一，或
+    /// 冲突体系安装失败时返回相应 [`InstallError`]；失败不留下可观察的半个 world。
     pub fn install(
         revision: Arc<SharedNetworkRevision>,
         config: WorldConfig,
@@ -787,6 +792,11 @@ impl TrafficWorld {
     ///
     /// 在 compiled 槽位物化分段 `u32` 前缀、后缀距离、受控 hop 链和限速下降转换；
     /// 不上 `u64`，不存当前红灯。句柄不含 world 身份，只在本 `TrafficWorld` 内有效。
+    ///
+    /// # Errors
+    ///
+    /// 边序列为空、序号越出共享根、相邻边不连通、路线/边出现项/冲突出现项容量
+    /// 不足或编译缓冲预留失败时返回相应 [`RouteError`]；失败不留下半条路线。
     pub fn register_route(&mut self, input: RouteRegisterInput) -> Result<RouteHandle, RouteError> {
         self.register_route_edges(input.edges())
     }
@@ -883,6 +893,11 @@ impl TrafficWorld {
     }
 
     /// 只移除本世界已注册路线。
+    ///
+    /// # Errors
+    ///
+    /// 句柄失效（[`RouteError::StaleHandle`]）、仍有车辆使用该路线（
+    /// [`RouteError::InUse`]）或命令游标耗尽时返回相应 [`RouteError`]。
     pub fn remove_route(&mut self, route: RouteHandle) -> Result<(), RouteError> {
         let index = usize::try_from(route.index()).expect("route index fits usize");
         let Some(slot) = self.committed.routes.get(index) else {
@@ -970,6 +985,11 @@ impl TrafficWorld {
     }
 
     /// 生成一辆车。失败不留半辆车。
+    ///
+    /// # Errors
+    ///
+    /// 车辆输入校验失败（profile/路线句柄/进度/初速/容量/准入/车身重叠/权威不可
+    /// 重建）、观测状态序号或命令游标耗尽时返回相应 [`SpawnError`]；失败不留半辆车。
     pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, SpawnError> {
         let (class, length_mm, traversal) =
             self.validate_unparked_vehicle(input, 0, VehicleStatus::Active, None, false)?;
@@ -1194,6 +1214,13 @@ impl TrafficWorld {
     ///
     /// 入口占用返回可重试的 [`ReplaceError::Blocked`]；其他失败为致命错误。
     /// 任一失败都保持已提交世界不变。成功后旧句柄立即 stale；公开契约不保证同一 slot index。
+    ///
+    /// # Errors
+    ///
+    /// 句柄失效或车辆未 `Completed`、停车占用未释放、冲突/等待不变量破坏、输入
+    /// 校验失败（profile/路线/进度/初速/准入）或入口占用被占时返回相应
+    /// [`ReplaceError`]；[`ReplaceError::Blocked`] 可重试，其余为致命错误；任一
+    /// 失败保持已提交世界不变。
     pub fn replace_completed_vehicle(
         &mut self,
         old: VehicleHandle,
@@ -1401,6 +1428,13 @@ impl TrafficWorld {
     /// 成功后再提交 T+D 的 pose、时间与 `committed_signal_groups`。相位边界落在
     /// `[T, T+D)` 时该拍仍用 snapshot(T) 灯色。失败不推进时间，已提交查询与失败前一致。
     /// 生命周期命令只在两次 `step` 之间调用。
+    ///
+    /// # Errors
+    ///
+    /// `delta_time_ms` 与 world 固定步长不一致、`tick_index`/`time_ms` checked
+    /// 加法溢出、观测状态序号耗尽、运动产生非有限值、占用容量或预留失败、或
+    /// 内部不变量遍历失败时返回相应 [`StepError`]；失败不推进时间，已提交查询与
+    /// 失败前一致。
     pub fn step(&mut self, input: TickInput) -> Result<StepOutcome, StepError> {
         self.step_vehicles(input)
     }

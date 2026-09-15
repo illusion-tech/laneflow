@@ -575,6 +575,13 @@ impl TrafficWorld {
     /// 预留失败即 [`SnapshotCaptureError`]，世界无感知、宿主可直接重试。
     /// 局部标识分配规范：路线按 live 槽位序取 `1..=N`，车辆按 live 槽位序
     /// 取 `1..=M`；`live_order` 保存实际更新顺序，与局部 ID 的自然序解耦。
+    ///
+    /// # Errors
+    ///
+    /// 全部输出缓冲按计数可失败预留：任一预留失败返回
+    /// [`SnapshotCaptureError::ReservationFailed`]，世界无感知、宿主可直接重试；
+    /// 已提交 Conflict authority 无法由 reservation 级证明精确重建时返回
+    /// [`SnapshotCaptureError::ConflictInvariantViolation`]。
     pub fn capture_snapshot(&self) -> Result<CapturedSnapshot, SnapshotCaptureError> {
         let identity = self.binding.revision.identity();
         let conflict_index_len = self.binding.config.vehicle_capacity() as usize;
