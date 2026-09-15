@@ -715,19 +715,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     .copied()
             });
         let waiting_stop = self.waiting_stop_for(&state)?;
-        let preview = self
-            .advance_active_vehicle_with_waiting_stop(state, delta_s, waiting_stop, None)
+        let motion = self
+            .read_view()
+            .preview_active_vehicle_with_waiting_stop(state, delta_s, waiting_stop)
             .ok_or(StepError::NonFiniteMotion)?;
+        let preview = motion.next;
         let gate_count = compiled.gate_hops.len();
         if self.workspace.motion_previews.len() < self.workspace.motion_previews.capacity() {
-            self.workspace
-                .motion_previews
-                .push(crate::kernel::tick::MotionPreview::new(
-                    state,
-                    preview,
-                    waiting_stop,
-                    horizon.bumper_gap_mm,
-                ));
+            self.workspace.motion_previews.push(motion);
         }
         for gate_index in first_gate..gate_count {
             let compiled = self
@@ -1869,6 +1864,7 @@ mod tests {
         let old = world.vehicle(candidate.vehicle).unwrap();
         let phase = world.step_workspace();
         let next = phase
+            .read_view()
             .advance_active_vehicle_with_waiting_stop(
                 old,
                 0.1,

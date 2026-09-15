@@ -24,25 +24,18 @@ const MINIMUM_GAP_TOLERANCE_MM: u32 = 1;
 pub(crate) struct MotionPreview {
     pub(crate) next: VehicleState,
     waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
-    bumper_gap_horizon_mm: u32,
-    stationary: bool,
+    bounds: MotionBounds,
+}
+
+/// 由共同运动内核产生的复用证明；缺失证明时只能复用完全相同的约束。
+#[derive(Clone, Copy, Debug)]
+enum MotionBounds {
+    Unknown,
+    HardStopped,
+    Travel { meters: f32, proposed_mm: u64 },
 }
 
 impl MotionPreview {
-    pub(crate) fn new(
-        from: VehicleState,
-        next: VehicleState,
-        waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
-        bumper_gap_horizon_mm: u32,
-    ) -> Self {
-        Self {
-            next,
-            waiting_stop,
-            bumper_gap_horizon_mm,
-            stationary: from == next && next.speed_mm_s == 0 && next.carry_um == 0,
-        }
-    }
-
     fn reuse(
         self,
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
@@ -51,27 +44,27 @@ impl MotionPreview {
         if self.waiting_stop != waiting_stop {
             return None;
         }
-        // 完整状态不变且 speed/carry 都为零：原整数运动和余量为零，或原
-        // hard_room 已为零。增加停止约束不能增加运动、产生余量或越过 hop。
-        // 仅位置相同并不足够；Waiting 改变也必须先回退到完整计算。
-        if self.stationary {
-            return Some(self.next);
-        }
         let Some(stop) = conflict_stop else {
             return Some(self.next);
         };
         if Some(stop) == waiting_stop {
             return Some(self.next);
         }
-        // 跟车接纳窗覆盖无约束 travel_upper。额外一毫米覆盖已有 carry 与
-        // 微米舍入；同时比较 SI 值，避免大毫米数转 f32 后向下舍入越过界限。
-        // 饱和窗不能证明任何有限屏障无影响，必须走完整计算。
-        let beyond_motion = match stop.distance {
-            BoundedDistance::Finite(mm) => {
-                mm > self.bumper_gap_horizon_mm.saturating_add(1)
-                    && si_meters(mm) > si_meters(self.bumper_gap_horizon_mm)
-            }
-            BoundedDistance::BeyondFinite => true,
+        let beyond_motion = match self.bounds {
+            MotionBounds::Unknown => false,
+            // 原 hard_room 已为零；额外停止约束仍走相同的零位移提前返回。
+            MotionBounds::HardStopped => return Some(self.next),
+            MotionBounds::Travel {
+                meters,
+                proposed_mm,
+            } => match stop.distance {
+                BoundedDistance::Finite(mm) => {
+                    // SI clamp 不变，且新整数硬边界严格在含 carry/舍入的提案外，
+                    // 因而不会改变 exhausted、余量或速度。不能只比较整数位置。
+                    u64::from(mm) > proposed_mm && si_meters(mm) >= meters
+                }
+                BoundedDistance::BeyondFinite => true,
+            },
         };
         (beyond_motion && self.next.route_edge_index <= stop.hop).then_some(self.next)
     }
@@ -643,11 +636,53 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     /// 正式推进复用同一拍初状态的 binding；独立预览仍从自身读取入口取得当前值。
     pub(crate) fn advance_active_vehicle_with_parking_binding(
         self,
+        state: VehicleState,
+        delta_s: f32,
+        waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        parking_binding: Option<ParkingBinding>,
+    ) -> Option<VehicleState> {
+        self.calculate_active_vehicle_motion(
+            state,
+            delta_s,
+            waiting_stop,
+            conflict_stop,
+            parking_binding,
+            None,
+        )
+    }
+
+    pub(crate) fn preview_active_vehicle_with_waiting_stop(
+        self,
+        state: VehicleState,
+        delta_s: f32,
+        waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+    ) -> Option<MotionPreview> {
+        let mut bounds = MotionBounds::Unknown;
+        let next = self.calculate_active_vehicle_motion(
+            state,
+            delta_s,
+            waiting_stop,
+            None,
+            self.committed.parking.binding(state.handle),
+            Some(&mut bounds),
+        )?;
+        Some(MotionPreview {
+            next,
+            waiting_stop,
+            bounds,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn calculate_active_vehicle_motion(
+        self,
         mut state: VehicleState,
         delta_s: f32,
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
         conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
         parking_binding: Option<ParkingBinding>,
+        motion_bounds: Option<&mut MotionBounds>,
     ) -> Option<VehicleState> {
         #[cfg(test)]
         let inputs_timer = super::exact_path_research::begin(
@@ -752,6 +787,9 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             self.hop_permitted(state.route, edges, cursor, state.profile),
         );
         if hard_room == 0 {
+            if let Some(bounds) = motion_bounds {
+                *bounds = MotionBounds::HardStopped;
+            }
             state.speed_mm_s = 0;
             state.carry_um = 0;
             let arrived = parking
@@ -763,6 +801,12 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         }
 
         let um = u64::from(state.carry_um).saturating_add(round_um(f64::from(travel_m))?);
+        if let Some(bounds) = motion_bounds {
+            *bounds = MotionBounds::Travel {
+                meters: travel_m,
+                proposed_mm: um / 1_000,
+            };
+        }
         let travel_mm = u32::try_from((um / 1_000).min(u64::from(hard_room))).ok()?;
         let exhausted = travel_mm == hard_room;
         if exhausted {
@@ -1153,22 +1197,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         delta_s: f32,
     ) -> Option<VehicleState> {
         self.read_view().advance_active_vehicle(state, delta_s)
-    }
-
-    /// 在 Waiting/Conflict 停车约束下推进一步活动车辆。
-    pub(crate) fn advance_active_vehicle_with_waiting_stop(
-        &self,
-        state: VehicleState,
-        delta_s: f32,
-        waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
-        conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
-    ) -> Option<VehicleState> {
-        self.read_view().advance_active_vehicle_with_waiting_stop(
-            state,
-            delta_s,
-            waiting_stop,
-            conflict_stop,
-        )
     }
 
     /// 判断该机动门对指定车辆配置是否拒绝并停车。
@@ -1705,7 +1733,7 @@ mod motion_reuse_tests {
     use crate::kernel::waiting::WaitingStopConstraint;
 
     #[test]
-    fn stationary_follower_reuses_a_near_stop_but_submillimetre_motion_does_not() {
+    fn near_stop_reuses_hard_stops_and_submillimetre_motion_but_not_crossings() {
         let (mut world, follower, leader) =
             crate::kernel::occupancy::tests::zero_progress_merge_fixture();
         let state = VehicleState {
@@ -1725,11 +1753,11 @@ mod motion_reuse_tests {
             .unwrap();
         let horizon = leader_query_horizon(0, profile, 0.016).unwrap();
         let view = world.read_view();
-        let next = view
-            .advance_active_vehicle_with_waiting_stop(state, 0.016, None, None)
+        let preview = view
+            .preview_active_vehicle_with_waiting_stop(state, 0.016, None)
             .unwrap();
-        assert_eq!(next, state);
-        let preview = MotionPreview::new(state, next, None, horizon.bumper_gap_mm);
+        assert_eq!(preview.next, state);
+        assert!(matches!(preview.bounds, MotionBounds::HardStopped));
         assert!(horizon.bumper_gap_mm > 2);
         assert_eq!(
             preview.reuse(None, Some(stop)),
@@ -1744,16 +1772,33 @@ mod motion_reuse_tests {
             ..state
         };
         let view = world.read_view();
-        let next = view
-            .advance_active_vehicle_with_waiting_stop(state, 0.001, None, None)
+        let preview = view
+            .preview_active_vehicle_with_waiting_stop(state, 0.001, None)
             .unwrap();
+        let next = preview.next;
         assert_eq!(next.route_edge_index, state.route_edge_index);
         assert_eq!(next.progress_mm, state.progress_mm);
         assert!(next.carry_um > 0);
         assert_ne!(next, state);
-        // 整数位置相同仍有亚毫米运动，不能套用完全静止的证明。
-        let preview = MotionPreview::new(state, next, None, horizon.bumper_gap_mm);
-        assert!(preview.reuse(None, Some(stop)).is_none());
+        // 整数位置相同仍有亚毫米运动；实际位移证明保留余量和非零速度。
+        assert!(matches!(
+            preview.bounds,
+            MotionBounds::Travel { proposed_mm: 0, .. }
+        ));
+        assert_eq!(preview.reuse(None, Some(stop)), Some(next));
+        assert_eq!(
+            Some(next),
+            view.advance_active_vehicle_with_waiting_stop(state, 0.001, None, Some(stop))
+        );
+
+        let crossing = view
+            .preview_active_vehicle_with_waiting_stop(state, 0.1, None)
+            .unwrap();
+        let stopped = view
+            .advance_active_vehicle_with_waiting_stop(state, 0.1, None, Some(stop))
+            .unwrap();
+        assert_ne!(crossing.next, stopped);
+        assert!(crossing.reuse(None, Some(stop)).is_none());
     }
 
     #[test]
@@ -1765,13 +1810,8 @@ mod motion_reuse_tests {
         let compiled = view.compiled_route(base.route).unwrap();
         let lengths = world.traffic().lane_lengths_millimetres();
         let limits = world.traffic().lane_speed_limits_millimetres_per_second();
-        let profile = world
-            .traffic()
-            .relations()
-            .vehicle_profile(base.profile)
-            .unwrap();
         let mut reused = 0;
-        let mut stationary_reused = 0;
+        let mut hard_stopped_reused = 0;
         let mut constrained_fallbacks = 0;
         for cursor in 0..compiled.edges.len() {
             let edge = compiled.edges[cursor];
@@ -1801,29 +1841,26 @@ mod motion_reuse_tests {
                                 .unwrap(),
                             })
                             .collect();
-                        let horizon = leader_query_horizon(speed, profile, 0.1).unwrap();
-                        for waiting_stop in [None, stops.first().copied()] {
-                            let next = view
-                                .advance_active_vehicle_with_waiting_stop(
+                        for (delta_s, waiting_stop) in
+                            [0.001, 0.016, 0.033, 0.1].into_iter().flat_map(|delta_s| {
+                                [None, stops.first().copied()].map(|stop| (delta_s, stop))
+                            })
+                        {
+                            let preview = view
+                                .preview_active_vehicle_with_waiting_stop(
                                     state,
-                                    0.1,
+                                    delta_s,
                                     waiting_stop,
-                                    None,
                                 )
                                 .unwrap();
-                            let preview = MotionPreview::new(
-                                state,
-                                next,
-                                waiting_stop,
-                                horizon.bumper_gap_mm,
-                            );
+                            let next = preview.next;
                             for conflict_stop in
                                 std::iter::once(None).chain(stops.iter().copied().map(Some))
                             {
                                 let expected = view
                                     .advance_active_vehicle_with_waiting_stop(
                                         state,
-                                        0.1,
+                                        delta_s,
                                         waiting_stop,
                                         conflict_stop,
                                     )
@@ -1831,10 +1868,13 @@ mod motion_reuse_tests {
                                 if let Some(actual) = preview.reuse(waiting_stop, conflict_stop) {
                                     assert_eq!(
                                         actual, expected,
-                                        "state={state:?}, stop={conflict_stop:?}"
+                                        "state={state:?}, delta_s={delta_s}, stop={conflict_stop:?}"
                                     );
                                     reused += 1;
-                                    stationary_reused += usize::from(preview.stationary);
+                                    hard_stopped_reused += usize::from(matches!(
+                                        preview.bounds,
+                                        MotionBounds::HardStopped
+                                    ));
                                 } else if expected != next {
                                     constrained_fallbacks += 1;
                                 }
@@ -1853,7 +1893,7 @@ mod motion_reuse_tests {
             }
         }
         assert!(reused > 100);
-        assert!(stationary_reused > 0);
+        assert!(hard_stopped_reused > 0);
         assert!(
             constrained_fallbacks > 0,
             "near barriers must exercise an actual change in motion"
@@ -1861,15 +1901,21 @@ mod motion_reuse_tests {
     }
 
     #[test]
-    fn saturated_or_float_collapsed_distance_does_not_prove_preview_reuse() {
+    fn motion_bounds_preserve_integer_exhaustion_float_clamps_and_hop_barriers() {
         let world = crate::kernel::waiting::tests::multi_gate_world(1);
         let next = world.vehicle(world.derived.active_order[0]).unwrap();
-        for (horizon, distance) in [(u32::MAX, u32::MAX), (1_000_000_000, 1_000_000_002)] {
+        for (meters, proposed_mm, distance) in [
+            (0.000_999_6, 1, 1), // round_um 已把亚毫米结果进位；等于新边界会清余量。
+            (0.001_1, 0, 1),     // 整数提案不能代替 SI clamp 的证明。
+            (si_meters(u32::MAX), u64::from(u32::MAX) + 1, u32::MAX),
+        ] {
             let preview = MotionPreview {
                 next,
                 waiting_stop: None,
-                bumper_gap_horizon_mm: horizon,
-                stationary: false,
+                bounds: MotionBounds::Travel {
+                    meters,
+                    proposed_mm,
+                },
             };
             let stop = WaitingStopConstraint {
                 hop: next.route_edge_index + 1,
@@ -1877,6 +1923,38 @@ mod motion_reuse_tests {
             };
             assert!(preview.reuse(None, Some(stop)).is_none());
         }
+        let preview = MotionPreview {
+            next,
+            waiting_stop: None,
+            bounds: MotionBounds::Travel {
+                meters: 0.000_1,
+                proposed_mm: 0,
+            },
+        };
+        let stop = WaitingStopConstraint {
+            hop: next.route_edge_index,
+            distance: BoundedDistance::Finite(1),
+        };
+        assert_eq!(preview.reuse(None, Some(stop)), Some(next));
+        assert!(
+            MotionPreview {
+                next: VehicleState {
+                    route_edge_index: stop.hop + 1,
+                    ..next
+                },
+                ..preview
+            }
+            .reuse(None, Some(stop))
+            .is_none()
+        );
+        assert!(
+            MotionPreview {
+                bounds: MotionBounds::Unknown,
+                ..preview
+            }
+            .reuse(None, Some(stop))
+            .is_none()
+        );
     }
 }
 
