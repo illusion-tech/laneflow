@@ -1006,6 +1006,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             waiting_staged_occupancy,
             waiting_staged_storage_mm,
             occupancy_scratch,
+            motion_previews: Vec::new(),
             next_states,
         },
         admin: crate::admin::state::AdministrativeState {

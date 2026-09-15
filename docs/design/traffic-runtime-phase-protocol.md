@@ -93,8 +93,9 @@ TrafficWorld
 | `conflict_arbiter`                                                                                                      | 按 §2.2 拆开                             | 禁止把整个混合聚合直接放入 Committed 后继续在 prepare 中修改                                                                       |
 | `signal_aspects`                                                                                                        | Committed resources 的信号只读表示       | 可从绑定和已提交时钟导出，但成功 step 返回前必须与该时钟一致；不是独立于时钟的第二权威                                             |
 | `latest_waiting_decisions`, `latest_conflict_decisions`, `latest_transition_events`                                     | Committed published batches              | 保留上次成功结果；失败不清空，生命周期命令不把自己的 record 塞入历史 tick 批次                                                     |
-| `occupancy`                                                                                                             | Derived，构建暂存属 Workspace            | 查询只使用拍初车辆状态；内部构建 scratch 与已完成索引分开借用，不复制整份已提交世界                                                |
+| `occupancy`                                                                                                             | Derived，构建暂存属 Workspace            | step 按拍初车辆状态重建；命令间复用须匹配世界世代和状态序号，失败重建清除来源；构建 scratch 与查询分开借用                         |
 | `next_states`, `next_state_by_vehicle`, `next_signal_aspects`                                                           | Workspace                                | 预览可复用 `next_states`，正式 next state 仍从拍初状态计算；槽位索引只定位，不排序                                                 |
+| `motion_previews`                                                                                                       | Workspace                                | 同拍 Conflict 运动预览，按 live order 的 Active 投影顺序保存；P5 核对约束后消费，成功/失败清空逻辑结果，容量只计入 Workspace 一次  |
 | `waiting_claims`, `waiting_plans`, `waiting_plan_by_vehicle`                                                            | Workspace                                | Waiting 预选、组合 claim 与车辆定位；本地可行不等于完整 grant                                                                      |
 | `waiting_staged_decisions`, `staged_transition_events`                                                                  | Workspace                                | 输出暂存；实际 crossing 和最终 traversal 明确后才形成完整批次                                                                      |
 | `waiting_next_counters`, `waiting_staged_occupancy`, `waiting_staged_storage_mm`, `waiting_dependencies`                | Workspace                                | 本拍计数、存储与候选依赖图事务；失败撤销暂存，不修改已提交 admission sequence                                                      |
@@ -203,7 +204,8 @@ Workspace、`A` 为 Admin。对外命令不能插入一次 step；世界的独�
 依赖图中的顺序是语义约束，不要求每个箭头都分配一份记录。特别保留：
 
 1. P2 的预览只确定候选和有限 horizon；P5 从 C(T) 计算正式运动，不能在预览位置上
-   再推进一次，也不能用前一辆车未提交位移作为后一辆车的前车权威。
+   再推进一次，也不能用前一辆车未提交位移作为后一辆车的前车权威。同拍从 C(T)
+   计算的完整运动预览可按下述约束证明复用，不省略停车状态校验和资源裁决。
 2. Waiting 本地可行只产生预选；P4 以 C(T) 加较早成功 staged bundle 仲裁全部
    Waiting、Conflict、downstream 资源。未完整取得资源就不能发布 `Granted`。
 3. 本拍释放不返还 Waiting capacity 给后续候选；Waiting cycle 预防和依赖图事务
@@ -217,6 +219,20 @@ Workspace、`A` 为 Admin。对外命令不能插入一次 step；世界的独�
 6. P2～P5 的运动与法规判定使用 `signal_aspects(T)`；下一信号在复用缓冲中每拍
    计算一次，拍后资格按 C(T+Δ) 的候选状态及 `signal_aspects(T+Δ)` 规范化。
    最新决策保存本拍历史判断，不按拍末信号重写；成功返回时快照已经合法。
+
+同拍运动预览仅缓存 Conflict 求值已经完整计算的结果及当时的 Waiting 约束、
+`bumper_gap_mm`。P5 必须先确认 Waiting 约束完全相同。新增 Conflict 约束为空，或
+与已有 Waiting 约束完全相同时可以复用；否则必须证明其屏障位于本拍运动之外：
+`BeyondFinite` 不缩短本拍有限位移；有限距离须严格大于
+`bumper_gap_mm.saturating_add(1)`，且按现有 SI 转换后的值也严格更大。缓存结果还
+不能已经越过该屏障 hop。跟车窗覆盖 `travel_upper`，额外一毫米保守覆盖既有 carry
+和微米舍入；SI 比较防止大距离向下舍入破坏证明。饱和窗不能证明有限屏障可忽略。
+任何条件不满足均调用原完整运动内核，未改变运动公式或引入新的运动容差。
+
+该缓存容量按本拍 Active 数量尝试预留，扩容失败只使用已有容量，其余车辆照常
+计算，不新增错误或改变首错。逻辑条目在本拍消费后、失败清理以及下一次候选准备时
+清空；恢复/迁移新世界从空缓存构造。保留容量归 `TickWorkspace`，不进入快照或
+摘要；资源授予、完整计划校验、实际 crossing 与输出发布仍走共同流程。
 
 ### 3.2 现行函数到逻辑阶段
 

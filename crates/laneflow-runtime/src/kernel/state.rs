@@ -112,6 +112,7 @@ pub(crate) struct TickWorkspace {
     pub(crate) waiting_staged_occupancy: Box<[u32]>,
     pub(crate) waiting_staged_storage_mm: Box<[u64]>,
     pub(crate) occupancy_scratch: crate::kernel::occupancy::OccupancyScratch,
+    pub(crate) motion_previews: Vec<crate::kernel::tick::MotionPreview>,
     pub(crate) next_states: Vec<(usize, VehicleState)>,
 }
 
@@ -231,6 +232,7 @@ impl TickWorkspace {
             waiting_staged_occupancy,
             waiting_staged_storage_mm,
             occupancy_scratch,
+            motion_previews,
             next_states,
         } = self;
         crate::kernel::state::vec_bytes(conflict_candidates)
@@ -247,6 +249,7 @@ impl TickWorkspace {
             + crate::kernel::state::vec_bytes(waiting_staged_decisions)
             + crate::kernel::state::vec_bytes(staged_transition_events)
             + crate::kernel::state::vec_bytes(next_states)
+            + crate::kernel::state::vec_bytes(motion_previews)
             + crate::kernel::state::slice_bytes(conflict_motion_by_vehicle)
             + crate::kernel::state::slice_bytes(conflict_next_eligibility)
             + crate::kernel::state::slice_bytes(next_signal_aspects)

@@ -2,7 +2,10 @@ use laneflow_static_contract::{LaneEdgeOrdinal, MAX_VEHICLE_LENGTH_MM, MIN_LANE_
 use laneflow_static_network::SharedNetworkRevision;
 
 use crate::kernel::tables::{CompiledRoute, RouteSlot, VehicleSlot, for_each_admission_interval};
-use crate::{RouteHandle, StepError, TrafficWorld, VehicleHandle, VehicleState, VehicleStatus};
+use crate::{
+    ObservationStateSequence, RouteHandle, StepError, TrafficWorld, VehicleHandle, VehicleState,
+    VehicleStatus, WorldGeneration,
+};
 
 #[cfg(test)]
 use std::cell::Cell;
@@ -147,6 +150,8 @@ fn merge_suffix_pair(
 
 #[derive(Debug)]
 pub(crate) struct OccupancyIndex {
+    /// 仅在当前世界重建成功后记录来源；事务纯构造的索引尚未绑定活动世代。
+    source: Option<(WorldGeneration, ObservationStateSequence)>,
     offsets: Vec<usize>,
     records: Vec<OccupancyRecord>,
     /// 与 `records` 对齐：`suffix_min_lo[i]` 是同桶 `[i, bucket_end)` 中 `lo_mm` 最小记录的下标。
@@ -193,6 +198,7 @@ impl OccupancyScratch {
 impl OccupancyIndex {
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
+            source: _,
             offsets,
             records,
             suffix_min_lo,
@@ -212,6 +218,7 @@ impl OccupancyIndex {
     /// `OccupancyAllocFailed` 而非中止进程。供切换事务暂存构造使用。
     pub(crate) fn try_empty() -> Result<(Self, OccupancyScratch), StepError> {
         let mut index = Self {
+            source: None,
             offsets: Vec::new(),
             records: Vec::new(),
             suffix_min_lo: Vec::new(),
@@ -241,6 +248,7 @@ impl OccupancyIndex {
             exact_pending: Vec::new(),
         };
         let index = Self {
+            source: None,
             offsets,
             records: Vec::with_capacity(record_capacity),
             suffix_min_lo: Vec::with_capacity(record_capacity),
@@ -760,13 +768,31 @@ impl TrafficWorld {
     }
 
     pub(crate) fn rebuild_occupancy_index(&mut self) -> Result<(), StepError> {
+        self.derived.occupancy.source = None;
         rebuild_occupancy_index(
             &self.binding,
             &self.committed,
             &self.derived.active_order,
             &mut self.derived.occupancy,
             &mut self.workspace.occupancy_scratch,
-        )
+        )?;
+        self.derived.occupancy.source = Some((
+            self.binding.world_generation,
+            self.committed.observation_state_sequence,
+        ));
+        Ok(())
+    }
+
+    /// 两次 step 之间的命令读取当前提交态；重复拒绝可以复用同一份索引。
+    pub(crate) fn ensure_current_occupancy(&mut self) -> Result<(), StepError> {
+        let source = (
+            self.binding.world_generation,
+            self.committed.observation_state_sequence,
+        );
+        if self.derived.occupancy.source != Some(source) {
+            self.rebuild_occupancy_index()?;
+        }
+        Ok(())
     }
 
     #[cfg(test)]
@@ -1075,6 +1101,47 @@ mod tests {
             .unwrap();
         world.rebuild_occupancy_index().unwrap();
         (world, follower, leader)
+    }
+
+    #[test]
+    fn current_occupancy_tracks_step_slot_reuse_generation_and_failed_rebuild() {
+        fn matches_fresh(world: &mut TrafficWorld) {
+            world.ensure_current_occupancy().unwrap();
+            let (fresh, _) = world
+                .build_occupancy_index_for(world.binding.revision.as_ref(), &[])
+                .unwrap();
+            assert_eq!(world.derived.occupancy.offsets, fresh.offsets);
+            assert_eq!(world.derived.occupancy.records, fresh.records);
+            assert_eq!(world.derived.occupancy.suffix_min_lo, fresh.suffix_min_lo);
+            assert_eq!(
+                world.derived.occupancy.suffix_second_lo,
+                fresh.suffix_second_lo
+            );
+        }
+        let (mut world, first, _) = zero_progress_merge_fixture();
+        matches_fresh(&mut world);
+        world.step(TickInput::new(16)).unwrap();
+        matches_fresh(&mut world);
+        let old = world.vehicle(first).unwrap();
+        world.despawn_vehicle(first).unwrap();
+        let new = world
+            .spawn_vehicle(VehicleSpawnInput::new(old.profile, old.route, 0, 1_000, 0))
+            .unwrap();
+        assert_eq!(new.index(), first.index());
+        assert_ne!(new.generation(), first.generation());
+        matches_fresh(&mut world);
+        world.binding.world_generation = world.binding.world_generation.checked_next().unwrap();
+        matches_fresh(&mut world);
+        let valid = world.vehicle(new).unwrap();
+        world.committed.vehicles[new.index() as usize]
+            .state
+            .as_mut()
+            .unwrap()
+            .route_edge_index = u32::MAX;
+        assert!(world.rebuild_occupancy_index().is_err());
+        assert!(world.derived.occupancy.source.is_none());
+        world.committed.vehicles[new.index() as usize].state = Some(valid);
+        matches_fresh(&mut world);
     }
 
     #[test]

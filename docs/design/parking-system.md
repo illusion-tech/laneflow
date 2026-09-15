@@ -1,7 +1,7 @@
 # 停车系统设计
 
 **文档状态**: Accepted（#540 G1）<br>
-**最后更新**: 2026-09-10<br>
+**最后更新**: 2026-09-15<br>
 **适用范围**: `ParkingFacility` / `ParkingSpace` 静态模型、显式与虚拟停车资源、
 Traffic Runtime 生命周期、快照/修订切换、Spatial/Adapter 和复杂度边界<br>
 **实现状态**: 当前实现已以 `ParkingFacility + ParkingSpace`、tagged
@@ -431,6 +431,14 @@ exit 或 virtual selector，speed/carry/acceleration 均为零。提交前必须
    目标但 emergency-feasible 的 gap 由后续 Following 自然恢复；
 4. 不借用当前 SignalStop、ParkingStop、Waiting/Conflict constraint 来放宽 gap，也不在
    leave 命令中修改 follower、tick 或事件。
+
+离场的 follower 查询复用每世界 `DerivedIndexes.occupancy`，构建缓冲归
+`TickWorkspace`。索引只在成功重建后绑定 `(WorldGeneration,
+ObservationStateSequence)`；重建开始先清除来源标记，失败不能留下可复用标记。
+同一提交态下的重复拒绝复用索引，仍重新执行相同的 overlap、follower 和后续检查。
+成功状态变更或 step 推进状态序号，恢复/切换更换世界世代或索引，后续查询必须重新
+匹配来源。事务中的纯构造索引初始不带活动来源标记。该缓存不进入快照、摘要、公开
+观测或 Adapter，也不保存离场决定。
 
 第 2 项的 admission predicate 不是实现自行解释的“看起来够远”。对每个 direct follower，
 先按 `vehicle-following.md` §11.2 的相同整数规则计算：

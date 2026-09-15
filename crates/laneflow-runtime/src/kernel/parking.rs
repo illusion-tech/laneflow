@@ -1434,13 +1434,12 @@ impl TrafficWorld {
         {
             return Err(ParkingError::LeavePhysicalOverlap { blocker });
         }
-        let (occupancy, _scratch) = self
-            .build_occupancy_index_for(self.binding.revision.as_ref(), &[])
+        self.ensure_current_occupancy()
             .map_err(|error| match error {
                 crate::StepError::OccupancyAllocFailed => ParkingError::AllocationFailed,
                 _ => ParkingError::InvariantViolation,
             })?;
-        self.validate_leave_followers(candidate, &occupancy)?;
+        self.validate_leave_followers(candidate, &self.derived.occupancy)?;
         match self.check_active_conflict_capability(
             route,
             occurrence,
