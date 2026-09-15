@@ -17,7 +17,7 @@ impl RegulationIdentity {
     ///
     /// # Errors
     ///
-    /// `jurisdiction` 或 `version` 文本为空、超过上限或违反 token 规则时返回相应
+    /// `jurisdiction` 或 `version` 文本字符数为 0 或超过 128 时返回相应
     /// [`DiagnosticBundle`]。
     pub fn try_new(
         jurisdiction: impl Into<String>,
@@ -38,7 +38,7 @@ impl RegulationIdentity {
     ///
     /// # Errors
     ///
-    /// `source` 文本为空、超过上限或违反 token 规则时返回相应 [`DiagnosticBundle`]。
+    /// `source` 文本字符数为 0 或超过 128 时返回相应 [`DiagnosticBundle`]。
     pub fn with_source(mut self, source: impl Into<String>) -> Result<Self, DiagnosticBundle> {
         let source = source.into();
         validate_text(&source, "regulation.source")?;

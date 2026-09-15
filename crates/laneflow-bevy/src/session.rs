@@ -289,8 +289,10 @@ impl LaneFlowSession {
     ///
     /// # Errors
     ///
-    /// Runtime 同修订换根失败包装为 [`LaneFlowAdapterError::Cutover`] 返回；失败当前
-    /// 配对保持不变，不存在半切换状态。
+    /// 目标 Spatial 与目标根 `Arc::ptr_eq` 失配时返回
+    /// [`LaneFlowAdapterError::TargetSpatialRevisionMismatch`]（先于 Runtime 调用）；
+    /// Runtime 同修订换根失败包装为 [`LaneFlowAdapterError::Cutover`] 返回。任一失败
+    /// 当前配对保持不变，不存在半切换状态。
     pub fn same_revision_restore(
         &mut self,
         target_revision: Arc<SharedNetworkRevision>,

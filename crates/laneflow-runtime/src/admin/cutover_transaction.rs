@@ -151,7 +151,8 @@ impl TrafficWorld {
     /// 已存在在途事务（[`CutoverError::InFlightTransaction`]）、base 世界绑定/基线
     /// 游标/策略选择与当前世界不一致、target 来源修订不匹配或信号程序无效、世界
     /// 世代耗尽、暂存分配失败，或候选构造（含路线重验证）失败时返回相应
-    /// [`CutoverError`]；失败即丢弃候选并解除日志武装，旧世界无感知。
+    /// [`CutoverError`]。已存在在途事务时（`InFlightTransaction`）立即返回，既有
+    /// 武装事务保持不变；其余构造失败即丢弃候选并解除本次日志武装，旧世界无感知。
     #[allow(clippy::too_many_arguments)]
     pub fn prepare_cross_revision_cutover(
         &mut self,
@@ -402,8 +403,9 @@ impl CutoverTransaction {
     /// [`CutoverError::ReplayInconsistent`]）、等待区/冲突重验证失败、占用索引重建
     /// 失败、迁移车辆重验证失败、快照捕获或摘要预留失败、确定性摘要不匹配（
     /// [`CutoverError::DigestMismatch`]）、事件批次分配失败或事件游标耗尽时返回相应
-    /// [`CutoverError`]；任一失败整体放弃，旧世界从暂停点恢复步进。无论成败，本
-    /// 方法按值消耗事务并无条件解除日志武装。
+    /// [`CutoverError`]；任一失败整体放弃，旧世界从暂停点恢复步进。事务已结算或
+    /// 传入错误世界时按值消耗事务提前返回、不解除任何日志（源世界由
+    /// `abandon_in_flight_cutover` 恢复）；其余任一路径在返回前无条件解除日志武装。
     pub fn commit(mut self, world: &mut TrafficWorld) -> Result<CutoverCommit, CutoverError> {
         self.ensure_live()?;
         self.ensure_origin_world(world)?;
