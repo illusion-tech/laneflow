@@ -102,6 +102,11 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
   Delay）换吞吐；Adapter LOD 和多世界吞吐也不能冒充 Traffic Runtime 保真度或
   单世界扩展。
 - Rust 数字字面量等仓库级可读性规则只应用于本次触及范围；历史格式问题应单独跟踪。
+- 注释按功能分层（`docs/reference/rust-code-style.md` §5）：注释只写代码无法自表达
+  的契约（不变量、失败语义、成本、治理锚点），可进类型或属性的不得降级为注释；
+  新增公开可失败 API 必须带 `# Errors`，存在 panic 路径的公开 API 加 `# Panics`
+  （标题英文、正文中文）；`assert!` 短英文标签是显式例外；禁止无 Issue 锚点的
+  TODO、变更日志式注释与注释掉的代码。
 - 不要在只完成子切片时声称父任务已完成。
 - 不要隐瞒未运行的检查；说明未运行项及原因。
 - 提交标题使用 Conventional Commits；scope 可省略，使用时表示主要受影响的组件或职责域，不等同于 PR 切片类型。footer 使用 `Refs` / `Closes`；标题带 `!` 时必须有 `BREAKING CHANGE:`。详见 `docs/reference/commit-convention.md`。

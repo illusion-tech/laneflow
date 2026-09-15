@@ -1,3 +1,7 @@
+# Normalize all text files to LF in the repository and on checkout; binary
+# files are auto-detected and left untouched.
+* text=auto eol=lf
+
 # Keep the checked-in flatc source canonical across platforms while preserving the
 # generator's own trailing spaces and final blank line for clean regeneration.
 crates/laneflow-road-editing-wire/src/generated/road-editing_generated.rs text eol=lf whitespace=-blank-at-eol,-blank-at-eof

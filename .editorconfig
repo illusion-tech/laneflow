@@ -1,0 +1,22 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.rs]
+indent_style = space
+indent_size = 4
+
+[*.{md,markdown}]
+trim_trailing_whitespace = false
+
+[*.{yml,yaml,toml,json}]
+indent_style = space
+indent_size = 2
+
+# Generated flatc output preserves its own trailing spaces and final blank line.
+[crates/laneflow-road-editing-wire/src/generated/road-editing_generated.rs]
+trim_trailing_whitespace = false
