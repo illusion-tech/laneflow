@@ -89,8 +89,12 @@ let color = 0xFF00_FF00;
 
 - 公开可失败 API（rustdoc 可见的公开函数或公开 trait 方法，返回 `Result`）必须有
   `# Errors` 段落，逐条对应实际失败路径；写不出准确条件时先读实现再写，宁缺毋错。
-- 存在 panic 路径的公开 API 必须有 `# Panics` 段落；`debug_assert!` 不进入发布构建，
-  不属于 panic 契约，不要求登记。
+- 钉版生成物（如 flatc 绑定）中 rustdoc 可见的函数豁免本节要求——它们由生成器与
+  钉版工具链所有，手工修改会被 codegen 检查拒绝；豁免不延伸到手写包装层。
+- 存在 panic 路径的公开 API 必须有 `# Panics` 段落。`debug_assert!` 不进入发布构建，
+  默认不进入 panic 契约；但调用方输入可触发的 `debug_assert!` 属于 profile 相关的
+  真实失败面，应在段落中注明（如"debug 断言：仅开发/测试 profile 触发"），不得
+  无文档。
 - 段落标题保持 rustdoc 标准英文（属政策 §6"工具字段明确需要英文"例外），段落正文
   中文。
 - 既有散文描述的失败语义应收敛进段落，不保留重复表述。
@@ -154,7 +158,8 @@ Review Rust 变更时：
 5. 不得把等价字面量格式评论提升为运行时、API 或数据格式缺陷。
 6. Core owning struct 新增 heap-backed 字段时，确认 owner-local 穷尽计账、world
    component ledger 与零/非零 smoke fixture 已同步。
-7. 对新增公开 API 核对 `# Errors`/`# Panics` 段落（见 5.2；两项独立判断——返回
+7. 对新增公开 API，以及本次变更改变失败面（新增错误条件或调用方可触发 panic）的
+   既有公开 API，核对 `# Errors`/`# Panics` 段落（见 5.2；两项独立判断——返回
    `Result` 的核对 `# Errors`，存在 panic 路径的核对 `# Panics`，与是否返回
    `Result` 无关）；对新增 `#[must_use]` 公开返回类型核对其义务在包装层未丢失
    （见 5.3）。

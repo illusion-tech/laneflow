@@ -20,3 +20,7 @@ indent_size = 2
 # Generated flatc output preserves its own trailing spaces and final blank line.
 [*_generated.rs]
 trim_trailing_whitespace = false
+
+# Immutable benchmark semantic seed is byte-exact and must not gain a final newline.
+[docs/reference/road-editing-source-semantic-seed-v1.json]
+insert_final_newline = false
