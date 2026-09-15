@@ -40,6 +40,12 @@ pub struct LaneFlowVehicleDespawnRecord {
 ///
 /// 已绑定车辆复用同一 Entity 并轮换到新句柄；未绑定保持未绑定。
 /// `Blocked` 不写入 `last_error`，以便同一 boundary 继续处理其他计划。
+///
+/// # Errors
+///
+/// Session 资源缺席时返回 [`LaneFlowAdapterError::MissingSessionForLifecycleCommand`]；
+/// 世界替换的致命错误记录到 `last_error` 并返回；[`ReplaceError::Blocked`] 转为
+/// 可重试 outcome，不写入 `last_error`。
 pub fn replace_completed_vehicle(
     world: &mut World,
     old: VehicleHandle,
@@ -89,6 +95,11 @@ pub fn replace_completed_vehicle(
 }
 
 /// 真正移除 live vehicle，并在同一同步边界删除可选 Runtime ↔ Entity 映射。
+///
+/// # Errors
+///
+/// Session 资源缺席时返回 [`LaneFlowAdapterError::MissingSessionForLifecycleCommand`]；
+/// 世界移除失败记录到 `last_error` 并返回。
 pub fn despawn_vehicle(
     world: &mut World,
     vehicle: VehicleHandle,

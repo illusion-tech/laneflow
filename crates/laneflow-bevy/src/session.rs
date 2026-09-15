@@ -92,6 +92,11 @@ pub struct LaneFlowSession {
 
 impl LaneFlowSession {
     /// 创建 Session。若提供 Spatial，必须与 world 满足 `Arc::ptr_eq`。
+    ///
+    /// # Errors
+    ///
+    /// 提供的 `spatial` 与 world 活动根不满足 `Arc::ptr_eq` 时返回
+    /// [`LaneFlowAdapterError::RevisionMismatch`]。
     pub fn new(
         world: TrafficWorld,
         spatial: Option<SpatialSession>,
@@ -183,6 +188,13 @@ impl LaneFlowSession {
     /// 稳定容量复用（adapter-api §6）：调用方持有 `output` 跨帧复用，
     /// 稳态除 Runtime `committed_pose_sources` 自身的按值返回外零新增
     /// 分配；任一失败路径 `output` 原样保持。
+    ///
+    /// # Errors
+    ///
+    /// 当前没有配对 Spatial（[`LaneFlowAdapterError::PoseExtractionWithoutSpatial`]）、
+    /// Spatial 与世界活动根 `Arc::ptr_eq` 失配（[`LaneFlowAdapterError::RevisionMismatch`]）
+    /// 或 Spatial 批次提取失败（[`LaneFlowAdapterError::SpatialPoseExtraction`]）时返回；
+    /// 失败不产生部分批次。
     pub fn extract_committed_pose_batch(
         &mut self,
         placement_token: laneflow_spatial::FramePlacementToken,
@@ -226,6 +238,13 @@ impl LaneFlowSession {
     ///
     /// 调用时机：任意不处于 fixed step 执行中的宿主系统；推荐
     /// `LaneFlowOuterFrameSet::Administration`（零步进 outer frame 亦运行）。
+    ///
+    /// # Errors
+    ///
+    /// 目标 Spatial 与目标根 `Arc::ptr_eq` 失配时返回
+    /// [`LaneFlowAdapterError::TargetSpatialRevisionMismatch`]（先于 Runtime `prepare`）；
+    /// Runtime `prepare`/`commit` 失败包装为 [`LaneFlowAdapterError::Cutover`] 返回。任一
+    /// 失败当前配对保持不变，不存在半切换状态。
     #[allow(clippy::too_many_arguments)]
     pub fn cross_revision_cutover(
         &mut self,
@@ -267,6 +286,11 @@ impl LaneFlowSession {
     /// 修订号不变、根 `Arc` 换新、世代递增；配对语义与跨修订入口一致：
     /// 成功返回时已完成新配对。目标根必须与当前根修订号相同，否则由
     /// Runtime 描述符认证失败关闭。
+    ///
+    /// # Errors
+    ///
+    /// Runtime 同修订换根失败包装为 [`LaneFlowAdapterError::Cutover`] 返回；失败当前
+    /// 配对保持不变，不存在半切换状态。
     pub fn same_revision_restore(
         &mut self,
         target_revision: Arc<SharedNetworkRevision>,
@@ -345,6 +369,12 @@ impl LaneFlowSession {
     }
 
     /// 把 live 车辆绑到宿主 Entity。未绑定车辆保持未绑定。
+    ///
+    /// # Errors
+    ///
+    /// 车辆不在当前世界（[`LaneFlowAdapterError::UnknownVehicle`]）或已绑定其它
+    /// Entity（[`LaneFlowAdapterError::DuplicateVehicleBinding`]）时返回相应
+    /// [`LaneFlowAdapterError`]。
     pub fn bind_vehicle_entity(
         &mut self,
         vehicle: VehicleHandle,
@@ -357,6 +387,10 @@ impl LaneFlowSession {
     }
 
     /// 解除车辆绑定。
+    ///
+    /// # Errors
+    ///
+    /// 车辆当前没有 Entity 绑定时返回 [`LaneFlowAdapterError::UnknownVehicle`]。
     pub fn unbind_vehicle(
         &mut self,
         vehicle: VehicleHandle,
@@ -476,21 +510,37 @@ pub struct LaneFlowWorldMut<'a> {
 
 impl LaneFlowWorldMut<'_> {
     /// 生成一辆车。
+    ///
+    /// # Errors
+    ///
+    /// 与 [`TrafficWorld::spawn_vehicle`] 相同；本包装不新增失败面。
     pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, SpawnError> {
         self.world.spawn_vehicle(input)
     }
 
     /// 注册本世界路线。
+    ///
+    /// # Errors
+    ///
+    /// 与 [`TrafficWorld::register_route`] 相同；本包装不新增失败面。
     pub fn register_route(&mut self, input: RouteRegisterInput) -> Result<RouteHandle, RouteError> {
         self.world.register_route(input)
     }
 
     /// 移除本世界路线。
+    ///
+    /// # Errors
+    ///
+    /// 与 [`TrafficWorld::remove_route`] 相同；本包装不新增失败面。
     pub fn remove_route(&mut self, route: RouteHandle) -> Result<(), RouteError> {
         self.world.remove_route(route)
     }
 
     /// 预留精确停车 target/payload。
+    ///
+    /// # Errors
+    ///
+    /// 与 [`TrafficWorld::reserve_parking`] 相同；本包装不新增失败面。
     pub fn reserve_parking(
         &mut self,
         vehicle: VehicleHandle,
@@ -500,6 +550,10 @@ impl LaneFlowWorldMut<'_> {
     }
 
     /// 取消 exact reservation。
+    ///
+    /// # Errors
+    ///
+    /// 与 [`TrafficWorld::cancel_parking`] 相同；本包装不新增失败面。
     pub fn cancel_parking(
         &mut self,
         vehicle: VehicleHandle,
@@ -509,6 +563,10 @@ impl LaneFlowWorldMut<'_> {
     }
 
     /// 提交 exact arrived reservation。
+    ///
+    /// # Errors
+    ///
+    /// 与 [`TrafficWorld::park_vehicle`] 相同；本包装不新增失败面。
     pub fn park_vehicle(
         &mut self,
         vehicle: VehicleHandle,
@@ -518,6 +576,10 @@ impl LaneFlowWorldMut<'_> {
     }
 
     /// 从 parking target 安全插回 lane。
+    ///
+    /// # Errors
+    ///
+    /// 与 [`TrafficWorld::leave_parking`] 相同；本包装不新增失败面。
     pub fn leave_parking(
         &mut self,
         vehicle: VehicleHandle,
@@ -527,6 +589,10 @@ impl LaneFlowWorldMut<'_> {
     }
 
     /// 在完整 footprint 相等时重绑 reservation route。
+    ///
+    /// # Errors
+    ///
+    /// 与 [`TrafficWorld::rebind_parking_route`] 相同；本包装不新增失败面。
     pub fn rebind_parking_route(
         &mut self,
         vehicle: VehicleHandle,
@@ -536,6 +602,10 @@ impl LaneFlowWorldMut<'_> {
     }
 
     /// 直接构造 `Parked + Occupied`，不建立 lane pose。
+    ///
+    /// # Errors
+    ///
+    /// 与 [`TrafficWorld::spawn_parked_vehicle`] 相同；本包装不新增失败面。
     pub fn spawn_parked_vehicle(
         &mut self,
         input: ParkedVehicleSpawnInput,
