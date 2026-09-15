@@ -1128,7 +1128,9 @@ impl TrafficWorld {
     ///
     /// 车辆句柄失效（[`ParkingError::StaleVehicle`]）或当前状态不允许、准入策略
     /// 拒绝（[`ParkingError::AccessDenied`]）、泊位目标解析失败、显式泊位已被其它
-    /// 车辆绑定或虚拟池容量分配失败时返回相应 [`ParkingError`]；失败不改变占用状态。
+    /// 车辆绑定、虚拟池容量分配失败或命令游标耗尽（
+    /// [`ParkingError::CommandCursorExhausted`]）时返回相应 [`ParkingError`]；失败
+    /// 不改变占用状态。
     pub fn reserve_parking(
         &mut self,
         vehicle: VehicleHandle,

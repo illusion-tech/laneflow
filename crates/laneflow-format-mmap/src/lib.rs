@@ -122,8 +122,9 @@ impl PrivateStagedFile {
     ///
     /// # Errors
     ///
-    /// backing 当前长度与登记的 exact length 不一致时返回
-    /// [`BackingError::BackingChanged`]。
+    /// backing 元数据读取 I/O 失败（[`BackingError::Io`]）或当前长度与登记的
+    /// exact length 不一致（[`BackingError::BackingChanged`]）时返回相应
+    /// [`BackingError`]。
     pub fn seal(self, exact_byte_length: u64) -> Result<SealedPrivateFile, BackingError> {
         if self.file.metadata()?.len() != exact_byte_length {
             return Err(BackingError::BackingChanged);
@@ -180,9 +181,9 @@ impl SealedPrivateFile {
     ///
     /// # Errors
     ///
-    /// backing 长度核对失败（[`BackingError::BackingChanged`]）或 exact length 无法
-    /// 装入本平台 `usize`（[`BackingError::LengthOverflow`]）时返回相应
-    /// [`BackingError`]。
+    /// backing 长度核对失败（[`BackingError::BackingChanged`]）、exact length 无法
+    /// 装入本平台 `usize`（[`BackingError::LengthOverflow`]）或元数据读取与映射
+    /// 建立 I/O 失败（[`BackingError::Io`]）时返回相应 [`BackingError`]。
     pub fn map_read_only(&self) -> Result<ReadOnlyMap, BackingError> {
         if self.file.metadata()?.len() != self.exact_byte_length {
             return Err(BackingError::BackingChanged);

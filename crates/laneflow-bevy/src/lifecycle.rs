@@ -44,8 +44,10 @@ pub struct LaneFlowVehicleDespawnRecord {
 /// # Errors
 ///
 /// Session 资源缺席时返回 [`LaneFlowAdapterError::MissingSessionForLifecycleCommand`]；
-/// 世界替换的致命错误记录到 `last_error` 并返回；[`ReplaceError::Blocked`] 转为
-/// 可重试 outcome，不写入 `last_error`。
+/// session 存在未消费的 `last_error` 时原样返回；替换车辆或其 Entity 绑定失效
+/// （`UnknownVehicle` / `StaleLifecycleEntity`）与世界替换的致命错误记录到
+/// `last_error` 并返回；[`ReplaceError::Blocked`] 转为可重试 outcome，不写入
+/// `last_error`。
 pub fn replace_completed_vehicle(
     world: &mut World,
     old: VehicleHandle,

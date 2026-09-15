@@ -50,8 +50,8 @@ impl StagedObjectWriter {
     ///
     /// # Errors
     ///
-    /// 临时 backing 创建或对象编码 I/O 失败时返回 [`StagedObjectError::Io`]；
-    /// exact length 溢出返回 [`StagedObjectError::ArithmeticOverflow`]。
+    /// 临时 backing 创建或对象编码失败（含编码器位置溢出检查）时返回
+    /// [`StagedObjectError::Io`]；失败不留下部分暂存对象。
     pub fn create_in(
         directory: &Path,
         prepared: PreparedObject<'_>,
