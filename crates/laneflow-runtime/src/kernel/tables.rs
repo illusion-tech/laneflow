@@ -175,6 +175,19 @@ pub(crate) struct RouteSlot {
     pub compiled: Option<CompiledRoute>,
     pub live_vehicles: u32,
 }
+
+/// 从只读登记表按完整句柄取得编译路线，不借用其他阶段状态。
+pub(crate) fn compiled_route_for_handle(
+    routes: &[RouteSlot],
+    route: RouteHandle,
+) -> Option<&CompiledRoute> {
+    let slot = routes.get(usize::try_from(route.index()).ok()?)?;
+    if slot.generation != route.generation() {
+        return None;
+    }
+    slot.compiled.as_ref()
+}
+
 #[cfg(test)]
 impl RouteSlot {
     /// 测试用：槽位内编译路线持有的逻辑字节数。

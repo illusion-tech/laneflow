@@ -1989,14 +1989,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 
     /// 按路线句柄读取已编译路线；句柄失效返回 `None`。
     pub(crate) fn compiled_route(self, route: RouteHandle) -> Option<&'a CompiledRoute> {
-        let slot = self
-            .committed
-            .routes
-            .get(usize::try_from(route.index()).ok()?)?;
-        if slot.generation != route.generation() {
-            return None;
-        }
-        slot.compiled.as_ref()
+        crate::kernel::tables::compiled_route_for_handle(&self.committed.routes, route)
     }
 }
 
@@ -2446,6 +2439,47 @@ mod route_gate_tests {
 
         world.remove_route(route).expect("remove unused route");
         assert_eq!(world.route_gate(route, 0), None, "removed route is stale");
+    }
+
+    #[test]
+    fn conflict_route_borrow_preserves_liveness_and_committed_state() {
+        let (mut world, route) = world_with_path_route();
+        let expected_edges = world.compiled_route(route).unwrap().edges.clone();
+        let before = crate::deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap();
+        {
+            let mut step = world.step_workspace();
+            let (compiled, mut conflict) = step
+                .committed
+                .prepare_conflict_for_route(&mut step.derived, &mut step.workspace.conflict, route)
+                .expect("live route and disjoint Conflict staging");
+            conflict.clear_approach_frontier();
+            assert_eq!(compiled.edges, expected_edges);
+        }
+        let after = crate::deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap();
+        assert_eq!(before, after, "受限暂存借用不能修改已提交权威");
+
+        let stale = RouteHandle::new(route.index(), route.generation() + 1);
+        let out_of_range = RouteHandle::new(u32::MAX, route.generation());
+        for invalid in [stale, out_of_range] {
+            let mut step = world.step_workspace();
+            assert!(
+                step.committed
+                    .prepare_conflict_for_route(
+                        &mut step.derived,
+                        &mut step.workspace.conflict,
+                        invalid,
+                    )
+                    .is_none()
+            );
+        }
+        world.remove_route(route).unwrap();
+        let mut step = world.step_workspace();
+        assert!(
+            step.committed
+                .prepare_conflict_for_route(&mut step.derived, &mut step.workspace.conflict, route,)
+                .is_none(),
+            "已移除路线不能取得准备视图"
+        );
     }
 
     #[test]

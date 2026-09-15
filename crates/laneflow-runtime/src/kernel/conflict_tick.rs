@@ -581,26 +581,25 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .relations()
                 .vehicle_profile(state.profile)
                 .ok_or(StepError::ConflictInvariantViolation)?;
-            let first_conflict = self
-                .compiled_route(state.route)
-                .ok_or(StepError::ConflictInvariantViolation)?
-                .conflicts
-                .partition_point(|occurrence| {
-                    (
-                        occurrence.entry.route_edge_index,
-                        occurrence.entry.progress_mm,
-                    ) < (state.route_edge_index, state.progress_mm)
-                });
-            let conflict_count = self
-                .compiled_route(state.route)
-                .ok_or(StepError::ConflictInvariantViolation)?
-                .conflicts
-                .len();
+            let (compiled, mut conflict) = self
+                .committed
+                .prepare_conflict_for_route(
+                    &mut self.derived,
+                    &mut self.workspace.conflict,
+                    state.route,
+                )
+                .ok_or(StepError::ConflictInvariantViolation)?;
+            let first_conflict = compiled.conflicts.partition_point(|occurrence| {
+                (
+                    occurrence.entry.route_edge_index,
+                    occurrence.entry.progress_mm,
+                ) < (state.route_edge_index, state.progress_mm)
+            });
+            let conflict_count = compiled.conflicts.len();
             for occurrence_index in first_conflict..conflict_count {
                 #[cfg(test)]
                 crate::kernel::conflict::count_conflict_work(|counts| counts.visited_passages += 1);
                 let Some((occurrence, exact_distance_mm)) = (|| {
-                    let compiled = self.compiled_route(state.route)?;
                     let occurrence = *compiled.conflicts.get(occurrence_index)?;
                     let BoundedDistance::Finite(exact_distance_mm) =
                         distance_to_occurrence_progress(
@@ -633,8 +632,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     // lower-bound ETA 也在 proof horizon 外，无需扫完整路线后缀。
                     break;
                 }
-                self.committed
-                    .prepare_conflict(&mut self.derived, &mut self.workspace.conflict)
+                conflict
                     .insert_approach_owner_reduced(
                         occurrence.address(),
                         vehicle,
@@ -664,9 +662,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         delta_s: f32,
         tick: u64,
     ) -> Result<(), StepError> {
-        let compiled = self
-            .compiled_route(state.route)
-            .ok_or(StepError::ConflictInvariantViolation)?;
+        let compiled =
+            crate::kernel::tables::compiled_route_for_handle(&self.committed.routes, state.route)
+                .ok_or(StepError::ConflictInvariantViolation)?;
         // Route cursor 将上一条边终点规范化为下一条边零点；该位置仍然位于
         // admission Gate boundary，不能因此跳过上一 hop 的正式仲裁。
         let first_possible_hop = if state.progress_mm == 0 && state.carry_um == 0 {
@@ -754,9 +752,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             entry.preview = Some(motion);
         }
         for gate_index in first_gate..gate_count {
-            let compiled = self
-                .compiled_route(state.route)
-                .ok_or(StepError::ConflictInvariantViolation)?;
             let gate_hop = compiled.gate_hops[gate_index];
             let gate_edge = compiled.edges[gate_hop as usize];
             let gate_progress =
@@ -1352,17 +1347,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         } else {
             previous.route_edge_index
         };
-        let compiled = self
-            .compiled_route(next.route)
-            .ok_or(StepError::ConflictInvariantViolation)?;
+        let compiled =
+            crate::kernel::tables::compiled_route_for_handle(&self.committed.routes, next.route)
+                .ok_or(StepError::ConflictInvariantViolation)?;
         let first = compiled.gate_hops.partition_point(|hop| *hop < first_hop);
         let last = compiled
             .gate_hops
             .partition_point(|hop| *hop <= next.route_edge_index);
         for index in first..last {
-            let compiled = self
-                .compiled_route(next.route)
-                .ok_or(StepError::ConflictInvariantViolation)?;
             let hop = compiled.gate_hops[index];
             let edge = compiled.edges[hop as usize];
             if next.route_edge_index == hop

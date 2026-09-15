@@ -289,6 +289,12 @@ earlier-staged claims 时显式增加 W 的资源视图，不把它伪装成拍�
 存储准备；这不授予阶段任意 `&mut CommittedWorldState`，也不把可失败预留移入 P7。
 `StepReadView` 的 Conflict 查询省略 W；组合裁决的查询显式包含 W overlay。
 
+冲突接近前沿准备可以同时借用经过完整路线句柄检查的 `&CompiledRoute` 和
+`ConflictResolution`：只读路线来自登记表，后者只借用 Conflict 相关的受限存储。
+二者不授予路线或其他已提交业务状态的写权限。Gate 求值与无资源 Gate 定稿也只借用
+路线登记表，在同一循环内复用已验证引用；检查仍在原有逻辑位置发生，不跨 step 保留
+引用或新增缓存，领域规则、候选顺序及首错不变。
+
 Waiting 的 occupancy/历史计数留在 C，队列首尾、link 和 member rows 位于 D；
 Occupancy 完成的查询索引位于 D，桶计数及构建游标位于 W。切换与恢复同步维护两者，
 保留原有不一致输入检查位置。

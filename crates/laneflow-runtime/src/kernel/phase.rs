@@ -43,6 +43,23 @@ impl Deref for StepDerived<'_> {
 }
 
 impl StepCommitted<'_> {
+    /// 同时借用已验证的只读路线和受限 Conflict 暂存，循环内无须重读路线槽位。
+    pub(crate) fn prepare_conflict_for_route<'a>(
+        &'a mut self,
+        derived: &'a mut StepDerived<'_>,
+        workspace: &'a mut crate::kernel::conflict::ConflictWorkspace,
+        route: crate::RouteHandle,
+    ) -> Option<(
+        &'a crate::kernel::tables::CompiledRoute,
+        ConflictResolution<'a>,
+    )> {
+        let compiled = crate::kernel::tables::compiled_route_for_handle(&self.0.routes, route)?;
+        Some((
+            compiled,
+            ConflictResolution::new(&mut self.0.conflict, &mut derived.0.conflict, workspace),
+        ))
+    }
+
     /// 对 Conflict 容器做受限容量准备，返回本拍裁决接口。
     pub(crate) fn prepare_conflict<'a>(
         &'a mut self,
