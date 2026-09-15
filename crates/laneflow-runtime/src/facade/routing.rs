@@ -580,8 +580,10 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 网络修订与当前世界不匹配时返回
-    /// [`AdmittedRouteRegisterError::NetworkRevisionMismatch`]；其余失败由路线边
-    /// 注册路径（[`RouteError`] 族）承接，失败不留下半条路线。
+    /// [`AdmittedRouteRegisterError::NetworkRevisionMismatch`]；稳定 ID 无法在
+    /// 当前根解析或 kind 不符时直接返回
+    /// [`AdmittedRouteRegisterError::UnknownLaneEdge`]；其余失败由路线边注册路径
+    /// （[`RouteError`] 族）承接，失败不留下半条路线。
     pub fn register_admitted_route(
         &mut self,
         input: AdmittedRouteRegisterInput,

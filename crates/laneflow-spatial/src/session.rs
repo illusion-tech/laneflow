@@ -90,8 +90,9 @@ impl SpatialSession {
     ///
     /// # Errors
     ///
-    /// 共享根没有 lane-pose 空间数据时返回 [`SpatialBindError::MissingLanePose`]；
-    /// 无空间数据（根不含 lane-pose 表）时返回 `Ok(None)`，不是错误。
+    /// 根不含 Spatial 包时返回 `Ok(None)`（headless 根，不是错误）；存在
+    /// Spatial 包但缺少 lane-pose 数据时返回
+    /// [`SpatialBindError::MissingLanePose`]。
     pub fn bind(revision: Arc<SharedNetworkRevision>) -> Result<Option<Self>, SpatialBindError> {
         match revision.spatial() {
             None => Ok(None),
