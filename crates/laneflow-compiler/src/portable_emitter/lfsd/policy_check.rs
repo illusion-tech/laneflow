@@ -27,6 +27,11 @@ struct Actual<'a> {
 ///
 /// base 必须是实际 LFCA 输入；最终目标、差异及非 Genesis 基线均重做调用方格式限制、
 /// exact binding 与 revision 检查。本函数不证明既有其他领域的完整差异或来源真实性。
+///
+/// # Errors
+///
+/// LFSD 4 增量与实际 LFCA、文档描述符或 Entity/StaticRule 表的排他分工校验
+/// 不一致（mismatch），或算术溢出时返回相应 [`PortableEmissionError`]。
 pub fn check_portable_policy_diff(
     base: PortableDiffBase<'_>,
     target: &[u8],

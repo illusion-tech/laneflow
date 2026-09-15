@@ -50,11 +50,19 @@ pub struct RoadEditingReference<K: EntityKindMarker> {
 
 impl<K: EntityKindMarker> RoadEditingReference<K> {
     /// 构造指向当前模块 module-scoped 实体的引用。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn local(local_key: impl Into<String>) -> Result<Self, DiagnosticBundle> {
         Self::try_new(None, Vec::new(), local_key.into())
     }
 
     /// 构造指向当前模块 owner-scoped 实体的完整引用。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn owner_scoped(
         owner_keys: Vec<String>,
         local_key: impl Into<String>,
@@ -63,6 +71,10 @@ impl<K: EntityKindMarker> RoadEditingReference<K> {
     }
 
     /// 构造指向显式导入模块实体的完整引用。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn imported(
         module_namespace: impl Into<String>,
         owner_keys: Vec<String>,
@@ -251,6 +263,10 @@ pub struct RoadAlignmentReference(Box<str>);
 
 impl RoadAlignmentReference {
     /// 构造道路走向键引用并校验键合法性。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(key: impl Into<String>) -> Result<Self, DiagnosticBundle> {
         let key = key.into();
         validate_token(&key, "roadAlignmentReference")?;
@@ -284,6 +300,10 @@ pub struct RoadEditingProvenance {
 
 impl RoadEditingProvenance {
     /// 构造直接编制来源沿袭，使用冻结的构建标识与摘要。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn direct(description: impl Into<String>) -> Result<Self, DiagnosticBundle> {
         let description = description.into();
         validate_visible_ascii(&description, "provenance.description")?;
@@ -298,6 +318,10 @@ impl RoadEditingProvenance {
     }
 
     /// 构造程序化生成来源沿袭，记录生成器构建标识、摘要与可选随机种子。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn generated(
         generator_build_id: impl Into<String>,
         parameters_and_inputs_digest: [u8; 32],
@@ -367,6 +391,10 @@ pub struct RoadEditingModuleHeader {
 
 impl RoadEditingModuleHeader {
     /// 构造模块头并校验编制命名空间、来源文档键与导入列表。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         authoring_namespace_id: impl Into<String>,
         source_document_key: impl Into<String>,
@@ -430,6 +458,10 @@ pub struct RoadEditingPoint3 {
 
 impl RoadEditingPoint3 {
     /// 构造三维点并校验各分量均在允许范围内。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(x: f64, y: f64, z: f64) -> Result<Self, DiagnosticBundle> {
         let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
         let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
@@ -468,6 +500,10 @@ pub struct RoadEditingPoint2 {
 
 impl RoadEditingPoint2 {
     /// 构造 XZ 平面点并校验各分量均在允许范围内。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(x: f64, z: f64) -> Result<Self, DiagnosticBundle> {
         let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
         let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
@@ -499,6 +535,10 @@ pub struct LinearWidthProfile {
 
 impl LinearWidthProfile {
     /// 构造线性宽度配置；起止宽度必须非负且不同时为零。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         start_width_meters: f64,
         end_width_meters: f64,
@@ -580,6 +620,10 @@ impl RoadEditingCurveSegment {
     }
 
     /// 设置画布选择键。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn with_canvas_selection(
         mut self,
         canvas_selection: impl Into<String>,
@@ -610,6 +654,10 @@ pub struct RoadEditingCurveProgram {
 
 impl RoadEditingCurveProgram {
     /// 构造编制曲线；segments 必须非空。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         start: RoadEditingPoint3,
         segments: Vec<RoadEditingCurveSegment>,
@@ -645,6 +693,10 @@ pub struct RoadAlignmentInput {
 
 impl RoadAlignmentInput {
     /// 构造道路走向定义并校验走向键。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         road_alignment_key: impl Into<String>,
         canonical_frame: CanonicalFrameReference,
@@ -661,6 +713,10 @@ impl RoadAlignmentInput {
     }
 
     /// 设置画布选择键。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn with_canvas_selection(
         mut self,
         canvas_selection: impl Into<String>,
@@ -703,6 +759,10 @@ macro_rules! impl_canvas {
     ($type:ident) => {
         impl $type {
             /// 设置画布选择键。
+            ///
+            /// # Errors
+            ///
+            /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
             pub fn with_canvas_selection(
                 mut self,
                 canvas_selection: impl Into<String>,
@@ -756,6 +816,10 @@ pub struct RoadCorridorInput {
 
 impl RoadCorridorInput {
     /// 构造道路走廊声明并校验 station 区间、参考成员与元素序列。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     #[allow(clippy::too_many_arguments)]
     pub fn try_new(
         road_corridor_key: impl Into<String>,
@@ -878,6 +942,10 @@ pub struct RoadSectionInput {
 
 impl RoadSectionInput {
     /// 构造道路区段声明并校验键、设施类别与编制车道成员。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         road_section_key: impl Into<String>,
         kind_id: impl Into<String>,
@@ -944,6 +1012,10 @@ pub struct AuthoringLaneInput {
 
 impl AuthoringLaneInput {
     /// 构造编制车道声明并校验车道键。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         authoring_lane_key: impl Into<String>,
         lane_edge: LaneEdgeReference,
@@ -1015,6 +1087,10 @@ pub struct LaneEdgeInput {
 
 impl LaneEdgeInput {
     /// 构造车道图边声明并校验限速与后继序列。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         lane_edge_key: impl Into<String>,
         speed_limit_meters_per_second: f64,
@@ -1076,6 +1152,10 @@ pub struct JunctionInput {
 
 impl JunctionInput {
     /// 构造路口声明；接近边必须非空且与内部边集合不相交。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         junction_key: impl Into<String>,
         approach_edges: Vec<LaneEdgeReference>,
@@ -1136,6 +1216,10 @@ pub struct MovementInput {
 
 impl MovementInput {
     /// 构造通行流向声明并校验键与有向接近臂键。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         movement_key: impl Into<String>,
         junction: JunctionReference,
@@ -1218,6 +1302,10 @@ pub struct ManeuverPathInput {
 
 impl ManeuverPathInput {
     /// 构造机动路径声明并校验键与内部边序列。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         maneuver_path_key: impl Into<String>,
         movement: MovementReference,
@@ -1290,6 +1378,10 @@ pub struct ManeuverGateInput {
 
 impl ManeuverGateInput {
     /// 构造机动门声明并校验门键。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         maneuver_gate_key: impl Into<String>,
         maneuver_path: ManeuverPathReference,
@@ -1354,6 +1446,10 @@ pub struct WaitingZoneInput {
 
 impl WaitingZoneInput {
     /// 构造等待区声明；等待容量必须大于零。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         waiting_zone_key: impl Into<String>,
         maneuver_path: ManeuverPathReference,
@@ -1421,6 +1517,10 @@ pub struct StopLineInput {
 
 impl StopLineInput {
     /// 构造停止线声明并校验键。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         stop_line_key: impl Into<String>,
         lane_edge: LaneEdgeReference,
@@ -1457,6 +1557,10 @@ pub struct SignalGroupInput {
 
 impl SignalGroupInput {
     /// 构造信号组声明并校验组键。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(signal_group_key: impl Into<String>) -> Result<Self, DiagnosticBundle> {
         let signal_group_key = signal_group_key.into();
         validate_token(&signal_group_key, "signalGroup.signalGroupKey")?;
@@ -1483,6 +1587,10 @@ pub struct RoadEditingSignalPhaseState {
 
 impl RoadEditingSignalPhaseState {
     /// 构造相位状态；指示只允许红、黄、绿。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         signal_group: SignalGroupReference,
         aspect: SignalAspect,
@@ -1527,6 +1635,10 @@ pub struct SignalControllerInput {
 
 impl SignalControllerInput {
     /// 构造信号控制器声明并校验键、周期偏移与信号组、相位序列。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         signal_controller_key: impl Into<String>,
         offset_milliseconds: u64,
@@ -1595,6 +1707,10 @@ pub struct SignalPhaseInput {
 
 impl SignalPhaseInput {
     /// 构造信号相位声明并校验键、时长与各信号组状态。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         signal_phase_key: impl Into<String>,
         duration_milliseconds: u64,
@@ -1662,6 +1778,10 @@ pub struct ParkingFacilityInput {
 
 impl ParkingFacilityInput {
     /// 构造停车设施声明并校验设施键。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(parking_facility_key: impl Into<String>) -> Result<Self, DiagnosticBundle> {
         let parking_facility_key = parking_facility_key.into();
         validate_token(&parking_facility_key, "parkingFacility.parkingFacilityKey")?;
@@ -1724,6 +1844,10 @@ pub struct ParkingLaneAnchor {
 impl ParkingLaneAnchor {
     /// 构造停车锚点；此处只校验进度落在全局闭区间 `[1 mm, MAX_LANE_EDGE_LENGTH_MM - 1 mm]`。
     /// 相对所引车道图边实际长度的边内范围检查在 HIR 绑定阶段进行。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         lane_edge: LaneEdgeReference,
         progress_meters: f64,
@@ -1764,6 +1888,10 @@ pub struct ParkingSpaceGeometry {
 
 impl ParkingSpaceGeometry {
     /// 构造停车位矩形几何并校验横向偏移、朝向与尺寸范围。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         lateral_offset_meters: f64,
         heading_offset_radians: f64,
@@ -1838,6 +1966,10 @@ pub struct ParkingSpaceInput {
 
 impl ParkingSpaceInput {
     /// 构造停车位声明并校验键。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         parking_space_key: impl Into<String>,
         entry: ParkingLaneAnchor,
@@ -1905,6 +2037,10 @@ pub struct LaneGroupInput {
 
 impl LaneGroupInput {
     /// 构造车道组声明并校验组键。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         lane_group_key: impl Into<String>,
         road_section: RoadSectionReference,
@@ -1944,6 +2080,10 @@ pub struct FacilityBandInput {
 
 impl FacilityBandInput {
     /// 构造设施带声明并校验键与设施类别。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         facility_band_key: impl Into<String>,
         kind_id: impl Into<String>,
@@ -2004,6 +2144,10 @@ pub struct ParticipantClassInput {
 
 impl ParticipantClassInput {
     /// 构造参与者类别声明并校验类别键。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(participant_class_key: impl Into<String>) -> Result<Self, DiagnosticBundle> {
         let participant_class_key = participant_class_key.into();
         validate_token(
@@ -2063,6 +2207,10 @@ pub struct AccessRuleInput {
 
 impl AccessRuleInput {
     /// 构造准入规则声明；效果只允许允许或拒绝，参与者类别必须非空且不重复。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         access_rule_key: impl Into<String>,
         target: RoadEditingAccessTarget,
@@ -2153,6 +2301,10 @@ pub struct IidmVehicleProfileInput {
 
 impl IidmVehicleProfileInput {
     /// 构造 IIDM 车辆参数并校验各字段范围与减速次序。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     #[allow(clippy::too_many_arguments)]
     pub fn try_new(
         length_meters: f64,
@@ -2264,6 +2416,10 @@ pub struct VehicleProfileInput {
 
 impl VehicleProfileInput {
     /// 构造车辆配置声明并校验配置键。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         vehicle_profile_key: impl Into<String>,
         participant_class: ParticipantClassReference,
@@ -2307,6 +2463,10 @@ pub struct ConflictZoneInput {
 
 impl ConflictZoneInput {
     /// 构造冲突区声明并校验键。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         conflict_zone_key: impl Into<String>,
         junction: JunctionReference,
@@ -2362,6 +2522,10 @@ impl PathAnchorInput {
 
     /// 构造位于路径边内部进度处的锚点；此处只校验进度落在全局闭区间
     /// `[1 mm, MAX_LANE_EDGE_LENGTH_MM - 1 mm]`，相对边实际长度的检查在 HIR 绑定阶段进行。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn interior(path_edge_index: u32, progress_meters: f64) -> Result<Self, DiagnosticBundle> {
         let progress_meters = require_closed_mm(
             progress_meters,
@@ -2430,6 +2594,10 @@ pub struct ParticipantStreamInput {
 
 impl ParticipantStreamInput {
     /// 构造参与者流声明并校验键与通行序列。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         participant_stream_key: impl Into<String>,
         junction: JunctionReference,
@@ -2490,6 +2658,10 @@ pub struct ConflictZoneRegionInput {
 
 impl ConflictZoneRegionInput {
     /// 构造冲突区空间区域并校验高度范围与环点数量。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         conflict_zone: ConflictZoneReference,
         canonical_frame: CanonicalFrameReference,
@@ -2568,6 +2740,10 @@ pub struct CanonicalFrameInput {
 
 impl CanonicalFrameInput {
     /// 构造规范坐标框架声明并校验框架键。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(canonical_frame_key: impl Into<String>) -> Result<Self, DiagnosticBundle> {
         let canonical_frame_key = canonical_frame_key.into();
         validate_token(&canonical_frame_key, "canonicalFrame.canonicalFrameKey")?;

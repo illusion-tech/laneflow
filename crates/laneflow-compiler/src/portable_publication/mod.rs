@@ -106,6 +106,12 @@ impl From<FormatError> for PortablePublicationError {
 /// 从同一次 compiler 候选建立来源拥有型后发射能力。
 ///
 /// 调用方不能重新配对 LFCA/LFSM/LFSD 或覆盖 expected diff base binding。
+///
+/// # Errors
+///
+/// 候选配对、expected diff base 或后发射闭合检查（
+/// [`PortablePublicationError::PostEmission`]）失败时返回相应
+/// [`PortablePublicationError`]。
 pub fn check_portable_candidate(
     candidate: PortablePublicationCandidate,
     limits: FormatLimits,
@@ -127,6 +133,12 @@ pub fn check_portable_candidate(
 /// 检查候选并从受检 binding 构造 LFCP v2 exact bytes。
 ///
 /// 成功不表示 descriptor 或其对象已经持久化、认证、发布或激活。
+///
+/// # Errors
+///
+/// 候选检查失败、LFCP 编码格式错误（[`PortablePublicationError::Format`]）或
+/// 算术溢出（[`PortablePublicationError::ArithmeticOverflow`]）时返回相应
+/// [`PortablePublicationError`]。
 pub fn build_portable_publication_descriptor(
     candidate: PortablePublicationCandidate,
     provenance: &PortablePublicationProvenance,

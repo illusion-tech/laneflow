@@ -11,6 +11,10 @@ pub struct PolicyEvidenceInput {
 }
 impl PolicyEvidenceInput {
     /// 受检构造：校验证据键与定位符文本，可选描述原样保留。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         key: impl Into<String>,
         locator: impl Into<String>,
@@ -38,6 +42,10 @@ pub struct PolicyGapProfileInput {
 }
 impl PolicyGapProfileInput {
     /// 受检构造：校验参数键与参数版本文本；三个毫秒标量由调用方显式提供。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         key: impl Into<String>,
         parameter_version: impl Into<String>,
@@ -71,6 +79,10 @@ pub struct PolicyStreamRuleInput {
 }
 impl PolicyStreamRuleInput {
     /// 受检构造：校验规则键、参与者类别、让行目标与依据键；让行目标列表与间隙参数键必须同有或同无。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     #[allow(clippy::too_many_arguments)]
     pub fn try_new(
         key: impl Into<String>,
@@ -118,6 +130,10 @@ pub struct PolicyGateRuleInput {
 }
 impl PolicyGateRuleInput {
     /// 受检构造：校验规则键、参与者类别与依据键；解释与禁令枚举由调用方显式提供。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         key: impl Into<String>,
         gate: ManeuverGateReference,
@@ -167,6 +183,10 @@ pub struct RightOfWayPolicySetInput {
 }
 impl RightOfWayPolicySetInput {
     /// 受检构造：校验策略集键与法规身份，成员按键排序且拒绝重复成员键。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn try_new(
         key: impl Into<String>,
         regulation: RegulationIdentity,
@@ -211,6 +231,10 @@ impl RightOfWayPolicySetInput {
 }
 impl RightOfWayPolicySetInput {
     /// 附带宿主的可选选择标记；显式空值与缺省值保持不同，字节预算由 builder 检查。
+    ///
+    /// # Errors
+    ///
+    /// 任一构造校验失败时返回携带相应输入诊断的 [`DiagnosticBundle`]；不产生部分构造。
     pub fn with_canvas_selection(
         mut self,
         value: impl Into<String>,

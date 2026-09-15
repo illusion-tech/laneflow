@@ -66,6 +66,11 @@ impl SyntheticModuleBuilder {
     }
 
     /// 加入由一个模块拥有的完整策略。所有检查成功后才修改 builder。
+    ///
+    /// # Errors
+    ///
+    /// 策略集键、法规身份、成员键或来源文档校验失败时返回携带相应策略诊断的
+    /// [`DiagnosticBundle`]；所有检查成功前不修改 builder。
     pub fn add_right_of_way_policy_set(
         &mut self,
         input: RightOfWayPolicySetInput<'_>,

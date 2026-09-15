@@ -31,6 +31,12 @@ pub trait BoundedReReadableObjectSource: private::SealedImmutableBacking {
     #[must_use]
     fn exact_byte_length(&self) -> ExactByteLength;
 
+    /// # Errors
+    ///
+    /// 请求范围越过来源固定的 exact length 或换算溢出（
+    /// [`ObjectSourceError::OutOfBounds`]）、底层读取失败（`ReadFailed`）或来源
+    /// identity/不可变性漂移（`BackingChanged`）时返回相应 [`ObjectSourceError`]；
+    /// 失败不写入 `destination` 的任何字节。
     fn read_exact_at(&self, offset: u64, destination: &mut [u8]) -> Result<(), ObjectSourceError>;
 }
 

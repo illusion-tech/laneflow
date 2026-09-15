@@ -106,6 +106,12 @@ impl EncodedCanonicalIdentity {
 /// prepare 绑定用它把编制字符串对上已安装 `SharedIdentityIndex`。字段顺序与种类登记表
 /// 一致，由本函数按 `EntityKind::required_tags` 组装。独立制品验证器不得把本函数当作
 /// 第二套已知向量预言机。
+///
+/// # Errors
+///
+/// 实体种类不可构造（[`CanonicalIdentityViolation::UnconstructibleKind`]）、
+/// 字段数与登记表不符（`FieldCountMismatch`）或出现未登记字段 tag
+/// （`UnexpectedFieldTag`）时返回相应 [`CanonicalIdentityViolation`]。
 pub fn derive_canonical_stable_id_v1(
     kind: EntityKind,
     authoring_namespace_id: &str,
