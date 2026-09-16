@@ -1639,8 +1639,34 @@ pub(crate) struct ConflictWorkspace {
     next_serial: u64,
 }
 
+/// 完整 step 准备前的私有授权序号；失败时须先销毁全部本次 grant 才可恢复。
+pub(crate) struct ConflictSerialCheckpoint(u64);
+
+impl ConflictWorkspace {
+    pub(crate) fn serial_checkpoint(&self) -> ConflictSerialCheckpoint {
+        ConflictSerialCheckpoint(self.next_serial)
+    }
+
+    /// 只用于完整 step 的失败收尾，不改变正常提交后 discard 的序号语义。
+    pub(crate) fn restore_serial(&mut self, checkpoint: ConflictSerialCheckpoint) {
+        debug_assert!(self.staged_grants.is_empty());
+        debug_assert!(self.staged_owners.is_empty());
+        debug_assert!(self.staged_cells.is_empty());
+        debug_assert!(self.staged_downstream.is_empty());
+        self.next_serial = checkpoint.0;
+    }
+}
+
 #[cfg(test)]
 impl ConflictWorkspace {
+    pub(crate) fn set_serial_for_test(&mut self, serial: u64) {
+        self.next_serial = serial;
+    }
+
+    pub(crate) fn serial_for_test(&self) -> u64 {
+        self.next_serial
+    }
+
     /// 测试专用：统计暂存工作区保留的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
@@ -5035,6 +5061,133 @@ mod tests {
             2
         );
         assert_eq!(arbiter.owner_count(), 2);
+    }
+
+    #[test]
+    fn conflict_serial_rollback_keeps_committed_reservation_and_discards_old_grant() {
+        let a = address(0, 0, 0);
+        let b = address(1, 1, 0);
+        let downstream_a = [DownstreamInterval::new(LaneEdgeOrdinal::from_raw(0), 0, 10).unwrap()];
+        let downstream_b = [DownstreamInterval::new(LaneEdgeOrdinal::from_raw(1), 0, 10).unwrap()];
+        let mut arbiter = ConflictArbiter::new(vec![a, b], 3).unwrap();
+        arbiter.workspace.next_serial = u64::MAX - 2;
+        let grant = arbiter
+            .try_acquire(
+                1,
+                GrantResourceBundle {
+                    owner: vehicle(1),
+                    follower_min_gap_mm: 0,
+                    cells: &[a],
+                    downstream: &downstream_a,
+                    waiting_entitlement: None,
+                },
+            )
+            .unwrap();
+        let reservation = arbiter
+            .commit_crossing(grant, passage_range(0, 0, 0, 0, 1), a)
+            .unwrap()
+            .reservation;
+        arbiter.expire_unconsumed_grants();
+        assert_eq!(arbiter.workspace.next_serial, u64::MAX - 1);
+        let checkpoint = arbiter.workspace.serial_checkpoint();
+        let range = passage_range(0, 1, 1, 1, 1);
+        {
+            let grant = arbiter
+                .try_acquire(
+                    2,
+                    GrantResourceBundle {
+                        owner: vehicle(2),
+                        follower_min_gap_mm: 0,
+                        cells: &[b],
+                        downstream: &downstream_b,
+                        waiting_entitlement: None,
+                    },
+                )
+                .unwrap();
+            assert!(
+                arbiter
+                    .read()
+                    .crossing_commit_preflight(&grant, range, Some(b))
+                    .is_ok()
+            );
+            arbiter.write().discard_staged();
+            assert_eq!(
+                arbiter.workspace.next_serial,
+                u64::MAX,
+                "ordinary discard does not rewind serials"
+            );
+            assert_eq!(
+                arbiter
+                    .read()
+                    .crossing_commit_preflight(&grant, range, Some(b))
+                    .err(),
+                Some(ConflictAcquireError::InvalidBundle)
+            );
+        }
+        // 与 step 失败出口相同：旧凭证已离开作用域，然后才允许恢复并重试。
+        arbiter.workspace.restore_serial(checkpoint);
+        assert_eq!(arbiter.read().reservation(vehicle(1)), Some(reservation));
+        let retry = arbiter
+            .try_acquire(
+                2,
+                GrantResourceBundle {
+                    owner: vehicle(2),
+                    follower_min_gap_mm: 0,
+                    cells: &[b],
+                    downstream: &downstream_b,
+                    waiting_entitlement: None,
+                },
+            )
+            .unwrap();
+        arbiter.commit_crossing(retry, range, b).unwrap();
+        arbiter.expire_unconsumed_grants();
+        assert_eq!(arbiter.workspace.next_serial, u64::MAX);
+        assert_eq!(arbiter.read().reservation(vehicle(1)), Some(reservation));
+        assert!(arbiter.read().reservation(vehicle(2)).is_some());
+    }
+
+    #[test]
+    fn conflict_serial_exhaustion_does_not_override_occupied_or_invalid_bundle() {
+        let a = address(0, 0, 0);
+        let b = address(1, 1, 0);
+        let downstream = [DownstreamInterval::new(LaneEdgeOrdinal::from_raw(0), 0, 10).unwrap()];
+        let mut arbiter = ConflictArbiter::new(vec![a, b], 3).unwrap();
+        arbiter.workspace.next_serial = u64::MAX - 1;
+        let _grant = arbiter
+            .try_acquire(
+                1,
+                GrantResourceBundle {
+                    owner: vehicle(1),
+                    follower_min_gap_mm: 0,
+                    cells: &[a],
+                    downstream: &downstream,
+                    waiting_entitlement: None,
+                },
+            )
+            .unwrap();
+        for (owner, expected) in [
+            (
+                vehicle(2),
+                ConflictAcquireError::NoGrant(ConflictResourceNoGrant::ConflictOccupied),
+            ),
+            (vehicle(1), ConflictAcquireError::InvalidBundle),
+        ] {
+            assert_eq!(
+                arbiter
+                    .try_acquire(
+                        1,
+                        GrantResourceBundle {
+                            owner,
+                            follower_min_gap_mm: 0,
+                            cells: &[a],
+                            downstream: &downstream,
+                            waiting_entitlement: None,
+                        }
+                    )
+                    .err(),
+                Some(expected)
+            );
+        }
     }
 
     #[test]

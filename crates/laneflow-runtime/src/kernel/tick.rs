@@ -104,6 +104,7 @@ impl MotionPreview {
 enum StepFailpoint {
     AfterGrants,
     AfterTransitions,
+    AllocationAfterGrants,
 }
 
 #[cfg(test)]
@@ -122,6 +123,13 @@ pub(crate) fn motion_cache_limit() -> usize {
 #[cfg(test)]
 fn injected_step_failure(point: StepFailpoint) -> Result<(), StepError> {
     STEP_FAILPOINT.with(|failpoint| {
+        if point == StepFailpoint::AfterGrants
+            && failpoint.get() == Some(StepFailpoint::AllocationAfterGrants)
+        {
+            failpoint.set(None);
+            crate::kernel::conflict::set_allocation_failpoint(Some(0));
+            return Ok(());
+        }
         if failpoint.get() == Some(point) {
             failpoint.set(None);
             Err(StepError::ParkingObservationAllocFailed)
@@ -377,6 +385,142 @@ mod transaction_tests {
                     .iter()
                     .any(|decision| decision.outcome() == crate::ConflictDecisionOutcome::Granted)
             );
+        }
+    }
+
+    fn journal_trace(world: &TrafficWorld) -> String {
+        format!(
+            "{:?}",
+            world
+                .migration_journal()
+                .unwrap()
+                .records_from(0)
+                .collect::<Vec<_>>()
+        )
+    }
+
+    fn waiting_retry_world() -> TrafficWorld {
+        let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
+        let initial = world.vehicle(world.committed.live_order[0]).unwrap();
+        world.arm_migration_journal(128 * 1_024).unwrap();
+        world.step(TickInput::new(100)).unwrap();
+        assert!(!world.latest_conflict_decisions().is_empty());
+        assert!(!world.latest_waiting_decisions().is_empty());
+        assert!(!world.latest_transition_events().is_empty());
+        // 生命周期命令保留上次发布批次；在相同路线重新制造一次有效申请。
+        world.despawn_vehicle(initial.handle).unwrap();
+        world
+            .spawn_vehicle(crate::VehicleSpawnInput::new(
+                initial.profile,
+                initial.route,
+                initial.route_edge_index,
+                initial.progress_mm,
+                initial.speed_mm_s,
+            ))
+            .unwrap();
+        world.workspace.conflict.set_serial_for_test(u64::MAX - 1);
+        world
+    }
+
+    #[test]
+    fn conflict_serial_retry_preserves_nonempty_batches_and_journal() {
+        for point in [StepFailpoint::AfterGrants, StepFailpoint::AfterTransitions] {
+            let mut world = waiting_retry_world();
+            let mut fresh = waiting_retry_world();
+            let before = world.capture_snapshot().unwrap();
+            let conflicts = world.latest_conflict_decisions().to_vec();
+            let waiting = world.latest_waiting_decisions().to_vec();
+            let events = world.latest_transition_events().to_vec();
+            let journal = journal_trace(&world);
+            let stats = world.migration_journal_stats();
+            STEP_FAILPOINT.set(Some(point));
+            assert_eq!(
+                world.step(TickInput::new(100)),
+                Err(StepError::ParkingObservationAllocFailed)
+            );
+            assert_eq!(world.workspace.conflict.serial_for_test(), u64::MAX - 1);
+            assert!(world.workspace.conflict_grants.is_empty());
+            assert!(world.conflict_state_valid());
+            assert_eq!(world.capture_snapshot().unwrap(), before);
+            assert_eq!(world.latest_conflict_decisions(), conflicts);
+            assert_eq!(world.latest_waiting_decisions(), waiting);
+            assert_eq!(world.latest_transition_events(), events);
+            assert_eq!(world.migration_journal_stats(), stats);
+            assert_eq!(journal_trace(&world), journal);
+
+            world.step(TickInput::new(100)).unwrap();
+            fresh.step(TickInput::new(100)).unwrap();
+            assert_eq!(world.workspace.conflict.serial_for_test(), u64::MAX);
+            assert_eq!(
+                world.capture_snapshot().unwrap(),
+                fresh.capture_snapshot().unwrap()
+            );
+            assert_eq!(
+                world.latest_conflict_decisions(),
+                fresh.latest_conflict_decisions()
+            );
+            assert_eq!(
+                world.latest_waiting_decisions(),
+                fresh.latest_waiting_decisions()
+            );
+            assert_eq!(
+                world.latest_transition_events(),
+                fresh.latest_transition_events()
+            );
+            assert_eq!(journal_trace(&world), journal_trace(&fresh));
+        }
+    }
+
+    #[test]
+    fn conflict_serial_retry_after_real_allocation_failure() {
+        let revision = conflict_scale_revision();
+        let mut world = conflict_scale_world(std::sync::Arc::clone(&revision), 2);
+        let mut fresh = conflict_scale_world(revision, 2);
+        for target in [&mut world, &mut fresh] {
+            target.workspace.conflict.set_serial_for_test(u64::MAX - 1);
+        }
+        let before = world.capture_snapshot().unwrap();
+        STEP_FAILPOINT.set(Some(StepFailpoint::AllocationAfterGrants));
+        let failed = world.step(TickInput::new(4));
+        crate::kernel::conflict::set_allocation_failpoint(None);
+        assert_eq!(failed, Err(StepError::ConflictScratchAllocFailed));
+        assert_eq!(world.workspace.conflict.serial_for_test(), u64::MAX - 1);
+        assert!(world.workspace.conflict_grants.is_empty());
+        assert_eq!(world.capture_snapshot().unwrap(), before);
+        world.step(TickInput::new(4)).unwrap();
+        fresh.step(TickInput::new(4)).unwrap();
+        assert_eq!(world.workspace.conflict.serial_for_test(), u64::MAX);
+        assert_eq!(
+            world.capture_snapshot().unwrap(),
+            fresh.capture_snapshot().unwrap()
+        );
+        assert_eq!(
+            world.latest_conflict_decisions(),
+            fresh.latest_conflict_decisions()
+        );
+        assert_eq!(
+            world.latest_transition_events(),
+            fresh.latest_transition_events()
+        );
+    }
+
+    #[test]
+    fn conflict_serial_exhaustion_preserves_earlier_step_errors() {
+        let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
+        world.workspace.conflict.set_serial_for_test(u64::MAX);
+        let before = world.capture_snapshot().unwrap();
+        assert!(matches!(
+            world.step(TickInput::new(1)),
+            Err(StepError::DeltaMismatch { .. })
+        ));
+        for _ in 0..2 {
+            assert_eq!(
+                world.step(TickInput::new(100)),
+                Err(StepError::ConflictInvariantViolation)
+            );
+            assert_eq!(world.workspace.conflict.serial_for_test(), u64::MAX);
+            assert_eq!(world.capture_snapshot().unwrap(), before);
+            assert!(world.workspace.conflict_grants.is_empty());
         }
     }
 
@@ -659,6 +803,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         self.prepare_waiting_step(delta_s)?;
         #[cfg(test)]
         drop(waiting_timer);
+        let serial_checkpoint = self.workspace.conflict.serial_checkpoint();
         let mut updates = std::mem::take(&mut self.workspace.next_states);
         updates.clear();
         let parking_arrivals =
@@ -670,6 +815,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                         .prepare_conflict(&mut self.derived, &mut self.workspace.conflict)
                         .discard_staged();
                     self.workspace.conflict_grants.clear();
+                    // grant 不离开本次准备；先丢弃所有凭证，再恢复失败 attempt 的额度。
+                    self.workspace.conflict.restore_serial(serial_checkpoint);
                     self.workspace.conflict_staged_decisions.clear();
                     self.workspace.conflict_passage_transitions.clear();
                     self.workspace.motion_cache.clear();
