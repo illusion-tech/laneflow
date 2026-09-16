@@ -2528,7 +2528,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let verified = super::super::reader::verify_source(input, limits, 0, 0).unwrap();
+        let verified = super::super::reader::verify_source(input, limits, 0, 0, 0).unwrap();
         let locations =
             super::super::location::RoadEditingLocationFactory::from_verified_root(verified.root());
         let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());

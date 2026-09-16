@@ -918,7 +918,7 @@ mod tests {
         let module = builder.finish().unwrap();
         let bytes = RoadEditingSourceWriter::new(&limits).write(module).unwrap();
         let input = RoadEditingModuleInput::try_new("roads/main", bytes.as_bytes(), None).unwrap();
-        let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
+        let verified = super::super::reader::verify_source(input, &limits, 0, 0, 0).unwrap();
         let factory = RoadEditingLocationFactory::from_verified_root(verified.root());
         let location = factory.property(
             EntityKind::CanonicalFrame,
@@ -961,7 +961,7 @@ mod tests {
         .unwrap();
         let bytes = RoadEditingSourceWriter::new(&limits).write(module).unwrap();
         let input = RoadEditingModuleInput::try_new("roads/main", bytes.as_bytes(), None).unwrap();
-        let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
+        let verified = super::super::reader::verify_source(input, &limits, 0, 0, 0).unwrap();
         let factory = RoadEditingLocationFactory::from_verified_root(verified.root());
         let location = factory.module_owner_local(
             RoadEditingRelationKind::Import,

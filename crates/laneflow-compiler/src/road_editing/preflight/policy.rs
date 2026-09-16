@@ -40,14 +40,14 @@ pub(super) fn validate(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     key: &str,
 ) -> Result<(), DiagnosticBundle> {
     closed(root._tab, 30, key)?;
     for movement in root.movements() {
         closed(movement._tab, 6, key)?;
     }
-    // 复用无分配查重前先界定比较量，不能给大批不同策略键引入平方级无界工作。
+    // 保留策略集合既有的关系预算门槛；实际去重使用受预算排序索引。
     let policy_count = root.right_of_way_policy_sets().len() as u64;
     let comparisons = policy_count.saturating_mul(policy_count.saturating_sub(1)) / 2;
     let relation_limit = limits.value(CompileLimitDimension::RelationOccurrenceCount);
@@ -63,6 +63,7 @@ pub(super) fn validate(
         |value| value.policy_set_key(),
         "rightOfWayPolicySets.policySetKey",
         key,
+        limits,
     )?;
     for policy in root.right_of_way_policy_sets() {
         closed(policy._tab, 7, key)?;
@@ -245,7 +246,7 @@ fn classes(
     values: Option<StringVector<'_>>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     key: &str,
 ) -> Result<(), DiagnosticBundle> {
     if let Some(values) = values {

@@ -58,6 +58,7 @@ pub(crate) fn verify_source<'a>(
     limits: &CompileLimits,
     source_bytes_already_admitted: u64,
     typed_ast_records_already_admitted: u64,
+    admitted_live_bytes: u64,
 ) -> Result<VerifiedRoadEditingSource<'a>, DiagnosticBundle> {
     let expected_key = input.expected_source_document_key();
     let bytes = input.source_bytes();
@@ -207,7 +208,7 @@ pub(crate) fn verify_source<'a>(
             expected_key,
         )
     };
-    let preflight_counts = preflight_source(root, limits, expected_key)
+    let preflight_counts = preflight_source(root, limits, expected_key, admitted_live_bytes)
         .map_err(|bundle| bundle.with_fallback_primary_location(verified_header_location()))?;
     if preflight_counts.typed_ast_record_count() != typed_ast_record_count {
         return Err(semantic_error(
@@ -1125,7 +1126,7 @@ mod tests {
         let input =
             RoadEditingModuleInput::try_new("roads/main", buffer.as_bytes(), None).expect("input");
 
-        let verified = verify_source(input, &limits, 0, 0).expect("verified source");
+        let verified = verify_source(input, &limits, 0, 0, 0).expect("verified source");
 
         assert_eq!(
             verified.input().expected_source_document_key(),
@@ -1151,7 +1152,7 @@ mod tests {
         let input = RoadEditingModuleInput::try_new("road-editing", buffer.as_bytes(), None)
             .expect("input");
 
-        let verified = verify_source(input, &limits, 0, 0).expect("semantic preflight");
+        let verified = verify_source(input, &limits, 0, 0, 0).expect("semantic preflight");
 
         assert_eq!(
             verified.preflight_counts().typed_ast_record_count(),
@@ -1167,7 +1168,7 @@ mod tests {
         overwrite_root_u8_field(&mut bytes, 2, 0);
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("unspecified profile");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("unspecified profile");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1202,7 +1203,7 @@ mod tests {
             .expect("facility key");
         bytes[key_offset..key_offset + key.len()].copy_from_slice(b"facility!a");
         let input = RoadEditingModuleInput::try_new("road-editing", &bytes, None).expect("input");
-        let error = verify_source(input, &limits, 0, 0).expect_err("invalid facility key");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("invalid facility key");
         assert!(matches!(
             first_diagnostic(&error).payload(),
             DiagnosticPayload::InvalidRoadEditingSource {
@@ -1219,7 +1220,7 @@ mod tests {
             .expect("second facility key");
         bytes[duplicate_offset..duplicate_offset + duplicate.len()].copy_from_slice(key);
         let input = RoadEditingModuleInput::try_new("road-editing", &bytes, None).expect("input");
-        let error = verify_source(input, &limits, 0, 0).expect_err("duplicate facility key");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("duplicate facility key");
         assert!(matches!(
             first_diagnostic(&error).payload(),
             DiagnosticPayload::InvalidRoadEditingSource {
@@ -1248,7 +1249,7 @@ mod tests {
             b"parking!facility",
         );
         let input = RoadEditingModuleInput::try_new("road-editing", &bytes, None).expect("input");
-        let error = verify_source(input, &limits, 0, 0).expect_err("invalid facility reference");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("invalid facility reference");
         assert!(matches!(
             first_diagnostic(&error).payload(),
             DiagnosticPayload::InvalidRoadEditingSource {
@@ -1264,14 +1265,14 @@ mod tests {
         let buffer = source_buffer(&normal_limits, "roads/main");
         let input =
             RoadEditingModuleInput::try_new("roads/main", buffer.as_bytes(), None).expect("input");
-        let verified = verify_source(input, &normal_limits, 0, 0).expect("normal limits");
+        let verified = verify_source(input, &normal_limits, 0, 0, 0).expect("normal limits");
         let observed = verified.preflight_counts().string_item_count();
         let limits = normal_limits.with_test_admission_limit(
             CompileLimitDimension::StringItemCount,
             u32::try_from(observed - 1).expect("small fixture"),
         );
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("string item budget");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("string item budget");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1306,7 +1307,7 @@ mod tests {
         bytes[matches[0] + "controlle".len()] = b'z';
         let input = RoadEditingModuleInput::try_new("road-editing", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("owner mismatch");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("owner mismatch");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1328,7 +1329,7 @@ mod tests {
         let reference_offset = {
             let input =
                 RoadEditingModuleInput::try_new("road-editing", &bytes, None).expect("input");
-            let verified = verify_source(input, &limits, 0, 0).expect("valid source");
+            let verified = verify_source(input, &limits, 0, 0, 0).expect("valid source");
             let controller = verified.root().signal_controllers().get(0);
             let reference = controller.signal_groups().get(0);
             (reference.as_ptr() as usize)
@@ -1343,7 +1344,8 @@ mod tests {
             .copy_from_slice(b"::");
         let input = RoadEditingModuleInput::try_new("road-editing", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("imported signal group owner");
+        let error =
+            verify_source(input, &limits, 0, 0, 0).expect_err("imported signal group owner");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1365,7 +1367,7 @@ mod tests {
         bytes[0] ^= 1;
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("prefix mismatch");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("prefix mismatch");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1393,7 +1395,7 @@ mod tests {
         bytes[8..12].copy_from_slice(b"NOPE");
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("identifier mismatch");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("identifier mismatch");
 
         assert_eq!(
             first_diagnostic(&error).code(),
@@ -1416,7 +1418,7 @@ mod tests {
         bytes[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("malformed root offset");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("malformed root offset");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1439,7 +1441,7 @@ mod tests {
         bytes[key_position] = 0xff;
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("invalid utf-8");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("invalid utf-8");
         let Some(crate::SourceLocation::RoadEditing(location)) =
             first_diagnostic(&error).primary_location()
         else {
@@ -1472,7 +1474,7 @@ mod tests {
         overwrite_format_version(&mut bytes, 1);
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("unknown format version");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("unknown format version");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1493,7 +1495,7 @@ mod tests {
         let input = RoadEditingModuleInput::try_new("roads/expected", buffer.as_bytes(), None)
             .expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("document mismatch");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("document mismatch");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1514,7 +1516,7 @@ mod tests {
         let input =
             RoadEditingModuleInput::try_new("roads/x", buffer.as_bytes(), None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("document mismatch");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("document mismatch");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1543,7 +1545,7 @@ mod tests {
         bytes[positions[0]..positions[0] + invalid.len()].copy_from_slice(invalid);
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("self-qualified reference");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("self-qualified reference");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1579,7 +1581,7 @@ mod tests {
         bytes[successor_offset..successor_offset + "edge-c".len()].copy_from_slice(b"edge-b");
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("duplicate successors");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("duplicate successors");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1602,7 +1604,7 @@ mod tests {
         let input =
             RoadEditingModuleInput::try_new("roads/main", buffer.as_bytes(), None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("table budget");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("table budget");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1626,7 +1628,8 @@ mod tests {
             u32::try_from(normal_limits.value(CompileLimitDimension::SourceBytesTotal))
                 .expect("configured total limit"),
         );
-        let error = verify_source(input, &per_module_limits, 0, 0).expect_err("per-module limit");
+        let error =
+            verify_source(input, &per_module_limits, 0, 0, 0).expect_err("per-module limit");
         assert!(matches!(
             first_diagnostic(&error).payload(),
             DiagnosticPayload::CompileLimitExceeded {
@@ -1636,7 +1639,7 @@ mod tests {
         ));
 
         let total_limits = normal_limits.with_test_source_byte_limits(source_len, source_len);
-        let error = verify_source(input, &total_limits, 1, 0).expect_err("total limit");
+        let error = verify_source(input, &total_limits, 1, 0, 0).expect_err("total limit");
         assert!(matches!(
             first_diagnostic(&error).payload(),
             DiagnosticPayload::CompileLimitExceeded {
@@ -1653,7 +1656,7 @@ mod tests {
         let bytes = buffer.as_bytes();
 
         let input = RoadEditingModuleInput::try_new("roads/main", &[], None).expect("input");
-        let error = verify_source(input, &limits, 0, 0).expect_err("empty input");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("empty input");
         assert!(matches!(
             first_diagnostic(&error).payload(),
             DiagnosticPayload::InvalidRoadEditingSource {
@@ -1665,7 +1668,7 @@ mod tests {
         for end in 0..bytes.len() {
             let input =
                 RoadEditingModuleInput::try_new("roads/main", &bytes[..end], None).expect("input");
-            let error = verify_source(input, &limits, 0, 0).expect_err("truncated source");
+            let error = verify_source(input, &limits, 0, 0, 0).expect_err("truncated source");
             let violation = match first_diagnostic(&error).payload() {
                 DiagnosticPayload::InvalidRoadEditingSource { violation, .. } => violation,
                 payload => panic!("truncation must fail closed as a source violation: {payload:?}"),
@@ -1698,7 +1701,7 @@ mod tests {
             bytes[..4].copy_from_slice(&declared_u32.to_le_bytes());
             let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-            let error = verify_source(input, &limits, 0, 0).expect_err("off-by-one size prefix");
+            let error = verify_source(input, &limits, 0, 0, 0).expect_err("off-by-one size prefix");
 
             assert!(matches!(
                 first_diagnostic(&error).payload(),
@@ -1722,7 +1725,7 @@ mod tests {
         bytes.resize(bytes.len() + 8, 0);
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("trailing bytes");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("trailing bytes");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1745,7 +1748,7 @@ mod tests {
             bytes[8..12].copy_from_slice(identifier);
             let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-            let error = verify_source(input, &limits, 0, 0).expect_err("identifier variant");
+            let error = verify_source(input, &limits, 0, 0, 0).expect_err("identifier variant");
 
             assert!(matches!(
                 first_diagnostic(&error).payload(),
@@ -1766,7 +1769,7 @@ mod tests {
         bytes[4..8].copy_from_slice(&root_offset.to_le_bytes());
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("root offset at buffer end");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("root offset at buffer end");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1785,7 +1788,7 @@ mod tests {
         bytes[4..8].copy_from_slice(&5_u32.to_le_bytes());
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("misaligned root table");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("misaligned root table");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1805,7 +1808,7 @@ mod tests {
         bytes[root_position..root_position + 4].copy_from_slice(&i32::MAX.to_le_bytes());
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("out-of-bounds vtable");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("out-of-bounds vtable");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1825,7 +1828,7 @@ mod tests {
         bytes[vtable_position..vtable_position + 2].copy_from_slice(&0xFFFE_u16.to_le_bytes());
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("truncated vtable");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("truncated vtable");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1849,7 +1852,7 @@ mod tests {
         bytes[vector_position..vector_position + 4].copy_from_slice(&0x4000_0000_u32.to_le_bytes());
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("vector length overflow");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("vector length overflow");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1874,7 +1877,7 @@ mod tests {
         bytes[terminator] = b'!';
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("missing NUL terminator");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("missing NUL terminator");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1904,7 +1907,8 @@ mod tests {
         bytes[field_position..field_position + 4].copy_from_slice(&u32::MAX.to_le_bytes());
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("string offset out of bounds");
+        let error =
+            verify_source(input, &limits, 0, 0, 0).expect_err("string offset out of bounds");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1938,7 +1942,7 @@ mod tests {
         );
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("inconsistent union");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("inconsistent union");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -1974,7 +1978,7 @@ mod tests {
         bytes[field_position] = 200;
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("unknown union discriminant");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("unknown union discriminant");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -2005,7 +2009,7 @@ mod tests {
         );
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("missing required field");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("missing required field");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -2024,7 +2028,7 @@ mod tests {
         overwrite_root_u8_field(&mut bytes, 2, 200);
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("unknown enum value");
+        let error = verify_source(input, &limits, 0, 0, 0).expect_err("unknown enum value");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -2045,7 +2049,7 @@ mod tests {
         let input =
             RoadEditingModuleInput::try_new("roads/main", buffer.as_bytes(), None).expect("input");
 
-        let verified = verify_source(input, &limits, 0, 0).expect("depth-five schema path");
+        let verified = verify_source(input, &limits, 0, 0, 0).expect("depth-five schema path");
 
         let alignment = verified.root().road_alignments().get(0);
         assert_eq!(alignment.reference_line().segments().len(), 1);
@@ -2102,7 +2106,7 @@ mod tests {
         for copies in 1..=5_000 {
             let bytes = shared_segment_dag_buffer(copies);
             let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
-            match verify_source(input, &limits, 0, 0) {
+            match verify_source(input, &limits, 0, 0, 0) {
                 Ok(_) => accepted_copies = copies,
                 Err(error) => {
                     rejection = Some((copies, error));

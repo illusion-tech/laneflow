@@ -285,6 +285,7 @@ impl CompilationUnitBuilder {
             &limits,
             self.road_editing_source_bytes_already_admitted(),
             self.road_editing_typed_ast_records_already_admitted(),
+            self.already_admitted(CompileLimitDimension::CompilerControlledLiveBytes),
         )?;
         precheck_accumulated_counts(self, &limits, &verified)?;
         let remaining_geometry_points = self.road_editing_remaining_geometry_points();
@@ -642,7 +643,8 @@ fn lower_verified_source(
                 .max(geometry_usage.peak_output_and_scratch_bytes),
         )
         .max(preallocation_live_bytes.saturating_add(post_geometry_import_peak))
-        .max(controlled_live_bytes);
+        .max(controlled_live_bytes)
+        .max(counts.preflight_peak_scratch_bytes());
     debug_assert!(
         controlled_live_bytes
             <= preallocation_live_bytes
@@ -1685,7 +1687,7 @@ mod tests {
 
         let input =
             RoadEditingModuleInput::try_new("roads/curves", buffer.as_bytes(), None).unwrap();
-        let verified = verify_source(input, &limits, 0, 0).unwrap();
+        let verified = verify_source(input, &limits, 0, 0, 0).unwrap();
         precheck_accumulated_counts(&builder, &limits, &verified)
             .expect("authoring control points must not consume the canonical output budget");
         assert!(
@@ -1765,10 +1767,11 @@ mod tests {
             &limits,
             0,
             0,
+            0,
         )
         .unwrap();
         let counts =
-            super::super::preflight::preflight_source(verified.root(), &limits, "road-editing")
+            super::super::preflight::preflight_source(verified.root(), &limits, "road-editing", 0)
                 .unwrap();
         let without_ranges = controlled_live_bytes(counts, 6, 0, 0, 0, 0, 0);
         let range_count = 3;
@@ -1828,7 +1831,7 @@ mod tests {
         let buffer = complete_geometry_buffer_with_imports(&broad, imports.collect());
         let input =
             || RoadEditingModuleInput::try_new("road-editing", buffer.as_bytes(), None).unwrap();
-        let verified = verify_source(input(), &broad, 0, 0).unwrap();
+        let verified = verify_source(input(), &broad, 0, 0, 0).unwrap();
         let display_items = 0;
         let display_bytes = 0;
         let import_count = u64::try_from(verified.root().module_header().imports().len()).unwrap();
@@ -1893,7 +1896,7 @@ mod tests {
             usize::try_from(import_count).unwrap()
         );
 
-        let verified = verify_source(input(), &broad, 0, 0).unwrap();
+        let verified = verify_source(input(), &broad, 0, 0, 0).unwrap();
         lower_verified_source(
             verified,
             &broad,
@@ -1906,7 +1909,7 @@ mod tests {
         )
         .expect("the exact geometry-output plus import-sort boundary must pass");
 
-        let verified = verify_source(input(), &broad, 0, 0).unwrap();
+        let verified = verify_source(input(), &broad, 0, 0, 0).unwrap();
         let rejected = lower_verified_source(
             verified,
             &broad,
@@ -1930,6 +1933,7 @@ mod tests {
         let verified = verify_source(
             RoadEditingModuleInput::try_new("roads/nested-sort", buffer.as_bytes(), None).unwrap(),
             &broad,
+            0,
             0,
             0,
         )
@@ -1974,6 +1978,7 @@ mod tests {
         let verified = verify_source(
             RoadEditingModuleInput::try_new("roads/signal-sort", buffer.as_bytes(), None).unwrap(),
             &broad,
+            0,
             0,
             0,
         )
@@ -2024,6 +2029,7 @@ mod tests {
             &limits,
             0,
             0,
+            0,
         )
         .unwrap();
         let root = verified.root();
@@ -2048,6 +2054,7 @@ mod tests {
         let verified = verify_source(
             RoadEditingModuleInput::try_new("road-editing", buffer.as_bytes(), None).unwrap(),
             &broad,
+            0,
             0,
             0,
         )
@@ -2082,6 +2089,72 @@ mod tests {
         assert_eq!(
             builder.already_admitted(CompileLimitDimension::ModuleCount),
             0
+        );
+    }
+
+    #[test]
+    fn preflight_index_budget_failures_leave_builder_reusable() {
+        let broad = CompileLimits::p100_initial_v1();
+        let header = RoadEditingModuleHeader::try_new(
+            "city",
+            "roads/main",
+            Vec::new(),
+            RoadEditingProvenance::direct("index budget").unwrap(),
+        )
+        .unwrap();
+        let mut source = RoadEditingSourceModuleBuilder::new(
+            header,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            &broad,
+        )
+        .unwrap();
+        for index in 0..2_048 {
+            source
+                .add_declaration(RoadEditingDeclaration::CanonicalFrame(
+                    CanonicalFrameInput::try_new(format!("frame-{index:08}")).unwrap(),
+                ))
+                .unwrap();
+        }
+        let large = RoadEditingSourceWriter::new(&broad)
+            .write(source.finish().unwrap())
+            .unwrap();
+        let small = source_buffer(&broad, "city", "roads/main");
+        let limits =
+            broad.with_test_admission_limit(CompileLimitDimension::StageScratchBytes, 16_384);
+        let mut builder = CompilationUnitBuilder::new(limits);
+        for _ in 0..32 {
+            let input =
+                RoadEditingModuleInput::try_new("roads/main", large.as_bytes(), None).unwrap();
+            let error = match builder.add_road_editing_module(input) {
+                Ok(_) => panic!("root key index exceeds scratch budget"),
+                Err(error) => error,
+            };
+            assert!(matches!(
+                error.diagnostics()[0].payload(),
+                crate::DiagnosticPayload::CompileLimitExceeded {
+                    dimension: CompileLimitDimension::StageScratchBytes,
+                    limit: 16_384,
+                    ..
+                }
+            ));
+            for dimension in [
+                CompileLimitDimension::ModuleCount,
+                CompileLimitDimension::SourceBytesTotal,
+                CompileLimitDimension::TypedAstRecordCount,
+                CompileLimitDimension::DeclarationCount,
+            ] {
+                assert_eq!(builder.already_admitted(dimension), 0);
+            }
+        }
+        builder
+            .add_road_editing_module(
+                RoadEditingModuleInput::try_new("roads/main", small.as_bytes(), None).unwrap(),
+            )
+            .expect("the same namespace and document can be retried after failed preflight");
+        assert_eq!(
+            builder.already_admitted(CompileLimitDimension::ModuleCount),
+            1
         );
     }
 

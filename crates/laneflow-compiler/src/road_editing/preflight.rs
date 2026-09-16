@@ -26,7 +26,14 @@ use crate::{
 };
 
 type StringVector<'a> = Vector<'a, ForwardsUOffset<&'a str>>;
+mod owner;
 mod policy;
+mod scratch;
+use scratch::PreflightScratch;
+#[cfg(test)]
+mod benchmark;
+#[cfg(test)]
+mod index_tests;
 
 /// 道路编辑来源语义预检的用量计数；在任何领域分配前累计记录、引用与字符串负载。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -44,9 +51,15 @@ pub(crate) struct RoadEditingPreflightCounts {
     symbol_count: u64,
     string_item_count: u64,
     total_string_bytes: u64,
+    preflight_peak_scratch_bytes: u64,
 }
 
 impl RoadEditingPreflightCounts {
+    /// 返回预检借用索引的最大共存请求字节数。
+    pub(crate) const fn preflight_peak_scratch_bytes(self) -> u64 {
+        self.preflight_peak_scratch_bytes
+    }
+
     /// 返回声明计数。
     pub(crate) const fn declaration_count(self) -> u64 {
         self.declaration_count
@@ -303,7 +316,10 @@ pub(crate) fn preflight_source(
     root: wire::RoadEditingSource<'_>,
     limits: &CompileLimits,
     expected_key: &str,
+    admitted_live_bytes: u64,
 ) -> Result<RoadEditingPreflightCounts, DiagnosticBundle> {
+    let scratch = PreflightScratch::new(limits, admitted_live_bytes);
+    let limits = &scratch;
     let header = root.module_header();
     let namespace = header.authoring_namespace_id();
     let imports = header.imports();
@@ -333,7 +349,7 @@ pub(crate) fn preflight_source(
             import_count,
         ));
     }
-    ensure_unique_strings(imports, "moduleHeader.imports", expected_key)?;
+    ensure_unique_strings(imports, "moduleHeader.imports", expected_key, limits)?;
     for import in imports {
         usage.charge_token(import, "moduleHeader.imports", limits, expected_key)?;
         if import == namespace {
@@ -409,15 +425,16 @@ pub(crate) fn preflight_source(
     validate_conflicts_and_regions(&mut usage, root, namespace, imports, limits, expected_key)?;
     policy::validate(&mut usage, root, namespace, imports, limits, expected_key)?;
 
-    let usage = usage.validate(limits)?;
-    validate_owner_closure(root, expected_key)?;
+    let mut usage = usage.validate(limits)?;
+    owner::validate(root, limits, expected_key)?;
+    usage.preflight_peak_scratch_bytes = scratch.peak_bytes();
     Ok(usage)
 }
 
 fn validate_provenance(
     usage: &mut RoadEditingPreflightCounts,
     provenance: wire::Provenance<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     usage.charge_token(
@@ -468,7 +485,7 @@ fn validate_alignments(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
@@ -476,6 +493,7 @@ fn validate_alignments(
         |value| value.road_alignment_key(),
         "roadAlignments.roadAlignmentKey",
         expected_key,
+        limits,
     )?;
     for value in root.road_alignments() {
         usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
@@ -504,7 +522,7 @@ fn validate_alignments(
 fn validate_curve(
     usage: &mut RoadEditingPreflightCounts,
     value: wire::CurveProgram<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
@@ -646,7 +664,7 @@ fn validate_reference_vector(
     relation: bool,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     if non_empty && values.is_empty() {
@@ -660,7 +678,7 @@ fn validate_reference_vector(
         usage.require_relation_capacity(values.len(), limits)?;
     }
     if unique {
-        ensure_unique_references(values, namespace, field, expected_key)?;
+        ensure_unique_references(values, namespace, field, expected_key, limits)?;
     }
     if relation {
         usage.charge_relation(values.len());
@@ -680,397 +698,12 @@ fn validate_reference_vector(
     Ok(())
 }
 
-fn local_root_reference_matches(value: &str, key: &str) -> bool {
-    validate_wire_reference(value, 1, false).is_ok_and(|reference| {
-        reference.namespace().is_none() && reference.key_components().eq([key])
-    })
-}
-
-fn local_child_reference_matches(
-    value: &str,
-    parent: &str,
-    parent_component_count: u8,
-    child_key: &str,
-) -> bool {
-    let Some(child_component_count) = parent_component_count.checked_add(1) else {
-        return false;
-    };
-    let Ok(reference) = validate_wire_reference(value, child_component_count, false) else {
-        return false;
-    };
-    let Ok(parent) = validate_wire_reference(parent, parent_component_count, false) else {
-        return false;
-    };
-    if reference.namespace().is_some() || parent.namespace().is_some() {
-        return false;
-    }
-
-    let mut components = reference.key_components();
-    parent
-        .key_components()
-        .all(|component| components.next() == Some(component))
-        && components.next() == Some(child_key)
-        && components.next().is_none()
-}
-
-fn validate_owner_closure(
-    root: wire::RoadEditingSource<'_>,
-    expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
-    let corridors = root.road_corridors();
-    let sections = root.road_sections();
-    let lanes = root.authoring_lanes();
-    let bands = root.facility_bands();
-    let controllers = root.signal_controllers();
-    let groups = root.signal_groups();
-    let phases = root.signal_phases();
-
-    for movement in root.movements() {
-        if !root.junctions().iter().any(|junction| {
-            local_root_reference_matches(movement.junction(), junction.junction_key())
-        }) {
-            return Err(invalid_combination("movement.junction", expected_key));
-        }
-    }
-    for path in root.maneuver_paths() {
-        if !root.movements().iter().any(|movement| {
-            local_child_reference_matches(
-                path.movement(),
-                movement.junction(),
-                1,
-                movement.movement_key(),
-            )
-        }) {
-            return Err(invalid_combination("maneuverPath.movement", expected_key));
-        }
-    }
-    for gate in root.maneuver_gates() {
-        if !root.maneuver_paths().iter().any(|path| {
-            local_child_reference_matches(
-                gate.maneuver_path(),
-                path.movement(),
-                2,
-                path.maneuver_path_key(),
-            )
-        }) {
-            return Err(invalid_combination(
-                "maneuverGate.maneuverPath",
-                expected_key,
-            ));
-        }
-    }
-    for zone in root.waiting_zones() {
-        if !root.maneuver_paths().iter().any(|path| {
-            local_child_reference_matches(
-                zone.maneuver_path(),
-                path.movement(),
-                2,
-                path.maneuver_path_key(),
-            )
-        }) {
-            return Err(invalid_combination(
-                "waitingZone.maneuverPath",
-                expected_key,
-            ));
-        }
-    }
-    for group in root.lane_groups() {
-        if !sections.iter().any(|section| {
-            local_child_reference_matches(
-                group.road_section(),
-                section.road_corridor(),
-                1,
-                section.road_section_key(),
-            )
-        }) {
-            return Err(invalid_combination("laneGroup.roadSection", expected_key));
-        }
-    }
-
-    let section_matches = |corridor: wire::RoadCorridor<'_>,
-                           element: wire::CorridorElement<'_>,
-                           section: wire::RoadSection<'_>| {
-        element.kind() == wire::CorridorElementKind::RoadSection
-            && local_root_reference_matches(section.road_corridor(), corridor.road_corridor_key())
-            && local_child_reference_matches(
-                element.entity_reference(),
-                section.road_corridor(),
-                1,
-                section.road_section_key(),
-            )
-    };
-    for corridor in corridors {
-        for element in corridor.elements() {
-            if element.kind() == wire::CorridorElementKind::RoadSection
-                && !sections
-                    .iter()
-                    .any(|section| section_matches(corridor, element, section))
-            {
-                return Err(invalid_combination("roadCorridor.elements", expected_key));
-            }
-        }
-    }
-    for section in sections {
-        let owner_count = corridors
-            .iter()
-            .flat_map(|corridor| {
-                corridor
-                    .elements()
-                    .iter()
-                    .map(move |element| (corridor, element))
-            })
-            .filter(|(corridor, element)| section_matches(*corridor, *element, section))
-            .count();
-        if owner_count != 1 {
-            return Err(invalid_combination("roadCorridor.elements", expected_key));
-        }
-    }
-
-    let band_matches = |corridor: wire::RoadCorridor<'_>,
-                        element: wire::CorridorElement<'_>,
-                        band: wire::FacilityBand<'_>| {
-        element.kind() == wire::CorridorElementKind::FacilityBand
-            && local_root_reference_matches(band.road_corridor(), corridor.road_corridor_key())
-            && local_child_reference_matches(
-                element.entity_reference(),
-                band.road_corridor(),
-                1,
-                band.facility_band_key(),
-            )
-    };
-    for corridor in corridors {
-        for element in corridor.elements() {
-            if element.kind() == wire::CorridorElementKind::FacilityBand
-                && !bands
-                    .iter()
-                    .any(|band| band_matches(corridor, element, band))
-            {
-                return Err(invalid_combination("roadCorridor.elements", expected_key));
-            }
-        }
-    }
-    for band in bands {
-        let owner_count = corridors
-            .iter()
-            .flat_map(|corridor| {
-                corridor
-                    .elements()
-                    .iter()
-                    .map(move |element| (corridor, element))
-            })
-            .filter(|(corridor, element)| band_matches(*corridor, *element, band))
-            .count();
-        if owner_count != 1 {
-            return Err(invalid_combination("roadCorridor.elements", expected_key));
-        }
-    }
-
-    let lane_matches =
-        |section: wire::RoadSection<'_>, reference: &str, lane: wire::AuthoringLane<'_>| {
-            local_child_reference_matches(
-                lane.road_section(),
-                section.road_corridor(),
-                1,
-                section.road_section_key(),
-            ) && local_child_reference_matches(
-                reference,
-                lane.road_section(),
-                2,
-                lane.authoring_lane_key(),
-            )
-        };
-    for section in sections {
-        for reference in section.authoring_lanes() {
-            if !lanes
-                .iter()
-                .any(|lane| lane_matches(section, reference, lane))
-            {
-                return Err(invalid_combination(
-                    "roadSection.authoringLanes",
-                    expected_key,
-                ));
-            }
-        }
-    }
-    for lane in lanes {
-        let owner_count = sections
-            .iter()
-            .flat_map(|section| {
-                section
-                    .authoring_lanes()
-                    .iter()
-                    .map(move |reference| (section, reference))
-            })
-            .filter(|(section, reference)| lane_matches(*section, reference, lane))
-            .count();
-        if owner_count != 1 {
-            return Err(invalid_combination(
-                "roadSection.authoringLanes",
-                expected_key,
-            ));
-        }
-    }
-
-    // These borrowed index vectors are created only after the aggregate count gate. They keep
-    // owner closure proportional to accepted declarations and relations instead of rescanning a
-    // complete root vector for every controller reference.
-    let mut group_order: Vec<_> = (0..groups.len()).collect();
-    group_order.sort_unstable_by(|left, right| {
-        groups
-            .get(*left)
-            .signal_group_key()
-            .as_bytes()
-            .cmp(groups.get(*right).signal_group_key().as_bytes())
-    });
-    let mut group_owner_counts = vec![0_u8; groups.len()];
-    for controller in controllers {
-        for reference in controller.signal_groups() {
-            if reference.contains("::") {
-                return Err(invalid_combination(
-                    "signalController.signalGroups",
-                    expected_key,
-                ));
-            }
-            let Ok(position) = group_order.binary_search_by(|index| {
-                groups
-                    .get(*index)
-                    .signal_group_key()
-                    .as_bytes()
-                    .cmp(reference.as_bytes())
-            }) else {
-                return Err(invalid_combination(
-                    "signalController.signalGroups",
-                    expected_key,
-                ));
-            };
-            let count = &mut group_owner_counts[position];
-            *count = count.saturating_add(1);
-            if *count != 1 {
-                return Err(invalid_combination(
-                    "signalController.signalGroups",
-                    expected_key,
-                ));
-            }
-        }
-    }
-    if group_owner_counts.iter().any(|count| *count != 1) {
-        return Err(invalid_combination(
-            "signalController.signalGroups",
-            expected_key,
-        ));
-    }
-    drop(group_owner_counts);
-    drop(group_order);
-
-    let mut phase_order: Vec<_> = (0..phases.len()).collect();
-    phase_order.sort_unstable_by(|left, right| {
-        let left = phases.get(*left);
-        let right = phases.get(*right);
-        left.signal_controller()
-            .as_bytes()
-            .cmp(right.signal_controller().as_bytes())
-            .then_with(|| {
-                left.signal_phase_key()
-                    .as_bytes()
-                    .cmp(right.signal_phase_key().as_bytes())
-            })
-    });
-    let mut referenced_phase_count = 0_usize;
-    for controller in controllers {
-        for reference in controller.signal_phases() {
-            if reference.contains("::") {
-                return Err(invalid_combination(
-                    "signalController.signalPhases",
-                    expected_key,
-                ));
-            }
-            let (owner_key, phase_key) = reference
-                .split_once('>')
-                .expect("reference syntax preflight proved two components");
-            if owner_key != controller.signal_controller_key()
-                || phase_order
-                    .binary_search_by(|index| {
-                        let phase = phases.get(*index);
-                        phase
-                            .signal_controller()
-                            .as_bytes()
-                            .cmp(owner_key.as_bytes())
-                            .then_with(|| {
-                                phase
-                                    .signal_phase_key()
-                                    .as_bytes()
-                                    .cmp(phase_key.as_bytes())
-                            })
-                    })
-                    .is_err()
-            {
-                return Err(invalid_combination(
-                    "signalController.signalPhases",
-                    expected_key,
-                ));
-            }
-            referenced_phase_count = referenced_phase_count.saturating_add(1);
-        }
-    }
-    if referenced_phase_count != phases.len() {
-        return Err(invalid_combination(
-            "signalController.signalPhases",
-            expected_key,
-        ));
-    }
-    drop(phase_order);
-
-    let mut controller_order: Vec<_> = (0..controllers.len()).collect();
-    controller_order.sort_unstable_by(|left, right| {
-        controllers
-            .get(*left)
-            .signal_controller_key()
-            .as_bytes()
-            .cmp(controllers.get(*right).signal_controller_key().as_bytes())
-    });
-    for phase in phases {
-        let Ok(position) = controller_order.binary_search_by(|index| {
-            controllers
-                .get(*index)
-                .signal_controller_key()
-                .as_bytes()
-                .cmp(phase.signal_controller().as_bytes())
-        }) else {
-            return Err(invalid_combination(
-                "signalPhase.signalController",
-                expected_key,
-            ));
-        };
-        let controller = controllers.get(controller_order[position]);
-        let controller_groups = controller.signal_groups();
-        let states = phase.states();
-        let mut expected_groups: Vec<_> = controller_groups.iter().collect();
-        expected_groups.sort_unstable_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
-        if states.len() != expected_groups.len()
-            || states.iter().any(|state| {
-                expected_groups
-                    .binary_search_by(|reference| {
-                        reference.as_bytes().cmp(state.signal_group().as_bytes())
-                    })
-                    .is_err()
-            })
-        {
-            return Err(invalid_combination(
-                "signalPhase.states.signalGroup",
-                expected_key,
-            ));
-        }
-    }
-
-    Ok(())
-}
-
 fn validate_corridors(
     usage: &mut RoadEditingPreflightCounts,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
@@ -1078,6 +711,7 @@ fn validate_corridors(
         |value| value.road_corridor_key(),
         "roadCorridors.roadCorridorKey",
         expected_key,
+        limits,
     )?;
     for value in root.road_corridors() {
         usage.charge_declaration(EntityKind::RoadCorridor);
@@ -1174,6 +808,16 @@ fn validate_corridors(
             ));
         }
         usage.charge_relation(elements.len());
+        let duplicate_index = first_duplicate_index(
+            elements.iter(),
+            |element| {
+                (
+                    element.kind().0,
+                    reference_parts(element.entity_reference(), namespace),
+                )
+            },
+            limits,
+        )?;
         for (index, element) in elements.iter().enumerate() {
             usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
             let depth = match element.kind() {
@@ -1203,20 +847,12 @@ fn validate_corridors(
                 "roadCorridor.elements.entityReference",
                 expected_key,
             )?;
-            for other in elements.iter().skip(index + 1) {
-                if element.kind() == other.kind()
-                    && references_equal(
-                        element.entity_reference(),
-                        other.entity_reference(),
-                        namespace,
-                    )
-                {
-                    return Err(semantic_error(
-                        "roadCorridor.elements",
-                        RoadEditingInputViolation::DuplicateValue,
-                        expected_key,
-                    ));
-                }
+            if duplicate_index == Some(index) {
+                return Err(semantic_error(
+                    "roadCorridor.elements",
+                    RoadEditingInputViolation::DuplicateValue,
+                    expected_key,
+                ));
             }
         }
         usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
@@ -1229,7 +865,7 @@ fn validate_sections(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
@@ -1237,7 +873,14 @@ fn validate_sections(
         |value| (value.road_corridor(), value.road_section_key()),
         "roadSections.address",
         expected_key,
+        limits,
     )?;
+    let mut corridor_keys = limits.collect(
+        root.road_corridors()
+            .iter()
+            .map(|value| value.road_corridor_key()),
+    )?;
+    corridor_keys.sort_unstable();
     for value in root.road_sections() {
         usage.charge_declaration(EntityKind::RoadSection);
         usage.charge_token(
@@ -1276,13 +919,7 @@ fn validate_sections(
             limits,
             expected_key,
         )?;
-        if !root.road_corridors().iter().any(|corridor| {
-            references_equal(
-                value.road_corridor(),
-                corridor.road_corridor_key(),
-                namespace,
-            )
-        }) {
+        if corridor_keys.binary_search(&value.road_corridor()).is_err() {
             return Err(invalid_combination(
                 "roadSection.roadCorridor",
                 expected_key,
@@ -1298,7 +935,7 @@ fn validate_authoring_lanes(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
@@ -1306,6 +943,7 @@ fn validate_authoring_lanes(
         |value| (value.road_section(), value.authoring_lane_key()),
         "authoringLanes.address",
         expected_key,
+        limits,
     )?;
     for value in root.authoring_lanes() {
         usage.charge_declaration(EntityKind::AuthoringLane);
@@ -1368,7 +1006,7 @@ fn validate_lane_edges(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
@@ -1376,6 +1014,7 @@ fn validate_lane_edges(
         |value| value.lane_edge_key(),
         "laneEdges.laneEdgeKey",
         expected_key,
+        limits,
     )?;
     for value in root.lane_edges() {
         usage.charge_declaration(EntityKind::LaneEdge);
@@ -1422,7 +1061,7 @@ fn validate_junctions(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
@@ -1430,6 +1069,7 @@ fn validate_junctions(
         |value| value.junction_key(),
         "junctions.junctionKey",
         expected_key,
+        limits,
     )?;
     for value in root.junctions() {
         usage.charge_declaration(EntityKind::Junction);
@@ -1484,7 +1124,7 @@ fn validate_movements(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
@@ -1492,6 +1132,7 @@ fn validate_movements(
         |value| (value.junction(), value.movement_key()),
         "movements.address",
         expected_key,
+        limits,
     )?;
     for value in root.movements() {
         if value
@@ -1543,7 +1184,7 @@ fn validate_maneuver_paths(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
@@ -1551,6 +1192,7 @@ fn validate_maneuver_paths(
         |value| (value.movement(), value.maneuver_path_key()),
         "maneuverPaths.address",
         expected_key,
+        limits,
     )?;
     for value in root.maneuver_paths() {
         usage.charge_declaration(EntityKind::ManeuverPath);
@@ -1613,7 +1255,7 @@ fn validate_maneuver_gates(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
@@ -1621,6 +1263,7 @@ fn validate_maneuver_gates(
         |value| (value.maneuver_path(), value.maneuver_gate_key()),
         "maneuverGates.address",
         expected_key,
+        limits,
     )?;
     for value in root.maneuver_gates() {
         usage.charge_declaration(EntityKind::ManeuverGate);
@@ -1680,7 +1323,7 @@ fn validate_waiting_zones(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
@@ -1688,6 +1331,7 @@ fn validate_waiting_zones(
         |value| (value.maneuver_path(), value.waiting_zone_key()),
         "waitingZones.address",
         expected_key,
+        limits,
     )?;
     for value in root.waiting_zones() {
         usage.charge_declaration(EntityKind::WaitingZone);
@@ -1744,7 +1388,7 @@ fn validate_stop_lines_and_signal_groups(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
@@ -1752,6 +1396,7 @@ fn validate_stop_lines_and_signal_groups(
         |value| value.stop_line_key(),
         "stopLines.stopLineKey",
         expected_key,
+        limits,
     )?;
     for value in root.stop_lines() {
         usage.charge_declaration(EntityKind::StopLine);
@@ -1778,6 +1423,7 @@ fn validate_stop_lines_and_signal_groups(
         |value| value.signal_group_key(),
         "signalGroups.signalGroupKey",
         expected_key,
+        limits,
     )?;
     for value in root.signal_groups() {
         usage.charge_declaration(EntityKind::SignalGroup);
@@ -1797,7 +1443,7 @@ fn validate_signal_controllers_and_phases(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
@@ -1805,6 +1451,7 @@ fn validate_signal_controllers_and_phases(
         |value| value.signal_controller_key(),
         "signalControllers.signalControllerKey",
         expected_key,
+        limits,
     )?;
     for value in root.signal_controllers() {
         usage.charge_declaration(EntityKind::SignalController);
@@ -1854,6 +1501,7 @@ fn validate_signal_controllers_and_phases(
         |value| (value.signal_controller(), value.signal_phase_key()),
         "signalPhases.address",
         expected_key,
+        limits,
     )?;
     for value in root.signal_phases() {
         usage.charge_declaration(EntityKind::SignalPhase);
@@ -1878,6 +1526,11 @@ fn validate_signal_controllers_and_phases(
             ));
         }
         usage.charge_relation(states.len());
+        let duplicate_index = first_duplicate_index(
+            states.iter(),
+            |state| reference_parts(state.signal_group(), namespace),
+            limits,
+        )?;
         for (index, state) in states.iter().enumerate() {
             usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
             if state.signal_group().contains("::") {
@@ -1905,14 +1558,12 @@ fn validate_signal_controllers_and_phases(
                     expected_key,
                 ));
             }
-            for other in states.iter().skip(index + 1) {
-                if references_equal(state.signal_group(), other.signal_group(), namespace) {
-                    return Err(semantic_error(
-                        "signalPhase.states.signalGroup",
-                        RoadEditingInputViolation::DuplicateValue,
-                        expected_key,
-                    ));
-                }
+            if duplicate_index == Some(index) {
+                return Err(semantic_error(
+                    "signalPhase.states.signalGroup",
+                    RoadEditingInputViolation::DuplicateValue,
+                    expected_key,
+                ));
             }
         }
         usage.charge_reference(
@@ -1935,7 +1586,7 @@ fn validate_parking(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
@@ -1943,6 +1594,7 @@ fn validate_parking(
         |value| value.parking_facility_key(),
         "parkingFacilities.parkingFacilityKey",
         expected_key,
+        limits,
     )?;
     for value in root.parking_facilities() {
         usage.charge_declaration(EntityKind::ParkingFacility);
@@ -1999,6 +1651,7 @@ fn validate_parking(
         |value| value.parking_space_key(),
         "parkingSpaces.parkingSpaceKey",
         expected_key,
+        limits,
     )?;
     for value in root.parking_spaces() {
         usage.charge_declaration(EntityKind::ParkingSpace);
@@ -2083,7 +1736,7 @@ fn validate_parking_anchor(
     field: &'static str,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     usage.charge_reference(
@@ -2111,7 +1764,7 @@ fn validate_lane_groups_and_facility_bands(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
@@ -2119,6 +1772,7 @@ fn validate_lane_groups_and_facility_bands(
         |value| (value.road_section(), value.lane_group_key()),
         "laneGroups.address",
         expected_key,
+        limits,
     )?;
     for value in root.lane_groups() {
         usage.charge_declaration(EntityKind::LaneGroup);
@@ -2146,6 +1800,7 @@ fn validate_lane_groups_and_facility_bands(
         |value| (value.road_corridor(), value.facility_band_key()),
         "facilityBands.address",
         expected_key,
+        limits,
     )?;
     for value in root.facility_bands() {
         usage.charge_declaration(EntityKind::FacilityBand);
@@ -2187,7 +1842,7 @@ fn validate_access_and_profiles(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
@@ -2195,6 +1850,7 @@ fn validate_access_and_profiles(
         |value| value.participant_class_key(),
         "participantClasses.participantClassKey",
         expected_key,
+        limits,
     )?;
     for value in root.participant_classes() {
         usage.charge_declaration(EntityKind::ParticipantClass);
@@ -2224,6 +1880,7 @@ fn validate_access_and_profiles(
         |value| value.access_rule_key(),
         "accessRules.accessRuleKey",
         expected_key,
+        limits,
     )?;
     for value in root.access_rules() {
         usage.charge_declaration(EntityKind::AccessRule);
@@ -2300,6 +1957,7 @@ fn validate_access_and_profiles(
         |value| value.vehicle_profile_key(),
         "vehicleProfiles.vehicleProfileKey",
         expected_key,
+        limits,
     )?;
     for value in root.vehicle_profiles() {
         usage.charge_declaration(EntityKind::VehicleProfile);
@@ -2400,7 +2058,7 @@ fn validate_routes_and_frames(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     let _ = namespace;
@@ -2410,6 +2068,7 @@ fn validate_routes_and_frames(
         |value| value.canonical_frame_key(),
         "canonicalFrames.canonicalFrameKey",
         expected_key,
+        limits,
     )?;
     for value in root.canonical_frames() {
         usage.charge_declaration(EntityKind::CanonicalFrame);
@@ -2429,7 +2088,7 @@ fn validate_conflicts_and_regions(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
@@ -2437,6 +2096,7 @@ fn validate_conflicts_and_regions(
         |value| (value.junction(), value.conflict_zone_key()),
         "conflictZones.junction+conflictZoneKey",
         expected_key,
+        limits,
     )?;
     for value in root.conflict_zones() {
         usage.charge_declaration(EntityKind::ConflictZone);
@@ -2464,6 +2124,7 @@ fn validate_conflicts_and_regions(
         |value| (value.junction(), value.participant_stream_key()),
         "participantStreams.junction+participantStreamKey",
         expected_key,
+        limits,
     )?;
     for value in root.participant_streams() {
         usage.charge_declaration(EntityKind::ParticipantStream);
@@ -2634,7 +2295,7 @@ fn validate_path_anchor(
     field: &'static str,
     namespace: &str,
     imports: StringVector<'_>,
-    limits: &CompileLimits,
+    limits: &PreflightScratch<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     let canonical_zero = |value: f64| value.to_bits() == 0.0_f64.to_bits();
@@ -2678,20 +2339,9 @@ fn ensure_unique_strings(
     values: StringVector<'_>,
     field: &'static str,
     expected_key: &str,
+    limits: &PreflightScratch<'_>,
 ) -> Result<(), DiagnosticBundle> {
-    for left_index in 0..values.len() {
-        let left = values.get(left_index);
-        for right_index in left_index + 1..values.len() {
-            if left == values.get(right_index) {
-                return Err(semantic_error(
-                    field,
-                    RoadEditingInputViolation::DuplicateValue,
-                    expected_key,
-                ));
-            }
-        }
-    }
-    Ok(())
+    ensure_unique_by(values.iter(), |value| value, field, expected_key, limits)
 }
 
 fn ensure_unique_references(
@@ -2699,30 +2349,23 @@ fn ensure_unique_references(
     namespace: &str,
     field: &'static str,
     expected_key: &str,
+    limits: &PreflightScratch<'_>,
 ) -> Result<(), DiagnosticBundle> {
-    for left_index in 0..values.len() {
-        let left = values.get(left_index);
-        for right_index in left_index + 1..values.len() {
-            if references_equal(left, values.get(right_index), namespace) {
-                return Err(semantic_error(
-                    field,
-                    RoadEditingInputViolation::DuplicateValue,
-                    expected_key,
-                ));
-            }
-        }
-    }
-    Ok(())
+    ensure_unique_by(
+        values.iter(),
+        |value| reference_parts(value, namespace),
+        field,
+        expected_key,
+        limits,
+    )
+}
+
+fn reference_parts<'a>(value: &'a str, namespace: &'a str) -> (&'a str, &'a str) {
+    value.split_once("::").unwrap_or((namespace, value))
 }
 
 fn references_equal(left: &str, right: &str, namespace: &str) -> bool {
-    fn parts<'a>(value: &'a str, namespace: &'a str) -> (&'a str, &'a str) {
-        match value.split_once("::") {
-            Some((module, key)) => (module, key),
-            None => (namespace, value),
-        }
-    }
-    parts(left, namespace) == parts(right, namespace)
+    reference_parts(left, namespace) == reference_parts(right, namespace)
 }
 
 fn ensure_unique_by<I, T, K, F>(
@@ -2730,27 +2373,50 @@ fn ensure_unique_by<I, T, K, F>(
     key: F,
     field: &'static str,
     expected_key: &str,
+    limits: &PreflightScratch<'_>,
 ) -> Result<(), DiagnosticBundle>
 where
-    I: Clone + Iterator<Item = T>,
-    T: Copy,
-    K: PartialEq,
-    F: Copy + Fn(T) -> K,
+    I: ExactSizeIterator<Item = T>,
+    K: Ord,
+    F: Fn(T) -> K,
 {
-    for (index, left) in values.clone().enumerate() {
-        if values
-            .clone()
-            .skip(index + 1)
-            .any(|right| key(left) == key(right))
-        {
-            return Err(semantic_error(
-                field,
-                RoadEditingInputViolation::DuplicateValue,
-                expected_key,
-            ));
-        }
+    if values.len() < 2 {
+        return Ok(());
+    }
+    let mut keys = limits.collect(values.map(key))?;
+    keys.sort_unstable();
+    if keys.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(semantic_error(
+            field,
+            RoadEditingInputViolation::DuplicateValue,
+            expected_key,
+        ));
     }
     Ok(())
+}
+
+fn first_duplicate_index<I, T, K, F>(
+    values: I,
+    key: F,
+    limits: &PreflightScratch<'_>,
+) -> Result<Option<usize>, DiagnosticBundle>
+where
+    I: ExactSizeIterator<Item = T>,
+    K: Ord,
+    F: Fn(T) -> K,
+{
+    if values.len() < 2 {
+        return Ok(None);
+    }
+    let mut keys = limits.collect(values.enumerate().map(|(index, value)| (key(value), index)))?;
+    keys.sort_unstable();
+    // 旧循环在每项字段检查之后查找其后继重复项；必须保留最早原始左下标，
+    // 不能把字典序最小的重复键提前成首错，也不能移动该项自身的字段检查。
+    Ok(keys
+        .windows(2)
+        .filter(|pair| pair[0].0 == pair[1].0)
+        .map(|pair| pair[0].1)
+        .min())
 }
 
 fn semantic_error(
@@ -2981,38 +2647,6 @@ mod tests {
             )
             .is_err()
         );
-    }
-
-    #[test]
-    fn owner_closure_references_require_local_exact_addresses() {
-        assert!(local_root_reference_matches("group", "group"));
-        assert!(!local_root_reference_matches("base::group", "group"));
-        assert!(!local_root_reference_matches("other", "group"));
-
-        assert!(local_child_reference_matches(
-            "corridor>section",
-            "corridor",
-            1,
-            "section",
-        ));
-        assert!(local_child_reference_matches(
-            "corridor>section>lane",
-            "corridor>section",
-            2,
-            "lane",
-        ));
-        assert!(!local_child_reference_matches(
-            "base::corridor>section",
-            "corridor",
-            1,
-            "section",
-        ));
-        assert!(!local_child_reference_matches(
-            "other>section",
-            "corridor",
-            1,
-            "section",
-        ));
     }
 
     #[test]

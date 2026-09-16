@@ -2446,7 +2446,7 @@ mod tests {
             .write(builder.finish().unwrap())
             .unwrap();
         let input = RoadEditingModuleInput::try_new("roads/main", bytes.as_bytes(), None).unwrap();
-        let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
+        let verified = super::super::reader::verify_source(input, &limits, 0, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
         let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
         let mut declarations = Vec::new();
@@ -2528,7 +2528,7 @@ mod tests {
             .write(builder.finish().unwrap())
             .unwrap();
         let input = RoadEditingModuleInput::try_new("roads/main", bytes.as_bytes(), None).unwrap();
-        let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
+        let verified = super::super::reader::verify_source(input, &limits, 0, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
         let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
         let mut declarations = Vec::new();
@@ -2561,7 +2561,7 @@ mod tests {
         let bytes = RoadEditingSourceWriter::new(&limits).write(module).unwrap();
         let input =
             RoadEditingModuleInput::try_new("road-editing", bytes.as_bytes(), None).unwrap();
-        let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
+        let verified = super::super::reader::verify_source(input, &limits, 0, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
         let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
         let mut independent = Vec::new();
@@ -2732,7 +2732,7 @@ mod tests {
             .write(builder.finish().unwrap())
             .unwrap();
         let input = RoadEditingModuleInput::try_new("roads/main", bytes.as_bytes(), None).unwrap();
-        let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
+        let verified = super::super::reader::verify_source(input, &limits, 0, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
         let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
         let mut declarations = Vec::new();
@@ -2784,7 +2784,7 @@ mod tests {
         let bytes = RoadEditingSourceWriter::new(&limits).write(module).unwrap();
         let input =
             RoadEditingModuleInput::try_new("road-editing", bytes.as_bytes(), None).unwrap();
-        let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
+        let verified = super::super::reader::verify_source(input, &limits, 0, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
         let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
 
@@ -2882,7 +2882,7 @@ mod tests {
         }
 
         let input = RoadEditingModuleInput::try_new("road-editing", &malformed, None).unwrap();
-        let error = super::super::reader::verify_source(input, &limits, 0, 0)
+        let error = super::super::reader::verify_source(input, &limits, 0, 0, 0)
             .expect_err("the missing section owner must fail during semantic preflight");
         assert!(matches!(
             error.diagnostics()[0].payload(),
@@ -2903,7 +2903,7 @@ mod tests {
         let bytes = RoadEditingSourceWriter::new(&limits).write(module).unwrap();
         let input =
             RoadEditingModuleInput::try_new("road-editing", bytes.as_bytes(), None).unwrap();
-        let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
+        let verified = super::super::reader::verify_source(input, &limits, 0, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
         let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
         let mut declarations = Vec::new();
@@ -3040,7 +3040,7 @@ mod tests {
             .expect("buffer");
         let input =
             RoadEditingModuleInput::try_new("road-editing", bytes.as_bytes(), None).expect("input");
-        let verified = super::super::reader::verify_source(input, &limits, 0, 0)
+        let verified = super::super::reader::verify_source(input, &limits, 0, 0, 0)
             .expect("first-party Unicode must pass preflight");
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
         let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());

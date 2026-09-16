@@ -1,7 +1,7 @@
 # 道路编辑来源与几何编制前端
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-08-31<br>
+**最后更新**: 2026-09-17<br>
 **适用范围**: 道路编辑状态、有类型道路编辑模型、几何编制前端、程序化生成器接入、
 来源持久化编码与 topology/geometry MIR 降阶<br>
 **关联文档**: `network-compiler.md`、`compiler-foundation.md`、
@@ -536,6 +536,23 @@ LFSD 4；来源前端版本和 LFRE wire 版本分别精确校验。
    decode heap；v1 不以逐个 `Vec` / `Box` / `Arc` 的 allocator 精确会计作为接入前提；
 6. 任一失败不修改 `CompilationUnitBuilder`，后续合法模块仍可使用同一 builder/Compiler
    实例。
+
+预检去重使用借用键的原地不稳定排序与相邻比较，所有权闭合使用完整本地地址的排序
+索引、二分查找和饱和 owner 计数。排序不重排来源；字段检查仍按来源遍历顺序执行。
+在逐项字段检查后才判重复的集合中，索引先计算最早的原始重复左下标，再在该项的
+原有检查位置报告错误。引用去重继续把未限定引用与当前命名空间组成规范比较键；
+所有权闭合仍拒绝命名空间限定，不能把同名但不同 owner 的实体合并。
+
+每个临时索引先读取精确项数，以 checked arithmetic 计算请求容量字节并验证平台
+可表示性，再检查 `StageScratchBytes` 与“既有 builder 存续字节 + 当前所有共存预检
+索引”的 `CompilerControlledLiveBytes`。通过后只分配一次，作用域结束即释放；排序
+本身不申请额外堆工作区。预检峰值进入前端准入峰值账本，外部借用 source bytes 不重复
+计入该账本。预算充足时首个完整诊断不变；索引无法容纳时，在该操作处优先返回现有
+预算超限诊断，不回退到平方扫描。此资源失败顺序依据 [#680 的 G1 补充][preflight-index-g1]，
+不改变公开配置档数值。道路编辑前端没有取消参数或可恢复的 allocator OOM 诊断，
+普通 Rust allocator 的分配失败边界保持不变。
+
+[preflight-index-g1]: https://github.com/illusion-tech/laneflow/issues/680#issuecomment-5703330314
 
 令 `S` 为已经通过 exact-length 与 `SourceBytesPerModule/SourceBytesTotal` 检查的完整
 size-prefixed 输入字节数，`R` 为调用点剩余 `TypedAstRecordCount`：
