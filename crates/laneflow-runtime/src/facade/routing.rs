@@ -130,18 +130,29 @@ impl ObservationSetRecord {
 /// 观测输入集合构造失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum ObservationSetError {
+    /// 输入批次列表为空（`bind_observation_set`）。
     #[error("观测输入集合不能为空")]
     Empty,
+    /// 某个批次的观测 stream 绑定（世界身份或活动世代）与首个批次不一致
+    /// （`bind_observation_set`）。
     #[error("观测输入集合含不同世界或活动世代")]
     StreamMismatch,
+    /// 某个批次的路网修订标识或修订派生版本与首个批次不一致
+    /// （`bind_observation_set`）。
     #[error("观测输入集合含不同路网修订或派生版本")]
     NetworkRevisionMismatch,
+    /// 某个批次的已提交观测 tick 与首个批次不一致（`bind_observation_set`）。
     #[error("观测输入集合含不同已提交 tick")]
     TickMismatch,
+    /// 某个批次的观测状态序号与首个批次不一致（`bind_observation_set`）。
     #[error("观测输入集合含不同观测状态序号")]
     StateSequenceMismatch,
+    /// 规范排序后仍存在 `(stream, delivery sequence, selection digest)` 完全
+    /// 相同的重复输入（`bind_observation_set`）。
     #[error("观测输入集合含重复 stream/delivery/selection 绑定")]
     DuplicateInput,
+    /// 输入集合的缓冲预留失败，或批次数无法以 `u64` 计数
+    /// （`bind_observation_set`）。
     #[error("观测输入集合计数或缓冲分配失败")]
     ResourceFailure,
 }
@@ -394,28 +405,48 @@ impl CandidateRouteInput {
 /// 候选路线准入失败；任一失败都不占路线槽或 occurrence。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum CandidateRouteError {
+    /// 候选预检、稳定 ID 解析分配或路线边注册失败，透明承接 `RouteError` 全族
+    /// （`register_candidate_route`）。
     #[error(transparent)]
     Route(#[from] RouteError),
+    /// 动态成本绑定的封闭版本不是本 runtime 认可的版本（`register_candidate_route`）。
     #[error("动态成本绑定版本未知: {actual}")]
     DynamicCostBindingVersionMismatch { actual: u16 },
+    /// 准入会话记录的世界身份或活动世代与当前世界不一致，即会话已跨世代失效
+    /// （`register_candidate_route`）。
     #[error("Routing admission session 的世界身份或世代已失效")]
     AdmissionSessionMismatch,
+    /// 动态成本观测集合的世界身份或活动世代与当前世界不一致
+    /// （`register_candidate_route`）。
     #[error("动态成本绑定的世界身份或世代已失效")]
     CostWorldBindingMismatch,
+    /// 准入会话打开时绑定的路网修订或派生版本与当前根不一致
+    /// （`register_candidate_route`）。
     #[error("Routing admission session 的路网修订已失效")]
     AdmissionRevisionMismatch,
+    /// 动态成本观测集合的路网修订或派生版本与当前根不一致
+    /// （`register_candidate_route`）。
     #[error("动态成本绑定的路网修订已失效")]
     CostRevisionMismatch,
+    /// 动态成本绑定的成本模型身份与版本和准入会话打开时绑定的不一致
+    /// （`register_candidate_route`）。
     #[error("动态成本模型与 Routing admission session 不一致")]
     CostModelMismatch,
+    /// 动态成本有效窗末端早于其绑定的观测 tick（`register_candidate_route`）。
     #[error("动态成本有效窗末端早于观测 tick")]
     InvalidValidityWindow,
+    /// 动态成本观测 tick 晚于当前世界已提交的 tick（`register_candidate_route`）。
     #[error("动态成本观测 tick 来自未来")]
     FutureObservationTick,
+    /// 当前已提交 tick 已越过动态成本有效窗末端（`register_candidate_route`）。
     #[error("动态成本已过期")]
     StaleDynamicCost,
+    /// 动态成本观测状态序号大于当前世界已推进的观测状态序号
+    /// （`register_candidate_route`）。
     #[error("动态成本观测状态序号来自未来或损坏来源")]
     FutureObservationStateSequence,
+    /// 候选的 LaneEdge 稳定标识无法解析到当前修订，或其 kind 不是 LaneEdge
+    /// （`register_candidate_route`）。
     #[error("候选含当前修订未知或错误 kind 的 LaneEdge StableId128: {stable_id:?}")]
     UnknownLaneEdge { stable_id: StableId128 },
 }
@@ -468,10 +499,15 @@ impl AdmittedRouteRegisterInput {
 /// 规范化已准入路线注册失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum AdmittedRouteRegisterError {
+    /// 预检、稳定 ID 解析分配或路线边注册失败，透明承接 `RouteError` 全族
+    /// （`register_admitted_route`）。
     #[error(transparent)]
     Route(#[from] RouteError),
+    /// 输入的路网修订标识或修订派生版本与当前根不一致（`register_admitted_route`）。
     #[error("已准入路线的路网修订绑定与当前根不一致")]
     NetworkRevisionMismatch,
+    /// 输入的 LaneEdge 稳定标识无法解析到当前修订，或其 kind 不是 LaneEdge
+    /// （`register_admitted_route`）。
     #[error("已准入路线含当前修订未知或错误 kind 的 LaneEdge StableId128: {stable_id:?}")]
     UnknownLaneEdge { stable_id: StableId128 },
 }
