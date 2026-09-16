@@ -411,8 +411,10 @@ impl RestoredSnapshot {
 /// 逻辑内容非法（路线/车辆/权威重建失败）时返回相应 [`SnapshotRestoreError`]；
 /// 绑定校验通过后、staging 构造起点处的目标世界安装还会以 `Install`
 /// （[`InstallError`] 族，含策略派生表/冲突仲裁状态预留失败
-/// `PolicyAllocationFailed` / `ConflictArbiterAllocationFailed`）失败。任一失败
-/// 只丢弃局部 staging，不返回半恢复 world。
+/// `PolicyAllocationFailed` / `ConflictArbiterAllocationFailed`）失败；恢复末段
+/// 的占用索引重建另可因缓冲预留失败返回 `Occupancy`
+/// （`StepError::OccupancyAllocFailed` 等）。任一失败只丢弃局部 staging，不
+/// 返回半恢复 world。
 pub fn restore_lfrs(
     bytes: &[u8],
     revision: Arc<SharedNetworkRevision>,

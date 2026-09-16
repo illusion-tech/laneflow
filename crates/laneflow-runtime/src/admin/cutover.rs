@@ -445,6 +445,7 @@ pub enum CutoverError {
     /// 相同策略身份必须保留法域和法规版本。
     #[error("目标路权策略法域或法规版本不一致")]
     PolicyRegulationMismatch,
+    /// 目标世界的路权策略安装失败；内嵌 [`InstallError`] 族（跨修订 prepare）。
     #[error("目标世界的路权策略安装失败")]
     PolicyInstall(crate::InstallError),
     /// 描述符一致性验证失败（对应合同 §8「描述符不一致/不可信」）。

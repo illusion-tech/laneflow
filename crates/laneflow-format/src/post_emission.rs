@@ -207,8 +207,10 @@ where
 /// # Errors
 ///
 /// LFCA/LFSM/LFSD 来源读取、长度或摘要校验、结构/registry/值域格式预检
-/// （`Format`）、语义差异基线核对或上限检查失败时返回相应
-/// [`PostEmissionCheckError`]；来源不被修改。
+/// （`Format`）、跨对象绑定一致性（LFSM 的 compiler build ID/来源摘要版本/
+/// LFCA 绑定字段与实际 LFCA 不符 `SourceMapBindingMismatch`；LFSD 目标修订
+/// 绑定不符 `SemanticDiffTargetBindingMismatch`）、语义差异基线核对或上限
+/// 检查失败时返回相应 [`PostEmissionCheckError`]；来源不被修改。
 pub fn check_post_emission_bundle<L, M, D>(
     lfca: L,
     lfsm: M,
