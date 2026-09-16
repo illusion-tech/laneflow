@@ -23,6 +23,7 @@ const MINIMUM_GAP_TOLERANCE_MM: u32 = 1;
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MotionCacheEntry {
     pub(crate) vehicle: crate::VehicleHandle,
+    pub(crate) update_sequence: usize,
     pub(crate) horizon: Option<LeaderQueryHorizon>,
     pub(crate) preview: Option<MotionPreview>,
 }
@@ -163,6 +164,33 @@ mod transaction_tests {
         let mut cached = crate::kernel::waiting::tests::multi_gate_world(8);
         let mut partial = crate::kernel::waiting::tests::multi_gate_world(8);
         let mut uncached = crate::kernel::waiting::tests::multi_gate_world(8);
+        for world in [&mut cached, &mut partial, &mut uncached] {
+            // 槽位复用打乱 handle 次序；中间车辆完成后 live 与 Active 序号不同。
+            let middle = world.live_vehicles()[3];
+            let old = *world.vehicle_state(middle).unwrap();
+            world.despawn_vehicle(middle).unwrap();
+            world
+                .spawn_vehicle(crate::VehicleSpawnInput::new(
+                    old.profile,
+                    old.route,
+                    2,
+                    20_000,
+                    0,
+                ))
+                .unwrap();
+            let first = world.live_vehicles()[0];
+            let old = *world.vehicle_state(first).unwrap();
+            world.despawn_vehicle(first).unwrap();
+            world
+                .spawn_vehicle(crate::VehicleSpawnInput::new(
+                    old.profile,
+                    old.route,
+                    old.route_edge_index,
+                    old.progress_mm,
+                    old.speed_mm_s,
+                ))
+                .unwrap();
+        }
         let mut work = [(0, 0); 3];
         for _ in 0..64 {
             for (index, (world, limit)) in [
@@ -1467,7 +1495,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
             updates.push((slot, next));
         }
-        self.workspace.motion_cache.clear();
         #[cfg(test)]
         drop(motion_timer);
         #[cfg(test)]
@@ -1497,6 +1524,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let output_timer =
             super::performance_profile::begin(super::performance_profile::Stage::WaitingOutputs);
         self.finalize_waiting_outputs(updates, tick_index)?;
+        self.workspace.motion_cache.clear();
         #[cfg(test)]
         drop(output_timer);
         #[cfg(test)]

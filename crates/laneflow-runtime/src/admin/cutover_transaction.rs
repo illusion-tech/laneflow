@@ -565,6 +565,10 @@ impl CutoverTransaction {
             &mut candidate.workspace.waiting_staged_decisions,
         );
         std::mem::swap(
+            &mut world.workspace.waiting_non_entry_anchors,
+            &mut candidate.workspace.waiting_non_entry_anchors,
+        );
+        std::mem::swap(
             &mut world.workspace.staged_transition_events,
             &mut candidate.workspace.staged_transition_events,
         );

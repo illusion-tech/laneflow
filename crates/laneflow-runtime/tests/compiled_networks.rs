@@ -10,6 +10,9 @@ mod policy_acceptance;
 #[path = "support/eta_evidence.rs"]
 mod eta_evidence;
 
+#[path = "support/waiting_output_evidence.rs"]
+mod waiting_output_evidence;
+
 use std::hint::black_box;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -121,7 +124,13 @@ fn iidm() -> IidmVehicleProfileInput {
 fn compile_revision(
     configure: impl FnOnce(&mut SyntheticModuleBuilder),
 ) -> Arc<SharedNetworkRevision> {
-    let limits = CompileLimits::p100_initial_v1();
+    compile_revision_with_limits(CompileLimits::p100_initial_v1(), configure)
+}
+
+fn compile_revision_with_limits(
+    limits: CompileLimits,
+    configure: impl FnOnce(&mut SyntheticModuleBuilder),
+) -> Arc<SharedNetworkRevision> {
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/runtime-coverage",

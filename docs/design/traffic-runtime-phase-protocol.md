@@ -107,6 +107,10 @@ TrafficWorld
 原任务描述中的 `waiting_staged_events` 对应的现行统一字段是
 `staged_transition_events`；不恢复独立 Waiting 事件缓冲或兼容别名。
 
+`waiting_non_entry_anchors` 属于 Workspace：它保留从正式 staged motion 首次发现的
+非入口 Gate 描述，成功输出或回滚后清空。`motion_cache` 的同拍正式更新序号保留至
+Waiting 输出定稿，仍以完整车辆句柄核对；它不是已提交顺序的第二权威。
+
 ### 2.2 Conflict 和其他嵌套聚合
 
 资源规则仍只有一个规范归约权威；拆分状态不制造多个独立 arbiter。后续实现应让
