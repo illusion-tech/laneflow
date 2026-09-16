@@ -1,6 +1,34 @@
 """复核 #678 的完整批次、同场景摘要、工作量与有限结构实验。"""
 import argparse,ast,collections,json,math,re,statistics
 from pathlib import Path
+
+# 与正式命令夹具及结构测量入口的场景矩阵一致；数量相同不能证明场景完整。
+EXPECTED_COMMAND_CASES = {
+    f'{active}/{active+parked}/{commands}/{percent}/0'
+    for active in (128, 1024)
+    for parked in (64, 4096)
+    for commands in (1, 16, 64)
+    for percent in (0, 50, 100)
+    if commands != 1 or percent != 50
+} | {'1024/5120/64/50/1', '1024/5120/64/50/2'}
+EXPECTED_MODEL_CASES = {
+    f'index:initial={initial},hot={hot},queries={queries},mode={mode}'
+    for initial in (128, 1024)
+    for hot in ('false', 'true')
+    for queries in (1, 64)
+    for mode in range(3)
+} | {
+    f'active:initial={initial},parked={parked},mode={mode}'
+    for initial in (128, 1024)
+    for parked in (64, 4096)
+    for mode in range(4)
+}
+
+def require_cases(actual, expected, label):
+    assert actual == expected, (
+        f'{label}: missing={sorted(expected-actual)} unexpected={sorted(actual-expected)}'
+    )
+
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('directory',type=Path)
 parser.add_argument('--models-dir',type=Path)
@@ -28,7 +56,8 @@ for round in range(1,4):
             values=[ns for success,ns in calls if success==ok]
             row[label]=quantiles(values) if values else None
         rows.append(row)
-assert len(rows)==102 and len(digests)==34 and all(len(x)==1 for x in digests.values())
+require_cases(set(digests), EXPECTED_COMMAND_CASES, 'command cases')
+assert len(rows)==102 and all(len(x)==1 for x in digests.values())
 summary=[]
 for key in digests:
     group=[r for r in rows if r['case']==key]
@@ -53,7 +82,8 @@ for line in (args.work_log or root/'work.log').read_text(encoding='utf-8-sig').s
     assert digests[key]=={digest}
     assert fields['calls']==fields['commands']
     work.append(dict(case=key,**fields))
-assert len(work)==34 and len({w['case'] for w in work})==34
+require_cases({w['case'] for w in work}, EXPECTED_COMMAND_CASES, 'work cases')
+assert len(work)==34
 
 models=[]
 model_root=args.models_dir or root
@@ -65,6 +95,7 @@ for round in range(1,4):
         key=match[1]+':'+','.join(f'{k}={v}' for k,v in fields.items() if k not in ['retained','writes'])
         values=ast.literal_eval(match[3]);assert len(values)==32
         models.append(dict(kind=match[1],case=key,round=round,**fields,**quantiles(values)))
+require_cases({r['case'] for r in models}, EXPECTED_MODEL_CASES, 'model cases')
 assert len(models)==120
 model_summary=[]
 for key in dict.fromkeys(r['case'] for r in models):
