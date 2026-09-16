@@ -51,6 +51,10 @@ downstream authority 与 lag history 的持久化、同/跨修订迁移和生产
 
 ## 2. 版本轴与绑定集
 
+[执行配置分离提案](traffic-runtime-execution-config.md)建议将 worker 移出快照、仅
+提升容器格式版本。该文状态为 Review；本文的 LFRS 5 / runtime state 5 / digest 7
+仍是当前合同，接受并实施提案时再同步更新字段与拒绝面。
+
 版本轴分离：容器 `formatVersion` 与被绑定事实的版本（runtime 版本、
 static-contract versions、`networkRevisionDerivationVersion`、identity registry
 revision）不混用单一数字；未知版本值失败关闭。
