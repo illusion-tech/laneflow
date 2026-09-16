@@ -120,7 +120,7 @@ jobs:
       - name: Install Rust MSRV toolchain
         if: steps.filter.outputs.rust == 'true'
         shell: bash
-        run: rustup toolchain install 1.98.0 --profile minimal --component rustfmt
+        run: rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy
 
       - name: Cache Rust dependencies
         if: steps.filter.outputs.rust == 'true'
