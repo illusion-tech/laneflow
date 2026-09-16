@@ -65,7 +65,9 @@ pub enum LaneFlowAdapterError {
     },
     /// Runtime 真正移除车辆失败；mapping 保持不变。
     VehicleDespawn {
+        /// 被移除的车辆句柄。
         vehicle: VehicleHandle,
+        /// Runtime 移除失败源。
         source: ParkingError,
     },
     /// 维护暂停式切换失败（Runtime prepare/commit 或同修订换根）；旧世界原样继续。

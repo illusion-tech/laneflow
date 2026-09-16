@@ -23,6 +23,7 @@ impl FramePlacementToken {
         Self(value)
     }
 
+    /// 返回底层稳定数值。
     #[must_use]
     pub const fn raw(self) -> u64 {
         self.0
@@ -36,6 +37,7 @@ impl PoseRecordId {
         Self(value)
     }
 
+    /// 返回底层稳定数值。
     #[must_use]
     pub const fn raw(self) -> u32 {
         self.0

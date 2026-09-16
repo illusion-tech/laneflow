@@ -33,6 +33,7 @@
 //! 本 crate 不实现安装、rename、目录耐久或发布事务；只承载 staging 生命周期
 //! 与只读映射边界。
 
+#![deny(missing_docs)]
 #![allow(unsafe_code)]
 
 use std::{
