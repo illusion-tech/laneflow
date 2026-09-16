@@ -37,12 +37,13 @@ pub enum ExpectedSemanticDiffBase {
 /// 后发射检查的稳定失败分类。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PostEmissionCheckError {
-    /// LFCA/LFSM/LFSD 任一来源无法建立连续字节视图，或实际字节数与登记的 exact length
-    /// 不一致（`check_post_emission_bundle`）。
+    /// LFCA/LFSM/LFSD 任一来源无法建立连续字节视图，或读取成功但实际字节数与
+    /// `exact_byte_length` 不一致（来源校验失败，`BackingChanged`）（
+    /// `check_post_emission_bundle`）。
     ObjectSource {
         /// 读取失败的对象种类。
         object: PortableObjectKind,
-        /// 来源读取失败的具体原因。
+        /// 来源读取或长度校验失败的具体原因。
         error: ObjectSourceError,
     },
     /// 三对象任一的 framing/registry/值域预检失败，或 provenance/LFCA 修订声明/
