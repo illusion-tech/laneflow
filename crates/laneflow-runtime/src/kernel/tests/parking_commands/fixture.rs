@@ -273,10 +273,18 @@ pub struct Fixture {
 }
 
 pub fn fixture(revision: &Arc<SharedNetworkRevision>, case: Case) -> Fixture {
+    fixture_with_capacity(revision, case, (case.active + case.parked) as u32)
+}
+
+pub fn fixture_with_capacity(
+    revision: &Arc<SharedNetworkRevision>,
+    case: Case,
+    vehicle_capacity: u32,
+) -> Fixture {
     assert!(case.active >= EXITS && case.parked >= EXITS && case.commands <= EXITS);
     let mut world = install_fixture(
         Arc::clone(revision),
-        WorldConfig::new((case.active + case.parked) as u32, 65, 65, 1, 1, 100),
+        WorldConfig::new(vehicle_capacity, 65, 65, 1, 1, 100),
     )
     .unwrap();
     let facility = ParkingFacilityOrdinal::from_raw(0);
