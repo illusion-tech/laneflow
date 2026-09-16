@@ -186,7 +186,8 @@ pub enum FormatError {
         /// 读到的未登记 kind 码。
         code: u64,
     },
-    /// 要求严格递增的序列出现乱序或重复：section kind、chunk 序号、行内字段 tag 等
+    /// 要求严格递增的序列出现乱序或重复，或值虽递增但与 registry 登记值不符
+    /// （如首 section kind 跳号）：section kind、chunk 序号、行内字段 tag 等
     /// （读取侧四个 `preflight_*` 入口；写入侧 `measure_object`/`prepare_object`/
     /// `encode_object` 同样可达）。
     NonCanonicalOrder {

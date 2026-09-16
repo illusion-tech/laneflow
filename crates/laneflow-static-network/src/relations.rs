@@ -27,7 +27,8 @@ pub enum CorridorElement {
 pub enum FacilityKind {
     /// 机动车道（`motorLane`），承担车道遍历。
     MotorLane,
-    /// 非机动车道（`nonMotorLane`），承担车道遍历。
+    /// 非机动车道（`nonMotorLane`）；lane-bearing 仅为结构属性（车道链/排序/
+    /// 准入目标），不提供非机动车遍历行为。
     NonMotorLane,
     /// 人行道（`sidewalk`）。
     Sidewalk,
