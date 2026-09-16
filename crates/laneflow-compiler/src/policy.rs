@@ -32,26 +32,27 @@ pub enum PolicyViolation {
     /// （`add_right_of_way_policy_set`）。
     SourceDocument,
     /// 同一策略集内证据、间隙参数、stream 规则或 gate 规则的成员键重复
-    /// （`add_right_of_way_policy_set`、`add_road_editing_module` 与
-    /// `Compiler::compile` 的策略阶段均可达）。
+    /// （`add_right_of_way_policy_set` 与 `add_road_editing_module` 准入可达；
+    /// `Compiler::compile` 的重复校验为防御性——经公开 API 构建的编译单元
+    /// 不会首先在此触发）。
     DuplicateMember,
-    /// 让行目标、参与者类别或证据引用在同一规则内重复（三个策略声明入口均
-    /// 可达，同 `DuplicateMember`）。
+    /// 让行目标、参与者类别或证据引用在同一规则内重复（两个准入入口可达；
+    /// compile 侧重验同 `DuplicateMember` 为防御性）。
     DuplicateReference,
     /// stream/gate 规则显式声明的参与者类别列表为空（`add_right_of_way_policy_set`
-    /// 与 `Compiler::compile` 可达；LFRE 的空类别向量在预检即以 `EmptyCollection`
-    /// 拒绝，不触达本变体）。
+    /// 准入可达；LFRE 的空类别向量在预检即以 `EmptyCollection` 拒绝，compile 侧
+    /// 重验同 `DuplicateMember` 为防御性）。
     EmptyClasses,
-    /// 规则引用的证据键或间隙参数键不存在于本策略集的对应成员中（三个策略声明
-    /// 入口均可达，同 `DuplicateMember`）。
+    /// 规则引用的证据键或间隙参数键不存在于本策略集的对应成员中（两个准入
+    /// 入口可达；compile 侧重验同 `DuplicateMember` 为防御性）。
     MissingLocalReference,
-    /// 规则没有证据成员，且所属法规身份也没有来源说明（三个策略声明入口均
-    /// 可达，同 `DuplicateMember`）。
+    /// 规则没有证据成员，且所属法规身份也没有来源说明（两个准入入口可达；
+    /// compile 侧重验同 `DuplicateMember` 为防御性）。
     MissingEvidence,
     /// stream 规则的让行目标与间隙参数必须同有或同无：声明了让行目标但缺间隙
     /// 参数，或未声明目标却携带间隙参数（两者皆无为合法；
-    /// `add_right_of_way_policy_set` 与 `Compiler::compile` 可达，LFRE 的不一致
-    /// 在预检即以 `InvalidCombination` 拒绝）。
+    /// `add_right_of_way_policy_set` 准入可达，LFRE 的不一致在预检即以
+    /// `InvalidCombination` 拒绝，compile 侧重验同 `DuplicateMember` 为防御性）。
     GapBinding,
     /// 某参与类别被车辆 profile 使用并在机动门或参与者流上可准入，但没有任何
     /// 可适用规则；选择单元只为 profile 使用的类别建立，未被使用的类别不触发
