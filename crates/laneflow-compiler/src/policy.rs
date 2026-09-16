@@ -24,9 +24,9 @@ pub enum PolicyViolation {
     /// （`add_right_of_way_policy_set`）。
     EmptyValue,
     /// 法规身份的 jurisdiction/version/source 字符数不在 `1..=128`
-    /// （`add_right_of_way_policy_set` 与 `Compiler::compile` 的策略阶段可达；
-    /// LFRE 来源的非法法规身份在 `add_road_editing_module` 预检即以
-    /// `InvalidCombination` 拒绝，不触达本变体）。
+    /// （`add_right_of_way_policy_set` 准入可达；LFRE 来源的非法法规身份在
+    /// `add_road_editing_module` 预检即以 `InvalidCombination` 拒绝，compile 侧
+    /// 重验同 `DuplicateMember` 为防御性）。
     InvalidRegulation,
     /// 策略任一来源位置（主或参与）的 `sourceDocumentKey` 与所属模块登记键不一致
     /// （`add_right_of_way_policy_set`）。

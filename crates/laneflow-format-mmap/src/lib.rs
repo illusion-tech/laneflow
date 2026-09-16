@@ -53,8 +53,9 @@ pub enum BackingError {
     Io(io::Error),
     /// u64 exact length 无法装入本平台 usize（`SealedPrivateFile::map_read_only`）。
     LengthOverflow,
-    /// 核对时 backing 长度与登记长度不符（`PrivateStagedFile::seal`、
-    /// `SealedPrivateFile::map_read_only` 映射前后核对）。
+    /// 核对时 backing 长度与登记长度不符（`PrivateStagedFile::seal`；
+    /// `map_read_only` 仅在建立映射前核对一次，映射后比对的映射长度不重读
+    /// backing 元数据）。
     BackingChanged,
 }
 
