@@ -494,8 +494,10 @@ pub enum JunctionEdgeSetViolation {
     /// （`Compiler::compile`）。
     InternalHasSuccessors,
     /// 显式声明的 internal 边被其它边的后继列表引用，且该边已被某机动路径声明
-    /// 为内部使用；未声明、未被任何路径使用、或引用边自身为已声明显式 internal
-    /// 边（由 `InternalHasSuccessors` 报告）时不触发（`Compiler::compile`）。
+    /// 为内部使用；未声明或未被任何路径使用的目标边不触发，引用边自身为已声明
+    /// 且被路径内部使用的显式 internal 边（由 `InternalHasSuccessors` 报告）时也
+    /// 不触发——已声明但未被路径使用的引用边仍会触发本变体（并伴随
+    /// `DeclaredInternalUnused`）（`Compiler::compile`）。
     InternalReferencedBySuccessor,
 }
 
