@@ -34,7 +34,8 @@ pub enum LaneFlowVehicleReplaceOutcome {
 pub struct LaneFlowVehicleDespawnRecord {
     /// Runtime 侧移除事实。
     pub runtime: VehicleDespawnRecord,
-    /// 被原子删除的宿主 Entity（未绑定为 `None`）。
+    /// 被解除映射的宿主 Entity（实体本身仍存活，供宿主侧清理；未绑定为
+    /// `None`）。
     pub entity: Option<Entity>,
 }
 
