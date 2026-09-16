@@ -777,8 +777,9 @@ pub enum SpatialGeometryViolation {
         accumulated_bits: u32,
         segment_length_bits: u32,
     },
-    /// 声明长度与冻结折线弧长之差超出绝对/相对容差（`Compiler::compile` 的点表
-    /// 冻结）。
+    /// 声明长度与冻结折线弧长之差超出绝对/相对容差与量化容许
+    /// （`SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS` 在绝对/相对最大值之上
+    /// 追加）之和（`Compiler::compile` 的点表冻结）。
     LengthMismatch {
         expected_length_bits: u64,
         geometry_length_bits: u32,
