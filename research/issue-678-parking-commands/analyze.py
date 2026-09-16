@@ -69,7 +69,8 @@ assert len(models)==120
 model_summary=[]
 for key in dict.fromkeys(r['case'] for r in models):
     group=[r for r in models if r['case']==key]
-    assert len(group)==3 and len({(r['retained'],r['writes']) for r in group})==1
+    assert len(group)==3 and {r['round'] for r in group}=={1,2,3}, f'model rounds: {key}'
+    assert len({(r['retained'],r['writes']) for r in group})==1
     result={k:v for k,v in group[0].items() if k not in ['round','p50','p95','p99','maximum']}
     result.update({k:statistics.median(r[k] for r in group) for k in ['p50','p95','p99']})
     result['maximum']=max(r['maximum'] for r in group)
