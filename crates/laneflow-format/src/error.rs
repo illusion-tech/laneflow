@@ -21,7 +21,7 @@ pub enum LimitDimension {
     TotalUtf8Bytes,
     /// 单个向量值的元素个数。
     VectorItems,
-    /// 单个 chunk 内全部向量值的累计元素数（预算按 chunk 重建）。
+    /// 单个 chunk 内全部向量值的累计字节数（预算按 chunk 重建）。
     TotalVectorBytes,
     /// record 向量值的嵌套行深度。
     RecordVectorDepth,
@@ -191,9 +191,10 @@ pub enum FormatError {
     NonCanonicalOrder {
         /// 乱序发生的结构位置。
         structure: FormatStructure,
-        /// 序列中前一项的值。
+        /// 序列中前一项的值；section kind / chunk 序号失配时为登记的期望值
+        /// （并无真实前驱项）。
         previous: u64,
-        /// 读到的当前项的值。
+        /// 读到的当前项的值；同上，失配时为实际值。
         current: u64,
     },
     /// 字段或头部取值违背规范编码：保留位非零、行数为 0、浮点非规范、UTF-8/ASCII 语法
@@ -203,7 +204,8 @@ pub enum FormatError {
     /// `RegistryCheckedFieldView::value` 重解码触发；写入侧 `measure_object`/
     /// `prepare_object`/`encode_object` 同样可达）。
     NonCanonicalValue {
-        /// 违背规范编码的结构位置。
+        /// 违背规范编码的结构位置；解析 section 或 table chunk 时为该切片内
+        /// 局部偏移，非对象全局偏移。
         structure: FormatStructure,
         /// 违规取值在对象字节流中的偏移；写入侧错误无定位信息时为 0。
         offset: u64,
