@@ -25,8 +25,8 @@ pub enum PolicyBuildViolation {
     /// 右转灯型解释（圆形右转/方向右转保护/许可）落在非右转机动上
     /// （`build_shared_network_revision` 策略闭合）。
     RightTurnRequired,
-    /// 同一机动上的多个门声明互斥的右转灯型（`build_shared_network_revision`
-    /// 策略闭合）。
+    /// 同一门（按门下标累计比较）重复声明互斥的右转灯型；不同门之间不比较
+    /// （`build_shared_network_revision` 策略闭合）。
     LampTypeConflict,
     /// 流规则的让行目标包含所属流自身（`build_shared_network_revision` 策略闭合）。
     SelfYield,
@@ -39,11 +39,12 @@ pub enum PolicyBuildViolation {
     /// 适用规则中出现相同的（类选择器深度， 优先级）最高排名，无法唯一裁决
     /// （`build_shared_network_revision` 策略闭合）。
     AmbiguousRule,
-    /// 让行目标的最低优先级不严格低于让行方，流间让行关系不成严格次序
-    /// （`build_shared_network_revision` 策略闭合）。
+    /// 让行目标可解析的最低优先级数值不严格大于让行方（目标 ≤ 让行方），流间
+    /// 让行关系不成严格次序（`build_shared_network_revision` 策略闭合）。
     YieldPriority,
-    /// 同一冲突区内的 protected 门绑定到不同信号 controller，或同一策略的不同
-    /// protected 冲突区争用同一绿灯 phase（`build_shared_network_revision` 策略闭合）。
+    /// 同一冲突区内的 protected 门绑定到不同信号 controller，或同一冲突区内
+    /// 重复绑定同一绿灯 phase（跨冲突区的同 phase 不触发；
+    /// `build_shared_network_revision` 策略闭合）。
     ProtectedConflict,
 }
 
@@ -101,7 +102,8 @@ pub enum BuildError {
     /// 归属不闭合等（`build_shared_network_revision`；structure 标明所属组件）。
     InputInvariant { structure: BuildStructure },
     /// 实体行声明的 typed ordinal 与按行序派生的期望序号不一致
-    /// （`build_shared_network_revision` 的身份表、实体表与关系闭合扫描）。
+    /// （`build_shared_network_revision` 的身份表、实体表、关系闭合与车道几何行
+    /// 扫描）。
     UnexpectedOrdinal {
         structure: BuildStructure,
         expected: u32,
@@ -150,8 +152,8 @@ pub enum BuildError {
     /// 规范系、车道/设施几何、冲突区面）不一致；无 spatial payload 的 headless
     /// LFCA 是合法输入（`build_shared_network_revision`）。
     SpatialPresenceMismatch,
-    /// 车道几何行数与 LaneEdge 实体数不一致（`build_shared_network_revision`
-    /// 的 spatial 构建）。
+    /// 车道几何行数与 LaneEdge 实体数不一致；零几何行的 headless LFCA 显式
+    /// 跳过本检查（`build_shared_network_revision` 的 spatial 构建）。
     SpatialCoverageMismatch { lane_edges: u32, geometries: u32 },
     /// 车道几何弧长与同车道交通网络的毫米长度不匹配（超出绝对/相对容差；
     /// `build_shared_network_revision` 的 spatial 构建）。
