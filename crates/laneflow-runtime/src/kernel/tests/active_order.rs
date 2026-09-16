@@ -240,7 +240,7 @@ fn completed_replacement_invalidates_and_parking_removes_stably() {
     assert_eq!(f.world.derived.live_order_index.indexed_len, 0);
     assert_eq!(f.world.derived.active_order.last(), Some(&replacement.new));
     leave(&mut f, 30);
-    // background 首车前进后入口释放；停车删除中间成员不改变 live 顺序。
+    // background 首车前进后入口释放；停车删除 Active 成员不改变 live 顺序。
     let background = f
         .world
         .vehicle_state(f.world.live_vehicles()[64])
