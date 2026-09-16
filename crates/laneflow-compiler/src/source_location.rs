@@ -363,7 +363,7 @@ pub enum RoadEditingRelationKind {
     RoadSectionAuthoringLane,
     /// 车道图边对后继边的关系。
     LaneEdgeSuccessor,
-    /// 路口对入口接近边的关系。
+    /// 路口对接近边的关系；集合含每条机动路径的入口边与出口边。
     JunctionApproachEdge,
     /// 路口对内部边的关系。
     JunctionInternalEdge,

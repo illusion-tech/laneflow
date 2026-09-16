@@ -104,7 +104,8 @@ pub enum TrafficTransitionKind {
         /// 释放的冲突 passage 区间。
         passage_range: ConflictPassageRange,
     },
-    /// 机动遍历完成：车尾越过该机动出口并清空全部 coverage。
+    /// 机动遍历完成；无冲突预留的机动在车头越过出口边即发（车尾可能仍在
+    /// 机动内部），有预留的机动按其 coverage 清空判定。
     ManeuverTraversalCompleted {
         /// 完成的机动出现项下标。
         maneuver_occurrence_index: u32,
