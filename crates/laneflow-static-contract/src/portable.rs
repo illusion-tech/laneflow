@@ -186,18 +186,31 @@ impl PortableObjectKind {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum PortableFieldType {
+    /// 无符号 8-bit 整数；exact value bytes 为 1。
     U8 = 1,
+    /// 无符号 16-bit 整数；exact value bytes 为 2。
     U16 = 2,
+    /// 无符号 32-bit 整数；exact value bytes 为 4。
     U32 = 3,
+    /// 无符号 64-bit 整数；exact value bytes 为 8。
     U64 = 4,
+    /// 32-bit 浮点数；exact value bytes 为 4。
     F32 = 5,
+    /// 64-bit 浮点数；exact value bytes 为 8。
     F64 = 6,
+    /// 16 字节原始 StableId128 值；exact value bytes 为 16。
     StableId128 = 7,
+    /// 32 字节 SHA-256 原始摘要；exact value bytes 为 32。
     Sha256 = 8,
+    /// 变长 UTF-8 文本值。
     Utf8 = 9,
+    /// 变长原始字节值。
     Bytes = 10,
+    /// `u32` 序号向量值。
     OrdinalVectorU32 = 11,
+    /// 内嵌 RowV1 记录向量；行 schema 由字段登记的 `nested_row` 给出。
     RecordVector = 12,
+    /// 有符号 32-bit 整数；exact value bytes 为 4。
     I32 = 13,
 }
 

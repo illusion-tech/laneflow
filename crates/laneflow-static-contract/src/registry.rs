@@ -39,29 +39,53 @@ pub enum EntityCategory {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(u16)]
 pub enum EntityKind {
+    /// 道路走廊：组织方向性道路区段与非遍历设施带的横断面所有者。
     RoadCorridor = 1,
+    /// 道路区段：道路走廊内具有方向和横断面成员关系的区段。
     RoadSection = 2,
+    /// 编制车道：来源模块中具有稳定键、可展开为道路车道边的车道声明。
     AuthoringLane = 3,
+    /// 车道图边：具有显式稳定边键、可独立寻址的基础遍历拓扑实体。
     LaneEdge = 4,
+    /// 路口：组织通行流向和机动路径的静态路口声明。
     Junction = 5,
+    /// 通行流向：从有向入口接近臂到有向出口接近臂的静态通行意图。
     Movement = 6,
+    /// 机动路径：某通行流向内连接入口边、内部边和出口边的可遍历路径。
     ManeuverPath = 7,
+    /// 机动门：绑定机动路径、用于空间准入和信号约束的静态门。
     ManeuverGate = 8,
+    /// 等待区：绑定机动路径并表达等待容量、顺序或位置的静态区域。
     WaitingZone = 9,
+    /// 停止线：表达车辆必须在其前满足通行约束的静态线。
     StopLine = 10,
+    /// 信号组：面向一组门或通行意图输出信号指示的静态组。
     SignalGroup = 11,
+    /// 信号控制器：产生信号相位和指示时间序列的静态控制程序。
     SignalController = 12,
+    /// 信号相位：信号控制器内具有稳定键的阶段声明。
     SignalPhase = 13,
+    /// 停车设施：可同时组织显式停车位与虚拟容量的停车设施实体。
     ParkingFacility = 14,
+    /// 停车位：有排他占用、静态几何和 parked pose 的具体位置。
     ParkingSpace = 15,
+    /// 车道组：道路区段内组织车道成员的静态分组。
     LaneGroup = 16,
+    /// 设施带：道路走廊内不直接承担机动车遍历拓扑的设施横带。
     FacilityBand = 17,
+    /// 参与者类别：数据声明、可继承的准入分类。
     ParticipantClass = 18,
+    /// 准入规则：对参与者与目标施加允许、拒绝或约束效果的静态规则。
     AccessRule = 19,
+    /// 车辆配置：冻结车辆运动与安全参数的静态配置。
     VehicleProfile = 20,
+    /// 冲突区：多个参与者流可能发生空间冲突、需要运行时裁决的区域。
     ConflictZone = 21,
+    /// 规范坐标框架：空间几何和位姿共享的稳定局部坐标框架。
     CanonicalFrame = 22,
+    /// 参与者流：进入冲突裁决的有向参与者流。
     ParticipantStream = 23,
+    /// 路权策略集：由一份法规身份固定含义的规则、依据和间隙参数集合。
     RightOfWayPolicySet = 24,
 }
 
@@ -286,40 +310,75 @@ pub enum FieldEncoding {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(u16)]
 pub enum FieldTag {
+    /// 实体来源命名空间的标识；实体稳定键在该命名空间内声明。
     AuthoringNamespaceId = 1,
+    /// 道路走廊的来源命名空间内稳定键。
     CorridorKey = 2,
+    /// 道路区段的来源命名空间内稳定键。
     SectionKey = 3,
+    /// 编制车道的来源命名空间内稳定键。
     LaneKey = 4,
+    /// 车道图边的显式稳定边键。
     LaneEdgeKey = 5,
+    /// 路口的来源命名空间内稳定键。
     JunctionKey = 6,
+    /// 机动路径的来源命名空间内稳定键。
     PathKey = 7,
+    /// 通行流向的来源命名空间内稳定键。
     MovementKey = 8,
+    /// 通行流向有向入口接近臂的来源命名空间内稳定键。
     DirectedEntryApproachKey = 9,
+    /// 通行流向有向出口接近臂的来源命名空间内稳定键。
     DirectedExitApproachKey = 10,
+    /// 机动路径所属通行流向的稳定标识。
     MovementStableId = 11,
+    /// 机动路径入口边的稳定标识。
     EntryEdgeStableId = 12,
+    /// 机动路径出口边的稳定标识。
     ExitEdgeStableId = 13,
+    /// 机动门或等待区所属机动路径的稳定标识。
     ManeuverPathStableId = 14,
+    /// 机动门的来源命名空间内稳定键。
     GateKey = 15,
+    /// 等待区的来源命名空间内稳定键。
     WaitingZoneKey = 16,
+    /// 停止线的来源命名空间内稳定键。
     StopLineKey = 17,
+    /// 信号组的来源命名空间内稳定键。
     SignalGroupKey = 18,
+    /// 信号控制器的来源命名空间内稳定键。
     SignalControllerKey = 19,
+    /// 信号相位所属信号控制器的稳定标识。
     SignalControllerStableId = 20,
+    /// 信号相位的来源命名空间内稳定键。
     PhaseKey = 21,
+    /// 停车设施的来源命名空间内稳定键。
     ParkingFacilityKey = 22,
+    /// 冲突区的来源命名空间内稳定键。
     ConflictZoneKey = 23,
+    /// 停车位的来源命名空间内稳定键。
     ParkingSpaceKey = 24,
+    /// 车道组的来源命名空间内稳定键。
     LaneGroupKey = 25,
+    /// 设施带的来源命名空间内稳定键。
     FacilityBandKey = 26,
+    /// 参与者类别的来源命名空间内稳定键。
     ParticipantClassKey = 27,
+    /// 准入规则的来源命名空间内稳定键。
     AccessRuleKey = 28,
+    /// 车辆配置的来源命名空间内稳定键。
     VehicleProfileKey = 29,
+    /// 参与者流的来源命名空间内稳定键。
     ParticipantStreamKey = 30,
+    /// 规范坐标框架的来源命名空间内稳定键。
     CanonicalFrameKey = 31,
+    /// 编制车道或车道组所属道路区段的稳定标识。
     RoadSectionStableId = 32,
+    /// 道路区段或设施带所属道路走廊的稳定标识。
     RoadCorridorStableId = 33,
+    /// 通行流向、冲突区或参与者流所属路口的稳定标识。
     JunctionStableId = 34,
+    /// 路权策略集的来源命名空间内稳定键。
     RightOfWayPolicySetKey = 35,
 }
 
