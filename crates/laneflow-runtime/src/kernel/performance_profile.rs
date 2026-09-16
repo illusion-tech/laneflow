@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use crate as runtime_types;
 #[path = "tests/performance_profile/runtime_profile.rs"]
-mod support;
+pub(crate) mod support;
 
 const STAGE_COUNT: usize = 11;
 

@@ -11,9 +11,7 @@ use std::time::Instant;
 #[global_allocator]
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
-use crate as runtime_types;
-#[path = "performance_profile/runtime_profile.rs"]
-mod support;
+use crate::kernel::performance_profile::support;
 
 #[path = "performance_profile/exact_query_replay.rs"]
 mod query_replay;
@@ -64,15 +62,17 @@ impl Fixtures {
 
     fn world(&self, scene: Scene) -> Window {
         match scene {
-            Scene::Road(scene) => Window::Road(self.roads.world(scene)),
-            Scene::MultiEdge => Window::MultiEdge(exact_candidate::multi_edge_world(&self.multi)),
+            Scene::Road(scene) => Window::Road(Box::new(self.roads.world(scene))),
+            Scene::MultiEdge => {
+                Window::MultiEdge(Box::new(exact_candidate::multi_edge_world(&self.multi)))
+            }
         }
     }
 }
 
 enum Window {
-    Road(support::Harness),
-    MultiEdge(crate::TrafficWorld),
+    Road(Box<support::Harness>),
+    MultiEdge(Box<crate::TrafficWorld>),
 }
 
 impl Window {

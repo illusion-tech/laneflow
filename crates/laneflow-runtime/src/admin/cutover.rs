@@ -947,6 +947,31 @@ impl TrafficWorld {
 }
 
 /// 切换描述符与同修订同步换根验证的测试模块。
+impl crate::TrafficWorld {
+    /// 冷边界的策略身份与法规版本连续性；不接受描述符隐式换选。
+    pub(crate) fn validate_cutover_policy(
+        &self,
+        target: &SharedNetworkRevision,
+    ) -> Result<(), crate::CutoverError> {
+        if let crate::WorldPolicySelection::Pinned(pin) = self.policy_selection() {
+            let before = self.policy().expect("installed policy exists");
+            let after = target
+                .identity()
+                .ordinal(pin.policy)
+                .and_then(|ordinal| target.policy().policy(ordinal))
+                .ok_or(crate::CutoverError::PolicyInstall(
+                    crate::InstallError::UnknownPolicy { policy: pin.policy },
+                ))?;
+            if before.jurisdiction() != after.jurisdiction()
+                || before.regulation_version() != after.regulation_version()
+            {
+                return Err(crate::CutoverError::PolicyRegulationMismatch);
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use laneflow_format::{FormatLimits, check_canonical_network_input};
@@ -1911,30 +1936,5 @@ pub(crate) mod tests {
             assert_eq!(world.event_cursor(), 1);
             assert_eq!(world.world_binding().baseline_event_cursor(), 1);
         }
-    }
-}
-
-impl crate::TrafficWorld {
-    /// 冷边界的策略身份与法规版本连续性；不接受描述符隐式换选。
-    pub(crate) fn validate_cutover_policy(
-        &self,
-        target: &SharedNetworkRevision,
-    ) -> Result<(), crate::CutoverError> {
-        if let crate::WorldPolicySelection::Pinned(pin) = self.policy_selection() {
-            let before = self.policy().expect("installed policy exists");
-            let after = target
-                .identity()
-                .ordinal(pin.policy)
-                .and_then(|ordinal| target.policy().policy(ordinal))
-                .ok_or(crate::CutoverError::PolicyInstall(
-                    crate::InstallError::UnknownPolicy { policy: pin.policy },
-                ))?;
-            if before.jurisdiction() != after.jurisdiction()
-                || before.regulation_version() != after.regulation_version()
-            {
-                return Err(crate::CutoverError::PolicyRegulationMismatch);
-            }
-        }
-        Ok(())
     }
 }
