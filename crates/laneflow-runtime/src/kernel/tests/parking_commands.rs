@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 #[path = "parking_commands/fixture.rs"]
-mod fixture;
+pub(crate) mod fixture;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Counts {
@@ -13,6 +13,12 @@ pub(crate) struct Counts {
     pub active_builds: usize,
     pub live_visits: usize,
     pub active_writes: usize,
+    pub active_insertions: usize,
+    pub active_removals: usize,
+    pub position_builds: usize,
+    pub position_visits: usize,
+    pub position_reserves: usize,
+    pub position_failures: usize,
 }
 
 thread_local! { static COUNTS: Cell<Counts> = Cell::new(Counts::default()); }
@@ -33,6 +39,7 @@ fn measure(
     COUNTS.set(Counts::default());
     let mut expected = Counts::default();
     let mut successes = 0;
+    let mut inserted = Vec::new();
     let mut dirty = true;
     for i in case.indices() {
         expected.calls += 1;
@@ -59,10 +66,16 @@ fn measure(
         }
         dirty = result.is_ok();
         if dirty {
+            if successes == 0 {
+                expected.position_builds += 1;
+                expected.position_visits += case.active + case.parked;
+                expected.position_reserves += 1;
+            }
+            let insert_index = inserted.iter().filter(|previous| **previous < i).count();
+            expected.active_insertions += 1;
+            expected.active_writes += case.active + successes - insert_index + 1;
+            inserted.push(i);
             successes += 1;
-            expected.active_builds += 1;
-            expected.live_visits += case.active + case.parked;
-            expected.active_writes += case.active + successes;
         }
         let active: Vec<_> = f
             .world

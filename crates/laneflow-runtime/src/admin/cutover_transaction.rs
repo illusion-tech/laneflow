@@ -525,6 +525,10 @@ impl CutoverTransaction {
             &mut candidate.derived.active_order,
         );
         std::mem::swap(
+            &mut world.derived.live_order_index,
+            &mut candidate.derived.live_order_index,
+        );
+        std::mem::swap(
             &mut world.committed.parking,
             &mut candidate.committed.parking,
         );
@@ -2024,6 +2028,38 @@ mod tests {
                 limits,
             )
             .expect("prepare")
+    }
+
+    #[test]
+    fn promotion_replaces_source_live_positions_with_candidate_cache() {
+        let mut world = installed_world(ORACLE_BASE, "fixture://live-position-source");
+        let (entry, exit) = entry_exit(&world);
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .unwrap();
+        let vehicle = spawn_on(&mut world, route, 10_000, 0);
+        assert!(world.prepare_active_insertion(vehicle).is_some());
+        assert!(world.derived.live_order_index.retained_logical_bytes() > 0);
+        let transaction = prepare(
+            &mut world,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        assert_eq!(
+            transaction
+                .candidate
+                .as_ref()
+                .unwrap()
+                .derived
+                .live_order_index
+                .retained_logical_bytes(),
+            0
+        );
+        let _commit = transaction.commit(&mut world).unwrap();
+        assert_eq!(world.derived.live_order_index.retained_logical_bytes(), 0);
+        assert!(world.prepare_active_insertion(vehicle).is_some());
+        assert_eq!(world.derived.active_order, world.live_vehicles());
     }
 
     #[test]

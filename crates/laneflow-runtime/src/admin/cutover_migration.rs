@@ -974,6 +974,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
         derived: crate::kernel::state::DerivedIndexes {
             conflict: conflict_indexes,
             active_order,
+            live_order_index: Default::default(),
             waiting_queue_ends,
             waiting_links,
             waiting_member_rows,

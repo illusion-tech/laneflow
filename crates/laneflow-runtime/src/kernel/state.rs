@@ -69,6 +69,7 @@ pub(crate) struct DerivedIndexes {
     /// 仅含 `Active` 的固定步进执行顺序；按 `live_order` 投影维护，Parked / Completed
     /// 不进入 tick 或 lane occupancy 重建扫描。
     pub(crate) active_order: Vec<VehicleHandle>,
+    pub(crate) live_order_index: crate::kernel::active_order::LiveOrderIndex,
     /// 车辆槽位下标对应的 intrusive queue link；长度固定为 `vehicle_capacity`。
     pub(crate) waiting_queue_ends: Box<[WaitingQueueEnds]>,
     pub(crate) waiting_links: Box<[WaitingQueueLink]>,
@@ -187,6 +188,7 @@ impl DerivedIndexes {
         let Self {
             conflict,
             active_order,
+            live_order_index,
             waiting_queue_ends,
             waiting_links,
             waiting_member_rows,
@@ -194,6 +196,7 @@ impl DerivedIndexes {
             spawn_overlap,
         } = self;
         crate::kernel::state::vec_bytes(active_order)
+            + live_order_index.retained_logical_bytes()
             + crate::kernel::state::vec_bytes(waiting_member_rows)
             + crate::kernel::state::slice_bytes(waiting_queue_ends)
             + crate::kernel::state::slice_bytes(waiting_links)

@@ -1296,7 +1296,7 @@ impl TrafficWorld {
         state.status = VehicleStatus::Parked;
         state.speed_mm_s = 0;
         state.carry_um = 0;
-        self.rebuild_active_order();
+        self.remove_active_vehicle(vehicle);
         self.committed.command_cursor = command_cursor;
         self.committed.observation_state_sequence = sequence;
         self.record_parking_update(vehicle, command_cursor);
@@ -1492,6 +1492,7 @@ impl TrafficWorld {
             .transpose()?;
         let (command_cursor, sequence) = self.checked_parking_observation_commit()?;
 
+        let active_index = self.prepare_active_insertion(vehicle);
         self.committed.parking.release_occupied(vehicle);
         if let Some(new_route_ref) = new_route_ref {
             self.release_route_ref(state.route);
@@ -1499,7 +1500,7 @@ impl TrafficWorld {
         }
         let index = usize::try_from(vehicle.index()).expect("validated vehicle index");
         self.committed.vehicles[index].state = Some(candidate);
-        self.rebuild_active_order();
+        self.insert_active_vehicle(vehicle, active_index);
         self.register_overlap_vehicle(candidate);
         self.committed.command_cursor = command_cursor;
         self.committed.observation_state_sequence = sequence;

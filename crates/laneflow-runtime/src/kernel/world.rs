@@ -356,6 +356,7 @@ impl TrafficWorld {
             derived: crate::kernel::state::DerivedIndexes {
                 conflict: conflict_indexes,
                 active_order,
+                live_order_index: Default::default(),
                 waiting_queue_ends,
                 waiting_links,
                 waiting_member_rows,
@@ -1807,6 +1808,7 @@ impl TrafficWorld {
 
     /// 按稳定更新顺序重建 Active 车辆派生顺序表。
     pub(crate) fn rebuild_active_order(&mut self) {
+        self.derived.live_order_index.invalidate();
         #[cfg(test)]
         super::parking_command_research::note(|counts| {
             counts.active_builds += 1;
