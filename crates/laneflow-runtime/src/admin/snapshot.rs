@@ -317,7 +317,8 @@ pub enum CapturedParkingBinding {
         /// virtual Reserved 的入口 selector；显式泊位为 `None`。
         virtual_entry: Option<CapturedVirtualParkingEntry>,
     },
-    /// Occupied 绑定：车辆已占用车位。
+    /// Occupied 绑定：车辆占用泊位或虚拟池容量单元（虚拟占用无具体车位与
+    /// 停放位姿）。
     Occupied {
         /// 绑定的停车目标稳定身份。
         target: CapturedParkingTarget,

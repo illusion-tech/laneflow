@@ -262,7 +262,8 @@ pub enum WaitingDecisionOutcome {
     Deferred,
     /// 车辆停在限制性 Gate 边界，本拍未做准入求值。
     NotEvaluated,
-    /// 车辆停在非限制性 Gate 边界，无需准入求值。
+    /// Gate 非限制（如释放门）或未触发接触/越界，无需准入求值；车辆不必停在
+    /// 边界。
     NotRequired,
     /// 本拍取得等待区准入。
     Granted,
