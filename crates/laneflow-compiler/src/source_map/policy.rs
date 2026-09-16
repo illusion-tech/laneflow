@@ -10,17 +10,25 @@ use laneflow_static_contract::{
 pub enum PolicySourceTarget {
     /// 策略声明，序号来自同次规范编译。
     Declaration {
+        /// 策略集的稳定身份。
         id: RightOfWayPolicySetId,
+        /// 策略集在同次规范编译中的序号。
         ordinal: RightOfWayPolicySetOrdinal,
     },
     /// 策略局部具名成员；localIndex 在发射和检查时分别按 key 重建。
     Member {
+        /// 拥有该成员的策略集稳定身份。
         owner: RightOfWayPolicySetId,
+        /// 策略局部成员种类。
         kind: PolicyLocalMemberKind,
+        /// owner-local 成员键；不是来源物理下标或独立 StableId。
         key: Box<str>,
     },
     /// Movement 显式方向字段。主来源仍取 Movement 声明。
-    MovementDirection { id: MovementId },
+    MovementDirection {
+        /// 目标 Movement 的稳定身份。
+        id: MovementId,
+    },
 }
 
 /// 只能由编译器内部从正式来源和同次身份映射组成，不接受 LFSM 回填。

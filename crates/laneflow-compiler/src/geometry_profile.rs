@@ -7,8 +7,11 @@
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(u8)]
 pub enum GeometryAccuracyProfile {
+    /// 精细档：总位置误差目标 0.02 米。
     Fine2Cm = 1,
+    /// 平衡档：总位置误差目标 0.05 米。
     Balanced5Cm = 2,
+    /// 紧凑档：总位置误差目标 0.10 米。
     Compact10Cm = 3,
 }
 
@@ -38,8 +41,11 @@ impl GeometryAccuracyProfile {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(u8)]
 pub enum GeometryDirectionProfile {
+    /// 平滑档：最大方向跳变 1 度。
     Smooth1Deg = 1,
+    /// 平衡档：最大方向跳变 2 度。
     Balanced2Deg = 2,
+    /// 紧凑档：最大方向跳变 5 度。
     Compact5Deg = 3,
 }
 

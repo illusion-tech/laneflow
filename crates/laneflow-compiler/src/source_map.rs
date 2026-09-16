@@ -892,11 +892,16 @@ impl<'a> SourceDocumentView<'a> {
 /// 已解析到来源文档登记的一项只读来源位置。
 #[derive(Clone, Copy)]
 pub enum SourceLocationView<'a> {
+    /// 具有真实一基行列范围的文本来源位置。
     Text {
+        /// 所属来源文档的稳定文档键。
         source_document_key: &'a str,
+        /// 一基起始行列。
         start: SourcePosition,
+        /// 一基结束行列。
         end: SourcePosition,
     },
+    /// 道路编辑来源的有类型语义位置。
     RoadEditing(&'a RoadEditingSourceLocation),
 }
 

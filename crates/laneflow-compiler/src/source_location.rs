@@ -166,38 +166,66 @@ pub struct RoadEditingVerifiedDocumentIdentity {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum RoadEditingRootVectorKind {
+    /// 根向量 `road_alignments`：道路走向定义记录。
     RoadAlignment,
+    /// 根向量 `road_corridors`：道路走廊声明。
     RoadCorridor,
+    /// 根向量 `road_sections`：道路区段声明。
     RoadSection,
+    /// 根向量 `authoring_lanes`：编制车道声明。
     AuthoringLane,
+    /// 根向量 `lane_edges`：车道图边声明。
     LaneEdge,
+    /// 根向量 `junctions`：路口声明。
     Junction,
+    /// 根向量 `movements`：通行流向声明。
     Movement,
+    /// 根向量 `maneuver_paths`：机动路径声明。
     ManeuverPath,
+    /// 根向量 `maneuver_gates`：机动门声明。
     ManeuverGate,
+    /// 根向量 `waiting_zones`：等待区声明。
     WaitingZone,
+    /// 根向量 `stop_lines`：停止线声明。
     StopLine,
+    /// 根向量 `signal_groups`：信号组声明。
     SignalGroup,
+    /// 根向量 `signal_controllers`：信号控制器声明。
     SignalController,
+    /// 根向量 `signal_phases`：信号相位声明。
     SignalPhase,
+    /// 根向量 `parking_facilities`：停车设施声明。
     ParkingFacility,
+    /// 根向量 `parking_spaces`：停车位声明。
     ParkingSpace,
+    /// 根向量 `lane_groups`：车道组声明。
     LaneGroup,
+    /// 根向量 `facility_bands`：设施带声明。
     FacilityBand,
+    /// 根向量 `participant_classes`：参与者类别声明。
     ParticipantClass,
+    /// 根向量 `access_rules`：准入规则声明。
     AccessRule,
+    /// 根向量 `vehicle_profiles`：车辆配置声明。
     VehicleProfile,
+    /// 根向量 `canonical_frames`：规范坐标框架声明。
     CanonicalFrame,
+    /// 根向量 `conflict_zones`：冲突区声明。
     ConflictZone,
+    /// 根向量 `participant_streams`：参与者流声明。
     ParticipantStream,
+    /// 根向量 `conflict_zone_regions`：冲突区空间区域记录。
     ConflictZoneRegion,
+    /// 根向量 `right_of_way_policy_sets`：路权策略集声明。
     RightOfWayPolicySet,
 }
 
 /// 道路编辑来源地址中的有类型声明种类；道路走向不是 Identity v1 实体。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RoadEditingAddressKind {
+    /// 地址指向道路走向定义；有稳定编辑键但不属于 Identity v1。
     RoadAlignment,
+    /// 地址指向 Identity v1 稳定实体声明，并携带其种类。
     Declaration(EntityKind),
 }
 
@@ -205,50 +233,95 @@ pub enum RoadEditingAddressKind {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum RoadEditingTableKind {
+    /// 根表 `RoadEditingSource`：格式版本、模块头与全部声明向量的 v4 根。
     RoadEditingSource,
+    /// 模块头 `ModuleHeader`：每个逻辑来源模块恰有一个的模块头。
     ModuleHeader,
+    /// 溯源 `Provenance`：记录生成方式、构建标识与输入摘要的溯源表。
     Provenance,
+    /// 直线段 `LineSegment`：以三维终点表达的编制坐标直线段。
     LineSegment,
+    /// 三次 Bézier 段 `CubicBezierSegment`：两个控制点加终点的编制坐标段。
     CubicBezierSegment,
+    /// 曲线段 `CurveSegment`：道路走向内 owner-local 的单段曲线几何。
     CurveSegment,
+    /// 曲线程序 `CurveProgram`：起点加有序曲线段序列的完整曲线。
     CurveProgram,
+    /// 道路走向 `RoadAlignment`：重建当前道路所需的编制描述。
     RoadAlignment,
+    /// 走廊成员 `CorridorElement`：横断面中一个有序 owner-local 成员引用。
     CorridorElement,
+    /// 道路走廊 `RoadCorridor`：组织方向性道路区段与设施带的横断面所有者。
     RoadCorridor,
+    /// 道路区段 `RoadSection`：走廊内具有方向和横断面成员关系的区段。
     RoadSection,
+    /// 编制车道 `AuthoringLane`：可展开为车道图边的车道声明。
     AuthoringLane,
+    /// 车道图边 `LaneEdge`：显式稳定边键的基础遍历拓扑实体。
     LaneEdge,
+    /// 路口 `Junction`：组织通行流向和机动路径的静态路口。
     Junction,
+    /// 通行流向 `Movement`：从有向入口臂到有向出口臂的静态通行意图。
     Movement,
+    /// 机动路径 `ManeuverPath`：连接入口边、内部边与出口边的可遍历路径。
     ManeuverPath,
+    /// 机动门 `ManeuverGate`：绑定机动路径、用于准入与信号约束的静态门。
     ManeuverGate,
+    /// 等待区 `WaitingZone`：表达等待容量、顺序或位置的静态区域。
     WaitingZone,
+    /// 停止线 `StopLine`：车辆须在其前满足通行约束的静态线。
     StopLine,
+    /// 信号组 `SignalGroup`：面向一组门或通行意图输出信号指示的静态组。
     SignalGroup,
+    /// 信号控制器 `SignalController`：产生信号相位与指示时间序列的控制程序。
     SignalController,
+    /// 信号相位状态 `SignalPhaseState`：相位中某信号组的灯态项。
     SignalPhaseState,
+    /// 信号相位 `SignalPhase`：控制器内具有稳定键的阶段声明。
     SignalPhase,
+    /// 停车设施 `ParkingFacility`：组织显式停车位与虚拟容量的设施实体。
     ParkingFacility,
+    /// 车道停车锚点 `ParkingLaneAnchor`：车道边加里程位置的车道参照。
     ParkingLaneAnchor,
+    /// 停车位几何 `ParkingSpaceGeometry`：横向偏移、朝向偏移与外形尺寸。
     ParkingSpaceGeometry,
+    /// 停车位 `ParkingSpace`：有排他占用、静态几何和 parked pose 的具体位置。
     ParkingSpace,
+    /// 车道组 `LaneGroup`：道路区段内组织车道成员的静态分组。
     LaneGroup,
+    /// 设施带 `FacilityBand`：走廊内不承担机动车遍历拓扑的设施横带。
     FacilityBand,
+    /// 参与者类别 `ParticipantClass`：可继承的准入分类。
     ParticipantClass,
+    /// 准入法规身份 `AccessRegulation`：法域、版本与可选来源的共同值。
     AccessRegulation,
+    /// 准入规则 `AccessRule`：对参与者与目标施加允许、拒绝或约束的规则。
     AccessRule,
+    /// IIDM 车辆动力学参数 `IidmVehicleProfile`：长度、期望速度与加减速等。
     IidmVehicleProfile,
+    /// 车辆配置 `VehicleProfile`：冻结车辆运动与安全参数的静态配置。
     VehicleProfile,
+    /// 冲突区空间区域 `ConflictZoneRegion`：与冲突区配对的 XZ 多边形与高度范围。
     ConflictZoneRegion,
+    /// 规范坐标框架 `CanonicalFrame`：空间几何和位姿共享的稳定局部坐标框架。
     CanonicalFrame,
+    /// 冲突区 `ConflictZone`：多个参与者流可能冲突、需运行时裁决的区域。
     ConflictZone,
+    /// 路径锚点 `PathAnchor`：以门、路径边界或边内位置标识机动路径位置。
     PathAnchor,
+    /// 冲突通行段 `ConflictPassage`：某参与者流穿过冲突区的 entry/exit 区间。
     ConflictPassage,
+    /// 参与者流 `ParticipantStream`：进入冲突裁决的有向参与者流。
     ParticipantStream,
+    /// 路权策略集 `RightOfWayPolicySet`：规则、依据与间隙参数的稳定集合。
     RightOfWayPolicySet,
+    /// 策略依据 `PolicyEvidence`：定位法规条款的策略证据条目。
     PolicyEvidence,
+    /// 间隙参数档 `PolicyGapProfile`：最小领先/滞后间隙与清空缓冲参数。
     PolicyGapProfile,
+    /// 通行流路权规则 `PolicyStreamRule`：为参与者流选择优先级与让行目标。
     PolicyStreamRule,
+    /// 门合规规则 `PolicyGateRule`：把适用灯态与禁令解释为停止或候选。
     PolicyGateRule,
 }
 
@@ -256,10 +329,15 @@ pub enum RoadEditingTableKind {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum RoadEditingStructKind {
+    /// 32-byte SHA-256 摘要 inline struct。
     Digest256,
+    /// 可选无符号 64-bit 值 inline struct；缺失表示 `None`。
     OptionalU64,
+    /// 编制坐标中的 f64 三维点 inline struct。
     Vec3F64,
+    /// 一个 station 区间两端线性宽度的 inline struct。
     LinearWidthProfile,
+    /// 编制坐标中的 f64 二维点 inline struct；用于 XZ 平面。
     Vec2F64,
 }
 
@@ -267,6 +345,7 @@ pub enum RoadEditingStructKind {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum RoadEditingUnionKind {
+    /// 曲线段几何 union：直线段或三次 Bézier 段。
     CurveSegmentGeometry,
 }
 
@@ -274,32 +353,54 @@ pub enum RoadEditingUnionKind {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum RoadEditingRelationKind {
+    /// 模块对被导入模块的 owner-local 关系。
     Import,
+    /// 道路走向对其曲线段的 owner-local 关系。
     CurveSegment,
+    /// 道路走廊对其横断面成员的 owner-local 关系。
     CorridorElement,
+    /// 道路区段对其编制车道成员的 owner-local 关系。
     RoadSectionAuthoringLane,
+    /// 车道图边对后继边的关系。
     LaneEdgeSuccessor,
+    /// 路口对入口接近边的关系。
     JunctionApproachEdge,
+    /// 路口对内部边的关系。
     JunctionInternalEdge,
+    /// 机动路径对内部边的关系。
     ManeuverPathInternalEdge,
+    /// 信号控制器对信号组的关系。
     SignalControllerGroup,
+    /// 信号控制器对信号相位的关系。
     SignalControllerPhase,
+    /// 信号相位对相位内灯态项的关系。
     SignalPhaseState,
+    /// 准入规则对参与者类别的关系。
     AccessRuleParticipantClass,
+    /// 停车设施对虚拟入口的关系。
     ParkingFacilityVirtualEntry,
+    /// 停车设施对虚拟出口的关系。
     ParkingFacilityVirtualExit,
+    /// 参与者流对冲突通行段的关系。
     ParticipantStreamPassage,
+    /// 冲突区对空间区域记录的关系。
     ConflictZoneRegion,
+    /// 路权策略集对依据条目的关系。
     PolicyEvidence,
+    /// 路权策略集对间隙参数档的关系。
     PolicyGapProfile,
+    /// 路权策略集对通行流路权规则的关系。
     PolicyStreamRule,
+    /// 路权策略集对门合规规则的关系。
     PolicyGateRule,
 }
 
 /// 有序产品关系或规范集合关系中的稳定 occurrence。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RoadEditingRelationOccurrence {
+    /// 有序产品关系中的 occurrence；成员在 owner 向量中的零基下标。
     OrderedProductOrdinal(u32),
+    /// 规范集合关系中的 occurrence；成员在规范排序中的零基下标。
     CanonicalSetOrdinal(u32),
 }
 
@@ -434,16 +535,25 @@ impl RoadEditingPropertyPath {
 /// 一个已知 table field、struct member 或 union variant 步骤。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RoadEditingPropertyStep {
+    /// 已知 table 的一个 field 步骤。
     TableField {
+        /// 步骤所在的 table 种类。
         table: RoadEditingTableKind,
+        /// table 内的 field id。
         field_id: u16,
     },
+    /// 已知 inline struct 的一个 member 步骤。
     StructMember {
+        /// 成员所在的 inline struct 种类。
         structure: RoadEditingStructKind,
+        /// struct 内的 member id。
         member_id: u8,
     },
+    /// 已知 union 的一个 variant 步骤。
     UnionVariant {
+        /// 步骤所在的 union 种类。
         union: RoadEditingUnionKind,
+        /// union 内的 variant 判别值。
         discriminant: u8,
     },
 }
@@ -482,28 +592,43 @@ impl RoadEditingByteRange {
 /// 道路编辑 owner-local 关系的有类型 owner。
 #[derive(Clone, Copy, Debug)]
 pub enum RoadEditingOwner {
+    /// owner 是该模块唯一的模块头。
     ModuleHeader,
+    /// owner 是一个稳定实体地址。
     Address(RoadEditingSourceAddress),
 }
 
 /// 道路编辑语义或结构位置的闭合 subject。
 #[derive(Clone, Copy, Debug)]
 pub enum RoadEditingSubject {
+    /// subject 是该模块唯一的模块头。
     ModuleHeader,
+    /// subject 是一条道路走向定义。
     RoadAlignment {
+        /// 道路走向的稳定实体地址。
         address: RoadEditingSourceAddress,
     },
+    /// subject 是一条 Identity v1 稳定实体声明。
     Declaration {
+        /// 声明的稳定实体地址。
         address: RoadEditingSourceAddress,
     },
+    /// subject 是一次 owner-local 关系出现。
     OwnerLocal {
+        /// 拥有该关系的有类型 owner。
         owner: RoadEditingOwner,
+        /// owner-local 关系种类。
         relation: RoadEditingRelationKind,
+        /// 关系中的稳定 occurrence。
         occurrence: RoadEditingRelationOccurrence,
     },
+    /// 结构损坏时按 wire 物理位置定位的 fallback subject。
     Wire {
+        /// 物理下标所在的根向量种类。
         root_vector: RoadEditingRootVectorKind,
+        /// 根向量内元素的零基物理下标。
         physical_index: u32,
+        /// 该元素的 table 种类。
         table: RoadEditingTableKind,
     },
 }
