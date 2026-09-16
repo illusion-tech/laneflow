@@ -408,8 +408,11 @@ impl RestoredSnapshot {
 /// 必需字段缺席、封闭 schema/元数据校验失败（未知字段槽、策略绑定形状、
 /// source kind 或空 asset key）、来源/修订/静态契约版本/时钟/配置与目标根
 /// 不一致、结构合法但
-/// 逻辑内容非法（路线/车辆/权威重建失败），或确定性摘要复核失败时返回相应
-/// [`SnapshotRestoreError`]；任一失败只丢弃局部 staging，不返回半恢复 world。
+/// 逻辑内容非法（路线/车辆/权威重建失败）时返回相应 [`SnapshotRestoreError`]；
+/// 绑定校验通过后、staging 构造起点处的目标世界安装还会以 `Install`
+/// （[`InstallError`] 族，含策略派生表/冲突仲裁状态预留失败
+/// `PolicyAllocationFailed` / `ConflictArbiterAllocationFailed`）失败。任一失败
+/// 只丢弃局部 staging，不返回半恢复 world。
 pub fn restore_lfrs(
     bytes: &[u8],
     revision: Arc<SharedNetworkRevision>,

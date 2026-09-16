@@ -161,13 +161,13 @@ impl From<CatalogError> for BindError {
 ///
 /// # Errors
 ///
-/// 世界没有显式策略选择（[`BindError::PolicyRequired`]）、策略身份未在 catalog
-/// 登记（[`BindError::UnknownPolicy`]）、catalog 自身校验失败（
-/// [`BindError::Catalog`]）、稳定身份解析失败（`Identity` / `UnknownEdge` /
-/// `UnknownProfile`）、slot 绑定入口边或进度非法（`SlotEdgeNotEntry` /
-/// `InvalidProgress`）、focus 路线不满足重复约束（`FocusRouteNotRepeating`）、
-/// catalog 引用了未声明的路线或 slot 位置重复（[`BindError::UnknownRoute`] /
-/// `DuplicateSlotPosition`）时返回相应 [`BindError`]；失败不产生部分绑定。
+/// 世界没有显式策略选择（[`BindError::PolicyRequired`]）、策略身份未在共享
+/// 路网修订登记（[`BindError::UnknownPolicy`]）、catalog 校验失败（含引用未声明
+/// 路线，包装为 [`BindError::Catalog`]）、稳定身份解析失败（`Identity` /
+/// `UnknownEdge` / `UnknownProfile`）、slot 绑定入口边或进度非法
+/// （`SlotEdgeNotEntry` / `InvalidProgress`）、focus 路线不满足重复约束
+/// （`FocusRouteNotRepeating`）或 slot 位置重复（`DuplicateSlotPosition`）时
+/// 返回相应 [`BindError`]；失败不产生部分绑定。
 pub fn bind(
     catalog: &JunctionCatalog,
     revision: &SharedNetworkRevision,
@@ -369,7 +369,8 @@ impl BoundJunctionCatalog {
     /// # Errors
     ///
     /// 世界策略选择与 catalog 绑定不一致（[`BindError::WorldPolicyMismatch`]）、
-    /// 路线 ID 未解析或 `register_route` 失败（包装为 [`BindError::RouteRegister`]）
+    /// 世界修订与 bind 不一致（裸 [`BindError::UnknownRoute`]）或
+    /// `register_route` 失败（含容量预检，包装为 [`BindError::RouteRegister`]）
     /// 时返回；失败时尝试撤回本次已注册的句柄——命令游标耗尽时撤回同样失败，
     /// 已注册路线可能残留在世界中。
     pub fn install_routes(&self, world: &mut TrafficWorld) -> Result<Vec<RouteHandle>, BindError> {

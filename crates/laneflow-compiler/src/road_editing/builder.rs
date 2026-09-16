@@ -390,7 +390,8 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
     ///
     /// # Errors
     ///
-    /// 对齐键重复或超出限额时返回相应 [`DiagnosticBundle`]；失败不修改构建器。
+    /// 对齐键重复、引用 namespace 未声明导入或超出限额时返回相应
+    /// [`DiagnosticBundle`]；失败不修改构建器。
     pub fn add_alignment(
         &mut self,
         value: RoadAlignmentInput,
@@ -427,8 +428,8 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
     ///
     /// # Errors
     ///
-    /// 声明地址重复、所有者非法或超出限额时返回相应 [`DiagnosticBundle`]；
-    /// 失败不修改构建器。
+    /// 声明地址重复、所有者非法、引用 namespace 未声明导入或超出限额时返回相应
+    /// [`DiagnosticBundle`]；失败不修改构建器。
     pub fn add_declaration(
         &mut self,
         value: RoadEditingDeclaration,
@@ -462,7 +463,8 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
     ///
     /// # Errors
     ///
-    /// 冲突区重复或超出限额时返回相应 [`DiagnosticBundle`]；失败不修改构建器。
+    /// 冲突区重复、引用 namespace 未声明导入或超出限额时返回相应
+    /// [`DiagnosticBundle`]；失败不修改构建器。
     pub fn add_conflict_zone_region(
         &mut self,
         value: ConflictZoneRegionInput,
@@ -504,7 +506,7 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
     ///
     /// # Errors
     ///
-    /// 所有者树校验失败或资源限额超限时返回相应 [`DiagnosticBundle`]，不产出模块。
+    /// 所有者树结构校验失败时返回相应 [`DiagnosticBundle`]，不产出模块。
     pub fn finish(mut self) -> Result<RoadEditingSourceModule, DiagnosticBundle> {
         validate_owner_tree(&self.declarations, &self.declaration_addresses)?;
         self.road_alignments.sort_unstable_by(|left, right| {

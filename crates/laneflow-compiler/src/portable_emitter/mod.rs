@@ -121,8 +121,9 @@ fn geometry_direction_profile_code(value: crate::GeometryDirectionProfile) -> u8
 /// # Errors
 ///
 /// 来源摘要派生、对象构建/编码、网络修订派生、格式预检、语义差异基线校验
-/// （`base` 非 LFCA 或其语义契约/引用/稳定身份与目标不兼容）、对象/bundle 预算
-/// 超限或分配失败时返回相应 [`PortableEmissionError`]；失败不返回部分候选。
+/// （`base` 非 LFCA 或其语义契约/引用/稳定身份与目标不兼容）、发射后策略闭合
+/// 复核（`PolicySourceMismatch` / `PolicyDiffMismatch`）、对象/bundle 预算超限
+/// 或分配失败时返回相应 [`PortableEmissionError`]；失败不返回部分候选。
 pub fn emit_portable_candidate(
     output: &CompilationOutput,
     provenance: &PortableEmissionProvenance,
@@ -144,6 +145,7 @@ pub fn emit_portable_candidate(
 /// # Errors
 ///
 /// 来源摘要派生、对象构建/编码、网络修订派生、格式预检、语义差异基线校验、
+/// 发射后策略闭合复核（`PolicySourceMismatch` / `PolicyDiffMismatch`）、
 /// 对象/bundle 预算超限、分配失败、临时目录 I/O 失败，或封存/首次只读映射时
 /// backing 完整性漂移（`StagedBackingChanged` / `ObjectSource`）时返回相应
 /// [`PortableEmissionError`]；失败不返回部分候选。
