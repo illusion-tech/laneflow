@@ -886,7 +886,8 @@ pub enum SpatialGeometryViolation {
     /// 相连 edge 最终 `f32` 首尾弦超过所选方向档；仅当任一侧边来自携带几何配置
     /// 档的已编译模块时检查（`Compiler::compile` 的 HIR 空间连接校验）。
     DirectionDiscontinuity {
-        /// 前后弦方向单位向量点积的原始 `f64` IEEE 754 位模式。
+        /// 前后弦按最大绝对分量缩放后的点积原始 `f64` IEEE 754 位模式（非单位
+        /// 向量点积）。
         dot_bits: u64,
         /// 判据左侧（点积平方）的原始 `f64` IEEE 754 位模式。
         lhs_bits: u64,
@@ -1001,7 +1002,8 @@ pub enum DiagnosticPayload {
     },
     /// 第一方道路编辑编制模型中的字段级失败。
     InvalidRoadEditingInput {
-        /// 违反统一文本规则的字段路径。
+        /// 违规字段的路径；覆盖文本、数值、集合、引用深度、重复值与非法组合
+        /// 等全部违规类别，不限于文本规则。
         field: Box<str>,
         /// 字段值被拒绝的精确原因。
         violation: RoadEditingInputViolation,
@@ -1116,7 +1118,7 @@ pub enum DiagnosticPayload {
         entity_kind: EntityKind,
         /// 发起引用的来源声明稳定键。
         source_key: Box<str>,
-        /// 引用显式给出的目标命名空间。
+        /// 引用给出的目标命名空间；local 引用经构建器展开为当前模块命名空间。
         target_namespace: Box<str>,
         /// 目标的完整 owner-local 键序列。
         target_owner_local_keys: Box<[Box<str>]>,
@@ -1539,12 +1541,14 @@ pub enum DiagnosticPayload {
         offset_ms: u64,
         /// 所属控制器的相位周期，单位为毫秒。
         cycle_duration_ms: u64,
-        /// 允许的最大偏移（含），单位为毫秒。
+        /// 偏移的可移植上限（`MAX_PORTABLE_SIGNAL_TIME_MS`，含）；有效上限另受
+        /// `offset_ms < cycle_duration_ms` 约束，短周期时以周期为准。
         max_inclusive: u64,
     },
     /// 非法停车锚点及量化后的毫米闭包。
     InvalidParkingAnchorProgress {
-        /// 锚点越界的停车位稳定键。
+        /// 锚点越界的停车位稳定键；虚拟池角色（`VirtualEntry`/`VirtualExit`）
+        /// 为所属设施的稳定键而非泊位键。
         parking_space_key: Box<str>,
         /// 发生越界的锚点角色。
         role: ParkingAnchorRole,
@@ -1552,7 +1556,8 @@ pub enum DiagnosticPayload {
         lane_edge_key: Box<str>,
         /// 锚点沿边进度的原始 `f64` IEEE 754 位模式，单位为米。
         progress_bits: u64,
-        /// 边长的原始 `f64` IEEE 754 位模式，单位为米。
+        /// 边长的原始 `f64` IEEE 754 位模式，单位为米；锚点在解析出边之前即被
+        /// 拒绝时为哨兵 `0.0`（此时闭包字段同为无效占位）。
         edge_length_bits: u64,
         /// 严格内部允许的最小进度（含），单位为毫米。
         min_progress_mm: u32,

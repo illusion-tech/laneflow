@@ -409,7 +409,8 @@ impl ParkedVehicleSpawnInput {
 pub enum ParkingCommandOutcome<T> {
     /// 命令实际提交，携带本次变更记录。
     Committed(T),
-    /// 窄幂等命中：绑定与资源未变化，仅回显记录。
+    /// 窄幂等命中：绑定与资源未变化，仅回显记录；命令游标仍照常推进（外部
+    /// 经快照与切换基线可观测）。
     NoChange(T),
 }
 

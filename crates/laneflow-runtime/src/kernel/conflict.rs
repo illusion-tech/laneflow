@@ -735,7 +735,7 @@ pub enum ConflictLagReference {
     NoHistory,
     /// 真实清空发生的毫秒时刻。
     ActualClear(u64),
-    /// cutover 时给定的保守滞后基准下界时刻。
+    /// cutover 提交时刻本身；作为滞后检查的保守起点，不声称真实清空事件。
     CutoverFloor(u64),
 }
 
@@ -746,7 +746,8 @@ pub enum ConflictGapOutcome {
     Accepted,
     /// 后随间隙不足：距上一次清空的已逝时间小于 required lag。
     LagGap,
-    /// 前导间隙不足：对方保守最早到达早于 required lead。
+    /// 前导间隙不足：对方保守最早到达早于或等于 required lead（仅严格更晚
+    /// 被接受）。
     LeadGap,
     /// 接近估计不可证明，保守拒绝 crossing。
     ApproachUnprovable,
