@@ -163,11 +163,12 @@ mod tests {
                 .unwrap();
             let input =
                 RoadEditingModuleInput::try_new("directions", source.as_bytes(), None).unwrap();
-            let checked = super::super::super::reader::verify_source(input, &exact, 0, 0).unwrap();
+            let checked =
+                super::super::super::reader::verify_source(input, &exact, 0, 0, 0).unwrap();
             assert_eq!(checked.table_count(), 5);
             assert_eq!(checked.typed_ast_record_count(), 4);
             assert_eq!(checked.preflight_counts().relation_occurrence_count(), 2);
-            assert!(super::super::super::reader::verify_source(input, &exact, 0, 1).is_err());
+            assert!(super::super::super::reader::verify_source(input, &exact, 0, 1, 0).is_err());
             for (dimension, limit) in [
                 (CompileLimitDimension::TypedAstRecordCount, 3),
                 (CompileLimitDimension::RelationOccurrenceCount, 1),
@@ -187,7 +188,7 @@ mod tests {
                     .add_declaration(RoadEditingDeclaration::Movement(movement()))
                     .unwrap();
                 let error =
-                    super::super::super::reader::verify_source(input, &low, 0, 0).unwrap_err();
+                    super::super::super::reader::verify_source(input, &low, 0, 0, 0).unwrap_err();
                 assert!(
                     matches!(error.diagnostics()[0].payload(), crate::DiagnosticPayload::CompileLimitExceeded { dimension: found, .. } if *found == dimension)
                 );
@@ -197,7 +198,7 @@ mod tests {
                 let small =
                     RoadEditingModuleInput::try_new("directions", small.as_bytes(), None).unwrap();
                 assert_eq!(
-                    super::super::super::reader::verify_source(small, &low, 0, 0)
+                    super::super::super::reader::verify_source(small, &low, 0, 0, 0)
                         .unwrap()
                         .typed_ast_record_count(),
                     3
@@ -253,9 +254,9 @@ mod tests {
             .unwrap();
         let input =
             RoadEditingModuleInput::try_new("policy.document", source.as_bytes(), None).unwrap();
-        let checked = super::super::super::reader::verify_source(input, &exact, 0, 0).unwrap();
+        let checked = super::super::super::reader::verify_source(input, &exact, 0, 0, 0).unwrap();
         assert_eq!(checked.preflight_counts().relation_occurrence_count(), 50);
-        assert!(super::super::super::reader::verify_source(input, &low, 0, 0).is_err());
+        assert!(super::super::super::reader::verify_source(input, &low, 0, 0, 0).is_err());
         let mut rejected = new_builder(&low);
         assert!(
             rejected

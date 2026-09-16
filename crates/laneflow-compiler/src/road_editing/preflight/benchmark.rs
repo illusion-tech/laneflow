@@ -1,0 +1,273 @@
+//! #680 的定向预检测量；来源构造、比较计数均在计时区外。
+
+use std::cell::Cell;
+use std::cmp::Ordering;
+use std::hint::black_box;
+use std::time::Instant;
+
+use super::*;
+use crate::road_editing::*;
+use crate::{GeometryAccuracyProfile, GeometryDirectionProfile};
+
+struct CountedKey<'a> {
+    value: &'a str,
+    comparisons: &'a Cell<u64>,
+}
+
+impl PartialEq for CountedKey<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.comparisons.set(self.comparisons.get() + 1);
+        self.value == other.value
+    }
+}
+
+impl Eq for CountedKey<'_> {}
+
+impl PartialOrd for CountedKey<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CountedKey<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.comparisons.set(self.comparisons.get() + 1);
+        self.value.cmp(other.value)
+    }
+}
+
+pub(super) fn corridor_source(
+    count: usize,
+    limits: &CompileLimits,
+) -> OwnedRoadEditingSourceBuffer {
+    let header = RoadEditingModuleHeader::try_new(
+        "city",
+        "preflight-benchmark",
+        Vec::new(),
+        RoadEditingProvenance::direct("preflight scaling").unwrap(),
+    )
+    .unwrap();
+    let mut builder = RoadEditingSourceModuleBuilder::new(
+        header,
+        GeometryAccuracyProfile::Balanced5Cm,
+        GeometryDirectionProfile::Balanced2Deg,
+        limits,
+    )
+    .unwrap();
+    builder
+        .add_declaration(RoadEditingDeclaration::CanonicalFrame(
+            CanonicalFrameInput::try_new("frame").unwrap(),
+        ))
+        .unwrap();
+    builder
+        .add_alignment(
+            RoadAlignmentInput::try_new(
+                "alignment",
+                CanonicalFrameReference::local("frame").unwrap(),
+                RoadEditingCurveProgram::try_new(
+                    RoadEditingPoint3::try_new(0.0, 0.0, 0.0).unwrap(),
+                    vec![RoadEditingCurveSegment::line(
+                        RoadEditingPoint3::try_new(100.0, 0.0, 0.0).unwrap(),
+                    )],
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    for index in 0..count {
+        let corridor_key = format!("corridor-{index:08}");
+        let corridor = RoadCorridorReference::local(corridor_key.clone()).unwrap();
+        let section =
+            RoadSectionReference::owner_scoped(vec![corridor_key.clone()], "section").unwrap();
+        let lane = AuthoringLaneReference::owner_scoped(
+            vec![corridor_key.clone(), "section".into()],
+            "lane",
+        )
+        .unwrap();
+        let band = FacilityBandReference::owner_scoped(vec![corridor_key], "band").unwrap();
+        let edge_key = format!("edge-{index:08}");
+        for declaration in [
+            RoadEditingDeclaration::RoadCorridor(
+                RoadCorridorInput::try_new(
+                    format!("corridor-{index:08}"),
+                    RoadAlignmentReference::try_new("alignment").unwrap(),
+                    0.0,
+                    RoadEditingStationEnd::AlignmentEnd,
+                    section.clone(),
+                    lane.clone(),
+                    vec![
+                        RoadEditingCorridorElement::RoadSection(section.clone()),
+                        RoadEditingCorridorElement::FacilityBand(band),
+                    ],
+                )
+                .unwrap(),
+            ),
+            RoadEditingDeclaration::RoadSection(
+                RoadSectionInput::try_new("section", "motorLane", vec![lane], corridor.clone())
+                    .unwrap(),
+            ),
+            RoadEditingDeclaration::AuthoringLane(
+                AuthoringLaneInput::try_new(
+                    "lane",
+                    LaneEdgeReference::local(edge_key.clone()).unwrap(),
+                    RoadEditingLaneDirection::Forward,
+                    LinearWidthProfile::try_new(3.5, 3.5).unwrap(),
+                    None,
+                    section.clone(),
+                )
+                .unwrap(),
+            ),
+            RoadEditingDeclaration::LaneEdge(
+                LaneEdgeInput::try_new(edge_key, 10.0, Vec::new(), None).unwrap(),
+            ),
+            RoadEditingDeclaration::LaneGroup(LaneGroupInput::try_new("group", section).unwrap()),
+            RoadEditingDeclaration::FacilityBand(
+                FacilityBandInput::try_new(
+                    "band",
+                    "median",
+                    LinearWidthProfile::try_new(1.0, 1.0).unwrap(),
+                    corridor,
+                )
+                .unwrap(),
+            ),
+        ] {
+            builder.add_declaration(declaration).unwrap();
+        }
+    }
+    RoadEditingSourceWriter::new(limits)
+        .write(builder.finish().unwrap())
+        .unwrap()
+}
+
+#[test]
+#[ignore = "#680 diagnostic oracle; compare exact output between frozen baseline and candidate"]
+fn preflight_diagnostic_oracle() {
+    let limits = CompileLimits::p100_initial_v1();
+    let buffer = RoadEditingSourceWriter::new(&limits)
+        .write(super::super::writer::tests::module_with_every_declaration(
+            &limits,
+        ))
+        .unwrap();
+    let source = buffer.as_bytes();
+    let mut accepted = 0_usize;
+    let mut rejected = 0_usize;
+    let mut digest = blake3::Hasher::new();
+    let mut inspect = |bytes: &[u8]| {
+        let input = RoadEditingModuleInput::try_new("road-editing", bytes, None).unwrap();
+        let result = match super::super::reader::verify_source(input, &limits, 0, 0, 0) {
+            Ok(verified) => {
+                accepted += 1;
+                let counts = verified.preflight_counts();
+                format!(
+                    "ok:{:?}",
+                    [
+                        counts.declaration_count(),
+                        counts.typed_ast_record_count(),
+                        counts.reference_count(),
+                        counts.relation_occurrence_count(),
+                        counts.string_item_count(),
+                        counts.total_string_bytes(),
+                    ]
+                )
+            }
+            Err(error) => {
+                rejected += 1;
+                format!("error:{error:?}")
+            }
+        };
+        digest.update(result.as_bytes());
+        digest.update(b"\n");
+    };
+    inspect(source);
+    for index in 0..source.len() {
+        for mask in [1, 128] {
+            let mut bytes = source.to_vec();
+            bytes[index] ^= mask;
+            inspect(&bytes);
+        }
+    }
+    // 双处破坏覆盖同一输入同时含多个候选诊断，冻结首错及携带的精确位置。
+    for seed in 0..4_096 {
+        let mut bytes = source.to_vec();
+        bytes[(seed * 4_051) % source.len()] ^= 1;
+        bytes[(seed * 7_919 + 17) % source.len()] ^= 128;
+        inspect(&bytes);
+    }
+    println!(
+        "PREFLIGHT_ORACLE,{},{accepted},{rejected},{}",
+        source.len(),
+        digest.finalize()
+    );
+}
+
+#[test]
+#[ignore = "#680 release benchmark; run alone with --nocapture --test-threads=1"]
+fn preflight_scaling() {
+    let limits = CompileLimits::single_network_1m_v2();
+    for size in [256, 512, 1_024, 2_048, 4_096, 8_192] {
+        // 奇数乘法置换覆盖整个二次幂集合，避免只测已排序输入。
+        let keys: Vec<_> = (0..size)
+            .map(|index| format!("key-{:08}", index * 4_051 % size))
+            .collect();
+        let comparisons = Cell::new(0);
+        let comparison_scratch = PreflightScratch::new(&limits, 0);
+        ensure_unique_by(
+            keys.iter(),
+            |value| CountedKey {
+                value,
+                comparisons: &comparisons,
+            },
+            "benchmark.keys",
+            "preflight-benchmark",
+            &comparison_scratch,
+        )
+        .unwrap();
+        let scratch = PreflightScratch::new(&limits, 0);
+        for round in 0..4 {
+            let start = Instant::now();
+            ensure_unique_by(
+                black_box(keys.iter()),
+                |value| value.as_str(),
+                "benchmark.keys",
+                "preflight-benchmark",
+                &scratch,
+            )
+            .unwrap();
+            let elapsed = start.elapsed().as_nanos();
+            if round != 0 {
+                println!(
+                    "PREFLIGHT,unique,{size},{round},{elapsed},{},{},0",
+                    comparisons.get(),
+                    scratch.peak_bytes()
+                );
+            }
+        }
+    }
+    for size in [128, 256, 512, 1_024, 2_048] {
+        let buffer = corridor_source(size, &limits);
+        let input = RoadEditingModuleInput::try_new("preflight-benchmark", buffer.as_bytes(), None)
+            .unwrap();
+        let verified = super::super::reader::verify_source(input, &limits, 0, 0, 0).unwrap();
+        for round in 0..4 {
+            let start = Instant::now();
+            let counts = black_box(
+                preflight_source(
+                    black_box(verified.root()),
+                    &limits,
+                    "preflight-benchmark",
+                    0,
+                )
+                .unwrap(),
+            );
+            let elapsed = start.elapsed().as_nanos();
+            if round != 0 {
+                println!(
+                    "PREFLIGHT,corridors,{size},{round},{elapsed},0,{},{}",
+                    counts.preflight_peak_scratch_bytes(),
+                    buffer.as_bytes().len()
+                );
+            }
+        }
+    }
+}

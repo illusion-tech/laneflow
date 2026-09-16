@@ -1,7 +1,7 @@
 # 编译器基础设施与合成领域专用语言前端
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-08-31<br>
+**最后更新**: 2026-09-17<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
 Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层
@@ -670,6 +670,11 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
 约束实际 allocator。`Vec` capacity/扩容共存、`Arc` header/DST padding、HIR/MIR/LIR
 阶段精确生命周期、失败诊断与 allocator/P100 证据必须独立测量；这不放宽 schema、
 verifier、主要规模上限、失败原子性或 canonical LIR 语义。
+
+道路编辑来源的借用预检索引也属于阶段 scratch：每次分配前核对请求容量、平台可表示性
+和与既有模块共同存续的总字节数；顺序释放的索引按峰值计入准入账本。预算不足时先
+返回预算诊断，预算充足时保留原字段首错顺序，具体规则见
+[道路编辑来源的内存边界](road-editing-source-and-geometry-frontend.md#96-不可信输入与内存边界)。
 
 `LF-COMP-P100-INITIAL-v1` 以 #308 九个压力分层的逐维上包络为来源。来源 / 领域计数
 取 G4 原始测量制品 `v0.10-compiler-budget-calibration-raw.json`（现仅存 git 历史
