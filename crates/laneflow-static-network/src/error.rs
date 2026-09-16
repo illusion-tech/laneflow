@@ -111,7 +111,8 @@ pub enum BuildErrorClass {
     Identity,
     /// 静态契约版本不受支持或声明不一致。
     Contract,
-    /// Spatial payload 覆盖、长度或几何校验失败。
+    /// Spatial payload 覆盖、长度、frame 或拼接校验失败；冲突区环的几何
+    /// 校验失败（点数、重复、环绕、自交）映射为 `InputInvariant` 而非本类。
     Spatial,
     /// retained/scratch/work 构建预算超限。
     Budget,
