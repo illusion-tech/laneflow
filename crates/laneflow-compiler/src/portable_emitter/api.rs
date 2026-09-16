@@ -184,21 +184,49 @@ impl PortablePublicationCandidate {
 /// 可移植候选发射失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PortableEmissionError {
+    /// build ID 不是 1..=128 字节 ASCII、首字符不是字母/数字，或其余字符不在允许
+    /// 集合内（`PortableEmissionProvenance::try_new`）。
     InvalidCompilerBuildId,
+    /// LFCA/LFSM/LFSD 或被检字节的格式编码、结构预检或值域预检失败；全部发射与
+    /// portable policy 检查入口均可达。
     Format(FormatError),
+    /// 发射或检查路径上的计数/字节数换算 checked 算术溢出；全部发射与检查入口
+    /// 均可达，属超大输入防御。
     ArithmeticOverflow,
+    /// 发射或检查路径的暂存投影 `try_reserve_exact` 失败；全部发射与检查入口
+    /// 均可达。
     AllocationFailure,
+    /// LFSD 路权增量与实际 LFCA、文档描述符或 Entity/StaticRule 表的排他分工
+    /// 核对不一致（`check_portable_policy_diff`；两个 emit 入口内嵌同样可达）。
     PolicyDiffMismatch,
     /// LFSM 策略来源与实际 LFCA 或同次受检来源输入不闭合。
     PolicySourceMismatch,
+    /// `PortableDiffBase::Artifact` 提供的视图不是 LFCA 对象（两个 emit 入口）。
     InvalidDiffBaseKind,
+    /// 提供的 base 制品无法按完整 LFCA 重建索引或校验策略引用，不能作为差异
+    /// 基线（两个 emit 入口）。
     DiffBaseSemanticMismatch,
+    /// base 与目标的静态契约版本行或执行契约行逐字节不同，跨修订语义契约转换
+    /// 不受支持（两个 emit 入口与 `check_portable_policy_diff`）。
     UnsupportedSemanticContractTransition,
+    /// 同一 StableId 在 base 与目标间改变了实体种类或规范身份字段
+    /// （两个 emit 入口与 `check_portable_policy_diff`）。
     CrossRevisionStableIdCollision,
+    /// emitter 自建对象的内部结构读取失败，或 LIR 规范关系与 LFCA 投影不一致；
+    /// 属内部绑定防御，正常输出不应触达（两个 emit 入口）。
     InternalBindingMismatch,
+    /// 发射到临时目录时的文件 I/O 失败（`emit_portable_candidate_to_staging`）。
     StagedObjectIo,
+    /// 封存核对时 staged backing 实际长度与预检 exact length 不一致
+    /// （`emit_portable_candidate_to_staging` 的 staged 写入路径；首次只读映射的
+    /// 同类漂移经 `ObjectSource` 变体返回）。
     StagedBackingChanged,
+    /// 从已封存 staged backing 读取 exact bytes 失败：越界、底层读取失败或
+    /// backing 漂移（`emit_portable_candidate_to_staging`）。
     ObjectSource(ObjectSourceError),
+    /// 预备对象的 `PortableObjectBytes`、三对象合计的 `PortableBundleBytes` 或
+    /// 检查器 scratch 的 `StageScratchBytes` 超出编译资源配置档；全部发射与检查
+    /// 入口均可达。
     CompileLimitExceeded {
         dimension: CompileLimitDimension,
         actual: u64,

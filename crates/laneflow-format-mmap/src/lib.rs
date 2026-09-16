@@ -48,6 +48,8 @@ use memmap2::{Mmap, MmapOptions};
 /// staging 生命周期与只读映射的失败。
 #[derive(Debug)]
 pub enum BackingError {
+    /// 临时 backing 创建、元数据读取或只读映射建立的 I/O 失败
+    /// （`PrivateStagedFile::create_in`/`seal`、`SealedPrivateFile::map_read_only`）。
     Io(io::Error),
     /// u64 exact length 无法装入本平台 usize。
     LengthOverflow,

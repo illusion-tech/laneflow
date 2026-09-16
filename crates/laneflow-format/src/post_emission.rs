@@ -31,20 +31,36 @@ pub enum ExpectedSemanticDiffBase {
 /// 后发射检查的稳定失败分类。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PostEmissionCheckError {
+    /// LFCA/LFSM/LFSD 任一来源无法建立连续字节视图，或实际字节数与登记的 exact length
+    /// 不一致（`check_post_emission_bundle`）。
     ObjectSource {
         object: PortableObjectKind,
         error: ObjectSourceError,
     },
+    /// 三对象任一的 framing/registry/值域预检失败，或 provenance/LFSM/LFSD 绑定行缺失、
+    /// 字段类型不符（`check_post_emission_bundle`）。
     Format(FormatError),
+    /// LFCA/LFSM/LFSD 任一字节长度超过调用方配置的 `max_object_bytes` 上限
+    /// （`check_post_emission_bundle`）。
     LimitExceeded {
         dimension: LimitDimension,
         actual: u64,
         limit: u64,
     },
+    /// LFCA 声明修订与重算不一致，经 `CanonicalNetworkInputError` 映射可达
+    /// （`check_post_emission_bundle`）。
     NetworkRevisionMismatch,
+    /// LFSM 绑定行与实际 LFCA 的派生版本、修订、格式版本、摘要、长度、build ID、
+    /// 来源集合摘要或其版本任一不符（`check_post_emission_bundle`）。
     SourceMapBindingMismatch,
+    /// LFSD 绑定行的 base 字段与调用方传入的 `ExpectedSemanticDiffBase` 任一不符
+    /// （`check_post_emission_bundle`）。
     SemanticDiffBaseBindingMismatch,
+    /// LFSD 绑定行的 target 字段与实际 LFCA 的派生版本、修订、摘要或长度任一不符
+    /// （`check_post_emission_bundle`）。
     SemanticDiffTargetBindingMismatch,
+    /// 重算 LFCA 修订时对 section 字节长度做 `u64` 换算溢出，经
+    /// `CanonicalNetworkInputError` 映射可达（`check_post_emission_bundle`）。
     ArithmeticOverflow,
 }
 
