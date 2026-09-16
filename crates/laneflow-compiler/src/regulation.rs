@@ -7,8 +7,11 @@ use crate::{Diagnostic, DiagnosticBundle, RoadEditingInputViolation};
 /// Synthetic 输入借用 `&str`；拥有型编制输入使用 `Box<str>`，私有阶段使用 `Arc<str>`。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RegulationIdentity<S = Box<str>> {
+    /// 法域文本。
     pub jurisdiction: S,
+    /// 规则含义的版本文本。
     pub version: S,
+    /// 可选的法规来源文本。
     pub source: Option<S>,
 }
 

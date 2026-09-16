@@ -283,7 +283,9 @@ impl RoadAlignmentReference {
 /// 模块来源沿袭类别。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RoadEditingProvenanceKind {
+    /// 直接编制：不由生成器产生。
     Direct,
+    /// 由第一方生成器程序化产生。
     Generated,
 }
 
@@ -575,12 +577,18 @@ impl LinearWidthProfile {
 /// 一条编制曲线段的闭合几何 variant。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RoadEditingCurveSegmentGeometry {
+    /// 从段起点到终点的直线段。
     Line {
+        /// 段终点（编制坐标）。
         end: RoadEditingPoint3,
     },
+    /// 由两个控制点与终点定义的三次贝塞尔曲线段。
     CubicBezier {
+        /// 第一控制点（编制坐标）。
         control_1: RoadEditingPoint3,
+        /// 第二控制点（编制坐标）。
         control_2: RoadEditingPoint3,
+        /// 段终点（编制坐标）。
         end: RoadEditingPoint3,
     },
 }
@@ -783,21 +791,27 @@ macro_rules! impl_canvas {
 /// 道路走廊 station 区间的闭合终点形式。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RoadEditingStationEnd {
+    /// 区间以显式 station 值（米）闭合。
     Finite(f64),
+    /// 区间闭合于道路走向终点。
     AlignmentEnd,
 }
 
 /// 道路走廊横断面中的有序成员引用。
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum RoadEditingCorridorElement {
+    /// 走廊横断面中的一个道路区段成员。
     RoadSection(RoadSectionReference),
+    /// 走廊横断面中的一个设施带成员。
     FacilityBand(FacilityBandReference),
 }
 
 /// 编制车道相对 alignment 参考方向的行驶方向。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RoadEditingLaneDirection {
+    /// 沿 alignment 参考方向行驶。
     Forward,
+    /// 逆 alignment 参考方向行驶。
     Backward,
 }
 
@@ -1361,7 +1375,9 @@ impl_canvas!(ManeuverPathInput);
 /// 机动门的固定时制信号绑定。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RoadEditingSignalControl {
+    /// 门不绑定信号，不受时制控制。
     None,
+    /// 门由绑定的信号组时制控制。
     SignalGroup(SignalGroupReference),
 }
 
@@ -2185,9 +2201,13 @@ impl_canvas!(ParticipantClassInput);
 /// v1 静态准入规则允许的封闭目标集合。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RoadEditingAccessTarget {
+    /// 单条车道图边目标。
     LaneEdge(LaneEdgeReference),
+    /// 通过成员车道覆盖到车道图边的车道组目标。
     LaneGroup(LaneGroupReference),
+    /// 通过编制车道覆盖到车道图边的道路区段目标。
     RoadSection(RoadSectionReference),
+    /// 不展平为边的机动路径目标。
     ManeuverPath(ManeuverPathReference),
 }
 
@@ -2497,12 +2517,18 @@ impl_canvas!(ConflictZoneInput);
 /// `ParticipantStream` 路径上的闭合位置 variant。
 #[derive(Clone, Debug, PartialEq)]
 pub enum PathAnchorInput {
+    /// 位于机动门处的锚点。
     Gate(ManeuverGateReference),
+    /// 位于路径边边界处的锚点。
     EdgeBoundary {
+        /// 锚点所在路径边界的序号：`0` 为路径起点，等于边数时为路径终点。
         boundary_index: u32,
     },
+    /// 位于路径边内部进度处的锚点。
     Interior {
+        /// 路径上的边序号。
         path_edge_index: u32,
+        /// 沿该边从起点起的进度，单位为米。
         progress_meters: f64,
     },
 }
@@ -2767,29 +2793,53 @@ pub use policy::*;
 /// Road Editing Source 的 24 个可构造声明种类。
 #[derive(Clone, Debug, PartialEq)]
 pub enum RoadEditingDeclaration {
+    /// 路权策略集声明（[`RightOfWayPolicySetInput`]）。
     RightOfWayPolicySet(RightOfWayPolicySetInput),
+    /// 道路走廊声明（[`RoadCorridorInput`]）。
     RoadCorridor(RoadCorridorInput),
+    /// 道路区段声明（[`RoadSectionInput`]）。
     RoadSection(RoadSectionInput),
+    /// 编制车道声明（[`AuthoringLaneInput`]）。
     AuthoringLane(AuthoringLaneInput),
+    /// 车道图边声明（[`LaneEdgeInput`]）。
     LaneEdge(LaneEdgeInput),
+    /// 路口声明（[`JunctionInput`]）。
     Junction(JunctionInput),
+    /// 路口内一个通行流向声明（[`MovementInput`]）。
     Movement(MovementInput),
+    /// 路口内一条机动路径声明（[`ManeuverPathInput`]）。
     ManeuverPath(ManeuverPathInput),
+    /// 机动门声明（[`ManeuverGateInput`]）。
     ManeuverGate(ManeuverGateInput),
+    /// 等待区声明（[`WaitingZoneInput`]）。
     WaitingZone(WaitingZoneInput),
+    /// 停止线声明（[`StopLineInput`]）。
     StopLine(StopLineInput),
+    /// 信号组声明（[`SignalGroupInput`]）。
     SignalGroup(SignalGroupInput),
+    /// 信号控制器声明（[`SignalControllerInput`]）。
     SignalController(SignalControllerInput),
+    /// 信号相位声明（[`SignalPhaseInput`]）。
     SignalPhase(SignalPhaseInput),
+    /// 停车设施声明（[`ParkingFacilityInput`]）。
     ParkingFacility(ParkingFacilityInput),
+    /// 停车位声明（[`ParkingSpaceInput`]）。
     ParkingSpace(ParkingSpaceInput),
+    /// 车道组声明（[`LaneGroupInput`]）。
     LaneGroup(LaneGroupInput),
+    /// 设施带声明（[`FacilityBandInput`]）。
     FacilityBand(FacilityBandInput),
+    /// 参与者类别声明（[`ParticipantClassInput`]）。
     ParticipantClass(ParticipantClassInput),
+    /// 静态准入规则声明（[`AccessRuleInput`]）。
     AccessRule(AccessRuleInput),
+    /// 车辆配置声明（[`VehicleProfileInput`]）。
     VehicleProfile(VehicleProfileInput),
+    /// 规范坐标框架声明（[`CanonicalFrameInput`]）。
     CanonicalFrame(CanonicalFrameInput),
+    /// 冲突区声明（[`ConflictZoneInput`]）。
     ConflictZone(ConflictZoneInput),
+    /// 参与者流声明（[`ParticipantStreamInput`]）。
     ParticipantStream(ParticipantStreamInput),
 }
 

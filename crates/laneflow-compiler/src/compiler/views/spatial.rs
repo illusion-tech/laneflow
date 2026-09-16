@@ -71,8 +71,11 @@ impl CanonicalLaneEdgeGeometryView<'_> {
 /// 已量化到 canonical frame 的只读 `f32` 点，单位为米。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CanonicalPoint3F32 {
+    /// 规范坐标系下的 X 分量，单位为米。
     pub x: f32,
+    /// 规范坐标系下的 Y 分量，单位为米。
     pub y: f32,
+    /// 规范坐标系下的 Z 分量，单位为米。
     pub z: f32,
 }
 
@@ -89,9 +92,13 @@ impl From<LirCanonicalPoint3F32> for CanonicalPoint3F32 {
 /// 中心线采样使用的单段累计弧长和正交局部基。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CanonicalSpatialSegment {
+    /// 本采样段的线段长度，单位为米。
     pub length_meters: f32,
+    /// 段终点沿中心线的累计弧长，单位为米。
     pub cumulative_end_meters: f32,
+    /// 段的单位切向向量（规范坐标系分量）。
     pub tangent: [f32; 3],
+    /// 与切向正交的单位上向向量（规范坐标系分量）。
     pub up: [f32; 3],
 }
 

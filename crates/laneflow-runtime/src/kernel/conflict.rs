@@ -265,15 +265,20 @@ impl ConflictPassageOccurrenceLocator {
 /// 策略解释后、进入资源仲裁前的候选类型。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GateCandidateKind {
+    /// 受保护候选：信号绿灯给出专用路权，候选排序中优先于许可候选。
     Protected,
+    /// 许可候选：绿灯（或圆灯红灯的有条件解释）放行，让行义务由资源仲裁处理。
     Permissive,
+    /// 无信号绑定的无控制候选。
     Uncontrolled,
 }
 
 /// 门规则只生成 deny 或候选，不直接授予通行权。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GatePolicyDecision {
+    /// 门规则拒绝：车辆必须在该 Gate 前停车。
     DenyAndStop,
+    /// 门规则放行为候选，进入组合资源仲裁。
     Candidate(GateCandidateKind),
 }
 
@@ -435,8 +440,11 @@ impl ConflictEligibilityState {
 /// 对一个 passage cell 的保守最早到达证明。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ApproachEstimate {
+    /// 证明计算失败，无法给出保守到达下界。
     Unprovable,
+    /// 保守最早到达时刻（毫秒，向下取整的下界）。
     Finite(u64),
+    /// 保守下界超出证明时窗，本时窗内不可到达。
     OutsideHorizon,
 }
 
@@ -723,27 +731,39 @@ fn directed(value: f64, upper: bool) -> Option<f64> {
 /// 已清空 cell 的滞后基准；切换保守基准与真实 clear 不混淆。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConflictLagReference {
+    /// 无清空历史：该 cell 尚无可计的滞后基准。
     NoHistory,
+    /// 真实清空发生的毫秒时刻。
     ActualClear(u64),
+    /// cutover 时给定的保守滞后基准下界时刻。
     CutoverFloor(u64),
 }
 
 /// 间隙 normal outcome。lag 相等通过，lead 相等拒绝。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConflictGapOutcome {
+    /// 间隙检查通过，允许 crossing。
     Accepted,
+    /// 后随间隙不足：距上一次清空的已逝时间小于 required lag。
     LagGap,
+    /// 前导间隙不足：对方保守最早到达早于 required lead。
     LeadGap,
+    /// 接近估计不可证明，保守拒绝 crossing。
     ApproachUnprovable,
 }
 
 /// exact yield-target cell 的完整检查结果。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConflictYieldOutcome {
+    /// yield 目标 cell 检查通过。
     Accepted,
+    /// yield 目标 cell 仍被其它车辆占用。
     Occupied,
+    /// yield 目标 cell 的后随间隙不足。
     LagGap,
+    /// yield 目标 cell 的前导间隙不足。
     LeadGap,
+    /// yield 目标 cell 的接近估计不可证明。
     ApproachUnprovable,
 }
 
@@ -1159,9 +1179,13 @@ pub(crate) struct RestoredConflictReservation<'a> {
 /// 组合资源 preflight 的 normal no-grant 原因。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConflictResourceNoGrant {
+    /// 组合资源依赖在 Waiting 依赖图中成环。
     WaitingCycle,
+    /// 冲突 zone/cell 已被其它 owner 占用或提交。
     ConflictOccupied,
+    /// 车身清空目标越过路线存储上界，无法派生下游 claim。
     DownstreamStorageBoundary,
+    /// 下游 claim 区间与既有 claim（含 follower 最小间隙）冲突。
     DownstreamClaimConflict,
 }
 

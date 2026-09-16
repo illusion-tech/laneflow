@@ -141,13 +141,20 @@ impl ParkingBinding {
 /// reserve 的 caller-owned typed payload。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReserveParkingTarget {
+    /// 预留一个显式泊位。
     ExplicitSpace {
+        /// 目标泊位序号。
         space: ParkingSpaceOrdinal,
+        /// 停车入口所在的路线出现项下标。
         entry_route_occurrence: u32,
     },
+    /// 从设施虚拟池预留稀疏容量。
     VirtualPool {
+        /// 拥有虚拟池的停车设施序号。
         facility: ParkingFacilityOrdinal,
+        /// 设施内的虚拟入口 selector。
         entry_anchor: VirtualEntryAnchorSelector,
+        /// 停车入口所在的路线出现项下标。
         entry_route_occurrence: u32,
     },
 }
@@ -190,15 +197,24 @@ impl ReserveParkingTarget {
 /// leave 的 caller-owned typed payload。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LeaveParkingTarget {
+    /// 离开一个显式泊位。
     ExplicitSpace {
+        /// 目标泊位序号。
         space: ParkingSpaceOrdinal,
+        /// 离场后行驶的路线句柄。
         route: RouteHandle,
+        /// 停车出口所在的路线出现项下标。
         exit_route_occurrence: u32,
     },
+    /// 离开一个设施虚拟池。
     VirtualPool {
+        /// 拥有虚拟池的停车设施序号。
         facility: ParkingFacilityOrdinal,
+        /// 离场后行驶的路线句柄。
         route: RouteHandle,
+        /// 设施内的虚拟出口 selector。
         exit_anchor: VirtualExitAnchorSelector,
+        /// 停车出口所在的路线出现项下标。
         exit_route_occurrence: u32,
     },
 }
@@ -249,17 +265,28 @@ impl LeaveParkingTarget {
 /// rebind 的 caller-owned typed payload。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RebindParkingTarget {
+    /// 在显式泊位不变的前提下 rebind 到新路线。
     ExplicitSpace {
+        /// 保持不变的泊位序号。
         space: ParkingSpaceOrdinal,
+        /// rebind 后的新路线句柄。
         new_route: RouteHandle,
+        /// 车辆当前出现项在新路线上的下标。
         new_current_route_occurrence: u32,
+        /// 停车入口在新路线上的出现项下标。
         new_entry_route_occurrence: u32,
     },
+    /// 在虚拟池不变的前提下 rebind 到新路线。
     VirtualPool {
+        /// 拥有虚拟池的停车设施序号。
         facility: ParkingFacilityOrdinal,
+        /// rebind 后的新路线句柄。
         new_route: RouteHandle,
+        /// 车辆当前出现项在新路线上的下标。
         new_current_route_occurrence: u32,
+        /// 新入口的虚拟入口 selector。
         new_entry_anchor: VirtualEntryAnchorSelector,
+        /// 停车入口在新路线上的出现项下标。
         new_entry_route_occurrence: u32,
     },
 }
@@ -380,7 +407,9 @@ impl ParkedVehicleSpawnInput {
 /// 支持窄幂等的命令结果。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ParkingCommandOutcome<T> {
+    /// 命令实际提交，携带本次变更记录。
     Committed(T),
+    /// 窄幂等命中：绑定与资源未变化，仅回显记录。
     NoChange(T),
 }
 
@@ -403,82 +432,119 @@ impl<T> ParkingCommandOutcome<T> {
 /// `reserve_parking` 提交的变更记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParkingReserveRecord {
+    /// 预留停车资源的车辆。
     pub vehicle: VehicleHandle,
+    /// 预留的精确停车目标。
     pub target: ParkingTarget,
+    /// 车辆当前绑定的路线句柄。
     pub route: RouteHandle,
+    /// 停车入口所在的路线出现项下标。
     pub entry_route_occurrence: u32,
+    /// 虚拟池入口 selector；显式泊位为 `None`。
     pub virtual_entry_selector: Option<VirtualEntryAnchorSelector>,
+    /// 预留时车辆是否已精确到达停车入口。
     pub arrived: bool,
 }
 
 /// `cancel_parking` 提交的变更记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParkingCancelRecord {
+    /// 取消预留的车辆。
     pub vehicle: VehicleHandle,
+    /// 被取消的精确停车目标。
     pub target: ParkingTarget,
 }
 
 /// `park_vehicle` 提交的变更记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParkingParkRecord {
+    /// 完成入位（转为 Parked）的车辆。
     pub vehicle: VehicleHandle,
+    /// 占用的精确停车目标。
     pub target: ParkingTarget,
 }
 
 /// `leave_parking` 提交的变更记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParkingLeaveRecord {
+    /// 离开车位的车辆。
     pub vehicle: VehicleHandle,
+    /// 被释放的精确停车目标。
     pub target: ParkingTarget,
+    /// 离场后行驶的路线句柄。
     pub route: RouteHandle,
+    /// 停车出口所在的路线出现项下标。
     pub exit_route_occurrence: u32,
+    /// 虚拟池出口 selector；显式泊位为 `None`。
     pub virtual_exit_selector: Option<VirtualExitAnchorSelector>,
 }
 
 /// `rebind_parking_route` 提交的变更记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParkingRebindRecord {
+    /// 被 rebind 的车辆。
     pub vehicle: VehicleHandle,
+    /// 保持不变的精确停车目标。
     pub target: ParkingTarget,
+    /// rebind 前的路线句柄。
     pub old_route: RouteHandle,
+    /// rebind 后的路线句柄。
     pub new_route: RouteHandle,
+    /// 车辆当前出现项在旧路线上的下标。
     pub old_current_route_occurrence: u32,
+    /// 车辆当前出现项在新路线上的下标。
     pub new_current_route_occurrence: u32,
+    /// 停车入口在新路线上的出现项下标。
     pub new_entry_route_occurrence: u32,
+    /// 新入口的虚拟池 selector；显式泊位为 `None`。
     pub virtual_entry_selector: Option<VirtualEntryAnchorSelector>,
+    /// rebind 后车辆是否已精确到达停车入口。
     pub arrived: bool,
 }
 
 /// `spawn_parked_vehicle` 提交的变更记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParkedVehicleSpawnRecord {
+    /// 直接生成的 Parked 车辆。
     pub vehicle: VehicleHandle,
+    /// 该车占用的精确停车目标。
     pub target: ParkingTarget,
 }
 
 /// `despawn_vehicle` 提交的变更记录；附带释放的停车、Waiting 与 Conflict 持有。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VehicleDespawnRecord {
+    /// 被移除的车辆。
     pub vehicle: VehicleHandle,
+    /// 移除时的生命周期状态。
     pub status: VehicleStatus,
+    /// 被释放的停车 binding；未绑定时为 `None`。
     pub parking_binding: Option<ParkingBinding>,
+    /// 被释放的 Waiting membership 记录；无等待持有时为 `None`。
     pub waiting_release: Option<crate::WaitingMembershipReleaseRecord>,
+    /// 被释放的 Conflict reservation；无冲突持有时为 `None`。
     pub conflict_release: Option<crate::ConflictReservation>,
 }
 
 /// step 中首次提交 arrival 的稳定顺序 observation。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParkingArrivalObservation {
+    /// 首次到达停车目标的车辆。
     pub vehicle: VehicleHandle,
+    /// 到达的精确停车目标。
     pub target: ParkingTarget,
 }
 
 /// 单个 pool 的守恒计数。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParkingPoolCounts {
+    /// 池总容量（容量单位数）。
     pub capacity: u64,
+    /// 当前 Reserved 占用的容量。
     pub reserved: u64,
+    /// 当前 Occupied 占用的容量。
     pub occupied: u64,
+    /// 剩余可用容量。
     pub vacant: u64,
 }
 
@@ -499,16 +565,22 @@ impl ParkingPoolCounts {
 /// 一个设施显式池、虚拟池与总量的分池查询。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParkingFacilityCounts {
+    /// 显式泊位池计数。
     pub explicit: ParkingPoolCounts,
+    /// 虚拟池计数。
     pub virtual_pool: ParkingPoolCounts,
+    /// 两池合计计数。
     pub total: ParkingPoolCounts,
 }
 
 /// 显式泊位的排他状态。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ParkingSpaceState {
+    /// 泊位空闲。
     Vacant,
+    /// 泊位被预留，携带预留车辆。
     Reserved(VehicleHandle),
+    /// 泊位被占用，携带 Parked 车辆。
     Occupied(VehicleHandle),
 }
 

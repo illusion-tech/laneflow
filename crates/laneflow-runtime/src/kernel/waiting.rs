@@ -95,15 +95,27 @@ fn waiting_reservation_injected_failure() -> bool {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ManeuverTraversalPhase {
     /// 已进入 occurrence，但尚未跨过下一道 Gate。
-    PreGate { next_gate_hop: u32 },
+    PreGate {
+        /// 下一道待跨 Gate 的 hop 下标。
+        next_gate_hop: u32,
+    },
     /// 已跨过至少一道 Gate，当前未因 release Gate 等待。
-    Committed { last_crossed_gate_hop: u32 },
+    Committed {
+        /// 最近跨过的 Gate 的 hop 下标。
+        last_crossed_gate_hop: u32,
+    },
     /// 已到达所持 membership 的 release Gate，且该 Gate 是最终硬约束归因。
-    Waiting { release_gate_hop: u32 },
+    Waiting {
+        /// 作为最终硬约束的 release Gate hop 下标。
+        release_gate_hop: u32,
+    },
     /// 已 crossing，继续持有 Conflict/downstream authority，直到车尾清空全部 coverage。
     /// reservation 内容只由 `ConflictArbiter` 按 vehicle owner 保存；这里仅保留
     /// 与 Waiting traversal 共用的 admission Gate 路线锚点。
-    Clearing { admission_gate_hop: u32 },
+    Clearing {
+        /// 与 Waiting traversal 共用的准入 Gate hop 下标。
+        admission_gate_hop: u32,
+    },
 }
 
 /// 车辆当前 stateful maneuver occurrence 的语义状态。
@@ -115,16 +127,19 @@ pub struct ManeuverTraversalState {
 }
 
 impl ManeuverTraversalState {
+    /// 返回遍历所属的路线句柄。
     #[must_use]
     pub const fn route(self) -> RouteHandle {
         self.route
     }
 
+    /// 返回机动出现项下标。
     #[must_use]
     pub const fn maneuver_occurrence_index(self) -> u32 {
         self.maneuver_occurrence_index
     }
 
+    /// 返回当前遍历阶段。
     #[must_use]
     pub const fn phase(self) -> ManeuverTraversalPhase {
         self.phase
@@ -140,16 +155,19 @@ pub struct WaitingMembership {
 }
 
 impl WaitingMembership {
+    /// 返回 membership 所属的等待区序号。
     #[must_use]
     pub const fn waiting_zone(self) -> WaitingZoneOrdinal {
         self.waiting_zone
     }
 
+    /// 返回准入时分配的准入序号。
     #[must_use]
     pub const fn admission_sequence(self) -> u64 {
         self.admission_sequence
     }
 
+    /// 返回释放 membership 的 release hop 下标。
     #[must_use]
     pub const fn release_hop(self) -> u32 {
         self.release_hop
@@ -166,21 +184,25 @@ pub struct WaitingZoneSnapshot {
 }
 
 impl WaitingZoneSnapshot {
+    /// 返回等待区序号。
     #[must_use]
     pub const fn zone(self) -> WaitingZoneOrdinal {
         self.zone
     }
 
+    /// 返回当前占用数（辆）。
     #[must_use]
     pub const fn occupancy(self) -> u32 {
         self.occupancy
     }
 
+    /// 返回容量上限（辆）。
     #[must_use]
     pub const fn max_occupancy(self) -> u32 {
         self.max_occupancy
     }
 
+    /// 返回下一次准入将分配的准入序号。
     #[must_use]
     pub const fn next_admission_sequence(self) -> u64 {
         self.next_admission_sequence
@@ -197,21 +219,25 @@ pub struct WaitingZoneMember {
 }
 
 impl WaitingZoneMember {
+    /// 返回成员所属的等待区序号。
     #[must_use]
     pub const fn zone(self) -> WaitingZoneOrdinal {
         self.zone
     }
 
+    /// 返回成员车辆句柄。
     #[must_use]
     pub const fn vehicle(self) -> VehicleHandle {
         self.vehicle
     }
 
+    /// 返回准入时分配的准入序号。
     #[must_use]
     pub const fn admission_sequence(self) -> u64 {
         self.admission_sequence
     }
 
+    /// 返回释放 membership 的 release hop 下标。
     #[must_use]
     pub const fn release_hop(self) -> u32 {
         self.release_hop
@@ -221,7 +247,9 @@ impl WaitingZoneMember {
 /// Waiting admission 没有取得 claim 的原因。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WaitingNoGrantReason {
+    /// 等待区占用达到 `max_occupancy`。
     Capacity,
+    /// 已占用存储、最小间隙与车长之和超过该入口的本地存储长度。
     PhysicalStorage,
     /// 本地可准入，但组合资源未取得。
     CombinedResource(crate::ConflictNoGrantReason),
@@ -232,9 +260,13 @@ pub enum WaitingNoGrantReason {
 pub enum WaitingDecisionOutcome {
     /// 本地预选可行，但该 entry 未进入本 tick 的组合资源求值。
     Deferred,
+    /// 车辆停在限制性 Gate 边界，本拍未做准入求值。
     NotEvaluated,
+    /// 车辆停在非限制性 Gate 边界，无需准入求值。
     NotRequired,
+    /// 本拍取得等待区准入。
     Granted,
+    /// 未取得准入，附拒绝原因。
     NoGrant(WaitingNoGrantReason),
 }
 
@@ -247,16 +279,19 @@ pub struct WaitingRouteAnchor {
 }
 
 impl WaitingRouteAnchor {
+    /// 返回锚点所属的路线句柄。
     #[must_use]
     pub const fn route(self) -> RouteHandle {
         self.route
     }
 
+    /// 返回机动出现项下标。
     #[must_use]
     pub const fn maneuver_occurrence_index(self) -> u32 {
         self.maneuver_occurrence_index
     }
 
+    /// 返回锚点所在的路线 hop 下标。
     #[must_use]
     pub const fn hop(self) -> u32 {
         self.hop
@@ -274,26 +309,31 @@ pub struct WaitingDecision {
 }
 
 impl WaitingDecision {
+    /// 返回决定针对的车辆句柄。
     #[must_use]
     pub const fn vehicle(self) -> VehicleHandle {
         self.vehicle
     }
 
+    /// 返回车辆在稳定更新顺序中的下标。
     #[must_use]
     pub const fn vehicle_update_sequence(self) -> u32 {
         self.vehicle_update_sequence
     }
 
+    /// 返回决定涉及的等待区；决定未绑定具体 zone 时为 `None`。
     #[must_use]
     pub const fn zone(self) -> Option<WaitingZoneOrdinal> {
         self.zone
     }
 
+    /// 返回决定的稳定 route 锚点。
     #[must_use]
     pub const fn anchor(self) -> WaitingRouteAnchor {
         self.anchor
     }
 
+    /// 返回本拍决定结果。
     #[must_use]
     pub const fn outcome(self) -> WaitingDecisionOutcome {
         self.outcome
@@ -303,8 +343,11 @@ impl WaitingDecision {
 /// 前保险杠被投影到 Waiting entry boundary 的原因。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WaitingProjectionReason {
+    /// 下一等待区入口已进入本拍求值时窗，前沿先投影到其入口边界。
     EvaluationHorizon,
+    /// 等待区容量不足，前沿投影到入口边界停车。
     Capacity,
+    /// 等待区物理存储不足，前沿投影到入口边界停车。
     PhysicalStorage,
 }
 
@@ -317,16 +360,19 @@ pub struct WaitingMembershipReleaseRecord {
 }
 
 impl WaitingMembershipReleaseRecord {
+    /// 返回被释放的等待区序号。
     #[must_use]
     pub const fn waiting_zone(self) -> WaitingZoneOrdinal {
         self.waiting_zone
     }
 
+    /// 返回 membership 的稳定 route 锚点。
     #[must_use]
     pub const fn route_anchor(self) -> WaitingRouteAnchor {
         self.route_anchor
     }
 
+    /// 返回被释放 membership 的准入序号。
     #[must_use]
     pub const fn admission_sequence(self) -> u64 {
         self.admission_sequence

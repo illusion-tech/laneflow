@@ -17,8 +17,11 @@ pub(crate) use self::lfcp::build_lfcp;
 /// LFCP v2 的发布者种类。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PortablePublisherKind {
+    /// 本地工具发布者。
     LocalTool,
+    /// CI 流水线发布者。
     Ci,
+    /// 发布服务发布者。
     ReleaseService,
 }
 

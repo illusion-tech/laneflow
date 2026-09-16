@@ -110,7 +110,9 @@ pub struct PortablePublicationCandidate {
 /// 跨修订身份冲突检查。
 #[derive(Clone, Copy, Debug)]
 pub enum PortableDiffBase<'a> {
+    /// 以创世为 base：不对照任何前置 LFCA 制品生成 LFSD。
     Genesis,
+    /// 以调用方提供的已通过格式预检的 LFCA 对象视图为 base 生成 LFSD。
     Artifact(ValueCheckedObjectView<'a>),
 }
 
@@ -231,8 +233,11 @@ pub enum PortableEmissionError {
     /// 检查器 scratch 的 `StageScratchBytes` 超出编译资源配置档；全部发射与检查
     /// 入口均可达。
     CompileLimitExceeded {
+        /// 超出上限的编译资源维度。
         dimension: CompileLimitDimension,
+        /// 实际观测值，单位随维度（字节类维度为字节）。
         actual: u64,
+        /// 编译资源配置档允许的上限，单位随维度（字节类维度为字节）。
         limit: u64,
     },
 }

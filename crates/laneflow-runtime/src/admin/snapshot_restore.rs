@@ -232,25 +232,38 @@ pub enum SnapshotRestoreError {
     },
     /// 停车设施稳定标识在目标根中未知或 kind 不匹配。
     #[error("车辆 {snapshot_vehicle_id} 的停车设施稳定标识未知")]
-    UnknownParkingFacility { snapshot_vehicle_id: u64 },
+    UnknownParkingFacility {
+        /// 车辆 ID。
+        snapshot_vehicle_id: u64,
+    },
     /// parking binding state 未知或 Unspecified。
     #[error("车辆 {snapshot_vehicle_id} 的 parking binding state 不支持: {actual}")]
     InvalidParkingBindingState {
+        /// 车辆 ID。
         snapshot_vehicle_id: u64,
+        /// 原始枚举值。
         actual: u8,
     },
     /// parking target kind 未知或 Unspecified。
     #[error("车辆 {snapshot_vehicle_id} 的 parking target kind 不支持: {actual}")]
     InvalidParkingTargetKind {
+        /// 车辆 ID。
         snapshot_vehicle_id: u64,
+        /// 原始枚举值。
         actual: u8,
     },
     /// Reserved/Occupied、target kind 与 semantic entry presence 不闭合。
     #[error("车辆 {snapshot_vehicle_id} 的 parking binding shape 非法")]
-    InvalidParkingBindingShape { snapshot_vehicle_id: u64 },
+    InvalidParkingBindingShape {
+        /// 车辆 ID。
+        snapshot_vehicle_id: u64,
+    },
     /// virtual Reserved semantic entry 在目标设施中没有 exact 对应。
     #[error("车辆 {snapshot_vehicle_id} 的 virtual parking entry 无 exact 对应")]
-    UnknownVirtualParkingEntry { snapshot_vehicle_id: u64 },
+    UnknownVirtualParkingEntry {
+        /// 车辆 ID。
+        snapshot_vehicle_id: u64,
+    },
     /// parked 状态与停车绑定不一致，或非 parked 状态携带停车绑定。
     #[error("车辆 {snapshot_vehicle_id} 的 parked 状态与停车绑定不一致")]
     ParkingStatusMismatch {
@@ -279,7 +292,10 @@ pub enum SnapshotRestoreError {
     },
     /// Waiting traversal/membership 的 stable identity、route occurrence 或 phase 不闭合。
     #[error("车辆 {snapshot_vehicle_id} 的 Waiting authority 非法")]
-    InvalidWaitingAuthority { snapshot_vehicle_id: u64 },
+    InvalidWaitingAuthority {
+        /// 车辆 ID。
+        snapshot_vehicle_id: u64,
+    },
     /// WaitingZone state row 的 stable identity 未知或重复。
     #[error("WaitingZone state row 非法或重复")]
     InvalidWaitingZoneState,
@@ -288,7 +304,10 @@ pub enum SnapshotRestoreError {
     WaitingInvariantViolation,
     /// 车辆的资格时钟或 Clearing reservation 不能从稳定身份和车身重建。
     #[error("车辆 {snapshot_vehicle_id} 的 Conflict authority 非法")]
-    InvalidConflictAuthority { snapshot_vehicle_id: u64 },
+    InvalidConflictAuthority {
+        /// 车辆 ID。
+        snapshot_vehicle_id: u64,
+    },
     /// Conflict lag 行未排序、重复、悬空、类别非法或时间在快照未来。
     #[error("Conflict lag history 非法")]
     InvalidConflictHistory,

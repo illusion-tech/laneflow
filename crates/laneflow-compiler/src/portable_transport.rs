@@ -57,9 +57,19 @@ impl BoundedReadBuffer {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PortableReadError {
     /// 已知或实际读取长度超过调用方单对象上限。
-    LimitExceeded { actual: u64, limit: u64 },
+    LimitExceeded {
+        /// 触发超限的实际字节数。
+        actual: u64,
+        /// 调用方单对象字节上限。
+        limit: u64,
+    },
     /// 已知 transport 长度与实际可读取字节数不一致。
-    LengthMismatch { declared: u64, actual: u64 },
+    LengthMismatch {
+        /// transport 声明的字节数。
+        declared: u64,
+        /// 实际可读取的字节数。
+        actual: u64,
+    },
     /// 长度不能安全转换或累计。
     ArithmeticOverflow,
     /// 底层 transport 读取失败。

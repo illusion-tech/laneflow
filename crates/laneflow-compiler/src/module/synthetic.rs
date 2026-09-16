@@ -61,6 +61,7 @@ use super::synthetic_record::{
 pub const SYNTHETIC_FRONTEND_VERSION: u32 = 5;
 mod policy;
 
+/// 官方合成领域专用语言 `LFSOURCE` 的受检来源模块构建器。
 pub struct SyntheticModuleBuilder {
     header: SourceModuleHeader,
     limits: CompileLimits,

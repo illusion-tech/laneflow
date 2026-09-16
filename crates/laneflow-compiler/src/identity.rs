@@ -30,28 +30,59 @@ use crate::{SourceLocation, SourceTextViolation};
 #[non_exhaustive]
 pub enum CanonicalIdentityViolation {
     /// 字段项数与实体种类登记的必需项数不同。
-    FieldCountMismatch { expected: u16, actual: u64 },
+    FieldCountMismatch {
+        /// 登记表要求的字段项数。
+        expected: u16,
+        /// 实际提供的字段项数。
+        actual: u64,
+    },
     /// 字段位置出现未知或保留标签。
-    UnknownFieldTag { position: u16, tag: u16 },
+    UnknownFieldTag {
+        /// 出错字段在实体字段序列中的零基位置。
+        position: u16,
+        /// 未知或保留的原始字段标签代码。
+        tag: u16,
+    },
     /// 字段标签已登记，但不位于实体种类要求的当前位置。
     UnexpectedFieldTag {
+        /// 出错字段在实体字段序列中的零基位置。
         position: u16,
+        /// 登记表要求当前位置的原始字段标签代码。
         expected: u16,
+        /// 实际出现的原始字段标签代码。
         actual: u16,
     },
     /// ASCII 字段违反外部标识 token 约束。
     InvalidAsciiField {
+        /// 违规 ASCII 字段的原始标签代码。
         tag: u16,
+        /// 该 ASCII 字段违反的具体文本约束。
         violation: SourceTextViolation,
     },
     /// StableId128 字段不是恰好 16 字节。
-    InvalidStableIdLength { tag: u16, actual: u64 },
+    InvalidStableIdLength {
+        /// 长度非法的 StableId128 字段原始标签代码。
+        tag: u16,
+        /// 该字段实际字节数。
+        actual: u64,
+    },
     /// 单字段长度不能写入 Identity v1 的 `u32_le(byte_length)`。
-    FieldByteLengthOverflow { tag: u16, actual: u64 },
+    FieldByteLengthOverflow {
+        /// 超长字段的原始标签代码。
+        tag: u16,
+        /// 该字段实际字节数。
+        actual: u64,
+    },
     /// 完整规范身份字节数不能由当前目标平台的 `usize` 表示。
-    CanonicalByteLengthOverflow { actual: u64 },
+    CanonicalByteLengthOverflow {
+        /// 完整规范身份的实际字节数。
+        actual: u64,
+    },
     /// 种类是登记表保留空位，不得编码。
-    UnconstructibleKind { kind: u16 },
+    UnconstructibleKind {
+        /// 登记表保留空位的原始种类代码。
+        kind: u16,
+    },
 }
 
 /// 编译器内部尚未编码的一个 Identity v1 字段。

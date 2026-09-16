@@ -14,7 +14,9 @@ pub const SOURCE_DOCUMENT_SET_DIGEST_VERSION: u32 = 1;
 #[repr(u16)]
 #[non_exhaustive]
 pub enum SourceLanguage {
+    /// 官方合成领域专用语言 `LFSOURCE`。
     SyntheticDsl = 1,
+    /// 官方道路编辑来源（`LF-ROAD-EDITING-SOURCE` FlatBuffers 文档）。
     RoadEditingSource = 2,
 }
 

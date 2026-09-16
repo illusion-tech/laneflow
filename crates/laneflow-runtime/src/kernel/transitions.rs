@@ -58,34 +58,55 @@ impl TrafficTransitionAnchor {
 /// 一次成功固定步进实际提交的领域转移；Grant 仅暂存而未过门时没有资源事件。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TrafficTransitionKind {
+    /// 前保险杠被投影到等待区入口边界停止，未取得准入。
     ProjectionApplied {
+        /// 被投影到的等待区序号。
         zone: WaitingZoneOrdinal,
+        /// 触发投影的原因。
         reason: WaitingProjectionReason,
     },
+    /// 车辆在本拍越过一道机动 Gate。
     GateCrossed {
+        /// 被越过的机动 Gate 序号。
         gate: ManeuverGateOrdinal,
     },
+    /// 车辆释放等待区 membership（前沿越过 release hop）。
     WaitingLeft {
+        /// 被离开的等待区序号。
         zone: WaitingZoneOrdinal,
+        /// 该 membership 的准入序号。
         admission_sequence: u64,
     },
+    /// 车辆取得等待区准入并进入。
     WaitingEntered {
+        /// 进入的等待区序号。
         zone: WaitingZoneOrdinal,
+        /// 本拍分配的准入序号。
         admission_sequence: u64,
     },
+    /// 车辆过门后取得冲突 passage 预约。
     ReservationAcquired {
+        /// 取得的冲突 passage 区间。
         passage_range: ConflictPassageRange,
     },
+    /// 车头进入冲突 passage。
     ConflictEntered {
+        /// 进入的冲突 passage 出现项。
         passage: ConflictPassageOccurrenceLocator,
     },
+    /// 车尾清空冲突 passage。
     ConflictCleared {
+        /// 清空的冲突 passage 出现项。
         passage: ConflictPassageOccurrenceLocator,
     },
+    /// 车辆释放所持冲突 passage 预约。
     ReservationReleased {
+        /// 释放的冲突 passage 区间。
         passage_range: ConflictPassageRange,
     },
+    /// 机动遍历完成：车尾越过该机动出口并清空全部 coverage。
     ManeuverTraversalCompleted {
+        /// 完成的机动出现项下标。
         maneuver_occurrence_index: u32,
     },
 }
