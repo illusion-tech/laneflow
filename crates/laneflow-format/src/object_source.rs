@@ -28,6 +28,7 @@ pub enum ObjectSourceError {
 /// 公开接口有意不暴露路径、原始文件句柄、可写映射或连续 backing。完整 slice 与 crate
 /// 登记的 closed staged backing 共享此入口，因此 checker 不建立平行信任路径。
 pub trait BoundedReReadableObjectSource: private::SealedImmutableBacking {
+    /// 返回来源固定的精确字节长度。
     #[must_use]
     fn exact_byte_length(&self) -> ExactByteLength;
 

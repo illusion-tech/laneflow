@@ -19,11 +19,17 @@ use crate::{
 /// 调用方从实际 LFSD base 输入保存的预期绑定。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExpectedSemanticDiffBase {
+    /// 预期 LFSD 基线为创世基线：base 派生版本、修订、摘要与字节长度全零。
     Genesis,
+    /// 预期 LFSD 基线为指定的 LFCA 制品。
     Artifact {
+        /// 基线制品的路网修订派生版本号。
         network_revision_derivation_version: u16,
+        /// 基线制品的路网修订标识。
         network_revision: NetworkRevisionId,
+        /// 基线制品精确字节内容的 SHA-256 摘要。
         digest: Sha256Digest,
+        /// 基线制品的精确字节长度。
         byte_length: ExactByteLength,
     },
 }
@@ -34,7 +40,9 @@ pub enum PostEmissionCheckError {
     /// LFCA/LFSM/LFSD 任一来源无法建立连续字节视图，或实际字节数与登记的 exact length
     /// 不一致（`check_post_emission_bundle`）。
     ObjectSource {
+        /// 读取失败的对象种类。
         object: PortableObjectKind,
+        /// 来源读取失败的具体原因。
         error: ObjectSourceError,
     },
     /// 三对象任一的 framing/registry/值域预检失败，或 provenance/LFCA 修订声明/
@@ -43,8 +51,11 @@ pub enum PostEmissionCheckError {
     /// LFCA/LFSM/LFSD 任一字节长度超过调用方配置的 `max_object_bytes` 上限
     /// （`check_post_emission_bundle`）。
     LimitExceeded {
+        /// 超限的资源维度。
         dimension: LimitDimension,
+        /// 实测对象字节长度。
         actual: u64,
+        /// 调用方配置的单对象字节上限。
         limit: u64,
     },
     /// LFCA 声明修订与重算不一致，经 `CanonicalNetworkInputError` 映射可达

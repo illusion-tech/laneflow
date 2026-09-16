@@ -545,18 +545,31 @@ impl<'a> RegistryCheckedFieldView<'a> {
 /// registry-checked 字段的零拷贝有类型值。
 #[derive(Clone, Copy, Debug)]
 pub enum RegistryCheckedFieldValue<'a> {
+    /// `U8` 定宽无符号整数值。
     U8(u8),
+    /// `U16` 定宽无符号整数值。
     U16(u16),
+    /// `U32` 定宽无符号整数值。
     U32(u32),
+    /// `U64` 定宽无符号整数值。
     U64(u64),
+    /// `F32` 浮点值。
     F32(f32),
+    /// `F64` 浮点值。
     F64(f64),
+    /// 128 位稳定标识。
     StableId128(StableId128),
+    /// SHA-256 摘要。
     Sha256(Sha256Digest),
+    /// UTF-8 字符串字段值。
     Utf8(&'a str),
+    /// 不透明字节串字段值。
     Bytes(&'a [u8]),
+    /// 已完成预检的 `u32` 序号向量视图。
     OrdinalVectorU32(RegistryCheckedOrdinalVectorView<'a>),
+    /// 已完成预检的一层嵌套行向量视图。
     RecordVector(RegistryCheckedRecordVectorView<'a>),
+    /// `I32` 定宽有符号整数值。
     I32(i32),
 }
 
