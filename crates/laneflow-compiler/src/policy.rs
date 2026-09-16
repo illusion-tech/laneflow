@@ -46,16 +46,19 @@ pub enum PolicyViolation {
     /// 规则没有证据成员，且所属法规身份也没有来源说明（三个策略声明入口均可达，
     /// 同 `InvalidRegulation`）。
     MissingEvidence,
-    /// stream 规则的让行目标与间隙参数必须二选一绑定：两者同时缺失或同时存在
-    /// （`add_right_of_way_policy_set` 与 `Compiler::compile` 可达；LFRE 的绑定
-    /// 不一致在预检即以 `InvalidCombination` 拒绝）。
+    /// stream 规则的让行目标与间隙参数必须同有或同无：声明了让行目标但缺间隙
+    /// 参数，或未声明目标却携带间隙参数（两者皆无为合法；
+    /// `add_right_of_way_policy_set` 与 `Compiler::compile` 可达，LFRE 的不一致
+    /// 在预检即以 `InvalidCombination` 拒绝）。
     GapBinding,
-    /// 某参与类别在机动门或参与者流上可准入，但没有任何可适用规则
+    /// 某参与类别被车辆 profile 使用并在机动门或参与者流上可准入，但没有任何
+    /// 可适用规则；选择单元只为 profile 使用的类别建立，未被使用的类别不触发
     /// （`Compiler::compile` 的 MIR 策略校验）。
     MissingRule,
-    /// 同一门/流上两条规则对同一参与类别的特异性**与优先级**均并列，无法唯一
-    /// 选择规则；仅特异性并列但优先级不同时按优先级确定性选择、不触发本变体
-    /// （`Compiler::compile` 的 MIR 策略校验）。
+    /// 同一门上两条规则对同一参与类别的特异性并列（门规则无优先级轴），或
+    /// 同一流上两条规则的特异性与优先级均并列，无法唯一选择规则；流规则仅
+    /// 特异性并列但优先级不同时按优先级确定性选择（`Compiler::compile` 的 MIR
+    /// 策略校验）。
     AmbiguousRule,
     /// 门规则的解释不是 Uncontrolled 但所引用机动门未绑定信号组、Uncontrolled
     /// 解释与既有信号组绑定不一致，或未绑定门规则携带 OnRed 禁止

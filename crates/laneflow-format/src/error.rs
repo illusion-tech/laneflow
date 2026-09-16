@@ -90,15 +90,16 @@ pub enum FormatError {
         available: u64,
     },
     /// 声明的长度或计数与实际不一致，含对象长度、目录/section/chunk 跨度、行与字段边界、
-    /// 字段定宽及输出缓冲区精确长度（读取侧四个 `preflight_*` 入口与
-    /// `RegistryCheckedFieldView::value`；写入侧 `measure_object`/`prepare_object`/
-    /// `encode_object`/`encode_prepared_object` 同样可达）。
+    /// 字段定宽及输出缓冲区精确长度（读取侧四个 `preflight_*` 入口；写入侧
+    /// `measure_object`/`prepare_object`/`encode_object`/`encode_prepared_object`。
+    /// registry 预检已证实的字段不会在 `RegistryCheckedFieldView::value` 触发本变体）。
     LengthMismatch {
         structure: FormatStructure,
         declared: u64,
         actual: u64,
     },
-    /// 解析偏移换算或预算/长度累加的 checked 算术溢出（读取侧四个 `preflight_*` 入口与
+    /// 解析偏移换算或预算/长度累加的 checked 算术溢出（读取侧四个 `preflight_*` 入口；
+    /// 预检证实的字段在 `RegistryCheckedFieldView::value` 的零偏移定宽解码中不会溢出），
     /// `RegistryCheckedFieldView::value`；写入侧 `measure_object`/`prepare_object`/
     /// `encode_object` 同样可达）。
     ArithmeticOverflow { structure: FormatStructure },
