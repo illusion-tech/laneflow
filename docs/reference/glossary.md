@@ -540,6 +540,29 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 | 路线机动门观测 | `RouteGateObservation`        | 当前世界已注册路线某个 hop 的机动门及整数毫米位置，只用于精确定位，不授予通行权。                          |
 | 路口观测视图   | `LaneFlowJunctionObservation` | 从活动 Bevy Session 借出的只读领域视图，组合当前状态与分别标明语义的最近成功步进记录，不拥有动态交通权威。 |
 
+### 7.5 单世界精确并行提案
+
+下列术语供 [ADR 0030（Proposed）](../adr/0030-single-world-parallel-execution.md) 与
+[并行执行设计（Review）](../design/traffic-runtime-parallel-execution.md) 使用。
+术语登记不表示同名类型、并行算法或新快照格式已实现，也不构成 G1 接受记录。
+首版只分发独立计算，P4 规范串行；资源依赖组件及下面两类图用于后续 P4 设计，
+不表示首版需要构建组件目录或图调度器。
+
+| 中文规范术语   | 英文辅助名 / 精确标识符                     | 中文规范含义                                                                     |
+| -------------- | ------------------------------------------- | -------------------------------------------------------------------------------- |
+| 交通配置       | Traffic Configuration / `WorldConfig`       | 影响交通准入与行为的四类容量及固定步长；提案将执行参数从中分离。                 |
+| 执行配置       | Execution Configuration / `ExecutionConfig` | 安装和恢复时由宿主显式提供的执行能力要求；不进入交通快照、摘要或身份。           |
+| 执行资源       | Execution Resources                         | 活动世界拥有的线程与调度资源，和可重建的目标执行计划分开管理。                   |
+| 逻辑更新位置   | Logical Update Position                     | 当前拍 live 序列中的规范位置，用于保留业务次序；不等于槽位或线程编号。           |
+| 活动紧凑位置   | Active Compact Position                     | Active 工作集中的连续定位下标，必须映射到完整车辆句柄和逻辑更新位置。            |
+| 执行块         | Execution Block                             | 独占任务输出范围的物理调度分块；不创建新的交通身份或公开子世界。                 |
+| 资源依赖组件   | Resource Dependency Component               | 本拍候选及潜在资源交互形成的逻辑闭包；不等同于地理块或单一物理线程。             |
+| 潜在资源支持图 | Potential Resource Support Graph            | 包含当前和可能激活的资源关联、休眠依赖及 watcher 的图，用于识别条件交互。        |
+| 候选执行依赖图 | Candidate Execution Dependency Graph        | 以不可交换候选操作为节点并按规范先后定向的执行约束图。                           |
+| 逻辑检查地址   | Logical Check Address                       | 由串行调用路径、规范循环位置与分支构成的检查位置，用于保持首错及故障注入对应。   |
+| 完成前沿       | Completion Frontier                         | 证明某错误之前的必要逻辑检查已解析的记录；缺失回报不能当作成功或跳过。           |
+| 尝试世代       | Attempt Epoch                               | 区分同一已提交 tick 的不同执行尝试，防止旧回报或 capability 污染重试；不持久化。 |
+
 ## 8. 静态路网领域标识符
 
 下表给出标识 v1（Identity v1）及其候选扩展中精确类型名的中文语义。代码和制品继续使用精确

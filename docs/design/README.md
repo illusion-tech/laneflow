@@ -40,6 +40,15 @@
 - `road-editing-source-and-geometry-frontend.md`：道路编辑 FlatBuffers v4 来源与
   几何编制前端合同。
 
+## 单世界并行提案
+
+- [`traffic-runtime-parallel-execution.md`](traffic-runtime-parallel-execution.md)：Review；
+  首版独立计算并行、P4 规范串行、首错/join/重试、完整提交与成本验收。
+- [`traffic-runtime-execution-config.md`](traffic-runtime-execution-config.md)：Review；
+  配置分离 API、世界执行资源、候选计划、安装/恢复/切换与 LFRS 版本轴。
+
+两文配套 ADR 0030（Proposed），不覆盖现行单 worker 与 LFRS 5 的实现事实。
+
 ## 领域规则
 
 这些文档约束 Runtime 仍实现的道路机动车行为，不表示早期运行入口或数据入口仍存在。
