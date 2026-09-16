@@ -1807,6 +1807,11 @@ impl TrafficWorld {
 
     /// 按稳定更新顺序重建 Active 车辆派生顺序表。
     pub(crate) fn rebuild_active_order(&mut self) {
+        #[cfg(test)]
+        super::parking_command_research::note(|counts| {
+            counts.active_builds += 1;
+            counts.live_visits += self.committed.live_order.len();
+        });
         let vehicles = &self.committed.vehicles;
         self.derived.active_order.clear();
         for handle in self.committed.live_order.iter().copied() {
@@ -1819,6 +1824,8 @@ impl TrafficWorld {
                         .is_some_and(|state| state.status == VehicleStatus::Active)
             }) {
                 self.derived.active_order.push(handle);
+                #[cfg(test)]
+                super::parking_command_research::note(|counts| counts.active_writes += 1);
             }
         }
     }

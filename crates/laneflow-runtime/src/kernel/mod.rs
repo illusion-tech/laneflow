@@ -63,3 +63,8 @@ pub(crate) mod exact_path_research;
 #[cfg(test)]
 #[path = "tests/junction_ledger.rs"]
 mod junction_ledger;
+
+/// #678 命令路径工作量与候选结构研究；不进入生产构建。
+#[cfg(test)]
+#[path = "tests/parking_commands.rs"]
+pub(crate) mod parking_command_research;

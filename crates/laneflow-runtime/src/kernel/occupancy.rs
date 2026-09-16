@@ -768,6 +768,11 @@ impl TrafficWorld {
     }
 
     pub(crate) fn rebuild_occupancy_index(&mut self) -> Result<(), StepError> {
+        #[cfg(test)]
+        super::parking_command_research::note(|counts| {
+            counts.occupancy_builds += 1;
+            counts.occupancy_inputs += self.derived.active_order.len();
+        });
         self.derived.occupancy.source = None;
         rebuild_occupancy_index(
             &self.binding,
@@ -780,6 +785,10 @@ impl TrafficWorld {
             self.binding.world_generation,
             self.committed.observation_state_sequence,
         ));
+        #[cfg(test)]
+        super::parking_command_research::note(|counts| {
+            counts.occupancy_records += self.derived.occupancy.records.len();
+        });
         Ok(())
     }
 
