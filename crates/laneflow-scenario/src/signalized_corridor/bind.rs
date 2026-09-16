@@ -73,16 +73,30 @@ pub struct BoundSpawnSlot {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BindError {
+    /// catalog 0.4 静态校验失败，包装 `validate` 的全部 [`CatalogError`]（`bind` 首步）。
     Catalog(CatalogError),
+    /// catalog 声明策略不必要，但共享路网修订含机动门、冲突区或参与者流，必须显式固定路权策略（`bind`）。
     PolicyRequired,
+    /// catalog Pinned 的路权策略集身份未登记在本共享路网修订的 Identity v1 中（`bind`）。
     UnknownPolicy(laneflow_static_contract::RightOfWayPolicySetId),
+    /// 目标世界的策略选择与 bind 产生的策略选择不一致（`install_routes`）。
     WorldPolicyMismatch,
+    /// 路线/槽位边键或 profile 键派生规范 StableId 失败，违反 Identity v1 或编译限制（`bind`）。
     Identity(CanonicalIdentityViolation),
+    /// route_id 不在已绑定路线表：`install_routes` 的世界修订与本 bind 不一致（裸字符串
+    /// 载荷）；`bind` 内选项/路线表回查的构造点位于 validate 之后，属防御路径。
     UnknownRoute(String),
+    /// catalog laneEdgeKey（路线或 slot）派生的 StableId 未登记在本修订；slot 边表与
+    /// 边长回查的构造点在解析之后，属防御路径（`bind`）。
     UnknownEdge(String),
+    /// profile 编制键 passenger-car 或 shuttle-bus 派生的 StableId 未登记在本修订（`bind`）。
     UnknownProfile(String),
+    /// slot 所在边不是其 portal lane 某条路线选项的首边，无法作为该路线的生成入口（`bind`）。
     SlotEdgeNotEntry { slot_id: String, route_id: String },
+    /// slot progress 非有限或为负（validate 已拦截，防御性），或四舍五入到毫米后
+    /// 越出绑定边的 [0, 边长]（`bind`）。
     InvalidProgress { slot_id: String },
+    /// 世界路线容量预检不足或 `register_route` 失败；失败时已尝试撤回本次句柄（`install_routes`）。
     RouteRegister(RouteError),
 }
 
