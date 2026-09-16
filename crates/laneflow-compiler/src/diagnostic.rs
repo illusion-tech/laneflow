@@ -472,9 +472,11 @@ pub enum RoadEditingSourceViolation {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum JunctionEdgeSetViolation {
-    /// 显式声明的路口 approach 边不是任何道路区段派生的边界边（`Compiler::compile`）。
+    /// 显式声明的路口 approach 边不是任何道路区段车道链的成员边
+    /// （`Compiler::compile`）。
     ApproachNotSectionDerived,
-    /// 显式声明的路口 internal 边同时是道路区段派生的边界边（`Compiler::compile`）。
+    /// 显式声明的路口 internal 边同时是某道路区段车道链的成员边
+    /// （`Compiler::compile`）。
     InternalIsSectionDerived,
     /// 路口存在显式边集合时，机动路径在路口的边界位边（首/末位）未被声明为
     /// approach（`Compiler::compile`）。
@@ -658,7 +660,8 @@ impl SpatialAxis {
 pub enum ConflictZoneRegionViolation {
     /// 环点数超过固定上限（`Compiler::compile`）。
     PointCountExceeded { maximum: u32, actual: u32 },
-    /// 某编制点的指定轴坐标为 NaN 或无穷（`Compiler::compile`）。
+    /// 某编制点的指定轴坐标为 NaN 或无穷，含冲突区 region 的 `min_y`/`max_y`
+    /// 高度界（`Compiler::compile`）。
     NonFiniteAuthoringCoordinate {
         point_index: u32,
         axis: SpatialAxis,
