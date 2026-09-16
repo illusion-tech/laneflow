@@ -331,7 +331,8 @@ pub enum ParkingError {
     /// 停车锚与路线 occurrence 的 LaneEdge 不一致（reserve/leave/rebind 的锚点-occurrence 校验）。
     #[error("路线 occurrence 与停车 anchor 的 LaneEdge 不匹配")]
     RouteOccurrenceAnchorMismatch,
-    /// 停车入口位于车辆当前位置之后、不可前向到达（reserve/rebind 的入口可达性校验）。
+    /// 停车入口已被越过——位于车辆当前出现项/进度之前，或同进度但 carry 非零、
+    /// 不可前向到达（reserve/rebind 的入口可达性校验）。
     #[error("停车入口不再前向可达")]
     EntryNotForwardReachable,
     /// 路线后缀准入策略拒绝（reserve/leave/rebind/spawn_parked）。
@@ -344,7 +345,9 @@ pub enum ParkingError {
     /// （内部映射为 `WaitingTraversalConflict`），防御性保留。
     #[error("不能在 stateful maneuver interior 创建无 Waiting authority 的车辆")]
     WaitingStatefulManeuverInterior,
-    /// 停车 entry 与既有 Waiting traversal 区间冲突（reserve/park/leave/rebind）。
+    /// 停车 entry 与既有 Waiting/maneuver traversal 状态冲突：含区间重叠、stateful
+    /// maneuver interior、权威不匹配及到站车辆仍有遍历/等待成员等映射路径
+    /// （reserve/park/leave/rebind）。
     #[error("停车 entry 与 Waiting traversal 区间冲突")]
     WaitingTraversalConflict,
     /// 车辆没有 exact Reserved binding（cancel/park/rebind）。

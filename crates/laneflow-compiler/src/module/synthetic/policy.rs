@@ -70,9 +70,11 @@ impl SyntheticModuleBuilder {
     /// # Errors
     ///
     /// 策略集键、法规身份、成员键、来源文档、成员内容形状（空 locator、空类别
-    /// 集合、让行目标与间隙参数绑定不一致）或实体引用（stream/gate/participant）
-    /// 校验失败，或编译资源预算超限（单字符串上限与声明资源计数）时返回携带
-    /// 相应诊断的 [`DiagnosticBundle`]；所有检查成功前不修改 builder。
+    /// 集合、空参数版本、让行目标与间隙参数绑定不一致）、实体引用
+    /// （stream/gate/participant）或局部声明校验（证据引用缺失或重复、间隙参数
+    /// 引用缺失、无证据规则）失败，或编译资源预算超限（单字符串上限与声明资源
+    /// 计数）时返回携带相应诊断的 [`DiagnosticBundle`]；所有检查成功前不修改
+    /// builder。
     pub fn add_right_of_way_policy_set(
         &mut self,
         input: RightOfWayPolicySetInput<'_>,
