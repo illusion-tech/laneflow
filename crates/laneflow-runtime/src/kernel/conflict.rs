@@ -746,7 +746,8 @@ pub enum ConflictLagReference {
 pub enum ConflictGapOutcome {
     /// 间隙检查通过，允许 crossing。
     Accepted,
-    /// 后随间隙不足：距上一次清空的已逝时间小于 required lag。
+    /// 后随间隙不足：滞后基准（实际清空或切换保守起点 `CutoverFloor`）起算
+    /// 的已逝时间小于 required lag。
     LagGap,
     /// 前导间隙不足：对方保守最早到达早于或等于 required lead（仅严格更晚
     /// 被接受）。
