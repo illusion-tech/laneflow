@@ -411,7 +411,10 @@ pub enum CandidateRouteError {
     Route(#[from] RouteError),
     /// 动态成本绑定的封闭版本不是本 runtime 认可的版本（`register_candidate_route`）。
     #[error("动态成本绑定版本未知: {actual}")]
-    DynamicCostBindingVersionMismatch { actual: u16 },
+    DynamicCostBindingVersionMismatch {
+        /// runtime 不认可的动态成本绑定封闭版本值。
+        actual: u16,
+    },
     /// 准入会话记录的世界身份或活动世代与当前世界不一致，即会话已跨世代失效
     /// （`register_candidate_route`）。
     #[error("Routing admission session 的世界身份或世代已失效")]
@@ -448,7 +451,10 @@ pub enum CandidateRouteError {
     /// 候选的 LaneEdge 稳定标识无法解析到当前修订，或其 kind 不是 LaneEdge
     /// （`register_candidate_route`）。
     #[error("候选含当前修订未知或错误 kind 的 LaneEdge StableId128: {stable_id:?}")]
-    UnknownLaneEdge { stable_id: StableId128 },
+    UnknownLaneEdge {
+        /// 无法解析或 kind 错误的 LaneEdge 稳定标识。
+        stable_id: StableId128,
+    },
 }
 
 /// 回放/恢复使用的规范化已准入路线注册输入。
@@ -509,7 +515,10 @@ pub enum AdmittedRouteRegisterError {
     /// 输入的 LaneEdge 稳定标识无法解析到当前修订，或其 kind 不是 LaneEdge
     /// （`register_admitted_route`）。
     #[error("已准入路线含当前修订未知或错误 kind 的 LaneEdge StableId128: {stable_id:?}")]
-    UnknownLaneEdge { stable_id: StableId128 },
+    UnknownLaneEdge {
+        /// 无法解析或 kind 错误的 LaneEdge 稳定标识。
+        stable_id: StableId128,
+    },
 }
 
 enum StableLaneEdgeResolveError {

@@ -51,23 +51,36 @@ impl ConflictRouteAnchor {
 /// successful tick 内一个候选没有取得完整组合资源的稳定归因。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConflictNoGrantReason {
+    /// Waiting 准入因容量拒绝，连带组合资源拒绝。
     WaitingCapacity,
+    /// Waiting 准入因物理存储拒绝，连带组合资源拒绝。
     WaitingPhysicalStorage,
+    /// 组合资源依赖在 Waiting 依赖图中成环。
     WaitingCycle,
+    /// 冲突 zone/cell 已被其它 owner 占用或提交。
     ConflictOccupied,
+    /// 后随间隙不足：距上一次清空的已逝时间小于 required lag。
     LagGap,
+    /// 接近估计不可证明，保守拒绝 crossing。
     ApproachUnprovable,
+    /// 前导间隙不足：对方保守最早到达早于 required lead。
     LeadGap,
+    /// 车身清空目标越过路线存储上界，无法派生下游 claim。
     DownstreamStorageBoundary,
+    /// 下游 claim 区间与既有 claim（含 follower 最小间隙）冲突。
     DownstreamClaimConflict,
 }
 
 /// 刚完成 successful tick 的 Conflict 决定。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConflictDecisionOutcome {
+    /// 门规则拒绝，未进入组合资源求值。
     NotEvaluated,
+    /// 该 Gate 无 passage 资源要求，无需求值。
     NotRequired,
+    /// 组合资源全部取得。
     Granted,
+    /// 未取得组合资源，附稳定归因。
     NoGrant(ConflictNoGrantReason),
 }
 

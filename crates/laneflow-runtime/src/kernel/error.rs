@@ -15,12 +15,16 @@ pub enum InstallError {
     /// `PolicyInstall` 内嵌同样可达）。
     #[error("共享根中不存在指定路权策略 {policy:?}")]
     UnknownPolicy {
+        /// 共享根中不存在的路权策略集稳定身份。
         policy: laneflow_static_contract::RightOfWayPolicySetId,
     },
     /// 策略间隙参数的步长派生超出可移植毫秒值域（`install`；跨修订 cutover 以
     /// `PolicyInstall` 内嵌同样可达）。
     #[error("策略间隙参数 {gap_profile_index} 的步长派生超出可移植毫秒值域")]
-    PolicyGapOverflow { gap_profile_index: u32 },
+    PolicyGapOverflow {
+        /// 步长派生溢出的间隙 profile 下标。
+        gap_profile_index: u32,
+    },
     /// 世界策略派生表容量算术溢出（`install`；跨修订 cutover 以 `PolicyInstall` 内嵌
     /// 同样可达）。
     #[error("世界策略派生表容量算术溢出")]
@@ -370,10 +374,16 @@ pub enum ParkingError {
     RebindBodyFootprintMismatch,
     /// leave 出口 anchor 与已提交车辆物理重叠（`leave_parking`）。
     #[error("leave 插入与已提交车辆发生物理重叠")]
-    LeavePhysicalOverlap { blocker: VehicleHandle },
+    LeavePhysicalOverlap {
+        /// 阻塞 leave 插入的已提交车辆。
+        blocker: VehicleHandle,
+    },
     /// leave 会让移动 direct follower 无法安全制动（`leave_parking`）。
     #[error("leave 会让移动 direct follower 无法安全制动")]
-    LeaveUnsafeFollower { follower: VehicleHandle },
+    LeaveUnsafeFollower {
+        /// 无法安全制动的移动 direct follower。
+        follower: VehicleHandle,
+    },
     /// 需要既有 Conflict authority 才能建立该状态（leave/rebind 的权威校验）。
     #[error("不能在冲突通行段内部恢复无 Conflict authority 的 Active 车辆")]
     ConflictAuthorityRequired,

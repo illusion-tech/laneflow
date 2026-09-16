@@ -196,9 +196,13 @@ pub struct CapturedVehicle {
 /// 快照中的机动遍历阶段。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CapturedManeuverTraversalPhase {
+    /// 已进入 occurrence，但尚未跨过下一道 Gate。
     PreGate,
+    /// 已跨过至少一道 Gate，当前未因 release Gate 等待。
     Committed,
+    /// 已到达所持 membership 的 release Gate 并等待。
     Waiting,
+    /// 已 crossing，仍在持有冲突 authority 并清空 coverage。
     Clearing,
 }
 
@@ -288,7 +292,9 @@ pub struct CapturedConflictLagState {
 /// 快照中的 tagged parking target stable identity。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CapturedParkingTarget {
+    /// 显式泊位空间的稳定标识。
     ExplicitSpace(ContractStableId128),
+    /// 虚拟停车池所属停车设施的稳定标识。
     VirtualPool(ContractStableId128),
 }
 
@@ -302,12 +308,18 @@ pub struct CapturedVirtualParkingEntry {
 /// 快照中的完整 parking binding。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CapturedParkingBinding {
+    /// Reserved 绑定：停车目标与入口锚。
     Reserved {
+        /// 绑定的停车目标稳定身份。
         target: CapturedParkingTarget,
+        /// 停车入口所在的路线出现项下标。
         entry_route_occurrence: u32,
+        /// virtual Reserved 的入口 selector；显式泊位为 `None`。
         virtual_entry: Option<CapturedVirtualParkingEntry>,
     },
+    /// Occupied 绑定：车辆已占用车位。
     Occupied {
+        /// 绑定的停车目标稳定身份。
         target: CapturedParkingTarget,
     },
 }

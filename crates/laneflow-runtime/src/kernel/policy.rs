@@ -6,6 +6,7 @@ use laneflow_static_network::{PolicyView, SharedNetworkRevision};
 /// 宿主明确指定的策略稳定身份；业务时间及版本选用规则由宿主拥有。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PolicyPin {
+    /// 钉定的路权策略集稳定身份。
     pub policy: RightOfWayPolicySetId,
 }
 
@@ -14,6 +15,7 @@ pub struct PolicyPin {
 pub enum WorldPolicySelection {
     /// 整个共享根没有 Gate、ConflictZone、ParticipantStream 时才合法。
     NotRequired,
+    /// 宿主钉定的路权策略；安装时按稳定身份在共享根中解析。
     Pinned(PolicyPin),
 }
 

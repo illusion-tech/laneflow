@@ -383,23 +383,45 @@ pub enum RoadEditingInputViolation {
     /// token、显示键或来源文本违反统一文本规则。
     InvalidText(SourceTextViolation),
     /// owner-qualified 引用的 key component 数量与目标种类不一致。
-    InvalidReferenceDepth { expected: u8, actual: u8 },
+    InvalidReferenceDepth {
+        /// 目标种类要求的 key component 数量。
+        expected: u8,
+        /// 实际提供的 key component 数量。
+        actual: u8,
+    },
     /// 语义要求非空的集合没有成员。
     EmptyCollection,
     /// 单个语义集合超过其固定产品上限。
-    CollectionTooLarge { maximum: u64, actual: u64 },
+    CollectionTooLarge {
+        /// 该集合允许的成员数上限。
+        maximum: u64,
+        /// 实际成员数。
+        actual: u64,
+    },
     /// 唯一集合或所有者向量中出现重复值。
     DuplicateValue,
     /// 浮点字段是 NaN 或正负无穷。
-    NonFinite { value_bits: u64 },
+    NonFinite {
+        /// 受检浮点值的原始 `f64` IEEE 754 位模式。
+        value_bits: u64,
+    },
     /// 浮点字段没有严格大于零。
-    NotGreaterThanZero { value_bits: u64 },
+    NotGreaterThanZero {
+        /// 受检浮点值的原始 `f64` IEEE 754 位模式。
+        value_bits: u64,
+    },
     /// 浮点字段小于零。
-    LessThanZero { value_bits: u64 },
+    LessThanZero {
+        /// 受检浮点值的原始 `f64` IEEE 754 位模式。
+        value_bits: u64,
+    },
     /// 浮点字段落在闭合规范范围之外。
     OutsideInclusiveRange {
+        /// 越界浮点值的原始 `f64` IEEE 754 位模式。
         value_bits: u64,
+        /// 包含下界的 `f64` IEEE 754 位模式。
         minimum_bits: u64,
+        /// 包含上界的 `f64` IEEE 754 位模式。
         maximum_bits: u64,
     },
     /// 多个字段的组合违反闭合 variant 规则。
@@ -444,7 +466,12 @@ pub enum RoadEditingSourceViolation {
     /// buffer 小于读取 size prefix、root offset 与 `LFRE` 所需的最小长度。
     TruncatedFraming,
     /// 四字节 size prefix 与实际尾部长度不完全相等。
-    SizePrefixMismatch { declared: u64, actual: u64 },
+    SizePrefixMismatch {
+        /// size prefix 声明的字节数。
+        declared: u64,
+        /// buffer 实际尾部的字节数。
+        actual: u64,
+    },
     /// size-prefixed FlatBuffer 不带精确 `LFRE` file identifier。
     FileIdentifierMismatch,
     /// verifier 发现一般结构损坏、UTF-8、required field 或 union 不一致。
@@ -456,7 +483,12 @@ pub enum RoadEditingSourceViolation {
     /// wire table 数超过调用点剩余 Typed AST record 预算。
     VerifierTableBudgetExceeded,
     /// reader 只接受 exact `format_version = 4`。
-    UnsupportedFormatVersion { expected: u32, actual: u32 },
+    UnsupportedFormatVersion {
+        /// reader 接受的唯一格式版本。
+        expected: u32,
+        /// buffer 实际携带的格式版本。
+        actual: u32,
+    },
     /// verified wire 内的 source-document key 与 wire 外 expected key 不同。
     SourceDocumentKeyMismatch,
     /// verifier 后的字段值违反与第一方 authoring model 共用的闭合语义规则。
@@ -641,8 +673,11 @@ pub enum ParkingGeometryViolation {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum SpatialAxis {
+    /// 规范坐标系的 X 轴。
     X,
+    /// 规范坐标系的 Y 轴。
     Y,
+    /// 规范坐标系的 Z 轴。
     Z,
 }
 
@@ -665,29 +700,47 @@ impl SpatialAxis {
 pub enum ConflictZoneRegionViolation {
     /// 环点数超过固定上限；LFRE 来源的超限环在 `add_road_editing_module` 预检
     /// 即以 `CollectionTooLarge` 拒绝，正常输入不触达本变体（`Compiler::compile`）。
-    PointCountExceeded { maximum: u32, actual: u32 },
+    PointCountExceeded {
+        /// 环点数的固定上限。
+        maximum: u32,
+        /// 实际环点数。
+        actual: u32,
+    },
     /// 某编制点的指定轴坐标为 NaN 或无穷，含冲突区 region 的 `min_y`/`max_y`
     /// 高度界（此时以 `u32::MAX` 哨兵下标报告）；LFRE 预检已拒绝非有限高度界与
     /// 环点，正常输入不触达本变体（`Compiler::compile`）。
     NonFiniteAuthoringCoordinate {
+        /// 违规环点在环中的零基下标；高度界失败时为 `u32::MAX` 哨兵。
         point_index: u32,
+        /// 坐标为非有限值的轴。
         axis: SpatialAxis,
+        /// 受检坐标的原始 `f64` IEEE 754 位模式。
         value_bits: u64,
     },
     /// 某编制点的指定轴坐标落在规范点分量闭包之外，含冲突区 region 的
     /// `min_y`/`max_y` 高度界（以 `u32::MAX` 哨兵下标报告）；LFRE 预检已按同一
     /// 闭包拒绝越界值，正常输入不触达本变体（`Compiler::compile`）。
     AuthoringCoordinateOutOfRange {
+        /// 违规环点在环中的零基下标；高度界失败时为 `u32::MAX` 哨兵。
         point_index: u32,
+        /// 坐标越界的轴。
         axis: SpatialAxis,
+        /// 越界坐标的原始 `f64` IEEE 754 位模式。
         value_bits: u64,
     },
     /// 高度区间两端量化到 binary32 后不再保持 `min < max`
     /// （`Compiler::compile`）。
-    QuantizedHeightOrder { min_y_bits: u32, max_y_bits: u32 },
+    QuantizedHeightOrder {
+        /// 量化后高度下界的 `f32` IEEE 754 位模式。
+        min_y_bits: u32,
+        /// 量化后高度上界的 `f32` IEEE 754 位模式。
+        max_y_bits: u32,
+    },
     /// 两个编制点量化后完全重合（`Compiler::compile`）。
     DuplicateQuantizedPoint {
+        /// 首个占据该量化位置的环点零基下标。
         first_index: u32,
+        /// 与其重合的重复环点零基下标。
         duplicate_index: u32,
     },
     /// 量化后有向面积为零，环退化；面积检查先于自交检查，自交但有向面积为零的
@@ -695,7 +748,12 @@ pub enum ConflictZoneRegionViolation {
     NonPositiveArea,
     /// 环不是简单多边形：非相邻边相交，或共线顶点不严格介于两邻点之间；两类
     /// 同时命中时报共线顶点的边下标（`Compiler::compile`）。
-    SelfIntersection { first_edge: u32, second_edge: u32 },
+    SelfIntersection {
+        /// 相交边对中第一条边的零基下标。
+        first_edge: u32,
+        /// 相交边对中第二条边的零基下标。
+        second_edge: u32,
+    },
 }
 
 /// 规范空间几何的结构化失败原因。
@@ -711,23 +769,36 @@ pub enum SpatialGeometryViolation {
     /// 折线或环的输入点数低于固定下限；正常输入不可达——`add_canonical_frame`
     /// 预检与 LFRE 预检均已拒绝过短输入，本变体为编译侧防御性保留
     /// （`Compiler::compile`）。
-    InsufficientPoints { minimum: u32, actual: u32 },
+    InsufficientPoints {
+        /// 折线或环要求的最少点数。
+        minimum: u32,
+        /// 实际输入点数。
+        actual: u32,
+    },
     /// 某点的指定轴坐标为 NaN 或无穷（`add_canonical_frame` 预检直接报告；
     /// 编译侧点表冻结的同名分支为防御性保留——两条来源的输入均已保证有限，
     /// `Compiler::compile`）。
     NonFiniteCoordinate {
+        /// 违规点在点表中的零基下标。
         point_index: u32,
+        /// 坐标为非有限值的轴。
         axis: SpatialAxis,
+        /// 受检坐标的原始 `f32` IEEE 754 位模式。
         value_bits: u32,
     },
     /// 某点的指定轴坐标落在规范点分量闭包之外（`add_canonical_frame` 预检直接
     /// 报告；编译侧同名分支为防御性保留——LFRE 点表量化前已按同一闭包受检，
     /// `Compiler::compile`）。
     CoordinateOutOfRange {
+        /// 违规点在点表中的零基下标。
         point_index: u32,
+        /// 坐标越界的轴。
         axis: SpatialAxis,
+        /// 越界坐标的原始 `f32` IEEE 754 位模式。
         value_bits: u32,
+        /// 包含下界的 `f32` IEEE 754 位模式。
         minimum_bits: u32,
+        /// 包含上界的 `f32` IEEE 754 位模式。
         maximum_bits: u32,
     },
     /// 同一 LaneEdge 被两条车道边几何绑定（`add_canonical_frame` 与
@@ -742,9 +813,13 @@ pub enum SpatialGeometryViolation {
     MissingGeometryProfiles,
     /// 同一编译单元内两个已编译 authoring 模块使用了不同配置档。
     GeometryProfileMismatch {
+        /// 既有模块几何配置档的精度档代码。
         expected_accuracy_code: u8,
+        /// 既有模块几何配置档的方向档代码。
         expected_direction_code: u8,
+        /// 冲突模块几何配置档的精度档代码。
         actual_accuracy_code: u8,
+        /// 冲突模块几何配置档的方向档代码。
         actual_direction_code: u8,
     },
     /// 已编译点表既没有显式 frame，也不能从合法机动路径推导 frame；机动路径的
@@ -760,29 +835,41 @@ pub enum SpatialGeometryViolation {
     /// 某 segment 长度小于等于最短 segment 门槛（`Compiler::compile` 的点表
     /// 冻结）。
     DegenerateSegment {
+        /// 退化采样段在段表中的零基下标。
         segment_index: u32,
+        /// 该段长度的 `f32` IEEE 754 位模式，单位为米。
         length_bits: u32,
+        /// 最短段门槛的 `f32` IEEE 754 位模式，单位为米。
         minimum_bits: u32,
     },
     /// 某 segment 单位切向的水平投影长度低于下限，无法支撑正交 frame
     /// （`Compiler::compile` 的点表冻结）。
     DegenerateProjectedUp {
+        /// 违规采样段在段表中的零基下标。
         segment_index: u32,
+        /// 单位切向水平投影长度的 `f32` IEEE 754 位模式。
         projected_up_bits: u32,
+        /// 投影长度下限的 `f32` IEEE 754 位模式。
         minimum_bits: u32,
     },
     /// `f32` 弧长累计溢出或不再严格递增（`Compiler::compile` 的点表冻结）。
     ArcLengthAccumulationFailed {
+        /// 累计失败发生的采样段零基下标。
         segment_index: u32,
+        /// 失败时累计弧长的 `f32` IEEE 754 位模式，单位为米。
         accumulated_bits: u32,
+        /// 当前段长度的 `f32` IEEE 754 位模式，单位为米。
         segment_length_bits: u32,
     },
     /// 声明长度与冻结折线弧长之差超出绝对/相对容差与量化容许
     /// （`SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS` 在绝对/相对最大值之上
     /// 追加）之和（`Compiler::compile` 的点表冻结）。
     LengthMismatch {
+        /// 声明长度的原始 `f64` IEEE 754 位模式，单位为米。
         expected_length_bits: u64,
+        /// 冻结折线弧长的 `f32` IEEE 754 位模式，单位为米。
         geometry_length_bits: u32,
+        /// 各容差之和的原始 `f64` IEEE 754 位模式，单位为米。
         tolerance_bits: u64,
     },
     /// 相邻关系的两条边解析到不同规范 frame（`Compiler::compile` 的 HIR 空间
@@ -791,14 +878,19 @@ pub enum SpatialGeometryViolation {
     /// 前驱边末点与后继边首点的距离超过 join 容差（`Compiler::compile` 的 HIR
     /// 空间连接校验）。
     DiscontinuousJoin {
+        /// 前驱末点与后继首点距离的原始 `f64` IEEE 754 位模式，单位为米。
         distance_bits: u64,
+        /// join 容差的原始 `f64` IEEE 754 位模式，单位为米。
         tolerance_bits: u64,
     },
     /// 相连 edge 最终 `f32` 首尾弦超过所选方向档；仅当任一侧边来自携带几何配置
     /// 档的已编译模块时检查（`Compiler::compile` 的 HIR 空间连接校验）。
     DirectionDiscontinuity {
+        /// 前后弦方向单位向量点积的原始 `f64` IEEE 754 位模式。
         dot_bits: u64,
+        /// 判据左侧（点积平方）的原始 `f64` IEEE 754 位模式。
         lhs_bits: u64,
+        /// 判据右侧（方向档余弦平方加权的范数积）的原始 `f64` IEEE 754 位模式。
         rhs_bits: u64,
     },
 }
@@ -822,17 +914,41 @@ pub enum SourceTextViolation {
     /// 必填字段为空。
     Empty,
     /// UTF-8 字节数超过所选资源配置档的单字符串上限。
-    TooLong { limit: u64, observed: u64 },
+    TooLong {
+        /// 允许的 UTF-8 字节数上限。
+        limit: u64,
+        /// 实际观测的 UTF-8 字节数。
+        observed: u64,
+    },
     /// 指定零基字节位置不是 ASCII。
-    NonAscii { byte_index: u64 },
+    NonAscii {
+        /// 首个非 ASCII 字节的零基字节位置。
+        byte_index: u64,
+    },
     /// token 首字节不是 ASCII 字母或数字。
-    InvalidFirstByte { byte: u8 },
+    InvalidFirstByte {
+        /// 实际出现的首字节。
+        byte: u8,
+    },
     /// token 在指定零基位置包含不在允许集合内的 ASCII 字节。
-    InvalidTokenByte { byte_index: u64, byte: u8 },
+    InvalidTokenByte {
+        /// 违规字节在 token 内的零基字节位置。
+        byte_index: u64,
+        /// 不在允许集合内的 ASCII 字节。
+        byte: u8,
+    },
     /// 可见文本包含控制字节；空格不属于此错误。
-    ControlByte { byte_index: u64, byte: u8 },
+    ControlByte {
+        /// 控制字节的零基字节位置。
+        byte_index: u64,
+        /// 实际出现的控制字节。
+        byte: u8,
+    },
     /// 来源键包含为限定引用保留的 `::` 分隔符。
-    ReservedDelimiter { byte_index: u64 },
+    ReservedDelimiter {
+        /// `::` 分隔符首字节的零基字节位置。
+        byte_index: u64,
+    },
 }
 
 /// 首版静态准入编译明确拒绝的能力。
@@ -874,37 +990,54 @@ pub enum AccessRegulationField {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum DiagnosticPayload {
+    /// 路权策略未通过输入、绑定或静态语义闭合。
     InvalidPolicy {
+        /// 未闭合的路权策略稳定键。
         policy_key: Box<str>,
+        /// 关联的成员稳定键（如有）。
         member_key: Option<Box<str>>,
+        /// 策略违反的精确原因。
         violation: crate::PolicyViolation,
     },
     /// 第一方道路编辑编制模型中的字段级失败。
     InvalidRoadEditingInput {
+        /// 违反统一文本规则的字段路径。
         field: Box<str>,
+        /// 字段值被拒绝的精确原因。
         violation: RoadEditingInputViolation,
     },
     /// 道路编辑来源 reader 的 framing、wire、版本或外部身份绑定失败。
     InvalidRoadEditingSource {
+        /// reader 失败的精确类别。
         violation: RoadEditingSourceViolation,
+        /// 失败相关的 wire 或语义字段名（如有）。
         field: Option<Box<str>>,
+        /// wire 外期望的来源文档键。
         expected_source_document_key: Box<str>,
+        /// wire 内实际读取的来源文档键（可读取时）。
         actual_source_document_key: Option<Box<str>>,
     },
     /// 模块头字段及其文本失败原因。
     InvalidSourceHeaderField {
+        /// 违反约束的模块头字段。
         field: SourceHeaderField,
+        /// 该字段的精确文本失败原因。
         violation: SourceTextViolation,
     },
     /// 超限维度、配置值与候选观测值。
     CompileLimitExceeded {
+        /// 超限的资源维度。
         dimension: CompileLimitDimension,
+        /// 配置档允许的上限值。
         limit: u64,
+        /// 候选输入或工作集的实际观测值。
         observed: u64,
     },
     /// 缺少必需维度的配置档标识与维度。
     CompileProfileIncompatible {
+        /// 不支持必需维度的配置档标识。
         profile_id: Box<str>,
+        /// 候选模块必需但配置档缺失的维度。
         required_dimension: CompileLimitDimension,
     },
     /// 导入命名空间的文本失败原因。
@@ -929,8 +1062,11 @@ pub enum DiagnosticPayload {
     },
     /// 来源位置文档缺失或属于另一个逻辑模块。
     SourceDocumentOwnershipMismatch {
+        /// 位置引用的来源文档键。
         source_document_key: Box<str>,
+        /// 拥有该语义记录的模块 authoring namespace。
         expected_authoring_namespace_id: Box<str>,
+        /// 位置实际登记到的 authoring namespace（已知时）。
         actual_authoring_namespace_id: Option<Box<str>>,
     },
     /// 在编译单元中没有目标模块的导入命名空间。
@@ -945,12 +1081,16 @@ pub enum DiagnosticPayload {
     },
     /// 非法声明稳定键所属实体种类及失败原因。
     InvalidDeclarationKey {
+        /// 稳定键非法的实体种类。
         entity_kind: EntityKind,
+        /// 稳定键的精确文本失败原因。
         violation: SourceTextViolation,
     },
     /// 模块内发生冲突的实体种类与稳定键。
     DuplicateDeclaration {
+        /// 发生冲突的实体种类。
         entity_kind: EntityKind,
+        /// 模块内重复声明的稳定键。
         stable_key: Box<str>,
     },
     /// 引用模块命名空间的文本失败原因。
@@ -960,7 +1100,9 @@ pub enum DiagnosticPayload {
     },
     /// 非法目标键所属实体种类及失败原因。
     InvalidReferenceKey {
+        /// 目标键非法的实体种类。
         entity_kind: EntityKind,
+        /// 目标键的精确文本失败原因。
         violation: SourceTextViolation,
     },
     /// 未经显式导入就被引用的模块命名空间。
@@ -970,389 +1112,608 @@ pub enum DiagnosticPayload {
     },
     /// 来源声明及无法解析的完整目标二元组。
     UnknownReferenceTarget {
+        /// 无法解析的目标实体种类。
         entity_kind: EntityKind,
+        /// 发起引用的来源声明稳定键。
         source_key: Box<str>,
+        /// 引用显式给出的目标命名空间。
         target_namespace: Box<str>,
+        /// 目标的完整 owner-local 键序列。
         target_owner_local_keys: Box<[Box<str>]>,
+        /// 无法解析的目标声明键。
         target_key: Box<str>,
     },
     /// 显式 Identity v1 ASCII 字段及其文本失败原因。
     InvalidIdentityAsciiField {
+        /// 携带该 ASCII 字段的声明实体种类。
         entity_kind: EntityKind,
+        /// 该声明的稳定键。
         stable_key: Box<str>,
+        /// 违规 ASCII 字段的登记标签。
         field_tag: FieldTag,
+        /// 字段值的精确文本失败原因。
         violation: SourceTextViolation,
     },
     /// 车道图边稳定键、非法长度位模式及数值约束原因。
     InvalidLaneEdgeLength {
+        /// 长度非法的车道图边稳定键。
         stable_key: Box<str>,
         /// 非法 `f64` 的原始 IEEE 754 位模式，避免 NaN 与格式化差异破坏确定性。
         value_bits: u64,
+        /// 数值违反的精确标量约束。
         violation: ScalarViolation,
     },
     /// 车道图边稳定键、非法限速位模式及数值约束原因。
     InvalidLaneEdgeSpeedLimit {
+        /// 限速非法的车道图边稳定键。
         stable_key: Box<str>,
         /// 非法 `f64` 的原始 IEEE 754 位模式。
         value_bits: u64,
+        /// 数值违反的精确标量约束。
         violation: ScalarViolation,
     },
     /// 来源车道图边与重复的完整目标二元组。
     DuplicateLaneEdgeSuccessor {
+        /// 重复列出下游目标的来源车道图边稳定键。
         stable_key: Box<str>,
+        /// 重复目标的模块命名空间。
         target_namespace: Box<str>,
+        /// 重复目标的声明键。
         target_key: Box<str>,
     },
     /// 未知或不能由指定横断面实体承载的物理设施类别。
     InvalidFacilityKind {
+        /// 使用该设施 token 的横断面实体种类。
         entity_kind: EntityKind,
+        /// 该实体的稳定键。
         stable_key: Box<str>,
+        /// 未知或类别不匹配的物理设施 token。
         kind_id: Box<str>,
+        /// 该实体种类要求的设施类别。
         expected_category: FacilityKindCategory,
+        /// 设施 token 的精确失败原因。
         violation: FacilityKindViolation,
     },
     /// 没有编制车道的道路区段。
     EmptyRoadSectionLanes {
+        /// 没有任何编制车道的道路区段稳定键。
         stable_key: Box<str>,
     },
     /// 没有车道图边覆盖的编制车道。
     EmptyAuthoringLaneEdgeChain {
+        /// 没有任何车道图边覆盖的编制车道稳定键。
         stable_key: Box<str>,
     },
     /// 编制车道覆盖链中的重复车道图边引用。
     DuplicateAuthoringLaneEdge {
+        /// 重复引用车道图边的编制车道稳定键。
         stable_key: Box<str>,
+        /// 重复引用的车道图边所在模块命名空间。
         target_namespace: Box<str>,
+        /// 重复引用的车道图边声明键。
         target_key: Box<str>,
     },
     /// 没有横断面成员的道路走廊。
     EmptyRoadCorridorElements {
+        /// 没有任何横断面成员的道路走廊稳定键。
         stable_key: Box<str>,
     },
     /// 道路走廊有序横断面中的重复成员引用。
     DuplicateRoadCorridorElement {
+        /// 重复引用成员的道路走廊稳定键。
         stable_key: Box<str>,
+        /// 重复引用成员的实体种类。
         target_kind: EntityKind,
+        /// 重复引用成员所在模块命名空间。
         target_namespace: Box<str>,
+        /// 重复引用成员的声明键。
         target_key: Box<str>,
     },
     /// 需要父项才能派生身份、但没有被任何道路走廊拥有的横断面实体。
     MissingCrossSectionOwner {
+        /// 缺少道路走廊父项的横断面实体种类。
         entity_kind: EntityKind,
+        /// 该实体的稳定键。
         stable_key: Box<str>,
     },
     /// 同一横断面实体及发生冲突的两个道路走廊稳定键。
     MultipleCrossSectionOwners {
+        /// 被多个走廊拥有的横断面实体种类。
         entity_kind: EntityKind,
+        /// 该实体的稳定键。
         stable_key: Box<str>,
+        /// 首个声明所有权的道路走廊稳定键。
         first_owner_key: Box<str>,
+        /// 发生冲突的另一道路走廊稳定键。
         second_owner_key: Box<str>,
     },
     /// 道路走廊与不在自身成员序列内的参考道路区段。
     InvalidCorridorReferenceSection {
+        /// 参考区段非法的道路走廊稳定键。
         corridor_key: Box<str>,
+        /// 被引用道路区段所在模块命名空间。
         target_namespace: Box<str>,
+        /// 不在自身成员序列内的道路区段声明键。
         target_key: Box<str>,
     },
     /// 编制车道覆盖链中不相连的一对相邻车道图边。
     DisconnectedAuthoringLaneEdgeChain {
+        /// 覆盖链不相连的编制车道稳定键。
         lane_key: Box<str>,
+        /// 不相连相邻对中的前驱车道图边声明键。
         predecessor_key: Box<str>,
+        /// 不相连相邻对中的后继车道图边声明键。
         successor_key: Box<str>,
     },
     /// 同一车道图边及发生冲突的两个编制车道稳定键。
     MultipleAuthoringLaneOwners {
+        /// 被多个编制车道覆盖的车道图边声明键。
         edge_key: Box<str>,
+        /// 首个覆盖该边的编制车道稳定键。
         first_lane_key: Box<str>,
+        /// 发生冲突的另一编制车道稳定键。
         second_lane_key: Box<str>,
     },
     /// 编制车道、所引用车道组以及不一致的两个道路区段父项。
     LaneGroupParentMismatch {
+        /// 父项不一致的编制车道稳定键。
         lane_key: Box<str>,
+        /// 被引用的车道组稳定键。
         lane_group_key: Box<str>,
+        /// 编制车道所属的道路区段稳定键。
         lane_section_key: Box<str>,
+        /// 车道组所属的道路区段稳定键。
         group_section_key: Box<str>,
     },
     /// 没有任何编制车道成员的车道组。
     EmptyLaneGroup {
+        /// 没有任何编制车道成员的车道组稳定键。
         stable_key: Box<str>,
     },
     /// 没有任何通行流向成员的路口。
     EmptyJunction {
+        /// 没有任何通行流向成员的路口稳定键。
         junction_key: Box<str>,
     },
     /// 没有任何机动路径成员的通行流向。
     EmptyMovement {
+        /// 没有任何机动路径成员的通行流向稳定键。
         movement_key: Box<str>,
     },
     /// 机动路径完整边序列中不相连的一对相邻边。
     DisconnectedManeuverPath {
+        /// 相邻边不相连的机动路径稳定键。
         path_key: Box<str>,
+        /// 不相连相邻对中的前驱边声明键。
         predecessor_key: Box<str>,
+        /// 不相连相邻对中的后继边声明键。
         successor_key: Box<str>,
     },
     /// 共享相同完整遍历序列的首个和重复机动路径及其路口。
     DuplicateManeuverPathSequence {
+        /// 首个声明该完整序列的机动路径稳定键。
         first_path_key: Box<str>,
+        /// 重复声明同一序列的机动路径稳定键。
         duplicate_path_key: Box<str>,
+        /// 首条路径所属路口稳定键。
         first_junction_key: Box<str>,
+        /// 重复路径所属路口稳定键。
         duplicate_junction_key: Box<str>,
     },
     /// 同一内部边及发生排他所有者冲突的两个路口和路径。
     InternalEdgeJunctionConflict {
+        /// 被不同路口排他声明的内部边声明键。
         edge_key: Box<str>,
+        /// 首个声明该内部边的路口稳定键。
         first_junction_key: Box<str>,
+        /// 发生冲突的另一路口稳定键。
         duplicate_junction_key: Box<str>,
+        /// 首个声明所有权的机动路径稳定键。
         first_path_key: Box<str>,
+        /// 发生冲突的另一机动路径稳定键。
         duplicate_path_key: Box<str>,
     },
     /// 同一边及分别把它声明为内部/边界角色的两条路径。
     InternalBoundaryRoleConflict {
+        /// 角色冲突的车道图边声明键。
         edge_key: Box<str>,
+        /// 将其声明为内部边的机动路径稳定键。
         internal_path_key: Box<str>,
+        /// 将其用作边界边的机动路径稳定键。
         boundary_path_key: Box<str>,
     },
+    /// 路口显式边集合与路径角色闭包不一致。
     JunctionEdgeSetMismatch {
+        /// 边集合不闭合的路口稳定键。
         junction_key: Box<str>,
+        /// 违规边的声明键。
         edge_key: Box<str>,
+        /// 关联的机动路径稳定键（涉及具体路径时）。
         path_key: Option<Box<str>>,
+        /// 集合与闭包不一致的精确原因。
         violation: JunctionEdgeSetViolation,
     },
     /// 机动门、路径、越界转换下标及该路径可用转换数。
     ManeuverGateTransitionOutOfRange {
+        /// 转换下标越界的机动门稳定键。
         maneuver_gate_key: Box<str>,
+        /// 拥有该转换的机动路径稳定键。
         maneuver_path_key: Box<str>,
+        /// 越界的转换零基下标。
         transition_index: u32,
+        /// 该路径可用的转换总数。
         transition_count: u32,
     },
     /// 同一路径转换上的首个和重复机动门。
     DuplicateManeuverGatePathTransition {
+        /// 重复声明机动门的机动路径稳定键。
         maneuver_path_key: Box<str>,
+        /// 被重复声明的转换零基下标。
         transition_index: u32,
+        /// 首个声明该转换的机动门稳定键。
         first_maneuver_gate_key: Box<str>,
+        /// 重复声明该转换的机动门稳定键。
         duplicate_maneuver_gate_key: Box<str>,
     },
     /// 机动门引用停止线的边与路径转换起始边不一致。
     ManeuverGateStopLineMismatch {
+        /// 停止线不匹配的机动门稳定键。
         maneuver_gate_key: Box<str>,
+        /// 机动门引用的停止线稳定键。
         stop_line_key: Box<str>,
+        /// 路径转换起始边的声明键。
         path_from_edge_key: Box<str>,
+        /// 停止线实际所在边的声明键。
         stop_line_edge_key: Box<str>,
     },
     /// 同一车道图边上的首个和重复停止线。
     DuplicateStopLineEdge {
+        /// 重复声明停止线的车道图边声明键。
         edge_key: Box<str>,
+        /// 首个声明的停止线稳定键。
         first_stop_line_key: Box<str>,
+        /// 重复声明的停止线稳定键。
         duplicate_stop_line_key: Box<str>,
     },
     /// 位于终止边、无法形成任何路径转换的停止线。
     OrphanStopLine {
+        /// 位于终止边、无法形成路径转换的停止线稳定键。
         stop_line_key: Box<str>,
+        /// 所属终止边的声明键。
         edge_key: Box<str>,
     },
     /// 位于非终止边但未被任何机动门引用的停止线。
     UnreferencedStopLine {
+        /// 未被任何机动门引用的停止线稳定键。
         stop_line_key: Box<str>,
+        /// 所属非终止边的声明键。
         edge_key: Box<str>,
     },
     /// 启用入口门的停止线及没有任何候选路径的下游转换。
     MissingManeuverPathCoverage {
+        /// 启用入口门的停止线稳定键。
         stop_line_key: Box<str>,
+        /// 缺少候选路径的下游转换起始边声明键。
         from_edge_key: Box<str>,
+        /// 缺少候选路径的下游转换目标边声明键。
         to_edge_key: Box<str>,
     },
     /// 启用入口门的停止线及缺少入口门的候选路径。
     MissingManeuverGateCoverage {
+        /// 启用入口门的停止线稳定键。
         stop_line_key: Box<str>,
+        /// 候选路径起始边的声明键。
         edge_key: Box<str>,
+        /// 缺少入口机动门覆盖的候选路径稳定键。
         maneuver_path_key: Box<str>,
     },
     /// 最大占用数为零的等待区。
     InvalidWaitingZoneCapacity {
+        /// 最大占用数为零的等待区稳定键。
         waiting_zone_key: Box<str>,
     },
     /// 等待区中不属于声明路径的入口门或释放门。
     WaitingZoneGatePathMismatch {
+        /// 门不属于声明路径的等待区稳定键。
         waiting_zone_key: Box<str>,
+        /// 发生不匹配的门角色。
         gate_role: WaitingZoneGateRole,
+        /// 不属于声明路径的机动门稳定键。
         gate_key: Box<str>,
+        /// 等待区声明的机动路径稳定键。
         declared_path_key: Box<str>,
+        /// 机动门实际所属的机动路径稳定键。
         gate_path_key: Box<str>,
     },
     /// 等待区的入口和释放转换没有形成严格正向区间。
     InvalidWaitingZoneGateOrder {
+        /// 门顺序非法的等待区稳定键。
         waiting_zone_key: Box<str>,
+        /// 入口门的转换零基下标。
         entry_transition_index: u32,
+        /// 释放门的转换零基下标。
         release_transition_index: u32,
     },
     /// 同一路径上内部区间相交的两个等待区。
     OverlappingWaitingZones {
+        /// 存在重叠等待区的机动路径稳定键。
         maneuver_path_key: Box<str>,
+        /// 首个等待区稳定键。
         first_waiting_zone_key: Box<str>,
+        /// 与其重叠的另一等待区稳定键。
         second_waiting_zone_key: Box<str>,
     },
+    /// 信号控制器没有任何信号组成员。
     EmptySignalControllerGroups {
+        /// 缺少信号组成员的信号控制器稳定键。
         signal_controller_key: Box<str>,
     },
+    /// 信号控制器没有任何程序相位。
     EmptySignalControllerPhases {
+        /// 缺少程序相位的信号控制器稳定键。
         signal_controller_key: Box<str>,
     },
+    /// 信号控制器重复列出同一信号组。
     DuplicateSignalControllerGroup {
+        /// 重复列出信号组的控制器稳定键。
         signal_controller_key: Box<str>,
+        /// 被重复列出的信号组稳定键。
         signal_group_key: Box<str>,
     },
+    /// 同一信号组被多个控制器拥有。
     SignalGroupMultipleControllers {
+        /// 发生所有权冲突的信号组稳定键。
         signal_group_key: Box<str>,
+        /// 首个拥有该组的控制器稳定键。
         first_controller_key: Box<str>,
+        /// 发生冲突的另一控制器稳定键。
         duplicate_controller_key: Box<str>,
     },
+    /// 信号组没有控制器所有者。
     UnownedSignalGroup {
+        /// 没有所有者的信号组稳定键。
         signal_group_key: Box<str>,
     },
+    /// 信号组没有被任何机动门使用。
     UnusedSignalGroup {
+        /// 未被使用的信号组稳定键。
         signal_group_key: Box<str>,
     },
+    /// 同一控制器内重复声明相位键。
     DuplicateSignalPhaseKey {
+        /// 重复相位键所属的控制器稳定键。
         signal_controller_key: Box<str>,
+        /// 重复声明的相位键。
         signal_phase_key: Box<str>,
     },
+    /// 信号相位持续时间不在可移植正整数范围内。
     InvalidSignalPhaseDuration {
+        /// 相位时长非法的控制器稳定键。
         signal_controller_key: Box<str>,
+        /// 时长非法的相位键。
         signal_phase_key: Box<str>,
+        /// 实际声明的相位持续时间，单位为毫秒。
         duration_ms: u64,
+        /// 允许的最大持续时间（含），单位为毫秒。
         max_inclusive: u64,
     },
+    /// 相位重复定义同一信号组状态。
     DuplicateSignalPhaseGroup {
+        /// 重复状态定义所属的控制器稳定键。
         signal_controller_key: Box<str>,
+        /// 重复定义状态的相位键。
         signal_phase_key: Box<str>,
+        /// 被重复定义状态的信号组稳定键。
         signal_group_key: Box<str>,
     },
+    /// 相位状态引用不属于所属控制器的信号组。
     UnknownSignalPhaseGroup {
+        /// 相位所属的控制器稳定键。
         signal_controller_key: Box<str>,
+        /// 引用未知信号组的相位键。
         signal_phase_key: Box<str>,
+        /// 不属于该控制器的信号组稳定键。
         signal_group_key: Box<str>,
     },
+    /// 相位缺少所属控制器的信号组状态。
     MissingSignalPhaseGroup {
+        /// 相位所属的控制器稳定键。
         signal_controller_key: Box<str>,
+        /// 缺少信号组状态的相位键。
         signal_phase_key: Box<str>,
+        /// 缺少状态的信号组稳定键。
         signal_group_key: Box<str>,
     },
+    /// 控制器相位周期累计值超过可移植范围。
     SignalCycleDurationOverflow {
+        /// 周期超限的控制器稳定键。
         signal_controller_key: Box<str>,
+        /// 允许的最大周期累计值（含），单位为毫秒。
         max_inclusive: u64,
     },
+    /// 控制器时间偏移不在可移植且小于周期的规范范围内。
     InvalidSignalControllerOffset {
+        /// 偏移非法的控制器稳定键。
         signal_controller_key: Box<str>,
+        /// 实际声明的时间偏移，单位为毫秒。
         offset_ms: u64,
+        /// 所属控制器的相位周期，单位为毫秒。
         cycle_duration_ms: u64,
+        /// 允许的最大偏移（含），单位为毫秒。
         max_inclusive: u64,
     },
     /// 非法停车锚点及量化后的毫米闭包。
     InvalidParkingAnchorProgress {
+        /// 锚点越界的停车位稳定键。
         parking_space_key: Box<str>,
+        /// 发生越界的锚点角色。
         role: ParkingAnchorRole,
+        /// 锚点所在车道图边的声明键。
         lane_edge_key: Box<str>,
+        /// 锚点沿边进度的原始 `f64` IEEE 754 位模式，单位为米。
         progress_bits: u64,
+        /// 边长的原始 `f64` IEEE 754 位模式，单位为米。
         edge_length_bits: u64,
+        /// 严格内部允许的最小进度（含），单位为毫米。
         min_progress_mm: u32,
+        /// 严格内部允许的最大进度（含），单位为毫米。
         max_progress_mm: u32,
     },
     /// 非法停车几何字段、原始值和结构化失败原因。
     InvalidParkingSpaceGeometry {
+        /// 几何非法的停车位稳定键。
         parking_space_key: Box<str>,
+        /// 违反约束的矩形几何字段。
         field: ParkingGeometryField,
+        /// 原始输入值的 `f64` IEEE 754 位模式。
         value_bits: u64,
+        /// 该字段的结构化失败原因。
         violation: ParkingGeometryViolation,
     },
     /// 虚拟容量与入口/出口集合的存在性不一致。
     InvalidParkingFacilityVirtualPool {
+        /// 虚拟池非法的停车设施稳定键。
         parking_facility_key: Box<str>,
+        /// 声明的虚拟容量泊位数。
         virtual_capacity: u32,
+        /// 登记的虚拟入口锚点数。
         virtual_entry_count: u64,
+        /// 登记的虚拟出口锚点数。
         virtual_exit_count: u64,
     },
     /// 同一虚拟入口或出口角色内重复的规范车道位置。
     DuplicateParkingFacilityVirtualAnchor {
+        /// 锚点重复的停车设施稳定键。
         parking_facility_key: Box<str>,
+        /// 发生重复的虚拟锚点角色。
         role: ParkingAnchorRole,
+        /// 重复锚点所在车道图边的稳定标识。
         lane_edge_stable_id: StableId128,
+        /// 重复的规范车道位置进度，单位为毫米。
         progress_mm: u32,
     },
     /// 总容量为零的停车设施。
     OrphanParkingFacility {
+        /// 总容量为零的停车设施稳定键。
         parking_facility_key: Box<str>,
     },
+    /// 参与者类别的单继承链形成循环。
     ParticipantClassInheritanceCycle {
+        /// 位于循环链上的参与者类别稳定键。
         participant_class_key: Box<str>,
     },
     /// 非法车辆配置字段、原始值和结构化数值约束。
     InvalidVehicleProfileValue {
+        /// 字段值非法的车辆配置稳定键。
         vehicle_profile_key: Box<str>,
+        /// 违反约束的配置字段名。
         field: Box<str>,
+        /// 原始输入值的 `f64` IEEE 754 位模式。
         value_bits: u64,
+        /// 数值违反的精确标量约束。
         violation: ScalarViolation,
     },
     /// 车辆配置两项减速度幅值没有形成合法顺序。
     InvalidVehicleProfileDecelerationOrder {
+        /// 减速度顺序非法的车辆配置稳定键。
         vehicle_profile_key: Box<str>,
+        /// 舒适减速度幅值的原始 `f64` IEEE 754 位模式，单位为米每二次方秒。
         comfortable_deceleration_bits: u64,
+        /// 紧急减速度幅值的原始 `f64` IEEE 754 位模式，单位为米每二次方秒。
         emergency_deceleration_bits: u64,
     },
     /// 非法规范空间几何及可选的关联后继边。
     InvalidSpatialGeometry {
+        /// 几何所属规范 frame 的稳定键（已解析时）。
         canonical_frame_key: Option<Box<str>>,
+        /// 几何非法的车道图边声明键。
         lane_edge_key: Box<str>,
+        /// 关联的后继边声明键（连接校验失败时）。
         related_lane_edge_key: Option<Box<str>>,
+        /// 空间几何违反的精确原因。
         violation: SpatialGeometryViolation,
     },
     /// 非法 FacilityBand 规范中心线。
     InvalidFacilityBandGeometry {
+        /// 中心线所属规范 frame 的稳定键（已解析时）。
         canonical_frame_key: Option<Box<str>>,
+        /// 中心线非法的设施带稳定键。
         facility_band_key: Box<str>,
+        /// 中心线违反的精确原因。
         violation: SpatialGeometryViolation,
     },
+    /// 准入规则没有声明任何参与者类别。
     EmptyAccessRuleParticipantClasses {
+        /// 没有参与者类别的准入规则稳定键。
         access_rule_key: Box<str>,
     },
+    /// 准入规则请求了首版尚未实现的能力。
     AccessCapabilityUnavailable {
+        /// 请求未实现能力的准入规则稳定键。
         access_rule_key: Box<str>,
+        /// 首版明确拒绝的能力。
         capability: AccessCapability,
     },
+    /// 准入规则的法规来源字段违反长度约束。
     InvalidAccessRegulationString {
+        /// 法规来源非法的准入规则稳定键。
         access_rule_key: Box<str>,
+        /// 违反长度约束的法规来源字段。
         field: AccessRegulationField,
+        /// 该字段实际的字符数。
         character_count: u32,
     },
+    /// 同一编译单元中的法规来源法域或版本不一致。
     AccessRegulationMismatch {
+        /// 首条准入规则稳定键。
         first_rule_key: Box<str>,
+        /// 首条规则的法域文本。
         first_jurisdiction: Box<str>,
+        /// 首条规则的法规版本文本。
         first_version: Box<str>,
+        /// 与其不一致的另一准入规则稳定键。
         second_rule_key: Box<str>,
+        /// 另一规则的法域文本。
         second_jurisdiction: Box<str>,
+        /// 另一规则的法规版本文本。
         second_version: Box<str>,
     },
+    /// 规范裁决后仍存在效果相反且完全并列的准入规则。
     AccessRuleAmbiguity {
+        /// 发生歧义的裁决平面。
         plane: AccessPlane,
+        /// 歧义目标的实体种类。
         target_kind: EntityKind,
+        /// 歧义目标的声明键。
         target_key: Box<str>,
+        /// 两条规则共同准入的参与者类别稳定键。
         participant_class_key: Box<str>,
+        /// 首条并列规则稳定键。
         first_rule_key: Box<str>,
+        /// 与其相反的另一条并列规则稳定键。
         second_rule_key: Box<str>,
     },
     /// 实体种类、来源稳定键及不能形成 Identity v1 前像的精确原因。
     InvalidCanonicalIdentity {
+        /// 身份字段非法的实体种类。
         entity_kind: EntityKind,
+        /// 来源声明的稳定键。
         stable_key: Box<str>,
+        /// 不能形成 Identity v1 前像的精确原因。
         violation: CanonicalIdentityViolation,
     },
     /// 重复完整身份的实体种类和已派生摘要。
     DuplicateCanonicalIdentity {
+        /// 重复身份的实体种类。
         entity_kind: EntityKind,
+        /// 重复派生的 16 字节稳定标识。
         stable_id: StableId128,
     },
     /// 发生 BLAKE3-128 摘要碰撞的实体种类和冲突摘要。
     IdentityDigestCollision {
+        /// 发生摘要碰撞的实体种类。
         entity_kind: EntityKind,
+        /// 碰撞的 16 字节稳定标识。
         stable_id: StableId128,
     },
 }

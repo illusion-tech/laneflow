@@ -480,8 +480,11 @@ pub struct VehicleProfileInput<'a> {
 /// 成功后 LIR 只保存 `+0.0`。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CanonicalPoint3F32Input {
+    /// 沿规范坐标框架 X 轴的坐标分量，单位为米。
     pub x: f32,
+    /// 沿规范坐标框架 Y 轴的坐标分量，单位为米。
     pub y: f32,
+    /// 沿规范坐标框架 Z 轴的坐标分量，单位为米。
     pub z: f32,
 }
 
