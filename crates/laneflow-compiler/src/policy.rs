@@ -54,14 +54,15 @@ pub enum PolicyViolation {
     /// `add_right_of_way_policy_set` 准入可达，LFRE 的不一致在预检即以
     /// `InvalidCombination` 拒绝，compile 侧重验同 `DuplicateMember` 为防御性）。
     GapBinding,
-    /// 某参与类别被车辆 profile 使用并在机动门或参与者流上可准入，但没有任何
-    /// 可适用规则；选择单元只为 profile 使用的类别建立，未被使用的类别不触发
-    /// （`Compiler::compile` 的 MIR 策略校验）。
+    /// 某参与类别被车辆 profile 使用并在机动门或参与者流上可准入，但该策略集
+    /// 内没有任何可适用规则（多策略集时每个集合都须独立覆盖）；选择单元只为
+    /// profile 使用的类别建立，未被使用的类别不触发（`Compiler::compile` 的
+    /// MIR 策略校验）。
     MissingRule,
-    /// 同一门上两条规则对同一参与类别的特异性并列（门规则无优先级轴），或
-    /// 同一流上两条规则的特异性与优先级均并列，无法唯一选择规则；流规则仅
-    /// 特异性并列但优先级不同时按优先级确定性选择（`Compiler::compile` 的 MIR
-    /// 策略校验）。
+    /// 同一策略集内，同一门上两条规则对同一参与类别的特异性并列（门规则无
+    /// 优先级轴），或同一流上两条规则的特异性与优先级均并列，无法唯一选择
+    /// 规则；流规则仅特异性并列但优先级不同时按优先级确定性选择，跨策略集的
+    /// 并列不触发（`Compiler::compile` 的 MIR 策略校验）。
     AmbiguousRule,
     /// 门规则的解释不是 Uncontrolled 但所引用机动门未绑定信号组、Uncontrolled
     /// 解释与既有信号组绑定不一致，或未绑定门规则携带 OnRed 禁止

@@ -102,8 +102,9 @@ pub enum FormatError {
         actual: u64,
     },
     /// 解析偏移换算或预算/长度累加的 checked 算术溢出（读取侧四个 `preflight_*` 入口；
-    /// 预检证实的字段在 `RegistryCheckedFieldView::value` 的零偏移定宽解码中不会
-    /// 溢出；写入侧 `measure_object`/`prepare_object`/`encode_object` 同样可达）。
+    /// 预检证实的字段在 `RegistryCheckedFieldView::value` 的零偏移定宽解码与
+    /// `check_value_domains` 的重复解析中均不会溢出；写入侧
+    /// `measure_object`/`prepare_object`/`encode_object` 同样可达）。
     ArithmeticOverflow { structure: FormatStructure },
     /// 相邻 section 或 chunk 的起始偏移、首行序号不紧接前一项结束位置
     /// （`preflight_object_framing`；`preflight_object_registry`/`preflight_object_values`
