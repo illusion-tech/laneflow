@@ -17,11 +17,11 @@ pub enum LimitDimension {
     IdentityAsciiBytes,
     /// 单个 UTF-8 字段值的字节长度。
     Utf8FieldBytes,
-    /// 单个对象内全部 UTF-8 字段值的累计字节长度。
+    /// 单个 chunk 内全部 UTF-8 字段值的累计字节长度（预算按 chunk 重建）。
     TotalUtf8Bytes,
     /// 单个向量值的元素个数。
     VectorItems,
-    /// 单个对象内全部向量值的累计字节长度。
+    /// 单个 chunk 内全部向量值的累计元素数（预算按 chunk 重建）。
     TotalVectorBytes,
     /// record 向量值的嵌套行深度。
     RecordVectorDepth,
@@ -104,7 +104,8 @@ pub enum FormatError {
         dimension: LimitDimension,
         /// 调用方请求的配置值。
         requested: u64,
-        /// 该维度的 v1 格式天花板。
+        /// 该维度的上限；对 `ObjectBytes`/`ChunksPerSection` 这是调用方预算
+        /// （配置默认 `u64::MAX`/`u32::MAX`），其余维度为 v1 格式硬天花板。
         hard_limit: u64,
     },
     /// 前导格式版本、section 格式版本或表 schema 版本不等于当前格式登记值
@@ -152,7 +153,8 @@ pub enum FormatError {
         structure: FormatStructure,
         /// 声明的长度或计数。
         declared: u64,
-        /// 实际的长度或计数。
+        /// 实际的长度或计数；写入侧例外——`encode_prepared_object` 把调用方
+        /// 提供的缓冲区长度存入 `declared`、预检要求的精确长度存入 `actual`。
         actual: u64,
     },
     /// 解析偏移换算或预算/长度累加的 checked 算术溢出（读取侧四个 `preflight_*` 入口；
@@ -167,9 +169,9 @@ pub enum FormatError {
     /// （`preflight_object_framing`；`preflight_object_registry`/`preflight_object_values`
     /// 内嵌同样可达）。
     GapOrOverlap {
-        /// 按前一项推算的期望偏移（字节）。
+        /// 按前一项推算的期望位置；chunk 目录不连续时为行序号而非字节偏移。
         expected_offset: u64,
-        /// 实际读到的偏移（字节）。
+        /// 实际读到的位置；同上，可能为行序号。
         actual_offset: u64,
     },
     /// magic、section kind、表 kind、字段 tag、字段类型码、行判别值、策略成员 kind

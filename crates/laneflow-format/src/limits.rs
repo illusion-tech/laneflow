@@ -96,7 +96,8 @@ pub struct FormatLimitConfig {
     pub max_record_vector_depth: u8,
     /// 单个 LFSM SourceLocation chunk 允许的最大 row 数。
     pub max_source_location_rows_per_chunk: u32,
-    /// 三个对象同时暂存当前 chunk 的内存字节上限。
+    /// 三个对象同时暂存当前 chunk 的内存字节预算；当前仅校验不超过硬常数，
+    /// 写入与后发射检查均未消费该值（不构成强制限制）。
     pub max_staged_chunk_bytes: u64,
 }
 

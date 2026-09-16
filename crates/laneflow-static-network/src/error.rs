@@ -102,7 +102,9 @@ pub enum BuildErrorClass {
     InputInvariant,
     /// 序次失败：typed ordinal 与期望不符或序列非严格递增。
     Order,
-    /// 引用失败：引用越界、策略引用无法闭合或 Access 规则歧义。
+    /// 引用失败：引用越界、策略引用无法闭合或 Access 规则歧义（同类深度、目标
+    /// 具体度与优先级并列且效果相反时判歧义；效果相同的并列按最小规范 ordinal
+    /// 确定性取胜、不报歧义）。
     Reference,
     /// 身份失败：实体计数不一致或 StableId 不一致、重复。
     Identity,
@@ -276,7 +278,8 @@ pub enum BuildError {
         structure: BuildStructure,
     },
     /// 同一 Access 单元与参与者类别在相同深度/目标具体度/优先级下同时命中
-    /// allow 与 deny 规则（`build_shared_network_revision` 的 Access 闭合）。
+    /// allow 与 deny 规则；效果相同的并列按最小规范 ordinal 确定性取胜、
+    /// 不报歧义（`build_shared_network_revision` 的 Access 闭合）。
     AccessAmbiguity {
         /// 发生歧义的 Access 平面标识。
         plane: &'static str,
