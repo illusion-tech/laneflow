@@ -37,8 +37,8 @@ pub enum PostEmissionCheckError {
         object: PortableObjectKind,
         error: ObjectSourceError,
     },
-    /// 三对象任一的 framing/registry/值域预检失败，或 provenance/LFSM/LFSD 绑定行缺失、
-    /// 字段类型不符（`check_post_emission_bundle`）。
+    /// 三对象任一的 framing/registry/值域预检失败，或 provenance/LFCA 修订声明/
+    /// LFSM/LFSD 绑定行缺失、字段类型不符（`check_post_emission_bundle`）。
     Format(FormatError),
     /// LFCA/LFSM/LFSD 任一字节长度超过调用方配置的 `max_object_bytes` 上限
     /// （`check_post_emission_bundle`）。

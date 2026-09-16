@@ -494,7 +494,8 @@ pub enum JunctionEdgeSetViolation {
     /// （`Compiler::compile`）。
     InternalHasSuccessors,
     /// 显式声明的 internal 边被其它边的后继列表引用，且该边已被某机动路径声明
-    /// 为内部使用；未声明或未被任何路径使用的边不触发（`Compiler::compile`）。
+    /// 为内部使用；未声明、未被任何路径使用、或引用边自身为已声明显式 internal
+    /// 边（由 `InternalHasSuccessors` 报告）时不触发（`Compiler::compile`）。
     InternalReferencedBySuccessor,
 }
 
@@ -663,14 +664,16 @@ pub enum ConflictZoneRegionViolation {
     /// 即以 `CollectionTooLarge` 拒绝，正常输入不触达本变体（`Compiler::compile`）。
     PointCountExceeded { maximum: u32, actual: u32 },
     /// 某编制点的指定轴坐标为 NaN 或无穷，含冲突区 region 的 `min_y`/`max_y`
-    /// 高度界（`Compiler::compile`）。
+    /// 高度界（此时以 `u32::MAX` 哨兵下标报告）；LFRE 预检已拒绝非有限高度界与
+    /// 环点，正常输入不触达本变体（`Compiler::compile`）。
     NonFiniteAuthoringCoordinate {
         point_index: u32,
         axis: SpatialAxis,
         value_bits: u64,
     },
     /// 某编制点的指定轴坐标落在规范点分量闭包之外，含冲突区 region 的
-    /// `min_y`/`max_y` 高度界（以 `u32::MAX` 哨兵下标报告；`Compiler::compile`）。
+    /// `min_y`/`max_y` 高度界（以 `u32::MAX` 哨兵下标报告）；LFRE 预检已按同一
+    /// 闭包拒绝越界值，正常输入不触达本变体（`Compiler::compile`）。
     AuthoringCoordinateOutOfRange {
         point_index: u32,
         axis: SpatialAxis,
@@ -684,10 +687,11 @@ pub enum ConflictZoneRegionViolation {
         first_index: u32,
         duplicate_index: u32,
     },
-    /// 量化后有向面积为零，环退化（`Compiler::compile`）。
+    /// 量化后有向面积为零，环退化；面积检查先于自交检查，自交但有向面积为零的
+    /// 环按本变体报告（`Compiler::compile`）。
     NonPositiveArea,
-    /// 环不是简单多边形：非相邻边相交，或共线顶点不严格介于两邻点之间
-    /// （`Compiler::compile`）。
+    /// 环不是简单多边形：非相邻边相交，或共线顶点不严格介于两邻点之间；两类
+    /// 同时命中时报共线顶点的边下标（`Compiler::compile`）。
     SelfIntersection { first_edge: u32, second_edge: u32 },
 }
 
@@ -698,22 +702,24 @@ pub enum SpatialGeometryViolation {
     /// 冲突区环冻结失败，内嵌精确原因（`Compiler::compile`；区域仅来自道路编辑
     /// 来源）。
     InvalidConflictZoneRegion(ConflictZoneRegionViolation),
-    /// 同一冲突区被两份区域声明引用（`Compiler::compile`；区域仅来自道路编辑
-    /// 来源）。
+    /// 同一冲突区被两份区域声明引用（跨模块；同模块重复已被 LFRE 预检拒绝；
+    /// `Compiler::compile`，区域仅来自道路编辑来源）。
     DuplicateConflictZoneRegion,
     /// 折线或环的输入点数低于固定下限；正常输入不可达——`add_canonical_frame`
     /// 预检与 LFRE 预检均已拒绝过短输入，本变体为编译侧防御性保留
     /// （`Compiler::compile`）。
     InsufficientPoints { minimum: u32, actual: u32 },
-    /// 某点的指定轴坐标为 NaN 或无穷（`add_canonical_frame` 预检与
-    /// `Compiler::compile` 的点表冻结均可达）。
+    /// 某点的指定轴坐标为 NaN 或无穷（`add_canonical_frame` 预检直接报告；
+    /// 编译侧点表冻结的同名分支为防御性保留——两条来源的输入均已保证有限，
+    /// `Compiler::compile`）。
     NonFiniteCoordinate {
         point_index: u32,
         axis: SpatialAxis,
         value_bits: u32,
     },
-    /// 某点的指定轴坐标落在规范点分量闭包之外（`add_canonical_frame` 预检与
-    /// `Compiler::compile` 的点表冻结均可达）。
+    /// 某点的指定轴坐标落在规范点分量闭包之外（`add_canonical_frame` 预检直接
+    /// 报告；编译侧同名分支为防御性保留——LFRE 点表量化前已按同一闭包受检，
+    /// `Compiler::compile`）。
     CoordinateOutOfRange {
         point_index: u32,
         axis: SpatialAxis,
@@ -727,7 +733,9 @@ pub enum SpatialGeometryViolation {
     /// 编译单元已携带车道边几何时，某个 LaneEdge 没有任何几何绑定
     /// （`Compiler::compile` 的 HIR 空间阶段）。
     MissingEdgeBinding,
-    /// 已编译 authoring 几何没有携带产生其点表的配置档。
+    /// 已编译 authoring 几何没有携带产生其点表的配置档；正常输入不可达——
+    /// synthetic 模块不含编译几何、LFRE 模块在准入时必携带配置档，本变体为
+    /// 编译侧防御性保留（`Compiler::compile`）。
     MissingGeometryProfiles,
     /// 同一编译单元内两个已编译 authoring 模块使用了不同配置档。
     GeometryProfileMismatch {
@@ -736,11 +744,15 @@ pub enum SpatialGeometryViolation {
         actual_accuracy_code: u8,
         actual_direction_code: u8,
     },
-    /// 已编译点表既没有显式 frame，也不能从合法机动路径推导 frame。
+    /// 已编译点表既没有显式 frame，也不能从合法机动路径推导 frame；机动路径的
+    /// 边界边（entry/exit）没有任何几何绑定时同样报告（`Compiler::compile` 的
+    /// HIR 空间阶段）。
     MissingCanonicalFrame,
     /// 同一机动路径的 entry 与 exit 没有解析到同一 frame。
     ManeuverPathFrameMismatch,
-    /// 共享 internal edge 从不同机动路径推导出冲突 frame。
+    /// 共享 internal edge 的 frame 指派与机动路径推导的 frame 冲突：含多条路径
+    /// 推导出不同 frame，以及 internal edge 显式绑定的 frame 与路径推导 frame
+    /// 不同（`Compiler::compile` 的 HIR 空间阶段）。
     InternalEdgeFrameConflict,
     /// 某 segment 长度小于等于最短 segment 门槛（`Compiler::compile` 的点表
     /// 冻结）。
@@ -778,7 +790,8 @@ pub enum SpatialGeometryViolation {
         distance_bits: u64,
         tolerance_bits: u64,
     },
-    /// 相连 edge 最终 `f32` 首尾弦超过所选方向档。
+    /// 相连 edge 最终 `f32` 首尾弦超过所选方向档；仅当任一侧边来自携带几何配置
+    /// 档的已编译模块时检查（`Compiler::compile` 的 HIR 空间连接校验）。
     DirectionDiscontinuity {
         dot_bits: u64,
         lhs_bits: u64,

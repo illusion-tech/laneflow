@@ -73,7 +73,8 @@ pub enum FormatError {
         actual: u64,
         expected: u64,
     },
-    /// 某资源维度的实测值超过调用方配置上限（读取侧四个 `preflight_*` 入口；写入侧
+    /// 某资源维度的实测值超过调用方配置上限（读取侧四个 `preflight_*` 入口与
+    /// `RegistryCheckedObjectView::check_value_domains`；写入侧
     /// `measure_object`/`prepare_object`/`encode_object` 同样可达）。
     LimitExceeded {
         dimension: LimitDimension,
@@ -81,8 +82,9 @@ pub enum FormatError {
         limit: u64,
     },
     /// 声明的字节范围越过对象缓冲区末尾，或表头不足固定字节数（读取侧四个
-    /// `preflight_*` 入口；registry 预检已证实的定长字段不会在
-    /// `RegistryCheckedFieldView::value` 触发本变体）。
+    /// `preflight_*` 入口与 `RegistryCheckedObjectView::check_value_domains`；
+    /// registry 预检已证实的定长字段不会在 `RegistryCheckedFieldView::value`
+    /// 触发本变体）。
     Truncated {
         structure: FormatStructure,
         offset: u64,
@@ -90,7 +92,8 @@ pub enum FormatError {
         available: u64,
     },
     /// 声明的长度或计数与实际不一致，含对象长度、目录/section/chunk 跨度、行与字段边界、
-    /// 字段定宽及输出缓冲区精确长度（读取侧四个 `preflight_*` 入口；写入侧
+    /// 字段定宽及输出缓冲区精确长度（读取侧四个 `preflight_*` 入口与
+    /// `RegistryCheckedObjectView::check_value_domains`；写入侧
     /// `measure_object`/`prepare_object`/`encode_object`/`encode_prepared_object`。
     /// registry 预检已证实的字段不会在 `RegistryCheckedFieldView::value` 触发本变体）。
     LengthMismatch {
@@ -99,9 +102,8 @@ pub enum FormatError {
         actual: u64,
     },
     /// 解析偏移换算或预算/长度累加的 checked 算术溢出（读取侧四个 `preflight_*` 入口；
-    /// 预检证实的字段在 `RegistryCheckedFieldView::value` 的零偏移定宽解码中不会溢出），
-    /// `RegistryCheckedFieldView::value`；写入侧 `measure_object`/`prepare_object`/
-    /// `encode_object` 同样可达）。
+    /// 预检证实的字段在 `RegistryCheckedFieldView::value` 的零偏移定宽解码中不会
+    /// 溢出；写入侧 `measure_object`/`prepare_object`/`encode_object` 同样可达）。
     ArithmeticOverflow { structure: FormatStructure },
     /// 相邻 section 或 chunk 的起始偏移、首行序号不紧接前一项结束位置
     /// （`preflight_object_framing`；`preflight_object_registry`/`preflight_object_values`
@@ -110,8 +112,10 @@ pub enum FormatError {
         expected_offset: u64,
         actual_offset: u64,
     },
-    /// magic、section kind、表 kind、字段 tag、字段类型码、行判别值或策略成员 kind 不在
-    /// 静态 registry 登记范围内（读取侧四个 `preflight_*` 入口；写入侧
+    /// magic、section kind、表 kind、字段 tag、字段类型码、行判别值、策略成员 kind
+    /// 或语义封闭枚举码（实体 kind、Identity tag、来源定位/语言/角色、property step
+    /// kind）不在静态 registry 登记范围内（读取侧四个 `preflight_*` 入口与
+    /// `RegistryCheckedObjectView::check_value_domains`；写入侧
     /// `measure_object`/`prepare_object`/`encode_object` 同样可达）。
     UnknownKind {
         structure: FormatStructure,
@@ -126,7 +130,8 @@ pub enum FormatError {
         current: u64,
     },
     /// 字段或头部取值违背规范编码：保留位非零、行数为 0、浮点非规范、UTF-8/ASCII 语法
-    /// 非法或 chunk 未按规范合并（读取侧四个 `preflight_*` 入口与
+    /// 非法、chunk 未按规范合并或数值区间与版本/绑定常量精确值核对失败（读取侧四个
+    /// `preflight_*` 入口、`RegistryCheckedObjectView::check_value_domains` 与
     /// `RegistryCheckedFieldView::value`；写入侧 `measure_object`/`prepare_object`/
     /// `encode_object` 同样可达）。
     NonCanonicalValue {
@@ -137,10 +142,13 @@ pub enum FormatError {
     /// `preflight_object_values` 内嵌同样可达）。
     DigestMismatch { structure: FormatStructure },
     /// 已解析结构与静态 registry 登记不一致：对象 magic、表 kind、行基数、字段类型、
-    /// 嵌套行 schema、必填字段缺失或跨行键序不匹配（读取侧四个 `preflight_*` 入口与
+    /// 嵌套行 schema、必填字段缺失或跨行键序不匹配，以及对象种类专用的同对象直接
+    /// 绑定（同行存在性矩阵、跨行一致性闭环、Identity tag 序列、LFSD base-kind 行数
+    /// 约束、LFCP 对象键摘要绑定）（读取侧四个 `preflight_*` 入口、
+    /// `RegistryCheckedObjectView::check_value_domains` 与
     /// `RegistryCheckedFieldView::value`；`check_canonical_network_input` 的修订
-    /// 声明行核对与写入侧 `measure_object`/`prepare_object`/`encode_object` 同样
-    /// 可达）。
+    /// 声明行核对、`check_post_emission_bundle` 的 provenance/LFSM/LFSD 绑定行核对
+    /// 与写入侧 `measure_object`/`prepare_object`/`encode_object` 同样可达）。
     BindingMismatch { structure: FormatStructure },
 }
 
