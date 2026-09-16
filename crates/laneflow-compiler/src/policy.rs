@@ -47,7 +47,8 @@ pub enum PolicyViolation {
     /// 同 `InvalidRegulation`）。
     MissingEvidence,
     /// stream 规则的让行目标与间隙参数必须二选一绑定：两者同时缺失或同时存在
-    /// （三个策略声明入口均可达，同 `InvalidRegulation`）。
+    /// （`add_right_of_way_policy_set` 与 `Compiler::compile` 可达；LFRE 的绑定
+    /// 不一致在预检即以 `InvalidCombination` 拒绝）。
     GapBinding,
     /// 某参与类别在机动门或参与者流上可准入，但没有任何可适用规则
     /// （`Compiler::compile` 的 MIR 策略校验）。
@@ -76,8 +77,9 @@ pub enum PolicyViolation {
     /// 策略集的法规 jurisdiction/version 与编译单元准入规则确立的唯一法规身份
     /// 不一致（`Compiler::compile` 的 MIR 策略校验）。
     RegulationMismatch,
-    /// 同一冲突区的保护放行门信号不相容：保护门分属不同信号控制器，或同一信号
-    /// 相位会同时放行同区两组保护门（`Compiler::compile` 的 MIR 策略校验）。
+    /// 同一冲突区的保护放行门信号不相容：保护门分属不同信号控制器（任一信号
+    /// 组无绿灯相位时跳过该组比较），或同一信号相位会同时放行同区两组保护门
+    /// （`Compiler::compile` 的 MIR 策略校验）。
     ProtectedConflict,
 }
 

@@ -57,7 +57,8 @@ pub enum FormatErrorClass {
 /// 结构预检错误。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FormatError {
-    /// 调用方配置的某个资源维度为 0，或高于 v1 格式天花板而不做静默 clamp
+    /// 调用方配置的资源维度为 0（仅对象字节、每段 chunk、每 chunk 行与来源位置
+    /// 行四个维度禁止为 0）或高于 v1 格式天花板而不做静默 clamp
     /// （`FormatLimits::try_new`）。
     InvalidLimitConfiguration {
         dimension: LimitDimension,
