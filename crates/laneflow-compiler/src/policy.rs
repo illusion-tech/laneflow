@@ -22,8 +22,9 @@ pub enum PolicyViolation {
     /// （`add_right_of_way_policy_set`）。
     EmptyValue,
     /// 法规身份的 jurisdiction/version/source 字符数不在 `1..=128`
-    /// （`add_right_of_way_policy_set`、`add_road_editing_module` 与
-    /// `Compiler::compile` 的策略阶段均可达）。
+    /// （`add_right_of_way_policy_set` 与 `Compiler::compile` 的策略阶段可达；
+    /// LFRE 来源的非法法规身份在 `add_road_editing_module` 预检即以
+    /// `InvalidCombination` 拒绝，不触达本变体）。
     InvalidRegulation,
     /// 策略任一来源位置（主或参与）的 `sourceDocumentKey` 与所属模块登记键不一致
     /// （`add_right_of_way_policy_set`）。
@@ -53,14 +54,15 @@ pub enum PolicyViolation {
     /// 同一门/流上两条规则对同一参与类别的特异性并列，无法唯一选择规则
     /// （`Compiler::compile` 的 MIR 策略校验）。
     AmbiguousRule,
-    /// 门规则的 Uncontrolled 解释与所引用机动门的信号组绑定不一致，或未绑定门
-    /// 规则携带 OnRed 禁止（`Compiler::compile` 的 MIR 策略校验）。
+    /// 门规则的解释不是 Uncontrolled 但所引用机动门未绑定信号组、Uncontrolled
+    /// 解释与既有信号组绑定不一致，或未绑定门规则携带 OnRed 禁止
+    /// （`Compiler::compile` 的 MIR 策略校验）。
     SignalBinding,
     /// 门规则使用右转灯组解释，但对应 movement 的转向不是右转
     /// （`Compiler::compile` 的 MIR 策略校验）。
     RightTurnRequired,
-    /// 同一机动门被同一策略的两条门规则绑定为不同灯组类型
-    /// （`Compiler::compile` 的 MIR 策略校验）。
+    /// 同一机动门被门规则绑定为不同灯组类型；灯组累计跨策略集构建，冲突可跨
+    /// 策略集出现（`Compiler::compile` 的 MIR 策略校验）。
     LampTypeConflict,
     /// stream 规则的让行目标包含自身（`Compiler::compile` 的 MIR 策略校验）。
     SelfYield,
