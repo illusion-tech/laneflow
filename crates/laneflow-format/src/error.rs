@@ -82,9 +82,8 @@ pub enum FormatError {
         limit: u64,
     },
     /// 声明的字节范围越过对象缓冲区末尾，或表头不足固定字节数（读取侧四个
-    /// `preflight_*` 入口与 `RegistryCheckedObjectView::check_value_domains`；
-    /// registry 预检已证实的定长字段不会在 `RegistryCheckedFieldView::value`
-    /// 触发本变体）。
+    /// `preflight_*` 入口；registry 预检与 `check_value_domains` 的重解析中
+    /// 同类构造点均为预检已证实的防御性死分支）。
     Truncated {
         structure: FormatStructure,
         offset: u64,
@@ -132,9 +131,10 @@ pub enum FormatError {
     },
     /// 字段或头部取值违背规范编码：保留位非零、行数为 0、浮点非规范、UTF-8/ASCII 语法
     /// 非法、chunk 未按规范合并或数值区间与版本/绑定常量精确值核对失败（读取侧四个
-    /// `preflight_*` 入口、`RegistryCheckedObjectView::check_value_domains` 与
-    /// `RegistryCheckedFieldView::value`；写入侧 `measure_object`/`prepare_object`/
-    /// `encode_object` 同样可达）。
+    /// `preflight_*` 入口与 `RegistryCheckedObjectView::check_value_domains`——后者
+    /// 覆盖对象种类专用的语义域；registry 预检已证实的 UTF-8 不会在
+    /// `RegistryCheckedFieldView::value` 重解码触发；写入侧 `measure_object`/
+    /// `prepare_object`/`encode_object` 同样可达）。
     NonCanonicalValue {
         structure: FormatStructure,
         offset: u64,
@@ -145,9 +145,10 @@ pub enum FormatError {
     /// 已解析结构与静态 registry 登记不一致：对象 magic、表 kind、行基数、字段类型、
     /// 嵌套行 schema、必填字段缺失或跨行键序不匹配，以及对象种类专用的同对象直接
     /// 绑定（同行存在性矩阵、跨行一致性闭环、Identity tag 序列、LFSD base-kind 行数
-    /// 约束、LFCP 对象键摘要绑定）（读取侧四个 `preflight_*` 入口、
-    /// `RegistryCheckedObjectView::check_value_domains` 与
-    /// `RegistryCheckedFieldView::value`；`check_canonical_network_input` 的修订
+    /// 约束、LFCP 对象键摘要绑定）（读取侧四个 `preflight_*` 入口与
+    /// `RegistryCheckedObjectView::check_value_domains`；registry 预检对
+    /// record-vector 字段 schema 的构造保证使 `RegistryCheckedFieldView::value`
+    /// 的嵌套行缺失分支不可达；`check_canonical_network_input` 的修订
     /// 声明行核对、`check_post_emission_bundle` 的 provenance/LFSM/LFSD 绑定行核对
     /// 与写入侧 `measure_object`/`prepare_object`/`encode_object` 同样可达）。
     BindingMismatch { structure: FormatStructure },

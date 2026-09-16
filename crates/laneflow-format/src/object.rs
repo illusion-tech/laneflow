@@ -473,9 +473,10 @@ impl<'a> RegistryCheckedFieldView<'a> {
     ///
     /// # Errors
     ///
-    /// 按 registry 已证明的字段类型解码失败：UTF-8 字段非法（
-    /// [`FormatError::NonCanonicalValue`]）或嵌套行 schema 缺失（
-    /// [`FormatError::BindingMismatch`]）时返回相应 [`FormatError`]。
+    /// registry 预检已对同批字节完成 UTF-8 与全部定长/向量头校验，
+    /// record-vector 字段 schema 由构造侧保证携带嵌套行——本方法的
+    /// [`FormatError::NonCanonicalValue`] 与 [`FormatError::BindingMismatch`]
+    /// 构造点均为预检已证实的防御性分支，正常输入不触发。
     pub fn value(self) -> Result<RegistryCheckedFieldValue<'a>, FormatError> {
         let value = self.value_bytes();
         Ok(match self.field_type() {
