@@ -200,7 +200,9 @@ pub enum PortableEmissionError {
     /// 核对不一致（`check_portable_policy_diff`；两个 emit 入口内嵌同样可达）。
     PolicyDiffMismatch,
     /// LFSM 策略来源或 Movement 方向来源与实际 LFCA、文档描述符或同次受检来源
-    /// 输入不闭合（`check_portable_policy_sources`；两个 emit 入口内嵌同样可达）。
+    /// 输入不闭合，含值域合法但声明修订已过期的 LFCA（经
+    /// `check_canonical_network_input` 的 `NetworkRevisionMismatch` 映射；
+    /// `check_portable_policy_sources`，两个 emit 入口内嵌同样可达）。
     PolicySourceMismatch,
     /// `PortableDiffBase::Artifact` 提供的视图不是 LFCA 对象（两个 emit 入口）。
     InvalidDiffBaseKind,
