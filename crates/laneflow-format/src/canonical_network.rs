@@ -15,14 +15,23 @@ use crate::{
 /// 单份规范路网输入检查的稳定失败分类。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CanonicalNetworkInputError {
+    /// LFCA 来源无法建立连续字节视图，或实际字节数与登记的 exact length 不一致
+    /// （`check_canonical_network_input`）。
     ObjectSource(ObjectSourceError),
+    /// LFCA framing/registry/值域预检失败，或制品内修订声明行缺失、字段类型不符
+    /// （`check_canonical_network_input`）。
     Format(FormatError),
+    /// LFCA 字节长度超过调用方配置的 `max_object_bytes` 上限
+    /// （`check_canonical_network_input`）。
     LimitExceeded {
         dimension: LimitDimension,
         actual: u64,
         limit: u64,
     },
+    /// 制品内声明的路网修订摘要与按前六个 section 重算的不一致
+    /// （`check_canonical_network_input`）。
     NetworkRevisionMismatch,
+    /// 重算修订时对 section 字节长度做 `u64` 换算溢出（`check_canonical_network_input`）。
     ArithmeticOverflow,
 }
 

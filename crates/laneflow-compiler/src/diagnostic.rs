@@ -466,16 +466,32 @@ pub enum RoadEditingSourceViolation {
 }
 
 /// 路口显式边集合与路径角色闭包不一致的原因。
+///
+/// 全部变体只在 `Compiler::compile` 的 HIR 路口阶段产生；显式 approach/internal
+/// 集合仅来自道路编辑来源，Synthetic Junction 的两个集合为空，不会触发。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum JunctionEdgeSetViolation {
+    /// 显式声明的路口 approach 边不是任何道路区段派生的边界边（`Compiler::compile`）。
     ApproachNotSectionDerived,
+    /// 显式声明的路口 internal 边同时是道路区段派生的边界边（`Compiler::compile`）。
     InternalIsSectionDerived,
+    /// 路口存在显式边集合时，机动路径在路口的边界位边（首/末位）未被声明为
+    /// approach（`Compiler::compile`）。
     BoundaryNotDeclaredApproach,
+    /// 路口存在显式边集合时，机动路径的内部位边未被声明为 internal
+    /// （`Compiler::compile`）。
     InternalNotDeclared,
+    /// 显式声明的 internal 边没有被同路口的任何机动路径实际使用
+    /// （`Compiler::compile`）。
     DeclaredInternalUnused,
+    /// 显式声明的 approach 边被同路口某条机动路径当作内部边使用
+    /// （`Compiler::compile`）。
     ApproachClaimedInternal,
+    /// 显式声明的 internal 边在车道图中携带后继；路口内部边必须无后继
+    /// （`Compiler::compile`）。
     InternalHasSuccessors,
+    /// 显式声明的 internal 边被其它边的后继列表引用（`Compiler::compile`）。
     InternalReferencedBySuccessor,
 }
 
@@ -634,53 +650,63 @@ impl SpatialAxis {
 }
 
 /// `ConflictZoneRegion` 从编制 binary64 输入冻结为规范 binary32 ring 时的失败原因。
+///
+/// 全部变体由 `Compiler::compile` 的 HIR 冲突区环冻结产生；冲突区区域仅由道路编辑
+/// 来源声明，经 `add_road_editing_module` 进入编译单元。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum ConflictZoneRegionViolation {
-    PointCountExceeded {
-        maximum: u32,
-        actual: u32,
-    },
+    /// 环点数超过固定上限（`Compiler::compile`）。
+    PointCountExceeded { maximum: u32, actual: u32 },
+    /// 某编制点的指定轴坐标为 NaN 或无穷（`Compiler::compile`）。
     NonFiniteAuthoringCoordinate {
         point_index: u32,
         axis: SpatialAxis,
         value_bits: u64,
     },
+    /// 某编制点的指定轴坐标落在规范点分量闭包之外（`Compiler::compile`）。
     AuthoringCoordinateOutOfRange {
         point_index: u32,
         axis: SpatialAxis,
         value_bits: u64,
     },
-    QuantizedHeightOrder {
-        min_y_bits: u32,
-        max_y_bits: u32,
-    },
+    /// 高度区间两端量化到 binary32 后不再保持 `min < max`
+    /// （`Compiler::compile`）。
+    QuantizedHeightOrder { min_y_bits: u32, max_y_bits: u32 },
+    /// 两个编制点量化后完全重合（`Compiler::compile`）。
     DuplicateQuantizedPoint {
         first_index: u32,
         duplicate_index: u32,
     },
+    /// 量化后有向面积为零，环退化（`Compiler::compile`）。
     NonPositiveArea,
-    SelfIntersection {
-        first_edge: u32,
-        second_edge: u32,
-    },
+    /// 环不是简单多边形：非相邻边相交，或共线顶点不严格介于两邻点之间
+    /// （`Compiler::compile`）。
+    SelfIntersection { first_edge: u32, second_edge: u32 },
 }
 
 /// 规范空间几何的结构化失败原因。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum SpatialGeometryViolation {
+    /// 冲突区环冻结失败，内嵌精确原因（`Compiler::compile`；区域仅来自道路编辑
+    /// 来源）。
     InvalidConflictZoneRegion(ConflictZoneRegionViolation),
+    /// 同一冲突区被两份区域声明引用（`Compiler::compile`；区域仅来自道路编辑
+    /// 来源）。
     DuplicateConflictZoneRegion,
-    InsufficientPoints {
-        minimum: u32,
-        actual: u32,
-    },
+    /// 折线或环的输入点数低于固定下限（`add_canonical_frame` 预检与
+    /// `Compiler::compile` 的点表冻结均可达）。
+    InsufficientPoints { minimum: u32, actual: u32 },
+    /// 某点的指定轴坐标为 NaN 或无穷（`add_canonical_frame` 预检与
+    /// `Compiler::compile` 的点表冻结均可达）。
     NonFiniteCoordinate {
         point_index: u32,
         axis: SpatialAxis,
         value_bits: u32,
     },
+    /// 某点的指定轴坐标落在规范点分量闭包之外（`add_canonical_frame` 预检与
+    /// `Compiler::compile` 的点表冻结均可达）。
     CoordinateOutOfRange {
         point_index: u32,
         axis: SpatialAxis,
@@ -688,7 +714,11 @@ pub enum SpatialGeometryViolation {
         minimum_bits: u32,
         maximum_bits: u32,
     },
+    /// 同一 LaneEdge 被两条车道边几何绑定（`add_canonical_frame` 与
+    /// `Compiler::compile` 的 HIR 空间阶段均可达）。
     DuplicateEdgeBinding,
+    /// 编译单元已携带车道边几何时，某个 LaneEdge 没有任何几何绑定
+    /// （`Compiler::compile` 的 HIR 空间阶段）。
     MissingEdgeBinding,
     /// 已编译 authoring 几何没有携带产生其点表的配置档。
     MissingGeometryProfiles,
@@ -705,27 +735,38 @@ pub enum SpatialGeometryViolation {
     ManeuverPathFrameMismatch,
     /// 共享 internal edge 从不同机动路径推导出冲突 frame。
     InternalEdgeFrameConflict,
+    /// 某 segment 长度小于等于最短 segment 门槛（`Compiler::compile` 的点表
+    /// 冻结）。
     DegenerateSegment {
         segment_index: u32,
         length_bits: u32,
         minimum_bits: u32,
     },
+    /// 某 segment 单位切向的水平投影长度低于下限，无法支撑正交 frame
+    /// （`Compiler::compile` 的点表冻结）。
     DegenerateProjectedUp {
         segment_index: u32,
         projected_up_bits: u32,
         minimum_bits: u32,
     },
+    /// `f32` 弧长累计溢出或不再严格递增（`Compiler::compile` 的点表冻结）。
     ArcLengthAccumulationFailed {
         segment_index: u32,
         accumulated_bits: u32,
         segment_length_bits: u32,
     },
+    /// 声明长度与冻结折线弧长之差超出绝对/相对容差（`Compiler::compile` 的点表
+    /// 冻结）。
     LengthMismatch {
         expected_length_bits: u64,
         geometry_length_bits: u32,
         tolerance_bits: u64,
     },
+    /// 相邻关系的两条边解析到不同规范 frame（`Compiler::compile` 的 HIR 空间
+    /// 连接校验）。
     ConnectedEdgesUseDifferentFrames,
+    /// 前驱边末点与后继边首点的距离超过 join 容差（`Compiler::compile` 的 HIR
+    /// 空间连接校验）。
     DiscontinuousJoin {
         distance_bits: u64,
         tolerance_bits: u64,

@@ -15,25 +15,66 @@ pub(crate) fn compare_identity_text(a: &str, b: &str) -> core::cmp::Ordering {
 /// 规则输入或静态解析不能成立的结构化原因。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum PolicyViolation {
+    /// 证据/间隙参数/规则成员键违反外部 token 文本规则、含 `::` 分隔符，或
+    /// owner 限定引用携带超过 3 个 owner 键（`add_right_of_way_policy_set`）。
     InvalidKey,
+    /// 证据 locator 或间隙参数 `parameter_version` 为空字符串
+    /// （`add_right_of_way_policy_set`）。
     EmptyValue,
+    /// 法规身份的 jurisdiction/version/source 字符数不在 `1..=128`
+    /// （`add_right_of_way_policy_set`、`add_road_editing_module` 与
+    /// `Compiler::compile` 的策略阶段均可达）。
     InvalidRegulation,
+    /// 策略任一来源位置（主或参与）的 `sourceDocumentKey` 与所属模块登记键不一致
+    /// （`add_right_of_way_policy_set`）。
     SourceDocument,
+    /// 同一策略集内证据、间隙参数、stream 规则或 gate 规则的成员键重复
+    /// （`add_right_of_way_policy_set`、`add_road_editing_module` 与
+    /// `Compiler::compile` 的策略阶段均可达）。
     DuplicateMember,
+    /// 让行目标、参与者类别或证据引用在同一规则内重复（三个策略声明入口均可达，
+    /// 同 `InvalidRegulation`）。
     DuplicateReference,
+    /// stream/gate 规则显式声明的参与者类别列表为空（三个策略声明入口均可达，
+    /// 同 `InvalidRegulation`）。
     EmptyClasses,
+    /// 规则引用的证据键或间隙参数键不存在于本策略集的对应成员中（三个策略声明
+    /// 入口均可达，同 `InvalidRegulation`）。
     MissingLocalReference,
+    /// 规则没有证据成员，且所属法规身份也没有来源说明（三个策略声明入口均可达，
+    /// 同 `InvalidRegulation`）。
     MissingEvidence,
+    /// stream 规则的让行目标与间隙参数必须二选一绑定：两者同时缺失或同时存在
+    /// （三个策略声明入口均可达，同 `InvalidRegulation`）。
     GapBinding,
+    /// 某参与类别在机动门或参与者流上可准入，但没有任何可适用规则
+    /// （`Compiler::compile` 的 MIR 策略校验）。
     MissingRule,
+    /// 同一门/流上两条规则对同一参与类别的特异性并列，无法唯一选择规则
+    /// （`Compiler::compile` 的 MIR 策略校验）。
     AmbiguousRule,
+    /// 门规则的 Uncontrolled 解释与所引用机动门的信号组绑定不一致，或未绑定门
+    /// 规则携带 OnRed 禁止（`Compiler::compile` 的 MIR 策略校验）。
     SignalBinding,
+    /// 门规则使用右转灯组解释，但对应 movement 的转向不是右转
+    /// （`Compiler::compile` 的 MIR 策略校验）。
     RightTurnRequired,
+    /// 同一机动门被同一策略的两条门规则绑定为不同灯组类型
+    /// （`Compiler::compile` 的 MIR 策略校验）。
     LampTypeConflict,
+    /// stream 规则的让行目标包含自身（`Compiler::compile` 的 MIR 策略校验）。
     SelfYield,
+    /// 让行目标流与本流不共享任何冲突区通行段（`Compiler::compile` 的 MIR 策略
+    /// 校验）。
     DisjointYield,
+    /// 被让行目标流可按优先级不高于本规则的规则准入，让行关系不闭合
+    /// （`Compiler::compile` 的 MIR 策略校验）。
     YieldPriority,
+    /// 策略集的法规 jurisdiction/version 与编译单元准入规则确立的唯一法规身份
+    /// 不一致（`Compiler::compile` 的 MIR 策略校验）。
     RegulationMismatch,
+    /// 同一冲突区的保护放行门信号不相容：保护门分属不同信号控制器，或同一信号
+    /// 相位会同时放行同区两组保护门（`Compiler::compile` 的 MIR 策略校验）。
     ProtectedConflict,
 }
 

@@ -24,8 +24,14 @@ use crate::{
 /// 建立或关闭本地 staged object 时的失败。
 #[derive(Debug)]
 pub enum StagedObjectError {
+    /// 临时 backing 创建、对象编码写入、写缓冲排空或 seal 元数据读取的 I/O 失败
+    /// （`StagedObjectWriter::create_in`/`finish`）。
     Io(io::Error),
+    /// staged 长度换算溢出的映射分支（`BackingError::LengthOverflow`）；当前无构造点，
+    /// 防御性保留。
     ArithmeticOverflow,
+    /// `finish` 经 `seal` 核对时 backing 实际长度与预检得到的 exact length 不一致
+    /// （`StagedObjectWriter::finish`）。
     BackingChanged,
 }
 

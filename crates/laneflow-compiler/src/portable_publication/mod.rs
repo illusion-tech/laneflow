@@ -86,8 +86,15 @@ impl PortablePublicationProvenance {
 /// checked candidate / LFCP v2 构造失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PortablePublicationError {
+    /// 候选配对、expected diff base 或后发射闭合检查未通过；携带格式层的精确
+    /// 原因（`check_portable_candidate`，`build_portable_publication_descriptor`
+    /// 内嵌同样可达）。
     PostEmission(PostEmissionCheckError),
+    /// LFCP v2 编码路径上的字节数换算 checked 算术溢出
+    /// （`build_portable_publication_descriptor`）。
     ArithmeticOverflow,
+    /// LFCP v2 descriptor 的结构编码或值域预检失败
+    /// （`build_portable_publication_descriptor`）。
     Format(FormatError),
 }
 
