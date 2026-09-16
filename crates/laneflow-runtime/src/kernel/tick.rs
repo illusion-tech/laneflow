@@ -102,7 +102,7 @@ impl MotionPreview {
 
 #[cfg(test)]
 #[derive(Clone, Copy, Eq, PartialEq)]
-enum StepFailpoint {
+pub(super) enum StepFailpoint {
     AfterGrants,
     AfterTransitions,
     AllocationAfterGrants,
@@ -110,7 +110,7 @@ enum StepFailpoint {
 
 #[cfg(test)]
 std::thread_local! {
-    static STEP_FAILPOINT: std::cell::Cell<Option<StepFailpoint>> = const { std::cell::Cell::new(None) };
+    pub(super) static STEP_FAILPOINT: std::cell::Cell<Option<StepFailpoint>> = const { std::cell::Cell::new(None) };
     static MOTION_CACHE_LIMIT: std::cell::Cell<usize> = const { std::cell::Cell::new(usize::MAX) };
     static HORIZON_CALCULATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static MOTION_CALCULATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };

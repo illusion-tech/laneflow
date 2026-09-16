@@ -1,5 +1,7 @@
 //! 仿真内核：运行状态、固定步进与交通规则；不消费制品或快照 wire。
 
+/// 停车状态变化后的活动顺序增量维护与可选 live 定位缓存。
+pub(crate) mod active_order;
 pub(crate) mod config;
 /// 冲突区裁决核心：冲突候选、间隙证明与组合资源的单写者语义原语。
 pub(crate) mod conflict;
