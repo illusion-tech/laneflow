@@ -32,7 +32,9 @@ pub enum LaneFlowVehicleReplaceOutcome {
 /// despawn 后 Runtime 事实与被原子删除的可选宿主映射。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LaneFlowVehicleDespawnRecord {
+    /// Runtime 侧移除事实。
     pub runtime: VehicleDespawnRecord,
+    /// 被原子删除的宿主 Entity（未绑定为 `None`）。
     pub entity: Option<Entity>,
 }
 
