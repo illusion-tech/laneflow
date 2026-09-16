@@ -78,9 +78,10 @@ pub enum ConflictNoGrantReason {
 pub enum ConflictDecisionOutcome {
     /// 门规则拒绝，未进入组合资源求值。
     NotEvaluated,
-    /// 该 Gate 无 passage 资源要求，无需求值。
+    /// 该 Gate 无 passage 资源要求，无需求值；仅当 finalized 运动确实过门时
+    /// 发布该结果。
     NotRequired,
-    /// 组合资源全部取得。
+    /// 组合资源全部取得；为阶段性授予——运动投影回落到门上时不提交授予。
     Granted,
     /// 未取得组合资源，附稳定归因。
     NoGrant(ConflictNoGrantReason),
