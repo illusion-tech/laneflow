@@ -89,7 +89,8 @@ pub enum FormatErrorClass {
     NonCanonicalValue,
     /// chunk 摘要与实际字节重算不符。
     DigestMismatch,
-    /// 解析结构与静态 registry 登记或跨对象绑定不一致。
+    /// 解析结构与静态 registry 登记不一致；跨对象绑定不匹配经
+    /// `PostEmissionCheckError` 专属变体报告，不属本类。
     BindingMismatch,
 }
 
@@ -207,7 +208,8 @@ pub enum FormatError {
         /// 违背规范编码的结构位置；解析 section 或 table chunk 时为该切片内
         /// 局部偏移，非对象全局偏移。
         structure: FormatStructure,
-        /// 违规取值在对象字节流中的偏移；写入侧错误无定位信息时为 0。
+        /// 违规取值的偏移；解析 section 或 table chunk 时为该切片内局部偏移，
+        /// 写入侧错误无定位信息时为 0。
         offset: u64,
     },
     /// chunk 目录登记的 SHA-256 摘要与 chunk 实际字节重算不符（`preflight_object_registry`；

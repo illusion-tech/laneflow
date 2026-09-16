@@ -29,9 +29,10 @@ pub struct CanonicalPointXZ {
 /// 一段预计算的规范采样几何。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SegmentGeometry {
-    /// 本段弦长（米，严格大于 0.1 m）。
+    /// 本段弦长（米，构建侧仅检查大于 0.1 m）。
     pub length_meters: f32,
-    /// 段序列起点到本段末端的累计弧长（米）。
+    /// 段序列起点到本段末端的累计弧长（米）；构建侧不校验其单调性/一致性，
+    /// 依输入自证。
     pub cumulative_end_meters: f32,
     /// 本段方向的单位切向量（规范系三分量）；构建侧不校验其非零/单位性，
     /// 依输入自证。

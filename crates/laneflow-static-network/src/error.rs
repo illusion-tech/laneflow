@@ -190,9 +190,10 @@ pub enum BuildError {
     ReferenceOutOfBounds {
         /// 引用越界所属的稳定结构分类。
         structure: BuildStructure,
-        /// 越界的引用序号。
+        /// 越界的引用序号；WaitingZone 行的路径/门引用越界时为两个域序号的
+        /// 较大者。
         ordinal: u32,
-        /// 目标实体的数量上限。
+        /// 目标实体的数量上限；同上，混合域时为两域上限的较大者。
         limit: u32,
     },
     /// 要求规范有序的成员或位置序列出现非严格递增（`build_shared_network_revision`

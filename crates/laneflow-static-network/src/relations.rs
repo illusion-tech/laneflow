@@ -85,7 +85,8 @@ pub enum AccessTarget {
 pub enum AccessCell {
     /// 本修订内无任何适用规则，单元不施加裁决。
     Unconstrained,
-    /// 由唯一规则给出本修订内的明确裁决。
+    /// 本修订内的明确裁决；同效果并列时按最小规范 ordinal 确定性取胜，
+    /// `rule` 为该胜者（不保证语义唯一）。
     Decided {
         /// 作出裁决的 AccessRule ordinal。
         rule: AccessRuleOrdinal,
