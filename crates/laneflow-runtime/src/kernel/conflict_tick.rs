@@ -596,6 +596,15 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 ) < (state.route_edge_index, state.progress_mm)
             });
             let conflict_count = compiled.conflicts.len();
+            if first_conflict == conflict_count {
+                continue;
+            }
+            let prepared_eta = crate::kernel::conflict::PreparedApproachEta::new(
+                state.carry_um,
+                state.speed_mm_s,
+                profile.max_accel(),
+                horizon_ms,
+            );
             for occurrence_index in first_conflict..conflict_count {
                 #[cfg(test)]
                 crate::kernel::conflict::count_conflict_work(|counts| counts.visited_passages += 1);
@@ -618,15 +627,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 })() else {
                     continue;
                 };
-                let estimate = crate::kernel::conflict::approach_eta_lower_bound(
-                    crate::kernel::conflict::ApproachEtaInput {
-                        exact_distance_mm: u64::from(exact_distance_mm),
-                        carry_um: state.carry_um,
-                        speed_mm_s: state.speed_mm_s,
-                        max_acceleration_m_s2: profile.max_accel(),
-                        proof_horizon_ms: horizon_ms,
-                    },
-                );
+                let estimate = prepared_eta.map_or(ApproachEstimate::Unprovable, |prepared| {
+                    prepared.lower_bound(u64::from(exact_distance_mm))
+                });
                 if estimate == ApproachEstimate::OutsideHorizon {
                     // `conflicts` 按 route position 排列；更远 occurrence 的 directed
                     // lower-bound ETA 也在 proof horizon 外，无需扫完整路线后缀。
@@ -1944,6 +1947,112 @@ mod tests {
         (samples[10], samples[19])
     }
 
+    #[test]
+    fn eta_preparation_count_does_not_grow_with_passages() {
+        use laneflow_static_contract::{
+            EntityKind, ParticipantStreamOrdinal, RightOfWayPolicySetId,
+        };
+        for multiple_passages in [false, true] {
+            let revision = crate::admin::cutover_migration::tests::conflict_frontier_revision(
+                multiple_passages,
+                false,
+            );
+            let stream = (0..3)
+                .filter_map(|raw| {
+                    revision
+                        .conflict()
+                        .participant_stream(ParticipantStreamOrdinal::from_raw(raw))
+                })
+                .max_by_key(|stream| stream.passages().len())
+                .unwrap();
+            let edges = revision
+                .traffic()
+                .maneuvers()
+                .maneuver_path(stream.maneuver_path())
+                .unwrap()
+                .edges()
+                .to_vec();
+            let entry_length = revision.traffic().lane_lengths_millimetres()[edges[0].index()];
+            let origin = *revision.canonical_origin();
+            let policy = RightOfWayPolicySetId::from_untyped(
+                laneflow_compiler::derive_canonical_stable_id_v1(
+                    EntityKind::RightOfWayPolicySet,
+                    "city/runtime-live-conflict-cutover",
+                    "policy",
+                    &laneflow_compiler::CompileLimits::single_network_1m_v2(),
+                )
+                .unwrap(),
+            );
+            let mut world = TrafficWorld::install(
+                revision,
+                crate::WorldConfig::new(1, 1, 3, 3, 1, 4),
+                crate::CommittedNetworkSource::Published {
+                    reference: crate::PublishedLfcaReference::new(
+                        "fixture://eta-count",
+                        origin.canonical_artifact_digest(),
+                        origin.canonical_artifact_byte_length(),
+                        origin.network_revision(),
+                    )
+                    .unwrap(),
+                },
+                676,
+                crate::WorldPolicySelection::Pinned(crate::PolicyPin { policy }),
+            )
+            .unwrap();
+            let route = world
+                .register_route(crate::RouteRegisterInput::new(edges))
+                .unwrap();
+            let vehicle = world
+                .spawn_vehicle(crate::VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    entry_length - 1,
+                    10_000,
+                ))
+                .unwrap();
+            reset_conflict_work_counts();
+            world.step_workspace().rebuild_conflict_frontier().unwrap();
+            let counts = conflict_work_counts();
+            assert_eq!(counts.eta_preparations, 1);
+            assert_eq!(
+                counts.eta_distance_evaluations,
+                if multiple_passages { 3 } else { 1 }
+            );
+            // 仅把 cursor 移至没有 future entry 的出口，隔离 frontier 准备的跳过条件。
+            let state = world.committed.vehicles[vehicle.index() as usize]
+                .state
+                .as_mut()
+                .unwrap();
+            state.route_edge_index = 2;
+            state.progress_mm = 10_000;
+            reset_conflict_work_counts();
+            world.step_workspace().rebuild_conflict_frontier().unwrap();
+            assert_eq!(conflict_work_counts().eta_preparations, 0);
+        }
+    }
+
+    #[test]
+    fn eta_preparation_is_per_vehicle_and_skips_routes_without_future_conflicts() {
+        let revision = conflict_scale_revision();
+        for vehicles in [1, 4, 16, 64] {
+            let mut world = conflict_scale_world(Arc::clone(&revision), vehicles);
+            reset_conflict_work_counts();
+            world.step_workspace().rebuild_conflict_frontier().unwrap();
+            let counts = conflict_work_counts();
+            assert_eq!(counts.eta_preparations, vehicles as usize, "{counts:?}");
+            assert_eq!(
+                counts.eta_distance_evaluations, vehicles as usize,
+                "{counts:?}"
+            );
+            for handle in world.live_vehicles().to_vec() {
+                world.despawn_vehicle(handle).unwrap();
+            }
+            reset_conflict_work_counts();
+            world.step_workspace().rebuild_conflict_frontier().unwrap();
+            assert_eq!(conflict_work_counts().eta_preparations, 0);
+        }
+    }
     #[test]
     fn conflict_scale_tick_keeps_route_visits_bounded_and_state_valid() {
         let revision = conflict_scale_revision();

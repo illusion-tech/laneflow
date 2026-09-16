@@ -7,6 +7,9 @@ mod conflict_review;
 #[path = "support/policy_acceptance.rs"]
 mod policy_acceptance;
 
+#[path = "support/eta_evidence.rs"]
+mod eta_evidence;
+
 use std::hint::black_box;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -512,6 +515,7 @@ fn conflict_road_editing_module_with_shape(
 
 #[derive(Clone, Copy, Default)]
 struct ConflictPolicyFixture {
+    loop_east: bool,
     deny: bool,
     yielding: bool,
     gap_values_ms: Option<(u64, u64, u64)>,
@@ -536,6 +540,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
     policy_fixture: ConflictPolicyFixture,
 ) -> lfre::RoadEditingSourceModule {
     let ConflictPolicyFixture {
+        loop_east,
         deny,
         yielding,
         gap_values_ms,
@@ -665,12 +670,12 @@ fn conflict_road_editing_module_with_shape_and_speed(
         ("north-entry", (0.0, -13.0), (0.0, 0.0)),
         ("south-exit", (0.0, 13.0), (0.0, 26.0)),
     ] {
-        let geometry = if multiplicity && edge == "west-exit" {
+        let geometry = if (multiplicity || loop_east) && edge == "west-exit" {
             road_editing_loop()
         } else {
             road_editing_line(start, end)
         };
-        let successors = if multiplicity && edge == "west-exit" {
+        let successors = if (multiplicity || loop_east) && edge == "west-exit" {
             vec![lfre::LaneEdgeReference::local("east-entry").expect("loop successor")]
         } else {
             Vec::new()

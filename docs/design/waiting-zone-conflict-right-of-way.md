@@ -442,6 +442,12 @@ Outside proof 使用同一 upper speed/acceleration 与
 `dLowerMm` 才是 `OutsideHorizon`。无法严格证明时继续 ETA；仍失败才是
 `Unprovable`。`OutsideHorizon` 不贡献，`Unprovable` 是保守 normal no-grant。
 
+同车同拍的 frontier 遍历只准备一次 carry 上界、速度、加速度上界、proof horizon
+可达距离上界及二次项公共因子。准备对象只在该车辆遍历的栈上存在，不跨车辆或 tick
+保留；无未来冲突出现项时无需准备。每个出现项仍独立验证 exact distance，按上述
+directed 运算顺序计算距离下界及 ETA，保留 `Finite(0)`、`OutsideHorizon` 和
+`Unprovable` 边界。不重结合浮点表达式、不改变 `next_up` / `next_down` 的位置。
+
 frontier cell 使用 static `ConflictPassageAddress`/zone cell，不按动态 Route occurrence
 建表。每个 vehicle 对同一 cell 的 current/upcoming/repeated contributions 先 owner-local
 归约：任一 `Unprovable` 则 owner 为 `Unprovable`，否则取最小 `Finite(ms)`。cell 只保存
