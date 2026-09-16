@@ -126,6 +126,9 @@ transition boundary 的 zone-local 有界整数距离。它不得使用会因较
 同一 ManeuverPath 上相邻 WaitingZone 可以共享 release/entry boundary；内部重叠或
 嵌套继续由静态编译拒绝。路线不得终止在 WaitingZone 或 stateful maneuver interior。
 
+路线出现项按机动顺序与 entry hop 递增排列。准入后的运动预览只需检查紧邻的下一
+Waiting occurrence：若尚未越过其 entry hop，后续入口也未被越过；该查询不扫描剩余后缀。
+
 ### 3.3 profile-route-cursor 绑定
 
 路线注册保持 profile-agnostic。`spawn_vehicle`、`replace_completed_vehicle` 与
@@ -139,6 +142,10 @@ vehicle.length_mm <= occurrence.storage_length_mm
 
 这里证明的是空 WaitingZone 至少能容纳该车辆，不承诺 `maxOccupancy` 辆同车型一定
 同时放得下；实际组合由 tick admission 检查。
+
+无既有 authority 的 bootstrap 先完成上述车型检查，再利用已注册机动半开区间不相交
+且有序的不变量定位当前机动，并在有序 Waiting 出现项中查询其成员关系。车型检查仍为
+线性工作，两次定位为对数工作；不对每个机动重新扫描 Waiting 列表，也不改变首错顺序。
 
 若 cursor 位于包含多个 Gate 或任一 WaitingZone 的 maneuver occurrence 第一个 Gate
 之后、maneuver exit 之前，则候选 `Active` 绑定原子拒绝。第一版不根据 cursor 猜测

@@ -11,11 +11,23 @@ thread_local! {
         const { core::cell::Cell::new(None) };
     static NON_ENTRY_GENERATION_VISITS: core::cell::Cell<usize> =
         const { core::cell::Cell::new(0) };
+    static WAITING_LOOKUP_VISITS: core::cell::Cell<[usize; 4]> =
+        const { core::cell::Cell::new([0; 4]) };
     static WAITING_WORK_COUNTS: core::cell::Cell<WaitingWorkCounts> =
         const { core::cell::Cell::new(WaitingWorkCounts {
             checked_zones: 0, staged_zones: 0, journal_zones: 0,
             committed_zones: 0, member_vehicles: 0,
         }) };
+}
+
+/// 测试专用：车型检查、机动定位、Waiting 成员查询、后续出现项访问。
+#[cfg(test)]
+fn count_waiting_lookup(index: usize) {
+    WAITING_LOOKUP_VISITS.with(|counts| {
+        let mut value = counts.get();
+        value[index] += 1;
+        counts.set(value);
+    });
 }
 
 /// 测试专用访问计数，不进入生产世界布局或持久状态。
@@ -590,6 +602,8 @@ impl crate::TrafficWorld {
         let cursor_u32 = u32::try_from(cursor).map_err(|_| WaitingBindingError::InvalidRoute)?;
 
         for occurrence in &compiled.waiting {
+            #[cfg(test)]
+            count_waiting_lookup(0);
             if cursor_u32 <= occurrence.release_hop
                 && vehicle_length_mm > occurrence.storage_length_mm
             {
@@ -597,38 +611,35 @@ impl crate::TrafficWorld {
             }
         }
 
-        let mut initial = None;
-        for (maneuver_index, maneuver) in compiled.maneuvers.iter().enumerate() {
-            if !compiled
-                .waiting
-                .iter()
-                .any(|waiting| waiting.maneuver_index as usize == maneuver_index)
-            {
-                continue;
-            }
-            if cursor_u32 < maneuver.entry_route_edge_index
-                || cursor_u32 >= maneuver.exit_route_edge_index
-            {
-                continue;
-            }
-            let first_gate_hop =
-                first_gate_hop(compiled, maneuver).ok_or(WaitingBindingError::InvalidRoute)?;
-            if cursor_u32 > first_gate_hop {
-                return Err(WaitingBindingError::StatefulManeuverInterior);
-            }
-            let candidate = ManeuverTraversalState {
-                route,
-                maneuver_occurrence_index: u32::try_from(maneuver_index)
-                    .map_err(|_| WaitingBindingError::InvalidRoute)?,
-                phase: ManeuverTraversalPhase::PreGate {
-                    next_gate_hop: first_gate_hop,
-                },
-            };
-            if initial.replace(candidate).is_some() {
-                return Err(WaitingBindingError::InvalidRoute);
-            }
+        // 注册期已拒绝相交的机动半开区间；当前位置最多对应一个出现项。
+        let Some(maneuver_index) = maneuver_index_at_hop(compiled, cursor_u32) else {
+            return Ok(None);
+        };
+        if compiled
+            .waiting
+            .binary_search_by_key(&maneuver_index, |waiting| {
+                #[cfg(test)]
+                count_waiting_lookup(2);
+                waiting.maneuver_index as usize
+            })
+            .is_err()
+        {
+            return Ok(None);
         }
-        Ok(initial)
+        let maneuver = &compiled.maneuvers[maneuver_index];
+        let first_gate_hop =
+            first_gate_hop(compiled, maneuver).ok_or(WaitingBindingError::InvalidRoute)?;
+        if cursor_u32 > first_gate_hop {
+            return Err(WaitingBindingError::StatefulManeuverInterior);
+        }
+        Ok(Some(ManeuverTraversalState {
+            route,
+            maneuver_occurrence_index: u32::try_from(maneuver_index)
+                .map_err(|_| WaitingBindingError::InvalidRoute)?,
+            phase: ManeuverTraversalPhase::PreGate {
+                next_gate_hop: first_gate_hop,
+            },
+        }))
     }
 
     pub(crate) fn waiting_state_valid(&self) -> bool {
@@ -1417,12 +1428,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     let compiled = self
                         .compiled_route(state.route)
                         .ok_or(crate::StepError::WaitingInvariantViolation)?;
-                    if let Some(next) = compiled
-                        .waiting
-                        .iter()
-                        .skip(plan.occurrence_index as usize + 1)
-                        .find(|occurrence| plan.preview_route_edge_index > occurrence.entry_hop)
-                    {
+                    if let Some(next) = next_crossed_waiting(
+                        compiled,
+                        plan.occurrence_index,
+                        plan.preview_route_edge_index,
+                    ) {
                         plan.stop_hop = Some(next.entry_hop);
                         plan.stop_zone = Some(next.zone);
                         plan.stop_maneuver_index = Some(next.maneuver_index);
@@ -2187,10 +2197,28 @@ fn non_entry_gate_anchor(
         .map(|maneuver_index| (maneuver_index, hop_u32))
 }
 
+fn next_crossed_waiting(
+    compiled: &CompiledRoute,
+    occurrence_index: u32,
+    preview_route_edge_index: u32,
+) -> Option<&crate::kernel::tables::WaitingOccurrence> {
+    // Waiting 按路线 entry hop 排序；未越过紧邻入口就不可能越过后缀入口。
+    compiled
+        .waiting
+        .get(occurrence_index as usize + 1)
+        .filter(|occurrence| {
+            #[cfg(test)]
+            count_waiting_lookup(3);
+            preview_route_edge_index > occurrence.entry_hop
+        })
+}
+
 fn maneuver_index_at_hop(compiled: &CompiledRoute, hop: u32) -> Option<usize> {
-    let index = compiled
-        .maneuvers
-        .partition_point(|maneuver| maneuver.exit_route_edge_index <= hop);
+    let index = compiled.maneuvers.partition_point(|maneuver| {
+        #[cfg(test)]
+        count_waiting_lookup(1);
+        maneuver.exit_route_edge_index <= hop
+    });
     compiled
         .maneuvers
         .get(index)
@@ -3146,6 +3174,15 @@ pub(crate) mod tests {
         vehicle_count: u32,
         delta_time_ms: u64,
     ) -> (TrafficWorld, WaitingZoneOrdinal) {
+        waiting_scale_world_with_route_capacity(revision, vehicle_count, delta_time_ms, 1_024)
+    }
+
+    fn waiting_scale_world_with_route_capacity(
+        revision: Arc<laneflow_static_network::SharedNetworkRevision>,
+        vehicle_count: u32,
+        delta_time_ms: u64,
+        route_edge_capacity: u64,
+    ) -> (TrafficWorld, WaitingZoneOrdinal) {
         const NS: &str = "city/waiting-scale";
         const STEM_COUNT: usize = 64;
         const EDGE_LENGTH_MM: u64 = 10_000_000;
@@ -3153,7 +3190,14 @@ pub(crate) mod tests {
         let origin = *revision.canonical_origin();
         let mut world = TrafficWorld::install(
             Arc::clone(&revision),
-            WorldConfig::new(vehicle_count, 2, 1_024, 1_024, 1, delta_time_ms),
+            WorldConfig::new(
+                vehicle_count,
+                2,
+                route_edge_capacity,
+                1_024,
+                1,
+                delta_time_ms,
+            ),
             CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
                     "fixture://waiting-scale",
@@ -4663,6 +4707,193 @@ pub(crate) mod tests {
         );
     }
 
+    // #675：线性预言机只存在于测试，保持优化前的首错与扫描顺序。
+    fn linear_waiting_bootstrap(
+        world: &TrafficWorld,
+        route: RouteHandle,
+        cursor: usize,
+        vehicle_length_mm: u32,
+    ) -> Result<Option<ManeuverTraversalState>, WaitingBindingError> {
+        let compiled = world
+            .compiled_route(route)
+            .ok_or(WaitingBindingError::InvalidRoute)?;
+        let cursor = u32::try_from(cursor).map_err(|_| WaitingBindingError::InvalidRoute)?;
+        for occurrence in &compiled.waiting {
+            if cursor <= occurrence.release_hop && vehicle_length_mm > occurrence.storage_length_mm
+            {
+                return Err(WaitingBindingError::VehicleTooLong);
+            }
+        }
+        let mut initial = None;
+        for (index, maneuver) in compiled.maneuvers.iter().enumerate() {
+            if !compiled
+                .waiting
+                .iter()
+                .any(|waiting| waiting.maneuver_index as usize == index)
+            {
+                continue;
+            }
+            if cursor < maneuver.entry_route_edge_index || cursor >= maneuver.exit_route_edge_index
+            {
+                continue;
+            }
+            let hop =
+                first_gate_hop(compiled, maneuver).ok_or(WaitingBindingError::InvalidRoute)?;
+            if cursor > hop {
+                return Err(WaitingBindingError::StatefulManeuverInterior);
+            }
+            let candidate = ManeuverTraversalState {
+                route,
+                maneuver_occurrence_index: u32::try_from(index)
+                    .map_err(|_| WaitingBindingError::InvalidRoute)?,
+                phase: ManeuverTraversalPhase::PreGate { next_gate_hop: hop },
+            };
+            if initial.replace(candidate).is_some() {
+                return Err(WaitingBindingError::InvalidRoute);
+            }
+        }
+        Ok(initial)
+    }
+
+    fn repeated_waiting_route(world: &mut TrafficWorld, count: usize) -> RouteHandle {
+        let original = world
+            .vehicle_state(VehicleHandle::new(0, 0))
+            .expect("vehicle")
+            .route;
+        let path = world.route_edges(original).expect("route")[64..].to_vec();
+        world
+            .register_route(RouteRegisterInput::new(path.repeat(count)))
+            .expect("repeated route")
+    }
+
+    #[test]
+    fn waiting_lookup_bootstrap_matches_linear_oracle_at_every_route_boundary() {
+        for layout in [ScaleLayout::SingleZone, ScaleLayout::SecondZone] {
+            let revision = waiting_scale_revision_with_layout(8.0, 1, layout);
+            let (mut world, _) = waiting_scale_world(revision, 1);
+            let route = repeated_waiting_route(&mut world, 32);
+            let compiled = world.compiled_route(route).expect("route");
+            assert!(
+                compiled
+                    .waiting
+                    .windows(2)
+                    .all(|pair| pair[0].entry_hop < pair[1].entry_hop)
+            );
+            assert!(
+                compiled
+                    .maneuvers
+                    .windows(2)
+                    .all(|pair| pair[0].exit_route_edge_index <= pair[1].entry_route_edge_index)
+            );
+            for cursor in 0..=compiled.edges.len() {
+                for length in [0, 4_500, 8_000, u32::MAX] {
+                    assert_eq!(
+                        world.validate_waiting_bootstrap(route, cursor, length),
+                        linear_waiting_bootstrap(&world, route, cursor, length),
+                        "cursor={cursor} length={length}"
+                    );
+                }
+            }
+            let occurrence = compiled.waiting[0];
+            assert_eq!(
+                world.validate_waiting_bootstrap(
+                    route,
+                    occurrence.entry_hop as usize + 1,
+                    u32::MAX
+                ),
+                Err(WaitingBindingError::VehicleTooLong),
+                "length error precedes interior error"
+            );
+            assert_eq!(
+                world.validate_waiting_bootstrap(RouteHandle::new(u32::MAX, 0), 0, 0),
+                Err(WaitingBindingError::InvalidRoute)
+            );
+            #[cfg(target_pointer_width = "64")]
+            assert_eq!(
+                world.validate_waiting_bootstrap(route, usize::MAX, 0),
+                Err(WaitingBindingError::InvalidRoute)
+            );
+        }
+    }
+
+    #[test]
+    fn waiting_lookup_next_occurrence_matches_linear_oracle_and_visits_at_most_one() {
+        let (mut world, _) = waiting_scale_world(
+            waiting_scale_revision_with_layout(8.0, 1, ScaleLayout::SecondZone),
+            1,
+        );
+        let route = repeated_waiting_route(&mut world, 64);
+        let compiled = world.compiled_route(route).expect("route");
+        for index in 0..compiled.waiting.len() {
+            let current = compiled.waiting[index];
+            for preview in [
+                current.entry_hop,
+                current.release_hop,
+                current.release_hop + 1,
+                u32::MAX,
+            ] {
+                WAITING_LOOKUP_VISITS.with(|counts| counts.set([0; 4]));
+                let actual = next_crossed_waiting(compiled, index as u32, preview);
+                let expected = compiled
+                    .waiting
+                    .iter()
+                    .skip(index + 1)
+                    .find(|next| preview > next.entry_hop);
+                assert_eq!(actual, expected, "index={index} preview={preview}");
+                assert_eq!(
+                    WAITING_LOOKUP_VISITS.with(|counts| counts.get()[3]),
+                    usize::from(index + 1 < compiled.waiting.len())
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn waiting_lookup_work_scales_with_length_checks_and_logarithmic_searches() {
+        for count in [1_usize, 16, 256, 1_024] {
+            let (mut world, _) =
+                waiting_scale_world_with_route_capacity(waiting_scale_revision(), 1, 4, 8_192);
+            let route = repeated_waiting_route(&mut world, count);
+            let compiled = world.compiled_route(route).expect("route");
+            let tail = *compiled.waiting.last().expect("tail");
+            WAITING_LOOKUP_VISITS.with(|counts| counts.set([0; 4]));
+            let state = world
+                .validate_waiting_bootstrap(route, tail.entry_hop as usize, 4_500)
+                .expect("bootstrap")
+                .expect("traversal");
+            assert_eq!(state.maneuver_occurrence_index as usize, count - 1);
+            let visits = WAITING_LOOKUP_VISITS.with(|counts| counts.get());
+            let limit = count.ilog2() as usize + 2;
+            assert_eq!(visits[0], count);
+            assert!(visits[1] <= limit && visits[2] <= limit, "{visits:?}");
+            let vehicle = VehicleHandle::new(0, 0);
+            world.despawn_vehicle(vehicle).expect("despawn");
+            let entry_hop = world.compiled_route(route).unwrap().waiting[0].entry_hop;
+            let edge = world.route_edges(route).unwrap()[entry_hop as usize];
+            let length = world.traffic().lane_lengths_millimetres()[edge.index()];
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    entry_hop,
+                    length - 1,
+                    10_000,
+                ))
+                .expect("spawn");
+            WAITING_LOOKUP_VISITS.with(|counts| counts.set([0; 4]));
+            world.step(TickInput::new(4)).expect("entry step");
+            assert_eq!(
+                WAITING_LOOKUP_VISITS.with(|counts| counts.get()[3]),
+                usize::from(count > 1)
+            );
+            assert_eq!(
+                world.latest_waiting_decisions()[0].outcome(),
+                WaitingDecisionOutcome::Granted
+            );
+            assert_eq!(world.waiting_zone_members().len(), 1);
+        }
+    }
+
     #[test]
     fn repeated_route_tail_uses_current_occurrence_for_candidate_phase_and_outputs() {
         let (mut world, _) = waiting_scale_world(waiting_scale_revision(), 1);
@@ -4740,6 +4971,16 @@ pub(crate) mod tests {
                 .gate_hops
                 .is_empty()
         );
+        for cursor in [0, 63] {
+            assert_eq!(
+                world.validate_waiting_bootstrap(gate_free, cursor, u32::MAX),
+                Ok(None)
+            );
+            assert_eq!(
+                world.validate_waiting_bootstrap(route, cursor, 4_500),
+                Ok(None)
+            );
+        }
     }
 
     #[test]
