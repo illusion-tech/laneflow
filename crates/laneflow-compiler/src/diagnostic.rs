@@ -869,7 +869,8 @@ pub enum SpatialGeometryViolation {
         /// 准入长度的位模式（synthetic 为 `length_mm / 1_000.0` 换算、道路编辑为
         /// 观测值回读），非源输入的原始字面。
         expected_length_bits: u64,
-        /// 冻结折线弧长的 `f32` IEEE 754 位模式，单位为米。
+        /// 冻结折线弧长的 `f32` 位模式（米）；区间端附近的量化可使其越过
+        /// 允许区间。
         geometry_length_bits: u32,
         /// 各容差之和的原始 `f64` IEEE 754 位模式，单位为米。
         tolerance_bits: u64,
@@ -880,9 +881,9 @@ pub enum SpatialGeometryViolation {
     /// 前驱边末点与后继边首点的距离超过 join 容差（`Compiler::compile` 的 HIR
     /// 空间连接校验）。
     DiscontinuousJoin {
-        /// 前驱末点与后继首点距离的原始 `f64` IEEE 754 位模式，单位为米。
+        /// 前驱末点与后继首点距离的位模式（米；`f32` 计算后提升 `f64` 存储）。
         distance_bits: u64,
-        /// join 容差的原始 `f64` IEEE 754 位模式，单位为米。
+        /// join 容差的位模式（米；`f32` 常量提升存储）。
         tolerance_bits: u64,
     },
     /// 相连 edge 最终 `f32` 首尾弦超过所选方向档；仅当任一侧边来自携带几何配置
@@ -1116,7 +1117,8 @@ pub enum DiagnosticPayload {
     },
     /// 来源声明及无法解析的完整目标二元组。
     UnknownReferenceTarget {
-        /// 无法解析的目标实体种类。
+        /// 发起引用的声明实体种类（如泊位引用缺失边时为 `ParkingSpace`；策略
+        /// 解析恒为 `RightOfWayPolicySet`），非目标种类。
         entity_kind: EntityKind,
         /// 发起引用的来源声明稳定键。
         source_key: Box<str>,
@@ -1560,8 +1562,9 @@ pub enum DiagnosticPayload {
         /// 锚点沿边进度；已解析出边的失败为量化后毫米值换算的米（
         /// `progress_mm / 1_000.0`），解析前拒绝为原始输入位模式。
         progress_bits: u64,
-        /// 边长的原始 `f64` IEEE 754 位模式，单位为米；锚点在解析出边之前即被
-        /// 拒绝时为哨兵 `0.0`（此时闭包字段同为无效占位）。
+        /// 边长（米）；已解析出边的失败为准入/几何派生的整毫米值换算（
+        /// `edge.length_mm / 1_000.0`），解析前拒绝为哨兵 `0.0`（闭包字段同为
+        /// 无效占位）。
         edge_length_bits: u64,
         /// 严格内部允许的最小进度（含），单位为毫米。
         min_progress_mm: u32,
