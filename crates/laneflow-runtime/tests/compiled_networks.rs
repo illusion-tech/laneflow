@@ -4384,6 +4384,103 @@ fn rebind_compares_the_complete_cross_edge_body_footprint() {
 }
 
 #[test]
+fn leave_research_includes_both_upstream_merge_routes_and_committed_prefix() {
+    let revision = compile_revision(|module| {
+        add_standard_profiles(module);
+        for key in ["left", "right"] {
+            module
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: key,
+                    length_meters: 10.0,
+                    speed_limit_meters_per_second: 15.0,
+                    successors: &[LaneEdgeReference::local("shared")],
+                })
+                .unwrap();
+        }
+        module
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "shared",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 15.0,
+                successors: &[],
+            })
+            .unwrap();
+        let anchors = [ParkingLaneAnchorInput {
+            lane_edge: LaneEdgeReference::local("shared"),
+            progress_meters: 6.0,
+        }];
+        module
+            .add_parking_facility(ParkingFacilityInput {
+                parking_facility_key: "facility",
+                virtual_capacity: 2,
+                virtual_entries: &anchors,
+                virtual_exits: &anchors,
+            })
+            .unwrap();
+    });
+    let mut world = install_fixture(revision, WorldConfig::new(8, 4, 32, 1, 1, 100)).unwrap();
+    let route = register_named(&mut world, &["shared"]);
+    let left = register_named(&mut world, &["left", "shared"]);
+    let right = register_named(&mut world, &["right", "shared"]);
+    let facility = ParkingFacilityOrdinal::from_raw(0);
+    let profile = VehicleProfileOrdinal::from_raw(0);
+    let parked: Vec<_> = (0..2)
+        .map(|_| {
+            world
+                .spawn_parked_vehicle(
+                    ParkedVehicleSpawnInput::new(profile, route, 0, 0),
+                    ParkingTarget::VirtualPool(facility),
+                )
+                .unwrap()
+                .vehicle
+        })
+        .collect();
+    let first = world
+        .spawn_vehicle(VehicleSpawnInput::new(profile, left, 0, 9_000, 10_000))
+        .unwrap();
+    let second = world
+        .spawn_vehicle(VehicleSpawnInput::new(profile, right, 0, 9_000, 10_000))
+        .unwrap();
+    let leave = LeaveParkingTarget::VirtualPool {
+        facility,
+        route,
+        exit_anchor: VirtualExitAnchorSelector::from_raw(0),
+        exit_route_occurrence: 0,
+    };
+    let before = world.capture_snapshot().unwrap();
+    assert_eq!(
+        world.leave_parking(parked[0], leave),
+        Err(ParkingError::LeaveUnsafeFollower { follower: first })
+    );
+    assert_eq!(world.capture_snapshot().unwrap(), before);
+    world.despawn_vehicle(first).unwrap();
+    let replacement = world
+        .spawn_vehicle(VehicleSpawnInput::new(profile, left, 0, 9_000, 10_000))
+        .unwrap();
+    assert_ne!(replacement, first);
+    // 同一槽位重新生成后位于 live 顺序末端，首错仍是右侧上游车辆。
+    assert_eq!(
+        world.leave_parking(parked[0], leave),
+        Err(ParkingError::LeaveUnsafeFollower { follower: second })
+    );
+    world.despawn_vehicle(second).unwrap();
+    assert_eq!(
+        world.leave_parking(parked[0], leave),
+        Err(ParkingError::LeaveUnsafeFollower {
+            follower: replacement
+        })
+    );
+    world.despawn_vehicle(replacement).unwrap();
+    world.leave_parking(parked[0], leave).unwrap();
+    let committed = world.capture_snapshot().unwrap();
+    assert_eq!(
+        world.leave_parking(parked[1], leave),
+        Err(ParkingError::LeavePhysicalOverlap { blocker: parked[0] })
+    );
+    assert_eq!(world.capture_snapshot().unwrap(), committed);
+}
+
+#[test]
 fn follower_on_diverge_respects_leader_overhang_on_shared_stem() {
     let revision = compile_revision(|module| {
         add_standard_profiles(module);

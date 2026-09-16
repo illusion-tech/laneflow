@@ -1316,6 +1316,8 @@ impl TrafficWorld {
             .map_err(|_| ParkingError::RouteOccurrenceOutOfRange)?;
         let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
         for handle in self.derived.active_order.iter().copied() {
+            #[cfg(test)]
+            super::parking_command_research::note(|counts| counts.followers += 1);
             if handle == candidate.handle {
                 continue;
             }
@@ -1415,6 +1417,8 @@ impl TrafficWorld {
         vehicle: VehicleHandle,
         input: LeaveParkingTarget,
     ) -> Result<ParkingLeaveRecord, ParkingError> {
+        #[cfg(test)]
+        super::parking_command_research::note(|counts| counts.calls += 1);
         let state = self
             .vehicle_state(vehicle)
             .copied()
