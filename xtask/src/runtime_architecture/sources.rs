@@ -128,10 +128,10 @@ fn load_items(
     items: Vec<Item>,
     modules: &mut Vec<SourceModule>,
 ) -> Result<(), String> {
-    if let Some(boundary) = name.first() {
-        if !file.starts_with(root.join(boundary)) {
-            return Err(format!("模块 {} 未位于 {boundary}/ 目录", file.display()));
-        }
+    if let Some(boundary) = name.first()
+        && !file.starts_with(root.join(boundary))
+    {
+        return Err(format!("模块 {} 未位于 {boundary}/ 目录", file.display()));
     }
     let mut ordinary = Vec::new();
     for item in items {

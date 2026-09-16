@@ -143,6 +143,11 @@ jobs:
         shell: bash
         run: cargo +1.98.0 fmt --all -- --check
 
+      - name: Check clippy lints
+        if: steps.filter.outputs.rust == 'true'
+        shell: bash
+        run: cargo +1.98.0 clippy --workspace --all-targets --locked -- -D warnings
+
       - name: Run workspace tests
         if: steps.filter.outputs.rust == 'true'
         shell: bash
