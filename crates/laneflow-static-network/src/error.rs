@@ -139,7 +139,8 @@ pub enum BuildError {
         limit: u32,
     },
     /// 要求规范有序的成员或位置序列出现非严格递增（`build_shared_network_revision`
-    /// 的关系闭合）。
+    /// 的关系闭合与 spatial 构建——设施带几何行、冲突区 region 行同样要求严格
+    /// 递增）。
     NonCanonicalOrder {
         structure: BuildStructure,
         previous: u32,
