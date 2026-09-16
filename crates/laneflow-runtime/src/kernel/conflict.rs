@@ -1185,7 +1185,8 @@ pub enum ConflictResourceNoGrant {
     WaitingCycle,
     /// 冲突 zone/cell 已被其它 owner 占用或提交。
     ConflictOccupied,
-    /// 车身清空目标越过路线存储上界，无法派生下游 claim。
+    /// 无法派生下游 claim：清空目标越过路线存储上界、前方车辆间隙不足，或
+    /// 目标位于下一 Gate/等待停车/预留停车之后。
     DownstreamStorageBoundary,
     /// 下游 claim 区间与既有 claim（含 follower 最小间隙）冲突。
     DownstreamClaimConflict,

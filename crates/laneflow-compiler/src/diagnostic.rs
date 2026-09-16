@@ -1555,7 +1555,8 @@ pub enum DiagnosticPayload {
         role: ParkingAnchorRole,
         /// 锚点所在车道图边的声明键。
         lane_edge_key: Box<str>,
-        /// 锚点沿边进度的原始 `f64` IEEE 754 位模式，单位为米。
+        /// 锚点沿边进度；已解析出边的失败为量化后毫米值换算的米（
+        /// `progress_mm / 1_000.0`），解析前拒绝为原始输入位模式。
         progress_bits: u64,
         /// 边长的原始 `f64` IEEE 754 位模式，单位为米；锚点在解析出边之前即被
         /// 拒绝时为哨兵 `0.0`（此时闭包字段同为无效占位）。
@@ -1632,7 +1633,8 @@ pub enum DiagnosticPayload {
     InvalidSpatialGeometry {
         /// 几何所属规范 frame 的稳定键（已解析时）。
         canonical_frame_key: Option<Box<str>>,
-        /// 几何非法的车道图边声明键。
+        /// 几何所属主体的声明键；冲突区相关失败（区域重复或环冻结）为所属
+        /// 冲突区的稳定键，其余为车道图边声明键。
         lane_edge_key: Box<str>,
         /// 关联的后继边声明键（连接校验失败时）。
         related_lane_edge_key: Option<Box<str>>,
