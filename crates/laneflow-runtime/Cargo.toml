@@ -18,6 +18,10 @@ name = "parking_command_evidence"
 path = "src/kernel/tests/parking_commands/parking_command_evidence.rs"
 
 [[test]]
+name = "active_order_evidence"
+path = "src/kernel/tests/parking_commands/active_order_evidence.rs"
+
+[[test]]
 name = "cutover_scale_evidence"
 path = "src/kernel/tests/performance_profile/cutover_scale_evidence.rs"
 
