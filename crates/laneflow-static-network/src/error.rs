@@ -148,7 +148,8 @@ pub enum BuildError {
         structure: BuildStructure,
         /// 按行序派生的期望序号。
         expected: u32,
-        /// 实体行实际声明的序号。
+        /// 行实际声明的序号；`LaneEdgeGeometry` 行为所有者 ordinal 而非实体表
+        /// 行序。
         actual: u32,
     },
     /// 规范身份表的实体种类序列出现回退（`build_shared_network_revision`

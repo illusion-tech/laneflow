@@ -86,11 +86,11 @@ pub struct FormatLimitConfig {
     pub max_identity_ascii_bytes: u64,
     /// 单个 UTF-8 字段值的最大字节长度。
     pub max_utf8_field_bytes: u64,
-    /// 单个对象内全部 UTF-8 字段值的累计字节上限。
+    /// 单个 table chunk 内全部 UTF-8 字段值的累计字节上限（预算按 chunk 重建）。
     pub max_total_utf8_bytes: u64,
     /// 单个向量值允许的最大元素个数。
     pub max_vector_items: u32,
-    /// 单个对象内全部向量值的累计字节上限。
+    /// 单个 table chunk 内全部向量值的累计字节上限（预算按 chunk 重建）。
     pub max_total_vector_bytes: u64,
     /// record 向量值允许的最大嵌套行深度。
     pub max_record_vector_depth: u8,
