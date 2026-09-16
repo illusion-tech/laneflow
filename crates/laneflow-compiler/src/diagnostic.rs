@@ -252,7 +252,8 @@ pub enum DiagnosticCode {
     AccessCapabilityUnavailable,
     /// 准入规则的法规来源字段违反长度约束。
     InvalidAccessRegulationString,
-    /// 同一编译单元中的法规来源法域或版本不一致。
+    /// 同一编译单元中的法规来源法域或版本不一致；比较不看效果，同效果（含
+    /// 双 allow）规则同样触发。
     AccessRegulationMismatch,
     /// 规范裁决后仍存在效果相反且完全并列的准入规则。
     AccessRuleAmbiguity,
@@ -1298,11 +1299,12 @@ pub enum DiagnosticPayload {
     },
     /// 共享相同完整遍历序列的首个和重复机动路径及其路口。
     DuplicateManeuverPathSequence {
-        /// 首个声明该完整序列的机动路径稳定键。
+        /// 规范遍历序中首个命中该序列的路径稳定键（声明先按地址排序，非源
+        /// 向量顺序）。
         first_path_key: Box<str>,
         /// 重复声明同一序列的机动路径稳定键。
         duplicate_path_key: Box<str>,
-        /// 首条路径所属路口稳定键。
+        /// 首条（规范序）路径所属路口稳定键。
         first_junction_key: Box<str>,
         /// 重复路径所属路口稳定键。
         duplicate_junction_key: Box<str>,
@@ -1679,14 +1681,13 @@ pub enum DiagnosticPayload {
     },
     /// 同一编译单元中的法规来源法域或版本不一致。
     AccessRegulationMismatch {
-        /// 首条准入规则稳定键。
+        /// 首条准入规则稳定键（按遍历序，非 allow/deny 角色）。
         first_rule_key: Box<str>,
-        /// allow 侧规则的法域文本（歧义对按 allow/deny 语义角色排列，非声明
-        /// 或遍历顺序）。
+        /// 首条规则的法域文本（本载荷与效果无关，角色说明不适用）。
         first_jurisdiction: Box<str>,
-        /// allow 侧规则的法规版本文本。
+        /// 首条规则的法规版本文本。
         first_version: Box<str>,
-        /// deny 侧准入规则稳定键。
+        /// 与其不一致的另一准入规则稳定键。
         second_rule_key: Box<str>,
         /// 另一规则的法域文本。
         second_jurisdiction: Box<str>,
