@@ -297,13 +297,14 @@ impl CanonicalPoseBatch {
         Self::default()
     }
 
-    /// 采样批次来源的网络修订（headless 为 `None`）。
+    /// 采样批次来源的网络修订；`None` 仅出现在批次尚未填充时（headless 修订
+    /// 不会产生本批次）。
     #[must_use]
     pub const fn network_revision(&self) -> Option<NetworkRevisionId> {
         self.network_revision
     }
 
-    /// 采样批次的规范坐标框架（headless 为 `None`）。
+    /// 采样批次的规范坐标框架；`None` 仅出现在批次尚未填充时。
     #[must_use]
     pub const fn canonical_frame(&self) -> Option<CanonicalFrameOrdinal> {
         self.canonical_frame
@@ -315,7 +316,7 @@ impl CanonicalPoseBatch {
         self.placement_token
     }
 
-    /// 批内记录切片（记录身份为序号）。
+    /// 批内记录切片；记录身份为调用方分配的不透明值，按提交顺序排列。
     #[must_use]
     pub fn records(&self) -> &[CanonicalPoseRecord] {
         &self.records
@@ -330,7 +331,7 @@ pub struct CanonicalPoseRecord {
 }
 
 impl CanonicalPoseRecord {
-    /// 本记录在批内的身份序号。
+    /// 本记录的调用方分配身份（提取时原样回显）。
     #[must_use]
     pub const fn record(self) -> PoseRecordId {
         self.record
