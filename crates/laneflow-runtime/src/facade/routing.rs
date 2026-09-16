@@ -311,6 +311,7 @@ impl DynamicCostSnapshotBinding {
 /// 动态成本绑定构造失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum DynamicCostBindingError {
+    /// 动态成本有效窗末端早于其绑定的观测 tick。
     #[error("动态成本有效窗末端早于观测 tick")]
     InvalidValidityWindow,
 }

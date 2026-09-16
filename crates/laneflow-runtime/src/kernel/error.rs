@@ -7,22 +7,35 @@ use crate::{RouteHandle, VehicleHandle, VehicleReplaceBlock};
 /// `TrafficWorld::install` 失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum InstallError {
+    /// 共享根含门、冲突区或参与者流，必须显式固定路权策略（`install`；跨修订
+    /// cutover 以 `PolicyInstall` 内嵌同样可达）。
     #[error("共享根含门、冲突区或参与者流，必须显式固定路权策略")]
     PolicyRequired,
+    /// 共享根中不存在指定的路权策略（`install` 的策略绑定解析；跨修订 cutover 以
+    /// `PolicyInstall` 内嵌同样可达）。
     #[error("共享根中不存在指定路权策略 {policy:?}")]
     UnknownPolicy {
         policy: laneflow_static_contract::RightOfWayPolicySetId,
     },
+    /// 策略间隙参数的步长派生超出可移植毫秒值域（`install`；跨修订 cutover 以
+    /// `PolicyInstall` 内嵌同样可达）。
     #[error("策略间隙参数 {gap_profile_index} 的步长派生超出可移植毫秒值域")]
     PolicyGapOverflow { gap_profile_index: u32 },
+    /// 世界策略派生表容量算术溢出（`install`；跨修订 cutover 以 `PolicyInstall` 内嵌
+    /// 同样可达）。
     #[error("世界策略派生表容量算术溢出")]
     PolicyCapacityOverflow,
+    /// 世界策略派生表分配失败（`install`；恢复路径与跨修订 cutover 的 `PolicyInstall`
+    /// 内嵌同样可达）。
     #[error("世界策略派生表分配失败")]
     PolicyAllocationFailed,
+    /// 冲突仲裁状态容量超出当前平台（`install`）。
     #[error("冲突仲裁状态容量超出当前平台")]
     ConflictArbiterCapacityOverflow,
+    /// 冲突仲裁状态分配失败（`install`；恢复路径同样可达）。
     #[error("冲突仲裁状态分配失败")]
     ConflictArbiterAllocationFailed,
+    /// 共享路网的冲突通行关系不满足仲裁器安装不变量（`install`）。
     #[error("共享路网中的冲突通行关系不满足仲裁器安装不变量")]
     ConflictArbiterInvalidNetwork,
     /// `fixed_delta_time_ms` 必须落在 `4..=1000`。
@@ -273,74 +286,111 @@ pub enum ReplaceError {
 /// 停车生命周期命令失败。所有变体都保证已提交世界零副作用。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum ParkingError {
+    /// 车辆句柄不属于当前世界或已失效；全部带车辆句柄的停车入口共用。
     #[error("未知或失效车辆句柄")]
     StaleVehicle,
+    /// 泊位目标在当前修订中不存在（目标解析阶段）。
     #[error("未知停车位")]
     UnknownSpace,
+    /// 停车设施目标在当前修订中不存在（目标解析阶段）。
     #[error("未知停车设施")]
     UnknownFacility,
+    /// 车辆 profile 序号越出共享根（`spawn_parked_vehicle`）。
     #[error("未知车辆 profile")]
     UnknownProfile,
+    /// 路线句柄无效或不属于当前世界（reserve/leave/rebind/spawn_parked 的路线解析）。
     #[error("未知或失效路线句柄")]
     UnknownRoute,
+    /// 停车 target 种类与命令种类不匹配；当前无构造点，防御性保留。
     #[error("停车 target kind 与命令不匹配")]
     TargetKindMismatch,
+    /// 车辆生命周期状态不允许该命令（reserve/cancel/leave/rebind 的状态前置校验）。
     #[error("车辆生命周期状态不允许该停车命令")]
     InvalidVehicleStatus,
+    /// 车辆已绑定其它停车 payload（`reserve_parking`）。
     #[error("车辆已绑定其他停车 payload")]
     VehicleAlreadyBound,
+    /// 显式泊位已被其它车辆绑定（reserve/spawn_parked 的目标可用性检查）。
     #[error("停车目标已被其他车辆绑定")]
     TargetBoundByOther,
+    /// 虚拟池容量已耗尽（reserve/spawn_parked 的目标可用性检查）。
     #[error("虚拟停车容量已耗尽")]
     VirtualCapacityExhausted,
+    /// 虚拟池入口 selector 不属于目标设施（reserve/rebind 的入口锚解析）。
     #[error("虚拟入口 selector 不属于目标设施")]
     EntrySelectorNotOwned,
+    /// 虚拟池出口 selector 不属于目标设施（`leave_parking` 的出口锚解析）。
     #[error("虚拟出口 selector 不属于目标设施")]
     ExitSelectorNotOwned,
+    /// 路线出现项下标越界（reserve/leave/rebind/spawn_parked 的出现项解析）。
     #[error("路线 occurrence 越界")]
     RouteOccurrenceOutOfRange,
+    /// 停车锚点进度越界（`spawn_parked_vehicle`）。
     #[error("停车 retained cursor 进度越界")]
     InvalidProgress,
+    /// 停车锚与路线 occurrence 的 LaneEdge 不一致（reserve/leave/rebind 的锚点-occurrence 校验）。
     #[error("路线 occurrence 与停车 anchor 的 LaneEdge 不匹配")]
     RouteOccurrenceAnchorMismatch,
+    /// 停车入口位于车辆当前位置之后、不可前向到达（reserve/rebind 的入口可达性校验）。
     #[error("停车入口不再前向可达")]
     EntryNotForwardReachable,
+    /// 路线后缀准入策略拒绝（reserve/leave/rebind/spawn_parked）。
     #[error("路线后缀准入拒绝")]
     AccessDenied,
+    /// 车型长度超过 WaitingZone 本地存储跨度（leave/rebind 的等待区校验）。
     #[error("车辆长度超过 WaitingZone 本地存储跨度")]
     WaitingVehicleTooLong,
+    /// 需在 stateful maneuver interior 建立无既有 Waiting authority 的状态；当前无构造点
+    /// （内部映射为 `WaitingTraversalConflict`），防御性保留。
     #[error("不能在 stateful maneuver interior 创建无 Waiting authority 的车辆")]
     WaitingStatefulManeuverInterior,
+    /// 停车 entry 与既有 Waiting traversal 区间冲突（reserve/park/leave/rebind）。
     #[error("停车 entry 与 Waiting traversal 区间冲突")]
     WaitingTraversalConflict,
+    /// 车辆没有 exact Reserved binding（cancel/park/rebind）。
     #[error("车辆没有 exact Reserved binding")]
     NotReserved,
+    /// 车辆尚未精确到达停车入口（`park_vehicle`）。
     #[error("车辆尚未精确到达停车入口")]
     NotArrived,
+    /// 车辆没有 exact Occupied binding（`leave_parking`）。
     #[error("车辆没有 exact Occupied binding")]
     NotOccupied,
+    /// 存在在途 Conflict authority，不能完成该生命周期转换（park/rebind）。
     #[error("active Conflict authority 期间不能完成该停车生命周期转换")]
     ConflictTraversalActive,
+    /// rebind 的当前出现项与车辆已提交物理 LaneEdge 不一致（`rebind_parking_route`）。
     #[error("rebind current occurrence 与车辆物理 LaneEdge 不匹配")]
     RebindCurrentOccurrenceMismatch,
+    /// rebind 会改变车辆完整车身占用 footprint（`rebind_parking_route`）。
     #[error("rebind 会改变车辆完整车身占用 footprint")]
     RebindBodyFootprintMismatch,
+    /// leave 出口 anchor 与已提交车辆物理重叠（`leave_parking`）。
     #[error("leave 插入与已提交车辆发生物理重叠")]
     LeavePhysicalOverlap { blocker: VehicleHandle },
+    /// leave 会让移动 direct follower 无法安全制动（`leave_parking`）。
     #[error("leave 会让移动 direct follower 无法安全制动")]
     LeaveUnsafeFollower { follower: VehicleHandle },
+    /// 需要既有 Conflict authority 才能建立该状态（leave/rebind 的权威校验）。
     #[error("不能在冲突通行段内部恢复无 Conflict authority 的 Active 车辆")]
     ConflictAuthorityRequired,
+    /// 车辆数量达到 world 容量（`spawn_parked_vehicle`）。
     #[error("车辆数量达到容量")]
     VehicleCapacityExceeded,
+    /// 停车稀疏状态或派生缓冲分配失败（reserve/leave/rebind/spawn_parked）。
     #[error("停车稀疏状态分配失败")]
     AllocationFailed,
+    /// 路线引用计数耗尽（提交路径的路线引用递增）。
     #[error("路线引用计数已耗尽")]
     RouteReferenceCapacityExceeded,
+    /// 停车运行时 aggregate 不变量损坏；属内部防御，正常输入不应触达。
     #[error("停车运行时 aggregate 不变量损坏")]
     InvariantViolation,
+    /// 提交路径需要推进观测状态序号但序号已耗尽（park/leave/despawn 的 Active 转换
+    /// 提交）。
     #[error("观测状态序号已耗尽")]
     ObservationStateSequenceExhausted,
+    /// 提交路径需要推进输入命令游标但游标已耗尽（全部停车入口）。
     #[error("输入命令游标已耗尽")]
     CommandCursorExhausted,
 }
