@@ -1,6 +1,6 @@
-# Runtime Snapshot v5
+# Runtime Snapshot v6
 
-`runtime-snapshot.fbs` 是当前唯一 LFRS schema，`format_version = 5`、
+`runtime-snapshot.fbs` 是当前唯一 LFRS schema，`format_version = 6`、
 `runtime_state_version = 5`。必填 `world_policy` 保存闭合选择：`NotRequired = 1`
 禁止携带 policy，`Pinned = 2` 必须携带 policy StableId；0 和未知 tag 拒绝。
 策略内容由 LFCA origin 绑定，步长派生间隙在恢复时重新计算。
@@ -28,4 +28,6 @@ clean regeneration 使用固定 flatc 25.12.19：
 cargo +1.98.0 run --locked -p xtask -- check-runtime-snapshot-codegen --flatc <flatc>
 ```
 
-仓库只保留当前 reader/writer，旧版本输入明确失败关闭。
+配置仅包含四类语义容量与固定步长，不包含 worker；宿主为安装/恢复另行传入执行配置。
+Runtime 状态仍为 5、摘要仍为 7。仓库只保留当前 reader/writer，旧版本输入明确失败关闭；
+真实 v5 拒绝向量（包含缺省 worker）位于 Runtime 的 `tests/fixtures/snapshot-v5`。

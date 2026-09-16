@@ -45,7 +45,7 @@ fn regulatory_denial_keeps_resource_evaluation_absent_and_gate_closed() {
         ..Default::default()
     });
     let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1, 100)).unwrap();
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
     let [route, _] = routes(&mut world, &revision);
     let vehicle = spawn(&mut world, route);
     world.step(TickInput::new(100)).unwrap();
@@ -97,7 +97,7 @@ fn tail_clearance_and_route_completion_commit_in_the_same_tick() {
         ..Default::default()
     });
     let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1, 100)).unwrap();
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
     let [route, _] = routes(&mut world, &revision);
     let vehicle = spawn(&mut world, route);
     world.step(TickInput::new(100)).unwrap();
@@ -124,7 +124,8 @@ fn tail_clearance_and_route_completion_commit_in_the_same_tick() {
         &encode_lfrs(&world.capture_snapshot().unwrap()),
         revision,
         world.committed_source().clone(),
-        WorldConfig::new(4, 4, 64, 8, 1, 100),
+        WorldConfig::new(4, 4, 64, 8, 100),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         SnapshotRestoreLimits::new(1_048_576, 1_024),
     )
     .unwrap();
@@ -156,7 +157,7 @@ fn clearance_target_equal_to_next_gate_is_admitted() {
         ..Default::default()
     });
     let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1, 100)).unwrap();
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
     let [route, _] = routes(&mut world, &revision);
     let vehicle = spawn(&mut world, route);
     world.step(TickInput::new(100)).unwrap();
@@ -174,7 +175,7 @@ fn reserved_vehicle_cannot_cross_later_conflict_gate_without_authority() {
         ..Default::default()
     });
     let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1, 100)).unwrap();
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
     let [route, _] = routes(&mut world, &revision);
     let vehicle = spawn(&mut world, route);
     let mut old_released_at_boundary = false;
@@ -210,7 +211,7 @@ fn maneuver_completion_waits_for_tail_clearance() {
         ..Default::default()
     });
     let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1, 100)).unwrap();
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
     let [route, _] = routes(&mut world, &revision);
     let vehicle = spawn(&mut world, route);
     let mut completions = 0;
@@ -267,11 +268,8 @@ fn fresh_grant_still_stops_at_the_following_gate_in_the_same_tick() {
         clearance: Some((1, 8.5)),
         ..Default::default()
     });
-    let mut world = install_fixture(
-        Arc::clone(&revision),
-        WorldConfig::new(4, 4, 64, 8, 1, 1_000),
-    )
-    .unwrap();
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1_000)).unwrap();
     let [route, _] = routes(&mut world, &revision);
     let boundary = calibration_gate(&world, route);
     let vehicle = world
@@ -308,11 +306,8 @@ fn fresh_grant_still_stops_at_the_following_gate_in_the_same_tick() {
 fn same_tick_acquire_enter_clear_release_and_complete_survive_empty_endpoints() {
     use laneflow_runtime::TrafficTransitionKind as Kind;
     let revision = revision(ConflictPolicyFixture::default());
-    let mut world = install_fixture(
-        Arc::clone(&revision),
-        WorldConfig::new(4, 4, 64, 8, 1, 1_000),
-    )
-    .unwrap();
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1_000)).unwrap();
     let [route, _] = routes(&mut world, &revision);
     let boundary = calibration_gate(&world, route);
     let vehicle = world

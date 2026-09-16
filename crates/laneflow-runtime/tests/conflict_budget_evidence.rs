@@ -46,7 +46,8 @@ fn conflict_steady_tick_has_zero_heap_allocation_after_warmup() {
     let origin = *revision.canonical_origin();
     let mut world = TrafficWorld::install(
         Arc::clone(&revision),
-        WorldConfig::new(4, 4, 64, 2, 1, DELTA_MS),
+        WorldConfig::new(4, 4, 64, 2, DELTA_MS),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://conflict-budget",
@@ -188,7 +189,8 @@ fn resource_free_gate_allocation_evidence() {
     let origin = *revision.canonical_origin();
     let mut world = TrafficWorld::install(
         Arc::clone(&revision),
-        WorldConfig::new(2, 2, 64, 2, 1, 100),
+        WorldConfig::new(2, 2, 64, 2, 100),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://gate-evaluation-budget",

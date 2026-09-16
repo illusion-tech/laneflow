@@ -48,7 +48,7 @@ pub use facade::routing::{
 pub use facade::source::{
     CommittedNetworkSource, InvalidPublishedLfcaReference, PublishedLfcaReference,
 };
-pub use kernel::config::{StepOutcome, TickInput, WorldConfig};
+pub use kernel::config::{ExecutionConfig, StepOutcome, TickInput, WorldConfig};
 pub use kernel::conflict::{
     ApproachEstimate, ConflictEligibilityState, ConflictGapOutcome, ConflictLagReference,
     ConflictPassageAddress, ConflictPassageLocator, ConflictPassageOccurrenceLocator,
@@ -59,7 +59,7 @@ pub use kernel::conflict_tick::{
     ConflictDecision, ConflictDecisionOutcome, ConflictNoGrantReason, ConflictRouteAnchor,
 };
 pub use kernel::error::{
-    InstallError, ParkingError, ReplaceError, RouteError, SpawnError, StepError,
+    ExecutionInitError, InstallError, ParkingError, ReplaceError, RouteError, SpawnError, StepError,
 };
 pub use kernel::handle::{RouteHandle, VehicleHandle};
 pub use kernel::input::{RouteRegisterInput, VehicleSpawnInput};

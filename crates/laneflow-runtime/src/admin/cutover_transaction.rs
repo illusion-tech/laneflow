@@ -1970,7 +1970,8 @@ mod tests {
         let origin = *revision.canonical_origin();
         TrafficWorld::install(
             std::sync::Arc::clone(&revision),
-            WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+            WorldConfig::new(8, 4, 1_024, 1_024, 100),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             source_for(origin, key),
             0,
             crate::test_policy::selection(&revision),
@@ -2380,7 +2381,8 @@ mod tests {
         let origin = *base.canonical_origin();
         let mut world = TrafficWorld::install(
             std::sync::Arc::clone(&base),
-            WorldConfig::new(4, 4, 1_024, 1_024, 1, 100),
+            WorldConfig::new(4, 4, 1_024, 1_024, 100),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             source_for(origin, "fixture://first-waiting"),
             282,
             crate::test_policy::selection(&base),
@@ -2464,6 +2466,7 @@ mod tests {
                 world.revision(),
                 world.committed_source().clone(),
                 world.config(),
+                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
                 crate::SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
             )
             .expect("new authority roundtrip");
@@ -2718,6 +2721,7 @@ mod tests {
                 world.revision(),
                 world.committed_source().clone(),
                 world.config(),
+                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
                 crate::SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024)
             ),
             Err(crate::SnapshotRestoreError::InvalidWaitingAuthority { .. })
@@ -3671,7 +3675,8 @@ mod tests {
             let origin = *revision.canonical_origin();
             TrafficWorld::install(
                 std::sync::Arc::clone(&revision),
-                WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+                WorldConfig::new(8, 4, 1_024, 1_024, 100),
+                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
                 source_for(origin, "fixture://other-world"),
                 9,
                 crate::test_policy::selection(&revision),
@@ -3824,7 +3829,8 @@ mod tests {
             let origin = *revision.canonical_origin();
             TrafficWorld::install(
                 std::sync::Arc::clone(&revision),
-                WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+                WorldConfig::new(8, 4, 1_024, 1_024, 100),
+                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
                 source_for(origin, "fixture://other-world"),
                 9,
                 crate::test_policy::selection(&revision),
@@ -3986,7 +3992,8 @@ mod tests {
             let origin = *revision.canonical_origin();
             TrafficWorld::install(
                 std::sync::Arc::clone(&revision),
-                WorldConfig::new(8, 4, 2, 2, 1, 100),
+                WorldConfig::new(8, 4, 2, 2, 100),
+                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
                 source_for(origin, "fixture://capacity-cut"),
                 0,
                 crate::test_policy::selection(&revision),
@@ -4021,7 +4028,8 @@ mod tests {
             let origin = *revision.canonical_origin();
             TrafficWorld::install(
                 std::sync::Arc::clone(&revision),
-                WorldConfig::new(8, 4, 3, 3, 1, 100),
+                WorldConfig::new(8, 4, 3, 3, 100),
+                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
                 source_for(origin, "fixture://capacity-tight"),
                 0,
                 crate::test_policy::selection(&revision),
@@ -4325,7 +4333,8 @@ mod tests {
         let origin = *revision.canonical_origin();
         TrafficWorld::install(
             std::sync::Arc::clone(&revision),
-            WorldConfig::new(8, 4, 1_024, 1_024, 1, dt),
+            WorldConfig::new(8, 4, 1_024, 1_024, dt),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             source_for(origin, key),
             0,
             crate::test_policy::selection(&revision),

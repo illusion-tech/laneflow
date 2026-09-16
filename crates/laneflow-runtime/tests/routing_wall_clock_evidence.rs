@@ -181,7 +181,7 @@ fn routing_g2_wall_clock_evidence() {
     let observation_set = fixture.cost_binding.observation_set();
     let cost_model = fixture.cost_binding.cost_model();
     println!(
-        "routing-g2-wall-clock workload_id={WORKLOAD_ID} seed={} lfca_exact_bytes={} artifact_digest={:x} topology_network_revision={:x} workload_manifest_digest={:x} state_digest={:x} selection_digest={:x} fixed_input_sequence_digest={:x} edge_count={} world_config_vehicle_capacity={} world_config_route_capacity={} world_config_route_edge_occurrence_capacity={} world_config_worker_count={} world_config_fixed_delta_ms={} binding_version={} observation_tick={} observation_state_sequence={} observation_set_digest={:x} cost_model_id={:x} cost_model_version={} valid_through_tick={} snapshot_sha256={:x} cost_entry_count={} cost_exact_bytes={} receiver_limits_entries={} receiver_limits_bytes={} sample_warmup={} samples={} classification=descriptive-initial-not-product-pass",
+        "routing-g2-wall-clock workload_id={WORKLOAD_ID} seed={} lfca_exact_bytes={} artifact_digest={:x} topology_network_revision={:x} workload_manifest_digest={:x} state_digest={:x} selection_digest={:x} fixed_input_sequence_digest={:x} edge_count={} world_config_vehicle_capacity={} world_config_route_capacity={} world_config_route_edge_occurrence_capacity={} execution_worker_count={} world_config_fixed_delta_ms={} binding_version={} observation_tick={} observation_state_sequence={} observation_set_digest={:x} cost_model_id={:x} cost_model_version={} valid_through_tick={} snapshot_sha256={:x} cost_entry_count={} cost_exact_bytes={} receiver_limits_entries={} receiver_limits_bytes={} sample_warmup={} samples={} classification=descriptive-initial-not-product-pass",
         support::routing_evidence::WORKLOAD_SEED,
         fixture.lfca_exact_bytes,
         fixture.artifact_digest,
@@ -194,7 +194,7 @@ fn routing_g2_wall_clock_evidence() {
         config.vehicle_capacity(),
         config.route_capacity(),
         config.route_edge_occurrence_capacity(),
-        config.worker_count(),
+        fixture.world.execution_config().worker_count(),
         config.fixed_delta_time_ms(),
         fixture.cost_binding.binding_version(),
         observation_set.observation_tick(),

@@ -143,7 +143,8 @@ fn world_with_fleet() -> TrafficWorld {
     let revision = build(ORACLE_BASE);
     let mut world = TrafficWorld::install(
         std::sync::Arc::clone(&revision),
-        WorldConfig::new(VEHICLES, 4, 1_024, 1_024, 1, DELTA_MS),
+        WorldConfig::new(VEHICLES, 4, 1_024, 1_024, DELTA_MS),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         source_for("fixture://cross-base", ORACLE_BASE),
         1,
         test_policy::selection(&revision),

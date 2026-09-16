@@ -1985,7 +1985,8 @@ mod tests {
             );
             let mut world = TrafficWorld::install(
                 revision,
-                crate::WorldConfig::new(1, 1, 3, 3, 1, 4),
+                crate::WorldConfig::new(1, 1, 3, 3, 4),
+                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
                 crate::CommittedNetworkSource::Published {
                     reference: crate::PublishedLfcaReference::new(
                         "fixture://eta-count",

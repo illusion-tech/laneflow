@@ -11,8 +11,173 @@ fn generous_limits() -> SnapshotRestoreLimits {
     SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024)
 }
 
+#[test]
+fn real_v5_bytes_and_forged_version_headers_are_rejected() {
+    let (world, _, _) = world_with_vehicle(true);
+    let fixtures: [&[u8]; 3] = [
+        include_bytes!("../../../tests/fixtures/snapshot-v5/worker-0.lfrs"),
+        include_bytes!("../../../tests/fixtures/snapshot-v5/worker-1.lfrs"),
+        include_bytes!("../../../tests/fixtures/snapshot-v5/worker-99.lfrs"),
+    ];
+    for fixture in fixtures {
+        // 原 writer 的固定旧字节；只改根版本槽，不用新绑定重新编码旧配置。
+        let table = 4 + u32::from_le_bytes(fixture[4..8].try_into().unwrap()) as usize;
+        let backwards = i32::from_le_bytes(fixture[table..table + 4].try_into().unwrap());
+        let vtable = table.checked_sub_signed(backwards as isize).unwrap();
+        let slot = vtable + usize::from(wire::RuntimeSnapshot::VT_FORMAT_VERSION);
+        let offset = table
+            + usize::from(u16::from_le_bytes(
+                fixture[slot..slot + 2].try_into().unwrap(),
+            ));
+        assert_eq!(&fixture[offset..offset + 4], &5_u32.to_le_bytes());
+        for format in [5, SNAPSHOT_FORMAT_VERSION] {
+            let mut bytes = fixture.to_vec();
+            bytes[offset..offset + 4].copy_from_slice(&format.to_le_bytes());
+            let error = restore_lfrs(
+                &bytes,
+                world.revision(),
+                world.committed_source().clone(),
+                world.config(),
+                crate::ExecutionConfig::new(std::num::NonZeroU32::new(2).unwrap()),
+                generous_limits(),
+            )
+            .unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    SnapshotRestoreError::InvalidFlatbuffer
+                        | SnapshotRestoreError::UnsupportedFormatVersion { actual: 5 }
+                        | SnapshotRestoreError::UnknownTableFields { .. }
+                ),
+                "legacy bytes escaped wire rejection: {error:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn execution_validation_follows_complete_traffic_restore() {
+    let (world, _, _) = world_with_vehicle(true);
+    let snapshot = world.capture_snapshot().unwrap();
+    let bytes = encode_lfrs(&snapshot);
+    for workers in [2, u32::MAX] {
+        let execution = crate::ExecutionConfig::new(std::num::NonZeroU32::new(workers).unwrap());
+        let restore = |bytes: &[u8]| {
+            restore_lfrs(
+                bytes,
+                world.revision(),
+                world.committed_source().clone(),
+                world.config(),
+                execution,
+                generous_limits(),
+            )
+        };
+        assert_eq!(
+            restore(&[]).unwrap_err(),
+            SnapshotRestoreError::TruncatedFraming
+        );
+        let mut bad_route_index = snapshot.clone();
+        bad_route_index.vehicles[0].route_edge_index = u32::MAX;
+        assert_eq!(
+            restore(&encode_lfrs(&bad_route_index)).unwrap_err(),
+            SnapshotRestoreError::Vehicle {
+                snapshot_vehicle_id: snapshot.vehicles[0].snapshot_vehicle_id,
+                error: SpawnError::RouteIndexOutOfRange,
+            }
+        );
+        let mut bad_live_order = snapshot.clone();
+        bad_live_order.live_order.clear();
+        assert_eq!(
+            restore(&encode_lfrs(&bad_live_order)).unwrap_err(),
+            SnapshotRestoreError::IncompleteLiveOrder
+        );
+        assert_eq!(
+            restore(&bytes).unwrap_err(),
+            SnapshotRestoreError::ExecutionInit(
+                crate::ExecutionInitError::UnsupportedWorkerCount {
+                    requested: workers,
+                    max_supported: 1,
+                }
+            )
+        );
+    }
+    let restored = restore_lfrs(
+        &bytes,
+        world.revision(),
+        world.committed_source().clone(),
+        world.config(),
+        world.execution_config(),
+        generous_limits(),
+    )
+    .unwrap();
+    assert_eq!(
+        restored.world().execution_config(),
+        world.execution_config()
+    );
+    assert_eq!(
+        encode_lfrs(&restored.world().capture_snapshot().unwrap()),
+        bytes
+    );
+    assert_eq!(
+        crate::deterministic_state_digest(&restored.world().capture_snapshot().unwrap()).unwrap(),
+        crate::deterministic_state_digest(&snapshot).unwrap(),
+    );
+}
+
+#[test]
+fn v6_world_config_has_only_traffic_fields_and_rejects_an_extra_slot() {
+    let (world, _, _) = world_with_vehicle(true);
+    let mut bytes = encode_lfrs(&world.capture_snapshot().unwrap());
+    let (table, mut fields) = {
+        let root = wire::size_prefixed_root_as_runtime_snapshot(&bytes).unwrap();
+        assert_eq!(root.format_version(), 6);
+        assert_eq!(root.runtime_state_version(), 5);
+        let config = root.world_config();
+        assert_eq!(
+            config.fixed_delta_time_ms(),
+            world.config().fixed_delta_time_ms()
+        );
+        assert_eq!(WORLD_CONFIG_V6_FIELDS, 5);
+        let table = config._tab.loc();
+        let backwards = i32::from_le_bytes(bytes[table..table + 4].try_into().unwrap());
+        let vtable = table.checked_sub_signed(backwards as isize).unwrap();
+        let length = usize::from(u16::from_le_bytes(
+            bytes[vtable..vtable + 2].try_into().unwrap(),
+        ));
+        assert_eq!(length, 4 + 5 * 2);
+        (table, bytes[vtable..vtable + length].to_vec())
+    };
+    // vtable 可由有符号偏移指向表后方；追加零槽仍属于未知字段，不能被忽略。
+    fields.extend_from_slice(&0_u16.to_le_bytes());
+    let length = u16::try_from(fields.len()).unwrap();
+    fields[..2].copy_from_slice(&length.to_le_bytes());
+    let vtable = bytes.len();
+    bytes.extend_from_slice(&fields);
+    let backwards = i32::try_from(table as i64 - vtable as i64).unwrap();
+    bytes[table..table + 4].copy_from_slice(&backwards.to_le_bytes());
+    let size = u32::try_from(bytes.len() - 4).unwrap();
+    bytes[..4].copy_from_slice(&size.to_le_bytes());
+    wire::size_prefixed_root_as_runtime_snapshot(&bytes).expect("structurally valid extra slot");
+    assert_eq!(
+        restore_lfrs(
+            &bytes,
+            world.revision(),
+            world.committed_source().clone(),
+            world.config(),
+            world.execution_config(),
+            generous_limits(),
+        )
+        .unwrap_err(),
+        SnapshotRestoreError::UnknownTableFields {
+            table: "WorldConfigBinding",
+            supported: 5,
+            actual: 6,
+        },
+    );
+}
+
 fn conflict_world_with_route() -> (TrafficWorld, RouteHandle) {
-    conflict_world_with_route_config(WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
+    conflict_world_with_route_config(WorldConfig::new(8, 4, 1_024, 1_024, 100))
 }
 
 fn conflict_world_with_route_config(config: WorldConfig) -> (TrafficWorld, RouteHandle) {
@@ -21,6 +186,7 @@ fn conflict_world_with_route_config(config: WorldConfig) -> (TrafficWorld, Route
     let mut world = TrafficWorld::install(
         Arc::clone(&revision),
         config,
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         source_for(origin, "fixture://conflict-snapshot"),
         77,
         crate::test_policy::selection(&revision),
@@ -47,7 +213,7 @@ fn conflict_world_with_route_config(config: WorldConfig) -> (TrafficWorld, Route
 
 /// 构造持有一条冲突预约的车辆测试世界。
 pub(crate) fn world_with_conflict_reservation() -> (TrafficWorld, VehicleHandle) {
-    world_with_conflict_reservation_config(WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
+    world_with_conflict_reservation_config(WorldConfig::new(8, 4, 1_024, 1_024, 100))
 }
 
 fn world_with_conflict_reservation_config(config: WorldConfig) -> (TrafficWorld, VehicleHandle) {
@@ -298,6 +464,7 @@ fn conflict_reservation_and_tick_zero_history_round_trip() {
         world.revision(),
         world.committed_source().clone(),
         world.config(),
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         generous_limits(),
     )
     .expect("restore Conflict state");
@@ -374,6 +541,7 @@ fn conflict_reservation_requires_exact_gate_range_and_crossed_side() {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -393,6 +561,7 @@ fn conflict_reservation_requires_exact_gate_range_and_crossed_side() {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -428,6 +597,7 @@ fn conflict_downstream_union_is_rederived_from_reservation_proof() {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -451,6 +621,7 @@ fn conflict_downstream_union_is_rederived_from_reservation_proof() {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -477,6 +648,7 @@ fn pending_conflict_authority_does_not_hide_an_invalid_endpoint_cursor() {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -489,7 +661,7 @@ fn pending_conflict_authority_does_not_hide_an_invalid_endpoint_cursor() {
 
 #[test]
 fn conflict_nested_tables_fit_exact_small_world_verifier_budget() {
-    let config = WorldConfig::new(1, 1, 64, 64, 1, 100);
+    let config = WorldConfig::new(1, 1, 64, 64, 100);
     let (world, _) = world_with_conflict_reservation_config(config);
     let captured = world.capture_snapshot().expect("capture Conflict state");
     let restored = restore_lfrs(
@@ -497,9 +669,10 @@ fn conflict_nested_tables_fit_exact_small_world_verifier_budget() {
         world.revision(),
         world.committed_source().clone(),
         config,
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         generous_limits(),
     )
-    .expect("nested v5 tables fit the caller-bounded verifier budget");
+    .expect("nested v6 tables fit the caller-bounded verifier budget");
     assert_eq!(
         restored.world().capture_snapshot().expect("recapture"),
         captured
@@ -520,6 +693,7 @@ fn conflict_eligibility_preserves_tick_zero_distinct_from_none() {
         world.revision(),
         world.committed_source().clone(),
         world.config(),
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         generous_limits(),
     )
     .expect("restore eligibility");
@@ -591,7 +765,8 @@ fn conflict_eligibility_rejects_gate_policy_deny_at_restored_time() {
         for policy_raw in 0..policy_count {
             let world = TrafficWorld::install(
                 Arc::clone(&revision),
-                WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+                WorldConfig::new(8, 4, 1_024, 1_024, 100),
+                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
                 source_for(origin, "fixture://eligibility-policy-selection"),
                 77,
                 pin(policy_raw),
@@ -611,7 +786,8 @@ fn conflict_eligibility_rejects_gate_policy_deny_at_restored_time() {
         selection.expect("fixture has Candidate/Deny policy pair for one stream");
     let mut world = TrafficWorld::install(
         Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+        WorldConfig::new(8, 4, 1_024, 1_024, 100),
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         source_for(origin, "fixture://eligibility-policy-selection"),
         77,
         pin(candidate_policy),
@@ -671,6 +847,7 @@ fn conflict_eligibility_rejects_gate_policy_deny_at_restored_time() {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -700,6 +877,7 @@ fn dangling_and_wrong_occurrence_conflict_locators_fail_closed() {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -721,6 +899,7 @@ fn dangling_and_wrong_occurrence_conflict_locators_fail_closed() {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -807,6 +986,7 @@ fn duplicate_and_future_conflict_history_fail_closed() {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -820,6 +1000,7 @@ fn duplicate_and_future_conflict_history_fail_closed() {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -891,6 +1072,7 @@ fn save_load_restores_exact_logical_state_and_local_id_maps() {
         original.revision(),
         original.committed_source().clone(),
         original.config(),
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         generous_limits(),
     )
     .expect("restore");
@@ -982,6 +1164,7 @@ fn exhausted_command_cursor_restores_parked_and_reserved_without_new_commands() 
         world.revision(),
         world.committed_source().clone(),
         world.config(),
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         generous_limits(),
     )
     .expect("restore does not consume commands");
@@ -1008,6 +1191,7 @@ fn framing_and_wire_limits_fail_before_flatbuffers_lowering() {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             SnapshotRestoreLimits::new(1, 4 * 1_024),
         )
         .unwrap_err(),
@@ -1023,6 +1207,7 @@ fn framing_and_wire_limits_fail_before_flatbuffers_lowering() {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1036,6 +1221,7 @@ fn framing_and_wire_limits_fail_before_flatbuffers_lowering() {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::SizePrefixMismatch { .. })
@@ -1048,6 +1234,7 @@ fn framing_and_wire_limits_fail_before_flatbuffers_lowering() {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1071,6 +1258,7 @@ fn framing_and_wire_limits_fail_before_flatbuffers_lowering() {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             SnapshotRestoreLimits::new(u64::try_from(valid.len()).expect("wire length"), 0),
         )
         .unwrap_err(),
@@ -1085,6 +1273,7 @@ fn framing_and_wire_limits_fail_before_flatbuffers_lowering() {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1107,6 +1296,7 @@ fn clock_capacity_and_duplicate_ids_fail_closed() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1118,7 +1308,6 @@ fn clock_capacity_and_duplicate_ids_fail_closed() {
         config.route_capacity(),
         config.route_edge_occurrence_capacity(),
         config.route_conflict_occurrence_capacity(),
-        config.worker_count(),
         config.fixed_delta_time_ms(),
     );
     assert!(matches!(
@@ -1127,6 +1316,7 @@ fn clock_capacity_and_duplicate_ids_fail_closed() {
             Arc::clone(&revision),
             source.clone(),
             smaller,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::TargetCapacitySmaller {
@@ -1145,6 +1335,7 @@ fn clock_capacity_and_duplicate_ids_fail_closed() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::DuplicateRouteId { .. })
@@ -1163,6 +1354,7 @@ fn clock_capacity_and_duplicate_ids_fail_closed() {
             revision,
             source,
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::DuplicateVehicleId { .. })
@@ -1182,7 +1374,6 @@ fn config_axes_and_republished_source_follow_restore_contract() {
         config.route_capacity(),
         config.route_edge_occurrence_capacity(),
         config.route_conflict_occurrence_capacity(),
-        config.worker_count(),
         config.fixed_delta_time_ms() + 1,
     );
     assert_eq!(
@@ -1191,6 +1382,7 @@ fn config_axes_and_republished_source_follow_restore_contract() {
             Arc::clone(&revision),
             source.clone(),
             different_dt,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1205,7 +1397,6 @@ fn config_axes_and_republished_source_follow_restore_contract() {
         config.route_capacity() - 1,
         config.route_edge_occurrence_capacity(),
         config.route_conflict_occurrence_capacity(),
-        config.worker_count(),
         config.fixed_delta_time_ms(),
     );
     assert_eq!(
@@ -1214,6 +1405,7 @@ fn config_axes_and_republished_source_follow_restore_contract() {
             Arc::clone(&revision),
             source.clone(),
             smaller_routes,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1229,7 +1421,6 @@ fn config_axes_and_republished_source_follow_restore_contract() {
         config.route_capacity(),
         config.route_edge_occurrence_capacity() - 1,
         config.route_conflict_occurrence_capacity(),
-        config.worker_count(),
         config.fixed_delta_time_ms(),
     );
     assert_eq!(
@@ -1238,6 +1429,7 @@ fn config_axes_and_republished_source_follow_restore_contract() {
             Arc::clone(&revision),
             source.clone(),
             smaller_occurrences,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1253,7 +1445,6 @@ fn config_axes_and_republished_source_follow_restore_contract() {
         config.route_capacity() + 1,
         config.route_edge_occurrence_capacity() + 1,
         config.route_conflict_occurrence_capacity() + 1,
-        config.worker_count(),
         config.fixed_delta_time_ms(),
     );
     let restored = restore_lfrs(
@@ -1261,33 +1452,11 @@ fn config_axes_and_republished_source_follow_restore_contract() {
         Arc::clone(&revision),
         source.clone(),
         larger,
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         generous_limits(),
     )
     .expect("semantic capacities may grow");
     assert_eq!(restored.world().config(), larger);
-    drop(restored);
-
-    let mut saved_with_other_worker = world.capture_snapshot().expect("capture");
-    saved_with_other_worker.config = WorldConfig::new(
-        config.vehicle_capacity(),
-        config.route_capacity(),
-        config.route_edge_occurrence_capacity(),
-        config.route_conflict_occurrence_capacity(),
-        99,
-        config.fixed_delta_time_ms(),
-    );
-    let restored = restore_lfrs(
-        &encode_lfrs(&saved_with_other_worker),
-        Arc::clone(&revision),
-        source.clone(),
-        config,
-        generous_limits(),
-    )
-    .expect("saved worker plan is ignored and rebuilt from target config");
-    assert_eq!(
-        restored.world().config().worker_count(),
-        config.worker_count()
-    );
     drop(restored);
 
     let republished = CommittedNetworkSource::Published {
@@ -1305,6 +1474,7 @@ fn config_axes_and_republished_source_follow_restore_contract() {
         revision,
         republished.clone(),
         config,
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         generous_limits(),
     )
     .expect("same semantic revision permits republished exact bytes");
@@ -1327,7 +1497,6 @@ fn occurrence_capacity_max_and_max_plus_one_fail_atomically() {
         at_max.config.route_capacity(),
         occurrence_count,
         at_max.config.route_conflict_occurrence_capacity(),
-        at_max.config.worker_count(),
         at_max.config.fixed_delta_time_ms(),
     );
     let exact_config = at_max.config;
@@ -1336,6 +1505,7 @@ fn occurrence_capacity_max_and_max_plus_one_fail_atomically() {
         Arc::clone(&revision),
         source.clone(),
         exact_config,
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         generous_limits(),
     )
     .expect("occurrence total exactly at max");
@@ -1360,6 +1530,7 @@ fn occurrence_capacity_max_and_max_plus_one_fail_atomically() {
             revision,
             source,
             exact_config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1399,6 +1570,7 @@ fn parking_and_live_order_invariants_fail_closed() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::ParkingStatusMismatch { .. })
@@ -1412,6 +1584,7 @@ fn parking_and_live_order_invariants_fail_closed() {
             revision,
             source,
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::DuplicateLiveOrderVehicle { .. })
@@ -1452,6 +1625,7 @@ fn virtual_parking_corruption_capacity_and_duplicate_resources_fail_closed() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1484,6 +1658,7 @@ fn virtual_parking_corruption_capacity_and_duplicate_resources_fail_closed() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1512,6 +1687,7 @@ fn virtual_parking_corruption_capacity_and_duplicate_resources_fail_closed() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1539,6 +1715,7 @@ fn virtual_parking_corruption_capacity_and_duplicate_resources_fail_closed() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::Parking {
@@ -1581,6 +1758,7 @@ fn virtual_parking_corruption_capacity_and_duplicate_resources_fail_closed() {
             explicit_revision,
             explicit_source,
             explicit_config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::Parking {
@@ -1606,6 +1784,7 @@ fn dangling_references_and_live_order_gaps_fail_closed() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::UnknownRouteReference { .. })
@@ -1620,6 +1799,7 @@ fn dangling_references_and_live_order_gaps_fail_closed() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::UnknownLiveOrderVehicle { .. })
@@ -1634,6 +1814,7 @@ fn dangling_references_and_live_order_gaps_fail_closed() {
             Arc::clone(&revision),
             source,
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::IncompleteLiveOrder)
@@ -1673,6 +1854,7 @@ fn unknown_parking_space_and_participant_class_fail_closed() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::UnknownParkingSpace { .. })
@@ -1687,6 +1869,7 @@ fn unknown_parking_space_and_participant_class_fail_closed() {
             revision,
             source,
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::UnknownParticipantClass { .. })
@@ -1708,6 +1891,7 @@ fn vehicle_identity_value_and_overlap_invariants_fail_closed() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::UnknownVehicleProfile { .. })
@@ -1721,6 +1905,7 @@ fn vehicle_identity_value_and_overlap_invariants_fail_closed() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::CarryOutOfRange { .. })
@@ -1734,6 +1919,7 @@ fn vehicle_identity_value_and_overlap_invariants_fail_closed() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::InvalidCompletedState { .. })
@@ -1750,6 +1936,7 @@ fn vehicle_identity_value_and_overlap_invariants_fail_closed() {
             revision,
             source,
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::Vehicle {
@@ -1780,6 +1967,7 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1787,17 +1975,18 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
     );
 
     let mut unknown_format = valid.clone();
-    unknown_format[format_offset..format_offset + 4].copy_from_slice(&6_u32.to_le_bytes());
+    unknown_format[format_offset..format_offset + 4].copy_from_slice(&7_u32.to_le_bytes());
     assert_eq!(
         restore_lfrs(
             &unknown_format,
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
-        SnapshotRestoreError::UnsupportedFormatVersion { actual: 6 }
+        SnapshotRestoreError::UnsupportedFormatVersion { actual: 7 }
     );
 
     let mut prior_runtime = valid.clone();
@@ -1813,6 +2002,7 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1827,6 +2017,7 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1841,13 +2032,14 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
         SnapshotRestoreError::UnknownTableFields {
             table: "RuntimeSnapshot",
-            supported: ROOT_V5_FIELDS,
-            actual: ROOT_V5_FIELDS + 4,
+            supported: ROOT_V6_FIELDS,
+            actual: ROOT_V6_FIELDS + 4,
         }
     );
 
@@ -1862,6 +2054,7 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1881,6 +2074,7 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1900,6 +2094,7 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1922,6 +2117,7 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         ),
         Err(SnapshotRestoreError::InvalidVehicleStatus { actual: 0xff, .. })
@@ -1950,6 +2146,7 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
             Arc::clone(&parking_revision),
             parking_source.clone(),
             parking_config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1973,6 +2170,7 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
             parking_revision,
             parking_source,
             parking_config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -1995,6 +2193,7 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -2017,6 +2216,7 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -2039,6 +2239,7 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
             revision,
             source,
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             generous_limits(),
         )
         .unwrap_err(),
@@ -2053,6 +2254,7 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
         world.revision(),
         world.committed_source().clone(),
         config,
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         generous_limits(),
     )
     .unwrap()
@@ -2148,6 +2350,7 @@ fn restored_routes_still_use_common_admitted_compiler() {
         world.revision(),
         world.committed_source().clone(),
         world.config(),
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         generous_limits(),
     )
     .expect("restore");

@@ -305,6 +305,7 @@ impl crate::TrafficWorld {
     /// 汇总世界五类私有状态与共享根的存续内存总账。
     pub(crate) fn retained_memory(&self) -> WorldMemoryLedger {
         let Self {
+            execution_config: _,
             binding,
             committed,
             derived,

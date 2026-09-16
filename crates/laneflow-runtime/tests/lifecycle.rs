@@ -25,6 +25,7 @@ fn install_fixture(
     laneflow_runtime::TrafficWorld::install(
         std::sync::Arc::clone(&revision),
         config,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
                 "fixture://in-process",
@@ -60,7 +61,7 @@ fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
 }
 
 fn world() -> TrafficWorld {
-    install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install")
+    install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install")
 }
 
 fn parking_world() -> TrafficWorld {
@@ -74,7 +75,7 @@ fn parking_world() -> TrafficWorld {
         ),
     )
     .expect("parking revision");
-    install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
+    install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100))
         .expect("install parking world")
 }
 
@@ -523,7 +524,7 @@ fn completed_vehicle_is_retained_without_pose_or_occupancy() {
 #[test]
 fn completed_vehicle_occupies_capacity_until_replace() {
     let mut world =
-        install_fixture(revision(), WorldConfig::new(1, 4, 1_024, 1_024, 1, 100)).expect("install");
+        install_fixture(revision(), WorldConfig::new(1, 4, 1_024, 1_024, 100)).expect("install");
     let route = fixture_route(&mut world);
     let old = drive_to_completed(&mut world, route);
     assert_eq!(
@@ -618,7 +619,7 @@ fn replace_is_atomic_and_blocked_overlap_is_retryable() {
 #[test]
 fn replace_does_not_use_despawn_then_spawn() {
     let mut world =
-        install_fixture(revision(), WorldConfig::new(1, 4, 1_024, 1_024, 1, 100)).expect("install");
+        install_fixture(revision(), WorldConfig::new(1, 4, 1_024, 1_024, 100)).expect("install");
     let route = fixture_route(&mut world);
     let old = drive_to_completed(&mut world, route);
     assert!(

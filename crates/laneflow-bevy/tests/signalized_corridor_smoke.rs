@@ -32,6 +32,7 @@ fn install_fixture(
     laneflow_runtime::TrafficWorld::install(
         std::sync::Arc::clone(&revision),
         config,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
                 "fixture://in-process",
@@ -184,7 +185,7 @@ fn headless_app_steps_corridor_runtime_and_moves_proxy_transform() {
     let revision = revision();
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(8, 32, 1_024, 1_024, 1, 16),
+        WorldConfig::new(8, 32, 1_024, 1_024, 16),
     )
     .expect("install");
     spawn_two_vehicles(&mut world, &revision);

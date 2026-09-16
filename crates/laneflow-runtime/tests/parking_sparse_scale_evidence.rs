@@ -130,7 +130,8 @@ fn install(revision: Arc<SharedNetworkRevision>) -> TrafficWorld {
     let origin = *revision.canonical_origin();
     TrafficWorld::install(
         std::sync::Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+        WorldConfig::new(8, 4, 1_024, 1_024, 100),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://parking-scale",

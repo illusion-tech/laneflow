@@ -78,6 +78,7 @@ fn restore<'a>(mut harness: Harness<'a>, output: &Path) -> Result<Harness<'a>> {
             harness.world.revision().clone(),
             harness.world.committed_source().clone(),
             harness.world.config(),
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             SnapshotRestoreLimits::new(2_147_483_648, 4_096),
         ),
     )?;

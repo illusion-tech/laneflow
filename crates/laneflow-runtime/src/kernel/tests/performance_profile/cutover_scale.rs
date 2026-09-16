@@ -159,7 +159,8 @@ pub fn source(root: &SharedNetworkRevision) -> CommittedNetworkSource {
 pub fn world(roots: &Revisions, count: u32, edges: u32, routes: u32) -> TrafficWorld {
     let mut world = TrafficWorld::install(
         Arc::clone(&roots.base),
-        WorldConfig::new(count, routes, routes as u64, 1_024, 1, 100),
+        WorldConfig::new(count, routes, routes as u64, 1_024, 100),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         source(&roots.base),
         531,
         WorldPolicySelection::NotRequired,

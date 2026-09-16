@@ -338,6 +338,7 @@ fn restore_starts_cold_and_same_revision_cutover_preserves_valid_prefix() {
         revision.clone(),
         f.world.committed_source().clone(),
         f.world.config(),
+        f.world.execution_config(),
         crate::SnapshotRestoreLimits::new(1_048_576, 1_024),
     )
     .unwrap();

@@ -56,7 +56,7 @@ use laneflow_static_network::{
     SpatialBuildOption, build_shared_network_revision,
 };
 
-use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v5 as snapshot_wire;
+use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v6 as snapshot_wire;
 
 fn install_fixture(
     revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
@@ -65,6 +65,7 @@ fn install_fixture(
     laneflow_runtime::TrafficWorld::install(
         Arc::clone(&revision),
         config,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         published_source(&revision, "fixture://in-process"),
         0,
         test_policy::selection(&revision),
@@ -1304,7 +1305,7 @@ fn parked_virtual_world() -> (
 ) {
     let revision = compile_virtual_parking_revision(1);
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
     let route = register_named(&mut world, &["edge"]);
     let facility = ParkingFacilityOrdinal::from_raw(0);
     let parked = world
@@ -1528,7 +1529,7 @@ fn conflict_routes_charge_independent_capacity_and_use_the_production_gate_path(
         .to_vec();
 
     let mut zero_capacity =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 0, 1, 100))
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 0, 100))
             .expect("install zero-conflict-capacity world");
     let cursor_before = zero_capacity.command_cursor();
     assert_eq!(
@@ -1544,7 +1545,7 @@ fn conflict_routes_charge_independent_capacity_and_use_the_production_gate_path(
     assert_eq!(zero_capacity.command_cursor(), cursor_before);
     assert_eq!(zero_capacity.live_routes().count(), 0);
 
-    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 1, 1, 100))
+    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 1, 100))
         .expect("install exact-conflict-capacity world");
     let route = world
         .register_route(RouteRegisterInput::new(route_edges.clone()))
@@ -1621,7 +1622,7 @@ fn conflict_tick_arbitrates_the_canonical_post_gate_zero_position() {
             .edges()
             .to_vec()
     });
-    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 1, 100))
+    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100))
         .expect("install conflict world");
     let routes = route_edges.map(|edges| {
         world
@@ -1693,7 +1694,7 @@ fn conflict_tick_uses_stable_single_writer_winner_and_retries_the_loser() {
             .edges()
             .to_vec()
     });
-    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 1, 100))
+    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100))
         .expect("install conflict world");
     let routes = routes.map(|edges| {
         world
@@ -1771,8 +1772,8 @@ fn conflict_tick_rejects_when_committed_downstream_storage_is_blocked() {
         .expect("path")
         .edges()
         .to_vec();
-    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 2, 64, 1, 1, 100))
-        .expect("world");
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 2, 64, 1, 100)).expect("world");
     let route = world
         .register_route(RouteRegisterInput::new(edges))
         .expect("route");
@@ -1838,9 +1839,8 @@ fn permissive_conflict_uses_the_compiled_gap_profile_and_approach_frontier() {
         (0, ConflictNoGrantReason::ConflictOccupied),
         (2_000, ConflictNoGrantReason::LeadGap),
     ] {
-        let mut world =
-            install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 1, 100))
-                .expect("world");
+        let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100))
+            .expect("world");
         assert_eq!(world.policy_gap_profiles()[0].required_lead_ms(), 600);
         assert_eq!(world.policy_gap_profiles()[0].required_lag_ms(), 500);
         let routes = route_edges.clone().map(|edges| {
@@ -1926,7 +1926,7 @@ fn calibration_profile(revision: &SharedNetworkRevision, key: &str) -> VehiclePr
 }
 
 fn calibration_world(revision: Arc<SharedNetworkRevision>) -> (TrafficWorld, [RouteHandle; 2]) {
-    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(8, 4, 64, 2, 1, 100))
+    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(8, 4, 64, 2, 100))
         .expect("calibration world");
     let routes = [0_u32, 1].map(|raw| {
         let stream = revision
@@ -2251,9 +2251,8 @@ fn conflict_multiplicity_preserves_owner_local_and_repeated_occurrences() {
         .edges()
         .to_vec();
 
-    let mut too_small =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(2, 2, 12, 3, 1, 100))
-            .expect("install multiplicity capacity fixture");
+    let mut too_small = install_fixture(Arc::clone(&revision), WorldConfig::new(2, 2, 12, 3, 100))
+        .expect("install multiplicity capacity fixture");
     assert_eq!(
         too_small
             .register_route(RouteRegisterInput::new(route_edges.clone()))
@@ -2265,7 +2264,7 @@ fn conflict_multiplicity_preserves_owner_local_and_repeated_occurrences() {
         },
     );
 
-    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(2, 2, 12, 4, 1, 100))
+    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(2, 2, 12, 4, 100))
         .expect("install exact multiplicity fixture");
     let route = world
         .register_route(RouteRegisterInput::new(route_edges.clone()))
@@ -2297,7 +2296,7 @@ fn conflict_multiplicity_preserves_owner_local_and_repeated_occurrences() {
     let mut repeated_edges = route_edges.clone();
     repeated_edges.extend_from_slice(&route_edges);
     let mut repeated_too_small =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(0, 1, 6, 7, 1, 100))
+        install_fixture(Arc::clone(&revision), WorldConfig::new(0, 1, 6, 7, 100))
             .expect("install repeated capacity fixture");
     assert_eq!(
         repeated_too_small
@@ -2309,7 +2308,7 @@ fn conflict_multiplicity_preserves_owner_local_and_repeated_occurrences() {
             capacity: 7,
         },
     );
-    let mut repeated = install_fixture(revision, WorldConfig::new(0, 1, 6, 8, 1, 100))
+    let mut repeated = install_fixture(revision, WorldConfig::new(0, 1, 6, 8, 100))
         .expect("install exact repeated fixture");
     let static_cell_count = repeated.conflict_passage_cell_count();
     let repeated_route = repeated
@@ -2357,7 +2356,7 @@ fn route_gate_preserves_repeated_gate_occurrences() {
         .to_vec();
     let mut repeated_edges = route_edges.clone();
     repeated_edges.extend_from_slice(&route_edges);
-    let mut world = install_fixture(revision, WorldConfig::new(0, 1, 6, 8, 1, 100))
+    let mut world = install_fixture(revision, WorldConfig::new(0, 1, 6, 8, 100))
         .expect("install repeated fixture");
     let route = world
         .register_route(RouteRegisterInput::new(repeated_edges))
@@ -2418,7 +2417,7 @@ fn direct_candidate_and_admitted_routes_share_conflict_capacity() {
         })
         .collect::<Vec<_>>();
     let origin = *revision.canonical_origin();
-    let mut world = install_fixture(revision, WorldConfig::new(0, 2, 6, 1, 1, 100))
+    let mut world = install_fixture(revision, WorldConfig::new(0, 2, 6, 1, 100))
         .expect("install three-entry fixture");
 
     let direct = world
@@ -2501,7 +2500,6 @@ fn sample_conflict_route_registration(
             route_count,
             edge_occurrences,
             u64::from(route_count),
-            1,
             100,
         ),
     )
@@ -2574,7 +2572,7 @@ fn conflict_cutover_recompiles_same_and_rejects_target_extension_atomically() {
         .expect("east-west path")
         .edges()
         .to_vec();
-    let config = WorldConfig::new(4, 4, 64, 1, 1, 100);
+    let config = WorldConfig::new(4, 4, 64, 1, 100);
     let mut world = install_fixture(Arc::clone(&base_revision), config).expect("install base");
     let route = world
         .register_route(RouteRegisterInput::new(route_edges.clone()))
@@ -2695,7 +2693,7 @@ fn cutover_rebuilds_exact_conflict_count_for_decrease_and_increase() {
         .to_vec();
     let mut world = install_fixture(
         Arc::clone(&conflict_revision),
-        WorldConfig::new(4, 4, 64, 1, 1, 100),
+        WorldConfig::new(4, 4, 64, 1, 100),
     )
     .expect("install conflict base");
     let route = world
@@ -2810,7 +2808,7 @@ fn cutover_conflict_floor_uses_final_commit_time_and_survives_continuous_recutov
     );
     let mut world = install_fixture(
         Arc::clone(&plain_revision),
-        WorldConfig::new(4, 4, 64, 4, 1, 100),
+        WorldConfig::new(4, 4, 64, 4, 100),
     )
     .expect("install plain base");
     let descriptor = NetworkRevisionCutoverDescriptor::new(
@@ -2927,7 +2925,7 @@ fn cutover_journal_replays_exact_conflict_count_through_slot_reuse() {
         .to_vec();
     let mut world = install_fixture(
         Arc::clone(&base_revision),
-        WorldConfig::new(4, 4, 64, 2, 1, 100),
+        WorldConfig::new(4, 4, 64, 2, 100),
     )
     .expect("install base");
     let initial = world
@@ -3006,7 +3004,7 @@ fn conflict_snapshot_restore_uses_saved_carry_and_exact_rebuilt_count() {
         .expect("east-west path")
         .edges()
         .to_vec();
-    let config = WorldConfig::new(4, 4, 64, 1, 1, 100);
+    let config = WorldConfig::new(4, 4, 64, 1, 100);
     let mut world = install_fixture(Arc::clone(&revision), config).expect("install");
     let route = world
         .register_route(RouteRegisterInput::new(route_edges))
@@ -3051,6 +3049,7 @@ fn conflict_snapshot_restore_uses_saved_carry_and_exact_rebuilt_count() {
             Arc::clone(&revision),
             source.clone(),
             config,
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             SnapshotRestoreLimits::new(1_048_576, 1_024),
         ),
         Err(SnapshotRestoreError::Vehicle {
@@ -3067,17 +3066,19 @@ fn conflict_snapshot_restore_uses_saved_carry_and_exact_rebuilt_count() {
         Arc::clone(&revision),
         source.clone(),
         config,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         SnapshotRestoreLimits::new(1_048_576, 1_024),
     )
     .expect("rear exactly at clearance restores");
 
-    let smaller_target = WorldConfig::new(4, 4, 64, 0, 1, 100);
+    let smaller_target = WorldConfig::new(4, 4, 64, 0, 100);
     assert_eq!(
         restore_lfrs(
             &bytes,
             Arc::clone(&revision),
             source.clone(),
             smaller_target,
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             SnapshotRestoreLimits::new(1_048_576, 1_024),
         )
         .unwrap_err(),
@@ -3098,6 +3099,7 @@ fn conflict_snapshot_restore_uses_saved_carry_and_exact_rebuilt_count() {
             revision,
             source,
             config,
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             SnapshotRestoreLimits::new(1_048_576, 1_024),
         )
         .unwrap_err(),
@@ -3123,7 +3125,7 @@ fn completed_restore_never_passes_through_transient_active_three_a() {
         .expect("east-west path")
         .edges()
         .to_vec();
-    let config = WorldConfig::new(4, 4, 64, 1, 1, 100);
+    let config = WorldConfig::new(4, 4, 64, 1, 100);
     let mut world = install_fixture(Arc::clone(&revision), config).expect("install");
     let route = world
         .register_route(RouteRegisterInput::new(route_edges.clone()))
@@ -3166,6 +3168,7 @@ fn completed_restore_never_passes_through_transient_active_three_a() {
         revision,
         world.committed_source().clone(),
         config,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         SnapshotRestoreLimits::new(1_048_576, 1_024),
     )
     .expect("Completed is restored directly without transient Active");
@@ -3193,7 +3196,7 @@ fn conflict_three_a_covers_replace_leave_and_rebind_atomically() {
         .edges()
         .to_vec();
     let mut leave_world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 1, 1, 100))
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 1, 100))
             .expect("install leave world");
     let leave_route = leave_world
         .register_route(RouteRegisterInput::new(route_edges))
@@ -3237,7 +3240,7 @@ fn conflict_three_a_covers_replace_leave_and_rebind_atomically() {
         .to_vec();
     let exit_edge = *terminal_route_edges.last().expect("exit edge");
     let exit_length = terminal_revision.traffic().lane_lengths_millimetres()[exit_edge.index()];
-    let mut world = install_fixture(terminal_revision, WorldConfig::new(4, 4, 64, 1, 1, 100))
+    let mut world = install_fixture(terminal_revision, WorldConfig::new(4, 4, 64, 1, 100))
         .expect("install terminal world");
     let old_route = world
         .register_route(RouteRegisterInput::new(vec![exit_edge]))
@@ -3376,7 +3379,7 @@ fn spawn_access_denied_on_registered_route_leaves_no_vehicle() {
             .expect("deny rule");
     });
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
     let route = register_named(&mut world, &["stem", "tail"]);
     assert_eq!(
         world
@@ -3445,7 +3448,7 @@ fn park_other_target_fails_when_already_parked() {
             .expect("space-b");
     });
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
     let route = register_named(&mut world, &["edge"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -3484,7 +3487,7 @@ fn park_other_target_fails_when_already_parked() {
 fn virtual_parking_capacity_mixed_pools_leave_and_despawn_are_exact() {
     let revision = compile_virtual_parking_revision(2);
     let mut world =
-        install_fixture(revision, WorldConfig::new(16, 8, 1_024, 1_024, 1, 100)).expect("install");
+        install_fixture(revision, WorldConfig::new(16, 8, 1_024, 1_024, 100)).expect("install");
     let route = register_named(&mut world, &["edge"]);
     let profile = VehicleProfileOrdinal::from_raw(0);
     let facility = ParkingFacilityOrdinal::from_raw(0);
@@ -3710,7 +3713,7 @@ fn virtual_parking_capacity_mixed_pools_leave_and_despawn_are_exact() {
 
     let mut completed_world = install_fixture(
         compile_virtual_parking_revision(1),
-        WorldConfig::new(4, 4, 1_024, 1_024, 1, 100),
+        WorldConfig::new(4, 4, 1_024, 1_024, 100),
     )
     .expect("install completed fixture");
     let completed_route = register_named(&mut completed_world, &["edge"]);
@@ -3746,7 +3749,7 @@ fn virtual_parking_capacity_mixed_pools_leave_and_despawn_are_exact() {
 fn virtual_arrival_is_observed_once_then_park_is_pose_less_and_narrowly_idempotent() {
     let revision = compile_virtual_parking_revision(1);
     let mut world =
-        install_fixture(revision, WorldConfig::new(4, 4, 1_024, 1_024, 1, 100)).expect("install");
+        install_fixture(revision, WorldConfig::new(4, 4, 1_024, 1_024, 100)).expect("install");
     let route = register_named(&mut world, &["edge"]);
     let facility = ParkingFacilityOrdinal::from_raw(0);
     let target = ParkingTarget::VirtualPool(facility);
@@ -3837,11 +3840,11 @@ fn virtual_arrival_is_observed_once_then_park_is_pose_less_and_narrowly_idempote
 }
 
 #[test]
-fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v5() {
+fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v6() {
     let revision = compile_virtual_parking_revision(2);
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+        WorldConfig::new(8, 4, 1_024, 1_024, 100),
     )
     .expect("install");
     let route = register_named(&mut world, &["edge"]);
@@ -3868,7 +3871,7 @@ fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v5() {
         .expect("spawn occupied virtual")
         .vehicle;
 
-    assert_eq!(laneflow_runtime::SNAPSHOT_FORMAT_VERSION, 5);
+    assert_eq!(laneflow_runtime::SNAPSHOT_FORMAT_VERSION, 6);
     assert_eq!(laneflow_runtime::RUNTIME_STATE_VERSION, 5);
     assert_eq!(laneflow_runtime::RUNTIME_STATE_DIGEST_VERSION, 7);
     let snapshot = world.capture_snapshot().expect("capture");
@@ -3891,6 +3894,7 @@ fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v5() {
         revision,
         world.committed_source().clone(),
         world.config(),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
     )
     .expect("restore v2");
@@ -4199,7 +4203,7 @@ fn leave_overlap_detects_cross_predecessor_and_repeated_occurrence_geometry() {
 
     let mut cross_world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+        WorldConfig::new(8, 4, 1_024, 1_024, 100),
     )
     .expect("install cross-edge world");
     let cross_route = register_named(&mut cross_world, &["loop", "middle", "loop"]);
@@ -4230,9 +4234,8 @@ fn leave_overlap_detects_cross_predecessor_and_repeated_occurrence_geometry() {
         }
     );
 
-    let mut repeated_world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
-            .expect("install repeated-edge world");
+    let mut repeated_world = install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100))
+        .expect("install repeated-edge world");
     let repeated_route = register_named(&mut repeated_world, &["loop", "middle", "loop"]);
     let repeated_parked = repeated_world
         .spawn_parked_vehicle(
@@ -4266,7 +4269,7 @@ fn leave_overlap_detects_cross_predecessor_and_repeated_occurrence_geometry() {
 fn rebind_compares_the_complete_cross_edge_body_footprint() {
     let revision = compile_rebind_revision();
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 8, 1_024, 1_024, 1, 100)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 8, 1_024, 1_024, 100)).expect("install");
     let old_route = register_named(&mut world, &["left", "current", "tail"]);
     let new_route = register_named(&mut world, &["right", "current", "tail"]);
     let profile = VehicleProfileOrdinal::from_raw(0);
@@ -4418,7 +4421,7 @@ fn leave_research_includes_both_upstream_merge_routes_and_committed_prefix() {
             })
             .unwrap();
     });
-    let mut world = install_fixture(revision, WorldConfig::new(8, 4, 32, 1, 1, 100)).unwrap();
+    let mut world = install_fixture(revision, WorldConfig::new(8, 4, 32, 1, 100)).unwrap();
     let route = register_named(&mut world, &["shared"]);
     let left = register_named(&mut world, &["left", "shared"]);
     let right = register_named(&mut world, &["right", "shared"]);
@@ -4524,7 +4527,7 @@ fn follower_on_diverge_respects_leader_overhang_on_shared_stem() {
     let left = branches[0];
     let right = branches[1];
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
     let leader_route = world
         .register_route(RouteRegisterInput::new(vec![stem, left]))
         .expect("left route");
@@ -4580,7 +4583,7 @@ fn large_delta_travel_does_not_exceed_speed_limit_envelope() {
             .expect("edge");
     });
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 1_000)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1_000)).expect("install");
     let route = register_named(&mut world, &["edge"]);
     world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -4625,7 +4628,7 @@ fn speed_down_transition_caps_next_tick_travel() {
             .expect("slow");
     });
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 1_000)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1_000)).expect("install");
     let route = register_named(&mut world, &["fast", "slow"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -4696,7 +4699,7 @@ fn equal_limit_edge_boundary_does_not_stop_the_vehicle() {
             .expect("b");
     });
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
     let route = register_named(&mut world, &["a", "b"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -4745,7 +4748,7 @@ fn infeasible_stop_before_lower_limit_still_enters() {
             .expect("slower");
     });
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 1_000)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1_000)).expect("install");
     let route = register_named(&mut world, &["fast", "slower"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -4795,7 +4798,7 @@ fn already_below_downstream_limit_does_not_stop_at_boundary() {
             .expect("mid");
     });
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 1_000)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1_000)).expect("install");
     let route = register_named(&mut world, &["posted-fast", "mid"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -4921,7 +4924,7 @@ fn install_rejects_phase_shorter_than_tick() {
         add_signalized_corridor(module, 8, SignalAspect::Green);
     });
     assert_eq!(
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 16))
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 16))
             .map(|_| ())
             .unwrap_err(),
         InstallError::PhaseShorterThanTick
@@ -4949,7 +4952,7 @@ fn hop_preserves_active_state_and_does_not_force_zero_carry() {
             .expect("second");
     });
     let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 4)).expect("install");
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 4)).expect("install");
     let route = register_named(&mut world, &["first", "second"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -4993,7 +4996,7 @@ fn sub_millimetre_boundary_restart_respects_signal_and_restores() {
                 .expect("profile");
             add_signalized_corridor(module, 1_024, aspect);
         });
-        let config = WorldConfig::new(1, 1, 3, 0, 1, 16);
+        let config = WorldConfig::new(1, 1, 3, 0, 16);
         let mut world = install_fixture(Arc::clone(&revision), config).expect("install");
         let route = register_named(&mut world, &["entry", "middle", "exit"]);
         let vehicle = world
@@ -5043,6 +5046,7 @@ fn sub_millimetre_boundary_restart_respects_signal_and_restores() {
             revision,
             world.committed_source().clone(),
             config,
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             SnapshotRestoreLimits::new(1_048_576, 1_024),
         )
         .expect("the boundary tick must restore")
@@ -5073,7 +5077,7 @@ fn sub_millimetre_boundary_restart_respects_signal_and_restores() {
 #[test]
 fn sub_millimetre_boundary_restart_commits_only_the_conflict_winner() {
     let revision = compile_road_editing_revision(conflict_road_editing_module_with_stream_count(2));
-    let config = WorldConfig::new(2, 2, 64, 2, 1, 16);
+    let config = WorldConfig::new(2, 2, 64, 2, 16);
     let mut world = install_fixture(Arc::clone(&revision), config).expect("install");
     let vehicles = [0_u32, 1].map(|raw| {
         let stream = revision
@@ -5136,6 +5140,7 @@ fn sub_millimetre_boundary_restart_commits_only_the_conflict_winner() {
         revision,
         world.committed_source().clone(),
         config,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         SnapshotRestoreLimits::new(1_048_576, 1_024),
     )
     .expect("restore acquired conflict authority at the sub-millimetre cursor");

@@ -940,6 +940,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
     let migration_journal = None;
     let migration_epoch = 0;
     let mut candidate = TrafficWorld {
+        execution_config: world.execution_config(),
         binding: crate::kernel::state::WorldBindingState {
             policy_binding,
             revision,
@@ -2991,7 +2992,8 @@ pub(crate) mod tests {
         let origin = *revision.canonical_origin();
         let mut world = TrafficWorld::install(
             Arc::clone(&revision),
-            WorldConfig::new(vehicle_count, 1, route_edges.len() as u64, 1, 1, 4),
+            WorldConfig::new(vehicle_count, 1, route_edges.len() as u64, 1, 4),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
                     "fixture://conflict-scale",
@@ -3174,7 +3176,8 @@ pub(crate) mod tests {
         let origin = *revision.canonical_origin();
         let mut world = TrafficWorld::install(
             Arc::clone(&revision),
-            WorldConfig::new(4, 4, 64, 8, 1, 100),
+            WorldConfig::new(4, 4, 64, 8, 100),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             crate::admin::cutover::tests::transaction_tests::source_for(
                 origin,
                 "fixture://live-conflict-cutover-base",
@@ -3830,7 +3833,8 @@ pub(crate) mod tests {
         let origin = *revision.canonical_origin();
         TrafficWorld::install(
             std::sync::Arc::clone(&revision),
-            WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+            WorldConfig::new(8, 4, 1_024, 1_024, 100),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             source_for(origin, key),
             0,
             crate::test_policy::selection(&revision),
@@ -3976,7 +3980,8 @@ pub(crate) mod tests {
         let origin = *revision.canonical_origin();
         let mut world = TrafficWorld::install(
             std::sync::Arc::clone(&revision),
-            WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+            WorldConfig::new(8, 4, 1_024, 1_024, 100),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             source_for(origin, "fixture://parking-cutover-base"),
             0,
             crate::test_policy::selection(&revision),

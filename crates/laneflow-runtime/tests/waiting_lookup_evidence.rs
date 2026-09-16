@@ -171,7 +171,8 @@ fn run(count: usize, samples: usize, warmup: usize) {
     let origin = *revision.canonical_origin();
     let mut world = TrafficWorld::install(
         Arc::clone(&revision),
-        WorldConfig::new(1, 1, 8_192, 1_024, 1, 4),
+        WorldConfig::new(1, 1, 8_192, 1_024, 4),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://waiting-lookup-675",

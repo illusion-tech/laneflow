@@ -1,18 +1,21 @@
 # laneflow-runtime
 
 目标交通运行时。`TrafficWorld` 安装完整 `Arc<SharedNetworkRevision>`，只分配每世界
-可变状态与 1-worker 执行计划；热路径借用共享根静态 accessor，并读本世界已提交表。
+可变状态；热路径借用共享根静态 accessor，并读本世界已提交表。`WorldConfig` 只含
+四类容量和固定步长，安装/恢复还须显式传入 `ExecutionConfig::new(NonZeroU32::MIN)`。
+执行配置不进入快照、逻辑摘要或交通身份；当前仅支持 worker 1，完整交通准备后才
+拒绝不支持的执行请求。资源后端与多 worker 调度尚未交付。
 
 私有实现分为 `kernel/`、`admin/`、`facade/`；格式读取集中于
 `admin/format_admission.rs`，公开 re-export 保持现有入口。开发边界与检查命令见
 [`traffic-runtime-module-boundary.md`](../../docs/design/traffic-runtime-module-boundary.md)。
 
-安装的第五个必填参数为 `WorldPolicySelection`。宿主以 `Pinned(PolicyPin)` 指定策略
+安装的第六个必填参数为 `WorldPolicySelection`。宿主以 `Pinned(PolicyPin)` 指定策略
 稳定标识；仅当整个共享根没有门、冲突区或参与者流时可用 `NotRequired`。不推断默认
 策略、不读取业务日期，也没有安装后 setter。`policy()` 借用所选共享规则；
 `policy_gap_profiles()` 保存本世界固定步长对应的 checked 间隙派生值。
 
-LFRS 5 / runtime state 5 保存策略选择、Conflict eligibility/reservation/Clearing 与 lag
+LFRS 6 / runtime state 5 保存策略选择、Conflict eligibility/reservation/Clearing 与 lag
 history，digest 7 纳入相同逻辑字段。downstream 以热路径物理区间并集保存，并由
 reservation 的 route/Gate/passages、车辆全长和边长在 capture/restore/cutover 精确重建；
 不为可合并的物理区间保存含糊的单一 route occurrence。切换描述符 2 保持字段形状；
@@ -67,7 +70,7 @@ dirty journal 或后台任务，观测 session/基线也不进入 Runtime Snapsh
 
 Runtime Snapshot 以 `capture_snapshot` 在固定步进边界冻结不可变逻辑状态，再由
 `encode_lfrs` 离线编码。`restore_lfrs` 先核对 framing / file identifier / verifier
-预算，再执行版本、v5 table 未知字段槽、来源、配置、标识、引用、排列、tagged 停车、
+预算，再执行版本、v6 table 未知字段槽、来源、配置、标识、引用、排列、tagged 停车、
 Waiting 与 Conflict authority/lag 不变量 lowering；所有路线
 经 `register_admitted_route`，所有车辆/停车经共同运行时不变量入口在局部 world 中
 重建，Conflict occupant/cleared 从 reservation、车辆整车位置和 passage 锚点派生；完全

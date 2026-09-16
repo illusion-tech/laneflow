@@ -43,7 +43,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         let origin = revision.canonical_origin();
         TrafficWorld::install(
             Arc::clone(&revision),
-            WorldConfig::new(8, 32, 1_024, 1_024, 1, 16),
+            WorldConfig::new(8, 32, 1_024, 1_024, 16),
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
                     "scenario://signalized-corridor",

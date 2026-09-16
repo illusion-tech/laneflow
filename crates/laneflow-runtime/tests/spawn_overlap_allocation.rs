@@ -49,7 +49,8 @@ fn warm_overlap_queries_do_not_allocate_routes_or_intervals() {
     };
     let mut world = TrafficWorld::install(
         Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+        WorldConfig::new(8, 4, 1_024, 1_024, 100),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         source,
         528,
         test_policy::selection(&revision),

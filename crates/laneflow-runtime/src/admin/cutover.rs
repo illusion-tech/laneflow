@@ -1319,7 +1319,8 @@ pub(crate) mod tests {
             let origin = *revision.canonical_origin();
             let mut world = TrafficWorld::install(
                 Arc::clone(&revision),
-                WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+                WorldConfig::new(8, 4, 1_024, 1_024, 100),
+                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
                 source_for(origin, "fixture://base"),
                 1,
                 crate::test_policy::selection(&revision),

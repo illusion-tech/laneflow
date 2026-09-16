@@ -540,17 +540,17 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 | 路线机动门观测 | `RouteGateObservation`        | 当前世界已注册路线某个 hop 的机动门及整数毫米位置，只用于精确定位，不授予通行权。                          |
 | 路口观测视图   | `LaneFlowJunctionObservation` | 从活动 Bevy Session 借出的只读领域视图，组合当前状态与分别标明语义的最近成功步进记录，不拥有动态交通权威。 |
 
-### 7.5 单世界精确并行提案
+### 7.5 单世界精确并行
 
-下列术语供 [ADR 0030（Proposed）](../adr/0030-single-world-parallel-execution.md) 与
-[并行执行设计（Review）](../design/traffic-runtime-parallel-execution.md) 使用。
-术语登记不表示同名类型、并行算法或新快照格式已实现，也不构成 G1 接受记录。
+下列术语供 [ADR 0030（Accepted）](../adr/0030-single-world-parallel-execution.md) 与
+[并行执行设计（Accepted）](../design/traffic-runtime-parallel-execution.md) 使用。
+术语登记不证明并行算法已实现；配置 API 和快照格式的现行实现见执行配置与快照合同。
 首版只分发独立计算，P4 规范串行；资源依赖组件及下面两类图用于后续 P4 设计，
 不表示首版需要构建组件目录或图调度器。
 
 | 中文规范术语   | 英文辅助名 / 精确标识符                     | 中文规范含义                                                                     |
 | -------------- | ------------------------------------------- | -------------------------------------------------------------------------------- |
-| 交通配置       | Traffic Configuration / `WorldConfig`       | 影响交通准入与行为的四类容量及固定步长；提案将执行参数从中分离。                 |
+| 交通配置       | Traffic Configuration / `WorldConfig`       | 影响交通准入与行为的四类容量及固定步长；不含执行参数。                           |
 | 执行配置       | Execution Configuration / `ExecutionConfig` | 安装和恢复时由宿主显式提供的执行能力要求；不进入交通快照、摘要或身份。           |
 | 执行资源       | Execution Resources                         | 活动世界拥有的线程与调度资源，和可重建的目标执行计划分开管理。                   |
 | 逻辑更新位置   | Logical Update Position                     | 当前拍 live 序列中的规范位置，用于保留业务次序；不等于槽位或线程编号。           |

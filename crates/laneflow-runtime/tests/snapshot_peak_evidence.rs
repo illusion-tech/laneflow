@@ -39,6 +39,7 @@ fn published_restore_peak_heap_baseline() {
             target_revision,
             target_source,
             target_config,
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             snapshot_evidence::limits(),
         )
         .expect("published restore"),

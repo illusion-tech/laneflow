@@ -26,7 +26,7 @@
 - `traffic-runtime-conflict-occurrence.md`：#283 的路线冲突出现项、route-local
   坐标、独立容量与正式 Conflict authority 的活动车辆边界。
 - `traffic-runtime-waiting-zone.md`：#282 G1 Accepted 的 WaitingZone 本地
-  membership/admission/storage/queue 设计，以及当前 LFRS 5、runtime state 5、
+  membership/admission/storage/queue 设计，以及当前 LFRS 6、runtime state 5、
   deterministic digest 7 合同；#284 的组合 ledger 与持久化由下列路权文档管理。
 - `shared-static-network.md`：从受检 LFCA 构建 `SharedNetworkRevision`。
 - `adapter-api.md`：Runtime / Spatial 与引擎适配器的只读快照、位姿和权威边界。
@@ -40,14 +40,14 @@
 - `road-editing-source-and-geometry-frontend.md`：道路编辑 FlatBuffers v4 来源与
   几何编制前端合同。
 
-## 单世界并行提案
+## 单世界并行设计
 
-- [`traffic-runtime-parallel-execution.md`](traffic-runtime-parallel-execution.md)：Review；
+- [`traffic-runtime-parallel-execution.md`](traffic-runtime-parallel-execution.md)：Accepted；
   首版独立计算并行、P4 规范串行、首错/join/重试、完整提交与成本验收。
-- [`traffic-runtime-execution-config.md`](traffic-runtime-execution-config.md)：Review；
+- [`traffic-runtime-execution-config.md`](traffic-runtime-execution-config.md)：Accepted；
   配置分离 API、世界执行资源、候选计划、安装/恢复/切换与 LFRS 版本轴。
 
-两文配套 ADR 0030（Proposed），不覆盖现行单 worker 与 LFRS 5 的实现事实。
+两文配套 ADR 0030（Accepted）；配置分离与 LFRS 6 已实现，生产当前仅支持 worker 1。
 
 ## 领域规则
 

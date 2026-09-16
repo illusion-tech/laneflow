@@ -4,6 +4,19 @@ use laneflow_static_contract::NetworkRevisionId;
 
 use crate::{RouteHandle, VehicleHandle, VehicleReplaceBlock};
 
+/// 安装或完整交通恢复后的执行能力初始化失败。
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
+pub enum ExecutionInitError {
+    /// 当前后端不能提供宿主指定的线程数，不会静默降级。
+    #[error("执行线程数不受支持: requested={requested}, max_supported={max_supported}")]
+    UnsupportedWorkerCount {
+        /// 宿主请求的非零线程数。
+        requested: u32,
+        /// 当前后端支持的线程数上限。
+        max_supported: u32,
+    },
+}
+
 /// `TrafficWorld::install` 失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum InstallError {
@@ -48,9 +61,9 @@ pub enum InstallError {
         /// 合法上限（含）。
         max: u64,
     },
-    /// 当前 `TrafficWorld` 只接受 `worker_count == 1`。
-    #[error("当前 TrafficWorld 只接受 worker_count == 1")]
-    WorkerCountNotOne,
+    /// 交通安装完成后，执行配置不受当前后端支持。
+    #[error("执行初始化失败: {0}")]
+    ExecutionInit(ExecutionInitError),
     /// 某个信号 phase 的 `durationMs` 短于固定步长。
     #[error("信号 phase 时长短于 fixed_delta_time_ms")]
     PhaseShorterThanTick,

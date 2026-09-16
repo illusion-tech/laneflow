@@ -1636,7 +1636,8 @@ mod tests {
         let origin = *revision.canonical_origin();
         TrafficWorld::install(
             std::sync::Arc::clone(&revision),
-            WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+            WorldConfig::new(8, 4, 1_024, 1_024, 100),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             CommittedNetworkSource::Published {
                 reference: crate::PublishedLfcaReference::new(
                     "fixture://migration-journal",

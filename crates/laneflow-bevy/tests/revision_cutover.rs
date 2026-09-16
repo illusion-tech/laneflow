@@ -220,7 +220,8 @@ struct Seeded {
 fn seeded(artifact: &Artifact, key: &str) -> Seeded {
     let mut world = TrafficWorld::install(
         Arc::clone(&artifact.root),
-        WorldConfig::new(4, 2, 1_024, 1_024, 1, 100),
+        WorldConfig::new(4, 2, 1_024, 1_024, 100),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         source(&artifact.root, key),
         534,
         WorldPolicySelection::NotRequired,

@@ -95,6 +95,7 @@ fn trace(mut world: TrafficWorld, ticks: usize, retry: bool, journal_bound: Opti
         world.revision(),
         world.committed_source().clone(),
         world.config(),
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         crate::SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4_096),
     )
     .unwrap()
@@ -146,7 +147,8 @@ fn signals_world() -> TrafficWorld {
     let origin = *revision.canonical_origin();
     TrafficWorld::install(
         Arc::clone(&revision),
-        crate::WorldConfig::new(4, 4, 1_024, 1_024, 1, 100),
+        crate::WorldConfig::new(4, 4, 1_024, 1_024, 100),
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         crate::CommittedNetworkSource::Published {
             reference: crate::PublishedLfcaReference::new(
                 "fixture://phase-signals",

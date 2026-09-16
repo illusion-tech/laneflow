@@ -2110,7 +2110,8 @@ mod tests {
         let origin = *revision.canonical_origin();
         let mut world = TrafficWorld::install(
             std::sync::Arc::clone(&revision),
-            crate::WorldConfig::new(4, 4, 1_024, 1_024, 1, 100),
+            crate::WorldConfig::new(4, 4, 1_024, 1_024, 100),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             crate::CommittedNetworkSource::Published {
                 reference: crate::PublishedLfcaReference::new(
                     "fixture://parking-binding-reuse",

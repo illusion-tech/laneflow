@@ -1,10 +1,10 @@
 # TrafficWorld 单世界精确并行执行
 
-**文档状态**: Review<br>
+**文档状态**: Accepted<br>
 **最后更新**: 2026-09-17<br>
 **适用范围**: 道路机动车首版独立计算并行、规范串行联合裁决与整拍提交<br>
 **设计入口**: [#220](https://github.com/illusion-tech/laneflow/issues/220)<br>
-**关联决策**: [ADR 0030（Proposed）](../adr/0030-single-world-parallel-execution.md)<br>
+**关联决策**: [ADR 0030（Accepted）](../adr/0030-single-world-parallel-execution.md)<br>
 **配套设计**: [执行配置与资源](traffic-runtime-execution-config.md)、
 [串行阶段协议](traffic-runtime-phase-protocol.md)
 
@@ -13,7 +13,7 @@
 也保留单一写入者。一个阶段可包含并行计算与串行消费，不因阶段编号相同就允许
 任意函数并发。P4 组件并行属于后续独立设计，见 §10。
 
-本文仍为评审提案，不表示生产多 worker 已实现。领域算法唯一由
+本文为已接受的执行合同；生产当前仍只支持 worker 1，多 worker 能力须经真实调度与等价验收。领域算法唯一由
 [Waiting/Conflict 联合合同](waiting-zone-conflict-right-of-way.md)、
 [Waiting 本地合同](traffic-runtime-waiting-zone.md)、
 [路权策略](traffic-runtime-right-of-way-policy.md)、[跟车](vehicle-following.md)及

@@ -102,8 +102,8 @@ pub enum SnapshotRestoreError {
         /// 实际版本。
         actual: u16,
     },
-    /// v5 table 出现 schema 未登记的字段槽；这类字段可能携带禁绑状态。
-    #[error("LFRS v5 table {table} 含未知字段槽: supported={supported}, actual={actual}")]
+    /// v6 table 出现 schema 未登记的字段槽；这类字段可能携带禁绑状态。
+    #[error("LFRS v6 table {table} 含未知字段槽: supported={supported}, actual={actual}")]
     UnknownTableFields {
         /// table 名。
         table: &'static str,
@@ -316,9 +316,12 @@ pub enum SnapshotRestoreError {
         /// 停车错误。
         error: ParkingError,
     },
-    /// 目标 world 安装失败。
+    /// 目标世界的共同交通准备失败；不包含执行配置错误。
     #[error("目标 world 安装失败: {0}")]
     Install(InstallError),
+    /// 完整交通恢复成功后，执行配置不受当前后端支持。
+    #[error("恢复后的执行初始化失败: {0}")]
+    ExecutionInit(crate::ExecutionInitError),
     /// 最终占用索引重建失败。
     #[error("恢复后的占用索引重建失败: {0}")]
     Occupancy(StepError),
@@ -414,13 +417,15 @@ impl RestoredSnapshot {
 /// `PolicyAllocationFailed` / `ConflictArbiterAllocationFailed`）失败；恢复末段
 /// 的占用索引重建另可因缓冲预留失败返回 `Occupancy`
 /// （`StepError::OccupancyAllocFailed` 等）。任一失败只丢弃局部 staging，不
-/// 返回半恢复 world。
+/// 返回半恢复 world。完整交通状态与派生索引恢复后，执行配置不受支持时返回
+/// [`SnapshotRestoreError::ExecutionInit`]；不提前以执行错误遮蔽交通错误。
 pub fn restore_lfrs(
     bytes: &[u8],
     revision: Arc<SharedNetworkRevision>,
     source: CommittedNetworkSource,
     target_config: WorldConfig,
+    execution: crate::ExecutionConfig,
     limits: SnapshotRestoreLimits,
 ) -> Result<RestoredSnapshot, SnapshotRestoreError> {
-    super::format_admission::restore_lfrs(bytes, revision, source, target_config, limits)
+    super::format_admission::restore_lfrs(bytes, revision, source, target_config, execution, limits)
 }

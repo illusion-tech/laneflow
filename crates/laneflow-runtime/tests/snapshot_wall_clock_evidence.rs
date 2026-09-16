@@ -82,6 +82,7 @@ fn restore_clocks(
             revision,
             source,
             target_config,
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             snapshot_evidence::limits(),
         )
         .expect("published restore");
@@ -149,6 +150,7 @@ fn snapshot_side_wall_clock_baseline() {
         Arc::clone(&target_revision),
         target_source.clone(),
         target_config,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         snapshot_evidence::limits(),
     )
     .expect("baseline restore")
@@ -164,6 +166,7 @@ fn snapshot_side_wall_clock_baseline() {
         target_revision,
         target_source,
         target_config,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         snapshot_evidence::limits(),
     )
     .expect("contended restore")

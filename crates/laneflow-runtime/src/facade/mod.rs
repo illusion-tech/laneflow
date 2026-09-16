@@ -10,6 +10,7 @@ pub(crate) mod source;
 /// 生命周期命令（路线、车辆、parking lifecycle 与原子 replace/despawn）只在两次
 /// `step` 之间调用。
 pub struct TrafficWorld {
+    pub(crate) execution_config: crate::ExecutionConfig,
     pub(crate) binding: crate::kernel::state::WorldBindingState,
     pub(crate) committed: crate::kernel::state::CommittedWorldState,
     pub(crate) derived: crate::kernel::state::DerivedIndexes,

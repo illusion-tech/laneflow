@@ -36,12 +36,12 @@ use crate::admin::cutover::{SemanticDiffOriginBinding, CutoverDescriptorError};
 use crate::admin::snapshot::CapturedSnapshot;
 use crate::admin::snapshot_restore::{RestoredSnapshot, SnapshotRestoreError, SnapshotRestoreLimits};
 use crate::facade::source::CommittedNetworkSource;
-use crate::kernel::config::WorldConfig;
+use crate::kernel::config::{ExecutionConfig, WorldConfig};
 use laneflow_static_network::{CanonicalNetworkOrigin, SharedNetworkRevision};
 use std::sync::Arc;
 pub(super) fn verify_semantic_diff(binding: Option<&SemanticDiffOriginBinding>, bytes: &[u8], base: CanonicalNetworkOrigin, target: CanonicalNetworkOrigin) -> Result<(), CutoverDescriptorError> { todo!() }
 pub(super) fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> { todo!() }
-pub(super) fn restore_lfrs(bytes: &[u8], revision: Arc<SharedNetworkRevision>, source: CommittedNetworkSource, config: WorldConfig, limits: SnapshotRestoreLimits) -> Result<RestoredSnapshot, SnapshotRestoreError> { todo!() }
+pub(super) fn restore_lfrs(bytes: &[u8], revision: Arc<SharedNetworkRevision>, source: CommittedNetworkSource, config: WorldConfig, execution: ExecutionConfig, limits: SnapshotRestoreLimits) -> Result<RestoredSnapshot, SnapshotRestoreError> { todo!() }
 "#;
 
 struct SourceFixture {
@@ -59,7 +59,7 @@ impl SourceFixture {
         );
         directory.write(
             "kernel/mod.rs",
-            &format!("pub(crate) mod config {{ pub struct WorldConfig; }} {kernel}"),
+            &format!("pub(crate) mod config {{ pub struct WorldConfig; pub struct ExecutionConfig; }} {kernel}"),
         );
         directory.write("admin/mod.rs", r#"
 pub(crate) mod format_admission;
@@ -247,7 +247,7 @@ fn actual_entry_and_physical_group_directories_are_checked() {
     let inline = SourceFixture::new("", "");
     let entry = fs::read_to_string(&inline.inputs.entry).unwrap().replace(
         "mod kernel;",
-        "mod kernel { pub(crate) mod config { pub struct WorldConfig; } }",
+        "mod kernel { pub(crate) mod config { pub struct WorldConfig; pub struct ExecutionConfig; } }",
     );
     fs::write(&inline.inputs.entry, entry).unwrap();
     inline.compile();
@@ -299,6 +299,8 @@ fn admission_checks_concrete_types_and_complete_function_inventory() {
         ADMISSION.replace("fn encode_lfrs(", "fn encode_lfrs<T>("),
         ADMISSION.replace("pub(super) fn encode_lfrs", "fn encode_lfrs"),
         ADMISSION.replace("pub(super) fn encode_lfrs", "pub(crate) fn encode_lfrs"),
+        ADMISSION.replace("execution: ExecutionConfig, ", ""),
+        ADMISSION.replace("execution: ExecutionConfig", "execution: WorldConfig"),
     ] {
         fixture.admission(&mutated);
         assert!(fixture.check().is_err());

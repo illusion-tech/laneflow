@@ -196,12 +196,12 @@ edge/hop 数增长，继续由 `route_edge_occurrence_capacity` 约束。若后�
 确定性摘要。现行唯一生产版本轴为：
 
 ```text
-LFRS formatVersion               = 5
+LFRS formatVersion               = 6
 runtime_state_version            = 5
 RUNTIME_STATE_DIGEST_VERSION     = 7
 ```
 
-v5 `WorldConfigBinding` 继续包含 `route_conflict_occurrence_capacity: ulong`。旧 reader、writer
+v6 `WorldConfigBinding` 继续包含 `route_conflict_occurrence_capacity: ulong`。旧 reader、writer
 和 schema 不属于当前生产入口，不双读、不自动迁移。其它需要修改 Runtime Snapshot
 的设计必须遵循 `traffic-runtime-snapshot.md` 与 #284 实施合同的统一版本安排，
 不能并行占用同一版本值。#284 已在 5/5 与 digest 7 上交付组合 reservation、
@@ -270,7 +270,7 @@ Gate range 检查；没有 conflict coverage 时无需此 authority。这个判�
 `SharedNetworkRevision` 确定，不进入 LFRS：
 
 - capture 仍只保存路线边稳定标识序列；
-- 现行 LFRS 5 保存 `WorldConfig` 容量并把它纳入 deterministic digest 7；
+- 现行 LFRS 6 保存 `WorldConfig` 容量并把它纳入 deterministic digest 7；
 - restore 使用目标根的唯一路线编译器重建出现项，先核对 edge 与 conflict 两个总容量，
   再重建并验证 Active 车辆的 reservation、Gate side、物理 footprint 和历史，全部成功后
   才发布 world；
@@ -304,7 +304,7 @@ Gate range 检查；没有 conflict coverage 时无需此 authority。这个判�
 - 上表全部生命周期入口、Parked/Completed 允许面和失败零副作用；
 - edge 容量与 conflict 容量分别达到 `max-1 / max / max+1`，checked overflow、分配
   failpoint、route removal 释放和三个路线注册入口共用计数；
-- LFRS v5 round-trip、v4 及更早版本/unknown version 拒绝、摘要差异、恢复容量放大、cutover
+- LFRS v6 round-trip、v5 及更早版本/unknown version 拒绝、摘要差异、恢复容量放大、cutover
   target conflict count 增减与整事务回滚；
 - 10,000 冲突路线出现项产品档与 100,000 scaling 档的注册时间、retained logical
   bytes 和近线性比例。它们是路线元数据，不等于活动车辆数。

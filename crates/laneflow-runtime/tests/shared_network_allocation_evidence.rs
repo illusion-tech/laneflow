@@ -32,6 +32,7 @@ fn install_fixture(
     laneflow_runtime::TrafficWorld::install(
         std::sync::Arc::clone(&revision),
         config,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
                 "fixture://in-process",
@@ -143,7 +144,7 @@ fn sample_worlds(revision: &Arc<SharedNetworkRevision>, count: usize) -> AllocSa
         worlds.push(
             install_fixture(
                 Arc::clone(revision),
-                WorldConfig::new(8, 8, 1_024, 1_024, 1, 16),
+                WorldConfig::new(8, 8, 1_024, 1_024, 16),
             )
             .expect("install"),
         );

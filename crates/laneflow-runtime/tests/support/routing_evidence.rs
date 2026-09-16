@@ -119,7 +119,8 @@ pub fn build_fixture() -> RoutingEvidenceFixture {
     };
     let mut world = TrafficWorld::install(
         std::sync::Arc::clone(&revision),
-        WorldConfig::new(0, 1, EDGE_COUNT as u64, EDGE_COUNT as u64, 1, DELTA_MS),
+        WorldConfig::new(0, 1, EDGE_COUNT as u64, EDGE_COUNT as u64, DELTA_MS),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         source,
         WORLD_ID,
         test_policy::selection(&revision),

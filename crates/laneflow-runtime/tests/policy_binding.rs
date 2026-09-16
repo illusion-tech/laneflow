@@ -39,7 +39,8 @@ fn install(
     let origin = root.canonical_origin();
     TrafficWorld::install(
         Arc::clone(root),
-        WorldConfig::new(4, 4, 1_024, 1_024, 1, dt),
+        WorldConfig::new(4, 4, 1_024, 1_024, dt),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://w3",
@@ -199,6 +200,7 @@ fn snapshots_preserve_each_explicit_pin_and_rebuild_derived_gaps() {
             Arc::clone(&root),
             world.committed_source().clone(),
             world.config(),
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             SnapshotRestoreLimits::new(1_024 * 1_024, 1_024),
         )
         .unwrap();
@@ -248,7 +250,7 @@ fn gap_overflow_rejects_only_the_selected_policy_without_publishing_a_world() {
 #[test]
 fn snapshot_policy_wire_is_required_closed_and_never_falls_back() {
     use laneflow_runtime::SnapshotRestoreError;
-    use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v5 as wire;
+    use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v6 as wire;
     let revision = root(POLICIES);
     let world = install(&revision, pin(&revision, 0), 100).unwrap();
     let original = encode_lfrs(&world.capture_snapshot().unwrap());
@@ -268,6 +270,7 @@ fn snapshot_policy_wire_is_required_closed_and_never_falls_back() {
             Arc::clone(&revision),
             world.committed_source().clone(),
             world.config(),
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             SnapshotRestoreLimits::new(1_048_576, 1_024),
         )
         .unwrap_err()

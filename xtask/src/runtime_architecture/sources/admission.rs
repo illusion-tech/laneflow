@@ -7,7 +7,7 @@ use super::{BTreeSet, Imports, SourceModule, attributes, ident_name, path_is_ide
 const SIGNATURES: [&str; 3] = [
     "pub(super) fn verify_semantic_diff(binding: Option<&crate::admin::cutover::SemanticDiffOriginBinding>, bytes: &[u8], base: laneflow_static_network::CanonicalNetworkOrigin, target: laneflow_static_network::CanonicalNetworkOrigin) -> Result<(), crate::admin::cutover::CutoverDescriptorError> {}",
     "pub(super) fn encode_lfrs(snapshot: &crate::admin::snapshot::CapturedSnapshot) -> Vec<u8> {}",
-    "pub(super) fn restore_lfrs(bytes: &[u8], revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>, source: crate::facade::source::CommittedNetworkSource, config: crate::kernel::config::WorldConfig, limits: crate::admin::snapshot_restore::SnapshotRestoreLimits) -> Result<crate::admin::snapshot_restore::RestoredSnapshot, crate::admin::snapshot_restore::SnapshotRestoreError> {}",
+    "pub(super) fn restore_lfrs(bytes: &[u8], revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>, source: crate::facade::source::CommittedNetworkSource, config: crate::kernel::config::WorldConfig, execution: crate::kernel::config::ExecutionConfig, limits: crate::admin::snapshot_restore::SnapshotRestoreLimits) -> Result<crate::admin::snapshot_restore::RestoredSnapshot, crate::admin::snapshot_restore::SnapshotRestoreError> {}",
 ];
 
 /// 校验格式入口模块恰好导出合同约定的三个 `pub(super)` 函数：名称、可见性与具体类型签名逐一比对，拒绝任何额外可见声明。
