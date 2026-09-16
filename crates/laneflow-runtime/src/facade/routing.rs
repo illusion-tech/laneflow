@@ -504,8 +504,9 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 动态成本绑定版本、准入 session、世界绑定、网络修订、成本模型不匹配，或
-    /// 观测 tick/状态序号/时效校验失败时返回相应 [`CandidateRouteError`]；通过
-    /// 校验后由路线边注册路径（[`RouteError`] 族）承接剩余失败，失败不留下半条路线。
+    /// 观测 tick/状态序号/时效校验失败时返回相应 [`CandidateRouteError`]；稳定
+    /// ID 无法解析时返回 [`CandidateRouteError::UnknownLaneEdge`]；其余由路线边
+    /// 注册路径（[`RouteError`] 族）承接，失败不留下半条路线。
     pub fn register_candidate_route(
         &mut self,
         admission: &RoutingAdmissionSession,

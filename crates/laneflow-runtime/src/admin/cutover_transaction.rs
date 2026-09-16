@@ -259,8 +259,11 @@ impl TrafficWorld {
 }
 
 impl CutoverTransaction {
-    /// 候选当前已追到的 tick（滞后观测）。仅对在途事务有意义：已结算
-    /// 事务无候选，按内部不变量 panic。
+    /// 候选当前已追到的 tick（滞后观测）。仅对在途事务有意义。
+    ///
+    /// # Panics
+    ///
+    /// 事务已结算（无候选）时按内部不变量 panic；调用方只应在事务存活期内读取。
     #[must_use]
     pub fn candidate_tick(&self) -> u64 {
         self.candidate

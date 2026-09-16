@@ -196,7 +196,7 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 来源修订号与共享根 origin 不一致、增量区间越界、worker 计数非一、
+    /// 来源修订号与共享根 origin 不一致、worker 计数非一、
     /// `fixed_delta_time_ms` 落在 `4..=1_000` 之外或信号程序与步长不兼容、共享根
     /// 需要显式路权策略而未固定/策略未知/策略派生溢出或分配失败（
     /// `PolicyRequired` / `UnknownPolicy` / `PolicyGapOverflow` /
@@ -997,7 +997,8 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 车辆输入校验失败（profile/路线句柄/进度/初速/容量/准入/车身重叠/权威不可
-    /// 重建）、观测状态序号或命令游标耗尽时返回相应 [`SpawnError`]；失败不留半辆车。
+    /// 重建/等待区存储跨度不足）、观测状态序号或命令游标耗尽时返回相应
+    /// [`SpawnError`]；失败不留半辆车。
     pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, SpawnError> {
         let (class, length_mm, traversal) =
             self.validate_unparked_vehicle(input, 0, VehicleStatus::Active, None, false)?;
@@ -1443,9 +1444,9 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// `delta_time_ms` 与 world 固定步长不一致、`tick_index`/`time_ms` checked
-    /// 加法溢出、观测状态序号耗尽、运动产生非有限值、占用容量或预留失败、或
-    /// 内部不变量遍历失败时返回相应 [`StepError`]；失败不推进时间，已提交查询与
-    /// 失败前一致。
+    /// 加法溢出、观测状态序号或等待区 admission 序号耗尽、运动产生非有限值、
+    /// 占用容量或预留失败、或内部不变量遍历失败时返回相应 [`StepError`]；失败
+    /// 不推进时间，已提交查询与失败前一致。
     pub fn step(&mut self, input: TickInput) -> Result<StepOutcome, StepError> {
         self.step_vehicles(input)
     }

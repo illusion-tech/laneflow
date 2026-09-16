@@ -440,8 +440,10 @@ impl CorridorPopulationPrepare {
     ///
     /// # Errors
     ///
-    /// 由 catalog `install_routes` 承接：世界策略不匹配或 `register_route` 失败
-    /// 包装为 [`CorridorPopulationError`] 相应变体。
+    /// 由 catalog `install_routes` 承接：其全部 `BindError`（含世界策略不匹配、
+    /// 修订不一致与注册失败）统一包装为
+    /// [`CorridorPopulationError::BoundWorldCatalogMismatch`]，仅保留诊断字符串、
+    /// 变体身份丢失。
     pub fn install_routes(
         &self,
         world: &mut TrafficWorld,
@@ -457,8 +459,9 @@ impl CorridorPopulationPrepare {
     ///
     /// # Errors
     ///
-    /// 世界已步进（[`CorridorPopulationError::WorldAlreadyStepped`]）、绑定上下文
-    /// 或初始车辆数/车辆状态与计划不一致时返回相应 [`CorridorPopulationError`]；
+    /// 世界已步进（[`CorridorPopulationError::WorldAlreadyStepped`]）、绑定上下文、
+    /// 初始车辆数/车辆状态与计划不一致或初始句柄重复（
+    /// `DuplicateInitialVehicleHandle`）时返回相应 [`CorridorPopulationError`]；
     /// 失败不进入 Running。
     pub fn bind(
         self,
@@ -650,10 +653,12 @@ impl CorridorPopulationController {
     /// # Errors
     ///
     /// 前置校验失败返回 [`CorridorReplaceApplyError::Policy`]，不调用 callback、
-    /// 不修改 pending 状态；callback 返回的替换记录与计划不符（`old` 句柄不一致
-    /// 或新句柄已被跟踪）同样以 `Policy` 返回，但发生在 callback 之后、同界先前的
-    /// 替换保持有效；host callback 致命失败返回
-    /// [`CorridorReplaceApplyError::Host`]，当前 plan 回到 pending 队首。
+    /// 不修改 pending 状态；callback 返回的 outcome 与计划不符（`Replaced` 的
+    /// `old` 句柄不一致或新句柄已被跟踪——宿主世界已被原子修改、该条与同界先前
+    /// 的替换都不会回滚；`Blocked` 携带的 `old` 不符——宿主世界按 `Blocked`
+    /// 契约保持不变）同样以 `Policy` 返回，但发生在 callback 之后；host callback
+    /// 致命失败返回 [`CorridorReplaceApplyError::Host`]，当前 plan 回到 pending
+    /// 队首。
     pub fn apply_pending<F, E>(
         &mut self,
         network_revision: NetworkRevisionId,
@@ -743,7 +748,8 @@ impl CorridorPopulationController {
     ///
     /// 绑定上下文与给定世界不一致（
     /// [`CorridorPopulationError::BoundWorldCatalogMismatch`]）、世界步进非单调（
-    /// [`CorridorPopulationError::NonMonotonicStep`]）、已完成车辆消失、重复出现、
+    /// [`CorridorPopulationError::NonMonotonicStep`]）、被跟踪车辆（Running 或
+    /// Pending 旧句柄）消失、已完成车辆重复出现、
     /// 不在跟踪集合或路线/边出现项与跟踪状态不一致时返回相应
     /// [`CorridorPopulationError`]；失败不修改跟踪状态。
     pub fn consume_world(

@@ -69,8 +69,9 @@ impl SyntheticModuleBuilder {
     ///
     /// # Errors
     ///
-    /// 策略集键、法规身份、成员键或来源文档校验失败时返回携带相应策略诊断的
-    /// [`DiagnosticBundle`]；所有检查成功前不修改 builder。
+    /// 策略集键、法规身份、成员键、来源文档校验或编译资源预算超限（单字符串
+    /// 上限与声明资源计数）失败时返回携带相应诊断的 [`DiagnosticBundle`]；所有
+    /// 检查成功前不修改 builder。
     pub fn add_right_of_way_policy_set(
         &mut self,
         input: RightOfWayPolicySetInput<'_>,

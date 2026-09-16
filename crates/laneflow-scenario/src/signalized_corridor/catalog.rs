@@ -336,7 +336,8 @@ impl std::error::Error for CatalogError {}
 ///
 /// catalog 版本不受支持、portal 集合数量或 ID 序列与封闭集合不符、成员
 /// StableId 重复或非法、车道数量/下标非法、路线数量不符、路线无入口边、
-/// 出口 portal 未知、入口出口相同、路线未被引用或 slot 不足、路线选项为空、
+/// 出口 portal 未知、入口出口相同、路线未被引用或 slot 不足、选项引用未声明
+/// 路线（`UnknownRoute`）、路线选项为空、
 /// 权重为零或权重和溢出、选项重复或 slot 交叉引用非法、slot 进度非法（负数/
 /// 非有限）或位置重复（`InvalidProgress` / `DuplicatePosition`）时返回相应
 /// [`CatalogError`]。

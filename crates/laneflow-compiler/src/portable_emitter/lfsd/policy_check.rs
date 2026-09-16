@@ -34,8 +34,9 @@ struct Actual<'a> {
 /// 不一致（mismatch）、基线兼容性失败（非 Genesis base 的静态/执行契约跨修订
 /// 不一致 `UnsupportedSemanticContractTransition`，或 StableId 跨修订改变种类/
 /// 身份 `CrossRevisionStableIdCollision`）、target/diff/base 字节格式预检失败
-/// （`Format`）、scratch 预留失败（`AllocationFailure`）或编译预算上限超限
-/// （`CompileLimitExceeded`）时返回相应 [`PortableEmissionError`]。
+/// （`Format`）、scratch 预留失败（`AllocationFailure`）、编译预算上限超限
+/// （`CompileLimitExceeded`）或聚合行数换算溢出（`ArithmeticOverflow`）时返回
+/// 相应 [`PortableEmissionError`]。
 pub fn check_portable_policy_diff(
     base: PortableDiffBase<'_>,
     target: &[u8],

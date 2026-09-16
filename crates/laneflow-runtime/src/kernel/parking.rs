@@ -1126,11 +1126,12 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 泊位目标解析或可用性（不存在、已被其它车辆绑定、虚拟池已满）、车辆句柄
-    /// 或既有停车绑定（`StaleVehicle` / `VehicleAlreadyBound`）、入口 occurrence
-    /// 锚点匹配与前向可达、等待区遍历冲突、准入策略、容量分配或命令游标耗尽等
-    /// 任一失败族命中时返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）；
-    /// 失败不改变占用状态。
+    /// 泊位目标解析或可用性（不存在、已被其它车辆绑定、虚拟池已满）、车辆句柄、
+    /// 生命周期状态（`StaleVehicle` / `InvalidVehicleStatus`）、既有停车绑定
+    /// （`VehicleAlreadyBound`）、入口 occurrence 锚点匹配与前向可达、等待区遍历
+    /// 冲突、准入策略、容量分配、命令游标耗尽或内部不变量等任一失败族命中时
+    /// 返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）；失败不改变占用
+    /// 状态。
     pub fn reserve_parking(
         &mut self,
         vehicle: VehicleHandle,
@@ -1405,9 +1406,10 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 泊位目标与出口 selector 解析（含虚拟池出口锚不属于设施）、车辆状态、准入
-    /// 与出口安全、锚点插入与路线引用容量、出口物理重叠、命令游标或观测序号
-    /// 耗尽、内部不变量等任一失败族命中时返回相应 [`ParkingError`]（逐变体权威
-    /// 清单见该枚举文档）。
+    /// 与出口安全、冲突权威缺失、等待区遍历/存储跨度、锚点插入与路线引用容量、
+    /// 出口物理重叠、派生占用索引重建的分配失败、命令游标或观测序号耗尽、内部
+    /// 不变量等任一失败族命中时返回相应 [`ParkingError`]（逐变体权威清单见该
+    /// 枚举文档）。
     pub fn leave_parking(
         &mut self,
         vehicle: VehicleHandle,
@@ -1511,11 +1513,11 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 重绑目标与入口 selector 解析、车辆与 reservation 状态、冲突遍历、路线与
-    /// 出现项（含新入口锚可达性）、车身 footprint 一致性、准入与权威、出现项
-    /// 容量与分配、命令游标耗尽、内部不变量等任一失败族命中时返回相应
-    /// [`ParkingError`]（逐变体权威清单见该枚举文档）；失败保持完整物理
-    /// footprint 不变。
+    /// 重绑目标与入口 selector 解析、车辆与 reservation 状态、冲突遍历、等待区
+    /// 遍历/存储跨度、路线与出现项（含新入口锚可达性）、车身 footprint 一致性、
+    /// 准入与权威、出现项容量与分配、命令游标耗尽、内部不变量等任一失败族命中
+    /// 时返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）；失败保持完整
+    /// 物理 footprint 不变。
     pub fn rebind_parking_route(
         &mut self,
         vehicle: VehicleHandle,
@@ -1667,8 +1669,9 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 泊位目标解析或可用性（不存在、已被绑定、虚拟池已满）、车辆容量、profile/
-    /// 路线/进度校验、准入策略、分配或命令游标耗尽等任一失败族命中时返回相应
-    /// [`ParkingError`]（逐变体权威清单见该枚举文档）；失败不构造任何状态。
+    /// 路线/进度校验、准入策略、分配、路线引用容量、命令游标耗尽或内部不变量等
+    /// 任一失败族命中时返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）；
+    /// 失败不构造任何状态。
     pub fn spawn_parked_vehicle(
         &mut self,
         input: ParkedVehicleSpawnInput,

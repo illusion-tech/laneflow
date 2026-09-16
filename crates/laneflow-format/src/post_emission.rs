@@ -206,8 +206,9 @@ where
 ///
 /// # Errors
 ///
-/// LFCA/LFSM/LFSD 来源读取、长度或摘要校验、语义差异基线核对或上限检查
-/// 失败时返回相应 [`PostEmissionCheckError`]；来源不被修改。
+/// LFCA/LFSM/LFSD 来源读取、长度或摘要校验、结构/registry/值域格式预检
+/// （`Format`）、语义差异基线核对或上限检查失败时返回相应
+/// [`PostEmissionCheckError`]；来源不被修改。
 pub fn check_post_emission_bundle<L, M, D>(
     lfca: L,
     lfsm: M,

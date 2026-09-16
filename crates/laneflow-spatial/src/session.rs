@@ -119,7 +119,7 @@ impl SpatialSession {
     }
 
     /// 按调用方顺序提取 pose 批次。
-    /// `placement_token` 原样回显。混 frame 或任一条记录失败则整批失败，且不改 `output`。
+    /// `placement_token` 原样回显。
     ///
     /// # Errors
     ///
