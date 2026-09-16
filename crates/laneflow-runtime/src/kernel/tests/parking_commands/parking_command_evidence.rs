@@ -1,5 +1,4 @@
 //! #678：正式生产库命令路径；测试计数和结构原型另在单元构建运行。
-#[path = "support/parking_command_fixture.rs"]
 mod fixture;
 
 use laneflow_runtime::{ParkingError, deterministic_state_digest};

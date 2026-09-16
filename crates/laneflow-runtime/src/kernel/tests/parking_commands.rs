@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-#[path = "../../../tests/support/parking_command_fixture.rs"]
+#[path = "parking_commands/fixture.rs"]
 mod fixture;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

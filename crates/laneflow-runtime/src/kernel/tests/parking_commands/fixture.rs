@@ -10,7 +10,7 @@ use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_runtime::{
     CommittedNetworkSource, LeaveParkingTarget, ParkedVehicleSpawnInput, ParkingTarget,
     PublishedLfcaReference, RouteHandle, RouteRegisterInput, TrafficWorld, VehicleHandle,
-    VehicleSpawnInput, VirtualExitAnchorSelector, WorldConfig,
+    VehicleSpawnInput, VirtualExitAnchorSelector, WorldConfig, WorldPolicySelection,
 };
 use laneflow_static_contract::{
     EntityKind, LaneEdgeId, ParkingFacilityOrdinal, VehicleProfileOrdinal,
@@ -20,8 +20,6 @@ use laneflow_static_network::{
     build_shared_network_revision,
 };
 use std::sync::Arc;
-#[path = "policy.rs"]
-mod test_policy;
 fn iidm() -> IidmVehicleProfileInput {
     IidmVehicleProfileInput {
         length_meters: 4.5,
@@ -134,12 +132,22 @@ fn install_fixture(
     revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
     config: laneflow_runtime::WorldConfig,
 ) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
+    assert!(
+        [
+            EntityKind::ManeuverGate,
+            EntityKind::ConflictZone,
+            EntityKind::ParticipantStream,
+        ]
+        .iter()
+        .all(|kind| revision.traffic().entity_counts().count(*kind) == 0),
+        "parking command fixture must remain policy-free"
+    );
     laneflow_runtime::TrafficWorld::install(
         Arc::clone(&revision),
         config,
         published_source(&revision, "fixture://in-process"),
         0,
-        test_policy::selection(&revision),
+        WorldPolicySelection::NotRequired,
     )
 }
 

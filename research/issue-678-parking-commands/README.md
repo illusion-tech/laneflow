@@ -231,7 +231,9 @@ cargo +1.98.0 test -p laneflow-runtime --locked --offline --lib parking_command_
 python research/issue-678-parking-commands/analyze.py target/parking-new
 ```
 
-分析器拒绝缺失批次、样本数错误、不同语义摘要和缺失模型。生成的analysis.json
+分析器拒绝缺失批次、样本数错误、不同语义摘要和缺失模型，并要求每个模型场景在
+第1、2、3轮各出现一次。用 `python research/issue-678-parking-commands/test_analyze.py`
+运行完整输入与重复/缺失轮次的回归校验。生成的analysis.json
 包含全部34场景逐轮与汇总分位数、工作量/内存以及40个结构模型。历史本地制品
 位于`target/parking-678`；最终结构原始日志仅取`models-final`，工作量取`work-final.log`：
 
