@@ -996,7 +996,8 @@ pub enum AccessRegulationField {
 pub enum DiagnosticPayload {
     /// 路权策略未通过输入、绑定或静态语义闭合。
     InvalidPolicy {
-        /// 未闭合的路权策略稳定键。
+        /// 未闭合的路权策略稳定键；owner 键超限（>3）场景为目标引用的声明键
+        /// 而非策略集键。
         policy_key: Box<str>,
         /// 关联的成员稳定键（如有）。
         member_key: Option<Box<str>>,
@@ -1228,7 +1229,7 @@ pub enum DiagnosticPayload {
         entity_kind: EntityKind,
         /// 该实体的稳定键。
         stable_key: Box<str>,
-        /// 首个声明所有权的道路走廊稳定键。
+        /// 规范首走廊稳定键（按 key 排序的最小者，非源向量中首个声明者）。
         first_owner_key: Box<str>,
         /// 发生冲突的另一道路走廊稳定键。
         second_owner_key: Box<str>,
@@ -1680,11 +1681,12 @@ pub enum DiagnosticPayload {
     AccessRegulationMismatch {
         /// 首条准入规则稳定键。
         first_rule_key: Box<str>,
-        /// 首条规则的法域文本。
+        /// allow 侧规则的法域文本（歧义对按 allow/deny 语义角色排列，非声明
+        /// 或遍历顺序）。
         first_jurisdiction: Box<str>,
-        /// 首条规则的法规版本文本。
+        /// allow 侧规则的法规版本文本。
         first_version: Box<str>,
-        /// 与其不一致的另一准入规则稳定键。
+        /// deny 侧准入规则稳定键。
         second_rule_key: Box<str>,
         /// 另一规则的法域文本。
         second_jurisdiction: Box<str>,
@@ -1703,7 +1705,7 @@ pub enum DiagnosticPayload {
         participant_class_key: Box<str>,
         /// 首条并列规则稳定键。
         first_rule_key: Box<str>,
-        /// 与其相反的另一条并列规则稳定键。
+        /// deny 侧并列规则稳定键；primary span 取自 deny 规则。
         second_rule_key: Box<str>,
     },
     /// 实体种类、来源稳定键及不能形成 Identity v1 前像的精确原因。
