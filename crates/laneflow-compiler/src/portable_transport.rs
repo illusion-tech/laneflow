@@ -58,7 +58,7 @@ impl BoundedReadBuffer {
 pub enum PortableReadError {
     /// 已知或实际读取长度超过调用方单对象上限。
     LimitExceeded {
-        /// 触发超限的实际字节数。
+        /// 触发超限的字节数；读取前拒绝时为声明值（底层实际字节数可能更少）。
         actual: u64,
         /// 调用方单对象字节上限。
         limit: u64,

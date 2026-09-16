@@ -262,7 +262,8 @@ impl ConflictPassageOccurrenceLocator {
     }
 }
 
-/// 策略解释后、进入资源仲裁前的候选类型。
+/// 策略解释后、进入资源仲裁前的候选类型；既无等待区入口也无冲突通行段的
+/// 候选不经仲裁、直接映射为 NotRequired，且仅当 finalized 运动确实过门时发布。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GateCandidateKind {
     /// 受保护候选：信号绿灯给出专用路权，候选排序中优先于许可候选。
