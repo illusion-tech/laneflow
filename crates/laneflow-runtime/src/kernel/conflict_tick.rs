@@ -63,7 +63,8 @@ pub enum ConflictNoGrantReason {
     LagGap,
     /// 接近估计不可证明，保守拒绝 crossing。
     ApproachUnprovable,
-    /// 前导间隙不足：对方保守最早到达早于 required lead。
+    /// 前导间隙不足：对方保守最早到达早于或等于 required lead（仅严格更晚
+    /// 被接受）。
     LeadGap,
     /// 无法派生下游 claim：清空目标越过路线存储上界、前方车辆间隙不足，或
     /// 目标位于下一 Gate/等待停车/预留停车之后。
