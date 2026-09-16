@@ -50,6 +50,8 @@ pub(crate) struct ConflictWorkCounts {
     pub(crate) grant_update_lookups: usize,
     pub(crate) visited_passages: usize,
     pub(crate) frontier_updates: usize,
+    pub(crate) eta_preparations: usize,
+    pub(crate) eta_distance_evaluations: usize,
     pub(crate) candidates: usize,
     pub(crate) yield_queries: usize,
     pub(crate) cell_claim_queries: usize,
@@ -73,6 +75,8 @@ impl ConflictWorkCounts {
         grant_update_lookups: 0,
         visited_passages: 0,
         frontier_updates: 0,
+        eta_preparations: 0,
+        eta_distance_evaluations: 0,
         candidates: 0,
         yield_queries: 0,
         cell_claim_queries: 0,
@@ -512,7 +516,88 @@ impl ApproachFrontierCell {
     }
 }
 
-/// ETA 输入只使用已提交整数纵向状态与受检 profile 加速度。
+/// 单车 frontier 遍历内复用的 directed ETA 输入；不跨车辆或 tick 保留。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PreparedApproachEta {
+    carry: f64,
+    speed: f64,
+    acceleration: f64,
+    reachable: f64,
+    speed_squared: f64,
+    twice_acceleration: f64,
+}
+
+impl PreparedApproachEta {
+    pub(crate) fn new(
+        carry_um: u16,
+        speed_mm_s: u32,
+        max_acceleration_m_s2: f32,
+        proof_horizon_ms: u64,
+    ) -> Option<Self> {
+        #[cfg(test)]
+        count_conflict_work(|counts| counts.eta_preparations += 1);
+        if carry_um >= 1_000 || !max_acceleration_m_s2.is_finite() || max_acceleration_m_s2 < 0.0 {
+            return None;
+        }
+        let carry = upper_div(f64::from(carry_um), 1_000.0)?;
+        let speed = f64::from(speed_mm_s);
+        let acceleration = upper_mul(f64::from(max_acceleration_m_s2), 1_000.0)?;
+        let horizon_s = upper_div(proof_horizon_ms as f64, 1_000.0)?;
+        let reachable = upper_add(
+            upper_mul(speed, horizon_s)?,
+            upper_mul(
+                0.5,
+                upper_mul(acceleration, upper_mul(horizon_s, horizon_s)?)?,
+            )?,
+        )?;
+        // u32 速度、有限非负 f32 加速度及 u64 时长的这些乘积均在 f64
+        // 有限范围内；提前求值不会遮蔽 distance == 0 的 Finite(0)。
+        Some(Self {
+            carry,
+            speed,
+            acceleration,
+            reachable,
+            speed_squared: upper_mul(speed, speed)?,
+            twice_acceleration: upper_mul(2.0, acceleration)?,
+        })
+    }
+
+    pub(crate) fn lower_bound(self, exact_distance_mm: u64) -> ApproachEstimate {
+        #[cfg(test)]
+        count_conflict_work(|counts| counts.eta_distance_evaluations += 1);
+        let distance = exact_distance_mm as f64;
+        if distance >= u64::MAX as f64 || distance as u64 != exact_distance_mm {
+            return ApproachEstimate::Unprovable;
+        }
+        let calculated = (|| -> Option<ApproachEstimate> {
+            let d_lower = lower_sub(distance, self.carry)?.max(0.0);
+            if d_lower == 0.0 {
+                return Some(ApproachEstimate::Finite(0));
+            }
+            if self.reachable < d_lower {
+                return Some(ApproachEstimate::OutsideHorizon);
+            }
+            let eta_s = if self.acceleration > 0.0 {
+                let radicand = upper_add(
+                    self.speed_squared,
+                    upper_mul(self.twice_acceleration, d_lower)?,
+                )?;
+                let denominator = upper_add(upper_sqrt(radicand)?, self.speed)?;
+                lower_div(lower_mul(2.0, d_lower)?, denominator)?
+            } else if self.speed > 0.0 {
+                lower_div(d_lower, self.speed)?
+            } else {
+                return Some(ApproachEstimate::OutsideHorizon);
+            };
+            let millis = lower_mul(eta_s.max(0.0), 1_000.0)?;
+            finite_approach_estimate(millis)
+        })();
+        calculated.unwrap_or(ApproachEstimate::Unprovable)
+    }
+}
+
+/// 测试 oracle 的完整输入；不进入生产构建。
+#[cfg(test)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ApproachEtaInput {
     pub(crate) exact_distance_mm: u64,
@@ -522,8 +607,22 @@ pub(crate) struct ApproachEtaInput {
     pub(crate) proof_horizon_ms: u64,
 }
 
-/// 计算 directed lower-bound ETA；任何无法证明的浮点状态都保守拒绝。
-pub(crate) fn approach_eta_lower_bound(input: ApproachEtaInput) -> ApproachEstimate {
+#[cfg(test)]
+fn approach_eta_lower_bound(input: ApproachEtaInput) -> ApproachEstimate {
+    PreparedApproachEta::new(
+        input.carry_um,
+        input.speed_mm_s,
+        input.max_acceleration_m_s2,
+        input.proof_horizon_ms,
+    )
+    .map_or(ApproachEstimate::Unprovable, |prepared| {
+        prepared.lower_bound(input.exact_distance_mm)
+    })
+}
+
+/// #676 等价 oracle：逐出现项执行完整 directed 运算，不复用准备对象。
+#[cfg(test)]
+fn reference_approach_eta_lower_bound(input: ApproachEtaInput) -> ApproachEstimate {
     if input.carry_um >= 1_000
         || !input.max_acceleration_m_s2.is_finite()
         || input.max_acceleration_m_s2 < 0.0
@@ -4502,6 +4601,104 @@ mod tests {
             cell.value_excluding(vehicle(2)),
             ApproachEstimate::Finite(5)
         );
+    }
+
+    #[test]
+    fn prepared_eta_matches_directed_reference_boundaries_and_random_inputs() {
+        let distances = [
+            0,
+            1,
+            999,
+            1_000,
+            10_000,
+            u32::MAX as u64,
+            (1_u64 << 53) - 1,
+            1_u64 << 53,
+            (1_u64 << 53) + 1,
+            u64::MAX - 2_047,
+            u64::MAX,
+        ];
+        for carry_um in [0, 1, 999, 1_000, u16::MAX] {
+            for speed_mm_s in [0, 1, 10_000, u32::MAX] {
+                for acceleration in [
+                    -1.0,
+                    -0.0,
+                    0.0,
+                    f32::from_bits(1),
+                    1.8,
+                    f32::MAX,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::NAN,
+                ] {
+                    for proof_horizon_ms in [0, 1, 1_001, 60_000, u64::MAX] {
+                        let prepared = PreparedApproachEta::new(
+                            carry_um,
+                            speed_mm_s,
+                            acceleration,
+                            proof_horizon_ms,
+                        );
+                        for exact_distance_mm in distances {
+                            let input = ApproachEtaInput {
+                                exact_distance_mm,
+                                carry_um,
+                                speed_mm_s,
+                                max_acceleration_m_s2: acceleration,
+                                proof_horizon_ms,
+                            };
+                            assert_eq!(
+                                prepared.map_or(ApproachEstimate::Unprovable, |value| {
+                                    value.lower_bound(exact_distance_mm)
+                                }),
+                                reference_approach_eta_lower_bound(input),
+                                "input: {input:?}",
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        let mut seed = 676_u64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for index in 0..100_000 {
+            let input = ApproachEtaInput {
+                exact_distance_mm: if index % 2 == 0 {
+                    next()
+                } else {
+                    next() % 1_000_000
+                },
+                carry_um: (next() % 1_001) as u16,
+                speed_mm_s: next() as u32,
+                max_acceleration_m_s2: f32::from_bits(next() as u32),
+                proof_horizon_ms: next() % 1_000_000,
+            };
+            assert_eq!(
+                approach_eta_lower_bound(input),
+                reference_approach_eta_lower_bound(input),
+                "input: {input:?}"
+            );
+        }
+        // 精确 horizon/reachable 临界值以及整数毫秒两侧。
+        for horizon in [1, 10, 100, 1_000] {
+            for distance in 0..=horizon * 2 + 2 {
+                let input = ApproachEtaInput {
+                    exact_distance_mm: distance,
+                    carry_um: 0,
+                    speed_mm_s: 2_000,
+                    max_acceleration_m_s2: 0.0,
+                    proof_horizon_ms: horizon,
+                };
+                assert_eq!(
+                    approach_eta_lower_bound(input),
+                    reference_approach_eta_lower_bound(input)
+                );
+            }
+        }
     }
 
     #[test]

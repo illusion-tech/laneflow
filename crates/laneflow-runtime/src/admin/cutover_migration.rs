@@ -2869,9 +2869,21 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn conflict_scale_revision() -> Arc<SharedNetworkRevision> {
+        conflict_frontier_revision(false, true)
+    }
+
+    pub(crate) fn conflict_frontier_revision(
+        multiple_passages: bool,
+        long_approaches: bool,
+    ) -> Arc<SharedNetworkRevision> {
         let limits = CompileLimits::single_network_1m_v2();
         let source = lfre::RoadEditingSourceWriter::new(&limits)
-            .write(conflict_cutover_test_module(false, false, true, true))
+            .write(conflict_cutover_test_module(
+                multiple_passages,
+                false,
+                long_approaches,
+                true,
+            ))
             .expect("Conflict scale Road Editing source");
         let input = lfre::RoadEditingModuleInput::try_new(
             "runtime-live-conflict-cutover.lfre",
