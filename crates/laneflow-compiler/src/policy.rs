@@ -15,8 +15,10 @@ pub(crate) fn compare_identity_text(a: &str, b: &str) -> core::cmp::Ordering {
 /// 规则输入或静态解析不能成立的结构化原因。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum PolicyViolation {
-    /// 证据/间隙参数/规则成员键违反外部 token 文本规则、含 `::` 分隔符，或
-    /// owner 限定引用携带超过 3 个 owner 键（`add_right_of_way_policy_set`）。
+    /// 证据/间隙参数成员键、stream/gate 规则键或规则内 `evidence_keys`/
+    /// `gap_profile_key` 引用键违反外部 token 文本规则、含 `::` 分隔符，或
+    /// owner 限定引用携带超过 3 个 owner 键（`add_right_of_way_policy_set`；
+    /// LFRE 的同类键在预检即以 `InvalidText` 拒绝）。
     InvalidKey,
     /// 证据 locator 或间隙参数 `parameter_version` 为空字符串
     /// （`add_right_of_way_policy_set`）。
@@ -33,18 +35,18 @@ pub enum PolicyViolation {
     /// （`add_right_of_way_policy_set`、`add_road_editing_module` 与
     /// `Compiler::compile` 的策略阶段均可达）。
     DuplicateMember,
-    /// 让行目标、参与者类别或证据引用在同一规则内重复（三个策略声明入口均可达，
-    /// 同 `InvalidRegulation`）。
+    /// 让行目标、参与者类别或证据引用在同一规则内重复（三个策略声明入口均
+    /// 可达，同 `DuplicateMember`）。
     DuplicateReference,
     /// stream/gate 规则显式声明的参与者类别列表为空（`add_right_of_way_policy_set`
     /// 与 `Compiler::compile` 可达；LFRE 的空类别向量在预检即以 `EmptyCollection`
     /// 拒绝，不触达本变体）。
     EmptyClasses,
     /// 规则引用的证据键或间隙参数键不存在于本策略集的对应成员中（三个策略声明
-    /// 入口均可达，同 `InvalidRegulation`）。
+    /// 入口均可达，同 `DuplicateMember`）。
     MissingLocalReference,
-    /// 规则没有证据成员，且所属法规身份也没有来源说明（三个策略声明入口均可达，
-    /// 同 `InvalidRegulation`）。
+    /// 规则没有证据成员，且所属法规身份也没有来源说明（三个策略声明入口均
+    /// 可达，同 `DuplicateMember`）。
     MissingEvidence,
     /// stream 规则的让行目标与间隙参数必须同有或同无：声明了让行目标但缺间隙
     /// 参数，或未声明目标却携带间隙参数（两者皆无为合法；
@@ -72,8 +74,8 @@ pub enum PolicyViolation {
     LampTypeConflict,
     /// stream 规则的让行目标包含自身（`Compiler::compile` 的 MIR 策略校验）。
     SelfYield,
-    /// 让行目标流与本流不共享任何冲突区通行段（`Compiler::compile` 的 MIR 策略
-    /// 校验）。
+    /// 让行目标流与本流不存在任何共同冲突区——两流各自的冲突通行段不落入同一
+    /// 冲突区即判不相交（`Compiler::compile` 的 MIR 策略校验）。
     DisjointYield,
     /// 被让行目标流可按优先级不高于本规则的规则准入，让行关系不闭合
     /// （`Compiler::compile` 的 MIR 策略校验）。

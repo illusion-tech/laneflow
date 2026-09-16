@@ -51,9 +51,10 @@ pub enum BackingError {
     /// 临时 backing 创建、元数据读取或只读映射建立的 I/O 失败
     /// （`PrivateStagedFile::create_in`/`seal`、`SealedPrivateFile::map_read_only`）。
     Io(io::Error),
-    /// u64 exact length 无法装入本平台 usize。
+    /// u64 exact length 无法装入本平台 usize（`SealedPrivateFile::map_read_only`）。
     LengthOverflow,
-    /// 核对时 backing 长度与登记长度不符。
+    /// 核对时 backing 长度与登记长度不符（`PrivateStagedFile::seal`、
+    /// `SealedPrivateFile::map_read_only` 映射前后核对）。
     BackingChanged,
 }
 

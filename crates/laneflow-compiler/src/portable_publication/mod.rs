@@ -90,8 +90,8 @@ pub enum PortablePublicationError {
     /// 原因（`check_portable_candidate`，`build_portable_publication_descriptor`
     /// 内嵌同样可达）。
     PostEmission(PostEmissionCheckError),
-    /// LFCP v2 编码路径上的字节数换算 checked 算术溢出
-    /// （`build_portable_publication_descriptor`）。
+    /// LFCP v2 编码路径上的字节数换算 checked 算术溢出；64 位受支持目标上
+    /// `u64`→`usize` 不可失败，防御性保留（`build_portable_publication_descriptor`）。
     ArithmeticOverflow,
     /// LFCP v2 descriptor 的结构编码或值域预检失败
     /// （`build_portable_publication_descriptor`）。
