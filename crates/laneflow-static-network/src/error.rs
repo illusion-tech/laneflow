@@ -102,7 +102,8 @@ pub enum BuildErrorClass {
     InputInvariant,
     /// 序次失败：typed ordinal 与期望不符或序列非严格递增。
     Order,
-    /// 引用失败：引用越界、策略引用无法闭合或 Access 规则歧义（同类深度、目标
+    /// 引用失败：引用越界与全部策略闭合失败（`BuildError::Policy` 整族归本类，
+    /// 含法规不匹配、信号绑定等）或 Access 规则歧义（同类深度、目标
     /// 具体度与优先级并列且效果相反时判歧义；效果相同的并列按最小规范 ordinal
     /// 确定性取胜、不报歧义）。
     Reference,
@@ -198,9 +199,10 @@ pub enum BuildError {
     NonCanonicalOrder {
         /// 序列非严格递增所属的稳定结构分类。
         structure: BuildStructure,
-        /// 序列中前一项的值。
+        /// 序列中前一项的值；冲突通行段行的负载为复合排序键
+        /// `(entry_position, exit_position, stable_id)` 的对应分量。
         previous: u32,
-        /// 破坏严格递增的值。
+        /// 破坏严格递增的值；同上，随结构种类取对应分量。
         actual: u32,
     },
     /// 受检 LFCA 携带的静态契约版本不受支持（ContractVersions），或与
@@ -213,8 +215,9 @@ pub enum BuildError {
     /// 规范系、车道/设施几何、冲突区面）不一致；无 spatial payload 的 headless
     /// LFCA 是合法输入（`build_shared_network_revision`）。
     SpatialPresenceMismatch,
-    /// 车道几何行数与 LaneEdge 实体数不一致；零几何行的 headless LFCA 显式
-    /// 跳过本检查（`build_shared_network_revision` 的 spatial 构建）。
+    /// 车道几何行数与 LaneEdge 实体数不一致；零几何行在 presence 矩阵允许的
+    /// 无车道几何形态（headless、仅 profile、仅 frame、仅设施带等）下显式跳过
+    /// 本检查（`build_shared_network_revision` 的 spatial 构建）。
     SpatialCoverageMismatch {
         /// `LaneEdge` 实体数。
         lane_edges: u32,
