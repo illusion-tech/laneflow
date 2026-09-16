@@ -193,14 +193,17 @@ pub enum CatalogError {
     InsufficientSlots(usize),
     /// slot_id 重复（`validate`）。
     DuplicateSlot(String),
-    /// 某个编制键字段为空：portal.id、entry_spawn_slot_id、route_id、exit_portal_id、
-    /// edge_ids、slot_id、portal_id、edge_id（`validate`）。
+    /// 某个编制键字段为空：entry_spawn_slot_id、route_id、exit_portal_id、
+    /// edge_ids、slot_id、portal_id、edge_id（`validate`；空 `portal.id` 先行命中
+    /// `PortalSet`，不触达本变体）。
     EmptyId { field: &'static str },
     /// slot progress 非有限或为负（`validate`；毫米级落边由 `bind` 兜底）。
     InvalidProgress { slot_id: String },
-    /// 两个 slot 的 (edge_id, progress 的 f64 bit) 完全相同（`validate`；毫米级重复由 `bind` 兜底）。
+    /// 两个 slot 的 (edge_id, progress) 去重键相同——比较前 `0.0`/`-0.0` 规范化为
+    /// `+0.0`（`validate`；毫米级重合无 bind 侧兜底）。
     DuplicatePosition { slot_id: String },
-    /// slot 的 (portal_id, lane_index) 不匹配任何已声明 portal lane（`validate`）。
+    /// slot 的 `portal_id` 已声明，但 (portal_id, lane_index) 不匹配该 portal 的
+    /// 任何 lane（`validate`；未知 `portal_id` 先返回 `UnknownPortal`）。
     SlotLane { slot_id: String },
     /// portal lane 的 entry_spawn_slot_id 在 slot 表中不存在（`validate`）。
     MissingEntrySlot {
