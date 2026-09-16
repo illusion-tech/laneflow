@@ -195,7 +195,9 @@ impl BoundedReReadableObjectSource for ClosedStagedObjectSource {
 /// compiler 本地候选可使用的统一只读 backing；百万级生产路径使用 `Staged`。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ImmutableObjectSource {
+    /// 内存中的已拥有字节。
     Owned(Arc<[u8]>),
+    /// 文件背衬的封存来源。
     Staged(ClosedStagedObjectSource),
 }
 

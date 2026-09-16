@@ -1,3 +1,4 @@
+#![deny(missing_docs)]
 #![doc = include_str!("../README.md")]
 
 // arena/HIR/MIR/LIR 是生产 Compiler 闭环的私有实现层。保持这些模块私有，可防止临时
