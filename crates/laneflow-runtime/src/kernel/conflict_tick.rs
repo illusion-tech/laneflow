@@ -59,7 +59,8 @@ pub enum ConflictNoGrantReason {
     WaitingCycle,
     /// 冲突 zone/cell 已被其它 owner 占用或提交。
     ConflictOccupied,
-    /// 后随间隙不足：距上一次清空的已逝时间小于 required lag。
+    /// 后随间隙不足：滞后基准（实际清空或切换保守起点 `CutoverFloor`）起算
+    /// 的已逝时间小于 required lag。
     LagGap,
     /// 接近估计不可证明，保守拒绝 crossing。
     ApproachUnprovable,

@@ -383,7 +383,8 @@ pub enum RoadEditingRelationKind {
     ParkingFacilityVirtualExit,
     /// 参与者流对冲突通行段的关系。
     ParticipantStreamPassage,
-    /// 冲突区对空间区域记录的关系。
+    /// 空间区域记录对所属模块的关系（冲突区仅为记录内引用；ordinal 按模块
+    /// 规范根向量序分配）。
     ConflictZoneRegion,
     /// 路权策略集对依据条目的关系。
     PolicyEvidence,
