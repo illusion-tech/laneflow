@@ -265,7 +265,8 @@ pub enum WaitingDecisionOutcome {
     /// Gate 非限制（如释放门）或未触发接触/越界，无需准入求值；车辆不必停在
     /// 边界。
     NotRequired,
-    /// 本拍取得等待区准入。
+    /// 仲裁授予入场；为阶段性授予——运动投影回落到门内时不分配准入序号、
+    /// 不提交成员关系。
     Granted,
     /// 未取得准入，附拒绝原因。
     NoGrant(WaitingNoGrantReason),
