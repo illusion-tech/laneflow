@@ -143,62 +143,71 @@ pub struct SpawnSlotCatalogEntry {
 /// catalog 0.4 线格式或交叉引用不合法。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CatalogError {
+    /// `catalog_version` 不等于封闭值 "0.4"，线格式代际不符（`validate`）。
     UnsupportedVersion(String),
+    /// Pinned 策略文本不是带实体种类的规范 RightOfWayPolicySet StableId
+    /// （`CatalogPolicySelection::resolve`；`validate`/`bind` 首步同样可达）。
     InvalidPolicyIdentity,
+    /// portal 数量不是 6，或 portal.id 未按序逐一匹配封闭集合 PORTAL_IDS（`validate`）。
     PortalSet,
+    /// portal id 重复（`validate`；portal.id 已逐位匹配互异封闭集合，此检查防御性保留）。
     DuplicatePortal(String),
+    /// portal 的 lane 数与封闭要求不符：main portal 为 3、side portal 为 2（`validate`）。
     LaneCount {
         portal_id: String,
         expected: usize,
         actual: usize,
     },
+    /// portal lane 的 lane_index 不是从 0 起连续递增的位置下标（`validate`）。
     LaneIndex {
         portal_id: String,
         expected: usize,
         actual: usize,
     },
+    /// portal lane 未列任何加权路线选项（`validate`）。
     EmptyRouteChoices {
         portal_id: String,
         lane_index: usize,
     },
-    ZeroWeight {
-        portal_id: String,
-        route_id: String,
-    },
-    WeightOverflow {
-        portal_id: String,
-    },
-    DuplicateChoice {
-        portal_id: String,
-        route_id: String,
-    },
+    /// portal lane 的某条路线选项 weight 为 0，cumulative selection 需要正整数权重（`validate`）。
+    ZeroWeight { portal_id: String, route_id: String },
+    /// 单条 portal lane 的全部选项权重按 u64 累加溢出（`validate`）。
+    WeightOverflow { portal_id: String },
+    /// 同一 portal lane 重复引用同一条路线（`validate`）。
+    DuplicateChoice { portal_id: String, route_id: String },
+    /// routes 表出现重复 route_id（`validate`）。
     DuplicateRoute(String),
+    /// 路线的 edge_ids 序列为空（`validate`）。
     EmptyEdgeIds(String),
+    /// 路线的 exit_portal_id 或 slot 的 portal_id 不在封闭集合 PORTAL_IDS 中（`validate`）。
     UnknownPortal(String),
+    /// routes 表数量不等于封闭要求的 28 条（`validate`）。
     RouteCount(usize),
+    /// portal lane 选项引用的 route_id 未在 routes 表声明（`validate`）。
     UnknownRoute(String),
-    SameEntryExit {
-        route_id: String,
-    },
+    /// 路线被某 portal lane 引用，但其 exit_portal_id 与该入口 portal 相同（`validate`）。
+    SameEntryExit { route_id: String },
+    /// routes 表中的路线没有被任何 portal lane 选项引用（`validate`）。
     UnreferencedRoute(String),
+    /// spawn slot 数低于封闭下限 200（`validate`）。
     InsufficientSlots(usize),
+    /// slot_id 重复（`validate`）。
     DuplicateSlot(String),
-    EmptyId {
-        field: &'static str,
-    },
-    InvalidProgress {
-        slot_id: String,
-    },
-    DuplicatePosition {
-        slot_id: String,
-    },
-    SlotLane {
-        slot_id: String,
-    },
+    /// 某个编制键字段为空：portal.id、entry_spawn_slot_id、route_id、exit_portal_id、
+    /// edge_ids、slot_id、portal_id、edge_id（`validate`）。
+    EmptyId { field: &'static str },
+    /// slot progress 非有限或为负（`validate`；毫米级落边由 `bind` 兜底）。
+    InvalidProgress { slot_id: String },
+    /// 两个 slot 的 (edge_id, progress 的 f64 bit) 完全相同（`validate`；毫米级重复由 `bind` 兜底）。
+    DuplicatePosition { slot_id: String },
+    /// slot 的 (portal_id, lane_index) 不匹配任何已声明 portal lane（`validate`）。
+    SlotLane { slot_id: String },
+    /// portal lane 的 entry_spawn_slot_id 在 slot 表中不存在（`validate`）。
     MissingEntrySlot {
         portal_id: String,
         lane_index: usize,
     },
+    /// portal lane 的 entry slot 归属不符：其 portal_id 或 lane_index 与该 lane 不一致（`validate`）。
     EntrySlotMismatch {
         portal_id: String,
         lane_index: usize,
