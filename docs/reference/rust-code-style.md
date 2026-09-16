@@ -145,7 +145,9 @@ smoke，一万/十万 matrix 继续作为对应 Delivery/G3 的显式验证。
 - `rustfmt` 不负责统一数字分组，不能把 `cargo fmt` 通过解释为本规则已经满足。
 - Clippy 的 `clippy::unreadable_literal` 可以发现部分较长字面量，但不覆盖本规则关注的四位数 `1000`，只能作为补充检查。
 - 当前不使用全仓库正则 CI 强制本规则，避免把字符串、年份、端口和外部 token 误报为数字字面量问题。
-- 注释规范同样无自动门禁：`missing_docs` 等 lint 不启用，`# Errors`/`# Panics` 完整性由审阅按 5.2 核对。
+- `# Errors`/`# Panics` 完整性仍由审阅按 5.2 核对；`missing_docs` 自 #694 起按
+  crate 棘轮启用——清零的 crate 以 `#![deny(missing_docs)]` 锁定，未清零的
+  crate 暂不启用（进度见 #694 批次表）。
 - 新增或修改 Rust 代码时，由作者在本次变更范围内遵守本文件；审阅者只对触及区域提出一致性要求。
 - 历史不一致通过有界治理 Issue 清理，不应在无关功能 PR 中顺带制造大范围格式 diff。
 
