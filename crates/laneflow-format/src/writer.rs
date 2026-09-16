@@ -30,34 +30,43 @@ const MAX_PREPARED_SECTION_COUNT: usize =
 /// 一份完整对象的借用写入输入。
 #[derive(Clone, Copy, Debug)]
 pub struct ObjectWriteInput<'a> {
+    /// 要编码的对象种类。
     pub kind: PortableObjectKind,
+    /// 按 wire 顺序排列的 section 写入输入。
     pub sections: &'a [SectionWriteInput<'a>],
 }
 
 /// 一个 section 的借用写入输入。
 #[derive(Clone, Copy, Debug)]
 pub struct SectionWriteInput<'a> {
+    /// section 的登记 kind 码。
     pub kind: u16,
+    /// 按 wire 顺序排列的 table 写入输入。
     pub tables: &'a [TableWriteInput<'a>],
 }
 
 /// 一张 table 的借用写入输入。
 #[derive(Clone, Copy, Debug)]
 pub struct TableWriteInput<'a> {
+    /// table 的登记 kind 码。
     pub kind: u16,
+    /// 按 wire 顺序排列的 row 写入输入。
     pub rows: &'a [RowWriteInput<'a>],
 }
 
 /// 一行 row 的借用写入输入。
 #[derive(Clone, Copy, Debug)]
 pub struct RowWriteInput<'a> {
+    /// 按 tag 严格递增排列的字段写入输入。
     pub fields: &'a [FieldWriteInput<'a>],
 }
 
 /// 一个带显式 registry tag 的 field 写入输入。
 #[derive(Clone, Copy, Debug)]
 pub struct FieldWriteInput<'a> {
+    /// 字段的登记 tag。
     pub tag: u16,
+    /// 字段的有类型写入值。
     pub value: FieldWriteValue<'a>,
 }
 
@@ -84,18 +93,31 @@ impl PreparedObject<'_> {
 /// 封闭 field type 的有类型写入值。
 #[derive(Clone, Copy, Debug)]
 pub enum FieldWriteValue<'a> {
+    /// `U8` 定宽无符号整数值。
     U8(u8),
+    /// `U16` 定宽无符号整数值。
     U16(u16),
+    /// `U32` 定宽无符号整数值。
     U32(u32),
+    /// `U64` 定宽无符号整数值。
     U64(u64),
+    /// 规范 `F32` 浮点值；必须有限且不得为负零。
     F32(f32),
+    /// 规范 `F64` 浮点值；必须有限且不得为负零。
     F64(f64),
+    /// 128 位稳定标识的原字节。
     StableId128([u8; 16]),
+    /// SHA-256 摘要的原字节。
     Sha256([u8; 32]),
+    /// UTF-8 字符串字段值。
     Utf8(&'a str),
+    /// 不透明字节串字段值。
     Bytes(&'a [u8]),
+    /// `u32` 序号向量字段值。
     OrdinalVectorU32(&'a [u32]),
+    /// 嵌套行向量字段值。
     RecordVector(&'a [RowWriteInput<'a>]),
+    /// `I32` 定宽有符号整数值（小端编码）。
     I32(i32),
 }
 

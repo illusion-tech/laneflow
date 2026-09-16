@@ -16,21 +16,36 @@ const UNCONSTRAINED_ROW: u32 = u32::MAX;
 /// 道路走廊横断面中的有类型成员。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CorridorElement {
+    /// 横断面成员为道路区段。
     RoadSection(RoadSectionOrdinal),
+    /// 横断面成员为设施带。
     FacilityBand(FacilityBandOrdinal),
 }
 
 /// 与当前 Core `FacilityKind` 等价的紧凑类型；自定义 token 只出现在冷 intern 表。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FacilityKind {
+    /// 机动车道（`motorLane`），承担车道遍历。
     MotorLane,
+    /// 非机动车道（`nonMotorLane`），承担车道遍历。
     NonMotorLane,
+    /// 人行道（`sidewalk`）。
     Sidewalk,
+    /// 中央分隔带（`median`）。
     Median,
+    /// 绿化种植带（`plantingStrip`）。
     PlantingStrip,
+    /// 通用设施带（`facilityStrip`）。
     FacilityStrip,
+    /// 路肩（`shoulder`）。
     Shoulder,
-    Custom { intern: u32, lane_bearing: bool },
+    /// 自定义设施类型，token 保存在冷 intern 表。
+    Custom {
+        /// 自定义 token 在冷 intern 表中的下标。
+        intern: u32,
+        /// 该自定义类型是否承担车道遍历。
+        lane_bearing: bool,
+    },
 }
 
 impl FacilityKind {
@@ -52,9 +67,13 @@ impl FacilityKind {
 /// LFCA AccessRule 四种 typed target。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AccessTarget {
+    /// 规则作用于车道图边。
     LaneEdge(LaneEdgeOrdinal),
+    /// 规则作用于车道组。
     LaneGroup(LaneGroupOrdinal),
+    /// 规则作用于道路区段。
     RoadSection(RoadSectionOrdinal),
+    /// 规则作用于机动路径。
     ManeuverPath(ManeuverPathOrdinal),
 }
 
@@ -64,9 +83,13 @@ pub enum AccessTarget {
 /// 不得把无效 handle 编码成 [`AccessCell::Unconstrained`]。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AccessCell {
+    /// 本修订内无任何适用规则，单元不施加裁决。
     Unconstrained,
+    /// 由唯一规则给出本修订内的明确裁决。
     Decided {
+        /// 作出裁决的 AccessRule ordinal。
         rule: AccessRuleOrdinal,
+        /// 裁决的准入效果（allow/deny）。
         effect: AccessEffect,
     },
 }
@@ -78,7 +101,9 @@ pub enum AccessCell {
 /// 另一套整数合同（ADR 0028）。占用间隙的 `i64` 只服务有符号空隙，不是前缀先例。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BoundedDistance {
+    /// 距离仍落在 `u32` 毫米量程内，携带毫米值。
     Finite(u32),
+    /// 累加溢出 `u32` 毫米量程后的越界状态。
     BeyondFinite,
 }
 

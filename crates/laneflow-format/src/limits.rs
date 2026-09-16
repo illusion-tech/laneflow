@@ -72,18 +72,31 @@ pub(crate) fn canonical_chunk_with_appended_row(
 /// 构造 [`FormatLimits`] 的调用方配置。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FormatLimitConfig {
+    /// 单个对象的总字节预算。
     pub max_object_bytes: u64,
+    /// 每个 section 允许的最大物理 chunk 数。
     pub max_chunks_per_section: u32,
+    /// 单个表 chunk 的最大字节长度。
     pub max_table_chunk_bytes: u64,
+    /// 单个表 chunk 允许的最大 row 数。
     pub max_rows_per_chunk: u32,
+    /// 单行 row 允许的最大字段数。
     pub max_fields_per_row: u32,
+    /// Identity v1 ASCII 值的最大字节长度。
     pub max_identity_ascii_bytes: u64,
+    /// 单个 UTF-8 字段值的最大字节长度。
     pub max_utf8_field_bytes: u64,
+    /// 单个对象内全部 UTF-8 字段值的累计字节上限。
     pub max_total_utf8_bytes: u64,
+    /// 单个向量值允许的最大元素个数。
     pub max_vector_items: u32,
+    /// 单个对象内全部向量值的累计字节上限。
     pub max_total_vector_bytes: u64,
+    /// record 向量值允许的最大嵌套行深度。
     pub max_record_vector_depth: u8,
+    /// 单个 LFSM SourceLocation chunk 允许的最大 row 数。
     pub max_source_location_rows_per_chunk: u32,
+    /// 三个对象同时暂存当前 chunk 的内存字节上限。
     pub max_staged_chunk_bytes: u64,
 }
 

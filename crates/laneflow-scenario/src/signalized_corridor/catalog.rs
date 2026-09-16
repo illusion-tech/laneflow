@@ -54,8 +54,13 @@ pub struct CorridorCatalog {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CatalogPolicySelection {
+    /// 共享路网不含需路权裁决的实体，宿主不固定策略。
     NotRequired {},
-    Pinned { policy: String },
+    /// 宿主显式固定的路权策略集。
+    Pinned {
+        /// 固定的 RightOfWayPolicySet 规范 StableId 文本。
+        policy: String,
+    },
 }
 
 impl CatalogPolicySelection {
@@ -154,27 +159,48 @@ pub enum CatalogError {
     DuplicatePortal(String),
     /// portal 的 lane 数与封闭要求不符：main portal 为 3、side portal 为 2（`validate`）。
     LaneCount {
+        /// lane 数与封闭要求不符的 portal ID。
         portal_id: String,
+        /// 封闭要求的车道数。
         expected: usize,
+        /// catalog 实际声明的车道数。
         actual: usize,
     },
     /// portal lane 的 lane_index 不是从 0 起连续递增的位置下标（`validate`）。
     LaneIndex {
+        /// lane index 非法的 portal ID。
         portal_id: String,
+        /// 该位置应有的从 0 起连续递增下标。
         expected: usize,
+        /// catalog 实际声明的 lane index。
         actual: usize,
     },
     /// portal lane 未列任何加权路线选项（`validate`）。
     EmptyRouteChoices {
+        /// 未列任何路线选项的 portal ID。
         portal_id: String,
+        /// 该 portal 内未列路线选项的 lane index。
         lane_index: usize,
     },
     /// portal lane 的某条路线选项 weight 为 0，cumulative selection 需要正整数权重（`validate`）。
-    ZeroWeight { portal_id: String, route_id: String },
+    ZeroWeight {
+        /// 含零权重选项的 portal ID。
+        portal_id: String,
+        /// 权重为零的路线 ID。
+        route_id: String,
+    },
     /// 单条 portal lane 的全部选项权重按 u64 累加溢出（`validate`）。
-    WeightOverflow { portal_id: String },
+    WeightOverflow {
+        /// 选项权重之和溢出 u64 的 portal ID。
+        portal_id: String,
+    },
     /// 同一 portal lane 重复引用同一条路线（`validate`）。
-    DuplicateChoice { portal_id: String, route_id: String },
+    DuplicateChoice {
+        /// 重复引用同一路线的 portal ID。
+        portal_id: String,
+        /// 被重复引用的路线 ID。
+        route_id: String,
+    },
     /// routes 表出现重复 route_id（`validate`）。
     DuplicateRoute(String),
     /// 路线的 edge_ids 序列为空（`validate`）。
@@ -186,7 +212,10 @@ pub enum CatalogError {
     /// portal lane 选项引用的 route_id 未在 routes 表声明（`validate`）。
     UnknownRoute(String),
     /// 路线被某 portal lane 引用，但其 exit_portal_id 与该入口 portal 相同（`validate`）。
-    SameEntryExit { route_id: String },
+    SameEntryExit {
+        /// 入口与出口 portal 相同的路线 ID。
+        route_id: String,
+    },
     /// routes 表中的路线没有被任何 portal lane 选项引用（`validate`）。
     UnreferencedRoute(String),
     /// spawn slot 数低于封闭下限 200（`validate`）。
@@ -196,23 +225,39 @@ pub enum CatalogError {
     /// 某个编制键字段为空：entry_spawn_slot_id、route_id、exit_portal_id、
     /// edge_ids、slot_id、portal_id、edge_id（`validate`；空 `portal.id` 先行命中
     /// `PortalSet`，不触达本变体）。
-    EmptyId { field: &'static str },
+    EmptyId {
+        /// 为空的编制键字段名。
+        field: &'static str,
+    },
     /// slot progress 非有限或为负（`validate`；毫米级落边由 `bind` 兜底）。
-    InvalidProgress { slot_id: String },
+    InvalidProgress {
+        /// 进度非有限或为负的 spawn slot ID。
+        slot_id: String,
+    },
     /// 两个 slot 的 (edge_id, progress) 去重键相同——比较前 `0.0`/`-0.0` 规范化为
     /// `+0.0`（`validate`；毫米级重合无 bind 侧兜底）。
-    DuplicatePosition { slot_id: String },
+    DuplicatePosition {
+        /// 与他 slot 位置重复的 spawn slot ID。
+        slot_id: String,
+    },
     /// slot 的 `portal_id` 已声明，但 (portal_id, lane_index) 不匹配该 portal 的
     /// 任何 lane（`validate`；未知 `portal_id` 先返回 `UnknownPortal`）。
-    SlotLane { slot_id: String },
+    SlotLane {
+        /// 没有匹配 portal lane 的 spawn slot ID。
+        slot_id: String,
+    },
     /// portal lane 的 entry_spawn_slot_id 在 slot 表中不存在（`validate`）。
     MissingEntrySlot {
+        /// entry spawn slot 缺失的 portal ID。
         portal_id: String,
+        /// 该 portal 内 entry spawn slot 缺失的 lane index。
         lane_index: usize,
     },
     /// portal lane 的 entry slot 归属不符：其 portal_id 或 lane_index 与该 lane 不一致（`validate`）。
     EntrySlotMismatch {
+        /// entry slot 归属不符的 portal ID。
         portal_id: String,
+        /// 该 portal 内归属不符的 lane index。
         lane_index: usize,
     },
 }

@@ -17,11 +17,17 @@ use super::{
 /// prepare 阶段把 catalog 0.1 字符串绑到本共享路网修订的类型化序号。
 #[derive(Clone, Debug, PartialEq)]
 pub struct BoundJunctionCatalog {
+    /// 绑定所用共享路网修订的身份；`install_routes` 据此校验世界修订一致。
     pub network_revision: NetworkRevisionId,
+    /// catalog 策略选择解析出的世界路权策略选择。
     pub policy_selection: laneflow_runtime::WorldPolicySelection,
+    /// 按 route_id 索引的路线边序号序列。
     pub routes: BTreeMap<String, Box<[LaneEdgeOrdinal]>>,
+    /// spawn slot 边键到边序号的映射。
     pub edges: BTreeMap<String, LaneEdgeOrdinal>,
+    /// 车型编制键到车型序号的映射。
     pub profiles: BTreeMap<String, VehicleProfileOrdinal>,
+    /// 已绑定 spawn slot，按 portal、lane_index、progress_mm、slot_id 排序。
     pub spawn_slots: Vec<BoundSpawnSlot>,
     /// `catalog.routes` 顺序的边序号序列与出口 portal 下标。
     pub route_exits: Vec<BoundRouteExit>,
@@ -36,42 +42,59 @@ pub struct BoundJunctionCatalog {
 /// catalog route 绑到本修订边序号序列与出口 portal。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BoundRouteExit {
+    /// 路线按序展开的边序号序列。
     pub edges: Box<[LaneEdgeOrdinal]>,
+    /// 出口 portal 在 `PORTAL_IDS` 中的下标。
     pub exit_portal_index: u8,
 }
 
 /// portal lane 的加权 RouteChoice；`route_index` 指向 `route_exits`。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BoundRouteChoice {
+    /// 本选项路线在 `route_exits` 中的下标。
     pub route_index: usize,
+    /// 本选项的正整数原始权重。
     pub weight: u64,
 }
 
 /// 已绑定的 portal lane：共享 entry slot 与加权路线。
 #[derive(Clone, Debug, PartialEq)]
 pub struct BoundPortalLane {
+    /// 所属 portal 在 `PORTAL_IDS` 中的下标。
     pub portal_index: u8,
+    /// 所属 portal 内从 0 起的 lane index。
     pub lane_index: usize,
+    /// 共享入口 slot 在 `spawn_slots` 中的下标。
     pub entry_slot_index: usize,
+    /// 按 catalog 顺序排列的加权路线选项。
     pub choices: Vec<BoundRouteChoice>,
+    /// 全部选项权重之和；cumulative selection 的归一总量。
     pub total_positive_weight: u64,
 }
 
 /// 已绑定到类型化序号的物理 spawn slot。
 #[derive(Clone, Debug, PartialEq)]
 pub struct BoundSpawnSlot {
+    /// catalog 中的稳定 slot ID。
     pub slot_id: String,
+    /// 所属入口 portal 的 catalog ID。
     pub portal_id: String,
+    /// 所属 portal 在 `PORTAL_IDS` 中的下标。
     pub portal_index: u8,
+    /// 所属 portal 内的 lane index。
     pub lane_index: usize,
+    /// 对应 portal lane 在 `portal_lanes` 中的下标。
     pub portal_lane_index: usize,
+    /// slot 所在边的序号。
     pub edge: LaneEdgeOrdinal,
+    /// 前保险杠 edge-local 进度，单位毫米。
     pub progress_mm: u32,
     /// 该 portal lane 的第一条 catalog 路线；spawn 用 `install_routes` 对应句柄。
     pub route_index: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// `bind` 与 `BoundJunctionCatalog::install_routes` 失败。
 pub enum BindError {
     /// catalog 0.1 静态校验失败，包装 `validate` 的全部 [`CatalogError`]（`bind` 首步）。
     Catalog(CatalogError),
@@ -92,15 +115,29 @@ pub enum BindError {
     /// profile 编制键 standard-car 派生的 StableId 未登记在本修订（`bind`）。
     UnknownProfile(String),
     /// slot 所在边不是其 portal lane 某条路线选项的首边，无法作为该路线的生成入口（`bind`）。
-    SlotEdgeNotEntry { slot_id: String, route_id: String },
+    SlotEdgeNotEntry {
+        /// 涉事 spawn slot 的 ID。
+        slot_id: String,
+        /// 入口首边与 slot 所在边不符的路线 ID。
+        route_id: String,
+    },
     /// slot progress 非有限或为负（validate 已拦截，防御性），或四舍五入到毫米后
     /// 越出绑定边的 [0, 边长]（`bind`）。
-    InvalidProgress { slot_id: String },
+    InvalidProgress {
+        /// 进度非法的 spawn slot ID。
+        slot_id: String,
+    },
     /// 两个 slot 的米制 f64 值互异但取整后落在同一边同一毫米位置（`bind`；
     /// validate 按 f64 bit 去重后的毫米级兜底）。
-    DuplicateSlotPosition { slot_id: String },
+    DuplicateSlotPosition {
+        /// 取整到毫米后与他 slot 同边同位重合的 spawn slot ID。
+        slot_id: String,
+    },
     /// 焦点路线的边序中没有任何带门机动路径出现两次以上，成环重复过门的观测合同不成立（`bind`）。
-    FocusRouteNotRepeating { route_id: String },
+    FocusRouteNotRepeating {
+        /// 不满足成环重复过门合同的焦点路线 ID。
+        route_id: String,
+    },
     /// 世界路线容量预检不足或 `register_route` 失败；失败时已尝试撤回本次句柄（`install_routes`）。
     RouteRegister(RouteError),
 }

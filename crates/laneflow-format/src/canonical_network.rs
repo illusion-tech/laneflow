@@ -24,8 +24,11 @@ pub enum CanonicalNetworkInputError {
     /// LFCA 字节长度超过调用方配置的 `max_object_bytes` 上限
     /// （`check_canonical_network_input`）。
     LimitExceeded {
+        /// 超限的资源维度。
         dimension: LimitDimension,
+        /// 实测对象字节长度。
         actual: u64,
+        /// 调用方配置的单对象字节上限。
         limit: u64,
     },
     /// 制品内声明的路网修订摘要与按前六个 section 重算的不一致

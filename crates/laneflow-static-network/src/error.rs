@@ -51,41 +51,72 @@ pub enum PolicyBuildViolation {
 /// 构建失败涉及的稳定结构分类。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BuildStructure {
+    /// 静态契约版本表。
     ContractVersions,
+    /// 规范身份表。
     CanonicalIdentity,
+    /// 规范实体段与实体表。
     CanonicalEntityTable,
+    /// `LaneEdge` 实体表行。
     LaneEdge,
+    /// `LaneEdge` 的后继引用向量及其派生对。
     LaneSuccessors,
+    /// `LaneEdge` 的前驱索引构建。
     LanePredecessors,
+    /// `ManeuverPath` 实体表行及其行内引用。
     ManeuverPath,
+    /// 机动候选表（`ManeuverGate` 与 `StopLine` 行）。
     ManeuverCandidates,
+    /// Conflict component 构建。
     Conflict,
+    /// 路权策略闭合。
     Policy,
+    /// 策略解析的工作预算。
     PolicyWork,
+    /// 分区规划提示派生。
     PlanningHints,
+    /// ExecutionContract 行。
     ExecutionContract,
+    /// Spatial presence 标记行。
     SpatialPresence,
+    /// `LaneEdge` 几何表。
     LaneEdgeGeometry,
+    /// `FacilityBand` 几何表。
     FacilityBandGeometry,
+    /// 冲突区空间区域表。
     ConflictZoneRegion,
+    /// 静态关系闭合。
     RelationClosure,
+    /// Access 准入平面构建。
     AccessPlane,
+    /// 构建输出的保留内存预算。
     RetainedOutput,
+    /// 构建过程的暂存内存预算。
     BuilderScratch,
 }
 
 /// 构建失败的粗粒度稳定分类。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BuildErrorClass {
+    /// 输入违反结构不变量。
     InputInvariant,
+    /// 序次失败：typed ordinal 与期望不符或序列非严格递增。
     Order,
+    /// 引用失败：引用越界、策略引用无法闭合或 Access 规则歧义。
     Reference,
+    /// 身份失败：实体计数不一致或 StableId 不一致、重复。
     Identity,
+    /// 静态契约版本不受支持或声明不一致。
     Contract,
+    /// Spatial payload 覆盖、长度或几何校验失败。
     Spatial,
+    /// retained/scratch/work 构建预算超限。
     Budget,
+    /// 构建期 checked 算术溢出。
     Arithmetic,
+    /// 构建缓冲的容量预留失败。
     Allocation,
+    /// 调用方取消构建。
     Cancelled,
 }
 
@@ -95,110 +126,167 @@ pub enum BuildError {
     /// 策略闭合失败，携带策略序号与具体 `PolicyBuildViolation`
     /// （`build_shared_network_revision` 策略阶段）。
     Policy {
+        /// 违反闭合的路权策略集序号。
         policy: u32,
+        /// 具体的策略违反类型。
         violation: PolicyBuildViolation,
     },
     /// 受检 LFCA 违反结构不变量：段/表缺失、字段值类型不符、成员记录缺失或实体
     /// 归属不闭合等（`build_shared_network_revision`；structure 标明所属组件）。
-    InputInvariant { structure: BuildStructure },
+    InputInvariant {
+        /// 违反不变量所属的稳定结构分类。
+        structure: BuildStructure,
+    },
     /// 实体行声明的 typed ordinal 与按行序派生的期望序号不一致
     /// （`build_shared_network_revision` 的身份表、实体表、关系闭合与车道几何行
     /// 扫描）。
     UnexpectedOrdinal {
+        /// 出现序号不符的稳定结构分类。
         structure: BuildStructure,
+        /// 按行序派生的期望序号。
         expected: u32,
+        /// 实体行实际声明的序号。
         actual: u32,
     },
     /// 规范身份表的实体种类序列出现回退（`build_shared_network_revision`
     /// 的身份闭合）。
     EntityKindOrder {
+        /// 序列中前一个实体种类。
         previous: EntityKind,
+        /// 出现回退的实体种类。
         actual: EntityKind,
     },
     /// 某实体种类的身份条目数与实体表行数不一致（`build_shared_network_revision`
     /// 的身份闭合）。
     EntityCountMismatch {
+        /// 计数不一致的实体种类。
         entity_kind: EntityKind,
+        /// 身份表中该种类的条目数。
         identity_count: u32,
+        /// 实体表中该种类的行数。
         entity_count: u32,
     },
     /// 实体表行的 StableId128 与身份表同种类同序号声明不一致
     /// （`build_shared_network_revision` 的实体表扫描）。
     StableIdMismatch {
+        /// 声明不一致的实体种类。
         entity_kind: EntityKind,
+        /// 该种类内的实体序号。
         ordinal: u32,
     },
     /// 两个规范身份条目声明同一 StableId128（`build_shared_network_revision`
     /// 的反向身份基数排序）。
-    DuplicateStableId { stable_id: StableId128 },
+    DuplicateStableId {
+        /// 被重复声明的 StableId128。
+        stable_id: StableId128,
+    },
     /// 结构内的序号引用越过目标实体数上限（`build_shared_network_revision`；
     /// 如身份序号、Access/authoring 引用、几何引用）。
     ReferenceOutOfBounds {
+        /// 引用越界所属的稳定结构分类。
         structure: BuildStructure,
+        /// 越界的引用序号。
         ordinal: u32,
+        /// 目标实体的数量上限。
         limit: u32,
     },
     /// 要求规范有序的成员或位置序列出现非严格递增（`build_shared_network_revision`
     /// 的关系闭合与 spatial 构建——设施带几何行、冲突区 region 行同样要求严格
     /// 递增）。
     NonCanonicalOrder {
+        /// 序列非严格递增所属的稳定结构分类。
         structure: BuildStructure,
+        /// 序列中前一项的值。
         previous: u32,
+        /// 破坏严格递增的值。
         actual: u32,
     },
     /// 受检 LFCA 携带的静态契约版本不受支持（ContractVersions），或与
     /// ExecutionContract 行声明的执行/约束契约版本不一致（`build_shared_network_revision`）。
-    ContractMismatch { structure: BuildStructure },
+    ContractMismatch {
+        /// 契约版本不受支持或声明不一致所属的稳定结构分类。
+        structure: BuildStructure,
+    },
     /// 头部声明的 Spatial presence 标记与实际 spatial payload（方向 profile、
     /// 规范系、车道/设施几何、冲突区面）不一致；无 spatial payload 的 headless
     /// LFCA 是合法输入（`build_shared_network_revision`）。
     SpatialPresenceMismatch,
     /// 车道几何行数与 LaneEdge 实体数不一致；零几何行的 headless LFCA 显式
     /// 跳过本检查（`build_shared_network_revision` 的 spatial 构建）。
-    SpatialCoverageMismatch { lane_edges: u32, geometries: u32 },
+    SpatialCoverageMismatch {
+        /// `LaneEdge` 实体数。
+        lane_edges: u32,
+        /// 车道几何行数。
+        geometries: u32,
+    },
     /// 车道几何弧长与同车道交通网络的毫米长度不匹配（超出绝对/相对容差；
     /// `build_shared_network_revision` 的 spatial 构建）。
     SpatialLengthMismatch {
+        /// 长度不匹配的车道边序号。
         lane_edge: u32,
+        /// 交通网络声明的车道长度（毫米）。
         traffic_length_mm: u32,
+        /// 车道几何的弧长（米）。
         spatial_length_meters: f32,
     },
     /// 相连通的前后车道边引用不同的规范系（`build_shared_network_revision`
     /// 的几何连通校验）。
     SpatialFrameMismatch {
+        /// 前驱车道边序号。
         predecessor: u32,
+        /// 后继车道边序号。
         successor: u32,
+        /// 前驱边引用的规范系序号。
         predecessor_frame: u32,
+        /// 后继边引用的规范系序号。
         successor_frame: u32,
     },
     /// 相连通的前后车道边端点间隙超过拼接位置容差（`build_shared_network_revision`
     /// 的几何连通校验）。
     SpatialJoinGapMismatch {
+        /// 前驱车道边序号。
         predecessor: u32,
+        /// 后继车道边序号。
         successor: u32,
+        /// 前驱末点与后继首点的间隙（米）。
         gap_meters: f32,
+        /// 允许的拼接位置容差（米）。
         tolerance_meters: f32,
     },
     /// retained/scratch/work 构建预算任一超限（`build_shared_network_revision`；
     /// 如最终 retained 复核、关系 intern 表、策略工作预算）。
     BudgetExceeded {
+        /// 超限预算所属的稳定结构分类。
         structure: BuildStructure,
+        /// 实际需要的预算量（字节或工作计数，随 structure 而定）。
         required: u64,
+        /// 对应预算的上限（字节或工作计数，随 structure 而定）。
         limit: u64,
     },
     /// 构建期计数、容量或偏移派生的 checked 算术溢出
     /// （`build_shared_network_revision`；structure 标明所属组件）。
-    ArithmeticOverflow { structure: BuildStructure },
+    ArithmeticOverflow {
+        /// 溢出发生所属的稳定结构分类。
+        structure: BuildStructure,
+    },
     /// 构建缓冲的容量预留失败（`build_shared_network_revision`；structure 标明
     /// 分配所属组件）。
-    AllocationFailure { structure: BuildStructure },
+    AllocationFailure {
+        /// 分配失败所属的稳定结构分类。
+        structure: BuildStructure,
+    },
     /// 同一 Access 单元与参与者类别在相同深度/目标具体度/优先级下同时命中
     /// allow 与 deny 规则（`build_shared_network_revision` 的 Access 闭合）。
     AccessAmbiguity {
+        /// 发生歧义的 Access 平面标识。
         plane: &'static str,
+        /// 该平面内发生歧义的单元序号。
         unit: u32,
+        /// 发生歧义的参与者类别序号。
         class: u32,
+        /// 相互冲突的第一条规则序号。
         first_rule: u32,
+        /// 相互冲突的第二条规则序号。
         second_rule: u32,
     },
     /// 调用方提供的取消标志已置位（`build_shared_network_revision` 的各阶段

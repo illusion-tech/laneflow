@@ -42,7 +42,9 @@ type ManeuverCandidateIndex = (Box<[RangeU32]>, Box<[ManeuverTransitionCandidate
 /// Spatial retained-data 构建选择；它不进入 LFCA 或持久化配置档。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SpatialBuildOption {
+    /// 即使 LFCA 携带 spatial payload 也不保留进共享根；几何连通仍校验。
     Omit,
+    /// LFCA 携带 spatial payload 时把全部 Spatial 数据保留进共享根。
     RetainAvailable,
 }
 

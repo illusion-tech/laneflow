@@ -9,24 +9,33 @@ use crate::RangeU32;
 /// 规范 `f32` 空间点。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CanonicalPoint {
+    /// 规范系 X 坐标（米）。
     pub x: f32,
+    /// 规范系 Y 坐标（高度，米）。
     pub y: f32,
+    /// 规范系 Z 坐标（米）。
     pub z: f32,
 }
 
 /// 规范 `f32` XZ 平面点。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CanonicalPointXZ {
+    /// 规范系 X 坐标（米）。
     pub x: f32,
+    /// 规范系 Z 坐标（米）。
     pub z: f32,
 }
 
 /// 一段预计算的规范采样几何。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SegmentGeometry {
+    /// 本段弦长（米，严格大于 0.1 m）。
     pub length_meters: f32,
+    /// 段序列起点到本段末端的累计弧长（米）。
     pub cumulative_end_meters: f32,
+    /// 本段方向的单位切向量（规范系三分量）。
     pub tangent: [f32; 3],
+    /// 由切向量派生的单位上向量（规范系三分量）。
     pub up: [f32; 3],
 }
 

@@ -10,8 +10,11 @@ use crate::RangeU32;
 /// 可跨世界比较的规则身份；raw key 不作大小写或 Unicode 规范化。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PolicyRuleAttribution<'a> {
+    /// 命中规则所属的路权策略集身份。
     pub policy: RightOfWayPolicySetId,
+    /// 规则在策略局部的成员种类。
     pub member_kind: PolicyLocalMemberKind,
+    /// 规则在策略局部的 key 文本。
     pub key: &'a str,
 }
 

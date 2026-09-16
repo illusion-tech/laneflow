@@ -13,10 +13,15 @@ use crate::{BuildError, BuildStructure, RangeU32, SharedIdentityIndex, SharedTra
 /// 冲突通行段 entry/exit 在机动路径上的锚点：机动门、边边界或路径内部进度点。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConflictPathAnchor {
+    /// 锚点为机动门，携带其 typed ordinal。
     Gate(ManeuverGateOrdinal),
+    /// 锚点为路径的边边界，携带 boundary 下标（等于边数时表示路径终点）。
     EdgeBoundary(u32),
+    /// 锚点位于某条路径边内部，不含该边两端点。
     Interior {
+        /// 锚点所在的机动路径边下标。
         path_edge_index: u32,
+        /// 边内进度（毫米，严格介于 0 与该边长度之间）。
         progress_millimetres: u32,
     },
 }
