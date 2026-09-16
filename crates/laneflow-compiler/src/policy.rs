@@ -36,8 +36,9 @@ pub enum PolicyViolation {
     /// 让行目标、参与者类别或证据引用在同一规则内重复（三个策略声明入口均可达，
     /// 同 `InvalidRegulation`）。
     DuplicateReference,
-    /// stream/gate 规则显式声明的参与者类别列表为空（三个策略声明入口均可达，
-    /// 同 `InvalidRegulation`）。
+    /// stream/gate 规则显式声明的参与者类别列表为空（`add_right_of_way_policy_set`
+    /// 与 `Compiler::compile` 可达；LFRE 的空类别向量在预检即以 `EmptyCollection`
+    /// 拒绝，不触达本变体）。
     EmptyClasses,
     /// 规则引用的证据键或间隙参数键不存在于本策略集的对应成员中（三个策略声明
     /// 入口均可达，同 `InvalidRegulation`）。

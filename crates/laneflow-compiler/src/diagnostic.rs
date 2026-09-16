@@ -487,8 +487,8 @@ pub enum JunctionEdgeSetViolation {
     /// 显式声明的 internal 边没有被同路口的任何机动路径实际使用
     /// （`Compiler::compile`）。
     DeclaredInternalUnused,
-    /// 显式声明的 approach 边被同路口某条机动路径当作内部边使用
-    /// （`Compiler::compile`）。
+    /// 显式声明的 approach 边被某条机动路径当作内部边使用；内部边声明按车道边
+    /// 全局索引比对，不限于同一路径或同一路口（`Compiler::compile`）。
     ApproachClaimedInternal,
     /// 显式声明的 internal 边在车道图中携带后继；路口内部边必须无后继
     /// （`Compiler::compile`）。
@@ -667,7 +667,8 @@ pub enum ConflictZoneRegionViolation {
         axis: SpatialAxis,
         value_bits: u64,
     },
-    /// 某编制点的指定轴坐标落在规范点分量闭包之外（`Compiler::compile`）。
+    /// 某编制点的指定轴坐标落在规范点分量闭包之外，含冲突区 region 的
+    /// `min_y`/`max_y` 高度界（以 `u32::MAX` 哨兵下标报告；`Compiler::compile`）。
     AuthoringCoordinateOutOfRange {
         point_index: u32,
         axis: SpatialAxis,

@@ -80,7 +80,8 @@ pub enum FormatError {
         limit: u64,
     },
     /// 声明的字节范围越过对象缓冲区末尾，或表头不足固定字节数（读取侧四个
-    /// `preflight_*` 入口与 `RegistryCheckedFieldView::value` 的定长读取）。
+    /// `preflight_*` 入口；registry 预检已证实的定长字段不会在
+    /// `RegistryCheckedFieldView::value` 触发本变体）。
     Truncated {
         structure: FormatStructure,
         offset: u64,
