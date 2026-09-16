@@ -529,6 +529,13 @@ claim，不等同于实际 successful entry。
 输出 `NotEvaluated`，允许通行且无需新 Waiting admission 时才输出 `NotRequired`。
 tick 结束时的信号刷新不改写该批次的历史决定。
 
+非入口 Gate 的出现项只从正式 staged motion 发现一次，暂存更新位置、机动出现项和
+hop，随后按实际条数预留决定批次。暂存按实际发现行摊还增长并复用高水位，不按车辆
+容量或理论路线全量预留；其分配失败属于 `WaitingScratchAllocFailed`，仍保持整个
+step 原子失败。成功输出与回滚均清空暂存逻辑内容。正式更新序号可复用同拍、完整
+车辆句柄匹配的运动缓存；可选缓存缺失时按 `live_order` 保序合并，不能使用 Active
+下标代替正式序号。
+
 ### 8.3 事件
 
 当前 API 使用 `TrafficTransitionEvent` / `TrafficTransitionKind` 与

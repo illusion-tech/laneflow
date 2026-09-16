@@ -11,6 +11,10 @@ thread_local! {
         const { core::cell::Cell::new(None) };
     static NON_ENTRY_GENERATION_VISITS: core::cell::Cell<usize> =
         const { core::cell::Cell::new(0) };
+    static NON_ENTRY_DISCOVERY_VISITS: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+    static NON_ENTRY_SEQUENCE_VISITS: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
     static WAITING_LOOKUP_VISITS: core::cell::Cell<[usize; 4]> =
         const { core::cell::Cell::new([0; 4]) };
     static WAITING_WORK_COUNTS: core::cell::Cell<WaitingWorkCounts> =
@@ -39,6 +43,14 @@ pub(crate) struct WaitingWorkCounts {
     pub(crate) journal_zones: usize,
     pub(crate) committed_zones: usize,
     pub(crate) member_vehicles: usize,
+}
+
+/// 本拍正式 motion 中已发现的非入口 Gate；只引用 updates 和编译路线。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct NonEntryGateAnchor {
+    update_index: usize,
+    maneuver_occurrence_index: u32,
+    hop: u32,
 }
 
 #[cfg(test)]
@@ -1160,6 +1172,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         self.workspace.waiting_plans.clear();
         self.workspace.waiting_claims.clear();
         self.workspace.waiting_staged_decisions.clear();
+        self.workspace.waiting_non_entry_anchors.clear();
         self.workspace.staged_transition_events.clear();
         self.workspace.waiting_plan_by_vehicle.fill(None);
         reserve_waiting_exact(
@@ -1198,6 +1211,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     .motion_cache
                     .push(crate::kernel::tick::MotionCacheEntry {
                         vehicle,
+                        update_sequence: sequence,
                         horizon: None,
                         preview: None,
                     });
@@ -1720,76 +1734,105 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     outcome: self.final_waiting_decision(plan),
                 });
         }
-        let non_entry_count = updates.iter().try_fold(0_usize, |total, (slot, next)| {
+        self.workspace.waiting_non_entry_anchors.clear();
+        for (update_index, (slot, next)) in updates.iter().enumerate() {
             let old = self.committed.vehicles[*slot]
                 .state
                 .expect("staged live vehicle");
-            let compiled = self.compiled_route(old.route).expect("live route");
-            let count = non_entry_gate_anchors(
+            let compiled = self.committed.routes[old.route.index() as usize]
+                .compiled
+                .as_ref()
+                .expect("live route");
+            for (maneuver_occurrence_index, hop) in non_entry_gate_anchors(
                 compiled,
                 old,
                 *next,
                 self.binding.revision.traffic().lane_lengths_millimetres(),
-            )
-            .count();
-            total
-                .checked_add(count)
-                .ok_or(crate::StepError::WaitingInvariantViolation)
-        })?;
-        reserve_waiting_exact(
-            &mut self.workspace.waiting_staged_decisions,
-            non_entry_count,
-        )?;
-        // 零非入口 Gate 只省略重复生成；已有 Waiting 决策及事件仍须排序、暂存。
-        if non_entry_count != 0 {
-            for sequence in 0..self.committed.live_order.len() {
-                #[cfg(test)]
-                NON_ENTRY_GENERATION_VISITS.set(NON_ENTRY_GENERATION_VISITS.get() + 1);
-                let vehicle = self.committed.live_order[sequence];
-                let slot = vehicle.index() as usize;
-                let Some(update_index) = self.workspace.next_state_by_vehicle[slot].checked_sub(1)
-                else {
-                    continue;
-                };
-                let old = self.committed.vehicles[slot]
-                    .state
-                    .expect("staged live vehicle");
-                let next = updates[update_index as usize].1;
-                let vehicle_update_sequence = u32::try_from(sequence)
-                    .map_err(|_| crate::StepError::WaitingInvariantViolation)?;
-                let compiled = self.committed.routes[old.route.index() as usize]
-                    .compiled
-                    .as_ref()
-                    .expect("live route");
-                for (maneuver_occurrence_index, hop) in non_entry_gate_anchors(
-                    compiled,
-                    old,
-                    next,
-                    self.binding.revision.traffic().lane_lengths_millimetres(),
-                ) {
-                    let gate = compiled.hop_gate[hop as usize].expect("indexed Gate");
-                    // finalize 仍使用本 tick 的起始灯色；发布后刷新信号不改写这批决策。
-                    let outcome = if self.gate_is_restrictive(gate, old.profile) {
-                        WaitingDecisionOutcome::NotEvaluated
-                    } else {
-                        WaitingDecisionOutcome::NotRequired
-                    };
-                    self.workspace
-                        .waiting_staged_decisions
-                        .push(WaitingDecision {
-                            vehicle,
-                            vehicle_update_sequence,
-                            zone: None,
-                            anchor: WaitingRouteAnchor {
-                                route: old.route,
-                                maneuver_occurrence_index,
-                                hop,
-                            },
-                            outcome,
-                        });
+            ) {
+                let anchors = &mut self.workspace.waiting_non_entry_anchors;
+                if anchors.len() == anchors.capacity() {
+                    #[cfg(test)]
+                    if waiting_reservation_injected_failure() {
+                        return Err(crate::StepError::WaitingScratchAllocFailed);
+                    }
+                    // 按已发现的行摊还增长，不按全路线或车辆容量预留。
+                    anchors
+                        .try_reserve(1)
+                        .map_err(|_| crate::StepError::WaitingScratchAllocFailed)?;
                 }
+                anchors.push(NonEntryGateAnchor {
+                    update_index,
+                    maneuver_occurrence_index,
+                    hop,
+                });
             }
         }
+        reserve_waiting_exact(
+            &mut self.workspace.waiting_staged_decisions,
+            self.workspace.waiting_non_entry_anchors.len(),
+        )?;
+        let mut live_cursor = 0;
+        let mut previous_update = None;
+        let mut vehicle_update_sequence = 0;
+        for index in 0..self.workspace.waiting_non_entry_anchors.len() {
+            #[cfg(test)]
+            NON_ENTRY_GENERATION_VISITS.set(NON_ENTRY_GENERATION_VISITS.get() + 1);
+            let anchor = self.workspace.waiting_non_entry_anchors[index];
+            let old = self.committed.vehicles[updates[anchor.update_index].0]
+                .state
+                .expect("staged live vehicle");
+            if previous_update != Some(anchor.update_index) {
+                let sequence = self
+                    .workspace
+                    .motion_cache
+                    .get(anchor.update_index)
+                    .filter(|entry| entry.vehicle == old.handle)
+                    .map(|entry| entry.update_sequence);
+                let sequence = if let Some(sequence) = sequence {
+                    live_cursor = sequence;
+                    sequence
+                } else {
+                    // 可选运动缓存可能仅保留前缀；缺失时仍从正式 live 顺序线性合并。
+                    loop {
+                        #[cfg(test)]
+                        NON_ENTRY_SEQUENCE_VISITS.set(NON_ENTRY_SEQUENCE_VISITS.get() + 1);
+                        match self.committed.live_order.get(live_cursor) {
+                            Some(vehicle) if *vehicle == old.handle => break live_cursor,
+                            Some(_) => live_cursor += 1,
+                            None => return Err(crate::StepError::WaitingInvariantViolation),
+                        }
+                    }
+                };
+                vehicle_update_sequence = u32::try_from(sequence)
+                    .map_err(|_| crate::StepError::WaitingInvariantViolation)?;
+                previous_update = Some(anchor.update_index);
+            }
+            let compiled = self.committed.routes[old.route.index() as usize]
+                .compiled
+                .as_ref()
+                .expect("live route");
+            let gate = compiled.hop_gate[anchor.hop as usize].expect("indexed Gate");
+            // finalize 使用本 tick 起始灯色；发布后的信号刷新不改写历史决定。
+            let outcome = if self.gate_is_restrictive(gate, old.profile) {
+                WaitingDecisionOutcome::NotEvaluated
+            } else {
+                WaitingDecisionOutcome::NotRequired
+            };
+            self.workspace
+                .waiting_staged_decisions
+                .push(WaitingDecision {
+                    vehicle: old.handle,
+                    vehicle_update_sequence,
+                    zone: None,
+                    anchor: WaitingRouteAnchor {
+                        route: old.route,
+                        maneuver_occurrence_index: anchor.maneuver_occurrence_index,
+                        hop: anchor.hop,
+                    },
+                    outcome,
+                });
+        }
+        self.workspace.waiting_non_entry_anchors.clear();
         self.workspace
             .waiting_staged_decisions
             .sort_unstable_by_key(|decision| {
@@ -1830,6 +1873,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         }
         self.workspace.waiting_claims.clear();
         self.workspace.waiting_plans.clear();
+        self.workspace.waiting_non_entry_anchors.clear();
         self.workspace.waiting_staged_decisions.clear();
         self.workspace.staged_transition_events.clear();
         self.workspace.waiting_plan_by_vehicle.fill(None);
@@ -2162,6 +2206,8 @@ fn non_entry_gate_anchors<'a>(
     next: crate::VehicleState,
     lengths: &'a [u32],
 ) -> impl Iterator<Item = (u32, u32)> + 'a {
+    #[cfg(test)]
+    NON_ENTRY_DISCOVERY_VISITS.set(NON_ENTRY_DISCOVERY_VISITS.get() + 1);
     let start = compiled
         .gate_hops
         .partition_point(|hop| *hop < old.route_edge_index);
@@ -2294,7 +2340,7 @@ fn first_gate_hop(
 #[cfg(test)]
 pub(crate) mod tests {
     #[test]
-    fn zero_non_entry_count_skips_only_generation_scan() {
+    fn non_entry_outputs_discover_once_and_generate_only_present_anchors() {
         let mut world = multi_gate_world(2);
         let mut saw_non_entry = false;
         let mut saw_waiting_without_non_entry = false;
@@ -2303,17 +2349,22 @@ pub(crate) mod tests {
         let mut saw_non_entry_to_empty = false;
         for _ in 0..64 {
             NON_ENTRY_GENERATION_VISITS.set(0);
+            NON_ENTRY_DISCOVERY_VISITS.set(0);
+            NON_ENTRY_SEQUENCE_VISITS.set(0);
+            let active = world.derived.active_order.len();
             world.step(TickInput::new(100)).unwrap();
             let decisions = world.latest_waiting_decisions();
             let has_non_entry = decisions.iter().any(|decision| decision.zone().is_none());
             assert_eq!(
                 NON_ENTRY_GENERATION_VISITS.get(),
-                if has_non_entry {
-                    world.committed.live_order.len()
-                } else {
-                    0
-                }
+                decisions
+                    .iter()
+                    .filter(|decision| decision.zone().is_none())
+                    .count()
             );
+            assert_eq!(NON_ENTRY_DISCOVERY_VISITS.get(), active);
+            assert_eq!(NON_ENTRY_SEQUENCE_VISITS.get(), 0);
+            assert!(world.workspace.waiting_non_entry_anchors.is_empty());
             assert!(decisions.windows(2).all(|pair| {
                 (pair[0].vehicle_update_sequence(), pair[0].anchor().hop())
                     <= (pair[1].vehicle_update_sequence(), pair[1].anchor().hop())
@@ -2358,6 +2409,132 @@ pub(crate) mod tests {
         );
         assert!(world.latest_waiting_decisions().is_empty());
         assert!(world.latest_transition_events().is_empty());
+    }
+
+    #[test]
+    fn non_entry_scratch_failure_preserves_published_batch_and_same_tick_retry() {
+        let mut reference = multi_gate_world(8);
+        let mut first_output_tick = 0;
+        for tick in 1..=64 {
+            reference.step(TickInput::new(100)).unwrap();
+            if reference
+                .latest_waiting_decisions()
+                .iter()
+                .any(|d| d.zone().is_none())
+            {
+                first_output_tick = tick;
+                break;
+            }
+        }
+        assert!(first_output_tick > 1);
+        assert!(reference.workspace.waiting_non_entry_anchors.capacity() >= 8);
+        let retained = reference.retained_memory().world_owned_bytes();
+        let anchors = std::mem::take(&mut reference.workspace.waiting_non_entry_anchors);
+        assert_eq!(
+            retained - reference.retained_memory().world_owned_bytes(),
+            crate::kernel::state::vec_bytes(&anchors)
+        );
+        reference.workspace.waiting_non_entry_anchors = anchors;
+        let mut failures = 0;
+        for fail_after in 0..16 {
+            let mut world = multi_gate_world(8);
+            for _ in 1..first_output_tick {
+                world.step(TickInput::new(100)).unwrap();
+            }
+            let before = world.capture_snapshot().unwrap();
+            let decisions = world.latest_waiting_decisions().to_vec();
+            let events = world.latest_transition_events().to_vec();
+            let guard = fail_waiting_reservation_after(fail_after);
+            let result = world.step(TickInput::new(100));
+            drop(guard);
+            if result.is_ok() {
+                break;
+            }
+            assert_eq!(result, Err(crate::StepError::WaitingScratchAllocFailed));
+            failures += 1;
+            assert_eq!(world.capture_snapshot().unwrap(), before);
+            assert_eq!(world.latest_waiting_decisions(), decisions);
+            assert_eq!(world.latest_transition_events(), events);
+            assert!(world.workspace.waiting_non_entry_anchors.is_empty());
+            world.step(TickInput::new(100)).unwrap();
+            assert_eq!(
+                world.capture_snapshot().unwrap(),
+                reference.capture_snapshot().unwrap()
+            );
+            assert_eq!(
+                world.latest_waiting_decisions(),
+                reference.latest_waiting_decisions()
+            );
+            assert_eq!(
+                world.latest_transition_events(),
+                reference.latest_transition_events()
+            );
+        }
+        assert!(failures >= 2, "anchor growth and decision reservation");
+        eprintln!(
+            "non-entry scratch payload={} capacity={} retained={} motion_entry={}",
+            size_of::<NonEntryGateAnchor>(),
+            reference.workspace.waiting_non_entry_anchors.capacity(),
+            crate::kernel::state::vec_bytes(&reference.workspace.waiting_non_entry_anchors),
+            size_of::<crate::kernel::tick::MotionCacheEntry>()
+        );
+    }
+
+    #[test]
+    fn waiting_plan_invariant_precedes_non_entry_scratch_failure() {
+        let mut world = multi_gate_world(1);
+        world.prepare_waiting_step(0.1).unwrap();
+        world.workspace.waiting_plans[0].vehicle = VehicleHandle::new(u32::MAX, 0);
+        let _guard = fail_waiting_reservation_after(0);
+        assert_eq!(
+            world.finalize_waiting_outputs(&[], 1),
+            Err(crate::StepError::WaitingInvariantViolation)
+        );
+    }
+
+    #[test]
+    fn warmed_non_entry_outputs_need_no_waiting_scratch_growth() {
+        let mut world = multi_gate_world(8);
+        let inputs = world
+            .live_vehicles()
+            .iter()
+            .map(|vehicle| {
+                let state = world.vehicle_state(*vehicle).unwrap();
+                VehicleSpawnInput::new(
+                    state.profile,
+                    state.route,
+                    state.route_edge_index,
+                    state.progress_mm,
+                    state.speed_mm_s,
+                )
+            })
+            .collect::<Vec<_>>();
+        for _ in 0..64 {
+            world.step(TickInput::new(100)).unwrap();
+        }
+        let capacity = world.workspace.waiting_non_entry_anchors.capacity();
+        assert!(capacity >= 8);
+        for vehicle in world.live_vehicles().to_vec() {
+            world.despawn_vehicle(vehicle).unwrap();
+        }
+        for input in inputs {
+            world.spawn_vehicle(input).unwrap();
+        }
+        let _guard = fail_waiting_reservation_after(0);
+        let mut outputs = 0;
+        for _ in 0..64 {
+            world.step(TickInput::new(100)).unwrap();
+            outputs += world
+                .latest_waiting_decisions()
+                .iter()
+                .filter(|d| d.zone().is_none())
+                .count();
+        }
+        assert!(outputs >= 8);
+        assert_eq!(
+            world.workspace.waiting_non_entry_anchors.capacity(),
+            capacity
+        );
     }
 
     #[test]
@@ -3300,6 +3477,8 @@ pub(crate) mod tests {
                 * size_of::<Option<std::num::NonZeroU32>>()
             + world.workspace.next_state_by_vehicle.len() * size_of::<u32>()
             + world.workspace.waiting_staged_decisions.capacity() * size_of::<WaitingDecision>()
+            + world.workspace.waiting_non_entry_anchors.capacity()
+                * size_of::<NonEntryGateAnchor>()
             + world.workspace.staged_transition_events.capacity()
                 * size_of::<TrafficTransitionEvent>()
             + world.workspace.waiting_next_counters.len() * size_of::<u64>()

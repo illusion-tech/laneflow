@@ -383,6 +383,7 @@ impl TrafficWorld {
                 waiting_plan_by_vehicle,
                 next_state_by_vehicle,
                 waiting_staged_decisions,
+                waiting_non_entry_anchors: Vec::new(),
                 staged_transition_events,
                 waiting_next_counters,
                 waiting_staged_occupancy,

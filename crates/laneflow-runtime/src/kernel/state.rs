@@ -107,6 +107,7 @@ pub(crate) struct TickWorkspace {
     pub(crate) waiting_plan_by_vehicle: Box<[Option<std::num::NonZeroU32>]>,
     pub(crate) next_state_by_vehicle: Box<[u32]>,
     pub(crate) waiting_staged_decisions: Vec<crate::WaitingDecision>,
+    pub(crate) waiting_non_entry_anchors: Vec<crate::kernel::waiting::NonEntryGateAnchor>,
     pub(crate) staged_transition_events: Vec<crate::TrafficTransitionEvent>,
     pub(crate) waiting_next_counters: Box<[u64]>,
     pub(crate) waiting_staged_occupancy: Box<[u32]>,
@@ -227,6 +228,7 @@ impl TickWorkspace {
             waiting_plan_by_vehicle,
             next_state_by_vehicle,
             waiting_staged_decisions,
+            waiting_non_entry_anchors,
             staged_transition_events,
             waiting_next_counters,
             waiting_staged_occupancy,
@@ -247,6 +249,7 @@ impl TickWorkspace {
             + crate::kernel::state::vec_bytes(waiting_claims)
             + crate::kernel::state::vec_bytes(waiting_plans)
             + crate::kernel::state::vec_bytes(waiting_staged_decisions)
+            + crate::kernel::state::vec_bytes(waiting_non_entry_anchors)
             + crate::kernel::state::vec_bytes(staged_transition_events)
             + crate::kernel::state::vec_bytes(next_states)
             + crate::kernel::state::vec_bytes(motion_cache)
