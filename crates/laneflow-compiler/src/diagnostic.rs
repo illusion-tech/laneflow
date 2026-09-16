@@ -660,7 +660,8 @@ impl SpatialAxis {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum ConflictZoneRegionViolation {
-    /// 环点数超过固定上限（`Compiler::compile`）。
+    /// 环点数超过固定上限；LFRE 来源的超限环在 `add_road_editing_module` 预检
+    /// 即以 `CollectionTooLarge` 拒绝，正常输入不触达本变体（`Compiler::compile`）。
     PointCountExceeded { maximum: u32, actual: u32 },
     /// 某编制点的指定轴坐标为 NaN 或无穷，含冲突区 region 的 `min_y`/`max_y`
     /// 高度界（`Compiler::compile`）。
