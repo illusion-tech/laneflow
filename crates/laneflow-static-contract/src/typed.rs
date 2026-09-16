@@ -191,9 +191,17 @@ pub enum StableIdTextError {
     /// 文本中的实体种类 slug 与类型参数 `K` 不一致。
     UnexpectedEntityKind,
     /// 十六进制正文不是恰好 32 个 ASCII 字节。
-    InvalidHexLength { actual: usize },
+    InvalidHexLength {
+        /// 十六进制正文的实际 ASCII 字符数。
+        actual: usize,
+    },
     /// 正文包含非小写十六进制字符；`index` 是正文内的零基字节位置。
-    InvalidHexCharacter { index: usize, byte: u8 },
+    InvalidHexCharacter {
+        /// 非法字符在十六进制正文内的零基字节位置。
+        index: usize,
+        /// 实际遇到的非法字符字节值。
+        byte: u8,
+    },
 }
 
 impl fmt::Display for StableIdTextError {

@@ -20,16 +20,22 @@ pub enum PortableFieldPresence {
 /// 一行中登记的字段及其可选内嵌 RecordVector 行 schema。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PortableFieldSchema {
+    /// 字段在行内的 wire tag；登记内严格递增且不超过 31。
     pub tag: u16,
+    /// 字段的稳定 lowerCamelCase 名，供描述符和诊断使用。
     pub name: &'static str,
+    /// 值载荷的封闭字段类型。
     pub field_type: PortableFieldType,
+    /// 该字段在均一行或行变体中的存在性。
     pub presence: PortableFieldPresence,
+    /// RecordVector 字段的内嵌行 schema；非 RecordVector 字段为 `None`。
     pub nested_row: Option<&'static PortableRowSchema>,
 }
 
 /// 按 `u8` 判别字段选择的精确字段存在性变体。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PortableRowVariant {
+    /// 行内判别字段必须等于的 `u8` 值。
     pub discriminant: u8,
     /// 必须存在的 tag 位图；tag N 对应 bit N。
     pub required_fields: u32,
@@ -46,7 +52,9 @@ pub enum PortableRowShape {
     Uniform,
     /// 读取指定 `u8` 字段并选择精确 required/allowed matrix。
     DiscriminatedU8 {
+        /// 作为行变体判别依据的字段 tag；该字段必须是 `U8` 且按变体必需。
         tag: u16,
+        /// 按判别值升序登记的精确存在性变体。
         variants: &'static [PortableRowVariant],
     },
     /// LFSD 策略局部变更：tag 1 选择侧，tag 3 选择 Bytes 中完整 RowV1 的登记。
@@ -68,39 +76,53 @@ impl PortableRowShape {
 /// TableV1、RecordVector 或登记的 Bytes 载荷中每一行的静态 schema。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PortableRowSchema {
+    /// 按 tag 严格递增登记的行字段。
     pub fields: &'static [PortableFieldSchema],
+    /// 行字段存在性的闭合形状。
     pub shape: PortableRowShape,
 }
 
 /// TableV1 顶层行数约束。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PortableRowCardinality {
+    /// 任意行数，包括零行。
     Any,
+    /// 至多一行。
     AtMostOne,
+    /// 恰好一行。
     ExactlyOne,
 }
 
 /// 一张 TableV1 的静态登记。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PortableTableSchema {
+    /// TableV1 的稳定种类代码；同一 section 内严格递增。
     pub kind: u16,
+    /// TableV1 的稳定表名。
     pub name: &'static str,
+    /// 该表每一行的静态 schema。
     pub row: &'static PortableRowSchema,
+    /// 表顶层行数约束。
     pub cardinality: PortableRowCardinality,
 }
 
 /// 一个 section 的精确、有序 table 登记。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PortableSectionSchema {
+    /// section 的种类代码；对象内从 1 连续递增。
     pub kind: u16,
+    /// section 的稳定名。
     pub name: &'static str,
+    /// 该 section 精确、有序的 table 登记。
     pub tables: &'static [PortableTableSchema],
 }
 
 /// 一类对象的精确、有序 section 登记。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PortableObjectSchema {
+    /// 该登记对应的对象种类。
     pub kind: PortableObjectKind,
+    /// 该对象精确、有序的 section 登记。
     pub sections: &'static [PortableSectionSchema],
 }
 
