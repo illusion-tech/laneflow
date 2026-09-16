@@ -493,9 +493,8 @@ pub enum JunctionEdgeSetViolation {
     /// 显式声明的 internal 边在车道图中携带后继；路口内部边必须无后继
     /// （`Compiler::compile`）。
     InternalHasSuccessors,
-    /// 显式声明的 internal 边被其它边的后继列表引用；该检查仅在 internal 边
-    /// 未被任何机动路径内部使用时进行（已被使用时改报 `DeclaredInternalUnused`
-    /// 相关闭包）（`Compiler::compile`）。
+    /// 显式声明的 internal 边被其它边的后继列表引用，且该边已被某机动路径声明
+    /// 为内部使用；未声明或未被任何路径使用的边不触发（`Compiler::compile`）。
     InternalReferencedBySuccessor,
 }
 
@@ -702,8 +701,9 @@ pub enum SpatialGeometryViolation {
     /// 同一冲突区被两份区域声明引用（`Compiler::compile`；区域仅来自道路编辑
     /// 来源）。
     DuplicateConflictZoneRegion,
-    /// 折线或环的输入点数低于固定下限（`add_canonical_frame` 预检与
-    /// `Compiler::compile` 的点表冻结均可达）。
+    /// 折线或环的输入点数低于固定下限；正常输入不可达——`add_canonical_frame`
+    /// 预检与 LFRE 预检均已拒绝过短输入，本变体为编译侧防御性保留
+    /// （`Compiler::compile`）。
     InsufficientPoints { minimum: u32, actual: u32 },
     /// 某点的指定轴坐标为 NaN 或无穷（`add_canonical_frame` 预检与
     /// `Compiler::compile` 的点表冻结均可达）。

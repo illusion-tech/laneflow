@@ -31,7 +31,8 @@ pub enum CanonicalNetworkInputError {
     /// 制品内声明的路网修订摘要与按前六个 section 重算的不一致
     /// （`check_canonical_network_input`）。
     NetworkRevisionMismatch,
-    /// 重算修订时对 section 字节长度做 `u64` 换算溢出（`check_canonical_network_input`）。
+    /// 重算修订时对 section 字节长度做 `u64` 换算溢出；`usize`→`u64` 在受支持
+    /// 目标上不可失败，防御性保留（`check_canonical_network_input`）。
     ArithmeticOverflow,
 }
 
