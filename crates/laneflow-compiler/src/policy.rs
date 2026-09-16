@@ -53,7 +53,8 @@ pub enum PolicyViolation {
     /// 某参与类别在机动门或参与者流上可准入，但没有任何可适用规则
     /// （`Compiler::compile` 的 MIR 策略校验）。
     MissingRule,
-    /// 同一门/流上两条规则对同一参与类别的特异性并列，无法唯一选择规则
+    /// 同一门/流上两条规则对同一参与类别的特异性**与优先级**均并列，无法唯一
+    /// 选择规则；仅特异性并列但优先级不同时按优先级确定性选择、不触发本变体
     /// （`Compiler::compile` 的 MIR 策略校验）。
     AmbiguousRule,
     /// 门规则的解释不是 Uncontrolled 但所引用机动门未绑定信号组、Uncontrolled
