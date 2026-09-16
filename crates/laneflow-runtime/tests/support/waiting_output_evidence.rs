@@ -96,7 +96,6 @@ fn run(
             (active + 1) as u32,
             (active * 3 + 1) as u64,
             1,
-            1,
             100,
         ),
     )

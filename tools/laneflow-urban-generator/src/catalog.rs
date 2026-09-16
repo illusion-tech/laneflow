@@ -377,9 +377,9 @@ pub(crate) fn install(
             catalog.routes.len() as u32,
             edge_occurrences,
             conflict_occurrences,
-            1,
             scale.fixed_step_ms(),
         ),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://lf-cn-urban-v1",

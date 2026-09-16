@@ -35,7 +35,8 @@ fn fixture(corner: &str) -> (TrafficWorld, VehicleProfileOrdinal, [(RouteHandle,
     let origin = *revision.canonical_origin();
     let mut world = TrafficWorld::install(
         revision,
-        WorldConfig::new(8, 32, 1_024, 1_024, 1, 16),
+        WorldConfig::new(8, 32, 1_024, 1_024, 16),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://merge-admission",

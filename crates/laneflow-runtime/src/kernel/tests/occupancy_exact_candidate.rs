@@ -107,7 +107,8 @@ pub(crate) fn multi_edge_world(revision: &std::sync::Arc<SharedNetworkRevision>)
     let origin = *revision.canonical_origin();
     let mut world = TrafficWorld::install(
         std::sync::Arc::clone(revision),
-        WorldConfig::new(1_000, 64, 4_096, 1_024, 1, 100),
+        WorldConfig::new(1_000, 64, 4_096, 1_024, 100),
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         crate::CommittedNetworkSource::Published {
             reference: crate::PublishedLfcaReference::new(
                 "fixture://issue-216-multi-edge",

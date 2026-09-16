@@ -674,6 +674,7 @@ mod tests {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
         )
         .expect("restore");
@@ -792,14 +793,14 @@ mod tests {
     }
 
     #[test]
-    fn digest_ignores_local_ids_source_audit_and_worker_plan() {
+    fn digest_ignores_local_ids_and_source_audit() {
         let (world, _, _) = world_with_vehicle(true);
         let original = world.capture_snapshot().expect("capture");
         let expected = deterministic_state_digest(&original).expect("digest");
         // digest 7：独立保留已审核的车辆/路线记录后缀，替换版本与 LFCA 六节摘要，
         // 追加 tag + 从身份表读取的 policy StableId，以及空 Conflict
         // lag 分类的显式计数；本向量锁定完整 digest 7 前像。
-        // 下方等价类同时约束来源、worker 与局部 ID 不进入摘要。
+        // 下方等价类同时约束来源审计与局部 ID 不进入摘要。
         assert_eq!(
             expected,
             Sha256Digest::from_bytes([
@@ -813,14 +814,6 @@ mod tests {
         equivalent.vehicles[0].snapshot_vehicle_id = 72;
         equivalent.vehicles[0].snapshot_route_id = 91;
         equivalent.live_order[0] = 72;
-        equivalent.config = WorldConfig::new(
-            equivalent.config.vehicle_capacity(),
-            equivalent.config.route_capacity(),
-            equivalent.config.route_edge_occurrence_capacity(),
-            equivalent.config.route_conflict_occurrence_capacity(),
-            99,
-            equivalent.config.fixed_delta_time_ms(),
-        );
         let crate::CommittedNetworkSource::Published { reference } = &original.source;
         equivalent.source = crate::CommittedNetworkSource::Published {
             reference: crate::PublishedLfcaReference::new(
@@ -862,7 +855,6 @@ mod tests {
             larger_capacity.config.route_capacity(),
             larger_capacity.config.route_edge_occurrence_capacity(),
             larger_capacity.config.route_conflict_occurrence_capacity(),
-            larger_capacity.config.worker_count(),
             larger_capacity.config.fixed_delta_time_ms(),
         );
         assert_ne!(

@@ -44,7 +44,8 @@ fn multiple_cells_share_one_policy_and_keep_distinct_formal_resource_owners() {
     let origin = revision.canonical_origin();
     let mut world = TrafficWorld::install(
         Arc::clone(&revision),
-        WorldConfig::new(8, 22, 4096, 4096, 1, 16),
+        WorldConfig::new(8, 22, 4096, 4096, 16),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://junction-grid",

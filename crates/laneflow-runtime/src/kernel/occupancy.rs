@@ -848,6 +848,7 @@ pub(crate) mod tests {
         crate::TrafficWorld::install(
             std::sync::Arc::clone(&revision),
             config,
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             crate::CommittedNetworkSource::Published {
                 reference: crate::PublishedLfcaReference::new(
                     "fixture://in-process",
@@ -1085,7 +1086,7 @@ pub(crate) mod tests {
                 .unwrap();
         });
         let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 16)).unwrap();
+            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 16)).unwrap();
         let left = edge_for_length(&world, 10_000);
         let right = edge_for_length(&world, 11_000);
         let shared = edge_for_length(&world, 12_000);
@@ -1440,7 +1441,7 @@ pub(crate) mod tests {
         )
         .unwrap();
         let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).unwrap();
+            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).unwrap();
         let route = register_full_spatial_route(&mut world);
         let profile = world
             .binding
@@ -1478,8 +1479,8 @@ pub(crate) mod tests {
     fn empty_and_solo_vehicle_have_no_leader() {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
-        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
-            .expect("install");
+        let mut world =
+            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
         world.rebuild_occupancy_index().expect("occupancy rebuild");
         world.step(TickInput::new(100)).unwrap();
         let route = world
@@ -1504,8 +1505,8 @@ pub(crate) mod tests {
     fn vehicle_behind_on_current_edge_is_not_leader() {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
-        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
-            .expect("install");
+        let mut world =
+            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![stem]))
             .expect("route");
@@ -1545,8 +1546,8 @@ pub(crate) mod tests {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
         let tail = LaneEdgeOrdinal::from_raw(1);
-        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
-            .expect("install");
+        let mut world =
+            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![stem, tail]))
             .expect("route");
@@ -1588,8 +1589,8 @@ pub(crate) mod tests {
         let revision = loop_revision();
         let a = LaneEdgeOrdinal::from_raw(0);
         let b = LaneEdgeOrdinal::from_raw(1);
-        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
-            .expect("install");
+        let mut world =
+            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![a, b, a]))
             .expect("route");
@@ -1643,7 +1644,7 @@ pub(crate) mod tests {
         let a = LaneEdgeOrdinal::from_raw(0);
         let b = LaneEdgeOrdinal::from_raw(1);
         let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 3, 3, 1, 100)).expect("install");
+            install_fixture(revision, WorldConfig::new(8, 4, 3, 3, 100)).expect("install");
 
         let route = world
             .register_route(RouteRegisterInput::new(vec![a, b, a]))
@@ -1699,7 +1700,7 @@ pub(crate) mod tests {
         let a = LaneEdgeOrdinal::from_raw(0);
         let b = LaneEdgeOrdinal::from_raw(1);
         let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 3, 3, 1, 100)).expect("install");
+            install_fixture(revision, WorldConfig::new(8, 4, 3, 3, 100)).expect("install");
 
         for successful_reservations in [0, 5] {
             let result = with_route_allocation_failure_after(successful_reservations, || {
@@ -1725,7 +1726,7 @@ pub(crate) mod tests {
         let revision = loop_revision();
         let a = LaneEdgeOrdinal::from_raw(0);
         let mut no_route_slots =
-            install_fixture(Arc::clone(&revision), WorldConfig::new(8, 0, 0, 0, 1, 100))
+            install_fixture(Arc::clone(&revision), WorldConfig::new(8, 0, 0, 0, 100))
                 .expect("install");
 
         assert_eq!(
@@ -1742,7 +1743,7 @@ pub(crate) mod tests {
         );
 
         let mut no_occurrences =
-            install_fixture(revision, WorldConfig::new(8, 1, 0, 0, 1, 100)).expect("install");
+            install_fixture(revision, WorldConfig::new(8, 1, 0, 0, 100)).expect("install");
         assert_eq!(
             no_occurrences
                 .register_route(RouteRegisterInput::new(vec![a]))
@@ -1755,7 +1756,7 @@ pub(crate) mod tests {
 
         let mut overflow = install_fixture(
             loop_revision(),
-            WorldConfig::new(8, 1, u64::MAX, u64::MAX, 1, 100),
+            WorldConfig::new(8, 1, u64::MAX, u64::MAX, 100),
         )
         .expect("install");
         overflow.committed.live_route_edge_occurrence_count = u64::MAX;
@@ -1785,7 +1786,7 @@ pub(crate) mod tests {
         )
         .unwrap();
         let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100)).unwrap();
+            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).unwrap();
         let route = register_full_spatial_route(&mut world);
         world.committed.routes[route.index() as usize]
             .compiled
@@ -1829,8 +1830,8 @@ pub(crate) mod tests {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
         let tail = LaneEdgeOrdinal::from_raw(1);
-        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
-            .expect("install");
+        let mut world =
+            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![stem, tail]))
             .expect("route");
@@ -1907,8 +1908,8 @@ pub(crate) mod tests {
         let branches = traffic.successors(stem).expect("branches");
         let left = branches[0];
         let right = branches[1];
-        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
-            .expect("install");
+        let mut world =
+            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
         let leader_route = world
             .register_route(RouteRegisterInput::new(vec![stem, left]))
             .expect("left route");
@@ -1993,8 +1994,8 @@ pub(crate) mod tests {
         });
         let edge = LaneEdgeOrdinal::from_raw(0);
         let n = 32_u32;
-        let mut world = install_fixture(revision, WorldConfig::new(n, 4, 1_024, 1_024, 1, 100))
-            .expect("install");
+        let mut world =
+            install_fixture(revision, WorldConfig::new(n, 4, 1_024, 1_024, 100)).expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![edge]))
             .expect("route");
@@ -2044,8 +2045,8 @@ pub(crate) mod tests {
         let revision = loop_revision();
         let a = LaneEdgeOrdinal::from_raw(0);
         let b = LaneEdgeOrdinal::from_raw(1);
-        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
-            .expect("install");
+        let mut world =
+            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![a, b, a]))
             .expect("route");
@@ -2128,7 +2129,7 @@ pub(crate) mod tests {
             };
             current = next;
         }
-        let mut world = install_fixture(revision, WorldConfig::new(1, 4, 1_024, 1_024, 1, 1_000))
+        let mut world = install_fixture(revision, WorldConfig::new(1, 4, 1_024, 1_024, 1_000))
             .expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(edges))
@@ -2186,9 +2187,8 @@ pub(crate) mod tests {
     fn large_vehicle_capacity_does_not_reserve_envelope() {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
-        let mut world =
-            install_fixture(revision, WorldConfig::new(10_000, 4, 1_024, 1_024, 1, 100))
-                .expect("install");
+        let mut world = install_fixture(revision, WorldConfig::new(10_000, 4, 1_024, 1_024, 100))
+            .expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![stem]))
             .expect("route");
@@ -2629,8 +2629,8 @@ pub(crate) mod tests {
     #[test]
     fn formula_horizon_hides_leader_beyond_and_matches_filtered_scan() {
         let revision = long_corridor_revision(400.0);
-        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
-            .expect("install");
+        let mut world =
+            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
         let edge = LaneEdgeOrdinal::from_raw(0);
         let route = world
             .register_route(RouteRegisterInput::new(vec![edge]))
@@ -2677,7 +2677,7 @@ pub(crate) mod tests {
             .saturating_add(1);
         let mut phantom_world = install_fixture(
             long_corridor_revision(400.0),
-            WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+            WorldConfig::new(8, 4, 1_024, 1_024, 100),
         )
         .expect("install");
         let phantom_route = phantom_world
@@ -2716,7 +2716,7 @@ pub(crate) mod tests {
             .saturating_add(profile.length_mm());
         let mut near_world = install_fixture(
             long_corridor_revision(400.0),
-            WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+            WorldConfig::new(8, 4, 1_024, 1_024, 100),
         )
         .expect("install");
         let near_route = near_world
@@ -2845,8 +2845,8 @@ pub(crate) mod tests {
     fn corrupt_route_index_fails_closed_occupancy_rebuild() {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
-        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
-            .expect("install");
+        let mut world =
+            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![stem]))
             .expect("route");

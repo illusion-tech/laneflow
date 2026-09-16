@@ -22,6 +22,9 @@ src/
 `facade::TrafficWorld` 组合世界绑定、已提交状态、派生索引、工作区与管理状态；
 `kernel/world.rs` 保留安装及运行方法。管理状态的所有者位于 `admin/state.rs`，
 日志武装、解除与在途事务放弃方法位于 `admin/migration_journal.rs`。
+宿主提供的 `ExecutionConfig` 由 facade 单独持有，不并入五类交通状态或快照；当前
+只支持 worker 1。引入执行资源前须按[执行配置合同](traffic-runtime-execution-config.md)
+完成活动世界与候选状态的私有所有权分离。
 目录划分不改变公开入口、字段所有权、实例身份或借用寿命，也不新增公共模块或 prelude。
 
 内核生产源码的显式路径不引用 `laneflow_format`、`laneflow_runtime_snapshot_wire`
@@ -52,16 +55,17 @@ src/
 
 `snapshot.rs` 拥有捕获逻辑与编码无关的快照值；`snapshot_restore.rs` 拥有公开上限、
 错误、恢复结果及入口。它们调用格式入口，格式入口不向其他模块返回原始 wire view。
-版本、首错、未知字段拒绝、错误值、逻辑摘要、失败原子性及原有分配预算保持原合同。
+LFRS 6 删除执行字段，交通校验的相对首错顺序、未知字段拒绝、逻辑摘要、失败原子性
+及原有分配预算保持；执行能力在完整交通恢复后单独检查，失败不发布世界。
 
 格式入口的生产模块接口限定为以下三个 `pub(super)` 函数，参数与返回值采用现有
 具体类型；入口内部的私有解码辅助函数可以使用 wire 类型：
 
-| 函数                   | 输入                                           | 输出                                             |
-| ---------------------- | ---------------------------------------------- | ------------------------------------------------ |
-| `verify_semantic_diff` | 可选语义差异绑定、LFSD 字节及 base/target 来源 | `Result<(), CutoverDescriptorError>`             |
-| `encode_lfrs`          | `&CapturedSnapshot`                            | `Vec<u8>`                                        |
-| `restore_lfrs`         | LFRS 字节、共享修订、来源、世界配置与恢复上限  | `Result<RestoredSnapshot, SnapshotRestoreError>` |
+| 函数                   | 输入                                               | 输出                                             |
+| ---------------------- | -------------------------------------------------- | ------------------------------------------------ |
+| `verify_semantic_diff` | 可选语义差异绑定、LFSD 字节及 base/target 来源     | `Result<(), CutoverDescriptorError>`             |
+| `encode_lfrs`          | `&CapturedSnapshot`                                | `Vec<u8>`                                        |
+| `restore_lfrs`         | LFRS 字节、共享修订、来源、交通/执行配置与恢复上限 | `Result<RestoredSnapshot, SnapshotRestoreError>` |
 
 该模块不另行提供可见类型、trait、关联项、常量或 re-export，也不通过泛型、
 `impl Trait` 或 trait object 扩大这三个函数的接口。新增出口应先修改本合同及其

@@ -46,7 +46,8 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
     let origin = *revision.canonical_origin();
     let mut world = TrafficWorld::install(
         Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, 1, DELTA_MS),
+        WorldConfig::new(8, 4, 1_024, 1_024, DELTA_MS),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://waiting-budget",

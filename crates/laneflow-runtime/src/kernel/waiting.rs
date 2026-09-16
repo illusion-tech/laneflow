@@ -2591,7 +2591,8 @@ pub(crate) mod tests {
         let origin = *revision.canonical_origin();
         let mut world = TrafficWorld::install(
             Arc::clone(&revision),
-            WorldConfig::new(2, 2, 64, 64, 1, 100),
+            WorldConfig::new(2, 2, 64, 64, 100),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
                     "fixture://round2-order",
@@ -2747,7 +2748,8 @@ pub(crate) mod tests {
         let origin = *revision.canonical_origin();
         let mut world = TrafficWorld::install(
             Arc::clone(&revision),
-            WorldConfig::new(16, 8, 1_024, 1_024, 1, delta_time_ms),
+            WorldConfig::new(16, 8, 1_024, 1_024, delta_time_ms),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
                     "fixture://waiting-runtime",
@@ -2838,7 +2840,8 @@ pub(crate) mod tests {
         let count = u32::try_from(count).unwrap();
         let mut world = TrafficWorld::install(
             Arc::clone(&revision),
-            WorldConfig::new(count, count, u64::from(count) * 3, 1, 1, 100),
+            WorldConfig::new(count, count, u64::from(count) * 3, 1, 100),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
                     "fixture://multi-gate",
@@ -3415,14 +3418,8 @@ pub(crate) mod tests {
         let origin = *revision.canonical_origin();
         let mut world = TrafficWorld::install(
             Arc::clone(&revision),
-            WorldConfig::new(
-                vehicle_count,
-                2,
-                route_edge_capacity,
-                1_024,
-                1,
-                delta_time_ms,
-            ),
+            WorldConfig::new(vehicle_count, 2, route_edge_capacity, 1_024, delta_time_ms),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
                     "fixture://waiting-scale",
@@ -3821,6 +3818,7 @@ pub(crate) mod tests {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
         )
         .expect("restore Waiting state");
@@ -3902,6 +3900,7 @@ pub(crate) mod tests {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
         )
         .expect("restore empty zone history");
@@ -3922,6 +3921,7 @@ pub(crate) mod tests {
             world.revision(),
             world.committed_source().clone(),
             world.config(),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
         )
         .expect("restore")
@@ -4339,6 +4339,7 @@ pub(crate) mod tests {
                 world.revision(),
                 world.committed_source().clone(),
                 world.config(),
+                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
                 SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
             )
             .map(|_| ())
@@ -4453,6 +4454,7 @@ pub(crate) mod tests {
                 world.revision(),
                 world.committed_source().clone(),
                 world.config(),
+                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
                 SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
             )
             .map(|_| ())

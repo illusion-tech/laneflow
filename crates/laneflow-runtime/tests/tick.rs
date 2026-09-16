@@ -25,6 +25,7 @@ fn install_fixture(
     laneflow_runtime::TrafficWorld::install(
         std::sync::Arc::clone(&revision),
         config,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
                 "fixture://in-process",
@@ -64,11 +65,7 @@ fn world() -> TrafficWorld {
 }
 
 fn world_with_delta(delta_ms: u64) -> TrafficWorld {
-    install_fixture(
-        revision(),
-        WorldConfig::new(8, 4, 1_024, 1_024, 1, delta_ms),
-    )
-    .expect("install")
+    install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, delta_ms)).expect("install")
 }
 
 fn parking_world() -> TrafficWorld {
@@ -82,7 +79,7 @@ fn parking_world() -> TrafficWorld {
         ),
     )
     .expect("parking revision");
-    install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1, 100))
+    install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100))
         .expect("install parking world")
 }
 
@@ -913,7 +910,7 @@ fn spawn_rejects_overlap_across_adjacent_edges() {
 #[test]
 fn completed_vehicle_keeps_capacity_until_replace() {
     let mut world =
-        install_fixture(revision(), WorldConfig::new(1, 4, 1_024, 1_024, 1, 100)).expect("install");
+        install_fixture(revision(), WorldConfig::new(1, 4, 1_024, 1_024, 100)).expect("install");
     let route = fixture_route(&mut world);
     let edges = world.route_edges(route).expect("edges").to_vec();
     let last = *edges.last().expect("route has edges");

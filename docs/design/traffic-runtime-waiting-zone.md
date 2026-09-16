@@ -40,7 +40,7 @@ WaitingZone 是 Gate 有界资源、行为 authority 属于交通运行时、Ada
 - `ParkingBinding`、停驻/离场生命周期已经生产化；Waiting membership 必须与它正交；
 - `ConflictPassageOccurrence`、`route_conflict_occurrence_capacity`、路线 conflict Gate
   ranges 与正式 Conflict 组合 authority 已经生产化；
-- LFRS 5、runtime state 5、deterministic digest 7、同修订/跨修订切换和在线迁移日志
+- LFRS 6、runtime state 5、deterministic digest 7、同修订/跨修订切换和在线迁移日志
   共同保存 Waiting 逻辑状态；
 - fixed step、车辆状态与生命周期共同消费 Waiting、Conflict 与 downstream 组合资源。
 
@@ -634,7 +634,7 @@ Waiting 拒绝区间的快照整体失败，不通过恢复时清除 reservation
 
 当前唯一生产版本轴为：
 
-- `formatVersion=5`；
+- `formatVersion=6`；
 - `runtime_state_version=5`；
 - deterministic state digest version=7。
 

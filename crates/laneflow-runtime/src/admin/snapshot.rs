@@ -16,7 +16,7 @@ use crate::{
 };
 
 /// LFRS 容器格式版本（快照合同 §4）。
-pub const SNAPSHOT_FORMAT_VERSION: u32 = 5;
+pub const SNAPSHOT_FORMAT_VERSION: u32 = 6;
 /// Runtime 逻辑状态形状轴（快照合同 §2 版本轴分离）。
 pub const RUNTIME_STATE_VERSION: u16 = 5;
 
@@ -491,7 +491,7 @@ impl CapturedWaitingZoneState {
     }
 }
 
-/// 把不可变快照点编码为 size-prefixed `LFRS` v5。
+/// 把不可变快照点编码为 size-prefixed `LFRS` v6。
 ///
 /// 捕获与编码分离：调用方可先在固定步进安全边界调用
 /// [`TrafficWorld::capture_snapshot`]，再把本函数放到后台线程。编码只映射已捕获
@@ -1069,7 +1069,7 @@ mod tests {
     use super::*;
     use crate::admin::cutover::tests::transaction_tests::world_with_vehicle;
     use crate::{ParkedVehicleSpawnInput, ParkingTarget, RouteRegisterInput, TickInput};
-    use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v5 as wire;
+    use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v6 as wire;
 
     #[test]
     fn capture_binds_cursors_config_and_origin() {
@@ -1266,7 +1266,6 @@ mod tests {
             config.route_conflict_occurrence_capacity(),
             snapshot.config().route_conflict_occurrence_capacity()
         );
-        assert_eq!(config.worker_count(), snapshot.config().worker_count());
         assert_eq!(
             config.fixed_delta_time_ms(),
             snapshot.config().fixed_delta_time_ms()
@@ -1407,7 +1406,8 @@ mod tests {
         let origin = *root_revision.canonical_origin();
         let world = TrafficWorld::install(
             std::sync::Arc::clone(&root_revision),
-            WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+            WorldConfig::new(8, 4, 1_024, 1_024, 100),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             crate::admin::cutover::tests::transaction_tests::source_for(
                 origin,
                 "fixture://empty-snapshot",

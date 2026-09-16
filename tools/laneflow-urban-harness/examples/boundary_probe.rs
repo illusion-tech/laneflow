@@ -37,7 +37,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     let mut world = TrafficWorld::install(
         revision.clone(),
-        WorldConfig::new(1, 1, spec.edge_keys.len() as u64, 1_000, 1, 16),
+        WorldConfig::new(1, 1, spec.edge_keys.len() as u64, 1_000, 16),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         CommittedNetworkSource::Published { reference: source },
         544,
         WorldPolicySelection::Pinned(PolicyPin { policy }),
@@ -90,7 +91,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &bytes,
         revision.clone(),
         restore_source,
-        WorldConfig::new(1, 1, spec.edge_keys.len() as u64, 1_000, 1, 16),
+        WorldConfig::new(1, 1, spec.edge_keys.len() as u64, 1_000, 16),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         laneflow_runtime::SnapshotRestoreLimits::new(16_777_216, 1_024),
     )?;
     println!("restore tick 172: restored");

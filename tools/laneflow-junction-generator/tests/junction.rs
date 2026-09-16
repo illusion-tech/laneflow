@@ -36,6 +36,7 @@ fn install_fixture(
     laneflow_runtime::TrafficWorld::install(
         revision,
         config,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
                 "fixture://in-process",
@@ -583,7 +584,7 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
 
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(8, 32, 1_024, 1_024, 1, 16),
+        WorldConfig::new(8, 32, 1_024, 1_024, 16),
     )
     .expect("install");
     assert_eq!(world.revision().network_revision(), bound.network_revision);
@@ -635,7 +636,7 @@ fn waiting_pocket_holds_two_cars_and_admits_the_third_after_release() {
     let bound = bind(&catalog, &revision).unwrap();
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(8, 32, 1_024, 1_024, 1, 16),
+        WorldConfig::new(8, 32, 1_024, 1_024, 16),
     )
     .unwrap();
     let routes = bound.install_routes(&mut world).unwrap();

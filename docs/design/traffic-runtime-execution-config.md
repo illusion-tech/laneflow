@@ -1,16 +1,16 @@
 # TrafficWorld 执行配置、资源与快照边界
 
-**文档状态**: Review<br>
+**文档状态**: Accepted<br>
 **最后更新**: 2026-09-17<br>
 **适用范围**: 世界安装、fresh restore、同/跨修订切换、执行资源与 LFRS 版本轴<br>
 **设计入口**: [#220](https://github.com/illusion-tech/laneflow/issues/220)<br>
-**关联决策**: [ADR 0030（Proposed）](../adr/0030-single-world-parallel-execution.md)<br>
+**关联决策**: [ADR 0030（Accepted）](../adr/0030-single-world-parallel-execution.md)<br>
 **配套合同**: [并行执行](traffic-runtime-parallel-execution.md)、
 [快照](traffic-runtime-snapshot.md)、[修订切换](traffic-runtime-revision-cutover.md)
 
-本文给出待评审 API 与生命周期方案。现行代码仍在 `WorldConfig` / LFRS 5 中携带
-worker，安装仅接受 1；本文不提前修改这些现行合同。单次探针、测量和评审状态
-由 GitHub 管理，不以类型草案的存在证明并行能力已实现。
+本文定义已接受的配置 API 与执行生命周期合同。当前配置已分离，LFRS 6 只保存
+交通配置，安装和恢复仅支持 worker 1；执行资源、私有候选所有权及真实多线程调度
+仍须按本文后续实施。单次测量和进度由 GitHub 管理，配置可表达不证明并行能力已实现。
 
 ## 1. 配置职责
 
@@ -29,9 +29,9 @@ worker 数是本世界一次同步操作中参与计算的线程数上限，包�
 tile、亲和性、调度后端、热改线程数或共享执行器注入接口。缺少真实执行需求和
 失败语义的资源限制不提前变成公开参数，更不能取代交通准入容量。
 
-## 2. 公开 API 提案
+## 2. 公开 API
 
-下列代码只列签名，不是已实现接口。所有新增类型从 `laneflow-runtime` 根导出。
+下列代码只列公开签名。配置与初始化错误从 `laneflow-runtime` 根导出。
 
 ```rust
 impl WorldConfig {
@@ -42,7 +42,7 @@ impl WorldConfig {
         route_conflict_occurrence_capacity: u64,
         fixed_delta_time_ms: u64,
     ) -> Self;
-    // 保留上述五项 getter；删除 worker_count。
+    // 上述五项 getter 属于交通配置。
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -79,8 +79,7 @@ pub fn restore_lfrs(
 ) -> Result<RestoredSnapshot, SnapshotRestoreError>;
 ```
 
-0 在宿主构造 `NonZeroU32` 时被拒绝，串行可用 `NonZeroU32::MIN`。只完成 API 拆分、
-后端仍只支持 1 时，请求更大 worker 数须返回执行能力错误；类型可表达不代表后端
+0 在宿主构造 `NonZeroU32` 时被拒绝，串行可用 `NonZeroU32::MIN`。当前后端只支持 1 时，请求更大 worker 数须返回执行能力错误；类型可表达不代表后端
 可执行。首版不增加猜测性 `Default`、旧构造器、弃用别名或转换入口。
 
 `step(&mut self, TickInput) -> Result<StepOutcome, StepError>` 保持同步；返回前完成
@@ -89,8 +88,8 @@ pub fn restore_lfrs(
 
 ## 3. 私有所有权
 
-以共同私有状态聚合复用现有五类所有者，活动 facade 另持执行资源。候选拥有
-完整交通数据和目标计划，但不是可独立步进的活动世界：
+引入执行资源时，必须以共同私有状态聚合复用现有五类所有者，活动 facade 另持
+执行资源。候选拥有完整交通数据和目标计划，但不是可独立步进的活动世界：
 
 ```text
 TrafficWorld
@@ -107,9 +106,11 @@ PreparedWorldState            私有；不提供公开 step
   prepared_plan
 ```
 
-这些私有名称用于表达所有权，确切 Rust 方法归属须经借用原型核对。五类状态的权威
-不改变，不用 `Option<Pool>` 构造缺资源的公开世界，也不靠全局线程池的隐藏状态填补
-生命周期。公共安装和恢复复用一套交通准入原语。
+这些私有名称用于表达所有权，确切 Rust 方法归属须经真实借用核对。五类状态的权威
+不改变，不用 `Option<Pool>` 构造缺资源的公开世界，也不靠全局线程池隐藏生命周期。
+公共安装和恢复复用一套交通准入原语。当前无辅助线程，私有交通准备仍使用既有世界
+数据聚合；资源接入前必须完成上面的活动/候选所有权分离，不能把当前 staging 当作
+已初始化执行器的活动世界，或在交通恢复中途启动线程。
 
 首版计划包含目标根绑定、独立计算的任务范围与所需缓冲，不预建 P4 资源组件图、
 局部资源表或临时 grant 绑定表。P4 继续由协调器规范串行裁决。
@@ -157,7 +158,7 @@ PreparedWorldState            私有；不提供公开 step
 5. 一次性返回完整 `RestoredSnapshot`；任一错误不返回半个世界。
 
 不能只给当前较早调用的 `TrafficWorld::install` 补一个 execution 参数：这样可能在
-快照后半段被拒绝前就启动资源，或按空世界建立错误计划。应提取共同交通准备原语，
+快照后半段被拒绝前就启动资源，或按空世界建立错误计划。必须复用共同交通准备原语，
 保留唯一准入实现。恢复路线时临时放开 Conflict occurrence 容量、重编译后同时核对
 保存/目标真实总量的规则保持。
 
@@ -172,7 +173,7 @@ fresh restore 继承快照世界身份、建立新的本地世代/会话；不�
 
 ### 4.3 错误类型
 
-| 错误提案                                                                  | 意义                               | 返回位置                                                              |
+| 错误合同                                                                  | 意义                               | 返回位置                                                              |
 | ------------------------------------------------------------------------- | ---------------------------------- | --------------------------------------------------------------------- |
 | `ExecutionInitError::UnsupportedWorkerCount { requested, max_supported }` | 当前后端不能提供指定并行度         | `InstallError::ExecutionInit` / `SnapshotRestoreError::ExecutionInit` |
 | `ExecutionInitError::ResourceReservationFailed`                           | 调度资源的必需预留失败             | 同上                                                                  |
@@ -180,7 +181,8 @@ fresh restore 继承快照世界身份、建立新的本地世代/会话；不�
 | `ExecutionPlanError::SizeOverflow`                                        | 布局长度或索引计算溢出             | install / restore / cutover 各自的 `ExecutionPlan` 包装               |
 | `ExecutionPlanError::ReservationFailed`                                   | 目标计划或其必需缓冲准备失败       | 同上                                                                  |
 
-删除 `InstallError::WorkerCountNotOne`。新增执行错误不冒充交通容量、领域 StepError
+当前只有 `UnsupportedWorkerCount` 可达，分别由安装与恢复的 `ExecutionInit` 包装；
+资源/计划接入时才增加对应真实失败变体，不预建无调用路径的错误。执行错误不冒充交通容量、领域 StepError
 或无关暂存错误。执行器 panic 的 join、世界失效及 drop 遵循
 [并行执行 §4.3](traffic-runtime-parallel-execution.md#43-join取消与失败清理)；初始化
 错误的 Result 不构成运行中 panic 可恢复的承诺。
@@ -222,25 +224,24 @@ epoch、WorldGeneration 各自承担其原有寿命，不相互冒充。
 
 ## 6. 格式与版本轴
 
-| 轴                                   | 现行值                                    | 本提案                     | 原因                                                  |
-| ------------------------------------ | ----------------------------------------- | -------------------------- | ----------------------------------------------------- |
-| Rust API                             | 配置含 worker，安装/恢复单份配置          | 拆分签名、getter 和错误    | 1.0 前破坏性清扫，无兼容别名                          |
-| LFRS `format_version`                | 5                                         | 6                          | 删除 worker，`fixed_delta_time_ms` 的 vtable 槽位移动 |
-| schema / namespace                   | `runtime-snapshot/v5` / V5                | `runtime-snapshot/v6` / V6 | 只保留唯一当前 wire binding                           |
-| `RUNTIME_STATE_VERSION`              | 5                                         | 5                          | 交通逻辑状态字段和含义不变                            |
-| `RUNTIME_STATE_DIGEST_VERSION`       | 7                                         | 7                          | 规范前像已经排除 worker，状态版本头及其余编码不变     |
-| 摘要 domain                          | `laneflow:runtime-state-digest:v1` 加 NUL | 不变                       | 摘要算法和规范化规则不变                              |
-| LFCA 六轴 / NetworkRevision 派生版本 | 各自现行值                                | 不变                       | 静态事实不增加执行分配                                |
-| cutover descriptor format            | 2                                         | 2                          | 不修改持久化迁移描述符                                |
-| Observation / Routing 绑定           | 各自现行值                                | 不变                       | 不改变交通身份、游标或失效语义                        |
+| 轴                                   | 当前合同                                  | 原因                                                  |
+| ------------------------------------ | ----------------------------------------- | ----------------------------------------------------- |
+| Rust API                             | 交通与执行配置分离，显式安装/恢复参数     | 1.0 前破坏性清扫，无兼容别名                          |
+| LFRS `format_version`                | 6                                         | 删除 worker，`fixed_delta_time_ms` 的 vtable 槽位移动 |
+| schema / namespace                   | `runtime-snapshot/v6` / V6                | 只保留唯一当前 wire binding                           |
+| `RUNTIME_STATE_VERSION`              | 5                                         | 交通逻辑状态字段和含义不变                            |
+| `RUNTIME_STATE_DIGEST_VERSION`       | 7                                         | 规范前像已经排除 worker，状态版本头及其余编码不变     |
+| 摘要 domain                          | `laneflow:runtime-state-digest:v1` 加 NUL | 摘要算法和规范化规则不变                              |
+| LFCA 六轴 / NetworkRevision 派生版本 | 各自现行值，不因执行配置升级              | 静态事实不增加执行分配                                |
+| cutover descriptor format            | 2                                         | 不修改持久化迁移描述符                                |
+| Observation / Routing 绑定           | 各自现行值，不因执行配置升级              | 不改变交通身份、游标或失效语义                        |
 
-格式 6、状态 5、摘要 7 是刻意分离版本轴。若同时修改交通状态或摘要前像，必须重做
-版本判断；不能借本提案免除升级。当前代码与已接受文档继续使用旧值，实施交付时
-同步更新各唯一事实源，不让两个“当前格式”并存。
+格式 6、状态 5、摘要 7 刻意分离版本轴。若修改交通状态或摘要前像，必须重做版本判断；
+不能借配置拆分免除升级。各唯一事实源同步更新，不让两个“当前格式”并存。
 
-实施时删除 `WorldConfigBinding.worker_count`，以钉版 flatc 重新生成绑定，更新
-writer/reader、封闭字段数、wire pin、xtask schema 路径与 Rust/C++/C# 检查。不手改
-生成 getter/slot 后声称完成 codegen；不提供旧 schema 回退或旧字段转换。
+`WorldConfigBinding` 不含 worker。绑定由钉版 flatc 生成，writer/reader、封闭字段数、
+wire pin、xtask schema 路径与 Rust/C++/C# 检查保持一致。不手改生成 getter/slot，
+不提供旧 schema 回退或旧字段转换。
 
 仍使用 size-prefixed `LFRS`。当前 schema 的结构 verifier 先于版本检查，某些旧字节
 可能先被判为 `InvalidFlatbuffer`，结构可通过者才得到版本错误；要求旧格式没有成功
@@ -259,8 +260,7 @@ writer/reader、封闭字段数、wire pin、xtask schema 路径与 Rust/C++/C# 
 | 并行       | 合法配置下状态/事件/逻辑首错/retry 等价；旧 epoch、join 与序号配对                       |
 | 成本       | 活动/候选/退休计划、线程栈和队列峰值；最终补齐与静默窗口成本                             |
 
-本提案采用世界独占资源、候选复用原资源和首版独立计算并行。G1 评审仍需整体
-核对 `NonZeroU32` 公共 API、完整交通恢复后执行错误的位置、版本轴与共同状态
-准备原语。可编译的私有候选/活动世界借用原型是所有权证据，不能代替完整持久线程
-调度、生产工厂提取与 wire 实施验证。P4 组件计划及临时序号绑定不属于首版验收。
-生产线程后端和完整性能验收在独立实现项交付，不因签名草案而视为已完成。
+已接受的边界是世界独占资源、候选复用原资源和首版独立计算并行。配置拆分与
+容器迁移不代替资源/计划生命周期、持久线程调度和真实多 worker 验收。私有候选/
+活动世界借用原型只能支持所有权判断；生产状态聚合、执行后端与城市性能仍须由
+各自实现和验证完成。P4 组件计划及临时序号绑定不属于首版验收。

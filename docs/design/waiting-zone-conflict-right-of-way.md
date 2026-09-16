@@ -37,7 +37,7 @@ Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
 - `ParkingBinding`、reserve/park/leave/rebind/despawn 生命周期已存在；
 - `ConflictPassageOccurrence`、`route_conflict_occurrence_capacity`、路线 conflict
   Gate ranges、正式组合仲裁及 lifecycle/restore/cutover authority 检查已存在；
-- 当前持久化轴是 LFRS 5、runtime state 5、deterministic digest 7。
+- 当前持久化轴是 LFRS 6、runtime state 5、deterministic digest 7。
 
 #282 只新增 WaitingZone 本地动态能力。#284 已将 Conflict/right-of-way 组合资源、
 持久状态和生产固定步进接入同一 `TrafficWorld`。

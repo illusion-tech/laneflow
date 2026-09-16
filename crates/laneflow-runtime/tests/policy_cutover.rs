@@ -130,7 +130,8 @@ fn source(root: &SharedNetworkRevision) -> CommittedNetworkSource {
 fn world(root: Arc<SharedNetworkRevision>) -> TrafficWorld {
     TrafficWorld::install(
         Arc::clone(&root),
-        WorldConfig::new(4, 4, 64, 64, 1, 100),
+        WorldConfig::new(4, 4, 64, 64, 100),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         source(&root),
         17,
         WorldPolicySelection::Pinned(PolicyPin {
@@ -220,6 +221,7 @@ fn cross_revision_preserves_pin_rebinds_ordinal_and_atomically_rebuilds_gap() {
         target_root,
         world.committed_source().clone(),
         world.config(),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         SnapshotRestoreLimits::new(1_048_576, 1_024),
     )
     .unwrap();

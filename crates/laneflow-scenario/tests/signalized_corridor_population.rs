@@ -52,6 +52,7 @@ fn install_with_policy(
     laneflow_runtime::TrafficWorld::install(
         Arc::clone(&revision),
         config,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
                 "fixture://in-process",
@@ -148,8 +149,8 @@ fn config_freezes_defaults_and_closed_target_range() {
 #[test]
 fn install_routes_rejects_short_capacity_without_leaving_routes() {
     let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let mut world = install_fixture(revision, WorldConfig::new(8, 1, 1_024, 1_024, 1, TICK_MS))
-        .expect("install");
+    let mut world =
+        install_fixture(revision, WorldConfig::new(8, 1, 1_024, 1_024, TICK_MS)).expect("install");
     assert!(prepared.install_routes(&mut world).is_err());
     assert_eq!(world.live_routes().count(), 0);
 }
@@ -185,7 +186,6 @@ fn bind_and_replace_does_not_despawn_then_spawn() {
             28,
             1_024,
             1_024,
-            1,
             TICK_MS,
         ),
     )
@@ -254,7 +254,6 @@ fn blocked_retry_replays_the_same_plan() {
             28,
             1_024,
             1_024,
-            1,
             TICK_MS,
         ),
     )
@@ -320,7 +319,6 @@ fn apply_pending_host_error_restores_fifo_front() {
             28,
             1_024,
             1_024,
-            1,
             TICK_MS,
         ),
     )
@@ -368,7 +366,6 @@ fn take_initial_vehicles_then_bind_reaches_running() {
             28,
             1_024,
             1_024,
-            1,
             TICK_MS,
         ),
     )
@@ -393,7 +390,6 @@ fn consume_world_rejects_skipped_ticks() {
             28,
             1_024,
             1_024,
-            1,
             TICK_MS,
         ),
     )
@@ -424,7 +420,6 @@ fn consume_world_rejects_untracked_completed_vehicle() {
             28,
             1_024,
             1_024,
-            1,
             TICK_MS,
         ),
     )
@@ -460,7 +455,7 @@ fn foreign_world() -> TrafficWorld {
     .expect("foreign revision");
     install_with_policy(
         foreign,
-        WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+        WorldConfig::new(8, 4, 1_024, 1_024, 100),
         fixture_policy("runtime-fixture-policy", "fixture-policy"),
     )
     .expect("install")
@@ -508,7 +503,6 @@ fn consume_world_rejects_foreign_revision() {
             28,
             1_024,
             1_024,
-            1,
             TICK_MS,
         ),
     )
@@ -534,7 +528,6 @@ fn pending_spawn_input_rejects_foreign_revision() {
             28,
             1_024,
             1_024,
-            1,
             TICK_MS,
         ),
     )
@@ -574,7 +567,6 @@ fn apply_pending_rejects_foreign_revision() {
             28,
             1_024,
             1_024,
-            1,
             TICK_MS,
         ),
     )
@@ -633,7 +625,6 @@ fn bound_controller(target: usize) -> (TrafficWorld, CorridorPopulationControlle
             28,
             1_024,
             1_024,
-            1,
             TICK_MS,
         ),
     )
@@ -878,7 +869,7 @@ fn population_rejects_other_policy_on_same_root_without_mutating_lifecycle() {
             )
             .unwrap()
         };
-        let config = WorldConfig::new(50, 28, 1_024, 1_024, 1, TICK_MS);
+        let config = WorldConfig::new(50, 28, 1_024, 1_024, TICK_MS);
         let mut world = install_with_policy(Arc::clone(&revision), config, selected).unwrap();
         let mut foreign = install_with_policy(Arc::clone(&revision), config, other).unwrap();
         assert!(Arc::ptr_eq(&world.revision(), &foreign.revision()));

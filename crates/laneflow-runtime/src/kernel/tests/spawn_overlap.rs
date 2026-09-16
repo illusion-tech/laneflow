@@ -119,7 +119,8 @@ fn empty_world(revision: Arc<SharedNetworkRevision>, capacity: u32) -> TrafficWo
     };
     TrafficWorld::install(
         Arc::clone(&revision),
-        WorldConfig::new(capacity, 512, 2_048, 1_024, 1, 100),
+        WorldConfig::new(capacity, 512, 2_048, 1_024, 100),
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         source,
         528,
         crate::test_policy::selection(&revision),
@@ -173,7 +174,8 @@ fn admission_scale_evidence() {
                     &bytes,
                     Arc::clone(&revision),
                     world.committed_source().clone(),
-                    WorldConfig::new(count + 1, 512, 2_048, 1_024, 1, 100),
+                    WorldConfig::new(count + 1, 512, 2_048, 1_024, 100),
+                    crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
                     SnapshotRestoreLimits::new(64 * 1_024 * 1_024, 1_024),
                 )
                 .expect("restore");
@@ -537,6 +539,7 @@ fn restore_and_cutover_share_clipping_and_exclude_completed_vehicles() {
         revision,
         world.committed_source().clone(),
         world.config(),
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         SnapshotRestoreLimits::new(1_048_576, 1_024),
     )
     .expect("clipped body and noncoincident entry point coexist through restore");

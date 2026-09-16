@@ -145,6 +145,7 @@ fn install_fixture(
     laneflow_runtime::TrafficWorld::install(
         Arc::clone(&revision),
         config,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         published_source(&revision, "fixture://in-process"),
         0,
         WorldPolicySelection::NotRequired,
@@ -284,7 +285,7 @@ pub fn fixture_with_capacity(
     assert!(case.active >= EXITS && case.parked >= EXITS && case.commands <= EXITS);
     let mut world = install_fixture(
         Arc::clone(revision),
-        WorldConfig::new(vehicle_capacity, 65, 65, 1, 1, 100),
+        WorldConfig::new(vehicle_capacity, 65, 65, 1, 100),
     )
     .unwrap();
     let facility = ParkingFacilityOrdinal::from_raw(0);

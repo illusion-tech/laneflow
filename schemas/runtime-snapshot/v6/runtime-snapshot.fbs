@@ -1,8 +1,8 @@
-// LaneFlow 运行时快照容器 v5。
-// v5 加入策略选择、Conflict 资格/reservation/lag history 与 Clearing；派生
+// LaneFlow 运行时快照容器 v6。
+// 保存策略选择、Conflict 资格/reservation/lag history 与 Clearing；派生
 // queue link、occupancy index、frontier、latest decision/event batch 和 tick-local claim 不持久化。
 
-namespace LaneFlow.RuntimeSnapshot.V5;
+namespace LaneFlow.RuntimeSnapshot.V6;
 
 struct Digest256 { bytes:[ubyte:32]; }
 struct StableId128 { bytes:[ubyte:16]; }
@@ -45,7 +45,6 @@ table WorldConfigBinding {
   route_capacity:uint;
   route_edge_occurrence_capacity:ulong;
   route_conflict_occurrence_capacity:ulong;
-  worker_count:uint;
   fixed_delta_time_ms:ulong;
 }
 

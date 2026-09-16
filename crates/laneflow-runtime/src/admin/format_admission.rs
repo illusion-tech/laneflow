@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v5 as wire;
+use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v6 as wire;
 use laneflow_runtime_snapshot_wire::runtime::VerifierOptions;
 use laneflow_static_contract::{
     ConflictZoneId, LaneEdgeId, ManeuverGateId, ManeuverPathId, ParkingFacilityId, ParkingSpaceId,
@@ -45,32 +45,32 @@ const MIN_SIZE_PREFIXED_LFRS_BYTES: usize = 12;
 const MAX_SCHEMA_TABLE_DEPTH: usize = 6;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
 const MICROMETRES_PER_MILLIMETRE: u16 = 1_000;
-const ROOT_V5_FIELDS: usize = vtable_field_count(wire::RuntimeSnapshot::VT_CONFLICT_LAG_STATES);
-const WORLD_CONFIG_V5_FIELDS: usize =
+const ROOT_V6_FIELDS: usize = vtable_field_count(wire::RuntimeSnapshot::VT_CONFLICT_LAG_STATES);
+const WORLD_CONFIG_V6_FIELDS: usize =
     vtable_field_count(wire::WorldConfigBinding::VT_FIXED_DELTA_TIME_MS);
-const PUBLISHED_SOURCE_V5_FIELDS: usize =
+const PUBLISHED_SOURCE_V6_FIELDS: usize =
     vtable_field_count(wire::PublishedSourceBinding::VT_NETWORK_REVISION);
-const ROUTE_V5_FIELDS: usize = vtable_field_count(wire::SnapshotRoute::VT_EDGES);
-const VEHICLE_V5_FIELDS: usize = vtable_field_count(wire::SnapshotVehicle::VT_CONFLICT_RESERVATION);
-const PARKING_BINDING_V5_FIELDS: usize =
+const ROUTE_V6_FIELDS: usize = vtable_field_count(wire::SnapshotRoute::VT_EDGES);
+const VEHICLE_V6_FIELDS: usize = vtable_field_count(wire::SnapshotVehicle::VT_CONFLICT_RESERVATION);
+const PARKING_BINDING_V6_FIELDS: usize =
     vtable_field_count(wire::ParkingBinding::VT_VIRTUAL_ENTRY_PROGRESS_MM);
-const MANEUVER_TRAVERSAL_V5_FIELDS: usize =
+const MANEUVER_TRAVERSAL_V6_FIELDS: usize =
     vtable_field_count(wire::ManeuverTraversalBinding::VT_PHASE_GATE);
-const WAITING_MEMBERSHIP_V5_FIELDS: usize =
+const WAITING_MEMBERSHIP_V6_FIELDS: usize =
     vtable_field_count(wire::WaitingMembershipBinding::VT_ADMISSION_SEQUENCE);
-const WAITING_ZONE_STATE_V5_FIELDS: usize =
+const WAITING_ZONE_STATE_V6_FIELDS: usize =
     vtable_field_count(wire::WaitingZoneState::VT_NEXT_ADMISSION_SEQUENCE);
-const CONFLICT_LOCATOR_V5_FIELDS: usize =
+const CONFLICT_LOCATOR_V6_FIELDS: usize =
     vtable_field_count(wire::ConflictPassageLocatorBinding::VT_CONFLICT_ZONE);
-const CONFLICT_ELIGIBILITY_V5_FIELDS: usize =
+const CONFLICT_ELIGIBILITY_V6_FIELDS: usize =
     vtable_field_count(wire::ConflictEligibilityBinding::VT_FIRST_ELIGIBLE_TICK);
-const CONFLICT_PASSAGE_V5_FIELDS: usize =
+const CONFLICT_PASSAGE_V6_FIELDS: usize =
     vtable_field_count(wire::ConflictPassageBinding::VT_CLEARANCE_PROGRESS_MM);
-const CONFLICT_DOWNSTREAM_V5_FIELDS: usize =
+const CONFLICT_DOWNSTREAM_V6_FIELDS: usize =
     vtable_field_count(wire::ConflictDownstreamIntervalBinding::VT_END_MM);
-const CONFLICT_RESERVATION_V5_FIELDS: usize =
+const CONFLICT_RESERVATION_V6_FIELDS: usize =
     vtable_field_count(wire::ConflictReservationBinding::VT_DOWNSTREAM_INTERVALS);
-const CONFLICT_LAG_STATE_V5_FIELDS: usize =
+const CONFLICT_LAG_STATE_V6_FIELDS: usize =
     vtable_field_count(wire::ConflictLagState::VT_REFERENCE_TIME_MS);
 
 const fn vtable_field_count(
@@ -165,7 +165,7 @@ pub(super) fn verify_semantic_diff(
     Ok(())
 }
 
-/// 把不可变快照点编码为 size-prefixed `LFRS` v5。
+/// 把不可变快照点编码为 size-prefixed `LFRS` v6。
 ///
 /// 捕获与编码分离：调用方可先在固定步进安全边界调用
 /// [`TrafficWorld::capture_snapshot`]，再把本函数放到后台线程。编码只映射已捕获
@@ -183,7 +183,6 @@ pub(super) fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
             route_conflict_occurrence_capacity: snapshot
                 .config
                 .route_conflict_occurrence_capacity(),
-            worker_count: snapshot.config.worker_count(),
             fixed_delta_time_ms: snapshot.config.fixed_delta_time_ms(),
         },
     );
@@ -569,6 +568,7 @@ pub(super) fn restore_lfrs(
     revision: Arc<SharedNetworkRevision>,
     source: CommittedNetworkSource,
     target_config: WorldConfig,
+    execution: crate::ExecutionConfig,
     limits: SnapshotRestoreLimits,
 ) -> Result<RestoredSnapshot, SnapshotRestoreError> {
     let root = verify_lfrs(bytes, limits)?;
@@ -581,12 +581,12 @@ pub(super) fn restore_lfrs(
         target_config.route_capacity(),
         target_config.route_edge_occurrence_capacity(),
         u64::MAX,
-        target_config.worker_count(),
         target_config.fixed_delta_time_ms(),
     );
-    let mut world = TrafficWorld::install(
+    let mut world = TrafficWorld::prepare_traffic_state(
         revision,
         staging_config,
+        execution,
         source,
         root.world_id(),
         decode_world_policy(root.world_policy())?,
@@ -686,6 +686,10 @@ pub(super) fn restore_lfrs(
     world
         .rebuild_occupancy_index()
         .map_err(SnapshotRestoreError::Occupancy)?;
+
+    execution
+        .validate_supported()
+        .map_err(SnapshotRestoreError::ExecutionInit)?;
 
     Ok(RestoredSnapshot {
         world,
@@ -1412,7 +1416,7 @@ fn validate_bindings(
             actual: root.runtime_state_version(),
         });
     }
-    validate_closed_v5_tables(root)?;
+    validate_closed_tables(root)?;
     let network_revision = root
         .network_revision()
         .ok_or(SnapshotRestoreError::MissingField {
@@ -1578,8 +1582,8 @@ fn decode_world_policy(
     }
 }
 
-fn validate_closed_v5_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), SnapshotRestoreError> {
-    validate_table_field_count("RuntimeSnapshot", root._tab, ROOT_V5_FIELDS)?;
+fn validate_closed_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), SnapshotRestoreError> {
+    validate_table_field_count("RuntimeSnapshot", root._tab, ROOT_V6_FIELDS)?;
     validate_table_field_count(
         "WorldPolicyBinding",
         root.world_policy()._tab,
@@ -1588,42 +1592,42 @@ fn validate_closed_v5_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), Snap
     validate_table_field_count(
         "WorldConfigBinding",
         root.world_config()._tab,
-        WORLD_CONFIG_V5_FIELDS,
+        WORLD_CONFIG_V6_FIELDS,
     )?;
     if let Some(published) = root.source_published() {
         validate_table_field_count(
             "PublishedSourceBinding",
             published._tab,
-            PUBLISHED_SOURCE_V5_FIELDS,
+            PUBLISHED_SOURCE_V6_FIELDS,
         )?;
     }
     for route in root.routes() {
-        validate_table_field_count("SnapshotRoute", route._tab, ROUTE_V5_FIELDS)?;
+        validate_table_field_count("SnapshotRoute", route._tab, ROUTE_V6_FIELDS)?;
     }
     for vehicle in root.vehicles() {
-        validate_table_field_count("SnapshotVehicle", vehicle._tab, VEHICLE_V5_FIELDS)?;
+        validate_table_field_count("SnapshotVehicle", vehicle._tab, VEHICLE_V6_FIELDS)?;
         if let Some(parking) = vehicle.parking() {
-            validate_table_field_count("ParkingBinding", parking._tab, PARKING_BINDING_V5_FIELDS)?;
+            validate_table_field_count("ParkingBinding", parking._tab, PARKING_BINDING_V6_FIELDS)?;
         }
         if let Some(traversal) = vehicle.maneuver_traversal() {
             validate_table_field_count(
                 "ManeuverTraversalBinding",
                 traversal._tab,
-                MANEUVER_TRAVERSAL_V5_FIELDS,
+                MANEUVER_TRAVERSAL_V6_FIELDS,
             )?;
         }
         if let Some(membership) = vehicle.waiting_membership() {
             validate_table_field_count(
                 "WaitingMembershipBinding",
                 membership._tab,
-                WAITING_MEMBERSHIP_V5_FIELDS,
+                WAITING_MEMBERSHIP_V6_FIELDS,
             )?;
         }
         if let Some(eligibility) = vehicle.conflict_eligibility() {
             validate_table_field_count(
                 "ConflictEligibilityBinding",
                 eligibility._tab,
-                CONFLICT_ELIGIBILITY_V5_FIELDS,
+                CONFLICT_ELIGIBILITY_V6_FIELDS,
             )?;
             validate_conflict_locator_table(eligibility.passage())?;
         }
@@ -1631,13 +1635,13 @@ fn validate_closed_v5_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), Snap
             validate_table_field_count(
                 "ConflictReservationBinding",
                 reservation._tab,
-                CONFLICT_RESERVATION_V5_FIELDS,
+                CONFLICT_RESERVATION_V6_FIELDS,
             )?;
             for passage in reservation.passages() {
                 validate_table_field_count(
                     "ConflictPassageBinding",
                     passage._tab,
-                    CONFLICT_PASSAGE_V5_FIELDS,
+                    CONFLICT_PASSAGE_V6_FIELDS,
                 )?;
                 validate_conflict_locator_table(passage.passage())?;
             }
@@ -1645,16 +1649,16 @@ fn validate_closed_v5_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), Snap
                 validate_table_field_count(
                     "ConflictDownstreamIntervalBinding",
                     downstream._tab,
-                    CONFLICT_DOWNSTREAM_V5_FIELDS,
+                    CONFLICT_DOWNSTREAM_V6_FIELDS,
                 )?;
             }
         }
     }
     for state in root.waiting_zones() {
-        validate_table_field_count("WaitingZoneState", state._tab, WAITING_ZONE_STATE_V5_FIELDS)?;
+        validate_table_field_count("WaitingZoneState", state._tab, WAITING_ZONE_STATE_V6_FIELDS)?;
     }
     for state in root.conflict_lag_states() {
-        validate_table_field_count("ConflictLagState", state._tab, CONFLICT_LAG_STATE_V5_FIELDS)?;
+        validate_table_field_count("ConflictLagState", state._tab, CONFLICT_LAG_STATE_V6_FIELDS)?;
         validate_conflict_locator_table(state.passage())?;
     }
     Ok(())
@@ -1666,7 +1670,7 @@ fn validate_conflict_locator_table(
     validate_table_field_count(
         "ConflictPassageLocatorBinding",
         locator._tab,
-        CONFLICT_LOCATOR_V5_FIELDS,
+        CONFLICT_LOCATOR_V6_FIELDS,
     )
 }
 

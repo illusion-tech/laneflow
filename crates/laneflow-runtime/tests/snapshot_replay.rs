@@ -85,7 +85,8 @@ fn install_world(revision: Arc<SharedNetworkRevision>) -> TrafficWorld {
     let origin = *revision.canonical_origin();
     TrafficWorld::install(
         std::sync::Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+        WorldConfig::new(8, 4, 1_024, 1_024, 100),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://snapshot-replay",
@@ -247,6 +248,7 @@ fn restored_checkpoint(checkpoint_bytes: &[u8], original: &TrafficWorld) -> Rest
         original.revision(),
         original.committed_source().clone(),
         original.config(),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
     )
     .expect("restore checkpoint")
@@ -309,7 +311,8 @@ fn replay_divergence_under_capacity_mismatch_is_a_desync_signal() {
         &bytes,
         original.revision(),
         original.committed_source().clone(),
-        WorldConfig::new(8, 8, 1_024, 1_024, 1, 100),
+        WorldConfig::new(8, 8, 1_024, 1_024, 100),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
     )
     .expect("restore with enlarged route capacity");

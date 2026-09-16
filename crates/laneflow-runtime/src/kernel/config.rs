@@ -1,11 +1,12 @@
-/// 每世界安装配置。同一 world 运行中不得改变 `fixed_delta_time_ms`。
+use std::num::NonZeroU32;
+
+/// 每世界交通配置；容量和固定步长进入快照与逻辑摘要，执行并行度另行指定。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct WorldConfig {
     vehicle_capacity: u32,
     route_capacity: u32,
     route_edge_occurrence_capacity: u64,
     route_conflict_occurrence_capacity: u64,
-    worker_count: u32,
     fixed_delta_time_ms: u64,
 }
 
@@ -17,7 +18,6 @@ impl WorldConfig {
         route_capacity: u32,
         route_edge_occurrence_capacity: u64,
         route_conflict_occurrence_capacity: u64,
-        worker_count: u32,
         fixed_delta_time_ms: u64,
     ) -> Self {
         Self {
@@ -25,7 +25,6 @@ impl WorldConfig {
             route_capacity,
             route_edge_occurrence_capacity,
             route_conflict_occurrence_capacity,
-            worker_count,
             fixed_delta_time_ms,
         }
     }
@@ -54,16 +53,43 @@ impl WorldConfig {
         self.route_conflict_occurrence_capacity
     }
 
-    /// 每拍使用的工作线程数；数量不改变精确结果。
-    #[must_use]
-    pub const fn worker_count(self) -> u32 {
-        self.worker_count
-    }
-
     /// 固定步长（毫秒）。
     #[must_use]
     pub const fn fixed_delta_time_ms(self) -> u64 {
         self.fixed_delta_time_ms
+    }
+}
+
+/// 宿主显式指定的执行配置，不进入交通快照、摘要或共享静态路网。
+///
+/// 线程数包含调用线程；1 不创建辅助线程。构造器不验证当前后端的能力，
+/// 不支持的数量由安装或完整交通恢复后的执行校验拒绝。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExecutionConfig {
+    worker_count: NonZeroU32,
+}
+
+impl ExecutionConfig {
+    /// 指定一次同步操作参与计算的线程数上限。
+    #[must_use]
+    pub const fn new(worker_count: NonZeroU32) -> Self {
+        Self { worker_count }
+    }
+
+    /// 包含调用线程的非零线程数上限。
+    #[must_use]
+    pub const fn worker_count(self) -> NonZeroU32 {
+        self.worker_count
+    }
+
+    pub(crate) fn validate_supported(self) -> Result<(), crate::ExecutionInitError> {
+        if self.worker_count.get() != 1 {
+            return Err(crate::ExecutionInitError::UnsupportedWorkerCount {
+                requested: self.worker_count.get(),
+                max_supported: 1,
+            });
+        }
+        Ok(())
     }
 }
 

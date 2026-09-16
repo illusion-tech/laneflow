@@ -52,9 +52,9 @@ fn junction_reference_ledger() {
             cells * 11,
             u64::from(cells) * 16_384,
             u64::from(cells) * 65_536,
-            1,
             16,
         ),
+        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         SnapshotRestoreLimits::new(256 * 1024 * 1024, 4096),
     )
     .unwrap();

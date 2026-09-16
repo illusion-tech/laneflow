@@ -166,7 +166,8 @@ impl Fixtures {
                 );
                 let mut world = TrafficWorld::install(
                     Arc::clone(&self.resources),
-                    WorldConfig::new(8, 4, 1_024, 1_024, 1, 4),
+                    WorldConfig::new(8, 4, 1_024, 1_024, 4),
+                    laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
                     cutover::source(&self.resources),
                     583,
                     WorldPolicySelection::Pinned(PolicyPin { policy }),

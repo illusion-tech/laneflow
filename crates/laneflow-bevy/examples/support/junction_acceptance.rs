@@ -428,6 +428,7 @@ fn held_resources_survive_snapshot_restore_and_replay_exactly() {
             root,
             source,
             config,
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
         )
         .unwrap();

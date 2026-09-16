@@ -510,9 +510,9 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
             (grid.cells.len() * 11) as u32,
             (grid.cells.len() * 16_384) as u64,
             (grid.cells.len() * 65_536) as u64,
-            1,
             16,
         ),
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "scenario://complex-junction-scale",

@@ -24,6 +24,7 @@ fn install_fixture(
     laneflow_runtime::TrafficWorld::install(
         std::sync::Arc::clone(&revision),
         config,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
                 "fixture://in-process",
@@ -70,7 +71,7 @@ fn s1_two_vehicles_step_and_extract_pose_batch() {
     let revision = revision();
     let world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, 1, 100),
+        WorldConfig::new(8, 4, 1_024, 1_024, 100),
     )
     .expect("install");
     assert!(Arc::ptr_eq(&world.revision(), &revision));

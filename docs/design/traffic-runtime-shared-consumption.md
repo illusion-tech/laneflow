@@ -139,6 +139,7 @@ despawn-and-unbind，不得经 raw `world_mut()` 留下 stale 映射。
 TrafficWorld::install(
     revision: Arc<SharedNetworkRevision>,
     config: WorldConfig,
+    execution: ExecutionConfig,
     source: CommittedNetworkSource,
     world_id: u64,
     policy_selection: WorldPolicySelection,
@@ -225,11 +226,14 @@ checked 预计算 → 暂存（逐路线对 target 根重编译 +
 ### 4.1 安装与绑定
 
 - `WorldConfig` 含每世界容量（包括 #303 的必填 `u64
-  route_edge_occurrence_capacity`）、1-worker 计划，以及 `fixed_delta_time_ms`（同一
+  route_edge_occurrence_capacity`），以及 `fixed_delta_time_ms`（同一
   world 运行中不得改变）。步长 `∈ [4, 1000]`，每个 phase
   `durationMs % dt == 0 && durationMs >= dt`，否则 `install` 失败关闭、不留下
   world。短相位不得靠 tick 跳过。不接受 LFCA 字节、调用方自报 digest /
   `NetworkRevisionId`、或裸 component。
+- `ExecutionConfig` 由宿主显式提供，不进入交通配置、快照或摘要；当前只支持 worker 1，
+  不支持的值在完整交通准备后返回 `ExecutionInit`，不静默降级。恢复的执行错误位于
+  完整逻辑状态与派生索引重建之后，见[执行配置合同](traffic-runtime-execution-config.md)。
 - 失败原子：失败不留下可观察的半个 world / session。
 - 多世界：再次 `install`，只克隆根 `Arc`。
 - `spatial()` 为 `None`：`bind` 返回 `Ok(None)`，不建 session（headless）。

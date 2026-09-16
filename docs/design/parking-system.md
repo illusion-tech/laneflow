@@ -586,7 +586,7 @@ reserve/rebind 的成功 record、输入命令日志与 replay payload 都保存
 
 ## 7. Snapshot、回放与修订切换
 
-### 7.1 Runtime Snapshot v5
+### 7.1 Runtime Snapshot v6
 
 每个停车 binding 保存：
 

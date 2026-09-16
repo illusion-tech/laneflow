@@ -87,6 +87,7 @@ fn measure_restore(
             revision,
             source,
             target_config,
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             snapshot_evidence::limits(),
         )
         .expect("published restore"),
@@ -185,6 +186,7 @@ fn snapshot_side_budget_baseline() {
         oracle_revision,
         oracle_source,
         oracle_config,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         snapshot_evidence::limits(),
     )
     .expect("restore save point")

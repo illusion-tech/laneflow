@@ -19,14 +19,7 @@ fn run(repetitions: usize, lead_ms: u64, samples: usize, warmup: usize) {
         ));
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(
-            2,
-            2,
-            (repetitions * 6) as u64,
-            (repetitions * 2) as u64,
-            1,
-            4,
-        ),
+        WorldConfig::new(2, 2, (repetitions * 6) as u64, (repetitions * 2) as u64, 4),
     )
     .unwrap();
     let routes = [0_u32, 1].map(|raw| {

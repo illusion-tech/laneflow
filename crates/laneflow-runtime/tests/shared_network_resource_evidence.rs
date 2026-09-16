@@ -44,6 +44,7 @@ fn install_fixture(
     laneflow_runtime::TrafficWorld::install(
         std::sync::Arc::clone(&revision),
         config,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
                 "fixture://in-process",
@@ -460,7 +461,7 @@ fn install_kernel_world(
 ) -> TrafficWorld {
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(8, 32, 1_024, 1_024, 1, delta_ms),
+        WorldConfig::new(8, 32, 1_024, 1_024, delta_ms),
     )
     .expect("install");
     if corridor {
@@ -800,7 +801,7 @@ fn worlds_2_8_32_share_one_static_root() {
             .map(|_| {
                 install_fixture(
                     Arc::clone(&revision),
-                    WorldConfig::new(8, 8, 1_024, 1_024, 1, CORRIDOR_DELTA_MS),
+                    WorldConfig::new(8, 8, 1_024, 1_024, CORRIDOR_DELTA_MS),
                 )
                 .expect("install")
             })
