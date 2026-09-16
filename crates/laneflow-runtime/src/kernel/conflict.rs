@@ -442,7 +442,8 @@ impl ConflictEligibilityState {
 pub enum ApproachEstimate {
     /// 证明计算失败，无法给出保守到达下界。
     Unprovable,
-    /// 保守最早到达时刻（毫秒，向下取整的下界）。
+    /// 保守最早到达的相对耗时下界（毫秒，自当前接近状态起算、向下取整），
+    /// 非绝对时刻。
     Finite(u64),
     /// 保守下界超出证明时窗，本时窗内不可到达。
     OutsideHorizon,

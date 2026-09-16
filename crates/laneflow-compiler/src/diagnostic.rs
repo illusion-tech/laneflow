@@ -738,9 +738,10 @@ pub enum ConflictZoneRegionViolation {
     },
     /// 两个编制点量化后完全重合（`Compiler::compile`）。
     DuplicateQuantizedPoint {
-        /// 首个占据该量化位置的环点零基下标。
+        /// 占据该量化位置的环点零基下标之一（相等点排序无下标决胜，不保证
+        /// 最早源出现）。
         first_index: u32,
-        /// 与其重合的重复环点零基下标。
+        /// 与其重合的另一环点零基下标；同上，无源序保证。
         duplicate_index: u32,
     },
     /// 量化后有向面积为零，环退化；面积检查先于自交检查，自交但有向面积为零的
