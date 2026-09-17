@@ -272,6 +272,9 @@ fn exact_baseline_trace_and_retry_match() {
 
 #[test]
 fn parallel_worker_matrix_trace_matches_fixed_fixture() {
+    // 场景反复创建真实线程池：持有资源测试锁，避免与 execution.rs 测试族的
+    // 全局 LIVE_WORKERS/STARTED_WORKERS 计数断言并发互扰。
+    let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
     let revision = crate::admin::cutover_migration::tests::conflict_scale_revision();
     // 车辆-bearing 场景的活动数必须达到分发门槛，多 worker 运行才真正分发；
     // 信号时钟场景无车辆，覆盖空工作集下的池世界整步。

@@ -28,6 +28,9 @@ thread_local! {
     /// 缺失槽位注入：join 完成后把该 Active 位置的槽位改写为 `Pending`。
     static PREVIEW_SLOT_GAP: core::cell::Cell<Option<usize>> =
         const { core::cell::Cell::new(None) };
+    /// 输入表预留注入：下一次发现循环的 checked 预留强制失败。
+    static PREVIEW_INPUT_RESERVE_FAILURE: core::cell::Cell<bool> =
+        const { core::cell::Cell::new(false) };
     static PREVIEW_PATH_COUNTS: core::cell::Cell<WaitingPreviewPathCounts> =
         const { core::cell::Cell::new(WaitingPreviewPathCounts {
             dispatched: 0, fused: 0, slot_fallback: 0,
@@ -281,6 +284,30 @@ impl Drop for PreviewSlotReserveFailureGuard {
 fn fail_preview_slot_reserve() -> PreviewSlotReserveFailureGuard {
     PreviewSlotReserveFailureGuard(
         PREVIEW_SLOT_RESERVE_FAILURE.with(|failure| failure.replace(true)),
+    )
+}
+
+#[cfg(test)]
+fn preview_input_reserve_injected_failure() -> bool {
+    PREVIEW_INPUT_RESERVE_FAILURE.with(|failure| failure.get())
+}
+
+#[cfg(test)]
+struct PreviewInputReserveFailureGuard(bool);
+
+#[cfg(test)]
+impl Drop for PreviewInputReserveFailureGuard {
+    fn drop(&mut self) {
+        PREVIEW_INPUT_RESERVE_FAILURE.with(|failure| failure.set(self.0));
+    }
+}
+
+/// 测试专用：下一次输入发现循环的 checked 预留强制失败，验证输入表
+/// 冷态/增长预留失败回退融合。
+#[cfg(test)]
+fn fail_preview_input_reserve() -> PreviewInputReserveFailureGuard {
+    PreviewInputReserveFailureGuard(
+        PREVIEW_INPUT_RESERVE_FAILURE.with(|failure| failure.replace(true)),
     )
 }
 
@@ -1445,22 +1472,28 @@ fn stage_waiting_preview(
             preview: entry.preview,
         });
     }
-    if let Some(next) = entry.next {
+    if let Some(next) = entry.preview.map(|preview| preview.next) {
         next_states.push((update_sequence, next));
     }
 }
 
-/// 融合路径：同一逐车原语在调用线程内联求值并就地规范消费；worker=1 的
-/// 生产路径，首错与 staging 与串行第一遍一致。
+/// 融合路径：在 live 序上逐车交错求值同一原语并就地规范消费（身份检查 →
+/// Active 过滤 → 预览 → staging），不物化输入表；与改动前串行第一遍逐字节
+/// 同序，首错位置一致。worker=1、小工作集与一切可选暂存预留失败都走这里。
 fn prepare_waiting_previews_fused(
     workspace: &mut crate::kernel::state::TickWorkspace,
     view: crate::kernel::phase::StepReadView<'_>,
     delta_s: f32,
     cache_limit: usize,
 ) -> Result<(), crate::StepError> {
-    for (cache_index, (vehicle, update_sequence)) in
-        workspace.waiting_preview_inputs.iter().copied().enumerate()
-    {
+    let mut cache_index = 0;
+    for (update_sequence, vehicle) in view.committed.live_order.iter().copied().enumerate() {
+        let state = *view
+            .vehicle_state(vehicle)
+            .ok_or(crate::StepError::WaitingInvariantViolation)?;
+        if state.status != crate::VehicleStatus::Active {
+            continue;
+        }
         let entry = view.waiting_preview_entry(vehicle, update_sequence, delta_s)?;
         stage_waiting_preview(
             &mut workspace.motion_cache,
@@ -1471,14 +1504,18 @@ fn prepare_waiting_previews_fused(
             update_sequence,
             &entry,
         );
+        cache_index += 1;
     }
     Ok(())
 }
 
-/// 分发路径：任务独占连续输出槽位、只读共享视图计算；协调器按 Active
-/// 顺序规范消费。首个 `Err` 在其逻辑位置返回（此时 join 已完成，走现有
-/// 错误/rollback 路径）；首错之前出现 `Pending`/`Skipped` 属完成前沿
-/// 不变量违例，检出为 `WaitingInvariantViolation` 而非成功。
+/// 分发路径：输入发现循环先对输入表做 checked 预留（上限 live 长度），失败
+/// 退回流式融合（不新增领域错误）；发现中遇身份错误停止收集更晚输入，把该
+/// 错误记为待规范消费的终止位置——已收集前缀照常分发，协调器按序消费
+/// （更早预览错误先返回），前缀全部成功后才公开该身份错误。如此首错与
+/// 串行逐车交错一致：位置早于终止位置的义务先于该身份错误。小工作集同样
+/// 退回流式融合。任务独占连续输出槽位、只读共享视图计算；首错之前出现
+/// `Pending`/`Skipped` 属完成前沿不变量违例。
 fn prepare_waiting_previews_dispatched(
     workspace: &mut crate::kernel::state::TickWorkspace,
     view: crate::kernel::phase::StepReadView<'_>,
@@ -1487,9 +1524,43 @@ fn prepare_waiting_previews_dispatched(
     cache_limit: usize,
 ) -> Result<(), crate::StepError> {
     use std::sync::atomic::{AtomicUsize, Ordering};
+    let inputs = &mut workspace.waiting_preview_inputs;
+    inputs.clear();
+    #[cfg(test)]
+    let input_injected = preview_input_reserve_injected_failure();
+    #[cfg(not(test))]
+    let input_injected = false;
+    if inputs.try_reserve(view.committed.live_order.len()).is_err() || input_injected {
+        // 输入表预留失败（冷态或增长）：退回同一领域原语的流式融合。
+        #[cfg(test)]
+        count_preview_path(|counts| {
+            counts.slot_fallback += 1;
+            counts.fused += 1;
+        });
+        return prepare_waiting_previews_fused(workspace, view, delta_s, cache_limit);
+    }
+    let mut pending_identity_error = None;
+    for (sequence, vehicle) in view.committed.live_order.iter().copied().enumerate() {
+        let Some(state) = view.vehicle_state(vehicle) else {
+            // 身份失败：更晚输入不再收集；先兑现已收集前缀的更早义务。
+            pending_identity_error = Some(crate::StepError::WaitingInvariantViolation);
+            break;
+        };
+        if state.status != crate::VehicleStatus::Active {
+            continue;
+        }
+        inputs.push((vehicle, sequence));
+    }
+    let workload = inputs.len();
+    if workload < WAITING_PREVIEW_FUSION_MIN_ACTIVE {
+        #[cfg(test)]
+        count_preview_path(|counts| counts.fused += 1);
+        return prepare_waiting_previews_fused(workspace, view, delta_s, cache_limit);
+    }
+    #[cfg(test)]
+    count_preview_path(|counts| counts.dispatched += 1);
     let slots = &mut workspace.waiting_preview_slots;
     slots.clear();
-    let workload = workspace.waiting_preview_inputs.len();
     #[cfg(test)]
     let reserve_injected = preview_slot_reserve_injected_failure();
     #[cfg(not(test))]
@@ -1564,6 +1635,10 @@ fn prepare_waiting_previews_dispatched(
             }
         }
     }
+    // 前缀全部成功才公开发现阶段记录的身份终止错误；更早预览错误已在上文返回。
+    if let Some(error) = pending_identity_error {
+        return Err(error);
+    }
     Ok(())
 }
 
@@ -1602,23 +1677,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             &mut self.workspace.next_states,
             self.derived.active_order.len(),
         )?;
-        // P2 第一遍：逐车 horizon/预览的独立计算只读共享输入、写独占槽位。
-        // live/Active 身份检查由协调器按 live 序、同一 Active 谓词完成（与串行
-        // 第一遍同一迭代次序与首错位置）；motion_cache/next_states 规范写入保持
-        // 协调器单写者（#705 提取边界）。
-        self.workspace.waiting_preview_inputs.clear();
-        for (sequence, vehicle) in self.committed.live_order.iter().copied().enumerate() {
-            let active = self
-                .vehicle_state(vehicle)
-                .ok_or(crate::StepError::WaitingInvariantViolation)?
-                .status
-                == crate::VehicleStatus::Active;
-            if active {
-                self.workspace
-                    .waiting_preview_inputs
-                    .push((vehicle, sequence));
-            }
-        }
+        // P2 第一遍：独立计算只读共享输入、写独占槽位；motion_cache/next_states
+        // 规范写入保持协调器单写者（#705 提取边界）。融合路径在 live 序上流式
+        // 逐车交错（身份检查 → Active 过滤 → 预览 → staging），不物化输入表；
+        // 分发路径在内部完成输入发现（checked 预留）与路径选择。
         // 与 read_view 相同的字段级只读投影：持有 committed/derived 借用期间
         // 仍可独占 workspace 字段完成规范消费。
         let view = crate::kernel::phase::StepReadView {
@@ -1627,12 +1689,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             derived: &self.derived,
         };
         match execution {
-            Some(resources @ crate::kernel::execution::ExecutionResources::Pool(_))
-                if self.workspace.waiting_preview_inputs.len()
-                    >= WAITING_PREVIEW_FUSION_MIN_ACTIVE =>
-            {
-                #[cfg(test)]
-                count_preview_path(|counts| counts.dispatched += 1);
+            Some(resources @ crate::kernel::execution::ExecutionResources::Pool(_)) => {
                 prepare_waiting_previews_dispatched(
                     self.workspace,
                     view,
@@ -6115,6 +6172,128 @@ pub(crate) mod tests {
             );
             assert_eq!(world.capture_snapshot().unwrap(), before);
         }
+    }
+
+    /// 首错交错反例（#717 审阅）：live 序 4 预览 `NonFiniteMotion` 与 live 序
+    /// 12 身份失败共存时，串行逐车交错先报位置 4 的预览错误。流式融合与
+    /// worker 2/4 分发都必须公开同一个首错，失败后暂存与公开状态一致；
+    /// 仅身份错误时所有路径都公开 `WaitingInvariantViolation`。
+    #[test]
+    fn preview_error_before_identity_failure_keeps_serial_first_error() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 705_700;
+        const IDENTITY_POSITION: usize = 12;
+        let corrupt_live_identity = |world: &mut TrafficWorld| -> crate::VehicleState {
+            let handle = world.state.committed.live_order[IDENTITY_POSITION];
+            world.state.committed.vehicles[handle.index() as usize]
+                .state
+                .take()
+                .expect("vehicle state present")
+        };
+        let restore_live_identity = |world: &mut TrafficWorld, state: crate::VehicleState| {
+            let handle = world.state.committed.live_order[IDENTITY_POSITION];
+            world.state.committed.vehicles[handle.index() as usize].state = Some(state);
+        };
+        let staging = |world: &TrafficWorld| {
+            (
+                format!("{:?}", world.state.workspace.motion_cache),
+                world.state.workspace.next_states.clone(),
+            )
+        };
+        // (注入预览错误位置, 期望公开首错)。
+        for (injected, expected) in [
+            (&[4_usize][..], crate::StepError::NonFiniteMotion),
+            (&[][..], crate::StepError::WaitingInvariantViolation),
+        ] {
+            let mut reference = multi_gate_world_with_id(16, WORLD_ID);
+            let before = reference.capture_snapshot().unwrap();
+            let evicted = corrupt_live_identity(&mut reference);
+            let injection = inject_preview_errors(WORLD_ID, injected, &[]);
+            let reference_result = reference
+                .state
+                .step_workspace()
+                .prepare_waiting_step(0.1, Some(reference.execution.resources()));
+            drop(injection);
+            assert_eq!(reference_result, Err(expected), "融合参考首错");
+            let reference_staging = staging(&reference);
+            restore_live_identity(&mut reference, evicted);
+            assert_eq!(reference.capture_snapshot().unwrap(), before);
+            for workers in [2_u32, 4] {
+                let mut world = multi_gate_world_with_id(16, WORLD_ID);
+                install_execution(&mut world, workers);
+                let before = world.capture_snapshot().unwrap();
+                let evicted = corrupt_live_identity(&mut world);
+                let injection = inject_preview_errors(WORLD_ID, injected, &[]);
+                let result = world
+                    .state
+                    .step_workspace()
+                    .prepare_waiting_step(0.1, Some(world.execution.resources()));
+                drop(injection);
+                assert_eq!(
+                    result,
+                    Err(expected),
+                    "workers={workers} injected={injected:?}"
+                );
+                assert_eq!(
+                    staging(&world),
+                    reference_staging,
+                    "workers={workers} 失败后暂存与融合参考一致"
+                );
+                restore_live_identity(&mut world, evicted);
+                assert_eq!(world.capture_snapshot().unwrap(), before);
+            }
+        }
+    }
+
+    /// 输入表预留失败（#717 审阅）：冷态（首拍）与增长（热暂存容量不足）都
+    /// 强制回退流式融合，输出与融合参考逐步一致，不新增领域错误；无注入的
+    /// 增长拍恢复真实分发。
+    #[test]
+    fn preview_input_reserve_failure_falls_back_to_fused() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 705_800;
+        let (mut reference, reference_routes) = multi_gate_world_partial(16, 8, WORLD_ID);
+        let (mut parallel, parallel_routes) = multi_gate_world_partial(16, 8, WORLD_ID);
+        install_execution(&mut parallel, 4);
+        let step_pair = |reference: &mut TrafficWorld, parallel: &mut TrafficWorld| {
+            reference.step(TickInput::new(100)).unwrap();
+            parallel.step(TickInput::new(100)).unwrap();
+            assert_public_outputs_match(parallel, reference);
+        };
+
+        // 冷态：首拍输入表 checked 预留失败 → 融合。
+        {
+            let _guard = fail_preview_input_reserve();
+            step_pair(&mut reference, &mut parallel);
+        }
+        // 热态分发，建立输入表容量（8 Active）。
+        step_pair(&mut reference, &mut parallel);
+        step_pair(&mut reference, &mut parallel);
+        // 增长：补到 16 Active，输入预留必须真实增长；注入失败 → 融合。
+        for (reference_route, parallel_route) in
+            reference_routes.iter().zip(&parallel_routes).skip(8)
+        {
+            spawn_idle_zone_vehicle(&mut reference, *reference_route);
+            spawn_idle_zone_vehicle(&mut parallel, *parallel_route);
+        }
+        {
+            let _guard = fail_preview_input_reserve();
+            step_pair(&mut reference, &mut parallel);
+        }
+        // 无注入增长拍：预留成功，真实分发恢复。
+        step_pair(&mut reference, &mut parallel);
+        assert_eq!(
+            preview_path_counts(),
+            WaitingPreviewPathCounts {
+                // parallel 的第 2/3/5 拍。
+                dispatched: 3,
+                // reference 5 拍全融合 + parallel 冷态/增长两拍回退。
+                fused: 7,
+                slot_fallback: 2,
+            }
+        );
     }
 
     /// P2 计算 panic 端到端：panic 不按 `StepError` 映射；世界永久失效，
