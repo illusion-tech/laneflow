@@ -9,11 +9,9 @@ pub(crate) mod source;
 /// 1-worker 交通世界。只克隆根 `Arc`，不复制静态 component。
 /// 生命周期命令（路线、车辆、parking lifecycle 与原子 replace/despawn）只在两次
 /// `step` 之间调用。
+/// 执行 panic 会使世界永久失效；后续世界查询、交通与管理操作均 panic，宿主应销毁
+/// 并从合法来源重新构建。析构会等待所有世界独占辅助线程退出。
 pub struct TrafficWorld {
-    pub(crate) execution_config: crate::ExecutionConfig,
-    pub(crate) binding: crate::kernel::state::WorldBindingState,
-    pub(crate) committed: crate::kernel::state::CommittedWorldState,
-    pub(crate) derived: crate::kernel::state::DerivedIndexes,
-    pub(crate) workspace: crate::kernel::state::TickWorkspace,
-    pub(crate) admin: crate::admin::state::AdministrativeState,
+    pub(crate) state: crate::kernel::state::WorldState,
+    pub(crate) execution: crate::kernel::execution::WorldExecution,
 }

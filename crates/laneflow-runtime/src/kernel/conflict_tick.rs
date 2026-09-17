@@ -329,7 +329,7 @@ const fn no_grant_rank(reason: ConflictNoGrantReason) -> u8 {
     }
 }
 
-impl TrafficWorld {
+impl crate::kernel::state::WorldState {
     /// 刚完成 successful tick 的 Conflict 决定批次。
     #[must_use]
     pub fn latest_conflict_decisions(&self) -> &[ConflictDecision] {
@@ -392,6 +392,19 @@ impl TrafficWorld {
             + vec_bytes(&self.workspace.motion_cache)
             + vec_bytes(&self.committed.latest_conflict_decisions);
         u64::try_from(bytes).expect("Conflict retained bytes fit u64")
+    }
+}
+
+impl TrafficWorld {
+    /// 刚完成 successful tick 的 Conflict 决定批次。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn latest_conflict_decisions(&self) -> &[ConflictDecision] {
+        self.execution.assert_usable();
+        self.state.latest_conflict_decisions()
     }
 }
 
@@ -1888,22 +1901,33 @@ mod tests {
     fn rejected_waiting_bundle_has_no_claim_counter_or_granted_output() {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
         assert_eq!(
-            world.workspace.conflict_schedule.retained_logical_bytes(),
+            world
+                .state
+                .workspace
+                .conflict_schedule
+                .retained_logical_bytes(),
             0
         );
-        world.rebuild_occupancy_index().unwrap();
-        world.prepare_waiting_step(0.1).unwrap();
-        world.prepare_conflict_candidates(0.1, 1).unwrap();
-        assert_eq!(world.workspace.conflict_candidates.len(), 1);
+        world.state.rebuild_occupancy_index().unwrap();
+        world.state.prepare_waiting_step(0.1).unwrap();
+        world.state.prepare_conflict_candidates(0.1, 1).unwrap();
+        assert_eq!(world.state.workspace.conflict_candidates.len(), 1);
         // 单独验证组合仲裁拒绝与 Waiting 发布的接缝；SCC 本身由 arbiter 测试覆盖。
-        world.workspace.conflict_candidates[0].preflight_no_grant =
+        world.state.workspace.conflict_candidates[0].preflight_no_grant =
             Some(ConflictNoGrantReason::WaitingCycle);
-        world.acquire_conflict_candidates(1).unwrap();
-        assert!(world.workspace.conflict_schedule.retained_logical_bytes() > 0);
-        assert!(world.workspace.waiting_claims.is_empty());
-        let candidate = world.workspace.conflict_candidates[0];
+        world.state.acquire_conflict_candidates(1).unwrap();
+        assert!(
+            world
+                .state
+                .workspace
+                .conflict_schedule
+                .retained_logical_bytes()
+                > 0
+        );
+        assert!(world.state.workspace.waiting_claims.is_empty());
+        let candidate = world.state.workspace.conflict_candidates[0];
         let old = world.vehicle(candidate.vehicle).unwrap();
-        let phase = world.step_workspace();
+        let phase = world.state.step_workspace();
         let next = phase
             .read_view()
             .advance_active_vehicle_with_waiting_stop(
@@ -1914,19 +1938,20 @@ mod tests {
             )
             .unwrap();
         let mut updates = [(candidate.vehicle.index() as usize, next)];
-        world.finalize_waiting_step(&mut updates).unwrap();
-        world.finalize_conflict_step(&mut updates).unwrap();
-        world.finalize_waiting_outputs(&updates, 1).unwrap();
+        world.state.finalize_waiting_step(&mut updates).unwrap();
+        world.state.finalize_conflict_step(&mut updates).unwrap();
+        world.state.finalize_waiting_outputs(&updates, 1).unwrap();
         assert_eq!(
-            world.workspace.waiting_staged_decisions[0].outcome(),
+            world.state.workspace.waiting_staged_decisions[0].outcome(),
             crate::WaitingDecisionOutcome::NoGrant(crate::WaitingNoGrantReason::CombinedResource(
                 ConflictNoGrantReason::WaitingCycle
             ))
         );
         assert!(updates[0].1.waiting_membership.is_none());
-        assert!(world.workspace.staged_transition_events.is_empty());
+        assert!(world.state.workspace.staged_transition_events.is_empty());
         assert!(
             world
+                .state
                 .committed
                 .waiting_zones
                 .iter()
@@ -1939,7 +1964,9 @@ mod tests {
         for sample in 0..24 {
             let started = Instant::now();
             world
-                .step(TickInput::new(world.binding.config.fixed_delta_time_ms()))
+                .step(TickInput::new(
+                    world.state.binding.config.fixed_delta_time_ms(),
+                ))
                 .expect("Conflict scale tick");
             if sample >= 3 {
                 samples.push(started.elapsed().as_nanos());
@@ -1954,6 +1981,7 @@ mod tests {
         for sample in 0..24 {
             let started = Instant::now();
             world
+                .state
                 .prepare_conflict_step(0.004, world.tick_index() + 1)
                 .expect("Conflict arbitration sample");
             if sample >= 3 {
@@ -2030,7 +2058,11 @@ mod tests {
                 ))
                 .unwrap();
             reset_conflict_work_counts();
-            world.step_workspace().rebuild_conflict_frontier().unwrap();
+            world
+                .state
+                .step_workspace()
+                .rebuild_conflict_frontier()
+                .unwrap();
             let counts = conflict_work_counts();
             assert_eq!(counts.eta_preparations, 1);
             assert_eq!(
@@ -2038,14 +2070,18 @@ mod tests {
                 if multiple_passages { 3 } else { 1 }
             );
             // 仅把 cursor 移至没有 future entry 的出口，隔离 frontier 准备的跳过条件。
-            let state = world.committed.vehicles[vehicle.index() as usize]
+            let state = world.state.committed.vehicles[vehicle.index() as usize]
                 .state
                 .as_mut()
                 .unwrap();
             state.route_edge_index = 2;
             state.progress_mm = 10_000;
             reset_conflict_work_counts();
-            world.step_workspace().rebuild_conflict_frontier().unwrap();
+            world
+                .state
+                .step_workspace()
+                .rebuild_conflict_frontier()
+                .unwrap();
             assert_eq!(conflict_work_counts().eta_preparations, 0);
         }
     }
@@ -2056,7 +2092,11 @@ mod tests {
         for vehicles in [1, 4, 16, 64] {
             let mut world = conflict_scale_world(Arc::clone(&revision), vehicles);
             reset_conflict_work_counts();
-            world.step_workspace().rebuild_conflict_frontier().unwrap();
+            world
+                .state
+                .step_workspace()
+                .rebuild_conflict_frontier()
+                .unwrap();
             let counts = conflict_work_counts();
             assert_eq!(counts.eta_preparations, vehicles as usize, "{counts:?}");
             assert_eq!(
@@ -2067,7 +2107,11 @@ mod tests {
                 world.despawn_vehicle(handle).unwrap();
             }
             reset_conflict_work_counts();
-            world.step_workspace().rebuild_conflict_frontier().unwrap();
+            world
+                .state
+                .step_workspace()
+                .rebuild_conflict_frontier()
+                .unwrap();
             assert_eq!(conflict_work_counts().eta_preparations, 0);
         }
     }
@@ -2084,8 +2128,8 @@ mod tests {
             world.latest_conflict_decisions()
         );
         assert!(work.visited_passages <= 1_800);
-        assert_eq!(world.conflict_read().cell_count(), 2);
-        assert!(world.conflict_state_valid());
+        assert_eq!(world.state.conflict_read().cell_count(), 2);
+        assert!(world.state.conflict_state_valid());
     }
 
     #[test]
@@ -2095,19 +2139,19 @@ mod tests {
 
         let mut product = conflict_scale_world(Arc::clone(&revision), 10_000);
         product.step(TickInput::new(4)).expect("10k warm tick");
-        let retained_10k = product.conflict_retained_logical_bytes();
+        let retained_10k = product.state.conflict_retained_logical_bytes();
         let (arbitration_p50_ns, arbitration_p95_ns) = arbitration_samples(&mut product);
         let (tick_p50_ns, tick_p95_ns) = percentile_samples(&mut product);
-        assert!(product.conflict_state_valid());
+        assert!(product.state.conflict_state_valid());
 
         let mut scale = conflict_scale_world(revision, 100_000);
         reset_conflict_work_counts();
         scale.step(TickInput::new(4)).expect("100k evidence tick");
         let work = conflict_work_counts();
-        let retained_100k = scale.conflict_retained_logical_bytes();
-        let top_two_cells = scale.conflict_read().cell_count();
+        let retained_100k = scale.state.conflict_retained_logical_bytes();
+        let top_two_cells = scale.state.conflict_read().cell_count();
         let top_two_bytes = top_two_cells * core::mem::size_of::<ApproachFrontierCell>();
-        assert!(scale.conflict_state_valid());
+        assert!(scale.state.conflict_state_valid());
         assert!(work.visited_passages <= 300_000);
         assert!(retained_100k <= retained_10k.saturating_mul(11));
 

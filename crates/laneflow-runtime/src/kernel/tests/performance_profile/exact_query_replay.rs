@@ -21,18 +21,18 @@ fn occupancy_exact_query_replay() {
                 let mut walks = 0;
                 let mut records = 0;
                 for _ in 0..64 {
-                    harness.world_mut().rebuild_occupancy_index().unwrap();
+                    harness.world_mut().state.rebuild_occupancy_index().unwrap();
                     {
                         let world = harness.world();
-                        let read = world.read_view();
+                        let read = world.state.read_view();
                         let lengths = world.traffic().lane_lengths_millimetres();
                         let limits = world.traffic().lane_speed_limits_millimetres_per_second();
                         let inputs: Vec<_> = world
                             .live_vehicles()
                             .iter()
                             .map(|handle| {
-                                let state = *world.vehicle_state(*handle).unwrap();
-                                let compiled = world.compiled_route(state.route).unwrap();
+                                let state = *world.state.vehicle_state(*handle).unwrap();
+                                let compiled = world.state.compiled_route(state.route).unwrap();
                                 let profile = world
                                     .traffic()
                                     .relations()
@@ -77,7 +77,7 @@ fn occupancy_exact_query_replay() {
                         for (state, compiled, _, horizon) in &inputs {
                             let (state, edges, horizon) =
                                 black_box((state, compiled.edges.as_slice(), *horizon));
-                            black_box(world.derived.occupancy.leader_gap(
+                            black_box(world.state.derived.occupancy.leader_gap(
                                 state.handle,
                                 edges,
                                 state.route_edge_index as usize,
@@ -108,9 +108,9 @@ fn occupancy_exact_query_replay() {
                             ));
                         }
                         nanos[3] += started.elapsed().as_nanos();
-                        records += world.derived.occupancy.records_len();
-                        inspections += world.derived.occupancy.inspections();
-                        walks += world.derived.occupancy.occurrence_walks();
+                        records += world.state.derived.occupancy.records_len();
+                        inspections += world.state.derived.occupancy.inspections();
+                        walks += world.state.derived.occupancy.occurrence_walks();
                     }
                     harness.step();
                 }

@@ -178,7 +178,7 @@ struct UnparkedVehicleAuthority {
     waiting_membership: Option<crate::WaitingMembership>,
 }
 
-impl TrafficWorld {
+impl crate::kernel::state::WorldState {
     /// 构造覆盖 committed、derived 与 workspace 三段的 Conflict 只读视图。
     pub(crate) fn conflict_read(&self) -> crate::kernel::conflict::ConflictRead<'_> {
         crate::kernel::conflict::ConflictRead::new(
@@ -188,44 +188,6 @@ impl TrafficWorld {
         )
     }
 
-    /// 安装完整共享根并指名已提交来源（#302 活动聚合）。失败不留下
-    /// 可观察的半个 world。
-    ///
-    /// 来源的 `NetworkRevisionId` 必须与共享根 origin 精确相等；digest /
-    /// length 差异（同修订重发布）按合同只承担来源审计，不构成拒绝条件。
-    ///
-    /// # Errors
-    ///
-    /// 来源修订号与共享根 origin 不一致、
-    /// `fixed_delta_time_ms` 落在 `4..=1_000` 之外或信号程序与步长不兼容、共享根
-    /// 需要显式路权策略而未固定/策略未知/策略派生溢出或分配失败（
-    /// `PolicyRequired` / `UnknownPolicy` / `PolicyGapOverflow` /
-    /// `PolicyCapacityOverflow` / `PolicyAllocationFailed`），或冲突仲裁器容量、
-    /// 分配与网络不变量安装失败时返回相应 [`InstallError`]；失败不留下可观察的
-    /// 半个 world。交通准备完成后，执行配置超出当前后端能力返回
-    /// [`InstallError::ExecutionInit`]，不静默降级。
-    pub fn install(
-        revision: Arc<SharedNetworkRevision>,
-        config: WorldConfig,
-        execution: crate::ExecutionConfig,
-        source: CommittedNetworkSource,
-        world_id: u64,
-        policy_selection: crate::WorldPolicySelection,
-    ) -> Result<Self, InstallError> {
-        let world = Self::prepare_traffic_state(
-            revision,
-            config,
-            execution,
-            source,
-            world_id,
-            policy_selection,
-        )?;
-        execution
-            .validate_supported()
-            .map_err(InstallError::ExecutionInit)?;
-        Ok(world)
-    }
-
     /// 安装与恢复共用交通准入；不校验执行能力，也不创建辅助线程。
     ///
     /// 仅供私有准备过程使用。调用方必须在最终交通状态合法后验证执行配置，
@@ -233,7 +195,6 @@ impl TrafficWorld {
     pub(crate) fn prepare_traffic_state(
         revision: Arc<SharedNetworkRevision>,
         config: WorldConfig,
-        execution: crate::ExecutionConfig,
         source: CommittedNetworkSource,
         world_id: u64,
         policy_selection: crate::WorldPolicySelection,
@@ -347,7 +308,6 @@ impl TrafficWorld {
         let migration_journal = None;
         let migration_epoch = 0;
         let mut world = Self {
-            execution_config: execution,
             binding: crate::kernel::state::WorldBindingState {
                 revision,
                 source,
@@ -819,12 +779,6 @@ impl TrafficWorld {
     #[must_use]
     pub const fn config(&self) -> WorldConfig {
         self.binding.config
-    }
-
-    /// 安装或 fresh restore 时由宿主显式提供的执行配置；路网切换保持此值。
-    #[must_use]
-    pub const fn execution_config(&self) -> crate::ExecutionConfig {
-        self.execution_config
     }
 
     /// 注册本世界路线。失败不留下半条路线。
@@ -1874,6 +1828,561 @@ impl TrafficWorld {
     }
 }
 
+impl TrafficWorld {
+    /// 安装完整共享根并指名已提交来源（#302 活动聚合）。失败不留下
+    /// 可观察的半个 world。
+    ///
+    /// 来源的 `NetworkRevisionId` 必须与共享根 origin 精确相等；digest /
+    /// length 差异（同修订重发布）按合同只承担来源审计，不构成拒绝条件。
+    ///
+    /// # Errors
+    ///
+    /// 来源修订号与共享根 origin 不一致、
+    /// `fixed_delta_time_ms` 落在 `4..=1_000` 之外或信号程序与步长不兼容、共享根
+    /// 需要显式路权策略而未固定/策略未知/策略派生溢出或分配失败（
+    /// `PolicyRequired` / `UnknownPolicy` / `PolicyGapOverflow` /
+    /// `PolicyCapacityOverflow` / `PolicyAllocationFailed`），或冲突仲裁器容量、
+    /// 分配与网络不变量安装失败时返回相应 [`InstallError`]；失败不留下可观察的
+    /// 半个 world。交通准备完成后，执行配置超出当前后端能力返回
+    /// [`InstallError::ExecutionInit`]，不静默降级；必需计划准备失败返回
+    /// [`InstallError::ExecutionPlan`]。执行资源只在计划完成后创建。
+    pub fn install(
+        revision: Arc<SharedNetworkRevision>,
+        config: WorldConfig,
+        execution: crate::ExecutionConfig,
+        source: CommittedNetworkSource,
+        world_id: u64,
+        policy_selection: crate::WorldPolicySelection,
+    ) -> Result<Self, InstallError> {
+        let state = crate::kernel::state::WorldState::prepare_traffic_state(
+            revision,
+            config,
+            source,
+            world_id,
+            policy_selection,
+        )?;
+        let execution = crate::kernel::execution::WorldExecution::prepare(execution, &state)
+            .map_err(|error| match error {
+                crate::kernel::execution::ExecutionPreparationError::Init(error) => {
+                    InstallError::ExecutionInit(error)
+                }
+                crate::kernel::execution::ExecutionPreparationError::Plan(error) => {
+                    InstallError::ExecutionPlan(error)
+                }
+            })?;
+        Ok(Self { state, execution })
+    }
+
+    /// 已提交路网来源（#302 活动聚合的来源指名）。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub const fn committed_source(&self) -> &CommittedNetworkSource {
+        self.execution.assert_usable();
+        self.state.committed_source()
+    }
+
+    /// 宿主指定的世界身份（切换描述符 `worldBinding` 的比对对象）。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub const fn world_id(&self) -> u64 {
+        self.execution.assert_usable();
+        self.state.world_id()
+    }
+
+    /// 安装时由宿主选定的世界策略选择。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub const fn policy_selection(&self) -> crate::WorldPolicySelection {
+        self.execution.assert_usable();
+        self.state.policy_selection()
+    }
+
+    /// 当前世界唯一所选策略，借用同一个共享根。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn policy(&self) -> Option<laneflow_static_network::PolicyView<'_>> {
+        self.execution.assert_usable();
+        self.state.policy()
+    }
+
+    /// 当前世界策略的间隙接受参数派生表。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn policy_gap_profiles(&self) -> &[crate::DerivedPolicyGap] {
+        self.execution.assert_usable();
+        self.state.policy_gap_profiles()
+    }
+
+    /// 把当前根内的 passage 地址派生为可持久化的稳定 locator。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn conflict_passage_locator(
+        &self,
+        address: crate::ConflictPassageAddress,
+    ) -> Option<crate::ConflictPassageLocator> {
+        self.execution.assert_usable();
+        self.state.conflict_passage_locator(address)
+    }
+
+    /// 返回已注册路线中的 exact conflict occurrence locator。
+    ///
+    /// 该只读派生不授予通行权；循环路线中的重复 passage 由 occurrence 下标区分，
+    /// 其 `stable_locator` 仍只包含跨修订所需的两个稳定 ID。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn conflict_passage_occurrence_locator(
+        &self,
+        route: RouteHandle,
+        conflict_occurrence_index: u32,
+    ) -> Option<crate::ConflictPassageOccurrenceLocator> {
+        self.execution.assert_usable();
+        self.state
+            .conflict_passage_occurrence_locator(route, conflict_occurrence_index)
+    }
+
+    /// 当前共享根中的静态 conflict passage cell 数；动态路线及其重复 occurrence 不复制 cell。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn conflict_passage_cell_count(&self) -> usize {
+        self.execution.assert_usable();
+        self.state.conflict_passage_cell_count()
+    }
+
+    /// 返回该车辆当前由 Conflict arbiter 单独持有的 committed reservation。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn conflict_reservation(
+        &self,
+        vehicle: VehicleHandle,
+    ) -> Option<crate::ConflictReservation> {
+        self.execution.assert_usable();
+        self.state.conflict_reservation(vehicle)
+    }
+
+    /// 策略派生的求值前沿证明时长（毫秒）；无间隙接受参数时为 `None`。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub const fn frontier_proof_horizon_ms(&self) -> Option<u64> {
+        self.execution.assert_usable();
+        self.state.frontier_proof_horizon_ms()
+    }
+
+    /// 当前活动世界世代。成功切换后递增；失败或放弃保持不变。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub const fn world_generation(&self) -> WorldGeneration {
+        self.execution.assert_usable();
+        self.state.world_generation()
+    }
+
+    /// 共享根。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn revision(&self) -> Arc<SharedNetworkRevision> {
+        self.execution.assert_usable();
+        self.state.revision()
+    }
+
+    /// 共享 Traffic component。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn traffic(&self) -> &laneflow_static_network::SharedTrafficNetwork {
+        self.execution.assert_usable();
+        self.state.traffic()
+    }
+
+    /// 已提交 `tick_index`。`install` 后为 0；成功 `step` 与 `StepOutcome` 一致；失败不变。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub const fn tick_index(&self) -> u64 {
+        self.execution.assert_usable();
+        self.state.tick_index()
+    }
+
+    /// 已提交 `time_ms`。`install` 后为 0；成功 `step` 与 `StepOutcome` 一致；失败不变。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub const fn time_ms(&self) -> u64 {
+        self.execution.assert_usable();
+        self.state.time_ms()
+    }
+
+    /// 已应用输入命令计数（快照合同 §3 双游标之一）。
+    ///
+    /// 生命周期命令（路线、车辆、parking lifecycle 与原子 replace/despawn）成功返回即
+    /// 计数；合法 parking `NoChange` 同样计数，失败命令不计数。`step`
+    /// 与切换事务不是输入命令，不推进本游标。安装后为零。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub const fn command_cursor(&self) -> u64 {
+        self.execution.assert_usable();
+        self.state.command_cursor()
+    }
+
+    /// 已提交切换事件游标（快照合同 §3 双游标之一；#513 切片 C 起
+    /// 随事件批次通道成为真实轴）。安装后为零；每次成功切换（含放弃后
+    /// 重试成功）恰递增一个事件批次。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub const fn event_cursor(&self) -> u64 {
+        self.execution.assert_usable();
+        self.state.event_cursor()
+    }
+
+    /// 安装时冻结的 world 配置。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub const fn config(&self) -> WorldConfig {
+        self.execution.assert_usable();
+        self.state.config()
+    }
+
+    /// 安装或 fresh restore 时由宿主显式提供的执行配置；路网切换保持此值。
+    #[must_use]
+    pub const fn execution_config(&self) -> crate::ExecutionConfig {
+        self.execution.config()
+    }
+
+    /// 注册本世界路线。失败不留下半条路线。
+    ///
+    /// 在 compiled 槽位物化分段 `u32` 前缀、后缀距离、受控 hop 链和限速下降转换；
+    /// 不上 `u64`，不存当前红灯。句柄不含 world 身份，只在本 `TrafficWorld` 内有效。
+    ///
+    /// # Errors
+    ///
+    /// 边序列为空、序号越出共享根、相邻边不连通或机动转移无法唯一匹配（
+    /// `ManeuverMismatch` / `AmbiguousManeuver`）、等待区本地存储跨度无法表示
+    /// （`WaitingStorageSpanUnbounded`）、命令游标耗尽（
+    /// `RouteError::CommandCursorExhausted`）、路线/边出现项/冲突出现项容量不足
+    /// 或编译缓冲预留失败时返回相应 [`RouteError`]；失败不留下半条路线。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn register_route(&mut self, input: RouteRegisterInput) -> Result<RouteHandle, RouteError> {
+        self.execution.assert_usable();
+        self.state.register_route(input)
+    }
+
+    /// 只移除本世界已注册路线。
+    ///
+    /// # Errors
+    ///
+    /// 句柄失效（[`RouteError::StaleHandle`]）、仍有车辆使用该路线（
+    /// [`RouteError::InUse`]）或命令游标耗尽时返回相应 [`RouteError`]。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn remove_route(&mut self, route: RouteHandle) -> Result<(), RouteError> {
+        self.execution.assert_usable();
+        self.state.remove_route(route)
+    }
+
+    /// 生成一辆车。失败不留半辆车。
+    ///
+    /// # Errors
+    ///
+    /// 车辆输入校验失败（profile/路线句柄/进度/初速/容量/准入/车身重叠/权威不可
+    /// 重建/等待区存储跨度不足）、观测状态序号或命令游标耗尽时返回相应
+    /// [`SpawnError`]；失败不留半辆车。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, SpawnError> {
+        self.execution.assert_usable();
+        self.state.spawn_vehicle(input)
+    }
+
+    /// 把 live 的 Completed 车辆原子替换为新的 Active 车辆。
+    ///
+    /// 入口占用返回可重试的 [`ReplaceError::Blocked`]；其他失败为致命错误。
+    /// 任一失败都保持已提交世界不变。成功后旧句柄立即 stale；公开契约不保证同一 slot index。
+    ///
+    /// # Errors
+    ///
+    /// 句柄失效或车辆未 `Completed`、停车占用未释放、冲突/等待不变量破坏、输入
+    /// 校验失败（profile/路线/进度/初速/准入，含新候选的等待区存储与冲突权威
+    /// 校验：`WaitingVehicleTooLong` / `WaitingStatefulManeuverInterior` /
+    /// `ConflictAuthorityRequired`）、观测状态序号或命令游标耗尽（
+    /// `ObservationStateSequenceExhausted` / `CommandCursorExhausted`）或入口占用
+    /// 被占时返回相应 [`ReplaceError`]；[`ReplaceError::Blocked`] 可重试，其余为
+    /// 致命错误；任一失败保持已提交世界不变。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn replace_completed_vehicle(
+        &mut self,
+        old: VehicleHandle,
+        input: VehicleSpawnInput,
+    ) -> Result<VehicleReplaceRecord, ReplaceError> {
+        self.execution.assert_usable();
+        self.state.replace_completed_vehicle(old, input)
+    }
+
+    /// 固定步进。`delta_time_ms` 必须等于 `WorldConfig.fixed_delta_time_ms`；
+    /// `tick_index`/`time_ms` 用 checked 加法。运动、跟车与信号遵守只读 snapshot(T)；
+    /// 成功后再提交 T+D 的 pose、时间与 `committed_signal_groups`。相位边界落在
+    /// `[T, T+D)` 时该拍仍用 snapshot(T) 灯色。失败不推进时间，已提交查询与失败前一致。
+    /// 生命周期命令只在两次 `step` 之间调用。
+    ///
+    /// # Errors
+    ///
+    /// `delta_time_ms` 与 world 固定步长不一致、`tick_index`/`time_ms` checked
+    /// 加法溢出、观测状态序号或等待区 admission 序号耗尽、运动产生非有限值、
+    /// 占用容量或预留失败、或内部不变量遍历失败时返回相应 [`StepError`]；失败
+    /// 不推进时间，已提交查询与失败前一致。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    /// 本次执行 panic 会先结算全部已分发任务，再向宿主传播。
+    pub fn step(&mut self, input: TickInput) -> Result<StepOutcome, StepError> {
+        self.execution.assert_usable();
+        self.execution
+            .run(&mut self.state, |state, _resources| state.step(input))
+    }
+
+    /// 稳定顺序的已提交 pose 源。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn committed_pose_sources(&self) -> CommittedPoseSourceBatch {
+        self.execution.assert_usable();
+        self.state.committed_pose_sources()
+    }
+
+    /// 按停车位序号读占用者。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn committed_parking_occupant(&self, space: ParkingSpaceOrdinal) -> Option<VehicleHandle> {
+        self.execution.assert_usable();
+        self.state.committed_parking_occupant(space)
+    }
+
+    /// 车辆的只读 tagged parking binding。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn parking_binding(&self, vehicle: VehicleHandle) -> Option<ParkingBinding> {
+        self.execution.assert_usable();
+        self.state.parking_binding(vehicle)
+    }
+
+    /// 显式泊位的排他资源状态。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn parking_space_state(&self, space: ParkingSpaceOrdinal) -> Option<ParkingSpaceState> {
+        self.execution.assert_usable();
+        self.state.parking_space_state(space)
+    }
+
+    /// 设施显式池、虚拟池和总量的守恒查询。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn parking_facility_counts(
+        &self,
+        facility: laneflow_static_contract::ParkingFacilityOrdinal,
+    ) -> Option<ParkingFacilityCounts> {
+        self.execution.assert_usable();
+        self.state.parking_facility_counts(facility)
+    }
+
+    /// 稳定按组序号的当前 aspect。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn committed_signal_groups(&self) -> CommittedSignalGroupBatch {
+        self.execution.assert_usable();
+        self.state.committed_signal_groups()
+    }
+
+    /// 已提交车辆快照。`Completed` 仍可读；stale 句柄返回 `None`。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn vehicle(&self, handle: VehicleHandle) -> Option<VehicleState> {
+        self.execution.assert_usable();
+        self.state.vehicle(handle)
+    }
+
+    /// WaitingZone 的已提交计数；未知 zone 返回 `None`。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn waiting_zone(
+        &self,
+        zone: laneflow_static_contract::WaitingZoneOrdinal,
+    ) -> Option<crate::WaitingZoneSnapshot> {
+        self.execution.assert_usable();
+        self.state.waiting_zone(zone)
+    }
+
+    /// 按 `(zone ordinal, admission sequence)` 排列的全部 Waiting member。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn waiting_zone_members(&self) -> &[crate::WaitingZoneMember] {
+        self.execution.assert_usable();
+        self.state.waiting_zone_members()
+    }
+
+    /// 刚完成 successful tick 的 Waiting admission decision batch。
+    /// 跨修订成功切换后置空；需要历史记录的调用方必须在切换前消费。
+    /// 同修订切换、生命周期命令和失败操作保留原批次。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn latest_waiting_decisions(&self) -> &[crate::WaitingDecision] {
+        self.execution.assert_usable();
+        self.state.latest_waiting_decisions()
+    }
+
+    /// 刚完成 successful tick 的 Waiting transition event batch。
+    /// 跨修订成功切换后置空；需要历史记录的调用方必须在切换前消费。
+    /// 同修订切换、生命周期命令和失败操作保留原批次。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn latest_transition_events(&self) -> &[crate::TrafficTransitionEvent] {
+        self.execution.assert_usable();
+        self.state.latest_transition_events()
+    }
+
+    /// 稳定更新顺序，含 Active / Parked / Completed。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn live_vehicles(&self) -> &[VehicleHandle] {
+        self.execution.assert_usable();
+        self.state.live_vehicles()
+    }
+
+    /// 本世界已注册路线的边序列。句柄无效时返回 `None`。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn route_edges(
+        &self,
+        route: RouteHandle,
+    ) -> Option<&[laneflow_static_contract::LaneEdgeOrdinal]> {
+        self.execution.assert_usable();
+        self.state.route_edges(route)
+    }
+
+    /// 本世界当前有效路线句柄，按槽位下标。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn live_routes(&self) -> impl Iterator<Item = RouteHandle> + '_ {
+        self.execution.assert_usable();
+        self.state.live_routes()
+    }
+
+    /// 本世界已注册路线在 `hop` 处的机动门只读定位（#285 复杂路口观测 G1 §2）。
+    ///
+    /// 只查询本世界已注册 `CompiledRoute.hop_gate`、相应边与共享根整数毫米
+    /// 边长；Gate 在该 hop 的 from-edge 末端，不在调用方重跑 route
+    /// normalization。stale route、越界 hop 或该 hop 没有 Gate 时返回
+    /// `None`，不就近选择另一道 Gate。读取为 O(1)、无堆分配，不改变世界或
+    /// 摘要；同一静态 Gate 的重复经过按各自 hop 分别返回，不折叠。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn route_gate(&self, route: RouteHandle, hop: u32) -> Option<RouteGateObservation> {
+        self.execution.assert_usable();
+        self.state.route_gate(route, hop)
+    }
+}
+
 impl<'a> crate::kernel::phase::StepReadView<'a> {
     /// 当前世界唯一所选策略，借用同一个共享根。
     #[must_use]
@@ -2334,23 +2843,23 @@ mod overflow_tests {
     #[test]
     fn step_rejects_tick_and_time_overflow() {
         let mut world = world();
-        world.committed.tick_index = u64::MAX;
-        world.committed.time_ms = 0;
+        world.state.committed.tick_index = u64::MAX;
+        world.state.committed.time_ms = 0;
         assert_eq!(
             world.step(TickInput::new(100)).unwrap_err(),
             StepError::Overflow
         );
-        assert_eq!(world.committed.tick_index, u64::MAX);
-        assert_eq!(world.committed.time_ms, 0);
+        assert_eq!(world.state.committed.tick_index, u64::MAX);
+        assert_eq!(world.state.committed.time_ms, 0);
 
-        world.committed.tick_index = 0;
-        world.committed.time_ms = u64::MAX;
+        world.state.committed.tick_index = 0;
+        world.state.committed.time_ms = u64::MAX;
         assert_eq!(
             world.step(TickInput::new(100)).unwrap_err(),
             StepError::Overflow
         );
-        assert_eq!(world.committed.tick_index, 0);
-        assert_eq!(world.committed.time_ms, u64::MAX);
+        assert_eq!(world.state.committed.tick_index, 0);
+        assert_eq!(world.state.committed.time_ms, u64::MAX);
     }
 
     #[test]
@@ -2388,7 +2897,7 @@ mod overflow_tests {
                 .expect("non-overlapping vehicle");
             if occurrence == 1 {
                 let index = usize::try_from(vehicle.index()).expect("vehicle index");
-                let state = world.committed.vehicles[index]
+                let state = world.state.committed.vehicles[index]
                     .state
                     .as_mut()
                     .expect("vehicle");
@@ -2399,16 +2908,16 @@ mod overflow_tests {
         });
         for vehicle in vehicles.iter().take(3).copied() {
             let index = usize::try_from(vehicle.index()).expect("vehicle index");
-            world.committed.vehicles[index]
+            world.state.committed.vehicles[index]
                 .state
                 .as_mut()
                 .expect("live vehicle")
                 .status = VehicleStatus::Parked;
         }
-        world.rebuild_active_order();
-        world.derived.spawn_overlap.mark_stale();
-        assert_eq!(world.committed.live_order.len(), 4);
-        assert_eq!(world.derived.active_order.len(), 1);
+        world.state.rebuild_active_order();
+        world.state.derived.spawn_overlap.mark_stale();
+        assert_eq!(world.state.committed.live_order.len(), 4);
+        assert_eq!(world.state.derived.active_order.len(), 1);
 
         let vehicle_length = world
             .traffic()
@@ -2417,7 +2926,10 @@ mod overflow_tests {
             .expect("profile")
             .length_mm();
         reset_overlap_blocker_inspections();
-        assert_eq!(world.overlap_blocker(route, 0, 1, vehicle_length), None);
+        assert_eq!(
+            world.state.overlap_blocker(route, 0, 1, vehicle_length),
+            None
+        );
         assert_eq!(overlap_blocker_inspections(), 0);
     }
 }
@@ -2483,7 +2995,7 @@ mod route_gate_tests {
     #[test]
     fn route_gate_matches_compiled_hop_gate_per_hop() {
         let (world, route) = world_with_path_route();
-        let compiled = world.compiled_route(route).expect("compiled route");
+        let compiled = world.state.compiled_route(route).expect("compiled route");
         assert!(
             compiled.hop_gate.iter().any(Option::is_some),
             "fixture route must carry at least one Gate"
@@ -2515,6 +3027,7 @@ mod route_gate_tests {
         let (mut world, route) = world_with_path_route();
         let hop_count = u32::try_from(
             world
+                .state
                 .compiled_route(route)
                 .expect("compiled route")
                 .edges
@@ -2534,10 +3047,10 @@ mod route_gate_tests {
     #[test]
     fn conflict_route_borrow_preserves_liveness_and_committed_state() {
         let (mut world, route) = world_with_path_route();
-        let expected_edges = world.compiled_route(route).unwrap().edges.clone();
+        let expected_edges = world.state.compiled_route(route).unwrap().edges.clone();
         let before = crate::deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap();
         {
-            let mut step = world.step_workspace();
+            let mut step = world.state.step_workspace();
             let (compiled, mut conflict) = step
                 .committed
                 .prepare_conflict_for_route(&mut step.derived, &mut step.workspace.conflict, route)
@@ -2551,7 +3064,7 @@ mod route_gate_tests {
         let stale = RouteHandle::new(route.index(), route.generation() + 1);
         let out_of_range = RouteHandle::new(u32::MAX, route.generation());
         for invalid in [stale, out_of_range] {
-            let mut step = world.step_workspace();
+            let mut step = world.state.step_workspace();
             assert!(
                 step.committed
                     .prepare_conflict_for_route(
@@ -2563,7 +3076,7 @@ mod route_gate_tests {
             );
         }
         world.remove_route(route).unwrap();
-        let mut step = world.step_workspace();
+        let mut step = world.state.step_workspace();
         assert!(
             step.committed
                 .prepare_conflict_for_route(&mut step.derived, &mut step.workspace.conflict, route,)

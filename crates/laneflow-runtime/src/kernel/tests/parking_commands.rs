@@ -84,17 +84,17 @@ fn measure(
             .copied()
             .filter(|h| f.world.vehicle(*h).unwrap().status() == crate::VehicleStatus::Active)
             .collect();
-        assert_eq!(f.world.derived.active_order, active);
+        assert_eq!(f.world.state.derived.active_order, active);
     }
     let actual = COUNTS.get();
     assert_eq!(actual, expected);
-    let memory = f.world.retained_memory();
+    let memory = f.world.state.retained_memory();
     let digest = crate::deterministic_state_digest(&f.world.capture_snapshot().unwrap()).unwrap();
     println!(
         "parking-work case={case:?} counts={actual:?} digest={digest:x} world_bytes={} occupancy_bytes={} active_bytes={}",
         memory.world_owned_bytes(),
-        f.world.derived.occupancy.retained_logical_bytes(),
-        crate::kernel::state::vec_bytes(&f.world.derived.active_order)
+        f.world.state.derived.occupancy.retained_logical_bytes(),
+        crate::kernel::state::vec_bytes(&f.world.state.derived.active_order)
     );
 }
 

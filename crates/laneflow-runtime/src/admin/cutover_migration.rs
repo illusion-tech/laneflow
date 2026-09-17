@@ -6,6 +6,8 @@
 //! （候选与旧世界槽位布局一致——当期句柄恒等保持；逐实体重绑即重验证，
 //! 任一实体引用不存在或原样重绑违反 target 不变量都整体失败关闭）。
 
+use crate::kernel::state::WorldState;
+
 use std::sync::Arc;
 
 use laneflow_static_contract::{
@@ -22,8 +24,7 @@ use crate::kernel::tables::{RouteSlot, VehicleSlot, compile_route, route_access_
 use crate::{
     CommittedNetworkSource, CutoverError, ManeuverTraversalPhase, ManeuverTraversalState,
     ParkingBinding, ParkingReservation, ParkingSpaceState, ParkingTarget, RouteHandle,
-    TrafficWorld, VehicleHandle, VehicleState, VehicleStatus, VirtualEntryAnchorSelector,
-    WaitingMembership,
+    VehicleHandle, VehicleState, VehicleStatus, VirtualEntryAnchorSelector, WaitingMembership,
 };
 
 #[cfg(test)]
@@ -252,7 +253,7 @@ impl CrossRevisionRebinding {
 
 pub(crate) fn vehicle_state_from_delta(
     base_revision: &SharedNetworkRevision,
-    candidate: &TrafficWorld,
+    candidate: &WorldState,
     rebinding: &CrossRevisionRebinding,
     delta: &VehicleDelta,
 ) -> Result<VehicleState, CutoverError> {
@@ -482,8 +483,8 @@ fn waiting_occurrences_rebind(
 }
 
 pub(crate) fn revalidate_waiting_routes(
-    base: &TrafficWorld,
-    target: &TrafficWorld,
+    base: &WorldState,
+    target: &WorldState,
     rebinding: &CrossRevisionRebinding,
 ) -> Result<(), CutoverError> {
     if base.committed.routes.len() != target.committed.routes.len() {
@@ -513,21 +514,21 @@ pub(crate) fn revalidate_waiting_routes(
 /// 返回错误并丢弃候选——旧世界从不被本函数触及。
 #[cfg(test)]
 pub(crate) fn migrate_structural_clone(
-    world: &TrafficWorld,
+    world: &WorldState,
     target_revision: Arc<SharedNetworkRevision>,
     target_source: CommittedNetworkSource,
     rebinding: &CrossRevisionRebinding,
-) -> Result<TrafficWorld, CutoverError> {
+) -> Result<WorldState, CutoverError> {
     migrate_structural_clone_with_conflict_plan(world, target_revision, target_source, rebinding)
         .map(|(candidate, _)| candidate)
 }
 
 pub(crate) fn migrate_structural_clone_with_conflict_plan(
-    world: &TrafficWorld,
+    world: &WorldState,
     target_revision: Arc<SharedNetworkRevision>,
     target_source: CommittedNetworkSource,
     rebinding: &CrossRevisionRebinding,
-) -> Result<(TrafficWorld, ConflictCutoverFinalizationPlan), CutoverError> {
+) -> Result<(WorldState, ConflictCutoverFinalizationPlan), CutoverError> {
     world.validate_cutover_policy(&target_revision)?;
     let policy_binding = crate::kernel::policy::WorldPolicyBinding::install(
         &target_revision,
@@ -939,8 +940,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
         crate::kernel::occupancy::OccupancyIndex::with_capacity(0, 0);
     let migration_journal = None;
     let migration_epoch = 0;
-    let mut candidate = TrafficWorld {
-        execution_config: world.execution_config(),
+    let mut candidate = WorldState {
         binding: crate::kernel::state::WorldBindingState {
             policy_binding,
             revision,
@@ -1058,8 +1058,8 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
 }
 
 fn mapped_conflict_address(
-    _source: &TrafficWorld,
-    target: &TrafficWorld,
+    _source: &WorldState,
+    target: &WorldState,
     rebinding: &CrossRevisionRebinding,
     source_address: crate::ConflictPassageAddress,
 ) -> Option<crate::ConflictPassageAddress> {
@@ -1285,8 +1285,8 @@ pub(crate) fn conflict_passage_semantics_continuous(
 }
 
 fn mapped_conflict_occurrence(
-    source: &TrafficWorld,
-    target: &TrafficWorld,
+    source: &WorldState,
+    target: &WorldState,
     rebinding: &CrossRevisionRebinding,
     source_route: RouteHandle,
     target_route: RouteHandle,
@@ -1344,7 +1344,7 @@ fn mapped_conflict_occurrence(
 }
 
 fn cutover_route_position_um(
-    world: &TrafficWorld,
+    world: &WorldState,
     route: RouteHandle,
     route_edge_index: u32,
     progress_mm: u32,
@@ -1379,8 +1379,8 @@ pub(crate) struct ConflictCutoverFinalizationPlan {
 /// 从完整来源权威重建候选 Conflict 状态。Prepare 返回新/不连续 cell 的
 /// 精确地址与删除历史到期计划；静默提交只校验/最终化该计划，不再全量重迁移。
 pub(crate) fn migrate_conflict_state(
-    source: &TrafficWorld,
-    target: &mut TrafficWorld,
+    source: &WorldState,
+    target: &mut WorldState,
     rebinding: &CrossRevisionRebinding,
     prepare_time_ms: u64,
 ) -> Result<ConflictCutoverFinalizationPlan, CutoverError> {
@@ -1763,7 +1763,7 @@ pub(crate) fn migrate_conflict_state(
 /// 静默点只把 Prepare 已登记的新/不连续 cell 推迟到最终 `T_commit`。
 /// 地址集合由目标静态根决定，循环量与本次新增/不连续 cell 数成正比。
 pub(crate) fn finalize_conflict_cutover_floors(
-    target: &mut TrafficWorld,
+    target: &mut WorldState,
     plan: &ConflictCutoverFinalizationPlan,
     commit_time_ms: u64,
 ) -> Result<(), CutoverError> {
@@ -1797,8 +1797,8 @@ pub(crate) fn finalize_conflict_cutover_floors(
 /// 从来源世界和目标静态根独立构造 digest 期望的 Conflict 语义。
 /// 该路径不读取候选 arbiter/reservation 内容，用于发现候选重建偏差。
 pub(crate) fn project_expected_conflict(
-    source: &TrafficWorld,
-    target: &TrafficWorld,
+    source: &WorldState,
+    target: &WorldState,
     rebinding: &CrossRevisionRebinding,
     captured: &mut crate::CapturedSnapshot,
     commit_time_ms: u64,
@@ -2084,9 +2084,7 @@ pub(crate) fn project_expected_conflict(
 
 /// 重绑即重验证：对候选内每个 live 车辆按其生命周期状态复核 target
 /// 不变量（切换合同 §3 原则 2，等价重执行 spawn 检查）。
-pub(crate) fn revalidate_migrated_vehicles(
-    candidate: &mut TrafficWorld,
-) -> Result<(), CutoverError> {
+pub(crate) fn revalidate_migrated_vehicles(candidate: &mut WorldState) -> Result<(), CutoverError> {
     if !candidate.waiting_state_valid() || !candidate.waiting_snapshot_storage_valid() {
         return Err(CutoverError::WaitingRevalidationFailed);
     }
@@ -2111,7 +2109,7 @@ pub(crate) fn revalidate_migrated_vehicles(
 /// 复核面：路线解析、序列下标与进度对 target 边长、Active 的限速与后缀
 /// 访问、Active 与其它 Active 的重叠（共享准入物理边索引，排除自身）。
 pub(crate) fn revalidate_vehicle_on(
-    candidate: &mut TrafficWorld,
+    candidate: &mut WorldState,
     handle: VehicleHandle,
 ) -> Result<(), CutoverError> {
     let traffic = candidate.binding.revision.traffic();
@@ -2248,7 +2246,7 @@ pub(crate) fn revalidate_vehicle_on(
 
 /// 统一的已提交逻辑状态比较器（切片 C 测试共用；含信号灯色组轴）。
 #[cfg(test)]
-pub(crate) fn assert_committed_logical_state_equal(left: &TrafficWorld, right: &TrafficWorld) {
+pub(crate) fn assert_committed_logical_state_equal(left: &WorldState, right: &WorldState) {
     assert_eq!(left.tick_index(), right.tick_index());
     assert_eq!(left.time_ms(), right.time_ms());
     assert_eq!(left.live_vehicles(), right.live_vehicles());
@@ -2286,6 +2284,7 @@ pub(crate) fn assert_committed_logical_state_equal(left: &TrafficWorld, right: &
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use crate::TrafficWorld;
     use laneflow_compiler::{
         CompilationUnitBuilder, CompileLimits, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
         LaneEdgeReference, ParkingFacilityInput, ParkingLaneAnchorInput, ParkingSpaceGeometryInput,
@@ -3042,7 +3041,7 @@ pub(crate) mod tests {
             let route_edge_index =
                 u32::try_from(route_edge_index).expect("Conflict scale route occurrence");
             let handle = VehicleHandle::new(update_sequence, 0);
-            world.committed.vehicles.push(VehicleSlot {
+            world.state.committed.vehicles.push(VehicleSlot {
                 generation: 0,
                 state: Some(VehicleState {
                     handle,
@@ -3059,11 +3058,12 @@ pub(crate) mod tests {
                     waiting_membership: None,
                 }),
             });
-            world.committed.live_order.push(handle);
-            world.derived.active_order.push(handle);
+            world.state.committed.live_order.push(handle);
+            world.state.derived.active_order.push(handle);
         }
-        world.committed.routes[route.index() as usize].live_vehicles = vehicle_count;
+        world.state.committed.routes[route.index() as usize].live_vehicles = vehicle_count;
         world
+            .state
             .rebuild_occupancy_index()
             .expect("Conflict scale occupancy");
         world
@@ -3207,6 +3207,7 @@ pub(crate) mod tests {
             ))
             .expect("conflict route");
         let vehicle = world
+            .state
             .restore_unparked_vehicle(
                 VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0),
                 0,
@@ -3225,11 +3226,13 @@ pub(crate) mod tests {
         let (world, vehicle) = world_with_conflict_reservation();
         let target = conflict_revision(true);
         let target_origin = *target.canonical_origin();
-        let rebinding =
-            CrossRevisionRebinding::build(world.binding.revision.identity(), target.identity())
-                .expect("same semantics rebind");
+        let rebinding = CrossRevisionRebinding::build(
+            world.state.binding.revision.identity(),
+            target.identity(),
+        )
+        .expect("same semantics rebind");
         let mut candidate = migrate_structural_clone(
-            &world,
+            &world.state,
             target,
             source_for(target_origin, "fixture://live-conflict-target"),
             &rebinding,
@@ -3257,6 +3260,7 @@ pub(crate) mod tests {
             .expect("source reservation");
         let source_range = source_reservation.passage_range();
         let source_address = world
+            .state
             .compiled_route(source_range.route())
             .expect("source compiled route")
             .conflicts[source_range.first_conflict_occurrence_index() as usize]
@@ -3299,6 +3303,7 @@ pub(crate) mod tests {
         let target_range = target_reservation.passage_range();
         assert_eq!(target_range.passage_count(), source_range.passage_count());
         let target_address = world
+            .state
             .compiled_route(target_range.route())
             .expect("target compiled route")
             .conflicts[target_range.first_conflict_occurrence_index() as usize]
@@ -3329,8 +3334,8 @@ pub(crate) mod tests {
             target_reservation.acquired_tick(),
             source_reservation.acquired_tick()
         );
-        assert!(world.conflict_state_valid());
-        assert!(world.migration_journal().is_none());
+        assert!(world.state.conflict_state_valid());
+        assert!(world.state.migration_journal().is_none());
     }
 
     #[test]
@@ -3373,7 +3378,7 @@ pub(crate) mod tests {
             before
         );
         assert!(world.conflict_reservation(vehicle).is_some());
-        assert!(world.migration_journal().is_none());
+        assert!(world.state.migration_journal().is_none());
         let retry = match world.prepare_cross_revision_cutover(
             target,
             crate::admin::cutover::tests::transaction_tests::source_for(
@@ -3389,7 +3394,7 @@ pub(crate) mod tests {
             Err(error) => error,
         };
         assert_eq!(retry, CutoverError::ConflictRevalidationFailed);
-        assert!(world.migration_journal().is_none());
+        assert!(world.state.migration_journal().is_none());
     }
 
     #[test]
@@ -3398,12 +3403,12 @@ pub(crate) mod tests {
         let target_revision = conflict_revision(true);
         let target_origin = *target_revision.canonical_origin();
         let rebinding = CrossRevisionRebinding::build(
-            source.binding.revision.identity(),
+            source.state.binding.revision.identity(),
             target_revision.identity(),
         )
         .expect("same semantics rebind");
         let mut target = migrate_structural_clone(
-            &source,
+            &source.state,
             target_revision,
             source_for(target_origin, "fixture://eligibility-position-target"),
             &rebinding,
@@ -3415,17 +3420,22 @@ pub(crate) mod tests {
             .expect("vehicle")
             .progress_mm -= 1;
 
-        migrate_conflict_state(&source, &mut target, &rebinding, source.committed.time_ms)
-            .expect("invalid target eligibility is cleared");
+        migrate_conflict_state(
+            &source.state,
+            &mut target,
+            &rebinding,
+            source.state.committed.time_ms,
+        )
+        .expect("invalid target eligibility is cleared");
         assert!(target.committed.conflict_eligibility.is_empty());
 
         let mut projected = source.capture_snapshot().expect("source snapshot");
         project_expected_conflict(
-            &source,
+            &source.state,
             &target,
             &rebinding,
             &mut projected,
-            source.committed.time_ms,
+            source.state.committed.time_ms,
         )
         .expect("independent projection clears invalid eligibility");
         assert!(
@@ -3441,12 +3451,12 @@ pub(crate) mod tests {
         let target_revision = conflict_revision(true);
         let target_origin = *target_revision.canonical_origin();
         let rebinding = CrossRevisionRebinding::build(
-            source.binding.revision.identity(),
+            source.state.binding.revision.identity(),
             target_revision.identity(),
         )
         .expect("same semantics rebind");
         let mut target = migrate_structural_clone(
-            &source,
+            &source.state,
             target_revision,
             source_for(target_origin, "fixture://eligibility-occurrence-target"),
             &rebinding,
@@ -3460,17 +3470,22 @@ pub(crate) mod tests {
             .conflicts
             .clear();
 
-        migrate_conflict_state(&source, &mut target, &rebinding, source.committed.time_ms)
-            .expect("unmappable eligibility is cleared");
+        migrate_conflict_state(
+            &source.state,
+            &mut target,
+            &rebinding,
+            source.state.committed.time_ms,
+        )
+        .expect("unmappable eligibility is cleared");
         assert!(target.committed.conflict_eligibility.is_empty());
 
         let mut projected = source.capture_snapshot().expect("source snapshot");
         project_expected_conflict(
-            &source,
+            &source.state,
             &target,
             &rebinding,
             &mut projected,
-            source.committed.time_ms,
+            source.state.committed.time_ms,
         )
         .expect("independent projection clears unmappable eligibility");
         assert!(
@@ -3484,14 +3499,15 @@ pub(crate) mod tests {
     fn conflict_finalization_waits_for_removed_history_at_commit_time() {
         let mut target = installed_world(FULL_SPATIAL_LFCA, "fixture://finalization-time");
         let address = target
+            .state
             .conflict_read()
             .addresses()
             .next()
             .expect("fixture conflict address");
         crate::kernel::conflict::ConflictWrite::new(
-            &mut target.committed.conflict,
-            &mut target.derived.conflict,
-            &mut target.workspace.conflict,
+            &mut target.state.committed.conflict,
+            &mut target.state.derived.conflict,
+            &mut target.state.workspace.conflict,
         )
         .restore_lag_reference(address, crate::ConflictLagReference::CutoverFloor(100))
         .expect("seed Prepare floor");
@@ -3501,19 +3517,19 @@ pub(crate) mod tests {
         };
 
         assert_eq!(
-            finalize_conflict_cutover_floors(&mut target, &plan, 499),
+            finalize_conflict_cutover_floors(&mut target.state, &plan, 499),
             Err(CutoverError::ConflictRevalidationFailed)
         );
         assert_eq!(
-            target.conflict_read().lag_reference(address),
+            target.state.conflict_read().lag_reference(address),
             Some(crate::ConflictLagReference::CutoverFloor(100)),
             "failed finalization must not mutate any floor"
         );
 
-        finalize_conflict_cutover_floors(&mut target, &plan, 500)
+        finalize_conflict_cutover_floors(&mut target.state, &plan, 500)
             .expect("history becomes eligible exactly at T_commit");
         assert_eq!(
-            target.conflict_read().lag_reference(address),
+            target.state.conflict_read().lag_reference(address),
             Some(crate::ConflictLagReference::CutoverFloor(500))
         );
     }
@@ -3523,9 +3539,11 @@ pub(crate) mod tests {
         let (source, _) = crate::admin::format_admission::tests::world_with_conflict_reservation();
         let target = conflict_revision(true);
         let target_origin = *target.canonical_origin();
-        let rebinding =
-            CrossRevisionRebinding::build(source.binding.revision.identity(), target.identity())
-                .expect("same-semantics rebind");
+        let rebinding = CrossRevisionRebinding::build(
+            source.state.binding.revision.identity(),
+            target.identity(),
+        )
+        .expect("same-semantics rebind");
         let before = source
             .capture_snapshot()
             .expect("source before allocation failures");
@@ -3533,7 +3551,7 @@ pub(crate) mod tests {
         loop {
             let result = with_staging_allocation_failure_after(fail_after, || {
                 migrate_structural_clone(
-                    &source,
+                    &source.state,
                     Arc::clone(&target),
                     source_for(target_origin, "fixture://conflict-staging-target"),
                     &rebinding,
@@ -3761,12 +3779,14 @@ pub(crate) mod tests {
         let world = installed_world(FULL_SPATIAL_LFCA, "fixture://signal-stage");
         let target = revision(FULL_SPATIAL_LFCA);
         let target_origin = *target.canonical_origin();
-        let rebinding =
-            CrossRevisionRebinding::build(world.binding.revision.identity(), target.identity())
-                .unwrap();
+        let rebinding = CrossRevisionRebinding::build(
+            world.state.binding.revision.identity(),
+            target.identity(),
+        )
+        .unwrap();
         let result = with_staging_allocation_failure_after(0, || {
             migrate_structural_clone(
-                &world,
+                &world.state,
                 Arc::clone(&target),
                 source_for(target_origin, "fixture://signal-stage-target"),
                 &rebinding,
@@ -3786,16 +3806,18 @@ pub(crate) mod tests {
         let world = installed_world(FULL_SPATIAL_LFCA, "fixture://waiting-stage");
         let target = revision(FULL_SPATIAL_LFCA);
         let origin = *target.canonical_origin();
-        let rebinding =
-            CrossRevisionRebinding::build(world.binding.revision.identity(), target.identity())
-                .expect("rebinding");
+        let rebinding = CrossRevisionRebinding::build(
+            world.state.binding.revision.identity(),
+            target.identity(),
+        )
+        .expect("rebinding");
         let before = world.capture_snapshot().expect("before");
         // 前两次为 committed/next signal；随后覆盖 Waiting 权威、独立队列首尾及 scratch；
         // Conflict eligibility、authority 与 fixed-step scratch 继续走同一受检分配轴。
         for fail_after in 1..=24 {
             let result = with_staging_allocation_failure_after(fail_after, || {
                 migrate_structural_clone(
-                    &world,
+                    &world.state,
                     Arc::clone(&target),
                     source_for(origin, "fixture://waiting-stage-target"),
                     &rebinding,
@@ -3810,7 +3832,7 @@ pub(crate) mod tests {
         }
         let candidate = with_staging_allocation_failure_after(25, || {
             migrate_structural_clone(
-                &world,
+                &world.state,
                 target,
                 source_for(origin, "fixture://waiting-stage-target"),
                 &rebinding,
@@ -3819,11 +3841,11 @@ pub(crate) mod tests {
         .expect("all structural allocations succeeded");
         assert_eq!(
             candidate.committed.waiting_zones.len(),
-            world.committed.waiting_zones.len()
+            world.state.committed.waiting_zones.len()
         );
         assert_eq!(
             candidate.derived.waiting_links.len(),
-            world.derived.waiting_links.len()
+            world.state.derived.waiting_links.len()
         );
         assert!(candidate.waiting_state_valid());
     }
@@ -3893,7 +3915,7 @@ pub(crate) mod tests {
         )
     }
 
-    fn stable_edge(world: &TrafficWorld, edge: LaneEdgeOrdinal) -> StableId128 {
+    fn stable_edge(world: &WorldState, edge: LaneEdgeOrdinal) -> StableId128 {
         *world
             .binding
             .revision
@@ -3903,7 +3925,7 @@ pub(crate) mod tests {
             .as_untyped()
     }
 
-    fn stable_space(world: &TrafficWorld, space: ParkingSpaceOrdinal) -> StableId128 {
+    fn stable_space(world: &WorldState, space: ParkingSpaceOrdinal) -> StableId128 {
         *world
             .binding
             .revision
@@ -3913,7 +3935,7 @@ pub(crate) mod tests {
             .as_untyped()
     }
 
-    fn stable_profile(world: &TrafficWorld, profile: VehicleProfileOrdinal) -> StableId128 {
+    fn stable_profile(world: &WorldState, profile: VehicleProfileOrdinal) -> StableId128 {
         *world
             .binding
             .revision
@@ -3923,7 +3945,7 @@ pub(crate) mod tests {
             .as_untyped()
     }
 
-    fn stable_pose_batch(world: &TrafficWorld) -> Vec<(VehicleHandle, (StableId128, u32))> {
+    fn stable_pose_batch(world: &WorldState) -> Vec<(VehicleHandle, (StableId128, u32))> {
         world
             .committed_pose_sources()
             .as_slice()
@@ -3961,7 +3983,7 @@ pub(crate) mod tests {
     ) -> CutoverError {
         let target_origin = *target_revision.canonical_origin();
         match migrate_structural_clone(
-            world,
+            &world.state,
             target_revision,
             source_for(target_origin, "fixture://expect-error"),
             rebinding,
@@ -4032,12 +4054,14 @@ pub(crate) mod tests {
                 capacity,
                 entry_progress_m: 20.0,
             });
-            let rebinding =
-                CrossRevisionRebinding::build(world.binding.revision.identity(), target.identity())
-                    .expect("parking rebinding");
+            let rebinding = CrossRevisionRebinding::build(
+                world.state.binding.revision.identity(),
+                target.identity(),
+            )
+            .expect("parking rebinding");
             let target_origin = *target.canonical_origin();
             let candidate = migrate_structural_clone(
-                &world,
+                &world.state,
                 target,
                 source_for(target_origin, "fixture://parking-cutover-safe"),
                 &rebinding,
@@ -4071,7 +4095,7 @@ pub(crate) mod tests {
             entry_progress_m: 20.0,
         });
         let unsafe_rebinding = CrossRevisionRebinding::build(
-            world.binding.revision.identity(),
+            world.state.binding.revision.identity(),
             unsafe_capacity.identity(),
         )
         .expect("unsafe capacity rebinding");
@@ -4089,7 +4113,7 @@ pub(crate) mod tests {
             entry_progress_m: 21.0,
         });
         let moved_rebinding = CrossRevisionRebinding::build(
-            world.binding.revision.identity(),
+            world.state.binding.revision.identity(),
             moved_anchor.identity(),
         )
         .expect("moved anchor rebinding");
@@ -4109,9 +4133,11 @@ pub(crate) mod tests {
             ParkingRevisionShape::WrongKind,
         ] {
             let target = compiled_parking_revision(shape);
-            let rebinding =
-                CrossRevisionRebinding::build(world.binding.revision.identity(), target.identity())
-                    .expect("missing target rebinding");
+            let rebinding = CrossRevisionRebinding::build(
+                world.state.binding.revision.identity(),
+                target.identity(),
+            )
+            .expect("missing target rebinding");
             assert_eq!(
                 expect_migration_error(&world, target, &rebinding),
                 CutoverError::UnmappableParkingFacility { base_facility: 0 }
@@ -4200,8 +4226,8 @@ pub(crate) mod tests {
         for edge in [entry, exit] {
             let mapped = rebinding.lane_edge(edge).expect("retained edge maps");
             assert_eq!(
-                stable_edge(&world, edge),
-                stable_edge(&target_world, mapped)
+                stable_edge(&world.state, edge),
+                stable_edge(&target_world.state, mapped)
             );
         }
         let (space_main, space_doomed) = parking_spaces(&world, &rebinding);
@@ -4247,13 +4273,13 @@ pub(crate) mod tests {
         spawn_on(&mut world, route, 10_000, 5_000);
         let target_revision = revision(TARGET);
         let rebinding = CrossRevisionRebinding::build(
-            world.binding.revision.identity(),
+            world.state.binding.revision.identity(),
             target_revision.identity(),
         )
         .unwrap();
         let target_origin = *target_revision.canonical_origin();
         let candidate = migrate_structural_clone(
-            &world,
+            &world.state,
             Arc::clone(&target_revision),
             source_for(target_origin, "fixture://headroom-target"),
             &rebinding,
@@ -4283,13 +4309,13 @@ pub(crate) mod tests {
         let handle = spawn_on(&mut world, route, 10_000, 5_000);
         let target_revision = revision(TARGET);
         let rebinding = CrossRevisionRebinding::build(
-            world.binding.revision.identity(),
+            world.state.binding.revision.identity(),
             target_revision.identity(),
         )
         .unwrap();
         let target_origin = *target_revision.canonical_origin();
         let mut candidate = migrate_structural_clone(
-            &world,
+            &world.state,
             Arc::clone(&target_revision),
             source_for(target_origin, "fixture://completed-end-target"),
             &rebinding,
@@ -4331,7 +4357,7 @@ pub(crate) mod tests {
         let completed = spawn_on(&mut world, route, 60_000, 5_000);
         let target_revision = revision(TARGET);
         let rebinding = CrossRevisionRebinding::build(
-            world.binding.revision.identity(),
+            world.state.binding.revision.identity(),
             target_revision.identity(),
         )
         .unwrap();
@@ -4344,20 +4370,20 @@ pub(crate) mod tests {
             .expect("parking")
             .vehicle;
         let completed_index = usize::try_from(completed.index()).expect("index");
-        world.committed.vehicles[completed_index]
+        world.state.committed.vehicles[completed_index]
             .state
             .as_mut()
             .expect("completed")
             .status = VehicleStatus::Completed;
-        world.rebuild_active_order();
-        assert!(!world.derived.active_order.contains(&completed));
+        world.state.rebuild_active_order();
+        assert!(!world.state.derived.active_order.contains(&completed));
         for _ in 0..2 {
             world.step(TickInput::new(100)).expect("step");
         }
 
         let target_origin = *target_revision.canonical_origin();
         let candidate = migrate_structural_clone(
-            &world,
+            &world.state,
             Arc::clone(&target_revision),
             source_for(target_origin, "fixture://migration-target"),
             &rebinding,
@@ -4367,7 +4393,7 @@ pub(crate) mod tests {
         // 根与来源换绑；句柄恒等；整值状态逐字段保持。
         assert!(Arc::ptr_eq(&candidate.binding.revision, &target_revision));
         for handle in [leader, completed, parked] {
-            let before = world.vehicle_state(handle).expect("vehicle");
+            let before = world.state.vehicle_state(handle).expect("vehicle");
             let after = candidate.vehicle_state(handle).expect("vehicle");
             assert_eq!(before.handle, after.handle);
             assert_eq!(before.route, after.route);
@@ -4378,12 +4404,15 @@ pub(crate) mod tests {
             assert_eq!(before.length_mm, after.length_mm);
             assert_eq!(before.status, after.status);
             assert_eq!(
-                stable_profile(&world, before.profile),
+                stable_profile(&world.state, before.profile),
                 stable_profile(&candidate, after.profile)
             );
         }
         // 位姿批次按稳定引用逐点相等。
-        assert_eq!(stable_pose_batch(&world), stable_pose_batch(&candidate));
+        assert_eq!(
+            stable_pose_batch(&world.state),
+            stable_pose_batch(&candidate)
+        );
         // 停车占用按稳定车位保持。
         let mapped_space = rebinding.parking_space(space_main).expect("retained space");
         assert_eq!(
@@ -4403,7 +4432,7 @@ pub(crate) mod tests {
         let mut world = installed_world(BASE, "fixture://migration-base");
         let rebinding_probe = revision(TARGET);
         let rebinding = CrossRevisionRebinding::build(
-            world.binding.revision.identity(),
+            world.state.binding.revision.identity(),
             rebinding_probe.identity(),
         )
         .unwrap();
@@ -4429,7 +4458,7 @@ pub(crate) mod tests {
             .expect("route");
         let target_revision = revision(TARGET);
         let rebinding = CrossRevisionRebinding::build(
-            world.binding.revision.identity(),
+            world.state.binding.revision.identity(),
             target_revision.identity(),
         )
         .unwrap();
@@ -4459,7 +4488,7 @@ pub(crate) mod tests {
         let vehicle = spawn_on(&mut world, route, 80_000, 5_000);
         let target_revision = revision(TARGET);
         let rebinding = CrossRevisionRebinding::build(
-            world.binding.revision.identity(),
+            world.state.binding.revision.identity(),
             target_revision.identity(),
         )
         .unwrap();
@@ -4482,7 +4511,7 @@ pub(crate) mod tests {
         let vehicle = spawn_on(&mut world, route, 10_000, 15_000);
         let target_revision = revision(TARGET);
         let rebinding = CrossRevisionRebinding::build(
-            world.binding.revision.identity(),
+            world.state.binding.revision.identity(),
             target_revision.identity(),
         )
         .unwrap();
@@ -4504,7 +4533,7 @@ pub(crate) mod tests {
         let vehicle = spawn_on(&mut world, route, 10_000, 5_000);
         let target_revision = revision(TARGET);
         let rebinding = CrossRevisionRebinding::build(
-            world.binding.revision.identity(),
+            world.state.binding.revision.identity(),
             target_revision.identity(),
         )
         .unwrap();
@@ -4529,7 +4558,7 @@ pub(crate) mod tests {
         let vehicle = spawn_on(&mut world, route, 10_000, 5_000);
         let target_revision = revision(PROFILE_TARGET);
         let rebinding = CrossRevisionRebinding::build(
-            world.binding.revision.identity(),
+            world.state.binding.revision.identity(),
             target_revision.identity(),
         )
         .unwrap();
@@ -4557,21 +4586,21 @@ pub(crate) mod tests {
                 .traffic()
                 .entity_counts()
                 .count(EntityKind::ParticipantClass);
-            let current = world.vehicle_state(vehicle).expect("vehicle").class();
+            let current = world.state.vehicle_state(vehicle).expect("vehicle").class();
             (0..count)
                 .map(laneflow_static_contract::ParticipantClassOrdinal::from_raw)
                 .find(|class| *class != current)
                 .expect("fixture exposes a second class")
         };
         let index = usize::try_from(vehicle.index()).expect("index");
-        world.committed.vehicles[index]
+        world.state.committed.vehicles[index]
             .state
             .as_mut()
             .expect("vehicle")
             .class = other_class;
         let target_revision = revision(TARGET);
         let rebinding = CrossRevisionRebinding::build(
-            world.binding.revision.identity(),
+            world.state.binding.revision.identity(),
             target_revision.identity(),
         )
         .unwrap();
@@ -4597,13 +4626,13 @@ pub(crate) mod tests {
         }
         let target_revision = revision(ORACLE_TARGET);
         let rebinding = CrossRevisionRebinding::build(
-            world.binding.revision.identity(),
+            world.state.binding.revision.identity(),
             target_revision.identity(),
         )
         .unwrap();
         let target_origin = *target_revision.canonical_origin();
         let mut candidate = migrate_structural_clone(
-            &world,
+            &world.state,
             Arc::clone(&target_revision),
             source_for(target_origin, "fixture://oracle-target"),
             &rebinding,
@@ -4615,8 +4644,8 @@ pub(crate) mod tests {
         );
 
         // 切换边界：已提交状态逐点一致（恒等 oracle，验收标准第二条）。
-        let assert_same = |world: &TrafficWorld, candidate: &TrafficWorld| {
-            assert_committed_logical_state_equal(world, candidate);
+        let assert_same = |world: &TrafficWorld, candidate: &WorldState| {
+            assert_committed_logical_state_equal(&world.state, candidate);
         };
         assert_same(&world, &candidate);
         // 继续步进仍逐点一致（交通语义段逐字节相等的直接推论）。

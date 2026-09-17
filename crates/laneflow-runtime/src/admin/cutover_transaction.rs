@@ -116,7 +116,7 @@ pub struct CutoverCommit {
 pub struct CutoverTransaction {
     /// 直移候选：`None` ⟺ 已结算（失败收尾整体丢弃，成功提交随事务
     /// 消耗析构）——已结算事务不滞留新旧根的任何 Arc 与动态表。
-    candidate: Option<TrafficWorld>,
+    candidate: Option<crate::kernel::execution::PreparedWorldState>,
     rebinding: CrossRevisionRebinding,
     /// 目标根 origin 小值捕获：事件与摘要只需修订号与 origin，失败结算
     /// 后事务不滞留目标根的任何 Arc（骨架换绑回旧世界根共享）。
@@ -155,10 +155,14 @@ impl TrafficWorld {
     /// 连续性失败（目标缺当前固定策略或其法规身份变化，`PolicyInstall` /
     /// `PolicyRegulationMismatch`，先于 LFSD 认证）、LFSD 字节认证
     /// 失败（长度/摘要/结构或 base/target 绑定不符，同为 `Descriptor`）、世界世代
-    /// 耗尽、暂存分配失败，或候选构造
+    /// 耗尽、暂存分配失败、必需执行计划准备失败（[`CutoverError::ExecutionPlan`]），或候选构造
     /// （含路线重验证）失败时返回相应 [`CutoverError`]。已存在在途事务时
     /// （`InFlightTransaction`）立即返回，既有武装事务保持不变；其余构造失败即
     /// 丢弃候选并解除本次日志武装，旧世界无感知。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
     #[allow(clippy::too_many_arguments)]
     pub fn prepare_cross_revision_cutover(
         &mut self,
@@ -169,34 +173,37 @@ impl TrafficWorld {
         limits: &CutoverPreflightLimits,
         transaction_limits: &CutoverTransactionLimits,
     ) -> Result<CutoverTransaction, CutoverError> {
-        if self.admin.migration_journal.is_some() {
+        self.execution.assert_usable();
+        if self.state.admin.migration_journal.is_some() {
             return Err(CutoverError::InFlightTransaction);
         }
         // 认证先于策略：描述符一致性（含 O(1) 预检）与 LFSD 字节级认证。
-        let base_origin = *self.binding.revision.canonical_origin();
+        let base_origin = *self.state.binding.revision.canonical_origin();
         let target_origin = *target_revision.canonical_origin();
         descriptor.validate(base_origin, target_origin, limits)?;
-        if descriptor.world_binding().world_id() != self.binding.world_id
-            || descriptor.world_binding().world_generation() != self.binding.world_generation
+        if descriptor.world_binding().world_id() != self.state.binding.world_id
+            || descriptor.world_binding().world_generation() != self.state.binding.world_generation
         {
             return Err(CutoverError::WorldBindingMismatch);
         }
-        if descriptor.world_binding().baseline_command_cursor() != self.committed.command_cursor {
+        if descriptor.world_binding().baseline_command_cursor()
+            != self.state.committed.command_cursor
+        {
             return Err(CutoverError::BaselineCommandCursorMismatch {
                 descriptor: descriptor.world_binding().baseline_command_cursor(),
-                world: self.committed.command_cursor,
+                world: self.state.committed.command_cursor,
             });
         }
-        if descriptor.world_binding().baseline_event_cursor() != self.committed.event_cursor {
+        if descriptor.world_binding().baseline_event_cursor() != self.state.committed.event_cursor {
             return Err(CutoverError::BaselineEventCursorMismatch {
                 descriptor: descriptor.world_binding().baseline_event_cursor(),
-                world: self.committed.event_cursor,
+                world: self.state.committed.event_cursor,
             });
         }
         if descriptor.policy_kind() != MigrationPolicyKind::CrossRevisionDirect {
             return Err(CutoverError::PolicyMismatch);
         }
-        self.validate_cutover_policy(&target_revision)?;
+        self.state.validate_cutover_policy(&target_revision)?;
         if target_source.network_revision() != target_origin.network_revision() {
             return Err(CutoverError::TargetSourceRevisionMismatch);
         }
@@ -204,42 +211,59 @@ impl TrafficWorld {
         // `TrafficWorld::install` 构造，相位与步长的合同约束必须在此显式把关。
         crate::kernel::world::validate_signal_programs(
             target_revision.as_ref(),
-            self.binding.config.fixed_delta_time_ms(),
+            self.state.binding.config.fixed_delta_time_ms(),
         )
         .map_err(|_| CutoverError::TargetSignalProgramInvalid)?;
         descriptor.verify_semantic_diff(lfsd_bytes, base_origin, target_origin)?;
         // 世代耗尽必须在任何候选暂存/分配之前失败关闭。
         let next_world_generation = self
+            .state
             .binding
             .world_generation
             .checked_next()
             .ok_or(CutoverError::WorldGenerationExhausted)?;
         // 武装日志：以当前命令游标为半开覆盖区间下界，字节上界一次预留。
-        self.arm_migration_journal(transaction_limits.max_journal_bytes)
+        self.state
+            .arm_migration_journal(transaction_limits.max_journal_bytes)
             .map_err(|_| CutoverError::StagingAllocFailed)?;
-        let armed_epoch = self.admin.migration_epoch;
+        let armed_epoch = self.state.admin.migration_epoch;
         // 基准捕获（结构克隆）+ 直移构造候选；失败即解除武装。
         let rebinding = match CrossRevisionRebinding::build(
-            self.binding.revision.identity(),
+            self.state.binding.revision.identity(),
             target_revision.identity(),
         ) {
             Ok(rebinding) => rebinding,
             Err(error) => {
-                self.disarm_migration_journal();
+                self.state.disarm_migration_journal();
                 return Err(error);
             }
         };
         let (candidate, conflict_finalization) = match migrate_structural_clone_with_conflict_plan(
-            self,
+            &self.state,
             Arc::clone(&target_revision),
             target_source,
             &rebinding,
         ) {
             Ok(candidate) => candidate,
             Err(error) => {
-                self.disarm_migration_journal();
+                self.state.disarm_migration_journal();
                 return Err(error);
             }
+        };
+        let plan = match crate::kernel::execution::ExecutionPlan::prepare(
+            &candidate,
+            self.execution_config(),
+            next_world_generation,
+        ) {
+            Ok(plan) => plan,
+            Err(error) => {
+                self.state.disarm_migration_journal();
+                return Err(CutoverError::ExecutionPlan(error));
+            }
+        };
+        let candidate = crate::kernel::execution::PreparedWorldState {
+            state: candidate,
+            plan,
         };
         Ok(CutoverTransaction {
             candidate: Some(candidate),
@@ -247,8 +271,8 @@ impl TrafficWorld {
             target_origin,
             limits: *transaction_limits,
             next_world_generation,
-            world_id: self.binding.world_id,
-            prepare_world_generation: self.binding.world_generation,
+            world_id: self.state.binding.world_id,
+            prepare_world_generation: self.state.binding.world_generation,
             armed_epoch,
             applied_records: 0,
             consumed_offset: 0,
@@ -289,9 +313,10 @@ impl CutoverTransaction {
     /// 事务与世界配对校验：身份、世代或日志武装轮次不符即失败关闭，
     /// 不触及任何一方（轮次比对覆盖世界级恢复后旧事务认领后继日志）。
     fn ensure_origin_world(&self, world: &TrafficWorld) -> Result<(), CutoverError> {
-        if world.binding.world_id != self.world_id
-            || world.binding.world_generation != self.prepare_world_generation
-            || world.admin.migration_epoch != self.armed_epoch
+        world.execution.assert_usable();
+        if world.state.binding.world_id != self.world_id
+            || world.state.binding.world_generation != self.prepare_world_generation
+            || world.state.admin.migration_epoch != self.armed_epoch
         {
             return Err(CutoverError::TransactionWorldMismatch {
                 expected_world: self.world_id,
@@ -308,12 +333,12 @@ impl CutoverTransaction {
         self.candidate = None;
         self.conflict_finalization = ConflictCutoverFinalizationPlan::default();
         self.rebinding.release();
-        world.disarm_migration_journal();
+        world.state.disarm_migration_journal();
     }
 
     /// 检查粘性溢出与追赶滞后；超限即整体放弃。
     fn check_health(&mut self, world: &mut TrafficWorld) -> Result<(), CutoverError> {
-        let Some(journal) = world.migration_journal() else {
+        let Some(journal) = world.state.migration_journal() else {
             self.settle_failure(world);
             return Err(CutoverError::JournalMissing);
         };
@@ -346,6 +371,10 @@ impl CutoverTransaction {
     /// `JournalOverflow` 或候选落后超过 `max_catch_up_lag_ticks`）与日志缺失（
     /// [`CutoverError::JournalMissing`]）、迁移记录应用失败一样先按失败结算事务
     /// （丢弃候选、解除武装）再返回相应 [`CutoverError`]。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
     pub fn pump(&mut self, world: &mut TrafficWorld) -> Result<PumpOutcome, CutoverError> {
         self.ensure_live()?;
         self.ensure_origin_world(world)?;
@@ -367,7 +396,7 @@ impl CutoverTransaction {
         world: &mut TrafficWorld,
         max_records: u64,
     ) -> Result<PumpOutcome, CutoverError> {
-        let Some(journal) = world.migration_journal() else {
+        let Some(journal) = world.state.migration_journal() else {
             return Err(CutoverError::JournalMissing);
         };
         let mut records = journal.records_from(self.consumed_offset);
@@ -381,7 +410,7 @@ impl CutoverTransaction {
                 break;
             }
             apply_record(
-                &world.binding.revision,
+                &world.state.binding.revision,
                 self.candidate
                     .as_mut()
                     .expect("live transaction owns a candidate"),
@@ -393,6 +422,13 @@ impl CutoverTransaction {
         }
         self.consumed_offset = offset;
         self.applied_records += applied;
+        let candidate = self
+            .candidate
+            .as_mut()
+            .expect("live transaction owns a candidate");
+        candidate
+            .plan
+            .refresh_workset(candidate.state.derived.active_order.len());
         Ok(PumpOutcome {
             applied_records: applied,
             caught_up,
@@ -412,15 +448,20 @@ impl CutoverTransaction {
     /// 事务已结算、世界不匹配或健康检查失败、日志尾排空或重放不一致（
     /// [`CutoverError::ReplayInconsistent`]）、等待区/冲突重验证失败、占用索引重建
     /// 失败、迁移车辆重验证失败、快照捕获或摘要预留失败、确定性摘要不匹配（
-    /// [`CutoverError::DigestMismatch`]）、事件批次分配失败或事件游标耗尽时返回相应
+    /// [`CutoverError::DigestMismatch`]）、事件批次分配失败、事件游标耗尽或必需执行
+    /// 计划准备失败（[`CutoverError::ExecutionPlan`]）时返回相应
     /// [`CutoverError`]；任一失败整体放弃，旧世界从暂停点恢复步进。事务已结算或
     /// 传入错误世界时按值消耗事务提前返回、不解除任何日志（源世界由
     /// `abandon_in_flight_cutover` 恢复）；其余任一路径在返回前无条件解除日志武装。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
     pub fn commit(mut self, world: &mut TrafficWorld) -> Result<CutoverCommit, CutoverError> {
         self.ensure_live()?;
         self.ensure_origin_world(world)?;
         let outcome = self.commit_internal(world);
-        world.disarm_migration_journal();
+        world.state.disarm_migration_journal();
         outcome
     }
 
@@ -437,15 +478,15 @@ impl CutoverTransaction {
             // 日志记录了全部已提交 step；tick 不一致即重放路径损坏。
             return Err(CutoverError::ReplayInconsistent);
         }
-        revalidate_waiting_routes(world, candidate, &self.rebinding)?;
+        revalidate_waiting_routes(&world.state, candidate, &self.rebinding)?;
         finalize_conflict_cutover_floors(
             candidate,
             &self.conflict_finalization,
-            world.committed.time_ms,
+            world.state.committed.time_ms,
         )?;
         // 最终游标在同一原子边界取样（半开覆盖区间上界；幂等重占等无记录
         // 提交的归属由取样而非重放决定），先写入候选供摘要复核与晋升共用。
-        let final_command_cursor = world.committed.command_cursor;
+        let final_command_cursor = world.state.committed.command_cursor;
         candidate.committed.command_cursor = final_command_cursor;
         // 可失败步骤全部前置：占用索引重建 + 终态全量重验证。
         candidate
@@ -460,11 +501,11 @@ impl CutoverTransaction {
         expected.origin = self.target_origin;
         initialize_expected_waiting_pre_gate(world, &candidate.binding.revision, &mut expected)?;
         project_expected_conflict(
-            world,
+            &world.state,
             candidate,
             &self.rebinding,
             &mut expected,
-            world.committed.time_ms,
+            world.state.committed.time_ms,
         )?;
         let expected_digest = deterministic_state_digest(&expected)?;
         let candidate_digest = deterministic_state_digest(&candidate.capture_snapshot()?)?;
@@ -479,155 +520,177 @@ impl CutoverTransaction {
         )?;
         let event_advance = events.len();
         world
+            .state
             .committed
             .event_cursor
             .checked_add(event_advance)
             .ok_or(CutoverError::EventCursorExhausted)?;
+        // pump 可以改变活动顺序；最终计划必须描述实际晋升世代与最终工作集。
+        let final_plan = crate::kernel::execution::ExecutionPlan::prepare(
+            &candidate.state,
+            world.execution_config(),
+            self.next_world_generation,
+        )
+        .map_err(CutoverError::ExecutionPlan)?;
+        candidate.plan = final_plan;
         // 不可失败原地晋升：逐字段交换（零分配），世代与观测序号同界写入。
-        std::mem::swap(&mut world.binding.revision, &mut candidate.binding.revision);
+        std::mem::swap(&mut world.execution.active_plan, &mut candidate.plan);
         std::mem::swap(
-            &mut world.binding.policy_binding,
+            &mut world.state.binding.revision,
+            &mut candidate.binding.revision,
+        );
+        std::mem::swap(
+            &mut world.state.binding.policy_binding,
             &mut candidate.binding.policy_binding,
         );
-        std::mem::swap(&mut world.binding.source, &mut candidate.binding.source);
         std::mem::swap(
-            &mut world.committed.conflict,
+            &mut world.state.binding.source,
+            &mut candidate.binding.source,
+        );
+        std::mem::swap(
+            &mut world.state.committed.conflict,
             &mut candidate.committed.conflict,
         );
-        std::mem::swap(&mut world.derived.conflict, &mut candidate.derived.conflict);
         std::mem::swap(
-            &mut world.workspace.conflict,
+            &mut world.state.derived.conflict,
+            &mut candidate.derived.conflict,
+        );
+        std::mem::swap(
+            &mut world.state.workspace.conflict,
             &mut candidate.workspace.conflict,
         );
         std::mem::swap(
-            &mut world.committed.conflict_eligibility,
+            &mut world.state.committed.conflict_eligibility,
             &mut candidate.committed.conflict_eligibility,
         );
-        std::mem::swap(&mut world.committed.routes, &mut candidate.committed.routes);
         std::mem::swap(
-            &mut world.committed.free_routes,
+            &mut world.state.committed.routes,
+            &mut candidate.committed.routes,
+        );
+        std::mem::swap(
+            &mut world.state.committed.free_routes,
             &mut candidate.committed.free_routes,
         );
         std::mem::swap(
-            &mut world.committed.vehicles,
+            &mut world.state.committed.vehicles,
             &mut candidate.committed.vehicles,
         );
         std::mem::swap(
-            &mut world.committed.free_vehicles,
+            &mut world.state.committed.free_vehicles,
             &mut candidate.committed.free_vehicles,
         );
         std::mem::swap(
-            &mut world.committed.live_order,
+            &mut world.state.committed.live_order,
             &mut candidate.committed.live_order,
         );
         std::mem::swap(
-            &mut world.derived.active_order,
+            &mut world.state.derived.active_order,
             &mut candidate.derived.active_order,
         );
         std::mem::swap(
-            &mut world.derived.live_order_index,
+            &mut world.state.derived.live_order_index,
             &mut candidate.derived.live_order_index,
         );
         std::mem::swap(
-            &mut world.committed.parking,
+            &mut world.state.committed.parking,
             &mut candidate.committed.parking,
         );
         std::mem::swap(
-            &mut world.committed.waiting_zones,
+            &mut world.state.committed.waiting_zones,
             &mut candidate.committed.waiting_zones,
         );
         std::mem::swap(
-            &mut world.derived.waiting_queue_ends,
+            &mut world.state.derived.waiting_queue_ends,
             &mut candidate.derived.waiting_queue_ends,
         );
         std::mem::swap(
-            &mut world.derived.waiting_links,
+            &mut world.state.derived.waiting_links,
             &mut candidate.derived.waiting_links,
         );
         std::mem::swap(
-            &mut world.derived.waiting_member_rows,
+            &mut world.state.derived.waiting_member_rows,
             &mut candidate.derived.waiting_member_rows,
         );
         std::mem::swap(
-            &mut world.workspace.waiting_claims,
+            &mut world.state.workspace.waiting_claims,
             &mut candidate.workspace.waiting_claims,
         );
         std::mem::swap(
-            &mut world.workspace.waiting_plans,
+            &mut world.state.workspace.waiting_plans,
             &mut candidate.workspace.waiting_plans,
         );
         std::mem::swap(
-            &mut world.workspace.waiting_plan_by_vehicle,
+            &mut world.state.workspace.waiting_plan_by_vehicle,
             &mut candidate.workspace.waiting_plan_by_vehicle,
         );
         std::mem::swap(
-            &mut world.workspace.next_state_by_vehicle,
+            &mut world.state.workspace.next_state_by_vehicle,
             &mut candidate.workspace.next_state_by_vehicle,
         );
         std::mem::swap(
-            &mut world.workspace.waiting_staged_decisions,
+            &mut world.state.workspace.waiting_staged_decisions,
             &mut candidate.workspace.waiting_staged_decisions,
         );
         std::mem::swap(
-            &mut world.workspace.waiting_non_entry_anchors,
+            &mut world.state.workspace.waiting_non_entry_anchors,
             &mut candidate.workspace.waiting_non_entry_anchors,
         );
         std::mem::swap(
-            &mut world.workspace.staged_transition_events,
+            &mut world.state.workspace.staged_transition_events,
             &mut candidate.workspace.staged_transition_events,
         );
         std::mem::swap(
-            &mut world.workspace.waiting_next_counters,
+            &mut world.state.workspace.waiting_next_counters,
             &mut candidate.workspace.waiting_next_counters,
         );
         std::mem::swap(
-            &mut world.workspace.waiting_staged_occupancy,
+            &mut world.state.workspace.waiting_staged_occupancy,
             &mut candidate.workspace.waiting_staged_occupancy,
         );
         std::mem::swap(
-            &mut world.workspace.waiting_staged_storage_mm,
+            &mut world.state.workspace.waiting_staged_storage_mm,
             &mut candidate.workspace.waiting_staged_storage_mm,
         );
         // 跨修订提交使旧 route/zone anchors 失效。历史 tick 输出不参与迁移，
         // 调用方在 commit 前消费；此处处于不可失败的原子发布段。
-        world.committed.latest_waiting_decisions.clear();
-        world.committed.latest_transition_events.clear();
-        world.committed.latest_conflict_decisions.clear();
+        world.state.committed.latest_waiting_decisions.clear();
+        world.state.committed.latest_transition_events.clear();
+        world.state.committed.latest_conflict_decisions.clear();
         std::mem::swap(
-            &mut world.committed.signal_aspects,
+            &mut world.state.committed.signal_aspects,
             &mut candidate.committed.signal_aspects,
         );
         std::mem::swap(
-            &mut world.workspace.next_signal_aspects,
+            &mut world.state.workspace.next_signal_aspects,
             &mut candidate.workspace.next_signal_aspects,
         );
         std::mem::swap(
-            &mut world.workspace.next_states,
+            &mut world.state.workspace.next_states,
             &mut candidate.workspace.next_states,
         );
         std::mem::swap(
-            &mut world.derived.occupancy,
+            &mut world.state.derived.occupancy,
             &mut candidate.derived.occupancy,
         );
         std::mem::swap(
-            &mut world.derived.spawn_overlap,
+            &mut world.state.derived.spawn_overlap,
             &mut candidate.derived.spawn_overlap,
         );
         std::mem::swap(
-            &mut world.workspace.occupancy_scratch,
+            &mut world.state.workspace.occupancy_scratch,
             &mut candidate.workspace.occupancy_scratch,
         );
-        world.committed.live_route_count = candidate.committed.live_route_count;
-        world.committed.live_route_edge_occurrence_count =
+        world.state.committed.live_route_count = candidate.committed.live_route_count;
+        world.state.committed.live_route_edge_occurrence_count =
             candidate.committed.live_route_edge_occurrence_count;
-        world.committed.live_route_conflict_occurrence_count =
+        world.state.committed.live_route_conflict_occurrence_count =
             candidate.committed.live_route_conflict_occurrence_count;
-        world.committed.tick_index = candidate.committed.tick_index;
-        world.committed.time_ms = candidate.committed.time_ms;
-        world.committed.command_cursor = final_command_cursor;
-        world.binding.world_generation = self.next_world_generation;
-        world.committed.observation_state_sequence = ObservationStateSequence::INITIAL;
-        world.committed.event_cursor += event_advance;
+        world.state.committed.tick_index = candidate.committed.tick_index;
+        world.state.committed.time_ms = candidate.committed.time_ms;
+        world.state.committed.command_cursor = final_command_cursor;
+        world.state.binding.world_generation = self.next_world_generation;
+        world.state.committed.observation_state_sequence = ObservationStateSequence::INITIAL;
+        world.state.committed.event_cursor += event_advance;
         Ok(CutoverCommit {
             world_generation: self.next_world_generation,
             final_command_cursor,
@@ -642,12 +705,16 @@ impl CutoverTransaction {
     ///
     /// 事务已结算（[`CutoverError::TransactionSettled`]）或世界不匹配时返回，且
     /// 不解除任何日志。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
     pub fn abandon(self, world: &mut TrafficWorld) -> Result<(), CutoverError> {
         if self.settled {
             return Err(CutoverError::TransactionSettled);
         }
         self.ensure_origin_world(world)?;
-        world.disarm_migration_journal();
+        world.state.disarm_migration_journal();
         Ok(())
     }
 }
@@ -675,7 +742,7 @@ fn rebind_parking_target(
 }
 
 fn rebind_parking_delta(
-    candidate: &TrafficWorld,
+    candidate: &crate::kernel::state::WorldState,
     rebinding: &CrossRevisionRebinding,
     vehicle: VehicleHandle,
     delta: ParkingBindingDelta,
@@ -748,7 +815,7 @@ fn rebind_parking_delta(
 }
 
 fn remove_candidate_parking_binding(
-    candidate: &mut TrafficWorld,
+    candidate: &mut crate::kernel::state::WorldState,
     vehicle: VehicleHandle,
     binding: Option<ParkingBinding>,
 ) {
@@ -764,7 +831,7 @@ fn remove_candidate_parking_binding(
 }
 
 fn insert_candidate_parking_binding(
-    candidate: &mut TrafficWorld,
+    candidate: &mut crate::kernel::state::WorldState,
     vehicle: VehicleHandle,
     binding: Option<ParkingBinding>,
 ) -> Result<(), CutoverError> {
@@ -830,7 +897,7 @@ fn insert_candidate_parking_binding(
 }
 
 fn checked_candidate_route_ref(
-    candidate: &TrafficWorld,
+    candidate: &crate::kernel::state::WorldState,
     route: RouteHandle,
 ) -> Result<u32, CutoverError> {
     let route_index =
@@ -848,13 +915,17 @@ fn checked_candidate_route_ref(
         .ok_or(CutoverError::ReplayInconsistent)
 }
 
-fn commit_candidate_route_ref(candidate: &mut TrafficWorld, route: RouteHandle, value: u32) {
+fn commit_candidate_route_ref(
+    candidate: &mut crate::kernel::state::WorldState,
+    route: RouteHandle,
+    value: u32,
+) {
     let route_index = usize::try_from(route.index()).expect("validated route index fits usize");
     candidate.committed.routes[route_index].live_vehicles = value;
 }
 
 fn waiting_release_matches(
-    candidate: &TrafficWorld,
+    candidate: &crate::kernel::state::WorldState,
     rebinding: &CrossRevisionRebinding,
     state: crate::VehicleState,
     release: crate::admin::migration_journal::WaitingMembershipReleaseDelta,
@@ -904,6 +975,7 @@ fn initialize_expected_waiting_pre_gate(
 ) -> Result<(), CutoverError> {
     // capture_snapshot 按 live 槽位序分配局部车辆 ID，非 live_order 序。
     let source_states = world
+        .state
         .committed
         .vehicles
         .iter()
@@ -918,7 +990,10 @@ fn initialize_expected_waiting_pre_gate(
         let invalid = || CutoverError::VehicleRevalidationFailed {
             vehicle: state.handle.index(),
         };
-        let compiled = world.compiled_route(state.route).ok_or_else(invalid)?;
+        let compiled = world
+            .state
+            .compiled_route(state.route)
+            .ok_or_else(invalid)?;
         let index = compiled.maneuvers.partition_point(|occurrence| {
             occurrence.exit_route_edge_index <= state.route_edge_index
         });
@@ -938,6 +1013,7 @@ fn initialize_expected_waiting_pre_gate(
             continue;
         }
         let stable_path = world
+            .state
             .binding
             .revision
             .identity()
@@ -985,7 +1061,7 @@ fn initialize_expected_waiting_pre_gate(
 
 fn mapped_journal_conflict_occurrence(
     base_revision: &SharedNetworkRevision,
-    candidate: &TrafficWorld,
+    candidate: &crate::kernel::state::WorldState,
     rebinding: &CrossRevisionRebinding,
     locator: crate::admin::migration_journal::ConflictOccurrenceJournalLocator,
 ) -> Result<(u32, crate::ConflictPassageAddress), CutoverError> {
@@ -1054,7 +1130,7 @@ fn mapped_journal_conflict_occurrence(
 
 fn apply_conflict_tick_deltas(
     base_revision: &SharedNetworkRevision,
-    candidate: &mut TrafficWorld,
+    candidate: &mut crate::kernel::state::WorldState,
     rebinding: &CrossRevisionRebinding,
     eligibility_bytes: &[u8],
     authority_bytes: &[u8],
@@ -1276,7 +1352,7 @@ fn apply_conflict_tick_deltas(
 /// 终态由静默提交的全量重验证与摘要复核闭合。
 fn apply_record(
     base_revision: &SharedNetworkRevision,
-    candidate: &mut TrafficWorld,
+    candidate: &mut crate::kernel::state::WorldState,
     rebinding: &CrossRevisionRebinding,
     record: &JournalRecord<'_>,
 ) -> Result<(), CutoverError> {
@@ -1804,7 +1880,7 @@ fn apply_record(
 }
 
 fn compile_candidate_route(
-    candidate: &TrafficWorld,
+    candidate: &crate::kernel::state::WorldState,
     edges: &[LaneEdgeOrdinal],
 ) -> Result<crate::kernel::tables::CompiledRoute, CutoverError> {
     crate::kernel::tables::compile_route(
@@ -1833,6 +1909,103 @@ fn compile_candidate_route(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn execution_plan_prepare_and_commit_fail_closed_then_publish_fresh_workset() {
+        use crate::kernel::execution::{
+            RESOURCE_TEST_LOCK, WorldExecution, with_plan_failure, worker_starts,
+        };
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let mut world = installed_world(ORACLE_BASE, "fixture://execution-source");
+        let (entry, exit) = entry_exit(&world);
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .unwrap();
+        spawn_on(&mut world, route, 1_000, 0);
+        let execution = crate::ExecutionConfig::new(std::num::NonZeroU32::new(3).unwrap());
+        world.execution = WorldExecution::start_private(execution, &world.state);
+        let ids = world.execution.thread_ids();
+        let starts = worker_starts();
+        let old_root = world.revision();
+        let old_generation = world.world_generation();
+        let baseline = deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap();
+        let target = revision(ORACLE_TARGET);
+        let descriptor = descriptor_for(&world, *target.canonical_origin(), ORACLE_LFSD);
+        let error = with_plan_failure(|| {
+            world.prepare_cross_revision_cutover(
+                Arc::clone(&target),
+                source_for(*target.canonical_origin(), "fixture://execution-target"),
+                &descriptor,
+                ORACLE_LFSD,
+                &preflight_limits(),
+                &CutoverTransactionLimits::default(),
+            )
+        })
+        .err()
+        .unwrap();
+        assert_eq!(
+            error,
+            CutoverError::ExecutionPlan(crate::ExecutionPlanError::ReservationFailed)
+        );
+        assert!(world.migration_journal_stats().is_none());
+        assert_eq!(
+            baseline,
+            deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap()
+        );
+        let mut tx = prepare(
+            &mut world,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        assert_eq!(tx.candidate.as_ref().unwrap().plan.work_len(), 1);
+        spawn_on(&mut world, route, 20_000, 0);
+        tx.pump(&mut world).unwrap();
+        assert_eq!(tx.candidate.as_ref().unwrap().plan.work_len(), 2);
+        let before_commit = deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap();
+        let error = with_plan_failure(|| tx.commit(&mut world)).err().unwrap();
+        assert_eq!(
+            error,
+            CutoverError::ExecutionPlan(crate::ExecutionPlanError::ReservationFailed)
+        );
+        assert!(Arc::ptr_eq(&world.revision(), &old_root));
+        assert_eq!(world.world_generation(), old_generation);
+        assert_eq!(
+            before_commit,
+            deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap()
+        );
+        assert!(world.migration_journal_stats().is_none());
+        world.execution.active_plan.assert_binding(&world.state);
+        let mut tx = prepare(
+            &mut world,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        let active_plan_bytes = world.execution.active_plan.retained_bytes();
+        let candidate = tx.candidate.as_mut().unwrap();
+        let candidate_plan_bytes = candidate.plan.retained_bytes();
+        let candidate_state_bytes = candidate.state.retained_memory().world_owned_bytes();
+        candidate.admin.migration_epoch = 999;
+        let active_epoch = world.state.admin.migration_epoch;
+        let command_cursor = world.command_cursor();
+        let event_cursor = world.event_cursor();
+        let started = std::time::Instant::now();
+        let _commit = tx.commit(&mut world).unwrap();
+        let quiet_ns = started.elapsed().as_nanos();
+        assert_eq!(world.state.admin.migration_epoch, active_epoch);
+        assert_eq!(world.command_cursor(), command_cursor);
+        assert_eq!(world.event_cursor(), event_cursor + 1);
+        assert_eq!(world.execution.thread_ids(), ids);
+        assert_eq!(worker_starts(), starts);
+        world.execution.active_plan.assert_binding(&world.state);
+        assert_eq!(world.execution.active_plan.work_len(), 2);
+        world.step(TickInput::new(100)).unwrap();
+        eprintln!(
+            "execution-cutover-memory active_plan_bytes={active_plan_bytes} candidate_plan_bytes={candidate_plan_bytes} final_plan_bytes={} retired_plan_bytes={active_plan_bytes} candidate_state_bytes={candidate_state_bytes} diagnostic_quiet_ns={quiet_ns}",
+            world.execution.active_plan.retained_bytes()
+        );
+    }
+
+    #[test]
     fn absent_deltas_accept_completed_owner() {
         let mut world = installed_world(ORACLE_BASE, "fixture://round2-replay");
         let (entry, exit) = entry_exit(&world);
@@ -1856,8 +2029,8 @@ mod tests {
         );
         let base = world.revision();
         let rebinding = CrossRevisionRebinding::build(base.identity(), base.identity()).unwrap();
-        world.arm_migration_journal(4_096).unwrap();
-        let journal = world.admin.migration_journal.as_mut().unwrap();
+        world.state.arm_migration_journal(4_096).unwrap();
+        let journal = world.state.admin.migration_journal.as_mut().unwrap();
         journal.begin_tick(2, 200);
         journal.tick_conflict_eligibility(owner, None);
         journal.tick_conflict_authority_absent(owner);
@@ -1873,9 +2046,9 @@ mod tests {
         let eligibility = conflict_eligibility.to_vec();
         let authority = conflict_authorities.to_vec();
         let eligibility_result =
-            apply_conflict_tick_deltas(&base, &mut world, &rebinding, &eligibility, &[], &[]);
+            apply_conflict_tick_deltas(&base, &mut world.state, &rebinding, &eligibility, &[], &[]);
         let authority_result =
-            apply_conflict_tick_deltas(&base, &mut world, &rebinding, &[], &authority, &[]);
+            apply_conflict_tick_deltas(&base, &mut world.state, &rebinding, &[], &authority, &[]);
         assert_eq!((eligibility_result, authority_result), (Ok(()), Ok(())));
     }
 
@@ -1953,7 +2126,9 @@ mod tests {
     ) -> NetworkRevisionCutoverDescriptor {
         let digest: [u8; 32] = sha2::Sha256::digest(lfsd).into();
         NetworkRevisionCutoverDescriptor::new(
-            LfcaOriginBinding::from_canonical_origin(*world.binding.revision.canonical_origin()),
+            LfcaOriginBinding::from_canonical_origin(
+                *world.state.binding.revision.canonical_origin(),
+            ),
             LfcaOriginBinding::from_canonical_origin(target_origin),
             Some(SemanticDiffOriginBinding::new(
                 SEMANTIC_DIFF_FORMAT_VERSION,
@@ -2039,8 +2214,15 @@ mod tests {
             .register_route(RouteRegisterInput::new(vec![entry, exit]))
             .unwrap();
         let vehicle = spawn_on(&mut world, route, 10_000, 0);
-        assert!(world.prepare_active_insertion(vehicle).is_some());
-        assert!(world.derived.live_order_index.retained_logical_bytes() > 0);
+        assert!(world.state.prepare_active_insertion(vehicle).is_some());
+        assert!(
+            world
+                .state
+                .derived
+                .live_order_index
+                .retained_logical_bytes()
+                > 0
+        );
         let transaction = prepare(
             &mut world,
             ORACLE_TARGET,
@@ -2058,9 +2240,16 @@ mod tests {
             0
         );
         let _commit = transaction.commit(&mut world).unwrap();
-        assert_eq!(world.derived.live_order_index.retained_logical_bytes(), 0);
-        assert!(world.prepare_active_insertion(vehicle).is_some());
-        assert_eq!(world.derived.active_order, world.live_vehicles());
+        assert_eq!(
+            world
+                .state
+                .derived
+                .live_order_index
+                .retained_logical_bytes(),
+            0
+        );
+        assert!(world.state.prepare_active_insertion(vehicle).is_some());
+        assert_eq!(world.state.derived.active_order, world.live_vehicles());
     }
 
     #[test]
@@ -2123,10 +2312,10 @@ mod tests {
         spawn_on(&mut world, route, 50_000, 0);
         tx.pump(&mut world).unwrap();
         assert_eq!(overlap_rebuilds(), before + 1);
-        world.derived.spawn_overlap = Default::default();
+        world.state.derived.spawn_overlap = Default::default();
         let _commit = tx.commit(&mut world).unwrap();
         assert_eq!(overlap_rebuilds(), before + 1);
-        assert!(world.derived.spawn_overlap.is_current());
+        assert!(world.state.derived.spawn_overlap.is_current());
     }
 
     #[test]
@@ -2190,28 +2379,29 @@ mod tests {
         let target_revision = crate::admin::cutover::tests::transaction_tests::revision(true);
         let target_origin = *target_revision.canonical_origin();
         let rebinding = CrossRevisionRebinding::build(
-            source.binding.revision.identity(),
+            source.state.binding.revision.identity(),
             target_revision.identity(),
         )
         .expect("same semantics rebind");
         let mut candidate = crate::admin::cutover_migration::migrate_structural_clone(
-            &source,
+            &source.state,
             target_revision,
             source_for(target_origin, "fixture://conflict-journal-target"),
             &rebinding,
         )
         .expect("baseline Conflict migration");
 
-        let source_state = *source.vehicle_state(vehicle).expect("source vehicle");
+        let source_state = *source.state.vehicle_state(vehicle).expect("source vehicle");
         let traversal = source_state
             .maneuver_traversal
             .expect("source Clearing traversal");
         let exit_route_edge_index = source
+            .state
             .compiled_route(source_state.route)
             .expect("source route")
             .maneuvers[traversal.maneuver_occurrence_index as usize]
             .exit_route_edge_index;
-        for world in [&mut source, &mut candidate] {
+        for world in [&mut source.state, &mut candidate] {
             let state = world.committed.vehicles[vehicle.index() as usize]
                 .state
                 .as_mut()
@@ -2221,18 +2411,19 @@ mod tests {
             state.carry_um = 0;
         }
         let source_state = *source
+            .state
             .vehicle_state(vehicle)
             .expect("advanced source vehicle");
         let parking_update = JournalRecord::VehicleParkingUpdated {
             command_cursor: source.command_cursor(),
             vehicle: VehicleDelta::from_state(
                 &source_state,
-                source.compiled_route(source_state.route),
+                source.state.compiled_route(source_state.route),
             ),
             parking: ParkingBindingDelta::new(None, None),
         };
         apply_record(
-            &source.binding.revision,
+            &source.state.binding.revision,
             &mut candidate,
             &rebinding,
             &parking_update,
@@ -2240,18 +2431,22 @@ mod tests {
         .expect("parking delta preserves Clearing after the front passes maneuver exit");
         assert!(candidate.conflict_reservation(vehicle).is_some());
 
-        source.arm_migration_journal(4_096).expect("arm journal");
+        source
+            .state
+            .arm_migration_journal(4_096)
+            .expect("arm journal");
         source
             .despawn_vehicle(vehicle)
             .expect("despawn authority owner");
         let record = source
+            .state
             .migration_journal()
             .expect("journal")
             .records_from(0)
             .next()
             .expect("despawn record");
         apply_record(
-            &source.binding.revision,
+            &source.state.binding.revision,
             &mut candidate,
             &rebinding,
             &record,
@@ -2276,7 +2471,7 @@ mod tests {
     fn production_conflict_ticks_replay_acquire_stage_clear_and_lag_without_remigration() {
         let (mut source, vehicle) =
             crate::admin::format_admission::tests::world_with_conflict_eligibility();
-        source.committed.vehicles[vehicle.index() as usize]
+        source.state.committed.vehicles[vehicle.index() as usize]
             .state
             .as_mut()
             .expect("source vehicle")
@@ -2284,12 +2479,12 @@ mod tests {
         let target_revision = crate::admin::cutover::tests::transaction_tests::revision(false);
         let target_origin = *target_revision.canonical_origin();
         let rebinding = CrossRevisionRebinding::build(
-            source.binding.revision.identity(),
+            source.state.binding.revision.identity(),
             target_revision.identity(),
         )
         .expect("same semantic identities rebind");
         let mut candidate = crate::admin::cutover_migration::migrate_structural_clone(
-            &source,
+            &source.state,
             target_revision,
             source_for(
                 target_origin,
@@ -2299,6 +2494,7 @@ mod tests {
         )
         .expect("baseline Conflict migration");
         source
+            .state
             .arm_migration_journal(64 * 1_024)
             .expect("arm journal");
         let mut offset = 0;
@@ -2308,7 +2504,7 @@ mod tests {
             source
                 .step(TickInput::new(100))
                 .expect("production Conflict tick");
-            let journal = source.migration_journal().expect("armed journal");
+            let journal = source.state.migration_journal().expect("armed journal");
             let mut records = journal.records_from(offset);
             let record = records.next().expect("one Tick record");
             offset = records.offset();
@@ -2317,7 +2513,7 @@ mod tests {
                 "one source step emits one Tick record"
             );
             apply_record(
-                &source.binding.revision,
+                &source.state.binding.revision,
                 &mut candidate,
                 &rebinding,
                 &record,
@@ -2328,6 +2524,7 @@ mod tests {
             saw_reservation |= source.conflict_reservation(vehicle).is_some();
             saw_actual_clear |=
                 source
+                    .state
                     .conflict_read()
                     .persisted_lag_rows()
                     .any(|(_, reference)| {
@@ -2369,8 +2566,8 @@ mod tests {
         );
     }
 
-    fn assert_same_committed(cut: &TrafficWorld, plain: &TrafficWorld) {
-        crate::admin::cutover_migration::assert_committed_logical_state_equal(cut, plain);
+    fn assert_same_committed(cut: &TrafficWorld, plain: &crate::kernel::state::WorldState) {
+        crate::admin::cutover_migration::assert_committed_logical_state_equal(&cut.state, plain);
     }
 
     fn first_waiting_world(
@@ -2402,6 +2599,7 @@ mod tests {
         let vehicle = spawn_on(&mut world, route, length - distance_to_gate_mm, speed_mm_s);
         assert!(
             world
+                .state
                 .vehicle_state(vehicle)
                 .expect("vehicle")
                 .maneuver_traversal
@@ -2441,13 +2639,13 @@ mod tests {
                     .step(TickInput::new(100))
                     .expect("source step before Gate");
             }
-            let source_motion = *world.vehicle_state(vehicle).expect("source");
+            let source_motion = *world.state.vehicle_state(vehicle).expect("source");
             assert!(source_motion.maneuver_traversal.is_none());
             assert!(tx.pump(&mut world).expect("pump").caught_up);
             let _commit = tx
                 .commit(&mut world)
                 .expect("commit including independent digest");
-            let migrated = *world.vehicle_state(vehicle).expect("migrated");
+            let migrated = *world.state.vehicle_state(vehicle).expect("migrated");
             assert!(matches!(
                 migrated.maneuver_traversal.expect("PreGate").phase,
                 crate::ManeuverTraversalPhase::PreGate { next_gate_hop: 0 }
@@ -2457,8 +2655,11 @@ mod tests {
             motion.maneuver_traversal = None;
             assert_eq!(motion, source_motion);
             assert_ne!(world.world_generation(), before_generation);
-            assert_eq!(world.committed.waiting_zones[0].occupancy, 0);
-            assert_eq!(world.committed.waiting_zones[0].next_admission_sequence, 0);
+            assert_eq!(world.state.committed.waiting_zones[0].occupancy, 0);
+            assert_eq!(
+                world.state.committed.waiting_zones[0].next_admission_sequence,
+                0
+            );
             let captured = world.capture_snapshot().expect("capture");
             let bytes = crate::encode_lfrs(&captured);
             let restored = crate::restore_lfrs(
@@ -2480,12 +2681,16 @@ mod tests {
                     .expect("first real admission after cutover");
                 assert!(
                     world
+                        .state
                         .vehicle_state(vehicle)
                         .unwrap()
                         .waiting_membership
                         .is_some()
                 );
-                assert_eq!(world.committed.waiting_zones[0].next_admission_sequence, 1);
+                assert_eq!(
+                    world.state.committed.waiting_zones[0].next_admission_sequence,
+                    1
+                );
             }
         }
     }
@@ -2502,7 +2707,10 @@ mod tests {
             world
                 .step(TickInput::new(100))
                 .expect("source crosses Gate");
-            assert_eq!(world.vehicle_state(vehicle).unwrap().route_edge_index, 1);
+            assert_eq!(
+                world.state.vehicle_state(vehicle).unwrap().route_edge_index,
+                1
+            );
             let before = world.capture_snapshot().expect("source before rejection");
             let error = if let Some(tx) = tx.as_mut() {
                 tx.pump(&mut world).unwrap_err()
@@ -2518,7 +2726,7 @@ mod tests {
                 }
             );
             assert_eq!(world.capture_snapshot().expect("unchanged"), before);
-            assert!(world.migration_journal().is_none());
+            assert!(world.state.migration_journal().is_none());
             world
                 .step(TickInput::new(100))
                 .expect("source can continue");
@@ -2534,8 +2742,9 @@ mod tests {
             .step(TickInput::new(100))
             .expect("source crosses the admission Gate");
 
-        let state = *world.vehicle_state(vehicle).expect("source vehicle");
+        let state = *world.state.vehicle_state(vehicle).expect("source vehicle");
         let compiled = world
+            .state
             .compiled_route(state.route)
             .expect("compiled source route");
         let (_, maneuver) = compiled
@@ -2559,7 +2768,7 @@ mod tests {
         delta.route_edge_index = maneuver.exit_route_edge_index;
 
         let migrated = vehicle_state_from_delta(
-            world.binding.revision.as_ref(),
+            world.state.binding.revision.as_ref(),
             tx.candidate.as_ref().expect("candidate"),
             &tx.rebinding,
             &delta,
@@ -2585,11 +2794,11 @@ mod tests {
             let (mut world, old_vehicle) = first_waiting_world(base, 100_000, 1_000);
             let path = laneflow_static_contract::ManeuverPathOrdinal::from_raw(0);
             assert_ne!(
-                world.binding.revision.identity().stable_id(path),
+                world.state.binding.revision.identity().stable_id(path),
                 target.identity().stable_id(path),
                 "entry/exit edge identity is part of ManeuverPath identity"
             );
-            let old_route = world.vehicle_state(old_vehicle).unwrap().route;
+            let old_route = world.state.vehicle_state(old_vehicle).unwrap().route;
             let mut edges = world.route_edges(old_route).unwrap().to_vec();
             world.despawn_vehicle(old_vehicle).unwrap();
             world.remove_route(old_route).unwrap();
@@ -2628,7 +2837,7 @@ mod tests {
                 Some(invalid)
             );
             assert_eq!(world.capture_snapshot().unwrap(), before);
-            assert!(world.migration_journal().is_none());
+            assert!(world.state.migration_journal().is_none());
             world
                 .step(TickInput::new(100))
                 .expect("source remains usable");
@@ -2639,7 +2848,7 @@ mod tests {
     fn first_waiting_journal_uses_record_route_before_slot_reuse() {
         let (base, target, lfsd) = crate::kernel::waiting::tests::first_waiting_cutover_pair();
         let (mut world, vehicle) = first_waiting_world(base, 100_000, 1_000);
-        let route = world.vehicle_state(vehicle).unwrap().route;
+        let route = world.state.vehicle_state(vehicle).unwrap().route;
         let edges = world.route_edges(route).unwrap().to_vec();
         let mut tx = prepare_first_waiting(&mut world, target, &lfsd).unwrap();
         world.step(TickInput::new(100)).unwrap();
@@ -2659,11 +2868,11 @@ mod tests {
                 .expect("old records retain their route context")
                 .caught_up
         );
-        let before = *world.vehicle_state(next_vehicle).unwrap();
+        let before = *world.state.vehicle_state(next_vehicle).unwrap();
         let _ = tx
             .commit(&mut world)
             .expect("commit after route and vehicle slot reuse");
-        assert_eq!(*world.vehicle_state(next_vehicle).unwrap(), before);
+        assert_eq!(*world.state.vehicle_state(next_vehicle).unwrap(), before);
     }
 
     #[test]
@@ -2684,14 +2893,14 @@ mod tests {
             CutoverError::DigestMismatch
         );
         assert_eq!(world.capture_snapshot().expect("unchanged"), before);
-        assert!(world.migration_journal().is_none());
+        assert!(world.state.migration_journal().is_none());
     }
 
     #[test]
     fn first_waiting_coverage_does_not_bootstrap_parked_or_repair_snapshot() {
         let (base, target, lfsd) = crate::kernel::waiting::tests::first_waiting_cutover_pair();
         let (mut world, active) = first_waiting_world(Arc::clone(&base), 100_000, 1_000);
-        let route = world.vehicle_state(active).unwrap().route;
+        let route = world.state.vehicle_state(active).unwrap().route;
         world.despawn_vehicle(active).unwrap();
         let parked = world
             .spawn_parked_vehicle(
@@ -2706,7 +2915,7 @@ mod tests {
             prepare_first_waiting(&mut world, Arc::clone(&target), &lfsd).expect("prepare parked");
         tx.pump(&mut world).unwrap();
         let _ = tx.commit(&mut world).expect("commit parked");
-        let state = world.vehicle_state(parked).unwrap();
+        let state = world.state.vehicle_state(parked).unwrap();
         assert_eq!(state.status, crate::VehicleStatus::Parked);
         assert!(state.maneuver_traversal.is_none() && state.waiting_membership.is_none());
 
@@ -2750,7 +2959,7 @@ mod tests {
         for _ in 0..8 {
             world.step(TickInput::new(100)).unwrap();
         }
-        assert!(world.migration_journal().unwrap().records_from(0).all(|record| {
+        assert!(world.state.migration_journal().unwrap().records_from(0).all(|record| {
             matches!(record, JournalRecord::Tick { entries, waiting_zones, .. } if entries.is_empty() && waiting_zones.is_empty())
         }));
         REPLAY_REBUILD_COUNTS.set((0, 0));
@@ -2762,12 +2971,12 @@ mod tests {
             .expect("final two clock records drain during commit");
         assert_eq!(REPLAY_REBUILD_COUNTS.get(), (0, 0));
         assert_eq!(world.tick_index(), 8);
-        assert_eq!(world.committed.time_ms, 800);
+        assert_eq!(world.state.committed.time_ms, 800);
         assert_eq!(
-            world.vehicle_state(parked).unwrap().status,
+            world.state.vehicle_state(parked).unwrap().status,
             crate::VehicleStatus::Parked
         );
-        assert!(world.derived.active_order.is_empty());
+        assert!(world.state.derived.active_order.is_empty());
     }
 
     #[test]
@@ -2779,18 +2988,18 @@ mod tests {
             "fixture://clock-signals",
         );
         let rebinding = CrossRevisionRebinding::build(
-            world.binding.revision.identity(),
-            world.binding.revision.identity(),
+            world.state.binding.revision.identity(),
+            world.state.binding.revision.identity(),
         )
         .unwrap();
         let base_revision = world.revision();
-        let initial_aspects = world.committed.signal_aspects.clone();
+        let initial_aspects = world.state.committed.signal_aspects.clone();
         assert!(!initial_aspects.is_empty());
         REPLAY_REBUILD_COUNTS.set((0, 0));
         let changed = (1..600).any(|tick| {
             apply_record(
                 &base_revision,
-                &mut world,
+                &mut world.state,
                 &rebinding,
                 &JournalRecord::Tick {
                     tick_index: tick,
@@ -2803,7 +3012,7 @@ mod tests {
                 },
             )
             .unwrap();
-            world.committed.signal_aspects != initial_aspects
+            world.state.committed.signal_aspects != initial_aspects
         });
         assert!(
             changed,
@@ -2814,8 +3023,8 @@ mod tests {
         let mut world = installed_world(ORACLE_BASE, "fixture://nonempty-tick");
         let base_revision = world.revision();
         let rebinding = CrossRevisionRebinding::build(
-            world.binding.revision.identity(),
-            world.binding.revision.identity(),
+            world.state.binding.revision.identity(),
+            world.state.binding.revision.identity(),
         )
         .unwrap();
         let (entry, exit) = entry_exit(&world);
@@ -2823,10 +3032,14 @@ mod tests {
             .register_route(RouteRegisterInput::new(vec![entry, exit]))
             .unwrap();
         spawn_on(&mut world, route, 10_000, 0);
-        world.arm_migration_journal(4_096).unwrap();
+        world.state.arm_migration_journal(4_096).unwrap();
         world.step(TickInput::new(100)).unwrap();
-        let Some(JournalRecord::Tick { entries, .. }) =
-            world.migration_journal().unwrap().records_from(0).next()
+        let Some(JournalRecord::Tick { entries, .. }) = world
+            .state
+            .migration_journal()
+            .unwrap()
+            .records_from(0)
+            .next()
         else {
             panic!("step emits Tick");
         };
@@ -2834,7 +3047,7 @@ mod tests {
         assert_eq!(entries.len(), VEHICLE_DELTA_BYTES);
         apply_record(
             &base_revision,
-            &mut world,
+            &mut world.state,
             &rebinding,
             &JournalRecord::Tick {
                 tick_index: 1,
@@ -2902,7 +3115,7 @@ mod tests {
             cut.step(TickInput::new(100)).expect("cut step");
             plain.step(TickInput::new(100)).expect("plain step");
         }
-        assert_same_committed(&cut, &plain);
+        assert_same_committed(&cut, &plain.state);
 
         // Prepare：窗口内继续步进与生命周期命令（两世界同序列执行）。
         let mut tx = prepare(
@@ -2966,11 +3179,11 @@ mod tests {
         );
 
         // 提交边界与后续每一步逐点一致（验收标准第二条的端到端形态）。
-        assert_same_committed(&cut, &plain);
+        assert_same_committed(&cut, &plain.state);
         for _ in 0..4 {
             cut.step(TickInput::new(100)).expect("cut step");
             plain.step(TickInput::new(100)).expect("plain step");
-            assert_same_committed(&cut, &plain);
+            assert_same_committed(&cut, &plain.state);
         }
     }
 
@@ -2993,7 +3206,10 @@ mod tests {
             tx.pump(&mut cut).unwrap_err(),
             CutoverError::JournalOverflow
         );
-        assert!(cut.migration_journal().is_none(), "abandon disarms journal");
+        assert!(
+            cut.state.migration_journal().is_none(),
+            "abandon disarms journal"
+        );
         for _ in 0..3 {
             cut.step(TickInput::new(100))
                 .expect("old world keeps stepping");
@@ -3002,7 +3218,13 @@ mod tests {
             tx.pump(&mut cut).unwrap_err(),
             CutoverError::TransactionSettled
         );
-        assert!(cut.vehicle_state(vehicle).expect("vehicle").progress_mm() > 10_000);
+        assert!(
+            cut.state
+                .vehicle_state(vehicle)
+                .expect("vehicle")
+                .progress_mm()
+                > 10_000
+        );
         // 放弃后可再次发起（在途唯一解除）。
         let limits = CutoverTransactionLimits::default();
         let mut tx = prepare(&mut cut, ORACLE_TARGET, ORACLE_LFSD, &limits);
@@ -3072,8 +3294,12 @@ mod tests {
 
         // 同步同修订入口同样被在途唯一拒绝。
         let same = NetworkRevisionCutoverDescriptor::new(
-            LfcaOriginBinding::from_canonical_origin(*cut.binding.revision.canonical_origin()),
-            LfcaOriginBinding::from_canonical_origin(*cut.binding.revision.canonical_origin()),
+            LfcaOriginBinding::from_canonical_origin(
+                *cut.state.binding.revision.canonical_origin(),
+            ),
+            LfcaOriginBinding::from_canonical_origin(
+                *cut.state.binding.revision.canonical_origin(),
+            ),
             None,
             crate::MigrationPolicyKind::SameRevisionRestore,
             cut.world_binding(),
@@ -3109,9 +3335,9 @@ mod tests {
         );
         cut.step(TickInput::new(100)).expect("step");
         tx.pump(&mut cut).expect("pump");
-        let before_revision = *cut.binding.revision.canonical_origin();
+        let before_revision = *cut.state.binding.revision.canonical_origin();
         let before_generation = cut.world_generation();
-        let before_state = cut.vehicle_state(vehicle).copied().expect("vehicle");
+        let before_state = cut.state.vehicle_state(vehicle).copied().expect("vehicle");
 
         // 注入候选侧损坏：进度偏移 1 mm，重验证通过但摘要必不相等。
         let index = usize::try_from(vehicle.index()).expect("index");
@@ -3130,9 +3356,15 @@ mod tests {
             tx.commit(&mut cut).unwrap_err(),
             CutoverError::DigestMismatch
         );
-        assert_eq!(*cut.binding.revision.canonical_origin(), before_revision);
+        assert_eq!(
+            *cut.state.binding.revision.canonical_origin(),
+            before_revision
+        );
         assert_eq!(cut.world_generation(), before_generation);
-        assert_eq!(cut.vehicle_state(vehicle).copied(), Some(before_state));
+        assert_eq!(
+            cut.state.vehicle_state(vehicle).copied(),
+            Some(before_state)
+        );
         cut.step(TickInput::new(100))
             .expect("old world keeps stepping");
     }
@@ -3149,7 +3381,7 @@ mod tests {
             .expect("route");
         let vehicle = spawn_on(&mut cut, route, 10_000, 5_000);
         cut.step(TickInput::new(100)).expect("step");
-        let before_state = cut.vehicle_state(vehicle).copied().expect("vehicle");
+        let before_state = cut.state.vehicle_state(vehicle).copied().expect("vehicle");
         let before_event_cursor = cut.world_binding().baseline_event_cursor();
 
         // 覆盖四个消费点：预期捕获、预期摘要、候选捕获、候选摘要。
@@ -3162,7 +3394,7 @@ mod tests {
             );
             cut.step(TickInput::new(100)).expect("step");
             tx.pump(&mut cut).expect("pump");
-            let before_revision = *cut.binding.revision.canonical_origin();
+            let before_revision = *cut.state.binding.revision.canonical_origin();
             let before_generation = cut.world_generation();
             let error =
                 crate::admin::snapshot::with_snapshot_allocation_failure_after(fail_after, || {
@@ -3179,7 +3411,10 @@ mod tests {
                 ),
                 "fail_after={fail_after}: {error:?}"
             );
-            assert_eq!(*cut.binding.revision.canonical_origin(), before_revision);
+            assert_eq!(
+                *cut.state.binding.revision.canonical_origin(),
+                before_revision
+            );
             assert_eq!(cut.world_generation(), before_generation);
             assert_eq!(
                 cut.world_binding().baseline_event_cursor(),
@@ -3188,7 +3423,10 @@ mod tests {
             cut.step(TickInput::new(100))
                 .expect("old world keeps stepping");
         }
-        assert_ne!(cut.vehicle_state(vehicle).copied(), Some(before_state));
+        assert_ne!(
+            cut.state.vehicle_state(vehicle).copied(),
+            Some(before_state)
+        );
 
         // 清点后重开事务：同一世界重试成功，事件恰一次交付。
         let mut tx = prepare(
@@ -3223,7 +3461,7 @@ mod tests {
         // 窗口内注册引用 doomed 边的路线（base 合法、target 无对应）。
         let target_probe = revision(TARGET);
         let rebinding_probe = crate::admin::cutover_migration::CrossRevisionRebinding::build(
-            cut.binding.revision.identity(),
+            cut.state.binding.revision.identity(),
             target_probe.identity(),
         )
         .unwrap();
@@ -3244,7 +3482,7 @@ mod tests {
                 base_edge: doomed.raw()
             }
         );
-        assert!(cut.migration_journal().is_none());
+        assert!(cut.state.migration_journal().is_none());
         // 宿主清场：移除不可映射路线后显式重试，成功直移。
         cut.remove_route(doomed_route).expect("clear doomed route");
         let mut tx = prepare(
@@ -3332,7 +3570,7 @@ mod tests {
         .expect("window reserve");
         cut.park_vehicle(vehicle, ParkingTarget::ExplicitSpace(space))
             .expect("window park");
-        assert!(cut.derived.active_order.is_empty());
+        assert!(cut.state.derived.active_order.is_empty());
         cut.leave_parking(
             vehicle,
             LeaveParkingTarget::ExplicitSpace {
@@ -3342,7 +3580,7 @@ mod tests {
             },
         )
         .expect("window leave");
-        assert_eq!(cut.derived.active_order, [vehicle]);
+        assert_eq!(cut.state.derived.active_order, [vehicle]);
 
         let transient = cut
             .spawn_parked_vehicle(
@@ -3351,14 +3589,14 @@ mod tests {
             )
             .expect("window parked spawn")
             .vehicle;
-        assert_eq!(cut.derived.active_order, [vehicle]);
+        assert_eq!(cut.state.derived.active_order, [vehicle]);
         cut.despawn_vehicle(transient)
             .expect("window parked despawn");
 
         tx.pump(&mut cut).expect("replay parking window");
         let commit = tx.commit(&mut cut).expect("commit parking window");
         assert_eq!(commit.final_command_cursor, cut.command_cursor());
-        assert_eq!(cut.derived.active_order, [vehicle]);
+        assert_eq!(cut.state.derived.active_order, [vehicle]);
         let state = cut.vehicle(vehicle).expect("migrated active vehicle");
         assert_eq!(state.status(), VehicleStatus::Active);
         assert_eq!(state.route(), route);
@@ -3412,7 +3650,10 @@ mod tests {
                 .network_revision()
         );
         // 恢复运行：句柄保持、继续步进。
-        assert_eq!(cut.vehicle_state(vehicle).expect("vehicle").route(), route);
+        assert_eq!(
+            cut.state.vehicle_state(vehicle).expect("vehicle").route(),
+            route
+        );
         cut.step(TickInput::new(100)).expect("resumes on target");
     }
 
@@ -3459,7 +3700,7 @@ mod tests {
         let survivor_edges = cut.route_edges(survivor).expect("survivor route");
         assert_eq!(survivor_edges.len(), 2);
         assert_eq!(
-            cut.vehicle_state(vehicle).expect("vehicle").route(),
+            cut.state.vehicle_state(vehicle).expect("vehicle").route(),
             survivor
         );
         cut.step(TickInput::new(100)).expect("steps on target");
@@ -3520,14 +3761,15 @@ mod tests {
 
     // 只测试非持久输出通道的事务寿命；payload 不参与候选 authority/digest。
     fn seed_latest_waiting_output(world: &mut TrafficWorld) {
-        let vehicle = world.committed.live_order[0];
-        let state = world.vehicle_state(vehicle).expect("live vehicle");
+        let vehicle = world.state.committed.live_order[0];
+        let state = world.state.vehicle_state(vehicle).expect("live vehicle");
         let anchor = crate::WaitingRouteAnchor {
             route: state.route,
             maneuver_occurrence_index: 0,
             hop: state.route_edge_index,
         };
         world
+            .state
             .committed
             .latest_conflict_decisions
             .push(crate::ConflictDecision {
@@ -3542,6 +3784,7 @@ mod tests {
                 outcome: crate::ConflictDecisionOutcome::NotRequired,
             });
         world
+            .state
             .committed
             .latest_waiting_decisions
             .push(crate::WaitingDecision {
@@ -3552,6 +3795,7 @@ mod tests {
                 outcome: crate::WaitingDecisionOutcome::NotRequired,
             });
         world
+            .state
             .committed
             .latest_transition_events
             .push(crate::TrafficTransitionEvent {
@@ -3774,7 +4018,7 @@ mod tests {
             target_weak.upgrade().is_none(),
             "settled transaction must not retain the target root"
         );
-        assert!(cut.migration_journal().is_none());
+        assert!(cut.state.migration_journal().is_none());
         cut.step(TickInput::new(100)).expect("world continues");
     }
 
@@ -3932,7 +4176,7 @@ mod tests {
         );
         // 宿主保留事务变量：候选被整体丢弃，不滞留任何净新增内存。
         assert!(tx.candidate.is_none());
-        assert!(cut.migration_journal().is_none());
+        assert!(cut.state.migration_journal().is_none());
     }
 
     #[test]
@@ -3943,7 +4187,7 @@ mod tests {
             .register_route(RouteRegisterInput::new(vec![entry, exit]))
             .expect("route");
         spawn_on(&mut cut, route, 10_000, 5_000);
-        let old_root = Arc::downgrade(&cut.binding.revision);
+        let old_root = Arc::downgrade(&cut.state.binding.revision);
         let target_revision = revision(ORACLE_TARGET);
         let target_origin = *target_revision.canonical_origin();
         let descriptor = descriptor_for(&cut, target_origin, ORACLE_LFSD);
@@ -4003,7 +4247,7 @@ mod tests {
         let (entry, exit) = entry_exit(&cut);
         cut.register_route(RouteRegisterInput::new(vec![entry, exit]))
             .expect("route");
-        cut.committed.live_route_edge_occurrence_count = 0;
+        cut.state.committed.live_route_edge_occurrence_count = 0;
         let mut tx = prepare(
             &mut cut,
             ORACLE_TARGET,
@@ -4083,7 +4327,7 @@ mod tests {
         // 窗口内两世界同序列：强制完成 + 原子替换。
         let force_complete = |world: &mut TrafficWorld, handle: crate::VehicleHandle| {
             let index = usize::try_from(handle.index()).expect("index");
-            world.committed.vehicles[index]
+            world.state.committed.vehicles[index]
                 .state
                 .as_mut()
                 .expect("vehicle")
@@ -4110,11 +4354,11 @@ mod tests {
             commit.events.as_slice()[0],
             CutoverEvent::RevisionCutoverCommitted { .. }
         ));
-        assert_same_committed(&cut, &plain);
+        assert_same_committed(&cut, &plain.state);
         for _ in 0..3 {
             cut.step(TickInput::new(100)).expect("cut step");
             plain.step(TickInput::new(100)).expect("plain step");
-            assert_same_committed(&cut, &plain);
+            assert_same_committed(&cut, &plain.state);
         }
     }
 
@@ -4130,25 +4374,29 @@ mod tests {
         cut.despawn_vehicle(free_slot_vehicle)
             .expect("create a recyclable free slot");
         let free_slot = usize::try_from(free_slot_vehicle.index()).expect("free slot index");
-        assert_eq!(cut.committed.free_vehicles.last().copied(), Some(free_slot));
+        assert_eq!(
+            cut.state.committed.free_vehicles.last().copied(),
+            Some(free_slot)
+        );
 
         let old_index = usize::try_from(old.index()).expect("old slot index");
         let saturated_old = VehicleHandle::new(old.index(), u32::MAX);
-        let old_state = cut.committed.vehicles[old_index]
+        let old_state = cut.state.committed.vehicles[old_index]
             .state
             .as_mut()
             .expect("old vehicle remains live");
         old_state.handle = saturated_old;
-        cut.committed.vehicles[old_index].generation = u32::MAX;
+        cut.state.committed.vehicles[old_index].generation = u32::MAX;
         let order_index = cut
+            .state
             .committed
             .live_order
             .iter()
             .position(|handle| *handle == old)
             .expect("old vehicle is in stable live order");
-        cut.committed.live_order[order_index] = saturated_old;
-        cut.rebuild_active_order();
-        cut.derived.spawn_overlap.mark_stale();
+        cut.state.committed.live_order[order_index] = saturated_old;
+        cut.state.rebuild_active_order();
+        cut.state.derived.spawn_overlap.mark_stale();
 
         let mut tx = prepare(
             &mut cut,
@@ -4156,13 +4404,13 @@ mod tests {
             ORACLE_LFSD,
             &CutoverTransactionLimits::default(),
         );
-        cut.committed.vehicles[old_index]
+        cut.state.committed.vehicles[old_index]
             .state
             .as_mut()
             .expect("old vehicle remains live during the journal window")
             .status = VehicleStatus::Completed;
-        cut.rebuild_active_order();
-        cut.derived.spawn_overlap.mark_stale();
+        cut.state.rebuild_active_order();
+        cut.state.derived.spawn_overlap.mark_stale();
         let replacement = cut
             .replace_completed_vehicle(
                 saturated_old,
@@ -4173,11 +4421,11 @@ mod tests {
             usize::try_from(replacement.new.index()).expect("replacement index"),
             free_slot
         );
-        assert!(cut.committed.free_vehicles.is_empty());
+        assert!(cut.state.committed.free_vehicles.is_empty());
 
         tx.pump(&mut cut).expect("replay saturated replacement");
         let _ = tx.commit(&mut cut).expect("commit saturated replacement");
-        assert!(cut.committed.free_vehicles.is_empty());
+        assert!(cut.state.committed.free_vehicles.is_empty());
         let committed_route = cut
             .vehicle(replacement.new)
             .expect("replacement survives cutover")
@@ -4230,7 +4478,10 @@ mod tests {
             Some(added)
         );
         let _ = tx.commit(&mut cut).expect("commit after segmented pumps");
-        assert_eq!(cut.overlap_blocker(route, 0, 2_000, 4_500), Some(added));
+        assert_eq!(
+            cut.state.overlap_blocker(route, 0, 2_000, 4_500),
+            Some(added)
+        );
     }
 
     #[test]
@@ -4263,13 +4514,13 @@ mod tests {
         assert_eq!(cut.event_cursor(), 0);
         // 清场：完成并替换到允许路线，移除受限路线。
         let index = usize::try_from(vehicle.index()).expect("index");
-        cut.committed.vehicles[index]
+        cut.state.committed.vehicles[index]
             .state
             .as_mut()
             .expect("vehicle")
             .status = crate::VehicleStatus::Completed;
-        cut.rebuild_active_order();
-        cut.derived.spawn_overlap.mark_stale();
+        cut.state.rebuild_active_order();
+        cut.state.derived.spawn_overlap.mark_stale();
         cut.replace_completed_vehicle(
             vehicle,
             VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), allowed, 0, 1_000, 0),
@@ -4408,7 +4659,7 @@ mod tests {
             .expect("route");
         spawn_on(&mut cut, route, 10_000, 5_000);
         cut.step(TickInput::new(100)).expect("step");
-        cut.committed.event_cursor = u64::MAX;
+        cut.state.committed.event_cursor = u64::MAX;
         let before_generation = cut.world_generation();
         let mut tx = prepare(
             &mut cut,
@@ -4423,7 +4674,7 @@ mod tests {
             tx.commit(&mut cut).unwrap_err(),
             CutoverError::EventCursorExhausted
         );
-        assert_eq!(cut.committed.event_cursor, u64::MAX);
+        assert_eq!(cut.state.committed.event_cursor, u64::MAX);
         assert_eq!(cut.world_generation(), before_generation);
         assert!(cut.migration_journal_stats().is_none(), "结算解除武装");
         cut.step(TickInput::new(100)).expect("world unaffected");
@@ -4438,7 +4689,7 @@ mod tests {
             .expect("route");
         spawn_on(&mut cut, route, 10_000, 5_000);
         cut.step(TickInput::new(100)).expect("step");
-        let retired = Arc::downgrade(&cut.binding.revision);
+        let retired = Arc::downgrade(&cut.state.binding.revision);
         let mut tx = prepare(
             &mut cut,
             ORACLE_TARGET,

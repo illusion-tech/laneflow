@@ -60,7 +60,8 @@ pub use kernel::conflict_tick::{
     ConflictDecision, ConflictDecisionOutcome, ConflictNoGrantReason, ConflictRouteAnchor,
 };
 pub use kernel::error::{
-    ExecutionInitError, InstallError, ParkingError, ReplaceError, RouteError, SpawnError, StepError,
+    ExecutionInitError, ExecutionPlanError, InstallError, ParkingError, ReplaceError, RouteError,
+    SpawnError, StepError,
 };
 pub use kernel::handle::{RouteHandle, VehicleHandle};
 pub use kernel::input::{RouteRegisterInput, VehicleSpawnInput};

@@ -5,7 +5,7 @@ use laneflow_static_contract::LaneEdgeOrdinal;
 use crate::kernel::tables::{
     RouteSlot, VehicleSlot, admission_intervals_overlap, for_each_admission_interval,
 };
-use crate::{RouteHandle, TrafficWorld, VehicleHandle, VehicleState, VehicleStatus};
+use crate::{RouteHandle, VehicleHandle, VehicleState, VehicleStatus};
 
 #[cfg(test)]
 thread_local! {
@@ -237,7 +237,7 @@ impl SpawnOverlapIndex {
     }
 }
 
-impl TrafficWorld {
+impl crate::kernel::state::WorldState {
     /// 批量状态变动后首次查询重建；单次命令只登记/移除自己的实际占用边。
     pub(crate) fn overlap_blocker(
         &mut self,

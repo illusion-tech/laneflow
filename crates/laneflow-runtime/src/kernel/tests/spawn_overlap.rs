@@ -165,7 +165,7 @@ fn admission_scale_evidence() {
                 }
                 let spawn_us = started.elapsed().as_micros();
                 let spawn_candidates = overlap_blocker_inspections();
-                let index_bytes = world.derived.spawn_overlap.retained_logical_bytes();
+                let index_bytes = world.state.derived.spawn_overlap.retained_logical_bytes();
                 let captured = world.capture_snapshot().expect("snapshot");
                 let bytes = encode_lfrs(&captured);
                 reset_overlap_blocker_inspections();
@@ -212,7 +212,7 @@ fn linear_blocker(
         .iter()
         .copied()
         .filter(|handle| {
-            let state = world.vehicle_state(*handle).expect("live state");
+            let state = world.state.vehicle_state(*handle).expect("live state");
             state.status == VehicleStatus::Active
                 && crate::kernel::tables::bodies_overlap(
                     world.traffic().lane_lengths_millimetres(),
@@ -250,21 +250,25 @@ fn indexed_admission_matches_linear_cross_edge_and_repeated_occurrences() {
         }
         for rebuild in [false, true] {
             if rebuild {
-                world.derived.spawn_overlap.mark_stale();
+                world.state.derived.spawn_overlap.mark_stale();
             }
             for (occurrence, edge) in edges.iter().enumerate() {
                 let end = world.traffic().lane_lengths_millimetres()[edge.index()];
                 for progress in [0, 1, 999, 1_000, end - 1, end] {
                     let expected = linear_blocker(&world, route, occurrence, progress);
                     assert_eq!(
-                        world.overlap_blocker(route, occurrence, progress, 4_500),
+                        world
+                            .state
+                            .overlap_blocker(route, occurrence, progress, 4_500),
                         expected,
                         "rebuild={rebuild}, occurrence={occurrence}, progress={progress}"
                     );
-                    world.derived.spawn_overlap.mark_stale();
-                    world.try_refresh_overlap_index().unwrap();
+                    world.state.derived.spawn_overlap.mark_stale();
+                    world.state.try_refresh_overlap_index().unwrap();
                     assert_eq!(
-                        world.indexed_overlap_blocker(route, occurrence, progress, 4_500, None),
+                        world
+                            .state
+                            .indexed_overlap_blocker(route, occurrence, progress, 4_500, None),
                         expected,
                         "fallible rebuild, occurrence={occurrence}, progress={progress}"
                     );
@@ -290,16 +294,16 @@ fn cutover_revalidation_reuses_one_index_and_excludes_self() {
             ))
             .unwrap();
     }
-    world.derived.spawn_overlap = Default::default();
+    world.state.derived.spawn_overlap = Default::default();
     let before = overlap_rebuilds();
     reset_overlap_blocker_inspections();
-    revalidate_migrated_vehicles(&mut world).unwrap();
+    revalidate_migrated_vehicles(&mut world.state).unwrap();
     assert_eq!(overlap_rebuilds() - before, 1);
     assert_eq!(overlap_blocker_inspections(), 64 * 3);
-    revalidate_migrated_vehicles(&mut world).unwrap();
+    revalidate_migrated_vehicles(&mut world.state).unwrap();
     assert_eq!(overlap_rebuilds() - before, 1);
     assert_eq!(overlap_blocker_inspections(), 2 * 64 * 3);
-    assert!(world.derived.spawn_overlap.retained_logical_bytes() > 0);
+    assert!(world.state.derived.spawn_overlap.retained_logical_bytes() > 0);
 }
 
 #[test]
@@ -319,9 +323,10 @@ fn cutover_overlap_scale_evidence() {
                     ))
                     .unwrap();
             }
-            world.derived.spawn_overlap = Default::default();
+            world.state.derived.spawn_overlap = Default::default();
             reset_overlap_blocker_inspections();
-            crate::admin::cutover_migration::revalidate_migrated_vehicles(&mut world).unwrap();
+            crate::admin::cutover_migration::revalidate_migrated_vehicles(&mut world.state)
+                .unwrap();
             let candidates = overlap_blocker_inspections();
             let expected: u64 = (0..used_edges)
                 .map(|edge| {
@@ -333,7 +338,7 @@ fn cutover_overlap_scale_evidence() {
             println!(
                 "revalidation count={count} edges={used_edges} candidates={candidates} baseline_candidates={} index_bytes={}",
                 u64::from(count) * u64::from(count - 1),
-                world.derived.spawn_overlap.retained_logical_bytes()
+                world.state.derived.spawn_overlap.retained_logical_bytes()
             );
         }
     }
@@ -349,21 +354,31 @@ fn fallible_overlap_rebuild_retries_after_partial_allocation() {
     let before = world.capture_snapshot().unwrap();
     let digest = crate::deterministic_state_digest(&before).unwrap();
     for fail_after in 0..3 {
-        world.derived.spawn_overlap = Default::default();
+        world.state.derived.spawn_overlap = Default::default();
         assert_eq!(
-            with_overlap_allocation_failure_after(fail_after, || world.try_refresh_overlap_index()),
+            with_overlap_allocation_failure_after(fail_after, || world
+                .state
+                .try_refresh_overlap_index()),
             Err(())
         );
-        assert!(!world.derived.spawn_overlap.is_current());
-        world.try_refresh_overlap_index().unwrap();
+        assert!(!world.state.derived.spawn_overlap.is_current());
+        world.state.try_refresh_overlap_index().unwrap();
         for handle in world.live_vehicles() {
-            let state = world.vehicle_state(*handle).unwrap();
+            let state = world.state.vehicle_state(*handle).unwrap();
             assert_eq!(
-                world.indexed_overlap_blocker(state.route, 0, 0, state.length_mm, Some(*handle)),
+                world.state.indexed_overlap_blocker(
+                    state.route,
+                    0,
+                    0,
+                    state.length_mm,
+                    Some(*handle)
+                ),
                 None
             );
             assert_eq!(
-                world.indexed_overlap_blocker(state.route, 0, 0, state.length_mm, None),
+                world
+                    .state
+                    .indexed_overlap_blocker(state.route, 0, 0, state.length_mm, None),
                 Some(*handle)
             );
         }
@@ -381,34 +396,34 @@ fn cutover_overlap_keeps_live_order_and_entity_error_priority() {
     let route = lane_routes(&mut world, 1)[0];
     let first = world.spawn_vehicle(input(route, 0, 0)).unwrap();
     let second = world.spawn_vehicle(input(route, 0, 10_000)).unwrap();
-    world.committed.vehicles[second.index() as usize]
+    world.state.committed.vehicles[second.index() as usize]
         .state
         .as_mut()
         .unwrap()
         .progress_mm = 0;
-    world.derived.spawn_overlap.mark_stale();
+    world.state.derived.spawn_overlap.mark_stale();
     assert_eq!(
-        revalidate_migrated_vehicles(&mut world),
+        revalidate_migrated_vehicles(&mut world.state),
         Err(crate::CutoverError::VehicleRevalidationFailed {
             vehicle: first.index()
         })
     );
-    world.committed.live_order.reverse();
-    world.rebuild_active_order();
+    world.state.committed.live_order.reverse();
+    world.state.rebuild_active_order();
     assert_eq!(
-        revalidate_migrated_vehicles(&mut world),
+        revalidate_migrated_vehicles(&mut world.state),
         Err(crate::CutoverError::VehicleRevalidationFailed {
             vehicle: second.index()
         })
     );
-    world.committed.vehicles[second.index() as usize]
+    world.state.committed.vehicles[second.index() as usize]
         .state
         .as_mut()
         .unwrap()
         .length_mm = 4_499;
-    world.derived.spawn_overlap.mark_stale();
+    world.state.derived.spawn_overlap.mark_stale();
     assert_eq!(
-        revalidate_migrated_vehicles(&mut world),
+        revalidate_migrated_vehicles(&mut world.state),
         Err(crate::CutoverError::ProfileDerivationMismatch {
             vehicle: second.index()
         })
@@ -423,8 +438,11 @@ fn route_start_is_clipped_and_blocker_selection_survives_slot_reuse() {
     // 路线外的车尾不制造负坐标区间，也不阻止有实际占用的新车。
     let low = world.spawn_vehicle(input(route, 0, 2_000)).unwrap();
     let high = world.spawn_vehicle(input(route, 0, 7_000)).unwrap();
-    assert_eq!(world.overlap_blocker(route, 0, 0, 4_500), Some(zero));
-    assert_eq!(world.overlap_blocker(route, 0, 6_000, 4_500), Some(low));
+    assert_eq!(world.state.overlap_blocker(route, 0, 0, 4_500), Some(zero));
+    assert_eq!(
+        world.state.overlap_blocker(route, 0, 6_000, 4_500),
+        Some(low)
+    );
     world.despawn_vehicle(zero).unwrap();
     let reused = world.spawn_vehicle(input(route, 0, 0)).unwrap();
     assert_eq!(reused.index(), zero.index());
@@ -436,10 +454,10 @@ fn route_start_is_clipped_and_blocker_selection_survives_slot_reuse() {
     assert_eq!(world.live_vehicles(), &[high, low_again]);
     for rebuild in [false, true] {
         if rebuild {
-            world.derived.spawn_overlap.mark_stale();
+            world.state.derived.spawn_overlap.mark_stale();
         }
         assert_eq!(
-            world.overlap_blocker(route, 0, 6_000, 4_500),
+            world.state.overlap_blocker(route, 0, 6_000, 4_500),
             Some(low_again)
         );
     }
@@ -470,14 +488,20 @@ fn ticks_completion_replace_and_failed_commands_keep_admission_current() {
         world.step(TickInput::new(100)).unwrap();
     }
     assert_eq!(
-        world.vehicle_state(completing).unwrap().status,
+        world.state.vehicle_state(completing).unwrap().status,
         VehicleStatus::Completed
     );
-    assert_eq!(world.overlap_blocker(routes[1], 0, 10_000, 4_500), None);
-    assert_eq!(world.overlap_blocker(routes[0], 0, 1_000, 4_500), None);
-    let position = world.vehicle_state(moving).unwrap().progress_mm;
     assert_eq!(
-        world.overlap_blocker(routes[0], 0, position, 4_500),
+        world.state.overlap_blocker(routes[1], 0, 10_000, 4_500),
+        None
+    );
+    assert_eq!(
+        world.state.overlap_blocker(routes[0], 0, 1_000, 4_500),
+        None
+    );
+    let position = world.state.vehicle_state(moving).unwrap().progress_mm;
+    assert_eq!(
+        world.state.overlap_blocker(routes[0], 0, position, 4_500),
         Some(moving)
     );
     let before = encode_lfrs(&world.capture_snapshot().unwrap());
@@ -490,21 +514,24 @@ fn ticks_completion_replace_and_failed_commands_keep_admission_current() {
         .replace_completed_vehicle(completing, input(routes[1], 0, 5_000))
         .unwrap();
     assert_eq!(
-        world.overlap_blocker(routes[1], 0, 5_000, 4_500),
+        world.state.overlap_blocker(routes[1], 0, 5_000, 4_500),
         Some(replacement.new)
     );
     world.despawn_vehicle(replacement.new).unwrap();
-    assert_eq!(world.overlap_blocker(routes[1], 0, 5_000, 4_500), None);
+    assert_eq!(
+        world.state.overlap_blocker(routes[1], 0, 5_000, 4_500),
+        None
+    );
 
     // 重建缓存后才命中命令游标错误；失败不得留下幽灵占用。
-    let cursor = world.committed.command_cursor;
-    world.committed.command_cursor = u64::MAX;
-    world.derived.spawn_overlap.mark_stale();
+    let cursor = world.state.committed.command_cursor;
+    world.state.committed.command_cursor = u64::MAX;
+    world.state.derived.spawn_overlap.mark_stale();
     assert_eq!(
         world.spawn_vehicle(input(routes[1], 0, 5_000)),
         Err(SpawnError::CommandCursorExhausted)
     );
-    world.committed.command_cursor = cursor;
+    world.state.committed.command_cursor = cursor;
     world
         .spawn_vehicle(input(routes[1], 0, 5_000))
         .expect("retry after late validation failure");
@@ -514,14 +541,20 @@ fn ticks_completion_replace_and_failed_commands_keep_admission_current() {
 fn overlap_index_heap_is_counted_once_in_derived_owner() {
     let mut world = empty_world(road_revision(4, 10.0, false), 8);
     let route = lane_routes(&mut world, 1)[0];
-    assert_eq!(world.derived.spawn_overlap.retained_logical_bytes(), 0);
-    let before = world.derived.retained_logical_bytes();
-    assert_eq!(world.overlap_blocker(route, 0, 1_000, 4_500), None);
-    let cold_bytes = world.derived.spawn_overlap.retained_logical_bytes();
+    assert_eq!(
+        world.state.derived.spawn_overlap.retained_logical_bytes(),
+        0
+    );
+    let before = world.state.derived.retained_logical_bytes();
+    assert_eq!(world.state.overlap_blocker(route, 0, 1_000, 4_500), None);
+    let cold_bytes = world.state.derived.spawn_overlap.retained_logical_bytes();
     assert!(cold_bytes > 0);
-    assert_eq!(world.derived.retained_logical_bytes() - before, cold_bytes);
+    assert_eq!(
+        world.state.derived.retained_logical_bytes() - before,
+        cold_bytes
+    );
     world.spawn_vehicle(input(route, 0, 5_000)).unwrap();
-    assert!(world.derived.spawn_overlap.retained_logical_bytes() > cold_bytes);
+    assert!(world.state.derived.spawn_overlap.retained_logical_bytes() > cold_bytes);
 }
 
 #[test]
@@ -561,7 +594,7 @@ fn restore_and_cutover_share_clipping_and_exclude_completed_vehicles() {
         for progress in [0, 1_000, 5_000, 10_000] {
             let expected = linear_blocker(&restored, *route, 0, progress);
             assert_eq!(
-                restored.overlap_blocker(*route, 0, progress, 4_500),
+                restored.state.overlap_blocker(*route, 0, progress, 4_500),
                 expected
             );
         }
@@ -584,6 +617,7 @@ fn restore_and_cutover_share_clipping_and_exclude_completed_vehicles() {
         .expect("cutover full-pair revalidation uses clipped footprints too");
     assert!(
         restored
+            .state
             .overlap_blocker(restored_routes[0], 0, 0, 4_500)
             .is_some()
     );
@@ -608,8 +642,8 @@ fn zero_entry_admission_preserves_non_overlap_on_the_next_tick() {
     world.step(TickInput::new(100)).unwrap();
     let second = world.spawn_vehicle(input(route, 0, 0)).unwrap();
     world.step(TickInput::new(100)).unwrap();
-    let a = world.vehicle_state(first).unwrap();
-    let b = world.vehicle_state(second).unwrap();
+    let a = world.state.vehicle_state(first).unwrap();
+    let b = world.state.vehicle_state(second).unwrap();
     assert!(
         !crate::kernel::tables::bodies_overlap(
             world.traffic().lane_lengths_millimetres(),

@@ -7,6 +7,12 @@ use crate::{RouteHandle, VehicleHandle, VehicleReplaceBlock};
 /// 安装或完整交通恢复后的执行能力初始化失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum ExecutionInitError {
+    /// LaneFlow 持有的线程登记容量无法预留。
+    #[error("执行资源登记预留失败")]
+    ResourceReservationFailed,
+    /// 线程创建失败；返回前已 join 所有先前启动的线程。
+    #[error("辅助线程启动失败")]
+    WorkerStartFailed,
     /// 当前后端不能提供宿主指定的线程数，不会静默降级。
     #[error("执行线程数不受支持: requested={requested}, max_supported={max_supported}")]
     UnsupportedWorkerCount {
@@ -17,9 +23,23 @@ pub enum ExecutionInitError {
     },
 }
 
+/// 必需执行计划准备失败；不改变活动世界。
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
+pub enum ExecutionPlanError {
+    /// 计划布局长度超出平台可表示范围。
+    #[error("执行计划布局长度溢出")]
+    SizeOverflow,
+    /// 必需计划或其缓冲预留失败。
+    #[error("执行计划预留失败")]
+    ReservationFailed,
+}
+
 /// `TrafficWorld::install` 失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum InstallError {
+    /// 交通准备完成后，必需执行计划无法建立。
+    #[error("执行计划准备失败: {0}")]
+    ExecutionPlan(ExecutionPlanError),
     /// 共享根含门、冲突区或参与者流，必须显式固定路权策略（`install`；跨修订
     /// cutover 以 `PolicyInstall` 内嵌同样可达）。
     #[error("共享根含门、冲突区或参与者流，必须显式固定路权策略")]

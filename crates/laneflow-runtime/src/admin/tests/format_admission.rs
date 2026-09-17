@@ -1,4 +1,5 @@
 use super::*;
+use crate::TrafficWorld;
 use crate::admin::cutover::tests::transaction_tests::{revision, source_for, world_with_vehicle};
 use crate::admin::cutover_migration::tests::virtual_parking_cutover_world;
 use crate::{
@@ -219,6 +220,7 @@ pub(crate) fn world_with_conflict_reservation() -> (TrafficWorld, VehicleHandle)
 fn world_with_conflict_reservation_config(config: WorldConfig) -> (TrafficWorld, VehicleHandle) {
     let (mut world, route) = conflict_world_with_route_config(config);
     let vehicle = world
+        .state
         .restore_unparked_vehicle(
             VehicleSpawnInput::new(
                 laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
@@ -245,13 +247,13 @@ pub(crate) fn install_conflict_reservation(
     vehicle: VehicleHandle,
 ) {
     let (gate_range, first_occurrence) = {
-        let compiled = world.compiled_route(route).expect("compiled route");
+        let compiled = world.state.compiled_route(route).expect("compiled route");
         let first_occurrence = *compiled.conflicts.first().expect("conflict occurrence");
         let gate_range = compiled.conflict_gate_ranges[first_occurrence.admission_hop as usize];
         (gate_range, first_occurrence)
     };
     {
-        let state = world.committed.vehicles[vehicle.index() as usize]
+        let state = world.state.committed.vehicles[vehicle.index() as usize]
             .state
             .as_mut()
             .expect("vehicle state");
@@ -262,25 +264,30 @@ pub(crate) fn install_conflict_reservation(
         state.waiting_membership = None;
     }
     let front_um = route_position_um(
-        world,
+        &world.state,
         route,
         first_occurrence.entry.route_edge_index,
         first_occurrence.entry.progress_mm,
         0,
     )
     .expect("front position");
-    let length_mm = world.vehicle_state(vehicle).expect("vehicle").length_mm;
+    let length_mm = world
+        .state
+        .vehicle_state(vehicle)
+        .expect("vehicle")
+        .length_mm;
     let tail_um = i128::try_from(front_um).expect("front fits i128")
         - i128::from(length_mm) * i128::from(MICROMETRES_PER_MILLIMETRE);
     let mut cells = Vec::new();
     let range_end = gate_range.start + gate_range.len;
     for index in gate_range.start..range_end {
         let occurrence = world
+            .state
             .compiled_route(route)
             .expect("compiled route")
             .conflicts[index as usize];
         let entry_um = route_position_um(
-            world,
+            &world.state,
             route,
             occurrence.entry.route_edge_index,
             occurrence.entry.progress_mm,
@@ -288,7 +295,7 @@ pub(crate) fn install_conflict_reservation(
         )
         .expect("entry");
         let clearance_um = route_position_um(
-            world,
+            &world.state,
             route,
             occurrence.clearance.route_edge_index,
             occurrence.clearance.progress_mm,
@@ -313,21 +320,23 @@ pub(crate) fn install_conflict_reservation(
     .expect("passage range");
     let mut downstream = Vec::new();
     world
+        .state
         .derive_reservation_downstream_claims(passage_range, length_mm, &mut downstream)
         .expect("derive downstream physical union");
     assert!(!downstream.is_empty());
     let follower_min_gap_mm = world
+        .state
         .binding
         .revision
         .traffic()
         .relations()
-        .vehicle_profile(world.vehicle_state(vehicle).expect("vehicle").profile)
+        .vehicle_profile(world.state.vehicle_state(vehicle).expect("vehicle").profile)
         .expect("vehicle profile")
         .min_gap_mm();
     let reservation = crate::kernel::conflict::ConflictWrite::new(
-        &mut world.committed.conflict,
-        &mut world.derived.conflict,
-        &mut world.workspace.conflict,
+        &mut world.state.committed.conflict,
+        &mut world.state.derived.conflict,
+        &mut world.state.workspace.conflict,
     )
     .restore_reservation(
         vehicle,
@@ -340,7 +349,7 @@ pub(crate) fn install_conflict_reservation(
         },
     )
     .expect("restore test reservation");
-    world.committed.vehicles[vehicle.index() as usize]
+    world.state.committed.vehicles[vehicle.index() as usize]
         .state
         .as_mut()
         .expect("vehicle state")
@@ -352,16 +361,16 @@ pub(crate) fn install_conflict_reservation(
         },
     });
     crate::kernel::conflict::ConflictWrite::new(
-        &mut world.committed.conflict,
-        &mut world.derived.conflict,
-        &mut world.workspace.conflict,
+        &mut world.state.committed.conflict,
+        &mut world.state.derived.conflict,
+        &mut world.state.workspace.conflict,
     )
     .restore_lag_reference(
         cells[0].address,
         crate::ConflictLagReference::ActualClear(0),
     )
     .expect("tick-zero history");
-    assert!(world.conflict_state_valid());
+    assert!(world.state.conflict_state_valid());
 }
 
 /// 构造持有一条冲突准入资格的车辆测试世界。
@@ -371,15 +380,21 @@ pub(crate) fn world_with_conflict_eligibility() -> (TrafficWorld, VehicleHandle)
         .conflict_passage_occurrence_locator(route, 0)
         .expect("first conflict occurrence");
     let (gate_hop, gate_progress) = {
-        let compiled = world.compiled_route(route).expect("compiled route");
+        let compiled = world.state.compiled_route(route).expect("compiled route");
         let hop = locator.admission_gate_hop();
         let edge = compiled.edges[hop as usize];
         (
             hop,
-            world.binding.revision.traffic().lane_lengths_millimetres()[edge.index()],
+            world
+                .state
+                .binding
+                .revision
+                .traffic()
+                .lane_lengths_millimetres()[edge.index()],
         )
     };
     let vehicle = world
+        .state
         .restore_unparked_vehicle(
             VehicleSpawnInput::new(
                 laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
@@ -395,13 +410,13 @@ pub(crate) fn world_with_conflict_eligibility() -> (TrafficWorld, VehicleHandle)
             true,
         )
         .expect("restore vehicle before conflict Gate");
-    world.committed.conflict_eligibility.resize(
-        usize::try_from(world.binding.config.vehicle_capacity()).expect("vehicle capacity"),
+    world.state.committed.conflict_eligibility.resize(
+        usize::try_from(world.state.binding.config.vehicle_capacity()).expect("vehicle capacity"),
         None,
     );
-    world.committed.conflict_eligibility[vehicle.index() as usize] =
+    world.state.committed.conflict_eligibility[vehicle.index() as usize] =
         crate::ConflictEligibilityState::update(None, locator, true, 0);
-    assert!(world.conflict_state_valid());
+    assert!(world.state.conflict_state_valid());
     (world, vehicle)
 }
 
@@ -416,14 +431,17 @@ fn restored_conflict_authority_continues_through_the_production_tick() {
             .step(crate::TickInput::new(100))
             .unwrap_or_else(|error| panic!("{label} production continuation: {error:?}"));
         assert_eq!(world.tick_index(), tick_before + 1, "{label}");
-        assert!(world.conflict_state_valid(), "{label}");
+        assert!(world.state.conflict_state_valid(), "{label}");
     }
 }
 
 #[test]
 fn conflict_eligibility_blocks_route_rebind_without_partial_commit() {
     let (mut world, vehicle) = world_with_conflict_eligibility();
-    let state = *world.vehicle_state(vehicle).expect("eligible vehicle");
+    let state = *world
+        .state
+        .vehicle_state(vehicle)
+        .expect("eligible vehicle");
     let before = world.capture_snapshot().expect("capture before rebind");
     assert!(matches!(
         world.rebind_parking_route(
@@ -494,7 +512,10 @@ fn conflict_reservation_and_tick_zero_history_round_trip() {
 #[test]
 fn clearing_marker_is_decoded_before_conflict_aggregate_installation() {
     let (world, vehicle) = world_with_conflict_reservation();
-    let state = *world.vehicle_state(vehicle).expect("Clearing vehicle");
+    let state = *world
+        .state
+        .vehicle_state(vehicle)
+        .expect("Clearing vehicle");
     let expected = state.maneuver_traversal.expect("Clearing marker");
     let captured = world.capture_snapshot().expect("capture Conflict state");
     let bytes = encode_lfrs(&captured);
@@ -505,11 +526,11 @@ fn clearing_marker_is_decoded_before_conflict_aggregate_installation() {
         .find(|row| row.snapshot_vehicle_id() == u64::from(vehicle.index()) + 1)
         .expect("reservation owner row");
 
-    let decoded = decode_waiting_authority(&world, row, VehicleStatus::Active, state.route)
+    let decoded = decode_waiting_authority(&world.state, row, VehicleStatus::Active, state.route)
         .expect("Clearing anchor decodes before reservation installation");
     assert_eq!(decoded.traversal, Some(expected));
     assert!(decoded.membership.is_none());
-    assert!(world.restored_waiting_authority_valid(VehicleState {
+    assert!(world.state.restored_waiting_authority_valid(VehicleState {
         maneuver_traversal: decoded.traversal,
         waiting_membership: decoded.membership,
         ..state
@@ -635,11 +656,16 @@ fn conflict_downstream_union_is_rederived_from_reservation_proof() {
 fn pending_conflict_authority_does_not_hide_an_invalid_endpoint_cursor() {
     let (world, vehicle) = world_with_conflict_reservation();
     let mut captured = world.capture_snapshot().expect("capture Conflict state");
-    let state = world.vehicle_state(vehicle).expect("vehicle");
+    let state = world.state.vehicle_state(vehicle).expect("vehicle");
     let edge = world.route_edges(state.route).expect("route")
         [usize::try_from(state.route_edge_index).expect("route index")];
     let owner = &mut captured.vehicles[vehicle.index() as usize];
-    owner.progress_mm = world.binding.revision.traffic().lane_lengths_millimetres()[edge.index()];
+    owner.progress_mm = world
+        .state
+        .binding
+        .revision
+        .traffic()
+        .lane_lengths_millimetres()[edge.index()];
     owner.carry_um = 1;
     let snapshot_vehicle_id = owner.snapshot_vehicle_id;
     assert_eq!(
@@ -772,7 +798,7 @@ fn conflict_eligibility_rejects_gate_policy_deny_at_restored_time() {
                 pin(policy_raw),
             )
             .expect("install selected policy");
-            match world.gate_policy_decision(gate, profile) {
+            match world.state.gate_policy_decision(gate, profile) {
                 crate::GatePolicyDecision::Candidate(_) => candidate = Some(policy_raw),
                 crate::GatePolicyDecision::DenyAndStop => deny = Some(policy_raw),
             }
@@ -814,10 +840,15 @@ fn conflict_eligibility_rejects_gate_policy_deny_at_restored_time() {
         .expect("selected conflict occurrence");
     let gate_hop = locator.admission_gate_hop();
     let gate_progress = {
-        let edge = world.compiled_route(route).expect("compiled route").edges[gate_hop as usize];
+        let edge = world
+            .state
+            .compiled_route(route)
+            .expect("compiled route")
+            .edges[gate_hop as usize];
         revision.traffic().lane_lengths_millimetres()[edge.index()]
     };
     let vehicle = world
+        .state
         .restore_unparked_vehicle(
             VehicleSpawnInput::new(profile, route, gate_hop, gate_progress, 0),
             0,
@@ -827,13 +858,13 @@ fn conflict_eligibility_rejects_gate_policy_deny_at_restored_time() {
             true,
         )
         .expect("restore Candidate vehicle");
-    world.committed.conflict_eligibility.resize(
-        usize::try_from(world.binding.config.vehicle_capacity()).expect("vehicle capacity"),
+    world.state.committed.conflict_eligibility.resize(
+        usize::try_from(world.state.binding.config.vehicle_capacity()).expect("vehicle capacity"),
         None,
     );
-    world.committed.conflict_eligibility[vehicle.index() as usize] =
+    world.state.committed.conflict_eligibility[vehicle.index() as usize] =
         crate::ConflictEligibilityState::update(None, locator, true, 0);
-    assert!(world.conflict_state_valid());
+    assert!(world.state.conflict_state_valid());
 
     let mut captured = world
         .capture_snapshot()
@@ -940,7 +971,7 @@ fn same_revision_cutover_preserves_conflict_authority_and_history() {
         before.vehicles[0].maneuver_traversal
     );
     assert_eq!(after.conflict_lag_states, before.conflict_lag_states);
-    assert!(world.conflict_state_valid());
+    assert!(world.state.conflict_state_valid());
 }
 
 #[test]
@@ -969,7 +1000,7 @@ fn same_revision_cutover_preserves_conflict_eligibility() {
         after.vehicles[0].conflict_eligibility,
         before.vehicles[0].conflict_eligibility
     );
-    assert!(world.conflict_state_valid());
+    assert!(world.state.conflict_state_valid());
 }
 
 #[test]
@@ -1031,6 +1062,7 @@ fn captured_parking_for(
                 ParkingTarget::ExplicitSpace(_) => None,
                 ParkingTarget::VirtualPool(_) => {
                     let (edge, progress_mm) = world
+                        .state
                         .reservation_anchor(reservation)
                         .expect("reserved virtual anchor");
                     Some(CapturedVirtualParkingEntry {
@@ -1089,7 +1121,7 @@ fn save_load_restores_exact_logical_state_and_local_id_maps() {
     );
     assert_eq!(world.committed_source(), snapshot.source());
 
-    let identity = world.binding.revision.identity();
+    let identity = world.state.binding.revision.identity();
     for captured in &snapshot.routes {
         let handle = restored
             .route_handle(captured.snapshot_route_id)
@@ -1149,7 +1181,7 @@ fn save_load_restores_exact_logical_state_and_local_id_maps() {
 #[test]
 fn exhausted_command_cursor_restores_parked_and_reserved_without_new_commands() {
     let (mut world, _, _) = virtual_parking_cutover_world();
-    world.committed.command_cursor = u64::MAX;
+    world.state.committed.command_cursor = u64::MAX;
     let captured = world.capture_snapshot().expect("capture");
     assert!(captured.vehicles.iter().any(|vehicle| matches!(
         vehicle.parking,
@@ -1636,6 +1668,7 @@ fn virtual_parking_corruption_capacity_and_duplicate_resources_fail_closed() {
 
     let facility = laneflow_static_contract::ParkingFacilityOrdinal::from_raw(0);
     let facility_stable = *world
+        .state
         .binding
         .revision
         .identity()

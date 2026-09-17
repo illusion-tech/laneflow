@@ -96,7 +96,7 @@ impl PublishedLfcaReference {
     /// # Errors
     ///
     /// asset key 按长度预留失败时返回
-    /// [`SnapshotCaptureError::ReservationFailed`]；语义与 [`Clone`] 一致。
+    /// [`crate::SnapshotCaptureError::ReservationFailed`]；语义与 [`Clone`] 一致。
     pub fn try_clone(&self) -> Result<Self, crate::admin::snapshot::SnapshotCaptureError> {
         let mut asset_key = String::new();
         if !self.asset_key.is_empty() {
@@ -158,7 +158,7 @@ impl CommittedNetworkSource {
     /// # Errors
     ///
     /// 成员内容按长度预留失败时返回
-    /// [`SnapshotCaptureError::ReservationFailed`]；语义与 [`Clone`] 一致。
+    /// [`crate::SnapshotCaptureError::ReservationFailed`]；语义与 [`Clone`] 一致。
     pub fn try_clone(&self) -> Result<Self, crate::admin::snapshot::SnapshotCaptureError> {
         match self {
             Self::Published { reference } => Ok(Self::Published {

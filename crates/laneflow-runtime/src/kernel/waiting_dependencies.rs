@@ -1,7 +1,7 @@
 //! Waiting 容量视图、反向依赖阈值与候选图事务。
 
 use crate::kernel::waiting_graph::WaitingGraph;
-use crate::{StepError, TrafficWorld, VehicleHandle};
+use crate::{StepError, VehicleHandle};
 use laneflow_static_contract::WaitingZoneOrdinal;
 use std::num::NonZeroU32;
 
@@ -453,7 +453,7 @@ impl WaitingDependencies {
     }
 }
 
-impl TrafficWorld {
+impl crate::kernel::state::WorldState {
     /// 在本世界步进工作区上重建等待依赖台账。
     pub(crate) fn prepare_waiting_dependencies(
         &mut self,

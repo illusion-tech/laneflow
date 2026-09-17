@@ -29,9 +29,11 @@ P0～P8 表达逻辑依赖和访问权限，不要求九次遍历、九个模块
   序号、发布和生命周期边界。
 
 内部五分区和阶段视图由 `kernel/state.rs`、`admin/state.rs`、`kernel/phase.rs` 及各领域
-模块实现；私有目录和格式入口见[模块边界](traffic-runtime-module-boundary.md)。不会新增公共 API、
-wire 版本、crate、线程池、Rayon、锁或调度器，也不实现性能优化、第二交通执行域或
-通用事务框架。运行时内部实现不得继续保留一条供切换的旧路径；对照基线留在 git 历史。
+模块实现，五分区聚合由私有 `WorldState` 持有；私有目录和格式入口见
+[模块边界](traffic-runtime-module-boundary.md)。本协议定义串行交通语义，执行资源
+由[执行配置与资源](traffic-runtime-execution-config.md)另行管理；状态聚合本身不含
+线程池或调度器。不增加第二交通执行域或通用事务框架。运行时内部实现不得继续
+保留一条供切换的旧路径；对照基线留在 git 历史。
 
 ### 1.1 等价范围
 
@@ -52,12 +54,14 @@ wire 版本、crate、线程池、Rayon、锁或调度器，也不实现性能�
 
 ```text
 TrafficWorld
-  binding:   WorldBindingState
-  committed: CommittedWorldState
-    stores + clocks/cursors + resource authorities + published batches
-  derived:   DerivedIndexes
-  workspace: TickWorkspace
-  admin:     AdministrativeState
+  state: WorldState
+    binding:   WorldBindingState
+    committed: CommittedWorldState
+      stores + clocks/cursors + resource authorities + published batches
+    derived:   DerivedIndexes
+    workspace: TickWorkspace
+    admin:     AdministrativeState
+  execution: WorldExecution
 ```
 
 | 分区                  | 所有权和寿命                                                       | 固定步进的写权限                                                |

@@ -128,7 +128,10 @@ fn assert_same_world(left: &crate::TrafficWorld, right: &crate::TrafficWorld) {
     );
     assert_eq!(left.live_vehicles(), right.live_vehicles());
     for handle in left.live_vehicles() {
-        assert_eq!(left.vehicle_state(*handle), right.vehicle_state(*handle));
+        assert_eq!(
+            left.state.vehicle_state(*handle),
+            right.state.vehicle_state(*handle)
+        );
     }
     assert_eq!(
         left.latest_transition_events(),
@@ -334,9 +337,9 @@ fn occupancy_exact_attribution() {
                     let started = Instant::now();
                     for _ in 0..64 {
                         harness.step();
-                        inspections += harness.world().derived.occupancy.inspections();
-                        walks += harness.world().derived.occupancy.occurrence_walks();
-                        records += harness.world().derived.occupancy.records_len();
+                        inspections += harness.world().state.derived.occupancy.inspections();
+                        walks += harness.world().state.derived.occupancy.occurrence_walks();
+                        records += harness.world().state.derived.occupancy.records_len();
                     }
                     let instrumented_ns = started.elapsed().as_nanos();
                     drop(session);
@@ -406,9 +409,9 @@ fn occupancy_exact_paired_windows() {
                         let started = Instant::now();
                         harness.step();
                         *sample = started.elapsed().as_nanos();
-                        records += harness.world().derived.occupancy.records_len();
-                        inspections += harness.world().derived.occupancy.inspections();
-                        walks += harness.world().derived.occupancy.occurrence_walks();
+                        records += harness.world().state.derived.occupancy.records_len();
+                        inspections += harness.world().state.derived.occupancy.inspections();
+                        walks += harness.world().state.derived.occupancy.occurrence_walks();
                     }
                     let allocation = region.change();
                     harness.validate(scene);
@@ -424,7 +427,7 @@ fn occupancy_exact_paired_windows() {
                     samples.sort_unstable();
                     let percentile =
                         |percent: usize| samples[(samples.len() * percent).div_ceil(100) - 1];
-                    let memory = harness.world().retained_memory();
+                    let memory = harness.world().state.retained_memory();
                     println!(
                         "exact-pair scene={} candidate={candidate} round={round} position={position} steps=64 active={} p50_ns={} p95_ns={} p99_ns={} max_ns={} sum_ns={} records={records} inspections={inspections} occurrence_walks={walks} allocations={} reallocations={} allocated_bytes={} deallocated_bytes={} reallocated_bytes={} source_world_owned={} shared_root={} binding={} committed={} derived={} workspace={} administrative={} pending_bytes={} digest={digest}",
                         scene.name(),

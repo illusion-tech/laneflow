@@ -526,7 +526,7 @@ enum StableLaneEdgeResolveError {
     Unknown(StableId128),
 }
 
-impl TrafficWorld {
+impl crate::kernel::state::WorldState {
     /// 打开当前世界/世代/修订和精确成本模型绑定的 Routing admission session。
     /// 该操作无分配、无隐式 Runtime 状态，因此当前 G2 API 是不可失败的。
     #[must_use]
@@ -679,6 +679,62 @@ impl TrafficWorld {
             resolved.push(ordinal);
         }
         Ok(resolved)
+    }
+}
+
+impl TrafficWorld {
+    /// 打开当前世界/世代/修订和精确成本模型绑定的 Routing admission session。
+    /// 该操作无分配、无隐式 Runtime 状态，因此当前 G2 API 是不可失败的。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn open_routing_admission(&self, cost_model: CostModelKey) -> RoutingAdmissionSession {
+        self.execution.assert_usable();
+        self.state.open_routing_admission(cost_model)
+    }
+
+    /// 验证动态成本来源与候选稳定引用，并注册为普通本世界路线。
+    ///
+    /// # Errors
+    ///
+    /// 动态成本绑定版本、准入 session、世界绑定、网络修订、成本模型不匹配，或
+    /// 观测 tick/状态序号/时效校验失败时返回相应 [`CandidateRouteError`]；稳定
+    /// ID 无法解析时返回 [`CandidateRouteError::UnknownLaneEdge`]；其余由路线边
+    /// 注册路径（[`RouteError`] 族）承接，失败不留下半条路线。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn register_candidate_route(
+        &mut self,
+        admission: &RoutingAdmissionSession,
+        input: CandidateRouteInput,
+    ) -> Result<RouteHandle, CandidateRouteError> {
+        self.execution.assert_usable();
+        self.state.register_candidate_route(admission, input)
+    }
+
+    /// 重放/恢复规范化的已准入路线命令；不调用 Routing、不接收旧成本绑定。
+    ///
+    /// # Errors
+    ///
+    /// 网络修订与当前世界不匹配时返回
+    /// [`AdmittedRouteRegisterError::NetworkRevisionMismatch`]；稳定 ID 无法在
+    /// 当前根解析或 kind 不符时直接返回
+    /// [`AdmittedRouteRegisterError::UnknownLaneEdge`]；其余失败由路线边注册路径
+    /// （[`RouteError`] 族）承接，失败不留下半条路线。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn register_admitted_route(
+        &mut self,
+        input: AdmittedRouteRegisterInput,
+    ) -> Result<RouteHandle, AdmittedRouteRegisterError> {
+        self.execution.assert_usable();
+        self.state.register_admitted_route(input)
     }
 }
 
@@ -867,6 +923,7 @@ mod tests {
             .iter()
             .map(|edge| {
                 world
+                    .state
                     .binding
                     .revision
                     .identity()
@@ -924,6 +981,7 @@ mod tests {
         let mut lane_ids: Vec<_> = (0..world.traffic().lane_edge_count())
             .map(|raw| {
                 world
+                    .state
                     .binding
                     .revision
                     .identity()
@@ -1061,7 +1119,7 @@ mod tests {
             .register_candidate_route(&admission, CandidateRouteInput::new(cost, stable))
             .expect("candidate route");
         assert_eq!(world.route_edges(route), Some(edges.as_slice()));
-        assert_eq!(world.committed.live_route_edge_occurrence_count, 3);
+        assert_eq!(world.state.committed.live_route_edge_occurrence_count, 3);
 
         world.step(TickInput::new(100)).expect("expire cost");
         assert_eq!(world.route_edges(route), Some(edges.as_slice()));
@@ -1174,6 +1232,7 @@ mod tests {
             CandidateRouteError::UnknownLaneEdge { stable_id: unknown }
         );
         let wrong_kind = world
+            .state
             .binding
             .revision
             .identity()
@@ -1198,8 +1257,8 @@ mod tests {
                 .unwrap_err(),
             CandidateRouteError::Route(RouteError::Disconnected)
         );
-        assert_eq!(world.committed.live_route_count, 0);
-        assert_eq!(world.committed.live_route_edge_occurrence_count, 0);
+        assert_eq!(world.state.committed.live_route_count, 0);
+        assert_eq!(world.state.committed.live_route_edge_occurrence_count, 0);
 
         world.step(TickInput::new(100)).expect("step");
         assert_eq!(
@@ -1211,7 +1270,8 @@ mod tests {
                 .unwrap_err(),
             CandidateRouteError::StaleDynamicCost
         );
-        world.binding.world_generation = world
+        world.state.binding.world_generation = world
+            .state
             .binding
             .world_generation
             .checked_next()
@@ -1235,8 +1295,8 @@ mod tests {
                 .unwrap_err(),
             CandidateRouteError::CostWorldBindingMismatch
         );
-        assert_eq!(world.committed.live_route_count, 0);
-        assert_eq!(world.committed.live_route_edge_occurrence_count, 0);
+        assert_eq!(world.state.committed.live_route_count, 0);
+        assert_eq!(world.state.committed.live_route_edge_occurrence_count, 0);
     }
 
     #[test]
@@ -1244,7 +1304,7 @@ mod tests {
         let mut world = world_with_limits(41, 8, 3);
         let edges = fixture_edges(&world);
         let stable = stable_edges(&world, &edges);
-        let origin = *world.binding.revision.canonical_origin();
+        let origin = *world.state.binding.revision.canonical_origin();
         let derivation = origin
             .static_contract_versions()
             .network_revision_derivation_version();
@@ -1252,7 +1312,7 @@ mod tests {
             .register_route(RouteRegisterInput::new(edges.clone()))
             .expect("direct at max");
         assert_eq!(world.command_cursor(), 1);
-        assert_eq!(world.committed.live_route_edge_occurrence_count, 3);
+        assert_eq!(world.state.committed.live_route_edge_occurrence_count, 3);
         assert_eq!(
             world
                 .register_route(RouteRegisterInput::new(vec![edges[0]]))
@@ -1280,7 +1340,7 @@ mod tests {
             .register_candidate_route(&admission, CandidateRouteInput::new(cost, stable.clone()))
             .expect("candidate at max");
         assert_eq!(world.command_cursor(), 3);
-        assert_eq!(world.committed.live_route_edge_occurrence_count, 3);
+        assert_eq!(world.state.committed.live_route_edge_occurrence_count, 3);
         world.remove_route(candidate).expect("remove candidate");
         assert_eq!(world.command_cursor(), 4);
 
@@ -1293,7 +1353,7 @@ mod tests {
             .expect("replay at max");
         assert_eq!(world.command_cursor(), 5);
         assert_eq!(world.route_edges(replay), Some(edges.as_slice()));
-        assert_eq!(world.committed.live_route_edge_occurrence_count, 3);
+        assert_eq!(world.state.committed.live_route_edge_occurrence_count, 3);
         world.remove_route(replay).expect("remove replay");
         assert_eq!(world.command_cursor(), 6);
 
@@ -1309,8 +1369,8 @@ mod tests {
             );
         });
         assert_eq!(world.command_cursor(), 6);
-        assert_eq!(world.committed.live_route_count, 0);
-        assert_eq!(world.committed.live_route_edge_occurrence_count, 0);
+        assert_eq!(world.state.committed.live_route_count, 0);
+        assert_eq!(world.state.committed.live_route_edge_occurrence_count, 0);
     }
 
     #[test]
@@ -1318,7 +1378,7 @@ mod tests {
         let mut world = world_with_limits(41, 8, 1_024);
         let edges = fixture_edges(&world);
         let stable = stable_edges(&world, &edges);
-        let origin = *world.binding.revision.canonical_origin();
+        let origin = *world.state.binding.revision.canonical_origin();
         let derivation = origin
             .static_contract_versions()
             .network_revision_derivation_version();
@@ -1327,7 +1387,7 @@ mod tests {
         let cost = fixture_cost_binding(&[&batch], cost_model, 0, &[1_u8; 8]);
         let admission = world.open_routing_admission(cost_model);
 
-        world.committed.command_cursor = u64::MAX;
+        world.state.committed.command_cursor = u64::MAX;
         assert_eq!(
             world
                 .register_route(RouteRegisterInput::new(edges))
@@ -1354,8 +1414,8 @@ mod tests {
             AdmittedRouteRegisterError::Route(RouteError::CommandCursorExhausted)
         );
         assert_eq!(world.command_cursor(), u64::MAX);
-        assert_eq!(world.committed.live_route_count, 0);
-        assert_eq!(world.committed.live_route_edge_occurrence_count, 0);
+        assert_eq!(world.state.committed.live_route_count, 0);
+        assert_eq!(world.state.committed.live_route_edge_occurrence_count, 0);
     }
 
     #[test]
@@ -1363,7 +1423,7 @@ mod tests {
         let mut world = world_with_limits(41, 8, 1_024);
         let edges = fixture_edges(&world);
         let stable = stable_edges(&world, &edges);
-        let origin = *world.binding.revision.canonical_origin();
+        let origin = *world.state.binding.revision.canonical_origin();
         let derivation = origin
             .static_contract_versions()
             .network_revision_derivation_version();
@@ -1398,7 +1458,7 @@ mod tests {
                 .unwrap_err(),
             AdmittedRouteRegisterError::NetworkRevisionMismatch
         );
-        assert_eq!(world.committed.live_route_count, 0);
-        assert_eq!(world.committed.live_route_edge_occurrence_count, 0);
+        assert_eq!(world.state.committed.live_route_count, 0);
+        assert_eq!(world.state.committed.live_route_edge_occurrence_count, 0);
     }
 }

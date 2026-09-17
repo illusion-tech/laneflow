@@ -442,6 +442,9 @@ impl NetworkRevisionCutoverDescriptor {
 /// 继续：旧修订、旧动态状态、旧来源、旧占用与信号语义不变。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum CutoverError {
+    /// 首次根突变前，目标执行计划准备失败；旧根和资源保持。
+    #[error("执行计划准备失败: {0}")]
+    ExecutionPlan(crate::ExecutionPlanError),
     /// 相同策略身份必须保留法域和法规版本。
     #[error("目标路权策略法域或法规版本不一致")]
     PolicyRegulationMismatch,
@@ -689,13 +692,18 @@ impl TrafficWorld {
     /// 输入命令游标取当前世界已应用命令计数；事件游标取已提交切换事件
     /// 计数（#513 切片 C-4 起为真实轴）。调用方无需复制世界身份、世代
     /// 或游标拼装逻辑。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
     #[must_use]
     pub const fn world_binding(&self) -> WorldBinding {
+        self.execution.assert_usable();
         WorldBinding::new(
-            self.binding.world_id,
-            self.binding.world_generation,
-            self.committed.command_cursor,
-            self.committed.event_cursor,
+            self.state.binding.world_id,
+            self.state.binding.world_generation,
+            self.state.committed.command_cursor,
+            self.state.committed.event_cursor,
         )
     }
 
@@ -724,8 +732,13 @@ impl TrafficWorld {
     /// 游标/策略选择与当前世界不一致、target 来源修订不匹配、路线或等待区/冲突
     /// 重验证失败、冲突出现项容量超限（`ConflictOccurrenceCapacityExceeded`）、
     /// 在途车辆的游标/停车状态校验失败、占用索引重建失败、世界世代或事件游标
-    /// 耗尽、暂存或事件分配失败时返回相应 [`CutoverError`]；任一
+    /// 耗尽、暂存或事件分配失败、必需执行计划准备失败
+    /// （[`CutoverError::ExecutionPlan`]）时返回相应 [`CutoverError`]；任一
     /// 失败均失败关闭，旧世界原样继续、零可观察变化。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
     pub fn cutover_same_revision(
         &mut self,
         target_revision: Arc<SharedNetworkRevision>,
@@ -733,32 +746,35 @@ impl TrafficWorld {
         descriptor: &NetworkRevisionCutoverDescriptor,
         limits: &CutoverPreflightLimits,
     ) -> Result<CutoverEventBatch, CutoverError> {
+        self.execution.assert_usable();
         // 在途唯一：武装中的日志 ⟺ 存在在途切换事务（切换合同 §4）。
-        if self.admin.migration_journal.is_some() {
+        if self.state.admin.migration_journal.is_some() {
             return Err(CutoverError::InFlightTransaction);
         }
         // 认证先于策略拒绝：伪造 origins 的描述符必须先收到 origin
         // 认证错误，而不是被策略门遮蔽（#516 同一原则）。
-        let base_origin = *self.binding.revision.canonical_origin();
+        let base_origin = *self.state.binding.revision.canonical_origin();
         let target_origin = *target_revision.canonical_origin();
         descriptor.validate(base_origin, target_origin, limits)?;
         // worldBinding：世界身份、活动世代与命令/事件双基线游标都在
         // 事务启动时逐项比对。
-        if descriptor.world_binding().world_id() != self.binding.world_id
-            || descriptor.world_binding().world_generation() != self.binding.world_generation
+        if descriptor.world_binding().world_id() != self.state.binding.world_id
+            || descriptor.world_binding().world_generation() != self.state.binding.world_generation
         {
             return Err(CutoverError::WorldBindingMismatch);
         }
-        if descriptor.world_binding().baseline_command_cursor() != self.committed.command_cursor {
+        if descriptor.world_binding().baseline_command_cursor()
+            != self.state.committed.command_cursor
+        {
             return Err(CutoverError::BaselineCommandCursorMismatch {
                 descriptor: descriptor.world_binding().baseline_command_cursor(),
-                world: self.committed.command_cursor,
+                world: self.state.committed.command_cursor,
             });
         }
-        if descriptor.world_binding().baseline_event_cursor() != self.committed.event_cursor {
+        if descriptor.world_binding().baseline_event_cursor() != self.state.committed.event_cursor {
             return Err(CutoverError::BaselineEventCursorMismatch {
                 descriptor: descriptor.world_binding().baseline_event_cursor(),
-                world: self.committed.event_cursor,
+                world: self.state.committed.event_cursor,
             });
         }
         if descriptor.policy_kind() != MigrationPolicyKind::SameRevisionRestore {
@@ -777,15 +793,16 @@ impl TrafficWorld {
             )
             .unwrap_or(0)
         };
-        if self.binding.revision.traffic().lane_edge_count()
+        if self.state.binding.revision.traffic().lane_edge_count()
             != target_revision.traffic().lane_edge_count()
-            || space_count(&self.binding.revision) != space_count(&target_revision)
+            || space_count(&self.state.binding.revision) != space_count(&target_revision)
         {
             return Err(CutoverError::RouteRevalidationFailed);
         }
         // 世代耗尽必须在任何候选暂存/分配之前失败关闭；成功值只在
         // Quiescent Commit 与根、来源和动态派生状态同界写入。
         let next_world_generation = self
+            .state
             .binding
             .world_generation
             .checked_next()
@@ -793,16 +810,19 @@ impl TrafficWorld {
         // Prepare（staging，失败不触及旧世界）：逐路线对 target 根重编译。
         let mut staged: Vec<(usize, CompiledRoute)> = Vec::new();
         staged
-            .try_reserve(self.committed.routes.len())
+            .try_reserve(self.state.committed.routes.len())
             .map_err(|_| CutoverError::StagingAllocFailed)?;
         let mut staged_conflict_occurrence_count = 0_u64;
-        for (index, slot) in self.committed.routes.iter().enumerate() {
+        for (index, slot) in self.state.committed.routes.iter().enumerate() {
             if let Some(compiled) = slot.compiled.as_ref() {
                 let staged_route = compile_route(
                     target_revision.as_ref(),
                     compiled.edges.as_slice(),
                     staged_conflict_occurrence_count,
-                    self.binding.config.route_conflict_occurrence_capacity(),
+                    self.state
+                        .binding
+                        .config
+                        .route_conflict_occurrence_capacity(),
                 )
                 .map_err(|error| match error {
                     RouteError::AllocationFailed => CutoverError::StagingAllocFailed,
@@ -840,15 +860,16 @@ impl TrafficWorld {
         }
         // Prepare（续）：针对 target 根与 staged 路线在暂存区完成可失败的
         // 占用索引重建；commit 段只剩不可失败换绑（#302 切换合同 §4）。
-        let (staged_occupancy, staged_occupancy_scratch) =
-            self.build_occupancy_index_for(&target_revision, &staged)?;
+        let (staged_occupancy, staged_occupancy_scratch) = self
+            .state
+            .build_occupancy_index_for(&target_revision, &staged)?;
         let target_lengths = target_revision.traffic().lane_lengths_millimetres();
-        for handle in self.derived.active_order.iter().copied() {
-            let state =
-                self.vehicle_state(handle)
-                    .ok_or(CutoverError::VehicleRevalidationFailed {
-                        vehicle: handle.index(),
-                    })?;
+        for handle in self.state.derived.active_order.iter().copied() {
+            let state = self.state.vehicle_state(handle).ok_or(
+                CutoverError::VehicleRevalidationFailed {
+                    vehicle: handle.index(),
+                },
+            )?;
             let route_index = usize::try_from(state.route.index()).map_err(|_| {
                 CutoverError::VehicleRevalidationFailed {
                     vehicle: handle.index(),
@@ -861,6 +882,7 @@ impl TrafficWorld {
                 })?;
             if self.conflict_reservation(handle).is_some()
                 || self
+                    .state
                     .committed
                     .conflict_eligibility
                     .get(handle.index() as usize)
@@ -896,22 +918,22 @@ impl TrafficWorld {
                 }
             }
         }
-        if !self.waiting_state_valid() || !self.waiting_snapshot_storage_valid() {
+        if !self.state.waiting_state_valid() || !self.state.waiting_snapshot_storage_valid() {
             return Err(CutoverError::WaitingRevalidationFailed);
         }
-        if !self.conflict_state_valid() {
+        if !self.state.conflict_state_valid() {
             return Err(CutoverError::ConflictRevalidationFailed);
         }
-        for handle in self.committed.live_order.iter().copied() {
-            let state =
-                self.vehicle_state(handle)
-                    .ok_or(CutoverError::VehicleRevalidationFailed {
-                        vehicle: handle.index(),
-                    })?;
-            if !self.restored_waiting_authority_valid(*state) {
+        for handle in self.state.committed.live_order.iter().copied() {
+            let state = self.state.vehicle_state(handle).ok_or(
+                CutoverError::VehicleRevalidationFailed {
+                    vehicle: handle.index(),
+                },
+            )?;
+            if !self.state.restored_waiting_authority_valid(*state) {
                 return Err(CutoverError::WaitingRevalidationFailed);
             }
-            if !self.parking_state_valid(handle) {
+            if !self.state.parking_state_valid(handle) {
                 return Err(CutoverError::ParkingRevalidationFailed {
                     vehicle: handle.index(),
                 });
@@ -923,31 +945,42 @@ impl TrafficWorld {
             target_origin.network_revision(),
         )?;
         let event_advance = events.len();
-        self.committed
+        self.state
+            .committed
             .event_cursor
             .checked_add(event_advance)
             .ok_or(CutoverError::EventCursorExhausted)?;
+        let target_plan = crate::kernel::execution::ExecutionPlan::prepare_for_root(
+            &target_revision,
+            self.state.derived.active_order.len(),
+            self.execution_config(),
+            next_world_generation,
+        )
+        .map_err(CutoverError::ExecutionPlan)?;
         // Quiescent Commit：全部可失败步骤已过，剩余为不可失败的原地换绑。
-        self.binding.revision = target_revision;
+        let retired_plan = std::mem::replace(&mut self.execution.active_plan, target_plan);
+        self.state.binding.revision = target_revision;
         for (index, compiled) in staged {
-            if let Some(slot) = self.committed.routes.get_mut(index) {
+            if let Some(slot) = self.state.committed.routes.get_mut(index) {
                 slot.compiled = Some(compiled);
             }
         }
-        self.binding.source = target_source;
-        self.committed.live_route_conflict_occurrence_count = staged_conflict_occurrence_count;
-        self.refresh_signals();
-        self.derived.occupancy = staged_occupancy;
-        self.workspace.occupancy_scratch = staged_occupancy_scratch;
-        self.binding.world_generation = next_world_generation;
-        self.committed.observation_state_sequence = ObservationStateSequence::INITIAL;
-        self.committed.event_cursor += event_advance;
+        self.state.binding.source = target_source;
+        self.state.committed.live_route_conflict_occurrence_count =
+            staged_conflict_occurrence_count;
+        self.state.refresh_signals();
+        self.state.derived.occupancy = staged_occupancy;
+        self.state.workspace.occupancy_scratch = staged_occupancy_scratch;
+        self.state.binding.world_generation = next_world_generation;
+        self.state.committed.observation_state_sequence = ObservationStateSequence::INITIAL;
+        self.state.committed.event_cursor += event_advance;
+        drop(retired_plan);
         Ok(events)
     }
 }
 
 /// 切换描述符与同修订同步换根验证的测试模块。
-impl crate::TrafficWorld {
+impl crate::kernel::state::WorldState {
     /// 冷边界的策略身份与法规版本连续性；不接受描述符隐式换选。
     pub(crate) fn validate_cutover_policy(
         &self,
@@ -1359,7 +1392,11 @@ pub(crate) mod tests {
             for _ in 0..3 {
                 world.step(TickInput::new(100)).expect("step before");
             }
-            let before = world.vehicle_state(vehicle).copied().expect("vehicle");
+            let before = world
+                .state
+                .vehicle_state(vehicle)
+                .copied()
+                .expect("vehicle");
             let edges_before: Vec<_> = world.route_edges(route).expect("route").to_vec();
             let base_origin = *world.revision().canonical_origin();
 
@@ -1390,7 +1427,11 @@ pub(crate) mod tests {
                 world.committed_source(),
                 &source_for(target_origin, "fixture://republished")
             );
-            let after = world.vehicle_state(vehicle).copied().expect("vehicle");
+            let after = world
+                .state
+                .vehicle_state(vehicle)
+                .copied()
+                .expect("vehicle");
             assert_eq!(before.handle, after.handle);
             assert_eq!(before.route, after.route);
             assert_eq!(before.route_edge_index, after.route_edge_index);
@@ -1408,7 +1449,7 @@ pub(crate) mod tests {
         #[test]
         fn same_revision_cutover_fails_closed_on_event_cursor_exhaustion() {
             let (mut world, _route, _vehicle) = world_with_vehicle(true);
-            world.committed.event_cursor = u64::MAX;
+            world.state.committed.event_cursor = u64::MAX;
             let base_origin = *world.revision().canonical_origin();
             let target = revision(false);
             let target_origin = *target.canonical_origin();
@@ -1431,7 +1472,11 @@ pub(crate) mod tests {
                     .unwrap_err(),
                 CutoverError::EventCursorExhausted
             );
-            assert_eq!(world.committed.event_cursor, u64::MAX, "耗尽不改动游标");
+            assert_eq!(
+                world.state.committed.event_cursor,
+                u64::MAX,
+                "耗尽不改动游标"
+            );
             assert_eq!(world.world_generation(), before_generation);
             world.step(TickInput::new(100)).expect("world unaffected");
         }
@@ -1441,7 +1486,11 @@ pub(crate) mod tests {
             let (mut world, route, vehicle) = world_with_vehicle(true);
             let before_origin = *world.revision().canonical_origin();
             let before_source = world.committed_source().clone();
-            let before_state = world.vehicle_state(vehicle).copied().expect("vehicle");
+            let before_state = world
+                .state
+                .vehicle_state(vehicle)
+                .copied()
+                .expect("vehicle");
             let before_edges = world.route_edges(route).expect("route").to_vec();
 
             let target = revision(false);
@@ -1466,7 +1515,7 @@ pub(crate) mod tests {
             assert_eq!(result.unwrap_err(), CutoverError::StagingAllocFailed);
             assert_eq!(*world.revision().canonical_origin(), before_origin);
             assert_eq!(world.committed_source(), &before_source);
-            assert_eq!(world.vehicle_state(vehicle), Some(&before_state));
+            assert_eq!(world.state.vehicle_state(vehicle), Some(&before_state));
             assert_eq!(world.route_edges(route), Some(before_edges.as_slice()));
             assert_eq!(world.world_generation(), before_generation);
             world
@@ -1521,10 +1570,14 @@ pub(crate) mod tests {
         #[test]
         fn exhausted_world_generation_aborts_before_staging() {
             let (mut world, route, vehicle) = world_with_vehicle(true);
-            world.binding.world_generation = WorldGeneration::from_raw_for_test(u64::MAX);
+            world.state.binding.world_generation = WorldGeneration::from_raw_for_test(u64::MAX);
             let before_root = world.revision();
             let before_source = world.committed_source().clone();
-            let before_state = world.vehicle_state(vehicle).copied().expect("vehicle");
+            let before_state = world
+                .state
+                .vehicle_state(vehicle)
+                .copied()
+                .expect("vehicle");
             let before_edges = world.route_edges(route).expect("route").to_vec();
 
             let target = revision(false);
@@ -1550,7 +1603,7 @@ pub(crate) mod tests {
             assert!(Arc::ptr_eq(&world.revision(), &before_root));
             assert_eq!(world.committed_source(), &before_source);
             assert_eq!(world.world_generation().get(), u64::MAX);
-            assert_eq!(world.vehicle_state(vehicle), Some(&before_state));
+            assert_eq!(world.state.vehicle_state(vehicle), Some(&before_state));
             assert_eq!(world.route_edges(route), Some(before_edges.as_slice()));
         }
 
@@ -1564,7 +1617,10 @@ pub(crate) mod tests {
             let (mut cut, _, _) = world_with_vehicle(true);
             let (mut plain, _, _) = world_with_vehicle(true);
             let assert_committed_state_equal = |cut: &TrafficWorld, plain: &TrafficWorld| {
-                crate::admin::cutover_migration::assert_committed_logical_state_equal(cut, plain);
+                crate::admin::cutover_migration::assert_committed_logical_state_equal(
+                    &cut.state,
+                    &plain.state,
+                );
             };
             for _ in 0..2 {
                 cut.step(TickInput::new(100)).expect("step cut");
@@ -1758,14 +1814,14 @@ pub(crate) mod tests {
                 .register_route(RouteRegisterInput::new(route_edges.clone()))
                 .expect("route without vehicles");
 
-            world.committed.command_cursor = u64::MAX;
+            world.state.committed.command_cursor = u64::MAX;
             assert_eq!(
                 world
                     .register_route(RouteRegisterInput::new(route_edges.clone()))
                     .unwrap_err(),
                 RouteError::CommandCursorExhausted
             );
-            assert_eq!(world.committed.live_route_count, 2);
+            assert_eq!(world.state.committed.live_route_count, 2);
             assert_eq!(
                 world.remove_route(removable_route).unwrap_err(),
                 RouteError::CommandCursorExhausted
@@ -1776,39 +1832,42 @@ pub(crate) mod tests {
             );
 
             let vehicle_index = usize::try_from(vehicle.index()).expect("vehicle index");
-            world.committed.vehicles[vehicle_index]
+            world.state.committed.vehicles[vehicle_index]
                 .state
                 .as_mut()
                 .expect("vehicle")
                 .status = VehicleStatus::Completed;
-            let before_completed = *world.vehicle_state(vehicle).expect("completed vehicle");
-            world.rebuild_active_order();
-            world.derived.spawn_overlap.mark_stale();
+            let before_completed = *world
+                .state
+                .vehicle_state(vehicle)
+                .expect("completed vehicle");
+            world.state.rebuild_active_order();
+            world.state.derived.spawn_overlap.mark_stale();
             assert_eq!(
                 world.spawn_vehicle(spawn).unwrap_err(),
                 SpawnError::CommandCursorExhausted
             );
-            assert_eq!(world.vehicle_state(vehicle), Some(&before_completed));
+            assert_eq!(world.state.vehicle_state(vehicle), Some(&before_completed));
             assert_eq!(
                 world.replace_completed_vehicle(vehicle, spawn).unwrap_err(),
                 ReplaceError::CommandCursorExhausted
             );
-            assert_eq!(world.vehicle_state(vehicle), Some(&before_completed));
+            assert_eq!(world.state.vehicle_state(vehicle), Some(&before_completed));
 
-            world.committed.vehicles[vehicle_index]
+            world.state.committed.vehicles[vehicle_index]
                 .state
                 .as_mut()
                 .expect("vehicle")
                 .status = VehicleStatus::Active;
-            let before_active = *world.vehicle_state(vehicle).expect("active vehicle");
-            world.rebuild_active_order();
-            world.derived.spawn_overlap.mark_stale();
+            let before_active = *world.state.vehicle_state(vehicle).expect("active vehicle");
+            world.state.rebuild_active_order();
+            world.state.derived.spawn_overlap.mark_stale();
             let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
             assert_eq!(
                 world.despawn_vehicle(vehicle).unwrap_err(),
                 ParkingError::CommandCursorExhausted
             );
-            assert_eq!(world.vehicle_state(vehicle), Some(&before_active));
+            assert_eq!(world.state.vehicle_state(vehicle), Some(&before_active));
             assert_eq!(
                 world.parking_space_state(space),
                 Some(crate::ParkingSpaceState::Vacant)
@@ -1828,8 +1887,9 @@ pub(crate) mod tests {
                 )
                 .expect("parking")
                 .vehicle;
-            parked_world.committed.command_cursor = u64::MAX;
+            parked_world.state.committed.command_cursor = u64::MAX;
             let before_parked = *parked_world
+                .state
                 .vehicle_state(parked_vehicle)
                 .expect("parked vehicle");
             assert_eq!(
@@ -1839,7 +1899,7 @@ pub(crate) mod tests {
                 ParkingError::CommandCursorExhausted
             );
             assert_eq!(
-                parked_world.vehicle_state(parked_vehicle),
+                parked_world.state.vehicle_state(parked_vehicle),
                 Some(&before_parked)
             );
             assert_eq!(

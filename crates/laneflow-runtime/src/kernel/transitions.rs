@@ -445,14 +445,15 @@ mod tests {
     fn zero_event_fast_path_does_not_skip_first_visit_validation() {
         let mut world = multi_gate_world(2);
         let vehicle = world.live_vehicles()[0];
-        let state = *world.vehicle_state(vehicle).unwrap();
+        let state = *world.state.vehicle_state(vehicle).unwrap();
         let slot = vehicle.index() as usize;
-        world.workspace.next_state_by_vehicle.fill(0);
-        world.workspace.next_state_by_vehicle[slot] = 1;
-        world.committed.routes[state.route().index() as usize].compiled = None;
+        world.state.workspace.next_state_by_vehicle.fill(0);
+        world.state.workspace.next_state_by_vehicle[slot] = 1;
+        world.state.committed.routes[state.route().index() as usize].compiled = None;
         TRANSITION_VISITS.set(0);
         assert_eq!(
             world
+                .state
                 .step_workspace()
                 .stage_transition_events(&[(slot, state)], 1),
             Err(StepError::ConflictInvariantViolation)
