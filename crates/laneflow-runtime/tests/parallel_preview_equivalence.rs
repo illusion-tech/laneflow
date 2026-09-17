@@ -3,14 +3,18 @@
 //!
 //! 对拍合同（`docs/design/traffic-runtime-parallel-execution.md` §1/§9）：逐 tick
 //! 比较已提交状态 digest、最新决策/事件、命令/事件游标、`StepOutcome`、世界
-//! 世代与观测序号；比较只使用公开 API，不读取私有存储、容量或序号基线。每个
-//! 场景先以 `worker > 1` 安装并断言 Active 车辆不少于 8（P2 分发门槛），保证
-//! 多 worker 运行真正走 `try_for_each_chunk` 分发路径而非融合回退。
+//! 世代与观测序号；比较只使用公开 API，不读取私有存储、容量或序号基线。
+//!
+//! 生命周期场景分两档：跨阈值场景在关键操作之后、下一拍 step 之前断言 Active
+//! 车辆不少于 8（P2 分发门槛的公开行为面），保证多 worker 臂真正走
+//! `try_for_each_chunk` 分发路径；小工作集场景（命名带 `fused`）全程低于门槛，
+//! 如实标注为融合路径覆盖。真实并发与内部路径计数由 lib 内测试承载。
 //!
 //! 场景覆盖：Waiting 密集的合成环（同槽 despawn/spawn 新代次）、信号走廊
-//! 长前车链（catalog 生成槽位）、full-spatial 信号/生命周期（Completed 保留、
-//! 原子替换新代次）、停车 Active→Parked 变化、fresh restore 后首拍、同修订与
-//! 跨修订切换后首拍、公开逻辑首错（DeltaMismatch）与同 tick 重试。
+//! 长前车链（catalog 生成槽位）、full-spatial 信号/混合生命周期（Completed
+//! 保留、原子替换新代次、Parked 夹入 live 序列）、停车 Active→Parked 变化、
+//! fresh restore 后首拍、同修订与跨修订切换后首拍、公开逻辑首错
+//! （DeltaMismatch）与同 tick 重试。
 
 #[path = "support/policy.rs"]
 mod test_policy;
@@ -35,8 +39,8 @@ use laneflow_runtime::{
     CommittedNetworkSource, CutoverPreflightLimits, CutoverTransactionLimits, ExecutionConfig,
     LfcaOriginBinding, MigrationPolicyKind, NetworkRevisionCutoverDescriptor,
     ParkedVehicleSpawnInput, ParkingTarget, PolicyPin, PublishedLfcaReference,
-    ReserveParkingTarget, RouteRegisterInput, SemanticDiffOriginBinding, StepOutcome, TickInput,
-    TrafficWorld, VehicleHandle, VehicleSpawnInput, VehicleStatus, WorldConfig,
+    ReserveParkingTarget, RouteHandle, RouteRegisterInput, SemanticDiffOriginBinding, StepOutcome,
+    TickInput, TrafficWorld, VehicleHandle, VehicleSpawnInput, VehicleStatus, WorldConfig,
     WorldPolicySelection, deterministic_state_digest, restore_lfrs,
 };
 use laneflow_scenario::signalized_corridor::{CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind};
@@ -196,6 +200,68 @@ fn despawn_and_respawn(
     new
 }
 
+/// 生命周期操作之后、下一拍 `step` 之前的工作集规模检查：多 worker 臂必须
+/// 保持在 P2 分发门槛之上，否则该臂实际走的是融合路径，生命周期交错就不再
+/// 是并行路径的验收证据。检查点必须落在实际操作时刻（park/despawn/replace
+/// 之后），而不是场景开头的静态断言。
+fn assert_dispatch_engaged(world: &TrafficWorld, context: &str) {
+    let active = active_count(world);
+    assert!(
+        active >= DISPATCH_MIN_ACTIVE,
+        "{context}: {active} active vehicles dropped below the P2 dispatch threshold; \
+         the worker arm would run the fused path"
+    );
+}
+
+/// 沿路线累计边长把路线距离换算成（路线边下标，边内进度）。
+fn route_position(world: &TrafficWorld, route: RouteHandle, distance_mm: u32) -> (u32, u32) {
+    let edges = world.route_edges(route).expect("route edges");
+    let lengths = world.traffic().lane_lengths_millimetres();
+    let mut remaining = distance_mm;
+    for (index, edge) in edges.iter().enumerate() {
+        let length = lengths[edge.index()];
+        if remaining < length {
+            return (
+                u32::try_from(index).expect("route index fits u32"),
+                remaining,
+            );
+        }
+        remaining -= length;
+    }
+    panic!("route distance {distance_mm} mm beyond route length");
+}
+
+/// （路线边下标，边内进度）对应的路线距离。
+fn route_distance_of(
+    world: &TrafficWorld,
+    route: RouteHandle,
+    route_edge_index: u32,
+    progress_mm: u32,
+) -> u32 {
+    let edges = world.route_edges(route).expect("route edges");
+    let lengths = world.traffic().lane_lengths_millimetres();
+    let prefix: u32 = edges[..route_edge_index as usize]
+        .iter()
+        .map(|edge| lengths[edge.index()])
+        .sum();
+    prefix + progress_mm
+}
+
+/// live 集合中该路线 Active 车辆的最小路线距离（队尾）；用于在队尾后方补员。
+fn rearmost_active_distance(world: &TrafficWorld, route: RouteHandle) -> u32 {
+    world
+        .live_vehicles()
+        .iter()
+        .filter_map(|handle| {
+            let state = world.vehicle(*handle)?;
+            (state.status() == VehicleStatus::Active && state.route() == route).then(|| {
+                route_distance_of(world, route, state.route_edge_index(), state.progress_mm())
+            })
+        })
+        .min()
+        .expect("at least one active vehicle on route")
+}
+
 // ---------------------------------------------------------------------------
 // 场景一：Waiting 密集的合成环（#675 拓扑扩展）：区容量 2、12 辆分布在三个
 // 出现项组；行驶中 despawn/spawn 制造同槽位新代次与 Active 集合变化。
@@ -307,7 +373,20 @@ fn ring_candidate(
             release_gate: ManeuverGateReference::local("gate-release"),
             max_occupancy: 2,
         })
-        .expect("waiting zone");
+        .expect("waiting zone")
+        .add_parking_facility(laneflow_compiler::ParkingFacilityInput {
+            parking_facility_key: "facility",
+            virtual_capacity: 4,
+            virtual_entries: &[laneflow_compiler::ParkingLaneAnchorInput {
+                lane_edge: LaneEdgeReference::local("exit"),
+                progress_meters: 20.0,
+            }],
+            virtual_exits: &[laneflow_compiler::ParkingLaneAnchorInput {
+                lane_edge: LaneEdgeReference::local("entry"),
+                progress_meters: 50.0,
+            }],
+        })
+        .expect("parking facility");
     test_policy::add_gate_policy(
         &mut module,
         "waiting-policy",
@@ -629,8 +708,11 @@ fn signalized_corridor_chain_matches_across_worker_matrix() {
 }
 
 // ---------------------------------------------------------------------------
-// 场景三：full-spatial 信号与生命周期：近终点车 Completed 保留后原子替换
-// （新代次）、信号 Stop-Go、Parked 车从拍初就在 live 集合里改变 Active 投影。
+// 场景三（融合路径覆盖）：full-spatial 信号与生命周期。小工作集（3 Active +
+// 1 Parked）全程低于 P2 分发门槛，worker 1/2/4/8/16 全部走融合路径；本场景
+// 只验收融合路径下的生命周期语义（Completed 保留后原子替换新代次、信号
+// Stop-Go、Parked 夹入 live 序列改变 Active 投影），跨阈值的并行生命周期
+// 覆盖见下方混合场景。
 // ---------------------------------------------------------------------------
 
 fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
@@ -643,7 +725,7 @@ fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
     LaneEdgeOrdinal::try_from_usize(index).expect("fixture lane ordinal")
 }
 
-fn run_full_spatial_lifecycle(workers: u32) -> Vec<String> {
+fn run_full_spatial_lifecycle_fused(workers: u32) -> Vec<String> {
     let revision = full_spatial_revision();
     let mut world = install_published(
         &revision,
@@ -711,7 +793,7 @@ fn run_full_spatial_lifecycle(workers: u32) -> Vec<String> {
     );
     assert!(
         active_count(&world) >= 3,
-        "full-spatial scenario keeps a mixed Active projection"
+        "fused-path full-spatial scenario keeps a small mixed Active projection"
     );
     let mut records = Vec::with_capacity(48);
     let mut replaced = false;
@@ -766,16 +848,20 @@ fn run_full_spatial_lifecycle(workers: u32) -> Vec<String> {
 }
 
 #[test]
-fn signal_and_lifecycle_matches_across_worker_matrix() {
-    assert_matches_across_workers("full-spatial-lifecycle", run_full_spatial_lifecycle);
+fn fused_path_signal_and_lifecycle_matches_across_worker_matrix() {
+    assert_matches_across_workers(
+        "full-spatial-lifecycle-fused",
+        run_full_spatial_lifecycle_fused,
+    );
 }
 
 // ---------------------------------------------------------------------------
-// 场景四：停车夹具上的 Active→Parked 变化与路线完成：一辆车在行进中
-// reserve→arrive→park 离开 Active 集合，其余车链继续并在路线终点 Completed。
+// 场景四（融合路径覆盖）：停车夹具上的 Active→Parked 变化与路线完成。停车
+// 操作后 Active 掉到 7、低于 P2 分发门槛，所有 worker 臂走融合路径；本场景
+// 只验收融合路径下的停车语义，跨阈值的并行停车覆盖见下方混合场景。
 // ---------------------------------------------------------------------------
 
-fn run_parking_transition(workers: u32) -> Vec<String> {
+fn run_parking_transition_fused(workers: u32) -> Vec<String> {
     let revision = parking_revision();
     let mut world = install_published(
         &revision,
@@ -832,7 +918,7 @@ fn run_parking_transition(workers: u32) -> Vec<String> {
     }
     assert!(
         active_count(&world) >= DISPATCH_MIN_ACTIVE,
-        "parking scenario must engage the P2 dispatch path"
+        "fused-path parking scenario starts at the threshold, then parks below it"
     );
     let target = ParkingTarget::ExplicitSpace(space);
     let reserve = ReserveParkingTarget::ExplicitSpace {
@@ -867,12 +953,316 @@ fn run_parking_transition(workers: u32) -> Vec<String> {
 }
 
 #[test]
-fn parking_transition_matches_across_worker_matrix() {
-    assert_matches_across_workers("parking-transition", run_parking_transition);
+fn fused_path_parking_transition_matches_across_worker_matrix() {
+    assert_matches_across_workers("parking-transition-fused", run_parking_transition_fused);
 }
 
 // ---------------------------------------------------------------------------
-// 场景五：fresh restore 后首拍：同一快照在同一 worker 数下恢复，恢复前后的
+// 场景五（跨阈值并行生命周期）：合成环混合工作集。路线 ×3 出现项（1 800 m）：
+// 12 Active 从入口边 0 起 9 m 间距铺开，Parked-from-start 与首拍前 park 的
+// 车夹入 live 序列，近终点 finisher 反复 Completed 保留后原子替换；tick 1
+// despawn 一辆后立即补员，tick 10 再 park 一辆并立即补员。每个关键操作之
+// 后、下一拍 step 之前断言 Active 不低于 P2 分发门槛，Completed/Parked 的
+// 紧凑位置与逻辑更新位置全程交错。full-spatial 物理路长不足以容纳跨阈值
+// 工作集（30 m 仅容 4 辆），大工作集生命周期在本场景验收。
+// ---------------------------------------------------------------------------
+
+fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
+    let revision = ring_revision(&ring_candidate(
+        10,
+        "parallel-preview-ring-v1",
+        PortableDiffBase::Genesis,
+    ));
+    let mut world = install_published(
+        &revision,
+        WorldConfig::new(20, 1, 64, 1_024, DELTA_MS),
+        workers,
+        705,
+        "fixture://parallel-preview-ring-hybrid",
+        ring_policy(),
+    );
+    let path = revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(ManeuverPathOrdinal::from_raw(0))
+        .expect("ring path");
+    let route = world
+        .register_route(RouteRegisterInput::new(path.edges().repeat(3)))
+        .expect("hybrid ring route");
+    let profile = VehicleProfileOrdinal::from_raw(0);
+    // 12 Active 从 0 起 9 m 间距；Parked-from-start 在第 7 个 live 槽位之前
+    // 夹入（设施虚拟池入口锚点在 exit 边出现项 0 @20 m：出口边是 maneuver
+    // 的无状态外溢段，Active 生成与 reserve 都不与 Waiting traversal 冲突；
+    // Parked 不占车道）。
+    let facility = laneflow_runtime::ParkingFacilityOrdinal::from_raw(0);
+    let mut handles = Vec::new();
+    for index in 0..12_u32 {
+        if index == 6 {
+            let parked = world
+                .spawn_parked_vehicle(
+                    ParkedVehicleSpawnInput::new(profile, route, 3, 20_000),
+                    ParkingTarget::VirtualPool(facility),
+                )
+                .expect("hybrid parked spawn")
+                .vehicle;
+            assert_eq!(
+                world.vehicle(parked).expect("parked").status(),
+                VehicleStatus::Parked
+            );
+        }
+        handles.push(
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(profile, route, 0, index * 9_000, 0))
+                .expect("hybrid spawn"),
+        );
+    }
+    // 首拍前 park 一辆（虚拟池容量 4）并立即补员：首拍 step 即 13 Active + 2 Parked。
+    let parker = world
+        .spawn_vehicle(VehicleSpawnInput::new(profile, route, 3, 20_000, 0))
+        .expect("hybrid parker spawn");
+    let virtual_reserve = ReserveParkingTarget::VirtualPool {
+        facility,
+        entry_anchor: laneflow_runtime::VirtualEntryAnchorSelector::from_raw(0),
+        entry_route_occurrence: 3,
+    };
+    world
+        .reserve_parking(parker, virtual_reserve)
+        .expect("hybrid reserve");
+    assert!(world.parking_arrived(parker, ParkingTarget::VirtualPool(facility)));
+    world
+        .park_vehicle(parker, ParkingTarget::VirtualPool(facility))
+        .expect("hybrid park");
+    // 近终点 finisher：反复 Completed 保留 → 延迟原子替换接新代次。
+    let last = route_position(&world, route, 3 * 600_000 - 500);
+    let mut finisher = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            profile, route, last.0, last.1, 13_750,
+        ))
+        .expect("hybrid finisher");
+    // 补员固定在队列前方空位（头车只前进，108 m 处对 parker/finisher 空闲）。
+    let front = route_position(&world, route, 108_000);
+    handles.push(
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(profile, route, front.0, front.1, 0))
+            .expect("park backfill spawn"),
+    );
+    assert_dispatch_engaged(&world, "hybrid lifecycle initial workset");
+    let mut records = Vec::with_capacity(48);
+    let mut replaced = 0;
+    let mut pending_replace: Option<(u32, VehicleHandle)> = None;
+    for tick in 0..48 {
+        if tick == 1 {
+            // despawn 一辆中部车后立即补员：despawn/spawn 新代次且操作后工作
+            // 集回到门槛之上。117 m 处对头车（108 m 组）保持 9 m 间距。
+            let backfill = route_position(&world, route, 117_000);
+            handles[9] = despawn_and_respawn(
+                &mut world,
+                handles[9],
+                VehicleSpawnInput::new(profile, route, backfill.0, backfill.1, 0),
+            );
+            assert_dispatch_engaged(&world, "hybrid lifecycle despawn+respawn");
+        }
+        if tick == 10 {
+            // 行进中 Active→Parked（虚拟池第二辆）：parker 让出的入口位置已
+            // 空闲，在其原位 spawn 后立即 reserve→arrive→park，再补员回门槛之上。
+            let mid_parker = world
+                .spawn_vehicle(VehicleSpawnInput::new(profile, route, 3, 20_000, 0))
+                .expect("mid-run parker spawn");
+            world
+                .reserve_parking(mid_parker, virtual_reserve)
+                .expect("mid-run reserve");
+            assert!(world.parking_arrived(mid_parker, ParkingTarget::VirtualPool(facility)));
+            world
+                .park_vehicle(mid_parker, ParkingTarget::VirtualPool(facility))
+                .expect("mid-run park");
+            let backfill = route_position(&world, route, 126_000);
+            handles.push(
+                world
+                    .spawn_vehicle(VehicleSpawnInput::new(
+                        profile, route, backfill.0, backfill.1, 0,
+                    ))
+                    .expect("mid-run park backfill spawn"),
+            );
+            assert_dispatch_engaged(&world, "hybrid lifecycle mid-run park+backfill");
+        }
+        let outcome = world
+            .step(TickInput::new(DELTA_MS))
+            .expect("hybrid lifecycle step");
+        if let Some((due, old)) = pending_replace {
+            if tick >= due {
+                // Completed 在 live 序列中保留数拍（已进 digest 记录）后原子替换。
+                let record = world
+                    .replace_completed_vehicle(
+                        old,
+                        VehicleSpawnInput::new(profile, route, last.0, last.1, 13_750),
+                    )
+                    .expect("hybrid atomic replace");
+                assert_ne!(record.new, old);
+                assert!(world.vehicle(old).is_none());
+                assert_eq!(
+                    world.vehicle(record.new).expect("replacement").status(),
+                    VehicleStatus::Active
+                );
+                finisher = record.new;
+                pending_replace = None;
+                replaced += 1;
+                assert_dispatch_engaged(&world, "hybrid lifecycle atomic replace");
+            }
+        } else if world
+            .vehicle(finisher)
+            .is_some_and(|state| state.status() == VehicleStatus::Completed)
+        {
+            pending_replace = Some((tick + 4, finisher));
+        }
+        records.push(tick_record(&world, &outcome));
+    }
+    assert!(
+        replaced >= 2,
+        "hybrid finisher must Complete and be replaced repeatedly, got {replaced}"
+    );
+    records
+}
+
+#[test]
+fn hybrid_lifecycle_over_dispatch_threshold_matches_across_worker_matrix() {
+    assert_matches_across_workers("ring-lifecycle-hybrid", run_ring_hybrid_lifecycle);
+}
+
+// ---------------------------------------------------------------------------
+// 场景六（跨阈值并行停车）：parking 夹具混合工作集。parker + 11 辆跟随者
+// （12 Active）起步；首拍 step 之前 park 掉一辆并立即在让出的入口位置补员，
+// 首拍起即保持 12 Active；首辆 Completed 后队尾再补员一次。停车/补员/完成
+// 之后、下一拍 step 之前断言 Active 不低于 P2 分发门槛，Completed 与 Parked
+// 夹入 live 序列。
+// ---------------------------------------------------------------------------
+
+fn run_parking_hybrid_transition(workers: u32) -> Vec<String> {
+    let revision = parking_revision();
+    let mut world = install_published(
+        &revision,
+        WorldConfig::new(20, 4, 1_024, 1_024, DELTA_MS),
+        workers,
+        705,
+        "fixture://parallel-preview-parking-hybrid",
+        test_policy::selection(&revision),
+    );
+    let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
+    let (entry_edge, entry_progress) = world
+        .traffic()
+        .relations()
+        .parking_space(space)
+        .expect("parking space")
+        .entry();
+    let exit_edge = world
+        .traffic()
+        .successors(entry_edge)
+        .and_then(|successors| successors.first())
+        .copied()
+        .expect("parking fixture successor");
+    let route = world
+        .register_route(RouteRegisterInput::new(vec![entry_edge, exit_edge]))
+        .expect("hybrid parking route");
+    let target = ParkingTarget::ExplicitSpace(space);
+    let reserve = ReserveParkingTarget::ExplicitSpace {
+        space,
+        entry_route_occurrence: 0,
+    };
+    // 12 Active：parker 在车位入口，11 辆跟随者前方 8 m 间距（夹具两边各
+    // 100 m，车长 4.5 m + 最小间距 2 m）。
+    let parker = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            entry_progress,
+            0,
+        ))
+        .expect("hybrid parker spawn");
+    let mut handles = vec![parker];
+    for index in 0..11_u32 {
+        handles.push(
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    12_000 + index * 8_000,
+                    0,
+                ))
+                .expect("hybrid follower spawn"),
+        );
+    }
+    assert_dispatch_engaged(&world, "hybrid parking initial workset");
+    world.reserve_parking(parker, reserve).expect("reserve");
+    assert!(world.parking_arrived(parker, target));
+    world.park_vehicle(parker, target).expect("park");
+    // park 后立即补员回停车者让出的入口位置：首拍 step 之前工作集回到门槛之上。
+    handles.push(
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                entry_progress,
+                0,
+            ))
+            .expect("park backfill spawn"),
+    );
+    assert_dispatch_engaged(&world, "hybrid parking park+backfill before first step");
+    let mut records = Vec::with_capacity(130);
+    let mut completed = false;
+    let mut completion_backfill = false;
+    for _ in 0..130 {
+        let outcome = world
+            .step(TickInput::new(DELTA_MS))
+            .expect("hybrid parking step");
+        if !completed {
+            completed = handles.iter().any(|handle| {
+                world
+                    .vehicle(*handle)
+                    .is_some_and(|state| state.status() == VehicleStatus::Completed)
+            });
+        }
+        if completed && !completion_backfill {
+            // 首辆 Completed：Active 掉 1 且 Completed 夹入 live 序列；队尾
+            // 补员把工作集抬回门槛之上（跟随者早已驶离入口，队尾后方恒定空闲）。
+            let rearmost = rearmost_active_distance(&world, route);
+            assert!(
+                rearmost >= 8_000,
+                "rearmost active vehicle at {rearmost} mm leaves no backfill room"
+            );
+            let (edge_index, progress) = route_position(&world, route, rearmost - 8_000);
+            handles.push(
+                world
+                    .spawn_vehicle(VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        edge_index,
+                        progress,
+                        0,
+                    ))
+                    .expect("completion backfill spawn"),
+            );
+            completion_backfill = true;
+            assert_dispatch_engaged(&world, "hybrid parking completion backfill");
+        }
+        records.push(tick_record(&world, &outcome));
+    }
+    assert!(completed, "hybrid follower chain must reach route end");
+    assert_eq!(
+        world.vehicle(parker).expect("parker").status(),
+        VehicleStatus::Parked
+    );
+    records
+}
+
+#[test]
+fn hybrid_parking_over_dispatch_threshold_matches_across_worker_matrix() {
+    assert_matches_across_workers("parking-transition-hybrid", run_parking_hybrid_transition);
+}
+
+// ---------------------------------------------------------------------------
+// 场景七：fresh restore 后首拍：同一快照在同一 worker 数下恢复，恢复前后的
 // 逐步记录都与 worker 1 参照一致。
 // ---------------------------------------------------------------------------
 
@@ -926,7 +1316,7 @@ fn fresh_restore_first_tick_matches_across_worker_matrix() {
 }
 
 // ---------------------------------------------------------------------------
-// 场景六：同修订切换后首拍：同一制品构建两个等价根，运行中换根重编译全部
+// 场景八：同修订切换后首拍：同一制品构建两个等价根，运行中换根重编译全部
 // 路线，切换后继续步进。
 // ---------------------------------------------------------------------------
 
@@ -991,7 +1381,7 @@ fn same_revision_cutover_first_tick_matches_across_worker_matrix() {
 }
 
 // ---------------------------------------------------------------------------
-// 场景七：跨修订切换后首拍：gap profile 前导值变化的策略修订（与
+// 场景九：跨修订切换后首拍：gap profile 前导值变化的策略修订（与
 // policy_cutover 同差异来源），prepare → 在途 tick 追赶 → commit。
 // ---------------------------------------------------------------------------
 
@@ -1087,7 +1477,7 @@ fn cross_revision_cutover_first_tick_matches_across_worker_matrix() {
 }
 
 // ---------------------------------------------------------------------------
-// 场景八：公开逻辑首错与同 tick 重试：首拍与行进中各注入一次 DeltaMismatch
+// 场景十：公开逻辑首错与同 tick 重试：首拍与行进中各注入一次 DeltaMismatch
 // （P0 输入错误），失败后世界逐记录不变，同 tick 重试结果与全新世界首拍一致。
 // ---------------------------------------------------------------------------
 
