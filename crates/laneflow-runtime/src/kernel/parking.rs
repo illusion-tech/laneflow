@@ -2306,15 +2306,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     ) -> Option<(LaneEdgeOrdinal, u32)> {
         self.read_view().reservation_anchor(reservation)
     }
-
-    /// 判定该状态是否已满足 exact 停车到达。
-    pub(crate) fn parking_arrived_for(
-        &self,
-        state: VehicleState,
-        reservation: ParkingReservation,
-    ) -> bool {
-        self.read_view().parking_arrived_for(state, reservation)
-    }
 }
 
 #[cfg(test)]

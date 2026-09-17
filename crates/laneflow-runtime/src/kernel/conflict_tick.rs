@@ -434,6 +434,9 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 
 impl crate::kernel::phase::StepWorkspace<'_> {
     /// 计算车辆因未授权 Conflict/Waiting 资源而必须停车的最近约束。
+    /// 生产路径经 MotionTaskView::conflict_stop_for（冻结暂存视图）读取；
+    /// StepWorkspace 版仅服务既有测试调用。
+    #[cfg(test)]
     pub(crate) fn conflict_stop_for(
         &self,
         state: &VehicleState,
