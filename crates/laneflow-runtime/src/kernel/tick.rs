@@ -1062,6 +1062,21 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             Some(&vehicle),
             "preview entry provenance"
         );
+        #[cfg(test)]
+        {
+            if crate::kernel::waiting::injected_preview_panics(
+                self.binding.world_id,
+                update_sequence,
+            ) {
+                panic!("injected P2 preview panic at logical position {update_sequence}");
+            }
+            if let Some(error) = crate::kernel::waiting::injected_preview_error(
+                self.binding.world_id,
+                update_sequence,
+            ) {
+                return Err(error);
+            }
+        }
         let state = *self
             .vehicle_state(vehicle)
             .ok_or(StepError::WaitingInvariantViolation)?;
