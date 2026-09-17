@@ -3,6 +3,8 @@
 use std::ops::Range;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 
 use laneflow_static_network::SharedNetworkRevision;
@@ -143,6 +145,96 @@ pub(crate) enum ExecutionResources {
     Pool(PoolResources),
 }
 
+/// 可失败保序分发的输出槽位：`Pending` 尚未计算；`Done` 已完成（含完整领域
+/// 错误）；`Skipped` 整块晚于已错位置、按完整 join 语义未执行。协调器按逻辑
+/// 顺序消费，首错位置之前出现 `Pending`/`Skipped` 属完成前沿不变量违例。
+#[derive(Clone)]
+pub(crate) enum DispatchSlot<T> {
+    Pending,
+    Done(Result<T, crate::StepError>),
+    Skipped,
+}
+
+/// `try_for_each_chunk` 的调度统计；只度量本阶段谁执行，不改变交通语义。
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct DispatchStats {
+    /// 实际启动执行的块数（不含整块跳过）。
+    pub(crate) dispatched_chunks: usize,
+    /// 全部槽位均完成（无中途首错返回）的块数。
+    pub(crate) completed_chunks: usize,
+    /// 因块起点晚于已错位置而整块跳过、未执行的块数。
+    pub(crate) skipped_chunks: usize,
+    /// 启动时已存在已错位置仍执行的块数（完整 join 的错误后多做工作）。
+    pub(crate) extra_work_chunks: usize,
+    /// 实际参与本调用的线程数。
+    pub(crate) threads: usize,
+}
+
+/// 单次分发调用内的廉价计数器；join 完成后汇总为 [`DispatchStats`]。
+#[derive(Default)]
+struct DispatchCounters {
+    dispatched: AtomicUsize,
+    completed: AtomicUsize,
+    skipped: AtomicUsize,
+    extra_work: AtomicUsize,
+    threads: Mutex<Vec<std::thread::ThreadId>>,
+}
+
+impl DispatchCounters {
+    fn note_thread(&self) {
+        let id = std::thread::current().id();
+        let mut threads = self.threads.lock().expect("dispatch stats threads");
+        if !threads.contains(&id) {
+            threads.push(id);
+        }
+    }
+
+    fn stats(&self) -> DispatchStats {
+        DispatchStats {
+            dispatched_chunks: self.dispatched.load(Ordering::Relaxed),
+            completed_chunks: self.completed.load(Ordering::Relaxed),
+            skipped_chunks: self.skipped.load(Ordering::Relaxed),
+            extra_work_chunks: self.extra_work.load(Ordering::Relaxed),
+            threads: self.threads.lock().expect("dispatch stats threads").len(),
+        }
+    }
+}
+
+/// 执行一个输出块：整块晚于已错位置标记 `Skipped` 不执行；否则逐个槽位计算。
+/// `compute` 遇错时须把该槽逻辑下标 min-store 进共享原子并提前返回，
+/// 已完成前缀槽位保持 `Done(Ok(_))`，同块后缀保持 `Pending`。
+fn run_dispatch_chunk<T, F>(
+    compute: &F,
+    view: super::phase::StepReadView<'_>,
+    first_error: &AtomicUsize,
+    counters: &DispatchCounters,
+    start: usize,
+    chunk: &mut [DispatchSlot<T>],
+) where
+    F: Fn(super::phase::StepReadView<'_>, usize, &mut [DispatchSlot<T>]) + Sync,
+{
+    counters.note_thread();
+    let failed_at = first_error.load(Ordering::Relaxed);
+    if start > failed_at {
+        for slot in chunk.iter_mut() {
+            *slot = DispatchSlot::Skipped;
+        }
+        counters.skipped.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    if failed_at != usize::MAX {
+        counters.extra_work.fetch_add(1, Ordering::Relaxed);
+    }
+    counters.dispatched.fetch_add(1, Ordering::Relaxed);
+    compute(view, start, chunk);
+    if chunk
+        .iter()
+        .all(|slot| matches!(slot, DispatchSlot::Done(_)))
+    {
+        counters.completed.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 impl ExecutionResources {
     fn start(config: ExecutionConfig) -> Result<Self, ExecutionInitError> {
         let auxiliaries = usize::try_from(config.worker_count().get() - 1)
@@ -218,6 +310,73 @@ impl ExecutionResources {
                 }
             }),
         }
+    }
+
+    /// 本次分发最多参与的线程数：调用线程加计池内辅助线程；`Caller` 为 1。
+    pub(crate) fn dispatch_threads(&self) -> usize {
+        match self {
+            Self::Caller => 1,
+            Self::Pool(resources) => resources.pool.current_num_threads().saturating_add(1),
+        }
+    }
+
+    /// 可失败的保序分发：与 `for_each_chunk` 相同的互斥输出划分与完整 join，
+    /// 但任务逐个槽位回报值或完整领域错误。`first_error` 由调用方以
+    /// `usize::MAX` 初始化；任务遇错把该槽逻辑下标 min-store 进该原子，
+    /// 整块起点晚于已错位置的输出整块标记 `Skipped` 不执行。错误不取消其他
+    /// 已分发任务：Rayon scope 在传播 panic 前等待全部任务结束，领域错误也
+    /// 等完整 join 后由调用方按逻辑顺序消费首错。协调调用线程执行首块。
+    pub(crate) fn try_for_each_chunk<T, F>(
+        &self,
+        view: super::phase::StepReadView<'_>,
+        output: &mut [DispatchSlot<T>],
+        first_error: &AtomicUsize,
+        chunk_size: usize,
+        compute: F,
+    ) -> DispatchStats
+    where
+        T: Send,
+        F: Fn(super::phase::StepReadView<'_>, usize, &mut [DispatchSlot<T>]) + Sync,
+    {
+        assert!(chunk_size > 0, "nonzero chunk size");
+        let counters = DispatchCounters::default();
+        match self {
+            Self::Caller => {
+                for (chunk_index, chunk) in output.chunks_mut(chunk_size).enumerate() {
+                    run_dispatch_chunk(
+                        &compute,
+                        view,
+                        first_error,
+                        &counters,
+                        chunk_index * chunk_size,
+                        chunk,
+                    );
+                }
+            }
+            Self::Pool(resources) => resources.pool.in_place_scope(|scope| {
+                let compute = &compute;
+                let counters = &counters;
+                let mut chunks = output.chunks_mut(chunk_size).enumerate();
+                let first = chunks.next();
+                for (chunk_index, chunk) in chunks {
+                    let start = chunk_index * chunk_size;
+                    scope.spawn(move |_| {
+                        run_dispatch_chunk(compute, view, first_error, counters, start, chunk);
+                    });
+                }
+                if let Some((chunk_index, chunk)) = first {
+                    run_dispatch_chunk(
+                        compute,
+                        view,
+                        first_error,
+                        counters,
+                        chunk_index * chunk_size,
+                        chunk,
+                    );
+                }
+            }),
+        }
+        counters.stats()
     }
 }
 
@@ -649,10 +808,14 @@ mod tests {
                 ExecutionPlanError::ReservationFailed
             ))
         ));
+        // 能力校验先于计划准备：超上限数量仍被拒，不触发计划注入。
         assert!(matches!(
-            with_plan_failure(|| install(config(2))),
+            with_plan_failure(|| install(config(17))),
             Err(InstallError::ExecutionInit(
-                ExecutionInitError::UnsupportedWorkerCount { .. }
+                ExecutionInitError::UnsupportedWorkerCount {
+                    requested: 17,
+                    max_supported: 16,
+                }
             ))
         ));
         let bytes = crate::encode_lfrs(&world.capture_snapshot().unwrap());

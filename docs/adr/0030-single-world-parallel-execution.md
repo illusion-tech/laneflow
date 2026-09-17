@@ -12,7 +12,8 @@
 本文具体化 [ADR 0003](0003-runtime-tick-and-determinism.md) 的同环境确定性合同与
 [ADR 0021](0021-traffic-infrastructure-and-host-boundary.md) 的单世界并行边界。首版
 并行化独立计算，P4 联合资源裁决保持规范串行。当前配置 API 已拆分、快照采用
-LFRS 6，生产仍只支持 worker 1；接受本设计不表示多线程调度和性能认证已交付。
+LFRS 6，生产支持 worker 1–16（#705 开放，P2 预览真实多 worker 分发，P3/P5
+仍串行待 #706）；接受本设计不表示城市性能认证已完成（#707）。
 
 ## 背景
 

@@ -122,15 +122,20 @@ fn install_rejects_delta_out_of_range() {
 }
 
 #[test]
-fn execution_config_is_nonzero_and_only_supported_counts_install() {
+fn execution_config_accepts_workers_one_through_sixteen_and_rejects_higher() {
     assert_eq!(NonZeroU32::new(0), None);
     let revision = revision();
-    let execution = ExecutionConfig::new(NonZeroU32::MIN);
-    let world = install_fixture_with_execution(Arc::clone(&revision), config(100), execution)
-        .expect("serial execution");
-    assert_eq!(world.execution_config(), execution);
-    assert_eq!(world.execution_config().worker_count(), NonZeroU32::MIN);
-    for requested in [2, u32::MAX] {
+    for workers in [1, 2, 16] {
+        let execution = ExecutionConfig::new(NonZeroU32::new(workers).unwrap());
+        let world = install_fixture_with_execution(Arc::clone(&revision), config(100), execution)
+            .expect("supported worker count installs");
+        assert_eq!(world.execution_config(), execution);
+        assert_eq!(
+            world.execution_config().worker_count(),
+            NonZeroU32::new(workers).unwrap()
+        );
+    }
+    for requested in [17, u32::MAX] {
         let execution = ExecutionConfig::new(NonZeroU32::new(requested).unwrap());
         assert_eq!(
             install_fixture_with_execution(Arc::clone(&revision), config(100), execution)
@@ -138,7 +143,7 @@ fn execution_config_is_nonzero_and_only_supported_counts_install() {
                 .unwrap_err(),
             InstallError::ExecutionInit(ExecutionInitError::UnsupportedWorkerCount {
                 requested,
-                max_supported: 1,
+                max_supported: 16,
             })
         );
     }
@@ -147,7 +152,7 @@ fn execution_config_is_nonzero_and_only_supported_counts_install() {
 #[test]
 fn traffic_install_errors_precede_unsupported_execution() {
     let revision = revision();
-    let execution = ExecutionConfig::new(NonZeroU32::new(2).unwrap());
+    let execution = ExecutionConfig::new(NonZeroU32::new(17).unwrap());
     for (dt, expected) in [
         (
             0,

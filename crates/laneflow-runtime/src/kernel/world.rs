@@ -378,6 +378,8 @@ impl crate::kernel::state::WorldState {
                 occupancy_scratch,
                 motion_cache: Vec::new(),
                 next_states,
+                waiting_preview_inputs: Vec::new(),
+                waiting_preview_slots: Vec::new(),
             },
             admin: crate::admin::state::AdministrativeState {
                 migration_journal,
@@ -1435,8 +1437,12 @@ impl crate::kernel::state::WorldState {
     /// 加法溢出、观测状态序号或等待区 admission 序号耗尽、运动产生非有限值、
     /// 占用容量或预留失败、或内部不变量遍历失败时返回相应 [`StepError`]；失败
     /// 不推进时间，已提交查询与失败前一致。
-    pub fn step(&mut self, input: TickInput) -> Result<StepOutcome, StepError> {
-        self.step_vehicles(input)
+    pub fn step(
+        &mut self,
+        input: TickInput,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
+    ) -> Result<StepOutcome, StepError> {
+        self.step_vehicles(input, execution)
     }
 
     /// 稳定顺序的已提交 pose 源。
@@ -2200,8 +2206,9 @@ impl TrafficWorld {
     /// 本次执行 panic 会先结算全部已分发任务，再向宿主传播。
     pub fn step(&mut self, input: TickInput) -> Result<StepOutcome, StepError> {
         self.execution.assert_usable();
-        self.execution
-            .run(&mut self.state, |state, _resources| state.step(input))
+        self.execution.run(&mut self.state, |state, resources| {
+            state.step(input, Some(resources))
+        })
     }
 
     /// 稳定顺序的已提交 pose 源。

@@ -49,7 +49,7 @@
 - [`traffic-runtime-execution-config.md`](traffic-runtime-execution-config.md)：Accepted；
   配置分离 API、世界执行资源、候选计划、安装/恢复/切换与 LFRS 版本轴。
 
-两文配套 ADR 0030（Accepted）；配置分离与 LFRS 6 已实现，生产当前仅支持 worker 1。
+两文配套 ADR 0030（Accepted）；配置分离与 LFRS 6 已实现，worker 1–16 已开放（#705）。
 
 ## 领域规则
 

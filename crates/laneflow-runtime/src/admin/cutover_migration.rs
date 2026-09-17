@@ -1011,6 +1011,8 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             occupancy_scratch,
             motion_cache: Vec::new(),
             next_states,
+            waiting_preview_inputs: Vec::new(),
+            waiting_preview_slots: Vec::new(),
         },
         admin: crate::admin::state::AdministrativeState {
             migration_journal,
@@ -4422,7 +4424,7 @@ pub(crate) mod tests {
         // 候选在新根上继续确定性步进。
         let mut candidate = candidate;
         candidate
-            .step(TickInput::new(100))
+            .step(TickInput::new(100), None)
             .expect("candidate steps");
         assert_eq!(candidate.tick_index(), world.tick_index() + 1);
     }
@@ -4651,7 +4653,9 @@ pub(crate) mod tests {
         // 继续步进仍逐点一致（交通语义段逐字节相等的直接推论）。
         for _ in 0..4 {
             world.step(TickInput::new(100)).expect("base step");
-            candidate.step(TickInput::new(100)).expect("candidate step");
+            candidate
+                .step(TickInput::new(100), None)
+                .expect("candidate step");
             assert_same(&world, &candidate);
         }
     }

@@ -9,9 +9,10 @@
 [快照](traffic-runtime-snapshot.md)、[修订切换](traffic-runtime-revision-cutover.md)
 
 本文定义已接受的配置 API 与执行生命周期合同。当前配置已分离，LFRS 6 只保存
-交通配置，安装和恢复仅支持 worker 1。活动世界独占执行资源，私有候选只持有交通
-状态和目标计划；多线程资源原语不构成生产交通并行能力。单次测量和进度由 GitHub
-管理，配置可表达不证明并行能力已实现。
+交通配置，安装和恢复支持 worker 1–16（#705 开放）。活动世界独占执行资源，私有
+候选只持有交通状态和目标计划；P2 运动/前视预览按 worker 数真实分发，P3/P5 仍由
+协调器串行（#706），城市性能认证未完成（#707）。单次测量和进度由 GitHub
+管理，配置可表达不证明性能预算已达成。
 
 ## 1. 配置职责
 
@@ -80,7 +81,8 @@ pub fn restore_lfrs(
 ) -> Result<RestoredSnapshot, SnapshotRestoreError>;
 ```
 
-0 在宿主构造 `NonZeroU32` 时被拒绝，串行可用 `NonZeroU32::MIN`。当前后端只支持 1 时，请求更大 worker 数须返回执行能力错误；类型可表达不代表后端
+0 在宿主构造 `NonZeroU32` 时被拒绝，串行可用 `NonZeroU32::MIN`。当前后端支持
+worker 1–16，请求更大 worker 数须返回执行能力错误；类型可表达不代表任意数量
 可执行。首版不增加猜测性 `Default`、旧构造器、弃用别名或转换入口。
 
 `step(&mut self, TickInput) -> Result<StepOutcome, StepError>` 保持同步；返回前完成
@@ -192,10 +194,9 @@ fresh restore 继承快照世界身份、建立新的本地世代/会话；不�
 | `ExecutionPlanError::SizeOverflow`                                        | 布局长度或索引计算溢出             | install / restore / cutover 各自的 `ExecutionPlan` 包装               |
 | `ExecutionPlanError::ReservationFailed`                                   | 目标计划或其必需缓冲准备失败       | 同上                                                                  |
 
-公开安装和恢复当前只接受 worker 1；计划错误由安装、恢复及两种切换的
-`ExecutionPlan` 包装。线程资源失败在私有多 worker 原语中验证，开放生产 worker
-能力仍须完成对应交通计算与正确性验收。执行错误不冒充交通容量、领域 StepError
-或无关暂存错误。执行器 panic 的 join、世界失效及 drop 遵循
+公开安装和恢复接受 worker 1–16（#705 已开放）；计划错误由安装、恢复及两种切换的
+`ExecutionPlan` 包装。线程资源失败在私有原语中验证并结算。执行错误不冒充交通
+容量、领域 StepError 或无关暂存错误。执行器 panic 的 join、世界失效及 drop 遵循
 [并行执行 §4.3](traffic-runtime-parallel-execution.md#43-join取消与失败清理)；初始化
 错误的 Result 不构成运行中 panic 可恢复的承诺。
 
@@ -269,7 +270,7 @@ wire pin、xtask schema 路径与 Rust/C++/C# 检查保持一致。不手改生�
 | 交通语义   | 四项容量、dt、策略和 Conflict/Waiting/parking 恢复；digest 7 固定前像字节保持            |
 | 生命周期   | 部分资源初始化失败清理；drop/失败不遗留任务；fresh restore 无半成品                      |
 | 切换       | 两条路径的计划准备失败零发布、资源不复制、追赶后计划新鲜度与首拍目标绑定                 |
-| 并行       | 合法配置下状态/事件/逻辑首错/retry 等价；旧 epoch、join 与序号配对                       |
+| 并行       | worker 1–16 可安装/恢复；P2 预览真实多 worker 分发，P3/P5 串行待 #706；合法配置下状态/事件/逻辑首错/retry 等价；旧 epoch、join 与序号配对 |
 | 成本       | 活动/候选/退休计划、线程栈和队列峰值；最终补齐与静默窗口成本                             |
 
 已接受的边界是世界独占资源、候选复用原资源和首版独立计算并行。配置拆分与
