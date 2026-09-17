@@ -3456,10 +3456,22 @@ pub(crate) mod tests {
     ) -> (TrafficWorld, Vec<RouteHandle>) {
         assert!(spawned <= count, "spawned vehicles fit path count");
         let revision = waiting_scale_revision_with_layout(8.0, 1, ScaleLayout::IdleZones(count));
+        install_multi_gate(&revision, count, spawned, world_id)
+    }
+
+    /// 从既有修订安装 multi-gate 世界并注册全部路线、生成 `spawned` 辆车；
+    /// 同一制品可构建两个等价根供同修订切换测试使用。
+    fn install_multi_gate(
+        revision: &Arc<laneflow_static_network::SharedNetworkRevision>,
+        count: usize,
+        spawned: usize,
+        world_id: u64,
+    ) -> (TrafficWorld, Vec<RouteHandle>) {
+        assert!(spawned <= count, "spawned vehicles fit path count");
         let origin = *revision.canonical_origin();
         let count_u32 = u32::try_from(count).unwrap();
         let mut world = TrafficWorld::install(
-            Arc::clone(&revision),
+            Arc::clone(revision),
             WorldConfig::new(count_u32, count_u32, u64::from(count_u32) * 3, 1, 100),
             crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             CommittedNetworkSource::Published {
@@ -3472,7 +3484,7 @@ pub(crate) mod tests {
                 .unwrap(),
             },
             world_id,
-            crate::test_policy::selection(&revision),
+            crate::test_policy::selection(revision),
         )
         .unwrap();
         let mut routes = Vec::new();
@@ -6500,6 +6512,178 @@ pub(crate) mod tests {
                 slot_fallback: 2,
             }
         );
+    }
+
+    /// 逐步对拍记录：digest、最新 Waiting 决策与统一事件、tick/时间游标。
+    fn dispatch_tick_record(world: &TrafficWorld) -> String {
+        let snapshot = world.capture_snapshot().unwrap();
+        format!(
+            "{:?}|{:?}|{:?}|{:?}",
+            crate::deterministic_state_digest(&snapshot).unwrap(),
+            world.latest_waiting_decisions(),
+            world.latest_transition_events(),
+            (world.tick_index(), world.time_ms()),
+        )
+    }
+
+    /// fresh restore 后首拍（#705 审阅：小场景关键组合移入 lib）：恢复前后
+    /// 逐步 digest/决策/事件与 worker=1 参考一致；多 worker 臂经强制分发在
+    /// 每拍真实走 P2 分发（`WaitingPreviewPathCounts` 证明），worker=1 走融合。
+    #[test]
+    fn dispatch_matches_after_fresh_restore_first_tick() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = super::force_preview_dispatch();
+        const WORLD_ID: u64 = 705_760;
+        const PRE_TICKS: usize = 4;
+        const POST_TICKS: usize = 6;
+        let mut reference: Option<Vec<String>> = None;
+        for &workers in &[1_u32, 2, 4] {
+            let counts_before = preview_path_counts();
+            let mut world = multi_gate_world_with_id(16, WORLD_ID);
+            install_execution(&mut world, workers);
+            let mut records = Vec::with_capacity(PRE_TICKS + POST_TICKS);
+            for _ in 0..PRE_TICKS {
+                world.step(TickInput::new(100)).unwrap();
+                records.push(dispatch_tick_record(&world));
+            }
+            let bytes = crate::encode_lfrs(&world.capture_snapshot().unwrap());
+            let mut restored = crate::restore_lfrs(
+                &bytes,
+                world.revision(),
+                world.committed_source().clone(),
+                world.config(),
+                exec_config(workers),
+                crate::SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4_096),
+            )
+            .unwrap()
+            .into_world();
+            for _ in 0..POST_TICKS {
+                restored.step(TickInput::new(100)).unwrap();
+                records.push(dispatch_tick_record(&restored));
+            }
+            let counts = preview_path_counts();
+            let delta = WaitingPreviewPathCounts {
+                dispatched: counts.dispatched - counts_before.dispatched,
+                fused: counts.fused - counts_before.fused,
+                slot_fallback: counts.slot_fallback - counts_before.slot_fallback,
+            };
+            if workers == 1 {
+                assert_eq!(
+                    delta,
+                    WaitingPreviewPathCounts {
+                        dispatched: 0,
+                        fused: PRE_TICKS + POST_TICKS,
+                        slot_fallback: 0,
+                    },
+                    "worker=1 必须全融合"
+                );
+            } else {
+                assert_eq!(
+                    delta,
+                    WaitingPreviewPathCounts {
+                        dispatched: PRE_TICKS + POST_TICKS,
+                        fused: 0,
+                        slot_fallback: 0,
+                    },
+                    "workers={workers} 必须每拍真实分发"
+                );
+            }
+            if let Some(reference) = &reference {
+                assert_eq!(records, *reference, "workers={workers} restore 后对拍发散");
+            } else {
+                reference = Some(records);
+            }
+        }
+    }
+
+    /// 同修订切换后首拍（#705 审阅：小场景关键组合移入 lib）：同一制品构建
+    /// 两个等价根，换根重编译全部路线后继续步进；切换后逐步 digest/决策/
+    /// 事件与 worker=1 参考一致，多 worker 臂经强制分发每拍真实走 P2 分发。
+    #[test]
+    fn dispatch_matches_after_same_revision_cutover_first_tick() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = super::force_preview_dispatch();
+        const WORLD_ID: u64 = 705_770;
+        const PRE_TICKS: usize = 4;
+        const POST_TICKS: usize = 6;
+        let base = waiting_scale_revision_with_layout(8.0, 1, ScaleLayout::IdleZones(16));
+        let republished = waiting_scale_revision_with_layout(8.0, 1, ScaleLayout::IdleZones(16));
+        let mut reference: Option<Vec<String>> = None;
+        for &workers in &[1_u32, 2, 4] {
+            let counts_before = preview_path_counts();
+            let (mut world, _routes) = install_multi_gate(&base, 16, 16, WORLD_ID);
+            install_execution(&mut world, workers);
+            let mut records = Vec::with_capacity(PRE_TICKS + POST_TICKS);
+            for _ in 0..PRE_TICKS {
+                world.step(TickInput::new(100)).unwrap();
+                records.push(dispatch_tick_record(&world));
+            }
+            let descriptor = NetworkRevisionCutoverDescriptor::new(
+                LfcaOriginBinding::from_canonical_origin(*world.revision().canonical_origin()),
+                LfcaOriginBinding::from_canonical_origin(*republished.canonical_origin()),
+                None,
+                MigrationPolicyKind::SameRevisionRestore,
+                world.world_binding(),
+            );
+            let origin = republished.canonical_origin();
+            let _events = world
+                .cutover_same_revision(
+                    Arc::clone(&republished),
+                    CommittedNetworkSource::Published {
+                        reference: PublishedLfcaReference::new(
+                            "fixture://multi-gate-republished",
+                            origin.canonical_artifact_digest(),
+                            origin.canonical_artifact_byte_length(),
+                            origin.network_revision(),
+                        )
+                        .unwrap(),
+                    },
+                    &descriptor,
+                    &CutoverPreflightLimits::new(1_048_576),
+                )
+                .unwrap();
+            for _ in 0..POST_TICKS {
+                world.step(TickInput::new(100)).unwrap();
+                records.push(dispatch_tick_record(&world));
+            }
+            let counts = preview_path_counts();
+            let delta = WaitingPreviewPathCounts {
+                dispatched: counts.dispatched - counts_before.dispatched,
+                fused: counts.fused - counts_before.fused,
+                slot_fallback: counts.slot_fallback - counts_before.slot_fallback,
+            };
+            if workers == 1 {
+                assert_eq!(
+                    delta,
+                    WaitingPreviewPathCounts {
+                        dispatched: 0,
+                        fused: PRE_TICKS + POST_TICKS,
+                        slot_fallback: 0,
+                    },
+                    "worker=1 必须全融合"
+                );
+            } else {
+                assert_eq!(
+                    delta,
+                    WaitingPreviewPathCounts {
+                        dispatched: PRE_TICKS + POST_TICKS,
+                        fused: 0,
+                        slot_fallback: 0,
+                    },
+                    "workers={workers} 必须每拍真实分发"
+                );
+            }
+            if let Some(reference) = &reference {
+                assert_eq!(
+                    records, *reference,
+                    "workers={workers} 同修订切换后对拍发散"
+                );
+            } else {
+                reference = Some(records);
+            }
+        }
     }
 
     /// P2 计算 panic 端到端：panic 不按 `StepError` 映射；世界永久失效，

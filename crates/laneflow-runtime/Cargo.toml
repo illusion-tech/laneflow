@@ -39,7 +39,11 @@ path = "src/kernel/tests/performance_profile/runtime_profile_allocation.rs"
 
 [[test]]
 name = "preview_dispatch_allocation_evidence"
-path = "tests/preview_dispatch_allocation_evidence.rs"
+path = "examples/preview_parallel_wall_clock/allocation_evidence.rs"
+
+[[test]]
+name = "preview_at_threshold_equivalence"
+path = "examples/preview_parallel_wall_clock/at_threshold_equivalence.rs"
 
 [dependencies]
 laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
