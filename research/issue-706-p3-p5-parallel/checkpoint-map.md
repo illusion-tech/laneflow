@@ -285,6 +285,17 @@
 
 ## 4. P5：`stage_vehicle_transitions`（tick.rs:1565）与串行尾
 
+> **增量 C 维护注记（2026-09-18）**：#5-15 的逐车单元在
+> （tick.rs，拍初基线 + 冻结 P4 暂存 + P2 cache 的只读
+> 视图）上按原顺序求值；Pool 资源经  分发
+> （输入表 checked 预留、块对齐结果槽位、完整 join），协调器按 Active
+> 序规范消费：#14 到达真实  与 #15  仍在
+> 该车原逻辑位置；任务侧 first_error 原子仅作更晚块跳过的调度提示。
+> 块级诊断把 MOTION_CACHE_HITS/MISSES、MOTION/Horizon 重算计数按块
+> 记录、join 后汇总回协调器线程（既有计数断言口径不变）。阈值
+> （初版保守，待增量 E 证据），
+> cfg(test)  强制入口。§4 检查点编号与语义不变。
+>
 > **增量 B 维护注记（2026-09-18）**：本节检查点 #5-14 已提取为
 > `VehicleMotionOutcome`（tick.rs:1567-1574）与 `vehicle_motion_outcome`
 > 原语（tick.rs:1580-1642），检查次序、错误变体与 §6.3 计数位置逐行不变；

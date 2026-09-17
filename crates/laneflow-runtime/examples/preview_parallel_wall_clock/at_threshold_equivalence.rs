@@ -28,7 +28,8 @@ fn tick_record(world: &TrafficWorld, outcome: &StepOutcome) -> String {
             world.tick_index(),
             world.time_ms(),
             outcome.tick_index(),
-            outcome.time_ms()
+            outcome.time_ms(),
+            outcome.parking_arrivals()
         ),
     )
 }

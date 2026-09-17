@@ -156,6 +156,289 @@ fn note_motion_cache_use(hit: bool) {
     }
 }
 
+/// P5 分发阈值：Active 投影低于该值时融合执行逐车运动；初版保守选择
+///（与 P2 同值、独立常量），待增量 E 机制证据登记后校准。只决定本阶段
+/// 谁执行，不改变语义、首错、容量和输出。
+const MOTION_DISPATCH_MIN_ACTIVE: usize = 1_024;
+
+/// 测试专用：P5 本阶段谁执行的计数证据（与 P2 的 WaitingPreviewPathCounts
+/// 相互独立，按阶段自己的口径断言；融合/分发/回退互斥）。
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct MotionPathCounts {
+    pub(crate) dispatched: usize,
+    pub(crate) fused: usize,
+    pub(crate) slot_fallback: usize,
+}
+
+#[cfg(test)]
+pub(crate) fn motion_path_counts() -> MotionPathCounts {
+    MOTION_PATH_COUNTS.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn count_motion_path(update: impl FnOnce(&mut MotionPathCounts)) {
+    MOTION_PATH_COUNTS.with(|counts| {
+        let mut value = counts.get();
+        update(&mut value);
+        counts.set(value);
+    });
+}
+
+#[cfg(test)]
+thread_local! {
+    static MOTION_PATH_COUNTS: std::cell::Cell<MotionPathCounts> = const { std::cell::Cell::new(MotionPathCounts { dispatched: 0, fused: 0, slot_fallback: 0 }) };
+    /// 生产分发阈值为保守 1_024；小场景测试经该守卫强制 P5 真实分发。
+    static MOTION_FORCE_DISPATCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// join 完成后把槽位改写为缺失的注入位置（完成前沿检出测试）。
+    static MOTION_SLOT_GAP: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+    static LAST_MOTION_DISPATCH_STATS: std::cell::Cell<Option<crate::kernel::execution::DispatchStats>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn motion_dispatch_forced() -> bool {
+    MOTION_FORCE_DISPATCH.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub(crate) struct ForceMotionDispatchGuard(bool);
+
+#[cfg(test)]
+impl Drop for ForceMotionDispatchGuard {
+    fn drop(&mut self) {
+        MOTION_FORCE_DISPATCH.with(|forced| forced.set(self.0));
+    }
+}
+
+/// 测试专用：本拍起强制 P5 真实分发（工作集非空时），返回复位守卫。
+#[cfg(test)]
+pub(crate) fn force_motion_dispatch() -> ForceMotionDispatchGuard {
+    ForceMotionDispatchGuard(MOTION_FORCE_DISPATCH.with(|forced| forced.replace(true)))
+}
+
+/// 测试专用：最近一次 P5 分发的调度统计（与 P2 的统计槽位按阶段分离）。
+#[cfg(test)]
+pub(crate) fn last_motion_dispatch_stats() -> Option<crate::kernel::execution::DispatchStats> {
+    LAST_MOTION_DISPATCH_STATS.with(std::cell::Cell::get)
+}
+
+/// 测试专用：horizon/运动内核重算计数（分发路径经块级记录汇总后的总值）。
+#[cfg(test)]
+pub(crate) fn motion_diagnostic_counts() -> (usize, usize) {
+    (
+        HORIZON_CALCULATIONS.with(std::cell::Cell::get),
+        MOTION_CALCULATIONS.with(std::cell::Cell::get),
+    )
+}
+
+/// 线程本地四计数快照；分发 join 后按块级记录汇总回协调器线程。
+#[cfg(test)]
+#[derive(Clone, Copy, Default)]
+struct MotionTlsSnapshot {
+    horizon: usize,
+    motion: usize,
+    hits: usize,
+    misses: usize,
+}
+
+#[cfg(test)]
+fn motion_tls_snapshot() -> MotionTlsSnapshot {
+    MotionTlsSnapshot {
+        horizon: HORIZON_CALCULATIONS.with(std::cell::Cell::get),
+        motion: MOTION_CALCULATIONS.with(std::cell::Cell::get),
+        hits: MOTION_CACHE_HITS.with(std::cell::Cell::get),
+        misses: MOTION_CACHE_MISSES.with(std::cell::Cell::get),
+    }
+}
+
+/// 块级诊断记录：一个执行块的四计数增量（任务写本块独占槽，join 后
+/// 由协调器汇总进线程本地计数器，使分发路径读到的总值与融合一致）。
+#[cfg(test)]
+#[derive(Default)]
+struct MotionWorkChunkRecord {
+    horizon: std::sync::atomic::AtomicU64,
+    motion: std::sync::atomic::AtomicU64,
+    hits: std::sync::atomic::AtomicU64,
+    misses: std::sync::atomic::AtomicU64,
+}
+
+#[cfg(test)]
+impl MotionWorkChunkRecord {
+    fn store_deltas(&self, before: MotionTlsSnapshot) {
+        use std::sync::atomic::Ordering;
+        let after = motion_tls_snapshot();
+        self.horizon.store(
+            after.horizon.wrapping_sub(before.horizon) as u64,
+            Ordering::Relaxed,
+        );
+        self.motion.store(
+            after.motion.wrapping_sub(before.motion) as u64,
+            Ordering::Relaxed,
+        );
+        self.hits.store(
+            after.hits.wrapping_sub(before.hits) as u64,
+            Ordering::Relaxed,
+        );
+        self.misses.store(
+            after.misses.wrapping_sub(before.misses) as u64,
+            Ordering::Relaxed,
+        );
+    }
+}
+
+/// 汇总：协调器线程计数器 = 分发前基线 + 全部块增量（调用线程自己的块
+/// 增量经记录回灌，不重复计）。
+#[cfg(test)]
+fn aggregate_motion_tls(baseline: MotionTlsSnapshot, records: &[MotionWorkChunkRecord]) {
+    use std::sync::atomic::Ordering;
+    let mut sums = MotionTlsSnapshot::default();
+    for record in records {
+        sums.horizon += record.horizon.load(Ordering::Relaxed) as usize;
+        sums.motion += record.motion.load(Ordering::Relaxed) as usize;
+        sums.hits += record.hits.load(Ordering::Relaxed) as usize;
+        sums.misses += record.misses.load(Ordering::Relaxed) as usize;
+    }
+    HORIZON_CALCULATIONS.with(|v| v.set(baseline.horizon + sums.horizon));
+    MOTION_CALCULATIONS.with(|v| v.set(baseline.motion + sums.motion));
+    MOTION_CACHE_HITS.with(|v| v.set(baseline.hits + sums.hits));
+    MOTION_CACHE_MISSES.with(|v| v.set(baseline.misses + sums.misses));
+}
+
+/// P5 任务侧错误/失败注入（进程级原子量，按世界身份 + Active 紧凑位置
+/// 武装；与 P2 的 preview_injection 相互独立，P2 融合首遍不会消费）。
+#[cfg(test)]
+mod motion_injection {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+    pub(super) const DISABLED_WORLD: u64 = u64::MAX;
+
+    pub(super) static NONFINITE_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
+    pub(super) static NONFINITE_POSITIONS: AtomicU64 = AtomicU64::new(0);
+    pub(super) static ARRIVAL_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
+    pub(super) static INPUT_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
+    pub(super) static SLOT_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
+
+    pub(super) fn position_mask(positions: &[usize]) -> u64 {
+        positions.iter().fold(0_u64, |mask, position| {
+            assert!(
+                *position < u64::BITS as usize,
+                "motion injection position fits mask"
+            );
+            mask | (1_u64 << position)
+        })
+    }
+
+    pub(super) fn nonfinite_injected(world_id: u64, active_position: usize) -> bool {
+        NONFINITE_WORLD.load(Ordering::SeqCst) == world_id
+            && active_position < u64::BITS as usize
+            && NONFINITE_POSITIONS.load(Ordering::SeqCst) & (1_u64 << active_position) != 0
+    }
+
+    pub(super) fn arrival_reserve_injected() -> bool {
+        ARRIVAL_RESERVE_FAILURE.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn input_reserve_injected() -> bool {
+        INPUT_RESERVE_FAILURE.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn slot_reserve_injected() -> bool {
+        SLOT_RESERVE_FAILURE.load(Ordering::SeqCst)
+    }
+}
+
+/// 只恢复 NonFinite 两个字段的复位守卫：与到达/预留类注入可任意组合
+///（全量快照恢复会被后创建的兄弟注入覆盖）。
+#[cfg(test)]
+pub(crate) struct MotionNonfiniteGuard(u64, u64);
+
+#[cfg(test)]
+impl Drop for MotionNonfiniteGuard {
+    fn drop(&mut self) {
+        use std::sync::atomic::Ordering;
+        motion_injection::NONFINITE_WORLD.store(self.0, Ordering::SeqCst);
+        motion_injection::NONFINITE_POSITIONS.store(self.1, Ordering::SeqCst);
+    }
+}
+
+/// 测试专用：按 Active 紧凑位置武装 P5 逐车 NonFiniteMotion 注入。
+#[cfg(test)]
+pub(crate) fn inject_motion_nonfinite(world_id: u64, positions: &[usize]) -> MotionNonfiniteGuard {
+    use std::sync::atomic::Ordering;
+    MotionNonfiniteGuard(
+        motion_injection::NONFINITE_WORLD.swap(world_id, Ordering::SeqCst),
+        motion_injection::NONFINITE_POSITIONS
+            .swap(motion_injection::position_mask(positions), Ordering::SeqCst),
+    )
+}
+
+/// 原子布尔注入的复位守卫。
+#[cfg(test)]
+pub(crate) struct MotionBoolGuard(&'static std::sync::atomic::AtomicBool, bool);
+
+#[cfg(test)]
+impl Drop for MotionBoolGuard {
+    fn drop(&mut self) {
+        self.0.store(self.1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+fn swap_motion_flag(flag: &'static std::sync::atomic::AtomicBool) -> MotionBoolGuard {
+    MotionBoolGuard(flag, flag.swap(true, std::sync::atomic::Ordering::SeqCst))
+}
+
+/// 测试专用：下一次到达观察真实预留强制失败。
+#[cfg(test)]
+pub(crate) fn fail_motion_arrival_reserve() -> MotionBoolGuard {
+    swap_motion_flag(&motion_injection::ARRIVAL_RESERVE_FAILURE)
+}
+
+/// 测试专用：下一次输入发现预留强制失败（冷态/增长回退测试）。
+#[cfg(test)]
+pub(crate) fn fail_motion_input_reserve() -> MotionBoolGuard {
+    swap_motion_flag(&motion_injection::INPUT_RESERVE_FAILURE)
+}
+
+/// 测试专用：下一次结果槽位预留强制失败（冷态/增长回退测试）。
+#[cfg(test)]
+pub(crate) fn fail_motion_slot_reserve() -> MotionBoolGuard {
+    swap_motion_flag(&motion_injection::SLOT_RESERVE_FAILURE)
+}
+
+#[cfg(test)]
+pub(crate) struct MotionSlotGapGuard(Option<usize>);
+
+#[cfg(test)]
+impl Drop for MotionSlotGapGuard {
+    fn drop(&mut self) {
+        MOTION_SLOT_GAP.with(|gap| gap.set(self.0));
+    }
+}
+
+/// 测试专用：join 完成后把指定 Active 位置的槽位改写为 `Pending`，
+/// 验证完成前沿不变量在首错之前的检出。
+#[cfg(test)]
+pub(crate) fn drop_motion_slot_at(position: usize) -> MotionSlotGapGuard {
+    MotionSlotGapGuard(MOTION_SLOT_GAP.with(|gap| gap.replace(Some(position))))
+}
+
+/// 到达观察的规范消费：真实 `try_reserve(1)` + 追加（含注入失败面）。
+fn push_parking_arrival(
+    parking_arrivals: &mut Vec<ParkingArrivalObservation>,
+    arrival: ParkingArrivalObservation,
+) -> Result<(), StepError> {
+    #[cfg(test)]
+    if motion_injection::arrival_reserve_injected() {
+        return Err(StepError::ParkingObservationAllocFailed);
+    }
+    parking_arrivals
+        .try_reserve(1)
+        .map_err(|_| StepError::ParkingObservationAllocFailed)?;
+    parking_arrivals.push(arrival);
+    Ok(())
+}
+
 #[cfg(test)]
 fn injected_step_failure(point: StepFailpoint) -> Result<(), StepError> {
     STEP_FAILPOINT.with(|failpoint| {
@@ -301,11 +584,14 @@ mod transaction_tests {
             world
                 .state
                 .step_workspace()
-                .stage_vehicle_transitions(0.1, 1, 100, &mut actual),
-            reference
-                .state
-                .step_workspace()
-                .stage_vehicle_transitions(0.1, 1, 100, &mut expected)
+                .stage_vehicle_transitions(0.1, 1, 100, &mut actual, None),
+            reference.state.step_workspace().stage_vehicle_transitions(
+                0.1,
+                1,
+                100,
+                &mut expected,
+                None
+            )
         );
         assert_eq!(actual, expected);
         assert!(world.state.workspace.motion_cache.is_empty());
@@ -892,25 +1178,30 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let serial_checkpoint = self.workspace.conflict.serial_checkpoint();
         let mut updates = std::mem::take(&mut self.workspace.next_states);
         updates.clear();
-        let parking_arrivals =
-            match self.stage_vehicle_transitions(delta_s, tick_index, time_ms, &mut updates) {
-                Ok(arrivals) => arrivals,
-                Err(error) => {
-                    self.rollback_waiting_step();
-                    self.committed
-                        .prepare_conflict(&mut self.derived, &mut self.workspace.conflict)
-                        .discard_staged();
-                    self.workspace.conflict_grants.clear();
-                    // grant 不离开本次准备；先丢弃所有凭证，再恢复失败 attempt 的额度。
-                    self.workspace.conflict.restore_serial(serial_checkpoint);
-                    self.workspace.conflict_staged_decisions.clear();
-                    self.workspace.conflict_passage_transitions.clear();
-                    self.workspace.motion_cache.clear();
-                    updates.clear();
-                    self.workspace.next_states = updates;
-                    return Err(error);
-                }
-            };
+        let parking_arrivals = match self.stage_vehicle_transitions(
+            delta_s,
+            tick_index,
+            time_ms,
+            &mut updates,
+            execution,
+        ) {
+            Ok(arrivals) => arrivals,
+            Err(error) => {
+                self.rollback_waiting_step();
+                self.committed
+                    .prepare_conflict(&mut self.derived, &mut self.workspace.conflict)
+                    .discard_staged();
+                self.workspace.conflict_grants.clear();
+                // grant 不离开本次准备；先丢弃所有凭证，再恢复失败 attempt 的额度。
+                self.workspace.conflict.restore_serial(serial_checkpoint);
+                self.workspace.conflict_staged_decisions.clear();
+                self.workspace.conflict_passage_transitions.clear();
+                self.workspace.motion_cache.clear();
+                updates.clear();
+                self.workspace.next_states = updates;
+                return Err(error);
+            }
+        };
         Ok(CommitPlan {
             updates,
             parking_arrivals,
@@ -1570,23 +1861,168 @@ pub(crate) struct VehicleMotionOutcome {
     pub(crate) arrival: Option<ParkingArrivalObservation>,
 }
 
-impl crate::kernel::phase::StepWorkspace<'_> {
-    /// 编排一拍的转移暂存：Conflict 准备、逐车运动、Waiting 定稿、下一拍信号与输出。
+/// P5 任务视图：拍初基线只读投影 + 本拍已冻结的协调器暂存（P4 裁决的
+/// waiting/conflict 运动计划与 P2 motion_cache）。逐车原语只读这些输入、
+/// 写独占结果槽位；grant 生命周期不出协调器（视图不含可写引用）。
+#[derive(Clone, Copy)]
+struct MotionTaskView<'a> {
+    read: crate::kernel::phase::StepReadView<'a>,
+    waiting_plans: &'a [crate::kernel::waiting::WaitingVehiclePlan],
+    waiting_plan_by_vehicle: &'a [Option<std::num::NonZeroU32>],
+    conflict_motion_by_vehicle: &'a [Option<crate::kernel::conflict_tick::ConflictMotionPlan>],
+    conflict_staged: &'a crate::kernel::conflict::ConflictWorkspace,
+    motion_cache: &'a [MotionCacheEntry],
+}
+
+impl MotionTaskView<'_> {
+    /// waiting_stop_for 的冻结暂存视图版：读取本拍 Waiting 裁决暂存与编译路线；
+    /// 检查与错误变体与 StepWorkspace::waiting_stop_for 逐行一致。
+    fn waiting_stop_for(
+        self,
+        state: &VehicleState,
+    ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
+        let Some(plan) = self
+            .waiting_plan_by_vehicle
+            .get(state.handle.index() as usize)
+            .copied()
+            .flatten()
+            .and_then(|index| self.waiting_plans.get(index.get() as usize - 1).copied())
+            .filter(|plan| plan.vehicle == state.handle)
+        else {
+            return Ok(None);
+        };
+        let Some(stop_hop) = plan.stop_hop else {
+            return Ok(None);
+        };
+        let compiled = self
+            .read
+            .compiled_route(state.route)
+            .ok_or(StepError::WaitingInvariantViolation)?;
+        let stop_index = usize::try_from(stop_hop)
+            .ok()
+            .and_then(|value| value.checked_add(1))
+            .ok_or(StepError::WaitingInvariantViolation)?;
+        let distance = crate::kernel::tables::distance_to_occurrence_start(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            state.route_edge_index as usize,
+            state.progress_mm,
+            stop_index,
+        )
+        .ok_or(StepError::WaitingInvariantViolation)?;
+        Ok(Some(crate::kernel::waiting::WaitingStopConstraint {
+            distance,
+            hop: stop_hop,
+        }))
+    }
+
+    /// conflict_stop_for 的冻结暂存视图版：P4 裁决 motion plan + 拍初
+    /// reservation（committed 合并层）+ 静态编译路线；错误变体逐行一致。
+    fn conflict_stop_for(
+        self,
+        state: &VehicleState,
+    ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
+        let grant_hop = self
+            .conflict_motion_by_vehicle
+            .get(state.handle.index() as usize)
+            .copied()
+            .flatten()
+            .filter(|plan| plan.outcome == crate::ConflictDecisionOutcome::Granted)
+            .map(|plan| plan.gate_hop);
+        let compiled = self
+            .read
+            .compiled_route(state.route)
+            .ok_or(StepError::ConflictInvariantViolation)?;
+        let owned_hop = crate::kernel::conflict::ConflictRead::new(
+            &self.read.committed.conflict,
+            &self.read.derived.conflict,
+            self.conflict_staged,
+        )
+        .reservation(state.handle)
+        .map(|reservation| reservation.passage_range().admission_gate_hop());
+        let first_hop = if state.progress_mm == 0 && state.carry_um == 0 {
+            state.route_edge_index.saturating_sub(1)
+        } else {
+            state.route_edge_index
+        };
+        let held_waiting_hop = state.waiting_membership.and_then(|member| {
+            let index = compiled
+                .waiting
+                .partition_point(|entry| entry.release_hop < member.release_hop);
+            compiled
+                .waiting
+                .get(index)
+                .filter(|entry| {
+                    entry.release_hop == member.release_hop && entry.zone == member.waiting_zone
+                })
+                .map(|entry| entry.entry_hop)
+        });
+        let authorized = |hop| [grant_hop, owned_hop, held_waiting_hop].contains(&Some(hop));
+        // 直接查询有序资源出现项，不扫描不需要资源的普通 Gate。
+        // 同一 admission Gate 的多个 passage 用 partition_point 整段跳过。
+        let mut minimum = first_hop;
+        let conflict = loop {
+            let index = compiled
+                .conflicts
+                .partition_point(|entry| entry.admission_hop < minimum);
+            let Some(entry) = compiled.conflicts.get(index) else {
+                break None;
+            };
+            if !authorized(entry.admission_hop) {
+                break Some(entry.admission_hop);
+            }
+            minimum = entry
+                .admission_hop
+                .checked_add(1)
+                .ok_or(StepError::ConflictInvariantViolation)?;
+        };
+        let waiting = compiled
+            .waiting
+            .partition_point(|entry| entry.entry_hop < first_hop);
+        let waiting = compiled.waiting[waiting..]
+            .iter()
+            .find(|entry| !authorized(entry.entry_hop))
+            .map(|entry| entry.entry_hop);
+        // 申请资格不能决定运动屏障。既有权威和本拍 grant 只授权各自的 Gate。
+        let Some(hop) = conflict.into_iter().chain(waiting).min() else {
+            return Ok(None);
+        };
+        let distance = crate::kernel::tables::distance_to_occurrence_start(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            state.route_edge_index as usize,
+            state.progress_mm,
+            hop as usize + 1,
+        )
+        .ok_or(StepError::ConflictInvariantViolation)?;
+        Ok(Some(crate::kernel::waiting::WaitingStopConstraint {
+            distance,
+            hop,
+        }))
+    }
+
     /// P5 逐车运动原语：Parking binding 校验 → reservation/arrived_before 判定
     /// → waiting/conflict stop → MotionPreview 复用证明或重算 → next state 与
-    /// 停车到达检查。逐车检查次序与错误变体保持串行原义（§4 #5-14）；读取
-    /// 拍初 C(T)、P2 motion_cache 与已冻结的 P4 裁决暂存，不写入任何共享状态。
-    /// 融合路径直接调用本原语（增量 B）；多 worker 分发只改变调度与交付。
+    /// 停车到达检查。逐车检查次序与错误变体保持串行原义（checkpoint-map
+    /// §4 #5-14）；读取拍初 C(T)、P2 motion_cache 与已冻结的 P4 裁决暂存，
+    /// 不写入任何共享状态。融合与分发路径调用同一原语；到达观察仅为候选，
+    /// 真实预留由协调器在该车原逻辑位置执行。
     fn vehicle_motion_outcome(
-        &self,
+        self,
         state: &VehicleState,
         active_index: usize,
         delta_s: f32,
     ) -> Result<VehicleMotionOutcome, StepError> {
+        #[cfg(test)]
+        if motion_injection::nonfinite_injected(self.read.binding.world_id, active_index) {
+            return Err(StepError::NonFiniteMotion);
+        }
         let handle = state.handle;
-        let parking_binding = self.committed.parking.binding(handle);
+        let parking_binding = self.read.committed.parking.binding(handle);
         if !self
-            .read_view()
+            .read
             .parking_state_valid_with_binding(handle, *state, parking_binding)
         {
             return Err(StepError::ParkingInvariantViolation);
@@ -1598,12 +2034,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             }
             None => None,
         };
-        let arrived_before =
-            reservation.is_some_and(|reservation| self.parking_arrived_for(*state, reservation));
+        let arrived_before = reservation
+            .is_some_and(|reservation| self.read.parking_arrived_for(*state, reservation));
         let waiting_stop = self.waiting_stop_for(state)?;
         let conflict_stop = self.conflict_stop_for(state)?;
         let cached = self
-            .workspace
             .motion_cache
             .get(active_index)
             .filter(|entry| entry.vehicle == handle);
@@ -1614,15 +2049,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let cache_served = reused.is_some();
         let next = reused
             .or_else(|| {
-                self.read_view()
-                    .advance_active_vehicle_with_parking_binding(
-                        *state,
-                        delta_s,
-                        waiting_stop,
-                        conflict_stop,
-                        parking_binding,
-                        cached.and_then(|entry| entry.horizon),
-                    )
+                self.read.advance_active_vehicle_with_parking_binding(
+                    *state,
+                    delta_s,
+                    waiting_stop,
+                    conflict_stop,
+                    parking_binding,
+                    cached.and_then(|entry| entry.horizon),
+                )
             })
             .ok_or(StepError::NonFiniteMotion)?;
         // 复用/重算分类口径不变：成功求值后、到达检查前记账（与提取前同位）。
@@ -1632,7 +2066,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             if next.status != VehicleStatus::Active {
                 return Err(StepError::ParkingInvariantViolation);
             }
-            (!arrived_before && self.parking_arrived_for(next, reservation)).then(|| {
+            (!arrived_before && self.read.parking_arrived_for(next, reservation)).then(|| {
                 ParkingArrivalObservation {
                     vehicle: handle,
                     target: reservation.target(),
@@ -1643,13 +2077,197 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         };
         Ok(VehicleMotionOutcome { next, arrival })
     }
+}
 
+/// P5 融合路径：Active 序上逐车直调原语并就地规范消费，不物化输入表
+///（可选暂存回退时的同领域原语执行形态，checkpoint-map §6.2-4）。
+fn prepare_motion_fused(
+    workspace: &crate::kernel::state::TickWorkspace,
+    read: crate::kernel::phase::StepReadView<'_>,
+    delta_s: f32,
+    parking_arrivals: &mut Vec<ParkingArrivalObservation>,
+    updates: &mut Vec<(usize, VehicleState)>,
+) -> Result<(), StepError> {
+    let view = MotionTaskView {
+        read,
+        waiting_plans: &workspace.waiting_plans,
+        waiting_plan_by_vehicle: &workspace.waiting_plan_by_vehicle,
+        conflict_motion_by_vehicle: &workspace.conflict_motion_by_vehicle,
+        conflict_staged: &workspace.conflict,
+        motion_cache: &workspace.motion_cache,
+    };
+    for (active_index, handle) in view.read.derived.active_order.iter().copied().enumerate() {
+        let Some(state) = view.read.vehicle_state(handle) else {
+            continue;
+        };
+        debug_assert_eq!(state.status, VehicleStatus::Active);
+        let outcome = view.vehicle_motion_outcome(state, active_index, delta_s)?;
+        if let Some(arrival) = outcome.arrival {
+            push_parking_arrival(parking_arrivals, arrival)?;
+        }
+        let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
+        updates.push((slot, outcome.next));
+    }
+    Ok(())
+}
+
+/// P5 分发路径：输入发现（checked 预留，失败/注入回退融合）→ 任务独占
+/// 结果槽位、只读冻结视图计算 → 完整 join → 协调器按 Active 序规范消费
+///（该车失败在此处返回；到达观察在此处真实预留；然后 updates 接纳）。
+/// 首错来自规范消费，任务侧 first_error 原子仅作更晚块跳过的调度提示。
+#[allow(clippy::too_many_arguments)]
+fn prepare_motion_dispatched(
+    workspace: &mut crate::kernel::state::TickWorkspace,
+    read: crate::kernel::phase::StepReadView<'_>,
+    execution: &crate::kernel::execution::ExecutionResources,
+    delta_s: f32,
+    parking_arrivals: &mut Vec<ParkingArrivalObservation>,
+    updates: &mut Vec<(usize, VehicleState)>,
+) -> Result<(), StepError> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let view = MotionTaskView {
+        read,
+        waiting_plans: &workspace.waiting_plans,
+        waiting_plan_by_vehicle: &workspace.waiting_plan_by_vehicle,
+        conflict_motion_by_vehicle: &workspace.conflict_motion_by_vehicle,
+        conflict_staged: &workspace.conflict,
+        motion_cache: &workspace.motion_cache,
+    };
+    let inputs = &mut workspace.motion_inputs;
+    inputs.clear();
+    #[cfg(test)]
+    let input_injected = motion_injection::input_reserve_injected();
+    #[cfg(not(test))]
+    let input_injected = false;
+    // 上界用 Active 投影：输入只收 Active 三元组（§4 #5 同谓词）。
+    if inputs
+        .try_reserve(view.read.derived.active_order.len())
+        .is_err()
+        || input_injected
+    {
+        // 回退拍计入 slot_fallback，与 fused/dispatched 互斥。
+        #[cfg(test)]
+        count_motion_path(|counts| counts.slot_fallback += 1);
+        return prepare_motion_fused(workspace, view.read, delta_s, parking_arrivals, updates);
+    }
+    for (active_index, handle) in view.read.derived.active_order.iter().copied().enumerate() {
+        let Some(state) = view.read.vehicle_state(handle) else {
+            continue;
+        };
+        inputs.push((handle, active_index, *state));
+    }
+    let workload = inputs.len();
+    #[cfg(test)]
+    let forced = motion_dispatch_forced();
+    #[cfg(not(test))]
+    let forced = false;
+    if workload < MOTION_DISPATCH_MIN_ACTIVE && !(forced && workload > 0) {
+        #[cfg(test)]
+        count_motion_path(|counts| counts.fused += 1);
+        return prepare_motion_fused(workspace, view.read, delta_s, parking_arrivals, updates);
+    }
+    let slots = &mut workspace.motion_slots;
+    slots.clear();
+    #[cfg(test)]
+    let slot_injected = motion_injection::slot_reserve_injected();
+    #[cfg(not(test))]
+    let slot_injected = false;
+    if slots.try_reserve(workload).is_err() || slot_injected {
+        // 可选并行暂存预留失败：退回同一领域原语的融合求值，不新增领域错误。
+        #[cfg(test)]
+        count_motion_path(|counts| counts.slot_fallback += 1);
+        return prepare_motion_fused(workspace, view.read, delta_s, parking_arrivals, updates);
+    }
+    // 调度统计在可选槽位预留成功后才登记：回退拍只计 slot_fallback，
+    // 与 dispatched/fused 互斥。
+    #[cfg(test)]
+    count_motion_path(|counts| counts.dispatched += 1);
+    slots.resize(workload, crate::kernel::execution::DispatchSlot::Pending);
+    // 块数 = 线程数 × 2 与活动数取较小者；语义中立（与 P2 同默认值）。
+    let chunk_count = execution
+        .dispatch_threads()
+        .saturating_mul(2)
+        .clamp(1, workload);
+    let chunk_size = workload.div_ceil(chunk_count).max(1);
+    let first_error = AtomicUsize::new(usize::MAX);
+    #[cfg(test)]
+    let chunk_records = (0..chunk_count)
+        .map(|_| MotionWorkChunkRecord::default())
+        .collect::<Vec<_>>();
+    #[cfg(test)]
+    let tls_baseline = motion_tls_snapshot();
+    let compute =
+        |_chunk_view: crate::kernel::phase::StepReadView<'_>,
+         start: usize,
+         chunk: &mut [crate::kernel::execution::DispatchSlot<VehicleMotionOutcome>]| {
+            #[cfg(test)]
+            let chunk_baseline = motion_tls_snapshot();
+            for (offset, slot) in chunk.iter_mut().enumerate() {
+                let index = start + offset;
+                let (_handle, active_index, state) = workspace.motion_inputs[index];
+                match view.vehicle_motion_outcome(&state, active_index, delta_s) {
+                    Ok(outcome) => {
+                        *slot = crate::kernel::execution::DispatchSlot::Done(Ok(outcome));
+                    }
+                    Err(error) => {
+                        first_error.fetch_min(index, Ordering::Relaxed);
+                        *slot = crate::kernel::execution::DispatchSlot::Done(Err(error));
+                        break;
+                    }
+                }
+            }
+            #[cfg(test)]
+            chunk_records[start / chunk_size].store_deltas(chunk_baseline);
+        };
+    let dispatch_stats =
+        execution.try_for_each_chunk(view.read, slots, &first_error, chunk_size, compute);
+    #[cfg(test)]
+    {
+        aggregate_motion_tls(tls_baseline, &chunk_records);
+        crate::kernel::execution::note_last_dispatch_stats(dispatch_stats);
+        LAST_MOTION_DISPATCH_STATS.with(|cell| cell.set(Some(dispatch_stats)));
+        if let Some(position) = MOTION_SLOT_GAP.with(std::cell::Cell::get)
+            && let Some(slot) = slots.get_mut(position)
+        {
+            // 完成前沿不变量注入：首错之前出现未计算槽位，协调器须检出而非成功。
+            *slot = crate::kernel::execution::DispatchSlot::Pending;
+        }
+    }
+    #[cfg(not(test))]
+    let _ = dispatch_stats;
+    for ((vehicle, _active_index, _state), slot) in workspace.motion_inputs.iter().zip(slots.iter())
+    {
+        match slot {
+            crate::kernel::execution::DispatchSlot::Done(Ok(outcome)) => {
+                if let Some(arrival) = outcome.arrival {
+                    push_parking_arrival(parking_arrivals, arrival)?;
+                }
+                let slot = usize::try_from(vehicle.index()).expect("vehicle index fits usize");
+                updates.push((slot, outcome.next));
+            }
+            crate::kernel::execution::DispatchSlot::Done(Err(error)) => {
+                // 完整 join 后按 Active 序规范消费首错（不做最小下标预扫描）。
+                return Err(*error);
+            }
+            crate::kernel::execution::DispatchSlot::Pending
+            | crate::kernel::execution::DispatchSlot::Skipped => {
+                // 完成前沿不变量违例：首错之前的槽位缺失/跳过/旧 attempt
+                // 回报不得视为成功或无结果。
+                return Err(StepError::ConflictInvariantViolation);
+            }
+        }
+    }
+    Ok(())
+}
+
+impl crate::kernel::phase::StepWorkspace<'_> {
     pub(crate) fn stage_vehicle_transitions(
         &mut self,
         delta_s: f32,
         tick_index: u64,
         time_ms: u64,
         updates: &mut Vec<(usize, VehicleState)>,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<Vec<ParkingArrivalObservation>, StepError> {
         #[cfg(test)]
         let conflict_timer =
@@ -1663,22 +2281,35 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         let motion_timer =
             super::performance_profile::begin(super::performance_profile::Stage::MotionLoop);
-        for (active_index, handle) in self.derived.active_order.iter().copied().enumerate() {
-            let Some(state) = self.vehicle_state(handle) else {
-                continue;
-            };
-            debug_assert_eq!(state.status, VehicleStatus::Active);
-            let outcome = self.vehicle_motion_outcome(state, active_index, delta_s)?;
-            // 到达观察的真实预留与追加留在该车原逻辑位置（§4 #14）：全部可失败
-            // 逐车计算已先于本预留完成，A 车 reserve 失败早于 B 车领域错误。
-            if let Some(arrival) = outcome.arrival {
-                parking_arrivals
-                    .try_reserve(1)
-                    .map_err(|_| StepError::ParkingObservationAllocFailed)?;
-                parking_arrivals.push(arrival);
+        // 与 read_view 相同的字段级只读投影：持有 committed/derived 借用期间
+        // 仍可独占 workspace 字段完成发现、槽位写入与规范消费。
+        let read = crate::kernel::phase::StepReadView {
+            binding: self.binding,
+            committed: &self.committed,
+            derived: &self.derived,
+        };
+        match execution {
+            Some(resources @ crate::kernel::execution::ExecutionResources::Pool(_)) => {
+                prepare_motion_dispatched(
+                    self.workspace,
+                    read,
+                    resources,
+                    delta_s,
+                    &mut parking_arrivals,
+                    updates,
+                )?;
             }
-            let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
-            updates.push((slot, outcome.next));
+            _ => {
+                #[cfg(test)]
+                count_motion_path(|counts| counts.fused += 1);
+                prepare_motion_fused(
+                    self.workspace,
+                    read,
+                    delta_s,
+                    &mut parking_arrivals,
+                    updates,
+                )?;
+            }
         }
         #[cfg(test)]
         drop(motion_timer);
