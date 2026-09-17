@@ -8,6 +8,9 @@
 
 **关联文档**:
 
+- [`committed-pose-extraction.md`](committed-pose-extraction.md)：#681 来源缓冲、
+  成功批次交换与按需提取的已接受设计；尚未实施，本文现行全量合同继续有效。
+
 - [`junction-observation-and-validation.md`](junction-observation-and-validation.md)：#285
   领域观测与跨层验证；Accepted。阶段一新增两个只读补充入口：Runtime
   `TrafficWorld::route_gate`（精确机动门定位）与 Bevy
@@ -305,9 +308,9 @@ LaneFlowSession::{consumption_context, consumption_context_is_current}
   Session 持输入 scratch，成功提取原地重填、失败时 `output` 原样保持；稳态除下述
   已知成本外零新增分配。
 - **已知成本登记**：`TrafficWorld::committed_pose_sources()` 为 Runtime 按值读取
-  API，adapter 稳态每帧固定发生一条 N 尺寸分配（10 万辆量级约每帧 2 MiB 量级的
-  分配与拷贝）。本件受「Runtime API 零变更」约束不处理；是否立项零分配读取面
-  （调用方缓冲或访问器形态）由 #545 的 10k/100k presentation 证据决定。
+  API，adapter 每批创建一个来源 Vec，过滤收集还可能多次增长容量。实际容量与
+  逻辑 payload 不相等，不能把它简写成一次恰好 N 项的分配。#681 已接受借用来源、
+  缓冲交换与按需提取设计，见关联文档；现行生产成本仍存在，待独立实施切片消除。
 - **`#[must_use]` 继承规则**：包装携带交付义务的类型时，包装层继承
   `#[must_use]`——`LaneFlowCutoverRecord` 标记 must_use，语句位丢弃记录即丢弃
   恰一次事件交付（与 Runtime 对 `CutoverCommit` / `CutoverEventBatch` 的登记
