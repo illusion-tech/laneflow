@@ -6438,4 +6438,287 @@ pub(crate) mod tests {
         assert!(catch_unwind(AssertUnwindSafe(|| world.world_binding())).is_err());
         assert!(catch_unwind(AssertUnwindSafe(|| world.execution_config())).is_err());
     }
+
+    const PARKING_ONLY: &[u8] = include_bytes!(
+        "../../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-base.lfca"
+    );
+
+    /// 停车夹具 + 一条「入口边（含泊位）→出口边」路线；返回世界、路线、泊位
+    /// 序号与泊位入口在入口边上的进度。worker 数在安装时指定。
+    fn parking_route_world(
+        workers: u32,
+        world_id: u64,
+    ) -> (
+        TrafficWorld,
+        RouteHandle,
+        laneflow_static_contract::ParkingSpaceOrdinal,
+        u32,
+    ) {
+        let input =
+            check_canonical_network_input(PARKING_ONLY, FormatLimits::HARD).expect("checked");
+        let revision = build_shared_network_revision(
+            input,
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::Omit,
+                SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+            ),
+        )
+        .expect("revision");
+        let origin = *revision.canonical_origin();
+        let mut world = TrafficWorld::install(
+            Arc::clone(&revision),
+            WorldConfig::new(12, 4, 1_024, 1_024, 100),
+            exec_config(workers),
+            CommittedNetworkSource::Published {
+                reference: PublishedLfcaReference::new(
+                    "fixture://dispatch-confirm-parking",
+                    origin.canonical_artifact_digest(),
+                    origin.canonical_artifact_byte_length(),
+                    origin.network_revision(),
+                )
+                .unwrap(),
+            },
+            world_id,
+            crate::test_policy::selection(&revision),
+        )
+        .unwrap();
+        let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
+        let (entry_edge, entry_progress) = world
+            .traffic()
+            .relations()
+            .parking_space(space)
+            .expect("parking space")
+            .entry();
+        let exit_edge = world
+            .traffic()
+            .successors(entry_edge)
+            .and_then(|successors| successors.first())
+            .copied()
+            .expect("successor");
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry_edge, exit_edge]))
+            .unwrap();
+        (world, route, space, entry_progress)
+    }
+
+    fn active_vehicle_count(world: &TrafficWorld) -> usize {
+        world
+            .live_vehicles()
+            .iter()
+            .filter(|vehicle| {
+                world
+                    .vehicle(**vehicle)
+                    .is_some_and(|state| state.status() == crate::VehicleStatus::Active)
+            })
+            .count()
+    }
+
+    /// Active 投影紧凑位置与逻辑 live 序错位的结构证据：live 序列中夹有非
+    /// Active 成员时两者长度不同。
+    fn assert_active_projection_is_mixed(world: &TrafficWorld) {
+        assert!(
+            world.state.derived.active_order.len() < world.state.committed.live_order.len(),
+            "live 序列必须夹有非 Active 成员（Active 紧凑位置 ≠ 逻辑 update_sequence）"
+        );
+    }
+
+    /// 步进一对世界并分别归因路径计数：两世界该拍 Active 必须 ≥ 8（分发阈值
+    /// 之上），多 worker 世界必须走真实分发（dispatched +1、融合/回退 +0），
+    /// worker=1 参考必须走融合；随后验证两世界公开输出逐字节一致。
+    fn step_pair_dispatched(reference: &mut TrafficWorld, parallel: &mut TrafficWorld) {
+        assert!(
+            active_vehicle_count(reference) >= 8 && active_vehicle_count(parallel) >= 8,
+            "关键拍必须保持 Active ≥ 8（分发阈值之上）"
+        );
+        let counts_before = preview_path_counts();
+        parallel.step(TickInput::new(100)).unwrap();
+        let counts_parallel = preview_path_counts();
+        reference.step(TickInput::new(100)).unwrap();
+        let counts_reference = preview_path_counts();
+        let parallel_delta = WaitingPreviewPathCounts {
+            dispatched: counts_parallel.dispatched - counts_before.dispatched,
+            fused: counts_parallel.fused - counts_before.fused,
+            slot_fallback: counts_parallel.slot_fallback - counts_before.slot_fallback,
+        };
+        assert_eq!(
+            parallel_delta,
+            WaitingPreviewPathCounts {
+                dispatched: 1,
+                fused: 0,
+                slot_fallback: 0,
+            },
+            "多 worker 世界在该拍必须走真实分发，而非融合或回退"
+        );
+        let reference_delta = WaitingPreviewPathCounts {
+            dispatched: counts_reference.dispatched - counts_parallel.dispatched,
+            fused: counts_reference.fused - counts_parallel.fused,
+            slot_fallback: counts_reference.slot_fallback - counts_parallel.slot_fallback,
+        };
+        assert_eq!(
+            reference_delta,
+            WaitingPreviewPathCounts {
+                dispatched: 0,
+                fused: 1,
+                slot_fallback: 0,
+            },
+            "worker=1 参考世界必须走融合路径"
+        );
+        assert_public_outputs_match(parallel, reference);
+    }
+
+    /// 混合生命周期下的分发内部确认：live 序列夹有 Parked/Completed 成员
+    /// （Active 紧凑位置 ≠ 逻辑 update_sequence）时，只要该拍 Active ≥ 8，
+    /// 路径计数必须证明多 worker 世界走真实分发而非融合/回退，且与 worker=1
+    /// 参考世界逐步公开输出一致。覆盖 Active→Parked 转换拍、Completed 产生拍、
+    /// 同槽位新代次 spawn 拍（#705 审阅缺陷 4 的内部确认半边）。
+    #[test]
+    fn mixed_lifecycle_ticks_take_real_dispatch() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 705_700;
+        const PROFILE: VehicleProfileOrdinal = VehicleProfileOrdinal::from_raw(0);
+
+        // 场景 A：Active→Parked 转换拍。跟车间距 8 m，停车者被跟随者夹在
+        // live 序列中间；park 命令后它保持 live 但离开 Active 投影。
+        let (mut reference, route, space, entry_progress) = parking_route_world(1, WORLD_ID);
+        let (mut parallel, _, _, _) = parking_route_world(4, WORLD_ID);
+        let target = crate::ParkingTarget::ExplicitSpace(space);
+        let reserve = crate::ReserveParkingTarget::ExplicitSpace {
+            space,
+            entry_route_occurrence: 0,
+        };
+        for world in [&mut reference, &mut parallel] {
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(PROFILE, route, 0, 12_000, 0))
+                .unwrap();
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(PROFILE, route, 0, entry_progress, 0))
+                .unwrap();
+            for index in 0..8_u32 {
+                world
+                    .spawn_vehicle(VehicleSpawnInput::new(
+                        PROFILE,
+                        route,
+                        0,
+                        20_000 + index * 8_000,
+                        0,
+                    ))
+                    .unwrap();
+            }
+            let parker = world.live_vehicles()[1];
+            world.reserve_parking(parker, reserve).expect("reserve");
+            assert!(world.parking_arrived(parker, target));
+        }
+        let parker = reference.live_vehicles()[1];
+        assert_eq!(parker, parallel.live_vehicles()[1]);
+        assert!(active_vehicle_count(&reference) >= 8);
+        assert!(active_vehicle_count(&parallel) >= 8);
+        // 转换拍：park 命令立即生效，此后每拍的 live 序列中都夹有 Parked 成员，
+        // 而 Active 数保持 ≥ 8。
+        reference.park_vehicle(parker, target).expect("park");
+        parallel.park_vehicle(parker, target).expect("park");
+        for world in [&reference, &parallel] {
+            assert_eq!(
+                world.vehicle(parker).expect("parker").status(),
+                crate::VehicleStatus::Parked
+            );
+            assert!(active_vehicle_count(world) >= 8);
+            assert_active_projection_is_mixed(world);
+        }
+        for _ in 0..6 {
+            step_pair_dispatched(&mut reference, &mut parallel);
+        }
+
+        // 场景 B/C：Completed 产生拍与同槽位新代次 spawn 拍。近终点车在序列
+        // 中部先 Completed 并保留在 live 序中；随后 despawn 一辆中部跟随者并
+        // 在同位置重新 spawn，新句柄同槽位、新代次、立即 Active。
+        let (mut reference, route, _, _) = parking_route_world(1, WORLD_ID);
+        let (mut parallel, _, _, _) = parking_route_world(4, WORLD_ID);
+        let edges = reference.route_edges(route).unwrap().to_vec();
+        let speed_limit = reference
+            .traffic()
+            .lane_speed_limits_millimetres_per_second()[edges[0].index()];
+        let exit_length = reference.traffic().lane_lengths_millimetres()[edges[1].index()];
+        for world in [&mut reference, &mut parallel] {
+            for index in 0..5_u32 {
+                world
+                    .spawn_vehicle(VehicleSpawnInput::new(
+                        PROFILE,
+                        route,
+                        0,
+                        12_000 + index * 8_000,
+                        0,
+                    ))
+                    .unwrap();
+            }
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(
+                    PROFILE,
+                    route,
+                    1,
+                    exit_length - 500,
+                    speed_limit,
+                ))
+                .unwrap();
+            for index in 5..10_u32 {
+                world
+                    .spawn_vehicle(VehicleSpawnInput::new(
+                        PROFILE,
+                        route,
+                        0,
+                        12_000 + index * 8_000,
+                        0,
+                    ))
+                    .unwrap();
+            }
+        }
+        let finisher = reference.live_vehicles()[5];
+        assert_eq!(finisher, parallel.live_vehicles()[5]);
+        let mut completed = false;
+        for _ in 0..6 {
+            step_pair_dispatched(&mut reference, &mut parallel);
+            completed = completed
+                || reference
+                    .vehicle(finisher)
+                    .is_some_and(|state| state.status() == crate::VehicleStatus::Completed);
+            if completed {
+                break;
+            }
+        }
+        assert!(completed, "近终点车必须在脚本内到达路线终点");
+        // Completed 产生拍之后：保留在 live 序列中部，Active 投影错位。
+        for world in [&reference, &parallel] {
+            assert_eq!(world.live_vehicles()[5], finisher);
+            assert_eq!(
+                world.vehicle(finisher).expect("finisher").status(),
+                crate::VehicleStatus::Completed
+            );
+            assert!(active_vehicle_count(world) >= 8);
+            assert_active_projection_is_mixed(world);
+        }
+        step_pair_dispatched(&mut reference, &mut parallel);
+        // 同槽位新代次 spawn 拍：despawn 中部跟随者后同位置重新 spawn。
+        let stale = reference.live_vehicles()[3];
+        assert_eq!(stale, parallel.live_vehicles()[3]);
+        let respawn = VehicleSpawnInput::new(PROFILE, route, 0, 0, 0);
+        for world in [&mut reference, &mut parallel] {
+            world.despawn_vehicle(stale).expect("despawn");
+        }
+        let reference_new = reference.spawn_vehicle(respawn).unwrap();
+        let parallel_new = parallel.spawn_vehicle(respawn).unwrap();
+        assert_eq!(reference_new, parallel_new);
+        assert_eq!(reference_new.index(), stale.index(), "同槽位复用");
+        assert_ne!(reference_new, stale, "新代次");
+        for world in [&reference, &parallel] {
+            assert_eq!(
+                world.vehicle(reference_new).expect("respawned").status(),
+                crate::VehicleStatus::Active
+            );
+            assert!(active_vehicle_count(world) >= 8);
+            assert_active_projection_is_mixed(world);
+        }
+        for _ in 0..3 {
+            step_pair_dispatched(&mut reference, &mut parallel);
+        }
+    }
 }
