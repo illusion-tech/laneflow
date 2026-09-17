@@ -1560,8 +1560,90 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 }
 
+/// P5 逐车独立计算的固定大小结果（#706 增量 B）：最终下一状态 + 停车到达
+/// 观察候选。`arrival` 只表示按原语判定应生成到达观察，不代表已完成输出
+/// 预留或发布；真实 `try_reserve` 与追加由协调器在该车原逻辑位置执行
+///（首错交错顺序：该车全部可失败计算先于其到达 reserve）。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct VehicleMotionOutcome {
+    pub(crate) next: VehicleState,
+    pub(crate) arrival: Option<ParkingArrivalObservation>,
+}
+
 impl crate::kernel::phase::StepWorkspace<'_> {
     /// 编排一拍的转移暂存：Conflict 准备、逐车运动、Waiting 定稿、下一拍信号与输出。
+    /// P5 逐车运动原语：Parking binding 校验 → reservation/arrived_before 判定
+    /// → waiting/conflict stop → MotionPreview 复用证明或重算 → next state 与
+    /// 停车到达检查。逐车检查次序与错误变体保持串行原义（§4 #5-14）；读取
+    /// 拍初 C(T)、P2 motion_cache 与已冻结的 P4 裁决暂存，不写入任何共享状态。
+    /// 融合路径直接调用本原语（增量 B）；多 worker 分发只改变调度与交付。
+    fn vehicle_motion_outcome(
+        &self,
+        state: &VehicleState,
+        active_index: usize,
+        delta_s: f32,
+    ) -> Result<VehicleMotionOutcome, StepError> {
+        let handle = state.handle;
+        let parking_binding = self.committed.parking.binding(handle);
+        if !self
+            .read_view()
+            .parking_state_valid_with_binding(handle, *state, parking_binding)
+        {
+            return Err(StepError::ParkingInvariantViolation);
+        }
+        let reservation = match parking_binding {
+            Some(ParkingBinding::Reserved(reservation)) => Some(reservation),
+            Some(ParkingBinding::Occupied(_)) => {
+                return Err(StepError::ParkingInvariantViolation);
+            }
+            None => None,
+        };
+        let arrived_before =
+            reservation.is_some_and(|reservation| self.parking_arrived_for(*state, reservation));
+        let waiting_stop = self.waiting_stop_for(state)?;
+        let conflict_stop = self.conflict_stop_for(state)?;
+        let cached = self
+            .workspace
+            .motion_cache
+            .get(active_index)
+            .filter(|entry| entry.vehicle == handle);
+        let reused = cached
+            .and_then(|entry| entry.preview)
+            .and_then(|preview| preview.reuse(waiting_stop, conflict_stop));
+        #[cfg(test)]
+        let cache_served = reused.is_some();
+        let next = reused
+            .or_else(|| {
+                self.read_view()
+                    .advance_active_vehicle_with_parking_binding(
+                        *state,
+                        delta_s,
+                        waiting_stop,
+                        conflict_stop,
+                        parking_binding,
+                        cached.and_then(|entry| entry.horizon),
+                    )
+            })
+            .ok_or(StepError::NonFiniteMotion)?;
+        // 复用/重算分类口径不变：成功求值后、到达检查前记账（与提取前同位）。
+        #[cfg(test)]
+        note_motion_cache_use(cache_served);
+        let arrival = if let Some(reservation) = reservation {
+            if next.status != VehicleStatus::Active {
+                return Err(StepError::ParkingInvariantViolation);
+            }
+            (!arrived_before && self.parking_arrived_for(next, reservation)).then(|| {
+                ParkingArrivalObservation {
+                    vehicle: handle,
+                    target: reservation.target(),
+                }
+            })
+        } else {
+            None
+        };
+        Ok(VehicleMotionOutcome { next, arrival })
+    }
+
     pub(crate) fn stage_vehicle_transitions(
         &mut self,
         delta_s: f32,
@@ -1586,65 +1668,17 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 continue;
             };
             debug_assert_eq!(state.status, VehicleStatus::Active);
-            let parking_binding = self.committed.parking.binding(handle);
-            if !self
-                .read_view()
-                .parking_state_valid_with_binding(handle, *state, parking_binding)
-            {
-                return Err(StepError::ParkingInvariantViolation);
-            }
-            let reservation = match parking_binding {
-                Some(ParkingBinding::Reserved(reservation)) => Some(reservation),
-                Some(ParkingBinding::Occupied(_)) => {
-                    return Err(StepError::ParkingInvariantViolation);
-                }
-                None => None,
-            };
-            let arrived_before = reservation
-                .is_some_and(|reservation| self.parking_arrived_for(*state, reservation));
-            let waiting_stop = self.waiting_stop_for(state)?;
-            let conflict_stop = self.conflict_stop_for(state)?;
-            let cached = self
-                .workspace
-                .motion_cache
-                .get(active_index)
-                .filter(|entry| entry.vehicle == handle);
-            let reused = cached
-                .and_then(|entry| entry.preview)
-                .and_then(|preview| preview.reuse(waiting_stop, conflict_stop));
-            #[cfg(test)]
-            let cache_served = reused.is_some();
-            let next = reused
-                .or_else(|| {
-                    self.read_view()
-                        .advance_active_vehicle_with_parking_binding(
-                            *state,
-                            delta_s,
-                            waiting_stop,
-                            conflict_stop,
-                            parking_binding,
-                            cached.and_then(|entry| entry.horizon),
-                        )
-                })
-                .ok_or(StepError::NonFiniteMotion)?;
-            #[cfg(test)]
-            note_motion_cache_use(cache_served);
-            if let Some(reservation) = reservation {
-                if next.status != VehicleStatus::Active {
-                    return Err(StepError::ParkingInvariantViolation);
-                }
-                if !arrived_before && self.parking_arrived_for(next, reservation) {
-                    parking_arrivals
-                        .try_reserve(1)
-                        .map_err(|_| StepError::ParkingObservationAllocFailed)?;
-                    parking_arrivals.push(ParkingArrivalObservation {
-                        vehicle: handle,
-                        target: reservation.target(),
-                    });
-                }
+            let outcome = self.vehicle_motion_outcome(state, active_index, delta_s)?;
+            // 到达观察的真实预留与追加留在该车原逻辑位置（§4 #14）：全部可失败
+            // 逐车计算已先于本预留完成，A 车 reserve 失败早于 B 车领域错误。
+            if let Some(arrival) = outcome.arrival {
+                parking_arrivals
+                    .try_reserve(1)
+                    .map_err(|_| StepError::ParkingObservationAllocFailed)?;
+                parking_arrivals.push(arrival);
             }
             let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
-            updates.push((slot, next));
+            updates.push((slot, outcome.next));
         }
         #[cfg(test)]
         drop(motion_timer);
