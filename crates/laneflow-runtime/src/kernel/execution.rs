@@ -545,6 +545,403 @@ mod tests {
         ExecutionConfig::new(NonZeroU32::new(workers).unwrap())
     }
 
+    /// 槽位语义快照：只区分未完成/成功值/完整领域错误/整块跳过，不比较错误内部细节。
+    #[derive(Debug, Eq, PartialEq)]
+    enum SlotOutcome {
+        Pending,
+        Done(u64),
+        Failed,
+        Skipped,
+    }
+
+    fn slot_outcomes(slots: &[DispatchSlot<u64>]) -> Vec<SlotOutcome> {
+        slots
+            .iter()
+            .map(|slot| match slot {
+                DispatchSlot::Pending => SlotOutcome::Pending,
+                DispatchSlot::Done(Ok(value)) => SlotOutcome::Done(*value),
+                DispatchSlot::Done(Err(_)) => SlotOutcome::Failed,
+                DispatchSlot::Skipped => SlotOutcome::Skipped,
+            })
+            .collect()
+    }
+
+    fn expected_done(slot_count: usize) -> Vec<SlotOutcome> {
+        (0..slot_count)
+            .map(|index| SlotOutcome::Done(1_000 + index as u64))
+            .collect()
+    }
+
+    /// 构造在 `fail_at` 注入 `NonFiniteMotion` 并把该下标 min-store 进已错位置的
+    /// compute；提前返回时同块后缀保持 `Pending`。逐块记录启动与结束，供调用方
+    /// 在 join 完成后核对没有悬挂任务。
+    fn fail_at_compute<'a>(
+        first_error: &'a AtomicUsize,
+        started: &'a Mutex<Vec<usize>>,
+        finished: &'a Mutex<Vec<usize>>,
+        fail_at: usize,
+    ) -> impl Fn(crate::kernel::phase::StepReadView<'_>, usize, &mut [DispatchSlot<u64>]) + Sync + 'a
+    {
+        move |view, start, chunk| {
+            started.lock().unwrap().push(start);
+            let vehicle = view.derived.active_order[0];
+            let progress = u64::from(view.vehicle_state(vehicle).unwrap().progress_mm);
+            for (offset, slot) in chunk.iter_mut().enumerate() {
+                let index = start + offset;
+                if index == fail_at {
+                    first_error.fetch_min(index, Ordering::SeqCst);
+                    *slot = DispatchSlot::Done(Err(crate::StepError::NonFiniteMotion));
+                    finished.lock().unwrap().push(start);
+                    return;
+                }
+                *slot = DispatchSlot::Done(Ok(progress + index as u64));
+            }
+            finished.lock().unwrap().push(start);
+        }
+    }
+
+    #[test]
+    fn caller_and_pool_try_dispatch_agree_slot_wise_and_on_semantic_stats() {
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let slot_count = 9;
+        let run = |workers: u32| {
+            let (mut world, _, _) = world_with_vehicle(true);
+            world.execution = WorldExecution::start_private(config(workers), &world.state);
+            let mut output: Vec<DispatchSlot<u64>> = vec![DispatchSlot::Pending; slot_count];
+            let first_error = AtomicUsize::new(usize::MAX);
+            let stats = world.execution.run(&mut world.state, |state, resources| {
+                resources.try_for_each_chunk(
+                    state.read_view(),
+                    &mut output,
+                    &first_error,
+                    2,
+                    |view, start, chunk| {
+                        let vehicle = view.derived.active_order[0];
+                        let progress = u64::from(view.vehicle_state(vehicle).unwrap().progress_mm);
+                        for (offset, slot) in chunk.iter_mut().enumerate() {
+                            *slot = DispatchSlot::Done(Ok(progress + (start + offset) as u64));
+                        }
+                    },
+                )
+            });
+            let outcomes = slot_outcomes(&output);
+            drop(world);
+            (outcomes, stats)
+        };
+        let (caller_slots, caller_stats) = run(1);
+        let (pool_slots, pool_stats) = run(4);
+        assert_eq!(caller_slots, expected_done(slot_count));
+        assert_eq!(caller_slots, pool_slots);
+        assert_eq!(caller_stats.dispatched_chunks, pool_stats.dispatched_chunks);
+        assert_eq!(caller_stats.completed_chunks, pool_stats.completed_chunks);
+        assert_eq!(caller_stats.skipped_chunks, pool_stats.skipped_chunks);
+        assert_eq!(caller_stats.extra_work_chunks, pool_stats.extra_work_chunks);
+        assert_eq!(caller_stats.dispatched_chunks, 5);
+        assert_eq!(caller_stats.completed_chunks, 5);
+        assert_eq!(caller_stats.skipped_chunks, 0);
+        assert_eq!(caller_stats.extra_work_chunks, 0);
+        assert_eq!(caller_stats.threads, 1);
+        assert!(pool_stats.threads >= 2);
+        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn try_dispatch_skips_later_chunks_and_counts_extra_work_after_join() {
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let fail_at = 6_usize;
+        let first_error = AtomicUsize::new(usize::MAX);
+        let started = Mutex::new(Vec::new());
+        let finished = Mutex::new(Vec::new());
+        let mut expected = expected_done(16);
+        expected[fail_at] = SlotOutcome::Failed;
+        expected[fail_at + 1] = SlotOutcome::Pending;
+        for slot in &mut expected[8..] {
+            *slot = SlotOutcome::Skipped;
+        }
+        let (mut caller_world, _, _) = world_with_vehicle(true);
+        caller_world.execution = WorldExecution::start_private(config(1), &caller_world.state);
+        let mut caller_output: Vec<DispatchSlot<u64>> = vec![DispatchSlot::Pending; 16];
+        let caller_stats =
+            caller_world
+                .execution
+                .run(&mut caller_world.state, |state, resources| {
+                    resources.try_for_each_chunk(
+                        state.read_view(),
+                        &mut caller_output,
+                        &first_error,
+                        4,
+                        fail_at_compute(&first_error, &started, &finished, fail_at),
+                    )
+                });
+        assert_eq!(slot_outcomes(&caller_output), expected);
+        assert_eq!(first_error.load(Ordering::SeqCst), fail_at);
+        assert_eq!(*started.lock().unwrap(), vec![0, 4]);
+        assert_eq!(*finished.lock().unwrap(), vec![0, 4]);
+        assert_eq!(caller_stats.dispatched_chunks, 2);
+        assert_eq!(caller_stats.completed_chunks, 1);
+        assert_eq!(caller_stats.skipped_chunks, 2);
+        assert_eq!(caller_stats.extra_work_chunks, 0);
+        assert_eq!(caller_stats.threads, 1);
+
+        // 复用已错位置（仍为 6）：池内起点晚于 6 的块确定整块跳过且 compute 未执行，
+        // 起点更早的两块以错误后多做工作执行，完整 join 后 started == finished。
+        let (mut pool_world, _, _) = world_with_vehicle(true);
+        pool_world.execution = WorldExecution::start_private(config(4), &pool_world.state);
+        let mut pool_output: Vec<DispatchSlot<u64>> = vec![DispatchSlot::Pending; 16];
+        let pool_stats = pool_world
+            .execution
+            .run(&mut pool_world.state, |state, resources| {
+                resources.try_for_each_chunk(
+                    state.read_view(),
+                    &mut pool_output,
+                    &first_error,
+                    4,
+                    fail_at_compute(&first_error, &started, &finished, fail_at),
+                )
+            });
+        assert_eq!(slot_outcomes(&pool_output), expected);
+        assert_eq!(first_error.load(Ordering::SeqCst), fail_at);
+        let mut started_starts = started.into_inner().unwrap();
+        started_starts.sort_unstable();
+        assert_eq!(started_starts, vec![0, 0, 4, 4]);
+        let mut finished_starts = finished.into_inner().unwrap();
+        finished_starts.sort_unstable();
+        assert_eq!(finished_starts, started_starts);
+        assert_eq!(pool_stats.dispatched_chunks, 2);
+        assert_eq!(pool_stats.completed_chunks, 1);
+        assert_eq!(pool_stats.skipped_chunks, 2);
+        assert_eq!(pool_stats.extra_work_chunks, 2);
+        drop(caller_world);
+        drop(pool_world);
+        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn try_dispatch_covers_chunk_counts_around_threads_and_edge_outputs() {
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        for workers in [1, 4] {
+            let (mut world, _, _) = world_with_vehicle(true);
+            world.execution = WorldExecution::start_private(config(workers), &world.state);
+            for (slot_count, chunk_size) in [
+                (0_usize, 1_usize),
+                (1, 1),
+                (1, 4),
+                (4, 4),
+                (4, 2),
+                (17, 2),
+                (16, 4),
+            ] {
+                let mut output: Vec<DispatchSlot<u64>> = vec![DispatchSlot::Pending; slot_count];
+                let first_error = AtomicUsize::new(usize::MAX);
+                let stats = world.execution.run(&mut world.state, |state, resources| {
+                    resources.try_for_each_chunk(
+                        state.read_view(),
+                        &mut output,
+                        &first_error,
+                        chunk_size,
+                        |view, start, chunk| {
+                            let vehicle = view.derived.active_order[0];
+                            let progress =
+                                u64::from(view.vehicle_state(vehicle).unwrap().progress_mm);
+                            for (offset, slot) in chunk.iter_mut().enumerate() {
+                                *slot = DispatchSlot::Done(Ok(progress + (start + offset) as u64));
+                            }
+                        },
+                    )
+                });
+                let expected_chunks = slot_count.div_ceil(chunk_size);
+                let context = format!("workers {workers}, slots {slot_count}, chunk {chunk_size}");
+                assert_eq!(
+                    slot_outcomes(&output),
+                    expected_done(slot_count),
+                    "{context}"
+                );
+                assert_eq!(stats.dispatched_chunks, expected_chunks, "{context}");
+                assert_eq!(stats.completed_chunks, expected_chunks, "{context}");
+                assert_eq!(stats.skipped_chunks, 0, "{context}");
+                assert_eq!(stats.extra_work_chunks, 0, "{context}");
+                assert!(stats.threads <= workers as usize, "{context}");
+                assert!(stats.threads >= usize::from(slot_count > 0), "{context}");
+            }
+            drop(world);
+        }
+        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn try_dispatch_runs_chunks_on_overlapping_real_threads() {
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let (mut world, _, _) = world_with_vehicle(true);
+        world.execution = WorldExecution::start_private(config(4), &world.state);
+        let ids = world.execution.thread_ids();
+        // 前 4 块用屏障强制调用线程与 3 个 worker 同拍重叠；后 4 块不加门，
+        // 避免调用线程算完首块后在 scope join 等待、第二波永远凑不齐 4 方而死锁。
+        let overlap = Barrier::new(4);
+        let visited = Mutex::new(Vec::new());
+        let mut output: Vec<DispatchSlot<u64>> = vec![DispatchSlot::Pending; 8];
+        let first_error = AtomicUsize::new(usize::MAX);
+        let stats = world.execution.run(&mut world.state, |state, resources| {
+            resources.try_for_each_chunk(
+                state.read_view(),
+                &mut output,
+                &first_error,
+                1,
+                |view, index, chunk| {
+                    if index < 4 {
+                        overlap.wait();
+                    }
+                    visited.lock().unwrap().push(std::thread::current().id());
+                    let vehicle = view.derived.active_order[0];
+                    let progress = u64::from(view.vehicle_state(vehicle).unwrap().progress_mm);
+                    chunk[0] = DispatchSlot::Done(Ok(progress + index as u64));
+                },
+            )
+        });
+        assert_eq!(slot_outcomes(&output), expected_done(8));
+        assert!(stats.threads >= 2);
+        assert!(stats.threads <= world.execution.resources.dispatch_threads());
+        let visited: std::collections::HashSet<_> =
+            visited.into_inner().unwrap().into_iter().collect();
+        assert!(visited.contains(&std::thread::current().id()));
+        assert!(ids.iter().all(|id| visited.contains(id)));
+        drop(world);
+        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn try_dispatch_error_keeps_done_prefix_and_pending_suffix_within_chunk() {
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let fail_at = 2_usize;
+        let first_error = AtomicUsize::new(usize::MAX);
+        let started = Mutex::new(Vec::new());
+        let finished = Mutex::new(Vec::new());
+        let (mut caller_world, _, _) = world_with_vehicle(true);
+        caller_world.execution = WorldExecution::start_private(config(1), &caller_world.state);
+        let mut caller_output: Vec<DispatchSlot<u64>> = vec![DispatchSlot::Pending; 6];
+        let caller_stats =
+            caller_world
+                .execution
+                .run(&mut caller_world.state, |state, resources| {
+                    resources.try_for_each_chunk(
+                        state.read_view(),
+                        &mut caller_output,
+                        &first_error,
+                        6,
+                        fail_at_compute(&first_error, &started, &finished, fail_at),
+                    )
+                });
+        let mut expected = expected_done(6);
+        expected[fail_at] = SlotOutcome::Failed;
+        for slot in &mut expected[fail_at + 1..] {
+            *slot = SlotOutcome::Pending;
+        }
+        assert_eq!(slot_outcomes(&caller_output), expected);
+        assert_eq!(caller_stats.dispatched_chunks, 1);
+        assert_eq!(caller_stats.completed_chunks, 0);
+        assert_eq!(caller_stats.skipped_chunks, 0);
+        assert_eq!(caller_stats.extra_work_chunks, 0);
+
+        // 已错位置 2 已存在：池内同块后缀保持 Pending，起点更晚的整块跳过。
+        let (mut pool_world, _, _) = world_with_vehicle(true);
+        pool_world.execution = WorldExecution::start_private(config(4), &pool_world.state);
+        let mut pool_output: Vec<DispatchSlot<u64>> = vec![DispatchSlot::Pending; 8];
+        let pool_stats = pool_world
+            .execution
+            .run(&mut pool_world.state, |state, resources| {
+                resources.try_for_each_chunk(
+                    state.read_view(),
+                    &mut pool_output,
+                    &first_error,
+                    2,
+                    fail_at_compute(&first_error, &started, &finished, fail_at),
+                )
+            });
+        let mut expected = expected_done(8);
+        expected[fail_at] = SlotOutcome::Failed;
+        expected[fail_at + 1] = SlotOutcome::Pending;
+        for slot in &mut expected[4..] {
+            *slot = SlotOutcome::Skipped;
+        }
+        assert_eq!(slot_outcomes(&pool_output), expected);
+        assert_eq!(first_error.load(Ordering::SeqCst), fail_at);
+        assert_eq!(pool_stats.dispatched_chunks, 2);
+        assert_eq!(pool_stats.completed_chunks, 1);
+        assert_eq!(pool_stats.skipped_chunks, 2);
+        assert_eq!(pool_stats.extra_work_chunks, 2);
+        let mut started_starts = started.into_inner().unwrap();
+        started_starts.sort_unstable();
+        assert_eq!(started_starts, vec![0, 0, 2]);
+        let mut finished_starts = finished.into_inner().unwrap();
+        finished_starts.sort_unstable();
+        assert_eq!(finished_starts, started_starts);
+        drop(caller_world);
+        drop(pool_world);
+        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn try_dispatch_concurrent_errors_min_store_earliest_position() {
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let (mut world, _, _) = world_with_vehicle(true);
+        world.execution = WorldExecution::start_private(config(4), &world.state);
+        // 三个并发错误的完成置换：14 先存、11 后存、6 最后存，最早已错位置必须收束到 6。
+        let stored_14 = Barrier::new(2);
+        let stored_11 = Barrier::new(2);
+        let first_error = AtomicUsize::new(usize::MAX);
+        let mut output: Vec<DispatchSlot<u64>> = vec![DispatchSlot::Pending; 16];
+        let stats = world.execution.run(&mut world.state, |state, resources| {
+            resources.try_for_each_chunk(
+                state.read_view(),
+                &mut output,
+                &first_error,
+                4,
+                |view, start, chunk| {
+                    let fail_at = match start {
+                        4 => Some(6_usize),
+                        8 => Some(11),
+                        12 => Some(14),
+                        _ => None,
+                    };
+                    if start == 4 {
+                        stored_11.wait();
+                    } else if start == 8 {
+                        stored_14.wait();
+                    }
+                    let vehicle = view.derived.active_order[0];
+                    let progress = u64::from(view.vehicle_state(vehicle).unwrap().progress_mm);
+                    for (offset, slot) in chunk.iter_mut().enumerate() {
+                        let index = start + offset;
+                        if Some(index) == fail_at {
+                            first_error.fetch_min(index, Ordering::SeqCst);
+                            if start == 8 {
+                                stored_11.wait();
+                            } else if start == 12 {
+                                stored_14.wait();
+                            }
+                            *slot = DispatchSlot::Done(Err(crate::StepError::NonFiniteMotion));
+                            return;
+                        }
+                        *slot = DispatchSlot::Done(Ok(progress + index as u64));
+                    }
+                },
+            )
+        });
+        assert_eq!(first_error.load(Ordering::SeqCst), 6);
+        let mut expected = expected_done(16);
+        expected[6] = SlotOutcome::Failed;
+        expected[7] = SlotOutcome::Pending;
+        expected[11] = SlotOutcome::Failed;
+        expected[14] = SlotOutcome::Failed;
+        expected[15] = SlotOutcome::Pending;
+        assert_eq!(slot_outcomes(&output), expected);
+        assert_eq!(stats.dispatched_chunks, 4);
+        // completed 计全部槽位均到达 Done 的块：首块全 Ok，块 8..12 末槽 Done(Err)。
+        assert_eq!(stats.completed_chunks, 2);
+        assert_eq!(stats.skipped_chunks, 0);
+        drop(world);
+        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+    }
+
     #[test]
     fn partial_start_and_drop_join_real_threads_and_worker_one_stays_inline() {
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
