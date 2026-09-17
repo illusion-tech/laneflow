@@ -2005,6 +2005,103 @@ mod tests {
         );
     }
 
+    /// 跨修订切换（prepare → 在途 tick 追赶 → commit）后首拍（#705 审阅：
+    /// 小场景关键组合移入 lib）：多 worker 臂经强制分发在关键拍真实走
+    /// P2 分发（`WaitingPreviewPathCounts` 证明），切换前后逐步 digest/
+    /// 决策/事件与 worker=1 参考一致。
+    #[test]
+    fn dispatch_matches_after_cross_revision_cutover_first_tick() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        use crate::kernel::execution::WorldExecution;
+        use crate::kernel::waiting::{
+            WaitingPreviewPathCounts, force_preview_dispatch, preview_path_counts,
+        };
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_preview_dispatch();
+        const PRE_TICKS: usize = 2;
+        const POST_TICKS: usize = 4;
+        let total_ticks = PRE_TICKS + 1 + POST_TICKS;
+        let mut reference: Option<Vec<String>> = None;
+        for &workers in &[1_u32, 2, 4] {
+            let counts_before = preview_path_counts();
+            let mut world = installed_world(ORACLE_BASE, "fixture://dispatch-cross-revision");
+            let (entry, exit) = entry_exit(&world);
+            let route = world
+                .register_route(RouteRegisterInput::new(vec![entry, exit]))
+                .unwrap();
+            spawn_on(&mut world, route, 1_000, 0);
+            world.execution = WorldExecution::start_private(
+                crate::ExecutionConfig::new(std::num::NonZeroU32::new(workers).unwrap()),
+                &world.state,
+            );
+            let tick_record = |world: &TrafficWorld| {
+                let snapshot = world.capture_snapshot().unwrap();
+                format!(
+                    "{:?}|{:?}|{:?}|{:?}",
+                    crate::deterministic_state_digest(&snapshot).unwrap(),
+                    world.latest_waiting_decisions(),
+                    world.latest_conflict_decisions(),
+                    (world.tick_index(), world.time_ms()),
+                )
+            };
+            let mut records = Vec::with_capacity(total_ticks);
+            for _ in 0..PRE_TICKS {
+                world.step(TickInput::new(100)).unwrap();
+                records.push(tick_record(&world));
+            }
+            let mut tx = prepare(
+                &mut world,
+                ORACLE_TARGET,
+                ORACLE_LFSD,
+                &CutoverTransactionLimits::default(),
+            );
+            tx.pump(&mut world).unwrap();
+            // 在途 tick 追赶：候选随世界一起步进，仍在旧根上。
+            world.step(TickInput::new(100)).unwrap();
+            records.push(tick_record(&world));
+            let _commit = tx.commit(&mut world).unwrap();
+            for _ in 0..POST_TICKS {
+                world.step(TickInput::new(100)).unwrap();
+                records.push(tick_record(&world));
+            }
+            let counts = preview_path_counts();
+            let delta = WaitingPreviewPathCounts {
+                dispatched: counts.dispatched - counts_before.dispatched,
+                fused: counts.fused - counts_before.fused,
+                slot_fallback: counts.slot_fallback - counts_before.slot_fallback,
+            };
+            if workers == 1 {
+                assert_eq!(
+                    delta,
+                    WaitingPreviewPathCounts {
+                        dispatched: 0,
+                        fused: total_ticks,
+                        slot_fallback: 0,
+                    },
+                    "worker=1 必须全融合"
+                );
+            } else {
+                assert_eq!(
+                    delta,
+                    WaitingPreviewPathCounts {
+                        dispatched: total_ticks,
+                        fused: 0,
+                        slot_fallback: 0,
+                    },
+                    "workers={workers} 必须每拍真实分发"
+                );
+            }
+            if let Some(reference) = &reference {
+                assert_eq!(
+                    records, *reference,
+                    "workers={workers} 跨修订切换后对拍发散"
+                );
+            } else {
+                reference = Some(records);
+            }
+        }
+    }
+
     #[test]
     fn absent_deltas_accept_completed_owner() {
         let mut world = installed_world(ORACLE_BASE, "fixture://round2-replay");

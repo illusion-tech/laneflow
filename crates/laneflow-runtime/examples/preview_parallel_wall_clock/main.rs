@@ -5,7 +5,6 @@
 //! 单独运行：
 //! `cargo run --release -p laneflow-runtime --example preview_parallel_wall_clock`
 
-#[path = "../tests/support/multi_gate_scene.rs"]
 mod multi_gate_scene;
 
 use std::time::Instant;

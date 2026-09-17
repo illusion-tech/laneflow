@@ -5,10 +5,12 @@
 //! 比较已提交状态 digest、最新决策/事件、命令/事件游标、`StepOutcome`、世界
 //! 世代与观测序号；比较只使用公开 API，不读取私有存储、容量或序号基线。
 //!
-//! 生命周期场景分两档：跨阈值场景在关键操作之后、下一拍 step 之前断言 Active
-//! 车辆不少于 8（P2 分发门槛的公开行为面），保证多 worker 臂真正走
-//! `try_for_each_chunk` 分发路径；小工作集场景（命名带 `fused`）全程低于门槛，
-//! 如实标注为融合路径覆盖。真实并发与内部路径计数由 lib 内测试承载。
+//! 生产 P2 分发阈值为保守的 1_024 Active（`WAITING_PREVIEW_DISPATCH_MIN_ACTIVE`）；
+//! 本文件全部场景的工作集都低于该阈值，worker 1/2/4/8/16 全部走融合路径，
+//! 命名统一带 `fused`，关键操作后断言 Active 低于阈值（融合路径覆盖的公开
+//! 行为面）。多 worker 真实分发的等价证据：lib 内强制分发测试（同修订/跨
+//! 修订切换后首拍、fresh restore 后首拍、首错矩阵等）与本 crate 的
+//! `preview_at_threshold_equivalence`（1_280 车，高于生产阈值，逐拍对拍）。
 //!
 //! 场景覆盖：Waiting 密集的合成环（同槽 despawn/spawn 新代次）、信号走廊
 //! 长前车链（catalog 生成槽位）、full-spatial 信号/混合生命周期（Completed
@@ -31,28 +33,21 @@ use laneflow_compiler::{
     StopLineReference, SyntheticModuleBuilder, VehicleProfileInput, WaitingZoneInput,
     emit_portable_candidate,
 };
-use laneflow_format::{
-    FormatLimits, check_canonical_network_input, check_post_emission_bundle,
-    preflight_object_values,
-};
+use laneflow_format::{FormatLimits, check_canonical_network_input, check_post_emission_bundle};
 use laneflow_runtime::{
-    CommittedNetworkSource, CutoverPreflightLimits, CutoverTransactionLimits, ExecutionConfig,
-    LfcaOriginBinding, MigrationPolicyKind, NetworkRevisionCutoverDescriptor,
-    ParkedVehicleSpawnInput, ParkingTarget, PolicyPin, PublishedLfcaReference,
-    ReserveParkingTarget, RouteHandle, RouteRegisterInput, SemanticDiffOriginBinding, StepOutcome,
+    CommittedNetworkSource, ExecutionConfig, ParkedVehicleSpawnInput, ParkingTarget, PolicyPin,
+    PublishedLfcaReference, ReserveParkingTarget, RouteHandle, RouteRegisterInput, StepOutcome,
     TickInput, TrafficWorld, VehicleHandle, VehicleSpawnInput, VehicleStatus, WorldConfig,
-    WorldPolicySelection, deterministic_state_digest, restore_lfrs,
+    WorldPolicySelection, deterministic_state_digest,
 };
 use laneflow_scenario::signalized_corridor::{CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind};
 use laneflow_static_contract::{
-    EntityKind, ExactByteLength, LaneEdgeOrdinal, ManeuverPathOrdinal, PortableObjectKind,
-    SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest, VehicleProfileOrdinal,
+    EntityKind, LaneEdgeOrdinal, ManeuverPathOrdinal, VehicleProfileOrdinal,
 };
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
     build_shared_network_revision,
 };
-use sha2::{Digest, Sha256};
 
 const WORKERS: [u32; 5] = [1, 2, 4, 8, 16];
 const DELTA_MS: u64 = 100;
@@ -67,8 +62,8 @@ const PARKING_ONLY: &[u8] = include_bytes!(
 const CORRIDOR: &[u8] = include_bytes!("../../../examples/data/v0.2-signalized-corridor.lfca");
 const CORRIDOR_CATALOG: &str =
     include_str!("../../../examples/data/v0.2-signalized-corridor.catalog.toml");
-/// P2 分发路径的 Active 门槛（`WAITING_PREVIEW_FUSION_MIN_ACTIVE` 的公开行为面）。
-const DISPATCH_MIN_ACTIVE: usize = 8;
+/// 生产 P2 分发阈值（`WAITING_PREVIEW_DISPATCH_MIN_ACTIVE` 的公开行为面）。
+const PRODUCTION_DISPATCH_MIN_ACTIVE: usize = 1_024;
 
 fn execution(workers: u32) -> ExecutionConfig {
     ExecutionConfig::new(NonZeroU32::new(workers).expect("nonzero worker count"))
@@ -200,16 +195,16 @@ fn despawn_and_respawn(
     new
 }
 
-/// 生命周期操作之后、下一拍 `step` 之前的工作集规模检查：多 worker 臂必须
-/// 保持在 P2 分发门槛之上，否则该臂实际走的是融合路径，生命周期交错就不再
-/// 是并行路径的验收证据。检查点必须落在实际操作时刻（park/despawn/replace
-/// 之后），而不是场景开头的静态断言。
-fn assert_dispatch_engaged(world: &TrafficWorld, context: &str) {
+/// 生命周期操作之后、下一拍 `step` 之前的工作集规模检查：本文件场景全部
+/// 低于生产分发阈值，断言多 worker 臂确实走在融合路径（检查点落在实际
+/// 操作时刻，而非场景开头的静态断言）。
+fn assert_fused_path(world: &TrafficWorld, context: &str) {
     let active = active_count(world);
     assert!(
-        active >= DISPATCH_MIN_ACTIVE,
-        "{context}: {active} active vehicles dropped below the P2 dispatch threshold; \
-         the worker arm would run the fused path"
+        active < PRODUCTION_DISPATCH_MIN_ACTIVE,
+        "{context}: {active} active vehicles reached the production dispatch threshold; \
+         this scenario must stay on the fused path (lib forced-dispatch tests and \
+         preview_at_threshold_equivalence cover real dispatch)"
     );
 }
 
@@ -263,8 +258,9 @@ fn rearmost_active_distance(world: &TrafficWorld, route: RouteHandle) -> u32 {
 }
 
 // ---------------------------------------------------------------------------
-// 场景一：Waiting 密集的合成环（#675 拓扑扩展）：区容量 2、12 辆分布在三个
-// 出现项组；行驶中 despawn/spawn 制造同槽位新代次与 Active 集合变化。
+// 场景一（融合路径覆盖）：Waiting 密集的合成环（#675 拓扑扩展）：区容量 2、
+// 12 辆分布在三个出现项组，全程低于生产分发阈值；行驶中 despawn/spawn
+// 制造同槽位新代次与 Active 集合变化的融合路径等价。
 // ---------------------------------------------------------------------------
 
 fn ring_candidate(
@@ -571,10 +567,6 @@ fn run_waiting_ring(workers: u32) -> Vec<String> {
         .iter()
         .map(|input| world.spawn_vehicle(*input).expect("ring spawn"))
         .collect();
-    assert!(
-        active_count(&world) >= DISPATCH_MIN_ACTIVE,
-        "ring scenario must engage the P2 dispatch path"
-    );
     let entry_edge = revision
         .traffic()
         .maneuvers()
@@ -625,10 +617,6 @@ fn run_waiting_ring(workers: u32) -> Vec<String> {
             }
         }
         let outcome = world.step(TickInput::new(DELTA_MS)).expect("ring step");
-        assert!(
-            active_count(&world) >= DISPATCH_MIN_ACTIVE,
-            "ring scenario must keep the P2 dispatch path engaged"
-        );
         records.push(tick_record(&world, &outcome));
     }
     assert!(
@@ -643,13 +631,14 @@ fn run_waiting_ring(workers: u32) -> Vec<String> {
 }
 
 #[test]
-fn waiting_dense_ring_matches_across_worker_matrix() {
-    assert_matches_across_workers("waiting-dense-ring", run_waiting_ring);
+fn waiting_dense_ring_fused_matches_across_worker_matrix() {
+    assert_matches_across_workers("waiting-dense-ring-fused", run_waiting_ring);
 }
 
 // ---------------------------------------------------------------------------
-// 场景二：信号走廊 catalog 长前车链（v0.2 fixture）：入口槽位 10 m 间距连成
-// 16 车链，另有横穿流量在路口产生 conflict 决策。
+// 场景二（融合路径覆盖）：信号走廊 catalog 长前车链（v0.2 fixture）：入口
+// 槽位 10 m 间距连成 16 车链，另有横穿流量在路口产生 conflict 决策；16
+// Active 低于生产分发阈值。
 // ---------------------------------------------------------------------------
 
 fn run_corridor_chain(workers: u32) -> Vec<String> {
@@ -690,10 +679,7 @@ fn run_corridor_chain(workers: u32) -> Vec<String> {
                 .expect("corridor spawn");
         }
     }
-    assert!(
-        active_count(&world) >= DISPATCH_MIN_ACTIVE,
-        "corridor scenario must engage the P2 dispatch path"
-    );
+    assert_fused_path(&world, "corridor scenario");
     let mut records = Vec::with_capacity(160);
     for _ in 0..160 {
         let outcome = world.step(TickInput::new(16)).expect("corridor step");
@@ -703,8 +689,8 @@ fn run_corridor_chain(workers: u32) -> Vec<String> {
 }
 
 #[test]
-fn signalized_corridor_chain_matches_across_worker_matrix() {
-    assert_matches_across_workers("signalized-corridor-chain", run_corridor_chain);
+fn signalized_corridor_chain_fused_matches_across_worker_matrix() {
+    assert_matches_across_workers("signalized-corridor-chain-fused", run_corridor_chain);
 }
 
 // ---------------------------------------------------------------------------
@@ -916,10 +902,7 @@ fn run_parking_transition_fused(workers: u32) -> Vec<String> {
                 .expect("follower spawn"),
         );
     }
-    assert!(
-        active_count(&world) >= DISPATCH_MIN_ACTIVE,
-        "fused-path parking scenario starts at the threshold, then parks below it"
-    );
+    assert_fused_path(&world, "fused-path parking scenario");
     let target = ParkingTarget::ExplicitSpace(space);
     let reserve = ReserveParkingTarget::ExplicitSpace {
         space,
@@ -958,13 +941,14 @@ fn fused_path_parking_transition_matches_across_worker_matrix() {
 }
 
 // ---------------------------------------------------------------------------
-// 场景五（跨阈值并行生命周期）：合成环混合工作集。路线 ×3 出现项（1 800 m）：
+// 场景五（融合路径覆盖）：合成环混合工作集。路线 ×3 出现项（1 800 m）：
 // 12 Active 从入口边 0 起 9 m 间距铺开，Parked-from-start 与首拍前 park 的
 // 车夹入 live 序列，近终点 finisher 反复 Completed 保留后原子替换；tick 1
 // despawn 一辆后立即补员，tick 10 再 park 一辆并立即补员。每个关键操作之
-// 后、下一拍 step 之前断言 Active 不低于 P2 分发门槛，Completed/Parked 的
-// 紧凑位置与逻辑更新位置全程交错。full-spatial 物理路长不足以容纳跨阈值
-// 工作集（30 m 仅容 4 辆），大工作集生命周期在本场景验收。
+// 后、下一拍 step 之前断言 Active 低于生产分发阈值，Completed/Parked 的
+// 紧凑位置与逻辑更新位置全程交错的融合路径等价。多 worker 分发下的生命
+// 周期交错由 lib 强制分发测试（`mixed_lifecycle_ticks_take_real_dispatch` 等）
+// 与阈值以上集成对照承载。
 // ---------------------------------------------------------------------------
 
 fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
@@ -1046,7 +1030,7 @@ fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
             .spawn_vehicle(VehicleSpawnInput::new(profile, route, front.0, front.1, 0))
             .expect("park backfill spawn"),
     );
-    assert_dispatch_engaged(&world, "hybrid lifecycle initial workset");
+    assert_fused_path(&world, "hybrid lifecycle initial workset");
     let mut records = Vec::with_capacity(48);
     let mut replaced = 0;
     let mut pending_replace: Option<(u32, VehicleHandle)> = None;
@@ -1060,7 +1044,7 @@ fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
                 handles[9],
                 VehicleSpawnInput::new(profile, route, backfill.0, backfill.1, 0),
             );
-            assert_dispatch_engaged(&world, "hybrid lifecycle despawn+respawn");
+            assert_fused_path(&world, "hybrid lifecycle despawn+respawn");
         }
         if tick == 10 {
             // 行进中 Active→Parked（虚拟池第二辆）：parker 让出的入口位置已
@@ -1083,7 +1067,7 @@ fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
                     ))
                     .expect("mid-run park backfill spawn"),
             );
-            assert_dispatch_engaged(&world, "hybrid lifecycle mid-run park+backfill");
+            assert_fused_path(&world, "hybrid lifecycle mid-run park+backfill");
         }
         let outcome = world
             .step(TickInput::new(DELTA_MS))
@@ -1106,7 +1090,7 @@ fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
                 finisher = record.new;
                 pending_replace = None;
                 replaced += 1;
-                assert_dispatch_engaged(&world, "hybrid lifecycle atomic replace");
+                assert_fused_path(&world, "hybrid lifecycle atomic replace");
             }
         } else if world
             .vehicle(finisher)
@@ -1124,16 +1108,16 @@ fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
 }
 
 #[test]
-fn hybrid_lifecycle_over_dispatch_threshold_matches_across_worker_matrix() {
-    assert_matches_across_workers("ring-lifecycle-hybrid", run_ring_hybrid_lifecycle);
+fn hybrid_lifecycle_fused_matches_across_worker_matrix() {
+    assert_matches_across_workers("ring-lifecycle-hybrid-fused", run_ring_hybrid_lifecycle);
 }
 
 // ---------------------------------------------------------------------------
-// 场景六（跨阈值并行停车）：parking 夹具混合工作集。parker + 11 辆跟随者
-// （12 Active）起步；首拍 step 之前 park 掉一辆并立即在让出的入口位置补员，
-// 首拍起即保持 12 Active；首辆 Completed 后队尾再补员一次。停车/补员/完成
-// 之后、下一拍 step 之前断言 Active 不低于 P2 分发门槛，Completed 与 Parked
-// 夹入 live 序列。
+// 场景六（融合路径覆盖）：parking 夹具混合工作集。parker + 11 辆跟随者
+// （12 Active）起步；首拍 step 之前 park 掉一辆并立即在让出的入口位置补员；
+// 首辆 Completed 后队尾再补员一次。停车/补员/完成之后、下一拍 step 之前
+// 断言 Active 低于生产分发阈值，Completed 与 Parked 夹入 live 序列的融合
+// 路径等价。
 // ---------------------------------------------------------------------------
 
 fn run_parking_hybrid_transition(workers: u32) -> Vec<String> {
@@ -1192,7 +1176,7 @@ fn run_parking_hybrid_transition(workers: u32) -> Vec<String> {
                 .expect("hybrid follower spawn"),
         );
     }
-    assert_dispatch_engaged(&world, "hybrid parking initial workset");
+    assert_fused_path(&world, "hybrid parking initial workset");
     world.reserve_parking(parker, reserve).expect("reserve");
     assert!(world.parking_arrived(parker, target));
     world.park_vehicle(parker, target).expect("park");
@@ -1208,7 +1192,7 @@ fn run_parking_hybrid_transition(workers: u32) -> Vec<String> {
             ))
             .expect("park backfill spawn"),
     );
-    assert_dispatch_engaged(&world, "hybrid parking park+backfill before first step");
+    assert_fused_path(&world, "hybrid parking park+backfill before first step");
     let mut records = Vec::with_capacity(130);
     let mut completed = false;
     let mut completion_backfill = false;
@@ -1244,7 +1228,7 @@ fn run_parking_hybrid_transition(workers: u32) -> Vec<String> {
                     .expect("completion backfill spawn"),
             );
             completion_backfill = true;
-            assert_dispatch_engaged(&world, "hybrid parking completion backfill");
+            assert_fused_path(&world, "hybrid parking completion backfill");
         }
         records.push(tick_record(&world, &outcome));
     }
@@ -1257,223 +1241,11 @@ fn run_parking_hybrid_transition(workers: u32) -> Vec<String> {
 }
 
 #[test]
-fn hybrid_parking_over_dispatch_threshold_matches_across_worker_matrix() {
-    assert_matches_across_workers("parking-transition-hybrid", run_parking_hybrid_transition);
-}
-
-// ---------------------------------------------------------------------------
-// 场景七：fresh restore 后首拍：同一快照在同一 worker 数下恢复，恢复前后的
-// 逐步记录都与 worker 1 参照一致。
-// ---------------------------------------------------------------------------
-
-fn run_restore_first_tick(workers: u32) -> Vec<String> {
-    let revision = ring_revision(&ring_candidate(
-        10,
-        "parallel-preview-ring-v1",
-        PortableDiffBase::Genesis,
-    ));
-    let (mut world, spawns) = ring_world(workers, &revision);
-    for input in &spawns[..10] {
-        world.spawn_vehicle(*input).expect("restore scenario spawn");
-    }
-    let mut records = Vec::with_capacity(16);
-    for _ in 0..8 {
-        let outcome = world
-            .step(TickInput::new(DELTA_MS))
-            .expect("pre-restore step");
-        records.push(tick_record(&world, &outcome));
-    }
-    let captured = world.capture_snapshot().expect("capture");
-    let bytes = laneflow_runtime::encode_lfrs(&captured);
-    let mut restored = restore_lfrs(
-        &bytes,
-        world.revision(),
-        world.committed_source().clone(),
-        world.config(),
-        execution(workers),
-        laneflow_runtime::SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4_096),
-    )
-    .expect("restore")
-    .into_world();
-    assert_eq!(
-        deterministic_state_digest(&restored.capture_snapshot().expect("restored capture"))
-            .unwrap(),
-        deterministic_state_digest(&captured).unwrap(),
-        "fresh restore must reproduce the committed digest"
+fn hybrid_parking_fused_matches_across_worker_matrix() {
+    assert_matches_across_workers(
+        "parking-transition-hybrid-fused",
+        run_parking_hybrid_transition,
     );
-    for _ in 0..8 {
-        let outcome = restored
-            .step(TickInput::new(DELTA_MS))
-            .expect("post-restore step");
-        records.push(tick_record(&restored, &outcome));
-    }
-    records
-}
-
-#[test]
-fn fresh_restore_first_tick_matches_across_worker_matrix() {
-    assert_matches_across_workers("fresh-restore-first-tick", run_restore_first_tick);
-}
-
-// ---------------------------------------------------------------------------
-// 场景八：同修订切换后首拍：同一制品构建两个等价根，运行中换根重编译全部
-// 路线，切换后继续步进。
-// ---------------------------------------------------------------------------
-
-fn same_revision_descriptor(
-    world: &TrafficWorld,
-    target: &SharedNetworkRevision,
-) -> NetworkRevisionCutoverDescriptor {
-    NetworkRevisionCutoverDescriptor::new(
-        LfcaOriginBinding::from_canonical_origin(*world.revision().canonical_origin()),
-        LfcaOriginBinding::from_canonical_origin(*target.canonical_origin()),
-        None,
-        MigrationPolicyKind::SameRevisionRestore,
-        world.world_binding(),
-    )
-}
-
-fn run_same_revision_cutover(workers: u32) -> Vec<String> {
-    let candidate = ring_candidate(10, "parallel-preview-ring-v1", PortableDiffBase::Genesis);
-    let base = ring_revision(&candidate);
-    let republished = ring_revision(&candidate);
-    let (mut world, spawns) = ring_world(workers, &base);
-    for input in &spawns[..10] {
-        world.spawn_vehicle(*input).expect("cutover scenario spawn");
-    }
-    let mut records = Vec::with_capacity(16);
-    for _ in 0..8 {
-        let outcome = world
-            .step(TickInput::new(DELTA_MS))
-            .expect("pre-cutover step");
-        records.push(tick_record(&world, &outcome));
-    }
-    let descriptor = same_revision_descriptor(&world, &republished);
-    let origin = republished.canonical_origin();
-    let _events = world
-        .cutover_same_revision(
-            Arc::clone(&republished),
-            CommittedNetworkSource::Published {
-                reference: PublishedLfcaReference::new(
-                    "fixture://parallel-preview-ring-republished",
-                    origin.canonical_artifact_digest(),
-                    origin.canonical_artifact_byte_length(),
-                    origin.network_revision(),
-                )
-                .expect("non-empty fixture key"),
-            },
-            &descriptor,
-            &CutoverPreflightLimits::new(1_048_576),
-        )
-        .expect("same-revision cutover");
-    for _ in 0..8 {
-        let outcome = world
-            .step(TickInput::new(DELTA_MS))
-            .expect("post-cutover step");
-        records.push(tick_record(&world, &outcome));
-    }
-    records
-}
-
-#[test]
-fn same_revision_cutover_first_tick_matches_across_worker_matrix() {
-    assert_matches_across_workers("same-revision-cutover", run_same_revision_cutover);
-}
-
-// ---------------------------------------------------------------------------
-// 场景九：跨修订切换后首拍：gap profile 前导值变化的策略修订（与
-// policy_cutover 同差异来源），prepare → 在途 tick 追赶 → commit。
-// ---------------------------------------------------------------------------
-
-fn cross_revision_descriptor(
-    world: &TrafficWorld,
-    target: &SharedNetworkRevision,
-    diff: &[u8],
-) -> NetworkRevisionCutoverDescriptor {
-    NetworkRevisionCutoverDescriptor::new(
-        LfcaOriginBinding::from_canonical_origin(*world.revision().canonical_origin()),
-        LfcaOriginBinding::from_canonical_origin(*target.canonical_origin()),
-        Some(SemanticDiffOriginBinding::new(
-            SEMANTIC_DIFF_FORMAT_VERSION,
-            Sha256Digest::from_bytes(Sha256::digest(diff).into()),
-            ExactByteLength::new(diff.len() as u64),
-        )),
-        MigrationPolicyKind::CrossRevisionDirect,
-        world.world_binding(),
-    )
-}
-
-fn run_cross_revision_cutover(workers: u32) -> Vec<String> {
-    let base_candidate = ring_candidate(10, "parallel-preview-ring-v1", PortableDiffBase::Genesis);
-    let target_candidate = ring_candidate(
-        30,
-        "parallel-preview-ring-v2",
-        PortableDiffBase::Artifact(
-            preflight_object_values(
-                base_candidate.canonical_artifact().bytes(),
-                PortableObjectKind::CanonicalArtifact,
-                FormatLimits::HARD,
-            )
-            .expect("preflight base artifact"),
-        ),
-    );
-    let base = ring_revision(&base_candidate);
-    let target = ring_revision(&target_candidate);
-    assert_ne!(
-        base.network_revision(),
-        target.network_revision(),
-        "gap profile change must yield a distinct revision"
-    );
-    let (mut world, spawns) = ring_world(workers, &base);
-    for input in &spawns[..10] {
-        world.spawn_vehicle(*input).expect("cutover scenario spawn");
-    }
-    let mut records = Vec::with_capacity(16);
-    for _ in 0..6 {
-        let outcome = world
-            .step(TickInput::new(DELTA_MS))
-            .expect("pre-cutover step");
-        records.push(tick_record(&world, &outcome));
-    }
-    let diff = target_candidate.semantic_diff().bytes();
-    let descriptor = cross_revision_descriptor(&world, &target, diff);
-    let origin = target.canonical_origin();
-    let transaction = world
-        .prepare_cross_revision_cutover(
-            Arc::clone(&target),
-            CommittedNetworkSource::Published {
-                reference: PublishedLfcaReference::new(
-                    "fixture://parallel-preview-ring-v2",
-                    origin.canonical_artifact_digest(),
-                    origin.canonical_artifact_byte_length(),
-                    origin.network_revision(),
-                )
-                .expect("non-empty fixture key"),
-            },
-            &descriptor,
-            diff,
-            &CutoverPreflightLimits::new(1_048_576),
-            &CutoverTransactionLimits::default(),
-        )
-        .expect("prepare cross-revision cutover");
-    // 在途 tick 追赶：与 policy_cutover 同一事务时序。
-    let outcome = world
-        .step(TickInput::new(DELTA_MS))
-        .expect("in-flight step");
-    records.push(tick_record(&world, &outcome));
-    let _commit = transaction.commit(&mut world).expect("commit cutover");
-    for _ in 0..8 {
-        let outcome = world
-            .step(TickInput::new(DELTA_MS))
-            .expect("post-cutover step");
-        records.push(tick_record(&world, &outcome));
-    }
-    records
-}
-
-#[test]
-fn cross_revision_cutover_first_tick_matches_across_worker_matrix() {
-    assert_matches_across_workers("cross-revision-cutover", run_cross_revision_cutover);
 }
 
 // ---------------------------------------------------------------------------
