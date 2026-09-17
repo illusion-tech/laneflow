@@ -30,6 +30,8 @@
   deterministic digest 7 合同；#284 的组合 ledger 与持久化由下列路权文档管理。
 - `shared-static-network.md`：从受检 LFCA 构建 `SharedNetworkRevision`。
 - `adapter-api.md`：Runtime / Spatial 与引擎适配器的只读快照、位姿和权威边界。
+- `committed-pose-extraction.md`：#681 位姿来源借用、Spatial 缓冲交换与按需提取
+  的已接受设计；实现状态以独立切片为准。
 - `portable-canonical-artifact.md`：统一 LFCA 5 / LFSM 4 / LFSD 4 /
   LFCP 2、确定性分块与单路网一百万现实混合静态实体容量合同。
 - `compiler-post-emission-check-and-minimal-publication-closure.md`：后发射检查与

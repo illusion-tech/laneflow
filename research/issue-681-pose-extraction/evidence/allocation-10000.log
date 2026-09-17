@@ -1,0 +1,3 @@
+sizes source=20 input=16 record=40 handle=8 transform=48 allocation=true
+fixture n=10000 origin=CanonicalNetworkOrigin { canonical_artifact_digest: Sha256Digest(c19994c4cb7bb3e4ec182db5fb26300689efef2b0d64922a83822a692f6dbf83), canonical_artifact_byte_length: ExactByteLength(228340), network_revision: NetworkRevisionId(Sha256Digest(42658655357bb044d969bb699c6849d52bb3b0aa429ce315afe486c2b8c9f262)), contracts: StaticContractVersions { canonical_format_version: 5, identity_encoding_version: 1, identity_registry_revision: 4, network_revision_derivation_version: 1, constraint_contract_version: 3, static_execution_contract_version: 5 }, partition_planning_hints_derivation_version: 1 }
+oracle-ok n=10000 full=selected@100%,10%,1% unchanged-world=true late-failure-retry=true
