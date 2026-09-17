@@ -44,13 +44,12 @@ enum MotionBounds {
     Travel { meters: f32, proposed_mm: u64 },
 }
 
-/// P2 第一遍逐车独立预览的暂存输出，与串行 staging 同形；`next` 仅在预览
-/// 存在时非空（mirrors `preview.next`）。协调器按 Active 顺序规范消费。
+/// P2 第一遍逐车独立预览的暂存输出。协调器按 Active 顺序规范消费；
+/// 需要 `next` 时从 `preview` 提取（`preview.next`），不复制存储。
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct WaitingPreviewEntry {
     pub(crate) horizon: Option<LeaderQueryHorizon>,
     pub(crate) preview: Option<MotionPreview>,
-    pub(crate) next: Option<crate::VehicleState>,
 }
 
 impl MotionPreview {
@@ -1118,7 +1117,6 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             return Ok(WaitingPreviewEntry {
                 horizon: None,
                 preview: None,
-                next: None,
             });
         };
         let profile = self
@@ -1144,14 +1142,12 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             return Ok(WaitingPreviewEntry {
                 horizon: Some(horizon),
                 preview: None,
-                next: None,
             });
         };
         if gate_distance_mm > horizon.front_query_mm {
             return Ok(WaitingPreviewEntry {
                 horizon: Some(horizon),
                 preview: None,
-                next: None,
             });
         }
         let preview = self
@@ -1160,7 +1156,6 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         Ok(WaitingPreviewEntry {
             horizon: Some(horizon),
             preview: Some(preview),
-            next: Some(preview.next),
         })
     }
 

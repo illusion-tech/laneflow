@@ -3,6 +3,7 @@
 use std::ops::Range;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::sync::Arc;
+#[cfg(test)]
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread::JoinHandle;
@@ -190,6 +191,8 @@ pub(crate) fn last_dispatch_stats() -> Option<DispatchStats> {
 }
 
 /// 单次分发调用内的廉价计数器；join 完成后汇总为 [`DispatchStats`]。
+/// 只服务测试证据（cfg(test)）：生产构建不执行任何统计登记，返回默认值。
+#[cfg(test)]
 #[derive(Default)]
 struct DispatchCounters {
     dispatched: AtomicUsize,
@@ -199,6 +202,7 @@ struct DispatchCounters {
     threads: Mutex<Vec<std::thread::ThreadId>>,
 }
 
+#[cfg(test)]
 impl DispatchCounters {
     fn note_thread(&self) {
         let id = std::thread::current().id();
@@ -226,26 +230,32 @@ fn run_dispatch_chunk<T, F>(
     compute: &F,
     view: super::phase::StepReadView<'_>,
     first_error: &AtomicUsize,
-    counters: &DispatchCounters,
+    #[cfg(test)] counters: &DispatchCounters,
     start: usize,
     chunk: &mut [DispatchSlot<T>],
 ) where
     F: Fn(super::phase::StepReadView<'_>, usize, &mut [DispatchSlot<T>]) + Sync,
 {
+    #[cfg(test)]
     counters.note_thread();
     let failed_at = first_error.load(Ordering::Relaxed);
     if start > failed_at {
         for slot in chunk.iter_mut() {
             *slot = DispatchSlot::Skipped;
         }
+        #[cfg(test)]
         counters.skipped.fetch_add(1, Ordering::Relaxed);
         return;
     }
-    if failed_at != usize::MAX {
-        counters.extra_work.fetch_add(1, Ordering::Relaxed);
+    #[cfg(test)]
+    {
+        if failed_at != usize::MAX {
+            counters.extra_work.fetch_add(1, Ordering::Relaxed);
+        }
+        counters.dispatched.fetch_add(1, Ordering::Relaxed);
     }
-    counters.dispatched.fetch_add(1, Ordering::Relaxed);
     compute(view, start, chunk);
+    #[cfg(test)]
     if chunk
         .iter()
         .all(|slot| matches!(slot, DispatchSlot::Done(_)))
@@ -345,6 +355,7 @@ impl ExecutionResources {
     /// 整块起点晚于已错位置的输出整块标记 `Skipped` 不执行。错误不取消其他
     /// 已分发任务：Rayon scope 在传播 panic 前等待全部任务结束，领域错误也
     /// 等完整 join 后由调用方按逻辑顺序消费首错。协调调用线程执行首块。
+    /// 统计只在测试构建登记；生产构建返回默认值、无锁无分配。
     pub(crate) fn try_for_each_chunk<T, F>(
         &self,
         view: super::phase::StepReadView<'_>,
@@ -358,6 +369,7 @@ impl ExecutionResources {
         F: Fn(super::phase::StepReadView<'_>, usize, &mut [DispatchSlot<T>]) + Sync,
     {
         assert!(chunk_size > 0, "nonzero chunk size");
+        #[cfg(test)]
         let counters = DispatchCounters::default();
         match self {
             Self::Caller => {
@@ -366,6 +378,7 @@ impl ExecutionResources {
                         &compute,
                         view,
                         first_error,
+                        #[cfg(test)]
                         &counters,
                         chunk_index * chunk_size,
                         chunk,
@@ -374,13 +387,22 @@ impl ExecutionResources {
             }
             Self::Pool(resources) => resources.pool.in_place_scope(|scope| {
                 let compute = &compute;
+                #[cfg(test)]
                 let counters = &counters;
                 let mut chunks = output.chunks_mut(chunk_size).enumerate();
                 let first = chunks.next();
                 for (chunk_index, chunk) in chunks {
                     let start = chunk_index * chunk_size;
                     scope.spawn(move |_| {
-                        run_dispatch_chunk(compute, view, first_error, counters, start, chunk);
+                        run_dispatch_chunk(
+                            compute,
+                            view,
+                            first_error,
+                            #[cfg(test)]
+                            counters,
+                            start,
+                            chunk,
+                        );
                     });
                 }
                 if let Some((chunk_index, chunk)) = first {
@@ -388,6 +410,7 @@ impl ExecutionResources {
                         compute,
                         view,
                         first_error,
+                        #[cfg(test)]
                         counters,
                         chunk_index * chunk_size,
                         chunk,
@@ -395,7 +418,14 @@ impl ExecutionResources {
                 }
             }),
         }
-        counters.stats()
+        #[cfg(test)]
+        {
+            counters.stats()
+        }
+        #[cfg(not(test))]
+        {
+            DispatchStats::default()
+        }
     }
 }
 
@@ -495,6 +525,11 @@ impl WorldExecution {
                 .map(|worker| worker.thread().id())
                 .collect(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn resources(&self) -> &ExecutionResources {
+        &self.resources
     }
 }
 
