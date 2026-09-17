@@ -170,6 +170,25 @@ pub(crate) struct DispatchStats {
     pub(crate) threads: usize,
 }
 
+// 测试专用：最近一次 `try_for_each_chunk` 的调度统计；机制测量探针读取，
+// 不改变语义。
+#[cfg(test)]
+thread_local! {
+    static LAST_DISPATCH_STATS: std::cell::Cell<Option<DispatchStats>> = const { std::cell::Cell::new(None) };
+}
+
+/// 测试专用：记录最近一次分发统计（协调器线程）。
+#[cfg(test)]
+pub(crate) fn note_last_dispatch_stats(stats: DispatchStats) {
+    LAST_DISPATCH_STATS.with(|cell| cell.set(Some(stats)));
+}
+
+/// 测试专用：读取最近一次分发统计；尚未分发过时为 `None`。
+#[cfg(test)]
+pub(crate) fn last_dispatch_stats() -> Option<DispatchStats> {
+    LAST_DISPATCH_STATS.with(std::cell::Cell::get)
+}
+
 /// 单次分发调用内的廉价计数器；join 完成后汇总为 [`DispatchStats`]。
 #[derive(Default)]
 struct DispatchCounters {

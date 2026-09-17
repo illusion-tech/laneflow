@@ -165,7 +165,7 @@ impl Drop for PreviewInjectionGuard {
 /// 按逻辑位置（live 序）武装预览错误注入；`nonfinite`/`invariant` 分别在该
 /// 位置强制 `NonFiniteMotion`/`WaitingInvariantViolation`。
 #[cfg(test)]
-fn inject_preview_errors(
+pub(crate) fn inject_preview_errors(
     world_id: u64,
     nonfinite: &[usize],
     invariant: &[usize],
@@ -1526,7 +1526,12 @@ fn prepare_waiting_previews_dispatched(
             }
         }
     };
-    let _ = execution.try_for_each_chunk(view, slots, &first_error, chunk_size, compute);
+    let dispatch_stats =
+        execution.try_for_each_chunk(view, slots, &first_error, chunk_size, compute);
+    #[cfg(test)]
+    crate::kernel::execution::note_last_dispatch_stats(dispatch_stats);
+    #[cfg(not(test))]
+    let _ = dispatch_stats;
     #[cfg(test)]
     if let Some(position) = preview_slot_gap_position()
         && let Some(slot) = slots.get_mut(position)
@@ -3190,7 +3195,8 @@ pub(crate) mod tests {
 
     /// 注册全部 `count` 条路径的路线，但只在其中 `spawned` 条上放车辆；
     /// 供增长/收缩工作集测试在两次 step 之间继续在同一路线上生成车辆。
-    fn multi_gate_world_partial(
+    /// 机制测量探针复用同一构造并自行补员，保持稳态活动车队。
+    pub(crate) fn multi_gate_world_partial(
         count: usize,
         spawned: usize,
         world_id: u64,
