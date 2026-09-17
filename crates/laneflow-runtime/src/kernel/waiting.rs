@@ -7048,6 +7048,7 @@ pub(crate) mod tests {
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_180;
         let _force = force_motion_dispatch();
+        let _diagnostics = crate::kernel::tick::enable_motion_diagnostics();
         let run = |workers: u32| {
             let mut world = multi_gate_world_with_id(16, WORLD_ID);
             install_execution(&mut world, workers);
