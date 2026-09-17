@@ -1,9 +1,17 @@
 //! 相同文件在 e011745e94986a17049c66e730d54ac9fccc59f9 与当前实现运行。
 //! 只比较公开状态/批次及既有日志记录；不读取分区、容量或私有 grant serial。
+//!
+//! #705 整步等价：`trace_with_workers` 把同一 digest 轨迹在真实多 worker 世界
+//! 下重跑（`WorldExecution::start_private` 重建世界独占执行资源，等同安装合同
+//! 的计划/资源准备），逐场景断言 worker 2/4/8/16 与 worker 1 完全一致，并与
+//! 固定 fixture `phase-parallel-matrix-c009d2dc.txt` 一致；fixture 值取自
+//! worker 1 融合路径，其 digest 管线已由 pre-refactor fixture
+//! `phase-protocol-e011745e.txt` 锚定。
 
 use super::{STEP_FAILPOINT, StepFailpoint};
 use crate::{StepError, TickInput, TrafficWorld};
 use sha2::{Digest, Sha256};
+use std::num::NonZeroU32;
 use std::sync::Arc;
 
 fn checkpoint(world: &TrafficWorld) -> String {
@@ -44,7 +52,31 @@ fn journal(world: &TrafficWorld) -> String {
     )
 }
 
-fn trace(mut world: TrafficWorld, ticks: usize, retry: bool, journal_bound: Option<u64>) -> String {
+/// 场景车辆数不低于 P2 分发门槛（`WAITING_PREVIEW_FUSION_MIN_ACTIVE`），
+/// 保证多 worker 运行真正走分发路径而非融合回退。
+const DISPATCH_MIN_ACTIVE: usize = 8;
+
+/// 用目标 worker 数重建世界独占执行资源；与 `TrafficWorld::install` 同一
+/// `ExecutionPlan::prepare` + `ExecutionResources::start` 路径，供既有
+/// 单 worker 场景构造 helper 在多 worker 下复用。
+fn reinstall_execution(world: &mut TrafficWorld, workers: NonZeroU32) {
+    world.execution = crate::kernel::execution::WorldExecution::start_private(
+        crate::ExecutionConfig::new(workers),
+        &world.state,
+    );
+}
+
+fn trace(world: TrafficWorld, ticks: usize, retry: bool, journal_bound: Option<u64>) -> String {
+    trace_with_workers(world, ticks, retry, journal_bound, NonZeroU32::MIN)
+}
+
+fn trace_with_workers(
+    mut world: TrafficWorld,
+    ticks: usize,
+    retry: bool,
+    journal_bound: Option<u64>,
+    workers: NonZeroU32,
+) -> String {
     if let Some(bound) = journal_bound {
         world.state.arm_migration_journal(bound).unwrap();
     }
@@ -96,7 +128,7 @@ fn trace(mut world: TrafficWorld, ticks: usize, retry: bool, journal_bound: Opti
         world.revision(),
         world.committed_source().clone(),
         world.config(),
-        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        crate::ExecutionConfig::new(workers),
         crate::SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4_096),
     )
     .unwrap()
@@ -126,7 +158,7 @@ fn trace(mut world: TrafficWorld, ticks: usize, retry: bool, journal_bound: Opti
     format!("{hex}:{event_count}")
 }
 
-fn signals_world() -> TrafficWorld {
+fn signals_world(workers: NonZeroU32) -> TrafficWorld {
     let input = laneflow_format::check_canonical_network_input(
         include_bytes!(
             "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
@@ -149,7 +181,7 @@ fn signals_world() -> TrafficWorld {
     TrafficWorld::install(
         Arc::clone(&revision),
         crate::WorldConfig::new(4, 4, 1_024, 1_024, 100),
-        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        crate::ExecutionConfig::new(workers),
         crate::CommittedNetworkSource::Published {
             reference: crate::PublishedLfcaReference::new(
                 "fixture://phase-signals",
@@ -215,9 +247,19 @@ fn exact_baseline_trace_and_retry_match() {
         );
         actual.push(format!("{name}={baseline}"));
     }
-    let signals = trace(signals_world(), 600, false, Some(1_024 * 1_024));
+    let signals = trace(
+        signals_world(NonZeroU32::MIN),
+        600,
+        false,
+        Some(1_024 * 1_024),
+    );
     assert_eq!(
-        trace(signals_world(), 600, true, Some(1_024 * 1_024)),
+        trace(
+            signals_world(NonZeroU32::MIN),
+            600,
+            true,
+            Some(1_024 * 1_024)
+        ),
         signals
     );
     actual.push(format!("signals-clock={signals}"));
@@ -225,6 +267,105 @@ fn exact_baseline_trace_and_retry_match() {
     eprintln!("PHASE_BASELINE_BEGIN\n{actual}\nPHASE_BASELINE_END");
     // Filled from the fixed pre-refactor commit, never regenerated from the implementation under test.
     const EXPECTED: &str = include_str!("../../tests/fixtures/phase-protocol-e011745e.txt");
+    assert_eq!(actual, EXPECTED.trim_end());
+}
+
+#[test]
+fn parallel_worker_matrix_trace_matches_fixed_fixture() {
+    let revision = crate::admin::cutover_migration::tests::conflict_scale_revision();
+    // 车辆-bearing 场景的活动数必须达到分发门槛，多 worker 运行才真正分发；
+    // 信号时钟场景无车辆，覆盖空工作集下的池世界整步。
+    type Scenario = (
+        &'static str,
+        Box<dyn Fn(NonZeroU32) -> TrafficWorld>,
+        usize,
+        Option<u64>,
+        bool,
+    );
+    let scenarios: Vec<Scenario> = vec![
+        (
+            "waiting-parallel",
+            Box::new(|_| crate::kernel::waiting::tests::multi_gate_world(16)),
+            160,
+            None,
+            true,
+        ),
+        (
+            "waiting-parallel-overflow",
+            Box::new(|_| crate::kernel::waiting::tests::multi_gate_world(16)),
+            12,
+            Some(32),
+            true,
+        ),
+        (
+            "conflict-parallel",
+            Box::new(move |_| {
+                crate::admin::cutover_migration::tests::conflict_scale_world(
+                    Arc::clone(&revision),
+                    16,
+                )
+            }),
+            640,
+            None,
+            true,
+        ),
+        (
+            "signals-clock-parallel",
+            Box::new(signals_world),
+            600,
+            Some(1_024 * 1_024),
+            false,
+        ),
+    ];
+    let mut actual = Vec::new();
+    for (name, build, ticks, bound, dispatch_required) in &scenarios {
+        let mut baseline: Option<String> = None;
+        for raw_workers in [1_u32, 2, 4, 8, 16] {
+            let workers = NonZeroU32::new(raw_workers).expect("nonzero workers");
+            let mut world = build(workers);
+            // 多 worker 场景经世界独占执行资源的计划/资源准备重跑，与安装合同同一路径。
+            reinstall_execution(&mut world, workers);
+            if raw_workers > 1 {
+                assert_eq!(
+                    world.execution.thread_ids().len() + 1,
+                    raw_workers as usize,
+                    "{name} workers={raw_workers} must run on a real worker pool"
+                );
+            }
+            if *dispatch_required {
+                let active = world
+                    .state
+                    .committed
+                    .live_order
+                    .iter()
+                    .filter(|handle| {
+                        world
+                            .state
+                            .vehicle_state(**handle)
+                            .is_some_and(|state| state.status == crate::VehicleStatus::Active)
+                    })
+                    .count();
+                assert!(
+                    active >= DISPATCH_MIN_ACTIVE,
+                    "{name} must keep at least {DISPATCH_MIN_ACTIVE} active vehicles, got {active}"
+                );
+            }
+            let rerun = trace_with_workers(world, *ticks, true, *bound, workers);
+            match &baseline {
+                None => baseline = Some(rerun),
+                Some(expected) => assert_eq!(
+                    &rerun, expected,
+                    "{name} diverged between worker 1 and workers={raw_workers}"
+                ),
+            }
+        }
+        actual.push(format!("{name}={}", baseline.expect("baseline trace")));
+    }
+    let actual = actual.join("\n");
+    eprintln!("PHASE_PARALLEL_BASELINE_BEGIN\n{actual}\nPHASE_PARALLEL_BASELINE_END");
+    // 值冻结自 worker 1 融合路径（与安装合同同一计划/资源准备），digest 管线由
+    // pre-refactor fixture phase-protocol-e011745e.txt 锚定；不得用被测实现重生成。
+    const EXPECTED: &str = include_str!("../../tests/fixtures/phase-parallel-matrix-c009d2dc.txt");
     assert_eq!(actual, EXPECTED.trim_end());
 }
 
