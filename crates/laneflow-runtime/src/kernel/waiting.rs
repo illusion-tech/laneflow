@@ -259,6 +259,98 @@ fn count_preview_path(update: impl FnOnce(&mut WaitingPreviewPathCounts)) {
     });
 }
 
+/// P2 第一遍诊断子段（cfg(test)，#705 机制测量）：把 WaitingPrepare 拆成
+/// 前置检查与输入准备 / 独立预览计算 / 分发与 join 等待 / 规范消费 /
+/// 后续 Waiting 组装，分别累计；计算合计另记最长块时间（任务局部）。
+/// 只在探针启用时打开，不影响生产路径与 #583 阶段协议测试。
+#[cfg(test)]
+pub(crate) mod preview_stage {
+    use std::cell::Cell;
+    use std::time::Instant;
+
+    /// 前置检查与输入准备（协调器：成员校验、scratch 预留、输入发现）。
+    pub(crate) const PREAMBLE: usize = 0;
+    /// 独立预览计算（融合环路墙钟；分发为任务局部合计）。
+    pub(crate) const COMPUTE: usize = 1;
+    /// 分发与 join 等待（协调器墙钟，含完整 join）。
+    pub(crate) const DISPATCH: usize = 2;
+    /// 规范消费（协调器按 Active 顺序写共享暂存）。
+    pub(crate) const CONSUME: usize = 3;
+    /// 后续 Waiting 组装（第二遍决策、排序与暂存）。
+    pub(crate) const ASSEMBLY: usize = 4;
+    pub(crate) const STAGE_COUNT: usize = 5;
+
+    thread_local! {
+        static ENABLED: Cell<bool> = const { Cell::new(false) };
+        static NANOS: Cell<[u128; STAGE_COUNT]> = const { Cell::new([0; STAGE_COUNT]) };
+        static MAX_CHUNK_NANOS: Cell<u128> = const { Cell::new(0) };
+    }
+
+    pub(crate) struct Span(Option<(usize, Instant)>);
+
+    pub(crate) fn begin(index: usize) -> Span {
+        Span(ENABLED.with(|enabled| enabled.get().then(|| (index, Instant::now()))))
+    }
+
+    impl Drop for Span {
+        fn drop(&mut self) {
+            if let Some((index, started)) = self.0 {
+                let elapsed = started.elapsed().as_nanos();
+                NANOS.with(|nanos| {
+                    let mut next = nanos.get();
+                    next[index] += elapsed;
+                    nanos.set(next);
+                });
+            }
+        }
+    }
+
+    /// 任务局部上报一块预览计算耗时：累计合计并刷新最长块时间。
+    pub(crate) fn note_compute_chunk(nanos: u128) {
+        if !ENABLED.with(Cell::get) {
+            return;
+        }
+        NANOS.with(|total| {
+            let mut next = total.get();
+            next[COMPUTE] += nanos;
+            total.set(next);
+        });
+        MAX_CHUNK_NANOS.with(|max| {
+            if nanos > max.get() {
+                max.set(nanos);
+            }
+        });
+    }
+
+    pub(crate) fn set_enabled(enabled: bool) {
+        ENABLED.with(|cell| cell.set(enabled));
+    }
+
+    pub(crate) fn take() -> ([u128; STAGE_COUNT], u128) {
+        (
+            NANOS.with(|nanos| nanos.take()),
+            MAX_CHUNK_NANOS.with(|max| max.take()),
+        )
+    }
+}
+
+/// 分块粒度倍数（cfg(test) 探针旋钮，默认 2）：块数 =
+/// `dispatch_threads × 倍数`，与 `workload` 取较小者；语义中立。
+#[cfg(test)]
+fn preview_chunk_multiplier() -> usize {
+    PREVIEW_CHUNK_MULTIPLIER.with(core::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub(crate) fn set_preview_chunk_multiplier(multiplier: usize) {
+    PREVIEW_CHUNK_MULTIPLIER.with(|cell| cell.set(multiplier.max(1)));
+}
+
+#[cfg(test)]
+thread_local! {
+    static PREVIEW_CHUNK_MULTIPLIER: core::cell::Cell<usize> = const { core::cell::Cell::new(2) };
+}
+
 #[cfg(test)]
 fn preview_slot_reserve_injected_failure() -> bool {
     PREVIEW_SLOT_RESERVE_FAILURE.with(|failure| failure.get())
@@ -1486,6 +1578,8 @@ fn prepare_waiting_previews_fused(
     delta_s: f32,
     cache_limit: usize,
 ) -> Result<(), crate::StepError> {
+    #[cfg(test)]
+    let _compute = preview_stage::begin(preview_stage::COMPUTE);
     let mut cache_index = 0;
     for (update_sequence, vehicle) in view.committed.live_order.iter().copied().enumerate() {
         let state = *view
@@ -1539,6 +1633,8 @@ fn prepare_waiting_previews_dispatched(
         });
         return prepare_waiting_previews_fused(workspace, view, delta_s, cache_limit);
     }
+    #[cfg(test)]
+    let _discover = preview_stage::begin(preview_stage::PREAMBLE);
     let mut pending_identity_error = None;
     for (sequence, vehicle) in view.committed.live_order.iter().copied().enumerate() {
         let Some(state) = view.vehicle_state(vehicle) else {
@@ -1551,6 +1647,8 @@ fn prepare_waiting_previews_dispatched(
         }
         inputs.push((vehicle, sequence));
     }
+    #[cfg(test)]
+    drop(_discover);
     let workload = inputs.len();
     if workload < WAITING_PREVIEW_FUSION_MIN_ACTIVE {
         #[cfg(test)]
@@ -1572,10 +1670,15 @@ fn prepare_waiting_previews_dispatched(
         return prepare_waiting_previews_fused(workspace, view, delta_s, cache_limit);
     }
     slots.resize(workload, crate::kernel::execution::DispatchSlot::Pending);
-    // 块数取线程数两倍与活动数的较小者，块数可多于线程数以便均衡；语义中立。
+    // 块数取线程数倍数与活动数的较小者，块数可多于线程数以便均衡；语义中立。
+    // 倍数默认 2，cfg(test) 探针可扫描 1/2/4 以粒度证据调整。
+    #[cfg(test)]
+    let multiplier = preview_chunk_multiplier();
+    #[cfg(not(test))]
+    let multiplier = 2;
     let chunk_count = execution
         .dispatch_threads()
-        .saturating_mul(2)
+        .saturating_mul(multiplier)
         .clamp(1, workload);
     let chunk_size = workload.div_ceil(chunk_count).max(1);
     let first_error = AtomicUsize::new(usize::MAX);
@@ -1584,6 +1687,8 @@ fn prepare_waiting_previews_dispatched(
                    chunk: &mut [crate::kernel::execution::DispatchSlot<
         crate::kernel::tick::WaitingPreviewEntry,
     >]| {
+        #[cfg(test)]
+        let chunk_started = std::time::Instant::now();
         for (offset, slot) in chunk.iter_mut().enumerate() {
             let index = start + offset;
             let (vehicle, update_sequence) = workspace.waiting_preview_inputs[index];
@@ -1592,13 +1697,19 @@ fn prepare_waiting_previews_dispatched(
                 Err(error) => {
                     first_error.fetch_min(index, Ordering::Relaxed);
                     *slot = crate::kernel::execution::DispatchSlot::Done(Err(error));
-                    return;
+                    break;
                 }
             }
         }
+        #[cfg(test)]
+        preview_stage::note_compute_chunk(chunk_started.elapsed().as_nanos());
     };
+    #[cfg(test)]
+    let _dispatch = preview_stage::begin(preview_stage::DISPATCH);
     let dispatch_stats =
         execution.try_for_each_chunk(view, slots, &first_error, chunk_size, compute);
+    #[cfg(test)]
+    drop(_dispatch);
     #[cfg(test)]
     crate::kernel::execution::note_last_dispatch_stats(dispatch_stats);
     #[cfg(not(test))]
@@ -1610,6 +1721,8 @@ fn prepare_waiting_previews_dispatched(
         // 完成前沿不变量注入：首错之前出现未计算槽位，协调器须检出而非成功。
         *slot = crate::kernel::execution::DispatchSlot::Pending;
     }
+    #[cfg(test)]
+    let _consume = preview_stage::begin(preview_stage::CONSUME);
     for (cache_index, ((vehicle, update_sequence), slot)) in workspace
         .waiting_preview_inputs
         .iter()
@@ -1648,6 +1761,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         delta_s: f32,
         execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<(), crate::StepError> {
+        #[cfg(test)]
+        let _preamble = preview_stage::begin(preview_stage::PREAMBLE);
         if !self.waiting_member_rows_valid() {
             return Err(crate::StepError::WaitingInvariantViolation);
         }
@@ -1688,6 +1803,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             committed: &self.committed,
             derived: &self.derived,
         };
+        #[cfg(test)]
+        drop(_preamble);
         match execution {
             Some(resources @ crate::kernel::execution::ExecutionResources::Pool(_)) => {
                 prepare_waiting_previews_dispatched(
@@ -1704,6 +1821,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 prepare_waiting_previews_fused(self.workspace, view, delta_s, cache_limit)?
             }
         }
+        #[cfg(test)]
+        let _assembly = preview_stage::begin(preview_stage::ASSEMBLY);
 
         for preview_index in 0..self.workspace.next_states.len() {
             let (update_sequence, preview) = self.workspace.next_states[preview_index];
