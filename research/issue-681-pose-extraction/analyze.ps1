@@ -11,6 +11,7 @@ foreach ($count in @(10000,100000)) {
     foreach ($round in 1..3) {
         $path = Join-Path $Evidence "wall-$round-$count.csv"
         $log = Get-Content -Raw -LiteralPath (Join-Path $Evidence "wall-$round-$count.log")
+        if ($log -notmatch '\ballocation=false\b' -or $log -match '\ballocation=true\b') { throw "Not a normal wall-clock process: $path" }
         if ($log -notmatch "oracle-ok n=$count ") { throw "Missing oracle success: $path" }
         $data = @(Import-Csv -LiteralPath $path)
         if ($data.Count -ne 175) { throw "Wrong sample count: $path ($($data.Count))" }
@@ -29,7 +30,7 @@ foreach ($count in @(10000,100000)) {
             $medians += Median @($samples | ForEach-Object { [double]$_.ns / [double]$_.iterations })
         }
         $alloc = @($allocation | Where-Object { $_.case -eq $first.case -and $_.n -eq $first.n -and $_.k -eq $first.k })
-        if ($alloc.Count -ne 7) { throw 'Allocation group missing' }
+        if ($alloc.Count -ne 7 -or (@($alloc.sample | Sort-Object -Unique) -join ',') -ne '0,1,2,3,4,5,6') { throw 'Incomplete or duplicate allocation samples' }
         $rows += [pscustomobject][ordered]@{
             population = $count
             case = $first.case

@@ -111,7 +111,8 @@ virtual parking 和选择进出组合留在 #713 验收。
   typed parking/replace 与生产封闭提取。这证明现行合同仍成立，不代替未来新 API
   的 stale/重复选择、空选择、混 frame、多 output 等完整验收矩阵。
 - Runtime lifecycle 另外 14 个测试通过。汇总脚本验证完整输入，并拒绝缺失样本、
-  重复样本和缺失 oracle 成功标志；四项脚本检查通过。
+  墙钟及分配重复样本、缺失 oracle 成功标志，以及插桩或缺少构建模式的墙钟日志；
+  七项脚本检查通过。
 - fixture 只测 Active 的大规模完整路径和独立静态泊位采样；不是正式城市工作负载，
   不覆盖不同活动率、停车比例、真实可见性算法或多 Session 缓存压力。
 - 所有探针只留在研究程序。没有实现新的 Runtime Iterator、Spatial swap 或选取
@@ -131,11 +132,16 @@ pwsh -NoProfile -File research/issue-681-pose-extraction/analyze.ps1 -Evidence t
 cargo test --locked -p laneflow-spatial -p laneflow-bevy --tests
 ```
 
-run 脚本使用新目录、检查每个进程退出码，保留两种 binary 与 SHA-256；读取 CPU 和
+run 脚本在构建前、构建后及采集后要求工作区干净且 HEAD 不变；先提交全部输入，
+再运行采集。环境记录保存完整源码 commit/tree、manifest、源码及 lock 摘要。
+源码提交必须随证据一起发布并保持可访问；测量后另行提交 evidence，不能 amend
+或重写测量源码提交。完整 Git tree 同时标识 manifest 和所有仓库内 path 依赖。
+脚本使用新目录、检查每个进程退出码，保留两种 binary 与 SHA-256；读取 CPU 和
 电源信息需要宿主权限。硬编码 logical processor 16 是本次机器条件，换机器须显式
-调整并保存环境，不悄悄复用本报告硬件描述。Git 基线与新增研究源/lock 摘要共同
-标识本次取证输入；不是声称研究代码已存在于该基线提交。
+调整并保存环境，不悄悄复用本报告硬件描述。环境记录的 baseline 包含实际研究源码，
+productionBase 另行标明所使用的生产代码基线。
 
-analyze 要求三个完整进程、每 case 七个不同样本和每进程 oracle 成功标志；任何
-缺失都拒绝汇总。原始 CSV 中正常构建的 allocation 四列为占位零，表示未启用计数，
+analyze 要求三个完整正常进程、墙钟与分配的每 case 样本编号均完整覆盖 0–6、
+每进程 oracle 成功标志，以及墙钟日志的 allocation=false 和分配日志的 allocation=true；
+不符合即拒绝汇总。原始 CSV 中正常构建的 allocation 四列为占位零，表示未启用计数，
 仅 allocation 构建的对应列是测量值。

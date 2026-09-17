@@ -24,6 +24,17 @@ $data | Export-Csv -LiteralPath $csv -NoTypeInformation -Encoding utf8
 Expect-Rejection 'duplicate sample'
 Set-Content -LiteralPath $csv -Value $original -NoNewline -Encoding utf8
 $log = Join-Path $root 'wall-1-10000.log'
-Set-Content -LiteralPath $log -Value 'missing oracle marker' -Encoding utf8
+$originalLog = Get-Content -Raw -LiteralPath $log
+Set-Content -LiteralPath $log -Value 'allocation=false missing oracle marker' -Encoding utf8
 Expect-Rejection 'missing oracle'
-Write-Output '4 analyzer checks passed'
+Set-Content -LiteralPath $log -Value ($originalLog -replace 'allocation=false','allocation=true') -NoNewline -Encoding utf8
+Expect-Rejection 'instrumented wall-clock process'
+Set-Content -LiteralPath $log -Value ($originalLog -replace 'allocation=false','') -NoNewline -Encoding utf8
+Expect-Rejection 'missing wall-clock build mode'
+Set-Content -LiteralPath $log -Value $originalLog -NoNewline -Encoding utf8
+$csv = Join-Path $root 'allocation-10000.csv'
+$data = @(Import-Csv -LiteralPath $csv)
+$data[1].sample = $data[0].sample
+$data | Export-Csv -LiteralPath $csv -NoTypeInformation -Encoding utf8
+Expect-Rejection 'duplicate allocation sample'
+Write-Output '7 analyzer checks passed'
