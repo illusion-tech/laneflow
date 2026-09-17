@@ -12,7 +12,7 @@ use crate::kernel::tables::{
 use crate::kernel::units::{ceil_mm, round_mm, round_um};
 use crate::{
     ParkingArrivalObservation, ParkingBinding, ParkingReservation, StepError, StepOutcome,
-    TickInput, TrafficWorld, VehicleState, VehicleStatus,
+    TickInput, VehicleState, VehicleStatus,
 };
 
 /// 整数毫米合同下覆盖 `s0` 边界舍入的专用容差。跟车前视公式里的
@@ -167,7 +167,7 @@ mod transaction_tests {
         for world in [&mut cached, &mut partial, &mut uncached] {
             // 槽位复用打乱 handle 次序；中间车辆完成后 live 与 Active 序号不同。
             let middle = world.live_vehicles()[3];
-            let old = *world.vehicle_state(middle).unwrap();
+            let old = *world.state.vehicle_state(middle).unwrap();
             world.despawn_vehicle(middle).unwrap();
             world
                 .spawn_vehicle(crate::VehicleSpawnInput::new(
@@ -179,7 +179,7 @@ mod transaction_tests {
                 ))
                 .unwrap();
             let first = world.live_vehicles()[0];
-            let old = *world.vehicle_state(first).unwrap();
+            let old = *world.state.vehicle_state(first).unwrap();
             world.despawn_vehicle(first).unwrap();
             world
                 .spawn_vehicle(crate::VehicleSpawnInput::new(
@@ -207,7 +207,7 @@ mod transaction_tests {
                 world.step(TickInput::new(100)).unwrap();
                 work[index].0 += HORIZON_CALCULATIONS.get();
                 work[index].1 += MOTION_CALCULATIONS.get();
-                assert!(world.workspace.motion_cache.is_empty());
+                assert!(world.state.workspace.motion_cache.is_empty());
             }
             for world in [&cached, &partial] {
                 assert_eq!(
@@ -248,11 +248,11 @@ mod transaction_tests {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(2);
         let mut reference = crate::kernel::waiting::tests::multi_gate_world(2);
         for world in [&mut world, &mut reference] {
-            world.rebuild_occupancy_index().unwrap();
-            world.prepare_waiting_step(0.1).unwrap();
+            world.state.rebuild_occupancy_index().unwrap();
+            world.state.prepare_waiting_step(0.1).unwrap();
         }
-        reference.workspace.motion_cache.clear();
-        for entry in &mut world.workspace.motion_cache {
+        reference.state.workspace.motion_cache.clear();
+        for entry in &mut world.state.workspace.motion_cache {
             entry.vehicle =
                 crate::VehicleHandle::new(entry.vehicle.index(), entry.vehicle.generation() + 1);
             entry.horizon = Some(LeaderQueryHorizon::new(0, 0));
@@ -264,39 +264,41 @@ mod transaction_tests {
         let mut expected = Vec::new();
         assert_eq!(
             world
+                .state
                 .step_workspace()
                 .stage_vehicle_transitions(0.1, 1, 100, &mut actual),
             reference
+                .state
                 .step_workspace()
                 .stage_vehicle_transitions(0.1, 1, 100, &mut expected)
         );
         assert_eq!(actual, expected);
-        assert!(world.workspace.motion_cache.is_empty());
+        assert!(world.state.workspace.motion_cache.is_empty());
     }
 
     #[test]
     fn motion_preview_storage_is_counted_consumed_and_discarded_on_failure() {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(2);
         let mut fresh = crate::kernel::waiting::tests::multi_gate_world(2);
-        assert_eq!(world.workspace.motion_cache.capacity(), 0);
-        world.rebuild_occupancy_index().unwrap();
-        world.prepare_waiting_step(0.1).unwrap();
-        world.prepare_conflict_step(0.1, 1).unwrap();
-        assert!(!world.workspace.motion_cache.is_empty());
-        let with_previews = world.workspace.retained_logical_bytes();
-        let previews = std::mem::take(&mut world.workspace.motion_cache);
+        assert_eq!(world.state.workspace.motion_cache.capacity(), 0);
+        world.state.rebuild_occupancy_index().unwrap();
+        world.state.prepare_waiting_step(0.1).unwrap();
+        world.state.prepare_conflict_step(0.1, 1).unwrap();
+        assert!(!world.state.workspace.motion_cache.is_empty());
+        let with_previews = world.state.workspace.retained_logical_bytes();
+        let previews = std::mem::take(&mut world.state.workspace.motion_cache);
         assert_eq!(
-            with_previews - world.workspace.retained_logical_bytes(),
+            with_previews - world.state.workspace.retained_logical_bytes(),
             (previews.capacity() * std::mem::size_of::<MotionCacheEntry>()) as u64
         );
-        world.workspace.motion_cache = previews;
+        world.state.workspace.motion_cache = previews;
         let empty_workspace = {
-            world.workspace.motion_cache = Vec::new();
-            world.workspace.retained_logical_bytes()
+            world.state.workspace.motion_cache = Vec::new();
+            world.state.workspace.retained_logical_bytes()
         };
         for capacity in [10_000, 100_000] {
-            world.workspace.motion_cache = Vec::with_capacity(capacity);
-            let bytes = world.workspace.retained_logical_bytes() - empty_workspace;
+            world.state.workspace.motion_cache = Vec::with_capacity(capacity);
+            let bytes = world.state.workspace.retained_logical_bytes() - empty_workspace;
             assert_eq!(
                 bytes,
                 (capacity * std::mem::size_of::<MotionCacheEntry>()) as u64
@@ -311,12 +313,12 @@ mod transaction_tests {
             world.step(TickInput::new(100)),
             Err(StepError::ParkingObservationAllocFailed)
         );
-        assert!(world.workspace.motion_cache.is_empty());
+        assert!(world.state.workspace.motion_cache.is_empty());
         assert_eq!(world.capture_snapshot().unwrap(), before);
         for _ in 0..24 {
             world.step(TickInput::new(100)).unwrap();
             fresh.step(TickInput::new(100)).unwrap();
-            assert!(world.workspace.motion_cache.is_empty());
+            assert!(world.state.workspace.motion_cache.is_empty());
             assert_eq!(
                 world.capture_snapshot().unwrap(),
                 fresh.capture_snapshot().unwrap()
@@ -364,7 +366,7 @@ mod transaction_tests {
                 failures += 1;
                 assert_eq!(world.capture_snapshot().unwrap(), before);
                 assert_eq!(world.latest_transition_events(), events);
-                assert!(world.conflict_state_valid());
+                assert!(world.state.conflict_state_valid());
                 world
                     .step(TickInput::new(delta))
                     .expect("retry after allocation failure");
@@ -395,7 +397,7 @@ mod transaction_tests {
                 world.step(TickInput::new(4)),
                 Err(StepError::ParkingObservationAllocFailed)
             );
-            assert!(world.conflict_state_valid());
+            assert!(world.state.conflict_state_valid());
             assert_eq!(world.tick_index(), tick);
             assert_eq!(world.time_ms(), time);
             assert_eq!(world.latest_conflict_decisions(), decisions);
@@ -406,7 +408,7 @@ mod transaction_tests {
             world
                 .step(TickInput::new(4))
                 .expect("failure must not poison the next tick");
-            assert!(world.conflict_state_valid());
+            assert!(world.state.conflict_state_valid());
             assert!(
                 world
                     .latest_conflict_decisions()
@@ -420,6 +422,7 @@ mod transaction_tests {
         format!(
             "{:?}",
             world
+                .state
                 .migration_journal()
                 .unwrap()
                 .records_from(0)
@@ -429,8 +432,8 @@ mod transaction_tests {
 
     fn waiting_retry_world() -> TrafficWorld {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
-        let initial = world.vehicle(world.committed.live_order[0]).unwrap();
-        world.arm_migration_journal(128 * 1_024).unwrap();
+        let initial = world.vehicle(world.state.committed.live_order[0]).unwrap();
+        world.state.arm_migration_journal(128 * 1_024).unwrap();
         world.step(TickInput::new(100)).unwrap();
         assert!(!world.latest_conflict_decisions().is_empty());
         assert!(!world.latest_waiting_decisions().is_empty());
@@ -446,7 +449,11 @@ mod transaction_tests {
                 initial.speed_mm_s,
             ))
             .unwrap();
-        world.workspace.conflict.set_serial_for_test(u64::MAX - 1);
+        world
+            .state
+            .workspace
+            .conflict
+            .set_serial_for_test(u64::MAX - 1);
         world
     }
 
@@ -466,9 +473,12 @@ mod transaction_tests {
                 world.step(TickInput::new(100)),
                 Err(StepError::ParkingObservationAllocFailed)
             );
-            assert_eq!(world.workspace.conflict.serial_for_test(), u64::MAX - 1);
-            assert!(world.workspace.conflict_grants.is_empty());
-            assert!(world.conflict_state_valid());
+            assert_eq!(
+                world.state.workspace.conflict.serial_for_test(),
+                u64::MAX - 1
+            );
+            assert!(world.state.workspace.conflict_grants.is_empty());
+            assert!(world.state.conflict_state_valid());
             assert_eq!(world.capture_snapshot().unwrap(), before);
             assert_eq!(world.latest_conflict_decisions(), conflicts);
             assert_eq!(world.latest_waiting_decisions(), waiting);
@@ -478,7 +488,7 @@ mod transaction_tests {
 
             world.step(TickInput::new(100)).unwrap();
             fresh.step(TickInput::new(100)).unwrap();
-            assert_eq!(world.workspace.conflict.serial_for_test(), u64::MAX);
+            assert_eq!(world.state.workspace.conflict.serial_for_test(), u64::MAX);
             assert_eq!(
                 world.capture_snapshot().unwrap(),
                 fresh.capture_snapshot().unwrap()
@@ -505,19 +515,26 @@ mod transaction_tests {
         let mut world = conflict_scale_world(std::sync::Arc::clone(&revision), 2);
         let mut fresh = conflict_scale_world(revision, 2);
         for target in [&mut world, &mut fresh] {
-            target.workspace.conflict.set_serial_for_test(u64::MAX - 1);
+            target
+                .state
+                .workspace
+                .conflict
+                .set_serial_for_test(u64::MAX - 1);
         }
         let before = world.capture_snapshot().unwrap();
         STEP_FAILPOINT.set(Some(StepFailpoint::AllocationAfterGrants));
         let failed = world.step(TickInput::new(4));
         crate::kernel::conflict::set_allocation_failpoint(None);
         assert_eq!(failed, Err(StepError::ConflictScratchAllocFailed));
-        assert_eq!(world.workspace.conflict.serial_for_test(), u64::MAX - 1);
-        assert!(world.workspace.conflict_grants.is_empty());
+        assert_eq!(
+            world.state.workspace.conflict.serial_for_test(),
+            u64::MAX - 1
+        );
+        assert!(world.state.workspace.conflict_grants.is_empty());
         assert_eq!(world.capture_snapshot().unwrap(), before);
         world.step(TickInput::new(4)).unwrap();
         fresh.step(TickInput::new(4)).unwrap();
-        assert_eq!(world.workspace.conflict.serial_for_test(), u64::MAX);
+        assert_eq!(world.state.workspace.conflict.serial_for_test(), u64::MAX);
         assert_eq!(
             world.capture_snapshot().unwrap(),
             fresh.capture_snapshot().unwrap()
@@ -535,7 +552,7 @@ mod transaction_tests {
     #[test]
     fn conflict_serial_exhaustion_preserves_earlier_step_errors() {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
-        world.workspace.conflict.set_serial_for_test(u64::MAX);
+        world.state.workspace.conflict.set_serial_for_test(u64::MAX);
         let before = world.capture_snapshot().unwrap();
         assert!(matches!(
             world.step(TickInput::new(1)),
@@ -546,9 +563,9 @@ mod transaction_tests {
                 world.step(TickInput::new(100)),
                 Err(StepError::ConflictInvariantViolation)
             );
-            assert_eq!(world.workspace.conflict.serial_for_test(), u64::MAX);
+            assert_eq!(world.state.workspace.conflict.serial_for_test(), u64::MAX);
             assert_eq!(world.capture_snapshot().unwrap(), before);
-            assert!(world.workspace.conflict_grants.is_empty());
+            assert!(world.state.workspace.conflict_grants.is_empty());
         }
     }
 
@@ -692,7 +709,7 @@ pub(crate) fn leader_query_horizon(
     ))
 }
 
-impl TrafficWorld {
+impl crate::kernel::state::WorldState {
     /// 固定步进唯一入口：预检、重建占用索引、准备并原子提交一拍。
     pub(crate) fn step_vehicles(&mut self, input: TickInput) -> Result<StepOutcome, StepError> {
         self.workspace.motion_cache.clear();
@@ -2085,7 +2102,7 @@ mod motion_reuse_tests {
             .vehicle_profile(state.profile)
             .unwrap();
         let horizon = leader_query_horizon(0, profile, 0.016).unwrap();
-        let view = world.read_view();
+        let view = world.state.read_view();
         let preview = view
             .preview_active_vehicle_with_waiting_stop(state, 0.016, None, None)
             .unwrap();
@@ -2102,12 +2119,12 @@ mod motion_reuse_tests {
         );
 
         world.despawn_vehicle(leader).unwrap();
-        world.ensure_current_occupancy().unwrap();
+        world.state.ensure_current_occupancy().unwrap();
         let state = VehicleState {
             carry_um: 1,
             ..state
         };
-        let view = world.read_view();
+        let view = world.state.read_view();
         let preview = view
             .preview_active_vehicle_with_waiting_stop(state, 0.001, None, None)
             .unwrap();
@@ -2140,9 +2157,9 @@ mod motion_reuse_tests {
     #[test]
     fn reused_motion_matches_full_calculation_across_integer_and_carry_boundaries() {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
-        world.rebuild_occupancy_index().unwrap();
-        let base = world.vehicle(world.derived.active_order[0]).unwrap();
-        let view = world.read_view();
+        world.state.rebuild_occupancy_index().unwrap();
+        let base = world.vehicle(world.state.derived.active_order[0]).unwrap();
+        let view = world.state.read_view();
         let compiled = view.compiled_route(base.route).unwrap();
         let lengths = world.traffic().lane_lengths_millimetres();
         let limits = world.traffic().lane_speed_limits_millimetres_per_second();
@@ -2254,7 +2271,7 @@ mod motion_reuse_tests {
     #[test]
     fn motion_bounds_preserve_integer_exhaustion_float_clamps_and_hop_barriers() {
         let world = crate::kernel::waiting::tests::multi_gate_world(1);
-        let next = world.vehicle(world.derived.active_order[0]).unwrap();
+        let next = world.vehicle(world.state.derived.active_order[0]).unwrap();
         for (meters, proposed_mm, distance) in [
             (0.000_999_6, 1, 1), // round_um 已把亚毫米结果进位；等于新边界会清余量。
             (0.001_1, 0, 1),     // 整数提案不能代替 SI clamp 的证明。
@@ -2457,9 +2474,12 @@ mod preview {
                 0,
             ))
             .unwrap();
-        world.rebuild_occupancy_index().expect("occupancy rebuild");
-        let state = world.vehicle_state(follower).copied().unwrap();
-        let next = world.advance_active_vehicle(state, 0.1_f32).unwrap();
+        world
+            .state
+            .rebuild_occupancy_index()
+            .expect("occupancy rebuild");
+        let state = world.state.vehicle_state(follower).copied().unwrap();
+        let next = world.state.advance_active_vehicle(state, 0.1_f32).unwrap();
         assert!(
             next.progress_mm > state.progress_mm || next.carry_um > state.carry_um,
             "follower should start moving, {} -> {}",
@@ -2484,39 +2504,39 @@ mod preview {
     #[test]
     fn failed_signal_boundary_publication_preserves_committed_world_and_retries() {
         let mut world = install_preview_world();
-        assert!(!world.committed.signal_aspects.is_empty());
+        assert!(!world.state.committed.signal_aspects.is_empty());
         assert_eq!(
-            world.workspace.next_signal_aspects.len(),
-            world.committed.signal_aspects.len()
+            world.state.workspace.next_signal_aspects.len(),
+            world.state.committed.signal_aspects.len()
         );
         let boundary = (1..6_000)
             .find(|tick| {
-                world.committed.time_ms = (tick - 1) * 100;
-                world.refresh_signals();
+                world.state.committed.time_ms = (tick - 1) * 100;
+                world.state.refresh_signals();
                 crate::kernel::world::fill_signal_aspects(
-                    &world.binding.revision,
+                    &world.state.binding.revision,
                     tick * 100,
-                    &mut world.workspace.next_signal_aspects,
+                    &mut world.state.workspace.next_signal_aspects,
                 );
-                world.committed.signal_aspects != world.workspace.next_signal_aspects
+                world.state.committed.signal_aspects != world.state.workspace.next_signal_aspects
             })
             .expect("fixture crosses an ordinary signal phase");
-        world.committed.tick_index = boundary - 1;
+        world.state.committed.tick_index = boundary - 1;
         let before = world.capture_snapshot().unwrap();
-        let signals = world.committed.signal_aspects.clone();
-        let next_signals = world.workspace.next_signal_aspects.clone();
+        let signals = world.state.committed.signal_aspects.clone();
+        let next_signals = world.state.workspace.next_signal_aspects.clone();
         STEP_FAILPOINT.with(|failpoint| failpoint.set(Some(StepFailpoint::AfterTransitions)));
         assert_eq!(
             world.step(TickInput::new(100)),
             Err(StepError::ParkingObservationAllocFailed)
         );
         assert_eq!(world.capture_snapshot().unwrap(), before);
-        assert_eq!(world.committed.signal_aspects, signals);
-        assert_eq!(world.workspace.next_signal_aspects, next_signals);
+        assert_eq!(world.state.committed.signal_aspects, signals);
+        assert_eq!(world.state.workspace.next_signal_aspects, next_signals);
         world.step(TickInput::new(100)).unwrap();
-        assert_eq!(world.committed.signal_aspects, next_signals);
+        assert_eq!(world.state.committed.signal_aspects, next_signals);
         assert_eq!(world.time_ms(), boundary * 100);
-        assert!(world.conflict_state_valid());
+        assert!(world.state.conflict_state_valid());
     }
 
     #[test]
@@ -2533,37 +2553,37 @@ mod preview {
             ))
             .unwrap();
         world.step(TickInput::new(100)).unwrap();
-        let next_cap = world.workspace.next_states.capacity();
-        let live_cap = world.committed.live_order.capacity();
-        let vehicle_cap = world.committed.vehicles.capacity();
-        let occupancy_records = world.derived.occupancy.records_capacity();
-        let occupancy_scratch = world.workspace.occupancy_scratch.capacity();
-        let occupancy_offsets = world.derived.occupancy.offsets_capacity();
-        let occupancy_suffix = world.derived.occupancy.suffix_min_lo_capacity();
-        let occupancy_second = world.derived.occupancy.suffix_second_lo_capacity();
+        let next_cap = world.state.workspace.next_states.capacity();
+        let live_cap = world.state.committed.live_order.capacity();
+        let vehicle_cap = world.state.committed.vehicles.capacity();
+        let occupancy_records = world.state.derived.occupancy.records_capacity();
+        let occupancy_scratch = world.state.workspace.occupancy_scratch.capacity();
+        let occupancy_offsets = world.state.derived.occupancy.offsets_capacity();
+        let occupancy_suffix = world.state.derived.occupancy.suffix_min_lo_capacity();
+        let occupancy_second = world.state.derived.occupancy.suffix_second_lo_capacity();
         for _ in 0..16 {
             world.step(TickInput::new(100)).unwrap();
-            assert_eq!(world.workspace.next_states.capacity(), next_cap);
-            assert_eq!(world.committed.live_order.capacity(), live_cap);
-            assert_eq!(world.committed.vehicles.capacity(), vehicle_cap);
+            assert_eq!(world.state.workspace.next_states.capacity(), next_cap);
+            assert_eq!(world.state.committed.live_order.capacity(), live_cap);
+            assert_eq!(world.state.committed.vehicles.capacity(), vehicle_cap);
             assert_eq!(
-                world.derived.occupancy.records_capacity(),
+                world.state.derived.occupancy.records_capacity(),
                 occupancy_records
             );
             assert_eq!(
-                world.workspace.occupancy_scratch.capacity(),
+                world.state.workspace.occupancy_scratch.capacity(),
                 occupancy_scratch
             );
             assert_eq!(
-                world.derived.occupancy.offsets_capacity(),
+                world.state.derived.occupancy.offsets_capacity(),
                 occupancy_offsets
             );
             assert_eq!(
-                world.derived.occupancy.suffix_min_lo_capacity(),
+                world.state.derived.occupancy.suffix_min_lo_capacity(),
                 occupancy_suffix
             );
             assert_eq!(
-                world.derived.occupancy.suffix_second_lo_capacity(),
+                world.state.derived.occupancy.suffix_second_lo_capacity(),
                 occupancy_second
             );
         }
@@ -2583,11 +2603,11 @@ mod preview {
     #[test]
     fn overflow_step_leaves_committed_time_unchanged() {
         let mut world = install_preview_world();
-        world.committed.tick_index = u64::MAX;
-        let time = world.committed.time_ms;
+        world.state.committed.tick_index = u64::MAX;
+        let time = world.state.committed.time_ms;
         assert_eq!(world.step(TickInput::new(100)), Err(StepError::Overflow));
-        assert_eq!(world.committed.tick_index, u64::MAX);
-        assert_eq!(world.committed.time_ms, time);
+        assert_eq!(world.state.committed.tick_index, u64::MAX);
+        assert_eq!(world.state.committed.time_ms, time);
     }
 
     #[test]
@@ -2617,8 +2637,8 @@ mod preview {
                 0,
             ))
             .unwrap();
-        let before_progress = world.vehicle_state(first).unwrap().progress_mm;
-        let before_tick = world.committed.tick_index;
+        let before_progress = world.state.vehicle_state(first).unwrap().progress_mm;
+        let before_tick = world.state.committed.tick_index;
         assert_eq!(
             world.step(TickInput::new(50)),
             Err(StepError::DeltaMismatch {
@@ -2626,12 +2646,12 @@ mod preview {
                 actual_delta_time_ms: 50,
             })
         );
-        assert_eq!(world.committed.tick_index, before_tick);
+        assert_eq!(world.state.committed.tick_index, before_tick);
         assert_eq!(
-            world.vehicle_state(first).unwrap().progress_mm,
+            world.state.vehicle_state(first).unwrap().progress_mm,
             before_progress
         );
-        assert_eq!(world.committed.time_ms, 0);
+        assert_eq!(world.state.committed.time_ms, 0);
     }
 
     fn travel_state(route_edge_index: u32, progress_mm: u32) -> VehicleState {
@@ -2701,10 +2721,13 @@ mod preview {
                 0,
             ))
             .unwrap();
-        world.rebuild_occupancy_index().expect("occupancy rebuild");
-        let mut state = world.vehicle_state(follower).copied().unwrap();
+        world
+            .state
+            .rebuild_occupancy_index()
+            .expect("occupancy rebuild");
+        let mut state = world.state.vehicle_state(follower).copied().unwrap();
         state.carry_um = 777;
-        let next = world.advance_active_vehicle(state, 0.1_f32).unwrap();
+        let next = world.state.advance_active_vehicle(state, 0.1_f32).unwrap();
         assert_eq!(next.carry_um, 0);
         assert_eq!(next.speed_mm_s, 0);
         assert_eq!(next.progress_mm, 1_000);
@@ -2724,9 +2747,15 @@ mod preview {
                 0,
             ))
             .unwrap();
-        world.rebuild_occupancy_index().expect("occupancy rebuild");
-        let state = world.vehicle_state(follower).copied().unwrap();
-        let next = world.advance_active_vehicle(state, 0.004_f32).unwrap();
+        world
+            .state
+            .rebuild_occupancy_index()
+            .expect("occupancy rebuild");
+        let state = world.state.vehicle_state(follower).copied().unwrap();
+        let next = world
+            .state
+            .advance_active_vehicle(state, 0.004_f32)
+            .unwrap();
         assert_eq!(next.progress_mm, state.progress_mm);
         assert!(next.carry_um > state.carry_um);
         assert!(next.speed_mm_s > 0);
@@ -2802,3 +2831,6 @@ mod preview {
 #[cfg(test)]
 #[path = "phase_equivalence.rs"]
 mod phase_equivalence;
+
+#[cfg(test)]
+use crate::TrafficWorld;

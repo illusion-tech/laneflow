@@ -96,7 +96,7 @@ mod tests {
                 let calls = CALLS.get();
                 assert!(calls.iter().all(|count| *count == harness.steps as u64));
                 assert!(nanos.iter().skip(1).sum::<u128>() <= nanos[0]);
-                let memory = harness.world.retained_memory();
+                let memory = harness.world.state.retained_memory();
                 println!(
                     "profile-memory scene={} round={round} source_world_owned={} shared_root={} binding={} committed={} derived={} workspace={} administrative={} journal_bytes={} digest={}",
                     scene.name(),

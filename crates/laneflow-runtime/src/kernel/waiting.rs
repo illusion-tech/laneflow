@@ -448,7 +448,7 @@ pub(crate) enum WaitingBindingError {
     ParkingConflict,
 }
 
-impl crate::TrafficWorld {
+impl crate::kernel::state::WorldState {
     pub(crate) fn validate_waiting_parking_anchor(
         &self,
         route: RouteHandle,
@@ -2399,7 +2399,7 @@ pub(crate) mod tests {
             NON_ENTRY_GENERATION_VISITS.set(0);
             NON_ENTRY_DISCOVERY_VISITS.set(0);
             NON_ENTRY_SEQUENCE_VISITS.set(0);
-            let active = world.derived.active_order.len();
+            let active = world.state.derived.active_order.len();
             world.step(TickInput::new(100)).unwrap();
             let decisions = world.latest_waiting_decisions();
             let has_non_entry = decisions.iter().any(|decision| decision.zone().is_none());
@@ -2412,7 +2412,7 @@ pub(crate) mod tests {
             );
             assert_eq!(NON_ENTRY_DISCOVERY_VISITS.get(), active);
             assert_eq!(NON_ENTRY_SEQUENCE_VISITS.get(), 0);
-            assert!(world.workspace.waiting_non_entry_anchors.is_empty());
+            assert!(world.state.workspace.waiting_non_entry_anchors.is_empty());
             assert!(decisions.windows(2).all(|pair| {
                 (pair[0].vehicle_update_sequence(), pair[0].anchor().hop())
                     <= (pair[1].vehicle_update_sequence(), pair[1].anchor().hop())
@@ -2437,6 +2437,7 @@ pub(crate) mod tests {
 
         let mut world = multi_gate_world(1);
         world
+            .state
             .workspace
             .conflict_passage_transitions
             .push(ConflictPassageTransition {
@@ -2452,7 +2453,7 @@ pub(crate) mod tests {
             });
         // 没有车辆更新，却残留通行段转移：必须到达后续事件访问器并报告不变量错误。
         assert_eq!(
-            world.finalize_waiting_outputs(&[], 1),
+            world.state.finalize_waiting_outputs(&[], 1),
             Err(crate::StepError::ConflictInvariantViolation)
         );
         assert!(world.latest_waiting_decisions().is_empty());
@@ -2475,14 +2476,21 @@ pub(crate) mod tests {
             }
         }
         assert!(first_output_tick > 1);
-        assert!(reference.workspace.waiting_non_entry_anchors.capacity() >= 8);
-        let retained = reference.retained_memory().world_owned_bytes();
-        let anchors = std::mem::take(&mut reference.workspace.waiting_non_entry_anchors);
+        assert!(
+            reference
+                .state
+                .workspace
+                .waiting_non_entry_anchors
+                .capacity()
+                >= 8
+        );
+        let retained = reference.state.retained_memory().world_owned_bytes();
+        let anchors = std::mem::take(&mut reference.state.workspace.waiting_non_entry_anchors);
         assert_eq!(
-            retained - reference.retained_memory().world_owned_bytes(),
+            retained - reference.state.retained_memory().world_owned_bytes(),
             crate::kernel::state::vec_bytes(&anchors)
         );
-        reference.workspace.waiting_non_entry_anchors = anchors;
+        reference.state.workspace.waiting_non_entry_anchors = anchors;
         let mut failures = 0;
         for fail_after in 0..16 {
             let mut world = multi_gate_world(8);
@@ -2503,7 +2511,7 @@ pub(crate) mod tests {
             assert_eq!(world.capture_snapshot().unwrap(), before);
             assert_eq!(world.latest_waiting_decisions(), decisions);
             assert_eq!(world.latest_transition_events(), events);
-            assert!(world.workspace.waiting_non_entry_anchors.is_empty());
+            assert!(world.state.workspace.waiting_non_entry_anchors.is_empty());
             world.step(TickInput::new(100)).unwrap();
             assert_eq!(
                 world.capture_snapshot().unwrap(),
@@ -2522,8 +2530,12 @@ pub(crate) mod tests {
         eprintln!(
             "non-entry scratch payload={} capacity={} retained={} motion_entry={}",
             size_of::<NonEntryGateAnchor>(),
-            reference.workspace.waiting_non_entry_anchors.capacity(),
-            crate::kernel::state::vec_bytes(&reference.workspace.waiting_non_entry_anchors),
+            reference
+                .state
+                .workspace
+                .waiting_non_entry_anchors
+                .capacity(),
+            crate::kernel::state::vec_bytes(&reference.state.workspace.waiting_non_entry_anchors),
             size_of::<crate::kernel::tick::MotionCacheEntry>()
         );
     }
@@ -2531,11 +2543,11 @@ pub(crate) mod tests {
     #[test]
     fn waiting_plan_invariant_precedes_non_entry_scratch_failure() {
         let mut world = multi_gate_world(1);
-        world.prepare_waiting_step(0.1).unwrap();
-        world.workspace.waiting_plans[0].vehicle = VehicleHandle::new(u32::MAX, 0);
+        world.state.prepare_waiting_step(0.1).unwrap();
+        world.state.workspace.waiting_plans[0].vehicle = VehicleHandle::new(u32::MAX, 0);
         let _guard = fail_waiting_reservation_after(0);
         assert_eq!(
-            world.finalize_waiting_outputs(&[], 1),
+            world.state.finalize_waiting_outputs(&[], 1),
             Err(crate::StepError::WaitingInvariantViolation)
         );
     }
@@ -2547,7 +2559,7 @@ pub(crate) mod tests {
             .live_vehicles()
             .iter()
             .map(|vehicle| {
-                let state = world.vehicle_state(*vehicle).unwrap();
+                let state = world.state.vehicle_state(*vehicle).unwrap();
                 VehicleSpawnInput::new(
                     state.profile,
                     state.route,
@@ -2560,7 +2572,7 @@ pub(crate) mod tests {
         for _ in 0..64 {
             world.step(TickInput::new(100)).unwrap();
         }
-        let capacity = world.workspace.waiting_non_entry_anchors.capacity();
+        let capacity = world.state.workspace.waiting_non_entry_anchors.capacity();
         assert!(capacity >= 8);
         for vehicle in world.live_vehicles().to_vec() {
             world.despawn_vehicle(vehicle).unwrap();
@@ -2580,7 +2592,7 @@ pub(crate) mod tests {
         }
         assert!(outputs >= 8);
         assert_eq!(
-            world.workspace.waiting_non_entry_anchors.capacity(),
+            world.state.workspace.waiting_non_entry_anchors.capacity(),
             capacity
         );
     }
@@ -2637,21 +2649,22 @@ pub(crate) mod tests {
                     .unwrap(),
             );
         }
-        world.rebuild_occupancy_index().unwrap();
-        world.prepare_waiting_step(0.1).unwrap();
-        assert_eq!(world.workspace.waiting_plans.len(), 2);
+        world.state.rebuild_occupancy_index().unwrap();
+        world.state.prepare_waiting_step(0.1).unwrap();
+        assert_eq!(world.state.workspace.waiting_plans.len(), 2);
         assert!(
             world
+                .state
                 .workspace
                 .waiting_plans
                 .iter()
                 .all(|plan| plan.decision == WaitingDecisionOutcome::Granted)
         );
-        assert_eq!(world.workspace.waiting_plans[0].vehicle, vehicles[1]);
-        world.prepare_conflict_step(0.1, 1).unwrap();
-        assert_eq!(world.workspace.conflict_candidates.len(), 2);
+        assert_eq!(world.state.workspace.waiting_plans[0].vehicle, vehicles[1]);
+        world.state.prepare_conflict_step(0.1, 1).unwrap();
+        assert_eq!(world.state.workspace.conflict_candidates.len(), 2);
         assert_eq!(
-            world.workspace.conflict_grants[0].vehicle, vehicles[1],
+            world.state.workspace.conflict_grants[0].vehicle, vehicles[1],
             "combined reducer reordered the physical front behind its follower"
         );
     }
@@ -2660,8 +2673,8 @@ pub(crate) mod tests {
     fn held_waiting_entry_at_post_gate_zero_is_not_a_new_resource_barrier() {
         let mut world = multi_gate_world(1);
         world.step(TickInput::new(100)).unwrap();
-        let vehicle = world.committed.live_order[0];
-        let state = world.committed.vehicles[vehicle.index() as usize]
+        let vehicle = world.state.committed.live_order[0];
+        let state = world.state.committed.vehicles[vehicle.index() as usize]
             .state
             .as_mut()
             .unwrap();
@@ -2774,6 +2787,7 @@ pub(crate) mod tests {
             .register_route(RouteRegisterInput::new(edges))
             .expect("route");
         let occurrence = world
+            .state
             .compiled_route(route)
             .and_then(|compiled| compiled.waiting.first().copied())
             .expect("Waiting occurrence");
@@ -2788,7 +2802,7 @@ pub(crate) mod tests {
             let mut samples = Vec::with_capacity(21);
             for sample in 0..24 {
                 if sample != 0 {
-                    for handle in world.committed.live_order.clone() {
+                    for handle in world.state.committed.live_order.clone() {
                         let route = world.vehicle(handle).unwrap().route();
                         let edge = world.route_edges(route).unwrap()[0];
                         let boundary = world.traffic().lane_lengths_millimetres()[edge.index()];
@@ -2810,7 +2824,7 @@ pub(crate) mod tests {
                 if sample >= 3 {
                     samples.push(elapsed);
                 }
-                assert_eq!(world.derived.waiting_member_rows.len(), count);
+                assert_eq!(world.state.derived.waiting_member_rows.len(), count);
                 assert_eq!(world.latest_waiting_decisions().len(), count);
                 assert!(
                     world
@@ -2825,7 +2839,7 @@ pub(crate) mod tests {
                 samples[10],
                 samples[19],
                 waiting_retained_bytes(&world),
-                world.conflict_retained_logical_bytes()
+                world.state.conflict_retained_logical_bytes()
             );
         }
     }
@@ -2880,7 +2894,7 @@ pub(crate) mod tests {
                 ))
                 .unwrap();
         }
-        assert_eq!(world.committed.live_order.len(), count as usize);
+        assert_eq!(world.state.committed.live_order.len(), count as usize);
         world
     }
 
@@ -2901,15 +2915,15 @@ pub(crate) mod tests {
             assert_eq!(work.wait_for_edges, count);
             assert!(work.wait_for_visits <= 2 * count);
             assert_eq!(work.owner_record_moves, count);
-            assert_eq!(world.derived.waiting_member_rows.len(), count);
+            assert_eq!(world.state.derived.waiting_member_rows.len(), count);
             assert!(
                 world
                     .latest_waiting_decisions()
                     .iter()
                     .all(|decision| decision.outcome() == WaitingDecisionOutcome::Granted)
             );
-            assert!(world.conflict_state_valid());
-            assert!(world.waiting_state_valid());
+            assert!(world.state.conflict_state_valid());
+            assert!(world.state.waiting_state_valid());
             eprintln!(
                 "multi-gate candidates={count} tick_ns={} vehicle_grant_lookups={} grant_update_lookups={} waiting_retained={}",
                 elapsed.as_nanos(),
@@ -3476,9 +3490,11 @@ pub(crate) mod tests {
             let progress_mm = u32::try_from(absolute % EDGE_LENGTH_MM).expect("progress");
             let handle = VehicleHandle::new(update_sequence, 0);
             let traversal = world
+                .state
                 .validate_waiting_bootstrap(route, route_edge_index as usize, profile_length_mm)
                 .expect("bootstrap");
             world
+                .state
                 .committed
                 .vehicles
                 .push(crate::kernel::tables::VehicleSlot {
@@ -3498,12 +3514,13 @@ pub(crate) mod tests {
                         waiting_membership: None,
                     }),
                 });
-            world.committed.live_order.push(handle);
-            world.derived.active_order.push(handle);
+            world.state.committed.live_order.push(handle);
+            world.state.derived.active_order.push(handle);
         }
-        world.committed.routes[route.index() as usize].live_vehicles = vehicle_count;
-        world.rebuild_occupancy_index().expect("occupancy");
+        world.state.committed.routes[route.index() as usize].live_vehicles = vehicle_count;
+        world.state.rebuild_occupancy_index().expect("occupancy");
         let zone = world
+            .state
             .compiled_route(route)
             .and_then(|compiled| compiled.waiting.first())
             .map(|occurrence| occurrence.zone)
@@ -3512,25 +3529,27 @@ pub(crate) mod tests {
     }
 
     fn waiting_retained_bytes(world: &TrafficWorld) -> u64 {
-        let bytes = world.committed.waiting_zones.len() * size_of::<WaitingZoneState>()
-            + world.derived.waiting_queue_ends.len() * size_of::<WaitingQueueEnds>()
-            + world.derived.waiting_links.len() * size_of::<WaitingQueueLink>()
-            + world.derived.waiting_member_rows.capacity() * size_of::<WaitingZoneMember>()
-            + world.workspace.waiting_claims.capacity() * size_of::<WaitingAdmissionClaim>()
-            + world.workspace.waiting_plans.capacity() * size_of::<WaitingVehiclePlan>()
-            + world.workspace.waiting_plan_by_vehicle.len()
+        let bytes = world.state.committed.waiting_zones.len() * size_of::<WaitingZoneState>()
+            + world.state.derived.waiting_queue_ends.len() * size_of::<WaitingQueueEnds>()
+            + world.state.derived.waiting_links.len() * size_of::<WaitingQueueLink>()
+            + world.state.derived.waiting_member_rows.capacity() * size_of::<WaitingZoneMember>()
+            + world.state.workspace.waiting_claims.capacity() * size_of::<WaitingAdmissionClaim>()
+            + world.state.workspace.waiting_plans.capacity() * size_of::<WaitingVehiclePlan>()
+            + world.state.workspace.waiting_plan_by_vehicle.len()
                 * size_of::<Option<std::num::NonZeroU32>>()
-            + world.workspace.next_state_by_vehicle.len() * size_of::<u32>()
-            + world.workspace.waiting_staged_decisions.capacity() * size_of::<WaitingDecision>()
-            + world.workspace.waiting_non_entry_anchors.capacity()
+            + world.state.workspace.next_state_by_vehicle.len() * size_of::<u32>()
+            + world.state.workspace.waiting_staged_decisions.capacity()
+                * size_of::<WaitingDecision>()
+            + world.state.workspace.waiting_non_entry_anchors.capacity()
                 * size_of::<NonEntryGateAnchor>()
-            + world.workspace.staged_transition_events.capacity()
+            + world.state.workspace.staged_transition_events.capacity()
                 * size_of::<TrafficTransitionEvent>()
-            + world.workspace.waiting_next_counters.len() * size_of::<u64>()
-            + world.workspace.waiting_staged_occupancy.len() * size_of::<u32>()
-            + world.workspace.waiting_staged_storage_mm.len() * size_of::<u64>()
-            + world.committed.latest_waiting_decisions.capacity() * size_of::<WaitingDecision>()
-            + world.committed.latest_transition_events.capacity()
+            + world.state.workspace.waiting_next_counters.len() * size_of::<u64>()
+            + world.state.workspace.waiting_staged_occupancy.len() * size_of::<u32>()
+            + world.state.workspace.waiting_staged_storage_mm.len() * size_of::<u64>()
+            + world.state.committed.latest_waiting_decisions.capacity()
+                * size_of::<WaitingDecision>()
+            + world.state.committed.latest_transition_events.capacity()
                 * size_of::<TrafficTransitionEvent>();
         u64::try_from(bytes).expect("retained bytes")
     }
@@ -3539,7 +3558,10 @@ pub(crate) mod tests {
         let mut samples = Vec::with_capacity(21);
         for sample in 0..24 {
             let started = Instant::now();
-            world.prepare_waiting_step(0.004).expect("Waiting prepare");
+            world
+                .state
+                .prepare_waiting_step(0.004)
+                .expect("Waiting prepare");
             let elapsed = started.elapsed().as_nanos();
             if sample >= 3 {
                 samples.push(elapsed);
@@ -3552,7 +3574,9 @@ pub(crate) mod tests {
     fn step_waiting_counts(world: &mut TrafficWorld) -> WaitingWorkCounts {
         WAITING_WORK_COUNTS.with(|counts| counts.set(WaitingWorkCounts::default()));
         world
-            .step(TickInput::new(world.binding.config.fixed_delta_time_ms()))
+            .step(TickInput::new(
+                world.state.binding.config.fixed_delta_time_ms(),
+            ))
             .expect("step");
         WAITING_WORK_COUNTS.with(core::cell::Cell::get)
     }
@@ -3564,9 +3588,9 @@ pub(crate) mod tests {
                 waiting_scale_revision_with_layout(8.0, 1, ScaleLayout::IdleZones(idle_zones));
             for armed in [false, true] {
                 let (mut empty, _) = waiting_scale_world(Arc::clone(&revision), 0);
-                assert_eq!(empty.committed.waiting_zones.len(), idle_zones + 1);
+                assert_eq!(empty.state.committed.waiting_zones.len(), idle_zones + 1);
                 if armed {
-                    empty.arm_migration_journal(16 * 1_024).unwrap();
+                    empty.state.arm_migration_journal(16 * 1_024).unwrap();
                 }
                 assert_eq!(
                     step_waiting_counts(&mut empty),
@@ -3575,9 +3599,9 @@ pub(crate) mod tests {
 
                 let (mut world, zone) = waiting_scale_world(Arc::clone(&revision), 1);
                 let vehicle = VehicleHandle::new(0, 0);
-                let initial = *world.vehicle_state(vehicle).unwrap();
+                let initial = *world.state.vehicle_state(vehicle).unwrap();
                 if armed {
-                    world.arm_migration_journal(16 * 1_024).unwrap();
+                    world.state.arm_migration_journal(16 * 1_024).unwrap();
                 }
                 assert_eq!(
                     step_waiting_counts(&mut world),
@@ -3605,13 +3629,13 @@ pub(crate) mod tests {
                         WaitingWorkCounts::default()
                     );
                     assert_eq!(
-                        world.committed.waiting_zones[zone.index()].next_admission_sequence,
+                        world.state.committed.waiting_zones[zone.index()].next_admission_sequence,
                         1
                     );
                 }
                 let restored = roundtrip(&world);
                 assert_eq!(
-                    restored.committed.waiting_zones[zone.index()].next_admission_sequence,
+                    restored.state.committed.waiting_zones[zone.index()].next_admission_sequence,
                     1
                 );
                 let next = world
@@ -3626,6 +3650,7 @@ pub(crate) mod tests {
                 assert_eq!(step_waiting_counts(&mut world).committed_zones, 1);
                 assert_eq!(
                     world
+                        .state
                         .vehicle_state(next)
                         .unwrap()
                         .waiting_membership
@@ -3634,7 +3659,7 @@ pub(crate) mod tests {
                     1
                 );
                 assert_eq!(
-                    world.committed.waiting_zones[zone.index()].next_admission_sequence,
+                    world.state.committed.waiting_zones[zone.index()].next_admission_sequence,
                     2
                 );
             }
@@ -3644,15 +3669,19 @@ pub(crate) mod tests {
     #[test]
     fn successful_same_tick_enter_leave_journals_counter_without_member() {
         let (mut world, zone) = waiting_scale_world_at_delta(waiting_scale_revision(), 1, 1_000);
-        world.arm_migration_journal(16 * 1_024).unwrap();
+        world.state.arm_migration_journal(16 * 1_024).unwrap();
         assert_eq!(step_waiting_counts(&mut world).journal_zones, 1);
         assert!(world.waiting_zone_members().is_empty());
-        assert_eq!(world.committed.waiting_zones[zone.index()].occupancy, 0);
         assert_eq!(
-            world.committed.waiting_zones[zone.index()].next_admission_sequence,
+            world.state.committed.waiting_zones[zone.index()].occupancy,
+            0
+        );
+        assert_eq!(
+            world.state.committed.waiting_zones[zone.index()].next_admission_sequence,
             1
         );
         let record = world
+            .state
             .migration_journal()
             .unwrap()
             .records_from(0)
@@ -3679,7 +3708,7 @@ pub(crate) mod tests {
         );
         assert_eq!(step_waiting_counts(&mut world).committed_zones, 0);
         assert_eq!(
-            roundtrip(&world).committed.waiting_zones[zone.index()].next_admission_sequence,
+            roundtrip(&world).state.committed.waiting_zones[zone.index()].next_admission_sequence,
             1
         );
     }
@@ -3705,7 +3734,7 @@ pub(crate) mod tests {
                 .occupancy(),
             1
         );
-        assert!(product_world.waiting_state_valid());
+        assert!(product_world.state.waiting_state_valid());
         drop(product_world);
 
         let (mut scale_world, scale_zone) = waiting_scale_world(revision, 100_000);
@@ -3721,7 +3750,7 @@ pub(crate) mod tests {
                 .occupancy(),
             1
         );
-        assert!(scale_world.waiting_state_valid());
+        assert!(scale_world.state.waiting_state_valid());
         assert!(
             scale_retained_bytes <= product_retained_bytes.saturating_mul(11),
             "Waiting retained memory grows faster than the 10x population plus 10% margin"
@@ -3753,7 +3782,7 @@ pub(crate) mod tests {
                 8_000,
             ))
             .expect("spawn upstream of entry");
-        world.arm_migration_journal(16 * 1_024).expect("arm");
+        world.state.arm_migration_journal(16 * 1_024).expect("arm");
         world.step(TickInput::new(100)).expect("entry step");
 
         let membership = world
@@ -3788,6 +3817,7 @@ pub(crate) mod tests {
         );
 
         let records = world
+            .state
             .migration_journal()
             .expect("journal")
             .records_from(0)
@@ -3809,7 +3839,7 @@ pub(crate) mod tests {
             waiting_zone_delta_stream(waiting_zones).collect::<Vec<_>>(),
             [(occurrence.zone, 1)]
         );
-        world.disarm_migration_journal();
+        world.state.disarm_migration_journal();
 
         let captured = world.capture_snapshot().expect("capture");
         let digest = deterministic_state_digest(&captured).expect("digest");
@@ -3955,7 +3985,7 @@ pub(crate) mod tests {
                 .is_none()
         );
         roundtrip(&world);
-        crate::admin::cutover_migration::revalidate_migrated_vehicles(&mut world)
+        crate::admin::cutover_migration::revalidate_migrated_vehicles(&mut world.state)
             .expect("Parked cutover validation");
         let entry = world.route_edges(route).expect("route")[occurrence.entry_hop as usize];
         let member = world
@@ -4079,7 +4109,7 @@ pub(crate) mod tests {
             let release_length = world.traffic().lane_lengths_millimetres()
                 [edges[occurrence.release_hop as usize].index()];
             let (length, profile) = {
-                let member_state = world.committed.vehicles[member.index() as usize]
+                let member_state = world.state.committed.vehicles[member.index() as usize]
                     .state
                     .as_mut()
                     .expect("member");
@@ -4098,23 +4128,23 @@ pub(crate) mod tests {
                     0,
                 ))
                 .expect("leader keeps the same release boundary on green");
-            let gate = world.compiled_route(route).expect("route").hop_gate
+            let gate = world.state.compiled_route(route).expect("route").hop_gate
                 [occurrence.release_hop as usize]
                 .expect("release gate");
             let boundary = (1..6_000)
                 .find(|&tick| {
-                    world.committed.time_ms = (tick - 1) * 100;
-                    world.refresh_signals();
-                    let before = world.gate_is_restrictive(gate, profile);
-                    world.committed.time_ms = tick * 100;
-                    world.refresh_signals();
+                    world.state.committed.time_ms = (tick - 1) * 100;
+                    world.state.refresh_signals();
+                    let before = world.state.gate_is_restrictive(gate, profile);
+                    world.state.committed.time_ms = tick * 100;
+                    world.state.refresh_signals();
                     before == restrictive_before
-                        && world.gate_is_restrictive(gate, profile) != before
+                        && world.state.gate_is_restrictive(gate, profile) != before
                 })
                 .expect("ordinary signal phase boundary");
-            world.committed.tick_index = boundary - 1;
-            world.committed.time_ms = (boundary - 1) * 100;
-            world.refresh_signals();
+            world.state.committed.tick_index = boundary - 1;
+            world.state.committed.time_ms = (boundary - 1) * 100;
+            world.state.refresh_signals();
             world.step(TickInput::new(100)).expect("boundary step");
             let state = world.vehicle(member).expect("member");
             assert_eq!(
@@ -4125,7 +4155,7 @@ pub(crate) mod tests {
                 restrictive_before
             );
             assert_eq!(
-                world.gate_is_restrictive(gate, profile),
+                world.state.gate_is_restrictive(gate, profile),
                 !restrictive_before
             );
             assert!(world.latest_waiting_decisions().iter().any(|decision| {
@@ -4139,7 +4169,7 @@ pub(crate) mod tests {
                         }
             }));
             let mut restored = roundtrip(&world);
-            crate::admin::cutover_migration::revalidate_migrated_vehicles(&mut world)
+            crate::admin::cutover_migration::revalidate_migrated_vehicles(&mut world.state)
                 .expect("migration validates history");
             let target = world.revision();
             let origin = *target.canonical_origin();
@@ -4173,9 +4203,11 @@ pub(crate) mod tests {
         let base = waiting_scale_revision_with_layout(8.0, 1, ScaleLayout::AdditionalGate);
         let target = waiting_scale_revision_with_layout(8.0, 1, ScaleLayout::SecondZone);
         let (mut world, zone) = waiting_scale_world_at_delta(base, 1, 1_000);
-        let rebinding =
-            CrossRevisionRebinding::build(world.binding.revision.identity(), target.identity())
-                .expect("rebinding");
+        let rebinding = CrossRevisionRebinding::build(
+            world.state.binding.revision.identity(),
+            target.identity(),
+        )
+        .expect("rebinding");
         let origin = *target.canonical_origin();
         let source = CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
@@ -4187,18 +4219,27 @@ pub(crate) mod tests {
             .expect("source"),
         };
         // entry 上游可切换；新增区间本身合法，并非一律禁止添加 WaitingZone。
-        let candidate =
-            migrate_structural_clone(&world, Arc::clone(&target), source.clone(), &rebinding)
-                .expect("upstream cursor permits target-only zone");
+        let candidate = migrate_structural_clone(
+            &world.state,
+            Arc::clone(&target),
+            source.clone(),
+            &rebinding,
+        )
+        .expect("upstream cursor permits target-only zone");
         assert_eq!(candidate.committed.waiting_zones.len(), 2);
 
         world
             .step(TickInput::new(1_000))
             .expect("cross original release");
         let state = *world
+            .state
             .vehicle_state(VehicleHandle::new(0, 0))
             .expect("vehicle");
-        let occurrence = world.compiled_route(state.route).expect("route").waiting[0];
+        let occurrence = world
+            .state
+            .compiled_route(state.route)
+            .expect("route")
+            .waiting[0];
         assert_eq!(state.route_edge_index, occurrence.release_hop + 1);
         assert!(state.waiting_membership.is_none());
         assert!(matches!(
@@ -4208,7 +4249,7 @@ pub(crate) mod tests {
         assert_eq!(world.waiting_zone(zone).expect("zone").occupancy(), 0);
         roundtrip(&world);
         let before = world.capture_snapshot().expect("before");
-        let error = migrate_structural_clone(&world, target, source, &rebinding)
+        let error = migrate_structural_clone(&world.state, target, source, &rebinding)
             .err()
             .expect("target interval requires an existing membership");
         assert_eq!(
@@ -4227,6 +4268,7 @@ pub(crate) mod tests {
         let (mut world, _) = waiting_scale_world(revision, 2);
         for _ in 0..1_000 {
             if world
+                .state
                 .committed
                 .waiting_zones
                 .iter()
@@ -4236,9 +4278,10 @@ pub(crate) mod tests {
             }
             world.step(TickInput::new(4)).unwrap();
         }
-        assert_eq!(world.committed.waiting_zones.len(), 2);
+        assert_eq!(world.state.committed.waiting_zones.len(), 2);
         assert!(
             world
+                .state
                 .committed
                 .waiting_zones
                 .iter()
@@ -4248,12 +4291,17 @@ pub(crate) mod tests {
         assert_eq!(restored.waiting_zone_members().len(), 2);
         for empty_zone in 0..2 {
             let mut copy = roundtrip(&world);
-            let member = copy.derived.waiting_queue_ends[empty_zone].head.unwrap();
+            let member = copy.state.derived.waiting_queue_ends[empty_zone]
+                .head
+                .unwrap();
             copy.despawn_vehicle(member).unwrap();
             let restored = roundtrip(&copy);
-            assert_eq!(restored.committed.waiting_zones[empty_zone].occupancy, 0);
+            assert_eq!(
+                restored.state.committed.waiting_zones[empty_zone].occupancy,
+                0
+            );
             assert_ne!(
-                restored.committed.waiting_zones[empty_zone].next_admission_sequence,
+                restored.state.committed.waiting_zones[empty_zone].next_admission_sequence,
                 0
             );
             assert_eq!(restored.waiting_zone_members().len(), 1);
@@ -4266,6 +4314,7 @@ pub(crate) mod tests {
         let (mut world, _) = waiting_scale_world(revision, 2);
         for _ in 0..1_000 {
             if world
+                .state
                 .committed
                 .waiting_zones
                 .iter()
@@ -4277,44 +4326,45 @@ pub(crate) mod tests {
         }
         assert!(
             world
+                .state
                 .committed
                 .waiting_zones
                 .iter()
                 .all(|zone| zone.occupancy == 1)
         );
-        let expected = world.derived.waiting_member_rows.clone();
-        world.committed.live_order.reverse();
-        world.derived.active_order.reverse();
-        world.rebuild_waiting_member_rows();
-        assert_eq!(world.derived.waiting_member_rows, expected);
-        assert!(world.waiting_member_rows_valid());
+        let expected = world.state.derived.waiting_member_rows.clone();
+        world.state.committed.live_order.reverse();
+        world.state.derived.active_order.reverse();
+        world.state.rebuild_waiting_member_rows();
+        assert_eq!(world.state.derived.waiting_member_rows, expected);
+        assert!(world.state.waiting_member_rows_valid());
 
         let before = world.capture_snapshot().unwrap();
-        world.derived.waiting_member_rows.reverse();
+        world.state.derived.waiting_member_rows.reverse();
         assert_eq!(
             world.step(TickInput::new(4)),
             Err(crate::StepError::WaitingInvariantViolation)
         );
         assert_eq!(world.capture_snapshot().unwrap(), before);
-        world.derived.waiting_member_rows.reverse();
-        world.derived.waiting_member_rows[0].release_hop += 1;
+        world.state.derived.waiting_member_rows.reverse();
+        world.state.derived.waiting_member_rows[0].release_hop += 1;
         assert_eq!(
             world.step(TickInput::new(4)),
             Err(crate::StepError::WaitingInvariantViolation)
         );
-        world.derived.waiting_member_rows[0].release_hop -= 1;
-        let member = world.derived.waiting_member_rows[0].vehicle;
-        world.derived.waiting_links[member.index() as usize].previous = Some(member);
+        world.state.derived.waiting_member_rows[0].release_hop -= 1;
+        let member = world.state.derived.waiting_member_rows[0].vehicle;
+        world.state.derived.waiting_links[member.index() as usize].previous = Some(member);
         assert_eq!(
             world.step(TickInput::new(4)),
             Err(crate::StepError::WaitingInvariantViolation)
         );
-        world.derived.waiting_links[member.index() as usize].previous = None;
+        world.state.derived.waiting_links[member.index() as usize].previous = None;
         assert_eq!(world.capture_snapshot().unwrap(), before);
         world
             .step(TickInput::new(4))
             .expect("retry valid member batch and queue");
-        assert!(world.waiting_state_valid());
+        assert!(world.state.waiting_state_valid());
     }
 
     #[test]
@@ -4400,7 +4450,11 @@ pub(crate) mod tests {
         world.step(TickInput::new(4)).expect("admit front member");
 
         let front = VehicleHandle::new(0, 0);
-        let front_state = world.vehicle_state(front).copied().expect("front state");
+        let front_state = world
+            .state
+            .vehicle_state(front)
+            .copied()
+            .expect("front state");
         let membership = front_state.waiting_membership.expect("front membership");
         let profile = world
             .traffic()
@@ -4481,13 +4535,20 @@ pub(crate) mod tests {
         let (mut world, _) = waiting_scale_world(revision, 1);
         world.step(TickInput::new(4)).expect("admit member");
         let vehicle = VehicleHandle::new(0, 0);
-        let state = world.vehicle_state(vehicle).copied().expect("member state");
+        let state = world
+            .state
+            .vehicle_state(vehicle)
+            .copied()
+            .expect("member state");
         let membership = state.waiting_membership.expect("membership");
         let target_cursor = membership
             .release_hop
             .checked_add(1)
             .expect("fixture release has a following internal edge");
-        let compiled = world.compiled_route(state.route).expect("compiled route");
+        let compiled = world
+            .state
+            .compiled_route(state.route)
+            .expect("compiled route");
         let traversal = state.maneuver_traversal.expect("traversal");
         let maneuver = compiled
             .maneuvers
@@ -4495,7 +4556,9 @@ pub(crate) mod tests {
             .expect("maneuver");
         assert!(target_cursor < maneuver.exit_route_edge_index);
         assert_eq!(
-            world.rebind_waiting_authority(state, state.route, target_cursor as usize),
+            world
+                .state
+                .rebind_waiting_authority(state, state.route, target_cursor as usize),
             Err(WaitingBindingError::AuthorityMismatch)
         );
     }
@@ -4526,7 +4589,7 @@ pub(crate) mod tests {
             world.route_edges(route).expect("route")[occurrence.release_hop as usize];
         let release_length = world.traffic().lane_lengths_millimetres()[release_edge.index()];
         let member_index = member.index() as usize;
-        let member_state = world.committed.vehicles[member_index]
+        let member_state = world.state.committed.vehicles[member_index]
             .state
             .as_mut()
             .expect("member");
@@ -4552,6 +4615,7 @@ pub(crate) mod tests {
             ))
             .expect("follower spawn");
         world
+            .state
             .committed
             .signal_aspects
             .fill(laneflow_static_contract::SignalAspect::Green);
@@ -4614,7 +4678,7 @@ pub(crate) mod tests {
         let release_edge =
             world.route_edges(route).expect("route")[occurrence.release_hop as usize];
         let release_length = world.traffic().lane_lengths_millimetres()[release_edge.index()];
-        let member_state = world.committed.vehicles[member.index() as usize]
+        let member_state = world.state.committed.vehicles[member.index() as usize]
             .state
             .as_mut()
             .expect("member");
@@ -4661,6 +4725,7 @@ pub(crate) mod tests {
         }));
 
         world
+            .state
             .committed
             .signal_aspects
             .fill(laneflow_static_contract::SignalAspect::Green);
@@ -4698,9 +4763,9 @@ pub(crate) mod tests {
                     8_000,
                 ))
                 .expect("vehicle");
-            world.arm_migration_journal(16 * 1_024).unwrap();
+            world.state.arm_migration_journal(16 * 1_024).unwrap();
             let before = world.capture_snapshot().expect("before");
-            let members_before = world.derived.waiting_member_rows.clone();
+            let members_before = world.state.derived.waiting_member_rows.clone();
             let guard = fail_after.map(fail_waiting_reservation_after);
             let error = world
                 .step(TickInput::new(100))
@@ -4709,18 +4774,25 @@ pub(crate) mod tests {
             assert_eq!(world.capture_snapshot().expect("after"), before);
             assert!(world.latest_waiting_decisions().is_empty());
             assert!(world.latest_transition_events().is_empty());
-            assert_eq!(world.derived.waiting_member_rows, members_before);
+            assert_eq!(world.state.derived.waiting_member_rows, members_before);
             assert_eq!(
-                world.migration_journal().unwrap().records_from(0).count(),
+                world
+                    .state
+                    .migration_journal()
+                    .unwrap()
+                    .records_from(0)
+                    .count(),
                 0
             );
             drop(guard);
             world.step(TickInput::new(100)).expect("retry");
             assert_eq!(
-                world.committed.waiting_zones[occurrence.zone.index()].next_admission_sequence,
+                world.state.committed.waiting_zones[occurrence.zone.index()]
+                    .next_admission_sequence,
                 1
             );
             let record = world
+                .state
                 .migration_journal()
                 .unwrap()
                 .records_from(0)
@@ -4748,15 +4820,19 @@ pub(crate) mod tests {
                 8_000,
             ))
             .expect("vehicle");
-        world.committed.waiting_zones[occurrence.zone.index()].next_admission_sequence = u64::MAX;
+        world.state.committed.waiting_zones[occurrence.zone.index()].next_admission_sequence =
+            u64::MAX;
         let before = world.capture_snapshot().expect("before exhaustion");
-        let next_state_capacity = world.workspace.next_states.capacity();
+        let next_state_capacity = world.state.workspace.next_states.capacity();
         assert_eq!(
             world.step(TickInput::new(100)),
             Err(crate::StepError::WaitingAdmissionSequenceExhausted)
         );
         assert_eq!(world.capture_snapshot().expect("after exhaustion"), before);
-        assert_eq!(world.workspace.next_states.capacity(), next_state_capacity);
+        assert_eq!(
+            world.state.workspace.next_states.capacity(),
+            next_state_capacity
+        );
     }
 
     #[test]
@@ -4782,12 +4858,12 @@ pub(crate) mod tests {
                 8_000,
             ))
             .expect("physical front second in live order");
-        world.committed.vehicles[rear.index() as usize]
+        world.state.committed.vehicles[rear.index() as usize]
             .state
             .as_mut()
             .expect("rear")
             .speed_mm_s = 100_000;
-        world.committed.vehicles[front.index() as usize]
+        world.state.committed.vehicles[front.index() as usize]
             .state
             .as_mut()
             .expect("front")
@@ -4821,7 +4897,7 @@ pub(crate) mod tests {
     fn same_tick_enter_leave_orders_events_and_despawn_without_member_is_absent() {
         let (mut world, route, mut occurrence) = waiting_world();
         occurrence.release_hop = occurrence.entry_hop;
-        world.committed.routes[route.index() as usize]
+        world.state.committed.routes[route.index() as usize]
             .compiled
             .as_mut()
             .expect("route")
@@ -4837,12 +4913,13 @@ pub(crate) mod tests {
                 8_000,
             ))
             .expect("vehicle");
-        world.committed.vehicles[vehicle.index() as usize]
+        world.state.committed.vehicles[vehicle.index() as usize]
             .state
             .as_mut()
             .expect("vehicle")
             .speed_mm_s = 1_000_000;
         world
+            .state
             .committed
             .signal_aspects
             .fill(laneflow_static_contract::SignalAspect::Green);
@@ -4899,39 +4976,47 @@ pub(crate) mod tests {
     fn not_required_uses_final_projected_gate_frontier() {
         let (mut world, _) = waiting_scale_world_at_delta(waiting_scale_revision(), 1, 1_000);
         let vehicle = VehicleHandle::new(0, 0);
-        let mut projected = *world.vehicle_state(vehicle).expect("vehicle");
+        let mut projected = *world.state.vehicle_state(vehicle).expect("vehicle");
         let occurrence = world
+            .state
             .compiled_route(projected.route)
             .expect("route")
             .waiting[0];
         world
+            .state
             .prepare_waiting_step(1.0)
             .expect("unconstrained preview");
-        assert!(world.workspace.next_states[0].1.route_edge_index > occurrence.release_hop);
+        assert!(world.state.workspace.next_states[0].1.route_edge_index > occurrence.release_hop);
         // 独立检验 output staging：实际 movement 被 entry projection 截断。
         let edge =
             world.route_edges(projected.route).expect("route")[occurrence.entry_hop as usize];
         projected.progress_mm = world.traffic().lane_lengths_millimetres()[edge.index()];
         projected.speed_mm_s = 0;
         projected.carry_um = 0;
-        world.prepare_conflict_step(1.0, 1).expect("formal grant");
+        world
+            .state
+            .prepare_conflict_step(1.0, 1)
+            .expect("formal grant");
         let mut updates = [(vehicle.index() as usize, projected)];
         world
+            .state
             .finalize_waiting_step(&mut updates)
             .expect("finalize projected motion");
         world
+            .state
             .finalize_conflict_step(&mut updates)
             .expect("finalize authority");
         world
+            .state
             .finalize_waiting_outputs(&updates, 1)
             .expect("finalize outputs");
-        let decisions = &world.workspace.waiting_staged_decisions;
+        let decisions = &world.state.workspace.waiting_staged_decisions;
         assert_eq!(decisions.len(), 1);
         assert_eq!(decisions[0].vehicle(), vehicle);
         assert_eq!(decisions[0].outcome(), WaitingDecisionOutcome::Granted);
         assert_eq!(decisions[0].anchor().hop(), occurrence.entry_hop);
         assert!(
-            world.workspace.staged_transition_events.is_empty(),
+            world.state.workspace.staged_transition_events.is_empty(),
             "grant is not a successful entry"
         );
     }
@@ -4944,6 +5029,7 @@ pub(crate) mod tests {
         vehicle_length_mm: u32,
     ) -> Result<Option<ManeuverTraversalState>, WaitingBindingError> {
         let compiled = world
+            .state
             .compiled_route(route)
             .ok_or(WaitingBindingError::InvalidRoute)?;
         let cursor = u32::try_from(cursor).map_err(|_| WaitingBindingError::InvalidRoute)?;
@@ -4986,6 +5072,7 @@ pub(crate) mod tests {
 
     fn repeated_waiting_route(world: &mut TrafficWorld, count: usize) -> RouteHandle {
         let original = world
+            .state
             .vehicle_state(VehicleHandle::new(0, 0))
             .expect("vehicle")
             .route;
@@ -5001,7 +5088,7 @@ pub(crate) mod tests {
             let revision = waiting_scale_revision_with_layout(8.0, 1, layout);
             let (mut world, _) = waiting_scale_world(revision, 1);
             let route = repeated_waiting_route(&mut world, 32);
-            let compiled = world.compiled_route(route).expect("route");
+            let compiled = world.state.compiled_route(route).expect("route");
             assert!(
                 compiled
                     .waiting
@@ -5017,7 +5104,9 @@ pub(crate) mod tests {
             for cursor in 0..=compiled.edges.len() {
                 for length in [0, 4_500, 8_000, u32::MAX] {
                     assert_eq!(
-                        world.validate_waiting_bootstrap(route, cursor, length),
+                        world
+                            .state
+                            .validate_waiting_bootstrap(route, cursor, length),
                         linear_waiting_bootstrap(&world, route, cursor, length),
                         "cursor={cursor} length={length}"
                     );
@@ -5025,7 +5114,7 @@ pub(crate) mod tests {
             }
             let occurrence = compiled.waiting[0];
             assert_eq!(
-                world.validate_waiting_bootstrap(
+                world.state.validate_waiting_bootstrap(
                     route,
                     occurrence.entry_hop as usize + 1,
                     u32::MAX
@@ -5034,12 +5123,14 @@ pub(crate) mod tests {
                 "length error precedes interior error"
             );
             assert_eq!(
-                world.validate_waiting_bootstrap(RouteHandle::new(u32::MAX, 0), 0, 0),
+                world
+                    .state
+                    .validate_waiting_bootstrap(RouteHandle::new(u32::MAX, 0), 0, 0),
                 Err(WaitingBindingError::InvalidRoute)
             );
             #[cfg(target_pointer_width = "64")]
             assert_eq!(
-                world.validate_waiting_bootstrap(route, usize::MAX, 0),
+                world.state.validate_waiting_bootstrap(route, usize::MAX, 0),
                 Err(WaitingBindingError::InvalidRoute)
             );
         }
@@ -5052,7 +5143,7 @@ pub(crate) mod tests {
             1,
         );
         let route = repeated_waiting_route(&mut world, 64);
-        let compiled = world.compiled_route(route).expect("route");
+        let compiled = world.state.compiled_route(route).expect("route");
         for index in 0..compiled.waiting.len() {
             let current = compiled.waiting[index];
             for preview in [
@@ -5083,10 +5174,11 @@ pub(crate) mod tests {
             let (mut world, _) =
                 waiting_scale_world_with_route_capacity(waiting_scale_revision(), 1, 4, 8_192);
             let route = repeated_waiting_route(&mut world, count);
-            let compiled = world.compiled_route(route).expect("route");
+            let compiled = world.state.compiled_route(route).expect("route");
             let tail = *compiled.waiting.last().expect("tail");
             WAITING_LOOKUP_VISITS.with(|counts| counts.set([0; 4]));
             let state = world
+                .state
                 .validate_waiting_bootstrap(route, tail.entry_hop as usize, 4_500)
                 .expect("bootstrap")
                 .expect("traversal");
@@ -5097,7 +5189,7 @@ pub(crate) mod tests {
             assert!(visits[1] <= limit && visits[2] <= limit, "{visits:?}");
             let vehicle = VehicleHandle::new(0, 0);
             world.despawn_vehicle(vehicle).expect("despawn");
-            let entry_hop = world.compiled_route(route).unwrap().waiting[0].entry_hop;
+            let entry_hop = world.state.compiled_route(route).unwrap().waiting[0].entry_hop;
             let edge = world.route_edges(route).unwrap()[entry_hop as usize];
             let length = world.traffic().lane_lengths_millimetres()[edge.index()];
             world
@@ -5127,12 +5219,12 @@ pub(crate) mod tests {
     fn repeated_route_tail_uses_current_occurrence_for_candidate_phase_and_outputs() {
         let (mut world, _) = waiting_scale_world(waiting_scale_revision(), 1);
         let vehicle = VehicleHandle::new(0, 0);
-        let original = world.vehicle_state(vehicle).expect("vehicle").route;
+        let original = world.state.vehicle_state(vehicle).expect("vehicle").route;
         let path = world.route_edges(original).expect("route")[64..].to_vec();
         let route = world
             .register_route(RouteRegisterInput::new(path.repeat(128)))
             .expect("128 Waiting occurrences");
-        let occurrence = world.compiled_route(route).expect("route").waiting[127];
+        let occurrence = world.state.compiled_route(route).expect("route").waiting[127];
         let entry_edge = world.route_edges(route).expect("route")[occurrence.entry_hop as usize];
         let entry_length = world.traffic().lane_lengths_millimetres()[entry_edge.index()];
         world
@@ -5148,7 +5240,7 @@ pub(crate) mod tests {
             ))
             .expect("tail entry bootstrap");
         world.step(TickInput::new(4)).expect("tail admission");
-        let state = *world.vehicle_state(vehicle).expect("vehicle");
+        let state = *world.state.vehicle_state(vehicle).expect("vehicle");
         let traversal = state.maneuver_traversal.expect("tail phase");
         assert_eq!(traversal.maneuver_occurrence_index, 127);
         assert_eq!(
@@ -5169,7 +5261,7 @@ pub(crate) mod tests {
         boundary.progress_mm = world.traffic().lane_lengths_millimetres()[release_edge.index()];
         assert_eq!(
             non_entry_gate_anchors(
-                world.compiled_route(route).expect("route"),
+                world.state.compiled_route(route).expect("route"),
                 state,
                 boundary,
                 world.traffic().lane_lengths_millimetres()
@@ -5183,10 +5275,11 @@ pub(crate) mod tests {
     fn compiled_gate_index_is_sparse_and_empty_for_gate_free_route() {
         let (mut world, _) = waiting_scale_world(waiting_scale_revision(), 1);
         let route = world
+            .state
             .vehicle_state(VehicleHandle::new(0, 0))
             .expect("vehicle")
             .route;
-        let compiled = world.compiled_route(route).expect("route");
+        let compiled = world.state.compiled_route(route).expect("route");
         assert_eq!(compiled.gate_hops, [64, 65]);
         assert!(compiled.next_controlled.iter().all(Option::is_none));
         let prefix = compiled.edges[..64].to_vec();
@@ -5195,6 +5288,7 @@ pub(crate) mod tests {
             .expect("gate-free route");
         assert!(
             world
+                .state
                 .compiled_route(gate_free)
                 .expect("compiled prefix")
                 .gate_hops
@@ -5202,11 +5296,13 @@ pub(crate) mod tests {
         );
         for cursor in [0, 63] {
             assert_eq!(
-                world.validate_waiting_bootstrap(gate_free, cursor, u32::MAX),
+                world
+                    .state
+                    .validate_waiting_bootstrap(gate_free, cursor, u32::MAX),
                 Ok(None)
             );
             assert_eq!(
-                world.validate_waiting_bootstrap(route, cursor, 4_500),
+                world.state.validate_waiting_bootstrap(route, cursor, 4_500),
                 Ok(None)
             );
         }
@@ -5217,14 +5313,14 @@ pub(crate) mod tests {
         let (mut world, _) = waiting_scale_world(waiting_scale_revision(), 1);
         world.step(TickInput::new(4)).expect("enter old membership");
         let vehicle = VehicleHandle::new(0, 0);
-        let mut old = *world.vehicle_state(vehicle).expect("vehicle");
-        let compiled = world.compiled_route(old.route).expect("route");
+        let mut old = *world.state.vehicle_state(vehicle).expect("vehicle");
+        let compiled = world.state.compiled_route(old.route).expect("route");
         let path = compiled.edges[64..].to_vec();
         let repeated = path.repeat(3);
         let route = world
             .register_route(RouteRegisterInput::new(repeated))
             .expect("three occurrences of one path");
-        let compiled = world.compiled_route(route).expect("repeated route");
+        let compiled = world.state.compiled_route(route).expect("repeated route");
         let [first, second, third] = compiled.waiting.as_slice() else {
             panic!("three occurrences")
         };
@@ -5242,16 +5338,16 @@ pub(crate) mod tests {
                 last_crossed_gate_hop: first.entry_hop,
             },
         });
-        let plan_index = world.workspace.waiting_plan_by_vehicle[vehicle.index() as usize]
+        let plan_index = world.state.workspace.waiting_plan_by_vehicle[vehicle.index() as usize]
             .expect("entry plan")
             .get() as usize
             - 1;
-        let mut plan = world.workspace.waiting_plans[plan_index];
+        let mut plan = world.state.workspace.waiting_plans[plan_index];
         plan.maneuver_index = second.maneuver_index;
         plan.entry_hop = second.entry_hop;
         plan.release_hop = second.release_hop;
         plan.admission_sequence = Some(1);
-        world.workspace.waiting_plans[plan_index] = plan;
+        world.state.workspace.waiting_plans[plan_index] = plan;
         let mut next = old;
         next.route_edge_index = second.release_hop;
         next.maneuver_traversal = Some(ManeuverTraversalState {
@@ -5263,10 +5359,11 @@ pub(crate) mod tests {
         });
         let events_for =
             |world: &mut TrafficWorld, old: crate::VehicleState, next: crate::VehicleState| {
-                world.committed.vehicles[old.handle.index() as usize].state = Some(old);
-                world.workspace.next_state_by_vehicle[old.handle.index() as usize] = 1;
+                world.state.committed.vehicles[old.handle.index() as usize].state = Some(old);
+                world.state.workspace.next_state_by_vehicle[old.handle.index() as usize] = 1;
                 let mut events = Vec::new();
                 world
+                    .state
                     .step_workspace()
                     .visit_transition_events(&[(old.handle.index() as usize, next)], 2, |event| {
                         events.push(event)
@@ -5295,7 +5392,7 @@ pub(crate) mod tests {
         plan.stop_zone = Some(third.zone);
         plan.stop_maneuver_index = Some(third.maneuver_index);
         plan.projection = Some(WaitingProjectionReason::EvaluationHorizon);
-        world.workspace.waiting_plans[plan_index] = plan;
+        world.state.workspace.waiting_plans[plan_index] = plan;
         next.route_edge_index = third.entry_hop;
         next.progress_mm = world.traffic().lane_lengths_millimetres()
             [world.route_edges(route).expect("route")[third.entry_hop as usize].index()];
@@ -5313,7 +5410,7 @@ pub(crate) mod tests {
         );
         assert_eq!(
             non_entry_gate_anchors(
-                world.compiled_route(route).expect("route"),
+                world.state.compiled_route(route).expect("route"),
                 old,
                 next,
                 world.traffic().lane_lengths_millimetres()

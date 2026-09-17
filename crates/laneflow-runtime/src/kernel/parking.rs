@@ -887,7 +887,7 @@ fn map_waiting_parking_error(error: crate::kernel::waiting::WaitingBindingError)
     }
 }
 
-impl TrafficWorld {
+impl crate::kernel::state::WorldState {
     fn resolve_reserve_anchor(
         &self,
         input: ReserveParkingTarget,
@@ -1963,6 +1963,165 @@ impl TrafficWorld {
     }
 }
 
+impl TrafficWorld {
+    /// 是否已按 exact occurrence/progress/zero-motion 提交 arrival。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn parking_arrived(&self, vehicle: VehicleHandle, target: ParkingTarget) -> bool {
+        self.execution.assert_usable();
+        self.state.parking_arrived(vehicle, target)
+    }
+
+    /// 原子预留显式泊位或虚拟池容量。
+    ///
+    /// # Errors
+    ///
+    /// 泊位目标解析或可用性（不存在、已被其它车辆绑定、虚拟池已满）、车辆句柄、
+    /// 生命周期状态（`StaleVehicle` / `InvalidVehicleStatus`）、既有停车绑定
+    /// （`VehicleAlreadyBound`）、入口 occurrence 锚点匹配与前向可达、等待区遍历
+    /// 冲突、准入策略、容量分配、命令游标耗尽或内部不变量等任一失败族命中时
+    /// 返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）；失败不改变占用
+    /// 状态。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn reserve_parking(
+        &mut self,
+        vehicle: VehicleHandle,
+        input: ReserveParkingTarget,
+    ) -> Result<ParkingCommandOutcome<ParkingReserveRecord>, ParkingError> {
+        self.execution.assert_usable();
+        self.state.reserve_parking(vehicle, input)
+    }
+
+    /// 取消 exact reservation；重复取消是 `NotReserved`，不是 no-op。
+    ///
+    /// # Errors
+    ///
+    /// 泊位目标解析、车辆状态、exact reservation 缺失、命令游标耗尽或内部不变量
+    /// 等任一失败族命中时返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn cancel_parking(
+        &mut self,
+        vehicle: VehicleHandle,
+        target: ParkingTarget,
+    ) -> Result<ParkingCancelRecord, ParkingError> {
+        self.execution.assert_usable();
+        self.state.cancel_parking(vehicle, target)
+    }
+
+    /// 把 exact arrived reservation 原子提交为 `Parked + Occupied`。
+    ///
+    /// # Errors
+    ///
+    /// 泊位目标解析、车辆与 reservation 状态、冲突/等待区遍历、命令游标或观测
+    /// 序号耗尽、内部不变量等任一失败族命中时返回相应 [`ParkingError`]（逐变体
+    /// 权威清单见该枚举文档）。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn park_vehicle(
+        &mut self,
+        vehicle: VehicleHandle,
+        target: ParkingTarget,
+    ) -> Result<ParkingCommandOutcome<ParkingParkRecord>, ParkingError> {
+        self.execution.assert_usable();
+        self.state.park_vehicle(vehicle, target)
+    }
+
+    /// 从 `Parked + Occupied` 安全插入 exact exit anchor，并原子释放资源。
+    ///
+    /// # Errors
+    ///
+    /// 泊位目标与出口 selector 解析（含虚拟池出口锚不属于设施）、车辆状态、准入
+    /// 与出口安全、冲突权威缺失、等待区遍历/存储跨度、锚点插入与路线引用容量、
+    /// 出口物理重叠、派生占用索引重建的分配失败、命令游标或观测序号耗尽、内部
+    /// 不变量等任一失败族命中时返回相应 [`ParkingError`]（逐变体权威清单见该
+    /// 枚举文档）。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn leave_parking(
+        &mut self,
+        vehicle: VehicleHandle,
+        input: LeaveParkingTarget,
+    ) -> Result<ParkingLeaveRecord, ParkingError> {
+        self.execution.assert_usable();
+        self.state.leave_parking(vehicle, input)
+    }
+
+    /// 在保持完整物理 footprint 的前提下更换 Reserved route/entry payload。
+    ///
+    /// # Errors
+    ///
+    /// 重绑目标与入口 selector 解析、车辆与 reservation 状态、冲突遍历、等待区
+    /// 遍历/存储跨度、路线与出现项（含新入口锚可达性）、车身 footprint 一致性、
+    /// 准入与权威、出现项容量与分配、命令游标耗尽、内部不变量等任一失败族命中
+    /// 时返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）；失败保持完整
+    /// 物理 footprint 不变。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn rebind_parking_route(
+        &mut self,
+        vehicle: VehicleHandle,
+        input: RebindParkingTarget,
+    ) -> Result<ParkingCommandOutcome<ParkingRebindRecord>, ParkingError> {
+        self.execution.assert_usable();
+        self.state.rebind_parking_route(vehicle, input)
+    }
+
+    /// 直接构造 `Parked + Occupied`；不伪造 reservation 或入口 arrival。
+    ///
+    /// # Errors
+    ///
+    /// 泊位目标解析或可用性（不存在、已被绑定、虚拟池已满）、车辆容量、profile/
+    /// 路线/进度校验、准入策略、分配、路线引用容量、命令游标耗尽或内部不变量等
+    /// 任一失败族命中时返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）；
+    /// 失败不构造任何状态。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn spawn_parked_vehicle(
+        &mut self,
+        input: ParkedVehicleSpawnInput,
+        target: ParkingTarget,
+    ) -> Result<ParkedVehicleSpawnRecord, ParkingError> {
+        self.execution.assert_usable();
+        self.state.spawn_parked_vehicle(input, target)
+    }
+
+    /// 真正移除任意 live lifecycle 状态，同时释放 route 与可选停车 binding。
+    ///
+    /// # Errors
+    ///
+    /// 车辆句柄、命令游标耗尽（任何生命周期状态；观测序号耗尽仅限 Active）或
+    /// 绑定释放不变量等任一失败族命中时返回相应 [`ParkingError`]（逐变体权威
+    /// 清单见该枚举文档）。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn despawn_vehicle(
+        &mut self,
+        vehicle: VehicleHandle,
+    ) -> Result<VehicleDespawnRecord, ParkingError> {
+        self.execution.assert_usable();
+        self.state.despawn_vehicle(vehicle)
+    }
+}
+
 impl<'a> crate::kernel::phase::StepReadView<'a> {
     /// 校验锚点边位于路线的指定出现项位置。
     pub(crate) fn validate_anchor_on_route(
@@ -2238,10 +2397,11 @@ mod tests {
                     assert!(world.parking_arrived(vehicle, target.target()));
                     world.cancel_parking(vehicle, target.target()).unwrap();
                 }
-                world.rebuild_occupancy_index().unwrap();
+                world.state.rebuild_occupancy_index().unwrap();
                 let state = world.vehicle(vehicle).unwrap();
                 // 独立预览自行读取当前 binding，正式 step 则在校验后复用拍初读取。
                 let expected = world
+                    .state
                     .read_view()
                     .advance_active_vehicle_with_waiting_stop(state, 0.1, None, None)
                     .unwrap();
@@ -2258,7 +2418,7 @@ mod tests {
         for virtual_pool in [false, true] {
             let (mut world, vehicle, target) = binding_reuse_world(virtual_pool);
             world.reserve_parking(vehicle, target).unwrap();
-            let original = world.committed.parking.binding(vehicle).unwrap();
+            let original = world.state.committed.parking.binding(vehicle).unwrap();
             let ParkingBinding::Reserved(reservation) = original else {
                 panic!("reserved fixture");
             };
@@ -2279,20 +2439,33 @@ mod tests {
                 )),
             ];
             for binding in invalid {
-                world.committed.parking.bindings.insert(vehicle, binding);
-                assert!(!world.parking_state_valid(vehicle));
+                world
+                    .state
+                    .committed
+                    .parking
+                    .bindings
+                    .insert(vehicle, binding);
+                assert!(!world.state.parking_state_valid(vehicle));
                 assert_eq!(
                     world.step(crate::TickInput::new(100)),
                     Err(crate::StepError::ParkingInvariantViolation)
                 );
-                assert_eq!(world.committed.parking.binding(vehicle), Some(binding));
-                world.committed.parking.bindings.insert(vehicle, original);
+                assert_eq!(
+                    world.state.committed.parking.binding(vehicle),
+                    Some(binding)
+                );
+                world
+                    .state
+                    .committed
+                    .parking
+                    .bindings
+                    .insert(vehicle, original);
                 assert_eq!(world.capture_snapshot().unwrap(), before);
                 assert!(world.latest_transition_events().is_empty());
             }
             // 修复损坏输入后，失败工作区不污染下一次正常提交。
             world.step(crate::TickInput::new(100)).unwrap();
-            assert!(world.parking_state_valid(vehicle));
+            assert!(world.state.parking_state_valid(vehicle));
         }
     }
 

@@ -581,7 +581,7 @@ impl CapturedSnapshot {
     }
 }
 
-impl TrafficWorld {
+impl crate::kernel::state::WorldState {
     /// 在固定步进安全边界捕获快照点（快照合同 §5 单一时点）。
     ///
     /// 只读已提交状态，不改变世界、不推进游标；全部容量按计数可失败预留，
@@ -1061,6 +1061,30 @@ impl TrafficWorld {
             waiting_zones,
             conflict_lag_states,
         })
+    }
+}
+
+impl TrafficWorld {
+    /// 在固定步进安全边界捕获快照点（快照合同 §5 单一时点）。
+    ///
+    /// 只读已提交状态，不改变世界、不推进游标；全部容量按计数可失败预留，
+    /// 预留失败即 [`SnapshotCaptureError`]，世界无感知、宿主可直接重试。
+    /// 局部标识分配规范：路线按 live 槽位序取 `1..=N`，车辆按 live 槽位序
+    /// 取 `1..=M`；`live_order` 保存实际更新顺序，与局部 ID 的自然序解耦。
+    ///
+    /// # Errors
+    ///
+    /// 全部输出缓冲按计数可失败预留：任一预留失败返回
+    /// [`SnapshotCaptureError::ReservationFailed`]，世界无感知、宿主可直接重试；
+    /// 已提交 Conflict authority 无法由 reservation 级证明精确重建时返回
+    /// [`SnapshotCaptureError::ConflictInvariantViolation`]。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn capture_snapshot(&self) -> Result<CapturedSnapshot, SnapshotCaptureError> {
+        self.execution.assert_usable();
+        self.state.capture_snapshot()
     }
 }
 

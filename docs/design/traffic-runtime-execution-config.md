@@ -9,8 +9,9 @@
 [快照](traffic-runtime-snapshot.md)、[修订切换](traffic-runtime-revision-cutover.md)
 
 本文定义已接受的配置 API 与执行生命周期合同。当前配置已分离，LFRS 6 只保存
-交通配置，安装和恢复仅支持 worker 1；执行资源、私有候选所有权及真实多线程调度
-仍须按本文后续实施。单次测量和进度由 GitHub 管理，配置可表达不证明并行能力已实现。
+交通配置，安装和恢复仅支持 worker 1。活动世界独占执行资源，私有候选只持有交通
+状态和目标计划；多线程资源原语不构成生产交通并行能力。单次测量和进度由 GitHub
+管理，配置可表达不证明并行能力已实现。
 
 ## 1. 配置职责
 
@@ -108,9 +109,8 @@ PreparedWorldState            私有；不提供公开 step
 
 这些私有名称用于表达所有权，确切 Rust 方法归属须经真实借用核对。五类状态的权威
 不改变，不用 `Option<Pool>` 构造缺资源的公开世界，也不靠全局线程池隐藏生命周期。
-公共安装和恢复复用一套交通准入原语。当前无辅助线程，私有交通准备仍使用既有世界
-数据聚合；资源接入前必须完成上面的活动/候选所有权分离，不能把当前 staging 当作
-已初始化执行器的活动世界，或在交通恢复中途启动线程。
+公共安装和恢复复用 `WorldState::prepare_traffic_state`。交通准备不接收执行配置，
+不构造活动 facade；完整交通准入之后才建立计划和资源。恢复过程中不能启动线程。
 
 首版计划包含目标根绑定、独立计算的任务范围与所需缓冲，不预建 P4 资源组件图、
 局部资源表或临时 grant 绑定表。P4 继续由协调器规范串行裁决。
@@ -129,6 +129,17 @@ PreparedWorldState            私有；不提供公开 step
 活动世界独占资源简化取消、drop 和寿命归属，代价是多世界分别付费。宿主共享执行器
 需要单独冻结重入、饥饿、borrow lifetime、panic 和全局资源预算，不能只把私有池改为
 一个公共 `Arc<Pool>` 参数。
+
+私有后端使用 Rayon 的 `rayon-core` 独占线程池。N 配置对应至多 N−1 个辅助线程；
+`in_place_scope` 的协调闭包在调用线程执行首块，其余任务使用互斥输出范围。
+不使用全局池、`use_current_thread` 或脱离操作作用域的任务。LaneFlow 显式保留
+每个 OS 线程的 `JoinHandle`：构建失败和正常析构均先关闭池，再 join 全部已启动
+线程。Rayon 作用域 join 与 OS 线程退出 join 是两层不同的结算义务。
+
+LaneFlow 持有的必需计划、任务范围、输出缓冲和线程登记表使用 checked 长度与
+`try_reserve`。Rayon 内部 registry、工作队列及任务节点、标准库线程启动内部的
+分配沿用进程级 OOM 语义，不能承诺均转换为可恢复错误；进程级失败不承诺世界
+继续可用。可恢复预留错误与平台线程创建错误仍按 §4.3 返回，不能混为交通错误。
 
 内存账本包括活动状态/计划/工作区、辅助线程栈与队列、候选状态/计划/工作区、迁移
 日志和退休状态。候选无第二套线程资源，但仍占内存。线程栈保留与提交字节分别计账。
@@ -181,8 +192,9 @@ fresh restore 继承快照世界身份、建立新的本地世代/会话；不�
 | `ExecutionPlanError::SizeOverflow`                                        | 布局长度或索引计算溢出             | install / restore / cutover 各自的 `ExecutionPlan` 包装               |
 | `ExecutionPlanError::ReservationFailed`                                   | 目标计划或其必需缓冲准备失败       | 同上                                                                  |
 
-当前只有 `UnsupportedWorkerCount` 可达，分别由安装与恢复的 `ExecutionInit` 包装；
-资源/计划接入时才增加对应真实失败变体，不预建无调用路径的错误。执行错误不冒充交通容量、领域 StepError
+公开安装和恢复当前只接受 worker 1；计划错误由安装、恢复及两种切换的
+`ExecutionPlan` 包装。线程资源失败在私有多 worker 原语中验证，开放生产 worker
+能力仍须完成对应交通计算与正确性验收。执行错误不冒充交通容量、领域 StepError
 或无关暂存错误。执行器 panic 的 join、世界失效及 drop 遵循
 [并行执行 §4.3](traffic-runtime-parallel-execution.md#43-join取消与失败清理)；初始化
 错误的 Result 不构成运行中 panic 可恢复的承诺。

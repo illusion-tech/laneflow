@@ -66,14 +66,14 @@ fn junction_reference_ledger() {
         reset_conflict_work_counts();
         world.step(TickInput::new(16)).unwrap();
         let work = conflict_work_counts();
-        let memory = world.retained_memory();
+        let memory = world.state.retained_memory();
         for (peak, bytes) in peak.iter_mut().zip(memory.partitions) {
             *peak = (*peak).max(bytes);
         }
-        let cells = world.conflict_read().cell_count();
+        let cells = world.state.conflict_read().cell_count();
         let [binding, committed, derived, scratch, admin] = memory.partitions;
         writeln!(csv, "{tick},{},{binding},{committed},{derived},{scratch},{admin},{},{cells},{},{},{},{},{},{},{},{},{},{},{},{}",
-            memory.shared_network, world.conflict_retained_logical_bytes(), cells * size_of::<ApproachFrontierCell>(),
+            memory.shared_network, world.state.conflict_retained_logical_bytes(), cells * size_of::<ApproachFrontierCell>(),
             work.candidates, work.visited_passages, work.frontier_updates, work.cell_claim_queries,
             work.downstream_claim_queries, work.downstream_interval_visits, work.collision_rejections,
             work.commit_resource_visits, work.wait_for_nodes, work.wait_for_edges, work.wait_for_visits).unwrap();

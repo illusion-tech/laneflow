@@ -37,6 +37,7 @@ fn journal(world: &TrafficWorld) -> String {
     format!(
         "{:?}",
         world
+            .state
             .migration_journal()
             .filter(|log| !log.overflowed())
             .map(|log| log.records_from(0).collect::<Vec<_>>())
@@ -45,7 +46,7 @@ fn journal(world: &TrafficWorld) -> String {
 
 fn trace(mut world: TrafficWorld, ticks: usize, retry: bool, journal_bound: Option<u64>) -> String {
     if let Some(bound) = journal_bound {
-        world.arm_migration_journal(bound).unwrap();
+        world.state.arm_migration_journal(bound).unwrap();
     }
     let mut digest = Sha256::new();
     digest.update(checkpoint(&world).as_bytes());
@@ -115,7 +116,7 @@ fn trace(mut world: TrafficWorld, ticks: usize, retry: bool, journal_bound: Opti
     eprintln!(
         "phase-trace-cost vehicles={} ticks={ticks} retry={retry} journal_bound={journal_bound:?} conflict_retained_bytes={}",
         world.live_vehicles().len(),
-        world.conflict_retained_logical_bytes()
+        world.state.conflict_retained_logical_bytes()
     );
     let hex: String = digest
         .finalize()

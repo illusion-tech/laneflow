@@ -2,7 +2,6 @@
 
 use core::ops::Deref;
 
-use crate::TrafficWorld;
 use crate::admin::migration_journal::MigrationDeltaJournal;
 use crate::kernel::conflict::{ConflictRead, ConflictResolution};
 use crate::kernel::state::{CommittedWorldState, DerivedIndexes, TickWorkspace, WorldBindingState};
@@ -127,7 +126,7 @@ impl CommittedStateMut<'_> {
     }
 }
 
-impl TrafficWorld {
+impl crate::kernel::state::WorldState {
     /// 世界的拍初基线只读投影。
     pub(crate) const fn read_view(&self) -> StepReadView<'_> {
         StepReadView {

@@ -401,7 +401,7 @@ struct ObservationInterval {
     hi_mm: u32,
 }
 
-impl TrafficWorld {
+impl crate::kernel::state::WorldState {
     /// 当前观测 stream 的已提交状态序号。
     #[must_use]
     pub const fn observation_state_sequence(&self) -> ObservationStateSequence {
@@ -721,6 +721,61 @@ impl TrafficWorld {
     }
 }
 
+impl TrafficWorld {
+    /// 当前观测 stream 的已提交状态序号。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub const fn observation_state_sequence(&self) -> ObservationStateSequence {
+        self.execution.assert_usable();
+        self.state.observation_state_sequence()
+    }
+
+    /// 打开调用方持有的观测导出 session；失败不留下 Runtime 隐式状态。
+    ///
+    /// # Errors
+    ///
+    /// 选择为空、超过上限、未按严格升序去重排序，或包含共享根未知的 lane edge
+    /// 稳定 ID 时返回相应 [`ObservationError`]；选择集结构预留失败返回
+    /// [`ObservationError::AllocationFailed`]、选择计数换算溢出返回
+    /// [`ObservationError::ArithmeticOverflow`]；失败不留下任何隐式状态。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn open_observation_export(
+        &self,
+        selection: ObservationSelection,
+    ) -> Result<ObservationExportSession, ObservationError> {
+        self.execution.assert_usable();
+        self.state.open_observation_export(selection)
+    }
+
+    /// 从一个精确已提交边界导出 full 或 delta；失败不推进 session。
+    ///
+    /// # Errors
+    ///
+    /// session 与世界流绑定不匹配、网络修订不匹配、首次导出非 full、交付序号
+    /// 耗尽、导出边界早于基线、占用区间重建不完整（
+    /// [`ObservationError::OccupancyIntervalIncomplete`]）、聚合或输出行分配失败
+    /// （`AllocationFailed`）或聚合换算溢出（`ArithmeticOverflow`）时返回相应
+    /// [`ObservationError`]；失败不推进 session。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn export_observation(
+        &self,
+        session: &mut ObservationExportSession,
+        mode: ObservationExportMode,
+    ) -> Result<CommittedTrafficObservationBatch, ObservationError> {
+        self.execution.assert_usable();
+        self.state.export_observation(session, mode)
+    }
+}
+
 fn selection_digest(selected: &[SelectedLaneEdge]) -> Result<Sha256Digest, ObservationError> {
     let count = u64::try_from(selected.len()).map_err(|_| ObservationError::ArithmeticOverflow)?;
     let mut hasher = Sha256::new();
@@ -956,7 +1011,7 @@ mod tests {
         let (mut world, route) = world_and_route();
         let vehicle = spawn(&mut world, route, 0, 1_000, 0);
         assert_eq!(world.observation_state_sequence().get(), 1);
-        let before_state = *world.vehicle_state(vehicle).expect("vehicle");
+        let before_state = *world.state.vehicle_state(vehicle).expect("vehicle");
         let before_tick = world.tick_index();
 
         let mut session = world
@@ -1007,7 +1062,7 @@ mod tests {
         assert_eq!(first_row.front_speed_sum_mm_per_second(), 0);
         assert_eq!(world.tick_index(), before_tick);
         assert_eq!(world.observation_state_sequence().get(), 1);
-        assert_eq!(world.vehicle_state(vehicle), Some(&before_state));
+        assert_eq!(world.state.vehicle_state(vehicle), Some(&before_state));
         assert!(
             session.retained_bytes().expect("retained")
                 >= session.logical_bytes().expect("logical")
@@ -1031,14 +1086,14 @@ mod tests {
             .position(|edge| *edge == entry_edge)
             .and_then(|index| u32::try_from(index).ok())
             .expect("parking entry on route");
-        world.committed.routes[route.index() as usize]
+        world.state.committed.routes[route.index() as usize]
             .compiled
             .as_mut()
             .expect("route")
             .waiting
             .clear();
         let vehicle = spawn(&mut world, route, entry_occurrence, entry_progress_mm, 0);
-        assert_eq!(world.derived.active_order, [vehicle]);
+        assert_eq!(world.state.derived.active_order, [vehicle]);
         let target = ParkingTarget::ExplicitSpace(space);
         world
             .reserve_parking(
@@ -1075,7 +1130,7 @@ mod tests {
 
         let sequence_before_park = world.observation_state_sequence();
         world.park_vehicle(vehicle, target).expect("park");
-        assert!(world.derived.active_order.is_empty());
+        assert!(world.state.derived.active_order.is_empty());
         assert_eq!(
             world.observation_state_sequence().get(),
             sequence_before_park.get() + 1
@@ -1098,8 +1153,8 @@ mod tests {
             .expect("idempotent park");
         assert_eq!(world.observation_state_sequence(), before_idempotent);
         world.step(TickInput::new(100)).expect("parked-only step");
-        assert!(world.derived.active_order.is_empty());
-        assert_eq!(world.occupancy_inspections(), 0);
+        assert!(world.state.derived.active_order.is_empty());
+        assert_eq!(world.state.occupancy_inspections(), 0);
     }
 
     #[test]
@@ -1108,13 +1163,13 @@ mod tests {
         let edges = world.route_edges(route).expect("route").to_vec();
         let vehicle = spawn(&mut world, route, 0, 0, 700);
         let index = usize::try_from(vehicle.index()).expect("vehicle index");
-        let state = world.committed.vehicles[index]
+        let state = world.state.committed.vehicles[index]
             .state
             .as_mut()
             .expect("vehicle");
         state.route_edge_index = 1;
         state.progress_mm = 1_000;
-        let state = *world.vehicle_state(vehicle).expect("vehicle");
+        let state = *world.state.vehicle_state(vehicle).expect("vehicle");
         let mut session = world
             .open_observation_export(ObservationSelection::AllLaneEdges)
             .expect("open");
@@ -1335,9 +1390,9 @@ mod tests {
     #[test]
     fn state_and_delivery_sequence_exhaustion_fail_closed() {
         let (mut world, route) = world_and_route();
-        world.committed.observation_state_sequence =
+        world.state.committed.observation_state_sequence =
             ObservationStateSequence::from_raw_for_test(u64::MAX);
-        let before_live = world.committed.live_order.len();
+        let before_live = world.state.committed.live_order.len();
         assert_eq!(
             world
                 .spawn_vehicle(VehicleSpawnInput::new(
@@ -1350,7 +1405,7 @@ mod tests {
                 .unwrap_err(),
             SpawnError::ObservationStateSequenceExhausted
         );
-        assert_eq!(world.committed.live_order.len(), before_live);
+        assert_eq!(world.state.committed.live_order.len(), before_live);
         let before_tick = world.tick_index();
         assert_eq!(
             world.step(TickInput::new(100)).unwrap_err(),
@@ -1358,7 +1413,7 @@ mod tests {
         );
         assert_eq!(world.tick_index(), before_tick);
 
-        world.committed.observation_state_sequence = ObservationStateSequence::INITIAL;
+        world.state.committed.observation_state_sequence = ObservationStateSequence::INITIAL;
         let space = ParkingSpaceOrdinal::from_raw(0);
         let (entry_edge, entry_progress_mm) = world
             .traffic()
@@ -1373,7 +1428,7 @@ mod tests {
             .position(|edge| *edge == entry_edge)
             .and_then(|index| u32::try_from(index).ok())
             .expect("parking entry on route");
-        world.committed.routes[route.index() as usize]
+        world.state.committed.routes[route.index() as usize]
             .compiled
             .as_mut()
             .expect("route")
@@ -1420,7 +1475,7 @@ mod tests {
             exit_route_occurrence: exit_occurrence,
         };
 
-        world.committed.observation_state_sequence =
+        world.state.committed.observation_state_sequence =
             ObservationStateSequence::from_raw_for_test(u64::MAX);
         let cursor_before_reserve = world.command_cursor();
         let reserve = world
@@ -1449,11 +1504,11 @@ mod tests {
         assert_eq!(world.live_vehicles(), before_live);
         assert_eq!(world.command_cursor(), before_cursor);
 
-        world.committed.observation_state_sequence = ObservationStateSequence::INITIAL;
+        world.state.committed.observation_state_sequence = ObservationStateSequence::INITIAL;
         world
             .park_vehicle(vehicle, target)
             .expect("park changes the active observation row");
-        world.committed.observation_state_sequence =
+        world.state.committed.observation_state_sequence =
             ObservationStateSequence::from_raw_for_test(u64::MAX);
         let before_state = world.vehicle(vehicle);
         let before_binding = world.parking_binding(vehicle);
@@ -1466,11 +1521,11 @@ mod tests {
         assert_eq!(world.parking_binding(vehicle), before_binding);
         assert_eq!(world.command_cursor(), before_cursor);
 
-        world.committed.observation_state_sequence = ObservationStateSequence::INITIAL;
+        world.state.committed.observation_state_sequence = ObservationStateSequence::INITIAL;
         world
             .leave_parking(vehicle, leave)
             .expect("leave restores an active observation row");
-        world.committed.observation_state_sequence =
+        world.state.committed.observation_state_sequence =
             ObservationStateSequence::from_raw_for_test(u64::MAX);
         let before_state = world.vehicle(vehicle);
         let before_cursor = world.command_cursor();
@@ -1482,12 +1537,12 @@ mod tests {
         assert_eq!(world.command_cursor(), before_cursor);
 
         let vehicle_index = usize::try_from(vehicle.index()).expect("vehicle index");
-        world.committed.vehicles[vehicle_index]
+        world.state.committed.vehicles[vehicle_index]
             .state
             .as_mut()
             .expect("vehicle remains live")
             .status = VehicleStatus::Completed;
-        world.rebuild_active_order();
+        world.state.rebuild_active_order();
         let cursor_before_completed_despawn = world.command_cursor();
         let completed = world
             .despawn_vehicle(vehicle)

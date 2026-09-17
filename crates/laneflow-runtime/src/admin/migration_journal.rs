@@ -1538,7 +1538,7 @@ fn read_u64(bytes: &[u8], at: usize) -> u64 {
     ])
 }
 
-impl crate::TrafficWorld {
+impl crate::kernel::state::WorldState {
     /// 武装迁移增量日志（#513 切片 C）。只在切换事务 Prepare 边界调用：以
     /// 当前命令游标为覆盖区间下界，按字节上界一次预留 arena（此后武装期
     /// 稳态 tick 写入预留空间、不新增分配）。已有在途日志时武装失败。
@@ -1600,6 +1600,44 @@ impl crate::TrafficWorld {
             .migration_journal
             .as_ref()
             .map(|journal| journal.stats())
+    }
+}
+
+impl crate::TrafficWorld {
+    /// 世界级在途切换恢复入口：显式放弃武装中的迁移增量日志。
+    ///
+    /// 事务被静默丢弃、或以错世界结算（消耗形 `commit`/`abandon` 在
+    /// [`crate::CutoverError::TransactionWorldMismatch`] 后丢弃事务对象）时，来源
+    /// 世界会保持在途锁定（`InFlightTransaction`）且不再存在可结算的事务
+    /// 对象——本入口即该状态下的唯一恢复手段：旧世界从当前状态继续步进，
+    /// 零事件、无候选晋升。无在途事务时按 [`crate::CutoverError::NoInFlightTransaction`]
+    /// 失败关闭。
+    ///
+    /// # Errors
+    ///
+    /// 无在途切换时返回 [`crate::CutoverError::NoInFlightTransaction`]。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    pub fn abandon_in_flight_cutover(&mut self) -> Result<(), crate::CutoverError> {
+        self.execution.assert_usable();
+        self.state.abandon_in_flight_cutover()
+    }
+
+    /// 武装中迁移增量日志的统计快照；`None` = 无在途切换事务。宿主据此
+    /// 观测追赶滞后（tick 距离）、字节占用与溢出，编排泵入节奏或在超限
+    /// 前显式改用维护暂停模式重试。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[must_use]
+    pub fn migration_journal_stats(
+        &self,
+    ) -> Option<crate::admin::migration_journal::MigrationJournalStats> {
+        self.execution.assert_usable();
+        self.state.migration_journal_stats()
     }
 }
 
@@ -1683,6 +1721,7 @@ mod tests {
 
     fn decoded(world: &TrafficWorld) -> Vec<JournalRecord<'_>> {
         world
+            .state
             .migration_journal()
             .expect("armed journal")
             .records_from(0)
@@ -1917,6 +1956,7 @@ mod tests {
         // 基线 = 1 次路线注册 + 1 次生成。
         assert_eq!(world.command_cursor(), 2);
         world
+            .state
             .arm_migration_journal(64 * 1_024)
             .expect("arm journal");
 
@@ -1956,7 +1996,7 @@ mod tests {
             .expect("idempotent re-occupy");
         // 强制完成 first 后原子替换。
         let index = usize::try_from(first.index()).expect("index");
-        world.committed.vehicles[index]
+        world.state.committed.vehicles[index]
             .state
             .as_mut()
             .expect("first")
@@ -2018,7 +2058,7 @@ mod tests {
             JournalRecord::VehicleReplaced { command_cursor: 7, old_slot, order_index: 0, .. }
                 if old_slot == first.index()
         ));
-        let journal = world.migration_journal().expect("armed");
+        let journal = world.state.migration_journal().expect("armed");
         assert_eq!(journal.baseline_command_cursor(), 2);
         assert_eq!(journal.first_tick(), Some(1));
         assert_eq!(journal.last_tick(), Some(2));
@@ -2040,10 +2080,10 @@ mod tests {
             .unwrap();
         VEHICLE_DELTA_MATERIALIZATIONS.set(0);
         world.step(TickInput::new(100)).unwrap();
-        assert!(world.vehicle_state(vehicle).unwrap().progress_mm() > 1_000);
+        assert!(world.state.vehicle_state(vehicle).unwrap().progress_mm() > 1_000);
         assert_eq!(VEHICLE_DELTA_MATERIALIZATIONS.get(), 0, "unarmed tick");
 
-        world.arm_migration_journal(4_096).unwrap();
+        world.state.arm_migration_journal(4_096).unwrap();
         VEHICLE_DELTA_MATERIALIZATIONS.set(0);
         world.step(TickInput::new(100)).unwrap();
         assert_eq!(VEHICLE_DELTA_MATERIALIZATIONS.get(), 1, "armed tick");
@@ -2060,18 +2100,18 @@ mod tests {
         };
         assert_eq!(entries.len(), VEHICLE_DELTA_BYTES);
         let delta = VehicleDelta::decode(entries);
-        let state = world.vehicle_state(vehicle).unwrap();
+        let state = world.state.vehicle_state(vehicle).unwrap();
         assert_eq!(delta.slot, vehicle.index());
         assert_eq!(delta.generation, vehicle.generation());
         assert_eq!(delta.progress_mm, state.progress_mm());
         assert_eq!(delta.speed_mm_s, state.speed_mm_s());
         assert_eq!(delta.route_index, route.index());
 
-        assert!(world.disarm_migration_journal().is_some());
-        let before = *world.vehicle_state(vehicle).unwrap();
+        assert!(world.state.disarm_migration_journal().is_some());
+        let before = *world.state.vehicle_state(vehicle).unwrap();
         VEHICLE_DELTA_MATERIALIZATIONS.set(0);
         world.step(TickInput::new(100)).unwrap();
-        assert_ne!(*world.vehicle_state(vehicle).unwrap(), before);
+        assert_ne!(*world.state.vehicle_state(vehicle).unwrap(), before);
         assert_eq!(VEHICLE_DELTA_MATERIALIZATIONS.get(), 0, "disarmed tick");
     }
 
@@ -2092,7 +2132,7 @@ mod tests {
                 false,
             ),
         ] {
-            armed.arm_migration_journal(1_024 * 1_024).unwrap();
+            armed.state.arm_migration_journal(1_024 * 1_024).unwrap();
             let mut saw_resource = false;
             for _ in 0..64 {
                 VEHICLE_DELTA_MATERIALIZATIONS.set(0);
@@ -2126,7 +2166,7 @@ mod tests {
                         unarmed.conflict_reservation(*handle).is_some()
                     }
                 });
-                assert!(!armed.migration_journal().unwrap().overflowed());
+                assert!(!armed.state.migration_journal().unwrap().overflowed());
             }
             assert!(saw_resource, "fixture must exercise the resource path");
         }
@@ -2147,7 +2187,7 @@ mod tests {
                 ParkingTarget::ExplicitSpace(ParkingSpaceOrdinal::from_raw(0)),
             )
             .expect("parked vehicle");
-        world.arm_migration_journal(4_096).expect("arm");
+        world.state.arm_migration_journal(4_096).expect("arm");
         VEHICLE_DELTA_MATERIALIZATIONS.set(0);
         world.step(TickInput::new(100)).expect("step");
         assert_eq!(VEHICLE_DELTA_MATERIALIZATIONS.get(), 0);
@@ -2172,11 +2212,11 @@ mod tests {
                 0,
             ))
             .expect("vehicle");
-        world.arm_migration_journal(4_096).expect("arm");
+        world.state.arm_migration_journal(4_096).expect("arm");
         let bound = 4_096_usize;
         for _ in 0..16 {
             world.step(TickInput::new(100)).expect("step");
-            let journal = world.migration_journal().expect("armed");
+            let journal = world.state.migration_journal().expect("armed");
             assert!(usize::try_from(journal.written_bytes()).expect("fits") <= bound);
         }
     }
@@ -2195,12 +2235,16 @@ mod tests {
             ))
             .expect("vehicle");
         // 只够一条 TICK 头：首条 step 即溢出。
-        world.arm_migration_journal(21).expect("arm");
+        world.state.arm_migration_journal(21).expect("arm");
         world
             .step(TickInput::new(100))
             .expect("step despite overflow");
-        assert!(world.migration_journal().expect("armed").overflowed());
-        let after_first = world.vehicle_state(vehicle).expect("vehicle").progress_mm();
+        assert!(world.state.migration_journal().expect("armed").overflowed());
+        let after_first = world
+            .state
+            .vehicle_state(vehicle)
+            .expect("vehicle")
+            .progress_mm();
         for _ in 0..4 {
             VEHICLE_DELTA_MATERIALIZATIONS.set(0);
             world
@@ -2208,21 +2252,28 @@ mod tests {
                 .expect("world keeps stepping");
             assert_eq!(VEHICLE_DELTA_MATERIALIZATIONS.get(), 1);
         }
-        assert!(world.migration_journal().expect("armed").overflowed());
-        assert!(world.vehicle_state(vehicle).expect("vehicle").progress_mm() > after_first);
+        assert!(world.state.migration_journal().expect("armed").overflowed());
+        assert!(
+            world
+                .state
+                .vehicle_state(vehicle)
+                .expect("vehicle")
+                .progress_mm()
+                > after_first
+        );
         assert_eq!(world.tick_index(), 5);
     }
 
     #[test]
     fn arm_twice_fails_and_disarm_takes_journal() {
         let mut world = world();
-        assert!(world.arm_migration_journal(4_096).is_ok());
+        assert!(world.state.arm_migration_journal(4_096).is_ok());
         assert_eq!(
-            world.arm_migration_journal(4_096).unwrap_err(),
+            world.state.arm_migration_journal(4_096).unwrap_err(),
             MigrationJournalError::AlreadyArmed
         );
-        assert!(world.disarm_migration_journal().is_some());
-        assert!(world.migration_journal().is_none());
-        assert!(world.disarm_migration_journal().is_none());
+        assert!(world.state.disarm_migration_journal().is_some());
+        assert!(world.state.migration_journal().is_none());
+        assert!(world.state.disarm_migration_journal().is_none());
     }
 }

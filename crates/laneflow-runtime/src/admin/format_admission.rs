@@ -4,6 +4,8 @@
 //! 保持原有校验先后、共同运行时不变量和分配行为；不建立额外的全量解码副本。
 //! 只有所有检查成功才返回完整恢复结果，kernel 不接收 wire view。
 
+use crate::kernel::state::WorldState;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -19,8 +21,8 @@ use laneflow_static_network::SharedNetworkRevision;
 use crate::{
     AdmittedRouteRegisterInput, CommittedNetworkSource, InstallError, ManeuverTraversalPhase,
     ManeuverTraversalState, ObservationStateSequence, ParkedVehicleSpawnInput, ParkingTarget,
-    ReserveParkingTarget, RouteHandle, TrafficWorld, VehicleHandle, VehicleSpawnInput,
-    VehicleStatus, VirtualEntryAnchorSelector, WaitingMembership, WorldConfig,
+    ReserveParkingTarget, RouteHandle, VehicleHandle, VehicleSpawnInput, VehicleStatus,
+    VirtualEntryAnchorSelector, WaitingMembership, WorldConfig,
 };
 #[cfg(test)]
 use crate::{ParkingError, SpawnError};
@@ -168,7 +170,7 @@ pub(super) fn verify_semantic_diff(
 /// 把不可变快照点编码为 size-prefixed `LFRS` v6。
 ///
 /// 捕获与编码分离：调用方可先在固定步进安全边界调用
-/// [`TrafficWorld::capture_snapshot`]，再把本函数放到后台线程。编码只映射已捕获
+/// [`crate::TrafficWorld::capture_snapshot`]，再把本函数放到后台线程。编码只映射已捕获
 /// 事实，不重新读取活动 world；输出始终携带 `LFRS` file identifier。
 #[must_use]
 pub(super) fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
@@ -583,10 +585,9 @@ pub(super) fn restore_lfrs(
         u64::MAX,
         target_config.fixed_delta_time_ms(),
     );
-    let mut world = TrafficWorld::prepare_traffic_state(
+    let mut world = WorldState::prepare_traffic_state(
         revision,
         staging_config,
-        execution,
         source,
         root.world_id(),
         decode_world_policy(root.world_policy())?,
@@ -687,19 +688,29 @@ pub(super) fn restore_lfrs(
         .rebuild_occupancy_index()
         .map_err(SnapshotRestoreError::Occupancy)?;
 
-    execution
-        .validate_supported()
-        .map_err(SnapshotRestoreError::ExecutionInit)?;
-
+    let execution =
+        crate::kernel::execution::WorldExecution::prepare(execution, &world).map_err(|error| {
+            match error {
+                crate::kernel::execution::ExecutionPreparationError::Init(error) => {
+                    SnapshotRestoreError::ExecutionInit(error)
+                }
+                crate::kernel::execution::ExecutionPreparationError::Plan(error) => {
+                    SnapshotRestoreError::ExecutionPlan(error)
+                }
+            }
+        })?;
     Ok(RestoredSnapshot {
-        world,
+        world: crate::TrafficWorld {
+            state: world,
+            execution,
+        },
         routes: route_map.into_iter().collect(),
         vehicles: vehicle_map.into_iter().collect(),
     })
 }
 
 fn decode_conflict_locator(
-    world: &TrafficWorld,
+    world: &WorldState,
     binding: wire::ConflictPassageLocatorBinding<'_>,
 ) -> Result<(crate::ConflictPassageLocator, crate::ConflictPassageAddress), ()> {
     let stream_stable = binding.participant_stream().ok_or(())?;
@@ -720,7 +731,7 @@ fn decode_conflict_locator(
 }
 
 fn route_position_um(
-    world: &TrafficWorld,
+    world: &WorldState,
     route: RouteHandle,
     route_edge_index: u32,
     progress_mm: u32,
@@ -743,7 +754,7 @@ fn route_position_um(
 }
 
 fn restore_conflict_aggregate(
-    world: &mut TrafficWorld,
+    world: &mut WorldState,
     root: wire::RuntimeSnapshot<'_>,
     vehicle_map: &BTreeMap<u64, VehicleHandle>,
 ) -> Result<(), SnapshotRestoreError> {
@@ -1235,7 +1246,7 @@ fn restore_conflict_aggregate(
 }
 
 fn restore_waiting_aggregate(
-    world: &mut TrafficWorld,
+    world: &mut WorldState,
     root: wire::RuntimeSnapshot<'_>,
 ) -> Result<(), SnapshotRestoreError> {
     let mut rows = vec![None; world.committed.waiting_zones.len()];
@@ -1703,7 +1714,7 @@ struct DecodedWaitingAuthority {
 }
 
 fn decode_waiting_authority(
-    world: &TrafficWorld,
+    world: &WorldState,
     vehicle: wire::SnapshotVehicle<'_>,
     status: VehicleStatus,
     route: RouteHandle,
@@ -1906,7 +1917,7 @@ fn decode_waiting_authority(
 }
 
 fn decode_parking_binding(
-    world: &TrafficWorld,
+    world: &WorldState,
     vehicle: wire::SnapshotVehicle<'_>,
     status: VehicleStatus,
 ) -> Result<Option<DecodedParkingBinding>, SnapshotRestoreError> {
@@ -2043,7 +2054,7 @@ fn decode_parking_binding(
 }
 
 fn restore_vehicle(
-    world: &mut TrafficWorld,
+    world: &mut WorldState,
     vehicle: wire::SnapshotVehicle<'_>,
     status: VehicleStatus,
     route_map: &BTreeMap<u64, RouteHandle>,

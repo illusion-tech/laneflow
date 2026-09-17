@@ -4,7 +4,10 @@
 可变状态；热路径借用共享根静态 accessor，并读本世界已提交表。`WorldConfig` 只含
 四类容量和固定步长，安装/恢复还须显式传入 `ExecutionConfig::new(NonZeroU32::MIN)`。
 执行配置不进入快照、逻辑摘要或交通身份；当前仅支持 worker 1，完整交通准备后才
-拒绝不支持的执行请求。资源后端与多 worker 调度尚未交付。
+拒绝不支持的执行请求。活动 facade 独占私有执行资源；候选只拥有 `WorldState`
+和目标计划，恢复/切换失败不发布半个世界。Rayon 资源原语用于生命周期验证，
+生产交通计算尚未开放多 worker。执行器 panic 在 join 后使世界失效，宿主捕获 panic
+后只能销毁或重建，不能继续交通查询、命令或管理操作。
 
 私有实现分为 `kernel/`、`admin/`、`facade/`；格式读取集中于
 `admin/format_admission.rs`，公开 re-export 保持现有入口。开发边界与检查命令见

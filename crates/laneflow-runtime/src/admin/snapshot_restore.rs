@@ -60,6 +60,9 @@ impl SnapshotRestoreLimits {
 /// 快照恢复失败。任一错误都不会返回半个 `TrafficWorld`。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum SnapshotRestoreError {
+    /// 完整交通恢复后，目标执行计划准备失败。
+    #[error("执行计划准备失败: {0}")]
+    ExecutionPlan(crate::ExecutionPlanError),
     /// 输入命中显式读取、配置或 verifier 上限。
     #[error("快照超过 {dimension:?} 上限: limit={limit}, actual={actual}")]
     LimitExceeded {
@@ -437,7 +440,8 @@ impl RestoredSnapshot {
 /// 的占用索引重建另可因缓冲预留失败返回 `Occupancy`
 /// （`StepError::OccupancyAllocFailed` 等）。任一失败只丢弃局部 staging，不
 /// 返回半恢复 world。完整交通状态与派生索引恢复后，执行配置不受支持时返回
-/// [`SnapshotRestoreError::ExecutionInit`]；不提前以执行错误遮蔽交通错误。
+/// [`SnapshotRestoreError::ExecutionInit`]，必需计划准备失败返回
+/// [`SnapshotRestoreError::ExecutionPlan`]；不提前以执行错误遮蔽交通错误。
 pub fn restore_lfrs(
     bytes: &[u8],
     revision: Arc<SharedNetworkRevision>,

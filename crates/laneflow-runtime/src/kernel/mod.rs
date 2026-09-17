@@ -11,6 +11,8 @@ pub(crate) mod conflict_tick;
 pub(crate) mod downstream_index;
 /// 运行时公开错误类型（安装、路线、生成、替换与步进等失败）。
 pub(crate) mod error;
+/// 世界独占调度资源、操作作用域与目标执行计划。
+pub(crate) mod execution;
 /// 代际感知的世界句柄（路线与车辆）。
 pub(crate) mod handle;
 /// 宿主输入命令的规范化记录（路线注册、车辆生成等）。

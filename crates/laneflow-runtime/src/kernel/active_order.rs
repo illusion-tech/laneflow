@@ -1,6 +1,6 @@
 //! 停车成员变更的保序维护；定位只缓存 live 顺序，不拥有新的车辆顺序权威。
 
-use crate::{TrafficWorld, VehicleHandle};
+use crate::VehicleHandle;
 
 #[cfg(test)]
 #[path = "tests/active_order.rs"]
@@ -90,7 +90,7 @@ pub(crate) fn with_position_allocation_failure<T>(run: impl FnOnce() -> T) -> T 
     })
 }
 
-impl TrafficWorld {
+impl crate::kernel::state::WorldState {
     /// 全部领域检查之后、提交之前准备可选定位；失败只选择既有全量投影。
     pub(crate) fn prepare_active_insertion(&mut self, vehicle: VehicleHandle) -> Option<usize> {
         let live = &self.committed.live_order;
@@ -139,3 +139,6 @@ impl TrafficWorld {
         self.derived.active_order.remove(index);
     }
 }
+
+#[cfg(test)]
+use crate::TrafficWorld;

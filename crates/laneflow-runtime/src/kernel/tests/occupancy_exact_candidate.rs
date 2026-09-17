@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::kernel::exact_path_research::{Stage, begin, with_candidate};
+use std::cell::Cell;
 
 thread_local! {
     static FAIL_PENDING_RESERVE: Cell<Option<usize>> = const { Cell::new(None) };
@@ -170,12 +171,12 @@ pub(crate) fn multi_edge_world(revision: &std::sync::Arc<SharedNetworkRevision>)
 }
 
 pub(crate) fn pending_bytes(world: &TrafficWorld) -> u64 {
-    crate::kernel::state::vec_bytes(&world.workspace.occupancy_scratch.exact_pending)
+    crate::kernel::state::vec_bytes(&world.state.workspace.occupancy_scratch.exact_pending)
 }
 
 pub(crate) fn assert_same_index(left: &TrafficWorld, right: &TrafficWorld) {
-    let left = &left.derived.occupancy;
-    let right = &right.derived.occupancy;
+    let left = &left.state.derived.occupancy;
+    let right = &right.state.derived.occupancy;
     assert_eq!(left.offsets, right.offsets);
     assert_eq!(left.records, right.records);
     assert_eq!(left.suffix_min_lo, right.suffix_min_lo);
@@ -201,7 +202,7 @@ fn pending_allocation_failures_preserve_published_state_and_retry_matches_fresh(
         let mut world = with_candidate(false, || multi_edge_world(&revision));
         let before = world.capture_snapshot().unwrap();
         let events = world.latest_transition_events().to_vec();
-        let records = world.derived.occupancy.records.clone();
+        let records = world.state.derived.occupancy.records.clone();
         let input = crate::TickInput::new(100);
         let result = with_candidate(true, || with_pending_failure(after, || world.step(input)));
         if result.is_ok() {
@@ -211,7 +212,7 @@ fn pending_allocation_failures_preserve_published_state_and_retry_matches_fresh(
         failures += 1;
         assert_eq!(world.capture_snapshot().unwrap(), before);
         assert_eq!(world.latest_transition_events(), events);
-        assert_eq!(world.derived.occupancy.records, records);
+        assert_eq!(world.state.derived.occupancy.records, records);
         with_candidate(true, || world.step(input)).unwrap();
         let mut fresh = with_candidate(false, || multi_edge_world(&revision));
         fresh.step(input).unwrap();
@@ -236,10 +237,10 @@ fn incomplete_route_keeps_priority_over_pending_allocation_failure() {
     let revision = multi_edge_revision();
     let mut world = with_candidate(false, || multi_edge_world(&revision));
     let before = world.capture_snapshot().unwrap();
-    let records = world.derived.occupancy.records.clone();
+    let records = world.state.derived.occupancy.records.clone();
     let handle = *world.live_vehicles().last().unwrap();
-    let previous = *world.vehicle_state(handle).unwrap();
-    world.committed.vehicles[handle.index() as usize]
+    let previous = *world.state.vehicle_state(handle).unwrap();
+    world.state.committed.vehicles[handle.index() as usize]
         .state
         .as_mut()
         .unwrap()
@@ -253,8 +254,8 @@ fn incomplete_route_keeps_priority_over_pending_allocation_failure() {
         with_candidate(true, || with_pending_failure(0, || world.step(input))),
         Err(StepError::OccupancyIntervalIncomplete)
     );
-    assert_eq!(world.derived.occupancy.records, records);
-    world.committed.vehicles[handle.index() as usize].state = Some(previous);
+    assert_eq!(world.state.derived.occupancy.records, records);
+    world.state.committed.vehicles[handle.index() as usize].state = Some(previous);
     assert_eq!(world.capture_snapshot().unwrap(), before);
     with_candidate(true, || world.step(input)).unwrap();
     let mut fresh = with_candidate(false, || multi_edge_world(&revision));

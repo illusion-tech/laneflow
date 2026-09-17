@@ -16,6 +16,15 @@ use laneflow_static_contract::SignalAspect;
 use laneflow_static_network::SharedNetworkRevision;
 use std::sync::Arc;
 
+/// 交通准入与候选迁移共同拥有的数据；不包含执行配置或线程资源。
+pub(crate) struct WorldState {
+    pub(crate) binding: WorldBindingState,
+    pub(crate) committed: CommittedWorldState,
+    pub(crate) derived: DerivedIndexes,
+    pub(crate) workspace: TickWorkspace,
+    pub(crate) admin: crate::admin::state::AdministrativeState,
+}
+
 /// 同一活动根、来源、世界身份与配置；步进只读。
 pub(crate) struct WorldBindingState {
     pub(crate) revision: Arc<SharedNetworkRevision>,
@@ -301,11 +310,10 @@ impl WorldMemoryLedger {
 }
 
 #[cfg(test)]
-impl crate::TrafficWorld {
+impl crate::kernel::state::WorldState {
     /// 汇总世界五类私有状态与共享根的存续内存总账。
     pub(crate) fn retained_memory(&self) -> WorldMemoryLedger {
         let Self {
-            execution_config: _,
             binding,
             committed,
             derived,
@@ -332,7 +340,7 @@ mod tests {
     #[test]
     fn complete_retained_memory_covers_warm_partitions_and_armed_journal() {
         let mut world = crate::kernel::waiting::tests::multi_gate_world(2);
-        let initial = world.retained_memory();
+        let initial = world.state.retained_memory();
         assert!(initial.shared_network > 0);
         assert!(initial.partitions[..4].iter().all(|bytes| *bytes > 0));
         assert_eq!(initial.partitions[4], 0);
@@ -341,12 +349,19 @@ mod tests {
                 .step(crate::TickInput::new(world.config().fixed_delta_time_ms()))
                 .unwrap();
         }
-        let warm = world.retained_memory();
+        let warm = world.state.retained_memory();
         assert!(warm.world_owned_bytes() >= initial.world_owned_bytes());
-        assert!(world.workspace.occupancy_scratch.retained_logical_bytes() > 0);
-        world.admin.migration_journal =
-            Some(MigrationDeltaJournal::arm(4_096, world.committed.command_cursor).unwrap());
-        let armed = world.retained_memory();
+        assert!(
+            world
+                .state
+                .workspace
+                .occupancy_scratch
+                .retained_logical_bytes()
+                > 0
+        );
+        world.state.admin.migration_journal =
+            Some(MigrationDeltaJournal::arm(4_096, world.state.committed.command_cursor).unwrap());
+        let armed = world.state.retained_memory();
         assert_eq!(armed.shared_network, warm.shared_network);
         assert_eq!(&armed.partitions[..4], &warm.partitions[..4]);
         assert!(armed.partitions[4] >= 4_096);
