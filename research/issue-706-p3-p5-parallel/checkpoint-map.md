@@ -285,6 +285,14 @@
 
 ## 4. P5：`stage_vehicle_transitions`（tick.rs:1565）与串行尾
 
+> **增量 B 维护注记（2026-09-18）**：本节检查点 #5-14 已提取为
+> `VehicleMotionOutcome`（tick.rs:1567-1574）与 `vehicle_motion_outcome`
+> 原语（tick.rs:1580-1642），检查次序、错误变体与 §6.3 计数位置逐行不变；
+> #14 的真实 `try_reserve(1)` + push 与 #15 的 `updates.push` 留在协调器循环
+> 原逻辑位置（tick.rs:1664-1683，首错交错顺序：A 车 reserve 失败早于 B 车
+> 领域错误）。执行仍为串行融合（不接线程、不分发）；下行行号自 §4.1 循环起
+> 约 +90，检查点编号与语义不变。
+
 ### 4.1 入口链与逐车检查点表
 
 `prepare_commit`（tick.rs:878）→ `prepare_waiting_step`（P2，889）→ 取 updates 缓冲（892-894）→ `stage_vehicle_transitions`（1565）→ `prepare_conflict_step`（P3 外壳+P4 acquire，1575）→ 逐车运动循环（1584-1647）→ 串行尾（1649-1683）。
