@@ -22,8 +22,8 @@ src/
 `facade::TrafficWorld` 组合世界绑定、已提交状态、派生索引、工作区与管理状态；
 `kernel/world.rs` 保留安装及运行方法。管理状态的所有者位于 `admin/state.rs`，
 日志武装、解除与在途事务放弃方法位于 `admin/migration_journal.rs`。
-宿主提供的 `ExecutionConfig` 由 facade 单独持有，不并入五类交通状态或快照；当前
-只支持 worker 1。引入执行资源前须按[执行配置合同](traffic-runtime-execution-config.md)
+宿主提供的 `ExecutionConfig` 由 facade 单独持有，不并入五类交通状态或快照；
+支持 worker 1–16（#705）。引入执行资源前须按[执行配置合同](traffic-runtime-execution-config.md)
 完成活动世界与候选状态的私有所有权分离。
 目录划分不改变公开入口、字段所有权、实例身份或借用寿命，也不新增公共模块或 prelude。
 

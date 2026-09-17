@@ -619,7 +619,7 @@ impl crate::kernel::state::WorldState {
 
     #[cfg(test)]
     pub(crate) fn prepare_waiting_step(&mut self, delta_s: f32) -> Result<(), crate::StepError> {
-        self.step_workspace().prepare_waiting_step(delta_s)
+        self.step_workspace().prepare_waiting_step(delta_s, None)
     }
 
     #[cfg(test)]
@@ -1212,8 +1212,139 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 }
 
+/// P2 活动数低于该阈值时不走向量分发，由协调器内联融合求值同一原语；只决定
+/// 本阶段谁执行，不改变语义、首错位置或输出。实现证据可调（#705）。
+const WAITING_PREVIEW_FUSION_MIN_ACTIVE: usize = 8;
+
+/// 规范消费一个已完成预览：按现行 staging 规则写 `motion_cache`（受
+/// `cache_limit` 容量降级约束）与 `next_states`（仅预览存在时写入）。
+fn stage_waiting_preview(
+    motion_cache: &mut Vec<crate::kernel::tick::MotionCacheEntry>,
+    next_states: &mut Vec<(usize, crate::VehicleState)>,
+    cache_index: usize,
+    cache_limit: usize,
+    vehicle: crate::VehicleHandle,
+    update_sequence: usize,
+    entry: &crate::kernel::tick::WaitingPreviewEntry,
+) {
+    if cache_index < cache_limit {
+        motion_cache.push(crate::kernel::tick::MotionCacheEntry {
+            vehicle,
+            update_sequence,
+            horizon: entry.horizon,
+            preview: entry.preview,
+        });
+    }
+    if let Some(next) = entry.next {
+        next_states.push((update_sequence, next));
+    }
+}
+
+/// 融合路径：同一逐车原语在调用线程内联求值并就地规范消费；worker=1 的
+/// 生产路径，首错与 staging 与串行第一遍一致。
+fn prepare_waiting_previews_fused(
+    workspace: &mut crate::kernel::state::TickWorkspace,
+    view: crate::kernel::phase::StepReadView<'_>,
+    delta_s: f32,
+    cache_limit: usize,
+) -> Result<(), crate::StepError> {
+    for (cache_index, (vehicle, update_sequence)) in
+        workspace.waiting_preview_inputs.iter().copied().enumerate()
+    {
+        let entry = view.waiting_preview_entry(vehicle, update_sequence, delta_s)?;
+        stage_waiting_preview(
+            &mut workspace.motion_cache,
+            &mut workspace.next_states,
+            cache_index,
+            cache_limit,
+            vehicle,
+            update_sequence,
+            &entry,
+        );
+    }
+    Ok(())
+}
+
+/// 分发路径：任务独占连续输出槽位、只读共享视图计算；协调器按 Active
+/// 顺序规范消费。首个 `Err` 在其逻辑位置返回（此时 join 已完成，走现有
+/// 错误/rollback 路径）；首错之前出现 `Pending`/`Skipped` 属完成前沿
+/// 不变量违例，检出为 `WaitingInvariantViolation` 而非成功。
+fn prepare_waiting_previews_dispatched(
+    workspace: &mut crate::kernel::state::TickWorkspace,
+    view: crate::kernel::phase::StepReadView<'_>,
+    execution: &crate::kernel::execution::ExecutionResources,
+    delta_s: f32,
+    cache_limit: usize,
+) -> Result<(), crate::StepError> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let slots = &mut workspace.waiting_preview_slots;
+    slots.clear();
+    let workload = workspace.waiting_preview_inputs.len();
+    if slots.try_reserve(workload).is_err() {
+        // 可选并行暂存预留失败：退回同一领域原语的融合求值，不新增领域错误。
+        return prepare_waiting_previews_fused(workspace, view, delta_s, cache_limit);
+    }
+    slots.resize(workload, crate::kernel::execution::DispatchSlot::Pending);
+    // 块数取线程数两倍与活动数的较小者，块数可多于线程数以便均衡；语义中立。
+    let chunk_count = execution
+        .dispatch_threads()
+        .saturating_mul(2)
+        .clamp(1, workload);
+    let chunk_size = workload.div_ceil(chunk_count).max(1);
+    let first_error = AtomicUsize::new(usize::MAX);
+    let compute = |chunk_view: crate::kernel::phase::StepReadView<'_>,
+                   start: usize,
+                   chunk: &mut [crate::kernel::execution::DispatchSlot<
+        crate::kernel::tick::WaitingPreviewEntry,
+    >]| {
+        for (offset, slot) in chunk.iter_mut().enumerate() {
+            let index = start + offset;
+            let (vehicle, update_sequence) = workspace.waiting_preview_inputs[index];
+            match chunk_view.waiting_preview_entry(vehicle, update_sequence, delta_s) {
+                Ok(entry) => *slot = crate::kernel::execution::DispatchSlot::Done(Ok(entry)),
+                Err(error) => {
+                    first_error.fetch_min(index, Ordering::Relaxed);
+                    *slot = crate::kernel::execution::DispatchSlot::Done(Err(error));
+                    return;
+                }
+            }
+        }
+    };
+    let _ = execution.try_for_each_chunk(view, slots, &first_error, chunk_size, compute);
+    for (cache_index, ((vehicle, update_sequence), slot)) in workspace
+        .waiting_preview_inputs
+        .iter()
+        .zip(slots.iter())
+        .enumerate()
+    {
+        match slot {
+            crate::kernel::execution::DispatchSlot::Done(Ok(entry)) => {
+                stage_waiting_preview(
+                    &mut workspace.motion_cache,
+                    &mut workspace.next_states,
+                    cache_index,
+                    cache_limit,
+                    *vehicle,
+                    *update_sequence,
+                    entry,
+                );
+            }
+            crate::kernel::execution::DispatchSlot::Done(Err(error)) => return Err(*error),
+            crate::kernel::execution::DispatchSlot::Pending
+            | crate::kernel::execution::DispatchSlot::Skipped => {
+                return Err(crate::StepError::WaitingInvariantViolation);
+            }
+        }
+    }
+    Ok(())
+}
+
 impl crate::kernel::phase::StepWorkspace<'_> {
-    pub(crate) fn prepare_waiting_step(&mut self, delta_s: f32) -> Result<(), crate::StepError> {
+    pub(crate) fn prepare_waiting_step(
+        &mut self,
+        delta_s: f32,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
+    ) -> Result<(), crate::StepError> {
         if !self.waiting_member_rows_valid() {
             return Err(crate::StepError::WaitingInvariantViolation);
         }
@@ -1243,74 +1374,44 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             &mut self.workspace.next_states,
             self.derived.active_order.len(),
         )?;
-        let mut active_index = 0;
-        for sequence in 0..self.committed.live_order.len() {
-            let vehicle = self.committed.live_order[sequence];
-            let state = *self
+        // P2 第一遍：逐车 horizon/预览的独立计算只读共享输入、写独占槽位。
+        // live/Active 身份检查由协调器按 live 序、同一 Active 谓词完成（与串行
+        // 第一遍同一迭代次序与首错位置）；motion_cache/next_states 规范写入保持
+        // 协调器单写者（#705 提取边界）。
+        self.workspace.waiting_preview_inputs.clear();
+        for (sequence, vehicle) in self.committed.live_order.iter().copied().enumerate() {
+            let active = self
                 .vehicle_state(vehicle)
-                .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            if state.status != crate::VehicleStatus::Active {
-                continue;
-            }
-            let cache_index = active_index;
-            active_index += 1;
-            if cache_index < cache_limit {
+                .ok_or(crate::StepError::WaitingInvariantViolation)?
+                .status
+                == crate::VehicleStatus::Active;
+            if active {
                 self.workspace
-                    .motion_cache
-                    .push(crate::kernel::tick::MotionCacheEntry {
-                        vehicle,
-                        update_sequence: sequence,
-                        horizon: None,
-                        preview: None,
-                    });
+                    .waiting_preview_inputs
+                    .push((vehicle, sequence));
             }
-            let compiled = self
-                .compiled_route(state.route)
-                .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            let cursor = state.route_edge_index as usize;
-            let gate_index = compiled
-                .gate_hops
-                .partition_point(|hop| (*hop as usize) < cursor);
-            let Some(gate_hop) = compiled.gate_hops.get(gate_index).copied() else {
-                continue;
-            };
-            let profile = self
-                .binding
-                .revision
-                .traffic()
-                .relations()
-                .vehicle_profile(state.profile)
-                .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            let horizon =
-                crate::kernel::tick::leader_query_horizon(state.speed_mm_s, profile, delta_s)
-                    .ok_or(crate::StepError::NonFiniteMotion)?;
-            let gate_distance = distance_to_occurrence_start(
-                &compiled.occurrence_segments,
-                &compiled.occurrence_offsets,
-                &compiled.segment_totals,
-                cursor,
-                state.progress_mm,
-                (gate_hop as usize)
-                    .checked_add(1)
-                    .ok_or(crate::StepError::WaitingInvariantViolation)?,
-            );
-            if let Some(entry) = self.workspace.motion_cache.get_mut(cache_index) {
-                entry.horizon = Some(horizon);
+        }
+        // 与 read_view 相同的字段级只读投影：持有 committed/derived 借用期间
+        // 仍可独占 workspace 字段完成规范消费。
+        let view = crate::kernel::phase::StepReadView {
+            binding: self.binding,
+            committed: &self.committed,
+            derived: &self.derived,
+        };
+        match execution {
+            Some(resources @ crate::kernel::execution::ExecutionResources::Pool(_))
+                if self.workspace.waiting_preview_inputs.len()
+                    >= WAITING_PREVIEW_FUSION_MIN_ACTIVE =>
+            {
+                prepare_waiting_previews_dispatched(
+                    self.workspace,
+                    view,
+                    resources,
+                    delta_s,
+                    cache_limit,
+                )?;
             }
-            let Some(BoundedDistance::Finite(gate_distance_mm)) = gate_distance else {
-                continue;
-            };
-            if gate_distance_mm > horizon.front_query_mm {
-                continue;
-            }
-            let preview = self
-                .read_view()
-                .preview_active_vehicle_with_waiting_stop(state, delta_s, None, Some(horizon))
-                .ok_or(crate::StepError::NonFiniteMotion)?;
-            if let Some(entry) = self.workspace.motion_cache.get_mut(cache_index) {
-                entry.preview = Some(preview);
-            }
-            self.workspace.next_states.push((sequence, preview.next));
+            _ => prepare_waiting_previews_fused(self.workspace, view, delta_s, cache_limit)?,
         }
 
         for preview_index in 0..self.workspace.next_states.len() {

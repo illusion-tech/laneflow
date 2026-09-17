@@ -44,6 +44,15 @@ enum MotionBounds {
     Travel { meters: f32, proposed_mm: u64 },
 }
 
+/// P2 第一遍逐车独立预览的暂存输出，与串行 staging 同形；`next` 仅在预览
+/// 存在时非空（mirrors `preview.next`）。协调器按 Active 顺序规范消费。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct WaitingPreviewEntry {
+    pub(crate) horizon: Option<LeaderQueryHorizon>,
+    pub(crate) preview: Option<MotionPreview>,
+    pub(crate) next: Option<crate::VehicleState>,
+}
+
 impl MotionPreview {
     pub(crate) fn with_waiting_stop(
         mut self,
@@ -711,7 +720,11 @@ pub(crate) fn leader_query_horizon(
 
 impl crate::kernel::state::WorldState {
     /// 固定步进唯一入口：预检、重建占用索引、准备并原子提交一拍。
-    pub(crate) fn step_vehicles(&mut self, input: TickInput) -> Result<StepOutcome, StepError> {
+    pub(crate) fn step_vehicles(
+        &mut self,
+        input: TickInput,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
+    ) -> Result<StepOutcome, StepError> {
         self.workspace.motion_cache.clear();
         #[cfg(test)]
         let preflight_timer =
@@ -755,6 +768,7 @@ impl crate::kernel::state::WorldState {
             tick_index,
             time_ms,
             observation_state_sequence,
+            execution,
         );
         // prepare 的任一首错（包括 Waiting 预选失败）都丢弃本拍输入与证明。
         self.workspace.motion_cache.clear();
@@ -841,11 +855,12 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         tick_index: u64,
         time_ms: u64,
         observation_state_sequence: crate::ObservationStateSequence,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<CommitPlan, StepError> {
         #[cfg(test)]
         let waiting_timer =
             super::performance_profile::begin(super::performance_profile::Stage::WaitingPrepare);
-        self.prepare_waiting_step(delta_s)?;
+        self.prepare_waiting_step(delta_s, execution)?;
         #[cfg(test)]
         drop(waiting_timer);
         let serial_checkpoint = self.workspace.conflict.serial_checkpoint();
@@ -1027,6 +1042,83 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             next,
             waiting_stop,
             bounds,
+        })
+    }
+
+    /// P2 逐车独立预览原语：受检读取 state/route/profile，求值 Waiting 前视窗
+    /// 与运动预览，不触碰共享工作区。与串行第一遍同一领域原语、同一检查次序：
+    /// state/route/profile 缺失为 `WaitingInvariantViolation`；horizon 或预览
+    /// 非有限为 `NonFiniteMotion`。无后续 Gate、Gate 距离非有限或超出前视窗时
+    /// 按原语义返回 `None` 字段。调用方负责 Active 过滤（`vehicle` 必须来自
+    /// `update_sequence` 处的 live 配对）与 `update_sequence` 暂存。
+    pub(crate) fn waiting_preview_entry(
+        self,
+        vehicle: crate::VehicleHandle,
+        update_sequence: usize,
+        delta_s: f32,
+    ) -> Result<WaitingPreviewEntry, StepError> {
+        debug_assert_eq!(
+            self.committed.live_order.get(update_sequence),
+            Some(&vehicle),
+            "preview entry provenance"
+        );
+        let state = *self
+            .vehicle_state(vehicle)
+            .ok_or(StepError::WaitingInvariantViolation)?;
+        let compiled = self
+            .compiled_route(state.route)
+            .ok_or(StepError::WaitingInvariantViolation)?;
+        let cursor = state.route_edge_index as usize;
+        let gate_index = compiled
+            .gate_hops
+            .partition_point(|hop| (*hop as usize) < cursor);
+        let Some(gate_hop) = compiled.gate_hops.get(gate_index).copied() else {
+            return Ok(WaitingPreviewEntry {
+                horizon: None,
+                preview: None,
+                next: None,
+            });
+        };
+        let profile = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+            .ok_or(StepError::WaitingInvariantViolation)?;
+        let horizon = leader_query_horizon(state.speed_mm_s, profile, delta_s)
+            .ok_or(StepError::NonFiniteMotion)?;
+        let gate_distance = distance_to_occurrence_start(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            cursor,
+            state.progress_mm,
+            (gate_hop as usize)
+                .checked_add(1)
+                .ok_or(StepError::WaitingInvariantViolation)?,
+        );
+        let Some(BoundedDistance::Finite(gate_distance_mm)) = gate_distance else {
+            return Ok(WaitingPreviewEntry {
+                horizon: Some(horizon),
+                preview: None,
+                next: None,
+            });
+        };
+        if gate_distance_mm > horizon.front_query_mm {
+            return Ok(WaitingPreviewEntry {
+                horizon: Some(horizon),
+                preview: None,
+                next: None,
+            });
+        }
+        let preview = self
+            .preview_active_vehicle_with_waiting_stop(state, delta_s, None, Some(horizon))
+            .ok_or(StepError::NonFiniteMotion)?;
+        Ok(WaitingPreviewEntry {
+            horizon: Some(horizon),
+            preview: Some(preview),
+            next: Some(preview.next),
         })
     }
 

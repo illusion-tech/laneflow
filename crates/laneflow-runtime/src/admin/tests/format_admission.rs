@@ -61,7 +61,7 @@ fn execution_validation_follows_complete_traffic_restore() {
     let (world, _, _) = world_with_vehicle(true);
     let snapshot = world.capture_snapshot().unwrap();
     let bytes = encode_lfrs(&snapshot);
-    for workers in [2, u32::MAX] {
+    for workers in [17, u32::MAX] {
         let execution = crate::ExecutionConfig::new(std::num::NonZeroU32::new(workers).unwrap());
         let restore = |bytes: &[u8]| {
             restore_lfrs(
@@ -97,10 +97,26 @@ fn execution_validation_follows_complete_traffic_restore() {
             SnapshotRestoreError::ExecutionInit(
                 crate::ExecutionInitError::UnsupportedWorkerCount {
                     requested: workers,
-                    max_supported: 1,
+                    max_supported: 16,
                 }
             )
         );
+    }
+    // 多 worker 配置在完整交通恢复校验之后放行，执行配置随恢复生效。
+    // 真实建池，持有资源测试锁避免干扰执行资源计数断言。
+    let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
+    for workers in [2, 16] {
+        let execution = crate::ExecutionConfig::new(std::num::NonZeroU32::new(workers).unwrap());
+        let restored = restore_lfrs(
+            &bytes,
+            world.revision(),
+            world.committed_source().clone(),
+            world.config(),
+            execution,
+            generous_limits(),
+        )
+        .unwrap();
+        assert_eq!(restored.world().execution_config(), execution);
     }
     let restored = restore_lfrs(
         &bytes,

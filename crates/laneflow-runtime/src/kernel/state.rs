@@ -125,6 +125,13 @@ pub(crate) struct TickWorkspace {
     pub(crate) occupancy_scratch: crate::kernel::occupancy::OccupancyScratch,
     pub(crate) motion_cache: Vec<crate::kernel::tick::MotionCacheEntry>,
     pub(crate) next_states: Vec<(usize, VehicleState)>,
+    /// P2 逐车独立计算的输入配对（Active 紧凑位置 -> 完整句柄 + live 序）；
+    /// 协调器构建，任务只读。
+    pub(crate) waiting_preview_inputs: Vec<(crate::VehicleHandle, usize)>,
+    /// P2 独立预览输出槽位，按 Active 紧凑位置索引；任务独占连续切片写入，
+    /// 协调器按序消费。预留失败只退回融合求值，不新增领域错误。
+    pub(crate) waiting_preview_slots:
+        Vec<crate::kernel::execution::DispatchSlot<crate::kernel::tick::WaitingPreviewEntry>>,
 }
 
 #[cfg(test)]
@@ -248,6 +255,8 @@ impl TickWorkspace {
             occupancy_scratch,
             motion_cache,
             next_states,
+            waiting_preview_inputs,
+            waiting_preview_slots,
         } = self;
         crate::kernel::state::vec_bytes(conflict_candidates)
             + crate::kernel::state::vec_bytes(conflict_candidate_cells)
@@ -265,6 +274,8 @@ impl TickWorkspace {
             + crate::kernel::state::vec_bytes(staged_transition_events)
             + crate::kernel::state::vec_bytes(next_states)
             + crate::kernel::state::vec_bytes(motion_cache)
+            + crate::kernel::state::vec_bytes(waiting_preview_inputs)
+            + crate::kernel::state::vec_bytes(waiting_preview_slots)
             + crate::kernel::state::slice_bytes(conflict_motion_by_vehicle)
             + crate::kernel::state::slice_bytes(conflict_next_eligibility)
             + crate::kernel::state::slice_bytes(next_signal_aspects)
