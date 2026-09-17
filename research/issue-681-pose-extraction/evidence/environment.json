@@ -1,5 +1,7 @@
 {
-  "baseline": "383fa9d4e53e38a4a26a03824a12d3af60052097",
+  "baseline": "c7da60e5a2eab3bb5541454d8365b6aea991d271",
+  "baselineTree": "033600e25db75de9c61a24d3caf5823bff3239f8",
+  "worktreeClean": true,
   "productionBase": "0fb7024c76a99aea987afa956aadb98001199659",
   "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\nLLVM version: 22.1.8",
   "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
@@ -8,15 +10,15 @@
   "logicalProcessors": 32,
   "affinity": "logical processor 16",
   "powerScheme": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
-  "time": "2026-09-17T01:53:59.9873671Z",
+  "time": "2026-09-17T02:29:44.0093768Z",
   "binaries": [
     {
-      "Path": "E:\\projects\\worktrees\\4713\\laneflow\\target\\pose-681\\final\\wall.exe",
-      "Hash": "03838CCFA0B0DFB05447BC4DDFB43C09869921CA7900C8F8F6D04337A49AE81C"
+      "Path": "E:\\projects\\worktrees\\4713\\laneflow\\target\\pose-681\\review-fixed\\wall.exe",
+      "Hash": "F9DE6CABDFBBD2D54357E3D7D117DD98B62BDC93970D911FE1463EAC5CCC3B8A"
     },
     {
-      "Path": "E:\\projects\\worktrees\\4713\\laneflow\\target\\pose-681\\final\\allocation.exe",
-      "Hash": "FF64257035E0B0DBB139390EE1AEC733DA601320A8CC811E8101FF09AE1C1DA5"
+      "Path": "E:\\projects\\worktrees\\4713\\laneflow\\target\\pose-681\\review-fixed\\allocation.exe",
+      "Hash": "C4F73E4217BC1B3D1BB03EB0F3DF05664129CB39EECA593C9A4D407CDF64215F"
     }
   ],
   "sources": [
@@ -30,5 +32,6 @@
     }
   ],
   "lockfile": "308414D3FB359419FF72D2B7F6A9F5622476627B0C59E5D419139446EEF9E81B",
+  "manifest": "3F76025192B8B1DEFFBD76FB4D276B6B52033C5488C8542E4FB2EBB9EF582FBE",
   "processSnapshot": []
 }
