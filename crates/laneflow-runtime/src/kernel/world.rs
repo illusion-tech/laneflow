@@ -2092,8 +2092,13 @@ impl TrafficWorld {
     }
 
     /// 安装或 fresh restore 时由宿主显式提供的执行配置；路网切换保持此值。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
     #[must_use]
     pub const fn execution_config(&self) -> crate::ExecutionConfig {
+        self.execution.assert_usable();
         self.execution.config()
     }
 

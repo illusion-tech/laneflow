@@ -466,9 +466,145 @@ mod tests {
             assert!(catch_unwind(AssertUnwindSafe(|| world.remove_route(route))).is_err());
             assert!(catch_unwind(AssertUnwindSafe(|| world.capture_snapshot())).is_err());
             assert!(catch_unwind(AssertUnwindSafe(|| world.world_binding())).is_err());
+            assert!(catch_unwind(AssertUnwindSafe(|| world.execution_config())).is_err());
             drop(world);
             assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
         }
+    }
+
+    #[test]
+    fn panic_drains_submitted_tasks_waiting_in_private_queue() {
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let (mut world, _, _) = world_with_vehicle(true);
+        world.execution = WorldExecution::start_private(config(2), &world.state);
+        let first_pair = Barrier::new(2);
+        let release_on_unwind = Mutex::new(());
+        let started = AtomicUsize::new(0);
+        let auxiliary_started = AtomicUsize::new(0);
+        let completed = AtomicUsize::new(0);
+        let queued_at_panic = AtomicUsize::new(0);
+        let mut output = [usize::MAX; 16];
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            world.execution.run(&mut world.state, |state, resources| {
+                resources.for_each_chunk(state.read_view(), &mut output, 1, |_, index, chunk| {
+                    started.fetch_add(1, Ordering::SeqCst);
+                    if index == 0 {
+                        let _until_unwind = release_on_unwind.lock().unwrap();
+                        first_pair.wait();
+                        queued_at_panic
+                            .store(16 - started.load(Ordering::SeqCst), Ordering::SeqCst);
+                        panic!("queued-task panic");
+                    }
+                    if auxiliary_started.fetch_add(1, Ordering::SeqCst) == 0 {
+                        first_pair.wait();
+                        // 仅首个辅助任务参与握手；调用线程 unwind 才释放其余队列。
+                        drop(
+                            release_on_unwind
+                                .lock()
+                                .unwrap_or_else(|error| error.into_inner()),
+                        );
+                    }
+                    chunk[0] = index;
+                    completed.fetch_add(1, Ordering::SeqCst);
+                });
+            });
+        }));
+        assert!(result.is_err());
+        assert_eq!(queued_at_panic.load(Ordering::SeqCst), 14);
+        assert_eq!(started.load(Ordering::SeqCst), output.len());
+        assert_eq!(completed.load(Ordering::SeqCst), output.len() - 1);
+        assert_eq!(output[0], usize::MAX);
+        assert!(
+            output
+                .iter()
+                .enumerate()
+                .skip(1)
+                .all(|(index, value)| *value == index)
+        );
+        assert!(catch_unwind(AssertUnwindSafe(|| world.execution_config())).is_err());
+        let settled_output = output;
+        drop(world);
+        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
+        assert_eq!(output, settled_output);
+        assert_eq!(completed.load(Ordering::SeqCst), 15);
+    }
+
+    #[test]
+    fn workset_ranges_cover_empty_uneven_growing_and_shrinking_inputs() {
+        let (world, _, _) = world_with_vehicle(true);
+        for workers in [1, 2, 3, 4, 8] {
+            let mut plan =
+                ExecutionPlan::prepare(&world.state, config(workers), world.world_generation())
+                    .unwrap();
+            for count in [0, 1, 2, 3, 7, 8, 17, 4, 1, 0, usize::MAX, 0] {
+                plan.refresh_workset(count);
+                assert_eq!(plan.ranges.len(), workers as usize);
+                let mut end = 0;
+                let mut smallest = usize::MAX;
+                let mut largest = 0;
+                for range in &plan.ranges {
+                    assert_eq!(range.start, end);
+                    assert!(range.start <= range.end && range.end <= count);
+                    let length = range.end - range.start;
+                    smallest = smallest.min(length);
+                    largest = largest.max(length);
+                    end = range.end;
+                }
+                assert_eq!(end, count);
+                assert!(largest - smallest <= 1);
+                if count <= 17 {
+                    let mut visits = vec![0; count];
+                    for range in &plan.ranges {
+                        for index in range.clone() {
+                            *visits.get_mut(index).unwrap() += 1;
+                        }
+                    }
+                    assert!(visits.iter().all(|count| *count == 1));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unchanged_workset_length_reads_current_vehicle_order() {
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let (mut world, route, first) = world_with_vehicle(true);
+        let edge = world.route_edges(route).unwrap()[0];
+        let second_progress = world.traffic().lane_lengths_millimetres()[edge.index()];
+        let second = world
+            .spawn_vehicle(crate::VehicleSpawnInput::new(
+                laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                second_progress,
+                0,
+            ))
+            .unwrap();
+        world.execution = WorldExecution::start_private(config(2), &world.state);
+        let ranges = world.execution.active_plan.ranges.clone();
+        for expected in [
+            [Some((first, 1_000)), Some((second, second_progress))],
+            [Some((second, second_progress)), Some((first, 1_000))],
+        ] {
+            let mut output = [None; 2];
+            world.execution.run(&mut world.state, |state, resources| {
+                resources.for_each_chunk(
+                    state.read_view(),
+                    &mut output,
+                    1,
+                    |view, index, chunk| {
+                        let handle = view.derived.active_order[index];
+                        chunk[0] = Some((handle, view.vehicle_state(handle).unwrap().progress_mm));
+                    },
+                );
+            });
+            assert_eq!(world.execution.active_plan.ranges, ranges);
+            assert_eq!(output, expected);
+            world.state.committed.live_order.reverse();
+            world.state.rebuild_active_order();
+        }
+        drop(world);
+        assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
     }
 
     #[test]
