@@ -19,7 +19,8 @@ use crate::TickInput;
 use crate::kernel::execution::{DispatchStats, WorldExecution, last_dispatch_stats};
 use crate::kernel::tick::{self, MotionCacheUse, WaitingPreviewEntry};
 use crate::kernel::waiting::{
-    self, WaitingPreviewPathCounts, preview_stage, set_preview_chunk_multiplier,
+    self, WaitingPreviewPathCounts, force_preview_dispatch, preview_stage,
+    set_preview_chunk_multiplier,
 };
 use crate::{RouteHandle, VehicleSpawnInput, VehicleStatus};
 use laneflow_static_contract::VehicleProfileOrdinal;
@@ -55,7 +56,8 @@ struct ArmRow {
     whole_p95_ns: u128,
     waiting_mean_ns: u128,
     substage_ns: [u128; preview_stage::STAGE_COUNT],
-    max_chunk_ns: u128,
+    chunk_total_ns: u128,
+    chunk_max_ns: u128,
     active_last: usize,
     active_sum: usize,
     cache: MotionCacheUse,
@@ -122,11 +124,19 @@ fn replenish(world: &mut crate::TrafficWorld, routes: &[RouteHandle], boundaries
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_arm(workers: u32, multiplier: usize, vehicles: usize, round: usize) -> ArmRow {
+fn run_arm(
+    workers: u32,
+    multiplier: usize,
+    vehicles: usize,
+    round: usize,
+    force_dispatch: bool,
+) -> ArmRow {
     // 同一（规模, 轮）的所有臂共享世界身份：digest 跨臂可比（等价自检）；
     // 探针无故障注入，不需要按 worker 隔离身份。
     let world_id = 705_500 + vehicles as u64 + round as u64;
     set_preview_chunk_multiplier(multiplier);
+    // 生产阈值保守（1_024 活动）；探针按臂选择强制分发，保证路径确定。
+    let _force = force_dispatch.then(force_preview_dispatch);
     let (mut world, routes) =
         waiting::tests::multi_gate_world_partial(vehicles, vehicles, world_id);
     world.execution = WorldExecution::start_private(exec_config(workers), &world.state);
@@ -167,7 +177,7 @@ fn run_arm(workers: u32, multiplier: usize, vehicles: usize, round: usize) -> Ar
     }
     ENABLED.with(|enabled| enabled.set(false));
     preview_stage::set_enabled(false);
-    let (substage_total_ns, max_chunk_ns) = preview_stage::take();
+    let (substage_total_ns, chunk_total_ns, chunk_max_ns) = preview_stage::take();
     let waiting_nanos = NANOS.with(|nanos| nanos.get())[Stage::WaitingPrepare as usize];
     let waiting_calls = CALLS.with(|calls| calls.get())[Stage::WaitingPrepare as usize];
     assert_eq!(
@@ -199,12 +209,13 @@ fn run_arm(workers: u32, multiplier: usize, vehicles: usize, round: usize) -> Ar
         waiting_mean_ns: waiting_nanos / measured,
         substage_ns: [
             substage_total_ns[preview_stage::PREAMBLE] / measured,
-            substage_total_ns[preview_stage::COMPUTE] / measured,
-            substage_total_ns[preview_stage::DISPATCH] / measured,
+            substage_total_ns[preview_stage::FUSED_LOOP] / measured,
+            substage_total_ns[preview_stage::DISPATCH_SCOPE] / measured,
             substage_total_ns[preview_stage::CONSUME] / measured,
             substage_total_ns[preview_stage::ASSEMBLY] / measured,
         ],
-        max_chunk_ns,
+        chunk_total_ns: chunk_total_ns / measured,
+        chunk_max_ns,
         active_last: world.state.derived.active_order.len(),
         active_sum,
         cache,
@@ -231,6 +242,8 @@ fn run_error_arm() {
     const WORKERS: u32 = 4;
     const ERROR_VEHICLES: usize = 64;
     let world_id = 705_999;
+    // 64 车远低于生产阈值；错误臂观察分发调度统计，须强制真实分发。
+    let _force = force_preview_dispatch();
     let (mut world, routes) =
         waiting::tests::multi_gate_world_partial(ERROR_VEHICLES, ERROR_VEHICLES, world_id);
     world.execution = WorldExecution::start_private(exec_config(WORKERS), &world.state);
@@ -265,12 +278,19 @@ struct ArmSpec {
     multiplier: usize,
     vehicles: usize,
     rounds: usize,
+    force_dispatch: bool,
 }
 
 fn run_matrix(specs: &[ArmSpec], references: &mut [((usize, usize), Option<String>)]) {
     for spec in specs {
         for round in 0..spec.rounds {
-            let row = run_arm(spec.workers, spec.multiplier, spec.vehicles, round);
+            let row = run_arm(
+                spec.workers,
+                spec.multiplier,
+                spec.vehicles,
+                round,
+                spec.force_dispatch,
+            );
             let reference_index = (spec.vehicles, round);
             let slot = references
                 .iter_mut()
@@ -298,10 +318,16 @@ fn run_matrix(specs: &[ArmSpec], references: &mut [((usize, usize), Option<Strin
             if spec.workers == 1 {
                 assert_eq!(row.paths.dispatched, 0, "worker=1 走融合路径");
                 assert_eq!(row.paths.fused, MEASURED_TICKS, "worker=1 每拍融合");
-            } else {
+            } else if spec.force_dispatch {
                 assert_eq!(
                     row.paths.dispatched, MEASURED_TICKS,
-                    "workers={} 每拍真实分发",
+                    "workers={} 每拍真实分发（强制）",
+                    spec.workers,
+                );
+            } else {
+                assert_eq!(
+                    row.paths.fused, MEASURED_TICKS,
+                    "workers={} 低于生产阈值，每拍融合",
                     spec.workers,
                 );
             }
@@ -314,7 +340,7 @@ fn run_matrix(specs: &[ArmSpec], references: &mut [((usize, usize), Option<Strin
                 "preview-parallel scene=multi-gate-{vehicles} workers={workers} \
                  mult={multiplier} round={round} \
                  whole_p50_ns={} whole_p95_ns={} waiting_mean_ns={} \
-                 preamble_mean_ns={} compute_mean_ns={} dispatch_mean_ns={} consume_mean_ns={} assembly_mean_ns={} max_chunk_ns={} \
+                 preamble_mean_ns={} fused_loop_mean_ns={} chunk_total_mean_ns={} chunk_max_ns={} dispatch_scope_mean_ns={} consume_mean_ns={} assembly_mean_ns={} \
                  active_last={} active_sum={} cache_hits={} cache_misses={} \
                  path_dispatched={} path_fused={} path_fallback={} \
                  dispatch_dispatched={} dispatch_completed={} dispatch_skipped={} dispatch_extra_work={} ticket_grabs={} dispatch_calls={} participating_threads={} \
@@ -323,11 +349,12 @@ fn run_matrix(specs: &[ArmSpec], references: &mut [((usize, usize), Option<Strin
                 row.whole_p95_ns,
                 row.waiting_mean_ns,
                 row.substage_ns[preview_stage::PREAMBLE],
-                row.substage_ns[preview_stage::COMPUTE],
-                row.substage_ns[preview_stage::DISPATCH],
+                row.substage_ns[preview_stage::FUSED_LOOP],
+                row.chunk_total_ns,
+                row.chunk_max_ns,
+                row.substage_ns[preview_stage::DISPATCH_SCOPE],
                 row.substage_ns[preview_stage::CONSUME],
                 row.substage_ns[preview_stage::ASSEMBLY],
-                row.max_chunk_ns,
                 row.active_last,
                 row.active_sum,
                 row.cache.hits,
@@ -374,6 +401,7 @@ fn preview_parallel_scale() {
             multiplier: 2,
             vehicles: VEHICLES,
             rounds: if workers == 1 { 3 } else { 2 },
+            force_dispatch: workers > 1,
         })
         .collect();
     // 有界扫描：块数倍数（1×/2×/4× 线程数）与阈值证据（小/大工作集交叉）。
@@ -383,30 +411,40 @@ fn preview_parallel_scale() {
             multiplier: 1,
             vehicles: VEHICLES,
             rounds: 2,
+
+            force_dispatch: true,
         },
         ArmSpec {
             workers: 8,
             multiplier: 1,
             vehicles: VEHICLES,
             rounds: 2,
+
+            force_dispatch: true,
         },
         ArmSpec {
             workers: 16,
             multiplier: 1,
             vehicles: VEHICLES,
             rounds: 2,
+
+            force_dispatch: true,
         },
         ArmSpec {
             workers: 8,
             multiplier: 4,
             vehicles: VEHICLES,
             rounds: 2,
+
+            force_dispatch: true,
         },
         ArmSpec {
             workers: 16,
             multiplier: 4,
             vehicles: VEHICLES,
             rounds: 2,
+
+            force_dispatch: true,
         },
         // 阈值证据：小/大工作集下融合与分发的交叉。
         ArmSpec {
@@ -414,30 +452,40 @@ fn preview_parallel_scale() {
             multiplier: 2,
             vehicles: 256,
             rounds: 2,
+
+            force_dispatch: false,
         },
         ArmSpec {
             workers: 4,
             multiplier: 2,
             vehicles: 256,
             rounds: 2,
+
+            force_dispatch: false,
         },
         ArmSpec {
             workers: 1,
             multiplier: 2,
             vehicles: 4_096,
             rounds: 2,
+
+            force_dispatch: true,
         },
         ArmSpec {
             workers: 4,
             multiplier: 2,
             vehicles: 4_096,
             rounds: 2,
+
+            force_dispatch: true,
         },
         ArmSpec {
             workers: 8,
             multiplier: 2,
             vehicles: 4_096,
             rounds: 2,
+
+            force_dispatch: true,
         },
     ];
     let all: Vec<ArmSpec> = baseline.into_iter().chain(candidates).collect();

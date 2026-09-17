@@ -37,6 +37,10 @@ path = "src/kernel/tests/performance_profile/runtime_profile_evidence.rs"
 name = "runtime_profile_allocation"
 path = "src/kernel/tests/performance_profile/runtime_profile_allocation.rs"
 
+[[test]]
+name = "preview_dispatch_allocation_evidence"
+path = "tests/preview_dispatch_allocation_evidence.rs"
+
 [dependencies]
 laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
 laneflow-runtime-snapshot-wire = { version = "0.0.0", path = "../laneflow-runtime-snapshot-wire" }

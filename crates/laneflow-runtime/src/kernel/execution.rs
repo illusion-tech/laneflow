@@ -396,29 +396,24 @@ impl ExecutionResources {
             }
             Self::Pool(resources) => {
                 // 票据式认领：spawn `worker−1` 个池任务，调用线程与池任务
-                // 从共享票据队列取块直到取完——调用线程不再只算首块后在
-                // scope 末尾空等（机制测量：同场景整步 w2 −18%、w4 −8%、
-                // w8 −7%）。取到票据后仍先查已错位置，跳过语义与完整 join
-                // 不变；队列是每次分发的局部短临界区。
-                type TicketQueue<'a, T> = std::sync::Mutex<
-                    std::collections::VecDeque<(usize, &'a mut [DispatchSlot<T>])>,
-                >;
-                let queue: TicketQueue<'_, T> = std::sync::Mutex::new(
-                    output
-                        .chunks_mut(chunk_size)
-                        .enumerate()
-                        .map(|(chunk_index, chunk)| (chunk_index * chunk_size, chunk))
-                        .collect(),
-                );
+                // 从共享票据取块直到取完——调用线程不再只算首块后在 scope
+                // 末尾空等（机制测量：同场景整步 w2 −18%、w4 −8%、w8 −7%）。
+                // 取到票据后仍先查已错位置，跳过语义与完整 join 不变。
+                // 锁直接保护切片迭代器：不物化票据容器，热态分发无堆分配。
+                let chunks = std::sync::Mutex::new(output.chunks_mut(chunk_size).enumerate());
                 let auxiliaries = resources.pool.current_num_threads();
                 resources.pool.in_place_scope(|scope| {
                     let compute = &compute;
                     #[cfg(test)]
                     let counters = &counters;
-                    let queue = &queue;
+                    let chunks = &chunks;
                     macro_rules! claim_chunk {
                         () => {
-                            queue.lock().expect("dispatch ticket queue").pop_front()
+                            chunks
+                                .lock()
+                                .expect("dispatch ticket chunks")
+                                .next()
+                                .map(|(chunk_index, chunk)| (chunk_index * chunk_size, chunk))
                         };
                     }
                     for _ in 0..auxiliaries {
