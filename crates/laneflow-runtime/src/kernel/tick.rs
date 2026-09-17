@@ -192,6 +192,9 @@ thread_local! {
     static MOTION_FORCE_DISPATCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// join 完成后把槽位改写为缺失的注入位置（完成前沿检出测试）。
     static MOTION_SLOT_GAP: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+    /// 块级计数诊断开关：开启时分发路径按块记录并汇总四计数；
+    /// 关闭时热态分发无 LaneFlow 自有分配（分配证据预算口径）。
+    static MOTION_DIAGNOSTICS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static LAST_MOTION_DISPATCH_STATS: std::cell::Cell<Option<crate::kernel::execution::DispatchStats>> = const { std::cell::Cell::new(None) };
 }
 
@@ -220,6 +223,24 @@ pub(crate) fn force_motion_dispatch() -> ForceMotionDispatchGuard {
 #[cfg(test)]
 pub(crate) fn last_motion_dispatch_stats() -> Option<crate::kernel::execution::DispatchStats> {
     LAST_MOTION_DISPATCH_STATS.with(std::cell::Cell::get)
+}
+
+/// 块级计数诊断开关的复位守卫。
+#[cfg(test)]
+pub(crate) struct MotionDiagnosticsGuard(bool);
+
+#[cfg(test)]
+impl Drop for MotionDiagnosticsGuard {
+    fn drop(&mut self) {
+        MOTION_DIAGNOSTICS.with(|flag| flag.set(self.0));
+    }
+}
+
+/// 测试专用：开启 P5 分发路径的块级计数诊断（计数对拍类测试使用；
+/// 分配证据测试保持关闭以守住零 LaneFlow 自有分配预算）。
+#[cfg(test)]
+pub(crate) fn enable_motion_diagnostics() -> MotionDiagnosticsGuard {
+    MotionDiagnosticsGuard(MOTION_DIAGNOSTICS.with(|flag| flag.replace(true)))
 }
 
 /// 测试专用：horizon/运动内核重算计数（分发路径经块级记录汇总后的总值）。
@@ -2190,18 +2211,27 @@ fn prepare_motion_dispatched(
         .clamp(1, workload);
     let chunk_size = workload.div_ceil(chunk_count).max(1);
     let first_error = AtomicUsize::new(usize::MAX);
+    // 块级计数诊断按协调器开关分配/记录；任务内以捕获的布尔为准（辅助
+    // 线程读不到协调器线程本地开关，避免漏记）。
     #[cfg(test)]
-    let chunk_records = (0..chunk_count)
-        .map(|_| MotionWorkChunkRecord::default())
-        .collect::<Vec<_>>();
+    let diagnostics = MOTION_DIAGNOSTICS.with(std::cell::Cell::get);
+    #[cfg(not(test))]
+    #[allow(unused_variables)]
+    let diagnostics = false;
     #[cfg(test)]
-    let tls_baseline = motion_tls_snapshot();
+    let chunk_records = diagnostics.then(|| {
+        (0..chunk_count)
+            .map(|_| MotionWorkChunkRecord::default())
+            .collect::<Vec<_>>()
+    });
+    #[cfg(test)]
+    let tls_baseline = diagnostics.then(motion_tls_snapshot);
     let compute =
         |_chunk_view: crate::kernel::phase::StepReadView<'_>,
          start: usize,
          chunk: &mut [crate::kernel::execution::DispatchSlot<VehicleMotionOutcome>]| {
             #[cfg(test)]
-            let chunk_baseline = motion_tls_snapshot();
+            let chunk_baseline = diagnostics.then(motion_tls_snapshot);
             for (offset, slot) in chunk.iter_mut().enumerate() {
                 let index = start + offset;
                 let (_handle, active_index, state) = workspace.motion_inputs[index];
@@ -2217,13 +2247,17 @@ fn prepare_motion_dispatched(
                 }
             }
             #[cfg(test)]
-            chunk_records[start / chunk_size].store_deltas(chunk_baseline);
+            if let (Some(records), Some(baseline)) = (&chunk_records, chunk_baseline) {
+                records[start / chunk_size].store_deltas(baseline);
+            }
         };
     let dispatch_stats =
         execution.try_for_each_chunk(view.read, slots, &first_error, chunk_size, compute);
     #[cfg(test)]
     {
-        aggregate_motion_tls(tls_baseline, &chunk_records);
+        if let (Some(baseline), Some(records)) = (tls_baseline, &chunk_records) {
+            aggregate_motion_tls(baseline, records);
+        }
         crate::kernel::execution::note_last_dispatch_stats(dispatch_stats);
         LAST_MOTION_DISPATCH_STATS.with(|cell| cell.set(Some(dispatch_stats)));
         if let Some(position) = MOTION_SLOT_GAP.with(std::cell::Cell::get)
