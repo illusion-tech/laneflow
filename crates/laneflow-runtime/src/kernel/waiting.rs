@@ -22,6 +22,16 @@ thread_local! {
             checked_zones: 0, staged_zones: 0, journal_zones: 0,
             committed_zones: 0, member_vehicles: 0,
         }) };
+    /// 可选并行暂存预留失败的注入开关；协调器线程本地，武装时强制走融合回退。
+    static PREVIEW_SLOT_RESERVE_FAILURE: core::cell::Cell<bool> =
+        const { core::cell::Cell::new(false) };
+    /// 缺失槽位注入：join 完成后把该 Active 位置的槽位改写为 `Pending`。
+    static PREVIEW_SLOT_GAP: core::cell::Cell<Option<usize>> =
+        const { core::cell::Cell::new(None) };
+    static PREVIEW_PATH_COUNTS: core::cell::Cell<WaitingPreviewPathCounts> =
+        const { core::cell::Cell::new(WaitingPreviewPathCounts {
+            dispatched: 0, fused: 0, slot_fallback: 0,
+        }) };
 }
 
 /// 测试专用：车型检查、机动定位、Waiting 成员查询、后续出现项访问。
@@ -89,6 +99,206 @@ fn waiting_reservation_injected_failure() -> bool {
         }
         None => false,
     })
+}
+
+/// P2 逐车预览的故障注入面（#705 验收）。错误/panic 注入在任务线程内被读取，
+/// 必须用进程级静态量并按下标武装；协调器侧钩子（暂存回退、缺失槽位、路径
+/// 计数）保持线程本地。注入按「世界身份 + live 序」定位，各测试使用互不相同的
+/// 世界身份，避免并行测试互相观测到对方的武装状态。
+#[cfg(test)]
+mod preview_injection {
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+    pub(super) const DISABLED_WORLD: u64 = u64::MAX;
+
+    pub(super) static NONFINITE_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
+    pub(super) static NONFINITE_POSITIONS: AtomicU64 = AtomicU64::new(0);
+    pub(super) static INVARIANT_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
+    pub(super) static INVARIANT_POSITIONS: AtomicU64 = AtomicU64::new(0);
+    pub(super) static PANIC_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
+    pub(super) static PANIC_POSITION: AtomicUsize = AtomicUsize::new(usize::MAX);
+
+    pub(super) fn position_mask(positions: &[usize]) -> u64 {
+        positions.iter().fold(0_u64, |mask, position| {
+            assert!(
+                *position < u64::BITS as usize,
+                "preview injection position fits mask"
+            );
+            mask | (1_u64 << position)
+        })
+    }
+
+    pub(super) fn snapshot() -> (u64, u64, u64, u64, u64, usize) {
+        (
+            NONFINITE_WORLD.load(Ordering::SeqCst),
+            NONFINITE_POSITIONS.load(Ordering::SeqCst),
+            INVARIANT_WORLD.load(Ordering::SeqCst),
+            INVARIANT_POSITIONS.load(Ordering::SeqCst),
+            PANIC_WORLD.load(Ordering::SeqCst),
+            PANIC_POSITION.load(Ordering::SeqCst),
+        )
+    }
+
+    pub(super) fn restore(state: (u64, u64, u64, u64, u64, usize)) {
+        NONFINITE_WORLD.store(state.0, Ordering::SeqCst);
+        NONFINITE_POSITIONS.store(state.1, Ordering::SeqCst);
+        INVARIANT_WORLD.store(state.2, Ordering::SeqCst);
+        INVARIANT_POSITIONS.store(state.3, Ordering::SeqCst);
+        PANIC_WORLD.store(state.4, Ordering::SeqCst);
+        PANIC_POSITION.store(state.5, Ordering::SeqCst);
+    }
+}
+
+/// 恢复全部 P2 注入先前值；测试 panic 路径时也保证复位。
+#[cfg(test)]
+pub(crate) struct PreviewInjectionGuard {
+    state: (u64, u64, u64, u64, u64, usize),
+}
+
+#[cfg(test)]
+impl Drop for PreviewInjectionGuard {
+    fn drop(&mut self) {
+        preview_injection::restore(self.state);
+    }
+}
+
+/// 按逻辑位置（live 序）武装预览错误注入；`nonfinite`/`invariant` 分别在该
+/// 位置强制 `NonFiniteMotion`/`WaitingInvariantViolation`。
+#[cfg(test)]
+fn inject_preview_errors(
+    world_id: u64,
+    nonfinite: &[usize],
+    invariant: &[usize],
+) -> PreviewInjectionGuard {
+    use std::sync::atomic::Ordering;
+    let guard = PreviewInjectionGuard {
+        state: preview_injection::snapshot(),
+    };
+    preview_injection::NONFINITE_WORLD.store(world_id, Ordering::SeqCst);
+    preview_injection::NONFINITE_POSITIONS.store(
+        preview_injection::position_mask(nonfinite),
+        Ordering::SeqCst,
+    );
+    preview_injection::INVARIANT_WORLD.store(world_id, Ordering::SeqCst);
+    preview_injection::INVARIANT_POSITIONS.store(
+        preview_injection::position_mask(invariant),
+        Ordering::SeqCst,
+    );
+    guard
+}
+
+/// 在指定逻辑位置（live 序）武装 P2 计算 panic 注入。
+#[cfg(test)]
+fn inject_preview_panic(world_id: u64, position: usize) -> PreviewInjectionGuard {
+    use std::sync::atomic::Ordering;
+    let guard = PreviewInjectionGuard {
+        state: preview_injection::snapshot(),
+    };
+    preview_injection::PANIC_WORLD.store(world_id, Ordering::SeqCst);
+    preview_injection::PANIC_POSITION.store(position, Ordering::SeqCst);
+    guard
+}
+
+/// P2 逐车原语内的错误注入检查：命中返回须在原逻辑位置公开的完整领域错误。
+#[cfg(test)]
+pub(crate) fn injected_preview_error(
+    world_id: u64,
+    update_sequence: usize,
+) -> Option<crate::StepError> {
+    use std::sync::atomic::Ordering;
+    let position = u64::try_from(update_sequence).ok()?;
+    if position >= u64::BITS as u64 {
+        return None;
+    }
+    let bit = 1_u64 << position;
+    if preview_injection::NONFINITE_WORLD.load(Ordering::SeqCst) == world_id
+        && preview_injection::NONFINITE_POSITIONS.load(Ordering::SeqCst) & bit != 0
+    {
+        return Some(crate::StepError::NonFiniteMotion);
+    }
+    if preview_injection::INVARIANT_WORLD.load(Ordering::SeqCst) == world_id
+        && preview_injection::INVARIANT_POSITIONS.load(Ordering::SeqCst) & bit != 0
+    {
+        return Some(crate::StepError::WaitingInvariantViolation);
+    }
+    None
+}
+
+/// P2 逐车原语内的 panic 注入检查；panic 不按 `StepError` 映射，由执行器
+/// 完整 join 后向世界宿主传播。
+#[cfg(test)]
+pub(crate) fn injected_preview_panics(world_id: u64, update_sequence: usize) -> bool {
+    use std::sync::atomic::Ordering;
+    preview_injection::PANIC_WORLD.load(Ordering::SeqCst) == world_id
+        && preview_injection::PANIC_POSITION.load(Ordering::SeqCst) == update_sequence
+}
+
+/// 测试专用：P2 本阶段谁执行的计数证据；只读，不改变语义。
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct WaitingPreviewPathCounts {
+    pub(crate) dispatched: usize,
+    pub(crate) fused: usize,
+    pub(crate) slot_fallback: usize,
+}
+
+#[cfg(test)]
+pub(crate) fn preview_path_counts() -> WaitingPreviewPathCounts {
+    PREVIEW_PATH_COUNTS.with(|counts| counts.get())
+}
+
+#[cfg(test)]
+fn count_preview_path(update: impl FnOnce(&mut WaitingPreviewPathCounts)) {
+    PREVIEW_PATH_COUNTS.with(|counts| {
+        let mut value = counts.get();
+        update(&mut value);
+        counts.set(value);
+    });
+}
+
+#[cfg(test)]
+fn preview_slot_reserve_injected_failure() -> bool {
+    PREVIEW_SLOT_RESERVE_FAILURE.with(|failure| failure.get())
+}
+
+#[cfg(test)]
+fn preview_slot_gap_position() -> Option<usize> {
+    PREVIEW_SLOT_GAP.with(|gap| gap.get())
+}
+
+#[cfg(test)]
+struct PreviewSlotReserveFailureGuard(bool);
+
+#[cfg(test)]
+impl Drop for PreviewSlotReserveFailureGuard {
+    fn drop(&mut self) {
+        PREVIEW_SLOT_RESERVE_FAILURE.with(|failure| failure.set(self.0));
+    }
+}
+
+/// 测试专用：下一次分发暂存预留强制失败，验证可选工作区回退。
+#[cfg(test)]
+fn fail_preview_slot_reserve() -> PreviewSlotReserveFailureGuard {
+    PreviewSlotReserveFailureGuard(
+        PREVIEW_SLOT_RESERVE_FAILURE.with(|failure| failure.replace(true)),
+    )
+}
+
+#[cfg(test)]
+struct PreviewSlotGapGuard(Option<usize>);
+
+#[cfg(test)]
+impl Drop for PreviewSlotGapGuard {
+    fn drop(&mut self) {
+        PREVIEW_SLOT_GAP.with(|gap| gap.set(self.0));
+    }
+}
+
+/// 测试专用：join 完成后把指定 Active 位置的槽位改写为 `Pending`，
+/// 验证完成前沿不变量在首错之前的检出。
+#[cfg(test)]
+fn drop_preview_slot_at(position: usize) -> PreviewSlotGapGuard {
+    PreviewSlotGapGuard(PREVIEW_SLOT_GAP.with(|gap| gap.replace(Some(position))))
 }
 
 /// 车辆在一个 stateful maneuver occurrence 中的已提交阶段。
@@ -1280,8 +1490,14 @@ fn prepare_waiting_previews_dispatched(
     let slots = &mut workspace.waiting_preview_slots;
     slots.clear();
     let workload = workspace.waiting_preview_inputs.len();
-    if slots.try_reserve(workload).is_err() {
+    #[cfg(test)]
+    let reserve_injected = preview_slot_reserve_injected_failure();
+    #[cfg(not(test))]
+    let reserve_injected = false;
+    if slots.try_reserve(workload).is_err() || reserve_injected {
         // 可选并行暂存预留失败：退回同一领域原语的融合求值，不新增领域错误。
+        #[cfg(test)]
+        count_preview_path(|counts| counts.slot_fallback += 1);
         return prepare_waiting_previews_fused(workspace, view, delta_s, cache_limit);
     }
     slots.resize(workload, crate::kernel::execution::DispatchSlot::Pending);
@@ -1311,6 +1527,13 @@ fn prepare_waiting_previews_dispatched(
         }
     };
     let _ = execution.try_for_each_chunk(view, slots, &first_error, chunk_size, compute);
+    #[cfg(test)]
+    if let Some(position) = preview_slot_gap_position()
+        && let Some(slot) = slots.get_mut(position)
+    {
+        // 完成前沿不变量注入：首错之前出现未计算槽位，协调器须检出而非成功。
+        *slot = crate::kernel::execution::DispatchSlot::Pending;
+    }
     for (cache_index, ((vehicle, update_sequence), slot)) in workspace
         .waiting_preview_inputs
         .iter()
@@ -1403,6 +1626,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 if self.workspace.waiting_preview_inputs.len()
                     >= WAITING_PREVIEW_FUSION_MIN_ACTIVE =>
             {
+                #[cfg(test)]
+                count_preview_path(|counts| counts.dispatched += 1);
                 prepare_waiting_previews_dispatched(
                     self.workspace,
                     view,
@@ -1411,7 +1636,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     cache_limit,
                 )?;
             }
-            _ => prepare_waiting_previews_fused(self.workspace, view, delta_s, cache_limit)?,
+            _ => {
+                #[cfg(test)]
+                count_preview_path(|counts| counts.fused += 1);
+                prepare_waiting_previews_fused(self.workspace, view, delta_s, cache_limit)?
+            }
         }
 
         for preview_index in 0..self.workspace.next_states.len() {
@@ -2950,12 +3179,29 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn multi_gate_world(count: usize) -> TrafficWorld {
+        multi_gate_world_with_id(count, 82)
+    }
+
+    /// 与 [`multi_gate_world`] 相同构造，但使用指定世界身份；故障注入按世界
+    /// 身份隔离的测试因此可以并行运行而互不观测到对方的武装状态。
+    pub(crate) fn multi_gate_world_with_id(count: usize, world_id: u64) -> TrafficWorld {
+        multi_gate_world_partial(count, count, world_id).0
+    }
+
+    /// 注册全部 `count` 条路径的路线，但只在其中 `spawned` 条上放车辆；
+    /// 供增长/收缩工作集测试在两次 step 之间继续在同一路线上生成车辆。
+    fn multi_gate_world_partial(
+        count: usize,
+        spawned: usize,
+        world_id: u64,
+    ) -> (TrafficWorld, Vec<RouteHandle>) {
+        assert!(spawned <= count, "spawned vehicles fit path count");
         let revision = waiting_scale_revision_with_layout(8.0, 1, ScaleLayout::IdleZones(count));
         let origin = *revision.canonical_origin();
-        let count = u32::try_from(count).unwrap();
+        let count_u32 = u32::try_from(count).unwrap();
         let mut world = TrafficWorld::install(
             Arc::clone(&revision),
-            WorldConfig::new(count, count, u64::from(count) * 3, 1, 100),
+            WorldConfig::new(count_u32, count_u32, u64::from(count_u32) * 3, 1, 100),
             crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
@@ -2966,10 +3212,11 @@ pub(crate) mod tests {
                 )
                 .unwrap(),
             },
-            82,
+            world_id,
             crate::test_policy::selection(&revision),
         )
         .unwrap();
+        let mut routes = Vec::new();
         for raw in 0..revision.traffic().maneuvers().maneuver_path_count() {
             let edges = revision
                 .traffic()
@@ -2981,22 +3228,34 @@ pub(crate) mod tests {
             if edges.len() != 3 {
                 continue;
             }
-            let boundary = revision.traffic().lane_lengths_millimetres()[edges[0].index()];
-            let route = world
-                .register_route(RouteRegisterInput::new(edges))
-                .unwrap();
-            world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    0,
-                    boundary - 1,
-                    10_000,
-                ))
-                .unwrap();
+            routes.push(
+                world
+                    .register_route(RouteRegisterInput::new(edges))
+                    .unwrap(),
+            );
         }
-        assert_eq!(world.state.committed.live_order.len(), count as usize);
+        assert_eq!(routes.len(), count);
+        for route in routes.iter().take(spawned) {
+            spawn_idle_zone_vehicle(&mut world, *route);
+        }
+        assert_eq!(world.state.committed.live_order.len(), spawned);
+        (world, routes)
+    }
+
+    /// 在一条尚未使用的 idle-zone 路线上按夹具标准位置（首边末端前一毫米）
+    /// 生成车辆；与 `multi_gate_world` 的初始车队同形。
+    fn spawn_idle_zone_vehicle(world: &mut TrafficWorld, route: RouteHandle) -> VehicleHandle {
+        let edges = world.route_edges(route).unwrap();
+        let boundary = world.traffic().lane_lengths_millimetres()[edges[0].index()];
         world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                boundary - 1,
+                10_000,
+            ))
+            .unwrap()
     }
 
     #[test]
@@ -5520,5 +5779,359 @@ pub(crate) mod tests {
             .collect::<Vec<_>>(),
             [first.release_hop, second.release_hop]
         );
+    }
+
+    fn exec_config(workers: u32) -> crate::ExecutionConfig {
+        crate::ExecutionConfig::new(std::num::NonZeroU32::new(workers).unwrap())
+    }
+
+    fn install_execution(world: &mut TrafficWorld, workers: u32) {
+        world.execution = crate::kernel::execution::WorldExecution::start_private(
+            exec_config(workers),
+            &world.state,
+        );
+    }
+
+    /// 公开输出等价：已提交快照与其确定性摘要逐字节一致，最新决策/事件一致。
+    /// 私有暂存容量与容器地址不在等价范围内（#705 §1）。
+    fn assert_public_outputs_match(left: &TrafficWorld, right: &TrafficWorld) {
+        let left_snapshot = left.capture_snapshot().unwrap();
+        let right_snapshot = right.capture_snapshot().unwrap();
+        assert_eq!(left_snapshot, right_snapshot);
+        assert_eq!(
+            deterministic_state_digest(&left_snapshot).unwrap(),
+            deterministic_state_digest(&right_snapshot).unwrap()
+        );
+        assert_eq!(
+            left.latest_waiting_decisions(),
+            right.latest_waiting_decisions()
+        );
+        assert_eq!(
+            left.latest_transition_events(),
+            right.latest_transition_events()
+        );
+        assert_eq!(
+            left.latest_conflict_decisions(),
+            right.latest_conflict_decisions()
+        );
+    }
+
+    /// 首错不变量：worker 1/2/4/8/16 × 错误位置（首/中/尾车辆与块首/块尾边界）
+    /// 公开同一个 `NonFiniteMotion`，失败后世界状态与失败前完全一致、与 worker 数
+    /// 无关；同 tick 重试与无故障 fresh 首拍一致；路径计数证明该拍的执行路径
+    /// （#705 验收：首错与交错、retry/fresh replay）。
+    #[test]
+    fn preview_first_error_is_stable_across_workers_and_positions() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 705_100;
+        const ACTIVE: usize = 16;
+        // 0/8/15 是首/中/尾车辆且对 w=2/4/8/16 都是块边界位置；14 是 w=4 的
+        // 块首；5 是 w=2/4 的块内位置：覆盖错误落在块首、块尾与块内。
+        for &position in &[0_usize, 5, 8, 14, 15] {
+            let mut failed_reference: Option<crate::CapturedSnapshot> = None;
+            for &workers in &[1_u32, 2, 4, 8, 16] {
+                let mut fresh = multi_gate_world_with_id(ACTIVE, WORLD_ID);
+                install_execution(&mut fresh, workers);
+                fresh.step(TickInput::new(100)).unwrap();
+                let fresh_snapshot = fresh.capture_snapshot().unwrap();
+
+                let mut world = multi_gate_world_with_id(ACTIVE, WORLD_ID);
+                install_execution(&mut world, workers);
+                let counts_before = preview_path_counts();
+                let before = world.capture_snapshot().unwrap();
+                let guard = inject_preview_errors(WORLD_ID, &[position], &[]);
+                let result = world.step(TickInput::new(100));
+                drop(guard);
+                assert_eq!(
+                    result,
+                    Err(crate::StepError::NonFiniteMotion),
+                    "workers={workers} position={position}"
+                );
+                let after = world.capture_snapshot().unwrap();
+                assert_eq!(after, before, "failed step must keep committed state");
+                if let Some(reference) = &failed_reference {
+                    assert_eq!(
+                        after, *reference,
+                        "failed state must not depend on worker count"
+                    );
+                }
+                failed_reference = Some(after);
+
+                world.step(TickInput::new(100)).unwrap();
+                assert_eq!(world.capture_snapshot().unwrap(), fresh_snapshot);
+                assert_eq!(
+                    world.latest_waiting_decisions(),
+                    fresh.latest_waiting_decisions()
+                );
+                assert_eq!(
+                    world.latest_transition_events(),
+                    fresh.latest_transition_events()
+                );
+
+                let counts = preview_path_counts();
+                let delta = WaitingPreviewPathCounts {
+                    dispatched: counts.dispatched - counts_before.dispatched,
+                    fused: counts.fused - counts_before.fused,
+                    slot_fallback: counts.slot_fallback - counts_before.slot_fallback,
+                };
+                if workers == 1 {
+                    assert_eq!(
+                        delta,
+                        WaitingPreviewPathCounts {
+                            dispatched: 0,
+                            fused: 2,
+                            slot_fallback: 0,
+                        },
+                        "worker=1 必须走融合路径"
+                    );
+                } else {
+                    assert_eq!(
+                        delta,
+                        WaitingPreviewPathCounts {
+                            dispatched: 2,
+                            fused: 0,
+                            slot_fallback: 0,
+                        },
+                        "workers={workers} 必须走真实分发"
+                    );
+                }
+            }
+        }
+    }
+
+    /// 较晚错误绝不覆盖较早义务：两个不同 kind 的注入错误共存时，公开首错
+    /// 由较小逻辑位置决定，与 kind、worker 数无关（#705 验收：首错与交错）。
+    #[test]
+    fn earlier_preview_error_never_overridden_by_later() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 705_200;
+        // (NonFiniteMotion 位置, WaitingInvariantViolation 位置, 期望公开首错)。
+        for (nonfinite, invariant, expected) in [
+            (
+                &[4_usize][..],
+                &[12_usize][..],
+                crate::StepError::NonFiniteMotion,
+            ),
+            (
+                &[12][..],
+                &[4][..],
+                crate::StepError::WaitingInvariantViolation,
+            ),
+        ] {
+            for &workers in &[1_u32, 4] {
+                let mut world = multi_gate_world_with_id(16, WORLD_ID);
+                install_execution(&mut world, workers);
+                let before = world.capture_snapshot().unwrap();
+                let guard = inject_preview_errors(WORLD_ID, nonfinite, invariant);
+                let result = world.step(TickInput::new(100));
+                drop(guard);
+                assert_eq!(
+                    result,
+                    Err(expected),
+                    "workers={workers} nonfinite={nonfinite:?} invariant={invariant:?}"
+                );
+                assert_eq!(world.capture_snapshot().unwrap(), before);
+            }
+        }
+    }
+
+    /// 可选并行暂存预留失败回退融合：冷（首拍）与热（容量已建立）暂存都被
+    /// 强制回退，输出与无故障融合逐字节一致且全部成功，不新增领域错误；
+    /// 计数证明分发臂与回退确实发生（#705 验收：可选 scratch 回退）。
+    #[test]
+    fn preview_slot_reserve_failure_falls_back_to_fused() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 705_300;
+        let mut reference = multi_gate_world_with_id(16, WORLD_ID);
+        install_execution(&mut reference, 1);
+        let mut warm = multi_gate_world_with_id(16, WORLD_ID);
+        install_execution(&mut warm, 4);
+        let mut cold = multi_gate_world_with_id(16, WORLD_ID);
+        install_execution(&mut cold, 4);
+        for tick in 1..=6 {
+            reference.step(TickInput::new(100)).unwrap();
+            if tick <= 2 {
+                // 先无故障分发，建立并行暂存容量（热回退的前置条件）。
+                warm.step(TickInput::new(100)).unwrap();
+                let guard = fail_preview_slot_reserve();
+                cold.step(TickInput::new(100)).unwrap();
+                drop(guard);
+            } else {
+                let guard = fail_preview_slot_reserve();
+                warm.step(TickInput::new(100)).unwrap();
+                cold.step(TickInput::new(100)).unwrap();
+                drop(guard);
+            }
+            assert_public_outputs_match(&warm, &reference);
+            assert_public_outputs_match(&cold, &reference);
+        }
+        assert_eq!(
+            preview_path_counts(),
+            WaitingPreviewPathCounts {
+                // warm/cold 各 6 拍全部进入分发臂。
+                dispatched: 12,
+                // reference（worker=1）6 拍全融合；回退拍在分发臂内另行计数。
+                fused: 6,
+                // cold 6 拍 + warm 后 4 拍。
+                slot_fallback: 10,
+            }
+        );
+    }
+
+    /// 空集/单车/阈值下/增长/收缩工作集：多 worker 世界与融合参考逐步公开
+    /// 输出一致；跨过 8 活动阈值前后路径计数证明真实分发与融合都被执行
+    /// （#705 验收：工作集形状与生命周期变化）。
+    #[test]
+    fn preview_workset_shapes_match_fused_reference() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 705_400;
+        let step_pair = |reference: &mut TrafficWorld, parallel: &mut TrafficWorld| {
+            reference.step(TickInput::new(100)).unwrap();
+            parallel.step(TickInput::new(100)).unwrap();
+            assert_public_outputs_match(parallel, reference);
+        };
+
+        // 空集：路线全部注册但不生成任何车辆。
+        let (mut reference, _) = multi_gate_world_partial(12, 0, WORLD_ID);
+        let (mut parallel, _) = multi_gate_world_partial(12, 0, WORLD_ID);
+        install_execution(&mut parallel, 4);
+        step_pair(&mut reference, &mut parallel);
+        step_pair(&mut reference, &mut parallel);
+
+        // 单车与阈值下工作集（低于 8 Active：多 worker 也走融合）。
+        for spawned in [1_usize, 7] {
+            let (mut reference, _) = multi_gate_world_partial(spawned, spawned, WORLD_ID);
+            let (mut parallel, _) = multi_gate_world_partial(spawned, spawned, WORLD_ID);
+            install_execution(&mut parallel, 4);
+            step_pair(&mut reference, &mut parallel);
+            step_pair(&mut reference, &mut parallel);
+        }
+        assert_eq!(
+            preview_path_counts(),
+            WaitingPreviewPathCounts {
+                dispatched: 0,
+                // 每个 step_pair 是两个世界各一拍；全部低于分发阈值。
+                fused: 12,
+                slot_fallback: 0,
+            },
+            "空集/单车/阈值下不允许真实分发"
+        );
+
+        // 增长：7 → 12，跨过 8 Active 分发阈值。
+        let (mut reference, reference_routes) = multi_gate_world_partial(12, 7, WORLD_ID);
+        let (mut parallel, parallel_routes) = multi_gate_world_partial(12, 7, WORLD_ID);
+        install_execution(&mut parallel, 4);
+        step_pair(&mut reference, &mut parallel);
+        step_pair(&mut reference, &mut parallel);
+        for (reference_route, parallel_route) in
+            reference_routes.iter().zip(&parallel_routes).skip(7)
+        {
+            spawn_idle_zone_vehicle(&mut reference, *reference_route);
+            spawn_idle_zone_vehicle(&mut parallel, *parallel_route);
+        }
+        assert_eq!(parallel.live_vehicles().len(), 12);
+        let counts_before = preview_path_counts();
+        step_pair(&mut reference, &mut parallel);
+        step_pair(&mut reference, &mut parallel);
+        let growth_counts = preview_path_counts();
+        assert!(
+            growth_counts.dispatched - counts_before.dispatched >= 2,
+            "≥8 Active 必须走真实分发"
+        );
+        // 只有参考世界（worker=1）贡献融合计数：多 worker 世界不允许回退融合。
+        assert_eq!(growth_counts.fused, counts_before.fused + 2);
+
+        // 收缩：12 → 4，回到阈值下；再清空到空集。
+        let despawned = parallel.live_vehicles()[..8].to_vec();
+        for vehicle in &despawned {
+            reference.despawn_vehicle(*vehicle).unwrap();
+            parallel.despawn_vehicle(*vehicle).unwrap();
+        }
+        assert_eq!(parallel.live_vehicles().len(), 4);
+        let counts_before = preview_path_counts();
+        step_pair(&mut reference, &mut parallel);
+        let shrink_counts = preview_path_counts();
+        assert_eq!(
+            shrink_counts.dispatched, counts_before.dispatched,
+            "<8 Active 必须回到融合路径"
+        );
+        // 参考世界每拍都计融合；多 worker 世界这一拍也回到融合。
+        assert_eq!(shrink_counts.fused, counts_before.fused + 2);
+        for vehicle in parallel.live_vehicles().to_vec() {
+            reference.despawn_vehicle(vehicle).unwrap();
+            parallel.despawn_vehicle(vehicle).unwrap();
+        }
+        step_pair(&mut reference, &mut parallel);
+    }
+
+    /// 完成前沿不变量：缺失槽位出现在首错之前时检出
+    /// `WaitingInvariantViolation` 而非当成功；缺失槽位晚于首错时不改变
+    /// 公开首错（#705 验收：缺失槽位、首错次序）。
+    #[test]
+    fn missing_preview_slot_before_first_error_is_invariant_violation() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 705_500;
+        // (workers, 缺失槽位位置, NonFiniteMotion 注入位置, 期望公开首错)。
+        for (workers, gap, nonfinite, expected) in [
+            (
+                4_u32,
+                5_usize,
+                &[][..],
+                crate::StepError::WaitingInvariantViolation,
+            ),
+            (4, 5, &[12][..], crate::StepError::WaitingInvariantViolation),
+            (4, 12, &[5][..], crate::StepError::NonFiniteMotion),
+            (2, 5, &[12][..], crate::StepError::WaitingInvariantViolation),
+            (
+                16,
+                5,
+                &[12][..],
+                crate::StepError::WaitingInvariantViolation,
+            ),
+        ] {
+            let mut world = multi_gate_world_with_id(16, WORLD_ID);
+            install_execution(&mut world, workers);
+            let before = world.capture_snapshot().unwrap();
+            let gap_guard = drop_preview_slot_at(gap);
+            let injection_guard = inject_preview_errors(WORLD_ID, nonfinite, &[]);
+            let result = world.step(TickInput::new(100));
+            drop(gap_guard);
+            drop(injection_guard);
+            assert_eq!(
+                result,
+                Err(expected),
+                "workers={workers} gap={gap} nonfinite={nonfinite:?}"
+            );
+            assert_eq!(world.capture_snapshot().unwrap(), before);
+        }
+    }
+
+    /// P2 计算 panic 端到端：panic 不按 `StepError` 映射；世界永久失效，
+    /// 交通步进、快照与管理/配置查询全部拒绝；注入与断言沿用 execution.rs
+    /// panic 测试的模式（#705 验收：执行器异常）。
+    #[test]
+    fn preview_panic_invalidates_world_and_rejects_queries() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 705_600;
+        let mut world = multi_gate_world_with_id(16, WORLD_ID);
+        install_execution(&mut world, 4);
+        // 位置 15 位于调用线程首块之外的末尾块：panic 发生在池线程上，
+        // 执行器须先完整 join 再向世界宿主传播。
+        let guard = inject_preview_panic(WORLD_ID, 15);
+        let result = catch_unwind(AssertUnwindSafe(|| world.step(TickInput::new(100))));
+        drop(guard);
+        assert!(result.is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| world.execution.assert_usable())).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| world.step(TickInput::new(100)))).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| world.capture_snapshot())).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| world.world_binding())).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| world.execution_config())).is_err());
     }
 }
