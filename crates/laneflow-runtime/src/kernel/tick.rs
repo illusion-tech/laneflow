@@ -123,11 +123,38 @@ std::thread_local! {
     static MOTION_CACHE_LIMIT: std::cell::Cell<usize> = const { std::cell::Cell::new(usize::MAX) };
     static HORIZON_CALCULATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static MOTION_CALCULATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static MOTION_CACHE_HITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static MOTION_CACHE_MISSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]
 pub(crate) fn motion_cache_limit() -> usize {
     MOTION_CACHE_LIMIT.get()
+}
+
+/// 测试专用：MotionPreview 缓存复用/重算计数；机制测量探针读取，不改变语义。
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct MotionCacheUse {
+    pub(crate) hits: usize,
+    pub(crate) misses: usize,
+}
+
+#[cfg(test)]
+pub(crate) fn motion_cache_use() -> MotionCacheUse {
+    MotionCacheUse {
+        hits: MOTION_CACHE_HITS.with(std::cell::Cell::get),
+        misses: MOTION_CACHE_MISSES.with(std::cell::Cell::get),
+    }
+}
+
+#[cfg(test)]
+fn note_motion_cache_use(hit: bool) {
+    if hit {
+        MOTION_CACHE_HITS.with(|value| value.set(value.get() + 1));
+    } else {
+        MOTION_CACHE_MISSES.with(|value| value.set(value.get() + 1));
+    }
 }
 
 #[cfg(test)]
@@ -1587,9 +1614,12 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .motion_cache
                 .get(active_index)
                 .filter(|entry| entry.vehicle == handle);
-            let next = cached
+            let reused = cached
                 .and_then(|entry| entry.preview)
-                .and_then(|preview| preview.reuse(waiting_stop, conflict_stop))
+                .and_then(|preview| preview.reuse(waiting_stop, conflict_stop));
+            #[cfg(test)]
+            let cache_served = reused.is_some();
+            let next = reused
                 .or_else(|| {
                     self.read_view()
                         .advance_active_vehicle_with_parking_binding(
@@ -1602,6 +1632,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                         )
                 })
                 .ok_or(StepError::NonFiniteMotion)?;
+            #[cfg(test)]
+            note_motion_cache_use(cache_served);
             if let Some(reservation) = reservation {
                 if next.status != VehicleStatus::Active {
                     return Err(StepError::ParkingInvariantViolation);

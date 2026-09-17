@@ -4,6 +4,9 @@ use std::cell::Cell;
 use std::time::Instant;
 
 use crate as runtime_types;
+/// #705 机制级测量：P2 并行预览基线对比与调度维度；单独 release 运行。
+#[path = "tests/performance_profile/preview_parallel_scale.rs"]
+pub(crate) mod preview_parallel_scale;
 #[path = "tests/performance_profile/runtime_profile.rs"]
 pub(crate) mod support;
 
