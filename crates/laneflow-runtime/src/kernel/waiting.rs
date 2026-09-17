@@ -259,9 +259,11 @@ fn count_preview_path(update: impl FnOnce(&mut WaitingPreviewPathCounts)) {
     });
 }
 
-/// P2 第一遍诊断子段（cfg(test)，#705 机制测量）：把 WaitingPrepare 拆成
-/// 前置检查与输入准备 / 独立预览计算 / 分发与 join 等待 / 规范消费 /
-/// 后续 Waiting 组装，分别累计；计算合计另记最长块时间（任务局部）。
+/// P2 第一遍诊断子段（cfg(test)，#705 机制测量）。线程本地槽只承载协调器
+/// 侧墙钟：前置检查与输入准备 / 融合循环墙钟 / 分发作用域墙钟（含并行
+/// 计算，不与任务时间合计相加） / 规范消费 / 后续 Waiting 组装。分发的
+/// 块计算耗时由任务写进块级诊断记录槽（waiting.rs 分发函数内，按块对齐、
+/// 独占写入），join 后由协调器汇总进 CHUNK_* 累计，辅助线程不被漏记。
 /// 只在探针启用时打开，不影响生产路径与 #583 阶段协议测试。
 #[cfg(test)]
 pub(crate) mod preview_stage {
@@ -270,10 +272,10 @@ pub(crate) mod preview_stage {
 
     /// 前置检查与输入准备（协调器：成员校验、scratch 预留、输入发现）。
     pub(crate) const PREAMBLE: usize = 0;
-    /// 独立预览计算（融合环路墙钟；分发为任务局部合计）。
-    pub(crate) const COMPUTE: usize = 1;
-    /// 分发与 join 等待（协调器墙钟，含完整 join）。
-    pub(crate) const DISPATCH: usize = 2;
+    /// 融合循环墙钟（仅融合臂；包住逐车 staging，与分发块计算边界不同）。
+    pub(crate) const FUSED_LOOP: usize = 1;
+    /// 分发作用域墙钟（分发到 join 返回，含并行计算；不是纯调度开销）。
+    pub(crate) const DISPATCH_SCOPE: usize = 2;
     /// 规范消费（协调器按 Active 顺序写共享暂存）。
     pub(crate) const CONSUME: usize = 3;
     /// 后续 Waiting 组装（第二遍决策、排序与暂存）。
@@ -283,7 +285,8 @@ pub(crate) mod preview_stage {
     thread_local! {
         static ENABLED: Cell<bool> = const { Cell::new(false) };
         static NANOS: Cell<[u128; STAGE_COUNT]> = const { Cell::new([0; STAGE_COUNT]) };
-        static MAX_CHUNK_NANOS: Cell<u128> = const { Cell::new(0) };
+        static CHUNK_TOTAL_NANOS: Cell<u128> = const { Cell::new(0) };
+        static CHUNK_MAX_NANOS: Cell<u128> = const { Cell::new(0) };
     }
 
     pub(crate) struct Span(Option<(usize, Instant)>);
@@ -305,19 +308,19 @@ pub(crate) mod preview_stage {
         }
     }
 
-    /// 任务局部上报一块预览计算耗时：累计合计并刷新最长块时间。
-    pub(crate) fn note_compute_chunk(nanos: u128) {
-        if !ENABLED.with(Cell::get) {
+    pub(crate) fn enabled() -> bool {
+        ENABLED.with(Cell::get)
+    }
+
+    /// 协调器在 join 后汇总本拍块级记录：全部块计算时间合计与单拍最长块。
+    pub(crate) fn note_chunk_batch(total_nanos: u128, max_nanos: u128) {
+        if !enabled() {
             return;
         }
-        NANOS.with(|total| {
-            let mut next = total.get();
-            next[COMPUTE] += nanos;
-            total.set(next);
-        });
-        MAX_CHUNK_NANOS.with(|max| {
-            if nanos > max.get() {
-                max.set(nanos);
+        CHUNK_TOTAL_NANOS.with(|total| total.set(total.get() + total_nanos));
+        CHUNK_MAX_NANOS.with(|max| {
+            if max_nanos > max.get() {
+                max.set(max_nanos);
             }
         });
     }
@@ -326,10 +329,11 @@ pub(crate) mod preview_stage {
         ENABLED.with(|cell| cell.set(enabled));
     }
 
-    pub(crate) fn take() -> ([u128; STAGE_COUNT], u128) {
+    pub(crate) fn take() -> ([u128; STAGE_COUNT], u128, u128) {
         (
             NANOS.with(|nanos| nanos.take()),
-            MAX_CHUNK_NANOS.with(|max| max.take()),
+            CHUNK_TOTAL_NANOS.with(|total| total.take()),
+            CHUNK_MAX_NANOS.with(|max| max.take()),
         )
     }
 }
@@ -349,6 +353,34 @@ pub(crate) fn set_preview_chunk_multiplier(multiplier: usize) {
 #[cfg(test)]
 thread_local! {
     static PREVIEW_CHUNK_MULTIPLIER: core::cell::Cell<usize> = const { core::cell::Cell::new(2) };
+}
+
+/// 测试专用：生产分发阈值为保守的 1_024；小场景测试经该守卫强制走真实
+/// 分发（不改变语义，等价验收已有全套对拍）。
+#[cfg(test)]
+fn preview_dispatch_forced() -> bool {
+    PREVIEW_FORCE_DISPATCH.with(core::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub(crate) struct ForcePreviewDispatchGuard(bool);
+
+#[cfg(test)]
+impl Drop for ForcePreviewDispatchGuard {
+    fn drop(&mut self) {
+        PREVIEW_FORCE_DISPATCH.with(|forced| forced.set(self.0));
+    }
+}
+
+/// 测试专用：本拍起强制 P2 真实分发（工作集非空时），返回复位守卫。
+#[cfg(test)]
+pub(crate) fn force_preview_dispatch() -> ForcePreviewDispatchGuard {
+    ForcePreviewDispatchGuard(PREVIEW_FORCE_DISPATCH.with(|forced| forced.replace(true)))
+}
+
+#[cfg(test)]
+thread_local! {
+    static PREVIEW_FORCE_DISPATCH: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
 }
 
 #[cfg(test)]
@@ -1542,8 +1574,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 }
 
 /// P2 活动数低于该阈值时不走向量分发，由协调器内联融合求值同一原语；只决定
-/// 本阶段谁执行，不改变语义、首错位置或输出。实现证据可调（#705）。
-const WAITING_PREVIEW_FUSION_MIN_ACTIVE: usize = 8;
+/// 本阶段谁执行，不改变语义、首错位置或输出。初版保守值：机制测量（合成
+/// multi-gate 场景、每车预览 ~185ns）显示分发净收益的交叉区下沿约一千
+/// 活动，取 1_024 的保守一侧；待 #707 城市证据收敛后再校准。测试小场景
+/// 用 `force_preview_dispatch` 覆盖（cfg(test)）。
+const WAITING_PREVIEW_DISPATCH_MIN_ACTIVE: usize = 1_024;
 
 /// 规范消费一个已完成预览：按现行 staging 规则写 `motion_cache`（受
 /// `cache_limit` 容量降级约束）与 `next_states`（仅预览存在时写入）。
@@ -1579,7 +1614,7 @@ fn prepare_waiting_previews_fused(
     cache_limit: usize,
 ) -> Result<(), crate::StepError> {
     #[cfg(test)]
-    let _compute = preview_stage::begin(preview_stage::COMPUTE);
+    let _fused_loop = preview_stage::begin(preview_stage::FUSED_LOOP);
     let mut cache_index = 0;
     for (update_sequence, vehicle) in view.committed.live_order.iter().copied().enumerate() {
         let state = *view
@@ -1624,7 +1659,9 @@ fn prepare_waiting_previews_dispatched(
     let input_injected = preview_input_reserve_injected_failure();
     #[cfg(not(test))]
     let input_injected = false;
-    if inputs.try_reserve(view.committed.live_order.len()).is_err() || input_injected {
+    // 上界用 Active 投影而非 live 长度：Completed 车辆会累积在 live_order，
+    // 输入表只收 Active 配对，按 live 预留会在车辆完成时反复再分配。
+    if inputs.try_reserve(view.derived.active_order.len()).is_err() || input_injected {
         // 输入表预留失败（冷态或增长）：退回同一领域原语的流式融合。
         #[cfg(test)]
         count_preview_path(|counts| {
@@ -1650,7 +1687,11 @@ fn prepare_waiting_previews_dispatched(
     #[cfg(test)]
     drop(_discover);
     let workload = inputs.len();
-    if workload < WAITING_PREVIEW_FUSION_MIN_ACTIVE {
+    #[cfg(test)]
+    let forced = preview_dispatch_forced();
+    #[cfg(not(test))]
+    let forced = false;
+    if workload < WAITING_PREVIEW_DISPATCH_MIN_ACTIVE && !(forced && workload > 0) {
         #[cfg(test)]
         count_preview_path(|counts| counts.fused += 1);
         return prepare_waiting_previews_fused(workspace, view, delta_s, cache_limit);
@@ -1682,11 +1723,22 @@ fn prepare_waiting_previews_dispatched(
         .clamp(1, workload);
     let chunk_size = workload.div_ceil(chunk_count).max(1);
     let first_error = AtomicUsize::new(usize::MAX);
+    // 块级诊断记录槽：与输出块对齐，每块一个 u64 nanos，任务独占写入
+    // （无竞争、无共享锁）；仅在诊断启用时分配，热态非诊断构建零成本。
+    #[cfg(test)]
+    let chunk_records = preview_stage::enabled().then(|| {
+        (0..chunk_count)
+            .map(|_| std::sync::atomic::AtomicU64::new(0))
+            .collect::<Vec<_>>()
+    });
     let compute = |chunk_view: crate::kernel::phase::StepReadView<'_>,
                    start: usize,
                    chunk: &mut [crate::kernel::execution::DispatchSlot<
         crate::kernel::tick::WaitingPreviewEntry,
     >]| {
+        // 计时无条件开启；是否记录由协调器创建的 chunk_records 决定（普通
+        // Option 捕获，跨线程一致）。不能用线程本地 ENABLE 作门——辅助
+        // 线程读不到协调器的开关，会漏记（审阅阻断二的同类陷阱）。
         #[cfg(test)]
         let chunk_started = std::time::Instant::now();
         for (offset, slot) in chunk.iter_mut().enumerate() {
@@ -1702,14 +1754,39 @@ fn prepare_waiting_previews_dispatched(
             }
         }
         #[cfg(test)]
-        preview_stage::note_compute_chunk(chunk_started.elapsed().as_nanos());
+        if let (started, Some(records)) = (chunk_started, &chunk_records) {
+            // 每执行块恰好写一条记录；块计算远超 0ns，0 视作未记录。
+            records[start / chunk_size].store(
+                started.elapsed().as_nanos().max(1) as u64,
+                Ordering::Relaxed,
+            );
+        }
     };
     #[cfg(test)]
-    let _dispatch = preview_stage::begin(preview_stage::DISPATCH);
+    let _dispatch_scope = preview_stage::begin(preview_stage::DISPATCH_SCOPE);
     let dispatch_stats =
         execution.try_for_each_chunk(view, slots, &first_error, chunk_size, compute);
     #[cfg(test)]
-    drop(_dispatch);
+    drop(_dispatch_scope);
+    #[cfg(test)]
+    if let Some(records) = &chunk_records {
+        let mut recorded = 0_u128;
+        let mut total = 0_u128;
+        let mut longest = 0_u128;
+        for record in records {
+            let nanos = u128::from(record.load(Ordering::Relaxed));
+            if nanos > 0 {
+                recorded += 1;
+                total += nanos;
+                longest = longest.max(nanos);
+            }
+        }
+        assert_eq!(
+            recorded, dispatch_stats.dispatched_chunks as u128,
+            "每执行块恰好一条块级诊断记录"
+        );
+        preview_stage::note_chunk_batch(total, longest);
+    }
     #[cfg(test)]
     crate::kernel::execution::note_last_dispatch_stats(dispatch_stats);
     #[cfg(not(test))]
@@ -6006,6 +6083,8 @@ pub(crate) mod tests {
     fn preview_first_error_is_stable_across_workers_and_positions() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        // 生产分发阈值为保守 1_024；16 车世界经强制入口走真实分发。
+        let _force = super::force_preview_dispatch();
         const WORLD_ID: u64 = 705_100;
         const ACTIVE: usize = 16;
         // 0/8/15 是首/中/尾车辆且对 w=2/4/8/16 都是块边界位置；14 是 w=4 的
@@ -6088,6 +6167,7 @@ pub(crate) mod tests {
     fn earlier_preview_error_never_overridden_by_later() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = super::force_preview_dispatch();
         const WORLD_ID: u64 = 705_200;
         // (NonFiniteMotion 位置, WaitingInvariantViolation 位置, 期望公开首错)。
         for (nonfinite, invariant, expected) in [
@@ -6126,6 +6206,7 @@ pub(crate) mod tests {
     fn preview_slot_reserve_failure_falls_back_to_fused() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = super::force_preview_dispatch();
         const WORLD_ID: u64 = 705_300;
         let mut reference = multi_gate_world_with_id(16, WORLD_ID);
         install_execution(&mut reference, 1);
@@ -6163,9 +6244,9 @@ pub(crate) mod tests {
         );
     }
 
-    /// 空集/单车/阈值下/增长/收缩工作集：多 worker 世界与融合参考逐步公开
-    /// 输出一致；跨过 8 活动阈值前后路径计数证明真实分发与融合都被执行
-    /// （#705 验收：工作集形状与生命周期变化）。
+    /// 空集/单车/小工作集/增长/收缩工作集：多 worker 世界与融合参考逐步
+    /// 公开输出一致；小工作集天然融合，增长相位经强制分发入口证明真实
+    /// 分发与融合都被执行（#705 验收：工作集形状与生命周期变化）。
     #[test]
     fn preview_workset_shapes_match_fused_reference() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
@@ -6203,7 +6284,7 @@ pub(crate) mod tests {
             "空集/单车/阈值下不允许真实分发"
         );
 
-        // 增长：7 → 12，跨过 8 Active 分发阈值。
+        // 增长：7 → 12，仍远低于生产阈值 1_024；经强制分发入口走真实分发。
         let (mut reference, reference_routes) = multi_gate_world_partial(12, 7, WORLD_ID);
         let (mut parallel, parallel_routes) = multi_gate_world_partial(12, 7, WORLD_ID);
         install_execution(&mut parallel, 4);
@@ -6217,12 +6298,15 @@ pub(crate) mod tests {
         }
         assert_eq!(parallel.live_vehicles().len(), 12);
         let counts_before = preview_path_counts();
-        step_pair(&mut reference, &mut parallel);
-        step_pair(&mut reference, &mut parallel);
+        {
+            let _force = super::force_preview_dispatch();
+            step_pair(&mut reference, &mut parallel);
+            step_pair(&mut reference, &mut parallel);
+        }
         let growth_counts = preview_path_counts();
         assert!(
             growth_counts.dispatched - counts_before.dispatched >= 2,
-            "≥8 Active 必须走真实分发"
+            "强制入口下多 worker 世界必须走真实分发"
         );
         // 只有参考世界（worker=1）贡献融合计数：多 worker 世界不允许回退融合。
         assert_eq!(growth_counts.fused, counts_before.fused + 2);
@@ -6257,6 +6341,7 @@ pub(crate) mod tests {
     fn missing_preview_slot_before_first_error_is_invariant_violation() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = super::force_preview_dispatch();
         const WORLD_ID: u64 = 705_500;
         // (workers, 缺失槽位位置, NonFiniteMotion 注入位置, 期望公开首错)。
         for (workers, gap, nonfinite, expected) in [
@@ -6301,7 +6386,8 @@ pub(crate) mod tests {
     fn preview_error_before_identity_failure_keeps_serial_first_error() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
-        const WORLD_ID: u64 = 705_700;
+        let _force = super::force_preview_dispatch();
+        const WORLD_ID: u64 = 705_750;
         const IDENTITY_POSITION: usize = 12;
         let corrupt_live_identity = |world: &mut TrafficWorld| -> crate::VehicleState {
             let handle = world.state.committed.live_order[IDENTITY_POSITION];
@@ -6372,6 +6458,7 @@ pub(crate) mod tests {
     fn preview_input_reserve_failure_falls_back_to_fused() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = super::force_preview_dispatch();
         const WORLD_ID: u64 = 705_800;
         let (mut reference, reference_routes) = multi_gate_world_partial(16, 8, WORLD_ID);
         let (mut parallel, parallel_routes) = multi_gate_world_partial(16, 8, WORLD_ID);
@@ -6423,6 +6510,7 @@ pub(crate) mod tests {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
         use std::panic::{AssertUnwindSafe, catch_unwind};
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = super::force_preview_dispatch();
         const WORLD_ID: u64 = 705_600;
         let mut world = multi_gate_world_with_id(16, WORLD_ID);
         install_execution(&mut world, 4);
@@ -6567,14 +6655,16 @@ pub(crate) mod tests {
     }
 
     /// 混合生命周期下的分发内部确认：live 序列夹有 Parked/Completed 成员
-    /// （Active 紧凑位置 ≠ 逻辑 update_sequence）时，只要该拍 Active ≥ 8，
-    /// 路径计数必须证明多 worker 世界走真实分发而非融合/回退，且与 worker=1
-    /// 参考世界逐步公开输出一致。覆盖 Active→Parked 转换拍、Completed 产生拍、
-    /// 同槽位新代次 spawn 拍（#705 审阅缺陷 4 的内部确认半边）。
+    /// （Active 紧凑位置 ≠ 逻辑 update_sequence）时，路径计数必须证明多
+    /// worker 世界走真实分发而非融合/回退，且与 worker=1 参考世界逐步公开
+    /// 输出一致。覆盖 Active→Parked 转换拍、Completed 产生拍、同槽位新代次
+    /// spawn 拍（#705 审阅缺陷 4 的内部确认半边）。生产分发阈值为保守
+    /// 1_024，小场景经强制入口分发。
     #[test]
     fn mixed_lifecycle_ticks_take_real_dispatch() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = super::force_preview_dispatch();
         const WORLD_ID: u64 = 705_700;
         const PROFILE: VehicleProfileOrdinal = VehicleProfileOrdinal::from_raw(0);
 

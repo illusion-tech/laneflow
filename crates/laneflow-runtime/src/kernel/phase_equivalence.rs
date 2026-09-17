@@ -54,6 +54,8 @@ fn journal(world: &TrafficWorld) -> String {
 
 /// 场景车辆数不低于 P2 分发门槛（`WAITING_PREVIEW_FUSION_MIN_ACTIVE`），
 /// 保证多 worker 运行真正走分发路径而非融合回退。
+/// 车辆-bearing 场景的活动数下限：证明场景确实 populated（与生产分发
+/// 阈值无关；多 worker 真实分发经 force_preview_dispatch 强制）。
 const DISPATCH_MIN_ACTIVE: usize = 8;
 
 /// 用目标 worker 数重建世界独占执行资源；与 `TrafficWorld::install` 同一
@@ -275,6 +277,9 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
     // 场景反复创建真实线程池：持有资源测试锁，避免与 execution.rs 测试族的
     // 全局 LIVE_WORKERS/STARTED_WORKERS 计数断言并发互扰。
     let _lock = crate::kernel::execution::RESOURCE_TEST_LOCK.lock().unwrap();
+    // 生产分发阈值为保守 1_024；矩阵场景为 16 车，经强制入口保持
+    // 多 worker 真实分发覆盖（digest 轨迹与路径无关，冻结 fixture 不变）。
+    let _force = crate::kernel::waiting::force_preview_dispatch();
     let revision = crate::admin::cutover_migration::tests::conflict_scale_revision();
     // 车辆-bearing 场景的活动数必须达到分发门槛，多 worker 运行才真正分发；
     // 信号时钟场景无车辆，覆盖空工作集下的池世界整步。
