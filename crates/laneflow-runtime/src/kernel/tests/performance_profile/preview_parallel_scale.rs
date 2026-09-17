@@ -1,10 +1,12 @@
 //! #705 机制级测量探针（非城市性能认证，#707 另行验收）。
 //!
 //! 同一合成 Waiting 密集场景（multi-gate，车辆停在 idle zone 入口 Gate 前）下对比
-//! 融合（worker 1）与多 worker 分发（2/4/8/16）的整步墙钟、P2 段（WaitingPrepare
-//! 插桩均值）、调度统计、MotionPreview 缓存复用与并行暂存内存。路线短、车辆会
-//! 跑完，探针在每拍定步前把 Completed 车辆原位替换回 Gate 前，保持稳态活动车队
-//! 与恒定 P2 工作量。预览局部收益不等于城市性能通过。
+//! 融合（worker 1）与多 worker 分发（2/4/8/16）的整步墙钟、P2 诊断子段
+//! （前置与输入准备 / 独立预览计算 / 分发与 join 等待 / 规范消费 / 后续组装）、
+//! 调度统计、MotionPreview 缓存复用与并行暂存内存；并对票据式认领与块数倍数
+//! 做有界 A/B。路线短、车辆会跑完，探针在每拍定步前把 Completed 车辆原位
+//! 替换回 Gate 前，保持稳态活动车队与恒定 P2 工作量。预览局部收益不等于
+//! 城市性能通过。
 //!
 //! 单独运行：
 //! `cargo test --release -p laneflow-runtime --lib \
@@ -15,19 +17,17 @@ use std::time::Instant;
 use super::{CALLS, ENABLED, NANOS, STAGE_COUNT, Stage};
 use crate::TickInput;
 use crate::kernel::execution::{DispatchStats, WorldExecution, last_dispatch_stats};
-use crate::kernel::tick::{self, MotionCacheUse};
-use crate::kernel::waiting::{self, WaitingPreviewPathCounts};
+use crate::kernel::tick::{self, MotionCacheUse, WaitingPreviewEntry};
+use crate::kernel::waiting::{
+    self, WaitingPreviewPathCounts, preview_stage, set_preview_chunk_multiplier,
+};
 use crate::{RouteHandle, VehicleSpawnInput, VehicleStatus};
 use laneflow_static_contract::VehicleProfileOrdinal;
 
-/// 车辆数：Waiting 密集且 P2 预览/运动计算占主导的规模。
 const VEHICLES: usize = 1_024;
 const WARMUP_TICKS: usize = 24;
 const MEASURED_TICKS: usize = 128;
-const ROUNDS: usize = 3;
 const DELTA_MS: u64 = 100;
-/// 补员后允许的瞬时活动数下界（一拍内跑完全路线的车辆数有界）。
-const ACTIVE_FLOOR: usize = VEHICLES - 128;
 
 #[derive(Default)]
 struct DispatchTotals {
@@ -35,6 +35,7 @@ struct DispatchTotals {
     completed_chunks: usize,
     skipped_chunks: usize,
     extra_work_chunks: usize,
+    ticket_grabs: usize,
     calls: usize,
 }
 
@@ -44,6 +45,7 @@ impl DispatchTotals {
         self.completed_chunks += stats.completed_chunks;
         self.skipped_chunks += stats.skipped_chunks;
         self.extra_work_chunks += stats.extra_work_chunks;
+        self.ticket_grabs += stats.ticket_grabs;
         self.calls += 1;
     }
 }
@@ -52,12 +54,14 @@ struct ArmRow {
     whole_p50_ns: u128,
     whole_p95_ns: u128,
     waiting_mean_ns: u128,
+    substage_ns: [u128; preview_stage::STAGE_COUNT],
+    max_chunk_ns: u128,
     active_last: usize,
     active_sum: usize,
     cache: MotionCacheUse,
     paths: WaitingPreviewPathCounts,
     dispatch: DispatchTotals,
-    peak_threads: usize,
+    participating_threads: usize,
     workspace_bytes_cold: u64,
     workspace_bytes_hot: u64,
     inputs_cap_cold: usize,
@@ -117,13 +121,14 @@ fn replenish(world: &mut crate::TrafficWorld, routes: &[RouteHandle], boundaries
     }
 }
 
-fn run_arm(workers: u32, round: usize) -> ArmRow {
-    // 同一轮的所有 worker 臂共享世界身份：digest 跨臂可比（等价自检）；
+#[allow(clippy::too_many_arguments)]
+fn run_arm(workers: u32, multiplier: usize, vehicles: usize, round: usize) -> ArmRow {
+    // 同一（规模, 轮）的所有臂共享世界身份：digest 跨臂可比（等价自检）；
     // 探针无故障注入，不需要按 worker 隔离身份。
-    let _ = workers;
-    let world_id = 705_500 + round as u64;
+    let world_id = 705_500 + vehicles as u64 + round as u64;
+    set_preview_chunk_multiplier(multiplier);
     let (mut world, routes) =
-        waiting::tests::multi_gate_world_partial(VEHICLES, VEHICLES, world_id);
+        waiting::tests::multi_gate_world_partial(vehicles, vehicles, world_id);
     world.execution = WorldExecution::start_private(exec_config(workers), &world.state);
     let boundaries = route_boundaries(&world, &routes);
     let workspace_bytes_cold = world.state.workspace.retained_logical_bytes();
@@ -143,9 +148,10 @@ fn run_arm(workers: u32, round: usize) -> ArmRow {
     ENABLED.with(|enabled| enabled.set(true));
     NANOS.with(|nanos| nanos.set([0; STAGE_COUNT]));
     CALLS.with(|calls| calls.set([0; STAGE_COUNT]));
+    preview_stage::set_enabled(true);
     let mut whole = Vec::with_capacity(MEASURED_TICKS);
     let mut dispatch = DispatchTotals::default();
-    let mut peak_threads = 0_usize;
+    let mut participating_threads = 0_usize;
     let mut active_sum = 0_usize;
     for _ in 0..MEASURED_TICKS {
         replenish(&mut world, &routes, &boundaries);
@@ -156,16 +162,19 @@ fn run_arm(workers: u32, round: usize) -> ArmRow {
         whole.push(started.elapsed().as_nanos());
         if let Some(stats) = last_dispatch_stats() {
             dispatch.accumulate(stats);
-            peak_threads = peak_threads.max(stats.threads);
+            participating_threads = participating_threads.max(stats.participating_threads);
         }
     }
     ENABLED.with(|enabled| enabled.set(false));
+    preview_stage::set_enabled(false);
+    let (substage_total_ns, max_chunk_ns) = preview_stage::take();
     let waiting_nanos = NANOS.with(|nanos| nanos.get())[Stage::WaitingPrepare as usize];
     let waiting_calls = CALLS.with(|calls| calls.get())[Stage::WaitingPrepare as usize];
     assert_eq!(
         waiting_calls, MEASURED_TICKS as u64,
         "waiting_prepare 每拍恰好一次"
     );
+    let measured = MEASURED_TICKS as u128;
     let cache_after = tick::motion_cache_use();
     let paths_after = waiting::preview_path_counts();
     let cache = MotionCacheUse {
@@ -183,16 +192,25 @@ fn run_arm(workers: u32, round: usize) -> ArmRow {
         "{:x}",
         crate::deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap()
     );
+    set_preview_chunk_multiplier(2);
     ArmRow {
         whole_p50_ns: percentile(&sorted, 0.50),
         whole_p95_ns: percentile(&sorted, 0.95),
-        waiting_mean_ns: waiting_nanos / MEASURED_TICKS as u128,
+        waiting_mean_ns: waiting_nanos / measured,
+        substage_ns: [
+            substage_total_ns[preview_stage::PREAMBLE] / measured,
+            substage_total_ns[preview_stage::COMPUTE] / measured,
+            substage_total_ns[preview_stage::DISPATCH] / measured,
+            substage_total_ns[preview_stage::CONSUME] / measured,
+            substage_total_ns[preview_stage::ASSEMBLY] / measured,
+        ],
+        max_chunk_ns,
         active_last: world.state.derived.active_order.len(),
         active_sum,
         cache,
         paths,
         dispatch,
-        peak_threads,
+        participating_threads,
         workspace_bytes_cold,
         workspace_bytes_hot,
         inputs_cap_cold,
@@ -207,7 +225,8 @@ fn run_arm(workers: u32, round: usize) -> ArmRow {
 
 /// 注入一次预览错误，记录完整 join 的调度统计（错误后多做工作）。
 /// 注入掩码按 u64 武装，错误臂用 64 车的同形场景，位置 32 恰在块边界
-/// （workers=4 时块大小 8）中段，便于观察早块完成/晚块跳过。
+/// （workers=4 时块大小 8）中段：更早块完成，更晚任务在开始执行时
+/// 查已错位置并整块跳过计算，scope 完整 join。
 fn run_error_arm() {
     const WORKERS: u32 = 4;
     const ERROR_VEHICLES: usize = 64;
@@ -231,43 +250,59 @@ fn run_error_arm() {
     let stats = last_dispatch_stats().expect("dispatch arm records stats");
     println!(
         "preview-parallel-error scene=multi-gate-{ERROR_VEHICLES} workers={WORKERS} position={position} \
-         dispatched={} completed={} skipped={} extra_work={} threads={}",
+         dispatched={} completed={} skipped={} extra_work={} participating_threads={} ticket_grabs={}",
         stats.dispatched_chunks,
         stats.completed_chunks,
         stats.skipped_chunks,
         stats.extra_work_chunks,
-        stats.threads,
+        stats.participating_threads,
+        stats.ticket_grabs,
     );
 }
 
-#[test]
-#[ignore = "#705 机制级测量：单独 release 运行，见文件头命令"]
-fn preview_parallel_scale() {
-    let mut reference_digest = [const { None::<String> }; ROUNDS];
-    for &workers in &[1_u32, 2, 4, 8, 16] {
-        for (round, reference) in reference_digest.iter_mut().enumerate() {
-            let row = run_arm(workers, round);
-            if workers == 1 {
-                *reference = Some(row.digest.clone());
+struct ArmSpec {
+    workers: u32,
+    multiplier: usize,
+    vehicles: usize,
+    rounds: usize,
+}
+
+fn run_matrix(specs: &[ArmSpec], references: &mut [((usize, usize), Option<String>)]) {
+    for spec in specs {
+        for round in 0..spec.rounds {
+            let row = run_arm(spec.workers, spec.multiplier, spec.vehicles, round);
+            let reference_index = (spec.vehicles, round);
+            let slot = references
+                .iter_mut()
+                .find(|(key, _)| *key == reference_index)
+                .map(|(_, value)| value);
+            if let Some(slot) = slot {
+                if spec.workers == 1 {
+                    *slot = Some(row.digest.clone());
+                }
+                assert_eq!(
+                    row.digest,
+                    slot.as_deref().unwrap(),
+                    "workers={} vehicles={} round={round} 与同轮融合参考 digest 一致",
+                    spec.workers,
+                    spec.vehicles,
+                );
             }
-            assert_eq!(
-                row.digest,
-                reference.as_deref().unwrap(),
-                "worker={workers} round={round} 与同轮融合参考 digest 一致"
-            );
             assert!(
-                row.active_last >= ACTIVE_FLOOR && row.active_sum >= ACTIVE_FLOOR * MEASURED_TICKS,
-                "worker={workers} round={round} 稳态活动车队（last={} sum={}）",
-                row.active_last,
-                row.active_sum,
+                row.active_last >= spec.vehicles.saturating_sub(128)
+                    && row.active_sum >= (spec.vehicles.saturating_sub(128)) * MEASURED_TICKS,
+                "workers={} vehicles={} round={round} 稳态活动车队",
+                spec.workers,
+                spec.vehicles,
             );
-            if workers == 1 {
+            if spec.workers == 1 {
                 assert_eq!(row.paths.dispatched, 0, "worker=1 走融合路径");
                 assert_eq!(row.paths.fused, MEASURED_TICKS, "worker=1 每拍融合");
             } else {
                 assert_eq!(
                     row.paths.dispatched, MEASURED_TICKS,
-                    "workers={workers} 每拍真实分发"
+                    "workers={} 每拍真实分发",
+                    spec.workers,
                 );
             }
             assert_eq!(
@@ -276,14 +311,23 @@ fn preview_parallel_scale() {
                 "P5 每活动车一次复用判定"
             );
             println!(
-                "preview-parallel scene=multi-gate-{VEHICLES} workers={workers} round={round} \
-                 whole_p50_ns={} whole_p95_ns={} waiting_mean_ns={} active_last={} active_sum={} \
-                 cache_hits={} cache_misses={} path_dispatched={} path_fused={} path_fallback={} \
-                 dispatch_dispatched={} dispatch_completed={} dispatch_skipped={} dispatch_extra_work={} dispatch_calls={} peak_threads={} \
+                "preview-parallel scene=multi-gate-{vehicles} workers={workers} \
+                 mult={multiplier} round={round} \
+                 whole_p50_ns={} whole_p95_ns={} waiting_mean_ns={} \
+                 preamble_mean_ns={} compute_mean_ns={} dispatch_mean_ns={} consume_mean_ns={} assembly_mean_ns={} max_chunk_ns={} \
+                 active_last={} active_sum={} cache_hits={} cache_misses={} \
+                 path_dispatched={} path_fused={} path_fallback={} \
+                 dispatch_dispatched={} dispatch_completed={} dispatch_skipped={} dispatch_extra_work={} ticket_grabs={} dispatch_calls={} participating_threads={} \
                  workspace_bytes_cold={} workspace_bytes_hot={} inputs_cap_cold={} inputs_len={} inputs_cap={} slots_cap_cold={} slots_len={} slots_cap={} digest={}",
                 row.whole_p50_ns,
                 row.whole_p95_ns,
                 row.waiting_mean_ns,
+                row.substage_ns[preview_stage::PREAMBLE],
+                row.substage_ns[preview_stage::COMPUTE],
+                row.substage_ns[preview_stage::DISPATCH],
+                row.substage_ns[preview_stage::CONSUME],
+                row.substage_ns[preview_stage::ASSEMBLY],
+                row.max_chunk_ns,
                 row.active_last,
                 row.active_sum,
                 row.cache.hits,
@@ -295,8 +339,9 @@ fn preview_parallel_scale() {
                 row.dispatch.completed_chunks,
                 row.dispatch.skipped_chunks,
                 row.dispatch.extra_work_chunks,
+                row.dispatch.ticket_grabs,
                 row.dispatch.calls,
-                row.peak_threads,
+                row.participating_threads,
                 row.workspace_bytes_cold,
                 row.workspace_bytes_hot,
                 row.inputs_cap_cold,
@@ -306,9 +351,107 @@ fn preview_parallel_scale() {
                 row.slots_len_hot,
                 row.slots_cap_hot,
                 row.digest,
+                vehicles = spec.vehicles,
+                workers = spec.workers,
+                multiplier = spec.multiplier,
             );
         }
     }
+}
+
+#[test]
+#[ignore = "#705 机制级测量：单独 release 运行，见文件头命令"]
+fn preview_parallel_scale() {
+    println!(
+        "preview-parallel-meta slot_bytes={}",
+        std::mem::size_of::<crate::kernel::execution::DispatchSlot<WaitingPreviewEntry>>()
+    );
+    // 基线矩阵：票据认领、块数 = 线程数 × 2。
+    let baseline: Vec<ArmSpec> = [1_u32, 2, 4, 8, 16]
+        .into_iter()
+        .map(|workers| ArmSpec {
+            workers,
+            multiplier: 2,
+            vehicles: VEHICLES,
+            rounds: if workers == 1 { 3 } else { 2 },
+        })
+        .collect();
+    // 有界扫描：块数倍数（1×/2×/4× 线程数）与阈值证据（小/大工作集交叉）。
+    let candidates: Vec<ArmSpec> = vec![
+        ArmSpec {
+            workers: 4,
+            multiplier: 1,
+            vehicles: VEHICLES,
+            rounds: 2,
+        },
+        ArmSpec {
+            workers: 8,
+            multiplier: 1,
+            vehicles: VEHICLES,
+            rounds: 2,
+        },
+        ArmSpec {
+            workers: 16,
+            multiplier: 1,
+            vehicles: VEHICLES,
+            rounds: 2,
+        },
+        ArmSpec {
+            workers: 8,
+            multiplier: 4,
+            vehicles: VEHICLES,
+            rounds: 2,
+        },
+        ArmSpec {
+            workers: 16,
+            multiplier: 4,
+            vehicles: VEHICLES,
+            rounds: 2,
+        },
+        // 阈值证据：小/大工作集下融合与分发的交叉。
+        ArmSpec {
+            workers: 1,
+            multiplier: 2,
+            vehicles: 256,
+            rounds: 2,
+        },
+        ArmSpec {
+            workers: 4,
+            multiplier: 2,
+            vehicles: 256,
+            rounds: 2,
+        },
+        ArmSpec {
+            workers: 1,
+            multiplier: 2,
+            vehicles: 4_096,
+            rounds: 2,
+        },
+        ArmSpec {
+            workers: 4,
+            multiplier: 2,
+            vehicles: 4_096,
+            rounds: 2,
+        },
+        ArmSpec {
+            workers: 8,
+            multiplier: 2,
+            vehicles: 4_096,
+            rounds: 2,
+        },
+    ];
+    let all: Vec<ArmSpec> = baseline.into_iter().chain(candidates).collect();
+    // 轮次展开后引用槽按 (vehicles, round) 全量建。
+    let mut references: Vec<((usize, usize), Option<String>)> = Vec::new();
+    for spec in &all {
+        for round in 0..spec.rounds {
+            let key = (spec.vehicles, round);
+            if !references.iter().any(|(existing, _)| *existing == key) {
+                references.push((key, None));
+            }
+        }
+    }
+    run_matrix(&all, &mut references);
     run_error_arm();
     println!("preview-parallel-done");
 }

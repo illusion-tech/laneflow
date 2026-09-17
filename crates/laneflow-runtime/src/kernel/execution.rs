@@ -163,12 +163,14 @@ pub(crate) struct DispatchStats {
     pub(crate) dispatched_chunks: usize,
     /// 全部槽位均完成（无中途首错返回）的块数。
     pub(crate) completed_chunks: usize,
-    /// 因块起点晚于已错位置而整块跳过、未执行的块数。
+    /// 因块起点晚于已错位置、任务在开始执行时跳过计算而整块跳过的块数。
     pub(crate) skipped_chunks: usize,
     /// 启动时已存在已错位置仍执行的块数（完整 join 的错误后多做工作）。
     pub(crate) extra_work_chunks: usize,
-    /// 实际参与本调用的线程数。
-    pub(crate) threads: usize,
+    /// 实际参与本调用的不同线程数（非同时运行峰值）。
+    pub(crate) participating_threads: usize,
+    /// 票据式认领下成功取到块票据的总次数（cfg(test) 登记）。
+    pub(crate) ticket_grabs: usize,
 }
 
 // 测试专用：最近一次 `try_for_each_chunk` 的调度统计；机制测量探针读取，
@@ -199,6 +201,7 @@ struct DispatchCounters {
     completed: AtomicUsize,
     skipped: AtomicUsize,
     extra_work: AtomicUsize,
+    ticket_grabs: AtomicUsize,
     threads: Mutex<Vec<std::thread::ThreadId>>,
 }
 
@@ -212,13 +215,18 @@ impl DispatchCounters {
         }
     }
 
+    fn note_ticket_grab(&self) {
+        self.ticket_grabs.fetch_add(1, Ordering::Relaxed);
+    }
+
     fn stats(&self) -> DispatchStats {
         DispatchStats {
             dispatched_chunks: self.dispatched.load(Ordering::Relaxed),
             completed_chunks: self.completed.load(Ordering::Relaxed),
             skipped_chunks: self.skipped.load(Ordering::Relaxed),
             extra_work_chunks: self.extra_work.load(Ordering::Relaxed),
-            threads: self.threads.lock().expect("dispatch stats threads").len(),
+            participating_threads: self.threads.lock().expect("dispatch stats threads").len(),
+            ticket_grabs: self.ticket_grabs.load(Ordering::Relaxed),
         }
     }
 }
@@ -351,11 +359,12 @@ impl ExecutionResources {
 
     /// 可失败的保序分发：与 `for_each_chunk` 相同的互斥输出划分与完整 join，
     /// 但任务逐个槽位回报值或完整领域错误。`first_error` 由调用方以
-    /// `usize::MAX` 初始化；任务遇错把该槽逻辑下标 min-store 进该原子，
-    /// 整块起点晚于已错位置的输出整块标记 `Skipped` 不执行。错误不取消其他
-    /// 已分发任务：Rayon scope 在传播 panic 前等待全部任务结束，领域错误也
-    /// 等完整 join 后由调用方按逻辑顺序消费首错。协调调用线程执行首块。
-    /// 统计只在测试构建登记；生产构建返回默认值、无锁无分配。
+    /// `usize::MAX` 初始化；任务遇错把该槽逻辑下标 min-store 进该原子；
+    /// 更晚任务在开始执行时先查已错位置，整块晚于已错位置的输出整块标记
+    /// `Skipped` 跳过计算。错误不取消其他已分发任务：Rayon scope 在传播
+    /// panic 前等待全部任务结束，领域错误也等完整 join 后由调用方按逻辑
+    /// 顺序消费首错。调用线程与池任务票据式认领块。统计只在测试构建登记；
+    /// 生产构建返回默认值、无统计锁无统计分配（票据队列是分发本身的设施）。
     pub(crate) fn try_for_each_chunk<T, F>(
         &self,
         view: super::phase::StepReadView<'_>,
@@ -385,15 +394,59 @@ impl ExecutionResources {
                     );
                 }
             }
-            Self::Pool(resources) => resources.pool.in_place_scope(|scope| {
-                let compute = &compute;
-                #[cfg(test)]
-                let counters = &counters;
-                let mut chunks = output.chunks_mut(chunk_size).enumerate();
-                let first = chunks.next();
-                for (chunk_index, chunk) in chunks {
-                    let start = chunk_index * chunk_size;
-                    scope.spawn(move |_| {
+            Self::Pool(resources) => {
+                // 票据式认领：spawn `worker−1` 个池任务，调用线程与池任务
+                // 从共享票据队列取块直到取完——调用线程不再只算首块后在
+                // scope 末尾空等（机制测量：同场景整步 w2 −18%、w4 −8%、
+                // w8 −7%）。取到票据后仍先查已错位置，跳过语义与完整 join
+                // 不变；队列是每次分发的局部短临界区。
+                type TicketQueue<'a, T> = std::sync::Mutex<
+                    std::collections::VecDeque<(usize, &'a mut [DispatchSlot<T>])>,
+                >;
+                let queue: TicketQueue<'_, T> = std::sync::Mutex::new(
+                    output
+                        .chunks_mut(chunk_size)
+                        .enumerate()
+                        .map(|(chunk_index, chunk)| (chunk_index * chunk_size, chunk))
+                        .collect(),
+                );
+                let auxiliaries = resources.pool.current_num_threads();
+                resources.pool.in_place_scope(|scope| {
+                    let compute = &compute;
+                    #[cfg(test)]
+                    let counters = &counters;
+                    let queue = &queue;
+                    macro_rules! claim_chunk {
+                        () => {
+                            queue.lock().expect("dispatch ticket queue").pop_front()
+                        };
+                    }
+                    for _ in 0..auxiliaries {
+                        scope.spawn(move |_| {
+                            loop {
+                                let Some((start, chunk)) = claim_chunk!() else {
+                                    break;
+                                };
+                                #[cfg(test)]
+                                counters.note_ticket_grab();
+                                run_dispatch_chunk(
+                                    compute,
+                                    view,
+                                    first_error,
+                                    #[cfg(test)]
+                                    counters,
+                                    start,
+                                    chunk,
+                                );
+                            }
+                        });
+                    }
+                    loop {
+                        let Some((start, chunk)) = claim_chunk!() else {
+                            break;
+                        };
+                        #[cfg(test)]
+                        counters.note_ticket_grab();
                         run_dispatch_chunk(
                             compute,
                             view,
@@ -403,20 +456,9 @@ impl ExecutionResources {
                             start,
                             chunk,
                         );
-                    });
-                }
-                if let Some((chunk_index, chunk)) = first {
-                    run_dispatch_chunk(
-                        compute,
-                        view,
-                        first_error,
-                        #[cfg(test)]
-                        counters,
-                        chunk_index * chunk_size,
-                        chunk,
-                    );
-                }
-            }),
+                    }
+                });
+            }
         }
         #[cfg(test)]
         {
@@ -663,6 +705,9 @@ mod tests {
             world.execution = WorldExecution::start_private(config(workers), &world.state);
             let mut output: Vec<DispatchSlot<u64>> = vec![DispatchSlot::Pending; slot_count];
             let first_error = AtomicUsize::new(usize::MAX);
+            let barrier = Barrier::new(2);
+            let sync_passes = AtomicUsize::new(0);
+            let pool_run = workers > 1;
             let stats = world.execution.run(&mut world.state, |state, resources| {
                 resources.try_for_each_chunk(
                     state.read_view(),
@@ -670,6 +715,12 @@ mod tests {
                     &first_error,
                     2,
                     |view, start, chunk| {
+                        // 票据认领下单线程可能取完全部块；池运行仅前两次块
+                        // 计算用双人屏障强制调用线程与池任务真实会合（恰好
+                        // 两名等待者，不会死锁），重叠证据不依赖调度运气。
+                        if pool_run && sync_passes.fetch_add(1, Ordering::SeqCst) < 2 {
+                            barrier.wait();
+                        }
                         let vehicle = view.derived.active_order[0];
                         let progress = u64::from(view.vehicle_state(vehicle).unwrap().progress_mm);
                         for (offset, slot) in chunk.iter_mut().enumerate() {
@@ -694,8 +745,8 @@ mod tests {
         assert_eq!(caller_stats.completed_chunks, 5);
         assert_eq!(caller_stats.skipped_chunks, 0);
         assert_eq!(caller_stats.extra_work_chunks, 0);
-        assert_eq!(caller_stats.threads, 1);
-        assert!(pool_stats.threads >= 2);
+        assert_eq!(caller_stats.participating_threads, 1);
+        assert!(pool_stats.participating_threads >= 2);
         assert_eq!(LIVE_WORKERS.load(Ordering::SeqCst), 0);
     }
 
@@ -735,7 +786,7 @@ mod tests {
         assert_eq!(caller_stats.completed_chunks, 1);
         assert_eq!(caller_stats.skipped_chunks, 2);
         assert_eq!(caller_stats.extra_work_chunks, 0);
-        assert_eq!(caller_stats.threads, 1);
+        assert_eq!(caller_stats.participating_threads, 1);
 
         // 复用已错位置（仍为 6）：池内起点晚于 6 的块确定整块跳过且 compute 未执行，
         // 起点更早的两块以错误后多做工作执行，完整 join 后 started == finished。
@@ -814,8 +865,11 @@ mod tests {
                 assert_eq!(stats.completed_chunks, expected_chunks, "{context}");
                 assert_eq!(stats.skipped_chunks, 0, "{context}");
                 assert_eq!(stats.extra_work_chunks, 0, "{context}");
-                assert!(stats.threads <= workers as usize, "{context}");
-                assert!(stats.threads >= usize::from(slot_count > 0), "{context}");
+                assert!(stats.participating_threads <= workers as usize, "{context}");
+                assert!(
+                    stats.participating_threads >= usize::from(slot_count > 0),
+                    "{context}"
+                );
             }
             drop(world);
         }
@@ -852,8 +906,8 @@ mod tests {
             )
         });
         assert_eq!(slot_outcomes(&output), expected_done(8));
-        assert!(stats.threads >= 2);
-        assert!(stats.threads <= world.execution.resources.dispatch_threads());
+        assert!(stats.participating_threads >= 2);
+        assert!(stats.participating_threads <= world.execution.resources.dispatch_threads());
         let visited: std::collections::HashSet<_> =
             visited.into_inner().unwrap().into_iter().collect();
         assert!(visited.contains(&std::thread::current().id()));
