@@ -25,3 +25,7 @@ target
 
 # 本地钉版工具（flatc 等），CI 自行下载校验
 .tools/
+
+# 本地 agent 工作目录（codex 环境配置与会话记忆），不进入仓库
+.codex/environments/
+.workbuddy/
