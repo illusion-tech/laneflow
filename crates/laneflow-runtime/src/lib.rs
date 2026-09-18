@@ -74,7 +74,7 @@ pub use kernel::parking::{
     VirtualEntryAnchorSelector, VirtualExitAnchorSelector,
 };
 pub use kernel::policy::{DerivedPolicyGap, PolicyPin, WorldPolicySelection};
-pub use kernel::pose::{CommittedPoseSourceBatch, CommittedSignalGroupBatch, PoseSource};
+pub use kernel::pose::{CommittedSignalGroupBatch, PoseSource};
 pub use kernel::transitions::{
     TrafficTransitionAnchor, TrafficTransitionEvent, TrafficTransitionKind,
 };

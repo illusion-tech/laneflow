@@ -444,7 +444,7 @@ fn spawn_corridor_pair(world: &mut TrafficWorld, revision: &SharedNetworkRevisio
 }
 
 fn assert_two_lane_poses(world: &TrafficWorld) {
-    let poses = world.committed_pose_sources();
+    let poses = world.committed_pose_sources().collect::<Vec<_>>();
     assert_eq!(poses.as_slice().len(), 2);
     assert!(
         poses

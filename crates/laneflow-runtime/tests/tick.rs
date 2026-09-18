@@ -183,7 +183,7 @@ fn bumper_gap(
     follower: laneflow_runtime::VehicleHandle,
     length: u32,
 ) -> i64 {
-    let poses = world.committed_pose_sources();
+    let poses = world.committed_pose_sources().collect::<Vec<_>>();
     let leader_progress = poses
         .as_slice()
         .iter()
@@ -247,7 +247,7 @@ fn follower_cannot_penetrate_leader_occupancy() {
         world.step(TickInput::new(100)).expect("step");
     }
 
-    let poses = world.committed_pose_sources();
+    let poses = world.committed_pose_sources().collect::<Vec<_>>();
     let leader_progress = poses
         .as_slice()
         .iter()
@@ -299,6 +299,7 @@ fn both_vehicles_can_advance_on_fixture_route() {
         .expect("follower");
     let before: Vec<u32> = world
         .committed_pose_sources()
+        .collect::<Vec<_>>()
         .as_slice()
         .iter()
         .map(|(_, source)| route_distance(&world, &edges, *source))
@@ -308,6 +309,7 @@ fn both_vehicles_can_advance_on_fixture_route() {
     }
     let after: Vec<u32> = world
         .committed_pose_sources()
+        .collect::<Vec<_>>()
         .as_slice()
         .iter()
         .map(|(_, source)| route_distance(&world, &edges, *source))
@@ -336,7 +338,7 @@ fn parked_vehicle_does_not_move() {
         .expect("spawn parked");
     world.step(TickInput::new(100)).expect("step");
     assert!(matches!(
-        world.committed_pose_sources().as_slice()[0].1,
+        world.committed_pose_sources().collect::<Vec<_>>().as_slice()[0].1,
         laneflow_runtime::PoseSource::Parking { space: occupied } if occupied == space
     ));
 }
@@ -370,6 +372,7 @@ fn identical_step_sequences_are_deterministic() {
         }
         world
             .committed_pose_sources()
+            .collect::<Vec<_>>()
             .as_slice()
             .iter()
             .map(|(_, source)| *source)
@@ -471,6 +474,7 @@ fn follower_is_observably_constrained_versus_solo() {
         &paired_edges,
         paired
             .committed_pose_sources()
+            .collect::<Vec<_>>()
             .as_slice()
             .iter()
             .find(|(handle, _)| *handle == follower)
@@ -481,6 +485,7 @@ fn follower_is_observably_constrained_versus_solo() {
         &solo,
         &solo_edges,
         solo.committed_pose_sources()
+            .collect::<Vec<_>>()
             .as_slice()
             .iter()
             .find(|(handle, _)| *handle == solo_vehicle)
@@ -515,7 +520,11 @@ fn red_snapshot_prevents_controlled_transition() {
     for _ in 0..20 {
         world.step(TickInput::new(100)).expect("step");
     }
-    let PoseSource::Lane { edge, progress_mm } = world.committed_pose_sources().as_slice()[0].1
+    let PoseSource::Lane { edge, progress_mm } = world
+        .committed_pose_sources()
+        .collect::<Vec<_>>()
+        .as_slice()[0]
+        .1
     else {
         panic!("expected lane pose");
     };
@@ -567,7 +576,11 @@ fn phase_boundary_inside_tick_keeps_snapshot_t_and_publishes_t_plus_d() {
         ))
         .expect("spawn");
     world.step(TickInput::new(DELTA)).expect("step");
-    let PoseSource::Lane { edge, progress_mm } = world.committed_pose_sources().as_slice()[0].1
+    let PoseSource::Lane { edge, progress_mm } = world
+        .committed_pose_sources()
+        .collect::<Vec<_>>()
+        .as_slice()[0]
+        .1
     else {
         panic!("expected lane pose");
     };
@@ -624,14 +637,14 @@ fn failed_step_leaves_pose_occupancy_signals_and_time_unchanged() {
             0,
         ))
         .expect("spawn");
-    let poses = world.committed_pose_sources();
+    let poses = world.committed_pose_sources().collect::<Vec<_>>();
     let signals = world.committed_signal_groups();
     let time = world.time_ms();
     let tick = world.tick_index();
     let occupant = world
         .committed_parking_occupant(laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0));
     assert!(world.step(TickInput::new(50)).is_err());
-    assert_eq!(world.committed_pose_sources(), poses);
+    assert_eq!(world.committed_pose_sources().collect::<Vec<_>>(), poses);
     assert_eq!(world.committed_signal_groups(), signals);
     assert_eq!(world.time_ms(), time);
     assert_eq!(world.tick_index(), tick);
@@ -640,7 +653,14 @@ fn failed_step_leaves_pose_occupancy_signals_and_time_unchanged() {
             .committed_parking_occupant(laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0)),
         occupant
     );
-    assert_eq!(world.committed_pose_sources().as_slice()[0].0, vehicle);
+    assert_eq!(
+        world
+            .committed_pose_sources()
+            .collect::<Vec<_>>()
+            .as_slice()[0]
+            .0,
+        vehicle
+    );
 }
 
 #[test]
@@ -670,6 +690,7 @@ fn spawn_at_vacated_progress_succeeds_after_leader_advances() {
             &edges,
             world
                 .committed_pose_sources()
+                .collect::<Vec<_>>()
                 .as_slice()
                 .iter()
                 .find(|(handle, _)| *handle == leader)
@@ -698,6 +719,7 @@ fn spawn_at_vacated_progress_succeeds_after_leader_advances() {
         progress_mm: leader_edge_progress,
     } = world
         .committed_pose_sources()
+        .collect::<Vec<_>>()
         .as_slice()
         .iter()
         .find(|(handle, _)| *handle == leader)
@@ -746,6 +768,7 @@ fn route_end_leaves_committed_poses_and_lane_occupancy() {
         world.step(TickInput::new(100)).expect("step");
         if world
             .committed_pose_sources()
+            .collect::<Vec<_>>()
             .as_slice()
             .iter()
             .all(|(handle, _)| *handle != vehicle)
@@ -756,6 +779,7 @@ fn route_end_leaves_committed_poses_and_lane_occupancy() {
     assert!(
         world
             .committed_pose_sources()
+            .collect::<Vec<_>>()
             .as_slice()
             .iter()
             .all(|(handle, _)| *handle != vehicle),
@@ -796,7 +820,11 @@ fn later_red_stop_caps_travel_after_permitted_gate() {
         ))
         .expect("spawn");
     world.step(TickInput::new(1_000)).expect("step");
-    let PoseSource::Lane { edge, progress_mm } = world.committed_pose_sources().as_slice()[0].1
+    let PoseSource::Lane { edge, progress_mm } = world
+        .committed_pose_sources()
+        .collect::<Vec<_>>()
+        .as_slice()[0]
+        .1
     else {
         panic!("expected lane pose");
     };
@@ -825,7 +853,11 @@ fn later_red_uses_compiled_path_gate() {
         ))
         .expect("spawn");
     world.step(TickInput::new(1_000)).expect("step");
-    let PoseSource::Lane { edge, progress_mm } = world.committed_pose_sources().as_slice()[0].1
+    let PoseSource::Lane { edge, progress_mm } = world
+        .committed_pose_sources()
+        .collect::<Vec<_>>()
+        .as_slice()[0]
+        .1
     else {
         panic!("expected lane pose");
     };
@@ -928,11 +960,22 @@ fn completed_vehicle_keeps_capacity_until_replace() {
         .expect("only slot");
     for _ in 0..8 {
         world.step(TickInput::new(100)).expect("step");
-        if world.committed_pose_sources().as_slice().is_empty() {
+        if world
+            .committed_pose_sources()
+            .collect::<Vec<_>>()
+            .as_slice()
+            .is_empty()
+        {
             break;
         }
     }
-    assert!(world.committed_pose_sources().as_slice().is_empty());
+    assert!(
+        world
+            .committed_pose_sources()
+            .collect::<Vec<_>>()
+            .as_slice()
+            .is_empty()
+    );
     assert_eq!(
         world.vehicle(old).expect("retained").status(),
         VehicleStatus::Completed

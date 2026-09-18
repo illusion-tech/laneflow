@@ -3393,7 +3393,13 @@ fn spawn_access_denied_on_registered_route_leaves_no_vehicle() {
             .unwrap_err(),
         SpawnError::AccessDenied
     );
-    assert!(world.committed_pose_sources().as_slice().is_empty());
+    assert!(
+        world
+            .committed_pose_sources()
+            .collect::<Vec<_>>()
+            .as_slice()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -3611,6 +3617,7 @@ fn virtual_parking_capacity_mixed_pools_leave_and_despawn_are_exact() {
     assert!(
         !world
             .committed_pose_sources()
+            .collect::<Vec<_>>()
             .as_slice()
             .iter()
             .any(|(vehicle, _)| *vehicle == parked_virtual)
@@ -3647,6 +3654,7 @@ fn virtual_parking_capacity_mixed_pools_leave_and_despawn_are_exact() {
     assert!(matches!(
         world
             .committed_pose_sources()
+            .collect::<Vec<_>>()
             .as_slice()
             .iter()
             .find(|(vehicle, _)| *vehicle == parked_virtual),
@@ -3686,6 +3694,7 @@ fn virtual_parking_capacity_mixed_pools_leave_and_despawn_are_exact() {
     assert!(matches!(
         world
             .committed_pose_sources()
+            .collect::<Vec<_>>()
             .as_slice()
             .iter()
             .find(|(vehicle, _)| *vehicle == parked_explicit),
@@ -3818,7 +3827,13 @@ fn virtual_arrival_is_observed_once_then_park_is_pose_less_and_narrowly_idempote
         world.vehicle(vehicle).expect("parked state").status(),
         VehicleStatus::Parked
     );
-    assert!(world.committed_pose_sources().as_slice().is_empty());
+    assert!(
+        world
+            .committed_pose_sources()
+            .collect::<Vec<_>>()
+            .as_slice()
+            .is_empty()
+    );
     let cursor_before_no_change = world.command_cursor();
     let sequence_before_no_change = world.observation_state_sequence();
     assert!(
@@ -3945,6 +3960,7 @@ fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v6() {
         !restored
             .world()
             .committed_pose_sources()
+            .collect::<Vec<_>>()
             .as_slice()
             .iter()
             .any(|(vehicle, _)| *vehicle == restored_occupied)
@@ -4026,7 +4042,7 @@ fn leave_failures_are_atomic_and_follow_the_one_millimetre_emergency_boundary() 
     let before_state = overlap_world.vehicle(parked);
     let before_binding = overlap_world.parking_binding(parked);
     let before_counts = overlap_world.parking_facility_counts(facility);
-    let before_pose = overlap_world.committed_pose_sources();
+    let before_pose = overlap_world.committed_pose_sources().collect::<Vec<_>>();
     let before_cursor = overlap_world.command_cursor();
     let before_sequence = overlap_world.observation_state_sequence();
     assert_eq!(
@@ -4049,7 +4065,10 @@ fn leave_failures_are_atomic_and_follow_the_one_millimetre_emergency_boundary() 
         overlap_world.parking_facility_counts(facility),
         before_counts
     );
-    assert_eq!(overlap_world.committed_pose_sources(), before_pose);
+    assert_eq!(
+        overlap_world.committed_pose_sources().collect::<Vec<_>>(),
+        before_pose
+    );
     assert_eq!(overlap_world.command_cursor(), before_cursor);
     assert_eq!(overlap_world.observation_state_sequence(), before_sequence);
 
@@ -4065,7 +4084,7 @@ fn leave_failures_are_atomic_and_follow_the_one_millimetre_emergency_boundary() 
     let before_state = overlap_world.vehicle(parked);
     let before_binding = overlap_world.parking_binding(parked);
     let before_counts = overlap_world.parking_facility_counts(facility);
-    let before_pose = overlap_world.committed_pose_sources();
+    let before_pose = overlap_world.committed_pose_sources().collect::<Vec<_>>();
     let before_cursor = overlap_world.command_cursor();
     assert_eq!(
         overlap_world
@@ -4087,7 +4106,10 @@ fn leave_failures_are_atomic_and_follow_the_one_millimetre_emergency_boundary() 
         overlap_world.parking_facility_counts(facility),
         before_counts
     );
-    assert_eq!(overlap_world.committed_pose_sources(), before_pose);
+    assert_eq!(
+        overlap_world.committed_pose_sources().collect::<Vec<_>>(),
+        before_pose
+    );
     assert_eq!(overlap_world.command_cursor(), before_cursor);
 
     let (mut rejected_world, route, facility, parked) = parked_virtual_world();
@@ -4555,6 +4577,7 @@ fn follower_on_diverge_respects_leader_overhang_on_shared_stem() {
     world.step(TickInput::new(100)).expect("step");
     let PoseSource::Lane { progress_mm, .. } = world
         .committed_pose_sources()
+        .collect::<Vec<_>>()
         .as_slice()
         .iter()
         .find(|(handle, _)| *handle == follower)
@@ -4597,7 +4620,11 @@ fn large_delta_travel_does_not_exceed_speed_limit_envelope() {
     for _ in 0..20 {
         world.step(TickInput::new(1_000)).expect("step");
     }
-    let PoseSource::Lane { progress_mm, .. } = world.committed_pose_sources().as_slice()[0].1
+    let PoseSource::Lane { progress_mm, .. } = world
+        .committed_pose_sources()
+        .collect::<Vec<_>>()
+        .as_slice()[0]
+        .1
     else {
         panic!("lane pose");
     };
@@ -4645,6 +4672,7 @@ fn speed_down_transition_caps_next_tick_travel() {
         progress_mm: first_progress,
     } = world
         .committed_pose_sources()
+        .collect::<Vec<_>>()
         .as_slice()
         .iter()
         .find(|(handle, _)| *handle == vehicle)
@@ -4659,6 +4687,7 @@ fn speed_down_transition_caps_next_tick_travel() {
         progress_mm: second_progress,
     } = world
         .committed_pose_sources()
+        .collect::<Vec<_>>()
         .as_slice()
         .iter()
         .find(|(handle, _)| *handle == vehicle)
@@ -4713,6 +4742,7 @@ fn equal_limit_edge_boundary_does_not_stop_the_vehicle() {
     world.step(TickInput::new(100)).expect("step");
     let PoseSource::Lane { edge, progress_mm } = world
         .committed_pose_sources()
+        .collect::<Vec<_>>()
         .as_slice()
         .iter()
         .find(|(handle, _)| *handle == vehicle)
@@ -4762,6 +4792,7 @@ fn infeasible_stop_before_lower_limit_still_enters() {
     world.step(TickInput::new(1_000)).expect("step");
     let PoseSource::Lane { edge, progress_mm } = world
         .committed_pose_sources()
+        .collect::<Vec<_>>()
         .as_slice()
         .iter()
         .find(|(handle, _)| *handle == vehicle)
@@ -4812,6 +4843,7 @@ fn already_below_downstream_limit_does_not_stop_at_boundary() {
     world.step(TickInput::new(1_000)).expect("step");
     let PoseSource::Lane { edge, progress_mm } = world
         .committed_pose_sources()
+        .collect::<Vec<_>>()
         .as_slice()
         .iter()
         .find(|(handle, _)| *handle == vehicle)
