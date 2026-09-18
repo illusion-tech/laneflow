@@ -92,6 +92,102 @@ impl ConflictWorkCounts {
         wait_for_rollbacks: 0,
         wait_for_thresholds: 0,
     };
+
+    /// 逐字段回绕减法：块级诊断记录任务线程计数增量。
+    pub(crate) fn wrapping_sub(self, other: Self) -> Self {
+        Self {
+            vehicle_grant_lookups: self
+                .vehicle_grant_lookups
+                .wrapping_sub(other.vehicle_grant_lookups),
+            grant_update_lookups: self
+                .grant_update_lookups
+                .wrapping_sub(other.grant_update_lookups),
+            visited_passages: self.visited_passages.wrapping_sub(other.visited_passages),
+            frontier_updates: self.frontier_updates.wrapping_sub(other.frontier_updates),
+            eta_preparations: self.eta_preparations.wrapping_sub(other.eta_preparations),
+            eta_distance_evaluations: self
+                .eta_distance_evaluations
+                .wrapping_sub(other.eta_distance_evaluations),
+            candidates: self.candidates.wrapping_sub(other.candidates),
+            yield_queries: self.yield_queries.wrapping_sub(other.yield_queries),
+            cell_claim_queries: self
+                .cell_claim_queries
+                .wrapping_sub(other.cell_claim_queries),
+            downstream_claim_queries: self
+                .downstream_claim_queries
+                .wrapping_sub(other.downstream_claim_queries),
+            downstream_interval_visits: self
+                .downstream_interval_visits
+                .wrapping_sub(other.downstream_interval_visits),
+            owner_record_moves: self
+                .owner_record_moves
+                .wrapping_sub(other.owner_record_moves),
+            commit_resource_visits: self
+                .commit_resource_visits
+                .wrapping_sub(other.commit_resource_visits),
+            collision_rejections: self
+                .collision_rejections
+                .wrapping_sub(other.collision_rejections),
+            wait_for_nodes: self.wait_for_nodes.wrapping_sub(other.wait_for_nodes),
+            wait_for_edges: self.wait_for_edges.wrapping_sub(other.wait_for_edges),
+            wait_for_visits: self.wait_for_visits.wrapping_sub(other.wait_for_visits),
+            wait_for_reorders: self.wait_for_reorders.wrapping_sub(other.wait_for_reorders),
+            wait_for_rollbacks: self
+                .wait_for_rollbacks
+                .wrapping_sub(other.wait_for_rollbacks),
+            wait_for_thresholds: self
+                .wait_for_thresholds
+                .wrapping_sub(other.wait_for_thresholds),
+        }
+    }
+
+    /// 逐字段回绕加法：join 后把块级增量汇总回协调器线程。
+    pub(crate) fn wrapping_add(self, other: Self) -> Self {
+        Self {
+            vehicle_grant_lookups: self
+                .vehicle_grant_lookups
+                .wrapping_add(other.vehicle_grant_lookups),
+            grant_update_lookups: self
+                .grant_update_lookups
+                .wrapping_add(other.grant_update_lookups),
+            visited_passages: self.visited_passages.wrapping_add(other.visited_passages),
+            frontier_updates: self.frontier_updates.wrapping_add(other.frontier_updates),
+            eta_preparations: self.eta_preparations.wrapping_add(other.eta_preparations),
+            eta_distance_evaluations: self
+                .eta_distance_evaluations
+                .wrapping_add(other.eta_distance_evaluations),
+            candidates: self.candidates.wrapping_add(other.candidates),
+            yield_queries: self.yield_queries.wrapping_add(other.yield_queries),
+            cell_claim_queries: self
+                .cell_claim_queries
+                .wrapping_add(other.cell_claim_queries),
+            downstream_claim_queries: self
+                .downstream_claim_queries
+                .wrapping_add(other.downstream_claim_queries),
+            downstream_interval_visits: self
+                .downstream_interval_visits
+                .wrapping_add(other.downstream_interval_visits),
+            owner_record_moves: self
+                .owner_record_moves
+                .wrapping_add(other.owner_record_moves),
+            commit_resource_visits: self
+                .commit_resource_visits
+                .wrapping_add(other.commit_resource_visits),
+            collision_rejections: self
+                .collision_rejections
+                .wrapping_add(other.collision_rejections),
+            wait_for_nodes: self.wait_for_nodes.wrapping_add(other.wait_for_nodes),
+            wait_for_edges: self.wait_for_edges.wrapping_add(other.wait_for_edges),
+            wait_for_visits: self.wait_for_visits.wrapping_add(other.wait_for_visits),
+            wait_for_reorders: self.wait_for_reorders.wrapping_add(other.wait_for_reorders),
+            wait_for_rollbacks: self
+                .wait_for_rollbacks
+                .wrapping_add(other.wait_for_rollbacks),
+            wait_for_thresholds: self
+                .wait_for_thresholds
+                .wrapping_add(other.wait_for_thresholds),
+        }
+    }
 }
 
 /// 测试专用：对当前线程的访问计数应用一次更新。
@@ -114,6 +210,12 @@ pub(crate) fn reset_conflict_work_counts() {
 #[cfg(test)]
 pub(crate) fn conflict_work_counts() -> ConflictWorkCounts {
     CONFLICT_WORK_COUNTS.with(core::cell::Cell::get)
+}
+
+/// 测试专用：整体写入当前线程的访问计数（P3 块级诊断 join 汇总）。
+#[cfg(test)]
+pub(crate) fn set_conflict_work_counts(value: ConflictWorkCounts) {
+    CONFLICT_WORK_COUNTS.with(|counts| counts.set(value));
 }
 
 /// 静态 passage cell 的规范地址；同一流中的 owner-local 下标不会跨流解释。

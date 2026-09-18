@@ -625,7 +625,7 @@ mod transaction_tests {
         assert_eq!(world.state.workspace.motion_cache.capacity(), 0);
         world.state.rebuild_occupancy_index().unwrap();
         world.state.prepare_waiting_step(0.1).unwrap();
-        world.state.prepare_conflict_step(0.1, 1).unwrap();
+        world.state.prepare_conflict_step(0.1, 1, None).unwrap();
         assert!(!world.state.workspace.motion_cache.is_empty());
         let with_previews = world.state.workspace.retained_logical_bytes();
         let previews = std::mem::take(&mut world.state.workspace.motion_cache);
@@ -2306,7 +2306,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         let conflict_timer =
             super::performance_profile::begin(super::performance_profile::Stage::ConflictPrepare);
-        self.prepare_conflict_step(delta_s, tick_index)?;
+        self.prepare_conflict_step(delta_s, tick_index, execution)?;
         #[cfg(test)]
         drop(conflict_timer);
         #[cfg(test)]
