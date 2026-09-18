@@ -190,6 +190,8 @@ thread_local! {
     static MOTION_PATH_COUNTS: std::cell::Cell<MotionPathCounts> = const { std::cell::Cell::new(MotionPathCounts { dispatched: 0, fused: 0, slot_fallback: 0 }) };
     /// 生产分发阈值为保守 1_024；小场景测试经该守卫强制 P5 真实分发。
     static MOTION_FORCE_DISPATCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// 组合矩阵融合侧入口：强制 P5 保持融合（fuse 优先于 force）。
+    static MOTION_FORCE_FUSE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// join 完成后把槽位改写为缺失的注入位置（完成前沿检出测试）。
     static MOTION_SLOT_GAP: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
     /// 块级计数诊断开关：开启时分发路径按块记录并汇总四计数；
@@ -201,6 +203,33 @@ thread_local! {
 #[cfg(test)]
 fn motion_dispatch_forced() -> bool {
     MOTION_FORCE_DISPATCH.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn motion_dispatch_fuse_forced() -> bool {
+    MOTION_FORCE_FUSE.with(std::cell::Cell::get)
+}
+
+#[cfg(not(test))]
+fn motion_dispatch_fuse_forced() -> bool {
+    false
+}
+
+#[cfg(test)]
+pub(crate) struct ForceMotionFuseGuard(bool);
+
+#[cfg(test)]
+impl Drop for ForceMotionFuseGuard {
+    fn drop(&mut self) {
+        MOTION_FORCE_FUSE.with(|forced| forced.set(self.0));
+    }
+}
+
+/// 测试专用：本拍起强制 P5 保持融合（#706 增量 E 组合矩阵融合侧入口，
+/// fuse 优先于 force），返回复位守卫。
+#[cfg(test)]
+pub(crate) fn force_motion_fuse() -> ForceMotionFuseGuard {
+    ForceMotionFuseGuard(MOTION_FORCE_FUSE.with(|forced| forced.replace(true)))
 }
 
 #[cfg(test)]
@@ -2323,7 +2352,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             derived: &self.derived,
         };
         match execution {
-            Some(resources @ crate::kernel::execution::ExecutionResources::Pool(_)) => {
+            Some(resources @ crate::kernel::execution::ExecutionResources::Pool(_))
+                if !motion_dispatch_fuse_forced() =>
+            {
                 prepare_motion_dispatched(
                     self.workspace,
                     read,

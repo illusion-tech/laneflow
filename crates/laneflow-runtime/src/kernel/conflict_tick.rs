@@ -570,9 +570,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
 
         // #706 增量 D：Pool 执行器下走 P3 真实分发（阈值/强制 + 发现、槽位
         // 预留失败回退）；Caller/无执行器保持融合循环。分发或回退后共享
-        // 尾部 reserve + sort；融合循环体一行不动。
+        // 尾部 reserve + sort；融合循环体一行不动。增量 E：fuse 旋钮
+        // （组合矩阵融合侧）优先于 force 与 Pool 执行器。
         let mut dispatched = false;
-        if let Some(resources @ crate::kernel::execution::ExecutionResources::Pool(_)) = execution {
+        if !conflict_dispatch_fuse_forced()
+            && let Some(resources @ crate::kernel::execution::ExecutionResources::Pool(_)) =
+                execution
+        {
             dispatched = self.prepare_conflict_candidates_dispatched(resources, delta_s, tick)?;
         } else {
             #[cfg(test)]
@@ -2750,6 +2754,8 @@ fn count_conflict_path(update: impl FnOnce(&mut ConflictPathCounts)) {
 thread_local! {
     static CONFLICT_PATH_COUNTS: std::cell::Cell<ConflictPathCounts> = const { std::cell::Cell::new(ConflictPathCounts { dispatched: 0, fused: 0, slot_fallback: 0 }) };
     static CONFLICT_FORCE_DISPATCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// 组合矩阵融合侧入口：强制 P3 保持融合（fuse 优先于 force）。
+    static CONFLICT_FORCE_FUSE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static CONFLICT_SLOT_GAP: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
     static CONFLICT_WORK_DIAGNOSTICS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static LAST_CONFLICT_DISPATCH_STATS: std::cell::Cell<Option<crate::kernel::execution::DispatchStats>> = const { std::cell::Cell::new(None) };
@@ -2758,6 +2764,33 @@ thread_local! {
 #[cfg(test)]
 fn conflict_dispatch_forced() -> bool {
     CONFLICT_FORCE_DISPATCH.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn conflict_dispatch_fuse_forced() -> bool {
+    CONFLICT_FORCE_FUSE.with(std::cell::Cell::get)
+}
+
+#[cfg(not(test))]
+fn conflict_dispatch_fuse_forced() -> bool {
+    false
+}
+
+#[cfg(test)]
+pub(crate) struct ForceConflictFuseGuard(bool);
+
+#[cfg(test)]
+impl Drop for ForceConflictFuseGuard {
+    fn drop(&mut self) {
+        CONFLICT_FORCE_FUSE.with(|forced| forced.set(self.0));
+    }
+}
+
+/// 测试专用：本拍起强制 P3 保持融合（#706 增量 E 组合矩阵融合侧入口，
+/// fuse 优先于 force），返回复位守卫。
+#[cfg(test)]
+pub(crate) fn force_conflict_fuse() -> ForceConflictFuseGuard {
+    ForceConflictFuseGuard(CONFLICT_FORCE_FUSE.with(|forced| forced.replace(true)))
 }
 
 #[cfg(test)]

@@ -381,6 +381,34 @@ pub(crate) fn force_preview_dispatch() -> ForcePreviewDispatchGuard {
 #[cfg(test)]
 thread_local! {
     static PREVIEW_FORCE_DISPATCH: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+    static PREVIEW_FORCE_FUSE: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+fn preview_dispatch_fuse_forced() -> bool {
+    PREVIEW_FORCE_FUSE.with(core::cell::Cell::get)
+}
+
+#[cfg(not(test))]
+fn preview_dispatch_fuse_forced() -> bool {
+    false
+}
+
+#[cfg(test)]
+pub(crate) struct ForcePreviewFuseGuard(bool);
+
+#[cfg(test)]
+impl Drop for ForcePreviewFuseGuard {
+    fn drop(&mut self) {
+        PREVIEW_FORCE_FUSE.with(|forced| forced.set(self.0));
+    }
+}
+
+/// 测试专用：本拍起强制 P2 保持融合（即使 Pool 执行器与工作集在阈值
+/// 之上；#706 增量 E 组合矩阵的融合侧入口，fuse 优先于 force）。
+#[cfg(test)]
+pub(crate) fn force_preview_fuse() -> ForcePreviewFuseGuard {
+    ForcePreviewFuseGuard(PREVIEW_FORCE_FUSE.with(|forced| forced.replace(true)))
 }
 
 #[cfg(test)]
@@ -1883,7 +1911,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         drop(_preamble);
         match execution {
-            Some(resources @ crate::kernel::execution::ExecutionResources::Pool(_)) => {
+            Some(resources @ crate::kernel::execution::ExecutionResources::Pool(_))
+                if !preview_dispatch_fuse_forced() =>
+            {
                 prepare_waiting_previews_dispatched(
                     self.workspace,
                     view,
@@ -7001,7 +7031,7 @@ pub(crate) mod tests {
             records
         };
         let reference = run(1);
-        for workers in [2_u32, 4] {
+        for workers in [2_u32, 4, 8, 16] {
             assert_eq!(
                 run(workers),
                 reference,
@@ -7031,7 +7061,7 @@ pub(crate) mod tests {
             records
         };
         let reference = run(1);
-        for workers in [2_u32, 4] {
+        for workers in [2_u32, 4, 8, 16] {
             assert_eq!(
                 run(workers),
                 reference,
@@ -7091,7 +7121,7 @@ pub(crate) mod tests {
         enable_conflict_diagnostics, fail_conflict_cell_work_reserve, fail_conflict_cells_reserve,
         fail_conflict_downstream_pool_reserve, fail_conflict_downstream_work_reserve,
         fail_conflict_input_reserve, fail_conflict_slot_reserve, force_conflict_dispatch,
-        inject_conflict_invariant_downstream, inject_conflict_nonfinite,
+        force_conflict_fuse, inject_conflict_invariant_downstream, inject_conflict_nonfinite,
         last_conflict_dispatch_stats,
     };
 
@@ -7397,7 +7427,7 @@ pub(crate) mod tests {
             records
         };
         let reference = run(1);
-        for workers in [2_u32, 4] {
+        for workers in [2_u32, 4, 8, 16] {
             assert_eq!(
                 run(workers),
                 reference,
@@ -7431,7 +7461,7 @@ pub(crate) mod tests {
             records
         };
         let reference = run(1);
-        for workers in [2_u32, 4] {
+        for workers in [2_u32, 4, 8, 16] {
             assert_eq!(
                 run(workers),
                 reference,
@@ -7462,7 +7492,7 @@ pub(crate) mod tests {
             records
         };
         let reference = run(1);
-        for workers in [2_u32, 4] {
+        for workers in [2_u32, 4, 8, 16] {
             assert_eq!(
                 run(workers),
                 reference,
@@ -7532,6 +7562,291 @@ pub(crate) mod tests {
             fused.visited_passages > 0 && fused.yield_queries > 0,
             "场景必须覆盖 P3 段内计数: {fused:?}"
         );
+    }
+
+    /// E2 生命周期组合（#705 parallel_preview_equivalence 模式扩展到 P3/P5
+    /// 分发）：Parked 夹入 live 序列、Completed 保留中部、同槽位新代次
+    /// respawn——三个生命周期场景下 P2/P3/P5 全部强制分发，逐拍公开记录
+    /// 与工作区语义池同 w1 全融合参照一致，且每拍三路各自路径计数确认
+    /// 真实分发（非回退）。
+    #[test]
+    fn mixed_lifecycle_all_phases_dispatched_matches_fused_reference() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        use crate::kernel::tick::{MotionPathCounts, force_motion_dispatch, motion_path_counts};
+        use crate::kernel::waiting::{
+            WaitingPreviewPathCounts, force_preview_dispatch, preview_path_counts,
+        };
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_310;
+        const PROFILE: VehicleProfileOrdinal = VehicleProfileOrdinal::from_raw(0);
+        let _force_preview = force_preview_dispatch();
+        let _force_conflict = force_conflict_dispatch();
+        let _force_motion = force_motion_dispatch();
+
+        let step_pair = |reference: &mut TrafficWorld, parallel: &mut TrafficWorld| {
+            let preview_before = preview_path_counts();
+            let conflict_before = conflict_path_counts();
+            let motion_before = motion_path_counts();
+            let parallel_outcome = parallel.step(TickInput::new(100)).unwrap();
+            let reference_outcome = reference.step(TickInput::new(100)).unwrap();
+            assert_eq!(
+                (
+                    motion_tick_record(parallel, &parallel_outcome),
+                    conflict_workspace_record(parallel)
+                ),
+                (
+                    motion_tick_record(reference, &reference_outcome),
+                    conflict_workspace_record(reference)
+                ),
+                "混合生命周期全分发必须等于全融合参照"
+            );
+            let preview_delta = WaitingPreviewPathCounts {
+                dispatched: preview_path_counts().dispatched - preview_before.dispatched,
+                fused: preview_path_counts().fused - preview_before.fused,
+                slot_fallback: preview_path_counts().slot_fallback - preview_before.slot_fallback,
+            };
+            let conflict_delta = ConflictPathCounts {
+                dispatched: conflict_path_counts().dispatched - conflict_before.dispatched,
+                fused: conflict_path_counts().fused - conflict_before.fused,
+                slot_fallback: conflict_path_counts().slot_fallback - conflict_before.slot_fallback,
+            };
+            let motion_delta = MotionPathCounts {
+                dispatched: motion_path_counts().dispatched - motion_before.dispatched,
+                fused: motion_path_counts().fused - motion_before.fused,
+                slot_fallback: motion_path_counts().slot_fallback - motion_before.slot_fallback,
+            };
+            assert_eq!(
+                (preview_delta.dispatched, preview_delta.slot_fallback),
+                (1, 0),
+                "P2 必须真实分发"
+            );
+            assert_eq!(
+                (conflict_delta.dispatched, conflict_delta.slot_fallback),
+                (1, 0),
+                "P3 必须真实分发"
+            );
+            assert_eq!(
+                (motion_delta.dispatched, motion_delta.slot_fallback),
+                (1, 0),
+                "P5 必须真实分发"
+            );
+        };
+
+        // 场景 A：Active→Parked 转换拍后连续步进（Parked 夹入 live 序列，
+        // Active 紧凑位 ≠ 逻辑 update_sequence）。
+        let (mut reference, route, space, entry_progress) = parking_route_world(1, WORLD_ID);
+        let (mut parallel, _, _, _) = parking_route_world(4, WORLD_ID);
+        let target = crate::ParkingTarget::ExplicitSpace(space);
+        let reserve = crate::ReserveParkingTarget::ExplicitSpace {
+            space,
+            entry_route_occurrence: 0,
+        };
+        for world in [&mut reference, &mut parallel] {
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(PROFILE, route, 0, 12_000, 0))
+                .unwrap();
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(PROFILE, route, 0, entry_progress, 0))
+                .unwrap();
+            for index in 0..8_u32 {
+                world
+                    .spawn_vehicle(VehicleSpawnInput::new(
+                        PROFILE,
+                        route,
+                        0,
+                        20_000 + index * 8_000,
+                        0,
+                    ))
+                    .unwrap();
+            }
+            let parker = world.live_vehicles()[1];
+            world.reserve_parking(parker, reserve).expect("reserve");
+        }
+        let parker = reference.live_vehicles()[1];
+        reference.park_vehicle(parker, target).expect("park");
+        parallel.park_vehicle(parker, target).expect("park");
+        for _ in 0..6 {
+            step_pair(&mut reference, &mut parallel);
+        }
+
+        // 场景 B：Completed 产生拍（近终点车）+ 同槽位新代次 spawn 拍。
+        let (mut reference, route, _, _) = parking_route_world(1, WORLD_ID);
+        let (mut parallel, _, _, _) = parking_route_world(4, WORLD_ID);
+        let edges = reference.route_edges(route).unwrap().to_vec();
+        let speed_limit = reference
+            .traffic()
+            .lane_speed_limits_millimetres_per_second()[edges[0].index()];
+        let exit_length = reference.traffic().lane_lengths_millimetres()[edges[1].index()];
+        for world in [&mut reference, &mut parallel] {
+            for index in 0..5_u32 {
+                world
+                    .spawn_vehicle(VehicleSpawnInput::new(
+                        PROFILE,
+                        route,
+                        0,
+                        12_000 + index * 8_000,
+                        0,
+                    ))
+                    .unwrap();
+            }
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(
+                    PROFILE,
+                    route,
+                    1,
+                    exit_length - 500,
+                    speed_limit,
+                ))
+                .unwrap();
+            for index in 5..10_u32 {
+                world
+                    .spawn_vehicle(VehicleSpawnInput::new(
+                        PROFILE,
+                        route,
+                        0,
+                        12_000 + index * 8_000,
+                        0,
+                    ))
+                    .unwrap();
+            }
+        }
+        let finisher = reference.live_vehicles()[5];
+        let mut completed = false;
+        for _ in 0..6 {
+            step_pair(&mut reference, &mut parallel);
+            completed = completed
+                || reference
+                    .vehicle(finisher)
+                    .is_some_and(|state| state.status() == crate::VehicleStatus::Completed);
+            if completed {
+                break;
+            }
+        }
+        assert!(completed, "近终点车必须在脚本内到达路线终点");
+        step_pair(&mut reference, &mut parallel);
+        let stale = reference.live_vehicles()[3];
+        let respawn = VehicleSpawnInput::new(PROFILE, route, 0, 0, 0);
+        for world in [&mut reference, &mut parallel] {
+            world.despawn_vehicle(stale).expect("despawn");
+        }
+        let reference_new = reference.spawn_vehicle(respawn).unwrap();
+        let parallel_new = parallel.spawn_vehicle(respawn).unwrap();
+        assert_eq!(reference_new, parallel_new);
+        assert_eq!(reference_new.index(), stale.index(), "同槽位复用");
+        assert_ne!(reference_new, stale, "新代次");
+        for _ in 0..3 {
+            step_pair(&mut reference, &mut parallel);
+        }
+    }
+
+    /// E1 组合矩阵（审阅者 §8.3）：P2/P3/P5 七个分发/融合组合 + 全融合
+    /// 参照，multi-gate 16 车 w4、每臂 4 拍。被要求分发的相位以各自路径
+    /// 计数确认真实分发（与 fused/slot_fallback 互斥），融合相位计 fused；
+    /// 全部组合的公开记录 + 工作区语义池逐拍一致（分发不改变语义），且
+    /// 失败注入语义在全分发组合下不回归（矩阵外由 D4/首错测试覆盖）。
+    #[test]
+    fn phase_combination_matrix_matches_across_all_arms() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_300;
+        use crate::kernel::tick::{
+            MotionPathCounts, force_motion_dispatch, force_motion_fuse, motion_path_counts,
+        };
+        use crate::kernel::waiting::{
+            WaitingPreviewPathCounts, force_preview_dispatch, force_preview_fuse,
+            preview_path_counts,
+        };
+        // (P2, P3, P5)：true = 强制分发，false = 强制融合（fuse 优先）。
+        let arms: [(bool, bool, bool); 8] = [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (false, false, true),
+            (true, true, false),
+            (true, false, true),
+            (false, true, true),
+            (true, true, true),
+        ];
+        let mut reference: Option<Vec<(String, String)>> = None;
+        for &(p2, p3, p5) in &arms {
+            let mut world = multi_gate_world_with_id(16, WORLD_ID);
+            install_execution(&mut world, 4);
+            let _p2_dispatch = p2.then(force_preview_dispatch);
+            let _p2_fuse = (!p2).then(force_preview_fuse);
+            let _p3_dispatch = p3.then(force_conflict_dispatch);
+            let _p3_fuse = (!p3).then(force_conflict_fuse);
+            let _p5_dispatch = p5.then(force_motion_dispatch);
+            let _p5_fuse = (!p5).then(force_motion_fuse);
+            let preview_arm_before = preview_path_counts();
+            let conflict_arm_before = conflict_path_counts();
+            let motion_arm_before = motion_path_counts();
+            let mut records = Vec::new();
+            for _ in 0..4 {
+                let outcome = world.step(TickInput::new(100)).unwrap();
+                records.push((
+                    motion_tick_record(&world, &outcome),
+                    conflict_workspace_record(&mut world),
+                ));
+            }
+            if let Some(reference) = &reference {
+                assert_eq!(
+                    &records, reference,
+                    "arm=({p2},{p3},{p5}) 必须与全融合参照逐拍一致"
+                );
+            } else {
+                reference = Some(records);
+            }
+            let preview_delta = WaitingPreviewPathCounts {
+                dispatched: preview_path_counts().dispatched - preview_arm_before.dispatched,
+                fused: preview_path_counts().fused - preview_arm_before.fused,
+                slot_fallback: preview_path_counts().slot_fallback
+                    - preview_arm_before.slot_fallback,
+            };
+            let conflict_delta = ConflictPathCounts {
+                dispatched: conflict_path_counts().dispatched - conflict_arm_before.dispatched,
+                fused: conflict_path_counts().fused - conflict_arm_before.fused,
+                slot_fallback: conflict_path_counts().slot_fallback
+                    - conflict_arm_before.slot_fallback,
+            };
+            let motion_delta = MotionPathCounts {
+                dispatched: motion_path_counts().dispatched - motion_arm_before.dispatched,
+                fused: motion_path_counts().fused - motion_arm_before.fused,
+                slot_fallback: motion_path_counts().slot_fallback - motion_arm_before.slot_fallback,
+            };
+            let expect = |on: bool| {
+                if on { (4, 0, 0) } else { (0, 4, 0) }
+            };
+            let (pd, pf, pb) = expect(p2);
+            assert_eq!(
+                (
+                    preview_delta.dispatched,
+                    preview_delta.fused,
+                    preview_delta.slot_fallback
+                ),
+                (pd, pf, pb),
+                "P2 arm=({p2},{p3},{p5}) 路径计数"
+            );
+            let (cd, cf, cb) = expect(p3);
+            assert_eq!(
+                (
+                    conflict_delta.dispatched,
+                    conflict_delta.fused,
+                    conflict_delta.slot_fallback
+                ),
+                (cd, cf, cb),
+                "P3 arm=({p2},{p3},{p5}) 路径计数"
+            );
+            let (md, mf, mb) = expect(p5);
+            assert_eq!(
+                (
+                    motion_delta.dispatched,
+                    motion_delta.fused,
+                    motion_delta.slot_fallback
+                ),
+                (md, mf, mb),
+                "P5 arm=({p2},{p3},{p5}) 路径计数"
+            );
+        }
     }
 
     /// P2 计算 panic 端到端：panic 不按 `StepError` 映射；世界永久失效，
