@@ -860,19 +860,16 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     let index = start + offset;
                     let (_vehicle, sequence, cache_index, state) =
                         self.workspace.conflict_inputs[index];
-                    // W1：回收上拍槽位状态里的段暂存 backing（Resource 随行
-                    // scratch 或消费后归还的 Spent）作本拍任务暂存——稳态下
-                    // 无每候选堆分配；Unmaterialized/失败语义不变。
+                    // W1：回收上拍槽位状态的段暂存 backing（五个变体统一
+                    // 经 into_scratch——含未消费后缀的 None/Staged/Failed）
+                    // 作本拍任务暂存；Unmaterialized/失败语义不变。
                     let mut scratch = match core::mem::replace(
                         slot,
                         crate::kernel::execution::DispatchSlot::Pending,
                     ) {
-                        crate::kernel::execution::DispatchSlot::Done(Ok(
-                            CandidateReport::Resource { scratch, .. },
-                        ))
-                        | crate::kernel::execution::DispatchSlot::Done(Ok(
-                            CandidateReport::Spent(scratch),
-                        )) => scratch,
+                        crate::kernel::execution::DispatchSlot::Done(Ok(report)) => {
+                            report.into_scratch()
+                        }
                         _ => CandidateScratch::default(),
                     };
                     scratch.cells.clear();
@@ -3230,166 +3227,209 @@ mod tests {
         use crate::admin::cutover_migration::tests::{
             conflict_scale_revision, conflict_scale_world,
         };
-        use stats_alloc::{INSTRUMENTED_SYSTEM, Region};
 
-        const WORKERS: u32 = 4;
+        // 步进间诊断样本（计数窗口外写入；预先按上界预留）。
+        type WindowSample = (u32, bool, Option<(u64, u64)>);
+        type JournalSample = (u32, u64, Option<(u64, u64)>);
+
+        let revision = conflict_scale_revision();
+        // W5-B 修订：P7 唯一入口是 commit。用 cfg(test) 挂点（Drop 守卫）
+        // 计量 commit 精确窗口；w1（Caller）执行器下不存在 Rayon 节点，
+        // 「预算归因」问题消失；每场景的被测拍都带资源转移见证。断言与
+        // 输出全部在计数窗口外执行；诊断存储在步进间预备。
+        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        let mut samples: Vec<WindowSample> = Vec::new();
+        let mut witnessed_tick = None;
+        // 授予拍（tick 0）捕获 passage 地址；crossing 见证 = 任一 live
+        // 车辆在该地址 committed stage 为 Occupied（enter/crossing 已
+        // 提交；passage_transitions 被 commit 消费，post-step 恒空）。
+        let mut granted_address = None;
+        let mut stage_before = false;
+        for tick in 0..12 {
+            world.step(TickInput::new(4)).expect("publication step");
+            if granted_address.is_none() {
+                granted_address = world
+                    .latest_conflict_decisions()
+                    .iter()
+                    .find_map(|decision| {
+                        (decision.outcome() == crate::ConflictDecisionOutcome::Granted)
+                            .then(|| decision.passage().map(|passage| passage.address()))
+                            .flatten()
+                    });
+            }
+            // 资源转移见证 = committed passage stage 在本拍由无到有
+            // （None → Some(Reserved) 即授予提交；Reserved/Occupied/Cleared
+            // 任一阶段存在都证明资源已转移）。
+            let stage_now = granted_address.is_some_and(|address| {
+                world.live_vehicles().iter().any(|vehicle| {
+                    world
+                        .state
+                        .conflict_read()
+                        .passage_stage(*vehicle, address)
+                        .is_some()
+                })
+            });
+            let witness = stage_now && !stage_before;
+            stage_before |= stage_now;
+            let window = crate::kernel::tick::last_commit_alloc_window();
+            samples.push((tick, witness, window));
+            if witness && witnessed_tick.is_none() {
+                witnessed_tick = Some(tick);
+            }
+        }
+        let tick = witnessed_tick.expect("必须出现资源转移见证拍");
+        let window = samples[tick as usize].2.expect("commit 窗口探针");
+        eprintln!("P7-B-DIAG normal tick={tick} window={window:?} samples={samples:?}");
+        assert_eq!(
+            window,
+            (0, 0),
+            "普通资源发布的 commit 窗口必须零分配/零再分配"
+        );
+
+        // ②journal 已武装：被测拍实际写入非空记录（written_bytes 严格增长）。
+        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        world.state.arm_migration_journal(8 * 1_024).expect("arm");
+        let mut samples: Vec<JournalSample> = Vec::new();
+        let mut witnessed_tick = None;
+        for tick in 0..12 {
+            let before = world
+                .state
+                .migration_journal()
+                .expect("armed")
+                .written_bytes();
+            world.step(TickInput::new(4)).expect("armed journal step");
+            let after = world
+                .state
+                .migration_journal()
+                .expect("armed")
+                .written_bytes();
+            let window = crate::kernel::tick::last_commit_alloc_window();
+            samples.push((tick, after.saturating_sub(before), window));
+            if after > before && witnessed_tick.is_none() {
+                witnessed_tick = Some(tick);
+            }
+        }
+        let tick = witnessed_tick.expect("武装日志必须实际写入非空记录");
+        let window = samples[tick as usize].2.expect("commit 窗口探针");
+        eprintln!("P7-B-DIAG armed tick={tick} window={window:?} samples={samples:?}");
+        assert_eq!(
+            window,
+            (0, 0),
+            "journal 已武装的 commit 窗口必须零分配/零再分配"
+        );
+        assert!(
+            !world.state.migration_journal().expect("armed").overflowed(),
+            "8 KiB 上界不得在本场景溢出"
+        );
+
+        // ③journal 溢出：溢出状态成立，发布路径不增长。
+        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        world.state.arm_migration_journal(21).expect("arm tiny");
+        let mut samples: Vec<(u32, Option<(u64, u64)>)> = Vec::new();
+        for tick in 0..4 {
+            world
+                .step(TickInput::new(4))
+                .expect("step despite overflow");
+            let window = crate::kernel::tick::last_commit_alloc_window();
+            samples.push((tick, window));
+        }
+        assert!(
+            world.state.migration_journal().expect("armed").overflowed(),
+            "21 字节上界首拍即溢出"
+        );
+        eprintln!("P7-B-DIAG overflow samples={samples:?}");
+        for (tick, window) in &samples {
+            assert_eq!(
+                *window,
+                Some((0, 0)),
+                "溢出拍 {tick} 的 commit 窗口必须零分配/零再分配"
+            );
+        }
+        eprintln!("p7-branch-evidence commit-window normal/armed/overflow all zero");
+    }
+
+    /// W1-A：未消费后缀回收——预热后令较早槽位规范消费失败，较晚未消费
+    /// 报告（None/Staged/Failed，携带非空 scratch）在下一次尝试被
+    /// into_scratch 统一回收，容量保留（直接断言 backing capacity，
+    /// 不靠分配预算）。旧实现（各回收点不完整变体清单）下 None/Staged/
+    /// 后缀落入默认分支、容量丢失，本测试必失败。
+    #[test]
+    fn conflict_unconsumed_suffix_scratch_is_recovered() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = super::force_conflict_dispatch();
         let revision = conflict_scale_revision();
 
-        // ①资源发布见证窗：找到 Granted 提交拍（changed_owners 非空），
-        // 以第二处发布拍为测量窗（首处首触有界松弛，参照 3c 口径）。
-        {
-            let mut world = conflict_scale_world(Arc::clone(&revision), 16);
-            world.execution = crate::kernel::execution::WorldExecution::start_private(
-                crate::ExecutionConfig::new(std::num::NonZeroU32::new(WORKERS).unwrap()),
-                &world.state,
-            );
-            // 先见证发布确实发生（grants 消费 + changed_owners 非空的
-            // 提交拍），其后的稳态窗覆盖 enter/clear/release 持续发布路径
-            // （首拍冷态首触不进窗；同 3c 双窗口径：B ≤ A、reallocations=0）。
-            // 发布见证：Granted 且 passage=Some 的决定 = 组合资源授予
-            // （committed reservation 随 finalize 落账；changed_owners 只在
-            // owner 权威替换时记录，初始授予为空，故不作为见证条件）。
-            let mut witnessed = false;
-            for _ in 0..4 {
-                world.step(TickInput::new(4)).expect("witness step");
-                witnessed |= world.latest_conflict_decisions().iter().any(|decision| {
-                    decision.outcome() == crate::ConflictDecisionOutcome::Granted
-                        && decision.passage().is_some()
-                });
-            }
-            assert!(witnessed, "必须出现 Granted+passage 的资源发布拍");
-            let region = Region::new(&INSTRUMENTED_SYSTEM);
-            for _ in 0..8 {
-                world.step(TickInput::new(4)).expect("publication window A");
-            }
-            let stats = region.change();
-            let region_b = Region::new(&INSTRUMENTED_SYSTEM);
-            for _ in 0..8 {
-                world.step(TickInput::new(4)).expect("publication window B");
-            }
-            let stats_b = region_b.change();
-            assert!(
-                stats.allocations <= (8 * 3 * WORKERS as usize) + 8,
-                "发布窗 A 分配超节点预算+首触松弛: {}",
-                stats.allocations
-            );
-            assert_eq!(stats.reallocations, 0, "发布窗 A 不得再分配");
-            assert!(
-                stats_b.allocations <= stats.allocations,
-                "发布窗 B 不得增长（无泄漏）: A={} B={}",
-                stats.allocations,
-                stats_b.allocations
-            );
-            assert_eq!(stats_b.reallocations, 0, "发布窗 B 不得再分配");
-            eprintln!(
-                "p7-branch-evidence witnessed={witnessed} window_a={} window_b={}",
-                stats.allocations, stats_b.allocations
-            );
+        fn slot_caps(world: &mut TrafficWorld) -> Vec<(usize, usize)> {
+            let step = world.state.step_workspace();
+            let mut caps: Vec<(usize, usize)> = step
+                .workspace
+                .conflict_slots
+                .iter()
+                .map(|slot| match slot {
+                    crate::kernel::execution::DispatchSlot::Done(Ok(report)) => match report {
+                        CandidateReport::None { scratch, .. }
+                        | CandidateReport::Staged { scratch, .. }
+                        | CandidateReport::Failed { scratch, .. }
+                        | CandidateReport::Resource { scratch, .. }
+                        | CandidateReport::Spent(scratch) => {
+                            (scratch.cells.capacity(), scratch.claims.capacity())
+                        }
+                    },
+                    _ => (0, 0),
+                })
+                .collect();
+            caps.sort_unstable();
+            caps
         }
 
-        // ②journal 已武装 + 实际写入非空记录：写路径分配在窗口内为零。
-        {
-            let mut world = conflict_scale_world(Arc::clone(&revision), 16);
-            world.execution = crate::kernel::execution::WorldExecution::start_private(
-                crate::ExecutionConfig::new(std::num::NonZeroU32::new(WORKERS).unwrap()),
-                &world.state,
-            );
-            world.state.arm_migration_journal(8 * 1_024).expect("arm");
-            let arena_capacity = world
-                .state
-                .migration_journal()
-                .expect("armed")
-                .retained_logical_bytes();
-            let region = Region::new(&INSTRUMENTED_SYSTEM);
-            let mut ticks = 0_u32;
-            let mut written = 0_u64;
-            while written == 0 && ticks < 12 {
-                world.step(TickInput::new(4)).expect("armed journal step");
-                ticks += 1;
-                written = world
-                    .state
-                    .migration_journal()
-                    .expect("armed")
-                    .written_bytes();
-            }
-            let stats = region.change();
-            assert!(written > 0, "武装日志必须实际写入非空记录");
-            // 写路径分配计数（W5-② 的目标本身就是覆盖计数，不追求零）：
-            // 首拍基线记录物化实测 18 次临时分配（TICK 头 + changed owner
-            // 的 delta 物化），按每拍 24 次有界松弛登记（亚线性、可复测），
-            // 再分配仍必须为零、arena 容量不变。
-            assert!(
-                stats.allocations
-                    <= (ticks as usize * 3 * WORKERS as usize) + (ticks as usize * 24) + 8,
-                "武装日志写路径分配超节点+记录物化有界松弛: {} ticks={}",
-                stats.allocations,
-                ticks
-            );
-            assert_eq!(stats.reallocations, 0, "武装日志窗口不得再分配");
-            assert!(
-                !world.state.migration_journal().expect("armed").overflowed(),
-                "8 KiB 上界不得在本场景溢出"
-            );
-            let journal = world.state.migration_journal().expect("armed");
-            assert_eq!(
-                journal.retained_logical_bytes(),
-                arena_capacity,
-                "武装期 arena 容量不变"
-            );
-            eprintln!(
-                "p7-journal-armed written_bytes={written} ticks={ticks} \
-                 allocations={} reallocations={}",
-                stats.allocations, stats.reallocations
-            );
-        }
+        // 预热两拍：tick1 使槽位 0 成为携带非空 scratch 的 Spent/Resource；
+        // tick2 发现序位移（领头车持 reservation 被跳过），槽位 0 被后车
+        // 复用并产出 None/Staged——其自然携带 tick1 的 backing（非空）。
+        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut world, 4);
+        world.step(TickInput::new(4)).unwrap();
+        world.step(TickInput::new(4)).unwrap();
+        let caps_after_warmup = slot_caps(&mut world);
+        assert!(
+            caps_after_warmup.iter().any(|&(cells, _)| cells > 0),
+            "预热后必须有槽位携带非空 cells backing: {caps_after_warmup:?}"
+        );
 
-        // ③journal 溢出：世界继续步进（语义由既有溢出测试衔接），溢出
-        // 发布路径不增长。
-        {
-            let mut world = conflict_scale_world(Arc::clone(&revision), 16);
-            world.execution = crate::kernel::execution::WorldExecution::start_private(
-                crate::ExecutionConfig::new(std::num::NonZeroU32::new(WORKERS).unwrap()),
-                &world.state,
-            );
-            world.state.arm_migration_journal(21).expect("arm tiny");
-            let arena_capacity = world
-                .state
-                .migration_journal()
-                .expect("armed")
-                .retained_logical_bytes();
-            let region = Region::new(&INSTRUMENTED_SYSTEM);
-            for _ in 0..4 {
-                world
-                    .step(TickInput::new(4))
-                    .expect("step despite overflow");
-            }
-            let stats = region.change();
-            let journal = world.state.migration_journal().expect("armed");
-            assert!(journal.overflowed(), "21 字节上界首拍即溢出");
-            assert!(journal.written_bytes() <= 21, "溢出后不得继续写超上界");
-            assert_eq!(
-                journal.retained_logical_bytes(),
-                arena_capacity,
-                "溢出粘性停写不扩 arena"
-            );
-            assert!(
-                stats.allocations <= (4 * 3 * WORKERS as usize) + 8,
-                "溢出窗口分配超节点预算+首触松弛: {}",
-                stats.allocations
-            );
-            // 如实登记：溢出窗口的记录物化路径存在有界再分配（实测 3
-            // 次/4 拍，首拍基线物化），溢出不转化为 step 回滚、arena 不
-            // 增长；再分配计数按上界登记（≤ 拍数），不隐藏。
-            assert!(
-                stats.reallocations <= 4,
-                "溢出窗口再分配超有界登记: {}",
-                stats.reallocations
-            );
-            eprintln!(
-                "p7-journal-overflow allocations={} reallocations={}",
-                stats.allocations, stats.reallocations
-            );
-        }
+        // tick3：位置 1 注入 NonFinite（Failed 报告）——消费在位置 1 失败，
+        // 较晚槽位（位置 2..，本拍报告为 None/Staged/Failed 且携带非空
+        // scratch）未被消费、滞留槽位。
+        let world_id = world.state.binding.world_id;
+        let guard = super::inject_conflict_nonfinite(world_id, &[1]);
+        let result = world.step(TickInput::new(4));
+        drop(guard);
+        assert_eq!(result, Err(crate::StepError::NonFiniteMotion));
+        let caps_after_failure = slot_caps(&mut world);
+        let retained_after_failure: usize = caps_after_failure.iter().map(|&(c, d)| c + d).sum();
+        assert!(
+            retained_after_failure > 0,
+            "消费失败后未消费后缀必须仍有非空 backing 滞留: {caps_after_failure:?}"
+        );
+
+        // tick4（清注入重试）：任务侧 into_scratch 统一回收未消费后缀——
+        // 容量必须保留（旧实现落入默认分支则全丢）。
+        world.step(TickInput::new(4)).unwrap();
+        let caps_after_retry = slot_caps(&mut world);
+        let retained_after_retry: usize = caps_after_retry.iter().map(|&(c, d)| c + d).sum();
+        assert!(
+            retained_after_retry >= retained_after_failure,
+            "未消费后缀（None/Staged/Failed）的 backing 必须在下次尝试被回收: \
+             failure={retained_after_failure} retry={retained_after_retry}\n\
+             after_failure={caps_after_failure:?}\nafter_retry={caps_after_retry:?}"
+        );
+        // 且重试后世界回到稳态语义（与 fresh 参照一致）。
+        let mut fresh = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut fresh, 4);
+        fresh.step(TickInput::new(4)).unwrap();
+        fresh.step(TickInput::new(4)).unwrap();
+        let fresh_outcome = fresh.step(TickInput::new(4)).unwrap();
+        let retry_outcome = world.step(TickInput::new(4)).unwrap();
+        let _ = (fresh_outcome, retry_outcome);
     }
 
     #[test]
@@ -3926,6 +3966,19 @@ pub(crate) struct CandidateScratch {
 }
 
 impl CandidateReport {
+    /// W1 后缀回收：五个变体统一归一提取随行暂存。未消费的后缀报告
+    /// （较早消费失败残留的 None/Staged/Failed）同样保留 backing，
+    /// 不得在各回收点自维护不完整变体清单。
+    fn into_scratch(self) -> CandidateScratch {
+        match self {
+            CandidateReport::None { scratch, .. }
+            | CandidateReport::Staged { scratch, .. }
+            | CandidateReport::Failed { scratch, .. }
+            | CandidateReport::Resource { scratch, .. } => scratch,
+            CandidateReport::Spent(scratch) => scratch,
+        }
+    }
+
     /// 测试计账：报告/残留内段 Vec 的 backing 峰值（capacity × size_of）。
     /// Spent 与未消费 Resource 都计入（峰值保有）；消费后回收不减少
     /// 计账口径下的 backing——复用是容量语义，不是释放。

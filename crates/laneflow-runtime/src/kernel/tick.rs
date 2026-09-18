@@ -161,6 +161,58 @@ fn note_motion_cache_use(hit: bool) {
 /// 谁执行，不改变语义、首错、容量和输出。
 const MOTION_DISPATCH_MIN_ACTIVE: usize = 1_024;
 
+// W5-B：P7（commit）分配窗口的 cfg(test) 诊断挂点。生产调用链与签名
+// 不变；发布构建零开销零语义变化。Drop 守卫保证单出口正确计量；
+// 计数器的读取/存储无堆分配（TLS Cell + 全局计数器读），测试代码的
+// 断言与输出全部在窗口外执行。
+#[cfg(test)]
+thread_local! {
+    static COMMIT_ALLOC_WINDOW: core::cell::Cell<Option<(u64, u64)>> =
+        const { core::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+struct CommitAllocWindowGuard {
+    allocations: u64,
+    reallocations: u64,
+}
+
+#[cfg(test)]
+impl Drop for CommitAllocWindowGuard {
+    fn drop(&mut self) {
+        let stats = stats_alloc::INSTRUMENTED_SYSTEM.stats();
+        COMMIT_ALLOC_WINDOW.with(|window| {
+            window.set(Some((
+                stats
+                    .allocations
+                    .try_into()
+                    .unwrap_or(u64::MAX)
+                    .wrapping_sub(self.allocations),
+                stats
+                    .reallocations
+                    .try_into()
+                    .unwrap_or(u64::MAX)
+                    .wrapping_sub(self.reallocations),
+            )));
+        });
+    }
+}
+
+/// 测试专用：读取最近一次 commit 的（allocations, reallocations）窗口。
+#[cfg(test)]
+pub(crate) fn last_commit_alloc_window() -> Option<(u64, u64)> {
+    COMMIT_ALLOC_WINDOW.with(core::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn begin_commit_alloc_window() -> CommitAllocWindowGuard {
+    let stats = stats_alloc::INSTRUMENTED_SYSTEM.stats();
+    CommitAllocWindowGuard {
+        allocations: stats.allocations.try_into().unwrap_or(u64::MAX),
+        reallocations: stats.reallocations.try_into().unwrap_or(u64::MAX),
+    }
+}
+
 /// 测试专用：P5 本阶段谁执行的计数证据（与 P2 的 WaitingPreviewPathCounts
 /// 相互独立，按阶段自己的口径断言；融合/分发/回退互斥）。
 #[cfg(test)]
@@ -1271,6 +1323,9 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         #[cfg(test)]
         let _commit_timer =
             super::performance_profile::begin(super::performance_profile::Stage::Commit);
+        // W5-B：P7 分配窗口计量（cfg(test)，生产构建无此代码）。
+        #[cfg(test)]
+        let _p7_alloc_window = begin_commit_alloc_window();
         let CommitPlan {
             mut updates,
             parking_arrivals,

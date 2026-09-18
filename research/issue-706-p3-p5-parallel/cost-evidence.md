@@ -122,9 +122,11 @@ preview-wall scene=multi-gate-1024 workers=16 round=2 whole_p50_ns=720700 whole_
 
 实测形态：每拍 12 次分配 = 3 相位 × 4 worker 的 Rayon scope 任务节点
 （执行配置 §3 豁免），稳态 LaneFlow 自有分配为零（段暂存跨拍复用生效）；
-领头车 reservation 周期使发现位 0 在 None ↔ Computed 间交替，该槽位每
-周期一次性首物化段 Vec（+1/窗，交替时上拍 None 报告无容量可回收）——
-如实登记为有界首触，非每候选每拍分配。
+注（W1-A 后更新）：报告全部变体（含 None/Staged/Failed）现均随行
+scratch，发现位 0 在 None ↔ Computed 间交替时上拍容量由 into_scratch
+统一回收——旧表述「上拍 None 报告无容量可回收」作废。每 ~8 拍的 +1
+已定位为非暂存链来源（F3b 冷池首触与工作集形状变化，W1 前后同值），
+如实登记为有界首触，归因留待 #707（dhat 剖析），非每候选每拍分配。
 
 ## W1/W2 后短对照（2026-09-19，当前 head 重跑）
 
@@ -137,7 +139,8 @@ preview-wall scene=multi-gate-1024 workers=16 round=2 whole_p50_ns=720700 whole_
 | 4       | 312300 / 283600 / 308900 | 308900 |
 
 w4 相对 w1 = −6.5%，在 round 间方差内（与上轮「多 worker 回退」的
-观察相反——两轮测量条件不同，证实波动主导；净收益仍未证明）。
+观察相反——不同修订、运行条件和批次之间的绝对值差异较大，目前尚未
+分离代码变化与环境影响；净收益仍未证明）。
 b99a282e 基线对照为 R3 前中间修订测量，未在当前 head 重测（需第二
 检出全量 release 构建，预算外）。
 
