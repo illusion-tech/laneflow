@@ -36,6 +36,37 @@
 
 两者均为 `impl StepWorkspace`（conflict_tick.rs:435）方法。
 
+> **增量 D 维护注记（2026-09-19）**：#1-#24 的串行语义不变；Pool 执行器
+> 下插入真实分发臂（`prepare_conflict_candidates_dispatched`）：
+> 输入发现镜像 #18-#21 的跳过次序与紧凑位递增（cache_index 仍在
+> reservation 跳过之前）；任务在冻结三腿 `ConflictTaskView`（拍初
+> committed+derived+rebuild 后 workspace frontier）上以多段报告
+> （`CandidateReport`，None/Staged/Resource/Failed，Resource 再分
+> PureWaitingEmpty/CheckFailed/Computed×(cells, downstream) 段）回报，
+> 不用单 None/整车 Err 抹平；协调器按 live×gate 发现序规范消费
+> （`consume_conflict_candidate`）：先落 §2 #7/#11 缓存更新（horizon/
+> preview），再原位施加共享写与真实预留——motion plan/eligibility 写、
+> F1 reserve(cell_work, range.len)、F2 cells_start 捕获后
+> reserve(candidate_cells)+extend、downstream 的 F4
+> reserve(downstream_work, raw_capacity) 与 F3b downstream_start 捕获后
+> reserve(candidate_downstream)+extend、staged reserve(1)+push；
+> 段序即首错序（F1 先于同车领域错误，F2 先于同车更晚 downstream CIV）。
+> 任务局部暂存不足的段（Unmaterialized）由协调器以同领域原语补算
+> （融合 `prepare_resource_candidate`/`prepare_candidate_downstream`），
+> 不冒充领域分配失败。rebuild frontier（#5-#15）与 P4 acquire 保持
+> 协调器串行一行不动；尾部 #23/#24 两拍共享。段内计数（visited_passages
+> 的 cells 循环、yield_queries）经块级 `ConflictWorkCounts` 快照记录、
+> join 后汇总回协调器线程（诊断开关默认关，关时热态分发零 LaneFlow
+> 自有分配）。阈值 `CONFLICT_DISPATCH_MIN_ACTIVE = 1_024`（初版保守，
+> 待增量 E 证据），cfg(test) `force_conflict_dispatch` 强制入口；
+> 发现/槽位预留失败退回融合循环计 slot_fallback。融合参考臂新增同款
+> cfg(test) NonFinite 注入计数（发现位序与分发一致）。等价性证据：
+> `conflict_dispatch_matches_fused_reference`（multi-gate 16 车×6 拍）、
+> `conflict_computed_candidate_matches_fused_reference`（conflict_scale
+> Computed 候选×4 拍）等工作区语义池字节级对拍，及 D4 两个核心反例
+> （F2/F1 + 同车 downstream CIV ⇒ `ConflictScratchAllocFailed`）。
+> §1-§3 检查点编号与语义不变。
+
 ### 1.1 检查点表（按执行顺序）
 
 | #   | 原逻辑位置                                                                                                 | 输入生产者                                                                                                                              | 可能结果                                                                                                                                                                                                        | 原有预留                                                                                                                                                                                                                                | 写入对象                                                                                                     | 并行化方式                                                                                          |
