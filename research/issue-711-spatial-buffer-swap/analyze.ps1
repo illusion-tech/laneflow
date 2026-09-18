@@ -99,15 +99,16 @@ function Read-Env([string]$path) {
 # 样本层：样本编号必须恰好覆盖预期集合且无重复；iterations 列与口径一致。
 function Test-SampleLayer($rows, $spec, [string]$context) {
     $matched = @($rows | Where-Object { $_.case -eq $spec.case -and $_.records -eq $spec.records })
-    $groups = @($matched | Group-Object sample)
-    if ($groups.Count -ne $spec.samples) {
-        throw "$context expected $($spec.samples) distinct samples for $($spec.case)/$($spec.records), got $($groups.Count)"
+    $ids = @($matched | ForEach-Object { [int]$_.sample })
+    $unique = @($ids | Sort-Object -Unique)
+    if ($unique.Count -ne $spec.samples) {
+        throw "$context expected $($spec.samples) distinct samples for $($spec.case)/$($spec.records), got $($unique.Count)"
     }
-    foreach ($group in $groups) {
-        if ($group.Count -ne 1) { throw "$context duplicate sample $($group.Name) for $($spec.case)/$($spec.records)" }
+    if ($ids.Count -ne $unique.Count) {
+        throw "$context duplicate sample ids for $($spec.case)/$($spec.records)"
     }
     foreach ($id in 0..($spec.samples - 1)) {
-        if ($groups.Name -notcontains "$id") { throw "$context missing sample $id for $($spec.case)/$($spec.records)" }
+        if ($unique -notcontains $id) { throw "$context missing sample $id for $($spec.case)/$($spec.records)" }
     }
     foreach ($row in $matched) {
         if ($row.iterations -ne $spec.iters) {
@@ -286,7 +287,8 @@ foreach ($spec in $FullCases) {
     $beforeMedian = $before.values[$pair].median
     $afterMedian = $after.values[$pair].median
     $delta = if ($beforeMedian -gt 0) { [Math]::Round((($afterMedian - $beforeMedian) / $beforeMedian) * 100, 3) } else { 0 }
-    $lines += "$($spec.case),$($spec.records),$($spec.unit),$beforeMedian,$afterMedian,$delta,$($before.allocs[$pair]),$($after.allocs[$pair]),run1-$($before.runCount)"
+    $phaseLabel = if ($phase -eq 'fresh') { "fresh/run1-$($before.runCount)" } else { "run1-$($before.runCount)" }
+    $lines += "$($spec.case),$($spec.records),$($spec.unit),$beforeMedian,$afterMedian,$delta,$($before.allocs[$pair]),$($after.allocs[$pair]),$phaseLabel"
     $summaryRows += [ordered]@{
         case = $spec.case
         records = $spec.records
