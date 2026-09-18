@@ -144,6 +144,96 @@ pub(crate) struct ConflictCandidate {
     pub(crate) preflight_no_grant: Option<ConflictNoGrantReason>,
 }
 
+/// 单 hop Gate 决定求值的共用输出（融合/分发同一实现）。
+struct GateHopEvaluation {
+    anchor: ConflictRouteAnchor,
+    passage: Option<crate::ConflictPassageOccurrenceLocator>,
+    range: crate::kernel::tables::ConflictGateRange,
+    outcome: Option<crate::ConflictDecisionOutcome>,
+    kind: GateCandidateKind,
+    waiting_zone: Option<laneflow_static_contract::WaitingZoneOrdinal>,
+}
+
+/// 共用领域段（#706 R3-3a）：单 hop Gate 决定求值——maneuver 定位、
+/// anchor/range/passage 构造、policy 决定与 outcome 仲裁（waiting plan
+/// 组合）。Ok(outcome=Some) → 无资源决定；Ok(outcome=None) → 资源候选
+/// （kind/waiting_zone 有效）。融合与分发同一实现。
+#[allow(clippy::too_many_arguments)]
+fn evaluate_gate_hop(
+    read: crate::kernel::phase::StepReadView<'_>,
+    state: VehicleState,
+    compiled: &crate::kernel::tables::CompiledRoute,
+    gate_hop: u32,
+    waiting: Option<crate::kernel::tables::WaitingOccurrence>,
+    waiting_plan: Option<crate::kernel::waiting::WaitingVehiclePlan>,
+) -> Result<GateHopEvaluation, StepError> {
+    let maneuver_index = compiled
+        .maneuvers
+        .partition_point(|entry| entry.exit_route_edge_index <= gate_hop);
+    let range = compiled.conflict_gate_ranges[gate_hop as usize];
+    if compiled
+        .maneuvers
+        .get(maneuver_index)
+        .filter(|entry| entry.entry_route_edge_index <= gate_hop)
+        .is_none()
+    {
+        return Err(StepError::ConflictInvariantViolation);
+    }
+    let anchor = ConflictRouteAnchor {
+        route: state.route,
+        maneuver_occurrence_index: u32::try_from(maneuver_index)
+            .map_err(|_| StepError::ConflictInvariantViolation)?,
+        hop: gate_hop,
+    };
+    let passage = if range.len != 0 {
+        Some(
+            read.conflict_passage_occurrence_locator(state.route, range.start)
+                .ok_or(StepError::ConflictInvariantViolation)?,
+        )
+    } else {
+        None
+    };
+    let gate = compiled.hop_gate[gate_hop as usize].ok_or(StepError::ConflictInvariantViolation)?;
+    let decision = read.gate_policy_decision(gate, state.profile);
+    let outcome = match decision {
+        GatePolicyDecision::DenyAndStop => Some(ConflictDecisionOutcome::NotEvaluated),
+        GatePolicyDecision::Candidate(_) => {
+            match waiting.and_then(|_| waiting_plan.filter(|plan| plan.entry_hop == gate_hop)) {
+                Some(plan) => match plan.decision {
+                    crate::WaitingDecisionOutcome::Granted => None,
+                    crate::WaitingDecisionOutcome::NoGrant(
+                        crate::WaitingNoGrantReason::Capacity,
+                    ) => Some(ConflictDecisionOutcome::NoGrant(
+                        ConflictNoGrantReason::WaitingCapacity,
+                    )),
+                    crate::WaitingDecisionOutcome::NoGrant(
+                        crate::WaitingNoGrantReason::PhysicalStorage,
+                    ) => Some(ConflictDecisionOutcome::NoGrant(
+                        ConflictNoGrantReason::WaitingPhysicalStorage,
+                    )),
+                    _ => return Err(StepError::WaitingInvariantViolation),
+                },
+                None if waiting.is_some() => Some(ConflictDecisionOutcome::NoGrant(
+                    ConflictNoGrantReason::WaitingPhysicalStorage,
+                )),
+                None if range.len == 0 => Some(ConflictDecisionOutcome::NotRequired),
+                None => None,
+            }
+        }
+    };
+    let GatePolicyDecision::Candidate(kind) = decision else {
+        unreachable!("denied Gate already produced a decision");
+    };
+    Ok(GateHopEvaluation {
+        anchor,
+        passage,
+        range,
+        outcome,
+        kind,
+        waiting_zone: waiting.map(|entry| entry.zone),
+    })
+}
+
 /// 已通过 Gate 法规与本地准入检查的资源请求入口。
 struct EvaluatedGate {
     anchor: ConflictRouteAnchor,
@@ -661,11 +751,22 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let input_injected = conflict_injection::input_reserve_injected();
         #[cfg(not(test))]
         let input_injected = false;
-        if inputs
-            .try_reserve(view.read.committed.live_order.len())
-            .is_err()
-            || input_injected
-        {
+        // 3b：预留口径 = 实际计算投影（Active 且未被旧 reservation 跳过），
+        // 与发现谓词同口径；大量 Completed 留存世界不按 live_order 全量预留。
+        let projected = view
+            .read
+            .committed
+            .live_order
+            .iter()
+            .copied()
+            .filter(|vehicle| {
+                matches!(
+                    view.read.vehicle_state(*vehicle),
+                    Some(state) if state.status == VehicleStatus::Active
+                ) && view.conflict.reservation(*vehicle).is_none()
+            })
+            .count();
+        if inputs.try_reserve(projected).is_err() || input_injected {
             #[cfg(test)]
             count_conflict_path(|counts| counts.slot_fallback += 1);
             return Ok(false);
@@ -1385,62 +1486,17 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             }) {
                 continue;
             }
-            let maneuver_index = compiled
-                .maneuvers
-                .partition_point(|entry| entry.exit_route_edge_index <= gate_hop);
-            compiled
-                .maneuvers
-                .get(maneuver_index)
-                .filter(|entry| entry.entry_route_edge_index <= gate_hop)
-                .ok_or(StepError::ConflictInvariantViolation)?;
-            let anchor = ConflictRouteAnchor {
-                route: state.route,
-                maneuver_occurrence_index: u32::try_from(maneuver_index)
-                    .map_err(|_| StepError::ConflictInvariantViolation)?,
-                hop: gate_hop,
-            };
-            let range = compiled.conflict_gate_ranges[gate_hop as usize];
-            let passage = if range.len != 0 {
-                Some(
-                    self.conflict_passage_occurrence_locator(state.route, range.start)
-                        .ok_or(StepError::ConflictInvariantViolation)?,
-                )
-            } else {
-                None
-            };
-            let gate = compiled.hop_gate[gate_hop as usize]
-                .ok_or(StepError::ConflictInvariantViolation)?;
-            let decision = self.gate_policy_decision(gate, state.profile);
-            let outcome = match decision {
-                GatePolicyDecision::DenyAndStop => Some(ConflictDecisionOutcome::NotEvaluated),
-                GatePolicyDecision::Candidate(_) => {
-                    match waiting
-                        .and_then(|_| waiting_plan.filter(|plan| plan.entry_hop == gate_hop))
-                    {
-                        Some(plan) => match plan.decision {
-                            crate::WaitingDecisionOutcome::Granted => None,
-                            crate::WaitingDecisionOutcome::NoGrant(
-                                crate::WaitingNoGrantReason::Capacity,
-                            ) => Some(ConflictDecisionOutcome::NoGrant(
-                                ConflictNoGrantReason::WaitingCapacity,
-                            )),
-                            crate::WaitingDecisionOutcome::NoGrant(
-                                crate::WaitingNoGrantReason::PhysicalStorage,
-                            ) => Some(ConflictDecisionOutcome::NoGrant(
-                                ConflictNoGrantReason::WaitingPhysicalStorage,
-                            )),
-                            _ => return Err(StepError::WaitingInvariantViolation),
-                        },
-                        None if waiting.is_some() => Some(ConflictDecisionOutcome::NoGrant(
-                            ConflictNoGrantReason::WaitingPhysicalStorage,
-                        )),
-                        None if range.len == 0 => Some(ConflictDecisionOutcome::NotRequired),
-                        None => None,
-                    }
-                }
-            };
-            if let Some(outcome) = outcome {
-                if waiting.is_none() && range.len == 0 {
+            // 共用领域段：单 hop Gate 决定求值与分发任务同一实现。
+            let gate = evaluate_gate_hop(
+                self.read_view(),
+                state,
+                compiled,
+                gate_hop,
+                waiting,
+                waiting_plan,
+            )?;
+            if let Some(outcome) = gate.outcome {
+                if waiting.is_none() && gate.range.len == 0 {
                     // 无资源决定按最终运动范围输出，避免前方资源拒绝后仍报告未到达的 Gate。
                     if outcome == ConflictDecisionOutcome::NotRequired {
                         continue;
@@ -1453,25 +1509,22 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     .push(ConflictDecision {
                         vehicle: state.handle,
                         vehicle_update_sequence: update_sequence,
-                        anchor,
-                        passage,
+                        anchor: gate.anchor,
+                        passage: gate.passage,
                         outcome,
                     });
                 return Ok(());
             }
-            let GatePolicyDecision::Candidate(kind) = decision else {
-                unreachable!("denied Gate already produced a decision");
-            };
             return self.prepare_resource_candidate(
                 state,
                 update_sequence,
                 tick,
                 EvaluatedGate {
-                    anchor,
-                    passage,
-                    range,
-                    kind,
-                    waiting_zone: waiting.map(|entry| entry.zone),
+                    anchor: gate.anchor,
+                    passage: gate.passage,
+                    range: gate.range,
+                    kind: gate.kind,
+                    waiting_zone: gate.waiting_zone,
                 },
             );
         }
@@ -3586,72 +3639,19 @@ impl ConflictTaskView<'_> {
             }) {
                 continue;
             }
-            let maneuver_index = compiled
-                .maneuvers
-                .partition_point(|entry| entry.exit_route_edge_index <= gate_hop);
-            if compiled
-                .maneuvers
-                .get(maneuver_index)
-                .filter(|entry| entry.entry_route_edge_index <= gate_hop)
-                .is_none()
-            {
-                return failed(cache, StepError::ConflictInvariantViolation);
-            }
-            let anchor = ConflictRouteAnchor {
-                route: state.route,
-                maneuver_occurrence_index: match u32::try_from(maneuver_index) {
-                    Ok(index) => index,
-                    Err(_) => return failed(cache, StepError::ConflictInvariantViolation),
-                },
-                hop: gate_hop,
+            let gate = match evaluate_gate_hop(
+                self.read,
+                state,
+                compiled,
+                gate_hop,
+                waiting,
+                waiting_plan,
+            ) {
+                Ok(gate) => gate,
+                Err(error) => return failed(cache, error),
             };
-            let range = compiled.conflict_gate_ranges[gate_hop as usize];
-            let passage = if range.len != 0 {
-                match self
-                    .read
-                    .conflict_passage_occurrence_locator(state.route, range.start)
-                {
-                    Some(locator) => Some(locator),
-                    None => return failed(cache, StepError::ConflictInvariantViolation),
-                }
-            } else {
-                None
-            };
-            let gate = match compiled.hop_gate[gate_hop as usize] {
-                Some(gate) => gate,
-                None => return failed(cache, StepError::ConflictInvariantViolation),
-            };
-            let decision = self.read.gate_policy_decision(gate, state.profile);
-            let outcome = match decision {
-                GatePolicyDecision::DenyAndStop => Some(ConflictDecisionOutcome::NotEvaluated),
-                GatePolicyDecision::Candidate(_) => {
-                    match waiting
-                        .and_then(|_| waiting_plan.filter(|plan| plan.entry_hop == gate_hop))
-                    {
-                        Some(plan) => match plan.decision {
-                            crate::WaitingDecisionOutcome::Granted => None,
-                            crate::WaitingDecisionOutcome::NoGrant(
-                                crate::WaitingNoGrantReason::Capacity,
-                            ) => Some(ConflictDecisionOutcome::NoGrant(
-                                ConflictNoGrantReason::WaitingCapacity,
-                            )),
-                            crate::WaitingDecisionOutcome::NoGrant(
-                                crate::WaitingNoGrantReason::PhysicalStorage,
-                            ) => Some(ConflictDecisionOutcome::NoGrant(
-                                ConflictNoGrantReason::WaitingPhysicalStorage,
-                            )),
-                            _ => return failed(cache, StepError::WaitingInvariantViolation),
-                        },
-                        None if waiting.is_some() => Some(ConflictDecisionOutcome::NoGrant(
-                            ConflictNoGrantReason::WaitingPhysicalStorage,
-                        )),
-                        None if range.len == 0 => Some(ConflictDecisionOutcome::NotRequired),
-                        None => None,
-                    }
-                }
-            };
-            if let Some(outcome) = outcome {
-                if waiting.is_none() && range.len == 0 {
+            if let Some(outcome) = gate.outcome {
+                if waiting.is_none() && gate.range.len == 0 {
                     // §2 A7：无资源决定按最终运动范围输出；NotRequired 继续扫描。
                     if outcome == ConflictDecisionOutcome::NotRequired {
                         continue;
@@ -3663,15 +3663,12 @@ impl ConflictTaskView<'_> {
                     decision: crate::ConflictDecision {
                         vehicle: state.handle,
                         vehicle_update_sequence: update_sequence,
-                        anchor,
-                        passage,
+                        anchor: gate.anchor,
+                        passage: gate.passage,
                         outcome,
                     },
                 };
             }
-            let GatePolicyDecision::Candidate(kind) = decision else {
-                unreachable!("denied Gate already produced a decision");
-            };
             return self.prepare_resource_candidate_task(
                 state,
                 update_sequence,
@@ -3679,11 +3676,11 @@ impl ConflictTaskView<'_> {
                 _workload_index,
                 cache,
                 EvaluatedGate {
-                    anchor,
-                    passage,
-                    range,
-                    kind,
-                    waiting_zone: waiting.map(|entry| entry.zone),
+                    anchor: gate.anchor,
+                    passage: gate.passage,
+                    range: gate.range,
+                    kind: gate.kind,
+                    waiting_zone: gate.waiting_zone,
                 },
             );
         }
