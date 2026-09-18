@@ -149,7 +149,9 @@ struct GateHopEvaluation {
     passage: Option<crate::ConflictPassageOccurrenceLocator>,
     range: crate::kernel::tables::ConflictGateRange,
     outcome: Option<crate::ConflictDecisionOutcome>,
-    kind: GateCandidateKind,
+    /// DenyAndStop 为 None（其 outcome=Some，调用方早退）；到达资源候选
+    /// 路径时必为 Some。
+    kind: Option<GateCandidateKind>,
     waiting_zone: Option<laneflow_static_contract::WaitingZoneOrdinal>,
 }
 
@@ -220,15 +222,15 @@ fn evaluate_gate_hop(
             }
         }
     };
-    let GatePolicyDecision::Candidate(kind) = decision else {
-        unreachable!("denied Gate already produced a decision");
-    };
     Ok(GateHopEvaluation {
         anchor,
         passage,
         range,
         outcome,
-        kind,
+        kind: match decision {
+            GatePolicyDecision::Candidate(kind) => Some(kind),
+            GatePolicyDecision::DenyAndStop => None,
+        },
         waiting_zone: waiting.map(|entry| entry.zone),
     })
 }
@@ -1541,7 +1543,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     anchor: gate.anchor,
                     passage: gate.passage,
                     range: gate.range,
-                    kind: gate.kind,
+                    kind: gate.kind.expect("outcome=None ⇒ Candidate"),
                     waiting_zone: gate.waiting_zone,
                 },
             );
@@ -3901,7 +3903,7 @@ impl ConflictTaskView<'_> {
                     anchor: gate.anchor,
                     passage: gate.passage,
                     range: gate.range,
-                    kind: gate.kind,
+                    kind: gate.kind.expect("outcome=None ⇒ Candidate"),
                     waiting_zone: gate.waiting_zone,
                 },
             );
