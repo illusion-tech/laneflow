@@ -7821,24 +7821,36 @@ pub(crate) mod tests {
             assert_eq!(retry, fresh_outcome, "workers={workers} 重试必须等于 fresh");
             assert_eq!(world.capture_snapshot().unwrap(), fresh_snapshot);
 
-            // 热态 + 已武装：余量足够不得伪造预留失败。
+            // 热态 + 已武装：余量足够不得伪造预留失败（W4：探针先清空；
+            // 候选周期内多拍累积，断言「至少一次访问 F4 且全部未触发
+            // 注入、无错误公开」）。
+            crate::kernel::conflict_tick::reset_conflict_reserve_probe_log();
             let guard = fail_conflict_downstream_work_reserve();
-            let outcome = world.step(TickInput::new(4)).unwrap();
+            // 候选周期内 F4 并不到达：持武装步进 12 拍全程不得公开错误，
+            // 且探针 fired 计数必须为零（余量足够+已武装 ⇒ 永不伪造失败）。
+            crate::kernel::conflict_tick::reset_conflict_reserve_probe_log();
+            let guard = fail_conflict_downstream_work_reserve();
+            for _ in 0..12 {
+                world.step(TickInput::new(4)).unwrap();
+            }
             drop(guard);
-            let _ = outcome;
-            let probe = crate::kernel::conflict_tick::last_conflict_reserve_probe()
-                .expect("热态步必须到达 F 位检查点");
-            assert!(!probe.injected, "余量足够时注入不得触发: {probe:?}");
+            let log = crate::kernel::conflict_tick::conflict_reserve_probe_log();
+            assert_eq!(
+                log.fired, 0,
+                "余量足够+已武装：任何 F 位都不得触发注入: {log:?}"
+            );
         }
     }
 
-    /// R4：预留探针记录逻辑检查点的可达性、真实需求与余量——普通拍
-    /// 全点位按 F1→F2→F4→F3b 顺序到达且 injected=false；武装 F1 的冷态
-    /// 拍失败后探针停在 CellWork（F2 不可达）。
+    /// R4+W4：预留探针记录逻辑检查点的可达性、真实需求与余量。每个
+    /// case 测前清空日志；按 last + 各点位命中数双重断言：普通拍全点位
+    /// 按序到达且 injected=false；武装 F1 的冷态拍失败后 CellWork 之后
+    /// 的点位本次命中数为零（不可达）。
     #[test]
     fn reserve_probe_records_site_reachability_and_growth() {
         use crate::kernel::conflict_tick::{
-            ConflictReserveSite, fail_conflict_cell_work_reserve, last_conflict_reserve_probe,
+            ConflictReserveSite, conflict_reserve_probe_log, fail_conflict_cell_work_reserve,
+            reset_conflict_reserve_probe_log,
         };
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
@@ -7847,29 +7859,38 @@ pub(crate) mod tests {
 
         let mut world = conflict_scale_world(Arc::clone(&revision), 16);
         install_execution(&mut world, 4);
+        reset_conflict_reserve_probe_log();
         world.step(TickInput::new(4)).unwrap();
-        let probe = last_conflict_reserve_probe().expect("F 位探针");
+        let log = conflict_reserve_probe_log();
+        let probe = log.last.expect("F 位探针");
         assert_eq!(probe.site, ConflictReserveSite::DownstreamPool);
         assert!(!probe.injected, "普通拍不得触发注入: {probe:?}");
+        assert!(probe.required >= 1, "探针须记录真实需求（≥1）: {probe:?}");
         assert!(
-            probe.required <= probe.capacity.saturating_sub(probe.len)
-                || probe.capacity >= probe.len,
-            "探针须记录真实需求与余量: {probe:?}"
+            log.hits.iter().all(|&hits| hits >= 1),
+            "普通拍四个 F 位必须全部到达: {log:?}"
         );
 
         let mut world = conflict_scale_world(Arc::clone(&revision), 16);
         install_execution(&mut world, 4);
+        reset_conflict_reserve_probe_log();
         let guard = fail_conflict_cell_work_reserve();
         let result = world.step(TickInput::new(4));
         drop(guard);
         assert_eq!(result, Err(crate::StepError::ConflictScratchAllocFailed));
-        let probe = last_conflict_reserve_probe().expect("F 位探针");
+        let log = conflict_reserve_probe_log();
+        let probe = log.last.expect("F 位探针");
         assert_eq!(
             probe.site,
             ConflictReserveSite::CellWork,
-            "F1 失败后 F2 不可达"
+            "F1 失败后探针停在 CellWork"
         );
         assert!(probe.injected, "冷态 F1 真实增长 + 武装必须触发: {probe:?}");
+        assert_eq!(
+            log.hits[1..],
+            [0, 0, 0],
+            "F1 失败后 F2/F4/F3b 本次访问次数必须为零（不可达）: {log:?}"
+        );
     }
 
     /// R4（P5）：到达预留注入仅真实必要增长时触发——到达拍（观察 Vec 空、

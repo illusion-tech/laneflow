@@ -3065,6 +3065,139 @@ mod tests {
         );
     }
 
+    /// W3：F4 消费者三分支回归——从真实候选前缀（conflict_scale 首拍
+    /// evaluate_candidate 的 Computed 报告）替换 downstream 段直接驱动
+    /// consume_candidate_resource：
+    /// ① Obligated + F4 需真实增长（冷 downstream_work）+ F4 注入失败 +
+    ///   fill 也失败 ⇒ ConflictScratchAllocFailed（F4 义务先于 F4 后检查）；
+    /// ② Obligated + F4 余量足够 + fill 失败 ⇒ ConflictInvariantViolation，
+    ///   探针见证 F4 已访问且注入未触发；
+    /// ③ PreFailed(Invariant) + F4 已武装 ⇒ ConflictInvariantViolation，
+    ///   探针见证 F4 完全未被访问。
+    #[test]
+    fn f4_consumption_three_branch_regression() {
+        use crate::kernel::conflict_tick::reset_conflict_reserve_probe_log;
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let revision = conflict_scale_revision();
+
+        // 构造真实 Computed 报告前缀（每分支一个世界；resource/scratch
+        // 为拥有值，step 在各分支内现取）。
+        fn build(
+            revision: &Arc<laneflow_static_network::SharedNetworkRevision>,
+            raw_capacity: usize,
+            fill: Result<(), DownstreamFillError>,
+        ) -> (
+            TrafficWorld,
+            VehicleHandle,
+            VehicleState,
+            CandidateResource,
+            CandidateScratch,
+        ) {
+            let mut world = conflict_scale_world(Arc::clone(revision), 16);
+            let vehicle = world.state.committed.live_order[0];
+            let state = *world.state.vehicle_state(vehicle).unwrap();
+            let report = {
+                let step = world.state.step_workspace();
+                let view = ConflictTaskView {
+                    read: crate::kernel::phase::StepReadView {
+                        binding: step.binding,
+                        committed: &step.committed,
+                        derived: &step.derived,
+                    },
+                    conflict: crate::kernel::conflict::ConflictRead::new(
+                        &step.committed.conflict,
+                        &step.derived.conflict,
+                        &step.workspace.conflict,
+                    ),
+                    waiting_plans: &step.workspace.waiting_plans,
+                    waiting_plan_by_vehicle: &step.workspace.waiting_plan_by_vehicle,
+                    motion_cache: &step.workspace.motion_cache,
+                };
+                let mut scratch = CandidateScratch::default();
+                view.evaluate_candidate(state, 0, 0, 0, 0.004, 1, &mut scratch)
+            };
+            let CandidateReport::Resource {
+                mut resource,
+                scratch,
+            } = report
+            else {
+                panic!("夹具必须产出资源候选");
+            };
+            let ResourceStage::Computed { downstream, .. } = &mut resource.stage else {
+                panic!("夹具必须产出 Computed 段");
+            };
+            *downstream = DownstreamSegment::Obligated { raw_capacity, fill };
+            (world, vehicle, state, resource, scratch)
+        }
+
+        // ① F4 需真实增长 + 注入失败 + fill 失败 ⇒ CSAF。
+        {
+            let (mut world, vehicle, state, resource, scratch) =
+                build(&revision, 1, Err(DownstreamFillError::Invariant));
+            let mut step = world.state.step_workspace();
+            reset_conflict_reserve_probe_log();
+            let guard = super::fail_conflict_downstream_work_reserve();
+            let result = step.consume_candidate_resource(vehicle, 0, state, 1, resource, &scratch);
+            drop(guard);
+            assert_eq!(
+                result,
+                Err(StepError::ConflictScratchAllocFailed),
+                "① F4 真实增长失败必须先于 F4 后填充检查"
+            );
+        }
+
+        // ② F4 余量足够 + fill 失败 ⇒ CIV，注入未触发。
+        {
+            let (mut world, vehicle, state, resource, scratch) =
+                build(&revision, 1, Err(DownstreamFillError::Invariant));
+            let mut step = world.state.step_workspace();
+            step.workspace
+                .conflict_downstream_work
+                .try_reserve(8)
+                .expect("预填 F4 余量");
+            reset_conflict_reserve_probe_log();
+            let guard = super::fail_conflict_downstream_work_reserve();
+            let result = step.consume_candidate_resource(vehicle, 0, state, 1, resource, &scratch);
+            drop(guard);
+            assert_eq!(
+                result,
+                Err(StepError::ConflictInvariantViolation),
+                "② 余量足够时 fill 失败公开 CIV"
+            );
+            let log = super::conflict_reserve_probe_log();
+            assert!(
+                log.hits[2] >= 1 && log.fired == 0,
+                "② F4 已访问且注入未触发: {log:?}"
+            );
+        }
+
+        // ③ PreFailed(Invariant) + F4 已武装 ⇒ CIV，F4 未被访问。
+        {
+            let (mut world, vehicle, state, mut resource, scratch) = build(&revision, 1, Ok(()));
+            let ResourceStage::Computed { downstream, .. } = &mut resource.stage else {
+                panic!("夹具必须产出 Computed 段");
+            };
+            *downstream = DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
+            let mut step = world.state.step_workspace();
+            reset_conflict_reserve_probe_log();
+            let guard = super::fail_conflict_downstream_work_reserve();
+            let result = step.consume_candidate_resource(vehicle, 0, state, 1, resource, &scratch);
+            drop(guard);
+            assert_eq!(
+                result,
+                Err(StepError::ConflictInvariantViolation),
+                "③ PreFailed 公开 CIV"
+            );
+            let log = super::conflict_reserve_probe_log();
+            assert_eq!(
+                log.hits[2], 0,
+                "③ F4 前结束不得访问 F4（不得补预留）: {log:?}"
+            );
+            assert_eq!(log.fired, 0, "③ F4 注入不得触发: {log:?}");
+        }
+    }
+
     #[test]
     fn conflict_scale_tick_keeps_route_visits_bounded_and_state_valid() {
         let revision = conflict_scale_revision();
@@ -3304,9 +3437,26 @@ pub(crate) struct ConflictReserveProbe {
 }
 
 #[cfg(test)]
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ConflictProbeLog {
+    /// 最近一次访问（last-write-wins）。
+    pub(crate) last: Option<ConflictReserveProbe>,
+    /// 自上次清空以来各点位的访问次数（W4：「更早失败使后续不可达」
+    /// 按命中数为零断言，「本次确实访问/未触发注入」按 last + hits 双重断言）。
+    pub(crate) hits: [u64; 4],
+    /// 自上次清空以来注入真实触发的累计次数（「余量足够+已武装不得
+    /// 制造错误」按全程 fired==0 断言，与 F 位到达频率解耦）。
+    pub(crate) fired: u64,
+}
+
+#[cfg(test)]
 thread_local! {
-    static CONFLICT_RESERVE_PROBE: std::cell::Cell<Option<ConflictReserveProbe>> =
-        const { std::cell::Cell::new(None) };
+    static CONFLICT_RESERVE_PROBE: std::cell::Cell<ConflictProbeLog> =
+        const { std::cell::Cell::new(ConflictProbeLog {
+            last: None,
+            hits: [0; 4],
+            fired: 0,
+        }) };
 }
 
 /// 记录一次 F 位检查点访问；当且仅当真实必要增长且注入已武装时返回
@@ -3321,21 +3471,44 @@ fn conflict_reserve_probe(
 ) -> bool {
     let growth_needed = additional > capacity.saturating_sub(len);
     CONFLICT_RESERVE_PROBE.with(|probe| {
-        probe.set(Some(ConflictReserveProbe {
+        let mut log = probe.get();
+        log.last = Some(ConflictReserveProbe {
             site,
             required: additional,
             len,
             capacity,
             injected: injected && growth_needed,
-        }));
+        });
+        log.hits[match site {
+            ConflictReserveSite::CellWork => 0,
+            ConflictReserveSite::CandidateCells => 1,
+            ConflictReserveSite::DownstreamWork => 2,
+            ConflictReserveSite::DownstreamPool => 3,
+        }] += 1;
+        if growth_needed && injected {
+            log.fired += 1;
+        }
+        probe.set(log);
     });
     growth_needed && injected
 }
 
-/// 测试专用：读取最近一次 F 位检查点探针。
+/// 测试专用：读取探针日志（last + 各点位命中数）。
 #[cfg(test)]
-pub(crate) fn last_conflict_reserve_probe() -> Option<ConflictReserveProbe> {
+pub(crate) fn conflict_reserve_probe_log() -> ConflictProbeLog {
     CONFLICT_RESERVE_PROBE.with(std::cell::Cell::get)
+}
+
+/// 测试专用：清空探针日志（每个 case 测前调用，避免读到旧记录）。
+#[cfg(test)]
+pub(crate) fn reset_conflict_reserve_probe_log() {
+    CONFLICT_RESERVE_PROBE.with(|probe| {
+        probe.set(ConflictProbeLog {
+            last: None,
+            hits: [0; 4],
+            fired: 0,
+        });
+    });
 }
 
 /// P3 任务侧注入（进程级原子量，按世界身份 + 发现序位武装；与 P2/P5
