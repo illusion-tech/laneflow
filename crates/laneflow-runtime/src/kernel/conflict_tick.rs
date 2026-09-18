@@ -342,14 +342,21 @@ impl crate::kernel::state::WorldState {
         &mut self,
         delta_s: f32,
         tick: u64,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<(), StepError> {
-        self.step_workspace().prepare_conflict_step(delta_s, tick)
+        self.step_workspace()
+            .prepare_conflict_step(delta_s, tick, execution)
     }
 
     #[cfg(test)]
-    fn prepare_conflict_candidates(&mut self, delta_s: f32, tick: u64) -> Result<(), StepError> {
+    fn prepare_conflict_candidates(
+        &mut self,
+        delta_s: f32,
+        tick: u64,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
+    ) -> Result<(), StepError> {
         self.step_workspace()
-            .prepare_conflict_candidates(delta_s, tick)
+            .prepare_conflict_candidates(delta_s, tick, execution)
     }
 
     #[cfg(test)]
@@ -523,8 +530,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         &mut self,
         delta_s: f32,
         tick: u64,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<(), StepError> {
-        self.prepare_conflict_candidates(delta_s, tick)?;
+        self.prepare_conflict_candidates(delta_s, tick, execution)?;
         self.acquire_conflict_candidates(tick)
     }
 
@@ -533,6 +541,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         &mut self,
         delta_s: f32,
         tick: u64,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<(), StepError> {
         self.committed
             .prepare_conflict(&mut self.derived, &mut self.workspace.conflict)
@@ -559,27 +568,51 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             self.derived.active_order.len(),
         )?;
 
-        let mut active_index = 0;
-        for sequence in 0..self.committed.live_order.len() {
-            let vehicle = self.committed.live_order[sequence];
-            let Some(state) = self.vehicle_state(vehicle).copied() else {
-                continue;
-            };
-            if state.status != VehicleStatus::Active {
-                continue;
+        // #706 增量 D：Pool 执行器下走 P3 真实分发（阈值/强制 + 发现、槽位
+        // 预留失败回退）；Caller/无执行器保持融合循环。分发或回退后共享
+        // 尾部 reserve + sort；融合循环体一行不动。
+        let mut dispatched = false;
+        if let Some(resources @ crate::kernel::execution::ExecutionResources::Pool(_)) = execution {
+            dispatched = self.prepare_conflict_candidates_dispatched(resources, delta_s, tick)?;
+        } else {
+            #[cfg(test)]
+            count_conflict_path(|counts| counts.fused += 1);
+        }
+        if !dispatched {
+            // 与分发发现序同序的非有限注入计数（cfg(test)，融合参考臂同样
+            // 按 live×gate 发现位点火；生产构建零开销）。
+            #[cfg(test)]
+            let mut workload_index = 0_usize;
+            let mut active_index = 0;
+            for sequence in 0..self.committed.live_order.len() {
+                let vehicle = self.committed.live_order[sequence];
+                let Some(state) = self.vehicle_state(vehicle).copied() else {
+                    continue;
+                };
+                if state.status != VehicleStatus::Active {
+                    continue;
+                }
+                let cache_index = active_index;
+                active_index += 1;
+                if self.conflict_read().reservation(vehicle).is_some() {
+                    continue;
+                }
+                #[cfg(test)]
+                {
+                    if conflict_injection::nonfinite_injected(self.binding.world_id, workload_index)
+                    {
+                        return Err(StepError::NonFiniteMotion);
+                    }
+                    workload_index += 1;
+                }
+                self.evaluate_vehicle_gates(
+                    state,
+                    u32::try_from(sequence).map_err(|_| StepError::ConflictInvariantViolation)?,
+                    cache_index,
+                    delta_s,
+                    tick,
+                )?;
             }
-            let cache_index = active_index;
-            active_index += 1;
-            if self.conflict_read().reservation(vehicle).is_some() {
-                continue;
-            }
-            self.evaluate_vehicle_gates(
-                state,
-                u32::try_from(sequence).map_err(|_| StepError::ConflictInvariantViolation)?,
-                cache_index,
-                delta_s,
-                tick,
-            )?;
         }
 
         reserve(
@@ -590,6 +623,500 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .conflict_candidates
             .sort_unstable_by_key(|candidate| (candidate.key, candidate.vehicle_update_sequence));
         Ok(())
+    }
+
+    /// P3 分发路径（D3/D5）：输入发现（镜像串行循环的跳过语义与
+    /// cache_index 递增次序）→ 阈值/强制 → 槽位 → 块分发 → 完整 join →
+    /// 协调器按 live×gate 发现序规范消费（共享写与真实预留原位施加）。
+    /// 返回 Ok(false) 表示回退融合（调用方执行原串行循环）；发现/槽位
+    /// 预留失败与任务局部暂存不足都不新增领域错误。
+    fn prepare_conflict_candidates_dispatched(
+        &mut self,
+        execution: &crate::kernel::execution::ExecutionResources,
+        delta_s: f32,
+        tick: u64,
+    ) -> Result<bool, StepError> {
+        let view = ConflictTaskView {
+            read: crate::kernel::phase::StepReadView {
+                binding: self.binding,
+                committed: &self.committed,
+                derived: &self.derived,
+            },
+            conflict: crate::kernel::conflict::ConflictRead::new(
+                &self.committed.conflict,
+                &self.derived.conflict,
+                &self.workspace.conflict,
+            ),
+            waiting_plans: &self.workspace.waiting_plans,
+            waiting_plan_by_vehicle: &self.workspace.waiting_plan_by_vehicle,
+            motion_cache: &self.workspace.motion_cache,
+        };
+        let inputs = &mut self.workspace.conflict_inputs;
+        inputs.clear();
+        #[cfg(test)]
+        let input_injected = conflict_injection::input_reserve_injected();
+        #[cfg(not(test))]
+        let input_injected = false;
+        if inputs
+            .try_reserve(view.read.committed.live_order.len())
+            .is_err()
+            || input_injected
+        {
+            #[cfg(test)]
+            count_conflict_path(|counts| counts.slot_fallback += 1);
+            return Ok(false);
+        }
+        let mut active_index = 0_usize;
+        for (sequence, vehicle) in view.read.committed.live_order.iter().copied().enumerate() {
+            let Some(state) = view.read.vehicle_state(vehicle) else {
+                continue;
+            };
+            if state.status != VehicleStatus::Active {
+                continue;
+            }
+            // cache_index 在 reservation 跳过之前递增：Active 紧凑位与融合
+            // 循环保持一致，跳过车辆不占候选但占缓存位。
+            let cache_index = active_index;
+            active_index += 1;
+            if view.conflict.reservation(vehicle).is_some() {
+                continue;
+            }
+            let sequence =
+                u32::try_from(sequence).map_err(|_| StepError::ConflictInvariantViolation)?;
+            inputs.push((vehicle, sequence, cache_index, *state));
+        }
+        let workload = inputs.len();
+        #[cfg(test)]
+        let forced = conflict_dispatch_forced();
+        #[cfg(not(test))]
+        let forced = false;
+        if workload < CONFLICT_DISPATCH_MIN_ACTIVE && !(forced && workload > 0) {
+            #[cfg(test)]
+            count_conflict_path(|counts| counts.fused += 1);
+            return Ok(false);
+        }
+        let slots = &mut self.workspace.conflict_slots;
+        slots.clear();
+        #[cfg(test)]
+        let slot_injected = conflict_injection::slot_reserve_injected();
+        #[cfg(not(test))]
+        let slot_injected = false;
+        if slots.try_reserve(workload).is_err() || slot_injected {
+            #[cfg(test)]
+            count_conflict_path(|counts| counts.slot_fallback += 1);
+            return Ok(false);
+        }
+        // 调度统计在可选槽位预留成功后才登记：回退拍只计 slot_fallback，
+        // 与 dispatched/fused 互斥。
+        #[cfg(test)]
+        count_conflict_path(|counts| counts.dispatched += 1);
+        slots.resize(workload, crate::kernel::execution::DispatchSlot::Pending);
+        // 块数 = 线程数 × 2 与候选工作集取较小者；语义中立（与 P5 同默认值）。
+        let chunk_count = execution
+            .dispatch_threads()
+            .saturating_mul(2)
+            .clamp(1, workload);
+        let chunk_size = workload.div_ceil(chunk_count).max(1);
+        let first_error = std::sync::atomic::AtomicUsize::new(usize::MAX);
+        // 块级计数诊断按协调器开关分配/记录；任务内以捕获的布尔为准。
+        #[cfg(test)]
+        let diagnostics = CONFLICT_WORK_DIAGNOSTICS.with(std::cell::Cell::get);
+        #[cfg(not(test))]
+        #[allow(unused_variables)]
+        let diagnostics = false;
+        #[cfg(test)]
+        let chunk_records = diagnostics.then(|| {
+            (0..chunk_count)
+                .map(|_| ConflictWorkChunkRecord::default())
+                .collect::<Vec<_>>()
+        });
+        #[cfg(test)]
+        let tls_baseline = diagnostics.then(conflict_tls_snapshot);
+        let compute =
+            |_chunk_view: crate::kernel::phase::StepReadView<'_>,
+             start: usize,
+             chunk: &mut [crate::kernel::execution::DispatchSlot<CandidateReport>]| {
+                #[cfg(test)]
+                let chunk_baseline = diagnostics.then(conflict_tls_snapshot);
+                for (offset, slot) in chunk.iter_mut().enumerate() {
+                    let index = start + offset;
+                    let (_vehicle, sequence, cache_index, state) =
+                        self.workspace.conflict_inputs[index];
+                    *slot = crate::kernel::execution::DispatchSlot::Done(Ok(
+                        view.evaluate_candidate(state, sequence, index, cache_index, delta_s, tick)
+                    ));
+                }
+                #[cfg(test)]
+                if let (Some(records), Some(baseline)) = (&chunk_records, chunk_baseline) {
+                    records[start / chunk_size].store_deltas(baseline);
+                }
+            };
+        let dispatch_stats =
+            execution.try_for_each_chunk(view.read, slots, &first_error, chunk_size, compute);
+        #[cfg(test)]
+        {
+            if let (Some(baseline), Some(records)) = (tls_baseline, &chunk_records) {
+                aggregate_conflict_tls(baseline, records);
+            }
+            crate::kernel::execution::note_last_dispatch_stats(dispatch_stats);
+            LAST_CONFLICT_DISPATCH_STATS.with(|cell| cell.set(Some(dispatch_stats)));
+            if let Some(position) = CONFLICT_SLOT_GAP.with(std::cell::Cell::get)
+                && let Some(slot) = slots.get_mut(position)
+            {
+                // 完成前沿不变量注入：首错之前出现未计算槽位，协调器须检出。
+                *slot = crate::kernel::execution::DispatchSlot::Pending;
+            }
+        }
+        #[cfg(not(test))]
+        let _ = dispatch_stats;
+        for index in 0..self.workspace.conflict_inputs.len() {
+            let (vehicle, sequence, cache_index, state) = self.workspace.conflict_inputs[index];
+            let slot = core::mem::replace(
+                &mut self.workspace.conflict_slots[index],
+                crate::kernel::execution::DispatchSlot::Skipped,
+            );
+            let report = match slot {
+                crate::kernel::execution::DispatchSlot::Done(Ok(report)) => report,
+                crate::kernel::execution::DispatchSlot::Done(Err(error)) => return Err(error),
+                crate::kernel::execution::DispatchSlot::Pending
+                | crate::kernel::execution::DispatchSlot::Skipped => {
+                    // 完成前沿不变量违例：缺失/跳过/旧 attempt 回报不得视为
+                    // 成功或无结果。
+                    return Err(StepError::ConflictInvariantViolation);
+                }
+            };
+            self.consume_conflict_candidate(vehicle, sequence, cache_index, state, report, tick)?;
+        }
+        Ok(true)
+    }
+
+    /// P3 规范消费（D3/D5）：按发现序先落缓存更新，再按报告施加共享写与
+    /// 真实预留（F1/F2/F3b/F4/staged 原位，次序与融合逐行一致）；任务局部
+    /// 暂存不足的段由协调器以同领域原语补算，不冒充领域分配失败。
+    fn consume_conflict_candidate(
+        &mut self,
+        vehicle: VehicleHandle,
+        update_sequence: u32,
+        cache_index: usize,
+        state: VehicleState,
+        report: CandidateReport,
+        tick: u64,
+    ) -> Result<(), StepError> {
+        match &report {
+            CandidateReport::None { cache }
+            | CandidateReport::Staged { cache, .. }
+            | CandidateReport::Failed { cache, .. } => {
+                self.apply_conflict_cache_updates(vehicle, cache_index, cache)
+            }
+            CandidateReport::Resource(resource) => {
+                self.apply_conflict_cache_updates(vehicle, cache_index, &resource.cache)
+            }
+        }
+        match report {
+            CandidateReport::None { .. } => Ok(()),
+            CandidateReport::Staged { decision, .. } => {
+                reserve(&mut self.workspace.conflict_staged_decisions, 1)?;
+                self.workspace.conflict_staged_decisions.push(decision);
+                Ok(())
+            }
+            CandidateReport::Failed { error, .. } => Err(error),
+            CandidateReport::Resource(resource) => {
+                self.workspace.conflict_motion_by_vehicle[vehicle.index() as usize] =
+                    Some(resource.motion_plan);
+                if let Some(eligibility) = resource.next_eligibility {
+                    self.workspace.conflict_next_eligibility[vehicle.index() as usize] =
+                        Some(eligibility);
+                }
+                match resource.stage {
+                    ResourceStage::PureWaitingEmpty {
+                        key,
+                        anchor,
+                        waiting_zone,
+                    } => {
+                        let cells_len = self.workspace.conflict_candidate_cells.len();
+                        let downstream_len = self.workspace.conflict_candidate_downstream.len();
+                        self.workspace.conflict_candidates.push(ConflictCandidate {
+                            vehicle,
+                            vehicle_update_sequence: update_sequence,
+                            key,
+                            anchor,
+                            passage: None,
+                            passage_range: None,
+                            cells_start: cells_len,
+                            cells_end: cells_len,
+                            downstream_start: downstream_len,
+                            downstream_end: downstream_len,
+                            follower_min_gap_mm: 0,
+                            waiting_zone,
+                            preflight_no_grant: None,
+                        });
+                        Ok(())
+                    }
+                    ResourceStage::CheckFailed(error) => Err(error),
+                    ResourceStage::Computed {
+                        stable_passage,
+                        passage_range,
+                        gate_kind,
+                        waiting_zone,
+                        priority,
+                        preflight_no_grant,
+                        cells,
+                        downstream,
+                    } => self.consume_computed_candidate(
+                        vehicle,
+                        update_sequence,
+                        state,
+                        tick,
+                        resource.next_eligibility,
+                        stable_passage,
+                        passage_range,
+                        gate_kind,
+                        waiting_zone,
+                        priority,
+                        preflight_no_grant,
+                        cells,
+                        downstream,
+                    ),
+                }
+            }
+        }
+    }
+
+    /// Computed 段消费：cells/downstream 各段按序施加真实预留与共享写；
+    /// 段内失败与融合同位同序（F1 先于同车领域错误，F2 先于更晚的
+    /// downstream 检查错误）。
+    #[allow(clippy::too_many_arguments)]
+    fn consume_computed_candidate(
+        &mut self,
+        vehicle: VehicleHandle,
+        update_sequence: u32,
+        state: VehicleState,
+        tick: u64,
+        next_eligibility: Option<crate::ConflictEligibilityState>,
+        stable_passage: crate::ConflictPassageOccurrenceLocator,
+        passage_range: ConflictPassageRange,
+        gate_kind: GateCandidateKind,
+        waiting_zone: Option<laneflow_static_contract::WaitingZoneOrdinal>,
+        priority: Option<i32>,
+        preflight_no_grant: Option<ConflictNoGrantReason>,
+        cells: CellsSegment,
+        downstream: DownstreamSegment,
+    ) -> Result<(), StepError> {
+        let eligibility = next_eligibility.ok_or(StepError::ConflictInvariantViolation)?;
+        let gate_hop = passage_range.admission_gate_hop();
+        let mut preflight_no_grant = preflight_no_grant;
+        let (cells_start, cells_end) = match cells {
+            CellsSegment::Values(values) => {
+                self.reserve_conflict_cell_work(passage_range.passage_count() as usize)?;
+                let cells_start = self.workspace.conflict_candidate_cells.len();
+                self.reserve_conflict_candidate_cells(values.len())?;
+                self.workspace
+                    .conflict_candidate_cells
+                    .extend_from_slice(&values);
+                (cells_start, self.workspace.conflict_candidate_cells.len())
+            }
+            CellsSegment::Failed(error) => {
+                self.reserve_conflict_cell_work(passage_range.passage_count() as usize)?;
+                return Err(error);
+            }
+            CellsSegment::Unmaterialized => {
+                // 任务局部暂存不足：协调器以同领域原语整段补算（F1/F2/
+                // downstream/候选 push 一体，含 motion plan/eligibility 重写，
+                // 值与已写报告一致）。
+                let gate = EvaluatedGate {
+                    anchor: ConflictRouteAnchor {
+                        route: passage_range.route(),
+                        maneuver_occurrence_index: passage_range.maneuver_occurrence_index(),
+                        hop: gate_hop,
+                    },
+                    passage: Some(stable_passage),
+                    range: crate::kernel::tables::ConflictGateRange {
+                        start: passage_range.first_conflict_occurrence_index(),
+                        len: passage_range.passage_count(),
+                    },
+                    kind: gate_kind,
+                    waiting_zone,
+                };
+                return self.prepare_resource_candidate(state, update_sequence, tick, gate);
+            }
+        };
+        let (downstream_start, downstream_end) = match downstream {
+            DownstreamSegment::SkippedPreflight => {
+                let len = self.workspace.conflict_candidate_downstream.len();
+                (len, len)
+            }
+            DownstreamSegment::Evaluated {
+                raw_capacity,
+                result,
+            } => match result {
+                Ok(claims) => {
+                    self.reserve_conflict_downstream_work(raw_capacity)?;
+                    self.workspace
+                        .conflict_downstream_work
+                        .extend_from_slice(&claims);
+                    let downstream_start = self.workspace.conflict_candidate_downstream.len();
+                    self.reserve_conflict_downstream_pool(claims.len())?;
+                    self.workspace
+                        .conflict_candidate_downstream
+                        .extend_from_slice(&claims);
+                    (
+                        downstream_start,
+                        self.workspace.conflict_candidate_downstream.len(),
+                    )
+                }
+                Err(DownstreamEvalError::NoGrant) => {
+                    // A4/A5：折入 preflight，不公开错误；空 downstream 区间。
+                    preflight_no_grant = Some(map_acquire_error(ConflictAcquireError::NoGrant(
+                        ConflictResourceNoGrant::DownstreamStorageBoundary,
+                    ))?);
+                    let len = self.workspace.conflict_candidate_downstream.len();
+                    (len, len)
+                }
+                Err(DownstreamEvalError::Invariant) => {
+                    return Err(StepError::ConflictInvariantViolation);
+                }
+                Err(DownstreamEvalError::Scratch) => {
+                    return Err(StepError::ConflictScratchAllocFailed);
+                }
+            },
+            DownstreamSegment::Unmaterialized => {
+                // 任务局部 claims 暂存不足：协调器同原语补算（F4 在内部），
+                // 随后原位 F3b 预留与接纳。
+                self.workspace.conflict_downstream_work.clear();
+                match self.prepare_candidate_downstream(state, passage_range, gate_hop) {
+                    Ok(()) => {
+                        let downstream_start = self.workspace.conflict_candidate_downstream.len();
+                        reserve(
+                            &mut self.workspace.conflict_candidate_downstream,
+                            self.workspace.conflict_downstream_work.len(),
+                        )?;
+                        self.workspace
+                            .conflict_candidate_downstream
+                            .extend_from_slice(&self.workspace.conflict_downstream_work);
+                        (
+                            downstream_start,
+                            self.workspace.conflict_candidate_downstream.len(),
+                        )
+                    }
+                    Err(ConflictAcquireError::NoGrant(reason)) => {
+                        preflight_no_grant =
+                            Some(map_acquire_error(ConflictAcquireError::NoGrant(reason))?);
+                        let len = self.workspace.conflict_candidate_downstream.len();
+                        (len, len)
+                    }
+                    Err(ConflictAcquireError::InvalidBundle | ConflictAcquireError::Capacity) => {
+                        return Err(StepError::ConflictInvariantViolation);
+                    }
+                    Err(ConflictAcquireError::ScratchAllocFailed) => {
+                        return Err(StepError::ConflictScratchAllocFailed);
+                    }
+                }
+            }
+        };
+        let key = ConflictCandidateOrderKey::new(
+            gate_kind,
+            priority,
+            eligibility.first_eligible_tick(),
+            state
+                .waiting_membership
+                .map(|member| member.admission_sequence),
+            update_sequence,
+        );
+        let anchor = ConflictRouteAnchor {
+            route: passage_range.route(),
+            maneuver_occurrence_index: passage_range.maneuver_occurrence_index(),
+            hop: gate_hop,
+        };
+        let follower_min_gap_mm = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+            .ok_or(StepError::ConflictInvariantViolation)?
+            .min_gap_mm();
+        self.workspace.conflict_candidates.push(ConflictCandidate {
+            vehicle,
+            vehicle_update_sequence: update_sequence,
+            key,
+            anchor,
+            passage: Some(stable_passage),
+            passage_range: Some(passage_range),
+            cells_start,
+            cells_end,
+            downstream_start,
+            downstream_end,
+            follower_min_gap_mm,
+            waiting_zone,
+            preflight_no_grant,
+        });
+        Ok(())
+    }
+
+    /// §2 #7/#11：horizon/preview 在门距早退之前已算出，无论报告形态都须
+    /// 按 Active 紧凑位原位落缓存（与融合写点一致）。
+    fn apply_conflict_cache_updates(
+        &mut self,
+        vehicle: VehicleHandle,
+        cache_index: usize,
+        cache: &CacheUpdates,
+    ) {
+        if cache.horizon.is_none() && cache.preview.is_none() {
+            return;
+        }
+        if let Some(entry) = self
+            .workspace
+            .motion_cache
+            .get_mut(cache_index)
+            .filter(|entry| entry.vehicle == vehicle)
+        {
+            if let Some(horizon) = cache.horizon {
+                entry.horizon = Some(horizon);
+            }
+            if let Some(preview) = cache.preview {
+                entry.preview = Some(preview);
+            }
+        }
+    }
+
+    /// F1 位：cell 工作区真实预留（与融合同位同序；注入优先于
+    /// try_reserve，失败统一映射 ConflictScratchAllocFailed）。
+    fn reserve_conflict_cell_work(&mut self, additional: usize) -> Result<(), StepError> {
+        #[cfg(test)]
+        if conflict_injection::cell_work_reserve_injected() {
+            return Err(StepError::ConflictScratchAllocFailed);
+        }
+        reserve(&mut self.workspace.conflict_cell_work, additional)
+    }
+
+    /// F2 位：candidate_cells 真实预留（注入同 F1 语义）。
+    fn reserve_conflict_candidate_cells(&mut self, additional: usize) -> Result<(), StepError> {
+        #[cfg(test)]
+        if conflict_injection::cells_reserve_injected() {
+            return Err(StepError::ConflictScratchAllocFailed);
+        }
+        reserve(&mut self.workspace.conflict_candidate_cells, additional)
+    }
+
+    /// F4 位：downstream 工作区真实预留（注入同 F1 语义）。
+    fn reserve_conflict_downstream_work(&mut self, additional: usize) -> Result<(), StepError> {
+        #[cfg(test)]
+        if conflict_injection::downstream_work_reserve_injected() {
+            return Err(StepError::ConflictScratchAllocFailed);
+        }
+        reserve(&mut self.workspace.conflict_downstream_work, additional)
+    }
+
+    /// F3b 位：candidate_downstream 真实预留（注入同 F1 语义）。
+    fn reserve_conflict_downstream_pool(&mut self, additional: usize) -> Result<(), StepError> {
+        #[cfg(test)]
+        if conflict_injection::downstream_pool_reserve_injected() {
+            return Err(StepError::ConflictScratchAllocFailed);
+        }
+        reserve(
+            &mut self.workspace.conflict_candidate_downstream,
+            additional,
+        )
     }
 
     /// 按证明时长为活动车辆重建 approach frontier 所有者表。
@@ -1913,7 +2440,10 @@ mod tests {
         );
         world.state.rebuild_occupancy_index().unwrap();
         world.state.prepare_waiting_step(0.1).unwrap();
-        world.state.prepare_conflict_candidates(0.1, 1).unwrap();
+        world
+            .state
+            .prepare_conflict_candidates(0.1, 1, None)
+            .unwrap();
         assert_eq!(world.state.workspace.conflict_candidates.len(), 1);
         // 单独验证组合仲裁拒绝与 Waiting 发布的接缝；SCC 本身由 arbiter 测试覆盖。
         world.state.workspace.conflict_candidates[0].preflight_no_grant =
@@ -1985,7 +2515,7 @@ mod tests {
             let started = Instant::now();
             world
                 .state
-                .prepare_conflict_step(0.004, world.tick_index() + 1)
+                .prepare_conflict_step(0.004, world.tick_index() + 1, None)
                 .expect("Conflict arbitration sample");
             if sample >= 3 {
                 samples.push(started.elapsed().as_nanos());
@@ -2179,5 +2709,1221 @@ mod tests {
             work.wait_for_edges,
             work.wait_for_visits,
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// #706 增量 D：P3 候选字段多段原语 + 真实分发。逐车计算在冻结视图上按
+// 串行同序求值（多段报告，不抹平状态）；协调器按 live×gate 原序消费并
+// 施加全部共享写入与真实预留（F1/F2/F3b/F4/staged 原位）。rebuild
+// frontier 与 P4 acquire 保持协调器串行，一行不动。
+// ---------------------------------------------------------------------------
+
+/// P3 分发阈值：候选eligible 工作集低于该值时融合执行；初版保守选择
+///（与 P2/P5 同值、独立常量），待增量 E 证据登记后校准。
+const CONFLICT_DISPATCH_MIN_ACTIVE: usize = 1_024;
+
+/// P3 本阶段谁执行的计数证据（融合/分发/回退互斥）。
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ConflictPathCounts {
+    pub(crate) dispatched: usize,
+    pub(crate) fused: usize,
+    pub(crate) slot_fallback: usize,
+}
+
+#[cfg(test)]
+pub(crate) fn conflict_path_counts() -> ConflictPathCounts {
+    CONFLICT_PATH_COUNTS.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn count_conflict_path(update: impl FnOnce(&mut ConflictPathCounts)) {
+    CONFLICT_PATH_COUNTS.with(|counts| {
+        let mut value = counts.get();
+        update(&mut value);
+        counts.set(value);
+    });
+}
+
+#[cfg(test)]
+thread_local! {
+    static CONFLICT_PATH_COUNTS: std::cell::Cell<ConflictPathCounts> = const { std::cell::Cell::new(ConflictPathCounts { dispatched: 0, fused: 0, slot_fallback: 0 }) };
+    static CONFLICT_FORCE_DISPATCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static CONFLICT_SLOT_GAP: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+    static CONFLICT_WORK_DIAGNOSTICS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static LAST_CONFLICT_DISPATCH_STATS: std::cell::Cell<Option<crate::kernel::execution::DispatchStats>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn conflict_dispatch_forced() -> bool {
+    CONFLICT_FORCE_DISPATCH.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub(crate) struct ForceConflictDispatchGuard(bool);
+
+#[cfg(test)]
+impl Drop for ForceConflictDispatchGuard {
+    fn drop(&mut self) {
+        CONFLICT_FORCE_DISPATCH.with(|forced| forced.set(self.0));
+    }
+}
+
+/// 测试专用：本拍起强制 P3 真实分发（工作集非空时），返回复位守卫。
+#[cfg(test)]
+pub(crate) fn force_conflict_dispatch() -> ForceConflictDispatchGuard {
+    ForceConflictDispatchGuard(CONFLICT_FORCE_DISPATCH.with(|forced| forced.replace(true)))
+}
+
+/// 测试专用：最近一次 P3 分发的调度统计（按阶段独立）。
+#[cfg(test)]
+pub(crate) fn last_conflict_dispatch_stats() -> Option<crate::kernel::execution::DispatchStats> {
+    LAST_CONFLICT_DISPATCH_STATS.with(std::cell::Cell::get)
+}
+
+/// 测试专用：P3 工作计数诊断开关（计数对拍测试开启；分配证据类关闭）。
+#[cfg(test)]
+pub(crate) struct ConflictDiagnosticsGuard(bool);
+
+#[cfg(test)]
+impl Drop for ConflictDiagnosticsGuard {
+    fn drop(&mut self) {
+        CONFLICT_WORK_DIAGNOSTICS.with(|flag| flag.set(self.0));
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn enable_conflict_diagnostics() -> ConflictDiagnosticsGuard {
+    ConflictDiagnosticsGuard(CONFLICT_WORK_DIAGNOSTICS.with(|flag| flag.replace(true)))
+}
+
+/// 线程本地 ConflictWorkCounts 快照；P3 分发 join 后按块级记录汇总回
+/// 协调器线程（与 P5 的 MotionTlsSnapshot 同机制）。
+#[cfg(test)]
+type ConflictTlsSnapshot = crate::kernel::conflict::ConflictWorkCounts;
+
+#[cfg(test)]
+fn conflict_tls_snapshot() -> ConflictTlsSnapshot {
+    crate::kernel::conflict::conflict_work_counts()
+}
+
+/// 块级诊断记录：一个执行块的 ConflictWorkCounts 增量（任务写本块独占
+/// 槽，join 后由协调器汇总进线程本地计数器）。
+#[cfg(test)]
+#[derive(Default)]
+struct ConflictWorkChunkRecord {
+    delta: std::sync::Mutex<crate::kernel::conflict::ConflictWorkCounts>,
+}
+
+#[cfg(test)]
+impl ConflictWorkChunkRecord {
+    fn store_deltas(&self, before: ConflictTlsSnapshot) {
+        let after = conflict_tls_snapshot();
+        *self.delta.lock().expect("conflict chunk record delta") = after.wrapping_sub(before);
+    }
+}
+
+/// 汇总：协调器线程计数器 = 分发前基线 + 全部块增量（调用线程自己的块
+/// 增量经记录回灌，不重复计）。
+#[cfg(test)]
+fn aggregate_conflict_tls(baseline: ConflictTlsSnapshot, records: &[ConflictWorkChunkRecord]) {
+    let mut sum = baseline;
+    for record in records {
+        sum = sum.wrapping_add(*record.delta.lock().expect("conflict chunk record delta"));
+    }
+    crate::kernel::conflict::set_conflict_work_counts(sum);
+}
+
+/// P3 任务侧注入（进程级原子量，按世界身份 + 发现序位武装；与 P2/P5
+/// 注入面相互独立）。
+#[cfg(test)]
+mod conflict_injection {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+    pub(super) const DISABLED_WORLD: u64 = u64::MAX;
+
+    pub(super) static NONFINITE_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
+    pub(super) static NONFINITE_POSITIONS: AtomicU64 = AtomicU64::new(0);
+    pub(super) static INVARIANT_DOWNSTREAM_WORLD: AtomicU64 = AtomicU64::new(DISABLED_WORLD);
+    pub(super) static INVARIANT_DOWNSTREAM_POSITIONS: AtomicU64 = AtomicU64::new(0);
+    pub(super) static CELLS_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
+    pub(super) static CELL_WORK_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
+    pub(super) static DOWNSTREAM_WORK_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
+    pub(super) static DOWNSTREAM_POOL_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
+    pub(super) static INPUT_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
+    pub(super) static SLOT_RESERVE_FAILURE: AtomicBool = AtomicBool::new(false);
+
+    pub(super) fn position_mask(positions: &[usize]) -> u64 {
+        positions.iter().fold(0_u64, |mask, position| {
+            assert!(
+                *position < u64::BITS as usize,
+                "conflict injection position fits mask"
+            );
+            mask | (1_u64 << position)
+        })
+    }
+
+    pub(super) fn nonfinite_injected(world_id: u64, position: usize) -> bool {
+        NONFINITE_WORLD.load(Ordering::SeqCst) == world_id
+            && position < u64::BITS as usize
+            && NONFINITE_POSITIONS.load(Ordering::SeqCst) & (1_u64 << position) != 0
+    }
+
+    pub(super) fn invariant_downstream_injected(world_id: u64, position: usize) -> bool {
+        INVARIANT_DOWNSTREAM_WORLD.load(Ordering::SeqCst) == world_id
+            && position < u64::BITS as usize
+            && INVARIANT_DOWNSTREAM_POSITIONS.load(Ordering::SeqCst) & (1_u64 << position) != 0
+    }
+
+    pub(super) fn input_reserve_injected() -> bool {
+        INPUT_RESERVE_FAILURE.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn slot_reserve_injected() -> bool {
+        SLOT_RESERVE_FAILURE.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn cell_work_reserve_injected() -> bool {
+        CELL_WORK_RESERVE_FAILURE.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn cells_reserve_injected() -> bool {
+        CELLS_RESERVE_FAILURE.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn downstream_work_reserve_injected() -> bool {
+        DOWNSTREAM_WORK_RESERVE_FAILURE.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn downstream_pool_reserve_injected() -> bool {
+        DOWNSTREAM_POOL_RESERVE_FAILURE.load(Ordering::SeqCst)
+    }
+}
+
+#[cfg(test)]
+fn swap_conflict_flag(flag: &'static std::sync::atomic::AtomicBool) -> ConflictBoolGuard {
+    ConflictBoolGuard(flag, flag.swap(true, std::sync::atomic::Ordering::SeqCst))
+}
+
+#[cfg(test)]
+pub(crate) struct ConflictBoolGuard(&'static std::sync::atomic::AtomicBool, bool);
+
+#[cfg(test)]
+impl Drop for ConflictBoolGuard {
+    fn drop(&mut self) {
+        self.0.store(self.1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+pub(crate) struct ConflictNonfiniteGuard(u64, u64);
+
+#[cfg(test)]
+impl Drop for ConflictNonfiniteGuard {
+    fn drop(&mut self) {
+        use std::sync::atomic::Ordering;
+        conflict_injection::NONFINITE_WORLD.store(self.0, Ordering::SeqCst);
+        conflict_injection::NONFINITE_POSITIONS.store(self.1, Ordering::SeqCst);
+    }
+}
+
+/// 测试专用：按发现序位武装 P3 逐车 NonFiniteMotion 注入（horizon/预览
+/// 重算同原语位）。
+#[cfg(test)]
+pub(crate) fn inject_conflict_nonfinite(
+    world_id: u64,
+    positions: &[usize],
+) -> ConflictNonfiniteGuard {
+    use std::sync::atomic::Ordering;
+    ConflictNonfiniteGuard(
+        conflict_injection::NONFINITE_WORLD.swap(world_id, Ordering::SeqCst),
+        conflict_injection::NONFINITE_POSITIONS.swap(
+            conflict_injection::position_mask(positions),
+            Ordering::SeqCst,
+        ),
+    )
+}
+
+#[cfg(test)]
+pub(crate) struct ConflictInvariantGuard(u64, u64);
+
+#[cfg(test)]
+impl Drop for ConflictInvariantGuard {
+    fn drop(&mut self) {
+        use std::sync::atomic::Ordering;
+        conflict_injection::INVARIANT_DOWNSTREAM_WORLD.store(self.0, Ordering::SeqCst);
+        conflict_injection::INVARIANT_DOWNSTREAM_POSITIONS.store(self.1, Ordering::SeqCst);
+    }
+}
+
+/// 测试专用：按发现序位武装「同车更晚 downstream 检查 ConflictInvariantViolation」
+/// 注入（D4 核心反例的下游侧）。
+#[cfg(test)]
+pub(crate) fn inject_conflict_invariant_downstream(
+    world_id: u64,
+    positions: &[usize],
+) -> ConflictInvariantGuard {
+    use std::sync::atomic::Ordering;
+    ConflictInvariantGuard(
+        conflict_injection::INVARIANT_DOWNSTREAM_WORLD.swap(world_id, Ordering::SeqCst),
+        conflict_injection::INVARIANT_DOWNSTREAM_POSITIONS.swap(
+            conflict_injection::position_mask(positions),
+            Ordering::SeqCst,
+        ),
+    )
+}
+
+/// 测试专用：下一次 cell 工作区真实预留（F1 位）强制失败。
+#[cfg(test)]
+pub(crate) fn fail_conflict_cell_work_reserve() -> ConflictBoolGuard {
+    swap_conflict_flag(&conflict_injection::CELL_WORK_RESERVE_FAILURE)
+}
+
+/// 测试专用：下一次 candidate_cells 真实预留（F2 位）强制失败。
+#[cfg(test)]
+pub(crate) fn fail_conflict_cells_reserve() -> ConflictBoolGuard {
+    swap_conflict_flag(&conflict_injection::CELLS_RESERVE_FAILURE)
+}
+
+/// 测试专用：下一次 downstream 工作区真实预留（F4 位）强制失败。
+#[cfg(test)]
+pub(crate) fn fail_conflict_downstream_work_reserve() -> ConflictBoolGuard {
+    swap_conflict_flag(&conflict_injection::DOWNSTREAM_WORK_RESERVE_FAILURE)
+}
+
+/// 测试专用：下一次 candidate_downstream 真实预留（F3b 位）强制失败。
+#[cfg(test)]
+pub(crate) fn fail_conflict_downstream_pool_reserve() -> ConflictBoolGuard {
+    swap_conflict_flag(&conflict_injection::DOWNSTREAM_POOL_RESERVE_FAILURE)
+}
+
+/// 测试专用：下一次 P3 输入表预留强制失败（冷态回退）。
+#[cfg(test)]
+pub(crate) fn fail_conflict_input_reserve() -> ConflictBoolGuard {
+    swap_conflict_flag(&conflict_injection::INPUT_RESERVE_FAILURE)
+}
+
+/// 测试专用：下一次 P3 槽位预留强制失败（热态回退）。
+#[cfg(test)]
+pub(crate) fn fail_conflict_slot_reserve() -> ConflictBoolGuard {
+    swap_conflict_flag(&conflict_injection::SLOT_RESERVE_FAILURE)
+}
+
+#[cfg(test)]
+pub(crate) struct ConflictSlotGapGuard(Option<usize>);
+
+#[cfg(test)]
+impl Drop for ConflictSlotGapGuard {
+    fn drop(&mut self) {
+        CONFLICT_SLOT_GAP.with(|gap| gap.set(self.0));
+    }
+}
+
+/// 测试专用：join 后把指定发现序位的槽位改写为 `Pending`（完成前沿检出）。
+#[cfg(test)]
+pub(crate) fn drop_conflict_slot_at(position: usize) -> ConflictSlotGapGuard {
+    ConflictSlotGapGuard(CONFLICT_SLOT_GAP.with(|gap| gap.replace(Some(position))))
+}
+
+/// P3 冻结任务视图（D2 显式字段表）：
+/// - `read`：拍初 C(T) 车辆/路线（静态根编译表、policy、拍初信号）+
+///   derived occupancy（leader_gap 只读）；
+/// - `conflict`：三腿 ConflictRead（committed+derived+workspace）。discard_staged
+///   后 reservation/owner 读的是拍初 committed 语义；`cell_workspace` 的
+///   approach frontier 由协调器 rebuild 完成后冻结借出；
+/// - `waiting_plans`/`waiting_plan_by_vehicle`：本拍 P2 规范结果；
+/// - `motion_cache`：本拍 P2 结果（horizon/preview 复用证明）。
+#[derive(Clone, Copy)]
+struct ConflictTaskView<'a> {
+    read: crate::kernel::phase::StepReadView<'a>,
+    conflict: crate::kernel::conflict::ConflictRead<'a>,
+    waiting_plans: &'a [crate::kernel::waiting::WaitingVehiclePlan],
+    waiting_plan_by_vehicle: &'a [Option<std::num::NonZeroU32>],
+    motion_cache: &'a [crate::kernel::tick::MotionCacheEntry],
+}
+
+/// P3 多段报告（D3）：不得用单 None 或整车 Err 抹平状态。
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct CacheUpdates {
+    /// §2 #7：horizon 在门距早退之前已算出，须落缓存。
+    horizon: Option<crate::kernel::occupancy::LeaderQueryHorizon>,
+    /// §2 #11：preview 在 Gate 循环之前已算出，须落缓存。
+    preview: Option<crate::kernel::tick::MotionPreview>,
+}
+
+#[derive(Clone)]
+pub(crate) enum CandidateReport {
+    /// 无候选（无 Gate/门距超 horizon/无资源 Deny 静默/扫描完）。
+    /// cache = 已求出待落缓存的 horizon/preview。
+    None { cache: CacheUpdates },
+    /// §2 #22：无资源门产出 staged 决定；reserve+push 在消费侧原位。
+    Staged {
+        cache: CacheUpdates,
+        decision: crate::ConflictDecision,
+    },
+    /// 资源候选：motion plan 写（Err 路径亦落盘）+ 后续阶段。
+    Resource(CandidateResource),
+    /// 早段失败（compiled_route/profile/horizon/距离/waiting/preview/
+    /// Gate 循环检查），无本车成功值义务；cache 同样须落盘。
+    Failed {
+        cache: CacheUpdates,
+        error: StepError,
+    },
+}
+
+#[derive(Clone)]
+pub(crate) struct CandidateResource {
+    /// §2 #7/#11：horizon/preview 在资源候选之前已算出，同样须落缓存。
+    cache: CacheUpdates,
+    /// §3 #2：Err 路径亦落盘的 motion plan 写。
+    motion_plan: ConflictMotionPlan,
+    /// §3 #6：eligibility 求值成功后写（纯 Waiting 空 range 与 #6 之前的
+    /// CheckFailed 不写）。
+    next_eligibility: Option<crate::ConflictEligibilityState>,
+    stage: ResourceStage,
+}
+
+#[derive(Clone)]
+enum ResourceStage {
+    /// §3 #4：纯 Waiting 空 range 候选（空 cells/downstream 区间）。
+    PureWaitingEmpty {
+        key: ConflictCandidateOrderKey,
+        anchor: ConflictRouteAnchor,
+        waiting_zone: Option<laneflow_static_contract::WaitingZoneOrdinal>,
+    },
+    /// 929-1008 之间的检查失败（passage/slice/range/class；eligibility
+    /// 不可达错）。此时除 motion plan/eligibility 外无本车声明义务。
+    CheckFailed(StepError),
+    /// 1009 之后：cell/downstream 段分别求值的多段结果。
+    Computed {
+        stable_passage: crate::ConflictPassageOccurrenceLocator,
+        passage_range: ConflictPassageRange,
+        gate_kind: GateCandidateKind,
+        waiting_zone: Option<laneflow_static_contract::WaitingZoneOrdinal>,
+        priority: Option<i32>,
+        preflight_no_grant: Option<ConflictNoGrantReason>,
+        cells: CellsSegment,
+        downstream: DownstreamSegment,
+    },
+}
+
+#[derive(Clone)]
+enum CellsSegment {
+    /// 任务局部物化成功（已 sort+dedup）。
+    Values(Vec<crate::ConflictPassageAddress>),
+    /// 任务局部暂存不足 → 协调器同原语补算（不冒充领域分配失败）。
+    Unmaterialized,
+    /// 出现项循环检查失败（F1 位之后、F2 之前）。
+    Failed(StepError),
+}
+
+#[derive(Clone)]
+enum DownstreamSegment {
+    /// preflight NoGrant：整体跳过（downstream_start==end，A4/A5）。
+    SkippedPreflight,
+    /// 任务侧求值完成。
+    Evaluated {
+        raw_capacity: usize,
+        result: Result<Vec<crate::DownstreamInterval>, DownstreamEvalError>,
+    },
+    Unmaterialized,
+}
+
+#[derive(Clone)]
+enum DownstreamEvalError {
+    /// NoGrant(DownstreamStorageBoundary)：折入 preflight，不公开错误。
+    NoGrant,
+    /// InvalidBundle/Capacity → ConflictInvariantViolation（1096-1098 位）。
+    Invariant,
+    /// ScratchAllocFailed（F4 位）→ ConflictScratchAllocFailed。F4 留在
+    /// 协调器消费侧，任务侧不构造本变体；保留以完整多段协议。
+    #[allow(dead_code)]
+    Scratch,
+}
+
+impl ConflictTaskView<'_> {
+    /// P3 逐车候选求值原语（任务/补算共用）：与
+    /// StepWorkspace::evaluate_vehicle_gates + prepare_resource_candidate +
+    /// prepare_candidate_downstream 的检查次序与错误变体逐行一致；
+    /// 不写入任何共享状态，共享写与真实预留由协调器按原序施加。
+    fn evaluate_candidate(
+        self,
+        state: VehicleState,
+        update_sequence: u32,
+        _workload_index: usize,
+        cache_index: usize,
+        delta_s: f32,
+        tick: u64,
+    ) -> CandidateReport {
+        #[cfg(test)]
+        if conflict_injection::nonfinite_injected(self.read.binding.world_id, _workload_index) {
+            return CandidateReport::Failed {
+                cache: CacheUpdates::default(),
+                error: StepError::NonFiniteMotion,
+            };
+        }
+        let mut cache = CacheUpdates::default();
+        let failed =
+            |cache: CacheUpdates, error: StepError| CandidateReport::Failed { cache, error };
+        let compiled = match self.read.compiled_route(state.route) {
+            Some(compiled) => compiled,
+            None => return failed(cache, StepError::ConflictInvariantViolation),
+        };
+        let first_possible_hop = if state.progress_mm == 0 && state.carry_um == 0 {
+            state.route_edge_index.saturating_sub(1)
+        } else {
+            state.route_edge_index
+        };
+        let first_gate = compiled
+            .gate_hops
+            .partition_point(|hop| *hop < first_possible_hop);
+        let Some(first_hop) = compiled.gate_hops.get(first_gate).copied() else {
+            return CandidateReport::None { cache };
+        };
+        let profile = match self
+            .read
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+        {
+            Some(profile) => profile,
+            None => return failed(cache, StepError::ConflictInvariantViolation),
+        };
+        let cached = self
+            .motion_cache
+            .get(cache_index)
+            .copied()
+            .filter(|entry| entry.vehicle == state.handle);
+        let horizon = match cached.and_then(|entry| entry.horizon) {
+            Some(horizon) => horizon,
+            None => {
+                match crate::kernel::tick::leader_query_horizon(state.speed_mm_s, profile, delta_s)
+                {
+                    Some(horizon) => horizon,
+                    None => return failed(cache, StepError::NonFiniteMotion),
+                }
+            }
+        };
+        let distance = match crate::kernel::tables::distance_to_occurrence_start(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            state.route_edge_index as usize,
+            state.progress_mm,
+            first_hop as usize + 1,
+        ) {
+            Some(distance) => distance,
+            None => return failed(cache, StepError::ConflictInvariantViolation),
+        };
+        let gate_count = compiled.gate_hops.len();
+        // §2 #7：horizon 在门距早退之前已算出，回报待落缓存。
+        cache.horizon = Some(horizon);
+        if !matches!(distance, BoundedDistance::Finite(mm) if mm <= horizon.front_query_mm) {
+            return CandidateReport::None { cache };
+        }
+        let waiting_plan = self
+            .waiting_plan_by_vehicle
+            .get(state.handle.index() as usize)
+            .copied()
+            .flatten()
+            .and_then(|index| self.waiting_plans.get(index.get() as usize - 1).copied())
+            .filter(|plan| plan.vehicle == state.handle);
+        let waiting_stop = match self.waiting_stop_for(&state) {
+            Ok(stop) => stop,
+            Err(error) => return failed(cache, error),
+        };
+        let motion = match cached
+            .and_then(|entry| entry.preview)
+            .and_then(|preview| preview.with_waiting_stop(waiting_stop))
+            .or_else(|| {
+                self.read.preview_active_vehicle_with_waiting_stop(
+                    state,
+                    delta_s,
+                    waiting_stop,
+                    Some(horizon),
+                )
+            }) {
+            Some(motion) => motion,
+            None => return failed(cache, StepError::NonFiniteMotion),
+        };
+        // §2 #11：preview 在 Gate 循环之前已算出，回报待落缓存。
+        cache.preview = Some(motion);
+        let preview = motion.next;
+        for gate_index in first_gate..gate_count {
+            let gate_hop = compiled.gate_hops[gate_index];
+            let gate_edge = compiled.edges[gate_hop as usize];
+            let gate_progress = self
+                .read
+                .binding
+                .revision
+                .traffic()
+                .lane_lengths_millimetres()[gate_edge.index()];
+            let reaches_gate = preview.route_edge_index > gate_hop
+                || (preview.route_edge_index == gate_hop && preview.progress_mm == gate_progress)
+                || (state.route_edge_index == gate_hop && state.progress_mm == gate_progress);
+            if !reaches_gate {
+                break;
+            }
+            let waiting_index = compiled
+                .waiting
+                .partition_point(|entry| entry.entry_hop < gate_hop);
+            let waiting = compiled
+                .waiting
+                .get(waiting_index)
+                .copied()
+                .filter(|entry| entry.entry_hop == gate_hop);
+            if waiting.is_some_and(|entry| {
+                state.waiting_membership.is_some_and(|member| {
+                    member.waiting_zone == entry.zone && member.release_hop == entry.release_hop
+                })
+            }) {
+                continue;
+            }
+            let maneuver_index = compiled
+                .maneuvers
+                .partition_point(|entry| entry.exit_route_edge_index <= gate_hop);
+            if compiled
+                .maneuvers
+                .get(maneuver_index)
+                .filter(|entry| entry.entry_route_edge_index <= gate_hop)
+                .is_none()
+            {
+                return failed(cache, StepError::ConflictInvariantViolation);
+            }
+            let anchor = ConflictRouteAnchor {
+                route: state.route,
+                maneuver_occurrence_index: match u32::try_from(maneuver_index) {
+                    Ok(index) => index,
+                    Err(_) => return failed(cache, StepError::ConflictInvariantViolation),
+                },
+                hop: gate_hop,
+            };
+            let range = compiled.conflict_gate_ranges[gate_hop as usize];
+            let passage = if range.len != 0 {
+                match self
+                    .read
+                    .conflict_passage_occurrence_locator(state.route, range.start)
+                {
+                    Some(locator) => Some(locator),
+                    None => return failed(cache, StepError::ConflictInvariantViolation),
+                }
+            } else {
+                None
+            };
+            let gate = match compiled.hop_gate[gate_hop as usize] {
+                Some(gate) => gate,
+                None => return failed(cache, StepError::ConflictInvariantViolation),
+            };
+            let decision = self.read.gate_policy_decision(gate, state.profile);
+            let outcome = match decision {
+                GatePolicyDecision::DenyAndStop => Some(ConflictDecisionOutcome::NotEvaluated),
+                GatePolicyDecision::Candidate(_) => {
+                    match waiting
+                        .and_then(|_| waiting_plan.filter(|plan| plan.entry_hop == gate_hop))
+                    {
+                        Some(plan) => match plan.decision {
+                            crate::WaitingDecisionOutcome::Granted => None,
+                            crate::WaitingDecisionOutcome::NoGrant(
+                                crate::WaitingNoGrantReason::Capacity,
+                            ) => Some(ConflictDecisionOutcome::NoGrant(
+                                ConflictNoGrantReason::WaitingCapacity,
+                            )),
+                            crate::WaitingDecisionOutcome::NoGrant(
+                                crate::WaitingNoGrantReason::PhysicalStorage,
+                            ) => Some(ConflictDecisionOutcome::NoGrant(
+                                ConflictNoGrantReason::WaitingPhysicalStorage,
+                            )),
+                            _ => return failed(cache, StepError::WaitingInvariantViolation),
+                        },
+                        None if waiting.is_some() => Some(ConflictDecisionOutcome::NoGrant(
+                            ConflictNoGrantReason::WaitingPhysicalStorage,
+                        )),
+                        None if range.len == 0 => Some(ConflictDecisionOutcome::NotRequired),
+                        None => None,
+                    }
+                }
+            };
+            if let Some(outcome) = outcome {
+                if waiting.is_none() && range.len == 0 {
+                    // §2 A7：无资源决定按最终运动范围输出；NotRequired 继续扫描。
+                    if outcome == ConflictDecisionOutcome::NotRequired {
+                        continue;
+                    }
+                    return CandidateReport::None { cache };
+                }
+                return CandidateReport::Staged {
+                    cache,
+                    decision: crate::ConflictDecision {
+                        vehicle: state.handle,
+                        vehicle_update_sequence: update_sequence,
+                        anchor,
+                        passage,
+                        outcome,
+                    },
+                };
+            }
+            let GatePolicyDecision::Candidate(kind) = decision else {
+                unreachable!("denied Gate already produced a decision");
+            };
+            return self.prepare_resource_candidate_task(
+                state,
+                update_sequence,
+                tick,
+                _workload_index,
+                cache,
+                EvaluatedGate {
+                    anchor,
+                    passage,
+                    range,
+                    kind,
+                    waiting_zone: waiting.map(|entry| entry.zone),
+                },
+            );
+        }
+        CandidateReport::None { cache }
+    }
+
+    /// prepare_resource_candidate 的任务版：多段报告（D3）。
+    fn prepare_resource_candidate_task(
+        self,
+        state: VehicleState,
+        update_sequence: u32,
+        tick: u64,
+        workload_index: usize,
+        cache: CacheUpdates,
+        gate: EvaluatedGate,
+    ) -> CandidateReport {
+        let EvaluatedGate {
+            anchor,
+            passage,
+            range,
+            kind,
+            waiting_zone,
+        } = gate;
+        let gate_hop = anchor.hop;
+        let motion_plan = ConflictMotionPlan {
+            gate_hop,
+            outcome: ConflictDecisionOutcome::NotEvaluated,
+            grant_index: None,
+        };
+        let check_failed = |next_eligibility, error| {
+            CandidateReport::Resource(CandidateResource {
+                cache,
+                motion_plan,
+                next_eligibility,
+                stage: ResourceStage::CheckFailed(error),
+            })
+        };
+        let stable_passage = if range.len != 0 {
+            match passage {
+                Some(passage) => passage,
+                None => {
+                    return check_failed(None, StepError::ConflictInvariantViolation);
+                }
+            }
+        } else {
+            // §3 #4：pure Waiting 空 range，空 cells/downstream 候选早退。
+            let key = ConflictCandidateOrderKey::new(
+                kind,
+                None,
+                tick,
+                state
+                    .waiting_membership
+                    .map(|member| member.admission_sequence),
+                update_sequence,
+            );
+            return CandidateReport::Resource(CandidateResource {
+                cache,
+                motion_plan,
+                next_eligibility: None,
+                stage: ResourceStage::PureWaitingEmpty {
+                    key,
+                    anchor,
+                    waiting_zone,
+                },
+            });
+        };
+        let eligibility = match crate::ConflictEligibilityState::update(
+            self.read
+                .committed
+                .conflict_eligibility
+                .get(state.handle.index() as usize)
+                .copied()
+                .flatten(),
+            stable_passage,
+            true,
+            tick,
+        ) {
+            Some(eligibility) => eligibility,
+            None => return check_failed(None, StepError::ConflictInvariantViolation),
+        };
+        let passage_end = match range.start.checked_add(range.len) {
+            Some(end) => end,
+            None => return check_failed(Some(eligibility), StepError::ConflictInvariantViolation),
+        };
+        if compiled_conflicts_slice(
+            self.read.compiled_route(state.route),
+            range.start,
+            passage_end,
+        )
+        .is_none()
+        {
+            return check_failed(Some(eligibility), StepError::ConflictInvariantViolation);
+        }
+        let passage_range = match ConflictPassageRange::new(
+            state.route,
+            anchor.maneuver_occurrence_index,
+            gate_hop,
+            range.start,
+            range.len,
+        ) {
+            Some(range) => range,
+            None => return check_failed(Some(eligibility), StepError::ConflictInvariantViolation),
+        };
+        let mut priority = None;
+        let mut preflight_no_grant = None;
+        let class = match self
+            .read
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+        {
+            Some(profile) => profile.class(),
+            None => return check_failed(Some(eligibility), StepError::ConflictInvariantViolation),
+        };
+        // 出现项循环：任务局部可失败暂存（容量不足 → Unmaterialized，
+        // 不冒充领域分配失败）。
+        let mut cell_work: Vec<crate::ConflictPassageAddress> = Vec::new();
+        // 'cells 的全部路径（含中途 break）都先赋值再离开块。
+        let cells: CellsSegment;
+        'cells: {
+            let policy = match self
+                .read
+                .binding
+                .policy_binding
+                .policy(&self.read.binding.revision)
+            {
+                Some(policy) => policy,
+                None => {
+                    cells = CellsSegment::Failed(StepError::ConflictInvariantViolation);
+                    break 'cells;
+                }
+            };
+            for occurrence_index in range.start..passage_end {
+                #[cfg(test)]
+                crate::kernel::conflict::count_conflict_work(|counts| counts.visited_passages += 1);
+                let occurrence = match self
+                    .read
+                    .compiled_route(state.route)
+                    .and_then(|compiled| compiled.conflicts.get(occurrence_index as usize))
+                {
+                    Some(occurrence) => *occurrence,
+                    None => {
+                        cells = CellsSegment::Failed(StepError::ConflictInvariantViolation);
+                        break 'cells;
+                    }
+                };
+                if cell_work.try_reserve(1).is_err() {
+                    cells = CellsSegment::Unmaterialized;
+                    break 'cells;
+                }
+                cell_work.push(occurrence.address());
+                let stream = match policy.stream(occurrence.stream, class) {
+                    Some(stream) => stream,
+                    None => {
+                        cells = CellsSegment::Failed(StepError::ConflictInvariantViolation);
+                        break 'cells;
+                    }
+                };
+                priority = Some(priority.map_or(stream.priority(), |current: i32| {
+                    current.min(stream.priority())
+                }));
+                // Protected 候选仍解析规则并收集资源，只跳过让行间隙求值。
+                if kind == GateCandidateKind::Protected {
+                    continue;
+                }
+                let (zone, targets) = match policy.yield_targets(
+                    occurrence.stream,
+                    class,
+                    occurrence.passage_local_index,
+                ) {
+                    Some(targets) => targets,
+                    None => {
+                        cells = CellsSegment::Failed(StepError::ConflictInvariantViolation);
+                        break 'cells;
+                    }
+                };
+                if zone != occurrence.zone {
+                    cells = CellsSegment::Failed(StepError::ConflictInvariantViolation);
+                    break 'cells;
+                }
+                let Some(gap_index) = stream.gap_profile_index() else {
+                    if !targets.is_empty() {
+                        cells = CellsSegment::Failed(StepError::ConflictInvariantViolation);
+                        break 'cells;
+                    }
+                    continue;
+                };
+                let gap = match self
+                    .read
+                    .binding
+                    .policy_binding
+                    .gaps()
+                    .get(gap_index as usize)
+                {
+                    Some(gap) => *gap,
+                    None => {
+                        cells = CellsSegment::Failed(StepError::ConflictInvariantViolation);
+                        break 'cells;
+                    }
+                };
+                for target in targets {
+                    let address = crate::ConflictPassageAddress::new(
+                        occurrence.zone,
+                        target.stream(),
+                        target.passage_local_index(),
+                    );
+                    let outcome = self.conflict.evaluate_yield_target(
+                        state.handle,
+                        address,
+                        self.read.committed.time_ms,
+                        gap.required_lag_ms(),
+                        gap.required_lead_ms(),
+                    );
+                    let Some(outcome) = outcome else {
+                        cells = CellsSegment::Failed(StepError::ConflictInvariantViolation);
+                        break 'cells;
+                    };
+                    if let Some(reason) = map_yield(outcome) {
+                        preflight_no_grant = Some(preflight_no_grant.map_or(reason, |current| {
+                            if no_grant_rank(reason) < no_grant_rank(current) {
+                                reason
+                            } else {
+                                current
+                            }
+                        }));
+                    }
+                }
+            }
+            // 循环正常结束才到达这里：中途退出（Failed 检查失败 /
+            // Unmaterialized 任务局部暂存不足）由 break 跳过本段，成功前缀
+            // 不保留，协调器整体补算。
+            cell_work.sort_unstable();
+            cell_work.dedup();
+            cells = CellsSegment::Values(cell_work);
+        }
+        // downstream 段（A4/A5：preflight 有值即整体跳过）。
+        let downstream = if preflight_no_grant.is_some() {
+            DownstreamSegment::SkippedPreflight
+        } else {
+            self.prepare_candidate_downstream_task(state, passage_range, gate_hop, workload_index)
+        };
+        CandidateReport::Resource(CandidateResource {
+            cache,
+            motion_plan,
+            next_eligibility: Some(eligibility),
+            stage: ResourceStage::Computed {
+                stable_passage,
+                passage_range,
+                gate_kind: kind,
+                waiting_zone,
+                priority,
+                preflight_no_grant,
+                cells,
+                downstream,
+            },
+        })
+    }
+
+    /// prepare_candidate_downstream 的任务版：F3/F4 预留留在协调器原位，
+    /// 这里只做检查与 claims 求值（任务局部，容量不足 → Unmaterialized）。
+    fn prepare_candidate_downstream_task(
+        self,
+        state: VehicleState,
+        range: ConflictPassageRange,
+        gate_hop: u32,
+        _workload_index: usize,
+    ) -> DownstreamSegment {
+        #[cfg(test)]
+        if conflict_injection::invariant_downstream_injected(
+            self.read.binding.world_id,
+            _workload_index,
+        ) {
+            return DownstreamSegment::Evaluated {
+                raw_capacity: 0,
+                result: Err(DownstreamEvalError::Invariant),
+            };
+        }
+        let plan = match self
+            .read
+            .reservation_downstream_claim_plan(range, state.length_mm)
+        {
+            Ok(plan) => plan,
+            Err(ConflictAcquireError::NoGrant(_)) => {
+                return DownstreamSegment::Evaluated {
+                    raw_capacity: 0,
+                    result: Err(DownstreamEvalError::NoGrant),
+                };
+            }
+            Err(_) => {
+                return DownstreamSegment::Evaluated {
+                    raw_capacity: 0,
+                    result: Err(DownstreamEvalError::Invariant),
+                };
+            }
+        };
+        let compiled = match self.read.compiled_route(state.route) {
+            Some(compiled) => compiled,
+            None => {
+                return DownstreamSegment::Evaluated {
+                    raw_capacity: 0,
+                    result: Err(DownstreamEvalError::Invariant),
+                };
+            }
+        };
+        let target = plan.target();
+        let required = match distance_to_occurrence_progress(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            state.route_edge_index as usize,
+            state.progress_mm,
+            target.route_edge_index() as usize,
+            target.progress_mm(),
+        ) {
+            Some(BoundedDistance::Finite(value)) => value,
+            Some(BoundedDistance::BeyondFinite) | None => {
+                return DownstreamSegment::Evaluated {
+                    raw_capacity: 0,
+                    result: Err(DownstreamEvalError::NoGrant),
+                };
+            }
+        };
+        let profile = match self
+            .read
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+        {
+            Some(profile) => profile,
+            None => {
+                return DownstreamSegment::Evaluated {
+                    raw_capacity: 0,
+                    result: Err(DownstreamEvalError::Invariant),
+                };
+            }
+        };
+        let leader_gap = self.read.derived.occupancy.leader_gap(
+            state.handle,
+            &compiled.edges,
+            state.route_edge_index as usize,
+            state.progress_mm,
+            self.read
+                .binding
+                .revision
+                .traffic()
+                .lane_lengths_millimetres(),
+            crate::kernel::occupancy::LeaderQueryHorizon::new(u32::MAX, u32::MAX),
+        );
+        if leader_gap.is_some_and(|gap| {
+            gap < i64::from(required).saturating_add(i64::from(profile.min_gap_mm()))
+        }) {
+            return DownstreamSegment::Evaluated {
+                raw_capacity: 0,
+                result: Err(DownstreamEvalError::NoGrant),
+            };
+        }
+        if let Some(next_gate) = compiled
+            .gate_hops
+            .iter()
+            .copied()
+            .find(|hop| *hop > gate_hop)
+        {
+            let boundary = match gate_boundary(next_gate) {
+                Ok(boundary) => boundary,
+                Err(_) => {
+                    return DownstreamSegment::Evaluated {
+                        raw_capacity: 0,
+                        result: Err(DownstreamEvalError::Invariant),
+                    };
+                }
+            };
+            if target > boundary {
+                return DownstreamSegment::Evaluated {
+                    raw_capacity: 0,
+                    result: Err(DownstreamEvalError::NoGrant),
+                };
+            }
+        }
+        let waiting = match self.waiting_stop_for(&state) {
+            Ok(waiting) => waiting,
+            Err(_) => {
+                return DownstreamSegment::Evaluated {
+                    raw_capacity: 0,
+                    result: Err(DownstreamEvalError::Invariant),
+                };
+            }
+        };
+        if let Some(waiting) = waiting
+            && waiting.hop > gate_hop
+        {
+            let boundary = match gate_boundary(waiting.hop) {
+                Ok(boundary) => boundary,
+                Err(_) => {
+                    return DownstreamSegment::Evaluated {
+                        raw_capacity: 0,
+                        result: Err(DownstreamEvalError::Invariant),
+                    };
+                }
+            };
+            if target > boundary {
+                return DownstreamSegment::Evaluated {
+                    raw_capacity: 0,
+                    result: Err(DownstreamEvalError::NoGrant),
+                };
+            }
+        }
+        if let Some(ParkingBinding::Reserved(reservation)) =
+            self.read.committed.parking.binding(state.handle)
+        {
+            if reservation.route() != state.route {
+                return DownstreamSegment::Evaluated {
+                    raw_capacity: 0,
+                    result: Err(DownstreamEvalError::Invariant),
+                };
+            }
+            let Some((_, progress_mm)) = self.read.reservation_anchor(reservation) else {
+                return DownstreamSegment::Evaluated {
+                    raw_capacity: 0,
+                    result: Err(DownstreamEvalError::Invariant),
+                };
+            };
+            let Some(parking) = crate::DownstreamRoutePoint::new(
+                reservation.entry_route_occurrence(),
+                progress_mm,
+                0,
+            ) else {
+                return DownstreamSegment::Evaluated {
+                    raw_capacity: 0,
+                    result: Err(DownstreamEvalError::Invariant),
+                };
+            };
+            if target > parking {
+                return DownstreamSegment::Evaluated {
+                    raw_capacity: 0,
+                    result: Err(DownstreamEvalError::NoGrant),
+                };
+            }
+        }
+        // F4 位（downstream_work 真实预留）留在协调器消费侧原位。
+        let raw_capacity = plan.raw_interval_capacity();
+        let route = plan.route();
+        let compiled = match self
+            .read
+            .committed
+            .routes
+            .get(route.index() as usize)
+            .filter(|slot| slot.generation == route.generation())
+            .and_then(|slot| slot.compiled.as_ref())
+        {
+            Some(compiled) => compiled,
+            None => {
+                return DownstreamSegment::Evaluated {
+                    raw_capacity: 0,
+                    result: Err(DownstreamEvalError::Invariant),
+                };
+            }
+        };
+        let mut claims: Vec<crate::DownstreamInterval> = Vec::new();
+        if claims.try_reserve(raw_capacity).is_err() {
+            return DownstreamSegment::Unmaterialized;
+        }
+        if crate::kernel::conflict::derive_downstream_claims_from_plan(
+            &compiled.edges,
+            self.read
+                .binding
+                .revision
+                .traffic()
+                .lane_lengths_millimetres(),
+            plan.plan,
+            &mut claims,
+        )
+        .is_err()
+        {
+            return DownstreamSegment::Evaluated {
+                raw_capacity: 0,
+                result: Err(DownstreamEvalError::Invariant),
+            };
+        }
+        if claims.capacity() < raw_capacity {
+            return DownstreamSegment::Evaluated {
+                raw_capacity: 0,
+                result: Err(DownstreamEvalError::Invariant),
+            };
+        }
+        DownstreamSegment::Evaluated {
+            raw_capacity,
+            result: Ok(claims),
+        }
+    }
+}
+
+fn compiled_conflicts_slice(
+    compiled: Option<&crate::kernel::tables::CompiledRoute>,
+    start: u32,
+    end: u32,
+) -> Option<()> {
+    compiled
+        .and_then(|compiled| compiled.conflicts.get(start as usize..end as usize))
+        .map(|_| ())
+}
+
+impl ConflictTaskView<'_> {
+    /// waiting_stop_for 的冻结暂存视图版（与 tick.rs MotionTaskView 同义）。
+    fn waiting_stop_for(
+        self,
+        state: &VehicleState,
+    ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
+        let Some(plan) = self
+            .waiting_plan_by_vehicle
+            .get(state.handle.index() as usize)
+            .copied()
+            .flatten()
+            .and_then(|index| self.waiting_plans.get(index.get() as usize - 1).copied())
+            .filter(|plan| plan.vehicle == state.handle)
+        else {
+            return Ok(None);
+        };
+        let Some(stop_hop) = plan.stop_hop else {
+            return Ok(None);
+        };
+        let compiled = self
+            .read
+            .compiled_route(state.route)
+            .ok_or(StepError::WaitingInvariantViolation)?;
+        let stop_index = usize::try_from(stop_hop)
+            .ok()
+            .and_then(|value| value.checked_add(1))
+            .ok_or(StepError::WaitingInvariantViolation)?;
+        let distance = crate::kernel::tables::distance_to_occurrence_start(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            state.route_edge_index as usize,
+            state.progress_mm,
+            stop_index,
+        )
+        .ok_or(StepError::WaitingInvariantViolation)?;
+        Ok(Some(crate::kernel::waiting::WaitingStopConstraint {
+            distance,
+            hop: stop_hop,
+        }))
     }
 }

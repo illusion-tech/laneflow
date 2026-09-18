@@ -140,6 +140,14 @@ pub(crate) struct TickWorkspace {
     /// 退回融合求值，不新增领域错误。
     pub(crate) motion_slots:
         Vec<crate::kernel::execution::DispatchSlot<crate::kernel::tick::VehicleMotionOutcome>>,
+    /// P3 候选求值输入四元组（live 序 -> 句柄 + live 序 + Active 紧凑位 +
+    /// 拍初状态）；发现镜像串行循环跳过语义，协调器构建，任务只读。
+    pub(crate) conflict_inputs: Vec<(crate::VehicleHandle, u32, usize, VehicleState)>,
+    /// P3 候选多段报告槽位，按发现序索引；任务独占连续切片写入完整报告，
+    /// 协调器按 live×gate 原序规范消费。预留失败只退回融合求值，不新增
+    /// 领域错误。
+    pub(crate) conflict_slots:
+        Vec<crate::kernel::execution::DispatchSlot<crate::kernel::conflict_tick::CandidateReport>>,
 }
 
 #[cfg(test)]
@@ -267,6 +275,8 @@ impl TickWorkspace {
             waiting_preview_slots,
             motion_inputs,
             motion_slots,
+            conflict_inputs,
+            conflict_slots,
         } = self;
         crate::kernel::state::vec_bytes(conflict_candidates)
             + crate::kernel::state::vec_bytes(conflict_candidate_cells)
@@ -288,6 +298,8 @@ impl TickWorkspace {
             + crate::kernel::state::vec_bytes(waiting_preview_slots)
             + crate::kernel::state::vec_bytes(motion_inputs)
             + crate::kernel::state::vec_bytes(motion_slots)
+            + crate::kernel::state::vec_bytes(conflict_inputs)
+            + crate::kernel::state::vec_bytes(conflict_slots)
             + crate::kernel::state::slice_bytes(conflict_motion_by_vehicle)
             + crate::kernel::state::slice_bytes(conflict_next_eligibility)
             + crate::kernel::state::slice_bytes(next_signal_aspects)
