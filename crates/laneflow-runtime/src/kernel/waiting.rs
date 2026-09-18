@@ -3249,7 +3249,7 @@ pub(crate) mod tests {
                 .all(|plan| plan.decision == WaitingDecisionOutcome::Granted)
         );
         assert_eq!(world.state.workspace.waiting_plans[0].vehicle, vehicles[1]);
-        world.state.prepare_conflict_step(0.1, 1).unwrap();
+        world.state.prepare_conflict_step(0.1, 1, None).unwrap();
         assert_eq!(world.state.workspace.conflict_candidates.len(), 2);
         assert_eq!(
             world.state.workspace.conflict_grants[0].vehicle, vehicles[1],
@@ -5626,7 +5626,7 @@ pub(crate) mod tests {
         projected.carry_um = 0;
         world
             .state
-            .prepare_conflict_step(1.0, 1)
+            .prepare_conflict_step(1.0, 1, None)
             .expect("formal grant");
         let mut updates = [(vehicle.index() as usize, projected)];
         world
@@ -7073,6 +7073,465 @@ pub(crate) mod tests {
             "分发路径计数必须经块级记录汇总后与融合一致: fused={fused:?} dispatched={dispatched:?}"
         );
         assert!(fused.0 + fused.1 > 0, "场景必须覆盖复用判定");
+    }
+
+    // ------------------------------------------------------------------
+    // #706 增量 D：P3 候选求值真实分发（多段报告 + 协调器保序规范消费 +
+    // F1/F2/F3b/F4 真实预留原位）。逐车计算在冻结三腿视图上按串行同序
+    // 求值；协调器按 live×gate 发现序消费（checkpoint-map §5）。
+    // 夹具：multi_gate（16 候选位置，空区间 Waiting 门）覆盖 None/Staged/
+    // 纯 Waiting 与首错矩阵；conflict_scale（单车到达真冲突区，cells/
+    // downstream 非空 Computed 候选）覆盖 F1/F2/F3b/F4 与同车段序。
+    // ------------------------------------------------------------------
+
+    use crate::admin::cutover_migration::tests::{conflict_scale_revision, conflict_scale_world};
+    use crate::kernel::conflict::conflict_work_counts;
+    use crate::kernel::conflict_tick::{
+        ConflictPathCounts, conflict_path_counts, drop_conflict_slot_at,
+        enable_conflict_diagnostics, fail_conflict_cell_work_reserve, fail_conflict_cells_reserve,
+        fail_conflict_downstream_pool_reserve, fail_conflict_downstream_work_reserve,
+        fail_conflict_input_reserve, fail_conflict_slot_reserve, force_conflict_dispatch,
+        inject_conflict_invariant_downstream, inject_conflict_nonfinite,
+        last_conflict_dispatch_stats,
+    };
+
+    /// P3 工作区语义池字节级记录：候选（含 cells/downstream 区间偏移）、
+    /// 两个全池与 eligibility/motion plan 表。私有暂存容量、输入表与槽位
+    /// 不在等价范围内（#705 §1 同口径）。
+    fn conflict_workspace_record(world: &mut TrafficWorld) -> String {
+        let step = world.state.step_workspace();
+        format!(
+            "{:?}|{:?}|{:?}|{:?}|{:?}",
+            step.workspace.conflict_candidates,
+            step.workspace.conflict_candidate_cells,
+            step.workspace.conflict_candidate_downstream,
+            step.workspace.conflict_next_eligibility,
+            step.workspace.conflict_motion_by_vehicle,
+        )
+    }
+
+    /// 核心反例（checkpoint-map §5 D4-1）：候选车 cells 段已物化成功（F2
+    /// 位到达），且同车更晚 downstream 检查注入 ConflictInvariantViolation；
+    /// F2 真实预留原位先于 downstream 检查 ⇒ 公开
+    /// `ConflictScratchAllocFailed` 而非 downstream 的 CIV。预演臂证明
+    /// downstream 注入确实命中；失败拍状态不变；清注入同 tick 重试与
+    /// fresh 世界同拍一致。
+    #[test]
+    fn earlier_f2_failure_beats_later_downstream_invariant() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        let mut probe = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut probe, 4);
+        let probe_id = probe.state.binding.world_id;
+        let guard = inject_conflict_invariant_downstream(probe_id, &[0]);
+        let result = probe.step(TickInput::new(4));
+        drop(guard);
+        assert_eq!(
+            result,
+            Err(crate::StepError::ConflictInvariantViolation),
+            "downstream CIV 注入必须命中（预演臂）"
+        );
+
+        let mut fresh = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut fresh, 4);
+        let fresh_outcome = fresh.step(TickInput::new(4)).unwrap();
+        let fresh_snapshot = fresh.capture_snapshot().unwrap();
+        let fresh_workspace = conflict_workspace_record(&mut fresh);
+
+        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut world, 4);
+        let world_id = world.state.binding.world_id;
+        let before = world.capture_snapshot().unwrap();
+        let cells_guard = fail_conflict_cells_reserve();
+        let downstream_guard = inject_conflict_invariant_downstream(world_id, &[0]);
+        let result = world.step(TickInput::new(4));
+        drop(cells_guard);
+        drop(downstream_guard);
+        assert_eq!(
+            result,
+            Err(crate::StepError::ConflictScratchAllocFailed),
+            "F2 真实预留失败必须先于同车更晚 downstream CIV 公开"
+        );
+        assert_eq!(world.capture_snapshot().unwrap(), before);
+        let retry = world.step(TickInput::new(4)).unwrap();
+        assert_eq!(retry, fresh_outcome, "同 tick 重试必须等于 fresh 首拍");
+        assert_eq!(world.capture_snapshot().unwrap(), fresh_snapshot);
+        assert_eq!(
+            conflict_workspace_record(&mut world),
+            fresh_workspace,
+            "重试后的工作区语义池必须与 fresh 一致"
+        );
+    }
+
+    /// 核心反例（checkpoint-map §5 D4-2）：F1（cell 工作区真实预留）先于
+    /// 同车任何更晚领域错误——注入 F1 失败 + 同车 downstream CIV ⇒ 公开
+    /// `ConflictScratchAllocFailed`。同 D4-1 的失败拍不变 + 同 tick 重试
+    /// 规范。
+    #[test]
+    fn earlier_f1_failure_beats_later_downstream_invariant() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        let mut fresh = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut fresh, 4);
+        let fresh_outcome = fresh.step(TickInput::new(4)).unwrap();
+        let fresh_snapshot = fresh.capture_snapshot().unwrap();
+
+        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut world, 4);
+        let world_id = world.state.binding.world_id;
+        let before = world.capture_snapshot().unwrap();
+        let cell_work_guard = fail_conflict_cell_work_reserve();
+        let downstream_guard = inject_conflict_invariant_downstream(world_id, &[0]);
+        let result = world.step(TickInput::new(4));
+        drop(cell_work_guard);
+        drop(downstream_guard);
+        assert_eq!(
+            result,
+            Err(crate::StepError::ConflictScratchAllocFailed),
+            "F1 真实预留失败必须先于同车更晚 downstream CIV 公开"
+        );
+        assert_eq!(world.capture_snapshot().unwrap(), before);
+        let retry = world.step(TickInput::new(4)).unwrap();
+        assert_eq!(retry, fresh_outcome, "同 tick 重试必须等于 fresh 首拍");
+        assert_eq!(world.capture_snapshot().unwrap(), fresh_snapshot);
+    }
+
+    /// 首错矩阵：NonFiniteMotion 注入位置 × worker 1/2/4 公开同一首错；
+    /// 失败拍状态不变；重试拍等于 w1 参考；融合/分发/回退互斥计数。
+    #[test]
+    fn conflict_first_error_is_stable_across_workers_and_positions() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_220;
+        let _force = force_conflict_dispatch();
+        let counts_before = conflict_path_counts();
+        let mut reference: Option<crate::StepOutcome> = None;
+        for &position in &[0_usize, 8, 15] {
+            for &workers in &[1_u32, 2, 4] {
+                let mut world = multi_gate_world_with_id(16, WORLD_ID);
+                install_execution(&mut world, workers);
+                let before = world.capture_snapshot().unwrap();
+                let guard = inject_conflict_nonfinite(WORLD_ID, &[position]);
+                let result = world.step(TickInput::new(100));
+                drop(guard);
+                assert_eq!(
+                    result,
+                    Err(crate::StepError::NonFiniteMotion),
+                    "position={position} workers={workers}"
+                );
+                assert_eq!(world.capture_snapshot().unwrap(), before);
+                let retry = world.step(TickInput::new(100)).unwrap();
+                if workers == 1 {
+                    reference = Some(retry);
+                } else {
+                    assert_eq!(
+                        retry,
+                        reference.clone().unwrap(),
+                        "position={position} workers={workers} 重试必须等于 w1 参考"
+                    );
+                }
+            }
+        }
+        let counts = conflict_path_counts();
+        let delta = ConflictPathCounts {
+            dispatched: counts.dispatched - counts_before.dispatched,
+            fused: counts.fused - counts_before.fused,
+            slot_fallback: counts.slot_fallback - counts_before.slot_fallback,
+        };
+        // 每 (position, workers) 臂 = 失败拍 + 重试拍 = 2 拍。
+        assert_eq!(
+            delta,
+            ConflictPathCounts {
+                dispatched: 2 * 3 * 2,
+                fused: 2 * 3,
+                slot_fallback: 0,
+            },
+            "融合/分发/回退互斥计数: {delta:?}"
+        );
+    }
+
+    /// 可选暂存回退：输入表（冷态首拍）与结果槽位（热态）预留注入失败都
+    /// 退回融合路径，逐拍输出与 w1 融合参考一致，不新增领域错误；回退
+    /// 计数与分发计数互斥。
+    #[test]
+    fn conflict_scratch_reserve_failure_falls_back_to_fused() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_230;
+        let _force = force_conflict_dispatch();
+        let run = |workers: u32| {
+            let mut world = multi_gate_world_with_id(16, WORLD_ID);
+            install_execution(&mut world, workers);
+            let mut records = Vec::new();
+            for _ in 0..4 {
+                let outcome = world.step(TickInput::new(100)).unwrap();
+                records.push((
+                    motion_tick_record(&world, &outcome),
+                    conflict_workspace_record(&mut world),
+                ));
+            }
+            records
+        };
+        let reference = run(1);
+        let counts_before = conflict_path_counts();
+        let mut world = multi_gate_world_with_id(16, WORLD_ID);
+        install_execution(&mut world, 4);
+        let mut records = Vec::new();
+        {
+            let _guard = fail_conflict_input_reserve();
+            let outcome = world.step(TickInput::new(100)).unwrap();
+            records.push((
+                motion_tick_record(&world, &outcome),
+                conflict_workspace_record(&mut world),
+            ));
+        }
+        for _ in 0..2 {
+            let outcome = world.step(TickInput::new(100)).unwrap();
+            records.push((
+                motion_tick_record(&world, &outcome),
+                conflict_workspace_record(&mut world),
+            ));
+        }
+        {
+            let _guard = fail_conflict_slot_reserve();
+            let outcome = world.step(TickInput::new(100)).unwrap();
+            records.push((
+                motion_tick_record(&world, &outcome),
+                conflict_workspace_record(&mut world),
+            ));
+        }
+        assert_eq!(records, reference, "回退拍输出必须等于融合参考");
+        let counts = conflict_path_counts();
+        let delta = ConflictPathCounts {
+            dispatched: counts.dispatched - counts_before.dispatched,
+            fused: counts.fused - counts_before.fused,
+            slot_fallback: counts.slot_fallback - counts_before.slot_fallback,
+        };
+        assert_eq!(
+            delta,
+            ConflictPathCounts {
+                dispatched: 2,
+                fused: 0,
+                slot_fallback: 2,
+            },
+            "回退与分发互斥: {delta:?}"
+        );
+    }
+
+    /// 完成前沿不变量：join 后首错之前出现缺失槽位检出
+    /// `ConflictInvariantViolation` 而非当成功；缺失槽位晚于首错时不改变
+    /// 公开首错。
+    #[test]
+    fn missing_conflict_slot_before_first_error_is_detected() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_240;
+        let _force = force_conflict_dispatch();
+        for (gap, expected) in [
+            (3_usize, crate::StepError::ConflictInvariantViolation),
+            (15, crate::StepError::NonFiniteMotion),
+        ] {
+            let mut world = multi_gate_world_with_id(16, WORLD_ID);
+            install_execution(&mut world, 4);
+            let before = world.capture_snapshot().unwrap();
+            let gap_guard = drop_conflict_slot_at(gap);
+            let error_guard = inject_conflict_nonfinite(WORLD_ID, &[12]);
+            let result = world.step(TickInput::new(100));
+            drop(gap_guard);
+            drop(error_guard);
+            assert_eq!(result, Err(expected), "gap={gap}");
+            assert_eq!(world.capture_snapshot().unwrap(), before);
+            world.step(TickInput::new(100)).unwrap();
+        }
+    }
+
+    /// 真实重叠：600 车同路线、worker=4、连续 4 拍自然强制分发，每拍
+    /// 8 块全部完成并观察到多线程参与；P3 调度统计按阶段独立登记。
+    #[test]
+    fn conflict_dispatch_runs_on_overlapping_real_threads() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        let mut world = conflict_scale_world(Arc::clone(&revision), 600);
+        install_execution(&mut world, 4);
+        let mut peak_threads = 1_usize;
+        for _ in 0..4 {
+            world.step(TickInput::new(4)).unwrap();
+            let stats = last_conflict_dispatch_stats().expect("P3 分发统计");
+            assert_eq!(stats.dispatched_chunks, 8);
+            assert_eq!(stats.completed_chunks, 8);
+            assert_eq!(stats.ticket_grabs, 8);
+            peak_threads = peak_threads.max(stats.participating_threads);
+        }
+        assert!(
+            peak_threads >= 2,
+            "必须观察到真实多线程参与，peak={peak_threads}"
+        );
+    }
+
+    /// 小场景强制分发等价：multi-gate 16 车（含 Granted 候选、staged
+    /// 决定、旧 reservation 跳过的 Active 紧凑位语义）worker 2/4 的逐拍
+    /// 公开记录与工作区语义池字节级记录同 worker=1 融合参考一致。
+    #[test]
+    fn conflict_dispatch_matches_fused_reference() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_260;
+        let _force = force_conflict_dispatch();
+        let run = |workers: u32| {
+            let mut world = multi_gate_world_with_id(16, WORLD_ID);
+            install_execution(&mut world, workers);
+            let mut records = Vec::new();
+            for _ in 0..6 {
+                let outcome = world.step(TickInput::new(100)).unwrap();
+                records.push((
+                    motion_tick_record(&world, &outcome),
+                    conflict_workspace_record(&mut world),
+                ));
+            }
+            records
+        };
+        let reference = run(1);
+        for workers in [2_u32, 4] {
+            assert_eq!(
+                run(workers),
+                reference,
+                "workers={workers} 必须与融合参考逐拍一致"
+            );
+        }
+        let counts = conflict_path_counts();
+        assert!(counts.dispatched >= 12 && counts.fused >= 6);
+    }
+
+    /// Computed 候选等价：conflict_scale 首拍单车到达真冲突区（cells/
+    /// downstream 非空、Granted 组合资源），worker 2/4 的逐拍记录与工作区
+    /// 语义池同 worker=1 融合参考一致。
+    #[test]
+    fn conflict_computed_candidate_matches_fused_reference() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        let run = |workers: u32| {
+            let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+            install_execution(&mut world, workers);
+            let mut records = Vec::new();
+            for _ in 0..4 {
+                let outcome = world.step(TickInput::new(4)).unwrap();
+                records.push((
+                    motion_tick_record(&world, &outcome),
+                    conflict_workspace_record(&mut world),
+                ));
+            }
+            records
+        };
+        let reference = run(1);
+        for workers in [2_u32, 4] {
+            assert_eq!(
+                run(workers),
+                reference,
+                "workers={workers} Computed 候选必须与融合参考一致"
+            );
+        }
+    }
+
+    /// 停车 + 下游净空小场景强制分发等价：两车同一路线（前车紧邻车位
+    /// 入口、已预约），downstream 边界 NoGrant 折入 preflight 与零候选
+    /// 车辆路径都在分发臂下与融合逐拍一致。
+    #[test]
+    fn conflict_parking_scenario_matches_fused_reference() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_270;
+        let _force = force_conflict_dispatch();
+        let run = |workers: u32| {
+            let mut world = parking_arrival_world(workers, WORLD_ID);
+            let mut records = Vec::new();
+            for _ in 0..3 {
+                let outcome = world.step(TickInput::new(100)).unwrap();
+                records.push((
+                    motion_tick_record(&world, &outcome),
+                    conflict_workspace_record(&mut world),
+                ));
+            }
+            records
+        };
+        let reference = run(1);
+        for workers in [2_u32, 4] {
+            assert_eq!(
+                run(workers),
+                reference,
+                "workers={workers} 停车场景必须与融合参考一致"
+            );
+        }
+    }
+
+    /// F3b/F4 真实预留失败：downstream 工作区（F4）与 candidate_downstream
+    /// 池（F3b）注入失败都映射 `ConflictScratchAllocFailed`，且先于同车更晚
+    /// 领域错误；失败拍状态不变。
+    #[test]
+    fn downstream_reserve_failures_map_to_scratch_alloc_failed() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        for arm in 0..2 {
+            let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+            install_execution(&mut world, 4);
+            let before = world.capture_snapshot().unwrap();
+            let guard = if arm == 0 {
+                fail_conflict_downstream_work_reserve()
+            } else {
+                fail_conflict_downstream_pool_reserve()
+            };
+            let result = world.step(TickInput::new(4));
+            drop(guard);
+            assert_eq!(
+                result,
+                Err(crate::StepError::ConflictScratchAllocFailed),
+                "arm={arm}"
+            );
+            assert_eq!(world.capture_snapshot().unwrap(), before);
+            world.step(TickInput::new(4)).unwrap();
+        }
+    }
+
+    /// 工作计数口径：w1 融合与 w4 强制分发的 ConflictWorkCounts 逐字段
+    /// 一致（任务线程增量经块级记录汇总；诊断开启只改记录，不改语义）。
+    /// conflict_scale 的 P3 段内产出：cells 循环 visited_passages 与
+    /// yield target 求值。
+    #[test]
+    fn conflict_counters_match_between_fused_and_dispatched() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let _diagnostics = enable_conflict_diagnostics();
+        let revision = conflict_scale_revision();
+        let run = |workers: u32| {
+            let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+            install_execution(&mut world, workers);
+            let before = conflict_work_counts();
+            for _ in 0..6 {
+                world.step(TickInput::new(4)).unwrap();
+            }
+            let after = conflict_work_counts();
+            after.wrapping_sub(before)
+        };
+        let fused = run(1);
+        let dispatched = run(4);
+        assert_eq!(
+            dispatched, fused,
+            "分发路径计数必须经块级记录汇总后与融合一致: fused={fused:?} dispatched={dispatched:?}"
+        );
+        assert!(
+            fused.visited_passages > 0 && fused.yield_queries > 0,
+            "场景必须覆盖 P3 段内计数: {fused:?}"
+        );
     }
 
     /// P2 计算 panic 端到端：panic 不按 `StepError` 映射；世界永久失效，
