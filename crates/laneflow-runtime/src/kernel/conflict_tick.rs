@@ -3917,7 +3917,7 @@ struct ConflictTaskView<'a> {
 /// 槽位回收上拍报告的 Vec 容量（协调器单写者语义见分发函数），稳态下
 /// 消除每候选每拍的堆分配；容量随峰值保留、由 retained 计账。
 #[derive(Clone, Default)]
-struct CandidateScratch {
+pub(crate) struct CandidateScratch {
     cells: Vec<crate::ConflictPassageAddress>,
     claims: Vec<crate::DownstreamInterval>,
 }
