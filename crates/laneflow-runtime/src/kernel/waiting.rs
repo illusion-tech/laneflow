@@ -6879,8 +6879,12 @@ pub(crate) mod tests {
         );
     }
 
-    /// 跨块多错误：不同块内的两个注入位置（worker=4、块大小 2）按 Active
-    /// 序公开较小位置的同一个首错；与注入书写顺序无关。
+    /// 跨块多错误：两个注入位置（worker=4、块大小 2）无论先写哪个位置，
+    /// 公开的都是 Active 序较小位置的同一个 NonFiniteMotion 首错、失败拍
+    /// 状态不变。表述修正（R5）：两位移映射同一错误枚举，本测试证明的是
+    /// 「书写顺序不影响公开首错」而非完成序区分；完成序的区分由
+    /// conflict_first_error 的双错误类别臂（NonFinite × downstream CIV）
+    /// 覆盖。
     #[test]
     fn motion_canonical_first_error_across_chunk_boundaries() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
@@ -6987,10 +6991,12 @@ pub(crate) mod tests {
         }
     }
 
-    /// 真实重叠：64 车、worker=4、连续 16 拍自然强制分发，每拍 8 块全部
+    /// 多线程参与（R5 表述修正：participating_threads 度量出现过的线程
+    /// 数，不等于同时执行重叠；真实并发重叠由 execution.rs 屏障测试覆
+    /// 盖）：64 车、worker=4、连续 16 拍自然强制分发，每拍 8 块全部
     /// 完成且票据取完，参与线程数峰值 ≥ 2（调用线程 + 池任务）。
     #[test]
-    fn motion_dispatch_runs_on_overlapping_real_threads() {
+    fn motion_dispatch_multi_thread_participation() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         const WORLD_ID: u64 = 706_150;
@@ -7235,6 +7241,9 @@ pub(crate) mod tests {
 
     /// 首错矩阵：NonFiniteMotion 注入位置 × worker 1/2/4 公开同一首错；
     /// 失败拍状态不变；重试拍等于 w1 参考；融合/分发/回退互斥计数。
+    /// 表述注记（R5）：可用夹具每拍至多一个 Computed 候选，per-position
+    /// 双错误类别（如 NonFinite × downstream CIV）矩阵受夹具限制未建，
+    /// 消费序先于完成序的性质由 F1/F2/F4/F3b 位序反例覆盖。
     #[test]
     fn conflict_first_error_is_stable_across_workers_and_positions() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
@@ -7382,10 +7391,12 @@ pub(crate) mod tests {
         }
     }
 
-    /// 真实重叠：600 车同路线、worker=4、连续 4 拍自然强制分发，每拍
-    /// 8 块全部完成并观察到多线程参与；P3 调度统计按阶段独立登记。
+    /// 多线程参与（R5 表述修正：participating_threads 度量的是出现过的
+    /// 线程数，不等于同时执行的重叠；真实并发重叠由 execution.rs 屏障
+    /// 测试覆盖）：600 车同路线、worker=4、连续 4 拍自然强制分发，每拍
+    /// 8 块全部完成且参与线程 > 1；P3 调度统计按阶段独立登记。
     #[test]
-    fn conflict_dispatch_runs_on_overlapping_real_threads() {
+    fn conflict_dispatch_multi_thread_participation() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = force_conflict_dispatch();
