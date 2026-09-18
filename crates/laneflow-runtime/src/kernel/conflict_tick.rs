@@ -3584,6 +3584,7 @@ impl ConflictTaskView<'_> {
     /// StepWorkspace::evaluate_vehicle_gates + prepare_resource_candidate +
     /// prepare_candidate_downstream 的检查次序与错误变体逐行一致；
     /// 不写入任何共享状态，共享写与真实预留由协调器按原序施加。
+    #[allow(clippy::too_many_arguments)]
     fn evaluate_candidate(
         self,
         state: VehicleState,
