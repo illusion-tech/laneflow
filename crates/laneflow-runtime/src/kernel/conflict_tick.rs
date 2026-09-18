@@ -1590,6 +1590,28 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             return Err(StepError::ConflictScratchAllocFailed);
         }
         reserve(&mut self.workspace.conflict_cell_work, range.len as usize)?;
+        // 共用领域段：cell 字段求值与分发任务同一实现（policy 每候选取
+        // 一次；融合 sink = workspace cell 工作区，预留已在上面 F1 原位完成）。
+        let policy = self
+            .binding
+            .policy_binding
+            .policy(&self.binding.revision)
+            .ok_or(StepError::ConflictInvariantViolation)?;
+        let view = ConflictTaskView {
+            read: crate::kernel::phase::StepReadView {
+                binding: self.binding,
+                committed: &self.committed,
+                derived: &self.derived,
+            },
+            conflict: crate::kernel::conflict::ConflictRead::new(
+                &self.committed.conflict,
+                &self.derived.conflict,
+                &self.workspace.conflict,
+            ),
+            waiting_plans: &self.workspace.waiting_plans,
+            waiting_plan_by_vehicle: &self.workspace.waiting_plan_by_vehicle,
+            motion_cache: &self.workspace.motion_cache,
+        };
         for occurrence_index in range.start..passage_end {
             #[cfg(test)]
             crate::kernel::conflict::count_conflict_work(|counts| counts.visited_passages += 1);
@@ -1597,67 +1619,16 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .compiled_route(state.route)
                 .and_then(|compiled| compiled.conflicts.get(occurrence_index as usize))
                 .ok_or(StepError::ConflictInvariantViolation)?;
-            self.workspace.conflict_cell_work.push(occurrence.address());
-            let policy = self
-                .binding
-                .policy_binding
-                .policy(&self.binding.revision)
-                .ok_or(StepError::ConflictInvariantViolation)?;
-            let stream = policy
-                .stream(occurrence.stream, class)
-                .ok_or(StepError::ConflictInvariantViolation)?;
-            priority = Some(priority.map_or(stream.priority(), |current: i32| {
-                current.min(stream.priority())
-            }));
-            // 保护候选仍解析规则并收集全部冲突资源，只跳过让行间隙求值。
-            // 占用、预留、下游净空和运动安全继续走共同的仲裁路径。
-            if kind == GateCandidateKind::Protected {
-                continue;
-            }
-            let (zone, targets) = policy
-                .yield_targets(occurrence.stream, class, occurrence.passage_local_index)
-                .ok_or(StepError::ConflictInvariantViolation)?;
-            if zone != occurrence.zone {
-                return Err(StepError::ConflictInvariantViolation);
-            }
-            let Some(gap_index) = stream.gap_profile_index() else {
-                if !targets.is_empty() {
-                    return Err(StepError::ConflictInvariantViolation);
-                }
-                continue;
-            };
-            let gap = *self
-                .binding
-                .policy_binding
-                .gaps()
-                .get(gap_index as usize)
-                .ok_or(StepError::ConflictInvariantViolation)?;
-            for target in targets {
-                let address = ConflictPassageAddress::new(
-                    occurrence.zone,
-                    target.stream(),
-                    target.passage_local_index(),
-                );
-                let outcome = self
-                    .conflict_read()
-                    .evaluate_yield_target(
-                        state.handle,
-                        address,
-                        self.committed.time_ms,
-                        gap.required_lag_ms(),
-                        gap.required_lead_ms(),
-                    )
-                    .ok_or(StepError::ConflictInvariantViolation)?;
-                if let Some(reason) = map_yield(outcome) {
-                    preflight_no_grant = Some(preflight_no_grant.map_or(reason, |current| {
-                        if no_grant_rank(reason) < no_grant_rank(current) {
-                            reason
-                        } else {
-                            current
-                        }
-                    }));
-                }
-            }
+            view.collect_occurrence_fields(
+                state,
+                occurrence,
+                policy,
+                class,
+                kind,
+                &mut self.workspace.conflict_cell_work,
+                &mut priority,
+                &mut preflight_no_grant,
+            )?;
         }
         self.workspace.conflict_cell_work.sort_unstable();
         self.workspace.conflict_cell_work.dedup();
@@ -1756,91 +1727,30 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         range: ConflictPassageRange,
         gate_hop: u32,
     ) -> Result<(), ConflictAcquireError> {
-        let plan = self.reservation_downstream_claim_plan(range, state.length_mm)?;
-        let compiled = self
-            .compiled_route(state.route)
-            .ok_or(ConflictAcquireError::InvalidBundle)?;
-        let target = plan.target();
-        let required = match distance_to_occurrence_progress(
-            &compiled.occurrence_segments,
-            &compiled.occurrence_offsets,
-            &compiled.segment_totals,
-            state.route_edge_index as usize,
-            state.progress_mm,
-            target.route_edge_index() as usize,
-            target.progress_mm(),
-        ) {
-            Some(BoundedDistance::Finite(value)) => value,
-            Some(BoundedDistance::BeyondFinite) | None => {
-                return Err(ConflictAcquireError::NoGrant(
-                    ConflictResourceNoGrant::DownstreamStorageBoundary,
-                ));
-            }
+        // 共用领域段：F4 之前的前置计划检查与分发任务同一实现。
+        let view = ConflictTaskView {
+            read: crate::kernel::phase::StepReadView {
+                binding: self.binding,
+                committed: &self.committed,
+                derived: &self.derived,
+            },
+            conflict: crate::kernel::conflict::ConflictRead::new(
+                &self.committed.conflict,
+                &self.derived.conflict,
+                &self.workspace.conflict,
+            ),
+            waiting_plans: &self.workspace.waiting_plans,
+            waiting_plan_by_vehicle: &self.workspace.waiting_plan_by_vehicle,
+            motion_cache: &self.workspace.motion_cache,
         };
-        let profile = self
-            .binding
-            .revision
-            .traffic()
-            .relations()
-            .vehicle_profile(state.profile)
-            .ok_or(ConflictAcquireError::InvalidBundle)?;
-        let leader_gap = self.derived.occupancy.leader_gap(
-            state.handle,
-            &compiled.edges,
-            state.route_edge_index as usize,
-            state.progress_mm,
-            self.binding.revision.traffic().lane_lengths_millimetres(),
-            LeaderQueryHorizon::new(u32::MAX, u32::MAX),
-        );
-        if leader_gap.is_some_and(|gap| {
-            gap < i64::from(required).saturating_add(i64::from(profile.min_gap_mm()))
-        }) {
-            return Err(ConflictAcquireError::NoGrant(
-                ConflictResourceNoGrant::DownstreamStorageBoundary,
-            ));
-        }
-        if let Some(next_gate) = compiled
-            .gate_hops
-            .iter()
-            .copied()
-            .find(|hop| *hop > gate_hop)
-            && target > gate_boundary(next_gate)?
-        {
-            return Err(ConflictAcquireError::NoGrant(
-                ConflictResourceNoGrant::DownstreamStorageBoundary,
-            ));
-        }
-        if let Some(waiting) = self
-            .waiting_stop_for(&state)
-            .map_err(|_| ConflictAcquireError::InvalidBundle)?
-            && waiting.hop > gate_hop
-            && target > gate_boundary(waiting.hop)?
-        {
-            return Err(ConflictAcquireError::NoGrant(
-                ConflictResourceNoGrant::DownstreamStorageBoundary,
-            ));
-        }
-        if let Some(ParkingBinding::Reserved(reservation)) =
-            self.committed.parking.binding(state.handle)
-        {
-            if reservation.route() != state.route {
-                return Err(ConflictAcquireError::InvalidBundle);
-            }
-            let (_, progress_mm) = self
-                .reservation_anchor(reservation)
-                .ok_or(ConflictAcquireError::InvalidBundle)?;
-            let parking = crate::DownstreamRoutePoint::new(
-                reservation.entry_route_occurrence(),
-                progress_mm,
-                0,
-            )
-            .ok_or(ConflictAcquireError::InvalidBundle)?;
-            if target > parking {
-                return Err(ConflictAcquireError::NoGrant(
+        let plan = view
+            .downstream_plan_prechecks(state, range, gate_hop)
+            .map_err(|error| match error {
+                DownstreamEvalError::NoGrant => ConflictAcquireError::NoGrant(
                     ConflictResourceNoGrant::DownstreamStorageBoundary,
-                ));
-            }
-        }
+                ),
+                DownstreamEvalError::Invariant => ConflictAcquireError::InvalidBundle,
+            })?;
         #[cfg(test)]
         if conflict_reserve_probe(
             ConflictReserveSite::DownstreamWork,
@@ -1856,20 +1766,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             plan.raw_interval_capacity(),
         )
         .map_err(|_| ConflictAcquireError::ScratchAllocFailed)?;
-        let route = plan.route();
-        let compiled = self
-            .committed
-            .routes
-            .get(route.index() as usize)
-            .filter(|slot| slot.generation == route.generation())
-            .and_then(|slot| slot.compiled.as_ref())
-            .ok_or(ConflictAcquireError::InvalidBundle)?;
-        crate::kernel::conflict::derive_downstream_claims_from_plan(
-            &compiled.edges,
-            self.binding.revision.traffic().lane_lengths_millimetres(),
+        // 共用领域段：F4 后的区间填充与分发任务同一实现。
+        view.fill_downstream_claims(
+            plan.route(),
             plan.plan,
             &mut self.workspace.conflict_downstream_work,
+            plan.raw_interval_capacity(),
         )
+        .map_err(|_| ConflictAcquireError::InvalidBundle)
     }
 
     /// 按稳定顺序仲裁候选：授予组合资源并暂存本拍决定。
@@ -3324,6 +3228,225 @@ enum DownstreamFillError {
 }
 
 impl ConflictTaskView<'_> {
+    /// 共用领域段（#706 R3-3a）：单个冲突出现项的 cell 字段求值——地址
+    /// 收集、规则流解析与 priority 最小值归约、Protected 跳过让行间隙、
+    /// yield targets 的 preflight NoGrant 折叠。融合（sink = workspace
+    /// cell 工作区）与分发（sink = 任务暂存）只有这一份生产实现；
+    /// 成功前缀不回滚由调用方缓冲语义保证。
+    #[allow(clippy::too_many_arguments)]
+    fn collect_occurrence_fields(
+        self,
+        state: VehicleState,
+        occurrence: crate::kernel::tables::ConflictPassageOccurrence,
+        policy: laneflow_static_network::PolicyView<'_>,
+        class: laneflow_static_contract::ParticipantClassOrdinal,
+        kind: GateCandidateKind,
+        cell_sink: &mut Vec<crate::ConflictPassageAddress>,
+        priority: &mut Option<i32>,
+        preflight_no_grant: &mut Option<ConflictNoGrantReason>,
+    ) -> Result<(), StepError> {
+        cell_sink.push(occurrence.address());
+        let stream = policy
+            .stream(occurrence.stream, class)
+            .ok_or(StepError::ConflictInvariantViolation)?;
+        *priority = Some(priority.map_or(stream.priority(), |current: i32| {
+            current.min(stream.priority())
+        }));
+        // Protected 候选仍解析规则并收集全部冲突资源，只跳过让行间隙求值。
+        // 占用、预留、下游净空和运动安全继续走共同的仲裁路径。
+        if kind == GateCandidateKind::Protected {
+            return Ok(());
+        }
+        let (zone, targets) = policy
+            .yield_targets(occurrence.stream, class, occurrence.passage_local_index)
+            .ok_or(StepError::ConflictInvariantViolation)?;
+        if zone != occurrence.zone {
+            return Err(StepError::ConflictInvariantViolation);
+        }
+        let Some(gap_index) = stream.gap_profile_index() else {
+            if !targets.is_empty() {
+                return Err(StepError::ConflictInvariantViolation);
+            }
+            return Ok(());
+        };
+        let gap = *self
+            .read
+            .binding
+            .policy_binding
+            .gaps()
+            .get(gap_index as usize)
+            .ok_or(StepError::ConflictInvariantViolation)?;
+        for target in targets {
+            let address = crate::ConflictPassageAddress::new(
+                occurrence.zone,
+                target.stream(),
+                target.passage_local_index(),
+            );
+            let outcome = self
+                .conflict
+                .evaluate_yield_target(
+                    state.handle,
+                    address,
+                    self.read.committed.time_ms,
+                    gap.required_lag_ms(),
+                    gap.required_lead_ms(),
+                )
+                .ok_or(StepError::ConflictInvariantViolation)?;
+            if let Some(reason) = map_yield(outcome) {
+                *preflight_no_grant = Some(preflight_no_grant.map_or(reason, |current| {
+                    if no_grant_rank(reason) < no_grant_rank(current) {
+                        reason
+                    } else {
+                        current
+                    }
+                }));
+            }
+        }
+        Ok(())
+    }
+
+    /// 共用领域段（#706 R3-3a）：downstream 前置计划检查（F4 之前）——
+    /// 计划派生、需求距离、profile、leader gap、后续 Gate 边界、waiting
+    /// 边界与停车锚点。Ok = F4 义务成立（调用方在原位兑现 F4）；Err(
+    /// NoGrant) 折入 preflight；Err(Invariant) 公开领域不变量错。融合与
+    /// 分发同一实现。
+    fn downstream_plan_prechecks(
+        self,
+        state: VehicleState,
+        range: ConflictPassageRange,
+        gate_hop: u32,
+    ) -> Result<crate::kernel::world::ReservationDownstreamClaimPlan, DownstreamEvalError> {
+        let plan = self
+            .read
+            .reservation_downstream_claim_plan(range, state.length_mm)
+            .map_err(|error| match error {
+                ConflictAcquireError::NoGrant(_) => DownstreamEvalError::NoGrant,
+                _ => DownstreamEvalError::Invariant,
+            })?;
+        let compiled = self
+            .read
+            .compiled_route(state.route)
+            .ok_or(DownstreamEvalError::Invariant)?;
+        let target = plan.target();
+        let required = match distance_to_occurrence_progress(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            state.route_edge_index as usize,
+            state.progress_mm,
+            target.route_edge_index() as usize,
+            target.progress_mm(),
+        ) {
+            Some(BoundedDistance::Finite(value)) => value,
+            Some(BoundedDistance::BeyondFinite) | None => {
+                return Err(DownstreamEvalError::NoGrant);
+            }
+        };
+        let profile = self
+            .read
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+            .ok_or(DownstreamEvalError::Invariant)?;
+        let leader_gap = self.read.derived.occupancy.leader_gap(
+            state.handle,
+            &compiled.edges,
+            state.route_edge_index as usize,
+            state.progress_mm,
+            self.read
+                .binding
+                .revision
+                .traffic()
+                .lane_lengths_millimetres(),
+            crate::kernel::occupancy::LeaderQueryHorizon::new(u32::MAX, u32::MAX),
+        );
+        if leader_gap.is_some_and(|gap| {
+            gap < i64::from(required).saturating_add(i64::from(profile.min_gap_mm()))
+        }) {
+            return Err(DownstreamEvalError::NoGrant);
+        }
+        if let Some(next_gate) = compiled
+            .gate_hops
+            .iter()
+            .copied()
+            .find(|hop| *hop > gate_hop)
+        {
+            let boundary = gate_boundary(next_gate).map_err(|_| DownstreamEvalError::Invariant)?;
+            if target > boundary {
+                return Err(DownstreamEvalError::NoGrant);
+            }
+        }
+        if let Some(waiting) = self
+            .waiting_stop_for(&state)
+            .map_err(|_| DownstreamEvalError::Invariant)?
+            && waiting.hop > gate_hop
+        {
+            let boundary =
+                gate_boundary(waiting.hop).map_err(|_| DownstreamEvalError::Invariant)?;
+            if target > boundary {
+                return Err(DownstreamEvalError::NoGrant);
+            }
+        }
+        if let Some(ParkingBinding::Reserved(reservation)) =
+            self.read.committed.parking.binding(state.handle)
+        {
+            if reservation.route() != state.route {
+                return Err(DownstreamEvalError::Invariant);
+            }
+            let Some((_, progress_mm)) = self.read.reservation_anchor(reservation) else {
+                return Err(DownstreamEvalError::Invariant);
+            };
+            let Some(parking) = crate::DownstreamRoutePoint::new(
+                reservation.entry_route_occurrence(),
+                progress_mm,
+                0,
+            ) else {
+                return Err(DownstreamEvalError::Invariant);
+            };
+            if target > parking {
+                return Err(DownstreamEvalError::NoGrant);
+            }
+        }
+        Ok(plan)
+    }
+
+    /// 共用领域段（#706 R3-3a）：downstream 区间填充（F4 之后）——路线
+    /// 重取、derive 与容量复核。claims 为调用方缓冲（融合 = workspace
+    /// downstream 工作区，分发 = 任务暂存）。
+    fn fill_downstream_claims(
+        self,
+        route: RouteHandle,
+        plan: crate::kernel::conflict::DownstreamClaimPlan,
+        claims: &mut Vec<crate::DownstreamInterval>,
+        raw_capacity: usize,
+    ) -> Result<(), DownstreamFillError> {
+        let compiled = self
+            .read
+            .committed
+            .routes
+            .get(route.index() as usize)
+            .filter(|slot| slot.generation == route.generation())
+            .and_then(|slot| slot.compiled.as_ref())
+            .ok_or(DownstreamFillError::Invariant)?;
+        crate::kernel::conflict::derive_downstream_claims_from_plan(
+            &compiled.edges,
+            self.read
+                .binding
+                .revision
+                .traffic()
+                .lane_lengths_millimetres(),
+            plan,
+            claims,
+        )
+        .map_err(|_| DownstreamFillError::Invariant)?;
+        if claims.capacity() < raw_capacity {
+            return Err(DownstreamFillError::Invariant);
+        }
+        Ok(())
+    }
+
     /// P3 逐车候选求值原语（任务/补算共用）：与
     /// StepWorkspace::evaluate_vehicle_gates + prepare_resource_candidate +
     /// prepare_candidate_downstream 的检查次序与错误变体逐行一致；
@@ -3713,82 +3836,18 @@ impl ConflictTaskView<'_> {
                     cells = CellsSegment::Unmaterialized;
                     break 'cells;
                 }
-                cell_work.push(occurrence.address());
-                let stream = match policy.stream(occurrence.stream, class) {
-                    Some(stream) => stream,
-                    None => {
-                        cells = CellsSegment::Failed(StepError::ConflictInvariantViolation);
-                        break 'cells;
-                    }
-                };
-                priority = Some(priority.map_or(stream.priority(), |current: i32| {
-                    current.min(stream.priority())
-                }));
-                // Protected 候选仍解析规则并收集资源，只跳过让行间隙求值。
-                if kind == GateCandidateKind::Protected {
-                    continue;
-                }
-                let (zone, targets) = match policy.yield_targets(
-                    occurrence.stream,
+                if let Err(error) = self.collect_occurrence_fields(
+                    state,
+                    occurrence,
+                    policy,
                     class,
-                    occurrence.passage_local_index,
+                    kind,
+                    &mut cell_work,
+                    &mut priority,
+                    &mut preflight_no_grant,
                 ) {
-                    Some(targets) => targets,
-                    None => {
-                        cells = CellsSegment::Failed(StepError::ConflictInvariantViolation);
-                        break 'cells;
-                    }
-                };
-                if zone != occurrence.zone {
-                    cells = CellsSegment::Failed(StepError::ConflictInvariantViolation);
+                    cells = CellsSegment::Failed(error);
                     break 'cells;
-                }
-                let Some(gap_index) = stream.gap_profile_index() else {
-                    if !targets.is_empty() {
-                        cells = CellsSegment::Failed(StepError::ConflictInvariantViolation);
-                        break 'cells;
-                    }
-                    continue;
-                };
-                let gap = match self
-                    .read
-                    .binding
-                    .policy_binding
-                    .gaps()
-                    .get(gap_index as usize)
-                {
-                    Some(gap) => *gap,
-                    None => {
-                        cells = CellsSegment::Failed(StepError::ConflictInvariantViolation);
-                        break 'cells;
-                    }
-                };
-                for target in targets {
-                    let address = crate::ConflictPassageAddress::new(
-                        occurrence.zone,
-                        target.stream(),
-                        target.passage_local_index(),
-                    );
-                    let outcome = self.conflict.evaluate_yield_target(
-                        state.handle,
-                        address,
-                        self.read.committed.time_ms,
-                        gap.required_lag_ms(),
-                        gap.required_lead_ms(),
-                    );
-                    let Some(outcome) = outcome else {
-                        cells = CellsSegment::Failed(StepError::ConflictInvariantViolation);
-                        break 'cells;
-                    };
-                    if let Some(reason) = map_yield(outcome) {
-                        preflight_no_grant = Some(preflight_no_grant.map_or(reason, |current| {
-                            if no_grant_rank(reason) < no_grant_rank(current) {
-                                reason
-                            } else {
-                                current
-                            }
-                        }));
-                    }
                 }
             }
             // 循环正常结束才到达这里：中途退出（Failed 检查失败 /
@@ -3837,161 +3896,23 @@ impl ConflictTaskView<'_> {
         ) {
             return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
         }
-        let plan = match self
-            .read
-            .reservation_downstream_claim_plan(range, state.length_mm)
-        {
+
+        let plan = match self.downstream_plan_prechecks(state, range, gate_hop) {
             Ok(plan) => plan,
-            Err(ConflictAcquireError::NoGrant(_)) => {
-                return DownstreamSegment::PreFailed(DownstreamEvalError::NoGrant);
-            }
-            Err(_) => {
-                return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
-            }
+            Err(error) => return DownstreamSegment::PreFailed(error),
         };
-        let compiled = match self.read.compiled_route(state.route) {
-            Some(compiled) => compiled,
-            None => {
-                return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
-            }
-        };
-        let target = plan.target();
-        let required = match distance_to_occurrence_progress(
-            &compiled.occurrence_segments,
-            &compiled.occurrence_offsets,
-            &compiled.segment_totals,
-            state.route_edge_index as usize,
-            state.progress_mm,
-            target.route_edge_index() as usize,
-            target.progress_mm(),
-        ) {
-            Some(BoundedDistance::Finite(value)) => value,
-            Some(BoundedDistance::BeyondFinite) | None => {
-                return DownstreamSegment::PreFailed(DownstreamEvalError::NoGrant);
-            }
-        };
-        let profile = match self
-            .read
-            .binding
-            .revision
-            .traffic()
-            .relations()
-            .vehicle_profile(state.profile)
-        {
-            Some(profile) => profile,
-            None => {
-                return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
-            }
-        };
-        let leader_gap = self.read.derived.occupancy.leader_gap(
-            state.handle,
-            &compiled.edges,
-            state.route_edge_index as usize,
-            state.progress_mm,
-            self.read
-                .binding
-                .revision
-                .traffic()
-                .lane_lengths_millimetres(),
-            crate::kernel::occupancy::LeaderQueryHorizon::new(u32::MAX, u32::MAX),
-        );
-        if leader_gap.is_some_and(|gap| {
-            gap < i64::from(required).saturating_add(i64::from(profile.min_gap_mm()))
-        }) {
-            return DownstreamSegment::PreFailed(DownstreamEvalError::NoGrant);
-        }
-        if let Some(next_gate) = compiled
-            .gate_hops
-            .iter()
-            .copied()
-            .find(|hop| *hop > gate_hop)
-        {
-            let boundary = match gate_boundary(next_gate) {
-                Ok(boundary) => boundary,
-                Err(_) => {
-                    return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
-                }
-            };
-            if target > boundary {
-                return DownstreamSegment::PreFailed(DownstreamEvalError::NoGrant);
-            }
-        }
-        let waiting = match self.waiting_stop_for(&state) {
-            Ok(waiting) => waiting,
-            Err(_) => {
-                return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
-            }
-        };
-        if let Some(waiting) = waiting
-            && waiting.hop > gate_hop
-        {
-            let boundary = match gate_boundary(waiting.hop) {
-                Ok(boundary) => boundary,
-                Err(_) => {
-                    return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
-                }
-            };
-            if target > boundary {
-                return DownstreamSegment::PreFailed(DownstreamEvalError::NoGrant);
-            }
-        }
-        if let Some(ParkingBinding::Reserved(reservation)) =
-            self.read.committed.parking.binding(state.handle)
-        {
-            if reservation.route() != state.route {
-                return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
-            }
-            let Some((_, progress_mm)) = self.read.reservation_anchor(reservation) else {
-                return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
-            };
-            let Some(parking) = crate::DownstreamRoutePoint::new(
-                reservation.entry_route_occurrence(),
-                progress_mm,
-                0,
-            ) else {
-                return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
-            };
-            if target > parking {
-                return DownstreamSegment::PreFailed(DownstreamEvalError::NoGrant);
-            }
-        }
-        // F4 位（downstream_work 真实预留）留在协调器消费侧原位。
+        // F4 义务已成立（共用前置检查成功）；F4 真实预留在协调器消费侧
+        // 原位兑现，这里只做 F4 后的区间填充。
         let raw_capacity = plan.raw_interval_capacity();
-        let route = plan.route();
-        let compiled = match self
-            .read
-            .committed
-            .routes
-            .get(route.index() as usize)
-            .filter(|slot| slot.generation == route.generation())
-            .and_then(|slot| slot.compiled.as_ref())
-        {
-            Some(compiled) => compiled,
-            None => {
-                return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
-            }
-        };
         let mut claims: Vec<crate::DownstreamInterval> = Vec::new();
         if claims.try_reserve(raw_capacity).is_err() {
             return DownstreamSegment::Unmaterialized;
         }
-        let fill = if crate::kernel::conflict::derive_downstream_claims_from_plan(
-            &compiled.edges,
-            self.read
-                .binding
-                .revision
-                .traffic()
-                .lane_lengths_millimetres(),
-            plan.plan,
-            &mut claims,
-        )
-        .is_err()
-            || claims.capacity() < raw_capacity
-        {
-            Err(DownstreamFillError::Invariant)
-        } else {
-            Ok(claims)
-        };
+        let fill =
+            match self.fill_downstream_claims(plan.route(), plan.plan, &mut claims, raw_capacity) {
+                Ok(()) => Ok(claims),
+                Err(error) => Err(error),
+            };
         DownstreamSegment::Obligated { raw_capacity, fill }
     }
 }
