@@ -142,7 +142,7 @@ fn tick_record(world: &TrafficWorld, outcome: &StepOutcome) -> String {
         world.latest_transition_events(),
         world.committed_signal_groups(),
         world.waiting_zone_members(),
-        world.committed_pose_sources(),
+        world.committed_pose_sources().collect::<Vec<_>>(),
         vehicles,
         world.migration_journal_stats(),
         (
@@ -589,6 +589,7 @@ fn run_waiting_ring(workers: u32) -> Vec<String> {
             }
             let rearmost = world
                 .committed_pose_sources()
+                .collect::<Vec<_>>()
                 .as_slice()
                 .iter()
                 .filter_map(|(_, source)| match source {

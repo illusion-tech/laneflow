@@ -417,8 +417,8 @@ Session 组合 `TrafficWorld` 与可选 `SpatialSession`，配对不变量（同
   提取，产出原地重填调用方持有的 `LaneFlowCommittedPoseBatch`（稳定容量复用；
   失败时输出原样保持）。批次携带消费上下文 `(world_id, WorldGeneration)` 与
   对齐的车辆句柄；任何成功切换使先前上下文过期，宿主持有结果跨区间时用
-  `consumption_context_is_current` 复核，过期整批拒绝。稳态唯一已知分配成本是
-  Runtime `committed_pose_sources` 的按值返回（已登记，#545 证据决策）。
+  `consumption_context_is_current` 复核，过期整批拒绝。稳态完整提取路径零新增分配；Runtime
+  来源按值返回的历史成本（#545 登记）已由 #712 的借用迭代器消除。
 - `LaneFlowCutoverRecord`（`#[must_use]`）：换出的旧 `SpatialSession`（在途借用
   可完成，结果不得作为当前世界表现提交）、切换后世界绑定与恰一次事件批次——
   语句位丢弃记录即丢弃事件交付。

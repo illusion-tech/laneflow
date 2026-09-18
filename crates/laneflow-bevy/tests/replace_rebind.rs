@@ -435,6 +435,7 @@ fn virtual_parking_echoes_typed_selectors_and_keeps_mapping_without_pose() {
             session
                 .world()
                 .committed_pose_sources()
+                .collect::<Vec<_>>()
                 .as_slice()
                 .iter()
                 .all(|(handle, _)| *handle != vehicle),

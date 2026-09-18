@@ -535,5 +535,11 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
             .expect("catalog slot must spawn");
     }
     world.step(TickInput::new(16)).expect("step");
-    assert!(!world.committed_pose_sources().as_slice().is_empty());
+    assert!(
+        !world
+            .committed_pose_sources()
+            .collect::<Vec<_>>()
+            .as_slice()
+            .is_empty()
+    );
 }

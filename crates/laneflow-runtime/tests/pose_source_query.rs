@@ -207,7 +207,24 @@ fn lane_source(progress_mm: u32) -> PoseSource {
 }
 
 fn full_sources(world: &TrafficWorld) -> Vec<(laneflow_runtime::VehicleHandle, PoseSource)> {
-    world.committed_pose_sources().as_slice().to_vec()
+    world.committed_pose_sources().collect::<Vec<_>>()
+}
+
+/// 迭代器作用域内消费完毕后，世界恢复可步进（compile_fail 的正向对照）。
+#[test]
+fn iterator_scope_ends_then_world_can_step() {
+    let mut world = world();
+    let route = route(&mut world);
+    let _vehicle = spawn_active(&mut world, route, 10_000);
+
+    let count = {
+        let sources = world.committed_pose_sources();
+        sources.count()
+    };
+    assert_eq!(count, 1);
+    world
+        .step(TickInput::new(100))
+        .expect("step after iterator scope ends");
 }
 
 /// Active 车辆映射为当前边与进度的车道来源；期望值显式写出。

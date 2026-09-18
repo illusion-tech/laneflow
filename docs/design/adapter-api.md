@@ -307,10 +307,10 @@ LaneFlowSession::{consumption_context, consumption_context_is_current}
 - 稳定容量复用（§6 合同在封闭路径上的落点）：`output` 由调用方持有并跨帧复用，
   Session 持输入 scratch，成功提取原地重填、失败时 `output` 原样保持；稳态除下述
   已知成本外零新增分配。
-- **已知成本登记**：`TrafficWorld::committed_pose_sources()` 为 Runtime 按值读取
-  API，adapter 每批创建一个来源 Vec，过滤收集还可能多次增长容量。实际容量与
-  逻辑 payload 不相等，不能把它简写成一次恰好 N 项的分配。#681 已接受借用来源、
-  缓冲交换与按需提取设计，见关联文档；现行生产成本仍存在，待独立实施切片消除。
+- **成本登记（现状）**：`TrafficWorld::committed_pose_sources()` 已由 #712 迁移为
+  借用世界的惰性迭代器，不物化来源 Vec；Adapter 在一次消费中重填 Session 的输入
+  与候选车辆缓冲，成功后只做缓冲交换。#545/#681 登记的按值来源 Vec 成本已消除；
+  历史按值实现的容量增长细节见 #681 研究记录。
 - **`#[must_use]` 继承规则**：包装携带交付义务的类型时，包装层继承
   `#[must_use]`——`LaneFlowCutoverRecord` 标记 must_use，语句位丢弃记录即丢弃
   恰一次事件交付（与 Runtime 对 `CutoverCommit` / `CutoverEventBatch` 的登记

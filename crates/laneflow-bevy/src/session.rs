@@ -88,6 +88,7 @@ pub struct LaneFlowSession {
     pub(crate) last_error: Option<LaneFlowAdapterError>,
     vehicle_entities: VehicleEntityMap,
     pose_scratch: Vec<PoseInput>,
+    pose_vehicle_scratch: Vec<VehicleHandle>,
 }
 
 impl LaneFlowSession {
@@ -120,6 +121,7 @@ impl LaneFlowSession {
             last_error: None,
             vehicle_entities,
             pose_scratch: Vec::new(),
+            pose_vehicle_scratch: Vec::new(),
         })
     }
 
@@ -183,11 +185,13 @@ impl LaneFlowSession {
     ///
     /// 采集 → 校验 → 提取处于单次 `&mut self` 内，不存在插入切换的窗口；
     /// 调用方不得缓存位姿输入跨过切换边界重放。`output.vehicles()` 与
-    /// `output.batch().records()` 按序对齐（记录身份为序号）。
+    /// `output.batch().records()` 按序对齐（记录身份为过滤后连续序号）。
     ///
-    /// 稳定容量复用（adapter-api §6）：调用方持有 `output` 跨帧复用，
-    /// 稳态除 Runtime `committed_pose_sources` 自身的按值返回外零新增
-    /// 分配；任一失败路径 `output` 原样保持。
+    /// 一次消费来源迭代器，同时构建候选输入与候选车辆序列两组 Session
+    /// 缓冲；Spatial 采样成功后的最终提交只剩缓冲交换、接管清空与上下文
+    /// 值更新，不再执行可返回错误的工作。稳定容量复用（adapter-api §6）：
+    /// 调用方持有 `output` 跨帧复用，Session 与参与 output 均暖机后零新增
+    /// 分配；任一失败路径整个 `output`（车辆序列、批次、上下文）原样保持。
     ///
     /// # Errors
     ///
@@ -200,7 +204,9 @@ impl LaneFlowSession {
         placement_token: laneflow_spatial::FramePlacementToken,
         output: &mut LaneFlowCommittedPoseBatch,
     ) -> Result<(), LaneFlowAdapterError> {
+        // 创建迭代器执行公开入口检查；创建本身不扫描来源。
         let sources = self.world.committed_pose_sources();
+        let context = self.consumption_context();
         let Some(spatial) = self.spatial.as_mut() else {
             return Err(LaneFlowAdapterError::PoseExtractionWithoutSpatial);
         };
@@ -208,22 +214,25 @@ impl LaneFlowSession {
         if !Arc::ptr_eq(&self.world.revision(), &spatial.revision()) {
             return Err(LaneFlowAdapterError::RevisionMismatch);
         }
+        // 一次遍历同时构建两份候选；连续记录序号在来源过滤之后产生，
+        // 与实际输出车辆一一对应。
         self.pose_scratch.clear();
-        self.pose_scratch.extend(
-            sources
-                .as_slice()
-                .iter()
-                .enumerate()
-                .map(|(index, (_, source))| pose_input(PoseRecordId::new(index as u32), *source)),
-        );
+        self.pose_vehicle_scratch.clear();
+        for (vehicle, source) in sources {
+            let record = u32::try_from(self.pose_vehicle_scratch.len())
+                .expect("pose record index fits vehicle capacity");
+            self.pose_scratch
+                .push(pose_input(PoseRecordId::new(record), source));
+            self.pose_vehicle_scratch.push(vehicle);
+        }
+        // 全部可失败工作已完成；提交阶段只做所有权交换与值更新。
         spatial
             .extract_pose_batch(placement_token, &self.pose_scratch, &mut output.batch)
             .map_err(|source| LaneFlowAdapterError::SpatialPoseExtraction { source })?;
-        output.vehicles.clear();
-        output
-            .vehicles
-            .extend(sources.as_slice().iter().map(|(vehicle, _)| *vehicle));
-        output.context = self.consumption_context();
+        mem::swap(&mut self.pose_vehicle_scratch, &mut output.vehicles);
+        // 接管上一批输出的车辆存储，保留容量供下一批候选复用。
+        self.pose_vehicle_scratch.clear();
+        output.context = context;
         Ok(())
     }
 
