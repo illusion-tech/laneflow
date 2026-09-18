@@ -273,6 +273,40 @@ fn s03_failure_at_first_middle_last_preserves_full_output() {
     }
 }
 
+/// S03 补充：默认（尚未填充的）output 上失败时，完整保持默认 header 与空记录。
+#[test]
+fn s03_failure_on_default_output_preserves_default_state() {
+    let revision = revision();
+    let mut session = SpatialSession::bind(Arc::clone(&revision))
+        .expect("bind")
+        .expect("session");
+    let mut output = CanonicalPoseBatch::new();
+    let default_state = CanonicalPoseBatch::new();
+    let error = session
+        .extract_pose_batch(
+            FramePlacementToken::new(30),
+            &[input_lane(1, EDGE_A0, 0), input_lane(2, EDGE_UNKNOWN, 0)],
+            &mut output,
+        )
+        .expect_err("batch must fail");
+    match error {
+        SpatialError::SharedPoseRecordFailed {
+            input_index,
+            record,
+            ..
+        } => {
+            assert_eq!(input_index, 1);
+            assert_eq!(record, PoseRecordId::new(2));
+        }
+        other => panic!("unexpected error {other:?}"),
+    }
+    assert_eq!(output, default_state, "default output must stay untouched");
+    assert_eq!(output.network_revision(), None);
+    assert_eq!(output.canonical_frame(), None);
+    assert_eq!(output.placement_token(), FramePlacementToken::new(0));
+    assert!(output.records().is_empty());
+}
+
 /// S04：多条输入同时存在错误时，返回现有顺序下的第一个错误。
 #[test]
 fn s04_multiple_bad_inputs_report_first_error_in_input_order() {
@@ -541,6 +575,7 @@ fn s10_alternating_outputs_stay_independent() {
         .expect("update a");
     assert_eq!(b, b_snapshot, "updating a must not modify b");
     assert_eq!(a.placement_token(), FramePlacementToken::new(3));
+    let a_after_update = a.clone();
 
     session
         .extract_pose_batch(
@@ -549,6 +584,7 @@ fn s10_alternating_outputs_stay_independent() {
             &mut b,
         )
         .expect("update b");
+    assert_eq!(a, a_after_update, "updating b must not modify committed a");
     assert_eq!(a.placement_token(), FramePlacementToken::new(3));
     assert_eq!(b.placement_token(), FramePlacementToken::new(4));
     assert_eq!(
