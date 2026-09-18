@@ -1,7 +1,9 @@
 param(
     [Parameter(Mandatory = $true)][string]$Output,
     # 基线取证时测量程序目录尚未提交；只允许该前缀下的未跟踪文件。
-    [string]$AllowUntracked = ''
+    [string]$AllowUntracked = '',
+    # 只运行指定场景（--only 参数），用于定点重采；默认运行全部场景。
+    [string]$CaseFilter = ''
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
@@ -43,17 +45,29 @@ if ($LASTEXITCODE -ne 0) { throw 'Allocation build failed' }
 Copy-Item -LiteralPath target/release/laneflow-issue-711.exe -Destination (Join-Path $out 'allocation.exe')
 Assert-StableBaseline
 
+# powercfg 两种语法都尝试；均失败时如实记录错误，不臆造电源方案。
+$powerSchemeRecord = 'collection failed: '
+foreach ($flag in @('/getactivescheme', '-getactivescheme')) {
+    $scheme = @( & powercfg $flag 2>&1 )
+    if ($LASTEXITCODE -eq 0) {
+        $powerSchemeRecord = $scheme -join "`n"
+        break
+    }
+    $powerSchemeRecord += "$flag -> $($scheme -join ' '); "
+}
+
 $metadata = [ordered]@{
     baseline = $baseline
     baselineTree = $baselineTree
     allowUntracked = $AllowUntracked
+    caseFilter = $CaseFilter
     worktreeStable = $true
     rustc = (& rustc -Vv) -join "`n"
     cargo = (& cargo -V)
     os = [Environment]::OSVersion.VersionString
     cpu = (Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Name) -join ', '
     logicalProcessors = [Environment]::ProcessorCount
-    powerScheme = (& powercfg /getactivesscheme) -join "`n"
+    powerScheme = $powerSchemeRecord
     time = (Get-Date).ToUniversalTime().ToString('o')
     binaries = @(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $out 'wall.exe'), (Join-Path $out 'allocation.exe') | Select-Object Path, Hash)
     sources = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'src') -Filter '*.rs' | Get-FileHash -Algorithm SHA256 | Select-Object Path, Hash)
@@ -64,14 +78,16 @@ $metadata | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $out '
 
 $process = [Diagnostics.Process]::GetCurrentProcess()
 $previousAffinity = $process.ProcessorAffinity
+$caseArgs = @()
+if ($CaseFilter -ne '') { $caseArgs = @('--only', $CaseFilter) }
 try {
     # 固定单个 logical processor 减少调度噪声；处理器数不足时退回最高位。
     $cpus = [Environment]::ProcessorCount
     $pin = if ($cpus -ge 17) { [IntPtr]65536 } else { [IntPtr]([Math]::Pow(2, $cpus - 1)) }
     $process.ProcessorAffinity = $pin
-    & (Join-Path $out 'wall.exe') > (Join-Path $out 'wall.csv') 2> (Join-Path $out 'wall.log')
+    & (Join-Path $out 'wall.exe') @caseArgs > (Join-Path $out 'wall.csv') 2> (Join-Path $out 'wall.log')
     if ($LASTEXITCODE -ne 0) { throw 'Wall run failed' }
-    & (Join-Path $out 'allocation.exe') > (Join-Path $out 'allocation.csv') 2> (Join-Path $out 'allocation.log')
+    & (Join-Path $out 'allocation.exe') @caseArgs > (Join-Path $out 'allocation.csv') 2> (Join-Path $out 'allocation.log')
     if ($LASTEXITCODE -ne 0) { throw 'Allocation run failed' }
 } finally { $process.ProcessorAffinity = $previousAffinity }
 Assert-StableBaseline
