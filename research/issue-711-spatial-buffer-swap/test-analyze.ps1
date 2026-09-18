@@ -27,11 +27,11 @@ function Invoke-Test([string]$name, [scriptblock]$mutate, [bool]$expectSuccess) 
     & $mutate $tree
     $code = Invoke-Analyze $tree
     if ($expectSuccess) {
-        if ($code -ne 0) { Write-Output "FAIL $name : analyze rejected a valid tree (exit $code)"; return 1 }
+        if ($code -ne 0) { Write-Host "FAIL $name : analyze rejected a valid tree (exit $code)"; return 1 }
     } else {
-        if ($code -eq 0) { Write-Output "FAIL $name : analyze accepted defective evidence"; return 1 }
+        if ($code -eq 0) { Write-Host "FAIL $name : analyze accepted defective evidence"; return 1 }
     }
-    Write-Output "PASS $name"
+    Write-Host "PASS $name"
     0
 }
 
@@ -62,7 +62,8 @@ $failures += Invoke-Test 'single-run-oracle-missing' {
 $failures += Invoke-Test 'duplicate-sample' {
     param($tree)
     $csv = Join-Path $tree 'after/run2/wall.csv'
-    Get-Content -LiteralPath $csv | ForEach-Object {
+    $lines = @(Get-Content -LiteralPath $csv)
+    $lines | ForEach-Object {
         if ($_ -like 'steady,100000,1,32,*') { $_ -replace '^steady,100000,1,', 'steady,100000,0,' } else { $_ }
     } | Set-Content -LiteralPath $csv
 } $false
@@ -96,7 +97,8 @@ $failures += Invoke-Test 'source-mismatch' {
 $failures += Invoke-Test 'wall-allocation-column-nonzero' {
     param($tree)
     $csv = Join-Path $tree 'after/run1/wall.csv'
-    Get-Content -LiteralPath $csv | ForEach-Object {
+    $lines = @(Get-Content -LiteralPath $csv)
+    $lines | ForEach-Object {
         if ($_ -like 'shrink,1000,4,32,*,0,0,0,0') { $_ -replace ',4,32,(\d+),0,0,0,0$', ",4,32,`$1,5,0,0,0" } else { $_ }
     } | Set-Content -LiteralPath $csv
 } $false
@@ -104,6 +106,6 @@ $failures += Invoke-Test 'wall-allocation-column-nonzero' {
 foreach ($copy in $script:copies) {
     Remove-Item -Recurse -Force -LiteralPath $copy -ErrorAction SilentlyContinue
 }
-if ($failures -gt 0) { Write-Output "test-analyze: $failures FAILED"; exit 1 }
-Write-Output 'test-analyze: OK'
+if ($failures -gt 0) { Write-Host "test-analyze: $failures FAILED"; exit 1 }
+Write-Host 'test-analyze: OK'
 exit 0
