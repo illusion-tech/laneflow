@@ -85,17 +85,46 @@ function Compare-EnvIdentity($a, $b, [string]$context) {
 
 function Test-SampleLayer($rows, $case, [string]$context) {
     $matched = @($rows | Where-Object { $_.case -eq $case })
-    foreach ($datasetGroup in @($matched | Group-Object dataset)) {
-        $ids = @($datasetGroup.Group | ForEach-Object { [int]$_.sample })
+    $datasetNames = @($matched | ForEach-Object { [string]$_.dataset } | Sort-Object -Unique)
+    foreach ($name in $datasetNames) {
+        $datasetRows = @($matched | Where-Object { [string]$_.dataset -eq $name })
+        $ids = @($datasetRows | ForEach-Object { [int]$_.sample })
         $unique = @($ids | Sort-Object -Unique)
         if ($unique.Count -ne $Samples) {
-            throw "$context $case/$($datasetGroup.Name) expected $Samples distinct samples, got $($unique.Count)"
+            throw "$context $case/$name expected $Samples distinct samples, got $($unique.Count)"
         }
-        if ($ids.Count -ne $unique.Count) { throw "$context duplicate sample ids for $case/$($datasetGroup.Name)" }
-        foreach ($row in $datasetGroup.Group) {
-            if (-not ($row.ns -gt 0)) { throw "$context $case/$($datasetGroup.Name) ns must be positive" }
+        if ($ids.Count -ne $unique.Count) { throw "$context duplicate sample ids for $case/$name" }
+        foreach ($row in $datasetRows) {
+            if (-not ($row.ns -gt 0)) { throw "$context $case/$name ns must be positive" }
         }
     }
+}
+
+# 正确性层：每份日志必须出现完整的预期 oracle 键集合，不多不少、无重复。
+$ExpectedOracleKeys = @(
+    'source all_active_10000', 'source all_active_100000',
+    'source mixed_parking_10000', 'source mixed_parking_100000',
+    'source high_completed_10000', 'source sparse_presentable_10000',
+    'adapter all_active_10000', 'adapter all_active_100000',
+    'adapter mixed_parking_10000', 'adapter mixed_parking_100000',
+    'adapter high_completed_10000', 'adapter sparse_presentable_10000',
+    'alternate all_active_10000', 'alternate all_active_100000',
+    'cold cold'
+)
+
+function Test-OracleLayer([string]$logPath, [string]$context) {
+    $oracles = Read-Oracles $logPath
+    $seen = @($oracles | ForEach-Object { $_.key })
+    foreach ($key in $ExpectedOracleKeys) {
+        if ($seen -notcontains $key) { throw "$context oracle log misses key '$key'" }
+    }
+    foreach ($key in $seen) {
+        if ($ExpectedOracleKeys -notcontains $key) { throw "$context oracle log has unexpected key '$key'" }
+    }
+    if ($seen.Count -ne $ExpectedOracleKeys.Count) { throw "$context oracle log has duplicate keys" }
+    $map = @{}
+    foreach ($oracle in $oracles) { $map[$oracle.key] = $oracle.digest }
+    $map
 }
 
 function Import-Variant([string]$root, [string]$name) {
@@ -113,6 +142,13 @@ function Import-Variant([string]$root, [string]$name) {
         $env = Read-Env (Join-Path $run.FullName 'environment.json')
         if ($env.features -ne $ExpectedFeature[$name]) {
             throw "$name/$($run.Name) features '$($env.features)' != '$($ExpectedFeature[$name])'"
+        }
+        $wallOracles = Test-OracleLayer (Join-Path $run.FullName 'wall.log') "$name/$($run.Name) wall"
+        $allocOracles = Test-OracleLayer (Join-Path $run.FullName 'allocation.log') "$name/$($run.Name) allocation"
+        foreach ($key in $wallOracles.Keys) {
+            if ($wallOracles[$key] -ne $allocOracles[$key]) {
+                throw "$name/$($run.Name) oracle digest differs between wall and allocation logs for '$key'"
+            }
         }
         $imported += @{ path = $run.FullName; env = $env }
     }
@@ -166,12 +202,14 @@ foreach ($variant in @(@{ name = 'before'; runs = $before }, @{ name = 'after'; 
                 if ($row.iterations -ne $spec.iters) { throw "$($variant.name) iterations mismatch for $($spec.case)" }
                 if ($row.allocations -ne 0 -or $row.reallocations -ne 0) { throw 'wall rows must keep zero allocation columns' }
             }
-            foreach ($group in ($wallCases | Group-Object dataset)) {
-                $pair = "$($spec.case) $($group.Name)"
-                $medians = @($group.Group | ForEach-Object { $_.ns / $_.iterations })
+            $datasetNames = @($wallCases | ForEach-Object { [string]$_.dataset } | Sort-Object -Unique)
+            foreach ($name in $datasetNames) {
+                $pair = "$($spec.case) $name"
+                $datasetRows = @($wallCases | Where-Object { [string]$_.dataset -eq $name })
+                $medians = @($datasetRows | ForEach-Object { $_.ns / $_.iterations })
                 if (-not $valueByPair.ContainsKey("$($variant.name)|$pair")) { $valueByPair["$($variant.name)|$pair"] = @() }
                 $valueByPair["$($variant.name)|$pair"] += Get-Median $medians
-                $allocGroup = @($allocCases | Where-Object { $_.dataset -eq $group.Name })
+                $allocGroup = @($allocCases | Where-Object { [string]$_.dataset -eq $name })
                 $allocMedians = @($allocGroup | ForEach-Object { $_.allocations / $_.iterations })
                 if ($allocMedians.Count -gt 0) {
                     if (-not $allocByPair.ContainsKey("$($variant.name)|$pair")) { $allocByPair["$($variant.name)|$pair"] = @() }
@@ -209,7 +247,8 @@ foreach ($key in $oracleAfter.Keys) {
 
 $lines = @('case,dataset,before_ns,after_ns,delta_pct,before_alloc,after_alloc')
 $table = @('| 场景 | 数据集 | before µs | after µs | 差值 |', '| --- | --- | ---: | ---: | ---: |')
-foreach ($pair in ($valueByPair.Keys | Sort-Object)) {
+$allPairs = @($valueByPair.Keys | ForEach-Object { $_ -replace '^[^|]+\|', '' } | Sort-Object -Unique)
+foreach ($pair in $allPairs) {
     $beforeMedian = Get-Median ([double[]]$valueByPair["before|$pair"])
     $afterMedian = Get-Median ([double[]]$valueByPair["after|$pair"])
     if (-not $afterMedian -and $afterMedian -ne 0) { throw "after misses pair '$pair'" }
