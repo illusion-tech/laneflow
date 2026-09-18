@@ -1,0 +1,25 @@
+case,dataset,before_ns,after_ns,delta_pct,before_alloc,after_alloc
+adapter_full,all_active_10000,2289303.125,2526281.25,10.352,1,0
+adapter_full,all_active_100000,18108425,17770503.125,-1.866,1,0
+adapter_full,high_completed_10000,253356.25,247153.125,-2.448,1,0
+adapter_full,mixed_parking_10000,1268340.625,1322215.625,4.248,1,0
+adapter_full,mixed_parking_100000,14204850,14560965.625,2.507,1,0
+adapter_full,sparse_presentable_10000,635868.75,613234.375,-3.56,1,0
+alternate,all_active_10000,3146075,2604253.125,-17.222,1,0
+alternate,all_active_100000,18534843.75,17505631.25,-5.553,1,0
+cold,cold_probe,239000,194900,-18.452,4,3
+fresh_output,all_active_10000,4562321.875,3023037.5,-33.739,3,2
+fresh_output,all_active_100000,19584709.375,19111778.125,-2.415,3,2
+source_full,all_active_10000,199265.625,146325,-26.568,1,0
+source_full,all_active_100000,3688718.75,1936128.125,-47.512,1,0
+source_full,high_completed_10000,74928.125,107334.375,43.25,1,0
+source_full,mixed_parking_10000,432853.125,376768.75,-12.957,1,0
+source_full,mixed_parking_100000,5769084.375,5185806.25,-10.11,1,0
+source_full,sparse_presentable_10000,653768.75,629912.5,-3.649,1,0
+transform_convert,all_active_10000,13300,17162.5,29.041,0,0
+transform_convert,all_active_100000,196146.875,178468.75,-9.013,0,0
+transform_convert,high_completed_10000,1753.125,1806.25,3.03,0,0
+transform_convert,mixed_parking_10000,8603.125,8771.875,1.961,0,0
+transform_convert,mixed_parking_100000,77659.375,94565.625,21.77,0,0
+transform_convert,sparse_presentable_10000,112.5,175,55.556,0,0
+# oracle digests identical across before/after for: adapter all_active_10000; adapter all_active_100000; adapter high_completed_10000; adapter mixed_parking_10000; adapter mixed_parking_100000; adapter sparse_presentable_10000; alternate all_active_10000; alternate all_active_100000; cold cold; source all_active_10000; source all_active_100000; source high_completed_10000; source mixed_parking_10000; source mixed_parking_100000; source sparse_presentable_10000
