@@ -103,6 +103,35 @@ $failures += Invoke-Test 'wall-allocation-column-nonzero' {
     } | Set-Content -LiteralPath $csv
 } $false
 
+# 8 某一轮编译器身份不同：同变体同阶段各轮工具链必须一致。
+$failures += Invoke-Test 'compiler-mismatch-within-variant' {
+    param($tree)
+    $json = Join-Path $tree 'after/fresh/run2/environment.json'
+    $raw = Get-Content -LiteralPath $json -Raw | ConvertFrom-Json
+    $raw.rustc = $raw.rustc -replace '1\.98\.1', '1.98.0'
+    $raw | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $json -Encoding utf8
+} $false
+
+# 9 After 各轮内部一致但与 Before 的 CPU 不同：跨变体环境比较必须拒绝。
+$failures += Invoke-Test 'cpu-mismatch-across-variants' {
+    param($tree)
+    foreach ($run in @('run1', 'run2', 'run3')) {
+        $json = Join-Path $tree "after/$run/environment.json"
+        $raw = Get-Content -LiteralPath $json -Raw | ConvertFrom-Json
+        $raw.cpu = 'Different CPU'
+        $raw | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $json -Encoding utf8
+    }
+} $false
+
+# 10 编译器版本号相同但 host/目标平台不同：完整 rustc -Vv 比较必须拒绝。
+$failures += Invoke-Test 'host-mismatch-same-version' {
+    param($tree)
+    $json = Join-Path $tree 'before/fresh/run3/environment.json'
+    $raw = Get-Content -LiteralPath $json -Raw | ConvertFrom-Json
+    $raw.rustc = $raw.rustc -replace 'x86_64-pc-windows-msvc', 'x86_64-pc-windows-gnu'
+    $raw | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $json -Encoding utf8
+} $false
+
 foreach ($copy in $script:copies) {
     Remove-Item -Recurse -Force -LiteralPath $copy -ErrorAction SilentlyContinue
 }

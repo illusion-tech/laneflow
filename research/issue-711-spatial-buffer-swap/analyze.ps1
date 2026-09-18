@@ -69,7 +69,7 @@ function Read-Oracles([string]$path) {
 
 function Read-Env([string]$path) {
     $raw = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
-    foreach ($field in @('baseline', 'baselineTree', 'manifest', 'lockfile', 'sources', 'rustc', 'cargo', 'binaries', 'os', 'cpu', 'time')) {
+    foreach ($field in @('baseline', 'baselineTree', 'manifest', 'lockfile', 'sources', 'rustc', 'cargo', 'binaries', 'os', 'cpu', 'logicalProcessors', 'time')) {
         if (-not $raw.PSObject.Properties[$field]) { throw "environment.json misses field ${field}: $path" }
     }
     $sourceMap = @{}
@@ -86,13 +86,29 @@ function Read-Env([string]$path) {
         manifest = [string]$raw.manifest
         lockfile = [string]$raw.lockfile
         sources = $sourceMap
-        rustc = (($raw.rustc -split "`r?`n") | Select-Object -First 1)
+        # 保留完整 rustc -Vv（版本、commit、host/目标平台、LLVM）；版本号相同
+        # 但 host 或 LLVM 不同的轮次必须能被比较拒绝。
+        rustc = ([string]$raw.rustc -replace "`r`n", "`n")
         cargo = [string]$raw.cargo
         caseFilter = $filter
         os = [string]$raw.os
         cpu = [string]$raw.cpu
-        powerScheme = if ($raw.PSObject.Properties['powerScheme']) { [string]$raw.powerScheme } else { '<not recorded>' }
+        logicalProcessors = [int]$raw.logicalProcessors
+        powerScheme = if ($raw.PSObject.Properties['powerScheme']) { [string]$raw.powerScheme } else { '' }
         time = [string]$raw.time
+    }
+}
+
+# 来源层（环境可比性）：性能比较要求同阶段各轮之间与 A/B 之间的编译器身份、
+# Cargo、操作系统、CPU 与逻辑核数一致；电源方案记录也须一致（空串表示未记录，
+# 是合法的历史取值，不等于平衡方案）。
+function Compare-EnvIdentity($a, $b, [string]$context) {
+    foreach ($field in @('rustc', 'cargo', 'os', 'cpu', 'logicalProcessors', 'powerScheme')) {
+        if ([string]$a[$field] -ne [string]$b[$field]) {
+            $left = ([string]$a[$field] -replace "`n", ' | ')
+            $right = ([string]$b[$field] -replace "`n", ' | ')
+            throw "$context environment '$field' differs: '$left' vs '$right'"
+        }
     }
 }
 
@@ -198,6 +214,7 @@ function Import-Phase([string]$root, [string]$variant, [string]$phase, $specCase
         if ($entry.env.caseFilter -ne $expectedFilter) {
             throw "$variant/$phase caseFilter '$($entry.env.caseFilter)' != '$expectedFilter'"
         }
+        Compare-EnvIdentity $entry.env $reference.env "$variant/$phase/$($entry.label)"
     }
     foreach ($entry in $imported) {
         foreach ($key in $entry.oracles.Keys) {
@@ -255,6 +272,7 @@ foreach ($phase in @('full', 'fresh')) {
     if (Compare-Object @($a.env.sources.GetEnumerator()) @($b.env.sources.GetEnumerator())) {
         throw "$phase A/B measurement sources differ"
     }
+    Compare-EnvIdentity $a.env $b.env "$phase A/B"
 }
 
 # 正确性层：A/B 对拍——同一阶段内全部 oracle 摘要必须逐键一致。
@@ -313,17 +331,27 @@ $table = @(
 foreach ($row in $summaryRows) {
     $table += "| $($row.case) | $($row.records) | $($unitLabel[$row.unit]) | $([Math]::Round($row.before / 1000, 3)) | $([Math]::Round($row.after / 1000, 3)) | $($row.delta)% |"
 }
+function Format-Power([string]$value) {
+    if ($value.Trim() -eq '') { '未记录（该阶段 powercfg 取证失败）' } else { $value.Trim() }
+}
+function Format-Rustc([string]$value) {
+    # 摘要只展示首行；完整 -Vv（含 host 与 LLVM）在校验层逐字比较。
+    (($value -split "`n") | Select-Object -First 1)
+}
 $env = $phases.before_full.env
 $summary = @(
     '',
-    '## 测量环境（由各 run 的 environment.json 汇总）',
+    '## 测量环境（由各 run 的 environment.json 汇总；同阶段各轮与 A/B 的一致性由校验层强制）',
     '',
     '| 项 | 值 |',
     '| --- | --- |',
-    "| CPU | $($env.cpu) |",
+    "| CPU | $($env.cpu)（$($env.logicalProcessors) logical processors） |",
     "| OS | $($env.os) |",
-    "| 工具链（取证记录） | $($env.rustc)；$($env.cargo) |",
-    '| 电源方案 | powercfg 取证失败未记录（见各 environment.json） |',
+    "| 工具链（取证记录，完整 -Vv 逐字比较） | $(Format-Rustc $env.rustc)；$($env.cargo) |",
+    "| 电源方案 before/full | $(Format-Power $phases.before_full.env.powerScheme) |",
+    "| 电源方案 after/full | $(Format-Power $phases.after_full.env.powerScheme) |",
+    "| 电源方案 before/fresh | $(Format-Power $phases.before_fresh.env.powerScheme) |",
+    "| 电源方案 after/fresh | $(Format-Power $phases.after_fresh.env.powerScheme) |",
     "| before/full 生产基线 | $($phases.before_full.env.baseline) |",
     "| after/full 生产基线 | $($phases.after_full.env.baseline) |",
     "| before/fresh 生产基线 | $($phases.before_fresh.env.baseline) |",
