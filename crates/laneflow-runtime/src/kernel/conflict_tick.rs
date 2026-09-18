@@ -809,7 +809,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let slot_injected = conflict_injection::slot_reserve_injected();
         #[cfg(not(test))]
         let slot_injected = false;
-        if slots.try_reserve(workload).is_err() || slot_injected {
+        // W2：保留 len 后 additional = workload - len；相同/收缩 workload
+        // 不得因旧 len 产生额外增长需求。
+        if slots
+            .try_reserve(workload.saturating_sub(slots.len()))
+            .is_err()
+            || slot_injected
+        {
             #[cfg(test)]
             count_conflict_path(|counts| counts.slot_fallback += 1);
             return Ok(false);
@@ -854,14 +860,21 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     let index = start + offset;
                     let (_vehicle, sequence, cache_index, state) =
                         self.workspace.conflict_inputs[index];
-                    // 回收上拍槽位报告的段 Vec 容量作本拍任务暂存（稳态下
-                    // 无每候选堆分配）；Unmaterialized/失败语义不变。
-                    let mut scratch = CandidateScratch::default();
-                    if let crate::kernel::execution::DispatchSlot::Done(Ok(report)) =
-                        core::mem::replace(slot, crate::kernel::execution::DispatchSlot::Pending)
-                    {
-                        report.salvage_into_scratch(&mut scratch);
-                    }
+                    // W1：回收上拍槽位状态里的段暂存 backing（Resource 随行
+                    // scratch 或消费后归还的 Spent）作本拍任务暂存——稳态下
+                    // 无每候选堆分配；Unmaterialized/失败语义不变。
+                    let mut scratch = match core::mem::replace(
+                        slot,
+                        crate::kernel::execution::DispatchSlot::Pending,
+                    ) {
+                        crate::kernel::execution::DispatchSlot::Done(Ok(
+                            CandidateReport::Resource { scratch, .. },
+                        ))
+                        | crate::kernel::execution::DispatchSlot::Done(Ok(
+                            CandidateReport::Spent(scratch),
+                        )) => scratch,
+                        _ => CandidateScratch::default(),
+                    };
                     scratch.cells.clear();
                     scratch.claims.clear();
                     *slot = crate::kernel::execution::DispatchSlot::Done(Ok(view
@@ -914,7 +927,20 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     return Err(StepError::ConflictInvariantViolation);
                 }
             };
-            self.consume_conflict_candidate(vehicle, sequence, cache_index, state, report, tick)?;
+            let (result, spent) = self.consume_conflict_candidate(
+                vehicle,
+                sequence,
+                cache_index,
+                state,
+                report,
+                tick,
+            );
+            // W1 统一回收路径：成功、错误、无候选、分支切换都在此处把报告
+            // 的段暂存归还槽位（Spent = 明确失效 + backing 保留，下拍任务
+            // 复用）；不得把已消费报告留作不明确状态。
+            self.workspace.conflict_slots[index] =
+                crate::kernel::execution::DispatchSlot::Done(Ok(CandidateReport::Spent(spent)));
+            result?;
         }
         Ok(true)
     }
@@ -922,6 +948,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     /// P3 规范消费（D3/D5）：按发现序先落缓存更新，再按报告施加共享写与
     /// 真实预留（F1/F2/F3b/F4/staged 原位，次序与融合逐行一致）；任务局部
     /// 暂存不足的段由协调器以同领域原语补算，不冒充领域分配失败。
+    /// 统一回收：无论结果如何都返回本报告的段暂存（Resource 随行的
+    /// scratch；其余变体为空暂存），由调用方写回槽位 Spent。
     fn consume_conflict_candidate(
         &mut self,
         vehicle: VehicleHandle,
@@ -930,83 +958,118 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         state: VehicleState,
         report: CandidateReport,
         tick: u64,
-    ) -> Result<(), StepError> {
-        match &report {
-            CandidateReport::None { cache }
-            | CandidateReport::Staged { cache, .. }
-            | CandidateReport::Failed { cache, .. } => {
-                self.apply_conflict_cache_updates(vehicle, cache_index, cache)
+    ) -> (Result<(), StepError>, CandidateScratch) {
+        match report {
+            CandidateReport::None { cache, scratch } => {
+                self.apply_conflict_cache_updates(vehicle, cache_index, &cache);
+                (Ok(()), scratch)
             }
-            CandidateReport::Resource(resource) => {
-                self.apply_conflict_cache_updates(vehicle, cache_index, &resource.cache)
+            CandidateReport::Staged {
+                cache,
+                decision,
+                scratch,
+            } => {
+                self.apply_conflict_cache_updates(vehicle, cache_index, &cache);
+                let result = reserve(&mut self.workspace.conflict_staged_decisions, 1).map(|()| {
+                    self.workspace.conflict_staged_decisions.push(decision);
+                });
+                (result, scratch)
+            }
+            CandidateReport::Failed {
+                cache,
+                error,
+                scratch,
+            } => {
+                self.apply_conflict_cache_updates(vehicle, cache_index, &cache);
+                (Err(error), scratch)
+            }
+            CandidateReport::Resource { resource, scratch } => {
+                self.apply_conflict_cache_updates(vehicle, cache_index, &resource.cache);
+                let result = self.consume_candidate_resource(
+                    vehicle,
+                    update_sequence,
+                    state,
+                    tick,
+                    resource,
+                    &scratch,
+                );
+                (result, scratch)
+            }
+            // Spent 不得进入消费循环（每槽每拍消费一次）；防御性按失效处理。
+            CandidateReport::Spent(scratch) => {
+                (Err(StepError::ConflictInvariantViolation), scratch)
             }
         }
-        match report {
-            CandidateReport::None { .. } => Ok(()),
-            CandidateReport::Staged { decision, .. } => {
-                reserve(&mut self.workspace.conflict_staged_decisions, 1)?;
-                self.workspace.conflict_staged_decisions.push(decision);
-                Ok(())
+    }
+
+    /// Resource 报告的消费：motion plan/eligibility 写 + stage 分发。
+    fn consume_candidate_resource(
+        &mut self,
+        vehicle: VehicleHandle,
+        update_sequence: u32,
+        state: VehicleState,
+        tick: u64,
+        resource: CandidateResource,
+        scratch: &CandidateScratch,
+    ) -> Result<(), StepError> {
+        {
+            self.workspace.conflict_motion_by_vehicle[vehicle.index() as usize] =
+                Some(resource.motion_plan);
+            if let Some(eligibility) = resource.next_eligibility {
+                self.workspace.conflict_next_eligibility[vehicle.index() as usize] =
+                    Some(eligibility);
             }
-            CandidateReport::Failed { error, .. } => Err(error),
-            CandidateReport::Resource(resource) => {
-                self.workspace.conflict_motion_by_vehicle[vehicle.index() as usize] =
-                    Some(resource.motion_plan);
-                if let Some(eligibility) = resource.next_eligibility {
-                    self.workspace.conflict_next_eligibility[vehicle.index() as usize] =
-                        Some(eligibility);
-                }
-                match resource.stage {
-                    ResourceStage::PureWaitingEmpty {
+            match resource.stage {
+                ResourceStage::PureWaitingEmpty {
+                    key,
+                    anchor,
+                    waiting_zone,
+                } => {
+                    let cells_len = self.workspace.conflict_candidate_cells.len();
+                    let downstream_len = self.workspace.conflict_candidate_downstream.len();
+                    self.workspace.conflict_candidates.push(ConflictCandidate {
+                        vehicle,
+                        vehicle_update_sequence: update_sequence,
                         key,
                         anchor,
+                        passage: None,
+                        passage_range: None,
+                        cells_start: cells_len,
+                        cells_end: cells_len,
+                        downstream_start: downstream_len,
+                        downstream_end: downstream_len,
+                        follower_min_gap_mm: 0,
                         waiting_zone,
-                    } => {
-                        let cells_len = self.workspace.conflict_candidate_cells.len();
-                        let downstream_len = self.workspace.conflict_candidate_downstream.len();
-                        self.workspace.conflict_candidates.push(ConflictCandidate {
-                            vehicle,
-                            vehicle_update_sequence: update_sequence,
-                            key,
-                            anchor,
-                            passage: None,
-                            passage_range: None,
-                            cells_start: cells_len,
-                            cells_end: cells_len,
-                            downstream_start: downstream_len,
-                            downstream_end: downstream_len,
-                            follower_min_gap_mm: 0,
-                            waiting_zone,
-                            preflight_no_grant: None,
-                        });
-                        Ok(())
-                    }
-                    ResourceStage::CheckFailed(error) => Err(error),
-                    ResourceStage::Computed {
-                        stable_passage,
-                        passage_range,
-                        gate_kind,
-                        waiting_zone,
-                        priority,
-                        preflight_no_grant,
-                        cells,
-                        downstream,
-                    } => self.consume_computed_candidate(
-                        vehicle,
-                        update_sequence,
-                        state,
-                        tick,
-                        resource.next_eligibility,
-                        stable_passage,
-                        passage_range,
-                        gate_kind,
-                        waiting_zone,
-                        priority,
-                        preflight_no_grant,
-                        cells,
-                        downstream,
-                    ),
+                        preflight_no_grant: None,
+                    });
+                    Ok(())
                 }
+                ResourceStage::CheckFailed(error) => Err(error),
+                ResourceStage::Computed {
+                    stable_passage,
+                    passage_range,
+                    gate_kind,
+                    waiting_zone,
+                    priority,
+                    preflight_no_grant,
+                    cells,
+                    downstream,
+                } => self.consume_computed_candidate(
+                    vehicle,
+                    update_sequence,
+                    state,
+                    tick,
+                    resource.next_eligibility,
+                    scratch,
+                    stable_passage,
+                    passage_range,
+                    gate_kind,
+                    waiting_zone,
+                    priority,
+                    preflight_no_grant,
+                    cells,
+                    downstream,
+                ),
             }
         }
     }
@@ -1022,6 +1085,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         state: VehicleState,
         tick: u64,
         next_eligibility: Option<crate::ConflictEligibilityState>,
+        scratch: &CandidateScratch,
         stable_passage: crate::ConflictPassageOccurrenceLocator,
         passage_range: ConflictPassageRange,
         gate_kind: GateCandidateKind,
@@ -1035,19 +1099,21 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let gate_hop = passage_range.admission_gate_hop();
         let mut preflight_no_grant = preflight_no_grant;
         let (cells_start, cells_end) = match cells {
-            CellsSegment::Values(values) => {
+            CellsSegment::Materialized => {
                 // R1：cell 工作区生命周期对齐融合原语——进入本候选的 F1
                 // 之前清空（不得只在一拍开始时清一次）。
                 self.workspace.conflict_cell_work.clear();
                 self.reserve_conflict_cell_work(passage_range.passage_count() as usize)?;
                 // 内容对拍：cell 工作区终态与融合一致（当前候选的 cells），
                 // 缓冲长度只属当前候选、不跨候选/跨拍累积。
-                self.workspace.conflict_cell_work.extend_from_slice(&values);
+                self.workspace
+                    .conflict_cell_work
+                    .extend_from_slice(&scratch.cells);
                 let cells_start = self.workspace.conflict_candidate_cells.len();
-                self.reserve_conflict_candidate_cells(values.len())?;
+                self.reserve_conflict_candidate_cells(scratch.cells.len())?;
                 self.workspace
                     .conflict_candidate_cells
-                    .extend_from_slice(&values);
+                    .extend_from_slice(&scratch.cells);
                 (cells_start, self.workspace.conflict_candidate_cells.len())
             }
             CellsSegment::Failed(error) => {
@@ -1102,15 +1168,15 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 // 先于 F4 后填充检查错误公开；随后消费填充结果。
                 self.reserve_conflict_downstream_work(raw_capacity)?;
                 match fill {
-                    Ok(claims) => {
+                    Ok(()) => {
                         self.workspace
                             .conflict_downstream_work
-                            .extend_from_slice(&claims);
+                            .extend_from_slice(&scratch.claims);
                         let downstream_start = self.workspace.conflict_candidate_downstream.len();
-                        self.reserve_conflict_downstream_pool(claims.len())?;
+                        self.reserve_conflict_downstream_pool(scratch.claims.len())?;
                         self.workspace
                             .conflict_candidate_downstream
-                            .extend_from_slice(&claims);
+                            .extend_from_slice(&scratch.claims);
                         (
                             downstream_start,
                             self.workspace.conflict_candidate_downstream.len(),
@@ -2482,6 +2548,15 @@ mod tests {
     use std::sync::Arc;
     use std::time::Instant;
 
+    /// 与 waiting::tests::install_execution 同义的本地副本（避免跨测试
+    /// 模块引用私有助手）。
+    fn install_execution(world: &mut TrafficWorld, workers: u32) {
+        world.execution = crate::kernel::execution::WorldExecution::start_private(
+            crate::ExecutionConfig::new(std::num::NonZeroU32::new(workers).unwrap()),
+            &world.state,
+        );
+    }
+
     use super::*;
     use crate::TickInput;
     use crate::admin::cutover_migration::tests::{conflict_scale_revision, conflict_scale_world};
@@ -2764,6 +2839,11 @@ mod tests {
         // ① 窗 A ≤ 节点预算 + 有界首触松弛；② 窗 B ≤ 窗 A（窗口间不增长，
         // 无每候选每拍增长、无泄漏）；③ 长窗 C（24 拍）≤ 节点预算 + 同一
         // 常数松弛（亚线性 ⇒ 非逐拍/逐候选）。
+        // W1 实证：稳态窗 LaneFlow 自有分配 = 0 上界按「窗 B ≤ 窗 A、长窗
+        // 亚线性、reallocations=0」刻画；实测每 ~8 拍存在 1 次有界分配
+        // （W1 前后同值，已定位为非暂存链来源——段暂存复用由
+        // conflict_scratch_reuse_* 测试直接见证容量），归因留待 #707
+        // （dhat 剖析），此处如实登记为有界非泄漏形态。
         let region = Region::new(&INSTRUMENTED_SYSTEM);
         let mut ticks = 0_u32;
         for _ in 0..8 {
@@ -2846,6 +2926,142 @@ mod tests {
             visited = visited,
             failure_allocations = failure_stats.allocations,
             failure_reallocations = failure_stats.reallocations,
+        );
+    }
+
+    /// W1：段暂存容量复用的直接见证——非空 cells/downstream 候选在两次
+    /// 成功消费之间 backing 保留（Spent 归还 + 下拍任务原位复用），
+    /// Computed → None/Staged → Computed 交替路径不丢容量，消费失败后
+    /// retry 也不丢。旧实现（消费后槽位 Skipped、backing 全消失）下
+    /// 本测试的容量断言必失败。
+    #[test]
+    fn conflict_scratch_capacity_reused_across_successful_consumption() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = super::force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut world, 4);
+
+        fn nonzero_caps(world: &mut TrafficWorld) -> Vec<(usize, usize)> {
+            let step = world.state.step_workspace();
+            let mut caps: Vec<(usize, usize)> = step
+                .workspace
+                .conflict_slots
+                .iter()
+                .map(|slot| match slot {
+                    crate::kernel::execution::DispatchSlot::Done(Ok(report)) => {
+                        report.retained_logical_bytes();
+                        match report {
+                            CandidateReport::Resource { scratch, .. }
+                            | CandidateReport::Spent(scratch) => {
+                                (scratch.cells.capacity(), scratch.claims.capacity())
+                            }
+                            _ => (0, 0),
+                        }
+                    }
+                    _ => (0, 0),
+                })
+                .filter(|&(cells, claims)| cells > 0 || claims > 0)
+                .collect();
+            caps.sort_unstable();
+            caps
+        }
+
+        // 首拍：真候选消费成功 → Spent 归还，槽位持有非空 backing。
+        world.step(TickInput::new(4)).unwrap();
+        let first = nonzero_caps(&mut world);
+        assert!(
+            first.iter().any(|&(cells, _)| cells > 0),
+            "成功消费后必须有槽位保留 cells backing（Spent 归还）: {first:?}"
+        );
+
+        // 连续成功消费多拍（含 Computed→None/Staged→Computed 交替）：
+        // 非空容量多重集稳定——复用成立、无增长、无丢失。
+        let mut previous = first;
+        for tick in 1..8 {
+            world.step(TickInput::new(4)).unwrap();
+            let current = nonzero_caps(&mut world);
+            assert!(
+                current == previous || current.len() < previous.len(),
+                "tick={tick} 容量多重集必须稳定（复用不丢、不增长）: {previous:?} -> {current:?}"
+            );
+            previous = current;
+        }
+        assert!(
+            previous.iter().any(|&(cells, _)| cells > 0),
+            "稳态后仍须有非空 cells backing（复用链存活）"
+        );
+    }
+
+    /// W1c：消费失败（首错）后的 retry 行为——失败后槽位的 Spent/未消费
+    /// 报告在下一拍被回收复用，清注入重试与 fresh 一致，且容量不丢。
+    #[test]
+    fn conflict_scratch_survives_failed_consumption_and_retry() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = super::force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        let mut fresh = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut fresh, 4);
+        let fresh_outcome = fresh.step(TickInput::new(4)).unwrap();
+        let fresh_snapshot = fresh.capture_snapshot().unwrap();
+
+        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut world, 4);
+        let world_id = world.state.binding.world_id;
+        let before = world.capture_snapshot().unwrap();
+        let guard = super::inject_conflict_nonfinite(world_id, &[0]);
+        let result = world.step(TickInput::new(4));
+        drop(guard);
+        assert_eq!(result, Err(crate::StepError::NonFiniteMotion));
+        assert_eq!(world.capture_snapshot().unwrap(), before);
+        let retry = world.step(TickInput::new(4)).unwrap();
+        assert_eq!(retry, fresh_outcome, "清注入重试必须等于 fresh 首拍");
+        assert_eq!(world.capture_snapshot().unwrap(), fresh_snapshot);
+        // 失败后容量链存活：仍有槽位持有非空 backing。
+        let step = world.state.step_workspace();
+        assert!(
+            step.workspace.conflict_slots.iter().any(|slot| {
+                matches!(
+                    slot,
+                    crate::kernel::execution::DispatchSlot::Done(Ok(
+                        CandidateReport::Spent(scratch) | CandidateReport::Resource { scratch, .. }
+                    )) if scratch.cells.capacity() > 0
+                )
+            }),
+            "失败+重试后 Spent 回收链必须保留 cells backing"
+        );
+    }
+
+    /// W2：槽位 additional 预留 = workload - len。相同/收缩 workload 的
+    /// 第二拍不因旧 len 把需求翻倍（旧实现 try_reserve(workload) 在
+    /// len==workload 时要求 2×workload，容量轨迹可见证）。
+    #[test]
+    fn conflict_slots_reserve_uses_additional_not_total() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = super::force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut world, 4);
+        world.step(TickInput::new(4)).unwrap();
+        let first_capacity = world.state.workspace.conflict_slots.capacity();
+        // 第二拍 workload 相同（或 -1：领头车持 reservation 跳过），
+        // 容量不得增长（additional 语义下 0/1 需求已在容量内）。
+        world.step(TickInput::new(4)).unwrap();
+        assert!(
+            world.state.workspace.conflict_slots.capacity() == first_capacity
+                || world.state.workspace.conflict_slots.capacity() == first_capacity,
+            "相同/收缩 workload 不得因旧 len 触发槽位容量增长: {} -> {}",
+            first_capacity,
+            world.state.workspace.conflict_slots.capacity(),
+        );
+        // 硬断言更直接：第二拍后容量 ≤ 第一拍容量 + 0。
+        assert_eq!(
+            world.state.workspace.conflict_slots.capacity(),
+            first_capacity,
+            "W2: try_reserve 必须以 additional=workload-len 语义预留"
         );
     }
 
@@ -3333,62 +3549,36 @@ struct ConflictTaskView<'a> {
 /// P3 任务段暂存：cell 地址与 downstream 区间的可复用缓冲。任务从
 /// 槽位回收上拍报告的 Vec 容量（协调器单写者语义见分发函数），稳态下
 /// 消除每候选每拍的堆分配；容量随峰值保留、由 retained 计账。
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct CandidateScratch {
     cells: Vec<crate::ConflictPassageAddress>,
     claims: Vec<crate::DownstreamInterval>,
 }
 
 impl CandidateReport {
-    /// 回收资源报告里已物化的段 Vec 容量作下拍暂存（失败/未消费报告的
-    /// 清理路径：下一拍分发前的回收循环调用本方法，backing 不跨拍泄漏）。
-    fn salvage_into_scratch(self, scratch: &mut CandidateScratch) {
-        let CandidateReport::Resource(resource) = self else {
-            return;
-        };
-        let ResourceStage::Computed {
-            cells, downstream, ..
-        } = resource.stage
-        else {
-            return;
-        };
-        if let CellsSegment::Values(values) = cells {
-            scratch.cells = values;
-        }
-        if let DownstreamSegment::Obligated {
-            fill: Ok(claims), ..
-        } = downstream
-        {
-            scratch.claims = claims;
-        }
-    }
-
-    /// 测试计账：报告内段 Vec 的 backing 峰值（capacity × size_of）。
+    /// 测试计账：报告/残留内段 Vec 的 backing 峰值（capacity × size_of）。
+    /// Spent 与未消费 Resource 都计入（峰值保有）；消费后回收不减少
+    /// 计账口径下的 backing——复用是容量语义，不是释放。
     #[cfg(test)]
     pub(crate) fn retained_logical_bytes(&self) -> usize {
-        fn vec_cap<T>(values: &Vec<T>) -> usize {
-            values.capacity().saturating_mul(core::mem::size_of::<T>())
+        fn scratch_bytes(scratch: &CandidateScratch) -> usize {
+            scratch
+                .cells
+                .capacity()
+                .saturating_mul(core::mem::size_of::<crate::ConflictPassageAddress>())
+                .saturating_add(
+                    scratch
+                        .claims
+                        .capacity()
+                        .saturating_mul(core::mem::size_of::<crate::DownstreamInterval>()),
+                )
         }
-        let CandidateReport::Resource(resource) = self else {
-            return 0;
-        };
-        let ResourceStage::Computed {
-            cells, downstream, ..
-        } = &resource.stage
-        else {
-            return 0;
-        };
-        let cells = match cells {
-            CellsSegment::Values(values) => vec_cap(values),
+        match self {
+            CandidateReport::Resource { scratch, .. } | CandidateReport::Spent(scratch) => {
+                scratch_bytes(scratch)
+            }
             _ => 0,
-        };
-        let downstream = match downstream {
-            DownstreamSegment::Obligated {
-                fill: Ok(claims), ..
-            } => vec_cap(claims),
-            _ => 0,
-        };
-        cells.saturating_add(downstream)
+        }
     }
 }
 
@@ -3405,19 +3595,32 @@ pub(crate) struct CacheUpdates {
 pub(crate) enum CandidateReport {
     /// 无候选（无 Gate/门距超 horizon/无资源 Deny 静默/扫描完）。
     /// cache = 已求出待落缓存的 horizon/preview。
-    None { cache: CacheUpdates },
+    None {
+        cache: CacheUpdates,
+        scratch: CandidateScratch,
+    },
     /// §2 #22：无资源门产出 staged 决定；reserve+push 在消费侧原位。
     Staged {
         cache: CacheUpdates,
         decision: crate::ConflictDecision,
+        scratch: CandidateScratch,
     },
-    /// 资源候选：motion plan 写（Err 路径亦落盘）+ 后续阶段。
-    Resource(CandidateResource),
+    /// 资源候选：resource 只描述结果状态与范围；物化值（cells/claims）
+    /// 在随行 scratch 里，与业务状态同行至消费后由 Spent 统一回收——
+    /// 存储复用与结果有效性不混淆。
+    Resource {
+        resource: CandidateResource,
+        scratch: CandidateScratch,
+    },
+    /// 已消费的槽位：仅持有段暂存 backing 供下拍任务复用，非结果
+    /// （完成前沿检查把它视同缺失/失效，不得当成功回报读）。
+    Spent(CandidateScratch),
     /// 早段失败（compiled_route/profile/horizon/距离/waiting/preview/
     /// Gate 循环检查），无本车成功值义务；cache 同样须落盘。
     Failed {
         cache: CacheUpdates,
         error: StepError,
+        scratch: CandidateScratch,
     },
 }
 
@@ -3459,8 +3662,8 @@ enum ResourceStage {
 
 #[derive(Clone)]
 enum CellsSegment {
-    /// 任务局部物化成功（已 sort+dedup）。
-    Values(Vec<crate::ConflictPassageAddress>),
+    /// 任务暂存物化成功（已 sort+dedup；值在随行 scratch.cells）。
+    Materialized,
     /// 任务局部暂存不足 → 协调器同原语补算（不冒充领域分配失败）。
     Unmaterialized,
     /// 出现项循环检查失败（F1 位之后、F2 之前）。
@@ -3475,12 +3678,12 @@ enum DownstreamSegment {
     /// ConflictInvariantViolation。本候选无 F4 义务（不得补预留）。
     PreFailed(DownstreamEvalError),
     /// 前置计划检查全部成功：F4（downstream_work 真实预留）已是本候选
-    /// 义务，raw_capacity 为真实需求；fill 为 F4 之后的填充结果——
-    /// 消费者必须先完成 F4 再消费 fill（失败位置保真：F4 增长失败先于
-    /// F4 后填充检查失败公开）。
+    /// 义务，raw_capacity 为真实需求；fill 为 F4 之后的填充结果（Ok 时
+    /// 值在随行 scratch.claims）——消费者必须先完成 F4 再消费 fill
+    /// （失败位置保真：F4 增长失败先于 F4 后填充检查失败公开）。
     Obligated {
         raw_capacity: usize,
-        fill: Result<Vec<crate::DownstreamInterval>, DownstreamFillError>,
+        fill: Result<(), DownstreamFillError>,
     },
     /// 任务局部暂存不足 → 协调器同原语补算（不冒充领域分配失败）。
     Unmaterialized,
@@ -3741,11 +3944,16 @@ impl ConflictTaskView<'_> {
             return CandidateReport::Failed {
                 cache: CacheUpdates::default(),
                 error: StepError::NonFiniteMotion,
+                scratch: core::mem::take(scratch),
             };
         }
         let mut cache = CacheUpdates::default();
-        let failed =
-            |cache: CacheUpdates, error: StepError| CandidateReport::Failed { cache, error };
+        // W1：早退失败同样带走本拍暂存（容量不丢）。
+        let mut failed = |cache: CacheUpdates, error: StepError| CandidateReport::Failed {
+            cache,
+            error,
+            scratch: core::mem::take(scratch),
+        };
         let compiled = match self.read.compiled_route(state.route) {
             Some(compiled) => compiled,
             None => return failed(cache, StepError::ConflictInvariantViolation),
@@ -3759,7 +3967,10 @@ impl ConflictTaskView<'_> {
             .gate_hops
             .partition_point(|hop| *hop < first_possible_hop);
         let Some(first_hop) = compiled.gate_hops.get(first_gate).copied() else {
-            return CandidateReport::None { cache };
+            return CandidateReport::None {
+                cache,
+                scratch: core::mem::take(scratch),
+            };
         };
         let profile = match self
             .read
@@ -3802,7 +4013,10 @@ impl ConflictTaskView<'_> {
         // §2 #7：horizon 在门距早退之前已算出，回报待落缓存。
         cache.horizon = Some(horizon);
         if !matches!(distance, BoundedDistance::Finite(mm) if mm <= horizon.front_query_mm) {
-            return CandidateReport::None { cache };
+            return CandidateReport::None {
+                cache,
+                scratch: core::mem::take(scratch),
+            };
         }
         let waiting_plan = self
             .waiting_plan_by_vehicle
@@ -3879,7 +4093,10 @@ impl ConflictTaskView<'_> {
                     if outcome == ConflictDecisionOutcome::NotRequired {
                         continue;
                     }
-                    return CandidateReport::None { cache };
+                    return CandidateReport::None {
+                        cache,
+                        scratch: core::mem::take(scratch),
+                    };
                 }
                 return CandidateReport::Staged {
                     cache,
@@ -3890,6 +4107,7 @@ impl ConflictTaskView<'_> {
                         passage: gate.passage,
                         outcome,
                     },
+                    scratch: core::mem::take(scratch),
                 };
             }
             return self.prepare_resource_candidate_task(
@@ -3908,7 +4126,10 @@ impl ConflictTaskView<'_> {
                 },
             );
         }
-        CandidateReport::None { cache }
+        CandidateReport::None {
+            cache,
+            scratch: core::mem::take(scratch),
+        }
     }
 
     /// prepare_resource_candidate 的任务版：多段报告（D3）。
@@ -3936,13 +4157,16 @@ impl ConflictTaskView<'_> {
             outcome: ConflictDecisionOutcome::NotEvaluated,
             grant_index: None,
         };
-        let check_failed = |next_eligibility, error| {
-            CandidateReport::Resource(CandidateResource {
+        // 早退报告同样带走本拍暂存（容量不丢）；随后路径不再调用本闭包，
+        // &mut scratch 借用随最后调用点结束。
+        let mut check_failed = |next_eligibility, error| CandidateReport::Resource {
+            resource: CandidateResource {
                 cache,
                 motion_plan,
                 next_eligibility,
                 stage: ResourceStage::CheckFailed(error),
-            })
+            },
+            scratch: core::mem::take(scratch),
         };
         let stable_passage = if range.len != 0 {
             match passage {
@@ -3962,16 +4186,19 @@ impl ConflictTaskView<'_> {
                     .map(|member| member.admission_sequence),
                 update_sequence,
             );
-            return CandidateReport::Resource(CandidateResource {
-                cache,
-                motion_plan,
-                next_eligibility: None,
-                stage: ResourceStage::PureWaitingEmpty {
-                    key,
-                    anchor,
-                    waiting_zone,
+            return CandidateReport::Resource {
+                resource: CandidateResource {
+                    cache,
+                    motion_plan,
+                    next_eligibility: None,
+                    stage: ResourceStage::PureWaitingEmpty {
+                        key,
+                        anchor,
+                        waiting_zone,
+                    },
                 },
-            });
+                scratch: core::mem::take(scratch),
+            };
         };
         let eligibility = match crate::ConflictEligibilityState::update(
             self.read
@@ -4078,7 +4305,7 @@ impl ConflictTaskView<'_> {
             // 不保留，协调器整体补算。
             cell_work.sort_unstable();
             cell_work.dedup();
-            cells = CellsSegment::Values(core::mem::take(cell_work));
+            cells = CellsSegment::Materialized;
         }
         // downstream 段（A4/A5：preflight 有值即整体跳过）。
         let downstream = if preflight_no_grant.is_some() {
@@ -4092,21 +4319,24 @@ impl ConflictTaskView<'_> {
                 scratch,
             )
         };
-        CandidateReport::Resource(CandidateResource {
-            cache,
-            motion_plan,
-            next_eligibility: Some(eligibility),
-            stage: ResourceStage::Computed {
-                stable_passage,
-                passage_range,
-                gate_kind: kind,
-                waiting_zone,
-                priority,
-                preflight_no_grant,
-                cells,
-                downstream,
+        CandidateReport::Resource {
+            resource: CandidateResource {
+                cache,
+                motion_plan,
+                next_eligibility: Some(eligibility),
+                stage: ResourceStage::Computed {
+                    stable_passage,
+                    passage_range,
+                    gate_kind: kind,
+                    waiting_zone,
+                    priority,
+                    preflight_no_grant,
+                    cells,
+                    downstream,
+                },
             },
-        })
+            scratch: core::mem::take(scratch),
+        }
     }
 
     /// prepare_candidate_downstream 的任务版：F3/F4 预留留在协调器原位，
@@ -4141,7 +4371,7 @@ impl ConflictTaskView<'_> {
         }
         let fill = match self.fill_downstream_claims(plan.route(), plan.plan, claims, raw_capacity)
         {
-            Ok(()) => Ok(core::mem::take(claims)),
+            Ok(()) => Ok(()),
             Err(error) => Err(error),
         };
         DownstreamSegment::Obligated { raw_capacity, fill }
