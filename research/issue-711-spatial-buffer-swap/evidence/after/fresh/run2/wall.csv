@@ -1,0 +1,8 @@
+case,records,sample,iterations,ns,allocations,reallocations,allocated_bytes,reallocated_bytes
+fresh_output,10000,0,32,38172700,0,0,0,0
+fresh_output,10000,1,32,38094600,0,0,0,0
+fresh_output,10000,2,32,37866200,0,0,0,0
+fresh_output,10000,3,32,38618100,0,0,0,0
+fresh_output,10000,4,32,38763200,0,0,0,0
+fresh_output,10000,5,32,70978600,0,0,0,0
+fresh_output,10000,6,32,40072200,0,0,0,0
