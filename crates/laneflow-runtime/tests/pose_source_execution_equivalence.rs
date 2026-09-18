@@ -15,11 +15,9 @@ use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     CommittedNetworkSource, PoseSource, PublishedLfcaReference, ReserveParkingTarget,
     RouteRegisterInput, StepError, TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig,
-    WorldPolicySelection, deterministic_state_digest,
+    deterministic_state_digest,
 };
-use laneflow_static_contract::{
-    EntityKind, LaneEdgeOrdinal, ParkingSpaceOrdinal, Sha256Digest, VehicleProfileOrdinal,
-};
+use laneflow_static_contract::{LaneEdgeOrdinal, ParkingSpaceOrdinal, VehicleProfileOrdinal};
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
     build_shared_network_revision,
@@ -240,5 +238,4 @@ fn parking_lifecycle_source_transitions_are_explicit_and_worker_stable() {
     for trace in &traces[1..] {
         assert_eq!(trace, &traces[0]);
     }
-    let _ = EntityKind::LaneEdge;
 }
