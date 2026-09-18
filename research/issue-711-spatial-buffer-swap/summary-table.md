@@ -19,14 +19,17 @@
 | retained_build | 10000  | µs/调用     |    1208.5 |  1198.733 |  -0.808% |
 | retained_build | 100000 | µs/调用     | 12441.267 | 12148.133 |  -2.356% |
 
-## 测量环境（由各 run 的 environment.json 汇总）
+## 测量环境（由各 run 的 environment.json 汇总；同阶段各轮与 A/B 的一致性由校验层强制）
 
 | 项                                       | 值                                                                       |
 | ---------------------------------------- | ------------------------------------------------------------------------ |
-| CPU                                      | AMD Ryzen 9 9955HX 16-Core Processor                                     |
+| CPU                                      | AMD Ryzen 9 9955HX 16-Core Processor           （32 logical processors） |
 | OS                                       | Microsoft Windows NT 10.0.29661.0                                        |
-| 工具链（取证记录）                       | rustc 1.98.1 (48a229cea 2026-09-01)；cargo 1.98.1 (797e8a9bc 2026-08-05) |
-| 电源方案                                 | powercfg 取证失败未记录（见各 environment.json）                         |
+| 工具链（取证记录，完整 -Vv 逐字比较）    | rustc 1.98.1 (48a229cea 2026-09-01)；cargo 1.98.1 (797e8a9bc 2026-08-05) |
+| 电源方案 before/full                     | 未记录（该阶段 powercfg 取证失败）                                       |
+| 电源方案 after/full                      | 未记录（该阶段 powercfg 取证失败）                                       |
+| 电源方案 before/fresh                    | 电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)              |
+| 电源方案 after/fresh                     | 电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)              |
 | before/full 生产基线                     | b99a282ee399e15687301265dd8b27e8f7457d27                                 |
 | after/full 生产基线                      | e6c524ce6db2fc345c123596ff7545be186188cc                                 |
 | before/fresh 生产基线                    | b99a282ee399e15687301265dd8b27e8f7457d27                                 |
