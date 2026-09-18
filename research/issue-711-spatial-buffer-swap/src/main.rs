@@ -275,7 +275,8 @@ fn run_cold(fixture: &Fixture, records: usize, samples: usize) {
     }
 }
 
-/// 规模增长：每样本从全新配对出发，连续完成 1k → 10k → 100k 三次完整调用。
+/// 规模增长：每样本从全新配对出发，一次计时区间内连续完成 1k → 10k → 100k
+/// 三次完整调用。汇总口径为“每增长序列”（3 次调用整段），不是单次调用成本。
 fn run_grow(fixture: &Fixture, samples: usize) {
     let small = lane_inputs(fixture, 1_000);
     let medium = lane_inputs(fixture, 10_000);
@@ -365,7 +366,10 @@ fn run_alternate(fixture: &Fixture, samples: usize, iterations: usize) {
 }
 
 /// 换入全新 output：Session 暖机后，每次调用使用全新 output。
-fn run_fresh_output(fixture: &Fixture, samples: usize) {
+///
+/// 指标口径是“全新 output 的创建—提取—释放”完整生命周期，三者都在计时区间内；
+/// 完整结果对拍只在暖机与每样本结束时于计时区间外执行，不混入热路径。
+fn run_fresh_output(fixture: &Fixture, samples: usize, iterations: usize) {
     let inputs = lane_inputs(fixture, 10_000);
     let mut session = bound_session(fixture);
     let mut oracle = CanonicalPoseBatch::new();
@@ -379,18 +383,23 @@ fn run_fresh_output(fixture: &Fixture, samples: usize) {
         session
             .extract_pose_batch(token(7), &inputs, &mut fresh)
             .expect("warm-up fresh call");
+        assert_eq!(fresh, oracle, "fresh output equals oracle");
     }
     for sample in 0..samples {
-        timed("fresh_output", 10_000, sample, ITERATIONS, || {
-            for _ in 0..ITERATIONS {
+        timed("fresh_output", 10_000, sample, iterations, || {
+            for _ in 0..iterations {
                 let mut fresh = CanonicalPoseBatch::new();
                 session
                     .extract_pose_batch(token(7), black_box(&inputs), black_box(&mut fresh))
                     .expect("fresh output call");
-                assert_eq!(fresh, oracle, "fresh output equals oracle");
                 black_box(&fresh);
             }
         });
+        let mut probe = CanonicalPoseBatch::new();
+        session
+            .extract_pose_batch(token(7), &inputs, &mut probe)
+            .expect("post-sample probe call");
+        assert_eq!(probe, oracle, "fresh output equals oracle");
     }
 }
 
@@ -512,23 +521,35 @@ fn run_retained_build(fixture: &Fixture, records: usize) {
 }
 
 fn main() {
-    let smoke = std::env::args().any(|arg| arg == "--smoke");
+    let args: Vec<_> = std::env::args().collect();
+    let smoke = args.iter().any(|arg| arg == "--smoke");
+    let only = args
+        .iter()
+        .position(|arg| arg == "--only")
+        .and_then(|index| args.get(index + 1))
+        .map(String::as_str);
     let (sizes, samples, iterations) = if smoke {
         (&[0_usize, 1, 1_000][..], 2, 2)
     } else {
         (SIZES, SAMPLES, ITERATIONS)
     };
     eprintln!(
-        "size_of CanonicalPoseRecord={} PoseInput={} allocation={}",
+        "size_of CanonicalPoseRecord={} PoseInput={} allocation={} case_filter={}",
         size_of::<laneflow_spatial::CanonicalPoseRecord>(),
         size_of::<PoseInput>(),
-        cfg!(feature = "allocation")
+        cfg!(feature = "allocation"),
+        only.unwrap_or("all")
     );
     println!(
         "case,records,sample,iterations,ns,allocations,reallocations,allocated_bytes,reallocated_bytes"
     );
 
     let fixture = fixture();
+    if let Some(filter) = only {
+        assert_eq!(filter, "fresh_output", "supported case filter");
+        run_fresh_output(&fixture, samples, iterations);
+        return;
+    }
     for records in sizes {
         run_steady(&fixture, *records, samples, iterations);
     }
@@ -542,7 +563,7 @@ fn main() {
     run_grow(&fixture, samples);
     run_shrink(&fixture, samples, iterations);
     run_alternate(&fixture, samples, iterations);
-    run_fresh_output(&fixture, samples);
+    run_fresh_output(&fixture, samples, iterations);
     run_fail_last(&fixture, 10_000, samples, iterations);
     run_fail_last(&fixture, 100_000, samples, iterations);
     run_retry(&fixture, 10_000, samples, iterations);
