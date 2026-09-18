@@ -1,0 +1,2 @@
+size_of CanonicalPoseRecord=40 PoseInput=16 allocation=true case_filter=fresh_output
+oracle fresh_output 10000 e75b919668b6c3b72a3309004435952903b1d379eb40a4c2957526acbd3e4c5c

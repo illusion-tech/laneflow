@@ -1,0 +1,32 @@
+{
+  "baseline": "3e8c4c038fe845b0f18a470b2230eb183510691d",
+  "baselineTree": "4c4930eeec20d6220e564d5750e09f596e06ec8b",
+  "allowUntracked": "research/issue-711-spatial-buffer-swap/evidence",
+  "caseFilter": "fresh_output",
+  "worktreeStable": true,
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\nLLVM version: 22.1.8",
+  "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+  "os": "Microsoft Windows NT 10.0.29661.0",
+  "cpu": "AMD Ryzen 9 9955HX 16-Core Processor           ",
+  "logicalProcessors": 32,
+  "powerScheme": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+  "time": "2026-09-18T08:16:51.4179088Z",
+  "binaries": [
+    {
+      "Path": "E:\\projects\\worktrees\\711\\laneflow\\research\\issue-711-spatial-buffer-swap\\evidence\\after\\fresh\\run1\\wall.exe",
+      "Hash": "67908A41F2BDC13B49B781B1E8DF808F22B80CBD70695AD3E57E52C875CE23D7"
+    },
+    {
+      "Path": "E:\\projects\\worktrees\\711\\laneflow\\research\\issue-711-spatial-buffer-swap\\evidence\\after\\fresh\\run1\\allocation.exe",
+      "Hash": "1498244295DCC649E93E2F95FAD55571F8B7512CDEA111A1599851D5E3607D61"
+    }
+  ],
+  "sources": [
+    {
+      "Path": "E:\\projects\\worktrees\\711\\laneflow\\research\\issue-711-spatial-buffer-swap\\src\\main.rs",
+      "Hash": "ACBABC8E5EFC40D4406BAF2A05D3BDF528A7C1D5CE805D4D2680470FBEAE923E"
+    }
+  ],
+  "lockfile": "7D67136E23D4FC6D48B5B2216B93D311AA1BC7F46305E9223BE1B39A25B740D5",
+  "manifest": "2BCB8D0FC51DA4472496B8F25E0484875AA8AC6B6EDB098E76C2E6E39F165045"
+}
