@@ -7131,12 +7131,15 @@ pub(crate) mod tests {
     fn conflict_workspace_record(world: &mut TrafficWorld) -> String {
         let step = world.state.step_workspace();
         format!(
-            "{:?}|{:?}|{:?}|{:?}|{:?}",
+            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
             step.workspace.conflict_candidates,
             step.workspace.conflict_candidate_cells,
             step.workspace.conflict_candidate_downstream,
             step.workspace.conflict_next_eligibility,
             step.workspace.conflict_motion_by_vehicle,
+            // R1：两个工作缓冲的长度纳入对拍（只属当前候选、不累积）。
+            step.workspace.conflict_cell_work.len(),
+            step.workspace.conflict_downstream_work.len(),
         )
     }
 
@@ -7737,6 +7740,192 @@ pub(crate) mod tests {
         for _ in 0..3 {
             step_pair(&mut reference, &mut parallel);
         }
+    }
+
+    /// R1：消费侧工作缓冲不跨候选/跨拍累积——预热后容量有界不随拍数
+    /// 增长（旧实现 reserve 把已有 len 计入需求 → 每拍额外增长）。
+    #[test]
+    fn conflict_scratch_buffers_do_not_accumulate_across_ticks() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut world, 4);
+        let mut capacities = Vec::new();
+        for _ in 0..6 {
+            world.step(TickInput::new(4)).unwrap();
+            let step = world.state.step_workspace();
+            capacities.push((
+                step.workspace.conflict_cell_work.capacity(),
+                step.workspace.conflict_downstream_work.capacity(),
+                step.workspace.conflict_cell_work.len(),
+                step.workspace.conflict_downstream_work.len(),
+            ));
+        }
+        assert!(
+            capacities[2..].iter().all(|&entry| entry == capacities[2]),
+            "预热后工作缓冲容量必须稳定（不随拍数增长）: {capacities:?}"
+        );
+        assert!(
+            capacities.iter().all(|&(_, _, cells, downstream)| {
+                // 每拍至多一个候选：cell 工作区长度上界为 passage 数（本夹具 1），
+                // downstream 工作区长度上界为 claims 数（小常数）——绝不累积。
+                cells <= 4 && downstream <= 8
+            }),
+            "工作缓冲长度只属当前候选: {capacities:?}"
+        );
+    }
+
+    /// R2+R4：F4 预留注入仅在真实必要增长时触发，且融合与分发两条路径
+    /// 在同一逻辑检查点对拍——冷态（需增长）+ 武装 →
+    /// ConflictScratchAllocFailed；热态（余量足够）+ 已武装 → 不得制造
+    /// 错误；清注入同 tick 重试 == fresh。
+    #[test]
+    fn f4_reserve_injection_gated_by_real_growth_on_both_paths() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        for workers in [1_u32, 4] {
+            let mut fresh = conflict_scale_world(Arc::clone(&revision), 16);
+            install_execution(&mut fresh, workers);
+            let fresh_outcome = fresh.step(TickInput::new(4)).unwrap();
+            let fresh_snapshot = fresh.capture_snapshot().unwrap();
+
+            // 冷态 + 武装：F4 真实增长失败（F4 义务先于 F4 后检查公开）。
+            let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+            install_execution(&mut world, workers);
+            let before = world.capture_snapshot().unwrap();
+            let guard = fail_conflict_downstream_work_reserve();
+            let result = world.step(TickInput::new(4));
+            drop(guard);
+            assert_eq!(
+                result,
+                Err(crate::StepError::ConflictScratchAllocFailed),
+                "workers={workers} 冷态 F4 需真实增长，武装注入必须先于 F4 后检查"
+            );
+            assert_eq!(world.capture_snapshot().unwrap(), before);
+            let retry = world.step(TickInput::new(4)).unwrap();
+            assert_eq!(retry, fresh_outcome, "workers={workers} 重试必须等于 fresh");
+            assert_eq!(world.capture_snapshot().unwrap(), fresh_snapshot);
+
+            // 热态 + 已武装：余量足够不得伪造预留失败。
+            let guard = fail_conflict_downstream_work_reserve();
+            let outcome = world.step(TickInput::new(4)).unwrap();
+            drop(guard);
+            let _ = outcome;
+            let probe = crate::kernel::conflict_tick::last_conflict_reserve_probe()
+                .expect("热态步必须到达 F 位检查点");
+            assert!(!probe.injected, "余量足够时注入不得触发: {probe:?}");
+        }
+    }
+
+    /// R4：预留探针记录逻辑检查点的可达性、真实需求与余量——普通拍
+    /// 全点位按 F1→F2→F4→F3b 顺序到达且 injected=false；武装 F1 的冷态
+    /// 拍失败后探针停在 CellWork（F2 不可达）。
+    #[test]
+    fn reserve_probe_records_site_reachability_and_growth() {
+        use crate::kernel::conflict_tick::{
+            ConflictReserveSite, fail_conflict_cell_work_reserve, last_conflict_reserve_probe,
+        };
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+
+        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut world, 4);
+        world.step(TickInput::new(4)).unwrap();
+        let probe = last_conflict_reserve_probe().expect("F 位探针");
+        assert_eq!(probe.site, ConflictReserveSite::DownstreamPool);
+        assert!(!probe.injected, "普通拍不得触发注入: {probe:?}");
+        assert!(
+            probe.required <= probe.capacity.saturating_sub(probe.len)
+                || probe.capacity >= probe.len,
+            "探针须记录真实需求与余量: {probe:?}"
+        );
+
+        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut world, 4);
+        let guard = fail_conflict_cell_work_reserve();
+        let result = world.step(TickInput::new(4));
+        drop(guard);
+        assert_eq!(result, Err(crate::StepError::ConflictScratchAllocFailed));
+        let probe = last_conflict_reserve_probe().expect("F 位探针");
+        assert_eq!(
+            probe.site,
+            ConflictReserveSite::CellWork,
+            "F1 失败后 F2 不可达"
+        );
+        assert!(probe.injected, "冷态 F1 真实增长 + 武装必须触发: {probe:?}");
+    }
+
+    /// R4（P5）：到达预留注入仅真实必要增长时触发——到达拍（观察 Vec 空、
+    /// 首次增长）+ 武装 → 先公开 ParkingObservationAllocFailed，清注入重试
+    /// 与 fresh 一致；其后的无到达拍 + 已武装 → 余量足够/未达检查点，不得
+    /// 制造错误。（夹具入口前空间只容一车排队，同拍多到达用每拍观察 Vec
+    /// 重新开始的连续到达拍覆盖。）
+    #[test]
+    fn parking_arrival_injection_requires_growth_per_step() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        use crate::kernel::tick::{fail_motion_arrival_reserve, motion_path_counts};
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_320;
+        let _force = force_motion_dispatch();
+        let counts_before = motion_path_counts();
+
+        let (mut fresh, route, space, entry_progress) = parking_route_world(4, WORLD_ID);
+        let reserve = crate::ReserveParkingTarget::ExplicitSpace {
+            space,
+            entry_route_occurrence: 0,
+        };
+        let a = fresh
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                entry_progress - 1,
+                10_000,
+            ))
+            .unwrap();
+        fresh.reserve_parking(a, reserve).unwrap();
+        let fresh_outcome = fresh.step(TickInput::new(100)).unwrap();
+        assert_eq!(fresh_outcome.parking_arrivals().len(), 1, "到达拍兑现");
+        let fresh_snapshot = fresh.capture_snapshot().unwrap();
+
+        let (mut world, route, space, entry_progress) = parking_route_world(4, WORLD_ID);
+        let a = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                entry_progress - 1,
+                10_000,
+            ))
+            .unwrap();
+        world.reserve_parking(a, reserve).unwrap();
+        let guard = fail_motion_arrival_reserve();
+        let result = world.step(TickInput::new(100));
+        drop(guard);
+        assert_eq!(
+            result,
+            Err(crate::StepError::ParkingObservationAllocFailed),
+            "到达拍观察 Vec 首次增长 + 武装必须先公开到达预留失败"
+        );
+        let retry = world.step(TickInput::new(100)).unwrap();
+        assert_eq!(retry, fresh_outcome, "清注入重试必须等于 fresh 首拍");
+        assert_eq!(world.capture_snapshot().unwrap(), fresh_snapshot);
+        // 无到达拍 + 已武装：不得制造错误。
+        let guard = fail_motion_arrival_reserve();
+        world.step(TickInput::new(100)).unwrap();
+        world.step(TickInput::new(100)).unwrap();
+        drop(guard);
+        let counts = motion_path_counts();
+        assert!(
+            counts.dispatched - counts_before.dispatched >= 5,
+            "全程真实分发: {counts:?}"
+        );
     }
 
     /// E1 组合矩阵（审阅者 §8.3）：P2/P3/P5 七个分发/融合组合 + 全融合
