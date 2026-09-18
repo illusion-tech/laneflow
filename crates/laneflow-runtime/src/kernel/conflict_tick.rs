@@ -721,6 +721,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .saturating_mul(2)
             .clamp(1, workload);
         let chunk_size = workload.div_ceil(chunk_count).max(1);
+        // R5 表述注记：P3 任务以完整多段报告回报、永不早退，领域错误在
+        // 协调器规范消费按发现序首错——first_error 恒为 MAX，仅作为
+        // try_for_each_chunk 协议的占位形参；DispatchStats.extra_work 因此
+        // 恒为 0，不反映报告内错误后的多做工作，不得用于该口径的统计。
         let first_error = std::sync::atomic::AtomicUsize::new(usize::MAX);
         // 块级计数诊断按协调器开关分配/记录；任务内以捕获的布尔为准。
         #[cfg(test)]

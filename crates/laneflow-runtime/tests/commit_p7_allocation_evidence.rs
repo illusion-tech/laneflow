@@ -33,6 +33,10 @@ use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 #[global_allocator]
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
+/// 分配证据互斥：全局计数器跨测试共享，两测试从世界创建前持锁到结束
+/// （世界构建也分配，只锁测量窗不够）。
+static EVIDENCE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 const CORRIDOR: &[u8] = include_bytes!("../../../examples/data/v0.2-signalized-corridor.lfca");
 const CORRIDOR_CATALOG: &str =
     include_str!("../../../examples/data/v0.2-signalized-corridor.catalog.toml");
@@ -179,11 +183,14 @@ fn parking_world() -> TrafficWorld {
     world
 }
 
-/// P7 零分配（场景一）：普通运动无事件——零决策零事件批次，车辆推进
-/// 穿过路口（passage enter/leave、crossing/clear/release 转移段在提交
-/// 边界 staging）。预热后 24 拍测量窗内分配与再分配必须为零。
+/// P7 零分配（场景一）：普通运动无事件——断言 decision/event 批次均为
+/// 零（本场景车辆自由通过信号，不产生停止/准入决策与生命周期事件；
+/// 路口 passage 的 enter/leave、crossing/clear/release 转移段在提交边界
+/// staging 内执行，由整窗零分配间接见证，非资源发布的显式分支断言）。
+/// 预热后 24 拍测量窗内分配与再分配必须为零。
 #[test]
 fn p7_corridor_steady_steps_zero_alloc() {
+    let _evidence = EVIDENCE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut world = corridor_world();
     for _ in 0..8 {
         world.step(TickInput::new(16)).expect("warmup step");
@@ -240,6 +247,7 @@ fn p7_corridor_steady_steps_zero_alloc() {
 /// Active→Parked 转移拍与稳态拍必须零分配/零再分配。
 #[test]
 fn p7_parking_arrival_growth_is_in_p5_not_p7() {
+    let _evidence = EVIDENCE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut world = parking_world();
     // 冷态首拍（工作区预热）不计入测量。
     world.step(TickInput::new(100)).expect("cold step");
