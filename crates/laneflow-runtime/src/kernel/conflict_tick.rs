@@ -3348,26 +3348,29 @@ mod tests {
         eprintln!("p7-branch-evidence commit-window normal/armed/overflow all zero");
     }
 
-    /// W1-A：未消费后缀回收——预热后令较早槽位规范消费失败，较晚未消费
-    /// 报告（None/Staged/Failed，携带非空 scratch）在下一次尝试被
-    /// into_scratch 统一回收，容量保留（直接断言 backing capacity，
-    /// 不靠分配预算）。旧实现（各回收点不完整变体清单）下 None/Staged/
-    /// 后缀落入默认分支、容量丢失，本测试必失败。
+    /// W1-A：未消费后缀回收——确定槽位 j=3 的直接断言（不排序、不求和）。
+    /// 准备：tick1 槽位 0 物化 Resource/Spent（非空 backing）；手动把槽位
+    /// 0 与非空 backing 换到 j=3；tick2 任务侧经 into_scratch 回收，使
+    /// j=3 报告为非 Resource 变体（None/Staged/Failed）且 capacity 非零。
+    /// 注入位置 1 首错 → j=3 未消费滞留；重试后同一槽位容量保留。旧实现
+    ///（不完整变体清单）下 j=3 的 None/Staged/Failed 落入默认分支、容量
+    /// 清零，本测试的槽位直接断言必失败。fresh/retry 对拍由既有
+    /// D4/首错矩阵测试覆盖，本测试不扩展该范围。
     #[test]
     fn conflict_unconsumed_suffix_scratch_is_recovered() {
         use crate::kernel::execution::RESOURCE_TEST_LOCK;
         let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
         let _force = super::force_conflict_dispatch();
         let revision = conflict_scale_revision();
+        const J: usize = 3;
 
-        fn slot_caps(world: &mut TrafficWorld) -> Vec<(usize, usize)> {
+        fn slot_scratch(world: &mut TrafficWorld, index: usize) -> Option<(usize, usize, usize)> {
+            // 返回 Some((cells_capacity, claims_capacity, retained_bytes))；
+            // 非 Done(Ok) 槽位返回 None。
             let step = world.state.step_workspace();
-            let mut caps: Vec<(usize, usize)> = step
-                .workspace
-                .conflict_slots
-                .iter()
-                .map(|slot| match slot {
-                    crate::kernel::execution::DispatchSlot::Done(Ok(report)) => match report {
+            match step.workspace.conflict_slots.get(index) {
+                Some(crate::kernel::execution::DispatchSlot::Done(Ok(report))) => {
+                    let (cells, claims) = match report {
                         CandidateReport::None { scratch, .. }
                         | CandidateReport::Staged { scratch, .. }
                         | CandidateReport::Failed { scratch, .. }
@@ -3375,61 +3378,84 @@ mod tests {
                         | CandidateReport::Spent(scratch) => {
                             (scratch.cells.capacity(), scratch.claims.capacity())
                         }
-                    },
-                    _ => (0, 0),
-                })
-                .collect();
-            caps.sort_unstable();
-            caps
+                    };
+                    Some((cells, claims, report.retained_logical_bytes()))
+                }
+                _ => None,
+            }
         }
 
-        // 预热两拍：tick1 使槽位 0 成为携带非空 scratch 的 Spent/Resource；
-        // tick2 发现序位移（领头车持 reservation 被跳过），槽位 0 被后车
-        // 复用并产出 None/Staged——其自然携带 tick1 的 backing（非空）。
         let mut world = conflict_scale_world(Arc::clone(&revision), 16);
         install_execution(&mut world, 4);
         world.step(TickInput::new(4)).unwrap();
-        world.step(TickInput::new(4)).unwrap();
-        let caps_after_warmup = slot_caps(&mut world);
+        // tick1 后槽位 0 必须携带非空 cells backing（首拍唯一候选车）。
+        let leader = slot_scratch(&mut world, 0).expect("tick1 槽位 0 已计算");
         assert!(
-            caps_after_warmup.iter().any(|&(cells, _)| cells > 0),
-            "预热后必须有槽位携带非空 cells backing: {caps_after_warmup:?}"
+            leader.0 > 0,
+            "tick1 槽位 0 必须物化非空 cells backing: {leader:?}"
+        );
+        // 把非空 backing 换到确定槽位 j=3（j > 1）。
+        {
+            let step = world.state.step_workspace();
+            step.workspace.conflict_slots.swap(0, J);
+        }
+
+        // tick2 成功完成：槽位 j=3 经消费写回 Spent，其 backing 已验证
+        // 非空（prepared）——这是流入 tick3 报告的容量基线。
+        world.step(TickInput::new(4)).unwrap();
+        let prepared = slot_scratch(&mut world, J).expect("tick2 槽位 j 已计算");
+        assert!(
+            prepared.0 > 0,
+            "准备：槽位 j=3 必须携带非空 cells backing: {prepared:?}"
         );
 
-        // tick3：位置 1 注入 NonFinite（Failed 报告）——消费在位置 1 失败，
-        // 较晚槽位（位置 2..，本拍报告为 None/Staged/Failed 且携带非空
-        // scratch）未被消费、滞留槽位。
+        // tick3：位置 1 注入首错——规范消费在位置 1 失败，j=3 的报告
+        // （tick3 任务从 tick2 Spent 回收 scratch 后产出，为非 Resource
+        // 变体）未消费滞留。
         let world_id = world.state.binding.world_id;
         let guard = super::inject_conflict_nonfinite(world_id, &[1]);
         let result = world.step(TickInput::new(4));
         drop(guard);
         assert_eq!(result, Err(crate::StepError::NonFiniteMotion));
-        let caps_after_failure = slot_caps(&mut world);
-        let retained_after_failure: usize = caps_after_failure.iter().map(|&(c, d)| c + d).sum();
-        assert!(
-            retained_after_failure > 0,
-            "消费失败后未消费后缀必须仍有非空 backing 滞留: {caps_after_failure:?}"
+        let retained = slot_scratch(&mut world, J).expect("失败后槽位 j 保留");
+        assert_eq!(
+            retained, prepared,
+            "未消费后缀：槽位 j=3 的失败前后 backing 必须一致（身份+容量）"
         );
+        // 槽位身份断言：j=3 失败后必须是未消费的非 Resource 变体
+        // （None/Staged/Failed）且 capacity 非零。
+        {
+            let step = world.state.step_workspace();
+            let crate::kernel::execution::DispatchSlot::Done(Ok(report)) =
+                &step.workspace.conflict_slots[J]
+            else {
+                panic!("槽位 j=3 失败后必须保留 Done(Ok) 未消费报告");
+            };
+            assert!(
+                !matches!(
+                    report,
+                    CandidateReport::Resource { .. } | CandidateReport::Spent(_)
+                ),
+                "槽位 j=3 未消费报告必须是非 Resource 变体（None/Staged/Failed）"
+            );
+            let expected = prepared.0 * core::mem::size_of::<crate::ConflictPassageAddress>()
+                + prepared.1 * core::mem::size_of::<crate::DownstreamInterval>();
+            // 计账断言（修补 1）：非 Resource 变体的 retained_logical_bytes
+            // 必须等于 backing 字节数而非 0。
+            assert_eq!(
+                report.retained_logical_bytes(),
+                expected,
+                "非 Resource 变体的计账必须等于 backing 字节数而非 0"
+            );
+        }
 
-        // tick4（清注入重试）：任务侧 into_scratch 统一回收未消费后缀——
-        // 容量必须保留（旧实现落入默认分支则全丢）。
+        // tick4（清注入重试）：同一槽位 j=3 的 backing 必须保留。
         world.step(TickInput::new(4)).unwrap();
-        let caps_after_retry = slot_caps(&mut world);
-        let retained_after_retry: usize = caps_after_retry.iter().map(|&(c, d)| c + d).sum();
+        let recovered = slot_scratch(&mut world, J).expect("重试后槽位 j 已计算");
         assert!(
-            retained_after_retry >= retained_after_failure,
-            "未消费后缀（None/Staged/Failed）的 backing 必须在下次尝试被回收: \
-             failure={retained_after_failure} retry={retained_after_retry}\n\
-             after_failure={caps_after_failure:?}\nafter_retry={caps_after_retry:?}"
+            recovered.0 >= prepared.0 && recovered.1 >= prepared.1,
+            "重试后槽位 j=3 的 cells/claims backing 不得丢失: prepared={prepared:?} recovered={recovered:?}"
         );
-        // 且重试后世界回到稳态语义（与 fresh 参照一致）。
-        let mut fresh = conflict_scale_world(Arc::clone(&revision), 16);
-        install_execution(&mut fresh, 4);
-        fresh.step(TickInput::new(4)).unwrap();
-        fresh.step(TickInput::new(4)).unwrap();
-        let fresh_outcome = fresh.step(TickInput::new(4)).unwrap();
-        let retry_outcome = world.step(TickInput::new(4)).unwrap();
-        let _ = (fresh_outcome, retry_outcome);
     }
 
     #[test]
@@ -3980,8 +4006,9 @@ impl CandidateReport {
     }
 
     /// 测试计账：报告/残留内段 Vec 的 backing 峰值（capacity × size_of）。
-    /// Spent 与未消费 Resource 都计入（峰值保有）；消费后回收不减少
-    /// 计账口径下的 backing——复用是容量语义，不是释放。
+    /// 五个变体全部计入（与 into_scratch 同款穷尽匹配）——失败后未消费
+    /// 的 None/Staged/Failed 持有非空 backing 不再被计为零；消费后回收
+    /// 不减少计账口径下的 backing——复用是容量语义，不是释放。
     #[cfg(test)]
     pub(crate) fn retained_logical_bytes(&self) -> usize {
         fn scratch_bytes(scratch: &CandidateScratch) -> usize {
@@ -3997,10 +4024,11 @@ impl CandidateReport {
                 )
         }
         match self {
-            CandidateReport::Resource { scratch, .. } | CandidateReport::Spent(scratch) => {
-                scratch_bytes(scratch)
-            }
-            _ => 0,
+            CandidateReport::None { scratch, .. }
+            | CandidateReport::Staged { scratch, .. }
+            | CandidateReport::Failed { scratch, .. }
+            | CandidateReport::Resource { scratch, .. } => scratch_bytes(scratch),
+            CandidateReport::Spent(scratch) => scratch_bytes(scratch),
         }
     }
 }
