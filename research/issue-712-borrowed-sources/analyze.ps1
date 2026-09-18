@@ -83,20 +83,58 @@ function Compare-EnvIdentity($a, $b, [string]$context) {
     }
 }
 
-function Test-SampleLayer($rows, $case, [string]$context) {
-    $matched = @($rows | Where-Object { $_.case -eq $case })
-    $datasetNames = @($matched | ForEach-Object { [string]$_.dataset } | Sort-Object -Unique)
-    foreach ($name in $datasetNames) {
-        $datasetRows = @($matched | Where-Object { [string]$_.dataset -eq $name })
-        $ids = @($datasetRows | ForEach-Object { [int]$_.sample })
-        $unique = @($ids | Sort-Object -Unique)
-        if ($unique.Count -ne $Samples) {
-            throw "$context $case/$name expected $Samples distinct samples, got $($unique.Count)"
+# 完整预期测量矩阵：23 项（6 数据集 × 3 指标 + 2 规模 × 2 生命周期 + cold）。
+# 每轮墙钟与分配数据都必须逐项存在；样本编号恰为预期集合、无重复、
+# iterations 与口径一致、数值合法。
+$ExpectedMatrix = @()
+foreach ($dataset in $Datasets) {
+    foreach ($spec in @(
+        @{ case = 'source_full'; iters = 32 },
+        @{ case = 'adapter_full'; iters = 32 },
+        @{ case = 'transform_convert'; iters = 32 }
+    )) {
+        $ExpectedMatrix += @{ case = $spec.case; dataset = $dataset; iters = $spec.iters }
+    }
+}
+foreach ($dataset in @('all_active_10000', 'all_active_100000')) {
+    foreach ($spec in @(
+        @{ case = 'fresh_output'; iters = 32 },
+        @{ case = 'alternate'; iters = 32 }
+    )) {
+        $ExpectedMatrix += @{ case = $spec.case; dataset = $dataset; iters = $spec.iters }
+    }
+}
+$ExpectedMatrix += @{ case = 'cold'; dataset = 'cold_probe'; iters = 1 }
+
+function Test-ExpectedIds([int[]]$ids, [string]$context) {
+    $unique = @($ids | Sort-Object -Unique)
+    if ($ids.Count -ne $Samples) { throw "$context expected $Samples rows, got $($ids.Count)" }
+    if ($unique.Count -ne $Samples) { throw "$context duplicate sample ids" }
+    foreach ($id in 0..($Samples - 1)) {
+        if ($unique -notcontains $id) { throw "$context sample id set must be exactly 0..$($Samples - 1)" }
+    }
+}
+
+function Test-FullMatrix($rows, [string]$context) {
+    foreach ($item in $ExpectedMatrix) {
+        $matched = @($rows | Where-Object {
+            $_.case -eq $item.case -and [string]$_.dataset -eq $item.dataset
+        })
+        if ($matched.Count -eq 0) { throw "$context misses pair '$($item.case)/$($item.dataset)'" }
+        Test-ExpectedIds @($matched | ForEach-Object { [int]$_.sample }) "$context $($item.case)/$($item.dataset)"
+        foreach ($row in $matched) {
+            if ($row.iterations -ne $item.iters) {
+                throw "$context $($item.case)/$($item.dataset) iterations $($row.iterations) != $($item.iters)"
+            }
+            if (-not ($row.ns -gt 0)) { throw "$context $($item.case)/$($item.dataset) ns must be positive" }
         }
-        if ($ids.Count -ne $unique.Count) { throw "$context duplicate sample ids for $case/$name" }
-        foreach ($row in $datasetRows) {
-            if (-not ($row.ns -gt 0)) { throw "$context $case/$name ns must be positive" }
-        }
+    }
+    # 不允许矩阵之外的行。
+    foreach ($row in $rows) {
+        $known = @($ExpectedMatrix | Where-Object {
+            $_.case -eq $row.case -and $_.dataset -eq [string]$row.dataset
+        })
+        if ($known.Count -eq 0) { throw "$context unexpected pair '$($row.case)/$($row.dataset)'" }
     }
 }
 
@@ -190,18 +228,14 @@ foreach ($variant in @(@{ name = 'before'; runs = $before }, @{ name = 'after'; 
     foreach ($run in $variant.runs) {
         $wallRows = Read-CsvRows (Join-Path $run.path 'wall.csv')
         $allocRows = Read-CsvRows (Join-Path $run.path 'allocation.csv')
+        Test-FullMatrix $wallRows "$($variant.name)/$($run.path) wall"
+        Test-FullMatrix $allocRows "$($variant.name)/$($run.path) allocation"
+        foreach ($row in $wallRows) {
+            if ($row.allocations -ne 0 -or $row.reallocations -ne 0) { throw 'wall rows must keep zero allocation columns' }
+        }
         foreach ($spec in $CaseSpec) {
-            Test-SampleLayer $wallRows $spec.case "$($variant.name)/$($run.path) wall"
-            Test-SampleLayer $allocRows $spec.case "$($variant.name)/$($run.path) allocation"
             $wallCases = @($wallRows | Where-Object { $_.case -eq $spec.case })
             $allocCases = @($allocRows | Where-Object { $_.case -eq $spec.case })
-            if ($wallCases.Count -eq 0 -and $spec.case -notin @('fresh_output', 'alternate')) {
-                throw "$($variant.name) $($run.path) misses case $($spec.case)"
-            }
-            foreach ($row in $wallCases) {
-                if ($row.iterations -ne $spec.iters) { throw "$($variant.name) iterations mismatch for $($spec.case)" }
-                if ($row.allocations -ne 0 -or $row.reallocations -ne 0) { throw 'wall rows must keep zero allocation columns' }
-            }
             $datasetNames = @($wallCases | ForEach-Object { [string]$_.dataset } | Sort-Object -Unique)
             foreach ($name in $datasetNames) {
                 $pair = "$($spec.case) $name"
@@ -217,9 +251,7 @@ foreach ($variant in @(@{ name = 'before'; runs = $before }, @{ name = 'after'; 
                 }
             }
         }
-        $cold = @($wallRows | Where-Object { $_.case -eq 'cold' })
-        if ($cold.Count -ne $Samples) { throw "$($variant.name) cold needs $Samples samples" }
-        $coldMedians = @($cold | ForEach-Object { $_.ns })
+        $coldMedians = @(($wallRows | Where-Object { $_.case -eq 'cold' }) | ForEach-Object { $_.ns })
         if (-not $valueByPair.ContainsKey("$($variant.name)|cold cold_probe")) { $valueByPair["$($variant.name)|cold cold_probe"] = @() }
         $valueByPair["$($variant.name)|cold cold_probe"] += Get-Median $coldMedians
         $coldAlloc = @(($allocRows | Where-Object { $_.case -eq 'cold' }) | ForEach-Object { $_.allocations })

@@ -79,6 +79,37 @@ $failures += Invoke-Test 'feature-mismatch' {
     $raw | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $json -Encoding utf8
 } $false
 
+# 7 整组消失：某轮某 case×dataset 全部行被删。
+$failures += Invoke-Test 'whole-group-missing' {
+    param($tree)
+    $csv = Join-Path $tree 'after/run1/wall.csv'
+    (Get-Content -LiteralPath $csv | Where-Object { $_ -notlike 'source_full,high_completed_10000,*' }) |
+        Set-Content -LiteralPath $csv
+} $false
+
+# 8 样本编号集合整体偏移（仍 7 个唯一编号但不是 0..6）。
+$failures += Invoke-Test 'sample-id-set-shifted' {
+    param($tree)
+    $csv = Join-Path $tree 'before/run1/wall.csv'
+    $lines = @(Get-Content -LiteralPath $csv)
+    $lines | ForEach-Object {
+        if ($_ -match '^(adapter_full,mixed_parking_10000),(\d+)(,32,)(.*)$') {
+            $shifted = [int]$Matches[2] + 10
+            "$($Matches[1]),$shifted$($Matches[3])$($Matches[4])"
+        } else { $_ }
+    } | Set-Content -LiteralPath $csv
+} $false
+
+# 9 分配 CSV 的 iterations 错误（分配均值被错误归一化）。
+$failures += Invoke-Test 'allocation-iterations-wrong' {
+    param($tree)
+    $csv = Join-Path $tree 'after/run1/allocation.csv'
+    $lines = @(Get-Content -LiteralPath $csv)
+    $lines | ForEach-Object {
+        if ($_ -like 'source_full,all_active_10000,0,32,*') { $_ -replace ',all_active_10000,0,32,', ',all_active_10000,0,31,' } else { $_ }
+    } | Set-Content -LiteralPath $csv
+} $false
+
 foreach ($copy in $script:copies) {
     Remove-Item -Recurse -Force -LiteralPath $copy -ErrorAction SilentlyContinue
 }
