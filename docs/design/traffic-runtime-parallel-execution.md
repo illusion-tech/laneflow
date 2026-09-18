@@ -13,8 +13,10 @@
 也保留单一写入者。一个阶段可包含并行计算与串行消费，不因阶段编号相同就允许
 任意函数并发。P4 组件并行属于后续独立设计，见 §10。
 
-本文为已接受的执行合同；生产支持 worker 1–16（#705），其中 P2 运动/前视预览
-为真实多 worker 分发，P3/P5 仍由协调器串行（#706）；城市性能认证未完成（#707）。领域算法唯一由
+本文为已接受的执行合同；生产支持 worker 1–16（#705/#706），其中 P2 运动/前视预览、
+P3 已冻结只读输入上的候选字段求值与 P5 逐车最终运动为真实多 worker 分发，协调器
+保序规范组装；frontier 归约、P4 联合裁决、P5 资源转移与 P7 发布仍由协调器串行；
+城市性能认证未完成（#707）。领域算法唯一由
 [Waiting/Conflict 联合合同](waiting-zone-conflict-right-of-way.md)、
 [Waiting 本地合同](traffic-runtime-waiting-zone.md)、
 [路权策略](traffic-runtime-right-of-way-policy.md)、[跟车](vehicle-following.md)及
