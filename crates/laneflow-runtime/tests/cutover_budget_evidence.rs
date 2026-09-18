@@ -137,7 +137,7 @@ fn install_corridor_world(revision: &Arc<SharedNetworkRevision>) -> TrafficWorld
     let (follower, leader) = follow_pair(&catalog, &bound);
     spawn_on_slot(&mut world, profile, leader, &routes);
     spawn_on_slot(&mut world, profile, follower, &routes);
-    let poses = world.committed_pose_sources();
+    let poses = world.committed_pose_sources().collect::<Vec<_>>();
     assert_eq!(poses.as_slice().len(), 2);
     assert!(
         poses

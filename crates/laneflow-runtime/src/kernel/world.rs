@@ -19,12 +19,12 @@ use crate::kernel::tables::{
 };
 use crate::kernel::waiting::{WaitingQueueLink, WaitingZoneState};
 use crate::{
-    CommittedNetworkSource, CommittedPoseSourceBatch, CommittedPoseSourceError,
-    CommittedSignalGroupBatch, InstallError, ObservationStateSequence, ParkingBinding,
-    ParkingFacilityCounts, ParkingPoolCounts, ParkingSpaceState, ParkingTarget, PoseSource,
-    ReplaceError, RouteError, RouteHandle, RouteRegisterInput, SpawnError, StepError, StepOutcome,
-    TickInput, TrafficWorld, VehicleHandle, VehicleReplaceBlock, VehicleReplaceRecord,
-    VehicleSpawnInput, VehicleState, VehicleStatus, WorldConfig,
+    CommittedNetworkSource, CommittedPoseSourceError, CommittedSignalGroupBatch, InstallError,
+    ObservationStateSequence, ParkingBinding, ParkingFacilityCounts, ParkingPoolCounts,
+    ParkingSpaceState, ParkingTarget, PoseSource, ReplaceError, RouteError, RouteHandle,
+    RouteRegisterInput, SpawnError, StepError, StepOutcome, TickInput, TrafficWorld, VehicleHandle,
+    VehicleReplaceBlock, VehicleReplaceRecord, VehicleSpawnInput, VehicleState, VehicleStatus,
+    WorldConfig,
 };
 
 #[cfg(test)]
@@ -1449,11 +1449,14 @@ impl crate::kernel::state::WorldState {
         self.step_vehicles(input, execution)
     }
 
-    /// 稳定顺序的已提交 pose 源。
-    #[must_use]
-    pub fn committed_pose_sources(&self) -> CommittedPoseSourceBatch {
-        let items = self
-            .committed
+    /// 稳定顺序（live 顺序）的已提交 pose 源惰性迭代器。
+    ///
+    /// 迭代器借用世界：持有期间借用检查禁止步进、提交生命周期命令或切换根。
+    /// 创建迭代器只执行入口检查、不扫描来源；成员判定随消费逐项进行。
+    /// 不承诺 `ExactSizeIterator`：Completed 与 virtual Parked 车辆不产生来源。
+    /// 调用方显式 `collect` 出的值可以活过借用期，但不因此获得跨切换重放资格。
+    pub fn committed_pose_sources(&self) -> impl Iterator<Item = (VehicleHandle, PoseSource)> + '_ {
+        self.committed
             .live_order
             .iter()
             .copied()
@@ -1462,8 +1465,6 @@ impl crate::kernel::state::WorldState {
                 let source = self.pose_source_for_state(handle, state)?;
                 Some((handle, source))
             })
-            .collect();
-        CommittedPoseSourceBatch { items }
     }
 
     /// 单辆已提交车辆的 pose 来源判定；全量与单句柄入口共用的私有权威原语。
@@ -2241,13 +2242,28 @@ impl TrafficWorld {
         })
     }
 
-    /// 稳定顺序的已提交 pose 源。
+    /// 稳定顺序（live 顺序）的已提交 pose 源惰性迭代器。
+    ///
+    /// 迭代器生命周期绑定本世界：持有期间借用检查禁止步进、提交生命周期命令
+    /// 或切换根。创建迭代器先执行执行失效检查、不扫描来源；不承诺
+    /// `ExactSizeIterator`。调用方显式 `collect` 的快照可以活过借用期，但不
+    /// 因此获得跨切换重放资格。
+    ///
+    /// ```compile_fail
+    /// use laneflow_runtime::{TickInput, TrafficWorld};
+    ///
+    /// fn step_while_iterating(world: &mut TrafficWorld, input: TickInput) {
+    ///     let mut sources = world.committed_pose_sources();
+    ///     world.step(input).unwrap();
+    ///     // 迭代器仍被使用，借用未结束：上一行不能编译。
+    ///     std::hint::black_box(sources.next());
+    /// }
+    /// ```
     ///
     /// # Panics
     ///
     /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
-    #[must_use]
-    pub fn committed_pose_sources(&self) -> CommittedPoseSourceBatch {
+    pub fn committed_pose_sources(&self) -> impl Iterator<Item = (VehicleHandle, PoseSource)> + '_ {
         self.execution.assert_usable();
         self.state.committed_pose_sources()
     }

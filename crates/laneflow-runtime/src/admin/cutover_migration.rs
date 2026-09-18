@@ -2263,8 +2263,11 @@ pub(crate) fn assert_committed_logical_state_equal(left: &WorldState, right: &Wo
         );
     }
     assert_eq!(
-        left.committed_pose_sources().as_slice(),
-        right.committed_pose_sources().as_slice(),
+        left.committed_pose_sources().collect::<Vec<_>>().as_slice(),
+        right
+            .committed_pose_sources()
+            .collect::<Vec<_>>()
+            .as_slice(),
     );
     assert_eq!(
         left.committed_signal_groups().as_slice(),
@@ -3954,6 +3957,7 @@ pub(crate) mod tests {
     fn stable_pose_batch(world: &WorldState) -> Vec<(VehicleHandle, (StableId128, u32))> {
         world
             .committed_pose_sources()
+            .collect::<Vec<_>>()
             .as_slice()
             .iter()
             .map(|(handle, source)| match source {

@@ -170,7 +170,7 @@ TrafficWorld::world_generation() -> WorldGeneration;
 TrafficWorld::observation_state_sequence() -> ObservationStateSequence;
 TrafficWorld::tick_index() -> u64;
 TrafficWorld::time_ms() -> u64;
-TrafficWorld::committed_pose_sources() -> CommittedPoseSourceBatch;
+TrafficWorld::committed_pose_sources() -> impl Iterator<Item = (VehicleHandle, PoseSource)> + '_;
 TrafficWorld::committed_parking_occupant(space) -> Option<VehicleHandle>;
 TrafficWorld::committed_signal_groups() -> CommittedSignalGroupBatch;
 

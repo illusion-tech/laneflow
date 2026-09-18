@@ -1,8 +1,6 @@
 use laneflow_static_contract::SignalAspect;
 use laneflow_static_contract::{LaneEdgeOrdinal, ParkingSpaceOrdinal, SignalGroupOrdinal};
 
-use crate::VehicleHandle;
-
 /// 已提交 pose 的权威来源。Spatial 批次另行映射为 `PoseRecordId`。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PoseSource {
@@ -18,20 +16,6 @@ pub enum PoseSource {
         /// 共享根停车位序号。
         space: ParkingSpaceOrdinal,
     },
-}
-
-/// 稳定顺序的已提交 pose 源。
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CommittedPoseSourceBatch {
-    pub(crate) items: Vec<(VehicleHandle, PoseSource)>,
-}
-
-impl CommittedPoseSourceBatch {
-    /// 以稳定顺序返回已提交 pose 源条目切片。
-    #[must_use]
-    pub fn as_slice(&self) -> &[(VehicleHandle, PoseSource)] {
-        &self.items
-    }
 }
 
 /// 稳定按组序号的已提交信号指示。

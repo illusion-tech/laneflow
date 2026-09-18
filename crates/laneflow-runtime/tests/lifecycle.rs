@@ -229,7 +229,7 @@ fn spawn_respects_speed_limit_equality_and_overlap() {
         SpawnError::Overlap
     );
 
-    let poses = world.committed_pose_sources();
+    let poses = world.committed_pose_sources().collect::<Vec<_>>();
     assert_eq!(poses.as_slice().len(), 1);
     assert_eq!(poses.as_slice()[0].0, first);
     assert!(matches!(
@@ -307,7 +307,7 @@ fn explicit_parking_lifecycle_enforces_exclusivity_and_narrow_idempotency() {
         Some(ParkingBinding::Occupied(target))
     );
     assert!(matches!(
-        world.committed_pose_sources().as_slice()[0].1,
+        world.committed_pose_sources().collect::<Vec<_>>().as_slice()[0].1,
         PoseSource::Parking { space: occupied } if occupied == space
     ));
 
@@ -498,6 +498,7 @@ fn completed_vehicle_is_retained_without_pose_or_occupancy() {
     assert!(
         world
             .committed_pose_sources()
+            .collect::<Vec<_>>()
             .as_slice()
             .iter()
             .all(|(handle, _)| *handle != old),

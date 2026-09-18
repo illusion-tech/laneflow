@@ -164,7 +164,7 @@ fn spawn_on_slot(
 }
 
 fn assert_two_lane_poses(world: &TrafficWorld) {
-    let poses = world.committed_pose_sources();
+    let poses = world.committed_pose_sources().collect::<Vec<_>>();
     assert_eq!(poses.as_slice().len(), 2);
     assert!(
         poses

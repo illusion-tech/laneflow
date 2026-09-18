@@ -454,6 +454,7 @@ fn closed_path_collects_current_sources_only() {
     let current: Vec<VehicleHandle> = session
         .world()
         .committed_pose_sources()
+        .collect::<Vec<_>>()
         .as_slice()
         .iter()
         .map(|(handle, _)| *handle)
