@@ -24,7 +24,7 @@ use laneflow_compiler::{
 use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_runtime::{
     CommittedNetworkSource, ParkedVehicleSpawnInput, ParkingTarget, PublishedLfcaReference,
-    RouteRegisterInput, TrafficWorld, VehicleHandle, VehicleSpawnInput, WorldConfig,
+    RouteRegisterInput, TrafficWorld, VehicleHandle, VehicleSpawnInput, VehicleStatus, WorldConfig,
     WorldPolicySelection,
 };
 use laneflow_spatial::SpatialSession;
@@ -334,6 +334,41 @@ fn spawn_explicit(
         .vehicle
 }
 
+/// 测前显式核验各状态数量；不满足目标形态时终止，而不是带错名继续测量。
+fn count_status(world: &TrafficWorld, status: VehicleStatus) -> usize {
+    world
+        .live_vehicles()
+        .iter()
+        .filter(|handle| world.vehicle(**handle).map(|state| state.status()) == Some(status))
+        .count()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn assert_dataset_shape(
+    world: &TrafficWorld,
+    label: &str,
+    active: usize,
+    explicit_parked: usize,
+    virtual_parked: usize,
+    completed: usize,
+) {
+    assert_eq!(
+        count_status(world, VehicleStatus::Active),
+        active,
+        "{label}: Active count"
+    );
+    assert_eq!(
+        count_status(world, VehicleStatus::Parked),
+        explicit_parked + virtual_parked,
+        "{label}: Parked count"
+    );
+    assert_eq!(
+        count_status(world, VehicleStatus::Completed),
+        completed,
+        "{label}: Completed count"
+    );
+}
+
 fn dataset(
     name: &str,
     revision: &Arc<SharedNetworkRevision>,
@@ -347,6 +382,7 @@ fn dataset(
             for slot in 0..total {
                 spawn_active(&mut world, &routes, slot);
             }
+            assert_dataset_shape(&world, &format!("all_active({total})"), total, 0, 0, 0);
             total
         }
         "mixed_parking" => {
@@ -360,34 +396,56 @@ fn dataset(
             for slot in 0..total - active - EXPLICIT_SPACES {
                 spawn_virtual(&mut world, &routes, slot);
             }
+            assert_dataset_shape(
+                &world,
+                &format!("mixed_parking({total})"),
+                active,
+                EXPLICIT_SPACES,
+                total - active - EXPLICIT_SPACES,
+                0,
+            );
             active + EXPLICIT_SPACES
         }
         "high_completed" => {
-            let target = total - total / 10;
-            for slot in 0..total {
-                spawn_active(&mut world, &routes, slot);
-            }
-            // 推进直到至少 90% 车辆完成；数据集准备不进入计时区间。
-            let mut steps = 0;
-            loop {
-                let live_presentable = {
-                    let mut count = 0;
-                    for_each_source(&world, |_, _| count += 1);
-                    count
-                };
-                if live_presentable <= total - target || steps >= 64 {
-                    break;
+            // 目标：≥90% 车辆 Completed、其余 Active。分批把车辆生成在各自
+            // 车道末端（每车道至多一辆在途，避免重叠），一拍内到达路终完成；
+            // 完成后路线终点占用释放，同车道可继续复用。数据集准备与状态
+            // 断言都在计时区间外。
+            let completed_target = total - total / 10;
+            let mut completed = 0;
+            while completed < completed_target {
+                for route in routes
+                    .iter()
+                    .take((completed_target - completed).min(routes.len()))
+                {
+                    world
+                        .spawn_vehicle(VehicleSpawnInput::new(
+                            PROFILE,
+                            *route,
+                            0,
+                            EDGE_LENGTH_MM,
+                            0,
+                        ))
+                        .expect("spawn at lane end");
                 }
                 world
                     .step(laneflow_runtime::TickInput::new(100))
-                    .expect("dataset step");
-                steps += 1;
+                    .expect("complete batch");
+                completed = count_status(&world, VehicleStatus::Completed);
             }
-            {
-                let mut count = 0;
-                for_each_source(&world, |_, _| count += 1);
-                count
+            let active = total - completed;
+            for slot in 0..active {
+                spawn_active(&mut world, &routes, slot);
             }
+            assert_dataset_shape(
+                &world,
+                &format!("high_completed({total})"),
+                active,
+                0,
+                0,
+                completed,
+            );
+            active
         }
         "sparse_presentable" => {
             for slot in 0..100 {
@@ -396,6 +454,14 @@ fn dataset(
             for slot in 0..total - 100 {
                 spawn_virtual(&mut world, &routes, slot);
             }
+            assert_dataset_shape(
+                &world,
+                &format!("sparse_presentable({total})"),
+                100,
+                0,
+                total - 100,
+                0,
+            );
             100
         }
         other => panic!("unknown dataset shape {other}"),
@@ -415,11 +481,17 @@ fn dataset(
     }
 }
 
-/// 完整提取输出的 SHA-256 摘要（车辆句柄 + 位模式级记录 + 上下文）。
+/// 完整提取输出的 SHA-256 摘要：车辆句柄序列、全部记录（身份 + 位模式级
+/// pose）、批次 header（修订、frame、placement token）、完整消费上下文
+/// （world id + world generation）与两个序列的长度。
 fn digest_output(output: &LaneFlowCommittedPoseBatch) -> String {
     let mut hasher = Sha256::new();
+    hasher.update(b"v2");
+    hasher.update((output.vehicles().len() as u64).to_le_bytes());
+    hasher.update((output.batch().records().len() as u64).to_le_bytes());
     for vehicle in output.vehicles() {
         hasher.update(format!("{vehicle:?}").as_bytes());
+        hasher.update(b"|");
     }
     for record in output.batch().records() {
         hasher.update(record.record().raw().to_le_bytes());
@@ -440,12 +512,59 @@ fn digest_output(output: &LaneFlowCommittedPoseBatch) -> String {
             hasher.update(value.to_le_bytes());
         }
     }
+    hasher.update(format!("{:?}", output.batch().network_revision()).as_bytes());
+    hasher.update(b"|");
+    hasher.update(format!("{:?}", output.batch().canonical_frame()).as_bytes());
+    hasher.update(b"|");
+    hasher.update(output.batch().placement_token().raw().to_le_bytes());
+    hasher.update(b"|");
     hasher.update(output.context().world_id().to_le_bytes());
+    hasher.update(b"|");
+    hasher.update(format!("{:?}", output.context().world_generation()).as_bytes());
     hasher
         .finalize()
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+/// 有序完整来源序列的 SHA-256 摘要（句柄 + 来源判别与全部字段）。
+fn digest_sources(sources: &[(VehicleHandle, laneflow_runtime::PoseSource)]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"sources-v2");
+    hasher.update((sources.len() as u64).to_le_bytes());
+    for (vehicle, source) in sources {
+        hasher.update(format!("{vehicle:?}").as_bytes());
+        hasher.update(b"|");
+        match source {
+            laneflow_runtime::PoseSource::Lane { edge, progress_mm } => {
+                hasher.update(b"L");
+                hasher.update(edge.raw().to_le_bytes());
+                hasher.update(progress_mm.to_le_bytes());
+            }
+            laneflow_runtime::PoseSource::Parking { space } => {
+                hasher.update(b"P");
+                hasher.update(space.raw().to_le_bytes());
+            }
+        }
+        hasher.update(b";");
+    }
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// 收集完整来源序列（A 侧 as_slice / B 侧迭代器；仅正确性取证与断言使用）。
+#[cfg(feature = "legacy-source")]
+fn collected_sources(world: &TrafficWorld) -> Vec<(VehicleHandle, laneflow_runtime::PoseSource)> {
+    world.committed_pose_sources().as_slice().to_vec()
+}
+
+#[cfg(not(feature = "legacy-source"))]
+fn collected_sources(world: &TrafficWorld) -> Vec<(VehicleHandle, laneflow_runtime::PoseSource)> {
+    world.committed_pose_sources().collect()
 }
 
 fn timed(case: &str, dataset: &str, sample: usize, iterations: usize, mut op: impl FnMut()) {
@@ -474,16 +593,12 @@ fn timed(case: &str, dataset: &str, sample: usize, iterations: usize, mut op: im
 /// 指标 1：完整消费来源迭代器（含成员判定与遍历）。
 fn run_source_full(dataset: &mut Dataset, samples: usize, iterations: usize) {
     let expected = dataset.presentable;
-    let mut count = 0;
-    for_each_source(dataset.session.world(), |_, _| count += 1);
-    assert_eq!(count, expected, "presentable source count");
+    let sources = collected_sources(dataset.session.world());
+    assert_eq!(sources.len(), expected, "presentable source count");
     eprintln!(
         "oracle source {} {}",
         dataset.name,
-        Sha256::digest(count.to_le_bytes())
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>()
+        digest_sources(&sources)
     );
     for _ in 0..WARMUP {
         for_each_source(dataset.session.world(), |_, _| {});
