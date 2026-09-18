@@ -7822,11 +7822,7 @@ pub(crate) mod tests {
             assert_eq!(world.capture_snapshot().unwrap(), fresh_snapshot);
 
             // 热态 + 已武装：余量足够不得伪造预留失败（W4：探针先清空；
-            // 候选周期内多拍累积，断言「至少一次访问 F4 且全部未触发
-            // 注入、无错误公开」）。
-            crate::kernel::conflict_tick::reset_conflict_reserve_probe_log();
-            let guard = fail_conflict_downstream_work_reserve();
-            // 候选周期内 F4 并不到达：持武装步进 12 拍全程不得公开错误，
+            // 候选周期内 F4 稀疏，持武装步进 12 拍全程不得公开错误，
             // 且探针 fired 计数必须为零（余量足够+已武装 ⇒ 永不伪造失败）。
             crate::kernel::conflict_tick::reset_conflict_reserve_probe_log();
             let guard = fail_conflict_downstream_work_reserve();
