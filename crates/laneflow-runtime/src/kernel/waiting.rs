@@ -381,6 +381,34 @@ pub(crate) fn force_preview_dispatch() -> ForcePreviewDispatchGuard {
 #[cfg(test)]
 thread_local! {
     static PREVIEW_FORCE_DISPATCH: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+    static PREVIEW_FORCE_FUSE: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+fn preview_dispatch_fuse_forced() -> bool {
+    PREVIEW_FORCE_FUSE.with(core::cell::Cell::get)
+}
+
+#[cfg(not(test))]
+fn preview_dispatch_fuse_forced() -> bool {
+    false
+}
+
+#[cfg(test)]
+pub(crate) struct ForcePreviewFuseGuard(bool);
+
+#[cfg(test)]
+impl Drop for ForcePreviewFuseGuard {
+    fn drop(&mut self) {
+        PREVIEW_FORCE_FUSE.with(|forced| forced.set(self.0));
+    }
+}
+
+/// 测试专用：本拍起强制 P2 保持融合（即使 Pool 执行器与工作集在阈值
+/// 之上；#706 增量 E 组合矩阵的融合侧入口，fuse 优先于 force）。
+#[cfg(test)]
+pub(crate) fn force_preview_fuse() -> ForcePreviewFuseGuard {
+    ForcePreviewFuseGuard(PREVIEW_FORCE_FUSE.with(|forced| forced.replace(true)))
 }
 
 #[cfg(test)]
@@ -1883,7 +1911,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         drop(_preamble);
         match execution {
-            Some(resources @ crate::kernel::execution::ExecutionResources::Pool(_)) => {
+            Some(resources @ crate::kernel::execution::ExecutionResources::Pool(_))
+                if !preview_dispatch_fuse_forced() =>
+            {
                 prepare_waiting_previews_dispatched(
                     self.workspace,
                     view,
@@ -3249,7 +3279,7 @@ pub(crate) mod tests {
                 .all(|plan| plan.decision == WaitingDecisionOutcome::Granted)
         );
         assert_eq!(world.state.workspace.waiting_plans[0].vehicle, vehicles[1]);
-        world.state.prepare_conflict_step(0.1, 1).unwrap();
+        world.state.prepare_conflict_step(0.1, 1, None).unwrap();
         assert_eq!(world.state.workspace.conflict_candidates.len(), 2);
         assert_eq!(
             world.state.workspace.conflict_grants[0].vehicle, vehicles[1],
@@ -5626,7 +5656,7 @@ pub(crate) mod tests {
         projected.carry_um = 0;
         world
             .state
-            .prepare_conflict_step(1.0, 1)
+            .prepare_conflict_step(1.0, 1, None)
             .expect("formal grant");
         let mut updates = [(vehicle.index() as usize, projected)];
         world
@@ -6683,6 +6713,1356 @@ pub(crate) mod tests {
             } else {
                 reference = Some(records);
             }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // #706 增量 C：P5 最终运动真实分发（worker 投机 + 协调器保序规范消费）。
+    // 逐车单元在任务内按原顺序求值；协调器按 Active 序消费：该车失败在此处
+    // 返回、到达观察在此处真实预留、然后 updates 接纳（checkpoint-map §4）。
+    // ------------------------------------------------------------------
+
+    use crate::kernel::tick::{
+        MotionPathCounts, drop_motion_slot_at, fail_motion_arrival_reserve,
+        fail_motion_input_reserve, fail_motion_slot_reserve, force_motion_dispatch,
+        inject_motion_nonfinite, last_motion_dispatch_stats, motion_cache_use,
+        motion_diagnostic_counts, motion_path_counts,
+    };
+
+    /// 逐 tick 公开对拍记录：digest、Waiting/Conflict 决策、统一事件、
+    /// 结局（含停车到达观察）。
+    fn motion_tick_record(world: &TrafficWorld, outcome: &crate::StepOutcome) -> String {
+        let snapshot = world.capture_snapshot().unwrap();
+        format!(
+            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+            crate::deterministic_state_digest(&snapshot).unwrap(),
+            world.latest_waiting_decisions(),
+            world.latest_conflict_decisions(),
+            world.latest_transition_events(),
+            (outcome.tick_index(), outcome.time_ms()),
+            outcome.parking_arrivals(),
+        )
+    }
+
+    /// 两辆车位的停车到达场景：A 在车位入口前 1 m（本拍首次到达、已预约），
+    /// B 在 12 m（active 序在后）。返回未步进的世界。
+    fn parking_arrival_world(workers: u32, world_id: u64) -> TrafficWorld {
+        let (mut world, route, space, entry_progress) = parking_route_world(workers, world_id);
+        let a = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                entry_progress - 1,
+                10_000,
+            ))
+            .unwrap();
+        world
+            .reserve_parking(
+                a,
+                crate::ReserveParkingTarget::ExplicitSpace {
+                    space,
+                    entry_route_occurrence: 0,
+                },
+            )
+            .unwrap();
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                12_000,
+                10_000,
+            ))
+            .unwrap();
+        world
+    }
+
+    /// 核心反例（checkpoint-map §4 A1）：逻辑较前 A 车计算成功且首次到达、
+    /// 其到达 reserve 注入失败；逻辑较晚 B 车注入 NonFiniteMotion ⇒ 无论 B
+    /// 在 worker 上多早完成，规范消费先兑现 A 的到达预留义务，公开
+    /// `ParkingObservationAllocFailed`；失败后状态不变，清注入同 tick 重试
+    /// 与 fresh 世界同拍一致。
+    #[test]
+    fn earlier_arrival_reserve_failure_beats_later_motion_error() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_100;
+        let _force = force_motion_dispatch();
+        let counts_before = motion_path_counts();
+        let mut fresh = parking_arrival_world(4, WORLD_ID);
+        let fresh_outcome = fresh.step(TickInput::new(100)).unwrap();
+        assert_eq!(
+            fresh_outcome.parking_arrivals().len(),
+            1,
+            "fresh 首拍 A 必须首次到达"
+        );
+        let fresh_snapshot = fresh.capture_snapshot().unwrap();
+
+        let mut world = parking_arrival_world(4, WORLD_ID);
+        let before = world.capture_snapshot().unwrap();
+        let reserve_guard = fail_motion_arrival_reserve();
+        let nonfinite_guard = inject_motion_nonfinite(WORLD_ID, &[1]);
+        let result = world.step(TickInput::new(100));
+        drop(reserve_guard);
+        drop(nonfinite_guard);
+        assert_eq!(result, Err(crate::StepError::ParkingObservationAllocFailed));
+        assert_eq!(world.capture_snapshot().unwrap(), before);
+        let retry = world.step(TickInput::new(100)).unwrap();
+        assert_eq!(retry, fresh_outcome, "同 tick 重试必须等于 fresh 首拍");
+        assert_eq!(world.capture_snapshot().unwrap(), fresh_snapshot);
+        let counts = motion_path_counts();
+        assert_eq!(
+            counts.dispatched - counts_before.dispatched,
+            3,
+            "fresh + 失败 + 重试拍全部真实分发: {counts:?}"
+        );
+        assert_eq!(
+            counts.fused - counts_before.fused,
+            0,
+            "本场景不允许融合计数: {counts:?}"
+        );
+    }
+
+    /// 首错稳定：NonFiniteMotion 注入首/中/尾 Active 位置 × worker 1/2/4：
+    /// 公开同一个错误、失败后已提交状态与失败前一致、清注入重试与 w1 参考
+    /// 首拍一致；路径计数按臂互斥（worker=1 融合、>1 分发）。
+    #[test]
+    fn motion_first_error_is_stable_across_workers_and_positions() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_110;
+        let _force = force_motion_dispatch();
+        let counts_before = motion_path_counts();
+        let mut reference: Option<crate::StepOutcome> = None;
+        for &position in &[0_usize, 8, 15] {
+            for &workers in &[1_u32, 2, 4] {
+                let mut world = multi_gate_world_with_id(16, WORLD_ID);
+                install_execution(&mut world, workers);
+                let before = world.capture_snapshot().unwrap();
+                let guard = inject_motion_nonfinite(WORLD_ID, &[position]);
+                let result = world.step(TickInput::new(100));
+                drop(guard);
+                assert_eq!(
+                    result,
+                    Err(crate::StepError::NonFiniteMotion),
+                    "position={position} workers={workers}"
+                );
+                assert_eq!(world.capture_snapshot().unwrap(), before);
+                let retry = world.step(TickInput::new(100)).unwrap();
+                if workers == 1 {
+                    reference = Some(retry);
+                } else {
+                    assert_eq!(
+                        retry,
+                        reference.clone().unwrap(),
+                        "position={position} workers={workers} 重试必须等于 w1 参考"
+                    );
+                }
+            }
+        }
+        let counts = motion_path_counts();
+        let delta = MotionPathCounts {
+            dispatched: counts.dispatched - counts_before.dispatched,
+            fused: counts.fused - counts_before.fused,
+            slot_fallback: counts.slot_fallback - counts_before.slot_fallback,
+        };
+        // 每 (position, workers) 臂 = 失败拍 + 重试拍 = 2 拍。
+        assert_eq!(
+            delta,
+            MotionPathCounts {
+                dispatched: 2 * 3 * 2,
+                fused: 2 * 3,
+                slot_fallback: 0,
+            },
+            "融合/分发/回退互斥计数: {delta:?}"
+        );
+    }
+
+    /// 跨块多错误：两个注入位置（worker=4、块大小 2）无论先写哪个位置，
+    /// 公开的都是 Active 序较小位置的同一个 NonFiniteMotion 首错、失败拍
+    /// 状态不变。表述修正（R5）：两位移映射同一错误枚举，本测试证明的是
+    /// 「书写顺序不影响公开首错」而非完成序区分；完成序的区分由
+    /// conflict_first_error 的双错误类别臂（NonFinite × downstream CIV）
+    /// 覆盖。
+    #[test]
+    fn motion_canonical_first_error_across_chunk_boundaries() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_120;
+        let _force = force_motion_dispatch();
+        for positions in [&[3_usize, 11][..], &[11, 3]] {
+            let mut world = multi_gate_world_with_id(16, WORLD_ID);
+            install_execution(&mut world, 4);
+            let before = world.capture_snapshot().unwrap();
+            let guard = inject_motion_nonfinite(WORLD_ID, positions);
+            let result = world.step(TickInput::new(100));
+            drop(guard);
+            assert_eq!(result, Err(crate::StepError::NonFiniteMotion));
+            assert_eq!(world.capture_snapshot().unwrap(), before);
+            world.step(TickInput::new(100)).unwrap();
+        }
+    }
+
+    /// 可选暂存回退：输入表/结果槽位的冷态（首拍）与热态（容量已建立）
+    /// 预留注入失败都退回融合路径，逐拍输出与 w1 融合参考一致，不新增
+    /// 领域错误；回退计数与分发计数互斥。
+    #[test]
+    fn motion_scratch_reserve_failure_falls_back_to_fused() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_130;
+        let _force = force_motion_dispatch();
+        let run = |workers: u32, inject: Option<fn() -> crate::kernel::tick::MotionBoolGuard>| {
+            let mut world = multi_gate_world_with_id(16, WORLD_ID);
+            install_execution(&mut world, workers);
+            let mut records = Vec::new();
+            for tick in 0..4 {
+                let _guard = inject.map(|arm| arm());
+                let outcome = world.step(TickInput::new(100)).unwrap();
+                records.push(motion_tick_record(&world, &outcome));
+                assert_eq!(tick + 1, world.tick_index() as usize);
+            }
+            records
+        };
+        let reference = run(1, None);
+        // 冷态：首拍输入表预留失败；其后热态槽位预留失败一拍。
+        let counts_before = motion_path_counts();
+        let mut world = multi_gate_world_with_id(16, WORLD_ID);
+        install_execution(&mut world, 4);
+        let mut records = Vec::new();
+        {
+            let _guard = fail_motion_input_reserve();
+            let outcome = world.step(TickInput::new(100)).unwrap();
+            records.push(motion_tick_record(&world, &outcome));
+        }
+        for _ in 0..2 {
+            let outcome = world.step(TickInput::new(100)).unwrap();
+            records.push(motion_tick_record(&world, &outcome));
+        }
+        {
+            let _guard = fail_motion_slot_reserve();
+            let outcome = world.step(TickInput::new(100)).unwrap();
+            records.push(motion_tick_record(&world, &outcome));
+        }
+        assert_eq!(records, reference, "回退拍输出必须等于融合参考");
+        let counts = motion_path_counts();
+        let delta = MotionPathCounts {
+            dispatched: counts.dispatched - counts_before.dispatched,
+            fused: counts.fused - counts_before.fused,
+            slot_fallback: counts.slot_fallback - counts_before.slot_fallback,
+        };
+        assert_eq!(
+            delta,
+            MotionPathCounts {
+                dispatched: 2,
+                fused: 0,
+                slot_fallback: 2,
+            },
+            "回退与分发互斥: {delta:?}"
+        );
+        let _ = run;
+    }
+
+    /// 完成前沿不变量：join 后首错之前出现缺失槽位检出
+    /// `ConflictInvariantViolation` 而非当成功；缺失槽位晚于首错时不改变
+    /// 公开首错。
+    #[test]
+    fn missing_motion_slot_before_first_error_is_detected() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_140;
+        let _force = force_motion_dispatch();
+        for (gap, expected) in [
+            (5_usize, crate::StepError::ConflictInvariantViolation),
+            (15, crate::StepError::NonFiniteMotion),
+        ] {
+            let mut world = multi_gate_world_with_id(16, WORLD_ID);
+            install_execution(&mut world, 4);
+            let before = world.capture_snapshot().unwrap();
+            let gap_guard = drop_motion_slot_at(gap);
+            let error_guard = inject_motion_nonfinite(WORLD_ID, &[12]);
+            let result = world.step(TickInput::new(100));
+            drop(gap_guard);
+            drop(error_guard);
+            assert_eq!(result, Err(expected), "gap={gap}");
+            assert_eq!(world.capture_snapshot().unwrap(), before);
+            world.step(TickInput::new(100)).unwrap();
+        }
+    }
+
+    /// 多线程参与（R5 表述修正：participating_threads 度量出现过的线程
+    /// 数，不等于同时执行重叠；真实并发重叠由 execution.rs 屏障测试覆
+    /// 盖）：64 车、worker=4、连续 16 拍自然强制分发，每拍 8 块全部
+    /// 完成且票据取完，参与线程数峰值 ≥ 2（调用线程 + 池任务）。
+    #[test]
+    fn motion_dispatch_multi_thread_participation() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_150;
+        let _force = force_motion_dispatch();
+        let mut world = multi_gate_world_with_id(64, WORLD_ID);
+        install_execution(&mut world, 4);
+        let mut peak_threads = 1_usize;
+        for _ in 0..16 {
+            world.step(TickInput::new(100)).unwrap();
+            let stats = last_motion_dispatch_stats().expect("分发统计");
+            assert_eq!(stats.dispatched_chunks, 8);
+            assert_eq!(stats.completed_chunks, 8);
+            assert_eq!(stats.ticket_grabs, 8);
+            peak_threads = peak_threads.max(stats.participating_threads);
+        }
+        assert!(
+            peak_threads >= 2,
+            "必须观察到真实多线程参与，peak={peak_threads}"
+        );
+    }
+
+    /// 小场景强制分发等价：multi-gate（Waiting 密集）worker 2/4 逐拍
+    /// digest/决策/事件/结局与 worker=1 融合参考一致。
+    #[test]
+    fn motion_dispatch_matches_fused_reference() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_160;
+        let _force = force_motion_dispatch();
+        let run = |workers: u32| {
+            let mut world = multi_gate_world_with_id(16, WORLD_ID);
+            install_execution(&mut world, workers);
+            let mut records = Vec::new();
+            for _ in 0..6 {
+                let outcome = world.step(TickInput::new(100)).unwrap();
+                records.push(motion_tick_record(&world, &outcome));
+            }
+            records
+        };
+        let reference = run(1);
+        for workers in [2_u32, 4, 8, 16] {
+            assert_eq!(
+                run(workers),
+                reference,
+                "workers={workers} 必须与融合参考逐拍一致"
+            );
+        }
+        let counts = motion_path_counts();
+        eprintln!("DEBUG counts={counts:?}");
+        assert!(counts.dispatched >= 12 && counts.fused >= 6);
+    }
+
+    /// 停车到达场景强制分发等价：worker 2/4 的逐拍记录（含
+    /// `parking_arrivals`）与 worker=1 融合参考一致。
+    #[test]
+    fn motion_parking_arrival_matches_fused_reference() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_170;
+        let _force = force_motion_dispatch();
+        let run = |workers: u32| {
+            let mut world = parking_arrival_world(workers, WORLD_ID);
+            let mut records = Vec::new();
+            for _ in 0..3 {
+                let outcome = world.step(TickInput::new(100)).unwrap();
+                records.push(motion_tick_record(&world, &outcome));
+            }
+            records
+        };
+        let reference = run(1);
+        for workers in [2_u32, 4, 8, 16] {
+            assert_eq!(
+                run(workers),
+                reference,
+                "workers={workers} 停车到达必须与融合参考一致"
+            );
+        }
+    }
+
+    /// 缓存与重算计数口径：w1 融合与 w4 强制分发的 cache hit/miss 与
+    /// 运动内核/horizon 重算计数总计一致（任务线程增量经块级记录汇总）。
+    #[test]
+    fn motion_counters_match_between_fused_and_dispatched() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_180;
+        let _force = force_motion_dispatch();
+        let _diagnostics = crate::kernel::tick::enable_motion_diagnostics();
+        let run = |workers: u32| {
+            let mut world = multi_gate_world_with_id(16, WORLD_ID);
+            install_execution(&mut world, workers);
+            let cache_before = motion_cache_use();
+            let diag_before = motion_diagnostic_counts();
+            for _ in 0..6 {
+                world.step(TickInput::new(100)).unwrap();
+            }
+            let cache = motion_cache_use();
+            let diag = motion_diagnostic_counts();
+            (
+                cache.hits - cache_before.hits,
+                cache.misses - cache_before.misses,
+                diag.0 - diag_before.0,
+                diag.1 - diag_before.1,
+            )
+        };
+        let fused = run(1);
+        let dispatched = run(4);
+        assert_eq!(
+            dispatched, fused,
+            "分发路径计数必须经块级记录汇总后与融合一致: fused={fused:?} dispatched={dispatched:?}"
+        );
+        assert!(fused.0 + fused.1 > 0, "场景必须覆盖复用判定");
+    }
+
+    // ------------------------------------------------------------------
+    // #706 增量 D：P3 候选求值真实分发（多段报告 + 协调器保序规范消费 +
+    // F1/F2/F3b/F4 真实预留原位）。逐车计算在冻结三腿视图上按串行同序
+    // 求值；协调器按 live×gate 发现序消费（checkpoint-map §5）。
+    // 夹具：multi_gate（16 候选位置，空区间 Waiting 门）覆盖 None/Staged/
+    // 纯 Waiting 与首错矩阵；conflict_scale（单车到达真冲突区，cells/
+    // downstream 非空 Computed 候选）覆盖 F1/F2/F3b/F4 与同车段序。
+    // ------------------------------------------------------------------
+
+    use crate::admin::cutover_migration::tests::{conflict_scale_revision, conflict_scale_world};
+    use crate::kernel::conflict::conflict_work_counts;
+    use crate::kernel::conflict_tick::{
+        ConflictPathCounts, conflict_path_counts, drop_conflict_slot_at,
+        enable_conflict_diagnostics, fail_conflict_cell_work_reserve, fail_conflict_cells_reserve,
+        fail_conflict_downstream_pool_reserve, fail_conflict_downstream_work_reserve,
+        fail_conflict_input_reserve, fail_conflict_slot_reserve, force_conflict_dispatch,
+        force_conflict_fuse, inject_conflict_invariant_downstream, inject_conflict_nonfinite,
+        last_conflict_dispatch_stats,
+    };
+
+    /// P3 工作区语义池字节级记录：候选（含 cells/downstream 区间偏移）、
+    /// 两个全池与 eligibility/motion plan 表。私有暂存容量、输入表与槽位
+    /// 不在等价范围内（#705 §1 同口径）。
+    fn conflict_workspace_record(world: &mut TrafficWorld) -> String {
+        let step = world.state.step_workspace();
+        format!(
+            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+            step.workspace.conflict_candidates,
+            step.workspace.conflict_candidate_cells,
+            step.workspace.conflict_candidate_downstream,
+            step.workspace.conflict_next_eligibility,
+            step.workspace.conflict_motion_by_vehicle,
+            // R1：两个工作缓冲的长度纳入对拍（只属当前候选、不累积）。
+            step.workspace.conflict_cell_work.len(),
+            step.workspace.conflict_downstream_work.len(),
+        )
+    }
+
+    /// 核心反例（checkpoint-map §5 D4-1）：候选车 cells 段已物化成功（F2
+    /// 位到达），且同车更晚 downstream 检查注入 ConflictInvariantViolation；
+    /// F2 真实预留原位先于 downstream 检查 ⇒ 公开
+    /// `ConflictScratchAllocFailed` 而非 downstream 的 CIV。预演臂证明
+    /// downstream 注入确实命中；失败拍状态不变；清注入同 tick 重试与
+    /// fresh 世界同拍一致。
+    #[test]
+    fn earlier_f2_failure_beats_later_downstream_invariant() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        let mut probe = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut probe, 4);
+        let probe_id = probe.state.binding.world_id;
+        let guard = inject_conflict_invariant_downstream(probe_id, &[0]);
+        let result = probe.step(TickInput::new(4));
+        drop(guard);
+        assert_eq!(
+            result,
+            Err(crate::StepError::ConflictInvariantViolation),
+            "downstream CIV 注入必须命中（预演臂）"
+        );
+
+        let mut fresh = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut fresh, 4);
+        let fresh_outcome = fresh.step(TickInput::new(4)).unwrap();
+        let fresh_snapshot = fresh.capture_snapshot().unwrap();
+        let fresh_workspace = conflict_workspace_record(&mut fresh);
+
+        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut world, 4);
+        let world_id = world.state.binding.world_id;
+        let before = world.capture_snapshot().unwrap();
+        let cells_guard = fail_conflict_cells_reserve();
+        let downstream_guard = inject_conflict_invariant_downstream(world_id, &[0]);
+        let result = world.step(TickInput::new(4));
+        drop(cells_guard);
+        drop(downstream_guard);
+        assert_eq!(
+            result,
+            Err(crate::StepError::ConflictScratchAllocFailed),
+            "F2 真实预留失败必须先于同车更晚 downstream CIV 公开"
+        );
+        assert_eq!(world.capture_snapshot().unwrap(), before);
+        let retry = world.step(TickInput::new(4)).unwrap();
+        assert_eq!(retry, fresh_outcome, "同 tick 重试必须等于 fresh 首拍");
+        assert_eq!(world.capture_snapshot().unwrap(), fresh_snapshot);
+        assert_eq!(
+            conflict_workspace_record(&mut world),
+            fresh_workspace,
+            "重试后的工作区语义池必须与 fresh 一致"
+        );
+    }
+
+    /// 核心反例（checkpoint-map §5 D4-2）：F1（cell 工作区真实预留）先于
+    /// 同车任何更晚领域错误——注入 F1 失败 + 同车 downstream CIV ⇒ 公开
+    /// `ConflictScratchAllocFailed`。同 D4-1 的失败拍不变 + 同 tick 重试
+    /// 规范。
+    #[test]
+    fn earlier_f1_failure_beats_later_downstream_invariant() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        let mut fresh = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut fresh, 4);
+        let fresh_outcome = fresh.step(TickInput::new(4)).unwrap();
+        let fresh_snapshot = fresh.capture_snapshot().unwrap();
+
+        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut world, 4);
+        let world_id = world.state.binding.world_id;
+        let before = world.capture_snapshot().unwrap();
+        let cell_work_guard = fail_conflict_cell_work_reserve();
+        let downstream_guard = inject_conflict_invariant_downstream(world_id, &[0]);
+        let result = world.step(TickInput::new(4));
+        drop(cell_work_guard);
+        drop(downstream_guard);
+        assert_eq!(
+            result,
+            Err(crate::StepError::ConflictScratchAllocFailed),
+            "F1 真实预留失败必须先于同车更晚 downstream CIV 公开"
+        );
+        assert_eq!(world.capture_snapshot().unwrap(), before);
+        let retry = world.step(TickInput::new(4)).unwrap();
+        assert_eq!(retry, fresh_outcome, "同 tick 重试必须等于 fresh 首拍");
+        assert_eq!(world.capture_snapshot().unwrap(), fresh_snapshot);
+    }
+
+    /// 首错矩阵：NonFiniteMotion 注入位置 × worker 1/2/4 公开同一首错；
+    /// 失败拍状态不变；重试拍等于 w1 参考；融合/分发/回退互斥计数。
+    /// 表述注记（R5）：可用夹具每拍至多一个 Computed 候选，per-position
+    /// 双错误类别（如 NonFinite × downstream CIV）矩阵受夹具限制未建，
+    /// 消费序先于完成序的性质由 F1/F2/F4/F3b 位序反例覆盖。
+    #[test]
+    fn conflict_first_error_is_stable_across_workers_and_positions() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_220;
+        let _force = force_conflict_dispatch();
+        let counts_before = conflict_path_counts();
+        let mut reference: Option<crate::StepOutcome> = None;
+        for &position in &[0_usize, 8, 15] {
+            for &workers in &[1_u32, 2, 4] {
+                let mut world = multi_gate_world_with_id(16, WORLD_ID);
+                install_execution(&mut world, workers);
+                let before = world.capture_snapshot().unwrap();
+                let guard = inject_conflict_nonfinite(WORLD_ID, &[position]);
+                let result = world.step(TickInput::new(100));
+                drop(guard);
+                assert_eq!(
+                    result,
+                    Err(crate::StepError::NonFiniteMotion),
+                    "position={position} workers={workers}"
+                );
+                assert_eq!(world.capture_snapshot().unwrap(), before);
+                let retry = world.step(TickInput::new(100)).unwrap();
+                if workers == 1 {
+                    reference = Some(retry);
+                } else {
+                    assert_eq!(
+                        retry,
+                        reference.clone().unwrap(),
+                        "position={position} workers={workers} 重试必须等于 w1 参考"
+                    );
+                }
+            }
+        }
+        let counts = conflict_path_counts();
+        let delta = ConflictPathCounts {
+            dispatched: counts.dispatched - counts_before.dispatched,
+            fused: counts.fused - counts_before.fused,
+            slot_fallback: counts.slot_fallback - counts_before.slot_fallback,
+        };
+        // 每 (position, workers) 臂 = 失败拍 + 重试拍 = 2 拍。
+        assert_eq!(
+            delta,
+            ConflictPathCounts {
+                dispatched: 2 * 3 * 2,
+                fused: 2 * 3,
+                slot_fallback: 0,
+            },
+            "融合/分发/回退互斥计数: {delta:?}"
+        );
+    }
+
+    /// 可选暂存回退：输入表（冷态首拍）与结果槽位（热态）预留注入失败都
+    /// 退回融合路径，逐拍输出与 w1 融合参考一致，不新增领域错误；回退
+    /// 计数与分发计数互斥。
+    #[test]
+    fn conflict_scratch_reserve_failure_falls_back_to_fused() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_230;
+        let _force = force_conflict_dispatch();
+        let run = |workers: u32| {
+            let mut world = multi_gate_world_with_id(16, WORLD_ID);
+            install_execution(&mut world, workers);
+            let mut records = Vec::new();
+            for _ in 0..4 {
+                let outcome = world.step(TickInput::new(100)).unwrap();
+                records.push((
+                    motion_tick_record(&world, &outcome),
+                    conflict_workspace_record(&mut world),
+                ));
+            }
+            records
+        };
+        let reference = run(1);
+        let counts_before = conflict_path_counts();
+        let mut world = multi_gate_world_with_id(16, WORLD_ID);
+        install_execution(&mut world, 4);
+        let mut records = Vec::new();
+        {
+            let _guard = fail_conflict_input_reserve();
+            let outcome = world.step(TickInput::new(100)).unwrap();
+            records.push((
+                motion_tick_record(&world, &outcome),
+                conflict_workspace_record(&mut world),
+            ));
+        }
+        for _ in 0..2 {
+            let outcome = world.step(TickInput::new(100)).unwrap();
+            records.push((
+                motion_tick_record(&world, &outcome),
+                conflict_workspace_record(&mut world),
+            ));
+        }
+        {
+            let _guard = fail_conflict_slot_reserve();
+            let outcome = world.step(TickInput::new(100)).unwrap();
+            records.push((
+                motion_tick_record(&world, &outcome),
+                conflict_workspace_record(&mut world),
+            ));
+        }
+        assert_eq!(records, reference, "回退拍输出必须等于融合参考");
+        let counts = conflict_path_counts();
+        let delta = ConflictPathCounts {
+            dispatched: counts.dispatched - counts_before.dispatched,
+            fused: counts.fused - counts_before.fused,
+            slot_fallback: counts.slot_fallback - counts_before.slot_fallback,
+        };
+        assert_eq!(
+            delta,
+            ConflictPathCounts {
+                dispatched: 2,
+                fused: 0,
+                slot_fallback: 2,
+            },
+            "回退与分发互斥: {delta:?}"
+        );
+    }
+
+    /// 完成前沿不变量：join 后首错之前出现缺失槽位检出
+    /// `ConflictInvariantViolation` 而非当成功；缺失槽位晚于首错时不改变
+    /// 公开首错。
+    #[test]
+    fn missing_conflict_slot_before_first_error_is_detected() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_240;
+        let _force = force_conflict_dispatch();
+        for (gap, expected) in [
+            (3_usize, crate::StepError::ConflictInvariantViolation),
+            (15, crate::StepError::NonFiniteMotion),
+        ] {
+            let mut world = multi_gate_world_with_id(16, WORLD_ID);
+            install_execution(&mut world, 4);
+            let before = world.capture_snapshot().unwrap();
+            let gap_guard = drop_conflict_slot_at(gap);
+            let error_guard = inject_conflict_nonfinite(WORLD_ID, &[12]);
+            let result = world.step(TickInput::new(100));
+            drop(gap_guard);
+            drop(error_guard);
+            assert_eq!(result, Err(expected), "gap={gap}");
+            assert_eq!(world.capture_snapshot().unwrap(), before);
+            world.step(TickInput::new(100)).unwrap();
+        }
+    }
+
+    /// 多线程参与（R5 表述修正：participating_threads 度量的是出现过的
+    /// 线程数，不等于同时执行的重叠；真实并发重叠由 execution.rs 屏障
+    /// 测试覆盖）：600 车同路线、worker=4、连续 4 拍自然强制分发，每拍
+    /// 8 块全部完成且参与线程 > 1；P3 调度统计按阶段独立登记。
+    #[test]
+    fn conflict_dispatch_multi_thread_participation() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        let mut world = conflict_scale_world(Arc::clone(&revision), 600);
+        install_execution(&mut world, 4);
+        let mut peak_threads = 1_usize;
+        for _ in 0..4 {
+            world.step(TickInput::new(4)).unwrap();
+            let stats = last_conflict_dispatch_stats().expect("P3 分发统计");
+            assert_eq!(stats.dispatched_chunks, 8);
+            assert_eq!(stats.completed_chunks, 8);
+            assert_eq!(stats.ticket_grabs, 8);
+            peak_threads = peak_threads.max(stats.participating_threads);
+        }
+        assert!(
+            peak_threads >= 2,
+            "必须观察到真实多线程参与，peak={peak_threads}"
+        );
+    }
+
+    /// 小场景强制分发等价：multi-gate 16 车（含 Granted 候选、staged
+    /// 决定、旧 reservation 跳过的 Active 紧凑位语义）worker 2/4 的逐拍
+    /// 公开记录与工作区语义池字节级记录同 worker=1 融合参考一致。
+    #[test]
+    fn conflict_dispatch_matches_fused_reference() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_260;
+        let _force = force_conflict_dispatch();
+        let run = |workers: u32| {
+            let mut world = multi_gate_world_with_id(16, WORLD_ID);
+            install_execution(&mut world, workers);
+            let mut records = Vec::new();
+            for _ in 0..6 {
+                let outcome = world.step(TickInput::new(100)).unwrap();
+                records.push((
+                    motion_tick_record(&world, &outcome),
+                    conflict_workspace_record(&mut world),
+                ));
+            }
+            records
+        };
+        let reference = run(1);
+        for workers in [2_u32, 4, 8, 16] {
+            assert_eq!(
+                run(workers),
+                reference,
+                "workers={workers} 必须与融合参考逐拍一致"
+            );
+        }
+        let counts = conflict_path_counts();
+        assert!(counts.dispatched >= 12 && counts.fused >= 6);
+    }
+
+    /// Computed 候选等价：conflict_scale 首拍单车到达真冲突区（cells/
+    /// downstream 非空、Granted 组合资源），worker 2/4 的逐拍记录与工作区
+    /// 语义池同 worker=1 融合参考一致。
+    #[test]
+    fn conflict_computed_candidate_matches_fused_reference() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        let run = |workers: u32| {
+            let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+            install_execution(&mut world, workers);
+            let mut records = Vec::new();
+            for _ in 0..4 {
+                let outcome = world.step(TickInput::new(4)).unwrap();
+                records.push((
+                    motion_tick_record(&world, &outcome),
+                    conflict_workspace_record(&mut world),
+                ));
+            }
+            records
+        };
+        let reference = run(1);
+        for workers in [2_u32, 4, 8, 16] {
+            assert_eq!(
+                run(workers),
+                reference,
+                "workers={workers} Computed 候选必须与融合参考一致"
+            );
+        }
+    }
+
+    /// 停车 + 下游净空小场景强制分发等价：两车同一路线（前车紧邻车位
+    /// 入口、已预约），downstream 边界 NoGrant 折入 preflight 与零候选
+    /// 车辆路径都在分发臂下与融合逐拍一致。
+    #[test]
+    fn conflict_parking_scenario_matches_fused_reference() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_270;
+        let _force = force_conflict_dispatch();
+        let run = |workers: u32| {
+            let mut world = parking_arrival_world(workers, WORLD_ID);
+            let mut records = Vec::new();
+            for _ in 0..3 {
+                let outcome = world.step(TickInput::new(100)).unwrap();
+                records.push((
+                    motion_tick_record(&world, &outcome),
+                    conflict_workspace_record(&mut world),
+                ));
+            }
+            records
+        };
+        let reference = run(1);
+        for workers in [2_u32, 4, 8, 16] {
+            assert_eq!(
+                run(workers),
+                reference,
+                "workers={workers} 停车场景必须与融合参考一致"
+            );
+        }
+    }
+
+    /// F3b/F4 真实预留失败：downstream 工作区（F4）与 candidate_downstream
+    /// 池（F3b）注入失败都映射 `ConflictScratchAllocFailed`，且先于同车更晚
+    /// 领域错误；失败拍状态不变。
+    #[test]
+    fn downstream_reserve_failures_map_to_scratch_alloc_failed() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        for arm in 0..2 {
+            let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+            install_execution(&mut world, 4);
+            let before = world.capture_snapshot().unwrap();
+            let guard = if arm == 0 {
+                fail_conflict_downstream_work_reserve()
+            } else {
+                fail_conflict_downstream_pool_reserve()
+            };
+            let result = world.step(TickInput::new(4));
+            drop(guard);
+            assert_eq!(
+                result,
+                Err(crate::StepError::ConflictScratchAllocFailed),
+                "arm={arm}"
+            );
+            assert_eq!(world.capture_snapshot().unwrap(), before);
+            world.step(TickInput::new(4)).unwrap();
+        }
+    }
+
+    /// 工作计数口径：w1 融合与 w4 强制分发的 ConflictWorkCounts 逐字段
+    /// 一致（任务线程增量经块级记录汇总；诊断开启只改记录，不改语义）。
+    /// conflict_scale 的 P3 段内产出：cells 循环 visited_passages 与
+    /// yield target 求值。
+    #[test]
+    fn conflict_counters_match_between_fused_and_dispatched() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let _diagnostics = enable_conflict_diagnostics();
+        let revision = conflict_scale_revision();
+        let run = |workers: u32| {
+            let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+            install_execution(&mut world, workers);
+            let before = conflict_work_counts();
+            for _ in 0..6 {
+                world.step(TickInput::new(4)).unwrap();
+            }
+            let after = conflict_work_counts();
+            after.wrapping_sub(before)
+        };
+        let fused = run(1);
+        let dispatched = run(4);
+        assert_eq!(
+            dispatched, fused,
+            "分发路径计数必须经块级记录汇总后与融合一致: fused={fused:?} dispatched={dispatched:?}"
+        );
+        assert!(
+            fused.visited_passages > 0 && fused.yield_queries > 0,
+            "场景必须覆盖 P3 段内计数: {fused:?}"
+        );
+    }
+
+    /// E2 生命周期组合（#705 parallel_preview_equivalence 模式扩展到 P3/P5
+    /// 分发）：Parked 夹入 live 序列、Completed 保留中部、同槽位新代次
+    /// respawn——三个生命周期场景下 P2/P3/P5 全部强制分发，逐拍公开记录
+    /// 与工作区语义池同 w1 全融合参照一致，且每拍三路各自路径计数确认
+    /// 真实分发（非回退）。
+    #[test]
+    fn mixed_lifecycle_all_phases_dispatched_matches_fused_reference() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        use crate::kernel::tick::{MotionPathCounts, force_motion_dispatch, motion_path_counts};
+        use crate::kernel::waiting::{
+            WaitingPreviewPathCounts, force_preview_dispatch, preview_path_counts,
+        };
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_310;
+        const PROFILE: VehicleProfileOrdinal = VehicleProfileOrdinal::from_raw(0);
+        let _force_preview = force_preview_dispatch();
+        let _force_conflict = force_conflict_dispatch();
+        let _force_motion = force_motion_dispatch();
+
+        let step_pair = |reference: &mut TrafficWorld, parallel: &mut TrafficWorld| {
+            let preview_before = preview_path_counts();
+            let conflict_before = conflict_path_counts();
+            let motion_before = motion_path_counts();
+            let parallel_outcome = parallel.step(TickInput::new(100)).unwrap();
+            let reference_outcome = reference.step(TickInput::new(100)).unwrap();
+            assert_eq!(
+                (
+                    motion_tick_record(parallel, &parallel_outcome),
+                    conflict_workspace_record(parallel)
+                ),
+                (
+                    motion_tick_record(reference, &reference_outcome),
+                    conflict_workspace_record(reference)
+                ),
+                "混合生命周期全分发必须等于全融合参照"
+            );
+            let preview_delta = WaitingPreviewPathCounts {
+                dispatched: preview_path_counts().dispatched - preview_before.dispatched,
+                fused: preview_path_counts().fused - preview_before.fused,
+                slot_fallback: preview_path_counts().slot_fallback - preview_before.slot_fallback,
+            };
+            let conflict_delta = ConflictPathCounts {
+                dispatched: conflict_path_counts().dispatched - conflict_before.dispatched,
+                fused: conflict_path_counts().fused - conflict_before.fused,
+                slot_fallback: conflict_path_counts().slot_fallback - conflict_before.slot_fallback,
+            };
+            let motion_delta = MotionPathCounts {
+                dispatched: motion_path_counts().dispatched - motion_before.dispatched,
+                fused: motion_path_counts().fused - motion_before.fused,
+                slot_fallback: motion_path_counts().slot_fallback - motion_before.slot_fallback,
+            };
+            assert_eq!(
+                (preview_delta.dispatched, preview_delta.slot_fallback),
+                (1, 0),
+                "P2 必须真实分发"
+            );
+            assert_eq!(
+                (conflict_delta.dispatched, conflict_delta.slot_fallback),
+                (1, 0),
+                "P3 必须真实分发"
+            );
+            assert_eq!(
+                (motion_delta.dispatched, motion_delta.slot_fallback),
+                (1, 0),
+                "P5 必须真实分发"
+            );
+        };
+
+        // 场景 A：Active→Parked 转换拍后连续步进（Parked 夹入 live 序列，
+        // Active 紧凑位 ≠ 逻辑 update_sequence）。
+        let (mut reference, route, space, entry_progress) = parking_route_world(1, WORLD_ID);
+        let (mut parallel, _, _, _) = parking_route_world(4, WORLD_ID);
+        let target = crate::ParkingTarget::ExplicitSpace(space);
+        let reserve = crate::ReserveParkingTarget::ExplicitSpace {
+            space,
+            entry_route_occurrence: 0,
+        };
+        for world in [&mut reference, &mut parallel] {
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(PROFILE, route, 0, 12_000, 0))
+                .unwrap();
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(PROFILE, route, 0, entry_progress, 0))
+                .unwrap();
+            for index in 0..8_u32 {
+                world
+                    .spawn_vehicle(VehicleSpawnInput::new(
+                        PROFILE,
+                        route,
+                        0,
+                        20_000 + index * 8_000,
+                        0,
+                    ))
+                    .unwrap();
+            }
+            let parker = world.live_vehicles()[1];
+            world.reserve_parking(parker, reserve).expect("reserve");
+        }
+        let parker = reference.live_vehicles()[1];
+        reference.park_vehicle(parker, target).expect("park");
+        parallel.park_vehicle(parker, target).expect("park");
+        for _ in 0..6 {
+            step_pair(&mut reference, &mut parallel);
+        }
+
+        // 场景 B：Completed 产生拍（近终点车）+ 同槽位新代次 spawn 拍。
+        let (mut reference, route, _, _) = parking_route_world(1, WORLD_ID);
+        let (mut parallel, _, _, _) = parking_route_world(4, WORLD_ID);
+        let edges = reference.route_edges(route).unwrap().to_vec();
+        let speed_limit = reference
+            .traffic()
+            .lane_speed_limits_millimetres_per_second()[edges[0].index()];
+        let exit_length = reference.traffic().lane_lengths_millimetres()[edges[1].index()];
+        for world in [&mut reference, &mut parallel] {
+            for index in 0..5_u32 {
+                world
+                    .spawn_vehicle(VehicleSpawnInput::new(
+                        PROFILE,
+                        route,
+                        0,
+                        12_000 + index * 8_000,
+                        0,
+                    ))
+                    .unwrap();
+            }
+            world
+                .spawn_vehicle(VehicleSpawnInput::new(
+                    PROFILE,
+                    route,
+                    1,
+                    exit_length - 500,
+                    speed_limit,
+                ))
+                .unwrap();
+            for index in 5..10_u32 {
+                world
+                    .spawn_vehicle(VehicleSpawnInput::new(
+                        PROFILE,
+                        route,
+                        0,
+                        12_000 + index * 8_000,
+                        0,
+                    ))
+                    .unwrap();
+            }
+        }
+        let finisher = reference.live_vehicles()[5];
+        let mut completed = false;
+        for _ in 0..6 {
+            step_pair(&mut reference, &mut parallel);
+            completed = completed
+                || reference
+                    .vehicle(finisher)
+                    .is_some_and(|state| state.status() == crate::VehicleStatus::Completed);
+            if completed {
+                break;
+            }
+        }
+        assert!(completed, "近终点车必须在脚本内到达路线终点");
+        step_pair(&mut reference, &mut parallel);
+        let stale = reference.live_vehicles()[3];
+        let respawn = VehicleSpawnInput::new(PROFILE, route, 0, 0, 0);
+        for world in [&mut reference, &mut parallel] {
+            world.despawn_vehicle(stale).expect("despawn");
+        }
+        let reference_new = reference.spawn_vehicle(respawn).unwrap();
+        let parallel_new = parallel.spawn_vehicle(respawn).unwrap();
+        assert_eq!(reference_new, parallel_new);
+        assert_eq!(reference_new.index(), stale.index(), "同槽位复用");
+        assert_ne!(reference_new, stale, "新代次");
+        for _ in 0..3 {
+            step_pair(&mut reference, &mut parallel);
+        }
+    }
+
+    /// R1：消费侧工作缓冲不跨候选/跨拍累积——预热后容量有界不随拍数
+    /// 增长（旧实现 reserve 把已有 len 计入需求 → 每拍额外增长）。
+    #[test]
+    fn conflict_scratch_buffers_do_not_accumulate_across_ticks() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut world, 4);
+        let mut capacities = Vec::new();
+        for _ in 0..6 {
+            world.step(TickInput::new(4)).unwrap();
+            let step = world.state.step_workspace();
+            capacities.push((
+                step.workspace.conflict_cell_work.capacity(),
+                step.workspace.conflict_downstream_work.capacity(),
+                step.workspace.conflict_cell_work.len(),
+                step.workspace.conflict_downstream_work.len(),
+            ));
+        }
+        assert!(
+            capacities[2..].iter().all(|&entry| entry == capacities[2]),
+            "预热后工作缓冲容量必须稳定（不随拍数增长）: {capacities:?}"
+        );
+        assert!(
+            capacities.iter().all(|&(_, _, cells, downstream)| {
+                // 每拍至多一个候选：cell 工作区长度上界为 passage 数（本夹具 1），
+                // downstream 工作区长度上界为 claims 数（小常数）——绝不累积。
+                cells <= 4 && downstream <= 8
+            }),
+            "工作缓冲长度只属当前候选: {capacities:?}"
+        );
+    }
+
+    /// R2+R4：F4 预留注入仅在真实必要增长时触发，且融合与分发两条路径
+    /// 在同一逻辑检查点对拍——冷态（需增长）+ 武装 →
+    /// ConflictScratchAllocFailed；热态（余量足够）+ 已武装 → 不得制造
+    /// 错误；清注入同 tick 重试 == fresh。
+    #[test]
+    fn f4_reserve_injection_gated_by_real_growth_on_both_paths() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+        for workers in [1_u32, 4] {
+            let mut fresh = conflict_scale_world(Arc::clone(&revision), 16);
+            install_execution(&mut fresh, workers);
+            let fresh_outcome = fresh.step(TickInput::new(4)).unwrap();
+            let fresh_snapshot = fresh.capture_snapshot().unwrap();
+
+            // 冷态 + 武装：F4 真实增长失败（F4 义务先于 F4 后检查公开）。
+            let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+            install_execution(&mut world, workers);
+            let before = world.capture_snapshot().unwrap();
+            let guard = fail_conflict_downstream_work_reserve();
+            let result = world.step(TickInput::new(4));
+            drop(guard);
+            assert_eq!(
+                result,
+                Err(crate::StepError::ConflictScratchAllocFailed),
+                "workers={workers} 冷态 F4 需真实增长，武装注入必须先于 F4 后检查"
+            );
+            assert_eq!(world.capture_snapshot().unwrap(), before);
+            let retry = world.step(TickInput::new(4)).unwrap();
+            assert_eq!(retry, fresh_outcome, "workers={workers} 重试必须等于 fresh");
+            assert_eq!(world.capture_snapshot().unwrap(), fresh_snapshot);
+
+            // 热态 + 已武装：余量足够不得伪造预留失败（W4：探针先清空；
+            // 候选周期内 F4 稀疏，持武装步进 12 拍全程不得公开错误，
+            // 且探针 fired 计数必须为零（余量足够+已武装 ⇒ 永不伪造失败）。
+            crate::kernel::conflict_tick::reset_conflict_reserve_probe_log();
+            let guard = fail_conflict_downstream_work_reserve();
+            for _ in 0..12 {
+                world.step(TickInput::new(4)).unwrap();
+            }
+            drop(guard);
+            let log = crate::kernel::conflict_tick::conflict_reserve_probe_log();
+            assert_eq!(
+                log.fired, 0,
+                "余量足够+已武装：任何 F 位都不得触发注入: {log:?}"
+            );
+        }
+    }
+
+    /// R4+W4：预留探针记录逻辑检查点的可达性、真实需求与余量。每个
+    /// case 测前清空日志；按 last + 各点位命中数双重断言：普通拍全点位
+    /// 按序到达且 injected=false；武装 F1 的冷态拍失败后 CellWork 之后
+    /// 的点位本次命中数为零（不可达）。
+    #[test]
+    fn reserve_probe_records_site_reachability_and_growth() {
+        use crate::kernel::conflict_tick::{
+            ConflictReserveSite, conflict_reserve_probe_log, fail_conflict_cell_work_reserve,
+            reset_conflict_reserve_probe_log,
+        };
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        let _force = force_conflict_dispatch();
+        let revision = conflict_scale_revision();
+
+        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut world, 4);
+        reset_conflict_reserve_probe_log();
+        world.step(TickInput::new(4)).unwrap();
+        let log = conflict_reserve_probe_log();
+        let probe = log.last.expect("F 位探针");
+        assert_eq!(probe.site, ConflictReserveSite::DownstreamPool);
+        assert!(!probe.injected, "普通拍不得触发注入: {probe:?}");
+        assert!(probe.required >= 1, "探针须记录真实需求（≥1）: {probe:?}");
+        assert!(
+            log.hits.iter().all(|&hits| hits >= 1),
+            "普通拍四个 F 位必须全部到达: {log:?}"
+        );
+
+        let mut world = conflict_scale_world(Arc::clone(&revision), 16);
+        install_execution(&mut world, 4);
+        reset_conflict_reserve_probe_log();
+        let guard = fail_conflict_cell_work_reserve();
+        let result = world.step(TickInput::new(4));
+        drop(guard);
+        assert_eq!(result, Err(crate::StepError::ConflictScratchAllocFailed));
+        let log = conflict_reserve_probe_log();
+        let probe = log.last.expect("F 位探针");
+        assert_eq!(
+            probe.site,
+            ConflictReserveSite::CellWork,
+            "F1 失败后探针停在 CellWork"
+        );
+        assert!(probe.injected, "冷态 F1 真实增长 + 武装必须触发: {probe:?}");
+        assert_eq!(
+            log.hits[1..],
+            [0, 0, 0],
+            "F1 失败后 F2/F4/F3b 本次访问次数必须为零（不可达）: {log:?}"
+        );
+    }
+
+    /// R4（P5）：到达预留注入仅真实必要增长时触发——到达拍（观察 Vec 空、
+    /// 首次增长）+ 武装 → 先公开 ParkingObservationAllocFailed，清注入重试
+    /// 与 fresh 一致；其后的无到达拍 + 已武装 → 余量足够/未达检查点，不得
+    /// 制造错误。（夹具入口前空间只容一车排队，同拍多到达用每拍观察 Vec
+    /// 重新开始的连续到达拍覆盖。）
+    #[test]
+    fn parking_arrival_injection_requires_growth_per_step() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        use crate::kernel::tick::{fail_motion_arrival_reserve, motion_path_counts};
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_320;
+        let _force = force_motion_dispatch();
+        let counts_before = motion_path_counts();
+
+        let (mut fresh, route, space, entry_progress) = parking_route_world(4, WORLD_ID);
+        let reserve = crate::ReserveParkingTarget::ExplicitSpace {
+            space,
+            entry_route_occurrence: 0,
+        };
+        let a = fresh
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                entry_progress - 1,
+                10_000,
+            ))
+            .unwrap();
+        fresh.reserve_parking(a, reserve).unwrap();
+        let fresh_outcome = fresh.step(TickInput::new(100)).unwrap();
+        assert_eq!(fresh_outcome.parking_arrivals().len(), 1, "到达拍兑现");
+        let fresh_snapshot = fresh.capture_snapshot().unwrap();
+
+        let (mut world, route, _, entry_progress) = parking_route_world(4, WORLD_ID);
+        let a = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                entry_progress - 1,
+                10_000,
+            ))
+            .unwrap();
+        world.reserve_parking(a, reserve).unwrap();
+        let guard = fail_motion_arrival_reserve();
+        let result = world.step(TickInput::new(100));
+        drop(guard);
+        assert_eq!(
+            result,
+            Err(crate::StepError::ParkingObservationAllocFailed),
+            "到达拍观察 Vec 首次增长 + 武装必须先公开到达预留失败"
+        );
+        let retry = world.step(TickInput::new(100)).unwrap();
+        assert_eq!(retry, fresh_outcome, "清注入重试必须等于 fresh 首拍");
+        assert_eq!(world.capture_snapshot().unwrap(), fresh_snapshot);
+        // 无到达拍 + 已武装：不得制造错误。
+        let guard = fail_motion_arrival_reserve();
+        world.step(TickInput::new(100)).unwrap();
+        world.step(TickInput::new(100)).unwrap();
+        drop(guard);
+        let counts = motion_path_counts();
+        assert!(
+            counts.dispatched - counts_before.dispatched >= 5,
+            "全程真实分发: {counts:?}"
+        );
+    }
+
+    /// E1 组合矩阵（审阅者 §8.3）：P2/P3/P5 七个分发/融合组合 + 全融合
+    /// 参照，multi-gate 16 车 w4、每臂 4 拍。被要求分发的相位以各自路径
+    /// 计数确认真实分发（与 fused/slot_fallback 互斥），融合相位计 fused；
+    /// 全部组合的公开记录 + 工作区语义池逐拍一致（分发不改变语义），且
+    /// 失败注入语义在全分发组合下不回归（矩阵外由 D4/首错测试覆盖）。
+    #[test]
+    fn phase_combination_matrix_matches_across_all_arms() {
+        use crate::kernel::execution::RESOURCE_TEST_LOCK;
+        let _lock = RESOURCE_TEST_LOCK.lock().unwrap();
+        const WORLD_ID: u64 = 706_300;
+        use crate::kernel::tick::{
+            MotionPathCounts, force_motion_dispatch, force_motion_fuse, motion_path_counts,
+        };
+        use crate::kernel::waiting::{
+            WaitingPreviewPathCounts, force_preview_dispatch, force_preview_fuse,
+            preview_path_counts,
+        };
+        // (P2, P3, P5)：true = 强制分发，false = 强制融合（fuse 优先）。
+        let arms: [(bool, bool, bool); 8] = [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (false, false, true),
+            (true, true, false),
+            (true, false, true),
+            (false, true, true),
+            (true, true, true),
+        ];
+        let mut reference: Option<Vec<(String, String)>> = None;
+        for &(p2, p3, p5) in &arms {
+            let mut world = multi_gate_world_with_id(16, WORLD_ID);
+            install_execution(&mut world, 4);
+            let _p2_dispatch = p2.then(force_preview_dispatch);
+            let _p2_fuse = (!p2).then(force_preview_fuse);
+            let _p3_dispatch = p3.then(force_conflict_dispatch);
+            let _p3_fuse = (!p3).then(force_conflict_fuse);
+            let _p5_dispatch = p5.then(force_motion_dispatch);
+            let _p5_fuse = (!p5).then(force_motion_fuse);
+            let preview_arm_before = preview_path_counts();
+            let conflict_arm_before = conflict_path_counts();
+            let motion_arm_before = motion_path_counts();
+            let mut records = Vec::new();
+            for _ in 0..4 {
+                let outcome = world.step(TickInput::new(100)).unwrap();
+                records.push((
+                    motion_tick_record(&world, &outcome),
+                    conflict_workspace_record(&mut world),
+                ));
+            }
+            if let Some(reference) = &reference {
+                assert_eq!(
+                    &records, reference,
+                    "arm=({p2},{p3},{p5}) 必须与全融合参照逐拍一致"
+                );
+            } else {
+                reference = Some(records);
+            }
+            let preview_delta = WaitingPreviewPathCounts {
+                dispatched: preview_path_counts().dispatched - preview_arm_before.dispatched,
+                fused: preview_path_counts().fused - preview_arm_before.fused,
+                slot_fallback: preview_path_counts().slot_fallback
+                    - preview_arm_before.slot_fallback,
+            };
+            let conflict_delta = ConflictPathCounts {
+                dispatched: conflict_path_counts().dispatched - conflict_arm_before.dispatched,
+                fused: conflict_path_counts().fused - conflict_arm_before.fused,
+                slot_fallback: conflict_path_counts().slot_fallback
+                    - conflict_arm_before.slot_fallback,
+            };
+            let motion_delta = MotionPathCounts {
+                dispatched: motion_path_counts().dispatched - motion_arm_before.dispatched,
+                fused: motion_path_counts().fused - motion_arm_before.fused,
+                slot_fallback: motion_path_counts().slot_fallback - motion_arm_before.slot_fallback,
+            };
+            let expect = |on: bool| {
+                if on { (4, 0, 0) } else { (0, 4, 0) }
+            };
+            let (pd, pf, pb) = expect(p2);
+            assert_eq!(
+                (
+                    preview_delta.dispatched,
+                    preview_delta.fused,
+                    preview_delta.slot_fallback
+                ),
+                (pd, pf, pb),
+                "P2 arm=({p2},{p3},{p5}) 路径计数"
+            );
+            let (cd, cf, cb) = expect(p3);
+            assert_eq!(
+                (
+                    conflict_delta.dispatched,
+                    conflict_delta.fused,
+                    conflict_delta.slot_fallback
+                ),
+                (cd, cf, cb),
+                "P3 arm=({p2},{p3},{p5}) 路径计数"
+            );
+            let (md, mf, mb) = expect(p5);
+            assert_eq!(
+                (
+                    motion_delta.dispatched,
+                    motion_delta.fused,
+                    motion_delta.slot_fallback
+                ),
+                (md, mf, mb),
+                "P5 arm=({p2},{p3},{p5}) 路径计数"
+            );
         }
     }
 

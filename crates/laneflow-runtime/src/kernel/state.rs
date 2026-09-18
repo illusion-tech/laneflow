@@ -132,6 +132,22 @@ pub(crate) struct TickWorkspace {
     /// 协调器按序消费。预留失败只退回融合求值，不新增领域错误。
     pub(crate) waiting_preview_slots:
         Vec<crate::kernel::execution::DispatchSlot<crate::kernel::tick::WaitingPreviewEntry>>,
+    /// P5 逐车独立计算的输入三元组（Active 紧凑位置 -> 完整句柄 + 紧凑位 +
+    /// 拍初状态）；协调器构建，任务只读。
+    pub(crate) motion_inputs: Vec<(crate::VehicleHandle, usize, VehicleState)>,
+    /// P5 逐车运动结果槽位，按 Active 紧凑位置索引；任务独占连续切片写入，
+    /// 协调器按序规范消费（到达真实预留留在消费侧原逻辑位置）。预留失败只
+    /// 退回融合求值，不新增领域错误。
+    pub(crate) motion_slots:
+        Vec<crate::kernel::execution::DispatchSlot<crate::kernel::tick::VehicleMotionOutcome>>,
+    /// P3 候选求值输入四元组（live 序 -> 句柄 + live 序 + Active 紧凑位 +
+    /// 拍初状态）；发现镜像串行循环跳过语义，协调器构建，任务只读。
+    pub(crate) conflict_inputs: Vec<(crate::VehicleHandle, u32, usize, VehicleState)>,
+    /// P3 候选多段报告槽位，按发现序索引；任务独占连续切片写入完整报告，
+    /// 协调器按 live×gate 原序规范消费。预留失败只退回融合求值，不新增
+    /// 领域错误。
+    pub(crate) conflict_slots:
+        Vec<crate::kernel::execution::DispatchSlot<crate::kernel::conflict_tick::CandidateReport>>,
 }
 
 #[cfg(test)]
@@ -257,6 +273,10 @@ impl TickWorkspace {
             next_states,
             waiting_preview_inputs,
             waiting_preview_slots,
+            motion_inputs,
+            motion_slots,
+            conflict_inputs,
+            conflict_slots,
         } = self;
         crate::kernel::state::vec_bytes(conflict_candidates)
             + crate::kernel::state::vec_bytes(conflict_candidate_cells)
@@ -276,6 +296,27 @@ impl TickWorkspace {
             + crate::kernel::state::vec_bytes(motion_cache)
             + crate::kernel::state::vec_bytes(waiting_preview_inputs)
             + crate::kernel::state::vec_bytes(waiting_preview_slots)
+            + crate::kernel::state::vec_bytes(motion_inputs)
+            + crate::kernel::state::vec_bytes(motion_slots)
+            + crate::kernel::state::vec_bytes(conflict_inputs)
+            + crate::kernel::state::vec_bytes(conflict_slots)
+            // R3-3b：槽位报告的段 Vec backing 峰值（CellsSegment::Values /
+            // Obligated fill）；失败未消费报告在下一拍分发前回收清理，
+            // 此处计的是清理前可达的峰值保有。
+            + u64::try_from(
+                conflict_slots
+                    .iter()
+                    .map(|slot| match slot {
+                        crate::kernel::execution::DispatchSlot::Done(Ok(report)) => {
+                            report.retained_logical_bytes()
+                        }
+                        crate::kernel::execution::DispatchSlot::Pending
+                        | crate::kernel::execution::DispatchSlot::Done(Err(_))
+                        | crate::kernel::execution::DispatchSlot::Skipped => 0,
+                    })
+                    .sum::<usize>(),
+            )
+            .unwrap_or(u64::MAX)
             + crate::kernel::state::slice_bytes(conflict_motion_by_vehicle)
             + crate::kernel::state::slice_bytes(conflict_next_eligibility)
             + crate::kernel::state::slice_bytes(next_signal_aspects)

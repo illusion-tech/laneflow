@@ -2264,6 +2264,73 @@ mod tests {
         assert_eq!(world.tick_index(), 5);
     }
 
+    /// #706 增量 E3：journal 分配证据——武装按字节上界一次预留 arena，
+    /// 武装期稳态 tick 的流式写入只进预留空间（容量不变 ⇒ 零分配/零再
+    /// 分配）；溢出粘性停写同样不扩 arena、不回滚（语义见
+    /// `overflowed_journal_keeps_world_stepping`）。
+    #[test]
+    fn armed_journal_steady_and_overflow_steps_do_not_grow_arena() {
+        let make_world = world;
+        let mut world = make_world();
+        let route = preview_route(&mut world);
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .expect("vehicle");
+        world.state.arm_migration_journal(8 * 1_024).expect("arm");
+        let capacity_before = world
+            .state
+            .migration_journal()
+            .expect("armed")
+            .retained_logical_bytes();
+        for _ in 0..4 {
+            world.step(TickInput::new(100)).expect("armed step");
+        }
+        let journal = world.state.migration_journal().expect("armed");
+        assert!(journal.written_bytes() > 0, "武装期稳态 tick 必须写入日志");
+        assert!(!journal.overflowed(), "8 KiB 上界不得在本场景溢出");
+        assert_eq!(
+            journal.retained_logical_bytes(),
+            capacity_before,
+            "武装期稳态写入必须留在预留 arena（容量不变 = 零分配）"
+        );
+        world.state.disarm_migration_journal();
+
+        // 溢出臂：上界只够一条 TICK 头；首拍溢出后 arena 容量仍不变。
+        let mut tiny = make_world();
+        let route = preview_route(&mut tiny);
+        tiny.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            1_000,
+            0,
+        ))
+        .expect("vehicle");
+        tiny.state.arm_migration_journal(21).expect("arm tiny");
+        let tiny_capacity = tiny
+            .state
+            .migration_journal()
+            .expect("armed")
+            .retained_logical_bytes();
+        for _ in 0..3 {
+            tiny.step(TickInput::new(100))
+                .expect("step despite overflow");
+        }
+        let journal = tiny.state.migration_journal().expect("armed");
+        assert!(journal.overflowed(), "21 字节上界首拍即溢出");
+        assert_eq!(
+            journal.retained_logical_bytes(),
+            tiny_capacity,
+            "溢出粘性停写不得扩 arena（零分配、不回滚）"
+        );
+    }
+
     #[test]
     fn arm_twice_fails_and_disarm_takes_journal() {
         let mut world = world();

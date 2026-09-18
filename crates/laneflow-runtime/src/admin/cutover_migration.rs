@@ -1013,6 +1013,10 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             next_states,
             waiting_preview_inputs: Vec::new(),
             waiting_preview_slots: Vec::new(),
+            motion_inputs: Vec::new(),
+            motion_slots: Vec::new(),
+            conflict_inputs: Vec::new(),
+            conflict_slots: Vec::new(),
         },
         admin: crate::admin::state::AdministrativeState {
             migration_journal,
