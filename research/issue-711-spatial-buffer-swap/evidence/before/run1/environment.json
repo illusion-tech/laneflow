@@ -1,0 +1,31 @@
+{
+  "baseline": "b99a282ee399e15687301265dd8b27e8f7457d27",
+  "baselineTree": "60ac76397aa1c6b292c553dbed7ea456236cc5f0",
+  "allowUntracked": "research/issue-711-spatial-buffer-swap/",
+  "worktreeStable": true,
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\nLLVM version: 22.1.8",
+  "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+  "os": "Microsoft Windows NT 10.0.29661.0",
+  "cpu": "AMD Ryzen 9 9955HX 16-Core Processor           ",
+  "logicalProcessors": 32,
+  "powerScheme": "",
+  "time": "2026-09-18T06:49:39.3457023Z",
+  "binaries": [
+    {
+      "Path": "E:\\projects\\worktrees\\711\\baseline\\research\\issue-711-spatial-buffer-swap\\evidence\\before\\run1\\wall.exe",
+      "Hash": "4CA1BBE47CA94AC57C7A4E0ADB8411D86F9AB4631F643AF569DF1B0769D9986B"
+    },
+    {
+      "Path": "E:\\projects\\worktrees\\711\\baseline\\research\\issue-711-spatial-buffer-swap\\evidence\\before\\run1\\allocation.exe",
+      "Hash": "EAE01EEF512A63147903E12CF79A843AE29F523C82FC8385CF272883B6250688"
+    }
+  ],
+  "sources": [
+    {
+      "Path": "E:\\projects\\worktrees\\711\\baseline\\research\\issue-711-spatial-buffer-swap\\src\\main.rs",
+      "Hash": "12B0BEFF308AB7B1D0E7EC763EB02AB94F4B2A286D6D9A4C590105EED56C5BB3"
+    }
+  ],
+  "lockfile": "7D67136E23D4FC6D48B5B2216B93D311AA1BC7F46305E9223BE1B39A25B740D5",
+  "manifest": "2BCB8D0FC51DA4472496B8F25E0484875AA8AC6B6EDB098E76C2E6E39F165045"
+}
