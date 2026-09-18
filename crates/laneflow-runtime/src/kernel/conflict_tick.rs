@@ -3625,7 +3625,10 @@ pub(crate) enum ConflictReserveSite {
 pub(crate) struct ConflictReserveProbe {
     pub(crate) site: ConflictReserveSite,
     pub(crate) required: usize,
+    /// 记录时的余量与容量（诊断留档；当前断言只读 required/injected）。
+    #[expect(dead_code)]
     pub(crate) len: usize,
+    #[expect(dead_code)]
     pub(crate) capacity: usize,
     pub(crate) injected: bool,
 }
