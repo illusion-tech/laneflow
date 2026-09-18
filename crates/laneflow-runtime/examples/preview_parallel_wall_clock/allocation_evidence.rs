@@ -4,9 +4,12 @@
 //! `collect()` 票据容器（锁直接保护切片迭代器），块级诊断记录在诊断未
 //! 启用时不分配，输入/槽位暂存预热后复用。残差预算为每拍每辅助线程每
 //! 分发阶段一个 Rayon scope 任务节点（执行配置 §3 明确豁免的进程级内部
-//! 调度分配，与块数无关）；本场景每拍有两个分发阶段（P2 预览 + P5 运动），
-//! 故预算 = 拍数 × (worker−1) × 2。再分配必须为零。`allocated_bytes`
-//! 只输出、不断言（残差字节随 Rayon 实现，预算断言只锁计数与再分配）。
+//! 调度分配，与块数无关）；本场景每拍有三个分发阶段：P2 预览、P3 候选
+//! 与 P5 运动（#706 增量 D 起 P3 候选在 Pool 执行器与阈值之上同样真实
+//! 分发），故预算 = 拍数 × worker × 3（worker 为执行配置工作线程总数，
+//! 含调用线程；调用线程在部分调度下也会得到一个 scope 任务节点）。
+//! 再分配必须为零。`allocated_bytes` 只输出、不断言（残差字节随 Rayon
+//! 实现，预算断言只锁计数与再分配）。
 
 mod multi_gate_scene;
 
@@ -44,11 +47,12 @@ fn preview_dispatch_steady_tick_allocation_budget_after_warmup() {
     // Rayon scope 任务节点（执行配置 §3 明确豁免的进程级内部调度分配，
     // 与块数无关、旧容器实现按块数倍增长）。再分配与增长必须为零。
     // 预算 = 拍数 × 阶段数 × 参与线程数（含调用线程；调用线程在部分调度下
-    // 也会得到一个 scope 任务节点，实测约为预算的 77%）。残差全部归 Rayon
+    // 也会得到一个 scope 任务节点，实测约为预算的 77%）。阶段数 = 3：
+    // P2 预览、P3 候选、P5 运动。残差全部归 Rayon
     // 内部调度（执行配置 §3 豁免），LaneFlow 自有增长已归零：reallocations
     // 必须为零，且分配数不随块数/车辆完成增长（固定为每拍常数级）。
     assert!(
-        stats.allocations <= (MEASURED_TICKS * 2 * WORKERS) as usize,
+        stats.allocations <= (MEASURED_TICKS * 3 * WORKERS) as usize,
         "steady dispatch ticks allocated beyond rayon task node budget: {}",
         stats.allocations
     );
