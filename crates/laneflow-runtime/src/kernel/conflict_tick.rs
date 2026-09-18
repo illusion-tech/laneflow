@@ -2708,6 +2708,145 @@ mod tests {
             assert_eq!(conflict_work_counts().eta_preparations, 0);
         }
     }
+    /// R3-3c：真 Conflict 夹具（conflict_scale，非空 cells/downstream 候选）
+    /// 的分配器证据。测量在独占子进程内进行（lib 测试二进制共享
+    /// INSTRUMENTED_SYSTEM 全局计数分配器，父进程并行测试会污染计数）：
+    /// 稳态多拍分发无每候选堆分配增长（段暂存跨拍复用），失败后未消费
+    /// 报告的清理无泄漏性增长；预算口径与 preview_dispatch_allocation_
+    /// evidence 一致（Rayon scope 任务节点 = 拍数 × 阶段数 × worker）。
+    #[test]
+    fn conflict_dispatch_allocation_evidence_process() {
+        if std::env::var_os("LFRT_CONFLICT_ALLOC_EVIDENCE").is_some() {
+            run_conflict_dispatch_allocation_evidence();
+            return;
+        }
+        let executable = std::env::current_exe().expect("current test executable");
+        let status = std::process::Command::new(executable)
+            .env("LFRT_CONFLICT_ALLOC_EVIDENCE", "1")
+            .arg("kernel::conflict_tick::tests::conflict_dispatch_allocation_evidence_process")
+            .arg("--exact")
+            .arg("--nocapture")
+            .arg("--test-threads=1")
+            .status()
+            .expect("spawn evidence child process");
+        assert!(status.success(), "分配证据子进程必须成功退出");
+    }
+
+    fn run_conflict_dispatch_allocation_evidence() {
+        use crate::admin::cutover_migration::tests::{
+            conflict_scale_revision, conflict_scale_world,
+        };
+        use stats_alloc::{INSTRUMENTED_SYSTEM, Region};
+
+        const WORKERS: u32 = 4;
+        // 1_200 车同路线：P2/P3/P5 三个分发阶段每拍都自然跨阈值
+        //（P3 工作集 = Active 且非旧 reservation）。
+        let revision = conflict_scale_revision();
+        let mut world = conflict_scale_world(Arc::clone(&revision), 1_200);
+        world.execution = crate::kernel::execution::WorldExecution::start_private(
+            crate::ExecutionConfig::new(std::num::NonZeroU32::new(WORKERS).unwrap()),
+            &world.state,
+        );
+        // 预热覆盖完整 reservation 周期（领头车跨区持有 reservation 再
+        // 清空、后继车接任候选），让输入/槽位/暂存容量到达稳态峰值。
+        for _ in 0..24 {
+            world.step(TickInput::new(4)).expect("warmup step");
+        }
+        let counts_before = crate::kernel::conflict::conflict_work_counts();
+
+        // 三个稳态窗（8/8/24 拍）。实测形态：每拍 12 次分配 = 3 相位 × 4
+        // worker 的 Rayon scope 任务节点（执行配置 §3 豁免），稳态零
+        // LaneFlow 自有分配；领头车 reservation 周期使发现位 0 在
+        // None ↔ Computed 间交替，该槽位每周期一次性首物化段 Vec
+        // （+1/窗，交替时上拍 None 报告无容量可回收）。证据口径：
+        // ① 窗 A ≤ 节点预算 + 有界首触松弛；② 窗 B ≤ 窗 A（窗口间不增长，
+        // 无每候选每拍增长、无泄漏）；③ 长窗 C（24 拍）≤ 节点预算 + 同一
+        // 常数松弛（亚线性 ⇒ 非逐拍/逐候选）。
+        let region = Region::new(&INSTRUMENTED_SYSTEM);
+        let mut ticks = 0_u32;
+        for _ in 0..8 {
+            world.step(TickInput::new(4)).expect("steady window A step");
+            ticks += 1;
+        }
+        let stats = region.change();
+        let region_b = Region::new(&INSTRUMENTED_SYSTEM);
+        for _ in 0..8 {
+            world.step(TickInput::new(4)).expect("steady window B step");
+        }
+        let stats_b = region_b.change();
+        let region_c = Region::new(&INSTRUMENTED_SYSTEM);
+        for _ in 0..24 {
+            world.step(TickInput::new(4)).expect("steady window C step");
+        }
+        let stats_c = region_c.change();
+        let visited = crate::kernel::conflict::conflict_work_counts().visited_passages
+            - counts_before.visited_passages;
+        assert!(
+            visited > 0,
+            "场景必须产生真 Conflict 候选（cells 循环 visited_passages > 0）"
+        );
+        let node_budget = (ticks * 3 * WORKERS) as usize;
+        assert!(
+            stats.allocations <= node_budget + 8,
+            "窗 A LaneFlow 分配超出节点预算+首触松弛: allocations={} budget={node_budget}",
+            stats.allocations,
+        );
+        assert_eq!(stats.reallocations, 0, "窗 A 不得再分配: {stats:?}");
+        assert!(
+            stats_b.allocations <= stats.allocations,
+            "窗 B 不得增长（无每候选每拍增长/无泄漏）: A={} B={}",
+            stats.allocations,
+            stats_b.allocations,
+        );
+        assert_eq!(stats_b.reallocations, 0, "窗 B 不得再分配");
+        let node_budget_c = (24 * 3 * WORKERS) as usize;
+        assert!(
+            stats_c.allocations <= node_budget_c + 8,
+            "长窗 C 必须亚线性（非逐拍/逐候选）: allocations={} budget={node_budget_c}",
+            stats_c.allocations,
+        );
+        assert_eq!(stats_c.reallocations, 0, "窗 C 不得再分配");
+        assert_eq!(stats.reallocations, 0, "稳态拍不得再分配: {:?}", stats);
+
+        // 失败清理窗：注入首错（未消费报告滞留）→ 清注入重试 → 继续稳态；
+        // 回收清理路径不得引入泄漏性分配增长。
+        let world_id = world.state.binding.world_id;
+        let region = Region::new(&INSTRUMENTED_SYSTEM);
+        {
+            let _guard = super::inject_conflict_nonfinite(world_id, &[0]);
+            assert!(
+                world.step(TickInput::new(4)).is_err(),
+                "注入首错必须公开失败"
+            );
+        }
+        world.step(TickInput::new(4)).expect("clean retry");
+        for _ in 0..4 {
+            world.step(TickInput::new(4)).expect("post-failure step");
+        }
+        let failure_stats = region.change();
+        assert!(
+            failure_stats.allocations <= (6 * 3 * WORKERS) as usize,
+            "失败清理窗分配超预算: allocations={}",
+            failure_stats.allocations
+        );
+        assert_eq!(failure_stats.reallocations, 0, "失败清理窗不得再分配");
+        eprintln!(
+            "conflict-alloc-evidence vehicles=1200 workers={WORKERS} \
+             window_a_ticks={ticks} window_a_allocations={allocations} \
+             window_b_allocations={b_allocations} window_c_allocations={c_allocations} \
+             window_c_reallocations={c_reallocations} visited_passages={visited} \
+             failure_window_allocations={failure_allocations} \
+             failure_window_reallocations={failure_reallocations}",
+            allocations = stats.allocations,
+            b_allocations = stats_b.allocations,
+            c_allocations = stats_c.allocations,
+            c_reallocations = stats_c.reallocations,
+            visited = visited,
+            failure_allocations = failure_stats.allocations,
+            failure_reallocations = failure_stats.reallocations,
+        );
+    }
+
     #[test]
     fn conflict_scale_tick_keeps_route_visits_bounded_and_state_valid() {
         let revision = conflict_scale_revision();
