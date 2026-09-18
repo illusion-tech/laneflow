@@ -1,0 +1,32 @@
+{
+  "baseline": "966411e54ee32e427c0d5aa2eae854bb17967fc6",
+  "baselineTree": "0791f884fab1556e8cd11f1aea6506837cf82ac4",
+  "allowUntracked": "research/issue-712-borrowed-sources/evidence",
+  "features": "",
+  "worktreeStable": true,
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\nLLVM version: 22.1.8",
+  "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+  "os": "Microsoft Windows NT 10.0.29661.0",
+  "cpu": "AMD Ryzen 9 9955HX 16-Core Processor           ",
+  "logicalProcessors": 32,
+  "powerScheme": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)",
+  "time": "2026-09-18T17:26:46.7215514Z",
+  "binaries": [
+    {
+      "Path": "E:\\projects\\worktrees\\712\\layer3\\research\\issue-712-borrowed-sources\\evidence\\after\\run2\\wall.exe",
+      "Hash": "1C69FCA8B96B0CD961132D687BAB9B86813BCEB3D4F5E9AB582D68C0E578C5F9"
+    },
+    {
+      "Path": "E:\\projects\\worktrees\\712\\layer3\\research\\issue-712-borrowed-sources\\evidence\\after\\run2\\allocation.exe",
+      "Hash": "D45DB161B23ED1579A14E449FA39C362D1D30A30B29CFDDE1C3B57E8D7F99465"
+    }
+  ],
+  "sources": [
+    {
+      "Path": "E:\\projects\\worktrees\\712\\layer3\\research\\issue-712-borrowed-sources\\src\\main.rs",
+      "Hash": "BBF659CB2DDF57891914901C8E03B6DF8526E4CE5DA9FF93AA322AB87AAF183D"
+    }
+  ],
+  "lockfile": "BCDC234692BC0306C86EBF5447E625C225BF159B68B402D6701E84368B8C03DE",
+  "manifest": "711B87F757B8C6C5B652514C90CDB4215982066030858AA6E2E6DA22A2551A9B"
+}
