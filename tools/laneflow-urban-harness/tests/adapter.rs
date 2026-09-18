@@ -32,7 +32,12 @@ fn bevy_and_headless_share_demand_and_committed_results() {
                 "{}",
                 case.as_str()
             );
-            let expected = adapter.world().committed_pose_sources().as_slice().len();
+            let expected = adapter
+                .world()
+                .committed_pose_sources()
+                .collect::<Vec<_>>()
+                .as_slice()
+                .len();
             adapter
                 .adapter_world()
                 .unwrap()

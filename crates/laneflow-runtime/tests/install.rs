@@ -83,7 +83,13 @@ fn install_full_spatial_retains_single_arc() {
                 .count(EntityKind::SignalGroup)
                 == 0
     );
-    assert!(world.committed_pose_sources().as_slice().is_empty());
+    assert!(
+        world
+            .committed_pose_sources()
+            .collect::<Vec<_>>()
+            .as_slice()
+            .is_empty()
+    );
 }
 
 #[test]

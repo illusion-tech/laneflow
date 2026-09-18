@@ -111,7 +111,7 @@ fn s1_two_vehicles_step_and_extract_pose_batch() {
         world.step(TickInput::new(100)).expect("step");
     }
 
-    let poses = world.committed_pose_sources();
+    let poses = world.committed_pose_sources().collect::<Vec<_>>();
     assert_eq!(poses.as_slice().len(), 2);
     let leader_source = poses
         .as_slice()
