@@ -7905,7 +7905,7 @@ pub(crate) mod tests {
         assert_eq!(fresh_outcome.parking_arrivals().len(), 1, "到达拍兑现");
         let fresh_snapshot = fresh.capture_snapshot().unwrap();
 
-        let (mut world, route, space, entry_progress) = parking_route_world(4, WORLD_ID);
+        let (mut world, route, _, entry_progress) = parking_route_world(4, WORLD_ID);
         let a = world
             .spawn_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
