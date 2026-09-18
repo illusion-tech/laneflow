@@ -300,6 +300,23 @@ impl TickWorkspace {
             + crate::kernel::state::vec_bytes(motion_slots)
             + crate::kernel::state::vec_bytes(conflict_inputs)
             + crate::kernel::state::vec_bytes(conflict_slots)
+            // R3-3b：槽位报告的段 Vec backing 峰值（CellsSegment::Values /
+            // Obligated fill）；失败未消费报告在下一拍分发前回收清理，
+            // 此处计的是清理前可达的峰值保有。
+            + u64::try_from(
+                conflict_slots
+                    .iter()
+                    .map(|slot| match slot {
+                        crate::kernel::execution::DispatchSlot::Done(Ok(report)) => {
+                            report.retained_logical_bytes()
+                        }
+                        crate::kernel::execution::DispatchSlot::Pending
+                        | crate::kernel::execution::DispatchSlot::Done(Err(_))
+                        | crate::kernel::execution::DispatchSlot::Skipped => 0,
+                    })
+                    .sum::<usize>(),
+            )
+            .unwrap_or(u64::MAX)
             + crate::kernel::state::slice_bytes(conflict_motion_by_vehicle)
             + crate::kernel::state::slice_bytes(conflict_next_eligibility)
             + crate::kernel::state::slice_bytes(next_signal_aspects)

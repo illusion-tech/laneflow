@@ -2298,16 +2298,6 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 }
 
-impl crate::kernel::phase::StepWorkspace<'_> {
-    /// 解析 reservation 的入口锚点（边与 progress_mm）。
-    pub(crate) fn reservation_anchor(
-        &self,
-        reservation: ParkingReservation,
-    ) -> Option<(LaneEdgeOrdinal, u32)> {
-        self.read_view().reservation_anchor(reservation)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use laneflow_static_contract::{ParticipantClassOrdinal, VehicleProfileOrdinal};

@@ -12,7 +12,6 @@ use crate::kernel::conflict::{
     ConflictAcquireError, ConflictCandidateOrderKey, ConflictGrant, GrantResourceBundle,
     WaitingAdmissionEntitlement,
 };
-use crate::kernel::occupancy::LeaderQueryHorizon;
 use crate::kernel::tables::distance_to_occurrence_progress;
 use crate::{
     ApproachEstimate, ConflictEligibilityState, ConflictPassageAddress,
@@ -800,8 +799,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             count_conflict_path(|counts| counts.fused += 1);
             return Ok(false);
         }
+        // 槽位不复位清空：闭包逐槽以本拍报告替换上拍报告并回收其段 Vec
+        // 容量（协调器单写者；失败未消费报告在下一拍同路径清理，backing
+        // 峰值由 retained 计账）。工作集收缩时 resize 截断多余槽位。
         let slots = &mut self.workspace.conflict_slots;
-        slots.clear();
         #[cfg(test)]
         let slot_injected = conflict_injection::slot_reserve_injected();
         #[cfg(not(test))]
@@ -851,9 +852,26 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     let index = start + offset;
                     let (_vehicle, sequence, cache_index, state) =
                         self.workspace.conflict_inputs[index];
-                    *slot = crate::kernel::execution::DispatchSlot::Done(Ok(
-                        view.evaluate_candidate(state, sequence, index, cache_index, delta_s, tick)
-                    ));
+                    // 回收上拍槽位报告的段 Vec 容量作本拍任务暂存（稳态下
+                    // 无每候选堆分配）；Unmaterialized/失败语义不变。
+                    let mut scratch = CandidateScratch::default();
+                    if let crate::kernel::execution::DispatchSlot::Done(Ok(report)) =
+                        core::mem::replace(slot, crate::kernel::execution::DispatchSlot::Pending)
+                    {
+                        report.salvage_into_scratch(&mut scratch);
+                    }
+                    scratch.cells.clear();
+                    scratch.claims.clear();
+                    *slot = crate::kernel::execution::DispatchSlot::Done(Ok(view
+                        .evaluate_candidate(
+                            state,
+                            sequence,
+                            index,
+                            cache_index,
+                            delta_s,
+                            tick,
+                            &mut scratch,
+                        )));
                 }
                 #[cfg(test)]
                 if let (Some(records), Some(baseline)) = (&chunk_records, chunk_baseline) {
@@ -3171,6 +3189,68 @@ struct ConflictTaskView<'a> {
     motion_cache: &'a [crate::kernel::tick::MotionCacheEntry],
 }
 
+/// P3 任务段暂存：cell 地址与 downstream 区间的可复用缓冲。任务从
+/// 槽位回收上拍报告的 Vec 容量（协调器单写者语义见分发函数），稳态下
+/// 消除每候选每拍的堆分配；容量随峰值保留、由 retained 计账。
+#[derive(Default)]
+struct CandidateScratch {
+    cells: Vec<crate::ConflictPassageAddress>,
+    claims: Vec<crate::DownstreamInterval>,
+}
+
+impl CandidateReport {
+    /// 回收资源报告里已物化的段 Vec 容量作下拍暂存（失败/未消费报告的
+    /// 清理路径：下一拍分发前的回收循环调用本方法，backing 不跨拍泄漏）。
+    fn salvage_into_scratch(self, scratch: &mut CandidateScratch) {
+        let CandidateReport::Resource(resource) = self else {
+            return;
+        };
+        let ResourceStage::Computed {
+            cells, downstream, ..
+        } = resource.stage
+        else {
+            return;
+        };
+        if let CellsSegment::Values(values) = cells {
+            scratch.cells = values;
+        }
+        if let DownstreamSegment::Obligated {
+            fill: Ok(claims), ..
+        } = downstream
+        {
+            scratch.claims = claims;
+        }
+    }
+
+    /// 测试计账：报告内段 Vec 的 backing 峰值（capacity × size_of）。
+    #[cfg(test)]
+    pub(crate) fn retained_logical_bytes(&self) -> usize {
+        fn vec_cap<T>(values: &Vec<T>) -> usize {
+            values.capacity().saturating_mul(core::mem::size_of::<T>())
+        }
+        let CandidateReport::Resource(resource) = self else {
+            return 0;
+        };
+        let ResourceStage::Computed {
+            cells, downstream, ..
+        } = &resource.stage
+        else {
+            return 0;
+        };
+        let cells = match cells {
+            CellsSegment::Values(values) => vec_cap(values),
+            _ => 0,
+        };
+        let downstream = match downstream {
+            DownstreamSegment::Obligated {
+                fill: Ok(claims), ..
+            } => vec_cap(claims),
+            _ => 0,
+        };
+        cells.saturating_add(downstream)
+    }
+}
+
 /// P3 多段报告（D3）：不得用单 None 或整车 Err 抹平状态。
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct CacheUpdates {
@@ -3512,6 +3592,7 @@ impl ConflictTaskView<'_> {
         cache_index: usize,
         delta_s: f32,
         tick: u64,
+        scratch: &mut CandidateScratch,
     ) -> CandidateReport {
         #[cfg(test)]
         if conflict_injection::nonfinite_injected(self.read.binding.world_id, _workload_index) {
@@ -3675,6 +3756,7 @@ impl ConflictTaskView<'_> {
                 tick,
                 _workload_index,
                 cache,
+                scratch,
                 EvaluatedGate {
                     anchor: gate.anchor,
                     passage: gate.passage,
@@ -3688,6 +3770,7 @@ impl ConflictTaskView<'_> {
     }
 
     /// prepare_resource_candidate 的任务版：多段报告（D3）。
+    #[allow(clippy::too_many_arguments)]
     fn prepare_resource_candidate_task(
         self,
         state: VehicleState,
@@ -3695,6 +3778,7 @@ impl ConflictTaskView<'_> {
         tick: u64,
         workload_index: usize,
         cache: CacheUpdates,
+        scratch: &mut CandidateScratch,
         gate: EvaluatedGate,
     ) -> CandidateReport {
         let EvaluatedGate {
@@ -3797,10 +3881,10 @@ impl ConflictTaskView<'_> {
             Some(profile) => profile.class(),
             None => return check_failed(Some(eligibility), StepError::ConflictInvariantViolation),
         };
-        // 出现项循环：任务局部可失败暂存（容量不足 → Unmaterialized，
-        // 不冒充领域分配失败）。
-        let mut cell_work: Vec<crate::ConflictPassageAddress> = Vec::new();
-        // 'cells 的全部路径（含中途 break）都先赋值再离开块。
+        // 出现项循环：任务段暂存（跨拍复用槽位回收容量；不足 →
+        // Unmaterialized，不冒充领域分配失败）。
+        scratch.cells.clear();
+        let cell_work = &mut scratch.cells;
         let cells: CellsSegment;
         'cells: {
             let policy = match self
@@ -3839,7 +3923,7 @@ impl ConflictTaskView<'_> {
                     policy,
                     class,
                     kind,
-                    &mut cell_work,
+                    &mut *cell_work,
                     &mut priority,
                     &mut preflight_no_grant,
                 ) {
@@ -3852,13 +3936,19 @@ impl ConflictTaskView<'_> {
             // 不保留，协调器整体补算。
             cell_work.sort_unstable();
             cell_work.dedup();
-            cells = CellsSegment::Values(cell_work);
+            cells = CellsSegment::Values(core::mem::take(cell_work));
         }
         // downstream 段（A4/A5：preflight 有值即整体跳过）。
         let downstream = if preflight_no_grant.is_some() {
             DownstreamSegment::SkippedPreflight
         } else {
-            self.prepare_candidate_downstream_task(state, passage_range, gate_hop, workload_index)
+            self.prepare_candidate_downstream_task(
+                state,
+                passage_range,
+                gate_hop,
+                workload_index,
+                scratch,
+            )
         };
         CandidateReport::Resource(CandidateResource {
             cache,
@@ -3885,6 +3975,7 @@ impl ConflictTaskView<'_> {
         range: ConflictPassageRange,
         gate_hop: u32,
         _workload_index: usize,
+        scratch: &mut CandidateScratch,
     ) -> DownstreamSegment {
         #[cfg(test)]
         if conflict_injection::invariant_downstream_injected(
@@ -3899,17 +3990,18 @@ impl ConflictTaskView<'_> {
             Err(error) => return DownstreamSegment::PreFailed(error),
         };
         // F4 义务已成立（共用前置检查成功）；F4 真实预留在协调器消费侧
-        // 原位兑现，这里只做 F4 后的区间填充。
+        // 原位兑现，这里只做 F4 后的区间填充。claims 用任务段暂存。
         let raw_capacity = plan.raw_interval_capacity();
-        let mut claims: Vec<crate::DownstreamInterval> = Vec::new();
+        scratch.claims.clear();
+        let claims = &mut scratch.claims;
         if claims.try_reserve(raw_capacity).is_err() {
             return DownstreamSegment::Unmaterialized;
         }
-        let fill =
-            match self.fill_downstream_claims(plan.route(), plan.plan, &mut claims, raw_capacity) {
-                Ok(()) => Ok(claims),
-                Err(error) => Err(error),
-            };
+        let fill = match self.fill_downstream_claims(plan.route(), plan.plan, claims, raw_capacity)
+        {
+            Ok(()) => Ok(core::mem::take(claims)),
+            Err(error) => Err(error),
+        };
         DownstreamSegment::Obligated { raw_capacity, fill }
     }
 }
