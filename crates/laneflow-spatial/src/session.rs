@@ -163,11 +163,18 @@ impl SpatialSession {
                 pose,
             });
         }
-        output.network_revision = Some(self.network_revision());
+        let network_revision = Some(self.network_revision());
+
+        // 全部采样和 frame 检查已成功；提交阶段不再执行可恢复失败操作。
+        std::mem::swap(&mut self.scratch, &mut output.records);
+
+        // 接管上一批输出的存储，保留容量供下一批候选复用。
+        self.scratch.clear();
+
+        output.network_revision = network_revision;
         output.canonical_frame = frame;
         output.placement_token = placement_token;
-        output.records.clear();
-        output.records.extend_from_slice(&self.scratch);
+
         Ok(())
     }
 
@@ -304,7 +311,7 @@ impl CanonicalPoseBatch {
         self.network_revision
     }
 
-    /// 采样批次的规范坐标框架；`None` 仅出现在批次尚未填充时。
+    /// 采样批次的规范坐标框架；尚未填充，或成功提取的批次为空时，为 `None`。
     #[must_use]
     pub const fn canonical_frame(&self) -> Option<CanonicalFrameOrdinal> {
         self.canonical_frame
@@ -413,4 +420,380 @@ fn cross(left: CanonicalUnitVector3F32, right: CanonicalUnitVector3F32) -> Canon
         left.x() * right.y() - left.y() * right.x(),
     )
     .expect("crossing finite unit directions produces a finite vector")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use laneflow_format::{FormatLimits, check_canonical_network_input};
+    use laneflow_static_network::{
+        SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+        build_shared_network_revision,
+    };
+
+    const FULL_SPATIAL: &[u8] = include_bytes!(
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+    );
+    const EDGE_A0: LaneEdgeOrdinal = LaneEdgeOrdinal::from_raw(0);
+
+    fn test_revision() -> Arc<SharedNetworkRevision> {
+        let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
+            .expect("checked canonical network input");
+        build_shared_network_revision(
+            input,
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::RetainAvailable,
+                SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+            ),
+        )
+        .expect("shared network revision")
+    }
+
+    fn bound_session() -> SpatialSession {
+        SpatialSession::bind(test_revision())
+            .expect("bind")
+            .expect("session")
+    }
+
+    fn edge_a0_length_mm() -> u32 {
+        test_revision().traffic().lane_lengths_millimetres()[EDGE_A0.index()]
+    }
+
+    /// 生成 `count` 条 frame 0 内的合法车道输入；进度在边长内确定性变化。
+    fn lane_inputs(count: usize) -> Vec<PoseInput> {
+        let length_mm = edge_a0_length_mm();
+        (0..count)
+            .map(|index| {
+                let record = u32::try_from(index).expect("test record id fits u32");
+                PoseInput::lane(
+                    PoseRecordId::new(record),
+                    EDGE_A0,
+                    (record.wrapping_mul(37)) % length_mm,
+                )
+            })
+            .collect()
+    }
+
+    /// 一条进度越界的非法输入，用于触发采样失败。
+    fn bad_input(record: u32) -> PoseInput {
+        PoseInput::lane(PoseRecordId::new(record), EDGE_A0, edge_a0_length_mm() + 1)
+    }
+
+    fn token(value: u64) -> FramePlacementToken {
+        FramePlacementToken::new(value)
+    }
+
+    /// 指针级证明：两侧 backing 足够容纳本批时，成功提交交换 Vec 所有权而非复制。
+    /// 指针只是内部存储机制的测试证据，不是公开 API 保证。
+    #[test]
+    fn successful_commit_swaps_backing_ownership() {
+        let inputs = lane_inputs(8);
+        let mut session = bound_session();
+        let mut output = CanonicalPoseBatch::new();
+        // 暖机两侧，使被验证区间内不会发生扩容。
+        session
+            .extract_pose_batch(token(1), &inputs, &mut output)
+            .expect("warm-up 1");
+        session
+            .extract_pose_batch(token(2), &inputs, &mut output)
+            .expect("warm-up 2");
+        assert!(session.scratch.capacity() >= inputs.len());
+        assert!(output.records.capacity() >= inputs.len());
+
+        let scratch_ptr = session.scratch.as_ptr();
+        let scratch_cap = session.scratch.capacity();
+        let output_ptr = output.records.as_ptr();
+        let output_cap = output.records.capacity();
+
+        session
+            .extract_pose_batch(token(3), &inputs, &mut output)
+            .expect("measured call");
+
+        assert_eq!(
+            output.records.as_ptr(),
+            scratch_ptr,
+            "output takes scratch backing"
+        );
+        assert_eq!(output.records.capacity(), scratch_cap);
+        assert_eq!(output.records.len(), inputs.len());
+        assert_eq!(
+            session.scratch.as_ptr(),
+            output_ptr,
+            "scratch takes old output backing"
+        );
+        assert_eq!(session.scratch.capacity(), output_cap);
+        assert!(session.scratch.is_empty());
+    }
+
+    /// B01：新 Session 与新 output 从零开始，前两次调用发生增长，随后进入稳定状态。
+    #[test]
+    fn b01_new_session_and_output_reach_stable_capacity() {
+        let inputs = lane_inputs(8);
+        let mut session = bound_session();
+        let mut output = CanonicalPoseBatch::new();
+
+        // 第一次调用：scratch 增长后交出，接管回来的是空 output backing。
+        session
+            .extract_pose_batch(token(1), &inputs, &mut output)
+            .expect("first call");
+        assert!(output.records.capacity() >= inputs.len());
+        assert_eq!(
+            session.scratch.capacity(),
+            0,
+            "session takes the fresh output's empty backing"
+        );
+
+        // 第二次调用：另一侧从零增长，此后两侧容量均足够。
+        session
+            .extract_pose_batch(token(2), &inputs, &mut output)
+            .expect("second call");
+        assert!(session.scratch.capacity() >= inputs.len());
+        assert!(output.records.capacity() >= inputs.len());
+
+        // 稳定状态：容量集合不再变化，只随所有权轮换交换归属。
+        let stable = (session.scratch.capacity(), output.records.capacity());
+        session
+            .extract_pose_batch(token(3), &inputs, &mut output)
+            .expect("third call");
+        assert_eq!(
+            (output.records.capacity(), session.scratch.capacity()),
+            stable,
+            "capacities rotate with ownership"
+        );
+        session
+            .extract_pose_batch(token(4), &inputs, &mut output)
+            .expect("fourth call");
+        assert_eq!(
+            (session.scratch.capacity(), output.records.capacity()),
+            stable,
+            "capacities return after a full rotation"
+        );
+    }
+
+    /// B02：两侧暖机后，同一 Session/output 固定规模复用不再增长（无新增分配）。
+    #[test]
+    fn b02_fixed_size_reuse_has_no_growth_once_warm() {
+        let inputs = lane_inputs(16);
+        let mut session = bound_session();
+        let mut output = CanonicalPoseBatch::new();
+        session
+            .extract_pose_batch(token(1), &inputs, &mut output)
+            .expect("warm-up 1");
+        session
+            .extract_pose_batch(token(2), &inputs, &mut output)
+            .expect("warm-up 2");
+
+        let scratch_ptr = session.scratch.as_ptr();
+        let scratch_cap = session.scratch.capacity();
+        let output_ptr = output.records.as_ptr();
+        let output_cap = output.records.capacity();
+        assert!(scratch_cap >= inputs.len());
+        assert!(output_cap >= inputs.len());
+
+        // 偶数次调用后 backing 回到原侧；指针与容量均不变说明没有扩容或重分配。
+        for round in 0..6 {
+            session
+                .extract_pose_batch(token(10 + round), &inputs, &mut output)
+                .expect("steady call");
+            assert_eq!(output.records.len(), inputs.len());
+        }
+        assert_eq!(session.scratch.as_ptr(), scratch_ptr);
+        assert_eq!(session.scratch.capacity(), scratch_cap);
+        assert_eq!(session.scratch.len(), 0);
+        assert_eq!(output.records.as_ptr(), output_ptr);
+        assert_eq!(output.records.capacity(), output_cap);
+    }
+
+    /// B03：规模增长后再缩小，扩容有据可查；缩小时不释放 backing，旧尾部不可见。
+    #[test]
+    fn b03_shrinking_batch_keeps_capacity_and_hides_tail() {
+        let big = lane_inputs(64);
+        let small = lane_inputs(4);
+        let mut session = bound_session();
+        let mut output = CanonicalPoseBatch::new();
+        session
+            .extract_pose_batch(token(1), &big, &mut output)
+            .expect("big batch 1");
+        session
+            .extract_pose_batch(token(2), &big, &mut output)
+            .expect("big batch 2");
+        assert!(output.records.capacity() >= big.len());
+        let grown_capacity = output.records.capacity();
+
+        session
+            .extract_pose_batch(token(3), &small, &mut output)
+            .expect("small batch");
+        assert_eq!(output.records.len(), small.len());
+        assert!(
+            output.records.capacity() >= grown_capacity,
+            "shrinking batch keeps the grown backing"
+        );
+        assert_eq!(
+            output
+                .records()
+                .iter()
+                .map(|record| record.record().raw())
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2, 3],
+            "old tail records stay invisible"
+        );
+    }
+
+    /// B04：两个不同容量的 output 交替使用时，容量跟随 backing 轮换，
+    /// Session 侧容量可以回落，不能假定单调不减。
+    #[test]
+    fn b04_alternating_outputs_rotate_capacity_with_backing() {
+        let big = lane_inputs(64);
+        let small = lane_inputs(8);
+        let mut session = bound_session();
+        let mut a = CanonicalPoseBatch::new();
+        session
+            .extract_pose_batch(token(1), &big, &mut a)
+            .expect("warm a 1");
+        session
+            .extract_pose_batch(token(2), &big, &mut a)
+            .expect("warm a 2");
+        let scratch_backing = (session.scratch.as_ptr(), session.scratch.capacity());
+        assert!(scratch_backing.1 >= big.len());
+
+        // 小 output 首次更新：直接接住 Session 侧的大 backing，自身无需增长。
+        let mut b = CanonicalPoseBatch::new();
+        session
+            .extract_pose_batch(token(3), &small, &mut b)
+            .expect("fill b");
+        assert_eq!(b.records.as_ptr(), scratch_backing.0);
+        assert_eq!(b.records.capacity(), scratch_backing.1);
+        assert_eq!(b.records.len(), small.len());
+        assert_eq!(
+            session.scratch.capacity(),
+            0,
+            "session falls back to b's previous empty backing"
+        );
+
+        // 再更新大 output：Session 侧从零重新增长，证明分配由轮换决定。
+        session
+            .extract_pose_batch(token(4), &big, &mut a)
+            .expect("update a");
+        assert!(session.scratch.capacity() >= big.len());
+        assert!(a.records.capacity() >= big.len());
+        assert_eq!(a.records.len(), big.len());
+        assert!(b.records.capacity() >= big.len());
+        assert_eq!(b.records.len(), small.len());
+    }
+
+    /// B05：已预热 Session 改用全新 output 时，如实记录新 backing 进入轮换的扩容。
+    #[test]
+    fn b05_warm_session_with_fresh_output_reallocates_scratch() {
+        let inputs = lane_inputs(16);
+        let mut session = bound_session();
+        let mut output = CanonicalPoseBatch::new();
+        session
+            .extract_pose_batch(token(1), &inputs, &mut output)
+            .expect("warm-up 1");
+        session
+            .extract_pose_batch(token(2), &inputs, &mut output)
+            .expect("warm-up 2");
+        let warm_backing = (session.scratch.as_ptr(), session.scratch.capacity());
+
+        // 全新 output 第一次更新接住暖 backing；Session 接回空 backing。
+        let mut fresh = CanonicalPoseBatch::new();
+        session
+            .extract_pose_batch(token(3), &inputs, &mut fresh)
+            .expect("fresh output first call");
+        assert_eq!(fresh.records.as_ptr(), warm_backing.0);
+        assert_eq!(fresh.records.capacity(), warm_backing.1);
+        assert_eq!(session.scratch.capacity(), 0);
+
+        // 第二次调用必须重新增长 Session 侧。
+        session
+            .extract_pose_batch(token(4), &inputs, &mut fresh)
+            .expect("fresh output second call");
+        assert!(session.scratch.capacity() >= inputs.len());
+        assert!(fresh.records.capacity() >= inputs.len());
+        assert_eq!(fresh.records.len(), inputs.len());
+    }
+
+    /// B06：大批次、空批次、小批次、空批次交替时，所有权轮换与元数据始终正确。
+    #[test]
+    fn b06_big_empty_small_empty_batches_rotate_cleanly() {
+        let big = lane_inputs(32);
+        let small = lane_inputs(4);
+        let mut session = bound_session();
+        let mut output = CanonicalPoseBatch::new();
+
+        session
+            .extract_pose_batch(token(1), &big, &mut output)
+            .expect("big");
+        assert_eq!(output.records.len(), 32);
+        assert!(output.canonical_frame().is_some());
+        assert!(session.scratch.is_empty());
+
+        session
+            .extract_pose_batch(token(2), &[], &mut output)
+            .expect("empty");
+        assert!(output.records.is_empty());
+        assert_eq!(output.canonical_frame(), None);
+        assert_eq!(output.network_revision(), Some(session.network_revision()));
+        assert_eq!(output.placement_token(), token(2));
+        assert!(session.scratch.is_empty());
+
+        session
+            .extract_pose_batch(token(3), &small, &mut output)
+            .expect("small");
+        assert_eq!(output.records.len(), 4);
+        assert!(output.canonical_frame().is_some());
+        assert_eq!(output.placement_token(), token(3));
+
+        session
+            .extract_pose_batch(token(4), &[], &mut output)
+            .expect("empty again");
+        assert!(output.records.is_empty());
+        assert_eq!(output.canonical_frame(), None);
+        assert_eq!(output.placement_token(), token(4));
+        assert!(session.scratch.is_empty());
+    }
+
+    /// B07：失败不交换也不破坏旧 output backing；scratch 清空后可继续复用。
+    #[test]
+    fn b07_failure_keeps_output_backing_and_scratch_reusable() {
+        let inputs = lane_inputs(16);
+        let mut session = bound_session();
+        let mut output = CanonicalPoseBatch::new();
+        session
+            .extract_pose_batch(token(1), &inputs, &mut output)
+            .expect("warm-up 1");
+        session
+            .extract_pose_batch(token(2), &inputs, &mut output)
+            .expect("warm-up 2");
+
+        let before = output.clone();
+        let output_ptr = output.records.as_ptr();
+        let output_cap = output.records.capacity();
+
+        let mut failing = inputs.clone();
+        failing[7] = bad_input(999);
+        let error = session
+            .extract_pose_batch(token(3), &failing, &mut output)
+            .expect_err("batch must fail");
+        assert!(matches!(
+            error,
+            SpatialError::SharedPoseRecordFailed { input_index: 7, .. }
+        ));
+        assert_eq!(output, before, "failure keeps the full old output");
+        assert_eq!(output.records.as_ptr(), output_ptr);
+        assert_eq!(output.records.capacity(), output_cap);
+        assert!(session.scratch.is_empty());
+        assert!(
+            session.scratch.capacity() >= inputs.len(),
+            "failure clears scratch but keeps its capacity"
+        );
+
+        // 失败后同一 output 重试成功，正常完成所有权轮换。
+        session
+            .extract_pose_batch(token(4), &inputs, &mut output)
+            .expect("retry");
+        assert_eq!(output.records.len(), inputs.len());
+        assert_eq!(output.placement_token(), token(4));
+        assert!(session.scratch.is_empty());
+    }
 }

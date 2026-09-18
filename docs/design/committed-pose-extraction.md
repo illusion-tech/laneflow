@@ -1,7 +1,7 @@
 # 已提交位姿缓冲与按需提取
 
-**文档状态**：Accepted（#681；2026-09-17 用户接受，尚未实施）<br>
-**最后更新**：2026-09-17<br>
+**文档状态**：Accepted（#681；2026-09-17 用户接受；切片 1 Spatial 缓冲交换已由 #711 实施）<br>
+**最后更新**：2026-09-18<br>
 **适用范围**：Traffic Runtime 只读来源、Spatial 批量输出、Adapter 封闭提取与调用方表现选择
 
 相关合同：[Adapter API](adapter-api.md)、[Spatial 几何](spatial-geometry.md)、
@@ -139,8 +139,9 @@ applied；`N_presented` 按 glossary 现行定义，不把 applied 与 extracted
 
 ## 7. 独立交付切片
 
-1. Spatial 成功提交改为 Vec 交换：内部局部优化，现有 API 和错误语义保持；独立
-   验证全部输出原子性、交替输出和容量增长。可不依赖 Runtime API 迁移。
+1. Spatial 成功提交改为 Vec 交换（已由 #711 实施）：内部局部优化，现有 API 和
+   错误语义保持；独立验证全部输出原子性、交替输出和容量增长。可不依赖 Runtime
+   API 迁移。
 2. Runtime 借用来源与 Adapter 全量缓冲迁移：依赖本设计 G1，使用同一来源原语，
    一次迁移所有调用方；验收稳态 source 分配消失、原有首错和全量输出等价。
 3. Adapter 选取入口与产品式 harness：依赖第 2 项及本设计 G1；引入完整选择验证、

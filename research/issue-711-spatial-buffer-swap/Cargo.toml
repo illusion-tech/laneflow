@@ -1,0 +1,25 @@
+[package]
+name = "laneflow-issue-711"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.98"
+publish = false
+
+[workspace]
+
+[features]
+allocation = ["dep:stats_alloc"]
+
+[dependencies]
+laneflow-format = { path = "../../crates/laneflow-format" }
+laneflow-spatial = { path = "../../crates/laneflow-spatial" }
+laneflow-static-contract = { path = "../../crates/laneflow-static-contract" }
+laneflow-static-network = { path = "../../crates/laneflow-static-network" }
+sha2 = "0.11"
+stats_alloc = { version = "=0.1.10", optional = true }
+
+[profile.release]
+debug = 1
+
+[lints.rust]
+unsafe_code = "forbid"
