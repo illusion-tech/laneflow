@@ -26,12 +26,24 @@ pub enum ExecutionInitError {
 /// 必需执行计划准备失败；不改变活动世界。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum ExecutionPlanError {
-    /// 计划布局长度超出平台可表示范围。
+    /// 执行计划布局长度超出平台可表示范围。
     #[error("执行计划布局长度溢出")]
     SizeOverflow,
     /// 必需计划或其缓冲预留失败。
     #[error("执行计划预留失败")]
     ReservationFailed,
+}
+
+/// `TrafficWorld::committed_pose_source` 失败。
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
+pub enum CommittedPoseSourceError {
+    /// 句柄不指向当前世界的有效已提交车辆：槽位不存在、车辆已移除或代际失效。
+    /// 同槽位复用的新车辆有新代际，不接管旧句柄。
+    #[error("句柄不指向有效已提交车辆: {handle:?}")]
+    UnknownVehicle {
+        /// 被拒绝的代际句柄。
+        handle: VehicleHandle,
+    },
 }
 
 /// `TrafficWorld::install` 失败。

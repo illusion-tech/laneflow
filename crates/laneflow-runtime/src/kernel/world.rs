@@ -19,12 +19,12 @@ use crate::kernel::tables::{
 };
 use crate::kernel::waiting::{WaitingQueueLink, WaitingZoneState};
 use crate::{
-    CommittedNetworkSource, CommittedPoseSourceBatch, CommittedSignalGroupBatch, InstallError,
-    ObservationStateSequence, ParkingBinding, ParkingFacilityCounts, ParkingPoolCounts,
-    ParkingSpaceState, ParkingTarget, PoseSource, ReplaceError, RouteError, RouteHandle,
-    RouteRegisterInput, SpawnError, StepError, StepOutcome, TickInput, TrafficWorld, VehicleHandle,
-    VehicleReplaceBlock, VehicleReplaceRecord, VehicleSpawnInput, VehicleState, VehicleStatus,
-    WorldConfig,
+    CommittedNetworkSource, CommittedPoseSourceBatch, CommittedPoseSourceError,
+    CommittedSignalGroupBatch, InstallError, ObservationStateSequence, ParkingBinding,
+    ParkingFacilityCounts, ParkingPoolCounts, ParkingSpaceState, ParkingTarget, PoseSource,
+    ReplaceError, RouteError, RouteHandle, RouteRegisterInput, SpawnError, StepError, StepOutcome,
+    TickInput, TrafficWorld, VehicleHandle, VehicleReplaceBlock, VehicleReplaceRecord,
+    VehicleSpawnInput, VehicleState, VehicleStatus, WorldConfig,
 };
 
 #[cfg(test)]
@@ -1455,30 +1455,56 @@ impl crate::kernel::state::WorldState {
             .copied()
             .filter_map(|handle| {
                 let state = self.vehicle_state(handle)?;
-                let source = match state.status {
-                    VehicleStatus::Completed => return None,
-                    VehicleStatus::Parked => match self.committed.parking.binding(handle) {
-                        Some(ParkingBinding::Occupied(ParkingTarget::ExplicitSpace(space))) => {
-                            PoseSource::Parking { space }
-                        }
-                        Some(ParkingBinding::Occupied(ParkingTarget::VirtualPool(_))) => {
-                            return None;
-                        }
-                        _ => return None,
-                    },
-                    VehicleStatus::Active => {
-                        let edges = self.route_edges(state.route)?;
-                        let edge = *edges.get(usize::try_from(state.route_edge_index).ok()?)?;
-                        PoseSource::Lane {
-                            edge,
-                            progress_mm: state.progress_mm,
-                        }
-                    }
-                };
+                let source = self.pose_source_for_state(handle, state)?;
                 Some((handle, source))
             })
             .collect();
         CommittedPoseSourceBatch { items }
+    }
+
+    /// 单辆已提交车辆的 pose 来源判定；全量与单句柄入口共用的私有权威原语。
+    /// 返回 `None` 表示该车辆当前不产生 pose 来源（Completed、virtual Parked 或
+    /// 已提交状态不可解析），不是句柄失效。来源成员资格只依赖已提交状态，
+    /// 不读取并行执行的工作区或候选结果。
+    pub(crate) fn pose_source_for_state(
+        &self,
+        handle: VehicleHandle,
+        state: &VehicleState,
+    ) -> Option<PoseSource> {
+        match state.status {
+            VehicleStatus::Completed => None,
+            VehicleStatus::Parked => match self.committed.parking.binding(handle) {
+                Some(ParkingBinding::Occupied(ParkingTarget::ExplicitSpace(space))) => {
+                    Some(PoseSource::Parking { space })
+                }
+                _ => None,
+            },
+            VehicleStatus::Active => {
+                let edges = self.route_edges(state.route)?;
+                let edge = *edges.get(usize::try_from(state.route_edge_index).ok()?)?;
+                Some(PoseSource::Lane {
+                    edge,
+                    progress_mm: state.progress_mm,
+                })
+            }
+        }
+    }
+
+    /// 按代际感知句柄读取单辆车的已提交 pose 来源；与全量入口共用同一判定原语。
+    ///
+    /// # Errors
+    ///
+    /// 句柄不指向当前世界的有效已提交车辆（槽位不存在、已移除或代际失效）时返回
+    /// [`CommittedPoseSourceError::UnknownVehicle`]；句柄有效但当前不产生 pose
+    /// （Completed、virtual Parked）返回 `Ok(None)`。
+    pub fn committed_pose_source(
+        &self,
+        vehicle: VehicleHandle,
+    ) -> Result<Option<PoseSource>, CommittedPoseSourceError> {
+        let state = self
+            .vehicle_state(vehicle)
+            .ok_or(CommittedPoseSourceError::UnknownVehicle { handle: vehicle })?;
+        Ok(self.pose_source_for_state(vehicle, state))
     }
 
     /// 按停车位序号读占用者。
@@ -2220,6 +2246,25 @@ impl TrafficWorld {
     pub fn committed_pose_sources(&self) -> CommittedPoseSourceBatch {
         self.execution.assert_usable();
         self.state.committed_pose_sources()
+    }
+
+    /// 按代际感知句柄读取单辆车的已提交 pose 来源；与全量入口共用同一判定原语。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    ///
+    /// # Errors
+    ///
+    /// 句柄不指向当前世界的有效已提交车辆（槽位不存在、已移除或代际失效）时返回
+    /// [`CommittedPoseSourceError::UnknownVehicle`]；句柄有效但当前不产生 pose
+    /// （Completed、virtual Parked）返回 `Ok(None)`。
+    pub fn committed_pose_source(
+        &self,
+        vehicle: VehicleHandle,
+    ) -> Result<Option<PoseSource>, CommittedPoseSourceError> {
+        self.execution.assert_usable();
+        self.state.committed_pose_source(vehicle)
     }
 
     /// 按停车位序号读占用者。
