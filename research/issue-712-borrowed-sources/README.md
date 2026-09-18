@@ -37,46 +37,17 @@ A/B 都不包含 #718（基线两侧一致，不做跨成分相减）。
   A/B 程序身份与 feature 方向（A=legacy-source，B=默认）；拒绝测试
   `test-analyze.ps1` 6/6 通过。
 
-## 结果（2026-09-18 取证；完整数值见 results.csv，环境见 summary-table.md）
+## 结果（2026-09-19 重采；完整数值见 results.csv，环境见 summary-table.md；各轮原始样本在 evidence，未删不利样本）
 
-稳态分配（每 32 次调用的中位数，allocation 构建）：
+稳态分配（每 32 次调用中位数，allocation 构建）：全部数据集 source_full / adapter_full / alternate **1 → 0 次分配/调用**；fresh_output 3 → 2；cold 4 → 3。**验收核心成立：暖机后来源不再逐帧分配，完整 Adapter 提取零新增分配。**
 
-| 场景                                                 |        before |             after |
-| ---------------------------------------------------- | ------------: | ----------------: |
-| source_full / adapter_full / alternate（全部数据集） | 1 次分配/调用 | **0 次分配/调用** |
-| fresh_output                                         |             3 |                 2 |
-| cold（首次提取）                                     |             4 |                 3 |
+数据集形态测前显式断言：all_active=100% Active；mixed_parking=半数 Active + 128 显式 Parked + 其余 virtual Parked；**high_completed=90% Completed + 10% Active（分批在车道末端生成并逐拍完成，presentable=1000/10000，不再是上一版只有约 1% Completed 的错误形态）**；sparse=100 Active + 其余 virtual Parked。
 
-**验收核心成立：暖机后来源不再逐帧分配；成功提交后 Adapter 提取零新增分配。**
+oracle 完整性（v2 摘要）：来源摘要编入有序完整 `(VehicleHandle, PoseSource)` 序列（句柄 + 判别 + 全部字段 + 长度）；批次摘要编入车辆句柄序列、全部记录位模式、批次 header（修订 / canonical frame / placement token）、完整消费上下文（world id + world generation）与两个序列长度。字段敏感性有直接实证：同数据集下 adapter（token 3）与 alternate（token 8）摘要不同（上一版 v1 摘要二者相同，即复核指出的缺口）。15 组 oracle A/B 逐键一致。
 
-墙钟（µs/调用，三进程中位数）：
+墙钟判读（收紧表述）：本轮各独立轮次波动明显（本机已知双峰特征；电源方案为平衡已记录但未锁频）。source_full 100 k 全 Active 中位数 -47.5%、10 k -26.6%、混合 100 k -10.1%；adapter_full 与 transform_convert 各档涨跌互现（-5.6% ~ +29%）。**结论：分配消除与重分配消失（32 次分配 + 384 次重分配 → 0/0）证据成立；本机该轮观察到来源完整消费的改善，但独立轮次波动明显，中位数差值不作为稳定可重复的加速幅度**。上一下一轮采集（README 历史版本记录的 -6%~-7.6% adapter 档）同样按此口径理解。冷启动 -18.5%、fresh_output 大档 -33.7%/小档 -2.4%，方向与少一次/两次分配一致。
 
-| 场景              | 数据集                   |   before |    after |            差值 |
-| ----------------- | ------------------------ | -------: | -------: | --------------: |
-| source_full       | all_active_10000         |    400.8 |    125.7 |          -68.6% |
-| source_full       | all_active_100000        |  2_361.7 |  1_924.8 |          -18.5% |
-| source_full       | high_completed_10000     |    174.6 |    125.0 |          -28.4% |
-| source_full       | mixed_parking_100000     |  5_005.6 |  4_241.0 |          -15.3% |
-| source_full       | mixed_parking_10000      |    306.7 |    320.2 | +4.4%（噪声内） |
-| source_full       | sparse_presentable_10000 |    469.7 |    471.9 | +0.5%（噪声内） |
-| adapter_full      | all_active_10000         |  2_125.9 |  1_981.1 |           -6.8% |
-| adapter_full      | all_active_100000        | 15_205.4 | 14_273.6 |           -6.1% |
-| adapter_full      | mixed_parking_100000     | 12_822.3 | 11_905.2 |           -7.2% |
-| adapter_full      | high_completed_10000     |  1_480.1 |  1_371.2 |           -7.4% |
-| adapter_full      | sparse_presentable_10000 |    477.0 |    489.6 | +2.7%（噪声内） |
-| cold              | cold_probe               |    184.0 |    162.3 |          -11.8% |
-| transform_convert | （补充观察）             |        — |        — |  ±噪声（0–12%） |
-
-判读：**明确改善**——来源完整消费在大规模数据集稳定 -15% ~ -69%，完整
-Adapter 提取在 10 k/100 k 档稳定 -6% ~ -7.6%，与 #681 测得的按值来源
-成本量级（每批 1 次分配 + 12–15 次容量增长 + 复制）一致；小规模/稀疏数据集
-差异在噪声内（来源 Vec 本身很小）；`transform_convert` 是补充观察，个别档
-（100 k +11.8%）呈本机双峰噪声特征，不作为结论。15 组 oracle 摘要 A/B 逐键
-一致（完整输出等价）。
-
-retained 口径：取消的是临时来源 Vec；新增 Session 候选车辆缓冲与既有
-PoseInput 候选缓冲长期复用。逐批分配消失，retained 总量按所有者另行统计
-（fresh_output/cold 的分配计数差值即候选缓冲建立成本的直接观测）。
+retained 与容量：分配事件数不是存活容量；同 Session 涨缩、不同容量 output 轮换与失败重试的容量轨迹专项证据**尚未交付**（遗留项，见 PR 未运行清单）。Spatial records backing 的轮换与容量行为由 #711 的 B 系列测试与证据覆盖；本切片新增的 Adapter 候选缓冲（输入 `PoseInput`、车辆 `VehicleHandle`、输出车辆）归 Session/调用方所有，逐批分配消失、retained 总量按所有者另行统计。
 
 ## #718 组合观察（预集成结果，明确标注）
 
