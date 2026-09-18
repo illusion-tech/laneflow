@@ -911,7 +911,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let mut preflight_no_grant = preflight_no_grant;
         let (cells_start, cells_end) = match cells {
             CellsSegment::Values(values) => {
+                // R1：cell 工作区生命周期对齐融合原语——进入本候选的 F1
+                // 之前清空（不得只在一拍开始时清一次）。
+                self.workspace.conflict_cell_work.clear();
                 self.reserve_conflict_cell_work(passage_range.passage_count() as usize)?;
+                // 内容对拍：cell 工作区终态与融合一致（当前候选的 cells），
+                // 缓冲长度只属当前候选、不跨候选/跨拍累积。
+                self.workspace.conflict_cell_work.extend_from_slice(&values);
                 let cells_start = self.workspace.conflict_candidate_cells.len();
                 self.reserve_conflict_candidate_cells(values.len())?;
                 self.workspace
@@ -920,6 +926,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 (cells_start, self.workspace.conflict_candidate_cells.len())
             }
             CellsSegment::Failed(error) => {
+                self.workspace.conflict_cell_work.clear();
                 self.reserve_conflict_cell_work(passage_range.passage_count() as usize)?;
                 return Err(error);
             }
@@ -944,49 +951,54 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 return self.prepare_resource_candidate(state, update_sequence, tick, gate);
             }
         };
+        // R1：downstream 工作区在进入 downstream 分支之前清空（含 preflight
+        // 跳过路径），与融合 prepare_resource_candidate 在进入 downstream
+        // 前 clear 对齐——缓冲内容只属当前候选。
+        self.workspace.conflict_downstream_work.clear();
         let (downstream_start, downstream_end) = match downstream {
             DownstreamSegment::SkippedPreflight => {
                 let len = self.workspace.conflict_candidate_downstream.len();
                 (len, len)
             }
-            DownstreamSegment::Evaluated {
-                raw_capacity,
-                result,
-            } => match result {
-                Ok(claims) => {
-                    self.reserve_conflict_downstream_work(raw_capacity)?;
-                    self.workspace
-                        .conflict_downstream_work
-                        .extend_from_slice(&claims);
-                    let downstream_start = self.workspace.conflict_candidate_downstream.len();
-                    self.reserve_conflict_downstream_pool(claims.len())?;
-                    self.workspace
-                        .conflict_candidate_downstream
-                        .extend_from_slice(&claims);
-                    (
-                        downstream_start,
-                        self.workspace.conflict_candidate_downstream.len(),
-                    )
+            DownstreamSegment::PreFailed(DownstreamEvalError::NoGrant) => {
+                // A4/A5：折入 preflight，不公开错误；空 downstream 区间。
+                // F4 前结束，无 F4 义务（不得补预留）。
+                preflight_no_grant = Some(map_acquire_error(ConflictAcquireError::NoGrant(
+                    ConflictResourceNoGrant::DownstreamStorageBoundary,
+                ))?);
+                let len = self.workspace.conflict_candidate_downstream.len();
+                (len, len)
+            }
+            DownstreamSegment::PreFailed(DownstreamEvalError::Invariant) => {
+                return Err(StepError::ConflictInvariantViolation);
+            }
+            DownstreamSegment::Obligated { raw_capacity, fill } => {
+                // R2：F4 义务先兑现（与融合同位同序）——真实增长失败/注入
+                // 先于 F4 后填充检查错误公开；随后消费填充结果。
+                self.reserve_conflict_downstream_work(raw_capacity)?;
+                match fill {
+                    Ok(claims) => {
+                        self.workspace
+                            .conflict_downstream_work
+                            .extend_from_slice(&claims);
+                        let downstream_start = self.workspace.conflict_candidate_downstream.len();
+                        self.reserve_conflict_downstream_pool(claims.len())?;
+                        self.workspace
+                            .conflict_candidate_downstream
+                            .extend_from_slice(&claims);
+                        (
+                            downstream_start,
+                            self.workspace.conflict_candidate_downstream.len(),
+                        )
+                    }
+                    Err(DownstreamFillError::Invariant) => {
+                        return Err(StepError::ConflictInvariantViolation);
+                    }
                 }
-                Err(DownstreamEvalError::NoGrant) => {
-                    // A4/A5：折入 preflight，不公开错误；空 downstream 区间。
-                    preflight_no_grant = Some(map_acquire_error(ConflictAcquireError::NoGrant(
-                        ConflictResourceNoGrant::DownstreamStorageBoundary,
-                    ))?);
-                    let len = self.workspace.conflict_candidate_downstream.len();
-                    (len, len)
-                }
-                Err(DownstreamEvalError::Invariant) => {
-                    return Err(StepError::ConflictInvariantViolation);
-                }
-                Err(DownstreamEvalError::Scratch) => {
-                    return Err(StepError::ConflictScratchAllocFailed);
-                }
-            },
+            }
             DownstreamSegment::Unmaterialized => {
-                // 任务局部 claims 暂存不足：协调器同原语补算（F4 在内部），
-                // 随后原位 F3b 预留与接纳。
-                self.workspace.conflict_downstream_work.clear();
+                // 任务局部 claims 暂存不足：协调器同原语补算（F4 在内部；
+                // 工作区已在分支前清空），随后原位 F3b 预留与接纳。
                 match self.prepare_candidate_downstream(state, passage_range, gate_hop) {
                     Ok(()) => {
                         let downstream_start = self.workspace.conflict_candidate_downstream.len();
@@ -1083,38 +1095,63 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         }
     }
 
-    /// F1 位：cell 工作区真实预留（与融合同位同序；注入优先于
-    /// try_reserve，失败统一映射 ConflictScratchAllocFailed）。
+    /// F1 位：cell 工作区真实预留（与融合同位同序）。注入仅在真实必要
+    /// 增长（additional > capacity - len）时触发（R4），失败统一映射
+    /// ConflictScratchAllocFailed。
     fn reserve_conflict_cell_work(&mut self, additional: usize) -> Result<(), StepError> {
         #[cfg(test)]
-        if conflict_injection::cell_work_reserve_injected() {
+        if conflict_reserve_probe(
+            ConflictReserveSite::CellWork,
+            additional,
+            self.workspace.conflict_cell_work.len(),
+            self.workspace.conflict_cell_work.capacity(),
+            conflict_injection::cell_work_reserve_injected(),
+        ) {
             return Err(StepError::ConflictScratchAllocFailed);
         }
         reserve(&mut self.workspace.conflict_cell_work, additional)
     }
 
-    /// F2 位：candidate_cells 真实预留（注入同 F1 语义）。
+    /// F2 位：candidate_cells 真实预留（注入同 F1 的增长门控语义）。
     fn reserve_conflict_candidate_cells(&mut self, additional: usize) -> Result<(), StepError> {
         #[cfg(test)]
-        if conflict_injection::cells_reserve_injected() {
+        if conflict_reserve_probe(
+            ConflictReserveSite::CandidateCells,
+            additional,
+            self.workspace.conflict_candidate_cells.len(),
+            self.workspace.conflict_candidate_cells.capacity(),
+            conflict_injection::cells_reserve_injected(),
+        ) {
             return Err(StepError::ConflictScratchAllocFailed);
         }
         reserve(&mut self.workspace.conflict_candidate_cells, additional)
     }
 
-    /// F4 位：downstream 工作区真实预留（注入同 F1 语义）。
+    /// F4 位：downstream 工作区真实预留（注入同 F1 的增长门控语义）。
     fn reserve_conflict_downstream_work(&mut self, additional: usize) -> Result<(), StepError> {
         #[cfg(test)]
-        if conflict_injection::downstream_work_reserve_injected() {
+        if conflict_reserve_probe(
+            ConflictReserveSite::DownstreamWork,
+            additional,
+            self.workspace.conflict_downstream_work.len(),
+            self.workspace.conflict_downstream_work.capacity(),
+            conflict_injection::downstream_work_reserve_injected(),
+        ) {
             return Err(StepError::ConflictScratchAllocFailed);
         }
         reserve(&mut self.workspace.conflict_downstream_work, additional)
     }
 
-    /// F3b 位：candidate_downstream 真实预留（注入同 F1 语义）。
+    /// F3b 位：candidate_downstream 真实预留（注入同 F1 的增长门控语义）。
     fn reserve_conflict_downstream_pool(&mut self, additional: usize) -> Result<(), StepError> {
         #[cfg(test)]
-        if conflict_injection::downstream_pool_reserve_injected() {
+        if conflict_reserve_probe(
+            ConflictReserveSite::DownstreamPool,
+            additional,
+            self.workspace.conflict_candidate_downstream.len(),
+            self.workspace.conflict_candidate_downstream.capacity(),
+            conflict_injection::downstream_pool_reserve_injected(),
+        ) {
             return Err(StepError::ConflictScratchAllocFailed);
         }
         reserve(
@@ -1538,6 +1575,16 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .ok_or(StepError::ConflictInvariantViolation)?
             .class();
         self.workspace.conflict_cell_work.clear();
+        #[cfg(test)]
+        if conflict_reserve_probe(
+            ConflictReserveSite::CellWork,
+            range.len as usize,
+            self.workspace.conflict_cell_work.len(),
+            self.workspace.conflict_cell_work.capacity(),
+            conflict_injection::cell_work_reserve_injected(),
+        ) {
+            return Err(StepError::ConflictScratchAllocFailed);
+        }
         reserve(&mut self.workspace.conflict_cell_work, range.len as usize)?;
         for occurrence_index in range.start..passage_end {
             #[cfg(test)]
@@ -1611,6 +1658,16 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         self.workspace.conflict_cell_work.sort_unstable();
         self.workspace.conflict_cell_work.dedup();
         let cells_start = self.workspace.conflict_candidate_cells.len();
+        #[cfg(test)]
+        if conflict_reserve_probe(
+            ConflictReserveSite::CandidateCells,
+            self.workspace.conflict_cell_work.len(),
+            self.workspace.conflict_candidate_cells.len(),
+            self.workspace.conflict_candidate_cells.capacity(),
+            conflict_injection::cells_reserve_injected(),
+        ) {
+            return Err(StepError::ConflictScratchAllocFailed);
+        }
         reserve(
             &mut self.workspace.conflict_candidate_cells,
             self.workspace.conflict_cell_work.len(),
@@ -1636,6 +1693,16 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             }
         }
         let downstream_start = self.workspace.conflict_candidate_downstream.len();
+        #[cfg(test)]
+        if conflict_reserve_probe(
+            ConflictReserveSite::DownstreamPool,
+            self.workspace.conflict_downstream_work.len(),
+            self.workspace.conflict_candidate_downstream.len(),
+            self.workspace.conflict_candidate_downstream.capacity(),
+            conflict_injection::downstream_pool_reserve_injected(),
+        ) {
+            return Err(StepError::ConflictScratchAllocFailed);
+        }
         reserve(
             &mut self.workspace.conflict_candidate_downstream,
             self.workspace.conflict_downstream_work.len(),
@@ -1769,6 +1836,16 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     ConflictResourceNoGrant::DownstreamStorageBoundary,
                 ));
             }
+        }
+        #[cfg(test)]
+        if conflict_reserve_probe(
+            ConflictReserveSite::DownstreamWork,
+            plan.raw_interval_capacity(),
+            self.workspace.conflict_downstream_work.len(),
+            self.workspace.conflict_downstream_work.capacity(),
+            conflict_injection::downstream_work_reserve_injected(),
+        ) {
+            return Err(ConflictAcquireError::ScratchAllocFailed);
         }
         reserve(
             &mut self.workspace.conflict_downstream_work,
@@ -2868,6 +2945,63 @@ fn aggregate_conflict_tls(baseline: ConflictTlsSnapshot, records: &[ConflictWork
     crate::kernel::conflict::set_conflict_work_counts(sum);
 }
 
+/// R4 预留探针：记录 F 位逻辑检查点是否到达、真实需求与余量、注入是否
+/// 因「真实必要增长」触发。后续点位因更早失败不可达时，探针停留在更早
+/// 点位（last-write-wins）。
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ConflictReserveSite {
+    CellWork,
+    CandidateCells,
+    DownstreamWork,
+    DownstreamPool,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ConflictReserveProbe {
+    pub(crate) site: ConflictReserveSite,
+    pub(crate) required: usize,
+    pub(crate) len: usize,
+    pub(crate) capacity: usize,
+    pub(crate) injected: bool,
+}
+
+#[cfg(test)]
+thread_local! {
+    static CONFLICT_RESERVE_PROBE: std::cell::Cell<Option<ConflictReserveProbe>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// 记录一次 F 位检查点访问；当且仅当真实必要增长且注入已武装时返回
+/// true（调用方映射 ConflictScratchAllocFailed）。
+#[cfg(test)]
+fn conflict_reserve_probe(
+    site: ConflictReserveSite,
+    additional: usize,
+    len: usize,
+    capacity: usize,
+    injected: bool,
+) -> bool {
+    let growth_needed = additional > capacity.saturating_sub(len);
+    CONFLICT_RESERVE_PROBE.with(|probe| {
+        probe.set(Some(ConflictReserveProbe {
+            site,
+            required: additional,
+            len,
+            capacity,
+            injected: injected && growth_needed,
+        }));
+    });
+    growth_needed && injected
+}
+
+/// 测试专用：读取最近一次 F 位检查点探针。
+#[cfg(test)]
+pub(crate) fn last_conflict_reserve_probe() -> Option<ConflictReserveProbe> {
+    CONFLICT_RESERVE_PROBE.with(std::cell::Cell::get)
+}
+
 /// P3 任务侧注入（进程级原子量，按世界身份 + 发现序位武装；与 P2/P5
 /// 注入面相互独立）。
 #[cfg(test)]
@@ -3153,26 +3287,36 @@ enum CellsSegment {
 
 #[derive(Clone)]
 enum DownstreamSegment {
-    /// preflight NoGrant：整体跳过（downstream_start==end，A4/A5）。
+    /// preflight NoGrant：整体跳过（downstream_start==end，A4/A5）。F4 前。
     SkippedPreflight,
-    /// 任务侧求值完成。
-    Evaluated {
+    /// F4 前检查结束：NoGrant 折入 preflight；Invariant 公开
+    /// ConflictInvariantViolation。本候选无 F4 义务（不得补预留）。
+    PreFailed(DownstreamEvalError),
+    /// 前置计划检查全部成功：F4（downstream_work 真实预留）已是本候选
+    /// 义务，raw_capacity 为真实需求；fill 为 F4 之后的填充结果——
+    /// 消费者必须先完成 F4 再消费 fill（失败位置保真：F4 增长失败先于
+    /// F4 后填充检查失败公开）。
+    Obligated {
         raw_capacity: usize,
-        result: Result<Vec<crate::DownstreamInterval>, DownstreamEvalError>,
+        fill: Result<Vec<crate::DownstreamInterval>, DownstreamFillError>,
     },
+    /// 任务局部暂存不足 → 协调器同原语补算（不冒充领域分配失败）。
     Unmaterialized,
 }
 
+/// F4 之前的检查失败分类。
 #[derive(Clone)]
 enum DownstreamEvalError {
     /// NoGrant(DownstreamStorageBoundary)：折入 preflight，不公开错误。
     NoGrant,
-    /// InvalidBundle/Capacity → ConflictInvariantViolation（1096-1098 位）。
+    /// InvalidBundle/Capacity → ConflictInvariantViolation。
     Invariant,
-    /// ScratchAllocFailed（F4 位）→ ConflictScratchAllocFailed。F4 留在
-    /// 协调器消费侧，任务侧不构造本变体；保留以完整多段协议。
-    #[allow(dead_code)]
-    Scratch,
+}
+
+/// F4 之后的填充失败（derive 的路线下标/物理边/区间起终点检查）。
+#[derive(Clone)]
+enum DownstreamFillError {
+    Invariant,
 }
 
 impl ConflictTaskView<'_> {
@@ -3687,10 +3831,7 @@ impl ConflictTaskView<'_> {
             self.read.binding.world_id,
             _workload_index,
         ) {
-            return DownstreamSegment::Evaluated {
-                raw_capacity: 0,
-                result: Err(DownstreamEvalError::Invariant),
-            };
+            return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
         }
         let plan = match self
             .read
@@ -3698,25 +3839,16 @@ impl ConflictTaskView<'_> {
         {
             Ok(plan) => plan,
             Err(ConflictAcquireError::NoGrant(_)) => {
-                return DownstreamSegment::Evaluated {
-                    raw_capacity: 0,
-                    result: Err(DownstreamEvalError::NoGrant),
-                };
+                return DownstreamSegment::PreFailed(DownstreamEvalError::NoGrant);
             }
             Err(_) => {
-                return DownstreamSegment::Evaluated {
-                    raw_capacity: 0,
-                    result: Err(DownstreamEvalError::Invariant),
-                };
+                return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
             }
         };
         let compiled = match self.read.compiled_route(state.route) {
             Some(compiled) => compiled,
             None => {
-                return DownstreamSegment::Evaluated {
-                    raw_capacity: 0,
-                    result: Err(DownstreamEvalError::Invariant),
-                };
+                return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
             }
         };
         let target = plan.target();
@@ -3731,10 +3863,7 @@ impl ConflictTaskView<'_> {
         ) {
             Some(BoundedDistance::Finite(value)) => value,
             Some(BoundedDistance::BeyondFinite) | None => {
-                return DownstreamSegment::Evaluated {
-                    raw_capacity: 0,
-                    result: Err(DownstreamEvalError::NoGrant),
-                };
+                return DownstreamSegment::PreFailed(DownstreamEvalError::NoGrant);
             }
         };
         let profile = match self
@@ -3747,10 +3876,7 @@ impl ConflictTaskView<'_> {
         {
             Some(profile) => profile,
             None => {
-                return DownstreamSegment::Evaluated {
-                    raw_capacity: 0,
-                    result: Err(DownstreamEvalError::Invariant),
-                };
+                return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
             }
         };
         let leader_gap = self.read.derived.occupancy.leader_gap(
@@ -3768,10 +3894,7 @@ impl ConflictTaskView<'_> {
         if leader_gap.is_some_and(|gap| {
             gap < i64::from(required).saturating_add(i64::from(profile.min_gap_mm()))
         }) {
-            return DownstreamSegment::Evaluated {
-                raw_capacity: 0,
-                result: Err(DownstreamEvalError::NoGrant),
-            };
+            return DownstreamSegment::PreFailed(DownstreamEvalError::NoGrant);
         }
         if let Some(next_gate) = compiled
             .gate_hops
@@ -3782,26 +3905,17 @@ impl ConflictTaskView<'_> {
             let boundary = match gate_boundary(next_gate) {
                 Ok(boundary) => boundary,
                 Err(_) => {
-                    return DownstreamSegment::Evaluated {
-                        raw_capacity: 0,
-                        result: Err(DownstreamEvalError::Invariant),
-                    };
+                    return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
                 }
             };
             if target > boundary {
-                return DownstreamSegment::Evaluated {
-                    raw_capacity: 0,
-                    result: Err(DownstreamEvalError::NoGrant),
-                };
+                return DownstreamSegment::PreFailed(DownstreamEvalError::NoGrant);
             }
         }
         let waiting = match self.waiting_stop_for(&state) {
             Ok(waiting) => waiting,
             Err(_) => {
-                return DownstreamSegment::Evaluated {
-                    raw_capacity: 0,
-                    result: Err(DownstreamEvalError::Invariant),
-                };
+                return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
             }
         };
         if let Some(waiting) = waiting
@@ -3810,49 +3924,31 @@ impl ConflictTaskView<'_> {
             let boundary = match gate_boundary(waiting.hop) {
                 Ok(boundary) => boundary,
                 Err(_) => {
-                    return DownstreamSegment::Evaluated {
-                        raw_capacity: 0,
-                        result: Err(DownstreamEvalError::Invariant),
-                    };
+                    return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
                 }
             };
             if target > boundary {
-                return DownstreamSegment::Evaluated {
-                    raw_capacity: 0,
-                    result: Err(DownstreamEvalError::NoGrant),
-                };
+                return DownstreamSegment::PreFailed(DownstreamEvalError::NoGrant);
             }
         }
         if let Some(ParkingBinding::Reserved(reservation)) =
             self.read.committed.parking.binding(state.handle)
         {
             if reservation.route() != state.route {
-                return DownstreamSegment::Evaluated {
-                    raw_capacity: 0,
-                    result: Err(DownstreamEvalError::Invariant),
-                };
+                return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
             }
             let Some((_, progress_mm)) = self.read.reservation_anchor(reservation) else {
-                return DownstreamSegment::Evaluated {
-                    raw_capacity: 0,
-                    result: Err(DownstreamEvalError::Invariant),
-                };
+                return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
             };
             let Some(parking) = crate::DownstreamRoutePoint::new(
                 reservation.entry_route_occurrence(),
                 progress_mm,
                 0,
             ) else {
-                return DownstreamSegment::Evaluated {
-                    raw_capacity: 0,
-                    result: Err(DownstreamEvalError::Invariant),
-                };
+                return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
             };
             if target > parking {
-                return DownstreamSegment::Evaluated {
-                    raw_capacity: 0,
-                    result: Err(DownstreamEvalError::NoGrant),
-                };
+                return DownstreamSegment::PreFailed(DownstreamEvalError::NoGrant);
             }
         }
         // F4 位（downstream_work 真实预留）留在协调器消费侧原位。
@@ -3868,17 +3964,14 @@ impl ConflictTaskView<'_> {
         {
             Some(compiled) => compiled,
             None => {
-                return DownstreamSegment::Evaluated {
-                    raw_capacity: 0,
-                    result: Err(DownstreamEvalError::Invariant),
-                };
+                return DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
             }
         };
         let mut claims: Vec<crate::DownstreamInterval> = Vec::new();
         if claims.try_reserve(raw_capacity).is_err() {
             return DownstreamSegment::Unmaterialized;
         }
-        if crate::kernel::conflict::derive_downstream_claims_from_plan(
+        let fill = if crate::kernel::conflict::derive_downstream_claims_from_plan(
             &compiled.edges,
             self.read
                 .binding
@@ -3889,22 +3982,13 @@ impl ConflictTaskView<'_> {
             &mut claims,
         )
         .is_err()
+            || claims.capacity() < raw_capacity
         {
-            return DownstreamSegment::Evaluated {
-                raw_capacity: 0,
-                result: Err(DownstreamEvalError::Invariant),
-            };
-        }
-        if claims.capacity() < raw_capacity {
-            return DownstreamSegment::Evaluated {
-                raw_capacity: 0,
-                result: Err(DownstreamEvalError::Invariant),
-            };
-        }
-        DownstreamSegment::Evaluated {
-            raw_capacity,
-            result: Ok(claims),
-        }
+            Err(DownstreamFillError::Invariant)
+        } else {
+            Ok(claims)
+        };
+        DownstreamSegment::Obligated { raw_capacity, fill }
     }
 }
 

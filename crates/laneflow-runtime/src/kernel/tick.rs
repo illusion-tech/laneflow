@@ -479,7 +479,10 @@ fn push_parking_arrival(
     arrival: ParkingArrivalObservation,
 ) -> Result<(), StepError> {
     #[cfg(test)]
-    if motion_injection::arrival_reserve_injected() {
+    if motion_injection::arrival_reserve_injected()
+        && parking_arrivals.len() == parking_arrivals.capacity()
+    {
+        // R4：注入仅在真实必要增长时触发（余量足够不得伪造预留失败）。
         return Err(StepError::ParkingObservationAllocFailed);
     }
     parking_arrivals
