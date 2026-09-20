@@ -314,7 +314,7 @@ pub fn run_to_directory(
     let mut harness = Harness::install(artifacts, plan, execution)?;
     let initial_counts = observe::counts(&harness)?;
     let mut result = RunResult {
-        version: "urban-result-v4".into(),
+        version: "urban-result-v5".into(),
         status: "failed".into(),
         purpose: plan.window.purpose.clone(),
         case: plan.case.clone(),
@@ -492,15 +492,17 @@ pub fn run_to_directory(
             .files
             .insert("measurements.toml".into(), digest_file(&path)?);
     }
-    write_json(&output.join("result.json"), &result)?;
+    // diagnostics.json 的摘要纳入 result.files 完整性封套（worker 计数
+    // 的证据封套绑定）：先写 diagnostics、登记摘要，再写 result.json。
     times.sort_unstable();
     let percentile = |n: usize| {
         times
             .get((times.len() * n).div_ceil(100).saturating_sub(1))
             .copied()
     };
+    let diagnostics_path = output.join("diagnostics.json");
     write_json(
-        &output.join("diagnostics.json"),
+        &diagnostics_path,
         &json!({"purpose":if plan.window.purpose == "performance" {"execution-metadata; formal timings are in measurements.toml"} else {"diagnostic-only-not-performance-certification"}, "execution_id":execution_id, "elapsed_seconds":started.elapsed().as_secs_f64(),
         "verified_steps":times.len(), "step_ns_p50":percentile(50), "step_ns_p95":percentile(95), "step_ns_p99":percentile(99),
         "os":std::env::consts::OS, "architecture":std::env::consts::ARCH, "workers":execution.worker_count().get(),
@@ -510,6 +512,10 @@ pub fn run_to_directory(
         "git_commit_at_run":command_output("git", &["rev-parse", "HEAD"]),
         "git_status_at_run":command_output("git", &["status", "--porcelain"])}),
     )?;
+    result
+        .files
+        .insert("diagnostics.json".into(), digest_file(&diagnostics_path)?);
+    write_json(&output.join("result.json"), &result)?;
     Ok(result)
 }
 
@@ -688,8 +694,7 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
     if left_execution == right_execution {
         return Err(invalid("replay requires distinct execution identities"));
     }
-    let left_workers = read_diagnostics_workers(left)?;
-    let right_workers = read_diagnostics_workers(right)?;
+    // workers 在两臂摘要校验之后读取（证据封套绑定）。
     let read = |dir: &Path| -> Result<(
         RunResult,
         crate::artifacts::FileDigest,
@@ -701,7 +706,7 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
             (result.purpose.as_str(), result.status.as_str()),
             ("performance", "performance-round-complete")
         );
-        if result.version != "urban-result-v4"
+        if result.version != "urban-result-v5"
             || result.error.is_some()
             || result.completed_ticks != result.expected_ticks
             || !performance
@@ -717,6 +722,8 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
             "ticks.jsonl",
             "commands.jsonl",
             "events.jsonl",
+            // worker 计数的证据封套：摘要失配（复制/篡改）先于 workers 读取拒绝。
+            "diagnostics.json",
         ];
         if performance {
             // 正式臂的测量封套同样纳入本臂文件摘要自校验。
@@ -786,6 +793,8 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
     };
     let (a, left_digest, left_envelope) = read(left)?;
     let (b, right_digest, right_envelope) = read(right)?;
+    let left_workers = read_diagnostics_workers(left)?;
+    let right_workers = read_diagnostics_workers(right)?;
     if a.plan_digest != b.plan_digest {
         return Err(invalid("different resolved plans"));
     }
@@ -815,13 +824,17 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
             ));
         }
     }
-    // 语义比较排除已逐臂独立验证的 measurements.toml 测量封套（probe/
-    // correctness 臂无此文件，移除为空操作）；其余字段（含检查点、角色
-    // 见证、计数、plan 摘要、逐拍日志摘要）全部保留比较。
+    // 语义比较排除已逐臂独立验证的执行封套文件：measurements.toml 测量
+    // 封套与 diagnostics.json 执行元数据（计时、执行编号、workers 的载体；
+    // 其摘要已在逐臂 files 校验中与各臂自身内容绑定）。probe/correctness
+    // 臂无 measurements.toml，移除为空操作；其余字段（含检查点、角色见证、
+    // 计数、plan 摘要、逐拍日志摘要）全部保留比较。
     let mut a_semantic = a.clone();
     a_semantic.files.remove("measurements.toml");
+    a_semantic.files.remove("diagnostics.json");
     let mut b_semantic = b.clone();
     b_semantic.files.remove("measurements.toml");
+    b_semantic.files.remove("diagnostics.json");
     if a_semantic != b_semantic {
         for (index, (left_row, right_row)) in BufReader::new(File::open(left.join("ticks.jsonl"))?)
             .lines()
@@ -892,7 +905,7 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
     for directory in directories {
         let result_bytes = fs::read(directory.join("result.json"))?;
         let result: RunResult = serde_json::from_slice(&result_bytes)?;
-        if result.version != "urban-result-v4"
+        if result.version != "urban-result-v5"
             || result.purpose != "performance"
             || result.case != "MIXED-PEAK"
             || result.status != "performance-round-complete"
@@ -907,6 +920,7 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
             "commands.jsonl",
             "events.jsonl",
             "measurements.toml",
+            "diagnostics.json",
         ] {
             if result.files.get(name) != Some(&digest_file(&directory.join(name))?) {
                 return Err(invalid(format!("performance run file changed: {name}")));
@@ -974,10 +988,14 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
             return Err(invalid("performance rounds use different plans"));
         }
         identity.get_or_insert(current);
-        // Only the measurement envelope is non-semantic. Retained log digests, complete
-        // checkpoints, counts and all other result fields must match across the three worlds.
+        // Only the execution envelopes are non-semantic: the measurements.toml
+        // measurement envelope and the diagnostics.json execution metadata
+        // (each round's own digest still binds them per round). Retained log
+        // digests, complete checkpoints, counts and all other result fields
+        // must match across the three worlds.
         let mut semantic = result.clone();
         semantic.files.remove("measurements.toml");
+        semantic.files.remove("diagnostics.json");
         if semantic_result
             .as_ref()
             .is_some_and(|expected| *expected != semantic)
@@ -1379,6 +1397,7 @@ mod tests {
             "commands.jsonl",
             "events.jsonl",
             "measurements.toml",
+            "diagnostics.json",
         ]
         .into_iter()
         .map(|name| (name.into(), digest_file(&directory.join(name)).unwrap()))
@@ -1386,7 +1405,7 @@ mod tests {
         write_json(
             &directory.join("result.json"),
             &RunResult {
-                version: "urban-result-v4".into(),
+                version: "urban-result-v5".into(),
                 status: "performance-round-complete".into(),
                 purpose: "performance".into(),
                 case: "MIXED-PEAK".into(),

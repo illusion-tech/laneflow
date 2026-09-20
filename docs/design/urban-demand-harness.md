@@ -36,7 +36,11 @@ G1 接受不关闭 #544。小型试跑只用于检验计划可实施性；#544 �
 
 ## 2. 共同输入与稳定身份
 
-计划版本使用 `urban-demand-v3`，固定 `seed=544`、单 worker、`world_id=544`。
+计划版本使用 `urban-demand-v3`，固定 `seed=544`、`world_id=544`。worker 数是
+执行配置/测量来源记录（run 级 `--workers` 参数，记入运行 provenance 与
+diagnostics），不属于 urban-demand-v3 交通需求协议本身：计划摘要、需求语义、
+世界逻辑摘要与快照内容不随 worker 数变化（#707 测量入口切片修订；执行配置
+独立于 `ResolvedPlan` 的交通需求语义）。
 完整展开计划携带实际 `route_edges`；包括角色使用的局部目录路线，不只依赖路线名称。
 seed 属于调用方；不改 LFCA 或 TrafficWorld 的规则。所有选择使用目录 key 的 UTF-8
 字节序，禁止依赖哈希表迭代、墙钟或平台随机数。实体绑定使用目录 StableId，安装后
@@ -268,7 +272,7 @@ CLI 输出错误并非零退出；本段接受部分准备文件，不提供结�
   摘要、world/policy identity、实际窗口、逐 tile 触发、检查点及本次运行结论。
 - `comparison.json`：比较结论、case/scale、计划摘要、完成 tick 数、两个执行编号和
   两份 result 的 SHA256/字节数。CLI 必须指定新报告路径，成功比较才写入；两份原始
-  result 保持不可变。当前载荷为 `urban-result-v4` / `urban-comparison-v1`，不转换旧记录。
+  result 保持不可变。当前载荷为 `urban-result-v5` / `urban-comparison-v1`，不转换旧记录。
 - 正式性能阶段的 `measurements.toml`：git commit、`rustc -Vv`、`cargo -V`、target、构建参数、硬件/OS/电源角色、
   命令行、phase 耗时、计时范围、实际 Active/intent 分布、内存值及测量方法。
 

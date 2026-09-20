@@ -159,7 +159,9 @@ target/release/laneflow-urban-harness compare <performance-a> <performance-b> <p
   不计入最后一个暖机 step，但包含最后一个观察 step。
 - `result.json` 记录窗口、实际提交、逐 tile 触发和完整快照摘要；初态、暖机结束、
   每观察周期末捕获完整快照。计划与结果均携带 `required_per_tile` 的冻结下限，
-  对照逐 tile 的实际计数；载荷版本为 `urban-result-v4`，Failed 行不能通过 compare。
+  对照逐 tile 的实际计数；载荷版本为 `urban-result-v5`（v5 起 `diagnostics.json`
+  摘要纳入 `result.files` 完整性封套，worker 计数绑定证据封套），旧 v4 运行目录
+  因缺该封套条目被拒绝、不转换；Failed 行不能通过 compare。
   `committed_role_commands`、`parking_arrivals`、`right_of_way` 和 `garage_exit_clearance` 保存具体身份及提交
   时序；计数不能替代缺失的角色准入、观察期入场链、让行因果或指定边界命令。
 - `comparison.json` 由 compare 写到指定新路径，使用 `urban-comparison-v1`，记录

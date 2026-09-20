@@ -114,6 +114,37 @@ fn compare_runs_accepts_worker_only_difference_and_rejects_mixed_plans() {
     assert!(compare_runs(&one, &mixed).is_err());
 }
 
+/// 线程 1 回归：diagnostics.json 纳入 result.files 完整性封套后，篡改
+/// 其 workers 字段（不重算摘要）必须被 compare 拒绝；合法 1w/4w probe
+/// 跨臂比较不受影响。
+#[test]
+fn compare_runs_rejects_tampered_diagnostics_workers() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = fixture_artifacts(&temp);
+    let artifacts = Artifacts::load(&source).unwrap();
+    let plan = fixture_plan(&artifacts);
+    let one = temp.path().join("one");
+    let four = temp.path().join("four");
+    run_to_directory(&artifacts, &plan, &one, execution(1)).unwrap();
+    run_to_directory(&artifacts, &plan, &four, execution(4)).unwrap();
+    assert_eq!(compare_runs(&one, &four).unwrap().status, "probe-match");
+
+    let tampered = temp.path().join("tampered");
+    run_to_directory(&artifacts, &plan, &tampered, execution(1)).unwrap();
+    let diagnostics_path = tampered.join("diagnostics.json");
+    let mut diagnostics: serde_json::Value =
+        serde_json::from_slice(&fs::read(&diagnostics_path).unwrap()).unwrap();
+    diagnostics["workers"] = serde_json::json!(4);
+    fs::write(&diagnostics_path, serde_json::to_vec(&diagnostics).unwrap()).unwrap();
+    assert!(
+        compare_runs(&one, &tampered)
+            .unwrap_err()
+            .to_string()
+            .contains("run file changed"),
+        "篡改 diagnostics.json 必须因摘要失配被拒绝"
+    );
+}
+
 /// CLI 解析：--workers 缺省=1、非法值与超界报错。
 #[test]
 fn run_cli_workers_parsing() {
@@ -481,7 +512,15 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
     )
     .unwrap();
     assert_eq!(first.status, "probe-complete", "{:?}", first.error);
-    assert_eq!(first, second);
+    // 确定性断言覆盖语义字段：diagnostics.json/measurements.toml 是执行
+    // 封套（执行编号、计时、workers 的载体，v5 起纳入各自 files 完整性
+    // 封套），按定义随运行不同，不进入跨运行相等。
+    let semantic = |mut result: laneflow_urban_harness::RunResult| {
+        result.files.remove("diagnostics.json");
+        result.files.remove("measurements.toml");
+        result
+    };
+    assert_eq!(semantic(first.clone()), semantic(second.clone()));
     assert_eq!(first.completed_ticks, 1_024);
     for line in fs::read_to_string(a.join("ticks.jsonl")).unwrap().lines() {
         let tick: serde_json::Value = serde_json::from_str(line).unwrap();
