@@ -42,11 +42,11 @@ LANEFLOW_POWER_ROLE = "win11-balanced-381b4222"
 [inputs]
 artifacts_10k = "E:/projects/laneflow-evidence/issue-707/4de40e04/inputs/urban-10k（本次以冻结入口重建；network_revision=bef82350…）"
 artifacts_100k = "E:/projects/laneflow-evidence/issue-707/4de40e04/inputs/urban-100k（同上）"
-plans_json_mismatch = "fixtures/v3/plans.json 的 mixed-peak 冻结摘要与重建制品生成的计划字节数一致、SHA-256 不一致（静态路网修订不同）；未改 golden，理由见 README.md 已知偏差"
+plans_json_mismatch = "已核查（见 input-diff.md）：仅 shared_*_retained_bytes 两个构建统计字段漂移，network_revision 与内容文件一致；唯一计划差异为内嵌 manifest_digest；接受重建制品，golden 未改"
 
 [baselines]
 P1 = { commit = "4de40e04", workers = 1, status = "本切片实测（pilot 诊断口径，pilot-report.md）" }
 Pp = { commit = "4de40e04", workers = 4, status = "本切片实测（pilot 诊断口径，pilot-report.md）" }
-B-P2 = { commit = "b99a282e", workers = 4, status = "未测：该提交 harness 无 --workers 入口，无法以当前协议跑 w4；混合 harness/runtime 版本引入额外变量" }
-R0 = { status = "待定：构建窗口已过；旧载荷版本被 compare 拒绝，不满足不放宽 compare_runs 红线" }
-R1 = { status = "待定：提交历史无法干净分离局部算法优化与并行组织边界；同受 R0 约束" }
+B-P2 = { commit = "b99a282e", workers = 4, status = "本切片未测；需要独立、受控的测量入口适配" }
+R0 = { status = "本切片未测；提交归属和跨版本可比性仍待核查" }
+R1 = { status = "本切片未测；提交归属和跨版本可比性仍待核查" }

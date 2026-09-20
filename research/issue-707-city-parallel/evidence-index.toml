@@ -1,7 +1,123 @@
 # #707 第二切片证据索引（E:/projects/laneflow-evidence/issue-707/4de40e04/）
+# 小型证据封套已绑定入本目录 evidence/（comparison/diagnostics/manifest 共 14 份）；
+# 大文件（逐拍日志、LFCA、计划本体）不入 Git，以证据根为准。
 
 manifest = "manifest/baseline-manifest-raw.toml"
 binary = { harness = "f5ae9dfb125b013ee3a3cd275254a9fb8f13f3d01e788e1a9bfa82b5d8694523", generator = "b54fbab5354a6b36a6d3f5126d92a1af185f52995b05707cbd9c71c2bd508969" }
+input_diff = "input-diff.md"
+
+[[runs]]
+dir = "smoke/10k-w1-r1"
+workers = 1
+execution_id = "51932-1789904153349827800-0"
+exit = 0
+log = "logs/10k-w1-r1.log"
+ticks = "256/256"
+status = "probe-complete"
+plan_sha256 = "e4c9b0f403bb358eb265d969de071893bc73c92572eebf43c461837f90c8e53c"
+result_sha256 = "ff86fcfc0476f245a03868180bdec6d21de4929730c25e12dfb3e0ae2e85cd73"
+diagnostics_sha256 = "10d1ba22a7479aeaef0a003138fdae2951c1583f80ad46372a827d5ee12657f8"
+ended_at = "2026-09-20T20:35:58.243992"
+ended_at_basis = "result.json 文件 mtime（日志无时间戳，结束时戳口径）"
+evidence = "evidence/diagnostics-10k-w1-r1.json"
+[[runs]]
+dir = "smoke/10k-w4-r1"
+workers = 4
+execution_id = "53260-1789904158884673800-0"
+exit = 0
+log = "logs/10k-w4-r1.log"
+ticks = "256/256"
+status = "probe-complete"
+plan_sha256 = "e4c9b0f403bb358eb265d969de071893bc73c92572eebf43c461837f90c8e53c"
+result_sha256 = "c0152b74733aee6ca54fb22f584e455c285954856681c20a393398cb2e1b713b"
+diagnostics_sha256 = "e5db0e89aec4d32e15b352b7c827381977e4a8c15d807b639ba2d649afcb74b3"
+ended_at = "2026-09-20T20:36:03.170264"
+ended_at_basis = "result.json 文件 mtime（日志无时间戳，结束时戳口径）"
+evidence = "evidence/diagnostics-10k-w4-r1.json"
+[[runs]]
+dir = "smoke/100k-w1-r1"
+workers = 1
+execution_id = "13212-1789904268319871200-0"
+exit = 0
+log = "logs/100k-w1-r1.log"
+ticks = "256/256"
+status = "probe-complete"
+plan_sha256 = "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7"
+result_sha256 = "d0c4d8bfe2cc4826b3c5043ac3fffdfadc24e8f60f2ec4b22ecbba009fef1d57"
+diagnostics_sha256 = "87478bc657042e9f4f6a6662c68ab8288c2493f02fdbd3cfed0dc64e610820f6"
+ended_at = "2026-09-20T20:38:46.158419"
+ended_at_basis = "result.json 文件 mtime（日志无时间戳，结束时戳口径）"
+evidence = "evidence/diagnostics-100k-w1-r1.json"
+[[runs]]
+dir = "smoke/100k-w4-r1"
+workers = 4
+execution_id = "58280-1789904329755343600-0"
+exit = 0
+log = "logs/100k-w4-r1.log"
+ticks = "256/256"
+status = "probe-complete"
+plan_sha256 = "f0ecb9eae962e9f0207efa9181e25f4ff8450d3162948ceda262ca7f0f0246c7"
+result_sha256 = "a03f3e17ea99c4f058c4c5e48182ba07802d92b6dc5690ad6a28a09709fda70b"
+diagnostics_sha256 = "baa10fcb388f2b9cad47eae670abe2f7811ac6c111e3a649656d800f9cdec233"
+ended_at = "2026-09-20T20:39:40.070137"
+ended_at_basis = "result.json 文件 mtime（日志无时间戳，结束时戳口径）"
+evidence = "evidence/diagnostics-100k-w4-r1.json"
+[[runs]]
+dir = "pilot/10k-w1-r1"
+workers = 1
+execution_id = "51112-1789904441965506500-0"
+exit = 0
+log = "logs/10k-pilot-w1.log"
+ticks = "5120/5120"
+status = "probe-complete"
+plan_sha256 = "66ae0273912e673f81d25c09b3dfd34ba22f3f9b96c91c175ee96383b7d318b3"
+result_sha256 = "b2d0ccfa6d73d2508852ef755f4e9ead4dc6dc67c0673b8ef41d11fcd1762189"
+diagnostics_sha256 = "056bcffaa27f3208890eaa4283881b8271810fc1384c4d08f27c253e308e63ab"
+ended_at = "2026-09-20T20:42:19.300564"
+ended_at_basis = "result.json 文件 mtime（日志无时间戳，结束时戳口径）"
+evidence = "evidence/diagnostics-10k-pilot-w1-r1.json"
+[[runs]]
+dir = "pilot/10k-w4-r1"
+workers = 4
+execution_id = "14860-1789904539998030800-0"
+exit = 0
+log = "logs/10k-pilot-w4.log"
+ticks = "5120/5120"
+status = "probe-complete"
+plan_sha256 = "66ae0273912e673f81d25c09b3dfd34ba22f3f9b96c91c175ee96383b7d318b3"
+result_sha256 = "86105f6ef4ac961385c2ba944ece1276df49b6326321bb5791f3ac82b25e746b"
+diagnostics_sha256 = "2ed3126633032c54a5430b8f22fb221659fb35e187cfc6a3615124118fd555ac"
+ended_at = "2026-09-20T20:43:46.873667"
+ended_at_basis = "result.json 文件 mtime（日志无时间戳，结束时戳口径）"
+evidence = "evidence/diagnostics-10k-pilot-w4-r1.json"
+[[runs]]
+dir = "pilot/100k-w1-r1"
+workers = 1
+execution_id = "54672-1789904634935351700-0"
+exit = 0
+log = "logs/100k-pilot-w1.log"
+ticks = "5120/5120"
+status = "probe-complete"
+plan_sha256 = "b4f03e0495bc1b0aefe67635f00c9fb9c4dca8f9d7351e3819ff49d011d31ec2"
+result_sha256 = "e57cfe1d15dbde46460dbea93931a9bddb6270977238a09c2902d73cf4899ab1"
+diagnostics_sha256 = "0383719f2d988c8cc62d773bc0b557de948505f51cbfad45dd96cb3973d7f178"
+ended_at = "2026-09-20T21:01:57.588318"
+ended_at_basis = "result.json 文件 mtime（日志无时间戳，结束时戳口径）"
+evidence = "evidence/diagnostics-100k-pilot-w1-r1.json"
+[[runs]]
+dir = "pilot/100k-w4-r1"
+workers = 4
+execution_id = "57376-1789905720868052000-0"
+exit = 0
+log = "logs/100k-pilot-w4.log"
+ticks = "5120/5120"
+status = "probe-complete"
+plan_sha256 = "b4f03e0495bc1b0aefe67635f00c9fb9c4dca8f9d7351e3819ff49d011d31ec2"
+result_sha256 = "048eea7dafb3fe91ab667d81ee284cfc91536bf440de3ebb7a71400ec323fab1"
+diagnostics_sha256 = "54faed48345197af91ccd8deb6243638b6e6dd2209c3153db0677448fe8bd252"
+ended_at = "2026-09-20T21:15:40.880627"
+ended_at_basis = "result.json 文件 mtime（日志无时间戳，结束时戳口径）"
+evidence = "evidence/diagnostics-100k-pilot-w4-r1.json"
 
 [[plans]]
 path = "plans/10k-smoke.toml"
@@ -29,7 +145,7 @@ log = "logs/100k-pilot-plan.log"
 
 [[plans]]
 path = "plans/10k-mixed-peak-correctness.toml"
-kind = "correctness 参考计划（冻结摘要不匹配核查用，未运行）"
+kind = "correctness 参考计划（input-diff 核查用，未运行）"
 exit = 0
 log = "logs/plan-10k-correctness.log"
 
@@ -39,86 +155,34 @@ kind = "correctness 参考计划（同上）"
 exit = 0
 log = "logs/plan-100k-correctness.log"
 
-[[runs]]
-dir = "smoke/10k-w1-r1"
-workers = 1
-exit = 0
-log = "logs/10k-w1-r1.log"
-ticks = "256/256"
-status = "probe-complete"
-
-[[runs]]
-dir = "smoke/10k-w4-r1"
-workers = 4
-exit = 0
-log = "logs/10k-w4-r1.log"
-ticks = "256/256"
-status = "probe-complete"
-
-[[runs]]
-dir = "smoke/100k-w1-r1"
-workers = 1
-exit = 0
-log = "logs/100k-w1-r1.log"
-ticks = "256/256"
-status = "probe-complete"
-
-[[runs]]
-dir = "smoke/100k-w4-r1"
-workers = 4
-exit = 0
-log = "logs/100k-w4-r1.log"
-ticks = "256/256"
-status = "probe-complete"
-
-[[runs]]
-dir = "pilot/10k-w1-r1"
-workers = 1
-exit = 0
-log = "logs/10k-pilot-w1.log"
-ticks = "5120/5120"
-status = "probe-complete"
-
-[[runs]]
-dir = "pilot/10k-w4-r1"
-workers = 4
-exit = 0
-log = "logs/10k-pilot-w4.log"
-ticks = "5120/5120"
-status = "probe-complete"
-
-[[runs]]
-dir = "pilot/100k-w1-r1"
-workers = 1
-exit = 0
-log = "logs/100k-pilot-w1.log"
-ticks = "5120/5120"
-status = "probe-complete"
-
-[[runs]]
-dir = "pilot/100k-w4-r1"
-workers = 4
-exit = 0
-log = "logs/100k-pilot-w4.log"
-ticks = "5120/5120"
-status = "probe-complete"
-
 [[comparisons]]
 path = "comparisons/10k-smoke-w1-w4.json"
 status = "probe-match"
+evidence = "evidence/comparison-10k-smoke-w1-w4.json"
 log = "logs/10k-compare.log"
 
 [[comparisons]]
 path = "comparisons/100k-smoke-w1-w4.json"
 status = "probe-match"
+evidence = "evidence/comparison-100k-smoke-w1-w4.json"
 log = "logs/100k-compare.log"
 
 [[comparisons]]
 path = "comparisons/10k-pilot-w1-w4.json"
 status = "probe-match"
+evidence = "evidence/comparison-10k-pilot-w1-w4.json"
 log = "logs/10k-pilot-compare.log"
 
 [[comparisons]]
 path = "comparisons/100k-pilot-w1-w4.json"
 status = "probe-match"
+evidence = "evidence/comparison-100k-pilot-w1-w4.json"
 log = "logs/100k-pilot-compare.log"
+
+[[manifests]]
+path = "inputs/urban-10k/manifest.toml"
+evidence = "evidence/manifest-10k.toml"
+
+[[manifests]]
+path = "inputs/urban-100k/manifest.toml"
+evidence = "evidence/manifest-100k.toml"
