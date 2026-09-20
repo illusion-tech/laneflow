@@ -1241,12 +1241,22 @@ mod capacity_tests {
         );
 
         // 再更新 B：A 的完整输出不变。
-        let a_snapshot = a.vehicles().to_vec();
+        let a_snapshot = (a.vehicles().to_vec(), a.batch().clone(), a.context());
         extract(&mut rig.session, &mut b);
         assert_eq!(
             a.vehicles(),
-            a_snapshot.as_slice(),
-            "updating b must not modify a"
+            a_snapshot.0.as_slice(),
+            "updating b must not modify a vehicles"
+        );
+        assert_eq!(
+            *a.batch(),
+            a_snapshot.1,
+            "updating b must not modify a batch"
+        );
+        assert_eq!(
+            a.context(),
+            a_snapshot.2,
+            "updating b must not modify a context"
         );
 
         // 暖机后重复交替：容量稳定不再增长。

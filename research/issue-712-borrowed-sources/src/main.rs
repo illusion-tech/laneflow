@@ -671,7 +671,7 @@ fn run_adapter_full(dataset: &mut Dataset, samples: usize, iterations: usize) {
     }
 
     for sample in 0..samples {
-        let stats = timed("adapter_full", &dataset.name, sample, iterations, || {
+        let _stats = timed("adapter_full", &dataset.name, sample, iterations, || {
             for _ in 0..iterations {
                 dataset
                     .session
@@ -682,7 +682,7 @@ fn run_adapter_full(dataset: &mut Dataset, samples: usize, iterations: usize) {
                     .expect("adapter extract");
             }
         });
-        assert_steady_sample!(stats, "adapter_full", sample);
+        assert_steady_sample!(_stats, "adapter_full", sample);
         // 计时外校验：本样本最后一次实际提取留下的 output 与参考全字段一致。
         assert_eq!(
             digest_output(&output),
@@ -841,7 +841,7 @@ fn run_alternate(dataset: &mut Dataset, samples: usize, iterations: usize) {
     }
 
     for sample in 0..samples {
-        let stats = timed("alternate", &dataset.name, sample, iterations, || {
+        let _stats = timed("alternate", &dataset.name, sample, iterations, || {
             for _ in 0..iterations / 2 {
                 dataset
                     .session
@@ -853,7 +853,7 @@ fn run_alternate(dataset: &mut Dataset, samples: usize, iterations: usize) {
                     .expect("alternate b");
             }
         });
-        assert_steady_sample!(stats, "alternate", sample);
+        assert_steady_sample!(_stats, "alternate", sample);
     }
     // 计时外校验：A、B 都与参考全字段一致。
     assert_eq!(digest_output(&a), reference_digest, "post-sample output a");

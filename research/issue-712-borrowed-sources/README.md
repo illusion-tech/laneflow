@@ -6,11 +6,13 @@
 - **before（A）**：`b52f9ec4b792a158aed45f0ca4f536379073684f`（main，含 #719），
   `committed_pose_sources` 仍为按值 Vec；以 `legacy-source` feature 构建。
 - **after（B）**：#712 栈（来源判定统一 + 借用迭代器 + Adapter 双候选缓冲 +
-  容量/测后校验），默认 feature 构建。各轮 environment.json 的 `baseline` 是
-  取证时栈头（测后校验版取证时为 `63fbcd5a`）；测量程序内容对应
-  `research/issue-712-borrowed-sources`（src SHA 见 environment.json 并由
-  汇总器强制 A/B 全等），生产代码即 712-1/712-2 两层提交。早期版本
-  （`dc5a3685`/`1c02d477` 等）为历史取证，见 git 记录。
+  容量/测后校验），默认 feature 构建。第四轮取证的提交脉络与 environment.json
+  记录一致：`9eac374d`（稳态断言仅约束借用侧的修复）→ `298daed8`（移除旧
+  证据目录，即各轮 environment.json 记录的取证 baseline / 取证时的 HEAD）→
+  取证六轮 → `72ff8e92`（证据入库，取证后提交）。测量程序内容以各轮
+  environment.json 的 src SHA 为准（汇总器强制 A/B 全等）；生产代码即
+  712-1/712-2 两层提交。更早版本（`dc5a3685`/`1c02d477`/`63fbcd5a` 等）为
+  历史取证轮次，见 git 记录，不作为当前有效结论来源。
 
 两侧 `src/main.rs` 字节相同（SHA-256 记录于 environment.json 并由汇总器强制
 A/B 全等）；`legacy-source` 是研究程序内的**薄版本适配层**——只切换
