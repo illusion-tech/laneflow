@@ -1,7 +1,7 @@
 # 开发闸口
 
 **文档状态**: Active
-**最后更新**: 2026-08-28
+**最后更新**: 2026-09-20
 
 **适用范围**: LaneFlow 的需求、设计、实现、评审与合并
 
@@ -131,13 +131,14 @@ Dependabot 时还必须满足 `dependency-security.md`。
 
 ### 6.2 Required checks
 
-PR 与 `merge_group` 使用相同的五个 required check 名称：
+PR 与 `merge_group` 使用相同的六个 required check 名称：
 
 1. `Commit message`
 2. `Rust checks`
-3. `Dependency policy`
-4. `Analyze (actions)`
-5. `Analyze (rust)`
+3. `Urban harness tests`
+4. `Dependency policy`
+5. `Analyze (actions)`
+6. `Analyze (rust)`
 `Markdown tables` 只警告。Schema publication 不参与合并门禁。
 
 ### 6.3 入队

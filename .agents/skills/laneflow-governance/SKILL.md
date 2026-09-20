@@ -64,7 +64,7 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 ```
 
 - required checks（PR 与 `merge_group` 同名）：`Commit message`、`Rust checks`、
-  `Dependency policy`、`Analyze (actions)`、`Analyze (rust)`。
+  `Urban harness tests`、`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`。
 - 禁止日常 `--admin`。owner bypass 的终态由 #493 独立治理。
 
 ## 提交说明
