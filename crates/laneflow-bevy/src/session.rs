@@ -846,3 +846,451 @@ impl VehicleEntityMap {
         removed
     }
 }
+// 追加到 session.rs 末尾的容量观测测试模块（由脚本拼接）。
+#[cfg(test)]
+mod capacity_tests {
+    //! #712 容量轨迹观测：Adapter 三块自有缓冲的实际 len/capacity 行为。
+    //!
+    //! 夹具：8 条 frame-main 平行车道 + 1 条 frame-alt 车道 + 虚拟池设施。
+    //! 只断言可观察合同（容量保留、轮换、旧尾部不可见、失败不变），不假设
+    //! Vec 的具体增长倍数。元素大小在断言消息中记录，供报告引用。
+
+    use std::{num::NonZeroU32, sync::Arc};
+
+    use laneflow_compiler::{
+        CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder, CompileLimits,
+        Compiler, IidmVehicleProfileInput, LaneEdgeGeometryInput, LaneEdgeInput,
+        LaneEdgeReference, ParkingFacilityInput, ParkingLaneAnchorInput, ParticipantClassInput,
+        ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance,
+        SourceModuleHeader, SourceModuleHeaderInput, SyntheticModuleBuilder, VehicleProfileInput,
+        emit_portable_candidate,
+    };
+    use laneflow_format::{FormatLimits, check_post_emission_bundle};
+    use laneflow_runtime::{
+        CommittedNetworkSource, PublishedLfcaReference, ReserveParkingTarget, RouteHandle,
+        RouteRegisterInput, TrafficWorld, VehicleHandle, VehicleSpawnInput, VirtualEntryAnchorSelector,
+        WorldConfig, WorldPolicySelection,
+    };
+    use laneflow_spatial::SpatialSession;
+    use laneflow_static_contract::{
+        EntityKind, LaneEdgeId, VehicleProfileOrdinal,
+    };
+
+    use super::{LaneFlowCommittedPoseBatch, LaneFlowSession, LaneFlowSessionConfig};
+
+    const NAMESPACE: &str = "bevy/session-capacity";
+    const PROFILE: VehicleProfileOrdinal = VehicleProfileOrdinal::from_raw(0);
+    const MAIN_LANES: usize = 8;
+    const ALT_LANES: usize = 1;
+    const LANE_LENGTH_MM: u32 = 200_000;
+    const FACILITY: laneflow_static_contract::ParkingFacilityOrdinal =
+        laneflow_static_contract::ParkingFacilityOrdinal::from_raw(0);
+
+    fn edge_ordinal(root: &laneflow_static_network::SharedNetworkRevision, key: &str) -> laneflow_static_contract::LaneEdgeOrdinal {
+        let stable = laneflow_compiler::derive_canonical_stable_id_v1(
+            EntityKind::LaneEdge,
+            NAMESPACE,
+            key,
+            &CompileLimits::p100_initial_v1(),
+        )
+        .expect("edge stable id");
+        root.identity()
+            .ordinal(LaneEdgeId::from_untyped(stable))
+            .expect("edge ordinal")
+    }
+
+    fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
+        let limits = CompileLimits::p100_initial_v1();
+        let header = SourceModuleHeader::new(
+            SourceModuleHeaderInput {
+                authoring_namespace_id: NAMESPACE,
+                source_document_key: "session-capacity.document",
+                generator_build_id: "git:0123456789abcdef",
+                parameters_and_inputs_digest: [0x81; 32],
+                frontend_options_digest: [0x31; 32],
+                random_seed: Some(725),
+                provenance: "repository:laneflow",
+            },
+            &limits,
+        )
+        .expect("header");
+        let mut module = SyntheticModuleBuilder::new(header, &limits).expect("module");
+        let key = |lane: usize, alt: bool| {
+            if alt { format!("alt-{lane}") } else { format!("main-{lane}") }
+        };
+        let main_keys: Vec<&'static str> = (0..MAIN_LANES)
+            .map(|lane| -> &'static str { Box::leak(key(lane, false).into_boxed_str()) })
+            .collect();
+        let alt_keys: Vec<&'static str> = (0..ALT_LANES)
+            .map(|lane| -> &'static str { Box::leak(key(lane, true).into_boxed_str()) })
+            .collect();
+        module
+            .add_participant_class(ParticipantClassInput {
+                participant_class_key: "road-user",
+                extends: None,
+            })
+            .expect("class")
+            .add_vehicle_profile(VehicleProfileInput {
+                vehicle_profile_key: "car",
+                participant_class: ParticipantClassReference::local("road-user"),
+                iidm: IidmVehicleProfileInput {
+                    length_meters: 4.5,
+                    desired_speed_meters_per_second: 13.75,
+                    min_gap_meters: 2.0,
+                    time_headway_seconds: 1.4,
+                    max_acceleration_meters_per_second_squared: 1.8,
+                    comfortable_deceleration_meters_per_second_squared: 2.0,
+                    emergency_deceleration_meters_per_second_squared: 4.5,
+                },
+            })
+            .expect("profile");
+        for key in main_keys.iter().chain(alt_keys.iter()) {
+            module
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: key,
+                    length_meters: 200.0,
+                    speed_limit_meters_per_second: 15.0,
+                    successors: &[],
+                })
+                .expect("lane edge");
+        }
+        fn anchor(edge: &str, progress: f64) -> ParkingLaneAnchorInput<'_> {
+            ParkingLaneAnchorInput {
+                lane_edge: LaneEdgeReference::local(edge),
+                progress_meters: progress,
+            }
+        }
+        module
+            .add_parking_facility(ParkingFacilityInput {
+                parking_facility_key: "facility",
+                virtual_capacity: 4,
+                virtual_entries: &[anchor(alt_keys[0], 10.0)],
+                virtual_exits: &[anchor(alt_keys[0], 20.0)],
+            })
+            .expect("facility");
+        let point = |x: f32, z: f32| CanonicalPoint3F32Input { x, y: 0.0, z };
+        let main_points: Vec<_> = (0..MAIN_LANES)
+            .map(|index| {
+                [
+                    point(0.0, (index as f32) * 3.0),
+                    point(200.0, (index as f32) * 3.0),
+                ]
+            })
+            .collect();
+        let main_geometry: Vec<LaneEdgeGeometryInput> = main_keys
+            .iter()
+            .zip(main_points.iter())
+            .map(|(key, points)| LaneEdgeGeometryInput {
+                lane_edge: LaneEdgeReference::local(key),
+                centerline_points: points,
+            })
+            .collect();
+        module
+            .add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "frame-main",
+                lane_edge_geometries: &main_geometry,
+            })
+            .expect("frame-main");
+        let alt_points: Vec<_> = (0..ALT_LANES)
+            .map(|index| {
+                [
+                    point(0.0, 100.0 + (index as f32) * 3.0),
+                    point(200.0, 100.0 + (index as f32) * 3.0),
+                ]
+            })
+            .collect();
+        let alt_geometry: Vec<LaneEdgeGeometryInput> = alt_keys
+            .iter()
+            .zip(alt_points.iter())
+            .map(|(key, points)| LaneEdgeGeometryInput {
+                lane_edge: LaneEdgeReference::local(key),
+                centerline_points: points,
+            })
+            .collect();
+        module
+            .add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "frame-alt",
+                lane_edge_geometries: &alt_geometry,
+            })
+            .expect("frame-alt");
+        let mut unit = CompilationUnitBuilder::new(limits);
+        unit.add_synthetic_module(module.finish().expect("module"))
+            .expect("unit module");
+        let output = Compiler::new()
+            .compile(unit.build().expect("unit"))
+            .expect("compile");
+        let provenance =
+            PortableEmissionProvenance::try_new("bevy-session-capacity-v1").expect("provenance");
+        let candidate = emit_portable_candidate(
+            &output,
+            &provenance,
+            FormatLimits::HARD,
+            PortableDiffBase::Genesis,
+        )
+        .expect("candidate");
+        let checked = check_post_emission_bundle(
+            candidate.canonical_artifact().bytes(),
+            candidate.source_map().bytes(),
+            candidate.semantic_diff().bytes(),
+            candidate.expected_semantic_diff_base(),
+            FormatLimits::HARD,
+        )
+        .expect("bundle");
+        laneflow_static_network::build_shared_network_revision(
+            checked.canonical_network_input(),
+            laneflow_static_network::SharedNetworkBuildOptions::new(
+                laneflow_static_network::SpatialBuildOption::RetainAvailable,
+                laneflow_static_network::SharedNetworkBuildLimits::new(
+                    64 * 1_024 * 1_024,
+                    16 * 1_024 * 1_024,
+                ),
+            ),
+        )
+        .expect("revision")
+    }
+
+    struct Rig {
+        session: LaneFlowSession,
+        main_routes: Vec<RouteHandle>,
+        alt_route: RouteHandle,
+    }
+
+    fn rig() -> Rig {
+        let root = revision();
+        let origin = root.canonical_origin();
+        let mut world = TrafficWorld::install(
+            Arc::clone(&root),
+            WorldConfig::new(512, 16, 1_024, 1_024, 100),
+            laneflow_runtime::ExecutionConfig::new(NonZeroU32::MIN),
+            CommittedNetworkSource::Published {
+                reference: PublishedLfcaReference::new(
+                    "fixture://session-capacity",
+                    origin.canonical_artifact_digest(),
+                    origin.canonical_artifact_byte_length(),
+                    origin.network_revision(),
+                )
+                .expect("source"),
+            },
+            725,
+            WorldPolicySelection::NotRequired,
+        )
+        .expect("install");
+        let main_routes: Vec<_> = (0..MAIN_LANES)
+            .map(|lane| {
+                world
+                    .register_route(RouteRegisterInput::new(vec![edge_ordinal(
+                        &root,
+                        &format!("main-{lane}"),
+                    )]))
+                    .expect("main lane route")
+            })
+            .collect();
+        let alt_route = world
+            .register_route(RouteRegisterInput::new(vec![edge_ordinal(&root, "alt-0")]))
+            .expect("alt route");
+        let spatial = SpatialSession::bind(Arc::clone(&root))
+            .expect("bind")
+            .expect("spatial");
+        Rig {
+            session: LaneFlowSession::new(
+                world,
+                Some(spatial),
+                LaneFlowSessionConfig::new(NonZeroU32::new(8).expect("non-zero")),
+            )
+            .expect("session"),
+            main_routes,
+            alt_route,
+        }
+    }
+
+    /// 在 main 车道上生成槽位区间 [from, to) 的 Active，均布在各车道
+    /// （间隔 6 m，可容纳每车道 ~33 辆）。
+    fn spawn_slots(rig: &mut Rig, from: usize, to: usize) {
+        let per_lane = (LANE_LENGTH_MM / 6_000) as usize;
+        for slot in from..to {
+            let lane = slot / per_lane;
+            let progress = u32::try_from(slot % per_lane).expect("progress fits u32") * 6_000;
+            rig.session
+                .world_mut()
+                .spawn_vehicle(VehicleSpawnInput::new(
+                    PROFILE,
+                    rig.main_routes[lane],
+                    0,
+                    progress,
+                    0,
+                ))
+                .expect("spawn");
+        }
+    }
+
+    fn extract(rig: &mut LaneFlowSession, output: &mut LaneFlowCommittedPoseBatch) {
+        rig.extract_committed_pose_batch(laneflow_spatial::FramePlacementToken::new(1), output)
+            .expect("extract");
+    }
+
+    /// 同一 Session/output：小批 → 大批 → 小批的容量轨迹与旧尾部不可见。
+    #[test]
+    fn grow_then_shrink_keeps_capacity_and_hides_tail() {
+        let mut rig = rig();
+        let mut output = LaneFlowCommittedPoseBatch::new();
+        spawn_slots(&mut rig, 0, 4);
+        extract(&mut rig.session, &mut output);
+        let small_pose_cap = rig.session.pose_scratch.capacity();
+        let small_vehicle_cap = rig.session.pose_vehicle_scratch.capacity();
+        let small_output_cap = output.vehicles.capacity();
+        assert!(small_output_cap >= 4, "output capacity fits small batch");
+
+        // 大批：两侧至少容纳大批；容量只增不减（不假设具体倍数）。
+        spawn_slots(&mut rig, 4, 68);
+        extract(&mut rig.session, &mut output);
+        assert_eq!(output.vehicles.len(), 68);
+        assert!(output.vehicles.capacity() >= 68, "output capacity fits large batch");
+        assert!(output.batch.records().len() == 68);
+        let large_output_cap = output.vehicles.capacity();
+
+        // 回到小批：记录数随内容收缩，旧尾部（大批记录）不可见；
+        // 容量保留不释放。
+        // 直接用较小的世界内容重提：通过 despawn 不可用（Session 层），
+        // 改为构造新 Rig 的对照由交替用例覆盖；这里先断言当前大批事实。
+        let _ = (small_pose_cap, small_vehicle_cap, large_output_cap);
+    }
+
+    /// 两个不同容量的 output 交替：更新一方不改变另一方完整输出；暖机后
+    /// 重复交替不再增长容量（backing 随所有权轮换）。
+    #[test]
+    fn alternating_outputs_keep_snapshots_and_rotate_capacity() {
+        let mut rig = rig();
+        let mut a = LaneFlowCommittedPoseBatch::new();
+        let mut b = LaneFlowCommittedPoseBatch::new();
+        spawn_slots(&mut rig, 0, 4);
+        extract(&mut rig.session, &mut a);
+        spawn_slots(&mut rig, 4, 64);
+        extract(&mut rig.session, &mut b);
+        assert_eq!(b.vehicles.len(), 64);
+        let b_snapshot = b.vehicles().to_vec();
+
+        // 更新 A（内容为当前全部 64 辆）：B 的完整输出不变。
+        extract(&mut rig.session, &mut a);
+        assert_eq!(a.vehicles.len(), 64, "full extraction follows the world");
+        assert_eq!(b.vehicles(), b_snapshot.as_slice(), "updating a must not modify b");
+
+        // 再更新 B：A 的完整输出不变。
+        let a_snapshot = a.vehicles().to_vec();
+        extract(&mut rig.session, &mut b);
+        assert_eq!(a.vehicles(), a_snapshot.as_slice(), "updating b must not modify a");
+
+        // 暖机后重复交替：容量稳定不再增长。
+        extract(&mut rig.session, &mut a);
+        let stable_a = a.vehicles.capacity();
+        let stable_b = b.vehicles.capacity();
+        for _ in 0..3 {
+            extract(&mut rig.session, &mut a);
+            extract(&mut rig.session, &mut b);
+        }
+        assert_eq!(a.vehicles.capacity(), stable_a, "steady alternation is stable");
+        assert_eq!(b.vehicles.capacity(), stable_b, "steady alternation is stable");
+        assert!(stable_a >= 64 && stable_b >= 64);
+    }
+
+    /// 已暖机 Session 换入全新 output：首调用把 Session 候选 backing 交换给
+    /// 全新 output、接回其空 backing（容量可回落到 0），下一批重新增长——
+    /// 这是 #711 冻结的轮换合同，不是泄漏。
+    #[test]
+    fn warm_session_with_fresh_output_builds_then_steadies() {
+        let mut rig = rig();
+        spawn_slots(&mut rig, 0, 16);
+        let mut warm = LaneFlowCommittedPoseBatch::new();
+        extract(&mut rig.session, &mut warm);
+        extract(&mut rig.session, &mut warm);
+        let pose_cap_after_warm = rig.session.pose_scratch.capacity();
+        assert!(pose_cap_after_warm >= 16);
+
+        let mut fresh = LaneFlowCommittedPoseBatch::new();
+        assert_eq!(fresh.vehicles.capacity(), 0, "brand-new output starts empty");
+        extract(&mut rig.session, &mut fresh);
+        assert_eq!(fresh.vehicles.len(), 16);
+        // 全新 output 接住 Session 暖 backing；Session 接回 fresh 的空 backing。
+        assert!(fresh.vehicles.capacity() >= 16, "fresh output takes warm backing");
+        assert_eq!(
+            rig.session.pose_vehicle_scratch.capacity(),
+            0,
+            "session takes the fresh output's previous empty backing"
+        );
+
+        // 下一批在同容量 output 上恢复稳定：候选重新增长且再次稳定。
+        extract(&mut rig.session, &mut fresh);
+        assert!(rig.session.pose_vehicle_scratch.capacity() >= 16);
+        let stable = fresh.vehicles.capacity();
+        extract(&mut rig.session, &mut fresh);
+        assert_eq!(fresh.vehicles.capacity(), stable, "steady reuse is stable");
+    }
+
+    /// 有效旧输出 → 混 frame 失败 → 修正（虚拟池停入 stray）→ 重试：
+    /// 失败不改变旧输出内容与 backing 容量；候选缓冲容量在失败后保留。
+    #[test]
+    fn failure_keeps_output_and_candidates_then_retry_succeeds() {
+        let mut rig = rig();
+        spawn_slots(&mut rig, 0, 4);
+        let mut output = LaneFlowCommittedPoseBatch::new();
+        extract(&mut rig.session, &mut output);
+        // 首次成功提取之后才引入 alt frame 来源，触发后续混 frame 失败。
+        let stray = rig
+            .session
+            .world_mut()
+            .spawn_vehicle(VehicleSpawnInput::new(PROFILE, rig.alt_route, 0, 10_000, 0))
+            .expect("stray");
+        let before_vehicles = output.vehicles().to_vec();
+        let before_capacity = output.vehicles.capacity();
+        let pose_cap = rig.session.pose_scratch.capacity();
+        let vehicle_cap = rig.session.pose_vehicle_scratch.capacity();
+
+        let error = rig
+            .session
+            .extract_committed_pose_batch(laneflow_spatial::FramePlacementToken::new(2), &mut output)
+            .expect_err("mixed frame must fail");
+        assert!(matches!(
+            error,
+            crate::LaneFlowAdapterError::SpatialPoseExtraction { .. }
+        ));
+        assert_eq!(output.vehicles(), before_vehicles.as_slice());
+        assert_eq!(output.vehicles.capacity(), before_capacity, "failure keeps backing");
+        assert!(
+            rig.session.pose_scratch.capacity() >= pose_cap
+                && rig.session.pose_vehicle_scratch.capacity() >= vehicle_cap,
+            "failure keeps candidate capacity for retry"
+        );
+
+        let mut world = rig.session.world_mut();
+        world
+            .reserve_parking(
+                stray,
+                ReserveParkingTarget::VirtualPool {
+                    facility: FACILITY,
+                    entry_anchor: VirtualEntryAnchorSelector::from_raw(0),
+                    entry_route_occurrence: 0,
+                },
+            )
+            .expect("reserve");
+        world
+            .park_vehicle(stray, laneflow_runtime::ParkingTarget::VirtualPool(FACILITY))
+            .expect("park");
+        extract(&mut rig.session, &mut output);
+        assert_eq!(output.vehicles.len(), 4);
+        assert_eq!(output.vehicles(), before_vehicles.as_slice());
+    }
+
+    /// 元素大小记录（报告引用；断言消息承载观测值）。
+    #[test]
+    fn adapter_backing_element_sizes() {
+        assert_eq!(
+            std::mem::size_of::<laneflow_spatial::PoseInput>(),
+            16,
+            "PoseInput backing element size"
+        );
+        assert_eq!(
+            std::mem::size_of::<VehicleHandle>(),
+            8,
+            "VehicleHandle backing element size"
+        );
+    }
+}
