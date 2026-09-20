@@ -1,37 +1,37 @@
-| 场景              | 数据集                   | before µs |  after µs |     差值 |
-| ----------------- | ------------------------ | --------: | --------: | -------: |
-| adapter_full      | all_active_10000         |  2289.303 |  2526.281 |  10.352% |
-| adapter_full      | all_active_100000        | 18108.425 | 17770.503 |  -1.866% |
-| adapter_full      | high_completed_10000     |   253.356 |   247.153 |  -2.448% |
-| adapter_full      | mixed_parking_10000      |  1268.341 |  1322.216 |   4.248% |
-| adapter_full      | mixed_parking_100000     |  14204.85 | 14560.966 |   2.507% |
-| adapter_full      | sparse_presentable_10000 |   635.869 |   613.234 |   -3.56% |
-| alternate         | all_active_10000         |  3146.075 |  2604.253 | -17.222% |
-| alternate         | all_active_100000        | 18534.844 | 17505.631 |  -5.553% |
-| cold              | cold_probe               |       239 |     194.9 | -18.452% |
-| fresh_output      | all_active_10000         |  4562.322 |  3023.038 | -33.739% |
-| fresh_output      | all_active_100000        | 19584.709 | 19111.778 |  -2.415% |
-| source_full       | all_active_10000         |   199.266 |   146.325 | -26.568% |
-| source_full       | all_active_100000        |  3688.719 |  1936.128 | -47.512% |
-| source_full       | high_completed_10000     |    74.928 |   107.334 |   43.25% |
-| source_full       | mixed_parking_10000      |   432.853 |   376.769 | -12.957% |
-| source_full       | mixed_parking_100000     |  5769.084 |  5185.806 |  -10.11% |
-| source_full       | sparse_presentable_10000 |   653.769 |   629.912 |  -3.649% |
-| transform_convert | all_active_10000         |      13.3 |    17.162 |  29.041% |
-| transform_convert | all_active_100000        |   196.147 |   178.469 |  -9.013% |
-| transform_convert | high_completed_10000     |     1.753 |     1.806 |    3.03% |
-| transform_convert | mixed_parking_10000      |     8.603 |     8.772 |   1.961% |
-| transform_convert | mixed_parking_100000     |    77.659 |    94.566 |   21.77% |
-| transform_convert | sparse_presentable_10000 |     0.112 |     0.175 |  55.556% |
+| 场景 | 数据集 | before µs | after µs | 差值 |
+| --- | --- | ---: | ---: | ---: |
+| adapter_full | all_active_10000 | 2436.844 | 2367.925 | -2.828% |
+| adapter_full | all_active_100000 | 15312.497 | 13977.369 | -8.719% |
+| adapter_full | high_completed_10000 | 199.038 | 195.05 | -2.003% |
+| adapter_full | mixed_parking_10000 | 1092.897 | 1002.078 | -8.31% |
+| adapter_full | mixed_parking_100000 | 11218.859 | 10965.112 | -2.262% |
+| adapter_full | sparse_presentable_10000 | 540.325 | 533.172 | -1.324% |
+| alternate | all_active_10000 | 2497.756 | 2146.65 | -14.057% |
+| alternate | all_active_100000 | 16010.356 | 14348.678 | -10.379% |
+| cold | cold_probe | 193.3 | 160.1 | -17.175% |
+| fresh_output | all_active_10000 | 3055.719 | 2340.975 | -23.39% |
+| fresh_output | all_active_100000 | 16218.878 | 15094.219 | -6.934% |
+| source_full | all_active_10000 | 420.706 | 126.975 | -69.819% |
+| source_full | all_active_100000 | 2466.197 | 2043.344 | -17.146% |
+| source_full | high_completed_10000 | 74.828 | 65.084 | -13.022% |
+| source_full | mixed_parking_10000 | 364.45 | 288.6 | -20.812% |
+| source_full | mixed_parking_100000 | 4636.272 | 4043.072 | -12.795% |
+| source_full | sparse_presentable_10000 | 504.691 | 519.094 | 2.854% |
+| transform_convert | all_active_10000 | 14.088 | 11.984 | -14.929% |
+| transform_convert | all_active_100000 | 200.809 | 143.031 | -28.773% |
+| transform_convert | high_completed_10000 | 1.162 | 1.166 | 0.269% |
+| transform_convert | mixed_parking_10000 | 8 | 6.262 | -21.719% |
+| transform_convert | mixed_parking_100000 | 69.906 | 73.259 | 4.797% |
+| transform_convert | sparse_presentable_10000 | 0.116 | 0.119 | 2.703% |
 
 ## 测量环境（由各 run 的 environment.json 汇总）
 
-| 项                           | 值                                                                       |
-| ---------------------------- | ------------------------------------------------------------------------ |
-| CPU                          | AMD Ryzen 9 9955HX 16-Core Processor           （32 logical processors） |
-| OS                           | Microsoft Windows NT 10.0.29661.0                                        |
-| 工具链（取证记录）           | rustc 1.98.1 (48a229cea 2026-09-01)；cargo 1.98.1 (797e8a9bc 2026-08-05) |
-| 电源方案                     | 电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)              |
-| before 生产基线              | b52f9ec4b792a158aed45f0ca4f536379073684f（features=legacy-source）       |
-| after 生产基线               | 966411e54ee32e427c0d5aa2eae854bb17967fc6（features=默认）                |
-| 测量程序 main.rs（A/B 相同） | BBF659CB2DDF57891914901C8E03B6DF8526E4CE5DA9FF93AA322AB87AAF183D         |
+| 项 | 值 |
+| --- | --- |
+| CPU | AMD Ryzen 9 9955HX 16-Core Processor           （32 logical processors） |
+| OS | Microsoft Windows NT 10.0.29667.0 |
+| 工具链（取证记录） | rustc 1.98.1 (48a229cea 2026-09-01)；cargo 1.98.1 (797e8a9bc 2026-08-05) |
+| 电源方案 | 电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡) |
+| before 生产基线 | b52f9ec4b792a158aed45f0ca4f536379073684f（features=legacy-source） |
+| after 生产基线 | 2b85e9fa5dcb5c8037ae7677fb481ef1ebf8d7e0（features=默认） |
+| 测量程序 main.rs（A/B 相同） | 275810F50F5BEE03518468324DFADE40D6AEA7FD3DD6F1AFAC85A35E81936A0A |
