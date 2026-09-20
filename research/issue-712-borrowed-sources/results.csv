@@ -22,4 +22,3 @@ transform_convert,high_completed_10000,1606.25,1453.125,-9.533,0,0,0,0
 transform_convert,mixed_parking_10000,6040.625,6462.5,6.984,0,0,0,0
 transform_convert,mixed_parking_100000,69971.875,69162.5,-1.157,0,0,0,0
 transform_convert,sparse_presentable_10000,159.375,153.125,-3.922,0,0,0,0
-# oracle digests identical across before/after for: adapter all_active_10000; adapter all_active_100000; adapter high_completed_10000; adapter mixed_parking_10000; adapter mixed_parking_100000; adapter sparse_presentable_10000; alternate all_active_10000; alternate all_active_100000; cold cold; source all_active_10000; source all_active_100000; source high_completed_10000; source mixed_parking_10000; source mixed_parking_100000; source sparse_presentable_10000

@@ -103,8 +103,10 @@ cargo clippy --locked --offline --manifest-path research/issue-712-borrowed-sour
 cargo fmt --manifest-path research/issue-712-borrowed-sources/Cargo.toml -- --check
 cargo run --locked --offline --release --manifest-path research/issue-712-borrowed-sources/Cargo.toml -- --smoke
 # A 侧在基线工作树复制本目录后（features 必须 legacy-source）：
-pwsh -NoProfile -File research/issue-712-borrowed-sources/run.ps1 -Output research/issue-712-borrowed-sources/evidence/before/run1 -AllowUntracked 'research/issue-712-borrowed-sources/' -Features legacy-source
-pwsh -NoProfile -File research/issue-712-borrowed-sources/run.ps1 -Output research/issue-712-borrowed-sources/evidence/after/run1 -AllowUntracked 'research/issue-712-borrowed-sources/evidence'
+foreach ($round in 1..3) {
+    pwsh -NoProfile -File research/issue-712-borrowed-sources/run.ps1 -Output "research/issue-712-borrowed-sources/evidence/before/run$round" -AllowUntracked 'research/issue-712-borrowed-sources/' -Features legacy-source
+    pwsh -NoProfile -File research/issue-712-borrowed-sources/run.ps1 -Output "research/issue-712-borrowed-sources/evidence/after/run$round" -AllowUntracked 'research/issue-712-borrowed-sources/evidence'
+}
 pwsh -NoProfile -File research/issue-712-borrowed-sources/analyze.ps1
 pwsh -NoProfile -File research/issue-712-borrowed-sources/test-analyze.ps1
 pwsh -NoProfile -File research/issue-712-borrowed-sources/run-combination.ps1

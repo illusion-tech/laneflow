@@ -24,6 +24,10 @@
 | transform_convert | mixed_parking_100000     |    69.972 |    69.162 |  -1.157% |
 | transform_convert | sparse_presentable_10000 |     0.159 |     0.153 |  -3.922% |
 
+## oracle 对拍
+
+oracle 摘要 A/B 逐键一致，共 15 组：adapter all_active_10000; adapter all_active_100000; adapter high_completed_10000; adapter mixed_parking_10000; adapter mixed_parking_100000; adapter sparse_presentable_10000; alternate all_active_10000; alternate all_active_100000; cold cold; source all_active_10000; source all_active_100000; source high_completed_10000; source mixed_parking_10000; source mixed_parking_100000; source sparse_presentable_10000
+
 ## 测量环境（由各 run 的 environment.json 汇总）
 
 | 项                           | 值                                                                       |
