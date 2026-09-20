@@ -627,13 +627,14 @@ fn run_source_full(dataset: &mut Dataset, samples: usize, iterations: usize) {
         for_each_source(dataset.session.world(), |_, _| {});
     }
     for sample in 0..samples {
-        timed("source_full", &dataset.name, sample, iterations, || {
+        let _stats = timed("source_full", &dataset.name, sample, iterations, || {
             for _ in 0..iterations {
                 for_each_source(dataset.session.world(), |vehicle, source| {
                     black_box((vehicle, source));
                 });
             }
         });
+        assert_steady_sample!(_stats, "source_full", sample);
     }
 }
 

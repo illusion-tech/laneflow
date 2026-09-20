@@ -30,6 +30,7 @@ function Get-Median([double[]]$values) {
 function Read-CsvRows([string]$path) {
     @(Get-Content -LiteralPath $path | Where-Object { $_ -and $_ -notmatch '^case,' } | ForEach-Object {
         $parts = $_ -split ','
+        if ($parts.Count -ne 9) { throw "truncated CSV row (expected 9 fields, got $($parts.Count)): $_" }
         [ordered]@{
             case = $parts[0]
             dataset = $parts[1]
@@ -222,6 +223,7 @@ Compare-EnvIdentity $refBefore $refAfter 'A/B'
 # 逐轮校验行、oracle 与聚合。
 $valueByPair = @{}
 $allocByPair = @{}
+$reallocByPair = @{}
 $oracleBefore = @{}
 $oracleAfter = @{}
 foreach ($variant in @(@{ name = 'before'; runs = $before }, @{ name = 'after'; runs = $after })) {
@@ -249,6 +251,11 @@ foreach ($variant in @(@{ name = 'before'; runs = $before }, @{ name = 'after'; 
                     if (-not $allocByPair.ContainsKey("$($variant.name)|$pair")) { $allocByPair["$($variant.name)|$pair"] = @() }
                     $allocByPair["$($variant.name)|$pair"] += Get-Median $allocMedians
                 }
+                $reallocMedians = @($allocGroup | ForEach-Object { $_.reallocations / $_.iterations })
+                if ($reallocMedians.Count -gt 0) {
+                    if (-not $reallocByPair.ContainsKey("$($variant.name)|$pair")) { $reallocByPair["$($variant.name)|$pair"] = @() }
+                    $reallocByPair["$($variant.name)|$pair"] += Get-Median $reallocMedians
+                }
             }
         }
         $coldMedians = @(($wallRows | Where-Object { $_.case -eq 'cold' }) | ForEach-Object { $_.ns })
@@ -257,6 +264,10 @@ foreach ($variant in @(@{ name = 'before'; runs = $before }, @{ name = 'after'; 
         $coldAlloc = @(($allocRows | Where-Object { $_.case -eq 'cold' }) | ForEach-Object { $_.allocations })
         if (-not $allocByPair.ContainsKey("$($variant.name)|cold cold_probe")) { $allocByPair["$($variant.name)|cold cold_probe"] = @() }
         $allocByPair["$($variant.name)|cold cold_probe"] += Get-Median $coldAlloc
+
+        $coldRealloc = @(($allocRows | Where-Object { $_.case -eq 'cold' }) | ForEach-Object { $_.reallocations })
+        if (-not $reallocByPair.ContainsKey("$($variant.name)|cold cold_probe")) { $reallocByPair["$($variant.name)|cold cold_probe"] = @() }
+        $reallocByPair["$($variant.name)|cold cold_probe"] += Get-Median $coldRealloc
 
         foreach ($oracle in (Read-Oracles (Join-Path $run.path 'wall.log')) + (Read-Oracles (Join-Path $run.path 'allocation.log'))) {
             $map = if ($variant.name -eq 'before') { $oracleBefore } else { $oracleAfter }
@@ -277,7 +288,7 @@ foreach ($key in $oracleAfter.Keys) {
     if (-not $oracleBefore.ContainsKey($key)) { throw "before misses oracle '$key'" }
 }
 
-$lines = @('case,dataset,before_ns,after_ns,delta_pct,before_alloc,after_alloc')
+$lines = @('case,dataset,before_ns,after_ns,delta_pct,before_alloc,after_alloc,before_realloc,after_realloc')
 $table = @('| 场景 | 数据集 | before µs | after µs | 差值 |', '| --- | --- | ---: | ---: | ---: |')
 $allPairs = @($valueByPair.Keys | ForEach-Object { $_ -replace '^[^|]+\|', '' } | Sort-Object -Unique)
 foreach ($pair in $allPairs) {
@@ -287,8 +298,10 @@ foreach ($pair in $allPairs) {
     $delta = if ($beforeMedian -gt 0) { [Math]::Round((($afterMedian - $beforeMedian) / $beforeMedian) * 100, 3) } else { 0 }
     $beforeAlloc = if ($allocByPair.ContainsKey("before|$pair")) { Get-Median ([double[]]$allocByPair["before|$pair"]) } else { '' }
     $afterAlloc = if ($allocByPair.ContainsKey("after|$pair")) { Get-Median ([double[]]$allocByPair["after|$pair"]) } else { '' }
+    $beforeRealloc = if ($reallocByPair.ContainsKey("before|$pair")) { Get-Median ([double[]]$reallocByPair["before|$pair"]) } else { '' }
+    $afterRealloc = if ($reallocByPair.ContainsKey("after|$pair")) { Get-Median ([double[]]$reallocByPair["after|$pair"]) } else { '' }
     $parts = $pair -split ' ', 2
-    $lines += "$($parts[0]),$($parts[1]),$beforeMedian,$afterMedian,$delta,$beforeAlloc,$afterAlloc"
+    $lines += "$($parts[0]),$($parts[1]),$beforeMedian,$afterMedian,$delta,$beforeAlloc,$afterAlloc,$beforeRealloc,$afterRealloc"
     $table += "| $($parts[0]) | $($parts[1]) | $([Math]::Round($beforeMedian / 1000, 3)) | $([Math]::Round($afterMedian / 1000, 3)) | $($delta)% |"
 }
 $lines += "# oracle digests identical across before/after for: $((@($oracleBefore.Keys) | Sort-Object) -join '; ')"

@@ -51,7 +51,7 @@ A/B 都不包含 #718（基线两侧一致，不做跨成分相减）。
 
 oracle（v2 全字段）与测后校验：批次摘要含车辆序列、记录位模式、修订/frame/token、完整上下文与长度；来源摘要含有序完整序列。adapter 每计时样本结束后与 token 3 参考全字段一致；alternate 结束后 A、B 分别校验；fresh_output 计时外重放逐次校验。15 组 oracle A/B 逐键一致。
 
-墙钟判读（口径不变）：分配消除与重分配消失证据成立；本轮 source_full 100 k 全 Active -17.5%、10 k -69.8%；adapter/alternate 各档涨跌互现（-18.5% ~ +12.1%），中位数差值不作稳定可重复幅度结论。
+墙钟判读（口径不变）：分配消除与重分配消失证据成立（上表 before_realloc 12–15 → 0 即实测重分配消失，非推断）；本轮（第四轮取证）source_full 100 k 全 Active 中位数 -8.6%、10 k -2.9%（此前第三轮曾观察到 -17%/-70%，轮次波动大，中位数差值不作稳定可重复幅度结论）；adapter/alternate 各档涨跌互现（-18.5% ~ +12.1%）。
 
 **容量实值轨迹**（`session.rs` capacity_tests，--nocapture 观测；元素 16 B PoseInput / 8 B VehicleHandle）：
 
