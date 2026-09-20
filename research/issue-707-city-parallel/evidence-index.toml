@@ -1,0 +1,124 @@
+# #707 第二切片证据索引（E:/projects/laneflow-evidence/issue-707/4de40e04/）
+
+manifest = "manifest/baseline-manifest-raw.toml"
+binary = { harness = "f5ae9dfb125b013ee3a3cd275254a9fb8f13f3d01e788e1a9bfa82b5d8694523", generator = "b54fbab5354a6b36a6d3f5126d92a1af185f52995b05707cbd9c71c2bd508969" }
+
+[[plans]]
+path = "plans/10k-smoke.toml"
+kind = "probe 256"
+exit = 0
+log = "logs/10k-plan.log"
+
+[[plans]]
+path = "plans/100k-smoke.toml"
+kind = "probe 256"
+exit = 0
+log = "logs/100k-plan.log"
+
+[[plans]]
+path = "plans/10k-pilot.toml"
+kind = "warm-up 1024 + probe 4096"
+exit = 0
+log = "logs/10k-pilot-plan.log"
+
+[[plans]]
+path = "plans/100k-pilot.toml"
+kind = "warm-up 1024 + probe 4096"
+exit = 0
+log = "logs/100k-pilot-plan.log"
+
+[[plans]]
+path = "plans/10k-mixed-peak-correctness.toml"
+kind = "correctness 参考计划（冻结摘要不匹配核查用，未运行）"
+exit = 0
+log = "logs/plan-10k-correctness.log"
+
+[[plans]]
+path = "plans/100k-mixed-peak-correctness.toml"
+kind = "correctness 参考计划（同上）"
+exit = 0
+log = "logs/plan-100k-correctness.log"
+
+[[runs]]
+dir = "smoke/10k-w1-r1"
+workers = 1
+exit = 0
+log = "logs/10k-w1-r1.log"
+ticks = "256/256"
+status = "probe-complete"
+
+[[runs]]
+dir = "smoke/10k-w4-r1"
+workers = 4
+exit = 0
+log = "logs/10k-w4-r1.log"
+ticks = "256/256"
+status = "probe-complete"
+
+[[runs]]
+dir = "smoke/100k-w1-r1"
+workers = 1
+exit = 0
+log = "logs/100k-w1-r1.log"
+ticks = "256/256"
+status = "probe-complete"
+
+[[runs]]
+dir = "smoke/100k-w4-r1"
+workers = 4
+exit = 0
+log = "logs/100k-w4-r1.log"
+ticks = "256/256"
+status = "probe-complete"
+
+[[runs]]
+dir = "pilot/10k-w1-r1"
+workers = 1
+exit = 0
+log = "logs/10k-pilot-w1.log"
+ticks = "5120/5120"
+status = "probe-complete"
+
+[[runs]]
+dir = "pilot/10k-w4-r1"
+workers = 4
+exit = 0
+log = "logs/10k-pilot-w4.log"
+ticks = "5120/5120"
+status = "probe-complete"
+
+[[runs]]
+dir = "pilot/100k-w1-r1"
+workers = 1
+exit = 0
+log = "logs/100k-pilot-w1.log"
+ticks = "5120/5120"
+status = "probe-complete"
+
+[[runs]]
+dir = "pilot/100k-w4-r1"
+workers = 4
+exit = 0
+log = "logs/100k-pilot-w4.log"
+ticks = "5120/5120"
+status = "probe-complete"
+
+[[comparisons]]
+path = "comparisons/10k-smoke-w1-w4.json"
+status = "probe-match"
+log = "logs/10k-compare.log"
+
+[[comparisons]]
+path = "comparisons/100k-smoke-w1-w4.json"
+status = "probe-match"
+log = "logs/100k-compare.log"
+
+[[comparisons]]
+path = "comparisons/10k-pilot-w1-w4.json"
+status = "probe-match"
+log = "logs/10k-pilot-compare.log"
+
+[[comparisons]]
+path = "comparisons/100k-pilot-w1-w4.json"
+status = "probe-match"
+log = "logs/100k-pilot-compare.log"

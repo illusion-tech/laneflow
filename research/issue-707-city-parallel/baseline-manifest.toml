@@ -1,0 +1,52 @@
+# 基线 manifest（提交版；原始素材：证据根 manifest/baseline-manifest-raw.toml）
+
+[checkout]
+path = "E:/projects/worktrees/707-measure/laneflow"
+commit = "4de40e045398e4b010b2aa36522afc02a4094c4d"
+worktree_clean = true
+
+[toolchain]
+rustc = "rustc 1.98.0 (88d9e12ae 2026-08-18)"
+cargo = "cargo 1.98.0 (797e8a9bc 2026-08-05)"
+target = "x86_64-pc-windows-msvc"
+rustflags = "<unset>"
+profile = "release（--locked）"
+
+[lock]
+sha256 = "d84d1ef3ff31ad3bc5c87541014a126defd536f80d2d1097c9c92b2a005e26ba"
+
+[[binaries]]
+name = "laneflow-urban-harness"
+sha256 = "f5ae9dfb125b013ee3a3cd275254a9fb8f13f3d01e788e1a9bfa82b5d8694523"
+bytes = 3805184
+
+[[binaries]]
+name = "laneflow-urban-generator"
+sha256 = "b54fbab5354a6b36a6d3f5126d92a1af185f52995b05707cbd9c71c2bd508969"
+bytes = 7853056
+
+[hardware]
+cpu = "AMD Ryzen 9 9955HX 16-Core Processor"
+physical_cores = 16
+logical_threads = 32
+memory_bytes = 66232508416
+os = "Microsoft Windows 11 专业版 Insider Preview 10.0.29667"
+hypervisor_present = true
+power_scheme = "381b4222-f694-41f0-9685-ff5bb260df2e (平衡/Balanced)"
+other_load = "测量期间无其他编译/benchmark；Hyper-V 管理程序常驻（机器固定状态）；桌面宿主常态后台进程"
+
+[environment]
+LANEFLOW_HARDWARE_ROLE = "amd-ryzen9-9955hx-16c-32t-64gb-hyperv"
+LANEFLOW_POWER_ROLE = "win11-balanced-381b4222"
+
+[inputs]
+artifacts_10k = "E:/projects/laneflow-evidence/issue-707/4de40e04/inputs/urban-10k（本次以冻结入口重建；network_revision=bef82350…）"
+artifacts_100k = "E:/projects/laneflow-evidence/issue-707/4de40e04/inputs/urban-100k（同上）"
+plans_json_mismatch = "fixtures/v3/plans.json 的 mixed-peak 冻结摘要与重建制品生成的计划字节数一致、SHA-256 不一致（静态路网修订不同）；未改 golden，理由见 README.md 已知偏差"
+
+[baselines]
+P1 = { commit = "4de40e04", workers = 1, status = "本切片实测（pilot 诊断口径，pilot-report.md）" }
+Pp = { commit = "4de40e04", workers = 4, status = "本切片实测（pilot 诊断口径，pilot-report.md）" }
+B-P2 = { commit = "b99a282e", workers = 4, status = "未测：该提交 harness 无 --workers 入口，无法以当前协议跑 w4；混合 harness/runtime 版本引入额外变量" }
+R0 = { status = "待定：构建窗口已过；旧载荷版本被 compare 拒绝，不满足不放宽 compare_runs 红线" }
+R1 = { status = "待定：提交历史无法干净分离局部算法优化与并行组织边界；同受 R0 约束" }
