@@ -79,7 +79,11 @@ try {
         throw "PR #718 head moved: fetched $fetched718, expected $Head718"
     }
     Invoke-Step 'merge-718' { git merge --no-commit $Head718 } | Out-Null
-    Invoke-Step 'commit-merge' { git commit -m "chore: 712-3 与 #718 head $Head718 的临时预集成`n`nRefs: #712" } | Out-Null
+    # 临时预集成提交使用固定作者与空身份配置：干净机器没有 user.name/email
+    # 也能完成（throwaway 提交，不入任何分支）。
+    Invoke-Step 'commit-merge' {
+        git -c user.name='issue-712-combination-replay' -c user.email='replay@invalid' commit -m "chore: 712-3 与 #718 head $Head718 的临时预集成`n`nRefs: #712"
+    } | Out-Null
     Invoke-Step 'apply-observation-patch' {
         git apply (Join-Path $repo 'research/issue-712-borrowed-sources/combination-observation.patch')
     } | Out-Null
@@ -90,7 +94,10 @@ try {
     Invoke-TestFilter 'adapter-capacity' @('-p', 'laneflow-bevy', '--lib') 'capacity' 5
     Invoke-TestFilter 'adapter-extraction' @('-p', 'laneflow-bevy', '--test', 'pose_extraction_commit', '--test', 'pose_extraction_allocation') '' 5
 
-    Write-Host "combination reproducible head: $(git rev-parse HEAD)"
+    # 报告补丁应用后的被测树（写索引后哈希），而不是只含合并的 HEAD。
+    git add -A
+    Write-Host "combination tested tree: $(git write-tree)"
+    Write-Host "combination merge head: $(git rev-parse HEAD)"
 } finally {
     Set-Location -LiteralPath $repo
     git worktree remove --force $Worktree
