@@ -46,8 +46,9 @@ if ($SelfCheck) {
     try {
         $propagated = $false
         try {
-            # 预期非零（git 拒绝坏补丁）；Invoke-Step 必须把它变成异常。
-            Invoke-Step 'selfcheck-corrupt-patch' { git apply --check $corrupt } 1 | Out-Null
+            # 期望成功（退出 0）：坏补丁被意外接受时同样必须异常退出，
+            # 而不是只依赖“预期非零”的单向校验。
+            Invoke-Step 'selfcheck-corrupt-patch' { git apply --check $corrupt } 0 | Out-Null
         } catch {
             $propagated = $true
             Write-Host "SelfCheck OK: failure propagated through Invoke-Step: $($_.Exception.Message)"
@@ -71,9 +72,8 @@ if (Test-Path -LiteralPath $Worktree) { throw "Worktree $Worktree already exists
 Invoke-Step 'worktree-add' { git worktree add --detach $Worktree $StackHead } | Out-Null
 try {
     Set-Location -LiteralPath $Worktree
-    # 先取回 #718 分支并核对实际 head 与固定 SHA 一致（干净克隆中固定 SHA
-    # 不可直接引用；分支名可达）。
-    Invoke-Step 'fetch-718' { git fetch -q origin codex/706-parallel-p3-p5 } | Out-Null
+    # 经 PR ref 取回 #718（分支删除后仍可达）并核对实际 head 与固定 SHA 一致。
+    Invoke-Step 'fetch-718' { git fetch -q origin refs/pull/718/head } | Out-Null
     $fetched718 = (git rev-parse FETCH_HEAD).Trim()
     if ($fetched718 -ne $Head718) {
         throw "PR #718 head moved: fetched $fetched718, expected $Head718"

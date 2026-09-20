@@ -82,6 +82,15 @@ function Read-Env([string]$path) {
         if (-not $raw.PSObject.Properties[$field]) { throw "environment.json misses field ${field}: $path" }
     }
     if ($raw.worktreeStable -ne $true) { throw "evidence not marked stable (worktreeStable != true): $path" }
+    foreach ($hexField in @($raw.manifest, $raw.lockfile)) {
+        if ([string]$hexField -notmatch '^[0-9A-Fa-f]{64}$') { throw "malformed digest field in environment.json: $path" }
+    }
+    foreach ($entry in $raw.sources) {
+        if ([string]$entry.Hash -notmatch '^[0-9A-Fa-f]{64}$') { throw "malformed source digest in environment.json: $path" }
+    }
+    foreach ($entry in $raw.binaries) {
+        if ([string]$entry.Hash -notmatch '^[0-9A-Fa-f]{64}$') { throw "malformed binary digest in environment.json: $path" }
+    }
     $sourceMap = @{}
     foreach ($entry in $raw.sources) {
         $sourceMap[[IO.Path]::GetFileName($entry.Path)] = $entry.Hash
@@ -100,6 +109,7 @@ function Read-Env([string]$path) {
         logicalProcessors = [int]$raw.logicalProcessors
         features = [string]$raw.features
         powerScheme = if ($raw.PSObject.Properties['powerScheme']) { [string]$raw.powerScheme } else { '' }
+        time = [string]$raw.time
     }
 }
 
@@ -235,6 +245,24 @@ function Import-Variant([string]$root, [string]$name) {
 
 $before = Import-Variant (Join-Path $Evidence 'before') 'before'
 $after = Import-Variant (Join-Path $Evidence 'after') 'after'
+
+# 取证交错强制：合并两个变体的六轮、按 time 排序，变体序列必须恰为
+# A1B1B2A2A3B3（声明的方法节顺序；两侧时间戳来自同一机器时钟可比）。
+$allRuns = @()
+foreach ($dir in @(Get-ChildItem -LiteralPath (Join-Path $Evidence 'before') -Directory -Filter 'run*' | Sort-Object Name)) {
+    $envRecord = Read-Env (Join-Path $dir.FullName 'environment.json')
+    $allRuns += ,@{ side = 'A'; time = [string]$envRecord.time }
+}
+foreach ($dir in @(Get-ChildItem -LiteralPath (Join-Path $Evidence 'after') -Directory -Filter 'run*' | Sort-Object Name)) {
+    $envRecord = Read-Env (Join-Path $dir.FullName 'environment.json')
+    $allRuns += ,@{ side = 'B'; time = [string]$envRecord.time }
+}
+# environment.json 的 time 为同一 UTC 时钟的 ISO 8601 字符串，字典序即时间序。
+$orderedRuns = @($allRuns | Sort-Object { $_.time })
+$interleave = ($orderedRuns | ForEach-Object { $_.side }) -join ''
+if ($interleave -ne 'ABB AAB'.Replace(' ', '')) {
+    throw "capture order is '$interleave', expected the declared A1B1B2A2A3B3 interleave"
+}
 
 # A/B 程序身份：manifest/lockfile/src 必须全等（feature 是声明的构建差异）。
 $refBefore = $before[0].env
