@@ -15,7 +15,7 @@ use crate::{
     runner::TileEvidence, sha256,
 };
 
-const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v2";
+const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v3";
 const BUILD_PARAMETERS: &str = "cargo +1.98.0 build -p laneflow-urban-harness --release --locked";
 const TIMING_RANGE: &str = "observation-window-only; command=sum-of-public-lifecycle-calls; step=public-call-only; observation=pre-and-post-step-inspection; caller-preparation-bookkeeping-snapshots-excluded";
 
@@ -866,7 +866,7 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
         ));
     }
     Ok(ComparisonReport {
-        version: "urban-comparison-v1".into(),
+        version: "urban-comparison-v2".into(),
         status: match a.purpose.as_str() {
             "correctness" => "case-pass",
             "performance" => "performance-match",

@@ -95,8 +95,10 @@ Active/intent 分布及进程 peak resident bytes 写入 `measurements.toml`。�
 target/release/laneflow-urban-harness compare <performance-a> <performance-b> <performance-c> <performance-comparison.toml>
 ```
 
-三轮还须保持相同完整语义轨迹：除 `measurements.toml` 外的结果字段、文件摘要、
-检查点、角色见证及状态/计数均精确相等。各包重新计算了自身摘要但彼此轨迹不同，
+三轮还须保持相同完整语义轨迹：除 `measurements.toml` 与 `diagnostics.json` 两个
+执行封套外的结果字段、文件摘要、检查点、角色见证及状态/计数均精确相等。两个执行
+封套均已逐轮独立校验后才排除（摘要绑定入各轮 `result.files`，worker 计数做
+measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要但彼此轨迹不同，
 仍拒绝合并。运行目录应使用 Git 忽略的 `target/` 或 checkout 外目录；未来输出目录
 若会使工作树变脏，在世界初始化前拒绝，不到长测结束才发现。
 
@@ -105,7 +107,7 @@ target/release/laneflow-urban-harness compare <performance-a> <performance-b> <p
 已验证的共同 worker 数，执行配置可归属；v2 及更早报告不转换），显式记录统计
 合并口径。
 
-当前测量载荷为 `urban-performance-measurements-v2`，旧计时载荷拒绝合并，不补写或转换。
+当前测量载荷为 `urban-performance-measurements-v3`（v3 起 workers 合法域为 1..=16；v2 固定单 worker 口径），旧计时载荷拒绝合并，不补写或转换。
 `command_ns` 是该 tick 内六类公共生命周期调用（spawn/despawn/replace/leave/reserve/park）
 的耗时之和，含实际调用后的拒绝，不含调用方延期；无调用时为 0。输入准备、排队、
 完整快照、诊断断言及日志记账均在此计时外。`observation_ns` 累计 step 前的
@@ -166,9 +168,11 @@ target/release/laneflow-urban-harness compare <performance-a> <performance-b> <p
   因缺该封套条目被拒绝、不转换；Failed 行不能通过 compare。
   `committed_role_commands`、`parking_arrivals`、`right_of_way` 和 `garage_exit_clearance` 保存具体身份及提交
   时序；计数不能替代缺失的角色准入、观察期入场链、让行因果或指定边界命令。
-- `comparison.json` 由 compare 写到指定新路径，使用 `urban-comparison-v1`，记录
-  `case-pass` 或 `probe-match`、case/scale、计划摘要、完成 tick 数，以及两个执行编号和
-  两份 `result.json` 的 SHA256/字节数。原始运行文件保持不变；失败比较不生成通过报告。
+- `comparison.json` 由 compare 写到指定新路径，使用 `urban-comparison-v2`（v2 起
+  `ComparedRun` 记录两臂各自 worker 数；v1 报告布局不含该字段，不转换），记录
+  `case-pass`、`probe-match` 或 `performance-match`、case/scale、计划摘要、完成 tick 数，
+  以及两个执行编号和两份 `result.json` 的 SHA256/字节数。原始运行文件保持不变；
+  失败比较不生成通过报告。
   库的 `compare_runs` 返回同一结构，可用 `ComparisonReport::write` 保存。
 - `diagnostics.json` 保存执行编号、环境和诊断耗时；step 范围只包围公共 step 调用，
   调用返回即停止计时，随后信号组采集与相位比较计入 observation，不含在 step 中。

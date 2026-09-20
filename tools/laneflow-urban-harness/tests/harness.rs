@@ -666,7 +666,7 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
     assert!(first.atomic_rejections.contains_key("leave"));
     let comparison = compare_runs(&a, &b).unwrap();
     assert_eq!(comparison.status, "probe-match");
-    assert_eq!(comparison.version, "urban-comparison-v1");
+    assert_eq!(comparison.version, "urban-comparison-v2");
     assert_eq!(comparison.plan_digest, first.plan_digest);
     for (dir, receipt) in [(&a, &comparison.left), (&b, &comparison.right)] {
         let bytes = fs::read(dir.join("result.json")).unwrap();
