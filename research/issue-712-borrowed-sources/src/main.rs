@@ -567,7 +567,29 @@ fn collected_sources(world: &TrafficWorld) -> Vec<(VehicleHandle, laneflow_runti
     world.committed_pose_sources().collect()
 }
 
-fn timed(case: &str, dataset: &str, sample: usize, iterations: usize, mut op: impl FnMut()) {
+/// 稳态成功场景逐样本断言：指定稳态窗口内零分配/零重分配
+/// （仅 allocation 构建；冷启动与 fresh-output 生命周期另行解释）。
+macro_rules! assert_steady_sample {
+    ($stats:expr, $case:expr, $sample:expr) => {
+        #[cfg(feature = "allocation")]
+        assert!(
+            $stats.0 == 0 && $stats.1 == 0,
+            "steady {} sample {} must not allocate (got {} alloc / {} realloc)",
+            $case,
+            $sample,
+            $stats.0,
+            $stats.1
+        );
+    };
+}
+
+fn timed(
+    case: &str,
+    dataset: &str,
+    sample: usize,
+    iterations: usize,
+    mut op: impl FnMut(),
+) -> (u64, u64) {
     #[cfg(feature = "allocation")]
     let region = stats_alloc::Region::new(ALLOCATOR);
     let started = Instant::now();
@@ -588,6 +610,7 @@ fn timed(case: &str, dataset: &str, sample: usize, iterations: usize, mut op: im
     println!(
         "{case},{dataset},{sample},{iterations},{ns},{allocations},{reallocations},{allocated},{reallocated}"
     );
+    (allocations as u64, reallocations as u64)
 }
 
 /// 指标 1：完整消费来源迭代器（含成员判定与遍历）。
@@ -625,15 +648,9 @@ fn run_adapter_full(dataset: &mut Dataset, samples: usize, iterations: usize) {
         .expect("verify extract");
     assert_eq!(output.vehicles().len(), dataset.presentable);
     assert_eq!(output.batch().records().len(), dataset.presentable);
-    for _ in 0..WARMUP {
-        dataset
-            .session
-            .extract_committed_pose_batch(
-                laneflow_spatial::FramePlacementToken::new(2),
-                &mut output,
-            )
-            .expect("warm-up extract");
-    }
+    // reference 在最终暖机之前准备：reference 是全新 output，若放在暖机之后
+    // 会把 Session 的暖 backing 交换给 reference、接回空 backing，使第一个
+    // 计时窗口重新分配（该轮换行为由 capacity 测试覆盖，不属于稳态测量）。
     let mut reference = LaneFlowCommittedPoseBatch::new();
     dataset
         .session
@@ -643,9 +660,18 @@ fn run_adapter_full(dataset: &mut Dataset, samples: usize, iterations: usize) {
         )
         .expect("reference extract with the measured token");
     let reference_digest = digest_output(&reference);
+    for _ in 0..WARMUP {
+        dataset
+            .session
+            .extract_committed_pose_batch(
+                laneflow_spatial::FramePlacementToken::new(2),
+                &mut output,
+            )
+            .expect("final warm-up on the measured output");
+    }
 
     for sample in 0..samples {
-        timed("adapter_full", &dataset.name, sample, iterations, || {
+        let stats = timed("adapter_full", &dataset.name, sample, iterations, || {
             for _ in 0..iterations {
                 dataset
                     .session
@@ -656,6 +682,7 @@ fn run_adapter_full(dataset: &mut Dataset, samples: usize, iterations: usize) {
                     .expect("adapter extract");
             }
         });
+        assert_steady_sample!(stats, "adapter_full", sample);
         // 计时外校验：本样本最后一次实际提取留下的 output 与参考全字段一致。
         assert_eq!(
             digest_output(&output),
@@ -793,6 +820,13 @@ fn run_fresh_output(dataset: &mut Dataset, samples: usize, iterations: usize) {
 /// 生命周期：两个 output 交替使用；计时结束后分别校验 A、B 与参考一致。
 fn run_alternate(dataset: &mut Dataset, samples: usize, iterations: usize) {
     let token = laneflow_spatial::FramePlacementToken::new(8);
+    // reference 先填充，再对真正计时的 A/B 配对完成最终暖机。
+    let mut reference = LaneFlowCommittedPoseBatch::new();
+    dataset
+        .session
+        .extract_committed_pose_batch(token, &mut reference)
+        .expect("reference extract");
+    let reference_digest = digest_output(&reference);
     let mut a = LaneFlowCommittedPoseBatch::new();
     let mut b = LaneFlowCommittedPoseBatch::new();
     for _ in 0..WARMUP {
@@ -805,15 +839,9 @@ fn run_alternate(dataset: &mut Dataset, samples: usize, iterations: usize) {
             .extract_committed_pose_batch(token, &mut b)
             .expect("warm b");
     }
-    let mut reference = LaneFlowCommittedPoseBatch::new();
-    dataset
-        .session
-        .extract_committed_pose_batch(token, &mut reference)
-        .expect("reference extract");
-    let reference_digest = digest_output(&reference);
 
     for sample in 0..samples {
-        timed("alternate", &dataset.name, sample, iterations, || {
+        let stats = timed("alternate", &dataset.name, sample, iterations, || {
             for _ in 0..iterations / 2 {
                 dataset
                     .session
@@ -825,6 +853,7 @@ fn run_alternate(dataset: &mut Dataset, samples: usize, iterations: usize) {
                     .expect("alternate b");
             }
         });
+        assert_steady_sample!(stats, "alternate", sample);
     }
     // 计时外校验：A、B 都与参考全字段一致。
     assert_eq!(digest_output(&a), reference_digest, "post-sample output a");
