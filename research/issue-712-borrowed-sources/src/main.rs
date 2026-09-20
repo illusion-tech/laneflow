@@ -615,6 +615,8 @@ fn run_source_full(dataset: &mut Dataset, samples: usize, iterations: usize) {
 }
 
 /// 指标 2：完整 Adapter 提取（配对、单遍候选构建、Spatial 采样、成功提交）。
+/// 计时循环使用 token 3；参考结果在计时外以同 token 准备，每个计时样本
+/// 结束后校验该样本留下的实际 output（全部字段，v2 摘要 + 显式字段断言）。
 fn run_adapter_full(dataset: &mut Dataset, samples: usize, iterations: usize) {
     let mut output = LaneFlowCommittedPoseBatch::new();
     dataset
@@ -623,7 +625,6 @@ fn run_adapter_full(dataset: &mut Dataset, samples: usize, iterations: usize) {
         .expect("verify extract");
     assert_eq!(output.vehicles().len(), dataset.presentable);
     assert_eq!(output.batch().records().len(), dataset.presentable);
-    eprintln!("oracle adapter {} {}", dataset.name, digest_output(&output));
     for _ in 0..WARMUP {
         dataset
             .session
@@ -633,6 +634,16 @@ fn run_adapter_full(dataset: &mut Dataset, samples: usize, iterations: usize) {
             )
             .expect("warm-up extract");
     }
+    let mut reference = LaneFlowCommittedPoseBatch::new();
+    dataset
+        .session
+        .extract_committed_pose_batch(
+            laneflow_spatial::FramePlacementToken::new(3),
+            &mut reference,
+        )
+        .expect("reference extract with the measured token");
+    let reference_digest = digest_output(&reference);
+
     for sample in 0..samples {
         timed("adapter_full", &dataset.name, sample, iterations, || {
             for _ in 0..iterations {
@@ -645,7 +656,21 @@ fn run_adapter_full(dataset: &mut Dataset, samples: usize, iterations: usize) {
                     .expect("adapter extract");
             }
         });
+        // 计时外校验：本样本最后一次实际提取留下的 output 与参考全字段一致。
+        assert_eq!(
+            digest_output(&output),
+            reference_digest,
+            "post-sample output"
+        );
+        assert_eq!(output.vehicles().len(), dataset.presentable);
+        assert_eq!(output.batch().records().len(), dataset.presentable);
+        assert_eq!(
+            output.batch().placement_token(),
+            laneflow_spatial::FramePlacementToken::new(3)
+        );
+        assert!(output.batch().canonical_frame().is_some());
     }
+    eprintln!("oracle adapter {} {}", dataset.name, reference_digest);
     black_box(&output);
 }
 
@@ -720,7 +745,8 @@ fn run_cold(revision: &Arc<SharedNetworkRevision>, samples: usize) {
     }
 }
 
-/// 生命周期：换入全新 output（Session 暖机后每调用使用新 output）。
+/// 生命周期：换入全新 output（计时内保持创建—提取—释放生命周期）；
+/// 计时后另做正确性重放（同调用序列、逐次校验），明确不是计时结果本身。
 fn run_fresh_output(dataset: &mut Dataset, samples: usize, iterations: usize) {
     for _ in 0..WARMUP {
         let mut fresh = LaneFlowCommittedPoseBatch::new();
@@ -729,6 +755,15 @@ fn run_fresh_output(dataset: &mut Dataset, samples: usize, iterations: usize) {
             .extract_committed_pose_batch(laneflow_spatial::FramePlacementToken::new(7), &mut fresh)
             .expect("warm-up fresh output");
     }
+    let mut reference = LaneFlowCommittedPoseBatch::new();
+    dataset
+        .session
+        .extract_committed_pose_batch(
+            laneflow_spatial::FramePlacementToken::new(7),
+            &mut reference,
+        )
+        .expect("reference extract");
+    let reference_digest = digest_output(&reference);
     for sample in 0..samples {
         timed("fresh_output", &dataset.name, sample, iterations, || {
             for _ in 0..iterations {
@@ -744,43 +779,57 @@ fn run_fresh_output(dataset: &mut Dataset, samples: usize, iterations: usize) {
             }
         });
     }
+    // 正确性重放：不进入计时，逐次校验每个临时 output 与参考一致。
+    for _ in 0..iterations {
+        let mut fresh = LaneFlowCommittedPoseBatch::new();
+        dataset
+            .session
+            .extract_committed_pose_batch(laneflow_spatial::FramePlacementToken::new(7), &mut fresh)
+            .expect("replay fresh output");
+        assert_eq!(digest_output(&fresh), reference_digest, "replay output");
+    }
 }
 
-/// 生命周期：两个 output 交替使用。
+/// 生命周期：两个 output 交替使用；计时结束后分别校验 A、B 与参考一致。
 fn run_alternate(dataset: &mut Dataset, samples: usize, iterations: usize) {
+    let token = laneflow_spatial::FramePlacementToken::new(8);
     let mut a = LaneFlowCommittedPoseBatch::new();
     let mut b = LaneFlowCommittedPoseBatch::new();
     for _ in 0..WARMUP {
         dataset
             .session
-            .extract_committed_pose_batch(laneflow_spatial::FramePlacementToken::new(8), &mut a)
+            .extract_committed_pose_batch(token, &mut a)
             .expect("warm a");
         dataset
             .session
-            .extract_committed_pose_batch(laneflow_spatial::FramePlacementToken::new(8), &mut b)
+            .extract_committed_pose_batch(token, &mut b)
             .expect("warm b");
     }
-    eprintln!("oracle alternate {} {}", dataset.name, digest_output(&a));
+    let mut reference = LaneFlowCommittedPoseBatch::new();
+    dataset
+        .session
+        .extract_committed_pose_batch(token, &mut reference)
+        .expect("reference extract");
+    let reference_digest = digest_output(&reference);
+
     for sample in 0..samples {
         timed("alternate", &dataset.name, sample, iterations, || {
             for _ in 0..iterations / 2 {
                 dataset
                     .session
-                    .extract_committed_pose_batch(
-                        laneflow_spatial::FramePlacementToken::new(8),
-                        black_box(&mut a),
-                    )
+                    .extract_committed_pose_batch(token, black_box(&mut a))
                     .expect("alternate a");
                 dataset
                     .session
-                    .extract_committed_pose_batch(
-                        laneflow_spatial::FramePlacementToken::new(8),
-                        black_box(&mut b),
-                    )
+                    .extract_committed_pose_batch(token, black_box(&mut b))
                     .expect("alternate b");
             }
         });
     }
+    // 计时外校验：A、B 都与参考全字段一致。
+    assert_eq!(digest_output(&a), reference_digest, "post-sample output a");
+    assert_eq!(digest_output(&b), reference_digest, "post-sample output b");
+    eprintln!("oracle alternate {} {}", dataset.name, reference_digest);
     black_box((&a, &b));
 }
 
