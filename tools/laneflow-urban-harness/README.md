@@ -101,7 +101,9 @@ target/release/laneflow-urban-harness compare <performance-a> <performance-b> <p
 若会使工作树变脏，在世界初始化前拒绝，不到长测结束才发现。
 
 合并状态 `performance-three-rounds-complete` 只表示协议完整，不表示达到 #539/#305 的
-产品预算。当前合并报告为 `urban-performance-comparison-v2`，显式记录统计合并口径。
+产品预算。当前合并报告为 `urban-performance-comparison-v3`（v3 起记录三轮
+已验证的共同 worker 数，执行配置可归属；v2 及更早报告不转换），显式记录统计
+合并口径。
 
 当前测量载荷为 `urban-performance-measurements-v2`，旧计时载荷拒绝合并，不补写或转换。
 `command_ns` 是该 tick 内六类公共生命周期调用（spawn/despawn/replace/leave/reserve/park）

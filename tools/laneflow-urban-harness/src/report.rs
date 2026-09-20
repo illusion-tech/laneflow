@@ -227,6 +227,8 @@ pub struct PerformanceRound {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PerformanceComparisonReport {
     pub version: String,
+    /// 三轮已验证的共同 worker 数（provenance 全等保证一致）。
+    pub workers: u32,
     pub aggregation: String,
     pub status: String,
     pub case: String,
@@ -805,6 +807,15 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
                     "performance arm worker records disagree between measurements and diagnostics",
                 ));
             }
+            // 跨臂 A/B 只用于不同 worker 的执行配置对照；同 worker 的
+            // 重复运行不是跨 worker 证据，应走同 worker 三轮聚合
+            // （compare <a> <b> <c>）。probe/correctness 路径不受此限制
+            // （同 worker replay/确定性对拍是合法用途）。
+            if left.workers == right.workers {
+                return Err(invalid(
+                    "performance arms use the same worker count; use three-round aggregation for same-worker evidence",
+                ));
+            }
             // 本切片只支持同源码、同工具链、同硬件/电源条件、仅 worker
             // 不同的 A/B：两臂 provenance 除 workers 外必须全等。
             let mut left = left.clone();
@@ -956,6 +967,13 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
             ));
         }
         measurement.provenance.validate()?;
+        // 与 compare_runs 同款交叉核对：diagnostics 与 measurements 的
+        // worker 记录矛盾即拒绝（即使各摘要已一致重算）。
+        if read_diagnostics_workers(directory)? != measurement.provenance.workers {
+            return Err(invalid(
+                "performance round worker records disagree between measurements and diagnostics",
+            ));
+        }
         if provenance
             .as_ref()
             .is_some_and(|expected| *expected != measurement.provenance)
@@ -1025,8 +1043,10 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
         });
     }
     let (case, scale, plan_digest) = identity.expect("three retained rounds");
+    let workers = provenance.expect("three validated rounds").workers;
     Ok(PerformanceComparisonReport {
-        version: "urban-performance-comparison-v2".into(),
+        version: "urban-performance-comparison-v3".into(),
+        workers,
         aggregation: "median-of-three-round-percentiles; worst-round-max; total-sample-count"
             .into(),
         status: "performance-three-rounds-complete".into(),
@@ -1204,6 +1224,7 @@ mod tests {
         }
         let result = compare_performance_runs([&a, &b, &c]).unwrap();
         assert_eq!(result.rounds.len(), 3);
+        assert_eq!(result.workers, 4, "聚合报告记录三轮共同 worker 数");
         // 混臂拒绝（a/c=4，b=1）。
         let mut mixed = measurement_fixture();
         mixed["workers"] = json!(1);
@@ -1221,6 +1242,57 @@ mod tests {
                 "uniform workers={illegal} must be rejected by legality"
             );
         }
+    }
+
+    /// 线程 A：跨臂 A/B 只接受不同 worker 的 performance 臂——4v4 语义
+    /// 相同也拒绝（同 worker 重复运行不是跨 worker 证据）；1v4 接受
+    /// （既有用例）；probe 1v1 接受由 tests/harness.rs 的 replay 对拍
+    /// 覆盖（同 worker 确定性对拍是合法用途）。
+    #[test]
+    fn compare_runs_rejects_same_worker_performance_arms() {
+        let temp = tempfile::tempdir().unwrap();
+        let four_a = temp.path().join("four-a");
+        let four_b = temp.path().join("four-b");
+        for (dir, execution) in [(&four_a, "exec-four-a"), (&four_b, "exec-four-b")] {
+            let mut fixture = measurement_fixture();
+            fixture["workers"] = json!(4);
+            write_round(dir, execution, fixture);
+        }
+        assert!(
+            compare_runs(&four_a, &four_b).is_err(),
+            "同 worker 的 performance 臂必须拒绝并指向三轮聚合"
+        );
+    }
+
+    /// 线程 C：三轮聚合逐臂交叉核对 diagnostics↔measurements worker——
+    /// 矛盾记录即使各摘要已一致重算也拒绝。
+    #[test]
+    fn performance_aggregation_rejects_contradictory_worker_records() {
+        let temp = tempfile::tempdir().unwrap();
+        let a = temp.path().join("a");
+        let b = temp.path().join("b");
+        let c = temp.path().join("c");
+        for (path, id) in [(&a, "a"), (&b, "b"), (&c, "c")] {
+            let mut fixture = measurement_fixture();
+            fixture["workers"] = json!(4);
+            write_round(path, id, fixture);
+        }
+        // b 臂：diagnostics 改写为 workers=1 并一致重算 result.json 摘要，
+        // 使拒绝来自交叉核对而非摘要失配。
+        let diagnostics = b.join("diagnostics.json");
+        write_json(&diagnostics, &json!({"execution_id":"b", "workers":1})).unwrap();
+        let result_path = b.join("result.json");
+        let mut result: RunResult =
+            serde_json::from_slice(&fs::read(&result_path).unwrap()).unwrap();
+        result.files.insert(
+            "diagnostics.json".into(),
+            digest_file(&diagnostics).unwrap(),
+        );
+        fs::write(&result_path, serde_json::to_vec(&result).unwrap()).unwrap();
+        assert!(
+            compare_performance_runs([&a, &b, &c]).is_err(),
+            "diagnostics 与 measurements 的 worker 矛盾必须被拒绝"
+        );
     }
 
     /// diagnostics.json 的 worker 读取：合法域校验与缺失拒绝。
