@@ -247,9 +247,13 @@ pub struct Harness<'a> {
 }
 
 impl<'a> Harness<'a> {
-    pub fn install(artifacts: &'a Artifacts, plan: &'a ResolvedPlan) -> Result<Self> {
+    pub fn install(
+        artifacts: &'a Artifacts,
+        plan: &'a ResolvedPlan,
+        execution: laneflow_runtime::ExecutionConfig,
+    ) -> Result<Self> {
         plan.validate(artifacts)?;
-        let mut world = artifacts.install()?;
+        let mut world = artifacts.install(execution)?;
         let mut routes = BTreeMap::new();
         let mut route_keys = HashMap::new();
         let mut route_edges = HashMap::new();
@@ -1444,6 +1448,11 @@ fn signal_groups_changed(
 }
 
 #[cfg(test)]
+fn single_worker() -> laneflow_runtime::ExecutionConfig {
+    laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use laneflow_urban_generator::{Scale, UrbanConfig, generate};
@@ -1528,7 +1537,7 @@ mod tests {
                 crate::Window::probe_after(cycle, 2 * cycle).unwrap(),
             )
             .unwrap();
-            let mut harness = Harness::install(&artifacts, &plan).unwrap();
+            let mut harness = Harness::install(&artifacts, &plan, single_worker()).unwrap();
             for tick in 0..plan.window.end() {
                 let record = harness
                     .advance()
@@ -1704,7 +1713,7 @@ mod tests {
                 crate::Window::probe_after(warm_up, 2 * cycle).unwrap(),
             )
             .unwrap();
-            let mut harness = Harness::install(&artifacts, &plan).unwrap();
+            let mut harness = Harness::install(&artifacts, &plan, single_worker()).unwrap();
             for _ in 0..plan.window.end() {
                 harness.advance().unwrap();
             }
@@ -1761,7 +1770,7 @@ mod tests {
             crate::Window::probe(128).unwrap(),
         )
         .unwrap();
-        let mut harness = Harness::install(&artifacts, &plan).unwrap();
+        let mut harness = Harness::install(&artifacts, &plan, single_worker()).unwrap();
         for rejection in plan
             .reservation_rejections
             .iter()
@@ -1809,7 +1818,7 @@ mod tests {
         generate(&config, Scale::Fixture, &source, None).unwrap();
         let artifacts = Artifacts::load(&source).unwrap();
         let plan = ResolvedPlan::mixed(&artifacts, crate::Window::probe(2).unwrap()).unwrap();
-        let mut harness = Harness::install(&artifacts, &plan).unwrap();
+        let mut harness = Harness::install(&artifacts, &plan, single_worker()).unwrap();
         harness.schedule.clear();
         harness.last_command_ns = 123;
         harness.advance().unwrap();
@@ -1838,7 +1847,7 @@ mod tests {
             crate::Window::probe(256).unwrap(),
         )
         .unwrap();
-        let mut harness = Harness::install(&artifacts, &plan).unwrap();
+        let mut harness = Harness::install(&artifacts, &plan, single_worker()).unwrap();
         let slot = 741;
         let handle = harness.individuals[slot].handle.unwrap();
         let id = harness.individuals[slot].id;

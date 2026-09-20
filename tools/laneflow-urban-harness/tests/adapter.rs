@@ -15,14 +15,23 @@ fn bevy_and_headless_share_demand_and_committed_results() {
     let artifacts = Artifacts::load_spatial(&source).unwrap();
     for case in UrbanCase::ALL {
         let plan = ResolvedPlan::for_case(&artifacts, case, Window::probe(128).unwrap()).unwrap();
-        let mut headless = Harness::install(&artifacts, &plan).unwrap();
+        let mut headless = Harness::install(
+            &artifacts,
+            &plan,
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        )
+        .unwrap();
         let spatial = SpatialSession::bind(artifacts.revision().clone())
             .unwrap()
             .unwrap();
-        let mut adapter = Harness::install(&artifacts, &plan)
-            .unwrap()
-            .into_adapter(spatial)
-            .unwrap();
+        let mut adapter = Harness::install(
+            &artifacts,
+            &plan,
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        )
+        .unwrap()
+        .into_adapter(spatial)
+        .unwrap();
         let mut poses = LaneFlowCommittedPoseBatch::new();
         let mut presentation = Presentation::default();
         for _ in 0..128 {
@@ -66,9 +75,13 @@ fn bevy_and_headless_share_demand_and_committed_results() {
         .unwrap();
     let plan = ResolvedPlan::mixed(&artifacts, Window::probe(16).unwrap()).unwrap();
     assert!(
-        Harness::install(&artifacts, &plan)
-            .unwrap()
-            .into_adapter(wrong)
-            .is_err()
+        Harness::install(
+            &artifacts,
+            &plan,
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN)
+        )
+        .unwrap()
+        .into_adapter(wrong)
+        .is_err()
     );
 }

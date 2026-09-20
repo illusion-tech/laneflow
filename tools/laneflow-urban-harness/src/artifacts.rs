@@ -148,7 +148,10 @@ impl Artifacts {
         })
     }
 
-    pub(crate) fn install(&self) -> Result<TrafficWorld> {
+    pub(crate) fn install(
+        &self,
+        execution: laneflow_runtime::ExecutionConfig,
+    ) -> Result<TrafficWorld> {
         let mut passages = BTreeMap::new();
         for raw in 0..self
             .revision
@@ -206,7 +209,7 @@ impl Artifacts {
                     conflict_capacity,
                     self.dt,
                 ),
-                laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+                execution,
                 CommittedNetworkSource::Published { reference: source },
                 544,
                 WorldPolicySelection::Pinned(PolicyPin { policy: pin }),
