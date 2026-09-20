@@ -23,8 +23,14 @@ $MinRuns = 3
 $ExpectedFeature = @{ before = 'legacy-source'; after = '' }
 
 function Get-Median([double[]]$values) {
-    $sorted = $values | Sort-Object
-    [double]$sorted[[int][Math]::Floor($sorted.Count / 2)]
+    $sorted = @($values | Sort-Object)
+    $count = $sorted.Count
+    if ($count % 2 -eq 1) {
+        [double]$sorted[[int](($count - 1) / 2)]
+    } else {
+        # 偶数个样本取两个中位值的算术平均，不偏向单侧。
+        ([double]$sorted[$count / 2 - 1] + [double]$sorted[$count / 2]) / 2.0
+    }
 }
 
 function Read-CsvRows([string]$path) {
@@ -46,6 +52,9 @@ function Read-CsvRows([string]$path) {
 function Read-Oracles([string]$path) {
     @(Get-Content -LiteralPath $path | Where-Object { $_ -like 'oracle *' } | ForEach-Object {
         $parts = $_ -split ' '
+        if ($parts.Count -ne 4 -or $parts[3] -notmatch '^[0-9a-f]{64}$') {
+            throw "invalid oracle line (expected 'oracle <case> <dataset> <64-hex>'): $_"
+        }
         @{ key = "$($parts[1]) $($parts[2])"; digest = $parts[3] }
     })
 }
@@ -304,11 +313,15 @@ foreach ($pair in $allPairs) {
     $lines += "$($parts[0]),$($parts[1]),$beforeMedian,$afterMedian,$delta,$beforeAlloc,$afterAlloc,$beforeRealloc,$afterRealloc"
     $table += "| $($parts[0]) | $($parts[1]) | $([Math]::Round($beforeMedian / 1000, 3)) | $([Math]::Round($afterMedian / 1000, 3)) | $($delta)% |"
 }
-$lines += "# oracle digests identical across before/after for: $((@($oracleBefore.Keys) | Sort-Object) -join '; ')"
 Set-Content -LiteralPath $Results -Value $lines -Encoding utf8
 
 $env = $refBefore
+$oracleNote = "oracle 摘要 A/B 逐键一致，共 $($oracleBefore.Count) 组：$((@($oracleBefore.Keys) | Sort-Object) -join '; ')"
 $summary = @(
+    '',
+    '## oracle 对拍',
+    '',
+    $oracleNote,
     '',
     '## 测量环境（由各 run 的 environment.json 汇总）',
     '',
