@@ -15,6 +15,148 @@ fn sha256(bytes: &[u8]) -> String {
         .collect()
 }
 
+fn execution(workers: u32) -> laneflow_runtime::ExecutionConfig {
+    laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::new(workers).unwrap())
+}
+
+fn fixture_artifacts(temp: &tempfile::TempDir) -> std::path::PathBuf {
+    let source = temp.path().join("source");
+    let config =
+        UrbanConfig::parse(include_str!("../../../examples/config/cn-urban.toml")).unwrap();
+    generate(&config, Scale::Fixture, &source, None).unwrap();
+    source
+}
+
+fn fixture_plan(artifacts: &Artifacts) -> ResolvedPlan {
+    ResolvedPlan::mixed(
+        artifacts,
+        Window {
+            purpose: "probe".into(),
+            warm_up_ticks: 0,
+            observation_ticks: 16,
+        },
+    )
+    .unwrap()
+}
+
+/// --workers 贯通执行配置三层：世界以 4 worker 安装（runtime 公开
+/// execution_config 见证）、diagnostics.json 记录实际 worker 数、
+/// measurements.toml provenance.workers=4（performance 协议）。
+#[test]
+fn run_workers_parameter_reaches_execution_and_provenance() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = fixture_artifacts(&temp);
+    let artifacts = Artifacts::load(&source).unwrap();
+    let plan = fixture_plan(&artifacts);
+
+    // probe 窗口 + 4 worker：世界实际安装证据。
+    let probe_dir = temp.path().join("probe-w4");
+    let probe = run_to_directory(&artifacts, &plan, &probe_dir, execution(4)).unwrap();
+    assert_eq!(probe.status, "probe-complete", "{:?}", probe.error);
+    let diagnostics: serde_json::Value =
+        serde_json::from_slice(&fs::read(probe_dir.join("diagnostics.json")).unwrap()).unwrap();
+    assert_eq!(diagnostics["workers"], 4);
+
+    // performance 窗口需要干净 checkout 与角色环境变量；在 fixture 场景
+    // 直接验证 Harness 安装证据 + capture 协议，整轮 performance 由
+    // compare_performance_runs 侧测试覆盖。
+    drop(probe);
+    let harness = Harness::install(&artifacts, &plan, execution(4)).unwrap();
+    assert_eq!(harness.world().execution_config().worker_count().get(), 4);
+    drop(harness);
+
+    // 缺省 1 worker 的 CLI 兼容：run 不带 --workers 仍成功且记录 1。
+    let default_dir = temp.path().join("probe-default");
+    let default = run_to_directory(&artifacts, &plan, &default_dir, execution(1)).unwrap();
+    assert_eq!(default.status, "probe-complete", "{:?}", default.error);
+    let diagnostics: serde_json::Value =
+        serde_json::from_slice(&fs::read(default_dir.join("diagnostics.json")).unwrap()).unwrap();
+    assert_eq!(diagnostics["workers"], 1);
+}
+
+/// 跨臂 A/B：仅 worker 不同（1 vs 4）、语义逐拍一致 → compare_runs
+/// 通过；报告体现两臂各自 worker 数；plan 不同的输入混用仍拒绝。
+#[test]
+fn compare_runs_accepts_worker_only_difference_and_rejects_mixed_plans() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = fixture_artifacts(&temp);
+    let artifacts = Artifacts::load(&source).unwrap();
+    let plan = fixture_plan(&artifacts);
+
+    let one = temp.path().join("one");
+    let four = temp.path().join("four");
+    let one_result = run_to_directory(&artifacts, &plan, &one, execution(1)).unwrap();
+    let four_result = run_to_directory(&artifacts, &plan, &four, execution(4)).unwrap();
+    assert_eq!(one_result.status, "probe-complete");
+    assert_eq!(four_result.status, "probe-complete");
+
+    let comparison = compare_runs(&one, &four).unwrap();
+    assert_eq!(comparison.status, "probe-match");
+    assert_eq!(comparison.plan_digest, one_result.plan_digest);
+    assert_eq!(comparison.left.workers, 1);
+    assert_eq!(comparison.right.workers, 4);
+
+    // 输入混用：合法但不同的 plan（不同观测窗 → 不同 plan_digest）仍拒绝。
+    let other_plan = ResolvedPlan::mixed(
+        &artifacts,
+        Window {
+            purpose: "probe".into(),
+            warm_up_ticks: 0,
+            observation_ticks: 32,
+        },
+    )
+    .unwrap();
+    let mixed = temp.path().join("mixed-plan");
+    run_to_directory(&artifacts, &other_plan, &mixed, execution(4)).unwrap();
+    // compare_runs 校验 plan_digest 一致 + 语义逐拍一致：不同 plan 拒绝。
+    assert!(compare_runs(&one, &mixed).is_err());
+}
+
+/// CLI 解析：--workers 缺省=1、非法值与超界报错。
+#[test]
+fn run_cli_workers_parsing() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = fixture_artifacts(&temp);
+    let artifacts = Artifacts::load(&source).unwrap();
+    let plan = fixture_plan(&artifacts);
+    let plan_path = temp.path().join("plan.toml");
+    plan.write(&plan_path).unwrap();
+    let out = temp.path().join("cli-out");
+    let binary = env!("CARGO_BIN_EXE_laneflow-urban-harness");
+
+    let run_cli = |args: &[&str]| {
+        Command::new(binary)
+            .arg("run")
+            .arg(&source)
+            .arg(&plan_path)
+            .arg(&out)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    // 超界拒绝。
+    let rejected = run_cli(&["--workers", "17"]);
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("1..=16"));
+    // 非数值拒绝。
+    let rejected = run_cli(&["--workers", "x"]);
+    assert!(!rejected.status.success());
+    // 缺省 = 1：成功且 diagnostics 记录 1。
+    fs::remove_dir_all(&out).ok();
+    let accepted = run_cli(&[]);
+    assert!(accepted.status.success(), "{:?}", accepted.stderr);
+    let diagnostics: serde_json::Value =
+        serde_json::from_slice(&fs::read(out.join("diagnostics.json")).unwrap()).unwrap();
+    assert_eq!(diagnostics["workers"], 1);
+    // --workers 4：成功且记录 4（CLI 贯通安装层）。
+    fs::remove_dir_all(&out).ok();
+    let accepted = run_cli(&["--workers", "4"]);
+    assert!(accepted.status.success(), "{:?}", accepted.stderr);
+    let diagnostics: serde_json::Value =
+        serde_json::from_slice(&fs::read(out.join("diagnostics.json")).unwrap()).unwrap();
+    assert_eq!(diagnostics["workers"], 4);
+}
+
 #[test]
 fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
     let temp = tempfile::tempdir().unwrap();
@@ -78,7 +220,12 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
                     .is_some()
             );
         }
-        let case_harness = Harness::install(&artifacts, &case_plan).unwrap();
+        let case_harness = Harness::install(
+            &artifacts,
+            &case_plan,
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        )
+        .unwrap();
         let mut counts = [0; 3];
         for handle in case_harness.world().live_vehicles() {
             counts[match case_harness.world().vehicle(*handle).unwrap().status() {
@@ -290,7 +437,12 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
     let plan_path = temp.path().join("plan.toml");
     plan.write(&plan_path).unwrap();
     assert_eq!(ResolvedPlan::read(&plan_path).unwrap(), plan);
-    let harness = Harness::install(&artifacts, &plan).unwrap();
+    let harness = Harness::install(
+        &artifacts,
+        &plan,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+    )
+    .unwrap();
     assert_eq!(harness.world().live_vehicles().len(), 2_000);
     let mut profiles = std::collections::BTreeMap::new();
     let mut parked = 0;
@@ -312,8 +464,20 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
     drop(harness);
     let a = temp.path().join("a");
     let b = temp.path().join("b");
-    let first = run_to_directory(&artifacts, &plan, &a).unwrap();
-    let second = run_to_directory(&artifacts, &plan, &b).unwrap();
+    let first = run_to_directory(
+        &artifacts,
+        &plan,
+        &a,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+    )
+    .unwrap();
+    let second = run_to_directory(
+        &artifacts,
+        &plan,
+        &b,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+    )
+    .unwrap();
     assert_eq!(first.status, "probe-complete", "{:?}", first.error);
     assert_eq!(first, second);
     assert_eq!(first.completed_ticks, 1_024);
@@ -521,10 +685,25 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
     fs::remove_file(copied.join("diagnostics.json")).unwrap();
     assert!(compare_runs(&a, &copied).is_err());
     assert!(compare_runs(&a, &a).is_err());
-    assert!(run_to_directory(&artifacts, &plan, &a).is_err());
+    assert!(
+        run_to_directory(
+            &artifacts,
+            &plan,
+            &a,
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN)
+        )
+        .is_err()
+    );
     let mut changed = plan.clone();
     changed.initial[0].progress_mm += 1;
-    assert!(Harness::install(&artifacts, &changed).is_err());
+    assert!(
+        Harness::install(
+            &artifacts,
+            &changed,
+            laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN)
+        )
+        .is_err()
+    );
     fs::write(b.join("ticks.jsonl"), "\n").unwrap();
     assert!(
         compare_runs(&a, &b)

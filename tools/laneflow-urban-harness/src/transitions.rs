@@ -327,7 +327,11 @@ fn trial(
     output: &Path,
 ) -> Result<Value> {
     fs::create_dir(output)?;
-    let mut harness = Harness::install(artifacts, plan)?;
+    let mut harness = Harness::install(
+        artifacts,
+        plan,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+    )?;
     let adapter = mode != "online";
     if adapter {
         harness = harness.into_adapter(spatial(artifacts.revision())?)?;

@@ -54,6 +54,7 @@ pub struct RunResult {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ComparedRun {
     pub execution_id: String,
+    pub workers: u32,
     pub result: crate::artifacts::FileDigest,
 }
 
@@ -138,7 +139,7 @@ struct MeasurementProvenance {
 }
 
 impl MeasurementProvenance {
-    fn capture(hardware_role: String, power_role: String) -> Result<Self> {
+    fn capture(hardware_role: String, power_role: String, workers: u32) -> Result<Self> {
         let read = |program, args: &[&str]| {
             command_output(program, args)
                 .ok_or_else(|| invalid(format!("unavailable provenance: {program}")))
@@ -160,7 +161,7 @@ impl MeasurementProvenance {
             architecture: std::env::consts::ARCH.into(),
             hardware_role,
             power_role,
-            workers: 1,
+            workers,
             timing_range: TIMING_RANGE.into(),
         };
         provenance.validate()?;
@@ -197,7 +198,6 @@ impl MeasurementProvenance {
                 .find_map(|line| line.strip_prefix("host: "))
                 != Some(self.target.as_str())
             || self.build_parameters != BUILD_PARAMETERS
-            || self.workers != 1
             || self.timing_range != TIMING_RANGE
         {
             return Err(invalid(
@@ -281,6 +281,7 @@ pub fn run_to_directory(
     artifacts: &Artifacts,
     plan: &ResolvedPlan,
     output: &Path,
+    execution: laneflow_runtime::ExecutionConfig,
 ) -> Result<RunResult> {
     plan.validate(artifacts)?;
     let performance_context = if plan.window.purpose == "performance" {
@@ -292,6 +293,7 @@ pub fn run_to_directory(
                 .map_err(|_| invalid("performance requires LANEFLOW_HARDWARE_ROLE"))?,
             std::env::var("LANEFLOW_POWER_ROLE")
                 .map_err(|_| invalid("performance requires LANEFLOW_POWER_ROLE"))?,
+            execution.worker_count().get(),
         )?)
     } else {
         None
@@ -300,7 +302,7 @@ pub fn run_to_directory(
     let execution_id = new_execution_id()?;
     let plan_digest = plan.write(&output.join("resolved-plan.toml"))?;
     let started = Instant::now();
-    let mut harness = Harness::install(artifacts, plan)?;
+    let mut harness = Harness::install(artifacts, plan, execution)?;
     let initial_counts = observe::counts(&harness)?;
     let mut result = RunResult {
         version: "urban-result-v4".into(),
@@ -401,6 +403,7 @@ pub fn run_to_directory(
         && MeasurementProvenance::capture(
             provenance.hardware_role.clone(),
             provenance.power_role.clone(),
+            provenance.workers,
         )
         .as_ref()
         .ok()
@@ -491,7 +494,7 @@ pub fn run_to_directory(
         &output.join("diagnostics.json"),
         &json!({"purpose":if plan.window.purpose == "performance" {"execution-metadata; formal timings are in measurements.toml"} else {"diagnostic-only-not-performance-certification"}, "execution_id":execution_id, "elapsed_seconds":started.elapsed().as_secs_f64(),
         "verified_steps":times.len(), "step_ns_p50":percentile(50), "step_ns_p95":percentile(95), "step_ns_p99":percentile(99),
-        "os":std::env::consts::OS, "architecture":std::env::consts::ARCH, "workers":1,
+        "os":std::env::consts::OS, "architecture":std::env::consts::ARCH, "workers":execution.worker_count().get(),
         "cpu":std::env::var("PROCESSOR_IDENTIFIER").ok(), "logical_cpus":std::thread::available_parallelism().map(|n| n.get()).ok(),
         "binary":std::env::current_exe().ok().and_then(|path| digest_file(&path).ok()),
         "invocation":std::env::args().collect::<Vec<_>>(), "memory_measurement":null,
@@ -676,6 +679,16 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
     if left_execution == right_execution {
         return Err(invalid("replay requires distinct execution identities"));
     }
+    let read_workers = |dir: &Path| -> Result<u32> {
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(dir.join("diagnostics.json"))?)?;
+        value["workers"]
+            .as_u64()
+            .and_then(|workers| u32::try_from(workers).ok())
+            .ok_or_else(|| invalid("missing diagnostics workers"))
+    };
+    let left_workers = read_workers(left)?;
+    let right_workers = read_workers(right)?;
     let read = |dir: &Path| -> Result<(RunResult, crate::artifacts::FileDigest)> {
         let bytes = fs::read(dir.join("result.json"))?;
         let result: RunResult = serde_json::from_slice(&bytes)?;
@@ -760,10 +773,12 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
         completed_ticks: a.completed_ticks,
         left: ComparedRun {
             execution_id: left_execution,
+            workers: left_workers,
             result: left_digest,
         },
         right: ComparedRun {
             execution_id: right_execution,
+            workers: right_workers,
             result: right_digest,
         },
     })

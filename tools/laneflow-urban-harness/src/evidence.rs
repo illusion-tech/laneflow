@@ -114,7 +114,11 @@ pub fn run_evidence(
     let target = target_ticks(plan.window.end(), wall_ms, prefix_ticks)?;
     fs::create_dir(output)?;
     let plan_digest = plan.write(&output.join("resolved-plan.toml"))?;
-    let mut harness = Harness::install(&artifacts, &plan)?;
+    let mut harness = Harness::install(
+        &artifacts,
+        &plan,
+        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+    )?;
     if adapter {
         let spatial = checked(
             "Spatial bind",

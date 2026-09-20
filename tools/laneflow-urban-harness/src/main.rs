@@ -41,7 +41,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             };
             let mut wall = None;
             let mut prefix = None;
-            for option in args[5..].chunks_exact(2) {
+            for option in args[5..].as_chunks::<2>().0 {
                 match option[0].as_str() {
                     "--wall-ms" if wall.is_none() => wall = Some(option[1].parse()?),
                     "--ticks" if prefix.is_none() => prefix = Some(option[1].parse()?),
@@ -100,10 +100,31 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let plan = ResolvedPlan::for_case(&artifacts, case, window)?;
             println!("{}", plan.write(Path::new(&args[2]))?);
         }
-        Some("run") if args.len() == 4 => {
+        Some("run") if args.len() >= 4 => {
             let artifacts = Artifacts::load(Path::new(&args[1]))?;
             let plan = ResolvedPlan::read(Path::new(&args[2]))?;
-            let result = run_to_directory(&artifacts, &plan, Path::new(&args[3]))?;
+            // --workers 属于执行配置：不进 plan/artifacts，不改变计划摘要、
+            // 世界逻辑摘要或快照内容。缺省 1，合法域 1..=16。
+            let mut workers = 1_u32;
+            let mut index = 4;
+            while index < args.len() {
+                match args[index].as_str() {
+                    "--workers" if index + 1 < args.len() => {
+                        workers = args[index + 1]
+                            .parse()
+                            .map_err(|_| "invalid --workers value")?;
+                        if !(1..=16).contains(&workers) {
+                            return Err("--workers must be in 1..=16".into());
+                        }
+                        index += 2;
+                    }
+                    _ => return Err(usage().into()),
+                }
+            }
+            let execution = laneflow_runtime::ExecutionConfig::new(
+                std::num::NonZeroU32::new(workers).expect("1..=16 is nonzero"),
+            );
+            let result = run_to_directory(&artifacts, &plan, Path::new(&args[3]), execution)?;
             println!(
                 "{}: {}/{} ticks",
                 result.status, result.completed_ticks, result.expected_ticks
@@ -138,5 +159,5 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn usage() -> &'static str {
-    "usage: laneflow-urban-harness plan <artifacts> <plan.toml> [--case CASE] [--probe-warm-up N --probe-ticks N | --performance] | run <artifacts> <plan.toml> <new-output> | compare <run-a> <run-b> <new-comparison.json> | compare <performance-a> <performance-b> <performance-c> <new-performance-comparison.toml> | (feature adapter) evidence <artifacts> <plan.toml> <new-output> headless|adapter [--wall-ms N [--ticks N]] | variant <artifacts> <new-output> | transitions <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output>"
+    "usage: laneflow-urban-harness plan <artifacts> <plan.toml> [--case CASE] [--probe-warm-up N --probe-ticks N | --performance] | run <artifacts> <plan.toml> <new-output> [--workers N] | compare <run-a> <run-b> <new-comparison.json> | compare <performance-a> <performance-b> <performance-c> <new-performance-comparison.toml> | (feature adapter) evidence <artifacts> <plan.toml> <new-output> headless|adapter [--wall-ms N [--ticks N]] | variant <artifacts> <new-output> | transitions <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output>"
 }
