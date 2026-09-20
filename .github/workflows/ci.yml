@@ -125,9 +125,20 @@ jobs:
     name: Rust checks
     runs-on: ubuntu-latest
     needs: changes
+    # 路径检测失败时本 job 必须红而不是被跳过：被跳过的 required check 会停在
+    # Expected 卡住入队，静默当成功则是门禁假绿。取消（cancelled）仍随整个运行跳过。
+    if: ${{ !cancelled() }}
     permissions:
       contents: read
     steps:
+      - name: Fail closed when path detection did not succeed
+        if: needs.changes.result != 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::error::Detect path changes result=${{ needs.changes.result }}; Rust checks fail closed."
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -242,9 +253,19 @@ jobs:
     name: Urban harness tests
     runs-on: ubuntu-latest
     needs: changes
+    # 同 Rust checks：路径检测失败时红而不是被跳过，取消随整个运行跳过。
+    if: ${{ !cancelled() }}
     permissions:
       contents: read
     steps:
+      - name: Fail closed when path detection did not succeed
+        if: needs.changes.result != 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::error::Detect path changes result=${{ needs.changes.result }}; Urban harness tests fail closed."
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

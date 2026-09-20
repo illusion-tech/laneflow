@@ -129,6 +129,6 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 
 `main` 前进只重建 `H_mg` 并重跑机器检查。任何 push 改变 `H_pr` 后，旧机器检查结果
 不能复用于新 head。
-禁止日常 `--admin`。核对 `Commit message`、`Rust checks`、`Dependency policy`、
-`Analyze (actions)`、`Analyze (rust)`。CodeQL 两项须来自
+禁止日常 `--admin`。核对 `Commit message`、`Rust checks`、`Urban harness tests`、
+`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`。CodeQL 两项须来自
 GitHub Actions App `integration_id=15368`。
