@@ -3,7 +3,9 @@
 # combination-observation.patch。#718 前进时按增量影响判断并重跑适用测试。
 # -SelfCheck：验证失败传播（补丁应用失败必须非零退出、不产出完成结果）。
 param(
-    [string]$StackHead = '',
+    # 默认固定为第三层交付分支 tip 的完整 SHA：干净克隆中分支名不可解析，
+    # SHA 在该层合入 main 后可追溯。
+    [string]$StackHead = 'f2e456c254dbc59282062db98f1ec4ec2b7f7cb2',
     [string]$Head718 = '6bc440e8268f8d5f74ec7db07290fe4ac826a443',
     [string]$Worktree = '../712-preint-repro',
     [switch]$SelfCheck
@@ -11,7 +13,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 Set-Location -LiteralPath $repo
-if ($StackHead -eq '') { $StackHead = (git rev-parse 712-3-integration-evidence).Trim() }
+
 
 # 外部命令失败即终止；过滤执行的测试还须证明确实运行了目标测试。
 function Invoke-Step([string]$name, [scriptblock]$action, [int]$expectExit = 0) {
