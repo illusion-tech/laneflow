@@ -100,6 +100,7 @@ jobs:
               - '.cargo/**'
               - 'rust-toolchain*'
               - 'deny.toml'
+              - '.config/nextest.toml'
               - '.github/workflows/**'
               - 'docs/governance/github-workflow.md'
             bevy:
