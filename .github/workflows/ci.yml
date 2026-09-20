@@ -130,6 +130,26 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
+      - name: Install cargo-nextest 0.9.145
+        if: steps.filter.outputs.rust == 'true'
+        shell: bash
+        env:
+          CARGO_NEXTEST_SHA256: cd3c85194e8b28ad26676d287f41f0d6b4d456cef5bd94700def5dea8e328883
+          CARGO_NEXTEST_VERSION: 0.9.145
+        run: |
+          set -euo pipefail
+
+          archive="$RUNNER_TEMP/cargo-nextest.tar.gz"
+          extract_dir="$RUNNER_TEMP/cargo-nextest-extract"
+          curl --proto '=https' --tlsv1.2 --fail --show-error --location --retry 3 \
+            "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${CARGO_NEXTEST_VERSION}/cargo-nextest-${CARGO_NEXTEST_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            --output "$archive"
+          echo "${CARGO_NEXTEST_SHA256}  ${archive}" | sha256sum --check --strict
+          mkdir -p "$extract_dir"
+          tar --extract --gzip --file "$archive" --directory "$extract_dir"
+          install -m 0755 "$extract_dir/cargo-nextest" "$RUNNER_TEMP/cargo-nextest"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
       - name: Check Rust toolchain
         if: steps.filter.outputs.rust == 'true'
         shell: bash
@@ -151,12 +171,18 @@ jobs:
       - name: Run workspace tests
         if: steps.filter.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.98.0 test --workspace --locked
+        run: cargo +1.98.0 nextest run --workspace --locked
+
+      # cargo-nextest 不执行 doctest，doctest 仍由 libtest 覆盖。
+      - name: Run workspace doctests
+        if: steps.filter.outputs.rust == 'true'
+        shell: bash
+        run: cargo +1.98.0 test --workspace --doc --locked
 
       - name: Run urban Adapter harness tests
         if: steps.filter.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.98.0 test --locked -p laneflow-urban-harness --features adapter
+        run: cargo +1.98.0 nextest run --locked -p laneflow-urban-harness --features adapter
 
       - name: Check wire toolchain audit
         if: steps.filter.outputs.rust == 'true'

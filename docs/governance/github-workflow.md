@@ -1,7 +1,7 @@
 # GitHub 工作流
 
 **文档状态**: Active
-**最后更新**: 2026-08-28
+**最后更新**: 2026-09-20
 
 **适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
@@ -255,7 +255,12 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 - `Commit message`：Conventional Commits 标题、`Refs` / `Closes`、必要时
   `BREAKING CHANGE:`。
 - `Markdown tables`：表格格式，只警告。
-- `Rust checks`：`cargo fmt` 与 `cargo test --workspace --locked`。走廊 catalog 与
+- `Rust checks`：`cargo fmt` 与 `cargo clippy --workspace --all-targets -D warnings`；
+  workspace 测试由 `cargo nextest run --workspace --locked` 执行（nextest 钉版本并校验
+  SHA256 安装，测试二进制并行执行），doctest 由 `cargo test --workspace --doc --locked`
+  单独覆盖（nextest 不执行 doctest）；urban harness 测试由
+  `cargo nextest run -p laneflow-urban-harness --features adapter` 执行；另有工具链
+  wire 审计与运行时架构检查。走廊 catalog 与
   LFCA 对拍由 `laneflow-corridor-generator` 测试覆盖，不再单独跑 generator `check`。
   `schemas/road-editing/` 由独立 Codegen workflow 覆盖，不因 `.fbs` 变更拉起整仓
   Rust 测试。Bevy native example 在 Adapter/Runtime/Spatial/scenario、format、
