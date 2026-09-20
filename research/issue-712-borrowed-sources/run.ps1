@@ -31,7 +31,9 @@ function Assert-StableBaseline {
     }
     # 允许前缀下的未跟踪测量输入必须全程字节不变：首检建立快照，后续比对。
     $inputs = @(Get-ChildItem -LiteralPath $PSScriptRoot -File -Recurse |
-        Where-Object { $_.FullName -notmatch '\evidence\|\target\' } |
+        Where-Object {
+            ($_.FullName -notlike '*\evidence\*') -and ($_.FullName -notlike '*\target\*')
+        } |
         Sort-Object FullName)
     $current = @($inputs | ForEach-Object { (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash })
     if ($null -eq $script:inputsSnapshot) {

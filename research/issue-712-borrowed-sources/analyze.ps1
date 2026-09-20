@@ -37,14 +37,24 @@ function Read-CsvRows([string]$path) {
     @(Get-Content -LiteralPath $path | Where-Object { $_ -and $_ -notmatch '^case,' } | ForEach-Object {
         $parts = $_ -split ','
         if ($parts.Count -ne 9) { throw "truncated CSV row (expected 9 fields, got $($parts.Count)): $_" }
+        $numeric = @{}
+        foreach ($index in 4..8) {
+            $raw = $parts[$index]
+            $value = 0.0
+            if ($raw -eq '' -or -not [double]::TryParse($raw, [ref]$value) -or
+                [double]::IsNaN($value) -or [double]::IsInfinity($value) -or $value -lt 0) {
+                throw "invalid numeric field at column ${index}: '$raw' in row: $_"
+            }
+            $numeric[$index] = $value
+        }
         [ordered]@{
             case = $parts[0]
             dataset = $parts[1]
             sample = [int]$parts[2]
             iterations = [int]$parts[3]
-            ns = [double]$parts[4]
-            allocations = [double]$parts[5]
-            reallocations = [double]$parts[6]
+            ns = $numeric[4]
+            allocations = $numeric[5]
+            reallocations = $numeric[6]
         }
     })
 }
