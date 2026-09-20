@@ -122,6 +122,14 @@ struct RetainedMeasurements {
     intent_samples: Vec<u64>,
 }
 
+/// worker 合法域：CLI、measurements 读取/validate、diagnostics 读取三处
+/// 统一使用，避免漂移。上限与 Runtime 执行配置一致。
+pub const MAX_WORKERS: u32 = 16;
+
+pub(crate) fn valid_workers(workers: u32) -> bool {
+    (1..=MAX_WORKERS).contains(&workers)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct MeasurementProvenance {
     git_commit: String,
@@ -197,6 +205,7 @@ impl MeasurementProvenance {
                 .lines()
                 .find_map(|line| line.strip_prefix("host: "))
                 != Some(self.target.as_str())
+            || !valid_workers(self.workers)
             || self.build_parameters != BUILD_PARAMETERS
             || self.timing_range != TIMING_RANGE
         {
@@ -679,35 +688,41 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
     if left_execution == right_execution {
         return Err(invalid("replay requires distinct execution identities"));
     }
-    let read_workers = |dir: &Path| -> Result<u32> {
-        let value: serde_json::Value =
-            serde_json::from_slice(&fs::read(dir.join("diagnostics.json"))?)?;
-        value["workers"]
-            .as_u64()
-            .and_then(|workers| u32::try_from(workers).ok())
-            .ok_or_else(|| invalid("missing diagnostics workers"))
-    };
-    let left_workers = read_workers(left)?;
-    let right_workers = read_workers(right)?;
-    let read = |dir: &Path| -> Result<(RunResult, crate::artifacts::FileDigest)> {
+    let left_workers = read_diagnostics_workers(left)?;
+    let right_workers = read_diagnostics_workers(right)?;
+    let read = |dir: &Path| -> Result<(
+        RunResult,
+        crate::artifacts::FileDigest,
+        Option<MeasurementProvenance>,
+    )> {
         let bytes = fs::read(dir.join("result.json"))?;
         let result: RunResult = serde_json::from_slice(&bytes)?;
+        let performance = matches!(
+            (result.purpose.as_str(), result.status.as_str()),
+            ("performance", "performance-round-complete")
+        );
         if result.version != "urban-result-v4"
             || result.error.is_some()
             || result.completed_ticks != result.expected_ticks
-            || !matches!(
-                (result.purpose.as_str(), result.status.as_str()),
-                ("probe", "probe-complete") | ("correctness", "case-pass-replay-required")
-            )
+            || !performance
+                && !matches!(
+                    (result.purpose.as_str(), result.status.as_str()),
+                    ("probe", "probe-complete") | ("correctness", "case-pass-replay-required")
+                )
         {
             return Err(invalid("cannot accept an incomplete or failed run"));
         }
-        for name in [
+        let mut expected_files = vec![
             "resolved-plan.toml",
             "ticks.jsonl",
             "commands.jsonl",
             "events.jsonl",
-        ] {
+        ];
+        if performance {
+            // 正式臂的测量封套同样纳入本臂文件摘要自校验。
+            expected_files.push("measurements.toml");
+        }
+        for name in expected_files {
             if result.files.get(name) != Some(&digest_file(&dir.join(name))?) {
                 return Err(invalid(format!("run file changed: {name}")));
             }
@@ -726,20 +741,88 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
         if count != result.completed_ticks {
             return Err(invalid("tick log is incomplete"));
         }
+        // 正式臂逐臂独立校验测量封套：版本、执行编号与目录一致、worker
+        // 合法、固定协议 provenance 通过、样本数与观测窗一致。封套内容
+        // 本身不参与跨臂相等（计时与执行编号按定义不同）。
+        let envelope = if performance {
+            let measurement: RetainedMeasurements = toml::from_str(
+                std::str::from_utf8(&fs::read(dir.join("measurements.toml"))?)
+                    .map_err(|e| invalid(e.to_string()))?,
+            )?;
+            if measurement.version != MEASUREMENTS_VERSION {
+                return Err(invalid(
+                    "unsupported performance measurement version; rerun with the current timing protocol",
+                ));
+            }
+            if measurement.execution_id != read_execution_id(dir)? {
+                return Err(invalid("performance execution identity differs"));
+            }
+            measurement.provenance.validate()?;
+            for samples in [
+                &measurement.command_samples_ns,
+                &measurement.traffic_world_step_samples_ns,
+                &measurement.observation_samples_ns,
+                &measurement.active_samples,
+                &measurement.intent_samples,
+            ] {
+                if samples.len() as u64 != result.window.observation_ticks {
+                    return Err(invalid(
+                        "performance sample count differs from the observation window",
+                    ));
+                }
+            }
+            Some(measurement.provenance)
+        } else {
+            None
+        };
         Ok((
             result,
             crate::artifacts::FileDigest {
                 bytes: bytes.len() as u64,
                 sha256: sha256(&bytes),
             },
+            envelope,
         ))
     };
-    let (a, left_digest) = read(left)?;
-    let (b, right_digest) = read(right)?;
+    let (a, left_digest, left_envelope) = read(left)?;
+    let (b, right_digest, right_envelope) = read(right)?;
     if a.plan_digest != b.plan_digest {
         return Err(invalid("different resolved plans"));
     }
-    if a != b {
+    match (&left_envelope, &right_envelope) {
+        (Some(left), Some(right)) => {
+            if left.workers != left_workers || right.workers != right_workers {
+                return Err(invalid(
+                    "performance arm worker records disagree between measurements and diagnostics",
+                ));
+            }
+            // 本切片只支持同源码、同工具链、同硬件/电源条件、仅 worker
+            // 不同的 A/B：两臂 provenance 除 workers 外必须全等。
+            let mut left = left.clone();
+            let mut right = right.clone();
+            left.workers = 0;
+            right.workers = 0;
+            if left != right {
+                return Err(invalid(
+                    "performance arms differ beyond workers; cross-arm compare requires identical source, toolchain and host conditions",
+                ));
+            }
+        }
+        (None, None) => {}
+        _ => {
+            return Err(invalid(
+                "cannot compare performance and non-performance runs",
+            ));
+        }
+    }
+    // 语义比较排除已逐臂独立验证的 measurements.toml 测量封套（probe/
+    // correctness 臂无此文件，移除为空操作）；其余字段（含检查点、角色
+    // 见证、计数、plan 摘要、逐拍日志摘要）全部保留比较。
+    let mut a_semantic = a.clone();
+    a_semantic.files.remove("measurements.toml");
+    let mut b_semantic = b.clone();
+    b_semantic.files.remove("measurements.toml");
+    if a_semantic != b_semantic {
         for (index, (left_row, right_row)) in BufReader::new(File::open(left.join("ticks.jsonl"))?)
             .lines()
             .zip(BufReader::new(File::open(right.join("ticks.jsonl"))?).lines())
@@ -760,10 +843,10 @@ pub fn compare_runs(left: &Path, right: &Path) -> Result<ComparisonReport> {
     }
     Ok(ComparisonReport {
         version: "urban-comparison-v1".into(),
-        status: if a.purpose == "correctness" {
-            "case-pass"
-        } else {
-            "probe-match"
+        status: match a.purpose.as_str() {
+            "correctness" => "case-pass",
+            "performance" => "performance-match",
+            _ => "probe-match",
         }
         .into(),
         purpose: a.purpose,
@@ -992,6 +1075,18 @@ pub(crate) fn new_execution_id() -> Result<String> {
     ))
 }
 
+/// 读取运行目录 diagnostics.json 的实际 worker 数；合法域 1..=16，
+/// 缺失或越界拒绝（与 CLI、provenance validate 同一规则）。
+pub(crate) fn read_diagnostics_workers(directory: &Path) -> Result<u32> {
+    let value: serde_json::Value =
+        serde_json::from_slice(&fs::read(directory.join("diagnostics.json"))?)?;
+    value["workers"]
+        .as_u64()
+        .and_then(|workers| u32::try_from(workers).ok())
+        .filter(|workers| valid_workers(*workers))
+        .ok_or_else(|| invalid("missing or invalid diagnostics workers"))
+}
+
 fn read_execution_id(directory: &Path) -> Result<String> {
     let diagnostics: serde_json::Value =
         serde_json::from_slice(&fs::read(directory.join("diagnostics.json"))?)?;
@@ -1057,6 +1152,140 @@ mod tests {
         })
     }
 
+    /// worker=4 的 Measurements 序列化/读取/validate 正路径；0/17 越界拒绝。
+    #[test]
+    fn measurement_provenance_accepts_workers_in_legal_range_only() {
+        let mut fixture = measurement_fixture();
+        fixture["workers"] = json!(4);
+        let retained: RetainedMeasurements = serde_json::from_value(fixture.clone()).unwrap();
+        retained.provenance.validate().unwrap();
+        for illegal in [0, 17] {
+            let mut bad = fixture.clone();
+            bad["workers"] = json!(illegal);
+            let retained: RetainedMeasurements = serde_json::from_value(bad).unwrap();
+            assert!(
+                retained.provenance.validate().is_err(),
+                "workers={illegal} must be rejected by validate"
+            );
+        }
+    }
+
+    /// 三轮聚合：全 4 接受（新合法域真正被接受）、1/4/1 混臂拒绝、
+    /// 全 0 / 全 17 因 worker 合法性拒绝（封套摘要已重算，拒绝来自
+    /// validate 而非旧摘要不匹配）。
+    #[test]
+    fn performance_aggregation_validates_workers_range_and_uniformity() {
+        let temp = tempfile::tempdir().unwrap();
+        let a = temp.path().join("a");
+        let b = temp.path().join("b");
+        let c = temp.path().join("c");
+        for (path, id) in [(&a, "a"), (&b, "b"), (&c, "c")] {
+            let mut fixture = measurement_fixture();
+            fixture["workers"] = json!(4);
+            write_round(path, id, fixture);
+        }
+        let result = compare_performance_runs([&a, &b, &c]).unwrap();
+        assert_eq!(result.rounds.len(), 3);
+        // 混臂拒绝（a/c=4，b=1）。
+        let mut mixed = measurement_fixture();
+        mixed["workers"] = json!(1);
+        write_round(&b, "b", mixed);
+        assert!(compare_performance_runs([&a, &b, &c]).is_err());
+        // 全 0 / 全 17：各自相等但非法，必须由 validate 拒绝。
+        for illegal in [0, 17] {
+            for (path, id) in [(&a, "a"), (&b, "b"), (&c, "c")] {
+                let mut fixture = measurement_fixture();
+                fixture["workers"] = json!(illegal);
+                write_round(path, id, fixture);
+            }
+            assert!(
+                compare_performance_runs([&a, &b, &c]).is_err(),
+                "uniform workers={illegal} must be rejected by legality"
+            );
+        }
+    }
+
+    /// diagnostics.json 的 worker 读取：合法域校验与缺失拒绝。
+    #[test]
+    fn read_diagnostics_workers_enforces_range() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("run");
+        fs::create_dir(&dir).unwrap();
+        for (workers, ok) in [(json!(4), true), (json!(0), false), (json!(17), false)] {
+            write_json(
+                &dir.join("diagnostics.json"),
+                &json!({"execution_id":"e", "workers":workers}),
+            )
+            .unwrap();
+            assert_eq!(
+                super::read_diagnostics_workers(&dir).is_ok(),
+                ok,
+                "workers={workers}"
+            );
+        }
+        write_json(&dir.join("diagnostics.json"), &json!({"execution_id":"e"})).unwrap();
+        assert!(super::read_diagnostics_workers(&dir).is_err());
+    }
+
+    /// 正式 performance 跨臂 A/B：同源码/工具链/硬件电源、仅 worker 不同、
+    /// 语义逐拍一致、计时样本不同 → 接受；日志/检查点不同（摘要已重算）
+    /// → 拒绝；diagnostics 与 measurements 的 worker 记录矛盾 → 拒绝。
+    #[test]
+    fn compare_runs_accepts_and_rejects_performance_arms() {
+        let temp = tempfile::tempdir().unwrap();
+        let one = temp.path().join("one");
+        let four = temp.path().join("four");
+        for (dir, execution, workers, offset) in
+            [(&one, "exec-one", 1, 0_u64), (&four, "exec-four", 4, 100)]
+        {
+            let mut fixture = measurement_fixture();
+            fixture["workers"] = json!(workers);
+            fixture["command_samples_ns"] = json!([1 + offset, 2 + offset]);
+            fixture["traffic_world_step_samples_ns"] = json!([3 + offset, 4 + offset]);
+            fixture["observation_samples_ns"] = json!([5 + offset, 6 + offset]);
+            fixture["active_samples"] = json!([1, 1]);
+            fixture["intent_samples"] = json!([1, 1]);
+            write_round(dir, execution, fixture);
+        }
+        let report = compare_runs(&one, &four).unwrap();
+        assert_eq!(report.status, "performance-match");
+        assert_eq!(report.left.workers, 1);
+        assert_eq!(report.right.workers, 4);
+
+        // 负路径：检查点不同（重算自身 result.json 摘要后仍必须拒绝——
+        // 语义差异不能被测量封套排除规则掩盖）。
+        let divergent = temp.path().join("divergent");
+        let mut fixture = measurement_fixture();
+        fixture["workers"] = json!(4);
+        write_round(&divergent, "exec-divergent", fixture);
+        {
+            let path = divergent.join("result.json");
+            let mut result: RunResult = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            result.checkpoints.insert(1, "different-checkpoint".into());
+            let bytes = serde_json::to_vec(&result).unwrap();
+            fs::write(&path, &bytes).unwrap();
+        }
+        assert!(
+            compare_runs(&four, &divergent).is_err(),
+            "semantic divergence must not be masked by the measurement envelope exclusion"
+        );
+
+        // 负路径：diagnostics 与 measurements 的 worker 记录矛盾。
+        let contradiction = temp.path().join("contradiction");
+        let mut fixture = measurement_fixture();
+        fixture["workers"] = json!(4);
+        write_round(&contradiction, "exec-contradiction", fixture);
+        write_json(
+            &contradiction.join("diagnostics.json"),
+            &json!({"execution_id":"exec-contradiction", "workers":1}),
+        )
+        .unwrap();
+        assert!(
+            compare_runs(&four, &contradiction).is_err(),
+            "contradictory worker records must be rejected"
+        );
+    }
+
     #[test]
     fn measurement_writer_preserves_flat_provenance_for_comparison() {
         let retained: RetainedMeasurements = serde_json::from_value(measurement_fixture()).unwrap();
@@ -1111,7 +1340,7 @@ mod tests {
         fs::write(directory.join("events.jsonl"), "").unwrap();
         write_json(
             &directory.join("diagnostics.json"),
-            &json!({"execution_id":execution}),
+            &json!({"execution_id":execution, "workers":measurement["workers"]}),
         )
         .unwrap();
         let mut ticks = File::create(directory.join("ticks.jsonl")).unwrap();

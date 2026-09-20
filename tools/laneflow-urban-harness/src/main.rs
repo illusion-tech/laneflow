@@ -113,7 +113,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         workers = args[index + 1]
                             .parse()
                             .map_err(|_| "invalid --workers value")?;
-                        if !(1..=16).contains(&workers) {
+                        if !(1..=laneflow_urban_harness::MAX_WORKERS).contains(&workers) {
                             return Err("--workers must be in 1..=16".into());
                         }
                         index += 2;

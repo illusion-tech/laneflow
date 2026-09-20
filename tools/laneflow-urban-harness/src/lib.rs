@@ -28,8 +28,8 @@ pub use plan::{
 #[cfg(feature = "adapter")]
 pub use presentation::{Presentation, PresentationSample};
 pub use report::{
-    ComparedRun, ComparisonReport, PerformanceComparisonReport, PerformanceRound, RunResult,
-    compare_performance_runs, compare_runs, run_to_directory,
+    ComparedRun, ComparisonReport, MAX_WORKERS, PerformanceComparisonReport, PerformanceRound,
+    RunResult, compare_performance_runs, compare_runs, run_to_directory,
 };
 pub use runner::{Harness, IndividualId, TickRecord};
 #[cfg(feature = "adapter")]
