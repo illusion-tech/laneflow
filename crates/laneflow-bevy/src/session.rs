@@ -1336,9 +1336,6 @@ mod capacity_tests {
             .expect("stray");
         let before_vehicles = output.vehicles().to_vec();
         let before_capacity = output.vehicles.capacity();
-        let pose_cap = rig.session.pose_scratch.capacity();
-        let vehicle_cap = rig.session.pose_vehicle_scratch.capacity();
-
         let error = rig
             .session
             .extract_committed_pose_batch(
@@ -1356,10 +1353,17 @@ mod capacity_tests {
             before_capacity,
             "failure keeps backing"
         );
+        // 失败调用已把候选构建到 5 条（4 Lane + 1 alt frame）后 Spatial 才失败：
+        // 候选内容与增长后的容量都必须保留，供重试复用。
+        assert_eq!(
+            rig.session.pose_scratch.len(),
+            5,
+            "failing extraction keeps its built candidates"
+        );
         assert!(
-            rig.session.pose_scratch.capacity() >= pose_cap
-                && rig.session.pose_vehicle_scratch.capacity() >= vehicle_cap,
-            "failure keeps candidate capacity for retry"
+            rig.session.pose_scratch.capacity() >= 5
+                && rig.session.pose_vehicle_scratch.capacity() >= 5,
+            "growth acquired by the failing extraction is retained"
         );
 
         let mut world = rig.session.world_mut();

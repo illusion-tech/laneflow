@@ -71,6 +71,13 @@ if (Test-Path -LiteralPath $Worktree) { throw "Worktree $Worktree already exists
 Invoke-Step 'worktree-add' { git worktree add --detach $Worktree $StackHead } | Out-Null
 try {
     Set-Location -LiteralPath $Worktree
+    # 先取回 #718 分支并核对实际 head 与固定 SHA 一致（干净克隆中固定 SHA
+    # 不可直接引用；分支名可达）。
+    Invoke-Step 'fetch-718' { git fetch -q origin codex/706-parallel-p3-p5 } | Out-Null
+    $fetched718 = (git rev-parse FETCH_HEAD).Trim()
+    if ($fetched718 -ne $Head718) {
+        throw "PR #718 head moved: fetched $fetched718, expected $Head718"
+    }
     Invoke-Step 'merge-718' { git merge --no-commit $Head718 } | Out-Null
     Invoke-Step 'commit-merge' { git commit -m "chore: 712-3 与 #718 head $Head718 的临时预集成`n`nRefs: #712" } | Out-Null
     Invoke-Step 'apply-observation-patch' {

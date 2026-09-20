@@ -29,6 +29,16 @@ function Assert-StableBaseline {
             throw "Tracked file must stay clean: $line"
         }
     }
+    # 允许前缀下的未跟踪测量输入必须全程字节不变：首检建立快照，后续比对。
+    $inputs = @(Get-ChildItem -LiteralPath $PSScriptRoot -File -Recurse |
+        Where-Object { $_.FullName -notmatch '\evidence\|\target\' } |
+        Sort-Object FullName)
+    $current = @($inputs | ForEach-Object { (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash })
+    if ($null -eq $script:inputsSnapshot) {
+        $script:inputsSnapshot = $current
+    } elseif (@(Compare-Object $script:inputsSnapshot $current).Count -gt 0) {
+        throw 'Untracked measurement inputs changed during evidence collection'
+    }
 }
 
 Assert-StableBaseline
