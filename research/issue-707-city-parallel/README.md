@@ -67,11 +67,12 @@ laneflow-urban-harness.exe compare <pilot>/<scale>-w1-r1 <pilot>/<scale>-w4-r1 <
 
 - **制品为本次重建**：仓库现有目录（examples/data、research/issue-543-*、
   target/tmp）无可通过摘要校验的 10k/100k 城市制品，按冻结入口重建。
-- **plans.json 冻结摘要不匹配（已解释，未改 golden）**：对重建制品生成的
-  MIXED-PEAK correctness 计划与 `fixtures/v3/plans.json` 的
-  `10k-mixed-peak`/`100k-mixed-peak` **字节数完全一致**（4057834 /
-  40845093），SHA-256 不一致；同一制品重复生成计划**逐字节一致**
-  （生成确定性已验证）。不一致来源：v3 冻结摘要对应冻结时代的静态路网
-  修订，本次制品由 4de40e04 的编译器生成（network_revision 不同，
-  `bef82350…`）。按纪律**未更新 golden 摘要**；本切片全部运行使用
-  重建制品↔其衍生计划（自洽），跨运行一致性由 plan_digest 保证。
+- **plans.json 冻结摘要不匹配（已核查，结论见 input-diff.md；未改
+  golden）**：对重建制品生成的 MIXED-PEAK correctness 计划与
+  `fixtures/v3/plans.json` 的 `10k-mixed-peak`/`100k-mixed-peak`
+  **字节数完全一致**（4057834 / 40845093），SHA-256 不一致。WP C.1
+  逐字段核查定位：两档制品与冻结制品**仅两个构建内存统计字段不同**
+  （`shared_*_retained_bytes`），network_revision 与全部内容文件摘要
+  一致；唯一计划差异是内嵌 `manifest_digest`（其输入为整张 manifest
+  的 SHA-256），差异数字同为 7 位十进制故计划字节数不变。属非交通
+  元数据漂移，Runtime 消费字段等价——**接受重建制品**，golden 原样。
