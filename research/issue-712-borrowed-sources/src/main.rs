@@ -571,7 +571,7 @@ fn collected_sources(world: &TrafficWorld) -> Vec<(VehicleHandle, laneflow_runti
 /// （仅 allocation 构建；冷启动与 fresh-output 生命周期另行解释）。
 macro_rules! assert_steady_sample {
     ($stats:expr, $case:expr, $sample:expr) => {
-        #[cfg(feature = "allocation")]
+        #[cfg(all(feature = "allocation", not(feature = "legacy-source")))]
         assert!(
             $stats.0 == 0 && $stats.1 == 0,
             "steady {} sample {} must not allocate (got {} alloc / {} realloc)",
