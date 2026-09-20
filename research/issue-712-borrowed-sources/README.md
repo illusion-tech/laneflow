@@ -41,25 +41,38 @@ A/B 都不包含 #718（基线两侧一致，不做跨成分相减）。
   A/B 程序身份与 feature 方向（A=legacy-source，B=默认）；拒绝测试
   `test-analyze.ps1` 6/6 通过。
 
-## 结果（2026-09-19 重采；完整数值见 results.csv，环境见 summary-table.md；各轮原始样本在 evidence，未删不利样本）
+## 结果（2026-09-19 第四轮取证；完整数值见 results.csv，环境见 summary-table.md）
 
-稳态分配（每 32 次调用中位数，allocation 构建）：全部数据集 source_full / adapter_full / alternate **1 → 0 次分配/调用**；fresh_output 3 → 2；cold 4 → 3。**验收核心成立：暖机后来源不再逐帧分配，完整 Adapter 提取零新增分配。**
+稳态分配（allocation 构建，**逐样本断言**：B 侧 adapter_full/alternate 每个 32 次调用窗口均 0 分配/0 重分配，断言在程序内、暖机修复后不再有首窗重暖成本；A 侧按值 Vec 的每窗分配是被测基线现象，不套用该断言）：全部数据集稳态 1 → 0 次分配/调用；fresh_output 3 → 2；cold 4 → 3。**验收核心成立。**
 
-数据集形态测前显式断言：all_active=100% Active；mixed_parking=半数 Active + 128 显式 Parked + 其余 virtual Parked；**high_completed=90% Completed + 10% Active（分批在车道末端生成并逐拍完成，presentable=1000/10000，不再是上一版只有约 1% Completed 的错误形态）**；sparse=100 Active + 其余 virtual Parked。
+数据集形态测前显式断言（同第三轮）：all_active 100% Active；mixed_parking 半 Active + 128 显式 Parked + 其余 virtual；high_completed 90% Completed + 10% Active（presentable=1000/10000）；sparse 100 Active + 其余 virtual。
 
-oracle 完整性（v2 摘要）：来源摘要编入有序完整 `(VehicleHandle, PoseSource)` 序列（句柄 + 判别 + 全部字段 + 长度）；批次摘要编入车辆句柄序列、全部记录位模式、批次 header（修订 / canonical frame / placement token）、完整消费上下文（world id + world generation）与两个序列长度。字段敏感性有直接实证：同数据集下 adapter（token 3）与 alternate（token 8）摘要不同（上一版 v1 摘要二者相同，即复核指出的缺口）。15 组 oracle A/B 逐键一致。
+oracle（v2 全字段）与测后校验：批次摘要含车辆序列、记录位模式、修订/frame/token、完整上下文与长度；来源摘要含有序完整序列。adapter 每计时样本结束后与 token 3 参考全字段一致；alternate 结束后 A、B 分别校验；fresh_output 计时外重放逐次校验。15 组 oracle A/B 逐键一致。
 
-墙钟判读（收紧表述）：本轮各独立轮次波动明显（本机已知双峰特征；电源方案为平衡已记录但未锁频）。source_full 100 k 全 Active 中位数 -47.5%、10 k -26.6%、混合 100 k -10.1%；adapter_full 与 transform_convert 各档涨跌互现（-5.6% ~ +29%）。**结论：分配消除与重分配消失（32 次分配 + 384 次重分配 → 0/0）证据成立；本机该轮观察到来源完整消费的改善，但独立轮次波动明显，中位数差值不作为稳定可重复的加速幅度**。上一下一轮采集（README 历史版本记录的 -6%~-7.6% adapter 档）同样按此口径理解。冷启动 -18.5%、fresh_output 大档 -33.7%/小档 -2.4%，方向与少一次/两次分配一致。
+墙钟判读（口径不变）：分配消除与重分配消失证据成立；本轮 source_full 100 k 全 Active -17.5%、10 k -69.8%；adapter/alternate 各档涨跌互现（-18.5% ~ +12.1%），中位数差值不作稳定可重复幅度结论。
 
-retained 与容量：分配事件数不是存活容量；同 Session 涨缩、不同容量 output 轮换与失败重试的容量轨迹专项证据**尚未交付**（遗留项，见 PR 未运行清单）。Spatial records backing 的轮换与容量行为由 #711 的 B 系列测试与证据覆盖；本切片新增的 Adapter 候选缓冲（输入 `PoseInput`、车辆 `VehicleHandle`、输出车辆）归 Session/调用方所有，逐批分配消失、retained 总量按所有者另行统计。
+**容量实值轨迹**（`session.rs` capacity_tests，--nocapture 观测；元素 16 B PoseInput / 8 B VehicleHandle）：
+
+| 步骤                | presentable | out.vehicles len/cap | pose 候选 len/cap | 车辆候选 len/cap |
+| ------------------- | ----------: | -------------------- | ----------------- | ---------------- |
+| 小批 4              |           4 | 4/4                  | 4/4               | 0/0              |
+| 大批 68             |          68 | 68/128               | 68/128            | 0/4              |
+| despawn 64 后小批 4 |           4 | 4/4                  | 4/128             | 0/128            |
+
+缩量经合法生命周期（despawn）完成；大批 128 backing 缩量后轮换到 Session 车辆候选一侧（out 接回小 backing），断言按两侧最大值证明未释放、不误判为主动缩容；内容=保留的 4 辆、记录 ID 从 0 重新连续、旧尾部不可见。双 output 交替用完整快照（车辆+批次+上下文）双向比较；全新 output 首调用接住暖 backing、Session 接回空 backing 后下一批重建（#711 轮换合同）；失败保持旧输出内容与 backing、候选容量可继续用于重试。
+
+retained 口径（Adapter 可观测范围）：输入候选 capacity×16 B + 车辆候选 capacity×8 B + 各存活 output 车辆 capacity×8 B，按观察点当时所有者统计、转移不重复计；不含 Spatial（#711 证据覆盖）、Runtime 或 allocator 元数据，不是进程 RSS。
 
 ## #718 组合观察（预集成，版本固定）
 
 #718 在取证时未合并。组合验证基于 **#718 head `6bc440e8268f8d5f74ec7db07290fe4ac826a443`**
 与本栈 `63fbcd5a` 的临时预集成提交 `e619371e`（throwaway，不入栈）。
-`run-combination.ps1` 完整重现：建 worktree → 固定双 head 合并 → 应用
-`combination-observation.patch` → 运行下列测试。#718 再前进时按增量影响
-重跑适用测试（不重跑不含 #718 的基础 A/B）。
+`run-combination.ps1` 完整重现（失败即终止：每条 Git/Cargo 命令检查退出码；
+过滤执行的测试断言实际通过数 ≥ 预期；`-SelfCheck` 验证损坏补丁被拒绝且失败
+传播为非零退出；测试过滤器按目标拆分，不跨目标误过滤）：建 worktree → 固定
+双 head 合并 → 应用 `combination-observation.patch` → 运行下列测试。最近一次
+复现头 `b84f388f`（栈 `e3ae83a6` 前身 + 6bc440e8 + 补丁）。#718 再前进时按
+增量影响重跑适用测试（不重跑不含 #718 的基础 A/B）。
 
 补丁新增 Runtime 库内直接观察（`pose_source_observation_tests`，用 #718 的
 `cfg(test)` 钩子，不经外部集成测试冒用私有入口）：
