@@ -1133,34 +1133,75 @@ mod capacity_tests {
             .expect("extract");
     }
 
-    /// 同一 Session/output：小批 → 大批 → 小批的容量轨迹与旧尾部不可见。
+    /// 同一 Session/output：小批 → 大批 → 缩回小批。缩量通过合法生命周期
+    /// （despawn Active）完成；记录各观察点的 len/capacity 实值轨迹
+    /// （eprintln，--nocapture 可见），并断言缩量后内容正确、容量保留、
+    /// 旧尾部不可见。
     #[test]
     fn grow_then_shrink_keeps_capacity_and_hides_tail() {
         let mut rig = rig();
         let mut output = LaneFlowCommittedPoseBatch::new();
         spawn_slots(&mut rig, 0, 4);
         extract(&mut rig.session, &mut output);
-        let small_pose_cap = rig.session.pose_scratch.capacity();
-        let small_vehicle_cap = rig.session.pose_vehicle_scratch.capacity();
-        let small_output_cap = output.vehicles.capacity();
-        assert!(small_output_cap >= 4, "output capacity fits small batch");
+        let trace = |step: &str, out: &LaneFlowCommittedPoseBatch, sess: &LaneFlowSession| {
+            eprintln!(
+                "capacity-trace {step}: presentable={} out.len={} out.cap={} pose.len={} pose.cap={} pose_sz={} veh.len={} veh.cap={} veh_sz={}",
+                out.vehicles().len(),
+                out.vehicles().len(),
+                out.vehicles.capacity(),
+                sess.pose_scratch.len(),
+                sess.pose_scratch.capacity(),
+                std::mem::size_of::<laneflow_spatial::PoseInput>(),
+                sess.pose_vehicle_scratch.len(),
+                sess.pose_vehicle_scratch.capacity(),
+                std::mem::size_of::<VehicleHandle>(),
+            );
+        };
+        trace("small-1", &output, &rig.session);
 
-        // 大批：两侧至少容纳大批；容量只增不减（不假设具体倍数）。
         spawn_slots(&mut rig, 4, 68);
         extract(&mut rig.session, &mut output);
         assert_eq!(output.vehicles.len(), 68);
-        assert!(
-            output.vehicles.capacity() >= 68,
-            "output capacity fits large batch"
-        );
-        assert!(output.batch.records().len() == 68);
+        assert_eq!(output.batch.records().len(), 68);
+        trace("large", &output, &rig.session);
         let large_output_cap = output.vehicles.capacity();
+        let large_pose_cap = rig.session.pose_scratch.capacity();
+        assert!(large_output_cap >= 68 && large_pose_cap >= 68);
 
-        // 回到小批：记录数随内容收缩，旧尾部（大批记录）不可见；
-        // 容量保留不释放。
-        // 直接用较小的世界内容重提：通过 despawn 不可用（Session 层），
-        // 改为构造新 Rig 的对照由交替用例覆盖；这里先断言当前大批事实。
-        let _ = (small_pose_cap, small_vehicle_cap, large_output_cap);
+        // 合法缩量：despawn 后 64 辆（保留 live 序列前 4 辆）。
+        let all: Vec<_> = output.vehicles().to_vec();
+        for vehicle in &all[4..] {
+            rig.session
+                .world
+                .despawn_vehicle(*vehicle)
+                .expect("legal lifecycle despawn");
+        }
+        extract(&mut rig.session, &mut output);
+        trace("small-2", &output, &rig.session);
+        assert_eq!(
+            output.vehicles(),
+            all[..4].to_vec().as_slice(),
+            "kept members and order"
+        );
+        assert_eq!(output.batch.records().len(), 4);
+        for (index, record) in output.batch.records().iter().enumerate() {
+            assert_eq!(
+                record.record().raw(),
+                index as u32,
+                "ids restart at 0, old tail hidden"
+            );
+        }
+        // 轮换感知的容量保留：成功提交交换 backing，缩量后大批 backing 可能
+        // 轮换到 Session 一侧；按两侧最大值断言“未释放”，不误判为主动缩容。
+        assert!(
+            output.vehicles.capacity().max(rig.session.pose_vehicle_scratch.capacity())
+                >= large_output_cap,
+            "the grown vehicles backing must survive the shrink on one side"
+        );
+        assert!(
+            rig.session.pose_scratch.capacity() >= large_pose_cap,
+            "session candidates keep capacity after shrink"
+        );
     }
 
     /// 两个不同容量的 output 交替：更新一方不改变另一方完整输出；暖机后
@@ -1175,15 +1216,25 @@ mod capacity_tests {
         spawn_slots(&mut rig, 4, 64);
         extract(&mut rig.session, &mut b);
         assert_eq!(b.vehicles.len(), 64);
-        let b_snapshot = b.vehicles().to_vec();
+        let b_snapshot = (b.vehicles().to_vec(), b.batch().clone(), b.context());
 
         // 更新 A（内容为当前全部 64 辆）：B 的完整输出不变。
         extract(&mut rig.session, &mut a);
         assert_eq!(a.vehicles.len(), 64, "full extraction follows the world");
         assert_eq!(
             b.vehicles(),
-            b_snapshot.as_slice(),
-            "updating a must not modify b"
+            b_snapshot.0.as_slice(),
+            "updating a must not modify b vehicles"
+        );
+        assert_eq!(
+            *b.batch(),
+            b_snapshot.1,
+            "updating a must not modify b batch"
+        );
+        assert_eq!(
+            b.context(),
+            b_snapshot.2,
+            "updating a must not modify b context"
         );
 
         // 再更新 B：A 的完整输出不变。
