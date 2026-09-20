@@ -103,16 +103,27 @@ cargo clippy --locked --offline --manifest-path research/issue-712-borrowed-sour
 cargo fmt --manifest-path research/issue-712-borrowed-sources/Cargo.toml -- --check
 cargo run --locked --offline --release --manifest-path research/issue-712-borrowed-sources/Cargo.toml -- --smoke
 # A 侧在基线工作树复制本目录后（features 必须 legacy-source）：
-# A 侧：在基线工作树（b52f9ec4 检出 + 未跟踪复制本目录）中执行三轮：
-foreach ($round in 1..3) {
-    pwsh -NoProfile -File research/issue-712-borrowed-sources/run.ps1 -Output "research/issue-712-borrowed-sources/evidence/before/run$round" -AllowUntracked 'research/issue-712-borrowed-sources/' -Features legacy-source
+# 重放输出到全新的临时证据树（已入库的 evidence/ 目录不可复用——run.ps1
+# 要求输出目录必须新），并按方法节声明的 A₁B₁B₂A₂A₃B₃ 交错顺序在两个
+# 工作树之间交替执行（$beforeTree = 基线工作树 b52f9ec4 + 未跟踪本目录；
+# $afterTree = 本栈工作树）：
+$replay = 'target/issue-712-replay/evidence'
+$seq = @(
+    @('before', 1), @('after', 1), @('after', 2),
+    @('before', 2), @('before', 3), @('after', 3)
+)
+foreach ($step in $seq) {
+    $side = $step[0]; $round = $step[1]
+    $tree = if ($side -eq 'before') { $beforeTree } else { $afterTree }
+    $features = if ($side -eq 'before') { @('-Features', 'legacy-source') } else { @() }
+    $allow = if ($side -eq 'before') { 'research/issue-712-borrowed-sources/' } else { 'research/issue-712-borrowed-sources/evidence' }
+    Push-Location $tree
+    pwsh -NoProfile -File research/issue-712-borrowed-sources/run.ps1 `
+        -Output "$replay/$side/run$round" -AllowUntracked $allow @features
+    Pop-Location
 }
-# B 侧：在本栈工作树中执行三轮（不带 legacy-source）：
-foreach ($round in 1..3) {
-    pwsh -NoProfile -File research/issue-712-borrowed-sources/run.ps1 -Output "research/issue-712-borrowed-sources/evidence/after/run$round" -AllowUntracked 'research/issue-712-borrowed-sources/evidence'
-}
-# 把 before 三轮目录复制进本栈工作树后汇总：
-pwsh -NoProfile -File research/issue-712-borrowed-sources/analyze.ps1
+# 汇总（-Evidence 指向重放树）：
+pwsh -NoProfile -File research/issue-712-borrowed-sources/analyze.ps1 -Evidence $replay
 pwsh -NoProfile -File research/issue-712-borrowed-sources/test-analyze.ps1
 pwsh -NoProfile -File research/issue-712-borrowed-sources/run-combination.ps1
 cargo test --locked -p laneflow-runtime -p laneflow-bevy --tests
