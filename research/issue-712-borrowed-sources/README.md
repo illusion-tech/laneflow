@@ -107,6 +107,12 @@ cargo run --locked --offline --release --manifest-path research/issue-712-borrow
 # 要求输出目录必须新），并按方法节声明的 A₁B₁B₂A₂A₃B₃ 交错顺序在两个
 # 工作树之间交替执行（$beforeTree = 基线工作树 b52f9ec4 + 未跟踪本目录；
 # $afterTree = 本栈工作树）：
+# 工作树准备：B 侧即当前仓库检出（本栈）；A 侧另建基线 worktree 并复制本目录。
+$afterTree = (Get-Location).Path
+$beforeTree = '../issue-712-baseline-worktree'
+git worktree add --detach $beforeTree b52f9ec4b792a158aed45f0ca4f536379073684f
+Copy-Item -Recurse (Join-Path $afterTree 'research/issue-712-borrowed-sources') `
+    (Join-Path $beforeTree 'research/issue-712-borrowed-sources')
 $replay = (Join-Path (Get-Location) 'target/issue-712-replay/evidence')
 $seq = @(
     @('before', 1), @('after', 1), @('after', 2),

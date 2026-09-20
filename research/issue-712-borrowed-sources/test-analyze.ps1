@@ -67,7 +67,15 @@ $failures += Invoke-Test 'source-mismatch' {
     param($tree)
     $json = Join-Path $tree 'after/run2/environment.json'
     $raw = Get-Content -LiteralPath $json -Raw | ConvertFrom-Json
-    $raw.manifest = ('0' * 64)
+    $raw.sources[0].Hash = ('0' * 64)
+    $raw | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $json -Encoding utf8
+} $false
+
+$failures += Invoke-Test 'manifest-mismatch' {
+    param($tree)
+    $json = Join-Path $tree 'after/run2/environment.json'
+    $raw = Get-Content -LiteralPath $json -Raw | ConvertFrom-Json
+    $raw.manifest = ('1' * 64)
     $raw | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $json -Encoding utf8
 } $false
 
