@@ -233,7 +233,37 @@ fn parking_lifecycle_source_transitions_are_explicit_and_worker_stable() {
         let after_park = full_sources(&world);
         assert_eq!(after_park, vec![(vehicle, PoseSource::Parking { space })]);
 
-        traces.push((after_reserve, after_park));
+        // 合法离场恢复 Lane 来源（出口锚点位于路线出现项 1 的出口边）。
+        let (exit_edge, _exit_progress) = world
+            .traffic()
+            .relations()
+            .parking_space(space)
+            .expect("parking space")
+            .exit();
+        let exit_occurrence = world
+            .route_edges(route)
+            .expect("route edges")
+            .iter()
+            .position(|edge| *edge == exit_edge)
+            .and_then(|index| u32::try_from(index).ok())
+            .expect("parking exit on route");
+        world
+            .leave_parking(
+                vehicle,
+                laneflow_runtime::LeaveParkingTarget::ExplicitSpace {
+                    space,
+                    route,
+                    exit_route_occurrence: exit_occurrence,
+                },
+            )
+            .expect("leave parking");
+        let after_leave = full_sources(&world);
+        assert!(
+            matches!(after_leave.as_slice(), [(handle, PoseSource::Lane { .. })] if *handle == vehicle),
+            "leave must restore the lane source"
+        );
+
+        traces.push((after_reserve, after_park, after_leave));
     }
     for trace in &traces[1..] {
         assert_eq!(trace, &traces[0]);

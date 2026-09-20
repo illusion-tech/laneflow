@@ -859,8 +859,8 @@ mod capacity_tests {
 
     use laneflow_compiler::{
         CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder, CompileLimits,
-        Compiler, IidmVehicleProfileInput, LaneEdgeGeometryInput, LaneEdgeInput,
-        LaneEdgeReference, ParkingFacilityInput, ParkingLaneAnchorInput, ParticipantClassInput,
+        Compiler, IidmVehicleProfileInput, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference,
+        ParkingFacilityInput, ParkingLaneAnchorInput, ParticipantClassInput,
         ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance,
         SourceModuleHeader, SourceModuleHeaderInput, SyntheticModuleBuilder, VehicleProfileInput,
         emit_portable_candidate,
@@ -868,13 +868,11 @@ mod capacity_tests {
     use laneflow_format::{FormatLimits, check_post_emission_bundle};
     use laneflow_runtime::{
         CommittedNetworkSource, PublishedLfcaReference, ReserveParkingTarget, RouteHandle,
-        RouteRegisterInput, TrafficWorld, VehicleHandle, VehicleSpawnInput, VirtualEntryAnchorSelector,
-        WorldConfig, WorldPolicySelection,
+        RouteRegisterInput, TrafficWorld, VehicleHandle, VehicleSpawnInput,
+        VirtualEntryAnchorSelector, WorldConfig, WorldPolicySelection,
     };
     use laneflow_spatial::SpatialSession;
-    use laneflow_static_contract::{
-        EntityKind, LaneEdgeId, VehicleProfileOrdinal,
-    };
+    use laneflow_static_contract::{EntityKind, LaneEdgeId, VehicleProfileOrdinal};
 
     use super::{LaneFlowCommittedPoseBatch, LaneFlowSession, LaneFlowSessionConfig};
 
@@ -886,7 +884,10 @@ mod capacity_tests {
     const FACILITY: laneflow_static_contract::ParkingFacilityOrdinal =
         laneflow_static_contract::ParkingFacilityOrdinal::from_raw(0);
 
-    fn edge_ordinal(root: &laneflow_static_network::SharedNetworkRevision, key: &str) -> laneflow_static_contract::LaneEdgeOrdinal {
+    fn edge_ordinal(
+        root: &laneflow_static_network::SharedNetworkRevision,
+        key: &str,
+    ) -> laneflow_static_contract::LaneEdgeOrdinal {
         let stable = laneflow_compiler::derive_canonical_stable_id_v1(
             EntityKind::LaneEdge,
             NAMESPACE,
@@ -916,7 +917,11 @@ mod capacity_tests {
         .expect("header");
         let mut module = SyntheticModuleBuilder::new(header, &limits).expect("module");
         let key = |lane: usize, alt: bool| {
-            if alt { format!("alt-{lane}") } else { format!("main-{lane}") }
+            if alt {
+                format!("alt-{lane}")
+            } else {
+                format!("main-{lane}")
+            }
         };
         let main_keys: Vec<&'static str> = (0..MAIN_LANES)
             .map(|lane| -> &'static str { Box::leak(key(lane, false).into_boxed_str()) })
@@ -1144,7 +1149,10 @@ mod capacity_tests {
         spawn_slots(&mut rig, 4, 68);
         extract(&mut rig.session, &mut output);
         assert_eq!(output.vehicles.len(), 68);
-        assert!(output.vehicles.capacity() >= 68, "output capacity fits large batch");
+        assert!(
+            output.vehicles.capacity() >= 68,
+            "output capacity fits large batch"
+        );
         assert!(output.batch.records().len() == 68);
         let large_output_cap = output.vehicles.capacity();
 
@@ -1172,12 +1180,20 @@ mod capacity_tests {
         // 更新 A（内容为当前全部 64 辆）：B 的完整输出不变。
         extract(&mut rig.session, &mut a);
         assert_eq!(a.vehicles.len(), 64, "full extraction follows the world");
-        assert_eq!(b.vehicles(), b_snapshot.as_slice(), "updating a must not modify b");
+        assert_eq!(
+            b.vehicles(),
+            b_snapshot.as_slice(),
+            "updating a must not modify b"
+        );
 
         // 再更新 B：A 的完整输出不变。
         let a_snapshot = a.vehicles().to_vec();
         extract(&mut rig.session, &mut b);
-        assert_eq!(a.vehicles(), a_snapshot.as_slice(), "updating b must not modify a");
+        assert_eq!(
+            a.vehicles(),
+            a_snapshot.as_slice(),
+            "updating b must not modify a"
+        );
 
         // 暖机后重复交替：容量稳定不再增长。
         extract(&mut rig.session, &mut a);
@@ -1187,8 +1203,16 @@ mod capacity_tests {
             extract(&mut rig.session, &mut a);
             extract(&mut rig.session, &mut b);
         }
-        assert_eq!(a.vehicles.capacity(), stable_a, "steady alternation is stable");
-        assert_eq!(b.vehicles.capacity(), stable_b, "steady alternation is stable");
+        assert_eq!(
+            a.vehicles.capacity(),
+            stable_a,
+            "steady alternation is stable"
+        );
+        assert_eq!(
+            b.vehicles.capacity(),
+            stable_b,
+            "steady alternation is stable"
+        );
         assert!(stable_a >= 64 && stable_b >= 64);
     }
 
@@ -1206,11 +1230,18 @@ mod capacity_tests {
         assert!(pose_cap_after_warm >= 16);
 
         let mut fresh = LaneFlowCommittedPoseBatch::new();
-        assert_eq!(fresh.vehicles.capacity(), 0, "brand-new output starts empty");
+        assert_eq!(
+            fresh.vehicles.capacity(),
+            0,
+            "brand-new output starts empty"
+        );
         extract(&mut rig.session, &mut fresh);
         assert_eq!(fresh.vehicles.len(), 16);
         // 全新 output 接住 Session 暖 backing；Session 接回 fresh 的空 backing。
-        assert!(fresh.vehicles.capacity() >= 16, "fresh output takes warm backing");
+        assert!(
+            fresh.vehicles.capacity() >= 16,
+            "fresh output takes warm backing"
+        );
         assert_eq!(
             rig.session.pose_vehicle_scratch.capacity(),
             0,
@@ -1246,14 +1277,21 @@ mod capacity_tests {
 
         let error = rig
             .session
-            .extract_committed_pose_batch(laneflow_spatial::FramePlacementToken::new(2), &mut output)
+            .extract_committed_pose_batch(
+                laneflow_spatial::FramePlacementToken::new(2),
+                &mut output,
+            )
             .expect_err("mixed frame must fail");
         assert!(matches!(
             error,
             crate::LaneFlowAdapterError::SpatialPoseExtraction { .. }
         ));
         assert_eq!(output.vehicles(), before_vehicles.as_slice());
-        assert_eq!(output.vehicles.capacity(), before_capacity, "failure keeps backing");
+        assert_eq!(
+            output.vehicles.capacity(),
+            before_capacity,
+            "failure keeps backing"
+        );
         assert!(
             rig.session.pose_scratch.capacity() >= pose_cap
                 && rig.session.pose_vehicle_scratch.capacity() >= vehicle_cap,
@@ -1272,7 +1310,10 @@ mod capacity_tests {
             )
             .expect("reserve");
         world
-            .park_vehicle(stray, laneflow_runtime::ParkingTarget::VirtualPool(FACILITY))
+            .park_vehicle(
+                stray,
+                laneflow_runtime::ParkingTarget::VirtualPool(FACILITY),
+            )
             .expect("park");
         extract(&mut rig.session, &mut output);
         assert_eq!(output.vehicles.len(), 4);
