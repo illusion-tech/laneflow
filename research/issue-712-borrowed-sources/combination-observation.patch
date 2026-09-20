@@ -1,0 +1,340 @@
+diff --git a/crates/laneflow-runtime/src/kernel/mod.rs b/crates/laneflow-runtime/src/kernel/mod.rs
+index b3d9016c..e2854643 100644
+--- a/crates/laneflow-runtime/src/kernel/mod.rs
++++ b/crates/laneflow-runtime/src/kernel/mod.rs
+@@ -68,6 +68,11 @@ pub(crate) mod exact_path_research;
+ #[path = "tests/junction_ledger.rs"]
+ mod junction_ledger;
+ 
++#[cfg(test)]
++mod pose_source_compiler_shim;
++#[cfg(test)]
++mod pose_source_observation_tests;
++
+ /// #678 命令路径工作量与候选结构研究；不进入生产构建。
+ #[cfg(test)]
+ #[path = "tests/parking_commands.rs"]
+diff --git a/crates/laneflow-runtime/src/kernel/pose_source_compiler_shim.rs b/crates/laneflow-runtime/src/kernel/pose_source_compiler_shim.rs
+new file mode 100644
+index 00000000..a9d9d8c2
+--- /dev/null
++++ b/crates/laneflow-runtime/src/kernel/pose_source_compiler_shim.rs
+@@ -0,0 +1,149 @@
++//! 观察测试的合成修订编译 shim（#712 × #718 预集成补丁专用）。
++#![cfg(test)]
++
++use std::sync::Arc;
++
++use laneflow_compiler::{
++    CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder, CompileLimits,
++    Compiler, IidmVehicleProfileInput, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference,
++    ParticipantClassInput, ParticipantClassReference, PortableDiffBase,
++    PortableEmissionProvenance, SourceModuleHeader, SourceModuleHeaderInput,
++    SyntheticModuleBuilder, VehicleProfileInput, emit_portable_candidate,
++};
++use laneflow_format::{FormatLimits, check_post_emission_bundle};
++use laneflow_static_contract::{EntityKind, LaneEdgeId};
++
++pub(crate) const NAMESPACE: &str = "runtime/pose-source-observation";
++
++pub(crate) fn limits() -> CompileLimits {
++    CompileLimits::p100_initial_v1()
++}
++
++pub(crate) fn leak_key(lane: usize) -> &'static str {
++    Box::leak(format!("lane-{lane}").into_boxed_str())
++}
++
++pub(crate) fn header(limits: &CompileLimits) -> SourceModuleHeader {
++    SourceModuleHeader::new(
++        SourceModuleHeaderInput {
++            authoring_namespace_id: NAMESPACE,
++            source_document_key: "pose-source-observation.document",
++            generator_build_id: "git:0123456789abcdef",
++            parameters_and_inputs_digest: [0x91; 32],
++            frontend_options_digest: [0x41; 32],
++            random_seed: Some(731),
++            provenance: "repository:laneflow",
++        },
++        limits,
++    )
++    .expect("header")
++}
++
++pub(crate) fn build_revision(
++    limits: &CompileLimits,
++    keys: Vec<&'static str>,
++) -> Arc<laneflow_static_network::SharedNetworkRevision> {
++    let header = header(limits);
++    let mut module = SyntheticModuleBuilder::new(header, limits).expect("module");
++    module
++        .add_participant_class(ParticipantClassInput {
++            participant_class_key: "road-user",
++            extends: None,
++        })
++        .expect("class")
++        .add_vehicle_profile(VehicleProfileInput {
++            vehicle_profile_key: "car",
++            participant_class: ParticipantClassReference::local("road-user"),
++            iidm: IidmVehicleProfileInput {
++                length_meters: 4.5,
++                desired_speed_meters_per_second: 13.75,
++                min_gap_meters: 2.0,
++                time_headway_seconds: 1.4,
++                max_acceleration_meters_per_second_squared: 1.8,
++                comfortable_deceleration_meters_per_second_squared: 2.0,
++                emergency_deceleration_meters_per_second_squared: 4.5,
++            },
++        })
++        .expect("profile");
++    for key in &keys {
++        module
++            .add_lane_edge(LaneEdgeInput {
++                lane_edge_key: key,
++                length_meters: 200.0,
++                speed_limit_meters_per_second: 15.0,
++                successors: &[],
++            })
++            .expect("lane edge");
++    }
++    let point = |x: f32, z: f32| CanonicalPoint3F32Input { x, y: 0.0, z };
++    let points: Vec<_> = (0..keys.len())
++        .map(|index| [point(0.0, (index as f32) * 3.0), point(200.0, (index as f32) * 3.0)])
++        .collect();
++    let geometries: Vec<LaneEdgeGeometryInput> = keys
++        .iter()
++        .zip(points.iter())
++        .map(|(key, pair)| LaneEdgeGeometryInput {
++            lane_edge: LaneEdgeReference::local(key),
++            centerline_points: pair,
++        })
++        .collect();
++    module
++        .add_canonical_frame(CanonicalFrameInput {
++            canonical_frame_key: "frame",
++            lane_edge_geometries: &geometries,
++        })
++        .expect("frame");
++    let mut unit = CompilationUnitBuilder::new(
++        CompileLimits::p100_initial_v1(),
++    );
++    unit.add_synthetic_module(module.finish().expect("finished module"))
++        .expect("unit module");
++    let output = Compiler::new()
++        .compile(unit.build().expect("unit"))
++        .expect("compile");
++    let provenance = PortableEmissionProvenance::try_new("runtime-pose-source-observation-v1")
++        .expect("provenance");
++    let candidate = emit_portable_candidate(
++        &output,
++        &provenance,
++        FormatLimits::HARD,
++        PortableDiffBase::Genesis,
++    )
++    .expect("candidate");
++    let checked = check_post_emission_bundle(
++        candidate.canonical_artifact().bytes(),
++        candidate.source_map().bytes(),
++        candidate.semantic_diff().bytes(),
++        candidate.expected_semantic_diff_base(),
++        FormatLimits::HARD,
++    )
++    .expect("bundle");
++    laneflow_static_network::build_shared_network_revision(
++        checked.canonical_network_input(),
++        laneflow_static_network::SharedNetworkBuildOptions::new(
++            laneflow_static_network::SpatialBuildOption::RetainAvailable,
++            laneflow_static_network::SharedNetworkBuildLimits::new(
++                64 * 1_024 * 1_024,
++                16 * 1_024 * 1_024,
++            ),
++        ),
++    )
++    .expect("revision")
++}
++
++pub(crate) fn edge_ordinal(
++    revision: &laneflow_static_network::SharedNetworkRevision,
++    lane: usize,
++) -> laneflow_static_contract::LaneEdgeOrdinal {
++    let stable = laneflow_compiler::derive_canonical_stable_id_v1(
++        EntityKind::LaneEdge,
++        NAMESPACE,
++        &format!("lane-{lane}"),
++        &CompileLimits::p100_initial_v1(),
++    )
++    .expect("edge stable id");
++    revision
++        .identity()
++        .ordinal(LaneEdgeId::from_untyped(stable))
++        .expect("edge ordinal")
++}
+diff --git a/crates/laneflow-runtime/src/kernel/pose_source_observation_tests.rs b/crates/laneflow-runtime/src/kernel/pose_source_observation_tests.rs
+new file mode 100644
+index 00000000..6db089ab
+--- /dev/null
++++ b/crates/laneflow-runtime/src/kernel/pose_source_observation_tests.rs
+@@ -0,0 +1,163 @@
++//! #712 × #718 组合的直接观察（预集成补丁；依赖 #718 的 `cfg(test)` 钩子）。
++//!
++//! 三个断言族：真实分发后的来源读取与融合参照一致；本拍工作区已产生结果后
++//! 的失败只暴露旧已提交状态；失败后重试与直接成功一致。比较只经公开来源
++//! API 与状态摘要；分发证明用本阶段（P5 motion）本次调度的 dispatched_chunks。
++
++use std::num::NonZeroU32;
++use std::sync::Arc;
++
++use laneflow_format::{FormatLimits, check_canonical_network_input};
++use laneflow_static_contract::VehicleProfileOrdinal;
++use laneflow_static_network::{
++    SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
++    build_shared_network_revision,
++};
++
++use crate::kernel::tick::{drop_motion_slot_at, force_motion_dispatch, last_motion_dispatch_stats};
++use crate::{
++    CommittedNetworkSource, PublishedLfcaReference, RouteRegisterInput, TickInput, TrafficWorld,
++    VehicleSpawnInput, WorldConfig, WorldPolicySelection, deterministic_state_digest,
++};
++
++const FULL_SPATIAL: &[u8] = include_bytes!(
++    "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
++);
++const WORKERS: u32 = 4;
++const VEHICLES: usize = 16;
++
++const LANES: usize = 16;
++
++fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
++    let limits = super::pose_source_compiler_shim::limits();
++    let keys: Vec<&'static str> = (0..LANES)
++        .map(|lane| super::pose_source_compiler_shim::leak_key(lane))
++        .collect();
++    super::pose_source_compiler_shim::build_revision(&limits, keys)
++}
++
++fn world(workers: u32, world_id: u64) -> TrafficWorld {
++    let revision = revision();
++    let origin = revision.canonical_origin();
++    let mut world = TrafficWorld::install(
++        Arc::clone(&revision),
++        WorldConfig::new(64, LANES as u32, 1_024, 1_024, 100),
++        crate::ExecutionConfig::new(NonZeroU32::new(workers).expect("nonzero workers")),
++        CommittedNetworkSource::Published {
++            reference: PublishedLfcaReference::new(
++                "fixture://pose-source-observation",
++                origin.canonical_artifact_digest(),
++                origin.canonical_artifact_byte_length(),
++                origin.network_revision(),
++            )
++            .expect("fixture key"),
++        },
++        world_id,
++        crate::test_policy::selection(&revision),
++    )
++    .expect("install");
++    // 每车道一条单边路线，每条路线生成一辆 Active；16 辆 ≥ 融合阈值 8。
++    for lane in 0..LANES {
++        let edge = super::pose_source_compiler_shim::edge_ordinal(&revision, lane);
++        let route = world
++            .register_route(RouteRegisterInput::new(vec![edge]))
++            .expect("lane route");
++        world
++            .spawn_vehicle(VehicleSpawnInput::new(
++                VehicleProfileOrdinal::from_raw(0),
++                route,
++                0,
++                1_000,
++                0,
++            ))
++            .expect("spawn");
++    }
++    world
++}
++
++fn sources(world: &TrafficWorld) -> Vec<(crate::VehicleHandle, crate::PoseSource)> {
++    world.committed_pose_sources().collect()
++}
++
++fn digest(world: &TrafficWorld) -> String {
++    format!(
++        "{:?}",
++        deterministic_state_digest(&world.capture_snapshot().expect("snapshot")).expect("digest")
++    )
++}
++
++/// 真实分发后成功读取：本次 step 的 P5 motion 分发包含多个块（真实并行
++/// 分发），随后来源序列与 worker=1 融合参照逐步一致。
++#[test]
++fn motion_dispatched_sources_match_fused_reference() {
++    let mut parallel = world(WORKERS, 731);
++    let mut fused = world(1, 731);
++
++    for _ in 0..4 {
++        let before = sources(&parallel);
++        let _dispatch = force_motion_dispatch();
++        parallel.step(TickInput::new(100)).expect("parallel step");
++        drop(_dispatch);
++        let stats = last_motion_dispatch_stats()
++            .expect("motion dispatch stats noted")
++            .dispatched_chunks;
++        assert!(
++            stats >= 2,
++            "this step must dispatch the motion stage in multiple chunks (got {stats})"
++        );
++        fused.step(TickInput::new(100)).expect("fused step");
++        assert_eq!(
++            before.len(),
++            sources(&parallel).len(),
++            "fleet size is stable in this window"
++        );
++        assert_eq!(
++            sources(&parallel),
++            sources(&fused),
++            "sources after real dispatch must match the fused reference"
++        );
++    }
++}
++
++/// 本拍工作区已产生 motion 结果后的失败：完成前沿不变量被检出，来源与
++/// 状态摘要保持调用前；解除注入后的重试与直接成功完全一致。
++#[test]
++fn staged_motion_failure_isolates_committed_then_retry_matches_clean() {
++    let mut failing = world(WORKERS, 732);
++    let mut clean = world(WORKERS, 732);
++    assert_eq!(sources(&failing), sources(&clean));
++
++    let before_sources = sources(&failing);
++    let before_digest = digest(&failing);
++
++    let error = {
++        let _gap = drop_motion_slot_at(0);
++        let _dispatch = force_motion_dispatch();
++        failing.step(TickInput::new(100))
++    }
++    .expect_err("staged workspace invariant must fail the tick");
++    // 完成前沿不变量在首错之前被协调器检出；具体变体随阶段而定，
++    // 这里断言失败确实来自本拍检出而非成功提交。
++    let _ = &error;
++    assert_eq!(
++        sources(&failing),
++        before_sources,
++        "failure must expose only the old committed sources"
++    );
++    assert_eq!(digest(&failing), before_digest);
++
++    {
++        let _dispatch = force_motion_dispatch();
++        clean.step(TickInput::new(100)).expect("clean step");
++    }
++    {
++        let _dispatch = force_motion_dispatch();
++        failing.step(TickInput::new(100)).expect("retry step");
++    }
++    assert_eq!(
++        sources(&failing),
++        sources(&clean),
++        "retry from the same initial state must equal the direct success"
++    );
++    assert_eq!(digest(&failing), digest(&clean));
++}
