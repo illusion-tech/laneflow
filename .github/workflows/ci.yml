@@ -74,12 +74,15 @@ jobs:
             echo "::warning::Markdown table formatting differs from xtask format-md-tables; merge is not blocked."
           fi
 
-  rust:
-    name: Rust checks
+  changes:
+    name: Detect path changes
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      bevy: ${{ steps.filter.outputs.bevy }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -118,13 +121,23 @@ jobs:
               - 'Cargo.lock'
               - '.github/workflows/ci.yml'
 
+  rust:
+    name: Rust checks
+    runs-on: ubuntu-latest
+    needs: changes
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Install Rust MSRV toolchain
-        if: steps.filter.outputs.rust == 'true'
+        if: needs.changes.outputs.rust == 'true'
         shell: bash
         run: rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy
 
       - name: Cache Rust dependencies
-        if: steps.filter.outputs.rust == 'true'
+        if: needs.changes.outputs.rust == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: laneflow-msrv-1.98.0-rust
@@ -132,7 +145,7 @@ jobs:
           cache-targets: true
 
       - name: Install cargo-nextest 0.9.145
-        if: steps.filter.outputs.rust == 'true'
+        if: needs.changes.outputs.rust == 'true'
         shell: bash
         env:
           CARGO_NEXTEST_SHA256: cd3c85194e8b28ad26676d287f41f0d6b4d456cef5bd94700def5dea8e328883
@@ -152,7 +165,7 @@ jobs:
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
       - name: Check Rust toolchain
-        if: steps.filter.outputs.rust == 'true'
+        if: needs.changes.outputs.rust == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -160,33 +173,28 @@ jobs:
           cargo +1.98.0 --version
 
       - name: Check formatting
-        if: steps.filter.outputs.rust == 'true'
+        if: needs.changes.outputs.rust == 'true'
         shell: bash
         run: cargo +1.98.0 fmt --all -- --check
 
       - name: Check clippy lints
-        if: steps.filter.outputs.rust == 'true'
+        if: needs.changes.outputs.rust == 'true'
         shell: bash
         run: cargo +1.98.0 clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Run workspace tests
-        if: steps.filter.outputs.rust == 'true'
+        if: needs.changes.outputs.rust == 'true'
         shell: bash
         run: cargo +1.98.0 nextest run --workspace --locked
 
       # cargo-nextest 不执行 doctest，doctest 仍由 libtest 覆盖。
       - name: Run workspace doctests
-        if: steps.filter.outputs.rust == 'true'
+        if: needs.changes.outputs.rust == 'true'
         shell: bash
         run: cargo +1.98.0 test --workspace --doc --locked
 
-      - name: Run urban Adapter harness tests
-        if: steps.filter.outputs.rust == 'true'
-        shell: bash
-        run: cargo +1.98.0 nextest run --locked -p laneflow-urban-harness --features adapter
-
       - name: Check wire toolchain audit
-        if: steps.filter.outputs.rust == 'true'
+        if: needs.changes.outputs.rust == 'true'
         shell: bash
         env:
           # hermetic 子进程经 rustup shim 解析 rustc；固定 MSRV，避免 runner 默认工具链漂移。
@@ -205,7 +213,7 @@ jobs:
           "$GITHUB_WORKSPACE/target/debug/xtask" check-wire-audit
 
       - name: Check runtime architecture
-        if: steps.filter.outputs.rust == 'true'
+        if: needs.changes.outputs.rust == 'true'
         shell: bash
         env:
           RUSTUP_TOOLCHAIN: 1.98.0
@@ -214,7 +222,7 @@ jobs:
           "$GITHUB_WORKSPACE/target/debug/xtask" check-runtime-architecture
 
       - name: Compile Bevy native examples
-        if: steps.filter.outputs.bevy == 'true'
+        if: needs.changes.outputs.bevy == 'true'
         shell: bash
         run: >-
           cargo +1.98.0 check --locked -p laneflow-bevy
@@ -223,12 +231,67 @@ jobs:
           --features native-example
 
       - name: Skip heavy Rust checks for non-Rust paths
-        if: steps.filter.outputs.rust != 'true'
+        if: needs.changes.outputs.rust != 'true'
         shell: bash
         run: |
           set -euo pipefail
           echo "No Rust/Cargo/CI-workflow paths changed; skipping cargo fmt/test."
           echo "Commit-message and dependency-policy jobs still cover docs and deny.toml when applicable."
+
+  rust-urban:
+    name: Urban harness tests
+    runs-on: ubuntu-latest
+    needs: changes
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust MSRV toolchain
+        if: needs.changes.outputs.rust == 'true'
+        shell: bash
+        run: rustup toolchain install 1.98.0 --profile minimal
+
+      - name: Cache Rust dependencies
+        if: needs.changes.outputs.rust == 'true'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: laneflow-msrv-1.98.0-rust-urban
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-targets: true
+
+      - name: Install cargo-nextest 0.9.145
+        if: needs.changes.outputs.rust == 'true'
+        shell: bash
+        env:
+          CARGO_NEXTEST_SHA256: cd3c85194e8b28ad26676d287f41f0d6b4d456cef5bd94700def5dea8e328883
+          CARGO_NEXTEST_VERSION: 0.9.145
+        run: |
+          set -euo pipefail
+
+          archive="$RUNNER_TEMP/cargo-nextest.tar.gz"
+          extract_dir="$RUNNER_TEMP/cargo-nextest-extract"
+          curl --proto '=https' --tlsv1.2 --fail --show-error --location --retry 3 \
+            "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${CARGO_NEXTEST_VERSION}/cargo-nextest-${CARGO_NEXTEST_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            --output "$archive"
+          echo "${CARGO_NEXTEST_SHA256}  ${archive}" | sha256sum --check --strict
+          mkdir -p "$extract_dir"
+          tar --extract --gzip --file "$archive" --directory "$extract_dir"
+          install -m 0755 "$extract_dir/cargo-nextest" "$RUNNER_TEMP/cargo-nextest"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Run urban Adapter harness tests
+        if: needs.changes.outputs.rust == 'true'
+        shell: bash
+        run: cargo +1.98.0 nextest run --locked -p laneflow-urban-harness --features adapter
+
+      - name: Skip urban harness tests for non-Rust paths
+        if: needs.changes.outputs.rust != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "No Rust/Cargo/CI-workflow paths changed; skipping urban harness tests."
   dependencies:
     name: Dependency policy
     runs-on: ubuntu-latest

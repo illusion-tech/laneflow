@@ -1,7 +1,7 @@
 # AI Agent 开发指南
 
 **文档状态**: Active
-**最后更新**: 2026-08-28
+**最后更新**: 2026-09-20
 
 **适用范围**: 使用 AI Agent 参与 LaneFlow 的设计、开发、测试、文档和治理工作
 
@@ -115,7 +115,7 @@ AI Agent 不应：
 - 未运行检查及原因
 - 文档更新情况
 - 已知风险
-- 当前 head 的五项 required checks 与未解决 review conversation 状态
+- 当前 head 的六项 required checks 与未解决 review conversation 状态
 - 后续 Issue 或留白
 
 ## 11. PR 合并策略
