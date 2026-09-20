@@ -38,6 +38,28 @@ target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-
 target/release/laneflow-urban-harness compare <run-a> <run-b> <comparison.json>
 ```
 
+`run` 接受 `--workers N`（缺省 1，合法域 1..=16，与 Runtime 执行配置上限一致）。
+worker 属于执行配置：不进计划文件、不改变计划摘要、世界逻辑摘要或快照内容。
+同一计划可用不同 worker 各跑一轮后做跨臂语义对拍：
+
+```text
+target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-1w> --workers 1
+target/release/laneflow-urban-harness run <artifact-directory> <plan.toml> <run-4w> --workers 4
+target/release/laneflow-urban-harness compare <run-1w> <run-4w> <comparison.json>
+```
+
+双目录 `compare` 支持 probe、correctness 与正式 performance 臂（status
+`performance-match`）。performance 跨臂只接受同源码、同工具链、同硬件/电源
+角色、仅 worker 不同的两臂：每臂先独立校验完成状态、文件摘要、测量封套
+版本、执行编号、样本数与观测窗、worker 合法性及固定协议 provenance，再比较
+除 `measurements.toml` 测量封套外的完整交通语义（计划摘要、逐拍日志、检查点、
+角色见证与计数精确相等）；两臂 provenance 除 workers 外必须全等，diagnostics
+与 measurements 的 worker 记录矛盾即拒绝。比较报告在 `ComparedRun.workers`
+记录两臂各自 worker（自本切片起）。比较成功只表示跨臂语义匹配与来源条件
+成立，不代表性能达标；正式性能结论仍以同 worker 三轮聚合
+（`compare <performance-a> <performance-b> <performance-c>`，provenance 全等
+含 workers）为准。
+
 `--case` 只接受 `MIXED-PEAK`、`GARAGE-EGRESS`、`GARAGE-INGRESS`、
 `WAITING-RELEASE`、`PERMISSIVE-LEFT`、`UNCONTROLLED-YIELD` 和
 `BOUNDARY-BURST`。省略时为 `MIXED-PEAK`。

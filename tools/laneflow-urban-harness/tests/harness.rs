@@ -39,9 +39,11 @@ fn fixture_plan(artifacts: &Artifacts) -> ResolvedPlan {
     .unwrap()
 }
 
-/// --workers 贯通执行配置三层：世界以 4 worker 安装（runtime 公开
-/// execution_config 见证）、diagnostics.json 记录实际 worker 数、
-/// measurements.toml provenance.workers=4（performance 协议）。
+/// --workers 贯通执行配置三层（probe 窗口）：世界以 4 worker 安装
+/// （runtime 公开 execution_config 见证）、diagnostics.json 记录实际
+/// worker 数。measurements.toml provenance.workers 的 performance 协议
+/// 正路径由 report.rs 封套测试（measurement_provenance_accepts_workers_
+/// in_legal_range_only 等）覆盖，本测试不重复展开正式窗口。
 #[test]
 fn run_workers_parameter_reaches_execution_and_provenance() {
     let temp = tempfile::tempdir().unwrap();
