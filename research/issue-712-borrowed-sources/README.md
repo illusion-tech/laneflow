@@ -107,7 +107,7 @@ cargo run --locked --offline --release --manifest-path research/issue-712-borrow
 # 要求输出目录必须新），并按方法节声明的 A₁B₁B₂A₂A₃B₃ 交错顺序在两个
 # 工作树之间交替执行（$beforeTree = 基线工作树 b52f9ec4 + 未跟踪本目录；
 # $afterTree = 本栈工作树）：
-$replay = 'target/issue-712-replay/evidence'
+$replay = (Join-Path (Get-Location) 'target/issue-712-replay/evidence')
 $seq = @(
     @('before', 1), @('after', 1), @('after', 2),
     @('before', 2), @('before', 3), @('after', 3)
@@ -122,8 +122,10 @@ foreach ($step in $seq) {
         -Output "$replay/$side/run$round" -AllowUntracked $allow @features
     Pop-Location
 }
-# 汇总（-Evidence 指向重放树）：
-pwsh -NoProfile -File research/issue-712-borrowed-sources/analyze.ps1 -Evidence $replay
+# 汇总（-Evidence/-Results/-SummaryTable 全部指向重放树，不覆盖归档结果）：
+pwsh -NoProfile -File research/issue-712-borrowed-sources/analyze.ps1 `
+    -Evidence $replay -Results (Join-Path $replay 'results.csv') `
+    -SummaryTable (Join-Path $replay 'summary-table.md')
 pwsh -NoProfile -File research/issue-712-borrowed-sources/test-analyze.ps1
 pwsh -NoProfile -File research/issue-712-borrowed-sources/run-combination.ps1
 cargo test --locked -p laneflow-runtime -p laneflow-bevy --tests

@@ -37,6 +37,13 @@ function Read-CsvRows([string]$path) {
     @(Get-Content -LiteralPath $path | Where-Object { $_ -and $_ -notmatch '^case,' } | ForEach-Object {
         $parts = $_ -split ','
         if ($parts.Count -ne 9) { throw "truncated CSV row (expected 9 fields, got $($parts.Count)): $_" }
+        foreach ($index in 2..3) {
+            $raw = $parts[$index]
+            $intValue = 0
+            if ($raw -eq '' -or -not [int]::TryParse($raw, [ref]$intValue) -or $intValue -lt 0) {
+                throw "invalid integer field at column ${index}: '$raw' in row: $_"
+            }
+        }
         $numeric = @{}
         foreach ($index in 4..8) {
             $raw = $parts[$index]
@@ -71,9 +78,10 @@ function Read-Oracles([string]$path) {
 
 function Read-Env([string]$path) {
     $raw = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
-    foreach ($field in @('baseline', 'baselineTree', 'manifest', 'lockfile', 'sources', 'rustc', 'cargo', 'binaries', 'os', 'cpu', 'logicalProcessors', 'features', 'time')) {
+    foreach ($field in @('baseline', 'baselineTree', 'manifest', 'lockfile', 'sources', 'rustc', 'cargo', 'binaries', 'os', 'cpu', 'logicalProcessors', 'features', 'worktreeStable', 'time')) {
         if (-not $raw.PSObject.Properties[$field]) { throw "environment.json misses field ${field}: $path" }
     }
+    if ($raw.worktreeStable -ne $true) { throw "evidence not marked stable (worktreeStable != true): $path" }
     $sourceMap = @{}
     foreach ($entry in $raw.sources) {
         $sourceMap[[IO.Path]::GetFileName($entry.Path)] = $entry.Hash
