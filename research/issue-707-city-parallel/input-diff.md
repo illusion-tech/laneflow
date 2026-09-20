@@ -58,7 +58,10 @@
 字段是 `manifest_digest`**：
 
 - 本地 10k smoke 计划内嵌 `manifest_digest = d9f08f51…` == 本地
-  manifest.toml 的 SHA-256（实测 `sha256sum` 一致）。
+  manifest.toml 的 SHA-256（实测 `sha256sum` 一致）。两份 correctness
+  参考计划本体已钉身份（evidence-index.toml）：10k
+  `1fe166ef…`（4 057 834 字节）、100k `71cfb002…`（40 845 093 字节），
+  与本文所引字节数一致。
 - 冻结 plans.json 的 `10k-mixed-peak` 计划字节数与本地生成**完全相同**
   （4 057 834）而 SHA-256 不同：两张 manifest 的差异数字同为 7 位十进制
   （1351804/1334868），经 `manifest_digest`（64 位十六进制、定长）进入
