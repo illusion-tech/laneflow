@@ -126,7 +126,9 @@ foreach ($step in $seq) {
     Push-Location $tree
     pwsh -NoProfile -File research/issue-712-borrowed-sources/run.ps1 `
         -Output "$replay/$side/run$round" -AllowUntracked $allow @features
+    $code = $LASTEXITCODE
     Pop-Location
+    if ($code -ne 0) { throw "capture $side/run$round failed with exit $code" }
 }
 # 汇总（-Evidence/-Results/-SummaryTable 全部指向重放树，不覆盖归档结果）：
 pwsh -NoProfile -File research/issue-712-borrowed-sources/analyze.ps1 `

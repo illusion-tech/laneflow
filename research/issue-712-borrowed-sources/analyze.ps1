@@ -257,11 +257,25 @@ foreach ($dir in @(Get-ChildItem -LiteralPath (Join-Path $Evidence 'after') -Dir
     $envRecord = Read-Env (Join-Path $dir.FullName 'environment.json')
     $allRuns += ,@{ side = 'B'; time = [string]$envRecord.time }
 }
-# environment.json 的 time 为同一 UTC 时钟的 ISO 8601 字符串，字典序即时间序。
-$orderedRuns = @($allRuns | Sort-Object { $_.time })
+# 时间戳必须可解析为 UTC DateTime（畸形/占位值直接拒绝），按时间排序。
+foreach ($run in $allRuns) {
+    $parsed = [datetime]::MinValue
+    if (-not [datetime]::TryParse($run.time, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$parsed)) {
+        throw "unparseable capture timestamp: '$($run.time)'"
+    }
+}
+$orderedRuns = @($allRuns | Sort-Object { [datetime]::Parse($_.time, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind) })
 $interleave = ($orderedRuns | ForEach-Object { $_.side }) -join ''
-if ($interleave -ne 'ABB AAB'.Replace(' ', '')) {
-    throw "capture order is '$interleave', expected the declared A1B1B2A2A3B3 interleave"
+# 声明的取证交错为 A₁B₁B₂A₂A₃B₃：按轮生成，奇数轮 A 先、偶数轮 B 先
+# （三轮即 A B | B A | A B = ABBAAB）。该规则对任意轮数成立。
+$expected = [System.Text.StringBuilder]::new()
+$roundsPerSide = $allRuns.Count / 2
+for ($round = 1; $round -le $roundsPerSide; $round++) {
+    if ($round % 2 -eq 1) { [void]$expected.Append('AB') }
+    else { [void]$expected.Append('BA') }
+}
+if ($interleave -ne $expected.ToString()) {
+    throw "capture order is '$interleave', expected the declared alternating interleave '$($expected.ToString())'"
 }
 
 # A/B 程序身份：manifest/lockfile/src 必须全等（feature 是声明的构建差异）。
