@@ -151,7 +151,7 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 
 不得在 checks pending 时预先武装 auto-merge。禁止日常 `--admin`。`H_pr` 变了必须
 重跑适用检查；`main` 前进只重建 `H_mg` 并重跑机器检查。队列在 `H_mg` 上需要同名
-五项绿。owner bypass 的终态由 #493 独立治理。
+六项绿。owner bypass 的终态由 #493 独立治理。
 
 ## 7. 完成
 

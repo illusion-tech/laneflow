@@ -1,7 +1,7 @@
 # 安全扫描基线
 
 **文档状态**: Active  
-**最后更新**: 2026-09-14  
+**最后更新**: 2026-09-20  
 **适用范围**: LaneFlow 仓库的 Code Scanning、Secret Scanning、Dependabot 状态审计与公开发布阻断  
 **关联 Issue**: `#88`、`#56`、`#451`
 
@@ -64,6 +64,7 @@ Merge Queue 的 required status checks 固定为：
 
 - `Commit message`
 - `Rust checks`
+- `Urban harness tests`
 - `Dependency policy`
 - `Analyze (actions)`
 - `Analyze (rust)`
