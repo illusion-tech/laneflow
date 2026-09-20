@@ -1,0 +1,8 @@
+# 这两个测试度量 worker 线程的自然并发参与（无屏障强制会合）；与其他测试
+# 进程争用 CPU 时，worker 会被饿成调用线程串行取完全部块，participating_threads
+# 峰值跌到 1 造成假失败。threads-required=4 预占 ubuntu-latest 全部并发槽位，
+# 让它们独占 runner 核心。execution.rs 的同类断言用双人屏障强制会合，不依赖
+# 调度运气；preview_parallel_scale 只记录参与度不作阈值断言，均无需此约束。
+[[profile.default.overrides]]
+filter = "test(motion_dispatch_multi_thread_participation) | test(conflict_dispatch_multi_thread_participation)"
+threads-required = 4
