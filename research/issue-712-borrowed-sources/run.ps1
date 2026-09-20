@@ -75,7 +75,7 @@ $metadata = [ordered]@{
     baselineTree = $baselineTree
     allowUntracked = $AllowUntracked
     features = $Features
-    worktreeStable = $true
+    worktreeStable = $false
     rustc = (& rustc -Vv) -join "`n"
     cargo = (& cargo -V)
     os = [Environment]::OSVersion.VersionString
@@ -103,4 +103,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Allocation run failed' }
 } finally { $process.ProcessorAffinity = $previousAffinity }
 Assert-StableBaseline
+# 终检通过后才把稳定标记改写为 true：中途失败留下的目录不自称稳定。
+$envPath = Join-Path $out 'environment.json'
+$envFinal = Get-Content -LiteralPath $envPath -Raw | ConvertFrom-Json
+$envFinal.worktreeStable = $true
+$envFinal | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $envPath -Encoding utf8
 Write-Output $out
