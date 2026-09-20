@@ -1194,7 +1194,10 @@ mod capacity_tests {
         // 轮换感知的容量保留：成功提交交换 backing，缩量后大批 backing 可能
         // 轮换到 Session 一侧；按两侧最大值断言“未释放”，不误判为主动缩容。
         assert!(
-            output.vehicles.capacity().max(rig.session.pose_vehicle_scratch.capacity())
+            output
+                .vehicles
+                .capacity()
+                .max(rig.session.pose_vehicle_scratch.capacity())
                 >= large_output_cap,
             "the grown vehicles backing must survive the shrink on one side"
         );
