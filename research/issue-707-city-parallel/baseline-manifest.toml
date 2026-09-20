@@ -36,8 +36,8 @@ power_scheme = "381b4222-f694-41f0-9685-ff5bb260df2e (平衡/Balanced)"
 bios = "American Megatrends N.1.09MRO07 (2025-04-08)"
 oem_model = "JIAOLONG Series（笔记本平台）"
 oem_performance_mode = "未测/不可查及途径（无 OEM 控制面板的可脚本化查询；当前电源方案为平衡）"
-ac_power = "WMI Win32_Battery BatteryStatus=2（报告放电/电池供电）、EstimatedChargeRemaining=100%；无法以软件途径确认物理 AC 接入——若属实则为电池供电状态，WP D 正式窗口前必须复核"
-other_load = "测量期间无其他编译/benchmark；Hyper-V 管理程序常驻（机器固定状态）；桌面宿主常态后台进程"
+ac_power = "WMI Win32_Battery BatteryStatus=2（规范含义：系统接通 AC、电池未放电，不代表正在充电）、EstimatedChargeRemaining=100%；WP D 每轮正式运行仍逐轮复核记录"
+other_load = "测量期间无其他编译/benchmark；Hyper-V 管理程序常驻（机器固定状态）；宿主常态后台进程"
 
 [environment]
 LANEFLOW_HARDWARE_ROLE = "amd-ryzen9-9955hx-16c-32t-64gb-hyperv"
