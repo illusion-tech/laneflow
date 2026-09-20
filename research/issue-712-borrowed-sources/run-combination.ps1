@@ -36,14 +36,22 @@ function Invoke-TestFilter([string]$name, [string[]]$cargoArgs, [string]$filter,
 }
 
 if ($SelfCheck) {
-    # 失败传播自检：损坏的补丁必须被拒绝，且脚本以非零退出。
+    # 失败传播自检：损坏补丁必须穿过 Invoke-Step 的退出码检查并抛出异常。
+    # 测试器（本脚本）确认预期异常后返回 0；被测包装器确实传播了失败。
     $corrupt = Join-Path ([IO.Path]::GetTempPath()) "issue-712-corrupt-$([guid]::NewGuid().ToString('N')).patch"
     'this is not a valid patch' | Set-Content -LiteralPath $corrupt
     try {
-        git apply --check $corrupt
-        $code = $LASTEXITCODE
-        if ($code -eq 0) { throw 'SelfCheck: corrupt patch was accepted' }
-        Write-Host 'SelfCheck OK: corrupt patch rejected, failure would propagate'
+        $propagated = $false
+        try {
+            # 预期非零（git 拒绝坏补丁）；Invoke-Step 必须把它变成异常。
+            Invoke-Step 'selfcheck-corrupt-patch' { git apply --check $corrupt } 1 | Out-Null
+        } catch {
+            $propagated = $true
+            Write-Host "SelfCheck OK: failure propagated through Invoke-Step: $($_.Exception.Message)"
+        }
+        if (-not $propagated) {
+            throw 'SelfCheck: Invoke-Step did not propagate the corrupt-patch failure'
+        }
         exit 0
     } finally {
         Remove-Item -Force -LiteralPath $corrupt -ErrorAction SilentlyContinue
