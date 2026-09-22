@@ -1390,6 +1390,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             &mut self.committed.signal_aspects,
             &mut self.workspace.next_signal_aspects,
         );
+        self.workspace.frontier_maintenance.publish();
         StepOutcome::new(tick_index, time_ms, parking_arrivals)
     }
 }
@@ -2464,6 +2465,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             super::performance_profile::begin(super::performance_profile::Stage::WaitingOutputs);
         self.finalize_waiting_outputs(updates, tick_index)?;
         self.workspace.motion_cache.clear();
+        crate::kernel::entry_frontier::classify_pending(self, delta_s)?;
         #[cfg(test)]
         drop(output_timer);
         #[cfg(test)]

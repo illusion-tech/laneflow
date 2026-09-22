@@ -69,6 +69,9 @@
 - [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md)：#284
   已接受实施合同，细化策略来源、中国右转灯态解释、世界绑定、格式版本矩阵与
   持久化验收，以及具名参考参数和可复现校准口径；交付状态以 GitHub 为准。
+- [`traffic-runtime-near-gate-frontier.md`](traffic-runtime-near-gate-frontier.md)：#740
+  已接受。入口 frontier 只为近门车辆打开路线，失效车辆整段重走，其余复用冲突距离；
+  本拍生命周期增量必须成为接近来源；红灯门前的到达下界不早于下一档放行。
 - `cross-section-access.md`：横断面与准入 overlay。
 - `numeric-representation.md`：数值分层；已提交一维几何为整数毫米，编制 `f64` 与 Spatial `f32` 仍在量化之前。
 - `traffic-runtime-integer-geometry.md`：#496 整数毫米 / 微米余数 / `mm/s` 实现合同（Accepted）；#500 编译器 IR 交通一维同一套整数毫米。

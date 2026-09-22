@@ -1017,6 +1017,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             motion_slots: Vec::new(),
             conflict_inputs: Vec::new(),
             conflict_slots: Vec::new(),
+            frontier_maintenance: crate::kernel::entry_frontier::FrontierMaintenance::default(),
         },
         admin: crate::admin::state::AdministrativeState {
             migration_journal,

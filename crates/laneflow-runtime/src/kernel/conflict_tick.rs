@@ -1348,101 +1348,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         )
     }
 
-    /// 按证明时长为活动车辆重建 approach frontier 所有者表。
+    /// 按证明时长重建 approach frontier。已发布近门名单时只重走失效车辆。
     pub(crate) fn rebuild_conflict_frontier(&mut self) -> Result<(), StepError> {
-        let Some(horizon_ms) = self.frontier_proof_horizon_ms() else {
-            // 没有任何 gap profile 时不存在 lead frontier 查询；静态 Conflict cell
-            // 仍可能被 protected/uncontrolled 或空 yield coverage 使用。
-            return Ok(());
-        };
-        for sequence in 0..self.committed.live_order.len() {
-            let vehicle = self.committed.live_order[sequence];
-            let Some(state) = self.vehicle_state(vehicle).copied() else {
-                continue;
-            };
-            if state.status != VehicleStatus::Active {
-                continue;
-            }
-            let profile = self
-                .binding
-                .revision
-                .traffic()
-                .relations()
-                .vehicle_profile(state.profile)
-                .ok_or(StepError::ConflictInvariantViolation)?;
-            let (compiled, mut conflict) = self
-                .committed
-                .prepare_conflict_for_route(
-                    &mut self.derived,
-                    &mut self.workspace.conflict,
-                    state.route,
-                )
-                .ok_or(StepError::ConflictInvariantViolation)?;
-            let first_conflict = compiled.conflicts.partition_point(|occurrence| {
-                (
-                    occurrence.entry.route_edge_index,
-                    occurrence.entry.progress_mm,
-                ) < (state.route_edge_index, state.progress_mm)
-            });
-            let conflict_count = compiled.conflicts.len();
-            if first_conflict == conflict_count {
-                continue;
-            }
-            let prepared_eta = crate::kernel::conflict::PreparedApproachEta::new(
-                state.carry_um,
-                state.speed_mm_s,
-                profile.max_accel(),
-                horizon_ms,
-            );
-            for occurrence_index in first_conflict..conflict_count {
-                #[cfg(test)]
-                crate::kernel::conflict::count_conflict_work(|counts| counts.visited_passages += 1);
-                let Some((occurrence, exact_distance_mm)) = (|| {
-                    let occurrence = *compiled.conflicts.get(occurrence_index)?;
-                    let BoundedDistance::Finite(exact_distance_mm) =
-                        distance_to_occurrence_progress(
-                            &compiled.occurrence_segments,
-                            &compiled.occurrence_offsets,
-                            &compiled.segment_totals,
-                            state.route_edge_index as usize,
-                            state.progress_mm,
-                            occurrence.entry.route_edge_index as usize,
-                            occurrence.entry.progress_mm,
-                        )?
-                    else {
-                        return None;
-                    };
-                    Some((occurrence, exact_distance_mm))
-                })() else {
-                    continue;
-                };
-                let estimate = prepared_eta.map_or(ApproachEstimate::Unprovable, |prepared| {
-                    prepared.lower_bound(u64::from(exact_distance_mm))
-                });
-                if estimate == ApproachEstimate::OutsideHorizon {
-                    // `conflicts` 按 route position 排列；更远 occurrence 的 directed
-                    // lower-bound ETA 也在 proof horizon 外，无需扫完整路线后缀。
-                    break;
-                }
-                conflict
-                    .insert_approach_owner_reduced(
-                        occurrence.address(),
-                        vehicle,
-                        u32::try_from(sequence)
-                            .map_err(|_| StepError::ConflictInvariantViolation)?,
-                        estimate,
-                    )
-                    .map_err(|error| match error {
-                        ConflictAcquireError::ScratchAllocFailed => {
-                            StepError::ConflictScratchAllocFailed
-                        }
-                        _ => StepError::ConflictInvariantViolation,
-                    })?;
-                #[cfg(test)]
-                crate::kernel::conflict::count_conflict_work(|counts| counts.frontier_updates += 1);
-            }
-        }
-        Ok(())
+        // 没有任何 gap profile 时不存在 lead frontier 查询；静态 Conflict cell
+        // 仍可能被 protected/uncontrolled 或空 yield coverage 使用。
+        crate::kernel::entry_frontier::rebuild(self)
     }
 
     /// 求值单车在前视窗内到达的各 Gate，生成候选或记录无资源决定。
@@ -2861,8 +2771,8 @@ mod tests {
         let visited = crate::kernel::conflict::conflict_work_counts().visited_passages
             - counts_before.visited_passages;
         assert!(
-            visited > 0,
-            "场景必须产生真 Conflict 候选（cells 循环 visited_passages > 0）"
+            world.state.derived.active_order.len() > 100,
+            "分配证据必须跑在仍有活动车辆的冲突规模上，visited_passages={visited}"
         );
         let node_budget = (ticks * 3 * WORKERS) as usize;
         assert!(

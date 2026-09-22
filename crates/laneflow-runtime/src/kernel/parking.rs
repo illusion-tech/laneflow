@@ -1373,6 +1373,7 @@ impl crate::kernel::state::WorldState {
         self.committed.command_cursor = command_cursor;
         self.committed.observation_state_sequence = sequence;
         self.record_parking_update(vehicle, command_cursor);
+        self.workspace.frontier_maintenance.invalidate(vehicle);
         Ok(ParkingCommandOutcome::Committed(record))
     }
 
@@ -1578,6 +1579,9 @@ impl crate::kernel::state::WorldState {
         self.committed.command_cursor = command_cursor;
         self.committed.observation_state_sequence = sequence;
         self.record_parking_update(vehicle, command_cursor);
+        self.workspace
+            .frontier_maintenance
+            .note_active_source(vehicle);
         Ok(ParkingLeaveRecord {
             vehicle,
             target,
@@ -1738,6 +1742,9 @@ impl crate::kernel::state::WorldState {
         self.rebuild_waiting_member_rows();
         self.committed.command_cursor = command_cursor;
         self.record_parking_update(vehicle, command_cursor);
+        self.workspace
+            .frontier_maintenance
+            .note_active_source(vehicle);
         let _ = entry_index;
         Ok(ParkingCommandOutcome::Committed(record))
     }
@@ -1959,6 +1966,7 @@ impl crate::kernel::state::WorldState {
                 waiting_release_delta,
             );
         }
+        self.workspace.frontier_maintenance.invalidate(vehicle);
         Ok(record)
     }
 }
