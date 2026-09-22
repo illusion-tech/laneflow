@@ -74,6 +74,12 @@ after 的 `public_step` 均值 40.503 ms，高于 before 的 32.972 ms。命中�
 逐字节相同，重叠为 0。after 均值 34.683 ms，before 均值 37.225 ms，
 但较慢的 after 仍高于较快的 before。直接写入约 820 条，要查询的 cell 约 564。
 已封存的 best 不替换。16 ms 目标仍未达到。
+[覆盖、拒绝原因与测量分辨](calibration-results.md)已量完：名单建立后
+没有槽位记忆 5257 次，其中够到非受保护 Candidate 门的是 0；预检拒绝仍占
+0.990，主要是下游存储、占用和前导间隙；同一封存程序连跑四次，运行均值
+极差 0.402 ms。held 仍可能漏一拍接近来源。车道块只是否决了零命中的这次
+实现。延迟物化的稳定收益尚未分辨。M3 的 29.334 ms 和封存的 28.462 ms
+都不改写。
 
 > 测量基线：`4de40e045398e4b010b2aa36522afc02a4094c4d`（main，#731 合并后）。
 > 证据根：`E:/projects/laneflow-evidence/issue-707/4de40e04/`（checkout 外、只新增不覆盖）。
