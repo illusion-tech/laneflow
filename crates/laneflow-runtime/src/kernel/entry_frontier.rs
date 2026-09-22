@@ -30,6 +30,10 @@ thread_local! {
     /// `usize::MAX` 表示关闭。其余值是提交阶段还可以拆掉的旧链接数，归零时失败。
     static LINK_COMMIT_SUCCESSES: std::cell::Cell<usize> =
         const { std::cell::Cell::new(usize::MAX) };
+    /// 唯一地址投影里的排序与相邻去重比较次数。
+    static ADDRESS_COMPARISONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// 拆掉旧关联时实际比较过的成员次数。追加新关联不扫描成员。
+    static MEMBER_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]
@@ -60,6 +64,36 @@ fn link_commit_should_fail() -> bool {
             false
         }
     })
+}
+
+#[cfg(test)]
+fn note_address_comparison() {
+    ADDRESS_COMPARISONS.with(|count| count.set(count.get().saturating_add(1)));
+}
+
+#[cfg(test)]
+fn note_member_probe() {
+    MEMBER_PROBES.with(|count| count.set(count.get().saturating_add(1)));
+}
+
+fn compare_passage_address(
+    left: ConflictPassageAddress,
+    right: ConflictPassageAddress,
+) -> std::cmp::Ordering {
+    #[cfg(test)]
+    note_address_comparison();
+    left.cmp(&right)
+}
+
+fn detach_vehicle(list: &mut Vec<u32>, index: u32) {
+    let Some(position) = list.iter().position(|vehicle| {
+        #[cfg(test)]
+        note_member_probe();
+        *vehicle == index
+    }) else {
+        return;
+    };
+    list.swap_remove(position);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -143,6 +177,8 @@ pub(crate) struct FrontierMaintenance {
     scratch_increments: Vec<VehicleHandle>,
     scratch_demanded: Vec<ConflictPassageAddress>,
     scratch_cells: Vec<CachedCell>,
+    /// 本车出现项的唯一地址投影。容量跨拍保留，与按路线距离排列的缓存分开。
+    scratch_addresses: Vec<ConflictPassageAddress>,
     seen: Vec<u32>,
     seen_gen: u32,
     #[cfg(test)]
@@ -239,6 +275,7 @@ impl FrontierMaintenance {
         self.scratch_increments.clear();
         self.scratch_demanded.clear();
         self.scratch_cells.clear();
+        self.scratch_addresses.clear();
         self.seen.clear();
         self.seen_gen = 0;
     }
@@ -391,13 +428,14 @@ impl FrontierMaintenance {
             self.slots
                 .resize_with(index_usize + 1, FrontierSlot::default);
         }
-        self.reserve_links(&cells)?;
-        let old = if self.slots[index_usize].valid {
+        self.load_unique_addresses(&cells)?;
+        self.reserve_links()?;
+        let mut old = if self.slots[index_usize].valid {
             std::mem::take(&mut self.slots[index_usize].cells)
         } else {
             Vec::new()
         };
-        if let Err(error) = self.commit_links(index, &old, &cells) {
+        if let Err(error) = self.commit_links(index, &mut old) {
             self.seeded = false;
             return Err(error);
         }
@@ -415,64 +453,84 @@ impl FrontierMaintenance {
         Ok(())
     }
 
-    /// 新链接的容量先备好。同一地址只追加一次车辆槽位，重复出现项不重复占位。
-    /// 失败时还没有拆旧链接。
-    fn reserve_links(&mut self, new_cells: &[CachedCell]) -> Result<(), StepError> {
-        for (position, cell) in new_cells.iter().enumerate() {
-            if new_cells[..position]
-                .iter()
-                .any(|earlier| earlier.address == cell.address)
-            {
-                continue;
-            }
+    /// 把本车出现项投影成唯一地址，排序并去重一次。不改写按路线距离保存的 `cells`。
+    fn load_unique_addresses(&mut self, cells: &[CachedCell]) -> Result<(), StepError> {
+        self.scratch_addresses.clear();
+        self.scratch_addresses
+            .try_reserve(cells.len())
+            .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+        self.scratch_addresses
+            .extend(cells.iter().map(|cell| cell.address));
+        self.scratch_addresses
+            .sort_unstable_by(|left, right| compare_passage_address(*left, *right));
+        self.scratch_addresses.dedup_by(|left, right| {
+            #[cfg(test)]
+            note_address_comparison();
+            *left == *right
+        });
+        Ok(())
+    }
+
+    /// 按已经去重的地址各预留一个新槽位。失败时还没有拆旧链接。
+    fn reserve_links(&mut self) -> Result<(), StepError> {
+        for offset in 0..self.scratch_addresses.len() {
+            let address = self.scratch_addresses[offset];
             #[cfg(test)]
             if link_reserve_should_fail() {
                 return Err(StepError::ConflictScratchAllocFailed);
             }
-            if let Some(list) = self.by_cell.get_mut(&cell.address) {
+            if let Some(list) = self.by_cell.get_mut(&address) {
                 list.try_reserve(1)
                     .map_err(|_| StepError::ConflictScratchAllocFailed)?;
             } else {
                 let mut list = Vec::new();
                 list.try_reserve(1)
                     .map_err(|_| StepError::ConflictScratchAllocFailed)?;
-                self.by_cell.insert(cell.address, list);
+                self.by_cell.insert(address, list);
             }
         }
         Ok(())
     }
 
-    /// 调用前每个新地址已经在 `by_cell` 里，并且有一个空位。同一车辆只追加一次。
-    fn commit_links(
-        &mut self,
-        index: u32,
-        old: &[CachedCell],
-        new_cells: &[CachedCell],
-    ) -> Result<(), StepError> {
-        for cell in old {
+    /// 先按唯一旧地址拆掉本槽位，再为每个新地址追加一次。
+    ///
+    /// 调用前这些新地址已经在 `by_cell` 中，并且各有一个空位。
+    fn commit_links(&mut self, index: u32, old: &mut [CachedCell]) -> Result<(), StepError> {
+        old.sort_unstable_by_key(|cell| cell.address);
+        let mut position = 0;
+        while position < old.len() {
+            let address = old[position].address;
+            position += 1;
+            while position < old.len() && old[position].address == address {
+                position += 1;
+            }
             #[cfg(test)]
             if link_commit_should_fail() {
                 return Err(StepError::ConflictScratchAllocFailed);
             }
-            let Some(list) = self.by_cell.get_mut(&cell.address) else {
-                continue;
-            };
-            if let Some(position) = list.iter().position(|vehicle| *vehicle == index) {
-                list.swap_remove(position);
-            }
-            if list.is_empty() && !new_cells.iter().any(|new| new.address == cell.address) {
-                self.by_cell.remove(&cell.address);
-            }
+            self.release_old_address(index, address);
         }
-        for cell in new_cells {
-            let Some(list) = self.by_cell.get_mut(&cell.address) else {
+        for offset in 0..self.scratch_addresses.len() {
+            let address = self.scratch_addresses[offset];
+            let Some(list) = self.by_cell.get_mut(&address) else {
                 return Err(StepError::ConflictInvariantViolation);
             };
-            if !list.contains(&index) {
-                list.push(index);
-            }
+            list.push(index);
         }
         Ok(())
+    }
+
+    fn release_old_address(&mut self, index: u32, address: ConflictPassageAddress) {
+        let empty = {
+            let Some(list) = self.by_cell.get_mut(&address) else {
+                return;
+            };
+            detach_vehicle(list, index);
+            list.is_empty()
+        };
+        if empty && self.scratch_addresses.binary_search(&address).is_err() {
+            self.by_cell.remove(&address);
+        }
     }
 
     fn unlink(&mut self, index: u32) {
@@ -485,15 +543,19 @@ impl FrontierMaintenance {
         if !slot.valid {
             return;
         }
-        let cells = std::mem::take(&mut slot.cells);
+        let mut cells = std::mem::take(&mut slot.cells);
         slot.valid = false;
-        for cell in cells {
+        cells.sort_unstable_by_key(|cell| cell.address);
+        let mut previous: Option<ConflictPassageAddress> = None;
+        for cell in &cells {
+            if previous == Some(cell.address) {
+                continue;
+            }
+            previous = Some(cell.address);
             let Some(list) = self.by_cell.get_mut(&cell.address) else {
                 continue;
             };
-            if let Some(position) = list.iter().position(|vehicle| *vehicle == index) {
-                list.swap_remove(position);
-            }
+            detach_vehicle(list, index);
             if list.is_empty() {
                 self.by_cell.remove(&cell.address);
             }
@@ -548,6 +610,7 @@ impl FrontierMaintenance {
             scratch_increments,
             scratch_demanded,
             scratch_cells,
+            scratch_addresses,
             seen,
             seen_gen: _,
             full_walked,
@@ -576,6 +639,7 @@ impl FrontierMaintenance {
             + crate::kernel::state::vec_bytes(scratch_increments)
             + crate::kernel::state::vec_bytes(scratch_demanded)
             + crate::kernel::state::vec_bytes(scratch_cells)
+            + crate::kernel::state::vec_bytes(scratch_addresses)
             + crate::kernel::state::vec_bytes(seen)
             + crate::kernel::state::vec_bytes(full_walked)
             + crate::kernel::state::vec_bytes(insertions)
@@ -2293,9 +2357,13 @@ mod tests {
                 distance_mm: u32::try_from(distance).expect("duplicate distance"),
             })
             .collect::<Vec<_>>();
+        maintenance
+            .load_unique_addresses(&cells)
+            .expect("project duplicate addresses");
+        assert_eq!(maintenance.scratch_addresses.as_slice(), &[address]);
         super::LINK_RESERVE_SUCCESSES.with(|remaining| remaining.set(0));
         assert_eq!(
-            maintenance.reserve_links(&cells),
+            maintenance.reserve_links(),
             Err(crate::StepError::ConflictScratchAllocFailed)
         );
         assert!(maintenance.seeded);
@@ -2304,16 +2372,15 @@ mod tests {
             Some([7_u32].as_slice())
         );
         super::LINK_RESERVE_SUCCESSES.with(|remaining| remaining.set(usize::MAX));
-        maintenance
-            .reserve_links(&cells)
-            .expect("reserve unique link");
+        maintenance.reserve_links().expect("reserve unique link");
         let reserved = maintenance
             .by_cell
             .get(&address)
             .expect("address")
             .capacity();
+        let mut old = Vec::new();
         maintenance
-            .commit_links(3, &[], &cells)
+            .commit_links(3, &mut old)
             .expect("commit unique link");
         let list = maintenance.by_cell.get(&address).expect("address");
         assert_eq!(
@@ -2323,6 +2390,135 @@ mod tests {
         );
         assert_eq!(list.iter().filter(|slot| **slot == 3).count(), 1);
         assert!(list.contains(&7));
+    }
+
+    #[test]
+    fn distinct_address_projection_does_not_compare_quadratically() {
+        let small = distinct_address_comparisons(256);
+        let large = distinct_address_comparisons(512);
+        assert!(
+            small > 0,
+            "sorting distinct addresses must compare them, comparisons={small}"
+        );
+        assert!(
+            large.saturating_mul(2) < small.saturating_mul(7),
+            "doubling distinct addresses must stay below quadratic growth: {small} -> {large}"
+        );
+    }
+
+    #[test]
+    fn shared_address_links_do_not_scan_members_quadratically() {
+        let (small_comparisons, small_probes) = shared_address_work(128);
+        let (large_comparisons, large_probes) = shared_address_work(256);
+        assert_eq!(
+            small_probes, 0,
+            "first insert must not compare existing members"
+        );
+        assert_eq!(
+            large_probes, 0,
+            "doubling vehicles on one address must not compare existing members"
+        );
+        assert!(
+            small_comparisons > 0,
+            "duplicate passages still need one address projection, comparisons={small_comparisons}"
+        );
+        assert!(
+            large_comparisons.saturating_mul(2) < small_comparisons.saturating_mul(7),
+            "doubling vehicles on one address must stay below quadratic growth: {small_comparisons} -> {large_comparisons}"
+        );
+    }
+
+    fn distinct_address_comparisons(count: u32) -> usize {
+        super::ADDRESS_COMPARISONS.with(|comparisons| comparisons.set(0));
+        super::MEMBER_PROBES.with(|probes| probes.set(0));
+        let mut maintenance = super::FrontierMaintenance {
+            seeded: true,
+            ..super::FrontierMaintenance::default()
+        };
+        let cells = (0..count)
+            .rev()
+            .map(|local| super::CachedCell {
+                address: passage_address(local),
+                distance_mm: local,
+            })
+            .collect::<Vec<_>>();
+        maintenance
+            .load_unique_addresses(&cells)
+            .expect("project distinct addresses");
+        assert_eq!(maintenance.scratch_addresses.len(), cells.len());
+        assert!(maintenance.scratch_addresses.is_sorted());
+        assert_eq!(
+            cells.first().map(|cell| cell.distance_mm),
+            Some(count.saturating_sub(1)),
+            "route order stays on the cached cells"
+        );
+        assert_eq!(cells.last().map(|cell| cell.distance_mm), Some(0));
+        maintenance
+            .reserve_links()
+            .expect("reserve distinct addresses");
+        let mut old = Vec::new();
+        maintenance
+            .commit_links(0, &mut old)
+            .expect("commit distinct addresses");
+        assert_eq!(super::MEMBER_PROBES.with(std::cell::Cell::get), 0);
+        for address in &maintenance.scratch_addresses {
+            assert_eq!(
+                maintenance.by_cell.get(address).map(Vec::as_slice),
+                Some([0_u32].as_slice())
+            );
+        }
+        super::ADDRESS_COMPARISONS.with(std::cell::Cell::get)
+    }
+
+    fn shared_address_work(vehicles: u32) -> (usize, usize) {
+        super::ADDRESS_COMPARISONS.with(|comparisons| comparisons.set(0));
+        super::MEMBER_PROBES.with(|probes| probes.set(0));
+        let mut maintenance = super::FrontierMaintenance {
+            seeded: true,
+            ..super::FrontierMaintenance::default()
+        };
+        let address = passage_address(4);
+        for index in 0..vehicles {
+            let cells = [
+                super::CachedCell {
+                    address,
+                    distance_mm: index,
+                },
+                super::CachedCell {
+                    address,
+                    distance_mm: index.saturating_add(1),
+                },
+            ];
+            maintenance
+                .load_unique_addresses(&cells)
+                .expect("project shared address");
+            assert_eq!(maintenance.scratch_addresses.as_slice(), &[address]);
+            maintenance.reserve_links().expect("reserve shared address");
+            let mut old = Vec::new();
+            maintenance
+                .commit_links(index, &mut old)
+                .expect("commit shared address");
+        }
+        let list = maintenance.by_cell.get(&address).expect("shared address");
+        assert_eq!(
+            list.len(),
+            usize::try_from(vehicles).expect("vehicle count")
+        );
+        for index in 0..vehicles {
+            assert_eq!(list.iter().filter(|slot| **slot == index).count(), 1);
+        }
+        (
+            super::ADDRESS_COMPARISONS.with(std::cell::Cell::get),
+            super::MEMBER_PROBES.with(std::cell::Cell::get),
+        )
+    }
+
+    fn passage_address(local: u32) -> crate::ConflictPassageAddress {
+        crate::ConflictPassageAddress::new(
+            laneflow_static_contract::ConflictZoneOrdinal::from_raw(1),
+            laneflow_static_contract::ParticipantStreamOrdinal::from_raw(2),
+            local,
+        )
     }
 
     fn step_ms(world: &mut crate::TrafficWorld, delta_ms: u64) {
