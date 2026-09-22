@@ -55,8 +55,37 @@ frontier 少 1.165 ms，Core 少 1.445 ms，短窗输出仍与 M3 一致。
 消费多 0.384 ms，运动循环相差 0.004 ms。
 [按车道边成批](motion-lane-batch-results.md)已淘汰：分发慢 2.159 ms，
 准备多 12.656 ms。P5 的布局尝试结束。
-研究组合仍为 B1 + H1 + 屏障跳过 + 稠密 binding + frontier 按 hop 记住。
+[本拍准入需求比例](demand-ratio-results.md)已量完：被让行查询读到的
+frontier 约占当前插入的 0.24，候选授予约占 0.01。
+[按需 frontier](demand-frontier-results.md)已淘汰：同一二进制上只处理
+约 2,049 辆车，短窗输出与 M3 一致，但发现目标的全量扫描使 frontier
+多 3.016 ms，Core 多 3.09 ms。
+[持久近门集合](near-set-results.md)已淘汰：让行目标仍是 564，近门集合
+2,449，短窗输出与 M3 一致；frontier 没有同时低于两次 off，运动消费多
+1.64 ms。
+[已持有状态上的近门集合](held-set-results.md)已保留：同一二进制上 frontier
+少 2.019 ms，Core 少 1.162 ms，让行目标仍是 564，短窗输出与 M3 一致。
+p5 准备多 0.739 ms。阶段绝对时间仍以 M8 的 frontier 4.304 ms、
+p3 准备 3.258 ms 为参照，不把这次带计时的 3.310 ms 写成新的无计时预算。
+[同边前车直接读](same-edge-leader-results.md)已淘汰：同一二进制上分发少
+0.561 ms，占用重建多 1.192 ms，短窗输出与 M3 一致，Core 没有留下净收益。
+研究组合现为 B1 + H1 + 屏障跳过 + 稠密 binding + frontier 按 hop 记住 +
+近门判断放在已持有的运动状态上。
+[无计时最佳候选](untimed-best-results.md)已封存：不开阶段计时的同一二进制上，
+old 30.517 ms，held 28.462 ms。以后每轮的 best 使用
+`target/issue707-m16-untimed-results/binaries/harness-m16-plain.exe`，
+环境 `LF707_COAST=on`、`LF707_DEMAND=held`。M3 记录的 29.334 ms 不改写。
+[车道块闭合路径](lane-block-results.md)已淘汰：同一天的六臂里 after 比
+before 多 7.530 ms，快路径命中为 0。整边要求车长一致时，4.0 m、4.5 m、
+6.0 m 混行的边全部退回原查询，成员维护仍在。已封存的 best 不替换。
 p95 仍高于 16 ms 目标。
+[本拍约束投影](constraint-project-results.md)已淘汰：无前车预测加上后杠
+前缀最小后，after 比 before 多 3.595 ms。约 69003 辆车跳过了前车查询，
+约 41635 辆被缩短。重叠为 0，完成车辆从 4039 降到 3850。已封存的 best
+不替换。
+[延迟物化接近记录](delay-materialize-results.md)已淘汰：按本拍要查询的 cell
+直接写入后，交通文件不变，重叠为 0。after 均值少 2.542 ms，但较慢的 after
+仍高于较快的 before。已封存的 best 不替换。
 
 本计划参考[第一轮短测](short-profile-results.md)与[评估会话](chatgpt-conversation://6ab0cc0e-8e28-83ee-8828-7d07dba8a4cc)。
 用户本轮明确指示：“放弃【等价优化继续严格对拍；】，从一开始这就不是我

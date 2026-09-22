@@ -46,7 +46,34 @@ Core 差值小于 direct 的运行间极差。后续
 [按车辆下标放运动热行](motion-hot-results.md)已淘汰：分发少 0.373 ms，
 消费把这段时间拿了回去。后续
 [按车道边成批](motion-lane-batch-results.md)已淘汰：分发慢 2.159 ms。
-P5 的布局尝试结束。16 ms 目标仍未达到。
+P5 的布局尝试结束。后续
+[本拍准入需求比例](demand-ratio-results.md)已量完：被查询的 frontier cell
+约占当前插入的 0.24，候选在仲裁前已拒绝的约占 0.99。后续
+[按需 frontier](demand-frontier-results.md)已淘汰：目标缩到 564 个 cell、
+约 2,000 辆车且短窗输出不变，但全量扫描比省下的复用更贵，frontier 多
+3.016 ms。后续
+[持久近门集合](near-set-results.md)已淘汰：集合仍是 2,449 辆车、564 个
+目标，短窗输出不变，但逐车读缓存槽使 frontier 没有下降，运动消费多
+1.64 ms。后续
+[已持有状态上的近门集合](held-set-results.md)已保留：frontier 少 2.019 ms，
+Core 少 1.162 ms，短窗输出与 M3 一致。后续
+[同边前车直接读](same-edge-leader-results.md)已淘汰：分发少 0.561 ms，
+占用重建多 1.192 ms，Core 没有留下净收益，短窗输出不变。
+[无计时最佳候选](untimed-best-results.md)已封存：同一二进制上 old 的
+`public_step` 均值 30.517 ms，held 28.462 ms。M3 记录的 29.334 ms 不改写。
+后续
+[车道块闭合路径](lane-block-results.md)已淘汰：best、before、after 六臂里
+after 的 `public_step` 均值 40.503 ms，高于 before 的 32.972 ms。命中为 0，
+因为本窗的边几乎都混有 4.0 m、4.5 m、6.0 m 车长。短窗输出与 M3 一致。
+已封存的 best 不替换。后续
+[本拍约束投影](constraint-project-results.md)已淘汰：六臂里 after 的
+`public_step` 均值 31.454 ms，高于 before 的 27.859 ms。约 6.9 万辆车走了
+无前车预测，约 4.2 万辆被后杠前缀缩短。重叠为 0，完成车辆从 4039 降到
+3850。已封存的 best 不替换。后续
+[延迟物化接近记录](delay-materialize-results.md)已淘汰：交通文件与 before
+逐字节相同，重叠为 0。after 均值 34.683 ms，before 均值 37.225 ms，
+但较慢的 after 仍高于较快的 before。直接写入约 820 条，要查询的 cell 约 564。
+已封存的 best 不替换。16 ms 目标仍未达到。
 
 > 测量基线：`4de40e045398e4b010b2aa36522afc02a4094c4d`（main，#731 合并后）。
 > 证据根：`E:/projects/laneflow-evidence/issue-707/4de40e04/`（checkout 外、只新增不覆盖）。
