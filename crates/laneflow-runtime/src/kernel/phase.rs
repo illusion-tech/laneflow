@@ -41,6 +41,18 @@ impl Deref for StepDerived<'_> {
     }
 }
 
+impl StepDerived<'_> {
+    /// 按完整句柄读取 live 序号。准备失败表示序号表分配失败。
+    pub(crate) fn live_rank(
+        &mut self,
+        live: &[crate::VehicleHandle],
+        vehicle_slots: usize,
+        vehicle: crate::VehicleHandle,
+    ) -> Result<Option<u32>, ()> {
+        self.0.live_order_index.rank(live, vehicle_slots, vehicle)
+    }
+}
+
 impl StepCommitted<'_> {
     /// 同时借用已验证的只读路线和受限 Conflict 暂存，循环内无须重读路线槽位。
     pub(crate) fn prepare_conflict_for_route<'a>(

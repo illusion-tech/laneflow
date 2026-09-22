@@ -2465,7 +2465,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             super::performance_profile::begin(super::performance_profile::Stage::WaitingOutputs);
         self.finalize_waiting_outputs(updates, tick_index)?;
         self.workspace.motion_cache.clear();
-        crate::kernel::entry_frontier::classify_pending(self, delta_s)?;
+        crate::kernel::entry_frontier::classify_pending(self, delta_s, updates)?;
         #[cfg(test)]
         drop(output_timer);
         #[cfg(test)]
