@@ -299,12 +299,11 @@ impl FrontierMaintenance {
             .iter()
             .filter(|(_, state)| state.status == VehicleStatus::Active)
             .count();
-        self.pending_near
-            .try_reserve(active)
-            .map_err(|_| StepError::ConflictScratchAllocFailed)?;
-        self.pending_invalid
-            .try_reserve(active)
-            .map_err(|_| StepError::ConflictScratchAllocFailed)?;
+        // 两侧一起备好。只扩 pending 时，publish 交换后另一侧会在下一拍首次增长。
+        reserve_capacity(&mut self.pending_near, active)?;
+        reserve_capacity(&mut self.pending_invalid, active)?;
+        reserve_capacity(&mut self.ready_near, active)?;
+        reserve_capacity(&mut self.ready_invalid, active)?;
         for (_, state) in updates {
             if state.status != VehicleStatus::Active {
                 continue;
@@ -416,9 +415,16 @@ impl FrontierMaintenance {
         Ok(())
     }
 
-    /// 新链接的容量先备好。失败时还没有拆旧链接。
+    /// 新链接的容量先备好。同一地址只追加一次车辆槽位，重复出现项不重复占位。
+    /// 失败时还没有拆旧链接。
     fn reserve_links(&mut self, new_cells: &[CachedCell]) -> Result<(), StepError> {
-        for cell in new_cells {
+        for (position, cell) in new_cells.iter().enumerate() {
+            if new_cells[..position]
+                .iter()
+                .any(|earlier| earlier.address == cell.address)
+            {
+                continue;
+            }
             #[cfg(test)]
             if link_reserve_should_fail() {
                 return Err(StepError::ConflictScratchAllocFailed);
@@ -436,7 +442,7 @@ impl FrontierMaintenance {
         Ok(())
     }
 
-    /// 调用前新地址已经在 `by_cell` 里，并且每条链都有一个空位。
+    /// 调用前每个新地址已经在 `by_cell` 里，并且有一个空位。同一车辆只追加一次。
     fn commit_links(
         &mut self,
         index: u32,
@@ -462,7 +468,9 @@ impl FrontierMaintenance {
             let Some(list) = self.by_cell.get_mut(&cell.address) else {
                 return Err(StepError::ConflictInvariantViolation);
             };
-            list.push(index);
+            if !list.contains(&index) {
+                list.push(index);
+            }
         }
         Ok(())
     }
@@ -580,6 +588,14 @@ struct RememberedSlot {
     first_excluded_mm: u32,
     gate_distance_mm: u32,
     max_accel: f32,
+}
+
+fn reserve_capacity(list: &mut Vec<VehicleHandle>, needed: usize) -> Result<(), StepError> {
+    if list.capacity() >= needed {
+        return Ok(());
+    }
+    list.try_reserve(needed - list.len())
+        .map_err(|_| StepError::ConflictScratchAllocFailed)
 }
 
 fn refill_handles(
@@ -853,15 +869,21 @@ pub(crate) fn rebuild(step: &mut StepWorkspace<'_>) -> Result<(), StepError> {
 }
 
 /// 用本拍运动结果写下一批近门集合和失效名单。
+/// 没有证明时窗时不分类，也不为没有读者的名单预留容量。
 pub(crate) fn classify_pending(
     step: &mut StepWorkspace<'_>,
     delta_s: f32,
     updates: &[(usize, VehicleState)],
 ) -> Result<(), StepError> {
-    let horizon_ms = step.frontier_proof_horizon_ms();
+    let Some(horizon_ms) = step.frontier_proof_horizon_ms() else {
+        let maintenance = &mut step.workspace.frontier_maintenance;
+        maintenance.pending_near.clear();
+        maintenance.pending_invalid.clear();
+        return Ok(());
+    };
     step.workspace
         .frontier_maintenance
-        .classify(delta_s, horizon_ms, updates)
+        .classify(delta_s, Some(horizon_ms), updates)
 }
 
 fn full_walk(step: &mut StepWorkspace<'_>, horizon_ms: u64) -> Result<(), StepError> {
@@ -1361,10 +1383,8 @@ fn record_walk(
         } else {
             let prepared =
                 PreparedApproachEta::new(state.carry_um, state.speed_mm_s, max_accel, horizon_ms);
+            // 只为实际留在时窗内的出现项增长。第一项就在时窗外时，空缓存不占后缀容量。
             let mut recorded = Vec::new();
-            recorded
-                .try_reserve(compiled.conflicts.len() - first_conflict)
-                .map_err(|_| StepError::ConflictScratchAllocFailed)?;
             let mut first_excluded = NO_DISTANCE_MM;
             for occurrence in &compiled.conflicts[first_conflict..] {
                 #[cfg(test)]
@@ -1379,6 +1399,9 @@ fn record_walk(
                     first_excluded = distance_mm;
                     break;
                 }
+                recorded
+                    .try_reserve(1)
+                    .map_err(|_| StepError::ConflictScratchAllocFailed)?;
                 recorded.push(CachedCell {
                     address: occurrence.address(),
                     distance_mm,
@@ -2206,6 +2229,100 @@ mod tests {
             estimates.contains(&4_000),
             "red phase must wait for the green phase in the next cycle, estimates={estimates:?}"
         );
+    }
+
+    #[test]
+    fn outside_horizon_cache_does_not_reserve_the_route_suffix() {
+        let mut world = stationary_scale_world(4);
+        step(&mut world);
+        let mut outside = 0_u32;
+        for handle in world.state.committed.live_order.clone() {
+            let slot = &world.state.workspace.frontier_maintenance.slots[handle.index() as usize];
+            if !slot.valid || slot.first_excluded_mm == super::NO_DISTANCE_MM {
+                continue;
+            }
+            assert!(
+                slot.cells.is_empty(),
+                "an excluded first conflict keeps no cells"
+            );
+            assert_eq!(
+                slot.cells.capacity(),
+                0,
+                "an empty cache must not keep capacity for the route suffix"
+            );
+            outside += 1;
+        }
+        assert!(
+            outside > 0,
+            "the rear vehicles must sit outside the proof horizon"
+        );
+        let cached_bytes = world
+            .state
+            .workspace
+            .frontier_maintenance
+            .slots
+            .iter()
+            .map(|slot| crate::kernel::state::vec_bytes(&slot.cells))
+            .sum::<u64>();
+        assert_eq!(cached_bytes, 0);
+    }
+
+    #[test]
+    fn duplicate_passage_address_does_not_allocate_while_committing_links() {
+        let _reset = FailpointReset;
+        let mut maintenance = super::FrontierMaintenance {
+            seeded: true,
+            ..super::FrontierMaintenance::default()
+        };
+        let address = crate::ConflictPassageAddress::new(
+            laneflow_static_contract::ConflictZoneOrdinal::from_raw(1),
+            laneflow_static_contract::ParticipantStreamOrdinal::from_raw(2),
+            3,
+        );
+        let mut existing = vec![7_u32];
+        while existing.len() < existing.capacity() {
+            existing.push(7);
+        }
+        let full = existing.len();
+        assert_eq!(existing.capacity(), full);
+        maintenance.by_cell.insert(address, existing);
+        let duplicates = full.saturating_mul(2).max(2);
+        let cells = (0..duplicates)
+            .map(|distance| super::CachedCell {
+                address,
+                distance_mm: u32::try_from(distance).expect("duplicate distance"),
+            })
+            .collect::<Vec<_>>();
+        super::LINK_RESERVE_SUCCESSES.with(|remaining| remaining.set(0));
+        assert_eq!(
+            maintenance.reserve_links(&cells),
+            Err(crate::StepError::ConflictScratchAllocFailed)
+        );
+        assert!(maintenance.seeded);
+        assert_eq!(
+            maintenance.by_cell.get(&address).map(Vec::as_slice),
+            Some([7_u32].as_slice())
+        );
+        super::LINK_RESERVE_SUCCESSES.with(|remaining| remaining.set(usize::MAX));
+        maintenance
+            .reserve_links(&cells)
+            .expect("reserve unique link");
+        let reserved = maintenance
+            .by_cell
+            .get(&address)
+            .expect("address")
+            .capacity();
+        maintenance
+            .commit_links(3, &[], &cells)
+            .expect("commit unique link");
+        let list = maintenance.by_cell.get(&address).expect("address");
+        assert_eq!(
+            list.capacity(),
+            reserved,
+            "commit must use the reserved slot"
+        );
+        assert_eq!(list.iter().filter(|slot| **slot == 3).count(), 1);
+        assert!(list.contains(&7));
     }
 
     fn step_ms(world: &mut crate::TrafficWorld, delta_ms: u64) {
