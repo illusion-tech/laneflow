@@ -710,6 +710,8 @@ fn raise_signal_bound(
     hold: Option<SignalHold>,
     entry_mm: u32,
     horizon_ms: u64,
+    speed_mm_s: u32,
+    emergency_decel_m_s2: f32,
 ) -> ApproachEstimate {
     let Some(hold) = hold else {
         return kinematic;
@@ -723,6 +725,10 @@ fn raise_signal_bound(
     if delay == 0 {
         return kinematic;
     }
+    // 停不住时运动下界才是最早到达。把它推迟到放行会偏晚。
+    if !can_stop_before(speed_mm_s, emergency_decel_m_s2, hold.gate_mm) {
+        return kinematic;
+    }
     let ApproachEstimate::Finite(ms) = kinematic else {
         return kinematic;
     };
@@ -732,6 +738,20 @@ fn raise_signal_bound(
     } else {
         ApproachEstimate::Finite(eta)
     }
+}
+
+/// 速度为 0 视为已经停住。紧急减速度不是有限正数时，无法证明能在门前停住。
+fn can_stop_before(speed_mm_s: u32, emergency_decel_m_s2: f32, distance_mm: u32) -> bool {
+    if speed_mm_s == 0 {
+        return true;
+    }
+    if !emergency_decel_m_s2.is_finite() || emergency_decel_m_s2 <= 0.0 {
+        return false;
+    }
+    let decel_mm_s2 = f64::from(emergency_decel_m_s2) * 1_000.0;
+    let speed = f64::from(speed_mm_s);
+    let needed_mm = speed * speed / (2.0 * decel_mm_s2);
+    needed_mm.is_finite() && needed_mm <= f64::from(distance_mm)
 }
 
 fn signal_hold(
@@ -1470,7 +1490,14 @@ fn record_walk(
                     address: occurrence.address(),
                     distance_mm,
                 });
-                let estimate = raise_signal_bound(kinematic, hold, distance_mm, horizon_ms);
+                let estimate = raise_signal_bound(
+                    kinematic,
+                    hold,
+                    distance_mm,
+                    horizon_ms,
+                    state.speed_mm_s,
+                    profile.emergency_decel(),
+                );
                 if estimate == ApproachEstimate::OutsideHorizon {
                     continue;
                 }
@@ -1582,7 +1609,14 @@ fn replay_walk(
             if kinematic == ApproachEstimate::OutsideHorizon {
                 break;
             }
-            let estimate = raise_signal_bound(kinematic, hold, remaining, horizon_ms);
+            let estimate = raise_signal_bound(
+                kinematic,
+                hold,
+                remaining,
+                horizon_ms,
+                state.speed_mm_s,
+                profile.emergency_decel(),
+            );
             if estimate == ApproachEstimate::OutsideHorizon {
                 continue;
             }
@@ -1656,7 +1690,7 @@ mod tests {
             delay_ms: Some(4_000),
         };
         assert_eq!(
-            raise_signal_bound(ApproachEstimate::Finite(0), Some(hold), 0, 5_000),
+            raise_signal_bound(ApproachEstimate::Finite(0), Some(hold), 0, 5_000, 0, 4.0),
             ApproachEstimate::Finite(4_000)
         );
         assert_eq!(
@@ -1667,7 +1701,9 @@ mod tests {
                     delay_ms: Some(4_000),
                 }),
                 0,
-                5_000
+                5_000,
+                0,
+                4.0,
             ),
             ApproachEstimate::Finite(0)
         );
@@ -1679,7 +1715,9 @@ mod tests {
                     delay_ms: None,
                 }),
                 0,
-                5_000
+                5_000,
+                0,
+                4.0,
             ),
             ApproachEstimate::Finite(100)
         );
@@ -1691,17 +1729,63 @@ mod tests {
                     delay_ms: Some(8_000),
                 }),
                 0,
-                5_000
+                5_000,
+                0,
+                4.0,
             ),
             ApproachEstimate::OutsideHorizon
         );
         assert_eq!(
-            raise_signal_bound(ApproachEstimate::Finite(0), None, 0, 5_000),
+            raise_signal_bound(ApproachEstimate::Finite(0), None, 0, 5_000, 0, 4.0),
             ApproachEstimate::Finite(0)
         );
         assert_eq!(
-            raise_signal_bound(ApproachEstimate::Unprovable, Some(hold), 0, 5_000),
+            raise_signal_bound(ApproachEstimate::Unprovable, Some(hold), 0, 5_000, 0, 4.0),
             ApproachEstimate::Unprovable
+        );
+    }
+
+    #[test]
+    fn vehicle_that_cannot_stop_before_a_red_gate_keeps_the_kinematic_bound() {
+        let hold = SignalHold {
+            gate_mm: 2_000,
+            delay_ms: Some(10_000),
+        };
+        assert_eq!(
+            raise_signal_bound(
+                ApproachEstimate::Finite(350),
+                Some(hold),
+                3_500,
+                601,
+                10_000,
+                4.0,
+            ),
+            ApproachEstimate::Finite(350),
+            "10 m/s 在 2 m 外，紧急减速度 4 m/s² 停不住"
+        );
+        assert_eq!(
+            raise_signal_bound(
+                ApproachEstimate::Finite(100),
+                Some(hold),
+                3_500,
+                20_000,
+                1_000,
+                4.0,
+            ),
+            ApproachEstimate::Finite(10_000),
+            "1 m/s 在 2 m 外可以停住，仍抬到放行"
+        );
+        assert_eq!(
+            raise_signal_bound(
+                ApproachEstimate::Finite(350),
+                Some(hold),
+                3_500,
+                601,
+                10_000,
+                0.0,
+            ),
+            ApproachEstimate::Finite(350),
+            "没有有限紧急减速度时无法证明能停住"
         );
     }
 
