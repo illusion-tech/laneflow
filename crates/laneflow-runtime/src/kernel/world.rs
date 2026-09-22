@@ -384,6 +384,7 @@ impl crate::kernel::state::WorldState {
                 motion_slots: Vec::new(),
                 conflict_inputs: Vec::new(),
                 conflict_slots: Vec::new(),
+                frontier_maintenance: crate::kernel::entry_frontier::FrontierMaintenance::default(),
             },
             admin: crate::admin::state::AdministrativeState {
                 migration_journal,
@@ -1021,6 +1022,9 @@ impl crate::kernel::state::WorldState {
         if let Some(journal) = self.admin.migration_journal.as_mut() {
             journal.record_vehicle_spawned(next_command_cursor, delta);
         }
+        self.workspace
+            .frontier_maintenance
+            .note_active_source(handle);
         Ok(handle)
     }
 
@@ -1426,6 +1430,7 @@ impl crate::kernel::state::WorldState {
                 new_delta,
             );
         }
+        self.workspace.frontier_maintenance.note_active_source(new);
         Ok(VehicleReplaceRecord { old, new })
     }
 

@@ -15,6 +15,7 @@
 - [`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md)
 - [`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md)
 - [`waiting-zone-conflict-right-of-way.md`](waiting-zone-conflict-right-of-way.md)
+- [`traffic-runtime-near-gate-frontier.md`](traffic-runtime-near-gate-frontier.md)
 
 ## 1. 结论
 

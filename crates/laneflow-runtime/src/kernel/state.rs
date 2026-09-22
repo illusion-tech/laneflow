@@ -140,6 +140,8 @@ pub(crate) struct TickWorkspace {
     /// 退回融合求值，不新增领域错误。
     pub(crate) motion_slots:
         Vec<crate::kernel::execution::DispatchSlot<crate::kernel::tick::VehicleMotionOutcome>>,
+    /// #740 近门名单、冲突距离缓存与生命周期增量。已发布名单只在成功提交时替换。
+    pub(crate) frontier_maintenance: crate::kernel::entry_frontier::FrontierMaintenance,
     /// P3 候选求值输入四元组（live 序 -> 句柄 + live 序 + Active 紧凑位 +
     /// 拍初状态）；发现镜像串行循环跳过语义，协调器构建，任务只读。
     pub(crate) conflict_inputs: Vec<(crate::VehicleHandle, u32, usize, VehicleState)>,
@@ -277,6 +279,7 @@ impl TickWorkspace {
             motion_slots,
             conflict_inputs,
             conflict_slots,
+            frontier_maintenance,
         } = self;
         crate::kernel::state::vec_bytes(conflict_candidates)
             + crate::kernel::state::vec_bytes(conflict_candidate_cells)
@@ -300,6 +303,7 @@ impl TickWorkspace {
             + crate::kernel::state::vec_bytes(motion_slots)
             + crate::kernel::state::vec_bytes(conflict_inputs)
             + crate::kernel::state::vec_bytes(conflict_slots)
+            + frontier_maintenance.retained_logical_bytes()
             // R3-3b：槽位报告的段 Vec backing 峰值（CellsSegment::Values /
             // Obligated fill）；失败未消费报告在下一拍分发前回收清理，
             // 此处计的是清理前可达的峰值保有。
