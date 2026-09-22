@@ -52,8 +52,10 @@ held 每拍：Active 72,765，让行目标 564，近门集合 2,455，整段重�
 测量时加 `LF707_COAST=on` 和 `LF707_DEMAND=held`，并保持
 `LF707_BARRIER=skip` 和 `LF707_BINDING=dense`。没有进入正式 PR。
 
-16 ms 仍未达到。本拍才进入 Active 的车要到下一拍才进入名单；这个短窗里
-没有因此产生重叠。
+16 ms 仍未达到。本拍 frontier 使用上一拍运动准备写下的名单。新进入
+Active、路线替换、句柄 generation 不一致、换边或进度回退的车，本拍还不是
+接近来源。自己的门候选仍按活动车辆求值。这个短窗的重叠为 0 只说明同边
+车身没有相交。后来的计数见 [覆盖与分辨](calibration-results.md)。
 
 ## 5. 证据
 
