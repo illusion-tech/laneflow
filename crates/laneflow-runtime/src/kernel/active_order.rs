@@ -57,6 +57,25 @@ impl LiveOrderIndex {
         (rank < self.indexed_len && live.get(rank) == Some(&vehicle)).then_some(rank)
     }
 
+    /// 准备一次后按槽位读取 live 序号。句柄与该序号上的 live 项不一致时返回 `Ok(None)`。
+    ///
+    /// # Errors
+    ///
+    /// 序号表分配失败时返回 `Err(())`。调用方不得改用槽位下标充当 live 序号。
+    pub(crate) fn rank(
+        &mut self,
+        live: &[VehicleHandle],
+        slots: usize,
+        vehicle: VehicleHandle,
+    ) -> Result<Option<u32>, ()> {
+        if !self.prepare(live, slots) {
+            return Err(());
+        }
+        Ok(self
+            .position(vehicle, live)
+            .map(|position| u32::try_from(position).expect("live rank fits vehicle capacity")))
+    }
+
     #[cfg(test)]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         super::state::vec_bytes(&self.positions)

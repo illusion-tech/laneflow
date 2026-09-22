@@ -2949,6 +2949,14 @@ pub(crate) mod tests {
         revision: Arc<SharedNetworkRevision>,
         vehicle_count: u32,
     ) -> TrafficWorld {
+        conflict_scale_world_with_route_capacity(revision, vehicle_count, 1)
+    }
+
+    pub(crate) fn conflict_scale_world_with_route_capacity(
+        revision: Arc<SharedNetworkRevision>,
+        vehicle_count: u32,
+        route_capacity: u32,
+    ) -> TrafficWorld {
         const SPACING_MM: u64 = 6_500;
 
         let stream = revision
@@ -3001,7 +3009,13 @@ pub(crate) mod tests {
         let origin = *revision.canonical_origin();
         let mut world = TrafficWorld::install(
             Arc::clone(&revision),
-            WorldConfig::new(vehicle_count, 1, route_edges.len() as u64, 1, 4),
+            WorldConfig::new(
+                vehicle_count,
+                route_capacity,
+                route_edges.len() as u64 * u64::from(route_capacity),
+                u64::from(route_capacity),
+                4,
+            ),
             crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
             CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
@@ -3077,6 +3091,427 @@ pub(crate) mod tests {
             .rebuild_occupancy_index()
             .expect("Conflict scale occupancy");
         world
+    }
+
+    /// 带信号控制器的短路口。`green_ms = None` 时整个周期都是红灯。
+    /// `green_first` 为真时绿灯在前，红灯释放要绕回下一周期。
+    pub(crate) fn signal_frontier_world(
+        red_ms: u64,
+        green_ms: Option<u64>,
+        green_first: bool,
+    ) -> (TrafficWorld, crate::RouteHandle) {
+        let limits = CompileLimits::single_network_1m_v2();
+        let header = lfre::RoadEditingModuleHeader::try_new(
+            "city/runtime-signal-frontier",
+            "runtime-signal-frontier.lfre",
+            Vec::new(),
+            lfre::RoadEditingProvenance::direct("runtime signal frontier fixture")
+                .expect("provenance"),
+        )
+        .expect("signal frontier header");
+        let mut module = lfre::RoadEditingSourceModuleBuilder::new(
+            header,
+            laneflow_compiler::GeometryAccuracyProfile::Balanced5Cm,
+            laneflow_compiler::GeometryDirectionProfile::Balanced2Deg,
+            &limits,
+        )
+        .expect("signal frontier builder");
+        let frame = lfre::CanonicalFrameReference::local("frame").expect("frame");
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::CanonicalFrame(
+                lfre::CanonicalFrameInput::try_new("frame").expect("frame"),
+            ))
+            .expect("add frame");
+        let group = lfre::SignalGroupReference::local("gate-signal").expect("signal group");
+        let groups = vec![group.clone()];
+        let mut phase_keys = Vec::new();
+        let mut phase_red = Vec::new();
+        if green_ms.is_some() {
+            if green_first {
+                phase_keys.push("green");
+                phase_red.push(false);
+                phase_keys.push("red");
+                phase_red.push(true);
+            } else {
+                phase_keys.push("red");
+                phase_red.push(true);
+                phase_keys.push("green");
+                phase_red.push(false);
+            }
+        } else {
+            phase_keys.push("red");
+            phase_red.push(true);
+        }
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::SignalGroup(
+                lfre::SignalGroupInput::try_new("gate-signal").expect("signal group"),
+            ))
+            .expect("add signal group")
+            .add_declaration(lfre::RoadEditingDeclaration::SignalController(
+                lfre::SignalControllerInput::try_new(
+                    "gate-controller",
+                    0,
+                    groups,
+                    phase_keys
+                        .iter()
+                        .copied()
+                        .map(|key| {
+                            lfre::SignalPhaseReference::owner_scoped(
+                                vec!["gate-controller".into()],
+                                key,
+                            )
+                            .expect("phase reference")
+                        })
+                        .collect(),
+                )
+                .expect("signal controller"),
+            ))
+            .expect("add signal controller");
+        let durations = match green_ms {
+            Some(green_ms) if green_first => vec![green_ms, red_ms],
+            Some(green_ms) => vec![red_ms, green_ms],
+            None => vec![red_ms],
+        };
+        for ((key, red), duration) in phase_keys.iter().copied().zip(phase_red).zip(durations) {
+            module
+                .add_declaration(lfre::RoadEditingDeclaration::SignalPhase(
+                    lfre::SignalPhaseInput::try_new(
+                        key,
+                        duration,
+                        vec![
+                            lfre::RoadEditingSignalPhaseState::try_new(
+                                group.clone(),
+                                if red {
+                                    laneflow_static_contract::SignalAspect::Red
+                                } else {
+                                    laneflow_static_contract::SignalAspect::Green
+                                },
+                            )
+                            .expect("phase state"),
+                        ],
+                        lfre::SignalControllerReference::local("gate-controller")
+                            .expect("controller reference"),
+                    )
+                    .expect("signal phase"),
+                ))
+                .expect("add signal phase");
+        }
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::LaneEdge(
+                lfre::LaneEdgeInput::try_new(
+                    "internal",
+                    13.0,
+                    Vec::new(),
+                    Some(conflict_cutover_test_line((0.0, 0.0), (13.0, 0.0))),
+                )
+                .expect("internal lane edge"),
+            ))
+            .expect("add internal lane edge");
+        for (edge, start, end) in [
+            ("entry", (-13.0, 0.0), (0.0, 0.0)),
+            ("exit", (13.0, 0.0), (26.0, 0.0)),
+        ] {
+            add_conflict_cutover_test_approach(
+                &mut module,
+                edge,
+                conflict_cutover_test_line(start, end),
+                Vec::new(),
+            );
+        }
+        let junction = lfre::JunctionReference::local("crossing").expect("junction");
+        let path = lfre::ManeuverPathReference::owner_scoped(
+            vec!["crossing".into(), "through".into()],
+            "path",
+        )
+        .expect("path");
+        let gate = lfre::ManeuverGateReference::owner_scoped(
+            vec!["crossing".into(), "through".into(), "path".into()],
+            "admission",
+        )
+        .expect("gate");
+        let gate_zone =
+            lfre::ConflictZoneReference::owner_scoped(vec!["crossing".into()], "z-gate")
+                .expect("gate zone");
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::Junction(
+                lfre::JunctionInput::try_new(
+                    "crossing",
+                    ["entry", "exit"]
+                        .into_iter()
+                        .map(|edge| lfre::LaneEdgeReference::local(edge).expect("approach"))
+                        .collect(),
+                    ["internal"]
+                        .into_iter()
+                        .map(|edge| lfre::LaneEdgeReference::local(edge).expect("internal"))
+                        .collect(),
+                )
+                .expect("junction"),
+            ))
+            .expect("add junction")
+            .add_declaration(lfre::RoadEditingDeclaration::Movement(
+                lfre::MovementInput::try_new("through", junction.clone(), "entry", "exit")
+                    .expect("movement"),
+            ))
+            .expect("add movement")
+            .add_declaration(lfre::RoadEditingDeclaration::ManeuverPath(
+                lfre::ManeuverPathInput::try_new(
+                    "path",
+                    lfre::MovementReference::owner_scoped(vec!["crossing".into()], "through")
+                        .expect("movement"),
+                    lfre::LaneEdgeReference::local("entry").expect("entry"),
+                    vec![lfre::LaneEdgeReference::local("internal").expect("internal")],
+                    lfre::LaneEdgeReference::local("exit").expect("exit"),
+                )
+                .expect("path"),
+            ))
+            .expect("add path")
+            .add_declaration(lfre::RoadEditingDeclaration::StopLine(
+                lfre::StopLineInput::try_new(
+                    "stop",
+                    lfre::LaneEdgeReference::local("entry").expect("stop edge"),
+                )
+                .expect("stop"),
+            ))
+            .expect("add stop")
+            .add_declaration(lfre::RoadEditingDeclaration::ManeuverGate(
+                lfre::ManeuverGateInput::try_new(
+                    "admission",
+                    path.clone(),
+                    0,
+                    lfre::StopLineReference::local("stop").expect("stop"),
+                    lfre::RoadEditingSignalControl::SignalGroup(group),
+                )
+                .expect("gate"),
+            ))
+            .expect("add gate")
+            .add_declaration(lfre::RoadEditingDeclaration::ConflictZone(
+                lfre::ConflictZoneInput::try_new("z-gate", junction.clone()).expect("gate zone"),
+            ))
+            .expect("add gate zone")
+            .add_declaration(lfre::RoadEditingDeclaration::ParticipantStream(
+                lfre::ParticipantStreamInput::try_new(
+                    "stream",
+                    junction.clone(),
+                    path.clone(),
+                    vec![lfre::ConflictPassageInput::new(
+                        gate_zone.clone(),
+                        lfre::PathAnchorInput::interior(1, 0.05).expect("gate entry"),
+                        lfre::PathAnchorInput::interior(1, 1.0).expect("gate exit"),
+                    )],
+                )
+                .expect("stream"),
+            ))
+            .expect("add stream")
+            .add_declaration(lfre::RoadEditingDeclaration::ParticipantStream(
+                lfre::ParticipantStreamInput::try_new(
+                    "peer",
+                    junction,
+                    path,
+                    vec![lfre::ConflictPassageInput::new(
+                        gate_zone.clone(),
+                        lfre::PathAnchorInput::interior(1, 0.2).expect("peer entry"),
+                        lfre::PathAnchorInput::interior(1, 0.8).expect("peer exit"),
+                    )],
+                )
+                .expect("peer stream"),
+            ))
+            .expect("add peer stream");
+        module
+            .add_conflict_zone_region(
+                lfre::ConflictZoneRegionInput::try_new(
+                    gate_zone,
+                    frame,
+                    -1.0,
+                    1.0,
+                    [(-1.0, -1.0), (0.0, -1.0), (0.0, 1.0), (-1.0, 1.0)]
+                        .into_iter()
+                        .map(|(x, z)| lfre::RoadEditingPoint2::try_new(x, z).expect("region point"))
+                        .collect(),
+                )
+                .expect("region"),
+            )
+            .expect("add region");
+        let participant =
+            lfre::ParticipantClassReference::local("road-user").expect("participant class");
+        let stream_ref =
+            lfre::ParticipantStreamReference::owner_scoped(vec!["crossing".into()], "stream")
+                .expect("stream reference");
+        let peer_ref =
+            lfre::ParticipantStreamReference::owner_scoped(vec!["crossing".into()], "peer")
+                .expect("peer reference");
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::ParticipantClass(
+                lfre::ParticipantClassInput::try_new("road-user").expect("class"),
+            ))
+            .expect("add class")
+            .add_declaration(lfre::RoadEditingDeclaration::VehicleProfile(
+                lfre::VehicleProfileInput::try_new(
+                    "car",
+                    participant,
+                    lfre::IidmVehicleProfileInput::try_new(4.5, 13.0, 2.0, 1.5, 1.5, 2.0, 4.0)
+                        .expect("profile"),
+                )
+                .expect("profile"),
+            ))
+            .expect("add profile")
+            .add_declaration(lfre::RoadEditingDeclaration::RightOfWayPolicySet(
+                lfre::RightOfWayPolicySetInput::try_new(
+                    "policy",
+                    laneflow_compiler::RegulationIdentity::try_new("engineering", "fixture-1")
+                        .expect("regulation")
+                        .with_source("repository:runtime-signal-frontier")
+                        .expect("regulation source"),
+                    vec![],
+                    vec![
+                        lfre::PolicyGapProfileInput::try_new(
+                            "signal-gap",
+                            "fixture-1",
+                            5_000,
+                            500,
+                            1_000,
+                        )
+                        .expect("gap"),
+                    ],
+                    vec![
+                        lfre::PolicyStreamRuleInput::try_new(
+                            "stream",
+                            stream_ref,
+                            None,
+                            0,
+                            vec![peer_ref],
+                            Some("signal-gap".to_owned()),
+                            vec![],
+                        )
+                        .expect("stream rule"),
+                        lfre::PolicyStreamRuleInput::try_new(
+                            "peer",
+                            lfre::ParticipantStreamReference::owner_scoped(
+                                vec!["crossing".into()],
+                                "peer",
+                            )
+                            .expect("peer rule stream"),
+                            None,
+                            1,
+                            Vec::new(),
+                            None,
+                            vec![],
+                        )
+                        .expect("peer rule"),
+                    ],
+                    vec![
+                        lfre::PolicyGateRuleInput::try_new(
+                            "admission",
+                            gate,
+                            None,
+                            laneflow_compiler::GateInterpretation::ProtectedGroup,
+                            laneflow_compiler::GateProhibition::None,
+                            vec![],
+                        )
+                        .expect("gate rule"),
+                    ],
+                )
+                .expect("policy"),
+            ))
+            .expect("add policy");
+        let finished = module.finish().expect("signal frontier module");
+        let source = lfre::RoadEditingSourceWriter::new(&limits)
+            .write(finished)
+            .expect("signal frontier source");
+        let input = lfre::RoadEditingModuleInput::try_new(
+            "runtime-signal-frontier.lfre",
+            source.as_bytes(),
+            None,
+        )
+        .expect("signal frontier input");
+        let policy_id = laneflow_compiler::derive_canonical_stable_id_v1(
+            EntityKind::RightOfWayPolicySet,
+            "city/runtime-signal-frontier",
+            "policy",
+            &limits,
+        )
+        .expect("policy identity");
+        let edge_ids = ["entry", "internal", "exit"].map(|key| {
+            laneflow_compiler::derive_canonical_stable_id_v1(
+                EntityKind::LaneEdge,
+                "city/runtime-signal-frontier",
+                key,
+                &limits,
+            )
+            .expect("edge identity")
+        });
+        let mut unit = CompilationUnitBuilder::new(limits);
+        unit.add_road_editing_module(input)
+            .expect("signal frontier admission");
+        let output = Compiler::new()
+            .compile(unit.build().expect("signal frontier unit"))
+            .unwrap_or_else(|bundle| {
+                panic!(
+                    "signal frontier diagnostics: {:?}",
+                    bundle
+                        .diagnostics()
+                        .iter()
+                        .map(|diagnostic| (diagnostic.code(), diagnostic.payload()))
+                        .collect::<Vec<_>>()
+                )
+            });
+        let provenance =
+            PortableEmissionProvenance::try_new("runtime-signal-frontier-v1").expect("provenance");
+        let candidate = emit_portable_candidate(
+            &output,
+            &provenance,
+            FormatLimits::HARD,
+            PortableDiffBase::Genesis,
+        )
+        .expect("signal frontier candidate");
+        let checked = check_post_emission_bundle(
+            candidate.canonical_artifact().bytes(),
+            candidate.source_map().bytes(),
+            candidate.semantic_diff().bytes(),
+            candidate.expected_semantic_diff_base(),
+            FormatLimits::HARD,
+        )
+        .expect("signal frontier bundle");
+        let revision = build_shared_network_revision(
+            checked.canonical_network_input(),
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::Omit,
+                SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+            ),
+        )
+        .expect("signal frontier revision");
+        let origin = *revision.canonical_origin();
+        let mut world = TrafficWorld::install(
+            std::sync::Arc::clone(&revision),
+            WorldConfig::new(4, 4, 64, 16, 100),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            crate::CommittedNetworkSource::Published {
+                reference: crate::PublishedLfcaReference::new(
+                    "fixture://signal-frontier",
+                    origin.canonical_artifact_digest(),
+                    origin.canonical_artifact_byte_length(),
+                    origin.network_revision(),
+                )
+                .expect("signal frontier source"),
+            },
+            740,
+            WorldPolicySelection::Pinned(crate::PolicyPin {
+                policy: RightOfWayPolicySetId::from_untyped(policy_id),
+            }),
+        )
+        .expect("signal frontier world");
+        let edges = edge_ids
+            .into_iter()
+            .map(|stable| {
+                revision
+                    .identity()
+                    .ordinal(LaneEdgeId::from_untyped(stable))
+                    .expect("edge ordinal")
+            })
+            .collect::<Vec<_>>();
+        let route = world
+            .register_route(RouteRegisterInput::new(edges))
+            .expect("signal frontier route");
+        (world, route)
     }
 
     fn compile_conflict_cutover_test_pair(
