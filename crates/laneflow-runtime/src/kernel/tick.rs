@@ -4050,9 +4050,17 @@ mod preview {
 mod barrier_query_tests {
     use super::*;
 
-    use crate::kernel::tables::{WaitingOccurrence, compile_nearest_motion_barriers};
+    use crate::kernel::conflict_tick::ConflictMotionPlan;
+    use crate::kernel::tables::{
+        ConflictPassageOccurrence, RoutePosition, WaitingOccurrence,
+        compile_nearest_motion_barriers,
+    };
     use crate::kernel::waiting::WaitingMembership;
-    use laneflow_static_contract::WaitingZoneOrdinal;
+    use crate::{ConflictDecisionOutcome, TickInput, VehicleSpawnInput, VehicleStatus};
+    use laneflow_static_contract::{
+        ConflictZoneOrdinal, ParticipantStreamOrdinal, SignalAspect, VehicleProfileOrdinal,
+        WaitingZoneOrdinal,
+    };
 
     #[test]
     fn motion_reach_is_strict_and_abandons_unproven_ranges() {
@@ -4255,6 +4263,303 @@ mod barrier_query_tests {
             .advance_active_vehicle(at_end, 0.004)
             .expect("near edge end");
         assert_eq!(barrier_query_counts().hard_room_permissions, 1);
+    }
+
+    fn conflict_passage(admission_hop: u32) -> ConflictPassageOccurrence {
+        ConflictPassageOccurrence {
+            stream: ParticipantStreamOrdinal::from_raw(0),
+            passage_local_index: admission_hop,
+            zone: ConflictZoneOrdinal::from_raw(0),
+            maneuver_index: 0,
+            admission_hop,
+            entry: RoutePosition {
+                route_edge_index: admission_hop.saturating_add(1),
+                progress_mm: 4_000,
+            },
+            clearance: RoutePosition {
+                route_edge_index: admission_hop.saturating_add(1),
+                progress_mm: 8_000,
+            },
+        }
+    }
+
+    fn waiting_on(template: WaitingOccurrence, entry_hop: u32) -> WaitingOccurrence {
+        WaitingOccurrence {
+            entry_hop,
+            release_hop: entry_hop,
+            ..template
+        }
+    }
+
+    fn install_barriers(
+        world: &mut crate::TrafficWorld,
+        route_slot: usize,
+        conflicts: Vec<ConflictPassageOccurrence>,
+        waiting: Vec<WaitingOccurrence>,
+    ) -> u32 {
+        let lengths = world.traffic().lane_lengths_millimetres().to_vec();
+        let compiled = world.state.committed.routes[route_slot]
+            .compiled
+            .as_mut()
+            .expect("compiled route");
+        let edge_lengths: Vec<u32> = compiled
+            .edges
+            .iter()
+            .map(|edge| lengths[edge.index()])
+            .collect();
+        compiled.conflicts = conflicts;
+        compiled.waiting = waiting;
+        compiled.nearest_motion_barriers =
+            compile_nearest_motion_barriers(&edge_lengths, &compiled.conflicts, &compiled.waiting)
+                .expect("barrier table");
+        assert!(
+            !compiled.conflicts.is_empty(),
+            "the production search must see a real admission list"
+        );
+        edge_lengths[0]
+    }
+
+    fn query_conflict(
+        world: &mut crate::TrafficWorld,
+        state: &VehicleState,
+        delta_s: f32,
+    ) -> (
+        Option<crate::kernel::waiting::WaitingStopConstraint>,
+        Option<crate::kernel::waiting::WaitingStopConstraint>,
+        BarrierQueryCounts,
+    ) {
+        reset_barrier_query_counts();
+        let phase = world.state.step_workspace();
+        let pruned = phase
+            .motion_conflict_stop_for(state, delta_s)
+            .expect("production conflict stop");
+        let exact = phase.conflict_stop_for(state).expect("exact conflict stop");
+        (pruned, exact, barrier_query_counts())
+    }
+
+    #[test]
+    fn nonempty_conflict_admissions_skip_and_return_independently() {
+        let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
+        let handle = world.state.committed.live_order[0];
+        let base = world.state.vehicle_state(handle).copied().expect("vehicle");
+        let slot = usize::try_from(base.route.index()).expect("slot");
+        let template = world.state.committed.routes[slot]
+            .compiled
+            .as_ref()
+            .expect("compiled")
+            .waiting[0];
+        let edge_length = install_barriers(
+            &mut world,
+            slot,
+            vec![conflict_passage(0)],
+            vec![waiting_on(template, 1)],
+        );
+        let mut near = base;
+        near.route_edge_index = 0;
+        near.progress_mm = edge_length - 1;
+        near.carry_um = 0;
+        near.speed_mm_s = 0;
+        world.state.workspace.conflict_motion_by_vehicle.fill(None);
+
+        let (pruned, exact, counts) = query_conflict(&mut world, &near, 0.033);
+        assert_eq!(pruned, exact);
+        assert_eq!(pruned.expect("near conflict").hop, 0);
+        assert_eq!(counts.conflict_scans, 1);
+        assert_eq!(counts.waiting_entry_scans, 0);
+
+        install_barriers(
+            &mut world,
+            slot,
+            vec![conflict_passage(1)],
+            vec![waiting_on(template, 0)],
+        );
+        let (pruned, exact, counts) = query_conflict(&mut world, &near, 0.033);
+        assert_eq!(pruned, exact);
+        assert_eq!(pruned.expect("near waiting entry").hop, 0);
+        assert_eq!(counts.conflict_scans, 0);
+        assert_eq!(counts.waiting_entry_scans, 1);
+
+        install_barriers(
+            &mut world,
+            slot,
+            vec![conflict_passage(0), conflict_passage(1)],
+            Vec::new(),
+        );
+        let mut far = near;
+        far.progress_mm = 1;
+        world.state.workspace.conflict_motion_by_vehicle[handle.index() as usize] =
+            Some(ConflictMotionPlan {
+                gate_hop: 0,
+                outcome: ConflictDecisionOutcome::Granted,
+                grant_index: None,
+            });
+        let (pruned, exact, counts) = query_conflict(&mut world, &far, 0.033);
+        assert_eq!(pruned, None);
+        assert_eq!(exact.expect("exact still walks the later admission").hop, 1);
+        assert_eq!(counts.conflict_scans, 0);
+        assert_eq!(counts.waiting_entry_scans, 0);
+
+        let mut authorized_near = near;
+        authorized_near.speed_mm_s = 100_000;
+        let (pruned, exact, counts) = query_conflict(&mut world, &authorized_near, 1.0);
+        assert_eq!(pruned, exact);
+        let later = pruned.expect("later unauthorized admission");
+        assert_eq!(later.hop, 1);
+        assert_eq!(counts.conflict_scans, 1);
+        let BoundedDistance::Finite(later_mm) = later.distance else {
+            panic!("later admission has a finite stop");
+        };
+        let accel = world
+            .traffic()
+            .relations()
+            .vehicle_profile(authorized_near.profile)
+            .expect("profile")
+            .max_accel();
+        let reach = MotionReach::from_tick(100_000, accel, 1.0).expect("reach");
+        assert!(!reach.excludes(later_mm));
+
+        install_barriers(
+            &mut world,
+            slot,
+            vec![conflict_passage(0)],
+            vec![waiting_on(template, 1)],
+        );
+        world.state.workspace.conflict_motion_by_vehicle.fill(None);
+        let mut lookback = base;
+        lookback.route_edge_index = 1;
+        lookback.progress_mm = 0;
+        lookback.carry_um = 0;
+        lookback.speed_mm_s = 5_000;
+        let (pruned, exact, counts) = query_conflict(&mut world, &lookback, 0.033);
+        assert_eq!(pruned, exact);
+        assert_eq!(
+            pruned.expect("previous admission").hop,
+            0,
+            "standing on the next occurrence still checks the admission behind it"
+        );
+        assert!(counts.conflict_scans >= 1);
+    }
+
+    #[test]
+    fn committed_motion_restores_the_conflict_query_on_the_next_tick() {
+        let (mut world, route) =
+            crate::admin::cutover_migration::tests::signal_frontier_world(10_000, None, false);
+        let compiled = world
+            .state
+            .read_view()
+            .compiled_route(route)
+            .expect("compiled")
+            .clone();
+        assert!(!compiled.conflicts.is_empty());
+        let admission = compiled.conflicts[0].admission_hop;
+        assert_eq!(admission, 0);
+        let edge = compiled.edges[admission as usize];
+        let edge_length = world.traffic().lane_lengths_millimetres()[edge.index()];
+        let profile = world
+            .traffic()
+            .relations()
+            .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
+            .expect("profile");
+        let gate = compiled.hop_gate[admission as usize].expect("admission gate");
+        assert!(
+            world
+                .state
+                .gate_is_restrictive(gate, VehicleProfileOrdinal::from_raw(0)),
+            "a red admission is restrictive once it is actually interpreted"
+        );
+        let speed = 5_000;
+        let delta_s = 0.1;
+        let reach = MotionReach::from_tick(speed, profile.max_accel(), delta_s).expect("reach");
+        let beyond = u32::try_from(reach.millimeters.floor() as u64)
+            .expect("reach fits")
+            .saturating_add(20);
+        assert!(reach.excludes(beyond));
+        assert!(edge_length > beyond + 1);
+        let handle = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                admission,
+                edge_length - beyond,
+                speed,
+            ))
+            .expect("spawn");
+        {
+            let state = world.state.committed.vehicles[handle.index() as usize]
+                .state
+                .as_mut()
+                .expect("state");
+            state.carry_um = 999;
+        }
+        world.state.rebuild_occupancy_index().expect("occupancy");
+        let before = world.state.vehicle_state(handle).copied().expect("before");
+        assert_eq!(before.carry_um, 999);
+        assert!(reach.excludes(edge_length - before.progress_mm));
+
+        reset_barrier_query_counts();
+        world.step(TickInput::new(100)).expect("first tick");
+        assert_eq!(
+            barrier_query_counts().conflict_scans,
+            0,
+            "the first tick is still beyond the reach"
+        );
+        let mid = world.state.vehicle_state(handle).copied().expect("mid");
+        assert_eq!(mid.route_edge_index, admission);
+        assert!(mid.progress_mm > before.progress_mm);
+        assert!(mid.progress_mm < edge_length);
+        assert_eq!(mid.status, VehicleStatus::Active);
+        let remaining = edge_length - mid.progress_mm;
+        let mid_reach = MotionReach::from_tick(mid.speed_mm_s, profile.max_accel(), delta_s)
+            .expect("mid reach");
+        assert!(
+            !mid_reach.excludes(remaining),
+            "committed progress {remaining} mm must be inside the next reach {}",
+            mid_reach.millimeters
+        );
+
+        // 灯保持红时，信号和冲突停在同一扇门。这里临时改成绿灯，只比较运动内核：
+        // 恢复出来的冲突停止本身就能拦住车，不依赖红灯。
+        let red_aspects = world.state.committed.signal_aspects.clone();
+        world
+            .state
+            .committed
+            .signal_aspects
+            .fill(SignalAspect::Green);
+        world.state.workspace.conflict_motion_by_vehicle.fill(None);
+        let (stop, exact, _) = query_conflict(&mut world, &mid, delta_s);
+        assert_eq!(stop, exact);
+        let stop = stop.expect("the committed state restores the admission stop");
+        let view = world.state.read_view();
+        let held = view
+            .advance_active_vehicle_with_waiting_stop(mid, delta_s, None, Some(stop))
+            .expect("held motion");
+        let free = view
+            .advance_active_vehicle_with_waiting_stop(mid, delta_s, None, None)
+            .expect("free motion");
+        assert_eq!(held.route_edge_index, admission);
+        assert!(
+            free.route_edge_index > held.route_edge_index || free.progress_mm > held.progress_mm,
+            "without the restored admission stop the vehicle travels farther"
+        );
+        world.state.committed.signal_aspects = red_aspects;
+
+        reset_barrier_query_counts();
+        world.step(TickInput::new(100)).expect("second tick");
+        assert!(
+            barrier_query_counts().conflict_scans >= 1,
+            "the next tick queries the admission again"
+        );
+        let after = world.state.vehicle_state(handle).copied().expect("after");
+        assert_eq!(after.status, VehicleStatus::Active);
+        assert_eq!(
+            after.route_edge_index, admission,
+            "an unauthorized admission does not let the vehicle cross"
+        );
+        assert!(after.progress_mm <= edge_length);
+        assert!(
+            after.progress_mm < edge_length || after.speed_mm_s == 0,
+            "reaching the admission stops the vehicle instead of passing it"
+        );
     }
 }
 
