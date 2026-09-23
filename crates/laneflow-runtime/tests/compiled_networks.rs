@@ -2213,6 +2213,28 @@ fn contender_reserve_failure_is_not_a_stop_constraint() {
     assert!(world.live_vehicles().is_empty());
 }
 
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn contender_note_reserve_failure_is_not_a_stop_constraint() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    laneflow_runtime::set_contender_note_reserve_failure(true);
+    let cursor = world.command_cursor();
+    let result = world.spawn_vehicle(VehicleSpawnInput::new(
+        VehicleProfileOrdinal::from_raw(0),
+        routes[0],
+        0,
+        0,
+        0,
+    ));
+    laneflow_runtime::set_contender_note_reserve_failure(false);
+    assert_eq!(result, Err(SpawnError::OccupancyAllocFailed));
+    assert_eq!(world.command_cursor(), cursor);
+    assert!(world.live_vehicles().is_empty());
+}
+
 #[test]
 fn fresh_spawn_allows_a_foe_that_reaches_the_stop_line_but_not_the_entrance() {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());

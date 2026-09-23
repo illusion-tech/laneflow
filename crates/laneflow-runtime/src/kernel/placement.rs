@@ -1,6 +1,7 @@
 //! 新鲜摆放的运动安全准入。只在 `spawn_vehicle` 与 `replace_completed_vehicle`
 //! 提交前使用；快照恢复和修订切换不调用。
 
+use std::cell::Cell;
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
@@ -38,11 +39,8 @@ struct ReachedGate {
 struct ContenderNotes {
     cells: Vec<(crate::ConflictPassageAddress, ApproachEstimate)>,
     ranks: Vec<(usize, ContenderRank, u32)>,
-    waiting: Option<(usize, WaitingEntrant)>,
+    waiting: Option<(usize, u32, WaitingEntrant)>,
 }
-
-#[cfg(any(test, feature = "placement-fixtures"))]
-use std::cell::Cell;
 
 #[cfg(test)]
 thread_local! {
@@ -52,6 +50,18 @@ thread_local! {
 #[cfg(any(test, feature = "placement-fixtures"))]
 thread_local! {
     static FAIL_CONTENDER_RESERVE: Cell<bool> = const { Cell::new(false) };
+    static FAIL_NOTE_RESERVE: Cell<bool> = const { Cell::new(false) };
+}
+
+thread_local! {
+    static NOTE_ALLOC_FAILED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// 下一次「记下这一辆的到达和名次」时，小块预留按失败处理。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn set_contender_note_reserve_failure(fail: bool) {
+    FAIL_NOTE_RESERVE.with(|cell| cell.set(fail));
 }
 
 /// 下一次争用名单预留按失败处理。只给测试注入分配失败。
@@ -72,6 +82,25 @@ fn contender_reserve<T>(
     items
         .try_reserve(additional)
         .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)
+}
+
+fn note_reserve<T>(items: &mut Vec<T>, additional: usize) -> Option<()> {
+    #[cfg(any(test, feature = "placement-fixtures"))]
+    if FAIL_NOTE_RESERVE.with(Cell::get) {
+        NOTE_ALLOC_FAILED.with(|cell| cell.set(true));
+        return None;
+    }
+    match contender_reserve(items, additional) {
+        Ok(()) => Some(()),
+        Err(_) => {
+            NOTE_ALLOC_FAILED.with(|cell| cell.set(true));
+            None
+        }
+    }
+}
+
+fn take_note_alloc() -> bool {
+    NOTE_ALLOC_FAILED.with(|cell| cell.replace(false))
 }
 
 #[cfg(test)]
@@ -335,6 +364,27 @@ impl crate::kernel::state::WorldState {
         });
     }
 
+    fn admission_clocks(
+        &self,
+        state: &VehicleState,
+        hop: u32,
+        occurrence_index: u32,
+    ) -> (u64, Option<u64>) {
+        let stored = self
+            .committed
+            .conflict_eligibility
+            .get(state.handle.index() as usize)
+            .copied()
+            .flatten();
+        let first = stored
+            .and_then(|item| item.tick_if_same_passage(state.route, hop, occurrence_index))
+            .unwrap_or(self.committed.tick_index);
+        let waiting = state
+            .waiting_membership
+            .map(|member| member.admission_sequence);
+        (first, waiting)
+    }
+
     fn route_needs_contender(&self, route: crate::RouteHandle) -> bool {
         self.compiled_route(route)
             .is_some_and(|compiled| !compiled.conflicts.is_empty() || !compiled.waiting.is_empty())
@@ -345,7 +395,7 @@ impl crate::kernel::state::WorldState {
             .spawn_contenders
             .best
             .iter()
-            .any(Option::is_some)
+            .any(|list| !list.is_empty())
             || self
                 .derived
                 .spawn_contenders
@@ -398,7 +448,13 @@ impl crate::kernel::state::WorldState {
             &mut self.derived.spawn_contenders.waiting_entrants,
             waiting_missing,
         )?;
-        self.derived.spawn_contenders.best.resize(zone_count, None);
+        self.derived
+            .spawn_contenders
+            .best
+            .resize_with(zone_count, Vec::new);
+        for list in &mut self.derived.spawn_contenders.best {
+            list.clear();
+        }
         self.derived
             .spawn_contenders
             .cell_approach_ms
@@ -455,14 +511,18 @@ impl crate::kernel::state::WorldState {
         else {
             return Err(FreshAdmissionFailure::StopConstraint);
         };
-        let Some(notes) = self.contender_notes(
+        let notes = self.contender_notes(
             &state,
             update_sequence,
             preview.next,
             profile.max_accel(),
             profile.emergency_decel(),
             profile.min_gap_mm(),
-        ) else {
+        );
+        if take_note_alloc() {
+            return Err(FreshAdmissionFailure::OccupancyAlloc);
+        }
+        let Some(notes) = notes else {
             return Err(FreshAdmissionFailure::StopConstraint);
         };
         self.apply_contender_notes(handle, notes)
@@ -477,6 +537,7 @@ impl crate::kernel::state::WorldState {
         emergency_decel: f32,
         min_gap_mm: u32,
     ) -> Option<ContenderNotes> {
+        let _ = take_note_alloc();
         let horizon = self.binding.policy_binding.horizon();
         let prepared = match horizon {
             Some(horizon_ms) => Some(PreparedApproachEta::new(
@@ -513,7 +574,7 @@ impl crate::kernel::state::WorldState {
                     if kinematic == ApproachEstimate::OutsideHorizon {
                         break;
                     }
-                    approaches.try_reserve(1).ok()?;
+                    note_reserve(&mut approaches, 1)?;
                     approaches.push((occurrence.address(), kinematic, distance_mm, horizon_ms));
                 }
             }
@@ -541,8 +602,8 @@ impl crate::kernel::state::WorldState {
                     .iter()
                     .filter(|entry| entry.admission_hop == hop)
                 {
-                    zones.try_reserve(1).ok()?;
-                    streams.try_reserve(1).ok()?;
+                    note_reserve(&mut zones, 1)?;
+                    note_reserve(&mut streams, 1)?;
                     zones.push(entry.zone.index());
                     streams.push(entry.stream);
                 }
@@ -552,7 +613,7 @@ impl crate::kernel::state::WorldState {
                         member.waiting_zone == entry.zone && member.release_hop == entry.release_hop
                     })
                 });
-                reached.try_reserve(1).ok()?;
+                note_reserve(&mut reached, 1)?;
                 reached.push(ReachedGate {
                     hop,
                     gate,
@@ -591,13 +652,13 @@ impl crate::kernel::state::WorldState {
                 let BoundedDistance::Finite(approach_mm) = distance else {
                     return None;
                 };
-                waiting = Some((occurrence.zone.index(), approach_mm));
+                waiting = Some((occurrence.zone.index(), occurrence.entry_hop, approach_mm));
                 break;
             }
             Some((approaches, reached, waiting))
         })()?;
         let mut cells = Vec::new();
-        cells.try_reserve(approaches.len()).ok()?;
+        note_reserve(&mut cells, approaches.len())?;
         for (address, kinematic, distance_mm, horizon_ms) in approaches {
             let estimate = delay_approach_for_signal(
                 self.read_view(),
@@ -647,8 +708,21 @@ impl crate::kernel::state::WorldState {
                                 current.min(rule.priority())
                             }));
                         }
-                        let rank = ContenderRank::new(protected, priority, update_sequence);
-                        ranks.try_reserve(gate.zones.len()).ok()?;
+                        let compiled = self.compiled_route(state.route)?;
+                        let occurrence_index = compiled
+                            .conflicts
+                            .partition_point(|entry| entry.admission_hop < gate.hop)
+                            as u32;
+                        let (first_eligible, waiting_sequence) =
+                            self.admission_clocks(state, gate.hop, occurrence_index);
+                        let rank = ContenderRank::new(
+                            protected,
+                            priority,
+                            first_eligible,
+                            waiting_sequence,
+                            update_sequence,
+                        );
+                        note_reserve(&mut ranks, gate.zones.len())?;
                         for zone in &gate.zones {
                             ranks.push((*zone, rank, gate.hop));
                         }
@@ -657,9 +731,10 @@ impl crate::kernel::state::WorldState {
                 }
             }
         }
-        let waiting = waiting.map(|(zone, approach_mm)| {
+        let waiting = waiting.map(|(zone, hop, approach_mm)| {
             (
                 zone,
+                hop,
                 WaitingEntrant {
                     approach_mm,
                     update_sequence,
@@ -704,21 +779,21 @@ impl crate::kernel::state::WorldState {
             }
         }
         for (zone, rank, hop) in notes.ranks {
-            let Some(slot) = self.derived.spawn_contenders.best.get_mut(zone) else {
+            let Some(list) = self.derived.spawn_contenders.best.get_mut(zone) else {
                 return Err(FreshAdmissionFailure::StopConstraint);
             };
-            match slot {
-                Some(current) if current.rank.sorts_before(rank) => {}
-                _ => {
-                    *slot = Some(ZoneContender {
-                        rank,
-                        vehicle: handle,
-                        hop,
-                    })
-                }
-            }
+            contender_reserve(list, 1)?;
+            let position = list.partition_point(|item| item.rank.sorts_before(rank));
+            list.insert(
+                position,
+                ZoneContender {
+                    rank,
+                    vehicle: handle,
+                    hop,
+                },
+            );
         }
-        if let Some((zone, entrant)) = notes.waiting {
+        if let Some((zone, _hop, entrant)) = notes.waiting {
             let Some(list) = self.derived.spawn_contenders.waiting_entrants.get_mut(zone) else {
                 return Err(FreshAdmissionFailure::StopConstraint);
             };
@@ -1276,6 +1351,17 @@ fn motion_or_stop(
     }
 }
 
+/// 材料不齐时不算这次新造成的急停。分配失败仍往外传。
+fn proved_motion(
+    motion: Result<PlacementMotion, PlacementMotionError>,
+) -> Result<Option<PlacementMotion>, FreshAdmissionFailure> {
+    match motion {
+        Ok(motion) => Ok(Some(motion)),
+        Err(PlacementMotionError::Alloc) => Err(FreshAdmissionFailure::OccupancyAlloc),
+        Err(PlacementMotionError::Unprovable) => Ok(None),
+    }
+}
+
 /// 新车若会让已经在路上的车这一拍超出紧急制动，拒绝这次生成。
 /// 旧车本来就会急停的，不算这次造成的。
 fn reject_existing_hard_stop(
@@ -1294,14 +1380,18 @@ fn reject_existing_hard_stop(
     else {
         return Err(FreshAdmissionFailure::StopConstraint);
     };
-    let Some(notes) = world.contender_notes(
+    let notes = world.contender_notes(
         &candidate,
         update_sequence,
         preview.next,
         profile.max_accel(),
         profile.emergency_decel(),
         profile.min_gap_mm(),
-    ) else {
+    );
+    if take_note_alloc() {
+        return Err(FreshAdmissionFailure::OccupancyAlloc);
+    }
+    let Some(notes) = notes else {
         return Err(FreshAdmissionFailure::StopConstraint);
     };
     let mut handles = Vec::new();
@@ -1323,36 +1413,45 @@ fn reject_existing_hard_stop(
         else {
             continue;
         };
-        let induced =
-            match world
-                .read_view()
-                .incoming_hard_stop(&existing, &notes.cells, &notes.ranks)
-            {
-                Ok(induced) => induced,
-                Err(PlacementMotionError::Alloc) => {
-                    return Err(FreshAdmissionFailure::OccupancyAlloc);
-                }
-                Err(PlacementMotionError::Unprovable) => {
-                    return Err(FreshAdmissionFailure::StopConstraint);
-                }
-            };
+        let induced = match world.read_view().incoming_hard_stop(
+            &existing,
+            super::tick::IncomingPressure {
+                approaches: &notes.cells,
+                ranks: &notes.ranks,
+                waiting: notes.waiting,
+                candidate: &candidate,
+                candidate_sequence: update_sequence,
+            },
+        ) {
+            Ok(induced) => induced,
+            Err(PlacementMotionError::Alloc) => {
+                return Err(FreshAdmissionFailure::OccupancyAlloc);
+            }
+            Err(PlacementMotionError::Unprovable) => continue,
+        };
         let Some(induced) = induced else {
             continue;
         };
-        let before = motion_or_stop(world.read_view().placement_motion(
+        let Some(before) = proved_motion(world.read_view().placement_motion(
             existing,
             None,
             false,
             existing_sequence,
             None,
-        ))?;
-        let after = motion_or_stop(world.read_view().placement_motion(
+        ))?
+        else {
+            continue;
+        };
+        let Some(after) = proved_motion(world.read_view().placement_motion(
             existing,
             None,
             false,
             existing_sequence,
             Some(induced),
-        ))?;
+        ))?
+        else {
+            continue;
+        };
         let Some(existing_profile) = world
             .binding
             .revision

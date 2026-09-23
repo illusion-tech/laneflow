@@ -520,6 +520,23 @@ impl ConflictEligibilityState {
         self.first_eligible_tick
     }
 
+    /// 已存资格仍指向同一路线、同一入口和同一次出现时，沿用原来的首次时刻。
+    pub(crate) fn tick_if_same_passage(
+        self,
+        route: crate::RouteHandle,
+        hop: u32,
+        occurrence_index: u32,
+    ) -> Option<u64> {
+        if self.locator.route == route
+            && self.locator.admission_gate_hop == hop
+            && self.locator.conflict_occurrence_index == occurrence_index
+        {
+            Some(self.first_eligible_tick)
+        } else {
+            None
+        }
+    }
+
     /// 按最新资格与 locator 更新首次资格时钟；失去资格时清除记录，occurrence 变化时重新计时。
     pub(crate) fn update(
         current: Option<Self>,

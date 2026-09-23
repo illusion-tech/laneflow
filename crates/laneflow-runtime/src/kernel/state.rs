@@ -90,13 +90,16 @@ pub(crate) struct DerivedIndexes {
     pub(crate) spawn_contenders: SpawnConflictContenders,
 }
 
-/// 已在路上、这一拍会申请该冲突区的最优先一辆。比较只看名次，不含车辆身份。
+/// 已在路上、这一拍会申请该冲突区的一辆车。比较顺序与正式候选键一致，不含车辆身份。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ContenderRank {
     not_protected: u8,
     missing_priority: u8,
     /// 越大越优先，比较时反过来。
     priority: i32,
+    first_eligible_tick: u64,
+    missing_waiting: u8,
+    waiting_sequence: u64,
     update_sequence: u32,
 }
 
@@ -130,12 +133,24 @@ pub(crate) struct WaitingEntrant {
 }
 
 impl ContenderRank {
-    pub(crate) const fn new(protected: bool, priority: Option<i32>, update_sequence: u32) -> Self {
+    pub(crate) const fn new(
+        protected: bool,
+        priority: Option<i32>,
+        first_eligible_tick: u64,
+        waiting_sequence: Option<u64>,
+        update_sequence: u32,
+    ) -> Self {
         Self {
             not_protected: if protected { 0 } else { 1 },
             missing_priority: if priority.is_none() { 1 } else { 0 },
             priority: match priority {
                 Some(priority) => priority,
+                None => 0,
+            },
+            first_eligible_tick,
+            missing_waiting: if waiting_sequence.is_none() { 1 } else { 0 },
+            waiting_sequence: match waiting_sequence {
+                Some(sequence) => sequence,
                 None => 0,
             },
             update_sequence,
@@ -146,17 +161,23 @@ impl ContenderRank {
         self.not_protected == 0
     }
 
-    /// 正式调度里排在 `other` 前面。资格时刻和排队序号两边都没有，不参加比较。
+    /// 正式调度里排在 `other` 前面。资格更早、已有排队序号的更优先，然后才比更新序号。
     pub(crate) fn sorts_before(self, other: Self) -> bool {
         (
             self.not_protected,
             self.missing_priority,
             core::cmp::Reverse(self.priority),
+            self.first_eligible_tick,
+            self.missing_waiting,
+            self.waiting_sequence,
             self.update_sequence,
         ) < (
             other.not_protected,
             other.missing_priority,
             core::cmp::Reverse(other.priority),
+            other.first_eligible_tick,
+            other.missing_waiting,
+            other.waiting_sequence,
             other.update_sequence,
         )
     }
@@ -165,7 +186,8 @@ impl ContenderRank {
 /// 生成停车判断用的已提交接近表。步进不重建。世代或序号对不上就整份作废，下次生成再重建。
 #[derive(Debug, Default)]
 pub(crate) struct SpawnConflictContenders {
-    pub(crate) best: Vec<Option<ZoneContender>>,
+    /// 每个冲突区里这一拍会申请的车，按正式名次排好。不只留最优先的一辆。
+    pub(crate) best: Vec<Vec<ZoneContender>>,
     /// 按冲突格点。`CELL_APPROACH_NONE` 表示没有其他车的可证明到达。
     pub(crate) cell_approach_ms: Vec<u64>,
     /// 按排队区。只含这一拍预览会新进入的车，按接近距离和更新序号排好。
