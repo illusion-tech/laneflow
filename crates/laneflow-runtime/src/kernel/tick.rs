@@ -68,6 +68,15 @@ pub(crate) enum PlacementMotionError {
     Alloc,
 }
 
+/// 这一辆还没提交的车，对已经在路上的车多出来的压力。
+pub(crate) struct IncomingPressure<'a> {
+    pub(crate) approaches: &'a [(crate::ConflictPassageAddress, ApproachEstimate)],
+    pub(crate) ranks: &'a [(usize, ContenderRank, u32)],
+    pub(crate) waiting: Option<(usize, u32, crate::kernel::state::WaitingEntrant)>,
+    pub(crate) candidate: &'a VehicleState,
+    pub(crate) candidate_sequence: u32,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum YieldAdmission {
     Clear,
@@ -1890,11 +1899,18 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             while index < compiled.conflicts.len() && compiled.conflicts[index].admission_hop == hop
             {
                 let zone = compiled.conflicts[index].zone.index();
-                let Some(best) = self.derived.spawn_contenders.best.get(zone) else {
+                let Some(contenders) = self.derived.spawn_contenders.best.get(zone) else {
                     return AdmissionPreview::Unprovable;
                 };
-                if best.is_some_and(|best| best.rank.sorts_before(rank)) {
-                    return stop;
+                for contender in contenders {
+                    if !contender.rank.sorts_before(rank) {
+                        break;
+                    }
+                    match self.earlier_request(*contender) {
+                        AdmissionPreview::Clear => return stop,
+                        AdmissionPreview::Stop(_) => {}
+                        other => return other,
+                    }
                 }
                 index = index.saturating_add(1);
             }
@@ -1941,7 +1957,113 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         if !saw_stream {
             return None;
         }
-        Some(ContenderRank::new(protected, priority, candidate_sequence))
+        let (first_eligible, waiting_sequence) =
+            self.admission_clocks(state, hop, occurrence_index as u32);
+        Some(ContenderRank::new(
+            protected,
+            priority,
+            first_eligible,
+            waiting_sequence,
+            candidate_sequence,
+        ))
+    }
+
+    fn admission_clocks(
+        self,
+        state: &VehicleState,
+        hop: u32,
+        occurrence_index: u32,
+    ) -> (u64, Option<u64>) {
+        let stored = self
+            .committed
+            .conflict_eligibility
+            .get(state.handle.index() as usize)
+            .copied()
+            .flatten();
+        let first = stored
+            .and_then(|item| item.tick_if_same_passage(state.route, hop, occurrence_index))
+            .unwrap_or(self.committed.tick_index);
+        let waiting = state
+            .waiting_membership
+            .map(|member| member.admission_sequence);
+        (first, waiting)
+    }
+
+    /// 这辆已经在路上的申请者这一拍能不能真正占上。让行失败、格子被占、下游放不下都算没占上。
+    fn earlier_request(self, contender: crate::kernel::state::ZoneContender) -> AdmissionPreview {
+        let Some(state) = self.vehicle_state(contender.vehicle).copied() else {
+            return AdmissionPreview::Stop(crate::kernel::waiting::WaitingStopConstraint {
+                distance: BoundedDistance::Finite(0),
+                hop: contender.hop,
+            });
+        };
+        if state.status != VehicleStatus::Active {
+            return AdmissionPreview::Stop(crate::kernel::waiting::WaitingStopConstraint {
+                distance: BoundedDistance::Finite(0),
+                hop: contender.hop,
+            });
+        }
+        let Some(compiled) = self.compiled_route(state.route) else {
+            return AdmissionPreview::Unprovable;
+        };
+        let occurrence_index = compiled
+            .conflicts
+            .partition_point(|entry| entry.admission_hop < contender.hop);
+        let mut index = occurrence_index;
+        while index < compiled.conflicts.len()
+            && compiled.conflicts[index].admission_hop == contender.hop
+        {
+            let address = compiled.conflicts[index].address();
+            if self
+                .conflict_read()
+                .cells_unavailable(state.handle, std::slice::from_ref(&address))
+            {
+                return AdmissionPreview::Stop(crate::kernel::waiting::WaitingStopConstraint {
+                    distance: BoundedDistance::Finite(0),
+                    hop: contender.hop,
+                });
+            }
+            index = index.saturating_add(1);
+        }
+        if !contender.rank.is_protected() {
+            match self.yield_outcome(&state, compiled, contender.hop, occurrence_index, &[]) {
+                YieldAdmission::Clear => {}
+                YieldAdmission::Stop => {
+                    return AdmissionPreview::Stop(crate::kernel::waiting::WaitingStopConstraint {
+                        distance: BoundedDistance::Finite(0),
+                        hop: contender.hop,
+                    });
+                }
+                YieldAdmission::Unprovable => return AdmissionPreview::Unprovable,
+            }
+        }
+        match self.claim_intervals(&state, contender.hop) {
+            Ok(intervals) => {
+                let Some(profile) = self
+                    .binding
+                    .revision
+                    .traffic()
+                    .relations()
+                    .vehicle_profile(state.profile)
+                else {
+                    return AdmissionPreview::Unprovable;
+                };
+                if intervals.iter().any(|interval| {
+                    self.conflict_read().committed_downstream_conflicts(
+                        *interval,
+                        state.handle,
+                        profile.min_gap_mm(),
+                    )
+                }) {
+                    return AdmissionPreview::Stop(crate::kernel::waiting::WaitingStopConstraint {
+                        distance: BoundedDistance::Finite(0),
+                        hop: contender.hop,
+                    });
+                }
+                AdmissionPreview::Clear
+            }
+            Err(preview) => preview,
+        }
     }
 
     fn yield_outcome(
@@ -2184,7 +2306,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 earlier.push(*contender);
             }
         }
-        earlier.sort_by(|left, right| {
+        earlier.sort_unstable_by(|left, right| {
             if left.rank.sorts_before(right.rank) {
                 core::cmp::Ordering::Less
             } else if right.rank.sorts_before(left.rank) {
@@ -2195,6 +2317,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         });
         let mut staged: Vec<(DownstreamInterval, u32)> = Vec::new();
         for contender in earlier {
+            match self.earlier_request(contender) {
+                AdmissionPreview::Clear => {}
+                AdmissionPreview::Stop(_) => continue,
+                other => return other,
+            }
             let Some(state) = self.vehicle_state(contender.vehicle).copied() else {
                 continue;
             };
@@ -2311,8 +2438,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     pub(crate) fn incoming_hard_stop(
         self,
         existing: &VehicleState,
-        incoming: &[(crate::ConflictPassageAddress, ApproachEstimate)],
-        candidate_ranks: &[(usize, ContenderRank, u32)],
+        pressure: IncomingPressure<'_>,
     ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, PlacementMotionError> {
         let Some(compiled) = self.compiled_route(existing.route) else {
             return Ok(None);
@@ -2333,6 +2459,42 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         } else {
             existing.route_edge_index
         };
+        let candidate_blocked_at =
+            match self.admission_stop(pressure.candidate, pressure.candidate_sequence) {
+                AdmissionPreview::Clear => None,
+                AdmissionPreview::Stop(stop) => Some(stop.hop),
+                AdmissionPreview::Unprovable => return Err(PlacementMotionError::Unprovable),
+                AdmissionPreview::Alloc => return Err(PlacementMotionError::Alloc),
+            };
+        let existing_sequence = self
+            .committed
+            .live_order
+            .iter()
+            .position(|handle| *handle == existing.handle)
+            .and_then(|index| u32::try_from(index).ok())
+            .unwrap_or(0);
+        let candidate_claims = if let Some((_, _, candidate_hop)) = pressure.ranks.first().copied()
+        {
+            if candidate_blocked_at.is_none_or(|blocked| candidate_hop < blocked) {
+                match self.claim_intervals(pressure.candidate, candidate_hop) {
+                    Ok(claims) => claims,
+                    Err(AdmissionPreview::Alloc) => return Err(PlacementMotionError::Alloc),
+                    Err(_) => return Err(PlacementMotionError::Unprovable),
+                }
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+        let candidate_gap = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(pressure.candidate.profile)
+            .map(|profile| profile.min_gap_mm())
+            .unwrap_or(0);
         let mut index = compiled
             .conflicts
             .partition_point(|entry| entry.admission_hop < first_hop);
@@ -2363,32 +2525,101 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 return Ok(None);
             }
             let stop = crate::kernel::waiting::WaitingStopConstraint { distance, hop };
-            let displaced = candidate_ranks.iter().any(|(zone, rank, _)| {
-                self.derived
-                    .spawn_contenders
-                    .best
-                    .get(*zone)
-                    .and_then(|slot| *slot)
-                    .is_some_and(|best| {
-                        best.vehicle == existing.handle && rank.sorts_before(best.rank)
-                    })
+            let candidate_reaches =
+                |gate: u32| candidate_blocked_at.is_none_or(|blocked| gate < blocked);
+            let displaced = pressure.ranks.iter().any(|(zone, rank, candidate_hop)| {
+                *candidate_hop == hop
+                    && candidate_reaches(*candidate_hop)
+                    && self
+                        .derived
+                        .spawn_contenders
+                        .best
+                        .get(*zone)
+                        .is_some_and(|list| {
+                            list.iter().any(|best| {
+                                best.vehicle == existing.handle && rank.sorts_before(best.rank)
+                            })
+                        })
             });
             if displaced {
                 return Ok(Some(stop));
             }
+            if let Some(old_rank) =
+                self.candidate_rank(compiled, hop, index, existing, existing_sequence)
+            {
+                let candidate_ahead = pressure.ranks.iter().any(|(_, rank, candidate_hop)| {
+                    candidate_reaches(*candidate_hop) && rank.sorts_before(old_rank)
+                });
+                if candidate_ahead && !candidate_claims.is_empty() {
+                    match self.claim_intervals(existing, hop) {
+                        Ok(old_claims) => {
+                            if old_claims.iter().any(|interval| {
+                                candidate_claims.iter().any(|candidate_interval| {
+                                    intervals_conflict(
+                                        *interval,
+                                        profile.min_gap_mm(),
+                                        *candidate_interval,
+                                        candidate_gap,
+                                    )
+                                })
+                            }) {
+                                return Ok(Some(stop));
+                            }
+                        }
+                        Err(AdmissionPreview::Alloc) => return Err(PlacementMotionError::Alloc),
+                        Err(_) => return Err(PlacementMotionError::Unprovable),
+                    }
+                }
+            }
             let protected = self
-                .candidate_rank(compiled, hop, index, existing, 0)
+                .candidate_rank(compiled, hop, index, existing, existing_sequence)
                 .is_some_and(|rank| rank.is_protected());
             if !protected {
                 match (
                     self.yield_outcome(existing, compiled, hop, index, &[]),
-                    self.yield_outcome(existing, compiled, hop, index, incoming),
+                    self.yield_outcome(existing, compiled, hop, index, pressure.approaches),
                 ) {
                     (YieldAdmission::Clear, YieldAdmission::Stop) => return Ok(Some(stop)),
                     (YieldAdmission::Clear, YieldAdmission::Unprovable) => {
                         return Err(PlacementMotionError::Unprovable);
                     }
                     _ => {}
+                }
+            }
+            if let Some((zone, waiting_hop, entrant)) = pressure.waiting
+                && waiting_hop == hop
+                && candidate_reaches(waiting_hop)
+                && let Some(occurrence) = compiled
+                    .waiting
+                    .iter()
+                    .copied()
+                    .find(|entry| entry.entry_hop == hop && entry.zone.index() == zone)
+            {
+                let approach = match distance {
+                    BoundedDistance::Finite(mm) => mm,
+                    BoundedDistance::BeyondFinite => 0,
+                };
+                let without = self.waiting_grant(
+                    existing,
+                    occurrence,
+                    approach,
+                    existing_sequence,
+                    profile.min_gap_mm(),
+                    None,
+                );
+                let with = self.waiting_grant(
+                    existing,
+                    occurrence,
+                    approach,
+                    existing_sequence,
+                    profile.min_gap_mm(),
+                    Some(entrant),
+                );
+                if matches!(
+                    (without, with),
+                    (WaitingGrant::Granted, WaitingGrant::Denied)
+                ) {
+                    return Ok(Some(stop));
                 }
             }
             while index < compiled.conflicts.len() && compiled.conflicts[index].admission_hop == hop
@@ -2429,6 +2660,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             approach_mm,
             candidate_sequence,
             min_gap_mm,
+            None,
         ) {
             WaitingGrant::Granted => true,
             WaitingGrant::Denied => false,
@@ -2485,6 +2717,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         approach_mm: u32,
         candidate_sequence: u32,
         min_gap_mm: u32,
+        extra: Option<crate::kernel::state::WaitingEntrant>,
     ) -> WaitingGrant {
         let zone_index = occurrence.zone.index();
         let Some(zone_state) = self.committed.waiting_zones.get(zone_index) else {
@@ -2550,7 +2783,26 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         else {
             return WaitingGrant::Unprovable;
         };
-        for entrant in entrants {
+        let mut extra = extra;
+        let mut cursor = 0usize;
+        loop {
+            let listed = entrants.get(cursor).copied();
+            let extra_first = match (extra, listed) {
+                (Some(next), Some(listed)) => {
+                    (next.approach_mm, next.update_sequence)
+                        <= (listed.approach_mm, listed.update_sequence)
+                }
+                (Some(_), None) => true,
+                _ => false,
+            };
+            let Some(entrant) = (if extra_first {
+                extra.take()
+            } else {
+                cursor = cursor.saturating_add(1);
+                listed
+            }) else {
+                break;
+            };
             let closer = entrant.approach_mm < approach_mm
                 || (entrant.approach_mm == approach_mm
                     && entrant.update_sequence < candidate_sequence);

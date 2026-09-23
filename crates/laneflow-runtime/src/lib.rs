@@ -75,7 +75,7 @@ pub use kernel::parking::{
 };
 #[cfg(any(test, feature = "placement-fixtures"))]
 #[doc(hidden)]
-pub use kernel::placement::set_contender_reserve_failure;
+pub use kernel::placement::{set_contender_note_reserve_failure, set_contender_reserve_failure};
 pub use kernel::policy::{DerivedPolicyGap, PolicyPin, WorldPolicySelection};
 pub use kernel::pose::{CommittedSignalGroupBatch, PoseSource};
 pub use kernel::transitions::{
