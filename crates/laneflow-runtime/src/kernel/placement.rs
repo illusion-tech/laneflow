@@ -342,6 +342,16 @@ impl crate::kernel::state::WorldState {
         if beyond {
             return true;
         }
+        if usize::try_from(hop).ok().is_some_and(|index| {
+            compiled
+                .hop_gate
+                .get(index)
+                .copied()
+                .flatten()
+                .is_some_and(|gate| self.read_view().gate_is_restrictive(gate, state.profile))
+        }) {
+            return true;
+        }
         let mut end = start;
         while end < compiled.conflicts.len() && compiled.conflicts[end].admission_hop == hop {
             end = end.saturating_add(1);

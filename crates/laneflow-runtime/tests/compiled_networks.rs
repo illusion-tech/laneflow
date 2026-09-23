@@ -1767,6 +1767,65 @@ fn conflict_tick_uses_stable_single_writer_winner_and_retries_the_loser() {
     );
 }
 
+#[test]
+fn fresh_spawn_before_blocked_downstream_storage_must_stop() {
+    let revision = compile_road_editing_revision(conflict_road_editing_module());
+    let stream = revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("fixture stream");
+    let edges = revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(stream.maneuver_path())
+        .expect("path")
+        .edges()
+        .to_vec();
+    let mut open =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 2, 64, 1, 100)).expect("open");
+    let open_route = open
+        .register_route(RouteRegisterInput::new(edges.clone()))
+        .expect("route");
+    let open_entry = open.route_edges(open_route).expect("route")[0];
+    let open_gate = open.traffic().lane_lengths_millimetres()[open_entry.index()];
+    assert!(open_gate > 400, "approach must leave room before the gate");
+    open.spawn_vehicle(VehicleSpawnInput::new(
+        VehicleProfileOrdinal::from_raw(0),
+        open_route,
+        0,
+        open_gate - 400,
+        10_000,
+    ))
+    .expect("clear downstream is not a mandatory stop");
+
+    let mut blocked =
+        install_fixture(revision, WorldConfig::new(4, 2, 64, 1, 100)).expect("blocked");
+    let route = blocked
+        .register_route(RouteRegisterInput::new(edges))
+        .expect("route");
+    blocked
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            1,
+            10_501,
+            0,
+        ))
+        .expect("leader rear exactly clears passage");
+    let entry = blocked.route_edges(route).expect("route")[0];
+    let gate = blocked.traffic().lane_lengths_millimetres()[entry.index()];
+    assert_eq!(
+        blocked.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            gate - 400,
+            10_000,
+        )),
+        Err(SpawnError::StopConstraintUnsatisfiable)
+    );
+}
+
 #[cfg(feature = "placement-fixtures")]
 #[test]
 fn conflict_tick_rejects_when_committed_downstream_storage_is_blocked() {
