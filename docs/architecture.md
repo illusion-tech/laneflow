@@ -243,9 +243,9 @@ live identity，但不产生 committed pose。真正移除仍由原子 `despawn_
 在同一提交释放停车 binding/route 引用；无 pose 不等于移除。完整合同见
 `design/parking-system.md`。
 
-**实现状态**：当前代码已移除 `ParkingArea` / `occupy_parking`，由私有稀疏 aggregate
-统一管理显式/虚拟 reservation 与 occupancy；Snapshot v3、cutover/replay、Spatial/Bevy
-消费同一 authority。
+**实现状态**：当前代码已移除 `ParkingArea` / `occupy_parking`，由按车辆下标和句柄
+代际读取的私有 aggregate 统一管理显式/虚拟 reservation 与 occupancy；Snapshot v3、
+cutover/replay、Spatial/Bevy 消费同一 authority。
 
 #229 已按 #228/ADR 0017 把 Traffic 原子切换为 v0.8：clean break 增加
 Junction、Movement、ManeuverPath，并以一等 ManeuverGate 取代 pair-based Gate。

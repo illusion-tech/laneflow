@@ -349,7 +349,7 @@ pub(crate) fn slice_bytes<T>(values: &[T]) -> u64 {
 }
 
 /// 实例自有 backing 的唯一总账；共享根另列，跨世界相加时按 Arc 去重。
-/// HashMap 计 payload capacity，不把 allocator 桶元数据或分配器开销冒充逻辑存储。
+/// `Vec` 与切片按元素 `capacity` 或长度计字节，不把分配器开销冒充逻辑存储。
 #[cfg(test)]
 #[derive(Debug)]
 pub(crate) struct WorldMemoryLedger {
