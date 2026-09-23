@@ -187,10 +187,17 @@ fn despawn_and_respawn(
     world: &mut TrafficWorld,
     old: VehicleHandle,
     respawn: VehicleSpawnInput,
+    existing: bool,
 ) -> VehicleHandle {
     world.despawn_vehicle(old).expect("despawn");
     assert!(world.vehicle(old).is_none(), "despawned handle stays stale");
-    let new = world.spawn_vehicle(respawn).expect("respawn");
+    let new = if existing {
+        world
+            .place_existing_active_vehicle(respawn)
+            .expect("respawn")
+    } else {
+        world.spawn_vehicle(respawn).expect("respawn")
+    };
     assert_ne!(new, old, "respawn must issue a fresh handle generation");
     new
 }
@@ -746,7 +753,7 @@ fn run_full_spatial_lifecycle_fused(workers: u32) -> Vec<String> {
         .expect("near-end spawn");
     // 信号 Stop-Go：首边末起步，信号组按周期变化。
     let stop_go = world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
@@ -794,7 +801,7 @@ fn run_full_spatial_lifecycle_fused(workers: u32) -> Vec<String> {
                 9_900,
                 speed_limit,
             );
-            despawn_and_respawn(&mut world, stop_go, input);
+            despawn_and_respawn(&mut world, stop_go, input, true);
         }
         let outcome = world
             .step(TickInput::new(DELTA_MS))
@@ -1044,6 +1051,7 @@ fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
                 &mut world,
                 handles[9],
                 VehicleSpawnInput::new(profile, route, backfill.0, backfill.1, 0),
+                false,
             );
             assert_fused_path(&world, "hybrid lifecycle despawn+respawn");
         }
