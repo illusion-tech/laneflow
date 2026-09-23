@@ -1,5 +1,3 @@
-#![cfg(feature = "placement-fixtures")]
-
 #[path = "support/population_policy.rs"]
 mod population_policy;
 
@@ -17,6 +15,7 @@ use laneflow_scenario::signalized_corridor::{
     DEFAULT_TARGET_VEHICLE_COUNT, MAX_TARGET_VEHICLE_COUNT, MIN_TARGET_VEHICLE_COUNT,
     PASSENGER_CAR_PROFILE_KEY, bind,
 };
+#[cfg(feature = "placement-fixtures")]
 use laneflow_static_contract::VehicleProfileOrdinal;
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
@@ -111,30 +110,25 @@ fn prepare(
 
 fn spawn_plans(
     world: &mut TrafficWorld,
-    prepared: &CorridorPopulationPrepare,
+    prepared: &mut CorridorPopulationPrepare,
     plans: &[laneflow_scenario::signalized_corridor::CorridorVehiclePlan],
 ) -> (Vec<VehicleHandle>, Vec<laneflow_runtime::RouteHandle>) {
     let routes = prepared
         .install_routes(world)
         .expect("install catalog routes");
-    let vehicles = plans
-        .iter()
-        .map(|plan| {
-            world
-                .place_existing_active_vehicle(
-                    plan.spawn_input(world, &routes).expect("spawn input"),
-                )
-                .expect("initial spawn")
-        })
-        .collect();
+    let vehicles = prepared
+        .admit_initial_plans(world, &routes, plans)
+        .expect("initial spawn");
     (vehicles, routes)
 }
 
 fn spawn_population(
     world: &mut TrafficWorld,
-    prepared: &CorridorPopulationPrepare,
+    prepared: &mut CorridorPopulationPrepare,
 ) -> (Vec<VehicleHandle>, Vec<laneflow_runtime::RouteHandle>) {
-    spawn_plans(world, prepared, prepared.initial_vehicles())
+    prepared
+        .spawn_initial_vehicles(world)
+        .expect("initial population")
 }
 
 #[test]
@@ -182,7 +176,7 @@ fn prepare_50_100_200_are_deterministic_for_seed_zero() {
 
 #[test]
 fn bind_and_replace_does_not_despawn_then_spawn() {
-    let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
@@ -194,7 +188,7 @@ fn bind_and_replace_does_not_despawn_then_spawn() {
         ),
     )
     .expect("install");
-    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
     let mut controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
     assert_eq!(controller.counts().running, MIN_TARGET_VEHICLE_COUNT);
     assert_eq!(controller.counts().pending, 0);
@@ -250,7 +244,7 @@ fn bind_and_replace_does_not_despawn_then_spawn() {
 
 #[test]
 fn blocked_retry_replays_the_same_plan() {
-    let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
@@ -262,7 +256,7 @@ fn blocked_retry_replays_the_same_plan() {
         ),
     )
     .expect("install");
-    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
     let mut controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
     for _ in 0..8_000 {
         world.step(TickInput::new(TICK_MS)).expect("step");
@@ -315,7 +309,7 @@ fn blocked_retry_replays_the_same_plan() {
 
 #[test]
 fn apply_pending_host_error_restores_fifo_front() {
-    let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
@@ -327,7 +321,7 @@ fn apply_pending_host_error_restores_fifo_front() {
         ),
     )
     .expect("install");
-    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
     let mut controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
     for _ in 0..8_000 {
         world.step(TickInput::new(TICK_MS)).expect("step");
@@ -376,7 +370,7 @@ fn take_initial_vehicles_then_bind_reaches_running() {
     .expect("install");
     let plans = prepared.take_initial_vehicles();
     assert_eq!(plans.len(), MIN_TARGET_VEHICLE_COUNT);
-    let (vehicles, routes) = spawn_plans(&mut world, &prepared, &plans);
+    let (vehicles, routes) = spawn_plans(&mut world, &mut prepared, &plans);
     let controller = prepared
         .bind(&mut world, &vehicles, &routes)
         .expect("bind after take");
@@ -386,7 +380,7 @@ fn take_initial_vehicles_then_bind_reaches_running() {
 
 #[test]
 fn consume_world_rejects_skipped_ticks() {
-    let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
@@ -398,7 +392,7 @@ fn consume_world_rejects_skipped_ticks() {
         ),
     )
     .expect("install");
-    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
     let mut controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
     world.step(TickInput::new(TICK_MS)).expect("first step");
     world
@@ -414,9 +408,10 @@ fn consume_world_rejects_skipped_ticks() {
     ));
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn consume_world_rejects_untracked_completed_vehicle() {
-    let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
@@ -429,7 +424,7 @@ fn consume_world_rejects_untracked_completed_vehicle() {
     )
     .expect("install");
     let extra_route_index = prepared.initial_vehicles()[0].route_index;
-    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
     let mut controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
     let extra = spawn_near_route_end(&mut world, routes[extra_route_index]);
     world.step(TickInput::new(TICK_MS)).expect("step");
@@ -465,6 +460,7 @@ fn foreign_world() -> TrafficWorld {
     .expect("install")
 }
 
+#[cfg(feature = "placement-fixtures")]
 fn spawn_near_route_end(
     world: &mut TrafficWorld,
     route: laneflow_runtime::RouteHandle,
@@ -499,7 +495,7 @@ fn spawn_input_rejects_foreign_revision() {
 
 #[test]
 fn consume_world_rejects_foreign_revision() {
-    let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
@@ -511,7 +507,7 @@ fn consume_world_rejects_foreign_revision() {
         ),
     )
     .expect("install");
-    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
     let mut controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
     let error = controller
         .consume_world(&foreign_world())
@@ -524,7 +520,7 @@ fn consume_world_rejects_foreign_revision() {
 
 #[test]
 fn pending_spawn_input_rejects_foreign_revision() {
-    let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
@@ -536,7 +532,7 @@ fn pending_spawn_input_rejects_foreign_revision() {
         ),
     )
     .expect("install");
-    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
     let mut controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
     for _ in 0..8_000 {
         world.step(TickInput::new(TICK_MS)).expect("step");
@@ -563,7 +559,7 @@ fn pending_spawn_input_rejects_foreign_revision() {
 
 #[test]
 fn apply_pending_rejects_foreign_revision() {
-    let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
@@ -575,7 +571,7 @@ fn apply_pending_rejects_foreign_revision() {
         ),
     )
     .expect("install");
-    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
     let mut controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
     for _ in 0..8_000 {
         world.step(TickInput::new(TICK_MS)).expect("step");
@@ -621,7 +617,7 @@ const FULL_SOAK_MAX_TICKS: u32 = 5_000_000;
 const REPLAY_TICKS: u32 = 12_000;
 
 fn bound_controller(target: usize) -> (TrafficWorld, CorridorPopulationController) {
-    let (prepared, revision) = prepare(target, DEFAULT_SEED);
+    let (mut prepared, revision) = prepare(target, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
@@ -633,7 +629,7 @@ fn bound_controller(target: usize) -> (TrafficWorld, CorridorPopulationControlle
         ),
     )
     .expect("install");
-    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
     let controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
     (world, controller)
 }
@@ -878,10 +874,11 @@ fn population_rejects_other_policy_on_same_root_without_mutating_lifecycle() {
         let mut foreign = install_with_policy(Arc::clone(&revision), config, other).unwrap();
         assert!(Arc::ptr_eq(&world.revision(), &foreign.revision()));
         assert_ne!(world.policy_selection(), foreign.policy_selection());
-        let prepared = prepare_selected(selected);
-        let foreign_prepared = prepare_selected(other);
-        let (vehicles, routes) = spawn_population(&mut world, &prepared);
-        let (foreign_vehicles, foreign_routes) = spawn_population(&mut foreign, &foreign_prepared);
+        let mut prepared = prepare_selected(selected);
+        let mut foreign_prepared = prepare_selected(other);
+        let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
+        let (foreign_vehicles, foreign_routes) =
+            spawn_population(&mut foreign, &mut foreign_prepared);
         // 两个世界的局部句柄碰巧完全一致，修订和句柄校验不足以发现错配。
         assert_eq!(vehicles, foreign_vehicles);
         assert_eq!(routes, foreign_routes);

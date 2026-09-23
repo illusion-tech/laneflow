@@ -1,7 +1,7 @@
 # Signalized Corridor Population
 
 **文档状态**: Accepted（#203 G1；#475 Runtime 回流）<br>
-**最后更新**: 2026-09-04<br>
+**最后更新**: 2026-09-23<br>
 **适用范围**: current v0.10 signalized-corridor catalog 0.4 人口/回流 policy；
 caller-owned authority 继续继承 ADR 0016。catalog 字符串在 prepare 绑到共享路网修订
 （#472）；50–200 原子替换由 #475 交付。
@@ -53,8 +53,11 @@ generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate �
 3. `prepare` 校验 config/profile，执行一次确定性 Fisher–Yates，返回完整
    `CorridorVehiclePlan` batch，计划保留 `NetworkRevisionId` 与策略选择；
 4. caller 把 bound catalog 的 `policy_selection` 显式传入唯一
-   `TrafficWorld::install`，再调用 prepared `install_routes` 注册每条路线；
-5. caller 在同一个世界按计划逐辆 `spawn_vehicle`；`spawn_input` 同时校验修订和策略；
+   `TrafficWorld::install`；
+5. caller 在同一个世界调用 `spawn_initial_vehicles`。它先注册每条路线，再按计划逐辆
+   `spawn_vehicle`。计划初速是 `min(desiredSpeed, 边限速)`。这个速度若过不了当前停车、
+   前方降速或前后车的这一拍检查，就按 1 m/s 往下降，直到放得进。位置和路线不改。
+   降下来的速度写回计划，`bind` 用写回后的速度核对；
 6. population bind 必须发生在 tick 0，校验世界修订、策略和所有 vehicle、route、
    profile identity；全部一致后，controller 才进入 `Running = target, Pending = 0`。
 
@@ -113,8 +116,9 @@ Runtime 没有 external ID 字符串。`prepare` 对完整规范 physical slot c
 到开头的 Fisher–Yates 后取前 N 个 slot，再按 logical slot 顺序对其 PortalLane 执行一次
 weighted RouteChoice draw。单 choice 也必须使用原始正整数 weight 作为 `uniform` bound，
 不能跳过 draw。每个 initial slot 与每条 route 的共享 entry slot 都派生
-`min(VehicleProfile.desiredSpeed, spawn edge speedLimit)` 作为正常行驶初速度；没有
-speed-limit authority 时启动失败。50、100、200 三种目标人口都必须通过同 seed
+`min(VehicleProfile.desiredSpeed, spawn edge speedLimit)` 作为计划初速；没有
+speed-limit authority 时启动失败。放进世界时，若这个初速过不了新鲜摆放的当前停车、
+前方降速或前后车检查，就按 1 m/s 降低到仍能通过的速度，不改槽位。50、100、200 三种目标人口都必须通过同 seed
 整批 golden、初速度上限/正值、no-overlap spawn 和 tick-0 bind 验证。
 
 ## 5. Fixed-step lifecycle
