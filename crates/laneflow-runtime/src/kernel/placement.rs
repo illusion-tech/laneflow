@@ -4,8 +4,28 @@
 use laneflow_static_contract::VehicleProfileOrdinal;
 
 use super::occupancy::LeaderQueryHorizon;
-use super::tables::occupancy_front_gap;
-use crate::{SpawnError, VehicleHandle, VehicleSpawnInput, VehicleStatus};
+use super::tables::{for_each_admission_interval, occupancy_front_gap};
+use super::tick::{PlacementMotion, leader_query_horizon};
+use crate::kernel::units::ceil_mm;
+use crate::{SpawnError, VehicleHandle, VehicleSpawnInput, VehicleState, VehicleStatus};
+
+#[cfg(test)]
+use std::cell::Cell;
+
+#[cfg(test)]
+thread_local! {
+    static FOLLOWER_CANDIDATES: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_follower_candidates() {
+    FOLLOWER_CANDIDATES.set(0);
+}
+
+#[cfg(test)]
+pub(crate) fn follower_candidates() -> u64 {
+    FOLLOWER_CANDIDATES.with(Cell::get)
+}
 
 /// 新鲜摆放在重叠和权威检查之后仍可能失败的原因。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -74,9 +94,8 @@ pub(crate) fn can_slow_to_before(
     needed_mm.is_finite() && needed_mm <= f64::from(distance_mm)
 }
 
-/// 后车能否在不依赖硬投影的前提下接纳这名前车。
-///
-/// 前车速度为 0 时额外房间为 0，与驶离停车的现行判断相同。
+/// 驶离停车使用的静止前车算式。前车速度不为 0 时仍按调用方传入的速度计算，
+/// 新鲜摆放不再走这里。
 pub(crate) fn moving_follower_can_admit(
     follower_speed_mm_s: u32,
     follower_emergency_m_s2: f32,
@@ -192,8 +211,8 @@ impl crate::kernel::state::WorldState {
         self.ensure_current_occupancy()
             .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
         let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
-        self.admit_nearest_leader(input, profile.min_gap_mm(), emergency, delta_s)?;
-        self.admit_direct_followers(input, vehicle_length_mm, emergency, delta_s)
+        self.admit_nearest_leader(input, profile, vehicle_length_mm, delta_s)?;
+        self.admit_direct_followers(input, vehicle_length_mm, delta_s)
     }
 
     fn restrictive_stop_mm(
@@ -266,72 +285,59 @@ impl crate::kernel::state::WorldState {
     fn admit_nearest_leader(
         &self,
         input: VehicleSpawnInput,
-        follower_min_gap_mm: u32,
-        follower_emergency: f32,
+        profile: laneflow_static_network::VehicleProfileView,
+        vehicle_length_mm: u32,
         delta_s: f32,
     ) -> Result<(), FreshAdmissionFailure> {
         let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
         let follower_edges = self.route_edges(input.route()).expect("已校验的路线仍在");
         let follower_index =
             usize::try_from(input.route_edge_index()).expect("route index fits usize");
-        let mut nearest: Option<(VehicleHandle, u32)> = None;
-        for handle in self.derived.active_order.iter().copied() {
-            let Some(leader) = self.vehicle_state(handle).copied() else {
-                continue;
-            };
-            if leader.status != VehicleStatus::Active {
-                continue;
-            }
-            let Some(leader_edges) = self.route_edges(leader.route) else {
-                return Err(FreshAdmissionFailure::UnsafeLeader(handle));
-            };
-            let Ok(leader_index) = usize::try_from(leader.route_edge_index) else {
-                return Err(FreshAdmissionFailure::UnsafeLeader(handle));
-            };
-            let Some(gap) = occupancy_front_gap(
-                lengths,
-                follower_edges,
-                follower_index,
-                input.progress_mm(),
-                leader_edges,
-                leader_index,
-                leader.progress_mm,
-                leader.length_mm,
-            ) else {
-                continue;
-            };
-            if gap < 0 {
-                continue;
-            }
-            let gap_mm = u32::try_from(gap).unwrap_or(u32::MAX);
-            if nearest.is_none_or(|(_, current)| gap_mm < current) {
-                nearest = Some((handle, gap_mm));
-            }
-        }
-        let Some((leader_handle, gap_mm)) = nearest else {
+        let Some(horizon) = leader_query_horizon(input.initial_speed_mm_s(), profile, delta_s)
+        else {
+            return Err(FreshAdmissionFailure::UnsafeLeader(VehicleHandle::new(
+                0, 0,
+            )));
+        };
+        let Some(contact) = self.derived.occupancy.nearest_leader(
+            VehicleHandle::new(u32::MAX, 0),
+            follower_edges,
+            follower_index,
+            input.progress_mm(),
+            lengths,
+            horizon,
+            true,
+        ) else {
             return Ok(());
         };
-        let leader = self
-            .vehicle_state(leader_handle)
-            .copied()
-            .ok_or(FreshAdmissionFailure::UnsafeLeader(leader_handle))?;
-        let leader_profile = self
-            .binding
-            .revision
-            .traffic()
-            .relations()
-            .vehicle_profile(leader.profile)
-            .ok_or(FreshAdmissionFailure::UnsafeLeader(leader_handle))?;
-        if !moving_follower_can_admit(
+        if self.vehicle_state(contact.vehicle).is_none() {
+            return Err(FreshAdmissionFailure::UnsafeLeader(contact.vehicle));
+        }
+        let state = VehicleState {
+            handle: VehicleHandle::new(u32::MAX, 0),
+            profile: input.profile(),
+            class: profile.class(),
+            route: input.route(),
+            route_edge_index: input.route_edge_index(),
+            progress_mm: input.progress_mm(),
+            carry_um: 0,
+            speed_mm_s: input.initial_speed_mm_s(),
+            length_mm: vehicle_length_mm,
+            status: VehicleStatus::Active,
+            maneuver_traversal: None,
+            waiting_membership: None,
+        };
+        let motion = self
+            .read_view()
+            .placement_motion(state, Some(contact.gap_mm), false)
+            .ok_or(FreshAdmissionFailure::UnsafeLeader(contact.vehicle))?;
+        if projection_exceeds_emergency(
             input.initial_speed_mm_s(),
-            follower_emergency,
-            follower_min_gap_mm,
-            gap_mm,
-            leader.speed_mm_s,
-            leader_profile.emergency_decel(),
+            motion,
+            profile.emergency_decel(),
             delta_s,
         ) {
-            return Err(FreshAdmissionFailure::UnsafeLeader(leader_handle));
+            return Err(FreshAdmissionFailure::UnsafeLeader(contact.vehicle));
         }
         Ok(())
     }
@@ -340,14 +346,18 @@ impl crate::kernel::state::WorldState {
         &self,
         input: VehicleSpawnInput,
         vehicle_length_mm: u32,
-        leader_emergency: f32,
         delta_s: f32,
     ) -> Result<(), FreshAdmissionFailure> {
         let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
         let candidate_edges = self.route_edges(input.route()).expect("已校验的路线仍在");
         let candidate_index =
             usize::try_from(input.route_edge_index()).expect("route index fits usize");
-        for handle in self.derived.active_order.iter().copied() {
+        let candidates = self.upstream_follower_candidates(input, vehicle_length_mm);
+        #[cfg(test)]
+        FOLLOWER_CANDIDATES.with(|count| {
+            count.set(count.get().saturating_add(candidates.len() as u64));
+        });
+        for handle in candidates {
             let Some(follower) = self.vehicle_state(handle).copied() else {
                 continue;
             };
@@ -372,7 +382,10 @@ impl crate::kernel::state::WorldState {
             ) else {
                 continue;
             };
-            let candidate_gap_limit = u32::try_from(candidate_gap.max(0)).unwrap_or(u32::MAX);
+            if candidate_gap < 0 {
+                continue;
+            }
+            let candidate_gap_limit = u32::try_from(candidate_gap).unwrap_or(u32::MAX);
             if self
                 .derived
                 .occupancy
@@ -395,14 +408,14 @@ impl crate::kernel::state::WorldState {
                 .relations()
                 .vehicle_profile(follower.profile)
                 .ok_or(FreshAdmissionFailure::UnsafeFollower(handle))?;
-            let gap_mm = u32::try_from(candidate_gap.max(0)).unwrap_or(u32::MAX);
-            if !moving_follower_can_admit(
+            let motion = self
+                .read_view()
+                .placement_motion(follower, Some(candidate_gap), true)
+                .ok_or(FreshAdmissionFailure::UnsafeFollower(handle))?;
+            if projection_exceeds_emergency(
                 follower.speed_mm_s,
+                motion,
                 profile.emergency_decel(),
-                profile.min_gap_mm(),
-                gap_mm,
-                input.initial_speed_mm_s(),
-                leader_emergency,
                 delta_s,
             ) {
                 return Err(FreshAdmissionFailure::UnsafeFollower(handle));
@@ -410,4 +423,115 @@ impl crate::kernel::state::WorldState {
         }
         Ok(())
     }
+
+    /// 候选车身所在边及其物理上游边上的车辆。精确路线过滤仍在调用方。
+    fn upstream_follower_candidates(
+        &self,
+        input: VehicleSpawnInput,
+        vehicle_length_mm: u32,
+    ) -> Vec<VehicleHandle> {
+        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
+        let Some(edges) = self.route_edges(input.route()) else {
+            return Vec::new();
+        };
+        let Ok(cursor) = usize::try_from(input.route_edge_index()) else {
+            return Vec::new();
+        };
+        let mut queue = Vec::new();
+        if let Some(edge) = edges.get(cursor).copied() {
+            queue.push(edge);
+        }
+        let _ = for_each_admission_interval(
+            lengths,
+            edges,
+            cursor,
+            input.progress_mm(),
+            vehicle_length_mm,
+            |edge, _, _| queue.push(edge),
+        );
+        let traffic = self.binding.revision.traffic();
+        let edge_count = usize::try_from(traffic.lane_edge_count()).unwrap_or(0);
+        let mut seen_edge = vec![false; edge_count];
+        let mut seen_vehicle = vec![false; self.committed.vehicles.len()];
+        let mut found: Vec<(u32, VehicleHandle)> = Vec::new();
+        while let Some(edge) = queue.pop() {
+            let index = edge.index();
+            if index >= seen_edge.len() || seen_edge[index] {
+                continue;
+            }
+            seen_edge[index] = true;
+            self.derived
+                .occupancy
+                .for_each_record_on_edge(edge, |vehicle, sequence| {
+                    let slot = usize::try_from(vehicle.index()).unwrap_or(usize::MAX);
+                    if slot < seen_vehicle.len() && !seen_vehicle[slot] {
+                        seen_vehicle[slot] = true;
+                        found.push((sequence, vehicle));
+                    }
+                });
+            if let Some(predecessors) = traffic.predecessors(edge) {
+                queue.extend_from_slice(predecessors);
+            }
+        }
+        found.sort_by_key(|(sequence, handle)| (*sequence, handle.index()));
+        found.into_iter().map(|(_, handle)| handle).collect()
+    }
+}
+
+fn projection_exceeds_emergency(
+    speed_mm_s: u32,
+    motion: PlacementMotion,
+    emergency_m_s2: f32,
+    delta_s: f32,
+) -> bool {
+    if !motion.hard_clamped {
+        return false;
+    }
+    let Some(min_travel_mm) = emergency_min_travel_mm(speed_mm_s, emergency_m_s2, delta_s) else {
+        return true;
+    };
+    if motion.committed_travel_mm < min_travel_mm {
+        return true;
+    }
+    let Some(floor_mm_s) = emergency_floor_mm_s(speed_mm_s, emergency_m_s2, delta_s) else {
+        return true;
+    };
+    motion.next_speed_mm_s < floor_mm_s
+}
+
+fn emergency_min_travel_mm(speed_mm_s: u32, emergency_m_s2: f32, delta_s: f32) -> Option<u32> {
+    let speed_m_s = speed_mm_s as f32 / 1_000.0;
+    if ![speed_m_s, emergency_m_s2, delta_s]
+        .into_iter()
+        .all(f32::is_finite)
+        || emergency_m_s2 <= 0.0
+        || delta_s <= 0.0
+    {
+        return None;
+    }
+    let travel_m = if speed_m_s <= emergency_m_s2 * delta_s {
+        speed_m_s * speed_m_s / (2.0 * emergency_m_s2)
+    } else {
+        speed_m_s * delta_s - 0.5 * emergency_m_s2 * delta_s * delta_s
+    };
+    if !travel_m.is_finite() || travel_m < 0.0 {
+        return None;
+    }
+    ceil_mm(f64::from(travel_m))
+}
+
+fn emergency_floor_mm_s(speed_mm_s: u32, emergency_m_s2: f32, delta_s: f32) -> Option<u32> {
+    let drop_mm_s = f64::from(emergency_m_s2) * 1_000.0 * f64::from(delta_s);
+    if !drop_mm_s.is_finite() || drop_mm_s < 0.0 {
+        return None;
+    }
+    let speed = f64::from(speed_mm_s);
+    if drop_mm_s >= speed {
+        return Some(0);
+    }
+    let floor = (speed - drop_mm_s).ceil();
+    if floor > f64::from(u32::MAX) {
+        return None;
+    }
+    Some(floor as u32)
 }

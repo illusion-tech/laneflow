@@ -40,7 +40,8 @@ fn measure(
     let mut expected = Counts::default();
     let mut successes = 0;
     let mut inserted = Vec::new();
-    let mut dirty = true;
+    // 夹具末尾的成功生成已经把占用索引补到当前序号，第一次离开不用重建。
+    let mut dirty = false;
     for i in case.indices() {
         expected.calls += 1;
         if dirty {

@@ -5515,7 +5515,8 @@ pub(crate) mod tests {
         let entry_edge = world.route_edges(route).expect("route")[occurrence.entry_hop as usize];
         let entry_length = world.traffic().lane_lengths_millimetres()[entry_edge.index()];
         let rear = world
-            .spawn_vehicle(VehicleSpawnInput::new(
+            .state
+            .place_existing_active_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 occurrence.entry_hop,
@@ -5524,7 +5525,8 @@ pub(crate) mod tests {
             ))
             .expect("rear first in live order");
         let front = world
-            .spawn_vehicle(VehicleSpawnInput::new(
+            .state
+            .place_existing_active_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 occurrence.entry_hop,

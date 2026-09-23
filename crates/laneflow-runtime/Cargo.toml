@@ -45,6 +45,10 @@ path = "examples/preview_parallel_wall_clock/allocation_evidence.rs"
 name = "preview_at_threshold_equivalence"
 path = "examples/preview_parallel_wall_clock/at_threshold_equivalence.rs"
 
+[features]
+# 默认关闭。只给回归测试放入“已经在路上”的状态；宿主构建不要打开。
+placement-fixtures = []
+
 [dependencies]
 laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
 laneflow-runtime-snapshot-wire = { version = "0.0.0", path = "../laneflow-runtime-snapshot-wire" }

@@ -10,7 +10,24 @@ use crate::{
 #[cfg(test)]
 use crate::TrafficWorld;
 #[cfg(test)]
+use std::cell::Cell;
+#[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
+
+#[cfg(test)]
+thread_local! {
+    static OCCUPANCY_REBUILD_EVENTS: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_occupancy_rebuild_events() {
+    OCCUPANCY_REBUILD_EVENTS.set(0);
+}
+
+#[cfg(test)]
+pub(crate) fn occupancy_rebuild_events() -> u64 {
+    OCCUPANCY_REBUILD_EVENTS.with(Cell::get)
+}
 
 /// 占用桶键：物理边序号。
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -28,7 +45,7 @@ impl OccupancyBucketOrdinal {
 
 /// 一条物理边上的占用片段，含已进入该边的零进度前杠；不是资源声明。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct OccupancyRecord {
+pub(crate) struct OccupancyRecord {
     vehicle: VehicleHandle,
     bucket: OccupancyBucketOrdinal,
     lo_mm: u32,
@@ -213,6 +230,13 @@ impl OccupancyIndex {
             + crate::kernel::state::vec_bytes(suffix_min_lo)
             + crate::kernel::state::vec_bytes(suffix_second_lo)
     }
+}
+
+/// 路线窗内最近前车。间隙是前保险杠到该车后保险杠，可负。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct LeaderContact {
+    pub(crate) vehicle: VehicleHandle,
+    pub(crate) gap_mm: i64,
 }
 
 impl OccupancyIndex {
@@ -502,13 +526,42 @@ impl OccupancyIndex {
         lengths: &[u32],
         horizon: LeaderQueryHorizon,
     ) -> Option<i64> {
+        self.nearest_leader(
+            self_vehicle,
+            follower_edges,
+            follower_index,
+            follower_progress,
+            lengths,
+            horizon,
+            false,
+        )
+        .map(|contact| contact.gap_mm)
+    }
+
+    /// 与 [`Self::leader_gap`] 同一行走，并保留最近前车的身份。
+    ///
+    /// `non_negative` 时跳过后杠已经落在跟随者前杠之后的片段，供新鲜摆放使用。
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn nearest_leader(
+        &self,
+        self_vehicle: VehicleHandle,
+        follower_edges: &[LaneEdgeOrdinal],
+        follower_index: usize,
+        follower_progress: u32,
+        lengths: &[u32],
+        horizon: LeaderQueryHorizon,
+        non_negative: bool,
+    ) -> Option<LeaderContact> {
         let walk = i64::from(horizon.front_query_mm);
         let accept = i64::from(horizon.bumper_gap_mm);
         let current = *follower_edges.get(follower_index)?;
         let mut best = self
             .nearest_ahead(current, self_vehicle, follower_progress)
-            .map(|record| i64::from(record.lo_mm) - i64::from(follower_progress))
-            .filter(|gap| *gap <= accept);
+            .map(|record| LeaderContact {
+                vehicle: record.vehicle,
+                gap_mm: i64::from(record.lo_mm) - i64::from(follower_progress),
+            })
+            .filter(|contact| contact.gap_mm <= accept && (!non_negative || contact.gap_mm >= 0));
         let Some(current_length) = lengths.get(current.index()).copied() else {
             return best;
         };
@@ -521,16 +574,20 @@ impl OccupancyIndex {
             if base_mm > walk {
                 break;
             }
-            if best.is_some_and(|current_gap| base_mm > current_gap) {
+            if best.is_some_and(|current| base_mm > current.gap_mm) {
                 break;
             }
             self.note_occurrence_walk();
             if let Some(record) = self.front_most(edge, self_vehicle)
                 && let Some(gap) = base_mm
                     .checked_add(i64::from(record.lo_mm))
-                    .filter(|gap| *gap <= accept)
+                    .filter(|gap| *gap <= accept && (!non_negative || *gap >= 0))
+                && best.is_none_or(|current| gap < current.gap_mm)
             {
-                best = Some(best.map_or(gap, |current_gap| current_gap.min(gap)));
+                best = Some(LeaderContact {
+                    vehicle: record.vehicle,
+                    gap_mm: gap,
+                });
             }
             let Some(edge_length) = lengths.get(edge.index()).copied() else {
                 return best;
@@ -541,6 +598,69 @@ impl OccupancyIndex {
             base_mm = next_base;
         }
         best
+    }
+
+    pub(crate) fn for_each_record_on_edge(
+        &self,
+        edge: LaneEdgeOrdinal,
+        mut visit: impl FnMut(VehicleHandle, u32),
+    ) {
+        let (start, end) = self.bucket_span(edge);
+        for record in &self.records[start..end] {
+            visit(record.vehicle, record.update_sequence);
+        }
+    }
+
+    /// 用已有记录加上新车记录重排桶，不重新走每辆车的路线。
+    pub(crate) fn reindex_including(
+        &mut self,
+        extra: &[OccupancyRecord],
+        scratch: &mut OccupancyScratch,
+        ceiling: usize,
+    ) -> Result<(), StepError> {
+        let bucket_count = self.offsets.len().saturating_sub(1);
+        if self.records.len().saturating_add(extra.len()) > ceiling {
+            return Err(StepError::OccupancyCapacityExceeded);
+        }
+        let mut pending = Vec::new();
+        pending
+            .try_reserve(self.records.len().saturating_add(extra.len()))
+            .map_err(|_| StepError::OccupancyAllocFailed)?;
+        pending.extend_from_slice(&self.records);
+        pending.extend_from_slice(extra);
+        self.try_prepare_scratch(scratch, bucket_count)?;
+        for record in &pending {
+            if let Some(count) = scratch.positions.get_mut(record.bucket.index()) {
+                *count += 1;
+            }
+        }
+        let total = scratch.record_total(bucket_count);
+        if total > ceiling {
+            return Err(StepError::OccupancyCapacityExceeded);
+        }
+        self.try_reserve_records(total)?;
+        self.finish_layout(scratch, bucket_count);
+        for record in pending {
+            self.write_record(scratch, record);
+        }
+        self.sort_buckets(bucket_count);
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn record_keys(&self) -> Vec<(u32, u32, u32, u32, u32)> {
+        self.records
+            .iter()
+            .map(|record| {
+                (
+                    record.bucket.0,
+                    record.lo_mm,
+                    record.hi_mm,
+                    record.vehicle.index(),
+                    record.update_sequence,
+                )
+            })
+            .collect()
     }
 }
 
@@ -794,10 +914,109 @@ impl crate::kernel::state::WorldState {
             self.committed.observation_state_sequence,
         ));
         #[cfg(test)]
+        OCCUPANCY_REBUILD_EVENTS.with(|events| events.set(events.get().saturating_add(1)));
+        #[cfg(test)]
         super::parking_command_research::note(|counts| {
             counts.occupancy_records += self.derived.occupancy.records.len();
         });
         Ok(())
+    }
+
+    /// 成功插入后把这一辆车补进派生索引。来源版本对不上时作废索引，留给下一次命令重建。
+    ///
+    /// 容量和分配在提交车辆之前由 [`Self::reserve_spawn_occupancy`] 预检。
+    pub(crate) fn apply_spawn_occupancy(
+        &mut self,
+        handle: VehicleHandle,
+        previous: ObservationStateSequence,
+        mut records: Vec<OccupancyRecord>,
+    ) {
+        for record in &mut records {
+            record.vehicle = handle;
+        }
+        let generation = self.binding.world_generation;
+        if self.derived.occupancy.source != Some((generation, previous)) {
+            self.derived.occupancy.source = None;
+            return;
+        }
+        let ceiling = occupancy_record_limit(self.binding.config.vehicle_capacity());
+        let scratch = &mut self.workspace.occupancy_scratch;
+        let occupancy = &mut self.derived.occupancy;
+        if occupancy
+            .reindex_including(&records, scratch, ceiling)
+            .is_err()
+        {
+            occupancy.source = None;
+            return;
+        }
+        self.derived.occupancy.source =
+            Some((generation, self.committed.observation_state_sequence));
+    }
+
+    /// 提交前确认增量插入放得下。索引来源不是当前序号时返回空，提交后再作废。
+    pub(crate) fn reserve_spawn_occupancy(
+        &mut self,
+        input: crate::VehicleSpawnInput,
+        vehicle_length_mm: u32,
+        update_sequence: u32,
+    ) -> Result<Vec<OccupancyRecord>, StepError> {
+        let generation = self.binding.world_generation;
+        if self.derived.occupancy.source
+            != Some((generation, self.committed.observation_state_sequence))
+        {
+            return Ok(Vec::new());
+        }
+        let edges = self
+            .route_edges(input.route())
+            .ok_or(StepError::OccupancyIntervalIncomplete)?;
+        let cursor = usize::try_from(input.route_edge_index())
+            .map_err(|_| StepError::OccupancyIntervalIncomplete)?;
+        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
+        let mut records = Vec::new();
+        for_each_admission_interval(
+            lengths,
+            edges,
+            cursor,
+            input.progress_mm(),
+            vehicle_length_mm,
+            |edge, lo_mm, hi_mm| {
+                records.push(OccupancyRecord {
+                    vehicle: crate::VehicleHandle::new(0, 0),
+                    bucket: OccupancyBucketOrdinal::from_edge(edge),
+                    lo_mm,
+                    hi_mm,
+                    update_sequence,
+                });
+            },
+        )
+        .ok_or(StepError::OccupancyIntervalIncomplete)?;
+        let ceiling = occupancy_record_limit(self.binding.config.vehicle_capacity());
+        if self
+            .derived
+            .occupancy
+            .records
+            .len()
+            .saturating_add(records.len())
+            > ceiling
+        {
+            return Err(StepError::OccupancyCapacityExceeded);
+        }
+        self.derived
+            .occupancy
+            .records
+            .try_reserve(records.len())
+            .map_err(|_| StepError::OccupancyAllocFailed)?;
+        self.derived
+            .occupancy
+            .suffix_min_lo
+            .try_reserve(records.len())
+            .map_err(|_| StepError::OccupancyAllocFailed)?;
+        self.derived
+            .occupancy
+            .suffix_second_lo
+            .try_reserve(records.len())
+            .map_err(|_| StepError::OccupancyAllocFailed)?;
+        Ok(records)
     }
 
     /// 两次 step 之间的命令读取当前提交态；重复拒绝可以复用同一份索引。
@@ -1127,7 +1346,14 @@ pub(crate) mod tests {
             ))
             .unwrap();
         let leader = world
-            .spawn_vehicle(VehicleSpawnInput::new(profile, leader_route, 1, 0, 4_000))
+            .state
+            .place_existing_active_vehicle(VehicleSpawnInput::new(
+                profile,
+                leader_route,
+                1,
+                0,
+                4_000,
+            ))
             .unwrap();
         world.state.rebuild_occupancy_index().unwrap();
         (world, follower, leader)
