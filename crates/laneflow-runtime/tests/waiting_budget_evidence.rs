@@ -73,7 +73,7 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
         .register_route(RouteRegisterInput::new(edges))
         .expect("route");
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
@@ -122,7 +122,7 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
     for sample in 0..STEADY_TICKS + 4 {
         world.despawn_vehicle(current).unwrap();
         current = world
-            .spawn_vehicle(VehicleSpawnInput::new(
+            .place_existing_active_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
