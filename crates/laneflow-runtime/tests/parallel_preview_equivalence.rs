@@ -720,6 +720,12 @@ fn signalized_corridor_chain_fused_matches_across_worker_matrix() {
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "placement-fixtures")]
+fn progress_near_route_end(length_mm: u32, speed_mm_s: u32) -> u32 {
+    let tick_mm = speed_mm_s.saturating_mul(100) / 1_000;
+    length_mm.saturating_sub(tick_mm.saturating_add(1_500))
+}
+
+#[cfg(feature = "placement-fixtures")]
 fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
     let index = world
         .traffic()
@@ -759,7 +765,7 @@ fn run_full_spatial_lifecycle_fused(workers: u32) -> Vec<String> {
             VehicleProfileOrdinal::from_raw(0),
             route,
             last_index,
-            last_length - 500,
+            progress_near_route_end(last_length, speed_limit),
             speed_limit,
         ))
         .expect("near-end spawn");
@@ -831,7 +837,7 @@ fn run_full_spatial_lifecycle_fused(workers: u32) -> Vec<String> {
                         VehicleProfileOrdinal::from_raw(0),
                         route,
                         last_index,
-                        last_length - 500,
+                        progress_near_route_end(last_length, speed_limit),
                         speed_limit,
                     ),
                 )

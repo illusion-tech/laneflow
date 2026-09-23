@@ -202,6 +202,12 @@ fn register_preview_route(world: &mut TrafficWorld) -> RouteHandle {
         .expect("register")
 }
 
+/// 留出超过一拍行程的路终空隙，几拍内仍能开完。
+fn progress_near_route_end(length_mm: u32, speed_mm_s: u32) -> u32 {
+    let tick_mm = speed_mm_s.saturating_mul(100) / 1_000;
+    length_mm.saturating_sub(tick_mm.saturating_add(1_500))
+}
+
 fn drive_to_completed(world: &mut TrafficWorld) -> (laneflow_runtime::VehicleHandle, RouteHandle) {
     let route = register_preview_route(world);
     let edges = world.route_edges(route).expect("edges").to_vec();
@@ -214,7 +220,7 @@ fn drive_to_completed(world: &mut TrafficWorld) -> (laneflow_runtime::VehicleHan
             VehicleProfileOrdinal::from_raw(0),
             route,
             last_index,
-            last_length.saturating_sub(500),
+            progress_near_route_end(last_length, speed_limit),
             speed_limit,
         ))
         .expect("spawn near end");
