@@ -740,18 +740,9 @@ fn raise_signal_bound(
     }
 }
 
-/// 速度为 0 视为已经停住。紧急减速度不是有限正数时，无法证明能在门前停住。
+/// 速度为 0 视为已经停住。与新鲜摆放共用同一判断。
 fn can_stop_before(speed_mm_s: u32, emergency_decel_m_s2: f32, distance_mm: u32) -> bool {
-    if speed_mm_s == 0 {
-        return true;
-    }
-    if !emergency_decel_m_s2.is_finite() || emergency_decel_m_s2 <= 0.0 {
-        return false;
-    }
-    let decel_mm_s2 = f64::from(emergency_decel_m_s2) * 1_000.0;
-    let speed = f64::from(speed_mm_s);
-    let needed_mm = speed * speed / (2.0 * decel_mm_s2);
-    needed_mm.is_finite() && needed_mm <= f64::from(distance_mm)
+    super::placement::can_stop_before(speed_mm_s, emergency_decel_m_s2, distance_mm)
 }
 
 fn signal_hold(

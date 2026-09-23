@@ -473,7 +473,7 @@ fn register_conflict_route(world: &mut TrafficWorld, keys: &[&str]) -> RouteHand
 
 fn at_gate(world: &mut TrafficWorld, route: RouteHandle) -> VehicleHandle {
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
@@ -587,7 +587,7 @@ fn protected_green_skips_red_approach_gap_but_permissive_keeps_it() {
         let [subject_route, priority_route] = right_turn_routes(&mut world);
         let subject = at_gate(&mut world, subject_route);
         let target = world
-            .spawn_vehicle(VehicleSpawnInput::new(
+            .place_existing_active_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
                 priority_route,
                 0,

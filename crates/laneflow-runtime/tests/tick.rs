@@ -509,7 +509,7 @@ fn red_snapshot_prevents_controlled_transition() {
     let t_aspects = aspects_at(&world, world.time_ms());
     assert_eq!(t_aspects.get(1).copied(), Some(SignalAspect::Red));
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
@@ -567,7 +567,7 @@ fn phase_boundary_inside_tick_keeps_snapshot_t_and_publishes_t_plus_d() {
     let to = edges[1];
     let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[edges[0].index()];
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
@@ -811,7 +811,7 @@ fn later_red_stop_caps_travel_after_permitted_gate() {
     let edges = world.route_edges(route).expect("edges").to_vec();
     let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[edges[0].index()];
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
@@ -844,7 +844,7 @@ fn later_red_uses_compiled_path_gate() {
         .expect("register");
     let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[edges[0].index()];
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,

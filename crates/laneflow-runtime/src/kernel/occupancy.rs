@@ -2006,14 +2006,27 @@ pub(crate) mod tests {
             ))
             .expect("leader");
         let follower = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                follower_route,
+            .state
+            .restore_unparked_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    follower_route,
+                    0,
+                    5_000,
+                    10_000,
+                ),
                 0,
-                5_000,
-                10_000,
-            ))
+                crate::VehicleStatus::Active,
+                None,
+                None,
+                false,
+            )
             .expect("follower");
+        world
+            .state
+            .workspace
+            .frontier_maintenance
+            .note_active_source(follower);
         world
             .state
             .rebuild_occupancy_index()
