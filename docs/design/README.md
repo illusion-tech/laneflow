@@ -72,6 +72,9 @@
 - [`traffic-runtime-near-gate-frontier.md`](traffic-runtime-near-gate-frontier.md)：#740
   已接受。入口 frontier 只为近门车辆打开路线，失效车辆整段重走，其余复用冲突距离；
   本拍生命周期增量必须成为接近来源；红灯门前的到达下界不早于下一档放行。
+- [`traffic-runtime-vehicle-placement.md`](traffic-runtime-vehicle-placement.md)：#742
+  已接受。新鲜摆放不要求从路线起点零速开到当前速度；生成和替换要能停住当前约束、
+  降到前方更低限速，并且不让前后车立刻无法紧急制动。恢复和修订切换不套用这层检查。
 - `cross-section-access.md`：横断面与准入 overlay。
 - `numeric-representation.md`：数值分层；已提交一维几何为整数毫米，编制 `f64` 与 Spatial `f32` 仍在量化之前。
 - `traffic-runtime-integer-geometry.md`：#496 整数毫米 / 微米余数 / `mm/s` 实现合同（Accepted）；#500 编译器 IR 交通一维同一套整数毫米。

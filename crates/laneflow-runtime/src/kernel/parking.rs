@@ -1506,38 +1506,16 @@ impl crate::kernel::state::WorldState {
                 .relations()
                 .vehicle_profile(follower.profile)
                 .ok_or(ParkingError::InvariantViolation)?;
-            let v = follower.speed_mm_s as f32 / 1_000.0;
-            let emergency = profile.emergency_decel();
             let gap_mm = u32::try_from(candidate_gap.max(0)).unwrap_or(u32::MAX);
-            let gap_m = gap_mm as f32 / 1_000.0;
-            let preserved_gap_mm = gap_mm.min(profile.min_gap_mm());
-            let raw_available_gap_mm = gap_mm.saturating_sub(preserved_gap_mm);
-            let available_gap_mm = if raw_available_gap_mm <= 1 {
-                0
-            } else {
-                raw_available_gap_mm
-            };
-            if ![v, emergency, delta_s, gap_m]
-                .into_iter()
-                .all(f32::is_finite)
-                || emergency <= 0.0
-                || delta_s <= 0.0
-            {
-                return Err(ParkingError::LeaveUnsafeFollower { follower: handle });
-            }
-            let u_min = (v - emergency * delta_s).max(0.0);
-            let safe_envelope = 0.5 * (v + u_min) * delta_s + u_min * u_min / (2.0 * emergency);
-            let emergency_min_travel = if v <= emergency * delta_s {
-                v * v / (2.0 * emergency)
-            } else {
-                v * delta_s - 0.5 * emergency * delta_s * delta_s
-            };
-            let available_m = available_gap_mm as f32 / 1_000.0;
-            if !safe_envelope.is_finite()
-                || !emergency_min_travel.is_finite()
-                || safe_envelope > gap_m
-                || emergency_min_travel > available_m
-            {
+            if !super::placement::moving_follower_can_admit(
+                follower.speed_mm_s,
+                profile.emergency_decel(),
+                profile.min_gap_mm(),
+                gap_mm,
+                0,
+                0.0,
+                delta_s,
+            ) {
                 return Err(ParkingError::LeaveUnsafeFollower { follower: handle });
             }
         }

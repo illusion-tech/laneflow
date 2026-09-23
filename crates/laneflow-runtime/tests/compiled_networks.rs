@@ -1789,7 +1789,7 @@ fn conflict_tick_rejects_when_committed_downstream_storage_is_blocked() {
     let entry = world.route_edges(route).expect("route")[0];
     let gate = world.traffic().lane_lengths_millimetres()[entry.index()];
     let subject = world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
@@ -1955,7 +1955,7 @@ fn spawn_calibration_vehicle(
     speed_mm_s: u32,
 ) -> VehicleHandle {
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             profile,
             route,
             0,
@@ -4566,7 +4566,7 @@ fn follower_on_diverge_respects_leader_overhang_on_shared_stem() {
         ))
         .expect("leader on left, tail on stem");
     let follower = world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             follower_route,
             0,
@@ -4658,7 +4658,7 @@ fn speed_down_transition_caps_next_tick_travel() {
         install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1_000)).expect("install");
     let route = register_named(&mut world, &["fast", "slow"]);
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
@@ -4781,7 +4781,7 @@ fn infeasible_stop_before_lower_limit_still_enters() {
         install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1_000)).expect("install");
     let route = register_named(&mut world, &["fast", "slower"]);
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,

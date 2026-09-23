@@ -25,6 +25,8 @@ pub(crate) mod occupancy;
 pub(crate) mod parking;
 /// 串行步进阶段的借用能力视图；准备计算不取得 `&mut TrafficWorld`。
 pub(crate) mod phase;
+/// 新鲜摆放的运动安全准入。恢复和修订切换不使用。
+pub(crate) mod placement;
 /// 显式世界策略绑定与步长派生表。
 pub(crate) mod policy;
 /// 已提交 pose 与信号批次的权威来源。
@@ -55,6 +57,10 @@ pub(crate) mod world;
 #[cfg(test)]
 #[path = "tests/spawn_overlap.rs"]
 mod spawn_overlap_tests;
+
+#[cfg(test)]
+#[path = "tests/placement_admission.rs"]
+mod placement_admission_tests;
 
 /// 测试构建中的批次阶段墙钟剖析；无生产 feature、API 或状态字段。
 #[cfg(test)]

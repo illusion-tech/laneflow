@@ -1,7 +1,7 @@
 # 交通运行时共享静态路网消费
 
 **文档状态**: Accepted（#301 G1；#469 合入后收口）<br>
-**最后更新**: 2026-09-06<br>
+**最后更新**: 2026-09-23<br>
 **适用范围**: `laneflow-runtime` / `TrafficWorld`、`laneflow-spatial` 目标 session、
 1-worker 车辆 tick、#301 端到端证据，以及 current `laneflow-core` / JSON 运行时入口拆除<br>
 **关联文档**: `../adr/0020-compiler-owned-static-network-and-static-image.md`、
@@ -270,8 +270,12 @@ checked 预计算 → 暂存（逐路线对 target 根重编译 +
 - `spawn_vehicle` 返回代际感知 `VehicleHandle`（不是 `PoseRecordId`）。由 profile
   解析 `ParticipantClass`，对本世界已注册 `RouteHandle` 按 ADR 0018 做
   `(class, Route)` 绑定期准入（只查当前 cursor / 序列下标起的可达后缀）。初速可以
-  等于该 occurrence 当前边的基础限速，超过则拒绝。重叠、非法路线/下标/进度、未知
-  profile、超容量、准入 deny、超限速失败时不得留下半辆车。
+  等于该 occurrence 当前边的基础限速，超过则拒绝。它表示当前提交时点的状态，不表示
+  车辆从路线起点零速出发。生成和替换还要满足
+  [新鲜摆放的运动安全准入](traffic-runtime-vehicle-placement.md)：当前必须停车的约束
+  停得住、前方更低限速降得到、前后车按紧急制动接得住。快照恢复和修订切换不套用这层
+  运动检查。重叠、非法路线/下标/进度、未知 profile、超容量、准入 deny、超限速或
+  运动安全失败时不得留下半辆车。
 - 道路准入比较 `for_each_occupancy_interval` 展开的非空物理区间，车尾在路线起点
   截断；首 occurrence 的 `progress_mm = 0` 没有路线内车身，不因路线外的负坐标车尾
   拒绝另一辆车。但同一物理边零进度的前杠入口点不能重合，否则下一拍两车会共同

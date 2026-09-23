@@ -991,12 +991,36 @@ impl crate::kernel::state::WorldState {
     ///
     /// # Errors
     ///
-    /// 车辆输入校验失败（profile/路线句柄/进度/初速/容量/准入/车身重叠/权威不可
-    /// 重建/等待区存储跨度不足）、观测状态序号或命令游标耗尽时返回相应
-    /// [`SpawnError`]；失败不留半辆车。
+    /// 车辆输入校验失败（profile/路线/进度/初速/容量/准入/车身重叠/权威不可
+    /// 重建/等待区存储跨度不足/当前停车约束/前方降速/前车或后车安全/占用索引
+    /// 分配）、观测状态序号或命令游标耗尽时返回相应 [`SpawnError`]；失败不留半辆车，
+    /// 也不推进命令游标。
     pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, SpawnError> {
+        self.commit_spawned_active(input, true)
+    }
+
+    /// 按生成的提交路径放入一辆已经处于该状态的活动车，不检查新鲜运动安全。
+    ///
+    /// 引用、重叠和通行权威仍然检查。供存档式回归保留“已经停不住”的运行时场面。
+    /// 新的出行需求走 [`Self::spawn_vehicle`]。
+    pub(crate) fn place_existing_active_vehicle(
+        &mut self,
+        input: VehicleSpawnInput,
+    ) -> Result<VehicleHandle, SpawnError> {
+        self.commit_spawned_active(input, false)
+    }
+
+    fn commit_spawned_active(
+        &mut self,
+        input: VehicleSpawnInput,
+        admit_motion: bool,
+    ) -> Result<VehicleHandle, SpawnError> {
         let (class, length_mm, traversal) =
             self.validate_unparked_vehicle(input, 0, VehicleStatus::Active, None, false)?;
+        if admit_motion {
+            self.fresh_motion_admission(input, length_mm)
+                .map_err(super::placement::FreshAdmissionFailure::into_spawn)?;
+        }
         let next_observation_state_sequence = self
             .committed
             .observation_state_sequence
@@ -1219,18 +1243,21 @@ impl crate::kernel::state::WorldState {
 
     /// 把 live 的 Completed 车辆原子替换为新的 Active 车辆。
     ///
-    /// 入口占用返回可重试的 [`ReplaceError::Blocked`]；其他失败为致命错误。
-    /// 任一失败都保持已提交世界不变。成功后旧句柄立即 stale；公开契约不保证同一 slot index。
+    /// 入口占用、当前停车约束、前方降速、前车或后车不安全都可以重试。输入本身非法
+    /// 仍是致命错误。任一失败都保持已提交世界不变。成功后旧句柄立即 stale；公开契约
+    /// 不保证同一 slot index。
     ///
     /// # Errors
     ///
     /// 句柄失效或车辆未 `Completed`、停车占用未释放、冲突/等待不变量破坏、输入
-    /// 校验失败（profile/路线/进度/初速/准入，含新候选的等待区存储与冲突权威
-    /// 校验：`WaitingVehicleTooLong` / `WaitingStatefulManeuverInterior` /
-    /// `ConflictAuthorityRequired`）、观测状态序号或命令游标耗尽（
+    /// 校验失败（profile/路线/进度/初速/准入，含新候选的等待区存储、冲突权威、
+    /// 当前停车约束、前方降速、前车或后车安全：`WaitingVehicleTooLong` /
+    /// `WaitingStatefulManeuverInterior` / `ConflictAuthorityRequired` /
+    /// `StopConstraintUnsatisfiable` / `DownstreamSpeedUnsatisfiable` /
+    /// `UnsafeLeader` / `UnsafeFollower`）、观测状态序号或命令游标耗尽（
     /// `ObservationStateSequenceExhausted` / `CommandCursorExhausted`）或入口占用
-    /// 被占时返回相应 [`ReplaceError`]；[`ReplaceError::Blocked`] 可重试，其余为
-    /// 致命错误；任一失败保持已提交世界不变。
+    /// 被占时返回相应 [`ReplaceError`]。[`ReplaceError::Blocked`] 与上述运动安全
+    /// 错误可重试，输入错误为致命错误；任一失败保持已提交世界不变。
     pub fn replace_completed_vehicle(
         &mut self,
         old: VehicleHandle,
@@ -1341,6 +1368,8 @@ impl crate::kernel::state::WorldState {
                 return Err(ReplaceError::ConflictAuthorityRequired);
             }
         }
+        self.fresh_motion_admission(input, vehicle_length)
+            .map_err(super::placement::FreshAdmissionFailure::into_replace)?;
         let next_observation_state_sequence = self
             .committed
             .observation_state_sequence
@@ -2184,9 +2213,10 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 车辆输入校验失败（profile/路线句柄/进度/初速/容量/准入/车身重叠/权威不可
-    /// 重建/等待区存储跨度不足）、观测状态序号或命令游标耗尽时返回相应
-    /// [`SpawnError`]；失败不留半辆车。
+    /// 车辆输入校验失败（profile/路线/进度/初速/容量/准入/车身重叠/权威不可
+    /// 重建/等待区存储跨度不足/当前停车约束/前方降速/前车或后车安全/占用索引
+    /// 分配）、观测状态序号或命令游标耗尽时返回相应 [`SpawnError`]；失败不留半辆车，
+    /// 也不推进命令游标。
     ///
     /// # Panics
     ///
@@ -2196,20 +2226,45 @@ impl TrafficWorld {
         self.state.spawn_vehicle(input)
     }
 
+    /// 放入一辆已经处于该活动状态的车，不检查新鲜摆放的运动安全。
+    ///
+    /// 引用、车身重叠和通行权威仍与生成相同。这不是宿主的新需求入口；已经在路上、
+    /// 用来验证停不住之后怎么运动的回归测试用它保留原场面。新车走 [`Self::spawn_vehicle`]。
+    ///
+    /// # Errors
+    ///
+    /// 与 [`Self::spawn_vehicle`] 相同，但不返回当前停车约束、前方降速、前车或后车
+    /// 不安全。失败不留半辆车，也不推进命令游标。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[doc(hidden)]
+    pub fn place_existing_active_vehicle(
+        &mut self,
+        input: VehicleSpawnInput,
+    ) -> Result<VehicleHandle, SpawnError> {
+        self.execution.assert_usable();
+        self.state.place_existing_active_vehicle(input)
+    }
+
     /// 把 live 的 Completed 车辆原子替换为新的 Active 车辆。
     ///
-    /// 入口占用返回可重试的 [`ReplaceError::Blocked`]；其他失败为致命错误。
-    /// 任一失败都保持已提交世界不变。成功后旧句柄立即 stale；公开契约不保证同一 slot index。
+    /// 入口占用、当前停车约束、前方降速、前车或后车不安全都可以重试。输入本身非法
+    /// 仍是致命错误。任一失败都保持已提交世界不变。成功后旧句柄立即 stale；公开契约
+    /// 不保证同一 slot index。
     ///
     /// # Errors
     ///
     /// 句柄失效或车辆未 `Completed`、停车占用未释放、冲突/等待不变量破坏、输入
-    /// 校验失败（profile/路线/进度/初速/准入，含新候选的等待区存储与冲突权威
-    /// 校验：`WaitingVehicleTooLong` / `WaitingStatefulManeuverInterior` /
-    /// `ConflictAuthorityRequired`）、观测状态序号或命令游标耗尽（
+    /// 校验失败（profile/路线/进度/初速/准入，含新候选的等待区存储、冲突权威、
+    /// 当前停车约束、前方降速、前车或后车安全：`WaitingVehicleTooLong` /
+    /// `WaitingStatefulManeuverInterior` / `ConflictAuthorityRequired` /
+    /// `StopConstraintUnsatisfiable` / `DownstreamSpeedUnsatisfiable` /
+    /// `UnsafeLeader` / `UnsafeFollower`）、观测状态序号或命令游标耗尽（
     /// `ObservationStateSequenceExhausted` / `CommandCursorExhausted`）或入口占用
-    /// 被占时返回相应 [`ReplaceError`]；[`ReplaceError::Blocked`] 可重试，其余为
-    /// 致命错误；任一失败保持已提交世界不变。
+    /// 被占时返回相应 [`ReplaceError`]。[`ReplaceError::Blocked`] 与上述运动安全
+    /// 错误可重试，输入错误为致命错误；任一失败保持已提交世界不变。
     ///
     /// # Panics
     ///

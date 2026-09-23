@@ -5267,14 +5267,27 @@ pub(crate) mod tests {
         });
 
         let follower = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                occurrence.entry_hop,
-                entry_length - 100,
-                8_000,
-            ))
+            .state
+            .restore_unparked_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    occurrence.entry_hop,
+                    entry_length - 100,
+                    8_000,
+                ),
+                0,
+                crate::VehicleStatus::Active,
+                None,
+                None,
+                false,
+            )
             .expect("follower spawn");
+        world
+            .state
+            .workspace
+            .frontier_maintenance
+            .note_active_source(follower);
         world
             .state
             .committed
