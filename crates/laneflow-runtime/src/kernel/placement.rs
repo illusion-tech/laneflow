@@ -308,6 +308,58 @@ impl crate::kernel::state::WorldState {
         self.derived.spawn_contenders.invalidate();
     }
 
+    /// 没有冲突或排队的车不改变已有接近记录，只把名单序号推到这次提交。
+    /// 有冲突，或名单里已经有申请者时，旧记录可能过期，整份作废。
+    pub(crate) fn note_inserted_vehicle(
+        &mut self,
+        handle: VehicleHandle,
+        previous: crate::ObservationStateSequence,
+    ) {
+        let previous_source = ContenderBuilt {
+            generation: self.binding.world_generation,
+            sequence: previous,
+        };
+        let route_needs_admission = self
+            .vehicle_state(handle)
+            .is_some_and(|state| self.route_needs_contender(state.route));
+        if self.derived.spawn_contenders.built_for != Some(previous_source)
+            || route_needs_admission
+            || self.cache_has_contender()
+        {
+            self.invalidate_spawn_contenders();
+            return;
+        }
+        self.derived.spawn_contenders.built_for = Some(ContenderBuilt {
+            generation: self.binding.world_generation,
+            sequence: self.committed.observation_state_sequence,
+        });
+    }
+
+    fn route_needs_contender(&self, route: crate::RouteHandle) -> bool {
+        self.compiled_route(route)
+            .is_some_and(|compiled| !compiled.conflicts.is_empty() || !compiled.waiting.is_empty())
+    }
+
+    fn cache_has_contender(&self) -> bool {
+        self.derived
+            .spawn_contenders
+            .best
+            .iter()
+            .any(Option::is_some)
+            || self
+                .derived
+                .spawn_contenders
+                .cell_approach_ms
+                .iter()
+                .any(|ms| *ms != CELL_APPROACH_NONE)
+            || self
+                .derived
+                .spawn_contenders
+                .waiting_entrants
+                .iter()
+                .any(|entrants| !entrants.is_empty())
+    }
+
     fn rebuild_spawn_contenders(&mut self) -> Result<(), FreshAdmissionFailure> {
         let zone_count = usize::try_from(
             self.binding
@@ -384,7 +436,7 @@ impl crate::kernel::state::WorldState {
         let Some(state) = self.vehicle_state(handle).copied() else {
             return Ok(());
         };
-        if state.status != VehicleStatus::Active {
+        if state.status != VehicleStatus::Active || !self.route_needs_contender(state.route) {
             return Ok(());
         }
         let Some(profile) = self
@@ -1233,6 +1285,9 @@ fn reject_existing_hard_stop(
     profile: laneflow_static_network::VehicleProfileView,
     delta_s: f32,
 ) -> Result<(), FreshAdmissionFailure> {
+    if !world.route_needs_contender(candidate.route) {
+        return Ok(());
+    }
     let Some(preview) = world
         .read_view()
         .preview_active_vehicle_with_waiting_stop(candidate, delta_s, None, None)

@@ -1051,7 +1051,7 @@ impl crate::kernel::state::WorldState {
         self.committed.observation_state_sequence = next_observation_state_sequence;
         self.committed.command_cursor = next_command_cursor;
         self.apply_spawn_occupancy(handle, previous_sequence, occupancy_patch);
-        self.invalidate_spawn_contenders();
+        self.note_inserted_vehicle(handle, previous_sequence);
         let delta = VehicleDelta::from_state(&state, self.compiled_route(state.route));
         if let Some(journal) = self.admin.migration_journal.as_mut() {
             journal.record_vehicle_spawned(next_command_cursor, delta);
@@ -1485,7 +1485,7 @@ impl crate::kernel::state::WorldState {
         self.committed.observation_state_sequence = next_observation_state_sequence;
         self.committed.command_cursor = next_command_cursor;
         self.apply_spawn_occupancy(new, previous_sequence, occupancy_patch);
-        self.invalidate_spawn_contenders();
+        self.note_inserted_vehicle(new, previous_sequence);
         let new_state = self
             .vehicle_state(new)
             .copied()
