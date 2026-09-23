@@ -97,7 +97,7 @@ fn occupancy_exact_query_replay() {
                                     compiled.remaining_to_end[cursor],
                                     state.progress_mm,
                                 ),
-                                read.signal_stop_distance(compiled, state, cursor),
+                                read.signal_stop_distance(compiled, state, cursor, None),
                                 read.parking_stop_distance(
                                     compiled,
                                     state,
