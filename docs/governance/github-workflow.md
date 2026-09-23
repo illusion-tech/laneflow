@@ -257,10 +257,17 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   `BREAKING CHANGE:`。
 - `Markdown tables`：表格格式，只警告。
 - `Rust checks`：`cargo fmt` 与
-  `cargo clippy --workspace --all-targets --locked --features placement-fixtures -D warnings`；
-  workspace 测试由 `cargo nextest run --workspace --locked --features placement-fixtures`
-  执行（nextest 钉版本并校验
-  SHA256 安装，测试二进制并行执行），doctest 由 `cargo test --workspace --doc --locked`
+  `cargo clippy --workspace --all-targets --locked -D warnings`；
+  workspace 测试由 `cargo nextest run --workspace --locked` 执行
+  （nextest 钉版本并校验 SHA256 安装，测试二进制并行执行）。
+  默认 `cargo test --workspace --locked` 不打开 `placement-fixtures`。
+  该特性再单独跑一次运行时和情景包：
+  `cargo clippy -p laneflow-runtime --all-targets --locked --features placement-fixtures -D warnings`、
+  `cargo clippy -p laneflow-scenario --all-targets --locked --features placement-fixtures -D warnings`、
+  `cargo nextest run -p laneflow-runtime --locked --features placement-fixtures`、
+  `cargo nextest run -p laneflow-scenario --locked --features placement-fixtures`。
+  用来编译并执行“已经在路上”的回归。
+  doctest 由 `cargo test --workspace --doc --locked`
   单独覆盖（nextest 不执行 doctest）；另有工具链
   wire 审计与运行时架构检查。走廊 catalog 与
   LFCA 对拍由 `laneflow-corridor-generator` 测试覆盖，不再单独跑 generator `check`。

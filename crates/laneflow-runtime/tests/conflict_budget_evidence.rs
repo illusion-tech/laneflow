@@ -1,3 +1,4 @@
+#![cfg(feature = "placement-fixtures")]
 //! #569 Conflict 正式固定步进稳态 heap allocation 证据。
 //!
 //! 两条冲突流从真实 LFCA 完成 install -> register -> spawn -> tick；首次仲裁后，

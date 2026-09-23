@@ -498,6 +498,7 @@ fn follower_is_observably_constrained_versus_solo() {
     );
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn red_snapshot_prevents_controlled_transition() {
     let mut world = world();
@@ -535,6 +536,7 @@ fn red_snapshot_prevents_controlled_transition() {
     );
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn phase_boundary_inside_tick_keeps_snapshot_t_and_publishes_t_plus_d() {
     const DELTA: u64 = 200;
@@ -804,6 +806,7 @@ fn route_end_leaves_committed_poses_and_lane_occupancy() {
     );
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn later_red_stop_caps_travel_after_permitted_gate() {
     let mut world = world_with_delta(1_000);
@@ -835,6 +838,7 @@ fn later_red_stop_caps_travel_after_permitted_gate() {
     );
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn later_red_uses_compiled_path_gate() {
     let mut world = world_with_delta(1_000);

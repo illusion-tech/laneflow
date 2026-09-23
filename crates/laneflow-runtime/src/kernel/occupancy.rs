@@ -184,9 +184,13 @@ pub(crate) struct OccupancyIndex {
 }
 
 /// 每次重建的桶计数/写游标；成功查询不借用它。
+///
+/// 机动 transition 的反向表按静态路网只建一次，供新鲜摆放找上游后车。
 #[derive(Debug)]
 pub(crate) struct OccupancyScratch {
     positions: Vec<usize>,
+    maneuver_upstream_offsets: Vec<u32>,
+    maneuver_upstream_sources: Vec<u32>,
     #[cfg(test)]
     exact_pending: Vec<OccupancyRecord>,
 }
@@ -196,9 +200,14 @@ impl OccupancyScratch {
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             positions,
+            maneuver_upstream_offsets,
+            maneuver_upstream_sources,
             exact_pending,
         } = self;
-        crate::kernel::state::vec_bytes(positions) + crate::kernel::state::vec_bytes(exact_pending)
+        crate::kernel::state::vec_bytes(positions)
+            + crate::kernel::state::vec_bytes(maneuver_upstream_offsets)
+            + crate::kernel::state::vec_bytes(maneuver_upstream_sources)
+            + crate::kernel::state::vec_bytes(exact_pending)
     }
 }
 
@@ -210,6 +219,92 @@ impl OccupancyScratch {
 
     fn record_total(&self, bucket_count: usize) -> usize {
         self.positions.iter().take(bucket_count).copied().sum()
+    }
+
+    /// 按目标边列出通过机动 transition 进入该边的前驱。静态路网不变就复用。
+    pub(crate) fn ensure_maneuver_upstream(
+        &mut self,
+        traffic: &laneflow_static_network::SharedTrafficNetwork,
+    ) -> Result<(), StepError> {
+        let edge_count = usize::try_from(traffic.lane_edge_count()).unwrap_or(0);
+        if self.maneuver_upstream_offsets.len() == edge_count.saturating_add(1)
+            && !self.maneuver_upstream_offsets.is_empty()
+        {
+            return Ok(());
+        }
+        let mut counts = Vec::new();
+        counts
+            .try_reserve(edge_count)
+            .map_err(|_| StepError::OccupancyAllocFailed)?;
+        counts.resize(edge_count, 0u32);
+        for raw in 0..edge_count {
+            let from = laneflow_static_contract::LaneEdgeOrdinal::from_raw(
+                u32::try_from(raw).map_err(|_| StepError::OccupancyIntervalIncomplete)?,
+            );
+            let Some(candidates) = traffic.maneuvers().transition_candidates(from) else {
+                continue;
+            };
+            for candidate in candidates {
+                let to = candidate.successor().index();
+                if let Some(count) = counts.get_mut(to) {
+                    *count = count.saturating_add(1);
+                }
+            }
+        }
+        let mut offsets = Vec::new();
+        offsets
+            .try_reserve(edge_count.saturating_add(1))
+            .map_err(|_| StepError::OccupancyAllocFailed)?;
+        offsets.resize(edge_count.saturating_add(1), 0u32);
+        for index in 0..edge_count {
+            offsets[index + 1] = offsets[index].saturating_add(counts[index]);
+        }
+        let total = usize::try_from(*offsets.last().unwrap_or(&0)).unwrap_or(0);
+        let mut sources = Vec::new();
+        sources
+            .try_reserve(total)
+            .map_err(|_| StepError::OccupancyAllocFailed)?;
+        sources.resize(total, 0u32);
+        let mut cursor = offsets.clone();
+        for raw in 0..edge_count {
+            let from = u32::try_from(raw).map_err(|_| StepError::OccupancyIntervalIncomplete)?;
+            let from_edge = laneflow_static_contract::LaneEdgeOrdinal::from_raw(from);
+            let Some(candidates) = traffic.maneuvers().transition_candidates(from_edge) else {
+                continue;
+            };
+            for candidate in candidates {
+                let to = candidate.successor().index();
+                let Some(slot) = cursor.get_mut(to) else {
+                    continue;
+                };
+                let index = usize::try_from(*slot).unwrap_or(0);
+                if let Some(source) = sources.get_mut(index) {
+                    *source = from;
+                    *slot = slot.saturating_add(1);
+                }
+            }
+        }
+        self.maneuver_upstream_offsets = offsets;
+        self.maneuver_upstream_sources = sources;
+        Ok(())
+    }
+
+    pub(crate) fn maneuver_upstream(
+        &self,
+        edge: laneflow_static_contract::LaneEdgeOrdinal,
+    ) -> &[u32] {
+        let index = edge.index();
+        let Some(start) = self.maneuver_upstream_offsets.get(index).copied() else {
+            return &[];
+        };
+        let Some(end) = self.maneuver_upstream_offsets.get(index + 1).copied() else {
+            return &[];
+        };
+        let start = usize::try_from(start).unwrap_or(0);
+        let end = usize::try_from(end).unwrap_or(start);
+        self.maneuver_upstream_sources
+            .get(start..end.min(self.maneuver_upstream_sources.len()))
+            .unwrap_or(&[])
     }
 }
 
@@ -256,6 +351,8 @@ impl OccupancyIndex {
         };
         let mut scratch = OccupancyScratch {
             positions: Vec::new(),
+            maneuver_upstream_offsets: Vec::new(),
+            maneuver_upstream_sources: Vec::new(),
             #[cfg(test)]
             exact_pending: Vec::new(),
         };
@@ -270,6 +367,8 @@ impl OccupancyIndex {
         let offsets = vec![0; bucket_count.saturating_add(1)];
         let scratch = OccupancyScratch {
             positions: vec![0; bucket_count],
+            maneuver_upstream_offsets: Vec::new(),
+            maneuver_upstream_sources: Vec::new(),
             #[cfg(test)]
             exact_pending: Vec::new(),
         };
@@ -600,51 +699,75 @@ impl OccupancyIndex {
         best
     }
 
-    pub(crate) fn for_each_record_on_edge(
+    /// `hi_mm` 落在闭区间内的记录。桶按前杠排序，窗外的车不访问。
+    pub(crate) fn for_each_record_in_hi_window(
         &self,
         edge: LaneEdgeOrdinal,
+        min_hi: u32,
+        max_hi: u32,
         mut visit: impl FnMut(VehicleHandle, u32),
     ) {
+        if min_hi > max_hi {
+            return;
+        }
         let (start, end) = self.bucket_span(edge);
-        for record in &self.records[start..end] {
+        let records = &self.records[start..end];
+        let from = records.partition_point(|record| record.hi_mm < min_hi);
+        let to = records.partition_point(|record| record.hi_mm <= max_hi);
+        for record in &records[from..to] {
             visit(record.vehicle, record.update_sequence);
         }
     }
 
-    /// 用已有记录加上新车记录重排桶，不重新走每辆车的路线。
-    pub(crate) fn reindex_including(
-        &mut self,
-        extra: &[OccupancyRecord],
-        scratch: &mut OccupancyScratch,
-        ceiling: usize,
-    ) -> Result<(), StepError> {
-        let bucket_count = self.offsets.len().saturating_sub(1);
-        if self.records.len().saturating_add(extra.len()) > ceiling {
-            return Err(StepError::OccupancyCapacityExceeded);
+    /// 把新记录插进各自的桶。调用前容量必须已经够，这里不再分配。
+    pub(crate) fn insert_reserved_records(&mut self, extra: &[OccupancyRecord]) {
+        for record in extra {
+            self.insert_reserved_record(*record);
         }
-        let mut pending = Vec::new();
-        pending
-            .try_reserve(self.records.len().saturating_add(extra.len()))
-            .map_err(|_| StepError::OccupancyAllocFailed)?;
-        pending.extend_from_slice(&self.records);
-        pending.extend_from_slice(extra);
-        self.try_prepare_scratch(scratch, bucket_count)?;
-        for record in &pending {
-            if let Some(count) = scratch.positions.get_mut(record.bucket.index()) {
-                *count += 1;
+    }
+
+    fn insert_reserved_record(&mut self, record: OccupancyRecord) {
+        let bucket = record.bucket.index();
+        debug_assert!(bucket + 1 < self.offsets.len());
+        let start = self.offsets[bucket];
+        let end = self.offsets[bucket + 1];
+        let key = (
+            record.hi_mm,
+            record.lo_mm,
+            record.update_sequence,
+            record.vehicle.index(),
+        );
+        let local = self.records[start..end].partition_point(|existing| {
+            (
+                existing.hi_mm,
+                existing.lo_mm,
+                existing.update_sequence,
+                existing.vehicle.index(),
+            ) < key
+        });
+        let at = start + local;
+        debug_assert!(self.records.len() < self.records.capacity());
+        debug_assert!(self.suffix_min_lo.len() < self.suffix_min_lo.capacity());
+        debug_assert!(self.suffix_second_lo.len() < self.suffix_second_lo.capacity());
+        self.records.insert(at, record);
+        self.suffix_min_lo.insert(at, 0);
+        self.suffix_second_lo.insert(at, SUFFIX_NONE);
+        for offset in self.offsets.iter_mut().skip(bucket + 1) {
+            *offset = offset.saturating_add(1);
+        }
+        // 后缀下标只指向自己的桶。本桶马上重算；更后的桶整体后移一格。
+        let later = self.offsets[bucket + 1];
+        for slot in &mut self.suffix_min_lo[later..] {
+            if *slot != SUFFIX_NONE {
+                *slot = slot.saturating_add(1);
             }
         }
-        let total = scratch.record_total(bucket_count);
-        if total > ceiling {
-            return Err(StepError::OccupancyCapacityExceeded);
+        for slot in &mut self.suffix_second_lo[later..] {
+            if *slot != SUFFIX_NONE {
+                *slot = slot.saturating_add(1);
+            }
         }
-        self.try_reserve_records(total)?;
-        self.finish_layout(scratch, bucket_count);
-        for record in pending {
-            self.write_record(scratch, record);
-        }
-        self.sort_buckets(bucket_count);
-        Ok(())
+        self.fill_suffix_min_lo(start, later);
     }
 
     #[cfg(test)]
@@ -939,16 +1062,7 @@ impl crate::kernel::state::WorldState {
             self.derived.occupancy.source = None;
             return;
         }
-        let ceiling = occupancy_record_limit(self.binding.config.vehicle_capacity());
-        let scratch = &mut self.workspace.occupancy_scratch;
-        let occupancy = &mut self.derived.occupancy;
-        if occupancy
-            .reindex_including(&records, scratch, ceiling)
-            .is_err()
-        {
-            occupancy.source = None;
-            return;
-        }
+        self.derived.occupancy.insert_reserved_records(&records);
         self.derived.occupancy.source =
             Some((generation, self.committed.observation_state_sequence));
     }
@@ -1016,6 +1130,13 @@ impl crate::kernel::state::WorldState {
             .suffix_second_lo
             .try_reserve(records.len())
             .map_err(|_| StepError::OccupancyAllocFailed)?;
+        let bucket_count = self.derived.occupancy.offsets.len().saturating_sub(1);
+        if records
+            .iter()
+            .any(|record| record.bucket.index() >= bucket_count)
+        {
+            return Err(StepError::OccupancyIntervalIncomplete);
+        }
         Ok(records)
     }
 
@@ -2689,6 +2810,8 @@ pub(crate) mod tests {
     ) {
         let mut scratch = OccupancyScratch {
             positions: Vec::new(),
+            maneuver_upstream_offsets: Vec::new(),
+            maneuver_upstream_sources: Vec::new(),
             exact_pending: Vec::new(),
         };
         let pending = vec![
