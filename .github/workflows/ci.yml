@@ -199,6 +199,7 @@ jobs:
         run: |
           cargo +1.98.0 clippy -p laneflow-runtime --all-targets --locked --features placement-fixtures -- -D warnings
           cargo +1.98.0 clippy -p laneflow-scenario --all-targets --locked --features placement-fixtures -- -D warnings
+          cargo +1.98.0 clippy -p laneflow-junction-generator --all-targets --locked --features placement-fixtures -- -D warnings
 
       - name: Run workspace tests
         if: needs.changes.outputs.rust == 'true'
@@ -211,6 +212,7 @@ jobs:
         run: |
           cargo +1.98.0 nextest run -p laneflow-runtime --locked --features placement-fixtures
           cargo +1.98.0 nextest run -p laneflow-scenario --locked --features placement-fixtures
+          cargo +1.98.0 nextest run -p laneflow-junction-generator --locked --features placement-fixtures
 
       # cargo-nextest 不执行 doctest，doctest 仍由 libtest 覆盖。
       - name: Run workspace doctests

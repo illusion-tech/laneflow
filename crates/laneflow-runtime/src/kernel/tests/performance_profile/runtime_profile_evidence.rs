@@ -11,8 +11,11 @@ mod cpu_sampling;
 mod journal_ab;
 
 use std::time::Instant;
-use support::{CASES, Fixtures, Scene};
+#[cfg(feature = "placement-fixtures")]
+use support::Scene;
+use support::{CASES, Fixtures};
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn profile_resource_windows_preserve_active_resource_states() {
     let fixtures = Fixtures::new();

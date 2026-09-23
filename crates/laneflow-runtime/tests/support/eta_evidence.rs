@@ -2,6 +2,7 @@
 use super::*;
 use sha2::{Digest, Sha256};
 
+#[cfg(feature = "placement-fixtures")]
 fn run(repetitions: usize, lead_ms: u64, samples: usize, warmup: usize) {
     let revision =
         compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
@@ -54,7 +55,7 @@ fn run(repetitions: usize, lead_ms: u64, samples: usize, warmup: usize) {
     let mut trace = Sha256::new();
     let mut step_ns = Vec::with_capacity(samples);
     for sample in 0..samples + warmup {
-        let vehicles = inputs.map(|input| world.spawn_vehicle(input).unwrap());
+        let vehicles = inputs.map(|input| world.place_existing_active_vehicle(input).unwrap());
         let start = Instant::now();
         black_box(world.step(TickInput::new(4)).unwrap());
         let elapsed = start.elapsed().as_nanos();
@@ -91,6 +92,7 @@ fn run(repetitions: usize, lead_ms: u64, samples: usize, warmup: usize) {
     );
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn eta_workload_smoke() {
     run(64, 500, 4, 2);
@@ -99,6 +101,7 @@ fn eta_workload_smoke() {
     }
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 #[ignore = "manual release A/B; production library without work counters"]
 fn eta_release_ab() {

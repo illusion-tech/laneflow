@@ -9,6 +9,7 @@ mod conflict_review;
 #[path = "support/policy_acceptance.rs"]
 mod policy_acceptance;
 
+#[cfg(feature = "placement-fixtures")]
 #[path = "support/eta_evidence.rs"]
 mod eta_evidence;
 
@@ -1614,6 +1615,7 @@ fn conflict_routes_charge_independent_capacity_and_use_the_production_gate_path(
         .expect("released conflict capacity is reusable");
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn conflict_tick_arbitrates_the_canonical_post_gate_zero_position() {
     let revision = compile_road_editing_revision(conflict_road_editing_module_with_stream_count(2));
@@ -1639,7 +1641,7 @@ fn conflict_tick_arbitrates_the_canonical_post_gate_zero_position() {
     });
     let vehicles = routes.map(|route| {
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
+            .place_existing_active_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 1,

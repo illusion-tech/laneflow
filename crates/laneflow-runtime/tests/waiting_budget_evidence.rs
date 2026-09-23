@@ -91,6 +91,10 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
             .is_some(),
         "fixture vehicle must hold a Waiting membership before measurement"
     );
+    // 进入等待区后的第一下移动，车身可能跨到下一条边，那条边的占用桶只长大一次。
+    world
+        .step(TickInput::new(DELTA_MS))
+        .expect("settle occupancy");
 
     let stats = {
         let region = Region::new(GLOBAL);

@@ -224,7 +224,7 @@ fn resource_free_gate_keeps_following_resource_gate_in_the_same_tick() {
                 .unwrap();
         }
         let subject = world
-            .spawn_vehicle(VehicleSpawnInput::new(
+            .place_existing_active_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
@@ -322,7 +322,7 @@ fn rejected_resource_gate_does_not_report_unreached_resource_free_gate() {
     let [route, conflicting_route] = right_turn_routes(&mut world);
     at_gate(&mut world, conflicting_route);
     let subject = world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
