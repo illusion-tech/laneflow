@@ -162,6 +162,8 @@ pub enum CorridorReplaceAttemptOutcome {
     Replaced(VehicleReplaceRecord),
     /// 入口占用，host 世界不变。
     Blocked(VehicleReplaceBlock),
+    /// 当前停车约束、前方限速或前后车暂时不能接纳。host 世界不变，可稍后重试。
+    Retryable,
 }
 
 /// `apply_pending` 的 host 或 policy 失败。
@@ -710,6 +712,10 @@ impl CorridorPopulationController {
                     self.pending.push_back(slot_index);
                     report.blocked += 1;
                 }
+                CorridorReplaceAttemptOutcome::Retryable => {
+                    self.pending.push_back(slot_index);
+                    report.blocked += 1;
+                }
                 CorridorReplaceAttemptOutcome::Replaced(record) => {
                     if record.old != old {
                         self.pending.push_front(slot_index);
@@ -966,14 +972,20 @@ impl CorridorReplaceAttemptOutcome {
     ///
     /// # Errors
     ///
-    /// Runtime 替换的致命错误原样返回（`Err`）；[`ReplaceError::Blocked`] 映射为
-    /// 可重试 outcome 而不是错误。
+    /// Runtime 替换的致命错误原样返回（`Err`）。[`ReplaceError::Blocked`] 与当前
+    /// 暂时不能接纳的运动安全错误映射为可重试 outcome，而不是错误。
     pub fn from_replace(
         result: Result<VehicleReplaceRecord, laneflow_runtime::ReplaceError>,
     ) -> Result<Self, laneflow_runtime::ReplaceError> {
         match result {
             Ok(record) => Ok(Self::Replaced(record)),
             Err(laneflow_runtime::ReplaceError::Blocked(block)) => Ok(Self::Blocked(block)),
+            Err(
+                laneflow_runtime::ReplaceError::StopConstraintUnsatisfiable
+                | laneflow_runtime::ReplaceError::DownstreamSpeedUnsatisfiable
+                | laneflow_runtime::ReplaceError::UnsafeLeader { .. }
+                | laneflow_runtime::ReplaceError::UnsafeFollower { .. },
+            ) => Ok(Self::Retryable),
             Err(error) => Err(error),
         }
     }

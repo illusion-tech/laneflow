@@ -66,6 +66,7 @@ impl Host {
                     Ok(LaneFlowVehicleReplaceOutcome::Blocked(block)) => {
                         Ok(Err(ReplaceError::Blocked(block)))
                     }
+                    Ok(LaneFlowVehicleReplaceOutcome::Retryable(error)) => Ok(Err(error)),
                     Err(LaneFlowAdapterError::VehicleReplace { source, .. }) => Ok(Err(source)),
                     Err(error) => Err(crate::invalid(format!("Adapter replacement: {error}"))),
                     Ok(_) => Err(crate::invalid("unknown Adapter replacement outcome")),

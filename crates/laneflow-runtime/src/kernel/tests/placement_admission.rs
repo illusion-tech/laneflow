@@ -327,6 +327,26 @@ fn downstream_lower_limit_rejects_a_speed_that_cannot_fall() {
 }
 
 #[test]
+fn a_looser_intermediate_limit_does_not_hide_a_later_drop() {
+    let revision = revision("runtime/placement-plain", |module| {
+        add_edge(module, "fast", 5.0, 10.0, Some("middle"));
+        add_edge(module, "middle", 1.0, 8.0, Some("slow"));
+        add_edge(module, "slow", 20.0, 3.0, None);
+    });
+    let mut world = install(revision);
+    let route = register_named(
+        &mut world,
+        "runtime/placement-plain",
+        &["fast", "middle", "slow"],
+    );
+    assert_eq!(
+        spawn(&mut world, route, 0, 4_000, 7_000).unwrap_err(),
+        SpawnError::DownstreamSpeedUnsatisfiable,
+        "7 m/s 低于中间的 8 m/s，但仍须降到 1 米外的 3 m/s"
+    );
+}
+
+#[test]
 fn leader_and_follower_use_emergency_braking_not_comfort_gap() {
     let revision = revision("runtime/placement-plain", |module| {
         add_edge(module, "road", 200.0, 25.0, None);
