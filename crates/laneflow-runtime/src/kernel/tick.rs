@@ -36,12 +36,25 @@ pub(crate) struct MotionPreview {
     bounds: MotionBounds,
 }
 
+/// 新鲜摆放用来对照求解器本拍硬截断的预测。不是步进结果。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PlacementMotion {
+    pub(crate) next_speed_mm_s: u32,
+    pub(crate) committed_travel_mm: u32,
+    pub(crate) hard_clamped: bool,
+}
+
 /// 由共同运动内核产生的复用证明；缺失证明时只能复用完全相同的约束。
 #[derive(Clone, Copy, Debug)]
 enum MotionBounds {
     Unknown,
     HardStopped,
-    Travel { meters: f32, proposed_mm: u64 },
+    Travel {
+        meters: f32,
+        proposed_mm: u64,
+        committed_mm: u32,
+        exhausted: bool,
+    },
 }
 
 /// P2 第一遍逐车独立预览的暂存输出。协调器按 Active 顺序规范消费；
@@ -95,6 +108,7 @@ impl MotionPreview {
             MotionBounds::Travel {
                 meters,
                 proposed_mm,
+                ..
             } => match stop.distance {
                 BoundedDistance::Finite(mm) => {
                     // SI clamp 不变，且新整数硬边界严格在含 carry/舍入的提案外，
@@ -1480,6 +1494,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             parking_binding,
             horizon,
             None,
+            None,
+            false,
         )
     }
 
@@ -1499,6 +1515,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             self.committed.parking.binding(state.handle),
             horizon,
             Some(&mut bounds),
+            None,
+            false,
         )?;
         Some(MotionPreview {
             next,
@@ -1595,6 +1613,45 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         })
     }
 
+    /// 用指定前车空隙预测本拍硬截断。不写入世界。
+    ///
+    /// `leader_constraint_only` 时硬房间只含这名前车的快照空隙，避免把后车自己的
+    /// 信号或路终清零算成这名前车造成的硬投影。
+    pub(crate) fn placement_motion(
+        self,
+        state: VehicleState,
+        leader_gap: Option<i64>,
+        leader_constraint_only: bool,
+    ) -> Option<PlacementMotion> {
+        let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
+        let mut bounds = MotionBounds::Unknown;
+        let next = self.calculate_active_vehicle_motion(
+            state,
+            delta_s,
+            None,
+            None,
+            self.committed.parking.binding(state.handle),
+            None,
+            Some(&mut bounds),
+            Some(leader_gap),
+            leader_constraint_only,
+        )?;
+        let (committed_travel_mm, hard_clamped) = match bounds {
+            MotionBounds::HardStopped => (0, true),
+            MotionBounds::Travel {
+                committed_mm,
+                exhausted,
+                ..
+            } => (committed_mm, exhausted),
+            MotionBounds::Unknown => return None,
+        };
+        Some(PlacementMotion {
+            next_speed_mm_s: next.speed_mm_s,
+            committed_travel_mm,
+            hard_clamped,
+        })
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn calculate_active_vehicle_motion(
         self,
@@ -1605,6 +1662,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         parking_binding: Option<ParkingBinding>,
         horizon: Option<LeaderQueryHorizon>,
         motion_bounds: Option<&mut MotionBounds>,
+        leader_gap_override: Option<Option<i64>>,
+        leader_constraint_only: bool,
     ) -> Option<VehicleState> {
         #[cfg(test)]
         MOTION_CALCULATIONS.set(MOTION_CALCULATIONS.get() + 1);
@@ -1644,14 +1703,17 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         #[cfg(test)]
         let gap_timer =
             super::exact_path_research::begin(super::exact_path_research::Stage::LeaderGap);
-        let leader_gap = self.derived.occupancy.leader_gap(
-            state.handle,
-            edges,
-            cursor,
-            state.progress_mm,
-            lengths,
-            horizon,
-        );
+        let leader_gap = match leader_gap_override {
+            Some(gap) => gap,
+            None => self.derived.occupancy.leader_gap(
+                state.handle,
+                edges,
+                cursor,
+                state.progress_mm,
+                lengths,
+                horizon,
+            ),
+        };
         #[cfg(test)]
         drop(gap_timer);
         #[cfg(test)]
@@ -1714,15 +1776,22 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 note_barrier_query(|counts| counts.hard_room_permissions += 1);
                 self.hop_permitted(state.route, edges, cursor, state.profile)
             };
-        let hard_room = hard_room_mm(
-            leader_gap,
-            profile.min_gap_mm(),
-            movement_stop,
-            route_end,
-            edge_length_mm,
-            state.progress_mm,
-            permitted_for_hard_room,
-        );
+        let hard_room = if leader_constraint_only {
+            match leader_gap {
+                Some(gap) => snapshot_leader_room_mm(gap, profile.min_gap_mm()),
+                None => u32::MAX,
+            }
+        } else {
+            hard_room_mm(
+                leader_gap,
+                profile.min_gap_mm(),
+                movement_stop,
+                route_end,
+                edge_length_mm,
+                state.progress_mm,
+                permitted_for_hard_room,
+            )
+        };
         if hard_room == 0 {
             if let Some(bounds) = motion_bounds {
                 *bounds = MotionBounds::HardStopped;
@@ -1738,14 +1807,18 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         }
 
         let um = u64::from(state.carry_um).saturating_add(round_um(f64::from(travel_m))?);
+        let travel_mm_for_bounds = u32::try_from((um / 1_000).min(u64::from(hard_room))).ok()?;
+        let exhausted_for_bounds = travel_mm_for_bounds == hard_room;
         if let Some(bounds) = motion_bounds {
             *bounds = MotionBounds::Travel {
                 meters: travel_m,
                 proposed_mm: um / 1_000,
+                committed_mm: travel_mm_for_bounds,
+                exhausted: exhausted_for_bounds,
             };
         }
-        let travel_mm = u32::try_from((um / 1_000).min(u64::from(hard_room))).ok()?;
-        let exhausted = travel_mm == hard_room;
+        let travel_mm = travel_mm_for_bounds;
+        let exhausted = exhausted_for_bounds;
         if exhausted {
             state.carry_um = 0;
         } else {
@@ -2744,6 +2817,16 @@ fn stop_is_nearer_or_equal(candidate: BoundedDistance, current: BoundedDistance)
     }
 }
 
+/// 求解器本拍从前车快照空隙承认的硬房间。`hard_room_mm` 与新鲜摆放共用这条整数规则。
+pub(crate) fn snapshot_leader_room_mm(gap_mm: i64, min_gap_mm: u32) -> u32 {
+    let leftover = gap_mm.saturating_sub(i64::from(min_gap_mm));
+    if leftover <= 0 {
+        0
+    } else {
+        u32::try_from(leftover).unwrap_or(u32::MAX)
+    }
+}
+
 /// 本拍硬约束。`BeyondFinite` 路终/停车距离不参与包络；Finite 侧保持 `u32`，不上 `u64`。
 fn hard_room_mm(
     leader_gap: Option<i64>,
@@ -2756,13 +2839,7 @@ fn hard_room_mm(
 ) -> u32 {
     let mut room = u32::MAX;
     if let Some(gap) = leader_gap {
-        let leftover = gap.saturating_sub(i64::from(min_gap_mm));
-        let leader_room = if leftover <= 0 {
-            0
-        } else {
-            u32::try_from(leftover).unwrap_or(u32::MAX)
-        };
-        room = room.min(leader_room);
+        room = room.min(snapshot_leader_room_mm(gap, min_gap_mm));
     }
     if let Some(BoundedDistance::Finite(stop)) = signal_stop {
         room = room.min(stop);
@@ -3388,6 +3465,8 @@ mod motion_reuse_tests {
                 bounds: MotionBounds::Travel {
                     meters,
                     proposed_mm,
+                    committed_mm: 0,
+                    exhausted: false,
                 },
             };
             let stop = WaitingStopConstraint {
@@ -3403,6 +3482,8 @@ mod motion_reuse_tests {
             bounds: MotionBounds::Travel {
                 meters: 0.000_1,
                 proposed_mm: 0,
+                committed_mm: 0,
+                exhausted: false,
             },
         };
         let stop = WaitingStopConstraint {
@@ -4476,6 +4557,7 @@ mod barrier_query_tests {
         assert!(reach.excludes(beyond));
         assert!(edge_length > beyond + 1);
         let handle = world
+            .state
             .place_existing_active_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
                 route,

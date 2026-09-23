@@ -419,6 +419,10 @@ fn replace_uses_the_same_follower_admission() {
         .status = VehicleStatus::Completed;
     world.state.rebuild_active_order();
     world.state.derived.spawn_overlap.mark_stale();
+    world
+        .state
+        .rebuild_occupancy_index()
+        .expect("完成后的车退出占用索引");
     let blocked = VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 26_500, 0);
     assert_eq!(
         world
@@ -430,5 +434,273 @@ fn replace_uses_the_same_follower_admission() {
     assert_eq!(
         world.vehicle(follower).map(|state| state.status()),
         Some(VehicleStatus::Active)
+    );
+}
+
+fn install_sized(revision: Arc<SharedNetworkRevision>, vehicles: u32, routes: u32) -> TrafficWorld {
+    let origin = *revision.canonical_origin();
+    TrafficWorld::install(
+        Arc::clone(&revision),
+        WorldConfig::new(vehicles, routes, 4_096, 256, 100),
+        ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        CommittedNetworkSource::Published {
+            reference: PublishedLfcaReference::new(
+                "fixture://placement-admission",
+                origin.canonical_artifact_digest(),
+                origin.canonical_artifact_byte_length(),
+                origin.network_revision(),
+            )
+            .expect("source"),
+        },
+        742,
+        crate::test_policy::selection(&revision),
+    )
+    .expect("install")
+}
+
+fn same_speed_gap(leader_progress: u32, follower_progress: u32) -> i64 {
+    i64::from(leader_progress) - 4_500 - i64::from(follower_progress)
+}
+
+#[test]
+fn same_speed_at_min_gap_is_not_accepted_then_hard_stopped() {
+    let revision = revision("runtime/placement-plain", |module| {
+        add_edge(module, "road", 200.0, 25.0, None);
+    });
+    for (leader_at, follower_at) in [(16_500, 10_000), (16_400, 10_000)] {
+        assert!(
+            same_speed_gap(leader_at, follower_at) <= 2_000,
+            "fixture gap must be at or under min_gap"
+        );
+        let mut behind = install(Arc::clone(&revision));
+        let route = register_edges(&mut behind, &[0]);
+        let leader = spawn(&mut behind, route, 0, leader_at, 10_000).expect("前车");
+        assert_eq!(
+            spawn(&mut behind, route, 0, follower_at, 10_000).unwrap_err(),
+            SpawnError::UnsafeLeader { leader }
+        );
+
+        let mut ahead = install(Arc::clone(&revision));
+        let route = register_edges(&mut ahead, &[0]);
+        let follower = spawn(&mut ahead, route, 0, follower_at, 10_000).expect("后车");
+        assert_eq!(
+            spawn(&mut ahead, route, 0, leader_at, 10_000).unwrap_err(),
+            SpawnError::UnsafeFollower { follower }
+        );
+    }
+}
+
+#[test]
+fn accepted_same_speed_gap_survives_one_tick_without_a_hard_stop() {
+    let revision = revision("runtime/placement-plain", |module| {
+        add_edge(module, "road", 200.0, 25.0, None);
+    });
+    let mut behind = install(Arc::clone(&revision));
+    let route = register_edges(&mut behind, &[0]);
+    spawn(&mut behind, route, 0, 26_500, 10_000).expect("前车");
+    let follower = spawn(&mut behind, route, 0, 10_000, 10_000).expect("净距足够的后车");
+    behind.step(crate::TickInput::new(100)).expect("step");
+    let moved = behind.vehicle(follower).expect("follower");
+    assert!(
+        moved.speed_mm_s() >= 9_600,
+        "第一拍速度 {} 不能被硬投影打到紧急制动以下",
+        moved.speed_mm_s()
+    );
+    let travel = moved.progress_mm() - 10_000;
+    assert!(
+        (900..1_500).contains(&travel),
+        "第一拍位移 {travel} mm 应接近巡航，而不是被硬房间截成 0"
+    );
+
+    let mut ahead = install(revision);
+    let route = register_edges(&mut ahead, &[0]);
+    let follower = spawn(&mut ahead, route, 0, 10_000, 10_000).expect("后车");
+    spawn(&mut ahead, route, 0, 26_500, 10_000).expect("前方新车");
+    ahead.step(crate::TickInput::new(100)).expect("step");
+    let moved = ahead.vehicle(follower).expect("follower");
+    assert!(moved.speed_mm_s() >= 9_600, "speed {}", moved.speed_mm_s());
+    let travel = moved.progress_mm() - 10_000;
+    assert!((900..1_500).contains(&travel), "后车第一拍位移 {travel} mm");
+}
+
+#[test]
+fn leader_emergency_does_not_donate_solver_room() {
+    let revision = revision("runtime/placement-plain", |module| {
+        module
+            .add_vehicle_profile(VehicleProfileInput {
+                vehicle_profile_key: "soft",
+                participant_class: ParticipantClassReference::local("road-user"),
+                iidm: IidmVehicleProfileInput {
+                    emergency_deceleration_meters_per_second_squared: 2.5,
+                    ..profile()
+                },
+            })
+            .expect("soft profile");
+        add_edge(module, "road", 200.0, 25.0, None);
+    });
+    let mut world = install(Arc::clone(&revision));
+    let soft = world
+        .traffic()
+        .relations()
+        .vehicle_profile(VehicleProfileOrdinal::from_raw(1))
+        .expect("soft profile ordinal");
+    assert!((soft.emergency_decel() - 2.5).abs() < 0.01);
+    let route = register_edges(&mut world, &[0]);
+    let leader = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(1),
+            route,
+            0,
+            16_500,
+            10_000,
+        ))
+        .expect("制动很弱的前车");
+    assert_eq!(
+        spawn(&mut world, route, 0, 10_000, 10_000).unwrap_err(),
+        SpawnError::UnsafeLeader { leader },
+        "前车几乎停不住，也不能因此给后车腾出求解器并不传播的空间"
+    );
+
+    let mut ahead = install(revision);
+    let route = register_edges(&mut ahead, &[0]);
+    let follower = spawn(&mut ahead, route, 0, 10_000, 10_000).expect("后车");
+    assert_eq!(
+        ahead
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(1),
+                route,
+                0,
+                16_500,
+                10_000,
+            ))
+            .unwrap_err(),
+        SpawnError::UnsafeFollower { follower }
+    );
+}
+
+#[test]
+fn follower_emergency_uses_its_own_brakes() {
+    let revision = revision("runtime/placement-plain", |module| {
+        module
+            .add_vehicle_profile(VehicleProfileInput {
+                vehicle_profile_key: "firm",
+                participant_class: ParticipantClassReference::local("road-user"),
+                iidm: IidmVehicleProfileInput {
+                    emergency_deceleration_meters_per_second_squared: 12.0,
+                    ..profile()
+                },
+            })
+            .expect("firm profile");
+        add_edge(module, "road", 200.0, 25.0, None);
+    });
+    let mut firm_world = install(Arc::clone(&revision));
+    let route = register_edges(&mut firm_world, &[0]);
+    spawn(&mut firm_world, route, 0, 16_545, 1_000).expect("前车");
+    firm_world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(1),
+            route,
+            0,
+            10_000,
+            1_000,
+        ))
+        .expect("更强的紧急制动放得进这 45 mm 空隙");
+
+    let mut soft_world = install(revision);
+    let route = register_edges(&mut soft_world, &[0]);
+    let leader = spawn(&mut soft_world, route, 0, 16_545, 1_000).expect("前车");
+    assert_eq!(
+        spawn(&mut soft_world, route, 0, 10_000, 1_000).unwrap_err(),
+        SpawnError::UnsafeLeader { leader },
+        "同一空隙用后车自己的 4 m/s²，本拍硬截断超出它的紧急制动"
+    );
+}
+
+#[test]
+fn follower_on_previous_edge_uses_its_own_gap() {
+    let revision = revision("runtime/placement-plain", |module| {
+        add_edge(module, "entry", 20.0, 25.0, Some("exit"));
+        add_edge(module, "exit", 20.0, 25.0, None);
+    });
+    let mut world = install(revision);
+    let route = register_named(&mut world, "runtime/placement-plain", &["entry", "exit"]);
+    let follower = spawn(&mut world, route, 0, 15_000, 10_000).expect("上一边的后车");
+    assert_eq!(
+        spawn(&mut world, route, 1, 1_500, 10_000).unwrap_err(),
+        SpawnError::UnsafeFollower { follower }
+    );
+}
+
+#[test]
+fn diverge_follower_on_the_other_branch_is_not_a_direct_follower() {
+    let revision = revision("runtime/placement-plain", |module| {
+        module
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "stem",
+                length_meters: 30.0,
+                speed_limit_meters_per_second: 25.0,
+                successors: &[
+                    LaneEdgeReference::local("left"),
+                    LaneEdgeReference::local("right"),
+                ],
+            })
+            .expect("stem");
+        add_edge(module, "left", 20.0, 25.0, None);
+        add_edge(module, "right", 20.0, 25.0, None);
+    });
+    let mut world = install(revision);
+    let right = register_named(&mut world, "runtime/placement-plain", &["stem", "right"]);
+    let left = register_named(&mut world, "runtime/placement-plain", &["stem", "left"]);
+    spawn(&mut world, right, 0, 10_000, 10_000).expect("走右支的后车");
+    spawn(&mut world, left, 1, 5_000, 10_000).expect("左支上的车不是它的直接前车");
+}
+
+#[test]
+fn unrelated_roads_do_not_rebuild_or_scan_every_vehicle() {
+    const ROADS: u32 = 24;
+    let revision = revision("runtime/placement-plain", |module| {
+        for index in 0..ROADS {
+            add_edge(module, &format!("road-{index}"), 50.0, 25.0, None);
+        }
+    });
+    let mut world = install_sized(revision, ROADS + 4, ROADS + 4);
+    let mut keys = Vec::new();
+    for index in 0..ROADS {
+        keys.push(format!("road-{index}"));
+    }
+    let key_refs: Vec<&str> = keys.iter().map(String::as_str).collect();
+    crate::kernel::occupancy::reset_occupancy_rebuild_events();
+    crate::kernel::placement::reset_follower_candidates();
+    let started = std::time::Instant::now();
+    for index in 0..ROADS {
+        let route = register_named(
+            &mut world,
+            "runtime/placement-plain",
+            &[key_refs[index as usize]],
+        );
+        spawn(&mut world, route, 0, 1_000, 0).expect("disjoint spawn");
+    }
+    let elapsed = started.elapsed();
+    assert_eq!(
+        crate::kernel::occupancy::occupancy_rebuild_events(),
+        1,
+        "连续成功摆放不能逐车全量重建占用索引"
+    );
+    assert_eq!(
+        crate::kernel::placement::follower_candidates(),
+        0,
+        "互不连接的道路不能把其他路上的车算进后车候选"
+    );
+    assert!(
+        elapsed.as_millis() < 2_000,
+        "24 条互不相关道路的摆放耗时 {} ms",
+        elapsed.as_millis()
+    );
+    let patched = world.state.derived.occupancy.record_keys();
+    world.state.rebuild_occupancy_index().expect("对照重建");
+    assert_eq!(
+        patched,
+        world.state.derived.occupancy.record_keys(),
+        "增量索引必须和全量重建一致"
     );
 }

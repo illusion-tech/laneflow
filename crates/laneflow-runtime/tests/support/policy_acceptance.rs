@@ -393,7 +393,7 @@ fn waiting_capacity_denial_is_observable_without_claiming_following_conflict() {
     );
     assert!(world.conflict_reservation(leader).is_none());
     let waiting = world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             long,
             north,
             0,

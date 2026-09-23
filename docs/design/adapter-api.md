@@ -220,6 +220,8 @@ despawn_vehicle(
 
 - 预检失败则已提交世界不变；成功则一次提交旧结束与新开始。
 - `ReplaceError::Blocked` 仅入口占用/重叠，可重试；Adapter 此时映射与 Transform 不变。
+- `ReplaceError::StopConstraintUnsatisfiable`、`DownstreamSpeedUnsatisfiable`、`UnsafeLeader`、`UnsafeFollower` 是当前暂时不能接纳的运动安全结果，同样可重试。旧车、Entity 映射和 Transform 都保持不变，不写入 `last_error`。宿主决定何时用同一输入再试；Adapter 不维护隐藏队列。
+- 其余 `ReplaceError` 仍是致命错误，写入 `last_error`，本次替换不改变世界或映射。
 - 已绑定：成功则同一 Entity 轮换到新句柄。未绑定保持未绑定。
 - 到达路线终点写成 `Completed`，保留句柄与容量，不进 pose、不占车道。
 - Runtime despawn 对每个 live `VehicleStatus`（`Active | Parked | Completed`）都是真正

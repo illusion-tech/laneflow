@@ -1003,6 +1003,7 @@ impl crate::kernel::state::WorldState {
     ///
     /// 引用、重叠和通行权威仍然检查。供存档式回归保留“已经停不住”的运行时场面。
     /// 新的出行需求走 [`Self::spawn_vehicle`]。
+    #[cfg(any(test, feature = "placement-fixtures"))]
     pub(crate) fn place_existing_active_vehicle(
         &mut self,
         input: VehicleSpawnInput,
@@ -1021,6 +1022,12 @@ impl crate::kernel::state::WorldState {
             self.fresh_motion_admission(input, length_mm)
                 .map_err(super::placement::FreshAdmissionFailure::into_spawn)?;
         }
+        let previous_sequence = self.committed.observation_state_sequence;
+        let update_sequence = u32::try_from(self.derived.active_order.len())
+            .map_err(|_| SpawnError::OccupancyAllocFailed)?;
+        let occupancy_patch = self
+            .reserve_spawn_occupancy(input, length_mm, update_sequence)
+            .map_err(|_| SpawnError::OccupancyAllocFailed)?;
         let next_observation_state_sequence = self
             .committed
             .observation_state_sequence
@@ -1042,6 +1049,7 @@ impl crate::kernel::state::WorldState {
             self.commit_unparked_vehicle(input, 0, VehicleStatus::Active, authority);
         self.committed.observation_state_sequence = next_observation_state_sequence;
         self.committed.command_cursor = next_command_cursor;
+        self.apply_spawn_occupancy(handle, previous_sequence, occupancy_patch);
         let delta = VehicleDelta::from_state(&state, self.compiled_route(state.route));
         if let Some(journal) = self.admin.migration_journal.as_mut() {
             journal.record_vehicle_spawned(next_command_cursor, delta);
@@ -2228,8 +2236,8 @@ impl TrafficWorld {
 
     /// 放入一辆已经处于该活动状态的车，不检查新鲜摆放的运动安全。
     ///
-    /// 引用、车身重叠和通行权威仍与生成相同。这不是宿主的新需求入口；已经在路上、
-    /// 用来验证停不住之后怎么运动的回归测试用它保留原场面。新车走 [`Self::spawn_vehicle`]。
+    /// 仅 `placement-fixtures` 测试特性提供。引用、车身重叠和通行权威仍与生成相同。
+    /// 这不是宿主的需求入口。新车走 [`Self::spawn_vehicle`]。
     ///
     /// # Errors
     ///
@@ -2239,7 +2247,7 @@ impl TrafficWorld {
     /// # Panics
     ///
     /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
-    #[doc(hidden)]
+    #[cfg(feature = "placement-fixtures")]
     pub fn place_existing_active_vehicle(
         &mut self,
         input: VehicleSpawnInput,

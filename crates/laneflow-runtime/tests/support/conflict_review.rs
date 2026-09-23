@@ -28,7 +28,7 @@ fn routes(world: &mut TrafficWorld, revision: &SharedNetworkRevision) -> [RouteH
 fn spawn(world: &mut TrafficWorld, route: RouteHandle) -> VehicleHandle {
     let boundary = calibration_gate(world, route);
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
@@ -36,6 +36,31 @@ fn spawn(world: &mut TrafficWorld, route: RouteHandle) -> VehicleHandle {
             10_000,
         ))
         .unwrap()
+}
+
+#[test]
+fn fresh_spawn_rejects_the_one_millimetre_red_approach() {
+    let revision = revision(ConflictPolicyFixture {
+        deny: true,
+        ..Default::default()
+    });
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
+    let [route, _] = routes(&mut world, &revision);
+    let boundary = calibration_gate(&world, route);
+    assert_eq!(
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                boundary - 1,
+                10_000,
+            ))
+            .unwrap_err(),
+        SpawnError::StopConstraintUnsatisfiable
+    );
+    assert!(world.live_vehicles().is_empty());
 }
 
 #[test]
