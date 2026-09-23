@@ -503,6 +503,44 @@ fn restore_keeps_a_state_fresh_spawn_rejects() {
 }
 
 #[test]
+fn occupancy_insert_matches_live_order_when_a_completed_vehicle_remains() {
+    let revision = revision("runtime/placement-plain", |module| {
+        add_edge(module, "road", 200.0, 25.0, None);
+    });
+    let mut world = install(revision);
+    let route = register_edges(&mut world, &[0]);
+    let completed = spawn(&mut world, route, 0, 0, 0).expect("先放进去的车");
+    let index = usize::try_from(completed.index()).expect("index");
+    world.state.committed.vehicles[index]
+        .state
+        .as_mut()
+        .expect("vehicle")
+        .status = VehicleStatus::Completed;
+    world.state.rebuild_active_order();
+    world.state.derived.spawn_overlap.mark_stale();
+    world
+        .state
+        .rebuild_occupancy_index()
+        .expect("完成车退出占用");
+    let moving = spawn(&mut world, route, 0, 80_000, 0).expect("后面的车");
+    let before = crate::kernel::occupancy::occupancy_fingerprint(&world.state.derived.occupancy);
+    assert!(
+        before
+            .iter()
+            .any(|row| row.0 == moving.index() && row.4 == 1),
+        "完成车占着 live 序号，后车的占用序号是 1，实际 {before:?}"
+    );
+    world
+        .state
+        .rebuild_occupancy_index()
+        .expect("按 live 顺序重建");
+    assert_eq!(
+        crate::kernel::occupancy::occupancy_fingerprint(&world.state.derived.occupancy),
+        before
+    );
+}
+
+#[test]
 fn replace_uses_the_same_follower_admission() {
     let revision = revision("runtime/placement-plain", |module| {
         add_edge(module, "road", 200.0, 25.0, None);

@@ -2101,6 +2101,321 @@ fn fresh_spawn_ignores_a_conflict_contender_beyond_this_tick() {
         .expect("a vehicle beyond this tick does not take the grant");
 }
 
+fn yield_routes(
+    world: &mut laneflow_runtime::TrafficWorld,
+    revision: &laneflow_static_network::SharedNetworkRevision,
+) -> [laneflow_runtime::RouteHandle; 2] {
+    let route_edges = [0_u32, 1].map(|raw| {
+        let stream = revision
+            .conflict()
+            .participant_stream(ParticipantStreamOrdinal::from_raw(raw))
+            .expect("stream");
+        revision
+            .traffic()
+            .maneuvers()
+            .maneuver_path(stream.maneuver_path())
+            .expect("path")
+            .edges()
+            .to_vec()
+    });
+    route_edges.map(|edges| {
+        world
+            .register_route(RouteRegisterInput::new(edges))
+            .expect("route")
+    })
+}
+
+#[test]
+fn fresh_spawn_stops_for_a_yield_gap_beyond_this_tick() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
+    let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            foe_length - 2_500,
+            10_000,
+        ))
+        .expect("foe beyond one tick");
+    let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
+    let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
+    assert_eq!(
+        world.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            subject_length - 400,
+            10_000,
+        )),
+        Err(SpawnError::StopConstraintUnsatisfiable)
+    );
+}
+
+#[test]
+fn fresh_spawn_allows_a_foe_that_reaches_the_stop_line_but_not_the_entrance() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
+    let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            foe_length - 5_500,
+            10_000,
+        ))
+        .expect("foe");
+    let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
+    let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            subject_length - 400,
+            10_000,
+        ))
+        .expect("time to the entrance is outside the lead");
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn fresh_spawn_ignores_a_downstream_claim_on_another_route() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
+    let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
+    let foe = world
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            foe_length,
+            10_000,
+        ))
+        .expect("foe at the gate");
+    world
+        .step(TickInput::new(100))
+        .expect("foe takes the reservation");
+    assert!(
+        world.conflict_reservation(foe).is_some(),
+        "foe should hold a committed reservation"
+    );
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            0,
+            0,
+        ))
+        .expect("a claim on the other route does not block a far spawn");
+}
+
+#[test]
+fn fresh_spawn_after_a_step_still_allows_a_free_conflict() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    world.step(TickInput::new(100)).expect("empty step");
+    let stream = revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("stream");
+    let edges = revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(stream.maneuver_path())
+        .expect("path")
+        .edges()
+        .to_vec();
+    let route = world
+        .register_route(RouteRegisterInput::new(edges))
+        .expect("route");
+    let edge = world.route_edges(route).expect("route edges")[0];
+    let length = world.traffic().lane_lengths_millimetres()[edge.index()];
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            length - 400,
+            10_000,
+        ))
+        .expect("a dirty empty downstream index does not block a free conflict");
+}
+
+#[test]
+fn fresh_spawn_is_not_denied_by_a_foe_who_can_stop_for_red() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                yielding: true,
+                right_turn_signal: Some(laneflow_compiler::GateInterpretation::PermissiveGroup),
+                signal_cycle_ms: Some([100, 10_000]),
+                signal_stop_aspect: Some(SignalAspect::Red),
+                gap_values_ms: Some((5_000, 500, 0)),
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    world
+        .step(TickInput::new(100))
+        .expect("enter the red phase");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
+    let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            foe_length - 2_000,
+            3_000,
+        ))
+        .expect("foe can stop for red");
+    let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
+    let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            subject_length - 400,
+            10_000,
+        ))
+        .expect("a foe held at red does not take the gap");
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn fresh_spawn_stops_while_the_yield_lag_has_not_elapsed() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
+    let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
+    let foe = world
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            foe_length,
+            10_000,
+        ))
+        .expect("foe already at the gate");
+    let mut cleared = false;
+    for _ in 0..40 {
+        world.step(TickInput::new(100)).expect("step");
+        if world.conflict_reservation(foe).is_none()
+            && world
+                .vehicle(foe)
+                .is_some_and(|state| state.route_edge_index() > 0)
+        {
+            cleared = true;
+            break;
+        }
+    }
+    assert!(cleared, "foe should clear the conflict");
+    let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
+    let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
+    assert_eq!(
+        world.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            subject_length - 400,
+            10_000,
+        )),
+        Err(SpawnError::StopConstraintUnsatisfiable)
+    );
+}
+
+#[test]
+fn fresh_spawn_waiting_fullness_follows_this_tick_reach() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                waiting: true,
+                waiting_on_north_only: true,
+                conflict_after_release: true,
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    let route = routes[1];
+    let edge = world.route_edges(route).expect("route")[0];
+    let length = world.traffic().lane_lengths_millimetres()[edge.index()];
+    let occupant = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            length - 2_000,
+            3_000,
+        ))
+        .expect("occupant can reach the entrance");
+    for _ in 0..80 {
+        world.step(TickInput::new(100)).expect("step");
+        if world.vehicle(occupant).is_some_and(|state| {
+            state.waiting_membership().is_some()
+                && state.route_edge_index() >= 1
+                && state.progress_mm() >= 8_000
+        }) {
+            break;
+        }
+    }
+    assert!(
+        world.vehicle(occupant).is_some_and(|state| {
+            state.waiting_membership().is_some() && state.progress_mm() >= 8_000
+        }),
+        "occupant should be inside the waiting zone with the tail clear of the approach"
+    );
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            0,
+            1_000,
+        ))
+        .expect("a full entrance beyond this tick still allows spawn");
+    assert_eq!(
+        world.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            length - 200,
+            10_000,
+        )),
+        Err(SpawnError::StopConstraintUnsatisfiable)
+    );
+}
+
 #[cfg(feature = "placement-fixtures")]
 #[test]
 fn fresh_spawn_before_an_owned_conflict_cannot_stop() {

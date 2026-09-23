@@ -813,20 +813,26 @@ impl OccupancyIndex {
 
     /// 按将要插入的边预留空位。只增长被插入的边，不移动其他边的记录。
     fn reserve_insert_slots(&mut self, extra: &[OccupancyRecord]) -> Result<(), StepError> {
-        for (index, record) in extra.iter().enumerate() {
-            if extra[..index]
-                .iter()
-                .any(|earlier| earlier.bucket == record.bucket)
-            {
-                continue;
+        let mut buckets = Vec::new();
+        buckets
+            .try_reserve(extra.len())
+            .map_err(|_| StepError::OccupancyAllocFailed)?;
+        for record in extra {
+            buckets.push(record.bucket.index());
+        }
+        buckets.sort_unstable();
+        let mut cursor = 0;
+        while cursor < buckets.len() {
+            let bucket_index = buckets[cursor];
+            let mut count = 1usize;
+            cursor += 1;
+            while cursor < buckets.len() && buckets[cursor] == bucket_index {
+                count += 1;
+                cursor += 1;
             }
-            let count = extra
-                .iter()
-                .filter(|item| item.bucket == record.bucket)
-                .count();
             let bucket = self
                 .buckets
-                .get_mut(record.bucket.index())
+                .get_mut(bucket_index)
                 .ok_or(StepError::OccupancyIntervalIncomplete)?;
             let needed = bucket
                 .records
@@ -1125,6 +1131,10 @@ impl crate::kernel::state::WorldState {
         Ok((staged, scratch))
     }
 
+    pub(crate) fn invalidate_occupancy_source(&mut self) {
+        self.derived.occupancy.source = None;
+    }
+
     pub(crate) fn rebuild_occupancy_index(&mut self) -> Result<(), StepError> {
         #[cfg(test)]
         super::parking_command_research::note(|counts| {
@@ -1135,7 +1145,7 @@ impl crate::kernel::state::WorldState {
         rebuild_occupancy_index(
             &self.binding,
             &self.committed,
-            &self.derived.active_order,
+            &self.committed.live_order,
             &mut self.derived.occupancy,
             &mut self.workspace.occupancy_scratch,
         )?;
@@ -1256,6 +1266,24 @@ impl crate::kernel::state::WorldState {
     pub(crate) fn occupancy_inspections(&self) -> u64 {
         self.derived.occupancy.inspections()
     }
+}
+
+#[cfg(test)]
+pub(crate) fn occupancy_fingerprint(index: &OccupancyIndex) -> Vec<(u32, u32, u32, u32, u32)> {
+    let mut rows = Vec::new();
+    for bucket in &index.buckets {
+        for record in &bucket.records {
+            rows.push((
+                record.vehicle.index(),
+                record.lo_mm,
+                record.hi_mm,
+                u32::try_from(record.bucket.index()).unwrap_or(u32::MAX),
+                record.update_sequence,
+            ));
+        }
+    }
+    rows.sort_unstable();
+    rows
 }
 
 #[cfg(test)]

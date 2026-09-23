@@ -1932,10 +1932,7 @@ impl crate::kernel::state::WorldState {
         }
         let conflict_release = self.conflict_reservation(vehicle);
         let order_index = self
-            .committed
-            .live_order
-            .iter()
-            .position(|handle| *handle == vehicle)
+            .live_rank(vehicle)
             .ok_or(ParkingError::InvariantViolation)?;
         let (command_cursor, sequence) = match state.status {
             VehicleStatus::Active => {
@@ -1991,6 +1988,12 @@ impl crate::kernel::state::WorldState {
             self.unlink_waiting_member(vehicle, membership);
         }
         self.committed.live_order.remove(order_index);
+        if state.status == VehicleStatus::Active {
+            self.remove_active_vehicle(vehicle);
+        }
+        self.derived.live_order_index.invalidate();
+        self.derived.spawn_contenders.built_sequence = None;
+        self.invalidate_occupancy_source();
         let slot_index = usize::try_from(vehicle.index()).expect("validated vehicle index");
         let slot = &mut self.committed.vehicles[slot_index];
         slot.state = None;
@@ -2001,7 +2004,6 @@ impl crate::kernel::state::WorldState {
             recyclable = true;
         }
         let generation_after = slot.generation;
-        self.rebuild_active_order();
         self.rebuild_waiting_member_rows();
         self.committed.command_cursor = command_cursor;
         if let Some(sequence) = sequence {

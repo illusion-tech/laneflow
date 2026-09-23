@@ -19,6 +19,28 @@ impl LiveOrderIndex {
         self.indexed_len = 0;
     }
 
+    /// 序号表已经盖住当前 live 前缀时才可以直接查，避免为一次删除把冷缓存铺开。
+    pub(crate) fn is_current(&self, live_len: usize) -> bool {
+        self.indexed_len == live_len && live_len > 0
+    }
+
+    /// 同一 live 序号换成另一个槽位。长度不变，后面的序号不用重铺。
+    pub(crate) fn retarget(&mut self, vehicle: VehicleHandle, rank: usize) {
+        if self.indexed_len == 0 {
+            return;
+        }
+        let Ok(rank) = u32::try_from(rank) else {
+            self.invalidate();
+            return;
+        };
+        let slot = vehicle.index() as usize;
+        if slot >= self.positions.len() {
+            self.invalidate();
+            return;
+        }
+        self.positions[slot] = rank;
+    }
+
     fn prepare(&mut self, live: &[VehicleHandle], slots: usize) -> bool {
         if self.indexed_len == live.len() {
             return true;

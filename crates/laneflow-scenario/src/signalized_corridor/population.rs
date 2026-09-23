@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 
 use laneflow_runtime::{
-    RouteHandle, TrafficWorld, VehicleHandle, VehicleReplaceBlock, VehicleReplaceRecord,
-    VehicleSpawnInput, VehicleStatus, WorldPolicySelection,
+    ParkingError, RouteHandle, TrafficWorld, VehicleHandle, VehicleReplaceBlock,
+    VehicleReplaceRecord, VehicleSpawnInput, VehicleStatus, WorldPolicySelection,
 };
 use laneflow_static_contract::{LaneEdgeOrdinal, NetworkRevisionId, VehicleProfileOrdinal};
 use laneflow_static_network::SharedNetworkRevision;
@@ -21,7 +21,8 @@ pub struct CorridorVehiclePlan {
     pub route_edge_index: u32,
     /// 入口边进度（毫米）。
     pub progress_mm: u32,
-    /// `min(desiredSpeed, edge speedLimit)`，毫米每秒。
+    /// 准备时是 `min(desiredSpeed, edge speedLimit)`。放进成功后可以更低，
+    /// 与 slot 和还没取走的 `initial_vehicles` 是同一个值。
     pub initial_speed_mm_s: u32,
     /// 产出该计划的共享路网修订。
     pub network_revision: NetworkRevisionId,
@@ -219,10 +220,23 @@ pub enum CorridorPopulationError {
         /// 实际。
         actual: usize,
     },
-    /// 初始车辆按 1 m/s 降速后仍不能放进世界。
+    /// 初始车辆按 1 m/s 降速后仍不能放进世界。车已经全部撤掉时，速度回到调用前。
     #[error("初始车辆放不进世界：{detail}")]
     InitialSpawnRejected {
         /// 运行时拒绝原因。
+        detail: String,
+    },
+    /// 中途放不进，而且已经放进去的车没有全部撤掉。留下的车仍是降过的速度。
+    /// 不能把这次当成世界是空的再放一批。
+    #[error("初始车辆没有撤干净：{detail}")]
+    InitialBatchRollbackIncomplete {
+        /// 撤车失败原因。
+        detail: String,
+    },
+    /// 本次 `spawn_initial_vehicles` 注册的路线没有全部撤掉。
+    #[error("初始路线没有撤干净：{detail}")]
+    InitialRouteRollbackIncomplete {
+        /// 撤路线失败原因。
         detail: String,
     },
     /// 初始车辆状态与 prepare 不一致。
@@ -434,6 +448,24 @@ impl CorridorPopulationPrepare {
         })
     }
 
+    /// 读取 slot 记下的初速。供初始人口事务测试核对三处速度。
+    #[doc(hidden)]
+    pub fn slot_initial_speed_mm_s(&self, index: usize) -> u32 {
+        self.slots[index].initial_speed_mm_s
+    }
+
+    /// 把 slot 初速改成和计划相同。供初始人口事务测试逼出降速后再失败的回滚。
+    #[doc(hidden)]
+    pub fn set_slot_initial_speed_mm_s(&mut self, index: usize, speed_mm_s: u32) {
+        self.slots[index].initial_speed_mm_s = speed_mm_s;
+    }
+
+    /// 把 slot 进度改成和计划相同。供初始人口事务测试把车放到停不住的位置。
+    #[doc(hidden)]
+    pub fn set_slot_progress_mm(&mut self, index: usize, progress_mm: u32) {
+        self.slots[index].edge_progress_mm = progress_mm;
+    }
+
     /// 借用应提交给 `spawn_vehicle` 的完整初始计划。
     pub fn initial_vehicles(&self) -> &[CorridorVehiclePlan] {
         self.initial_vehicles.as_deref().unwrap_or(&[])
@@ -448,32 +480,52 @@ impl CorridorPopulationPrepare {
     ///
     /// 计划里的初速是期望速度和边限速里较低的那个。这个速度若过不了当前停车、前方降速
     /// 或前后车的这一拍检查，就按 1 m/s 往下降，直到放得进。位置和路线不改。降下来的
-    /// 速度写回计划和 slot，随后的 `bind` 才能对上已经提交的车。
+    /// 速度写回调用方计划、slot，以及还没取走的 `initial_vehicles`。`bind` 只拿 slot
+    /// 和世界里的车对。
+    ///
+    /// 计划已经不在时，在注册路线之前拒绝。注册成功之后若放不进，先撤已经放进去的车；
+    /// 车都撤掉才把速度改回调用前，并撤掉本次注册的路线。车还在时不改回速度，也不撤路线。
     ///
     /// # Errors
     ///
     /// 路线注册失败、计划与世界不一致，或速度降到 0 仍然放不进时，返回相应错误。
-    /// 失败的那次生成不留下车辆。
+    /// 撤车或撤路线没有完成时，返回 [`CorridorPopulationError::InitialBatchRollbackIncomplete`]
+    /// 或 [`CorridorPopulationError::InitialRouteRollbackIncomplete`]，不要当成世界已经空了。
     pub fn spawn_initial_vehicles(
         &mut self,
         world: &mut TrafficWorld,
     ) -> Result<(Vec<VehicleHandle>, Vec<RouteHandle>), CorridorPopulationError> {
+        if self.initial_vehicles.is_none() {
+            return Err(CorridorPopulationError::InitialVehicleCount {
+                expected: self.slots.len(),
+                actual: 0,
+            });
+        }
         let routes = self.install_routes(world)?;
-        let plans =
-            self.initial_vehicles
-                .clone()
-                .ok_or(CorridorPopulationError::InitialVehicleCount {
-                    expected: self.slots.len(),
-                    actual: 0,
-                })?;
-        let vehicles = self.admit_initial_plans(world, &routes, &plans)?;
-        Ok((vehicles, routes))
+        let mut plans = self
+            .initial_vehicles
+            .clone()
+            .expect("计划在注册路线前已经确认还在");
+        match self.admit_initial_plans(world, &routes, &mut plans) {
+            Ok(vehicles) => Ok((vehicles, routes)),
+            Err(error @ CorridorPopulationError::InitialBatchRollbackIncomplete { .. }) => {
+                Err(error)
+            }
+            Err(error) => {
+                self.remove_registered_routes(world, &routes)?;
+                Err(error)
+            }
+        }
     }
 
     /// 把已经取走的计划放进世界。顺序必须与 `prepare` 写出的 slot 相同。
     ///
     /// 第一辆生成前核对条数、顺序、修订、策略和每个 slot 的身份。对不上就拒绝，
-    /// 世界里还没有这批初始车。
+    /// 不改速度。预检通过也不表示第一辆一定放得进；第一辆失败时世界里还没有这批车。
+    ///
+    /// 放进去的速度写回这份计划、对应 slot，以及还拿着的 `initial_vehicles`。
+    /// 中途放不进时按相反顺序撤车。全部撤掉才把这三处改回调用前。还留着车时保持
+    /// 已经写下的降速。本函数不撤路线。
     ///
     /// # Errors
     ///
@@ -481,25 +533,31 @@ impl CorridorPopulationPrepare {
     /// [`CorridorPopulationError::InitialVehicleCount`]、
     /// [`CorridorPopulationError::InitialVehicleMismatch`] 或
     /// [`CorridorPopulationError::BoundWorldCatalogMismatch`]。
+    /// 撤不干净时返回 [`CorridorPopulationError::InitialBatchRollbackIncomplete`]。
     pub fn admit_initial_plans(
         &mut self,
         world: &mut TrafficWorld,
         routes: &[RouteHandle],
-        plans: &[CorridorVehiclePlan],
+        plans: &mut [CorridorVehiclePlan],
     ) -> Result<Vec<VehicleHandle>, CorridorPopulationError> {
         self.preflight_initial_plans(world, routes, plans)?;
+        let saved_speeds: Vec<u32> = plans.iter().map(|plan| plan.initial_speed_mm_s).collect();
         let mut vehicles = Vec::new();
-        vehicles.try_reserve(plans.len()).map_err(|_| {
-            CorridorPopulationError::InitialSpawnRejected {
+        if vehicles.try_reserve(plans.len()).is_err() {
+            return Err(CorridorPopulationError::InitialSpawnRejected {
                 detail: "初始车辆名单分配失败".to_owned(),
-            }
-        })?;
-        for (index, plan) in plans.iter().enumerate() {
-            let route = *routes.get(plan.route_index).ok_or(
-                CorridorPopulationError::BoundWorldCatalogMismatch {
-                    detail: "计划 route_index 超出已注册路线".to_owned(),
-                },
-            )?;
+            });
+        }
+        for (index, plan) in plans.iter_mut().enumerate() {
+            let route = match routes.get(plan.route_index).copied() {
+                Some(route) => route,
+                None => {
+                    self.rollback_initial_batch(world, &mut vehicles, plans, &saved_speeds)?;
+                    return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
+                        detail: "计划 route_index 超出已注册路线".to_owned(),
+                    });
+                }
+            };
             let mut speed = plan.initial_speed_mm_s;
             let handle = loop {
                 match world.spawn_vehicle(VehicleSpawnInput::new(
@@ -514,12 +572,14 @@ impl CorridorPopulationPrepare {
                         speed = speed.saturating_sub(1_000);
                     }
                     Err(error) => {
+                        self.rollback_initial_batch(world, &mut vehicles, plans, &saved_speeds)?;
                         return Err(CorridorPopulationError::InitialSpawnRejected {
                             detail: error.to_string(),
                         });
                     }
                 }
             };
+            plan.initial_speed_mm_s = speed;
             if let Some(slot) = self.slots.get_mut(index) {
                 slot.initial_speed_mm_s = speed;
             }
@@ -533,6 +593,57 @@ impl CorridorPopulationPrepare {
             vehicles.push(handle);
         }
         Ok(vehicles)
+    }
+
+    fn rollback_initial_batch(
+        &mut self,
+        world: &mut TrafficWorld,
+        vehicles: &mut Vec<VehicleHandle>,
+        plans: &mut [CorridorVehiclePlan],
+        saved_speeds: &[u32],
+    ) -> Result<(), CorridorPopulationError> {
+        while let Some(handle) = vehicles.pop() {
+            match world.despawn_vehicle(handle) {
+                Ok(_) => {}
+                Err(ParkingError::StaleVehicle) => {}
+                Err(error) => {
+                    return Err(CorridorPopulationError::InitialBatchRollbackIncomplete {
+                        detail: error.to_string(),
+                    });
+                }
+            }
+        }
+        for (index, speed) in saved_speeds.iter().copied().enumerate() {
+            if let Some(plan) = plans.get_mut(index) {
+                plan.initial_speed_mm_s = speed;
+            }
+            if let Some(slot) = self.slots.get_mut(index) {
+                slot.initial_speed_mm_s = speed;
+            }
+            if let Some(stored) = self
+                .initial_vehicles
+                .as_mut()
+                .and_then(|plans| plans.get_mut(index))
+            {
+                stored.initial_speed_mm_s = speed;
+            }
+        }
+        Ok(())
+    }
+
+    fn remove_registered_routes(
+        &self,
+        world: &mut TrafficWorld,
+        routes: &[RouteHandle],
+    ) -> Result<(), CorridorPopulationError> {
+        for handle in routes.iter().rev().copied() {
+            if let Err(error) = world.remove_route(handle) {
+                return Err(CorridorPopulationError::InitialRouteRollbackIncomplete {
+                    detail: error.to_string(),
+                });
+            }
+        }
+        Ok(())
     }
 
     fn preflight_initial_plans(
