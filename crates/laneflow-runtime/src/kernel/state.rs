@@ -86,6 +86,23 @@ pub(crate) struct DerivedIndexes {
     pub(crate) waiting_member_rows: Vec<crate::WaitingZoneMember>,
     pub(crate) occupancy: OccupancyIndex,
     pub(crate) spawn_overlap: crate::kernel::spawn_overlap::SpawnOverlapIndex,
+    /// 这一拍也会申请同一冲突区的已有车。生成之间增量维护，步进后按序号作废。
+    pub(crate) spawn_contenders: SpawnConflictContenders,
+}
+
+/// 按冲突区计数：已有车这一拍够得到该区时加一。
+#[derive(Debug, Default)]
+pub(crate) struct SpawnConflictContenders {
+    pub(crate) counts: Vec<u32>,
+    /// `None` 表示名单还没按当前提交序号建好，检查时按会有人来抢处理。
+    pub(crate) built_sequence: Option<crate::ObservationStateSequence>,
+}
+
+impl SpawnConflictContenders {
+    #[cfg(test)]
+    pub(crate) fn retained_logical_bytes(&self) -> u64 {
+        vec_bytes(&self.counts)
+    }
 }
 
 /// 本拍候选与输出暂存；失败撤销逻辑结果并复用容量。
@@ -228,6 +245,7 @@ impl DerivedIndexes {
             waiting_member_rows,
             occupancy,
             spawn_overlap,
+            spawn_contenders,
         } = self;
         crate::kernel::state::vec_bytes(active_order)
             + live_order_index.retained_logical_bytes()
@@ -237,6 +255,7 @@ impl DerivedIndexes {
             + conflict.retained_logical_bytes()
             + occupancy.retained_logical_bytes()
             + spawn_overlap.retained_logical_bytes()
+            + spawn_contenders.retained_logical_bytes()
     }
 }
 

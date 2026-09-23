@@ -1932,6 +1932,114 @@ fn fresh_spawn_before_a_free_conflict_is_not_a_mandatory_stop() {
         .expect("free conflict is not a mandatory stop");
 }
 
+#[test]
+fn fresh_spawn_before_a_same_tick_contended_conflict_must_stop() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    let route_edges = [0_u32, 1].map(|raw| {
+        let stream = revision
+            .conflict()
+            .participant_stream(ParticipantStreamOrdinal::from_raw(raw))
+            .expect("stream");
+        revision
+            .traffic()
+            .maneuvers()
+            .maneuver_path(stream.maneuver_path())
+            .expect("path")
+            .edges()
+            .to_vec()
+    });
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let routes = route_edges.map(|edges| {
+        world
+            .register_route(RouteRegisterInput::new(edges))
+            .expect("route")
+    });
+    let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
+    let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
+    assert!(foe_length > 800, "approach must leave a near-gate pose");
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            foe_length - 800,
+            10_000,
+        ))
+        .expect("first vehicle still sees a free zone");
+    let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
+    let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
+    assert!(
+        subject_length > 400,
+        "approach must leave room before the gate"
+    );
+    assert_eq!(
+        world.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            subject_length - 400,
+            10_000,
+        )),
+        Err(SpawnError::StopConstraintUnsatisfiable)
+    );
+}
+
+#[test]
+fn fresh_spawn_ignores_a_conflict_contender_beyond_this_tick() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    let route_edges = [0_u32, 1].map(|raw| {
+        let stream = revision
+            .conflict()
+            .participant_stream(ParticipantStreamOrdinal::from_raw(raw))
+            .expect("stream");
+        revision
+            .traffic()
+            .maneuvers()
+            .maneuver_path(stream.maneuver_path())
+            .expect("path")
+            .edges()
+            .to_vec()
+    });
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let routes = route_edges.map(|edges| {
+        world
+            .register_route(RouteRegisterInput::new(edges))
+            .expect("route")
+    });
+    let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
+    let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
+    assert!(
+        foe_length > 8_000,
+        "approach must leave a pose beyond one tick"
+    );
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            5_000,
+            10_000,
+        ))
+        .expect("far vehicle");
+    let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
+    let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
+    assert!(
+        subject_length > 400,
+        "approach must leave room before the gate"
+    );
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            subject_length - 400,
+            10_000,
+        ))
+        .expect("a vehicle beyond this tick does not take the grant");
+}
+
 #[cfg(feature = "placement-fixtures")]
 #[test]
 fn fresh_spawn_before_an_owned_conflict_cannot_stop() {

@@ -210,6 +210,8 @@ pub(crate) struct OccupancyIndex {
     /// 仅在当前世界重建成功后记录来源；事务纯构造的索引尚未绑定活动世代。
     source: Option<(WorldGeneration, ObservationStateSequence)>,
     buckets: Vec<OccupancyBucket>,
+    /// 全部车道的记录条数。生成时直接改它，不把每条车道再加一遍。
+    record_len: usize,
     #[cfg(test)]
     inspections: AtomicU64,
     #[cfg(test)]
@@ -362,6 +364,7 @@ impl OccupancyIndex {
         let Self {
             source: _,
             buckets,
+            record_len: _,
             inspections: _,
             occurrence_walks: _,
         } = self;
@@ -390,6 +393,7 @@ impl OccupancyIndex {
         let mut index = Self {
             source: None,
             buckets: Vec::new(),
+            record_len: 0,
             #[cfg(test)]
             inspections: AtomicU64::new(0),
             #[cfg(test)]
@@ -424,6 +428,7 @@ impl OccupancyIndex {
         let index = Self {
             source: None,
             buckets,
+            record_len: 0,
             #[cfg(test)]
             inspections: AtomicU64::new(0),
             #[cfg(test)]
@@ -443,9 +448,7 @@ impl OccupancyIndex {
     }
 
     fn record_count(&self) -> usize {
-        self.buckets
-            .iter()
-            .fold(0, |sum, bucket| sum.saturating_add(bucket.records.len()))
+        self.record_len
     }
 
     #[cfg(test)]
@@ -591,8 +594,10 @@ impl OccupancyIndex {
     }
 
     fn finish_layout(&mut self, scratch: &mut OccupancyScratch, bucket_count: usize) {
+        let mut total = 0usize;
         for index in 0..bucket_count {
             let count = scratch.positions.get(index).copied().unwrap_or(0);
+            total = total.saturating_add(count);
             let bucket = &mut self.buckets[index];
             debug_assert!(bucket.records.capacity() >= count);
             debug_assert!(bucket.suffix_min_lo.capacity() >= count);
@@ -604,6 +609,7 @@ impl OccupancyIndex {
             bucket.suffix_second_lo.clear();
             bucket.suffix_second_lo.resize(count, SUFFIX_NONE);
         }
+        self.record_len = total;
         scratch.positions.clear();
         scratch.positions.resize(bucket_count, 0);
     }
@@ -856,6 +862,7 @@ impl OccupancyIndex {
         bucket.suffix_min_lo.insert(at, 0);
         bucket.suffix_second_lo.insert(at, SUFFIX_NONE);
         bucket.fill_suffix();
+        self.record_len = self.record_len.saturating_add(1);
     }
 
     #[cfg(test)]
@@ -1724,11 +1731,22 @@ pub(crate) mod tests {
             "inserting a later lane must not move an earlier lane"
         );
         assert_eq!(index.buckets[5].records.as_ptr(), late_records);
+        let summed = index
+            .buckets
+            .iter()
+            .map(|bucket| bucket.records.len())
+            .sum::<usize>();
+        assert_eq!(
+            index.records_len(),
+            summed,
+            "cached record total must match the buckets after inserts"
+        );
         assert_eq!(index.buckets[5].suffix_min_lo.as_ptr(), late_suffix);
         pending.push(added_early);
         pending.push(added_far);
         let (mut fresh, mut fresh_scratch) = OccupancyIndex::with_capacity(8, 0);
         fresh.rebuild_from_pending(&mut fresh_scratch, &pending, 8);
+        assert_eq!(fresh.records_len(), pending.len());
         assert!(
             index.same_layout(&fresh),
             "bucket insert must match a full rebuild"

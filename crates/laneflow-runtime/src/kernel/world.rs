@@ -348,6 +348,7 @@ impl crate::kernel::state::WorldState {
                 waiting_member_rows,
                 occupancy,
                 spawn_overlap: Default::default(),
+                spawn_contenders: Default::default(),
             },
             workspace: crate::kernel::state::TickWorkspace {
                 conflict: conflict_workspace,
@@ -1050,6 +1051,9 @@ impl crate::kernel::state::WorldState {
         self.committed.observation_state_sequence = next_observation_state_sequence;
         self.committed.command_cursor = next_command_cursor;
         self.apply_spawn_occupancy(handle, previous_sequence, occupancy_patch);
+        if admit_motion {
+            self.note_spawned_contender(handle, previous_sequence);
+        }
         let delta = VehicleDelta::from_state(&state, self.compiled_route(state.route));
         if let Some(journal) = self.admin.migration_journal.as_mut() {
             journal.record_vehicle_spawned(next_command_cursor, delta);

@@ -1624,8 +1624,9 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     /// 用指定前车空隙预测本拍硬截断。不写入世界。
     ///
     /// `leader_constraint_only` 时硬房间只含这名前车的快照空隙，避免把后车自己的
-    /// 信号或路终清零算成这名前车造成的硬投影。否则，已经被其他车占用、下一拍
-    /// 给不出通行权的冲突区也算进这次预览。空着的冲突区仍可能在本拍获准，不预写通行权。
+    /// 信号或路终清零算成这名前车造成的硬投影。否则，已经被其他车占用，或空着但
+    /// 已有别的车这一拍够得到的冲突区，也算进这次预览。空着且没人够得到的冲突区
+    /// 仍可能在本拍获准，不预写通行权。
     pub(crate) fn placement_motion(
         self,
         state: VehicleState,
@@ -1670,9 +1671,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         })
     }
 
-    /// 最近一个已经被其他车占用的冲突准入。空着的区跳过：这一拍仍可能获准。
+    /// 最近一个这一拍通行权没有保证的冲突准入。
     ///
-    /// 只读已提交占用，不看本拍暂存。距离算到该 hop 的后继出现项起点，与正式步进相同。
+    /// 已经有主，或空着但已有别的车这一拍够得到，都算停车点。空着且没人够得到的区跳过。
+    /// 只读已提交占用和生成前记下的够得到名单，不看本拍暂存，也不预写通行权。
+    /// 距离算到该 hop 的后继出现项起点，与正式步进相同。
     fn occupied_conflict_stop(self, state: &VehicleState) -> OccupiedConflictPreview {
         let Some(compiled) = self.compiled_route(state.route) else {
             return OccupiedConflictPreview::Clear;
@@ -1692,8 +1695,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             let mut owned = false;
             while index < compiled.conflicts.len() && compiled.conflicts[index].admission_hop == hop
             {
-                let address = compiled.conflicts[index].address();
-                if read.cells_unavailable(outsider, std::slice::from_ref(&address)) {
+                let entry = compiled.conflicts[index];
+                let address = entry.address();
+                if read.cells_unavailable(outsider, std::slice::from_ref(&address))
+                    || self.conflict_zone_contended(entry.zone)
+                {
                     owned = true;
                 }
                 index = index.saturating_add(1);
@@ -1726,6 +1732,16 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             };
         }
         OccupiedConflictPreview::Clear
+    }
+
+    /// 已有车这一拍也会申请这个冲突区，新车的通行权没有保证。
+    /// 名单还没按当前序号建好，或这个区不在名单里时，按会有人来抢处理。
+    fn conflict_zone_contended(self, zone: laneflow_static_contract::ConflictZoneOrdinal) -> bool {
+        let contenders = &self.derived.spawn_contenders;
+        if contenders.built_sequence != Some(self.committed.observation_state_sequence) {
+            return true;
+        }
+        contenders.counts.get(zone.index()).copied().unwrap_or(1) > 0
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2815,7 +2831,7 @@ impl MotionReach {
     /// 拍初速度、最大加速度和步长能证明的位移上界。
     ///
     /// 超出已证明范围时返回 `None`，调用方改做完整查询。50 mm 覆盖舍入和亚毫米余量。
-    fn from_tick(speed_mm_s: u32, max_accel_m_s2: f32, delta_s: f32) -> Option<Self> {
+    pub(crate) fn from_tick(speed_mm_s: u32, max_accel_m_s2: f32, delta_s: f32) -> Option<Self> {
         let dt = f64::from(delta_s);
         let accel = f64::from(max_accel_m_s2);
         if !(dt.is_finite() && (0.004..=1.0).contains(&dt)) {
@@ -2833,7 +2849,7 @@ impl MotionReach {
     }
 
     /// 距离严格大于上界时，该停止位置本拍不可能收紧位移。
-    fn excludes(self, distance_mm: u32) -> bool {
+    pub(crate) fn excludes(self, distance_mm: u32) -> bool {
         f64::from(distance_mm) > self.millimeters
     }
 
