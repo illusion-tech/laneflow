@@ -201,6 +201,17 @@ impl Fixtures {
                         .register_route(RouteRegisterInput::new(edges))
                         .unwrap();
                     let progress = boundary - u32::from(matches!(scene, Scene::Waiting));
+                    #[cfg(feature = "placement-fixtures")]
+                    world
+                        .place_existing_active_vehicle(VehicleSpawnInput::new(
+                            VehicleProfileOrdinal::from_raw(0),
+                            route,
+                            0,
+                            progress,
+                            8_000,
+                        ))
+                        .unwrap();
+                    #[cfg(not(feature = "placement-fixtures"))]
                     world
                         .spawn_vehicle(VehicleSpawnInput::new(
                             VehicleProfileOrdinal::from_raw(0),

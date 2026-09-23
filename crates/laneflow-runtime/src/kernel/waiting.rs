@@ -7719,7 +7719,8 @@ pub(crate) mod tests {
                     .unwrap();
             }
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
+                .state
+                .place_existing_active_vehicle(VehicleSpawnInput::new(
                     PROFILE,
                     route,
                     1,
@@ -8321,7 +8322,8 @@ pub(crate) mod tests {
                     .unwrap();
             }
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
+                .state
+                .place_existing_active_vehicle(VehicleSpawnInput::new(
                     PROFILE,
                     route,
                     1,

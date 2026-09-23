@@ -1275,6 +1275,27 @@ impl crate::kernel::state::WorldState {
         old: VehicleHandle,
         input: VehicleSpawnInput,
     ) -> Result<VehicleReplaceRecord, ReplaceError> {
+        self.replace_completed_vehicle_with_admission(old, input, true)
+    }
+
+    /// 替换成一个已经在路上的状态，不检查新鲜运动安全。
+    ///
+    /// 与 [`Self::place_existing_active_vehicle`] 同一类测试场面。
+    #[cfg(feature = "placement-fixtures")]
+    pub(crate) fn replace_existing_completed_vehicle(
+        &mut self,
+        old: VehicleHandle,
+        input: VehicleSpawnInput,
+    ) -> Result<VehicleReplaceRecord, ReplaceError> {
+        self.replace_completed_vehicle_with_admission(old, input, false)
+    }
+
+    fn replace_completed_vehicle_with_admission(
+        &mut self,
+        old: VehicleHandle,
+        input: VehicleSpawnInput,
+        admit_motion: bool,
+    ) -> Result<VehicleReplaceRecord, ReplaceError> {
         let old_state = self
             .vehicle_state(old)
             .copied()
@@ -1380,8 +1401,10 @@ impl crate::kernel::state::WorldState {
                 return Err(ReplaceError::ConflictAuthorityRequired);
             }
         }
-        self.fresh_motion_admission(input, vehicle_length)
-            .map_err(super::placement::FreshAdmissionFailure::into_replace)?;
+        if admit_motion {
+            self.fresh_motion_admission(input, vehicle_length)
+                .map_err(super::placement::FreshAdmissionFailure::into_replace)?;
+        }
         let next_observation_state_sequence = self
             .committed
             .observation_state_sequence
@@ -2288,6 +2311,28 @@ impl TrafficWorld {
     ) -> Result<VehicleReplaceRecord, ReplaceError> {
         self.execution.assert_usable();
         self.state.replace_completed_vehicle(old, input)
+    }
+
+    /// 把已完成的车换成一个已经在路上的状态，不检查新鲜运动安全。
+    ///
+    /// 仅 `placement-fixtures` 测试特性提供。不是宿主的需求入口。
+    ///
+    /// # Errors
+    ///
+    /// 与 [`Self::replace_completed_vehicle`] 相同，但不返回当前停车约束、前方降速、
+    /// 前车或后车不安全。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[cfg(feature = "placement-fixtures")]
+    pub fn replace_existing_completed_vehicle(
+        &mut self,
+        old: VehicleHandle,
+        input: VehicleSpawnInput,
+    ) -> Result<VehicleReplaceRecord, ReplaceError> {
+        self.execution.assert_usable();
+        self.state.replace_existing_completed_vehicle(old, input)
     }
 
     /// 固定步进。`delta_time_ms` 必须等于 `WorldConfig.fixed_delta_time_ms`；

@@ -35,11 +35,13 @@ use laneflow_compiler::{
 };
 use laneflow_format::{FormatLimits, check_canonical_network_input, check_post_emission_bundle};
 use laneflow_runtime::{
-    CommittedNetworkSource, ExecutionConfig, ParkedVehicleSpawnInput, ParkingTarget, PolicyPin,
-    PublishedLfcaReference, ReserveParkingTarget, RouteHandle, RouteRegisterInput, StepOutcome,
-    TickInput, TrafficWorld, VehicleHandle, VehicleSpawnInput, VehicleStatus, WorldConfig,
-    WorldPolicySelection, deterministic_state_digest,
+    CommittedNetworkSource, ExecutionConfig, ParkingTarget, PolicyPin, PublishedLfcaReference,
+    ReserveParkingTarget, RouteHandle, RouteRegisterInput, StepOutcome, TickInput, TrafficWorld,
+    VehicleSpawnInput, VehicleStatus, WorldConfig, WorldPolicySelection,
+    deterministic_state_digest,
 };
+#[cfg(feature = "placement-fixtures")]
+use laneflow_runtime::{ParkedVehicleSpawnInput, VehicleHandle};
 use laneflow_scenario::signalized_corridor::{CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind};
 #[cfg(feature = "placement-fixtures")]
 use laneflow_static_contract::LaneEdgeOrdinal;
@@ -185,6 +187,7 @@ fn assert_matches_across_workers(scenario: &str, run: impl Fn(u32) -> Vec<String
 }
 
 /// 生命周期命令替换：despawn 后旧句柄立即失效，新句柄为不同代际；返回新句柄。
+#[cfg(feature = "placement-fixtures")]
 fn despawn_and_respawn(
     world: &mut TrafficWorld,
     old: VehicleHandle,
@@ -978,6 +981,7 @@ fn fused_path_parking_transition_matches_across_worker_matrix() {
 // 与阈值以上集成对照承载。
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "placement-fixtures")]
 fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
     let revision = ring_revision(&ring_candidate(
         10,
@@ -1046,7 +1050,7 @@ fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
     // 近终点 finisher：反复 Completed 保留 → 延迟原子替换接新代次。
     let last = route_position(&world, route, 3 * 600_000 - 500);
     let mut finisher = world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             profile, route, last.0, last.1, 13_750,
         ))
         .expect("hybrid finisher");
@@ -1104,7 +1108,7 @@ fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
             if tick >= due {
                 // Completed 在 live 序列中保留数拍（已进 digest 记录）后原子替换。
                 let record = world
-                    .replace_completed_vehicle(
+                    .replace_existing_completed_vehicle(
                         old,
                         VehicleSpawnInput::new(profile, route, last.0, last.1, 13_750),
                     )
@@ -1135,6 +1139,7 @@ fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
     records
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn hybrid_lifecycle_fused_matches_across_worker_matrix() {
     assert_matches_across_workers("ring-lifecycle-hybrid-fused", run_ring_hybrid_lifecycle);

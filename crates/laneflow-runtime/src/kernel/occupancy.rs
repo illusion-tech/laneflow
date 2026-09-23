@@ -586,9 +586,20 @@ impl OccupancyIndex {
                 .buckets
                 .get_mut(index)
                 .ok_or(StepError::OccupancyIntervalIncomplete)?;
-            try_reserve_len(&mut bucket.records, needed)?;
-            try_reserve_len(&mut bucket.suffix_min_lo, needed)?;
-            try_reserve_len(&mut bucket.suffix_second_lo, needed)?;
+            let target = if needed <= bucket.records.capacity()
+                && needed <= bucket.suffix_min_lo.capacity()
+                && needed <= bucket.suffix_second_lo.capacity()
+            {
+                needed
+            } else {
+                // 多留一段，车身跨到下一条边时这一拍不再重新分配。
+                needed
+                    .saturating_add(needed / 2)
+                    .max(needed.saturating_add(1))
+            };
+            try_reserve_len(&mut bucket.records, target)?;
+            try_reserve_len(&mut bucket.suffix_min_lo, target)?;
+            try_reserve_len(&mut bucket.suffix_second_lo, target)?;
         }
         Ok(())
     }
