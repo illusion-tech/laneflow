@@ -2112,7 +2112,8 @@ mod tests {
             .unwrap();
         let length = world.traffic().lane_lengths_millimetres()[exit.index()];
         let owner = world
-            .spawn_vehicle(crate::VehicleSpawnInput::new(
+            .state
+            .place_existing_active_vehicle(crate::VehicleSpawnInput::new(
                 laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
                 route,
                 1,
