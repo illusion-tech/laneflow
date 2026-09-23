@@ -838,10 +838,11 @@ fn insert_candidate_parking_binding(
     let Some(binding) = binding else {
         return Ok(());
     };
+    let slot_index = usize::try_from(vehicle.index()).expect("vehicle index fits usize");
     candidate
         .committed
         .parking
-        .try_reserve_binding()
+        .try_reserve_binding_slot(slot_index)
         .map_err(|()| CutoverError::StagingAllocFailed)?;
     let target = binding.target();
     match target {
@@ -3704,6 +3705,107 @@ mod tests {
         assert_eq!(cut.vehicle(transient), None);
         cut.step(TickInput::new(100))
             .expect("migrated active set continues stepping");
+    }
+
+    #[test]
+    fn window_slot_reuse_does_not_publish_the_old_parking_binding() {
+        let mut cut = installed_world(ORACLE_BASE, "fixture://parking-reuse");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        let space = ParkingSpaceOrdinal::from_raw(0);
+        let old = spawn_on(&mut cut, route, 4_000, 0);
+        let target = ReserveParkingTarget::ExplicitSpace {
+            space,
+            entry_route_occurrence: 0,
+        };
+        cut.reserve_parking(old, target).expect("reserve old");
+        let mut tx = prepare(
+            &mut cut,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        cut.despawn_vehicle(old).expect("despawn old");
+        let new = spawn_on(&mut cut, route, 4_000, 0);
+        assert_eq!(new.index(), old.index());
+        assert_ne!(new.generation(), old.generation());
+        cut.reserve_parking(new, target).expect("reserve new");
+        tx.pump(&mut cut).expect("replay reused slot");
+        let commit = tx.commit(&mut cut).expect("commit reused slot");
+        assert!(matches!(
+            commit.events.as_slice().first(),
+            Some(CutoverEvent::RevisionCutoverCommitted { .. })
+        ));
+        assert_eq!(cut.parking_binding(old), None);
+        assert_eq!(cut.state.committed.parking.binding(old), None);
+        assert_eq!(
+            cut.parking_binding(new).map(|binding| binding.target()),
+            Some(ParkingTarget::ExplicitSpace(space))
+        );
+        assert_eq!(
+            cut.parking_space_state(space),
+            Some(ParkingSpaceState::Reserved(new))
+        );
+    }
+
+    #[test]
+    fn high_slot_parked_spawn_survives_cutover() {
+        let network = revision(ORACLE_BASE);
+        let origin = *network.canonical_origin();
+        let mut cut = TrafficWorld::install(
+            std::sync::Arc::clone(&network),
+            WorldConfig::new(1, 4, 1_024, 1_024, 100),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source_for(origin, "fixture://high-slot-parking"),
+            0,
+            crate::test_policy::selection(&network),
+        )
+        .expect("install");
+        let (entry, _exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry]))
+            .expect("route");
+        let old = spawn_on(&mut cut, route, 4_000, 0);
+        cut.despawn_vehicle(old).expect("retire the only slot");
+        let old_index = usize::try_from(old.index()).expect("old index");
+        cut.state.committed.vehicles[old_index].generation = u32::MAX;
+        cut.state.committed.free_vehicles.clear();
+
+        let mut tx = prepare(
+            &mut cut,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        let space = ParkingSpaceOrdinal::from_raw(0);
+        let spawned = cut
+            .spawn_parked_vehicle(
+                ParkedVehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0),
+                ParkingTarget::ExplicitSpace(space),
+            )
+            .expect("high slot parked spawn");
+        assert_eq!(spawned.vehicle.index(), 1);
+        assert!(spawned.vehicle.index() >= cut.state.binding.config.vehicle_capacity());
+        tx.pump(&mut cut).expect("replay high slot");
+        let commit = tx.commit(&mut cut).expect("commit high slot");
+        assert!(matches!(
+            commit.events.as_slice().first(),
+            Some(CutoverEvent::RevisionCutoverCommitted { .. })
+        ));
+        assert_eq!(cut.parking_binding(old), None);
+        assert_eq!(cut.state.committed.parking.binding(old), None);
+        assert_eq!(
+            cut.parking_binding(spawned.vehicle)
+                .map(|binding| binding.target()),
+            Some(ParkingTarget::ExplicitSpace(space))
+        );
+        assert_eq!(cut.committed_parking_occupant(space), Some(spawned.vehicle));
+        assert_eq!(
+            cut.parking_space_state(space),
+            Some(ParkingSpaceState::Occupied(spawned.vehicle))
+        );
     }
 
     #[test]

@@ -284,7 +284,7 @@ impl crate::kernel::state::WorldState {
         let free_vehicles = Vec::with_capacity(vehicle_capacity);
         let live_order = Vec::with_capacity(vehicle_capacity);
         let active_order = Vec::with_capacity(vehicle_capacity);
-        let parking = ParkingRuntimeState::new(space_count, facility_count);
+        let parking = ParkingRuntimeState::new(space_count, facility_count, vehicle_capacity);
         let waiting_zones =
             vec![WaitingZoneState::default(); waiting_zone_count].into_boxed_slice();
         let waiting_queue_ends =

@@ -1,11 +1,11 @@
 # 停车系统设计
 
 **文档状态**: Accepted（#540 G1）<br>
-**最后更新**: 2026-09-17<br>
+**最后更新**: 2026-09-23<br>
 **适用范围**: `ParkingFacility` / `ParkingSpace` 静态模型、显式与虚拟停车资源、
 Traffic Runtime 生命周期、快照/修订切换、Spatial/Adapter 和复杂度边界<br>
 **实现状态**: 当前实现已以 `ParkingFacility + ParkingSpace`、tagged
-`ExplicitSpace | VirtualPool` 和私有稀疏 binding aggregate 完成 clean break；旧
+`ExplicitSpace | VirtualPool` 和按车辆下标、句柄代际读取的私有 binding 槽位表完成 clean break；旧
 `ParkingArea` / `occupy_parking` 入口、Runtime Snapshot v1 reader/writer 均不保留。<br>
 **关联文档**:
 
@@ -52,7 +52,7 @@ route/profile/binding；只是退出 travel-lane 运行集合，并且不产生 
   初始/恢复 parked spawn；
 - 快照、回放、同/跨修订恢复和失败原子性；
 - 显式 parked pose 与虚拟 parked 无 pose；
-- 声明容量与空容量单位数无关的稀疏 Runtime 状态。
+- 声明虚拟容量不物化为具体车位；虚拟池只保留计数，binding 槽位不按该容量展开。
 
 ### 2.2 明确不做
 
@@ -62,7 +62,7 @@ route/profile/binding；只是退出 travel-lane 运行集合，并且不产生 
 - 共享正常行车道上的双排停车或动态缩窄道路；
 - 以 despawn/respawn 代替正常停车；
 - 把 10k/100k 声明容量直接等同于 LFCA 某张表的行数；
-- 为理论极限容量预留 slot、位图或容量等长数组。
+- 为理论极限容量或声明虚拟容量预留 slot、位图或容量等长数组。
 
 这些能力只有形成实际产品闭环时才另开 G1；首版不为“也许以后会有”的车库内部模拟
 预付复杂度。
@@ -568,7 +568,7 @@ reserve/rebind 的成功 record、输入命令日志与 replay payload 都保存
 - 合法 `NoChange` 仍是成功消费的一条输入命令，input command cursor checked `+1`；它不改变
   parking/vehicle authority、`observationStateSequence`、tick/time 或事件游标。cursor 耗尽
   时连 no-op 也必须零副作用失败，不能返回未计数成功。
-- parking member/query/observation 按既有 live/stable vehicle order；不能暴露 hash order。
+- parking member/query/observation 按既有 live/stable vehicle order；不能改用槽位表顺序或哈希顺序。
 - 批量 despawn/restore/cutover 可以一次 canonical scan 处理 `B` 个 binding；不得对每个
   facility 再扫描全部 vehicle 形成 `O(F*V)`。
 - counts 是提交时更新、测试中可重算的缓存。摘要必须覆盖 target tag、stable identity、
@@ -683,21 +683,24 @@ Adapter 可以自行选择对象池和视觉过渡，但不能延迟、回滚或
 - `A`：全部 virtual entry/exit anchor 数；
 - `C`：声明 virtual capacity 总和；
 - `B`：实际 Reserved/Occupied parking binding 数；
+- `V_cap`：世界配置的车辆容量；
+- `H`：binding 槽位表覆盖的最高车辆下标加 1；安装时 `H = V_cap`；
 - `V_active`：道路 Active vehicle 数。
 
 目标边界：
 
-| 路径                    | 时间/空间边界                                                               |
-| ----------------------- | --------------------------------------------------------------------------- |
-| shared static retained  | `O(F + S + A)`，与 `C` 无关                                                 |
-| 每世界 parking retained | `O(F + S + B)`，与空容量无关                                                |
-| reserve/park/cancel     | ordinal 已解析后摊销 `O(1)`；anchor membership 可用有序 range 查找          |
-| leave safety            | 一次扫描 `V_active` 并复用 route-aware occupancy 查询；不扫描 Parked 或 `C` |
-| fixed tick              | `O(V_active + active constraints)`；不扫描 Parked 或 `C`                    |
-| snapshot/cutover        | `O(V + B + routes)`，无 `O(C)` 展开                                         |
+| 路径                    | 时间/空间边界                                                                                  |
+| ----------------------- | ---------------------------------------------------------------------------------------------- |
+| shared static retained  | `O(F + S + A)`，与 `C` 无关                                                                    |
+| 每世界 parking retained | `O(F + S + max(V_cap, H))`，与 `C` 无关；账本按槽位 `Vec` 的 `capacity` 计，不按 `B` 计        |
+| reserve/park/cancel     | ordinal 已解析后摊销 `O(1)`；anchor membership 可用有序 range 查找                             |
+| leave safety            | 一次扫描 `V_active` 并复用 route-aware occupancy 查询；不扫描 Parked 或 `C`                    |
+| fixed tick              | `O(V_active + active constraints)`；不扫描 Parked、全部槽位或 `C`                             |
+| snapshot/cutover        | `O(V + B + routes)`，无 `O(C)` 展开；binding 写入按车辆下标落槽，不按槽位顺序重排观察或快照 |
 
-“100k 容量、100 辆实际 parked”只增加 100 个稀疏 binding；“100k 辆实际 parked”则需要
-100k 个 live vehicle/binding，这是产品真实状态，不能也不应该伪装成常数内存。
+10 万声明虚拟容量、100 辆实际 parked 仍不展开具体车位。binding 槽位在安装时按车辆容量
+建立，不随这 100 个 binding 逐条增长。句柄代际耗尽后追加的更高下标只在写入预检扩容。
+10 万辆实际 parked 仍需要对应的 live vehicle 与 binding 状态，不能伪装成常数内存。
 
 当前 `parking_sparse_scale_evidence` 对只改变 virtual capacity 的 10k/100k 两个根给出
 相同 shared-static retained 与相同单 binding 世界分配形状；该证据只闭合 #541 的稀疏

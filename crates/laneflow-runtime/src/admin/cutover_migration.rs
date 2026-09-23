@@ -646,14 +646,17 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             .count(EntityKind::ParkingFacility),
     )
     .expect("target parking facility count fits usize");
-    let mut parking = ParkingRuntimeState::try_new(target_space_count, target_facility_count)
-        .map_err(|()| CutoverError::StagingAllocFailed)?;
+    let vehicle_capacity = usize::try_from(world.binding.config.vehicle_capacity()).unwrap_or(0);
+    let mut parking =
+        ParkingRuntimeState::try_new(target_space_count, target_facility_count, vehicle_capacity)
+            .map_err(|()| CutoverError::StagingAllocFailed)?;
     for vehicle in world.committed.live_order.iter().copied() {
         let Some(binding) = world.committed.parking.binding(vehicle) else {
             continue;
         };
+        let slot_index = usize::try_from(vehicle.index()).expect("vehicle index fits usize");
         parking
-            .try_reserve_binding()
+            .try_reserve_binding_slot(slot_index)
             .map_err(|()| CutoverError::StagingAllocFailed)?;
         let migrated = match binding {
             ParkingBinding::Reserved(reservation) => {
@@ -841,7 +844,6 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
     // install 同构容量余量：晋升后的世界在配置容量内的生命周期命令不触发
     // 无检分配；窗口重放的 push 同界（上游注册已受容量约束）。
     let route_capacity = usize::try_from(world.binding.config.route_capacity()).unwrap_or(0);
-    let vehicle_capacity = usize::try_from(world.binding.config.vehicle_capacity()).unwrap_or(0);
     routes
         .try_reserve_exact(route_capacity.saturating_sub(routes.len()))
         .map_err(|_| CutoverError::StagingAllocFailed)?;
@@ -4741,6 +4743,7 @@ pub(crate) mod tests {
         assert!(candidate.committed.free_vehicles.capacity() >= vehicle_capacity);
         assert!(candidate.committed.live_order.capacity() >= vehicle_capacity);
         assert!(candidate.derived.active_order.capacity() >= vehicle_capacity);
+        assert!(candidate.committed.parking.binding_slot_len() >= vehicle_capacity);
     }
 
     #[test]

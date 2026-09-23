@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use laneflow_static_contract::{
     LaneEdgeOrdinal, ParkingFacilityOrdinal, ParkingSpaceOrdinal, VehicleProfileOrdinal,
 };
@@ -592,12 +590,24 @@ pub(crate) struct VirtualParkingState {
     pub(crate) occupied_count: u32,
 }
 
-/// 停车运行时唯一修改权威。虚拟成员只按实际 binding `B` 稀疏保存。
+/// 一个车辆槽位上的停车 binding。`binding == None` 表示该代际没有绑定。
+///
+/// 空槽不占用特殊 generation，这样 `u32::MAX` 仍是真实句柄代际。
+#[derive(Clone, Copy, Debug, Default)]
+struct ParkingBindingSlot {
+    generation: u32,
+    binding: Option<ParkingBinding>,
+}
+
+/// 停车运行时唯一修改权威。
+///
+/// 显式泊位按泊位序号保存排他状态，虚拟池只保留计数。binding 按车辆槽位下标
+/// 存放，读取时核对句柄代际。安装长度是车辆容量；更高下标只在写入预检扩容。
 #[derive(Clone, Debug)]
 pub(crate) struct ParkingRuntimeState {
     explicit: Box<[ParkingSpaceState]>,
     virtual_pools: Box<[VirtualParkingState]>,
-    bindings: HashMap<VehicleHandle, ParkingBinding>,
+    bindings: Vec<ParkingBindingSlot>,
 }
 
 #[cfg(test)]
@@ -611,22 +621,27 @@ impl ParkingRuntimeState {
         } = self;
         crate::kernel::state::slice_bytes(explicit)
             + crate::kernel::state::slice_bytes(virtual_pools)
-            + (bindings.capacity() * core::mem::size_of::<(VehicleHandle, ParkingBinding)>()) as u64
+            + (bindings.capacity() * core::mem::size_of::<ParkingBindingSlot>()) as u64
     }
 }
 
 impl ParkingRuntimeState {
-    /// 构造全部空置的停车运行时状态。
-    pub(crate) fn new(explicit_space_count: usize, facility_count: usize) -> Self {
-        Self {
-            explicit: vec![ParkingSpaceState::Vacant; explicit_space_count].into_boxed_slice(),
-            virtual_pools: vec![VirtualParkingState::default(); facility_count].into_boxed_slice(),
-            bindings: HashMap::new(),
-        }
+    /// 构造全部空置的停车运行时状态。`vehicle_capacity` 个 binding 槽位在这里建立。
+    pub(crate) fn new(
+        explicit_space_count: usize,
+        facility_count: usize,
+        vehicle_capacity: usize,
+    ) -> Self {
+        Self::try_new(explicit_space_count, facility_count, vehicle_capacity)
+            .expect("parking runtime state allocation")
     }
 
     /// 带分配失败检查的 `new`。
-    pub(crate) fn try_new(explicit_space_count: usize, facility_count: usize) -> Result<Self, ()> {
+    pub(crate) fn try_new(
+        explicit_space_count: usize,
+        facility_count: usize,
+        vehicle_capacity: usize,
+    ) -> Result<Self, ()> {
         let mut explicit = Vec::new();
         explicit
             .try_reserve_exact(explicit_space_count)
@@ -637,16 +652,26 @@ impl ParkingRuntimeState {
             .try_reserve_exact(facility_count)
             .map_err(|_| ())?;
         virtual_pools.resize(facility_count, VirtualParkingState::default());
+        let mut bindings = Vec::new();
+        bindings
+            .try_reserve_exact(vehicle_capacity)
+            .map_err(|_| ())?;
+        bindings.resize(vehicle_capacity, ParkingBindingSlot::default());
         Ok(Self {
             explicit: explicit.into_boxed_slice(),
             virtual_pools: virtual_pools.into_boxed_slice(),
-            bindings: HashMap::new(),
+            bindings,
         })
     }
 
-    /// 查询车辆当前的停车 binding。
+    /// 查询车辆当前的停车 binding。越界或代际不一致都是没有 binding，且不修改存储。
     pub(crate) fn binding(&self, vehicle: VehicleHandle) -> Option<ParkingBinding> {
-        self.bindings.get(&vehicle).copied()
+        let index = usize::try_from(vehicle.index()).ok()?;
+        let slot = self.bindings.get(index)?;
+        if slot.generation != vehicle.generation() {
+            return None;
+        }
+        slot.binding
     }
 
     /// 查询显式泊位的排他状态。
@@ -662,9 +687,60 @@ impl ParkingRuntimeState {
         self.virtual_pools.get(facility.index()).copied()
     }
 
-    /// 尝试为 bindings 表预留一个条目的容量。
-    pub(crate) fn try_reserve_binding(&mut self) -> Result<(), ()> {
-        self.bindings.try_reserve(1).map_err(|_| ())
+    /// 在写入前保证车辆下标 `index` 已有槽位。查询和提交段不分配。
+    ///
+    /// 下标落在已建立范围内时直接成功。超出范围时受检扩容；分配失败不改变表。
+    pub(crate) fn try_reserve_binding_slot(&mut self, index: usize) -> Result<(), ()> {
+        let required_len = index.checked_add(1).ok_or(())?;
+        if required_len <= self.bindings.len() {
+            return Ok(());
+        }
+        self.bindings
+            .try_reserve_exact(required_len - self.bindings.len())
+            .map_err(|_| ())?;
+        self.bindings
+            .resize(required_len, ParkingBindingSlot::default());
+        Ok(())
+    }
+
+    /// 测试用：已建立的 binding 槽位数。
+    #[cfg(test)]
+    pub(crate) fn binding_slot_len(&self) -> usize {
+        self.bindings.len()
+    }
+
+    fn assert_binding_slot_empty(&self, vehicle: VehicleHandle) {
+        let index = usize::try_from(vehicle.index()).expect("validated vehicle index");
+        let slot = self.bindings.get(index).expect("binding slot reserved");
+        assert!(slot.binding.is_none(), "parking slot occupied");
+    }
+
+    fn write_new_binding(&mut self, vehicle: VehicleHandle, binding: ParkingBinding) {
+        let index = usize::try_from(vehicle.index()).expect("validated vehicle index");
+        let slot = self.bindings.get_mut(index).expect("binding slot reserved");
+        assert!(slot.binding.is_none(), "parking slot occupied");
+        slot.generation = vehicle.generation();
+        slot.binding = Some(binding);
+    }
+
+    fn write_exact_generation(&mut self, vehicle: VehicleHandle, binding: ParkingBinding) {
+        let index = usize::try_from(vehicle.index()).expect("validated vehicle index");
+        let slot = self.bindings.get_mut(index).expect("binding slot reserved");
+        assert!(
+            slot.generation == vehicle.generation(),
+            "parking binding generation"
+        );
+        slot.binding = Some(binding);
+    }
+
+    /// 只取走精确代际的 binding。旧句柄不能清掉新车辆的 binding。
+    fn take_exact(&mut self, vehicle: VehicleHandle) -> Option<ParkingBinding> {
+        let index = usize::try_from(vehicle.index()).ok()?;
+        let slot = self.bindings.get_mut(index)?;
+        if slot.generation != vehicle.generation() {
+            return None;
+        }
+        slot.binding.take()
     }
 
     /// 写入 `Reserved` binding 并消耗目标资源计数。
@@ -673,7 +749,7 @@ impl ParkingRuntimeState {
         vehicle: VehicleHandle,
         reservation: ParkingReservation,
     ) {
-        debug_assert!(!self.bindings.contains_key(&vehicle));
+        self.assert_binding_slot_empty(vehicle);
         match reservation.target() {
             ParkingTarget::ExplicitSpace(space) => {
                 let state = self
@@ -694,15 +770,12 @@ impl ParkingRuntimeState {
                     .expect("validated virtual parking count");
             }
         }
-        let replaced = self
-            .bindings
-            .insert(vehicle, ParkingBinding::Reserved(reservation));
-        debug_assert!(replaced.is_none());
+        self.write_new_binding(vehicle, ParkingBinding::Reserved(reservation));
     }
 
     /// 移除 `Reserved` binding、归还资源计数并返回原 reservation。
     pub(crate) fn cancel_reserved(&mut self, vehicle: VehicleHandle) -> ParkingReservation {
-        let Some(ParkingBinding::Reserved(reservation)) = self.bindings.remove(&vehicle) else {
+        let Some(ParkingBinding::Reserved(reservation)) = self.take_exact(vehicle) else {
             unreachable!("validated reservation remains present")
         };
         match reservation.target() {
@@ -730,8 +803,7 @@ impl ParkingRuntimeState {
 
     /// 把 `Reserved` binding 推进为 `Occupied` 并返回目标。
     pub(crate) fn occupy_reserved(&mut self, vehicle: VehicleHandle) -> ParkingTarget {
-        let Some(ParkingBinding::Reserved(reservation)) = self.bindings.get(&vehicle).copied()
-        else {
+        let Some(ParkingBinding::Reserved(reservation)) = self.binding(vehicle) else {
             unreachable!("validated reservation remains present")
         };
         let target = reservation.target();
@@ -759,16 +831,13 @@ impl ParkingRuntimeState {
                     .expect("validated virtual parking count");
             }
         }
-        let old = self
-            .bindings
-            .insert(vehicle, ParkingBinding::Occupied(target));
-        debug_assert!(matches!(old, Some(ParkingBinding::Reserved(_))));
+        self.write_exact_generation(vehicle, ParkingBinding::Occupied(target));
         target
     }
 
     /// 直接写入 `Occupied` binding 并消耗目标资源计数。
     pub(crate) fn insert_occupied(&mut self, vehicle: VehicleHandle, target: ParkingTarget) {
-        debug_assert!(!self.bindings.contains_key(&vehicle));
+        self.assert_binding_slot_empty(vehicle);
         match target {
             ParkingTarget::ExplicitSpace(space) => {
                 let state = self
@@ -789,15 +858,12 @@ impl ParkingRuntimeState {
                     .expect("validated virtual parking count");
             }
         }
-        let old = self
-            .bindings
-            .insert(vehicle, ParkingBinding::Occupied(target));
-        debug_assert!(old.is_none());
+        self.write_new_binding(vehicle, ParkingBinding::Occupied(target));
     }
 
     /// 移除 `Occupied` binding、归还资源计数并返回目标。
     pub(crate) fn release_occupied(&mut self, vehicle: VehicleHandle) -> ParkingTarget {
-        let Some(ParkingBinding::Occupied(target)) = self.bindings.remove(&vehicle) else {
+        let Some(ParkingBinding::Occupied(target)) = self.take_exact(vehicle) else {
             unreachable!("validated occupied binding remains present")
         };
         match target {
@@ -829,10 +895,10 @@ impl ParkingRuntimeState {
         vehicle: VehicleHandle,
         reservation: ParkingReservation,
     ) {
-        let old = self
-            .bindings
-            .insert(vehicle, ParkingBinding::Reserved(reservation));
-        debug_assert!(matches!(old, Some(ParkingBinding::Reserved(_))));
+        let Some(ParkingBinding::Reserved(_)) = self.binding(vehicle) else {
+            unreachable!("validated reservation remains present");
+        };
+        self.write_exact_generation(vehicle, ParkingBinding::Reserved(reservation));
     }
 }
 
@@ -1257,9 +1323,10 @@ impl crate::kernel::state::WorldState {
         }
         self.validate_available_target(anchor.target)?;
         let command_cursor = self.checked_parking_command()?;
+        let slot_index = usize::try_from(vehicle.index()).expect("validated vehicle index");
         self.committed
             .parking
-            .try_reserve_binding()
+            .try_reserve_binding_slot(slot_index)
             .map_err(|()| ParkingError::AllocationFailed)?;
 
         self.committed.parking.insert_reserved(vehicle, reservation);
@@ -1795,11 +1862,17 @@ impl crate::kernel::state::WorldState {
         // Parked retained cursor 不是道路 arrival；真正离场时再验证 Active 绑定。
         let route_ref = self.route_ref_increment(input.route())?;
         let command_cursor = self.checked_parking_command()?;
+        // 先看即将使用的槽，预检成功后才弹出空闲表，避免扩容失败丢掉空闲槽。
+        let slot_index = self
+            .committed
+            .free_vehicles
+            .last()
+            .copied()
+            .unwrap_or(self.committed.vehicles.len());
         self.committed
             .parking
-            .try_reserve_binding()
+            .try_reserve_binding_slot(slot_index)
             .map_err(|()| ParkingError::AllocationFailed)?;
-
         let slot_index = self
             .committed
             .free_vehicles
@@ -2428,12 +2501,7 @@ mod tests {
                 )),
             ];
             for binding in invalid {
-                world
-                    .state
-                    .committed
-                    .parking
-                    .bindings
-                    .insert(vehicle, binding);
+                overwrite_binding(&mut world.state.committed.parking, vehicle, binding);
                 assert!(!world.state.parking_state_valid(vehicle));
                 assert_eq!(
                     world.step(crate::TickInput::new(100)),
@@ -2443,12 +2511,7 @@ mod tests {
                     world.state.committed.parking.binding(vehicle),
                     Some(binding)
                 );
-                world
-                    .state
-                    .committed
-                    .parking
-                    .bindings
-                    .insert(vehicle, original);
+                overwrite_binding(&mut world.state.committed.parking, vehicle, original);
                 assert_eq!(world.capture_snapshot().unwrap(), before);
                 assert!(world.latest_transition_events().is_empty());
             }
@@ -2535,11 +2598,215 @@ mod tests {
         assert!(!parking_entry_forward_reachable(3, 20_000, 0, 3, 19_999));
     }
 
+    fn overwrite_binding(
+        parking: &mut ParkingRuntimeState,
+        vehicle: VehicleHandle,
+        binding: ParkingBinding,
+    ) {
+        let index = usize::try_from(vehicle.index()).expect("vehicle index");
+        let slot = &mut parking.bindings[index];
+        slot.generation = vehicle.generation();
+        slot.binding = Some(binding);
+    }
+
     #[test]
     fn declared_virtual_capacity_is_not_a_runtime_storage_axis() {
-        let state = ParkingRuntimeState::new(3, 2);
-        assert_eq!(state.explicit.len(), 3);
-        assert_eq!(state.virtual_pools.len(), 2);
-        assert!(state.bindings.is_empty());
+        let narrow = ParkingRuntimeState::new(3, 2, 4);
+        let more_facilities = ParkingRuntimeState::new(3, 8, 4);
+        assert_eq!(narrow.explicit.len(), 3);
+        assert_eq!(narrow.virtual_pools.len(), 2);
+        assert_eq!(narrow.binding_slot_len(), 4);
+        assert_eq!(
+            more_facilities.binding_slot_len(),
+            narrow.binding_slot_len()
+        );
+        assert_eq!(
+            narrow.bindings.capacity(),
+            more_facilities.bindings.capacity()
+        );
+        assert!(narrow.bindings.iter().all(|slot| slot.binding.is_none()));
+        let wider = ParkingRuntimeState::new(3, 2, 32);
+        assert!(wider.binding_slot_len() > narrow.binding_slot_len());
+        assert!(wider.retained_logical_bytes() > narrow.retained_logical_bytes());
+    }
+
+    #[test]
+    fn binding_queries_do_not_allocate_and_generations_do_not_alias() {
+        let mut state = ParkingRuntimeState::try_new(1, 0, 1).expect("state");
+        let space = ParkingTarget::ExplicitSpace(ParkingSpaceOrdinal::from_raw(0));
+        let current = VehicleHandle::new(0, 4);
+        let stale = VehicleHandle::new(0, 3);
+        let len = state.binding_slot_len();
+        let capacity = state.bindings.capacity();
+        assert_eq!(state.binding(VehicleHandle::new(9, 1)), None);
+        assert_eq!(state.binding(stale), None);
+        assert_eq!(state.binding_slot_len(), len);
+        assert_eq!(state.bindings.capacity(), capacity);
+
+        state.try_reserve_binding_slot(0).expect("in range");
+        state.insert_occupied(current, space);
+        assert_eq!(state.binding(stale), None);
+        assert_eq!(
+            state.binding(current),
+            Some(ParkingBinding::Occupied(space))
+        );
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            state.release_occupied(stale);
+        }));
+        assert!(panicked.is_err());
+        assert_eq!(
+            state.binding(current),
+            Some(ParkingBinding::Occupied(space))
+        );
+        assert_eq!(
+            state.explicit_state(ParkingSpaceOrdinal::from_raw(0)),
+            Some(ParkingSpaceState::Occupied(current))
+        );
+    }
+
+    #[test]
+    fn binding_slot_growth_failure_preserves_existing_state() {
+        let mut state = ParkingRuntimeState::try_new(1, 0, 1).expect("state");
+        let space = ParkingTarget::ExplicitSpace(ParkingSpaceOrdinal::from_raw(0));
+        let vehicle = VehicleHandle::new(0, 1);
+        state.insert_occupied(vehicle, space);
+        let len = state.binding_slot_len();
+        let capacity = state.bindings.capacity();
+        assert!(state.try_reserve_binding_slot(usize::MAX).is_err());
+        assert_eq!(state.binding_slot_len(), len);
+        assert_eq!(state.bindings.capacity(), capacity);
+        assert_eq!(
+            state.binding(vehicle),
+            Some(ParkingBinding::Occupied(space))
+        );
+        assert_eq!(
+            state.explicit_state(ParkingSpaceOrdinal::from_raw(0)),
+            Some(ParkingSpaceState::Occupied(vehicle))
+        );
+    }
+
+    #[test]
+    fn high_vehicle_index_reserves_only_when_a_binding_is_written() {
+        let (mut world, route, target) = explicit_parking_world(1);
+        let first = world
+            .spawn_vehicle(crate::VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                19_000,
+                0,
+            ))
+            .expect("first vehicle");
+        world.despawn_vehicle(first).expect("clear the only slot");
+        let index = usize::try_from(first.index()).expect("index");
+        world.state.committed.vehicles[index].generation = u32::MAX;
+        world.state.committed.free_vehicles.clear();
+
+        let active = world
+            .spawn_vehicle(crate::VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                19_000,
+                0,
+            ))
+            .expect("high index active vehicle");
+        assert_eq!(active.index(), 1);
+        assert_eq!(world.state.committed.parking.binding_slot_len(), 1);
+        assert_eq!(world.parking_binding(active), None);
+        world.reserve_parking(active, target).expect("reserve");
+        assert_eq!(world.state.committed.parking.binding_slot_len(), 2);
+        assert_eq!(
+            world
+                .parking_binding(active)
+                .map(|binding| binding.target()),
+            Some(target.target())
+        );
+    }
+
+    #[test]
+    fn reused_slot_keeps_the_new_binding_hidden_from_the_old_handle() {
+        let (mut world, route, target) = explicit_parking_world(1);
+        let space = ParkingSpaceOrdinal::from_raw(0);
+        let old = world
+            .spawn_vehicle(crate::VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                19_000,
+                0,
+            ))
+            .expect("old vehicle");
+        world.reserve_parking(old, target).expect("reserve old");
+        world.despawn_vehicle(old).expect("despawn old");
+        assert_eq!(world.state.committed.parking.binding(old), None);
+        assert_eq!(
+            world.parking_space_state(space),
+            Some(ParkingSpaceState::Vacant)
+        );
+
+        let new = world
+            .spawn_vehicle(crate::VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                19_000,
+                0,
+            ))
+            .expect("reused slot");
+        assert_eq!(new.index(), old.index());
+        assert_ne!(new.generation(), old.generation());
+        world.reserve_parking(new, target).expect("reserve new");
+        assert_eq!(world.state.committed.parking.binding(old), None);
+        assert_eq!(world.parking_binding(old), None);
+        assert_eq!(
+            world.cancel_parking(old, target.target()),
+            Err(crate::ParkingError::StaleVehicle)
+        );
+        assert_eq!(
+            world.parking_binding(new).map(|binding| binding.target()),
+            Some(target.target())
+        );
+        assert_eq!(
+            world.parking_space_state(space),
+            Some(ParkingSpaceState::Reserved(new))
+        );
+    }
+
+    fn explicit_parking_world(
+        vehicle_capacity: u32,
+    ) -> (TrafficWorld, RouteHandle, ReserveParkingTarget) {
+        use crate::admin::cutover_migration::tests::{
+            ParkingRevisionShape, compiled_parking_revision,
+        };
+        let revision = compiled_parking_revision(ParkingRevisionShape::WrongKind);
+        let origin = *revision.canonical_origin();
+        let mut world = TrafficWorld::install(
+            std::sync::Arc::clone(&revision),
+            crate::WorldConfig::new(vehicle_capacity, 4, 1_024, 1_024, 100),
+            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            crate::CommittedNetworkSource::Published {
+                reference: crate::PublishedLfcaReference::new(
+                    "fixture://parking-binding-slots",
+                    origin.canonical_artifact_digest(),
+                    origin.canonical_artifact_byte_length(),
+                    origin.network_revision(),
+                )
+                .unwrap(),
+            },
+            0,
+            crate::test_policy::selection(&revision),
+        )
+        .unwrap();
+        let route = world
+            .register_route(crate::RouteRegisterInput::new(vec![
+                LaneEdgeOrdinal::from_raw(0),
+            ]))
+            .unwrap();
+        let target = ReserveParkingTarget::ExplicitSpace {
+            space: ParkingSpaceOrdinal::from_raw(0),
+            entry_route_occurrence: 0,
+        };
+        (world, route, target)
     }
 }

@@ -1,7 +1,7 @@
 # LaneFlow 双语术语表
 
 **文档状态**: Active<br>
-**最后更新**: 2026-09-06<br>
+**最后更新**: 2026-09-23<br>
 **适用范围**: LaneFlow 架构、ADR、设计文档、Agent Skill、Issue/PR 设计说明、
 #291 编译器时代静态路网方案、交通基础设施与宿主边界
 
@@ -439,9 +439,9 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 路口规则            | intersection rules                  | —                           | 对冲突流、准入、授权、预约和通行顺序进行运行时裁决的规则集合。                                                                                                                                                                 |
 | 停车                | parking                             | —                           | 对停车设施、显式停车位、虚拟容量、预约、进入、占用和离开进行管理的领域行为。                                                                                                                                                   |
 | 停车设施            | parking facility                    | `ParkingFacility`           | 已接受（Accepted；#540 G1）的唯一设施实体；可同时组织显式停车位与不可见虚拟容量，并可拥有多个虚拟入口/出口。完整取代 `ParkingArea`，不是并行别名。                                                                             |
-| 虚拟停车容量        | virtual parking capacity            | `virtual_capacity`          | 停车设施中不展开为具体泊位、内部路网或 parked pose 的计数容量；Runtime 只为实际 Reserved/Occupied 车辆保存稀疏 binding。                                                                                                       |
+| 虚拟停车容量        | virtual parking capacity            | `virtual_capacity`          | 停车设施中不展开为具体泊位、内部路网或 parked pose 的计数容量。Runtime 虚拟池只保留 reserved/occupied 计数，不按该容量建立 binding 槽位。                                                                                        |
 | 停车目标            | parking target                      | `ParkingTarget`             | caller 精确选择的 tagged 资源：具体 `ExplicitSpace` 或设施 `VirtualPool`。Runtime 不在二者之间自动选位。                                                                                                                       |
-| 停车绑定            | parking binding                     | `ParkingBinding`            | Runtime 私有 aggregate 中按 live vehicle 稀疏保存的 `Reserved \| Occupied` 关系；Reserved 携带 exact route/entry payload，Occupied 只持有 exact target。它是资源计数与车辆状态矩阵的唯一动态权威。                             |
+| 停车绑定            | parking binding                     | `ParkingBinding`            | Runtime 私有 aggregate 中按车辆槽位下标保存、读取时核对句柄代际的 `Reserved \| Occupied` 关系。安装时按车辆容量建立空槽；更高下标只在写入预检扩容。代际不一致读作没有 binding。Reserved 携带 exact route/entry payload，Occupied 只持有 exact target。它是资源计数与车辆状态矩阵的唯一动态权威。 |
 | 停车到达            | parking arrival                     | `ParkingArrivalObservation` | Reserved Active vehicle 同时满足 exact route occurrence、anchor `progress_mm`、`speed_mm_s = 0` 与 `carry_um = 0` 的已提交事实；step 只在 false → true 时按稳定顺序观察一次。                                                  |
 | 虚拟停驻            | virtual parked state                | —                           | 车辆仍保留 live identity、route 和设施 binding，但不进入道路运动/占用，也不产生 committed pose 的 Parked 状态；不等于 despawn、聚合车辆或隐藏路网。                                                                            |
 | 每世界可变状态      | per-world mutable state             | —                           | 交通参与单元、通行定义、控制器时钟、预约、占用和缓冲区等不能进入共享静态路网的状态；当前投影包括车辆、路线和停车。                                                                                                             |
