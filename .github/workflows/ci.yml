@@ -191,12 +191,26 @@ jobs:
       - name: Check clippy lints
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.98.0 clippy --workspace --all-targets --locked --features placement-fixtures -- -D warnings
+        run: cargo +1.98.0 clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Check placement fixture lints
+        if: needs.changes.outputs.rust == 'true'
+        shell: bash
+        run: |
+          cargo +1.98.0 clippy -p laneflow-runtime --all-targets --locked --features placement-fixtures -- -D warnings
+          cargo +1.98.0 clippy -p laneflow-scenario --all-targets --locked --features placement-fixtures -- -D warnings
 
       - name: Run workspace tests
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.98.0 nextest run --workspace --locked --features placement-fixtures
+        run: cargo +1.98.0 nextest run --workspace --locked
+
+      - name: Run placement fixture tests
+        if: needs.changes.outputs.rust == 'true'
+        shell: bash
+        run: |
+          cargo +1.98.0 nextest run -p laneflow-runtime --locked --features placement-fixtures
+          cargo +1.98.0 nextest run -p laneflow-scenario --locked --features placement-fixtures
 
       # cargo-nextest 不执行 doctest，doctest 仍由 libtest 覆盖。
       - name: Run workspace doctests

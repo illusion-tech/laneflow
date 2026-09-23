@@ -343,16 +343,16 @@ impl crate::kernel::state::WorldState {
     }
 
     fn admit_direct_followers(
-        &self,
+        &mut self,
         input: VehicleSpawnInput,
         vehicle_length_mm: u32,
         delta_s: f32,
     ) -> Result<(), FreshAdmissionFailure> {
+        let candidates = self.upstream_follower_candidates(input, vehicle_length_mm)?;
         let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
         let candidate_edges = self.route_edges(input.route()).expect("已校验的路线仍在");
         let candidate_index =
             usize::try_from(input.route_edge_index()).expect("route index fits usize");
-        let candidates = self.upstream_follower_candidates(input, vehicle_length_mm);
         #[cfg(test)]
         FOLLOWER_CANDIDATES.with(|count| {
             count.set(count.get().saturating_add(candidates.len() as u64));
@@ -424,57 +424,143 @@ impl crate::kernel::state::WorldState {
         Ok(())
     }
 
-    /// 候选车身所在边及其物理上游边上的车辆。精确路线过滤仍在调用方。
+    /// 车身所在边，以及制动窗内能开到候选车的上游边。精确路线过滤仍在调用方。
     fn upstream_follower_candidates(
-        &self,
+        &mut self,
         input: VehicleSpawnInput,
         vehicle_length_mm: u32,
-    ) -> Vec<VehicleHandle> {
-        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
+    ) -> Result<Vec<VehicleHandle>, FreshAdmissionFailure> {
+        let traffic = self.binding.revision.traffic();
+        self.workspace
+            .occupancy_scratch
+            .ensure_maneuver_upstream(traffic)
+            .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
+        let lengths = traffic.lane_lengths_millimetres();
         let Some(edges) = self.route_edges(input.route()) else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
         let Ok(cursor) = usize::try_from(input.route_edge_index()) else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
-        let mut queue = Vec::new();
-        if let Some(edge) = edges.get(cursor).copied() {
-            queue.push(edge);
-        }
+        let reach = self.max_follower_bumper_mm();
+        let mut body: Vec<(laneflow_static_contract::LaneEdgeOrdinal, u32)> = Vec::new();
         let _ = for_each_admission_interval(
             lengths,
             edges,
             cursor,
             input.progress_mm(),
             vehicle_length_mm,
-            |edge, _, _| queue.push(edge),
+            |edge, lo, _| {
+                if let Some((_, rear)) = body.iter_mut().find(|(item, _)| *item == edge) {
+                    *rear = (*rear).min(lo);
+                } else {
+                    body.push((edge, lo));
+                }
+            },
         );
-        let traffic = self.binding.revision.traffic();
-        let edge_count = usize::try_from(traffic.lane_edge_count()).unwrap_or(0);
-        let mut seen_edge = vec![false; edge_count];
-        let mut seen_vehicle = vec![false; self.committed.vehicles.len()];
-        let mut found: Vec<(u32, VehicleHandle)> = Vec::new();
-        while let Some(edge) = queue.pop() {
-            let index = edge.index();
-            if index >= seen_edge.len() || seen_edge[index] {
-                continue;
-            }
-            seen_edge[index] = true;
-            self.derived
-                .occupancy
-                .for_each_record_on_edge(edge, |vehicle, sequence| {
-                    let slot = usize::try_from(vehicle.index()).unwrap_or(usize::MAX);
-                    if slot < seen_vehicle.len() && !seen_vehicle[slot] {
-                        seen_vehicle[slot] = true;
-                        found.push((sequence, vehicle));
-                    }
-                });
-            if let Some(predecessors) = traffic.predecessors(edge) {
-                queue.extend_from_slice(predecessors);
+        if body.is_empty()
+            && let Some(edge) = edges.get(cursor).copied()
+        {
+            body.push((edge, input.progress_mm()));
+        }
+        let mut seen = Vec::new();
+        let mut found = Vec::new();
+        let mut queue = Vec::new();
+        // 车身跨边时，后杠所在边也是更前方车身的车道前驱。先按后杠开窗并占住
+        // 这条边，避免后面的上游访问改用边的终点窗口，漏掉紧跟后杠的车。
+        for (edge, rear_lo) in body {
+            seen.push(edge.raw());
+            self.derived.occupancy.for_each_record_in_hi_window(
+                edge,
+                rear_lo.saturating_sub(reach),
+                rear_lo,
+                |vehicle, sequence| found.push((sequence, vehicle)),
+            );
+            if rear_lo <= reach {
+                enqueue_follower_upstream(
+                    traffic,
+                    &self.workspace.occupancy_scratch,
+                    edge,
+                    rear_lo,
+                    &mut queue,
+                );
             }
         }
+        while let Some((edge, behind_end)) = queue.pop() {
+            if seen.contains(&edge.raw()) || behind_end > reach {
+                continue;
+            }
+            seen.push(edge.raw());
+            let length = lengths.get(edge.index()).copied().unwrap_or(0);
+            let budget = reach - behind_end;
+            self.derived.occupancy.for_each_record_in_hi_window(
+                edge,
+                length.saturating_sub(budget),
+                length,
+                |vehicle, sequence| found.push((sequence, vehicle)),
+            );
+            let next = behind_end.saturating_add(length);
+            if next <= reach {
+                enqueue_follower_upstream(
+                    traffic,
+                    &self.workspace.occupancy_scratch,
+                    edge,
+                    next,
+                    &mut queue,
+                );
+            }
+        }
+        found.sort_by_key(|(sequence, handle)| (handle.index(), *sequence));
+        found.dedup_by_key(|(_, handle)| handle.index());
         found.sort_by_key(|(sequence, handle)| (*sequence, handle.index()));
-        found.into_iter().map(|(_, handle)| handle).collect()
+        Ok(found.into_iter().map(|(_, handle)| handle).collect())
+    }
+
+    fn max_follower_bumper_mm(&self) -> u32 {
+        let traffic = self.binding.revision.traffic();
+        let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
+        let speed = traffic
+            .lane_speed_limits_millimetres_per_second()
+            .iter()
+            .copied()
+            .max()
+            .unwrap_or(0);
+        let profiles = traffic
+            .entity_counts()
+            .count(laneflow_static_contract::EntityKind::VehicleProfile);
+        let mut reach = 0u32;
+        for raw in 0..profiles {
+            let Some(profile) = traffic
+                .relations()
+                .vehicle_profile(VehicleProfileOrdinal::from_raw(raw))
+            else {
+                continue;
+            };
+            if let Some(horizon) = leader_query_horizon(speed, profile, delta_s) {
+                reach = reach.max(horizon.bumper_gap_mm);
+            }
+        }
+        reach
+    }
+}
+
+fn enqueue_follower_upstream(
+    traffic: &laneflow_static_network::SharedTrafficNetwork,
+    scratch: &super::occupancy::OccupancyScratch,
+    edge: laneflow_static_contract::LaneEdgeOrdinal,
+    behind_end: u32,
+    queue: &mut Vec<(laneflow_static_contract::LaneEdgeOrdinal, u32)>,
+) {
+    if let Some(predecessors) = traffic.predecessors(edge) {
+        for predecessor in predecessors {
+            queue.push((*predecessor, behind_end));
+        }
+    }
+    for raw in scratch.maneuver_upstream(edge) {
+        queue.push((
+            laneflow_static_contract::LaneEdgeOrdinal::from_raw(*raw),
+            behind_end,
+        ));
     }
 }
 

@@ -1,3 +1,4 @@
+#![cfg(feature = "placement-fixtures")]
 //! #282 WaitingZone 稳态 heap allocation 证据。
 //!
 //! 单一默认测试承载全局计数分配器。车辆已成功进入 WaitingZone、但尚未触达

@@ -1,3 +1,5 @@
+#![cfg(feature = "placement-fixtures")]
+
 #[path = "support/population_policy.rs"]
 mod population_policy;
 
@@ -119,7 +121,9 @@ fn spawn_plans(
         .iter()
         .map(|plan| {
             world
-                .spawn_vehicle(plan.spawn_input(world, &routes).expect("spawn input"))
+                .place_existing_active_vehicle(
+                    plan.spawn_input(world, &routes).expect("spawn input"),
+                )
                 .expect("initial spawn")
         })
         .collect();
@@ -471,7 +475,7 @@ fn spawn_near_route_end(
     let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[last.index()];
     let last_index = u32::try_from(edges.len() - 1).expect("index");
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             last_index,

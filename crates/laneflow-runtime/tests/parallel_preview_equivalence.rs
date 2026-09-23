@@ -41,9 +41,9 @@ use laneflow_runtime::{
     WorldPolicySelection, deterministic_state_digest,
 };
 use laneflow_scenario::signalized_corridor::{CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind};
-use laneflow_static_contract::{
-    EntityKind, LaneEdgeOrdinal, ManeuverPathOrdinal, VehicleProfileOrdinal,
-};
+#[cfg(feature = "placement-fixtures")]
+use laneflow_static_contract::LaneEdgeOrdinal;
+use laneflow_static_contract::{EntityKind, ManeuverPathOrdinal, VehicleProfileOrdinal};
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
     build_shared_network_revision,
@@ -53,6 +53,7 @@ const WORKERS: [u32; 5] = [1, 2, 4, 8, 16];
 const DELTA_MS: u64 = 100;
 const BUILD_LIMITS: SharedNetworkBuildLimits =
     SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024);
+#[cfg(feature = "placement-fixtures")]
 const FULL_SPATIAL: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
 );
@@ -97,6 +98,7 @@ fn install_published(
     .expect("install")
 }
 
+#[cfg(feature = "placement-fixtures")]
 fn full_spatial_revision() -> Arc<SharedNetworkRevision> {
     let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked canonical network input");
@@ -192,9 +194,17 @@ fn despawn_and_respawn(
     world.despawn_vehicle(old).expect("despawn");
     assert!(world.vehicle(old).is_none(), "despawned handle stays stale");
     let new = if existing {
-        world
-            .place_existing_active_vehicle(respawn)
-            .expect("respawn")
+        #[cfg(feature = "placement-fixtures")]
+        {
+            world
+                .place_existing_active_vehicle(respawn)
+                .expect("respawn")
+        }
+        #[cfg(not(feature = "placement-fixtures"))]
+        {
+            let _ = (world, respawn);
+            unreachable!("placement-fixtures")
+        }
     } else {
         world.spawn_vehicle(respawn).expect("respawn")
     };
@@ -709,6 +719,7 @@ fn signalized_corridor_chain_fused_matches_across_worker_matrix() {
 // 覆盖见下方混合场景。
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "placement-fixtures")]
 fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
     let index = world
         .traffic()
@@ -719,6 +730,7 @@ fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
     LaneEdgeOrdinal::try_from_usize(index).expect("fixture lane ordinal")
 }
 
+#[cfg(feature = "placement-fixtures")]
 fn run_full_spatial_lifecycle_fused(workers: u32) -> Vec<String> {
     let revision = full_spatial_revision();
     let mut world = install_published(
@@ -841,6 +853,7 @@ fn run_full_spatial_lifecycle_fused(workers: u32) -> Vec<String> {
     records
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn fused_path_signal_and_lifecycle_matches_across_worker_matrix() {
     assert_matches_across_workers(

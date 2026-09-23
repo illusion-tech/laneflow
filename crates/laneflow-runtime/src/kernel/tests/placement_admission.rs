@@ -632,6 +632,81 @@ fn follower_on_previous_edge_uses_its_own_gap() {
 }
 
 #[test]
+fn follower_behind_a_spanning_rear_is_not_hidden_by_the_front_edge() {
+    let revision = revision("runtime/placement-plain", |module| {
+        module
+            .add_vehicle_profile(VehicleProfileInput {
+                vehicle_profile_key: "long",
+                participant_class: ParticipantClassReference::local("road-user"),
+                iidm: IidmVehicleProfileInput {
+                    length_meters: 30.0,
+                    ..profile()
+                },
+            })
+            .expect("long profile");
+        add_edge(module, "entry", 100.0, 10.0, Some("exit"));
+        add_edge(module, "exit", 50.0, 10.0, None);
+    });
+    let mut world = install(revision);
+    let route = register_named(&mut world, "runtime/placement-plain", &["entry", "exit"]);
+    let follower = spawn(&mut world, route, 0, 69_000, 10_000).expect("后杠后的近车");
+    assert_eq!(
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(1),
+                route,
+                1,
+                1_000,
+                10_000,
+            ))
+            .unwrap_err(),
+        SpawnError::UnsafeFollower { follower },
+        "30 m 车身跨进下一条边时，后杠仍在上一条边中部，紧跟的后车必须被看见"
+    );
+}
+
+#[test]
+fn maneuver_transition_reaches_the_upstream_follower_search() {
+    let revision = revision("runtime-fixture-policy", |module| {
+        add_signal_corridor(module, SignalAspect::Green);
+    });
+    let mut world = install(Arc::clone(&revision));
+    let route = register_named(
+        &mut world,
+        "runtime-fixture-policy",
+        &["entry", "middle", "exit"],
+    );
+    let (entry, middle) = {
+        let edges = world.route_edges(route).expect("corridor edges");
+        (edges[0], edges[1])
+    };
+    {
+        let revision = world.revision();
+        let traffic = revision.traffic();
+        world
+            .state
+            .workspace
+            .occupancy_scratch
+            .ensure_maneuver_upstream(traffic)
+            .expect("maneuver reverse");
+        let upstream = world
+            .state
+            .workspace
+            .occupancy_scratch
+            .maneuver_upstream(middle);
+        assert!(
+            upstream.contains(&entry.raw()),
+            "机动 transition 的反向表必须含入口边，路口内部边没有车道后继时只靠这张表"
+        );
+    }
+    let follower = spawn(&mut world, route, 0, 5_000, 10_000).expect("入口上的后车");
+    assert_eq!(
+        spawn(&mut world, route, 1, 1_500, 8_000).unwrap_err(),
+        SpawnError::UnsafeFollower { follower }
+    );
+}
+
+#[test]
 fn diverge_follower_on_the_other_branch_is_not_a_direct_follower() {
     let revision = revision("runtime/placement-plain", |module| {
         module

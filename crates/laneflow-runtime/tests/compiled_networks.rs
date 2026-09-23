@@ -1,9 +1,11 @@
 #[path = "support/policy.rs"]
 mod test_policy;
 
+#[cfg(feature = "placement-fixtures")]
 #[path = "support/conflict_review.rs"]
 mod conflict_review;
 
+#[cfg(feature = "placement-fixtures")]
 #[path = "support/policy_acceptance.rs"]
 mod policy_acceptance;
 
@@ -32,6 +34,8 @@ use laneflow_compiler::{
     emit_portable_candidate,
 };
 use laneflow_format::{FormatLimits, check_post_emission_bundle, preflight_object_values};
+#[cfg(feature = "placement-fixtures")]
+use laneflow_runtime::VehicleHandle;
 use laneflow_runtime::{
     AdmittedRouteRegisterInput, CandidateRouteInput, CommittedNetworkSource, CostModelKey,
     CutoverError, CutoverPreflightLimits, CutoverTransactionLimits, DynamicCostSnapshotBinding,
@@ -41,15 +45,17 @@ use laneflow_runtime::{
     PublishedLfcaReference, RebindParkingTarget, ReplaceError, ReserveParkingTarget, RouteError,
     RouteHandle, RouteRegisterInput, SemanticDiffOriginBinding, SnapshotLimitDimension,
     SnapshotRestoreError, SnapshotRestoreLimits, SpawnError, TickInput, TrafficWorld,
-    VehicleHandle, VehicleSpawnInput, VehicleStatus, VirtualEntryAnchorSelector,
-    VirtualExitAnchorSelector, WorldConfig, bind_observation_set, deterministic_state_digest,
-    encode_lfrs, restore_lfrs,
+    VehicleSpawnInput, VehicleStatus, VirtualEntryAnchorSelector, VirtualExitAnchorSelector,
+    WorldConfig, bind_observation_set, deterministic_state_digest, encode_lfrs, restore_lfrs,
 };
+#[cfg(feature = "placement-fixtures")]
+use laneflow_static_contract::RightOfWayPolicySetOrdinal;
+#[cfg(feature = "placement-fixtures")]
+use laneflow_static_contract::VehicleProfileId;
 use laneflow_static_contract::{
     AccessEffect, ConflictZoneOrdinal, EntityKind, LaneEdgeId, ParkingFacilityOrdinal,
-    ParkingSpaceOrdinal, ParticipantStreamOrdinal, PortableObjectKind, RightOfWayPolicySetOrdinal,
-    SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest, SignalAspect, VehicleProfileId,
-    VehicleProfileOrdinal,
+    ParkingSpaceOrdinal, ParticipantStreamOrdinal, PortableObjectKind,
+    SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest, SignalAspect, VehicleProfileOrdinal,
 };
 use laneflow_static_network::{
     ConflictPathAnchor, SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision,
@@ -472,6 +478,7 @@ fn conflict_yield_road_editing_module() -> lfre::RoadEditingSourceModule {
     )
 }
 
+#[cfg(feature = "placement-fixtures")]
 fn conflict_calibration_road_editing_module() -> lfre::RoadEditingSourceModule {
     conflict_road_editing_module_with_shape_and_speed(
         2,
@@ -1758,6 +1765,7 @@ fn conflict_tick_uses_stable_single_writer_winner_and_retries_the_loser() {
     );
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn conflict_tick_rejects_when_committed_downstream_storage_is_blocked() {
     let revision = compile_road_editing_revision(conflict_road_editing_module());
@@ -1888,6 +1896,7 @@ fn permissive_conflict_uses_the_compiled_gap_profile_and_approach_frontier() {
     }
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[derive(Clone, Copy, Debug, Default)]
 struct CalibrationRejects {
     occupied: u32,
@@ -1897,6 +1906,7 @@ struct CalibrationRejects {
     other: u32,
 }
 
+#[cfg(feature = "placement-fixtures")]
 impl CalibrationRejects {
     fn record(&mut self, reason: laneflow_runtime::ConflictNoGrantReason) {
         match reason {
@@ -1911,6 +1921,7 @@ impl CalibrationRejects {
     }
 }
 
+#[cfg(feature = "placement-fixtures")]
 fn calibration_profile(revision: &SharedNetworkRevision, key: &str) -> VehicleProfileOrdinal {
     let stable = derive_canonical_stable_id_v1(
         EntityKind::VehicleProfile,
@@ -1925,6 +1936,7 @@ fn calibration_profile(revision: &SharedNetworkRevision, key: &str) -> VehiclePr
         .expect("calibration profile ordinal")
 }
 
+#[cfg(feature = "placement-fixtures")]
 fn calibration_world(revision: Arc<SharedNetworkRevision>) -> (TrafficWorld, [RouteHandle; 2]) {
     let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(8, 4, 64, 2, 100))
         .expect("calibration world");
@@ -1947,6 +1959,7 @@ fn calibration_world(revision: Arc<SharedNetworkRevision>) -> (TrafficWorld, [Ro
     (world, routes)
 }
 
+#[cfg(feature = "placement-fixtures")]
 fn spawn_calibration_vehicle(
     world: &mut TrafficWorld,
     profile: VehicleProfileOrdinal,
@@ -1965,11 +1978,13 @@ fn spawn_calibration_vehicle(
         .expect("calibration vehicle")
 }
 
+#[cfg(feature = "placement-fixtures")]
 fn calibration_gate(world: &TrafficWorld, route: RouteHandle) -> u32 {
     let edge = world.route_edges(route).expect("calibration route edges")[0];
     world.traffic().lane_lengths_millimetres()[edge.index()]
 }
 
+#[cfg(feature = "placement-fixtures")]
 fn calibration_outcome(
     world: &TrafficWorld,
     subject: VehicleHandle,
@@ -1982,6 +1997,7 @@ fn calibration_outcome(
         .outcome()
 }
 
+#[cfg(feature = "placement-fixtures")]
 fn wait_for_calibration_grant(
     world: &mut TrafficWorld,
     subject: VehicleHandle,
@@ -2007,6 +2023,7 @@ fn wait_for_calibration_grant(
     panic!("calibration subject did not receive a grant within {max_ticks} ticks: {rejects:?}");
 }
 
+#[cfg(feature = "placement-fixtures")]
 fn calibration_percentiles(mut waits_ms: Vec<u64>) -> (u64, u64) {
     waits_ms.sort_unstable();
     let p50 = waits_ms[(waits_ms.len() - 1) / 2];
@@ -2014,6 +2031,7 @@ fn calibration_percentiles(mut waits_ms: Vec<u64>) -> (u64, u64) {
     (p50, p95)
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn conservative_gap_profile_calibration_matrix_uses_the_formal_solver() {
     const TRIALS: u32 = 8;
@@ -4505,6 +4523,7 @@ fn leave_research_includes_both_upstream_merge_routes_and_committed_prefix() {
     assert_eq!(world.capture_snapshot().unwrap(), committed);
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn follower_on_diverge_respects_leader_overhang_on_shared_stem() {
     let revision = compile_revision(|module| {
@@ -4634,6 +4653,7 @@ fn large_delta_travel_does_not_exceed_speed_limit_envelope() {
     );
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn speed_down_transition_caps_next_tick_travel() {
     let revision = compile_revision(|module| {
@@ -4757,6 +4777,7 @@ fn equal_limit_edge_boundary_does_not_stop_the_vehicle() {
     );
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn infeasible_stop_before_lower_limit_still_enters() {
     let revision = compile_revision(|module| {
