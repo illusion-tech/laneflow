@@ -165,6 +165,20 @@ impl crate::kernel::state::WorldState {
         }
     }
 
+    /// 已完成的车若还占着原来的在驶名次，换成新句柄。步进提交已经移出时返回 `false`。
+    pub(crate) fn replace_active_handle(&mut self, old: VehicleHandle, new: VehicleHandle) -> bool {
+        let Some(index) = self
+            .derived
+            .active_order
+            .iter()
+            .position(|active| *active == old)
+        else {
+            return false;
+        };
+        self.derived.active_order[index] = new;
+        true
+    }
+
     pub(crate) fn remove_active_vehicle(&mut self, vehicle: VehicleHandle) {
         let index = self
             .derived
