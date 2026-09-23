@@ -228,9 +228,7 @@ impl crate::kernel::state::WorldState {
                 return Some(room);
             }
             hop = hop.checked_add(1)?;
-            let Some(edge) = compiled.edges.get(hop).copied() else {
-                return None;
-            };
+            let edge = compiled.edges.get(hop).copied()?;
             room = room.saturating_add(*lengths.get(edge.index())?);
         }
     }
