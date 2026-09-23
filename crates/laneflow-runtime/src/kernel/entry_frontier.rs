@@ -705,6 +705,25 @@ fn kinematic_reach_mm(speed_mm_s: u32, max_accel_m_s2: f32, seconds: f64, slack_
     f64::from(speed_mm_s) * seconds + 0.5 * accel_mm_s2 * seconds * seconds + slack_mm
 }
 
+pub(crate) fn delay_approach_for_signal(
+    read: StepReadView<'_>,
+    vehicle: VehicleHandle,
+    state: &VehicleState,
+    kinematic: ApproachEstimate,
+    entry_mm: u32,
+    horizon_ms: u64,
+    emergency_decel_m_s2: f32,
+) -> ApproachEstimate {
+    raise_signal_bound(
+        kinematic,
+        signal_hold(read, vehicle, state),
+        entry_mm,
+        horizon_ms,
+        state.speed_mm_s,
+        emergency_decel_m_s2,
+    )
+}
+
 fn raise_signal_bound(
     kinematic: ApproachEstimate,
     hold: Option<SignalHold>,
@@ -1626,7 +1645,7 @@ fn replay_walk(
     Ok(())
 }
 
-fn finite_entry_distance(
+pub(crate) fn finite_entry_distance(
     compiled: &super::tables::CompiledRoute,
     state: &VehicleState,
     occurrence: &ConflictPassageOccurrence,

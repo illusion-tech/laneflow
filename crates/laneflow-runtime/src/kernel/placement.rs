@@ -4,13 +4,38 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
-use laneflow_static_contract::VehicleProfileOrdinal;
-
+use super::conflict::{ApproachEstimate, PreparedApproachEta};
+use super::entry_frontier::{delay_approach_for_signal, finite_entry_distance};
 use super::occupancy::LeaderQueryHorizon;
-use super::tables::{for_each_admission_interval, occupancy_front_gap};
+use super::state::{CELL_APPROACH_NONE, CELL_APPROACH_UNPROVABLE, ContenderRank, WaitingEntrant};
+use super::tables::{
+    distance_to_occurrence_start, for_each_admission_interval, occupancy_front_gap,
+};
 use super::tick::{PlacementMotion, leader_query_horizon};
 use crate::kernel::units::ceil_mm;
-use crate::{SpawnError, VehicleHandle, VehicleSpawnInput, VehicleState, VehicleStatus};
+use crate::{
+    GateCandidateKind, GatePolicyDecision, SpawnError, VehicleHandle, VehicleSpawnInput,
+    VehicleState, VehicleStatus,
+};
+use laneflow_static_contract::{
+    ManeuverGateOrdinal, ParticipantStreamOrdinal, VehicleProfileOrdinal,
+};
+use laneflow_static_network::BoundedDistance;
+
+struct ReachedGate {
+    gate: Option<ManeuverGateOrdinal>,
+    zones: Vec<usize>,
+    streams: Vec<ParticipantStreamOrdinal>,
+    has_waiting: bool,
+    waiting_member: bool,
+    crossed_waiting: bool,
+}
+
+struct ContenderNotes {
+    cells: Vec<(crate::ConflictPassageAddress, ApproachEstimate)>,
+    ranks: Vec<(usize, ContenderRank)>,
+    waiting: Option<(usize, WaitingEntrant)>,
+}
 
 #[cfg(test)]
 use std::cell::Cell;
@@ -213,11 +238,25 @@ impl crate::kernel::state::WorldState {
         }
         self.ensure_current_occupancy()
             .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
+        self.ensure_spawn_downstream_index()
+            .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
         self.ensure_spawn_contenders();
         let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
         self.admit_own_motion(input, profile, vehicle_length_mm, delta_s)?;
         self.admit_nearest_leader(input, profile, vehicle_length_mm, delta_s)?;
         self.admit_direct_followers(input, vehicle_length_mm, delta_s)
+    }
+
+    /// 索引脏时只在这一批的第一次生成补齐，后面的车走已经建好的树。
+    fn ensure_spawn_downstream_index(
+        &mut self,
+    ) -> Result<(), crate::kernel::conflict::ConflictAcquireError> {
+        crate::kernel::conflict::ConflictWrite::new(
+            &mut self.committed.conflict,
+            &mut self.derived.conflict,
+            &mut self.workspace.conflict,
+        )
+        .ensure_downstream_index()
     }
 
     /// 已有车这一拍够得到的冲突区。序号对不上就重数，生成成功后再加这一辆。
@@ -235,13 +274,14 @@ impl crate::kernel::state::WorldState {
         &mut self,
         handle: VehicleHandle,
         previous: crate::ObservationStateSequence,
+        update_sequence: u32,
     ) {
         let current = self.committed.observation_state_sequence;
         if self.derived.spawn_contenders.built_sequence != Some(previous) {
             self.derived.spawn_contenders.built_sequence = None;
             return;
         }
-        if !self.add_spawn_contender(handle) {
+        if !self.add_spawn_contender(handle, update_sequence) {
             self.derived.spawn_contenders.built_sequence = None;
             return;
         }
@@ -257,116 +297,364 @@ impl crate::kernel::state::WorldState {
                 .count(laneflow_static_contract::EntityKind::ConflictZone),
         )
         .unwrap_or(0);
-        self.derived.spawn_contenders.counts.clear();
+        let cell_count = self.read_view().conflict_read().cell_len();
+        let waiting_count = usize::try_from(
+            self.binding
+                .revision
+                .traffic()
+                .entity_counts()
+                .count(laneflow_static_contract::EntityKind::WaitingZone),
+        )
+        .unwrap_or(0);
+        self.derived.spawn_contenders.best.clear();
+        self.derived.spawn_contenders.cell_approach_ms.clear();
+        if self.derived.spawn_contenders.waiting_entrants.len() > waiting_count {
+            self.derived
+                .spawn_contenders
+                .waiting_entrants
+                .truncate(waiting_count);
+        }
         if self
             .derived
             .spawn_contenders
-            .counts
+            .best
             .try_reserve(zone_count)
+            .is_err()
+            || self
+                .derived
+                .spawn_contenders
+                .cell_approach_ms
+                .try_reserve(cell_count)
+                .is_err()
+        {
+            return false;
+        }
+        let waiting_missing =
+            waiting_count.saturating_sub(self.derived.spawn_contenders.waiting_entrants.len());
+        if self
+            .derived
+            .spawn_contenders
+            .waiting_entrants
+            .try_reserve(waiting_missing)
             .is_err()
         {
             return false;
         }
-        self.derived.spawn_contenders.counts.resize(zone_count, 0);
-        let active = self.derived.active_order.len();
-        for index in 0..active {
-            let handle = self.derived.active_order[index];
-            if !self.add_spawn_contender(handle) {
+        self.derived.spawn_contenders.best.resize(zone_count, None);
+        self.derived
+            .spawn_contenders
+            .cell_approach_ms
+            .resize(cell_count, CELL_APPROACH_NONE);
+        self.derived
+            .spawn_contenders
+            .waiting_entrants
+            .resize(waiting_count, Vec::new());
+        for entrants in &mut self.derived.spawn_contenders.waiting_entrants {
+            entrants.clear();
+        }
+        let live_count = self.committed.live_order.len();
+        for sequence in 0..live_count {
+            let Ok(update_sequence) = u32::try_from(sequence) else {
+                return false;
+            };
+            let Some(handle) = self.committed.live_order.get(sequence).copied() else {
+                return false;
+            };
+            if !self.add_spawn_contender(handle, update_sequence) {
                 return false;
             }
+        }
+        for entrants in &mut self.derived.spawn_contenders.waiting_entrants {
+            entrants.sort_by_key(|entrant| (entrant.approach_mm, entrant.update_sequence));
         }
         true
     }
 
-    /// 把这辆车下一处够得到的冲突区加进计数。分配失败返回 `false`，名单作废。
-    fn add_spawn_contender(&mut self, handle: VehicleHandle) -> bool {
+    /// 沿这辆车自己的路线记下证明时窗内的格点到达，以及这一拍预览会申请的第一处冲突。
+    /// 分配失败或材料不齐返回 `false`，整张表作废。
+    fn add_spawn_contender(&mut self, handle: VehicleHandle, update_sequence: u32) -> bool {
         let Some(state) = self.vehicle_state(handle).copied() else {
             return true;
         };
         if state.status != VehicleStatus::Active {
             return true;
         }
-        let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
-        let Some(compiled) = self.compiled_route(state.route) else {
-            return true;
-        };
-        let first_hop = if state.progress_mm == 0 && state.carry_um == 0 {
-            state.route_edge_index.saturating_sub(1)
-        } else {
-            state.route_edge_index
-        };
-        let start = compiled
-            .conflicts
-            .partition_point(|entry| entry.admission_hop < first_hop);
-        let Some(hop) = compiled
-            .conflicts
-            .get(start)
-            .map(|entry| entry.admission_hop)
-        else {
-            return true;
-        };
-        let reach = self
+        let Some(profile) = self
             .binding
             .revision
             .traffic()
             .relations()
             .vehicle_profile(state.profile)
-            .and_then(|profile| {
-                crate::kernel::tick::MotionReach::from_tick(
-                    state.speed_mm_s,
-                    profile.max_accel(),
-                    delta_s,
-                )
-            });
-        let Some(stop_index) = usize::try_from(hop)
-            .ok()
-            .and_then(|value| value.checked_add(1))
         else {
-            return true;
-        };
-        let distance = crate::kernel::tables::distance_to_occurrence_start(
-            &compiled.occurrence_segments,
-            &compiled.occurrence_offsets,
-            &compiled.segment_totals,
-            state.route_edge_index as usize,
-            state.progress_mm,
-            stop_index,
-        );
-        let beyond = match distance {
-            Some(laneflow_static_network::BoundedDistance::Finite(mm)) => {
-                reach.is_some_and(|reach| reach.excludes(mm))
-            }
-            Some(laneflow_static_network::BoundedDistance::BeyondFinite) => true,
-            None => false,
-        };
-        if beyond {
-            return true;
-        }
-        if usize::try_from(hop).ok().is_some_and(|index| {
-            compiled
-                .hop_gate
-                .get(index)
-                .copied()
-                .flatten()
-                .is_some_and(|gate| self.read_view().gate_is_restrictive(gate, state.profile))
-        }) {
-            return true;
-        }
-        let mut end = start;
-        while end < compiled.conflicts.len() && compiled.conflicts[end].admission_hop == hop {
-            end = end.saturating_add(1);
-        }
-        let mut zones = Vec::new();
-        if zones.try_reserve(end.saturating_sub(start)).is_err() {
             return false;
-        }
-        for entry in &compiled.conflicts[start..end] {
-            zones.push(entry.zone.index());
-        }
-        for zone in zones {
-            if let Some(count) = self.derived.spawn_contenders.counts.get_mut(zone) {
-                *count = count.saturating_add(1);
+        };
+        let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
+        let Some(preview) = self
+            .read_view()
+            .preview_active_vehicle_with_waiting_stop(state, delta_s, None, None)
+        else {
+            return false;
+        };
+        let Some(notes) = self.contender_notes(
+            &state,
+            update_sequence,
+            preview.next,
+            profile.max_accel(),
+            profile.emergency_decel(),
+            profile.min_gap_mm(),
+        ) else {
+            return false;
+        };
+        self.apply_contender_notes(notes)
+    }
+
+    fn contender_notes(
+        &self,
+        state: &VehicleState,
+        update_sequence: u32,
+        preview_next: VehicleState,
+        max_accel: f32,
+        emergency_decel: f32,
+        min_gap_mm: u32,
+    ) -> Option<ContenderNotes> {
+        let horizon = self.binding.policy_binding.horizon();
+        let prepared = match horizon {
+            Some(horizon_ms) => Some(PreparedApproachEta::new(
+                state.carry_um,
+                state.speed_mm_s,
+                max_accel,
+                horizon_ms,
+            )?),
+            None => None,
+        };
+        let first_possible = if state.progress_mm == 0 && state.carry_um == 0 {
+            state.route_edge_index.saturating_sub(1)
+        } else {
+            state.route_edge_index
+        };
+        let (approaches, reached, waiting) = (|| {
+            let read = self.read_view();
+            let compiled = read.compiled_route(state.route)?;
+            let lengths = read.binding.revision.traffic().lane_lengths_millimetres();
+            let mut approaches = Vec::new();
+            if let (Some(prepared), Some(horizon_ms)) = (prepared, horizon) {
+                let first = compiled.conflicts.partition_point(|occurrence| {
+                    (
+                        occurrence.entry.route_edge_index,
+                        occurrence.entry.progress_mm,
+                    ) < (state.route_edge_index, state.progress_mm)
+                });
+                for occurrence in &compiled.conflicts[first..] {
+                    let Some(distance_mm) = finite_entry_distance(compiled, state, occurrence)
+                    else {
+                        continue;
+                    };
+                    let kinematic = prepared.lower_bound(u64::from(distance_mm));
+                    if kinematic == ApproachEstimate::OutsideHorizon {
+                        break;
+                    }
+                    approaches.try_reserve(1).ok()?;
+                    approaches.push((occurrence.address(), kinematic, distance_mm, horizon_ms));
+                }
             }
+            let mut reached = Vec::new();
+            let first_gate = compiled
+                .gate_hops
+                .partition_point(|hop| *hop < first_possible);
+            for gate_index in first_gate..compiled.gate_hops.len() {
+                let hop = compiled.gate_hops[gate_index];
+                let hop_index = usize::try_from(hop).ok()?;
+                let edge = *compiled.edges.get(hop_index)?;
+                let gate_progress = *lengths.get(edge.index())?;
+                let at_gate = |cursor, progress| cursor == hop && progress == gate_progress;
+                let reaches_gate = preview_next.route_edge_index > hop
+                    || at_gate(preview_next.route_edge_index, preview_next.progress_mm)
+                    || at_gate(state.route_edge_index, state.progress_mm);
+                if !reaches_gate {
+                    break;
+                }
+                let gate = compiled.hop_gate.get(hop_index).copied().flatten();
+                let mut zones = Vec::new();
+                let mut streams = Vec::new();
+                for entry in compiled
+                    .conflicts
+                    .iter()
+                    .filter(|entry| entry.admission_hop == hop)
+                {
+                    zones.try_reserve(1).ok()?;
+                    streams.try_reserve(1).ok()?;
+                    zones.push(entry.zone.index());
+                    streams.push(entry.stream);
+                }
+                let waiting_here = compiled.waiting.iter().find(|entry| entry.entry_hop == hop);
+                let waiting_member = waiting_here.is_some_and(|entry| {
+                    state.waiting_membership.is_some_and(|member| {
+                        member.waiting_zone == entry.zone && member.release_hop == entry.release_hop
+                    })
+                });
+                reached.try_reserve(1).ok()?;
+                reached.push(ReachedGate {
+                    gate,
+                    zones,
+                    streams,
+                    has_waiting: waiting_here.is_some(),
+                    waiting_member,
+                    crossed_waiting: preview_next.route_edge_index > hop,
+                });
+            }
+            let mut waiting = None;
+            let first_wait = compiled
+                .waiting
+                .partition_point(|entry| entry.entry_hop < first_possible);
+            for occurrence in &compiled.waiting[first_wait..] {
+                if state.waiting_membership.is_some_and(|member| {
+                    member.waiting_zone == occurrence.zone
+                        && member.release_hop == occurrence.release_hop
+                }) {
+                    continue;
+                }
+                let hop = occurrence.entry_hop;
+                let hop_index = usize::try_from(hop).ok()?;
+                if preview_next.route_edge_index <= hop {
+                    break;
+                }
+                let stop_index = hop_index.checked_add(1)?;
+                let distance = distance_to_occurrence_start(
+                    &compiled.occurrence_segments,
+                    &compiled.occurrence_offsets,
+                    &compiled.segment_totals,
+                    usize::try_from(state.route_edge_index).ok()?,
+                    state.progress_mm,
+                    stop_index,
+                )?;
+                let BoundedDistance::Finite(approach_mm) = distance else {
+                    return None;
+                };
+                waiting = Some((occurrence.zone.index(), approach_mm));
+                break;
+            }
+            Some((approaches, reached, waiting))
+        })()?;
+        let mut cells = Vec::new();
+        cells.try_reserve(approaches.len()).ok()?;
+        for (address, kinematic, distance_mm, horizon_ms) in approaches {
+            let estimate = delay_approach_for_signal(
+                self.read_view(),
+                state.handle,
+                state,
+                kinematic,
+                distance_mm,
+                horizon_ms,
+                emergency_decel,
+            );
+            if estimate == ApproachEstimate::OutsideHorizon {
+                continue;
+            }
+            cells.push((address, estimate));
+        }
+        let mut ranks = Vec::new();
+        {
+            let read = self.read_view();
+            for gate in &reached {
+                let Some(ordinal) = gate.gate else {
+                    continue;
+                };
+                if gate.waiting_member {
+                    continue;
+                }
+                if gate.has_waiting && !gate.crossed_waiting {
+                    break;
+                }
+                match read.gate_policy_decision(ordinal, state.profile) {
+                    GatePolicyDecision::DenyAndStop => break,
+                    GatePolicyDecision::Candidate(kind) => {
+                        if gate.zones.is_empty() {
+                            if gate.has_waiting {
+                                break;
+                            }
+                            continue;
+                        }
+                        if gate.streams.is_empty() {
+                            return None;
+                        }
+                        let protected = kind == GateCandidateKind::Protected;
+                        let policy = read.policy();
+                        let mut priority = None;
+                        for stream in &gate.streams {
+                            let rule = policy?.stream(*stream, state.class)?;
+                            priority = Some(priority.map_or(rule.priority(), |current: i32| {
+                                current.min(rule.priority())
+                            }));
+                        }
+                        let rank = ContenderRank::new(protected, priority, update_sequence);
+                        ranks.try_reserve(gate.zones.len()).ok()?;
+                        for zone in &gate.zones {
+                            ranks.push((*zone, rank));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        let waiting = waiting.map(|(zone, approach_mm)| {
+            (
+                zone,
+                WaitingEntrant {
+                    approach_mm,
+                    update_sequence,
+                    length_mm: state.length_mm,
+                    min_gap_mm,
+                },
+            )
+        });
+        Some(ContenderNotes {
+            cells,
+            ranks,
+            waiting,
+        })
+    }
+
+    fn apply_contender_notes(&mut self, notes: ContenderNotes) -> bool {
+        for (address, estimate) in notes.cells {
+            let index = self.read_view().conflict_read().cell_index_of(address);
+            let Some(index) = index else {
+                return false;
+            };
+            let Some(slot) = self
+                .derived
+                .spawn_contenders
+                .cell_approach_ms
+                .get_mut(index)
+            else {
+                return false;
+            };
+            match estimate {
+                ApproachEstimate::OutsideHorizon => {}
+                ApproachEstimate::Unprovable => *slot = CELL_APPROACH_UNPROVABLE,
+                ApproachEstimate::Finite(ms) => {
+                    if *slot != CELL_APPROACH_UNPROVABLE {
+                        *slot = (*slot).min(ms);
+                    }
+                }
+            }
+        }
+        for (zone, rank) in notes.ranks {
+            let Some(slot) = self.derived.spawn_contenders.best.get_mut(zone) else {
+                return false;
+            };
+            match slot {
+                Some(current) if current.sorts_before(rank) => {}
+                _ => *slot = Some(rank),
+            }
+        }
+        if let Some((zone, entrant)) = notes.waiting {
+            let Some(list) = self.derived.spawn_contenders.waiting_entrants.get_mut(zone) else {
+                return false;
+            };
+            if list.try_reserve(1).is_err() {
+                return false;
+            }
+            list.push(entrant);
         }
         true
     }

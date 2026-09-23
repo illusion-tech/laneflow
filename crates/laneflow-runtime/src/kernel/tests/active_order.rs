@@ -248,7 +248,10 @@ fn completed_replacement_invalidates_and_parking_removes_stably() {
             VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0),
         )
         .unwrap();
-    assert_eq!(f.world.state.derived.live_order_index.indexed_len, 0);
+    assert_eq!(
+        f.world.state.derived.live_order_index.indexed_len,
+        f.world.state.committed.live_order.len()
+    );
     assert_eq!(
         f.world.state.derived.active_order.last(),
         Some(&replacement.new)

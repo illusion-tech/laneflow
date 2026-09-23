@@ -111,7 +111,7 @@ fn prepare(
 fn spawn_plans(
     world: &mut TrafficWorld,
     prepared: &mut CorridorPopulationPrepare,
-    plans: &[laneflow_scenario::signalized_corridor::CorridorVehiclePlan],
+    plans: &mut [laneflow_scenario::signalized_corridor::CorridorVehiclePlan],
 ) -> (Vec<VehicleHandle>, Vec<laneflow_runtime::RouteHandle>) {
     let routes = prepared
         .install_routes(world)
@@ -368,9 +368,9 @@ fn take_initial_vehicles_then_bind_reaches_running() {
         ),
     )
     .expect("install");
-    let plans = prepared.take_initial_vehicles();
+    let mut plans = prepared.take_initial_vehicles();
     assert_eq!(plans.len(), MIN_TARGET_VEHICLE_COUNT);
-    let (vehicles, routes) = spawn_plans(&mut world, &mut prepared, &plans);
+    let (vehicles, routes) = spawn_plans(&mut world, &mut prepared, &mut plans);
     let controller = prepared
         .bind(&mut world, &vehicles, &routes)
         .expect("bind after take");
@@ -397,7 +397,10 @@ fn admit_initial_plans_rejects_a_mismatched_slice_before_spawn() {
         .install_routes(&mut world)
         .expect("install catalog routes");
     let error = prepared
-        .admit_initial_plans(&mut world, &routes, &plans[..plans.len() - 1])
+        .admit_initial_plans(&mut world, &routes, {
+            let end = plans.len() - 1;
+            &mut plans[..end]
+        })
         .expect_err("truncated plan");
     assert!(matches!(
         error,
@@ -409,7 +412,7 @@ fn admit_initial_plans_rejects_a_mismatched_slice_before_spawn() {
     assert!(world.live_vehicles().is_empty());
     plans[0].progress_mm = plans[0].progress_mm.saturating_add(1);
     let error = prepared
-        .admit_initial_plans(&mut world, &routes, &plans)
+        .admit_initial_plans(&mut world, &routes, &mut plans)
         .expect_err("foreign progress");
     assert!(matches!(
         error,
@@ -432,19 +435,133 @@ fn admit_initial_plans_rejects_foreign_routes_before_spawn() {
         ),
     )
     .expect("install");
-    let plans = prepared.take_initial_vehicles();
+    let mut plans = prepared.take_initial_vehicles();
     let mut routes = prepared
         .install_routes(&mut world)
         .expect("install catalog routes");
     routes.swap(0, 1);
     let error = prepared
-        .admit_initial_plans(&mut world, &routes, &plans)
+        .admit_initial_plans(&mut world, &routes, &mut plans)
         .expect_err("reordered routes");
     assert!(matches!(
         error,
         CorridorPopulationError::BoundWorldCatalogMismatch { .. }
     ));
     assert!(world.live_vehicles().is_empty());
+}
+
+#[test]
+fn admit_initial_plans_rolls_back_a_partial_batch() {
+    let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::new(1, 28, 1_024, 1_024, TICK_MS),
+    )
+    .expect("install");
+    let mut plans = prepared.take_initial_vehicles();
+    let saved = plans
+        .iter()
+        .map(|plan| plan.initial_speed_mm_s)
+        .collect::<Vec<_>>();
+    let routes = prepared
+        .install_routes(&mut world)
+        .expect("install catalog routes");
+    let error = prepared
+        .admit_initial_plans(&mut world, &routes, &mut plans)
+        .expect_err("later vehicle exceeds capacity");
+    assert!(matches!(
+        error,
+        CorridorPopulationError::InitialSpawnRejected { .. }
+    ));
+    assert!(world.live_vehicles().is_empty());
+    assert_eq!(
+        plans
+            .iter()
+            .map(|plan| plan.initial_speed_mm_s)
+            .collect::<Vec<_>>(),
+        saved
+    );
+    assert_eq!(prepared.slot_initial_speed_mm_s(0), saved[0]);
+    assert!(world.route_edges(routes[0]).is_some());
+}
+
+#[test]
+fn admit_initial_plans_restores_a_dropped_speed_when_a_later_vehicle_cannot_enter() {
+    let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::new(1, 28, 1_024, 1_024, TICK_MS),
+    )
+    .expect("install");
+    let mut plans = prepared.initial_vehicles().to_vec();
+    let routes = prepared.install_routes(&mut world).expect("routes");
+    let edge = world
+        .route_edges(routes[plans[0].route_index])
+        .expect("route")[plans[0].route_edge_index as usize];
+    let lengths = world.traffic().lane_lengths_millimetres();
+    let length = lengths[edge.index()];
+    let limit = world.traffic().lane_speed_limits_millimetres_per_second()[edge.index()];
+    let close = length.saturating_sub(2_000);
+    assert!(
+        close > plans[0].progress_mm,
+        "edge end must be farther than the prepared pose"
+    );
+    assert_eq!(
+        world.spawn_vehicle(VehicleSpawnInput::new(
+            plans[0].profile,
+            routes[plans[0].route_index],
+            plans[0].route_edge_index,
+            close,
+            limit,
+        )),
+        Err(laneflow_runtime::SpawnError::StopConstraintUnsatisfiable),
+        "this pose must be rejected until the speed drops"
+    );
+    plans[0].progress_mm = close;
+    plans[0].initial_speed_mm_s = limit;
+    prepared.set_slot_progress_mm(0, close);
+    prepared.set_slot_initial_speed_mm_s(0, limit);
+    let saved = plans
+        .iter()
+        .map(|plan| plan.initial_speed_mm_s)
+        .collect::<Vec<_>>();
+    let error = prepared
+        .admit_initial_plans(&mut world, &routes, &mut plans)
+        .expect_err("second vehicle exceeds capacity");
+    assert!(matches!(
+        error,
+        CorridorPopulationError::InitialSpawnRejected { .. }
+    ));
+    assert!(world.live_vehicles().is_empty());
+    assert_eq!(
+        plans
+            .iter()
+            .map(|plan| plan.initial_speed_mm_s)
+            .collect::<Vec<_>>(),
+        saved
+    );
+    assert_eq!(prepared.slot_initial_speed_mm_s(0), saved[0]);
+    assert_eq!(prepared.initial_vehicles()[0].initial_speed_mm_s, saved[0]);
+}
+
+#[test]
+fn spawn_initial_vehicles_removes_routes_it_registered() {
+    let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::new(1, 28, 1_024, 1_024, TICK_MS),
+    )
+    .expect("install");
+    let error = prepared
+        .spawn_initial_vehicles(&mut world)
+        .expect_err("capacity rejects the batch");
+    assert!(matches!(
+        error,
+        CorridorPopulationError::InitialSpawnRejected { .. }
+    ));
+    let _ = prepared
+        .install_routes(&mut world)
+        .expect("failed spawn removed the routes it registered");
 }
 
 #[test]

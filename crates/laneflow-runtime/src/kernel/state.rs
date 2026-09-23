@@ -90,18 +90,82 @@ pub(crate) struct DerivedIndexes {
     pub(crate) spawn_contenders: SpawnConflictContenders,
 }
 
-/// 按冲突区计数：已有车这一拍够得到该区时加一。
+/// 已在路上、这一拍会申请该冲突区的最优先一辆。字段顺序与正式候选键一致。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ContenderRank {
+    not_protected: u8,
+    missing_priority: u8,
+    /// 越大越优先，比较时反过来。
+    priority: i32,
+    update_sequence: u32,
+}
+
+/// 没有可证明到达。
+pub(crate) const CELL_APPROACH_NONE: u64 = u64::MAX;
+/// 已经走到这个格点，但到达时间算不出来。不能当成没人。
+pub(crate) const CELL_APPROACH_UNPROVABLE: u64 = u64::MAX - 1;
+
+/// 这一拍舒适预览会进入该排队区的已有车。已在区里的成员不记。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct WaitingEntrant {
+    pub(crate) approach_mm: u32,
+    pub(crate) update_sequence: u32,
+    pub(crate) length_mm: u32,
+    pub(crate) min_gap_mm: u32,
+}
+
+impl ContenderRank {
+    pub(crate) const fn new(protected: bool, priority: Option<i32>, update_sequence: u32) -> Self {
+        Self {
+            not_protected: if protected { 0 } else { 1 },
+            missing_priority: if priority.is_none() { 1 } else { 0 },
+            priority: match priority {
+                Some(priority) => priority,
+                None => 0,
+            },
+            update_sequence,
+        }
+    }
+
+    pub(crate) const fn is_protected(self) -> bool {
+        self.not_protected == 0
+    }
+
+    /// 正式调度里排在 `other` 前面。资格时刻和排队序号两边都没有，不参加比较。
+    pub(crate) fn sorts_before(self, other: Self) -> bool {
+        (
+            self.not_protected,
+            self.missing_priority,
+            core::cmp::Reverse(self.priority),
+            self.update_sequence,
+        ) < (
+            other.not_protected,
+            other.missing_priority,
+            core::cmp::Reverse(other.priority),
+            other.update_sequence,
+        )
+    }
+}
+
+/// 生成停车判断用的已提交接近表。步进不重建；下次生成发现序号对不上才懒建一次。
 #[derive(Debug, Default)]
 pub(crate) struct SpawnConflictContenders {
-    pub(crate) counts: Vec<u32>,
-    /// `None` 表示名单还没按当前提交序号建好，检查时按会有人来抢处理。
+    pub(crate) best: Vec<Option<ContenderRank>>,
+    /// 按冲突格点。`CELL_APPROACH_NONE` 表示没有其他车的可证明到达。
+    pub(crate) cell_approach_ms: Vec<u64>,
+    /// 按排队区。只含这一拍预览会新进入的车，按接近距离和更新序号排好。
+    pub(crate) waiting_entrants: Vec<Vec<WaitingEntrant>>,
+    /// `None` 表示名单还没按当前提交序号建好。建失败是材料不齐，不是假装有人来抢。
     pub(crate) built_sequence: Option<crate::ObservationStateSequence>,
 }
 
 impl SpawnConflictContenders {
     #[cfg(test)]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
-        vec_bytes(&self.counts)
+        vec_bytes(&self.best)
+            + vec_bytes(&self.cell_approach_ms)
+            + vec_bytes(&self.waiting_entrants)
+            + self.waiting_entrants.iter().map(vec_bytes).sum::<u64>()
     }
 }
 

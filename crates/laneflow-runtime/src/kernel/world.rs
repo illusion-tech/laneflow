@@ -1024,7 +1024,7 @@ impl crate::kernel::state::WorldState {
                 .map_err(super::placement::FreshAdmissionFailure::into_spawn)?;
         }
         let previous_sequence = self.committed.observation_state_sequence;
-        let update_sequence = u32::try_from(self.derived.active_order.len())
+        let update_sequence = u32::try_from(self.committed.live_order.len())
             .map_err(|_| SpawnError::OccupancyAllocFailed)?;
         let occupancy_patch = self
             .reserve_spawn_occupancy(input, length_mm, update_sequence)
@@ -1051,9 +1051,7 @@ impl crate::kernel::state::WorldState {
         self.committed.observation_state_sequence = next_observation_state_sequence;
         self.committed.command_cursor = next_command_cursor;
         self.apply_spawn_occupancy(handle, previous_sequence, occupancy_patch);
-        if admit_motion {
-            self.note_spawned_contender(handle, previous_sequence);
-        }
+        self.note_spawned_contender(handle, previous_sequence, update_sequence);
         let delta = VehicleDelta::from_state(&state, self.compiled_route(state.route));
         if let Some(journal) = self.admin.migration_journal.as_mut() {
             journal.record_vehicle_spawned(next_command_cursor, delta);
@@ -1312,12 +1310,7 @@ impl crate::kernel::state::WorldState {
         if old_state.maneuver_traversal.is_some() || old_state.waiting_membership.is_some() {
             return Err(ReplaceError::WaitingInvariantViolation);
         }
-        let Some(order_index) = self
-            .committed
-            .live_order
-            .iter()
-            .position(|handle| *handle == old)
-        else {
+        let Some(order_index) = self.live_rank(old) else {
             return Err(ReplaceError::StaleHandle);
         };
 
@@ -1405,9 +1398,13 @@ impl crate::kernel::state::WorldState {
             self.fresh_motion_admission(input, vehicle_length)
                 .map_err(super::placement::FreshAdmissionFailure::into_replace)?;
         }
-        let next_observation_state_sequence = self
-            .committed
-            .observation_state_sequence
+        let update_sequence =
+            u32::try_from(order_index).map_err(|_| ReplaceError::OccupancyAllocFailed)?;
+        let occupancy_patch = self
+            .reserve_spawn_occupancy(input, vehicle_length, update_sequence)
+            .map_err(|_| ReplaceError::OccupancyAllocFailed)?;
+        let previous_sequence = self.committed.observation_state_sequence;
+        let next_observation_state_sequence = previous_sequence
             .checked_next()
             .ok_or(ReplaceError::ObservationStateSequenceExhausted)?;
         let next_command_cursor = self
@@ -1477,10 +1474,14 @@ impl crate::kernel::state::WorldState {
         let route_index = usize::try_from(input.route().index()).expect("route index fits usize");
         self.committed.routes[route_index].live_vehicles += 1;
         self.committed.live_order[order_index] = new;
-        self.rebuild_active_order();
+        self.derived.live_order_index.retarget(new, order_index);
+        let insert_at = self.prepare_active_insertion(new);
+        self.insert_active_vehicle(new, insert_at);
         self.register_overlap_vehicle(state);
         self.committed.observation_state_sequence = next_observation_state_sequence;
         self.committed.command_cursor = next_command_cursor;
+        self.apply_spawn_occupancy(new, previous_sequence, occupancy_patch);
+        self.note_spawned_contender(new, previous_sequence, update_sequence);
         let new_state = self
             .vehicle_state(new)
             .copied()
@@ -1896,6 +1897,29 @@ impl crate::kernel::state::WorldState {
             return;
         }
         slot.live_vehicles = slot.live_vehicles.saturating_sub(1);
+    }
+
+    pub(crate) fn live_rank(&mut self, vehicle: VehicleHandle) -> Option<usize> {
+        let live_len = self.committed.live_order.len();
+        if !self.derived.live_order_index.is_current(live_len) {
+            return self
+                .committed
+                .live_order
+                .iter()
+                .position(|handle| *handle == vehicle);
+        }
+        match self.derived.live_order_index.rank(
+            &self.committed.live_order,
+            self.committed.vehicles.len(),
+            vehicle,
+        ) {
+            Ok(rank) => rank.map(|rank| rank as usize),
+            Err(()) => self
+                .committed
+                .live_order
+                .iter()
+                .position(|handle| *handle == vehicle),
+        }
     }
 
     /// 按稳定更新顺序重建 Active 车辆派生顺序表。

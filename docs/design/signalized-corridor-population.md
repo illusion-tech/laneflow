@@ -54,12 +54,14 @@ generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate �
    `CorridorVehiclePlan` batch，计划保留 `NetworkRevisionId` 与策略选择；
 4. caller 把 bound catalog 的 `policy_selection` 显式传入唯一
    `TrafficWorld::install`；
-5. caller 在同一个世界调用 `spawn_initial_vehicles`。它先注册每条路线，再按计划逐辆
-   `spawn_vehicle`。外部传入的计划在第一辆生成前必须与 prepare 的 slot 条数、顺序、
-   修订、策略和身份一致，否则整批拒绝，世界里还没有这批初始车。计划初速是
+5. caller 在同一个世界调用 `spawn_initial_vehicles`。计划已经取走时，它在注册路线
+   之前拒绝。注册成功后，外部传入的计划在第一辆生成前必须与 prepare 的 slot 条数、
+   顺序、修订、策略和身份一致，否则整批拒绝，不改速度。计划初速在准备时是
    `min(desiredSpeed, 边限速)`。这个速度若过不了当前停车、前方降速或前后车的这一拍
-   检查，就按 1 m/s 往下降，直到放得进。位置和路线不改。降下来的速度写回计划，
-   `bind` 用写回后的速度核对；
+   检查，就按 1 m/s 往下降，直到放得进。位置和路线不改。降下来的速度同时写回调用方
+   交出的计划、prepare 的 slot，以及还没取走的 `initial_vehicles`。`bind` 只比较
+   世界里的车速和 slot，不读调用方另外保存的原速副本。预检通过也不表示第一辆一定
+   放得进；第一辆失败时世界里还没有这批车；
 6. population bind 必须发生在 tick 0，校验世界修订、策略和所有 vehicle、route、
    profile identity；全部一致后，controller 才进入 `Running = target, Pending = 0`。
 
@@ -67,7 +69,7 @@ generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate �
 一对一绑定；同一修订上的第二个世界仍须独立注册、生成和绑定，不能复用句柄。
 修订和策略值不表示世界实例身份，当前 API 不提供或校验不透明安装令牌。
 
-`take_initial_vehicles` 是一次性转移。`admit_initial_plans` 在第一辆生成前核对完整计划，以及已注册路线的条数和每条路线的边序列。条数、顺序、修订、策略、身份或路线对不上时直接拒绝，不留下部分车辆。Runtime spawn 失败或 bind 发现任一缺失、stale、route/profile/status/progress 不一致时，启动整体失败，不进入首个 step。
+`take_initial_vehicles` 是一次性转移。`admit_initial_plans` 在第一辆生成前核对完整计划，以及已注册路线的条数和每条路线的边序列。条数、顺序、修订、策略、身份或路线对不上时直接拒绝，不生成、不改速度。中途有一辆放不进时，按相反顺序撤已经放进去的车。车都撤掉，才把计划、slot 和还拿着的 `initial_vehicles` 改回调用前；还留着车时这三处保持已经写下的降速，错误与“世界已经空了”分开，调用方不能按空世界重试。`admit_initial_plans` 不撤调用方自己注册的路线。`spawn_initial_vehicles` 只撤它这次注册成功的路线，而且要等车都撤掉之后；撤路线没完成时也不假装路线已经没了。`install_routes` 自己注册到一半失败时，由它内部撤，`spawn_initial_vehicles` 不再撤一次。bind 发现任一缺失、stale、route/profile/status/progress 不一致时，启动整体失败，不进入首个 step；bind 不撤已经生成的车，也不改速度、不撤路线。
 
 ## 3. Catalog 契约
 
@@ -120,7 +122,9 @@ weighted RouteChoice draw。单 choice 也必须使用原始正整数 weight 作
 不能跳过 draw。每个 initial slot 与每条 route 的共享 entry slot 都派生
 `min(VehicleProfile.desiredSpeed, spawn edge speedLimit)` 作为计划初速；没有
 speed-limit authority 时启动失败。放进世界时，若这个初速过不了新鲜摆放的当前停车、
-前方降速或前后车检查，就按 1 m/s 降低到仍能通过的速度，不改槽位。50、100、200 三种目标人口都必须通过同 seed
+前方降速或前后车检查，就按 1 m/s 降低到仍能通过的速度。不改的是位置和路线；slot
+记下的初速改成放进世界的速度。车都撤掉之后，计划初速才回到调用前的
+`min(desiredSpeed, 边限速)`。50、100、200 三种目标人口都必须通过同 seed
 整批 golden、初速度上限/正值、no-overlap spawn 和 tick-0 bind 验证。
 
 ## 5. Fixed-step lifecycle

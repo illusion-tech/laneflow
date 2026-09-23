@@ -2352,6 +2352,36 @@ impl<'a> ConflictRead<'a> {
             workspace: Some(workspace),
         }
     }
+    /// 已提交的下游声明是否挡住这段车身。索引还没建好时按会挡住处理。
+    pub(crate) fn committed_downstream_conflicts(
+        self,
+        interval: DownstreamInterval,
+        owner: VehicleHandle,
+        gap_mm: u32,
+    ) -> bool {
+        if self.committed.committed_downstream.is_empty() {
+            return false;
+        }
+        if !self.derived.downstream_index_dirty {
+            return self
+                .derived
+                .downstream_index
+                .conflicts(interval, owner, gap_mm);
+        }
+        self.committed.committed_downstream.iter().any(|claim| {
+            claim.owner != owner
+                && intervals_conflict(interval, gap_mm, claim.interval, claim.follower_min_gap_mm)
+        })
+    }
+
+    pub(crate) fn cell_len(self) -> usize {
+        self.derived.addresses.len()
+    }
+
+    pub(crate) fn cell_index_of(self, address: ConflictPassageAddress) -> Option<usize> {
+        self.cell_index(address).ok()
+    }
+
     /// 构造仅覆盖已提交状态的只读视图。
     pub(crate) fn committed(
         committed: &'a ConflictCommittedState,
@@ -3954,7 +3984,7 @@ impl<'world> ConflictWrite<'world> {
         count_conflict_work(|work| work.owner_record_moves += 1);
     }
 
-    fn ensure_downstream_index(&mut self) -> Result<(), ConflictAcquireError> {
+    pub(crate) fn ensure_downstream_index(&mut self) -> Result<(), ConflictAcquireError> {
         if !self.derived.downstream_index_dirty {
             return Ok(());
         }
