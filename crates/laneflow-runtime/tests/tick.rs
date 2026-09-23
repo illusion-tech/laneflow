@@ -170,6 +170,12 @@ fn fixture_edges(world: &TrafficWorld) -> Vec<LaneEdgeOrdinal> {
     ]
 }
 
+/// 留出超过一拍行程的路终空隙，8 拍内仍能开完。
+fn progress_near_route_end(length_mm: u32, speed_mm_s: u32) -> u32 {
+    let tick_mm = speed_mm_s.saturating_mul(100) / 1_000;
+    length_mm.saturating_sub(tick_mm.saturating_add(1_500))
+}
+
 fn fixture_route(world: &mut TrafficWorld) -> RouteHandle {
     world
         .register_route(RouteRegisterInput::new(fixture_edges(world)))
@@ -762,7 +768,7 @@ fn route_end_leaves_committed_poses_and_lane_occupancy() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             last_index,
-            last_length.saturating_sub(500),
+            progress_near_route_end(last_length, speed_limit),
             speed_limit,
         ))
         .expect("spawn near end");
@@ -958,7 +964,7 @@ fn completed_vehicle_keeps_capacity_until_replace() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             last_index,
-            last_length.saturating_sub(500),
+            progress_near_route_end(last_length, speed_limit),
             speed_limit,
         ))
         .expect("only slot");

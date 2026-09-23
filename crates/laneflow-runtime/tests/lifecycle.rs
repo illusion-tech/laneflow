@@ -456,6 +456,12 @@ fn spawn_rejects_out_of_range_index_and_progress() {
     );
 }
 
+/// 留出超过一拍行程的路终空隙，8 拍内仍能开完。
+fn progress_near_route_end(length_mm: u32, speed_mm_s: u32) -> u32 {
+    let tick_mm = speed_mm_s.saturating_mul(100) / 1_000;
+    length_mm.saturating_sub(tick_mm.saturating_add(1_500))
+}
+
 fn drive_to_completed(
     world: &mut TrafficWorld,
     route: RouteHandle,
@@ -470,7 +476,7 @@ fn drive_to_completed(
             VehicleProfileOrdinal::from_raw(0),
             route,
             last_index,
-            last_length.saturating_sub(500),
+            progress_near_route_end(last_length, speed_limit),
             speed_limit,
         ))
         .expect("spawn near end");
@@ -658,7 +664,7 @@ fn completed_route_stays_referenced_until_replace() {
             VehicleProfileOrdinal::from_raw(0),
             dynamic,
             2,
-            last_length.saturating_sub(500),
+            progress_near_route_end(last_length, speed_limit),
             speed_limit,
         ))
         .expect("spawn near end");
