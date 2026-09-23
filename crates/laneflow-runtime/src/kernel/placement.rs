@@ -2,7 +2,6 @@
 //! 提交前使用；快照恢复和修订切换不调用。
 
 use laneflow_static_contract::VehicleProfileOrdinal;
-use laneflow_static_network::BoundedDistance;
 
 use super::occupancy::LeaderQueryHorizon;
 use super::tables::occupancy_front_gap;
@@ -140,6 +139,22 @@ pub(crate) fn moving_follower_can_admit(
         && emergency_min_travel <= available_m + leader_min_travel_m
 }
 
+fn room_to_edge_end(
+    compiled: &super::tables::CompiledRoute,
+    lengths: &[u32],
+    cursor: usize,
+    progress_mm: u32,
+    end_hop: usize,
+) -> Option<u32> {
+    let current = *compiled.edges.get(cursor)?;
+    let mut room = lengths.get(current.index())?.saturating_sub(progress_mm);
+    for index in (cursor + 1)..=end_hop {
+        let edge = *compiled.edges.get(index)?;
+        room = room.saturating_add(*lengths.get(edge.index())?);
+    }
+    Some(room)
+}
+
 impl crate::kernel::state::WorldState {
     /// 重叠与权威已经通过之后，检查当前约束和前后车。失败不提交车辆。
     pub(crate) fn fresh_motion_admission(
@@ -165,10 +180,13 @@ impl crate::kernel::state::WorldState {
         {
             return Err(FreshAdmissionFailure::StopConstraint);
         }
-        if let Some((room_mm, target_mm_s)) =
-            self.downstream_speed_room_mm(input.route(), cursor, input.progress_mm())
-            && !can_slow_to_before(input.initial_speed_mm_s(), target_mm_s, emergency, room_mm)
-        {
+        if self.downstream_speed_infeasible(
+            input.route(),
+            cursor,
+            input.progress_mm(),
+            input.initial_speed_mm_s(),
+            emergency,
+        ) {
             return Err(FreshAdmissionFailure::DownstreamSpeed);
         }
         self.ensure_current_occupancy()
@@ -187,6 +205,7 @@ impl crate::kernel::state::WorldState {
     ) -> Option<u32> {
         let compiled = self.compiled_route(route)?;
         let read = self.read_view();
+        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
         let rolled = progress_mm == 0 && route_edge_index > 0;
         let mut hop = usize::try_from(if rolled {
             route_edge_index - 1
@@ -196,67 +215,54 @@ impl crate::kernel::state::WorldState {
         .ok()?;
         let progress_base = if rolled {
             let edge = *compiled.edges.get(hop)?;
-            *self
-                .binding
-                .revision
-                .traffic()
-                .lane_lengths_millimetres()
-                .get(edge.index())?
+            *lengths.get(edge.index())?
         } else {
             progress_mm
         };
-        let mut from_cursor_start = BoundedDistance::Finite(0);
-        let mut accumulated = false;
-        while hop < compiled.next_controlled.len() {
-            let next = compiled.next_controlled[hop]?;
-            from_cursor_start = if accumulated {
-                from_cursor_start.add_bounded(next.distance_from_hop_start)
-            } else {
-                next.distance_from_hop_start
-            };
-            accumulated = true;
-            if read.gate_is_restrictive(next.gate, profile) {
-                let BoundedDistance::Finite(mm) = from_cursor_start.saturating_sub(progress_base)
-                else {
-                    return None;
-                };
-                return Some(mm);
+        let edge = *compiled.edges.get(hop)?;
+        let mut room = lengths.get(edge.index())?.saturating_sub(progress_base);
+        loop {
+            if let Some(gate) = compiled.hop_gate.get(hop).copied().flatten()
+                && read.gate_is_restrictive(gate, profile)
+            {
+                return Some(room);
             }
-            let next_hop = usize::try_from(next.hop).ok()?.checked_add(1)?;
-            if next_hop <= hop {
+            hop = hop.checked_add(1)?;
+            let Some(edge) = compiled.edges.get(hop).copied() else {
                 return None;
-            }
-            hop = next_hop;
+            };
+            room = room.saturating_add(*lengths.get(edge.index())?);
         }
-        None
     }
 
-    fn downstream_speed_room_mm(
+    fn downstream_speed_infeasible(
         &self,
         route: crate::RouteHandle,
         cursor: usize,
         progress_mm: u32,
-    ) -> Option<(u32, u32)> {
-        let compiled = self.compiled_route(route)?;
-        let mut nearest: Option<(usize, u32)> = None;
+        speed_mm_s: u32,
+        emergency_decel_m_s2: f32,
+    ) -> bool {
+        let Some(compiled) = self.compiled_route(route) else {
+            return false;
+        };
+        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
         for drop in &compiled.speed_limit_drop {
-            let from = usize::try_from(drop.from_route_edge_index).ok()?;
-            if from < cursor {
+            let Ok(from) = usize::try_from(drop.from_route_edge_index) else {
+                continue;
+            };
+            if from < cursor || speed_mm_s <= drop.target_mm_s {
                 continue;
             }
-            if nearest.is_none_or(|(index, _)| from < index) {
-                nearest = Some((from, drop.target_mm_s));
+            let Some(room_mm) = room_to_edge_end(compiled, lengths, cursor, progress_mm, from)
+            else {
+                continue;
+            };
+            if !can_slow_to_before(speed_mm_s, drop.target_mm_s, emergency_decel_m_s2, room_mm) {
+                return true;
             }
         }
-        let (from, target_mm_s) = nearest?;
-        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
-        let current = *compiled.edges.get(cursor)?;
-        let mut room = lengths.get(current.index())?.saturating_sub(progress_mm);
-        for index in (cursor + 1)..=from {
-            let edge = *compiled.edges.get(index)?;
-            room = room.saturating_add(*lengths.get(edge.index())?);
-        }
-        Some((room, target_mm_s))
+        false
     }
 
     fn admit_nearest_leader(
@@ -343,7 +349,6 @@ impl crate::kernel::state::WorldState {
         let candidate_edges = self.route_edges(input.route()).expect("已校验的路线仍在");
         let candidate_index =
             usize::try_from(input.route_edge_index()).expect("route index fits usize");
-        let candidate_identity = VehicleHandle::new(u32::MAX, u32::MAX);
         for handle in self.derived.active_order.iter().copied() {
             let Some(follower) = self.vehicle_state(handle).copied() else {
                 continue;
@@ -374,7 +379,7 @@ impl crate::kernel::state::WorldState {
                 .derived
                 .occupancy
                 .leader_gap(
-                    candidate_identity,
+                    handle,
                     follower_edges,
                     follower_index,
                     follower.progress_mm,
