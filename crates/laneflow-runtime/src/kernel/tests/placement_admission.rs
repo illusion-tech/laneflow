@@ -707,6 +707,106 @@ fn maneuver_transition_reaches_the_upstream_follower_search() {
 }
 
 #[test]
+fn shorter_upstream_path_is_not_hidden_by_an_earlier_long_path() {
+    let revision = revision("runtime/placement-plain", |module| {
+        let long_and_join = [
+            LaneEdgeReference::local("long"),
+            LaneEdgeReference::local("join"),
+        ];
+        let join_only = [LaneEdgeReference::local("join")];
+        module
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "stem",
+                length_meters: 100.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &long_and_join,
+            })
+            .expect("stem")
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "long",
+                length_meters: 16.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &join_only,
+            })
+            .expect("long")
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "join",
+                length_meters: 20.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .expect("join");
+    });
+    let mut world = install(revision);
+    let follower_route = register_named(&mut world, "runtime/placement-plain", &["stem", "join"]);
+    let follower = spawn(&mut world, follower_route, 0, 99_000, 10_000).expect("短路近处的后车");
+    let join = register_named(&mut world, "runtime/placement-plain", &["join"]);
+    assert_eq!(
+        spawn(&mut world, join, 0, 5_000, 10_000).unwrap_err(),
+        SpawnError::UnsafeFollower { follower },
+        "绕 16 m 的长路先走到时，不能挡住 1.5 m 外的直接后车"
+    );
+}
+
+#[test]
+fn near_red_light_is_rejected_when_the_first_tick_would_hard_stop() {
+    let revision = revision("runtime-fixture-policy", |module| {
+        add_signal_corridor(module, SignalAspect::Red);
+    });
+    let mut world = install(Arc::clone(&revision));
+    let route = register_named(
+        &mut world,
+        "runtime-fixture-policy",
+        &["entry", "middle", "exit"],
+    );
+    let cursor = world.command_cursor();
+    assert_eq!(
+        spawn(&mut world, route, 0, 9_968, 500).unwrap_err(),
+        SpawnError::StopConstraintUnsatisfiable,
+        "连续刹停距离够 32 mm，但第一拍仍会被红灯打成急停"
+    );
+    assert_eq!(world.command_cursor(), cursor);
+    assert!(world.live_vehicles().is_empty());
+
+    let parked = spawn(&mut world, route, 0, 0, 0).expect("待替换的车");
+    let index = usize::try_from(parked.index()).expect("index");
+    world.state.committed.vehicles[index]
+        .state
+        .as_mut()
+        .expect("vehicle")
+        .status = VehicleStatus::Completed;
+    world.state.rebuild_active_order();
+    world.state.derived.spawn_overlap.mark_stale();
+    world
+        .state
+        .rebuild_occupancy_index()
+        .expect("完成后的车退出占用索引");
+    assert_eq!(
+        world
+            .replace_completed_vehicle(
+                parked,
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 9_968, 500),
+            )
+            .unwrap_err(),
+        ReplaceError::StopConstraintUnsatisfiable
+    );
+}
+
+#[test]
+fn first_tick_route_end_clamp_beyond_emergency_braking_is_rejected() {
+    let revision = revision("runtime/placement-plain", |module| {
+        add_edge(module, "road", 20.0, 15.0, None);
+    });
+    let mut world = install(revision);
+    let route = register_edges(&mut world, &[0]);
+    assert_eq!(
+        spawn(&mut world, route, 0, 19_600, 10_000).unwrap_err(),
+        SpawnError::StopConstraintUnsatisfiable,
+        "路终只剩 400 mm 时，第一拍会被截成超出紧急制动的急停"
+    );
+}
+
+#[test]
 fn diverge_follower_on_the_other_branch_is_not_a_direct_follower() {
     let revision = revision("runtime/placement-plain", |module| {
         module

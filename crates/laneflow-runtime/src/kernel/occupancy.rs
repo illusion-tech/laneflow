@@ -191,6 +191,8 @@ pub(crate) struct OccupancyScratch {
     positions: Vec<usize>,
     maneuver_upstream_offsets: Vec<u32>,
     maneuver_upstream_sources: Vec<u32>,
+    /// 当前路网和步长下的最大跟车窗。路网不变就复用，不在每辆新车上重扫限速。
+    follower_bumper_mm: Option<u32>,
     #[cfg(test)]
     exact_pending: Vec<OccupancyRecord>,
 }
@@ -202,6 +204,7 @@ impl OccupancyScratch {
             positions,
             maneuver_upstream_offsets,
             maneuver_upstream_sources,
+            follower_bumper_mm: _,
             exact_pending,
         } = self;
         crate::kernel::state::vec_bytes(positions)
@@ -219,6 +222,14 @@ impl OccupancyScratch {
 
     fn record_total(&self, bucket_count: usize) -> usize {
         self.positions.iter().take(bucket_count).copied().sum()
+    }
+
+    pub(crate) fn follower_bumper_mm(&self) -> Option<u32> {
+        self.follower_bumper_mm
+    }
+
+    pub(crate) fn remember_follower_bumper_mm(&mut self, reach_mm: u32) {
+        self.follower_bumper_mm = Some(reach_mm);
     }
 
     /// 按目标边列出通过机动 transition 进入该边的前驱。静态路网不变就复用。
@@ -353,6 +364,7 @@ impl OccupancyIndex {
             positions: Vec::new(),
             maneuver_upstream_offsets: Vec::new(),
             maneuver_upstream_sources: Vec::new(),
+            follower_bumper_mm: None,
             #[cfg(test)]
             exact_pending: Vec::new(),
         };
@@ -369,6 +381,7 @@ impl OccupancyIndex {
             positions: vec![0; bucket_count],
             maneuver_upstream_offsets: Vec::new(),
             maneuver_upstream_sources: Vec::new(),
+            follower_bumper_mm: None,
             #[cfg(test)]
             exact_pending: Vec::new(),
         };
@@ -1086,7 +1099,22 @@ impl crate::kernel::state::WorldState {
         let cursor = usize::try_from(input.route_edge_index())
             .map_err(|_| StepError::OccupancyIntervalIncomplete)?;
         let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
+        let mut interval_count = 0usize;
+        for_each_admission_interval(
+            lengths,
+            edges,
+            cursor,
+            input.progress_mm(),
+            vehicle_length_mm,
+            |_, _, _| {
+                interval_count = interval_count.saturating_add(1);
+            },
+        )
+        .ok_or(StepError::OccupancyIntervalIncomplete)?;
         let mut records = Vec::new();
+        records
+            .try_reserve(interval_count)
+            .map_err(|_| StepError::OccupancyAllocFailed)?;
         for_each_admission_interval(
             lengths,
             edges,
@@ -2812,6 +2840,7 @@ pub(crate) mod tests {
             positions: Vec::new(),
             maneuver_upstream_offsets: Vec::new(),
             maneuver_upstream_sources: Vec::new(),
+            follower_bumper_mm: None,
             exact_pending: Vec::new(),
         };
         let pending = vec![
