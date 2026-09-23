@@ -67,7 +67,7 @@ generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate �
 一对一绑定；同一修订上的第二个世界仍须独立注册、生成和绑定，不能复用句柄。
 修订和策略值不表示世界实例身份，当前 API 不提供或校验不透明安装令牌。
 
-`take_initial_vehicles` 是一次性转移。`admit_initial_plans` 在第一辆生成前核对完整计划。条数、顺序、修订、策略或身份对不上时直接拒绝，不留下部分车辆。Runtime spawn 失败或 bind 发现任一缺失、stale、route/profile/status/progress 不一致时，启动整体失败，不进入首个 step。
+`take_initial_vehicles` 是一次性转移。`admit_initial_plans` 在第一辆生成前核对完整计划，以及已注册路线的条数和每条路线的边序列。条数、顺序、修订、策略、身份或路线对不上时直接拒绝，不留下部分车辆。Runtime spawn 失败或 bind 发现任一缺失、stale、route/profile/status/progress 不一致时，启动整体失败，不进入首个 step。
 
 ## 3. Catalog 契约
 
