@@ -117,6 +117,15 @@ pub(super) enum StepFailpoint {
 }
 
 #[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct BarrierQueryCounts {
+    pub(crate) conflict_scans: u32,
+    pub(crate) waiting_entry_scans: u32,
+    pub(crate) signal_gates: u32,
+    pub(crate) hard_room_permissions: u32,
+}
+
+#[cfg(test)]
 std::thread_local! {
     pub(super) static STEP_FAILPOINT: std::cell::Cell<Option<StepFailpoint>> = const { std::cell::Cell::new(None) };
     static MOTION_CACHE_LIMIT: std::cell::Cell<usize> = const { std::cell::Cell::new(usize::MAX) };
@@ -124,6 +133,33 @@ std::thread_local! {
     static MOTION_CALCULATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static MOTION_CACHE_HITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static MOTION_CACHE_MISSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static BARRIER_QUERIES: std::cell::Cell<BarrierQueryCounts> = const {
+        std::cell::Cell::new(BarrierQueryCounts {
+            conflict_scans: 0,
+            waiting_entry_scans: 0,
+            signal_gates: 0,
+            hard_room_permissions: 0,
+        })
+    };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_barrier_query_counts() {
+    BARRIER_QUERIES.with(|counts| counts.set(BarrierQueryCounts::default()));
+}
+
+#[cfg(test)]
+pub(crate) fn barrier_query_counts() -> BarrierQueryCounts {
+    BARRIER_QUERIES.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn note_barrier_query(update: impl FnOnce(&mut BarrierQueryCounts)) {
+    BARRIER_QUERIES.with(|counts| {
+        let mut current = counts.get();
+        update(&mut current);
+        counts.set(current);
+    });
 }
 
 #[cfg(test)]
@@ -1623,7 +1659,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             super::exact_path_research::begin(super::exact_path_research::Stage::RouteStopQueries);
         let route_end =
             remaining_to_route_end(*compiled.remaining_to_end.get(cursor)?, state.progress_mm);
-        let signal_stop = self.signal_stop_distance(compiled, &state, cursor);
+        let reach = MotionReach::from_tick(state.speed_mm_s, profile.max_accel(), delta_s);
+        let signal_stop = self.signal_stop_distance(compiled, &state, cursor, reach);
         let parking = self.parking_stop_distance(compiled, &state, cursor, parking_binding)?;
         #[cfg(test)]
         drop(stop_timer);
@@ -1668,14 +1705,23 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             return None;
         }
 
+        let edge_length_mm = lengths.get(edge.index()).copied()?;
+        let edge_remaining_mm = edge_length_mm.saturating_sub(state.progress_mm);
+        // 到不了本边尽头时，许可读数不会收紧这一次 hard_room。真正跨边仍在 apply_travel_mm 里检查。
+        let permitted_for_hard_room = reach.is_some_and(|reach| reach.excludes(edge_remaining_mm))
+            || {
+                #[cfg(test)]
+                note_barrier_query(|counts| counts.hard_room_permissions += 1);
+                self.hop_permitted(state.route, edges, cursor, state.profile)
+            };
         let hard_room = hard_room_mm(
             leader_gap,
             profile.min_gap_mm(),
             movement_stop,
             route_end,
-            lengths.get(edge.index()).copied()?,
+            edge_length_mm,
             state.progress_mm,
-            self.hop_permitted(state.route, edges, cursor, state.profile),
+            permitted_for_hard_room,
         );
         if hard_room == 0 {
             if let Some(bounds) = motion_bounds {
@@ -1854,11 +1900,15 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     ///
     /// 停车距离读 hop 上已物化的 `distance_from_hop_start`，不靠两条「到路终」后缀相减。
     /// 路终越界时近处有界门距仍是 `Finite`。
+    ///
+    /// `reach` 有值且下一扇门已被证明严格远于本拍上界时，不再解释该门和更远的门。
+    /// `None` 保持逐门解释。
     pub(crate) fn signal_stop_distance(
         self,
         compiled: &CompiledRoute,
         state: &VehicleState,
         cursor: usize,
+        reach: Option<MotionReach>,
     ) -> Option<BoundedDistance> {
         let mut hop = cursor;
         let mut from_cursor_start = BoundedDistance::Finite(0);
@@ -1871,6 +1921,13 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 next.distance_from_hop_start
             };
             accumulated = true;
+            if reach.is_some_and(|reach| {
+                reach.class_is_unreachable(Some(from_cursor_start), state.progress_mm)
+            }) {
+                return None;
+            }
+            #[cfg(test)]
+            note_barrier_query(|counts| counts.signal_gates += 1);
             if self.gate_is_restrictive(next.gate, state.profile) {
                 return Some(from_cursor_start.saturating_sub(state.progress_mm));
             }
@@ -2028,10 +2085,32 @@ impl MotionTaskView<'_> {
 
     /// conflict_stop_for 的冻结暂存视图版：P4 裁决 motion plan + 拍初
     /// reservation（committed 合并层）+ 静态编译路线；错误变体逐行一致。
+    ///
+    /// 几何上界只决定能否省掉某一类搜索。给不出证明、进度和余量都为 0，或索引缺行时，
+    /// 仍走下面的完整查询。两类都够不着时不读取授权。
     fn conflict_stop_for(
         self,
         state: &VehicleState,
+        delta_s: f32,
     ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
+        let compiled = self
+            .read
+            .compiled_route(state.route)
+            .ok_or(StepError::ConflictInvariantViolation)?;
+        let reach = self
+            .read
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+            .and_then(|profile| {
+                MotionReach::from_tick(state.speed_mm_s, profile.max_accel(), delta_s)
+            });
+        let (skip_conflict, skip_waiting) = unreachable_barrier_classes(compiled, state, reach);
+        if skip_conflict && skip_waiting {
+            return Ok(None);
+        }
         let grant_hop = self
             .conflict_motion_by_vehicle
             .get(state.handle.index() as usize)
@@ -2039,10 +2118,6 @@ impl MotionTaskView<'_> {
             .flatten()
             .filter(|plan| plan.outcome == crate::ConflictDecisionOutcome::Granted)
             .map(|plan| plan.gate_hop);
-        let compiled = self
-            .read
-            .compiled_route(state.route)
-            .ok_or(StepError::ConflictInvariantViolation)?;
         let owned_hop = crate::kernel::conflict::ConflictRead::new(
             &self.read.committed.conflict,
             &self.read.derived.conflict,
@@ -2071,28 +2146,40 @@ impl MotionTaskView<'_> {
         // 直接查询有序资源出现项，不扫描不需要资源的普通 Gate。
         // 同一 admission Gate 的多个 passage 用 partition_point 整段跳过。
         let mut minimum = first_hop;
-        let conflict = loop {
-            let index = compiled
-                .conflicts
-                .partition_point(|entry| entry.admission_hop < minimum);
-            let Some(entry) = compiled.conflicts.get(index) else {
-                break None;
-            };
-            if !authorized(entry.admission_hop) {
-                break Some(entry.admission_hop);
+        let conflict = if skip_conflict {
+            None
+        } else {
+            #[cfg(test)]
+            note_barrier_query(|counts| counts.conflict_scans += 1);
+            loop {
+                let index = compiled
+                    .conflicts
+                    .partition_point(|entry| entry.admission_hop < minimum);
+                let Some(entry) = compiled.conflicts.get(index) else {
+                    break None;
+                };
+                if !authorized(entry.admission_hop) {
+                    break Some(entry.admission_hop);
+                }
+                minimum = entry
+                    .admission_hop
+                    .checked_add(1)
+                    .ok_or(StepError::ConflictInvariantViolation)?;
             }
-            minimum = entry
-                .admission_hop
-                .checked_add(1)
-                .ok_or(StepError::ConflictInvariantViolation)?;
         };
-        let waiting = compiled
-            .waiting
-            .partition_point(|entry| entry.entry_hop < first_hop);
-        let waiting = compiled.waiting[waiting..]
-            .iter()
-            .find(|entry| !authorized(entry.entry_hop))
-            .map(|entry| entry.entry_hop);
+        let waiting = if skip_waiting {
+            None
+        } else {
+            #[cfg(test)]
+            note_barrier_query(|counts| counts.waiting_entry_scans += 1);
+            let waiting = compiled
+                .waiting
+                .partition_point(|entry| entry.entry_hop < first_hop);
+            compiled.waiting[waiting..]
+                .iter()
+                .find(|entry| !authorized(entry.entry_hop))
+                .map(|entry| entry.entry_hop)
+        };
         // 申请资格不能决定运动屏障。既有权威和本拍 grant 只授权各自的 Gate。
         let Some(hop) = conflict.into_iter().chain(waiting).min() else {
             return Ok(None);
@@ -2146,7 +2233,7 @@ impl MotionTaskView<'_> {
         let arrived_before = reservation
             .is_some_and(|reservation| self.read.parking_arrived_for(*state, reservation));
         let waiting_stop = self.waiting_stop_for(state)?;
-        let conflict_stop = self.conflict_stop_for(state)?;
+        let conflict_stop = self.conflict_stop_for(state, delta_s)?;
         let cached = self
             .motion_cache
             .get(active_index)
@@ -2185,6 +2272,26 @@ impl MotionTaskView<'_> {
             None
         };
         Ok(VehicleMotionOutcome { next, arrival })
+    }
+}
+
+#[cfg(test)]
+impl crate::kernel::phase::StepWorkspace<'_> {
+    /// 生产 `MotionTaskView::conflict_stop_for`。测试用它对照未裁剪的精确查询。
+    pub(crate) fn motion_conflict_stop_for(
+        &self,
+        state: &VehicleState,
+        delta_s: f32,
+    ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
+        MotionTaskView {
+            read: self.read_view(),
+            waiting_plans: &self.workspace.waiting_plans,
+            waiting_plan_by_vehicle: &self.workspace.waiting_plan_by_vehicle,
+            conflict_motion_by_vehicle: &self.workspace.conflict_motion_by_vehicle,
+            conflict_staged: &self.workspace.conflict,
+            motion_cache: &self.workspace.motion_cache,
+        }
+        .conflict_stop_for(state, delta_s)
     }
 }
 
@@ -2498,6 +2605,80 @@ fn si_meters(mm: u32) -> f32 {
 
 fn si_speed(mm_s: u32) -> f32 {
     mm_s as f32 / 1_000.0
+}
+
+/// 本拍运动位移的保守上界，单位毫米。只用来决定能否跳过停止查询。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct MotionReach {
+    millimeters: f64,
+}
+
+impl MotionReach {
+    /// 拍初速度、最大加速度和步长能证明的位移上界。
+    ///
+    /// 超出已证明范围时返回 `None`，调用方改做完整查询。50 mm 覆盖舍入和亚毫米余量。
+    fn from_tick(speed_mm_s: u32, max_accel_m_s2: f32, delta_s: f32) -> Option<Self> {
+        let dt = f64::from(delta_s);
+        let accel = f64::from(max_accel_m_s2);
+        if !(dt.is_finite() && (0.004..=1.0).contains(&dt)) {
+            return None;
+        }
+        if !(accel.is_finite() && (0.5..=50.0).contains(&accel)) {
+            return None;
+        }
+        if speed_mm_s > 100_000 {
+            return None;
+        }
+        // 500 = 0.5 × 1_000，把 m/s² 的半加速度项换成毫米。
+        let millimeters = f64::from(speed_mm_s) * dt + 500.0 * accel * dt * dt + 50.0;
+        millimeters.is_finite().then_some(Self { millimeters })
+    }
+
+    /// 距离严格大于上界时，该停止位置本拍不可能收紧位移。
+    fn excludes(self, distance_mm: u32) -> bool {
+        f64::from(distance_mm) > self.millimeters
+    }
+
+    /// `None` 表示没有这类屏障。`BeyondFinite` 用 `u32::MAX - progress` 做保守下界。
+    fn class_is_unreachable(
+        self,
+        distance_from_start: Option<BoundedDistance>,
+        progress_mm: u32,
+    ) -> bool {
+        match distance_from_start {
+            None => true,
+            Some(BoundedDistance::Finite(distance_mm)) => {
+                self.excludes(distance_mm.saturating_sub(progress_mm))
+            }
+            Some(BoundedDistance::BeyondFinite) => {
+                self.excludes(u32::MAX.saturating_sub(progress_mm))
+            }
+        }
+    }
+}
+
+/// 进度和余量都为 0、上界无效或索引缺行时，两类都不跳过。
+fn unreachable_barrier_classes(
+    compiled: &CompiledRoute,
+    state: &VehicleState,
+    reach: Option<MotionReach>,
+) -> (bool, bool) {
+    if state.progress_mm == 0 && state.carry_um == 0 {
+        return (false, false);
+    }
+    let Some(reach) = reach else {
+        return (false, false);
+    };
+    let Some(row) = compiled
+        .nearest_motion_barriers
+        .get(state.route_edge_index as usize)
+    else {
+        return (false, false);
+    };
+    (
+        reach.class_is_unreachable(row.conflict_from_occurrence_start, state.progress_mm),
+        reach.class_is_unreachable(row.waiting_from_occurrence_start, state.progress_mm),
+    )
 }
 
 fn finite_meters(distance: BoundedDistance) -> Option<f32> {
@@ -3343,6 +3524,7 @@ mod preview {
             conflicts: Vec::new(),
             conflict_gate_ranges: Vec::new(),
             final_conflict_clearance: None,
+            nearest_motion_barriers: Vec::new(),
         };
         // A direct feasibility shortcut changes this real f32 boundary by one ULP.
         let candidate = 66.89_f32;
@@ -3749,6 +3931,330 @@ mod preview {
         )
         .unwrap();
         assert_eq!(round_mm(f64::from(next)), Some(9_536));
+    }
+
+    #[test]
+    fn signal_chain_skips_gates_beyond_the_reach() {
+        use laneflow_static_contract::{ManeuverPathOrdinal, SignalAspect};
+
+        use crate::kernel::tables::NextControlled;
+
+        let mut world = install_preview_world();
+        let edges = world
+            .traffic()
+            .maneuvers()
+            .maneuver_path(ManeuverPathOrdinal::from_raw(0))
+            .expect("fixture path")
+            .edges()
+            .to_vec();
+        let route = world
+            .register_route(RouteRegisterInput::new(edges))
+            .expect("route");
+        let vehicle = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .expect("spawn");
+        let mut state = world.state.vehicle_state(vehicle).copied().expect("state");
+        state.progress_mm = 0;
+        state.speed_mm_s = 0;
+        state.carry_um = 0;
+        let profile = world
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+            .expect("profile");
+        let gates = world
+            .state
+            .read_view()
+            .compiled_route(route)
+            .expect("compiled")
+            .hop_gate
+            .clone();
+        let gate = gates
+            .into_iter()
+            .flatten()
+            .find(|gate| {
+                world
+                    .traffic()
+                    .relations()
+                    .maneuver_gate(*gate)
+                    .and_then(|view| view.signal_group())
+                    .is_some()
+            })
+            .expect("signal gate");
+        let slot = usize::try_from(route.index()).expect("slot");
+        let write_chain = |world: &mut crate::TrafficWorld, first_mm: u32| {
+            let compiled = world.state.committed.routes[slot]
+                .compiled
+                .as_mut()
+                .expect("compiled");
+            compiled.next_controlled = vec![
+                Some(NextControlled {
+                    hop: 0,
+                    gate,
+                    distance_from_hop_start: BoundedDistance::Finite(first_mm),
+                }),
+                Some(NextControlled {
+                    hop: 1,
+                    gate,
+                    distance_from_hop_start: BoundedDistance::Finite(20_000),
+                }),
+            ];
+        };
+        write_chain(&mut world, 20);
+        let reach = MotionReach::from_tick(0, profile.max_accel(), 0.033).expect("reach");
+        assert!(!reach.excludes(20));
+        assert!(reach.excludes(20_020));
+
+        let query = |world: &crate::TrafficWorld, reach: Option<MotionReach>| {
+            reset_barrier_query_counts();
+            let view = world.state.read_view();
+            let compiled = view.compiled_route(route).expect("compiled");
+            let stop = view.signal_stop_distance(compiled, &state, 0, reach);
+            (stop, barrier_query_counts().signal_gates)
+        };
+
+        world
+            .state
+            .committed
+            .signal_aspects
+            .fill(SignalAspect::Green);
+        let (green, green_reads) = query(&world, Some(reach));
+        assert_eq!(
+            green, None,
+            "near green does not stop, far gate is not read"
+        );
+        assert_eq!(green_reads, 1);
+
+        world.state.committed.signal_aspects.fill(SignalAspect::Red);
+        let (red, red_reads) = query(&world, Some(reach));
+        assert_eq!(red, Some(BoundedDistance::Finite(20)));
+        assert_eq!(red_reads, 1);
+
+        write_chain(&mut world, 20_000);
+        let (far_red, far_reads) = query(&world, Some(reach));
+        assert_eq!(far_red, None);
+        assert_eq!(far_reads, 0);
+        let (exact, exact_reads) = query(&world, None);
+        assert_eq!(exact, Some(BoundedDistance::Finite(20_000)));
+        assert_eq!(exact_reads, 1);
+    }
+}
+
+#[cfg(test)]
+mod barrier_query_tests {
+    use super::*;
+
+    use crate::kernel::tables::{WaitingOccurrence, compile_nearest_motion_barriers};
+    use crate::kernel::waiting::WaitingMembership;
+    use laneflow_static_contract::WaitingZoneOrdinal;
+
+    #[test]
+    fn motion_reach_is_strict_and_abandons_unproven_ranges() {
+        let exact = MotionReach::from_tick(0, 0.5, 1.0).expect("proven");
+        assert!(!exact.excludes(300));
+        assert!(exact.excludes(301));
+        assert!(exact.class_is_unreachable(None, 0));
+        assert!(exact.class_is_unreachable(Some(BoundedDistance::BeyondFinite), 0));
+        assert!(!exact.class_is_unreachable(Some(BoundedDistance::Finite(300)), 0));
+
+        let sample = MotionReach::from_tick(10_000, 3.0, 0.033).expect("sample");
+        assert!(
+            sample.millimeters > 381.0 && sample.millimeters < 382.0,
+            "10 m/s, 3 m/s², 33 ms reaches about 381.6 mm, got {}",
+            sample.millimeters
+        );
+        assert!(!sample.excludes(381));
+        assert!(sample.excludes(382));
+
+        assert!(MotionReach::from_tick(100_001, 1.0, 0.033).is_none());
+        assert!(MotionReach::from_tick(0, 0.4, 0.033).is_none());
+        assert!(MotionReach::from_tick(0, 50.1, 0.033).is_none());
+        assert!(MotionReach::from_tick(0, 0.5, 0.003).is_none());
+        assert!(MotionReach::from_tick(0, 0.5, 1.001).is_none());
+        assert!(MotionReach::from_tick(0, f32::NAN, 0.033).is_none());
+        assert!(MotionReach::from_tick(100_000, 50.0, 1.0).is_some());
+        assert!(MotionReach::from_tick(0, 0.5, 0.004).is_some());
+    }
+
+    #[test]
+    fn unreachable_barrier_queries_stay_out_of_the_tick() {
+        let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
+        world.state.rebuild_occupancy_index().expect("occupancy");
+        let handle = world.state.committed.live_order[0];
+        let base = world.state.vehicle_state(handle).copied().expect("vehicle");
+        let lengths = world.traffic().lane_lengths_millimetres().to_vec();
+        let slot = usize::try_from(base.route.index()).expect("slot");
+        let (edge_length, first_zone, first_release, conflict_absent) = {
+            let compiled = world.state.committed.routes[slot]
+                .compiled
+                .as_mut()
+                .expect("compiled");
+            let first = compiled.waiting[0];
+            compiled.waiting.push(WaitingOccurrence {
+                zone: WaitingZoneOrdinal::from_raw(first.zone.raw().saturating_add(1)),
+                maneuver_index: first.maneuver_index,
+                entry_hop: 1,
+                release_hop: first.release_hop.saturating_add(1),
+                storage_length_mm: 1,
+                dependency_end: 0,
+            });
+            let edge_lengths: Vec<u32> = compiled
+                .edges
+                .iter()
+                .map(|edge| lengths[edge.index()])
+                .collect();
+            compiled.nearest_motion_barriers = compile_nearest_motion_barriers(
+                &edge_lengths,
+                &compiled.conflicts,
+                &compiled.waiting,
+            )
+            .expect("rebuild barriers");
+            let absent = compiled.nearest_motion_barriers[0]
+                .conflict_from_occurrence_start
+                .is_none();
+            (edge_lengths[0], first.zone, first.release_hop, absent)
+        };
+        assert!(
+            edge_length > 1_000,
+            "idle edge is long enough to stand far from its gate"
+        );
+        assert!(
+            conflict_absent,
+            "this fixture has no conflict admission ahead"
+        );
+
+        let mut far = base;
+        far.route_edge_index = 0;
+        far.progress_mm = 1;
+        far.carry_um = 0;
+        far.speed_mm_s = 0;
+        let mut near = base;
+        near.route_edge_index = 0;
+        near.progress_mm = edge_length - 1;
+        near.carry_um = 0;
+        near.speed_mm_s = 0;
+
+        let production = |world: &mut crate::TrafficWorld, state: &VehicleState, delta_s: f32| {
+            reset_barrier_query_counts();
+            let phase = world.state.step_workspace();
+            let pruned = phase
+                .motion_conflict_stop_for(state, delta_s)
+                .expect("production");
+            let exact = phase.conflict_stop_for(state).expect("exact");
+            let counts = barrier_query_counts();
+            (pruned, exact, counts)
+        };
+
+        let (pruned, exact, counts) = production(&mut world, &far, 0.033);
+        assert_eq!(pruned, None);
+        assert!(
+            exact.is_some(),
+            "exact query still sees the far waiting entry"
+        );
+        assert_eq!(counts.waiting_entry_scans, 0);
+        assert_eq!(counts.conflict_scans, 0);
+        for carry in [0_u16, 1, 999] {
+            let state = VehicleState {
+                carry_um: carry,
+                ..far
+            };
+            let (_, exact, _) = production(&mut world, &state, 0.033);
+            let view = world.state.read_view();
+            assert_eq!(
+                view.advance_active_vehicle_with_waiting_stop(state, 0.033, None, exact),
+                view.advance_active_vehicle_with_waiting_stop(state, 0.033, None, None),
+                "carry {carry} is unchanged when the only stop is beyond reach"
+            );
+        }
+
+        let (pruned, exact, counts) = production(&mut world, &near, 0.033);
+        assert_eq!(pruned, exact);
+        assert_eq!(pruned.expect("near gate").hop, 0);
+        assert_eq!(counts.waiting_entry_scans, 1);
+        assert_eq!(counts.conflict_scans, 0);
+
+        let mut boundary = far;
+        boundary.progress_mm = 0;
+        boundary.carry_um = 0;
+        boundary.speed_mm_s = 5_000;
+        let (pruned, exact, counts) = production(&mut world, &boundary, 0.033);
+        assert_eq!(pruned, exact);
+        assert!(
+            counts.waiting_entry_scans >= 1,
+            "zero progress and carry keep the query"
+        );
+
+        let (pruned, exact, counts) = production(&mut world, &far, 0.001);
+        assert_eq!(pruned, exact);
+        assert!(
+            counts.waiting_entry_scans >= 1,
+            "a step shorter than 4 ms is not proven"
+        );
+
+        let mut authorized = near;
+        authorized.speed_mm_s = 100_000;
+        authorized.waiting_membership = Some(WaitingMembership {
+            waiting_zone: first_zone,
+            admission_sequence: 1,
+            release_hop: first_release,
+        });
+        let (pruned, exact, counts) = production(&mut world, &authorized, 1.0);
+        assert_eq!(pruned, exact);
+        let later = pruned.expect("later gate");
+        assert_eq!(later.hop, 1);
+        assert_eq!(counts.waiting_entry_scans, 1);
+        let BoundedDistance::Finite(later_mm) = later.distance else {
+            panic!("later unauthorized gate still has a finite stop distance");
+        };
+        let accel = world
+            .traffic()
+            .relations()
+            .vehicle_profile(authorized.profile)
+            .expect("profile")
+            .max_accel();
+        let reach = MotionReach::from_tick(authorized.speed_mm_s, accel, 1.0).expect("reach");
+        assert!(
+            !reach.excludes(later_mm),
+            "an authorized near gate must not hide the next gate inside the reach"
+        );
+
+        world.state.committed.routes[slot]
+            .compiled
+            .as_mut()
+            .expect("compiled")
+            .nearest_motion_barriers
+            .clear();
+        let (pruned, exact, counts) = production(&mut world, &far, 0.033);
+        assert_eq!(pruned, exact);
+        assert!(exact.is_some());
+        assert!(
+            counts.waiting_entry_scans >= 1,
+            "a missing index is not an empty barrier list"
+        );
+
+        let mut at_start = far;
+        at_start.progress_mm = 0;
+        at_start.speed_mm_s = 0;
+        reset_barrier_query_counts();
+        world
+            .state
+            .advance_active_vehicle(at_start, 0.004)
+            .expect("short step");
+        assert_eq!(barrier_query_counts().hard_room_permissions, 0);
+        let mut at_end = near;
+        at_end.speed_mm_s = 0;
+        reset_barrier_query_counts();
+        world
+            .state
+            .advance_active_vehicle(at_end, 0.004)
+            .expect("near edge end");
+        assert_eq!(barrier_query_counts().hard_room_permissions, 1);
     }
 }
 
