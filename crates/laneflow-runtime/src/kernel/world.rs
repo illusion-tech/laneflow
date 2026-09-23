@@ -1475,8 +1475,12 @@ impl crate::kernel::state::WorldState {
         self.committed.routes[route_index].live_vehicles += 1;
         self.committed.live_order[order_index] = new;
         self.derived.live_order_index.retarget(new, order_index);
-        let insert_at = self.prepare_active_insertion(new);
-        self.insert_active_vehicle(new, insert_at);
+        // 同一 live 序号，在驶表里的位置不变。只改了完成状态、还留着旧句柄时原地替换；
+        // 步进提交已经移出时再按序号插入。不要整表重建。
+        if !self.replace_active_handle(old, new) {
+            let insert_at = self.prepare_active_insertion(new);
+            self.insert_active_vehicle(new, insert_at);
+        }
         self.register_overlap_vehicle(state);
         self.committed.observation_state_sequence = next_observation_state_sequence;
         self.committed.command_cursor = next_command_cursor;
