@@ -657,6 +657,18 @@ impl<'a> Harness<'a> {
                         Err(ReplaceError::Blocked(block)) => {
                             rejection = Some(("entry-blocked", Some(block.blocker)));
                         }
+                        Err(ReplaceError::StopConstraintUnsatisfiable) => {
+                            rejection = Some(("stop-constraint", None));
+                        }
+                        Err(ReplaceError::DownstreamSpeedUnsatisfiable) => {
+                            rejection = Some(("downstream-speed", None));
+                        }
+                        Err(ReplaceError::UnsafeLeader { leader }) => {
+                            rejection = Some(("unsafe-leader", Some(leader)));
+                        }
+                        Err(ReplaceError::UnsafeFollower { follower }) => {
+                            rejection = Some(("unsafe-follower", Some(follower)));
+                        }
                         Err(error) => {
                             return Err(invalid(format!(
                                 "unexpected replacement error at tick {tick}: {error}"

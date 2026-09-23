@@ -4476,7 +4476,7 @@ mod barrier_query_tests {
         assert!(reach.excludes(beyond));
         assert!(edge_length > beyond + 1);
         let handle = world
-            .spawn_vehicle(VehicleSpawnInput::new(
+            .place_existing_active_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 admission,
