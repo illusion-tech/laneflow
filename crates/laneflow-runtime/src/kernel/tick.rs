@@ -1822,6 +1822,16 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 Some(_) | None => Some(conflict.distance),
             };
         }
+        // 信号链看不到没有信号组的拒绝门。这一拍够得到时，硬房间算到那道门，
+        // 不能等 apply_travel 截断后还留着原来的速度。
+        if let Some(gate_stop) =
+            self.restrictive_gate_stop(compiled, edges, lengths, &state, cursor, reach)
+        {
+            movement_stop = match movement_stop {
+                Some(current) if !stop_is_nearer_or_equal(gate_stop, current) => Some(current),
+                Some(_) | None => Some(gate_stop),
+            };
+        }
         let (mut travel_m, next_speed_m) = si_comfort_travel(
             state.speed_mm_s,
             desired_mm_s,
@@ -2085,6 +2095,45 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 return None;
             }
             hop = next_hop;
+        }
+        None
+    }
+
+    /// 沿 `hop_gate` 找这一拍够得到的最近拒绝门，含没有信号组的门。
+    ///
+    /// 距离算到该 hop 的边末，与 `apply_travel_mm` 停住的位置相同。超出本拍上界就停，
+    /// 更远的门留到后面的拍。
+    fn restrictive_gate_stop(
+        self,
+        compiled: &CompiledRoute,
+        edges: &[LaneEdgeOrdinal],
+        lengths: &[u32],
+        state: &VehicleState,
+        cursor: usize,
+        reach: Option<MotionReach>,
+    ) -> Option<BoundedDistance> {
+        let mut distance = 0u32;
+        for hop in cursor..edges.len().saturating_sub(1) {
+            let edge = *edges.get(hop)?;
+            let length = *lengths.get(edge.index())?;
+            let step = if hop == cursor {
+                length.saturating_sub(state.progress_mm)
+            } else {
+                length
+            };
+            distance = distance.saturating_add(step);
+            if reach.is_some_and(|reach| reach.excludes(distance)) {
+                return None;
+            }
+            if compiled
+                .hop_gate
+                .get(hop)
+                .copied()
+                .flatten()
+                .is_some_and(|gate| self.gate_is_restrictive(gate, state.profile))
+            {
+                return Some(BoundedDistance::Finite(distance));
+            }
         }
         None
     }

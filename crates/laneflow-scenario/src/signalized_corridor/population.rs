@@ -219,6 +219,12 @@ pub enum CorridorPopulationError {
         /// 实际。
         actual: usize,
     },
+    /// 初始车辆按 1 m/s 降速后仍不能放进世界。
+    #[error("初始车辆放不进世界：{detail}")]
+    InitialSpawnRejected {
+        /// 运行时拒绝原因。
+        detail: String,
+    },
     /// 初始车辆状态与 prepare 不一致。
     #[error("初始车辆 identity 与 prepare 结果不一致")]
     InitialVehicleMismatch {
@@ -436,6 +442,90 @@ impl CorridorPopulationPrepare {
     /// 一次性取走完整初始计划。
     pub fn take_initial_vehicles(&mut self) -> Vec<CorridorVehiclePlan> {
         self.initial_vehicles.take().unwrap_or_default()
+    }
+
+    /// 注册路线并按计划逐辆 `spawn_vehicle`。
+    ///
+    /// 计划里的初速是期望速度和边限速里较低的那个。这个速度若过不了当前停车、前方降速
+    /// 或前后车的这一拍检查，就按 1 m/s 往下降，直到放得进。位置和路线不改。降下来的
+    /// 速度写回计划和 slot，随后的 `bind` 才能对上已经提交的车。
+    ///
+    /// # Errors
+    ///
+    /// 路线注册失败、计划与世界不一致，或速度降到 0 仍然放不进时，返回相应错误。
+    /// 失败的那次生成不留下车辆。
+    pub fn spawn_initial_vehicles(
+        &mut self,
+        world: &mut TrafficWorld,
+    ) -> Result<(Vec<VehicleHandle>, Vec<RouteHandle>), CorridorPopulationError> {
+        let routes = self.install_routes(world)?;
+        let plans =
+            self.initial_vehicles
+                .clone()
+                .ok_or(CorridorPopulationError::InitialVehicleCount {
+                    expected: self.slots.len(),
+                    actual: 0,
+                })?;
+        let vehicles = self.admit_initial_plans(world, &routes, &plans)?;
+        Ok((vehicles, routes))
+    }
+
+    /// 把已经取走的计划放进世界。顺序必须与 `prepare` 写出的 slot 相同。
+    ///
+    /// # Errors
+    ///
+    /// 与 [`Self::spawn_initial_vehicles`] 的生成失败相同。
+    pub fn admit_initial_plans(
+        &mut self,
+        world: &mut TrafficWorld,
+        routes: &[RouteHandle],
+        plans: &[CorridorVehiclePlan],
+    ) -> Result<Vec<VehicleHandle>, CorridorPopulationError> {
+        let mut vehicles = Vec::new();
+        vehicles.try_reserve(plans.len()).map_err(|_| {
+            CorridorPopulationError::InitialSpawnRejected {
+                detail: "初始车辆名单分配失败".to_owned(),
+            }
+        })?;
+        for (index, plan) in plans.iter().enumerate() {
+            let route = *routes.get(plan.route_index).ok_or(
+                CorridorPopulationError::BoundWorldCatalogMismatch {
+                    detail: "计划 route_index 超出已注册路线".to_owned(),
+                },
+            )?;
+            let mut speed = plan.initial_speed_mm_s;
+            let handle = loop {
+                match world.spawn_vehicle(VehicleSpawnInput::new(
+                    plan.profile,
+                    route,
+                    plan.route_edge_index,
+                    plan.progress_mm,
+                    speed,
+                )) {
+                    Ok(handle) => break handle,
+                    Err(error) if initial_speed_can_drop(&error) && speed > 0 => {
+                        speed = speed.saturating_sub(1_000);
+                    }
+                    Err(error) => {
+                        return Err(CorridorPopulationError::InitialSpawnRejected {
+                            detail: error.to_string(),
+                        });
+                    }
+                }
+            };
+            if let Some(slot) = self.slots.get_mut(index) {
+                slot.initial_speed_mm_s = speed;
+            }
+            if let Some(stored) = self
+                .initial_vehicles
+                .as_mut()
+                .and_then(|plans| plans.get_mut(index))
+            {
+                stored.initial_speed_mm_s = speed;
+            }
+            vehicles.push(handle);
+        }
+        Ok(vehicles)
     }
 
     /// 对本世界每条 catalog 路线恰好 `register_route` 一次。
@@ -1025,6 +1115,16 @@ struct FrozenPlan {
 #[derive(Clone, Copy, Debug)]
 struct RouteCompletionIdentity {
     route_edge_index: u32,
+}
+
+fn initial_speed_can_drop(error: &laneflow_runtime::SpawnError) -> bool {
+    matches!(
+        error,
+        laneflow_runtime::SpawnError::StopConstraintUnsatisfiable
+            | laneflow_runtime::SpawnError::DownstreamSpeedUnsatisfiable
+            | laneflow_runtime::SpawnError::UnsafeLeader { .. }
+            | laneflow_runtime::SpawnError::UnsafeFollower { .. }
+    )
 }
 
 fn normal_speed_for_edge(

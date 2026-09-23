@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
 use laneflow_compiler::{
-    CompilationUnitBuilder, CompileLimits, Compiler, GateInterpretation, IidmVehicleProfileInput,
-    JunctionInput, JunctionReference, LaneEdgeInput, LaneEdgeReference, ManeuverGateInput,
-    ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
-    ParticipantClassInput, ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance,
-    SignalControlInput, SignalControllerInput, SignalGroupInput, SignalGroupReference,
-    SignalGroupStateInput, SignalPhaseInput, SourceModuleHeader, SourceModuleHeaderInput,
-    StopLineInput, StopLineReference, SyntheticModuleBuilder, VehicleProfileInput,
-    derive_canonical_stable_id_v1, emit_portable_candidate,
+    CompilationUnitBuilder, CompileLimits, Compiler, GateInterpretation, GateProhibition,
+    IidmVehicleProfileInput, JunctionInput, JunctionReference, LaneEdgeInput, LaneEdgeReference,
+    ManeuverGateInput, ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
+    OwnerQualifiedReference, ParticipantClassInput, ParticipantClassReference, PolicyGateRuleInput,
+    PolicyInputSource, PortableDiffBase, PortableEmissionProvenance, RegulationIdentity,
+    RightOfWayPolicySetInput, SignalControlInput, SignalControllerInput, SignalGroupInput,
+    SignalGroupReference, SignalGroupStateInput, SignalPhaseInput, SourceModuleHeader,
+    SourceModuleHeaderInput, StopLineInput, StopLineReference, SyntheticModuleBuilder,
+    VehicleProfileInput, derive_canonical_stable_id_v1, emit_portable_candidate,
 };
 use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_static_contract::{
@@ -103,10 +104,14 @@ fn revision(
 }
 
 fn install(revision: Arc<SharedNetworkRevision>) -> TrafficWorld {
+    install_dt(revision, 100)
+}
+
+fn install_dt(revision: Arc<SharedNetworkRevision>, delta_ms: u64) -> TrafficWorld {
     let origin = *revision.canonical_origin();
     TrafficWorld::install(
         Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, 100),
+        WorldConfig::new(8, 4, 1_024, 1_024, delta_ms),
         ExecutionConfig::new(std::num::NonZeroU32::MIN),
         CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
@@ -309,6 +314,101 @@ fn red_gate_rejects_only_when_emergency_braking_cannot_stop() {
         &["entry", "middle", "exit"],
     );
     spawn(&mut green, route, 0, 8_000, 10_000).expect("绿灯不因短进口拒绝");
+}
+
+fn add_later_closed_gate(module: &mut SyntheticModuleBuilder) {
+    add_edge(module, "before", 30.0, 15.0, Some("approach"));
+    add_edge(module, "approach", 1.0, 15.0, Some("exit"));
+    add_edge(module, "exit", 20.0, 15.0, None);
+    module
+        .add_junction(JunctionInput {
+            junction_key: "junction-later",
+        })
+        .expect("junction")
+        .add_movement(MovementInput {
+            turn_direction: None,
+            movement_key: "movement-later",
+            junction: JunctionReference::local("junction-later"),
+            directed_entry_approach_key: "approach-westbound",
+            directed_exit_approach_key: "approach-eastbound",
+        })
+        .expect("movement")
+        .add_maneuver_path(ManeuverPathInput {
+            maneuver_path_key: "path-later",
+            movement: MovementReference::local("movement-later"),
+            entry_edge: LaneEdgeReference::local("approach"),
+            internal_edges: &[],
+            exit_edge: LaneEdgeReference::local("exit"),
+        })
+        .expect("path")
+        .add_stop_line(StopLineInput {
+            stop_line_key: "stop-approach",
+            lane_edge: LaneEdgeReference::local("approach"),
+        })
+        .expect("stop")
+        .add_maneuver_gate(ManeuverGateInput {
+            maneuver_gate_key: "gate-later",
+            maneuver_path: ManeuverPathReference::local("path-later"),
+            transition_index: 0,
+            stop_line: StopLineReference::local("stop-approach"),
+            signal_control: SignalControlInput::None,
+        })
+        .expect("gate");
+    let span = module.policy_source_span();
+    let source = PolicyInputSource {
+        primary: &span,
+        contributing: &[],
+    };
+    let rules = [PolicyGateRuleInput {
+        rule_key: "gate-later",
+        gate: OwnerQualifiedReference {
+            target: laneflow_compiler::ManeuverGateReference::local("gate-later"),
+            owner_keys: &[],
+        },
+        participant_classes: None,
+        interpretation: GateInterpretation::Uncontrolled,
+        prohibition: GateProhibition::Always,
+        evidence_keys: &[],
+        source,
+    }];
+    module
+        .add_right_of_way_policy_set(RightOfWayPolicySetInput {
+            policy_set_key: "fixture-policy",
+            regulation: RegulationIdentity {
+                jurisdiction: "engineering",
+                version: "fixture-1",
+                source: Some("repository:runtime-fixture-1"),
+            },
+            evidence: &[],
+            gap_profiles: &[],
+            stream_rules: &[],
+            gate_rules: &rules,
+            source,
+        })
+        .expect("policy");
+}
+
+#[test]
+fn later_closed_gate_rejects_when_this_tick_reaches_it() {
+    let revision = revision("runtime-fixture-policy", add_later_closed_gate);
+    let mut world = install_dt(Arc::clone(&revision), 1_000);
+    let route = register_named(
+        &mut world,
+        "runtime-fixture-policy",
+        &["before", "approach", "exit"],
+    );
+    assert_eq!(
+        spawn(&mut world, route, 0, 22_800, 8_000).unwrap_err(),
+        SpawnError::StopConstraintUnsatisfiable,
+        "8.2 米外的拒绝门这一拍够得到，连续刹停距离却还够"
+    );
+    let mut farther = install_dt(revision, 1_000);
+    let route = register_named(
+        &mut farther,
+        "runtime-fixture-policy",
+        &["before", "approach", "exit"],
+    );
+    spawn(&mut farther, route, 0, 10_000, 8_000).expect("21 米外的门这一拍够不着");
 }
 
 #[test]
@@ -628,6 +728,40 @@ fn follower_on_previous_edge_uses_its_own_gap() {
     assert_eq!(
         spawn(&mut world, route, 1, 1_500, 10_000).unwrap_err(),
         SpawnError::UnsafeFollower { follower }
+    );
+}
+
+#[test]
+fn repeated_edge_keeps_the_farther_rear_window() {
+    let revision = revision("runtime/placement-plain", |module| {
+        module
+            .add_vehicle_profile(VehicleProfileInput {
+                vehicle_profile_key: "short",
+                participant_class: ParticipantClassReference::local("road-user"),
+                iidm: IidmVehicleProfileInput {
+                    length_meters: 0.3,
+                    ..profile()
+                },
+            })
+            .expect("short profile");
+        add_edge(module, "a", 2.5, 15.0, Some("b"));
+        add_edge(module, "b", 2.5, 15.0, Some("a"));
+    });
+    let mut world = install(Arc::clone(&revision));
+    let route = register_named(&mut world, "runtime/placement-plain", &["a", "b", "a"]);
+    let follower = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(1),
+            route,
+            0,
+            900,
+            10_000,
+        ))
+        .expect("靠后那段车尾后面的短车");
+    assert_eq!(
+        spawn(&mut world, route, 2, 500, 0).unwrap_err(),
+        SpawnError::UnsafeFollower { follower },
+        "环线上同一条边的两段车身都要留下，不能只留更靠近起点的那段"
     );
 }
 

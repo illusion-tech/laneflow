@@ -496,9 +496,8 @@ impl crate::kernel::state::WorldState {
                 if alloc_failed {
                     return;
                 }
-                if let Some((_, rear)) = body.iter_mut().find(|(item, _)| *item == edge) {
-                    *rear = (*rear).min(lo);
-                } else if body.try_reserve(1).is_err() {
+                // 环线上同一条物理边可以有两段车身。两段后杠都要留，不能只留更小的那个。
+                if body.try_reserve(1).is_err() {
                     alloc_failed = true;
                 } else {
                     body.push((edge, lo));
@@ -576,7 +575,12 @@ impl crate::kernel::state::WorldState {
         found.sort_by_key(|(sequence, handle)| (handle.index(), *sequence));
         found.dedup_by_key(|(_, handle)| handle.index());
         found.sort_by_key(|(sequence, handle)| (*sequence, handle.index()));
-        Ok(found.into_iter().map(|(_, handle)| handle).collect())
+        let mut handles = Vec::new();
+        handles
+            .try_reserve(found.len())
+            .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
+        handles.extend(found.into_iter().map(|(_, handle)| handle));
+        Ok(handles)
     }
 
     fn max_follower_bumper_mm(&mut self) -> u32 {
