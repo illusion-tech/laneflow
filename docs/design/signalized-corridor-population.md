@@ -55,9 +55,11 @@ generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate �
 4. caller 把 bound catalog 的 `policy_selection` 显式传入唯一
    `TrafficWorld::install`；
 5. caller 在同一个世界调用 `spawn_initial_vehicles`。它先注册每条路线，再按计划逐辆
-   `spawn_vehicle`。计划初速是 `min(desiredSpeed, 边限速)`。这个速度若过不了当前停车、
-   前方降速或前后车的这一拍检查，就按 1 m/s 往下降，直到放得进。位置和路线不改。
-   降下来的速度写回计划，`bind` 用写回后的速度核对；
+   `spawn_vehicle`。外部传入的计划在第一辆生成前必须与 prepare 的 slot 条数、顺序、
+   修订、策略和身份一致，否则整批拒绝，世界里还没有这批初始车。计划初速是
+   `min(desiredSpeed, 边限速)`。这个速度若过不了当前停车、前方降速或前后车的这一拍
+   检查，就按 1 m/s 往下降，直到放得进。位置和路线不改。降下来的速度写回计划，
+   `bind` 用写回后的速度核对；
 6. population bind 必须发生在 tick 0，校验世界修订、策略和所有 vehicle、route、
    profile identity；全部一致后，controller 才进入 `Running = target, Pending = 0`。
 
@@ -65,7 +67,7 @@ generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate �
 一对一绑定；同一修订上的第二个世界仍须独立注册、生成和绑定，不能复用句柄。
 修订和策略值不表示世界实例身份，当前 API 不提供或校验不透明安装令牌。
 
-`take_initial_vehicles` 是一次性转移。Runtime spawn 失败或 bind 发现任一缺失、stale、route/profile/status/progress 不一致时，启动整体失败，不进入首个 step。
+`take_initial_vehicles` 是一次性转移。`admit_initial_plans` 在第一辆生成前核对完整计划。条数、顺序、修订、策略或身份对不上时直接拒绝，不留下部分车辆。Runtime spawn 失败或 bind 发现任一缺失、stale、route/profile/status/progress 不一致时，启动整体失败，不进入首个 step。
 
 ## 3. Catalog 契约
 
