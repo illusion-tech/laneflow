@@ -973,6 +973,7 @@ impl TrafficWorld {
         self.state.workspace.occupancy_scratch = staged_occupancy_scratch;
         self.state.binding.world_generation = next_world_generation;
         self.state.committed.observation_state_sequence = ObservationStateSequence::INITIAL;
+        self.state.derived.spawn_contenders.invalidate();
         self.state.committed.event_cursor += event_advance;
         drop(retired_plan);
         Ok(events)

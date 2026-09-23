@@ -1019,13 +1019,13 @@ impl crate::kernel::state::WorldState {
     ) -> Result<VehicleHandle, SpawnError> {
         let (class, length_mm, traversal) =
             self.validate_unparked_vehicle(input, 0, VehicleStatus::Active, None, false)?;
+        let update_sequence = u32::try_from(self.committed.live_order.len())
+            .map_err(|_| SpawnError::OccupancyAllocFailed)?;
         if admit_motion {
-            self.fresh_motion_admission(input, length_mm)
+            self.fresh_motion_admission(input, length_mm, update_sequence)
                 .map_err(super::placement::FreshAdmissionFailure::into_spawn)?;
         }
         let previous_sequence = self.committed.observation_state_sequence;
-        let update_sequence = u32::try_from(self.committed.live_order.len())
-            .map_err(|_| SpawnError::OccupancyAllocFailed)?;
         let occupancy_patch = self
             .reserve_spawn_occupancy(input, length_mm, update_sequence)
             .map_err(|_| SpawnError::OccupancyAllocFailed)?;
@@ -1051,7 +1051,7 @@ impl crate::kernel::state::WorldState {
         self.committed.observation_state_sequence = next_observation_state_sequence;
         self.committed.command_cursor = next_command_cursor;
         self.apply_spawn_occupancy(handle, previous_sequence, occupancy_patch);
-        self.note_spawned_contender(handle, previous_sequence, update_sequence);
+        self.invalidate_spawn_contenders();
         let delta = VehicleDelta::from_state(&state, self.compiled_route(state.route));
         if let Some(journal) = self.admin.migration_journal.as_mut() {
             journal.record_vehicle_spawned(next_command_cursor, delta);
@@ -1394,12 +1394,12 @@ impl crate::kernel::state::WorldState {
                 return Err(ReplaceError::ConflictAuthorityRequired);
             }
         }
-        if admit_motion {
-            self.fresh_motion_admission(input, vehicle_length)
-                .map_err(super::placement::FreshAdmissionFailure::into_replace)?;
-        }
         let update_sequence =
             u32::try_from(order_index).map_err(|_| ReplaceError::OccupancyAllocFailed)?;
+        if admit_motion {
+            self.fresh_motion_admission(input, vehicle_length, update_sequence)
+                .map_err(super::placement::FreshAdmissionFailure::into_replace)?;
+        }
         let occupancy_patch = self
             .reserve_spawn_occupancy(input, vehicle_length, update_sequence)
             .map_err(|_| ReplaceError::OccupancyAllocFailed)?;
@@ -1485,7 +1485,7 @@ impl crate::kernel::state::WorldState {
         self.committed.observation_state_sequence = next_observation_state_sequence;
         self.committed.command_cursor = next_command_cursor;
         self.apply_spawn_occupancy(new, previous_sequence, occupancy_patch);
-        self.note_spawned_contender(new, previous_sequence, update_sequence);
+        self.invalidate_spawn_contenders();
         let new_state = self
             .vehicle_state(new)
             .copied()

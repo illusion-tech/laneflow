@@ -90,7 +90,7 @@ pub(crate) struct DerivedIndexes {
     pub(crate) spawn_contenders: SpawnConflictContenders,
 }
 
-/// 已在路上、这一拍会申请该冲突区的最优先一辆。字段顺序与正式候选键一致。
+/// 已在路上、这一拍会申请该冲突区的最优先一辆。比较只看名次，不含车辆身份。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ContenderRank {
     not_protected: u8,
@@ -104,6 +104,21 @@ pub(crate) struct ContenderRank {
 pub(crate) const CELL_APPROACH_NONE: u64 = u64::MAX;
 /// 已经走到这个格点，但到达时间算不出来。不能当成没人。
 pub(crate) const CELL_APPROACH_UNPROVABLE: u64 = u64::MAX - 1;
+
+/// 某一冲突区里当前最优先的申请者，以及它申请的入口 hop。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ZoneContender {
+    pub(crate) rank: ContenderRank,
+    pub(crate) vehicle: VehicleHandle,
+    pub(crate) hop: u32,
+}
+
+/// 争用名单建好时对应的世界世代和观测序号。两个都对上才可以复用。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ContenderBuilt {
+    pub(crate) generation: WorldGeneration,
+    pub(crate) sequence: ObservationStateSequence,
+}
 
 /// 这一拍舒适预览会进入该排队区的已有车。已在区里的成员不记。
 #[derive(Clone, Copy, Debug)]
@@ -147,19 +162,23 @@ impl ContenderRank {
     }
 }
 
-/// 生成停车判断用的已提交接近表。步进不重建；下次生成发现序号对不上才懒建一次。
+/// 生成停车判断用的已提交接近表。步进不重建。世代或序号对不上就整份作废，下次生成再重建。
 #[derive(Debug, Default)]
 pub(crate) struct SpawnConflictContenders {
-    pub(crate) best: Vec<Option<ContenderRank>>,
+    pub(crate) best: Vec<Option<ZoneContender>>,
     /// 按冲突格点。`CELL_APPROACH_NONE` 表示没有其他车的可证明到达。
     pub(crate) cell_approach_ms: Vec<u64>,
     /// 按排队区。只含这一拍预览会新进入的车，按接近距离和更新序号排好。
     pub(crate) waiting_entrants: Vec<Vec<WaitingEntrant>>,
-    /// `None` 表示名单还没按当前提交序号建好。建失败是材料不齐，不是假装有人来抢。
-    pub(crate) built_sequence: Option<crate::ObservationStateSequence>,
+    /// `None` 表示名单不能当当前世界使用。建失败或更新不完整都留在这里，不假装已经建好。
+    pub(crate) built_for: Option<ContenderBuilt>,
 }
 
 impl SpawnConflictContenders {
+    pub(crate) fn invalidate(&mut self) {
+        self.built_for = None;
+    }
+
     #[cfg(test)]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         vec_bytes(&self.best)

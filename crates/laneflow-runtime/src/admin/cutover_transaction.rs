@@ -690,6 +690,7 @@ impl CutoverTransaction {
         world.state.committed.command_cursor = final_command_cursor;
         world.state.binding.world_generation = self.next_world_generation;
         world.state.committed.observation_state_sequence = ObservationStateSequence::INITIAL;
+        world.state.derived.spawn_contenders.invalidate();
         world.state.committed.event_cursor += event_advance;
         Ok(CutoverCommit {
             world_generation: self.next_world_generation,
