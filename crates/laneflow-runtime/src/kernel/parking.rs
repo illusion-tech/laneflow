@@ -1992,7 +1992,7 @@ impl crate::kernel::state::WorldState {
             self.remove_active_vehicle(vehicle);
         }
         self.derived.live_order_index.invalidate();
-        self.derived.spawn_contenders.built_sequence = None;
+        self.derived.spawn_contenders.invalidate();
         self.invalidate_occupancy_source();
         let slot_index = usize::try_from(vehicle.index()).expect("validated vehicle index");
         let slot = &mut self.committed.vehicles[slot_index];

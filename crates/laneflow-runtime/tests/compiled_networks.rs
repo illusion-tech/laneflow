@@ -2157,6 +2157,63 @@ fn fresh_spawn_stops_for_a_yield_gap_beyond_this_tick() {
 }
 
 #[test]
+fn fresh_spawn_rejects_a_later_foe_that_would_hard_stop_the_yield_vehicle() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
+    let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
+    let subject = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            subject_length - 400,
+            10_000,
+        ))
+        .expect("yield vehicle is alone");
+    let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
+    let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
+    assert_eq!(
+        world.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            foe_length - 2_500,
+            10_000,
+        )),
+        Err(SpawnError::StopConstraintUnsatisfiable)
+    );
+    assert_eq!(
+        world.vehicle(subject).map(|state| state.handle()),
+        Some(subject)
+    );
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn contender_reserve_failure_is_not_a_stop_constraint() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    laneflow_runtime::set_contender_reserve_failure(true);
+    let cursor = world.command_cursor();
+    let result = world.spawn_vehicle(VehicleSpawnInput::new(
+        VehicleProfileOrdinal::from_raw(0),
+        routes[0],
+        0,
+        0,
+        0,
+    ));
+    laneflow_runtime::set_contender_reserve_failure(false);
+    assert_eq!(result, Err(SpawnError::OccupancyAllocFailed));
+    assert_eq!(world.command_cursor(), cursor);
+    assert!(world.live_vehicles().is_empty());
+}
+
+#[test]
 fn fresh_spawn_allows_a_foe_that_reaches_the_stop_line_but_not_the_entrance() {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
     let mut world =
