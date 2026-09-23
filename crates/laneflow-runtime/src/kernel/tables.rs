@@ -81,8 +81,20 @@ pub(crate) struct ConflictGateRange {
     pub len: u32,
 }
 
+/// 从路线 occurrence 起点到最近几何停止位置的距离。
+///
+/// `None` 表示这条 occurrence 之后没有该类屏障。`Some(BeyondFinite)` 表示有屏障，
+/// 但距离超出有限毫米窗口。不记录授权、灯色，也不保存跨拍忽略状态。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct NearestMotionBarriers {
+    /// 最近冲突准入。锚点是 admission hop 后继 occurrence 的起点。
+    pub(crate) conflict_from_occurrence_start: Option<BoundedDistance>,
+    /// 最近等待入口。锚点是 entry hop 后继 occurrence 的起点。
+    pub(crate) waiting_from_occurrence_start: Option<BoundedDistance>,
+}
+
 /// 本世界 compiled 路线：分段 `u32` 前缀、后缀 `BoundedDistance`、hop 门、
-/// 受控 hop 链和限速下降转换。
+/// 受控 hop 链、最近停止距离和限速下降转换。
 /// 不上 `u64`，不把 world 身份写进 `RouteHandle`，不存「当前红灯」（ADR 0028 / 0029）。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CompiledRoute {
@@ -101,6 +113,8 @@ pub(crate) struct CompiledRoute {
     pub conflicts: Vec<ConflictPassageOccurrence>,
     pub conflict_gate_ranges: Vec<ConflictGateRange>,
     pub final_conflict_clearance: Option<(RoutePosition, u32)>,
+    /// 与 `edges` 等长。同一条边在循环路线中的两次出现各有一行。
+    pub nearest_motion_barriers: Vec<NearestMotionBarriers>,
 }
 
 #[cfg(test)]
@@ -122,6 +136,7 @@ impl CompiledRoute {
             conflicts,
             conflict_gate_ranges,
             final_conflict_clearance: _,
+            nearest_motion_barriers,
         } = self;
         crate::kernel::state::vec_bytes(edges)
             + crate::kernel::state::vec_bytes(maneuvers)
@@ -136,6 +151,7 @@ impl CompiledRoute {
             + crate::kernel::state::vec_bytes(waiting)
             + crate::kernel::state::vec_bytes(conflicts)
             + crate::kernel::state::vec_bytes(conflict_gate_ranges)
+            + crate::kernel::state::vec_bytes(nearest_motion_barriers)
     }
 }
 
@@ -506,6 +522,8 @@ pub(crate) fn compile_route(
         &occurrence_offsets,
         &segment_totals,
     )?;
+    let nearest_motion_barriers =
+        compile_nearest_motion_barriers(&route_lengths, &conflicts, &waiting)?;
     let mut compiled_edges = try_route_vec(edges.len())?;
     compiled_edges.extend_from_slice(edges);
 
@@ -524,6 +542,7 @@ pub(crate) fn compile_route(
         conflicts,
         conflict_gate_ranges,
         final_conflict_clearance,
+        nearest_motion_barriers,
     })
 }
 
@@ -644,6 +663,73 @@ fn compile_waiting(
             u32::try_from(end).map_err(|_| RouteError::ManeuverMismatch)?;
     }
     Ok(waiting)
+}
+
+#[derive(Clone, Copy)]
+struct BarrierHopMark {
+    conflict: bool,
+    waiting: bool,
+}
+
+/// 从路线末尾回填最近冲突准入和等待入口。
+///
+/// 每一行是一个路线 occurrence。距离锚在该 hop 后继 occurrence 的起点，不加车长，
+/// 也不读取 passage 入口。构建成本随 occurrence、冲突出现项和等待出现项线性增长。
+pub(crate) fn compile_nearest_motion_barriers(
+    edge_lengths: &[u32],
+    conflicts: &[ConflictPassageOccurrence],
+    waiting: &[WaitingOccurrence],
+) -> Result<Vec<NearestMotionBarriers>, RouteError> {
+    let occurrences = edge_lengths.len();
+    let hop_count = occurrences.saturating_sub(1);
+    let mut marks = try_route_vec_filled(
+        hop_count,
+        BarrierHopMark {
+            conflict: false,
+            waiting: false,
+        },
+    )?;
+    for conflict in conflicts {
+        let hop =
+            usize::try_from(conflict.admission_hop).map_err(|_| RouteError::ManeuverMismatch)?;
+        let mark = marks.get_mut(hop).ok_or(RouteError::ManeuverMismatch)?;
+        mark.conflict = true;
+    }
+    for entry in waiting {
+        let hop = usize::try_from(entry.entry_hop).map_err(|_| RouteError::ManeuverMismatch)?;
+        let mark = marks.get_mut(hop).ok_or(RouteError::ManeuverMismatch)?;
+        mark.waiting = true;
+    }
+
+    let mut barriers = try_route_vec_filled(
+        occurrences,
+        NearestMotionBarriers {
+            conflict_from_occurrence_start: None,
+            waiting_from_occurrence_start: None,
+        },
+    )?;
+    let mut next_conflict: Option<BoundedDistance> = None;
+    let mut next_waiting: Option<BoundedDistance> = None;
+    for index in (0..occurrences).rev() {
+        let length = edge_lengths[index];
+        let conflict = if marks.get(index).is_some_and(|mark| mark.conflict) {
+            Some(BoundedDistance::Finite(0).add_u32(length))
+        } else {
+            next_conflict.map(|distance| distance.add_u32(length))
+        };
+        let waiting_distance = if marks.get(index).is_some_and(|mark| mark.waiting) {
+            Some(BoundedDistance::Finite(0).add_u32(length))
+        } else {
+            next_waiting.map(|distance| distance.add_u32(length))
+        };
+        barriers[index] = NearestMotionBarriers {
+            conflict_from_occurrence_start: conflict,
+            waiting_from_occurrence_start: waiting_distance,
+        };
+        next_conflict = conflict;
+        next_waiting = waiting_distance;
+    }
+    Ok(barriers)
 }
 
 fn count_conflict_occurrences(
@@ -1817,6 +1903,7 @@ mod compile_route_tests {
         let hop_count = path.edges().len().saturating_sub(1);
         assert_eq!(compiled.hop_gate.len(), hop_count);
         assert_eq!(compiled.next_controlled.len(), hop_count);
+        assert_eq!(compiled.nearest_motion_barriers.len(), path.edges().len());
         if let Some(gate) = compiled.hop_gate.first().copied().flatten() {
             let next = compiled
                 .next_controlled
@@ -2062,6 +2149,7 @@ mod compile_route_tests {
             }],
             conflict_gate_ranges: vec![ConflictGateRange { start: 0, len: 1 }],
             final_conflict_clearance: Some((final_clearance, 0)),
+            nearest_motion_barriers: Vec::new(),
         };
         assert_eq!(
             compiled.retained_logical_bytes(),
@@ -2287,6 +2375,133 @@ mod compile_route_tests {
             compile_route(revision.as_ref(), prefix, 0, u64::MAX).unwrap_err(),
             RouteError::ManeuverMismatch
         );
+    }
+
+    fn conflict_at(admission_hop: u32) -> ConflictPassageOccurrence {
+        ConflictPassageOccurrence {
+            stream: ParticipantStreamOrdinal::from_raw(0),
+            passage_local_index: 0,
+            zone: ConflictZoneOrdinal::from_raw(0),
+            maneuver_index: 0,
+            admission_hop,
+            entry: RoutePosition {
+                route_edge_index: 40,
+                progress_mm: 9_000,
+            },
+            clearance: RoutePosition {
+                route_edge_index: 40,
+                progress_mm: 9_500,
+            },
+        }
+    }
+
+    fn waiting_at(entry_hop: u32) -> WaitingOccurrence {
+        WaitingOccurrence {
+            zone: WaitingZoneOrdinal::from_raw(entry_hop),
+            maneuver_index: 0,
+            entry_hop,
+            release_hop: entry_hop,
+            storage_length_mm: 1,
+            dependency_end: 0,
+        }
+    }
+
+    #[test]
+    fn nearest_motion_barriers_follow_occurrence_anchors() {
+        let lengths = [100, 200, 300, 400];
+        let barriers = compile_nearest_motion_barriers(
+            &lengths,
+            &[conflict_at(0), conflict_at(2)],
+            &[waiting_at(1)],
+        )
+        .expect("barriers");
+        assert_eq!(barriers.len(), lengths.len());
+        assert_eq!(
+            barriers
+                .iter()
+                .map(|row| row.conflict_from_occurrence_start)
+                .collect::<Vec<_>>(),
+            [
+                Some(BoundedDistance::Finite(100)),
+                Some(BoundedDistance::Finite(500)),
+                Some(BoundedDistance::Finite(300)),
+                None,
+            ]
+        );
+        assert_eq!(
+            barriers
+                .iter()
+                .map(|row| row.waiting_from_occurrence_start)
+                .collect::<Vec<_>>(),
+            [
+                Some(BoundedDistance::Finite(300)),
+                Some(BoundedDistance::Finite(200)),
+                None,
+                None,
+            ]
+        );
+        let repeated = compile_nearest_motion_barriers(&[50, 50, 50], &[conflict_at(1)], &[])
+            .expect("repeated lengths");
+        assert_eq!(
+            repeated
+                .iter()
+                .map(|row| row.conflict_from_occurrence_start)
+                .collect::<Vec<_>>(),
+            [
+                Some(BoundedDistance::Finite(100)),
+                Some(BoundedDistance::Finite(50)),
+                None,
+            ]
+        );
+        let overflow = compile_nearest_motion_barriers(&[u32::MAX, 1, 1], &[conflict_at(1)], &[])
+            .expect("overflow");
+        assert_eq!(
+            overflow[0].conflict_from_occurrence_start,
+            Some(BoundedDistance::BeyondFinite)
+        );
+        assert_eq!(
+            overflow[1].conflict_from_occurrence_start,
+            Some(BoundedDistance::Finite(1))
+        );
+        assert_eq!(overflow[2].conflict_from_occurrence_start, None);
+        let empty = compile_nearest_motion_barriers(&lengths, &[], &[]).expect("no barriers");
+        assert!(empty.iter().all(|row| {
+            row.conflict_from_occurrence_start.is_none()
+                && row.waiting_from_occurrence_start.is_none()
+        }));
+        assert_eq!(
+            crate::kernel::state::vec_bytes(&barriers),
+            u64::try_from(barriers.capacity()).unwrap().saturating_mul(
+                u64::try_from(std::mem::size_of::<NearestMotionBarriers>()).unwrap()
+            )
+        );
+        assert!(std::mem::size_of::<NearestMotionBarriers>() > 0);
+        assert_eq!(
+            compile_nearest_motion_barriers(&lengths, &[conflict_at(9)], &[]).unwrap_err(),
+            RouteError::ManeuverMismatch
+        );
+    }
+
+    #[test]
+    fn nearest_motion_barrier_allocation_failure_is_closed() {
+        let lengths = [1_000, 1_000, 1_000];
+        assert_eq!(
+            with_route_allocation_failure_after(0, || {
+                compile_nearest_motion_barriers(&lengths, &[], &[])
+            }),
+            Err(RouteError::AllocationFailed)
+        );
+        assert_eq!(
+            with_route_allocation_failure_after(1, || {
+                compile_nearest_motion_barriers(&lengths, &[], &[])
+            }),
+            Err(RouteError::AllocationFailed)
+        );
+        let built = with_route_allocation_failure_after(2, || {
+            compile_nearest_motion_barriers(&lengths, &[], &[])
+        })
+        .expect("both reservations succeed");
+        assert_eq!(built.len(), 3);
     }
 }
 

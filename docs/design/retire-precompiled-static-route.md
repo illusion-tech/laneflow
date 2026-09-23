@@ -210,6 +210,7 @@ slot.compiled:
   distance segments/offsets/totals   # 分段 u32 前缀；不上 u64
   remaining_to_end[i]                # BoundedDistance 后缀；O(1) 路终剩余
   next_controlled[hop]               # 下一有信号的门及有界距离；tick 沿链找当前限制
+  nearest_motion_barriers[occurrence] # 最近冲突准入 / 等待入口的有界距离；只用于本拍查询裁剪，不进快照
   speed_limit_drop[k]                # from / 目标边 / 目标限速；同形于 speed_limit_transitions
   waiting: 注册时必须能编译；#282 未消费前仍不得静默丢弃
 slot.live_vehicles: u32

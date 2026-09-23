@@ -87,6 +87,8 @@ CompiledRoute additions
 `clearance` 就是静态 passage exit 映射到路线后的整数位置；它不提前加车型长度、
 clearance buffer 或未来 policy tolerance。`conflictGateRanges` 与现有 `hop_gate` 对齐，
 长度至多为 route hop 数；没有与冲突出现项数量一起增长的第二张索引表。
+本拍运动另有一列与路线 occurrence 对齐的最近冲突准入距离，长度是 occurrence 数，
+不随冲突出现项数量增长，也不代替 `conflicts` 上的授权搜索。
 
 `conflicts` 按以下总序原地不稳定排序；该顺序同时保证同一 admission hop 的 coverage
 连续：
