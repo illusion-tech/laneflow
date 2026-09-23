@@ -419,6 +419,35 @@ fn admit_initial_plans_rejects_a_mismatched_slice_before_spawn() {
 }
 
 #[test]
+fn admit_initial_plans_rejects_foreign_routes_before_spawn() {
+    let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::new(
+            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
+            28,
+            1_024,
+            1_024,
+            TICK_MS,
+        ),
+    )
+    .expect("install");
+    let plans = prepared.take_initial_vehicles();
+    let mut routes = prepared
+        .install_routes(&mut world)
+        .expect("install catalog routes");
+    routes.swap(0, 1);
+    let error = prepared
+        .admit_initial_plans(&mut world, &routes, &plans)
+        .expect_err("reordered routes");
+    assert!(matches!(
+        error,
+        CorridorPopulationError::BoundWorldCatalogMismatch { .. }
+    ));
+    assert!(world.live_vehicles().is_empty());
+}
+
+#[test]
 fn consume_world_rejects_skipped_ticks() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(

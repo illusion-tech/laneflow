@@ -547,6 +547,23 @@ impl CorridorPopulationPrepare {
                 actual: plans.len(),
             });
         }
+        if routes.len() != self.catalog.route_exits.len() {
+            return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
+                detail: "已注册路线数与 catalog 不一致".to_owned(),
+            });
+        }
+        for (handle, exit) in routes.iter().zip(self.catalog.route_exits.iter()) {
+            let Some(edges) = world.route_edges(*handle) else {
+                return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
+                    detail: "TrafficWorld 缺少计划中的已注册路线".to_owned(),
+                });
+            };
+            if edges != exit.edges.as_ref() {
+                return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
+                    detail: "已注册路线边序列与 catalog 不一致".to_owned(),
+                });
+            }
+        }
         for (index, (plan, slot)) in plans.iter().zip(self.slots.iter()).enumerate() {
             if plan.profile != self.profile
                 || plan.route_index != slot.route_index
