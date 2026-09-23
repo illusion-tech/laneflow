@@ -766,6 +766,40 @@ fn repeated_edge_keeps_the_farther_rear_window() {
 }
 
 #[test]
+fn cyclic_revisit_still_sees_the_follower_on_the_earlier_pass() {
+    let revision = revision("runtime/placement-plain", |module| {
+        module
+            .add_vehicle_profile(VehicleProfileInput {
+                vehicle_profile_key: "short",
+                participant_class: ParticipantClassReference::local("road-user"),
+                iidm: IidmVehicleProfileInput {
+                    length_meters: 0.3,
+                    ..profile()
+                },
+            })
+            .expect("short profile");
+        add_edge(module, "a", 12.0, 15.0, Some("b"));
+        add_edge(module, "b", 2.0, 15.0, Some("a"));
+    });
+    let mut world = install(Arc::clone(&revision));
+    let route = register_named(&mut world, "runtime/placement-plain", &["a", "b", "a"]);
+    let follower = spawn(&mut world, route, 0, 11_500, 10_000).expect("第一圈靠近边末的后车");
+    assert_eq!(
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(1),
+                route,
+                2,
+                500,
+                0,
+            ))
+            .unwrap_err(),
+        SpawnError::UnsafeFollower { follower },
+        "绕回同一条物理边时，边末的后车仍在制动距离里"
+    );
+}
+
+#[test]
 fn follower_behind_a_spanning_rear_is_not_hidden_by_the_front_edge() {
     let revision = revision("runtime/placement-plain", |module| {
         module

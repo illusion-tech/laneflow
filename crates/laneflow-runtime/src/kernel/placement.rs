@@ -661,8 +661,8 @@ impl crate::kernel::state::WorldState {
             best_behind: Vec::new(),
             pending: BinaryHeap::new(),
         };
-        // 车身跨边时，后杠所在边也是更前方车身的车道前驱。先按后杠开窗。
-        // 上游边保留目前更短的到达距离；更长的路径不能把这条边占死。
+        // 车身跨边时先按后杠开窗。距离为 0 的再次进入仍是这次车身。
+        // 绕环走过一段正距离后再回到这条物理边，按上游窗口再查一次。
         for (edge, rear_lo) in body {
             push_fallible(&mut search.body_edges, edge.raw())?;
             collect_follower_window(
@@ -689,7 +689,6 @@ impl crate::kernel::state::WorldState {
                 .find(|(edge, _)| *edge == raw)
                 .is_none_or(|(_, best)| *best != behind_end)
                 || behind_end > search.reach
-                || search.body_edges.contains(&raw)
             {
                 continue;
             }
@@ -843,7 +842,8 @@ fn note_shorter_upstream(
     search: &mut UpstreamSearch,
 ) -> Result<(), FreshAdmissionFailure> {
     let raw = edge.raw();
-    if search.body_edges.contains(&raw) {
+    // 后杠那一次出现已经开过窗。绕环后再遇到同一条物理边时，behind_end 是走过的正距离。
+    if behind_end == 0 && search.body_edges.contains(&raw) {
         return Ok(());
     }
     if let Some((_, best)) = search.best_behind.iter_mut().find(|(item, _)| *item == raw) {

@@ -379,6 +379,46 @@ fn take_initial_vehicles_then_bind_reaches_running() {
 }
 
 #[test]
+fn admit_initial_plans_rejects_a_mismatched_slice_before_spawn() {
+    let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::new(
+            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
+            28,
+            1_024,
+            1_024,
+            TICK_MS,
+        ),
+    )
+    .expect("install");
+    let mut plans = prepared.take_initial_vehicles();
+    let routes = prepared
+        .install_routes(&mut world)
+        .expect("install catalog routes");
+    let error = prepared
+        .admit_initial_plans(&mut world, &routes, &plans[..plans.len() - 1])
+        .expect_err("truncated plan");
+    assert!(matches!(
+        error,
+        CorridorPopulationError::InitialVehicleCount {
+            expected: MIN_TARGET_VEHICLE_COUNT,
+            actual,
+        } if actual == MIN_TARGET_VEHICLE_COUNT - 1
+    ));
+    assert!(world.live_vehicles().is_empty());
+    plans[0].progress_mm = plans[0].progress_mm.saturating_add(1);
+    let error = prepared
+        .admit_initial_plans(&mut world, &routes, &plans)
+        .expect_err("foreign progress");
+    assert!(matches!(
+        error,
+        CorridorPopulationError::InitialVehicleMismatch { slot_index: 0 }
+    ));
+    assert!(world.live_vehicles().is_empty());
+}
+
+#[test]
 fn consume_world_rejects_skipped_ticks() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(

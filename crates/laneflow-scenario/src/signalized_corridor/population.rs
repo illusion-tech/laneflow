@@ -472,15 +472,22 @@ impl CorridorPopulationPrepare {
 
     /// 把已经取走的计划放进世界。顺序必须与 `prepare` 写出的 slot 相同。
     ///
+    /// 第一辆生成前核对条数、顺序、修订、策略和每个 slot 的身份。对不上就拒绝，
+    /// 世界里还没有这批初始车。
+    ///
     /// # Errors
     ///
-    /// 与 [`Self::spawn_initial_vehicles`] 的生成失败相同。
+    /// 与 [`Self::spawn_initial_vehicles`] 的生成失败相同。计划对不上时返回
+    /// [`CorridorPopulationError::InitialVehicleCount`]、
+    /// [`CorridorPopulationError::InitialVehicleMismatch`] 或
+    /// [`CorridorPopulationError::BoundWorldCatalogMismatch`]。
     pub fn admit_initial_plans(
         &mut self,
         world: &mut TrafficWorld,
         routes: &[RouteHandle],
         plans: &[CorridorVehiclePlan],
     ) -> Result<Vec<VehicleHandle>, CorridorPopulationError> {
+        self.preflight_initial_plans(world, routes, plans)?;
         let mut vehicles = Vec::new();
         vehicles.try_reserve(plans.len()).map_err(|_| {
             CorridorPopulationError::InitialSpawnRejected {
@@ -526,6 +533,34 @@ impl CorridorPopulationPrepare {
             vehicles.push(handle);
         }
         Ok(vehicles)
+    }
+
+    fn preflight_initial_plans(
+        &self,
+        world: &TrafficWorld,
+        routes: &[RouteHandle],
+        plans: &[CorridorVehiclePlan],
+    ) -> Result<(), CorridorPopulationError> {
+        if plans.len() != self.slots.len() {
+            return Err(CorridorPopulationError::InitialVehicleCount {
+                expected: self.slots.len(),
+                actual: plans.len(),
+            });
+        }
+        for (index, (plan, slot)) in plans.iter().zip(self.slots.iter()).enumerate() {
+            if plan.profile != self.profile
+                || plan.route_index != slot.route_index
+                || plan.route_edge_index != slot.route_edge_index
+                || plan.progress_mm != slot.edge_progress_mm
+                || plan.initial_speed_mm_s != slot.initial_speed_mm_s
+                || plan.network_revision != self.catalog.network_revision
+                || plan.policy_selection != self.catalog.policy_selection
+            {
+                return Err(CorridorPopulationError::InitialVehicleMismatch { slot_index: index });
+            }
+            plan.spawn_input(world, routes)?;
+        }
+        Ok(())
     }
 
     /// 对本世界每条 catalog 路线恰好 `register_route` 一次。
