@@ -1,6 +1,9 @@
 //! 新鲜摆放的运动安全准入。只在 `spawn_vehicle` 与 `replace_completed_vehicle`
 //! 提交前使用；快照恢复和修订切换不调用。
 
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
+
 use laneflow_static_contract::VehicleProfileOrdinal;
 
 use super::occupancy::LeaderQueryHorizon;
@@ -211,6 +214,7 @@ impl crate::kernel::state::WorldState {
         self.ensure_current_occupancy()
             .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
         let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
+        self.admit_own_motion(input, profile, vehicle_length_mm, delta_s)?;
         self.admit_nearest_leader(input, profile, vehicle_length_mm, delta_s)?;
         self.admit_direct_followers(input, vehicle_length_mm, delta_s)
     }
@@ -264,6 +268,15 @@ impl crate::kernel::state::WorldState {
             return false;
         };
         let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
+        let Some(current) = compiled.edges.get(cursor).copied() else {
+            return false;
+        };
+        let Some(current_length) = lengths.get(current.index()).copied() else {
+            return false;
+        };
+        // 降速点按路线顺序写出。从当前位置向前累加一次，不再为每个点从头重走。
+        let mut room = current_length.saturating_sub(progress_mm);
+        let mut walked = cursor;
         for drop in &compiled.speed_limit_drop {
             let Ok(from) = usize::try_from(drop.from_route_edge_index) else {
                 continue;
@@ -271,15 +284,55 @@ impl crate::kernel::state::WorldState {
             if from < cursor || speed_mm_s <= drop.target_mm_s {
                 continue;
             }
-            let Some(room_mm) = room_to_edge_end(compiled, lengths, cursor, progress_mm, from)
-            else {
-                continue;
+            let room_mm = if from < walked {
+                let Some(restarted) =
+                    room_to_edge_end(compiled, lengths, cursor, progress_mm, from)
+                else {
+                    continue;
+                };
+                restarted
+            } else {
+                while walked < from {
+                    walked = walked.saturating_add(1);
+                    let Some(edge) = compiled.edges.get(walked).copied() else {
+                        return false;
+                    };
+                    let Some(length) = lengths.get(edge.index()).copied() else {
+                        return false;
+                    };
+                    room = room.saturating_add(length);
+                }
+                room
             };
             if !can_slow_to_before(speed_mm_s, drop.target_mm_s, emergency_decel_m_s2, room_mm) {
                 return true;
             }
         }
         false
+    }
+
+    /// 没有前车时也预览新车自己的第一拍。红灯、未放行的边末和路的尽头都在这次预览里。
+    fn admit_own_motion(
+        &self,
+        input: VehicleSpawnInput,
+        profile: laneflow_static_network::VehicleProfileView,
+        vehicle_length_mm: u32,
+        delta_s: f32,
+    ) -> Result<(), FreshAdmissionFailure> {
+        let state = preview_vehicle(input, profile, vehicle_length_mm);
+        let motion = self
+            .read_view()
+            .placement_motion(state, None, false)
+            .ok_or(FreshAdmissionFailure::StopConstraint)?;
+        if projection_exceeds_emergency(
+            input.initial_speed_mm_s(),
+            motion,
+            profile.emergency_decel(),
+            delta_s,
+        ) {
+            return Err(FreshAdmissionFailure::StopConstraint);
+        }
+        Ok(())
     }
 
     fn admit_nearest_leader(
@@ -313,20 +366,7 @@ impl crate::kernel::state::WorldState {
         if self.vehicle_state(contact.vehicle).is_none() {
             return Err(FreshAdmissionFailure::UnsafeLeader(contact.vehicle));
         }
-        let state = VehicleState {
-            handle: VehicleHandle::new(u32::MAX, 0),
-            profile: input.profile(),
-            class: profile.class(),
-            route: input.route(),
-            route_edge_index: input.route_edge_index(),
-            progress_mm: input.progress_mm(),
-            carry_um: 0,
-            speed_mm_s: input.initial_speed_mm_s(),
-            length_mm: vehicle_length_mm,
-            status: VehicleStatus::Active,
-            maneuver_traversal: None,
-            waiting_membership: None,
-        };
+        let state = preview_vehicle(input, profile, vehicle_length_mm);
         let motion = self
             .read_view()
             .placement_motion(state, Some(contact.gap_mm), false)
@@ -430,6 +470,7 @@ impl crate::kernel::state::WorldState {
         input: VehicleSpawnInput,
         vehicle_length_mm: u32,
     ) -> Result<Vec<VehicleHandle>, FreshAdmissionFailure> {
+        let reach = self.max_follower_bumper_mm();
         let traffic = self.binding.revision.traffic();
         self.workspace
             .occupancy_scratch
@@ -442,8 +483,8 @@ impl crate::kernel::state::WorldState {
         let Ok(cursor) = usize::try_from(input.route_edge_index()) else {
             return Ok(Vec::new());
         };
-        let reach = self.max_follower_bumper_mm();
         let mut body: Vec<(laneflow_static_contract::LaneEdgeOrdinal, u32)> = Vec::new();
+        let mut alloc_failed = false;
         let _ = for_each_admission_interval(
             lengths,
             edges,
@@ -451,63 +492,84 @@ impl crate::kernel::state::WorldState {
             input.progress_mm(),
             vehicle_length_mm,
             |edge, lo, _| {
+                if alloc_failed {
+                    return;
+                }
                 if let Some((_, rear)) = body.iter_mut().find(|(item, _)| *item == edge) {
                     *rear = (*rear).min(lo);
+                } else if body.try_reserve(1).is_err() {
+                    alloc_failed = true;
                 } else {
                     body.push((edge, lo));
                 }
             },
         );
+        if alloc_failed {
+            return Err(FreshAdmissionFailure::OccupancyAlloc);
+        }
         if body.is_empty()
             && let Some(edge) = edges.get(cursor).copied()
         {
-            body.push((edge, input.progress_mm()));
+            push_fallible(&mut body, (edge, input.progress_mm()))?;
         }
-        let mut seen = Vec::new();
         let mut found = Vec::new();
-        let mut queue = Vec::new();
-        // 车身跨边时，后杠所在边也是更前方车身的车道前驱。先按后杠开窗并占住
-        // 这条边，避免后面的上游访问改用边的终点窗口，漏掉紧跟后杠的车。
+        let mut search = UpstreamSearch {
+            reach,
+            body_edges: Vec::new(),
+            best_behind: Vec::new(),
+            pending: BinaryHeap::new(),
+        };
+        // 车身跨边时，后杠所在边也是更前方车身的车道前驱。先按后杠开窗。
+        // 上游边保留目前更短的到达距离；更长的路径不能把这条边占死。
         for (edge, rear_lo) in body {
-            seen.push(edge.raw());
-            self.derived.occupancy.for_each_record_in_hi_window(
+            push_fallible(&mut search.body_edges, edge.raw())?;
+            collect_follower_window(
+                &self.derived.occupancy,
                 edge,
                 rear_lo.saturating_sub(reach),
                 rear_lo,
-                |vehicle, sequence| found.push((sequence, vehicle)),
-            );
+                &mut found,
+            )?;
             if rear_lo <= reach {
-                enqueue_follower_upstream(
+                relax_follower_upstream(
                     traffic,
                     &self.workspace.occupancy_scratch,
                     edge,
                     rear_lo,
-                    &mut queue,
-                );
+                    &mut search,
+                )?;
             }
         }
-        while let Some((edge, behind_end)) = queue.pop() {
-            if seen.contains(&edge.raw()) || behind_end > reach {
+        while let Some(Reverse((behind_end, raw))) = search.pending.pop() {
+            if search
+                .best_behind
+                .iter()
+                .find(|(edge, _)| *edge == raw)
+                .is_none_or(|(_, best)| *best != behind_end)
+                || behind_end > search.reach
+                || search.body_edges.contains(&raw)
+            {
                 continue;
             }
-            seen.push(edge.raw());
+            let edge = laneflow_static_contract::LaneEdgeOrdinal::from_raw(raw);
             let length = lengths.get(edge.index()).copied().unwrap_or(0);
             let budget = reach - behind_end;
-            self.derived.occupancy.for_each_record_in_hi_window(
+            collect_follower_window(
+                &self.derived.occupancy,
                 edge,
                 length.saturating_sub(budget),
                 length,
-                |vehicle, sequence| found.push((sequence, vehicle)),
-            );
+                &mut found,
+            )?;
             let next = behind_end.saturating_add(length);
             if next <= reach {
-                enqueue_follower_upstream(
+                relax_follower_upstream(
                     traffic,
                     &self.workspace.occupancy_scratch,
                     edge,
                     next,
-                    &mut queue,
-                );
+                    &mut search,
+                )?;
             }
         }
         found.sort_by_key(|(sequence, handle)| (handle.index(), *sequence));
@@ -516,7 +578,10 @@ impl crate::kernel::state::WorldState {
         Ok(found.into_iter().map(|(_, handle)| handle).collect())
     }
 
-    fn max_follower_bumper_mm(&self) -> u32 {
+    fn max_follower_bumper_mm(&mut self) -> u32 {
+        if let Some(reach) = self.workspace.occupancy_scratch.follower_bumper_mm() {
+            return reach;
+        }
         let traffic = self.binding.revision.traffic();
         let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
         let speed = traffic
@@ -540,28 +605,122 @@ impl crate::kernel::state::WorldState {
                 reach = reach.max(horizon.bumper_gap_mm);
             }
         }
+        self.workspace
+            .occupancy_scratch
+            .remember_follower_bumper_mm(reach);
         reach
     }
 }
 
-fn enqueue_follower_upstream(
+fn collect_follower_window(
+    occupancy: &super::occupancy::OccupancyIndex,
+    edge: laneflow_static_contract::LaneEdgeOrdinal,
+    min_hi: u32,
+    max_hi: u32,
+    found: &mut Vec<(u32, VehicleHandle)>,
+) -> Result<(), FreshAdmissionFailure> {
+    let mut alloc_failed = false;
+    occupancy.for_each_record_in_hi_window(edge, min_hi, max_hi, |vehicle, sequence| {
+        if alloc_failed {
+            return;
+        }
+        if found.try_reserve(1).is_err() {
+            alloc_failed = true;
+        } else {
+            found.push((sequence, vehicle));
+        }
+    });
+    if alloc_failed {
+        Err(FreshAdmissionFailure::OccupancyAlloc)
+    } else {
+        Ok(())
+    }
+}
+
+struct UpstreamSearch {
+    reach: u32,
+    body_edges: Vec<u32>,
+    best_behind: Vec<(u32, u32)>,
+    pending: BinaryHeap<Reverse<(u32, u32)>>,
+}
+
+fn relax_follower_upstream(
     traffic: &laneflow_static_network::SharedTrafficNetwork,
     scratch: &super::occupancy::OccupancyScratch,
     edge: laneflow_static_contract::LaneEdgeOrdinal,
     behind_end: u32,
-    queue: &mut Vec<(laneflow_static_contract::LaneEdgeOrdinal, u32)>,
-) {
+    search: &mut UpstreamSearch,
+) -> Result<(), FreshAdmissionFailure> {
+    if behind_end > search.reach {
+        return Ok(());
+    }
     if let Some(predecessors) = traffic.predecessors(edge) {
         for predecessor in predecessors {
-            queue.push((*predecessor, behind_end));
+            note_shorter_upstream(*predecessor, behind_end, search)?;
         }
     }
     for raw in scratch.maneuver_upstream(edge) {
-        queue.push((
+        note_shorter_upstream(
             laneflow_static_contract::LaneEdgeOrdinal::from_raw(*raw),
             behind_end,
-        ));
+            search,
+        )?;
     }
+    Ok(())
+}
+
+fn preview_vehicle(
+    input: VehicleSpawnInput,
+    profile: laneflow_static_network::VehicleProfileView,
+    vehicle_length_mm: u32,
+) -> VehicleState {
+    VehicleState {
+        handle: VehicleHandle::new(u32::MAX, 0),
+        profile: input.profile(),
+        class: profile.class(),
+        route: input.route(),
+        route_edge_index: input.route_edge_index(),
+        progress_mm: input.progress_mm(),
+        carry_um: 0,
+        speed_mm_s: input.initial_speed_mm_s(),
+        length_mm: vehicle_length_mm,
+        status: VehicleStatus::Active,
+        maneuver_traversal: None,
+        waiting_membership: None,
+    }
+}
+
+fn note_shorter_upstream(
+    edge: laneflow_static_contract::LaneEdgeOrdinal,
+    behind_end: u32,
+    search: &mut UpstreamSearch,
+) -> Result<(), FreshAdmissionFailure> {
+    let raw = edge.raw();
+    if search.body_edges.contains(&raw) {
+        return Ok(());
+    }
+    if let Some((_, best)) = search.best_behind.iter_mut().find(|(item, _)| *item == raw) {
+        if *best <= behind_end {
+            return Ok(());
+        }
+        *best = behind_end;
+    } else {
+        push_fallible(&mut search.best_behind, (raw, behind_end))?;
+    }
+    search
+        .pending
+        .try_reserve(1)
+        .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
+    search.pending.push(Reverse((behind_end, raw)));
+    Ok(())
+}
+
+fn push_fallible<T>(items: &mut Vec<T>, value: T) -> Result<(), FreshAdmissionFailure> {
+    items
+        .try_reserve(1)
+        .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
+    items.push(value);
+    Ok(())
 }
 
 fn projection_exceeds_emergency(
