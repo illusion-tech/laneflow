@@ -213,10 +213,152 @@ impl crate::kernel::state::WorldState {
         }
         self.ensure_current_occupancy()
             .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
+        self.ensure_spawn_contenders();
         let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
         self.admit_own_motion(input, profile, vehicle_length_mm, delta_s)?;
         self.admit_nearest_leader(input, profile, vehicle_length_mm, delta_s)?;
         self.admit_direct_followers(input, vehicle_length_mm, delta_s)
+    }
+
+    /// 已有车这一拍够得到的冲突区。序号对不上就重数，生成成功后再加这一辆。
+    fn ensure_spawn_contenders(&mut self) {
+        let sequence = self.committed.observation_state_sequence;
+        if self.derived.spawn_contenders.built_sequence == Some(sequence) {
+            return;
+        }
+        if self.rebuild_spawn_contenders() {
+            self.derived.spawn_contenders.built_sequence = Some(sequence);
+        }
+    }
+
+    pub(crate) fn note_spawned_contender(
+        &mut self,
+        handle: VehicleHandle,
+        previous: crate::ObservationStateSequence,
+    ) {
+        let current = self.committed.observation_state_sequence;
+        if self.derived.spawn_contenders.built_sequence != Some(previous) {
+            self.derived.spawn_contenders.built_sequence = None;
+            return;
+        }
+        if !self.add_spawn_contender(handle) {
+            self.derived.spawn_contenders.built_sequence = None;
+            return;
+        }
+        self.derived.spawn_contenders.built_sequence = Some(current);
+    }
+
+    fn rebuild_spawn_contenders(&mut self) -> bool {
+        let zone_count = usize::try_from(
+            self.binding
+                .revision
+                .traffic()
+                .entity_counts()
+                .count(laneflow_static_contract::EntityKind::ConflictZone),
+        )
+        .unwrap_or(0);
+        self.derived.spawn_contenders.counts.clear();
+        if self
+            .derived
+            .spawn_contenders
+            .counts
+            .try_reserve(zone_count)
+            .is_err()
+        {
+            return false;
+        }
+        self.derived.spawn_contenders.counts.resize(zone_count, 0);
+        let active = self.derived.active_order.len();
+        for index in 0..active {
+            let handle = self.derived.active_order[index];
+            if !self.add_spawn_contender(handle) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// 把这辆车下一处够得到的冲突区加进计数。分配失败返回 `false`，名单作废。
+    fn add_spawn_contender(&mut self, handle: VehicleHandle) -> bool {
+        let Some(state) = self.vehicle_state(handle).copied() else {
+            return true;
+        };
+        if state.status != VehicleStatus::Active {
+            return true;
+        }
+        let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
+        let Some(compiled) = self.compiled_route(state.route) else {
+            return true;
+        };
+        let first_hop = if state.progress_mm == 0 && state.carry_um == 0 {
+            state.route_edge_index.saturating_sub(1)
+        } else {
+            state.route_edge_index
+        };
+        let start = compiled
+            .conflicts
+            .partition_point(|entry| entry.admission_hop < first_hop);
+        let Some(hop) = compiled
+            .conflicts
+            .get(start)
+            .map(|entry| entry.admission_hop)
+        else {
+            return true;
+        };
+        let reach = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+            .and_then(|profile| {
+                crate::kernel::tick::MotionReach::from_tick(
+                    state.speed_mm_s,
+                    profile.max_accel(),
+                    delta_s,
+                )
+            });
+        let Some(stop_index) = usize::try_from(hop)
+            .ok()
+            .and_then(|value| value.checked_add(1))
+        else {
+            return true;
+        };
+        let distance = crate::kernel::tables::distance_to_occurrence_start(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            state.route_edge_index as usize,
+            state.progress_mm,
+            stop_index,
+        );
+        let beyond = match distance {
+            Some(laneflow_static_network::BoundedDistance::Finite(mm)) => {
+                reach.is_some_and(|reach| reach.excludes(mm))
+            }
+            Some(laneflow_static_network::BoundedDistance::BeyondFinite) => true,
+            None => false,
+        };
+        if beyond {
+            return true;
+        }
+        let mut end = start;
+        while end < compiled.conflicts.len() && compiled.conflicts[end].admission_hop == hop {
+            end = end.saturating_add(1);
+        }
+        let mut zones = Vec::new();
+        if zones.try_reserve(end.saturating_sub(start)).is_err() {
+            return false;
+        }
+        for entry in &compiled.conflicts[start..end] {
+            zones.push(entry.zone.index());
+        }
+        for zone in zones {
+            if let Some(count) = self.derived.spawn_contenders.counts.get_mut(zone) {
+                *count = count.saturating_add(1);
+            }
+        }
+        true
     }
 
     fn restrictive_stop_mm(
