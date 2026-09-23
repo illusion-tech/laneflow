@@ -1520,6 +1520,7 @@ fn road_editing_conflict_fixture_closes_integer_passages_and_f32_region() {
     );
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn conflict_routes_charge_independent_capacity_and_use_the_production_gate_path() {
     let revision = compile_road_editing_revision(conflict_road_editing_module());
@@ -1573,7 +1574,7 @@ fn conflict_routes_charge_independent_capacity_and_use_the_production_gate_path(
 
     let gate_length = revision.traffic().lane_lengths_millimetres()[route_edges[0].index()];
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
@@ -1685,6 +1686,7 @@ fn conflict_tick_arbitrates_the_canonical_post_gate_zero_position() {
         .expect("retained canonical-boundary eligibility remains valid");
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn conflict_tick_uses_stable_single_writer_winner_and_retries_the_loser() {
     let revision = compile_road_editing_revision(conflict_road_editing_module_with_stream_count(2));
@@ -1714,7 +1716,7 @@ fn conflict_tick_uses_stable_single_writer_winner_and_retries_the_loser() {
         let boundary = world.traffic().lane_lengths_millimetres()[edge.index()];
         vehicles.push(
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
+                .place_existing_active_vehicle(VehicleSpawnInput::new(
                     VehicleProfileOrdinal::from_raw(0),
                     route,
                     0,
@@ -1826,6 +1828,7 @@ fn conflict_tick_rejects_when_committed_downstream_storage_is_blocked() {
     assert!(world.vehicle(leader).is_some());
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn permissive_conflict_uses_the_compiled_gap_profile_and_approach_frontier() {
     use laneflow_runtime::ConflictNoGrantReason;
@@ -1859,7 +1862,7 @@ fn permissive_conflict_uses_the_compiled_gap_profile_and_approach_frontier() {
         let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
         let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
         let subject = world
-            .spawn_vehicle(VehicleSpawnInput::new(
+            .place_existing_active_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
                 routes[0],
                 0,
@@ -1868,7 +1871,7 @@ fn permissive_conflict_uses_the_compiled_gap_profile_and_approach_frontier() {
             ))
             .expect("yielding subject");
         let foe = world
-            .spawn_vehicle(VehicleSpawnInput::new(
+            .place_existing_active_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
                 routes[1],
                 0,
@@ -1894,6 +1897,94 @@ fn permissive_conflict_uses_the_compiled_gap_profile_and_approach_frontier() {
         assert!(world.conflict_reservation(subject).is_none());
         assert_eq!(world.conflict_reservation(foe).is_some(), distance == 0);
     }
+}
+
+#[test]
+fn fresh_spawn_before_a_free_conflict_is_not_a_mandatory_stop() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let stream = revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("stream");
+    let edges = revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(stream.maneuver_path())
+        .expect("path")
+        .edges()
+        .to_vec();
+    let route = world
+        .register_route(RouteRegisterInput::new(edges))
+        .expect("route");
+    let edge = world.route_edges(route).expect("route edges")[0];
+    let length = world.traffic().lane_lengths_millimetres()[edge.index()];
+    assert!(length > 400, "approach must leave room before the gate");
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            length - 400,
+            10_000,
+        ))
+        .expect("free conflict is not a mandatory stop");
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn fresh_spawn_before_an_owned_conflict_cannot_stop() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    let route_edges = [0_u32, 1].map(|raw| {
+        let stream = revision
+            .conflict()
+            .participant_stream(ParticipantStreamOrdinal::from_raw(raw))
+            .expect("stream");
+        revision
+            .traffic()
+            .maneuvers()
+            .maneuver_path(stream.maneuver_path())
+            .expect("path")
+            .edges()
+            .to_vec()
+    });
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let routes = route_edges.map(|edges| {
+        world
+            .register_route(RouteRegisterInput::new(edges))
+            .expect("route")
+    });
+    let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
+    let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
+    let foe = world
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            foe_length,
+            10_000,
+        ))
+        .expect("foe already at the gate");
+    world.step(TickInput::new(100)).expect("foe takes the zone");
+    assert!(world.conflict_reservation(foe).is_some());
+    let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
+    let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
+    assert!(
+        subject_length > 400,
+        "approach must leave room before the gate"
+    );
+    assert_eq!(
+        world.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            subject_length - 400,
+            10_000,
+        )),
+        Err(SpawnError::StopConstraintUnsatisfiable)
+    );
 }
 
 #[cfg(feature = "placement-fixtures")]

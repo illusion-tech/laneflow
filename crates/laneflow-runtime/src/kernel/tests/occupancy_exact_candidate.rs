@@ -65,7 +65,7 @@ pub(super) fn rebuild(
     }
     drop(count_timer);
     let layout_timer = begin(Stage::OccupancyLayout);
-    occupancy.try_reserve_records(total)?;
+    occupancy.try_reserve_records(scratch, bucket_count)?;
     occupancy.finish_layout(scratch, bucket_count);
     drop(layout_timer);
     let fill_timer = begin(Stage::OccupancyFill);
@@ -175,12 +175,13 @@ pub(crate) fn pending_bytes(world: &TrafficWorld) -> u64 {
 }
 
 pub(crate) fn assert_same_index(left: &TrafficWorld, right: &TrafficWorld) {
-    let left = &left.state.derived.occupancy;
-    let right = &right.state.derived.occupancy;
-    assert_eq!(left.offsets, right.offsets);
-    assert_eq!(left.records, right.records);
-    assert_eq!(left.suffix_min_lo, right.suffix_min_lo);
-    assert_eq!(left.suffix_second_lo, right.suffix_second_lo);
+    assert!(
+        left.state
+            .derived
+            .occupancy
+            .same_layout(&right.state.derived.occupancy),
+        "occupancy layout diverged"
+    );
 }
 
 fn with_pending_failure<R>(after: usize, run: impl FnOnce() -> R) -> R {
@@ -202,7 +203,7 @@ fn pending_allocation_failures_preserve_published_state_and_retry_matches_fresh(
         let mut world = with_candidate(false, || multi_edge_world(&revision));
         let before = world.capture_snapshot().unwrap();
         let events = world.latest_transition_events().to_vec();
-        let records = world.state.derived.occupancy.records.clone();
+        let records = world.state.derived.occupancy.records_snapshot();
         let input = crate::TickInput::new(100);
         let result = with_candidate(true, || with_pending_failure(after, || world.step(input)));
         if result.is_ok() {
@@ -212,7 +213,7 @@ fn pending_allocation_failures_preserve_published_state_and_retry_matches_fresh(
         failures += 1;
         assert_eq!(world.capture_snapshot().unwrap(), before);
         assert_eq!(world.latest_transition_events(), events);
-        assert_eq!(world.state.derived.occupancy.records, records);
+        assert_eq!(world.state.derived.occupancy.records_snapshot(), records);
         with_candidate(true, || world.step(input)).unwrap();
         let mut fresh = with_candidate(false, || multi_edge_world(&revision));
         fresh.step(input).unwrap();
@@ -237,7 +238,7 @@ fn incomplete_route_keeps_priority_over_pending_allocation_failure() {
     let revision = multi_edge_revision();
     let mut world = with_candidate(false, || multi_edge_world(&revision));
     let before = world.capture_snapshot().unwrap();
-    let records = world.state.derived.occupancy.records.clone();
+    let records = world.state.derived.occupancy.records_snapshot();
     let handle = *world.live_vehicles().last().unwrap();
     let previous = *world.state.vehicle_state(handle).unwrap();
     world.state.committed.vehicles[handle.index() as usize]
@@ -254,7 +255,7 @@ fn incomplete_route_keeps_priority_over_pending_allocation_failure() {
         with_candidate(true, || with_pending_failure(0, || world.step(input))),
         Err(StepError::OccupancyIntervalIncomplete)
     );
-    assert_eq!(world.state.derived.occupancy.records, records);
+    assert_eq!(world.state.derived.occupancy.records_snapshot(), records);
     world.state.committed.vehicles[handle.index() as usize].state = Some(previous);
     assert_eq!(world.capture_snapshot().unwrap(), before);
     with_candidate(true, || world.step(input)).unwrap();

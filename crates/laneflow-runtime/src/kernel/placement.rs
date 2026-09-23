@@ -311,7 +311,8 @@ impl crate::kernel::state::WorldState {
         false
     }
 
-    /// 没有前车时也预览新车自己的第一拍。红灯、未放行的边末和路的尽头都在这次预览里。
+    /// 没有前车时也预览新车自己的第一拍。红灯、未放行的边末、路的尽头，
+    /// 以及已经被其他车占用的冲突区，都在这次预览里。
     fn admit_own_motion(
         &self,
         input: VehicleSpawnInput,

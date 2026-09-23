@@ -44,6 +44,14 @@ pub(crate) struct PlacementMotion {
     pub(crate) hard_clamped: bool,
 }
 
+/// 新鲜摆放看到的已占用冲突区。空区不是停车点。
+#[derive(Clone, Copy, Debug)]
+enum OccupiedConflictPreview {
+    Clear,
+    Stop(crate::kernel::waiting::WaitingStopConstraint),
+    Unprovable,
+}
+
 /// 由共同运动内核产生的复用证明；缺失证明时只能复用完全相同的约束。
 #[derive(Clone, Copy, Debug)]
 enum MotionBounds {
@@ -1616,7 +1624,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     /// 用指定前车空隙预测本拍硬截断。不写入世界。
     ///
     /// `leader_constraint_only` 时硬房间只含这名前车的快照空隙，避免把后车自己的
-    /// 信号或路终清零算成这名前车造成的硬投影。
+    /// 信号或路终清零算成这名前车造成的硬投影。否则，已经被其他车占用、下一拍
+    /// 给不出通行权的冲突区也算进这次预览。空着的冲突区仍可能在本拍获准，不预写通行权。
     pub(crate) fn placement_motion(
         self,
         state: VehicleState,
@@ -1624,12 +1633,21 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         leader_constraint_only: bool,
     ) -> Option<PlacementMotion> {
         let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
+        let conflict_stop = if leader_constraint_only {
+            None
+        } else {
+            match self.occupied_conflict_stop(&state) {
+                OccupiedConflictPreview::Clear => None,
+                OccupiedConflictPreview::Stop(stop) => Some(stop),
+                OccupiedConflictPreview::Unprovable => return None,
+            }
+        };
         let mut bounds = MotionBounds::Unknown;
         let next = self.calculate_active_vehicle_motion(
             state,
             delta_s,
             None,
-            None,
+            conflict_stop,
             self.committed.parking.binding(state.handle),
             None,
             Some(&mut bounds),
@@ -1650,6 +1668,64 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             committed_travel_mm,
             hard_clamped,
         })
+    }
+
+    /// 最近一个已经被其他车占用的冲突准入。空着的区跳过：这一拍仍可能获准。
+    ///
+    /// 只读已提交占用，不看本拍暂存。距离算到该 hop 的后继出现项起点，与正式步进相同。
+    fn occupied_conflict_stop(self, state: &VehicleState) -> OccupiedConflictPreview {
+        let Some(compiled) = self.compiled_route(state.route) else {
+            return OccupiedConflictPreview::Clear;
+        };
+        let first_hop = if state.progress_mm == 0 && state.carry_um == 0 {
+            state.route_edge_index.saturating_sub(1)
+        } else {
+            state.route_edge_index
+        };
+        let read = self.conflict_read();
+        let outsider = crate::VehicleHandle::new(u32::MAX, u32::MAX);
+        let mut index = compiled
+            .conflicts
+            .partition_point(|entry| entry.admission_hop < first_hop);
+        while index < compiled.conflicts.len() {
+            let hop = compiled.conflicts[index].admission_hop;
+            let mut owned = false;
+            while index < compiled.conflicts.len() && compiled.conflicts[index].admission_hop == hop
+            {
+                let address = compiled.conflicts[index].address();
+                if read.cells_unavailable(outsider, std::slice::from_ref(&address)) {
+                    owned = true;
+                }
+                index = index.saturating_add(1);
+            }
+            if !owned {
+                continue;
+            }
+            let Some(stop_index) = usize::try_from(hop).ok().and_then(|hop| hop.checked_add(1))
+            else {
+                return OccupiedConflictPreview::Unprovable;
+            };
+            let Some(distance) = distance_to_occurrence_start(
+                &compiled.occurrence_segments,
+                &compiled.occurrence_offsets,
+                &compiled.segment_totals,
+                state.route_edge_index as usize,
+                state.progress_mm,
+                stop_index,
+            ) else {
+                return OccupiedConflictPreview::Unprovable;
+            };
+            return match distance {
+                BoundedDistance::Finite(_) => {
+                    OccupiedConflictPreview::Stop(crate::kernel::waiting::WaitingStopConstraint {
+                        distance,
+                        hop,
+                    })
+                }
+                BoundedDistance::BeyondFinite => OccupiedConflictPreview::Clear,
+            };
+        }
+        OccupiedConflictPreview::Clear
     }
 
     #[allow(clippy::too_many_arguments)]
