@@ -516,8 +516,9 @@ fn formal_right_turn_red_uses_compiled_policy_and_still_yields() {
         let [right_turn, priority_route] = right_turn_routes(&mut world);
         let subject = at_gate(&mut world, right_turn);
         if priority_approach {
+            // 已经在路上的优先车。新鲜摆放会因右转车在门前停不住而拒绝。
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
+                .place_existing_active_vehicle(VehicleSpawnInput::new(
                     VehicleProfileOrdinal::from_raw(0),
                     priority_route,
                     0,
