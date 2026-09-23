@@ -1704,6 +1704,9 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 }
                 index = index.saturating_add(1);
             }
+            if !owned && self.downstream_storage_unavailable(state, hop) {
+                owned = true;
+            }
             if !owned {
                 continue;
             }
@@ -1736,12 +1739,92 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 
     /// 已有车这一拍也会申请这个冲突区，新车的通行权没有保证。
     /// 名单还没按当前序号建好，或这个区不在名单里时，按会有人来抢处理。
+    /// 停在拒绝门前、这一拍不会提出申请的车不在这个名单里。
     fn conflict_zone_contended(self, zone: laneflow_static_contract::ConflictZoneOrdinal) -> bool {
         let contenders = &self.derived.spawn_contenders;
         if contenders.built_sequence != Some(self.committed.observation_state_sequence) {
             return true;
         }
         contenders.counts.get(zone.index()).copied().unwrap_or(1) > 0
+    }
+
+    /// 这一跳的下游放不下车身，或者会越过下一道门，通行权给不出来。
+    fn downstream_storage_unavailable(self, state: &VehicleState, hop: u32) -> bool {
+        let Some(compiled) = self.compiled_route(state.route) else {
+            return true;
+        };
+        let Some(hop_index) = usize::try_from(hop).ok() else {
+            return true;
+        };
+        let Some(range) = compiled.conflict_gate_ranges.get(hop_index) else {
+            return true;
+        };
+        if range.len == 0 {
+            return false;
+        }
+        let maneuver_index = u32::try_from(
+            compiled
+                .maneuvers
+                .partition_point(|entry| entry.exit_route_edge_index <= hop),
+        )
+        .unwrap_or(u32::MAX);
+        let Some(passage) = crate::ConflictPassageRange::new(
+            state.route,
+            maneuver_index,
+            hop,
+            range.start,
+            range.len,
+        ) else {
+            return true;
+        };
+        let plan = match self.reservation_downstream_claim_plan(passage, state.length_mm) {
+            Ok(plan) => plan,
+            Err(_) => return true,
+        };
+        let target = plan.target();
+        let required = match distance_to_occurrence_progress(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            state.route_edge_index as usize,
+            state.progress_mm,
+            target.route_edge_index() as usize,
+            target.progress_mm(),
+        ) {
+            Some(BoundedDistance::Finite(value)) => value,
+            Some(BoundedDistance::BeyondFinite) | None => return true,
+        };
+        let Some(profile) = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+        else {
+            return true;
+        };
+        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
+        let leader_gap = self.derived.occupancy.leader_gap(
+            state.handle,
+            &compiled.edges,
+            state.route_edge_index as usize,
+            state.progress_mm,
+            lengths,
+            crate::kernel::occupancy::LeaderQueryHorizon::new(u32::MAX, u32::MAX),
+        );
+        if leader_gap.is_some_and(|gap| {
+            gap < i64::from(required).saturating_add(i64::from(profile.min_gap_mm()))
+        }) {
+            return true;
+        }
+        let Some(next_gate) = compiled.gate_hops.iter().copied().find(|item| *item > hop) else {
+            return false;
+        };
+        let Some(boundary) = crate::DownstreamRoutePoint::new(next_gate.saturating_add(1), 0, 0)
+        else {
+            return true;
+        };
+        plan.target() > boundary
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1840,9 +1923,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         }
         // 信号链看不到没有信号组的拒绝门。这一拍够得到时，硬房间算到那道门，
         // 不能等 apply_travel 截断后还留着原来的速度。
-        if let Some(gate_stop) =
-            self.restrictive_gate_stop(compiled, edges, lengths, &state, cursor, reach)
-        {
+        if let Some(gate_stop) = self.restrictive_gate_stop(compiled, &state, cursor, reach) {
             movement_stop = match movement_stop {
                 Some(current) if !stop_is_nearer_or_equal(gate_stop, current) => Some(current),
                 Some(_) | None => Some(gate_stop),
@@ -2115,35 +2196,38 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         None
     }
 
-    /// 沿 `hop_gate` 找这一拍够得到的最近拒绝门，含没有信号组的门。
+    /// 沿实际有门的 hop 找这一拍够得到的最近拒绝门，含没有信号组的门。
     ///
     /// 距离算到该 hop 的边末，与 `apply_travel_mm` 停住的位置相同。超出本拍上界就停，
     /// 更远的门留到后面的拍。
     fn restrictive_gate_stop(
         self,
         compiled: &CompiledRoute,
-        edges: &[LaneEdgeOrdinal],
-        lengths: &[u32],
         state: &VehicleState,
         cursor: usize,
         reach: Option<MotionReach>,
     ) -> Option<BoundedDistance> {
-        let mut distance = 0u32;
-        for hop in cursor..edges.len().saturating_sub(1) {
-            let edge = *edges.get(hop)?;
-            let length = *lengths.get(edge.index())?;
-            let step = if hop == cursor {
-                length.saturating_sub(state.progress_mm)
-            } else {
-                length
+        let cursor_hop = u32::try_from(cursor).ok()?;
+        let start = compiled.gate_hops.partition_point(|hop| *hop < cursor_hop);
+        for hop in compiled.gate_hops[start..].iter().copied() {
+            let stop_index = usize::try_from(hop).ok()?.checked_add(1)?;
+            let BoundedDistance::Finite(distance) = distance_to_occurrence_start(
+                &compiled.occurrence_segments,
+                &compiled.occurrence_offsets,
+                &compiled.segment_totals,
+                cursor,
+                state.progress_mm,
+                stop_index,
+            )?
+            else {
+                return None;
             };
-            distance = distance.saturating_add(step);
             if reach.is_some_and(|reach| reach.excludes(distance)) {
                 return None;
             }
             if compiled
                 .hop_gate
-                .get(hop)
+                .get(usize::try_from(hop).ok()?)
                 .copied()
                 .flatten()
                 .is_some_and(|gate| self.gate_is_restrictive(gate, state.profile))
