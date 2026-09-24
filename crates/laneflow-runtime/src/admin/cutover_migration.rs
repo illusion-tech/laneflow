@@ -2887,7 +2887,29 @@ pub(crate) mod tests {
         conflict_frontier_revision(false, true)
     }
 
+    /// 冲突夹具共享静态路网按参数在进程内只构建一次：全管线（Road Editing
+    /// 来源写入 → 编译 → 可移植发射与后发射检查 → 建网）是测试套件主成本
+    /// （#748 成本契约）；测试只读共享修订，世界状态由各测试自建。
+    type ConflictRevisionCache =
+        std::collections::BTreeMap<(bool, bool), Arc<SharedNetworkRevision>>;
+
+    static CONFLICT_FRONTIER_CACHE: std::sync::LazyLock<std::sync::Mutex<ConflictRevisionCache>> =
+        std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::BTreeMap::new()));
+
     pub(crate) fn conflict_frontier_revision(
+        multiple_passages: bool,
+        long_approaches: bool,
+    ) -> Arc<SharedNetworkRevision> {
+        CONFLICT_FRONTIER_CACHE
+            .lock()
+            .unwrap()
+            .entry((multiple_passages, long_approaches))
+            .or_insert_with(|| build_conflict_frontier_revision(multiple_passages, long_approaches))
+            .clone()
+    }
+
+    /// 绕过缓存的全新构建入口（缓存实现与 #748 等价性测试使用）。
+    fn build_conflict_frontier_revision(
         multiple_passages: bool,
         long_approaches: bool,
     ) -> Arc<SharedNetworkRevision> {
@@ -2946,6 +2968,24 @@ pub(crate) mod tests {
             ),
         )
         .expect("Conflict scale shared revision")
+    }
+
+    /// 缓存只复用构建产物，不改变夹具内容：命中必须返回同一 `Arc`，且与
+    /// 全新构建产出同一 `NetworkRevisionId`（#748 等价性护栏）。
+    #[test]
+    fn conflict_frontier_cache_matches_fresh_build() {
+        let cached = conflict_frontier_revision(false, true);
+        let cached_again = conflict_frontier_revision(false, true);
+        assert!(
+            Arc::ptr_eq(&cached, &cached_again),
+            "cache hit must reuse the same revision"
+        );
+        let fresh = build_conflict_frontier_revision(false, true);
+        assert_eq!(
+            cached.network_revision(),
+            fresh.network_revision(),
+            "cached and fresh revisions must be identical"
+        );
     }
 
     pub(crate) fn conflict_scale_world(
