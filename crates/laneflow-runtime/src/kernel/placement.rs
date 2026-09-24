@@ -1545,13 +1545,33 @@ impl crate::kernel::state::WorldState {
             return Err(FreshAdmissionFailure::UnsafeLeader(contact.vehicle));
         }
         let state = preview_vehicle(input, profile, vehicle_length_mm);
+        let Some(preview) = self
+            .read_view()
+            .preview_active_vehicle_with_waiting_stop(state, delta_s, None, None)
+        else {
+            return Err(FreshAdmissionFailure::UnsafeLeader(contact.vehicle));
+        };
+        let notes = self.contender_notes(
+            &state,
+            update_sequence,
+            preview.next,
+            profile.max_accel(),
+            profile.emergency_decel(),
+            profile.min_gap_mm(),
+        );
+        if take_note_alloc() {
+            return Err(FreshAdmissionFailure::OccupancyAlloc);
+        }
+        let Some(notes) = notes else {
+            return Err(FreshAdmissionFailure::UnsafeLeader(contact.vehicle));
+        };
         let motion = match self.read_view().placement_motion(
             state,
             Some(contact.gap_mm),
             false,
             update_sequence,
             None,
-            &[],
+            &notes.cells,
         ) {
             Ok(motion) => motion,
             Err(PlacementMotionError::Alloc) => return Err(FreshAdmissionFailure::OccupancyAlloc),

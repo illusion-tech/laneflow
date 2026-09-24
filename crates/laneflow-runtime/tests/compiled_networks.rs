@@ -3340,6 +3340,64 @@ fn accepted_spawn_step_stays_inside_the_emergency_envelope() {
 }
 
 #[test]
+fn leader_preview_includes_the_candidate_approach() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                yielding: true,
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(8, 4, 64, 4, 100)).expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    let yield_edge = world.route_edges(routes[0]).expect("yield route")[0];
+    let yield_length = world.traffic().lane_lengths_millimetres()[yield_edge.index()];
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            yield_length.saturating_sub(5),
+            0,
+        ))
+        .expect("earlier yielding vehicle already at the gate");
+    let priority_edges = world.route_edges(routes[1]).expect("priority").to_vec();
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            2,
+            2_000,
+            0,
+        ))
+        .unwrap_or_else(|error| {
+            panic!(
+                "stopped leader on the next edge, edges {}: {error}",
+                priority_edges.len()
+            )
+        });
+    let cursor = world.command_cursor();
+    let admitted = world.spawn_vehicle(VehicleSpawnInput::new(
+        VehicleProfileOrdinal::from_raw(0),
+        routes[1],
+        0,
+        1_000,
+        10_000,
+    ));
+    assert!(
+        admitted.is_ok(),
+        "candidate approach must keep the earlier yielder from inventing UnsafeLeader, got {admitted:?}, cursor {cursor}"
+    );
+    assert!(world.command_cursor() > cursor);
+}
+
+#[test]
 fn priority_then_yield_does_not_newly_stop_the_first_vehicle_past_the_envelope() {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
     let mut world =
