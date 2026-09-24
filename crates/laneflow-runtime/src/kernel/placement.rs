@@ -2395,7 +2395,7 @@ fn proved_motion(
 }
 
 /// 新车若会让已经在路上的车这一拍超出紧急制动，拒绝这次生成。
-/// 旧车本来就会急停的，不算这次造成的。
+/// 旧车本来就会急停的，不算这次造成的。没有路口申请的路线仍要看车身占住的下游。
 fn reject_existing_hard_stop(
     world: &mut crate::kernel::state::WorldState,
     candidate: VehicleState,
@@ -2403,43 +2403,54 @@ fn reject_existing_hard_stop(
     profile: laneflow_static_network::VehicleProfileView,
     delta_s: f32,
 ) -> Result<(), FreshAdmissionFailure> {
-    if !world.route_needs_contender(candidate.route) {
-        return Ok(());
-    }
-    let Some(preview) = world
-        .read_view()
-        .preview_active_vehicle_with_waiting_stop(candidate, delta_s, None, None)
-    else {
-        return Err(FreshAdmissionFailure::StopConstraint);
-    };
-    let notes = world.contender_notes(
-        &candidate,
-        update_sequence,
-        preview.next,
-        profile.max_accel(),
-        profile.emergency_decel(),
-        profile.min_gap_mm(),
-    );
-    if take_note_alloc() {
-        return Err(FreshAdmissionFailure::OccupancyAlloc);
-    }
-    let Some(notes) = notes else {
-        return Err(FreshAdmissionFailure::StopConstraint);
-    };
-    let (candidate_blocked_at, candidate_claims) = match world.read_view().candidate_hold(
-        &candidate,
-        update_sequence,
-        notes.ranks.first().map(|(_, _, hop)| *hop),
-        &notes.cells,
-    ) {
-        Ok(hold) => hold,
-        Err(super::tick::PlacementMotionError::Alloc) => {
-            return Err(FreshAdmissionFailure::OccupancyAlloc);
-        }
-        Err(super::tick::PlacementMotionError::Unprovable) => {
-            return Err(FreshAdmissionFailure::StopConstraint);
-        }
-    };
+    let (notes, candidate_blocked_at, candidate_claims) =
+        if world.route_needs_contender(candidate.route) {
+            let Some(preview) = world
+                .read_view()
+                .preview_active_vehicle_with_waiting_stop(candidate, delta_s, None, None)
+            else {
+                return Err(FreshAdmissionFailure::StopConstraint);
+            };
+            let notes = world.contender_notes(
+                &candidate,
+                update_sequence,
+                preview.next,
+                profile.max_accel(),
+                profile.emergency_decel(),
+                profile.min_gap_mm(),
+            );
+            if take_note_alloc() {
+                return Err(FreshAdmissionFailure::OccupancyAlloc);
+            }
+            let Some(notes) = notes else {
+                return Err(FreshAdmissionFailure::StopConstraint);
+            };
+            let (candidate_blocked_at, candidate_claims) = match world.read_view().candidate_hold(
+                &candidate,
+                update_sequence,
+                notes.ranks.first().map(|(_, _, hop)| *hop),
+                &notes.cells,
+            ) {
+                Ok(hold) => hold,
+                Err(super::tick::PlacementMotionError::Alloc) => {
+                    return Err(FreshAdmissionFailure::OccupancyAlloc);
+                }
+                Err(super::tick::PlacementMotionError::Unprovable) => {
+                    return Err(FreshAdmissionFailure::StopConstraint);
+                }
+            };
+            (notes, candidate_blocked_at, candidate_claims)
+        } else {
+            (
+                ContenderNotes {
+                    cells: Vec::new(),
+                    ranks: Vec::new(),
+                    waiting: None,
+                },
+                None,
+                Vec::new(),
+            )
+        };
     let targets =
         world.recheck_targets(&candidate, &notes, &candidate_claims, profile.min_gap_mm())?;
     for (existing_sequence, handle) in targets {
