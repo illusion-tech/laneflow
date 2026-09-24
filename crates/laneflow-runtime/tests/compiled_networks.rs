@@ -51,12 +51,11 @@ use laneflow_runtime::{
 };
 #[cfg(feature = "placement-fixtures")]
 use laneflow_static_contract::RightOfWayPolicySetOrdinal;
-#[cfg(feature = "placement-fixtures")]
-use laneflow_static_contract::VehicleProfileId;
 use laneflow_static_contract::{
     AccessEffect, ConflictZoneOrdinal, EntityKind, LaneEdgeId, ParkingFacilityOrdinal,
     ParkingSpaceOrdinal, ParticipantStreamOrdinal, PortableObjectKind,
-    SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest, SignalAspect, VehicleProfileOrdinal,
+    SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest, SignalAspect, VehicleProfileId,
+    VehicleProfileOrdinal,
 };
 use laneflow_static_network::{
     ConflictPathAnchor, SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision,
@@ -479,6 +478,332 @@ fn conflict_yield_road_editing_module() -> lfre::RoadEditingSourceModule {
     )
 }
 
+/// 两条路共用同一条出口。长路只有一道门，车身会占到出口上；短路从另一侧进入同一条出口。
+fn shared_downstream_road_editing_module() -> lfre::RoadEditingSourceModule {
+    let limits = CompileLimits::p100_initial_v2();
+    let header = lfre::RoadEditingModuleHeader::try_new(
+        "city/runtime-conflict",
+        "runtime-conflict.lfre",
+        Vec::new(),
+        lfre::RoadEditingProvenance::direct("runtime conflict fixture").expect("provenance"),
+    )
+    .expect("Road Editing header");
+    let mut module = lfre::RoadEditingSourceModuleBuilder::new(
+        header,
+        GeometryAccuracyProfile::Balanced5Cm,
+        GeometryDirectionProfile::Balanced2Deg,
+        &limits,
+    )
+    .expect("Road Editing builder");
+    let junction = lfre::JunctionReference::local("crossing").expect("junction reference");
+    let approach_zone =
+        lfre::ConflictZoneReference::owner_scoped(vec!["crossing".to_owned()], "approach-zone")
+            .expect("approach zone");
+    let exit_zone =
+        lfre::ConflictZoneReference::owner_scoped(vec!["crossing".to_owned()], "exit-zone")
+            .expect("exit zone");
+    let frame = lfre::CanonicalFrameReference::local("frame-main").expect("frame reference");
+    module
+        .add_declaration(lfre::RoadEditingDeclaration::CanonicalFrame(
+            lfre::CanonicalFrameInput::try_new("frame-main").expect("canonical frame"),
+        ))
+        .expect("add canonical frame");
+    for (edge, start, end) in [
+        ("east-entry", (-13.0, 0.0), (0.0, 0.0)),
+        ("west-approach", (0.0, 0.0), (13.0, 0.0)),
+        ("west-exit", (13.0, 0.0), (26.0, 0.0)),
+    ] {
+        let successors = if edge == "west-approach" {
+            vec![lfre::LaneEdgeReference::local("west-exit").expect("exit successor")]
+        } else {
+            Vec::new()
+        };
+        add_road_editing_approach(&mut module, edge, road_editing_line(start, end), successors);
+    }
+    module
+        .add_declaration(lfre::RoadEditingDeclaration::LaneEdge(
+            lfre::LaneEdgeInput::try_new(
+                "east-internal",
+                13.0,
+                Vec::new(),
+                Some(road_editing_line((0.0, 0.0), (13.0, 0.0))),
+            )
+            .expect("internal lane edge"),
+        ))
+        .expect("add internal lane edge");
+    module
+        .add_declaration(lfre::RoadEditingDeclaration::Junction(
+            lfre::JunctionInput::try_new(
+                "crossing",
+                ["east-entry", "west-approach", "west-exit"]
+                    .into_iter()
+                    .map(|key| lfre::LaneEdgeReference::local(key).expect("approach edge"))
+                    .collect(),
+                vec![lfre::LaneEdgeReference::local("east-internal").expect("internal edge")],
+            )
+            .expect("junction"),
+        ))
+        .expect("add junction")
+        .add_declaration(lfre::RoadEditingDeclaration::ConflictZone(
+            lfre::ConflictZoneInput::try_new("approach-zone", junction.clone())
+                .expect("approach conflict zone"),
+        ))
+        .expect("add approach zone")
+        .add_declaration(lfre::RoadEditingDeclaration::ConflictZone(
+            lfre::ConflictZoneInput::try_new("exit-zone", junction.clone()).expect("exit zone"),
+        ))
+        .expect("add exit zone");
+    let east_movement = lfre::MovementReference::owner_scoped(vec!["crossing".into()], "east-west")
+        .expect("movement reference");
+    let east_path = lfre::ManeuverPathReference::owner_scoped(
+        vec!["crossing".into(), "east-west".into()],
+        "east-west-path",
+    )
+    .expect("path reference");
+    let exit_movement = lfre::MovementReference::owner_scoped(vec!["crossing".into()], "exit-move")
+        .expect("exit movement reference");
+    let exit_path = lfre::ManeuverPathReference::owner_scoped(
+        vec!["crossing".into(), "exit-move".into()],
+        "exit-path",
+    )
+    .expect("exit path reference");
+    module
+        .add_declaration(lfre::RoadEditingDeclaration::Movement(
+            lfre::MovementInput::try_new("east-west", junction.clone(), "east-entry", "west-exit")
+                .expect("movement"),
+        ))
+        .expect("add movement")
+        .add_declaration(lfre::RoadEditingDeclaration::Movement(
+            lfre::MovementInput::try_new(
+                "exit-move",
+                junction.clone(),
+                "west-approach",
+                "west-exit",
+            )
+            .expect("exit movement"),
+        ))
+        .expect("add exit movement")
+        .add_declaration(lfre::RoadEditingDeclaration::ManeuverPath(
+            lfre::ManeuverPathInput::try_new(
+                "east-west-path",
+                east_movement,
+                lfre::LaneEdgeReference::local("east-entry").expect("entry edge"),
+                vec![lfre::LaneEdgeReference::local("east-internal").expect("internal edge")],
+                lfre::LaneEdgeReference::local("west-exit").expect("exit edge"),
+            )
+            .expect("maneuver path"),
+        ))
+        .expect("add maneuver path")
+        .add_declaration(lfre::RoadEditingDeclaration::ManeuverPath(
+            lfre::ManeuverPathInput::try_new(
+                "exit-path",
+                exit_movement,
+                lfre::LaneEdgeReference::local("west-approach").expect("west approach"),
+                Vec::new(),
+                lfre::LaneEdgeReference::local("west-exit").expect("exit edge"),
+            )
+            .expect("exit maneuver path"),
+        ))
+        .expect("add exit maneuver path")
+        .add_declaration(lfre::RoadEditingDeclaration::StopLine(
+            lfre::StopLineInput::try_new(
+                "east-stop",
+                lfre::LaneEdgeReference::local("east-entry").expect("stop edge"),
+            )
+            .expect("stop line"),
+        ))
+        .expect("add stop line")
+        .add_declaration(lfre::RoadEditingDeclaration::StopLine(
+            lfre::StopLineInput::try_new(
+                "west-stop",
+                lfre::LaneEdgeReference::local("west-approach").expect("west stop edge"),
+            )
+            .expect("west stop line"),
+        ))
+        .expect("add west stop line")
+        .add_declaration(lfre::RoadEditingDeclaration::ManeuverGate(
+            lfre::ManeuverGateInput::try_new(
+                "east-west-gate",
+                east_path.clone(),
+                0,
+                lfre::StopLineReference::local("east-stop").expect("stop line reference"),
+                lfre::RoadEditingSignalControl::None,
+            )
+            .expect("admission gate"),
+        ))
+        .expect("add admission gate")
+        .add_declaration(lfre::RoadEditingDeclaration::ManeuverGate(
+            lfre::ManeuverGateInput::try_new(
+                "exit-gate",
+                exit_path.clone(),
+                0,
+                lfre::StopLineReference::local("west-stop").expect("west stop reference"),
+                lfre::RoadEditingSignalControl::None,
+            )
+            .expect("exit gate"),
+        ))
+        .expect("add exit gate");
+    for (stream_key, zone, path, entry, exit) in [
+        (
+            "approach-a",
+            approach_zone.clone(),
+            east_path.clone(),
+            (1_u32, 2.0),
+            (1_u32, 12.5),
+        ),
+        ("approach-b", approach_zone, east_path, (1, 2.4), (1, 12.2)),
+        (
+            "exit-a",
+            exit_zone.clone(),
+            exit_path.clone(),
+            (1, 1.0),
+            (1, 4.0),
+        ),
+        ("exit-b", exit_zone, exit_path, (1, 1.4), (1, 4.4)),
+    ] {
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::ParticipantStream(
+                lfre::ParticipantStreamInput::try_new(
+                    stream_key,
+                    junction.clone(),
+                    path,
+                    vec![lfre::ConflictPassageInput::new(
+                        zone,
+                        lfre::PathAnchorInput::interior(entry.0, entry.1).expect("entry anchor"),
+                        lfre::PathAnchorInput::interior(exit.0, exit.1).expect("exit anchor"),
+                    )],
+                )
+                .expect("participant stream"),
+            ))
+            .expect("add participant stream");
+    }
+    for (zone, key_offset) in [
+        (
+            lfre::ConflictZoneReference::owner_scoped(vec!["crossing".to_owned()], "approach-zone")
+                .expect("approach zone region"),
+            0.0,
+        ),
+        (
+            lfre::ConflictZoneReference::owner_scoped(vec!["crossing".to_owned()], "exit-zone")
+                .expect("exit zone region"),
+            20.0,
+        ),
+    ] {
+        let shift = key_offset;
+        module
+            .add_conflict_zone_region(
+                lfre::ConflictZoneRegionInput::try_new(
+                    zone,
+                    frame.clone(),
+                    -1.0,
+                    1.0,
+                    [
+                        (-1.0 + shift, -1.0),
+                        (1.0 + shift, -1.0),
+                        (1.0 + shift, 1.0),
+                        (-1.0 + shift, 1.0),
+                    ]
+                    .into_iter()
+                    .map(|(x, z)| lfre::RoadEditingPoint2::try_new(x, z).expect("region point"))
+                    .collect(),
+                )
+                .expect("conflict zone region"),
+            )
+            .expect("add conflict zone region");
+    }
+    let participant =
+        lfre::ParticipantClassReference::local("road-user").expect("participant class reference");
+    module
+        .add_declaration(lfre::RoadEditingDeclaration::ParticipantClass(
+            lfre::ParticipantClassInput::try_new("road-user").expect("participant class"),
+        ))
+        .expect("add participant class")
+        .add_declaration(lfre::RoadEditingDeclaration::VehicleProfile(
+            lfre::VehicleProfileInput::try_new(
+                "car",
+                participant.clone(),
+                lfre::IidmVehicleProfileInput::try_new(4.5, 13.0, 2.0, 1.5, 1.5, 2.0, 4.0)
+                    .expect("car profile"),
+            )
+            .expect("car profile"),
+        ))
+        .expect("add car")
+        .add_declaration(lfre::RoadEditingDeclaration::VehicleProfile(
+            lfre::VehicleProfileInput::try_new(
+                "dot",
+                participant,
+                lfre::IidmVehicleProfileInput::try_new(0.1, 13.0, 0.2, 1.5, 1.5, 2.0, 4.0)
+                    .expect("dot profile"),
+            )
+            .expect("dot profile"),
+        ))
+        .expect("add dot");
+    let policy_gates = [
+        (
+            "east-west-gate",
+            vec![
+                "crossing".to_owned(),
+                "east-west".to_owned(),
+                "east-west-path".to_owned(),
+            ],
+        ),
+        (
+            "exit-gate",
+            vec![
+                "crossing".to_owned(),
+                "exit-move".to_owned(),
+                "exit-path".to_owned(),
+            ],
+        ),
+    ]
+    .into_iter()
+    .map(|(gate, owners)| {
+        lfre::PolicyGateRuleInput::try_new(
+            gate,
+            lfre::ManeuverGateReference::owner_scoped(owners, gate).expect("gate reference"),
+            None,
+            laneflow_compiler::GateInterpretation::Uncontrolled,
+            laneflow_compiler::GateProhibition::None,
+            vec![],
+        )
+        .expect("policy gate")
+    })
+    .collect();
+    let policy_streams = ["approach-a", "approach-b", "exit-a", "exit-b"]
+        .into_iter()
+        .map(|key| {
+            lfre::PolicyStreamRuleInput::try_new(
+                key,
+                lfre::ParticipantStreamReference::owner_scoped(vec!["crossing".into()], key)
+                    .expect("stream reference"),
+                None,
+                0,
+                Vec::new(),
+                None,
+                vec![],
+            )
+            .expect("policy stream")
+        })
+        .collect();
+    module
+        .add_declaration(lfre::RoadEditingDeclaration::RightOfWayPolicySet(
+            lfre::RightOfWayPolicySetInput::try_new(
+                "conflict-policy",
+                laneflow_compiler::RegulationIdentity::try_new("engineering", "fixture-1")
+                    .expect("regulation")
+                    .with_source("repository:runtime-fixture-1")
+                    .expect("regulation source"),
+                vec![],
+                Vec::new(),
+                policy_streams,
+                policy_gates,
+            )
+            .expect("policy set"),
+        ))
+        .expect("add policy");
+    module.finish().expect("Road Editing module")
+}
+
 #[cfg(feature = "placement-fixtures")]
 fn conflict_calibration_road_editing_module() -> lfre::RoadEditingSourceModule {
     conflict_road_editing_module_with_shape_and_speed(
@@ -547,6 +872,7 @@ struct ConflictPolicyFixture {
     conflict_after_release: bool,
     waiting_on_north_only: bool,
     resource_free_release: bool,
+    equal_priority: bool,
 }
 
 fn conflict_road_editing_module_with_shape_and_speed(
@@ -572,6 +898,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
         conflict_after_release,
         waiting_on_north_only,
         resource_free_release,
+        equal_priority,
     } = policy_fixture;
     assert!(stream_count <= 2);
     assert!(!multiplicity || (include_conflict && stream_count == 2));
@@ -1164,7 +1491,11 @@ fn conflict_road_editing_module_with_shape_and_speed(
                 lfre::ParticipantStreamReference::owner_scoped(vec!["crossing".into()], *key)
                     .unwrap(),
                 None,
-                i32::try_from(index).expect("fixture stream priority"),
+                if equal_priority {
+                    0
+                } else {
+                    i32::try_from(index).expect("fixture stream priority")
+                },
                 yield_to,
                 (yielding && index == 0).then(|| gap_profile_key.to_owned()),
                 vec![],
@@ -2489,6 +2820,236 @@ fn fresh_spawn_waiting_fullness_follows_this_tick_reach() {
             route,
             0,
             length - 200,
+            10_000,
+        )),
+        Err(SpawnError::StopConstraintUnsatisfiable)
+    );
+}
+
+fn conflict_profile(revision: &SharedNetworkRevision, key: &str) -> VehicleProfileOrdinal {
+    let stable = derive_canonical_stable_id_v1(
+        EntityKind::VehicleProfile,
+        "city/runtime-conflict",
+        key,
+        &CompileLimits::p100_initial_v2(),
+    )
+    .expect("profile identity");
+    revision
+        .identity()
+        .ordinal(VehicleProfileId::from_untyped(stable))
+        .expect("profile ordinal")
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn replace_keeps_the_completed_vehicle_rank() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                equal_priority: true,
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let mut later =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 4, 100)).expect("later");
+    let later_routes = yield_routes(&mut later, revision.as_ref());
+    let foe_edge = later.route_edges(later_routes[1]).expect("foe route")[0];
+    let foe_length = later.traffic().lane_lengths_millimetres()[foe_edge.index()];
+    later
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            later_routes[1],
+            0,
+            foe_length,
+            0,
+        ))
+        .expect("stopped contender already at the gate");
+    let subject_edge = later.route_edges(later_routes[0]).expect("subject route")[0];
+    let subject_length = later.traffic().lane_lengths_millimetres()[subject_edge.index()];
+    assert_eq!(
+        later.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            later_routes[0],
+            0,
+            subject_length - 400,
+            10_000,
+        )),
+        Err(SpawnError::StopConstraintUnsatisfiable),
+        "a later rank loses to the stopped contender"
+    );
+
+    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).expect("replace");
+    let held = world.revision();
+    let routes = yield_routes(&mut world, held.as_ref());
+    let edges = world.route_edges(routes[0]).expect("edges").to_vec();
+    let last_index = u32::try_from(edges.len() - 1).expect("index fits u32");
+    let last_length =
+        world.traffic().lane_lengths_millimetres()[edges[last_index as usize].index()];
+    let completed = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            last_index,
+            last_length,
+            0,
+        ))
+        .expect("spawn at the route end");
+    world.step(TickInput::new(100)).expect("complete");
+    assert_eq!(
+        world.vehicle(completed).expect("retained").status(),
+        VehicleStatus::Completed
+    );
+    let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
+    let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
+    let contender = world
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            foe_length,
+            0,
+        ))
+        .expect("later stopped contender");
+    assert_eq!(world.live_vehicles(), &[completed, contender]);
+    let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
+    let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
+    let record = world
+        .replace_completed_vehicle(
+            completed,
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                subject_length - 400,
+                10_000,
+            ),
+        )
+        .expect("the completed vehicle's old rank still sorts first");
+    assert!(world.vehicle(record.new).is_some());
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn fresh_spawn_rebuilds_contenders_when_the_world_generation_changes() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
+    let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            foe_length - 2_500,
+            10_000,
+        ))
+        .expect("foe beyond one tick");
+    assert!(
+        world.detach_contender_cache_generation_for_test(),
+        "generation must advance while the emptied cache still names the old one"
+    );
+    let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
+    let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
+    assert_eq!(
+        world.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            subject_length - 400,
+            10_000,
+        )),
+        Err(SpawnError::StopConstraintUnsatisfiable)
+    );
+}
+
+fn shared_downstream_paths(
+    revision: &SharedNetworkRevision,
+) -> (
+    Vec<laneflow_static_contract::LaneEdgeOrdinal>,
+    Vec<laneflow_static_contract::LaneEdgeOrdinal>,
+) {
+    let mut paths = Vec::new();
+    for raw in 0..4 {
+        let stream = revision
+            .conflict()
+            .participant_stream(ParticipantStreamOrdinal::from_raw(raw))
+            .expect("stream");
+        let edges = revision
+            .traffic()
+            .maneuvers()
+            .maneuver_path(stream.maneuver_path())
+            .expect("path")
+            .edges()
+            .to_vec();
+        if !paths.iter().any(|existing: &Vec<_>| existing == &edges) {
+            paths.push(edges);
+        }
+    }
+    paths.sort_by_key(|edges| std::cmp::Reverse(edges.len()));
+    let long = paths.remove(0);
+    let short = paths.remove(0);
+    (long, short)
+}
+
+#[test]
+fn fresh_spawn_stops_for_an_earlier_vehicles_staged_downstream_claim() {
+    let revision = compile_road_editing_revision(shared_downstream_road_editing_module());
+    let car = conflict_profile(revision.as_ref(), "car");
+    let dot = conflict_profile(revision.as_ref(), "dot");
+    let (long_edges, short_edges) = shared_downstream_paths(revision.as_ref());
+    let mut open =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 16, 100)).expect("open");
+    let open_long = open
+        .register_route(RouteRegisterInput::new(long_edges.clone()))
+        .expect("long route");
+    let open_short = open
+        .register_route(RouteRegisterInput::new(short_edges.clone()))
+        .expect("short route");
+    let short_length = open.traffic().lane_lengths_millimetres()[short_edges[0].index()];
+    open.spawn_vehicle(VehicleSpawnInput::new(car, open_long, 0, 0, 0))
+        .expect("vehicle that does not reach the first gate");
+    open.spawn_vehicle(VehicleSpawnInput::new(
+        dot,
+        open_short,
+        0,
+        short_length - 400,
+        10_000,
+    ))
+    .expect("a vehicle that will not enter this tick does not stage a claim");
+
+    let mut world =
+        install_fixture(revision.clone(), WorldConfig::new(4, 4, 64, 16, 100)).expect("blocked");
+    let long = world
+        .register_route(RouteRegisterInput::new(long_edges.clone()))
+        .expect("long route");
+    let short = world
+        .register_route(RouteRegisterInput::new(short_edges))
+        .expect("short route");
+    let entry_length = world.traffic().lane_lengths_millimetres()[long_edges[0].index()];
+    let short_length = world.traffic().lane_lengths_millimetres()
+        [world.route_edges(short).expect("short")[0].index()];
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            car,
+            long,
+            0,
+            entry_length - 400,
+            10_000,
+        ))
+        .expect("first vehicle acquires and stages the shared exit");
+    assert_eq!(
+        world.spawn_vehicle(VehicleSpawnInput::new(
+            dot,
+            short,
+            0,
+            short_length - 400,
             10_000,
         )),
         Err(SpawnError::StopConstraintUnsatisfiable)
