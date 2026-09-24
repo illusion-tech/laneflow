@@ -488,6 +488,43 @@ fn admit_initial_plans_rolls_back_a_partial_batch() {
 
 #[cfg(feature = "placement-fixtures")]
 #[test]
+fn allocation_failure_does_not_lower_corridor_initial_speed() {
+    let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::new(64, 28, 1_024, 1_024, TICK_MS),
+    )
+    .expect("install");
+    let mut plans = prepared.take_initial_vehicles();
+    let saved = plans
+        .iter()
+        .map(|plan| plan.initial_speed_mm_s)
+        .collect::<Vec<_>>();
+    let routes = prepared
+        .install_routes(&mut world)
+        .expect("install catalog routes");
+    laneflow_runtime::set_contender_reserve_failure(true);
+    let error = prepared
+        .admit_initial_plans(&mut world, &routes, &mut plans)
+        .expect_err("allocation failure");
+    laneflow_runtime::set_contender_reserve_failure(false);
+    assert!(matches!(
+        error,
+        CorridorPopulationError::InitialSpawnRejected { .. }
+    ));
+    assert!(world.live_vehicles().is_empty());
+    assert_eq!(
+        plans
+            .iter()
+            .map(|plan| plan.initial_speed_mm_s)
+            .collect::<Vec<_>>(),
+        saved
+    );
+    assert_eq!(prepared.slot_initial_speed_mm_s(0), saved[0]);
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
 fn admit_initial_plans_restores_a_dropped_speed_when_a_later_vehicle_cannot_enter() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
