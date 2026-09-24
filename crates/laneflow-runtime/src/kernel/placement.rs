@@ -1953,11 +1953,13 @@ impl crate::kernel::state::WorldState {
             .any(|edge| body.iter().any(|interval| interval.edge() == *edge))
     }
 
-    /// 这次新车可能碰到的已有车：后车、同区申请者、让行格点上的车、车身下游和排队入口。
+    /// 这次新车可能碰到的已有车：后车、同区申请者、让行格点上的车、车身、已提交下游，以及这一拍会申到同一段下游的车。
     fn recheck_targets(
         &mut self,
         candidate: &VehicleState,
         notes: &ContenderNotes,
+        claims: &[crate::DownstreamInterval],
+        claim_gap_mm: u32,
     ) -> Result<Vec<(u32, VehicleHandle)>, FreshAdmissionFailure> {
         if super::tick::full_recheck_enabled() {
             let mut paired = Vec::new();
@@ -2101,6 +2103,18 @@ impl crate::kernel::state::WorldState {
                     push_recheck(&mut handles, vehicle)?;
                 }
             }
+        }
+        let sharing = self
+            .read_view()
+            .contenders_sharing_downstream(claims, claim_gap_mm)
+            .map_err(|error| match error {
+                super::tick::PlacementMotionError::Alloc => FreshAdmissionFailure::OccupancyAlloc,
+                super::tick::PlacementMotionError::Unprovable => {
+                    FreshAdmissionFailure::StopConstraint
+                }
+            })?;
+        for handle in sharing {
+            push_recheck(&mut handles, handle)?;
         }
         let mut paired = Vec::new();
         paired
@@ -2426,7 +2440,8 @@ fn reject_existing_hard_stop(
             return Err(FreshAdmissionFailure::StopConstraint);
         }
     };
-    let targets = world.recheck_targets(&candidate, &notes)?;
+    let targets =
+        world.recheck_targets(&candidate, &notes, &candidate_claims, profile.min_gap_mm())?;
     for (existing_sequence, handle) in targets {
         let Some(existing) = world.vehicle_state(handle).copied() else {
             continue;
