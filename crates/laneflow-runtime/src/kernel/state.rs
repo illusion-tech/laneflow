@@ -126,10 +126,20 @@ pub(crate) struct ContenderBuilt {
 /// 这一拍舒适预览会进入该排队区的已有车。已在区里的成员不记。
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct WaitingEntrant {
+    pub(crate) vehicle: crate::VehicleHandle,
     pub(crate) approach_mm: u32,
     pub(crate) update_sequence: u32,
     pub(crate) length_mm: u32,
     pub(crate) min_gap_mm: u32,
+}
+
+/// 一辆车写进争用名单的贡献。撤销时按这里把名次、格点到达和排队记录撤掉再重算。
+#[derive(Clone, Debug)]
+pub(crate) struct OwnerContribution {
+    pub(crate) update_sequence: u32,
+    pub(crate) zones: Vec<usize>,
+    pub(crate) cells: Vec<(usize, u64)>,
+    pub(crate) waiting_zone: Option<usize>,
 }
 
 impl ContenderRank {
@@ -159,6 +169,10 @@ impl ContenderRank {
 
     pub(crate) const fn is_protected(self) -> bool {
         self.not_protected == 0
+    }
+
+    pub(crate) const fn update_sequence(self) -> u32 {
+        self.update_sequence
     }
 
     /// 正式调度里排在 `other` 前面。资格更早、已有排队序号的更优先，然后才比更新序号。
@@ -192,6 +206,8 @@ pub(crate) struct SpawnConflictContenders {
     pub(crate) cell_approach_ms: Vec<u64>,
     /// 按排队区。只含这一拍预览会新进入的车，按接近距离和更新序号排好。
     pub(crate) waiting_entrants: Vec<Vec<WaitingEntrant>>,
+    /// 按车辆槽位记下这份名单里的贡献。没有贡献的槽是 `None`。
+    pub(crate) owners: Vec<Option<OwnerContribution>>,
     /// `None` 表示名单不能当当前世界使用。建失败或更新不完整都留在这里，不假装已经建好。
     pub(crate) built_for: Option<ContenderBuilt>,
 }
@@ -208,6 +224,13 @@ impl SpawnConflictContenders {
             + vec_bytes(&self.cell_approach_ms)
             + vec_bytes(&self.waiting_entrants)
             + self.waiting_entrants.iter().map(vec_bytes).sum::<u64>()
+            + vec_bytes(&self.owners)
+            + self
+                .owners
+                .iter()
+                .filter_map(Option::as_ref)
+                .map(|owner| vec_bytes(&owner.zones) + vec_bytes(&owner.cells))
+                .sum::<u64>()
     }
 }
 

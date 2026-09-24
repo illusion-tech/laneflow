@@ -1051,7 +1051,7 @@ impl crate::kernel::state::WorldState {
         self.committed.observation_state_sequence = next_observation_state_sequence;
         self.committed.command_cursor = next_command_cursor;
         self.apply_spawn_occupancy(handle, previous_sequence, occupancy_patch);
-        self.note_inserted_vehicle(handle, previous_sequence);
+        self.note_inserted_vehicle(handle, previous_sequence, update_sequence);
         let delta = VehicleDelta::from_state(&state, self.compiled_route(state.route));
         if let Some(journal) = self.admin.migration_journal.as_mut() {
             journal.record_vehicle_spawned(next_command_cursor, delta);
@@ -1485,7 +1485,7 @@ impl crate::kernel::state::WorldState {
         self.committed.observation_state_sequence = next_observation_state_sequence;
         self.committed.command_cursor = next_command_cursor;
         self.apply_spawn_occupancy(new, previous_sequence, occupancy_patch);
-        self.note_inserted_vehicle(new, previous_sequence);
+        self.note_inserted_vehicle(new, previous_sequence, update_sequence);
         let new_state = self
             .vehicle_state(new)
             .copied()
@@ -2324,6 +2324,30 @@ impl TrafficWorld {
     pub fn detach_contender_cache_generation_for_test(&mut self) -> bool {
         self.execution.assert_usable();
         self.state.detach_contender_cache_generation_for_test()
+    }
+
+    /// 丢掉接近名单并按当前车辆重算。给测试对照增量更新和整份重算。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic。
+    #[cfg(feature = "placement-fixtures")]
+    #[doc(hidden)]
+    pub fn force_rebuild_contenders_for_test(&mut self) {
+        self.execution.assert_usable();
+        self.state.force_rebuild_contenders_for_test();
+    }
+
+    /// 当前接近名单的名次和排队记录，按区、车、序号排列。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic。
+    #[cfg(feature = "placement-fixtures")]
+    #[doc(hidden)]
+    pub fn contender_fingerprint_for_test(&self) -> Vec<(u32, u32, u32, u32)> {
+        self.execution.assert_usable();
+        self.state.contender_fingerprint_for_test()
     }
 
     /// 把 live 的 Completed 车辆原子替换为新的 Active 车辆。

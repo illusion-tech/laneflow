@@ -9,8 +9,8 @@ use super::conflict::{ApproachEstimate, PreparedApproachEta};
 use super::entry_frontier::{delay_approach_for_signal, finite_entry_distance};
 use super::occupancy::LeaderQueryHorizon;
 use super::state::{
-    CELL_APPROACH_NONE, CELL_APPROACH_UNPROVABLE, ContenderBuilt, ContenderRank, WaitingEntrant,
-    ZoneContender,
+    CELL_APPROACH_NONE, CELL_APPROACH_UNPROVABLE, ContenderBuilt, ContenderRank, OwnerContribution,
+    WaitingEntrant, ZoneContender,
 };
 use super::tables::{
     distance_to_occurrence_start, for_each_admission_interval, occupancy_front_gap,
@@ -49,8 +49,61 @@ thread_local! {
 
 #[cfg(any(test, feature = "placement-fixtures"))]
 thread_local! {
-    static FAIL_CONTENDER_RESERVE: Cell<bool> = const { Cell::new(false) };
+    static FAIL_CONTENDER_RESERVE: Cell<u8> = const { Cell::new(0) };
     static FAIL_NOTE_RESERVE: Cell<bool> = const { Cell::new(false) };
+    static INCREMENTAL_VISITS: Cell<u64> = const { Cell::new(0) };
+    static REBUILD_SCANS: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(any(test, feature = "placement-fixtures"))]
+const FAIL_BEST: u8 = 1;
+#[cfg(any(test, feature = "placement-fixtures"))]
+const FAIL_CELL: u8 = 2;
+#[cfg(any(test, feature = "placement-fixtures"))]
+const FAIL_WAITING: u8 = 4;
+#[cfg(any(test, feature = "placement-fixtures"))]
+const FAIL_DOWNSTREAM: u8 = 8;
+#[cfg(any(test, feature = "placement-fixtures"))]
+const FAIL_ORDER: u8 = 16;
+#[cfg(any(test, feature = "placement-fixtures"))]
+const FAIL_TABLES: u8 = FAIL_BEST | FAIL_CELL | FAIL_WAITING;
+
+/// 预检里哪一块名单内存要按失败处理。只给测试注入。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AdmissionReserve {
+    /// 每个路口的申请者名单。
+    Best,
+    /// 冲突格点到达。
+    Cell,
+    /// 排队进入者名单。
+    Waiting,
+    /// 下游声明的临时区间。
+    Downstream,
+    /// 排序前留出的工作区。
+    Order,
+}
+
+#[cfg(any(test, feature = "placement-fixtures"))]
+fn reserve_bit(kind: AdmissionReserve) -> u8 {
+    match kind {
+        AdmissionReserve::Best => FAIL_BEST,
+        AdmissionReserve::Cell => FAIL_CELL,
+        AdmissionReserve::Waiting => FAIL_WAITING,
+        AdmissionReserve::Downstream => FAIL_DOWNSTREAM,
+        AdmissionReserve::Order => FAIL_ORDER,
+    }
+}
+
+pub(crate) fn admission_reserve_denied(kind: AdmissionReserve) -> bool {
+    #[cfg(any(test, feature = "placement-fixtures"))]
+    {
+        FAIL_CONTENDER_RESERVE.with(|cell| cell.get() & reserve_bit(kind) != 0)
+    }
+    #[cfg(not(any(test, feature = "placement-fixtures")))]
+    {
+        let _ = kind;
+        false
+    }
 }
 
 thread_local! {
@@ -64,19 +117,53 @@ pub fn set_contender_note_reserve_failure(fail: bool) {
     FAIL_NOTE_RESERVE.with(|cell| cell.set(fail));
 }
 
-/// 下一次争用名单预留按失败处理。只给测试注入分配失败。
+/// 下一次争用名单的外层表预留按失败处理。只给测试注入分配失败。
 #[cfg(any(test, feature = "placement-fixtures"))]
 #[doc(hidden)]
 pub fn set_contender_reserve_failure(fail: bool) {
-    FAIL_CONTENDER_RESERVE.with(|cell| cell.set(fail));
+    FAIL_CONTENDER_RESERVE.with(|cell| cell.set(if fail { FAIL_TABLES } else { 0 }));
+}
+
+/// 只让指定的那一块预留失败。`false` 清掉全部注入。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn set_admission_reserve_failure(kind: AdmissionReserve, fail: bool) {
+    FAIL_CONTENDER_RESERVE.with(|cell| {
+        let bit = reserve_bit(kind);
+        let next = if fail {
+            cell.get() | bit
+        } else {
+            cell.get() & !bit
+        };
+        cell.set(next);
+    });
+}
+
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn reset_contender_update_counts() {
+    INCREMENTAL_VISITS.with(|cell| cell.set(0));
+    REBUILD_SCANS.with(|cell| cell.set(0));
+}
+
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn incremental_contender_visits() -> u64 {
+    INCREMENTAL_VISITS.with(Cell::get)
+}
+
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn contender_rebuild_scans() -> u64 {
+    REBUILD_SCANS.with(Cell::get)
 }
 
 fn contender_reserve<T>(
     items: &mut Vec<T>,
     additional: usize,
+    kind: AdmissionReserve,
 ) -> Result<(), FreshAdmissionFailure> {
-    #[cfg(any(test, feature = "placement-fixtures"))]
-    if FAIL_CONTENDER_RESERVE.with(Cell::get) {
+    if admission_reserve_denied(kind) {
         return Err(FreshAdmissionFailure::OccupancyAlloc);
     }
     items
@@ -90,7 +177,7 @@ fn note_reserve<T>(items: &mut Vec<T>, additional: usize) -> Option<()> {
         NOTE_ALLOC_FAILED.with(|cell| cell.set(true));
         return None;
     }
-    match contender_reserve(items, additional) {
+    match items.try_reserve(additional) {
         Ok(()) => Some(()),
         Err(_) => {
             NOTE_ALLOC_FAILED.with(|cell| cell.set(true));
@@ -101,6 +188,32 @@ fn note_reserve<T>(items: &mut Vec<T>, additional: usize) -> Option<()> {
 
 fn take_note_alloc() -> bool {
     NOTE_ALLOC_FAILED.with(|cell| cell.replace(false))
+}
+
+fn sort_waiting_entrants(entrants: &mut [WaitingEntrant]) -> Result<(), FreshAdmissionFailure> {
+    let mut workspace = Vec::new();
+    if admission_reserve_denied(AdmissionReserve::Order)
+        || workspace.try_reserve(entrants.len()).is_err()
+    {
+        return Err(FreshAdmissionFailure::OccupancyAlloc);
+    }
+    workspace.extend_from_slice(entrants);
+    for index in 1..workspace.len() {
+        let mut cursor = index;
+        while cursor > 0 {
+            let previous = workspace[cursor - 1];
+            let current = workspace[cursor];
+            if (current.approach_mm, current.update_sequence)
+                >= (previous.approach_mm, previous.update_sequence)
+            {
+                break;
+            }
+            workspace.swap(cursor - 1, cursor);
+            cursor -= 1;
+        }
+    }
+    entrants.copy_from_slice(&workspace);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -321,6 +434,8 @@ impl crate::kernel::state::WorldState {
     /// 已有车这一拍够得到的冲突区。世代或序号对不上就整份重数。
     /// 生成成功后不把新车补进旧名单再标成有效；下次生成重新数。
     fn ensure_spawn_contenders(&mut self) -> Result<(), FreshAdmissionFailure> {
+        #[cfg(any(test, feature = "placement-fixtures"))]
+        REBUILD_SCANS.with(|cell| cell.set(0));
         let source = ContenderBuilt {
             generation: self.binding.world_generation,
             sequence: self.committed.observation_state_sequence,
@@ -337,23 +452,29 @@ impl crate::kernel::state::WorldState {
         self.derived.spawn_contenders.invalidate();
     }
 
-    /// 没有冲突或排队的车不改变已有接近记录，只把名单序号推到这次提交。
-    /// 有冲突，或名单里已经有申请者时，旧记录可能过期，整份作废。
+    /// 没有冲突或排队、名单里也没有申请者时，只把序号推到这次提交。
+    /// 否则只撤掉并重算受影响的旧车。集合关不上就整份作废，不把半份标成当前。
     pub(crate) fn note_inserted_vehicle(
         &mut self,
         handle: VehicleHandle,
         previous: crate::ObservationStateSequence,
+        update_sequence: u32,
     ) {
         let previous_source = ContenderBuilt {
             generation: self.binding.world_generation,
             sequence: previous,
         };
+        if self.derived.spawn_contenders.built_for != Some(previous_source) {
+            self.invalidate_spawn_contenders();
+            return;
+        }
         let route_needs_admission = self
             .vehicle_state(handle)
             .is_some_and(|state| self.route_needs_contender(state.route));
-        if self.derived.spawn_contenders.built_for != Some(previous_source)
-            || route_needs_admission
-            || self.cache_has_contender()
+        if (route_needs_admission || self.cache_has_contender())
+            && self
+                .refresh_contender_cache(handle, update_sequence)
+                .is_err()
         {
             self.invalidate_spawn_contenders();
             return;
@@ -394,6 +515,7 @@ impl crate::kernel::state::WorldState {
         self.derived.spawn_contenders.best.clear();
         self.derived.spawn_contenders.cell_approach_ms.clear();
         self.derived.spawn_contenders.waiting_entrants.clear();
+        self.derived.spawn_contenders.owners.clear();
         self.derived
             .spawn_contenders
             .best
@@ -412,6 +534,44 @@ impl crate::kernel::state::WorldState {
         });
         self.binding.world_generation = next_generation;
         true
+    }
+
+    #[cfg(feature = "placement-fixtures")]
+    pub(crate) fn force_rebuild_contenders_for_test(&mut self) {
+        self.invalidate_spawn_contenders();
+        let _ = self.ensure_spawn_contenders();
+    }
+
+    #[cfg(feature = "placement-fixtures")]
+    pub(crate) fn contender_fingerprint_for_test(&self) -> Vec<(u32, u32, u32, u32)> {
+        let mut rows = Vec::new();
+        for (zone, list) in self.derived.spawn_contenders.best.iter().enumerate() {
+            for contender in list {
+                rows.push((
+                    u32::try_from(zone).unwrap_or(u32::MAX),
+                    contender.vehicle.index(),
+                    contender.rank.update_sequence(),
+                    0,
+                ));
+            }
+        }
+        for (zone, list) in self
+            .derived
+            .spawn_contenders
+            .waiting_entrants
+            .iter()
+            .enumerate()
+        {
+            for entrant in list {
+                rows.push((
+                    u32::try_from(zone).unwrap_or(u32::MAX),
+                    entrant.vehicle.index(),
+                    entrant.update_sequence,
+                    entrant.approach_mm.saturating_add(1),
+                ));
+            }
+        }
+        rows
     }
 
     fn admission_clocks(
@@ -481,22 +641,29 @@ impl crate::kernel::state::WorldState {
         self.derived.spawn_contenders.invalidate();
         self.derived.spawn_contenders.best.clear();
         self.derived.spawn_contenders.cell_approach_ms.clear();
+        self.derived.spawn_contenders.owners.clear();
         if self.derived.spawn_contenders.waiting_entrants.len() > waiting_count {
             self.derived
                 .spawn_contenders
                 .waiting_entrants
                 .truncate(waiting_count);
         }
-        contender_reserve(&mut self.derived.spawn_contenders.best, zone_count)?;
+        contender_reserve(
+            &mut self.derived.spawn_contenders.best,
+            zone_count,
+            AdmissionReserve::Best,
+        )?;
         contender_reserve(
             &mut self.derived.spawn_contenders.cell_approach_ms,
             cell_count,
+            AdmissionReserve::Cell,
         )?;
         let waiting_missing =
             waiting_count.saturating_sub(self.derived.spawn_contenders.waiting_entrants.len());
         contender_reserve(
             &mut self.derived.spawn_contenders.waiting_entrants,
             waiting_missing,
+            AdmissionReserve::Waiting,
         )?;
         self.derived
             .spawn_contenders
@@ -517,7 +684,11 @@ impl crate::kernel::state::WorldState {
             entrants.clear();
         }
         let live_count = self.committed.live_order.len();
+        #[cfg(any(test, feature = "placement-fixtures"))]
+        REBUILD_SCANS.with(|cell| cell.set(0));
         for sequence in 0..live_count {
+            #[cfg(any(test, feature = "placement-fixtures"))]
+            REBUILD_SCANS.with(|cell| cell.set(cell.get().saturating_add(1)));
             let Ok(update_sequence) = u32::try_from(sequence) else {
                 return Err(FreshAdmissionFailure::OccupancyAlloc);
             };
@@ -527,7 +698,7 @@ impl crate::kernel::state::WorldState {
             self.add_spawn_contender(handle, update_sequence)?;
         }
         for entrants in &mut self.derived.spawn_contenders.waiting_entrants {
-            entrants.sort_unstable_by_key(|entrant| (entrant.approach_mm, entrant.update_sequence));
+            sort_waiting_entrants(entrants)?;
         }
         Ok(())
     }
@@ -786,6 +957,7 @@ impl crate::kernel::state::WorldState {
                 zone,
                 hop,
                 WaitingEntrant {
+                    vehicle: state.handle,
                     approach_mm,
                     update_sequence,
                     length_mm: state.length_mm,
@@ -805,6 +977,8 @@ impl crate::kernel::state::WorldState {
         handle: VehicleHandle,
         notes: ContenderNotes,
     ) -> Result<(), FreshAdmissionFailure> {
+        let mut contributed_cells = Vec::new();
+        let mut contributed_zones = Vec::new();
         for (address, estimate) in notes.cells {
             let index = self.read_view().conflict_read().cell_index_of(address);
             let Some(index) = index else {
@@ -818,21 +992,29 @@ impl crate::kernel::state::WorldState {
             else {
                 return Err(FreshAdmissionFailure::StopConstraint);
             };
-            match estimate {
-                ApproachEstimate::OutsideHorizon => {}
-                ApproachEstimate::Unprovable => *slot = CELL_APPROACH_UNPROVABLE,
+            let encoded = match estimate {
+                ApproachEstimate::OutsideHorizon => continue,
+                ApproachEstimate::Unprovable => {
+                    *slot = CELL_APPROACH_UNPROVABLE;
+                    CELL_APPROACH_UNPROVABLE
+                }
                 ApproachEstimate::Finite(ms) => {
                     if *slot != CELL_APPROACH_UNPROVABLE {
                         *slot = (*slot).min(ms);
                     }
+                    ms
                 }
-            }
+            };
+            contender_reserve(&mut contributed_cells, 1, AdmissionReserve::Cell)?;
+            contributed_cells.push((index, encoded));
         }
         for (zone, rank, hop) in notes.ranks {
+            contender_reserve(&mut contributed_zones, 1, AdmissionReserve::Best)?;
+            contributed_zones.push(zone);
             let Some(list) = self.derived.spawn_contenders.best.get_mut(zone) else {
                 return Err(FreshAdmissionFailure::StopConstraint);
             };
-            contender_reserve(list, 1)?;
+            contender_reserve(list, 1, AdmissionReserve::Best)?;
             let position = list.partition_point(|item| item.rank.sorts_before(rank));
             list.insert(
                 position,
@@ -843,18 +1025,291 @@ impl crate::kernel::state::WorldState {
                 },
             );
         }
-        if let Some((zone, _hop, entrant)) = notes.waiting {
+        let waiting_zone = if let Some((zone, _hop, mut entrant)) = notes.waiting {
             let Some(list) = self.derived.spawn_contenders.waiting_entrants.get_mut(zone) else {
                 return Err(FreshAdmissionFailure::StopConstraint);
             };
-            contender_reserve(list, 1)?;
+            contender_reserve(list, 1, AdmissionReserve::Waiting)?;
             let position = list.partition_point(|item| {
                 (item.approach_mm, item.update_sequence)
                     < (entrant.approach_mm, entrant.update_sequence)
             });
+            entrant.vehicle = handle;
             list.insert(position, entrant);
-        }
+            Some(zone)
+        } else {
+            None
+        };
+        let update_sequence = contributed_zones
+            .first()
+            .and_then(|zone| {
+                self.derived
+                    .spawn_contenders
+                    .best
+                    .get(*zone)
+                    .and_then(|list| {
+                        list.iter()
+                            .find(|item| item.vehicle == handle)
+                            .map(|item| item.rank.update_sequence())
+                    })
+            })
+            .or_else(|| {
+                waiting_zone.and_then(|zone| {
+                    self.derived
+                        .spawn_contenders
+                        .waiting_entrants
+                        .get(zone)
+                        .and_then(|list| {
+                            list.iter()
+                                .find(|item| item.vehicle == handle)
+                                .map(|item| item.update_sequence)
+                        })
+                })
+            })
+            .unwrap_or(0);
+        self.store_owner(
+            handle,
+            OwnerContribution {
+                update_sequence,
+                zones: contributed_zones,
+                cells: contributed_cells,
+                waiting_zone,
+            },
+        )?;
         Ok(())
+    }
+
+    fn store_owner(
+        &mut self,
+        handle: VehicleHandle,
+        contribution: OwnerContribution,
+    ) -> Result<(), FreshAdmissionFailure> {
+        let slot = handle.index() as usize;
+        let owners = &mut self.derived.spawn_contenders.owners;
+        if slot >= owners.len() {
+            let extra = slot.saturating_add(1).saturating_sub(owners.len());
+            contender_reserve(owners, extra, AdmissionReserve::Best)?;
+            owners.resize_with(slot.saturating_add(1), || None);
+        }
+        owners[slot] = Some(contribution);
+        Ok(())
+    }
+
+    fn owner_zones(&self, handle: VehicleHandle) -> Vec<usize> {
+        self.derived
+            .spawn_contenders
+            .owners
+            .get(handle.index() as usize)
+            .and_then(Option::as_ref)
+            .map(|mark| mark.zones.clone())
+            .unwrap_or_default()
+    }
+
+    fn owner_sequence(&self, handle: VehicleHandle) -> Option<u32> {
+        self.derived
+            .spawn_contenders
+            .owners
+            .get(handle.index() as usize)
+            .and_then(Option::as_ref)
+            .map(|mark| mark.update_sequence)
+    }
+
+    fn revoke_owner(&mut self, handle: VehicleHandle) {
+        let slot = handle.index() as usize;
+        let Some(mark) = self
+            .derived
+            .spawn_contenders
+            .owners
+            .get_mut(slot)
+            .and_then(Option::take)
+        else {
+            return;
+        };
+        for zone in &mark.zones {
+            if let Some(list) = self.derived.spawn_contenders.best.get_mut(*zone) {
+                list.retain(|item| item.vehicle != handle);
+            }
+        }
+        if let Some(zone) = mark.waiting_zone
+            && let Some(list) = self.derived.spawn_contenders.waiting_entrants.get_mut(zone)
+        {
+            list.retain(|item| item.vehicle != handle);
+        }
+        for (index, _) in &mark.cells {
+            self.rereduce_cell(*index);
+        }
+    }
+
+    fn rereduce_cell(&mut self, index: usize) {
+        let mut best = CELL_APPROACH_NONE;
+        for owner in &self.derived.spawn_contenders.owners {
+            let Some(mark) = owner else {
+                continue;
+            };
+            for (cell, estimate) in &mark.cells {
+                if *cell != index {
+                    continue;
+                }
+                if *estimate == CELL_APPROACH_UNPROVABLE || best == CELL_APPROACH_UNPROVABLE {
+                    best = CELL_APPROACH_UNPROVABLE;
+                } else {
+                    best = best.min(*estimate);
+                }
+            }
+        }
+        if let Some(slot) = self
+            .derived
+            .spawn_contenders
+            .cell_approach_ms
+            .get_mut(index)
+        {
+            *slot = best;
+        }
+    }
+
+    fn remember_handle(affected: &mut Vec<VehicleHandle>, handle: VehicleHandle) {
+        if !affected.contains(&handle) {
+            affected.push(handle);
+        }
+    }
+
+    fn members_in_zones(
+        &self,
+        zones: &[usize],
+        into: &mut Vec<VehicleHandle>,
+        skip: VehicleHandle,
+    ) {
+        for zone in zones {
+            if let Some(list) = self.derived.spawn_contenders.best.get(*zone) {
+                for contender in list {
+                    if contender.vehicle != skip {
+                        Self::remember_handle(into, contender.vehicle);
+                    }
+                }
+            }
+        }
+    }
+
+    /// 只刷新这次插入碰得到的旧车。集合关不上就返回错误，调用方整份作废。
+    fn refresh_contender_cache(
+        &mut self,
+        handle: VehicleHandle,
+        update_sequence: u32,
+    ) -> Result<(), FreshAdmissionFailure> {
+        #[cfg(any(test, feature = "placement-fixtures"))]
+        INCREMENTAL_VISITS.with(|cell| cell.set(0));
+        let notes = self.preview_notes(handle, update_sequence)?;
+        let mut affected = Vec::new();
+        let followers = self.follower_handles(handle)?;
+        for follower in followers {
+            if follower != handle {
+                Self::remember_handle(&mut affected, follower);
+            }
+        }
+        let zones = notes
+            .ranks
+            .iter()
+            .map(|(zone, _, _)| *zone)
+            .collect::<Vec<_>>();
+        self.members_in_zones(&zones, &mut affected, handle);
+        if let Some((zone, _, _)) = notes.waiting
+            && let Some(list) = self.derived.spawn_contenders.waiting_entrants.get(zone)
+        {
+            for entrant in list {
+                if entrant.vehicle != handle {
+                    Self::remember_handle(&mut affected, entrant.vehicle);
+                }
+            }
+        }
+        let mut cursor = 0usize;
+        while cursor < affected.len() {
+            if affected.len() > 64 {
+                return Err(FreshAdmissionFailure::StopConstraint);
+            }
+            let current = affected[cursor];
+            cursor = cursor.saturating_add(1);
+            let Some(sequence) = self.owner_sequence(current) else {
+                continue;
+            };
+            #[cfg(any(test, feature = "placement-fixtures"))]
+            INCREMENTAL_VISITS.with(|cell| cell.set(cell.get().saturating_add(1)));
+            let before = self.owner_zones(current);
+            self.revoke_owner(current);
+            self.add_spawn_contender(current, sequence)?;
+            let after = self.owner_zones(current);
+            if before != after {
+                self.members_in_zones(&before, &mut affected, handle);
+                self.members_in_zones(&after, &mut affected, handle);
+            }
+        }
+        self.add_spawn_contender(handle, update_sequence)?;
+        Ok(())
+    }
+
+    fn follower_handles(
+        &mut self,
+        handle: VehicleHandle,
+    ) -> Result<Vec<VehicleHandle>, FreshAdmissionFailure> {
+        let Some(state) = self.vehicle_state(handle).copied() else {
+            return Ok(Vec::new());
+        };
+        let input = VehicleSpawnInput::new(
+            state.profile,
+            state.route,
+            state.route_edge_index,
+            state.progress_mm,
+            state.speed_mm_s,
+        );
+        self.upstream_follower_candidates(input, state.length_mm)
+    }
+
+    fn preview_notes(
+        &self,
+        handle: VehicleHandle,
+        update_sequence: u32,
+    ) -> Result<ContenderNotes, FreshAdmissionFailure> {
+        let Some(state) = self.vehicle_state(handle).copied() else {
+            return Ok(ContenderNotes {
+                cells: Vec::new(),
+                ranks: Vec::new(),
+                waiting: None,
+            });
+        };
+        if state.status != VehicleStatus::Active || !self.route_needs_contender(state.route) {
+            return Ok(ContenderNotes {
+                cells: Vec::new(),
+                ranks: Vec::new(),
+                waiting: None,
+            });
+        }
+        let Some(profile) = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+        else {
+            return Err(FreshAdmissionFailure::StopConstraint);
+        };
+        let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
+        let Some(preview) = self
+            .read_view()
+            .preview_active_vehicle_with_waiting_stop(state, delta_s, None, None)
+        else {
+            return Err(FreshAdmissionFailure::StopConstraint);
+        };
+        let notes = self.contender_notes(
+            &state,
+            update_sequence,
+            preview.next,
+            profile.max_accel(),
+            profile.emergency_decel(),
+            profile.min_gap_mm(),
+        );
+        if take_note_alloc() {
+            return Err(FreshAdmissionFailure::OccupancyAlloc);
+        }
+        notes.ok_or(FreshAdmissionFailure::StopConstraint)
     }
 
     fn restrictive_stop_mm(

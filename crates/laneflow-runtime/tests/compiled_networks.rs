@@ -1022,6 +1022,10 @@ struct ConflictPolicyFixture {
     resource_free_release: bool,
     equal_priority: bool,
     short_vehicle: bool,
+    /// 0 表示内部边仍是 13 m。更短时两道资源门可以落在同一拍行程里。
+    close_internal_m: f64,
+    /// 0 表示排队容量仍是 1。
+    waiting_capacity: u32,
 }
 
 fn conflict_road_editing_module_with_shape_and_speed(
@@ -1049,7 +1053,19 @@ fn conflict_road_editing_module_with_shape_and_speed(
         resource_free_release,
         equal_priority,
         short_vehicle,
+        close_internal_m,
+        waiting_capacity,
     } = policy_fixture;
+    let span = if close_internal_m > 0.0 {
+        close_internal_m
+    } else {
+        13.0
+    };
+    let waiting_occupancy = if waiting_capacity == 0 {
+        1
+    } else {
+        waiting_capacity
+    };
     assert!(stream_count <= 2);
     assert!(!multiplicity || (include_conflict && stream_count == 2));
     let limits = CompileLimits::p100_initial_v2();
@@ -1161,9 +1177,9 @@ fn conflict_road_editing_module_with_shape_and_speed(
         .expect("add canonical frame");
     for (edge, start, end) in [
         ("east-entry", (-13.0, 0.0), (0.0, 0.0)),
-        ("west-exit", (13.0, 0.0), (26.0, 0.0)),
+        ("west-exit", (span, 0.0), (span + 13.0, 0.0)),
         ("north-entry", (0.0, -13.0), (0.0, 0.0)),
-        ("south-exit", (0.0, 13.0), (0.0, 26.0)),
+        ("south-exit", (0.0, span), (0.0, span + 13.0)),
     ] {
         let geometry = if (multiplicity || loop_east) && edge == "west-exit" {
             road_editing_loop()
@@ -1178,8 +1194,8 @@ fn conflict_road_editing_module_with_shape_and_speed(
         add_road_editing_approach(&mut module, edge, geometry, successors);
     }
     for (edge, start, end) in [
-        ("east-internal", (0.0, 0.0), (13.0, 0.0)),
-        ("north-internal", (0.0, 0.0), (0.0, 13.0)),
+        ("east-internal", (0.0, 0.0), (span, 0.0)),
+        ("north-internal", (0.0, 0.0), (0.0, span)),
     ] {
         module
             .add_declaration(lfre::RoadEditingDeclaration::LaneEdge(
@@ -1291,6 +1307,11 @@ fn conflict_road_editing_module_with_shape_and_speed(
                 lfre::PathAnchorInput::interior(2, 1.0).unwrap(),
                 lfre::PathAnchorInput::interior(2, 5.0).unwrap(),
             )
+        } else if span < 3.0 {
+            (
+                lfre::PathAnchorInput::interior(1, span * 0.2).expect("entry anchor"),
+                lfre::PathAnchorInput::interior(1, span * 0.7).expect("exit anchor"),
+            )
         } else {
             (
                 lfre::PathAnchorInput::interior(1, entry_progress).expect("entry anchor"),
@@ -1386,7 +1407,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
                                 &release_key,
                             )
                             .unwrap(),
-                            1,
+                            waiting_occupancy,
                         )
                         .unwrap(),
                     ))
@@ -1403,10 +1424,12 @@ fn conflict_road_editing_module_with_shape_and_speed(
                             exit_anchor,
                         )];
                         if next_gate {
+                            let (second_entry, second_exit) =
+                                if span < 3.0 { (0.3, 1.2) } else { (1.0, 4.0) };
                             passages.push(lfre::ConflictPassageInput::new(
                                 secondary_zone.clone(),
-                                lfre::PathAnchorInput::interior(2, 1.0).unwrap(),
-                                lfre::PathAnchorInput::interior(2, 4.0).unwrap(),
+                                lfre::PathAnchorInput::interior(2, second_entry).unwrap(),
+                                lfre::PathAnchorInput::interior(2, second_exit).unwrap(),
                             ));
                         }
                         passages
@@ -1474,33 +1497,36 @@ fn conflict_road_editing_module_with_shape_and_speed(
             )
             .expect("add conflict zone region");
     }
-    module
-        .add_declaration(lfre::RoadEditingDeclaration::ParkingFacility(
-            lfre::ParkingFacilityInput::try_new("parking").expect("parking facility"),
-        ))
-        .expect("add parking facility")
-        .add_declaration(lfre::RoadEditingDeclaration::ParkingSpace(
-            lfre::ParkingSpaceInput::try_new(
-                "space",
-                lfre::ParkingLaneAnchor::try_new(
-                    lfre::LaneEdgeReference::local("west-exit").expect("parking entry edge"),
-                    12.0,
+    if span >= 11.0 {
+        module
+            .add_declaration(lfre::RoadEditingDeclaration::ParkingFacility(
+                lfre::ParkingFacilityInput::try_new("parking").expect("parking facility"),
+            ))
+            .expect("add parking facility")
+            .add_declaration(lfre::RoadEditingDeclaration::ParkingSpace(
+                lfre::ParkingSpaceInput::try_new(
+                    "space",
+                    lfre::ParkingLaneAnchor::try_new(
+                        lfre::LaneEdgeReference::local("west-exit").expect("parking entry edge"),
+                        12.0,
+                    )
+                    .expect("parking entry"),
+                    lfre::ParkingLaneAnchor::try_new(
+                        lfre::LaneEdgeReference::local("east-internal").expect("parking exit edge"),
+                        10.5,
+                    )
+                    .expect("parking exit"),
+                    lfre::ParkingSpaceGeometry::try_new(1.5, 0.0, 5.0, 2.5)
+                        .expect("parking geometry"),
                 )
-                .expect("parking entry"),
-                lfre::ParkingLaneAnchor::try_new(
-                    lfre::LaneEdgeReference::local("east-internal").expect("parking exit edge"),
-                    10.5,
-                )
-                .expect("parking exit"),
-                lfre::ParkingSpaceGeometry::try_new(1.5, 0.0, 5.0, 2.5).expect("parking geometry"),
-            )
-            .expect("parking space")
-            .with_parking_facility(
-                lfre::ParkingFacilityReference::local("parking")
-                    .expect("parking facility reference"),
-            ),
-        ))
-        .expect("add parking space");
+                .expect("parking space")
+                .with_parking_facility(
+                    lfre::ParkingFacilityReference::local("parking")
+                        .expect("parking facility reference"),
+                ),
+            ))
+            .expect("add parking space");
+    }
     let participant =
         lfre::ParticipantClassReference::local("road-user").expect("participant class reference");
     module
@@ -3136,6 +3162,1091 @@ fn replace_keeps_the_completed_vehicle_rank() {
         )
         .expect("the completed vehicle's old rank still sorts first");
     assert!(world.vehicle(record.new).is_some());
+}
+
+fn assert_step_stays_in_emergency_envelope(before_speed: u32, after_speed: u32, travel_mm: u32) {
+    assert!(
+        after_speed.saturating_add(400) >= before_speed,
+        "speed {before_speed} -> {after_speed} drops faster than 4 m/s²"
+    );
+    if before_speed > 400 {
+        assert!(
+            travel_mm >= 900,
+            "hard clamp traveled {travel_mm} mm from {before_speed}"
+        );
+    }
+}
+
+#[test]
+fn accepted_spawn_step_stays_inside_the_emergency_envelope() {
+    let revision = compile_road_editing_revision(conflict_road_editing_module());
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    let handle = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            0,
+            10_000,
+        ))
+        .expect("far from the gate");
+    let before = world.vehicle(handle).expect("spawned");
+    world.step(TickInput::new(100)).expect("step");
+    let after = world.vehicle(handle).expect("still live");
+    let travel = after.progress_mm().saturating_sub(before.progress_mm());
+    assert_step_stays_in_emergency_envelope(before.speed_mm_s(), after.speed_mm_s(), travel);
+}
+
+#[test]
+fn priority_then_yield_does_not_newly_stop_the_first_vehicle_past_the_envelope() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    let priority_edge = world.route_edges(routes[1]).expect("priority")[0];
+    let priority_length = world.traffic().lane_lengths_millimetres()[priority_edge.index()];
+    let priority = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            priority_length - 2_500,
+            10_000,
+        ))
+        .expect("priority vehicle is far enough to enter");
+    let yield_edge = world.route_edges(routes[0]).expect("yield")[0];
+    let yield_length = world.traffic().lane_lengths_millimetres()[yield_edge.index()];
+    let yield_spawn = world.spawn_vehicle(VehicleSpawnInput::new(
+        VehicleProfileOrdinal::from_raw(0),
+        routes[0],
+        0,
+        yield_length - 400,
+        10_000,
+    ));
+    if yield_spawn.is_ok() {
+        let before = world.vehicle(priority).expect("priority remains");
+        let before_speed = before.speed_mm_s();
+        let before_progress = before.progress_mm();
+        world.step(TickInput::new(100)).expect("step");
+        let after = world.vehicle(priority).expect("priority after step");
+        assert_step_stays_in_emergency_envelope(
+            before_speed,
+            after.speed_mm_s(),
+            after.progress_mm().saturating_sub(before_progress),
+        );
+    }
+}
+
+#[test]
+fn a_far_spawn_is_not_rejected_for_someone_else_at_another_gate() {
+    let revision = compile_road_editing_revision(conflict_road_editing_module());
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    let gate_edge = world.route_edges(routes[1]).expect("gate route")[0];
+    let gate_length = world.traffic().lane_lengths_millimetres()[gate_edge.index()];
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            gate_length,
+            0,
+        ))
+        .expect("stopped vehicle at the other gate");
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            0,
+            0,
+        ))
+        .expect("a far vehicle is not blamed for the other gate");
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn later_live_rank_loses_and_an_earlier_rank_keeps_the_gate() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                equal_priority: true,
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(6, 6, 64, 4, 100)).expect("world");
+    let held = world.revision();
+    let routes = yield_routes(&mut world, held.as_ref());
+    let foe_edge = world.route_edges(routes[1]).expect("foe")[0];
+    let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
+    let contender = world
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            foe_length,
+            0,
+        ))
+        .expect("contender at the front of the live order");
+    let edges = world.route_edges(routes[0]).expect("edges").to_vec();
+    let last_index = u32::try_from(edges.len() - 1).expect("index");
+    let last_length =
+        world.traffic().lane_lengths_millimetres()[edges[last_index as usize].index()];
+    let completed = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            last_index,
+            last_length,
+            0,
+        ))
+        .expect("completed vehicle behind the contender");
+    world.step(TickInput::new(100)).expect("complete");
+    assert_eq!(
+        world.vehicle(completed).expect("completed").status(),
+        VehicleStatus::Completed
+    );
+    assert_eq!(world.live_vehicles(), &[contender, completed]);
+    let subject_edge = world.route_edges(routes[0]).expect("subject")[0];
+    let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
+    let rejected = world.replace_completed_vehicle(
+        completed,
+        VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            subject_length - 400,
+            10_000,
+        ),
+    );
+    assert!(
+        matches!(rejected, Err(ReplaceError::StopConstraintUnsatisfiable)),
+        "the back of the live order loses to the earlier contender, got {rejected:?}"
+    );
+    assert!(world.vehicle(contender).is_some());
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn incremental_contender_update_matches_a_forced_rebuild_without_scanning_everyone() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                short_vehicle: true,
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let dot = conflict_profile(revision.as_ref(), "dot");
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(8, 4, 64, 4, 100)).expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    for progress in [0_u32, 2_000, 4_000] {
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(dot, routes[1], 0, progress, 0))
+            .expect("parked far from the north gate");
+    }
+    let east_edge = world.route_edges(routes[0]).expect("east")[0];
+    let east_length = world.traffic().lane_lengths_millimetres()[east_edge.index()];
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            dot,
+            routes[0],
+            0,
+            east_length - 140,
+            1_000,
+        ))
+        .expect("short vehicle still reaches the east gate");
+    laneflow_runtime::reset_contender_update_counts();
+    world
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            dot,
+            routes[0],
+            0,
+            east_length - 20,
+            0,
+        ))
+        .expect("leader already in front");
+    let visits = laneflow_runtime::incremental_contender_visits();
+    let scans = laneflow_runtime::contender_rebuild_scans();
+    assert!(
+        scans < world.live_vehicles().len() as u64,
+        "admission scanned {scans} of {} vehicles",
+        world.live_vehicles().len()
+    );
+    assert!(
+        visits < world.live_vehicles().len() as u64,
+        "refresh visited {visits} of {} vehicles",
+        world.live_vehicles().len()
+    );
+    let before = world.contender_fingerprint_for_test();
+    world.force_rebuild_contenders_for_test();
+    assert_eq!(before, world.contender_fingerprint_for_test());
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn each_admission_reserve_failure_is_occupancy_alloc_and_commits_nothing() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    for kind in [
+        laneflow_runtime::AdmissionReserve::Best,
+        laneflow_runtime::AdmissionReserve::Cell,
+        laneflow_runtime::AdmissionReserve::Waiting,
+        laneflow_runtime::AdmissionReserve::Downstream,
+        laneflow_runtime::AdmissionReserve::Order,
+    ] {
+        let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100))
+            .expect("world");
+        let routes = yield_routes(&mut world, revision.as_ref());
+        let edge = world.route_edges(routes[0]).expect("route")[0];
+        let length = world.traffic().lane_lengths_millimetres()[edge.index()];
+        if kind == laneflow_runtime::AdmissionReserve::Order {
+            let foe = world.route_edges(routes[1]).expect("foe")[0];
+            let foe_length = world.traffic().lane_lengths_millimetres()[foe.index()];
+            world
+                .place_existing_active_vehicle(VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    routes[1],
+                    0,
+                    foe_length,
+                    0,
+                ))
+                .expect("earlier contender");
+        }
+        let cursor = world.command_cursor();
+        let live_before = world.live_vehicles().len();
+        laneflow_runtime::set_admission_reserve_failure(kind, true);
+        let progress = if kind == laneflow_runtime::AdmissionReserve::Downstream
+            || kind == laneflow_runtime::AdmissionReserve::Order
+        {
+            length - 400
+        } else {
+            0
+        };
+        let speed = if progress == 0 { 0 } else { 10_000 };
+        let result = world.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            progress,
+            speed,
+        ));
+        laneflow_runtime::set_admission_reserve_failure(kind, false);
+        assert_eq!(
+            result,
+            Err(SpawnError::OccupancyAllocFailed),
+            "reserve {kind:?} must not look like a stop"
+        );
+        assert_eq!(world.command_cursor(), cursor);
+        assert_eq!(world.live_vehicles().len(), live_before);
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                0,
+                0,
+            ))
+            .expect("the same far spawn works after the fault clears");
+    }
+}
+
+#[test]
+fn cutover_does_not_reuse_the_previous_generation_contender_cache() {
+    let (base, target, diff, binding) = compile_conflict_cutover_pair(
+        conflict_road_editing_module(),
+        conflict_road_editing_module_with_vehicle_speed(12.5),
+    );
+    let mut world =
+        install_fixture(Arc::clone(&base), WorldConfig::new(4, 4, 64, 4, 100)).expect("base");
+    let routes = yield_routes(&mut world, base.as_ref());
+    let edge = world.route_edges(routes[0]).expect("route")[0];
+    let length = world.traffic().lane_lengths_millimetres()[edge.index()];
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            length - 400,
+            10_000,
+        ))
+        .expect("build a contender cache before cutover");
+    let remembered = world.observation_state_sequence();
+    let descriptor = NetworkRevisionCutoverDescriptor::new(
+        LfcaOriginBinding::from_canonical_origin(*base.canonical_origin()),
+        LfcaOriginBinding::from_canonical_origin(*target.canonical_origin()),
+        Some(binding),
+        MigrationPolicyKind::CrossRevisionDirect,
+        world.world_binding(),
+    );
+    let mut transaction = world
+        .prepare_cross_revision_cutover(
+            Arc::clone(&target),
+            published_source(&target, "fixture://admission-cutover"),
+            &descriptor,
+            &diff,
+            &CutoverPreflightLimits::new(1_048_576),
+            &CutoverTransactionLimits::default(),
+        )
+        .expect("prepare");
+    assert!(transaction.pump(&mut world).expect("catch up").caught_up);
+    let _commit = transaction.commit(&mut world).expect("commit");
+    let mut steps = 0u32;
+    while world.observation_state_sequence() != remembered && steps < 64 {
+        world
+            .step(TickInput::new(100))
+            .expect("step without spawning");
+        steps += 1;
+    }
+    assert_eq!(world.observation_state_sequence(), remembered);
+    let mut fresh = install_fixture(target, WorldConfig::new(4, 4, 64, 4, 100)).expect("fresh");
+    let fresh_held = fresh.revision();
+    let fresh_routes = yield_routes(&mut fresh, fresh_held.as_ref());
+    let carried_held = world.revision();
+    let carried = yield_routes(&mut world, carried_held.as_ref());
+    let on_carried = world.spawn_vehicle(VehicleSpawnInput::new(
+        VehicleProfileOrdinal::from_raw(0),
+        carried[0],
+        0,
+        0,
+        0,
+    ));
+    let on_fresh = fresh.spawn_vehicle(VehicleSpawnInput::new(
+        VehicleProfileOrdinal::from_raw(0),
+        fresh_routes[0],
+        0,
+        0,
+        0,
+    ));
+    assert_eq!(
+        on_carried.is_ok(),
+        on_fresh.is_ok(),
+        "after the sequence comes back, spawn must match a rebuilt target world"
+    );
+}
+
+fn close_resource_gates() -> Arc<SharedNetworkRevision> {
+    compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+        2,
+        false,
+        true,
+        false,
+        13.0,
+        ConflictPolicyFixture {
+            next_gate: true,
+            short_vehicle: true,
+            close_internal_m: 0.8,
+            ..ConflictPolicyFixture::default()
+        },
+    ))
+}
+
+fn assert_not_past_second_gate(edge: u32, progress: u32) {
+    assert!(
+        edge < 2 || progress == 0,
+        "step entered past the second resource gate at edge {edge} progress {progress}"
+    );
+}
+
+#[test]
+fn second_resource_gate_within_reach_matches_the_following_step() {
+    let revision = close_resource_gates();
+    let dot = conflict_profile(revision.as_ref(), "dot");
+    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1_000))
+        .expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    let edge = world.route_edges(routes[0]).expect("route")[0];
+    let length = world.traffic().lane_lengths_millimetres()[edge.index()];
+    let progress = length - 200;
+    let handle = world
+        .spawn_vehicle(VehicleSpawnInput::new(dot, routes[0], 0, progress, 2_000))
+        .expect("a slow vehicle can stop at the second gate");
+    let before = world.vehicle(handle).expect("spawned");
+    world.step(TickInput::new(1_000)).expect("step");
+    let after = world.vehicle(handle).expect("still live");
+    let traveled = if after.route_edge_index() == before.route_edge_index() {
+        after.progress_mm().saturating_sub(before.progress_mm())
+    } else {
+        length
+            .saturating_sub(before.progress_mm())
+            .saturating_add(after.progress_mm())
+    };
+    assert!(
+        after.speed_mm_s().saturating_add(4_000) >= before.speed_mm_s(),
+        "speed dropped faster than 4 m/s² over one second"
+    );
+    if after.speed_mm_s() == 0 {
+        assert!(
+            traveled >= 500,
+            "full stop traveled {traveled} mm from {}",
+            before.speed_mm_s()
+        );
+    }
+    assert!(
+        after.route_edge_index() >= 1,
+        "the first gate was clear, so the step should pass it"
+    );
+    assert_not_past_second_gate(after.route_edge_index(), after.progress_mm());
+    #[cfg(feature = "placement-fixtures")]
+    {
+        let mut oracle =
+            install_fixture(revision, WorldConfig::new(4, 4, 64, 8, 1_000)).expect("oracle");
+        let oracle_held = oracle.revision();
+        let oracle_routes = yield_routes(&mut oracle, oracle_held.as_ref());
+        let placed = oracle
+            .place_existing_active_vehicle(VehicleSpawnInput::new(
+                dot,
+                oracle_routes[0],
+                0,
+                progress,
+                2_000,
+            ))
+            .expect("same pose without admission");
+        oracle.step(TickInput::new(1_000)).expect("oracle step");
+        let stepped = oracle.vehicle(placed).expect("oracle vehicle");
+        assert_eq!(after.route_edge_index(), stepped.route_edge_index());
+        assert_eq!(after.progress_mm(), stepped.progress_mm());
+        assert_eq!(after.speed_mm_s(), stepped.speed_mm_s());
+    }
+}
+
+#[test]
+fn second_resource_gate_beyond_this_tick_still_allows_the_spawn() {
+    let revision = close_resource_gates();
+    let dot = conflict_profile(revision.as_ref(), "dot");
+    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 8, 100)).expect("world");
+    let held = world.revision();
+    let routes = yield_routes(&mut world, held.as_ref());
+    let edge = world.route_edges(routes[0]).expect("route")[0];
+    let length = world.traffic().lane_lengths_millimetres()[edge.index()];
+    let handle = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            dot,
+            routes[0],
+            0,
+            length - 400,
+            10_000,
+        ))
+        .expect("the second gate is beyond this tick");
+    let before = world.vehicle(handle).expect("spawned");
+    world.step(TickInput::new(100)).expect("step");
+    let after = world.vehicle(handle).expect("still live");
+    let traveled = if after.route_edge_index() == before.route_edge_index() {
+        after.progress_mm().saturating_sub(before.progress_mm())
+    } else {
+        length
+            .saturating_sub(before.progress_mm())
+            .saturating_add(after.progress_mm())
+    };
+    assert_step_stays_in_emergency_envelope(before.speed_mm_s(), after.speed_mm_s(), traveled);
+}
+
+#[test]
+fn fast_vehicle_reaching_the_second_gate_is_not_cleared_past_the_envelope() {
+    let revision = close_resource_gates();
+    let dot = conflict_profile(revision.as_ref(), "dot");
+    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 8, 100)).expect("world");
+    let held = world.revision();
+    let routes = yield_routes(&mut world, held.as_ref());
+    let edge = world.route_edges(routes[0]).expect("route")[0];
+    let length = world.traffic().lane_lengths_millimetres()[edge.index()];
+    match world.spawn_vehicle(VehicleSpawnInput::new(
+        dot,
+        routes[0],
+        0,
+        length - 80,
+        10_000,
+    )) {
+        Err(SpawnError::StopConstraintUnsatisfiable) => {}
+        Ok(handle) => {
+            let before = world.vehicle(handle).expect("spawned");
+            world.step(TickInput::new(100)).expect("step");
+            let after = world.vehicle(handle).expect("still live");
+            let traveled = if after.route_edge_index() == before.route_edge_index() {
+                after.progress_mm().saturating_sub(before.progress_mm())
+            } else {
+                length.saturating_sub(before.progress_mm()) + after.progress_mm()
+            };
+            assert_step_stays_in_emergency_envelope(
+                before.speed_mm_s(),
+                after.speed_mm_s(),
+                traveled,
+            );
+            assert_not_past_second_gate(after.route_edge_index(), after.progress_mm());
+        }
+        other => panic!("unexpected admission result {other:?}"),
+    }
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn unacquired_downstream_claim_does_not_block_the_other_exit() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                equal_priority: true,
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let mut open =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 4, 100)).expect("open");
+    let open_routes = yield_routes(&mut open, revision.as_ref());
+    let open_east = open.route_edges(open_routes[0]).expect("east")[0];
+    let open_east_length = open.traffic().lane_lengths_millimetres()[open_east.index()];
+    open.place_existing_active_vehicle(VehicleSpawnInput::new(
+        VehicleProfileOrdinal::from_raw(0),
+        open_routes[0],
+        0,
+        open_east_length - 400,
+        10_000,
+    ))
+    .expect("east can still acquire");
+    let open_north = open.route_edges(open_routes[1]).expect("north")[0];
+    let open_north_length = open.traffic().lane_lengths_millimetres()[open_north.index()];
+    assert_eq!(
+        open.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            open_routes[1],
+            0,
+            open_north_length - 400,
+            10_000,
+        )),
+        Err(SpawnError::StopConstraintUnsatisfiable),
+        "an earlier vehicle who can acquire still blocks the other exit"
+    );
+
+    let mut blocked =
+        install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).expect("blocked");
+    let blocked_held = blocked.revision();
+    let routes = yield_routes(&mut blocked, blocked_held.as_ref());
+    let east_edges = blocked.route_edges(routes[0]).expect("east").to_vec();
+    blocked
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            1,
+            10_501,
+            0,
+        ))
+        .expect("leader blocks east storage");
+    let east_length = blocked.traffic().lane_lengths_millimetres()[east_edges[0].index()];
+    blocked
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            east_length - 400,
+            10_000,
+        ))
+        .expect("east vehicle cannot acquire");
+    let north_edge = blocked.route_edges(routes[1]).expect("north")[0];
+    let north_length = blocked.traffic().lane_lengths_millimetres()[north_edge.index()];
+    blocked
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            north_length - 400,
+            10_000,
+        ))
+        .expect("a claim that is not acquired does not block the other exit");
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn already_unstoppable_vehicle_is_not_charged_to_the_next_insert() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                deny: true,
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).expect("world");
+    let held = world.revision();
+    let routes = yield_routes(&mut world, held.as_ref());
+    let edges = world.route_edges(routes[1]).expect("edges").to_vec();
+    let last = u32::try_from(edges.len() - 1).expect("index");
+    let last_length = world.traffic().lane_lengths_millimetres()[edges[last as usize].index()];
+    let completed = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            last,
+            last_length,
+            0,
+        ))
+        .expect("completed later");
+    world.step(TickInput::new(100)).expect("complete");
+    assert_eq!(
+        world.vehicle(completed).expect("completed").status(),
+        VehicleStatus::Completed
+    );
+    let yield_edge = world.route_edges(routes[0]).expect("yield")[0];
+    let yield_length = world.traffic().lane_lengths_millimetres()[yield_edge.index()];
+    world
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            yield_length - 400,
+            10_000,
+        ))
+        .expect("already cannot stop for the closed gate");
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            0,
+            0,
+        ))
+        .expect("an unrelated spawn is not blamed for an old hard stop");
+    world
+        .replace_completed_vehicle(
+            completed,
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[1], 0, 6_000, 0),
+        )
+        .expect("replace uses the same rule and does not blame the old hard stop");
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn replace_into_the_priority_pose_uses_the_same_yield_rule() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).expect("world");
+    let held = world.revision();
+    let routes = yield_routes(&mut world, held.as_ref());
+    let edges = world.route_edges(routes[0]).expect("edges").to_vec();
+    let last = u32::try_from(edges.len() - 1).expect("index");
+    let last_length = world.traffic().lane_lengths_millimetres()[edges[last as usize].index()];
+    let completed = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            last,
+            last_length,
+            0,
+        ))
+        .expect("completed vehicle");
+    world.step(TickInput::new(100)).expect("complete");
+    let yield_edge = world.route_edges(routes[0]).expect("yield")[0];
+    let yield_length = world.traffic().lane_lengths_millimetres()[yield_edge.index()];
+    world
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            yield_length - 400,
+            10_000,
+        ))
+        .expect("yield vehicle");
+    let priority_edge = world.route_edges(routes[1]).expect("priority")[0];
+    let priority_length = world.traffic().lane_lengths_millimetres()[priority_edge.index()];
+    let replaced = world.replace_completed_vehicle(
+        completed,
+        VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            priority_length - 2_500,
+            10_000,
+        ),
+    );
+    assert!(
+        matches!(replaced, Err(ReplaceError::StopConstraintUnsatisfiable)),
+        "replace must refuse the pose that would newly stop the yield vehicle, got {replaced:?}"
+    );
+}
+
+#[cfg(feature = "placement-fixtures")]
+fn spawn_completed_at_end(world: &mut TrafficWorld, route: RouteHandle) -> VehicleHandle {
+    let edges = world.route_edges(route).expect("edges").to_vec();
+    let last = u32::try_from(edges.len() - 1).expect("index");
+    let last_length = world.traffic().lane_lengths_millimetres()[edges[last as usize].index()];
+    let completed = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            last,
+            last_length,
+            0,
+        ))
+        .expect("spawn at the route end");
+    world.step(TickInput::new(100)).expect("complete");
+    assert_eq!(
+        world.vehicle(completed).expect("retained").status(),
+        VehicleStatus::Completed
+    );
+    completed
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn middle_live_rank_keeps_the_gate_against_a_later_contender() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                equal_priority: true,
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let mut world = install_fixture(revision, WorldConfig::new(6, 6, 64, 4, 100)).expect("world");
+    let held = world.revision();
+    let routes = yield_routes(&mut world, held.as_ref());
+    world
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            0,
+            0,
+        ))
+        .expect("bystander at the front of the live order");
+    let completed = spawn_completed_at_end(&mut world, routes[0]);
+    let foe_edge = world.route_edges(routes[1]).expect("foe")[0];
+    let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
+    world
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            foe_length,
+            0,
+        ))
+        .expect("later contender");
+    let subject_edge = world.route_edges(routes[0]).expect("subject")[0];
+    let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
+    world
+        .replace_completed_vehicle(
+            completed,
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                subject_length - 400,
+                10_000,
+            ),
+        )
+        .expect("the middle live rank still sorts ahead of the later contender");
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn completed_hole_keeps_its_rank_and_a_new_spawn_does_not_reuse_it() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                equal_priority: true,
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(6, 6, 64, 4, 100)).expect("world");
+    let held = world.revision();
+    let routes = yield_routes(&mut world, held.as_ref());
+    let hole = spawn_completed_at_end(&mut world, routes[0]);
+    let foe_edge = world.route_edges(routes[1]).expect("foe")[0];
+    let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
+    world
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            foe_length,
+            0,
+        ))
+        .expect("contender after the completed hole");
+    let subject_edge = world.route_edges(routes[0]).expect("subject")[0];
+    let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
+    assert_eq!(
+        world.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            subject_length - 400,
+            10_000,
+        )),
+        Err(SpawnError::StopConstraintUnsatisfiable),
+        "a new spawn keeps counting the completed hole, so it sorts after the contender"
+    );
+    world
+        .replace_completed_vehicle(
+            hole,
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                subject_length - 400,
+                10_000,
+            ),
+        )
+        .expect("replacing the hole keeps the earlier rank");
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn equal_distance_earlier_rank_keeps_the_gate() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                equal_priority: true,
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).expect("world");
+    let held = world.revision();
+    let routes = yield_routes(&mut world, held.as_ref());
+    let completed = spawn_completed_at_end(&mut world, routes[0]);
+    let foe_edge = world.route_edges(routes[1]).expect("foe")[0];
+    let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
+    let earlier = world
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            foe_length,
+            0,
+        ))
+        .expect("same distance on the other approach");
+    let subject_edge = world.route_edges(routes[0]).expect("subject")[0];
+    let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
+    let record = world
+        .replace_completed_vehicle(
+            completed,
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                subject_length,
+                0,
+            ),
+        )
+        .expect("equal distance still yields to the earlier live rank");
+    world.step(TickInput::new(100)).expect("arbitrate");
+    let decisions = world.latest_conflict_decisions();
+    assert_eq!(
+        decisions
+            .iter()
+            .find(|decision| decision.vehicle() == record.new)
+            .map(|decision| decision.outcome()),
+        Some(laneflow_runtime::ConflictDecisionOutcome::Granted)
+    );
+    assert_ne!(
+        decisions
+            .iter()
+            .find(|decision| decision.vehicle() == earlier)
+            .map(|decision| decision.outcome()),
+        Some(laneflow_runtime::ConflictDecisionOutcome::Granted)
+    );
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn reused_slot_generation_keeps_the_old_live_rank() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                equal_priority: true,
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).expect("world");
+    let held = world.revision();
+    let routes = yield_routes(&mut world, held.as_ref());
+    let mut current = spawn_completed_at_end(&mut world, routes[0]);
+    let edges = world.route_edges(routes[0]).expect("edges").to_vec();
+    let last = u32::try_from(edges.len() - 1).expect("index");
+    let last_length = world.traffic().lane_lengths_millimetres()[edges[last as usize].index()];
+    for _ in 0..2 {
+        let record = world
+            .replace_completed_vehicle(
+                current,
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    routes[0],
+                    last,
+                    last_length,
+                    0,
+                ),
+            )
+            .expect("reuse the completed slot");
+        current = record.new;
+        world.step(TickInput::new(100)).expect("complete again");
+        assert_eq!(
+            world.vehicle(current).expect("replaced").status(),
+            VehicleStatus::Completed
+        );
+    }
+    let foe_edge = world.route_edges(routes[1]).expect("foe")[0];
+    let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
+    world
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            foe_length,
+            0,
+        ))
+        .expect("later contender");
+    let subject_edge = world.route_edges(routes[0]).expect("subject")[0];
+    let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
+    world
+        .replace_completed_vehicle(
+            current,
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                subject_length - 400,
+                10_000,
+            ),
+        )
+        .expect("a reused slot keeps the original live rank, not the slot generation");
+}
+
+#[test]
+fn waiting_entrants_keep_approach_order_across_spawn_order() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                waiting: true,
+                waiting_on_north_only: true,
+                conflict_after_release: true,
+                short_vehicle: true,
+                waiting_capacity: 2,
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let dot = conflict_profile(revision.as_ref(), "dot");
+    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 4, 1_000))
+        .expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    let edge = world.route_edges(routes[1]).expect("north")[0];
+    let length = world.traffic().lane_lengths_millimetres()[edge.index()];
+    let far = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            dot,
+            routes[1],
+            0,
+            length - 2_500,
+            2_000,
+        ))
+        .expect("farther entrant first");
+    let near = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            dot,
+            routes[1],
+            0,
+            length - 500,
+            2_000,
+        ))
+        .expect("nearer entrant second");
+    #[cfg(feature = "placement-fixtures")]
+    {
+        let rows = world.contender_fingerprint_for_test();
+        let mut waiting: Vec<(u32, u32)> = rows
+            .iter()
+            .filter(|row| row.3 > 0)
+            .map(|row| (row.3 - 1, row.2))
+            .collect();
+        let sorted = waiting.clone();
+        waiting.sort_unstable();
+        assert_eq!(
+            sorted, waiting,
+            "waiting rows must already be in approach order"
+        );
+        world.force_rebuild_contenders_for_test();
+        assert_eq!(rows, world.contender_fingerprint_for_test());
+    }
+    world.step(TickInput::new(1_000)).expect("step");
+    let far_after = world.vehicle(far).expect("far");
+    let near_after = world.vehicle(near).expect("near");
+    assert_eq!(far_after.status(), VehicleStatus::Active);
+    assert_eq!(near_after.status(), VehicleStatus::Active);
+    let near_ahead = near_after.route_edge_index() > far_after.route_edge_index()
+        || (near_after.route_edge_index() == far_after.route_edge_index()
+            && near_after.progress_mm() > far_after.progress_mm());
+    assert!(
+        near_ahead,
+        "the nearer vehicle remains ahead after the step"
+    );
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn replace_reserve_failure_is_occupancy_alloc_and_commits_nothing() {
+    let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
+    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let held = world.revision();
+    let routes = yield_routes(&mut world, held.as_ref());
+    let completed = spawn_completed_at_end(&mut world, routes[0]);
+    let cursor = world.command_cursor();
+    let live = world.live_vehicles().len();
+    laneflow_runtime::set_admission_reserve_failure(laneflow_runtime::AdmissionReserve::Best, true);
+    let result = world.replace_completed_vehicle(
+        completed,
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 0, 0, 0),
+    );
+    laneflow_runtime::set_admission_reserve_failure(
+        laneflow_runtime::AdmissionReserve::Best,
+        false,
+    );
+    assert_eq!(result, Err(ReplaceError::OccupancyAllocFailed));
+    assert_eq!(world.command_cursor(), cursor);
+    assert_eq!(world.live_vehicles().len(), live);
+    assert_eq!(
+        world.vehicle(completed).expect("unchanged").status(),
+        VehicleStatus::Completed
+    );
 }
 
 #[cfg(feature = "placement-fixtures")]
