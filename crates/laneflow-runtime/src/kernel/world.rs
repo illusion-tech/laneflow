@@ -775,6 +775,12 @@ impl crate::kernel::state::WorldState {
         self.committed.command_cursor
     }
 
+    /// 测试专用：把命令游标拨到指定值，用来覆盖耗尽后的注册回滚。
+    #[cfg(any(test, feature = "placement-fixtures"))]
+    pub fn set_command_cursor_for_test(&mut self, cursor: u64) {
+        self.committed.command_cursor = cursor;
+    }
+
     /// 已提交切换事件游标（快照合同 §3 双游标之一；#513 切片 C 起
     /// 随事件批次通道成为真实轴）。安装后为零；每次成功切换（含放弃后
     /// 重试成功）恰递增一个事件批次。
@@ -2198,6 +2204,13 @@ impl TrafficWorld {
     pub const fn command_cursor(&self) -> u64 {
         self.execution.assert_usable();
         self.state.command_cursor()
+    }
+
+    /// 测试专用：把命令游标拨到指定值，用来覆盖耗尽后的注册回滚。
+    #[cfg(any(test, feature = "placement-fixtures"))]
+    pub fn set_command_cursor_for_test(&mut self, cursor: u64) {
+        self.execution.assert_usable();
+        self.state.set_command_cursor_for_test(cursor);
     }
 
     /// 已提交切换事件游标（快照合同 §3 双游标之一；#513 切片 C 起

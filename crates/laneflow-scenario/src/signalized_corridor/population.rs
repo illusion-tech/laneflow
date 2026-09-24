@@ -719,19 +719,23 @@ impl CorridorPopulationPrepare {
     ///
     /// # Errors
     ///
-    /// 由 catalog `install_routes` 承接：其全部 `BindError`（含世界策略不匹配、
-    /// 修订不一致与注册失败）统一包装为
-    /// [`CorridorPopulationError::BoundWorldCatalogMismatch`]，仅保留诊断字符串、
-    /// 变体身份丢失。
+    /// 由 catalog `install_routes` 承接。注册失败且路线都已撤回时，包装为
+    /// [`CorridorPopulationError::BoundWorldCatalogMismatch`]。撤回没有完成时返回
+    /// [`CorridorPopulationError::InitialRouteRollbackIncomplete`]。
     pub fn install_routes(
         &self,
         world: &mut TrafficWorld,
     ) -> Result<Vec<RouteHandle>, CorridorPopulationError> {
-        self.catalog.install_routes(world).map_err(|error| {
-            CorridorPopulationError::BoundWorldCatalogMismatch {
-                detail: error.to_string(),
-            }
-        })
+        self.catalog
+            .install_routes(world)
+            .map_err(|error| match error {
+                crate::signalized_corridor::BindError::RouteRollbackIncomplete { detail } => {
+                    CorridorPopulationError::InitialRouteRollbackIncomplete { detail }
+                }
+                other => CorridorPopulationError::BoundWorldCatalogMismatch {
+                    detail: other.to_string(),
+                },
+            })
     }
 
     /// 在 tick-0 world 上回查 identity 并进入 Running。
