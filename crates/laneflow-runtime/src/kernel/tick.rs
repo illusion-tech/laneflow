@@ -7,14 +7,12 @@ use crate::kernel::conflict::{
     DownstreamInterval, check_gap, derive_downstream_claims_from_plan, intervals_conflict,
 };
 use crate::kernel::occupancy::LeaderQueryHorizon;
-use crate::kernel::state::{
-    CELL_APPROACH_NONE, CELL_APPROACH_UNPROVABLE, ContenderBuilt, ContenderRank,
-};
+use crate::kernel::state::{ContenderBuilt, ContenderRank};
 #[cfg(test)]
 use crate::kernel::tables::occupancy_front_gap;
 use crate::kernel::tables::{
     CompiledRoute, distance_to_occurrence_progress, distance_to_occurrence_start,
-    remaining_to_route_end,
+    for_each_occupancy_interval, remaining_to_route_end,
 };
 use crate::kernel::units::{ceil_mm, round_mm, round_um};
 use crate::{
@@ -29,6 +27,12 @@ const MINIMUM_GAP_TOLERANCE_MM: u32 = 1;
 #[cfg(any(test, feature = "placement-fixtures"))]
 thread_local! {
     static CANDIDATE_ADMISSION_CALLS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static EXCLUSION_CALLS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static EXCLUSION_WORK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static RECHECK_VISITS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static FULL_RECHECK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static ACQUISITION_REPLAYS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static ADMISSION_SCRATCH: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// 还没放进世界的那辆车，这一次生成里被问了几次「会不会被拦住」。
@@ -43,6 +47,99 @@ pub fn candidate_admission_calls() -> u64 {
 #[doc(hidden)]
 pub fn reset_candidate_admission_calls() {
     CANDIDATE_ADMISSION_CALLS.with(|cell| cell.set(0));
+}
+
+/// 去掉自己时读了几次格子，以及这些读取一共做了多少次固定工作。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn exclusion_counts() -> (u64, u64) {
+    (
+        EXCLUSION_CALLS.with(std::cell::Cell::get),
+        EXCLUSION_WORK.with(std::cell::Cell::get),
+    )
+}
+
+/// 清掉格子读取计数。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn reset_exclusion_counts() {
+    EXCLUSION_CALLS.with(|cell| cell.set(0));
+    EXCLUSION_WORK.with(|cell| cell.set(0));
+}
+
+/// 这次生成实际复核了多少辆已经在路上的车。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn recheck_visits() -> u64 {
+    RECHECK_VISITS.with(std::cell::Cell::get)
+}
+
+/// 清掉复核计数。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn reset_recheck_visits() {
+    RECHECK_VISITS.with(|cell| cell.set(0));
+}
+
+/// 测试用：复核改成走完整名单，用来对照真正的受影响集合。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn set_full_recheck(enabled: bool) {
+    FULL_RECHECK.with(|cell| cell.set(enabled));
+}
+
+/// 这次生成把更早的申请者重放了几次。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn acquisition_replays() -> u64 {
+    ACQUISITION_REPLAYS.with(std::cell::Cell::get)
+}
+
+/// 清掉重放计数。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn reset_acquisition_replays() {
+    ACQUISITION_REPLAYS.with(|cell| cell.set(0));
+}
+
+/// 这次生成预检里新申请的临时表次数。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn admission_scratch_reserves() -> u64 {
+    ADMISSION_SCRATCH.with(std::cell::Cell::get)
+}
+
+/// 清掉临时表计数。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn reset_admission_scratch_reserves() {
+    ADMISSION_SCRATCH.with(|cell| cell.set(0));
+}
+
+pub(crate) fn full_recheck_enabled() -> bool {
+    #[cfg(any(test, feature = "placement-fixtures"))]
+    {
+        FULL_RECHECK.with(std::cell::Cell::get)
+    }
+    #[cfg(not(any(test, feature = "placement-fixtures")))]
+    {
+        false
+    }
+}
+
+pub(crate) fn note_recheck_visit() {
+    #[cfg(any(test, feature = "placement-fixtures"))]
+    RECHECK_VISITS.with(|count| count.set(count.get().saturating_add(1)));
+}
+
+fn note_acquisition_replay() {
+    #[cfg(any(test, feature = "placement-fixtures"))]
+    ACQUISITION_REPLAYS.with(|count| count.set(count.get().saturating_add(1)));
+}
+
+fn note_admission_scratch() {
+    #[cfg(any(test, feature = "placement-fixtures"))]
+    ADMISSION_SCRATCH.with(|count| count.set(count.get().saturating_add(1)));
 }
 
 /// 这一拍临时占上的路口和下游。预检结束就丢掉，不写进已提交世界。
@@ -112,6 +209,13 @@ enum AdmissionPreview {
 pub(crate) enum PlacementMotionError {
     Unprovable,
     Alloc,
+}
+
+/// 还没提交的车，对更早申请者和已有车下游的这一拍覆盖。
+#[derive(Clone, Copy)]
+struct CandidateOverlay<'a> {
+    incoming: &'a [(crate::ConflictPassageAddress, ApproachEstimate)],
+    obstacle: Option<&'a VehicleState>,
 }
 
 /// 这一辆还没提交的车，对已经在路上的车多出来的压力。
@@ -1721,12 +1825,13 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         leader_constraint_only: bool,
         update_sequence: u32,
         extra_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        incoming: &[(crate::ConflictPassageAddress, ApproachEstimate)],
     ) -> Result<PlacementMotion, PlacementMotionError> {
         let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
         let admission_stop = if leader_constraint_only {
             extra_stop
         } else {
-            match self.admission_stop(&state, update_sequence) {
+            match self.admission_stop(&state, update_sequence, incoming) {
                 AdmissionPreview::Clear => extra_stop,
                 AdmissionPreview::Stop(stop) => Some(closer_stop(stop, extra_stop)),
                 AdmissionPreview::Unprovable => return Err(PlacementMotionError::Unprovable),
@@ -1764,7 +1869,12 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 
     /// 下一拍会在哪一处够得到的入口硬截断。够不到的后缀不再查让行、下游或排队。
-    fn admission_stop(self, state: &VehicleState, candidate_sequence: u32) -> AdmissionPreview {
+    fn admission_stop(
+        self,
+        state: &VehicleState,
+        candidate_sequence: u32,
+        incoming: &[(crate::ConflictPassageAddress, ApproachEstimate)],
+    ) -> AdmissionPreview {
         #[cfg(any(test, feature = "placement-fixtures"))]
         if state.handle.index() == u32::MAX {
             CANDIDATE_ADMISSION_CALLS.with(|cell| cell.set(cell.get().saturating_add(1)));
@@ -1866,6 +1976,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                     conflict_index,
                     distance,
                     candidate_sequence,
+                    incoming,
                 ) {
                     AdmissionPreview::Clear => hop_granted = true,
                     other => return other,
@@ -1924,6 +2035,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn conflict_hop_admission(
         self,
         state: &VehicleState,
@@ -1932,7 +2044,12 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         occurrence_index: usize,
         gate_distance: BoundedDistance,
         candidate_sequence: u32,
+        incoming: &[(crate::ConflictPassageAddress, ApproachEstimate)],
     ) -> AdmissionPreview {
+        let overlay = CandidateOverlay {
+            incoming,
+            obstacle: (state.handle.index() == u32::MAX).then_some(state),
+        };
         let stop = AdmissionPreview::Stop(crate::kernel::waiting::WaitingStopConstraint {
             distance: gate_distance,
             hop,
@@ -1957,7 +2074,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         else {
             return AdmissionPreview::Unprovable;
         };
-        let staged = match self.acquisitions_before(rank) {
+        let staged = match self.acquisitions_before(rank, overlay) {
             Ok(staged) => staged,
             Err(preview) => return preview,
         };
@@ -1979,7 +2096,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 YieldAdmission::Unprovable => return AdmissionPreview::Unprovable,
             }
         }
-        self.downstream_admission(state, compiled, hop, gate_distance, rank)
+        self.downstream_admission(state, compiled, hop, gate_distance, rank, overlay)
     }
 
     fn candidate_rank(
@@ -2053,6 +2170,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         contender: crate::kernel::state::ZoneContender,
         zone: usize,
         staged: &StagedAcquire,
+        overlay: CandidateOverlay<'_>,
     ) -> AdmissionPreview {
         let Some(state) = self.vehicle_state(contender.vehicle).copied() else {
             return AdmissionPreview::Stop(crate::kernel::waiting::WaitingStopConstraint {
@@ -2095,7 +2213,13 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             index = index.saturating_add(1);
         }
         if !contender.rank.is_protected() {
-            match self.yield_outcome(&state, compiled, contender.hop, occurrence_index, &[]) {
+            match self.yield_outcome(
+                &state,
+                compiled,
+                contender.hop,
+                occurrence_index,
+                overlay.incoming,
+            ) {
                 YieldAdmission::Clear => {}
                 YieldAdmission::Stop => {
                     return AdmissionPreview::Stop(crate::kernel::waiting::WaitingStopConstraint {
@@ -2106,7 +2230,12 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 YieldAdmission::Unprovable => return AdmissionPreview::Unprovable,
             }
         }
-        match self.claim_intervals(&state, contender.hop, contender.rank.update_sequence()) {
+        match self.claim_intervals(
+            &state,
+            contender.hop,
+            contender.rank.update_sequence(),
+            overlay.obstacle,
+        ) {
             Ok(ClaimRead::NoGrant) => {
                 AdmissionPreview::Stop(crate::kernel::waiting::WaitingStopConstraint {
                     distance: BoundedDistance::Finite(0),
@@ -2206,27 +2335,20 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 if self
                     .derived
                     .spawn_contenders
-                    .cell_approach_ms
+                    .cell_approach
                     .get(cell)
                     .is_none()
                 {
                     return YieldAdmission::Unprovable;
                 }
-                let ms = self.approach_excluding_subject(cell, state.handle);
-                let cached = if ms == CELL_APPROACH_NONE {
-                    ApproachEstimate::OutsideHorizon
-                } else if ms == CELL_APPROACH_UNPROVABLE {
-                    ApproachEstimate::Unprovable
-                } else {
-                    ApproachEstimate::Finite(ms)
-                };
+                let cached = self.approach_excluding_subject(cell, state.handle);
                 let approach = incoming
                     .iter()
                     .fold(cached, |current, (candidate, estimate)| {
-                        if *candidate == address {
-                            more_urgent(current, *estimate)
-                        } else {
+                        if *candidate != address || *estimate == ApproachEstimate::Unprovable {
                             current
+                        } else {
+                            more_urgent(current, *estimate)
                         }
                     });
                 let lag = self
@@ -2260,6 +2382,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         hop: u32,
         gate_distance: BoundedDistance,
         candidate_rank: ContenderRank,
+        overlay: CandidateOverlay<'_>,
     ) -> AdmissionPreview {
         let stop = AdmissionPreview::Stop(crate::kernel::waiting::WaitingStopConstraint {
             distance: gate_distance,
@@ -2335,7 +2458,13 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         {
             return AdmissionPreview::Unprovable;
         }
-        match self.earlier_downstream_blocks(candidate_rank, &claims, profile.min_gap_mm(), stop) {
+        match self.earlier_downstream_blocks(
+            candidate_rank,
+            &claims,
+            profile.min_gap_mm(),
+            stop,
+            overlay,
+        ) {
             AdmissionPreview::Clear => {}
             other => return other,
         }
@@ -2393,8 +2522,9 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         claims: &[DownstreamInterval],
         gap_mm: u32,
         blocked: AdmissionPreview,
+        overlay: CandidateOverlay<'_>,
     ) -> AdmissionPreview {
-        let staged = match self.acquisitions_before(candidate_rank) {
+        let staged = match self.acquisitions_before(candidate_rank, overlay) {
             Ok(staged) => staged,
             Err(preview) => return preview,
         };
@@ -2413,8 +2543,14 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 
     /// 名次更靠前、并且把更前面的人这一拍已经占上的路口和下游算进去之后仍然占得上的声明。
-    fn acquisitions_before(self, rank: ContenderRank) -> Result<StagedAcquire, AdmissionPreview> {
+    fn acquisitions_before(
+        self,
+        rank: ContenderRank,
+        overlay: CandidateOverlay<'_>,
+    ) -> Result<StagedAcquire, AdmissionPreview> {
+        note_acquisition_replay();
         let mut earlier = Vec::new();
+        note_admission_scratch();
         let contender_count = self
             .derived
             .spawn_contenders
@@ -2454,7 +2590,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 continue;
             }
             let (zone, contender) = group[0];
-            match self.earlier_request(contender, zone, &staged) {
+            match self.earlier_request(contender, zone, &staged, overlay) {
                 AdmissionPreview::Clear => {}
                 AdmissionPreview::Stop(_) => continue,
                 other => return Err(other),
@@ -2480,8 +2616,12 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             else {
                 return Err(AdmissionPreview::Unprovable);
             };
-            let ClaimRead::Open(intervals) =
-                self.claim_intervals(&state, contender.hop, contender.rank.update_sequence())?
+            let ClaimRead::Open(intervals) = self.claim_intervals(
+                &state,
+                contender.hop,
+                contender.rank.update_sequence(),
+                overlay.obstacle,
+            )?
             else {
                 continue;
             };
@@ -2506,6 +2646,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         state: &VehicleState,
         hop: u32,
         update_sequence: u32,
+        obstacle: Option<&VehicleState>,
     ) -> Result<ClaimRead, AdmissionPreview> {
         let Some(compiled) = self.compiled_route(state.route) else {
             return Err(AdmissionPreview::Unprovable);
@@ -2612,7 +2753,74 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         )? {
             return Ok(ClaimRead::NoGrant);
         }
+        if let Some(obstacle) = obstacle
+            && self.obstacle_blocks_claims(&claims, profile.min_gap_mm(), obstacle)?
+        {
+            return Ok(ClaimRead::NoGrant);
+        }
         Ok(ClaimRead::Open(claims))
+    }
+
+    /// 车身沿路线从后杠铺到前杠。半开区间；贴在一点上的零长度不占下游。
+    fn body_intervals(
+        self,
+        state: &VehicleState,
+    ) -> Result<Vec<DownstreamInterval>, AdmissionPreview> {
+        let Some(compiled) = self.compiled_route(state.route) else {
+            return Err(AdmissionPreview::Unprovable);
+        };
+        let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
+        let Ok(index) = usize::try_from(state.route_edge_index) else {
+            return Err(AdmissionPreview::Unprovable);
+        };
+        let mut intervals = Vec::new();
+        note_admission_scratch();
+        if intervals.try_reserve(compiled.edges.len()).is_err() {
+            return Err(AdmissionPreview::Alloc);
+        }
+        let walked = for_each_occupancy_interval(
+            lengths,
+            &compiled.edges,
+            index,
+            state.progress_mm,
+            state.length_mm,
+            |edge, start_mm, end_mm| {
+                if let Some(interval) = DownstreamInterval::new(edge, start_mm, end_mm) {
+                    intervals.push(interval);
+                }
+            },
+        );
+        if walked.is_none() {
+            return Err(AdmissionPreview::Unprovable);
+        }
+        Ok(intervals)
+    }
+
+    /// 已有声明和这辆还没提交的车身，在同一条边上叠住或间距小于最小跟车间隙。
+    fn obstacle_blocks_claims(
+        self,
+        claims: &[DownstreamInterval],
+        claim_gap_mm: u32,
+        obstacle: &VehicleState,
+    ) -> Result<bool, AdmissionPreview> {
+        if claims.is_empty() {
+            return Ok(false);
+        }
+        let body = self.body_intervals(obstacle)?;
+        let Some(profile) = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(obstacle.profile)
+        else {
+            return Err(AdmissionPreview::Unprovable);
+        };
+        let body_gap_mm = profile.min_gap_mm();
+        Ok(claims.iter().any(|claim| {
+            body.iter()
+                .any(|occupied| intervals_conflict(*claim, claim_gap_mm, *occupied, body_gap_mm))
+        }))
     }
 
     /// 已预约车位，或下一拍预览真正会用上的排队停车点，挡住这段声明。
@@ -2755,28 +2963,23 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         }
     }
 
-    /// 格点到达去掉这辆车自己。环线上不能用自己的到达把自己判成让不过。
-    fn approach_excluding_subject(self, cell: usize, subject: crate::VehicleHandle) -> u64 {
-        let mut best = CELL_APPROACH_NONE;
-        for (slot, owner) in self.derived.spawn_contenders.owners.iter().enumerate() {
-            if slot == subject.index() as usize {
-                continue;
-            }
-            let Some(mark) = owner else {
-                continue;
-            };
-            for (index, estimate) in &mark.cells {
-                if *index != cell {
-                    continue;
-                }
-                if *estimate == CELL_APPROACH_UNPROVABLE || best == CELL_APPROACH_UNPROVABLE {
-                    best = CELL_APPROACH_UNPROVABLE;
-                } else if *estimate != CELL_APPROACH_NONE {
-                    best = best.min(*estimate);
-                }
-            }
+    /// 格点到达去掉这辆车自己。只读这个格子留下的两名车，不随更后面的人变长。
+    fn approach_excluding_subject(
+        self,
+        cell: usize,
+        subject: crate::VehicleHandle,
+    ) -> ApproachEstimate {
+        #[cfg(any(test, feature = "placement-fixtures"))]
+        {
+            EXCLUSION_CALLS.with(|count| count.set(count.get().saturating_add(1)));
+            EXCLUSION_WORK.with(|count| count.set(count.get().saturating_add(1)));
         }
-        best
+        self.derived
+            .spawn_contenders
+            .cell_approach
+            .get(cell)
+            .map(|slot| slot.value_excluding(subject))
+            .unwrap_or(ApproachEstimate::OutsideHorizon)
     }
 
     /// 已预约的停车入口在声明终点前面时，下一拍不会把这段下游占上。
@@ -2810,8 +3013,9 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         candidate: &VehicleState,
         update_sequence: u32,
         first_hop: Option<u32>,
+        incoming: &[(crate::ConflictPassageAddress, ApproachEstimate)],
     ) -> Result<(Option<u32>, Vec<DownstreamInterval>), PlacementMotionError> {
-        let blocked = match self.admission_stop(candidate, update_sequence) {
+        let blocked = match self.admission_stop(candidate, update_sequence, incoming) {
             AdmissionPreview::Clear => None,
             AdmissionPreview::Stop(stop) => Some(stop.hop),
             AdmissionPreview::Unprovable => return Err(PlacementMotionError::Unprovable),
@@ -2819,7 +3023,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         };
         let claims = if let Some(hop) = first_hop {
             if blocked.is_none_or(|stop| hop < stop) {
-                match self.claim_intervals(candidate, hop, update_sequence) {
+                match self.claim_intervals(candidate, hop, update_sequence, None) {
                     Ok(ClaimRead::Open(claims)) => claims,
                     Ok(ClaimRead::NoGrant) => Vec::new(),
                     Err(AdmissionPreview::Alloc) => return Err(PlacementMotionError::Alloc),
@@ -2921,17 +3125,34 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 conflict_stop = Some(stop);
                 break;
             }
-            if let Some(old_rank) =
-                self.candidate_rank(compiled, hop, index, existing, existing_sequence)
-            {
-                let candidate_ahead = pressure.ranks.iter().any(|(_, rank, candidate_hop)| {
-                    candidate_reaches(*candidate_hop) && rank.sorts_before(old_rank)
-                });
-                if candidate_ahead && !candidate_claims.is_empty() {
-                    match self.claim_intervals(existing, hop, existing_sequence) {
-                        Ok(ClaimRead::NoGrant) => {}
-                        Ok(ClaimRead::Open(old_claims)) => {
-                            if old_claims.iter().any(|interval| {
+            match self.claim_intervals(existing, hop, existing_sequence, None) {
+                Ok(ClaimRead::NoGrant) => {}
+                Ok(ClaimRead::Open(old_claims)) => {
+                    match self.obstacle_blocks_claims(
+                        &old_claims,
+                        profile.min_gap_mm(),
+                        pressure.candidate,
+                    ) {
+                        Ok(true) => {
+                            conflict_stop = Some(stop);
+                            break;
+                        }
+                        Ok(false) => {}
+                        Err(AdmissionPreview::Alloc) => {
+                            return Err(PlacementMotionError::Alloc);
+                        }
+                        Err(_) => return Err(PlacementMotionError::Unprovable),
+                    }
+                    if let Some(old_rank) =
+                        self.candidate_rank(compiled, hop, index, existing, existing_sequence)
+                    {
+                        let candidate_ahead =
+                            pressure.ranks.iter().any(|(_, rank, candidate_hop)| {
+                                candidate_reaches(*candidate_hop) && rank.sorts_before(old_rank)
+                            });
+                        if candidate_ahead
+                            && !candidate_claims.is_empty()
+                            && old_claims.iter().any(|interval| {
                                 candidate_claims.iter().any(|candidate_interval| {
                                     intervals_conflict(
                                         *interval,
@@ -2940,15 +3161,15 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                                         candidate_gap,
                                     )
                                 })
-                            }) {
-                                conflict_stop = Some(stop);
-                                break;
-                            }
+                            })
+                        {
+                            conflict_stop = Some(stop);
+                            break;
                         }
-                        Err(AdmissionPreview::Alloc) => return Err(PlacementMotionError::Alloc),
-                        Err(_) => return Err(PlacementMotionError::Unprovable),
                     }
                 }
+                Err(AdmissionPreview::Alloc) => return Err(PlacementMotionError::Alloc),
+                Err(_) => {}
             }
             let protected = self
                 .candidate_rank(compiled, hop, index, existing, existing_sequence)

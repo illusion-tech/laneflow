@@ -27,7 +27,7 @@ pub enum LaneFlowVehicleReplaceOutcome {
     Replaced(LaneFlowVehicleReplaceRecord),
     /// 入口占用；Runtime、mapping 与 Transform 均不变。
     Blocked(VehicleReplaceBlock),
-    /// 当前停车约束、前方限速或前后车暂时不能接纳。世界与 mapping 不变，可稍后重试。
+    /// 当前停车约束或前后车暂时不能接纳。世界与 mapping 不变，可稍后重试。
     Retryable(ReplaceError),
 }
 
@@ -44,16 +44,16 @@ pub struct LaneFlowVehicleDespawnRecord {
 /// 在 `LaneFlowFixedSet::Lifecycle` 原子替换 Completed 车辆。
 ///
 /// 已绑定车辆复用同一 Entity 并轮换到新句柄；未绑定保持未绑定。
-/// `Blocked` 与暂时不能接纳的运动安全结果不写入 `last_error`，以便同一 boundary
-/// 继续处理其他计划。
+/// `Blocked` 与暂时不能接纳的停车约束、前车或后车结果不写入 `last_error`，以便同一
+/// boundary 继续处理其他计划。降不到前方更低限速是致命错误，写入 `last_error`。
 ///
 /// # Errors
 ///
 /// Session 资源缺席时返回 [`LaneFlowAdapterError::MissingSessionForLifecycleCommand`]；
 /// session 存在未消费的 `last_error` 时原样返回；替换车辆或其 Entity 绑定失效
-/// （`UnknownVehicle` / `StaleLifecycleEntity`）与世界替换的致命错误记录到
-/// `last_error` 并返回；[`ReplaceError::Blocked`] 与当前暂时不能接纳的运动安全
-/// 错误转为可重试 outcome，不写入 `last_error`。
+/// （`UnknownVehicle` / `StaleLifecycleEntity`）、`DownstreamSpeedUnsatisfiable` 与
+/// 世界替换的其他致命错误记录到 `last_error` 并返回；[`ReplaceError::Blocked`] 与
+/// 当前暂时不能接纳的停车约束、前车或后车错误转为可重试 outcome，不写入 `last_error`。
 pub fn replace_completed_vehicle(
     world: &mut World,
     old: VehicleHandle,
@@ -94,7 +94,6 @@ pub fn replace_completed_vehicle(
                     Ok(LaneFlowVehicleReplaceOutcome::Blocked(block))
                 }
                 Err(source @ ReplaceError::StopConstraintUnsatisfiable)
-                | Err(source @ ReplaceError::DownstreamSpeedUnsatisfiable)
                 | Err(source @ ReplaceError::UnsafeLeader { .. })
                 | Err(source @ ReplaceError::UnsafeFollower { .. }) => {
                     Ok(LaneFlowVehicleReplaceOutcome::Retryable(source))

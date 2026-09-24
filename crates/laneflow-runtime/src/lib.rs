@@ -84,7 +84,12 @@ pub use kernel::policy::{DerivedPolicyGap, PolicyPin, WorldPolicySelection};
 pub use kernel::pose::{CommittedSignalGroupBatch, PoseSource};
 #[cfg(any(test, feature = "placement-fixtures"))]
 #[doc(hidden)]
-pub use kernel::tick::{candidate_admission_calls, reset_candidate_admission_calls};
+pub use kernel::tick::{
+    acquisition_replays, admission_scratch_reserves, candidate_admission_calls, exclusion_counts,
+    recheck_visits, reset_acquisition_replays, reset_admission_scratch_reserves,
+    reset_candidate_admission_calls, reset_exclusion_counts, reset_recheck_visits,
+    set_full_recheck,
+};
 pub use kernel::transitions::{
     TrafficTransitionAnchor, TrafficTransitionEvent, TrafficTransitionKind,
 };

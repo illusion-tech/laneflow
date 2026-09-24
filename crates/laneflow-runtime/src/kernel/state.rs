@@ -2,6 +2,7 @@
 //!
 //! 状态归属见 `traffic-runtime-phase-protocol.md`；这些类型不改变公开 facade。
 
+use crate::kernel::conflict::{ApproachEstimate, ApproachFrontierCell};
 use crate::kernel::occupancy::OccupancyIndex;
 use crate::kernel::parking::ParkingRuntimeState;
 use crate::kernel::tables::{RouteSlot, VehicleSlot};
@@ -103,11 +104,6 @@ pub(crate) struct ContenderRank {
     update_sequence: u32,
 }
 
-/// 没有可证明到达。
-pub(crate) const CELL_APPROACH_NONE: u64 = u64::MAX;
-/// 已经走到这个格点，但到达时间算不出来。不能当成没人。
-pub(crate) const CELL_APPROACH_UNPROVABLE: u64 = u64::MAX - 1;
-
 /// 某一冲突区里当前最优先的申请者，以及它申请的入口 hop。
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ZoneContender {
@@ -138,7 +134,7 @@ pub(crate) struct WaitingEntrant {
 pub(crate) struct OwnerContribution {
     pub(crate) update_sequence: u32,
     pub(crate) zones: Vec<usize>,
-    pub(crate) cells: Vec<(usize, u64)>,
+    pub(crate) cells: Vec<(usize, ApproachEstimate)>,
     pub(crate) waiting_zone: Option<usize>,
 }
 
@@ -202,8 +198,8 @@ impl ContenderRank {
 pub(crate) struct SpawnConflictContenders {
     /// 每个冲突区里这一拍会申请的车，按正式名次排好。不只留最优先的一辆。
     pub(crate) best: Vec<Vec<ZoneContender>>,
-    /// 按冲突格点。`CELL_APPROACH_NONE` 表示没有其他车的可证明到达。
-    pub(crate) cell_approach_ms: Vec<u64>,
+    /// 按冲突格点，只留两名最紧急的不同车。排除自己时读另一名。
+    pub(crate) cell_approach: Vec<ApproachFrontierCell>,
     /// 按排队区。只含这一拍预览会新进入的车，按接近距离和更新序号排好。
     pub(crate) waiting_entrants: Vec<Vec<WaitingEntrant>>,
     /// 按车辆槽位记下这份名单里的贡献。没有贡献的槽是 `None`。
@@ -221,7 +217,7 @@ impl SpawnConflictContenders {
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         vec_bytes(&self.best)
             + self.best.iter().map(vec_bytes).sum::<u64>()
-            + vec_bytes(&self.cell_approach_ms)
+            + vec_bytes(&self.cell_approach)
             + vec_bytes(&self.waiting_entrants)
             + self.waiting_entrants.iter().map(vec_bytes).sum::<u64>()
             + vec_bytes(&self.owners)

@@ -1,6 +1,7 @@
 use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use bevy_app::App;
+use bevy_ecs::entity::Entity;
 use bevy_time::{TimePlugin, TimeUpdateStrategy};
 use bevy_transform::{TransformPlugin, components::Transform};
 use laneflow_bevy::{
@@ -15,9 +16,10 @@ use laneflow_compiler::{
 };
 use laneflow_format::{FormatLimits, check_canonical_network_input, check_post_emission_bundle};
 use laneflow_runtime::{
-    LeaveParkingTarget, ParkedVehicleSpawnInput, ParkingError, ParkingTarget, ReserveParkingTarget,
-    RouteHandle, RouteRegisterInput, TickInput, TrafficWorld, VehicleSpawnInput, VehicleStatus,
-    VirtualEntryAnchorSelector, VirtualExitAnchorSelector, WorldConfig,
+    LeaveParkingTarget, ParkedVehicleSpawnInput, ParkingError, ParkingTarget, ReplaceError,
+    ReserveParkingTarget, RouteHandle, RouteRegisterInput, TickInput, TrafficWorld,
+    VehicleSpawnInput, VehicleStatus, VirtualEntryAnchorSelector, VirtualExitAnchorSelector,
+    WorldConfig,
 };
 use laneflow_spatial::SpatialSession;
 use laneflow_static_contract::{
@@ -719,4 +721,218 @@ fn parking_failures_keep_entity_mapping_and_only_typed_despawn_removes_it() {
             ..
         })
     ));
+}
+
+fn speed_drop_revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
+    let limits = CompileLimits::p100_initial_v1();
+    let header = SourceModuleHeader::new(
+        SourceModuleHeaderInput {
+            authoring_namespace_id: "bevy/speed-drop-replace",
+            source_document_key: "speed-drop.document",
+            generator_build_id: "git:0123456789abcdef",
+            parameters_and_inputs_digest: [0x41; 32],
+            frontend_options_digest: [0x42; 32],
+            random_seed: Some(742),
+            provenance: "repository:laneflow",
+        },
+        &limits,
+    )
+    .expect("header");
+    let mut module = SyntheticModuleBuilder::new(header, &limits).expect("module");
+    let slow = LaneEdgeReference::local("slow");
+    module
+        .add_participant_class(ParticipantClassInput {
+            participant_class_key: "road-user",
+            extends: None,
+        })
+        .expect("class")
+        .add_vehicle_profile(VehicleProfileInput {
+            vehicle_profile_key: "car",
+            participant_class: ParticipantClassReference::local("road-user"),
+            iidm: IidmVehicleProfileInput {
+                length_meters: 4.5,
+                desired_speed_meters_per_second: 15.0,
+                min_gap_meters: 2.0,
+                time_headway_seconds: 1.5,
+                max_acceleration_meters_per_second_squared: 1.5,
+                comfortable_deceleration_meters_per_second_squared: 2.0,
+                emergency_deceleration_meters_per_second_squared: 4.0,
+            },
+        })
+        .expect("profile")
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "fast",
+            length_meters: 50.0,
+            speed_limit_meters_per_second: 15.0,
+            successors: std::slice::from_ref(&slow),
+        })
+        .expect("fast")
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "slow",
+            length_meters: 20.0,
+            speed_limit_meters_per_second: 5.0,
+            successors: &[],
+        })
+        .expect("slow");
+    let mut unit = CompilationUnitBuilder::new(limits);
+    unit.add_synthetic_module(module.finish().expect("module"))
+        .expect("unit");
+    let output = Compiler::new()
+        .compile(unit.build().expect("unit"))
+        .unwrap_or_else(|bundle| panic!("compile diagnostics: {:?}", bundle.diagnostics()));
+    let provenance = PortableEmissionProvenance::try_new("laneflow-bevy-speed-drop-replace-v1")
+        .expect("provenance");
+    let candidate = emit_portable_candidate(
+        &output,
+        &provenance,
+        FormatLimits::HARD,
+        PortableDiffBase::Genesis,
+    )
+    .expect("candidate");
+    let checked = check_post_emission_bundle(
+        candidate.canonical_artifact().bytes(),
+        candidate.source_map().bytes(),
+        candidate.semantic_diff().bytes(),
+        candidate.expected_semantic_diff_base(),
+        FormatLimits::HARD,
+    )
+    .expect("checked");
+    build_shared_network_revision(
+        checked.canonical_network_input(),
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::Omit,
+            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+        ),
+    )
+    .expect("revision")
+}
+
+fn completed_on_slow_edge() -> (App, laneflow_runtime::VehicleHandle, RouteHandle, Entity) {
+    let mut world = install_with_policy(
+        speed_drop_revision(),
+        WorldConfig::new(8, 4, 1_024, 1_024, 100),
+        laneflow_runtime::WorldPolicySelection::NotRequired,
+    )
+    .expect("install");
+    let route = world
+        .register_route(RouteRegisterInput::new(vec![
+            LaneEdgeOrdinal::from_raw(0),
+            LaneEdgeOrdinal::from_raw(1),
+        ]))
+        .expect("route");
+    let slow_length = world.traffic().lane_lengths_millimetres()[1];
+    let old = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            1,
+            slow_length,
+            0,
+        ))
+        .expect("spawn at the slow edge end");
+    world.step(TickInput::new(100)).expect("complete");
+    assert_eq!(
+        world.vehicle(old).expect("old").status(),
+        VehicleStatus::Completed
+    );
+    let session = LaneFlowSession::new(
+        world,
+        None,
+        LaneFlowSessionConfig::new(NonZeroU32::new(8).expect("non-zero")),
+    )
+    .expect("session");
+    let mut app = App::new();
+    app.add_plugins((TimePlugin, TransformPlugin, LaneFlowPlugin));
+    app.insert_resource(session);
+    let entity = app
+        .world_mut()
+        .spawn(Transform::from_xyz(1.0, 2.0, 3.0))
+        .id();
+    app.world_mut()
+        .resource_mut::<LaneFlowSession>()
+        .bind_vehicle_entity(old, entity)
+        .expect("bind");
+    (app, old, route, entity)
+}
+
+#[test]
+fn downstream_speed_replace_is_fatal_and_keeps_the_world() {
+    let (mut app, old, route, entity) = completed_on_slow_edge();
+    let cursor = app
+        .world()
+        .resource::<LaneFlowSession>()
+        .world()
+        .command_cursor();
+    let transform = *app.world().get::<Transform>(entity).expect("transform");
+    let error = replace_completed_vehicle(
+        app.world_mut(),
+        old,
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 49_000, 15_000),
+    )
+    .expect_err("downstream speed is fatal");
+    assert!(matches!(
+        error,
+        laneflow_bevy::LaneFlowAdapterError::VehicleReplace {
+            source: ReplaceError::DownstreamSpeedUnsatisfiable,
+            ..
+        }
+    ));
+    let session = app.world().resource::<LaneFlowSession>();
+    assert!(matches!(
+        session.last_error(),
+        Some(laneflow_bevy::LaneFlowAdapterError::VehicleReplace {
+            source: ReplaceError::DownstreamSpeedUnsatisfiable,
+            ..
+        })
+    ));
+    assert_eq!(session.vehicle_entity(old), Some(entity));
+    assert_eq!(session.world().command_cursor(), cursor);
+    assert_eq!(
+        session.world().vehicle(old).expect("old remains").status(),
+        VehicleStatus::Completed
+    );
+    assert_eq!(session.world().live_vehicles(), &[old]);
+    assert_eq!(
+        *app.world().get::<Transform>(entity).expect("transform"),
+        transform
+    );
+}
+
+#[test]
+fn unsafe_leader_replace_stays_retryable() {
+    let (mut app, old, route, entity) = completed_on_slow_edge();
+    app.world_mut()
+        .resource_mut::<LaneFlowSession>()
+        .world_mut()
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            16_000,
+            0,
+        ))
+        .expect("stopped leader");
+    let cursor = app
+        .world()
+        .resource::<LaneFlowSession>()
+        .world()
+        .command_cursor();
+    let outcome = replace_completed_vehicle(
+        app.world_mut(),
+        old,
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 10_000, 10_000),
+    )
+    .expect("retryable motion result");
+    assert!(matches!(
+        outcome,
+        LaneFlowVehicleReplaceOutcome::Retryable(ReplaceError::UnsafeLeader { .. })
+    ));
+    let session = app.world().resource::<LaneFlowSession>();
+    assert!(session.last_error().is_none());
+    assert_eq!(session.vehicle_entity(old), Some(entity));
+    assert_eq!(session.world().command_cursor(), cursor);
+    assert_eq!(
+        session.world().vehicle(old).expect("old remains").status(),
+        VehicleStatus::Completed
+    );
 }
