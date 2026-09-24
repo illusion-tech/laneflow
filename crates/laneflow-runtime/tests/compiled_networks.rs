@@ -5781,6 +5781,65 @@ fn fresh_spawn_stops_for_an_earlier_vehicles_staged_downstream_claim() {
 
 #[cfg(feature = "placement-fixtures")]
 #[test]
+fn earlier_rank_on_another_zone_does_not_hard_stop_the_shared_exit() {
+    let revision = compile_road_editing_revision(shared_downstream_road_editing_module());
+    let car = conflict_profile(revision.as_ref(), "car");
+    let (long_edges, short_edges) = shared_downstream_paths(revision.as_ref());
+    let mut world = install_fixture(revision, WorldConfig::new(6, 6, 64, 16, 100)).expect("world");
+    let long = world
+        .register_route(RouteRegisterInput::new(long_edges.clone()))
+        .expect("long route");
+    let short = world
+        .register_route(RouteRegisterInput::new(short_edges.clone()))
+        .expect("short route");
+    let long_route_edges = world.route_edges(long).expect("long edges").to_vec();
+    let last = u32::try_from(long_route_edges.len() - 1).expect("index");
+    let last_length =
+        world.traffic().lane_lengths_millimetres()[long_route_edges[last as usize].index()];
+    let completed = world
+        .spawn_vehicle(VehicleSpawnInput::new(car, long, last, last_length, 0))
+        .expect("early slot at the exit end");
+    world
+        .step(TickInput::new(100))
+        .expect("complete the early slot");
+    let short_edge = world.route_edges(short).expect("short")[0];
+    let short_length = world.traffic().lane_lengths_millimetres()[short_edge.index()];
+    let rival = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            car,
+            short,
+            0,
+            short_length - 400,
+            10_000,
+        ))
+        .expect("later rival before its own gate");
+    let entry_length = world.traffic().lane_lengths_millimetres()[long_edges[0].index()];
+    let cursor = world.command_cursor();
+    let replaced = world.replace_completed_vehicle(
+        completed,
+        VehicleSpawnInput::new(car, long, 0, entry_length - 400, 10_000),
+    );
+    assert!(
+        matches!(replaced, Err(ReplaceError::StopConstraintUnsatisfiable)),
+        "the other zone's shared exit must stay inside the emergency envelope, got {replaced:?}"
+    );
+    assert_eq!(world.command_cursor(), cursor);
+    assert_eq!(world.vehicle(rival).expect("rival").speed_mm_s(), 10_000);
+    assert_eq!(
+        world.vehicle(completed).expect("unchanged").status(),
+        VehicleStatus::Completed
+    );
+    laneflow_runtime::set_full_recheck(true);
+    let oracle = world.replace_completed_vehicle(
+        completed,
+        VehicleSpawnInput::new(car, long, 0, entry_length - 400, 10_000),
+    );
+    laneflow_runtime::set_full_recheck(false);
+    assert_eq!(oracle, replaced);
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
 fn fresh_spawn_ignores_a_same_zone_contender_blocked_by_an_earlier_claim() {
     let revision = compile_road_editing_revision_with_limits(
         shared_downstream_road_editing_module_with_cross(true),

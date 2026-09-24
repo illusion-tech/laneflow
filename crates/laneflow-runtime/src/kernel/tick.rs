@@ -2762,6 +2762,86 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         Ok(ClaimRead::Open(claims))
     }
 
+    /// 这一拍会申请、且下游和候选声明重叠的车。算不清的跳过。分配失败往外传。
+    pub(crate) fn contenders_sharing_downstream(
+        self,
+        claims: &[DownstreamInterval],
+        claim_gap_mm: u32,
+    ) -> Result<Vec<crate::VehicleHandle>, PlacementMotionError> {
+        if claims.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut found = Vec::new();
+        let zone_count = self.derived.spawn_contenders.best.len();
+        let mut zone_index = 0usize;
+        while zone_index < zone_count {
+            let zone = zone_index;
+            zone_index = zone_index.saturating_add(1);
+            let len = self
+                .derived
+                .spawn_contenders
+                .best
+                .get(zone)
+                .map(|list| list.len())
+                .unwrap_or(0);
+            let mut item = 0usize;
+            while item < len {
+                let Some(contender) = self
+                    .derived
+                    .spawn_contenders
+                    .best
+                    .get(zone)
+                    .and_then(|list| list.get(item))
+                    .copied()
+                else {
+                    break;
+                };
+                item = item.saturating_add(1);
+                if found.contains(&contender.vehicle) {
+                    continue;
+                }
+                let Some(state) = self.vehicle_state(contender.vehicle).copied() else {
+                    continue;
+                };
+                if state.status != VehicleStatus::Active {
+                    continue;
+                }
+                let gap = self
+                    .binding
+                    .revision
+                    .traffic()
+                    .relations()
+                    .vehicle_profile(state.profile)
+                    .map(|profile| profile.min_gap_mm())
+                    .unwrap_or(0);
+                match self.claim_intervals(
+                    &state,
+                    contender.hop,
+                    contender.rank.update_sequence(),
+                    None,
+                ) {
+                    Ok(ClaimRead::Open(theirs)) => {
+                        let overlaps = theirs.iter().any(|interval| {
+                            claims.iter().any(|claim| {
+                                intervals_conflict(*claim, claim_gap_mm, *interval, gap)
+                            })
+                        });
+                        if overlaps {
+                            found
+                                .try_reserve(1)
+                                .map_err(|_| PlacementMotionError::Alloc)?;
+                            found.push(contender.vehicle);
+                        }
+                    }
+                    Ok(ClaimRead::NoGrant) => {}
+                    Err(AdmissionPreview::Alloc) => return Err(PlacementMotionError::Alloc),
+                    Err(_) => {}
+                }
+            }
+        }
+        Ok(found)
+    }
+
     /// 车身沿路线从后杠铺到前杠。半开区间；贴在一点上的零长度不占下游。
     fn body_intervals(
         self,
