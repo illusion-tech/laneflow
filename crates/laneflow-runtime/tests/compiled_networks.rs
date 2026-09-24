@@ -5339,6 +5339,93 @@ fn completed_hole_keeps_its_rank_and_a_new_spawn_does_not_reuse_it() {
 
 #[cfg(feature = "placement-fixtures")]
 #[test]
+fn replacement_does_not_outrank_a_contender_eligible_this_tick() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                equal_priority: true,
+                close_internal_m: 0.5,
+                short_vehicle: true,
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let mut world = install_fixture(revision, WorldConfig::new(8, 8, 64, 4, 100)).expect("world");
+    let held = world.revision();
+    let routes = yield_routes(&mut world, held.as_ref());
+    let edges = world.route_edges(routes[0]).expect("edges").to_vec();
+    let last = u32::try_from(edges.len() - 1).expect("index");
+    let last_length = world.traffic().lane_lengths_millimetres()[edges[last as usize].index()];
+    let completed = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            last,
+            last_length,
+            0,
+        ))
+        .expect("early live slot");
+    let east_edge = world.route_edges(routes[0]).expect("east")[0];
+    let east_length = world.traffic().lane_lengths_millimetres()[east_edge.index()];
+    let winner = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(1),
+            routes[0],
+            0,
+            east_length.saturating_sub(50),
+            10_000,
+        ))
+        .expect("fast vehicle clears the short passage");
+    let north_edge = world.route_edges(routes[1]).expect("north")[0];
+    let north_length = world.traffic().lane_lengths_millimetres()[north_edge.index()];
+    let loser = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(1),
+            routes[1],
+            0,
+            north_length,
+            0,
+        ))
+        .expect("stopped rival");
+    world.step(TickInput::new(100)).expect("step");
+    assert_eq!(
+        world.vehicle(completed).expect("retained").status(),
+        VehicleStatus::Completed
+    );
+    assert_eq!(
+        world.vehicle(loser).expect("loser").status(),
+        VehicleStatus::Active
+    );
+    assert!(world.conflict_reservation(winner).is_none());
+    assert!(world.conflict_reservation(loser).is_none());
+    let cursor = world.command_cursor();
+    let replaced = world.replace_completed_vehicle(
+        completed,
+        VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(1),
+            routes[0],
+            0,
+            east_length.saturating_sub(400),
+            10_000,
+        ),
+    );
+    assert!(
+        matches!(replaced, Err(ReplaceError::StopConstraintUnsatisfiable)),
+        "a rival first eligible on this tick stays ahead, got {replaced:?}"
+    );
+    assert_eq!(world.command_cursor(), cursor);
+    assert_eq!(
+        world.vehicle(completed).expect("unchanged").status(),
+        VehicleStatus::Completed
+    );
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
 fn equal_distance_earlier_rank_keeps_the_gate() {
     let revision =
         compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(

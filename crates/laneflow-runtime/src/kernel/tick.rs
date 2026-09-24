@@ -2154,9 +2154,10 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             .get(state.handle.index() as usize)
             .copied()
             .flatten();
+        // 正式步进把新资格记在下一拍。预览漏记时也用下一拍，不能和刚记下的车挤在同一拍。
         let first = stored
             .and_then(|item| item.tick_if_same_passage(state.route, hop, occurrence_index))
-            .unwrap_or(self.committed.tick_index);
+            .unwrap_or_else(|| self.committed.tick_index.saturating_add(1));
         let waiting = state
             .waiting_membership
             .map(|member| member.admission_sequence);
@@ -2775,7 +2776,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         };
         let mut intervals = Vec::new();
         note_admission_scratch();
-        if intervals.try_reserve(compiled.edges.len()).is_err() {
+        let slots = usize::try_from(state.length_mm.saturating_add(1)).unwrap_or(usize::MAX);
+        if intervals.try_reserve(slots).is_err() {
             return Err(AdmissionPreview::Alloc);
         }
         let walked = for_each_occupancy_interval(
