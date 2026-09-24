@@ -31,3 +31,18 @@ license = "Apache-2.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+
+# 测试夹具全管线（Road Editing 来源写入 → 可移植发射 → 后发射检查 → 建网）
+# 是测试套件主成本：debug 档单次近 50 s，其中发射与后发射检查约七成半、
+# 来源写入约两成半（#748 P0 实测）。测试档把这些管线 crate 与摘要 crate
+# 优化编译，测试代码本身保持 debug。
+[profile.dev.package.laneflow-compiler]
+opt-level = 2
+[profile.dev.package.laneflow-format]
+opt-level = 2
+[profile.dev.package.laneflow-static-network]
+opt-level = 2
+[profile.dev.package.sha2]
+opt-level = 2
+[profile.dev.package.digest]
+opt-level = 2
