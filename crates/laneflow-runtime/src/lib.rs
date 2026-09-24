@@ -85,8 +85,8 @@ pub use kernel::pose::{CommittedSignalGroupBatch, PoseSource};
 #[cfg(any(test, feature = "placement-fixtures"))]
 #[doc(hidden)]
 pub use kernel::tick::{
-    acquisition_replays, admission_scratch_reserves, candidate_admission_calls, exclusion_counts,
-    recheck_visits, reset_acquisition_replays, reset_admission_scratch_reserves,
+    acquisition_replays, admission_scratch_reserves, body_reserve_slots, candidate_admission_calls,
+    exclusion_counts, recheck_visits, reset_acquisition_replays, reset_admission_scratch_reserves,
     reset_candidate_admission_calls, reset_exclusion_counts, reset_recheck_visits,
     set_full_recheck,
 };

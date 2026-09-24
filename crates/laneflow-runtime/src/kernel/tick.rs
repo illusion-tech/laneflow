@@ -11,8 +11,8 @@ use crate::kernel::state::{ContenderBuilt, ContenderRank};
 #[cfg(test)]
 use crate::kernel::tables::occupancy_front_gap;
 use crate::kernel::tables::{
-    CompiledRoute, distance_to_occurrence_progress, distance_to_occurrence_start,
-    for_each_occupancy_interval, remaining_to_route_end,
+    CompiledRoute, body_interval_slots, distance_to_occurrence_progress,
+    distance_to_occurrence_start, for_each_occupancy_interval, remaining_to_route_end,
 };
 use crate::kernel::units::{ceil_mm, round_mm, round_um};
 use crate::{
@@ -33,6 +33,7 @@ thread_local! {
     static FULL_RECHECK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static ACQUISITION_REPLAYS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     static ADMISSION_SCRATCH: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static BODY_RESERVE_SLOTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// 还没放进世界的那辆车，这一次生成里被问了几次「会不会被拦住」。
@@ -135,6 +136,20 @@ pub(crate) fn note_recheck_visit() {
 fn note_acquisition_replay() {
     #[cfg(any(test, feature = "placement-fixtures"))]
     ACQUISITION_REPLAYS.with(|count| count.set(count.get().saturating_add(1)));
+}
+
+/// 最近一次车身区间预留了多少槽。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn body_reserve_slots() -> u64 {
+    BODY_RESERVE_SLOTS.with(std::cell::Cell::get)
+}
+
+pub(crate) fn note_body_reserve(slots: usize) {
+    #[cfg(any(test, feature = "placement-fixtures"))]
+    BODY_RESERVE_SLOTS.with(|cell| {
+        cell.set(u64::try_from(slots).unwrap_or(u64::MAX));
+    });
 }
 
 fn note_admission_scratch() {
@@ -2856,7 +2871,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         };
         let mut intervals = Vec::new();
         note_admission_scratch();
-        let slots = usize::try_from(state.length_mm.saturating_add(1)).unwrap_or(usize::MAX);
+        let slots = body_interval_slots(state.length_mm);
+        note_body_reserve(slots);
         if intervals.try_reserve(slots).is_err() {
             return Err(AdmissionPreview::Alloc);
         }

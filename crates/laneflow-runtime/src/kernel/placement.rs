@@ -13,8 +13,8 @@ use super::state::{
     ContenderBuilt, ContenderRank, OwnerContribution, WaitingEntrant, ZoneContender,
 };
 use super::tables::{
-    distance_to_occurrence_start, for_each_admission_interval, for_each_occupancy_interval,
-    occupancy_front_gap,
+    body_interval_slots, distance_to_occurrence_start, for_each_admission_interval,
+    for_each_occupancy_interval, occupancy_front_gap,
 };
 use super::tick::{PlacementMotion, PlacementMotionError, leader_query_horizon};
 use crate::kernel::units::ceil_mm;
@@ -1915,7 +1915,8 @@ impl crate::kernel::state::WorldState {
             return Err(FreshAdmissionFailure::StopConstraint);
         };
         let mut intervals = Vec::new();
-        let slots = usize::try_from(state.length_mm.saturating_add(1)).unwrap_or(usize::MAX);
+        let slots = body_interval_slots(state.length_mm);
+        super::tick::note_body_reserve(slots);
         intervals
             .try_reserve(slots)
             .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
