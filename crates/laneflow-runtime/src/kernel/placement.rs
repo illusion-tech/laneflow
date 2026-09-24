@@ -369,7 +369,7 @@ impl crate::kernel::state::WorldState {
     /// 测试用它把「只对过观测序号」从真实切换里拆出来。名单容量和空单元格都像
     /// 刚建好的一样，所以复用时会当成这一拍没有申请者。世代耗尽时返回 `false`，
     /// 已提交世界不变。
-    #[cfg(any(test, feature = "placement-fixtures"))]
+    #[cfg(feature = "placement-fixtures")]
     pub(crate) fn detach_contender_cache_generation_for_test(&mut self) -> bool {
         let Some(next_generation) = self.binding.world_generation.checked_next() else {
             return false;
