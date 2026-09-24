@@ -504,7 +504,7 @@ impl crate::kernel::state::WorldState {
     }
 
     /// 没有冲突或排队、名单里也没有申请者时，只把序号推到这次提交。
-    /// 否则只撤掉并重算受影响的旧车。集合关不上就整份作废，不把半份标成当前。
+    /// 否则只撤掉并重算受影响的旧车。预留失败就整份作废，不把半份标成当前。
     pub(crate) fn note_inserted_vehicle(
         &mut self,
         handle: VehicleHandle,
@@ -637,9 +637,10 @@ impl crate::kernel::state::WorldState {
             .get(state.handle.index() as usize)
             .copied()
             .flatten();
+        // 正式步进把新资格记在下一拍。名单预览漏记时也用下一拍，不能和刚记下的车挤在同一拍。
         let first = stored
             .and_then(|item| item.tick_if_same_passage(state.route, hop, occurrence_index))
-            .unwrap_or(self.committed.tick_index);
+            .unwrap_or_else(|| self.committed.tick_index.saturating_add(1));
         let waiting = state
             .waiting_membership
             .map(|member| member.admission_sequence);
@@ -1250,7 +1251,7 @@ impl crate::kernel::state::WorldState {
         Ok(())
     }
 
-    /// 只刷新这次插入碰得到的旧车。集合关不上就返回错误，调用方整份作废。
+    /// 只刷新这次插入碰得到的旧车。每辆车只重算一次。预留失败时调用方整份作废。
     fn refresh_contender_cache(
         &mut self,
         handle: VehicleHandle,
@@ -1281,9 +1282,6 @@ impl crate::kernel::state::WorldState {
         }
         let mut cursor = 0usize;
         while cursor < affected.len() {
-            if affected.len() > 64 {
-                return Err(FreshAdmissionFailure::StopConstraint);
-            }
             let current = affected[cursor];
             cursor = cursor.saturating_add(1);
             let Some(sequence) = self.owner_sequence(current) else {
@@ -1917,8 +1915,9 @@ impl crate::kernel::state::WorldState {
             return Err(FreshAdmissionFailure::StopConstraint);
         };
         let mut intervals = Vec::new();
+        let slots = usize::try_from(state.length_mm.saturating_add(1)).unwrap_or(usize::MAX);
         intervals
-            .try_reserve(compiled.edges.len())
+            .try_reserve(slots)
             .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
         let walked = for_each_occupancy_interval(
             lengths,
