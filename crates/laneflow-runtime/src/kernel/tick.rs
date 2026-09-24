@@ -2362,7 +2362,18 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 return stop;
             }
         }
-        AdmissionPreview::Clear
+        match self.claim_blocked_by_parking_or_waiting(
+            state,
+            compiled,
+            hop,
+            candidate_rank.update_sequence(),
+            plan.target(),
+        ) {
+            Ok(true) => stop,
+            Ok(false) => AdmissionPreview::Clear,
+            Err(AdmissionPreview::Alloc) => AdmissionPreview::Alloc,
+            Err(_) => AdmissionPreview::Unprovable,
+        }
     }
 
     /// 排在候选前面、并且这一拍真能占上的下游声明。没申请到的不算占用。
@@ -2565,13 +2576,156 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 return Ok(ClaimRead::NoGrant);
             }
         }
-        if self.reserved_parking_blocks_claim(state, target)? {
-            return Ok(ClaimRead::NoGrant);
-        }
-        if self.later_waiting_denial_blocks_claim(state, compiled, hop, update_sequence, target)? {
+        if self.claim_blocked_by_parking_or_waiting(
+            state,
+            compiled,
+            hop,
+            update_sequence,
+            target,
+        )? {
             return Ok(ClaimRead::NoGrant);
         }
         Ok(ClaimRead::Open(claims))
+    }
+
+    /// 已预约车位，或下一拍预览真正会用上的排队停车点，挡住这段声明。
+    fn claim_blocked_by_parking_or_waiting(
+        self,
+        state: &VehicleState,
+        compiled: &CompiledRoute,
+        hop: u32,
+        update_sequence: u32,
+        target: crate::DownstreamRoutePoint,
+    ) -> Result<bool, AdmissionPreview> {
+        if self.reserved_parking_blocks_claim(state, target)? {
+            return Ok(true);
+        }
+        let Some(stop_hop) = self.next_tick_waiting_stop_hop(state, compiled, update_sequence)?
+        else {
+            return Ok(false);
+        };
+        if stop_hop <= hop {
+            return Ok(false);
+        }
+        let Some(boundary) = crate::DownstreamRoutePoint::new(stop_hop.saturating_add(1), 0, 0)
+        else {
+            return Err(AdmissionPreview::Unprovable);
+        };
+        Ok(target > boundary)
+    }
+
+    /// 下一拍排队阶段会写下的停车 hop。够不着的满区没有计划，也不成停车点。
+    /// 给得进并且预览越过下一处入口时，停车点在那一处。
+    fn next_tick_waiting_stop_hop(
+        self,
+        state: &VehicleState,
+        compiled: &CompiledRoute,
+        update_sequence: u32,
+    ) -> Result<Option<u32>, AdmissionPreview> {
+        if compiled.waiting.is_empty() {
+            return Ok(None);
+        }
+        let Some(profile) = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+        else {
+            return Err(AdmissionPreview::Unprovable);
+        };
+        let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
+        let Some(horizon) = leader_query_horizon(state.speed_mm_s, profile, delta_s) else {
+            return Err(AdmissionPreview::Unprovable);
+        };
+        let cursor = state.route_edge_index as usize;
+        let gate_index = compiled
+            .gate_hops
+            .partition_point(|gate| (*gate as usize) < cursor);
+        let Some(gate_hop) = compiled.gate_hops.get(gate_index).copied() else {
+            return Ok(None);
+        };
+        let Some(gate_index) = usize::try_from(gate_hop)
+            .ok()
+            .and_then(|value| value.checked_add(1))
+        else {
+            return Err(AdmissionPreview::Unprovable);
+        };
+        let gate_distance = distance_to_occurrence_start(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            cursor,
+            state.progress_mm,
+            gate_index,
+        );
+        let Some(BoundedDistance::Finite(gate_distance_mm)) = gate_distance else {
+            return Ok(None);
+        };
+        if gate_distance_mm > horizon.front_query_mm {
+            return Ok(None);
+        }
+        let Some(preview) =
+            self.preview_active_vehicle_with_waiting_stop(*state, delta_s, None, Some(horizon))
+        else {
+            return Err(AdmissionPreview::Unprovable);
+        };
+        let first_pending = compiled
+            .waiting
+            .partition_point(|occurrence| occurrence.entry_hop < state.route_edge_index);
+        let Some((occurrence_index, occurrence)) = compiled
+            .waiting
+            .iter()
+            .copied()
+            .enumerate()
+            .skip(first_pending)
+            .find(|(_, occurrence)| {
+                let held = state.waiting_membership.is_some_and(|membership| {
+                    membership.waiting_zone == occurrence.zone
+                        && membership.release_hop == occurrence.release_hop
+                }) && state.maneuver_traversal.is_some_and(|traversal| {
+                    traversal.maneuver_occurrence_index == occurrence.maneuver_index
+                });
+                !held && state.route_edge_index <= occurrence.entry_hop
+            })
+        else {
+            return Ok(None);
+        };
+        if preview.next.route_edge_index <= occurrence.entry_hop {
+            return Ok(None);
+        }
+        let Some(entry_index) = usize::try_from(occurrence.entry_hop)
+            .ok()
+            .and_then(|value| value.checked_add(1))
+        else {
+            return Err(AdmissionPreview::Unprovable);
+        };
+        let Some(BoundedDistance::Finite(approach_mm)) = distance_to_occurrence_start(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            cursor,
+            state.progress_mm,
+            entry_index,
+        ) else {
+            return Ok(None);
+        };
+        match self.waiting_grant(
+            state,
+            occurrence,
+            approach_mm,
+            update_sequence,
+            profile.min_gap_mm(),
+            None,
+        ) {
+            WaitingGrant::Denied => Ok(Some(occurrence.entry_hop)),
+            WaitingGrant::Granted => Ok(compiled
+                .waiting
+                .get(occurrence_index.saturating_add(1))
+                .filter(|next| preview.next.route_edge_index > next.entry_hop)
+                .map(|next| next.entry_hop)),
+            WaitingGrant::Unprovable => Err(AdmissionPreview::Unprovable),
+        }
     }
 
     /// 已预约的停车入口在声明终点前面时，下一拍不会把这段下游占上。
@@ -2597,83 +2751,6 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             return Err(AdmissionPreview::Unprovable);
         };
         Ok(target > parking)
-    }
-
-    /// 下一拍会因排队名额或长度停在更后面的入口时，声明若越过该入口就不算占上。
-    /// 名额用已提交占用和这一拍更近的排队车计算，不读步进里那份还没建的计划表。
-    fn later_waiting_denial_blocks_claim(
-        self,
-        state: &VehicleState,
-        compiled: &CompiledRoute,
-        hop: u32,
-        update_sequence: u32,
-        target: crate::DownstreamRoutePoint,
-    ) -> Result<bool, AdmissionPreview> {
-        let Some(occurrence) = compiled
-            .waiting
-            .iter()
-            .copied()
-            .find(|item| item.entry_hop > hop)
-        else {
-            return Ok(false);
-        };
-        let held = state.waiting_membership.is_some_and(|member| {
-            member.waiting_zone == occurrence.zone
-                && member.release_hop == occurrence.release_hop
-                && state.route_edge_index > occurrence.entry_hop
-        });
-        if held {
-            return Ok(false);
-        }
-        let Some(profile) = self
-            .binding
-            .revision
-            .traffic()
-            .relations()
-            .vehicle_profile(state.profile)
-        else {
-            return Err(AdmissionPreview::Unprovable);
-        };
-        let Some(stop_index) = usize::try_from(occurrence.entry_hop)
-            .ok()
-            .and_then(|value| value.checked_add(1))
-        else {
-            return Err(AdmissionPreview::Unprovable);
-        };
-        let Some(distance) = distance_to_occurrence_start(
-            &compiled.occurrence_segments,
-            &compiled.occurrence_offsets,
-            &compiled.segment_totals,
-            state.route_edge_index as usize,
-            state.progress_mm,
-            stop_index,
-        ) else {
-            return Err(AdmissionPreview::Unprovable);
-        };
-        let BoundedDistance::Finite(approach_mm) = distance else {
-            return Ok(false);
-        };
-        let denied = match self.waiting_grant(
-            state,
-            occurrence,
-            approach_mm,
-            update_sequence,
-            profile.min_gap_mm(),
-            None,
-        ) {
-            WaitingGrant::Denied => true,
-            WaitingGrant::Granted => false,
-            WaitingGrant::Unprovable => return Err(AdmissionPreview::Unprovable),
-        };
-        if !denied {
-            return Ok(false);
-        }
-        let Some(boundary) =
-            crate::DownstreamRoutePoint::new(occurrence.entry_hop.saturating_add(1), 0, 0)
-        else {
-            return Err(AdmissionPreview::Unprovable);
-        };
-        Ok(target > boundary)
     }
 
     /// 新车的接近或更优先的名次，会不会在这一拍给这辆已有车多加一个停车点。
