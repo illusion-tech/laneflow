@@ -1024,6 +1024,10 @@ struct ConflictPolicyFixture {
     short_vehicle: bool,
     /// 停车入口改到内部边 3 m 处，声明会越过它。
     early_parking_on_internal: bool,
+    /// 排队区放在冲突后面的短出口上。这一拍够不着。
+    late_waiting: bool,
+    /// 北向冲突声明越过后面的排队入口。东向声明仍停在内部边里。
+    late_claim_crosses: bool,
     /// 0 表示内部边仍是 13 m。更短时两道资源门可以落在同一拍行程里。
     close_internal_m: f64,
     /// 0 表示排队容量仍是 1。
@@ -1056,6 +1060,8 @@ fn conflict_road_editing_module_with_shape_and_speed(
         equal_priority,
         short_vehicle,
         early_parking_on_internal,
+        late_waiting,
+        late_claim_crosses,
         close_internal_m,
         waiting_capacity,
     } = policy_fixture;
@@ -1178,12 +1184,16 @@ fn conflict_road_editing_module_with_shape_and_speed(
             lfre::CanonicalFrameInput::try_new("frame-main").expect("canonical frame"),
         ))
         .expect("add canonical frame");
+    let exit_span = if late_waiting { 5.0 } else { 13.0 };
     for (edge, start, end) in [
         ("east-entry", (-13.0, 0.0), (0.0, 0.0)),
-        ("west-exit", (span, 0.0), (span + 13.0, 0.0)),
+        ("west-exit", (span, 0.0), (span + exit_span, 0.0)),
         ("north-entry", (0.0, -13.0), (0.0, 0.0)),
-        ("south-exit", (0.0, span), (0.0, span + 13.0)),
+        ("south-exit", (0.0, span), (0.0, span + exit_span)),
     ] {
+        if late_waiting && (edge == "west-exit" || edge == "south-exit") {
+            continue;
+        }
         let geometry = if (multiplicity || loop_east) && edge == "west-exit" {
             road_editing_loop()
         } else {
@@ -1199,7 +1209,12 @@ fn conflict_road_editing_module_with_shape_and_speed(
     for (edge, start, end) in [
         ("east-internal", (0.0, 0.0), (span, 0.0)),
         ("north-internal", (0.0, 0.0), (0.0, span)),
+        ("west-exit", (span, 0.0), (span + exit_span, 0.0)),
+        ("south-exit", (0.0, span), (0.0, span + exit_span)),
     ] {
+        if !late_waiting && (edge == "west-exit" || edge == "south-exit") {
+            continue;
+        }
         module
             .add_declaration(lfre::RoadEditingDeclaration::LaneEdge(
                 lfre::LaneEdgeInput::try_new(
@@ -1212,15 +1227,41 @@ fn conflict_road_editing_module_with_shape_and_speed(
             ))
             .expect("add lane edge");
     }
+    if late_waiting {
+        for (edge, start, end) in [
+            (
+                "west-far",
+                (span + exit_span, 0.0),
+                (span + exit_span + 1.0, 0.0),
+            ),
+            (
+                "south-far",
+                (0.0, span + exit_span),
+                (0.0, span + exit_span + 1.0),
+            ),
+        ] {
+            add_road_editing_approach(&mut module, edge, road_editing_line(start, end), Vec::new());
+        }
+    }
+    let approaches = if late_waiting {
+        vec!["east-entry", "west-far", "north-entry", "south-far"]
+    } else {
+        vec!["east-entry", "west-exit", "north-entry", "south-exit"]
+    };
+    let internals = if late_waiting {
+        vec!["east-internal", "west-exit", "north-internal", "south-exit"]
+    } else {
+        vec!["east-internal", "north-internal"]
+    };
     module
         .add_declaration(lfre::RoadEditingDeclaration::Junction(
             lfre::JunctionInput::try_new(
                 "crossing",
-                ["east-entry", "west-exit", "north-entry", "south-exit"]
+                approaches
                     .into_iter()
                     .map(|key| lfre::LaneEdgeReference::local(key).expect("approach edge"))
                     .collect(),
-                ["east-internal", "north-internal"]
+                internals
                     .into_iter()
                     .map(|key| lfre::LaneEdgeReference::local(key).expect("internal edge"))
                     .collect(),
@@ -1310,6 +1351,16 @@ fn conflict_road_editing_module_with_shape_and_speed(
                 lfre::PathAnchorInput::interior(2, 1.0).unwrap(),
                 lfre::PathAnchorInput::interior(2, 5.0).unwrap(),
             )
+        } else if late_waiting && late_claim_crosses && stream_index == 1 {
+            (
+                lfre::PathAnchorInput::interior(1, 10.0).expect("entry anchor"),
+                lfre::PathAnchorInput::interior(1, 11.0).expect("exit anchor"),
+            )
+        } else if late_waiting {
+            (
+                lfre::PathAnchorInput::interior(1, 0.5).expect("entry anchor"),
+                lfre::PathAnchorInput::interior(1, 1.5).expect("exit anchor"),
+            )
         } else if span < 3.0 {
             (
                 lfre::PathAnchorInput::interior(1, span * 0.2).expect("entry anchor"),
@@ -1325,8 +1376,17 @@ fn conflict_road_editing_module_with_shape_and_speed(
                 .expect("exit anchor"),
             )
         };
+        let path_exit = if late_waiting {
+            if exit_edge == "west-exit" {
+                "west-far"
+            } else {
+                "south-far"
+            }
+        } else {
+            exit_edge
+        };
         let mut movement_input =
-            lfre::MovementInput::try_new(movement_key, junction.clone(), entry_edge, exit_edge)
+            lfre::MovementInput::try_new(movement_key, junction.clone(), entry_edge, path_exit)
                 .expect("movement");
         if stream_index == 0 && right_turn_signal.is_some() {
             movement_input =
@@ -1340,8 +1400,15 @@ fn conflict_road_editing_module_with_shape_and_speed(
                     path_key,
                     movement,
                     lfre::LaneEdgeReference::local(entry_edge).expect("entry edge"),
-                    vec![lfre::LaneEdgeReference::local(internal_edge).expect("internal edge")],
-                    lfre::LaneEdgeReference::local(exit_edge).expect("exit edge"),
+                    if late_waiting {
+                        vec![
+                            lfre::LaneEdgeReference::local(internal_edge).expect("internal edge"),
+                            lfre::LaneEdgeReference::local(exit_edge).expect("middle edge"),
+                        ]
+                    } else {
+                        vec![lfre::LaneEdgeReference::local(internal_edge).expect("internal edge")]
+                    },
+                    lfre::LaneEdgeReference::local(path_exit).expect("exit edge"),
                 )
                 .expect("maneuver path"),
             ))
@@ -1375,7 +1442,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
                 .expect("maneuver gate"),
             ))
             .expect("add maneuver gate");
-        if waiting || next_gate || conflict_after_release || resource_free_release {
+        if waiting || next_gate || conflict_after_release || resource_free_release || late_waiting {
             let release_key = format!("{gate_key}-release");
             let release_stop = format!("{stop_line_key}-release");
             module
@@ -1398,18 +1465,61 @@ fn conflict_road_editing_module_with_shape_and_speed(
                     .unwrap(),
                 ))
                 .unwrap();
-            if waiting && (!waiting_on_north_only || stream_index == 1) {
+            if late_waiting {
+                let far_key = format!("{gate_key}-far");
+                let far_stop = format!("{stop_line_key}-far");
+                module
+                    .add_declaration(lfre::RoadEditingDeclaration::StopLine(
+                        lfre::StopLineInput::try_new(
+                            &far_stop,
+                            lfre::LaneEdgeReference::local(exit_edge).unwrap(),
+                        )
+                        .unwrap(),
+                    ))
+                    .unwrap()
+                    .add_declaration(lfre::RoadEditingDeclaration::ManeuverGate(
+                        lfre::ManeuverGateInput::try_new(
+                            &far_key,
+                            path.clone(),
+                            2,
+                            lfre::StopLineReference::local(&far_stop).unwrap(),
+                            lfre::RoadEditingSignalControl::None,
+                        )
+                        .unwrap(),
+                    ))
+                    .unwrap();
+            }
+            if (waiting || late_waiting) && (!waiting_on_north_only || stream_index == 1) {
+                let (entry_gate_ref, release_gate_ref) = if late_waiting {
+                    (
+                        lfre::ManeuverGateReference::owner_scoped(
+                            vec!["crossing".into(), movement_key.into(), path_key.into()],
+                            &release_key,
+                        )
+                        .unwrap(),
+                        lfre::ManeuverGateReference::owner_scoped(
+                            vec!["crossing".into(), movement_key.into(), path_key.into()],
+                            format!("{gate_key}-far"),
+                        )
+                        .unwrap(),
+                    )
+                } else {
+                    (
+                        admission_gate.clone(),
+                        lfre::ManeuverGateReference::owner_scoped(
+                            vec!["crossing".into(), movement_key.into(), path_key.into()],
+                            &release_key,
+                        )
+                        .unwrap(),
+                    )
+                };
                 module
                     .add_declaration(lfre::RoadEditingDeclaration::WaitingZone(
                         lfre::WaitingZoneInput::try_new(
                             "waiting",
                             path.clone(),
-                            admission_gate.clone(),
-                            lfre::ManeuverGateReference::owner_scoped(
-                                vec!["crossing".into(), movement_key.into(), path_key.into()],
-                                &release_key,
-                            )
-                            .unwrap(),
+                            entry_gate_ref,
+                            release_gate_ref,
                             waiting_occupancy,
                         )
                         .unwrap(),
@@ -1500,7 +1610,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
             )
             .expect("add conflict zone region");
     }
-    if span >= 11.0 {
+    if span >= 11.0 && !late_waiting {
         module
             .add_declaration(lfre::RoadEditingDeclaration::ParkingFacility(
                 lfre::ParkingFacilityInput::try_new("parking").expect("parking facility"),
@@ -1633,7 +1743,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
         .unwrap()
     })
     .collect();
-    if waiting || next_gate || conflict_after_release || resource_free_release {
+    if waiting || next_gate || conflict_after_release || resource_free_release || late_waiting {
         for (movement, path, gate) in [
             ("east-west", "east-west-path", "east-west-gate-release"),
             (
@@ -1641,6 +1751,28 @@ fn conflict_road_editing_module_with_shape_and_speed(
                 "north-south-path",
                 "north-south-gate-release",
             ),
+        ] {
+            policy_gates.push(
+                lfre::PolicyGateRuleInput::try_new(
+                    gate,
+                    lfre::ManeuverGateReference::owner_scoped(
+                        vec!["crossing".into(), movement.into(), path.into()],
+                        gate,
+                    )
+                    .unwrap(),
+                    None,
+                    laneflow_compiler::GateInterpretation::Uncontrolled,
+                    laneflow_compiler::GateProhibition::None,
+                    vec![],
+                )
+                .unwrap(),
+            );
+        }
+    }
+    if late_waiting {
+        for (movement, path, gate) in [
+            ("east-west", "east-west-path", "east-west-gate-far"),
+            ("north-south", "north-south-path", "north-south-gate-far"),
         ] {
             policy_gates.push(
                 lfre::PolicyGateRuleInput::try_new(
@@ -3986,6 +4118,219 @@ fn failed_same_zone_contender_does_not_block_the_waiting_conflict_gate() {
         "north still gets the zone, decisions {:?}",
         blocked.latest_conflict_decisions()
     );
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn a_waiting_zone_beyond_this_tick_still_lets_the_conflict_acquire() {
+    let revision = late_waiting_revision(false);
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).expect("world");
+    let held = world.revision();
+    let routes = yield_routes(&mut world, held.as_ref());
+    let north_length = approach_length(&world, routes[1]);
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            north_length - 400,
+            10_000,
+        ))
+        .expect("a waiting entrance this tick cannot reach does not cancel the conflict");
+    let east_length = approach_length(&world, routes[0]);
+    assert_eq!(
+        world.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            east_length - 400,
+            10_000,
+        )),
+        Err(SpawnError::StopConstraintUnsatisfiable),
+        "the first vehicle still acquired the zone"
+    );
+
+    let mut stepped = install_fixture(revision, WorldConfig::new(4, 4, 64, 8, 100)).expect("step");
+    let stepped_revision = stepped.revision();
+    let stepped_routes = yield_routes(&mut stepped, stepped_revision.as_ref());
+    let placed = stepped
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            stepped_routes[1],
+            0,
+            north_length - 400,
+            10_000,
+        ))
+        .expect("place");
+    stepped.step(TickInput::new(100)).expect("official step");
+    let state = stepped.vehicle(placed).expect("placed");
+    assert_eq!(state.route_edge_index(), 1, "the conflict gate was reached");
+    assert!(
+        state.progress_mm() < 13_000,
+        "the waiting entrance at the end of the internal is still ahead"
+    );
+    assert_eq!(
+        stepped
+            .latest_conflict_decisions()
+            .iter()
+            .find(|decision| decision.vehicle() == placed)
+            .map(|decision| decision.outcome()),
+        Some(laneflow_runtime::ConflictDecisionOutcome::Granted)
+    );
+    assert!(stepped.conflict_reservation(placed).is_some());
+}
+
+#[test]
+fn a_full_waiting_zone_beyond_this_tick_still_lets_the_conflict_acquire() {
+    let revision = late_waiting_revision(false);
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).expect("world");
+    let held = world.revision();
+    let routes = yield_routes(&mut world, held.as_ref());
+    let north_length = approach_length(&world, routes[1]);
+    let occupant = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            north_length - 2_000,
+            4_000,
+        ))
+        .expect("occupant");
+    for _ in 0..400 {
+        world.step(TickInput::new(100)).expect("fill");
+        let state = world.vehicle(occupant).expect("occupant stays");
+        if state.waiting_membership().is_some()
+            && state.route_edge_index() >= 2
+            && world.conflict_reservation(occupant).is_none()
+        {
+            break;
+        }
+    }
+    let parked = world.vehicle(occupant).expect("occupant");
+    assert!(
+        parked.waiting_membership().is_some() && parked.route_edge_index() >= 2,
+        "occupant edge {} progress {}",
+        parked.route_edge_index(),
+        parked.progress_mm()
+    );
+    assert!(world.conflict_reservation(occupant).is_none());
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            north_length - 400,
+            10_000,
+        ))
+        .expect("a full waiting zone this tick cannot reach does not cancel the conflict");
+    let east_length = approach_length(&world, routes[0]);
+    assert_eq!(
+        world.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            east_length - 400,
+            10_000,
+        )),
+        Err(SpawnError::StopConstraintUnsatisfiable)
+    );
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn a_claim_past_the_waiting_entrance_does_not_keep_the_zone() {
+    let revision = late_waiting_revision(true);
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).expect("world");
+    let held = world.revision();
+    let routes = yield_routes(&mut world, held.as_ref());
+    let north_length = approach_length(&world, routes[1]);
+    assert_eq!(
+        world.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            north_length - 400,
+            10_000,
+        )),
+        Err(SpawnError::StopConstraintUnsatisfiable),
+        "a claim the next tick will not grant is not admitted clear"
+    );
+    let north = world
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            north_length - 400,
+            10_000,
+        ))
+        .expect("placed contender");
+    let east_length = approach_length(&world, routes[0]);
+    let east = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            east_length - 400,
+            10_000,
+        ))
+        .expect("a contender who will not acquire does not keep the zone");
+    world.step(TickInput::new(100)).expect("step");
+    let north_state = world.vehicle(north).expect("north");
+    assert!(world.conflict_reservation(north).is_none());
+    assert_eq!(
+        world
+            .latest_conflict_decisions()
+            .iter()
+            .find(|decision| decision.vehicle() == north)
+            .map(|decision| decision.outcome()),
+        Some(laneflow_runtime::ConflictDecisionOutcome::NoGrant(
+            laneflow_runtime::ConflictNoGrantReason::DownstreamStorageBoundary
+        ))
+    );
+    assert_eq!(north_state.route_edge_index(), 0);
+    let east_state = world.vehicle(east).expect("east");
+    assert!(
+        world.conflict_reservation(east).is_some()
+            || world.latest_conflict_decisions().iter().any(|decision| {
+                decision.vehicle() == east
+                    && decision.outcome() == laneflow_runtime::ConflictDecisionOutcome::Granted
+            })
+    );
+    let travel = if east_state.route_edge_index() == 0 {
+        east_state.progress_mm().saturating_sub(east_length - 400)
+    } else {
+        400u32.saturating_add(east_state.progress_mm())
+    };
+    assert_step_stays_in_emergency_envelope(10_000, east_state.speed_mm_s(), travel);
+}
+
+fn late_waiting_revision(claim_crosses: bool) -> Arc<SharedNetworkRevision> {
+    compile_road_editing_revision_with_limits(
+        conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                equal_priority: true,
+                late_waiting: true,
+                late_claim_crosses: claim_crosses,
+                waiting_on_north_only: true,
+                waiting_capacity: 1,
+                ..ConflictPolicyFixture::default()
+            },
+        ),
+        CompileLimits::single_network_1m_v2(),
+    )
+}
+
+fn approach_length(world: &TrafficWorld, route: RouteHandle) -> u32 {
+    let edge = world.route_edges(route).expect("route")[0];
+    world.traffic().lane_lengths_millimetres()[edge.index()]
 }
 
 #[cfg(feature = "placement-fixtures")]
