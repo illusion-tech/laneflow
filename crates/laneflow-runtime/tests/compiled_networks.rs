@@ -4485,6 +4485,78 @@ fn register_first_stream(world: &mut TrafficWorld) -> RouteHandle {
 
 #[cfg(feature = "placement-fixtures")]
 #[test]
+fn an_exit_only_route_still_blocks_downstream_storage() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                clearance: Some((1, 12.0)),
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(8, 8, 64, 4, 100)).expect("world");
+    let routes = yield_routes(&mut world, revision.as_ref());
+    let full_edges = world.route_edges(routes[0]).expect("full route").to_vec();
+    let exit_edge = *full_edges.last().expect("exit edge");
+    let exit_only = world
+        .register_route(RouteRegisterInput::new(vec![exit_edge]))
+        .expect("plain exit route");
+    let entry_length = world.traffic().lane_lengths_millimetres()[full_edges[0].index()];
+    let approacher = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            entry_length - 400,
+            10_000,
+        ))
+        .expect("downstream is free for the first vehicle");
+    let cursor = world.command_cursor();
+    let blocked = world.spawn_vehicle(VehicleSpawnInput::new(
+        VehicleProfileOrdinal::from_raw(0),
+        exit_only,
+        0,
+        5_000,
+        0,
+    ));
+    assert!(
+        matches!(blocked, Err(SpawnError::StopConstraintUnsatisfiable)),
+        "an exit body must not let the approacher hard-stop past the envelope, got {blocked:?}"
+    );
+    assert_eq!(world.command_cursor(), cursor);
+    assert_eq!(
+        world.vehicle(approacher).expect("kept").speed_mm_s(),
+        10_000
+    );
+    let accepted = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            exit_only,
+            0,
+            11_000,
+            0,
+        ))
+        .expect("a body past the stored downstream still fits");
+    let before = world.vehicle(approacher).expect("approacher");
+    let before_speed = before.speed_mm_s();
+    world.step(TickInput::new(100)).expect("step");
+    let after = world.vehicle(approacher).expect("approacher after");
+    assert!(
+        after.speed_mm_s().saturating_add(400) >= before_speed,
+        "accepted exit body changed {} -> {}",
+        before_speed,
+        after.speed_mm_s()
+    );
+    assert!(world.vehicle(accepted).is_some());
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
 fn an_exit_body_blocks_downstream_when_the_follower_cannot_stop() {
     let revision =
         compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
