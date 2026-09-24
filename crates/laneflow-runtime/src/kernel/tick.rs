@@ -2097,7 +2097,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 YieldAdmission::Unprovable => return AdmissionPreview::Unprovable,
             }
         }
-        match self.claim_intervals(&state, contender.hop) {
+        match self.claim_intervals(&state, contender.hop, contender.rank.update_sequence()) {
             Ok(ClaimRead::NoGrant) => {
                 AdmissionPreview::Stop(crate::kernel::waiting::WaitingStopConstraint {
                     distance: BoundedDistance::Finite(0),
@@ -2442,7 +2442,9 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             else {
                 return Err(AdmissionPreview::Unprovable);
             };
-            let ClaimRead::Open(intervals) = self.claim_intervals(&state, contender.hop)? else {
+            let ClaimRead::Open(intervals) =
+                self.claim_intervals(&state, contender.hop, contender.rank.update_sequence())?
+            else {
                 continue;
             };
             if intervals.is_empty() {
@@ -2465,6 +2467,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         self,
         state: &VehicleState,
         hop: u32,
+        update_sequence: u32,
     ) -> Result<ClaimRead, AdmissionPreview> {
         let Some(compiled) = self.compiled_route(state.route) else {
             return Err(AdmissionPreview::Unprovable);
@@ -2539,14 +2542,13 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         else {
             return Err(AdmissionPreview::Unprovable);
         };
-        let window = required.saturating_add(profile.min_gap_mm());
         let leader_gap = self.derived.occupancy.leader_gap(
             state.handle,
             &compiled.edges,
             state.route_edge_index as usize,
             state.progress_mm,
             self.binding.revision.traffic().lane_lengths_millimetres(),
-            LeaderQueryHorizon::new(window, window),
+            LeaderQueryHorizon::new(u32::MAX, u32::MAX),
         );
         if leader_gap.is_some_and(|gap| {
             gap < i64::from(required).saturating_add(i64::from(profile.min_gap_mm()))
@@ -2563,7 +2565,115 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 return Ok(ClaimRead::NoGrant);
             }
         }
+        if self.reserved_parking_blocks_claim(state, target)? {
+            return Ok(ClaimRead::NoGrant);
+        }
+        if self.later_waiting_denial_blocks_claim(state, compiled, hop, update_sequence, target)? {
+            return Ok(ClaimRead::NoGrant);
+        }
         Ok(ClaimRead::Open(claims))
+    }
+
+    /// 已预约的停车入口在声明终点前面时，下一拍不会把这段下游占上。
+    fn reserved_parking_blocks_claim(
+        self,
+        state: &VehicleState,
+        target: crate::DownstreamRoutePoint,
+    ) -> Result<bool, AdmissionPreview> {
+        let Some(ParkingBinding::Reserved(reservation)) =
+            self.committed.parking.binding(state.handle)
+        else {
+            return Ok(false);
+        };
+        if reservation.route() != state.route {
+            return Err(AdmissionPreview::Unprovable);
+        }
+        let Some((_, progress_mm)) = self.reservation_anchor(reservation) else {
+            return Err(AdmissionPreview::Unprovable);
+        };
+        let Some(parking) =
+            crate::DownstreamRoutePoint::new(reservation.entry_route_occurrence(), progress_mm, 0)
+        else {
+            return Err(AdmissionPreview::Unprovable);
+        };
+        Ok(target > parking)
+    }
+
+    /// 下一拍会因排队名额或长度停在更后面的入口时，声明若越过该入口就不算占上。
+    /// 名额用已提交占用和这一拍更近的排队车计算，不读步进里那份还没建的计划表。
+    fn later_waiting_denial_blocks_claim(
+        self,
+        state: &VehicleState,
+        compiled: &CompiledRoute,
+        hop: u32,
+        update_sequence: u32,
+        target: crate::DownstreamRoutePoint,
+    ) -> Result<bool, AdmissionPreview> {
+        let Some(occurrence) = compiled
+            .waiting
+            .iter()
+            .copied()
+            .find(|item| item.entry_hop > hop)
+        else {
+            return Ok(false);
+        };
+        let held = state.waiting_membership.is_some_and(|member| {
+            member.waiting_zone == occurrence.zone
+                && member.release_hop == occurrence.release_hop
+                && state.route_edge_index > occurrence.entry_hop
+        });
+        if held {
+            return Ok(false);
+        }
+        let Some(profile) = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+        else {
+            return Err(AdmissionPreview::Unprovable);
+        };
+        let Some(stop_index) = usize::try_from(occurrence.entry_hop)
+            .ok()
+            .and_then(|value| value.checked_add(1))
+        else {
+            return Err(AdmissionPreview::Unprovable);
+        };
+        let Some(distance) = distance_to_occurrence_start(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            state.route_edge_index as usize,
+            state.progress_mm,
+            stop_index,
+        ) else {
+            return Err(AdmissionPreview::Unprovable);
+        };
+        let BoundedDistance::Finite(approach_mm) = distance else {
+            return Ok(false);
+        };
+        let denied = match self.waiting_grant(
+            state,
+            occurrence,
+            approach_mm,
+            update_sequence,
+            profile.min_gap_mm(),
+            None,
+        ) {
+            WaitingGrant::Denied => true,
+            WaitingGrant::Granted => false,
+            WaitingGrant::Unprovable => return Err(AdmissionPreview::Unprovable),
+        };
+        if !denied {
+            return Ok(false);
+        }
+        let Some(boundary) =
+            crate::DownstreamRoutePoint::new(occurrence.entry_hop.saturating_add(1), 0, 0)
+        else {
+            return Err(AdmissionPreview::Unprovable);
+        };
+        Ok(target > boundary)
     }
 
     /// 新车的接近或更优先的名次，会不会在这一拍给这辆已有车多加一个停车点。
@@ -2602,7 +2712,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let candidate_claims = if let Some((_, _, candidate_hop)) = pressure.ranks.first().copied()
         {
             if candidate_blocked_at.is_none_or(|blocked| candidate_hop < blocked) {
-                match self.claim_intervals(pressure.candidate, candidate_hop) {
+                match self.claim_intervals(
+                    pressure.candidate,
+                    candidate_hop,
+                    pressure.candidate_sequence,
+                ) {
                     Ok(ClaimRead::Open(claims)) => claims,
                     Ok(ClaimRead::NoGrant) => Vec::new(),
                     Err(AdmissionPreview::Alloc) => return Err(PlacementMotionError::Alloc),
@@ -2677,7 +2791,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                     candidate_reaches(*candidate_hop) && rank.sorts_before(old_rank)
                 });
                 if candidate_ahead && !candidate_claims.is_empty() {
-                    match self.claim_intervals(existing, hop) {
+                    match self.claim_intervals(existing, hop, existing_sequence) {
                         Ok(ClaimRead::NoGrant) => {}
                         Ok(ClaimRead::Open(old_claims)) => {
                             if old_claims.iter().any(|interval| {
