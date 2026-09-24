@@ -1332,6 +1332,7 @@ impl crate::kernel::state::WorldState {
         self.committed.parking.insert_reserved(vehicle, reservation);
         self.committed.command_cursor = command_cursor;
         self.record_parking_update(vehicle, command_cursor);
+        self.invalidate_spawn_contenders();
         Ok(ParkingCommandOutcome::Committed(record))
     }
 
@@ -1372,6 +1373,7 @@ impl crate::kernel::state::WorldState {
         self.committed.parking.cancel_reserved(vehicle);
         self.committed.command_cursor = command_cursor;
         self.record_parking_update(vehicle, command_cursor);
+        self.invalidate_spawn_contenders();
         Ok(ParkingCancelRecord { vehicle, target })
     }
 
@@ -1787,6 +1789,7 @@ impl crate::kernel::state::WorldState {
         self.rebuild_waiting_member_rows();
         self.committed.command_cursor = command_cursor;
         self.record_parking_update(vehicle, command_cursor);
+        self.invalidate_spawn_contenders();
         self.workspace
             .frontier_maintenance
             .note_active_source(vehicle);

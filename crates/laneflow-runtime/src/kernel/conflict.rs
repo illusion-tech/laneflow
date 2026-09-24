@@ -636,6 +636,19 @@ impl ApproachFrontierCell {
         self.second = reduced.get(1).copied().flatten();
     }
 
+    /// 这个格子上是否已经留下至少一名车。
+    pub(crate) fn occupied(self) -> bool {
+        self.first.is_some()
+    }
+
+    /// 这个格子留下的两名车。没有第二名时后一格是空的。
+    pub(crate) fn retained_owners(self) -> [Option<VehicleHandle>; 2] {
+        [
+            self.first.map(|owner| owner.vehicle),
+            self.second.map(|owner| owner.vehicle),
+        ]
+    }
+
     /// 返回排除 subject 自身后的最优接近估计；无其他 owner 时视为 `OutsideHorizon`。
     pub(crate) fn value_excluding(self, subject: VehicleHandle) -> ApproachEstimate {
         self.first
@@ -2369,6 +2382,21 @@ impl<'a> ConflictRead<'a> {
             workspace: Some(workspace),
         }
     }
+    /// 已提交下游声明有多少条。
+    pub(crate) fn committed_downstream_len(self) -> usize {
+        self.committed.committed_downstream.len()
+    }
+
+    /// 已提交下游声明的车主、区间和该声明要求的后车间隙。
+    pub(crate) fn for_each_committed_downstream(
+        self,
+        mut visit: impl FnMut(VehicleHandle, DownstreamInterval, u32),
+    ) {
+        for claim in &self.committed.committed_downstream {
+            visit(claim.owner, claim.interval, claim.follower_min_gap_mm);
+        }
+    }
+
     /// 已提交的下游声明是否挡住这段车身。索引还没建好时按会挡住处理。
     pub(crate) fn committed_downstream_conflicts(
         self,
