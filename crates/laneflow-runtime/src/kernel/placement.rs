@@ -364,6 +364,56 @@ impl crate::kernel::state::WorldState {
         });
     }
 
+    /// 把接近名单留成空的，并标成推进世代之前的当前序号。
+    ///
+    /// 测试用它把「只对过观测序号」从真实切换里拆出来。名单容量和空单元格都像
+    /// 刚建好的一样，所以复用时会当成这一拍没有申请者。世代耗尽时返回 `false`，
+    /// 已提交世界不变。
+    #[cfg(any(test, feature = "placement-fixtures"))]
+    pub(crate) fn detach_contender_cache_generation_for_test(&mut self) -> bool {
+        let Some(next_generation) = self.binding.world_generation.checked_next() else {
+            return false;
+        };
+        let zone_count = usize::try_from(
+            self.binding
+                .revision
+                .traffic()
+                .entity_counts()
+                .count(laneflow_static_contract::EntityKind::ConflictZone),
+        )
+        .unwrap_or(0);
+        let cell_count = self.read_view().conflict_read().cell_len();
+        let waiting_count = usize::try_from(
+            self.binding
+                .revision
+                .traffic()
+                .entity_counts()
+                .count(laneflow_static_contract::EntityKind::WaitingZone),
+        )
+        .unwrap_or(0);
+        self.derived.spawn_contenders.best.clear();
+        self.derived.spawn_contenders.cell_approach_ms.clear();
+        self.derived.spawn_contenders.waiting_entrants.clear();
+        self.derived
+            .spawn_contenders
+            .best
+            .resize_with(zone_count, Vec::new);
+        self.derived
+            .spawn_contenders
+            .cell_approach_ms
+            .resize(cell_count, CELL_APPROACH_NONE);
+        self.derived
+            .spawn_contenders
+            .waiting_entrants
+            .resize_with(waiting_count, Vec::new);
+        self.derived.spawn_contenders.built_for = Some(ContenderBuilt {
+            generation: self.binding.world_generation,
+            sequence: self.committed.observation_state_sequence,
+        });
+        self.binding.world_generation = next_generation;
+        true
+    }
+
     fn admission_clocks(
         &self,
         state: &VehicleState,

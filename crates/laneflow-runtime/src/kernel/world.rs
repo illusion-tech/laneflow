@@ -2311,6 +2311,21 @@ impl TrafficWorld {
         self.state.place_existing_active_vehicle(input)
     }
 
+    /// 把接近名单留成空的，并标成推进世代之前的当前观测序号。
+    ///
+    /// 只给测试把「观测序号没变、世界世代变了」从真实切换里拆出来。名单看起来仍
+    /// 对得上旧世代，但里面没有车。世代耗尽时返回 `false`，已提交世界不变。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
+    #[cfg(feature = "placement-fixtures")]
+    #[doc(hidden)]
+    pub fn detach_contender_cache_generation_for_test(&mut self) -> bool {
+        self.execution.assert_usable();
+        self.state.detach_contender_cache_generation_for_test()
+    }
+
     /// 把 live 的 Completed 车辆原子替换为新的 Active 车辆。
     ///
     /// 入口占用、当前停车约束、前方降速、前车或后车不安全都可以重试。输入本身非法
