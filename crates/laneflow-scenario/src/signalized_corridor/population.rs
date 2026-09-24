@@ -510,17 +510,20 @@ impl CorridorPopulationPrepare {
         &mut self,
         world: &mut TrafficWorld,
     ) -> Result<(Vec<VehicleHandle>, Vec<RouteHandle>), CorridorPopulationError> {
-        if self.initial_vehicles.is_none() {
+        let Some(source) = self.initial_vehicles.as_deref() else {
             return Err(CorridorPopulationError::InitialVehicleCount {
                 expected: self.slots.len(),
                 actual: 0,
             });
+        };
+        let mut plans = Vec::new();
+        if plans.try_reserve(source.len()).is_err() {
+            return Err(CorridorPopulationError::InitialSpawnRejected {
+                detail: "初始计划副本分配失败".to_owned(),
+            });
         }
+        plans.extend(source.iter().cloned());
         let routes = self.install_routes(world)?;
-        let mut plans = self
-            .initial_vehicles
-            .clone()
-            .expect("计划在注册路线前已经确认还在");
         match self.admit_initial_plans(world, &routes, &mut plans) {
             Ok(vehicles) => Ok((vehicles, routes)),
             Err(error @ CorridorPopulationError::InitialBatchRollbackIncomplete { .. }) => {
@@ -1247,7 +1250,9 @@ impl CorridorReplaceAttemptOutcome {
     /// # Errors
     ///
     /// Runtime 替换的致命错误原样返回（`Err`）。[`ReplaceError::Blocked`] 与当前
-    /// 暂时不能接纳的运动安全错误映射为可重试 outcome，而不是错误。
+    /// 暂时不能接纳、但过一会儿世界变了可能放得进的运动安全错误映射为可重试
+    /// outcome。前方限速降不下来只取决于冻住的计划和路线，原样重试不会成功，
+    /// 因此仍作为错误返回。
     pub fn from_replace(
         result: Result<VehicleReplaceRecord, laneflow_runtime::ReplaceError>,
     ) -> Result<Self, laneflow_runtime::ReplaceError> {
@@ -1256,7 +1261,6 @@ impl CorridorReplaceAttemptOutcome {
             Err(laneflow_runtime::ReplaceError::Blocked(block)) => Ok(Self::Blocked(block)),
             Err(
                 laneflow_runtime::ReplaceError::StopConstraintUnsatisfiable
-                | laneflow_runtime::ReplaceError::DownstreamSpeedUnsatisfiable
                 | laneflow_runtime::ReplaceError::UnsafeLeader { .. }
                 | laneflow_runtime::ReplaceError::UnsafeFollower { .. },
             ) => Ok(Self::Retryable),
@@ -1307,7 +1311,6 @@ fn initial_speed_can_drop(error: &laneflow_runtime::SpawnError) -> bool {
         laneflow_runtime::SpawnError::StopConstraintUnsatisfiable
             | laneflow_runtime::SpawnError::DownstreamSpeedUnsatisfiable
             | laneflow_runtime::SpawnError::UnsafeLeader { .. }
-            | laneflow_runtime::SpawnError::UnsafeFollower { .. }
     )
 }
 
@@ -1363,6 +1366,27 @@ mod tests {
         let before = rng.state();
         assert_eq!(draw_weighted_route(&mut rng, &lane(&[(3, 20)])), 3);
         assert_ne!(rng.state(), before);
+    }
+
+    #[test]
+    fn frozen_replace_downstream_speed_is_not_retried() {
+        let outcome = CorridorReplaceAttemptOutcome::from_replace(Err(
+            laneflow_runtime::ReplaceError::DownstreamSpeedUnsatisfiable,
+        ));
+        assert!(outcome.is_err());
+    }
+
+    #[test]
+    fn initial_speed_drop_keeps_limit_and_stop_and_skips_allocation_failure() {
+        assert!(initial_speed_can_drop(
+            &laneflow_runtime::SpawnError::DownstreamSpeedUnsatisfiable
+        ));
+        assert!(initial_speed_can_drop(
+            &laneflow_runtime::SpawnError::StopConstraintUnsatisfiable
+        ));
+        assert!(!initial_speed_can_drop(
+            &laneflow_runtime::SpawnError::OccupancyAllocFailed
+        ));
     }
 
     #[test]

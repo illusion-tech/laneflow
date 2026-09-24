@@ -26,6 +26,25 @@ use crate::{
 /// `minimum_gap_tolerance`。
 const MINIMUM_GAP_TOLERANCE_MM: u32 = 1;
 
+#[cfg(any(test, feature = "placement-fixtures"))]
+thread_local! {
+    static CANDIDATE_ADMISSION_CALLS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// 还没放进世界的那辆车，这一次生成里被问了几次「会不会被拦住」。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn candidate_admission_calls() -> u64 {
+    CANDIDATE_ADMISSION_CALLS.with(std::cell::Cell::get)
+}
+
+/// 把上面的计数清零。
+#[cfg(any(test, feature = "placement-fixtures"))]
+#[doc(hidden)]
+pub fn reset_candidate_admission_calls() {
+    CANDIDATE_ADMISSION_CALLS.with(|cell| cell.set(0));
+}
+
 /// 这一拍临时占上的路口和下游。预检结束就丢掉，不写进已提交世界。
 struct StagedAcquire {
     intervals: Vec<(DownstreamInterval, u32)>,
@@ -47,19 +66,9 @@ fn sort_ranked_contenders(
         return Err(AdmissionPreview::Alloc);
     }
     workspace.extend_from_slice(items);
-    for index in 1..workspace.len() {
-        let mut cursor = index;
-        while cursor > 0 {
-            let previous = workspace[cursor - 1].1.rank;
-            let current = workspace[cursor].1.rank;
-            if !current.sorts_before(previous) {
-                break;
-            }
-            workspace.swap(cursor - 1, cursor);
-            cursor -= 1;
-        }
-    }
-    items.copy_from_slice(&workspace);
+    super::placement::mergesort_copy(items, &mut workspace, |left, right| {
+        left.1.rank.sorts_before(right.1.rank)
+    });
     Ok(())
 }
 
@@ -111,7 +120,10 @@ pub(crate) struct IncomingPressure<'a> {
     pub(crate) ranks: &'a [(usize, ContenderRank, u32)],
     pub(crate) waiting: Option<(usize, u32, crate::kernel::state::WaitingEntrant)>,
     pub(crate) candidate: &'a VehicleState,
-    pub(crate) candidate_sequence: u32,
+    /// 新车这一拍自己的停车点。整次生成只算一遍。
+    pub(crate) candidate_blocked_at: Option<u32>,
+    /// 新车在自己第一处够得到的入口上占得上的下游。整次生成只算一遍。
+    pub(crate) candidate_claims: &'a [DownstreamInterval],
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1753,6 +1765,10 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 
     /// 下一拍会在哪一处够得到的入口硬截断。够不到的后缀不再查让行、下游或排队。
     fn admission_stop(self, state: &VehicleState, candidate_sequence: u32) -> AdmissionPreview {
+        #[cfg(any(test, feature = "placement-fixtures"))]
+        if state.handle.index() == u32::MAX {
+            CANDIDATE_ADMISSION_CALLS.with(|cell| cell.set(cell.get().saturating_add(1)));
+        }
         let source = ContenderBuilt {
             generation: self.binding.world_generation,
             sequence: self.committed.observation_state_sequence,
@@ -2194,15 +2210,16 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 let Some(cell) = self.conflict_read().cell_index_of(address) else {
                     return YieldAdmission::Unprovable;
                 };
-                let Some(ms) = self
+                if self
                     .derived
                     .spawn_contenders
                     .cell_approach_ms
                     .get(cell)
-                    .copied()
-                else {
+                    .is_none()
+                {
                     return YieldAdmission::Unprovable;
-                };
+                }
+                let ms = self.approach_excluding_subject(cell, state.handle);
                 let cached = if ms == CELL_APPROACH_NONE {
                     ApproachEstimate::OutsideHorizon
                 } else if ms == CELL_APPROACH_UNPROVABLE {
@@ -2428,16 +2445,33 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             intervals: Vec::new(),
             zones: Vec::new(),
         };
-        for (zone, contender) in earlier {
+        let mut cursor = 0usize;
+        while cursor < earlier.len() {
+            let vehicle = earlier[cursor].1.vehicle;
+            let hop = earlier[cursor].1.hop;
+            let start = cursor;
+            while cursor < earlier.len()
+                && earlier[cursor].1.vehicle == vehicle
+                && earlier[cursor].1.hop == hop
+            {
+                cursor = cursor.saturating_add(1);
+            }
+            let group = &earlier[start..cursor];
+            if group.iter().any(|(zone, _)| staged.zones.contains(zone)) {
+                continue;
+            }
+            let (zone, contender) = group[0];
             match self.earlier_request(contender, zone, &staged) {
                 AdmissionPreview::Clear => {}
                 AdmissionPreview::Stop(_) => continue,
                 other => return Err(other),
             }
-            if staged.zones.try_reserve(1).is_err() {
+            if staged.zones.try_reserve(group.len()).is_err() {
                 return Err(AdmissionPreview::Alloc);
             }
-            staged.zones.push(zone);
+            for (group_zone, _) in group {
+                staged.zones.push(*group_zone);
+            }
             let Some(state) = self.vehicle_state(contender.vehicle).copied() else {
                 continue;
             };
@@ -2728,6 +2762,30 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         }
     }
 
+    /// 格点到达去掉这辆车自己。环线上不能用自己的到达把自己判成让不过。
+    fn approach_excluding_subject(self, cell: usize, subject: crate::VehicleHandle) -> u64 {
+        let mut best = CELL_APPROACH_NONE;
+        for (slot, owner) in self.derived.spawn_contenders.owners.iter().enumerate() {
+            if slot == subject.index() as usize {
+                continue;
+            }
+            let Some(mark) = owner else {
+                continue;
+            };
+            for (index, estimate) in &mark.cells {
+                if *index != cell {
+                    continue;
+                }
+                if *estimate == CELL_APPROACH_UNPROVABLE || best == CELL_APPROACH_UNPROVABLE {
+                    best = CELL_APPROACH_UNPROVABLE;
+                } else if *estimate != CELL_APPROACH_NONE {
+                    best = best.min(*estimate);
+                }
+            }
+        }
+        best
+    }
+
     /// 已预约的停车入口在声明终点前面时，下一拍不会把这段下游占上。
     fn reserved_parking_blocks_claim(
         self,
@@ -2751,6 +2809,36 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             return Err(AdmissionPreview::Unprovable);
         };
         Ok(target > parking)
+    }
+
+    /// 新车这一拍自己的停车点和占得上的下游。整次生成只算一遍。
+    pub(crate) fn candidate_hold(
+        self,
+        candidate: &VehicleState,
+        update_sequence: u32,
+        first_hop: Option<u32>,
+    ) -> Result<(Option<u32>, Vec<DownstreamInterval>), PlacementMotionError> {
+        let blocked = match self.admission_stop(candidate, update_sequence) {
+            AdmissionPreview::Clear => None,
+            AdmissionPreview::Stop(stop) => Some(stop.hop),
+            AdmissionPreview::Unprovable => return Err(PlacementMotionError::Unprovable),
+            AdmissionPreview::Alloc => return Err(PlacementMotionError::Alloc),
+        };
+        let claims = if let Some(hop) = first_hop {
+            if blocked.is_none_or(|stop| hop < stop) {
+                match self.claim_intervals(candidate, hop, update_sequence) {
+                    Ok(ClaimRead::Open(claims)) => claims,
+                    Ok(ClaimRead::NoGrant) => Vec::new(),
+                    Err(AdmissionPreview::Alloc) => return Err(PlacementMotionError::Alloc),
+                    Err(_) => return Err(PlacementMotionError::Unprovable),
+                }
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+        Ok((blocked, claims))
     }
 
     /// 新车的接近或更优先的名次，会不会在这一拍给这辆已有车多加一个停车点。
@@ -2779,32 +2867,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         } else {
             existing.route_edge_index
         };
-        let candidate_blocked_at =
-            match self.admission_stop(pressure.candidate, pressure.candidate_sequence) {
-                AdmissionPreview::Clear => None,
-                AdmissionPreview::Stop(stop) => Some(stop.hop),
-                AdmissionPreview::Unprovable => return Err(PlacementMotionError::Unprovable),
-                AdmissionPreview::Alloc => return Err(PlacementMotionError::Alloc),
-            };
-        let candidate_claims = if let Some((_, _, candidate_hop)) = pressure.ranks.first().copied()
-        {
-            if candidate_blocked_at.is_none_or(|blocked| candidate_hop < blocked) {
-                match self.claim_intervals(
-                    pressure.candidate,
-                    candidate_hop,
-                    pressure.candidate_sequence,
-                ) {
-                    Ok(ClaimRead::Open(claims)) => claims,
-                    Ok(ClaimRead::NoGrant) => Vec::new(),
-                    Err(AdmissionPreview::Alloc) => return Err(PlacementMotionError::Alloc),
-                    Err(_) => return Err(PlacementMotionError::Unprovable),
-                }
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
-        };
+        let candidate_blocked_at = pressure.candidate_blocked_at;
+        let candidate_claims = pressure.candidate_claims;
         let candidate_gap = self
             .binding
             .revision
@@ -2844,8 +2908,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             }
             let stop = crate::kernel::waiting::WaitingStopConstraint { distance, hop };
             let displaced = pressure.ranks.iter().any(|(zone, rank, candidate_hop)| {
-                *candidate_hop == hop
-                    && candidate_reaches(*candidate_hop)
+                candidate_reaches(*candidate_hop)
+                    && compiled.conflicts[index..]
+                        .iter()
+                        .take_while(|entry| entry.admission_hop == hop)
+                        .any(|entry| entry.zone.index() == *zone)
                     && self
                         .derived
                         .spawn_contenders
@@ -2943,11 +3010,16 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         if candidate_blocked_at.is_some_and(|blocked| waiting_hop >= blocked) {
             return Ok(None);
         }
+        let first_hop = if existing.progress_mm == 0 && existing.carry_um == 0 {
+            existing.route_edge_index.saturating_sub(1)
+        } else {
+            existing.route_edge_index
+        };
         let Some(occurrence) = compiled
             .waiting
             .iter()
             .copied()
-            .find(|entry| entry.zone.index() == zone)
+            .find(|entry| entry.zone.index() == zone && entry.entry_hop >= first_hop)
         else {
             return Ok(None);
         };
