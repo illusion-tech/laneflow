@@ -1333,6 +1333,22 @@ pub(crate) fn check_conflict_capability(
 }
 
 const OCCUPANCY_INTERVAL_CAP: usize = 16;
+
+/// 车身最多跨过的边数。每条边至少 `MIN_LANE_EDGE_LENGTH_MM`，再留出首尾两段不满一条边的余量。
+pub(crate) fn body_interval_slots(length_mm: u32) -> usize {
+    let min_edge = laneflow_static_contract::MIN_LANE_EDGE_LENGTH_MM;
+    let spanned = length_mm.div_ceil(min_edge).saturating_add(1);
+    usize::try_from(spanned).unwrap_or(usize::MAX)
+}
+
+#[cfg(test)]
+#[test]
+fn body_interval_slots_follow_the_shortest_legal_edge() {
+    assert_eq!(body_interval_slots(0), 1);
+    assert_eq!(body_interval_slots(4_500), 46);
+    assert_eq!(body_interval_slots(128_000), 1_281);
+    assert!(body_interval_slots(128_000) < 128_001);
+}
 type OccupancyInterval = (LaneEdgeOrdinal, u32, u32);
 type OccupancyStack = ([OccupancyInterval; OCCUPANCY_INTERVAL_CAP], usize, bool);
 

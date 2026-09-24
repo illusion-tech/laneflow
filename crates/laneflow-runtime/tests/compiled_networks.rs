@@ -4533,6 +4533,12 @@ fn an_exit_only_route_still_blocks_downstream_storage() {
         world.vehicle(approacher).expect("kept").speed_mm_s(),
         10_000
     );
+    assert_eq!(
+        laneflow_runtime::body_reserve_slots(),
+        u64::from(4_500_u32.div_ceil(laneflow_static_contract::MIN_LANE_EDGE_LENGTH_MM))
+            .saturating_add(1),
+        "body scratch follows the shortest legal edge, not one slot per millimetre"
+    );
     let accepted = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
