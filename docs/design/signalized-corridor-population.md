@@ -177,8 +177,8 @@ Pending(old, frozen route plan)
 
 - `Replaced(old, new)`：controller 以 new handle 原子轮换 logical identity，回到 Running；
 - `Blocked(old, blocker, ...)`：保留 old 与 frozen plan，移动到 FIFO 队尾；
-- `Retryable`：当前停车约束、前方限速或前后车暂时不能接纳。保留 old 与 frozen plan，移动到 FIFO 队尾，计入 `blocked`，不 draw、不改 plan、不降速；
-- fatal host error：恢复当前 slot 到 FIFO 队首并返回 host error；
+- `Retryable`：当前停车约束或前后车暂时不能接纳。保留 old 与 frozen plan，移动到 FIFO 队尾，计入 `blocked`，不 draw、不改 plan、不降速；
+- fatal host error：包括降不到前方限速。冻住的计划原样再试不会成功，须降低初速或更换输入。恢复当前 slot 到 FIFO 队首并返回 host error；
 - identity 不一致或 new handle 已被跟踪：返回 policy contract error。
 
 一个 lifecycle boundary 只尝试进入 boundary 时已存在的 pending 数量，因此每个 plan 最多尝试一次。`Blocked` 和 `Retryable` 都不 draw、不改 plan，且不会阻止其他 pending plan。

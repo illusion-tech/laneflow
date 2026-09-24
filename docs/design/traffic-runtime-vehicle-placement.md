@@ -1,7 +1,7 @@
 # 新鲜摆放的运动安全准入
 
 **文档状态**: Accepted（#742）<br>
-**最后更新**: 2026-09-23<br>
+**最后更新**: 2026-09-25<br>
 **适用范围**: `spawn_vehicle` 与 `replace_completed_vehicle` 在提交前的运动安全准入
 
 **关联文档**:
@@ -12,7 +12,7 @@
 - [`traffic-runtime-near-gate-frontier.md`](traffic-runtime-near-gate-frontier.md)
 - [`../adr/0021-traffic-infrastructure-and-host-boundary.md`](../adr/0021-traffic-infrastructure-and-host-boundary.md)
 
-不新开 ADR。数据格式不变。公开变化是 `SpawnError` 与 `ReplaceError` 增加可区分的拒绝原因；Adapter 把这些暂时不能接纳的替换结果当成可重试，见 [`adapter-api.md`](adapter-api.md)。
+不新开 ADR。数据格式不变。公开变化是 `SpawnError` 与 `ReplaceError` 增加可区分的拒绝原因。Adapter 把当前停车约束、前车和后车这些暂时不能接纳的替换结果当成可重试。降不到前方限速不是可重试结果，须降低初速或更换输入，见 [`adapter-api.md`](adapter-api.md)。
 
 ## 1. 结论
 
@@ -107,7 +107,7 @@
 | 变体 | 含义 | 调用方 |
 | --- | --- | --- |
 | `StopConstraintUnsatisfiable` | 当前必须停车的约束停不住 | 可稍后重试 |
-| `DownstreamSpeedUnsatisfiable` | 降不到前方更低限速 | 可稍后重试 |
+| `DownstreamSpeedUnsatisfiable` | 降不到前方更低限速 | 同一输入再试仍失败，须降低初速或更换输入 |
 | `UnsafeLeader` | 相对最近前车不安全 | 可稍后重试 |
 | `UnsafeFollower` | 使已有移动后车不安全 | 可稍后重试 |
 | `OccupancyAllocFailed` | 占用索引分配失败 | 世界状态未改变 |
