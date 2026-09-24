@@ -1022,6 +1022,8 @@ struct ConflictPolicyFixture {
     resource_free_release: bool,
     equal_priority: bool,
     short_vehicle: bool,
+    /// 停车入口改到内部边 3 m 处，声明会越过它。
+    early_parking_on_internal: bool,
     /// 0 表示内部边仍是 13 m。更短时两道资源门可以落在同一拍行程里。
     close_internal_m: f64,
     /// 0 表示排队容量仍是 1。
@@ -1053,6 +1055,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
         resource_free_release,
         equal_priority,
         short_vehicle,
+        early_parking_on_internal,
         close_internal_m,
         waiting_capacity,
     } = policy_fixture;
@@ -1507,13 +1510,18 @@ fn conflict_road_editing_module_with_shape_and_speed(
                 lfre::ParkingSpaceInput::try_new(
                     "space",
                     lfre::ParkingLaneAnchor::try_new(
-                        lfre::LaneEdgeReference::local("west-exit").expect("parking entry edge"),
-                        12.0,
+                        lfre::LaneEdgeReference::local(if early_parking_on_internal {
+                            "east-internal"
+                        } else {
+                            "west-exit"
+                        })
+                        .expect("parking entry edge"),
+                        if early_parking_on_internal { 3.0 } else { 12.0 },
                     )
                     .expect("parking entry"),
                     lfre::ParkingLaneAnchor::try_new(
                         lfre::LaneEdgeReference::local("east-internal").expect("parking exit edge"),
-                        10.5,
+                        if early_parking_on_internal { 8.0 } else { 10.5 },
                     )
                     .expect("parking exit"),
                     lfre::ParkingSpaceGeometry::try_new(1.5, 0.0, 5.0, 2.5)
@@ -3879,6 +3887,194 @@ fn replace_into_the_priority_pose_uses_the_same_yield_rule() {
     assert!(
         matches!(replaced, Err(ReplaceError::StopConstraintUnsatisfiable)),
         "replace must refuse the pose that would newly stop the yield vehicle, got {replaced:?}"
+    );
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn failed_same_zone_contender_does_not_block_the_waiting_conflict_gate() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                waiting: true,
+                waiting_on_north_only: true,
+                conflict_after_release: true,
+                equal_priority: true,
+                short_vehicle: true,
+                close_internal_m: 0.8,
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let dot = conflict_profile(revision.as_ref(), "dot");
+    let mut open =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1_000)).expect("open");
+    let open_held = open.revision();
+    let open_routes = yield_routes(&mut open, open_held.as_ref());
+    let open_east = open.route_edges(open_routes[0]).expect("east")[0];
+    let open_east_length = open.traffic().lane_lengths_millimetres()[open_east.index()];
+    open.place_existing_active_vehicle(VehicleSpawnInput::new(
+        dot,
+        open_routes[0],
+        0,
+        open_east_length - 200,
+        2_000,
+    ))
+    .expect("east reaches the shared zone");
+    let open_north = open.route_edges(open_routes[1]).expect("north")[0];
+    let open_north_length = open.traffic().lane_lengths_millimetres()[open_north.index()];
+    let open_north_vehicle = open
+        .spawn_vehicle(VehicleSpawnInput::new(
+            dot,
+            open_routes[1],
+            0,
+            open_north_length - 200,
+            2_000,
+        ))
+        .expect("north can still stop for a zone someone else will take");
+    open.step(TickInput::new(1_000)).expect("open step");
+    assert!(
+        open.conflict_reservation(open_north_vehicle).is_none(),
+        "the earlier vehicle keeps the shared zone"
+    );
+
+    let mut blocked =
+        install_fixture(revision, WorldConfig::new(4, 4, 64, 8, 1_000)).expect("blocked");
+    let held = blocked.revision();
+    let routes = yield_routes(&mut blocked, held.as_ref());
+    let east_edges = blocked.route_edges(routes[0]).expect("east").to_vec();
+    let east_length = blocked.traffic().lane_lengths_millimetres()[east_edges[0].index()];
+    blocked
+        .place_existing_active_vehicle(VehicleSpawnInput::new(dot, routes[0], 1, 400, 0))
+        .expect("leader blocks east storage");
+    blocked
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            dot,
+            routes[0],
+            0,
+            east_length - 200,
+            2_000,
+        ))
+        .expect("east cannot acquire");
+    let north_edge = blocked.route_edges(routes[1]).expect("north")[0];
+    let north_length = blocked.traffic().lane_lengths_millimetres()[north_edge.index()];
+    let north = blocked
+        .spawn_vehicle(VehicleSpawnInput::new(
+            dot,
+            routes[1],
+            0,
+            north_length - 200,
+            2_000,
+        ))
+        .expect("a contender who cannot acquire does not block the waiting approach");
+    blocked.step(TickInput::new(1_000)).expect("blocked step");
+    let north_state = blocked.vehicle(north).expect("north");
+    assert!(
+        north_state.speed_mm_s().saturating_add(4_000) >= 2_000,
+        "speed dropped faster than 4 m/s² over one second"
+    );
+    assert!(
+        blocked.conflict_reservation(north).is_some()
+            || blocked.latest_conflict_decisions().iter().any(|decision| {
+                decision.vehicle() == north
+                    && decision.outcome() == laneflow_runtime::ConflictDecisionOutcome::Granted
+            }),
+        "north still gets the zone, decisions {:?}",
+        blocked.latest_conflict_decisions()
+    );
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn reserved_parking_keeps_an_unacquired_zone_from_blocking_the_next_vehicle() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                equal_priority: true,
+                early_parking_on_internal: true,
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let mut open =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 4, 100)).expect("open");
+    let open_routes = yield_routes(&mut open, revision.as_ref());
+    let open_east = open.route_edges(open_routes[0]).expect("east")[0];
+    let open_east_length = open.traffic().lane_lengths_millimetres()[open_east.index()];
+    open.place_existing_active_vehicle(VehicleSpawnInput::new(
+        VehicleProfileOrdinal::from_raw(0),
+        open_routes[0],
+        0,
+        open_east_length - 400,
+        10_000,
+    ))
+    .expect("east can still acquire");
+    let open_north = open.route_edges(open_routes[1]).expect("north")[0];
+    let open_north_length = open.traffic().lane_lengths_millimetres()[open_north.index()];
+    assert_eq!(
+        open.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            open_routes[1],
+            0,
+            open_north_length - 400,
+            10_000,
+        )),
+        Err(SpawnError::StopConstraintUnsatisfiable),
+        "an earlier vehicle who can acquire still blocks the other approach"
+    );
+
+    let mut blocked =
+        install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).expect("blocked");
+    let held = blocked.revision();
+    let routes = yield_routes(&mut blocked, held.as_ref());
+    let east_edge = blocked.route_edges(routes[0]).expect("east")[0];
+    let east_length = blocked.traffic().lane_lengths_millimetres()[east_edge.index()];
+    let east = blocked
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            east_length - 400,
+            10_000,
+        ))
+        .expect("east contender");
+    blocked
+        .reserve_parking(
+            east,
+            ReserveParkingTarget::ExplicitSpace {
+                space: ParkingSpaceOrdinal::from_raw(0),
+                entry_route_occurrence: 1,
+            },
+        )
+        .expect("parking anchor sits inside the downstream claim");
+    let north_edge = blocked.route_edges(routes[1]).expect("north")[0];
+    let north_length = blocked.traffic().lane_lengths_millimetres()[north_edge.index()];
+    let north = blocked
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            north_length - 400,
+            10_000,
+        ))
+        .expect("a contender stopped by a parking anchor does not keep the zone");
+    blocked.step(TickInput::new(100)).expect("step");
+    assert!(
+        blocked.conflict_reservation(north).is_some()
+            || blocked
+                .latest_conflict_decisions()
+                .iter()
+                .any(|decision| decision.vehicle() == north
+                    && decision.outcome() == laneflow_runtime::ConflictDecisionOutcome::Granted),
+        "the next vehicle still receives the zone the parked contender did not take"
     );
 }
 

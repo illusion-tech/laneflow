@@ -297,8 +297,19 @@ fn fresh_grant_still_stops_at_the_following_gate_in_the_same_tick() {
         install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1_000)).unwrap();
     let [route, _] = routes(&mut world, &revision);
     let boundary = calibration_gate(&world, route);
+    assert_eq!(
+        world.spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            boundary,
+            13_000,
+        )),
+        Err(SpawnError::StopConstraintUnsatisfiable),
+        "the following gate is inside this tick and past the emergency envelope"
+    );
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
