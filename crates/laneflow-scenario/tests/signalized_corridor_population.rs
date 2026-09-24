@@ -450,6 +450,7 @@ fn admit_initial_plans_rejects_foreign_routes_before_spawn() {
     assert!(world.live_vehicles().is_empty());
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn admit_initial_plans_rolls_back_a_partial_batch() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
@@ -485,6 +486,7 @@ fn admit_initial_plans_rolls_back_a_partial_batch() {
     assert!(world.route_edges(routes[0]).is_some());
 }
 
+#[cfg(feature = "placement-fixtures")]
 #[test]
 fn admit_initial_plans_restores_a_dropped_speed_when_a_later_vehicle_cannot_enter() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);

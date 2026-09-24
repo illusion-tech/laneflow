@@ -449,18 +449,33 @@ impl CorridorPopulationPrepare {
     }
 
     /// 读取 slot 记下的初速。供初始人口事务测试核对三处速度。
+    ///
+    /// # Panics
+    ///
+    /// `index` 超出已准备的 slot 数时 panic。
+    #[cfg(feature = "placement-fixtures")]
     #[doc(hidden)]
     pub fn slot_initial_speed_mm_s(&self, index: usize) -> u32 {
         self.slots[index].initial_speed_mm_s
     }
 
     /// 把 slot 初速改成和计划相同。供初始人口事务测试逼出降速后再失败的回滚。
+    ///
+    /// # Panics
+    ///
+    /// `index` 超出已准备的 slot 数时 panic。
+    #[cfg(feature = "placement-fixtures")]
     #[doc(hidden)]
     pub fn set_slot_initial_speed_mm_s(&mut self, index: usize, speed_mm_s: u32) {
         self.slots[index].initial_speed_mm_s = speed_mm_s;
     }
 
     /// 把 slot 进度改成和计划相同。供初始人口事务测试把车放到停不住的位置。
+    ///
+    /// # Panics
+    ///
+    /// `index` 超出已准备的 slot 数时 panic。
+    #[cfg(feature = "placement-fixtures")]
     #[doc(hidden)]
     pub fn set_slot_progress_mm(&mut self, index: usize, progress_mm: u32) {
         self.slots[index].edge_progress_mm = progress_mm;
@@ -541,7 +556,13 @@ impl CorridorPopulationPrepare {
         plans: &mut [CorridorVehiclePlan],
     ) -> Result<Vec<VehicleHandle>, CorridorPopulationError> {
         self.preflight_initial_plans(world, routes, plans)?;
-        let saved_speeds: Vec<u32> = plans.iter().map(|plan| plan.initial_speed_mm_s).collect();
+        let mut saved_speeds = Vec::new();
+        if saved_speeds.try_reserve(plans.len()).is_err() {
+            return Err(CorridorPopulationError::InitialSpawnRejected {
+                detail: "初始速度回滚名单分配失败".to_owned(),
+            });
+        }
+        saved_speeds.extend(plans.iter().map(|plan| plan.initial_speed_mm_s));
         let mut vehicles = Vec::new();
         if vehicles.try_reserve(plans.len()).is_err() {
             return Err(CorridorPopulationError::InitialSpawnRejected {

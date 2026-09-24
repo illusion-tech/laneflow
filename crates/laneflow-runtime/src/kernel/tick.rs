@@ -1906,7 +1906,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                     if !contender.rank.sorts_before(rank) {
                         break;
                     }
-                    match self.earlier_request(*contender) {
+                    let staged = match self.acquisitions_before(contender.rank) {
+                        Ok(staged) => staged,
+                        Err(preview) => return preview,
+                    };
+                    match self.earlier_request(*contender, &staged) {
                         AdmissionPreview::Clear => return stop,
                         AdmissionPreview::Stop(_) => {}
                         other => return other,
@@ -1990,7 +1994,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 
     /// 这辆已经在路上的申请者这一拍能不能真正占上。让行失败、格子被占、下游放不下都算没占上。
-    fn earlier_request(self, contender: crate::kernel::state::ZoneContender) -> AdmissionPreview {
+    fn earlier_request(
+        self,
+        contender: crate::kernel::state::ZoneContender,
+        staged: &[(DownstreamInterval, u32)],
+    ) -> AdmissionPreview {
         let Some(state) = self.vehicle_state(contender.vehicle).copied() else {
             return AdmissionPreview::Stop(crate::kernel::waiting::WaitingStopConstraint {
                 distance: BoundedDistance::Finite(0),
@@ -2053,7 +2061,14 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                         *interval,
                         state.handle,
                         profile.min_gap_mm(),
-                    )
+                    ) || staged.iter().any(|(staged_interval, staged_gap)| {
+                        intervals_conflict(
+                            *interval,
+                            profile.min_gap_mm(),
+                            *staged_interval,
+                            *staged_gap,
+                        )
+                    })
                 }) {
                     return AdmissionPreview::Stop(crate::kernel::waiting::WaitingStopConstraint {
                         distance: BoundedDistance::Finite(0),
@@ -2294,15 +2309,38 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         gap_mm: u32,
         blocked: AdmissionPreview,
     ) -> AdmissionPreview {
+        let staged = match self.acquisitions_before(candidate_rank) {
+            Ok(staged) => staged,
+            Err(preview) => return preview,
+        };
+        if claims.iter().any(|interval| {
+            staged.iter().any(|(staged_interval, staged_gap)| {
+                intervals_conflict(*interval, gap_mm, *staged_interval, *staged_gap)
+            })
+        }) {
+            blocked
+        } else {
+            AdmissionPreview::Clear
+        }
+    }
+
+    /// 名次更靠前、并且把更前面的人这一拍已经占上的声明算进去之后仍然占得上的下游。
+    fn acquisitions_before(
+        self,
+        rank: ContenderRank,
+    ) -> Result<Vec<(DownstreamInterval, u32)>, AdmissionPreview> {
         let mut earlier = Vec::new();
-        if earlier
-            .try_reserve(self.derived.spawn_contenders.best.len())
-            .is_err()
-        {
-            return AdmissionPreview::Alloc;
+        let contender_count = self
+            .derived
+            .spawn_contenders
+            .best
+            .iter()
+            .fold(0usize, |count, list| count.saturating_add(list.len()));
+        if earlier.try_reserve(contender_count).is_err() {
+            return Err(AdmissionPreview::Alloc);
         }
         for contender in self.derived.spawn_contenders.best.iter().flatten() {
-            if contender.rank.sorts_before(candidate_rank) {
+            if contender.rank.sorts_before(rank) {
                 earlier.push(*contender);
             }
         }
@@ -2317,10 +2355,10 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         });
         let mut staged: Vec<(DownstreamInterval, u32)> = Vec::new();
         for contender in earlier {
-            match self.earlier_request(contender) {
+            match self.earlier_request(contender, &staged) {
                 AdmissionPreview::Clear => {}
                 AdmissionPreview::Stop(_) => continue,
-                other => return other,
+                other => return Err(other),
             }
             let Some(state) = self.vehicle_state(contender.vehicle).copied() else {
                 continue;
@@ -2335,48 +2373,20 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 .relations()
                 .vehicle_profile(state.profile)
             else {
-                return AdmissionPreview::Unprovable;
+                return Err(AdmissionPreview::Unprovable);
             };
-            let intervals = match self.claim_intervals(&state, contender.hop) {
-                Ok(intervals) => intervals,
-                Err(preview) => return preview,
-            };
+            let intervals = self.claim_intervals(&state, contender.hop)?;
             if intervals.is_empty() {
                 continue;
             }
-            let already_blocked = intervals.iter().any(|interval| {
-                self.conflict_read().committed_downstream_conflicts(
-                    *interval,
-                    state.handle,
-                    profile.min_gap_mm(),
-                ) || staged.iter().any(|(staged_interval, staged_gap)| {
-                    intervals_conflict(
-                        *interval,
-                        profile.min_gap_mm(),
-                        *staged_interval,
-                        *staged_gap,
-                    )
-                })
-            });
-            if already_blocked {
-                continue;
-            }
             if staged.try_reserve(intervals.len()).is_err() {
-                return AdmissionPreview::Alloc;
+                return Err(AdmissionPreview::Alloc);
             }
             for interval in intervals {
                 staged.push((interval, profile.min_gap_mm()));
             }
         }
-        if claims.iter().any(|interval| {
-            staged.iter().any(|(staged_interval, staged_gap)| {
-                intervals_conflict(*interval, gap_mm, *staged_interval, *staged_gap)
-            })
-        }) {
-            blocked
-        } else {
-            AdmissionPreview::Clear
-        }
+        Ok(staged)
     }
 
     fn claim_intervals(
@@ -2438,6 +2448,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     pub(crate) fn incoming_hard_stop(
         self,
         existing: &VehicleState,
+        existing_sequence: u32,
         pressure: IncomingPressure<'_>,
     ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, PlacementMotionError> {
         let Some(compiled) = self.compiled_route(existing.route) else {
@@ -2466,13 +2477,6 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 AdmissionPreview::Unprovable => return Err(PlacementMotionError::Unprovable),
                 AdmissionPreview::Alloc => return Err(PlacementMotionError::Alloc),
             };
-        let existing_sequence = self
-            .committed
-            .live_order
-            .iter()
-            .position(|handle| *handle == existing.handle)
-            .and_then(|index| u32::try_from(index).ok())
-            .unwrap_or(0);
         let candidate_claims = if let Some((_, _, candidate_hop)) = pressure.ranks.first().copied()
         {
             if candidate_blocked_at.is_none_or(|blocked| candidate_hop < blocked) {
@@ -2495,6 +2499,9 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             .vehicle_profile(pressure.candidate.profile)
             .map(|profile| profile.min_gap_mm())
             .unwrap_or(0);
+        let candidate_reaches =
+            |gate: u32| candidate_blocked_at.is_none_or(|blocked| gate < blocked);
+        let mut conflict_stop = None;
         let mut index = compiled
             .conflicts
             .partition_point(|entry| entry.admission_hop < first_hop);
@@ -2518,15 +2525,10 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 BoundedDistance::Finite(mm) => reach.is_none_or(|reach| !reach.excludes(mm)),
                 BoundedDistance::BeyondFinite => false,
             };
-            if !within {
-                return Ok(None);
-            }
-            if self.hop_is_restrictive(compiled, hop, existing.profile) {
-                return Ok(None);
+            if !within || self.hop_is_restrictive(compiled, hop, existing.profile) {
+                break;
             }
             let stop = crate::kernel::waiting::WaitingStopConstraint { distance, hop };
-            let candidate_reaches =
-                |gate: u32| candidate_blocked_at.is_none_or(|blocked| gate < blocked);
             let displaced = pressure.ranks.iter().any(|(zone, rank, candidate_hop)| {
                 *candidate_hop == hop
                     && candidate_reaches(*candidate_hop)
@@ -2542,7 +2544,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                         })
             });
             if displaced {
-                return Ok(Some(stop));
+                conflict_stop = Some(stop);
+                break;
             }
             if let Some(old_rank) =
                 self.candidate_rank(compiled, hop, index, existing, existing_sequence)
@@ -2563,7 +2566,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                                     )
                                 })
                             }) {
-                                return Ok(Some(stop));
+                                conflict_stop = Some(stop);
+                                break;
                             }
                         }
                         Err(AdmissionPreview::Alloc) => return Err(PlacementMotionError::Alloc),
@@ -2579,47 +2583,14 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                     self.yield_outcome(existing, compiled, hop, index, &[]),
                     self.yield_outcome(existing, compiled, hop, index, pressure.approaches),
                 ) {
-                    (YieldAdmission::Clear, YieldAdmission::Stop) => return Ok(Some(stop)),
+                    (YieldAdmission::Clear, YieldAdmission::Stop) => {
+                        conflict_stop = Some(stop);
+                        break;
+                    }
                     (YieldAdmission::Clear, YieldAdmission::Unprovable) => {
                         return Err(PlacementMotionError::Unprovable);
                     }
                     _ => {}
-                }
-            }
-            if let Some((zone, waiting_hop, entrant)) = pressure.waiting
-                && waiting_hop == hop
-                && candidate_reaches(waiting_hop)
-                && let Some(occurrence) = compiled
-                    .waiting
-                    .iter()
-                    .copied()
-                    .find(|entry| entry.entry_hop == hop && entry.zone.index() == zone)
-            {
-                let approach = match distance {
-                    BoundedDistance::Finite(mm) => mm,
-                    BoundedDistance::BeyondFinite => 0,
-                };
-                let without = self.waiting_grant(
-                    existing,
-                    occurrence,
-                    approach,
-                    existing_sequence,
-                    profile.min_gap_mm(),
-                    None,
-                );
-                let with = self.waiting_grant(
-                    existing,
-                    occurrence,
-                    approach,
-                    existing_sequence,
-                    profile.min_gap_mm(),
-                    Some(entrant),
-                );
-                if matches!(
-                    (without, with),
-                    (WaitingGrant::Granted, WaitingGrant::Denied)
-                ) {
-                    return Ok(Some(stop));
                 }
             }
             while index < compiled.conflicts.len() && compiled.conflicts[index].admission_hop == hop
@@ -2627,7 +2598,95 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 index = index.saturating_add(1);
             }
         }
-        Ok(None)
+        let waiting_stop = self.induced_waiting_stop(
+            existing,
+            existing_sequence,
+            profile.min_gap_mm(),
+            reach,
+            candidate_blocked_at,
+            pressure,
+        )?;
+        Ok(nearer_induced(conflict_stop, waiting_stop))
+    }
+
+    /// 排队入口不必同时是冲突入口。新车抢走名额时，按这辆旧车自己的入口复核。
+    fn induced_waiting_stop(
+        self,
+        existing: &VehicleState,
+        existing_sequence: u32,
+        min_gap_mm: u32,
+        reach: Option<MotionReach>,
+        candidate_blocked_at: Option<u32>,
+        pressure: IncomingPressure<'_>,
+    ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, PlacementMotionError> {
+        let Some(compiled) = self.compiled_route(existing.route) else {
+            return Ok(None);
+        };
+        let Some((zone, waiting_hop, entrant)) = pressure.waiting else {
+            return Ok(None);
+        };
+        if candidate_blocked_at.is_some_and(|blocked| waiting_hop >= blocked) {
+            return Ok(None);
+        }
+        let Some(occurrence) = compiled
+            .waiting
+            .iter()
+            .copied()
+            .find(|entry| entry.zone.index() == zone)
+        else {
+            return Ok(None);
+        };
+        let hop = occurrence.entry_hop;
+        let Some(stop_index) = usize::try_from(hop).ok().and_then(|hop| hop.checked_add(1)) else {
+            return Err(PlacementMotionError::Unprovable);
+        };
+        let Some(distance) = distance_to_occurrence_start(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
+            existing.route_edge_index as usize,
+            existing.progress_mm,
+            stop_index,
+        ) else {
+            return Err(PlacementMotionError::Unprovable);
+        };
+        let within = match distance {
+            BoundedDistance::Finite(mm) => reach.is_none_or(|reach| !reach.excludes(mm)),
+            BoundedDistance::BeyondFinite => false,
+        };
+        if !within || self.hop_is_restrictive(compiled, hop, existing.profile) {
+            return Ok(None);
+        }
+        let BoundedDistance::Finite(approach) = distance else {
+            return Ok(None);
+        };
+        let without = self.waiting_grant(
+            existing,
+            occurrence,
+            approach,
+            existing_sequence,
+            min_gap_mm,
+            None,
+        );
+        let with = self.waiting_grant(
+            existing,
+            occurrence,
+            approach,
+            existing_sequence,
+            min_gap_mm,
+            Some(entrant),
+        );
+        if matches!(
+            (without, with),
+            (WaitingGrant::Granted, WaitingGrant::Denied)
+        ) {
+            Ok(Some(crate::kernel::waiting::WaitingStopConstraint {
+                distance,
+                hop,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     fn waiting_hop_admission(
@@ -3947,6 +4006,16 @@ fn closer_stop(
         extra
     } else {
         primary
+    }
+}
+
+fn nearer_induced(
+    left: Option<crate::kernel::waiting::WaitingStopConstraint>,
+    right: Option<crate::kernel::waiting::WaitingStopConstraint>,
+) -> Option<crate::kernel::waiting::WaitingStopConstraint> {
+    match (left, right) {
+        (Some(left), right) => Some(closer_stop(left, right)),
+        (None, right) => right,
     }
 }
 

@@ -228,6 +228,10 @@ pub(crate) struct OccupancyScratch {
     maneuver_upstream_sources: Vec<u32>,
     /// 当前路网和步长下的最大跟车窗。路网不变就复用，不在每辆新车上重扫限速。
     follower_bumper_mm: Option<u32>,
+    /// 上游最短距离的代次。同一条边用下标读取，不在松弛时线性查找。
+    upstream_generation: u32,
+    upstream_seen: Vec<u32>,
+    upstream_distance: Vec<u32>,
     #[cfg(test)]
     exact_pending: Vec<OccupancyRecord>,
 }
@@ -240,11 +244,16 @@ impl OccupancyScratch {
             maneuver_upstream_offsets,
             maneuver_upstream_sources,
             follower_bumper_mm: _,
+            upstream_generation: _,
+            upstream_seen,
+            upstream_distance,
             exact_pending,
         } = self;
         crate::kernel::state::vec_bytes(positions)
             + crate::kernel::state::vec_bytes(maneuver_upstream_offsets)
             + crate::kernel::state::vec_bytes(maneuver_upstream_sources)
+            + crate::kernel::state::vec_bytes(upstream_seen)
+            + crate::kernel::state::vec_bytes(upstream_distance)
             + crate::kernel::state::vec_bytes(exact_pending)
     }
 }
@@ -265,6 +274,40 @@ impl OccupancyScratch {
 
     pub(crate) fn remember_follower_bumper_mm(&mut self, reach_mm: u32) {
         self.follower_bumper_mm = Some(reach_mm);
+    }
+
+    /// 开始一次上游搜索。边数不变时复用距离表，只推进代次。
+    pub(crate) fn begin_upstream_search(&mut self, edge_count: usize) -> Result<u32, ()> {
+        if self.upstream_seen.len() < edge_count {
+            self.upstream_seen
+                .try_reserve(edge_count - self.upstream_seen.len())
+                .map_err(|_| ())?;
+            self.upstream_distance
+                .try_reserve(edge_count - self.upstream_distance.len())
+                .map_err(|_| ())?;
+            self.upstream_seen.resize(edge_count, 0);
+            self.upstream_distance.resize(edge_count, 0);
+        }
+        self.upstream_generation = self.upstream_generation.wrapping_add(1);
+        if self.upstream_generation == 0 {
+            self.upstream_seen.fill(0);
+            self.upstream_generation = 1;
+        }
+        Ok(self.upstream_generation)
+    }
+
+    /// 借出这一代的距离表。调用方搜索时改表，结束时必须 [`Self::restore_upstream_tables`]。
+    pub(crate) fn take_upstream_tables(&mut self) -> (Vec<u32>, Vec<u32>) {
+        (
+            std::mem::take(&mut self.upstream_seen),
+            std::mem::take(&mut self.upstream_distance),
+        )
+    }
+
+    /// 把 [`Self::take_upstream_tables`] 借出的表放回。下一次搜索继续复用容量。
+    pub(crate) fn restore_upstream_tables(&mut self, seen: Vec<u32>, distance: Vec<u32>) {
+        self.upstream_seen = seen;
+        self.upstream_distance = distance;
     }
 
     /// 按目标边列出通过机动 transition 进入该边的前驱。静态路网不变就复用。
@@ -404,6 +447,9 @@ impl OccupancyIndex {
             maneuver_upstream_offsets: Vec::new(),
             maneuver_upstream_sources: Vec::new(),
             follower_bumper_mm: None,
+            upstream_generation: 0,
+            upstream_seen: Vec::new(),
+            upstream_distance: Vec::new(),
             #[cfg(test)]
             exact_pending: Vec::new(),
         };
@@ -422,6 +468,9 @@ impl OccupancyIndex {
             maneuver_upstream_offsets: Vec::new(),
             maneuver_upstream_sources: Vec::new(),
             follower_bumper_mm: None,
+            upstream_generation: 0,
+            upstream_seen: Vec::new(),
+            upstream_distance: Vec::new(),
             #[cfg(test)]
             exact_pending: Vec::new(),
         };
@@ -3015,6 +3064,9 @@ pub(crate) mod tests {
             maneuver_upstream_offsets: Vec::new(),
             maneuver_upstream_sources: Vec::new(),
             follower_bumper_mm: None,
+            upstream_generation: 0,
+            upstream_seen: Vec::new(),
+            upstream_distance: Vec::new(),
             exact_pending: Vec::new(),
         };
         let pending = vec![
