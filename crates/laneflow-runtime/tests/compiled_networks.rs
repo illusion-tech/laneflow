@@ -4307,6 +4307,167 @@ fn a_claim_past_the_waiting_entrance_does_not_keep_the_zone() {
     assert_step_stays_in_emergency_envelope(10_000, east_state.speed_mm_s(), travel);
 }
 
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn refresh_allocation_failure_keeps_the_committed_vehicle() {
+    let revision = compile_road_editing_revision(conflict_road_editing_module());
+    let mut clean =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 2, 64, 2, 100)).expect("clean");
+    let mut faulted =
+        install_fixture(revision, WorldConfig::new(4, 2, 64, 2, 100)).expect("faulted");
+    let clean_route = register_first_stream(&mut clean);
+    let faulted_route = register_first_stream(&mut faulted);
+    clean
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            clean_route,
+            0,
+            0,
+            0,
+        ))
+        .expect("first");
+    faulted
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            faulted_route,
+            0,
+            0,
+            0,
+        ))
+        .expect("first");
+    laneflow_runtime::set_admission_reserve_failure(
+        laneflow_runtime::AdmissionReserve::Refresh,
+        true,
+    );
+    faulted
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            faulted_route,
+            0,
+            8_000,
+            0,
+        ))
+        .expect("allocation after commit still keeps the vehicle");
+    laneflow_runtime::set_admission_reserve_failure(
+        laneflow_runtime::AdmissionReserve::Refresh,
+        false,
+    );
+    clean
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            clean_route,
+            0,
+            8_000,
+            0,
+        ))
+        .expect("second");
+    faulted.force_rebuild_contenders_for_test();
+    assert_eq!(
+        faulted.contender_fingerprint_for_test(),
+        clean.contender_fingerprint_for_test()
+    );
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn candidate_admission_does_not_grow_with_existing_vehicles() {
+    let revision = compile_road_editing_revision(conflict_road_editing_module());
+    let one = candidate_admission_calls_for(&revision, 1);
+    let two = candidate_admission_calls_for(&revision, 2);
+    assert_eq!(one, two);
+}
+
+#[cfg(feature = "placement-fixtures")]
+fn candidate_admission_calls_for(revision: &Arc<SharedNetworkRevision>, existing: usize) -> u64 {
+    let mut world =
+        install_fixture(Arc::clone(revision), WorldConfig::new(8, 2, 64, 2, 100)).expect("world");
+    let route = register_first_stream(&mut world);
+    for index in 0..existing {
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                u32::try_from(index).expect("index"),
+                0,
+                0,
+            ))
+            .expect("existing");
+    }
+    laneflow_runtime::reset_candidate_admission_calls();
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            u32::try_from(existing).expect("index"),
+            0,
+            0,
+        ))
+        .expect("subject");
+    laneflow_runtime::candidate_admission_calls()
+}
+
+#[cfg(feature = "placement-fixtures")]
+fn register_first_stream(world: &mut TrafficWorld) -> RouteHandle {
+    let revision = world.revision();
+    let stream = revision
+        .conflict()
+        .participant_stream(ParticipantStreamOrdinal::from_raw(0))
+        .expect("stream");
+    let edges = revision
+        .traffic()
+        .maneuvers()
+        .maneuver_path(stream.maneuver_path())
+        .expect("path")
+        .edges()
+        .to_vec();
+    world
+        .register_route(RouteRegisterInput::new(edges))
+        .expect("route")
+}
+
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn a_nearer_red_light_is_not_charged_as_an_unsafe_follower() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture {
+                right_turn_signal: Some(laneflow_compiler::GateInterpretation::PermissiveGroup),
+                signal_cycle_ms: Some([100, 10_000]),
+                signal_stop_aspect: Some(SignalAspect::Red),
+                ..ConflictPolicyFixture::default()
+            },
+        ));
+    let mut world = install_fixture(revision, WorldConfig::new(4, 2, 64, 2, 100)).expect("world");
+    world.step(TickInput::new(100)).expect("red");
+    let held = world.revision();
+    let routes = yield_routes(&mut world, held.as_ref());
+    let edges = world.route_edges(routes[0]).expect("edges").to_vec();
+    let entry_length = world.traffic().lane_lengths_millimetres()[edges[0].index()];
+    world
+        .place_existing_active_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            entry_length - 400,
+            10_000,
+        ))
+        .expect("follower already unable to stop for red");
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            2,
+            1_000,
+            0,
+        ))
+        .expect("a nearer red light is not charged to the vehicle placed beyond it");
+}
+
 fn late_waiting_revision(claim_crosses: bool) -> Arc<SharedNetworkRevision> {
     compile_road_editing_revision_with_limits(
         conflict_road_editing_module_with_shape_and_speed(
