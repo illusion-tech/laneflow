@@ -129,6 +129,11 @@ pub enum BindError {
     },
     /// 世界路线容量预检不足或 `register_route` 失败；失败时已尝试撤回本次句柄（`install_routes`）。
     RouteRegister(RouteError),
+    /// 注册中途失败，而且已经注册的路线没有全部撤掉。
+    RouteRollbackIncomplete {
+        /// 撤路线失败原因。
+        detail: String,
+    },
 }
 
 impl fmt::Display for BindError {
@@ -174,6 +179,9 @@ impl fmt::Display for BindError {
                 )
             }
             Self::RouteRegister(error) => write!(formatter, "register_route failed: {error}"),
+            Self::RouteRollbackIncomplete { detail } => {
+                write!(formatter, "route rollback incomplete: {detail}")
+            }
         }
     }
 }
@@ -357,8 +365,9 @@ impl BoundCorridorCatalog {
     /// 世界策略选择与 catalog 绑定不一致（[`BindError::WorldPolicyMismatch`]）、
     /// 世界修订与 bind 不一致（裸 [`BindError::UnknownRoute`]）或
     /// `register_route` 失败（含容量预检，包装为 [`BindError::RouteRegister`]）
-    /// 时返回；失败时尝试撤回本次已注册的句柄——命令游标耗尽时撤回同样失败，
-    /// 已注册路线可能残留在世界中。
+    /// 时返回。命令游标必须够完成全部注册，并在中途失败时撤回已注册的路线；
+    /// 不够时先拒绝，不注册任何路线。撤回本身失败时返回
+    /// [`BindError::RouteRollbackIncomplete`]，已注册路线可能残留。
     pub fn install_routes(&self, world: &mut TrafficWorld) -> Result<Vec<RouteHandle>, BindError> {
         if world.policy_selection() != self.policy_selection {
             return Err(BindError::WorldPolicyMismatch);
@@ -372,13 +381,22 @@ impl BoundCorridorCatalog {
         if world.config().route_capacity() < needed {
             return Err(BindError::RouteRegister(RouteError::CapacityExceeded));
         }
+        let route_count = u64::from(needed);
+        let cursor_budget = route_count.saturating_mul(2);
+        if world.command_cursor().checked_add(cursor_budget).is_none() {
+            return Err(BindError::RouteRegister(RouteError::CommandCursorExhausted));
+        }
         let mut handles = Vec::with_capacity(self.route_exits.len());
         for exit in &self.route_exits {
             match world.register_route(RouteRegisterInput::new(exit.edges.to_vec())) {
                 Ok(handle) => handles.push(handle),
                 Err(error) => {
                     for handle in handles.iter().rev().copied() {
-                        let _ = world.remove_route(handle);
+                        if let Err(remove_error) = world.remove_route(handle) {
+                            return Err(BindError::RouteRollbackIncomplete {
+                                detail: remove_error.to_string(),
+                            });
+                        }
                     }
                     return Err(BindError::RouteRegister(error));
                 }

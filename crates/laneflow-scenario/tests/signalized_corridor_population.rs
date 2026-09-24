@@ -144,6 +144,29 @@ fn config_freezes_defaults_and_closed_target_range() {
     ));
 }
 
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn install_routes_rejects_exhausted_cursor_without_leaving_routes() {
+    let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let mut world =
+        install_fixture(revision, WorldConfig::new(8, 64, 1_024, 1_024, TICK_MS)).expect("install");
+    let before = world.live_routes().count();
+    let cursor = u64::MAX - 1;
+    world.set_command_cursor_for_test(cursor);
+    let error = prepared
+        .install_routes(&mut world)
+        .expect_err("cursor cannot cover register and rollback");
+    assert!(
+        matches!(
+            error,
+            CorridorPopulationError::BoundWorldCatalogMismatch { .. }
+        ),
+        "exhausted cursor is a catalog install failure, got {error:?}"
+    );
+    assert_eq!(world.live_routes().count(), before);
+    assert_eq!(world.command_cursor(), cursor);
+}
+
 #[test]
 fn install_routes_rejects_short_capacity_without_leaving_routes() {
     let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);

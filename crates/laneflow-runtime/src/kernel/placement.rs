@@ -1169,7 +1169,11 @@ impl crate::kernel::state::WorldState {
             .map(|mark| mark.update_sequence)
     }
 
-    fn revoke_owner(&mut self, handle: VehicleHandle) {
+    fn revoke_owner(
+        &mut self,
+        handle: VehicleHandle,
+        dirty: &mut Vec<usize>,
+    ) -> Result<(), FreshAdmissionFailure> {
         let slot = handle.index() as usize;
         let Some(mark) = self
             .derived
@@ -1178,7 +1182,7 @@ impl crate::kernel::state::WorldState {
             .get_mut(slot)
             .and_then(Option::take)
         else {
-            return;
+            return Ok(());
         };
         for zone in &mark.zones {
             if let Some(list) = self.derived.spawn_contenders.best.get_mut(*zone) {
@@ -1191,8 +1195,29 @@ impl crate::kernel::state::WorldState {
             list.retain(|item| item.vehicle != handle);
         }
         for (index, _) in &mark.cells {
-            self.rereduce_cell(*index);
+            remember_dirty(dirty, *index)?;
         }
+        Ok(())
+    }
+
+    fn note_owner_cells(
+        &self,
+        handle: VehicleHandle,
+        dirty: &mut Vec<usize>,
+    ) -> Result<(), FreshAdmissionFailure> {
+        let Some(mark) = self
+            .derived
+            .spawn_contenders
+            .owners
+            .get(handle.index() as usize)
+            .and_then(Option::as_ref)
+        else {
+            return Ok(());
+        };
+        for (index, _) in &mark.cells {
+            remember_dirty(dirty, *index)?;
+        }
+        Ok(())
     }
 
     fn rereduce_cell(&mut self, index: usize) {
@@ -1280,6 +1305,7 @@ impl crate::kernel::state::WorldState {
                 }
             }
         }
+        let mut dirty = Vec::new();
         let mut cursor = 0usize;
         while cursor < affected.len() {
             let current = affected[cursor];
@@ -1290,8 +1316,9 @@ impl crate::kernel::state::WorldState {
             #[cfg(any(test, feature = "placement-fixtures"))]
             INCREMENTAL_VISITS.with(|cell| cell.set(cell.get().saturating_add(1)));
             let before = self.owner_zones(current)?;
-            self.revoke_owner(current);
+            self.revoke_owner(current, &mut dirty)?;
             self.add_spawn_contender(current, sequence)?;
+            self.note_owner_cells(current, &mut dirty)?;
             let after = self.owner_zones(current)?;
             if before != after {
                 self.members_in_zones(&before, &mut affected, handle)?;
@@ -1299,6 +1326,10 @@ impl crate::kernel::state::WorldState {
             }
         }
         self.add_spawn_contender(handle, update_sequence)?;
+        self.note_owner_cells(handle, &mut dirty)?;
+        for index in dirty {
+            self.rereduce_cell(index);
+        }
         Ok(())
     }
 
@@ -2354,6 +2385,17 @@ fn note_upstream_distance(
     *seen = generation;
     *best = behind_end;
     true
+}
+
+fn remember_dirty(dirty: &mut Vec<usize>, index: usize) -> Result<(), FreshAdmissionFailure> {
+    if dirty.contains(&index) {
+        return Ok(());
+    }
+    dirty
+        .try_reserve(1)
+        .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
+    dirty.push(index);
+    Ok(())
 }
 
 fn push_recheck(
