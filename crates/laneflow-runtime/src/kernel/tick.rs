@@ -1957,25 +1957,18 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         else {
             return AdmissionPreview::Unprovable;
         };
+        let staged = match self.acquisitions_before(rank) {
+            Ok(staged) => staged,
+            Err(preview) => return preview,
+        };
         index = occurrence_index;
         while index < compiled.conflicts.len() && compiled.conflicts[index].admission_hop == hop {
             let zone = compiled.conflicts[index].zone.index();
-            let Some(contenders) = self.derived.spawn_contenders.best.get(zone) else {
+            if self.derived.spawn_contenders.best.get(zone).is_none() {
                 return AdmissionPreview::Unprovable;
-            };
-            for contender in contenders {
-                if !contender.rank.sorts_before(rank) {
-                    break;
-                }
-                let staged = match self.acquisitions_before(contender.rank) {
-                    Ok(staged) => staged,
-                    Err(preview) => return preview,
-                };
-                match self.earlier_request(*contender, zone, &staged) {
-                    AdmissionPreview::Clear => return stop,
-                    AdmissionPreview::Stop(_) => {}
-                    other => return other,
-                }
+            }
+            if staged.zones.contains(&zone) {
+                return stop;
             }
             index = index.saturating_add(1);
         }
