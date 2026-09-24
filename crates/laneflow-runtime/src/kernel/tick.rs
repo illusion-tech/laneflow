@@ -147,9 +147,14 @@ pub fn body_reserve_slots() -> u64 {
 
 pub(crate) fn note_body_reserve(slots: usize) {
     #[cfg(any(test, feature = "placement-fixtures"))]
-    BODY_RESERVE_SLOTS.with(|cell| {
-        cell.set(u64::try_from(slots).unwrap_or(u64::MAX));
-    });
+    {
+        let recorded = u64::try_from(slots).unwrap_or(u64::MAX);
+        BODY_RESERVE_SLOTS.with(|cell| cell.set(recorded));
+    }
+    #[cfg(not(any(test, feature = "placement-fixtures")))]
+    {
+        let _ = slots;
+    }
 }
 
 fn note_admission_scratch() {
