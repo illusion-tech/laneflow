@@ -1253,7 +1253,7 @@ impl crate::kernel::state::WorldState {
 
     /// 把 live 的 Completed 车辆原子替换为新的 Active 车辆。
     ///
-    /// 入口占用、当前停车约束、前方降速、前车或后车不安全都可以重试。输入本身非法
+    /// 入口占用、当前停车约束、前车或后车不安全都可以稍后用同一输入再试。降不到前方限速时，同一初速再试仍会失败，须降低初速或更换输入。输入本身非法
     /// 仍是致命错误。任一失败都保持已提交世界不变。成功后旧句柄立即 stale；公开契约
     /// 不保证同一 slot index。
     ///
@@ -1266,8 +1266,7 @@ impl crate::kernel::state::WorldState {
     /// `StopConstraintUnsatisfiable` / `DownstreamSpeedUnsatisfiable` /
     /// `UnsafeLeader` / `UnsafeFollower`）、观测状态序号或命令游标耗尽（
     /// `ObservationStateSequenceExhausted` / `CommandCursorExhausted`）或入口占用
-    /// 被占时返回相应 [`ReplaceError`]。[`ReplaceError::Blocked`] 与上述运动安全
-    /// 错误可重试，输入错误为致命错误；任一失败保持已提交世界不变。
+    /// 被占时返回相应 [`ReplaceError`]。[`ReplaceError::Blocked`]、当前停车约束、前车或后车不安全可稍后用同一输入再试。`DownstreamSpeedUnsatisfiable` 须降低初速或更换输入。输入错误为致命错误；任一失败保持已提交世界不变。
     pub fn replace_completed_vehicle(
         &mut self,
         old: VehicleHandle,
@@ -2352,7 +2351,7 @@ impl TrafficWorld {
 
     /// 把 live 的 Completed 车辆原子替换为新的 Active 车辆。
     ///
-    /// 入口占用、当前停车约束、前方降速、前车或后车不安全都可以重试。输入本身非法
+    /// 入口占用、当前停车约束、前车或后车不安全都可以稍后用同一输入再试。降不到前方限速时，同一初速再试仍会失败，须降低初速或更换输入。输入本身非法
     /// 仍是致命错误。任一失败都保持已提交世界不变。成功后旧句柄立即 stale；公开契约
     /// 不保证同一 slot index。
     ///
@@ -2365,8 +2364,7 @@ impl TrafficWorld {
     /// `StopConstraintUnsatisfiable` / `DownstreamSpeedUnsatisfiable` /
     /// `UnsafeLeader` / `UnsafeFollower`）、观测状态序号或命令游标耗尽（
     /// `ObservationStateSequenceExhausted` / `CommandCursorExhausted`）或入口占用
-    /// 被占时返回相应 [`ReplaceError`]。[`ReplaceError::Blocked`] 与上述运动安全
-    /// 错误可重试，输入错误为致命错误；任一失败保持已提交世界不变。
+    /// 被占时返回相应 [`ReplaceError`]。[`ReplaceError::Blocked`]、当前停车约束、前车或后车不安全可稍后用同一输入再试。`DownstreamSpeedUnsatisfiable` 须降低初速或更换输入。输入错误为致命错误；任一失败保持已提交世界不变。
     ///
     /// # Panics
     ///

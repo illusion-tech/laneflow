@@ -163,7 +163,7 @@ pub enum CorridorReplaceAttemptOutcome {
     Replaced(VehicleReplaceRecord),
     /// 入口占用，host 世界不变。
     Blocked(VehicleReplaceBlock),
-    /// 当前停车约束、前方限速或前后车暂时不能接纳。host 世界不变，可稍后重试。
+    /// 当前停车约束或前后车暂时不能接纳。host 世界不变，可稍后重试。
     Retryable,
 }
 
