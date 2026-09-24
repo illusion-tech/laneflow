@@ -1135,23 +1135,42 @@ impl crate::kernel::state::WorldState {
         vehicle_length_mm: u32,
     ) -> Result<Vec<VehicleHandle>, FreshAdmissionFailure> {
         let reach = self.max_follower_bumper_mm();
-        let traffic = self.binding.revision.traffic();
-        self.workspace
-            .occupancy_scratch
-            .ensure_maneuver_upstream(traffic)
-            .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
-        let lengths = traffic.lane_lengths_millimetres();
-        let Some(edges) = self.route_edges(input.route()) else {
+        let Some(registered) = self.route_edges(input.route()) else {
             return Ok(Vec::new());
         };
         let Ok(cursor) = usize::try_from(input.route_edge_index()) else {
             return Ok(Vec::new());
         };
+        // 距离表借出期间不能再借用整份世界。路线边先复制出来。
+        let mut edges = Vec::new();
+        edges
+            .try_reserve(registered.len())
+            .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
+        edges.extend_from_slice(registered);
+        let traffic = self.binding.revision.traffic();
+        self.workspace
+            .occupancy_scratch
+            .ensure_maneuver_upstream(traffic)
+            .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
+        let edge_count = usize::try_from(traffic.lane_edge_count()).unwrap_or(0);
+        let generation = self
+            .workspace
+            .occupancy_scratch
+            .begin_upstream_search(edge_count)
+            .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
+        let (upstream_seen, upstream_distance) =
+            self.workspace.occupancy_scratch.take_upstream_tables();
+        let mut restore_upstream = UpstreamTableRestore {
+            scratch: &mut self.workspace.occupancy_scratch,
+            seen: upstream_seen,
+            distance: upstream_distance,
+        };
+        let lengths = traffic.lane_lengths_millimetres();
         let mut body: Vec<(laneflow_static_contract::LaneEdgeOrdinal, u32)> = Vec::new();
         let mut alloc_failed = false;
         let _ = for_each_admission_interval(
             lengths,
-            edges,
+            &edges,
             cursor,
             input.progress_mm(),
             vehicle_length_mm,
@@ -1178,8 +1197,8 @@ impl crate::kernel::state::WorldState {
         let mut found = Vec::new();
         let mut search = UpstreamSearch {
             reach,
+            generation,
             body_edges: Vec::new(),
-            best_behind: Vec::new(),
             pending: BinaryHeap::new(),
         };
         // 车身跨边时先按后杠开窗。距离为 0 的再次进入仍是这次车身。
@@ -1196,7 +1215,9 @@ impl crate::kernel::state::WorldState {
             if rear_lo <= reach {
                 relax_follower_upstream(
                     traffic,
-                    &self.workspace.occupancy_scratch,
+                    restore_upstream.scratch,
+                    &mut restore_upstream.seen,
+                    &mut restore_upstream.distance,
                     edge,
                     rear_lo,
                     &mut search,
@@ -1204,11 +1225,12 @@ impl crate::kernel::state::WorldState {
             }
         }
         while let Some(Reverse((behind_end, raw))) = search.pending.pop() {
-            if search
-                .best_behind
-                .iter()
-                .find(|(edge, _)| *edge == raw)
-                .is_none_or(|(_, best)| *best != behind_end)
+            if upstream_best(
+                &restore_upstream.seen,
+                &restore_upstream.distance,
+                search.generation,
+                raw,
+            ) != Some(behind_end)
                 || behind_end > search.reach
             {
                 continue;
@@ -1227,7 +1249,9 @@ impl crate::kernel::state::WorldState {
             if next <= reach {
                 relax_follower_upstream(
                     traffic,
-                    &self.workspace.occupancy_scratch,
+                    restore_upstream.scratch,
+                    &mut restore_upstream.seen,
+                    &mut restore_upstream.distance,
                     edge,
                     next,
                     &mut search,
@@ -1306,14 +1330,38 @@ fn collect_follower_window(
 
 struct UpstreamSearch {
     reach: u32,
+    generation: u32,
     body_edges: Vec<u32>,
-    best_behind: Vec<(u32, u32)>,
     pending: BinaryHeap<Reverse<(u32, u32)>>,
+}
+
+struct UpstreamTableRestore<'a> {
+    scratch: &'a mut super::occupancy::OccupancyScratch,
+    seen: Vec<u32>,
+    distance: Vec<u32>,
+}
+
+impl Drop for UpstreamTableRestore<'_> {
+    fn drop(&mut self) {
+        self.scratch.restore_upstream_tables(
+            std::mem::take(&mut self.seen),
+            std::mem::take(&mut self.distance),
+        );
+    }
+}
+
+fn upstream_best(seen: &[u32], distance: &[u32], generation: u32, raw: u32) -> Option<u32> {
+    let index = usize::try_from(raw).ok()?;
+    (seen.get(index).copied() == Some(generation))
+        .then_some(distance.get(index).copied())
+        .flatten()
 }
 
 fn relax_follower_upstream(
     traffic: &laneflow_static_network::SharedTrafficNetwork,
     scratch: &super::occupancy::OccupancyScratch,
+    seen: &mut [u32],
+    distance: &mut [u32],
     edge: laneflow_static_contract::LaneEdgeOrdinal,
     behind_end: u32,
     search: &mut UpstreamSearch,
@@ -1323,7 +1371,7 @@ fn relax_follower_upstream(
     }
     if let Some(predecessors) = traffic.predecessors(edge) {
         for predecessor in predecessors {
-            note_shorter_upstream(*predecessor, behind_end, search)?;
+            note_shorter_upstream(*predecessor, behind_end, search, seen, distance)?;
         }
     }
     for raw in scratch.maneuver_upstream(edge) {
@@ -1331,6 +1379,8 @@ fn relax_follower_upstream(
             laneflow_static_contract::LaneEdgeOrdinal::from_raw(*raw),
             behind_end,
             search,
+            seen,
+            distance,
         )?;
     }
     Ok(())
@@ -1361,19 +1411,16 @@ fn note_shorter_upstream(
     edge: laneflow_static_contract::LaneEdgeOrdinal,
     behind_end: u32,
     search: &mut UpstreamSearch,
+    seen: &mut [u32],
+    distance: &mut [u32],
 ) -> Result<(), FreshAdmissionFailure> {
     let raw = edge.raw();
     // 后杠那一次出现已经开过窗。绕环后再遇到同一条物理边时，behind_end 是走过的正距离。
     if behind_end == 0 && search.body_edges.contains(&raw) {
         return Ok(());
     }
-    if let Some((_, best)) = search.best_behind.iter_mut().find(|(item, _)| *item == raw) {
-        if *best <= behind_end {
-            return Ok(());
-        }
-        *best = behind_end;
-    } else {
-        push_fallible(&mut search.best_behind, (raw, behind_end))?;
+    if !note_upstream_distance(seen, distance, search.generation, raw, behind_end) {
+        return Ok(());
     }
     search
         .pending
@@ -1381,6 +1428,31 @@ fn note_shorter_upstream(
         .map_err(|_| FreshAdmissionFailure::OccupancyAlloc)?;
     search.pending.push(Reverse((behind_end, raw)));
     Ok(())
+}
+
+fn note_upstream_distance(
+    seen: &mut [u32],
+    distance: &mut [u32],
+    generation: u32,
+    raw: u32,
+    behind_end: u32,
+) -> bool {
+    let Ok(index) = usize::try_from(raw) else {
+        return false;
+    };
+    let (Some(seen), Some(best)) = (seen.get_mut(index), distance.get_mut(index)) else {
+        return false;
+    };
+    if *seen == generation {
+        if *best <= behind_end {
+            return false;
+        }
+        *best = behind_end;
+        return true;
+    }
+    *seen = generation;
+    *best = behind_end;
+    true
 }
 
 fn push_fallible<T>(items: &mut Vec<T>, value: T) -> Result<(), FreshAdmissionFailure> {
@@ -1444,27 +1516,19 @@ fn reject_existing_hard_stop(
     let Some(notes) = notes else {
         return Err(FreshAdmissionFailure::StopConstraint);
     };
-    let mut handles = Vec::new();
-    contender_reserve(&mut handles, world.derived.active_order.len())?;
-    handles.extend(world.derived.active_order.iter().copied());
-    for handle in handles {
+    for (sequence, handle) in world.committed.live_order.iter().copied().enumerate() {
+        let Ok(existing_sequence) = u32::try_from(sequence) else {
+            return Err(FreshAdmissionFailure::OccupancyAlloc);
+        };
         let Some(existing) = world.vehicle_state(handle).copied() else {
             continue;
         };
         if existing.status != VehicleStatus::Active {
             continue;
         }
-        let Some(existing_sequence) = world
-            .committed
-            .live_order
-            .iter()
-            .position(|item| *item == handle)
-            .and_then(|index| u32::try_from(index).ok())
-        else {
-            continue;
-        };
         let induced = match world.read_view().incoming_hard_stop(
             &existing,
+            existing_sequence,
             super::tick::IncomingPressure {
                 approaches: &notes.cells,
                 ranks: &notes.ranks,

@@ -204,6 +204,7 @@ impl SpawnConflictContenders {
     #[cfg(test)]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         vec_bytes(&self.best)
+            + self.best.iter().map(vec_bytes).sum::<u64>()
             + vec_bytes(&self.cell_approach_ms)
             + vec_bytes(&self.waiting_entrants)
             + self.waiting_entrants.iter().map(vec_bytes).sum::<u64>()
