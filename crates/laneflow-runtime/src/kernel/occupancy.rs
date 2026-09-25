@@ -29,6 +29,19 @@ pub(crate) fn occupancy_rebuild_events() -> u64 {
     OCCUPANCY_REBUILD_EVENTS.with(Cell::get)
 }
 
+#[cfg(test)]
+static MANEUVER_UPSTREAM_EDGE_VISITS: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(test)]
+pub(crate) fn reset_maneuver_upstream_edge_visits() {
+    MANEUVER_UPSTREAM_EDGE_VISITS.store(0, Ordering::Relaxed);
+}
+
+#[cfg(test)]
+pub(crate) fn maneuver_upstream_edge_visits() -> u64 {
+    MANEUVER_UPSTREAM_EDGE_VISITS.load(Ordering::Relaxed)
+}
+
 /// 占用桶键：物理边序号。
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct OccupancyBucketOrdinal(u32);
@@ -327,6 +340,10 @@ impl OccupancyScratch {
             .map_err(|_| StepError::OccupancyAllocFailed)?;
         counts.resize(edge_count, 0u32);
         for raw in 0..edge_count {
+            #[cfg(test)]
+            {
+                MANEUVER_UPSTREAM_EDGE_VISITS.fetch_add(1, Ordering::Relaxed);
+            }
             let from = laneflow_static_contract::LaneEdgeOrdinal::from_raw(
                 u32::try_from(raw).map_err(|_| StepError::OccupancyIntervalIncomplete)?,
             );
