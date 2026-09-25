@@ -53,6 +53,11 @@ pub(crate) fn departure_bound(
     let Some(current) = usize::try_from(current_index).ok() else {
         return DepartureBound::Invalid(DepartureStateError::AfterPlacement);
     };
+    if current < departure_index
+        || (current == departure_index && current_progress_mm < departure.progress_mm())
+    {
+        return DepartureBound::Invalid(DepartureStateError::AfterPlacement);
+    }
     let Some(available) = distance_to_occurrence_progress(
         segments,
         offsets,
@@ -67,31 +72,33 @@ pub(crate) fn departure_bound(
     if initial_speed_mm_s <= departure.speed_mm_s() {
         return DepartureBound::Satisfied;
     }
-    let accel = f64::from(max_accel_m_s2);
-    let dt = f64::from(delta_s);
-    if !accel.is_finite() || !dt.is_finite() || accel < 0.0 || dt <= 0.0 {
+    if !max_accel_m_s2.is_finite() || !delta_s.is_finite() || max_accel_m_s2 < 0.0 || delta_s <= 0.0
+    {
         return DepartureBound::Satisfied;
     }
-    match minimum_accel_distance(departure.speed_mm_s(), initial_speed_mm_s, accel, dt) {
+    if matches!(available, BoundedDistance::BeyondFinite) {
+        return DepartureBound::Satisfied;
+    }
+    match minimum_accel_distance(
+        departure.speed_mm_s(),
+        initial_speed_mm_s,
+        max_accel_m_s2,
+        delta_s,
+        available,
+    ) {
         DistanceNeed::Unsupported => DepartureBound::Satisfied,
-        DistanceNeed::Unreachable => DepartureBound::Exceeds,
-        DistanceNeed::Finite(required) => match (required, available) {
-            (_, BoundedDistance::BeyondFinite) => DepartureBound::Satisfied,
-            (BoundedDistance::BeyondFinite, BoundedDistance::Finite(_)) => DepartureBound::Exceeds,
-            (BoundedDistance::Finite(need), BoundedDistance::Finite(have)) => {
-                if need > have {
-                    DepartureBound::Exceeds
-                } else {
-                    DepartureBound::Satisfied
-                }
-            }
-        },
+        DistanceNeed::Unreachable | DistanceNeed::ExceedsAvailable => DepartureBound::Exceeds,
+        DistanceNeed::WithinAvailable(required_um) => {
+            let _ = required_um;
+            DepartureBound::Satisfied
+        }
     }
 }
 
 #[derive(Debug)]
 enum DistanceNeed {
-    Finite(BoundedDistance),
+    WithinAvailable(u128),
+    ExceedsAvailable,
     Unreachable,
     Unsupported,
 }
@@ -153,46 +160,84 @@ pub(crate) fn departure_replace_error(error: crate::SpawnError) -> crate::Replac
 fn minimum_accel_distance(
     departure_speed: u32,
     initial_speed: u32,
-    accel: f64,
-    dt: f64,
+    accel: f32,
+    dt: f32,
+    available: BoundedDistance,
 ) -> DistanceNeed {
+    let BoundedDistance::Finite(available_mm) = available else {
+        return DistanceNeed::WithinAvailable(0);
+    };
+    let available_um = u128::from(available_mm).saturating_mul(1_000);
     let mut end = initial_speed;
-    let mut required = BoundedDistance::Finite(0);
-    let mut steps = 0u32;
+    let mut required_um = 0u128;
     while end > departure_speed {
-        steps = steps.saturating_add(1);
-        if steps > 100_000 {
-            return DistanceNeed::Unsupported;
-        }
         let Some(start) = minimum_start_speed(end, accel, dt) else {
             return DistanceNeed::Unsupported;
         };
         if start >= end {
             return DistanceNeed::Unreachable;
         }
-        let Some(step_mm) = step_distance_lower_mm(start, end, dt) else {
+        let step_start = start.max(departure_speed);
+        let Some(step_um) = step_distance_lower_um(step_start, end, dt) else {
             return DistanceNeed::Unsupported;
         };
-        required = required.add_u32(step_mm);
+        required_um = required_um.saturating_add(u128::from(step_um));
+        if required_um > available_um {
+            return DistanceNeed::ExceedsAvailable;
+        }
+        if start <= departure_speed {
+            break;
+        }
         end = start;
     }
-    DistanceNeed::Finite(required)
+    DistanceNeed::WithinAvailable(required_um)
 }
 
-fn minimum_start_speed(target: u32, accel: f64, dt: f64) -> Option<u32> {
-    let fastest = quantized_speed_upper(target, accel, dt)?;
-    if fastest < target {
-        let from_cap = quantized_speed_upper(100_000, accel, dt)?;
-        if from_cap < target {
+fn minimum_start_speed(target: u32, accel: f32, dt: f32) -> Option<u32> {
+    if quantized_speed_upper(target, accel, dt)? < target {
+        return Some(target);
+    }
+    let rewind_mm = f64::from(accel) * f64::from(dt) * 1_000.0;
+    let guess = f64::from(target) - rewind_mm;
+    let mut cursor = if guess <= 0.0 {
+        0
+    } else {
+        u32::try_from(guess.floor() as u64).unwrap_or(target)
+    };
+    if cursor > target {
+        cursor = target;
+    }
+    let mut steps = 0u32;
+    while quantized_speed_upper(cursor, accel, dt)? < target {
+        if cursor >= target {
             return Some(target);
         }
+        cursor = cursor.saturating_add(1);
+        steps = steps.saturating_add(1);
+        if steps > 64 {
+            return binary_start_speed(cursor, target, target, accel, dt);
+        }
     }
-    let mut low = 0u32;
-    let mut high = target;
+    while cursor > 0 && quantized_speed_upper(cursor - 1, accel, dt)? >= target {
+        cursor -= 1;
+        steps = steps.saturating_add(1);
+        if steps > 64 {
+            break;
+        }
+    }
+    Some(cursor)
+}
+
+fn binary_start_speed(
+    mut low: u32,
+    mut high: u32,
+    target: u32,
+    accel: f32,
+    dt: f32,
+) -> Option<u32> {
     while low < high {
         let mid = low + (high - low) / 2;
-        let upper = quantized_speed_upper(mid, accel, dt)?;
-        if upper >= target {
+        if quantized_speed_upper(mid, accel, dt)? >= target {
             high = mid;
         } else {
             low = mid.saturating_add(1);
@@ -201,28 +246,31 @@ fn minimum_start_speed(target: u32, accel: f64, dt: f64) -> Option<u32> {
     Some(low)
 }
 
-/// 从已量化速度以最大加速度走一拍，量化后的速度。没有低估 f64 上的最大加速度结果。
-fn quantized_speed_upper(start_mm_s: u32, accel: f64, dt: f64) -> Option<u32> {
-    let next = f64::from(start_mm_s) / 1_000.0 + accel * dt;
+/// 与运行时同一拍速度积分：`f32` 先相加，再按 ties-to-even 量化到毫米/秒。
+fn quantized_speed_upper(start_mm_s: u32, accel: f32, dt: f32) -> Option<u32> {
+    let speed = start_mm_s as f32 / 1_000.0;
+    let next = speed + accel * dt;
     if !next.is_finite() {
         return None;
     }
-    match round_mm(next) {
+    match round_mm(f64::from(next)) {
         Some(speed) => Some(speed),
         None if next > 0.0 => Some(u32::MAX),
         None => None,
     }
 }
 
-fn step_distance_lower_mm(start_mm_s: u32, end_mm_s: u32, dt: f64) -> Option<u32> {
-    let start = f64::from(start_mm_s) / 1_000.0;
-    let end = minimum_unrounded_speed_mps(end_mm_s);
+fn step_distance_lower_um(start_mm_s: u32, end_mm_s: u32, dt: f32) -> Option<u64> {
+    let start = start_mm_s as f32 / 1_000.0;
+    let end = minimum_unrounded_speed_mps(end_mm_s) as f32;
     let travel = (start + end) * 0.5 * dt;
-    if travel < 0.0 {
+    if !travel.is_finite() {
+        return None;
+    }
+    if travel <= 0.0 {
         return Some(0);
     }
-    let micrometres = round_um(travel)?;
-    u32::try_from(micrometres / 1_000).ok()
+    round_um(f64::from(travel))
 }
 
 /// 仍会量化到 `target_mm_s` 的最小未舍入速度（米/秒）。偶数临界点含在内。
@@ -243,18 +291,49 @@ fn minimum_unrounded_speed_mps(target_mm_s: u32) -> f64 {
 mod tests {
     use super::*;
 
-    fn forward_max_accel(start: u32, accel: f64, dt: f64) -> Option<(u32, u32)> {
-        let next_m = f64::from(start) / 1_000.0 + accel * dt;
-        let end = round_mm(next_m)?;
-        let travel = (f64::from(start) / 1_000.0 + next_m) * 0.5 * dt;
-        let um = round_um(travel)?;
-        Some((end, u32::try_from(um / 1_000).ok()?))
+    fn forward_max_accel(start: u32, accel: f32, dt: f32) -> Option<(u32, u64)> {
+        let next = start as f32 / 1_000.0 + accel * dt;
+        let end = round_mm(f64::from(next))?;
+        let travel = (start as f32 / 1_000.0 + next) * 0.5 * dt;
+        let um = round_um(f64::from(travel))?;
+        Some((end, um))
+    }
+
+    #[test]
+    fn speed_upper_matches_the_runtime_f32_step() {
+        let accel = 0.5_f32;
+        let dt = 0.005_f32;
+        assert_eq!(quantized_speed_upper(1, accel, dt), Some(4));
+    }
+
+    #[test]
+    fn terminal_step_uses_the_declared_speed() {
+        let need = minimum_accel_distance(100, 180, 1.8, 0.1, BoundedDistance::Finite(1_000));
+        let DistanceNeed::WithinAvailable(um) = need else {
+            panic!("expected a finite bound, got {need:?}");
+        };
+        assert!(
+            um >= 13_000,
+            "declared 100 mm/s start needs at least 13 mm, got {um} um"
+        );
+    }
+
+    #[test]
+    fn micrometre_residuals_survive_until_the_final_comparison() {
+        let need = minimum_accel_distance(0, 1_000, 0.5, 0.004, BoundedDistance::Finite(2_000));
+        let DistanceNeed::WithinAvailable(um) = need else {
+            panic!("expected a finite bound, got {need:?}");
+        };
+        assert!(
+            um > 750_000,
+            "dropping each tick's remainder collapses the bound to 750 mm, got {um} um"
+        );
     }
 
     #[test]
     fn speed_upper_is_monotone_and_matches_forward_quantization() {
-        let accel = 1.8_f64;
-        let dt = 0.1_f64;
+        let accel = 1.8_f32;
+        let dt = 0.1_f32;
         let mut previous = 0u32;
         for speed in [0_u32, 1, 2, 50, 100, 180, 181, 999, 1_000, 10_000] {
             let upper = quantized_speed_upper(speed, accel, dt).expect("finite");
@@ -282,47 +361,48 @@ mod tests {
 
     #[test]
     fn step_size_changes_the_distance_lower_bound() {
-        let fine = minimum_accel_distance(0, 4_000, 1.8, 0.1);
-        let coarse = minimum_accel_distance(0, 4_000, 1.8, 1.0);
+        let fine = minimum_accel_distance(0, 4_000, 1.8, 0.1, BoundedDistance::Finite(u32::MAX));
+        let coarse = minimum_accel_distance(0, 4_000, 1.8, 1.0, BoundedDistance::Finite(u32::MAX));
         assert_ne!(
-            fine_mm(&fine),
-            fine_mm(&coarse),
+            bound_um(&fine),
+            bound_um(&coarse),
             "100 ms and 1 s must not share one distance lower bound"
         );
     }
 
-    fn fine_mm(need: &DistanceNeed) -> u32 {
+    fn bound_um(need: &DistanceNeed) -> u128 {
         match need {
-            DistanceNeed::Finite(BoundedDistance::Finite(mm)) => *mm,
-            other => panic!("expected finite millimetres, got {other:?}"),
+            DistanceNeed::WithinAvailable(um) => *um,
+            other => panic!("expected a completed bound, got {other:?}"),
         }
     }
 
     #[test]
     fn distance_lower_bound_does_not_exceed_a_forward_max_accel_run() {
         let cases = [
-            (0_u32, 1_000_u32, 1.8_f64, 0.1_f64),
+            (0_u32, 1_000_u32, 1.8_f32, 0.1_f32),
             (0, 180, 1.8, 0.1),
             (500, 2_000, 1.25, 0.05),
-            (1_000, 1_000, 2.0, 0.2),
-            (0, 5_000, 0.8, 0.25),
+            (100, 180, 1.8, 0.1),
+            (0, 1_000, 0.5, 0.004),
         ];
         for (start, target, accel, dt) in cases {
             if target <= start {
                 continue;
             }
-            let need = minimum_accel_distance(start, target, accel, dt);
-            let DistanceNeed::Finite(BoundedDistance::Finite(lower)) = need else {
-                panic!("expected a finite lower bound for {start}->{target}");
+            let need =
+                minimum_accel_distance(start, target, accel, dt, BoundedDistance::Finite(u32::MAX));
+            let DistanceNeed::WithinAvailable(lower_um) = need else {
+                panic!("expected a finite lower bound for {start}->{target}, got {need:?}");
             };
             let mut speed = start;
-            let mut travelled = 0u32;
-            for _ in 0..10_000 {
+            let mut travelled_um = 0u128;
+            for _ in 0..20_000 {
                 if speed >= target {
                     break;
                 }
-                let (next, step) = forward_max_accel(speed, accel, dt).expect("step");
-                travelled = travelled.saturating_add(step);
+                let (next, step_um) = forward_max_accel(speed, accel, dt).expect("step");
+                travelled_um = travelled_um.saturating_add(u128::from(step_um));
                 if next <= speed {
                     break;
                 }
@@ -330,11 +410,11 @@ mod tests {
             }
             assert!(
                 speed >= target,
-                "reference did not reach {target} from {start}"
+                "reference did not reach {target} from {start}, stopped at {speed}"
             );
             assert!(
-                lower <= travelled,
-                "lower bound {lower} exceeded forward distance {travelled} for {start}->{target}"
+                lower_um <= travelled_um,
+                "lower bound {lower_um} exceeded forward distance {travelled_um} for {start}->{target}"
             );
         }
     }

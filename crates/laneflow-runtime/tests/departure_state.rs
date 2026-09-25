@@ -246,6 +246,12 @@ fn invalid_departure_reasons_stay_distinct_and_do_not_commit() {
         ))
     );
     assert_eq!(
+        world.spawn_vehicle(departed(input, 0, 2_000, 5_000)),
+        Err(SpawnError::InvalidDepartureState(
+            DepartureStateError::AfterPlacement
+        ))
+    );
+    assert_eq!(
         world.spawn_vehicle(departed(input, 0, 0, 100_001)),
         Err(SpawnError::InvalidDepartureState(
             DepartureStateError::SpeedOutOfRange
@@ -324,6 +330,23 @@ fn replace_rejects_the_same_departure_bound_without_retiring_the_old_vehicle() {
     assert_eq!(
         world.vehicle(completed).expect("still completed").status(),
         VehicleStatus::Completed
+    );
+}
+
+#[test]
+fn a_bad_departure_is_not_reported_as_overlap() {
+    let mut world = install(100);
+    let road = route(&mut world, &["road"]);
+    let profile = laneflow_static_contract::VehicleProfileOrdinal::from_raw(0);
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(profile, road, 0, 20_000, 0))
+        .expect("first vehicle");
+    let occupied = departed(VehicleSpawnInput::new(profile, road, 0, 20_000, 0), 9, 0, 0);
+    assert_eq!(
+        world.spawn_vehicle(occupied),
+        Err(SpawnError::InvalidDepartureState(
+            DepartureStateError::RouteIndexOutOfRange
+        ))
     );
 }
 
