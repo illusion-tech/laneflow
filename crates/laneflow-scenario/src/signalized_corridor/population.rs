@@ -68,7 +68,8 @@ impl CorridorVehiclePlan {
             self.route_edge_index,
             self.progress_mm,
             self.initial_speed_mm_s,
-        ))
+        )
+        .with_open_entrance())
     }
 }
 
@@ -584,13 +585,16 @@ impl CorridorPopulationPrepare {
             };
             let mut speed = plan.initial_speed_mm_s;
             let handle = loop {
-                match world.spawn_vehicle(VehicleSpawnInput::new(
-                    plan.profile,
-                    route,
-                    plan.route_edge_index,
-                    plan.progress_mm,
-                    speed,
-                )) {
+                match world.spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        plan.profile,
+                        route,
+                        plan.route_edge_index,
+                        plan.progress_mm,
+                        speed,
+                    )
+                    .with_open_entrance(),
+                ) {
                     Ok(handle) => break handle,
                     Err(error) if initial_speed_can_drop(&error) && speed > 0 => {
                         speed = speed.saturating_sub(1_000);
@@ -1231,7 +1235,8 @@ impl CorridorPopulationController {
             0,
             entry.progress_mm,
             self.route_entry_speeds[plan.route_index],
-        ))
+        )
+        .with_open_entrance())
     }
 
     fn running_slot(&self, handle: VehicleHandle) -> Option<usize> {

@@ -123,13 +123,16 @@ fn corridor_world() -> TrafficWorld {
         assert_eq!(lane_slots.len(), 8, "corridor lane must expose 8 slots");
         for slot in lane_slots {
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    profile,
-                    routes[slot.route_index],
-                    0,
-                    slot.progress_mm,
-                    0,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        profile,
+                        routes[slot.route_index],
+                        0,
+                        slot.progress_mm,
+                        0,
+                    )
+                    .with_open_entrance(),
+                )
                 .expect("corridor spawn");
         }
     }
@@ -163,13 +166,16 @@ fn parking_world() -> TrafficWorld {
         .register_route(RouteRegisterInput::new(vec![entry_edge, exit_edge]))
         .expect("parking route");
     let parker = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            entry_progress.saturating_sub(5_000),
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                entry_progress.saturating_sub(5_000),
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("parker spawn");
     world
         .reserve_parking(

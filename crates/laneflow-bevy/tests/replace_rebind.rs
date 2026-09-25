@@ -218,13 +218,16 @@ fn drive_to_completed(world: &mut TrafficWorld) -> (laneflow_runtime::VehicleHan
     let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[last.index()];
     let last_index = u32::try_from(edges.len() - 1).expect("index");
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            last_index,
-            progress_near_route_end(last_length, speed_limit),
-            speed_limit,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                last_index,
+                progress_near_route_end(last_length, speed_limit),
+                speed_limit,
+            )
+            .with_open_entrance(),
+        )
         .expect("spawn near end");
     for _ in 0..8 {
         world.step(TickInput::new(100)).expect("step");
@@ -271,19 +274,17 @@ fn replace_reuses_bound_entity_and_keeps_transform_on_blocked() {
     app.world_mut()
         .resource_mut::<LaneFlowSession>()
         .world_mut()
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("blocker");
     let before = *app.world().get::<Transform>(entity).expect("transform");
     let outcome = replace_completed_vehicle(
         app.world_mut(),
         old,
-        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0),
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0)
+            .with_open_entrance(),
     )
     .expect("blocked is success-path for adapter");
     assert!(matches!(outcome, LaneFlowVehicleReplaceOutcome::Blocked(_)));
@@ -301,7 +302,8 @@ fn replace_reuses_bound_entity_and_keeps_transform_on_blocked() {
     let outcome = replace_completed_vehicle(
         app.world_mut(),
         old,
-        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8_000, 0),
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8_000, 0)
+            .with_open_entrance(),
     )
     .expect("replace");
     let LaneFlowVehicleReplaceOutcome::Replaced(record) = outcome else {
@@ -345,7 +347,8 @@ fn unbound_replace_stays_unbound() {
     let outcome = replace_completed_vehicle(
         app.world_mut(),
         old,
-        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0),
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0)
+            .with_open_entrance(),
     )
     .expect("replace");
     let LaneFlowVehicleReplaceOutcome::Replaced(record) = outcome else {
@@ -372,13 +375,10 @@ fn virtual_parking_echoes_typed_selectors_and_keeps_mapping_without_pose() {
         .register_route(RouteRegisterInput::new(vec![LaneEdgeOrdinal::from_raw(0)]))
         .expect("virtual parking route");
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            20_000,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 20_000, 0)
+                .with_open_entrance(),
+        )
         .expect("spawn at virtual entry");
     let session = LaneFlowSession::new(
         world,
@@ -551,13 +551,10 @@ fn typed_despawn_rejects_stale_entity_without_runtime_or_mapping_changes() {
         install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
     let route = register_preview_route(&mut world);
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("active vehicle");
     let session = LaneFlowSession::new(
         world,
@@ -613,7 +610,7 @@ fn parking_failures_keep_entity_mapping_and_only_typed_despawn_removes_it() {
     let route = register_preview_route(&mut world);
     let profile = VehicleProfileOrdinal::from_raw(0);
     let active = world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, route, 0, 0, 0))
+        .spawn_vehicle(VehicleSpawnInput::new(profile, route, 0, 0, 0).with_open_entrance())
         .expect("active vehicle");
     let session = LaneFlowSession::new(
         world,
@@ -822,13 +819,10 @@ fn completed_on_slow_edge() -> (App, laneflow_runtime::VehicleHandle, RouteHandl
         .expect("route");
     let slow_length = world.traffic().lane_lengths_millimetres()[1];
     let old = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            1,
-            slow_length,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 1, slow_length, 0)
+                .with_open_entrance(),
+        )
         .expect("spawn at the slow edge end");
     world.step(TickInput::new(100)).expect("complete");
     assert_eq!(
@@ -867,7 +861,8 @@ fn downstream_speed_replace_is_fatal_and_keeps_the_world() {
     let error = replace_completed_vehicle(
         app.world_mut(),
         old,
-        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 49_000, 15_000),
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 49_000, 15_000)
+            .with_open_entrance(),
     )
     .expect_err("downstream speed is fatal");
     assert!(matches!(
@@ -904,13 +899,10 @@ fn unsafe_leader_replace_stays_retryable() {
     app.world_mut()
         .resource_mut::<LaneFlowSession>()
         .world_mut()
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            16_000,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 16_000, 0)
+                .with_open_entrance(),
+        )
         .expect("stopped leader");
     let cursor = app
         .world()
@@ -920,7 +912,8 @@ fn unsafe_leader_replace_stays_retryable() {
     let outcome = replace_completed_vehicle(
         app.world_mut(),
         old,
-        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 10_000, 10_000),
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 10_000, 10_000)
+            .with_open_entrance(),
     )
     .expect("retryable motion result");
     assert!(matches!(

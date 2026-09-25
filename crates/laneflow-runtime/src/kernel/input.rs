@@ -62,6 +62,45 @@ impl VehicleDepartureState {
     }
 }
 
+/// 车辆进入仿真范围的方向。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EntranceDirection {
+    /// 沿着这条边的行驶方向进入范围。
+    AlongLane,
+    /// 逆着这条边的行驶方向。不是合法进入方向。
+    AgainstLane,
+}
+
+/// 这次命令上的可选开放入口。位置是该路线的起点出现项。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VehicleEntrance {
+    route_edge_index: u32,
+    direction: EntranceDirection,
+}
+
+impl VehicleEntrance {
+    /// 构造开放入口绑定。下标和方向在生成或替换时才对照候选路线检查。
+    #[must_use]
+    pub const fn new(route_edge_index: u32, direction: EntranceDirection) -> Self {
+        Self {
+            route_edge_index,
+            direction,
+        }
+    }
+
+    /// 开放入口的路线出现项下标。
+    #[must_use]
+    pub const fn route_edge_index(self) -> u32 {
+        self.route_edge_index
+    }
+
+    /// 进入范围的方向。
+    #[must_use]
+    pub const fn direction(self) -> EntranceDirection {
+        self.direction
+    }
+}
+
 /// 调用方所有的车辆生成输入。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VehicleSpawnInput {
@@ -71,6 +110,7 @@ pub struct VehicleSpawnInput {
     progress_mm: u32,
     initial_speed_mm_s: u32,
     departure: Option<VehicleDepartureState>,
+    entrance: Option<VehicleEntrance>,
 }
 
 impl VehicleSpawnInput {
@@ -90,6 +130,7 @@ impl VehicleSpawnInput {
             progress_mm,
             initial_speed_mm_s,
             departure: None,
+            entrance: None,
         }
     }
 
@@ -104,6 +145,27 @@ impl VehicleSpawnInput {
     #[must_use]
     pub const fn departure(self) -> Option<VehicleDepartureState> {
         self.departure
+    }
+
+    /// 附上这次命令的开放入口。不改变车型、路线、当前位置、初速或出发声明。
+    #[must_use]
+    pub const fn with_entrance(mut self, entrance: VehicleEntrance) -> Self {
+        self.entrance = Some(entrance);
+        self
+    }
+
+    /// 这次命令附上的开放入口。没有绑定时是 `None`。
+    #[must_use]
+    pub const fn entrance(self) -> Option<VehicleEntrance> {
+        self.entrance
+    }
+
+    /// 把路线起点、沿边顺行绑定为开放入口。
+    ///
+    /// 只在这条边没有已建模前驱时，才允许省略超出起点的车尾。
+    #[must_use]
+    pub const fn with_open_entrance(self) -> Self {
+        self.with_entrance(VehicleEntrance::new(0, EntranceDirection::AlongLane))
     }
 
     /// 车辆档案（Vehicle Profile）序号。

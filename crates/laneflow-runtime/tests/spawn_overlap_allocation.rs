@@ -66,7 +66,7 @@ fn warm_overlap_queries_do_not_allocate_routes_or_intervals() {
         .unwrap();
     let profile = VehicleProfileOrdinal::from_raw(0);
     let blocker = world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, route, 0, 1_000, 0))
+        .spawn_vehicle(VehicleSpawnInput::new(profile, route, 0, 4_500, 0).with_open_entrance())
         .unwrap();
     world.step(TickInput::new(100)).unwrap();
     let state = world.vehicle(blocker).unwrap();
@@ -76,7 +76,8 @@ fn warm_overlap_queries_do_not_allocate_routes_or_intervals() {
         state.route_edge_index(),
         state.progress_mm(),
         0,
-    );
+    )
+    .with_open_entrance();
     assert_eq!(world.spawn_vehicle(query), Err(SpawnError::Overlap));
 
     let region = Region::new(GLOBAL);

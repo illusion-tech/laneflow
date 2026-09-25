@@ -2408,13 +2408,16 @@ mod tests {
             ]))
             .unwrap();
         let vehicle = world
-            .spawn_vehicle(crate::VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                19_000,
-                0,
-            ))
+            .spawn_vehicle(
+                crate::VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    19_000,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .unwrap();
         let target = if virtual_pool {
             ReserveParkingTarget::VirtualPool {
@@ -2672,13 +2675,16 @@ mod tests {
     fn high_vehicle_index_reserves_only_when_a_binding_is_written() {
         let (mut world, route, target) = explicit_parking_world(1);
         let first = world
-            .spawn_vehicle(crate::VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                19_000,
-                0,
-            ))
+            .spawn_vehicle(
+                crate::VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    19_000,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("first vehicle");
         world.despawn_vehicle(first).expect("clear the only slot");
         let index = usize::try_from(first.index()).expect("index");
@@ -2686,13 +2692,16 @@ mod tests {
         world.state.committed.free_vehicles.clear();
 
         let active = world
-            .spawn_vehicle(crate::VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                19_000,
-                0,
-            ))
+            .spawn_vehicle(
+                crate::VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    19_000,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("high index active vehicle");
         assert_eq!(active.index(), 1);
         assert_eq!(world.state.committed.parking.binding_slot_len(), 1);
@@ -2712,13 +2721,16 @@ mod tests {
         let (mut world, route, target) = explicit_parking_world(1);
         let space = ParkingSpaceOrdinal::from_raw(0);
         let old = world
-            .spawn_vehicle(crate::VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                19_000,
-                0,
-            ))
+            .spawn_vehicle(
+                crate::VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    19_000,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("old vehicle");
         world.reserve_parking(old, target).expect("reserve old");
         world.despawn_vehicle(old).expect("despawn old");
@@ -2729,13 +2741,16 @@ mod tests {
         );
 
         let new = world
-            .spawn_vehicle(crate::VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                19_000,
-                0,
-            ))
+            .spawn_vehicle(
+                crate::VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    19_000,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("reused slot");
         assert_eq!(new.index(), old.index());
         assert_ne!(new.generation(), old.generation());

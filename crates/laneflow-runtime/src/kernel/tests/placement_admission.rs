@@ -167,13 +167,16 @@ fn spawn(
     progress_mm: u32,
     speed_mm_s: u32,
 ) -> Result<crate::VehicleHandle, SpawnError> {
-    world.spawn_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        route,
-        edge,
-        progress_mm,
-        speed_mm_s,
-    ))
+    world.spawn_vehicle(
+        VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            edge,
+            progress_mm,
+            speed_mm_s,
+        )
+        .with_open_entrance(),
+    )
 }
 
 fn add_edge(
@@ -419,7 +422,7 @@ fn downstream_lower_limit_rejects_a_speed_that_cannot_fall() {
     });
     let mut world = install(revision);
     let route = register_edges(&mut world, &[0, 1]);
-    spawn(&mut world, route, 0, 0, 15_000).expect("50 米够从 15 m/s 降到 5 m/s");
+    spawn(&mut world, route, 0, 4_500, 15_000).expect("50 米够从 15 m/s 降到 5 m/s");
     assert_eq!(
         spawn(&mut world, route, 0, 49_000, 15_000).unwrap_err(),
         SpawnError::DownstreamSpeedUnsatisfiable
@@ -440,7 +443,7 @@ fn a_looser_intermediate_limit_does_not_hide_a_later_drop() {
         &["fast", "middle", "slow"],
     );
     assert_eq!(
-        spawn(&mut world, route, 0, 4_000, 7_000).unwrap_err(),
+        spawn(&mut world, route, 0, 4_500, 7_000).unwrap_err(),
         SpawnError::DownstreamSpeedUnsatisfiable,
         "7 m/s 低于中间的 8 m/s，但仍须降到 1 米外的 3 m/s"
     );
@@ -464,6 +467,16 @@ fn leader_and_follower_use_emergency_braking_not_comfort_gap() {
         spawn(&mut moving, route, 0, 10_000, 10_000).unwrap_err(),
         SpawnError::UnsafeLeader { leader }
     );
+    let mut declared = install(Arc::clone(&revision));
+    let route = register_edges(&mut declared, &[0]);
+    let leader = spawn(&mut declared, route, 0, 16_500, 0).expect("静止前车");
+    let fast = VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 10_000, 10_000)
+        .with_open_entrance()
+        .with_departure(crate::VehicleDepartureState::new(0, 10_000, 10_000));
+    assert_eq!(
+        declared.spawn_vehicle(fast).unwrap_err(),
+        SpawnError::UnsafeLeader { leader }
+    );
 
     let mut ahead = install(revision);
     let route = register_edges(&mut ahead, &[0]);
@@ -485,7 +498,8 @@ fn restore_keeps_a_state_fresh_spawn_rejects() {
     let mut fresh = install(Arc::clone(&revision));
     let route = register_edges(&mut fresh, &[0]);
     let follower = spawn(&mut fresh, route, 0, 20_000, 20_000).expect("移动后车");
-    let blocked = VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 26_500, 0);
+    let blocked = VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 26_500, 0)
+        .with_open_entrance();
     assert_eq!(
         fresh.spawn_vehicle(blocked).unwrap_err(),
         SpawnError::UnsafeFollower { follower }
@@ -494,7 +508,8 @@ fn restore_keeps_a_state_fresh_spawn_rejects() {
     let mut restored = install(revision);
     let route = register_edges(&mut restored, &[0]);
     spawn(&mut restored, route, 0, 20_000, 20_000).expect("移动后车");
-    let blocked = VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 26_500, 0);
+    let blocked = VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 26_500, 0)
+        .with_open_entrance();
     restored
         .state
         .restore_unparked_vehicle(blocked, 0, VehicleStatus::Active, None, None, false)
@@ -509,7 +524,7 @@ fn occupancy_insert_matches_live_order_when_a_completed_vehicle_remains() {
     });
     let mut world = install(revision);
     let route = register_edges(&mut world, &[0]);
-    let completed = spawn(&mut world, route, 0, 0, 0).expect("先放进去的车");
+    let completed = spawn(&mut world, route, 0, 10_000, 0).expect("先放进去的车");
     let index = usize::try_from(completed.index()).expect("index");
     world.state.committed.vehicles[index]
         .state
@@ -548,7 +563,7 @@ fn replace_uses_the_same_follower_admission() {
     let mut world = install(revision);
     let route = register_edges(&mut world, &[0]);
     let follower = spawn(&mut world, route, 0, 20_000, 20_000).expect("移动后车");
-    let parked_aside = spawn(&mut world, route, 0, 0, 0).expect("待替换的车");
+    let parked_aside = spawn(&mut world, route, 0, 100_000, 0).expect("待替换的车");
     let index = usize::try_from(parked_aside.index()).expect("index");
     world.state.committed.vehicles[index]
         .state
@@ -561,7 +576,8 @@ fn replace_uses_the_same_follower_admission() {
         .state
         .rebuild_occupancy_index()
         .expect("完成后的车退出占用索引");
-    let blocked = VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 26_500, 0);
+    let blocked = VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 26_500, 0)
+        .with_open_entrance();
     assert_eq!(
         world
             .replace_completed_vehicle(parked_aside, blocked)
@@ -685,13 +701,10 @@ fn leader_emergency_does_not_donate_solver_room() {
     assert!((soft.emergency_decel() - 2.5).abs() < 0.01);
     let route = register_edges(&mut world, &[0]);
     let leader = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(1),
-            route,
-            0,
-            16_500,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(1), route, 0, 16_500, 10_000)
+                .with_open_entrance(),
+        )
         .expect("制动很弱的前车");
     assert_eq!(
         spawn(&mut world, route, 0, 10_000, 10_000).unwrap_err(),
@@ -704,13 +717,16 @@ fn leader_emergency_does_not_donate_solver_room() {
     let follower = spawn(&mut ahead, route, 0, 10_000, 10_000).expect("后车");
     assert_eq!(
         ahead
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(1),
-                route,
-                0,
-                16_500,
-                10_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(1),
+                    route,
+                    0,
+                    16_500,
+                    10_000,
+                )
+                .with_open_entrance()
+            )
             .unwrap_err(),
         SpawnError::UnsafeFollower { follower }
     );
@@ -735,13 +751,10 @@ fn follower_emergency_uses_its_own_brakes() {
     let route = register_edges(&mut firm_world, &[0]);
     spawn(&mut firm_world, route, 0, 16_545, 1_000).expect("前车");
     firm_world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(1),
-            route,
-            0,
-            10_000,
-            1_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(1), route, 0, 10_000, 1_000)
+                .with_open_entrance(),
+        )
         .expect("更强的紧急制动放得进这 45 mm 空隙");
 
     let mut soft_world = install(revision);
@@ -788,13 +801,10 @@ fn repeated_edge_keeps_the_farther_rear_window() {
     let mut world = install(Arc::clone(&revision));
     let route = register_named(&mut world, "runtime/placement-plain", &["a", "b", "a"]);
     let follower = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(1),
-            route,
-            0,
-            900,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(1), route, 0, 900, 10_000)
+                .with_open_entrance(),
+        )
         .expect("靠后那段车尾后面的短车");
     assert_eq!(
         spawn(&mut world, route, 2, 500, 0).unwrap_err(),
@@ -824,13 +834,10 @@ fn cyclic_revisit_still_sees_the_follower_on_the_earlier_pass() {
     let follower = spawn(&mut world, route, 0, 11_500, 10_000).expect("第一圈靠近边末的后车");
     assert_eq!(
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(1),
-                route,
-                2,
-                500,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(1), route, 2, 500, 0,)
+                    .with_open_entrance()
+            )
             .unwrap_err(),
         SpawnError::UnsafeFollower { follower },
         "绕回同一条物理边时，边末的后车仍在制动距离里"
@@ -864,7 +871,7 @@ fn follower_behind_a_spanning_rear_is_not_hidden_by_the_front_edge() {
                 1,
                 1_000,
                 10_000,
-            ))
+            ).with_open_entrance())
             .unwrap_err(),
         SpawnError::UnsafeFollower { follower },
         "30 m 车身跨进下一条边时，后杠仍在上一条边中部，紧跟的后车必须被看见"
@@ -974,7 +981,7 @@ fn near_red_light_is_rejected_when_the_first_tick_would_hard_stop() {
     assert_eq!(world.command_cursor(), cursor);
     assert!(world.live_vehicles().is_empty());
 
-    let parked = spawn(&mut world, route, 0, 0, 0).expect("待替换的车");
+    let parked = spawn(&mut world, route, 0, 4_500, 0).expect("待替换的车");
     let index = usize::try_from(parked.index()).expect("index");
     world.state.committed.vehicles[index]
         .state
@@ -991,7 +998,8 @@ fn near_red_light_is_rejected_when_the_first_tick_would_hard_stop() {
         world
             .replace_completed_vehicle(
                 parked,
-                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 9_968, 500),
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 9_968, 500)
+                    .with_open_entrance(),
             )
             .unwrap_err(),
         ReplaceError::StopConstraintUnsatisfiable
@@ -1059,7 +1067,7 @@ fn unrelated_roads_do_not_rebuild_or_scan_every_vehicle() {
             "runtime/placement-plain",
             &[key_refs[index as usize]],
         );
-        spawn(&mut world, route, 0, 1_000, 0).expect("disjoint spawn");
+        spawn(&mut world, route, 0, 10_000, 0).expect("disjoint spawn");
     }
     let elapsed = started.elapsed();
     assert_eq!(

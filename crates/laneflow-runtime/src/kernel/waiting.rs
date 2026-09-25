@@ -3185,6 +3185,7 @@ pub(crate) mod tests {
                     state.progress_mm,
                     state.speed_mm_s,
                 )
+                .with_open_entrance()
             })
             .collect::<Vec<_>>();
         for _ in 0..64 {
@@ -3257,13 +3258,16 @@ pub(crate) mod tests {
                 .unwrap();
             vehicles.push(
                 world
-                    .spawn_vehicle(VehicleSpawnInput::new(
-                        VehicleProfileOrdinal::from_raw(0),
-                        route,
-                        0,
-                        progress,
-                        10_000,
-                    ))
+                    .spawn_vehicle(
+                        VehicleSpawnInput::new(
+                            VehicleProfileOrdinal::from_raw(0),
+                            route,
+                            0,
+                            progress,
+                            10_000,
+                        )
+                        .with_open_entrance(),
+                    )
                     .unwrap(),
             );
         }
@@ -3426,13 +3430,16 @@ pub(crate) mod tests {
                         let boundary = world.traffic().lane_lengths_millimetres()[edge.index()];
                         world.despawn_vehicle(handle).unwrap();
                         world
-                            .spawn_vehicle(VehicleSpawnInput::new(
-                                VehicleProfileOrdinal::from_raw(0),
-                                route,
-                                0,
-                                boundary - 1,
-                                10_000,
-                            ))
+                            .spawn_vehicle(
+                                VehicleSpawnInput::new(
+                                    VehicleProfileOrdinal::from_raw(0),
+                                    route,
+                                    0,
+                                    boundary - 1,
+                                    10_000,
+                                )
+                                .with_open_entrance(),
+                            )
                             .unwrap();
                     }
                 }
@@ -3549,13 +3556,16 @@ pub(crate) mod tests {
         let edges = world.route_edges(route).unwrap();
         let boundary = world.traffic().lane_lengths_millimetres()[edges[0].index()];
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                boundary - 1,
-                10_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    boundary - 1,
+                    10_000,
+                )
+                .with_open_entrance(),
+            )
             .unwrap()
     }
 
@@ -4300,13 +4310,16 @@ pub(crate) mod tests {
                     1
                 );
                 let next = world
-                    .spawn_vehicle(VehicleSpawnInput::new(
-                        initial.profile,
-                        initial.route,
-                        initial.route_edge_index,
-                        initial.progress_mm,
-                        initial.speed_mm_s,
-                    ))
+                    .spawn_vehicle(
+                        VehicleSpawnInput::new(
+                            initial.profile,
+                            initial.route,
+                            initial.route_edge_index,
+                            initial.progress_mm,
+                            initial.speed_mm_s,
+                        )
+                        .with_open_entrance(),
+                    )
                     .unwrap();
                 assert_eq!(step_waiting_counts(&mut world).committed_zones, 1);
                 assert_eq!(
@@ -4435,13 +4448,16 @@ pub(crate) mod tests {
         let entry_edge = world.route_edges(route).expect("route")[occurrence.entry_hop as usize];
         let entry_length = world.traffic().lane_lengths_millimetres()[entry_edge.index()];
         let vehicle = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                occurrence.entry_hop,
-                entry_length - 100,
-                8_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    occurrence.entry_hop,
+                    entry_length - 100,
+                    8_000,
+                )
+                .with_open_entrance(),
+            )
             .expect("spawn upstream of entry");
         world.state.arm_migration_journal(16 * 1_024).expect("arm");
         world.step(TickInput::new(100)).expect("entry step");
@@ -4650,13 +4666,16 @@ pub(crate) mod tests {
             .expect("Parked cutover validation");
         let entry = world.route_edges(route).expect("route")[occurrence.entry_hop as usize];
         let member = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                profile,
-                route,
-                occurrence.entry_hop,
-                world.traffic().lane_lengths_millimetres()[entry.index()] - 100,
-                8_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    profile,
+                    route,
+                    occurrence.entry_hop,
+                    world.traffic().lane_lengths_millimetres()[entry.index()] - 100,
+                    8_000,
+                )
+                .with_open_entrance(),
+            )
             .expect("active after parked");
         world.step(TickInput::new(100)).expect("admit");
         assert_eq!(world.live_vehicles(), &[parked, member]);
@@ -4758,13 +4777,16 @@ pub(crate) mod tests {
             let entry_length = world.traffic().lane_lengths_millimetres()
                 [edges[occurrence.entry_hop as usize].index()];
             let member = world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    occurrence.entry_hop,
-                    entry_length - 100,
-                    8_000,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        occurrence.entry_hop,
+                        entry_length - 100,
+                        8_000,
+                    )
+                    .with_open_entrance(),
+                )
                 .expect("spawn");
             world.step(TickInput::new(100)).expect("entry");
             let release_length = world.traffic().lane_lengths_millimetres()
@@ -4781,13 +4803,16 @@ pub(crate) mod tests {
                 (member_state.length_mm, member_state.profile)
             };
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    occurrence.release_hop + 1,
-                    length,
-                    0,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        occurrence.release_hop + 1,
+                        length,
+                        0,
+                    )
+                    .with_open_entrance(),
+                )
                 .expect("leader keeps the same release boundary on green");
             let gate = world.state.compiled_route(route).expect("route").hop_gate
                 [occurrence.release_hop as usize]
@@ -5034,13 +5059,16 @@ pub(crate) mod tests {
         let entry_edge = world.route_edges(route).expect("route")[occurrence.entry_hop as usize];
         let entry_length = world.traffic().lane_lengths_millimetres()[entry_edge.index()];
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                occurrence.entry_hop,
-                entry_length - 100,
-                8_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    occurrence.entry_hop,
+                    entry_length - 100,
+                    8_000,
+                )
+                .with_open_entrance(),
+            )
             .expect("vehicle");
         world.step(TickInput::new(100)).expect("entry");
         let snapshot = world.capture_snapshot().expect("capture");
@@ -5230,13 +5258,16 @@ pub(crate) mod tests {
         let entry_edge = world.route_edges(route).expect("route")[occurrence.entry_hop as usize];
         let entry_length = world.traffic().lane_lengths_millimetres()[entry_edge.index()];
         let member = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                occurrence.entry_hop,
-                entry_length - 100,
-                8_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    occurrence.entry_hop,
+                    entry_length - 100,
+                    8_000,
+                )
+                .with_open_entrance(),
+            )
             .expect("member spawn");
         world.step(TickInput::new(100)).expect("member entry");
         assert!(
@@ -5275,7 +5306,8 @@ pub(crate) mod tests {
                     occurrence.entry_hop,
                     entry_length - 100,
                     8_000,
-                ),
+                )
+                .with_open_entrance(),
                 0,
                 crate::VehicleStatus::Active,
                 None,
@@ -5339,13 +5371,16 @@ pub(crate) mod tests {
         let entry_edge = world.route_edges(route).expect("route")[occurrence.entry_hop as usize];
         let entry_length = world.traffic().lane_lengths_millimetres()[entry_edge.index()];
         let member = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                occurrence.entry_hop,
-                entry_length - 100,
-                8_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    occurrence.entry_hop,
+                    entry_length - 100,
+                    8_000,
+                )
+                .with_open_entrance(),
+            )
             .expect("member spawn");
         world.step(TickInput::new(100)).expect("member entry");
 
@@ -5373,13 +5408,16 @@ pub(crate) mod tests {
             .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
             .expect("profile");
         let _leader = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                occurrence.release_hop + 1,
-                profile.length_mm(),
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    occurrence.release_hop + 1,
+                    profile.length_mm(),
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("leader touching release boundary");
 
         world.step(TickInput::new(100)).expect("red release tie");
@@ -5429,13 +5467,16 @@ pub(crate) mod tests {
                 world.route_edges(route).expect("route")[occurrence.entry_hop as usize];
             let entry_length = world.traffic().lane_lengths_millimetres()[entry_edge.index()];
             let _vehicle = world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    occurrence.entry_hop,
-                    entry_length - 100,
-                    8_000,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        occurrence.entry_hop,
+                        entry_length - 100,
+                        8_000,
+                    )
+                    .with_open_entrance(),
+                )
                 .expect("vehicle");
             world.state.arm_migration_journal(16 * 1_024).unwrap();
             let before = world.capture_snapshot().expect("before");
@@ -5486,13 +5527,16 @@ pub(crate) mod tests {
         let entry_edge = world.route_edges(route).expect("route")[occurrence.entry_hop as usize];
         let entry_length = world.traffic().lane_lengths_millimetres()[entry_edge.index()];
         let _vehicle = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                occurrence.entry_hop,
-                entry_length - 100,
-                8_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    occurrence.entry_hop,
+                    entry_length - 100,
+                    8_000,
+                )
+                .with_open_entrance(),
+            )
             .expect("vehicle");
         world.state.committed.waiting_zones[occurrence.zone.index()].next_admission_sequence =
             u64::MAX;
@@ -5516,23 +5560,29 @@ pub(crate) mod tests {
         let entry_length = world.traffic().lane_lengths_millimetres()[entry_edge.index()];
         let rear = world
             .state
-            .place_existing_active_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                occurrence.entry_hop,
-                entry_length - 7_100,
-                8_000,
-            ))
+            .place_existing_active_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    occurrence.entry_hop,
+                    entry_length - 7_100,
+                    8_000,
+                )
+                .with_open_entrance(),
+            )
             .expect("rear first in live order");
         let front = world
             .state
-            .place_existing_active_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                occurrence.entry_hop,
-                entry_length - 100,
-                8_000,
-            ))
+            .place_existing_active_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    occurrence.entry_hop,
+                    entry_length - 100,
+                    8_000,
+                )
+                .with_open_entrance(),
+            )
             .expect("physical front second in live order");
         world.state.committed.vehicles[rear.index() as usize]
             .state
@@ -5581,13 +5631,16 @@ pub(crate) mod tests {
         let entry_edge = world.route_edges(route).expect("route")[occurrence.entry_hop as usize];
         let entry_length = world.traffic().lane_lengths_millimetres()[entry_edge.index()];
         let vehicle = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                occurrence.entry_hop,
-                entry_length - 100,
-                8_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    occurrence.entry_hop,
+                    entry_length - 100,
+                    8_000,
+                )
+                .with_open_entrance(),
+            )
             .expect("vehicle");
         world.state.committed.vehicles[vehicle.index() as usize]
             .state
@@ -5869,13 +5922,16 @@ pub(crate) mod tests {
             let edge = world.route_edges(route).unwrap()[entry_hop as usize];
             let length = world.traffic().lane_lengths_millimetres()[edge.index()];
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    entry_hop,
-                    length - 1,
-                    10_000,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        entry_hop,
+                        length - 1,
+                        10_000,
+                    )
+                    .with_open_entrance(),
+                )
                 .expect("spawn");
             WAITING_LOOKUP_VISITS.with(|counts| counts.set([0; 4]));
             world.step(TickInput::new(4)).expect("entry step");
@@ -5907,13 +5963,16 @@ pub(crate) mod tests {
             .despawn_vehicle(vehicle)
             .expect("remove fixture vehicle");
         let vehicle = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                occurrence.entry_hop,
-                entry_length - 1,
-                10_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    occurrence.entry_hop,
+                    entry_length - 1,
+                    10_000,
+                )
+                .with_open_entrance(),
+            )
             .expect("tail entry bootstrap");
         world.step(TickInput::new(4)).expect("tail admission");
         let state = *world.state.vehicle_state(vehicle).expect("vehicle");
@@ -6764,13 +6823,16 @@ pub(crate) mod tests {
     fn parking_arrival_world(workers: u32, world_id: u64) -> TrafficWorld {
         let (mut world, route, space, entry_progress) = parking_route_world(workers, world_id);
         let a = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                entry_progress - 1,
-                10_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    entry_progress - 1,
+                    10_000,
+                )
+                .with_open_entrance(),
+            )
             .unwrap();
         world
             .reserve_parking(
@@ -6782,13 +6844,16 @@ pub(crate) mod tests {
             )
             .unwrap();
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                12_000,
-                10_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    12_000,
+                    10_000,
+                )
+                .with_open_entrance(),
+            )
             .unwrap();
         world
     }
@@ -7672,20 +7737,22 @@ pub(crate) mod tests {
         };
         for world in [&mut reference, &mut parallel] {
             world
-                .spawn_vehicle(VehicleSpawnInput::new(PROFILE, route, 0, 12_000, 0))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(PROFILE, route, 0, 12_000, 0).with_open_entrance(),
+                )
                 .unwrap();
             world
-                .spawn_vehicle(VehicleSpawnInput::new(PROFILE, route, 0, entry_progress, 0))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(PROFILE, route, 0, entry_progress, 0)
+                        .with_open_entrance(),
+                )
                 .unwrap();
             for index in 0..8_u32 {
                 world
-                    .spawn_vehicle(VehicleSpawnInput::new(
-                        PROFILE,
-                        route,
-                        0,
-                        20_000 + index * 8_000,
-                        0,
-                    ))
+                    .spawn_vehicle(
+                        VehicleSpawnInput::new(PROFILE, route, 0, 20_000 + index * 8_000, 0)
+                            .with_open_entrance(),
+                    )
                     .unwrap();
             }
             let parker = world.live_vehicles()[1];
@@ -7709,34 +7776,25 @@ pub(crate) mod tests {
         for world in [&mut reference, &mut parallel] {
             for index in 0..5_u32 {
                 world
-                    .spawn_vehicle(VehicleSpawnInput::new(
-                        PROFILE,
-                        route,
-                        0,
-                        12_000 + index * 8_000,
-                        0,
-                    ))
+                    .spawn_vehicle(
+                        VehicleSpawnInput::new(PROFILE, route, 0, 12_000 + index * 8_000, 0)
+                            .with_open_entrance(),
+                    )
                     .unwrap();
             }
             world
                 .state
-                .place_existing_active_vehicle(VehicleSpawnInput::new(
-                    PROFILE,
-                    route,
-                    1,
-                    exit_length - 500,
-                    speed_limit,
-                ))
+                .place_existing_active_vehicle(
+                    VehicleSpawnInput::new(PROFILE, route, 1, exit_length - 500, speed_limit)
+                        .with_open_entrance(),
+                )
                 .unwrap();
             for index in 5..10_u32 {
                 world
-                    .spawn_vehicle(VehicleSpawnInput::new(
-                        PROFILE,
-                        route,
-                        0,
-                        12_000 + index * 8_000,
-                        0,
-                    ))
+                    .spawn_vehicle(
+                        VehicleSpawnInput::new(PROFILE, route, 0, 12_000 + index * 8_000, 0)
+                            .with_open_entrance(),
+                    )
                     .unwrap();
             }
         }
@@ -7755,7 +7813,7 @@ pub(crate) mod tests {
         assert!(completed, "近终点车必须在脚本内到达路线终点");
         step_pair(&mut reference, &mut parallel);
         let stale = reference.live_vehicles()[3];
-        let respawn = VehicleSpawnInput::new(PROFILE, route, 0, 0, 0);
+        let respawn = VehicleSpawnInput::new(PROFILE, route, 0, 0, 0).with_open_entrance();
         for world in [&mut reference, &mut parallel] {
             world.despawn_vehicle(stale).expect("despawn");
         }
@@ -7925,13 +7983,16 @@ pub(crate) mod tests {
             entry_route_occurrence: 0,
         };
         let a = fresh
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                entry_progress - 1,
-                10_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    entry_progress - 1,
+                    10_000,
+                )
+                .with_open_entrance(),
+            )
             .unwrap();
         fresh.reserve_parking(a, reserve).unwrap();
         let fresh_outcome = fresh.step(TickInput::new(100)).unwrap();
@@ -7940,13 +8001,16 @@ pub(crate) mod tests {
 
         let (mut world, route, _, entry_progress) = parking_route_world(4, WORLD_ID);
         let a = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                entry_progress - 1,
-                10_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    entry_progress - 1,
+                    10_000,
+                )
+                .with_open_entrance(),
+            )
             .unwrap();
         world.reserve_parking(a, reserve).unwrap();
         let guard = fail_motion_arrival_reserve();
@@ -8259,20 +8323,22 @@ pub(crate) mod tests {
         };
         for world in [&mut reference, &mut parallel] {
             world
-                .spawn_vehicle(VehicleSpawnInput::new(PROFILE, route, 0, 12_000, 0))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(PROFILE, route, 0, 12_000, 0).with_open_entrance(),
+                )
                 .unwrap();
             world
-                .spawn_vehicle(VehicleSpawnInput::new(PROFILE, route, 0, entry_progress, 0))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(PROFILE, route, 0, entry_progress, 0)
+                        .with_open_entrance(),
+                )
                 .unwrap();
             for index in 0..8_u32 {
                 world
-                    .spawn_vehicle(VehicleSpawnInput::new(
-                        PROFILE,
-                        route,
-                        0,
-                        20_000 + index * 8_000,
-                        0,
-                    ))
+                    .spawn_vehicle(
+                        VehicleSpawnInput::new(PROFILE, route, 0, 20_000 + index * 8_000, 0)
+                            .with_open_entrance(),
+                    )
                     .unwrap();
             }
             let parker = world.live_vehicles()[1];
@@ -8312,34 +8378,25 @@ pub(crate) mod tests {
         for world in [&mut reference, &mut parallel] {
             for index in 0..5_u32 {
                 world
-                    .spawn_vehicle(VehicleSpawnInput::new(
-                        PROFILE,
-                        route,
-                        0,
-                        12_000 + index * 8_000,
-                        0,
-                    ))
+                    .spawn_vehicle(
+                        VehicleSpawnInput::new(PROFILE, route, 0, 12_000 + index * 8_000, 0)
+                            .with_open_entrance(),
+                    )
                     .unwrap();
             }
             world
                 .state
-                .place_existing_active_vehicle(VehicleSpawnInput::new(
-                    PROFILE,
-                    route,
-                    1,
-                    exit_length - 500,
-                    speed_limit,
-                ))
+                .place_existing_active_vehicle(
+                    VehicleSpawnInput::new(PROFILE, route, 1, exit_length - 500, speed_limit)
+                        .with_open_entrance(),
+                )
                 .unwrap();
             for index in 5..10_u32 {
                 world
-                    .spawn_vehicle(VehicleSpawnInput::new(
-                        PROFILE,
-                        route,
-                        0,
-                        12_000 + index * 8_000,
-                        0,
-                    ))
+                    .spawn_vehicle(
+                        VehicleSpawnInput::new(PROFILE, route, 0, 12_000 + index * 8_000, 0)
+                            .with_open_entrance(),
+                    )
                     .unwrap();
             }
         }
@@ -8371,7 +8428,7 @@ pub(crate) mod tests {
         // 同槽位新代次 spawn 拍：despawn 中部跟随者后同位置重新 spawn。
         let stale = reference.live_vehicles()[3];
         assert_eq!(stale, parallel.live_vehicles()[3]);
-        let respawn = VehicleSpawnInput::new(PROFILE, route, 0, 0, 0);
+        let respawn = VehicleSpawnInput::new(PROFILE, route, 0, 0, 0).with_open_entrance();
         for world in [&mut reference, &mut parallel] {
             world.despawn_vehicle(stale).expect("despawn");
         }

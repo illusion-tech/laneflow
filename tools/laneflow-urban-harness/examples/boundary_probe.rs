@@ -69,7 +69,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .parse::<VehicleProfileId>()
     .map_err(|e| e.to_string())?;
     let profile = revision.identity().ordinal(id).ok_or("missing profile")?;
-    let vehicle = world.spawn_vehicle(VehicleSpawnInput::new(profile, route, 3, 95_000, 0))?;
+    let vehicle = world
+        .spawn_vehicle(VehicleSpawnInput::new(profile, route, 3, 95_000, 0).with_open_entrance())?;
     println!(
         "before: tick={} state={:?}",
         world.tick_index(),

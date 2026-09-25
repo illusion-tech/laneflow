@@ -80,20 +80,20 @@ pub fn world() -> Result<TrafficWorld, Box<dyn Error>> {
         .relations()
         .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
         .ok_or("missing profile")?;
-    world.spawn_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        route,
-        0,
-        1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
-        0,
-    ))?;
-    world.spawn_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        route,
-        0,
-        1_000,
-        0,
-    ))?;
+    world.spawn_vehicle(
+        VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
+            0,
+        )
+        .with_open_entrance(),
+    )?;
+    world.spawn_vehicle(
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 1_000, 0)
+            .with_open_entrance(),
+    )?;
     Ok(world)
 }
 

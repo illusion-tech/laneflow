@@ -77,26 +77,26 @@ fn placement_bounded_account() {
     let mut progress = 0u32;
     while progress + 4_500 < approach_length && progress / 5_000 < 8 {
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                progress,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, progress, 0)
+                    .with_open_entrance(),
+            )
             .expect("spawn");
         progress = progress.saturating_add(5_000);
     }
     let last = u32::try_from(edges.len() - 1).expect("index");
     let last_length = world.traffic().lane_lengths_millimetres()[edges[last as usize].index()];
     let completed = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            last,
-            last_length,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                last,
+                last_length,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("end spawn");
     world.step(TickInput::new(100)).expect("complete step");
     if world.vehicle(completed).map(|state| state.status()) == Some(VehicleStatus::Completed) {
@@ -109,7 +109,8 @@ fn placement_bounded_account() {
                     last,
                     last_length,
                     0,
-                ),
+                )
+                .with_open_entrance(),
             )
             .expect("replace");
     }

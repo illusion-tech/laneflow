@@ -1117,13 +1117,10 @@ mod capacity_tests {
             let progress = u32::try_from(slot % per_lane).expect("progress fits u32") * 6_000;
             rig.session
                 .world_mut()
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    PROFILE,
-                    rig.main_routes[lane],
-                    0,
-                    progress,
-                    0,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(PROFILE, rig.main_routes[lane], 0, progress, 0)
+                        .with_open_entrance(),
+                )
                 .expect("spawn");
         }
     }
@@ -1332,7 +1329,9 @@ mod capacity_tests {
         let stray = rig
             .session
             .world_mut()
-            .spawn_vehicle(VehicleSpawnInput::new(PROFILE, rig.alt_route, 0, 10_000, 0))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(PROFILE, rig.alt_route, 0, 10_000, 0).with_open_entrance(),
+            )
             .expect("stray");
         let before_vehicles = output.vehicles().to_vec();
         let before_capacity = output.vehicles.capacity();

@@ -50,6 +50,7 @@ fn run(repetitions: usize, lead_ms: u64, samples: usize, warmup: usize) {
             world.traffic().lane_lengths_millimetres()[edge.index()] - 1,
             10_000,
         )
+        .with_open_entrance()
     });
     let before = deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap();
     let mut trace = Sha256::new();

@@ -221,13 +221,16 @@ fn replay_suffix(
         .ordinal(profile_id)
         .expect("durable profile ID resolves in the bound revision");
     let replay_vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            profile,
-            host_ids.routes[&REPLAY_ROUTE_ID],
-            0,
-            spawn_progress_mm,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                profile,
+                host_ids.routes[&REPLAY_ROUTE_ID],
+                0,
+                spawn_progress_mm,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("spawn replay-owned vehicle");
     assert!(
         host_ids
@@ -289,13 +292,10 @@ fn replay_divergence_under_capacity_mismatch_is_a_desync_signal() {
         );
     }
     original
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("checkpoint vehicle");
     let checkpoint = original.capture_snapshot().expect("capture");
     let checkpoint_point = ReplayPoint {
@@ -373,13 +373,10 @@ fn checkpoint_replay_is_pointwise_equal_and_locates_first_desync_interval() {
         .register_route(RouteRegisterInput::new(edges.clone()))
         .expect("checkpoint route");
     let vehicle = original
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("checkpoint vehicle");
     let checkpoint = original.capture_snapshot().expect("capture");
     let checkpoint_point = ReplayPoint {

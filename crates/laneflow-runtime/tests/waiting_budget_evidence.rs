@@ -80,13 +80,16 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
         .expect("route");
     let spawn_entry_vehicle = |world: &mut TrafficWorld| {
         world
-            .place_existing_active_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                entry_length_mm - 1,
-                8_000,
-            ))
+            .place_existing_active_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    entry_length_mm - 1,
+                    8_000,
+                )
+                .with_open_entrance(),
+            )
             .expect("vehicle")
     };
 
@@ -153,13 +156,16 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
     for sample in 0..STEADY_TICKS + 4 {
         world.despawn_vehicle(current).unwrap();
         current = world
-            .place_existing_active_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                entry_length_mm - 1,
-                8_000,
-            ))
+            .place_existing_active_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    entry_length_mm - 1,
+                    8_000,
+                )
+                .with_open_entrance(),
+            )
             .unwrap();
         let region = Region::new(GLOBAL);
         world.step(TickInput::new(DELTA_MS)).unwrap();

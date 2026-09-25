@@ -326,13 +326,10 @@ pub fn fixture_with_capacity(
     }
     for i in 0..case.active - EXITS {
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                profile,
-                background,
-                0,
-                (i as u32 + 1) * 10_000,
-                10_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(profile, background, 0, (i as u32 + 1) * 10_000, 10_000)
+                    .with_open_entrance(),
+            )
             .unwrap();
     }
     let followers = routes
@@ -340,13 +337,16 @@ pub fn fixture_with_capacity(
         .enumerate()
         .map(|(i, route)| {
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    profile,
-                    *route,
-                    0,
-                    if case.succeeds(i) { 10_000 } else { 61_000 },
-                    10_000,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        profile,
+                        *route,
+                        0,
+                        if case.succeeds(i) { 10_000 } else { 61_000 },
+                        10_000,
+                    )
+                    .with_open_entrance(),
+                )
                 .unwrap()
         })
         .collect();

@@ -332,13 +332,16 @@ impl<'a> Harness<'a> {
             } else {
                 checked(
                     "initial Active",
-                    world.spawn_vehicle(VehicleSpawnInput::new(
-                        profile,
-                        route,
-                        initial.occurrence,
-                        initial.progress_mm,
-                        0,
-                    )),
+                    world.spawn_vehicle(
+                        VehicleSpawnInput::new(
+                            profile,
+                            route,
+                            initial.occurrence,
+                            initial.progress_mm,
+                            0,
+                        )
+                        .with_open_entrance(),
+                    ),
                 )?
             };
             let id = IndividualId {
@@ -634,7 +637,8 @@ impl<'a> Harness<'a> {
                         *occurrence,
                         *progress_mm,
                         *speed_mm_s,
-                    );
+                    )
+                    .with_open_entrance();
                     match self
                         .measure_command(|world| world.replace_completed_vehicle(handle, input))?
                     {
@@ -1034,7 +1038,8 @@ impl<'a> Harness<'a> {
                     *occurrence,
                     *progress_mm,
                     0,
-                );
+                )
+                .with_open_entrance();
                 let handle = checked(
                     "boundary spawn",
                     self.measure_command(|world| world.spawn_vehicle(input)),

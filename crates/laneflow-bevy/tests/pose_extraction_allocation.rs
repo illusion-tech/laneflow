@@ -152,13 +152,10 @@ fn warm_extraction_path_has_no_new_allocations() {
         .expect("route");
     for progress in [1_000_u32, 50_000, 120_000, 300_000, 600_000] {
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                progress,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, progress, 0)
+                    .with_open_entrance(),
+            )
             .expect("spawn");
     }
     let spatial = SpatialSession::bind(Arc::clone(&root))

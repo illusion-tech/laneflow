@@ -2243,13 +2243,16 @@ fn conflict_routes_charge_independent_capacity_and_use_the_production_gate_path(
 
     let gate_length = revision.traffic().lane_lengths_millimetres()[route_edges[0].index()];
     let vehicle = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            gate_length,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                gate_length,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("Gate upstream/boundary spawn is handled by production arbitration");
     world
         .step(TickInput::new(100))
@@ -2309,13 +2312,10 @@ fn conflict_tick_arbitrates_the_canonical_post_gate_zero_position() {
     });
     let vehicles = routes.map(|route| {
         world
-            .place_existing_active_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                1,
-                0,
-                10_000,
-            ))
+            .place_existing_active_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 1, 0, 10_000)
+                    .with_open_entrance(),
+            )
             .expect("canonical post-Gate zero position is still a Gate boundary")
     });
 
@@ -2386,13 +2386,16 @@ fn conflict_tick_uses_stable_single_writer_winner_and_retries_the_loser() {
         let boundary = world.traffic().lane_lengths_millimetres()[edge.index()];
         vehicles.push(
             world
-                .place_existing_active_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    0,
-                    boundary,
-                    10_000,
-                ))
+                .place_existing_active_vehicle(
+                    VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        0,
+                        boundary,
+                        10_000,
+                    )
+                    .with_open_entrance(),
+                )
                 .expect("Gate-boundary candidate"),
         );
     }
@@ -2459,13 +2462,16 @@ fn fresh_spawn_before_blocked_downstream_storage_must_stop() {
     let open_entry = open.route_edges(open_route).expect("route")[0];
     let open_gate = open.traffic().lane_lengths_millimetres()[open_entry.index()];
     assert!(open_gate > 400, "approach must leave room before the gate");
-    open.spawn_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        open_route,
-        0,
-        open_gate - 400,
-        10_000,
-    ))
+    open.spawn_vehicle(
+        VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            open_route,
+            0,
+            open_gate - 400,
+            10_000,
+        )
+        .with_open_entrance(),
+    )
     .expect("clear downstream is not a mandatory stop");
 
     let mut blocked =
@@ -2474,24 +2480,24 @@ fn fresh_spawn_before_blocked_downstream_storage_must_stop() {
         .register_route(RouteRegisterInput::new(edges))
         .expect("route");
     blocked
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            1,
-            10_501,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 1, 10_501, 0)
+                .with_open_entrance(),
+        )
         .expect("leader rear exactly clears passage");
     let entry = blocked.route_edges(route).expect("route")[0];
     let gate = blocked.traffic().lane_lengths_millimetres()[entry.index()];
     assert_eq!(
-        blocked.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            gate - 400,
-            10_000,
-        )),
+        blocked.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                gate - 400,
+                10_000,
+            )
+            .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable)
     );
 }
@@ -2517,24 +2523,18 @@ fn conflict_tick_rejects_when_committed_downstream_storage_is_blocked() {
         .register_route(RouteRegisterInput::new(edges))
         .expect("route");
     let leader = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            1,
-            10_501,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 1, 10_501, 0)
+                .with_open_entrance(),
+        )
         .expect("leader rear exactly clears passage");
     let entry = world.route_edges(route).expect("route")[0];
     let gate = world.traffic().lane_lengths_millimetres()[entry.index()];
     let subject = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            gate,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, gate, 10_000)
+                .with_open_entrance(),
+        )
         .expect("subject");
 
     world.step(TickInput::new(100)).expect("normal no-grant");
@@ -2591,22 +2591,28 @@ fn permissive_conflict_uses_the_compiled_gap_profile_and_approach_frontier() {
         let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
         let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
         let subject = world
-            .place_existing_active_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                routes[0],
-                0,
-                world.traffic().lane_lengths_millimetres()[subject_edge.index()],
-                10_000,
-            ))
+            .place_existing_active_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    routes[0],
+                    0,
+                    world.traffic().lane_lengths_millimetres()[subject_edge.index()],
+                    10_000,
+                )
+                .with_open_entrance(),
+            )
             .expect("yielding subject");
         let foe = world
-            .place_existing_active_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                routes[1],
-                0,
-                world.traffic().lane_lengths_millimetres()[foe_edge.index()] - distance,
-                10_000,
-            ))
+            .place_existing_active_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    routes[1],
+                    0,
+                    world.traffic().lane_lengths_millimetres()[foe_edge.index()] - distance,
+                    10_000,
+                )
+                .with_open_entrance(),
+            )
             .expect("priority foe");
 
         world.step(TickInput::new(100)).expect("gap arbitration");
@@ -2651,13 +2657,16 @@ fn fresh_spawn_before_a_free_conflict_is_not_a_mandatory_stop() {
     let length = world.traffic().lane_lengths_millimetres()[edge.index()];
     assert!(length > 400, "approach must leave room before the gate");
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("free conflict is not a mandatory stop");
 }
 
@@ -2688,13 +2697,16 @@ fn fresh_spawn_before_a_same_tick_contended_conflict_must_stop() {
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
     assert!(foe_length > 800, "approach must leave a near-gate pose");
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            foe_length - 800,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                foe_length - 800,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("first vehicle still sees a free zone");
     let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
     let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
@@ -2703,13 +2715,16 @@ fn fresh_spawn_before_a_same_tick_contended_conflict_must_stop() {
         "approach must leave room before the gate"
     );
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            subject_length - 400,
-            10_000,
-        )),
+        world.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                subject_length - 400,
+                10_000,
+            )
+            .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable)
     );
 }
@@ -2744,13 +2759,16 @@ fn fresh_spawn_ignores_a_conflict_contender_beyond_this_tick() {
         "approach must leave a pose beyond one tick"
     );
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            5_000,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                5_000,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("far vehicle");
     let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
     let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
@@ -2759,13 +2777,16 @@ fn fresh_spawn_ignores_a_conflict_contender_beyond_this_tick() {
         "approach must leave room before the gate"
     );
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            subject_length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                subject_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("a vehicle beyond this tick does not take the grant");
 }
 
@@ -2802,24 +2823,30 @@ fn fresh_spawn_stops_for_a_yield_gap_beyond_this_tick() {
     let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            foe_length - 2_500,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                foe_length - 2_500,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("foe beyond one tick");
     let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
     let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            subject_length - 400,
-            10_000,
-        )),
+        world.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                subject_length - 400,
+                10_000,
+            )
+            .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable)
     );
 }
@@ -2833,24 +2860,30 @@ fn fresh_spawn_rejects_a_later_foe_that_would_hard_stop_the_yield_vehicle() {
     let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
     let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
     let subject = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            subject_length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                subject_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("yield vehicle is alone");
     let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            foe_length - 2_500,
-            10_000,
-        )),
+        world.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                foe_length - 2_500,
+                10_000,
+            )
+            .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable)
     );
     assert_eq!(
@@ -2868,13 +2901,10 @@ fn contender_reserve_failure_is_not_a_stop_constraint() {
     let routes = yield_routes(&mut world, revision.as_ref());
     laneflow_runtime::set_contender_reserve_failure(true);
     let cursor = world.command_cursor();
-    let result = world.spawn_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        routes[0],
-        0,
-        0,
-        0,
-    ));
+    let result = world.spawn_vehicle(
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 0, 0, 0)
+            .with_open_entrance(),
+    );
     laneflow_runtime::set_contender_reserve_failure(false);
     assert_eq!(result, Err(SpawnError::OccupancyAllocFailed));
     assert_eq!(world.command_cursor(), cursor);
@@ -2890,13 +2920,10 @@ fn contender_note_reserve_failure_is_not_a_stop_constraint() {
     let routes = yield_routes(&mut world, revision.as_ref());
     laneflow_runtime::set_contender_note_reserve_failure(true);
     let cursor = world.command_cursor();
-    let result = world.spawn_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        routes[0],
-        0,
-        0,
-        0,
-    ));
+    let result = world.spawn_vehicle(
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 0, 0, 0)
+            .with_open_entrance(),
+    );
     laneflow_runtime::set_contender_note_reserve_failure(false);
     assert_eq!(result, Err(SpawnError::OccupancyAllocFailed));
     assert_eq!(world.command_cursor(), cursor);
@@ -2912,24 +2939,30 @@ fn fresh_spawn_allows_a_foe_that_reaches_the_stop_line_but_not_the_entrance() {
     let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            foe_length - 5_500,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                foe_length - 5_500,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("foe");
     let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
     let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            subject_length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                subject_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("time to the entrance is outside the lead");
 }
 
@@ -2943,13 +2976,16 @@ fn fresh_spawn_ignores_a_downstream_claim_on_another_route() {
     let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
     let foe = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            foe_length,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                foe_length,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("foe at the gate");
     world
         .step(TickInput::new(100))
@@ -2959,13 +2995,10 @@ fn fresh_spawn_ignores_a_downstream_claim_on_another_route() {
         "foe should hold a committed reservation"
     );
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("a claim on the other route does not block a far spawn");
 }
 
@@ -2992,13 +3025,16 @@ fn fresh_spawn_after_a_step_still_allows_a_free_conflict() {
     let edge = world.route_edges(route).expect("route edges")[0];
     let length = world.traffic().lane_lengths_millimetres()[edge.index()];
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("a dirty empty downstream index does not block a free conflict");
 }
 
@@ -3029,24 +3065,30 @@ fn fresh_spawn_is_not_denied_by_a_foe_who_can_stop_for_red() {
     let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            foe_length - 2_000,
-            3_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                foe_length - 2_000,
+                3_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("foe can stop for red");
     let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
     let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            subject_length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                subject_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("a foe held at red does not take the gap");
 }
 
@@ -3060,13 +3102,16 @@ fn fresh_spawn_stops_while_the_yield_lag_has_not_elapsed() {
     let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
     let foe = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            foe_length,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                foe_length,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("foe already at the gate");
     let mut cleared = false;
     for _ in 0..40 {
@@ -3084,13 +3129,16 @@ fn fresh_spawn_stops_while_the_yield_lag_has_not_elapsed() {
     let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
     let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            subject_length - 400,
-            10_000,
-        )),
+        world.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                subject_length - 400,
+                10_000,
+            )
+            .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable)
     );
 }
@@ -3118,13 +3166,16 @@ fn fresh_spawn_waiting_fullness_follows_this_tick_reach() {
     let edge = world.route_edges(route).expect("route")[0];
     let length = world.traffic().lane_lengths_millimetres()[edge.index()];
     let occupant = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            length - 2_000,
-            3_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                length - 2_000,
+                3_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("occupant can reach the entrance");
     for _ in 0..80 {
         world.step(TickInput::new(100)).expect("step");
@@ -3143,22 +3194,22 @@ fn fresh_spawn_waiting_fullness_follows_this_tick_reach() {
         "occupant should be inside the waiting zone with the tail clear of the approach"
     );
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            0,
-            1_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 1_000)
+                .with_open_entrance(),
+        )
         .expect("a full entrance beyond this tick still allows spawn");
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            length - 200,
-            10_000,
-        )),
+        world.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                length - 200,
+                10_000,
+            )
+            .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable)
     );
 }
@@ -3188,10 +3239,14 @@ fn fresh_spawn_waiting_slot_loss_without_a_conflict_at_the_entrance() {
     let edge = world.route_edges(route).expect("route")[0];
     let length = world.traffic().lane_lengths_millimetres()[edge.index()];
     world
-        .spawn_vehicle(VehicleSpawnInput::new(dot, route, 0, length - 400, 10_000))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(dot, route, 0, length - 400, 10_000).with_open_entrance(),
+        )
         .expect("farther short vehicle still holds the only waiting slot");
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(dot, route, 0, length - 150, 10_000,)),
+        world.spawn_vehicle(
+            VehicleSpawnInput::new(dot, route, 0, length - 150, 10_000,).with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable),
         "taking the only waiting slot must stop the spawn before the follower gap is reported"
     );
@@ -3232,24 +3287,30 @@ fn replace_keeps_the_completed_vehicle_rank() {
     let foe_edge = later.route_edges(later_routes[1]).expect("foe route")[0];
     let foe_length = later.traffic().lane_lengths_millimetres()[foe_edge.index()];
     later
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            later_routes[1],
-            0,
-            foe_length,
-            0,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                later_routes[1],
+                0,
+                foe_length,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("stopped contender already at the gate");
     let subject_edge = later.route_edges(later_routes[0]).expect("subject route")[0];
     let subject_length = later.traffic().lane_lengths_millimetres()[subject_edge.index()];
     assert_eq!(
-        later.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            later_routes[0],
-            0,
-            subject_length - 400,
-            10_000,
-        )),
+        later.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                later_routes[0],
+                0,
+                subject_length - 400,
+                10_000,
+            )
+            .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable),
         "a later rank loses to the stopped contender"
     );
@@ -3262,13 +3323,16 @@ fn replace_keeps_the_completed_vehicle_rank() {
     let last_length =
         world.traffic().lane_lengths_millimetres()[edges[last_index as usize].index()];
     let completed = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            last_index,
-            last_length,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                last_index,
+                last_length,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("spawn at the route end");
     world.step(TickInput::new(100)).expect("complete");
     assert_eq!(
@@ -3278,13 +3342,16 @@ fn replace_keeps_the_completed_vehicle_rank() {
     let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
     let contender = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            foe_length,
-            0,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                foe_length,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("later stopped contender");
     assert_eq!(world.live_vehicles(), &[completed, contender]);
     let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
@@ -3298,7 +3365,8 @@ fn replace_keeps_the_completed_vehicle_rank() {
                 0,
                 subject_length - 400,
                 10_000,
-            ),
+            )
+            .with_open_entrance(),
         )
         .expect("the completed vehicle's old rank still sorts first");
     assert!(world.vehicle(record.new).is_some());
@@ -3324,13 +3392,10 @@ fn accepted_spawn_step_stays_inside_the_emergency_envelope() {
         install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let handle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            0,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 0, 0, 10_000)
+                .with_open_entrance(),
+        )
         .expect("far from the gate");
     let before = world.vehicle(handle).expect("spawned");
     world.step(TickInput::new(100)).expect("step");
@@ -3359,23 +3424,23 @@ fn leader_preview_includes_the_candidate_approach() {
     let yield_edge = world.route_edges(routes[0]).expect("yield route")[0];
     let yield_length = world.traffic().lane_lengths_millimetres()[yield_edge.index()];
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            yield_length.saturating_sub(5),
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                yield_length.saturating_sub(5),
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("earlier yielding vehicle already at the gate");
     let priority_edges = world.route_edges(routes[1]).expect("priority").to_vec();
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            2,
-            2_000,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[1], 2, 2_000, 0)
+                .with_open_entrance(),
+        )
         .unwrap_or_else(|error| {
             panic!(
                 "stopped leader on the next edge, edges {}: {error}",
@@ -3383,13 +3448,16 @@ fn leader_preview_includes_the_candidate_approach() {
             )
         });
     let cursor = world.command_cursor();
-    let admitted = world.spawn_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        routes[1],
-        0,
-        1_000,
-        10_000,
-    ));
+    let admitted = world.spawn_vehicle(
+        VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            1_000,
+            10_000,
+        )
+        .with_open_entrance(),
+    );
     assert!(
         admitted.is_ok(),
         "candidate approach must keep the earlier yielder from inventing UnsafeLeader, got {admitted:?}, cursor {cursor}"
@@ -3406,23 +3474,29 @@ fn priority_then_yield_does_not_newly_stop_the_first_vehicle_past_the_envelope()
     let priority_edge = world.route_edges(routes[1]).expect("priority")[0];
     let priority_length = world.traffic().lane_lengths_millimetres()[priority_edge.index()];
     let priority = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            priority_length - 2_500,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                priority_length - 2_500,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("priority vehicle is far enough to enter");
     let yield_edge = world.route_edges(routes[0]).expect("yield")[0];
     let yield_length = world.traffic().lane_lengths_millimetres()[yield_edge.index()];
-    let yield_spawn = world.spawn_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        routes[0],
-        0,
-        yield_length - 400,
-        10_000,
-    ));
+    let yield_spawn = world.spawn_vehicle(
+        VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            yield_length - 400,
+            10_000,
+        )
+        .with_open_entrance(),
+    );
     if yield_spawn.is_ok() {
         let before = world.vehicle(priority).expect("priority remains");
         let before_speed = before.speed_mm_s();
@@ -3446,22 +3520,22 @@ fn a_far_spawn_is_not_rejected_for_someone_else_at_another_gate() {
     let gate_edge = world.route_edges(routes[1]).expect("gate route")[0];
     let gate_length = world.traffic().lane_lengths_millimetres()[gate_edge.index()];
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            gate_length,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                gate_length,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("stopped vehicle at the other gate");
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("a far vehicle is not blamed for the other gate");
 }
 
@@ -3487,26 +3561,32 @@ fn later_live_rank_loses_and_an_earlier_rank_keeps_the_gate() {
     let foe_edge = world.route_edges(routes[1]).expect("foe")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
     let contender = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            foe_length,
-            0,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                foe_length,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("contender at the front of the live order");
     let edges = world.route_edges(routes[0]).expect("edges").to_vec();
     let last_index = u32::try_from(edges.len() - 1).expect("index");
     let last_length =
         world.traffic().lane_lengths_millimetres()[edges[last_index as usize].index()];
     let completed = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            last_index,
-            last_length,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                last_index,
+                last_length,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("completed vehicle behind the contender");
     world.step(TickInput::new(100)).expect("complete");
     assert_eq!(
@@ -3524,7 +3604,8 @@ fn later_live_rank_loses_and_an_earlier_rank_keeps_the_gate() {
             0,
             subject_length - 400,
             10_000,
-        ),
+        )
+        .with_open_entrance(),
     );
     assert!(
         matches!(rejected, Err(ReplaceError::StopConstraintUnsatisfiable)),
@@ -3554,29 +3635,24 @@ fn incremental_contender_update_matches_a_forced_rebuild_without_scanning_everyo
     let routes = yield_routes(&mut world, revision.as_ref());
     for progress in [0_u32, 2_000, 4_000] {
         world
-            .spawn_vehicle(VehicleSpawnInput::new(dot, routes[1], 0, progress, 0))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(dot, routes[1], 0, progress, 0).with_open_entrance(),
+            )
             .expect("parked far from the north gate");
     }
     let east_edge = world.route_edges(routes[0]).expect("east")[0];
     let east_length = world.traffic().lane_lengths_millimetres()[east_edge.index()];
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            dot,
-            routes[0],
-            0,
-            east_length - 140,
-            1_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(dot, routes[0], 0, east_length - 140, 1_000)
+                .with_open_entrance(),
+        )
         .expect("short vehicle still reaches the east gate");
     laneflow_runtime::reset_contender_update_counts();
     world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            dot,
-            routes[0],
-            0,
-            east_length - 20,
-            0,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(dot, routes[0], 0, east_length - 20, 0).with_open_entrance(),
+        )
         .expect("leader already in front");
     let visits = laneflow_runtime::incremental_contender_visits();
     let scans = laneflow_runtime::contender_rebuild_scans();
@@ -3615,13 +3691,16 @@ fn each_admission_reserve_failure_is_occupancy_alloc_and_commits_nothing() {
             let foe = world.route_edges(routes[1]).expect("foe")[0];
             let foe_length = world.traffic().lane_lengths_millimetres()[foe.index()];
             world
-                .place_existing_active_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    routes[1],
-                    0,
-                    foe_length,
-                    0,
-                ))
+                .place_existing_active_vehicle(
+                    VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        routes[1],
+                        0,
+                        foe_length,
+                        0,
+                    )
+                    .with_open_entrance(),
+                )
                 .expect("earlier contender");
         }
         let cursor = world.command_cursor();
@@ -3635,13 +3714,16 @@ fn each_admission_reserve_failure_is_occupancy_alloc_and_commits_nothing() {
             0
         };
         let speed = if progress == 0 { 0 } else { 10_000 };
-        let result = world.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            progress,
-            speed,
-        ));
+        let result = world.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                progress,
+                speed,
+            )
+            .with_open_entrance(),
+        );
         laneflow_runtime::set_admission_reserve_failure(kind, false);
         assert_eq!(
             result,
@@ -3651,13 +3733,10 @@ fn each_admission_reserve_failure_is_occupancy_alloc_and_commits_nothing() {
         assert_eq!(world.command_cursor(), cursor);
         assert_eq!(world.live_vehicles().len(), live_before);
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                routes[0],
-                0,
-                0,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 0, 0, 0)
+                    .with_open_entrance(),
+            )
             .expect("the same far spawn works after the fault clears");
     }
 }
@@ -3674,13 +3753,16 @@ fn cutover_does_not_reuse_the_previous_generation_contender_cache() {
     let edge = world.route_edges(routes[0]).expect("route")[0];
     let length = world.traffic().lane_lengths_millimetres()[edge.index()];
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("build a contender cache before cutover");
     let remembered = world.observation_state_sequence();
     let descriptor = NetworkRevisionCutoverDescriptor::new(
@@ -3715,20 +3797,14 @@ fn cutover_does_not_reuse_the_previous_generation_contender_cache() {
     let fresh_routes = yield_routes(&mut fresh, fresh_held.as_ref());
     let carried_held = world.revision();
     let carried = yield_routes(&mut world, carried_held.as_ref());
-    let on_carried = world.spawn_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        carried[0],
-        0,
-        0,
-        0,
-    ));
-    let on_fresh = fresh.spawn_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        fresh_routes[0],
-        0,
-        0,
-        0,
-    ));
+    let on_carried = world.spawn_vehicle(
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), carried[0], 0, 0, 0)
+            .with_open_entrance(),
+    );
+    let on_fresh = fresh.spawn_vehicle(
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), fresh_routes[0], 0, 0, 0)
+            .with_open_entrance(),
+    );
     assert_eq!(
         on_carried.is_ok(),
         on_fresh.is_ok(),
@@ -3770,7 +3846,9 @@ fn second_resource_gate_within_reach_matches_the_following_step() {
     let length = world.traffic().lane_lengths_millimetres()[edge.index()];
     let progress = length - 200;
     let handle = world
-        .spawn_vehicle(VehicleSpawnInput::new(dot, routes[0], 0, progress, 2_000))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(dot, routes[0], 0, progress, 2_000).with_open_entrance(),
+        )
         .expect("a slow vehicle can stop at the second gate");
     let before = world.vehicle(handle).expect("spawned");
     world.step(TickInput::new(1_000)).expect("step");
@@ -3805,13 +3883,10 @@ fn second_resource_gate_within_reach_matches_the_following_step() {
         let oracle_held = oracle.revision();
         let oracle_routes = yield_routes(&mut oracle, oracle_held.as_ref());
         let placed = oracle
-            .place_existing_active_vehicle(VehicleSpawnInput::new(
-                dot,
-                oracle_routes[0],
-                0,
-                progress,
-                2_000,
-            ))
+            .place_existing_active_vehicle(
+                VehicleSpawnInput::new(dot, oracle_routes[0], 0, progress, 2_000)
+                    .with_open_entrance(),
+            )
             .expect("same pose without admission");
         oracle.step(TickInput::new(1_000)).expect("oracle step");
         let stepped = oracle.vehicle(placed).expect("oracle vehicle");
@@ -3831,13 +3906,9 @@ fn second_resource_gate_beyond_this_tick_still_allows_the_spawn() {
     let edge = world.route_edges(routes[0]).expect("route")[0];
     let length = world.traffic().lane_lengths_millimetres()[edge.index()];
     let handle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            dot,
-            routes[0],
-            0,
-            length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(dot, routes[0], 0, length - 400, 10_000).with_open_entrance(),
+        )
         .expect("the second gate is beyond this tick");
     let before = world.vehicle(handle).expect("spawned");
     world.step(TickInput::new(100)).expect("step");
@@ -3861,13 +3932,9 @@ fn fast_vehicle_reaching_the_second_gate_is_not_cleared_past_the_envelope() {
     let routes = yield_routes(&mut world, held.as_ref());
     let edge = world.route_edges(routes[0]).expect("route")[0];
     let length = world.traffic().lane_lengths_millimetres()[edge.index()];
-    match world.spawn_vehicle(VehicleSpawnInput::new(
-        dot,
-        routes[0],
-        0,
-        length - 80,
-        10_000,
-    )) {
+    match world.spawn_vehicle(
+        VehicleSpawnInput::new(dot, routes[0], 0, length - 80, 10_000).with_open_entrance(),
+    ) {
         Err(SpawnError::StopConstraintUnsatisfiable) => {}
         Ok(handle) => {
             let before = world.vehicle(handle).expect("spawned");
@@ -3909,24 +3976,30 @@ fn unacquired_downstream_claim_does_not_block_the_other_exit() {
     let open_routes = yield_routes(&mut open, revision.as_ref());
     let open_east = open.route_edges(open_routes[0]).expect("east")[0];
     let open_east_length = open.traffic().lane_lengths_millimetres()[open_east.index()];
-    open.place_existing_active_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        open_routes[0],
-        0,
-        open_east_length - 400,
-        10_000,
-    ))
+    open.place_existing_active_vehicle(
+        VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            open_routes[0],
+            0,
+            open_east_length - 400,
+            10_000,
+        )
+        .with_open_entrance(),
+    )
     .expect("east can still acquire");
     let open_north = open.route_edges(open_routes[1]).expect("north")[0];
     let open_north_length = open.traffic().lane_lengths_millimetres()[open_north.index()];
     assert_eq!(
-        open.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            open_routes[1],
-            0,
-            open_north_length - 400,
-            10_000,
-        )),
+        open.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                open_routes[1],
+                0,
+                open_north_length - 400,
+                10_000,
+            )
+            .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable),
         "an earlier vehicle who can acquire still blocks the other exit"
     );
@@ -3937,34 +4010,37 @@ fn unacquired_downstream_claim_does_not_block_the_other_exit() {
     let routes = yield_routes(&mut blocked, blocked_held.as_ref());
     let east_edges = blocked.route_edges(routes[0]).expect("east").to_vec();
     blocked
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            1,
-            10_501,
-            0,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 1, 10_501, 0)
+                .with_open_entrance(),
+        )
         .expect("leader blocks east storage");
     let east_length = blocked.traffic().lane_lengths_millimetres()[east_edges[0].index()];
     blocked
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            east_length - 400,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                east_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("east vehicle cannot acquire");
     let north_edge = blocked.route_edges(routes[1]).expect("north")[0];
     let north_length = blocked.traffic().lane_lengths_millimetres()[north_edge.index()];
     blocked
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            north_length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                north_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("a claim that is not acquired does not block the other exit");
 }
 
@@ -3990,13 +4066,16 @@ fn already_unstoppable_vehicle_is_not_charged_to_the_next_insert() {
     let last = u32::try_from(edges.len() - 1).expect("index");
     let last_length = world.traffic().lane_lengths_millimetres()[edges[last as usize].index()];
     let completed = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            last,
-            last_length,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                last,
+                last_length,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("completed later");
     world.step(TickInput::new(100)).expect("complete");
     assert_eq!(
@@ -4006,27 +4085,28 @@ fn already_unstoppable_vehicle_is_not_charged_to_the_next_insert() {
     let yield_edge = world.route_edges(routes[0]).expect("yield")[0];
     let yield_length = world.traffic().lane_lengths_millimetres()[yield_edge.index()];
     world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            yield_length - 400,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                yield_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("already cannot stop for the closed gate");
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[1], 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("an unrelated spawn is not blamed for an old hard stop");
     world
         .replace_completed_vehicle(
             completed,
-            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[1], 0, 6_000, 0),
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[1], 0, 6_000, 0)
+                .with_open_entrance(),
         )
         .expect("replace uses the same rule and does not blame the old hard stop");
 }
@@ -4042,25 +4122,31 @@ fn replace_into_the_priority_pose_uses_the_same_yield_rule() {
     let last = u32::try_from(edges.len() - 1).expect("index");
     let last_length = world.traffic().lane_lengths_millimetres()[edges[last as usize].index()];
     let completed = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            last,
-            last_length,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                last,
+                last_length,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("completed vehicle");
     world.step(TickInput::new(100)).expect("complete");
     let yield_edge = world.route_edges(routes[0]).expect("yield")[0];
     let yield_length = world.traffic().lane_lengths_millimetres()[yield_edge.index()];
     world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            yield_length - 400,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                yield_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("yield vehicle");
     let priority_edge = world.route_edges(routes[1]).expect("priority")[0];
     let priority_length = world.traffic().lane_lengths_millimetres()[priority_edge.index()];
@@ -4072,7 +4158,8 @@ fn replace_into_the_priority_pose_uses_the_same_yield_rule() {
             0,
             priority_length - 2_500,
             10_000,
-        ),
+        )
+        .with_open_entrance(),
     );
     assert!(
         matches!(replaced, Err(ReplaceError::StopConstraintUnsatisfiable)),
@@ -4107,24 +4194,18 @@ fn failed_same_zone_contender_does_not_block_the_waiting_conflict_gate() {
     let open_routes = yield_routes(&mut open, open_held.as_ref());
     let open_east = open.route_edges(open_routes[0]).expect("east")[0];
     let open_east_length = open.traffic().lane_lengths_millimetres()[open_east.index()];
-    open.place_existing_active_vehicle(VehicleSpawnInput::new(
-        dot,
-        open_routes[0],
-        0,
-        open_east_length - 200,
-        2_000,
-    ))
+    open.place_existing_active_vehicle(
+        VehicleSpawnInput::new(dot, open_routes[0], 0, open_east_length - 200, 2_000)
+            .with_open_entrance(),
+    )
     .expect("east reaches the shared zone");
     let open_north = open.route_edges(open_routes[1]).expect("north")[0];
     let open_north_length = open.traffic().lane_lengths_millimetres()[open_north.index()];
     let open_north_vehicle = open
-        .spawn_vehicle(VehicleSpawnInput::new(
-            dot,
-            open_routes[1],
-            0,
-            open_north_length - 200,
-            2_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(dot, open_routes[1], 0, open_north_length - 200, 2_000)
+                .with_open_entrance(),
+        )
         .expect("north can still stop for a zone someone else will take");
     open.step(TickInput::new(1_000)).expect("open step");
     assert!(
@@ -4139,27 +4220,23 @@ fn failed_same_zone_contender_does_not_block_the_waiting_conflict_gate() {
     let east_edges = blocked.route_edges(routes[0]).expect("east").to_vec();
     let east_length = blocked.traffic().lane_lengths_millimetres()[east_edges[0].index()];
     blocked
-        .place_existing_active_vehicle(VehicleSpawnInput::new(dot, routes[0], 1, 400, 0))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(dot, routes[0], 1, 400, 0).with_open_entrance(),
+        )
         .expect("leader blocks east storage");
     blocked
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            dot,
-            routes[0],
-            0,
-            east_length - 200,
-            2_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(dot, routes[0], 0, east_length - 200, 2_000)
+                .with_open_entrance(),
+        )
         .expect("east cannot acquire");
     let north_edge = blocked.route_edges(routes[1]).expect("north")[0];
     let north_length = blocked.traffic().lane_lengths_millimetres()[north_edge.index()];
     let north = blocked
-        .spawn_vehicle(VehicleSpawnInput::new(
-            dot,
-            routes[1],
-            0,
-            north_length - 200,
-            2_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(dot, routes[1], 0, north_length - 200, 2_000)
+                .with_open_entrance(),
+        )
         .expect("a contender who cannot acquire does not block the waiting approach");
     blocked.step(TickInput::new(1_000)).expect("blocked step");
     let north_state = blocked.vehicle(north).expect("north");
@@ -4188,23 +4265,29 @@ fn a_waiting_zone_beyond_this_tick_still_lets_the_conflict_acquire() {
     let routes = yield_routes(&mut world, held.as_ref());
     let north_length = approach_length(&world, routes[1]);
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            north_length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                north_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("a waiting entrance this tick cannot reach does not cancel the conflict");
     let east_length = approach_length(&world, routes[0]);
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            east_length - 400,
-            10_000,
-        )),
+        world.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                east_length - 400,
+                10_000,
+            )
+            .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable),
         "the first vehicle still acquired the zone"
     );
@@ -4213,13 +4296,16 @@ fn a_waiting_zone_beyond_this_tick_still_lets_the_conflict_acquire() {
     let stepped_revision = stepped.revision();
     let stepped_routes = yield_routes(&mut stepped, stepped_revision.as_ref());
     let placed = stepped
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            stepped_routes[1],
-            0,
-            north_length - 400,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                stepped_routes[1],
+                0,
+                north_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("place");
     stepped.step(TickInput::new(100)).expect("official step");
     let state = stepped.vehicle(placed).expect("placed");
@@ -4248,13 +4334,16 @@ fn a_full_waiting_zone_beyond_this_tick_still_lets_the_conflict_acquire() {
     let routes = yield_routes(&mut world, held.as_ref());
     let north_length = approach_length(&world, routes[1]);
     let occupant = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            north_length - 2_000,
-            4_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                north_length - 2_000,
+                4_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("occupant");
     for _ in 0..400 {
         world.step(TickInput::new(100)).expect("fill");
@@ -4275,23 +4364,29 @@ fn a_full_waiting_zone_beyond_this_tick_still_lets_the_conflict_acquire() {
     );
     assert!(world.conflict_reservation(occupant).is_none());
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            north_length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                north_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("a full waiting zone this tick cannot reach does not cancel the conflict");
     let east_length = approach_length(&world, routes[0]);
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            east_length - 400,
-            10_000,
-        )),
+        world.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                east_length - 400,
+                10_000,
+            )
+            .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable)
     );
 }
@@ -4306,34 +4401,43 @@ fn a_claim_past_the_waiting_entrance_does_not_keep_the_zone() {
     let routes = yield_routes(&mut world, held.as_ref());
     let north_length = approach_length(&world, routes[1]);
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            north_length - 400,
-            10_000,
-        )),
+        world.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                north_length - 400,
+                10_000,
+            )
+            .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable),
         "a claim the next tick will not grant is not admitted clear"
     );
     let north = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            north_length - 400,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                north_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("placed contender");
     let east_length = approach_length(&world, routes[0]);
     let east = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            east_length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                east_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("a contender who will not acquire does not keep the zone");
     world.step(TickInput::new(100)).expect("step");
     let north_state = world.vehicle(north).expect("north");
@@ -4376,48 +4480,42 @@ fn refresh_allocation_failure_keeps_the_committed_vehicle() {
     let clean_route = register_first_stream(&mut clean);
     let faulted_route = register_first_stream(&mut faulted);
     clean
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            clean_route,
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), clean_route, 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("first");
     faulted
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            faulted_route,
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), faulted_route, 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("first");
     laneflow_runtime::set_admission_reserve_failure(
         laneflow_runtime::AdmissionReserve::Refresh,
         true,
     );
     faulted
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            faulted_route,
-            0,
-            8_000,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                faulted_route,
+                0,
+                8_000,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("allocation after commit still keeps the vehicle");
     laneflow_runtime::set_admission_reserve_failure(
         laneflow_runtime::AdmissionReserve::Refresh,
         false,
     );
     clean
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            clean_route,
-            0,
-            8_000,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), clean_route, 0, 8_000, 0)
+                .with_open_entrance(),
+        )
         .expect("second");
     faulted.force_rebuild_contenders_for_test();
     assert_eq!(
@@ -4442,24 +4540,30 @@ fn candidate_admission_calls_for(revision: &Arc<SharedNetworkRevision>, existing
     let route = register_first_stream(&mut world);
     for index in 0..existing {
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                u32::try_from(index).expect("index"),
-                0,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    u32::try_from(index).expect("index"),
+                    0,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("existing");
     }
     laneflow_runtime::reset_candidate_admission_calls();
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            u32::try_from(existing).expect("index"),
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                u32::try_from(existing).expect("index"),
+                0,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("subject");
     laneflow_runtime::candidate_admission_calls()
 }
@@ -4508,22 +4612,22 @@ fn an_exit_only_route_still_blocks_downstream_storage() {
         .expect("plain exit route");
     let entry_length = world.traffic().lane_lengths_millimetres()[full_edges[0].index()];
     let approacher = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            entry_length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                entry_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("downstream is free for the first vehicle");
     let cursor = world.command_cursor();
-    let blocked = world.spawn_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        exit_only,
-        0,
-        5_000,
-        0,
-    ));
+    let blocked = world.spawn_vehicle(
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), exit_only, 0, 5_000, 0)
+            .with_open_entrance(),
+    );
     assert!(
         matches!(blocked, Err(SpawnError::StopConstraintUnsatisfiable)),
         "an exit body must not let the approacher hard-stop past the envelope, got {blocked:?}"
@@ -4540,13 +4644,10 @@ fn an_exit_only_route_still_blocks_downstream_storage() {
         "body scratch follows the shortest legal edge, not one slot per millimetre"
     );
     let accepted = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            exit_only,
-            0,
-            11_000,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), exit_only, 0, 11_000, 0)
+                .with_open_entrance(),
+        )
         .expect("a body past the stored downstream still fits");
     let before = world.vehicle(approacher).expect("approacher");
     let before_speed = before.speed_mm_s();
@@ -4585,22 +4686,22 @@ fn an_exit_body_blocks_downstream_when_the_follower_cannot_stop() {
     let edges = world.route_edges(routes[0]).expect("edges").to_vec();
     let entry_length = world.traffic().lane_lengths_millimetres()[edges[0].index()];
     world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            entry_length - 400,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                entry_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("follower is already at the gate");
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            2,
-            1_000,
-            0,
-        )),
+        world.spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 2, 1_000, 0,)
+                .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable),
         "the exit body blocks downstream storage and the follower cannot stop"
     );
@@ -4645,23 +4746,23 @@ fn leader_room_tighter_than_red_rejects_and_a_looser_room_does_not() {
     let entry = entry_length_mm(&world, routes[0]);
     let follower_at = entry - 150;
     world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            follower_at,
-            1_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                follower_at,
+                1_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("follower 150 mm before red");
     let cursor = world.command_cursor();
     let sequence = world.observation_state_sequence();
-    let tight = world.spawn_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        routes[0],
-        1,
-        4_550,
-        0,
-    ));
+    let tight = world.spawn_vehicle(
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 1, 4_550, 0)
+            .with_open_entrance(),
+    );
     assert_eq!(
         tight,
         Err(SpawnError::UnsafeFollower {
@@ -4675,22 +4776,22 @@ fn leader_room_tighter_than_red_rejects_and_a_looser_room_does_not() {
 
     let (mut loose, routes) = long_red_routes();
     loose
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            follower_at,
-            1_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                follower_at,
+                1_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("follower");
     loose
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            1,
-            6_500,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 1, 6_500, 0)
+                .with_open_entrance(),
+        )
         .expect("leader room is no tighter than the red");
     let before = loose.vehicle(loose.live_vehicles()[0]).expect("follower");
     let speed_before = before.speed_mm_s();
@@ -4717,23 +4818,23 @@ fn leader_room_tighter_than_red_rejects_and_a_looser_room_does_not() {
     let entry = entry_length_mm(&crossing, routes[0]);
     let follower_at = entry - 700;
     crossing
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            follower_at,
-            1_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                follower_at,
+                1_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("follower behind a tail that crosses the edge");
     let cursor = crossing.command_cursor();
     let sequence = crossing.observation_state_sequence();
-    let tail = crossing.spawn_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        routes[0],
-        1,
-        4_000,
-        0,
-    ));
+    let tail = crossing.spawn_vehicle(
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 1, 4_000, 0)
+            .with_open_entrance(),
+    );
     assert_eq!(
         tail,
         Err(SpawnError::UnsafeFollower {
@@ -4755,45 +4856,57 @@ fn exclusion_work_stays_flat_when_less_urgent_owners_are_added() {
         let routes = yield_routes(&mut world, revision.as_ref());
         let foe_length = entry_length_mm(&world, routes[1]);
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                routes[1],
-                0,
-                foe_length - 2_500,
-                10_000,
-            ))
-            .expect("urgent foe");
-        if extra > 0 {
-            world
-                .spawn_vehicle(VehicleSpawnInput::new(
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
                     VehicleProfileOrdinal::from_raw(0),
                     routes[1],
                     0,
-                    800,
-                    500,
-                ))
+                    foe_length - 2_500,
+                    10_000,
+                )
+                .with_open_entrance(),
+            )
+            .expect("urgent foe");
+        if extra > 0 {
+            world
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        routes[1],
+                        0,
+                        800,
+                        500,
+                    )
+                    .with_open_entrance(),
+                )
                 .expect("less urgent approach behind the foe");
         }
         if extra > 1 {
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    routes[1],
-                    2,
-                    1_000,
-                    500,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        routes[1],
+                        2,
+                        1_000,
+                        500,
+                    )
+                    .with_open_entrance(),
+                )
                 .expect("less urgent vehicle past the conflict");
         }
         laneflow_runtime::reset_exclusion_counts();
         let subject_length = entry_length_mm(&world, routes[0]);
-        let result = world.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            subject_length - 400,
-            10_000,
-        ));
+        let result = world.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                subject_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        );
         let (calls, work) = laneflow_runtime::exclusion_counts();
         (result, calls, work)
     };
@@ -4833,13 +4946,16 @@ fn committed_parking_commands_drop_the_contender_snapshot() {
     let routes = yield_routes(&mut world, held.as_ref());
     let east_length = entry_length_mm(&world, routes[0]);
     let east = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            east_length - 400,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                east_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("east");
     let sequence = world.observation_state_sequence();
     world
@@ -4853,13 +4969,10 @@ fn committed_parking_commands_drop_the_contender_snapshot() {
         .expect("reserve");
     assert_eq!(world.observation_state_sequence(), sequence);
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("rebuild after reserve");
     assert!(
         laneflow_runtime::contender_rebuild_scans() >= 1,
@@ -4881,13 +4994,10 @@ fn committed_parking_commands_drop_the_contender_snapshot() {
     );
     assert_eq!(world.observation_state_sequence(), sequence);
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            6_000,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 0, 6_000, 0)
+                .with_open_entrance(),
+        )
         .expect("reuse after no-change reserve");
     assert_eq!(
         laneflow_runtime::contender_rebuild_scans(),
@@ -4905,13 +5015,16 @@ fn committed_parking_commands_drop_the_contender_snapshot() {
     assert_eq!(world.observation_state_sequence(), sequence);
     let cursor = world.command_cursor();
     let north_length = entry_length_mm(&world, routes[1]);
-    let north = world.spawn_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        routes[1],
-        0,
-        north_length - 400,
-        10_000,
-    ));
+    let north = world.spawn_vehicle(
+        VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            north_length - 400,
+            10_000,
+        )
+        .with_open_entrance(),
+    );
     assert_eq!(
         north,
         Err(SpawnError::StopConstraintUnsatisfiable),
@@ -4932,7 +5045,7 @@ fn committed_rebind_drops_the_contender_snapshot() {
     let profile = VehicleProfileOrdinal::from_raw(0);
     let facility = ParkingFacilityOrdinal::from_raw(0);
     let contained = world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, old_route, 1, 5_000, 0))
+        .spawn_vehicle(VehicleSpawnInput::new(profile, old_route, 1, 5_000, 0).with_open_entrance())
         .expect("contained");
     world
         .reserve_parking(
@@ -4945,7 +5058,7 @@ fn committed_rebind_drops_the_contender_snapshot() {
         )
         .expect("reserve");
     world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, old_route, 2, 1_000, 0))
+        .spawn_vehicle(VehicleSpawnInput::new(profile, old_route, 2, 1_000, 0).with_open_entrance())
         .expect("warm the snapshot");
     let sequence = world.observation_state_sequence();
     world
@@ -4962,7 +5075,7 @@ fn committed_rebind_drops_the_contender_snapshot() {
         .expect("rebind");
     assert_eq!(world.observation_state_sequence(), sequence);
     world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, new_route, 0, 0, 0))
+        .spawn_vehicle(VehicleSpawnInput::new(profile, new_route, 0, 0, 0).with_open_entrance())
         .expect("spawn after rebind");
     assert!(
         laneflow_runtime::contender_rebuild_scans() >= 1,
@@ -4983,13 +5096,16 @@ fn admission_work_after_far_vehicles(existing: usize) -> (u64, u64, u64, u64) {
                 break;
             }
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    routes[1],
-                    edge,
-                    progress,
-                    0,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        routes[1],
+                        edge,
+                        progress,
+                        0,
+                    )
+                    .with_open_entrance(),
+                )
                 .expect("far stopped vehicle");
             placed += 1;
         }
@@ -4999,13 +5115,10 @@ fn admission_work_after_far_vehicles(existing: usize) -> (u64, u64, u64, u64) {
     laneflow_runtime::reset_admission_scratch_reserves();
     laneflow_runtime::reset_contender_update_counts();
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("unrelated spawn");
     (
         laneflow_runtime::recheck_visits(),
@@ -5032,13 +5145,16 @@ fn straight_road_work(existing: usize) -> (u64, u64, u64, u64) {
     let route = register_named(&mut world, &["road"]);
     for index in 0..existing {
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                u32::try_from(index).expect("index") * 8_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    u32::try_from(index).expect("index") * 8_000,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("stopped along the road");
     }
     laneflow_runtime::reset_recheck_visits();
@@ -5046,13 +5162,16 @@ fn straight_road_work(existing: usize) -> (u64, u64, u64, u64) {
     laneflow_runtime::reset_admission_scratch_reserves();
     laneflow_runtime::reset_contender_update_counts();
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            u32::try_from(existing).expect("index") * 8_000,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                u32::try_from(existing).expect("index") * 8_000,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("next stopped vehicle");
     (
         laneflow_runtime::recheck_visits(),
@@ -5081,32 +5200,35 @@ fn yield_stop_result(full: bool) -> Result<laneflow_runtime::VehicleHandle, Spaw
     let routes = yield_routes(&mut world, revision.as_ref());
     let subject_length = entry_length_mm(&world, routes[0]);
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            subject_length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                subject_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("yield vehicle");
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            1_000,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[1], 0, 1_000, 0)
+                .with_open_entrance(),
+        )
         .expect("unrelated stopped vehicle");
     laneflow_runtime::set_full_recheck(full);
     let foe_length = entry_length_mm(&world, routes[1]);
-    let result = world.spawn_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        routes[1],
-        0,
-        foe_length - 2_500,
-        10_000,
-    ));
+    let result = world.spawn_vehicle(
+        VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[1],
+            0,
+            foe_length - 2_500,
+            10_000,
+        )
+        .with_open_entrance(),
+    );
     laneflow_runtime::set_full_recheck(false);
     result
 }
@@ -5128,32 +5250,29 @@ fn closure_recheck_matches_the_full_scan_oracle() {
             install_fixture(revision.clone(), WorldConfig::new(8, 4, 64, 4, 100)).expect("world");
         let routes = yield_routes(&mut world, revision.as_ref());
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                routes[1],
-                0,
-                0,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[1], 0, 0, 0)
+                    .with_open_entrance(),
+            )
             .expect("unrelated");
         let length = entry_length_mm(&world, routes[0]);
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                routes[0],
-                0,
-                length - 400,
-                1_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    routes[0],
+                    0,
+                    length - 400,
+                    1_000,
+                )
+                .with_open_entrance(),
+            )
             .expect("inside a later closure");
         laneflow_runtime::set_full_recheck(full);
-        let result = world.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            1_000,
-            0,
-        ));
+        let result = world.spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 0, 1_000, 0)
+                .with_open_entrance(),
+        );
         laneflow_runtime::set_full_recheck(false);
         result.is_ok()
     };
@@ -5211,24 +5330,30 @@ fn reserved_parking_keeps_an_unacquired_zone_from_blocking_the_next_vehicle() {
     let open_routes = yield_routes(&mut open, revision.as_ref());
     let open_east = open.route_edges(open_routes[0]).expect("east")[0];
     let open_east_length = open.traffic().lane_lengths_millimetres()[open_east.index()];
-    open.place_existing_active_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        open_routes[0],
-        0,
-        open_east_length - 400,
-        10_000,
-    ))
+    open.place_existing_active_vehicle(
+        VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            open_routes[0],
+            0,
+            open_east_length - 400,
+            10_000,
+        )
+        .with_open_entrance(),
+    )
     .expect("east can still acquire");
     let open_north = open.route_edges(open_routes[1]).expect("north")[0];
     let open_north_length = open.traffic().lane_lengths_millimetres()[open_north.index()];
     assert_eq!(
-        open.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            open_routes[1],
-            0,
-            open_north_length - 400,
-            10_000,
-        )),
+        open.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                open_routes[1],
+                0,
+                open_north_length - 400,
+                10_000,
+            )
+            .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable),
         "an earlier vehicle who can acquire still blocks the other approach"
     );
@@ -5240,13 +5365,16 @@ fn reserved_parking_keeps_an_unacquired_zone_from_blocking_the_next_vehicle() {
     let east_edge = blocked.route_edges(routes[0]).expect("east")[0];
     let east_length = blocked.traffic().lane_lengths_millimetres()[east_edge.index()];
     let east = blocked
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            east_length - 400,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                east_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("east contender");
     blocked
         .reserve_parking(
@@ -5260,13 +5388,16 @@ fn reserved_parking_keeps_an_unacquired_zone_from_blocking_the_next_vehicle() {
     let north_edge = blocked.route_edges(routes[1]).expect("north")[0];
     let north_length = blocked.traffic().lane_lengths_millimetres()[north_edge.index()];
     let north = blocked
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            north_length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                north_length - 400,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("a contender stopped by a parking anchor does not keep the zone");
     blocked.step(TickInput::new(100)).expect("step");
     assert!(
@@ -5286,13 +5417,16 @@ fn spawn_completed_at_end(world: &mut TrafficWorld, route: RouteHandle) -> Vehic
     let last = u32::try_from(edges.len() - 1).expect("index");
     let last_length = world.traffic().lane_lengths_millimetres()[edges[last as usize].index()];
     let completed = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            last,
-            last_length,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                last,
+                last_length,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("spawn at the route end");
     world.step(TickInput::new(100)).expect("complete");
     assert_eq!(
@@ -5321,25 +5455,25 @@ fn middle_live_rank_keeps_the_gate_against_a_later_contender() {
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            0,
-            0,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[1], 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("bystander at the front of the live order");
     let completed = spawn_completed_at_end(&mut world, routes[0]);
     let foe_edge = world.route_edges(routes[1]).expect("foe")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
     world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            foe_length,
-            0,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                foe_length,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("later contender");
     let subject_edge = world.route_edges(routes[0]).expect("subject")[0];
     let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
@@ -5352,7 +5486,8 @@ fn middle_live_rank_keeps_the_gate_against_a_later_contender() {
                 0,
                 subject_length - 400,
                 10_000,
-            ),
+            )
+            .with_open_entrance(),
         )
         .expect("the middle live rank still sorts ahead of the later contender");
 }
@@ -5380,24 +5515,30 @@ fn completed_hole_keeps_its_rank_and_a_new_spawn_does_not_reuse_it() {
     let foe_edge = world.route_edges(routes[1]).expect("foe")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
     world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            foe_length,
-            0,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                foe_length,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("contender after the completed hole");
     let subject_edge = world.route_edges(routes[0]).expect("subject")[0];
     let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            subject_length - 400,
-            10_000,
-        )),
+        world.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                subject_length - 400,
+                10_000,
+            )
+            .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable),
         "a new spawn keeps counting the completed hole, so it sorts after the contender"
     );
@@ -5410,7 +5551,8 @@ fn completed_hole_keeps_its_rank_and_a_new_spawn_does_not_reuse_it() {
                 0,
                 subject_length - 400,
                 10_000,
-            ),
+            )
+            .with_open_entrance(),
         )
         .expect("replacing the hole keeps the earlier rank");
 }
@@ -5439,35 +5581,44 @@ fn replacement_does_not_outrank_a_contender_eligible_this_tick() {
     let last = u32::try_from(edges.len() - 1).expect("index");
     let last_length = world.traffic().lane_lengths_millimetres()[edges[last as usize].index()];
     let completed = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            last,
-            last_length,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                last,
+                last_length,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("early live slot");
     let east_edge = world.route_edges(routes[0]).expect("east")[0];
     let east_length = world.traffic().lane_lengths_millimetres()[east_edge.index()];
     let winner = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(1),
-            routes[0],
-            0,
-            east_length.saturating_sub(50),
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(1),
+                routes[0],
+                0,
+                east_length.saturating_sub(50),
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("fast vehicle clears the short passage");
     let north_edge = world.route_edges(routes[1]).expect("north")[0];
     let north_length = world.traffic().lane_lengths_millimetres()[north_edge.index()];
     let loser = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(1),
-            routes[1],
-            0,
-            north_length,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(1),
+                routes[1],
+                0,
+                north_length,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("stopped rival");
     world.step(TickInput::new(100)).expect("step");
     assert_eq!(
@@ -5489,7 +5640,8 @@ fn replacement_does_not_outrank_a_contender_eligible_this_tick() {
             0,
             east_length.saturating_sub(400),
             10_000,
-        ),
+        )
+        .with_open_entrance(),
     );
     assert!(
         matches!(replaced, Err(ReplaceError::StopConstraintUnsatisfiable)),
@@ -5524,13 +5676,16 @@ fn equal_distance_earlier_rank_keeps_the_gate() {
     let foe_edge = world.route_edges(routes[1]).expect("foe")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
     let earlier = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            foe_length,
-            0,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                foe_length,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("same distance on the other approach");
     let subject_edge = world.route_edges(routes[0]).expect("subject")[0];
     let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
@@ -5543,7 +5698,8 @@ fn equal_distance_earlier_rank_keeps_the_gate() {
                 0,
                 subject_length,
                 0,
-            ),
+            )
+            .with_open_entrance(),
         )
         .expect("equal distance still yields to the earlier live rank");
     world.step(TickInput::new(100)).expect("arbitrate");
@@ -5596,7 +5752,8 @@ fn reused_slot_generation_keeps_the_old_live_rank() {
                     last,
                     last_length,
                     0,
-                ),
+                )
+                .with_open_entrance(),
             )
             .expect("reuse the completed slot");
         current = record.new;
@@ -5609,13 +5766,16 @@ fn reused_slot_generation_keeps_the_old_live_rank() {
     let foe_edge = world.route_edges(routes[1]).expect("foe")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
     world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            foe_length,
-            0,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                foe_length,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("later contender");
     let subject_edge = world.route_edges(routes[0]).expect("subject")[0];
     let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
@@ -5628,7 +5788,8 @@ fn reused_slot_generation_keeps_the_old_live_rank() {
                 0,
                 subject_length - 400,
                 10_000,
-            ),
+            )
+            .with_open_entrance(),
         )
         .expect("a reused slot keeps the original live rank, not the slot generation");
 }
@@ -5658,22 +5819,14 @@ fn waiting_entrants_keep_approach_order_across_spawn_order() {
     let edge = world.route_edges(routes[1]).expect("north")[0];
     let length = world.traffic().lane_lengths_millimetres()[edge.index()];
     let far = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            dot,
-            routes[1],
-            0,
-            length - 2_500,
-            2_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(dot, routes[1], 0, length - 2_500, 2_000).with_open_entrance(),
+        )
         .expect("farther entrant first");
     let near = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            dot,
-            routes[1],
-            0,
-            length - 500,
-            2_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(dot, routes[1], 0, length - 500, 2_000).with_open_entrance(),
+        )
         .expect("nearer entrant second");
     #[cfg(feature = "placement-fixtures")]
     {
@@ -5719,7 +5872,8 @@ fn replace_reserve_failure_is_occupancy_alloc_and_commits_nothing() {
     laneflow_runtime::set_admission_reserve_failure(laneflow_runtime::AdmissionReserve::Best, true);
     let result = world.replace_completed_vehicle(
         completed,
-        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 0, 0, 0),
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), routes[0], 0, 0, 0)
+            .with_open_entrance(),
     );
     laneflow_runtime::set_admission_reserve_failure(
         laneflow_runtime::AdmissionReserve::Best,
@@ -5744,13 +5898,16 @@ fn fresh_spawn_rebuilds_contenders_when_the_world_generation_changes() {
     let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            foe_length - 2_500,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                foe_length - 2_500,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("foe beyond one tick");
     assert!(
         world.detach_contender_cache_generation_for_test(),
@@ -5759,13 +5916,16 @@ fn fresh_spawn_rebuilds_contenders_when_the_world_generation_changes() {
     let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
     let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            subject_length - 400,
-            10_000,
-        )),
+        world.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                subject_length - 400,
+                10_000,
+            )
+            .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable)
     );
 }
@@ -5814,15 +5974,11 @@ fn fresh_spawn_stops_for_an_earlier_vehicles_staged_downstream_claim() {
         .register_route(RouteRegisterInput::new(short_edges.clone()))
         .expect("short route");
     let short_length = open.traffic().lane_lengths_millimetres()[short_edges[0].index()];
-    open.spawn_vehicle(VehicleSpawnInput::new(car, open_long, 0, 0, 0))
+    open.spawn_vehicle(VehicleSpawnInput::new(car, open_long, 0, 0, 0).with_open_entrance())
         .expect("vehicle that does not reach the first gate");
-    open.spawn_vehicle(VehicleSpawnInput::new(
-        dot,
-        open_short,
-        0,
-        short_length - 400,
-        10_000,
-    ))
+    open.spawn_vehicle(
+        VehicleSpawnInput::new(dot, open_short, 0, short_length - 400, 10_000).with_open_entrance(),
+    )
     .expect("a vehicle that will not enter this tick does not stage a claim");
 
     let mut world =
@@ -5837,22 +5993,14 @@ fn fresh_spawn_stops_for_an_earlier_vehicles_staged_downstream_claim() {
     let short_length = world.traffic().lane_lengths_millimetres()
         [world.route_edges(short).expect("short")[0].index()];
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            car,
-            long,
-            0,
-            entry_length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(car, long, 0, entry_length - 400, 10_000).with_open_entrance(),
+        )
         .expect("first vehicle acquires and stages the shared exit");
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(
-            dot,
-            short,
-            0,
-            short_length - 400,
-            10_000,
-        )),
+        world.spawn_vehicle(
+            VehicleSpawnInput::new(dot, short, 0, short_length - 400, 10_000,).with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable)
     );
 }
@@ -5875,7 +6023,7 @@ fn earlier_rank_on_another_zone_does_not_hard_stop_the_shared_exit() {
     let last_length =
         world.traffic().lane_lengths_millimetres()[long_route_edges[last as usize].index()];
     let completed = world
-        .spawn_vehicle(VehicleSpawnInput::new(car, long, last, last_length, 0))
+        .spawn_vehicle(VehicleSpawnInput::new(car, long, last, last_length, 0).with_open_entrance())
         .expect("early slot at the exit end");
     world
         .step(TickInput::new(100))
@@ -5883,19 +6031,15 @@ fn earlier_rank_on_another_zone_does_not_hard_stop_the_shared_exit() {
     let short_edge = world.route_edges(short).expect("short")[0];
     let short_length = world.traffic().lane_lengths_millimetres()[short_edge.index()];
     let rival = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            car,
-            short,
-            0,
-            short_length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(car, short, 0, short_length - 400, 10_000).with_open_entrance(),
+        )
         .expect("later rival before its own gate");
     let entry_length = world.traffic().lane_lengths_millimetres()[long_edges[0].index()];
     let cursor = world.command_cursor();
     let replaced = world.replace_completed_vehicle(
         completed,
-        VehicleSpawnInput::new(car, long, 0, entry_length - 400, 10_000),
+        VehicleSpawnInput::new(car, long, 0, entry_length - 400, 10_000).with_open_entrance(),
     );
     assert!(
         matches!(replaced, Err(ReplaceError::StopConstraintUnsatisfiable)),
@@ -5910,7 +6054,7 @@ fn earlier_rank_on_another_zone_does_not_hard_stop_the_shared_exit() {
     laneflow_runtime::set_full_recheck(true);
     let oracle = world.replace_completed_vehicle(
         completed,
-        VehicleSpawnInput::new(car, long, 0, entry_length - 400, 10_000),
+        VehicleSpawnInput::new(car, long, 0, entry_length - 400, 10_000).with_open_entrance(),
     );
     laneflow_runtime::set_full_recheck(false);
     assert_eq!(oracle, replaced);
@@ -5990,22 +6134,16 @@ fn fresh_spawn_ignores_a_same_zone_contender_blocked_by_an_earlier_claim() {
     let short_length = blocked.traffic().lane_lengths_millimetres()[short_edges[0].index()];
     let north_length = blocked.traffic().lane_lengths_millimetres()[north_edges[0].index()];
     blocked
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            dot,
-            blocked_short,
-            0,
-            short_length - 400,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(dot, blocked_short, 0, short_length - 400, 10_000)
+                .with_open_entrance(),
+        )
         .expect("same-zone contender already near the gate");
     assert_eq!(
-        blocked.spawn_vehicle(VehicleSpawnInput::new(
-            dot,
-            blocked_north,
-            0,
-            north_length - 400,
-            10_000,
-        )),
+        blocked.spawn_vehicle(
+            VehicleSpawnInput::new(dot, blocked_north, 0, north_length - 400, 10_000,)
+                .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable),
         "a same-zone contender who can still acquire blocks the later spawn"
     );
@@ -6026,31 +6164,19 @@ fn fresh_spawn_ignores_a_same_zone_contender_blocked_by_an_earlier_claim() {
     let north_length = world.traffic().lane_lengths_millimetres()
         [world.route_edges(north).expect("north")[0].index()];
     world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            car,
-            east,
-            0,
-            entry_length - 400,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(car, east, 0, entry_length - 400, 10_000).with_open_entrance(),
+        )
         .expect("earlier vehicle already holds the shared exit");
     world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            dot,
-            short,
-            0,
-            short_length - 400,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(dot, short, 0, short_length - 400, 10_000).with_open_entrance(),
+        )
         .expect("same-zone contender already near the gate");
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            dot,
-            north,
-            0,
-            north_length - 400,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(dot, north, 0, north_length - 400, 10_000).with_open_entrance(),
+        )
         .expect("a contender who loses to the earlier claim does not block another exit");
 }
 
@@ -6081,13 +6207,16 @@ fn fresh_spawn_before_an_owned_conflict_cannot_stop() {
     let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
     let foe = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[1],
-            0,
-            foe_length,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[1],
+                0,
+                foe_length,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("foe already at the gate");
     world.step(TickInput::new(100)).expect("foe takes the zone");
     assert!(world.conflict_reservation(foe).is_some());
@@ -6098,13 +6227,16 @@ fn fresh_spawn_before_an_owned_conflict_cannot_stop() {
         "approach must leave room before the gate"
     );
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            subject_length - 400,
-            10_000,
-        )),
+        world.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                subject_length - 400,
+                10_000,
+            )
+            .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable)
     );
 }
@@ -6181,13 +6313,9 @@ fn spawn_calibration_vehicle(
     speed_mm_s: u32,
 ) -> VehicleHandle {
     world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            profile,
-            route,
-            0,
-            progress_mm,
-            speed_mm_s,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(profile, route, 0, progress_mm, speed_mm_s).with_open_entrance(),
+        )
         .expect("calibration vehicle")
 }
 
@@ -6362,7 +6490,9 @@ fn conservative_gap_profile_calibration_matrix_uses_the_formal_solver() {
         let (mut world, routes) = calibration_world(Arc::clone(&revision));
         let subject_gate = calibration_gate(&world, routes[0]);
         world
-            .spawn_vehicle(VehicleSpawnInput::new(car, routes[0], 1, 10_501, 0))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(car, routes[0], 1, 10_501, 0).with_open_entrance(),
+            )
             .expect("downstream blocker");
         let subject = spawn_calibration_vehicle(&mut world, car, routes[0], subject_gate, 10_000);
         world
@@ -6501,13 +6631,10 @@ fn conflict_multiplicity_preserves_owner_local_and_repeated_occurrences() {
         .register_route(RouteRegisterInput::new(route_edges.clone()))
         .expect("four distinct passage occurrences");
     let error = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            2,
-            2_000,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 2, 2_000, 0)
+                .with_open_entrance(),
+        )
         .unwrap_err();
     assert_eq!(
         error,
@@ -6515,13 +6642,10 @@ fn conflict_multiplicity_preserves_owner_local_and_repeated_occurrences() {
         "rear clears the last entry but not the maximum clearance",
     );
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            2,
-            2_500,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 2, 2_500, 0)
+                .with_open_entrance(),
+        )
         .expect("rear exactly at maximum clearance");
 
     let mut repeated_edges = route_edges.clone();
@@ -6809,13 +6933,10 @@ fn conflict_cutover_recompiles_same_and_rejects_target_extension_atomically() {
         .register_route(RouteRegisterInput::new(route_edges.clone()))
         .expect("register base conflict route");
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            1,
-            10_501,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 1, 10_501, 0)
+                .with_open_entrance(),
+        )
         .expect("base clearance is exactly satisfied");
 
     // 同修订换根仍重编译路线和保护 Active；可由公开 API 产生的安全态应保持恒等。
@@ -6935,13 +7056,10 @@ fn cutover_rebuilds_exact_conflict_count_for_decrease_and_increase() {
         .expect("source conflict passage")
         .address();
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            1,
-            10_501,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 1, 10_501, 0)
+                .with_open_entrance(),
+        )
         .expect("safe conflict vehicle");
 
     let remove_descriptor = NetworkRevisionCutoverDescriptor::new(
@@ -7241,13 +7359,10 @@ fn conflict_snapshot_restore_uses_saved_carry_and_exact_rebuilt_count() {
         .register_route(RouteRegisterInput::new(route_edges))
         .expect("register conflict route");
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            1,
-            10_501,
-            1,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 1, 10_501, 1)
+                .with_open_entrance(),
+        )
         .expect("safe active vehicle");
     world
         .step(TickInput::new(100))
@@ -7480,13 +7595,10 @@ fn conflict_three_a_covers_replace_leave_and_rebind_atomically() {
         .register_route(RouteRegisterInput::new(terminal_route_edges))
         .expect("register terminal-conflict route");
     let active = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            old_route,
-            0,
-            12_000,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), old_route, 0, 12_000, 0)
+                .with_open_entrance(),
+        )
         .expect("spawn on non-conflict suffix");
     world
         .reserve_parking(
@@ -7518,13 +7630,16 @@ fn conflict_three_a_covers_replace_leave_and_rebind_atomically() {
 
     world.despawn_vehicle(active).expect("release reservation");
     let completed = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            old_route,
-            0,
-            exit_length,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                old_route,
+                0,
+                exit_length,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("spawn at suffix terminal");
     world.step(TickInput::new(100)).expect("complete vehicle");
     assert_eq!(
@@ -7541,7 +7656,8 @@ fn conflict_three_a_covers_replace_leave_and_rebind_atomically() {
                 2,
                 exit_length,
                 0,
-            ),
+            )
+            .with_open_entrance(),
         ),
         Err(ReplaceError::ConflictAuthorityRequired)
     ));
@@ -7614,13 +7730,10 @@ fn spawn_access_denied_on_registered_route_leaves_no_vehicle() {
     let route = register_named(&mut world, &["stem", "tail"]);
     assert_eq!(
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                0,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0,)
+                    .with_open_entrance()
+            )
             .unwrap_err(),
         SpawnError::AccessDenied
     );
@@ -7688,13 +7801,10 @@ fn park_other_target_fails_when_already_parked() {
         install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
     let route = register_named(&mut world, &["edge"]);
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            4_000,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 4_000, 0)
+                .with_open_entrance(),
+        )
         .expect("spawn");
     let first = ParkingSpaceOrdinal::from_raw(0);
     world
@@ -7731,7 +7841,9 @@ fn virtual_parking_capacity_mixed_pools_leave_and_despawn_are_exact() {
     let space = ParkingSpaceOrdinal::from_raw(0);
     let spawn = |world: &mut TrafficWorld, progress_mm| {
         world
-            .spawn_vehicle(VehicleSpawnInput::new(profile, route, 0, progress_mm, 0))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(profile, route, 0, progress_mm, 0).with_open_entrance(),
+            )
             .expect("spawn")
     };
     let first = spawn(&mut world, 0);
@@ -7958,13 +8070,9 @@ fn virtual_parking_capacity_mixed_pools_leave_and_despawn_are_exact() {
     .expect("install completed fixture");
     let completed_route = register_named(&mut completed_world, &["edge"]);
     let completed = completed_world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            profile,
-            completed_route,
-            0,
-            100_000,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(profile, completed_route, 0, 100_000, 0).with_open_entrance(),
+        )
         .expect("spawn at route end");
     completed_world
         .step(TickInput::new(100))
@@ -7994,13 +8102,10 @@ fn virtual_arrival_is_observed_once_then_park_is_pose_less_and_narrowly_idempote
     let facility = ParkingFacilityOrdinal::from_raw(0);
     let target = ParkingTarget::VirtualPool(facility);
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("spawn");
     let reserve = world
         .reserve_parking(
@@ -8097,7 +8202,7 @@ fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v6() {
     let profile = VehicleProfileOrdinal::from_raw(0);
     let facility = ParkingFacilityOrdinal::from_raw(0);
     let reserved = world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, route, 0, 0, 0))
+        .spawn_vehicle(VehicleSpawnInput::new(profile, route, 0, 0, 0).with_open_entrance())
         .expect("spawn reserved vehicle");
     world
         .reserve_parking(
@@ -8209,13 +8314,10 @@ fn repeated_leave_rejections_do_not_reuse_an_occupant_from_a_retired_incarnation
         exit_route_occurrence: 0,
     };
     let first = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            63_499,
-            1,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 63_499, 1)
+                .with_open_entrance(),
+        )
         .unwrap();
     let before = world.capture_snapshot().unwrap();
     for _ in 0..3 {
@@ -8239,13 +8341,10 @@ fn repeated_leave_rejections_do_not_reuse_an_occupant_from_a_retired_incarnation
     );
     world.despawn_vehicle(first).unwrap();
     let replacement = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            61_000,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 61_000, 10_000)
+                .with_open_entrance(),
+        )
         .unwrap();
     assert_ne!(replacement, first);
     assert!(world.vehicle(first).is_none());
@@ -8304,13 +8403,10 @@ fn leave_failures_are_atomic_and_follow_the_one_millimetre_emergency_boundary() 
     assert_eq!(overlap_world.observation_state_sequence(), before_sequence);
 
     let blocker = overlap_world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            70_000,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 70_000, 0)
+                .with_open_entrance(),
+        )
         .expect("physical blocker");
     let before_state = overlap_world.vehicle(parked);
     let before_binding = overlap_world.parking_binding(parked);
@@ -8345,13 +8441,10 @@ fn leave_failures_are_atomic_and_follow_the_one_millimetre_emergency_boundary() 
 
     let (mut rejected_world, route, facility, parked) = parked_virtual_world();
     let one_mm_tolerance_follower = rejected_world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            63_499,
-            1,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 63_499, 1)
+                .with_open_entrance(),
+        )
         .expect("moving follower at preserved-gap plus one millimetre");
     let rejected_state = rejected_world.vehicle(parked);
     let rejected_binding = rejected_world.parking_binding(parked);
@@ -8383,13 +8476,10 @@ fn leave_failures_are_atomic_and_follow_the_one_millimetre_emergency_boundary() 
 
     let (mut accepted_world, route, facility, parked) = parked_virtual_world();
     accepted_world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            63_498,
-            1,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 63_498, 1)
+                .with_open_entrance(),
+        )
         .expect("moving follower outside one millimetre tolerance");
     accepted_world
         .leave_parking(
@@ -8409,13 +8499,10 @@ fn leave_failures_are_atomic_and_follow_the_one_millimetre_emergency_boundary() 
 
     let (mut stationary_world, route, facility, parked) = parked_virtual_world();
     stationary_world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            74_500,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 74_500, 0)
+                .with_open_entrance(),
+        )
         .expect("stationary follower with sub-comfort gap");
     stationary_world
         .leave_parking(
@@ -8429,13 +8516,10 @@ fn leave_failures_are_atomic_and_follow_the_one_millimetre_emergency_boundary() 
         )
         .expect("stationary follower needs only physical non-overlap");
     assert_eq!(
-        stationary_world.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            80_000,
-            0,
-        )),
+        stationary_world.spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 80_000, 0,)
+                .with_open_entrance()
+        ),
         Err(laneflow_runtime::SpawnError::Overlap),
         "successful leave registers the new road footprint immediately",
     );
@@ -8468,7 +8552,9 @@ fn leave_overlap_detects_cross_predecessor_and_repeated_occurrence_geometry() {
         .expect("cross-edge parked")
         .vehicle;
     let predecessor_blocker = cross_world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, cross_route, 0, 9_000, 0))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(profile, cross_route, 0, 9_000, 0).with_open_entrance(),
+        )
         .expect("predecessor blocker");
     assert_eq!(
         cross_world
@@ -8498,7 +8584,9 @@ fn leave_overlap_detects_cross_predecessor_and_repeated_occurrence_geometry() {
         .expect("repeated parked")
         .vehicle;
     let repeated_blocker = repeated_world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, repeated_route, 0, 2_000, 0))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(profile, repeated_route, 0, 4_500, 0).with_open_entrance(),
+        )
         .expect("same physical edge on earlier occurrence");
     assert_eq!(
         repeated_world
@@ -8528,7 +8616,7 @@ fn rebind_compares_the_complete_cross_edge_body_footprint() {
     let profile = VehicleProfileOrdinal::from_raw(0);
     let facility = ParkingFacilityOrdinal::from_raw(0);
     let crossing = world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, old_route, 1, 2_000, 0))
+        .spawn_vehicle(VehicleSpawnInput::new(profile, old_route, 1, 2_000, 0).with_open_entrance())
         .expect("crossing predecessor vehicle");
     world
         .reserve_parking(
@@ -8568,7 +8656,7 @@ fn rebind_compares_the_complete_cross_edge_body_footprint() {
         .despawn_vehicle(crossing)
         .expect("release crossing reservation");
     let contained = world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, old_route, 1, 5_000, 0))
+        .spawn_vehicle(VehicleSpawnInput::new(profile, old_route, 1, 5_000, 0).with_open_entrance())
         .expect("body fully on current edge");
     world
         .reserve_parking(
@@ -8629,13 +8717,15 @@ fn rebind_compares_the_complete_cross_edge_body_footprint() {
         Some(ParkingBinding::Reserved(reservation)) if reservation.route() == new_route
     ));
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(profile, old_route, 1, 5_000, 0)),
+        world.spawn_vehicle(
+            VehicleSpawnInput::new(profile, old_route, 1, 5_000, 0).with_open_entrance()
+        ),
         Err(laneflow_runtime::SpawnError::Overlap),
         "rebind preserves physical registration"
     );
     world.despawn_vehicle(contained).unwrap();
     world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, old_route, 1, 5_000, 0))
+        .spawn_vehicle(VehicleSpawnInput::new(profile, old_route, 1, 5_000, 0).with_open_entrance())
         .expect("despawn removes the rebound vehicle footprint");
 }
 
@@ -8692,10 +8782,12 @@ fn leave_research_includes_both_upstream_merge_routes_and_committed_prefix() {
         })
         .collect();
     let first = world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, left, 0, 9_000, 10_000))
+        .spawn_vehicle(VehicleSpawnInput::new(profile, left, 0, 9_000, 10_000).with_open_entrance())
         .unwrap();
     let second = world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, right, 0, 9_000, 10_000))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(profile, right, 0, 9_000, 10_000).with_open_entrance(),
+        )
         .unwrap();
     let leave = LeaveParkingTarget::VirtualPool {
         facility,
@@ -8711,7 +8803,7 @@ fn leave_research_includes_both_upstream_merge_routes_and_committed_prefix() {
     assert_eq!(world.capture_snapshot().unwrap(), before);
     world.despawn_vehicle(first).unwrap();
     let replacement = world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, left, 0, 9_000, 10_000))
+        .spawn_vehicle(VehicleSpawnInput::new(profile, left, 0, 9_000, 10_000).with_open_entrance())
         .unwrap();
     assert_ne!(replacement, first);
     // 同一槽位重新生成后位于 live 顺序末端，首错仍是右侧上游车辆。
@@ -8789,22 +8881,22 @@ fn follower_on_diverge_respects_leader_overhang_on_shared_stem() {
         .register_route(RouteRegisterInput::new(vec![stem, right]))
         .expect("right route");
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            leader_route,
-            1,
-            500,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), leader_route, 1, 500, 0)
+                .with_open_entrance(),
+        )
         .expect("leader on left, tail on stem");
     let follower = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            follower_route,
-            0,
-            5_000,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                follower_route,
+                0,
+                5_000,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .expect("follower on stem");
     world.step(TickInput::new(100)).expect("step");
     let PoseSource::Lane { progress_mm, .. } = world
@@ -8841,13 +8933,10 @@ fn large_delta_travel_does_not_exceed_speed_limit_envelope() {
         install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1_000)).expect("install");
     let route = register_named(&mut world, &["edge"]);
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("spawn");
     for _ in 0..20 {
         world.step(TickInput::new(1_000)).expect("step");
@@ -8891,13 +8980,10 @@ fn speed_down_transition_caps_next_tick_travel() {
         install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1_000)).expect("install");
     let route = register_named(&mut world, &["fast", "slow"]);
     let vehicle = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            18_000,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 18_000, 10_000)
+                .with_open_entrance(),
+        )
         .expect("spawn near fast/slow boundary");
     world.step(TickInput::new(1_000)).expect("approach/cross");
     let PoseSource::Lane {
@@ -8964,13 +9050,10 @@ fn equal_limit_edge_boundary_does_not_stop_the_vehicle() {
         install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
     let route = register_named(&mut world, &["a", "b"]);
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            19_600,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 19_600, 10_000)
+                .with_open_entrance(),
+        )
         .expect("spawn near equal-limit boundary");
     world.step(TickInput::new(100)).expect("step");
     let PoseSource::Lane { edge, progress_mm } = world
@@ -9015,13 +9098,10 @@ fn infeasible_stop_before_lower_limit_still_enters() {
         install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1_000)).expect("install");
     let route = register_named(&mut world, &["fast", "slower"]);
     let vehicle = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            9_000,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 9_000, 10_000)
+                .with_open_entrance(),
+        )
         .expect("spawn 1 m before a 10→8 drop");
     world.step(TickInput::new(1_000)).expect("step");
     let PoseSource::Lane { edge, progress_mm } = world
@@ -9066,13 +9146,10 @@ fn already_below_downstream_limit_does_not_stop_at_boundary() {
         install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1_000)).expect("install");
     let route = register_named(&mut world, &["posted-fast", "mid"]);
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            9_000,
-            2_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 9_000, 2_000)
+                .with_open_entrance(),
+        )
         .expect("spawn already slower than the 5 m/s next edge");
     world.step(TickInput::new(1_000)).expect("step");
     let PoseSource::Lane { edge, progress_mm } = world
@@ -9221,13 +9298,10 @@ fn hop_preserves_active_state_and_does_not_force_zero_carry() {
         install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 4)).expect("install");
     let route = register_named(&mut world, &["first", "second"]);
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            9_999,
-            3_141,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 9_999, 3_141)
+                .with_open_entrance(),
+        )
         .expect("spawn 1 mm before hop at 3.141 m/s");
     world.step(TickInput::new(4)).expect("step");
     let state = world.vehicle(vehicle).expect("state");
@@ -9266,13 +9340,10 @@ fn sub_millimetre_boundary_restart_respects_signal_and_restores() {
         let mut world = install_fixture(Arc::clone(&revision), config).expect("install");
         let route = register_named(&mut world, &["entry", "middle", "exit"]);
         let vehicle = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                10_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 10_000, 0)
+                    .with_open_entrance(),
+            )
             .expect("spawn stopped at Gate boundary");
         world.step(TickInput::new(16)).expect("restart at boundary");
 
@@ -9362,13 +9433,10 @@ fn sub_millimetre_boundary_restart_commits_only_the_conflict_winner() {
             .register_route(RouteRegisterInput::new(edges))
             .expect("route");
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                boundary,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, boundary, 0)
+                    .with_open_entrance(),
+            )
             .expect("spawn at conflict Gate")
     });
     world

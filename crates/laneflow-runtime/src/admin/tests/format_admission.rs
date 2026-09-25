@@ -244,7 +244,8 @@ fn world_with_conflict_reservation_config(config: WorldConfig) -> (TrafficWorld,
                 0,
                 0,
                 0,
-            ),
+            )
+            .with_open_entrance(),
             0,
             VehicleStatus::Active,
             None,
@@ -418,7 +419,8 @@ pub(crate) fn world_with_conflict_eligibility() -> (TrafficWorld, VehicleHandle)
                 gate_hop,
                 gate_progress,
                 0,
-            ),
+            )
+            .with_open_entrance(),
             0,
             VehicleStatus::Active,
             None,
@@ -866,7 +868,7 @@ fn conflict_eligibility_rejects_gate_policy_deny_at_restored_time() {
     let vehicle = world
         .state
         .restore_unparked_vehicle(
-            VehicleSpawnInput::new(profile, route, gate_hop, gate_progress, 0),
+            VehicleSpawnInput::new(profile, route, gate_hop, gate_progress, 0).with_open_entrance(),
             0,
             VehicleStatus::Active,
             None,

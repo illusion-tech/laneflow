@@ -117,7 +117,8 @@ fn replenish(world: &mut crate::TrafficWorld, routes: &[RouteHandle], boundaries
                     0,
                     boundaries[position] - 1,
                     10_000,
-                ),
+                )
+                .with_open_entrance(),
             )
             .expect("vacated route entry accepts replacement");
     }

@@ -2626,13 +2626,16 @@ mod tests {
                 .register_route(crate::RouteRegisterInput::new(edges))
                 .unwrap();
             let vehicle = world
-                .spawn_vehicle(crate::VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    0,
-                    entry_length - 1,
-                    10_000,
-                ))
+                .spawn_vehicle(
+                    crate::VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        0,
+                        entry_length - 1,
+                        10_000,
+                    )
+                    .with_open_entrance(),
+                )
                 .unwrap();
             reset_conflict_work_counts();
             world

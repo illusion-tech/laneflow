@@ -569,13 +569,16 @@ fn admit_initial_plans_restores_a_dropped_speed_when_a_later_vehicle_cannot_ente
         "edge end must be farther than the prepared pose"
     );
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(
-            plans[0].profile,
-            routes[plans[0].route_index],
-            plans[0].route_edge_index,
-            close,
-            limit,
-        )),
+        world.spawn_vehicle(
+            VehicleSpawnInput::new(
+                plans[0].profile,
+                routes[plans[0].route_index],
+                plans[0].route_edge_index,
+                close,
+                limit,
+            )
+            .with_open_entrance()
+        ),
         Err(laneflow_runtime::SpawnError::StopConstraintUnsatisfiable),
         "this pose must be rejected until the speed drops"
     );
@@ -719,13 +722,16 @@ fn spawn_near_route_end(
     let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[last.index()];
     let last_index = u32::try_from(edges.len() - 1).expect("index");
     world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            last_index,
-            last_length.saturating_sub(50),
-            speed_limit,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                last_index,
+                last_length.saturating_sub(50),
+                speed_limit,
+            )
+            .with_open_entrance(),
+        )
         .expect("extra near end")
 }
 

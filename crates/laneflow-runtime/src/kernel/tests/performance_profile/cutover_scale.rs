@@ -177,13 +177,16 @@ pub fn world(roots: &Revisions, count: u32, edges: u32, routes: u32) -> TrafficW
         .collect();
     for vehicle in 0..count {
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                handles[(vehicle % routes) as usize],
-                0,
-                (vehicle / edges + 1) * 10_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    handles[(vehicle % routes) as usize],
+                    0,
+                    (vehicle / edges + 1) * 10_000,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("spaced spawn");
     }
     world

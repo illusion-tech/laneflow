@@ -2168,7 +2168,8 @@ fn restore_vehicle(
                     vehicle.route_edge_index(),
                     vehicle.progress_mm(),
                     vehicle.speed_mm_s(),
-                ),
+                )
+                .with_open_entrance(),
                 vehicle.carry_um(),
                 status,
                 waiting.traversal,

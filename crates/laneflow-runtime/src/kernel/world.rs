@@ -998,7 +998,7 @@ impl crate::kernel::state::WorldState {
     ///
     /// # Errors
     ///
-    /// 车辆输入校验失败（profile/路线/进度/初速/容量/准入/车身重叠/权威不可
+    /// 车辆输入校验失败（profile/路线/进度/初速/容量/准入/开放入口/范围内车身/车身重叠/权威不可
     /// 重建/等待区存储跨度不足/当前停车约束/前方降速/前车或后车安全/占用索引
     /// 分配）、观测状态序号或命令游标耗尽时返回相应 [`SpawnError`]；失败不留半辆车，
     /// 也不推进命令游标。
@@ -1186,6 +1186,9 @@ impl crate::kernel::state::WorldState {
         } else {
             None
         };
+        if check_departure {
+            self.admit_entrance_body(input, vehicle_length)?;
+        }
         if declared {
             self.admit_declared_departure(input)?;
             let live = u32::try_from(self.committed.live_order.len())
@@ -1390,6 +1393,8 @@ impl crate::kernel::state::WorldState {
                 }
             })?;
         if admit_motion {
+            self.admit_entrance_body(input, vehicle_length)
+                .map_err(super::entrance::entrance_replace_error)?;
             self.admit_declared_departure(input)
                 .map_err(super::departure::departure_replace_error)?;
         }
@@ -2314,7 +2319,7 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 车辆输入校验失败（profile/路线/进度/初速/容量/准入/车身重叠/权威不可
+    /// 车辆输入校验失败（profile/路线/进度/初速/容量/准入/开放入口/范围内车身/车身重叠/权威不可
     /// 重建/等待区存储跨度不足/当前停车约束/前方降速/前车或后车安全/占用索引
     /// 分配）、观测状态序号或命令游标耗尽时返回相应 [`SpawnError`]；失败不留半辆车，
     /// 也不推进命令游标。
@@ -3185,13 +3190,10 @@ mod overflow_tests {
             let spawn_occurrence = if occurrence == 1 { 2 } else { occurrence };
             let spawn_progress = if occurrence == 1 { 6_000 } else { progress };
             let vehicle = world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    profile,
-                    route,
-                    spawn_occurrence,
-                    spawn_progress,
-                    0,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(profile, route, spawn_occurrence, spawn_progress, 0)
+                        .with_open_entrance(),
+                )
                 .expect("non-overlapping vehicle");
             if occurrence == 1 {
                 let index = usize::try_from(vehicle.index()).expect("vehicle index");
