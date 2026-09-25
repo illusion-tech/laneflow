@@ -58,6 +58,7 @@ fn run_windows(case_index: usize, rounds: usize) {
 }
 
 #[test]
+#[ignore = "证据测量窗口，夜间 evidence.yml 运行（#748）"]
 fn cpu_sampling_windows_match_frozen_digests() {
     for case_index in 0..ROAD_CASES.len() {
         run_windows(case_index, 1);
