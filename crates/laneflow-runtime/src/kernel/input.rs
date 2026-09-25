@@ -24,6 +24,44 @@ impl RouteRegisterInput {
     }
 }
 
+/// 这次命令上的可选出发状态。位置是该路线出现项上的前保险杠。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VehicleDepartureState {
+    route_edge_index: u32,
+    progress_mm: u32,
+    speed_mm_s: u32,
+}
+
+impl VehicleDepartureState {
+    /// 构造出发状态。下标和进度在生成或替换时才对照候选路线检查。
+    #[must_use]
+    pub const fn new(route_edge_index: u32, progress_mm: u32, speed_mm_s: u32) -> Self {
+        Self {
+            route_edge_index,
+            progress_mm,
+            speed_mm_s,
+        }
+    }
+
+    /// 出发位置的路线出现项下标。
+    #[must_use]
+    pub const fn route_edge_index(self) -> u32 {
+        self.route_edge_index
+    }
+
+    /// 出发出现项上的前保险杠进度（毫米）。
+    #[must_use]
+    pub const fn progress_mm(self) -> u32 {
+        self.progress_mm
+    }
+
+    /// 出发速度（毫米/秒）。
+    #[must_use]
+    pub const fn speed_mm_s(self) -> u32 {
+        self.speed_mm_s
+    }
+}
+
 /// 调用方所有的车辆生成输入。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VehicleSpawnInput {
@@ -32,6 +70,7 @@ pub struct VehicleSpawnInput {
     route_edge_index: u32,
     progress_mm: u32,
     initial_speed_mm_s: u32,
+    departure: Option<VehicleDepartureState>,
 }
 
 impl VehicleSpawnInput {
@@ -50,7 +89,21 @@ impl VehicleSpawnInput {
             route_edge_index,
             progress_mm,
             initial_speed_mm_s,
+            departure: None,
         }
+    }
+
+    /// 附上这次命令的出发状态。不改变车型、路线、当前位置或初速。
+    #[must_use]
+    pub const fn with_departure(mut self, departure: VehicleDepartureState) -> Self {
+        self.departure = Some(departure);
+        self
+    }
+
+    /// 这次命令附上的出发状态。没有声明时是 `None`。
+    #[must_use]
+    pub const fn departure(self) -> Option<VehicleDepartureState> {
+        self.departure
     }
 
     /// 车辆档案（Vehicle Profile）序号。

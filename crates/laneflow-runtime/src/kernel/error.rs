@@ -227,6 +227,23 @@ pub enum RouteError {
     WaitingStorageSpanUnbounded,
 }
 
+/// 出发声明自身不合法的原因。
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
+pub enum DepartureStateError {
+    /// 出现项下标不在候选路线里。
+    #[error("出发出现项越界")]
+    RouteIndexOutOfRange,
+    /// 进度超过该出现项的边长。
+    #[error("出发进度非法")]
+    InvalidProgress,
+    /// 出发位置在当前摆放位置之后。
+    #[error("出发位置在当前摆放之后")]
+    AfterPlacement,
+    /// 出发速度超出 `0..=100_000` mm/s。
+    #[error("出发速度越界")]
+    SpeedOutOfRange,
+}
+
 /// `spawn_vehicle` 失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum SpawnError {
@@ -287,6 +304,12 @@ pub enum SpawnError {
     /// 准入查询重建占用索引时分配失败。已提交世界不变。
     #[error("占用索引分配失败")]
     OccupancyAllocFailed,
+    /// 出发声明自身不合法。已提交世界不变。须修正声明。
+    #[error("出发声明不合法")]
+    InvalidDepartureState(DepartureStateError),
+    /// 初速超过这份出发声明的速度上界。已提交世界不变。须降低初速或更换输入。
+    #[error("初速超过出发状态的速度上界")]
+    InitialSpeedExceedsDepartureBound,
     /// 本次成功生成本应推进观测状态序号，但序号已耗尽。
     #[error("观测状态序号已耗尽")]
     ObservationStateSequenceExhausted,
@@ -370,6 +393,12 @@ pub enum ReplaceError {
     /// 准入查询重建占用索引时分配失败。已提交世界不变。
     #[error("占用索引分配失败")]
     OccupancyAllocFailed,
+    /// 出发声明自身不合法。已提交世界不变。须修正声明。
+    #[error("出发声明不合法")]
+    InvalidDepartureState(DepartureStateError),
+    /// 初速超过这份出发声明的速度上界。已提交世界不变。须降低初速或更换输入。
+    #[error("初速超过出发状态的速度上界")]
+    InitialSpeedExceedsDepartureBound,
     /// 本次成功替换本应推进观测状态序号，但序号已耗尽。
     #[error("观测状态序号已耗尽")]
     ObservationStateSequenceExhausted,
