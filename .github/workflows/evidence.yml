@@ -50,7 +50,8 @@ jobs:
       - name: Run evidence tests
         shell: bash
         run: >-
-          cargo +1.98.0 nextest run --workspace --locked --run-ignored ignored
+          cargo +1.98.0 nextest run --workspace --locked --run-ignored only
+          --test-threads 1
           -E 'test(journal_ab_windows_match_frozen_digests) |
           test(cpu_sampling_windows_match_frozen_digests) |
           test(real_fixture_runs_independently_and_detects_changed_inputs_and_logs)'
