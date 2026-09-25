@@ -1159,14 +1159,8 @@ impl crate::kernel::state::WorldState {
         if input.initial_speed_mm_s() > speed_limit {
             return Err(SpawnError::SpeedExceedsLimit);
         }
-        if declared {
-            self.admit_declared_departure(input)?;
-            let live = u32::try_from(self.committed.live_order.len())
-                .expect("live vehicle count fits u32");
-            if live >= self.binding.config.vehicle_capacity() {
-                return Err(SpawnError::CapacityExceeded);
-            }
-        }
+        // 后缀准入和等待区起步不随当前交通变化。有出发声明时先报告它们，
+        // 容量、重叠和当前冲突权威仍留在出发检查之后。
         if self.route_suffix_denied(input.route(), class, cursor) {
             return Err(SpawnError::AccessDenied);
         }
@@ -1192,6 +1186,14 @@ impl crate::kernel::state::WorldState {
         } else {
             None
         };
+        if declared {
+            self.admit_declared_departure(input)?;
+            let live = u32::try_from(self.committed.live_order.len())
+                .expect("live vehicle count fits u32");
+            if live >= self.binding.config.vehicle_capacity() {
+                return Err(SpawnError::CapacityExceeded);
+            }
+        }
         if status == VehicleStatus::Active {
             if self
                 .overlap_blocker(input.route(), cursor, input.progress_mm(), vehicle_length)
@@ -1368,10 +1370,7 @@ impl crate::kernel::state::WorldState {
         if input.initial_speed_mm_s() > speed_limit {
             return Err(ReplaceError::SpeedExceedsLimit);
         }
-        if admit_motion {
-            self.admit_declared_departure(input)
-                .map_err(super::departure::departure_replace_error)?;
-        }
+        // 与生成相同：永久的路线约束先于出发检查，重叠和当前权威留在后面。
         if self.route_suffix_denied(input.route(), class, cursor) {
             return Err(ReplaceError::AccessDenied);
         }
@@ -1390,6 +1389,10 @@ impl crate::kernel::state::WorldState {
                     ReplaceError::InvalidProgress
                 }
             })?;
+        if admit_motion {
+            self.admit_declared_departure(input)
+                .map_err(super::departure::departure_replace_error)?;
+        }
         if let Some(blocker) =
             self.overlap_blocker(input.route(), cursor, input.progress_mm(), vehicle_length)
         {
