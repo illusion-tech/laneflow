@@ -68,10 +68,10 @@ GitHub 原生 `required_review_thread_resolution: true` 阻止入队。
 
 | 场景                            | 结果                                   |
 | ------------------------------- | -------------------------------------- |
-| 没有 Review 或 reaction         | 不影响六项机器 Check                   |
+| 没有 Review 或 reaction         | 不影响七项机器 Check                   |
 | 存在未解决 review conversation  | GitHub 原生规则阻止入队或合并          |
 | 所有 review conversation 已解决 | 对话条件满足，仍须等待 required checks |
-| `main` 前进但 `H_pr` 未变       | 重建 `H_mg` 并重跑六项机器检查         |
+| `main` 前进但 `H_pr` 未变       | 重建 `H_mg` 并重跑七项机器检查         |
 | 新 push 产生新 `H_pr`           | 新 head 重跑适用 PR 检查               |
 | fork / cross-repository PR      | 必须迁到同仓 PR                        |
 
