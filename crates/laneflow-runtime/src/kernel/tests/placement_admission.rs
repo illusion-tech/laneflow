@@ -450,6 +450,47 @@ fn a_looser_intermediate_limit_does_not_hide_a_later_drop() {
 }
 
 #[test]
+fn warm_boundary_queries_do_not_rescan_when_unrelated_edges_grow() {
+    fn visits_after_warmup(extra_edges: u32) -> (u64, u64) {
+        let revision = revision("runtime/placement-plain", |module| {
+            add_edge(module, "gate", 40.0, 15.0, None);
+            for index in 0..extra_edges {
+                add_edge(module, &format!("other-{index}"), 10.0, 15.0, None);
+            }
+        });
+        let mut world = install(revision);
+        let route = register_named(&mut world, "runtime/placement-plain", &["gate"]);
+        let entering =
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 2_000, 0)
+                .with_open_entrance();
+        crate::kernel::occupancy::reset_maneuver_upstream_edge_visits();
+        world
+            .spawn_vehicle(entering)
+            .expect("bound entrance on a predecessor-less edge");
+        let cold = crate::kernel::occupancy::maneuver_upstream_edge_visits();
+        crate::kernel::occupancy::reset_maneuver_upstream_edge_visits();
+        assert_eq!(
+            world.spawn_vehicle(entering),
+            Err(SpawnError::Overlap),
+            "the same entrance is queried again"
+        );
+        (
+            cold,
+            crate::kernel::occupancy::maneuver_upstream_edge_visits(),
+        )
+    }
+
+    let (small_cold, small_warm) = visits_after_warmup(0);
+    let (large_cold, large_warm) = visits_after_warmup(24);
+    assert!(
+        large_cold > small_cold,
+        "the cold build must see the extra edges, small={small_cold} large={large_cold}"
+    );
+    assert_eq!(small_warm, 0);
+    assert_eq!(large_warm, small_warm);
+}
+
+#[test]
 fn leader_and_follower_use_emergency_braking_not_comfort_gap() {
     let revision = revision("runtime/placement-plain", |module| {
         add_edge(module, "road", 200.0, 25.0, None);
