@@ -1023,12 +1023,17 @@ impl crate::kernel::state::WorldState {
         input: VehicleSpawnInput,
         admit_motion: bool,
     ) -> Result<VehicleHandle, SpawnError> {
-        let (class, length_mm, traversal) =
-            self.validate_unparked_vehicle(input, 0, VehicleStatus::Active, None, false)?;
+        let (class, length_mm, traversal) = self.validate_unparked_vehicle(
+            input,
+            0,
+            VehicleStatus::Active,
+            None,
+            false,
+            admit_motion,
+        )?;
         let update_sequence = u32::try_from(self.committed.live_order.len())
             .map_err(|_| SpawnError::OccupancyAllocFailed)?;
         if admit_motion {
-            self.admit_declared_departure(input)?;
             self.fresh_motion_admission(input, length_mm, update_sequence)
                 .map_err(super::placement::FreshAdmissionFailure::into_spawn)?;
         }
@@ -1090,6 +1095,7 @@ impl crate::kernel::state::WorldState {
             status,
             Some(maneuver_traversal),
             restored_conflict_authority,
+            false,
         )?;
         let authority = UnparkedVehicleAuthority {
             class,
@@ -1108,6 +1114,7 @@ impl crate::kernel::state::WorldState {
         status: VehicleStatus,
         restored_traversal: Option<Option<crate::ManeuverTraversalState>>,
         restored_conflict_authority: bool,
+        check_departure: bool,
     ) -> Result<
         (
             ParticipantClassOrdinal,
@@ -1116,11 +1123,6 @@ impl crate::kernel::state::WorldState {
         ),
         SpawnError,
     > {
-        let live =
-            u32::try_from(self.committed.live_order.len()).expect("live vehicle count fits u32");
-        if live >= self.binding.config.vehicle_capacity() {
-            return Err(SpawnError::CapacityExceeded);
-        }
         let profile = self
             .binding
             .revision
@@ -1148,6 +1150,14 @@ impl crate::kernel::state::WorldState {
             .lane_speed_limits_millimetres_per_second()[edge.index()];
         if input.initial_speed_mm_s() > speed_limit {
             return Err(SpawnError::SpeedExceedsLimit);
+        }
+        if check_departure {
+            self.admit_declared_departure(input)?;
+        }
+        let live =
+            u32::try_from(self.committed.live_order.len()).expect("live vehicle count fits u32");
+        if live >= self.binding.config.vehicle_capacity() {
+            return Err(SpawnError::CapacityExceeded);
         }
         if self.route_suffix_denied(input.route(), class, cursor) {
             return Err(SpawnError::AccessDenied);
@@ -1350,6 +1360,10 @@ impl crate::kernel::state::WorldState {
         if input.initial_speed_mm_s() > speed_limit {
             return Err(ReplaceError::SpeedExceedsLimit);
         }
+        if admit_motion {
+            self.admit_declared_departure(input)
+                .map_err(super::departure::departure_replace_error)?;
+        }
         if self.route_suffix_denied(input.route(), class, cursor) {
             return Err(ReplaceError::AccessDenied);
         }
@@ -1403,8 +1417,6 @@ impl crate::kernel::state::WorldState {
         let update_sequence =
             u32::try_from(order_index).map_err(|_| ReplaceError::OccupancyAllocFailed)?;
         if admit_motion {
-            self.admit_declared_departure(input)
-                .map_err(super::departure::departure_replace_error)?;
             self.fresh_motion_admission(input, vehicle_length, update_sequence)
                 .map_err(super::placement::FreshAdmissionFailure::into_replace)?;
         }
