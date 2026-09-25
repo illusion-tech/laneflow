@@ -1,8 +1,9 @@
 name: Evidence
 
 # 证据类测试（测量窗口 / 多进程独占测量）按 #748 移出常规门禁，由本工作流
-# 每日定时与手动触发覆盖；`--run-ignored ignored` 只运行带 `#[ignore]` 的
-# 证据测试，并用 `-E` 限定 #748 移出的三个目标。
+# 每日定时与手动触发覆盖；`--run-ignored ignored-only` 只运行带 `#[ignore]` 的
+# 证据测试，并用 `-E` 限定 #748 移出的三个目标。独占测量串行执行
+# （`--test-threads 1`）避免互争 CPU，并以 `--no-capture` 保留 stdout 测量样本。
 on:
   schedule:
     - cron: '17 22 * * *'
@@ -50,8 +51,8 @@ jobs:
       - name: Run evidence tests
         shell: bash
         run: >-
-          cargo +1.98.0 nextest run --workspace --locked --run-ignored only
-          --test-threads 1
+          cargo +1.98.0 nextest run --workspace --locked --run-ignored ignored-only
+          --test-threads 1 --no-capture
           -E 'test(journal_ab_windows_match_frozen_digests) |
           test(cpu_sampling_windows_match_frozen_digests) |
           test(real_fixture_runs_independently_and_detects_changed_inputs_and_logs)'

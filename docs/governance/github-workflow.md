@@ -283,7 +283,7 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 
 证据类测试（测量窗口 / 多进程独占测量）以 `#[ignore]` 移出常规门禁，由
 `Evidence` workflow（`schedule` + `workflow_dispatch`，钉版 nextest
-`--run-ignored ignored`）每日运行并可手动触发；不参与合并门禁（#748）。
+`--run-ignored ignored-only --no-capture`）每日运行并可手动触发；不参与合并门禁（#748）。
 
 GitHub CodeQL、Secret Scanning 和 Dependabot 见 `security-scanning.md`。
 
