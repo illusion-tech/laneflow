@@ -287,6 +287,25 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 
 GitHub CodeQL、Secret Scanning 和 Dependabot 见 `security-scanning.md`。
 
+### 8.1 本地验证口径
+
+本地复现 `Rust checks` 与 `Placement fixture tests` 的测试执行时，使用与 CI 钉同版本的
+`cargo-nextest 0.9.145`（官方 release asset，URL 与 SHA-256 见 `ci.yml`）：
+
+```powershell
+cargo +1.98.0 nextest run --workspace --locked
+cargo +1.98.0 nextest run -p laneflow-runtime --locked --features placement-fixtures
+cargo +1.98.0 nextest run -p laneflow-scenario --locked --features placement-fixtures
+cargo +1.98.0 nextest run -p laneflow-junction-generator --locked --features placement-fixtures
+```
+
+`cargo test --workspace --locked`（libtest）可作兜底，但行为不同：同进程线程模型下
+`laneflow-runtime` 的 `RESOURCE_TEST_LOCK` 会把资源探针类测试串行化，套件墙钟显著变长。
+该锁保留——libtest 路径的测试正确性依赖它；本地并行口径以 nextest 为准。
+
+证据类测试不在本地常规运行；需要时按 `Evidence` workflow 的命令执行（钉版 nextest
+`--run-ignored ignored-only --test-threads 1 --no-capture` 加 `-E` 过滤）。
+
 ## 9. Release 规则
 
 每次 Release 应说明版本目标、新增能力、修复、breaking changes、Traffic Runtime API 版本、
