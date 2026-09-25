@@ -1123,6 +1123,14 @@ impl crate::kernel::state::WorldState {
         ),
         SpawnError,
     > {
+        let declared = check_departure && input.departure().is_some();
+        if !declared {
+            let live = u32::try_from(self.committed.live_order.len())
+                .expect("live vehicle count fits u32");
+            if live >= self.binding.config.vehicle_capacity() {
+                return Err(SpawnError::CapacityExceeded);
+            }
+        }
         let profile = self
             .binding
             .revision
@@ -1151,13 +1159,13 @@ impl crate::kernel::state::WorldState {
         if input.initial_speed_mm_s() > speed_limit {
             return Err(SpawnError::SpeedExceedsLimit);
         }
-        if check_departure {
+        if declared {
             self.admit_declared_departure(input)?;
-        }
-        let live =
-            u32::try_from(self.committed.live_order.len()).expect("live vehicle count fits u32");
-        if live >= self.binding.config.vehicle_capacity() {
-            return Err(SpawnError::CapacityExceeded);
+            let live = u32::try_from(self.committed.live_order.len())
+                .expect("live vehicle count fits u32");
+            if live >= self.binding.config.vehicle_capacity() {
+                return Err(SpawnError::CapacityExceeded);
+            }
         }
         if self.route_suffix_denied(input.route(), class, cursor) {
             return Err(SpawnError::AccessDenied);
