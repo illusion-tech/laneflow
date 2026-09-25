@@ -1028,6 +1028,7 @@ impl crate::kernel::state::WorldState {
         let update_sequence = u32::try_from(self.committed.live_order.len())
             .map_err(|_| SpawnError::OccupancyAllocFailed)?;
         if admit_motion {
+            self.admit_declared_departure(input)?;
             self.fresh_motion_admission(input, length_mm, update_sequence)
                 .map_err(super::placement::FreshAdmissionFailure::into_spawn)?;
         }
@@ -1402,6 +1403,8 @@ impl crate::kernel::state::WorldState {
         let update_sequence =
             u32::try_from(order_index).map_err(|_| ReplaceError::OccupancyAllocFailed)?;
         if admit_motion {
+            self.admit_declared_departure(input)
+                .map_err(super::departure::departure_replace_error)?;
             self.fresh_motion_admission(input, vehicle_length, update_sequence)
                 .map_err(super::placement::FreshAdmissionFailure::into_replace)?;
         }

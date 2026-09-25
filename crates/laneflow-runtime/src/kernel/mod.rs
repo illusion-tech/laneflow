@@ -7,6 +7,8 @@ pub(crate) mod config;
 pub(crate) mod conflict;
 /// 固定步进内的 Conflict 编排：候选求值、组合仲裁与 tick 局部 grant。
 pub(crate) mod conflict_tick;
+/// 显式出发状态的速度上界。恢复和修订切换不使用。
+pub(crate) mod departure;
 /// 按物理边与实际后车间距索引下游占用的 AVL 区间树。
 pub(crate) mod downstream_index;
 /// 近门车辆的入口 frontier：冲突距离复用与红灯到达下界。

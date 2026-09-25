@@ -60,11 +60,11 @@ pub use kernel::conflict_tick::{
     ConflictDecision, ConflictDecisionOutcome, ConflictNoGrantReason, ConflictRouteAnchor,
 };
 pub use kernel::error::{
-    CommittedPoseSourceError, ExecutionInitError, ExecutionPlanError, InstallError, ParkingError,
-    ReplaceError, RouteError, SpawnError, StepError,
+    CommittedPoseSourceError, DepartureStateError, ExecutionInitError, ExecutionPlanError,
+    InstallError, ParkingError, ReplaceError, RouteError, SpawnError, StepError,
 };
 pub use kernel::handle::{RouteHandle, VehicleHandle};
-pub use kernel::input::{RouteRegisterInput, VehicleSpawnInput};
+pub use kernel::input::{RouteRegisterInput, VehicleDepartureState, VehicleSpawnInput};
 pub use kernel::parking::{
     LeaveParkingTarget, ParkedVehicleSpawnInput, ParkedVehicleSpawnRecord,
     ParkingArrivalObservation, ParkingBinding, ParkingCancelRecord, ParkingCommandOutcome,
