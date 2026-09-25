@@ -584,13 +584,12 @@ pub fn run(allocation: bool, rendering: bool) -> Result<(), Box<dyn Error>> {
             command_digest.update((slot.slot_id.len() as u64).to_le_bytes());
             command_digest.update(slot.slot_id.as_bytes());
             command_digest.update(slot.progress_mm.to_le_bytes());
-            identities.push(world.spawn_vehicle(VehicleSpawnInput::new(
-                profile,
-                routes[route_index],
-                0,
-                slot.progress_mm,
-                0,
-            ))?);
+            identities.push(
+                world.spawn_vehicle(
+                    VehicleSpawnInput::new(profile, routes[route_index], 0, slot.progress_mm, 0)
+                        .with_open_entrance(),
+                )?,
+            );
         }
     }
     let spatial = SpatialSession::bind(revision)

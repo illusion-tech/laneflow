@@ -115,13 +115,16 @@ fn world_with_fleet() -> TrafficWorld {
         .expect("route");
     for index in 0..VEHICLES {
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000 + 6_500 * index,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    1_000 + 6_500 * index,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("vehicle");
     }
     for _ in 0..4 {

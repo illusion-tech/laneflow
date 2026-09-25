@@ -336,13 +336,16 @@ pub fn install(revision: &Arc<SharedNetworkRevision>, workers: u32, world_id: u6
             .register_route(RouteRegisterInput::new(edges))
             .expect("route");
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                boundary - 1,
-                10_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    boundary - 1,
+                    10_000,
+                )
+                .with_open_entrance(),
+            )
             .expect("vehicle");
     }
     world
@@ -380,7 +383,8 @@ pub fn replenish(world: &mut TrafficWorld, routes: &[RouteHandle], boundaries: &
                     0,
                     boundaries[position] - 1,
                     10_000,
-                ),
+                )
+                .with_open_entrance(),
             )
             .expect("replacement");
     }

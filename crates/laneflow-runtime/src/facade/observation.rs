@@ -969,13 +969,16 @@ mod tests {
         speed_mm_s: u32,
     ) -> crate::VehicleHandle {
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                route_edge_index,
-                progress_mm,
-                speed_mm_s,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    route_edge_index,
+                    progress_mm,
+                    speed_mm_s,
+                )
+                .with_open_entrance(),
+            )
             .expect("spawn")
     }
 
@@ -1395,13 +1398,10 @@ mod tests {
         let before_live = world.state.committed.live_order.len();
         assert_eq!(
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    0,
-                    1_000,
-                    0,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 1_000, 0,)
+                        .with_open_entrance()
+                )
                 .unwrap_err(),
             SpawnError::ObservationStateSequenceExhausted
         );

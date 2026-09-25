@@ -1945,13 +1945,16 @@ mod tests {
             .expect("profile");
         // 前车按 tick.rs 先例保持安全间距，后车在武装窗口内生成。
         let first = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("leader vehicle");
         // 基线 = 1 次路线注册 + 1 次生成。
         assert_eq!(world.command_cursor(), 2);
@@ -2004,7 +2007,8 @@ mod tests {
         world
             .replace_completed_vehicle(
                 first,
-                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 1_000, 0),
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 4_500, 0)
+                    .with_open_entrance(),
             )
             .expect("replace");
 
@@ -2070,13 +2074,10 @@ mod tests {
         let mut world = world();
         let route = preview_route(&mut world);
         let vehicle = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 4_500, 0)
+                    .with_open_entrance(),
+            )
             .unwrap();
         VEHICLE_DELTA_MATERIALIZATIONS.set(0);
         world.step(TickInput::new(100)).unwrap();
@@ -2204,13 +2205,10 @@ mod tests {
         let mut world = world();
         let route = preview_route(&mut world);
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 4_500, 0)
+                    .with_open_entrance(),
+            )
             .expect("vehicle");
         world.state.arm_migration_journal(4_096).expect("arm");
         let bound = 4_096_usize;
@@ -2226,13 +2224,10 @@ mod tests {
         let mut world = world();
         let route = preview_route(&mut world);
         let vehicle = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 4_500, 0)
+                    .with_open_entrance(),
+            )
             .expect("vehicle");
         // 只够一条 TICK 头：首条 step 即溢出。
         world.state.arm_migration_journal(21).expect("arm");
@@ -2274,13 +2269,10 @@ mod tests {
         let mut world = make_world();
         let route = preview_route(&mut world);
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 4_500, 0)
+                    .with_open_entrance(),
+            )
             .expect("vehicle");
         world.state.arm_migration_journal(8 * 1_024).expect("arm");
         let capacity_before = world
@@ -2304,13 +2296,10 @@ mod tests {
         // 溢出臂：上界只够一条 TICK 头；首拍溢出后 arena 容量仍不变。
         let mut tiny = make_world();
         let route = preview_route(&mut tiny);
-        tiny.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            1_000,
-            0,
-        ))
+        tiny.spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 4_500, 0)
+                .with_open_entrance(),
+        )
         .expect("vehicle");
         tiny.state.arm_migration_journal(21).expect("arm tiny");
         let tiny_capacity = tiny

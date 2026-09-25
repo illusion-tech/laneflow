@@ -103,13 +103,16 @@ fn run(
     let completed_route = register_named(&mut world, &["completed"]);
     for _ in 0..completed {
         let vehicle = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                completed_route,
-                0,
-                20_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    completed_route,
+                    0,
+                    20_000,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .unwrap();
         world.step(TickInput::new(100)).unwrap();
         assert_eq!(
@@ -135,13 +138,16 @@ fn run(
             .enumerate()
             .map(|(index, route)| {
                 world
-                    .spawn_vehicle(VehicleSpawnInput::new(
-                        VehicleProfileOrdinal::from_raw(0),
-                        *route,
-                        0,
-                        if index < crossing { 19_999 } else { 0 },
-                        10_000,
-                    ))
+                    .spawn_vehicle(
+                        VehicleSpawnInput::new(
+                            VehicleProfileOrdinal::from_raw(0),
+                            *route,
+                            0,
+                            if index < crossing { 19_999 } else { 4_500 },
+                            10_000,
+                        )
+                        .with_open_entrance(),
+                    )
                     .unwrap()
             })
             .collect::<Vec<_>>();

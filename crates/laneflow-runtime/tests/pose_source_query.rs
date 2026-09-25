@@ -182,7 +182,9 @@ fn spawn_active(
     progress_mm: u32,
 ) -> laneflow_runtime::VehicleHandle {
     world
-        .spawn_vehicle(VehicleSpawnInput::new(PROFILE, route, 0, progress_mm, 0))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(PROFILE, route, 0, progress_mm, 0).with_open_entrance(),
+        )
         .expect("spawn active vehicle")
 }
 

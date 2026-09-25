@@ -170,13 +170,10 @@ fn despawn_and_slot_reuse_do_not_turn_historical_grants_into_current_ownership()
         );
         let new_vehicle = session
             .world_mut()
-            .spawn_vehicle(VehicleSpawnInput::new(
-                selected.state().profile(),
-                replacement,
-                0,
-                6_500,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(selected.state().profile(), replacement, 0, 6_500, 0)
+                    .with_open_entrance(),
+            )
             .unwrap();
         assert_ne!(new_vehicle, old);
         let current = session
@@ -385,13 +382,16 @@ fn held_resources_survive_snapshot_restore_and_replay_exactly() {
             let mut session = app.world_mut().resource_mut::<LaneFlowSession>();
             let new = session
                 .world_mut()
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    state.profile(),
-                    state.route(),
-                    state.route_edge_index(),
-                    state.progress_mm(),
-                    state.speed_mm_s(),
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        state.profile(),
+                        state.route(),
+                        state.route_edge_index(),
+                        state.progress_mm(),
+                        state.speed_mm_s(),
+                    )
+                    .with_open_entrance(),
+                )
                 .unwrap();
             assert_ne!(new, old);
         }

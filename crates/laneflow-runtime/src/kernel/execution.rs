@@ -659,7 +659,7 @@ mod tests {
 
     fn expected_done(slot_count: usize) -> Vec<SlotOutcome> {
         (0..slot_count)
-            .map(|index| SlotOutcome::Done(1_000 + index as u64))
+            .map(|index| SlotOutcome::Done(4_500 + index as u64))
             .collect()
     }
 
@@ -1092,7 +1092,7 @@ mod tests {
             assert_eq!(visited.len(), 4);
             assert!(visited.contains(&std::thread::current().id()));
             assert!(ids.iter().all(|id| visited.contains(id)));
-            assert_eq!(output, [1_000, 1_001, 1_002, 1_003]);
+            assert_eq!(output, [4_500, 4_501, 4_502, 4_503]);
         }
         assert_eq!(world.execution.attempt_epoch, 2);
         assert_eq!(world.execution.thread_ids(), ids);
@@ -1231,19 +1231,22 @@ mod tests {
         let edge = world.route_edges(route).unwrap()[0];
         let second_progress = world.traffic().lane_lengths_millimetres()[edge.index()];
         let second = world
-            .spawn_vehicle(crate::VehicleSpawnInput::new(
-                laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                second_progress,
-                0,
-            ))
+            .spawn_vehicle(
+                crate::VehicleSpawnInput::new(
+                    laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    second_progress,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .unwrap();
         world.execution = WorldExecution::start_private(config(2), &world.state);
         let ranges = world.execution.active_plan.ranges.clone();
         for expected in [
-            [Some((first, 1_000)), Some((second, second_progress))],
-            [Some((second, second_progress)), Some((first, 1_000))],
+            [Some((first, 4_500)), Some((second, second_progress))],
+            [Some((second, second_progress)), Some((first, 4_500))],
         ] {
             let mut output = [None; 2];
             world.execution.run(&mut world.state, |state, resources| {

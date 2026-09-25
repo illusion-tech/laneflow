@@ -154,13 +154,16 @@ fn admission_scale_evidence() {
                 let started = Instant::now();
                 for vehicle in 0..count {
                     world
-                        .spawn_vehicle(VehicleSpawnInput::new(
-                            VehicleProfileOrdinal::from_raw(0),
-                            routes[(vehicle % used_edges) as usize],
-                            0,
-                            (vehicle / used_edges + 1) * 10_000,
-                            0,
-                        ))
+                        .spawn_vehicle(
+                            VehicleSpawnInput::new(
+                                VehicleProfileOrdinal::from_raw(0),
+                                routes[(vehicle % used_edges) as usize],
+                                0,
+                                (vehicle / used_edges + 1) * 10_000,
+                                0,
+                            )
+                            .with_open_entrance(),
+                        )
                         .expect("spaced spawn");
                 }
                 let spawn_us = started.elapsed().as_micros();
@@ -198,6 +201,7 @@ fn input(route: RouteHandle, occurrence: u32, progress: u32) -> VehicleSpawnInpu
         progress,
         0,
     )
+    .with_open_entrance()
 }
 
 /// 参考路径从已提交 live 表全扫，不借用候选索引或 active_order。
@@ -468,13 +472,16 @@ fn ticks_completion_replace_and_failed_commands_keep_admission_current() {
     let mut world = empty_world(road_revision(2, 10.0, false), 8);
     let routes = lane_routes(&mut world, 2);
     let moving = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            routes[0],
-            0,
-            1_000,
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                routes[0],
+                0,
+                1_000,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .unwrap();
     let completing = world.spawn_vehicle(input(routes[1], 0, 10_000)).unwrap();
     let snapshot = encode_lfrs(&world.capture_snapshot().unwrap());
@@ -671,6 +678,16 @@ fn zero_entry_admission_preserves_non_overlap_on_the_next_tick() {
     crossing.spawn_vehicle(input(through, 1, 0)).unwrap();
     assert_eq!(
         crossing.spawn_vehicle(input(entry, 0, 0)),
+        Err(SpawnError::EntranceBody(
+            crate::EntranceBodyError::InDomainTail
+        )),
+        "a route that drops the upstream cannot omit the tail"
+    );
+    let same_edges = crossing
+        .register_route(RouteRegisterInput::new(vec![first_edge, second_edge]))
+        .unwrap();
+    assert_eq!(
+        crossing.spawn_vehicle(input(same_edges, 1, 0)),
         Err(SpawnError::Overlap),
         "zero progress entry points are physical, not route-occurrence identities"
     );

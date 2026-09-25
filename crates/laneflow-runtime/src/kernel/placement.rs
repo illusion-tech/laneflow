@@ -1346,7 +1346,8 @@ impl crate::kernel::state::WorldState {
             state.route_edge_index,
             state.progress_mm,
             state.speed_mm_s,
-        );
+        )
+        .with_open_entrance();
         self.upstream_follower_candidates(input, state.length_mm)
     }
 
@@ -2013,7 +2014,8 @@ impl crate::kernel::state::WorldState {
             candidate.route_edge_index,
             candidate.progress_mm,
             candidate.speed_mm_s,
-        );
+        )
+        .with_open_entrance();
         for handle in self.upstream_follower_candidates(input, candidate.length_mm)? {
             push_recheck(&mut handles, handle)?;
         }

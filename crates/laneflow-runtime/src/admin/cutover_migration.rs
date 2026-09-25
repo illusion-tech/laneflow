@@ -3697,7 +3697,8 @@ pub(crate) mod tests {
         let vehicle = world
             .state
             .restore_unparked_vehicle(
-                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0),
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0)
+                    .with_open_entrance(),
                 0,
                 VehicleStatus::Active,
                 None,
@@ -4454,14 +4455,24 @@ pub(crate) mod tests {
         progress: u32,
         speed: u32,
     ) -> VehicleHandle {
+        let edge = world.route_edges(route).expect("route")[0];
+        let length = world.traffic().lane_lengths_millimetres()[edge.index()];
+        let progress = if progress < 4_500 && length >= 4_500 {
+            4_500
+        } else {
+            progress
+        };
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                progress,
-                speed,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    progress,
+                    speed,
+                )
+                .with_open_entrance(),
+            )
             .expect("spawn")
     }
 
@@ -4502,13 +4513,10 @@ pub(crate) mod tests {
             .register_route(RouteRegisterInput::new(vec![LaneEdgeOrdinal::from_raw(0)]))
             .expect("parking route");
         let reserved = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                0,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0)
+                    .with_open_entrance(),
+            )
             .expect("reserved vehicle");
         world
             .reserve_parking(

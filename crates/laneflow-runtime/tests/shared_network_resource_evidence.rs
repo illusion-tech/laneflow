@@ -363,22 +363,22 @@ fn spawn_full_spatial_pair(world: &mut TrafficWorld) {
         .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
         .expect("profile 0");
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("leader");
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            1_000,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 1_000, 0)
+                .with_open_entrance(),
+        )
         .expect("follower");
 }
 
@@ -392,13 +392,9 @@ fn spawn_on_slot(
         .get(slot.route_index)
         .expect("catalog route must be registered");
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            profile,
-            route,
-            0,
-            slot.progress_mm,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(profile, route, 0, slot.progress_mm, 0).with_open_entrance(),
+        )
         .expect("catalog slot must spawn");
 }
 

@@ -83,13 +83,16 @@ fn conflict_steady_tick_has_zero_heap_allocation_after_warmup() {
         let entry = world.route_edges(route).expect("route edges")[0];
         let gate_progress = world.traffic().lane_lengths_millimetres()[entry.index()];
         world
-            .place_existing_active_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                gate_progress,
-                8_000,
-            ))
+            .place_existing_active_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    gate_progress,
+                    8_000,
+                )
+                .with_open_entrance(),
+            )
             .expect("Gate-boundary vehicle")
     });
 
@@ -142,13 +145,16 @@ fn conflict_steady_tick_has_zero_heap_allocation_after_warmup() {
             let edge = world.route_edges(route).unwrap()[0];
             let boundary = world.traffic().lane_lengths_millimetres()[edge.index()];
             world
-                .place_existing_active_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    0,
-                    boundary,
-                    8_000,
-                ))
+                .place_existing_active_vehicle(
+                    VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        0,
+                        boundary,
+                        8_000,
+                    )
+                    .with_open_entrance(),
+                )
                 .unwrap()
         });
         let region = Region::new(GLOBAL);
@@ -223,13 +229,16 @@ fn resource_free_gate_allocation_evidence() {
     for _ in 0..1_600 {
         let vehicle = *current.get_or_insert_with(|| {
             world
-                .place_existing_active_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    0,
-                    boundary,
-                    8_000,
-                ))
+                .place_existing_active_vehicle(
+                    VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        0,
+                        boundary,
+                        8_000,
+                    )
+                    .with_open_entrance(),
+                )
                 .unwrap()
         });
         let region = Region::new(GLOBAL);

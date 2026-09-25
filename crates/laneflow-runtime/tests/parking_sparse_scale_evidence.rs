@@ -174,13 +174,10 @@ fn sample_sparse_world(revision: Arc<SharedNetworkRevision>) -> (Sample, u64) {
     let mut world = install(revision);
     let route = register_route(&mut world);
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("vehicle");
     world
         .reserve_parking(

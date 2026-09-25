@@ -52,7 +52,7 @@ pub struct LaneFlowVehicleDespawnRecord {
 /// Session 资源缺席时返回 [`LaneFlowAdapterError::MissingSessionForLifecycleCommand`]；
 /// session 存在未消费的 `last_error` 时原样返回；替换车辆或其 Entity 绑定失效
 /// （`UnknownVehicle` / `StaleLifecycleEntity`）、`DownstreamSpeedUnsatisfiable`、
-/// `InvalidDepartureState`、`InitialSpeedExceedsDepartureBound` 与
+/// `InvalidDepartureState`、`InitialSpeedExceedsDepartureBound`、`EntranceBody` 与
 /// 世界替换的其他致命错误记录到 `last_error` 并返回；[`ReplaceError::Blocked`] 与
 /// 当前暂时不能接纳的停车约束、前车或后车错误转为可重试 outcome，不写入 `last_error`。
 pub fn replace_completed_vehicle(

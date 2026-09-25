@@ -160,13 +160,9 @@ pub fn build() -> Result<JunctionDebugScene, Box<dyn Error>> {
             .iter()
             .find(|slot| slot.slot_id == entry.slot_id)
             .ok_or("spawn plan slot missing from bound catalog")?;
-        let vehicle = world.spawn_vehicle(VehicleSpawnInput::new(
-            profile,
-            route,
-            0,
-            slot.progress_mm,
-            0,
-        ))?;
+        let vehicle = world.spawn_vehicle(
+            VehicleSpawnInput::new(profile, route, 0, slot.progress_mm, 0).with_open_entrance(),
+        )?;
         spawned.push(SpawnedVehicle {
             role: entry.role,
             vehicle,

@@ -66,13 +66,16 @@ fn multiple_cells_share_one_policy_and_keep_distinct_formal_resource_owners() {
             let slot = &cell.spawn_slots[cell.portal_lanes[lane].entry_slot_index];
             vehicles.push(
                 world
-                    .spawn_vehicle(VehicleSpawnInput::new(
-                        cell.profiles[VEHICLE_PROFILE_KEY],
-                        routes[slot.route_index],
-                        0,
-                        slot.progress_mm,
-                        0,
-                    ))
+                    .spawn_vehicle(
+                        VehicleSpawnInput::new(
+                            cell.profiles[VEHICLE_PROFILE_KEY],
+                            routes[slot.route_index],
+                            0,
+                            slot.progress_mm,
+                            0,
+                        )
+                        .with_open_entrance(),
+                    )
                     .unwrap(),
             );
         }

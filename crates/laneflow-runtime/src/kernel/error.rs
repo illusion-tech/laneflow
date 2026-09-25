@@ -244,6 +244,20 @@ pub enum DepartureStateError {
     SpeedOutOfRange,
 }
 
+/// 开放入口或范围内车身无法解释。
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
+pub enum EntranceBodyError {
+    /// 绑定的出现项不是路线起点，或方向不是顺行。
+    #[error("开放入口绑定不合法")]
+    InvalidBinding,
+    /// 车尾超出路线起点，但没有绑定开放入口。
+    #[error("车尾超出路线起点但没有绑定开放入口")]
+    Unbound,
+    /// 超出的车尾仍落在已建模的前驱上，路线没有包含。
+    #[error("范围内车尾没有写进路线")]
+    InDomainTail,
+}
+
 /// `spawn_vehicle` 失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum SpawnError {
@@ -310,6 +324,9 @@ pub enum SpawnError {
     /// 初速超过这份出发声明的速度上界。已提交世界不变。须降低初速或更换输入。
     #[error("初速超过出发状态的速度上界")]
     InitialSpeedExceedsDepartureBound,
+    /// 开放入口不合法，或范围内车尾没有写进路线。已提交世界不变。须修正输入。
+    #[error("开放入口或范围内车身无法解释")]
+    EntranceBody(EntranceBodyError),
     /// 本次成功生成本应推进观测状态序号，但序号已耗尽。
     #[error("观测状态序号已耗尽")]
     ObservationStateSequenceExhausted,
@@ -399,6 +416,9 @@ pub enum ReplaceError {
     /// 初速超过这份出发声明的速度上界。已提交世界不变。须降低初速或更换输入。
     #[error("初速超过出发状态的速度上界")]
     InitialSpeedExceedsDepartureBound,
+    /// 开放入口不合法，或范围内车尾没有写进路线。已提交世界不变。须修正输入。
+    #[error("开放入口或范围内车身无法解释")]
+    EntranceBody(EntranceBodyError),
     /// 本次成功替换本应推进观测状态序号，但序号已耗尽。
     #[error("观测状态序号已耗尽")]
     ObservationStateSequenceExhausted,

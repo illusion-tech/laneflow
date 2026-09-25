@@ -79,7 +79,9 @@ fn at_admission(
     let edge = world.route_edges(route).unwrap()[hop as usize];
     let length = world.traffic().lane_lengths_millimetres()[edge.index()];
     world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(profile, route, hop, length, 2_000))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(profile, route, hop, length, 2_000).with_open_entrance(),
+        )
         .unwrap()
 }
 
@@ -134,7 +136,9 @@ fn occupied_shared_edge_prevents_both_branches_from_entering_the_taper() {
         // Rear at 3.5 m is outside the 2 m conflict exit but still intersects
         // the declared downstream storage needed by a 4.5 m merging car.
         world
-            .spawn_vehicle(VehicleSpawnInput::new(profile, routes[0].0, 3, 8_000, 0))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(profile, routes[0].0, 3, 8_000, 0).with_open_entrance(),
+            )
             .unwrap();
         let vehicles = routes.map(|(route, hop)| at_admission(&mut world, profile, route, hop));
         for _ in 0..10 {

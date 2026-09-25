@@ -203,23 +203,29 @@ impl Fixtures {
                     let progress = boundary - u32::from(matches!(scene, Scene::Waiting));
                     #[cfg(feature = "placement-fixtures")]
                     world
-                        .place_existing_active_vehicle(VehicleSpawnInput::new(
-                            VehicleProfileOrdinal::from_raw(0),
-                            route,
-                            0,
-                            progress,
-                            8_000,
-                        ))
+                        .place_existing_active_vehicle(
+                            VehicleSpawnInput::new(
+                                VehicleProfileOrdinal::from_raw(0),
+                                route,
+                                0,
+                                progress,
+                                8_000,
+                            )
+                            .with_open_entrance(),
+                        )
                         .unwrap();
                     #[cfg(not(feature = "placement-fixtures"))]
                     world
-                        .spawn_vehicle(VehicleSpawnInput::new(
-                            VehicleProfileOrdinal::from_raw(0),
-                            route,
-                            0,
-                            progress,
-                            8_000,
-                        ))
+                        .spawn_vehicle(
+                            VehicleSpawnInput::new(
+                                VehicleProfileOrdinal::from_raw(0),
+                                route,
+                                0,
+                                progress,
+                                8_000,
+                            )
+                            .with_open_entrance(),
+                        )
                         .unwrap();
                 }
                 // 与既有 Waiting / Conflict 稳态分配测试相同的有限窗口。

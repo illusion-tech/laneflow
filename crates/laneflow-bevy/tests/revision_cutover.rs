@@ -234,13 +234,10 @@ fn seeded(artifact: &Artifact, key: &str) -> Seeded {
         ]))
         .expect("route");
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            1_000,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 1_000, 0)
+                .with_open_entrance(),
+        )
         .expect("spawn");
     let spatial = laneflow_spatial::SpatialSession::bind(Arc::clone(&artifact.root))
         .expect("bind")

@@ -122,13 +122,16 @@ fn spawn_on_route(
     speed: u32,
 ) -> laneflow_runtime::VehicleHandle {
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            progress,
-            speed,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                progress,
+                speed,
+            )
+            .with_open_entrance(),
+        )
         .expect("spawn")
 }
 
@@ -196,35 +199,26 @@ fn spawn_respects_speed_limit_equality_and_overlap() {
     let limit = world.traffic().lane_speed_limits_millimetres_per_second()[edge.index()];
 
     let first = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            0,
-            limit,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, limit)
+                .with_open_entrance(),
+        )
         .expect("equal speed spawn");
     assert_eq!(
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                0,
-                limit + 1,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, limit + 1,)
+                    .with_open_entrance()
+            )
             .unwrap_err(),
         SpawnError::SpeedExceedsLimit
     );
     assert_eq!(
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                0,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0,)
+                    .with_open_entrance()
+            )
             .unwrap_err(),
         SpawnError::Overlap
     );
@@ -262,13 +256,16 @@ fn explicit_parking_lifecycle_enforces_exclusivity_and_narrow_idempotency() {
         .and_then(|index| u32::try_from(index).ok())
         .expect("parking entry on route");
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            entry_occurrence,
-            entry_progress_mm,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                entry_occurrence,
+                entry_progress_mm,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("spawn at parking entry");
     let reserve = ReserveParkingTarget::ExplicitSpace {
         space,
@@ -322,13 +319,16 @@ fn explicit_parking_lifecycle_enforces_exclusivity_and_narrow_idempotency() {
     }
 
     let other_vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            entry_occurrence,
-            entry_progress_mm,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                entry_occurrence,
+                entry_progress_mm,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("parked vehicle left no lane occupancy");
     assert_eq!(
         world.reserve_parking(other_vehicle, reserve).unwrap_err(),
@@ -393,13 +393,10 @@ fn remove_route_rejects_live_vehicle() {
         .register_route(RouteRegisterInput::new(vec![first, middle, last]))
         .expect("route");
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("spawn");
     assert_eq!(
         world.remove_route(route).unwrap_err(),
@@ -430,13 +427,10 @@ fn spawn_rejects_out_of_range_index_and_progress() {
     let route = fixture_route(&mut world);
     assert_eq!(
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                99,
-                0,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 99, 0, 0,)
+                    .with_open_entrance()
+            )
             .unwrap_err(),
         SpawnError::RouteIndexOutOfRange
     );
@@ -444,13 +438,16 @@ fn spawn_rejects_out_of_range_index_and_progress() {
     let length = world.traffic().lane_lengths_millimetres()[edge.index()];
     assert_eq!(
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                length + 1_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    length + 1_000,
+                    0,
+                )
+                .with_open_entrance()
+            )
             .unwrap_err(),
         SpawnError::InvalidProgress
     );
@@ -472,13 +469,16 @@ fn drive_to_completed(
     let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[last.index()];
     let last_index = u32::try_from(edges.len() - 1).expect("index fits u32");
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            last_index,
-            progress_near_route_end(last_length, speed_limit),
-            speed_limit,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                last_index,
+                progress_near_route_end(last_length, speed_limit),
+                speed_limit,
+            )
+            .with_open_entrance(),
+        )
         .expect("spawn near end");
     for _ in 0..8 {
         world.step(TickInput::new(100)).expect("step");
@@ -516,13 +516,16 @@ fn completed_vehicle_is_retained_without_pose_or_occupancy() {
     let last_length = world.traffic().lane_lengths_millimetres()[last.index()];
     let last_index = u32::try_from(edges.len() - 1).expect("index fits u32");
     let occupancy = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            last_index,
-            last_length.saturating_sub(500),
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                last_index,
+                last_length.saturating_sub(500),
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("Completed must release lane occupancy");
     assert_ne!(occupancy, old);
     assert!(world.vehicle(old).is_some(), "old handle must stay live");
@@ -536,20 +539,18 @@ fn completed_vehicle_occupies_capacity_until_replace() {
     let old = drive_to_completed(&mut world, route);
     assert_eq!(
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                0,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0,)
+                    .with_open_entrance()
+            )
             .unwrap_err(),
         SpawnError::CapacityExceeded
     );
     let record = world
         .replace_completed_vehicle(
             old,
-            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0),
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0)
+                .with_open_entrance(),
         )
         .expect("atomic replace");
     assert_eq!(record.old, old);
@@ -568,19 +569,17 @@ fn replace_is_atomic_and_blocked_overlap_is_retryable() {
     let route = fixture_route(&mut world);
     let old = drive_to_completed(&mut world, route);
     let blocker = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("blocker at entry");
     let before = world.vehicle(old);
     let error = world
         .replace_completed_vehicle(
             old,
-            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0),
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0)
+                .with_open_entrance(),
         )
         .unwrap_err();
     let ReplaceError::Blocked(block) = error else {
@@ -596,7 +595,8 @@ fn replace_is_atomic_and_blocked_overlap_is_retryable() {
         world
             .replace_completed_vehicle(
                 blocker,
-                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 1_000, 0),
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 1_000, 0)
+                    .with_open_entrance(),
             )
             .unwrap_err(),
         ReplaceError::NotCompleted
@@ -605,7 +605,8 @@ fn replace_is_atomic_and_blocked_overlap_is_retryable() {
         world
             .replace_completed_vehicle(
                 old,
-                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, u32::MAX, 0, 0,),
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, u32::MAX, 0, 0,)
+                    .with_open_entrance(),
             )
             .unwrap_err(),
         ReplaceError::RouteIndexOutOfRange
@@ -615,7 +616,8 @@ fn replace_is_atomic_and_blocked_overlap_is_retryable() {
     let record = world
         .replace_completed_vehicle(
             old,
-            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8_000, 0),
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8_000, 0)
+                .with_open_entrance(),
         )
         .expect("entry behind blocker");
     assert_ne!(record.new, old);
@@ -635,13 +637,10 @@ fn replace_does_not_use_despawn_then_spawn() {
     );
     assert_eq!(
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                0,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0,)
+                    .with_open_entrance()
+            )
             .unwrap_err(),
         SpawnError::CapacityExceeded,
         "不得把跑完即退役再 spawn 写成回流"
@@ -660,13 +659,16 @@ fn completed_route_stays_referenced_until_replace() {
     let last_length = world.traffic().lane_lengths_millimetres()[last.index()];
     let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[last.index()];
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            dynamic,
-            2,
-            progress_near_route_end(last_length, speed_limit),
-            speed_limit,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                dynamic,
+                2,
+                progress_near_route_end(last_length, speed_limit),
+                speed_limit,
+            )
+            .with_open_entrance(),
+        )
         .expect("spawn near end");
     for _ in 0..8 {
         world.step(TickInput::new(100)).expect("step");
@@ -698,7 +700,8 @@ fn completed_route_stays_referenced_until_replace() {
     let record = world
         .replace_completed_vehicle(
             vehicle,
-            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), replacement, 0, 0, 0),
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), replacement, 0, 0, 0)
+                .with_open_entrance(),
         )
         .expect("replace onto another registered route");
     world.remove_route(dynamic).expect("old route unused");
@@ -720,7 +723,8 @@ fn parked_and_stale_replace_leave_world_unchanged() {
         world
             .replace_completed_vehicle(
                 parked,
-                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 1_000, 0),
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 1_000, 0)
+                    .with_open_entrance(),
             )
             .unwrap_err(),
         ReplaceError::NotCompleted
@@ -735,14 +739,16 @@ fn parked_and_stale_replace_leave_world_unchanged() {
     world
         .replace_completed_vehicle(
             old,
-            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8_000, 0),
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8_000, 0)
+                .with_open_entrance(),
         )
         .expect("free the completed slot");
     assert_eq!(
         world
             .replace_completed_vehicle(
                 old,
-                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8_000, 0),
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8_000, 0)
+                    .with_open_entrance(),
             )
             .unwrap_err(),
         ReplaceError::StaleHandle

@@ -103,13 +103,16 @@ fn sources_after_each_step_agree_across_workers() {
             .expect("route");
         for progress in [1_000_u32, 7_000] {
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    0,
-                    progress,
-                    0,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        0,
+                        progress,
+                        0,
+                    )
+                    .with_open_entrance(),
+                )
                 .expect("spawn");
         }
         let mut trace = Vec::new();
@@ -141,13 +144,10 @@ fn failed_step_preserves_committed_sources_and_retry_recovers() {
             .register_route(RouteRegisterInput::new(edges.to_vec()))
             .expect("route");
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                2_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 2_000, 0)
+                    .with_open_entrance(),
+            )
             .expect("spawn");
         world.step(TickInput::new(100)).expect("warm-up step");
 
@@ -197,13 +197,16 @@ fn parking_lifecycle_source_transitions_are_explicit_and_worker_stable() {
             .register_route(RouteRegisterInput::new(vec![entry, exit]))
             .expect("route");
         let vehicle = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                entry_progress_mm,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    entry_progress_mm,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("spawn at parking entry");
 
         let lane_at_entry = PoseSource::Lane {

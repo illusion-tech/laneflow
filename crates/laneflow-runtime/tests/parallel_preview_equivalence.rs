@@ -571,6 +571,7 @@ fn ring_world(
                 *progress,
                 0,
             )
+            .with_open_entrance()
         })
         .collect();
     (world, spawns)
@@ -629,7 +630,8 @@ fn run_waiting_ring(workers: u32) -> Vec<String> {
                     0,
                     rearmost - offset,
                     0,
-                );
+                )
+                .with_open_entrance();
                 let new = world.spawn_vehicle(respawn).expect("respawn");
                 for old in &drained {
                     assert_ne!(new, *old, "respawn must issue a fresh handle generation");
@@ -690,13 +692,16 @@ fn run_corridor_chain(workers: u32) -> Vec<String> {
         assert_eq!(lane_slots.len(), 8, "corridor lane must expose 8 slots");
         for slot in lane_slots {
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    profile,
-                    routes[slot.route_index],
-                    0,
-                    slot.progress_mm,
-                    0,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        profile,
+                        routes[slot.route_index],
+                        0,
+                        slot.progress_mm,
+                        0,
+                    )
+                    .with_open_entrance(),
+                )
                 .expect("corridor spawn");
         }
     }
@@ -764,33 +769,36 @@ fn run_full_spatial_lifecycle_fused(workers: u32) -> Vec<String> {
         [edge_for_length(&world, 10_000).index()];
     // 近终点车：8 tick 内 Completed；保留后由原子替换接新一代次。
     let finisher = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            last_index,
-            progress_near_route_end(last_length, speed_limit),
-            speed_limit,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                last_index,
+                progress_near_route_end(last_length, speed_limit),
+                speed_limit,
+            )
+            .with_open_entrance(),
+        )
         .expect("near-end spawn");
     // 信号 Stop-Go：首边末起步，信号组按周期变化。
     let stop_go = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            9_900,
-            speed_limit,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                9_900,
+                speed_limit,
+            )
+            .with_open_entrance(),
+        )
         .expect("signal spawn");
     // 全程驾驶者：跟随/占用贯穿整段脚本。
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0)
+                .with_open_entrance(),
+        )
         .expect("driver spawn");
     // Parked 从拍初就在 live 集合：Active 投影的非 Active 成员。
     let parked = world
@@ -821,7 +829,8 @@ fn run_full_spatial_lifecycle_fused(workers: u32) -> Vec<String> {
                 0,
                 9_900,
                 speed_limit,
-            );
+            )
+            .with_open_entrance();
             despawn_and_respawn(&mut world, stop_go, input, true);
         }
         let outcome = world
@@ -842,7 +851,8 @@ fn run_full_spatial_lifecycle_fused(workers: u32) -> Vec<String> {
                         last_index,
                         progress_near_route_end(last_length, speed_limit),
                         speed_limit,
-                    ),
+                    )
+                    .with_open_entrance(),
                 )
                 .expect("atomic replace");
             assert_ne!(record.new, finisher);
@@ -907,13 +917,16 @@ fn run_parking_transition_fused(workers: u32) -> Vec<String> {
     let mut handles = Vec::new();
     // 停车者：生成在停车位入口，行进命令把它转为 Parked。
     let parker = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            entry_occurrence,
-            entry_progress,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                entry_occurrence,
+                entry_progress,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("parker spawn");
     handles.push(parker);
     // 7 辆跟随者：沿同一入口边在停车者前方 8 m 间距排列（夹具两边各 100 m），
@@ -922,13 +935,10 @@ fn run_parking_transition_fused(workers: u32) -> Vec<String> {
         let ahead = 12_000 + index * 8_000;
         handles.push(
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    0,
-                    ahead,
-                    0,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, ahead, 0)
+                        .with_open_entrance(),
+                )
                 .expect("follower spawn"),
         );
     }
@@ -1027,13 +1037,22 @@ fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
         }
         handles.push(
             world
-                .spawn_vehicle(VehicleSpawnInput::new(profile, route, 0, index * 9_000, 0))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        profile,
+                        route,
+                        0,
+                        if index == 0 { 4_500 } else { index * 9_000 },
+                        0,
+                    )
+                    .with_open_entrance(),
+                )
                 .expect("hybrid spawn"),
         );
     }
     // 首拍前 park 一辆（虚拟池容量 4）并立即补员：首拍 step 即 13 Active + 2 Parked。
     let parker = world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, route, 3, 20_000, 0))
+        .spawn_vehicle(VehicleSpawnInput::new(profile, route, 3, 20_000, 0).with_open_entrance())
         .expect("hybrid parker spawn");
     let virtual_reserve = ReserveParkingTarget::VirtualPool {
         facility,
@@ -1050,15 +1069,17 @@ fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
     // 近终点 finisher：反复 Completed 保留 → 延迟原子替换接新代次。
     let last = route_position(&world, route, 3 * 600_000 - 500);
     let mut finisher = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            profile, route, last.0, last.1, 13_750,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(profile, route, last.0, last.1, 13_750).with_open_entrance(),
+        )
         .expect("hybrid finisher");
     // 补员固定在队列前方空位（头车只前进，108 m 处对 parker/finisher 空闲）。
     let front = route_position(&world, route, 108_000);
     handles.push(
         world
-            .spawn_vehicle(VehicleSpawnInput::new(profile, route, front.0, front.1, 0))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(profile, route, front.0, front.1, 0).with_open_entrance(),
+            )
             .expect("park backfill spawn"),
     );
     assert_fused_path(&world, "hybrid lifecycle initial workset");
@@ -1073,7 +1094,8 @@ fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
             handles[9] = despawn_and_respawn(
                 &mut world,
                 handles[9],
-                VehicleSpawnInput::new(profile, route, backfill.0, backfill.1, 0),
+                VehicleSpawnInput::new(profile, route, backfill.0, backfill.1, 0)
+                    .with_open_entrance(),
                 false,
             );
             assert_fused_path(&world, "hybrid lifecycle despawn+respawn");
@@ -1082,7 +1104,9 @@ fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
             // 行进中 Active→Parked（虚拟池第二辆）：parker 让出的入口位置已
             // 空闲，在其原位 spawn 后立即 reserve→arrive→park，再补员回门槛之上。
             let mid_parker = world
-                .spawn_vehicle(VehicleSpawnInput::new(profile, route, 3, 20_000, 0))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(profile, route, 3, 20_000, 0).with_open_entrance(),
+                )
                 .expect("mid-run parker spawn");
             world
                 .reserve_parking(mid_parker, virtual_reserve)
@@ -1094,9 +1118,10 @@ fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
             let backfill = route_position(&world, route, 126_000);
             handles.push(
                 world
-                    .spawn_vehicle(VehicleSpawnInput::new(
-                        profile, route, backfill.0, backfill.1, 0,
-                    ))
+                    .spawn_vehicle(
+                        VehicleSpawnInput::new(profile, route, backfill.0, backfill.1, 0)
+                            .with_open_entrance(),
+                    )
                     .expect("mid-run park backfill spawn"),
             );
             assert_fused_path(&world, "hybrid lifecycle mid-run park+backfill");
@@ -1110,7 +1135,8 @@ fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
                 let record = world
                     .replace_existing_completed_vehicle(
                         old,
-                        VehicleSpawnInput::new(profile, route, last.0, last.1, 13_750),
+                        VehicleSpawnInput::new(profile, route, last.0, last.1, 13_750)
+                            .with_open_entrance(),
                     )
                     .expect("hybrid atomic replace");
                 assert_ne!(record.new, old);
@@ -1187,25 +1213,31 @@ fn run_parking_hybrid_transition(workers: u32) -> Vec<String> {
     // 12 Active：parker 在车位入口，11 辆跟随者前方 8 m 间距（夹具两边各
     // 100 m，车长 4.5 m + 最小间距 2 m）。
     let parker = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            entry_progress,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                entry_progress,
+                0,
+            )
+            .with_open_entrance(),
+        )
         .expect("hybrid parker spawn");
     let mut handles = vec![parker];
     for index in 0..11_u32 {
         handles.push(
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    0,
-                    12_000 + index * 8_000,
-                    0,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        0,
+                        12_000 + index * 8_000,
+                        0,
+                    )
+                    .with_open_entrance(),
+                )
                 .expect("hybrid follower spawn"),
         );
     }
@@ -1216,13 +1248,16 @@ fn run_parking_hybrid_transition(workers: u32) -> Vec<String> {
     // park 后立即补员回停车者让出的入口位置：首拍 step 之前工作集回到门槛之上。
     handles.push(
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                entry_progress,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    entry_progress,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("park backfill spawn"),
     );
     assert_fused_path(&world, "hybrid parking park+backfill before first step");
@@ -1251,13 +1286,16 @@ fn run_parking_hybrid_transition(workers: u32) -> Vec<String> {
             let (edge_index, progress) = route_position(&world, route, rearmost - 8_000);
             handles.push(
                 world
-                    .spawn_vehicle(VehicleSpawnInput::new(
-                        VehicleProfileOrdinal::from_raw(0),
-                        route,
-                        edge_index,
-                        progress,
-                        0,
-                    ))
+                    .spawn_vehicle(
+                        VehicleSpawnInput::new(
+                            VehicleProfileOrdinal::from_raw(0),
+                            route,
+                            edge_index,
+                            progress,
+                            0,
+                        )
+                        .with_open_entrance(),
+                    )
                     .expect("completion backfill spawn"),
             );
             completion_backfill = true;

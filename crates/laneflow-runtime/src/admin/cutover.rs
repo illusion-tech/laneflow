@@ -1371,14 +1371,19 @@ pub(crate) mod tests {
             let route = world
                 .register_route(RouteRegisterInput::new(edges))
                 .expect("route");
+            let length = world.traffic().lane_lengths_millimetres()[first.index()];
+            let progress = if length >= 4_500 { 4_500 } else { length };
             let vehicle = world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    0,
-                    1_000,
-                    0,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        0,
+                        progress,
+                        0,
+                    )
+                    .with_open_entrance(),
+                )
                 .expect("vehicle");
             (world, route, vehicle)
         }
@@ -1804,13 +1809,16 @@ pub(crate) mod tests {
         fn command_cursor_exhaustion_fails_closed_for_lifecycle_commands() {
             let (mut world, route, vehicle) = world_with_vehicle(true);
             let route_edges = world.route_edges(route).expect("route").to_vec();
+            let length = world.traffic().lane_lengths_millimetres()
+                [world.route_edges(route).expect("edges")[0].index()];
             let spawn = VehicleSpawnInput::new(
                 laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
-                1_000,
+                if length >= 4_500 { 4_500 } else { length },
                 0,
-            );
+            )
+            .with_open_entrance();
             let removable_route = world
                 .register_route(RouteRegisterInput::new(route_edges.clone()))
                 .expect("route without vehicles");

@@ -1031,13 +1031,10 @@ mod tests {
             .register_route(RouteRegisterInput::new(fixture_edges(&same_tick_world)))
             .expect("same-tick route");
         same_tick_world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                0,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0)
+                    .with_open_entrance(),
+            )
             .expect("same-tick spawn");
         let same_tick_newer_state = full_observation(&same_tick_world);
         assert_eq!(

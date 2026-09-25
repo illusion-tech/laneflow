@@ -2114,13 +2114,16 @@ mod tests {
         let length = world.traffic().lane_lengths_millimetres()[exit.index()];
         let owner = world
             .state
-            .place_existing_active_vehicle(crate::VehicleSpawnInput::new(
-                laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
-                route,
-                1,
-                length,
-                10_000,
-            ))
+            .place_existing_active_vehicle(
+                crate::VehicleSpawnInput::new(
+                    laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    1,
+                    length,
+                    10_000,
+                )
+                .with_open_entrance(),
+            )
             .unwrap();
         world.step(TickInput::new(100)).unwrap();
         assert_eq!(
@@ -2275,13 +2278,16 @@ mod tests {
         speed: u32,
     ) -> VehicleHandle {
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                progress,
-                speed,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    progress,
+                    speed,
+                )
+                .with_open_entrance(),
+            )
             .expect("spawn")
     }
 
@@ -2912,13 +2918,16 @@ mod tests {
                 .register_route(RouteRegisterInput::new(edges))
                 .unwrap();
             let vehicle = world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    cursor,
-                    length - 100_000,
-                    1_000,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        cursor,
+                        length - 100_000,
+                        1_000,
+                    )
+                    .with_open_entrance(),
+                )
                 .unwrap();
             let before = world.capture_snapshot().unwrap();
             let invalid = CutoverError::VehicleRevalidationFailed {
@@ -3645,13 +3654,10 @@ mod tests {
             .expect("route");
         let space = ParkingSpaceOrdinal::from_raw(0);
         let vehicle = cut
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                4_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 4_000, 0)
+                    .with_open_entrance(),
+            )
             .expect("vehicle at exact entry");
         let mut tx = prepare(
             &mut cut,
@@ -4537,7 +4543,8 @@ mod tests {
         force_complete(&mut cut, old);
         force_complete(&mut plain, old);
         let replacement =
-            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 2_000, 0);
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 2_000, 0)
+                .with_open_entrance();
         cut.replace_completed_vehicle(old, replacement)
             .expect("cut replace");
         plain
@@ -4615,7 +4622,8 @@ mod tests {
         let replacement = cut
             .replace_completed_vehicle(
                 saturated_old,
-                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 2_000, 0),
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 2_000, 0)
+                    .with_open_entrance(),
             )
             .expect("saturated generation replacement reuses the free slot");
         assert_eq!(
@@ -4724,7 +4732,8 @@ mod tests {
         cut.state.derived.spawn_overlap.mark_stale();
         cut.replace_completed_vehicle(
             vehicle,
-            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), allowed, 0, 1_000, 0),
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), allowed, 0, 1_000, 0)
+                .with_open_entrance(),
         )
         .expect("clear onto allowed route");
         cut.remove_route(denied_route)

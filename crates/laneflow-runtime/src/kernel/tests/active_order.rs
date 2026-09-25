@@ -219,13 +219,10 @@ fn completed_replacement_invalidates_and_parking_removes_stably() {
     let route = f.world.state.vehicle_state(f.vehicles[0]).unwrap().route;
     let completing = f
         .world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            99_999,
-            1_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 99_999, 1_000)
+                .with_open_entrance(),
+        )
         .unwrap();
     leave(&mut f, 31);
     let prefix = f.world.state.derived.live_order_index.indexed_len;
@@ -245,7 +242,8 @@ fn completed_replacement_invalidates_and_parking_removes_stably() {
         .world
         .replace_completed_vehicle(
             completing,
-            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0),
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0)
+                .with_open_entrance(),
         )
         .unwrap();
     assert_eq!(
@@ -266,13 +264,10 @@ fn completed_replacement_invalidates_and_parking_removes_stably() {
         .route;
     let entering = f
         .world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            background,
-            0,
-            0,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), background, 0, 0, 0)
+                .with_open_entrance(),
+        )
         .unwrap();
     let facility = ParkingFacilityOrdinal::from_raw(0);
     f.world

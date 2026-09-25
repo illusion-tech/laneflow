@@ -133,13 +133,9 @@ fn spawn_on_slot(
     let route = *routes
         .get(slot.route_index)
         .ok_or("catalog route must be registered")?;
-    world.spawn_vehicle(VehicleSpawnInput::new(
-        profile,
-        route,
-        0,
-        slot.progress_mm,
-        0,
-    ))?;
+    world.spawn_vehicle(
+        VehicleSpawnInput::new(profile, route, 0, slot.progress_mm, 0).with_open_entrance(),
+    )?;
     Ok(())
 }
 

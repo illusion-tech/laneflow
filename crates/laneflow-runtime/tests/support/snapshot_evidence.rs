@@ -135,12 +135,8 @@ fn spawn_on_slot(
         .get(slot.route_index)
         .expect("catalog route must be registered");
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            profile,
-            route,
-            0,
-            slot.progress_mm,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(profile, route, 0, slot.progress_mm, 0).with_open_entrance(),
+        )
         .expect("catalog slot must spawn");
 }

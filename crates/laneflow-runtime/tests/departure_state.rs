@@ -216,7 +216,8 @@ fn undeclared_fast_spawn_stays_accepted_and_a_zero_departure_rejects_it() {
         0,
         5_000,
         10_000,
-    );
+    )
+    .with_open_entrance();
     world
         .spawn_vehicle(fast)
         .expect("no departure does not invent a zero history");
@@ -232,7 +233,8 @@ fn undeclared_fast_spawn_stays_accepted_and_a_zero_departure_rejects_it() {
             0,
             5_000,
             10_000,
-        ),
+        )
+        .with_open_entrance(),
         0,
         0,
         0,
@@ -250,13 +252,13 @@ fn a_departure_at_least_as_fast_as_the_initial_speed_does_not_add_a_bound() {
     let mut plain = install(100);
     let road = route(&mut plain, &["road"]);
     let profile = laneflow_static_contract::VehicleProfileOrdinal::from_raw(0);
-    let input = VehicleSpawnInput::new(profile, road, 0, 80_000, 10_000);
+    let input = VehicleSpawnInput::new(profile, road, 0, 80_000, 10_000).with_open_entrance();
     let first = plain.spawn_vehicle(input).expect("undeclared");
     let plain_speed = plain.vehicle(first).expect("live").speed_mm_s();
 
     let mut declared = install(100);
     let road = route(&mut declared, &["road"]);
-    let input = VehicleSpawnInput::new(profile, road, 0, 80_000, 10_000);
+    let input = VehicleSpawnInput::new(profile, road, 0, 80_000, 10_000).with_open_entrance();
     let kept = departed(input, 0, 0, 10_000);
     assert_eq!(kept.departure().expect("kept").speed_mm_s(), 10_000);
     let second = declared
@@ -273,7 +275,7 @@ fn invalid_departure_reasons_stay_distinct_and_do_not_commit() {
     let mut world = install(100);
     let road = route(&mut world, &["road"]);
     let profile = laneflow_static_contract::VehicleProfileOrdinal::from_raw(0);
-    let input = VehicleSpawnInput::new(profile, road, 0, 1_000, 0);
+    let input = VehicleSpawnInput::new(profile, road, 0, 6_000, 0).with_open_entrance();
     let cursor = world.command_cursor();
     assert_eq!(
         world.spawn_vehicle(departed(input, 3, 0, 0)),
@@ -288,13 +290,13 @@ fn invalid_departure_reasons_stay_distinct_and_do_not_commit() {
         ))
     );
     assert_eq!(
-        world.spawn_vehicle(departed(input, 0, 2_000, 0)),
+        world.spawn_vehicle(departed(input, 0, 8_000, 0)),
         Err(SpawnError::InvalidDepartureState(
             DepartureStateError::AfterPlacement
         ))
     );
     assert_eq!(
-        world.spawn_vehicle(departed(input, 0, 2_000, 5_000)),
+        world.spawn_vehicle(departed(input, 0, 8_000, 5_000)),
         Err(SpawnError::InvalidDepartureState(
             DepartureStateError::AfterPlacement
         ))
@@ -315,13 +317,18 @@ fn lowering_the_initial_speed_keeps_the_departure_declaration() {
     let road = route(&mut world, &["road"]);
     let profile = laneflow_static_contract::VehicleProfileOrdinal::from_raw(0);
     let fast = departed(
-        VehicleSpawnInput::new(profile, road, 0, 5_000, 10_000),
+        VehicleSpawnInput::new(profile, road, 0, 5_000, 10_000).with_open_entrance(),
         0,
         0,
         0,
     );
     assert!(world.spawn_vehicle(fast).is_err());
-    let slower = departed(VehicleSpawnInput::new(profile, road, 0, 5_000, 0), 0, 0, 0);
+    let slower = departed(
+        VehicleSpawnInput::new(profile, road, 0, 5_000, 0).with_open_entrance(),
+        0,
+        0,
+        0,
+    );
     assert_eq!(slower.departure().expect("still declared").progress_mm(), 0);
     world
         .spawn_vehicle(slower)
@@ -334,7 +341,7 @@ fn a_longer_tick_still_rejects_a_departure_that_is_too_close() {
     let mut coarse = install(1_000);
     let road = route(&mut coarse, &["road"]);
     let near = departed(
-        VehicleSpawnInput::new(profile, road, 0, 2_000, 4_000),
+        VehicleSpawnInput::new(profile, road, 0, 4_500, 4_000).with_open_entrance(),
         0,
         0,
         0,
@@ -353,7 +360,7 @@ fn replace_rejects_the_same_departure_bound_without_retiring_the_old_vehicle() {
     let length = world.traffic().lane_lengths_millimetres()
         [world.route_edges(road).expect("edges")[0].index()];
     let completed = world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, road, 0, length, 0))
+        .spawn_vehicle(VehicleSpawnInput::new(profile, road, 0, length, 0).with_open_entrance())
         .expect("at the end");
     world.step(TickInput::new(100)).expect("complete");
     assert_eq!(
@@ -364,7 +371,7 @@ fn replace_rejects_the_same_departure_bound_without_retiring_the_old_vehicle() {
     let replaced = world.replace_completed_vehicle(
         completed,
         departed(
-            VehicleSpawnInput::new(profile, road, 0, 5_000, 10_000),
+            VehicleSpawnInput::new(profile, road, 0, 5_000, 10_000).with_open_entrance(),
             0,
             0,
             0,
@@ -387,15 +394,15 @@ fn a_full_world_still_reports_capacity_before_an_undeclared_input_error() {
     let road = route(&mut world, &["road"]);
     let profile = laneflow_static_contract::VehicleProfileOrdinal::from_raw(0);
     world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, road, 0, 0, 0))
+        .spawn_vehicle(VehicleSpawnInput::new(profile, road, 0, 5_000, 0).with_open_entrance())
         .expect("fills the only slot");
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(profile, road, 9, 0, 0)),
+        world.spawn_vehicle(VehicleSpawnInput::new(profile, road, 9, 0, 0).with_open_entrance()),
         Err(SpawnError::CapacityExceeded)
     );
     assert_eq!(
         world.spawn_vehicle(departed(
-            VehicleSpawnInput::new(profile, road, 0, 0, 0),
+            VehicleSpawnInput::new(profile, road, 0, 5_000, 0).with_open_entrance(),
             9,
             0,
             0,
@@ -412,9 +419,14 @@ fn a_bad_departure_is_not_reported_as_overlap() {
     let road = route(&mut world, &["road"]);
     let profile = laneflow_static_contract::VehicleProfileOrdinal::from_raw(0);
     world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, road, 0, 20_000, 0))
+        .spawn_vehicle(VehicleSpawnInput::new(profile, road, 0, 20_000, 0).with_open_entrance())
         .expect("first vehicle");
-    let occupied = departed(VehicleSpawnInput::new(profile, road, 0, 20_000, 0), 9, 0, 0);
+    let occupied = departed(
+        VehicleSpawnInput::new(profile, road, 0, 20_000, 0).with_open_entrance(),
+        9,
+        0,
+        0,
+    );
     assert_eq!(
         world.spawn_vehicle(occupied),
         Err(SpawnError::InvalidDepartureState(
@@ -430,7 +442,7 @@ fn a_denied_route_is_reported_before_a_bad_departure() {
     let closed = route(&mut world, &["closed"]);
     let cursor = world.command_cursor();
     let denied = departed(
-        VehicleSpawnInput::new(profile, closed, 0, 1_000, 0),
+        VehicleSpawnInput::new(profile, closed, 0, 1_000, 0).with_open_entrance(),
         9,
         0,
         0,
@@ -443,7 +455,7 @@ fn a_denied_route_is_reported_before_a_bad_departure() {
     let length = world.traffic().lane_lengths_millimetres()
         [world.route_edges(open).expect("edges")[0].index()];
     let completed = world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, open, 0, length, 0))
+        .spawn_vehicle(VehicleSpawnInput::new(profile, open, 0, length, 0).with_open_entrance())
         .expect("open road still accepts a vehicle");
     world.step(TickInput::new(100)).expect("complete");
     let replace_cursor = world.command_cursor();
@@ -460,15 +472,15 @@ fn a_denied_route_is_reported_before_a_bad_departure() {
     let mut full = install_revision(compile_open_and_closed(), 100, 1);
     let open = route(&mut full, &["road"]);
     let closed = route(&mut full, &["closed"]);
-    full.spawn_vehicle(VehicleSpawnInput::new(profile, open, 0, 0, 0))
+    full.spawn_vehicle(VehicleSpawnInput::new(profile, open, 0, 5_000, 0).with_open_entrance())
         .expect("fills the only slot");
     assert_eq!(
-        full.spawn_vehicle(VehicleSpawnInput::new(profile, closed, 0, 0, 0)),
+        full.spawn_vehicle(VehicleSpawnInput::new(profile, closed, 0, 0, 0).with_open_entrance()),
         Err(SpawnError::CapacityExceeded)
     );
     assert_eq!(
         full.spawn_vehicle(departed(
-            VehicleSpawnInput::new(profile, closed, 0, 0, 0),
+            VehicleSpawnInput::new(profile, closed, 0, 5_000, 0).with_open_entrance(),
             9,
             0,
             0,
@@ -484,7 +496,7 @@ fn an_existing_state_fixture_does_not_apply_the_departure_bound() {
     let road = route(&mut world, &["road"]);
     let profile = laneflow_static_contract::VehicleProfileOrdinal::from_raw(0);
     let input = departed(
-        VehicleSpawnInput::new(profile, road, 0, 5_000, 10_000),
+        VehicleSpawnInput::new(profile, road, 0, 5_000, 10_000).with_open_entrance(),
         0,
         0,
         0,

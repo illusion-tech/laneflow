@@ -202,7 +202,8 @@ fn run(count: usize, samples: usize, warmup: usize) {
         0,
         entry_length - 1,
         10_000,
-    );
+    )
+    .with_open_entrance();
     let mut spawn_ns = Vec::with_capacity(samples);
     let mut step_ns = Vec::with_capacity(samples);
     let mut trace = Sha256::new();

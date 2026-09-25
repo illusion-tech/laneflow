@@ -224,7 +224,7 @@ fn spawn_on_main(
 ) -> VehicleHandle {
     session
         .world_mut()
-        .spawn_vehicle(VehicleSpawnInput::new(PROFILE, route, 0, progress, 0))
+        .spawn_vehicle(VehicleSpawnInput::new(PROFILE, route, 0, progress, 0).with_open_entrance())
         .expect("spawn main-frame vehicle")
 }
 
@@ -232,7 +232,7 @@ fn spawn_on_alt(session: &mut LaneFlowSession, route: RouteHandle) -> VehicleHan
     // 生成在虚拟池入口锚点进度（10 m）上，满足 reserve→park 的到达语义。
     session
         .world_mut()
-        .spawn_vehicle(VehicleSpawnInput::new(PROFILE, route, 0, 10_000, 0))
+        .spawn_vehicle(VehicleSpawnInput::new(PROFILE, route, 0, 10_000, 0).with_open_entrance())
         .expect("spawn alt-frame vehicle")
 }
 

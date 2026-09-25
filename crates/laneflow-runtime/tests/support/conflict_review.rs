@@ -28,13 +28,16 @@ fn routes(world: &mut TrafficWorld, revision: &SharedNetworkRevision) -> [RouteH
 fn spawn(world: &mut TrafficWorld, route: RouteHandle) -> VehicleHandle {
     let boundary = calibration_gate(world, route);
     world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            boundary - 1,
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                boundary - 1,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .unwrap()
 }
 
@@ -50,13 +53,16 @@ fn fresh_spawn_rejects_the_one_millimetre_red_approach() {
     let boundary = calibration_gate(&world, route);
     assert_eq!(
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                boundary - 1,
-                10_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    boundary - 1,
+                    10_000,
+                )
+                .with_open_entrance()
+            )
             .unwrap_err(),
         SpawnError::StopConstraintUnsatisfiable
     );
@@ -298,24 +304,30 @@ fn fresh_grant_still_stops_at_the_following_gate_in_the_same_tick() {
     let [route, _] = routes(&mut world, &revision);
     let boundary = calibration_gate(&world, route);
     assert_eq!(
-        world.spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            boundary,
-            13_000,
-        )),
+        world.spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                boundary,
+                13_000,
+            )
+            .with_open_entrance()
+        ),
         Err(SpawnError::StopConstraintUnsatisfiable),
         "the following gate is inside this tick and past the emergency envelope"
     );
     let vehicle = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            boundary,
-            13_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                boundary,
+                13_000,
+            )
+            .with_open_entrance(),
+        )
         .unwrap();
     world.step(TickInput::new(1_000)).unwrap();
     let state = world.vehicle(vehicle).unwrap();
@@ -347,13 +359,16 @@ fn same_tick_acquire_enter_clear_release_and_complete_survive_empty_endpoints() 
     let [route, _] = routes(&mut world, &revision);
     let boundary = calibration_gate(&world, route);
     let vehicle = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            boundary,
-            13_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                boundary,
+                13_000,
+            )
+            .with_open_entrance(),
+        )
         .unwrap();
     assert!(world.conflict_reservation(vehicle).is_none());
     world.step(TickInput::new(1_000)).unwrap();

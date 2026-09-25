@@ -155,13 +155,16 @@ pub(crate) fn multi_edge_world(revision: &std::sync::Arc<SharedNetworkRevision>)
     for vehicle in 0..1_000 {
         let distance = (vehicle / 64) * 20_000 + 5_000;
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                routes[(vehicle % 64) as usize],
-                distance / 10_000,
-                distance % 10_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    routes[(vehicle % 64) as usize],
+                    distance / 10_000,
+                    distance % 10_000,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .unwrap();
     }
     for _ in 0..40 {

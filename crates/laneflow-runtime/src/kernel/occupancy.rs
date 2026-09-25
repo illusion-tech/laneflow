@@ -1635,23 +1635,16 @@ pub(crate) mod tests {
             .unwrap();
         let profile = VehicleProfileOrdinal::from_raw(0);
         let follower = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                profile,
-                follower_route,
-                0,
-                9_998,
-                3_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(profile, follower_route, 0, 9_998, 3_000)
+                    .with_open_entrance(),
+            )
             .unwrap();
         let leader = world
             .state
-            .place_existing_active_vehicle(VehicleSpawnInput::new(
-                profile,
-                leader_route,
-                1,
-                0,
-                4_000,
-            ))
+            .place_existing_active_vehicle(
+                VehicleSpawnInput::new(profile, leader_route, 1, 0, 4_000).with_open_entrance(),
+            )
             .unwrap();
         world.state.rebuild_occupancy_index().unwrap();
         (world, follower, leader)
@@ -1677,7 +1670,9 @@ pub(crate) mod tests {
         let old = world.vehicle(first).unwrap();
         world.despawn_vehicle(first).unwrap();
         let new = world
-            .spawn_vehicle(VehicleSpawnInput::new(old.profile, old.route, 0, 1_000, 0))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(old.profile, old.route, 0, 1_000, 0).with_open_entrance(),
+            )
             .unwrap();
         assert_eq!(new.index(), first.index());
         assert_ne!(new.generation(), first.generation());
@@ -2078,22 +2073,22 @@ pub(crate) mod tests {
             .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
             .unwrap();
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .unwrap();
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 4_500, 0)
+                    .with_open_entrance(),
+            )
             .unwrap();
         world
             .state
@@ -2123,13 +2118,10 @@ pub(crate) mod tests {
             .register_route(RouteRegisterInput::new(vec![stem]))
             .expect("route");
         let solo = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 4_500, 0)
+                    .with_open_entrance(),
+            )
             .expect("solo");
         world
             .state
@@ -2158,22 +2150,22 @@ pub(crate) mod tests {
             .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
             .unwrap();
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 4_500, 0)
+                    .with_open_entrance(),
+            )
             .expect("behind");
         let follower = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("ahead");
         world
             .state
@@ -2203,13 +2195,16 @@ pub(crate) mod tests {
             .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
             .unwrap();
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                1,
-                profile.length_mm() + 1_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    1,
+                    profile.length_mm() + 1_000,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("leader on tail");
         let stem_len = world
             .state
@@ -2218,13 +2213,16 @@ pub(crate) mod tests {
             .traffic()
             .lane_lengths_millimetres()[stem.index()];
         let follower = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                stem_len.saturating_sub(1_000),
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    stem_len.saturating_sub(1_000),
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("follower on stem");
         world
             .state
@@ -2247,22 +2245,16 @@ pub(crate) mod tests {
             .register_route(RouteRegisterInput::new(vec![a, b, a]))
             .expect("route");
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 4_500, 0)
+                    .with_open_entrance(),
+            )
             .expect("physically behind");
         let follower = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                9_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 9_000, 0)
+                    .with_open_entrance(),
+            )
             .expect("near end of first a");
         world
             .state
@@ -2333,13 +2325,10 @@ pub(crate) mod tests {
             .register_route(RouteRegisterInput::new(vec![a, b, a]))
             .expect("released capacity can be reused");
         let vehicle = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                0,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 4_500, 0)
+                    .with_open_entrance(),
+            )
             .expect("spawn");
         assert_eq!(
             world.remove_route(route).unwrap_err(),
@@ -2481,13 +2470,10 @@ pub(crate) mod tests {
             .unwrap()
             .vehicle;
         let follower = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 4_500, 0)
+                    .with_open_entrance(),
+            )
             .unwrap();
         world
             .state
@@ -2512,13 +2498,10 @@ pub(crate) mod tests {
             .traffic()
             .lane_lengths_millimetres()[tail.index()];
         let finishing = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                1,
-                tail_len,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 1, tail_len, 0)
+                    .with_open_entrance(),
+            )
             .expect("at route end");
         world.step(TickInput::new(100)).unwrap();
         assert_eq!(
@@ -2526,13 +2509,10 @@ pub(crate) mod tests {
             VehicleStatus::Completed
         );
         let follower = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 4_500, 0)
+                    .with_open_entrance(),
+            )
             .expect("follower");
         world
             .state
@@ -2595,13 +2575,10 @@ pub(crate) mod tests {
             .register_route(RouteRegisterInput::new(vec![stem, right]))
             .expect("right route");
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                leader_route,
-                1,
-                500,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), leader_route, 1, 500, 0)
+                    .with_open_entrance(),
+            )
             .expect("leader");
         let follower = world
             .state
@@ -2612,7 +2589,8 @@ pub(crate) mod tests {
                     0,
                     5_000,
                     10_000,
-                ),
+                )
+                .with_open_entrance(),
                 0,
                 crate::VehicleStatus::Active,
                 None,
@@ -2711,13 +2689,16 @@ pub(crate) mod tests {
         for slot in 0..n {
             let progress = 5_000 + slot * spacing;
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    0,
-                    progress,
-                    0,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        route,
+                        0,
+                        progress,
+                        0,
+                    )
+                    .with_open_entrance(),
+                )
                 .expect("spawn");
         }
         world.step(TickInput::new(100)).unwrap();
@@ -2751,26 +2732,29 @@ pub(crate) mod tests {
         let b = LaneEdgeOrdinal::from_raw(1);
         let mut world =
             install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+        let lengths = world.traffic().lane_lengths_millimetres();
+        let pred = world
+            .traffic()
+            .predecessors(a)
+            .expect("predecessors")
+            .iter()
+            .copied()
+            .find(|edge| lengths[edge.index()] >= 4_500)
+            .expect("tail room");
         let route = world
-            .register_route(RouteRegisterInput::new(vec![a, b, a]))
+            .register_route(RouteRegisterInput::new(vec![pred, a, b, a]))
             .expect("route");
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 1, 1_000, 0)
+                    .with_open_entrance(),
+            )
             .expect("rear");
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                2,
-                6_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 3, 6_000, 0)
+                    .with_open_entrance(),
+            )
             .expect("ahead on repeated");
         world
             .state
@@ -2842,13 +2826,10 @@ pub(crate) mod tests {
             .register_route(RouteRegisterInput::new(edges))
             .expect("route");
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                5,
-                500,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 5, 500, 0)
+                    .with_open_entrance(),
+            )
             .expect("spawn spanning five 1 m edges");
         world.step(TickInput::new(1_000)).unwrap();
         let ceiling = occupancy_record_limit(1);
@@ -2900,13 +2881,10 @@ pub(crate) mod tests {
             .register_route(RouteRegisterInput::new(vec![stem]))
             .expect("route");
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 4_500, 0)
+                    .with_open_entrance(),
+            )
             .expect("solo");
         world.step(TickInput::new(100)).unwrap();
         let cap = world.state.derived.occupancy.records_capacity();
@@ -3363,22 +3341,28 @@ pub(crate) mod tests {
             .saturating_add(profile.length_mm())
             .saturating_add(1);
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                far_progress,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    far_progress,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("far leader");
         let follower = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                follower_progress,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    follower_progress,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("follower");
         world
             .state
@@ -3401,22 +3385,28 @@ pub(crate) mod tests {
             .register_route(RouteRegisterInput::new(vec![edge]))
             .expect("route");
         phantom_world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                phantom_route,
-                0,
-                phantom_progress,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    phantom_route,
+                    0,
+                    phantom_progress,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("phantom leader");
         let phantom_follower = phantom_world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                phantom_route,
-                0,
-                follower_progress,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    phantom_route,
+                    0,
+                    follower_progress,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("follower");
         phantom_world
             .state
@@ -3442,22 +3432,28 @@ pub(crate) mod tests {
             .register_route(RouteRegisterInput::new(vec![edge]))
             .expect("route");
         near_world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                near_route,
-                0,
-                near_progress,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    near_route,
+                    0,
+                    near_progress,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("horizon leader");
         let near_follower = near_world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                near_route,
-                0,
-                follower_progress,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    near_route,
+                    0,
+                    follower_progress,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("follower");
         near_world
             .state
@@ -3575,13 +3571,10 @@ pub(crate) mod tests {
             .register_route(RouteRegisterInput::new(vec![stem]))
             .expect("route");
         let handle = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                1_000,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 4_500, 0)
+                    .with_open_entrance(),
+            )
             .expect("solo");
         world.step(TickInput::new(100)).unwrap();
         let before_len = world.state.derived.occupancy.records_len();

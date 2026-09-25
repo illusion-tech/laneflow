@@ -11,6 +11,8 @@ pub(crate) mod conflict_tick;
 pub(crate) mod departure;
 /// 按物理边与实际后车间距索引下游占用的 AVL 区间树。
 pub(crate) mod downstream_index;
+/// 新鲜生成和替换的开放入口与范围内车身。恢复和修订切换不使用。
+pub(crate) mod entrance;
 /// 近门车辆的入口 frontier：冲突距离复用与红灯到达下界。
 pub(crate) mod entry_frontier;
 /// 运行时公开错误类型（安装、路线、生成、替换与步进等失败）。

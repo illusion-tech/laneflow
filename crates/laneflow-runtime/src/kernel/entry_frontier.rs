@@ -1866,13 +1866,16 @@ mod tests {
             .expect("rear vehicle");
         world.despawn_vehicle(old).expect("despawn rear vehicle");
         let spawned = world
-            .spawn_vehicle(crate::VehicleSpawnInput::new(
-                state.profile,
-                state.route,
-                state.route_edge_index,
-                state.progress_mm,
-                0,
-            ))
+            .spawn_vehicle(
+                crate::VehicleSpawnInput::new(
+                    state.profile,
+                    state.route,
+                    state.route_edge_index,
+                    state.progress_mm,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("spawn recycled vehicle");
         assert_ne!(spawned.generation(), old.generation());
         reset_conflict_work_counts();
@@ -2008,7 +2011,9 @@ mod tests {
             .expect("other route");
         let profile = world.state.vehicle_state(querier).expect("querier").profile;
         let source = world
-            .spawn_vehicle(crate::VehicleSpawnInput::new(profile, other_route, 0, 0, 0))
+            .spawn_vehicle(
+                crate::VehicleSpawnInput::new(profile, other_route, 0, 0, 0).with_open_entrance(),
+            )
             .expect("source");
         step(&mut world);
         let remembered = world.state.workspace.frontier_maintenance.slots[source.index() as usize]
@@ -2106,13 +2111,10 @@ mod tests {
         let internal =
             route_edge_index(&world, other_route, scale_edge(&revision, "other-internal"));
         let old = world
-            .spawn_vehicle(crate::VehicleSpawnInput::new(
-                profile,
-                other_route,
-                internal,
-                0,
-                0,
-            ))
+            .spawn_vehicle(
+                crate::VehicleSpawnInput::new(profile, other_route, internal, 0, 0)
+                    .with_open_entrance(),
+            )
             .expect("source");
         step(&mut world);
         let excluded = world.state.workspace.frontier_maintenance.slots[old.index() as usize]
@@ -2134,13 +2136,16 @@ mod tests {
             .expect("source state");
         world.despawn_vehicle(old).expect("despawn source");
         let spawned = world
-            .spawn_vehicle(crate::VehicleSpawnInput::new(
-                state.profile,
-                state.route,
-                state.route_edge_index,
-                0,
-                0,
-            ))
+            .spawn_vehicle(
+                crate::VehicleSpawnInput::new(
+                    state.profile,
+                    state.route,
+                    state.route_edge_index,
+                    0,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("recycled source");
         set_pose(
             &mut world,
@@ -2295,13 +2300,16 @@ mod tests {
         progress_mm: u32,
     ) -> crate::VehicleHandle {
         let vehicle = world
-            .spawn_vehicle(crate::VehicleSpawnInput::new(
-                laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
-                route,
-                route_edge_index,
-                progress_mm,
-                0,
-            ))
+            .spawn_vehicle(
+                crate::VehicleSpawnInput::new(
+                    laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    route_edge_index,
+                    progress_mm,
+                    0,
+                )
+                .with_open_entrance(),
+            )
             .expect("signal vehicle");
         set_pose(world, vehicle, route_edge_index, progress_mm, 0);
         vehicle

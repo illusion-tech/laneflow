@@ -597,13 +597,9 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
             .get(slot.route_index)
             .expect("catalog route must be registered");
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                profile,
-                route,
-                0,
-                slot.progress_mm,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(profile, route, 0, slot.progress_mm, 0).with_open_entrance(),
+            )
             .expect("catalog slot must spawn");
     }
     world.step(TickInput::new(16)).expect("step");
@@ -659,13 +655,10 @@ fn waiting_pocket_holds_two_cars_and_admits_the_third_after_release() {
         .into_iter()
         .map(|progress| {
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    profile,
-                    routes[route_index],
-                    1,
-                    progress,
-                    0,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(profile, routes[route_index], 1, progress, 0)
+                        .with_open_entrance(),
+                )
                 .unwrap()
         })
         .collect();

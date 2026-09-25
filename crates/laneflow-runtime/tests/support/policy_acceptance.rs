@@ -27,13 +27,10 @@ fn blocked_at_green(world: &mut TrafficWorld) -> VehicleHandle {
     world.step(TickInput::new(100)).unwrap();
     let [route, _] = right_turn_routes(world);
     world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            1,
-            10_501,
-            0,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 1, 10_501, 0)
+                .with_open_entrance(),
+        )
         .unwrap();
     at_gate(world, route)
 }
@@ -214,23 +211,29 @@ fn resource_free_gate_keeps_following_resource_gate_in_the_same_tick() {
         let [route, conflicting_route] = right_turn_routes(&mut world);
         if blocked {
             world
-                .spawn_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    conflicting_route,
-                    1,
-                    13_000,
-                    10_000,
-                ))
+                .spawn_vehicle(
+                    VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        conflicting_route,
+                        1,
+                        13_000,
+                        10_000,
+                    )
+                    .with_open_entrance(),
+                )
                 .unwrap();
         }
         let subject = world
-            .place_existing_active_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                calibration_gate(&world, route),
-                13_000,
-            ))
+            .place_existing_active_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    calibration_gate(&world, route),
+                    13_000,
+                )
+                .with_open_entrance(),
+            )
             .unwrap();
         world.step(TickInput::new(1_000)).unwrap();
         let decisions: Vec<_> = world
@@ -275,13 +278,16 @@ fn resource_free_decisions_follow_final_motion_after_new_or_held_reservation() {
         let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 1_000)).unwrap();
         let [route, _] = right_turn_routes(&mut world);
         let subject = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                calibration_gate(&world, route),
-                speed,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    calibration_gate(&world, route),
+                    speed,
+                )
+                .with_open_entrance(),
+            )
             .unwrap();
         world.step(TickInput::new(1_000)).unwrap();
         if speed == 6_500 {
@@ -322,13 +328,16 @@ fn rejected_resource_gate_does_not_report_unreached_resource_free_gate() {
     let [route, conflicting_route] = right_turn_routes(&mut world);
     at_gate(&mut world, conflicting_route);
     let subject = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            calibration_gate(&world, route),
-            13_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                calibration_gate(&world, route),
+                13_000,
+            )
+            .with_open_entrance(),
+        )
         .unwrap();
     world.step(TickInput::new(1_000)).unwrap();
     let decisions: Vec<_> = world
@@ -368,13 +377,10 @@ fn waiting_capacity_denial_is_observable_without_claiming_following_conflict() {
     let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).unwrap();
     let [east, north] = right_turn_routes(&mut world);
     let leader = world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            short,
-            north,
-            0,
-            calibration_gate(&world, north),
-            10_000,
-        ))
+        .spawn_vehicle(
+            VehicleSpawnInput::new(short, north, 0, calibration_gate(&world, north), 10_000)
+                .with_open_entrance(),
+        )
         .unwrap();
     for _ in 0..20 {
         world.step(TickInput::new(100)).unwrap();
@@ -393,16 +399,13 @@ fn waiting_capacity_denial_is_observable_without_claiming_following_conflict() {
     );
     assert!(world.conflict_reservation(leader).is_none());
     let waiting = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            long,
-            north,
-            0,
-            calibration_gate(&world, north),
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(long, north, 0, calibration_gate(&world, north), 10_000)
+                .with_open_entrance(),
+        )
         .unwrap();
     let ready = world
-        .spawn_vehicle(VehicleSpawnInput::new(short, east, 1, 13_000, 10_000))
+        .spawn_vehicle(VehicleSpawnInput::new(short, east, 1, 13_000, 10_000).with_open_entrance())
         .unwrap();
     for tick in 0..3 {
         world.step(TickInput::new(100)).unwrap();
@@ -473,13 +476,16 @@ fn register_conflict_route(world: &mut TrafficWorld, keys: &[&str]) -> RouteHand
 
 fn at_gate(world: &mut TrafficWorld, route: RouteHandle) -> VehicleHandle {
     world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            calibration_gate(world, route),
-            10_000,
-        ))
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                calibration_gate(world, route),
+                10_000,
+            )
+            .with_open_entrance(),
+        )
         .unwrap()
 }
 
@@ -518,13 +524,16 @@ fn formal_right_turn_red_uses_compiled_policy_and_still_yields() {
         if priority_approach {
             // 已经在路上的优先车。新鲜摆放会因右转车在门前停不住而拒绝。
             world
-                .place_existing_active_vehicle(VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    priority_route,
-                    0,
-                    calibration_gate(&world, priority_route) - 2_000,
-                    10_000,
-                ))
+                .place_existing_active_vehicle(
+                    VehicleSpawnInput::new(
+                        VehicleProfileOrdinal::from_raw(0),
+                        priority_route,
+                        0,
+                        calibration_gate(&world, priority_route) - 2_000,
+                        10_000,
+                    )
+                    .with_open_entrance(),
+                )
                 .unwrap();
         }
         let signals = world.committed_signal_groups();
@@ -588,13 +597,16 @@ fn protected_green_skips_red_approach_gap_but_permissive_keeps_it() {
         let [subject_route, priority_route] = right_turn_routes(&mut world);
         let subject = at_gate(&mut world, subject_route);
         let target = world
-            .place_existing_active_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                priority_route,
-                0,
-                calibration_gate(&world, priority_route) - 2_000,
-                10_000,
-            ))
+            .place_existing_active_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    priority_route,
+                    0,
+                    calibration_gate(&world, priority_route) - 2_000,
+                    10_000,
+                )
+                .with_open_entrance(),
+            )
             .unwrap();
         world.step(TickInput::new(100)).unwrap();
         assert_eq!(
@@ -695,13 +707,10 @@ fn protected_green_still_requires_downstream_storage() {
         world.step(TickInput::new(100)).unwrap();
         let [route, _] = right_turn_routes(&mut world);
         world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                1,
-                10_501,
-                0,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 1, 10_501, 0)
+                    .with_open_entrance(),
+            )
             .unwrap();
         let subject = at_gate(&mut world, route);
         world.step(TickInput::new(100)).unwrap();
@@ -741,13 +750,16 @@ fn added_conflict_floor_world(old_vehicle: bool) -> TrafficWorld {
         let route =
             register_conflict_route(&mut world, &["north-entry", "north-internal", "south-exit"]);
         let old = world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                1,
-                10_000,
-                10_000,
-            ))
+            .spawn_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    1,
+                    10_000,
+                    10_000,
+                )
+                .with_open_entrance(),
+            )
             .unwrap();
         world.step(TickInput::new(4)).unwrap();
         let state = world.vehicle(old).unwrap();
