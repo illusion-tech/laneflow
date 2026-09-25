@@ -4,9 +4,10 @@ mod test_policy;
 use std::sync::Arc;
 
 use laneflow_compiler::{
-    CompilationUnitBuilder, CompileLimits, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
-    ParticipantClassInput, ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance,
-    SourceModuleHeader, SourceModuleHeaderInput, SyntheticModuleBuilder, VehicleProfileInput,
+    AccessEffect, AccessRuleInput, AccessRuleTargetInput, CompilationUnitBuilder, CompileLimits,
+    Compiler, IidmVehicleProfileInput, LaneEdgeInput, LaneEdgeReference, ParticipantClassInput,
+    ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance, SourceModuleHeader,
+    SourceModuleHeaderInput, SyntheticModuleBuilder, VehicleProfileInput,
     derive_canonical_stable_id_v1, emit_portable_candidate,
 };
 use laneflow_format::{FormatLimits, check_post_emission_bundle};
@@ -21,8 +22,11 @@ use laneflow_static_network::{
     build_shared_network_revision,
 };
 
-fn install_with_capacity(delta_ms: u32, vehicles: u32) -> TrafficWorld {
-    let revision = compile_road();
+fn install_revision(
+    revision: Arc<SharedNetworkRevision>,
+    delta_ms: u32,
+    vehicles: u32,
+) -> TrafficWorld {
     TrafficWorld::install(
         Arc::clone(&revision),
         WorldConfig::new(vehicles, 4, 64, 4, u64::from(delta_ms)),
@@ -32,6 +36,10 @@ fn install_with_capacity(delta_ms: u32, vehicles: u32) -> TrafficWorld {
         test_policy::selection(&revision),
     )
     .expect("install")
+}
+
+fn install_with_capacity(delta_ms: u32, vehicles: u32) -> TrafficWorld {
+    install_revision(compile_road(), delta_ms, vehicles)
 }
 
 fn install(delta_ms: u32) -> TrafficWorld {
@@ -52,6 +60,55 @@ fn published(revision: &SharedNetworkRevision) -> CommittedNetworkSource {
 }
 
 fn compile_road() -> Arc<SharedNetworkRevision> {
+    compile_module(|module| {
+        module
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "stem",
+                length_meters: 20.0,
+                speed_limit_meters_per_second: 15.0,
+                successors: &[],
+            })
+            .expect("stem")
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "road",
+                length_meters: 250.0,
+                speed_limit_meters_per_second: 15.0,
+                successors: &[],
+            })
+            .expect("road");
+    })
+}
+
+fn compile_open_and_closed() -> Arc<SharedNetworkRevision> {
+    compile_module(|module| {
+        module
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "road",
+                length_meters: 250.0,
+                speed_limit_meters_per_second: 15.0,
+                successors: &[],
+            })
+            .expect("road")
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "closed",
+                length_meters: 250.0,
+                speed_limit_meters_per_second: 15.0,
+                successors: &[],
+            })
+            .expect("closed")
+            .add_access_rule(AccessRuleInput {
+                access_rule_key: "deny-closed",
+                target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("closed")),
+                effect: AccessEffect::Deny,
+                participant_classes: &[ParticipantClassReference::local("road-user")],
+                regulation: None,
+                priority: 0,
+            })
+            .expect("deny closed");
+    })
+}
+
+fn compile_module(extend: impl FnOnce(&mut SyntheticModuleBuilder)) -> Arc<SharedNetworkRevision> {
     let limits = CompileLimits::p100_initial_v1();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
@@ -86,21 +143,8 @@ fn compile_road() -> Arc<SharedNetworkRevision> {
                 emergency_deceleration_meters_per_second_squared: 4.5,
             },
         })
-        .expect("profile")
-        .add_lane_edge(LaneEdgeInput {
-            lane_edge_key: "stem",
-            length_meters: 20.0,
-            speed_limit_meters_per_second: 15.0,
-            successors: &[],
-        })
-        .expect("stem")
-        .add_lane_edge(LaneEdgeInput {
-            lane_edge_key: "road",
-            length_meters: 250.0,
-            speed_limit_meters_per_second: 15.0,
-            successors: &[],
-        })
-        .expect("road");
+        .expect("profile");
+    extend(&mut module);
     let mut unit = CompilationUnitBuilder::new(limits);
     unit.add_synthetic_module(module.finish().expect("module"))
         .expect("unit");
@@ -376,6 +420,60 @@ fn a_bad_departure_is_not_reported_as_overlap() {
         Err(SpawnError::InvalidDepartureState(
             DepartureStateError::RouteIndexOutOfRange
         ))
+    );
+}
+
+#[test]
+fn a_denied_route_is_reported_before_a_bad_departure() {
+    let profile = laneflow_static_contract::VehicleProfileOrdinal::from_raw(0);
+    let mut world = install_revision(compile_open_and_closed(), 100, 8);
+    let closed = route(&mut world, &["closed"]);
+    let cursor = world.command_cursor();
+    let denied = departed(
+        VehicleSpawnInput::new(profile, closed, 0, 1_000, 0),
+        9,
+        0,
+        0,
+    );
+    assert_eq!(world.spawn_vehicle(denied), Err(SpawnError::AccessDenied));
+    assert_eq!(world.command_cursor(), cursor);
+    assert_eq!(world.live_vehicles().len(), 0);
+
+    let open = route(&mut world, &["road"]);
+    let length = world.traffic().lane_lengths_millimetres()
+        [world.route_edges(open).expect("edges")[0].index()];
+    let completed = world
+        .spawn_vehicle(VehicleSpawnInput::new(profile, open, 0, length, 0))
+        .expect("open road still accepts a vehicle");
+    world.step(TickInput::new(100)).expect("complete");
+    let replace_cursor = world.command_cursor();
+    assert_eq!(
+        world.replace_completed_vehicle(completed, denied),
+        Err(ReplaceError::AccessDenied)
+    );
+    assert_eq!(world.command_cursor(), replace_cursor);
+    assert_eq!(
+        world.vehicle(completed).expect("old handle").status(),
+        VehicleStatus::Completed
+    );
+
+    let mut full = install_revision(compile_open_and_closed(), 100, 1);
+    let open = route(&mut full, &["road"]);
+    let closed = route(&mut full, &["closed"]);
+    full.spawn_vehicle(VehicleSpawnInput::new(profile, open, 0, 0, 0))
+        .expect("fills the only slot");
+    assert_eq!(
+        full.spawn_vehicle(VehicleSpawnInput::new(profile, closed, 0, 0, 0)),
+        Err(SpawnError::CapacityExceeded)
+    );
+    assert_eq!(
+        full.spawn_vehicle(departed(
+            VehicleSpawnInput::new(profile, closed, 0, 0, 0),
+            9,
+            0,
+            0,
+        )),
+        Err(SpawnError::AccessDenied)
     );
 }
 
