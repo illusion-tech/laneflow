@@ -1,0 +1,219 @@
+{
+  "baseline_commit": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+  "baseline_tree": "8bdfb69b14eea3c2ad056895fcf8837cebf2583f",
+  "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)\nbinary: rustc\ncommit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea\ncommit-date: 2026-08-18\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.0\nLLVM version: 22.1.8",
+  "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+  "build": "release; locked; offline; CARGO_INCREMENTAL=0; default features; diagnostic adds laneflow-runtime/scope-counts",
+  "source_hash": "ad1012646e5c02f69d135b18b6113a82ca629f97d555997db4923e36b69b8fcf",
+  "source_origin": "git archive baseline, then prepare.py; exported research tree, not a clean production checkout",
+  "archive": {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\base-source.tar",
+    "bytes": 20070400,
+    "sha256": "c59d3d27952de8a0a951d70fbbb7ead2d5704386289ee6c9f098e7e3bb3cd142"
+  },
+  "lock": {
+    "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\study-source\\Cargo.lock",
+    "bytes": 129847,
+    "sha256": "d84d1ef3ff31ad3bc5c87541014a126defd536f80d2d1097c9c92b2a005e26ba"
+  },
+  "binaries": {
+    "scope-counts-v1.exe": {
+      "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\binaries\\scope-counts-v1.exe",
+      "bytes": 4070400,
+      "sha256": "e5707d86199664a65f4d7568a94d219be80598dc03294d36a4dc733108f584df"
+    },
+    "scope-plain-v1.exe": {
+      "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\binaries\\scope-plain-v1.exe",
+      "bytes": 4068864,
+      "sha256": "948cea7994660015020623dc0e6fcc8ef14c989b2c886aeafed653e85212d0c2"
+    }
+  },
+  "inputs": {
+    "10k": {
+      "common.lfre": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-10k\\common.lfre",
+        "bytes": 1024,
+        "sha256": "dfe55ed30c9ebac121adb63417df2e9995b4c4e903cf9b948f74879d8cf0720a"
+      },
+      "config.toml": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-10k\\config.toml",
+        "bytes": 1301,
+        "sha256": "5b426d8b92e7d7ea0f4bf219f473f065c9c2af8cf2978a84b195dc7df702b0d8"
+      },
+      "genesis.lfsd": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-10k\\genesis.lfsd",
+        "bytes": 17123970,
+        "sha256": "f48a5585eb2908c78a9c9e589b73dc59c9fc046d15d62d14c1906f8c72a91057"
+      },
+      "manifest.toml": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-10k\\manifest.toml",
+        "bytes": 12563,
+        "sha256": "d9f08f511b50f19eab18a5a87d6f9db5a3836b34f8d82054ab3323ac1583d9dd"
+      },
+      "measurements.toml": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-10k\\measurements.toml",
+        "bytes": 1381,
+        "sha256": "67c30f3e639ce43f8db166200bb54abc7de1c21d8cc63983736bfae979ca9e6d"
+      },
+      "network.lfca": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-10k\\network.lfca",
+        "bytes": 16240189,
+        "sha256": "c97872ecd20a39e76c9d007ec28cc28dc5b317358f6c5a69a8c9cce8c3722210"
+      },
+      "routes.toml": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-10k\\routes.toml",
+        "bytes": 932336,
+        "sha256": "8f4118c64330b0621b8425a2881d39377b1cec7e733ddfc91998e6960223e413"
+      },
+      "source-map.lfsm": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-10k\\source-map.lfsm",
+        "bytes": 21305129,
+        "sha256": "ce98f1d59ff10ae3509ef3299313f46a68ca83cb1a36e521ea6ccc6dc9d969e4"
+      },
+      "topology.lfre": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-10k\\topology.lfre",
+        "bytes": 2487784,
+        "sha256": "ddaa0785d9d4239dde6c83025e996df5356a931ad0335fffa4b0cea43916a4cc"
+      }
+    },
+    "100k": {
+      "common.lfre": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-100k\\common.lfre",
+        "bytes": 1024,
+        "sha256": "dfe55ed30c9ebac121adb63417df2e9995b4c4e903cf9b948f74879d8cf0720a"
+      },
+      "config.toml": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-100k\\config.toml",
+        "bytes": 1301,
+        "sha256": "5b426d8b92e7d7ea0f4bf219f473f065c9c2af8cf2978a84b195dc7df702b0d8"
+      },
+      "genesis.lfsd": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-100k\\genesis.lfsd",
+        "bytes": 171296210,
+        "sha256": "82c07851c7b446fccafd5d5002884146d3a1e3ab64ecd18b9be0a8ee608d6a54"
+      },
+      "manifest.toml": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-100k\\manifest.toml",
+        "bytes": 13832,
+        "sha256": "5e2a676fbb3da4d6b66a3966b66a21bb2abedad2c61634a1446a0f53c2812140"
+      },
+      "measurements.toml": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-100k\\measurements.toml",
+        "bytes": 1414,
+        "sha256": "a2632cdc0204d06ccfb4f9bb2f8049d42404241a7d68dd5e47275488b3c6ed7d"
+      },
+      "network.lfca": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-100k\\network.lfca",
+        "bytes": 162397835,
+        "sha256": "1eb85b67fbb0fa192e207be3f7816d3a010a7ae2d34d7ed8391033c296ddaf84"
+      },
+      "routes.toml": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-100k\\routes.toml",
+        "bytes": 9390023,
+        "sha256": "dec048420766dad39ae82fe4e812e43ef389c8f12f0f024db6d0d182234f74f3"
+      },
+      "source-map.lfsm": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-100k\\source-map.lfsm",
+        "bytes": 213077371,
+        "sha256": "c5014524bd4d7a28507566e79859af1466626f725c52d9cb543ccf7acb4504af"
+      },
+      "topology.lfre": {
+        "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\inputs\\urban-100k\\topology.lfre",
+        "bytes": 24870952,
+        "sha256": "fc8040e846bc8eb9343d9fb2698a72e9f964fb48eb41319bab7ab21fbd695eae"
+      }
+    }
+  },
+  "plans": {
+    "10k": {
+      "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\10k-performance.toml",
+      "bytes": 11930181,
+      "sha256": "139fc82241a728c50b5c33fb16600584b9ab5a5f3e33dbe1fa5800d4ae350853"
+    },
+    "100k": {
+      "path": "E:\\projects\\laneflow-evidence\\issue-707\\4de40e04\\plans\\100k-performance.toml",
+      "bytes": 120077925,
+      "sha256": "ace2a6c50e6a66ba106b5ef09f1d39144fcc9e76c9bc82ef8002dc65f9c6974e"
+    }
+  },
+  "admission": {
+    "10k": {
+      "status": "probe-complete",
+      "completed_ticks": 256,
+      "result": {
+        "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\current-admission-10k\\result.json",
+        "bytes": 24374,
+        "sha256": "8b3fa46491ba6deff801f0d13172ba028b5aa54b47420dc9df69de473d5db609"
+      },
+      "diagnostics": {
+        "architecture": "x86_64",
+        "binary": {
+          "bytes": 3988992,
+          "sha256": "db99d9f859377d5f2656c1af6ef9396f286160f6024e3958d78823805722111d"
+        },
+        "cpu": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "elapsed_seconds": 2.5182995999999997,
+        "execution_id": "31352-1790374842329063900-0",
+        "git_commit_at_run": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "git_status_at_run": "",
+        "invocation": [
+          "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\release\\laneflow-urban-harness.exe",
+          "run",
+          "E:/projects/laneflow-evidence/issue-707/4de40e04/inputs/urban-10k",
+          "E:/projects/laneflow-evidence/issue-707/4de40e04/plans/10k-smoke.toml",
+          "target/current-admission-10k",
+          "--workers",
+          "4"
+        ],
+        "logical_cpus": 32,
+        "memory_measurement": null,
+        "os": "windows",
+        "purpose": "diagnostic-only-not-performance-certification",
+        "step_ns_p50": 3752700,
+        "step_ns_p95": 4620700,
+        "step_ns_p99": 4977600,
+        "verified_steps": 256,
+        "workers": 4
+      }
+    },
+    "100k": {
+      "status": "probe-complete",
+      "completed_ticks": 256,
+      "result": {
+        "path": "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\current-admission-100k\\result.json",
+        "bytes": 225786,
+        "sha256": "db3c00be443c9edcdfc43f9b53f9874b9370f40dd85ff3bfa0e9110ee50a39f5"
+      },
+      "diagnostics": {
+        "architecture": "x86_64",
+        "binary": {
+          "bytes": 3988992,
+          "sha256": "db99d9f859377d5f2656c1af6ef9396f286160f6024e3958d78823805722111d"
+        },
+        "cpu": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+        "elapsed_seconds": 36.5162738,
+        "execution_id": "40560-1790374892344706000-0",
+        "git_commit_at_run": "46fdfaf47ae0c000ddc63420c8a71443baa8fb04",
+        "git_status_at_run": "",
+        "invocation": [
+          "E:\\projects\\worktrees\\707-current-scope\\laneflow\\target\\release\\laneflow-urban-harness.exe",
+          "run",
+          "E:/projects/laneflow-evidence/issue-707/4de40e04/inputs/urban-100k",
+          "E:/projects/laneflow-evidence/issue-707/4de40e04/plans/100k-smoke.toml",
+          "target/current-admission-100k",
+          "--workers",
+          "4"
+        ],
+        "logical_cpus": 32,
+        "memory_measurement": null,
+        "os": "windows",
+        "purpose": "diagnostic-only-not-performance-certification",
+        "step_ns_p50": 49536300,
+        "step_ns_p95": 60662100,
+        "step_ns_p99": 65740100,
+        "verified_steps": 256,
+        "workers": 4
+      }
+    }
+  }
+}
