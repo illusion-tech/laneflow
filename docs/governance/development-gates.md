@@ -131,14 +131,15 @@ Dependabot 时还必须满足 `dependency-security.md`。
 
 ### 6.2 Required checks
 
-PR 与 `merge_group` 使用相同的六个 required check 名称：
+PR 与 `merge_group` 使用相同的七个 required check 名称：
 
 1. `Commit message`
 2. `Rust checks`
-3. `Urban harness tests`
-4. `Dependency policy`
-5. `Analyze (actions)`
-6. `Analyze (rust)`
+3. `Placement fixture tests`
+4. `Urban harness tests`
+5. `Dependency policy`
+6. `Analyze (actions)`
+7. `Analyze (rust)`
 `Markdown tables` 只警告。Schema publication 不参与合并门禁。
 
 ### 6.3 入队
@@ -151,7 +152,7 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 
 不得在 checks pending 时预先武装 auto-merge。禁止日常 `--admin`。`H_pr` 变了必须
 重跑适用检查；`main` 前进只重建 `H_mg` 并重跑机器检查。队列在 `H_mg` 上需要同名
-六项绿。owner bypass 的终态由 #493 独立治理。
+七项绿。owner bypass 的终态由 #493 独立治理。
 
 ## 7. 完成
 

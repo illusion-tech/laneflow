@@ -115,7 +115,7 @@ AI Agent 不应：
 - 未运行检查及原因
 - 文档更新情况
 - 已知风险
-- 当前 head 的六项 required checks 与未解决 review conversation 状态
+- 当前 head 的七项 required checks 与未解决 review conversation 状态
 - 后续 Issue 或留白
 
 ## 11. PR 合并策略
@@ -129,6 +129,6 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 
 `main` 前进只重建 `H_mg` 并重跑机器检查。任何 push 改变 `H_pr` 后，旧机器检查结果
 不能复用于新 head。
-禁止日常 `--admin`。核对 `Commit message`、`Rust checks`、`Urban harness tests`、
-`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`。CodeQL 两项须来自
+禁止日常 `--admin`。核对 `Commit message`、`Rust checks`、`Placement fixture tests`、
+`Urban harness tests`、`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`。CodeQL 两项须来自
 GitHub Actions App `integration_id=15368`。
