@@ -21,17 +21,21 @@ use laneflow_static_network::{
     build_shared_network_revision,
 };
 
-fn install(delta_ms: u32) -> TrafficWorld {
+fn install_with_capacity(delta_ms: u32, vehicles: u32) -> TrafficWorld {
     let revision = compile_road();
     TrafficWorld::install(
         Arc::clone(&revision),
-        WorldConfig::new(8, 4, 64, 4, u64::from(delta_ms)),
+        WorldConfig::new(vehicles, 4, 64, 4, u64::from(delta_ms)),
         ExecutionConfig::new(std::num::NonZeroU32::MIN),
         published(&revision),
         0,
         test_policy::selection(&revision),
     )
     .expect("install")
+}
+
+fn install(delta_ms: u32) -> TrafficWorld {
+    install_with_capacity(delta_ms, 8)
 }
 
 fn published(revision: &SharedNetworkRevision) -> CommittedNetworkSource {
@@ -330,6 +334,31 @@ fn replace_rejects_the_same_departure_bound_without_retiring_the_old_vehicle() {
     assert_eq!(
         world.vehicle(completed).expect("still completed").status(),
         VehicleStatus::Completed
+    );
+}
+
+#[test]
+fn a_full_world_still_reports_capacity_before_an_undeclared_input_error() {
+    let mut world = install_with_capacity(100, 1);
+    let road = route(&mut world, &["road"]);
+    let profile = laneflow_static_contract::VehicleProfileOrdinal::from_raw(0);
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(profile, road, 0, 0, 0))
+        .expect("fills the only slot");
+    assert_eq!(
+        world.spawn_vehicle(VehicleSpawnInput::new(profile, road, 9, 0, 0)),
+        Err(SpawnError::CapacityExceeded)
+    );
+    assert_eq!(
+        world.spawn_vehicle(departed(
+            VehicleSpawnInput::new(profile, road, 0, 0, 0),
+            9,
+            0,
+            0,
+        )),
+        Err(SpawnError::InvalidDepartureState(
+            DepartureStateError::RouteIndexOutOfRange
+        ))
     );
 }
 
