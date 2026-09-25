@@ -67,7 +67,7 @@ impl crate::kernel::state::WorldState {
             return Ok(());
         }
         let first = *edges.first().ok_or(crate::SpawnError::UnknownRoute)?;
-        if self.route_start_has_upstream(first)? {
+        if self.route_start_has_upstream(first) {
             return Err(crate::SpawnError::EntranceBody(
                 EntranceBodyError::InDomainTail,
             ));
@@ -79,29 +79,28 @@ impl crate::kernel::state::WorldState {
         }
     }
 
-    fn route_start_has_upstream(
-        &mut self,
-        edge: LaneEdgeOrdinal,
-    ) -> Result<bool, crate::SpawnError> {
-        let lane_upstream = self
-            .binding
-            .revision
-            .traffic()
-            .predecessors(edge)
-            .is_some_and(|predecessors| !predecessors.is_empty());
-        if lane_upstream {
-            return Ok(true);
-        }
+    fn route_start_has_upstream(&self, edge: LaneEdgeOrdinal) -> bool {
         let traffic = self.binding.revision.traffic();
-        self.workspace
-            .occupancy_scratch
-            .ensure_maneuver_upstream(traffic)
-            .map_err(|_| crate::SpawnError::OccupancyAllocFailed)?;
-        Ok(!self
-            .workspace
-            .occupancy_scratch
-            .maneuver_upstream(edge)
-            .is_empty())
+        if traffic
+            .predecessors(edge)
+            .is_some_and(|predecessors| !predecessors.is_empty())
+        {
+            return true;
+        }
+        let edge_count = traffic.lane_edge_count();
+        for raw in 0..edge_count {
+            let from = LaneEdgeOrdinal::from_raw(raw);
+            let Some(candidates) = traffic.maneuvers().transition_candidates(from) else {
+                continue;
+            };
+            if candidates
+                .iter()
+                .any(|candidate| candidate.successor() == edge)
+            {
+                return true;
+            }
+        }
+        false
     }
 }
 

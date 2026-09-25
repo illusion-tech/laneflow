@@ -66,8 +66,14 @@ fn warm_overlap_queries_do_not_allocate_routes_or_intervals() {
         .unwrap();
     let profile = VehicleProfileOrdinal::from_raw(0);
     let edge_len = world.traffic().lane_lengths_millimetres()[first.index()];
-    // 车身必须落在路线上，入口检查才不会为了前驱表做一次性分配。
-    let progress = edge_len.saturating_sub(1_000);
+    let vehicle_len = world
+        .traffic()
+        .relations()
+        .vehicle_profile(profile)
+        .expect("profile")
+        .length_mm();
+    // 前保险杠不小于车长，车尾才完全落在这条边上，入口检查不扫描前驱。
+    let progress = vehicle_len.min(edge_len);
     let blocker = world
         .spawn_vehicle(VehicleSpawnInput::new(profile, route, 0, progress, 0).with_open_entrance())
         .unwrap();
@@ -81,7 +87,9 @@ fn warm_overlap_queries_do_not_allocate_routes_or_intervals() {
         0,
     )
     .with_open_entrance();
-    assert_eq!(world.spawn_vehicle(query), Err(SpawnError::Overlap));
+    for _ in 0..8 {
+        assert_eq!(world.spawn_vehicle(query), Err(SpawnError::Overlap));
+    }
 
     let region = Region::new(GLOBAL);
     for _ in 0..256 {
