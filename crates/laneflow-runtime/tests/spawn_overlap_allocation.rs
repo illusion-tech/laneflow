@@ -65,8 +65,11 @@ fn warm_overlap_queries_do_not_allocate_routes_or_intervals() {
         .register_route(RouteRegisterInput::new(edges))
         .unwrap();
     let profile = VehicleProfileOrdinal::from_raw(0);
+    let edge_len = world.traffic().lane_lengths_millimetres()[first.index()];
+    // 车身必须落在路线上，入口检查才不会为了前驱表做一次性分配。
+    let progress = edge_len.saturating_sub(1_000);
     let blocker = world
-        .spawn_vehicle(VehicleSpawnInput::new(profile, route, 0, 4_500, 0).with_open_entrance())
+        .spawn_vehicle(VehicleSpawnInput::new(profile, route, 0, progress, 0).with_open_entrance())
         .unwrap();
     world.step(TickInput::new(100)).unwrap();
     let state = world.vehicle(blocker).unwrap();
