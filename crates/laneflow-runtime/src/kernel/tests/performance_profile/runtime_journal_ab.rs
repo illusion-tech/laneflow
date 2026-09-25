@@ -67,6 +67,7 @@ fn run(case_index: usize, measured_windows: usize) {
 }
 
 #[test]
+#[ignore = "证据测量窗口，夜间 evidence.yml 运行（#748）"]
 fn journal_ab_windows_match_frozen_digests() {
     for case_index in 0..CASES.len() {
         run(case_index, 1);

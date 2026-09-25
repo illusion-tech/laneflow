@@ -191,6 +191,7 @@ fn run_cli_workers_parsing() {
 }
 
 #[test]
+#[ignore = "多进程证据测试，夜间 evidence.yml 运行（#748）"]
 fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
     let temp = tempfile::tempdir().unwrap();
     let source = temp.path().join("source");

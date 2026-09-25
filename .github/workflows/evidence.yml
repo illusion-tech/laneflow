@@ -1,0 +1,56 @@
+name: Evidence
+
+# 证据类测试（测量窗口 / 多进程独占测量）按 #748 移出常规门禁，由本工作流
+# 每日定时与手动触发覆盖；`--run-ignored ignored` 只运行带 `#[ignore]` 的
+# 证据测试，并用 `-E` 限定 #748 移出的三个目标。
+on:
+  schedule:
+    - cron: '17 22 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    name: Evidence tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust MSRV toolchain
+        shell: bash
+        run: rustup toolchain install 1.98.0 --profile minimal
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: laneflow-msrv-1.98.0-evidence
+
+      - name: Install cargo-nextest 0.9.145
+        shell: bash
+        env:
+          CARGO_NEXTEST_SHA256: cd3c85194e8b28ad26676d287f41f0d6b4d456cef5bd94700def5dea8e328883
+          CARGO_NEXTEST_VERSION: 0.9.145
+        run: |
+          set -euo pipefail
+
+          archive="$RUNNER_TEMP/cargo-nextest.tar.gz"
+          extract_dir="$RUNNER_TEMP/cargo-nextest-extract"
+          curl --proto '=https' --tlsv1.2 --fail --show-error --location --retry 3 \
+            "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${CARGO_NEXTEST_VERSION}/cargo-nextest-${CARGO_NEXTEST_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            --output "$archive"
+          echo "${CARGO_NEXTEST_SHA256}  ${archive}" | sha256sum --check --strict
+          mkdir -p "$extract_dir"
+          tar --extract --gzip --file "$archive" --directory "$extract_dir"
+          install -m 0755 "$extract_dir/cargo-nextest" "$RUNNER_TEMP/cargo-nextest"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Run evidence tests
+        shell: bash
+        run: >-
+          cargo +1.98.0 nextest run --workspace --locked --run-ignored ignored
+          -E 'test(journal_ab_windows_match_frozen_digests) |
+          test(cpu_sampling_windows_match_frozen_digests) |
+          test(real_fixture_runs_independently_and_detects_changed_inputs_and_logs)'
