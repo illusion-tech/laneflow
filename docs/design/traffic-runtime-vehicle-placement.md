@@ -12,7 +12,7 @@
 - [`traffic-runtime-near-gate-frontier.md`](traffic-runtime-near-gate-frontier.md)
 - [`../adr/0021-traffic-infrastructure-and-host-boundary.md`](../adr/0021-traffic-infrastructure-and-host-boundary.md)
 
-不新开 ADR。快照车辆记录和逐拍状态不变。公开变化是 `SpawnError` 与 `ReplaceError` 增加可区分的拒绝原因，以及 `VehicleSpawnInput` 可以附上可选的出发状态和开放入口。未附上时，现有 `new` 的参数和默认行为不变。Adapter 把当前停车约束、前车和后车这些暂时不能接纳的替换结果当成可重试。降不到前方限速，以及出发声明不合法或初速超过这份声明的速度上界，都不是可重试结果，须修正输入。现有可重试分类见 [`adapter-api.md`](adapter-api.md)。出发声明的两类错误在实现时同样不进入可重试分支。
+不新开 ADR。快照车辆记录和逐拍状态不变。公开变化是 `SpawnError` 与 `ReplaceError` 增加可区分的拒绝原因，以及 `VehicleSpawnInput` 可以附上可选的出发状态和开放入口。未附上时，`new` 的参数和字段默认值不变。车尾超出路线起点、却没有开放入口时，不再把这段车尾截掉，而是返回 `EntranceBody::Unbound` 或 `EntranceBody::InDomainTail`。Adapter 把当前停车约束、前车和后车这些暂时不能接纳的替换结果当成可重试。降不到前方限速、出发声明不合法、初速超过这份声明的速度上界，以及开放入口或范围内车身无法解释，都不是可重试结果，须修正输入。现有可重试分类见 [`adapter-api.md`](adapter-api.md)。出发声明的两类错误在实现时同样不进入可重试分支。
 
 ## 1. 结论
 

@@ -1290,13 +1290,13 @@ impl crate::kernel::state::WorldState {
     /// # Errors
     ///
     /// 句柄失效或车辆未 `Completed`、停车占用未释放、冲突/等待不变量破坏、输入
-    /// 校验失败（profile/路线/进度/初速/准入，含新候选的等待区存储、冲突权威、
+    /// 校验失败（profile/路线/进度/初速/准入/开放入口/范围内车身，含新候选的等待区存储、冲突权威、
     /// 当前停车约束、前方降速、前车或后车安全：`WaitingVehicleTooLong` /
     /// `WaitingStatefulManeuverInterior` / `ConflictAuthorityRequired` /
     /// `StopConstraintUnsatisfiable` / `DownstreamSpeedUnsatisfiable` /
-    /// `UnsafeLeader` / `UnsafeFollower`）、观测状态序号或命令游标耗尽（
+    /// `UnsafeLeader` / `UnsafeFollower` / `EntranceBody`）、观测状态序号或命令游标耗尽（
     /// `ObservationStateSequenceExhausted` / `CommandCursorExhausted`）或入口占用
-    /// 被占时返回相应 [`ReplaceError`]。[`ReplaceError::Blocked`]、当前停车约束、前车或后车不安全可稍后用同一输入再试。`DownstreamSpeedUnsatisfiable` 须降低初速或更换输入。输入错误为致命错误；任一失败保持已提交世界不变。
+    /// 被占时返回相应 [`ReplaceError`]。[`ReplaceError::Blocked`]、当前停车约束、前车或后车不安全可稍后用同一输入再试。`DownstreamSpeedUnsatisfiable` 须降低初速或更换输入。`EntranceBody` 须修正入口或把范围内车尾写进路线，等下一拍不能通过。输入错误为致命错误；任一失败保持已提交世界不变。
     pub fn replace_completed_vehicle(
         &mut self,
         old: VehicleHandle,
@@ -1305,7 +1305,7 @@ impl crate::kernel::state::WorldState {
         self.replace_completed_vehicle_with_admission(old, input, true)
     }
 
-    /// 替换成一个已经在路上的状态，不检查新鲜运动安全。
+    /// 替换成一个已经在路上的状态，不检查新鲜运动安全，也不检查开放入口。
     ///
     /// 与 [`Self::place_existing_active_vehicle`] 同一类测试场面。
     #[cfg(feature = "placement-fixtures")]
@@ -2402,13 +2402,13 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 句柄失效或车辆未 `Completed`、停车占用未释放、冲突/等待不变量破坏、输入
-    /// 校验失败（profile/路线/进度/初速/准入，含新候选的等待区存储、冲突权威、
+    /// 校验失败（profile/路线/进度/初速/准入/开放入口/范围内车身，含新候选的等待区存储、冲突权威、
     /// 当前停车约束、前方降速、前车或后车安全：`WaitingVehicleTooLong` /
     /// `WaitingStatefulManeuverInterior` / `ConflictAuthorityRequired` /
     /// `StopConstraintUnsatisfiable` / `DownstreamSpeedUnsatisfiable` /
-    /// `UnsafeLeader` / `UnsafeFollower`）、观测状态序号或命令游标耗尽（
+    /// `UnsafeLeader` / `UnsafeFollower` / `EntranceBody`）、观测状态序号或命令游标耗尽（
     /// `ObservationStateSequenceExhausted` / `CommandCursorExhausted`）或入口占用
-    /// 被占时返回相应 [`ReplaceError`]。[`ReplaceError::Blocked`]、当前停车约束、前车或后车不安全可稍后用同一输入再试。`DownstreamSpeedUnsatisfiable` 须降低初速或更换输入。输入错误为致命错误；任一失败保持已提交世界不变。
+    /// 被占时返回相应 [`ReplaceError`]。[`ReplaceError::Blocked`]、当前停车约束、前车或后车不安全可稍后用同一输入再试。`DownstreamSpeedUnsatisfiable` 须降低初速或更换输入。`EntranceBody` 须修正入口或把范围内车尾写进路线，等下一拍不能通过。输入错误为致命错误；任一失败保持已提交世界不变。
     ///
     /// # Panics
     ///
@@ -2422,14 +2422,14 @@ impl TrafficWorld {
         self.state.replace_completed_vehicle(old, input)
     }
 
-    /// 把已完成的车换成一个已经在路上的状态，不检查新鲜运动安全。
+    /// 把已完成的车换成一个已经在路上的状态，不检查新鲜运动安全，也不检查开放入口。
     ///
     /// 仅 `placement-fixtures` 测试特性提供。不是宿主的需求入口。
     ///
     /// # Errors
     ///
-    /// 与 [`Self::replace_completed_vehicle`] 相同，但不返回当前停车约束、前方降速、
-    /// 前车或后车不安全。
+    /// 与 [`Self::replace_completed_vehicle`] 相同，但不返回 `EntranceBody`、当前停车约束、前方降速、
+    /// 前车或后车不安全。开放入口和出发速度上界都不在这条测试入口上检查。
     ///
     /// # Panics
     ///
