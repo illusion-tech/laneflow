@@ -4,6 +4,11 @@
 //! 单一默认测试承载全局计数分配器。车辆已成功进入 WaitingZone、但尚未触达
 //! release Gate 后，再测量连续固定步进；该窗口覆盖 membership、traversal phase、
 //! occupancy 和本地存储约束的 steady path，硬断言 allocation / reallocation 均为零。
+//!
+//! 计量口径（#754）：计量窗口前先以一台同入口车辆完整走一遍「入门 → 暖机 →
+//! 稳态窗口」并弃置其统计，吸收一次性懒初始化（线程局部状态、占用桶、通道缓冲）
+//! 的分配；计量窗口只含逐拍复发的稳态路径，真实稳态分配必然在其中复发并被硬断言
+//! 捕获。测试尾部向计量器注入一次真实分配自检，防止口径收紧把零断言变成永真。
 
 #[path = "support/policy.rs"]
 mod test_policy;
@@ -73,15 +78,36 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
     let route = world
         .register_route(RouteRegisterInput::new(edges))
         .expect("route");
-    let vehicle = world
-        .place_existing_active_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            entry_length_mm - 1,
-            8_000,
-        ))
-        .expect("vehicle");
+    let spawn_entry_vehicle = |world: &mut TrafficWorld| {
+        world
+            .place_existing_active_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                entry_length_mm - 1,
+                8_000,
+            ))
+            .expect("vehicle")
+    };
+
+    // 同形弃置暖机（#754）：一台同入口车辆完整走「入门 → 暖机 → 稳态窗口」，
+    // 一次性懒初始化在其中吸收；其统计即弃，不作断言。
+    {
+        let _priming = Region::new(GLOBAL);
+        let primed = spawn_entry_vehicle(&mut world);
+        world
+            .step(TickInput::new(DELTA_MS))
+            .expect("priming admission");
+        world
+            .step(TickInput::new(DELTA_MS))
+            .expect("priming settle");
+        for _ in 0..STEADY_TICKS {
+            world.step(TickInput::new(DELTA_MS)).expect("priming step");
+        }
+        world.despawn_vehicle(primed).expect("priming despawn");
+    }
+
+    let vehicle = spawn_entry_vehicle(&mut world);
 
     world.step(TickInput::new(DELTA_MS)).expect("admission");
     assert!(
@@ -158,5 +184,17 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
     }
     println!(
         "waiting-g2-allocation-evidence repeated_admission_ticks={STEADY_TICKS} allocations=0 reallocations=0 allocated_bytes=0"
+    );
+
+    // 计量器自检（#754）：向计量面注入一次真实分配，计数器必须可见——
+    // 防止口径收紧把上方零断言变成永真。
+    let injected = {
+        let region = Region::new(GLOBAL);
+        let _hold = std::hint::black_box(vec![1_u8]);
+        region.change()
+    };
+    assert!(
+        injected.allocations > 0,
+        "metering must observe an injected allocation"
     );
 }
