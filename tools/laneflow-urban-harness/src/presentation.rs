@@ -598,5 +598,86 @@ mod tests {
         assert_eq!(presentation.bindings, bindings);
         assert_eq!(presentation.previous, visible);
         assert_eq!(harness.checkpoint().unwrap(), before);
+
+        // 换成合法 headless 根后故意提取失败；零选择尚未提交，不能隐藏旧实体。
+        let old_context = presentation.poses.context();
+        let old_vehicles = presentation.poses.vehicles().to_vec();
+        let old_records = presentation.poses.batch().records().to_vec();
+        let old_transforms: Vec<_> = visible
+            .iter()
+            .map(|&entity| {
+                (
+                    entity,
+                    *harness
+                        .adapter_world()
+                        .unwrap()
+                        .get::<Transform>(entity)
+                        .unwrap(),
+                )
+            })
+            .collect();
+        let committed_source = harness.world().committed_source().clone();
+        let reloaded = Artifacts::load_spatial(&source).unwrap();
+        harness
+            .adapter_world()
+            .unwrap()
+            .resource_mut::<LaneFlowSession>()
+            .same_revision_restore(
+                reloaded.revision().clone(),
+                committed_source.clone(),
+                laneflow_bevy::LaneFlowTargetSpatial::Headless,
+                &laneflow_runtime::CutoverPreflightLimits::new(2_147_483_648),
+            )
+            .unwrap();
+        presentation.mode = PresentationMode::SelectedPresentation {
+            selection: SelectionWindow {
+                percent: 0,
+                ..selection
+            },
+        };
+        assert!(
+            presentation
+                .sample_with_placement(&mut harness, FramePlacementToken::new(44))
+                .is_err()
+        );
+        assert_eq!(presentation.bindings, bindings);
+        assert_eq!(presentation.previous, visible);
+        assert_eq!(presentation.poses.context(), old_context);
+        assert_eq!(presentation.poses.vehicles(), old_vehicles);
+        assert_eq!(presentation.poses.batch().records(), old_records);
+        assert_eq!(
+            presentation.poses.batch().placement_token(),
+            FramePlacementToken::new(43)
+        );
+        for (entity, transform) in &old_transforms {
+            assert_eq!(
+                harness.adapter_world().unwrap().get::<Transform>(*entity),
+                Some(transform)
+            );
+        }
+        let rebound = Artifacts::load_spatial(&source).unwrap();
+        harness
+            .adapter_world()
+            .unwrap()
+            .resource_mut::<LaneFlowSession>()
+            .same_revision_restore(
+                rebound.revision().clone(),
+                committed_source,
+                laneflow_bevy::LaneFlowTargetSpatial::Rebind(
+                    SpatialSession::bind(rebound.revision().clone())
+                        .unwrap()
+                        .unwrap(),
+                ),
+                &laneflow_runtime::CutoverPreflightLimits::new(2_147_483_648),
+            )
+            .unwrap();
+        presentation.mode = PresentationMode::SelectedPresentation { selection };
+        let retry = presentation
+            .sample_with_placement(&mut harness, FramePlacementToken::new(45))
+            .unwrap();
+        assert_eq!(retry.created, 0);
+        assert_eq!(retry.reused, first.applied);
+        assert_eq!(presentation.bindings, bindings);
+        assert_eq!(presentation.previous, visible);
     }
 }
